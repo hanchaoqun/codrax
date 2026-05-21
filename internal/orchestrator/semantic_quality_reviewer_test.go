@@ -1623,3 +1623,45 @@ func TestCountFacetCoverageDepth_ListFacetCountsIdentifierAnchors(t *testing.T) 
 		t.Fatalf("current_code_path list facet should count citation-backed identifier rows as anchored; got declared=%d anchored=%d", declared, anchored)
 	}
 }
+
+func TestCountFacetCoverageDepth_SectionFacetCountsCitedItems(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:          "retry",
+			Kind:        types.BlockSection,
+			FacetIDs:    []string{"current_code_path"},
+			SurfaceRole: types.SurfacePrincipal,
+			Title:       "重试入口",
+			Text:        "`runAnalyzePhase` 通过 `dispatchStage(StageAnalyze)` 产生一次 analyze 尝试。",
+			Items: []types.AnswerBlockItem{
+				{ID: "h1", Label: "dispatchStage(StageAnalyze)", Text: "返回 `StageOutput`，用于 clean 条件判断", CitationRef: 0},
+			},
+		}},
+		Citations: []types.Citation{{File: "internal/orchestrator/orchestrator.go", Line: 2225}},
+	}
+	declared, anchored := countFacetCoverageDepth(doc, "current_code_path")
+	if declared != 1 || anchored != 1 {
+		t.Fatalf("section facet should count citation-backed structured items as anchored; got declared=%d anchored=%d", declared, anchored)
+	}
+}
+
+func TestCountFacetCoverageDepth_TableFacetCountsCitedCells(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:       "table",
+			Kind:     types.BlockTable,
+			FacetIDs: []string{"component_relation"},
+			Columns:  []string{"符号", "作用"},
+			Items: []types.AnswerBlockItem{{
+				ID:          "r1",
+				Cells:       []string{"`MaxRetriesPerStage`", "作为 `dynamicAnalyzeRetries` 的基础预算"},
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "internal/types/config.go", Line: 14}},
+	}
+	declared, anchored := countFacetCoverageDepth(doc, "component_relation")
+	if declared != 1 || anchored != 1 {
+		t.Fatalf("table facet should count citation-backed structured cells as anchored; got declared=%d anchored=%d", declared, anchored)
+	}
+}

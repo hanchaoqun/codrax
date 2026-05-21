@@ -1843,7 +1843,7 @@ func liveAspectCoverage(prev *types.AnswerDocumentV2, view *types.AnswerSemantic
 // agent-package import boundary). Only the load-bearing variant —
 // block-level FacetIDs declarations + claim_uses[].FacetID — is
 // rendered; the post-emit chain still runs the deeper
-// blockHasAnchoredClaim / blockHasAnchoredListSurface checks.
+// blockHasAnchoredClaim / blockHasAnchoredItemSurface checks.
 func liveCountFacetDepth(doc *types.AnswerDocumentV2, kind string) (declared, anchored int) {
 	if doc == nil || kind == "" {
 		return 0, 0
@@ -1862,7 +1862,7 @@ func liveCountFacetDepth(doc *types.AnswerDocumentV2, kind string) (declared, an
 			// claim_uses[] entry on this block names a ClaimForm
 			// or EvidenceID OR any item carries a non-negative
 			// citation_ref (matches the post-emit
-			// blockHasAnchoredListSurface lite path).
+			// blockHasAnchoredItemSurface lite path).
 			anchoredHere := false
 			for _, cu := range b.ClaimUses {
 				if cu.ClaimForm != "" || cu.EvidenceID != "" {

@@ -2624,6 +2624,8 @@ func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, report
 			if r.OriginalLine != 0 && r.OriginalLine != r.AdjustedLine {
 				fmt.Fprintf(&b, "      → recovered (tier=%s, you claimed line %d, adjusted to %d)\n",
 					it.GroundingTier, r.OriginalLine, r.AdjustedLine)
+				fmt.Fprintf(&b, "        repair: if line %d is the intended proof, re-emit with an anchor_kind/anchor_symbol visible on that line; if the recovered symbol definition is the proof, cite line %d instead.\n",
+					r.OriginalLine, r.AdjustedLine)
 			} else {
 				fmt.Fprintf(&b, "      → recovered (tier=%s)\n", it.GroundingTier)
 			}
@@ -2863,11 +2865,15 @@ func emitEvidenceRepairTargets(items []types.EvidenceItem, reports []ground.Repo
 		if file == "" {
 			file = it.Source
 		}
-		line := it.LineStart
-		if i < len(reports) && reports[i].AdjustedLine > 0 {
-			line = reports[i].AdjustedLine
+		lines := emitEvidenceRepairCandidateLines(it, i, reports)
+		covered := false
+		for _, line := range lines {
+			if evidenceRepairCoveredByGroundedSibling(it, file, line, groundedByFile[file]) {
+				covered = true
+				break
+			}
 		}
-		if evidenceRepairCoveredByGroundedSibling(it, file, line, groundedByFile[file]) {
+		if covered {
 			continue
 		}
 		b := byFile[file]
@@ -2875,9 +2881,14 @@ func emitEvidenceRepairTargets(items []types.EvidenceItem, reports []ground.Repo
 			b = &bucket{seen: make(map[int]bool)}
 			byFile[file] = b
 		}
-		if !b.seen[line] {
-			b.seen[line] = true
-			b.order = append(b.order, line)
+		for _, line := range lines {
+			if line <= 0 {
+				continue
+			}
+			if !b.seen[line] {
+				b.seen[line] = true
+				b.order = append(b.order, line)
+			}
 		}
 	}
 	if len(byFile) == 0 {
@@ -2898,6 +2909,29 @@ func emitEvidenceRepairTargets(items []types.EvidenceItem, reports []ground.Repo
 			Action: string(types.RepairReadFile),
 		})
 	}
+	return out
+}
+
+func emitEvidenceRepairCandidateLines(item types.EvidenceItem, idx int, reports []ground.Report) []int {
+	seen := make(map[int]bool, 3)
+	out := make([]int, 0, 3)
+	add := func(line int) {
+		if line <= 0 || seen[line] {
+			return
+		}
+		seen[line] = true
+		out = append(out, line)
+	}
+	if idx < len(reports) {
+		r := reports[idx]
+		if r.OriginalLine > 0 && r.AdjustedLine > 0 && r.OriginalLine != r.AdjustedLine {
+			add(r.OriginalLine)
+			add(r.AdjustedLine)
+			return out
+		}
+		add(r.AdjustedLine)
+	}
+	add(item.LineStart)
 	return out
 }
 

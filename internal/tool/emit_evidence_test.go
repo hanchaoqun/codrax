@@ -1404,6 +1404,51 @@ func TestEmitEvidence_QueuesStructuredRepairTargetsForRecoveredEvidence(t *testi
 	}
 }
 
+func TestEmitEvidenceRepairTargets_RecoveredLineDriftKeepsClaimedAndAdjustedLines(t *testing.T) {
+	items := []types.EvidenceItem{{
+		Source:          "internal/orchestrator/orchestrator.go",
+		LineStart:       7216,
+		GroundingStatus: types.GroundingRecovered,
+		AnchorSymbol:    "applyStageOutput",
+		Subject:         "applyStageOutput",
+	}}
+	reports := []ground.Report{{OriginalLine: 7314, AdjustedLine: 7216}}
+	targets := emitEvidenceRepairTargets(items, reports)
+	if len(targets) != 1 {
+		t.Fatalf("expected one repair target, got %+v", targets)
+	}
+	if targets[0].File != "internal/orchestrator/orchestrator.go" {
+		t.Fatalf("target file = %q", targets[0].File)
+	}
+	if !reflect.DeepEqual(targets[0].Lines, []int{7216, 7314}) {
+		t.Fatalf("recovered repair target should keep both adjusted and claimed lines after sorting, got %v", targets[0].Lines)
+	}
+}
+
+func TestRenderEmitSummary_RecoveredLineDriftExplainsAnchorChoice(t *testing.T) {
+	items := []types.EvidenceItem{{
+		Source:          "internal/orchestrator/orchestrator.go",
+		LineStart:       7216,
+		GroundingStatus: types.GroundingRecovered,
+		GroundingTier:   types.GroundingTier("fqname_same_file"),
+		Kind:            types.EvidenceDirect,
+		AnchorSymbol:    "applyStageOutput",
+		Summary:         "write-once AnalysisIR",
+	}}
+	reports := []ground.Report{{OriginalLine: 7314, AdjustedLine: 7216}}
+	summary := renderEmitSummary(nil, items, reports, items)
+	for _, want := range []string{
+		"you claimed line 7314, adjusted to 7216",
+		"if line 7314 is the intended proof, re-emit with an anchor_kind/anchor_symbol visible on that line",
+		"if the recovered symbol definition is the proof, cite line 7216 instead",
+		"Current actionable repair targets: internal/orchestrator/orchestrator.go near lines 7216, 7314.",
+	} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("summary missing %q:\n%s", want, summary)
+		}
+	}
+}
+
 func TestEmitEvidenceRepairTargets_DropsRecoveredItemCoveredByGroundedSibling(t *testing.T) {
 	items := []types.EvidenceItem{
 		{

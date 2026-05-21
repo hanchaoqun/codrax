@@ -864,17 +864,17 @@ func countFacetCoverageDepth(doc *types.AnswerDocumentV2, kind string) (declared
 			}
 			declared++
 			// A block-level FacetIDs declaration is "anchored" when
-			// any of its block-level ClaimUses
-			// also declares this facet kind WITH a ClaimForm or
-			// EvidenceID — proving the claim is grounded in evidence,
-			// not just labelled. For list-shaped principal blocks,
-			// citation-backed identifier rows (or rows with inline-code
-			// anchors in item text) also count as anchored surface. For
-			// diagram blocks, a non-empty typed diagram/edge anchor is the
-			// visible surface for diagram_spine/component_relation facets;
-			// otherwise the reviewer sees "declared but unanchored" even
-			// though the user sees a diagram.
-			if blockHasAnchoredClaim(b, kind) || blockHasAnchoredListSurface(b) || blockHasAnchoredDiagramSurface(b) {
+			// any of its block-level ClaimUses also declares this facet
+			// kind WITH a ClaimForm or EvidenceID — proving the claim is
+			// grounded in evidence, not just labelled. Citation-backed
+			// structured items in the same block also count as anchored
+			// surface: sections, summaries, scalars, and lists all use
+			// items[] as the citation carrier for their visible text.
+			// For diagram blocks, a non-empty typed diagram/edge anchor is
+			// the visible surface for diagram_spine/component_relation
+			// facets; otherwise the reviewer sees "declared but
+			// unanchored" even though the user sees a diagram.
+			if blockHasAnchoredClaim(b, kind) || blockHasAnchoredItemSurface(b) || blockHasAnchoredDiagramSurface(b) {
 				anchored++
 			}
 		}
@@ -891,9 +891,10 @@ func countFacetCoverageDepth(doc *types.AnswerDocumentV2, kind string) (declared
 	return declared, anchored
 }
 
-func blockHasAnchoredListSurface(b types.AnswerBlock) bool {
+func blockHasAnchoredItemSurface(b types.AnswerBlock) bool {
 	switch b.Kind {
-	case types.BlockOrderedList, types.BlockBulletList:
+	case types.BlockSummary, types.BlockSection, types.BlockScalar, types.BlockDecision,
+		types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
 	default:
 		return false
 	}
@@ -901,7 +902,22 @@ func blockHasAnchoredListSurface(b types.AnswerBlock) bool {
 		if item.CitationRef < 0 {
 			continue
 		}
-		if looksLikeIdentifierShape(strings.TrimSpace(item.Label)) || countInlineCodeSegments(item.Text) > 0 {
+		if itemHasAnchoredSurface(item, b.Text) {
+			return true
+		}
+	}
+	return false
+}
+
+func itemHasAnchoredSurface(item types.AnswerBlockItem, blockText string) bool {
+	if looksLikeIdentifierShape(strings.TrimSpace(item.Label)) ||
+		countInlineCodeSegments(item.Text) > 0 ||
+		countInlineCodeSegments(blockText) > 0 {
+		return true
+	}
+	for _, cell := range item.Cells {
+		cell = strings.TrimSpace(cell)
+		if looksLikeIdentifierShape(cell) || countInlineCodeSegments(cell) > 0 {
 			return true
 		}
 	}
