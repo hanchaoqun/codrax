@@ -779,6 +779,7 @@ func termSurfaceLookup(ir *types.AnalysisIR) func(string) string {
 //   - EvidenceCount:      len(BusContext.EvidenceItems)
 //   - AnswerSymbolCount:  len(BusContext.AnswerSymbols)
 //   - AnswerChainCount:   len(BusContext.AnswerChains)
+//   - AggregateFactCount: len(criterion.Env.AggregateFacts)
 //   - ToolResultCount:    len(BusContext.ToolResults)
 //   - ReadSetSize:        |EvidenceClosure.ReadSet|
 //   - PendingReadsSize:   |EvidenceClosure.PendingReads|
@@ -792,14 +793,15 @@ func termSurfaceLookup(ir *types.AnalysisIR) func(string) string {
 // shape (used as the sentinel "never evaluated" value via pointer nil
 // at call sites rather than zero-value confusion).
 type envShape struct {
-	EvidenceCount     int
-	AnswerSymbolCount int
-	AnswerChainCount  int
-	ToolResultCount   int
-	ReadSetSize       int
-	PendingReadsSize  int
-	DecidedHypotheses int
-	PrescanBytes      int
+	EvidenceCount      int
+	AnswerSymbolCount  int
+	AnswerChainCount   int
+	AggregateFactCount int
+	ToolResultCount    int
+	ReadSetSize        int
+	PendingReadsSize   int
+	DecidedHypotheses  int
+	PrescanBytes       int
 }
 
 // computeEnvShape captures the current cursor positions of every
@@ -808,11 +810,12 @@ type envShape struct {
 // unit-test ergonomics and returns the zero shape.
 func computeEnvShape(bus *types.BusContext, env criterion.Env) envShape {
 	s := envShape{
-		EvidenceCount:     len(env.Evidence),
-		AnswerSymbolCount: len(env.AnswerSymbols),
-		AnswerChainCount:  len(env.AnswerChains),
-		ToolResultCount:   len(env.ToolResults),
-		PrescanBytes:      len(env.PrescanBlob),
+		EvidenceCount:      len(env.Evidence),
+		AnswerSymbolCount:  len(env.AnswerSymbols),
+		AnswerChainCount:   len(env.AnswerChains),
+		AggregateFactCount: len(env.AggregateFacts),
+		ToolResultCount:    len(env.ToolResults),
+		PrescanBytes:       len(env.PrescanBlob),
 	}
 	if env.IR != nil {
 		for _, h := range env.IR.HypothesisSet {

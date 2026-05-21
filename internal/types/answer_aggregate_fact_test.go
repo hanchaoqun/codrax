@@ -114,6 +114,54 @@ func TestNormalizeAnswerAggregateFacts_PreservesRoleAndProvenance(t *testing.T) 
 	}
 }
 
+func TestEffectiveCitationFloorForPrincipalMemberSets_CapsSingletonExactSet(t *testing.T) {
+	rm := &RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsRelationalLookup:    true,
+		},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqEnumeration)},
+	}
+	facts := []AnswerAggregateFact{{
+		Kind:        AnswerAggregateMemberSet,
+		Label:       "default subagent names",
+		Value:       "1",
+		Role:        AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"explorer"},
+		SupportRefs: []string{"internal/agent/sub_explorer.go:31"},
+	}}
+
+	got, ok := EffectiveCitationFloorForPrincipalMemberSets(3, facts, rm)
+	if !ok || got != 1 {
+		t.Fatalf("effective floor = %d,%v; want 1,true", got, ok)
+	}
+}
+
+func TestEffectiveCitationFloorForPrincipalMemberSets_DoesNotCapSupportNarrativeSet(t *testing.T) {
+	rm := &RequestModel{
+		Intent:     IntentExplain,
+		Scenario:   ScenarioArchitectureExplain,
+		Complexity: ComplexityModerate,
+		Predicates: SemanticPredicates{IsCrossComponent: true},
+		AnalyzerHints: AnalyzerHints{
+			Kind: string(ReqMechanism),
+		},
+	}
+	facts := []AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "architecture components",
+		Value:   "1",
+		Role:    AnswerAggregateRoleSupportingCoverage,
+		Members: []string{"explorer"},
+	}}
+
+	got, ok := EffectiveCitationFloorForPrincipalMemberSets(3, facts, rm)
+	if ok || got != 3 {
+		t.Fatalf("support narrative set must not cap floor, got %d,%v", got, ok)
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_AcceptsNegativeSearch(t *testing.T) {
 	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
 		Kind:  AnswerAggregateNegativeSearch,

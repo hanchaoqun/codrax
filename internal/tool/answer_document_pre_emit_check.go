@@ -1355,6 +1355,9 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 			preEmitStructuredMemberBlockCoversFact(doc, fact) {
 			continue
 		}
+		if len(fact.Members) == 1 && preEmitPrincipalStructuredBlockClaimsAggregateCategory(doc, fact) {
+			continue
+		}
 		blockIdx := appendAggregateMemberSetCarrierBlock(doc, ref.Index, aggregateMemberSetCarrierTitle(fact))
 		if blockIdx < 0 || blockIdx >= len(doc.Blocks) {
 			continue
@@ -1403,6 +1406,40 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 		}
 	}
 	return fixed
+}
+
+func preEmitPrincipalStructuredBlockClaimsAggregateCategory(doc *types.AnswerDocumentV2, fact types.AnswerAggregateFact) bool {
+	if doc == nil {
+		return false
+	}
+	label := strings.TrimSpace(fact.Label)
+	if label == "" {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		switch block.Kind {
+		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+		default:
+			continue
+		}
+		if block.SurfaceRole != types.SurfacePrincipal || len(block.Items) == 0 {
+			continue
+		}
+		if !preEmitBlockSharesFacet(block, []string{string(types.FacetEnumerationItem)}) {
+			continue
+		}
+		surface := strings.TrimSpace(block.Title)
+		if surface == "" {
+			surface = strings.TrimSpace(block.Text)
+		}
+		if surface == "" {
+			continue
+		}
+		if strings.Contains(strings.ToLower(surface), strings.ToLower(label)) {
+			return true
+		}
+	}
+	return false
 }
 
 func aggregateMemberSetDisplayRowsByFactIndex(ctx *types.BusContext) map[int][]types.EnumerationDisplayRow {
@@ -5461,6 +5498,120 @@ func normalizeViewCompatibleAnswerDocument(doc *types.AnswerDocumentV2, view *ty
 	fixed += normalizeAutoRepairableRequiredFacetIDs(doc, view)
 	fixed += normalizeAbsentExactResolutionScalarBlocks(doc, view)
 	return fixed
+}
+
+func normalizeCitationBackedPrincipalClaimUses(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) int {
+	if doc == nil || view == nil || pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil {
+		return 0
+	}
+	fixed := 0
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		if hasAnyClaimUse(*block) || types.AnswerBlockHasActiveTypedDecisionCarrier(*block, view) {
+			continue
+		}
+		if !preEmitBlockRendersItemSurface(block.Kind) || len(block.Items) == 0 {
+			continue
+		}
+		if !preEmitBlockIsPrincipalForView(*block, view) {
+			continue
+		}
+		allowed := preEmitAllowedClaimFormsForBlock(*block, view)
+		if len(allowed) == 0 {
+			continue
+		}
+		forms := citationBackedClaimFormsForBlock(*block, doc, pctx, allowed)
+		if len(forms) == 0 {
+			continue
+		}
+		facetID := ""
+		if len(block.FacetIDs) == 1 {
+			facetID = strings.TrimSpace(block.FacetIDs[0])
+		}
+		for _, form := range forms {
+			block.ClaimUses = append(block.ClaimUses, types.RenderedClaimUse{
+				FacetID:   facetID,
+				ClaimForm: form,
+			})
+		}
+		fixed++
+	}
+	return fixed
+}
+
+func preEmitBlockIsPrincipalForView(block types.AnswerBlock, view *types.AnswerSemanticView) bool {
+	if block.SurfaceRole == types.SurfacePrincipal {
+		return true
+	}
+	if block.SurfaceRole != "" || view == nil {
+		return false
+	}
+	for _, req := range append(append([]types.BlockRequirement(nil), view.RequiredBlocks...), view.OptionalBlocks...) {
+		if req.SurfaceRoleHint != types.SurfacePrincipal || !req.AcceptsKind(block.Kind) {
+			continue
+		}
+		if len(req.FacetIDs) > 0 && !preEmitBlockSharesFacet(block, req.FacetIDs) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func preEmitAllowedClaimFormsForBlock(block types.AnswerBlock, view *types.AnswerSemanticView) []types.ClaimForm {
+	if view == nil {
+		return nil
+	}
+	var out []types.ClaimForm
+	seen := map[types.ClaimForm]bool{}
+	for _, req := range append(append([]types.BlockRequirement(nil), view.RequiredBlocks...), view.OptionalBlocks...) {
+		if !req.AcceptsKind(block.Kind) || len(req.AcceptableClaimForms) == 0 {
+			continue
+		}
+		if len(req.FacetIDs) > 0 && !preEmitBlockSharesFacet(block, req.FacetIDs) {
+			continue
+		}
+		for _, form := range req.AcceptableClaimForms {
+			if form == "" || seen[form] {
+				continue
+			}
+			seen[form] = true
+			out = append(out, form)
+		}
+	}
+	return out
+}
+
+func citationBackedClaimFormsForBlock(block types.AnswerBlock, doc *types.AnswerDocumentV2, pctx *preEmitCheckContext, allowed []types.ClaimForm) []types.ClaimForm {
+	if doc == nil || pctx == nil || len(allowed) == 0 {
+		return nil
+	}
+	allowedSet := make(map[types.ClaimForm]bool, len(allowed))
+	for _, form := range allowed {
+		if form != "" {
+			allowedSet[form] = true
+		}
+	}
+	seen := map[types.ClaimForm]bool{}
+	var out []types.ClaimForm
+	for _, item := range block.Items {
+		if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+			continue
+		}
+		cited, found := pctx.citedEvidenceItems(doc.Citations[item.CitationRef])
+		if !found {
+			continue
+		}
+		for _, ev := range cited {
+			form := types.ClaimFormOf(ev)
+			if form == "" || form == types.ClaimUnknown || !allowedSet[form] || seen[form] {
+				continue
+			}
+			seen[form] = true
+			out = append(out, form)
+		}
+	}
+	return out
 }
 
 func normalizeAbsentExactResolutionScalarBlocks(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) int {

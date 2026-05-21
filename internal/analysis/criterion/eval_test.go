@@ -158,6 +158,36 @@ func TestEval_CitationCountGE_ExternalSourceLogWaivesFloor(t *testing.T) {
 	}
 }
 
+func TestEval_CitationCountGE_CapsToPrincipalMemberSetCardinality(t *testing.T) {
+	env := Env{
+		IR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+					IsRelationalLookup:    true,
+				},
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqEnumeration)},
+			},
+		},
+		AggregateFacts: []types.AnswerAggregateFact{{
+			Kind:    types.AnswerAggregateMemberSet,
+			Label:   "default subagent names",
+			Value:   "1",
+			Role:    types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"explorer"},
+		}},
+		DraftCitations: 1,
+	}
+	r := Eval(types.Criterion{Kind: string(KindCitationCountGE), Expr: "3"}, env)
+	if !r.Satisfied {
+		t.Fatalf("singleton principal member set should cap citation_count_ge, got: %s", r.Detail)
+	}
+	if !strings.Contains(r.Detail, "principal-member floor 1") {
+		t.Fatalf("detail should explain effective floor, got: %s", r.Detail)
+	}
+}
+
 func TestEval_ContractSatisfied_ExternalSourceTraceWaivesFloor(t *testing.T) {
 	env := Env{
 		IR: &types.AnalysisIR{

@@ -104,8 +104,14 @@ func TestEmitAnswerDocumentV2_PreEmitSoftHintsDoNotReject(t *testing.T) {
 		t.Fatalf("soft pre-emit structural hints should not fail the tool call: %+v", res)
 	}
 	doc := bus.Mutable.AnswerDocumentV2()
-	if doc == nil || len(doc.Blocks) != 1 || doc.Blocks[0].ID != "s1" {
+	if doc == nil || len(doc.Blocks) < 1 || doc.Blocks[0].ID != "s1" {
 		t.Fatalf("document should persist despite soft pre-emit hints: %+v", doc)
+	}
+	if len(doc.Blocks) > 1 {
+		last := doc.Blocks[len(doc.Blocks)-1]
+		if last.Kind != types.BlockCaveat || !slices.Contains(last.FacetIDs, string(types.FacetUncertaintyBoundary)) {
+			t.Fatalf("additional soft repair block should be an uncertainty caveat, got %+v", last)
+		}
 	}
 }
 
@@ -993,6 +999,11 @@ func TestEmitAnswerDocumentV2_MaterializesRequiredCaveatWhenOnlyMissing(t *testi
 	if len(hints) != 1 || hints[0].Field != "blocks[].kind=caveat" {
 		t.Fatalf("expected single caveat hint before materialization, got %+v", hints)
 	}
+	hints = append(hints, emitFixHint{
+		Field:         "blocks[].claim_uses",
+		ExpectedShape: "synthetic sibling advisory",
+		Reason:        "materializing the scope caveat must not depend on being the only hint",
+	})
 	bus := &types.BusContext{Language: "zh"}
 	if fixed := materializeRequiredCaveatWhenOnlyMissing(doc, view, hints, bus); fixed != 1 {
 		t.Fatalf("expected caveat materialized, got %d doc=%+v", fixed, doc)
@@ -1000,11 +1011,73 @@ func TestEmitAnswerDocumentV2_MaterializesRequiredCaveatWhenOnlyMissing(t *testi
 	if got := doc.Blocks[len(doc.Blocks)-1].Title; got != "范围说明" {
 		t.Fatalf("materialized caveat title = %q, want zh copy", got)
 	}
+	if got := doc.Blocks[len(doc.Blocks)-1].FacetIDs; !slices.Contains(got, string(types.FacetUncertaintyBoundary)) {
+		t.Fatalf("materialized caveat should cover uncertainty boundary facet, got %+v", got)
+	}
 	if got := doc.Blocks[len(doc.Blocks)-1].Text; strings.Contains(got, "Scope note") || strings.Contains(got, "This answer is limited") {
 		t.Fatalf("materialized zh caveat leaked English copy: %q", got)
 	}
 	if hints = runPreEmitChecks(doc, view, nil); len(hints) != 0 {
 		t.Fatalf("materialized caveat should satisfy uncertainty precheck, got %+v", hints)
+	}
+}
+
+func TestNormalizeClaimUseEvidenceIDsByProjection_DetachesMismatchedCitationBackedAnnotation(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.Mutable.AppendEvidence([]types.EvidenceItem{{
+		ID:         "ev-def",
+		Source:     "internal/demo.go",
+		LineStart:  10,
+		AnchorKind: types.AnchorDefinition,
+	}})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Citations:     []types.Citation{{File: "internal/demo.go", Line: 10}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm:  types.ClaimCallEdge,
+				EvidenceID: "ev-def",
+			}},
+			Items: []types.AnswerBlockItem{{ID: "cite", CitationRef: 0}},
+		}},
+	}
+
+	if fixed := normalizeClaimUseEvidenceIDsByProjection(doc, bus); fixed != 1 {
+		t.Fatalf("expected one incompatible claim_use evidence_id detached, got %d doc=%+v", fixed, doc.Blocks[0].ClaimUses)
+	}
+	got := doc.Blocks[0].ClaimUses[0]
+	if got.EvidenceID != "" || got.ClaimForm != types.ClaimCallEdge {
+		t.Fatalf("claim_use should preserve claim form and detach only evidence_id, got %+v", got)
+	}
+}
+
+func TestNormalizeClaimUseEvidenceIDsByProjection_SkipsUncitedBlocks(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.Mutable.AppendEvidence([]types.EvidenceItem{{
+		ID:         "ev-def",
+		Source:     "internal/demo.go",
+		LineStart:  10,
+		AnchorKind: types.AnchorDefinition,
+	}})
+	doc := &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm:  types.ClaimCallEdge,
+				EvidenceID: "ev-def",
+			}},
+		}},
+	}
+
+	if fixed := normalizeClaimUseEvidenceIDsByProjection(doc, bus); fixed != 0 {
+		t.Fatalf("uncited block should not be silently repaired, got %d", fixed)
+	}
+	if got := doc.Blocks[0].ClaimUses[0].EvidenceID; got != "ev-def" {
+		t.Fatalf("uncited block claim_use evidence_id should remain intact, got %q", got)
 	}
 }
 

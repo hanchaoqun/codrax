@@ -551,9 +551,72 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed > 0 {
 		logging.Warning("[%s] repaired %d view-compatible typed lane field(s)", toolName, fixed)
 	}
+	if fixed := normalizeCitationBackedPrincipalClaimUses(doc, view, pctx); fixed > 0 {
+		logging.Warning("[%s] repaired %d citation-backed principal claim_use carrier(s)", toolName, fixed)
+	}
+	if fixed := normalizeClaimUseEvidenceIDsByProjection(doc, ctx); fixed > 0 {
+		logging.Warning("[%s] detached %d incompatible claim_use evidence_id value(s) from citation-backed blocks", toolName, fixed)
+	}
 	if fixed := normalizeRuntimeArtifactCitationRefs(doc, ctx); fixed > 0 {
 		logging.Warning("[%s] normalized %d runtime-artifact citation carrier(s) to observation provenance", toolName, fixed)
 	}
+}
+
+func normalizeClaimUseEvidenceIDsByProjection(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return 0
+	}
+	pool := ctx.Mutable.EmittedEvidence()
+	if len(pool) == 0 {
+		return 0
+	}
+	byID := make(map[string]types.EvidenceItem, len(pool))
+	for _, ev := range pool {
+		id := strings.TrimSpace(ev.ID)
+		if id != "" {
+			byID[id] = ev
+		}
+	}
+	if len(byID) == 0 {
+		return 0
+	}
+	fixed := 0
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		if !answerBlockHasValidCitationCarrier(*block, doc) {
+			continue
+		}
+		for ci := range block.ClaimUses {
+			claim := &block.ClaimUses[ci]
+			evidenceID := strings.TrimSpace(claim.EvidenceID)
+			if evidenceID == "" || claim.ClaimForm == "" {
+				continue
+			}
+			ev, ok := byID[evidenceID]
+			if !ok {
+				continue
+			}
+			projected := types.ClaimFormOf(ev)
+			if projected == types.ClaimUnknown || projected == claim.ClaimForm {
+				continue
+			}
+			claim.EvidenceID = ""
+			fixed++
+		}
+	}
+	return fixed
+}
+
+func answerBlockHasValidCitationCarrier(block types.AnswerBlock, doc *types.AnswerDocumentV2) bool {
+	if doc == nil || len(doc.Citations) == 0 {
+		return false
+	}
+	for _, item := range block.Items {
+		if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) {
+			return true
+		}
+	}
+	return false
 }
 
 func carryForwardCitationsFromRejectedDraft(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
@@ -730,10 +793,17 @@ func uniqueAnswerBlockID(doc *types.AnswerDocumentV2, base string) string {
 }
 
 func materializeRequiredCaveatWhenOnlyMissing(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, hints []emitFixHint, ctx *types.BusContext) int {
-	if doc == nil || view == nil || len(hints) != 1 || len(view.UncertaintyRules) == 0 {
+	if doc == nil || view == nil || len(hints) == 0 || len(view.UncertaintyRules) == 0 {
 		return 0
 	}
-	if hints[0].Field != "blocks[].kind=caveat" {
+	hasCaveatHint := false
+	for _, hint := range hints {
+		if hint.Field == "blocks[].kind=caveat" {
+			hasCaveatHint = true
+			break
+		}
+	}
+	if !hasCaveatHint {
 		return 0
 	}
 	if answerDocumentHasBlockKind(doc, types.BlockCaveat) {
@@ -741,10 +811,11 @@ func materializeRequiredCaveatWhenOnlyMissing(doc *types.AnswerDocumentV2, view 
 	}
 	title, text := materializedScopeCaveatCopy(ctx)
 	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
-		ID:    uniqueAnswerBlockID(doc, "scope_caveat"),
-		Kind:  types.BlockCaveat,
-		Title: title,
-		Text:  text,
+		ID:       uniqueAnswerBlockID(doc, "scope_caveat"),
+		Kind:     types.BlockCaveat,
+		Title:    title,
+		Text:     text,
+		FacetIDs: []string{string(types.FacetUncertaintyBoundary)},
 	})
 	return 1
 }

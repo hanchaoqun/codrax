@@ -211,6 +211,74 @@ func TestPreEmitBlockCitationRoleForms_TableParticipates(t *testing.T) {
 	}
 }
 
+func TestNormalizeCitationBackedPrincipalClaimUses_AddsFormsFromCitedEvidence(t *testing.T) {
+	mu := &types.MutableState{}
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:         "ev-def",
+			Source:     "internal/demo.go",
+			LineStart:  10,
+			AnchorKind: types.AnchorDefinition,
+		},
+		{
+			ID:         "ev-call",
+			Source:     "internal/demo.go",
+			LineStart:  20,
+			AnchorKind: types.AnchorCall,
+		},
+	})
+	ctx := &types.BusContext{Mutable: mu}
+	view := &types.AnswerSemanticView{
+		RequiredBlocks: []types.BlockRequirement{{
+			Kind: types.BlockOrderedList,
+			FacetIDs: []string{
+				string(types.FacetEnumerationItem),
+			},
+			AcceptableClaimForms: []types.ClaimForm{
+				types.ClaimDefinitionFact,
+				types.ClaimCallEdge,
+			},
+			SurfaceRoleHint: types.SurfacePrincipal,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/demo.go", Line: 10},
+			{File: "internal/demo.go", Line: 20},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "facts",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{
+				{ID: "a", Label: "A", CitationRef: 0},
+				{ID: "b", Label: "B", CitationRef: 1},
+			},
+		}},
+	}
+
+	if fixed := normalizeCitationBackedPrincipalClaimUses(doc, view, newPreEmitCheckContext(ctx)); fixed != 1 {
+		t.Fatalf("expected one claim_use carrier repair, got %d doc=%+v", fixed, doc.Blocks[0].ClaimUses)
+	}
+	got := doc.Blocks[0].ClaimUses
+	if len(got) != 2 {
+		t.Fatalf("expected definition and call claim forms, got %+v", got)
+	}
+	forms := map[types.ClaimForm]bool{}
+	for _, claim := range got {
+		forms[claim.ClaimForm] = true
+		if claim.FacetID != string(types.FacetEnumerationItem) {
+			t.Fatalf("claim should inherit singleton facet id, got %+v", claim)
+		}
+	}
+	for _, want := range []types.ClaimForm{types.ClaimDefinitionFact, types.ClaimCallEdge} {
+		if !forms[want] {
+			t.Fatalf("missing claim form %s in %+v", want, got)
+		}
+	}
+}
+
 func TestPreCheckCallChainItemCitationRoleAlignment_SkipsChangeImpactSourcePrincipalRows(t *testing.T) {
 	mu := types.NewMutableState("change impact aggregate members")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
@@ -937,6 +1005,60 @@ func TestNormalizeAggregateMemberSetCarriers_MaterializesExhaustiveEnumerationRo
 	}
 	if block.Items[0].Label != "KindA" || block.Items[0].CitationRef < 0 || len(doc.Citations) != 3 {
 		t.Fatalf("items should preserve member labels and cite support_refs: block=%+v citations=%+v", block, doc.Citations)
+	}
+}
+
+func TestNormalizeAggregateMemberSetCarriers_DoesNotOverrideSingletonModelCategoryBlock(t *testing.T) {
+	mu := types.NewMutableState("singleton aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "codrax 默认注册的 SubAgent 完整成员名列表",
+		Value:   "1",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{`SubExplorer (Name() 返回 "explorer")`},
+		SupportRefs: []string{
+			"SubExplorer: internal/agent/sub_explorer.go:20",
+		},
+	}})
+	mu.SetInvestigationComplete("member set handoff ready")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			CompletenessObligation: &types.CompletenessObligation{
+				Required:    true,
+				SourceQuote: "完整成员名",
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/agent/sub_explorer.go", Line: 31}},
+		Blocks: []types.AnswerBlock{{
+			ID:          "enum",
+			Kind:        types.BlockOrderedList,
+			Title:       "codrax 默认注册的 SubAgent 完整成员名列表",
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID:          "explorer",
+				Label:       "explorer",
+				Text:        `SubExplorer.Name() 返回 "explorer"。`,
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
+		t.Fatalf("fixed=%d, want 0; singleton category block from finalizer should not be overridden by system supplement", fixed)
+	}
+	if len(doc.Blocks) != 1 {
+		t.Fatalf("system supplement should not be appended: %+v", doc.Blocks)
+	}
+	if doc.Blocks[0].Items[0].Label != "explorer" {
+		t.Fatalf("model-authored principal item should remain authoritative: %+v", doc.Blocks[0].Items)
 	}
 }
 

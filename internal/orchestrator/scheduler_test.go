@@ -217,6 +217,7 @@ func TestEnvShape_FieldsAreIndependent(t *testing.T) {
 		{EvidenceCount: 1},
 		{AnswerSymbolCount: 1},
 		{AnswerChainCount: 1},
+		{AggregateFactCount: 1},
 		{ToolResultCount: 1},
 		{ReadSetSize: 1},
 		{PendingReadsSize: 1},

@@ -804,6 +804,11 @@ func evalCitationCountGE(expr string, env Env) Result {
 	if env.DraftCitations >= threshold {
 		return Result{Satisfied: true, Detail: fmt.Sprintf("%d citations ≥ %d", env.DraftCitations, threshold)}
 	}
+	if env.IR != nil {
+		if effective, ok := types.EffectiveCitationFloorForPrincipalMemberSets(threshold, env.AggregateFacts, &env.IR.RequestModel); ok && env.DraftCitations >= effective {
+			return Result{Satisfied: true, Detail: fmt.Sprintf("%d citations ≥ principal-member floor %d (global floor %d capped by exact member set)", env.DraftCitations, effective, threshold)}
+		}
+	}
 	return Result{Satisfied: false, Detail: fmt.Sprintf("%d citations < %d", env.DraftCitations, threshold)}
 }
 

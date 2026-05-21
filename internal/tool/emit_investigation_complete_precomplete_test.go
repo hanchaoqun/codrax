@@ -2007,6 +2007,53 @@ func TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorBlocks(t *testi
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorCapsToSingletonMemberSet(t *testing.T) {
+	mut := types.NewMutableState("test")
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{"internal/agent/sub_explorer.go": true})
+
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+					IsRelationalLookup:    true,
+				},
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqEnumeration)},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: true, MinCitations: 3},
+			},
+		},
+	}
+	evidence := []types.EvidenceItem{{
+		Kind:         types.EvidenceDirect,
+		Scope:        types.ScopeLine,
+		Subject:      "explorer",
+		Source:       "internal/agent/sub_explorer.go",
+		LineStart:    31,
+		AnchorKind:   types.AnchorStringLiteral,
+		AnchorSymbol: "explorer",
+		Summary:      "SubExplorer.Name returns explorer.",
+	}}
+	mut.AppendEvidence(evidence)
+	facts := []types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "default subagent names",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"explorer"},
+		SupportRefs: []string{"internal/agent/sub_explorer.go:31"},
+	}}
+
+	if got := preCompleteContractCheckWithEvidence(bus, "", evidence, facts); got != "" {
+		t.Fatalf("singleton principal member set should satisfy capped citation floor, got: %s", got)
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_ExternalSourceLogWaivesCitationFloor(t *testing.T) {
 	mut := types.NewMutableState("test")
 	mut.SetLogTriage(&types.LogBundle{

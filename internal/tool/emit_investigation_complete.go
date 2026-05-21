@@ -1607,6 +1607,10 @@ func preCompleteContractCheckWithEvidence(ctx *types.BusContext, justification s
 	if min <= 0 {
 		min = 1
 	}
+	if effective, ok := types.EffectiveCitationFloorForPrincipalMemberSets(min, aggregateFacts, &ir.RequestModel); ok {
+		logging.Info("[emit_investigation_complete] citation-floor capped by principal member_set: base=%d effective=%d", min, effective)
+		min = effective
+	}
 	readSet := closure.ReadSet()
 	eligible := 0
 	for _, e := range evidence {

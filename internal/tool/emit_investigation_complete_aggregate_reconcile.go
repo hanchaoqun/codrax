@@ -69,7 +69,14 @@ func reconcileCompletionAggregateFactsWithDefinitionEvidence(ctx *types.BusConte
 		if !profile.hasHomogeneousExportStatus() {
 			continue
 		}
+		targetLen, ok := aggregateMemberSetExpansionTarget(out, i, oldLen)
+		if !ok {
+			continue
+		}
 		for _, candidate := range candidates {
+			if len(out[i].Members) >= targetLen {
+				break
+			}
 			if candidate.role != profile.role {
 				continue
 			}
@@ -97,6 +104,32 @@ func reconcileCompletionAggregateFactsWithDefinitionEvidence(ctx *types.BusConte
 		return facts
 	}
 	return out
+}
+
+func aggregateMemberSetExpansionTarget(facts []types.AnswerAggregateFact, memberSetIdx, memberCount int) (int, bool) {
+	if memberSetIdx < 0 || memberSetIdx >= len(facts) || memberCount <= 0 {
+		return 0, false
+	}
+	target := 0
+	for _, idx := range []int{memberSetIdx - 1, memberSetIdx + 1} {
+		if idx < 0 || idx >= len(facts) {
+			continue
+		}
+		if !aggregateFactKindCanMirrorMemberSetCount(facts[idx].Kind) {
+			continue
+		}
+		n, err := strconv.Atoi(strings.TrimSpace(facts[idx].Value))
+		if err != nil || n <= memberCount {
+			continue
+		}
+		if target == 0 || n < target {
+			target = n
+		}
+	}
+	if target <= memberCount {
+		return 0, false
+	}
+	return target, true
 }
 
 func aggregatePrincipalMemberSetRoleCounts(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) map[types.AnswerCandidateRole]int {

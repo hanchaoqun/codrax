@@ -1008,6 +1008,52 @@ func PrincipalAggregateMemberSetFactRefsForRequest(facts []AnswerAggregateFact, 
 	return out
 }
 
+// EffectiveCitationFloorForPrincipalMemberSets caps a generic citation_count_ge
+// floor by the exact principal member-set cardinality when the investigation has
+// already emitted a structured answer-grade member_set.
+//
+// This is intentionally a cap, not a replacement for citations. A one-member
+// exact registry answer with one exact citation should not be forced to invent
+// two unrelated citations just because the scenario template defaults to a
+// broad architecture floor of three. Conversely, a ten-member inventory still
+// keeps the template's citation breadth because the principal-member count is
+// above the base floor.
+//
+// The signal is typed-only: model-emitted aggregate_facts members + their
+// request-aware principal role. It never scans the user request or answer prose,
+// and demoted narrative/support member_sets are filtered out by
+// PrincipalAggregateMemberSetFactRefsForRequest before they can affect gates.
+func EffectiveCitationFloorForPrincipalMemberSets(base int, facts []AnswerAggregateFact, rm *RequestModel) (int, bool) {
+	if base <= 1 || rm == nil || len(facts) == 0 {
+		return base, false
+	}
+	refs := PrincipalAggregateMemberSetFactRefsForRequest(facts, rm)
+	if len(refs) == 0 {
+		return base, false
+	}
+	keys := make(map[string]bool)
+	for _, ref := range refs {
+		if AnswerAggregateFactRoleForRequest(ref.Fact, rm) != AnswerAggregateRolePrincipalAnswer {
+			continue
+		}
+		labelKey := canonicalAggregateMemberSetLabelCore(ref.Fact.Label)
+		for _, member := range ref.Fact.Members {
+			memberKey := aggregateMemberSetProjectionMemberKey(member)
+			if memberKey == "" {
+				memberKey = strings.ToLower(strings.TrimSpace(member))
+			}
+			if memberKey == "" {
+				continue
+			}
+			keys[labelKey+"\x00"+memberKey] = true
+		}
+	}
+	if len(keys) == 0 || len(keys) >= base {
+		return base, false
+	}
+	return len(keys), true
+}
+
 // ProjectPrincipalAggregateFactsOntoCompleteAnswerSymbols resolves a typed
 // authority conflict before finalization: exploration may emit broad count-like
 // aggregate rows with members, while extraction later emits a complete

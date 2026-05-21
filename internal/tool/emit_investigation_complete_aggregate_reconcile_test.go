@@ -15,7 +15,7 @@ func TestReconcileCompletionAggregateFactsWithDefinitionEvidence_AppendsMissingS
 		{
 			Kind:  types.AnswerAggregateScalar,
 			Label: "function count",
-			Value: "3",
+			Value: "5",
 			Role:  types.AnswerAggregateRolePrincipalAnswer,
 		},
 		{
@@ -49,6 +49,32 @@ func TestReconcileCompletionAggregateFactsWithDefinitionEvidence_AppendsMissingS
 				t.Fatalf("unexpected candidate %q appended: %#v", unexpected, got[1].Members)
 			}
 		}
+	}
+}
+
+func TestReconcileCompletionAggregateFactsWithDefinitionEvidence_PreservesExactPrincipalSet(t *testing.T) {
+	ctx := aggregateReconcileSubAgentContext()
+	evidence := aggregateReconcileSubAgentEvidence()
+	facts := []types.AnswerAggregateFact{
+		{
+			Kind:    types.AnswerAggregateMemberSet,
+			Label:   "codrax 默认注册的 SubAgent 名称",
+			Value:   "1",
+			Role:    types.AnswerAggregateRolePrincipalAnswer,
+			Unit:    "个",
+			Members: []string{"explorer"},
+		},
+		{
+			Kind:  types.AnswerAggregateTotalCount,
+			Label: "注册调用次数",
+			Value: "1",
+			Role:  types.AnswerAggregateRolePrincipalAnswer,
+		},
+	}
+
+	got := reconcileCompletionAggregateFactsWithDefinitionEvidence(ctx, facts, evidence)
+	if !reflect.DeepEqual(got, facts) {
+		t.Fatalf("self-consistent principal member_set must not absorb support/query methods;\ngot  %#v\nwant %#v", got, facts)
 	}
 }
 
@@ -177,39 +203,47 @@ func TestReconcileCompletionAggregateFactsWithDefinitionEvidence_DoesNotExpandAc
 func TestReconcileCompletionAggregateFactsWithDefinitionEvidence_ExpandsSameConstDeclarationFamily(t *testing.T) {
 	ctx := aggregateReconcileStageAgentContext()
 	evidence := aggregateReconcileStageAgentEvidence()
-	facts := []types.AnswerAggregateFact{{
-		Kind:    types.AnswerAggregateMemberSet,
-		Label:   "read-mode pipeline 所有 stage",
-		Value:   "2",
-		Role:    types.AnswerAggregateRolePrincipalAnswer,
-		Members: []string{"StageAnalyze", "StageExplore"},
-	}}
+	facts := []types.AnswerAggregateFact{
+		{
+			Kind:  types.AnswerAggregateTotalCount,
+			Label: "read-mode pipeline stage count",
+			Value: "6",
+			Role:  types.AnswerAggregateRolePrincipalAnswer,
+		},
+		{
+			Kind:    types.AnswerAggregateMemberSet,
+			Label:   "read-mode pipeline 所有 stage",
+			Value:   "2",
+			Role:    types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"StageAnalyze", "StageExplore"},
+		},
+	}
 
 	got := reconcileCompletionAggregateFactsWithDefinitionEvidence(ctx, facts, evidence)
-	if len(got) != 1 {
-		t.Fatalf("facts len = %d, want 1", len(got))
+	if len(got) != 2 {
+		t.Fatalf("facts len = %d, want 2", len(got))
 	}
 	for _, unexpected := range []string{"AgentAnalyzer", "AgentExplorer", "AgentExtractor", "AgentFinalizer"} {
-		for _, member := range got[0].Members {
+		for _, member := range got[1].Members {
 			if member == unexpected {
-				t.Fatalf("same-family expansion pulled AgentName constant %q into stage set: %#v", unexpected, got[0].Members)
+				t.Fatalf("same-family expansion pulled AgentName constant %q into stage set: %#v", unexpected, got[1].Members)
 			}
 		}
 	}
 	for _, want := range []string{"StageAnalyze", "StageExplore", "StageLogTriage", "StagePerfTriage", "StageExtract", "StageFinalize"} {
 		found := false
-		for _, member := range got[0].Members {
+		for _, member := range got[1].Members {
 			if member == want {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Fatalf("same PipelineStage family member %q was not preserved/appended: %#v", want, got[0].Members)
+			t.Fatalf("same PipelineStage family member %q was not preserved/appended: %#v", want, got[1].Members)
 		}
 	}
-	if got[0].Value != "6" {
-		t.Fatalf("member_set value = %q, want 6 after same-family expansion: %+v", got[0].Value, got[0])
+	if got[0].Value != "6" || got[1].Value != "6" {
+		t.Fatalf("values = count:%q member_set:%q, want 6/6 after same-family expansion: %+v", got[0].Value, got[1].Value, got)
 	}
 }
 
@@ -342,6 +376,79 @@ func aggregateReconcileStageAgentEvidence() []types.EvidenceItem {
 		def("AgentExplorer", 117),
 		def("AgentExtractor", 118),
 		def("AgentFinalizer", 119),
+	}
+}
+
+func aggregateReconcileSubAgentContext() *types.BusContext {
+	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{}}
+	add := func(name, kind, file string, line int, endLine int) {
+		graph.SymbolDefs[name] = append(graph.SymbolDefs[name], &repotypes.Symbol{
+			Name:     name,
+			Kind:     kind,
+			File:     file,
+			Line:     line,
+			EndLine:  endLine,
+			Exported: true,
+		})
+	}
+	add("Name", "method", "internal/agent/sub_explorer.go", 31, 33)
+	add("Register", "method", "internal/agent/subagent.go", 34, 38)
+	add("Names", "method", "internal/agent/subagent.go", 52, 60)
+	add("RegisterDefaultSubAgents", "function", "internal/agent/subagent.go", 63, 65)
+
+	mut := types.NewMutableState("subagent registry names")
+	mut.SetSearchGraph(graph)
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: "[internal/agent/sub_explorer.go: showing lines 31-33 of 33 total]\n" +
+			"   31│ func (s *SubExplorer) Name() string {\n" +
+			"   32│ \treturn \"explorer\"\n" +
+			"   33│ }\n" +
+			"[internal/agent/subagent.go: showing lines 52-64 of 65 total]\n" +
+			"   52│ func (r *SubAgentRegistry) Names() []string {\n" +
+			"   63│ func RegisterDefaultSubAgents(r *SubAgentRegistry, deps *Dependencies) {\n" +
+			"   64│ \tr.Register(NewSubExplorer(deps))",
+	})
+	return &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+			},
+			AnalyzerHints: types.AnalyzerHints{
+				RequiredFileHints: []types.RequiredFileHint{
+					{Path: "internal/agent/subagent.go", Confidence: 0.95},
+					{Path: "internal/agent/sub_explorer.go", Confidence: 0.95},
+				},
+			},
+		}},
+	}
+}
+
+func aggregateReconcileSubAgentEvidence() []types.EvidenceItem {
+	def := func(symbol, subject, object, file string, line int) types.EvidenceItem {
+		return types.EvidenceItem{
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    symbol,
+			Subject:         subject,
+			Object:          object,
+			Source:          file,
+			LineStart:       line,
+			GroundingStatus: types.GroundingGrounded,
+		}
+	}
+	return []types.EvidenceItem{
+		def("Name", "SubExplorer.Name", "explorer", "internal/agent/sub_explorer.go", 31),
+		def("Register", "SubAgentRegistry.Register", "sa.Name()", "internal/agent/subagent.go", 34),
+		def("Names", "SubAgentRegistry.Names", "", "internal/agent/subagent.go", 52),
+		def("RegisterDefaultSubAgents", "RegisterDefaultSubAgents", "NewSubExplorer", "internal/agent/subagent.go", 63),
 	}
 }
 

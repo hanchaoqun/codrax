@@ -126,6 +126,7 @@ type Env struct {
 	Evidence       []types.EvidenceItem
 	AnswerSymbols  []types.AnswerSymbol
 	AnswerChains   []types.AnswerChain
+	AggregateFacts []types.AnswerAggregateFact
 	ToolResults    []types.ToolResult
 	PrescanBlob    string
 	Signals        types.ExecutionSignals

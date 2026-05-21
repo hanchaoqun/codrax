@@ -4098,6 +4098,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			Evidence:       o.busCtx.EvidenceItems,
 			AnswerSymbols:  o.busCtx.AnswerSymbols,
 			AnswerChains:   o.busCtx.AnswerChains,
+			AggregateFacts: o.busCtx.Mutable.StableInvestigationAggregateFacts(),
 			ToolResults:    o.busCtx.ToolResults,
 			PrescanBlob:    o.busCtx.Mutable.PrescanSummaryBlob(),
 			Signals:        o.busCtx.Signals,
@@ -6500,11 +6501,12 @@ func (o *Orchestrator) runAutoVerdicts() {
 		taToolResults = ta.ToolResults
 	}
 	env := criterion.Env{
-		IR:            o.busCtx.AnalysisIR,
-		Evidence:      o.busCtx.EvidenceItems,
-		ToolResults:   taToolResults,
-		AnswerSymbols: o.busCtx.AnswerSymbols,
-		PrescanBlob:   mu.PrescanSummaryBlob(),
+		IR:             o.busCtx.AnalysisIR,
+		Evidence:       o.busCtx.EvidenceItems,
+		ToolResults:    taToolResults,
+		AnswerSymbols:  o.busCtx.AnswerSymbols,
+		AggregateFacts: mu.StableInvestigationAggregateFacts(),
+		PrescanBlob:    mu.PrescanSummaryBlob(),
 	}
 	existing := mu.EmittedHypothesisVerdicts()
 	byID := make(map[string]bool, len(existing))
