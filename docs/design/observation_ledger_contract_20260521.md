@@ -616,3 +616,10 @@ flowchart TD
   diagram plan. This preserves explicit diagram requests while preventing broad
   architecture/mechanism family defaults from turning "no diagram" into a
   reviewer concern.
+- 2026-05-21: Batch 9 rerun result: the diagram concern disappeared, confirming
+  the typed filter works. The same eval still passed with one finalizer turn, but
+  residual reviewer noise remained on non-diagram topics (`current_code_path`
+  inline anchors and `MaxRetriesPerStage` default-bound support refs), and
+  exploration cost remains high (`explorer_iters=55`, `midloop_inject=26`).
+  These are tracked as G149/G150 rather than folded into the completed diagram
+  fix.
