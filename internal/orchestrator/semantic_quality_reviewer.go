@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -90,6 +91,12 @@ type SemanticQualityInput struct {
 	// negative-search claim as if it needed current-source file:line
 	// grounding.
 	ClaimBindings []SemanticClaimBindingSummary
+
+	// Observations is the compact Observation Ledger projection shared with
+	// finalizer/reviewer consumers. It carries origin/source/span boundaries for
+	// current-source evidence, VCS/diff and command outputs, runtime artifacts,
+	// and external resources without asking the reviewer to parse raw tool dumps.
+	Observations []SemanticObservationSummary
 }
 
 // SystemDetectedGap is one typed verdict already raised by the v3
@@ -144,6 +151,23 @@ type SemanticClaimBindingSummary struct {
 	Outputs         []string
 	Target          string
 	SupportRefCount int
+}
+
+// SemanticObservationSummary is the reviewer-facing projection of one
+// ObservationRecord. It keeps the same typed origin/source/span contract as the
+// finalizer's Observation Ledger prompt while staying compact enough for the
+// reviewer budget.
+type SemanticObservationSummary struct {
+	ID          string
+	Origin      string
+	Role        string
+	Policy      string
+	Source      string
+	Span        string
+	Claim       string
+	Summary     string
+	Negative    bool
+	ResultCount *int
 }
 
 // SemanticFacetSummary is the typed projection of one
@@ -666,6 +690,30 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 				cb.ClaimID, cb.Origin, cb.Policy, strings.Join(cb.Outputs, ","), cb.Target, cb.SupportRefCount)
 		}
 	}
+	if len(in.Observations) > 0 {
+		b.WriteString("\n## OBSERVATION LEDGER (typed evidence / external-resource view)\n")
+		b.WriteString("Each row: record_id / origin / role / policy / source / span / claim / summary. Non-current-source rows are valid observations but are not current-repo citations; evaluate coverage using their origin-specific support.\n\n")
+		for _, obs := range in.Observations {
+			fmt.Fprintf(&b, "- record_id=%q origin=`%s` role=`%s` policy=`%s` source=%q",
+				obs.ID, obs.Origin, obs.Role, obs.Policy, obs.Source)
+			if obs.Span != "" {
+				fmt.Fprintf(&b, " span=%q", obs.Span)
+			}
+			if obs.Claim != "" {
+				fmt.Fprintf(&b, " claim=%q", obs.Claim)
+			}
+			if obs.Negative {
+				b.WriteString(" negative=true")
+			}
+			if obs.ResultCount != nil {
+				fmt.Fprintf(&b, " result_count=%d", *obs.ResultCount)
+			}
+			if obs.Summary != "" {
+				fmt.Fprintf(&b, " summary=%q", obs.Summary)
+			}
+			b.WriteString("\n")
+		}
+	}
 	return b.String()
 }
 
@@ -698,6 +746,206 @@ func semanticClaimBindingSummaries(bindings []types.AnswerClaimBinding) []Semant
 		})
 	}
 	return out
+}
+
+func observationLedgerForBusContext(bus *types.BusContext) types.ObservationLedger {
+	if bus == nil {
+		return types.ObservationLedger{}
+	}
+	var (
+		requestModel   *types.RequestModel
+		answerContract *types.AnswerContract
+		logBundle      *types.LogBundle
+		perfBundle     *types.PerfBundle
+		aggregateFacts []types.AnswerAggregateFact
+		toolResults    []types.ToolResult
+		evidenceItems  []types.EvidenceItem
+	)
+	if bus.AnalysisIR != nil {
+		requestModel = &bus.AnalysisIR.RequestModel
+		answerContract = &bus.AnalysisIR.AnswerContract
+		logBundle = bus.AnalysisIR.RequestModel.LogTriage
+		perfBundle = bus.AnalysisIR.RequestModel.PerfTrace
+	}
+	evidenceItems = appendObservationLedgerEvidence(evidenceItems, bus.EvidenceItems...)
+	toolResults = append(toolResults, bus.ToolResults...)
+	if bus.Mutable != nil {
+		aggregateFacts = bus.Mutable.StableInvestigationAggregateFacts()
+		if logBundle == nil {
+			logBundle = bus.Mutable.LogTriage()
+		}
+		if perfBundle == nil {
+			perfBundle = bus.Mutable.PerfTrace()
+		}
+		if ta := bus.Mutable.TurnAArtifacts(); ta != nil {
+			evidenceItems = appendObservationLedgerEvidence(evidenceItems, ta.EvidenceItems...)
+			if len(ta.ToolResults) > 0 {
+				toolResults = append([]types.ToolResult(nil), ta.ToolResults...)
+			}
+		}
+	}
+	return types.CompileObservationLedger(types.ObservationLedgerInput{
+		EvidenceItems:  evidenceItems,
+		AggregateFacts: aggregateFacts,
+		ToolResults:    toolResults,
+		LogBundle:      logBundle,
+		PerfBundle:     perfBundle,
+		MCPResponses:   append([]types.MCPResponse(nil), bus.MCPResponses...),
+		RequestModel:   requestModel,
+		AnswerContract: answerContract,
+	})
+}
+
+func appendObservationLedgerEvidence(dst []types.EvidenceItem, items ...types.EvidenceItem) []types.EvidenceItem {
+	if len(items) == 0 {
+		return dst
+	}
+	seen := make(map[string]struct{}, len(dst)+len(items))
+	for _, existing := range dst {
+		id := strings.TrimSpace(existing.ID)
+		if id == "" {
+			id = types.StableEvidenceID(existing)
+		}
+		if id != "" {
+			seen[id] = struct{}{}
+		}
+	}
+	for _, item := range items {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = types.StableEvidenceID(item)
+			item.ID = id
+		}
+		if id != "" {
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+		}
+		dst = append(dst, item)
+	}
+	return dst
+}
+
+func semanticObservationSummaries(ledger types.ObservationLedger) []SemanticObservationSummary {
+	if len(ledger.Records) == 0 {
+		return nil
+	}
+	const maxSemanticObservations = 18
+	records := append([]types.ObservationRecord(nil), ledger.Records...)
+	sort.SliceStable(records, func(i, j int) bool {
+		return semanticObservationRank(records[i]) < semanticObservationRank(records[j])
+	})
+	limit := len(records)
+	if limit > maxSemanticObservations {
+		limit = maxSemanticObservations
+	}
+	out := make([]SemanticObservationSummary, 0, limit)
+	for i := 0; i < limit; i++ {
+		record := records[i]
+		out = append(out, SemanticObservationSummary{
+			ID:          strings.TrimSpace(record.ID),
+			Origin:      string(record.Origin),
+			Role:        string(record.Role),
+			Policy:      string(record.GroundingPolicy),
+			Source:      semanticObservationSource(record.SourceRef),
+			Span:        semanticObservationSpan(record.Span),
+			Claim:       strings.TrimSpace(record.ClaimKey),
+			Summary:     clampSemanticObservationText(record.Summary, 180),
+			Negative:    record.Negative,
+			ResultCount: record.ResultCount,
+		})
+	}
+	return out
+}
+
+func semanticObservationRank(record types.ObservationRecord) int {
+	rank := 50
+	if record.Role == types.AnswerAggregateRolePrincipalAnswer {
+		rank -= 25
+	}
+	switch record.Origin {
+	case types.AnswerEvidenceOriginCurrentSource:
+		rank -= 8
+	case types.AnswerEvidenceOriginVCSMetadata, types.AnswerEvidenceOriginVCSDiff:
+		rank -= 6
+	case types.AnswerEvidenceOriginRuntimeArtifact, types.AnswerEvidenceOriginCommandMeasurement:
+		rank -= 5
+	case types.AnswerEvidenceOriginRepoNegativeSearch:
+		rank -= 4
+	}
+	if record.Negative {
+		rank -= 3
+	}
+	if strings.TrimSpace(record.Summary) != "" {
+		rank -= 2
+	}
+	return rank
+}
+
+func semanticObservationSource(ref types.ObservationSourceRef) string {
+	var parts []string
+	if ref.Kind != types.ObservationSourceUnknown {
+		parts = append(parts, string(ref.Kind))
+	}
+	for _, value := range []string{
+		ref.Repo,
+		ref.Path,
+		ref.Commit,
+		ref.Range,
+		ref.Pathspec,
+		ref.Command,
+		ref.RawRef,
+		ref.ArtifactID,
+		ref.ArtifactKind,
+		ref.URL,
+		ref.Server,
+		ref.ResourceURI,
+		ref.Connector,
+	} {
+		if value = strings.TrimSpace(value); value != "" {
+			parts = append(parts, clampSemanticObservationText(value, 90))
+		}
+	}
+	return strings.Join(parts, " | ")
+}
+
+func semanticObservationSpan(span types.ObservationSpan) string {
+	var parts []string
+	if span.LineStart > 0 {
+		if span.LineEnd > 0 && span.LineEnd != span.LineStart {
+			parts = append(parts, fmt.Sprintf("lines %d-%d", span.LineStart, span.LineEnd))
+		} else {
+			parts = append(parts, fmt.Sprintf("line %d", span.LineStart))
+		}
+	}
+	if span.OldLine > 0 {
+		parts = append(parts, fmt.Sprintf("old_line %d", span.OldLine))
+	}
+	if span.NewLine > 0 {
+		parts = append(parts, fmt.Sprintf("new_line %d", span.NewLine))
+	}
+	if span.Row > 0 {
+		parts = append(parts, fmt.Sprintf("row %d", span.Row))
+	}
+	if span.JSONPointer != "" {
+		parts = append(parts, fmt.Sprintf("json %s", clampSemanticObservationText(span.JSONPointer, 80)))
+	}
+	if span.StartTsMs != 0 || span.EndTsMs != 0 {
+		parts = append(parts, fmt.Sprintf("%.3f-%.3fms", span.StartTsMs, span.EndTsMs))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func clampSemanticObservationText(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	if max > len(s) {
+		max = len(s)
+	}
+	return strings.TrimSpace(s[:max]) + "…"
 }
 
 // countFacetCoverageDepth counts (declared, anchored) pairs for the

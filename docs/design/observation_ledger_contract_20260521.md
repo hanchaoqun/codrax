@@ -286,7 +286,7 @@ flowchart TD
 - [x] Render a compact `Observation Ledger` prompt section before raw tool output.
 - [x] Update claim binding rendering to point at ledger record IDs where possible.
 - [x] Keep raw tool output as fallback/audit, not principal interpretation.
-- [ ] Update semantic reviewer input to consume ledger summaries.
+- [x] Update semantic reviewer input to consume ledger summaries.
 - [x] Add tests that a git feature-summary answer is not compressed to a commit hash.
 
 ### Batch 4 — MCP / Web Future-Proofing
@@ -378,3 +378,8 @@ flowchart TD
   are preserved. This is not the full external-resource paging adapter yet; it
   locks down the reusable blob/span contract before MCP/web/connector producers
   grow their own implementations.
+- 2026-05-21: Batch 3 semantic-reviewer consumption completed: reviewer input
+  now carries compact `Observation Ledger` summaries compiled through the same
+  `types.CompileObservationLedger` path as finalizer. Tests verify VCS history
+  observations and blob refs are visible to the reviewer without becoming
+  current-source citation requirements.

@@ -1074,6 +1074,12 @@ func TestRunSemanticQualityReviewWithOutcome_PassesClaimBindingsToReviewer(t *te
 		},
 	}})
 	mut.RetainInvestigationAggregateFacts()
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "git_log",
+		Success:  true,
+		Summary:  "[git_log: evidence_origin=vcs_metadata count=1]\nabc123 优化 repo map 缓存，影响启动索引复用",
+		RawRef:   "/tmp/codrax/blob/git_log-1234.txt",
+	}}})
 	seen := SemanticQualityInput{}
 	o := New(types.PipelineSettings{}, nil, nil, nil)
 	o.busCtx = &types.BusContext{
@@ -1106,6 +1112,54 @@ func TestRunSemanticQualityReviewWithOutcome_PassesClaimBindingsToReviewer(t *te
 		got.Policy != string(types.ClaimGroundingRepairable) ||
 		got.Target != "latest merge feature" {
 		t.Fatalf("unexpected claim binding summary: %+v", got)
+	}
+	if len(seen.Observations) < 2 {
+		t.Fatalf("semantic reviewer should receive aggregate and VCS tool observations, got %+v", seen.Observations)
+	}
+	var sawAggregate, sawTool bool
+	for _, obs := range seen.Observations {
+		switch obs.ID {
+		case "aggregate:0#vcs_metadata":
+			sawAggregate = obs.Origin == string(types.AnswerEvidenceOriginVCSMetadata) &&
+				obs.Policy == string(types.ClaimGroundingRepairable)
+		case "tool:0#vcs_metadata":
+			sawTool = strings.Contains(obs.Summary, "优化 repo map 缓存") &&
+				strings.Contains(obs.Source, "git_log-1234.txt")
+		}
+	}
+	if !sawAggregate || !sawTool {
+		t.Fatalf("semantic reviewer observations missing aggregate/tool lanes: %+v", seen.Observations)
+	}
+}
+
+func TestRenderSemanticQualityUserMessage_RendersObservationLedgerBoundaries(t *testing.T) {
+	count := 0
+	msg := renderSemanticQualityUserMessage(SemanticQualityInput{
+		OriginalRequest: "看最近一次合入的特性",
+		AnswerSummary:   "summary",
+		AnswerBody:      "body",
+		Observations: []SemanticObservationSummary{{
+			ID:          "tool:0#vcs_metadata",
+			Origin:      string(types.AnswerEvidenceOriginVCSMetadata),
+			Role:        string(types.AnswerAggregateRoleSupportingCoverage),
+			Policy:      string(types.ClaimGroundingSoft),
+			Source:      "vcs_metadata | /tmp/codrax/blob/git_log-1234.txt",
+			Claim:       "git_log",
+			Summary:     "abc123 优化 repo map 缓存",
+			ResultCount: &count,
+		}},
+	})
+	for _, want := range []string{
+		"## OBSERVATION LEDGER",
+		"record_id=\"tool:0#vcs_metadata\"",
+		"origin=`vcs_metadata`",
+		"Non-current-source rows are valid observations but are not current-repo citations",
+		"result_count=0",
+		"abc123 优化 repo map 缓存",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("semantic reviewer prompt missing %q:\n%s", want, msg)
+		}
 	}
 }
 
