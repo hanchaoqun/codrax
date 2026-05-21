@@ -1144,6 +1144,82 @@ func recoveredAnchorConsistent(it *types.EvidenceItem, gc *Context) bool {
 	}
 }
 
+func lineLocalStructuredFieldsCorroborate(fileLines map[int]string, it *types.EvidenceItem) bool {
+	if it == nil || len(fileLines) == 0 || it.LineStart <= 0 {
+		return false
+	}
+	switch it.AnchorKind {
+	case types.AnchorCondition, types.AnchorReturn, types.AnchorAssignment, types.AnchorInitializer:
+	default:
+		return false
+	}
+	for i := it.LineStart - 2; i <= it.LineStart+2; i++ {
+		text, ok := fileLines[i]
+		if !ok || strings.TrimSpace(text) == "" {
+			continue
+		}
+		if isLineComment(fileLines, i, it.Source) && !configSurfaceAllowsLooseLineGrounding(it) {
+			continue
+		}
+		if exactLineLocalSnippetMatches(text, it.Snippet) || lineLocalClaimMatches(text, it.Condition) {
+			return true
+		}
+	}
+	return false
+}
+
+func exactLineLocalSnippetMatches(lineText, snippet string) bool {
+	line := normalizeLineLocalSnippet(lineText)
+	snippet = normalizeLineLocalSnippet(snippet)
+	if line == "" || snippet == "" {
+		return false
+	}
+	return strings.Contains(line, snippet) || strings.Contains(snippet, line)
+}
+
+func lineLocalClaimMatches(lineText, claim string) bool {
+	line := normalizeLineLocalClaim(lineText)
+	claim = normalizeLineLocalClaim(claim)
+	if line == "" || claim == "" {
+		return false
+	}
+	return strings.Contains(line, claim)
+}
+
+func normalizeLineLocalSnippet(s string) string {
+	fields := strings.Fields(strings.TrimSpace(s))
+	if len(fields) == 0 {
+		return ""
+	}
+	return strings.Join(fields, " ")
+}
+
+func normalizeLineLocalClaim(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return ""
+	}
+	replacer := strings.NewReplacer(
+		"`", "",
+		"'", "",
+		"\"", "",
+		"(", "",
+		")", "",
+		"{", "",
+		"}", "",
+		"[", "",
+		"]", "",
+		",", "",
+		":", "",
+		";", "",
+		"\t", "",
+		"\r", "",
+		"\n", "",
+		" ", "",
+	)
+	return replacer.Replace(s)
+}
+
 func recoveredStringLiteralAnchorConsistent(it *types.EvidenceItem, gc *Context) bool {
 	if it == nil || gc == nil || it.Source == "" || it.LineStart <= 0 || strings.TrimSpace(it.AnchorSymbol) == "" {
 		return false
@@ -1278,6 +1354,9 @@ func tier1LineText(it *types.EvidenceItem, gc *Context) bool {
 			if isLineComment(fileLines, matchedLine, it.Source) && !configSurface {
 				return false
 			}
+			return true
+		}
+		if lineLocalStructuredFieldsCorroborate(fileLines, it) {
 			return true
 		}
 		if !configSurface {

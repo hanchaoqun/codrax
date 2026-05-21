@@ -980,6 +980,9 @@ func PrincipalAggregateMemberSetFactRefsForRequest(facts []AnswerAggregateFact, 
 		if AggregateMemberSetIsScalarCountSupport(rm, ref.Fact) {
 			continue
 		}
+		if AggregateMemberSetIsMechanismNarrativeSupport(rm, ref.Fact) {
+			continue
+		}
 		if AggregateFactIsNarrativeHistorySupport(rm, ref.Fact) {
 			continue
 		}
@@ -1255,6 +1258,17 @@ func NormalizeAggregateFactRolesForRequest(facts []AnswerAggregateFact, rm *Requ
 			}
 			continue
 		}
+		if AggregateMemberSetIsMechanismNarrativeSupport(rm, out[i]) {
+			if role != AnswerAggregateRoleSupportingCoverage {
+				out[i].Role = AnswerAggregateRoleSupportingCoverage
+				out[i].Provenance = appendAggregateFactProvenance(
+					out[i].Provenance,
+					"demoted:mechanism_narrative_support_member_set",
+				)
+				changed = true
+			}
+			continue
+		}
 		if AggregateFactIsNarrativeHistorySupport(rm, out[i]) {
 			if role != AnswerAggregateRoleSupportingCoverage {
 				out[i].Role = AnswerAggregateRoleSupportingCoverage
@@ -1279,6 +1293,33 @@ func NormalizeAggregateFactRolesForRequest(facts []AnswerAggregateFact, rm *Requ
 // helper for callers/tests that specifically care about scalar_value facts.
 func AggregateScalarIsNonScalarHistorySupport(rm *RequestModel, fact AnswerAggregateFact) bool {
 	return fact.Kind == AnswerAggregateScalar && AggregateFactIsNarrativeHistorySupport(rm, fact)
+}
+
+// AggregateMemberSetIsMechanismNarrativeSupport reports whether an exact
+// member_set is a structured outline for a single mechanism explanation rather
+// than a principal enumeration answer. Explorers often use member_set to keep
+// discovered branches (for example retry exits, guard paths, or state
+// transitions) precise for downstream prose. In this request shape the user did
+// not ask for a closed answer-member set, so the set must enrich the finalizer
+// context without creating Principal Enumeration Rows, deterministic补表, or
+// hard member-surface gates.
+//
+// The predicate is intentionally typed-only: it consumes RequestModel traits and
+// aggregate kind/role, never raw user text, model prose, labels, or repository
+// language syntax.
+func AggregateMemberSetIsMechanismNarrativeSupport(rm *RequestModel, fact AnswerAggregateFact) bool {
+	if rm == nil || fact.Kind != AnswerAggregateMemberSet {
+		return false
+	}
+	if !answerAggregateFactCarriesCompleteMemberSet(fact) {
+		return false
+	}
+	if aggregateRequestRequiresPathMemberSetAsPrincipal(*rm) ||
+		RequiresExhaustiveEnumerationMemberSetHandoff(*rm) ||
+		RequiresRelationMemberSetHandoff(*rm) {
+		return false
+	}
+	return IsSingleTopicMechanismExplanation(*rm)
 }
 
 // AggregateFactIsNarrativeHistorySupport reports whether a history aggregate

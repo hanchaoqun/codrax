@@ -617,7 +617,7 @@ func ResolveQuestionFamily(rm RequestModel, sinks ...RichnessTelemetrySink) Ques
 	}
 
 	view := rm.QuestionStructure()
-	hasObligation := view.HasAnyObligation()
+	hasObligation := HasPrincipalAnswerSetObligation(rm)
 	isEnumerationAnswer := IsCategoryEnumerationAnswerShape(rm)
 	bucketCount := len(view.Buckets)
 

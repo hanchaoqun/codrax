@@ -1526,6 +1526,50 @@ func TestNormalizeAggregateFactRolesForRequest_DemotesScalarCountMemberSetAtSour
 	}
 }
 
+func TestNormalizeAggregateFactRolesForRequest_DemotesMechanismMemberSetAtSource(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "analyze 阶段重试退出路径",
+		Value: "4",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			`Error=="" 且 AnalysisIR!=nil → 成功退出`,
+			`autoCorrectAnalyzerStageOutput 成功 → 清除 Error 并成功退出`,
+			`retry storm（同 fingerprint ≥ ceil(max/2) 次）→ 提前退出降级路径`,
+			`重试预算耗尽 → 降级路径（安装最小非零 AnalysisIR）`,
+		},
+	}}
+	rm := RequestModel{
+		Intent:        IntentExplain,
+		Scenario:      ScenarioArchitectureExplain,
+		Complexity:    ComplexityComplex,
+		PredicateAxis: AxisCondition,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqMechanism)},
+		SubTopics: []SubTopic{
+			{Summary: "retry budget", Entities: []string{"MaxRetriesPerStage"}},
+			{Summary: "stage output", Entities: []string{"StageOutput"}},
+			{Summary: "fallback", Entities: []string{"AnalysisIR"}},
+		},
+	}
+
+	got := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if got[0].Role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("single-topic mechanism member_set should be support context, got %+v", got[0])
+	}
+	if !strings.Contains(got[0].Provenance, "demoted:mechanism_narrative_support_member_set") {
+		t.Fatalf("mechanism demotion provenance missing: %+v", got[0])
+	}
+	if refs := PrincipalAggregateMemberSetFactRefsForRequest(got, &rm); len(refs) != 0 {
+		t.Fatalf("mechanism support member_set must not create principal enumeration rows, got %+v", refs)
+	}
+
+	rm.EnumerationBoundary = &RequestedEnumerationBoundary{DeclaredCount: 4, SourceQuote: "4 条退出路径"}
+	got = NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if got[0].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("explicit bounded mechanism set should remain principal, got %+v", got[0])
+	}
+}
+
 func TestNormalizeAggregateFactRolesForRequest_DemotesNonScalarHistoryScalars(t *testing.T) {
 	facts := []AnswerAggregateFact{{
 		Kind:       AnswerAggregateScalar,

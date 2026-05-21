@@ -255,11 +255,11 @@ func TestAxisAnchorRetryHint_MultiTopicExplanationSkeletonSkipsConditionRetry(t 
 	}, types.CompletenessComplete)
 
 	ctx := &types.AgentContext{AnalysisIR: ir, Mutable: mut}
-	if !isMultiTopicExplanation(ctx) {
-		t.Fatal("test setup must exercise the multi-topic explanation skeleton path")
+	if isMultiTopicExplanation(ctx) {
+		t.Fatal("condition-axis mechanism sub-topics must not invite an anchor skeleton")
 	}
 	if hint := axisAnchorRetryHint(ctx); hint != "" {
-		t.Fatalf("multi-topic explanation skeleton should keep condition evidence in support lanes instead of forcing emit_answer_symbol retry; got %q", hint)
+		t.Fatalf("mechanism support lanes should not force emit_answer_symbol retry; got %q", hint)
 	}
 }
 

@@ -556,12 +556,30 @@ func TestIsSingleTopicMechanismExplanation_TypedOnly(t *testing.T) {
 		{Summary: "first branch", Entities: []string{"First"}},
 		{Summary: "second branch", Entities: []string{"Second"}},
 	}
-	if IsSingleTopicMechanismExplanation(rm) {
-		t.Fatal("multiple sub-topics should keep the request out of the single-topic mechanism lane")
+	if !IsSingleTopicMechanismExplanation(rm) {
+		t.Fatal("analyzer sub-topic decomposition alone must not turn one mechanism question into architecture/comparison")
 	}
+
+	rm.CompletenessObligation = &CompletenessObligation{Required: true, SourceQuote: "cover every branch"}
+	if !CompletenessObligationIsMechanismCoverageOnly(rm) {
+		t.Fatal("typed mechanism completeness should be treated as coverage, not a principal member-set boundary")
+	}
+	if !IsSingleTopicMechanismExplanation(rm) {
+		t.Fatal("coverage-only completeness must not turn one mechanism explanation into an enumeration slate")
+	}
+
+	rm.Predicates.IsCategoryEnumeration = true
+	if CompletenessObligationIsMechanismCoverageOnly(rm) {
+		t.Fatal("category-enumeration completeness is a principal member-set boundary, not coverage-only")
+	}
+	if IsSingleTopicMechanismExplanation(rm) {
+		t.Fatal("category-enumeration shape must not stay in the lightweight mechanism lane")
+	}
+	rm.Predicates.IsCategoryEnumeration = false
 
 	rm.Predicates.IsCrossComponent = false
 	rm.SubTopics = nil
+	rm.CompletenessObligation = nil
 	rm.EnumerationBoundary = &RequestedEnumerationBoundary{
 		DeclaredCount: 3,
 		SourceQuote:   "3 steps",

@@ -249,7 +249,10 @@ func (t *EmitEvidence) Description() string {
 		"because the semantic claim is simply a direct fact about a definition. Likewise a config assignment " +
 		"line can be `evidence_kind=\"direct\"` with `anchor_kind=\"assignment\"`. A line such as " +
 		"`CitationReq: types.CitationReq{Required: false}` or `.required = false` is an initializer, " +
-		"not a symbol definition.\n\n" +
+		"not a symbol definition. For condition / return / assignment / initializer anchors, anchor_symbol " +
+		"should still be a visible token on the cited line (for `for attempt := 0; attempt < max; {`, use " +
+		"`attempt` or `max`, not `for loop`); if the line has no durable symbol, include the exact `snippet` " +
+		"and structured `condition` / value fields so the tool can ground the line itself.\n\n" +
 		"For call-like evidence (`predicate` = calls / invokes / dispatches / delegates to) with " +
 		"`anchor_kind=\"call\"`, the semantic direction is ALWAYS caller -> callee: `subject` must be " +
 		"the containing function/method and `object` must be the callee on that line. Example: if " +
@@ -479,7 +482,7 @@ func (t *EmitEvidence) Parameters() json.RawMessage {
           "diagram_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for config-precedence traces. default = code defaults, config = repo/user config-file layer (YAML/JSON/TOML/INI/etc.), runtime = code/runtime binding layer, override = CLI/high-precedence override layer. The tool validates and may ignore inconsistent hints."},
           "surface_terms": {"type": "array", "items": {"type": "string"}, "description": "OPTIONAL exact source/log/trace strings that should remain visible in the final answer as aliases or labels, including labels from leading documentation/header comments attached to the cited anchor. Every term must appear verbatim in the already-read source window."},
           "anchor_kind":   {"type": "string", "enum": %s, "description": "REQUIRED. What line_start points at: 'definition' = symbol declaration, 'call' = function/method call site, 'condition' = if/when/switch/case/guard line, 'return' = return or yield, 'assignment' = := or = assignment/write, 'initializer' = field/property/member inside a struct/object/named-argument/designated/config literal, 'import' = import/use/require statement, 'string_literal' = source-code string/char/template literal value itself, 'text_reference' = visible source/config/doc/comment text itself. string_literal/text_reference cannot prove a definition/call/assignment."},
-          "anchor_symbol": {"type": "string", "description": "REQUIRED. The identifier the grounder should find on line_start. For a call like 'x.Execute()' the anchor_symbol is 'Execute'. For a type decl 'type Orchestrator struct' the anchor_symbol is 'Orchestrator'. For an import the anchor_symbol is the package path or local alias."},
+          "anchor_symbol": {"type": "string", "description": "REQUIRED. The identifier the grounder should find on line_start. For a call like 'x.Execute()' the anchor_symbol is 'Execute'. For a type decl 'type Orchestrator struct' the anchor_symbol is 'Orchestrator'. For an import the anchor_symbol is the package path or local alias. For condition / return / assignment / initializer lines, use a visible token on that line, not a descriptive label; if no durable symbol exists, provide exact snippet and structured condition/value fields."},
           "snippet":       {"type": "string", "description": "Optional. 1-2 lines of actual code from the cited location. Enables snippet_fuzzy recovery when line_start is off by ±15 lines — recommended for conditional / mechanism / registration items."}
         },
         "required": ["kind", "source", "line_start", "anchor_kind", "anchor_symbol"]

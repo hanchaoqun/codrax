@@ -69,7 +69,10 @@ func TestBuildInactiveScopeDisclosureObligation_ComparisonSkipsInactiveDisclosur
 				Intent:     IntentExplain,
 				RawRequest: "compare repo-a and repo-b",
 				Predicates: SemanticPredicates{IsCrossComponent: true},
-				SubTopics:  []SubTopic{{Summary: "a"}, {Summary: "b"}},
+				SubTopics: []SubTopic{
+					{Summary: "a", Entities: []string{"repo-a"}},
+					{Summary: "b", Entities: []string{"repo-b"}},
+				},
 				AnalyzerHints: AnalyzerHints{
 					MentionedEntities: []string{"repo-a", "repo-b"},
 					ExactTargets:      []string{"repo-a", "repo-b"},

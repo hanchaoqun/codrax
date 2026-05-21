@@ -204,6 +204,15 @@ func TestRequiresAnchorSkeletonNarrowsOptionalArchitectureAnchors(t *testing.T) 
 	if !generic.RequiresAnchorSkeleton(multiTopic) {
 		t.Fatal("generic multi-topic explanations still require the anchor skeleton")
 	}
+	mechanism := RequestModel{
+		Intent:        IntentExplain,
+		PredicateAxis: AxisCondition,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqMechanism)},
+		SubTopics:     []SubTopic{{Summary: "retry budget"}, {Summary: "stage output"}},
+	}
+	if generic.AllowsAnchorSkeleton(mechanism) || generic.RequiresAnchorSkeleton(mechanism) {
+		t.Fatal("mechanism sub-topic decomposition must not require or invite an anchor skeleton")
+	}
 }
 
 func TestNeedsCitationFreeScalarIngest(t *testing.T) {

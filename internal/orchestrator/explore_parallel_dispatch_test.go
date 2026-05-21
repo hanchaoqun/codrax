@@ -319,10 +319,9 @@ func TestParallelExploreAllowsEarlyConvergence_InferredBucketsStayAdvisory(t *te
 	o := &Orchestrator{busCtx: &types.BusContext{
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
-				RawRequest:    "说明 Foo 和 Bar 共同参与的重试机制",
-				Intent:        types.IntentExplain,
-				Scenario:      types.ScenarioArchitectureExplain,
-				PredicateAxis: types.AxisCondition,
+				RawRequest: "对比 Foo 和 Bar 在重试机制中的职责差异",
+				Intent:     types.IntentExplain,
+				Scenario:   types.ScenarioArchitectureExplain,
 				Predicates: types.SemanticPredicates{
 					IsCrossComponent: true,
 				},
@@ -331,8 +330,8 @@ func TestParallelExploreAllowsEarlyConvergence_InferredBucketsStayAdvisory(t *te
 					MentionedEntities: []string{"Foo", "Bar"},
 				},
 				SubTopics: []types.SubTopic{
-					{Summary: "Foo"},
-					{Summary: "Bar"},
+					{Summary: "Foo", Entities: []string{"Foo"}},
+					{Summary: "Bar", Entities: []string{"Bar"}},
 				},
 			},
 		},

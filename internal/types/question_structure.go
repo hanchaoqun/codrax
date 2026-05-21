@@ -308,11 +308,7 @@ func inferEntityComparisonBuckets(rm RequestModel) []QuestionBucket {
 	if len(entities) < 2 {
 		return nil
 	}
-	type cand struct {
-		label string
-		order int
-	}
-	var cands []cand
+	var cands []entityBucketCandidate
 	seen := map[string]bool{}
 	for _, e := range entities {
 		label := strings.TrimSpace(e)
@@ -328,9 +324,12 @@ func inferEntityComparisonBuckets(rm RequestModel) []QuestionBucket {
 			continue
 		}
 		seen[key] = true
-		cands = append(cands, cand{label: label, order: order})
+		cands = append(cands, entityBucketCandidate{label: label, order: order})
 	}
 	if len(cands) < 2 {
+		return nil
+	}
+	if !entityComparisonTopicShapeSupportsBuckets(rm, cands) {
 		return nil
 	}
 	sort.SliceStable(cands, func(i, j int) bool {
@@ -344,6 +343,46 @@ func inferEntityComparisonBuckets(rm RequestModel) []QuestionBucket {
 		})
 	}
 	return out
+}
+
+type entityBucketCandidate struct {
+	label string
+	order int
+}
+
+func entityComparisonTopicShapeSupportsBuckets(rm RequestModel, cands []entityBucketCandidate) bool {
+	if len(cands) < 2 || len(rm.SubTopics) != len(cands) {
+		return false
+	}
+	candSet := make(map[string]bool, len(cands))
+	for _, c := range cands {
+		key := strings.ToLower(strings.TrimSpace(c.label))
+		if key != "" {
+			candSet[key] = true
+		}
+	}
+	if len(candSet) != len(cands) {
+		return false
+	}
+	matched := make(map[string]bool, len(cands))
+	for _, topic := range rm.SubTopics {
+		topicMatch := ""
+		for _, entity := range topic.Entities {
+			key := strings.ToLower(strings.TrimSpace(entity))
+			if key == "" || !candSet[key] {
+				continue
+			}
+			if topicMatch != "" && topicMatch != key {
+				return false
+			}
+			topicMatch = key
+		}
+		if topicMatch == "" {
+			return false
+		}
+		matched[topicMatch] = true
+	}
+	return len(matched) == len(candSet)
 }
 
 func inferRequiredFileComparisonBuckets(rm RequestModel) []QuestionBucket {

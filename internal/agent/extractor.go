@@ -316,17 +316,17 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 			b.WriteString("\n")
 		} else {
 			b.WriteString("### Structured emit obligations\n\n")
-			b.WriteString("This dispatch does NOT require `emit_answer_symbol`. The principal answer will be rendered downstream from typed ordered_list / diagram / prose support lanes, so do not manufacture a symbol slate just because the user asked for a call chain, mechanism walk, architecture explanation, or non-symbol evidence enumeration. Only generic multi-topic explanations, explicit Requested Set Boundaries, and symbol-backed enumerations activate `emit_answer_symbol` as a hard obligation.\n\n")
+			b.WriteString("This dispatch does NOT require `emit_answer_symbol`. The principal answer will be rendered downstream from typed ordered_list / diagram / prose support lanes, so do not manufacture a symbol slate just because the user asked for a call chain, mechanism walk, architecture explanation, or non-symbol evidence enumeration. Only an explicit Anchor skeleton block, a Requested Set Boundary, or a symbol-backed enumeration activates `emit_answer_symbol` as a hard obligation; analyzer sub-topics alone are guidance.\n\n")
 		}
 	}
 
 	// -------- Multi-topic explanation skeleton guide --------
 	// Render the per-dispatch sub-topic list ONLY when the analyzer
 	// resolved shape=explanation AND populated sub_topics. It is a
-	// hard emit_answer_symbol obligation only for generic multi-topic
-	// explanations. For architecture/mechanism narratives the same
-	// list is optional context; analyzer decomposition drift must not
-	// become final-answer principal content.
+	// hard emit_answer_symbol obligation only when IRRequiresAnchorSkeleton
+	// is true. For architecture/mechanism narratives the same list is
+	// optional context; analyzer decomposition drift must not become
+	// final-answer principal content.
 	if isMultiTopicExplanation(ctx) {
 		st := ctx.AnalysisIR.RequestModel.SubTopics
 		plan := extractorAnswerSurfacePlan(ctx)

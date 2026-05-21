@@ -90,6 +90,52 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForPartial
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_DoesNotPromoteMechanismMemberSet(t *testing.T) {
+	mu := types.NewMutableState("analyze retry mechanism")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "analyze 阶段重试退出路径",
+		Value: "4",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			`Error=="" 且 AnalysisIR!=nil → 成功退出`,
+			`autoCorrectAnalyzerStageOutput 成功 → 清除 Error 并成功退出`,
+			`retry storm（同 fingerprint ≥ ceil(max/2) 次）→ 提前退出降级路径`,
+			`重试预算耗尽 → 降级路径（安装最小非零 AnalysisIR）`,
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentExplain,
+			Scenario:      types.ScenarioArchitectureExplain,
+			Complexity:    types.ComplexityComplex,
+			Language:      "zh",
+			PredicateAxis: types.AxisCondition,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+			SubTopics: []types.SubTopic{
+				{Summary: "retry budget", Entities: []string{"MaxRetriesPerStage"}},
+				{Summary: "stage output", Entities: []string{"StageOutput"}},
+				{Summary: "fallback", Entities: []string{"AnalysisIR"}},
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:    "summary",
+		Kind:  types.BlockSummary,
+		Title: "analyze 阶段重试机制",
+		Text:  `重试循环在 Error=="" 且 AnalysisIR!=nil 时退出；失败后可能经过 autoCorrect、retry storm 或降级路径。`,
+	}}}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed != 0 {
+		t.Fatalf("single-topic mechanism member_set should stay support-only, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if len(doc.Blocks) != 1 {
+		t.Fatalf("normalizer must not append mechanism member-set补表, got %+v", doc.Blocks)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_DoesNotDuplicateVCSCommitRowsAlreadyVisible(t *testing.T) {
 	mu := types.NewMutableState("最近 10 次提交都做了哪些事情")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

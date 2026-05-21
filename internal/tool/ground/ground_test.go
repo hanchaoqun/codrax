@@ -1235,6 +1235,50 @@ func TestGroundItem_Tier1RejectsCommentLine(t *testing.T) {
 	}
 }
 
+func TestGroundItem_LineLocalAnchorUsesExactSnippetWhenSymbolIsDescriptive(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("internal/orchestrator/orchestrator.go", 2268, []string{
+			"\tfor attempt := 0; attempt < max; {",
+		}, 2300),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	it := &types.EvidenceItem{
+		Kind:         types.EvidenceConditional,
+		Source:       "internal/orchestrator/orchestrator.go",
+		LineStart:    2268,
+		AnchorKind:   types.AnchorCondition,
+		AnchorSymbol: "for loop",
+		Condition:    "attempt < max",
+		Snippet:      "for attempt := 0; attempt < max; {",
+	}
+	GroundItem(it, gc)
+	if it.GroundingStatus != types.GroundingGrounded || it.GroundingTier != types.TierLineText {
+		t.Fatalf("line-local exact snippet should ground despite descriptive anchor_symbol: status=%s tier=%s note=%q",
+			it.GroundingStatus, it.GroundingTier, it.GroundingNote)
+	}
+}
+
+func TestGroundItem_LineLocalAnchorDoesNotUseSummaryOnly(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("internal/orchestrator/orchestrator.go", 2268, []string{
+			"\tfor attempt := 0; attempt < max; {",
+		}, 2300),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	it := &types.EvidenceItem{
+		Kind:         types.EvidenceConditional,
+		Source:       "internal/orchestrator/orchestrator.go",
+		LineStart:    2268,
+		AnchorKind:   types.AnchorCondition,
+		AnchorSymbol: "retry loop",
+		Summary:      "重试循环上界由 dynamicAnalyzeRetries 决定",
+	}
+	GroundItem(it, gc)
+	if it.GroundingStatus == types.GroundingGrounded && it.GroundingTier == types.TierLineText {
+		t.Fatalf("summary-only line-local evidence must not bypass anchor_symbol grounding")
+	}
+}
+
 func TestGroundItem_TextReferenceAcceptsCommentLine(t *testing.T) {
 	history := []types.ToolResult{
 		buildGutterReadResult("internal/types/analysis_ir.go", 1235, []string{

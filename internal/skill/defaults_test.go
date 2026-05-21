@@ -354,9 +354,10 @@ func TestExtractSkill_DoesNotTeachLegacySymbolsArray(t *testing.T) {
 		"emit_answer_symbol.items[]",
 		"the answer is the terminal that the chain RESOLVES TO",
 		"downstream rendering answers from prose / blocks only",
-		"sub_topics ≥ 1 — emit ONE anchor symbol per sub-topic as a skeleton",
+		"explicitly renders an `Anchor skeleton (one per sub-topic)` block",
+		"Analyzer sub_topics alone are guidance, not a hard slate obligation",
 		"Requested Set Boundary block declares an explicit count N",
-		"Plain single-topic call-chain / root-cause / mechanism questions WITHOUT case (c) do NOT use emit_answer_symbol",
+		"Plain single-topic call-chain / root-cause / mechanism questions WITHOUT case (b) or (c) do NOT use emit_answer_symbol",
 	} {
 		if !strings.Contains(blob, want) {
 			t.Fatalf("extract-skill missing updated answer-symbol slate guidance %q:\n%s", want, blob)

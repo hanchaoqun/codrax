@@ -2285,6 +2285,52 @@ func TestExtractor_ArchitectureMultiTopicSubtopicsAreOptionalStructure(t *testin
 	}
 }
 
+func TestExtractor_MechanismCoverageObligationDoesNotForceSymbolSlate(t *testing.T) {
+	ir := &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			RawRequest:    "说明分析阶段重试机制，并覆盖 MaxRetriesPerStage、dynamicAnalyzeRetries、StageOutput/Error 的关系",
+			Intent:        types.IntentExplain,
+			Scenario:      types.ScenarioArchitectureExplain,
+			PredicateAxis: types.AxisCondition,
+			Predicates: types.SemanticPredicates{
+				IsCrossComponent: true,
+			},
+			SubTopics: []types.SubTopic{
+				{Summary: "retry budget", Entities: []string{"MaxRetriesPerStage", "dynamicAnalyzeRetries"}},
+				{Summary: "stage output", Entities: []string{"StageOutput", "Error"}},
+			},
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+			CompletenessObligation: &types.CompletenessObligation{
+				Required:    true,
+				SourceQuote: "覆盖 MaxRetriesPerStage、dynamicAnalyzeRetries、StageOutput/Error 的关系",
+			},
+		},
+		AnswerContract: types.AnswerContract{},
+	}
+	mut := types.NewMutableState("q")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ReadFiles: []string{"internal/orchestrator/orchestrator.go"}})
+	ctx := &types.AgentContext{AnalysisIR: ir, Mutable: mut}
+
+	if got := types.ResolveQuestionFamily(ir.RequestModel); got != types.QFGeneric {
+		t.Fatalf("coverage-only mechanism obligation routed to %s, want generic", got)
+	}
+	if types.IRAllowsAnchorSkeleton(ir) {
+		t.Fatal("coverage-only mechanism sub-topics must not activate anchor skeleton")
+	}
+	if needsAnswerSymbols(ctx) {
+		t.Fatal("coverage-only mechanism obligation must not force emit_answer_symbol")
+	}
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "does NOT require `emit_answer_symbol`") {
+		t.Fatalf("prompt should explicitly disable answer-symbol slate:\n%s", prompt)
+	}
+	if contains(prompt, "## Anchor skeleton") ||
+		contains(prompt, "For each, call emit_answer_symbol with ONE anchor symbol") ||
+		contains(prompt, "from analyzer-resolved sub-topic count") {
+		t.Fatalf("coverage-only mechanism prompt must not surface anchor skeleton pressure:\n%s", prompt)
+	}
+}
+
 func TestExtractor_MultiTopicExplanationPromptReusesCompiledAnchorBackbone(t *testing.T) {
 	ir := &types.AnalysisIR{
 		RequestModel: types.RequestModel{

@@ -115,6 +115,9 @@ func (v *AnswerSemanticView) AllowsAnchorSkeleton(rm RequestModel) bool {
 	if rm.Predicates.IsScalarAnswer || IsScalarSourceLiteralLookup(rm) {
 		return false
 	}
+	if IsSingleTopicMechanismExplanation(rm) {
+		return false
+	}
 	return len(rm.SubTopics) > 1
 }
 

@@ -174,6 +174,69 @@ func RequiresRelationMemberSetHandoff(rm RequestModel) bool {
 		rm.Predicates.IsCountQuestion
 }
 
+// CompletenessObligationIsMechanismCoverageOnly reports whether an active
+// completeness obligation should be interpreted as "cover these mechanism
+// facets in the explanation" rather than "emit a closed principal member set".
+//
+// The distinction is intentionally typed-only. Mechanism explanations often
+// contain wording like "must explain A, B, and their relationship"; analyzer
+// records that as CompletenessObligation because the quoted phrase is real, but
+// downstream stages must not turn those participants into an enumeration table.
+// True set boundaries still win through category/count/relation/bucket/count
+// signals.
+func CompletenessObligationIsMechanismCoverageOnly(rm RequestModel) bool {
+	if !rm.CompletenessObligation.IsActive() {
+		return false
+	}
+	if rm.Intent != IntentExplain {
+		return false
+	}
+	if rm.EnumerationBoundary != nil && rm.EnumerationBoundary.DeclaredCount > 0 {
+		return false
+	}
+	if len(rm.QuestionStructure().Buckets) >= 2 {
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsDiagnosticQuestion {
+		return false
+	}
+	switch rm.PredicateAxis {
+	case AxisCondition, AxisCall, AxisRegister:
+		return true
+	}
+	switch NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case ReqMechanism, ReqConditional, ReqRegistration:
+		return true
+	default:
+		return false
+	}
+}
+
+// HasPrincipalAnswerSetObligation reports whether the request carries a typed
+// obligation that should shape the final answer as a closed principal set.
+// Coverage-only mechanism obligations remain advisory coverage requirements:
+// they must be preserved for finalizer context, but they must not activate
+// enumeration family routing, answer-symbol slates, or deterministic row
+// compilers.
+func HasPrincipalAnswerSetObligation(rm RequestModel) bool {
+	view := rm.QuestionStructure()
+	if view.EnumerationBoundary != nil && view.EnumerationBoundary.DeclaredCount > 0 {
+		return true
+	}
+	if len(view.Buckets) >= 2 {
+		return true
+	}
+	if view.CompletenessObligation.IsActive() {
+		return !CompletenessObligationIsMechanismCoverageOnly(rm)
+	}
+	return false
+}
+
 // HistoryLookupPrefersVCSNarrativePrincipal reports whether repository history
 // metadata should be the principal evidence lane and current source files should
 // remain optional support.
@@ -505,10 +568,11 @@ func IsSingleTopicMechanismExplanation(rm RequestModel) bool {
 		rm.Predicates.IsDiagnosticQuestion {
 		return false
 	}
-	if len(rm.SubTopics) > 1 || HasNonEmptyAmbiguity(rm) {
+	if HasPrincipalAnswerSetObligation(rm) ||
+		(rm.EnumerationBoundary != nil && rm.EnumerationBoundary.DeclaredCount > 0) {
 		return false
 	}
-	if rm.QuestionStructure().HasAnyObligation() {
+	if HasNonEmptyAmbiguity(rm) {
 		return false
 	}
 	switch rm.PredicateAxis {

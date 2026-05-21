@@ -325,6 +325,42 @@ func TestResolveQuestionFamily_SingleTopicMechanismExplainUsesGeneric(t *testing
 	}
 }
 
+func TestResolveQuestionFamily_MechanismParticipantsDoNotRouteToComparison(t *testing.T) {
+	rm := RequestModel{
+		RawRequest:    "读取代码说明 runTaskGraph 下 analyze 阶段如果一直没有调用 emit_analysis 会怎样重试；必须说明 MaxRetriesPerStage、dynamicAnalyzeRetries、StageOutput/Error 的关系，并说明系统是否会静默使用零值 AnalysisIR。",
+		Intent:        IntentExplain,
+		Scenario:      ScenarioArchitectureExplain,
+		PredicateAxis: AxisCondition,
+		Predicates: SemanticPredicates{
+			IsCrossComponent: true,
+		},
+		SubTopics: []SubTopic{
+			{Summary: "retry budget", Entities: []string{"MaxRetriesPerStage", "dynamicAnalyzeRetries"}},
+			{Summary: "stage output", Entities: []string{"StageOutput", "Error", "AnalysisIR"}},
+			{Summary: "entry point", Entities: []string{"runTaskGraph"}},
+		},
+		AnalyzerHints: AnalyzerHints{
+			Kind: string(ReqMechanism),
+			MentionedEntities: []string{
+				"runTaskGraph",
+				"emit_analysis",
+				"MaxRetriesPerStage",
+				"dynamicAnalyzeRetries",
+				"StageOutput",
+				"Error",
+				"AnalysisIR",
+			},
+		},
+		CompletenessObligation: &CompletenessObligation{
+			Required:    true,
+			SourceQuote: "必须说明 MaxRetriesPerStage、dynamicAnalyzeRetries、StageOutput/Error 的关系",
+		},
+	}
+	if got := ResolveQuestionFamily(rm); got != QFGeneric {
+		t.Errorf("mechanism participant list routed to %q, want QFGeneric", got)
+	}
+}
+
 func TestResolveQuestionFamily_GenericFallthrough(t *testing.T) {
 	// No intent / no scenario / no subject / no obligation → generic.
 	rm := RequestModel{}
