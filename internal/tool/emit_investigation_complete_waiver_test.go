@@ -129,6 +129,32 @@ func TestEmitInvestigationComplete_WaiverStoredOnAcceptance(t *testing.T) {
 	}
 }
 
+func TestEmitInvestigationComplete_AcceptedCompletionClearsBypassedPendingReads(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.EvidenceClosure().AddPendingRead(types.PendingRead{
+		File:      "internal/agent/analyzer.go",
+		Origin:    "pre_complete.support_tail",
+		Rationale: "support-only stale forced-read",
+		Stage:     "explore",
+	})
+	params := `{
+		"reason":"log content is sufficient; repo grounding would be misleading",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"evidence_floor_waiver":{
+			"reason":"external_only_log",
+			"rationale":"log frames reference services not in this repo"
+		}
+	}`
+	res := runEIC(t, mut, params)
+	if !res.Success {
+		t.Fatalf("waiver-backed accepted completion should succeed, got Summary=%q", res.Summary)
+	}
+	if got := mut.EvidenceClosure().PendingReads(); len(got) != 0 {
+		t.Fatalf("accepted completion must clear stale pending forced-reads, got %+v", got)
+	}
+}
+
 func TestEmitInvestigationComplete_IgnoresWaiverForPureVCSHistory(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{

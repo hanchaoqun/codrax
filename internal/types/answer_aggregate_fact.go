@@ -166,11 +166,13 @@ const (
 // NormalizeAnswerAggregateFacts validates and canonicalizes aggregate
 // facts emitted by the model. The checks are structural only: closed
 // kind enum, required label/value, bounded list sizes, and whitespace
-// trimming. They do not infer or repair values from evidence. The one
-// derived canonicalization is member_set.value: when the model emitted
-// the complete members array but omitted a value, or emitted a numeric
-// value that drifted from the array length, value is set to len(members)
-// from that same model-authored structured payload.
+// trimming. They do not infer or repair values from evidence. The derived
+// cardinality canonicalization is limited to structured exact-member carriers:
+// member_set.value is derived from members, and grouped_count / bucket_count
+// may derive a missing value from their own members when the model clearly used
+// them as a per-group/per-bucket exact-member carrier. total_count and
+// unique_count still require explicit values because their members can be
+// samples rather than the full measured set.
 func NormalizeAnswerAggregateFacts(in []AnswerAggregateFact) ([]AnswerAggregateFact, error) {
 	if len(in) == 0 {
 		return nil, nil
@@ -1946,10 +1948,22 @@ func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact,
 		}
 		fact.Label = normalizeAggregateMemberSetLabelCardinality(fact.Label, len(fact.Members))
 	}
+	if aggregateCountCanDeriveValueFromMembers(fact.Kind) && fact.Value == "" && len(fact.Members) > 0 {
+		fact.Value = strconv.Itoa(len(fact.Members))
+	}
 	if fact.Value == "" {
 		return AnswerAggregateFact{}, fmt.Errorf("value is required")
 	}
 	return fact, nil
+}
+
+func aggregateCountCanDeriveValueFromMembers(kind AnswerAggregateKind) bool {
+	switch kind {
+	case AnswerAggregateGroupedCount, AnswerAggregateBucketCount:
+		return true
+	default:
+		return false
+	}
 }
 
 func normalizeAggregateFactOriginDimensions(fact AnswerAggregateFact) []AnswerAggregateDimension {

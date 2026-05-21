@@ -1043,6 +1043,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 		m.EvidenceClosure().MergeFrom(closure)
 	}
 	if investigationComplete {
+		m.EvidenceClosure().ClearPendingReads()
 		m.EvidenceClosure().ClearRepairs()
 	}
 }

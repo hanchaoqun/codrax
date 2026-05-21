@@ -996,6 +996,21 @@ func TestNormalizeAnswerAggregateFacts_NonMemberSetStillRequiresValue(t *testing
 	}
 }
 
+func TestNormalizeAnswerAggregateFacts_DerivesBucketCountValueFromMembers(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:    AnswerAggregateBucketCount,
+		Label:   "runAnalyzePhase 成功条件",
+		Unit:    "条件项",
+		Members: []string{"err == nil", "out != nil", "out.Error == \"\"", "out.AnalysisIR != nil"},
+	}})
+	if err != nil {
+		t.Fatalf("bucket_count with exact members should derive value: %v", err)
+	}
+	if len(got) != 1 || got[0].Value != "4" {
+		t.Fatalf("bucket_count value = %+v, want derived value 4", got)
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_AcceptsGroupedAndBucketCounts(t *testing.T) {
 	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{
 		{

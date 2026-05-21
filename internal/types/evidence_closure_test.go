@@ -339,9 +339,18 @@ func TestMergeExploreFork_AcceptedCompletionClearsSiblingRepairs(t *testing.T) {
 		Origin:    "pre_complete.call_chain_principal_span",
 		Stage:     "explore",
 	})
+	blocked.EvidenceClosure().AddPendingRead(PendingRead{
+		File:      "internal/agent/analyzer.go",
+		Origin:    "pre_complete.call_chain_principal_span",
+		Rationale: "stale sibling forced-read",
+		Stage:     "explore",
+	})
 	parent.MergeExploreFork(blocked)
 	if got := parent.EvidenceClosure().ActiveRepairs(); len(got) == 0 {
 		t.Fatalf("blocking sibling repair should be active before accepted completion")
+	}
+	if got := parent.EvidenceClosure().PendingReads(); len(got) == 0 {
+		t.Fatalf("blocking sibling pending read should be active before accepted completion")
 	}
 
 	complete := parent.ForkForExploreDispatch()
@@ -353,6 +362,9 @@ func TestMergeExploreFork_AcceptedCompletionClearsSiblingRepairs(t *testing.T) {
 	}
 	if got := parent.EvidenceClosure().PendingRepairs(); len(got) != 0 {
 		t.Fatalf("accepted parallel completion must clear repair ledger, got %+v", got)
+	}
+	if got := parent.EvidenceClosure().PendingReads(); len(got) != 0 {
+		t.Fatalf("accepted parallel completion must clear stale sibling pending reads, got %+v", got)
 	}
 }
 

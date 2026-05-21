@@ -105,7 +105,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"value": {
 							"type": "string",
-							"description": "Exact value to preserve. For count kinds use a non-negative integer string such as \"0\", \"3\", or \"12\"; put words like files/locations in unit. For kind=negative_search or kind=negative_observation, value must be \"0\". For kind=member_set only, this may be omitted when members is the complete exact set."
+							"description": "Exact value to preserve. For count kinds use a non-negative integer string such as \"0\", \"3\", or \"12\"; put words like files/locations in unit. For kind=negative_search or kind=negative_observation, value must be \"0\". For kind=member_set this may be omitted when members is the complete exact set; for grouped_count/bucket_count it may also be omitted when members is the exact group/bucket member set. total_count/unique_count require explicit value because their members can be examples."
 						},
 						"role": {
 							"type": "string",
@@ -1189,6 +1189,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	ctx.Mutable.SetInvestigationResultKind(resultKind)
 	ctx.Mutable.RetainInvestigationAggregateFacts()
 	ctx.Mutable.RetainEvidenceFloorWaiver()
+	if drained := ctx.Mutable.EvidenceClosure().ClearPendingReads(); drained > 0 {
+		logging.Info("[emit_investigation_complete] cleared %d stale pending forced-read directive(s) after accepted completion", drained)
+	}
 	if drained := ctx.Mutable.EvidenceClosure().ClearRepairs(); drained > 0 {
 		logging.Info("[emit_investigation_complete] cleared %d stale repair directive(s) after accepted completion", drained)
 	}

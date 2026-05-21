@@ -695,6 +695,35 @@ func TestEmitInvestigationComplete_DropsOptionalInvalidAggregateFactsOnNarrative
 	}
 }
 
+func TestEmitInvestigationComplete_DerivesBucketCountValueFromMembers(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"bucket members fully describe the analyze success conditions",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"bucket_count",
+			"label":"runAnalyzePhase 成功条件",
+			"unit":"条件项",
+			"members":["err == nil","out != nil","out.Error == \"\"","out.AnalysisIR != nil"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("bucket_count with exact members should not force JSON repair: %s", res.Summary)
+	}
+	got := mut.StableInvestigationAggregateFacts()
+	if len(got) != 1 || got[0].Value != "4" {
+		t.Fatalf("stable bucket_count = %+v, want value derived from 4 members", got)
+	}
+}
+
 func TestEmitInvestigationComplete_DropsOptionalUnsupportedDecoratedMemberSetAfterDemotion(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{
