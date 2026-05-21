@@ -4595,6 +4595,7 @@ type AgentContext struct {
 	AnswerSymbolCompleteness CompletenessClaim `json:"answer_symbol_completeness,omitempty"`
 	RelevantToolSummaries    []string          `json:"relevant_tool_summaries,omitempty"`
 	RelevantMCPNotes         []string          `json:"relevant_mcp_notes,omitempty"`
+	MCPResponses             []MCPResponse     `json:"-"`
 	PriorReports             []StageReport     `json:"prior_reports,omitempty"`
 
 	// UnverifiedAnalyzerFindings is populated from

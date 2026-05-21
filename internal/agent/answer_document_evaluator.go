@@ -463,6 +463,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "observation_ledger", func() string {
+		return renderAnswerDocObservationLedger(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "accepted_closure", func() string {
 		return renderAnswerDocAcceptedClosure(ctx)
 	}) {
@@ -3547,6 +3552,228 @@ func renderAnswerDocClaimBindings(ctx *types.AgentContext) string {
 	return b.String()
 }
 
+const answerDocObservationLedgerPromptLimit = 18
+
+func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
+	ledger := answerDocObservationLedger(ctx)
+	if ledger.Empty() {
+		return ""
+	}
+	records := prioritizedObservationLedgerRecords(ledger.Records, answerDocObservationLedgerPromptLimit)
+	if len(records) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Observation Ledger\n\n")
+	b.WriteString("- This is a compact typed view of accepted observations from exploration: current source evidence, structured aggregate facts, VCS/diff or command tool banners, runtime artifacts, and MCP resources.\n")
+	b.WriteString("- It is read-only context for answer writing. Do not turn non-`current_source` observations into source `file:line` citation requirements; use them as their own origin-specific support and disclose boundaries when needed.\n")
+	b.WriteString("- Prefer these origin/role/policy fields over raw tool-output shape when deciding whether a fact is principal, repairable, support-only, negative, or citation-bearing.\n\n")
+	if len(ledger.Records) > len(records) {
+		fmt.Fprintf(&b, "*(showing %d prioritized record(s) of %d total)*\n\n", len(records), len(ledger.Records))
+	}
+	for _, record := range records {
+		fmt.Fprintf(&b,
+			"- `%s`: origin=`%s`; source=`%s`; role=`%s`; policy=`%s`",
+			record.ID,
+			record.Origin,
+			renderAnswerDocObservationSource(record.SourceRef),
+			record.Role,
+			record.GroundingPolicy,
+		)
+		if span := renderAnswerDocObservationSpan(record.Span); span != "" {
+			fmt.Fprintf(&b, "; span=%s", span)
+		}
+		if claim := strings.TrimSpace(record.ClaimKey); claim != "" {
+			fmt.Fprintf(&b, "; claim=%q", claim)
+		}
+		if record.Negative {
+			b.WriteString("; negative=true")
+		}
+		if record.ResultCount != nil {
+			fmt.Fprintf(&b, "; result_count=%d", *record.ResultCount)
+		}
+		if value := strings.TrimSpace(record.Value); value != "" {
+			fmt.Fprintf(&b, "; value=%q", truncateAnswerDocPromptText(value, 120))
+		}
+		if summary := strings.TrimSpace(record.Summary); summary != "" {
+			fmt.Fprintf(&b, "; summary=%q", truncateAnswerDocPromptText(summary, 180))
+		}
+		if len(record.RichNotes) > 0 {
+			fmt.Fprintf(&b, "; notes=%s", renderAnswerDocObservationNotes(record.RichNotes, 2))
+		}
+		if len(record.SupportRefs) > 0 {
+			fmt.Fprintf(&b, "; support_refs=%d", len(record.SupportRefs))
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func answerDocObservationLedger(ctx *types.AgentContext) types.ObservationLedger {
+	if ctx == nil {
+		return types.ObservationLedger{}
+	}
+	var (
+		requestModel   *types.RequestModel
+		answerContract *types.AnswerContract
+		logBundle      *types.LogBundle
+		perfBundle     *types.PerfBundle
+	)
+	if ctx.AnalysisIR != nil {
+		requestModel = &ctx.AnalysisIR.RequestModel
+		answerContract = &ctx.AnalysisIR.AnswerContract
+		logBundle = ctx.AnalysisIR.RequestModel.LogTriage
+		perfBundle = ctx.AnalysisIR.RequestModel.PerfTrace
+	}
+	var toolResults []types.ToolResult
+	if ctx.Mutable != nil {
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			toolResults = append(toolResults, ta.ToolResults...)
+		}
+	}
+	return types.CompileObservationLedger(types.ObservationLedgerInput{
+		EvidenceItems:  answerDocTypedEnrichmentEvidencePool(ctx, 64),
+		AggregateFacts: answerDocStableAggregateFacts(ctx),
+		ToolResults:    toolResults,
+		LogBundle:      logBundle,
+		PerfBundle:     perfBundle,
+		MCPResponses:   append([]types.MCPResponse(nil), ctx.MCPResponses...),
+		RequestModel:   requestModel,
+		AnswerContract: answerContract,
+	})
+}
+
+func prioritizedObservationLedgerRecords(records []types.ObservationRecord, limit int) []types.ObservationRecord {
+	if limit <= 0 || len(records) == 0 {
+		return nil
+	}
+	out := append([]types.ObservationRecord(nil), records...)
+	sort.SliceStable(out, func(i, j int) bool {
+		return observationLedgerRecordRank(out[i]) < observationLedgerRecordRank(out[j])
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+func observationLedgerRecordRank(record types.ObservationRecord) int {
+	rank := 50
+	if record.Role == types.AnswerAggregateRolePrincipalAnswer {
+		rank -= 25
+	}
+	switch record.Origin {
+	case types.AnswerEvidenceOriginCurrentSource:
+		rank -= 8
+	case types.AnswerEvidenceOriginVCSMetadata, types.AnswerEvidenceOriginVCSDiff:
+		rank -= 6
+	case types.AnswerEvidenceOriginRuntimeArtifact, types.AnswerEvidenceOriginCommandMeasurement:
+		rank -= 5
+	case types.AnswerEvidenceOriginRepoNegativeSearch:
+		rank -= 4
+	}
+	if record.Negative {
+		rank -= 3
+	}
+	if strings.TrimSpace(record.Summary) != "" {
+		rank -= 2
+	}
+	return rank
+}
+
+func renderAnswerDocObservationSource(ref types.ObservationSourceRef) string {
+	parts := make([]string, 0, 4)
+	if ref.Kind != types.ObservationSourceUnknown {
+		parts = append(parts, string(ref.Kind))
+	}
+	for _, value := range []string{
+		ref.Repo,
+		ref.Path,
+		ref.Commit,
+		ref.Range,
+		ref.Pathspec,
+		ref.Command,
+		ref.RawRef,
+		ref.ArtifactID,
+		ref.ArtifactKind,
+		ref.URL,
+		ref.Server,
+		ref.ResourceURI,
+		ref.Connector,
+	} {
+		if value = strings.TrimSpace(value); value != "" {
+			parts = append(parts, truncateAnswerDocPromptText(value, 90))
+		}
+	}
+	if len(parts) == 0 {
+		return "unknown"
+	}
+	return strings.Join(parts, " | ")
+}
+
+func renderAnswerDocObservationSpan(span types.ObservationSpan) string {
+	parts := make([]string, 0, 4)
+	if span.LineStart > 0 {
+		if span.LineEnd > 0 && span.LineEnd != span.LineStart {
+			parts = append(parts, fmt.Sprintf("lines %d-%d", span.LineStart, span.LineEnd))
+		} else {
+			parts = append(parts, fmt.Sprintf("line %d", span.LineStart))
+		}
+	}
+	if span.OldLine > 0 {
+		parts = append(parts, fmt.Sprintf("old_line %d", span.OldLine))
+	}
+	if span.NewLine > 0 {
+		parts = append(parts, fmt.Sprintf("new_line %d", span.NewLine))
+	}
+	if span.HunkHeader != "" {
+		parts = append(parts, fmt.Sprintf("hunk %q", truncateAnswerDocPromptText(span.HunkHeader, 80)))
+	}
+	if span.Row > 0 {
+		parts = append(parts, fmt.Sprintf("row %d", span.Row))
+	}
+	if span.StartTsMs != 0 || span.EndTsMs != 0 {
+		parts = append(parts, fmt.Sprintf("%.3f-%.3fms", span.StartTsMs, span.EndTsMs))
+	}
+	if span.Selector != "" {
+		parts = append(parts, fmt.Sprintf("selector %q", truncateAnswerDocPromptText(span.Selector, 80)))
+	}
+	if span.JSONPointer != "" {
+		parts = append(parts, fmt.Sprintf("json %q", truncateAnswerDocPromptText(span.JSONPointer, 80)))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func renderAnswerDocObservationNotes(notes []string, limit int) string {
+	if limit <= 0 || len(notes) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, limit)
+	seen := make(map[string]struct{}, limit)
+	for _, note := range notes {
+		note = truncateAnswerDocPromptText(note, 160)
+		if note == "" {
+			continue
+		}
+		if _, ok := seen[note]; ok {
+			continue
+		}
+		seen[note] = struct{}{}
+		parts = append(parts, fmt.Sprintf("%q", note))
+		if len(parts) >= limit {
+			break
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	if len(notes) > len(parts) {
+		parts = append(parts, fmt.Sprintf("... +%d", len(notes)-len(parts)))
+	}
+	return strings.Join(parts, ", ")
+}
+
 func renderAnswerIntentOrigins(origins []types.AnswerEvidenceOrigin) string {
 	if len(origins) == 0 {
 		return "(none)"
@@ -4011,6 +4238,11 @@ func answerDocTypedEnrichmentEvidencePool(ctx *types.AgentContext, limit int) []
 	// deduplicated truth set. Prefer it over raw Mutable emissions; the
 	// latter is only a backstop for unusual tests or partial contexts.
 	addGroup(ctx.EvidenceItems)
+	if ctx.Mutable != nil && len(out) < limit {
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			addGroup(ta.EvidenceItems)
+		}
+	}
 	if ctx.Mutable != nil && len(out) < limit {
 		addGroup(ctx.Mutable.EmittedEvidence())
 	}

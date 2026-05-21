@@ -156,6 +156,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 
 		// Collect MCP notes
 		ac.RelevantMCPNotes = extractMCPNotes(bus.MCPResponses)
+		ac.MCPResponses = append([]types.MCPResponse(nil), bus.MCPResponses...)
 
 		// Carry forward all prior stage reports so this agent can read
 		// what earlier stages concluded instead of re-deriving it from

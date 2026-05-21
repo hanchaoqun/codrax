@@ -203,3 +203,108 @@ func TestRenderAnswerDocClaimBindings_RuntimeArtifactWithoutAggregateFacts(t *te
 		t.Fatalf("runtime artifact binding should not render a fake aggregate_facts index:\n%s", got)
 	}
 }
+
+func TestRenderAnswerDocObservationLedger_RendersVCSNarrativeAsOriginSpecificSupport(t *testing.T) {
+	mut := types.NewMutableState("latest feature")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "git_log",
+		Success:  true,
+		Summary:  "[git_log: evidence_origin=vcs_metadata count=1]\nabc123 Add observation ledger feature and preserve downstream impact notes",
+	}}})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup: true,
+				},
+			},
+		},
+	}
+	got := renderAnswerDocObservationLedger(ctx)
+	for _, want := range []string{
+		"## Observation Ledger",
+		"`tool:0#vcs_metadata`",
+		"origin=`vcs_metadata`",
+		"policy=`soft`",
+		"abc123 Add observation ledger feature",
+		"Do not turn non-`current_source` observations into source `file:line` citation requirements",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("observation ledger prompt missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "value=\"abc123\"") {
+		t.Fatalf("history narrative ledger must not collapse the answer to a scalar commit id:\n%s", got)
+	}
+}
+
+func TestRenderAnswerDocObservationLedger_KeepsDiffAndCurrentSourceSeparate(t *testing.T) {
+	mut := types.NewMutableState("diff plus current source")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{{
+			ToolName: "git_diff",
+			Success:  true,
+			Summary:  "[git_diff: diff_origin=vcs_diff]\ndiff shows scheduler hook was added",
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			ID:           "current",
+			Source:       "internal/scheduler.go",
+			LineStart:    42,
+			Summary:      "current source still routes scheduler hooks through Run",
+			Salience:     types.SalienceLoadBearing,
+			AnchorSymbol: "Run",
+		}},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup: true,
+				},
+			},
+		},
+	}
+	got := renderAnswerDocObservationLedger(ctx)
+	for _, want := range []string{
+		"`evidence:current`: origin=`current_source`",
+		"internal/scheduler.go",
+		"span=line 42",
+		"`tool:0#vcs_diff`: origin=`vcs_diff`",
+		"diff shows scheduler hook was added",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("mixed source/diff ledger prompt missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderAnswerDocObservationLedger_RendersMCPResourceWithoutRepoCitationPressure(t *testing.T) {
+	ctx := &types.AgentContext{
+		MCPResponses: []types.MCPResponse{{
+			ServerName: "issues",
+			Method:     "read_resource",
+			Success:    true,
+			Summary:    "release note says the regression was fixed in build 17",
+			RawRef:     "mcp://issues/17",
+		}},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentExplain},
+		},
+	}
+	got := renderAnswerDocObservationLedger(ctx)
+	for _, want := range []string{
+		"`mcp:0`",
+		"origin=`mcp_resource`",
+		"source=`mcp_resource | mcp://issues/17 | issues`",
+		"release note says the regression",
+		"non-`current_source` observations",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("MCP observation ledger prompt missing %q:\n%s", want, got)
+		}
+	}
+}

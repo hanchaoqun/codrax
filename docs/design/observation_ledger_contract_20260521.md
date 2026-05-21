@@ -112,6 +112,21 @@ Questions like “基于历史 diff + 当前代码分析影响” need both `vcs
 
 Earlier audits found failed or downgraded closure payloads could leak into later context. A ledger must record only accepted producer outputs, with provenance state (`accepted`, `rejected`, `diagnostic_only`) explicit.
 
+### G11. External Observation Paging And Local Anchors
+
+Current command/git tools already store large output through the blob mechanism and
+return `ToolResult.RawRef`; attached log/trace triage can page the artifact blob
+with `read_file`. The new ledger type can express this through
+`ObservationSourceRef.RawRef` plus `ObservationSpan` fields (`line_start`,
+`line_end`, `row`, `json_pointer`, `paragraph`, `text_range`, time spans).
+
+The remaining gap is end-to-end uniformity: future MCP/web/connector producers, and
+some existing non-code observations, must materialize large external payloads into
+the same blob-backed paging surface and carry stable local coordinates. Otherwise
+the finalizer can know that an external observation exists, but exploration cannot
+reliably page to line/row N or cite an artifact-local coordinate when the user asks
+"第几行/第几个/哪个字段".
+
 ## 5. Target Architecture
 
 ### 5.1 Core Type
@@ -159,6 +174,13 @@ type ObservationRecord struct {
 - web page: `url`, `fetched_at`, `paragraph`, `selector`, `text_range`;
 - MCP resource: `server`, `resource_uri`, `mime_type`, `json_pointer` / `row` / `line`.
 
+Every non-inline external producer that may exceed prompt budget should also expose
+a blob/page handle in `SourceRef.RawRef` (or an equivalent resource URI that a
+future paging tool can dereference) and an artifact-local coordinate in
+`ObservationSpan` when the source has lines, rows, JSON pointers, paragraphs, or
+trace timestamps. These spans are external-resource coordinates, not current-repo
+citations.
+
 ### 5.2 Compiler
 
 Add a side-effect-free compiler:
@@ -199,6 +221,22 @@ Downstream stages should consume `ObservationLedger` first:
 2. Pre-emit and reviewer read the same ledger, so they do not independently infer origin/gate policy.
 3. `citations[]` remains current-source only. Non-source observations use `citation_ref=-1` and visible provenance prose, or a future separate artifact/reference panel.
 4. System supplements may add missing ledger-derived details only in clearly marked sections; they must not replace or rewrite model-authored rich answer blocks.
+
+### 5.5 External Paging Contract
+
+External observations have two layers:
+
+1. **Discovery summary**: compact `Summary` / `RichNotes` in the ledger so the
+   finalizer can answer without rereading large payloads.
+2. **Paged backing artifact**: a stable `RawRef` / resource URI plus local
+   `ObservationSpan` so exploration can fetch more bytes when the user asks for
+   exact lines, neighboring context, table rows, JSON fields, trace windows, or a
+   second pass over a large git/log/trace/web/MCP result.
+
+Short-term implementation reuses existing tool blobs and `read_file` pagination
+for command/git/log/trace files. Long-term implementation should add a typed
+external-resource paging adapter rather than teaching every producer a private
+pagination format.
 
 ## 6. End-To-End Data Flow
 
@@ -245,18 +283,35 @@ flowchart TD
 
 ### Batch 3 — Finalizer / Reviewer Consumption
 
-- [ ] Render a compact `Observation Ledger` prompt section before raw tool output.
+- [x] Render a compact `Observation Ledger` prompt section before raw tool output.
 - [ ] Update claim binding rendering to point at ledger record IDs where possible.
-- [ ] Keep raw tool output as fallback/audit, not principal interpretation.
+- [x] Keep raw tool output as fallback/audit, not principal interpretation.
 - [ ] Update semantic reviewer input to consume ledger summaries.
-- [ ] Add tests that a git feature-summary answer is not compressed to a commit hash.
+- [x] Add tests that a git feature-summary answer is not compressed to a commit hash.
 
 ### Batch 4 — MCP / Web Future-Proofing
 
 - [x] Compile `MCPResponse` into support-only ledger records when MCP is present.
 - [ ] Define future `web_page` record shape and span policy before any web-read tool lands.
+- [ ] Define a shared external-resource paging contract: producers store large
+  MCP/web/connector payloads in blob-backed resources, ledger records carry
+  `RawRef` / resource URI plus artifact-local spans, and paging never becomes a
+  current-source citation.
 - [ ] Add eval skeletons for MCP JSON field, MCP absent field, web paragraph fact, and web absent term.
 - [ ] Ensure external resource observations never import `internal/tool/ground` or enter repo citations.
+
+### Batch 4B — External Artifact Paging And Anchor Readiness
+
+- [ ] Audit every non-code producer (`git_log`, `git_show`, `git_diff`,
+  `exec_command`, attached log/trace, future MCP/web/connector) for whether large
+  payloads expose `RawRef` and whether exact local coordinates are recoverable.
+- [ ] Reuse the existing blob session + `read_file` paging path for large
+  command/git/log/trace outputs; do not invent a second storage mechanism.
+- [ ] Add tests that ledger records preserve `RawRef` for blob-backed command/git
+  output and preserve artifact-local line/row/JSON/time spans where available.
+- [ ] Add eval cases for "log line N", "trace window around event", "git diff hunk
+  around file", "MCP JSON field exists/absent", and "web paragraph contains/does
+  not contain term".
 
 ### Batch 5 — Gate Consolidation
 
@@ -298,3 +353,17 @@ flowchart TD
   result banners, log observations, perf observations, and support-only
   `MCPResponse` records. It remains read-only and is not consumed by prompts yet.
   Validation so far: `go test ./internal/types`.
+- 2026-05-21: Batch 3 partial completed: finalizer now receives a compact
+  read-only `Observation Ledger` section compiled from accepted Turn A evidence,
+  stable aggregate facts, typed VCS/diff/command tool-result banners,
+  log/perf bundles, and MCP responses carried on `AgentContext`. Raw tool output
+  remains a fallback/audit channel rather than the principal interpretation
+  channel. Regression tests cover VCS feature summaries not collapsing to a
+  scalar commit id, mixed diff+current-source lanes, and MCP resources avoiding
+  current-source citation pressure.
+- 2026-05-21: Added G11 / Batch 4B after design review: external git/log/trace,
+  command, MCP, web, and connector observations need a uniform blob-backed paging
+  and artifact-local anchor contract. Existing command/git blobs and attached
+  artifact paging are the reuse target; the missing work is making every
+  external producer expose a ledger `RawRef` / resource URI and local spans when
+  the source supports line/row/JSON/time coordinates.

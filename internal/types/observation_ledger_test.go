@@ -149,6 +149,9 @@ func TestCompileObservationLedger_CompilesExistingCarriers(t *testing.T) {
 	if got := findObservationRecord(t, ledger, "aggregate:0#vcs_metadata"); !got.Negative || got.ResultCount == nil || *got.ResultCount != 0 || got.Scope != "HEAD~10..HEAD" {
 		t.Fatalf("negative aggregate record not preserved: %+v", got)
 	}
+	if got := findObservationRecord(t, ledger, "tool:0#vcs_metadata"); got.Summary != "abc123 latest feature" {
+		t.Fatalf("tool ledger summary should skip typed banner line, got: %+v", got)
+	}
 	if len(input.EvidenceItems) != 1 || input.EvidenceItems[0].Summary != "source fact" {
 		t.Fatalf("compiler mutated input: %+v", input)
 	}

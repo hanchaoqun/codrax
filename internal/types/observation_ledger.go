@@ -277,7 +277,7 @@ func compileToolResultObservations(results []ToolResult, add func(ObservationRec
 					RawRef:     strings.TrimSpace(result.RawRef),
 				},
 				ClaimKey:   strings.TrimSpace(result.ToolName),
-				Summary:    firstLine(strings.TrimSpace(result.Summary)),
+				Summary:    firstNonBannerLine(result.Summary),
 				RawExcerpt: clippedObservationExcerpt(result.Summary),
 				ObservedAt: result.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
 			})
@@ -595,6 +595,20 @@ func firstLine(s string) string {
 		return strings.TrimSpace(s[:idx])
 	}
 	return strings.TrimSpace(s)
+}
+
+func firstNonBannerLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			continue
+		}
+		return line
+	}
+	return firstLine(s)
 }
 
 func clippedObservationExcerpt(s string) string {
