@@ -1,5 +1,11 @@
 package types
 
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
+
 // ObservationSourceKind names the physical namespace of an observation's source
 // reference. It is intentionally finer than AnswerEvidenceOrigin: an MCP
 // resource and a connector response may both be external-resource evidence, but
@@ -117,13 +123,34 @@ type ObservationLedgerInput struct {
 	AnswerContract *AnswerContract
 }
 
-// CompileObservationLedger is the Batch-1 no-op skeleton. Batch 2 will add
-// producer adapters for the existing carriers. Providing the API now lets tests
-// and downstream packages depend on the stable contract without changing prompt
-// behavior before the adapters are ready.
+// CompileObservationLedger projects accepted producer outputs into one read-only
+// ledger. It deliberately consumes structured fields and system-authored tool
+// origin banners only; raw user prose and model free text must not classify
+// records.
 func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
-	_ = input
-	return ObservationLedger{}
+	var out []ObservationRecord
+	add := func(record ObservationRecord) {
+		if record.Origin == AnswerEvidenceOriginUnknown || !record.Origin.IsValid() {
+			return
+		}
+		if record.ID == "" {
+			record.ID = fmt.Sprintf("obs:%03d", len(out)+1)
+		}
+		if record.SourceRef.Kind == ObservationSourceUnknown {
+			record.SourceRef.Kind = ObservationSourceKindForOrigin(record.Origin)
+		}
+		if record.GroundingPolicy == ClaimGroundingUnknown {
+			record.GroundingPolicy = AnswerClaimBindingGroundingPolicy(record.Origin, record.Role)
+		}
+		out = append(out, record)
+	}
+	compileEvidenceItemObservations(input.EvidenceItems, add)
+	compileAggregateFactObservations(input.AggregateFacts, input.RequestModel, add)
+	compileToolResultObservations(input.ToolResults, add)
+	compileLogBundleObservations(input.LogBundle, add)
+	compilePerfBundleObservations(input.PerfBundle, add)
+	compileMCPResponseObservations(input.MCPResponses, add)
+	return ObservationLedger{Records: out}
 }
 
 func ObservationSourceKindForOrigin(origin AnswerEvidenceOrigin) ObservationSourceKind {
@@ -153,4 +180,438 @@ func ObservationSourceKindForOrigin(origin AnswerEvidenceOrigin) ObservationSour
 	default:
 		return ObservationSourceUnknown
 	}
+}
+
+func compileEvidenceItemObservations(items []EvidenceItem, add func(ObservationRecord)) {
+	for i, ev := range items {
+		if strings.TrimSpace(ev.Source) == "" && strings.TrimSpace(ev.Summary) == "" {
+			continue
+		}
+		role := AnswerAggregateRoleSupportingCoverage
+		if ev.Salience == SalienceLoadBearing || ev.Salience == SalienceExhaustListed {
+			role = AnswerAggregateRolePrincipalAnswer
+		}
+		id := strings.TrimSpace(ev.ID)
+		if id == "" {
+			id = fmt.Sprintf("evidence:%d", i)
+		} else {
+			id = "evidence:" + id
+		}
+		add(ObservationRecord{
+			ID:              id,
+			Origin:          AnswerEvidenceOriginCurrentSource,
+			Producer:        firstNonEmptyString(ev.Producer, "evidence_item"),
+			Role:            role,
+			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginCurrentSource, role),
+			SourceRef: ObservationSourceRef{
+				Kind: ObservationSourceCurrentSource,
+				Path: strings.TrimSpace(ev.Source),
+			},
+			Span: ObservationSpan{
+				LineStart: ev.LineStart,
+				LineEnd:   ev.LineEnd,
+			},
+			ClaimKey:    firstNonEmptyString(ev.AnchorSymbol, ev.Subject, ev.ID),
+			Subject:     strings.TrimSpace(ev.Subject),
+			Predicate:   strings.TrimSpace(ev.Predicate),
+			Object:      strings.TrimSpace(ev.Object),
+			Summary:     strings.TrimSpace(ev.Summary),
+			RawExcerpt:  strings.TrimSpace(ev.Snippet),
+			SupportRefs: cloneStringSlice(ev.SurfaceTerms),
+			Confidence:  ev.Confidence,
+		})
+	}
+}
+
+func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestModel, add func(ObservationRecord)) {
+	for i, fact := range facts {
+		role := AnswerAggregateFactRoleForRequest(fact, rm)
+		origins := AnswerAggregateFactEvidenceOrigins(fact, rm)
+		if len(origins) == 0 {
+			origins = []AnswerEvidenceOrigin{AnswerEvidenceOriginCurrentSource}
+		}
+		dims := aggregateDimensionMap(fact.Dimensions)
+		for _, origin := range origins {
+			resultCount := aggregateFactResultCount(fact, dims)
+			add(ObservationRecord{
+				ID:              fmt.Sprintf("aggregate:%d#%s", i, origin),
+				Origin:          origin,
+				Producer:        firstNonEmptyString(fact.Provenance, "aggregate_facts"),
+				Role:            role,
+				GroundingPolicy: AnswerClaimBindingGroundingPolicy(origin, role),
+				SourceRef:       sourceRefForAggregateFact(origin, dims),
+				ClaimKey:        firstNonEmptyString(dims["target"], dims["query"], dims["pattern"], dims["predicate"], fact.Label),
+				Subject:         firstNonEmptyString(dims["target"], dims["query"], dims["pattern"], fact.Label),
+				Predicate:       dims["predicate"],
+				Value:           strings.TrimSpace(fact.Value),
+				Unit:            strings.TrimSpace(fact.Unit),
+				Negative:        fact.Kind == AnswerAggregateNegativeSearch || fact.Kind == AnswerAggregateNegativeObservation,
+				ResultCount:     resultCount,
+				Summary:         strings.TrimSpace(fact.Label),
+				RichNotes:       cloneStringSlice(fact.Members),
+				SupportRefs:     cloneStringSlice(fact.SupportRefs),
+				ObservedAt:      dims["searched_at"],
+				Scope:           dims["scope"],
+			})
+		}
+	}
+}
+
+func compileToolResultObservations(results []ToolResult, add func(ObservationRecord)) {
+	for i, result := range results {
+		if !result.Success {
+			continue
+		}
+		origins := toolResultEvidenceOrigins(result)
+		for _, origin := range origins {
+			role := AnswerAggregateRoleSupportingCoverage
+			add(ObservationRecord{
+				ID:              fmt.Sprintf("tool:%d#%s", i, origin),
+				Origin:          origin,
+				Producer:        strings.TrimSpace(result.ToolName),
+				Role:            role,
+				GroundingPolicy: AnswerClaimBindingGroundingPolicy(origin, role),
+				SourceRef: ObservationSourceRef{
+					Kind:       ObservationSourceKindForOrigin(origin),
+					ToolCallID: fmt.Sprintf("%s[%d]", strings.TrimSpace(result.ToolName), i),
+					RawRef:     strings.TrimSpace(result.RawRef),
+				},
+				ClaimKey:   strings.TrimSpace(result.ToolName),
+				Summary:    firstLine(strings.TrimSpace(result.Summary)),
+				RawExcerpt: clippedObservationExcerpt(result.Summary),
+				ObservedAt: result.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+			})
+		}
+	}
+}
+
+func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)) {
+	if bundle == nil {
+		return
+	}
+	var errIndex int
+	var walkErr func(LogError)
+	walkErr = func(err LogError) {
+		target := firstNonEmptyString(err.Type, err.Message)
+		if target != "" {
+			add(ObservationRecord{
+				ID:              fmt.Sprintf("log:error:%d", errIndex),
+				Origin:          AnswerEvidenceOriginRuntimeArtifact,
+				Producer:        "log_triage",
+				Role:            AnswerAggregateRolePrincipalAnswer,
+				GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
+				SourceRef: ObservationSourceRef{
+					Kind:         ObservationSourceRuntimeArtifact,
+					ArtifactKind: "log",
+				},
+				ClaimKey:    target,
+				Subject:     target,
+				Summary:     firstNonEmptyString(err.Message, err.Type),
+				SupportRefs: logFrameRawRefs(err.Frames),
+			})
+			errIndex++
+		}
+		if err.Cause != nil {
+			walkErr(*err.Cause)
+		}
+	}
+	for _, err := range bundle.Errors {
+		walkErr(err)
+	}
+	for i, obs := range bundle.Observations {
+		add(ObservationRecord{
+			ID:              fmt.Sprintf("log:observation:%d", i),
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "log_triage",
+			Role:            AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
+			SourceRef: ObservationSourceRef{
+				Kind:         ObservationSourceRuntimeArtifact,
+				ArtifactKind: "log",
+			},
+			Span: ObservationSpan{
+				LineStart: obs.LineStart,
+				LineEnd:   obs.LineEnd,
+			},
+			ClaimKey:   firstNonEmptyString(obs.Subject, string(obs.Kind)),
+			Subject:    strings.TrimSpace(obs.Subject),
+			Predicate:  string(obs.Kind),
+			Summary:    strings.TrimSpace(obs.Summary),
+			RawExcerpt: strings.TrimSpace(obs.Evidence),
+			Confidence: obs.Confidence,
+		})
+	}
+}
+
+func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecord)) {
+	if bundle == nil {
+		return
+	}
+	for i, frame := range bundle.Frames {
+		add(ObservationRecord{
+			ID:              fmt.Sprintf("perf:frame:%d", i),
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "perf_trace",
+			Role:            AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
+			SourceRef:       ObservationSourceRef{Kind: ObservationSourceRuntimeArtifact, ArtifactKind: firstNonEmptyString(bundle.Meta.Source, "trace")},
+			ClaimKey:        fmt.Sprintf("frame:%d", frame.FrameNo),
+			Subject:         fmt.Sprintf("frame %d", frame.FrameNo),
+			Value:           strconv.FormatFloat(frame.DurationMs, 'f', -1, 64),
+			Unit:            "ms",
+			Summary:         fmt.Sprintf("frame %d duration %gms", frame.FrameNo, frame.DurationMs),
+			ObservedAt:      strconv.FormatFloat(frame.TsMs, 'f', -1, 64),
+		})
+	}
+	for i, jank := range bundle.Janks {
+		add(ObservationRecord{
+			ID:              fmt.Sprintf("perf:jank:%d", i),
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "perf_trace",
+			Role:            AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
+			SourceRef:       ObservationSourceRef{Kind: ObservationSourceRuntimeArtifact, ArtifactKind: firstNonEmptyString(bundle.Meta.Source, "trace")},
+			Span: ObservationSpan{
+				StartTsMs: jank.StartTsMs,
+				EndTsMs:   jank.StartTsMs + jank.DurationMs,
+			},
+			ClaimKey:  firstNonEmptyString(jank.TriggerSpan, "jank"),
+			Subject:   firstNonEmptyString(jank.TriggerSpan, "jank"),
+			Predicate: "duration",
+			Value:     strconv.FormatFloat(jank.DurationMs, 'f', -1, 64),
+			Unit:      "ms",
+			Summary:   firstNonEmptyString(jank.Reason, "observed jank"),
+			RichNotes: cloneStringSlice(jank.Tags),
+		})
+	}
+	for i, stall := range bundle.Stalls {
+		add(ObservationRecord{
+			ID:              fmt.Sprintf("perf:stall:%d", i),
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "perf_trace",
+			Role:            AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
+			SourceRef: ObservationSourceRef{
+				Kind:         ObservationSourceRuntimeArtifact,
+				ArtifactKind: firstNonEmptyString(bundle.Meta.Source, "trace"),
+				Path:         strings.TrimSpace(stall.File),
+			},
+			Span: ObservationSpan{
+				LineStart: stall.Line,
+				StartTsMs: stall.StartTsMs,
+				EndTsMs:   stall.StartTsMs + stall.DurationMs,
+			},
+			ClaimKey:  firstNonEmptyString(stall.Symbol, stall.Kind, "stall"),
+			Subject:   firstNonEmptyString(stall.Symbol, stall.Kind, "stall"),
+			Predicate: "duration",
+			Value:     strconv.FormatFloat(stall.DurationMs, 'f', -1, 64),
+			Unit:      "ms",
+			Summary:   firstNonEmptyString(stall.Kind, "observed stall"),
+		})
+	}
+	if bundle.Startup != nil {
+		add(ObservationRecord{
+			ID:              "perf:startup",
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "perf_trace",
+			Role:            AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
+			SourceRef:       ObservationSourceRef{Kind: ObservationSourceRuntimeArtifact, ArtifactKind: firstNonEmptyString(bundle.Meta.Source, "trace")},
+			ClaimKey:        firstNonEmptyString(bundle.Startup.Mode, "startup"),
+			Subject:         firstNonEmptyString(bundle.Startup.Mode, "startup"),
+			Predicate:       "launch_duration",
+			Value:           strconv.FormatFloat(bundle.Startup.AppLaunchMs, 'f', -1, 64),
+			Unit:            "ms",
+			Summary:         firstNonEmptyString(bundle.Meta.Summary, "startup timing"),
+		})
+	}
+	for i, obs := range bundle.Observations {
+		add(ObservationRecord{
+			ID:              fmt.Sprintf("perf:observation:%d", i),
+			Origin:          AnswerEvidenceOriginRuntimeArtifact,
+			Producer:        "perf_trace",
+			Role:            AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
+			SourceRef:       ObservationSourceRef{Kind: ObservationSourceRuntimeArtifact, ArtifactKind: firstNonEmptyString(bundle.Meta.Source, "trace")},
+			Span: ObservationSpan{
+				LineStart: obs.LineStart,
+				LineEnd:   obs.LineEnd,
+				StartTsMs: obs.StartTsMs,
+				EndTsMs:   obs.EndTsMs,
+			},
+			ClaimKey:   firstNonEmptyString(obs.Subject, obs.Kind),
+			Subject:    strings.TrimSpace(obs.Subject),
+			Predicate:  strings.TrimSpace(obs.Kind),
+			Value:      strconv.FormatFloat(obs.DurationMs, 'f', -1, 64),
+			Unit:       "ms",
+			Summary:    strings.TrimSpace(obs.Summary),
+			RawExcerpt: strings.TrimSpace(obs.Evidence),
+			RichNotes:  cloneStringSlice(obs.Tags),
+			Confidence: obs.Confidence,
+		})
+	}
+}
+
+func compileMCPResponseObservations(responses []MCPResponse, add func(ObservationRecord)) {
+	for i, response := range responses {
+		if !response.Success {
+			continue
+		}
+		add(ObservationRecord{
+			ID:              fmt.Sprintf("mcp:%d", i),
+			Origin:          AnswerEvidenceOriginMCPResource,
+			Producer:        firstNonEmptyString(response.Method, "mcp"),
+			Role:            AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginMCPResource, AnswerAggregateRoleSupportingCoverage),
+			SourceRef: ObservationSourceRef{
+				Kind:   ObservationSourceMCPResource,
+				Server: strings.TrimSpace(response.ServerName),
+				RawRef: strings.TrimSpace(response.RawRef),
+			},
+			ClaimKey:   firstNonEmptyString(response.Method, response.ServerName),
+			Summary:    firstLine(strings.TrimSpace(response.Summary)),
+			RawExcerpt: clippedObservationExcerpt(response.Summary),
+			ObservedAt: response.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+		})
+	}
+}
+
+func aggregateFactResultCount(fact AnswerAggregateFact, dims map[string]string) *int {
+	for _, raw := range []string{dims["result_count"], fact.Value} {
+		n, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err == nil && n >= 0 {
+			return &n
+		}
+	}
+	return nil
+}
+
+func sourceRefForAggregateFact(origin AnswerEvidenceOrigin, dims map[string]string) ObservationSourceRef {
+	ref := ObservationSourceRef{Kind: ObservationSourceKindForOrigin(origin)}
+	switch origin {
+	case AnswerEvidenceOriginCurrentSource, AnswerEvidenceOriginRepoNegativeSearch:
+		ref.Repo = dims["repo"]
+		ref.Path = firstNonEmptyString(dims["path"], dims["scope"])
+	case AnswerEvidenceOriginVCSMetadata, AnswerEvidenceOriginVCSDiff:
+		ref.Repo = dims["repo"]
+		ref.Commit = dims["commit"]
+		ref.Range = firstNonEmptyString(dims["commit_range"], dims["range"])
+		ref.Pathspec = firstNonEmptyString(dims["pathspec"], dims["diff_path"], dims["window_path"])
+	case AnswerEvidenceOriginRuntimeArtifact:
+		ref.ArtifactID = firstNonEmptyString(dims["artifact_id"], dims["trace_window"], dims["scope"])
+		ref.ArtifactKind = firstNonEmptyString(dims["artifact_kind"], dims["origin"], "runtime_artifact")
+	case AnswerEvidenceOriginCommandMeasurement:
+		ref.Command = dims["command"]
+		ref.ToolCallID = firstNonEmptyString(dims["tool_result"], dims["tool_call_id"])
+	case AnswerEvidenceOriginCrossRepoIndex:
+		ref.Repo = dims["repo"]
+		ref.Path = dims["scope"]
+	case AnswerEvidenceOriginExternalDocument:
+		ref.ResourceURI = firstNonEmptyString(dims["source_ref"], dims["resource_uri"], dims["scope"])
+	case AnswerEvidenceOriginWebPage:
+		ref.URL = firstNonEmptyString(dims["url"], dims["source_ref"], dims["scope"])
+		ref.FetchedAt = dims["fetched_at"]
+	case AnswerEvidenceOriginMCPResource:
+		ref.Server = dims["server"]
+		ref.ResourceURI = firstNonEmptyString(dims["resource_uri"], dims["source_ref"], dims["scope"])
+	case AnswerEvidenceOriginConnectorResource:
+		ref.Connector = dims["connector"]
+		ref.ResourceURI = firstNonEmptyString(dims["resource_uri"], dims["source_ref"], dims["scope"])
+	}
+	return ref
+}
+
+func toolResultEvidenceOrigins(result ToolResult) []AnswerEvidenceOrigin {
+	seen := map[AnswerEvidenceOrigin]bool{}
+	var out []AnswerEvidenceOrigin
+	add := func(origin AnswerEvidenceOrigin) {
+		if origin == AnswerEvidenceOriginUnknown || !origin.IsValid() || seen[origin] {
+			return
+		}
+		seen[origin] = true
+		out = append(out, origin)
+	}
+	for _, kv := range toolResultBanners(result.Summary) {
+		for _, key := range []string{"origin", "evidence_origin", "secondary_origin", "diff_origin", "proof_source", "tool", "source", "measurement_kind", "measurement_origin"} {
+			answerEvidenceOriginFromStructuredToken(kv[key], add)
+		}
+	}
+	return out
+}
+
+func toolResultBanners(summary string) []map[string]string {
+	var out []map[string]string
+	for _, line := range strings.Split(summary, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "[") || !strings.HasSuffix(line, "]") {
+			continue
+		}
+		body := strings.TrimSuffix(strings.TrimPrefix(line, "["), "]")
+		colon := strings.Index(body, ":")
+		if colon < 0 {
+			continue
+		}
+		fields := strings.Fields(strings.TrimSpace(body[colon+1:]))
+		kv := map[string]string{}
+		for _, field := range fields {
+			k, v, ok := strings.Cut(field, "=")
+			if !ok {
+				continue
+			}
+			kv[strings.ToLower(strings.TrimSpace(k))] = strings.TrimSpace(v)
+		}
+		if len(kv) > 0 {
+			out = append(out, kv)
+		}
+	}
+	return out
+}
+
+func logFrameRawRefs(frames []LogFrame) []string {
+	out := make([]string, 0, len(frames))
+	for _, frame := range frames {
+		if raw := strings.TrimSpace(frame.Raw); raw != "" {
+			out = append(out, raw)
+			continue
+		}
+		if frame.File != "" && frame.Line > 0 {
+			out = append(out, fmt.Sprintf("%s:%d", frame.File, frame.Line))
+		}
+	}
+	return out
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func firstLine(s string) string {
+	if idx := strings.IndexByte(s, '\n'); idx >= 0 {
+		return strings.TrimSpace(s[:idx])
+	}
+	return strings.TrimSpace(s)
+}
+
+func clippedObservationExcerpt(s string) string {
+	const max = 600
+	s = strings.TrimSpace(s)
+	if len([]rune(s)) <= max {
+		return s
+	}
+	runes := []rune(s)
+	return string(runes[:max]) + "...[truncated]"
+}
+
+func cloneStringSlice(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, len(in))
+	copy(out, in)
+	return out
 }

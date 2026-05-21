@@ -237,11 +237,11 @@ flowchart TD
 
 ### Batch 2 — Compile Existing Accepted Carriers
 
-- [ ] Compile current-source `EvidenceItem` rows into ledger records.
-- [ ] Compile stable `aggregate_facts` into ledger records, including `negative_search` and `negative_observation`.
-- [ ] Compile runtime `LogBundle` / `PerfBundle` observations into ledger records with artifact-local spans.
-- [ ] Compile typed `ToolResult` banners for VCS metadata/diff and command measurement into support records.
-- [ ] Add tests for mixed positive + negative facts and mixed VCS diff + current-source facts.
+- [x] Compile current-source `EvidenceItem` rows into ledger records.
+- [x] Compile stable `aggregate_facts` into ledger records, including `negative_search` and `negative_observation`.
+- [x] Compile runtime `LogBundle` / `PerfBundle` observations into ledger records with artifact-local spans.
+- [x] Compile typed `ToolResult` banners for VCS metadata/diff and command measurement into support records.
+- [x] Add tests for mixed positive + negative facts and mixed VCS diff + current-source facts.
 
 ### Batch 3 — Finalizer / Reviewer Consumption
 
@@ -253,7 +253,7 @@ flowchart TD
 
 ### Batch 4 — MCP / Web Future-Proofing
 
-- [ ] Compile `MCPResponse` into support-only ledger records when MCP is present.
+- [x] Compile `MCPResponse` into support-only ledger records when MCP is present.
 - [ ] Define future `web_page` record shape and span policy before any web-read tool lands.
 - [ ] Add eval skeletons for MCP JSON field, MCP absent field, web paragraph fact, and web absent term.
 - [ ] Ensure external resource observations never import `internal/tool/ground` or enter repo citations.
@@ -293,3 +293,8 @@ flowchart TD
   tests. This batch intentionally does not change prompts or runtime behavior.
   Validation: `go test ./internal/types ./internal/agent ./internal/tool
   ./internal/orchestrator`.
+- 2026-05-21: Batch 2 completed in type layer: `CompileObservationLedger`
+  now compiles current-source evidence, aggregate facts, typed VCS/command tool
+  result banners, log observations, perf observations, and support-only
+  `MCPResponse` records. It remains read-only and is not consumed by prompts yet.
+  Validation so far: `go test ./internal/types`.
