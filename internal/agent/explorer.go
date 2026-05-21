@@ -5411,6 +5411,20 @@ func currentBatchHasSuccessfulRead(results []types.ToolResult, prevLen int) bool
 	return currentBatchHasSuccessfulTool(results, prevLen, "read_file")
 }
 
+func (e *explorerEvaluator) shouldRunEnumerationCoverageMidLoop() bool {
+	if e == nil || !e.isEnumerationQuery || e.analysisIR == nil {
+		return false
+	}
+	rm := e.analysisIR.RequestModel
+	if types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
+		return true
+	}
+	if rm.EnumerationBoundary != nil || rm.CompletenessObligation.IsActive() {
+		return true
+	}
+	return types.IsCategoryEnumerationAnswerShape(rm)
+}
+
 func currentBatchHasSuccessfulTool(results []types.ToolResult, prevLen int, toolName string) bool {
 	if prevLen < 0 || prevLen > len(results) {
 		prevLen = 0
@@ -7807,7 +7821,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		}
 	}
 
-	if e.isEnumerationQuery && !e.midLoopEnumInjected {
+	if e.shouldRunEnumerationCoverageMidLoop() && !e.midLoopEnumInjected {
 		discovered, readSet, _ := extractFileCoverage(allResults, e.repoRoot)
 		// P2 #4 (2026-05-03) — typed override for category-enumeration
 		// questions that name a known interface / trait / protocol.

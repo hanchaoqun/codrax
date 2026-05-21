@@ -589,3 +589,17 @@ flowchart TD
   breadth gaps no longer demote `HasEnoughFacts` or build an explorer fact
   retry. Targeted tests pin that an otherwise-ready investigation completes
   without the old `explorer.retry.erm-unsatisfied` path.
+- 2026-05-21: Batch 7 targeted eval check: `qf_sequence_analyzer_gate` and
+  `read_combo_analyze_retry_anchor` both passed with one finalizer turn and no
+  analyzer hard-retry, so the screenshot-class analyzer/ERM loop is mitigated.
+  The second run exposed a separate P1 performance/UX gap: multi-topic
+  mechanism questions can still trigger enumeration/partial-read mid-loop
+  guidance in parallel lanes (`explorer_iters=52`, `midloop_inject=28`). Track
+  this as the next batch, scoped to typed principal-member enumeration only.
+- 2026-05-21: Batch 8 implemented the scoped mid-loop part of that follow-up.
+  Enumeration coverage hints now require a typed principal member-set shape
+  (`IsCategoryEnumerationAnswerShape`, explicit enumeration boundary /
+  completeness obligation, or required member-set handoff). Mechanism and
+  architecture explanations with multiple subtopics can still use evidence
+  guidance, but they no longer inherit exhaustive enumeration coverage pressure
+  from a stale fork-local flag.

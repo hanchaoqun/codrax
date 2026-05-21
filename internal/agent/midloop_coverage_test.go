@@ -621,6 +621,15 @@ func TestMidLoopCheck_Enumeration_OneShotWithinDispatch(t *testing.T) {
 		searchResult:       &keywordSearchResult{Graph: &repomap.Graph{}},
 		heuristics:         types.DefaultExploreHeuristics(),
 		isEnumerationQuery: true,
+		analysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqEnumeration)},
+			},
+		},
 	}
 	history := []types.ToolResult{
 		{ToolName: "grep", Success: true,
@@ -656,6 +665,55 @@ func TestMidLoopCheck_Enumeration_OneShotWithinDispatch(t *testing.T) {
 	})
 	if second.HintKey == "explorer.mid-loop.enumeration" {
 		t.Fatalf("enumeration hint must be one-shot per dispatch; got re-fire: %+v", second)
+	}
+}
+
+func TestMidLoopCheck_Enumeration_SuppressedForMechanismSubtopics(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:              1,
+		userQuestion:       "读取代码说明 runTaskGraph 下 analyze 阶段如果一直没有调用 emit_analysis 会怎样重试",
+		searchResult:       &keywordSearchResult{Graph: &repomap.Graph{}},
+		heuristics:         types.DefaultExploreHeuristics(),
+		isEnumerationQuery: true, // stale fork-local flag must not be enough.
+		analysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentExplain,
+				Scenario:      types.ScenarioArchitectureExplain,
+				Complexity:    types.ComplexityComplex,
+				PredicateAxis: types.AxisCondition,
+				Predicates: types.SemanticPredicates{
+					IsCrossComponent: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+				SubTopics: []types.SubTopic{
+					{Summary: "MaxRetriesPerStage and dynamicAnalyzeRetries"},
+					{Summary: "StageOutput Error and AnalysisIR"},
+					{Summary: "zero-value AnalysisIR guard"},
+				},
+			},
+		},
+	}
+	history := []types.ToolResult{
+		{ToolName: "grep", Success: true,
+			Summary: "[grep: 6 files]\n" +
+				"internal/orchestrator/orchestrator.go\n" +
+				"internal/types/config.go\n" +
+				"internal/agent/agent.go\n" +
+				"internal/agent/analyzer.go\n" +
+				"internal/tool/emit_analysis.go\n" +
+				"internal/types/analysis_ir.go"},
+		{ToolName: "read_file", Success: true,
+			Summary: "[internal/orchestrator/orchestrator.go: showing lines 2225-2352 of 8000 total]\n 2225│ func (o *Orchestrator) runAnalyzePhase() (int, error) {\n"},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      4,
+		Response:       llm.Response{Content: "reading next"},
+		LastToolResult: &history[len(history)-1],
+		AllToolResults: history,
+	})
+	if sig.HintKey == "explorer.mid-loop.enumeration" || strings.Contains(sig.Hint, "question asks for an enumeration") {
+		t.Fatalf("mechanism subtopics must not trigger enumeration coverage mid-loop; got %+v", sig)
 	}
 }
 
