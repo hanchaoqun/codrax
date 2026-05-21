@@ -1,138 +1,182 @@
 # =============================================================================
-# codrax provider credentials — copy to providers.yaml next to the binary.
+# codrax provider credentials  ·  codrax 模型凭证
+# Copy to providers.yaml next to the binary.  复制为 providers.yaml,放在二进制同目录。
 # =============================================================================
 #
-# All four required fields listed below MUST be set on the default
-# provider. codrax refuses to start if any is missing — there is no
-# silent fallback to a public endpoint or a hard-coded model ID.
-# Per-agent overrides inherit any field you do not explicitly set.
+# EN  All four required fields below MUST be set on the default provider.
+#     codrax refuses to start if any is missing — there is no silent
+#     fallback to a public endpoint or a hard-coded model ID. Per-agent
+#     overrides inherit any field you do not explicitly set.
+# 中文 下面 4 个必填字段必须在 default provider 上配齐。缺任何一个 codrax
+#     都会拒绝启动 —— 不会偷偷回退到公网地址或硬编码模型 ID。按 agent 的
+#     覆盖项会继承你没有显式设置的字段。
 #
-# Two dimensions you can toggle per provider:
-#
-#   1. protocol    — HTTP vs HTTPS is decided purely by the
-#                    base_url scheme. No separate switch exists.
-#   2. streaming   — stream: true (default) / false toggles SSE;
-#                    the REPL surfaces a live content preview when
-#                    on and /chat renders a live typewriter reply.
-#
-# Stream on/off and HTTP/HTTPS combine freely. See the end of this
-# file for the full scenario matrix.
+# EN  Two dimensions you can toggle per provider:
+#       1. protocol  — HTTP vs HTTPS is decided purely by the base_url
+#                      scheme; there is no separate switch.
+#       2. streaming — stream: true (default) / false toggles SSE.
+#     Stream on/off and HTTP/HTTPS combine freely; see the scenario
+#     matrix at the end of this file.
+# 中文 每个 provider 有两个可独立切换的维度:
+#       1. 协议   —— HTTP / HTTPS 完全由 base_url 的 scheme 决定,没有单独开关。
+#       2. 流式   —— stream: true(默认)/ false 切换 SSE 流式响应。
+#     流式开关与 HTTP/HTTPS 可自由组合;完整场景见文件末尾的对照表。
 
 llm:
   default:
-    # --- Required fields --------------------------------------------------
-    provider: openai                      # only `openai` is implemented; any
-                                          # compatible chat-completions backend
-                                          # plugs in via base_url (deepseek,
-                                          # qwen, vllm/Ollama, together, etc.)
-    api_key: "sk-xxx"                     # required
-    model: "your-model-id"                # required; no default assumed
-    base_url: "https://your-endpoint/v1"  # required; no default assumed.
-                                          # `https://` → TLS; `http://` → plain
-                                          # HTTP. codrax switches transparently.
+    # --- Required fields  ·  必填字段 -------------------------------------
+    # EN  provider: only the `openai` protocol is implemented. Any
+    #     OpenAI-compatible chat-completions backend (deepseek, qwen,
+    #     vllm/Ollama, together, ...) connects by pointing base_url at it.
+    # 中文 provider:仅实现 `openai` 协议。任何兼容 OpenAI chat-completions
+    #     的后端(deepseek、qwen、vllm/Ollama、together 等)只需把
+    #     base_url 指向它即可接入。
+    provider: openai
 
-    # --- Streaming -------------------------------------------------------
-    # Default: true (streaming ON). codrax sets `stream: true` on the
-    # wire, parses SSE, shows a live preview in the REPL task row, and
-    # renders /chat replies as a live typewriter. Providers that quietly
-    # return SSE are auto-detected on the JSON path as well, so even
-    # stream: false cannot break on an SSE-forcing provider. Set to
-    # false to fall back to the classic single-shot request-response
-    # (useful for local models where streaming adds no perceptible
-    # latency win, or for CI where byte-stable captures matter).
+    # EN  api_key / model: required, no default assumed.
+    # 中文 api_key / model:必填,无默认值。
+    api_key: "sk-xxx"
+    model: "your-model-id"
+
+    # EN  base_url: required. `https://` → TLS; `http://` → plain HTTP.
+    #     codrax switches transport transparently by scheme.
+    # 中文 base_url:必填。`https://` → 走 TLS;`http://` → 明文 HTTP。
+    #     codrax 按 scheme 自动切换传输层。
+    base_url: "https://your-endpoint/v1"
+
+    # --- Streaming  ·  流式响应 -------------------------------------------
+    # EN  Default true (streaming ON): codrax parses SSE, shows a live
+    #     preview in the REPL task row, and renders /chat replies as a
+    #     live typewriter. Providers that quietly return SSE are also
+    #     auto-detected on the JSON path. Set false for the classic
+    #     single-shot request-response (useful for local models, or for
+    #     CI where byte-stable captures matter).
+    # 中文 默认 true(开启流式):codrax 解析 SSE,在 REPL 任务行实时预览,
+    #     /chat 回复逐字打印。对于偷偷返回 SSE 的服务,JSON 路径也会自动识别。
+    #     设为 false 走经典的单次请求-响应(适合本地模型,或需要字节级稳定
+    #     输出的 CI)。
     # stream: false
 
-    # --- Think Aloud directive -------------------------------------------
-    # When true, codrax appends a "Think Aloud" system section that asks
-    # the model to narrate its reasoning step-by-step BEFORE issuing the
-    # next tool call. Adds a few hundred extra tokens per turn but tends
-    # to surface obvious wrong-direction starts so the operator can
-    # interrupt sooner. Useful with reasoning models that don't expose
-    # an internal scratchpad, or when comparing two models head-to-head
-    # in dev. Per-agent override: nil inherits from default; explicit
-    # true/false wins.
-    # Default: nil (treated as false in the assembler — no Think Aloud
-    # section emitted).
+    # --- Think Aloud directive  ·  出声思考指令 --------------------------
+    # EN  When true, codrax appends a "Think Aloud" system section asking
+    #     the model to narrate its reasoning before each tool call. Costs
+    #     a few hundred tokens per turn but surfaces wrong-direction
+    #     starts early so the operator can interrupt sooner. Per-agent
+    #     override: nil inherits the default; explicit true/false wins.
+    #     Default: nil (treated as false — no Think Aloud section).
+    # 中文 设为 true 时,codrax 追加一段 "Think Aloud" 系统提示,要求模型在
+    #     每次工具调用前叙述推理过程。每轮多花几百 token,但能让"方向跑偏"
+    #     更早暴露,便于及时打断。按 agent 覆盖:nil 继承默认,显式 true/false
+    #     生效。默认 nil(视为 false,不注入该段)。
     # think_aloud: false
 
-    # --- Tool-call compatibility -----------------------------------------
-    # Codrax always performs one strict transport-safety recovery for all
-    # models: if assistant content is exactly a valid JSON tool-call envelope
-    # (`name`/`arguments`, `function_call`, or `tool_calls`) for a known tool,
-    # it is lifted into protocol-level tool_calls. The switch below enables
-    # the wider local-model compatibility mode: fenced / embedded tool-call
-    # JSON, bare-args recovery in required-tool turns, and small JSON repairs.
-    # Default: false. Enable only for providers that need the wider mode.
+    # --- Tool-call compatibility  ·  工具调用兼容 ------------------------
+    # EN  codrax always runs one strict transport-safety recovery: if
+    #     assistant content is exactly a valid JSON tool-call envelope
+    #     for a known tool, it is lifted into protocol-level tool_calls.
+    #     recover_text_tool_calls enables the WIDER local-model mode:
+    #     fenced/embedded tool-call JSON, bare-args recovery in
+    #     required-tool turns, and small JSON repairs. Default false —
+    #     enable only for providers that need it.
+    # 中文 codrax 总会做一次严格的传输安全修复:若 assistant 正文恰好是某个
+    #     已知工具的合法 JSON 工具调用信封,会被提升为协议级 tool_calls。
+    #     recover_text_tool_calls 开启更宽松的本地模型兼容模式:围栏/内嵌的
+    #     工具调用 JSON、required-tool 轮次的裸参数恢复、小幅 JSON 修复。
+    #     默认 false —— 仅对确实需要的 provider 开启。
     # recover_text_tool_calls: false
 
-    # Schema-aware parameter compatibility for models that do return
-    # protocol-level tool_calls but put mechanically wrong JSON value
-    # types in arguments, e.g. {"offset":"146"} when the tool schema
-    # says integer. Runs after recover_text_tool_calls and before tool
-    # execution. It never fills missing fields, drops unknown keys,
-    # repairs prose, maps enum synonyms, or recovers missing tool_calls.
-    # Default: repair with split_string_arrays=false, so only
-    # schema-proven equivalence repairs run. Set mode: off to disable,
-    # audit to log repairable payloads without changing execution, or
-    # split_string_arrays: true for local/small models that emit
-    # comma/newline-delimited arrays of strings.
+    # EN  tool_param_compat: schema-aware repair for models that DO return
+    #     protocol tool_calls but put mechanically wrong JSON value types
+    #     in arguments, e.g. {"offset":"146"} when the schema says integer.
+    #     It never fills missing fields, drops unknown keys, repairs prose,
+    #     or maps enum synonyms. Default: mode repair, split_string_arrays
+    #     false (only schema-proven equivalence repairs run). mode: off
+    #     disables; audit logs repairable payloads without changing
+    #     execution; split_string_arrays: true helps local/small models
+    #     that emit comma/newline-delimited string arrays.
+    # 中文 tool_param_compat:针对"能返回协议级 tool_calls、但参数里 JSON 值
+    #     类型机械性写错"的模型(如 schema 要 integer 却给 {"offset":"146"})
+    #     做按 schema 的修复。它绝不补缺失字段、不删未知键、不改散文、不映射
+    #     枚举近义词。默认 mode=repair、split_string_arrays=false(只做 schema
+    #     可证明的等价修复)。mode: off 关闭;audit 只记录可修复的载荷、不改
+    #     执行;split_string_arrays: true 适合会输出逗号/换行分隔字符串数组的
+    #     本地小模型。
     # tool_param_compat:
-    #   mode: repair           # off | audit | repair
+    #   mode: repair                        # off | audit | repair
     #   split_string_arrays: false
 
-    # --- TLS (HTTPS endpoints only) --------------------------------------
-    # These fields have no effect when base_url uses `http://`.
-    # Set tls_ca_file only when the endpoint uses a corporate /
-    # self-signed CA not in the system trust pool (typical symptom:
-    # `x509: certificate signed by unknown authority`).
+    # --- TLS (HTTPS endpoints only)  ·  TLS(仅 HTTPS) -------------------
+    # EN  These fields have no effect when base_url uses `http://`.
+    #     Set tls_ca_file only when the endpoint uses a corporate /
+    #     self-signed CA not in the system trust pool (typical symptom:
+    #     `x509: certificate signed by unknown authority`).
+    # 中文 base_url 为 `http://` 时这些字段无效。仅当端点使用系统信任库里
+    #     没有的企业/自签 CA 时才设 tls_ca_file(典型报错:
+    #     `x509: certificate signed by unknown authority`)。
     # tls_ca_file: /etc/pki/ca-trust/extracted/pem/corp-bundle.pem
 
-    # Nuclear escape — disables ALL certificate validation; any on-path
-    # attacker can steal the API key. Only use for short-lived
-    # debugging against an endpoint you fully control, and prefer
-    # tls_ca_file whenever possible. codrax logs a high-visibility
-    # warning on stderr + log every startup while true.
+    # EN  tls_insecure_skip_verify: nuclear escape — disables ALL
+    #     certificate validation; any on-path attacker can steal the API
+    #     key. Use only for short-lived debugging against an endpoint you
+    #     fully control, and prefer tls_ca_file. codrax logs a
+    #     high-visibility warning every startup while true.
+    # 中文 tls_insecure_skip_verify:核选项 —— 关闭全部证书校验;任何中间人
+    #     都能窃取 API key。仅用于针对你完全掌控的端点做短时调试,优先用
+    #     tls_ca_file。开启期间 codrax 每次启动都会打高亮警告。
     # tls_insecure_skip_verify: false
 
-    # --- Sizing knobs (all optional; per-provider, per-agent inheritable)
-    # Zero / unset on any field means "use the code default".
+    # --- Sizing / timeout / retry  ·  容量 / 超时 / 重试 ------------------
+    # EN  All optional and per-agent inheritable. Zero / unset on any
+    #     field means "use the code default".
     #
-    # context_window:        max input tokens the model accepts. Affects
-    #                        the agent's context-pressure watchdog and
-    #                        the fraction-form max_output_fraction.
-    #                        Code default 128000 when unset.
-    # max_output_tokens:     wire-level `max_tokens`. 0 / unset means
-    #                        "don't send the field" — server uses the
-    #                        model's own ceiling (the recommended
-    #                        default; capping client-side caused
-    #                        emit_change_plan streaming truncation).
-    # max_output_fraction:   alternative form: fraction × context_window.
-    #                        Used only if non-zero AND max_output_tokens
-    #                        is zero.
-    # request_timeout_seconds: outer HTTP timeout for non-streaming
-    #                        requests. Code default 240s.
-    # retry_max_attempts:    transient 429 / 5xx retry cap. Code
-    #                        default 6 (≈62s of total backoff
-    #                        coverage at base = 2s exponential).
-    # stream_stall_timeout_seconds: SSE no-bytes ceiling AFTER the
-    #                        first chunk arrives — for mid-stream
-    #                        pauses. 120s default; deep-thinking
-    #                        models routinely pause 60+ s between
-    #                        thinking blocks, so keep 90-120s on
-    #                        those and lower (15-30s) on fast small
-    #                        models.
-    # stream_first_byte_timeout_seconds: distinct ceiling that
-    #                        applies BEFORE the first SSE chunk —
-    #                        catches "request accepted, server
-    #                        never speaks" (provider deadlock,
-    #                        middlebox interference, model cold-
-    #                        start hang). 40s default. Healthy
-    #                        providers serve first byte in 100-
-    #                        500ms, but self-hosted / queued
-    #                        OpenAI-compatible providers can take
-    #                        longer before the first usable chunk.
+    #   context_window:        max input tokens the model accepts. Drives
+    #                          the context-pressure watchdog and the
+    #                          fraction-form sizing knobs. Code default
+    #                          200000 when unset.
+    #   max_output_tokens:     wire-level `max_tokens`. 0 / unset means
+    #                          "don't send the field" — the server uses
+    #                          the model's own ceiling (recommended;
+    #                          capping client-side caused streaming
+    #                          truncation of large emit calls).
+    #   max_output_fraction:   alternative form: fraction × context_window.
+    #                          Used only if non-zero AND max_output_tokens
+    #                          is zero.
+    #   request_timeout_seconds:        non-streaming HTTP timeout.
+    #                                   Code default 240.
+    #   retry_max_attempts:             transient 429 / 5xx retry cap.
+    #                                   Code default 6.
+    #   stream_stall_timeout_seconds:   SSE no-bytes ceiling AFTER the
+    #                                   first chunk (mid-stream pauses).
+    #                                   Default 120. Deep-thinking models
+    #                                   routinely pause 60+s between
+    #                                   thinking blocks — keep 90-120s on
+    #                                   those, lower (15-30s) on fast
+    #                                   small models.
+    #   stream_first_byte_timeout_seconds: ceiling that applies BEFORE the
+    #                                   first SSE chunk — catches "request
+    #                                   accepted, server never speaks"
+    #                                   (provider deadlock, middlebox,
+    #                                   model cold-start). Default 40.
+    # 中文 全部可选,可按 agent 继承。任一字段为 0 / 未设即"使用代码默认值"。
     #
-    # context_window: 128000
+    #   context_window:        模型可接受的最大输入 token 数。驱动上下文压力
+    #                          看门狗与按比例的容量旋钮。未设时代码默认 200000。
+    #   max_output_tokens:     wire 层 `max_tokens`。0 / 未设表示"不发该字段",
+    #                          由服务端用模型自身上限(推荐;客户端封顶曾导致
+    #                          大 emit 调用的流式截断)。
+    #   max_output_fraction:   替代写法:比例 × context_window。仅当它非零且
+    #                          max_output_tokens 为零时生效。
+    #   request_timeout_seconds:        非流式 HTTP 超时。代码默认 240。
+    #   retry_max_attempts:             429 / 5xx 瞬时重试上限。代码默认 6。
+    #   stream_stall_timeout_seconds:   首个分片到达后的 SSE 无字节上限(应对
+    #                                   流中途停顿)。默认 120。深度思考模型
+    #                                   常在思考块之间停顿 60 秒以上 —— 这类
+    #                                   保持 90-120 秒,快速小模型可降到 15-30 秒。
+    #   stream_first_byte_timeout_seconds: 首个 SSE 分片之前的上限 —— 捕捉
+    #                                   "请求被接受、服务端始终不说话"(provider
+    #                                   死锁、中间盒干扰、模型冷启动卡住)。默认 40。
+    #
+    # context_window: 200000
     # max_output_tokens: 0
     # max_output_fraction: 0.5
     # request_timeout_seconds: 240
@@ -140,39 +184,39 @@ llm:
     # stream_stall_timeout_seconds: 120
     # stream_first_byte_timeout_seconds: 40
 
-  # --- Per-agent overrides ------------------------------------------------
-  # Valid agent keys are `analyzer`, `explorer`, `extractor`,
-  # `finalizer`, `log_triager`, `perf_triager`, `planner`, `coder`,
-  # `verifier`, plus the optional `memory_summarizer`,
-  # `chitchat_responder`, `chitchat_classifier`, `env_recommender`,
-  # `reflector`. Set only the fields you want to change; unset
-  # fields inherit from default.
+  # --- Per-agent overrides  ·  按 agent 覆盖 -------------------------------
+  # EN  Valid agent keys: analyzer, explorer, extractor, finalizer,
+  #     log_triager, perf_triager, planner, coder, verifier, plus the
+  #     optional memory_summarizer, chitchat_responder, chitchat_classifier,
+  #     env_recommender, reflector, plan_critic. Set only the fields you
+  #     want to change; unset fields inherit from default.
+  # 中文 合法的 agent 名:analyzer、explorer、extractor、finalizer、
+  #     log_triager、perf_triager、planner、coder、verifier,以及可选的
+  #     memory_summarizer、chitchat_responder、chitchat_classifier、
+  #     env_recommender、reflector、plan_critic。只填想改的字段,其余继承 default。
   #
-  # Each agent can also declare `<name>_fallback` — a secondary
-  # provider that the FallbackAdapter swaps to when the primary
-  # returns a retryable error (EOF / stream stalled / 429 / 5xx /
-  # network blip). Non-retryable errors (auth / schema / config
-  # bugs) DO NOT trigger fallback — they surface verbatim so the
-  # operator sees the real diagnostic. Useful for:
-  #   - Provider region outage tolerance (premium primary, stable
-  #     secondary)
-  #   - Flaky upstream connection (premium model on shaky link,
-  #     cheap stable model as cushion)
-  # The fallback's config inherits from `default` like any agent;
-  # only declare what differs (api_key / base_url / model).
+  # EN  Each agent can also declare `<name>_fallback` — a secondary
+  #     provider the FallbackAdapter swaps to when the primary returns a
+  #     RETRYABLE error (EOF / stream stalled / 429 / 5xx / network blip).
+  #     Non-retryable errors (auth / schema / config bugs) do NOT trigger
+  #     fallback — they surface verbatim. The fallback inherits from
+  #     `default` like any agent; declare only what differs.
+  # 中文 每个 agent 还能声明 `<name>_fallback` —— 一个备用 provider,当主
+  #     provider 返回可重试错误(EOF / 流卡死 / 429 / 5xx / 网络抖动)时,
+  #     FallbackAdapter 会自动切过去。不可重试错误(鉴权 / schema / 配置错误)
+  #     不触发 fallback —— 原样抛出。fallback 与普通 agent 一样继承 `default`,
+  #     只需声明不同的字段。
   #
   # agents:
   #   analyzer:
   #     model: "stronger-model"           # smarter model for classification
   #   extractor:
   #     model: "cheaper-model"            # cheaper model for structuring
-  #   perf_triager:
-  #     model: "cheaper-model"            # HiTrace parsing is structurally simple
   #   finalizer:
   #     base_url: "http://localhost:11434/v1"
   #     model: "llama3.1:70b"
-  #     stream: false                     # per-agent opt-out (default is on)
-  #   finalizer_fallback:                 # auto-swap on EOF / 429 / network blip
+  #     stream: false                     # per-agent opt-out (default on)
+  #   finalizer_fallback:                 # auto-swap on EOF / 429 / blip
   #     api_key: "sk-cheap-..."
   #     base_url: "https://other-provider/v1"
   #     model: "cheap-but-stable-model"
@@ -180,17 +224,17 @@ llm:
   #     model: "smaller-but-stable-model"
 
 # =============================================================================
-# Scenario matrix
+# Scenario matrix  ·  场景对照表
 # =============================================================================
-# | Deployment                  | base_url     | stream      | tls_*               |
-# |-----------------------------|--------------|-------------|---------------------|
-# | Public cloud LLM (OpenAI,   | https://…    | true/false  | —                   |
-# |  DeepSeek, Qwen, Anthropic  |              |             |                     |
-# |  via proxy, …)              |              |             |                     |
-# | Corporate HTTPS + self-CA   | https://…    | true/false  | tls_ca_file         |
-# | HTTPS cert unresolvable,    | https://…    | true/false  | tls_insecure_skip_  |
-# |  temporary debugging        |              |             |  verify: true       |
-# | Local Ollama / vLLM         | http://…     | true/false  | —                   |
-# | Internal HTTP proxy         | http://…     | true/false  | —                   |
-# | Provider forces SSE even    | either       | either      | —                   |
-# |  when stream: false         |              |             | (auto-detected)     |
+# | Deployment / 部署形态        | base_url   | stream     | tls_*               |
+# |------------------------------|------------|------------|---------------------|
+# | Public cloud LLM / 公有云    | https://…  | true/false | —                   |
+# |   (OpenAI, DeepSeek, Qwen…)  |            |            |                     |
+# | Corporate HTTPS + self-CA /  | https://…  | true/false | tls_ca_file         |
+# |   企业 HTTPS + 自签 CA       |            |            |                     |
+# | HTTPS cert unresolvable,     | https://…  | true/false | tls_insecure_skip_  |
+# |   temporary debug / 临时调试 |            |            |   verify: true      |
+# | Local Ollama / vLLM / 本地   | http://…   | true/false | —                   |
+# | Internal HTTP proxy / 内网   | http://…   | true/false | —                   |
+# | Provider forces SSE even     | either     | either     | — (auto-detected /  |
+# |   when stream:false / 强制 SSE|           |            |   自动识别)         |

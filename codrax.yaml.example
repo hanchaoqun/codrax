@@ -1,446 +1,643 @@
 # =============================================================================
-# codrax runtime settings — copy to codrax.yaml (next to the binary) to activate.
+# codrax runtime settings  ·  codrax 运行时设置
+# Copy to codrax.yaml (next to the binary) to activate.  复制为 codrax.yaml(放在二进制同目录)即生效。
 # =============================================================================
 #
-# Two YAML files live alongside the binary, each with a distinct role.
-# Do not duplicate keys across them:
+# EN  Two YAML files live alongside the binary, each with a distinct role —
+#     do not duplicate keys across them:
+#       providers.yaml — LLM provider credentials + per-agent model routing.
+#                         Per-user secrets, never committed.
+#       codrax.yaml    — THIS FILE. Per-process runtime knobs: log / memory
+#                         sinks, response language, per-run targets and
+#                         budgets, pipeline tuning, write-mode switches.
+# 中文 二进制旁边有两个 YAML 文件,各司其职 —— 不要在两者间重复键:
+#       providers.yaml —— LLM provider 凭证 + 按 agent 的模型路由。
+#                         属于个人密钥,不入版本库。
+#       codrax.yaml    —— 本文件。逐进程的运行时旋钮:日志 / 记忆目录、
+#                         应答语言、本次运行的目标与预算、流水线调优、
+#                         写模式开关。
 #
-#   providers.yaml — LLM provider credentials and per-agent model
-#                    routing. Per-user secrets, never committed.
+# EN  Precedence (later wins):  code defaults  <  codrax.yaml  <  CLI flags.
+#     Every key is OPTIONAL — an omitted key falls through to the code
+#     default. A missing file is fine; codrax silently uses all defaults.
+# 中文 优先级(后者覆盖前者):代码默认值 < codrax.yaml < 命令行 flag。
+#     每个键都是可选的 —— 省略即用代码默认值。文件缺失也没问题,codrax
+#     会静默使用全部默认值。
 #
-#   codrax.yaml    — THIS FILE. Per-process runtime knobs: where to
-#                    write logs and memory, default response language,
-#                    per-invocation targets (repo, branch), global
-#                    step budget, tool blob sizing, pipeline budgets,
-#                    and a pointer to providers.yaml.
-#
-# The pipeline topology (4 stages × 4 agents) is hardcoded in
-# internal/orchestrator/topology.go and has no YAML counterpart.
-#
-# Precedence (lowest wins last):
-#
-#   code defaults  <  <exeDir>/codrax.yaml  <  command-line flags
-#
-# Every key is optional — omitted keys fall through to the code default.
-# The binary silently falls back to defaults when this file is missing,
-# so checking in an example while leaving the real file out of version
-# control is the expected workflow.
-#
-# Anchors:
-#
-#   - Configuration paths (providers_config) are anchored to the
-#     binary's own directory (exeDir) when written as relative values.
-#   - Runtime artifact paths (log_dir, memory_dir, cache_dir) are
-#     anchored to <CWD>/.codrax/ when written as relative values.
-#
-# To point at a different runtime settings file without editing this
-# path, set the CODRAX_SETTINGS environment variable.
+# EN  Path anchors:
+#       - providers_config (a config path) anchors to the binary's own
+#         directory (exeDir) when given as a relative value.
+#       - log_dir / memory_dir / cache_dir (runtime artifacts) anchor to
+#         <CWD>/.codrax/ when relative.
+#     Set the CODRAX_SETTINGS env var to point at a different settings file.
+# 中文 路径锚点:
+#       - providers_config(配置路径)写相对值时锚定到二进制所在目录(exeDir)。
+#       - log_dir / memory_dir / cache_dir(运行产物)写相对值时锚定到
+#         <CWD>/.codrax/。
+#     用环境变量 CODRAX_SETTINGS 可指向另一个设置文件。
 
 # ---------------------------------------------------------------------------
-# Log sink
+# Log sink  ·  日志输出
 # ---------------------------------------------------------------------------
 
-# Directory for rotating log files. Created on first run.
-# Relative values anchor to <CWD>/.codrax/ (so the default lands at
-# <CWD>/.codrax/logs/<repo-slug>/); pass an absolute path to override.
+# log_dir — directory for rotating log files (created on first run).
+#   Relative values anchor to <CWD>/.codrax/ (default lands at
+#   <CWD>/.codrax/logs/<repo-slug>/); pass an absolute path to override.
+#   滚动日志文件目录(首次运行时创建)。相对路径锚定到 <CWD>/.codrax/
+#   (默认落在 <CWD>/.codrax/logs/<repo-slug>/);传绝对路径可覆盖。
 # log_dir: logs
 
-# Minimum level written to the log file. One of: error, warning, info, debug.
-# Default: debug — the [CGEC] enforcer trace and [diag analyzer/explorer]
-# iteration dumps are emitted at debug level; lower levels hide them.
+# log_level — minimum level written to the log file:
+#   error / warning / info / debug. Default debug — the [CGEC] enforcer
+#   trace and analyzer/explorer diagnostic dumps only appear at debug.
+#   日志文件最低写入级别:error / warning / info / debug。默认 debug ——
+#   [CGEC] 强制器轨迹与 analyzer/explorer 诊断转储仅在 debug 级输出。
 # log_level: debug
 
-# Mirror every log record to stdout in addition to the file.
-# Useful for foreground debugging; keep off for clean REPL UX.
+# log_stdout — also mirror every log record to stdout. Handy for
+#   foreground debugging; keep off for a clean REPL UX. Default false.
+#   把每条日志同时打到 stdout。前台调试方便,日常 REPL 建议关。默认 false。
 # log_stdout: false
 
-# Print model thinking lines in full in CLI and REPL by default.
-# Set to true only when you prefer the legacy compact 1-2 sentence
-# terminal summary over full traceability.
+# thinking_truncate — print model "thinking" lines in full (false, the
+#   default) or fall back to the legacy compact 1-2 sentence summary (true).
+#   完整打印模型的"思考"行(false,默认),或回退到旧版 1-2 句精简摘要(true)。
 # thinking_truncate: false
 
-# Maximum log files retained per directory. Rotation keeps the most
-# recent N files (PID-aware: files owned by live peer processes are
-# never deleted). 0 falls back to the code default (7).
+# log_max_files — rotated log files retained per directory. Rotation keeps
+#   the most recent N (PID-aware: files owned by a live peer are never
+#   deleted). 0 = code default (7).
+#   每个目录保留的滚动日志文件数。保留最近 N 个(PID 感知:存活对等进程
+#   持有的文件永不删除)。0 = 代码默认值(7)。
 # log_max_files: 7
 
 # ---------------------------------------------------------------------------
-# Conversation memory
+# Conversation memory  ·  对话记忆
 # ---------------------------------------------------------------------------
 
-# Directory for multi-turn conversation memory (MEMORY.md + turns/).
-# Relative values anchor to <CWD>/.codrax/ (default: <CWD>/.codrax/memory/<repo-slug>/).
+# memory_dir — directory for multi-turn conversation memory
+#   (MEMORY.md + turns/). Relative values anchor to <CWD>/.codrax/
+#   (default: <CWD>/.codrax/memory/<repo-slug>/).
+#   多轮对话记忆目录(MEMORY.md + turns/)。相对路径锚定到 <CWD>/.codrax/
+#   (默认 <CWD>/.codrax/memory/<repo-slug>/)。
 # memory_dir: memory
 
-# Base directory for repo map caches (symbol index, relations, etc.).
-# Each target repo gets its own subdirectory under <cache_dir>/repomap/.
-# Default (when omitted): ~/.codrax/cache/ (the same parent directory the
-# env_recommend disk cache lives under, so all cross-project per-user
-# codrax state is in one well-known place).
-# Per-platform via os.UserHomeDir():
-#   Linux / macOS: ~/.codrax/cache/
-#   Windows:       %USERPROFILE%\.codrax\cache\
-# Relative values anchor to <CWD>/.codrax/ (opts in to per-workspace caches).
+# cache_dir — base directory for repo-map caches (symbol index, relations).
+#   Default ~/.codrax/cache/ (Windows: %USERPROFILE%\.codrax\cache\) — one
+#   well-known place for all cross-project per-user codrax state. Relative
+#   values anchor to <CWD>/.codrax/ (opts into per-workspace caches).
+#   repomap 缓存(符号索引、关系)的基目录。默认 ~/.codrax/cache/
+#   (Windows:%USERPROFILE%\.codrax\cache\)—— 跨项目的个人级 codrax 状态
+#   集中于此。相对路径锚定到 <CWD>/.codrax/(改为按工作区缓存)。
 # cache_dir:
 
 # ---------------------------------------------------------------------------
-# Tool output blobs
+# Tool output blobs  ·  工具输出 blob
 # ---------------------------------------------------------------------------
+# EN  Tool results larger than blob_max_inline_bytes are offloaded to a
+#     blob file under the work dir; only a head+tail preview is inlined
+#     into the LLM context.
+# 中文 大于 blob_max_inline_bytes 的工具结果会落到工作目录下的 blob 文件,
+#     只把头+尾预览内联进 LLM 上下文。
 
-# Maximum blob session directories retained under <CWD>/.codrax/blob/.
-# Each codrax process creates one session dir named <timestamp>-<pid>/
-# on startup. Prune runs at next startup; live peer sessions are never
-# deleted (mirrors log_max_files). 0 disables persistent sessions
-# entirely and reverts to per-trace tmpdir (cleaned at Run end).
+# blob_max_sessions — startup session directories retained under
+#   <CWD>/.codrax/blob/. Each process creates <timestamp>-<pid>/ on
+#   startup; prune at next startup skips live peers. 0 disables persistent
+#   sessions (per-trace tmpdir, cleaned at Run end). Default 7.
+#   <CWD>/.codrax/blob/ 下保留的启动会话目录数。每个进程启动时建
+#   <timestamp>-<pid>/;下次启动清理时跳过存活对等进程。0 关闭持久会话
+#   (改用按 trace 的临时目录,Run 结束即清)。默认 7。
 # blob_max_sessions: 7
 
-# ---------------------------------------------------------------------------
-# Final-answer transcript dump
-# ---------------------------------------------------------------------------
-# At the end of every read-mode Run that successfully landed an
-# AnswerDocumentV2, the orchestrator writes a markdown transcript of
-# what the user just saw to <CWD>/.codrax/output/<timestamp>-<pid>.md.
-# The file carries exactly two H1 sections:
-#
-#   # 问题   — the user's request, plus optional `> 附件: log (… KiB)` /
-#             `> 附件: htrace (… KiB)` footnotes when --log / --htrace
-#             / --atrace was attached
-#   # 回答   — the rendered markdown body, byte-identical to what the
-#             one-shot CLI prints to stdout (REPL applies glamour on top;
-#             this file captures the pre-glamour source)
-#
-# Diagram fences (```mermaid) are kept verbatim — the file mirrors the
-# model's output, not a re-rendering. Whether downstream viewers (GitHub,
-# VSCode mermaid plugin) draw the diagrams is the viewer's choice.
-#
-# Write modes (plan / apply / verify) do NOT dump — only read-mode
-# answers. Failed Runs that never landed a V2 carrier are skipped so
-# only the answer the user actually saw is ever written.
-#
-# Retention: each dump prunes the oldest *.md files in the directory
-# until count <= output_max_files - 1, then writes the new file. Other
-# files in the directory are left alone.
-
-# Master switch. Default true — every read-mode answer is captured.
-# Set false to disable the feature entirely (no directory created).
-# output_dump_enabled: true
-
-# Maximum *.md files retained under <CWD>/.codrax/output/. The oldest
-# (by mtime) are pruned before each new write so the directory never
-# grows past this cap. Default 10. Non-positive resets to default.
-# output_max_files: 10
-
-# Optional REPL browser preview for the markdown dump. The server starts
-# lazily after a final answer is written, serves only registered output
-# files, and every URL carries a per-process random token.
-# Values: auto (default), on, off.
-# markdown_preview_server: auto
-
-# Listen IP/host for the preview server. Empty/unset means all
-# interfaces (0.0.0.0), which is useful from remote terminals when the
-# port is reachable or forwarded. Set 127.0.0.1 for loopback-only.
-# markdown_preview_host: ""
-
-# Listen port. 0/unset asks the OS for a free high port; set a positive
-# value when firewall rules or SSH forwarding need a stable port.
-# markdown_preview_port: 0
-
-# ---------------------------------------------------------------------------
-# Response language
-# ---------------------------------------------------------------------------
-
-# Default response language for the model's final answer.
-# Supported shorthands: zh, zh-CN, en. Any other string is passed
-# through verbatim as a preference directive. Set to "off" or "none"
-# to disable the feature entirely (model picks its own language).
-# lang: zh
-
-# ---------------------------------------------------------------------------
-# Per-invocation target
-# ---------------------------------------------------------------------------
-
-# Target repository the agents operate on.
-# repo: .
-
-# Default git branch for the working context.
-# branch: main
-
-# ---------------------------------------------------------------------------
-# Tool output blob sizing
-# ---------------------------------------------------------------------------
-# Tool results larger than blob_max_inline_bytes are offloaded to a
-# blob file under the work dir; only a head+tail preview is inlined
-# into the LLM context.
-
+# blob_max_inline_bytes / blob_preview_head_bytes / blob_preview_tail_bytes —
+#   absolute byte thresholds: inline cap, and the head / tail slice sizes
+#   kept when a result is offloaded.
+#   绝对字节阈值:内联上限,以及结果被卸载时保留的头 / 尾切片大小。
 # blob_max_inline_bytes: 32768
 # blob_preview_head_bytes: 24576
 # blob_preview_tail_bytes: 4096
 
-# Fraction form of blob_max_inline_bytes. When set AND providers.yaml
-# declares context_window, effective bytes = context_window × fraction
-# × 4 (B/token). Takes precedence over blob_max_inline_bytes; falls
-# back to that absolute when context_window is unknown, then to code
-# default. This lets one value scale across heterogeneous models —
-# on a 1M-window model 0.02 yields ~80 KB, on an 8K-window model
-# the same 0.02 yields ~640 B.
+# blob_max_inline_fraction — fraction form of blob_max_inline_bytes. When
+#   set AND providers.yaml declares context_window, effective bytes =
+#   context_window × fraction × 4 (B/token). Takes precedence over the
+#   absolute knob; lets one value scale across heterogeneous models.
+#   blob_max_inline_bytes 的比例写法。设置后,若 providers.yaml 声明了
+#   context_window,有效字节 = context_window × fraction × 4(字节/token)。
+#   优先于绝对值;一个值即可适配不同上下文窗口的模型。
 # blob_max_inline_fraction: 0.02
 
 # ---------------------------------------------------------------------------
-# read_file tool
+# Final-answer transcript dump  ·  最终答案落盘
 # ---------------------------------------------------------------------------
-# On an inline-sized file (bytes <= blob_max_inline_bytes), read_file
-# treats offset=0 combined with a small limit as a "training-distribution
-# default" and expands the slice to the whole file. This protects against
-# the common LLM failure mode of picking limit=20 on a 66-line source
-# file and silently missing the answer past line 20. Any non-zero offset
-# is always honored (a deliberate keyhole read), and a Limit above the
-# threshold is always honored. Banner makes the override visible.
-#
-# Set to 0 to disable the override entirely — offset/limit is then
-# honored on any file size.
+# EN  At the end of every read-mode Run that produced an answer, codrax
+#     writes a markdown transcript to <CWD>/.codrax/output/<timestamp>-<pid>.md
+#     with two H1 sections: `# 问题` (the request) and `# 回答` (the rendered
+#     answer). Write modes (plan/apply/verify) do NOT dump.
+# 中文 每次产出答案的读模式 Run 结束时,codrax 会把一份 markdown 抄本写到
+#     <CWD>/.codrax/output/<timestamp>-<pid>.md,含两个 H1 段:`# 问题`
+#     (请求)和 `# 回答`(渲染后的答案)。写模式(plan/apply/verify)不落盘。
 
+# output_dump_enabled — master switch. Default true. false disables the
+#   feature entirely (no directory created).
+#   总开关。默认 true。false 完全关闭该特性(不创建目录)。
+# output_dump_enabled: true
+
+# output_max_files — max *.md files kept under <CWD>/.codrax/output/. The
+#   oldest (by mtime) are pruned before each write. Default 10.
+#   <CWD>/.codrax/output/ 下保留的 *.md 文件数上限。每次写入前按 mtime
+#   清理最旧的。默认 10。
+# output_max_files: 10
+
+# markdown_preview_server — optional REPL browser preview for the dump.
+#   The server starts lazily after a final answer is written and serves
+#   only registered output files (each URL carries a random token).
+#   Values: auto (default) / on / off.
+#   可选的 REPL 浏览器预览。答案写盘后懒启动,只服务已登记的输出文件
+#   (每个 URL 带随机 token)。取值:auto(默认)/ on / off。
+# markdown_preview_server: auto
+
+# markdown_preview_host — listen IP/host for the preview server. Empty =
+#   all interfaces (0.0.0.0), useful from remote terminals. Set 127.0.0.1
+#   for loopback-only.
+#   预览服务监听地址。空 = 全部网卡(0.0.0.0),远程终端方便访问;设
+#   127.0.0.1 则仅本机回环。
+# markdown_preview_host: ""
+
+# markdown_preview_port — listen port. 0/unset asks the OS for a free high
+#   port; set a positive value when firewall / SSH forwarding needs a
+#   stable port.
+#   监听端口。0 / 未设让系统分配空闲高位端口;防火墙或 SSH 转发需要固定
+#   端口时设正整数。
+# markdown_preview_port: 0
+
+# ---------------------------------------------------------------------------
+# Response language  ·  应答语言
+# ---------------------------------------------------------------------------
+
+# lang — default language for the model's final answer. Shorthands:
+#   zh / zh-CN / en; any other string is passed through as a preference.
+#   Set "off" / "none" to disable (model picks its own language).
+#   模型最终答案的默认语言。简写:zh / zh-CN / en;其它字符串原样作为偏好
+#   传入。设 "off" / "none" 关闭该特性(模型自选语言)。
+# lang: zh
+
+# ---------------------------------------------------------------------------
+# Per-invocation target  ·  本次运行目标
+# ---------------------------------------------------------------------------
+
+# repo — target repository the agents operate on. Default "." (the current
+#   working directory). codrax analyzes the directory it is started in.
+#   agent 操作的目标仓库。默认 "."(当前工作目录)—— codrax 分析的就是它
+#   被启动时所在的目录。
+# repo: .
+
+# branch — default git branch for the working context.
+#   工作上下文的默认 git 分支。
+# branch: main
+
+# readfile_small_limit_threshold — on an inline-sized file, read_file
+#   treats offset=0 + a small limit as a lazy default and expands the
+#   slice to the whole file (guards the common "limit=20 on a 66-line
+#   file" miss). Any non-zero offset is always honored. 0 disables.
+#   Default 100.
+#   对内联大小的文件,read_file 把 offset=0 + 较小 limit 视为偷懒默认值,
+#   将切片扩展为整文件(防止"66 行文件只读 20 行漏掉答案")。非零 offset
+#   永远被尊重。0 关闭。默认 100。
 # readfile_small_limit_threshold: 100
 
 # ---------------------------------------------------------------------------
-# Pipeline budgets
+# Pipeline budgets  ·  流水线预算
 # ---------------------------------------------------------------------------
-# How much work the pipeline is allowed to do per Run() call.
-# CLI flags (-pipeline-max-steps, -pipeline-max-retries,
-# -pipeline-max-stage-visits) override these.
+# EN  How much work one Run() may do. CLI flags --pipeline-max-steps /
+#     --pipeline-max-retries / --pipeline-max-stage-visits override these.
+# 中文 单次 Run() 允许做多少工作。命令行 --pipeline-max-steps /
+#     --pipeline-max-retries / --pipeline-max-stage-visits 会覆盖这些值。
 
+# pipeline_max_steps — total pipeline steps per Run. Default 50.
+#   单次 Run 的总步数上限。默认 50。
 # pipeline_max_steps: 50
+
+# pipeline_max_retries_per_stage — max retries per stage. Default 2.
+#   每个阶段的最大重试次数。默认 2。
 # pipeline_max_retries_per_stage: 2
+
+# pipeline_max_stage_visits — max entries into any one stage per Run.
+#   Default 4.
+#   单次 Run 中每个阶段的最大进入次数。默认 4。
 # pipeline_max_stage_visits: 4
-# Shared cap for orchestrator-owned parallel fan-out surfaces:
-# post-emit reviewers, sub-agents, and multi-sub_topic explorer dispatch.
-# 1 = strict serial; 2 = default; 0 = uncapped per fan-out surface.
+
+# pipeline_max_parallelism — concurrency cap for orchestrator-owned
+#   parallel fan-out (post-emit reviewers, sub-agents, multi-sub_topic
+#   explorer dispatch). 0 = unlimited; 1 = strict serial; >1 = cap.
+#   Default 2 (clamped to [0,16]).
+#   编排器并行扇出(emit 后的 reviewer、子 agent、多 sub_topic explorer
+#   分发)的并发上限。0 = 不限;1 = 严格串行;>1 = 封顶。默认 2(钳制到 [0,16])。
 # pipeline_max_parallelism: 2
 
-# Transient (read-mode) retry. Caps how many times the scheduler
-# re-dispatches a stage that hit a STREAM-LEVEL transient error
-# (unexpected EOF / stream stalled / first-byte timeout / network
-# blip). HTTP 429 / 5xx are NOT in this set — those are L1's domain
-# (providers.yaml :: retry_max_attempts, default 6 attempts × ~62s
-# coverage). Decoupled from write_retry_budget so brief upstream
-# blips never starve the verify→plan SC retry budget. Default 3
-# rides through bursty EOF / stream-stall / dial failures; hard-stop
-# plateau still requires a repeated non-empty stream-stall tool path.
+# pipeline_transient_retry_budget — caps re-dispatch of a stage that hit
+#   a STREAM-LEVEL transient error (unexpected EOF / stream stalled /
+#   first-byte timeout / network blip). HTTP 429/5xx are NOT here — those
+#   live in providers.yaml :: retry_max_attempts. Default 3.
+#   重新分发"流级瞬时错误"(意外 EOF / 流卡死 / 首字节超时 / 网络抖动)
+#   阶段的次数上限。HTTP 429/5xx 不在此列 —— 它们由 providers.yaml ::
+#   retry_max_attempts 负责。默认 3。
 # pipeline_transient_retry_budget: 3
 
-# Force-finalize fallback retry. The orchestrator's last-resort
-# composition path (fires after the regular DAG path stalls or
-# rejects every draft) retries up to this many times when the
-# dispatch hits a stream-level transient error. Default 3 = 1
-# initial + 2 retries with llm.NextRetryDelay backoff (capped at
-# 5s). This is the user's last chance to recover ANY answer when
-# the connection is flaky; without retries here, a single EOF
-# would surface as "forced finalize: read stream: unexpected EOF"
-# with no answer at all. Hard-capped at 5 inside the orchestrator.
+# pipeline_force_finalize_attempts — retries for the last-resort
+#   force-finalize composition path when its dispatch hits a stream-level
+#   transient error. Default 3 (hard-capped at 5).
+#   兜底的 force-finalize 成文路径在遇到流级瞬时错误时的重试次数。
+#   默认 3(硬上限 5)。
 # pipeline_force_finalize_attempts: 3
 
-# Final-answer strong review. Default true runs deterministic
-# contract checks, self-consistency / semantic-quality reviewers
-# when enabled, and bounded finalizer rewrites. Set false to return
-# the first accepted structured answer draft immediately; any
-# deterministic concerns are rendered as supplementary notes instead
-# of triggering reviewer calls or rewrite loops.
+# pipeline_strict_answer_review_enabled — final-answer strong review.
+#   Default true runs deterministic contract checks, reviewers, and
+#   bounded finalizer rewrites. false returns the first accepted answer
+#   draft immediately (concerns rendered as supplementary notes).
+#   最终答案强校验。默认 true:跑确定性合约检查、reviewer、有界的
+#   finalizer 重写。false 立即返回首个被接受的答案草稿(把问题作为补充
+#   说明渲染)。
 # pipeline_strict_answer_review_enabled: true
 
 # Absolute ceilings on per-Run multi-topic budget scaling. Non-zero
-# overrides the historical hardcoded literals; zero falls back to the
-# code default shown after each key.
+#   overrides the hardcoded literals; 0 = code default shown after each.
+#   单次 Run 多主题预算扩容的绝对上限。非零覆盖硬编码值;0 = 代码默认值
+#   (见每行末)。
 # pipeline_max_steps_ceil: 100
-# pipeline_write_retry_budget_ceil: 5
 # pipeline_transient_retry_budget_ceil: 3
+# pipeline_write_retry_budget_ceil: 5
 
-# Write-mode-only pipeline knobs. No-op when write_enabled: false.
+# ---------------------------------------------------------------------------
+# Answer review & finalize tuning  ·  答案审阅与成文调优
+# ---------------------------------------------------------------------------
+# EN  Knobs for the post-finalize review layer: contradiction / quality
+#     reviewers, contract gate classification, fallback routing, and the
+#     finalize repair loop. Defaults are tuned; most operators never touch
+#     these.
+# 中文 finalize 之后的审阅层旋钮:矛盾 / 质量 reviewer、合约门分类、
+#     fallback 路由、finalize 修复循环。默认值已调好,多数人无需改动。
 
-# verify→plan retry loop. When >0 and the verify stage fails, the
-# orchestrator seeds a PlanningHint from the ChangeReport's failure
-# summary + top-3 failing tests + plan.TargetPaths (suspect files),
-# resets ChangePlan / ChangeReport / WriteClosure / plan-path, and
-# re-enters plan. Default 3 — Reflexion / Self-Refine / AutoCodeRover
-# literature consensus is 3-5; past 5 is marginal lift and burns
-# tokens on unfixable plans. Hard cap pipeline_write_retry_budget_ceil
-# (default 5) is enforced inside SetWriteRetryBudget.
+# pipeline_richness_softening_warn — emit a WARN log line when a HARD
+#   facet is silently downgraded to SOFT or a question family falls back.
+#   Telemetry is always recorded; this only governs the log line.
+#   Default true.
+#   当 HARD facet 被静默降级为 SOFT、或问题族回退时,打一条 WARN 日志。
+#   遥测始终记录;此开关只管日志行。默认 true。
+# pipeline_richness_softening_warn: true
+
+# pipeline_demotion_storm_threshold / pipeline_forced_read_storm_threshold —
+#   when the per-Run CGEC counter (chains demoted / forced reads) reaches
+#   the threshold, a SOFT storm violation is appended to the closure
+#   ledger so operators see the signal. Defaults 10 / 8. 0 disables.
+#   当单次 Run 的 CGEC 计数器(chain 降级数 / 强制补读数)达到阈值时,
+#   向 closure ledger 追加一条 SOFT storm 违规,便于运维看到信号。
+#   默认 10 / 8。0 关闭。
+# pipeline_demotion_storm_threshold: 10
+# pipeline_forced_read_storm_threshold: 8
+
+# pipeline_finalizer_local_retries_before_escalate — when a violation set
+#   has an upstream primary locus but finalize-local violations also
+#   exist, give finalize N cheap re-emit tries before escalating upstream.
+#   Default 2. 0 / negative disables the downgrade.
+#   当违规集的主 locus 在上游、但同时存在 finalize 本地违规时,先给
+#   finalize N 次便宜的重发机会,再向上游升级。默认 2。0 / 负值关闭降级。
+# pipeline_finalizer_local_retries_before_escalate: 2
+
+# pipeline_cluster_stable_budget — how many attempts the same owner may
+#   run on a violation cluster without resolving its Primary before the
+#   closure detector escalates. Default 2.
+#   同一 owner 在某违规簇上未解决其 Primary 时,closure 检测器升级前允许
+#   的尝试次数。默认 2。
+# pipeline_cluster_stable_budget: 2
+
+# pipeline_finalizer_retry_no_think — on FINALIZER retry iterations
+#   (iter >= 1), dynamically disable think_aloud to save 30-50% tokens and
+#   stop the LLM re-using its first-pass reasoning. Iter 0 always keeps
+#   the configured think_aloud. Default true.
+#   在 FINALIZER 重试轮(iter >= 1)动态关闭 think_aloud,省 30-50% token
+#   并防止模型复用首轮推理。iter 0 始终保留所配 think_aloud。默认 true。
+# pipeline_finalizer_retry_no_think: true
+
+# pipeline_facet_validators_enabled — master switch for three finalizer
+#   oracles: facet-coverage (SOFT), claim-form-support (STRICT),
+#   absence-scope-bound (STRICT). false reverts to pre-Phase-4 behaviour.
+#   Default true.
+#   三个 finalizer oracle 的总开关:facet 覆盖(SOFT)、claim-form 支撑
+#   (STRICT)、absence-scope 边界(STRICT)。false 回退到 Phase-4 之前的
+#   行为。默认 true。
+# pipeline_facet_validators_enabled: true
+
+# pipeline_self_consistency_review_enabled — gate the post-finalize
+#   self-consistency reviewer: an independent LLM reads summary + body
+#   bullets and reports factual contradictions. Default true.
+#   finalize 后的自洽 reviewer 开关:一个独立 LLM 读 summary + 正文要点,
+#   报告事实矛盾。默认 true。
+# pipeline_self_consistency_review_enabled: true
+
+# pipeline_self_consistency_rewrite_on_contradiction — treat a detected
+#   contradiction as STRICT (true: trigger finalizer retry with the
+#   contradictions injected) or SOFT (false: telemetry only, answer
+#   ships). Default true.
+#   把检测到的矛盾视为 STRICT(true:触发 finalizer 重试并注入矛盾点)
+#   还是 SOFT(false:只记遥测,答案照发)。默认 true。
+# pipeline_self_consistency_rewrite_on_contradiction: true
+
+# pipeline_self_consistency_min_confidence — reviewer self-rated
+#   confidence floor; verdicts below it are silently dropped. Default 0.8.
+#   reviewer 自评置信度下限;低于此的判定被静默丢弃。默认 0.8。
+# pipeline_self_consistency_min_confidence: 0.8
+
+# pipeline_semantic_quality_review_enabled — gate the second-layer
+#   reviewer that catches "ships clean but thin" (uncovered promoted
+#   facets, short diagram edges, unsurfaced richness). Default true.
+#   第二层 reviewer 开关,捕捉"过关但单薄"(promoted facet 未覆盖、
+#   图边过少、可呈现的丰富度未呈现)。默认 true。
+# pipeline_semantic_quality_review_enabled: true
+
+# pipeline_semantic_quality_min_confidence — confidence floor for the
+#   semantic-quality reviewer. Default 0.92. Lower (0.85) widens the
+#   noise band; higher tightens further.
+#   语义质量 reviewer 的置信度下限。默认 0.92。调低(0.85)放宽噪声带,
+#   调高则更严。
+# pipeline_semantic_quality_min_confidence: 0.92
+
+# pipeline_exhaustive_deterministic_review_threshold — item count above
+#   which a deterministic exhaustive member-set reviewer replaces the two
+#   LLM reviewers (activated only on a typed closed-set signature). 0
+#   disables that path; nil = code default 30.
+#   item 数超过此值时,改用确定性的穷举成员集 reviewer 取代两个 LLM
+#   reviewer(仅在带类型的封闭集签名上激活)。0 关闭该路径;nil = 默认 30。
+# pipeline_exhaustive_deterministic_review_threshold: 30
+
+# pipeline_reviewer_wall_budget_fraction — bound each LLM reviewer to this
+#   fraction of remaining wall-clock budget so one slow reviewer cannot
+#   eat the whole window (on timeout its output is downgraded to
+#   advisory). Default 0.4. 0 disables the deadline guard.
+#   把每个 LLM reviewer 限制在剩余墙钟预算的此比例内,防止单个慢 reviewer
+#   吃掉整个窗口(超时则其输出降为建议)。默认 0.4。0 关闭该截止保护。
+# pipeline_reviewer_wall_budget_fraction: 0.4
+
+# pipeline_finalize_repair_hard_cap — max finalize-stage repair-loop
+#   iterations before degrading to "ship doc + residual-concerns caveat".
+#   Default 2.
+#   finalize 阶段修复循环的最大迭代次数,超过则降级为"发出文档 + 残留问题
+#   提示"。默认 2。
+# pipeline_finalize_repair_hard_cap: 2
+
+# pipeline_contract_soft_kinds / pipeline_contract_strict_kinds — override
+#   the soft/strict gate classification per ViolationKind. SOFT kinds are
+#   mirrored to telemetry but do NOT fail the contract (no finalize
+#   retry); STRICT kinds DO. List ViolationKind names to relax / tighten.
+#   按 ViolationKind 覆盖软/严门分类。SOFT 类只进遥测、不判合约失败
+#   (不触发 finalize 重试);STRICT 类会判失败。列出 ViolationKind 名称
+#   即可放宽 / 收紧。
+# pipeline_contract_soft_kinds:
+#   - shape_intent_mismatch
+# pipeline_contract_strict_kinds:
+#   - self_contradiction
+
+# pipeline_fallback_policy_overrides — override the per-ViolationKind
+#   upstream-fallback target. Keys are kind names; values are one of
+#   finalizer_only / back_to_extract / back_to_explore / back_to_analyze /
+#   fail_loud. Unknown keys/values are dropped silently.
+#   按 ViolationKind 覆盖上游 fallback 目标。键为 kind 名,值取
+#   finalizer_only / back_to_extract / back_to_explore / back_to_analyze /
+#   fail_loud 之一。未知键/值会被静默丢弃。
+# pipeline_fallback_policy_overrides:
+#   self_contradiction: back_to_extract
+
+# pipeline_max_upstream_fallbacks_per_run — cap on selective upstream
+#   fallbacks (back-to-extract / back-to-explore) per Run; reaching it
+#   forces fail-loud on the next violation. Default 2. 0 disables the cap.
+#   单次 Run 中选择性上游 fallback(回 extract / 回 explore)的次数上限;
+#   达到后下一个违规即强制 fail-loud。默认 2。0 关闭该上限。
+# pipeline_max_upstream_fallbacks_per_run: 2
+
+# diagram_identifier_whitelist — English / domain words the Mermaid
+#   bare-identifier oracle should NOT flag even when they fail the symbol
+#   lookup (e.g. multi-token generics like "HttpRequest"). Empty default.
+#   Mermaid 裸标识符 oracle 即使符号查不到也不应标记的英文 / 领域词
+#   (如 "HttpRequest" 这类多词通用词)。默认空。
+# diagram_identifier_whitelist:
+#   - HttpRequest
+
+# ---------------------------------------------------------------------------
+# Write-mode pipeline  ·  写模式流水线
+# ---------------------------------------------------------------------------
+# EN  These knobs are no-ops when write_enabled: false.
+# 中文 当 write_enabled: false 时,这些旋钮无效。
+
+# pipeline_write_retry_budget — verify→plan retry rounds AFTER the first
+#   attempt (3 = up to 4 total). On verify failure the orchestrator seeds
+#   a hint from the failure summary + top-3 failing tests + suspect files
+#   and re-enters plan. Default 3. 0 = fail-loud (one attempt).
+#   verify→plan 在首次尝试之后的重试轮数(3 = 最多 4 次)。verify 失败时
+#   编排器用失败摘要 + top-3 失败测试 + 嫌疑文件作提示重新进入 plan。
+#   默认 3。0 = fail-loud(只一次)。
 # pipeline_write_retry_budget: 3
 
-# Baseline capture. When true, the apply pre-hook runs run_tests
-# against the worktree BEFORE the coder dispatches (post-provision,
-# pre-apply) so the CritNoRegression criterion can compare pre/post
-# MetricDeltas. Doubles test-suite wall time — leave false unless
-# the repo has known pre-existing regressions to distinguish from
-# newly-introduced ones.
+# pipeline_baseline_capture_enabled — when true, run_tests runs against
+#   the worktree BEFORE the coder dispatches, so verify can compare
+#   pre/post and tell REGRESSION from PRE-EXISTING failures. Doubles test
+#   wall time. Default false.
+#   设为 true 时,coder 分发前先对 worktree 跑一遍 run_tests,使 verify
+#   能比较前后、区分 REGRESSION 与预存失败。测试墙钟翻倍。默认 false。
 # pipeline_baseline_capture_enabled: false
 
-# Preserve the apply-phase worktree when Mode=ModeApply completes with
-# LastError=="". Failure paths (apply failed / verify failed) always
-# discard to avoid disk clutter. When preserved, the absolute worktree
-# path is written to plan.WorktreePath so /worktree list and cherry-
-# pick workflows can find it. Default false — worktree is an internal
-# sandbox, not a user artefact.
+# pipeline_baseline_cache_max — max cached baseline reports under
+#   <runtime>/baselines/<sha8>.json, keyed by HEAD SHA so unchanged repos
+#   reuse the baseline without re-running tests. Default 16. 0 disables
+#   caching.
+#   <runtime>/baselines/<sha8>.json 下缓存的 baseline 报告数上限,按 HEAD
+#   SHA 索引,仓库未变时复用而不重跑测试。默认 16。0 关闭缓存。
+# pipeline_baseline_cache_max: 16
+
+# pipeline_keep_worktree_on_success — preserve the apply-phase git
+#   worktree when apply completes cleanly, so /worktree list and /merge
+#   can find it. Failure paths always discard. Default false.
+#   apply 干净完成时保留 apply 阶段的 git worktree,以便 /worktree list
+#   与 /merge 找到它。失败路径总是丢弃。默认 false。
 # pipeline_keep_worktree_on_success: false
 
-# ---------------------------------------------------------------------------
-# Stage II: multi-phase plan groups (commits 18-33)
-# ---------------------------------------------------------------------------
-# When the LLM's PhaseProposal carries split=sequential with N >= 2 phases
-# AND Mode=ModeApply, the orchestrator drives plan→apply→verify per
-# phase via runPhaseGroup. /phase show inspects state; /phase rollback
-# resets the active phase to Pending; /phase resume hints next steps.
+# pipeline_write_max_seconds — wall-clock ceiling for write-mode Runs
+#   (plan/apply/verify). On expiry the in-flight stage is cancelled.
+#   Read-mode Runs are NOT capped. Default 600. 0 = no cap (hard-capped
+#   at 1800).
+#   写模式 Run(plan/apply/verify)的墙钟上限。到期则取消进行中的阶段。
+#   读模式不受此限。默认 600。0 = 不限(硬上限 1800)。
+# pipeline_write_max_seconds: 600
 
-# Cap on LLM-emitted PhaseProposal phase count. Default 5 (empirical:
-# real-world multi-phase tasks are 2-3 phases; 5 covers the long tail;
-# >5 almost always means the LLM mis-classified what should be a single
-# phase). Hard-capped by types.MaxPhasesPerGroupCeil = 12 inside
-# types.SetMaxPhases so a yaml typo can't unleash a 30-phase fan-out.
+# pipeline_plan_critic_enabled — optional pre-apply plan review LLM call.
+#   When true (and a plan_critic adapter is configured), one Chat call
+#   after planner emit surfaces shape-level concerns; the critique is
+#   INFORMATIONAL — apply runs regardless. Default false (opt-in cost).
+#   可选的 apply 前 plan 评审 LLM 调用。设为 true(且配了 plan_critic
+#   adapter)时,planner emit 后做一次 Chat 调用指出形态级问题;评审仅供
+#   参考 —— apply 照常执行。默认 false(开启需多付一次 LLM 调用)。
+# pipeline_plan_critic_enabled: false
+
+# pipeline_max_phases_per_run — cap on the LLM-emitted PhaseProposal phase
+#   count in multi-phase write Runs. Default 5 (hard-capped at 12).
+#   多阶段写模式 Run 中,LLM 提出的 PhaseProposal 阶段数上限。默认 5
+#   (硬上限 12)。
 # pipeline_max_phases_per_run: 5
 
 # ---------------------------------------------------------------------------
-# Stage 3: per-repo Failure Taxonomy (commits 34-40)
+# Failure & answer taxonomy (cross-Run learning)  ·  失败 / 答案分类学(跨 Run 学习)
 # ---------------------------------------------------------------------------
-# Cross-Run learning: every verify→plan retry asks the reflector LLM to
-# distill the failure into an abstract reusable pitfall (name + trigger +
-# description + confidence). Persisted at <cache-dir>/<repo-slug>/
-# failure_taxonomy.json. Future plans in the same repo see the relevant
-# pitfalls injected into the planner's "## Known active pitfalls" prompt
-# section so the LLM can avoid them. /pitfalls list / show / clear at
-# the REPL inspects the cache.
+# EN  Each verify→plan retry (write) and each end-of-Run review (read) asks
+#     a reflector LLM to distill the episode into a reusable pitfall
+#     persisted per-repo under <cache-dir>/<repo-slug>/. Future Runs in the
+#     same repo see the relevant pitfalls injected into the prompt.
+# 中文 每次 verify→plan 重试(写)与每次 Run 结束的复盘(读)都让 reflector
+#     LLM 把这次经历提炼成可复用的"坑",按仓库持久化到
+#     <cache-dir>/<repo-slug>/。同仓后续 Run 会把相关的坑注入提示词。
 
-# Master switch. Default true. Set false to disable the entire learning
-# loop — reflector still runs but emit_failure_pattern is omitted from
-# its tools list (no LLM-token cost) and planner injection skips its
-# pitfall section.
+# pipeline_failure_taxonomy_enabled — write-mode failure learning master
+#   switch. Default true.
+#   写模式失败学习总开关。默认 true。
 # pipeline_failure_taxonomy_enabled: true
 
-# Cap on the per-repo cache size. Append-overflow drops the lowest-
-# value entries (Confidence × HitCount × recency). Default 50, sized
-# to fit ~3 KB worst-case prompt budget when all are injected.
+# pipeline_failure_taxonomy_max_items — per-repo cache cap; overflow drops
+#   lowest-value entries (confidence × hits × recency). Default 50.
+#   每仓缓存上限;溢出时丢弃最低价值条目(置信度 × 命中 × 时近度)。默认 50。
 # pipeline_failure_taxonomy_max_items: 50
 
-# Decay window for one-off (HitCount<2) patterns. Patterns older than
-# N days AND not seen since are dropped at next Append. Default 90 —
-# matches the heuristic that a pattern unrepeated for 3 months was
-# probably a one-off coincidence. Set 0 to disable decay (patterns
-# persist forever).
+# pipeline_failure_taxonomy_decay_days — one-off (HitCount<2) patterns
+#   older than N days are dropped. Default 90. 0 disables decay.
+#   一次性(HitCount<2)且超过 N 天未再现的模式会被丢弃。默认 90。0 关闭衰减。
 # pipeline_failure_taxonomy_decay_days: 90
 
-# ---------------------------------------------------------------------------
-# Write mode (write_*)
-# ---------------------------------------------------------------------------
-# Write-mode is the plan → apply → verify pipeline that proposes and
-# executes code changes inside a sandboxed git worktree. The master
-# switch is yaml-only by design — write mode is a deploy-time
-# decision, not per-run. With write_enabled: false (the default) any
-# --mode=plan|apply|verify or REPL /mode plan|apply|verify is rejected
-# fail-loud at flag-parse / command-handler time.
+# pipeline_answer_taxonomy_enabled / _max_items / _decay_days — the
+#   read-mode mirror of the failure taxonomy: an end-of-Run answer
+#   reviewer distills recurring answer-quality pitfalls. Defaults
+#   true / 50 / 90.
+#   失败分类学的读模式镜像:Run 结束的答案 reviewer 提炼反复出现的
+#   答案质量问题。默认 true / 50 / 90。
+# pipeline_answer_taxonomy_enabled: true
+# pipeline_answer_taxonomy_max_items: 50
+# pipeline_answer_taxonomy_decay_days: 90
 
-# Master switch. MUST be true for --mode=plan|apply|verify to dispatch.
+# ---------------------------------------------------------------------------
+# Write mode  ·  写模式
+# ---------------------------------------------------------------------------
+# EN  Write mode is the plan → apply → verify pipeline that proposes and
+#     executes code changes inside a sandboxed git worktree. The master
+#     switch is yaml-only by design — a deploy-time decision, not per-run.
+# 中文 写模式是在沙箱 git worktree 内提出并执行代码改动的 plan → apply →
+#     verify 流水线。总开关刻意只放在 yaml —— 这是部署期决定,不是逐次运行。
+
+# write_enabled — master switch. MUST be true for --mode=plan|apply|verify
+#   to dispatch. Default false.
+#   总开关。--mode=plan|apply|verify 要生效必须为 true。默认 false。
 # write_enabled: false
 
-# Default --mode when the CLI flag is omitted. Legal values: "read"
-# (default) or "plan". "apply" and "verify" are inherently side-
-# effecting and MUST be opted into per-run via CLI — the yaml layer
-# rejects them here with a clear error.
+# write_default_mode — default --mode when the CLI flag is omitted. Legal:
+#   "read" / "plan". "apply" / "verify" are side-effecting and must be
+#   opted into per-run via CLI. Default read.
+#   省略 --mode 时的默认模式。合法值:"read" / "plan"。"apply" / "verify"
+#   有副作用,必须每次运行用 CLI 显式选择。默认 read。
 # write_default_mode: read
 
-# Reserved for REPL /approve interactive default and batch workflows.
-# Unused in single-shot today; the --auto-apply CLI flag is the
-# authoritative gate for single-shot --mode=apply.
+# write_auto_approval — reserved for the REPL /approve interactive default
+#   and batch workflows; unused in single-shot today (--auto-apply is the
+#   single-shot gate). Default false.
+#   预留给 REPL /approve 的交互默认值与批处理工作流;单次模式当前未用
+#   (单次由 --auto-apply 把关)。默认 false。
 # write_auto_approval: false
 
-# Override for the plan-JSON output directory. Default is
-# <runtime-anchor>/plans/ (i.e. <CWD>/.codrax/plans/). Accepts absolute
-# or runtime-anchor-relative paths; non-absolute forms are anchored in
-# cmd/root.go.
+# write_plan_dir — override for the ChangePlan JSON output directory.
+#   Default <CWD>/.codrax/plans/. Absolute or runtime-anchor-relative.
+#   ChangePlan JSON 的输出目录覆盖。默认 <CWD>/.codrax/plans/。可为绝对
+#   路径或相对运行时锚点的路径。
 # write_plan_dir: ""
 
-# Authorize turning a non-git target directory into a git repo
-# (`git init` + empty initial commit) at the start of a write-mode Run.
-# CLI equivalent: --auto-init-repo. Default false. This authorizes the
-# git-init step ONLY; if the directory is also empty and you want a
-# brand-new project created from scratch, you ALSO need
-# write_scaffold_enabled below. CLI flag wins when both are set. The
-# REPL keeps an interactive y/N prompt as the third-tier fallback for
-# init when neither yaml nor CLI is set.
+# write_auto_init_repo — authorize `git init` + an empty initial commit
+#   when the target directory is not a git repo. CLI equivalent
+#   --auto-init-repo. Authorizes git-init ONLY. Default false.
+#   当目标目录不是 git 仓库时,授权执行 `git init` + 一个空的初始 commit。
+#   等价 CLI --auto-init-repo。只授权 git-init 这一步。默认 false。
 # write_auto_init_repo: false
 
-# Authorize the planner to invent files for a target directory that
-# contains NO existing source (from-scratch project creation). CLI
-# equivalent: --allow-scaffold. Default false. Required IN ADDITION TO
-# write_auto_init_repo for empty-dir runs; non-empty bare directories
-# bypass this gate (the planner has real source to read). Off by default
-# so files are never fabricated without explicit consent.
+# write_scaffold_enabled — authorize the planner to invent files for a
+#   target directory with NO existing source (from-scratch projects).
+#   Required IN ADDITION TO write_auto_init_repo for empty dirs. CLI
+#   equivalent --allow-scaffold. Default false.
+#   授权 planner 为"没有任何已有源码"的目录凭空生成文件(从零起项目)。
+#   空目录场景需与 write_auto_init_repo 同时开启。等价 CLI --allow-scaffold。
+#   默认 false。
 # write_scaffold_enabled: false
 
 # ---------------------------------------------------------------------------
-# Worktree retention (worktree_keep_*)
+# Worktree retention  ·  worktree 保留
 # ---------------------------------------------------------------------------
-# Bounds on the preserved worktrees produced by
-# pipeline_keep_worktree_on_success: true. At codrax startup the runtime
-# age-reaps then quota-evicts dirs under <runtime-anchor>/worktrees/
-# so a long-running operator's disk doesn't fill silently. Failure-path
-# worktrees are always discarded immediately and never appear here.
+# EN  Bounds on worktrees preserved by pipeline_keep_worktree_on_success.
+#     At startup codrax age-reaps then quota-evicts dirs under
+#     <runtime>/worktrees/. Failure-path worktrees are always discarded.
+# 中文 由 pipeline_keep_worktree_on_success 保留下来的 worktree 的上限。
+#     启动时 codrax 先按时效清理,再按配额淘汰 <runtime>/worktrees/ 下的
+#     目录。失败路径的 worktree 总是立即丢弃。
 
-# TTL (in hours). Worktree dirs whose mtime is older than this are
-# removed at codrax launch. 0 disables age-reaping entirely (quota
-# still applies). Default 168 (7 days).
+# worktree_keep_ttl_hours — preserved worktrees older than this (by mtime)
+#   are removed at startup. Default 168 (7 days). 0 disables age-reaping.
+#   保留的 worktree 若 mtime 超过此时长,启动时删除。默认 168(7 天)。
+#   0 关闭时效清理。
 # worktree_keep_ttl_hours: 168
 
-# Maximum number of preserved worktrees that may exist after age-
-# reaping. When the survivor count exceeds this, the oldest (by mtime)
-# are LRU-evicted until count <= cap. 0 disables the quota (only TTL
-# applies). Default 20.
+# worktree_keep_max_count — max preserved worktrees after age-reaping;
+#   excess oldest are LRU-evicted. Default 20. 0 disables the quota.
+#   时效清理后保留的 worktree 数上限;超出则按 LRU 淘汰最旧的。默认 20。
+#   0 关闭配额。
 # worktree_keep_max_count: 20
 
 # ---------------------------------------------------------------------------
-# Verify resource caps (verify_mem_limit_mb / verify_cpu_limit_seconds)
+# Verify resource caps  ·  verify 资源上限
 # ---------------------------------------------------------------------------
-# Hard caps on every supervised exec — applied to run_tests and
-# exec_command invocations both in read mode (when used by the LLM
-# directly) and in write-mode verify. Without these caps a runaway
-# LLM-generated test (e.g. an unbounded allocator loop) can OOM the
-# entire host. Provenance: 2026-04-26 OOM event where pytest hit
-# RSS 2.47 GiB on a 3.7 GiB host and the system-wide OOM killer took
-# down the supervising claude-code process.
-#
-# Unix: enforced via `ulimit -v` / `-t` shell prefix.
-# Windows: enforced via JobObject JobMemoryLimit / PerJobUserTimeLimit.
+# EN  Hard caps on every supervised exec — run_tests and exec_command,
+#     in read mode and write-mode verify. Without them a runaway
+#     LLM-generated test can OOM the host. Unix: `ulimit -v` / `-t`;
+#     Windows: JobObject limits.
+# 中文 对每次受监管的执行(run_tests、exec_command,读模式与写模式 verify)
+#     的硬上限。没有它们,失控的 LLM 生成测试可能把主机 OOM。Unix:
+#     `ulimit -v` / `-t`;Windows:JobObject 限制。
 
-# Memory cap in MiB. Default 2048 (2 GiB) — large enough for most real
-# test suites (Java gradle, big Go monorepos), tight enough that a
-# 4 GiB host keeps codrax + the test process alive together.
-# Operators on dev hosts with abundant RAM can raise this; CI runners
-# often want lower (e.g. 512). 0 falls back to the default.
+# verify_mem_limit_mb — memory cap in MiB. Default 2048. CI runners often
+#   want lower (e.g. 512); 0 = code default.
+#   内存上限(MiB)。默认 2048。CI runner 常想调低(如 512);0 = 代码默认值。
 # verify_mem_limit_mb: 2048
 
-# Total CPU seconds across every process in the supervised tree.
-# Distinct from the wall-clock timeout (300 s default) so a CPU-burner
-# on a multi-core host can't keep all cores at 100 % for the full wall
-# budget. Fires SIGXCPU on Unix, terminates the JobObject on Windows.
-# Default 600. 0 falls back to the default.
+# verify_cpu_limit_seconds — total CPU seconds across the supervised
+#   process tree (distinct from the 300s wall-clock timeout). Default 600.
+#   受监管进程树的总 CPU 秒数(与 300 秒的墙钟超时不同)。默认 600。
 # verify_cpu_limit_seconds: 600
 
 # ---------------------------------------------------------------------------
-# Static-check master switch (pipeline_lint_enabled)
+# Static checks  ·  静态检查
 # ---------------------------------------------------------------------------
-# Gates the V5 lint validator family that runs at emit_change_plan
-# time on every kind=create entry. Covers Go (gofmt -l), Python
-# (ruff -E,F), Node (node --check), Ruby (ruby -wc), C (gcc -Werror),
-# C++ (g++ -Werror), TypeScript (tsc --noEmit), Rust (rustc
-# --emit=metadata), Java (javac -Xlint), Swift (swift -frontend
-# -typecheck), plus project-aware ArkTS / Cangjie checks. Each check
-# silently skips when its toolchain binary is missing. Set to false
-# when your codebase carries existing lint debt and the new-files-only
-# filter still feels too noisy. Default true.
+
+# pipeline_lint_enabled — gate the V5 lint validators that run at
+#   emit_change_plan time on every kind=create entry (gofmt, ruff,
+#   node --check, etc.; each check skips silently when its toolchain is
+#   missing). Default true.
+#   V5 lint 校验开关:emit_change_plan 时对每个 kind=create 条目运行
+#   (gofmt、ruff、node --check 等;工具链缺失时静默跳过)。默认 true。
 # pipeline_lint_enabled: true
 
-# ---------------------------------------------------------------------------
-# Analyzer quality gate (gate_*)
-# ---------------------------------------------------------------------------
-# Thresholds for the deterministic quality gate that runs after
-# emit_analysis. All optional — zero falls through to code default.
+# pipeline_mermaid_renderability_gate — terminal-Mermaid renderability
+#   gate inside emit_answer_document. Modes: off (diagnostics only),
+#   soft (default; counted, never rejects), strict (reject + retry on a
+#   Mermaid-spec parse failure). Unsupported diagram kinds never reject.
+#   emit_answer_document 内的终端 Mermaid 可渲染性门。取值:off(只收集
+#   诊断)、soft(默认;计数但从不拒绝)、strict(解析违反 Mermaid 规范时
+#   拒绝并重试)。不支持的图类型永不拒绝。
+# pipeline_mermaid_renderability_gate: soft
 
+# ---------------------------------------------------------------------------
+# Analyzer quality gate (gate_*)  ·  分析质量门(gate_*)
+# ---------------------------------------------------------------------------
+# EN  Thresholds for the deterministic quality gate run after
+#     emit_analysis. All optional; 0 = code default.
+# 中文 emit_analysis 之后的确定性质量门阈值。全部可选;0 = 代码默认值。
 # gate_coverage_min: 0.6
 # gate_coverage_weight_symbol: 1.0
 # gate_coverage_weight_config: 0.7
@@ -448,18 +645,24 @@
 # gate_hypothesis_min_priority: 0
 
 # ---------------------------------------------------------------------------
-# emit_analysis runtime validation (analysis_*)
+# emit_analysis runtime validation (analysis_*)  ·  emit_analysis 运行时校验
 # ---------------------------------------------------------------------------
-# Controls keyword/entity validation during the analyze stage.
+# EN  Keyword / entity validation during the analyze stage.
+# 中文 analyze 阶段的关键词 / 实体校验。
 
-# Soft floor: attach a warning when keyword count is below this.
+# analysis_warn_below_keywords — soft floor: attach a warning when the
+#   analyzer emits fewer keywords. Default 8. 0 disables.
+#   软下限:analyzer 关键词少于此值时附加警告。默认 8。0 关闭。
 # analysis_warn_below_keywords: 8
 
-# Hard floor: fail emit_analysis when keyword count is below this. 0 = disabled.
+# analysis_reject_below_keywords — hard floor: fail emit_analysis when
+#   keyword count is below this. Default 0 (disabled).
+#   硬下限:关键词低于此值时判 emit_analysis 失败。默认 0(关闭)。
 # analysis_reject_below_keywords: 0
 
-# Generic nouns dropped from entities to prevent ERM poisoning.
-# Set to [] to disable the filter.
+# analysis_generic_entity_blocklist — lowercase generic nouns dropped from
+#   entities to prevent ERM ranking poisoning. [] disables the filter.
+#   从 entities 中剔除的小写通用名词,防止污染 ERM 排序。[] 关闭该过滤。
 # analysis_generic_entity_blocklist:
 #   - count
 #   - function
@@ -468,57 +671,163 @@
 #   - handler
 #   - module
 
-# When true, a second emit_analysis call in one dispatch sets StageOutput.Error.
+# analysis_reject_multiple_emit — when true, a second emit_analysis call
+#   in one dispatch sets StageOutput.Error. Default false.
+#   设为 true 时,同一次分发里第二次 emit_analysis 会置 StageOutput.Error。
+#   默认 false。
 # analysis_reject_multiple_emit: false
 
-# Max pre-scan rounds before force-stop. 0 = disabled.
+# analysis_max_prescan_rounds — pre-scan rounds (repo_map / grep /
+#   list_files) before the analyzer is force-stopped. Default 2. 0 disables
+#   the gate.
+#   analyzer 被强制停止前的预扫轮数(repo_map / grep / list_files)。
+#   默认 2。0 关闭该门。
 # analysis_max_prescan_rounds: 2
 
-# Soft floor for keyword/entity hit ratio in pre-scan blob. 0 = disabled.
+# analysis_warn_below_keyword_hit_ratio / analysis_warn_below_entity_hit_ratio
+#   — soft floors on the fraction of emitted keywords / entities actually
+#   observed in the pre-scan blob. 0 disables (probe still computed).
+#   软下限:emit 的关键词 / 实体在预扫 blob 中实际命中的比例。0 关闭
+#   (探针仍会计算)。
 # analysis_warn_below_keyword_hit_ratio: 0
 # analysis_warn_below_entity_hit_ratio: 0
 
 # ---------------------------------------------------------------------------
-# Evidence grounding (evidence_*)
+# Analyzer file-mention seeding (analyzer_*)  ·  analyzer 文件提及播种
 # ---------------------------------------------------------------------------
-# The grounder (internal/tool/ground) validates every LLM-emitted evidence
-# item at emit_evidence.Execute time: Tier 1 checks the read_file gutter
-# at source:line for the anchor_symbol token; Tier 2 consults the repomap
-# symbol table (definition / call / import). Recovery tiers R1-R5 rewrite
-# near-miss LineStart / Source to repair LLM off-by-one mistakes. Items
-# that fail every tier are marked ungrounded and routed to the
-# "Unverified Leads" section (not citable but visible).
-#
-# emit_investigation_complete then requires
-#   (grounded + recovered) / total >= evidence_grounding_floor
-# before accepting the completion signal. A miss returns a rejection
-# listing every ungrounded item with concrete repair options so the LLM
-# can fix on the next turn without a stage round-trip.
 
-# Minimum grounded ratio required by emit_investigation_complete.
-# Range [0, 1]. 0 disables the gate entirely; 1 requires every item grounded.
-# Default 0.5 — high enough to block a mostly-speculative investigation,
-# low enough that a handful of leads do not deadlock the pipeline.
-# evidence_grounding_floor: 0.5
+# analyzer_reconcile_strict_mode — legacy compatibility switch for
+#   reconcile rules with an advisory/strict split. Default false (legacy
+#   advisory-only). New logic prefers typed consistency repair.
+#   旧版兼容开关,用于带"建议/严格"二分的 reconcile 规则。默认 false
+#   (仅建议)。新逻辑优先用带类型的一致性修复。
+# analyzer_reconcile_strict_mode: false
 
-# Minimum (Tier-1 proven grounded / total) ratio required by
-# emit_investigation_complete. A Tier-1 evidence item is one whose
-# anchor was matched against a file the LLM actually read_file'd —
-# i.e. the line-text gutter check passed. Range [0, 1]. 0 disables
-# (session-7 backward-compat); a positive value blocks "pure recovery"
-# investigations where the LLM never read any cited source — the
-# finalizer grounder's stricter Tier-2 check would otherwise drop
-# every such citation at cite time, leaving the pipeline stuck. The
-# Tier-1 floor moves the intercept point upstream. Default 0.3.
-# evidence_tier1_floor: 0.3
+# analyzer_mentioned_file_sibling_suffixes — suffix list the file-shaped
+#   entity seeder probes for "variant of base file" siblings. Default
+#   .example / .sample / .dist / .tmpl / .tpl. Add e.g. ".in" / ".template"
+#   for other conventions; leading "." auto-prepended.
+#   文件型实体播种器探测"基础文件变体"兄弟时使用的后缀列表。默认
+#   .example / .sample / .dist / .tmpl / .tpl。其它约定可加 ".in" /
+#   ".template";缺少前导 "." 会自动补上。
+# analyzer_mentioned_file_sibling_suffixes:
+#   - .example
+#   - .sample
+#   - .dist
+#   - .tmpl
+#   - .tpl
+
+# analyzer_required_file_mention_count_floor — minimum repo-wide reference
+#   count for a file-shaped hit to enter the high-priority lane of the
+#   cap=3 RequiredFiles budget. Default 3. Lower (1) trusts every hit;
+#   raise (5) is more conservative on noisy repos.
+#   文件型命中进入 cap=3 RequiredFiles 高优先级通道所需的全仓引用数下限。
+#   默认 3。调低(1)信任每个命中;调高(5)对嘈杂仓库更保守。
+# analyzer_required_file_mention_count_floor: 3
+
+# analyzer_mention_count_max_grep — cap on ripgrep/grep invocations the
+#   file-mention seeder may issue per analyzer dispatch (one per unique
+#   basename). Default 3. Beyond the cap, remaining hits drop to the
+#   low-priority lane.
+#   每次 analyzer 分发中,文件提及播种器可发起的 ripgrep/grep 次数上限
+#   (每个唯一 basename 一次)。默认 3。超出后剩余命中降到低优先级通道。
+# analyzer_mention_count_max_grep: 3
 
 # ---------------------------------------------------------------------------
-# Explorer heuristics (explore_*)
+# concrete_values DiagramRole projection (concrete_values_*)  ·  具体值层投影
 # ---------------------------------------------------------------------------
-# Tunable thresholds for the explorer evaluator's mid-loop and
-# soft-stop detection branches. Zero = code default.
+# EN  Override the heuristics that classify a concrete-value evidence item
+#     into the config / runtime / default layer for diagram projection.
+# 中文 覆盖把"具体值"证据项归类到 config / runtime / default 层(用于图投影)
+#     的启发式。
 
-# --- Mid-loop detection ---
+# concrete_values_config_layer_extensions — file extensions that mark a
+#   file as the config layer. Default covers .yaml/.yml/.toml/.json5/.ini/
+#   .cfg/.properties/.env/.tf/.hcl. Add e.g. ".conf" / ".nix"; leading "."
+#   auto-prepended.
+#   标记某文件属于"配置层"的扩展名。默认含 .yaml/.yml/.toml/.json5/.ini/
+#   .cfg/.properties/.env/.tf/.hcl。可加 ".conf" / ".nix";缺前导 "." 自动补。
+# concrete_values_config_layer_extensions:
+#   - .yaml
+#   - .toml
+
+# concrete_values_runtime_method_prefixes — method-name prefixes that mark
+#   a method as registering/binding into the runtime layer. Default
+#   Register / Bind / Wire. Case-sensitive. Add e.g. "Provide" / "Inject".
+#   标记方法"把某物注册/绑定进运行时层"的方法名前缀。默认 Register /
+#   Bind / Wire。区分大小写。可加 "Provide" / "Inject"。
+# concrete_values_runtime_method_prefixes:
+#   - Register
+#   - Bind
+#   - Wire
+
+# concrete_values_default_method_prefixes — method-name prefixes that mark
+#   a method as producing default-layer values. Default Default /
+#   Defaults. Case-sensitive.
+#   标记方法"产出默认层值"的方法名前缀。默认 Default / Defaults。
+#   区分大小写。
+# concrete_values_default_method_prefixes:
+#   - Default
+#   - Defaults
+
+# ---------------------------------------------------------------------------
+# Evidence grounding (evidence_* / analysis_evidence_*)  ·  证据落地校验
+# ---------------------------------------------------------------------------
+# EN  The grounder validates every emitted evidence item: Tier 1 checks
+#     the read_file gutter at source:line for the anchor symbol; Tier 2
+#     consults the repomap symbol table. emit_investigation_complete then
+#     requires a grounded ratio above the floors below. Recovery tiers
+#     R1-R5 repair near-miss line numbers; items that fail every tier go
+#     to the "Unverified Leads" section.
+# 中文 grounder 校验每条 emit 的证据项:Tier 1 在 source:line 处检查
+#     read_file 槽位是否含锚点符号;Tier 2 查 repomap 符号表。随后
+#     emit_investigation_complete 要求落地比例高于下方下限。恢复层 R1-R5
+#     修复行号小幅偏差;全部层都未过的项进入 "Unverified Leads" 段。
+
+# analysis_evidence_profile — high-level profile selector for the grounding
+#   floors: permissive (default — floors 0/0, warning-only), balanced
+#   (0.5/0.3), strict (0.8/0.6), or custom (permissive base + the explicit
+#   numeric overrides below).
+#   落地下限的高层 profile 选择器:permissive(默认 —— 下限 0/0,仅警告)、
+#   balanced(0.5/0.3)、strict(0.8/0.6)、custom(以 permissive 为底 +
+#   下方显式数值覆盖)。
+# analysis_evidence_profile: permissive
+
+# evidence_grounding_floor — minimum (grounded + recovered) / total ratio
+#   required by emit_investigation_complete. Range [0,1]. 0 disables the
+#   gate; 1 requires every item grounded. Default 0 (from the permissive
+#   profile). Set 0.5 for the pre-2026 strict behaviour.
+#   emit_investigation_complete 要求的(落地 + 恢复)/ 总数 最小比例。
+#   范围 [0,1]。0 关闭该门;1 要求每项都落地。默认 0(来自 permissive
+#   profile)。要恢复 2026 前的严格行为可设 0.5。
+# evidence_grounding_floor: 0
+
+# evidence_tier1_floor — minimum (Tier-1 proven grounded) / total ratio.
+#   Range [0,1]. 0 disables. Default 0 (permissive). Blocks "pure
+#   recovery" investigations where the LLM never read_file'd the cited
+#   sources. Set 0.3 for the pre-2026 strict behaviour.
+#   (Tier-1 已证落地)/ 总数 的最小比例。范围 [0,1]。0 关闭。默认 0
+#   (permissive)。阻止"纯恢复式"调查(模型从未 read_file 引用源)。
+#   要恢复 2026 前的严格行为可设 0.3。
+# evidence_tier1_floor: 0
+
+# analysis_grounding_floor / analysis_evidence_tier1_floor — explicit
+#   numeric overrides used when analysis_evidence_profile is "custom".
+#   Same [0,1] range and semantics as the two floors above.
+#   当 analysis_evidence_profile 为 "custom" 时使用的显式数值覆盖。
+#   范围与语义同上面两个下限([0,1])。
+# analysis_grounding_floor: 0
+# analysis_evidence_tier1_floor: 0
+
+# ---------------------------------------------------------------------------
+# Explorer heuristics (explore_*)  ·  explorer 启发式阈值
+# ---------------------------------------------------------------------------
+# EN  Tunable thresholds for the explorer's mid-loop and soft-stop
+#     detection. 0 / unset = code default. Advanced — rarely changed.
+# 中文 explorer 中途检测与软停检测的可调阈值。0 / 未设 = 代码默认值。
+#     属高级旋钮,通常无需改动。
+
+# --- Mid-loop detection  ·  中途检测 ---
 # explore_midloop_min_iteration: 2
 # explore_serial_batch_threshold: 2
 # explore_serial_streak_threshold: 2
@@ -527,7 +836,7 @@
 # explore_parallel_unread_floor: 2
 # explore_enum_midloop_unread_floor: 2
 
-# --- Soft-stop detection ---
+# --- Soft-stop detection  ·  软停检测 ---
 # explore_softstop_enum_coverage: 0.8
 # explore_phase0_min_discovered_files: 3
 # explore_phase0_max_broaden_attempts: 2
@@ -536,796 +845,546 @@
 # explore_max_prescanned_pushes: 3
 # explore_erm_suggest_limit: 3
 
-# --- Display ---
+# --- Display / budget  ·  显示 / 预算 ---
 # explore_cv_preview_max_len: 1500
-
-# --- Sourcemix budget ---
-# explore_per_tool_default_cap: 0
+# explore_per_tool_default_cap: 0          # 0 = no default ceiling / 不设默认上限
 
 # ---------------------------------------------------------------------------
-# CGEC — Citation-Grounded Evidence Closure (cgec_*)
+# CGEC — Citation-Grounded Evidence Closure (cgec_*)  ·  引用闭环
 # ---------------------------------------------------------------------------
-# CGEC is the cross-stage closure tracker that enforces four
-# invariants between the chain producer, the citation grounder, the
-# completion gate, and the convergence detector. The defaults below
-# are the values the unit + e2e tests pin against.
-#
-# I1 (chain promotion) and I2 (grounder repair) have no per-deployment
-# knobs — they are always on. I3 (pre-complete check) is also always
-# on. Only I4 (Lazy Auto-Read + convergence detector) is tunable.
+# EN  CGEC is the cross-stage closure tracker enforcing four invariants
+#     between the chain producer, citation grounder, completion gate and
+#     convergence detector. I1-I3 are always on; the knobs below tune I4
+#     (Lazy Auto-Read + convergence) and the multi-path completion gate.
+# 中文 CGEC 是跨阶段的闭环跟踪器,在 chain 生产者、引用 grounder、完成门
+#     与收敛检测器之间强制四条不变量。I1-I3 永远开启;下方旋钮调 I4
+#     (惰性自动补读 + 收敛)以及多路径完成门。
 
-# Maximum files the framework reads on the LLM's behalf per explore
-# round when chain-promotion / grounder-rejected files queue up as
-# PendingReads. Default 3. Setting 0 DISABLES Lazy Auto-Read entirely
-# (the LLM is on its own — mirrors analysis_max_prescan_rounds:0
-# disable semantics); setting too high can break ReAct autonomy.
-# Negative values are ignored (treated as operator error).
+# cgec_forced_reads_per_round — max files the framework reads on the LLM's
+#   behalf per explore round when pending reads queue up. Default 3.
+#   0 DISABLES Lazy Auto-Read.
+#   有待读文件排队时,框架每个 explore 轮代模型补读的文件数上限。默认 3。
+#   0 关闭惰性自动补读。
 # cgec_forced_reads_per_round: 3
 
-# Convergence detector soft threshold. After this many consecutive
-# explore rounds with identical (ReadSet, Evidence, ChainTerm,
-# CitedRefs) 4-dim fingerprints, the orchestrator triggers Lazy
-# Auto-Read to try to break the stall AND emits a RepairExpandSearch
-# directive. Default 2. Setting 0 DISABLES soft-stall detection
-# entirely (no Lazy Auto-Read, no RepairExpandSearch from the stall
-# path). Negative values ignored.
+# cgec_stall_threshold_soft — after this many consecutive explore rounds
+#   with identical 4-dim fingerprints, trigger Lazy Auto-Read + a
+#   broaden-search directive. Default 2. 0 disables soft-stall detection.
+#   连续这么多 explore 轮指纹(4 维)完全相同后,触发惰性自动补读 +
+#   扩大搜索指令。默认 2。0 关闭软停检测。
 # cgec_stall_threshold_soft: 2
 
-# Convergence detector hard threshold. After this many consecutive
-# identical fingerprints AND no force-read fired, the orchestrator
-# emits RepairForceCompleteDowngrade + SetInvestigationComplete so
-# the finalizer can ship a best-effort answer instead of looping
-# until budget exhaustion. Default 3 (must be >= cgec_stall_threshold_soft).
-# Setting 0 DISABLES hard stall (operator who wants observability
-# via Stats but NO force-complete sets hard=0). Negative values
-# ignored.
+# cgec_stall_threshold_hard — after this many identical fingerprints AND
+#   no force-read fired, emit a force-complete downgrade so the finalizer
+#   ships a best-effort answer. Default 3 (must be >= soft). 0 disables.
+#   连续这么多轮指纹相同且没有触发补读后,发出 force-complete 降级,让
+#   finalizer 输出尽力而为的答案。默认 3(须 >= soft)。0 关闭。
 # cgec_stall_threshold_hard: 3
 
-# Phase1-unread pre-complete gate. When the LLM calls
-# emit_investigation_complete and the explorer's keyword-search top-K
-# ranked files still have >= min_unread entries missing from ReadSet
-# AND the declared RequirementKind is a breadth-intent question, the
-# gate downgrades the call and forces a follow-up read round. The
-# downgrade message names every unread top-K file by path so the LLM
-# knows exactly what to read next. Set top_k to 0 to disable the gate
-# entirely (the LLM is on its own). Default top_k=5, min_unread=2.
+# cgec_phase1_unread_top_k / cgec_phase1_unread_min_unread — Phase-1 unread
+#   pre-complete gate: when emit_investigation_complete fires but the
+#   keyword-search top-K files still have >= min_unread entries unread (on
+#   a breadth-intent question), downgrade and force a follow-up read.
+#   Defaults 5 / 2. top_k=0 disables the gate.
+#   Phase-1 未读预完成门:当 emit_investigation_complete 触发、但关键词
+#   搜索 top-K 文件仍有 >= min_unread 个未读(且为广度型问题)时,降级
+#   并强制再读一轮。默认 5 / 2。top_k=0 关闭该门。
 # cgec_phase1_unread_top_k: 5
 # cgec_phase1_unread_min_unread: 2
 
-# Multi-path coverage parity floor. Per-file ratio
-# (read_lines / total_lines) each primary anchor must reach for
-# emit_investigation_complete to honour completion when the question
-# has ≥ 2 primary anchors. Default 0.3.
-#
-# Pre-2026-04-29 this was a hard-coded constant 0.3 applied as
-# max_anchor_lines × 0.30 across files — a 113-line file fully
-# read failed parity against a 683-line sibling at coverage=400
-# (gate demanded 120 lines from the 113-line file → impossible).
-# The fix made the gate per-file (HasFullyRead bypass + per-file
-# CoverageRatio) and yaml-tunable. Lower the floor (0.2) for
-# orientation-style deployments; raise (0.5) for thoroughness audits.
-# Set to 0 to disable the gate entirely.
-# cgec_multi_path_coverage_parity_floor: 0.3
+# Multi-path anchor-driven completion gate. For each primary-anchor file
+#   the pre-complete gate decides via five layered signals (symbol-anchored
+#   bypass / grounded-evidence bypass / keyword-anchor demand / small-file
+#   full-read demand / opaque advisory) — targeting answer-bearing regions
+#   instead of demanding a flat fraction of every file.
+#   多路径锚点驱动的完成门。对每个主锚点文件,预完成门用五层信号判定
+#   (符号锚点放行 / 已落地证据放行 / 关键词锚点补读 / 小文件整读补读 /
+#   不透明文件建议)—— 针对"含答案的区域"而非要求每个文件读固定比例。
+# cgec_multi_path_min_grounded_per_anchor: 2   # >=N grounded items → bypass; 0 disables this layer / 0 关闭该层
+# cgec_multi_path_symbol_context_lines: 15     # lines of context around a symbol def / 符号定义上下文行数
+# cgec_multi_path_keyword_context_lines: 15    # lines of context around a keyword match / 关键词命中上下文行数
+# cgec_multi_path_small_file_threshold: 300    # files <= N lines: demand whole-file read; 0 disables / 0 关闭整读
+# cgec_multi_path_max_keyword_anchors_per_file: 0  # cap keyword anchors per file; 0 = code default / 0 = 代码默认值
+
+# cgec_external_artifact_decoded_floor — minimum fraction of triaged-bundle
+#   non-path tokens (error types, frame symbols, signal names, stall /
+#   jank / startup fields) the final answer must reference. Ensures an
+#   answer DECODES the pasted log / trace, not just cites repo file:line.
+#   Default 0.4. 0 disables (vacuous anyway when no --log / --htrace).
+#   最终答案必须引用的"分诊 bundle 非路径 token"(错误类型、帧符号、
+#   信号名、stall / jank / startup 字段)的最小比例。确保答案真的"解读"
+#   了粘贴的日志 / trace,而不只是引仓库 file:line。默认 0.4。0 关闭
+#   (无 --log / --htrace 时本就无意义)。
+# cgec_external_artifact_decoded_floor: 0.4
 
 # ---------------------------------------------------------------------------
-# Agent limits (agent_*)
+# Agent limits (agent_*)  ·  agent 限制
 # ---------------------------------------------------------------------------
-# Per-agent behavioral limits: iteration caps, tool-history budget,
-# LoopPolicy defaults, correction retries, investigation_complete policy.
+# EN  Per-agent behavioural limits: iteration caps, tool-history budget,
+#     loop policy, correction retries. 0 / unset = code default. Advanced.
+# 中文 各 agent 的行为限制:迭代上限、工具历史预算、循环策略、纠错重试。
+#     0 / 未设 = 代码默认值。属高级旋钮。
 
-# ReAct loop ceiling for all agents. Default 20. When the loop hits
-# this ceiling while the LLM is still tool-calling, the dispatch is
-# hard-cut — Fallback S1 only rescues soft-stops, not ceiling cuts.
-# Multi-topic scaling in orchestrator.go adds SubTopicExplorerBudgetExtra
-# × subTopics on top, capped at 35; single-topic questions get no
-# scaling, so lowering this trades iteration headroom for wall time.
+# agent_max_iterations — ReAct loop ceiling for all agents. Default 20.
+#   所有 agent 的 ReAct 循环上限。默认 20。
 # agent_max_iterations: 20
 
-# Cumulative byte budget for "tool" role messages before pruning.
+# agent_max_tool_history_bytes — cumulative byte budget for "tool" role
+#   messages before pruning. Default 153600.
+#   "tool" 角色消息在被裁剪前的累计字节预算。默认 153600。
 # agent_max_tool_history_bytes: 153600
 
-# Fraction form of agent_max_tool_history_bytes. When set AND
-# providers.yaml declares context_window, effective bytes =
-# context_window × fraction × 4 (B/token). Same precedence rule
-# as blob_max_inline_fraction (fraction > absolute > code default).
-# Tool-history is the second-largest share of an iteration's prompt
-# (after the user message) so making it model-aware is the largest
-# single portability win: 0.3 on a 200K-window model → 240 KB tool
-# history; same 0.3 on an 8K-window model → 9.6 KB.
+# agent_max_tool_history_fraction — fraction form of the above (×
+#   context_window × 4). Fraction > absolute > code default. Default 0.3.
+#   上一项的比例写法(× context_window × 4)。比例 > 绝对值 > 代码默认值。
+#   默认 0.3。
 # agent_max_tool_history_fraction: 0.3
 
-# Context-pressure watchdog thresholds. BaseAgent estimates each
-# iteration's cumulative prompt bytes and compares against
-# (context_window × 4 B/token). Soft logs a warning so the operator
-# sees the approach; hard force-stops the ReAct loop at the next
-# iteration and injects an agent-specific hint (rendered via
-# internal/analysis/hint.Composer) naming ONLY the terminal tool(s)
-# the current agent can actually call. Both zero disables just that
-# side (set both to 0 to fully skip pressure tracking). Watchdog
-# activates only when the adapter reports a positive context_window.
+# agent_context_pressure_soft_ratio / _hard_ratio — context-pressure
+#   watchdog: soft logs a warning, hard force-stops the ReAct loop. Both 0
+#   disables tracking. Defaults 0.7 / 0.9.
+#   上下文压力看门狗:soft 打警告,hard 强制停 ReAct 循环。两者都设 0
+#   关闭追踪。默认 0.7 / 0.9。
 # agent_context_pressure_soft_ratio: 0.7
 # agent_context_pressure_hard_ratio: 0.9
 
-# LoopPolicy: minimum iterations between two accepted hint injections.
-# agent_loop_min_inject_interval: 3
+# LoopPolicy knobs  ·  循环策略旋钮
+# agent_loop_min_inject_interval: 3        # min iterations between hint injections / 两次提示注入的最小间隔
+# agent_loop_max_continuations: 5          # max soft-stop continuation hints / 软停续跑提示上限
+# agent_loop_max_midloop_injects: 6        # max mid-loop hint injections / 中途提示注入上限
+# agent_loop_idle_stop_threshold: 2        # consecutive idle iterations before force-stop / 强停前的连续空转轮数
 
-# LoopPolicy: max soft-stop continuation hints per dispatch.
-# agent_loop_max_continuations: 5
+# Finalizer / extractor correction & shrinkage-salvage  ·  finalizer / extractor 纠错与回收
+# agent_finalizer_max_correction_retries: 3   # retries when emit_answer_document missing / emit_answer_document 缺失时的重试
+# agent_finalizer_preserve_prior_prose: true  # keep a richer prior prose draft over a shrunken retry summary / 保留更丰富的前稿,胜过被压缩的重试 summary
+# agent_finalizer_shrinkage_min_prose_len: 400 # min prior-prose bytes to qualify for salvage / 前稿可被回收的最小字节数
+# agent_finalizer_shrinkage_ratio: 0.5         # len(summary)/len(prior) below which the prior is restored / 低于此比值则恢复前稿
+# agent_extractor_max_correction_retries: 1    # retries when emit_answer_symbol missing / emit_answer_symbol 缺失时的重试
 
-# LoopPolicy: max mid-loop hint injections per dispatch.
-# agent_loop_max_midloop_injects: 6
+# Multi-topic / complexity adaptive budget scaling  ·  多主题 / 复杂度自适应预算
+# agent_subtopic_prescan_extra: 1          # extra prescan rounds per 2 sub-topics / 每 2 个 sub-topic 多给的预扫轮数
+# agent_subtopic_explorer_extra: 3         # extra explorer iterations per sub-topic / 每个 sub-topic 多给的 explorer 迭代
+# agent_subtopic_planner_extra: 3          # extra planner soft-cap iterations per sub-topic / 每个 sub-topic 多给的 planner 软上限迭代
+# agent_planner_complexity_extra: 2        # planner soft-cap uplift × complexity (Simple0/Moderate1/Complex2) / planner 软上限按复杂度提升
+# agent_subtopic_pipeline_extra: 5         # extra pipeline steps per sub-topic / 每个 sub-topic 多给的流水线步数
+# agent_subtopic_retry_extra: 1            # extra retry budget per 2 sub-topics / 每 2 个 sub-topic 多给的重试预算
+# agent_subtopic_extractor_extra: 1        # extra extractor soft-cap iterations per sub-topic / 每个 sub-topic 多给的 extractor 软上限迭代
+# agent_extractor_complexity_extra: 1      # extractor soft-cap uplift × complexity / extractor 软上限按复杂度提升
+# agent_target_paths_verifier_extra: 1     # extra verifier iterations per ChangePlan target path / 每个 ChangePlan 目标路径多给的 verifier 迭代
 
-# LoopPolicy: consecutive idle iterations before force-stop.
-# agent_loop_idle_stop_threshold: 2
-
-# Finalizer: max correction retries when emit_answer_document is missing.
-# agent_finalizer_max_correction_retries: 3
-
-# Finalizer shrinkage salvage: when the model first writes a rich prose
-# answer outside the tool call, then on the correction retry emits a
-# compressed paraphrase as `summary`, ParseOutput replaces the shrunken
-# summary with the richer prior draft. Scoped to shape=explanation only.
-#
-# Master switch. Default true. Set to false to disable the salvage
-# entirely (the retry's shorter summary is rendered as-is).
-# agent_finalizer_preserve_prior_prose: true
-
-# Minimum bytes the prior prose draft must have to qualify for salvage.
-# Shorter drafts are treated as placeholder content, not a real answer.
-# Default 400.
-# agent_finalizer_shrinkage_min_prose_len: 400
-
-# Ratio threshold len(summary)/len(prior) below which the summary is
-# considered "shrunken" and the prior draft is copied in. Default 0.5.
-# agent_finalizer_shrinkage_ratio: 0.5
-
-# Extractor: max correction retries when emit_answer_symbol is missing.
-# agent_extractor_max_correction_retries: 1
-
-# --- Multi-topic adaptive budget scaling ---
-# When RequestModel.SubTopics has >1 entries, these knobs control how
-# much extra budget each sub-topic adds. All values have sensible
-# defaults; zero-config works out of the box.
-
-# Extra prescan rounds per 2 sub-topics. Adjusted prescan is capped at base+2 (max 4).
-# agent_subtopic_prescan_extra: 1
-
-# Extra explorer iterations per sub-topic. Adjusted MaxIterations capped at 35.
-# agent_subtopic_explorer_extra: 3
-
-# Extra planner soft-cap iterations per sub-topic (write mode --mode=plan).
-# Default 3. Adjusted soft cap is hard-capped at 20 (planner is single-emit).
-# Per-dispatch override via AgentContext.MaxIterOverride; consumed by
-# plannerEvaluator.BuildInitialInstruction.
-# agent_subtopic_planner_extra: 3
-
-# Per-complexity-level uplift to the planner soft cap. Multiplied by
-# the analyzer's Complexity classification: Simple = 0×, Moderate = 1×,
-# Complex = 2×. Default 2 → Moderate adds +2, Complex adds +4. Stacks
-# with agent_subtopic_planner_extra.
-# agent_planner_complexity_extra: 2
-
-# Extra pipeline steps per sub-topic. Adjusted step budget capped at 100.
-# agent_subtopic_pipeline_extra: 5
-
-# Extra retry budget per 2 sub-topics. Adjusted retry budget capped at
-# agent_max_retry_budget_ceil. Consumed by orchestrator.dynamicAnalyzeRetries
-# at runAnalyzePhase entry: base + (EstimateSubTopicCount/2) * extra.
-# agent_subtopic_retry_extra: 1
-
-# Extra extractor soft-cap iterations per sub-topic. Required for
-# multi-topic explanation answers that emit one Key-Anchor row per
-# sub-topic; static ExtractorSoftIterCap=3 starves at 4+ sub-topics.
-# Hard-capped at agent_extractor_scaled_iter_max (default 8).
-# agent_subtopic_extractor_extra: 1
-
-# Per-complexity-level uplift to the extractor soft cap. Multiplied by
-# the analyzer's Complexity classification: Simple = 0×, Moderate = 1×,
-# Complex = 2×. Default 1 → Moderate adds +1, Complex adds +2. Stacks
-# with agent_subtopic_extractor_extra. Mirrors agent_planner_complexity_extra.
-# agent_extractor_complexity_extra: 1
-
-# Extra verifier soft-cap iterations per ChangePlan target path
-# (write mode only). Multi-language monorepo plans with N target paths
-# may need N runner invocations; static VerifierSoftIterCap=5 cannot
-# accommodate that. Hard-capped at agent_verifier_scaled_iter_max (default 12).
-# agent_target_paths_verifier_extra: 1
-
-# --- Per-evaluator iteration caps (soft / hard pair) ---
-# Two-stage cap: at the soft cap continue ONLY when the LLM is
-# currently calling the agent's structured emit tool (recovery window
-# for streaming truncation); at the hard cap stop unconditionally.
-# All zero (the absent-YAML state) inherits the code defaults below.
-# Per-dispatch overrides via AgentContext.{Planner,Extractor,Verifier}
-# SoftIterCapOverride supersede these for a single dispatch.
-
+# Per-evaluator iteration caps (soft / hard pairs; hard > soft required)
+#   逐 evaluator 迭代上限(soft / hard 成对;须 hard > soft)
 # agent_planner_soft_iter_cap: 6
 # agent_planner_hard_iter_cap: 9
 # agent_extractor_soft_iter_cap: 3
 # agent_extractor_hard_iter_cap: 5
 # agent_verifier_soft_iter_cap: 5
 # agent_verifier_hard_iter_cap: 8
-# agent_coder_soft_iter_slack: 3        # soft = len(plan.TargetPaths) + slack
-# agent_coder_hard_iter_recovery: 3     # hard = soft + recovery
+# agent_coder_soft_iter_slack: 3           # soft = len(plan.TargetPaths) + slack / soft = 目标路径数 + slack
+# agent_coder_hard_iter_recovery: 3        # hard = soft + recovery / hard = soft + recovery
 
-# --- Absolute ceilings for per-dispatch scaling ---
-# Each ceiling caps the result of (base + sub-topic uplift + complexity
-# uplift). Zero falls back to the historical hardcoded literal so
-# existing yaml continues to behave identically.
+# Absolute ceilings for per-dispatch scaling  ·  逐分发扩容的绝对上限
+# agent_prescan_rounds_ceil: 4
+# agent_explorer_scaled_iter_max: 35
+# agent_planner_scaled_iter_max: 20
+# agent_extractor_scaled_iter_max: 8
+# agent_verifier_scaled_iter_max: 12
+# agent_max_retry_budget_ceil: 5
 
-# agent_prescan_rounds_ceil: 4              # was hardcoded 4
-# agent_explorer_scaled_iter_max: 35        # was hardcoded 35
-# agent_planner_scaled_iter_max: 20         # was const plannerScaledIterMax
-# agent_extractor_scaled_iter_max: 8        # new — see agent_subtopic_extractor_extra
-# agent_verifier_scaled_iter_max: 12        # new — see agent_target_paths_verifier_extra
-# agent_max_retry_budget_ceil: 5            # cap for dynamicAnalyzeRetries
-
-# --- Triager outer-loop iteration caps ---
-# Hard outer-loop cap on the log_triager / perf_triager agents. Both
-# are single-emit (one emit_log_triage / emit_perf_trace terminates
-# the ReAct loop); the cap only matters when a misbehaving LLM never
-# calls the emit tool — in that case it prevents unbounded token spend.
-# Zero or unset falls back to 6 (the historical hardcoded literal).
+# Triager outer-loop iteration caps  ·  分诊 agent 外循环迭代上限
 # agent_log_triager_iter_cap: 6
 # agent_perf_triager_iter_cap: 6
 
-# How the DAG scheduler treats explore nodes when emit_investigation_complete
-# was called but SuccessCriteria (e.g. evidence_count>=3) still fail:
-#   "soft"     — lower evidence_count threshold to >=1 (default)
-#   "override" — skip criteria entirely, mark all explore nodes done.
-#                SIDE EFFECT: CGEC preCompleteContractCheck also skips
-#                all 6 checks (a-f) — the DAG scheduler's "bypass
-#                criteria" directive implies the pre-complete gates
-#                should also be bypassed to stay consistent. Downgrade
-#                messages, RepairExpandSearch / RepairSwapShape /
-#                RepairRebindSubject from pre-complete all suppressed.
-#   "strict"   — ignore the signal, enforce template thresholds
+# agent_investigation_complete_policy — how the scheduler treats explore
+#   nodes when emit_investigation_complete fired but SuccessCriteria still
+#   fail: "soft" (default — lower evidence threshold to >=1), "override"
+#   (skip criteria), "strict" (ignore the signal, enforce thresholds).
+#   当 emit_investigation_complete 已触发但 SuccessCriteria 仍未过时,
+#   调度器如何对待 explore 节点:"soft"(默认 —— 把证据阈值降到 >=1)、
+#   "override"(跳过 criteria)、"strict"(忽略该信号,强制阈值)。
 # agent_investigation_complete_policy: soft
 
-# How the REPL-assembled "Prior conversation" block is surfaced to the
-# 4 pipeline stages. The REPL always stores and retrieves prior turns;
-# this knob gates VISIBILITY, not persistence, so flipping the policy
-# takes effect on the next dispatch without any data migration.
-#   "always"   — every stage sees Prior. Historical behaviour;
-#                preserved as the opt-out for continuity-sensitive
-#                debugging sessions.
-#   "analyzer" — (default) only the analyzer sees Prior, where it is
-#                useful for entity disambiguation ("它 = last turn's
-#                subject"). Explorer / extractor / finalizer stay blind
-#                so they cannot copy a prior-turn wrong answer verbatim.
-#                AnalysisIR.RequestModel.Entities carries any
-#                disambiguated identifiers downstream.
-#   "continue" — analyzer always; explorer / extractor / finalizer see
-#                Prior only when the current request is a continuation
-#                (leading "再/继续/more on/..." or bare-pronoun head).
-#   "never"    — no stage sees Prior. Extreme isolation, not
-#                recommended outside stress tests.
+# agent_prior_conversation_policy — which pipeline stages see the
+#   REPL-assembled "Prior conversation" block: "always", "analyzer"
+#   (default — only the analyzer, for entity disambiguation), "continue"
+#   (analyzer always; others only on a continuation request), "never".
+#   哪些流水线阶段能看到 REPL 拼装的"前序对话"块:"always"、"analyzer"
+#   (默认 —— 仅 analyzer,用于实体消歧)、"continue"(analyzer 总能看;
+#   其它仅在续问请求时看)、"never"。
 # agent_prior_conversation_policy: analyzer
 
 # ---------------------------------------------------------------------------
-# Summary length caps (summary_cap_*)
+# Summary length caps (summary_cap_*)  ·  summary 长度上限
 # ---------------------------------------------------------------------------
-# emit_answer_document can enforce per-shape ceilings on the `summary`
-# field. Length control is a MASTER-SWITCHED feature: the default is
-# OFF, so the finalizer's emitted summary is accepted as-is and the
-# shrinkage-salvage trimmer never trims. Flip summary_cap_enabled:true
-# to activate the per-shape numbers below.
-#
-# When enabled, scalar shapes (explanation / value / config_value /
-# boolean) carry fixed ceilings; step_list and list_of_symbols scale
-# with the number of items so a long list is not compressed to the
-# same budget as a short one:
-#
-#   step_list        cap = min(step_list_max,  step_list_base  + n * step_list_per_item)
-#   list_of_symbols  cap = min(symbols_max,    symbols_base    + n * symbols_per_item)
-#
-# The caps are read from types.SummaryCapConfig at runtime; codrax.yaml
-# overrides here take effect at process start. Every key is optional —
-# omitted keys fall through to the code default.
-
-# Master switch. Default false — no length enforcement runs anywhere
-# and the numeric knobs below are inert. Set to true to activate
-# per-shape caps.
+# EN  Per-shape ceilings on the emit_answer_document `summary` field.
+#     MASTER-SWITCHED: default OFF — the emitted summary is accepted as-is.
+#     Flip summary_cap_enabled: true to activate the numbers below.
+#     step_list / list_of_symbols scale with item count:
+#       cap = min(max, base + n × per_item).
+# 中文 emit_answer_document `summary` 字段按形态的长度上限。受总开关控制:
+#     默认关 —— summary 原样接受。把 summary_cap_enabled 设为 true 才启用
+#     下面的数值。step_list / list_of_symbols 随条目数缩放:
+#       上限 = min(max, base + n × per_item)。
 # summary_cap_enabled: false
-
-# Explanation shape: summary IS the answer body (thorough multi-paragraph
-# prose with code-level specifics + cross-file relationships). Default 2500.
-# summary_cap_explanation: 2500
-
-# Value / ConfigValue shapes: summary is a 1-sentence lead-in before a
-# scalar literal. Default 500.
+# summary_cap_explanation: 2500            # explanation shape: summary IS the answer body / explanation 形态:summary 即答案正文
 # summary_cap_value: 500
 # summary_cap_config_value: 500
-
-# Boolean shape: summary is a lead-in before YES/NO + rationale. Default 800.
 # summary_cap_boolean: 800
-
-# StepList shape: base + per-step slope, capped at max. Defaults produce
-# 1000 (0 steps) → 1240 (2 steps) → 2200 (10 steps) → 2500 (≥13 steps).
 # summary_cap_step_list_base: 1000
 # summary_cap_step_list_per_item: 120
 # summary_cap_step_list_max: 2500
-
-# ListOfSymbols shape: same shape of scaling as step_list, slightly
-# shallower per-item slope because the symbols carry most content.
-# Defaults: 1000 → 1200 (2 symbols) → 2000 (10 symbols) → 2500 (≥15).
 # summary_cap_symbols_base: 1000
 # summary_cap_symbols_per_item: 100
 # summary_cap_symbols_max: 2500
-
-# Fallback cap for any shape not covered above. Default 500.
-# summary_cap_default: 500
+# summary_cap_default: 500                 # fallback for any shape not listed / 未列出形态的兜底
 
 # ---------------------------------------------------------------------------
-# Citation quote preview ceiling (citation_quote_max_chars)
+# Citation quote preview ceiling  ·  引用片段预览上限
 # ---------------------------------------------------------------------------
-# Every emit_answer_document citation may carry an optional verbatim
-# Quote of the source line. Oversize Quotes are truncated on a UTF-8
-# boundary before being stored — file+line anchors are always preserved,
-# and the grounder's token-match still clears prose-smuggled Quotes
-# regardless of length, so this cap is purely the rendered preview
-# width, not a correctness gate.
-#
-# Raise this for codebases with routinely long source lines (Kotlin
-# DSLs, Scala implicits, deep package imports, multi-arg fmt.Errorf,
-# long SQL / regex literals). Non-positive values are ignored.
-# Default: 500.
+
+# citation_quote_max_chars — preview width for each citation's verbatim
+#   Quote. Oversize quotes are truncated on a UTF-8 boundary; file+line
+#   anchors are always preserved. Default 500. Raise for codebases with
+#   routinely long source lines (Kotlin DSLs, long SQL/regex literals).
+#   每条引用的原文 Quote 的预览宽度。超长 quote 在 UTF-8 边界截断;
+#   文件+行号锚点始终保留。默认 500。源码行普遍很长的代码库(Kotlin
+#   DSL、长 SQL/正则字面量)可调高。
 # citation_quote_max_chars: 500
 
 # ---------------------------------------------------------------------------
-# Chit-chat REPL command (chitchat_enabled)
+# Chit-chat (chitchat_*)  ·  闲聊
 # ---------------------------------------------------------------------------
-# The REPL recognises `/chat <message>` as a casual conversation slash
-# command that bypasses the analysis pipeline: a single LLM Chat call
-# replies to the user without running analyze → explore → extract →
-# finalize. Useful for greetings, tool-capability questions, and any
-# turn that does not need repository access.
-#
-# The feature is a user-triggered slash command, so simply making it
-# available imposes zero cost on users who never type /chat. Single-
-# shot (--request) mode never touches this path regardless of the
-# setting. Set to false to make /chat print a "not configured" warning
-# (e.g. restricted deployments where no chat companion is desired).
-#
-# Provider routing: operators can route the chit-chat responder to a
-# cheap model via providers.yaml:
-#
-#   llm:
-#     agents:
-#       chitchat_responder:
-#         model: gpt-4o-mini
-#         think_aloud: false
-#
-# Falls back to llm.default when no agent-specific entry exists.
-#
-# Default: true.
+
+# chitchat_enabled — gate the REPL `/chat` slash command (a casual reply
+#   that bypasses the analysis pipeline). Single-shot --request never
+#   touches this path. Default true.
+#   REPL `/chat` 斜杠命令的开关(绕过分析流水线的随意回复)。单次
+#   --request 模式从不走此路径。默认 true。
 # chitchat_enabled: true
 
-# Optional auto-classifier. When enabled, the REPL runs one LLM call
-# before every normal dispatch to decide whether the turn should go to
-# the chit-chat responder (bypassing the pipeline) without requiring
-# the user to prefix /chat. Fail-safe: any classifier error routes the
-# turn to the pipeline unchanged.
-#
-# Requires chitchat_enabled: true. Skipped when a runtime log is
-# attached (sticky /log or auto-routed paste) because a log is strong
-# evidence of a code question. Adds one cheap LLM call per turn, so
-# route to a small model via providers.yaml:
-#
-#   llm:
-#     agents:
-#       chitchat_classifier:
-#         model: gpt-4o-mini
-#         think_aloud: false
-#
-# Default: true. Adds one cheap LLM call per REPL turn; fail-safe so
-# any classifier error routes the turn to the pipeline unchanged. To
-# keep the cost small, route the classifier to a small model via
-# providers.yaml agents.chitchat_classifier (see example above). To
-# disable entirely, set this to false.
-#
-# Per-run override: the --chitchat-classifier CLI flag takes
-# precedence over this yaml value for one codrax invocation. Use it
-# to toggle the classifier on/off while debugging without editing
-# yaml. `--chitchat-classifier` / `--chitchat-classifier=true` →
-# force on; `--chitchat-classifier=false` → force off; flag omitted
-# → this yaml value wins.
+# chitchat_classifier_enabled — auto-classifier that runs one cheap LLM
+#   call per REPL turn to route casual turns to /chat without the user
+#   typing it. Fail-safe: any classifier error routes to the pipeline.
+#   The --chitchat-classifier CLI flag overrides this per-run. Default true.
+#   自动分类器:每个 REPL 轮跑一次便宜 LLM 调用,把随意的轮次路由到
+#   /chat,无需用户手敲。容错:分类器出错即走流水线。CLI
+#   --chitchat-classifier 可按次覆盖。默认 true。
 # chitchat_classifier_enabled: true
 
-# Chit-chat tool-use limits. The /chat path now runs a bounded
-# 2-round ReAct loop with the recall_memory tool when memory is
-# wired: round 1 the LLM may call recall_memory to look up prior
-# conversation, round 2 it synthesises the user-visible reply.
-# These two knobs clamp the LLM's `limit` argument to recall_memory
-# so a chatty LLM cannot drown the second-round Chat call's token
-# budget. Smaller than the explorer's hard cap (20) because chitchat
-# is one-shot conversation, not iterative investigation. Skipped
-# silently when memory is unwired (single-shot CLI).
-
-# Default `limit` applied when the LLM calls recall_memory without
-# specifying one. Tracks the explorer-side default to keep behaviour
-# predictable across paths.
+# chitchat_recall_default_limit / chitchat_recall_max_limit — default and
+#   hard-cap for the `limit` arg of the recall_memory tool inside /chat.
+#   Defaults 5 / 10.
+#   /chat 内 recall_memory 工具 `limit` 参数的默认值与硬上限。默认 5 / 10。
 # chitchat_recall_default_limit: 5
-
-# Hard ceiling on the `limit` arg — values above this are clamped
-# before the search runs.
 # chitchat_recall_max_limit: 10
 
-# list_memory tool — browse-mode listing (no relevance scoring,
-# returns the most-recent N entries). Default and hard-cap caps
-# track the recall_* pair; list mode usually surfaces fewer
-# per-entry tokens so the cap can be slightly larger.
+# chitchat_list_default_limit / chitchat_list_max_limit — same for the
+#   browse-mode list_memory tool. Defaults 10 / 30.
+#   浏览模式 list_memory 工具的同类项。默认 10 / 30。
 # chitchat_list_default_limit: 10
 # chitchat_list_max_limit: 30
 
 # ---------------------------------------------------------------------------
-# Environment recommendation pipeline (env_recommend_*)
+# Environment recommendation pipeline (env_recommend_*)  ·  环境诊断与推荐
 # ---------------------------------------------------------------------------
-# When a runner / build / test step fails because of a missing
-# binary, dependency, system library, or git-state issue, codrax
-# runs a deterministic Layer 1-3 pipeline (probe → diagnose →
-# recommend) that surfaces precise, environment-aware install
-# commands in the failure message. Commands are prefixed with `!`
-# so they can be copy-pasted directly into the codrax prompt.
-#
-# Architecture:
-#   Layer 1 — probe: scans OS / shell / package managers / project
-#             manifests / Python interpreters / Node / Rust / Java /
-#             Ruby toolchains + git repo state. ~400ms once per Run.
-#   Layer 2 — diagnose: structured Diagnosis from stderr + EnvFacts
-#             across 8 DiagKinds (runner_missing, deps_missing,
-#             toolchain_missing, system_lib_missing, config_missing,
-#             git_not_installed, git_not_initialized, git_no_commits)
-#             plus Unknown sentinel for LLM fallback.
-#   Layer 3 — recommend: per-runner table → disk cache → LLM fallback
-#             → DocsLink. Returns up to 3 ranked install candidates
-#             with InstallStrategy (venv/project/user/toolchain/
-#             global/docs) priority.
-#
-# Master switch. false → fall back to legacy hardcoded
-# runnerInstallHint strings (byte-identical with pre-feature behaviour).
+# EN  When a runner / build / test step fails on a missing binary,
+#     dependency or git-state issue, a Layer 1-3 pipeline (probe →
+#     diagnose → recommend) surfaces precise install commands (prefixed
+#     `!` so they paste straight into the codrax prompt).
+# 中文 当 runner / 构建 / 测试因缺二进制、缺依赖或 git 状态问题失败时,
+#     一条 1-3 层流水线(探测 → 诊断 → 推荐)会给出精确的安装命令
+#     (带 `!` 前缀,可直接粘进 codrax 提问框)。
+
+# env_recommend_enabled — master switch. false falls back to legacy
+#   hardcoded install-hint strings. Default true.
+#   总开关。false 回退到旧版硬编码安装提示串。默认 true。
 # env_recommend_enabled: true
 
-# Stage 3 LLM fallback for Diagnosis=Unknown / niche package-name
-# translation. false → only deterministic table is consulted.
+# env_recommend_llm_enabled — Layer-3 LLM fallback for unknown diagnoses /
+#   niche package-name translation. false = deterministic table only.
+#   Default true.
+#   第 3 层 LLM 兜底,用于未知诊断 / 冷门包名翻译。false = 只查确定性表。
+#   默认 true。
 # env_recommend_llm_enabled: true
 
-# LLM call timeout. Hitting this drops to deterministic-only.
+# env_recommend_llm_timeout_sec — LLM call timeout; hitting it drops to
+#   deterministic-only. Default 5.
+#   LLM 调用超时;超时则退回纯确定性。默认 5。
 # env_recommend_llm_timeout_sec: 5
 
-# Whether the Recommender produces sudo / global-install commands
-# (apt/dnf/brew install, npm install -g, sudo gem install). Default
-# false — operator must opt in. When false, GlobalInstall candidates
-# are silently filtered before render.
+# recommend_global_install — allow sudo / global-install commands
+#   (apt/dnf/brew install, npm install -g). Default false — when false,
+#   global-install candidates are filtered before render.
+#   是否允许 sudo / 全局安装命令(apt/dnf/brew install、npm install -g)。
+#   默认 false —— 为 false 时全局安装候选在渲染前被过滤掉。
 # recommend_global_install: false
 
-# Whether the probe layer attempts a network reachability check
-# (TCP connect to 1.1.1.1:443). Disabling saves ~200ms startup.
+# env_probe_network — whether the probe layer does a network reachability
+#   check. Disabling saves ~200ms startup. Default true.
+#   探测层是否做网络可达性检查。关闭可省约 200ms 启动时间。默认 true。
 # env_probe_network: true
 
-# TTL for cached LLM-derived recommendations stored at
-# ~/.codrax/cache/env-cache.json. Default 90 days; package name
-# mappings stay stable in this window.
+# env_cache_ttl_days — TTL for cached LLM-derived recommendations at
+#   ~/.codrax/cache/env-cache.json. Default 90.
+#   ~/.codrax/cache/env-cache.json 中 LLM 推荐缓存的有效天数。默认 90。
 # env_cache_ttl_days: 90
 
 # ---------------------------------------------------------------------------
-# Memory store limits (memory_*)
+# Memory store (memory_*)  ·  记忆存储
 # ---------------------------------------------------------------------------
-# Multi-turn REPL memory: buffer sizes and context-building caps.
-#
-# Memory compaction (summarizing oldest recent turns into MEMORY.md
-# index entries) calls the LLM once per compaction. The call uses a
-# structured tool schema — LLM emits a single emit_memory_summary
-# tool call with {topic, keywords, summary} — so parsing can never
-# fail silently on prose-wrapped JSON. All failure paths (no tool
-# call, malformed JSON, chat error, nil adapter) fall back to a
-# heuristic IndexEntry built from the turn's request/response, so
-# compaction cannot break the REPL.
-#
-# Operators who want to route memory compaction to a cheap model
-# (without changing the main pipeline model) add an agent entry to
-# providers.yaml:
-#
-#   llm:
-#     agents:
-#       memory_summarizer:
-#         model: gpt-4o-mini
-#         think_aloud: false
-#
-# No codrax.yaml knob is needed — presence of the agent key is the
-# opt-in. Absent that key, the summarizer reuses llm.default.
+# EN  Multi-turn REPL memory: buffer sizes, retrieval scoring, per-Kind
+#     policy. Compaction summarizes the oldest turns into MEMORY.md index
+#     entries via one LLM call (route memory_summarizer to a cheap model
+#     in providers.yaml).
+# 中文 多轮 REPL 记忆:缓冲大小、检索打分、按 Kind 的策略。压缩会用一次
+#     LLM 调用把最旧的轮次摘要进 MEMORY.md 索引条目(可在 providers.yaml
+#     把 memory_summarizer 路由到便宜模型)。
 
-# Number of recent turns kept verbatim before LLM-summarization.
+# memory_max_recent_turns — recent turns kept verbatim before
+#   summarization. Default 6.
+#   摘要前逐字保留的最近轮数。默认 6。
 # memory_max_recent_turns: 6
 
-# Total byte budget for the recent turn buffer.
+# memory_max_recent_bytes — total byte budget for the recent-turn buffer.
+#   Default 20480.
+#   最近轮缓冲的总字节预算。默认 20480。
 # memory_max_recent_bytes: 20480
 
-# Max size of a single turn's request+response stored to disk.
-# REPL paste-folding keeps request bodies compact; raise only if
-# scripted input legitimately needs larger turn bodies.
+# memory_max_turn_body_bytes — max size of one turn's request+response
+#   stored to disk. Default 16384.
+#   单轮 请求+回答 落盘的最大体积。默认 16384。
 # memory_max_turn_body_bytes: 16384
 
-# Max compacted index entries whose Summary is inlined into
-# BuildContext per request. Full turn text is never inlined — only
-# the LLM-generated one-line summary.
+# memory_max_build_context_matches — max compacted index entries whose
+#   summary is inlined into BuildContext per request. Default 3.
+#   每次请求注入 BuildContext 的已压缩索引条目摘要数上限。默认 3。
 # memory_max_build_context_matches: 3
 
-# ---------------------------------------------------------------------------
-# Memory retrieval scoring (memory_entity_min_runes / _session_tie_breaker_bonus)
-# ---------------------------------------------------------------------------
-# Two scoreIndex-level magic numbers that previously lived inline in
-# internal/memory/store.go. Defaults preserve pre-refactor behaviour
-# byte-for-byte; touch only if the index is over- or under-firing
-# in your traces.
-
-# Minimum Unicode-rune length an entity surface must have to participate
-# in the entity-substring check. Below this, generic short tokens
-# ("id", "go", "rpc") would over-fire and surface irrelevant entries.
-# Raise to 4 or 5 if your codebase uses long identifier conventions
-# and you see noise hits.
+# memory_entity_min_runes — minimum Unicode-rune length an entity surface
+#   must have to join the entity-substring check (filters noisy short
+#   tokens like "id" / "go"). Default 3.
+#   实体串参与"实体子串匹配"所需的最小 Unicode 字符数(过滤 "id"/"go"
+#   这类嘈杂短词)。默认 3。
 # memory_entity_min_runes: 3
 
-# Extra score added to a candidate IndexEntry whose SessionID matches
-# the current REPL session AND already has positive relevance. Bare
-# session membership is intentionally NOT enough to surface an
-# irrelevant entry — this only orders ties between equally-relevant
-# cross-session matches. Raise to 2-3 to bias more strongly toward
-# the live thread when answering follow-ups.
+# memory_session_tie_breaker_bonus — extra score for a candidate entry in
+#   the current REPL session that already has positive relevance (orders
+#   ties only — bare session membership never surfaces an entry).
+#   Default 1.
+#   当前 REPL 会话中、已有正相关性的候选条目获得的加分(只用于打破并列
+#   —— 单纯属于本会话从不让无关条目浮现)。默认 1。
 # memory_session_tie_breaker_bonus: 1
 
-# Hard caps on Store.Search and Store.List `limit` opts. Search is the
-# relevance-ranked path used by the explorer's recall_memory and the
-# chitchat responder's recall tool; List is the browse-mode path used
-# by chitchat list_memory. Defaults match the historical hardcoded
-# literals (20 / 30); raise only if BuildContext's byte budget can
-# clearly absorb the extra matches without hurting downstream prompts.
+# memory_search_max_limit / memory_list_max_limit — hard caps on
+#   Store.Search / Store.List `limit` opts. Defaults 20 / 30.
+#   Store.Search / Store.List `limit` 选项的硬上限。默认 20 / 30。
 # memory_search_max_limit: 20
 # memory_list_max_limit: 30
 
-# ---------------------------------------------------------------------------
-# Per-Kind retrieval policy (memory_policy_*)
-# ---------------------------------------------------------------------------
-# Each turn carries a Kind label — chitchat / shell / pipeline / plan /
-# (legacy default for unknown). BuildContext applies a per-Kind tuning
-# when assembling the prior-conversation block:
-#
-#   session_pin_count   — how many same-session recent turns to keep
-#                         unconditionally regardless of keyword match.
-#   recent_body_chars   — rune cap for inlining session-pinned turn
-#                         bodies (0 = use the legacy ~200-char one-line
-#                         collapse).
-#   compacted_match_cap — top-K cap on matched compacted index entries
-#                         (-1 = use memory_max_build_context_matches).
-#   entity_score_mul    — multiplier on entity-substring hits vs
-#                         keyword hits in scoreIndex.
-#   refs_chain_depth    — how many hops of IndexEntry.Refs to follow
-#                         after the primary match list is picked.
-#
-# Defaults preserve the pre-refactor hardcoded values:
-#
-#   chitchat / shell : {3, 1200, 3, 2, 1}
-#   pipeline         : {2,    0, 5, 3, 2}
-#   plan / default   : {0,    0, -1, 2, 0}
-#
-# Field-level merge: omit a sub-policy entirely (or leave a field at 0)
-# to keep the corresponding default. The example below tightens
-# pipeline retrieval (more compacted matches, deeper refs chain) without
-# touching chitchat:
-#
+# Per-Kind retrieval policy. Each turn carries a Kind (chitchat / shell /
+#   pipeline / plan / default); BuildContext tunes retrieval per Kind.
+#   Sub-fields: session_pin_count, recent_body_chars, compacted_match_cap,
+#   entity_score_mul, refs_chain_depth. Omit a sub-policy / leave a field
+#   at 0 to keep its default.
+#   按 Kind 的检索策略。每轮带一个 Kind(chitchat / shell / pipeline /
+#   plan / default);BuildContext 按 Kind 调检索。子字段:session_pin_count、
+#   recent_body_chars、compacted_match_cap、entity_score_mul、
+#   refs_chain_depth。整段省略 / 字段留 0 即保留默认。
 # memory_policy_pipeline:
 #   compacted_match_cap: 8
 #   refs_chain_depth: 3
-#
-# Full surface for completeness:
-# memory_policy_chitchat:
-#   session_pin_count: 3
-#   recent_body_chars: 1200
-#   compacted_match_cap: 3
-#   entity_score_mul: 2
-#   refs_chain_depth: 1
-# memory_policy_shell: {…}
-# memory_policy_pipeline: {…}
-# memory_policy_plan: {…}
-# memory_policy_default: {…}
+# memory_policy_chitchat: {}
+# memory_policy_shell: {}
+# memory_policy_plan: {}
+# memory_policy_default: {}
 
 # ---------------------------------------------------------------------------
-# Log-triage (log_triage_*)
+# Log-triage (log_triage_*)  ·  日志分诊
 # ---------------------------------------------------------------------------
-# When the user attaches a runtime log excerpt via --log / --log-text /
-# REPL /log, a conditional pre-stage (the log_triager agent) runs an
-# LLM-driven extractor that emits a structured LogBundle (errors +
-# frames + signals + residue). The system validates paths against the
-# repository and derives the resolved-file list. The analyzer then
-# reads the bundle to seed AnalyzerHints.Entities and
-# EvidencePlan.RequiredFiles.
-#
-# Generalization note: unlike session 19's regex-per-format approach,
-# the LLM extractor handles Rust / Ruby / custom application JSON
-# logs / compiler output uniformly with zero parser-per-format code.
-# The system guards against hallucinations via os.Stat path
-# verification and runtime-internal filters.
+# EN  When the user attaches a runtime log (--log / --log-text / REPL
+#     /log), a conditional pre-stage runs an LLM extractor that emits a
+#     structured LogBundle (errors + frames + signals); the system then
+#     validates paths against the repo and seeds the analyzer.
+# 中文 当用户附加运行时日志(--log / --log-text / REPL /log)时,一个
+#     条件前置阶段跑 LLM 抽取器,产出结构化 LogBundle(错误 + 栈帧 +
+#     信号);系统随后用仓库校验路径并播种 analyzer。
 
-# Global feature gate. When false, the log_triager agent's Guard
-# returns false regardless of AttachedLog and the pre-stage is skipped
-# entirely. The --log flag still reads the file but the payload is
-# not extracted. Default true.
+# log_triage_enabled — master switch. false skips the pre-stage entirely
+#   (--log still reads the file but the payload is not extracted).
+#   Default true.
+#   总开关。false 完全跳过该前置阶段(--log 仍会读文件但不抽取载荷)。
+#   默认 true。
 # log_triage_enabled: true
 
-# User-provided build-path prefix for stack-frame files from CI /
-# build machines. C/C++ traces commonly carry absolute paths like
-# `/build/src/...` or `/home/jenkins/workspace/.../src/...` that the
-# built-in cascading stripper can miss. Tried FIRST before the
-# built-in CI root list. Mirrored by the CLI flag
-# --log-source-prefix — when both are set the CLI flag wins.
+# log_triage_source_prefix — build-path prefix stripped from CI / build
+#   stack-frame files before repo lookup (e.g. /build/src/). Mirrors the
+#   --log-source-prefix CLI flag; the CLI flag wins when both are set.
+#   在仓库查找前,从 CI / 构建机栈帧文件上剥掉的构建路径前缀
+#   (如 /build/src/)。等价 CLI --log-source-prefix;两者都设时 CLI 胜。
 # log_triage_source_prefix: ""
 
-# Minimum log size (bytes) below which the pre-stage is skipped.
-# Very short logs (a single error line) rarely contain extractable
-# frames; the LLM call cost outweighs the benefit. Default 50.
+# log_triage_min_bytes — skip the pre-stage when the log is smaller than
+#   this. Default 50.
+#   日志小于此字节数时跳过该前置阶段。默认 50。
 # log_triage_min_bytes: 50
 
-# Fail-loud retry budget for emit_log_triage schema rejections.
-# 0 = never retry (degrade to nil bundle). Default 1.
+# log_triage_max_retries — fail-loud retry budget for emit_log_triage
+#   schema rejections. Default 1. 0 = never retry.
+#   emit_log_triage schema 被拒时的 fail-loud 重试预算。默认 1。0 = 不重试。
 # log_triage_max_retries: 1
 
-# Two-step fallback master switch. When false, oversized / low-coverage
-# logs take the single-shot result (or nil on failure) without
-# attempting segmentation. Default true.
+# log_triage_two_step_enabled — toggle the two-step fallback for oversized
+#   / low-coverage logs (segment, then extract per segment). Default true.
+#   对过大 / 低覆盖率日志的两步兜底开关(先切段,再逐段抽取)。默认 true。
 # log_triage_two_step_enabled: true
 
-# Byte threshold above which the pre-stage goes straight to two-step
-# (bypasses single-shot). Conservative default so single-shot handles
-# the common short-panic case; only polyglot / multi-cycle / k8s
-# aggregated logs pay the segmentation cost. Default 32768 (32 KB).
+# log_triage_two_step_bytes — byte threshold above which the pre-stage
+#   goes straight to two-step. Default 32768 (32 KiB).
+#   超过此字节数则直接进入两步流程的阈值。默认 32768(32 KiB)。
 # log_triage_two_step_bytes: 32768
 
-# Coverage threshold below which a single-shot bundle escalates to
-# two-step. Coverage = 1 - bytes(unknown_chunks) / bytes(rawLog).
-# Default 0.3 (under 30% structured → escalate).
+# log_triage_two_step_coverage — single-shot coverage below which the
+#   bundle escalates to two-step (coverage = 1 − unknown/total). Default 0.3.
+#   单次抽取覆盖率低于此值则升级到两步(覆盖率 = 1 − 未知/总量)。默认 0.3。
 # log_triage_two_step_coverage: 0.3
 
-# Hard cap on total LLM invocations for one pre-stage Run (covers
-# 1 single-shot + 1 segmentation + N per-segment extractions).
-# Defence against runaway segmentation. Default 12, sized so that
-# the full 10-segment cap of emit_log_segmentation can flow through
-# per-segment extraction (1 + 1 + 10 = 12). For very large captures
-# (50 MB+ hdc / adb dumps) raise to 16-20 if you want more head-
-# room past the segmenter cap; sizes below 8 will silently drop
-# segments because perSegBudget = max - 2.
+# log_triage_max_llm_calls — hard cap on total LLM calls per pre-stage Run
+#   (1 single-shot + 1 segmentation + N per-segment). Default 12.
+#   单次前置阶段 Run 的 LLM 调用总数硬上限(1 次单抽 + 1 次切段 + N 次
+#   逐段)。默认 12。
 # log_triage_max_llm_calls: 12
 
 # ---------------------------------------------------------------------------
-# Perf-triage knobs (perf_triage_*)
+# Perf-triage (perf_triage_*)  ·  性能分诊
 # ---------------------------------------------------------------------------
-# Controls the perf_triage pre-stage that fires when --htrace /
-# --htrace-text / REPL /htrace attaches a HiTrace / atrace / systrace /
-# perfetto text excerpt. Mirrors log_triage_* exactly so the same
-# operator mental model transfers; defaults are tuned for typical
-# HarmonyOS hdc + Android adb capture volumes.
-
-# Master toggle. false → perf_triage stage skipped entirely; the
-# attached trace passes through to other consumers untouched.
-# Default true.
+# EN  Fires when --htrace / --atrace / REPL /htrace attaches a HiTrace /
+#     atrace / systrace / perfetto text excerpt. Mirrors log_triage_*
+#     exactly, with defaults tuned for typical hdc / adb capture volumes.
+# 中文 当 --htrace / --atrace / REPL /htrace 附加 HiTrace / atrace /
+#     systrace / perfetto 文本片段时触发。结构与 log_triage_* 完全一致,
+#     默认值按典型 hdc / adb 抓取量调好。
 # perf_triage_enabled: true
-
-# Minimum trace size before the stage fires. Below this the cost
-# of an LLM round-trip outweighs what perf_triager could extract.
-# Default 200 bytes.
 # perf_triage_min_bytes: 200
-
-# Fail-loud retry budget when emit_perf_trace rejects (schema or
-# cross-field). 0 = never retry. Default 1.
 # perf_triage_max_retries: 1
-
-# Toggle the two-step fallback (emit_perf_segmentation → per-segment
-# emit_perf_trace → MergePerfBundles). false forces single-shot only.
-# Default true.
 # perf_triage_two_step_enabled: true
-
-# Straight-to-two-step byte threshold. Traces ≥ this size skip the
-# single-shot attempt and go directly to segmentation. 64 KB matches
-# the typical multi-PID hdc/adb capture size; smaller values pay an
-# extra LLM call on traces single-shot would have handled fine.
-# Default 65536 (64 KiB).
-# perf_triage_two_step_bytes: 65536
-
-# Single-shot coverage threshold. When single-shot returns a bundle
-# with Coverage below this float, the controller escalates to two-
-# step. Default 0.3.
+# perf_triage_two_step_bytes: 65536        # 64 KiB straight-to-two-step threshold / 64 KiB 直接两步阈值
 # perf_triage_two_step_coverage: 0.3
-
-# Hard cap on total LLM invocations for one perf_triage pre-stage
-# Run (covers 1 single-shot + 1 segmentation + N per-segment
-# extractions). emit_perf_segmentation caps at 10 segments, so 12
-# = 1 + 1 + 10 covers the full budget. Default 12.
 # perf_triage_max_llm_calls: 12
 
 # ---------------------------------------------------------------------------
-# Log attach cap (log_attach_*)
+# Attachment size caps (log_attach_* / trace_attach_*)  ·  附件大小上限
 # ---------------------------------------------------------------------------
-# Hard ceiling on the byte length of any attached log, applied BEFORE
-# log_triage sees the payload. Covers every attach surface:
-#   - CLI: --log <file>, --log -, --log-text <inline>
-#   - REPL: /log <path>, /log paste mode, splitPastedLog auto-route
-# Stdin (`--log -`) uses io.LimitReader(N+1) so the process never
-# buffers more than N+1 bytes even when a multi-GB pipe is upstream.
-# Files and inline text truncate to the first N bytes with a WARN
-# log line; the tail (often the actual error frames) is lost, so
-# pre-filter with grep before attaching multi-day dumps.
-#
-# Applies to BOTH --log / /log AND --htrace / /htrace, each independently.
-# Fires even when log_triage_enabled=false — this knob is about
-# memory safety, not triage quality. Raising it lets you attach
-# bigger logs but multiplies downstream LLM token cost linearly
-# (every byte past the first 32 KB two-step threshold also drives
-# more per-segment extraction calls up to log_triage_max_llm_calls).
-#
-# Non-positive values (incl. explicit 0) fall back to the default
-# rather than degrading to zero-byte truncation, which would
-# silently break every /log surface.
-#
-# Default 52428800 (50 MiB) — matches typical HarmonyOS / Android
-# capture volumes (hdc shell hilog / hitrace, adb logcat -d /
-# atrace). Hard ceiling 1 GiB enforced by codrax to prevent OOM.
-# Workstations with abundant RAM can go higher, e.g.
-#   log_attach_max_bytes: 209715200   # 200 MiB
-# but be aware: every byte still passes through truncateAttachedLog
-# in memory, and oversized attachments push the LLM into many
-# per-segment two-step calls (capped by log_triage_max_llm_calls).
-# Pre-filter long captures with grep / awk before attaching when you
-# can.
+# EN  Hard ceilings applied BEFORE triage sees the payload — about memory
+#     safety, fired even when triage is disabled. Stdin uses
+#     io.LimitReader so multi-GB pipes never over-buffer.
+# 中文 在分诊看到载荷之前生效的硬上限 —— 关乎内存安全,即使分诊关闭也
+#     生效。stdin 走 io.LimitReader,多 GB 管道也不会过量缓冲。
+
+# log_attach_max_bytes — ceiling on any attached log (--log / --log-text /
+#   /log). Oversize payloads truncate to the first N bytes with a WARN.
+#   Default 52428800 (50 MiB). Hard ceiling 1 GiB. Non-positive = default.
+#   任意附加日志(--log / --log-text / /log)的上限。超大载荷截断到前 N
+#   字节并打 WARN。默认 52428800(50 MiB)。硬上限 1 GiB。非正值 = 默认值。
 # log_attach_max_bytes: 52428800
 
-# Perf-channel cap. Bounds --htrace / --atrace / --htrace-text /
-# --atrace-text and the REPL /htrace + /atrace surfaces. When unset
-# (the recommended default), inherits whatever log_attach_max_bytes
-# resolves to, so a single yaml knob configures both channels
-# symmetrically. Set explicitly to break the symmetry — e.g. to
-# allow larger HiTrace bodies than logs:
-#   trace_attach_max_bytes: 209715200   # 200 MiB
-# Same 1 GiB hard ceiling applies.
+# trace_attach_max_bytes — the perf-channel companion, bounding --htrace /
+#   --atrace / /htrace. When unset, inherits log_attach_max_bytes (one
+#   knob configures both channels). Same 1 GiB hard ceiling.
+#   性能通道的对应项,限制 --htrace / --atrace / /htrace。未设时继承
+#   log_attach_max_bytes(一个旋钮配两条通道)。同样 1 GiB 硬上限。
 # trace_attach_max_bytes: 52428800
 
 # ---------------------------------------------------------------------------
-# REPL interactive (repl_*)
+# Multi-repo workspace (multi_repo_*)  ·  跨仓工作区
 # ---------------------------------------------------------------------------
-# Runtime tweaks for the interactive prompt. Single knob today.
+# EN  codrax can treat a parent directory holding N independent git repos
+#     as one workspace, with per-sub-repo graph isolation. The default
+#     posture is ON; single-repo users hit a ~50µs fast path. The REPL
+#     `/repos` command lists / focuses / refreshes sub-repos.
+# 中文 codrax 可以把"含 N 个独立 git 仓的父目录"当作一个工作区,各子仓
+#     图隔离。默认开启;单仓用户走 ~50µs 快路径。REPL `/repos` 命令用于
+#     列出 / 固定 / 刷新子仓。
 
-# Pastes with >= this many runes (Unicode characters, not bytes) fold
-# to a `[Pasted text #N …]` placeholder visible in the input area;
-# the original body is expanded back at submit time so the LLM sees
-# the full text. Multi-line pastes fold unconditionally regardless
-# of length. Default 120 (~2 visual lines on typical widths). Set
-# 0 (or omit) to inherit the default.
+# multi_repo_enabled — master switch. nil/true enables multigraph routing;
+#   false reverts to legacy single-graph (discovery still runs for the
+#   `/repos` command). Default true.
+#   总开关。nil/true 启用 multigraph 路由;false 回退到旧版单图(发现
+#   仍会跑,供 `/repos` 命令展示)。默认 true。
+# multi_repo_enabled: true
+
+# multi_repo_max_active — cap on resident sub-repo graphs in the LRU.
+#   Default 2, hard ceiling 3 (yaml values above 3 are clamped).
+#   LRU 中常驻的子仓图数量上限。默认 2,硬上限 3(yaml 设 >3 会被钳制)。
+# multi_repo_max_active: 2
+
+# multi_repo_inactive_preview_count — how many out-of-active sub-repos are
+#   surfaced (by path + languages) in the LLM advisory at Run start.
+#   Default 2, hard ceiling 3.
+#   Run 开始时给 LLM 的建议中列出多少个非 active 子仓(按路径 + 语言)。
+#   默认 2,硬上限 3。
+# multi_repo_inactive_preview_count: 2
+
+# multi_repo_discovery_depth — how deep the parent-directory BFS walk goes
+#   searching for `.git` boundaries. Default 4 (covers mono/<group>/<repo>
+#   plus margin). Raising past 6 makes node_modules-heavy trees expensive.
+#   在父目录 BFS 中搜索 `.git` 边界的深度。默认 4(覆盖 mono/<组>/<仓>
+#   并留余量)。超过 6 会让 node_modules 繁多的目录树变贵。
+# multi_repo_discovery_depth: 4
+
+# multi_repo_min_files — drop sub-repos whose Tier-1 file count is below
+#   this. Default 1 (only purely-empty roots dropped). Raise to filter out
+#   small `.git` fixture dirs.
+#   丢弃 Tier-1 文件数低于此值的子仓。默认 1(只丢纯空根)。调高可过滤
+#   小型 `.git` 测试夹具目录。
+# multi_repo_min_files: 1
+
+# ---------------------------------------------------------------------------
+# Repomap tier reporting (repomap_*)  ·  repomap 解析层级报告
+# ---------------------------------------------------------------------------
+# EN  Per-language fall-through ratios gating the parse-tier degradation
+#     banners from the repomap scanner.
+# 中文 控制 repomap 扫描器解析层级降级横幅的逐语言降级率。
+
+# repomap_tier_warn_ratio — per-language Tier-2+ ratio at which an INFO
+#   line ("trending toward extractor maintenance") fires. 0 = default 0.30.
+#   逐语言 Tier-2+ 降级率达到此值时打 INFO 行("解析提取器需关注")。
+#   0 = 默认 0.30。
+# repomap_tier_warn_ratio: 0.30
+
+# repomap_tier_alert_ratio — ratio at which a WARN-level "consider
+#   extractor / grammar update" banner fires. 0 = default 0.50 (ArkTS /
+#   Cangjie keep stricter built-in overrides).
+#   达到此值时打 WARN 级"考虑更新提取器 / 语法"横幅。0 = 默认 0.50
+#   (ArkTS / Cangjie 保留更严的内置覆盖值)。
+# repomap_tier_alert_ratio: 0.50
+
+# repomap_min_parse_tier — hard-gate files whose parse tier exceeds the
+#   floor (1=primary grammar, 2=secondary salvage, 3=regex-only,
+#   4=path-only). 0 (default) = gate disabled (only the soft tier discount
+#   applies). 1 = rank Tier-1 only, 2 = Tier 1-2, etc.
+#   按解析层级硬性过滤文件(1=主语法,2=次级补救,3=纯正则,4=纯路径)。
+#   0(默认)= 关闭该门(只用软性层级折扣)。1 = 只排 Tier-1,2 = Tier 1-2,
+#   依此类推。
+# repomap_min_parse_tier: 0
+
+# ---------------------------------------------------------------------------
+# REPL interactive (repl_*)  ·  REPL 交互
+# ---------------------------------------------------------------------------
+
+# repl_paste_fold_min_chars — pastes with >= this many runes (Unicode
+#   characters, not bytes) fold to a `[Pasted text #N …]` placeholder;
+#   the full body is expanded back at submit time. Multi-line pastes fold
+#   regardless of length. Default 120.
+#   字符数(Unicode 字符,非字节)>= 此值的粘贴会折叠为
+#   `[Pasted text #N …]` 占位符;提交时再展开为完整内容。多行粘贴无视
+#   长度一律折叠。默认 120。
 # repl_paste_fold_min_chars: 120
 
 # ---------------------------------------------------------------------------
-# Repomap tier reporting (repomap_*)
+# Path to providers config  ·  providers 配置路径
 # ---------------------------------------------------------------------------
-# Per-language fall-through ratios that gate the parse-tier degradation
-# banners emitted by the repomap scanner. The scanner logs every
-# downgrade individually at WARN level; these knobs gate the aggregate
-# per-language summary so operators see emerging extractor maintenance
-# needs without scrolling through individual file lines.
-
-# Soft floor — per-language Tier-2+ ratio at which the scanner emits
-# an INFO line ("trending toward extractor maintenance"). Picked
-# below the alert ratio so operators see emerging degradation BEFORE
-# it breaches. 0 inherits the code default (0.30).
-# repomap_tier_warn_ratio: 0.30
-
-# Alert ratio — per-language Tier-2+ ratio at which a WARN-level
-# "consider extractor / grammar update" banner fires. ArkTS keeps a
-# stricter 0.40 and Cangjie a stricter 0.50 internally; this knob
-# only changes the threshold for languages without a hardcoded
-# override. 0 inherits the code default (0.50).
-# repomap_tier_alert_ratio: 0.50
-
-# ---------------------------------------------------------------------------
-# Path to providers config
-# ---------------------------------------------------------------------------
-# Keeping this here means `CODRAX_SETTINGS=envs/prod/codrax.yaml`
-# bootstraps an entire environment from a single entry point.
-
+# EN  Keeping this here means `CODRAX_SETTINGS=envs/prod/codrax.yaml`
+#     bootstraps an entire environment from a single entry point.
+# 中文 把它放在这里,意味着 `CODRAX_SETTINGS=envs/prod/codrax.yaml` 就能
+#     从单一入口引导整个环境。
 # providers_config: providers.yaml
