@@ -373,6 +373,18 @@ func TestInferScenario(t *testing.T) {
 		},
 		{"explain default", types.RequestModel{Intent: types.IntentExplain}, types.ScenarioArchitectureExplain},
 		{
+			"pure history narrative uses generic scenario",
+			types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioGeneric,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqHistory)},
+			},
+			types.ScenarioGeneric,
+		},
+		{
 			"failure-scope decision uses generic scenario",
 			types.RequestModel{
 				Intent: types.IntentExplain,

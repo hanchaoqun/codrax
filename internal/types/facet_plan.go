@@ -1043,6 +1043,11 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 			uncertaintyBoundaryFacet(FacetSoftRequired),
 		}, common...)
 	case QFGeneric:
+		if HistoryLookupPrefersVCSNarrativePrincipal(rm, nil) {
+			return append([]FacetRequirement{
+				uncertaintyBoundaryFacet(FacetOptional),
+			}, common...)
+		}
 		facets := []FacetRequirement{
 			{Kind: FacetCurrentCodePath, Required: FacetSoftRequired,
 				AcceptableForms: []ClaimForm{ClaimDefinitionFact, ClaimCallEdge,

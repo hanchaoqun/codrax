@@ -963,6 +963,65 @@ func TestSkipSemanticQualityForObservationOnlyArtifact_SkipsOnlyPureSimpleArtifa
 	}
 }
 
+func TestSkipLLMAnswerReviewForHistoryNarrative_SkipsPureVCSOnlyNarrative(t *testing.T) {
+	rm := types.RequestModel{
+		Intent:   types.IntentExplain,
+		Scenario: types.ScenarioGeneric,
+		Predicates: types.SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqHistory)},
+	}
+	mut := types.NewMutableState("最近一次合入的是什么特性？")
+	mut.SetRequestModel(rm)
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: rm,
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "s1",
+				Kind:        types.BlockSummary,
+				Text:        "最近一次合入是一个 Git 历史元数据叙述，描述提交主题、时间、作者和改动意图。",
+				SurfaceRole: types.SurfacePrincipal,
+				FacetIDs:    []string{string(types.FacetComponentRelation)},
+				ClaimUses:   []types.RenderedClaimUse{{ClaimForm: types.ClaimDefinitionFact, FacetID: string(types.FacetComponentRelation)}},
+			},
+			{
+				ID:       "changes",
+				Kind:     types.BlockBulletList,
+				FacetIDs: []string{string(types.FacetComponentRelation)},
+				Items: []types.AnswerBlockItem{
+					{ID: "i1", Label: "internal/agent/analyzer_intent.go", Text: "说明该提交调整了历史查询答案形状。", CitationRef: -1},
+					{ID: "i2", Label: "internal/types/request_traits.go", Text: "说明该提交新增了类型化请求边界。", CitationRef: -1},
+					{ID: "i3", Label: "eval/cases/u7n.case", Text: "说明该提交补充了回归用例。", CitationRef: -1},
+				},
+			},
+		},
+	}
+	if !skipLLMAnswerReviewForHistoryNarrative(ctx, doc, nil) {
+		t.Fatal("pure VCS history narrative should skip current-source-oriented LLM reviewers")
+	}
+
+	withCurrentSourceFacet := *doc
+	withCurrentSourceFacet.Blocks = append([]types.AnswerBlock(nil), doc.Blocks...)
+	withCurrentSourceFacet.Blocks[1].FacetIDs = []string{string(types.FacetCurrentCodePath)}
+	if skipLLMAnswerReviewForHistoryNarrative(ctx, &withCurrentSourceFacet, nil) {
+		t.Fatal("history answer that declares current-source facets should keep LLM reviewers available")
+	}
+
+	mixed := rm
+	mixed.ChangeImpactProfile = &types.ChangeImpactProfile{IsChangeImpact: true}
+	mixedCtx := &types.BusContext{Mutable: types.NewMutableState("解释这次提交的代码影响")}
+	mixedCtx.Mutable.SetRequestModel(mixed)
+	if skipLLMAnswerReviewForHistoryNarrative(mixedCtx, doc, nil) {
+		t.Fatal("mixed history/current-code requests must not use the pure VCS reviewer skip")
+	}
+}
+
 // TestSemanticQualityReviewerEligible_DecisionStableAcrossSelfConsistencyOutput
 // pins the P2C parallel-dispatch invariant: the gate decision MUST be
 // identical whether evaluated BEFORE self_consistency runs (using only

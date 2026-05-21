@@ -23,6 +23,9 @@ func InferScenario(rm types.RequestModel) types.Scenario {
 	if types.IsFailureScopeDecisionAnswer(rm) {
 		return types.ScenarioGeneric
 	}
+	if types.HistoryLookupPrefersVCSNarrativePrincipal(rm, nil) {
+		return types.ScenarioGeneric
+	}
 	switch rm.Intent {
 	case types.IntentConfigQuery:
 		return types.ScenarioConfigTrace

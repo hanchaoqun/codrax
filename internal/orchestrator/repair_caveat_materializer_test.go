@@ -113,6 +113,50 @@ func TestAppendSoftContractCaveatsToAnswerForBus_ObservationOnlyUsesBoundaryCave
 	}
 }
 
+func TestAppendSoftContractCaveatsToAnswerForBus_PureHistoryNarrativeSuppressesCurrentSourceCaveats(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	rm := types.RequestModel{
+		RawRequest: "最近一次合入的是什么特性？",
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioGeneric,
+		Predicates: types.SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqHistory)},
+	}
+	mut := types.NewMutableState(rm.RawRequest)
+	mut.SetRequestModel(rm)
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: rm,
+		},
+	}
+	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{
+		{Kind: types.ViolFacetUncovered},
+		{Kind: types.ViolBlockCoverageMissing},
+		{Kind: types.ViolEnumerationLabelUngrounded},
+		{Kind: types.ViolAnswerSemanticUnderfilled},
+	}, "zh", ctx)
+	if out != "正文" {
+		t.Fatalf("pure VCS history narrative should not get generic current-source coverage caveats:\n%s", out)
+	}
+
+	mixed := rm
+	mixed.ChangeImpactProfile = &types.ChangeImpactProfile{IsChangeImpact: true}
+	mixedMut := types.NewMutableState("分析这次提交对当前代码的影响")
+	mixedMut.SetRequestModel(mixed)
+	mixedCtx := &types.BusContext{Mutable: mixedMut}
+	mixedOut := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{
+		{Kind: types.ViolFacetUncovered},
+	}, "zh", mixedCtx)
+	if !strings.Contains(mixedOut, "**补充说明：**") {
+		t.Fatalf("mixed history/current-code request should keep caveat disclosure:\n%s", mixedOut)
+	}
+}
+
 func TestAppendSoftContractCaveatsToAnswer_SkipsStrictPromotedConcern(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, []string{string(types.ViolUncertaintyBlockMissing)})

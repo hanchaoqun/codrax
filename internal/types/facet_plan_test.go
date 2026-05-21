@@ -247,6 +247,29 @@ func TestResolveQuestionFamily_Architecture(t *testing.T) {
 	}
 }
 
+func TestCompileFacetCoverage_PureHistoryNarrativeDoesNotRequireCurrentSource(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioGeneric,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqHistory)},
+	}
+	plan := CompileFacetCoverage(rm, nil)
+	if plan == nil {
+		t.Fatal("expected generic facet coverage plan")
+	}
+	if plan.Family != QFGeneric {
+		t.Fatalf("family = %q, want %q", plan.Family, QFGeneric)
+	}
+	for _, req := range append(append([]FacetRequirement{}, plan.Required...), plan.Optional...) {
+		if req.Kind == FacetCurrentCodePath || req.Kind == FacetComponentRelation || req.Kind == FacetDiagramSpine {
+			t.Fatalf("pure VCS history narrative must not require current-source architecture facet: %+v", req)
+		}
+	}
+}
+
 func TestResolveQuestionFamily_ArchitectureNarrativeBeatsEnumerationDrift(t *testing.T) {
 	rm := RequestModel{
 		Intent:     IntentExplain,

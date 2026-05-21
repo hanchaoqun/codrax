@@ -419,6 +419,10 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 				logging.Info("[self_consistency_reviewer] skipped: observation-only runtime artifact answer already has typed artifact carrier and no current-repo citation surface")
 				runSC = false
 			}
+			if runSC && skipLLMAnswerReviewForHistoryNarrative(o.busCtx, scDocV2, result.Violations) {
+				logging.Info("[self_consistency_reviewer] skipped: pure VCS history narrative answer is already scoped to history metadata, not current-source proof")
+				runSC = false
+			}
 		}
 		runSQ := !preReviewerStrict && o != nil && o.semanticQualityReviewer != nil && mut != nil
 		if runSQ {
@@ -426,6 +430,10 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			runSQ = sqDocV2 != nil && semanticQualityReviewerEligible(sqDocV2, result.Violations, o.busCtx)
 			if runSQ && skipLLMAnswerReviewForObservationOnlyArtifact(o.busCtx, sqDocV2, result.Violations) {
 				logging.Info("[semantic_quality_reviewer] skipped: observation-only runtime artifact answer already has typed artifact carrier and no current-repo citation surface")
+				runSQ = false
+			}
+			if runSQ && skipLLMAnswerReviewForHistoryNarrative(o.busCtx, sqDocV2, result.Violations) {
+				logging.Info("[semantic_quality_reviewer] skipped: pure VCS history narrative answer is already scoped to history metadata, not current-source proof")
 				runSQ = false
 			}
 		}
@@ -3185,6 +3193,57 @@ func semanticQualityReviewerEligible(doc *types.AnswerDocumentV2, existing []typ
 
 func skipSemanticQualityForObservationOnlyArtifact(ctx *types.BusContext, doc *types.AnswerDocumentV2, existing []types.Violation) bool {
 	return skipLLMAnswerReviewForObservationOnlyArtifact(ctx, doc, existing)
+}
+
+func skipLLMAnswerReviewForHistoryNarrative(ctx *types.BusContext, doc *types.AnswerDocumentV2, existing []types.Violation) bool {
+	if ctx == nil || doc == nil {
+		return false
+	}
+	if len(FilterFinalizerRetryRootViolationsForBus(existing, ctx)) > 0 {
+		return false
+	}
+	rm, contract := requestModelAndAnswerContractForBus(ctx)
+	if rm == nil || !types.HistoryLookupPrefersVCSNarrativePrincipal(*rm, contract) {
+		return false
+	}
+	if answerDocumentDeclaresCurrentSourceFacet(doc) {
+		return false
+	}
+	return true
+}
+
+func requestModelAndAnswerContractForBus(ctx *types.BusContext) (*types.RequestModel, *types.AnswerContract) {
+	if ctx == nil {
+		return nil, nil
+	}
+	if ctx.AnalysisIR != nil {
+		rm := ctx.AnalysisIR.RequestModel
+		contract := ctx.AnalysisIR.AnswerContract
+		return &rm, &contract
+	}
+	if ctx.Mutable != nil {
+		return ctx.Mutable.RequestModel(), nil
+	}
+	return nil, nil
+}
+
+func answerDocumentDeclaresCurrentSourceFacet(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, b := range doc.Blocks {
+		for _, facet := range b.FacetIDs {
+			if types.AnswerFacetKind(strings.TrimSpace(facet)) == types.FacetCurrentCodePath {
+				return true
+			}
+		}
+		for _, cu := range b.ClaimUses {
+			if types.AnswerFacetKind(strings.TrimSpace(cu.FacetID)) == types.FacetCurrentCodePath {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func skipLLMAnswerReviewForObservationOnlyArtifact(ctx *types.BusContext, doc *types.AnswerDocumentV2, existing []types.Violation) bool {

@@ -12,6 +12,10 @@
 ID="u7c"
 NAME="history — latest merged feature summary"
 QUESTION="最近一次合入的是什么特性？请说明这个特性做了什么，不要只给 commit id。"
-EXPECT_CONTAINS="commit 特性"
-EXPECT_NOT_CONTAINS="**值：**"
-EXPECT_MATCHES_REGEX="(做了什么|实质性改动|核心|功能|特性|说明|change|feature|implements)"
+EXPECT_CONTAINS="特性"
+# Do not ban the literal phrase "**值：**" here: the latest commit may itself
+# be a fix about generic scalar-value rendering, and quoting that phrase is a
+# valid feature explanation. Positive checks below pin the non-scalar narrative
+# obligation instead.
+EXPECT_NOT_CONTAINS=""
+EXPECT_MATCHES_REGEX="(commit|提交).*(做了什么|实质性改动|核心|功能|特性|说明|change|feature|implements)|(做了什么|实质性改动|核心|功能|特性|说明|change|feature|implements).*(commit|提交)"

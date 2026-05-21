@@ -11,6 +11,10 @@
 ID="u7o"
 NAME="history — latest diff plus current source impact"
 QUESTION="根据最近一次提交的代码 diff，再结合当前源码，分析这次改动对现在实现链路的影响；请说明 commit/diff 线索、当前关键代码，以及影响关系，不要只给 commit id。"
-EXPECT_NOT_CONTAINS="**值：**"
+# Do not ban the literal phrase "**值：**" here: this mixed history/current-code
+# case often analyzes fixes to scalar rendering itself, where quoting the bad
+# scalar label is valid explanatory content. The positive regex below guards the
+# actual product shape: diff provenance + current implementation + impact.
+EXPECT_NOT_CONTAINS=""
 EXPECT_MATCHES_REGEX="(commit|提交|diff|差异).*(当前|源码|现在|实现)|(当前|源码|现在|实现).*(commit|提交|diff|差异)
-(影响|链路|关系|流程).*(当前|源码|现在|实现)|(当前|源码|现在|实现).*(影响|链路|关系|流程)"
+(影响|链路|关系|流程|修复链路).*(当前|源码|现在|实现|实现链路)|(当前|源码|现在|实现|实现链路).*(影响|链路|关系|流程|修复链路)"

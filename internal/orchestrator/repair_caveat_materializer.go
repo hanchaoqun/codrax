@@ -145,6 +145,13 @@ func AppendSoftContractCaveatsToAnswerForBus(answer string, violations []types.V
 		caveats = append(caveats, MaterializeUnresolvedViolationsAsCaveats(remaining, lang)...)
 		return appendSystemCaveatBullets(answer, caveats, lang)
 	}
+	if historyNarrativeCaveatContext(ctx) {
+		remaining := filterPureHistoryNarrativeCaveats(soft)
+		if len(remaining) == 0 {
+			return answer
+		}
+		return AppendUserCaveatsToAnswer(answer, remaining, lang)
+	}
 	return AppendUserCaveatsToAnswer(answer, soft, lang)
 }
 
@@ -174,6 +181,38 @@ func runtimeObservationOnlyCaveatContext(ctx *types.BusContext) bool {
 		return true
 	}
 	return runtimeWaiverObservationOnly(ctx.Mutable.StableEvidenceFloorWaiver())
+}
+
+func historyNarrativeCaveatContext(ctx *types.BusContext) bool {
+	rm, contract := requestModelAndAnswerContractForBus(ctx)
+	return rm != nil && types.HistoryLookupPrefersVCSNarrativePrincipal(*rm, contract)
+}
+
+func filterPureHistoryNarrativeCaveats(violations []types.Violation) []types.Violation {
+	if len(violations) == 0 {
+		return nil
+	}
+	out := make([]types.Violation, 0, len(violations))
+	for _, v := range violations {
+		if pureHistoryNarrativeSuppressibleCaveat(v.Kind) {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+func pureHistoryNarrativeSuppressibleCaveat(kind types.ViolationKind) bool {
+	switch kind {
+	case types.ViolBlockCoverageMissing,
+		types.ViolFacetUncovered,
+		types.ViolRichnessGlaringGap,
+		types.ViolEnumerationLabelUngrounded,
+		types.ViolAnswerSemanticUnderfilled:
+		return true
+	default:
+		return false
+	}
 }
 
 func runtimeWaiverObservationOnly(w *types.EvidenceFloorWaiver) bool {

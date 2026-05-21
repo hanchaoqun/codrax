@@ -547,3 +547,25 @@ flowchart TD
   `requested outputs: summary, enumeration`, one finalizer round, and no
   repair/rewrite; the absent-marker eval now constructs the marker from split
   shell fragments to avoid committing the exact negative token into git history.
+- 2026-05-21: Batch 6 source-boundary follow-up completed. `u7c` proved the
+  scalar compression was fixed, but also exposed a separate system-origin shape
+  escalation: pure VCS history narratives were still routed through
+  `architecture_explain`, which loaded component-relation blocks and current-code
+  reviewer pressure. The typed boundary is now end-to-end: pure non-scalar
+  history narratives stay `generic`, generic facet coverage does not attach
+  current-source/component/diagram facets, and reviewer/caveat consumers skip
+  current-source-oriented pressure unless the request carries mixed-code,
+  diagram, diagnostic, change-impact, relation, scalar, or count signals.
+  `u7c-20260521-120536` passed with `family=generic`, required summary only,
+  `semantic_quality_concerns=0`, and one finalizer round.
+- 2026-05-21: Batch 6 mixed-lane check: `u7o` remains deliberately outside the
+  pure-history shortcut because the user asks for latest diff plus current source
+  impact. The run kept `family=architecture` with VCS/current-source lanes
+  visible; the eval guard was refined so quoting the old scalar label `**值：**`
+  while explaining the rendering bug is not treated as product failure. This
+  preserves the contract split: pure VCS narratives avoid current-source
+  pressure, mixed diff+implementation questions still require current-source
+  reasoning. Rerun `u7o-20260521-122249` passed with one finalizer round and no
+  semantic-quality concern; residual cost (`explorer_iters=32`,
+  `midloop_inject=9`) is tracked as a performance follow-up, not as an answer
+  contract failure.

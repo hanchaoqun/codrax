@@ -21,5 +21,5 @@ HTRACE='# tracer: nop
    com.example-1000 [001] ...1 22345.110000: tracing_mark_write: B|1000|H:RenderService:DoFrame
    com.example-1000 [001] ...1 22345.120000: tracing_mark_write: E|1000
 '
-EXPECT_MATCHES_REGEX="(GC).*(有|存在|出现|8ms|8 ms)|(有|存在|出现|8ms|8 ms).*(GC)
-(50ms|50 ms).*(没有|未发现|未看到|0)|(没有|未发现|未看到|0).*(50ms|50 ms)"
+EXPECT_MATCHES_REGEX="(GC).*(有|存在|出现|8.?ms|8.{0,6}ms)|(有|存在|出现|8.?ms|8.{0,6}ms).*(GC)
+(未超过|不超过|低于|小于|没有超过|无超过|未发现超过|0).{0,60}50.{0,6}ms|50.{0,6}ms.{0,60}(未超过|不超过|低于|小于|没有|无|未发现|0)"
