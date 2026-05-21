@@ -1019,6 +1019,9 @@ func BuildSemanticQualityInput(
 	// FacetID AND non-empty EvidenceID/ClaimForm on the same surface.
 	if view.FacetCoverage != nil {
 		for _, req := range view.FacetCoverage.Required {
+			if semanticQualitySkipReviewerFacet(req, view) {
+				continue
+			}
 			if !req.RequiresHardDeclaration() {
 				continue
 			}
@@ -1037,6 +1040,9 @@ func BuildSemanticQualityInput(
 
 	if view.FacetCoverage != nil {
 		for _, req := range view.FacetCoverage.Required {
+			if semanticQualitySkipReviewerFacet(req, view) {
+				continue
+			}
 			if req.EffectivePromotionPolicy() == types.PromotionAdvisoryOnly {
 				continue
 			}
@@ -1102,6 +1108,16 @@ func BuildSemanticQualityInput(
 	}
 
 	return in
+}
+
+func semanticQualitySkipReviewerFacet(req types.FacetRequirement, view *types.AnswerSemanticView) bool {
+	if req.Kind != types.FacetDiagramSpine {
+		return false
+	}
+	if req.EffectivePromotionPolicy() == types.PromotionAlwaysHard {
+		return false
+	}
+	return view == nil || view.DiagramPlan == nil || !view.DiagramPlan.Required
 }
 
 func semanticQualityDiagramRelationCounts(doc *types.AnswerDocumentV2, diagramBlock *types.AnswerBlock) map[types.DiagramRelationKind]int {

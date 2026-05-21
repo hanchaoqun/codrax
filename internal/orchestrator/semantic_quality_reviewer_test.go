@@ -312,6 +312,35 @@ func TestBuildSemanticQualityInput_FacetCoverageProjection(t *testing.T) {
 	}
 }
 
+func TestBuildSemanticQualityInput_SkipsSoftDiagramFacetWithoutDiagramContract(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, FacetIDs: []string{"current_code_path"}},
+		},
+	}
+	view := &types.AnswerSemanticView{
+		FacetCoverage: &types.FacetCoverageContract{
+			Required: []types.FacetRequirement{
+				{Kind: types.FacetCurrentCodePath, Required: types.FacetSoftRequired,
+					PromotionPolicy: types.PromotionWhenEvidenceSufficient,
+					SourceCandidate: []string{"ev-current"}},
+				{Kind: types.FacetDiagramSpine, Required: types.FacetSoftRequired,
+					PromotionPolicy: types.PromotionWhenEvidenceSufficient,
+					SourceCandidate: []string{"ev-edge"}},
+			},
+		},
+	}
+	in := BuildSemanticQualityInput("orig", "summary", "body", doc, view, nil)
+	if len(in.RequiredFacets) != 1 || in.RequiredFacets[0].Kind != string(types.FacetCurrentCodePath) {
+		t.Fatalf("soft diagram facet without a required diagram contract must stay out of reviewer required facets: %+v", in.RequiredFacets)
+	}
+	for _, fc := range in.PromotedFacetCoverage {
+		if fc.Kind == string(types.FacetDiagramSpine) {
+			t.Fatalf("soft diagram facet without a required diagram contract must stay out of promoted depth audit: %+v", in.PromotedFacetCoverage)
+		}
+	}
+}
+
 func TestRenderSemanticQualityUserMessage_IncludesClaimBindingBoundary(t *testing.T) {
 	in := SemanticQualityInput{
 		OriginalRequest: "最近一次合入的是什么特性？",

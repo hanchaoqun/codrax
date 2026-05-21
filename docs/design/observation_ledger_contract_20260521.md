@@ -610,3 +610,9 @@ flowchart TD
   mechanism questions without an explicit diagram request, and parallel-lane
   convergence / forced-read repair churn after one lane has already closed a
   grounded principal answer.
+- 2026-05-21: Batch 9 implemented the semantic-quality part of that residual.
+  Non-hard `diagram_spine` facets are no longer sent to the semantic reviewer as
+  required/promoted coverage unless the typed answer semantic view has a required
+  diagram plan. This preserves explicit diagram requests while preventing broad
+  architecture/mechanism family defaults from turning "no diagram" into a
+  reviewer concern.
