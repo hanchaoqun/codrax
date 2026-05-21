@@ -1073,6 +1073,9 @@ func renderV2BlockItem(it types.AnswerBlockItem, doc *types.AnswerDocumentV2, _ 
 		parts = append(parts, t)
 	}
 	out := strings.Join(parts, " — ")
+	if strings.TrimSpace(out) == "" {
+		return ""
+	}
 	if doc != nil && it.CitationRef >= 0 && it.CitationRef < len(doc.Citations) {
 		cite := renderCitationDisplay(doc.Citations[it.CitationRef])
 		if cite != "" {

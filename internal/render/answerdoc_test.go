@@ -1058,6 +1058,32 @@ func TestRenderV2_BoundaryEmptyBlocks(t *testing.T) {
 	}
 }
 
+func TestRenderV2_SkipsCitationOnlyListItems(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "empty_items",
+			Kind: types.BlockBulletList,
+			Items: []types.AnswerBlockItem{
+				{ID: "signal_only", CitationRef: 0},
+				{ID: "visible", Label: "buildAnalysisIR", Text: "分析入口", CitationRef: 0},
+			},
+		}},
+		Citations: []types.Citation{{File: "internal/agent/analyzer.go", Line: 123}},
+	}
+
+	out := RenderAnswerDocument(doc, "zh")
+	if strings.Contains(out, "-  (") || strings.Contains(out, "- (") {
+		t.Fatalf("citation-only item must not render as a blank bullet:\n%s", out)
+	}
+	if !strings.Contains(out, "buildAnalysisIR") ||
+		!strings.Contains(out, "internal/agent/analyzer.go:123") {
+		t.Fatalf("visible cited item should still render:\n%s", out)
+	}
+	if !strings.Contains(out, "**引用**") {
+		t.Fatalf("citation pool should remain available even when signal-only item is skipped:\n%s", out)
+	}
+}
+
 func TestRenderV2_NilSafe(t *testing.T) {
 	if got := RenderAnswerDocument(nil, "en"); got != "" {
 		t.Errorf("nil doc should return empty; got %q", got)
