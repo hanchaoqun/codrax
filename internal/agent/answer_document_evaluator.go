@@ -2472,7 +2472,7 @@ func renderAnswerDocVisibleAnchorWhitelist(ctx *types.AgentContext) string {
 		}
 		if len(highConfidence) > 0 {
 			b.WriteString("### Preferred anchors — safe to cite\n\n")
-			b.WriteString("These symbols resolved directly against the codebase — exact file:line evidence or typed symbol-graph match. Use them freely as item labels, inline references, or diagram endpoints.\n\n")
+			b.WriteString("These surfaces are citation-aligned evidence anchors. The trailing role tells what the cited line proves: `function` / `symbol` entries can be used as definition-style anchors, while `call_site`, `condition`, `return`, `assignment`, `initializer`, `import`, and `string_literal` entries should be cited only for that evidence role, not as the symbol's definition line.\n\n")
 			for _, e := range highConfidence {
 				writeVisibleAnchorBullet(&b, e)
 			}

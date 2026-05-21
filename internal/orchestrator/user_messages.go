@@ -137,8 +137,9 @@ func semanticQualityReviewStartMessage(lang string) string {
 
 // selfConsistencyContradictionMessage (commit 62): rendered when
 // the reviewer reports >= 1 contradiction at confidence >= floor.
-// Variants: "rewriting" when rewrite-on-contradiction is on (the
-// finalizer will re-dispatch); "logged" when off (advisory only).
+// Variants: "rewriting" only when the current soft/strict policy will
+// actually re-dispatch finalizer; "logged" when the contradiction ships as an
+// advisory caveat.
 func selfConsistencyContradictionMessage(lang string, rewrite bool, count int) string {
 	if preferZhMessage(lang) {
 		if rewrite {

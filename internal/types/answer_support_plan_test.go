@@ -3619,6 +3619,61 @@ func TestBuildAnswerSupportPlan_GenericAggregateMemberSetReusesTypedEvidenceLoca
 	}
 }
 
+func TestBuildAnswerSupportPlan_GenericAggregateMemberSetPrefersAnchorSymbolOverCallSubject(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "analyze degraded paths",
+			Value:   "1",
+			Members: []string{"buildDegradedSemanticIR"},
+		}},
+		SurfaceEvidence: []EvidenceItem{
+			{
+				ID:              "semantic-callsite",
+				Kind:            EvidenceDirect,
+				Scope:           ScopeLine,
+				Source:          "internal/orchestrator/orchestrator.go",
+				LineStart:       2006,
+				AnchorKind:      AnchorCall,
+				AnchorSymbol:    "buildDegradedSemanticIR",
+				Object:          "buildDegradedSemanticIR",
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: GroundingGrounded,
+				GroundingTier:   TierLineText,
+			},
+			{
+				ID:              "fallback-inside-semantic",
+				Kind:            EvidenceDirect,
+				Scope:           ScopeLine,
+				Source:          "internal/orchestrator/orchestrator.go",
+				LineStart:       7612,
+				AnchorKind:      AnchorCall,
+				AnchorSymbol:    "buildDegradedFallbackIR",
+				Subject:         "buildDegradedSemanticIR",
+				Object:          "buildDegradedFallbackIR",
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: GroundingGrounded,
+				GroundingTier:   TierLineText,
+			},
+		},
+	}
+	rm := RequestModel{
+		Intent:     IntentEnumerate,
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+	}
+
+	got := BuildAnswerSupportPlan(rm, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) != 1 {
+		t.Fatalf("aggregate member_set should compile into one principal entry, got %+v", got)
+	}
+	if lane.Entries[0].Location != "internal/orchestrator/orchestrator.go:2006" ||
+		lane.Entries[0].AnchorSymbol != "buildDegradedSemanticIR" ||
+		lane.Entries[0].ClaimForm != ClaimCallEdge {
+		t.Fatalf("member should cite the line whose anchor_symbol matches the member, not a sibling call where it is only the subject: %+v", lane.Entries[0])
+	}
+}
+
 func TestBuildAnswerSupportPlan_GenericAggregateMemberSetCoAnchorsSupportRefAndTypedDefinition(t *testing.T) {
 	cases := []struct {
 		name     string

@@ -2248,6 +2248,43 @@ func TestExtractor_MultiTopicExplanationTriggersAnchorSkeleton(t *testing.T) {
 	}
 }
 
+func TestExtractor_ArchitectureMultiTopicSubtopicsAreOptionalStructure(t *testing.T) {
+	ir := &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Scenario: types.ScenarioArchitectureExplain,
+			SubTopics: []types.SubTopic{
+				{Summary: "read-mode retry loop", Entities: []string{"runAnalyzePhase"}},
+				{Summary: "write-mode fallback context", Entities: []string{"fallbackWriteAnalysisIR"}},
+			},
+		},
+		AnswerContract: types.AnswerContract{},
+	}
+	mut := types.NewMutableState("q")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ReadFiles: []string{"internal/orchestrator/orchestrator.go"}})
+	ctx := &types.AgentContext{
+		AnalysisIR: ir,
+		Mutable:    mut,
+	}
+
+	if !isMultiTopicExplanation(ctx) {
+		t.Fatal("architecture sub-topics may still render optional structure context")
+	}
+	if needsAnswerSymbols(ctx) {
+		t.Fatal("architecture/mechanism sub-topics must not force emit_answer_symbol")
+	}
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "Optional sub-topic structure") {
+		t.Fatalf("prompt should keep sub-topic guidance visible without a hard symbol slate:\n%s", prompt)
+	}
+	if contains(prompt, "Hard typed floor") && contains(prompt, "from analyzer-resolved sub-topic count") {
+		t.Fatalf("architecture sub-topics must not become a hard answer-symbol floor:\n%s", prompt)
+	}
+	if contains(prompt, "For each, call emit_answer_symbol with ONE anchor symbol") {
+		t.Fatalf("architecture sub-topic prompt must not tell the model to emit one anchor per sub-topic:\n%s", prompt)
+	}
+}
+
 func TestExtractor_MultiTopicExplanationPromptReusesCompiledAnchorBackbone(t *testing.T) {
 	ir := &types.AnalysisIR{
 		RequestModel: types.RequestModel{

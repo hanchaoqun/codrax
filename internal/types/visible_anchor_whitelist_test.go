@@ -90,6 +90,62 @@ func TestBuildVisibleAnchorWhitelist_GroundablePopulatedFromSupportLanes(t *test
 	}
 }
 
+func TestBuildVisibleAnchorWhitelist_CallSiteKeepsRoleAndDoesNotExposeCallerAsDefinition(t *testing.T) {
+	plan := &AnswerSupportPlan{
+		Lanes: []AnswerSupportLane{
+			{
+				Kind: SupportLaneCurrentCodePath,
+				Entries: []AnswerSupportEntry{
+					{
+						AnchorKind:    AnchorCall,
+						AnchorSymbol:  "buildDegradedFallbackIR",
+						Subject:       "buildDegradedSemanticIR",
+						Object:        "buildDegradedFallbackIR",
+						Source:        "internal/orchestrator/orchestrator.go",
+						LineStart:     7612,
+						GroundingTier: TierLineText,
+					},
+				},
+			},
+		},
+	}
+
+	got := BuildVisibleAnchorWhitelist(plan, nil)
+	foundCallee := false
+	for _, e := range got.Groundable {
+		if e.Symbol == "buildDegradedSemanticIR" {
+			t.Fatalf("caller/owner subject must not be advertised as safe to cite at a call-site line: %+v", got.Groundable)
+		}
+		if e.Symbol == "buildDegradedFallbackIR" {
+			foundCallee = true
+			if e.Kind != VisibleAnchorKindCallSite {
+				t.Fatalf("call-site entry kind = %q, want %q", e.Kind, VisibleAnchorKindCallSite)
+			}
+			if e.SourceLine != 7612 {
+				t.Fatalf("call-site entry line = %d, want 7612", e.SourceLine)
+			}
+		}
+	}
+	if !foundCallee {
+		t.Fatalf("expected callee call-site anchor; got %+v", got.Groundable)
+	}
+}
+
+func TestBuildVisibleAnchorWhitelist_RequiredSymbolDoesNotPretendFunctionKind(t *testing.T) {
+	view := &AnswerSemanticView{
+		RequiredMechanismAnchors: []AnswerRequiredAnchor{
+			{Text: "AnalysisIR", Kind: ContractTermSymbol},
+		},
+	}
+	got := BuildVisibleAnchorWhitelist(nil, view)
+	if len(got.Required) != 1 {
+		t.Fatalf("expected one required anchor; got %+v", got.Required)
+	}
+	if got.Required[0].Kind != VisibleAnchorKindSymbol {
+		t.Fatalf("required symbol kind = %q, want %q", got.Required[0].Kind, VisibleAnchorKindSymbol)
+	}
+}
+
 // TestBuildVisibleAnchorWhitelist_RequiredWinsOverGroundable: a
 // symbol present in BOTH RequiredMechanismAnchors AND a support-lane
 // entry lands in Required only. The Groundable bucket is the strict

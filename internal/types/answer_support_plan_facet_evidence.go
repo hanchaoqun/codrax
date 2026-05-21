@@ -331,13 +331,24 @@ func aggregateMemberEvidenceByExactIdentity(member string, items []EvidenceItem)
 		return EvidenceItem{}, false
 	}
 	bestRank := -1
+	bestIdentityScore := -1
 	var best EvidenceItem
 	found := false
 	for _, item := range items {
-		if !aggregateEvidenceIdentityMatchesAny(item, memberKeys) {
+		identityScore := aggregateEvidenceIdentityMatchScore(item, memberKeys)
+		if identityScore < 0 {
+			continue
+		}
+		if found && identityScore < bestIdentityScore {
 			continue
 		}
 		rank := changeImpactSupportEvidenceRank(item)
+		if found && identityScore > bestIdentityScore {
+			best = item
+			bestRank = rank
+			bestIdentityScore = identityScore
+			continue
+		}
 		if found && rank < bestRank {
 			continue
 		}
@@ -350,9 +361,49 @@ func aggregateMemberEvidenceByExactIdentity(member string, items []EvidenceItem)
 		}
 		best = item
 		bestRank = rank
+		bestIdentityScore = identityScore
 		found = true
 	}
 	return best, found
+}
+
+func aggregateEvidenceIdentityMatchScore(item EvidenceItem, keys map[string]bool) int {
+	if len(keys) == 0 {
+		return -1
+	}
+	scoreFor := func(raw string, score int) int {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return -1
+		}
+		if keys["literal:"+strings.ToLower(raw)] {
+			return score
+		}
+		if key := AnswerAggregateMemberSurfaceKey(raw); key != "" && keys[strings.ToLower(key)] {
+			return score
+		}
+		return -1
+	}
+	best := -1
+	for _, candidate := range []struct {
+		value string
+		score int
+	}{
+		{item.AnchorSymbol, 100},
+		{item.Object, 90},
+		{item.OwnerSymbol, 70},
+		{item.Subject, 60},
+	} {
+		if score := scoreFor(candidate.value, candidate.score); score > best {
+			best = score
+		}
+	}
+	for _, term := range item.SurfaceTerms {
+		if score := scoreFor(term, 80); score > best {
+			best = score
+		}
+	}
+	return best
 }
 
 func aggregateMemberEvidencePrefersAnchor(candidate, existing EvidenceItem) bool {

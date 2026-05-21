@@ -278,7 +278,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 				hardFloor := requiredAnswerSymbolCount(ctx)
 				if boundary := requestedEnumerationBoundary(ctx); boundary != nil && viewNeedsBoundedPrincipalList(ctx) {
 					fmt.Fprintf(&b, "- **Hard typed floor:** %d item(s), from requested boundary `%s`\n", boundary.DeclaredCount, boundary.SourceQuote)
-				} else if isMultiTopicExplanation(ctx) {
+				} else if requiresMultiTopicAnchorSkeleton(ctx) {
 					fmt.Fprintf(&b, "- **Hard typed floor:** %d anchor(s), from analyzer-resolved sub-topic count\n", hardFloor)
 				} else {
 					b.WriteString("- **Hard typed floor:** none. Treat terminal-evidence and required-name counts as soft search/completeness reminders only; do not add helpers, tools, files, or mechanism components to `items[]` merely to satisfy those counts.\n")
@@ -316,26 +316,31 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 			b.WriteString("\n")
 		} else {
 			b.WriteString("### Structured emit obligations\n\n")
-			b.WriteString("This dispatch does NOT require `emit_answer_symbol`. The principal answer will be rendered downstream from typed ordered_list / diagram / prose support lanes, so do not manufacture a symbol slate just because the user asked for a call chain, mechanism walk, or non-symbol evidence enumeration. Multi-topic anchor skeletons, explicit Requested Set Boundaries, and symbol-backed enumerations activate `emit_answer_symbol`.\n\n")
+			b.WriteString("This dispatch does NOT require `emit_answer_symbol`. The principal answer will be rendered downstream from typed ordered_list / diagram / prose support lanes, so do not manufacture a symbol slate just because the user asked for a call chain, mechanism walk, architecture explanation, or non-symbol evidence enumeration. Only generic multi-topic explanations, explicit Requested Set Boundaries, and symbol-backed enumerations activate `emit_answer_symbol` as a hard obligation.\n\n")
 		}
 	}
 
 	// -------- Multi-topic explanation skeleton guide --------
 	// Render the per-dispatch sub-topic list ONLY when the analyzer
-	// resolved shape=explanation AND populated sub_topics. This is
-	// the trigger for the "emit one anchor symbol per sub-topic"
-	// mode documented in the extract-skill workflow; showing the
-	// topic list here tells the LLM exactly how many anchors to
-	// emit and what each anchor is for.
+	// resolved shape=explanation AND populated sub_topics. It is a
+	// hard emit_answer_symbol obligation only for generic multi-topic
+	// explanations. For architecture/mechanism narratives the same
+	// list is optional context; analyzer decomposition drift must not
+	// become final-answer principal content.
 	if isMultiTopicExplanation(ctx) {
 		st := ctx.AnalysisIR.RequestModel.SubTopics
 		plan := extractorAnswerSurfacePlan(ctx)
-		b.WriteString("## Anchor skeleton (one per sub-topic)\n\n")
-		fmt.Fprintf(&b, "The analyzer identified %d independently-answerable sub-topic(s). ", len(st))
-		b.WriteString("For each, call emit_answer_symbol with ONE anchor symbol — the load-bearing ")
-		b.WriteString("identifier that the multi-paragraph answer summary will hang on. Each ")
-		b.WriteString("anchor needs a concrete file:line from the 'Files the investigation read' list above; ")
-		b.WriteString("use the rationale field to name the sub-topic the anchor covers.\n\n")
+		if requiresMultiTopicAnchorSkeleton(ctx) {
+			b.WriteString("## Anchor skeleton (one per sub-topic)\n\n")
+			fmt.Fprintf(&b, "The analyzer identified %d independently-answerable sub-topic(s). ", len(st))
+			b.WriteString("For each, call emit_answer_symbol with ONE anchor symbol — the load-bearing ")
+			b.WriteString("identifier that the multi-paragraph answer summary will hang on. Each ")
+			b.WriteString("anchor needs a concrete file:line from the 'Files the investigation read' list above; ")
+			b.WriteString("use the rationale field to name the sub-topic the anchor covers.\n\n")
+		} else {
+			b.WriteString("## Optional sub-topic structure\n\n")
+			fmt.Fprintf(&b, "The analyzer identified %d sub-topic hint(s). These are guidance only for this answer family: do not call `emit_answer_symbol` just to mirror them. Use the grounded evidence/support lanes and final prose/sections to preserve the user's requested structure; if a sub-topic is unsupported or out of scope, leave it out or disclose the boundary instead of promoting a nearby helper as a principal anchor.\n\n", len(st))
+		}
 		for i, topic := range st {
 			summary := strings.TrimSpace(topic.Summary)
 			if summary == "" {
@@ -2420,7 +2425,7 @@ func needsAnswerSymbols(ctx *types.AgentContext) bool {
 	if pureVCSMetadataAnswerRendersWithoutAnswerSymbols(ctx) {
 		return false
 	}
-	if isMultiTopicExplanation(ctx) || viewNeedsBoundedPrincipalList(ctx) {
+	if requiresMultiTopicAnchorSkeleton(ctx) || viewNeedsBoundedPrincipalList(ctx) {
 		return true
 	}
 	if viewNeedsEnumerationSlate(ctx) {
@@ -2500,7 +2505,7 @@ func requiredAnswerSymbolCount(ctx *types.AgentContext) int {
 	if boundary := requestedEnumerationBoundary(ctx); boundary != nil && viewNeedsBoundedPrincipalList(ctx) {
 		return boundary.DeclaredCount
 	}
-	if isMultiTopicExplanation(ctx) && ctx != nil && ctx.AnalysisIR != nil {
+	if requiresMultiTopicAnchorSkeleton(ctx) && ctx != nil && ctx.AnalysisIR != nil {
 		return len(ctx.AnalysisIR.RequestModel.SubTopics)
 	}
 	return 0
@@ -2534,35 +2539,32 @@ func answerSymbolMaterializationHint(ctx *types.AgentContext) string {
 			return fmt.Sprintf("The user explicitly requested the bounded principal set `%s` (%d item(s)), but the accepted `emit_answer_symbol` slate currently contains only %d grounded item(s). Re-emit `emit_answer_symbol` now with the full principal member slate for that bounded set. Reuse the compiled candidate pool's exact file:line + symbol names when available, keep the slate within %d items, and leave adjacent caveat-only checks out of the main slate.", boundary.SourceQuote, boundary.DeclaredCount, len(syms), boundary.DeclaredCount)
 		}
 	}
-	if isMultiTopicExplanation(ctx) && ctx.AnalysisIR != nil {
+	if requiresMultiTopicAnchorSkeleton(ctx) && ctx.AnalysisIR != nil {
 		return fmt.Sprintf("The analyzer produced %d sub-topic(s), but the accepted `emit_answer_symbol` slate currently contains only %d grounded anchor(s). Re-emit `emit_answer_symbol` now with one grounded anchor per sub-topic, reusing the resolved anchor list when available.", len(ctx.AnalysisIR.RequestModel.SubTopics), len(syms))
 	}
 	return "Re-emit `emit_answer_symbol` with the grounded answer-symbol slate before stopping."
 }
 
 // isMultiTopicExplanation reports whether the analyzer produced a
-// multi-topic explanation — the shape that trace 1776439797257469553
-// exposed as the extractor's worst failure mode. Analyzer sets
-// shape=explanation and populates RequestModel.SubTopics; the old
-// extractor treated this as "no expected emit" (not
-// list_of_symbols, auto-verdicted hypotheses) and returned nothing
-// structured. The finalizer then had only Turn A's raw evidence
-// stream to work from and frequently invented/copied prose.
-//
-// The fix: require ONE anchor symbol per sub-topic as a skeleton
-// the finalizer's summary hangs on. Each anchor carries a concrete
-// file:line that pins the sub-topic's load-bearing identifier
-// (e.g. {ProposeSubAgents @ propose_sub_agents.go:N} for a
-// sub-topic about sub-agent proposal). The finalizer renders them
-// as a Key Anchors skeleton beneath the multi-paragraph summary.
-//
-// Threshold: SubTopics > 1. Single-topic explanation keeps the old
-// path — the summary IS the answer and doesn't need a skeleton.
+// multi-topic explanation that may carry optional anchor-skeleton
+// context. The hard obligation is narrower: use
+// requiresMultiTopicAnchorSkeleton when deciding whether to force
+// emit_answer_symbol. Architecture / mechanism families already have
+// prose, section, diagram, and evidence support lanes; forcing an
+// anchor per analyzer sub-topic there can promote pre-scan drift into
+// user-visible principal content.
 func isMultiTopicExplanation(ctx *types.AgentContext) bool {
 	if ctx == nil {
 		return false
 	}
 	return types.IRAllowsAnchorSkeleton(ctx.AnalysisIR)
+}
+
+func requiresMultiTopicAnchorSkeleton(ctx *types.AgentContext) bool {
+	if ctx == nil {
+		return false
+	}
+	return types.IRRequiresAnchorSkeleton(ctx.AnalysisIR)
 }
 
 // hasPendingHypotheses reports whether the analyzer posed hypotheses

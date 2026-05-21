@@ -97,7 +97,7 @@ thin or misleading answer, record it here before choosing a fix.
 | E20260520-G41 | `qf_type_relation_loop_controller` | P1 | Open | PASS rendered a usable Mermaid flowchart and all 8 implementation types, but semantic reviewer still reported `sufficient=false confidence=0.88` because prose lacked inline code-path spans and the diagram had only interface→implementation tree edges, not “horizontal” implementation edges. The final answer therefore appended generic补充说明. | Reviewer criteria are misaligned with type-relation diagrams: interface-to-implementer edges are the relationship, and citations/items can ground code paths even when prose does not repeat every file path inline. | Diagram/reviewer contracts must understand diagram family semantics. For type/interface relation diagrams, vertical implementation edges are sufficient; current-code path coverage can be satisfied by cited item rows and diagram node labels, not only prose backticks. |
 | E20260520-G42 | `qf_type_relation_loop_controller` | P2 | Open | The user explicitly allowed “Mermaid 类图或类型关系图,” but analyzer collapsed the presentation to `diagram_hint.kind=architecture`, and finalizer emitted `flowchart TD` rather than `classDiagram`. The output is arguably acceptable because “类型关系图” was allowed, but the exact requested class-diagram affordance was lost. | Diagram intent has a coarse enum that cannot distinguish class/type relation from generic architecture. This makes finalizer choose a generic flowchart even when Mermaid has a better native representation. | Add a typed diagram subtype / presentation preference for `classDiagram` or `type_relation`, while still allowing flowchart fallback when the renderer subset lacks support. This should remain presentation-only and must not become a hard gate against valid model diagrams. |
 | E20260520-G43 | `qf_type_relation_loop_controller` | P1 | Open | Summary says the 8 implementation types are “分布在 5 个不同的 agent 包中,” but the listed files are all under `internal/agent`; the body groups them into components, not packages. Reviewers did not flag the factual wording because it was not contradicted elsewhere. | Semantic review catches summary/body contradictions better than unsupported summary-only quantitative/location claims. A standalone package/file count can be wrong yet pass if the body omits the same claim. | For numeric/location claims in summaries, require either direct evidence support or a deterministic derivation from cited rows. If unsupported, downgrade wording (“多个文件/组件分组”) rather than shipping a precise but unverified count. |
-| E20260520-G44 | `qf_sequence_analyzer_gate` | P0 | Open | Self-consistency twice emitted high-confidence contradictions (`confidence=0.92` then `0.95`): summary says “21 个关键中间函数,” body lists 22 including `gate.RunWith`, and a separate `Key anchors` block lists `gate.Run` / `analyzer.go`. The UI said “正在重写答案,” but the final answer still contains the same contradiction plus a generic inconsistency supplement. | High-confidence contradiction telemetry can fail to produce an actual corrected final answer. Auto-repair/review loops may diagnose but not mutate the offending summary/list/extra anchors, then still publish. | For `rewrite_on_contradiction=true` and confidence >= floor, require one of: deterministic local correction, successful LLM rewrite with changed offending fields, or fail-loud. Do not accept the same contradiction with only a supplement when the fix is count/label-local. |
+| E20260520-G44 | `qf_sequence_analyzer_gate`; replay `read_combo_analyze_retry_anchor-20260521-153458` | P0 | Partially mitigated | Self-consistency can emit high-confidence contradictions (`confidence >= 0.92`) while the answer still ships with a caveat. Older UI text said “正在重写答案” even when `ViolSelfContradiction` was default-soft and no finalizer re-dispatch occurred. | Two issues were intertwined: (1) status wording was driven by the yaml intent flag instead of the effective soft/strict retry policy; (2) high-confidence contradiction telemetry can still be diagnostic rather than corrective when the default commercial policy chooses caveat-over-retry. | Fixed status truthfulness: default-soft contradictions now show “仅记录，未重写,” and only strict-promoted `self_contradiction` can show “正在重写.” Remaining design work: for strict-promoted contradictions, require one of deterministic local correction, a successful LLM rewrite with changed offending fields, or fail-loud; do not publish the same contradiction with only a supplement when the fix is count/label-local. |
 | E20260520-G45 | `qf_sequence_analyzer_gate` | P1 | Open | Deterministic table `buildAnalysisIR 调用链中的关键中间函数（21）` rendered rows such as `analyzerGraphForNormalize:1377` with empty `符号名称 / 定义位置 / 说明` columns, even though the model-authored ordered list above had rich descriptions and citations. | Row compiler is still allowed to add malformed duplicate tables with blank semantic columns. This harms the final answer after the model already produced a good list. | Enforce a compiler invariant: never render a table row with required display columns empty. If row compilation cannot fill the table cleanly, omit the table and keep the model-authored rich carrier. |
 | E20260520-G46 | `qf_sequence_analyzer_gate` | P1 | Open | Extra `Key anchors` block introduced `gate.Run` and `analyzer.go` as separate numbered anchors after the main chain, confusing the terminal call (`gate.RunWith`) and contributing to the reviewer contradiction. | System-added anchor skeletons can leak into the user-visible answer as principal-looking content even when they are only navigation/support anchors. | Keep anchor skeletons as citation/support metadata unless the user requested key anchors. They must not be counted as answer members or placed next to principal lists in a way that changes the chain semantics. |
 | E20260520-G47 | `read_combo_analyze_retry_anchor` | P1 | Open | PASS answer correctly says read-mode analyze is fail-loud and does not silently use zero-value `AnalysisIR`, but several item-level citations drift: `planPath != ""` is shown against `analyzer.go:46`, `analyze stage exhausted` against `agent.go:22`, and `storm.exhausted()` against the success guard line instead of the storm-check line. | Citation compaction / item citation assignment can attach a correct claim to a nearby or generic anchor while the citation pool contains stronger exact lines elsewhere. Reviewers focus on prose sufficiency and miss item-level file:line drift. | For mechanism answers, validate that each item citation's quoted line/source semantically contains the item label or predicate. Prefer exact support refs already in the citation pool; do not reuse generic carrier lines for distinct mechanisms. |
@@ -1398,3 +1398,102 @@ Progress 2026-05-21:
   source comments/tests now describe it generically as an empty-output symptom
   so model-visible code-reading runs do not accidentally quote the sentinel as
   current behavior.
+
+### Batch 13 — Role-Accurate Anchor Handoff
+
+Status: implemented; targeted replay done; one downstream status-contract fix added.
+
+- Latest high-ROI gap from `read_combo_analyze_retry_anchor-20260521-150115`:
+  the finalizer prompt's `Preferred anchors — safe to cite` list advertised
+  non-definition evidence as `function` anchors. For example, a call-site line
+  inside `buildDegradedSemanticIR` could be rendered as if
+  `buildDegradedSemanticIR` itself were safely citeable at that call-site line.
+  This is system-generated misinformation: the model is asked to trust a
+  "safe" anchor guide whose role does not match what the line proves.
+- Contract update: prompt-visible anchors must be role-accurate. Definition
+  evidence can expose definition-style `function` / `symbol` anchors. Call,
+  condition, return, assignment, initializer, import, and string-literal rows
+  stay visible only as those evidence roles. Caller / owner context from a
+  call-site row is no longer exposed as a definition-style safe anchor.
+- Matching update: aggregate member evidence selection now ranks identity
+  matches by proof strength before generic evidence rank: direct
+  `anchor_symbol` matches outrank `object`, surface-term, owner, and subject
+  context. This preserves rich grounded summaries while preventing a sibling
+  call line from becoming the principal citation merely because the requested
+  member appeared as caller/subject metadata.
+- Scope: this is generic across all supported languages and anchor roles. It
+  does not inspect user prose or model prose with keywords; it only consumes
+  typed evidence fields (`anchor_kind`, `anchor_symbol`, `subject`, `object`,
+  `surface_terms`, source line, grounding tier).
+- Guards added:
+  - visible-anchor whitelist test proving call-site evidence exposes the
+    callee as `call_site` and does not expose the caller as a safe definition
+    anchor at that line;
+  - required-symbol test proving `ContractTermSymbol` is rendered as `symbol`,
+    not `function`;
+  - aggregate-member support-plan test proving a member row chooses the line
+    whose `anchor_symbol` matches the member over another line where the member
+    is only the call subject.
+- Next validation: rerun `read_combo_analyze_retry_anchor.case`. Success
+  criteria: no `buildDegradedSemanticIR ... 7612 · function` preferred-anchor
+  line, no axis-anchor / unknown-kind retry regression, and finalizer remains a
+  one-turn answer.
+
+Progress 2026-05-21:
+
+- Rerun `read_combo_analyze_retry_anchor-20260521-152318` PASSed with
+  `tool_read_file=23`, `midloop_inject=12`, `explorer_iters=28`,
+  `extractor_iters=1`, `finalizer_iters=1`, no semantic-quality concerns, and
+  no `axis-anchor mismatch` / `unknown kind` retry. The prompt-side preferred
+  anchors now label non-definition rows as role-specific anchors; for example
+  `applyStageOutput`, `dispatchStage`, and `dynamicAnalyzeRetries` appear as
+  `call_site`, not as definition-style `function` anchors.
+- The same replay exposed a higher-level residual: because architecture /
+  mechanism multi-topic explanations still treated analyzer sub-topics as a
+  hard `emit_answer_symbol` skeleton, a pre-scan-derived write-mode helper
+  (`fallbackWriteAnalysisIR`) could become a visible "关键符号锚点" and steer
+  the final answer toward the wrong read-mode recovery path. This is not a
+  model-only defect; the system turned optional analyzer decomposition into
+  principal answer structure.
+- Follow-up contract update: `emit_answer_symbol` is now a hard requirement
+  only for generic multi-topic explanations, explicit requested bounded sets,
+  and symbol-backed enumerations. Architecture/mechanism multi-topic
+  sub-topics remain visible as optional structure guidance, but the extractor
+  prompt explicitly says not to call `emit_answer_symbol` merely to mirror
+  those hints. The answer should be rendered from grounded evidence/support
+  lanes plus prose/sections, so unsupported or out-of-scope helper symbols can
+  be omitted or disclosed instead of promoted.
+- Guard added: `TestExtractor_ArchitectureMultiTopicSubtopicsAreOptionalStructure`
+  proves architecture/mechanism sub-topics do not create a hard answer-symbol
+  floor and do not instruct the model to emit one anchor per sub-topic.
+- Rerun `read_combo_analyze_retry_anchor-20260521-153458` PASSed after the
+  optional-structure change. The final answer now correctly follows the
+  read-mode degradation path: `Run()` calls `buildDegradedSemanticIR`, then
+  falls back to `buildDegradedFallbackIR` only when `partialIR == nil`; the
+  pre-scan-only `fallbackWriteAnalysisIR` helper no longer appears as a
+  principal answer-symbol block. Metrics stayed one-turn at extraction and
+  finalization (`extractor_iters=1`, `finalizer_iters=1`).
+- Residual observed in the same replay: the self-consistency reviewer emitted
+  three high-confidence contradictions and the UI printed
+  `检测到 3 处前后不一致，正在重写答案`, but the default soft violation policy
+  accepted the answer with a caveat and did not re-dispatch finalizer. Root
+  cause: `runSelfConsistencyReviewV2` rendered the status from the yaml
+  `rewrite_on_contradiction` intent flag instead of the effective
+  soft/strict retry decision. Fix: the notice now calls the same
+  `FilterFinalizerRetryRootViolationsForBus` policy used by the actual
+  control flow. Default-soft self-contradiction shows `仅记录，未重写`; only
+  strict-promoted deployments can display `正在重写`. Guard added:
+  `TestRunSelfConsistencyReviewV2_NoticeMatchesEffectiveRetryPolicy`.
+- Rerun after the notice fix: `read_combo_analyze_retry_anchor-20260521-154724`
+  PASSed. Self-consistency returned `consistent=true confidence=0.90` (below
+  floor but clean), so no contradiction notice fired. The final answer kept the
+  corrected read-mode story and no longer exposed an English `Key anchors`
+  title; the system-added support block rendered as localized `关键锚点`.
+  Remaining gaps recorded for follow-up rather than widened in this batch:
+  finalizer first emitted JSON-encoded `blocks[]` that could not be recovered
+  without loss, so one light schema retry was necessary (`finalizer_iters=2`);
+  and the localized `关键锚点` block is still a system-added support carrier that
+  can duplicate the model-authored explanation. This is the same G46/G49 family:
+  future work should keep mechanism anchors as support metadata unless the user
+  explicitly asks for a key-anchor surface, and schema-aware recovery should
+  only accept JSON-string blocks when every visible block is preserved.

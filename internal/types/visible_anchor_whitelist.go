@@ -104,11 +104,19 @@ type VisibleAnchorEntry struct {
 type VisibleAnchorKind string
 
 const (
-	VisibleAnchorKindFunction VisibleAnchorKind = "function"
-	VisibleAnchorKindType     VisibleAnchorKind = "type"
-	VisibleAnchorKindConstant VisibleAnchorKind = "constant"
-	VisibleAnchorKindMember   VisibleAnchorKind = "member"
-	VisibleAnchorKindOther    VisibleAnchorKind = "other"
+	VisibleAnchorKindSymbol        VisibleAnchorKind = "symbol"
+	VisibleAnchorKindFunction      VisibleAnchorKind = "function"
+	VisibleAnchorKindType          VisibleAnchorKind = "type"
+	VisibleAnchorKindConstant      VisibleAnchorKind = "constant"
+	VisibleAnchorKindMember        VisibleAnchorKind = "member"
+	VisibleAnchorKindCallSite      VisibleAnchorKind = "call_site"
+	VisibleAnchorKindCondition     VisibleAnchorKind = "condition"
+	VisibleAnchorKindReturn        VisibleAnchorKind = "return"
+	VisibleAnchorKindAssignment    VisibleAnchorKind = "assignment"
+	VisibleAnchorKindInitializer   VisibleAnchorKind = "initializer"
+	VisibleAnchorKindImport        VisibleAnchorKind = "import"
+	VisibleAnchorKindStringLiteral VisibleAnchorKind = "string_literal"
+	VisibleAnchorKindOther         VisibleAnchorKind = "other"
 )
 
 // MaxVisibleAnchorWhitelistEntries caps the rendered slate so a
@@ -246,12 +254,7 @@ func visibleAnchorEntriesFromSupport(raw AnswerSupportEntry, origin string) []Vi
 	line := raw.LineStart
 	tier := raw.GroundingTier
 	kind := visibleAnchorKindFromAnchorKind(raw.AnchorKind)
-
-	candidates := []string{
-		strings.TrimSpace(raw.AnchorSymbol),
-		strings.TrimSpace(raw.Subject),
-		strings.TrimSpace(raw.Object),
-	}
+	candidates := visibleAnchorCandidateSurfaces(raw)
 	surfaceForms := visibleAnchorIdentifierSurfaceTerms(raw.SurfaceTerms)
 
 	out := make([]VisibleAnchorEntry, 0, len(candidates))
@@ -261,20 +264,53 @@ func visibleAnchorEntriesFromSupport(raw AnswerSupportEntry, origin string) []Vi
 			continue
 		}
 		seen[c] = true
+		if !IsCodeIdentitySurface(c) {
+			continue
+		}
 		entry := VisibleAnchorEntry{
-			Symbol:        visibleAnchorBareSymbol(c),
+			Symbol:          visibleAnchorBareSymbol(c),
 			QualifiedSymbol: visibleAnchorQualifiedSymbol(c),
-			SourceFile:    source,
-			SourceLine:    line,
-			Kind:          kind,
-			GroundingTier: tier,
-			Origin:        origin,
-			SurfaceForms:  surfaceForms,
+			SourceFile:      source,
+			SourceLine:      line,
+			Kind:            kind,
+			GroundingTier:   tier,
+			Origin:          origin,
+			SurfaceForms:    surfaceForms,
 		}
 		if entry.Symbol == "" {
 			continue
 		}
 		out = append(out, entry)
+	}
+	return out
+}
+
+// visibleAnchorCandidateSurfaces returns the identity surfaces that are safe
+// to pair with raw.Source:raw.LineStart in the prompt-side anchor guide.
+// Definition evidence can expose the symbol and its owner surfaces. Non-
+// definition evidence must stay role-accurate: a call/condition/assignment
+// line proves the visible target on that line, not the caller/owner's
+// definition. This prevents the guide from advertising "Foo @ call-site line"
+// as a definition anchor and sending the model into avoidable line repairs.
+func visibleAnchorCandidateSurfaces(raw AnswerSupportEntry) []string {
+	push := func(out *[]string, values ...string) {
+		for _, v := range values {
+			v = strings.TrimSpace(v)
+			if v != "" {
+				*out = append(*out, v)
+			}
+		}
+	}
+	var out []string
+	switch raw.AnchorKind {
+	case AnchorDefinition, "":
+		push(&out, raw.AnchorSymbol, raw.Subject, raw.Object)
+	case AnchorCall:
+		push(&out, raw.AnchorSymbol, raw.Object)
+	case AnchorReturn, AnchorAssignment, AnchorInitializer, AnchorCondition, AnchorImport, AnchorStringLiteral:
+		push(&out, raw.AnchorSymbol, raw.Object)
+	default:
+		push(&out, raw.AnchorSymbol)
 	}
 	return out
 }
@@ -348,7 +384,7 @@ func visibleAnchorOriginForLane(kind AnswerSupportLaneKind) string {
 func visibleAnchorKindFromContractTerm(k ContractTermKind) VisibleAnchorKind {
 	switch k {
 	case ContractTermSymbol:
-		return VisibleAnchorKindFunction
+		return VisibleAnchorKindSymbol
 	case ContractTermToolName:
 		return VisibleAnchorKindOther
 	case ContractTermFileStem:
@@ -359,9 +395,22 @@ func visibleAnchorKindFromContractTerm(k ContractTermKind) VisibleAnchorKind {
 
 func visibleAnchorKindFromAnchorKind(k AnchorKind) VisibleAnchorKind {
 	switch k {
-	case AnchorDefinition, AnchorCall, AnchorReturn,
-		AnchorAssignment, AnchorInitializer, AnchorCondition:
+	case AnchorDefinition:
 		return VisibleAnchorKindFunction
+	case AnchorCall:
+		return VisibleAnchorKindCallSite
+	case AnchorReturn:
+		return VisibleAnchorKindReturn
+	case AnchorAssignment:
+		return VisibleAnchorKindAssignment
+	case AnchorInitializer:
+		return VisibleAnchorKindInitializer
+	case AnchorCondition:
+		return VisibleAnchorKindCondition
+	case AnchorImport:
+		return VisibleAnchorKindImport
+	case AnchorStringLiteral:
+		return VisibleAnchorKindStringLiteral
 	}
 	return VisibleAnchorKindOther
 }

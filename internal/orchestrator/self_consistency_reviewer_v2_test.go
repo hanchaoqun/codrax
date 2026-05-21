@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -242,6 +243,89 @@ func TestBuildSelfContradictionRepair_OrdinalAndContent(t *testing.T) {
 			t.Errorf("repair missing %q in:\n%s", want, got)
 		}
 	}
+}
+
+func TestRunSelfConsistencyReviewV2_NoticeMatchesEffectiveRetryPolicy(t *testing.T) {
+	mkDoc := func() *types.AnswerDocumentV2 {
+		return &types.AnswerDocumentV2{
+			Blocks: []types.AnswerBlock{
+				{ID: "summary", Kind: types.BlockSummary, Text: strings.Repeat("summary ", 20) + "9 steps."},
+				{ID: "body", Kind: types.BlockSection, Title: "Detail", Text: "The body lists 5 steps."},
+			},
+		}
+	}
+	mkReviewer := func() fakeSelfConsistencyReviewer {
+		return fakeSelfConsistencyReviewer{result: &SelfConsistencyResult{
+			Consistent: false,
+			Confidence: 0.99,
+			Contradictions: []SelfConsistencyContradiction{{
+				Kind:         SelfConsistencyContradictionNumeric,
+				Topic:        "step count",
+				SummaryClaim: "9 steps",
+				BodyClaim:    "5 steps",
+			}},
+		}}
+	}
+	lastContradictionNotice := func(events []render.Event) render.Event {
+		for i := len(events) - 1; i >= 0; i-- {
+			switch events[i].NoticeKind {
+			case render.NoticeSelfConsistencyContradictionLogged,
+				render.NoticeSelfConsistencyContradictionRewriting:
+				return events[i]
+			}
+		}
+		return render.Event{}
+	}
+
+	t.Run("default soft policy logs without claiming rewrite", func(t *testing.T) {
+		t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+		SetSoftViolationKinds(nil, nil)
+
+		mut := types.NewMutableState("compare steps")
+		o := New(types.PipelineSettings{}, nil, nil, nil)
+		o.busCtx = &types.BusContext{Mutable: mut, Language: "zh"}
+		o.SetSelfConsistencyReviewer(mkReviewer())
+		o.SetSelfConsistencyRewriteOnContradiction(true)
+		var events []render.Event
+		o.SetEmitter(func(ev render.Event) { events = append(events, ev) })
+
+		got := o.runSelfConsistencyReviewV2(mkDoc(), mut)
+		if len(got) != 1 {
+			t.Fatalf("violations = %d, want 1", len(got))
+		}
+		notice := lastContradictionNotice(events)
+		if notice.NoticeKind != render.NoticeSelfConsistencyContradictionLogged {
+			t.Fatalf("notice kind = %v, want logged; events=%+v", notice.NoticeKind, events)
+		}
+		if strings.Contains(notice.Reasoning, "正在重写") || !strings.Contains(notice.Reasoning, "未重写") {
+			t.Fatalf("default-soft notice must not claim rewrite: %q", notice.Reasoning)
+		}
+	})
+
+	t.Run("strict promotion may claim rewrite", func(t *testing.T) {
+		t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+		SetSoftViolationKinds(nil, []string{string(types.ViolSelfContradiction)})
+
+		mut := types.NewMutableState("compare steps")
+		o := New(types.PipelineSettings{}, nil, nil, nil)
+		o.busCtx = &types.BusContext{Mutable: mut, Language: "zh"}
+		o.SetSelfConsistencyReviewer(mkReviewer())
+		o.SetSelfConsistencyRewriteOnContradiction(true)
+		var events []render.Event
+		o.SetEmitter(func(ev render.Event) { events = append(events, ev) })
+
+		got := o.runSelfConsistencyReviewV2(mkDoc(), mut)
+		if len(got) != 1 {
+			t.Fatalf("violations = %d, want 1", len(got))
+		}
+		notice := lastContradictionNotice(events)
+		if notice.NoticeKind != render.NoticeSelfConsistencyContradictionRewriting {
+			t.Fatalf("notice kind = %v, want rewriting; events=%+v", notice.NoticeKind, events)
+		}
+		if !strings.Contains(notice.Reasoning, "正在重写") {
+			t.Fatalf("strict-promoted notice should claim rewrite: %q", notice.Reasoning)
+		}
+	})
 }
 
 func TestFilterDeterministicRowOrderContradictions_UsesTypedKindOnly(t *testing.T) {

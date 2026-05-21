@@ -2726,12 +2726,16 @@ func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, m
 		}
 	}
 
-	// Surface contradiction count + rewrite-mode to the user. The
-	// NoticeKind tracks the rewrite flag so the dock paints active
-	// rewriting in yellow (system is doing more work) and the
-	// advisory-only path in gray (already shipping; just FYI).
+	// Surface contradiction count + effective retry mode to the user. The
+	// yaml rewrite knob expresses operator intent, but the global
+	// soft/strict policy is the actual control-flow authority: default-soft
+	// self-consistency telemetry ships with a caveat, while strict-promoted
+	// deployments may send the finalizer through a real rewrite pass. Keep
+	// the dock wording aligned with that downstream decision so the UI never
+	// claims "rewriting" for an answer that is about to be accepted.
+	effectiveRewrite := o.selfConsistencyContradictionWillRewrite()
 	contradictionKind := render.NoticeSelfConsistencyContradictionLogged
-	if o.selfConsistencyRewriteOnContradiction {
+	if effectiveRewrite {
 		contradictionKind = render.NoticeSelfConsistencyContradictionRewriting
 	}
 	o.emit(render.Event{
@@ -2739,7 +2743,7 @@ func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, m
 		Timestamp:  time.Now(),
 		Agent:      "orchestrator",
 		NoticeKind: contradictionKind,
-		Reasoning:  selfConsistencyContradictionMessage(o.busCtx.Language, o.selfConsistencyRewriteOnContradiction, len(verdict.Contradictions)),
+		Reasoning:  selfConsistencyContradictionMessage(o.busCtx.Language, effectiveRewrite, len(verdict.Contradictions)),
 	})
 
 	out := make([]types.Violation, 0, len(verdict.Contradictions))
@@ -2760,9 +2764,20 @@ func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, m
 			Stage: string(types.StageFinalize),
 		})
 	}
-	logging.Info("[self_consistency_reviewer] V2 emitted %d contradiction(s) at confidence=%.2f rewrite_on=%v reasoning=%q",
-		len(verdict.Contradictions), verdict.Confidence, o.selfConsistencyRewriteOnContradiction, verdict.Reasoning)
+	logging.Info("[self_consistency_reviewer] V2 emitted %d contradiction(s) at confidence=%.2f rewrite_on=%v effective_rewrite=%v reasoning=%q",
+		len(verdict.Contradictions), verdict.Confidence, o.selfConsistencyRewriteOnContradiction, effectiveRewrite, verdict.Reasoning)
 	return out
+}
+
+func (o *Orchestrator) selfConsistencyContradictionWillRewrite() bool {
+	if o == nil || !o.selfConsistencyRewriteOnContradiction {
+		return false
+	}
+	probe := []types.Violation{{
+		Kind:  types.ViolSelfContradiction,
+		Stage: string(types.StageFinalize),
+	}}
+	return len(FilterFinalizerRetryRootViolationsForBus(probe, o.busCtx)) > 0
 }
 
 // buildReviewerEvidenceAnchorSet projects the hard-gate anchor set shared by

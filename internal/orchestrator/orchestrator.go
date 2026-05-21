@@ -264,11 +264,11 @@ type Orchestrator struct {
 	semanticQualityReviewer SemanticQualityReviewer
 
 	// selfConsistencyRewriteOnContradiction (commit 62 yaml gate)
-	// controls whether ViolSelfContradiction is treated as STRICT
-	// (default true this phase: triggers retry / rewrite) or
-	// SOFT (telemetry only). Read by SetSoftViolationKinds at
-	// startup; the runtime check in runContractCheck flips
-	// res.Passed accordingly via the existing strict/soft path.
+	// expresses whether contradictions are eligible for answer
+	// re-dispatch. The effective decision still flows through the
+	// global soft/strict violation policy: default-soft
+	// ViolSelfContradiction ships with telemetry/caveat, while
+	// strict-promoted deployments may trigger a real finalizer retry.
 	selfConsistencyRewriteOnContradiction bool
 
 	// selfConsistencyMinConfidence (commit 62) is the floor a
@@ -1332,12 +1332,11 @@ func (o *Orchestrator) SetSelfConsistencyReviewer(r SelfConsistencyReviewer) {
 	o.selfConsistencyReviewer = r
 }
 
-// SetSelfConsistencyRewriteOnContradiction toggles the rewrite
-// trigger for ViolSelfContradiction. true (this-phase default):
-// found contradictions are STRICT, finalizer retries with the
-// reviewer's specific contradictions injected as repair hint.
-// false: SOFT (telemetry only, answer ships unchanged with
-// contradictions logged for cross-Run learning).
+// SetSelfConsistencyRewriteOnContradiction toggles whether
+// ViolSelfContradiction is allowed to request a rewrite. The actual retry
+// decision still respects the active soft/strict violation policy, so
+// default-soft contradictions are logged and caveated unless operators promote
+// the kind via pipeline_contract_strict_kinds. false: telemetry only.
 func (o *Orchestrator) SetSelfConsistencyRewriteOnContradiction(on bool) {
 	if o == nil {
 		return
