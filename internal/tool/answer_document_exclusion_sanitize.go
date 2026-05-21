@@ -232,11 +232,12 @@ func answerDocumentPrincipalAggregateProtectedRoles(
 		return nil
 	}
 	protected := map[types.AnswerCandidateRole]bool{}
+	families := newAggregateDeclarationFamilyLookup(ctx)
 	for _, ref := range refs {
 		if len(ref.Fact.Members) == 0 {
 			continue
 		}
-		profile, ok := aggregateMemberSetDefinitionProfile(ctx, ref.Fact, evidence)
+		profile, ok := aggregateMemberSetDefinitionProfile(ctx, ref.Fact, evidence, families)
 		if !ok || profile.role == types.AnswerCandidateRoleUnknown {
 			continue
 		}

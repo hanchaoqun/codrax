@@ -157,6 +157,62 @@ func TestReconcileCompletionAggregateFactsWithDefinitionEvidence_DoesNotExpandSi
 	}
 }
 
+func TestReconcileCompletionAggregateFactsWithDefinitionEvidence_DoesNotExpandAcrossConstDeclarationFamily(t *testing.T) {
+	ctx := aggregateReconcileStageAgentContext()
+	evidence := aggregateReconcileStageAgentEvidence()
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "read-mode pipeline 所有 stage",
+		Value:   "6",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"StageLogTriage", "StagePerfTriage", "StageAnalyze", "StageExplore", "StageExtract", "StageFinalize"},
+	}}
+
+	got := reconcileCompletionAggregateFactsWithDefinitionEvidence(ctx, facts, evidence)
+	if !reflect.DeepEqual(got, facts) {
+		t.Fatalf("PipelineStage member set must not absorb same-role AgentName constants;\ngot  %#v\nwant %#v", got, facts)
+	}
+}
+
+func TestReconcileCompletionAggregateFactsWithDefinitionEvidence_ExpandsSameConstDeclarationFamily(t *testing.T) {
+	ctx := aggregateReconcileStageAgentContext()
+	evidence := aggregateReconcileStageAgentEvidence()
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "read-mode pipeline 所有 stage",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"StageAnalyze", "StageExplore"},
+	}}
+
+	got := reconcileCompletionAggregateFactsWithDefinitionEvidence(ctx, facts, evidence)
+	if len(got) != 1 {
+		t.Fatalf("facts len = %d, want 1", len(got))
+	}
+	for _, unexpected := range []string{"AgentAnalyzer", "AgentExplorer", "AgentExtractor", "AgentFinalizer"} {
+		for _, member := range got[0].Members {
+			if member == unexpected {
+				t.Fatalf("same-family expansion pulled AgentName constant %q into stage set: %#v", unexpected, got[0].Members)
+			}
+		}
+	}
+	for _, want := range []string{"StageAnalyze", "StageExplore", "StageLogTriage", "StagePerfTriage", "StageExtract", "StageFinalize"} {
+		found := false
+		for _, member := range got[0].Members {
+			if member == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("same PipelineStage family member %q was not preserved/appended: %#v", want, got[0].Members)
+		}
+	}
+	if got[0].Value != "6" {
+		t.Fatalf("member_set value = %q, want 6 after same-family expansion: %+v", got[0].Value, got[0])
+	}
+}
+
 func aggregateReconcileTestContext() *types.BusContext {
 	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{}}
 	add := func(name, kind string, line int, exported bool) {
@@ -196,6 +252,96 @@ func aggregateReconcileTestContext() *types.BusContext {
 				}},
 			},
 		}},
+	}
+}
+
+func aggregateReconcileStageAgentContext() *types.BusContext {
+	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{}}
+	add := func(name string, line int) {
+		graph.SymbolDefs[name] = append(graph.SymbolDefs[name], &repotypes.Symbol{
+			Name:     name,
+			Kind:     "const",
+			File:     "internal/types/enums.go",
+			Line:     line,
+			EndLine:  line,
+			Exported: true,
+		})
+	}
+	for name, line := range map[string]int{
+		"StageLogTriage":  15,
+		"StagePerfTriage": 24,
+		"StageAnalyze":    26,
+		"StageExplore":    27,
+		"StageExtract":    28,
+		"StageFinalize":   29,
+		"AgentAnalyzer":   116,
+		"AgentExplorer":   117,
+		"AgentExtractor":  118,
+		"AgentFinalizer":  119,
+	} {
+		add(name, line)
+	}
+	mut := types.NewMutableState("pipeline stages")
+	mut.SetSearchGraph(graph)
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: "[internal/types/enums.go: showing lines 15-119 of 130 total]\n" +
+			"   15│ \tStageLogTriage PipelineStage = \"log_triage\"\n" +
+			"   24│ \tStagePerfTriage PipelineStage = \"perf_triage\"\n" +
+			"   26│ \tStageAnalyze  PipelineStage = \"analyze\"\n" +
+			"   27│ \tStageExplore  PipelineStage = \"explore\"\n" +
+			"   28│ \tStageExtract  PipelineStage = \"extract\"\n" +
+			"   29│ \tStageFinalize PipelineStage = \"finalize\"\n" +
+			"  116│ \tAgentAnalyzer   AgentName = \"analyzer\"\n" +
+			"  117│ \tAgentExplorer   AgentName = \"explorer\"\n" +
+			"  118│ \tAgentExtractor  AgentName = \"extractor\"\n" +
+			"  119│ \tAgentFinalizer  AgentName = \"finalizer\"",
+	})
+	return &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+			},
+			AnalyzerHints: types.AnalyzerHints{
+				RequiredFileHints: []types.RequiredFileHint{{
+					Path:       "internal/types/enums.go",
+					Confidence: 0.95,
+				}},
+			},
+		}},
+	}
+}
+
+func aggregateReconcileStageAgentEvidence() []types.EvidenceItem {
+	def := func(symbol string, line int) types.EvidenceItem {
+		return types.EvidenceItem{
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    symbol,
+			Subject:         symbol,
+			Source:          "internal/types/enums.go",
+			LineStart:       line,
+			GroundingStatus: types.GroundingGrounded,
+		}
+	}
+	return []types.EvidenceItem{
+		def("StageLogTriage", 15),
+		def("StagePerfTriage", 24),
+		def("StageAnalyze", 26),
+		def("StageExplore", 27),
+		def("StageExtract", 28),
+		def("StageFinalize", 29),
+		def("AgentAnalyzer", 116),
+		def("AgentExplorer", 117),
+		def("AgentExtractor", 118),
+		def("AgentFinalizer", 119),
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -14,6 +15,7 @@ type aggregateDefinitionEvidenceCandidate struct {
 	supportRef string
 	role       types.AnswerCandidateRole
 	exported   bool
+	family     string
 }
 
 type aggregateMemberSetGraphProfile struct {
@@ -21,6 +23,7 @@ type aggregateMemberSetGraphProfile struct {
 	exported int
 	known    int
 	total    int
+	family   string
 }
 
 // reconcileCompletionAggregateFactsWithDefinitionEvidence repairs a narrow,
@@ -34,7 +37,8 @@ func reconcileCompletionAggregateFactsWithDefinitionEvidence(ctx *types.BusConte
 	if len(facts) == 0 || !aggregateEvidenceReconciliationEnabled(ctx) {
 		return facts
 	}
-	candidates := aggregateDefinitionEvidenceCandidates(ctx, facts, evidence)
+	families := newAggregateDeclarationFamilyLookup(ctx)
+	candidates := aggregateDefinitionEvidenceCandidates(ctx, facts, evidence, families)
 	if len(candidates) == 0 {
 		return facts
 	}
@@ -47,7 +51,7 @@ func reconcileCompletionAggregateFactsWithDefinitionEvidence(ctx *types.BusConte
 			len(out[i].Members) == 0 {
 			continue
 		}
-		profile, ok := aggregateMemberSetDefinitionProfile(ctx, out[i], evidence)
+		profile, ok := aggregateMemberSetDefinitionProfile(ctx, out[i], evidence, families)
 		if !ok {
 			continue
 		}
@@ -70,6 +74,9 @@ func reconcileCompletionAggregateFactsWithDefinitionEvidence(ctx *types.BusConte
 				continue
 			}
 			if !profile.allowsCandidateExported(candidate.exported) {
+				continue
+			}
+			if !profile.allowsCandidateFamily(candidate.family) {
 				continue
 			}
 			if candidate.key == "" || existing[candidate.key] {
@@ -97,13 +104,14 @@ func aggregatePrincipalMemberSetRoleCounts(ctx *types.BusContext, facts []types.
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return out
 	}
+	families := newAggregateDeclarationFamilyLookup(ctx)
 	for _, fact := range facts {
 		if !types.AnswerAggregateFactCarriesCompleteMemberSet(fact) ||
 			!types.AnswerAggregateFactRoleForRequest(fact, &ctx.AnalysisIR.RequestModel).IsPrincipal() ||
 			len(fact.Members) == 0 {
 			continue
 		}
-		profile, ok := aggregateMemberSetDefinitionProfile(ctx, fact, evidence)
+		profile, ok := aggregateMemberSetDefinitionProfile(ctx, fact, evidence, families)
 		if !ok {
 			continue
 		}
@@ -134,7 +142,7 @@ func aggregateEvidenceReconciliationEnabled(ctx *types.BusContext) bool {
 	return false
 }
 
-func aggregateDefinitionEvidenceCandidates(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) []aggregateDefinitionEvidenceCandidate {
+func aggregateDefinitionEvidenceCandidates(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem, families *aggregateDeclarationFamilyLookup) []aggregateDefinitionEvidenceCandidate {
 	if ctx == nil || ctx.AnalysisIR == nil || len(evidence) == 0 {
 		return nil
 	}
@@ -176,6 +184,7 @@ func aggregateDefinitionEvidenceCandidates(ctx *types.BusContext, facts []types.
 			supportRef: ref,
 			role:       role,
 			exported:   sym.Exported,
+			family:     families.familyFor(sym, ev),
 		})
 	}
 	return out
@@ -233,8 +242,9 @@ func aggregateEvidenceSourceMatchesRequiredFileHints(ctx *types.BusContext, sour
 	return false
 }
 
-func aggregateMemberSetDefinitionProfile(ctx *types.BusContext, fact types.AnswerAggregateFact, evidence []types.EvidenceItem) (aggregateMemberSetGraphProfile, bool) {
+func aggregateMemberSetDefinitionProfile(ctx *types.BusContext, fact types.AnswerAggregateFact, evidence []types.EvidenceItem, families *aggregateDeclarationFamilyLookup) (aggregateMemberSetGraphProfile, bool) {
 	roleCounts := map[types.AnswerCandidateRole]int{}
+	familyCounts := map[string]int{}
 	known := 0
 	exported := 0
 	for _, member := range fact.Members {
@@ -251,6 +261,13 @@ func aggregateMemberSetDefinitionProfile(ctx *types.BusContext, fact types.Answe
 		if sym.Exported {
 			exported++
 		}
+		var ev types.EvidenceItem
+		if evidenceItem, ok := aggregateMemberEvidence(member, evidence); ok {
+			ev = evidenceItem
+		}
+		if family := families.familyFor(sym, ev); family != "" {
+			familyCounts[family]++
+		}
 	}
 	if known == 0 || len(roleCounts) != 1 {
 		return aggregateMemberSetGraphProfile{}, false
@@ -264,6 +281,7 @@ func aggregateMemberSetDefinitionProfile(ctx *types.BusContext, fact types.Answe
 		exported: exported,
 		known:    known,
 		total:    len(fact.Members),
+		family:   aggregateHomogeneousDeclarationFamily(familyCounts, known),
 	}, true
 }
 
@@ -279,6 +297,219 @@ func (p aggregateMemberSetGraphProfile) allowsCandidateExported(exported bool) b
 		return exported
 	}
 	return !exported
+}
+
+func (p aggregateMemberSetGraphProfile) allowsCandidateFamily(candidate string) bool {
+	if strings.TrimSpace(p.family) == "" {
+		return true
+	}
+	return strings.TrimSpace(candidate) == p.family
+}
+
+func aggregateHomogeneousDeclarationFamily(counts map[string]int, known int) string {
+	if known <= 0 || len(counts) != 1 {
+		return ""
+	}
+	for family, count := range counts {
+		if family != "" && count == known {
+			return family
+		}
+	}
+	return ""
+}
+
+type aggregateDeclarationFamilyLookup struct {
+	ctx *types.BusContext
+	gc  *ground.Context
+}
+
+func newAggregateDeclarationFamilyLookup(ctx *types.BusContext) *aggregateDeclarationFamilyLookup {
+	return &aggregateDeclarationFamilyLookup{ctx: ctx}
+}
+
+func (l *aggregateDeclarationFamilyLookup) familyFor(sym *repotypes.Symbol, ev types.EvidenceItem) string {
+	if sym == nil || strings.TrimSpace(sym.Name) == "" {
+		return ""
+	}
+	line := aggregateDeclarationLineText(l, sym, ev)
+	return aggregateDeclarationFamilyFromLine(line, sym.Name)
+}
+
+func aggregateDeclarationLineText(l *aggregateDeclarationFamilyLookup, sym *repotypes.Symbol, ev types.EvidenceItem) string {
+	if strings.TrimSpace(ev.Snippet) != "" {
+		return strings.TrimSpace(ev.Snippet)
+	}
+	if l == nil || l.ctx == nil || sym == nil {
+		if sym != nil {
+			return strings.TrimSpace(sym.Signature)
+		}
+		return ""
+	}
+	if l.gc == nil {
+		l.gc = ground.BuildContext(l.ctx)
+	}
+	source := strings.TrimSpace(sym.File)
+	line := sym.Line
+	if source == "" || line <= 0 {
+		source = strings.TrimSpace(ev.Source)
+		line = ev.LineStart
+	}
+	if l.gc != nil {
+		if text := aggregateDeclarationLineFromIndex(l.gc.LineIndex, source, line); text != "" {
+			return text
+		}
+		if text := aggregateDeclarationLineFromIndex(l.gc.ObservedLineIndex, source, line); text != "" {
+			return text
+		}
+	}
+	return strings.TrimSpace(sym.Signature)
+}
+
+func aggregateDeclarationLineFromIndex(index map[string]map[int]string, source string, line int) string {
+	if strings.TrimSpace(source) == "" || line <= 0 || len(index) == 0 {
+		return ""
+	}
+	if lines := index[source]; len(lines) > 0 {
+		return strings.TrimSpace(lines[line])
+	}
+	for file, lines := range index {
+		if aggregateReadFilePathMatchesQualifier(file, source) || aggregateReadFilePathMatchesQualifier(source, file) {
+			if text := strings.TrimSpace(lines[line]); text != "" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func aggregateDeclarationFamilyFromLine(line, name string) string {
+	line = strings.TrimSpace(line)
+	name = strings.TrimSpace(name)
+	if line == "" || name == "" {
+		return ""
+	}
+	idx := aggregateDeclarationNameIndex(line, name)
+	if idx < 0 {
+		return ""
+	}
+	before := strings.TrimSpace(line[:idx])
+	after := strings.TrimSpace(line[idx+len(name):])
+	if family := aggregateDeclarationFamilyAfterName(after); family != "" {
+		return family
+	}
+	return aggregateDeclarationFamilyBeforeName(before, after)
+}
+
+func aggregateDeclarationNameIndex(line, name string) int {
+	start := 0
+	for {
+		idx := strings.Index(line[start:], name)
+		if idx < 0 {
+			return -1
+		}
+		idx += start
+		end := idx + len(name)
+		beforeOK := idx == 0 || !aggregateDeclarationIdentRune(rune(line[idx-1]))
+		afterOK := end >= len(line) || !aggregateDeclarationIdentRune(rune(line[end]))
+		if beforeOK && afterOK {
+			return idx
+		}
+		start = end
+		if start >= len(line) {
+			return -1
+		}
+	}
+}
+
+func aggregateDeclarationFamilyAfterName(after string) string {
+	after = strings.TrimSpace(after)
+	if after == "" || strings.HasPrefix(after, "=") {
+		return ""
+	}
+	if strings.HasPrefix(after, ":") {
+		return aggregateDeclarationFamilyNormalize(aggregateDeclarationLeadingTypeSurface(strings.TrimSpace(after[1:])))
+	}
+	cut := len(after)
+	for _, sep := range []string{"=", "{", ";", ",", "//"} {
+		if idx := strings.Index(after, sep); idx >= 0 && idx < cut {
+			cut = idx
+		}
+	}
+	return aggregateDeclarationFamilyNormalize(aggregateDeclarationLeadingTypeSurface(strings.TrimSpace(after[:cut])))
+}
+
+func aggregateDeclarationFamilyBeforeName(before, after string) string {
+	if !strings.Contains(after, "=") && !strings.HasSuffix(after, ";") {
+		return ""
+	}
+	tokens := aggregateDeclarationIdentifierTokens(before)
+	for i := len(tokens) - 1; i >= 0; i-- {
+		tok := tokens[i]
+		if aggregateDeclarationModifierToken(tok) {
+			continue
+		}
+		return aggregateDeclarationFamilyNormalize(tok)
+	}
+	return ""
+}
+
+func aggregateDeclarationLeadingTypeSurface(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	tokens := aggregateDeclarationIdentifierTokens(s)
+	if len(tokens) == 0 {
+		return ""
+	}
+	return tokens[0]
+}
+
+func aggregateDeclarationIdentifierTokens(s string) []string {
+	var out []string
+	start := -1
+	for i, r := range s {
+		if aggregateDeclarationIdentRune(r) {
+			if start < 0 {
+				start = i
+			}
+			continue
+		}
+		if start >= 0 {
+			out = append(out, s[start:i])
+			start = -1
+		}
+	}
+	if start >= 0 {
+		out = append(out, s[start:])
+	}
+	return out
+}
+
+func aggregateDeclarationIdentRune(r rune) bool {
+	return r == '_' || r == '.' || r == ':' || r == '*' ||
+		(r >= '0' && r <= '9') ||
+		(r >= 'A' && r <= 'Z') ||
+		(r >= 'a' && r <= 'z')
+}
+
+func aggregateDeclarationModifierToken(tok string) bool {
+	switch strings.ToLower(strings.Trim(tok, "*:.")) {
+	case "", "const", "var", "let", "final", "static", "public", "private",
+		"protected", "internal", "export", "extern", "volatile", "mutable",
+		"constexpr", "readonly", "inline", "typename", "type", "auto":
+		return true
+	default:
+		return false
+	}
+}
+
+func aggregateDeclarationFamilyNormalize(surface string) string {
+	surface = strings.Trim(strings.TrimSpace(surface), "*:.")
+	if surface == "" || aggregateDeclarationModifierToken(surface) {
+		return ""
+	}
+	return strings.ToLower(surface)
 }
 
 func aggregateGraphSymbolForMember(ctx *types.BusContext, fact types.AnswerAggregateFact, member string, evidence []types.EvidenceItem) (*repotypes.Symbol, bool) {

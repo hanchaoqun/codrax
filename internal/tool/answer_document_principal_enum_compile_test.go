@@ -193,6 +193,90 @@ func TestNormalizePrincipalEnumerationRowBlocks_DoesNotDuplicateVCSCommitRowsAlr
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_VisibleArchitectureCoveragePreventsSystemSupplements(t *testing.T) {
+	mu := types.NewMutableState("codrax 的 read-mode pipeline 由哪几个 stage 组成？")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind:  types.AnswerAggregateMemberSet,
+			Label: "read-mode pipeline 全部阶段",
+			Value: "6",
+			Role:  types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{
+				"StageLogTriage (条件预阶段, AttachedLog 非空触发)",
+				"StagePerfTriage (条件预阶段, AttachedHitrace 非空触发)",
+				"StageAnalyze (主阶段, analyzer agent)",
+				"StageExplore (主阶段, explorer agent, Turn A)",
+				"StageExtract (主阶段, extractor agent, Turn B)",
+				"StageFinalize (主阶段, finalizer agent, Terminal=true)",
+			},
+		},
+		{
+			Kind:       types.AnswerAggregateMemberSet,
+			Label:      "主阶段四链路",
+			Value:      "4",
+			Role:       types.AnswerAggregateRolePrincipalAnswer,
+			Provenance: "AllMainStages()",
+			Members:    []string{"StageAnalyze", "StageExplore", "StageExtract", "StageFinalize"},
+		},
+		{
+			Kind:  types.AnswerAggregateBucketCount,
+			Label: "阶段类型分布",
+			Value: "2",
+			Role:  types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{
+				"条件预阶段 (advisory): 2 个 (log_triage, perf_triage)",
+				"无条件主阶段: 4 个 (analyze, explore, extract, finalize)",
+			},
+		},
+	})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Scenario: types.ScenarioArchitectureExplain,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "read-mode pipeline 由条件预阶段和无条件主阶段组成：AttachedLog / AttachedHitrace 非空时触发条件预阶段；四个主阶段按 analyze → explore → extract → finalize 执行。",
+		},
+		{
+			ID:    "main",
+			Kind:  types.BlockSection,
+			Title: "无条件主阶段",
+			Text:  "四个无条件主阶段是 analyze、explore、extract、finalize，分别对应 analyzer agent、explorer agent、extractor agent、finalizer agent。",
+		},
+		{
+			ID:    "stages",
+			Kind:  types.BlockOrderedList,
+			Title: "read-mode pipeline 全部阶段",
+			Items: []types.AnswerBlockItem{
+				{ID: "s1", Label: "StageLogTriage (条件预阶段)", Text: "AttachedLog 非空时触发，由 log_triager agent 执行日志整理。"},
+				{ID: "s2", Label: "StagePerfTriage (条件预阶段)", Text: "AttachedHitrace 非空时触发，由 perf_triager agent 执行性能 trace 整理。"},
+				{ID: "s3", Label: "StageAnalyze (主阶段)", Text: "analyzer agent 执行初步分析。"},
+				{ID: "s4", Label: "StageExplore (主阶段, Turn A)", Text: "explorer agent 执行源码探索。"},
+				{ID: "s5", Label: "StageExtract (主阶段, Turn B)", Text: "extractor agent 消费探索产物并抽取结构化信息。"},
+				{ID: "s6", Label: "StageFinalize (主阶段, Terminal=true)", Text: "finalizer agent 生成最终答案。"},
+			},
+		},
+	}}
+
+	normalizePrincipalEnumerationRowBlocks(doc, ctx)
+
+	for _, block := range doc.Blocks {
+		if strings.Contains(block.Title, "系统按已验证证据补充成员") {
+			t.Fatalf("visible architecture prose/list already covers aggregate rows; duplicate supplement should not render: %+v", doc.Blocks)
+		}
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_SkipsRuntimeArtifactCoordinateOnlySupplement(t *testing.T) {
 	mu := types.NewMutableState("哪些 goroutine 同时出错？它们的共同问题是什么？")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

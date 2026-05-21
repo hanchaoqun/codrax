@@ -311,11 +311,26 @@ func principalEnumerationDocumentCoversRow(doc *types.AnswerDocumentV2, row type
 	if principalEnumerationRuntimeArtifactRowCoveredByAnyVisibleText(doc, row) {
 		return true
 	}
+	if principalEnumerationRowCoveredByAnyVisibleText(doc, row) {
+		return true
+	}
 	for _, block := range doc.Blocks {
 		if !principalEnumerationBlockCanCarryRows(block) {
 			continue
 		}
 		if principalEnumerationBlockCoversRow(block, doc, row) {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationRowCoveredByAnyVisibleText(doc *types.AnswerDocumentV2, row types.EnumerationDisplayRow) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if principalEnumerationVisibleSurfaceCoversRow(types.AnswerBlockVisibleSurface(block), row) {
 			return true
 		}
 	}
@@ -752,11 +767,225 @@ func principalEnumerationAnySurfaceMatchesRow(surfaces []string, row types.Enume
 		if keys[normalizeEnumerationDisplayTableKey(surface)] {
 			return true
 		}
+		if principalEnumerationVisibleSurfaceCoversRow(surface, row) {
+			return true
+		}
 	}
 	if principalEnumerationCommitSurfaceMatchesRow(surfaces, row) {
 		return true
 	}
 	return false
+}
+
+func principalEnumerationVisibleSurfaceCoversRow(surface string, row types.EnumerationDisplayRow) bool {
+	surface = strings.TrimSpace(surface)
+	if surface == "" {
+		return false
+	}
+	if !principalEnumerationCandidateLocationCompatible(surface, row) {
+		return false
+	}
+	for _, candidate := range principalEnumerationRowSurfaceCandidates(row) {
+		if preEmitDecoratedAggregateMemberAppearsInText(candidate, surface) ||
+			preEmitAggregateScalarValueAppears(candidate, surface) ||
+			principalEnumerationLooseSurfaceCoversCandidate(surface, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationRowSurfaceCandidates(row types.EnumerationDisplayRow) []string {
+	raw := []string{row.DisplayLabel, row.Member}
+	if label, _, ok := types.ParseAnswerSupportRefMemberLocation(row.Member); ok {
+		raw = append(raw, label)
+	}
+	return dedupPreEmitStringCandidates(raw)
+}
+
+func principalEnumerationLooseSurfaceCoversCandidate(surface, candidate string) bool {
+	parts := principalEnumerationCoverageParts(candidate)
+	if len(parts) < 2 {
+		return false
+	}
+	codeParts := 0
+	nonCodeParts := 0
+	nonCodeCovered := false
+	for _, part := range parts {
+		covered := principalEnumerationCoveragePartAppears(part, surface)
+		if principalEnumerationCoveragePartCodeLike(part) {
+			if !principalEnumerationCoverageCodePartRequired(part) {
+				continue
+			}
+			codeParts++
+			if !covered {
+				return false
+			}
+			continue
+		}
+		nonCodeParts++
+		if covered {
+			nonCodeCovered = true
+		}
+	}
+	if codeParts >= 2 {
+		return nonCodeParts == 0 || nonCodeCovered
+	}
+	for _, part := range parts {
+		if !principalEnumerationCoveragePartAppears(part, surface) {
+			return false
+		}
+	}
+	return true
+}
+
+func principalEnumerationCoveragePartAppears(part, surface string) bool {
+	if preEmitAggregateDisplayPartAppears(part, surface) ||
+		types.CodeSurfaceAppearsAsToken(part, surface) {
+		return true
+	}
+	return principalEnumerationCodePartAppearsAsAlias(part, surface)
+}
+
+func principalEnumerationCoverageParts(candidate string) []string {
+	candidate = strings.TrimSpace(candidate)
+	if candidate == "" {
+		return nil
+	}
+	fields := strings.FieldsFunc(candidate, func(r rune) bool {
+		switch r {
+		case '(', ')', '[', ']', '{', '}', ',', '，', ';', '；', ':', '：', '/', '|':
+			return true
+		default:
+			return unicode.IsSpace(r)
+		}
+	})
+	var out []string
+	seen := map[string]bool{}
+	for _, field := range fields {
+		part := strings.TrimSpace(strings.Trim(field, "`\"'"))
+		if !principalEnumerationCoveragePartUseful(part) {
+			continue
+		}
+		key := strings.ToLower(part)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, part)
+	}
+	return out
+}
+
+func principalEnumerationCoveragePartUseful(part string) bool {
+	part = strings.TrimSpace(part)
+	if part == "" {
+		return false
+	}
+	runes := []rune(part)
+	if len(runes) == 1 && !isASCIIAlphaNum(runes[0]) {
+		return false
+	}
+	allDigits := true
+	for _, r := range runes {
+		if r < '0' || r > '9' {
+			allDigits = false
+			break
+		}
+	}
+	if allDigits {
+		return false
+	}
+	lower := strings.ToLower(part)
+	switch lower {
+	case "个", "项", "row", "rows", "item", "items":
+		return false
+	default:
+		return true
+	}
+}
+
+func principalEnumerationCoveragePartCodeLike(part string) bool {
+	for _, r := range part {
+		if (r >= 'a' && r <= 'z') ||
+			(r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') ||
+			r == '_' || r == '.' || r == '-' || r == '=' {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationCoverageCodePartRequired(part string) bool {
+	switch strings.ToLower(strings.TrimSpace(part)) {
+	case "advisory", "main", "stage", "stages", "conditional", "pipeline":
+		return false
+	default:
+		return true
+	}
+}
+
+func principalEnumerationCodePartAppearsAsAlias(part, surface string) bool {
+	key := principalEnumerationCompactCodeKey(part)
+	if len(key) < 4 {
+		return false
+	}
+	for _, token := range principalEnumerationCodeTokens(surface) {
+		tokenKey := principalEnumerationCompactCodeKey(token)
+		if len(tokenKey) < 4 {
+			continue
+		}
+		if tokenKey == key || strings.HasSuffix(tokenKey, key) || strings.HasSuffix(key, tokenKey) {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationCodeTokens(surface string) []string {
+	var out []string
+	var b strings.Builder
+	flush := func() {
+		if b.Len() == 0 {
+			return
+		}
+		out = append(out, b.String())
+		b.Reset()
+	}
+	for _, r := range surface {
+		if (r >= 'a' && r <= 'z') ||
+			(r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') ||
+			r == '_' || r == '-' || r == '.' || r == '=' {
+			b.WriteRune(r)
+			continue
+		}
+		flush()
+	}
+	flush()
+	return out
+}
+
+func principalEnumerationCompactCodeKey(raw string) string {
+	var b strings.Builder
+	for _, r := range raw {
+		switch {
+		case r >= 'a' && r <= 'z':
+			b.WriteRune(r)
+		case r >= 'A' && r <= 'Z':
+			b.WriteRune(unicode.ToLower(r))
+		case r >= '0' && r <= '9':
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func isASCIIAlphaNum(r rune) bool {
+	return (r >= 'a' && r <= 'z') ||
+		(r >= 'A' && r <= 'Z') ||
+		(r >= '0' && r <= '9')
 }
 
 func principalEnumerationCommitSurfaceMatchesRow(surfaces []string, row types.EnumerationDisplayRow) bool {
