@@ -2572,13 +2572,9 @@ func scalarCountBoundaryIsScopeOnly(predicates types.SemanticPredicates) bool {
 // missing value is benign.
 //
 // Reject vs warn policy:
-//   - DeclaredCount <= 0 AND empty SourceQuote → soft strip + warn
-//     because the LLM emitted an inactive optional object. Downstream
-//     already treats nil as no boundary, so a retry just to delete this
-//     object is waste.
-//   - DeclaredCount <= 0 with a non-empty SourceQuote → hard reject
-//     (partial active payload; the LLM emitted an ambiguous boundary
-//     and must fix it).
+//   - DeclaredCount <= 0 → soft strip + warn because the LLM emitted an
+//     inactive/unknown optional object. Downstream already treats nil as no
+//     boundary, so a retry just to delete this object is waste.
 //   - DeclaredCount > 0 with an empty SourceQuote → soft strip + warn.
 //     The count lane is optional and not load-bearing unless it carries
 //     a verbatim user quote; spending a full analyzer retry just to
@@ -2594,11 +2590,8 @@ func parseEnumerationBoundary(raw string, p *emitEnumerationBoundaryParam) (*typ
 	if p == nil {
 		return nil, "", ""
 	}
-	if p.DeclaredCount <= 0 && strings.TrimSpace(p.SourceQuote) == "" {
-		return nil, "", "ignored inactive enumeration_boundary with declared_count<=0 and empty source_quote"
-	}
 	if p.DeclaredCount <= 0 {
-		return nil, "enumeration_boundary.declared_count must be >= 1", ""
+		return nil, "", "ignored inactive enumeration_boundary with declared_count<=0"
 	}
 	if strings.TrimSpace(p.SourceQuote) == "" {
 		return nil, "", fmt.Sprintf(

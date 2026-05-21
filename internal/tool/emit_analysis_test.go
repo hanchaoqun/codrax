@@ -1697,6 +1697,43 @@ func TestEmitAnalysis_Execute_WarnAndStripsInactiveEnumerationBoundary(t *testin
 	}
 }
 
+func TestEmitAnalysis_Execute_WarnAndStripsUnknownEnumerationBoundaryWithQuote(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["subagent", "registry", "default"],
+		"entities": ["subagent"],
+		"question_kind": "enumeration",
+		"enumeration_boundary": {
+			"declared_count": 0,
+			"source_quote": "默认 subagent 有几个"
+		}
+	}`
+
+	res, mu := runEmitAnalysisWithObjective(t, "默认 subagent 有几个？列出来。", payload)
+	if !res.Success {
+		t.Fatalf("Execute should accept + warn, got reject summary=%q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "ignored inactive enumeration_boundary with declared_count<=0") {
+		t.Fatalf("summary missing inactive-boundary warning: %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel must persist after soft-strip of inactive optional enumeration_boundary")
+	}
+	if rm.EnumerationBoundary != nil {
+		t.Fatalf("EnumerationBoundary must be stripped to nil, got %+v", rm.EnumerationBoundary)
+	}
+	if got := types.NormalizeRequirementKind(rm.AnalyzerHints.Kind); got != types.ReqEnumeration {
+		t.Fatalf("stripping unknown count boundary must not erase the emitted question kind: got %q in %+v", got, rm)
+	}
+}
+
 // TestEmitAnalysis_Execute_WarnAndStripsEnumerationBoundaryCountNotInQuote
 // pins the strip+warn behaviour when the source_quote is present in the
 // request but does not contain the declared count literal. Same rationale
