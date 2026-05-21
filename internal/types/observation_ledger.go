@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -80,6 +81,10 @@ type ObservationRecord struct {
 	GroundingPolicy ClaimGroundingPolicy `json:"grounding_policy,omitempty"`
 	SourceRef       ObservationSourceRef `json:"source_ref,omitempty"`
 	Span            ObservationSpan      `json:"span,omitempty"`
+	EvidenceKind    EvidenceKind         `json:"evidence_kind,omitempty"`
+	AnchorKind      AnchorKind           `json:"anchor_kind,omitempty"`
+	EvidenceScope   EvidenceScope        `json:"evidence_scope,omitempty"`
+	GroundingStatus GroundingStatus      `json:"grounding_status,omitempty"`
 	ClaimKey        string               `json:"claim_key,omitempty"`
 	Subject         string               `json:"subject,omitempty"`
 	Predicate       string               `json:"predicate,omitempty"`
@@ -107,6 +112,30 @@ type ObservationLedger struct {
 
 func (l ObservationLedger) Empty() bool {
 	return len(l.Records) == 0
+}
+
+// PrioritizeObservationRecords returns a stable, budgeted view of ledger records
+// for prompt/reviewer consumers. It uses the typed request contract to avoid two
+// bad extremes: source-code evidence should not be crowded out in mixed
+// "external fact + current code" questions, and incidental source reads should
+// not outrank VCS/log/trace observations in external-only questions.
+func PrioritizeObservationRecords(records []ObservationRecord, rm *RequestModel, contract *AnswerContract, limit int) []ObservationRecord {
+	if limit <= 0 || len(records) == 0 {
+		return nil
+	}
+	out := append([]ObservationRecord(nil), records...)
+	var intent *AnswerIntentContract
+	if rm != nil {
+		compiled := CompileAnswerIntentContract(*rm, contract)
+		intent = &compiled
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return observationRecordRank(out[i], intent) < observationRecordRank(out[j], intent)
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
 }
 
 // ObservationLedgerInput carries existing accepted producer outputs into the
@@ -182,6 +211,63 @@ func ObservationSourceKindForOrigin(origin AnswerEvidenceOrigin) ObservationSour
 	}
 }
 
+func observationRecordRank(record ObservationRecord, intent *AnswerIntentContract) int {
+	rank := 1000
+	requestedOrigin := intent == nil || intent.HasOrigin(record.Origin)
+	if requestedOrigin {
+		rank -= 300
+	} else {
+		rank += 120
+	}
+	if record.Origin == AnswerEvidenceOriginCurrentSource && requestedOrigin {
+		rank -= 120
+		if observationRecordHasExactCurrentSourceAnchor(record) {
+			rank -= 160
+		}
+	}
+	if NormalizeAnswerAggregateRole(record.Role).IsPrincipal() {
+		rank -= 90
+	}
+	switch record.Origin {
+	case AnswerEvidenceOriginCurrentSource:
+		rank -= 40
+	case AnswerEvidenceOriginVCSMetadata, AnswerEvidenceOriginVCSDiff:
+		rank -= 35
+	case AnswerEvidenceOriginRuntimeArtifact, AnswerEvidenceOriginCommandMeasurement:
+		rank -= 30
+	case AnswerEvidenceOriginRepoNegativeSearch:
+		rank -= 25
+	}
+	if record.Negative {
+		rank -= 20
+	}
+	if strings.TrimSpace(record.Summary) != "" {
+		rank -= 15
+	}
+	if strings.TrimSpace(record.RawExcerpt) != "" || len(record.RichNotes) > 0 {
+		rank -= 5
+	}
+	return rank
+}
+
+func observationRecordHasExactCurrentSourceAnchor(record ObservationRecord) bool {
+	if record.Origin != AnswerEvidenceOriginCurrentSource {
+		return false
+	}
+	if strings.TrimSpace(record.SourceRef.Path) == "" || record.Span.LineStart <= 0 {
+		return false
+	}
+	if record.GroundingStatus == GroundingUngrounded {
+		return false
+	}
+	switch record.EvidenceScope {
+	case ScopeLine, ScopeLineRange, ScopeSection, ScopeFile, "":
+	default:
+		return false
+	}
+	return record.AnchorKind == AnchorDefinition || record.AnchorKind == AnchorInitializer
+}
+
 func compileEvidenceItemObservations(items []EvidenceItem, add func(ObservationRecord)) {
 	for i, ev := range items {
 		if strings.TrimSpace(ev.Source) == "" && strings.TrimSpace(ev.Summary) == "" {
@@ -211,14 +297,18 @@ func compileEvidenceItemObservations(items []EvidenceItem, add func(ObservationR
 				LineStart: ev.LineStart,
 				LineEnd:   ev.LineEnd,
 			},
-			ClaimKey:    firstNonEmptyString(ev.AnchorSymbol, ev.Subject, ev.ID),
-			Subject:     strings.TrimSpace(ev.Subject),
-			Predicate:   strings.TrimSpace(ev.Predicate),
-			Object:      strings.TrimSpace(ev.Object),
-			Summary:     strings.TrimSpace(ev.Summary),
-			RawExcerpt:  strings.TrimSpace(ev.Snippet),
-			SupportRefs: cloneStringSlice(ev.SurfaceTerms),
-			Confidence:  ev.Confidence,
+			ClaimKey:        firstNonEmptyString(ev.AnchorSymbol, ev.Subject, ev.ID),
+			EvidenceKind:    ev.Kind,
+			AnchorKind:      ev.AnchorKind,
+			EvidenceScope:   ev.Scope,
+			GroundingStatus: ev.GroundingStatus,
+			Subject:         strings.TrimSpace(ev.Subject),
+			Predicate:       strings.TrimSpace(ev.Predicate),
+			Object:          strings.TrimSpace(ev.Object),
+			Summary:         strings.TrimSpace(ev.Summary),
+			RawExcerpt:      strings.TrimSpace(ev.Snippet),
+			SupportRefs:     cloneStringSlice(ev.SurfaceTerms),
+			Confidence:      ev.Confidence,
 		})
 	}
 }

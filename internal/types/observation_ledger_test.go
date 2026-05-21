@@ -283,6 +283,146 @@ func TestCompileObservationLedger_PreservesExternalPagingRefsAndLocalSpans(t *te
 	}
 }
 
+func TestPrioritizeObservationRecords_MixedHistoryAndCurrentCodeKeepsExactSourceFirst(t *testing.T) {
+	records := []ObservationRecord{
+		{
+			ID:      "tool:0#vcs_metadata",
+			Origin:  AnswerEvidenceOriginVCSMetadata,
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Summary: "commit abc123 changed scheduler behavior",
+		},
+		{
+			ID:     "evidence:current",
+			Origin: AnswerEvidenceOriginCurrentSource,
+			Role:   AnswerAggregateRoleSupportingCoverage,
+			SourceRef: ObservationSourceRef{
+				Kind: ObservationSourceCurrentSource,
+				Path: "internal/scheduler.go",
+			},
+			Span:            ObservationSpan{LineStart: 42},
+			AnchorKind:      AnchorDefinition,
+			EvidenceScope:   ScopeLine,
+			GroundingStatus: GroundingGrounded,
+			Summary:         "current scheduler entrypoint still exists",
+		},
+	}
+	rm := RequestModel{
+		Intent: IntentExplain,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+		ChangeImpactProfile: &ChangeImpactProfile{IsChangeImpact: true},
+	}
+	got := PrioritizeObservationRecords(records, &rm, nil, 2)
+	if len(got) != 2 || got[0].ID != "evidence:current" || got[1].ID != "tool:0#vcs_metadata" {
+		t.Fatalf("mixed history+current-code ranking should keep exact current source first, got %+v", got)
+	}
+}
+
+func TestPrioritizeObservationRecords_ExternalOnlyHistoryDoesNotLetIncidentalSourceDominate(t *testing.T) {
+	records := []ObservationRecord{
+		{
+			ID:     "evidence:incidental",
+			Origin: AnswerEvidenceOriginCurrentSource,
+			Role:   AnswerAggregateRolePrincipalAnswer,
+			SourceRef: ObservationSourceRef{
+				Kind: ObservationSourceCurrentSource,
+				Path: "internal/noise.go",
+			},
+			Span:            ObservationSpan{LineStart: 7},
+			AnchorKind:      AnchorDefinition,
+			EvidenceScope:   ScopeLine,
+			GroundingStatus: GroundingGrounded,
+			Summary:         "incidental source read",
+		},
+		{
+			ID:      "tool:0#vcs_metadata",
+			Origin:  AnswerEvidenceOriginVCSMetadata,
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Summary: "latest commit added feature",
+		},
+	}
+	rm := RequestModel{
+		Intent: IntentExplain,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+	}
+	got := PrioritizeObservationRecords(records, &rm, nil, 2)
+	if len(got) != 2 || got[0].ID != "tool:0#vcs_metadata" {
+		t.Fatalf("external-only history ranking should prefer requested VCS observation, got %+v", got)
+	}
+}
+
+func TestObservationLedgerInputFromContexts_PrefersAcceptedTurnAToolResults(t *testing.T) {
+	mut := NewMutableState("history")
+	mut.SetTurnAArtifacts(TurnAArtifacts{
+		ToolResults: []ToolResult{{
+			ToolName: "git_log",
+			Success:  true,
+			Summary:  "[git_log: evidence_origin=vcs_metadata]\naccepted turn-a result",
+		}},
+		EvidenceItems: []EvidenceItem{{
+			ID:        "turn-a",
+			Source:    "a.go",
+			LineStart: 3,
+			Summary:   "accepted evidence",
+		}},
+	})
+	mut.SetInvestigationAggregateFacts([]AnswerAggregateFact{{
+		Kind:  AnswerAggregateScalar,
+		Label: "latest feature",
+		Value: "cache reuse",
+		Dimensions: []AnswerAggregateDimension{
+			{Name: "origin", Value: string(AnswerEvidenceOriginVCSMetadata)},
+		},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	bus := &BusContext{
+		Mutable: mut,
+		ToolResults: []ToolResult{{
+			ToolName: "grep",
+			Success:  true,
+			Summary:  "[grep: evidence_origin=current_source]\npre-scan noise",
+		}},
+	}
+
+	input := ObservationLedgerInputFromBusContext(bus, 64)
+	if len(input.ToolResults) != 1 || input.ToolResults[0].ToolName != "git_log" {
+		t.Fatalf("bus input should prefer accepted Turn A tool results over full bus history: %+v", input.ToolResults)
+	}
+	ledger := CompileObservationLedger(input)
+	assertObservationRecord(t, ledger, "tool:0#vcs_metadata", AnswerEvidenceOriginVCSMetadata, ObservationSourceVCSMetadata)
+	assertObservationRecord(t, ledger, "aggregate:0#vcs_metadata", AnswerEvidenceOriginVCSMetadata, ObservationSourceVCSMetadata)
+	assertObservationRecord(t, ledger, "evidence:turn-a", AnswerEvidenceOriginCurrentSource, ObservationSourceCurrentSource)
+}
+
+func TestObservationLedgerInputFromAgentContext_CarriesMCPAndRuntimeBundles(t *testing.T) {
+	bundle := &LogBundle{Observations: []LogObservation{{
+		Kind:      LogObservationRuntimeEvent,
+		Subject:   "runtime event",
+		Summary:   "runtime event observed",
+		LineStart: 8,
+	}}}
+	ctx := &AgentContext{
+		AnalysisIR: &AnalysisIR{RequestModel: RequestModel{LogTriage: bundle}},
+		MCPResponses: []MCPResponse{{
+			ServerName: "docs",
+			Method:     "read_resource",
+			Success:    true,
+			Summary:    "external doc note",
+			RawRef:     "mcp://docs/note",
+		}},
+	}
+
+	ledger := CompileObservationLedger(ObservationLedgerInputFromAgentContext(ctx, 64))
+	assertObservationRecord(t, ledger, "log:observation:0", AnswerEvidenceOriginRuntimeArtifact, ObservationSourceRuntimeArtifact)
+	assertObservationRecord(t, ledger, "mcp:0", AnswerEvidenceOriginMCPResource, ObservationSourceMCPResource)
+	if got := findObservationRecord(t, ledger, "mcp:0"); got.SourceRef.RawRef != "mcp://docs/note" {
+		t.Fatalf("MCP raw ref should survive context input compilation: %+v", got)
+	}
+}
+
 func assertObservationRecord(t *testing.T, ledger ObservationLedger, id string, origin AnswerEvidenceOrigin, source ObservationSourceKind) {
 	t.Helper()
 	record := findObservationRecord(t, ledger, id)

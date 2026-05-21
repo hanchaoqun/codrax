@@ -3299,7 +3299,17 @@ func (o *Orchestrator) runSemanticQualityReviewWithOutcome(doc *types.AnswerDocu
 		buildReviewerEvidenceAnchorSet(mut, doc, o.busCtx),
 	)
 	in.ClaimBindings = semanticClaimBindingSummaries(answerClaimBindingsForBusContext(o.busCtx))
-	in.Observations = semanticObservationSummaries(observationLedgerForBusContext(o.busCtx))
+	var rm *types.RequestModel
+	var ac *types.AnswerContract
+	if o.busCtx != nil && o.busCtx.AnalysisIR != nil {
+		rm = &o.busCtx.AnalysisIR.RequestModel
+		ac = &o.busCtx.AnalysisIR.AnswerContract
+	}
+	in.Observations = semanticObservationSummaries(
+		types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(o.busCtx, 64)),
+		rm,
+		ac,
+	)
 
 	ctx := o.busCtx.Ctx
 	if ctx == nil {

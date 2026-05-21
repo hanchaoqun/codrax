@@ -1132,6 +1132,42 @@ func TestRunSemanticQualityReviewWithOutcome_PassesClaimBindingsToReviewer(t *te
 	}
 }
 
+func TestSemanticObservationSummaries_UsesIntentAwareLedgerPriority(t *testing.T) {
+	ledger := types.ObservationLedger{Records: []types.ObservationRecord{
+		{
+			ID:      "tool:0#vcs_diff",
+			Origin:  types.AnswerEvidenceOriginVCSDiff,
+			Role:    types.AnswerAggregateRolePrincipalAnswer,
+			Summary: "diff touched scheduler routing",
+		},
+		{
+			ID:     "evidence:current",
+			Origin: types.AnswerEvidenceOriginCurrentSource,
+			Role:   types.AnswerAggregateRoleSupportingCoverage,
+			SourceRef: types.ObservationSourceRef{
+				Kind: types.ObservationSourceCurrentSource,
+				Path: "internal/scheduler.go",
+			},
+			Span:            types.ObservationSpan{LineStart: 42},
+			AnchorKind:      types.AnchorDefinition,
+			EvidenceScope:   types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+			Summary:         "current scheduler entrypoint still routes the change",
+		},
+	}}
+	rm := types.RequestModel{
+		Intent: types.IntentExplain,
+		Predicates: types.SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+		ChangeImpactProfile: &types.ChangeImpactProfile{IsChangeImpact: true},
+	}
+	got := semanticObservationSummaries(ledger, &rm, nil)
+	if len(got) < 2 || got[0].ID != "evidence:current" || got[1].ID != "tool:0#vcs_diff" {
+		t.Fatalf("semantic reviewer should use shared mixed-origin ledger priority, got %+v", got)
+	}
+}
+
 func TestRenderSemanticQualityUserMessage_RendersObservationLedgerBoundaries(t *testing.T) {
 	count := 0
 	msg := renderSemanticQualityUserMessage(SemanticQualityInput{

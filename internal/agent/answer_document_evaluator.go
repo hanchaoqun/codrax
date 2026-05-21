@@ -3618,7 +3618,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if ledger.Empty() {
 		return ""
 	}
-	records := prioritizedObservationLedgerRecords(ledger.Records, answerDocObservationLedgerPromptLimit)
+	records := prioritizedObservationLedgerRecords(ctx, ledger.Records, answerDocObservationLedgerPromptLimit)
 	if len(records) == 0 {
 		return ""
 	}
@@ -3673,72 +3673,19 @@ func answerDocObservationLedger(ctx *types.AgentContext) types.ObservationLedger
 	if ctx == nil {
 		return types.ObservationLedger{}
 	}
-	var (
-		requestModel   *types.RequestModel
-		answerContract *types.AnswerContract
-		logBundle      *types.LogBundle
-		perfBundle     *types.PerfBundle
-	)
-	if ctx.AnalysisIR != nil {
-		requestModel = &ctx.AnalysisIR.RequestModel
-		answerContract = &ctx.AnalysisIR.AnswerContract
-		logBundle = ctx.AnalysisIR.RequestModel.LogTriage
-		perfBundle = ctx.AnalysisIR.RequestModel.PerfTrace
-	}
-	var toolResults []types.ToolResult
-	if ctx.Mutable != nil {
-		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
-			toolResults = append(toolResults, ta.ToolResults...)
-		}
-	}
-	return types.CompileObservationLedger(types.ObservationLedgerInput{
-		EvidenceItems:  answerDocTypedEnrichmentEvidencePool(ctx, 64),
-		AggregateFacts: answerDocStableAggregateFacts(ctx),
-		ToolResults:    toolResults,
-		LogBundle:      logBundle,
-		PerfBundle:     perfBundle,
-		MCPResponses:   append([]types.MCPResponse(nil), ctx.MCPResponses...),
-		RequestModel:   requestModel,
-		AnswerContract: answerContract,
-	})
+	input := types.ObservationLedgerInputFromAgentContext(ctx, 64)
+	input.AggregateFacts = answerDocStableAggregateFacts(ctx)
+	return types.CompileObservationLedger(input)
 }
 
-func prioritizedObservationLedgerRecords(records []types.ObservationRecord, limit int) []types.ObservationRecord {
-	if limit <= 0 || len(records) == 0 {
-		return nil
+func prioritizedObservationLedgerRecords(ctx *types.AgentContext, records []types.ObservationRecord, limit int) []types.ObservationRecord {
+	var rm *types.RequestModel
+	var contract *types.AnswerContract
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm = &ctx.AnalysisIR.RequestModel
+		contract = &ctx.AnalysisIR.AnswerContract
 	}
-	out := append([]types.ObservationRecord(nil), records...)
-	sort.SliceStable(out, func(i, j int) bool {
-		return observationLedgerRecordRank(out[i]) < observationLedgerRecordRank(out[j])
-	})
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	return out
-}
-
-func observationLedgerRecordRank(record types.ObservationRecord) int {
-	rank := 50
-	if record.Role == types.AnswerAggregateRolePrincipalAnswer {
-		rank -= 25
-	}
-	switch record.Origin {
-	case types.AnswerEvidenceOriginCurrentSource:
-		rank -= 8
-	case types.AnswerEvidenceOriginVCSMetadata, types.AnswerEvidenceOriginVCSDiff:
-		rank -= 6
-	case types.AnswerEvidenceOriginRuntimeArtifact, types.AnswerEvidenceOriginCommandMeasurement:
-		rank -= 5
-	case types.AnswerEvidenceOriginRepoNegativeSearch:
-		rank -= 4
-	}
-	if record.Negative {
-		rank -= 3
-	}
-	if strings.TrimSpace(record.Summary) != "" {
-		rank -= 2
-	}
-	return rank
+	return types.PrioritizeObservationRecords(records, rm, contract, limit)
 }
 
 func renderAnswerDocObservationSource(ref types.ObservationSourceRef) string {

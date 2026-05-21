@@ -127,6 +127,30 @@ the finalizer can know that an external observation exists, but exploration cann
 reliably page to line/row N or cite an artifact-local coordinate when the user asks
 "第几行/第几个/哪个字段".
 
+### G12. Mixed-Origin Evidence Ordering Must Be Intent-Aware
+
+The ledger deliberately treats git/history, logs, traces, command output, MCP,
+web, connector data, and current source as peer observation origins. That does
+not mean every origin has equal priority for every question. Mixed requests such
+as "基于这次 diff 分析当前代码影响", "结合日志第 N 行和源码定位原因", or
+"根据 MCP 文档再解释实现" need external observations and current-source
+evidence to remain coupled but not flattened into one lane.
+
+Ordering must be derived from typed `RequestModel` / `AnswerContract` origins
+and typed observation attributes only. It must not inspect raw user prose or
+model prose keywords. The invariant is:
+
+- if the request requires current-code analysis, grounded/current/read source
+  records with concrete file spans and definition/config anchors must survive the
+  prompt budget and outrank incidental external summaries;
+- if the request is pure history/log/trace/MCP/web lookup, requested external
+  observations outrank incidental source reads;
+- if both are requested, both families stay visible, and exact current-source
+  evidence is ranked above broad external summaries when it is needed to explain
+  current behavior;
+- rich summaries, raw refs, and local spans are carried forward; compact prompt
+  projections may budget them, but must not mutate the underlying ledger.
+
 ## 5. Target Architecture
 
 ### 5.1 Core Type
@@ -238,6 +262,31 @@ for command/git/log/trace files. Long-term implementation should add a typed
 external-resource paging adapter rather than teaching every producer a private
 pagination format.
 
+### 5.6 Intent-Aware Ledger Prioritization
+
+All prompt/reviewer consumers that need a compact ledger view should call one
+shared type-layer helper:
+
+```go
+func PrioritizeObservationRecords(
+    records []ObservationRecord,
+    rm *RequestModel,
+    contract *AnswerContract,
+    limit int,
+) []ObservationRecord
+```
+
+The helper ranks by typed requested origins from `CompileAnswerIntentContract`,
+record role, origin, exact-source anchor quality, negative/positive state, and
+summary richness. It is intentionally conservative: current-source records get
+the strongest boost only when current source is requested and the record has a
+concrete path/line span, non-ungrounded status, and a definition/config-style
+anchor. External-only questions continue to prefer their requested external
+origins.
+
+Finalizer and semantic reviewer must share this helper. Any future compact
+consumer should reuse it rather than adding a private origin sorter.
+
 ## 6. End-To-End Data Flow
 
 ```mermaid
@@ -287,6 +336,8 @@ flowchart TD
 - [x] Update claim binding rendering to point at ledger record IDs where possible.
 - [x] Keep raw tool output as fallback/audit, not principal interpretation.
 - [x] Update semantic reviewer input to consume ledger summaries.
+- [x] Route finalizer and semantic reviewer compact ledger views through one
+  shared intent-aware prioritizer.
 - [x] Add tests that a git feature-summary answer is not compressed to a commit hash.
 
 ### Batch 4 — MCP / Web Future-Proofing
@@ -312,6 +363,20 @@ flowchart TD
 - [ ] Add eval cases for "log line N", "trace window around event", "git diff hunk
   around file", "MCP JSON field exists/absent", and "web paragraph contains/does
   not contain term".
+
+### Batch 4C — Mixed-Origin Ranking And Prompt Budget Guardrails
+
+- [x] Implement `types.PrioritizeObservationRecords` as the single ranking path
+  for compact ledger projections.
+- [x] Add tests for mixed history/diff + current-code analysis: exact grounded
+  source evidence remains visible and does not get displaced by broad external
+  observations.
+- [x] Add tests for external-only history/log/trace questions: requested
+  external observations outrank incidental current-source reads.
+- [x] Add tests that shared context adapters prefer accepted Turn A artifacts
+  over analyzer/pre-scan noise.
+- [ ] Add eval backlog entries for "基于 git diff + 当前源码分析影响",
+  "结合日志第 N 行和当前源码解释原因", and "基于 MCP/网页内容 + 当前实现对照".
 
 ### Batch 5 — Gate Consolidation
 
@@ -383,3 +448,20 @@ flowchart TD
   `types.CompileObservationLedger` path as finalizer. Tests verify VCS history
   observations and blob refs are visible to the reviewer without becoming
   current-source citation requirements.
+- 2026-05-21: Consumer input construction was lifted into `internal/types` via
+  `ObservationLedgerInputFromAgentContext` and
+  `ObservationLedgerInputFromBusContext`. Finalizer and semantic reviewer now
+  share the same accepted-carrier projection rules instead of each manually
+  stitching evidence, Turn A tool results, aggregate facts, runtime bundles, and
+  MCP responses. Tests pin that accepted Turn A tool results outrank noisy bus
+  history and that MCP/runtime observations survive the shared adapter.
+- 2026-05-21: Added G12 / Batch 4C for mixed-origin prompt budgeting. The key
+  rule is typed and request-aware: current-source evidence must stay prominent
+  when current code is part of the question, while external-only questions must
+  not be dominated by incidental source reads. Finalizer and reviewer compact
+  views will share `types.PrioritizeObservationRecords` to avoid future drift.
+- 2026-05-21: Batch 4C implementation completed: `types.PrioritizeObservationRecords`
+  now centralizes compact ledger ordering, finalizer and semantic reviewer both
+  call it, and tests cover mixed history/diff + current-code priority,
+  external-only history priority, shared accepted-carrier context adapters, and
+  finalizer/reviewer prompt ordering. Validation: `go test ./...`.

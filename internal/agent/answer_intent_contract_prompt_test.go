@@ -252,12 +252,15 @@ func TestRenderAnswerDocObservationLedger_KeepsDiffAndCurrentSourceSeparate(t *t
 			Summary:  "[git_diff: diff_origin=vcs_diff]\ndiff shows scheduler hook was added",
 		}},
 		EvidenceItems: []types.EvidenceItem{{
-			ID:           "current",
-			Source:       "internal/scheduler.go",
-			LineStart:    42,
-			Summary:      "current source still routes scheduler hooks through Run",
-			Salience:     types.SalienceLoadBearing,
-			AnchorSymbol: "Run",
+			ID:              "current",
+			Source:          "internal/scheduler.go",
+			LineStart:       42,
+			Summary:         "current source still routes scheduler hooks through Run",
+			Salience:        types.SalienceLoadBearing,
+			AnchorSymbol:    "Run",
+			AnchorKind:      types.AnchorDefinition,
+			Scope:           types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
 		}},
 	})
 	ctx := &types.AgentContext{
@@ -268,6 +271,7 @@ func TestRenderAnswerDocObservationLedger_KeepsDiffAndCurrentSourceSeparate(t *t
 				Predicates: types.SemanticPredicates{
 					IsHistoryLookup: true,
 				},
+				ChangeImpactProfile: &types.ChangeImpactProfile{IsChangeImpact: true},
 			},
 		},
 	}
@@ -282,6 +286,9 @@ func TestRenderAnswerDocObservationLedger_KeepsDiffAndCurrentSourceSeparate(t *t
 		if !strings.Contains(got, want) {
 			t.Fatalf("mixed source/diff ledger prompt missing %q:\n%s", want, got)
 		}
+	}
+	if strings.Index(got, "`evidence:current`") > strings.Index(got, "`tool:0#vcs_diff`") {
+		t.Fatalf("mixed diff+current prompt should keep exact current source before broad diff support:\n%s", got)
 	}
 }
 

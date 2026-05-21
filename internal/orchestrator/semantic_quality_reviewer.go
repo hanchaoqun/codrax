@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -748,98 +747,13 @@ func semanticClaimBindingSummaries(bindings []types.AnswerClaimBinding) []Semant
 	return out
 }
 
-func observationLedgerForBusContext(bus *types.BusContext) types.ObservationLedger {
-	if bus == nil {
-		return types.ObservationLedger{}
-	}
-	var (
-		requestModel   *types.RequestModel
-		answerContract *types.AnswerContract
-		logBundle      *types.LogBundle
-		perfBundle     *types.PerfBundle
-		aggregateFacts []types.AnswerAggregateFact
-		toolResults    []types.ToolResult
-		evidenceItems  []types.EvidenceItem
-	)
-	if bus.AnalysisIR != nil {
-		requestModel = &bus.AnalysisIR.RequestModel
-		answerContract = &bus.AnalysisIR.AnswerContract
-		logBundle = bus.AnalysisIR.RequestModel.LogTriage
-		perfBundle = bus.AnalysisIR.RequestModel.PerfTrace
-	}
-	evidenceItems = appendObservationLedgerEvidence(evidenceItems, bus.EvidenceItems...)
-	toolResults = append(toolResults, bus.ToolResults...)
-	if bus.Mutable != nil {
-		aggregateFacts = bus.Mutable.StableInvestigationAggregateFacts()
-		if logBundle == nil {
-			logBundle = bus.Mutable.LogTriage()
-		}
-		if perfBundle == nil {
-			perfBundle = bus.Mutable.PerfTrace()
-		}
-		if ta := bus.Mutable.TurnAArtifacts(); ta != nil {
-			evidenceItems = appendObservationLedgerEvidence(evidenceItems, ta.EvidenceItems...)
-			if len(ta.ToolResults) > 0 {
-				toolResults = append([]types.ToolResult(nil), ta.ToolResults...)
-			}
-		}
-	}
-	return types.CompileObservationLedger(types.ObservationLedgerInput{
-		EvidenceItems:  evidenceItems,
-		AggregateFacts: aggregateFacts,
-		ToolResults:    toolResults,
-		LogBundle:      logBundle,
-		PerfBundle:     perfBundle,
-		MCPResponses:   append([]types.MCPResponse(nil), bus.MCPResponses...),
-		RequestModel:   requestModel,
-		AnswerContract: answerContract,
-	})
-}
-
-func appendObservationLedgerEvidence(dst []types.EvidenceItem, items ...types.EvidenceItem) []types.EvidenceItem {
-	if len(items) == 0 {
-		return dst
-	}
-	seen := make(map[string]struct{}, len(dst)+len(items))
-	for _, existing := range dst {
-		id := strings.TrimSpace(existing.ID)
-		if id == "" {
-			id = types.StableEvidenceID(existing)
-		}
-		if id != "" {
-			seen[id] = struct{}{}
-		}
-	}
-	for _, item := range items {
-		id := strings.TrimSpace(item.ID)
-		if id == "" {
-			id = types.StableEvidenceID(item)
-			item.ID = id
-		}
-		if id != "" {
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			seen[id] = struct{}{}
-		}
-		dst = append(dst, item)
-	}
-	return dst
-}
-
-func semanticObservationSummaries(ledger types.ObservationLedger) []SemanticObservationSummary {
+func semanticObservationSummaries(ledger types.ObservationLedger, rm *types.RequestModel, contract *types.AnswerContract) []SemanticObservationSummary {
 	if len(ledger.Records) == 0 {
 		return nil
 	}
 	const maxSemanticObservations = 18
-	records := append([]types.ObservationRecord(nil), ledger.Records...)
-	sort.SliceStable(records, func(i, j int) bool {
-		return semanticObservationRank(records[i]) < semanticObservationRank(records[j])
-	})
+	records := types.PrioritizeObservationRecords(ledger.Records, rm, contract, maxSemanticObservations)
 	limit := len(records)
-	if limit > maxSemanticObservations {
-		limit = maxSemanticObservations
-	}
 	out := make([]SemanticObservationSummary, 0, limit)
 	for i := 0; i < limit; i++ {
 		record := records[i]
@@ -857,30 +771,6 @@ func semanticObservationSummaries(ledger types.ObservationLedger) []SemanticObse
 		})
 	}
 	return out
-}
-
-func semanticObservationRank(record types.ObservationRecord) int {
-	rank := 50
-	if record.Role == types.AnswerAggregateRolePrincipalAnswer {
-		rank -= 25
-	}
-	switch record.Origin {
-	case types.AnswerEvidenceOriginCurrentSource:
-		rank -= 8
-	case types.AnswerEvidenceOriginVCSMetadata, types.AnswerEvidenceOriginVCSDiff:
-		rank -= 6
-	case types.AnswerEvidenceOriginRuntimeArtifact, types.AnswerEvidenceOriginCommandMeasurement:
-		rank -= 5
-	case types.AnswerEvidenceOriginRepoNegativeSearch:
-		rank -= 4
-	}
-	if record.Negative {
-		rank -= 3
-	}
-	if strings.TrimSpace(record.Summary) != "" {
-		rank -= 2
-	}
-	return rank
 }
 
 func semanticObservationSource(ref types.ObservationSourceRef) string {
