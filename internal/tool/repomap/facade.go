@@ -129,6 +129,11 @@ func IsSupportedReadLanguage(lang string) bool { return types.IsSupportedReadLan
 // SetCacheDir overrides the base directory for repo map caches.
 func SetCacheDir(dir string) { index.SetCacheDir(dir) }
 
+// SetResumeInterruptedScan toggles whether a full scan reuses the
+// already-parsed chunks left behind by an earlier interrupted scan.
+// Default (unset) is enabled.
+func SetResumeInterruptedScan(enabled bool) { index.SetResumeInterruptedScan(enabled) }
+
 // IsSpecialFile reports whether a file path is a recognised project
 // file (go.mod, Cargo.toml, tsconfig.json, ...).
 func IsSpecialFile(name string) (bool, string) {

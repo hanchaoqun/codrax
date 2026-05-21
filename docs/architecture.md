@@ -2563,6 +2563,7 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 | `cgec_*` | CGEC 调节 | `cgec_forced_reads_per_round`（3）/ `cgec_stall_threshold_soft`（2）/ `cgec_stall_threshold_hard`（3）/ `cgec_phase1_unread_top_k`（5）/ `cgec_phase1_unread_min_unread`（2）/ `cgec_multi_path_*` 系列 / `cgec_external_artifact_decoded_floor`（0.4） |
 | `chitchat_*` | /chat 通道 | `chitchat_enabled`（true）/ `chitchat_classifier_enabled`（true）/ recall/list 默认 + max limit |
 | `env_*` / `recommend_*` | 环境诊断 | `env_recommend_enabled`（true）/ `env_recommend_llm_enabled`（true）/ `env_recommend_llm_timeout_sec` / `recommend_global_install`（false）/ `env_probe_network` / `env_cache_ttl_days`（90） |
+| `memory_soft_limit_*` / `repomap_resume_*` | 大仓内存韧性 | `memory_soft_limit_enabled`（true，启动设 GOMEMLIMIT 软上限）/ `memory_soft_limit_fraction`（0.8，宿主 RAM 占比）/ `memory_soft_limit_bytes`（0=自动，>0 直接用，512 MiB 下限）/ `repomap_resume_interrupted_scan`（true，full scan 复用上次被中断扫描已落盘的 chunk，hash 校验）。环境变量 `GOMEMLIMIT` 优先于以上。见 `docs/design/large_repo_memory_resilience.md` |
 | `log_triage_*` | 日志分诊 | enabled / source_prefix / min_bytes（50）/ max_retries（1）/ two_step_enabled / two_step_bytes（32K）/ two_step_coverage（0.3）/ max_llm_calls（12） |
 | `perf_triage_*` | 性能分诊 | 同 log_triage 结构（默认 64K threshold） |
 | `log_attach_*` / `trace_attach_*` | 接入侧字节上限 | `log_attach_max_bytes`（50 MiB，硬顶 1 GiB）/ `trace_attach_max_bytes`（未设时继承 log_attach） |

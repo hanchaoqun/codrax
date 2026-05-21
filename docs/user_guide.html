@@ -1426,6 +1426,39 @@ multi_repo_enabled: false
 </tr>
 </tbody>
 </table></div>
+<h3 id="大仓内存韧性">大仓内存韧性</h3>
+<p>扫描超大仓库(如 Linux 内核:约 6.4 万个待解析源文件)时,repomap 全量扫描可能让进程内存超出宿主可用 RAM,被系统 OOM 杀掉。下面三个键默认即开,无需配置;低内存机器上扫巨型仓库才需要关注。详见 <code>docs/design/large_repo_memory_resilience.md</code>。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>键</th>
+<th>默认</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>memory_soft_limit_enabled</code></td>
+<td><code>true</code></td>
+<td>启动时设软堆上限(GOMEMLIMIT),让 GC 在宿主内存耗尽前提前回收。环境变量 <code>GOMEMLIMIT</code> 优先于本组所有键</td>
+</tr>
+<tr>
+<td><code>memory_soft_limit_fraction</code></td>
+<td><code>0.8</code></td>
+<td>目标占检测到的宿主 RAM 的比例,范围 <code>(0,1]</code>。仅 Linux(读 <code>/proc/meminfo</code>)</td>
+</tr>
+<tr>
+<td><code>memory_soft_limit_bytes</code></td>
+<td><code>0</code></td>
+<td>直接以字节指定软上限;<code>&gt;0</code> 时跳过宿主 RAM 检测,低于 512 MiB 抬到该下限。非 Linux 平台用这个键</td>
+</tr>
+<tr>
+<td><code>repomap_resume_interrupted_scan</code></td>
+<td><code>true</code></td>
+<td>全量扫描复用上次被中断(如被 OOM 杀掉)的扫描已落盘的 chunk,经内容哈希校验后跳过重解析;重试逐步收敛而非从零重来。覆盖全部 15 种语言</td>
+</tr>
+</tbody>
+</table></div>
 <h3 id="流水线预算">流水线预算</h3>
 <div class="table-wrap"><table>
 <thead>
@@ -2160,6 +2193,8 @@ codrax --mode=verify --plan-file=/tmp/plan.json
 → analyzer / extractor / chitchat_classifier 路由到便宜模型(5.1.6);或 <code>pipeline_max_steps</code> 调小。</p>
 <p><strong><code>repomap: tier degradation</code> WARN</strong>
 → 某种语言的 tree-sitter 解析失败率偏高。问题不大,但建议升级 codrax 或反馈给团队。</p>
+<p><strong>扫描超大仓库时进程被杀(<code>Killed</code> / dmesg 里有 OOM)</strong>
+→ 在内存偏小的机器上扫巨型仓库(如 Linux 内核)时,repomap 全量扫描可能耗尽宿主 RAM。codrax 默认已三管齐下缓解:启动设 GOMEMLIMIT 软上限、解析后立即回收内存、被中断的扫描下次自动从已落盘 chunk 续扫(见 5.2「大仓内存韧性」)。若仍被杀:① 临时加 swap 让首次扫描扛过峰值、把 cache 建出来;② 用 <code>--repo</code> 指向更小的子目录而非整棵树;③ 内存极小的机器可调低 <code>memory_soft_limit_fraction</code>。日志里的 <code>repo_map: resuming interrupted scan</code> 行说明续扫已生效。</p>
 <h2 id="84-写模式特有">8.4 写模式特有</h2>
 <p><strong><code>/mode plan</code> 报 <code>write_enabled is false</code></strong>
 → <code>codrax.yaml</code> 加 <code>write_enabled: true</code>,重启 codrax。</p>

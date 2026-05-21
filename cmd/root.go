@@ -26,6 +26,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/mcp"
+	"github.com/hanchaoqun/codrax/internal/memlimit"
 	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/orchestrator"
 	"github.com/hanchaoqun/codrax/internal/preview"
@@ -1622,6 +1623,30 @@ func initApp(cmd *cobra.Command, args []string) error {
 	}
 	repomap.SetCacheDir(flagCacheDir)
 	logging.Info("paths: repo=%s log-dir=%s memory-dir=%s cache-dir=%s blob-session=%s", flagRepo, flagLogDir, flagMemoryDir, flagCacheDir, blobSessionDir)
+
+	// Large-repo memory resilience. Install a soft heap limit so a
+	// repomap full scan of a very large repository pressures the GC
+	// before host RAM is exhausted, and let an interrupted scan resume
+	// from chunks it already wrote rather than restarting from zero.
+	// See docs/design/large_repo_memory_resilience.md.
+	heapLimitCfg := memlimit.Config{Enabled: true, Fraction: 0.8}
+	resumeInterruptedScan := true
+	if rs != nil {
+		if rs.MemorySoftLimitEnabled != nil {
+			heapLimitCfg.Enabled = *rs.MemorySoftLimitEnabled
+		}
+		if rs.MemorySoftLimitFraction != nil {
+			heapLimitCfg.Fraction = *rs.MemorySoftLimitFraction
+		}
+		if rs.MemorySoftLimitBytes != nil && *rs.MemorySoftLimitBytes > 0 {
+			heapLimitCfg.ExplicitBytes = *rs.MemorySoftLimitBytes
+		}
+		if rs.RepomapResumeInterruptedScan != nil {
+			resumeInterruptedScan = *rs.RepomapResumeInterruptedScan
+		}
+	}
+	logging.Info("memory: %s", memlimit.Apply(heapLimitCfg))
+	repomap.SetResumeInterruptedScan(resumeInterruptedScan)
 
 	// Multi-repo discovery. Always runs — the §3.3.1 fast path keeps
 	// single-repo cost at ~50µs (one os.Stat for flagRepo/.git, one

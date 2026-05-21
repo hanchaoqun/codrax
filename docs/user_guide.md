@@ -979,6 +979,17 @@ agents:
 | `markdown_preview_port` | `0` | 预览服务端口;`0` 表示系统随机分配可用高位端口 |
 | `lang` | `zh` | 答案默认语言;`off` 关闭 |
 
+### 大仓内存韧性
+
+扫描超大仓库(如 Linux 内核:约 6.4 万个待解析源文件)时,repomap 全量扫描可能让进程内存超出宿主可用 RAM,被系统 OOM 杀掉。下面三个键默认即开,无需配置;低内存机器上扫巨型仓库才需要关注。详见 `docs/design/large_repo_memory_resilience.md`。
+
+| 键 | 默认 | 作用 |
+|---|---|---|
+| `memory_soft_limit_enabled` | `true` | 启动时设软堆上限(GOMEMLIMIT),让 GC 在宿主内存耗尽前提前回收。环境变量 `GOMEMLIMIT` 优先于本组所有键 |
+| `memory_soft_limit_fraction` | `0.8` | 目标占检测到的宿主 RAM 的比例,范围 `(0,1]`。仅 Linux(读 `/proc/meminfo`) |
+| `memory_soft_limit_bytes` | `0` | 直接以字节指定软上限;`>0` 时跳过宿主 RAM 检测,低于 512 MiB 抬到该下限。非 Linux 平台用这个键 |
+| `repomap_resume_interrupted_scan` | `true` | 全量扫描复用上次被中断(如被 OOM 杀掉)的扫描已落盘的 chunk,经内容哈希校验后跳过重解析;重试逐步收敛而非从零重来。覆盖全部 15 种语言 |
+
 ### 流水线预算
 
 | 键 | 默认 | 作用 |
@@ -1265,6 +1276,9 @@ CLI 单次模式输出:
 
 **`repomap: tier degradation` WARN**
 → 某种语言的 tree-sitter 解析失败率偏高。问题不大,但建议升级 codrax 或反馈给团队。
+
+**扫描超大仓库时进程被杀(`Killed` / dmesg 里有 OOM)**
+→ 在内存偏小的机器上扫巨型仓库(如 Linux 内核)时,repomap 全量扫描可能耗尽宿主 RAM。codrax 默认已三管齐下缓解:启动设 GOMEMLIMIT 软上限、解析后立即回收内存、被中断的扫描下次自动从已落盘 chunk 续扫(见 5.2「大仓内存韧性」)。若仍被杀:① 临时加 swap 让首次扫描扛过峰值、把 cache 建出来;② 用 `--repo` 指向更小的子目录而非整棵树;③ 内存极小的机器可调低 `memory_soft_limit_fraction`。日志里的 `repo_map: resuming interrupted scan` 行说明续扫已生效。
 
 ## 8.4 写模式特有
 

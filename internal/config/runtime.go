@@ -1028,6 +1028,28 @@ type RuntimeSettings struct {
 	EnvProbeNetwork           *bool `yaml:"env_probe_network"`
 	EnvCacheTTLDays           *int  `yaml:"env_cache_ttl_days"`
 
+	// Large-repo memory resilience. All optional; nil → code default
+	// applied in cmd/root.go. These guard against the codrax process
+	// being OOM-killed during a repomap full scan of a very large
+	// repository (see docs/design/large_repo_memory_resilience.md).
+	//
+	// MemorySoftLimitEnabled installs a soft heap limit (GOMEMLIMIT)
+	// at startup so the GC is pressured before host RAM is exhausted.
+	// MemorySoftLimitFraction is the fraction of detected host RAM to
+	// target (clamped to (0, 1]). MemorySoftLimitBytes, when > 0, is
+	// used verbatim and the host-RAM path is skipped. An operator-set
+	// GOMEMLIMIT environment variable always wins over all three.
+	MemorySoftLimitEnabled  *bool    `yaml:"memory_soft_limit_enabled"`
+	MemorySoftLimitFraction *float64 `yaml:"memory_soft_limit_fraction"`
+	MemorySoftLimitBytes    *int64   `yaml:"memory_soft_limit_bytes"`
+
+	// RepomapResumeInterruptedScan lets a repomap full scan reuse the
+	// already-parsed chunks left behind by an earlier scan that was
+	// interrupted (e.g. OOM-killed) before it could install its cache
+	// manifest. Reused records are content-hash verified, so resume
+	// never changes scan output. nil/true → enabled.
+	RepomapResumeInterruptedScan *bool `yaml:"repomap_resume_interrupted_scan"`
+
 	// CGEC (Citation-Grounded Evidence Closure) tunables. All
 	// optional; nil → code default in
 	// orchestrator.cgecForcedReadsPerRound /

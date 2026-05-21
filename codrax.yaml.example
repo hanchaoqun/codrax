@@ -92,6 +92,53 @@
 # cache_dir:
 
 # ---------------------------------------------------------------------------
+# Large-repo memory resilience  ·  大仓内存韧性
+# ---------------------------------------------------------------------------
+# EN  Scanning a very large repository (e.g. the Linux kernel: ~64k parsed
+#     source files) can grow the Go heap past available RAM and get the
+#     process OOM-killed mid-scan. See
+#     docs/design/large_repo_memory_resilience.md.
+# 中文 扫描超大仓库(如 Linux 内核:约 6.4 万个待解析源文件)可能让 Go 堆
+#     超出可用内存,进程在扫描中途被 OOM 杀掉。详见
+#     docs/design/large_repo_memory_resilience.md。
+
+# memory_soft_limit_enabled — install a soft heap limit (GOMEMLIMIT) at
+#   startup so the GC is pressured before host RAM is exhausted. The limit
+#   is soft: it bounds the GC target, not a hard ceiling. An operator-set
+#   GOMEMLIMIT environment variable always wins over the keys below.
+#   Default: true.
+#   启动时设置软堆上限(GOMEMLIMIT),让 GC 在宿主内存耗尽前提前回收。该
+#   上限是"软"的:只约束 GC 目标,不是硬天花板。环境变量 GOMEMLIMIT 优先
+#   于下列各键。默认 true。
+# memory_soft_limit_enabled: true
+
+# memory_soft_limit_fraction — fraction of detected host RAM to target.
+#   Clamped to (0, 1]; out-of-range values fall back to 0.8. Linux-only
+#   (reads /proc/meminfo); elsewhere set memory_soft_limit_bytes instead.
+#   Default: 0.8.
+#   目标占检测到的宿主 RAM 的比例。范围 (0, 1],超出则回退 0.8。仅 Linux
+#   (读 /proc/meminfo);其他平台请改用 memory_soft_limit_bytes。默认 0.8。
+# memory_soft_limit_fraction: 0.8
+
+# memory_soft_limit_bytes — explicit soft-limit override in bytes. When > 0
+#   it is used verbatim and host-RAM detection is skipped; raised to a
+#   512 MiB floor if lower. Default: 0 (auto from the fraction above).
+#   以字节为单位直接指定软上限。>0 时直接采用并跳过宿主 RAM 检测;低于
+#   512 MiB 会被抬到该下限。默认 0(由上面的比例自动推算)。
+# memory_soft_limit_bytes: 0
+
+# repomap_resume_interrupted_scan — let a repomap full scan reuse the
+#   already-parsed chunks left behind by an earlier scan that was
+#   interrupted (e.g. OOM-killed) before installing its cache manifest.
+#   Reused records are content-hash verified, so resume never changes scan
+#   output — a retry converges instead of restarting from zero.
+#   Default: true.
+#   让 repomap 全量扫描复用上一次被中断(如被 OOM 杀掉)的扫描在装好
+#   缓存清单前已落盘的 chunk。复用记录均经内容哈希校验,故 resume 绝不
+#   改变扫描结果——重试是逐步收敛而非从零重来。默认 true。
+# repomap_resume_interrupted_scan: true
+
+# ---------------------------------------------------------------------------
 # Tool output blobs  ·  工具输出 blob
 # ---------------------------------------------------------------------------
 # EN  Tool results larger than blob_max_inline_bytes are offloaded to a

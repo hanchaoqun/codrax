@@ -32,6 +32,18 @@ func SetCacheDir(dir string) {
 	cacheBaseDir = dir
 }
 
+// resumeInterruptedScan controls whether a full scan reuses the
+// already-parsed chunks left behind by an earlier scan that was
+// interrupted before installing its manifest. Default enabled;
+// SetResumeInterruptedScan honours the codrax.yaml knob at startup.
+var resumeInterruptedScan = true
+
+// SetResumeInterruptedScan toggles interrupted-scan resume. Called once
+// from main.go before any tool runs.
+func SetResumeInterruptedScan(enabled bool) {
+	resumeInterruptedScan = enabled
+}
+
 // CacheDir returns the cache directory for a given repo root.
 // Default: ~/.codrax/cache/repomap/<repo-slug>/
 // Configured: <cache_dir>/repomap/<repo-slug>/
@@ -97,6 +109,13 @@ const (
 	cacheHashesFile            = "hashes.md"
 	cacheFileInfosFile         = "fileinfos.json"
 	cacheFileInfosManifestFile = "fileinfos.manifest.json"
+
+	// cacheChunkDirMetaFile is a sentinel written into every chunk
+	// directory at creation time. It lets a resuming scan validate
+	// that orphan chunks (left by an interrupted scan with no
+	// installed manifest) were written by a compatible binary before
+	// trusting their contents.
+	cacheChunkDirMetaFile = "chunkdir.meta.json"
 
 	// cacheSchemaVersion tracks the cache-file layout. Bump this
 	// whenever the fileinfos.json wrapper shape changes (fields
@@ -165,6 +184,17 @@ type cacheFileInfosChunk struct {
 	File     string `json:"file"`
 	Count    int    `json:"count"`
 	Checksum string `json:"checksum"`
+}
+
+// chunkDirMeta is the chunkdir.meta.json sentinel. It carries enough
+// version information for a resuming scan to reject chunks written by
+// an incompatible binary, mirroring the validation cacheManifestVersionValid
+// applies to a fully installed manifest.
+type chunkDirMeta struct {
+	SchemaVersion     int            `json:"schema_version"`
+	ExtractorVersions map[string]int `json:"extractor_versions"`
+	RepoRoot          string         `json:"repo_root,omitempty"`
+	WrittenAt         string         `json:"written_at,omitempty"`
 }
 
 // FileInfoCacheWriter persists FileInfo records in bounded JSON chunks.
@@ -275,6 +305,19 @@ func NewFileInfoCacheWriter(dir, repoRoot string) (*FileInfoCacheWriter, error) 
 	if err := os.MkdirAll(chunkDir, 0o755); err != nil {
 		return nil, err
 	}
+	// Drop the resume sentinel immediately, so chunks written before an
+	// interruption are still recognisable as compatible. Written
+	// atomically so a concurrent process never reads a partial
+	// sentinel. Best-effort: a missing sentinel only means a later
+	// resume distrusts this dir.
+	if raw, err := json.Marshal(&chunkDirMeta{
+		SchemaVersion:     cacheSchemaVersion,
+		ExtractorVersions: cloneExtractorVersions(),
+		RepoRoot:          repoRoot,
+		WrittenAt:         time.Now().UTC().Format(time.RFC3339),
+	}); err == nil {
+		_ = writeFileAtomic(filepath.Join(chunkDir, cacheChunkDirMetaFile), raw)
+	}
 	return &FileInfoCacheWriter{
 		dir:        dir,
 		repoRoot:   repoRoot,
@@ -351,7 +394,11 @@ func (w *FileInfoCacheWriter) flush() error {
 	}
 	sum := sha256.Sum256(data)
 	name := fmt.Sprintf("chunk-%05d.json", len(w.chunks))
-	if err := os.WriteFile(filepath.Join(w.chunkDir, name), data, 0o644); err != nil {
+	// Atomic write: a chunk file is either absent or complete, never
+	// truncated. A scan killed mid-flush leaves only a .tmp- file,
+	// which resume skips — so neither an interrupted scan nor a
+	// concurrent process ever sees a corrupt chunk.
+	if err := writeFileAtomic(filepath.Join(w.chunkDir, name), data); err != nil {
 		return fmt.Errorf("write fileinfos chunk %s: %w", name, err)
 	}
 	chunk := cacheFileInfosChunk{
@@ -477,11 +524,20 @@ func cloneExtractorVersions() map[string]int {
 	return extractors
 }
 
+// chunkDirPruneGraceWindow shields a chunk directory from pruning for a
+// while after its last write. A concurrently-running scan streaming
+// into its own directory must not have that directory deleted out from
+// under it; a genuine orphan stops being modified and ages past the
+// window, at which point a later completed scan reclaims it. Resume
+// consumes orphans meanwhile, so the delayed cleanup costs nothing.
+const chunkDirPruneGraceWindow = 10 * time.Minute
+
 func pruneOldFileInfoChunkDirs(dir, keep string) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
+	cutoff := time.Now().Add(-chunkDirPruneGraceWindow)
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -490,8 +546,28 @@ func pruneOldFileInfoChunkDirs(dir, keep string) {
 		if name == keep || !strings.HasPrefix(name, "fileinfos.") || !strings.HasSuffix(name, ".d") {
 			continue
 		}
+		if info, ierr := entry.Info(); ierr == nil && info.ModTime().After(cutoff) {
+			continue
+		}
 		_ = os.RemoveAll(filepath.Join(dir, name))
 	}
+}
+
+// writeFileAtomic writes data to path via a temp file + rename, so no
+// reader — including a concurrent codrax process sharing the cache
+// directory — ever observes a partial file. The temp file is created
+// alongside the destination to keep the rename on one filesystem.
+func writeFileAtomic(path string, data []byte) error {
+	tmp := path + ".tmp-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 // gitHeadSHA returns the short SHA of repoRoot's current HEAD or
@@ -793,4 +869,175 @@ func reportProgress(progress func(done, total int), done, total int) {
 func NeedsFullRescan(cacheDir string) bool {
 	_, err := os.Stat(filepath.Join(cacheDir, cacheHashesFile))
 	return err != nil
+}
+
+// ResumableFileInfos returns parse results that an earlier interrupted
+// scan already produced and that are still valid for the given entries.
+//
+// A killed scan installs no manifest, so its chunk directory is
+// orphaned — nothing references it, yet its chunk-*.json files hold
+// complete parse results. This walks those orphans and returns the
+// records still safe to reuse, keyed by RelPath.
+//
+// "Safe to reuse" means all of: the chunk directory carries a
+// compatible resume sentinel (schema + extractor versions), the file
+// still exists, and its current content hash and detected language
+// match the cached record. Because reuse is content-hash gated, a
+// reused FileInfo is byte-identical to what a fresh parse would
+// produce — the resulting graph is unchanged.
+//
+// Returns nil when resume is disabled, when no orphan chunks exist, or
+// when nothing survives verification. Hashing runs in parallel.
+func ResumableFileInfos(cacheDir string, entries []FileEntry) map[string]*types.FileInfo {
+	if !resumeInterruptedScan || cacheDir == "" || len(entries) == 0 {
+		return nil
+	}
+	candidates := loadOrphanChunkFileInfos(cacheDir)
+	if len(candidates) == 0 {
+		return nil
+	}
+	return verifyResumableFileInfos(entries, candidates)
+}
+
+// liveManifestChunkDir returns the chunk-directory name referenced by a
+// currently valid installed manifest, or "" when there is none. Resume
+// must exclude this directory: it is the live cache, not an orphan.
+func liveManifestChunkDir(dir string) string {
+	raw, err := os.ReadFile(filepath.Join(dir, cacheFileInfosManifestFile))
+	if err != nil {
+		return ""
+	}
+	var manifest cacheFileInfosManifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return ""
+	}
+	if !cacheManifestVersionValid(manifest.SchemaVersion, manifest.ExtractorVersions) {
+		return ""
+	}
+	return manifest.ChunkDir
+}
+
+// loadOrphanChunkFileInfos collects FileInfo records from every chunk
+// directory that is NOT referenced by a valid installed manifest.
+func loadOrphanChunkFileInfos(dir string) map[string]*types.FileInfo {
+	dirEntries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	live := liveManifestChunkDir(dir)
+	out := make(map[string]*types.FileInfo)
+	for _, e := range dirEntries {
+		if !e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasPrefix(name, "fileinfos.") || !strings.HasSuffix(name, ".d") {
+			continue
+		}
+		if live != "" && name == live {
+			continue
+		}
+		loadChunkDirInto(filepath.Join(dir, name), out)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// loadChunkDirInto merges one chunk directory's FileInfo records into
+// out. The directory is skipped wholesale when its resume sentinel is
+// missing or version-incompatible. An individual chunk that fails to
+// parse (e.g. a partial write from a kill mid-flush) is skipped — the
+// files it held simply get re-parsed.
+func loadChunkDirInto(chunkDir string, out map[string]*types.FileInfo) {
+	metaRaw, err := os.ReadFile(filepath.Join(chunkDir, cacheChunkDirMetaFile))
+	if err != nil {
+		return
+	}
+	var meta chunkDirMeta
+	if err := json.Unmarshal(metaRaw, &meta); err != nil {
+		return
+	}
+	if !cacheManifestVersionValid(meta.SchemaVersion, meta.ExtractorVersions) {
+		return
+	}
+	files, err := os.ReadDir(chunkDir)
+	if err != nil {
+		return
+	}
+	for _, f := range files {
+		name := f.Name()
+		if f.IsDir() || !strings.HasPrefix(name, "chunk-") || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(chunkDir, name))
+		if err != nil {
+			continue
+		}
+		var part []*types.FileInfo
+		if err := json.Unmarshal(data, &part); err != nil {
+			continue
+		}
+		for _, fi := range part {
+			if fi != nil && fi.RelPath != "" {
+				out[fi.RelPath] = fi
+			}
+		}
+	}
+}
+
+// verifyResumableFileInfos keeps only the candidates whose current file
+// bytes (and detected language) still match the cached record. Hashing
+// the candidate set is parallelised the same way ChangedFiles is.
+func verifyResumableFileInfos(entries []FileEntry, candidates map[string]*types.FileInfo) map[string]*types.FileInfo {
+	type job struct {
+		entry     FileEntry
+		candidate *types.FileInfo
+	}
+	var jobList []job
+	for _, e := range entries {
+		if c := candidates[e.RelPath]; c != nil {
+			jobList = append(jobList, job{entry: e, candidate: c})
+		}
+	}
+	if len(jobList) == 0 {
+		return nil
+	}
+
+	verified := make(map[string]*types.FileInfo, len(jobList))
+	var mu sync.Mutex
+	jobs := make(chan job)
+	var wg sync.WaitGroup
+	for i := 0; i < changedFilesWorkers(len(jobList)); i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := range jobs {
+				// A re-classified extension would have parsed under a
+				// different extractor — never reuse across a language
+				// change.
+				if j.entry.Language != j.candidate.Language {
+					continue
+				}
+				h, err := hashFile(j.entry.AbsPath)
+				if err != nil || h != j.candidate.Hash {
+					continue
+				}
+				mu.Lock()
+				verified[j.entry.RelPath] = j.candidate
+				mu.Unlock()
+			}
+		}()
+	}
+	for _, j := range jobList {
+		jobs <- j
+	}
+	close(jobs)
+	wg.Wait()
+
+	if len(verified) == 0 {
+		return nil
+	}
+	return verified
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -14,6 +15,12 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/retrieve"
 	ctypes "github.com/hanchaoqun/codrax/internal/types"
 )
+
+// forceReclaimMinParseableFiles is the parse-count threshold above
+// which fullScan returns parse-phase memory to the OS before building
+// the graph. Below it the reclaim is skipped: small repos and REPL
+// turns gain nothing and should not pay the FreeOSMemory latency.
+const forceReclaimMinParseableFiles = 2000
 
 // RepoMapV2 is the tree-sitter-powered repo map tool.
 type RepoMapV2 struct {
@@ -570,8 +577,33 @@ func fullScan(repoRoot, cacheDir string, entries []FileEntry, query string, prog
 		}
 	}
 
-	// Parse all files in parallel
-	progress.startScan(len(parseable))
+	// Resume: reuse parse results from an earlier scan that was
+	// interrupted (e.g. OOM-killed) before it could install its cache
+	// manifest. index.ResumableFileInfos content-hash verifies every
+	// reused record, so the resulting graph is byte-identical to a
+	// full re-parse. Nil when resume is disabled or no orphan chunks
+	// exist — degrading cleanly to a from-scratch full scan.
+	resumed := index.ResumableFileInfos(cacheDir, parseable)
+	var toParse []FileEntry
+	var reused []*FileInfo
+	if len(resumed) > 0 {
+		reused = make([]*FileInfo, 0, len(resumed))
+		toParse = make([]FileEntry, 0, len(parseable)-len(resumed))
+		for _, e := range parseable {
+			if fi := resumed[e.RelPath]; fi != nil {
+				reused = append(reused, fi)
+			} else {
+				toParse = append(toParse, e)
+			}
+		}
+		logging.Info("repo_map: resuming interrupted scan — reused %d of %d source files, %d to re-parse",
+			len(reused), len(parseable), len(toParse))
+	} else {
+		toParse = parseable
+	}
+
+	// Parse the remaining files in parallel.
+	progress.startScan(len(toParse))
 	var scanErr error
 	defer func() {
 		progress.finish(scanErr == nil, scanErr)
@@ -591,7 +623,28 @@ func fullScan(repoRoot, cacheDir string, entries []FileEntry, query string, prog
 			cacheSink = w.Append
 		}
 	}
-	fileInfos, cacheStreamErr := index.ParseFilesWithProgressAndSink(parseable, repoRoot, onProgress, cacheSink)
+
+	// Stream reused records into the new scan's cache first, so an
+	// interruption of THIS scan still leaves them for the next resume:
+	// progress converges across repeated interruptions instead of
+	// restarting from zero.
+	var cacheStreamErr error
+	if cacheWriter != nil {
+		for _, fi := range reused {
+			if cacheStreamErr = cacheWriter.Append(fi); cacheStreamErr != nil {
+				break
+			}
+		}
+	}
+
+	parsedInfos, parseStreamErr := index.ParseFilesWithProgressAndSink(toParse, repoRoot, onProgress, cacheSink)
+	if cacheStreamErr == nil {
+		cacheStreamErr = parseStreamErr
+	}
+
+	fileInfos := make([]*FileInfo, 0, len(parseable)+len(unparseable))
+	fileInfos = append(fileInfos, reused...)
+	fileInfos = append(fileInfos, parsedInfos...)
 
 	// Add unparseable files with basic metadata
 	for _, e := range unparseable {
@@ -610,6 +663,15 @@ func fullScan(repoRoot, cacheDir string, entries []FileEntry, query string, prog
 			cacheWriter.Abort()
 			logging.Warning("repo_map: streaming fileinfo cache finalize failed: %v", err)
 		}
+	}
+
+	// Return parse-phase memory to the OS before the graph-build and
+	// ranking phases allocate on top of it: the file bytes and
+	// tree-sitter ASTs from parsing are all dead here. Gated on a
+	// meaningful parse count so small repos / REPL turns pay nothing.
+	if len(toParse) >= forceReclaimMinParseableFiles {
+		debug.FreeOSMemory()
+		logging.Info("repo_map: reclaimed parse-phase memory before graph build (%d source files parsed)", len(toParse))
 	}
 
 	// Build graph
