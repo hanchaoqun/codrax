@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -291,7 +292,9 @@ func renderV2BlockDecision(b *strings.Builder, blk types.AnswerBlock, doc *types
 	}
 	body := renderUserSurfaceText(blk.Text)
 	if blk.CurrentStatusVerdict != "" {
-		verdict := "`" + string(blk.CurrentStatusVerdict) + "`"
+		rawVerdict := string(blk.CurrentStatusVerdict)
+		body = stripLeadingDecisionVerdict(body, rawVerdict)
+		verdict := "`" + rawVerdict + "`"
 		if body != "" {
 			body = verdict + " — " + body
 		} else {
@@ -299,7 +302,9 @@ func renderV2BlockDecision(b *strings.Builder, blk types.AnswerBlock, doc *types
 		}
 	}
 	if blk.ErrorGranularityVerdict != "" {
-		verdict := "`" + string(blk.ErrorGranularityVerdict) + "`"
+		rawVerdict := string(blk.ErrorGranularityVerdict)
+		body = stripLeadingDecisionVerdict(body, rawVerdict)
+		verdict := "`" + rawVerdict + "`"
 		if body != "" {
 			body = verdict + " — " + body
 		} else {
@@ -312,6 +317,39 @@ func renderV2BlockDecision(b *strings.Builder, blk types.AnswerBlock, doc *types
 		fmt.Fprintf(b, " (%s)", cite)
 	}
 	b.WriteString("\n\n")
+}
+
+func stripLeadingDecisionVerdict(body, verdict string) string {
+	body = strings.TrimSpace(body)
+	verdict = strings.TrimSpace(verdict)
+	if body == "" || verdict == "" {
+		return body
+	}
+	candidates := []string{"`" + verdict + "`", verdict}
+	for _, candidate := range candidates {
+		if len(body) < len(candidate) || !strings.EqualFold(body[:len(candidate)], candidate) {
+			continue
+		}
+		if len(body) > len(candidate) {
+			next, _ := utf8.DecodeRuneInString(body[len(candidate):])
+			if !isDecisionVerdictBoundary(next) {
+				continue
+			}
+		}
+		rest := strings.TrimSpace(body[len(candidate):])
+		rest = strings.TrimLeft(rest, " \t\r\n-:：—–，,。.;；")
+		return strings.TrimSpace(rest)
+	}
+	return body
+}
+
+func isDecisionVerdictBoundary(r rune) bool {
+	switch r {
+	case ' ', '\t', '\r', '\n', '-', ':', '：', '—', '–', '，', ',', '。', '.', ';', '；':
+		return true
+	default:
+		return false
+	}
 }
 
 func renderAnswerDocV2ExactResolution(b *strings.Builder, exact *types.AnswerExactResolution, lang answerDocLang) {

@@ -114,6 +114,43 @@ func TestNormalizeAnswerAggregateFacts_PreservesRoleAndProvenance(t *testing.T) 
 	}
 }
 
+func TestNormalizeAnswerAggregateFacts_AcceptsCategoricalBehaviorOutcomes(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{
+		{
+			Kind:  AnswerAggregateBehaviorOutcome,
+			Label: "emit_evidence malformed item handling",
+			Value: "item_rejected_batch_succeeds",
+			Role:  AnswerAggregateRolePrincipalAnswer,
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "subject", Value: "emit_evidence"},
+				{Name: "axis", Value: "invalid_item"},
+			},
+			SupportRefs: []string{"internal/tool/emit_evidence.go:560"},
+		},
+		{
+			Kind:  AnswerAggregateErrorGranularity,
+			Label: "failure scope verdict",
+			Value: "per_item_rejection",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "scope", Value: "batch"},
+			},
+			SupportRefs: []string{"internal/tool/emit_evidence.go:560"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("categorical aggregate facts should validate: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d facts, want 2: %+v", len(got), got)
+	}
+	if got[0].Value != "item_rejected_batch_succeeds" || got[1].Value != "per_item_rejection" {
+		t.Fatalf("categorical values should be preserved, got %+v", got)
+	}
+	if got[0].SupportRefs[0] != "internal/tool/emit_evidence.go:560" {
+		t.Fatalf("support refs should be preserved: %+v", got[0].SupportRefs)
+	}
+}
+
 func TestEffectiveCitationFloorForPrincipalMemberSets_CapsSingletonExactSet(t *testing.T) {
 	rm := &RequestModel{
 		Intent: IntentEnumerate,

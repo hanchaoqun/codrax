@@ -27,6 +27,8 @@ const (
 	AnswerAggregateMemberSet           AnswerAggregateKind = "member_set"
 	AnswerAggregateNegativeSearch      AnswerAggregateKind = "negative_search"
 	AnswerAggregateNegativeObservation AnswerAggregateKind = "negative_observation"
+	AnswerAggregateBehaviorOutcome     AnswerAggregateKind = "behavior_outcome"
+	AnswerAggregateErrorGranularity    AnswerAggregateKind = "error_granularity_verdict"
 )
 
 var allAnswerAggregateKinds = []AnswerAggregateKind{
@@ -39,6 +41,8 @@ var allAnswerAggregateKinds = []AnswerAggregateKind{
 	AnswerAggregateMemberSet,
 	AnswerAggregateNegativeSearch,
 	AnswerAggregateNegativeObservation,
+	AnswerAggregateBehaviorOutcome,
+	AnswerAggregateErrorGranularity,
 }
 
 // AllAnswerAggregateKinds returns the canonical non-empty aggregate

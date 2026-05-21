@@ -190,6 +190,34 @@ func TestCompileObservationLedger_CompilesExistingCarriers(t *testing.T) {
 	}
 }
 
+func TestCompileObservationLedger_CategoricalAggregateIsNotCount(t *testing.T) {
+	facts, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:  AnswerAggregateErrorGranularity,
+		Label: "failure scope verdict",
+		Value: "per_item_rejection",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []AnswerAggregateDimension{
+			{Name: "target", Value: "emit_evidence invalid item"},
+			{Name: "predicate", Value: "failure_scope"},
+		},
+		SupportRefs: []string{"internal/tool/emit_evidence.go:560"},
+	}})
+	if err != nil {
+		t.Fatalf("NormalizeAnswerAggregateFacts: %v", err)
+	}
+	ledger := CompileObservationLedger(ObservationLedgerInput{AggregateFacts: facts})
+	got := findObservationRecord(t, ledger, "aggregate:0#current_source")
+	if got.Value != "per_item_rejection" {
+		t.Fatalf("categorical value should be preserved, got %+v", got)
+	}
+	if got.ResultCount != nil {
+		t.Fatalf("categorical aggregate must not become a numeric count: %+v", got)
+	}
+	if len(got.SupportRefs) != 1 || got.SupportRefs[0] != "internal/tool/emit_evidence.go:560" {
+		t.Fatalf("support refs should be preserved: %+v", got.SupportRefs)
+	}
+}
+
 func TestCompileObservationLedger_MixedDiffAndCurrentSourceStaySeparate(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		EvidenceItems: []EvidenceItem{{

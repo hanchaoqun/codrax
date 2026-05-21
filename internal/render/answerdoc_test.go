@@ -275,6 +275,26 @@ func TestRenderV2_BlockDecisionRendersErrorGranularityVerdict(t *testing.T) {
 	}
 }
 
+func TestRenderV2_BlockDecisionDedupesLeadingTypedVerdict(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:                      "d1",
+				Kind:                    types.BlockDecision,
+				Text:                    "per_item_rejection。batch 继续处理其余项。",
+				ErrorGranularityVerdict: types.ErrorGranularityPerItemRejection,
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "zh")
+	if strings.Count(out, "per_item_rejection") != 1 {
+		t.Fatalf("typed verdict should render once, got:\n%s", out)
+	}
+	if !strings.Contains(out, "`per_item_rejection` — batch 继续处理其余项。") {
+		t.Fatalf("decision body should keep model rationale after typed verdict, got:\n%s", out)
+	}
+}
+
 func TestRenderV2_BlockDecisionRendersCurrentStatusVerdict(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{

@@ -878,6 +878,43 @@ func TestEmitInvestigationComplete_RuntimeNegativeObservationCompat(t *testing.T
 	}
 }
 
+func TestEmitInvestigationComplete_AcceptsCategoricalBehaviorAggregate(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"invalid emit_evidence rows are rejected per item while the batch can still accept grounded siblings",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"error_granularity_verdict",
+			"label":"emit_evidence invalid item failure scope",
+			"value":"per_item_rejection",
+			"role":"principal_answer",
+			"dimensions":[
+				{"name":"target","value":"emit_evidence invalid item"},
+				{"name":"predicate","value":"failure_scope"}
+			],
+			"support_refs":["internal/tool/emit_evidence.go:560"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("categorical aggregate should not be forced into count/member schemas: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 {
+		t.Fatalf("expected one aggregate fact, got %+v", facts)
+	}
+	if facts[0].Kind != types.AnswerAggregateErrorGranularity || facts[0].Value != "per_item_rejection" {
+		t.Fatalf("categorical aggregate not preserved: %+v", facts[0])
+	}
+}
+
 func TestEmitInvestigationComplete_RuntimeArtifactDropsInvalidOptionalAggregateFact(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{
