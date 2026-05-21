@@ -1,6 +1,10 @@
 package types
 
-import "testing"
+import (
+	"os"
+	"strings"
+	"testing"
+)
 
 func TestObservationLedgerExternalOriginsAreValidAndNonSource(t *testing.T) {
 	for _, tc := range []struct {
@@ -214,6 +218,66 @@ func TestCompileObservationLedger_MixedDiffAndCurrentSourceStaySeparate(t *testi
 	}
 }
 
+func TestCompileObservationLedger_CurrentSourceHardRequiresExactLineSpan(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		EvidenceItems: []EvidenceItem{{
+			ID:              "ungrounded",
+			Source:          "internal/current.go",
+			LineStart:       0,
+			Summary:         "load-bearing but not line-addressable",
+			Salience:        SalienceLoadBearing,
+			GroundingStatus: GroundingGrounded,
+		}},
+		AggregateFacts: []AnswerAggregateFact{{
+			Kind:  AnswerAggregateMemberSet,
+			Label: "current source aggregate without support",
+			Value: "1",
+			Role:  AnswerAggregateRolePrincipalAnswer,
+		}},
+	})
+
+	ev := findObservationRecord(t, ledger, "evidence:ungrounded")
+	if ObservationRecordHasCurrentSourceLineSpan(ev) {
+		t.Fatalf("line-start 0 evidence must not be citation-eligible: %+v", ev)
+	}
+	if ev.GroundingPolicy == ClaimGroundingHard {
+		t.Fatalf("current-source ledger record without exact span must downgrade from hard: %+v", ev)
+	}
+	agg := findObservationRecord(t, ledger, "aggregate:0#current_source")
+	if agg.GroundingPolicy == ClaimGroundingHard {
+		t.Fatalf("current-source aggregate without source support must not become hard citation pressure: %+v", agg)
+	}
+}
+
+func TestObservationRecordCurrentSourceSpanDistinguishesExternalCoordinates(t *testing.T) {
+	logRecord := ObservationRecord{
+		Origin:    AnswerEvidenceOriginRuntimeArtifact,
+		SourceRef: ObservationSourceRef{Kind: ObservationSourceRuntimeArtifact, ArtifactKind: "log"},
+		Span:      ObservationSpan{LineStart: 42},
+	}
+	if ObservationRecordHasCurrentSourceLineSpan(logRecord) || ObservationRecordHasStrongCurrentSourceAnchor(logRecord) {
+		t.Fatalf("artifact-local log lines must not become current-source citation anchors: %+v", logRecord)
+	}
+	currentRecord := ObservationRecord{
+		Origin: AnswerEvidenceOriginCurrentSource,
+		SourceRef: ObservationSourceRef{
+			Kind: ObservationSourceCurrentSource,
+			Path: "internal/service.go",
+		},
+		Span:            ObservationSpan{LineStart: 42},
+		AnchorKind:      AnchorAssignment,
+		EvidenceScope:   ScopeLine,
+		GroundingStatus: GroundingRecovered,
+	}
+	if !ObservationRecordHasCurrentSourceLineSpan(currentRecord) || !ObservationRecordHasStrongCurrentSourceAnchor(currentRecord) {
+		t.Fatalf("recovered current-source assignment should remain exact enough for current-code ranking: %+v", currentRecord)
+	}
+	currentRecord.GroundingStatus = GroundingUngrounded
+	if ObservationRecordHasCurrentSourceLineSpan(currentRecord) {
+		t.Fatalf("ungrounded current-source lead must not be citation-eligible: %+v", currentRecord)
+	}
+}
+
 func TestCompileObservationLedger_MixedPositiveAndNegativeExternalFactsStayTargetScoped(t *testing.T) {
 	facts, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{
 		{
@@ -255,6 +319,23 @@ func TestCompileObservationLedger_MixedPositiveAndNegativeExternalFactsStayTarge
 	}
 	if positive.Subject == negative.Subject {
 		t.Fatalf("positive and negative facts collapsed to one target: %+v / %+v", positive, negative)
+	}
+}
+
+func TestObservationLedgerTypeLayerDoesNotImportGroundingTool(t *testing.T) {
+	for _, file := range []string{
+		"observation_ledger.go",
+		"observation_ledger_context.go",
+		"answer_evidence_origin.go",
+		"answer_claim_binding.go",
+	} {
+		body, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatalf("read %s: %v", file, err)
+		}
+		if strings.Contains(string(body), "internal/tool/ground") {
+			t.Fatalf("%s must not import or depend on internal/tool/ground; external observations cannot enter repo grounding", file)
+		}
 	}
 }
 

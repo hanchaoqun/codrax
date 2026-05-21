@@ -171,6 +171,11 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 		if record.GroundingPolicy == ClaimGroundingUnknown {
 			record.GroundingPolicy = AnswerClaimBindingGroundingPolicy(record.Origin, record.Role)
 		}
+		if record.Origin == AnswerEvidenceOriginCurrentSource &&
+			record.GroundingPolicy == ClaimGroundingHard &&
+			!ObservationRecordHasCurrentSourceLineSpan(record) {
+			record.GroundingPolicy = ClaimGroundingRepairable
+		}
 		out = append(out, record)
 	}
 	compileEvidenceItemObservations(input.EvidenceItems, add)
@@ -211,6 +216,54 @@ func ObservationSourceKindForOrigin(origin AnswerEvidenceOrigin) ObservationSour
 	}
 }
 
+// ObservationRecordHasCurrentSourceLineSpan reports whether a ledger record has
+// an exact current-checkout file span. This is the shared predicate for
+// source-line citation eligibility; external artifact lines, VCS hunks, command
+// output rows, and ungrounded current-source leads deliberately return false.
+func ObservationRecordHasCurrentSourceLineSpan(record ObservationRecord) bool {
+	if record.Origin != AnswerEvidenceOriginCurrentSource {
+		return false
+	}
+	if record.SourceRef.Kind != ObservationSourceCurrentSource && record.SourceRef.Kind != ObservationSourceUnknown {
+		return false
+	}
+	if strings.TrimSpace(record.SourceRef.Path) == "" || record.Span.LineStart <= 0 {
+		return false
+	}
+	if record.GroundingStatus == GroundingUngrounded {
+		return false
+	}
+	switch record.EvidenceScope {
+	case ScopeLine, ScopeLineRange, ScopeSection, ScopeFile, "":
+		return true
+	default:
+		return false
+	}
+}
+
+// ObservationRecordHasStrongCurrentSourceAnchor is the prompt-budget priority
+// predicate for current-source records whose anchor shape is specific enough to
+// explain current behavior. It is stricter than "has a line span" but still
+// supports mechanisms, config/literal facts, and definitions across languages.
+func ObservationRecordHasStrongCurrentSourceAnchor(record ObservationRecord) bool {
+	if !ObservationRecordHasCurrentSourceLineSpan(record) {
+		return false
+	}
+	switch record.AnchorKind {
+	case AnchorDefinition,
+		AnchorCall,
+		AnchorCondition,
+		AnchorReturn,
+		AnchorAssignment,
+		AnchorInitializer,
+		AnchorImport,
+		AnchorStringLiteral:
+		return true
+	default:
+		return false
+	}
+}
+
 func observationRecordRank(record ObservationRecord, intent *AnswerIntentContract) int {
 	rank := 1000
 	requestedOrigin := intent == nil || intent.HasOrigin(record.Origin)
@@ -221,7 +274,7 @@ func observationRecordRank(record ObservationRecord, intent *AnswerIntentContrac
 	}
 	if record.Origin == AnswerEvidenceOriginCurrentSource && requestedOrigin {
 		rank -= 120
-		if observationRecordHasExactCurrentSourceAnchor(record) {
+		if ObservationRecordHasStrongCurrentSourceAnchor(record) {
 			rank -= 160
 		}
 	}
@@ -248,24 +301,6 @@ func observationRecordRank(record ObservationRecord, intent *AnswerIntentContrac
 		rank -= 5
 	}
 	return rank
-}
-
-func observationRecordHasExactCurrentSourceAnchor(record ObservationRecord) bool {
-	if record.Origin != AnswerEvidenceOriginCurrentSource {
-		return false
-	}
-	if strings.TrimSpace(record.SourceRef.Path) == "" || record.Span.LineStart <= 0 {
-		return false
-	}
-	if record.GroundingStatus == GroundingUngrounded {
-		return false
-	}
-	switch record.EvidenceScope {
-	case ScopeLine, ScopeLineRange, ScopeSection, ScopeFile, "":
-	default:
-		return false
-	}
-	return record.AnchorKind == AnchorDefinition || record.AnchorKind == AnchorInitializer
 }
 
 func compileEvidenceItemObservations(items []EvidenceItem, add func(ObservationRecord)) {

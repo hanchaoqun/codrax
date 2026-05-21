@@ -48,6 +48,43 @@ func TestCompileAnswerClaimBindingsFromAggregateFacts_CurrentSourcePrincipalIsHa
 	if len(b.SupportRefs) != 1 {
 		t.Fatalf("support refs were not preserved: %+v", b)
 	}
+	if !AnswerClaimBindingHasExactCurrentSourceSupport(b) {
+		t.Fatalf("current-source hard binding should report exact source support: %+v", b)
+	}
+}
+
+func TestCompileAnswerClaimBindingsFromAggregateFacts_CurrentSourceWithoutSupportIsRepairable(t *testing.T) {
+	rm := RequestModel{Intent: IntentExplain}
+	facts := []AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "current code symbols without source refs",
+		Value:   "1",
+		Role:    AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Gate.Run"},
+	}}
+
+	got := CompileAnswerClaimBindingsFromAggregateFacts(facts, &rm, nil)
+	b := assertClaimBinding(t, got, AnswerEvidenceOriginCurrentSource, ClaimGroundingRepairable, AnswerRequestedOutputSummary)
+	if AnswerClaimBindingHasExactCurrentSourceSupport(b) {
+		t.Fatalf("binding without support refs must not be current-source citation eligible: %+v", b)
+	}
+}
+
+func TestCompileAnswerClaimBindingsFromAggregateFacts_SourceLocationMemberCarriesExactSupport(t *testing.T) {
+	rm := RequestModel{Intent: IntentEnumerate}
+	facts := []AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "source locations",
+		Value:   "1",
+		Role:    AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"internal/analysis/gate.go:42"},
+	}}
+
+	got := CompileAnswerClaimBindingsFromAggregateFacts(facts, &rm, nil)
+	b := assertClaimBinding(t, got, AnswerEvidenceOriginCurrentSource, ClaimGroundingHard, AnswerRequestedOutputSummary)
+	if !AnswerClaimBindingHasExactCurrentSourceSupport(b) {
+		t.Fatalf("source-location member should carry exact current-source support into binding: %+v", b)
+	}
 }
 
 func TestCompileAnswerClaimBindingsFromAggregateFacts_RuntimeArtifactDoesNotBecomeCurrentSource(t *testing.T) {

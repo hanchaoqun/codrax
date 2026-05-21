@@ -3523,6 +3523,7 @@ func renderAnswerDocClaimBindings(ctx *types.AgentContext) string {
 	b.WriteString("## Claim Binding / Gate Policy Handoff\n\n")
 	b.WriteString("- The following claim bindings are compiled from typed `aggregate_facts`, runtime artifacts, evidence origins, and requested outputs. They are the shared interpretation for answer-writing and review lanes.\n")
 	b.WriteString("- Do not translate non-`current_source` bindings into current-source file:line requirements. Use each binding's origin-specific support shape.\n")
+	b.WriteString("- A `current_source` binding can create source-line citation pressure only when it carries exact source support; otherwise treat it as repairable context and use grounded evidence rows / ledger records for citations.\n")
 	b.WriteString("- `hard` means the principal claim itself must be exact; `repairable` / `soft` defects should be locally repaired or disclosed in a localized supplement rather than forcing a broad rewrite.\n")
 	ledger := answerDocObservationLedger(ctx)
 	limit := len(bindings)
@@ -3540,8 +3541,12 @@ func renderAnswerDocClaimBindings(ctx *types.AgentContext) string {
 		if len(ledgerIDs) > 0 {
 			ledgerPart = fmt.Sprintf("; ledger_records=%s", strings.Join(ledgerIDs, ","))
 		}
+		exactSourcePart := ""
+		if binding.Origin == types.AnswerEvidenceOriginCurrentSource {
+			exactSourcePart = fmt.Sprintf("; exact_source_support=%t", types.AnswerClaimBindingHasExactCurrentSourceSupport(binding))
+		}
 		fmt.Fprintf(&b,
-			"- `%s`: origin=`%s`; policy=`%s`; outputs=%s; %s; target=%q; support_refs=%d%s\n",
+			"- `%s`: origin=`%s`; policy=`%s`; outputs=%s; %s; target=%q; support_refs=%d%s%s\n",
 			binding.ClaimID,
 			binding.Origin,
 			binding.GroundingPolicy,
@@ -3549,6 +3554,7 @@ func renderAnswerDocClaimBindings(ctx *types.AgentContext) string {
 			source,
 			binding.TargetRef,
 			len(binding.SupportRefs),
+			exactSourcePart,
 			ledgerPart,
 		)
 	}

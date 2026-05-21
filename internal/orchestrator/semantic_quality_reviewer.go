@@ -144,12 +144,13 @@ type FacetCoverageDepth struct {
 // rendered answer respects this boundary, not infer new facts from support
 // refs.
 type SemanticClaimBindingSummary struct {
-	ClaimID         string
-	Origin          string
-	Policy          string
-	Outputs         []string
-	Target          string
-	SupportRefCount int
+	ClaimID            string
+	Origin             string
+	Policy             string
+	Outputs            []string
+	Target             string
+	SupportRefCount    int
+	ExactSourceSupport bool
 }
 
 // SemanticObservationSummary is the reviewer-facing projection of one
@@ -683,10 +684,14 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 	}
 	if len(in.ClaimBindings) > 0 {
 		b.WriteString("\n## CLAIM BINDINGS (typed origin / gate-policy handoff)\n")
-		b.WriteString("Each row: claim_id / origin / policy / requested outputs / target / support_ref count. Origins are evidence provenance, not answer shapes. Do not demand current-source file:line grounding for non-current-source origins unless another hard current-source claim binding is present.\n\n")
+		b.WriteString("Each row: claim_id / origin / policy / requested outputs / target / support_ref count. Origins are evidence provenance, not answer shapes. Do not demand current-source file:line grounding for non-current-source origins; even current-source bindings create citation pressure only when exact source support is present.\n\n")
 		for _, cb := range in.ClaimBindings {
-			fmt.Fprintf(&b, "- claim_id=%q origin=`%s` policy=`%s` outputs=%s target=%q support_refs=%d\n",
-				cb.ClaimID, cb.Origin, cb.Policy, strings.Join(cb.Outputs, ","), cb.Target, cb.SupportRefCount)
+			exactSource := ""
+			if cb.Origin == string(types.AnswerEvidenceOriginCurrentSource) {
+				exactSource = fmt.Sprintf(" exact_source_support=%t", cb.ExactSourceSupport)
+			}
+			fmt.Fprintf(&b, "- claim_id=%q origin=`%s` policy=`%s` outputs=%s target=%q support_refs=%d%s\n",
+				cb.ClaimID, cb.Origin, cb.Policy, strings.Join(cb.Outputs, ","), cb.Target, cb.SupportRefCount, exactSource)
 		}
 	}
 	if len(in.Observations) > 0 {
@@ -736,12 +741,13 @@ func semanticClaimBindingSummaries(bindings []types.AnswerClaimBinding) []Semant
 			outputs = append(outputs, string(output))
 		}
 		out = append(out, SemanticClaimBindingSummary{
-			ClaimID:         strings.TrimSpace(b.ClaimID),
-			Origin:          string(b.Origin),
-			Policy:          string(b.GroundingPolicy),
-			Outputs:         outputs,
-			Target:          strings.TrimSpace(b.TargetRef),
-			SupportRefCount: len(b.SupportRefs),
+			ClaimID:            strings.TrimSpace(b.ClaimID),
+			Origin:             string(b.Origin),
+			Policy:             string(b.GroundingPolicy),
+			Outputs:            outputs,
+			Target:             strings.TrimSpace(b.TargetRef),
+			SupportRefCount:    len(b.SupportRefs),
+			ExactSourceSupport: types.AnswerClaimBindingHasExactCurrentSourceSupport(b),
 		})
 	}
 	return out

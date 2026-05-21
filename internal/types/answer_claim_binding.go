@@ -10,18 +10,19 @@ import (
 // output shape, and grounding policy in one deterministic record so downstream
 // code does not independently reinterpret history/count/runtime/source facts.
 type AnswerClaimBinding struct {
-	ClaimID          string
-	Source           string
-	AggregateIndex   int
-	AggregateKind    AnswerAggregateKind
-	AggregateRole    AnswerAggregateRole
-	Label            string
-	Value            string
-	TargetRef        string
-	Origin           AnswerEvidenceOrigin
-	RequestedOutputs []AnswerRequestedOutput
-	SupportRefs      []string
-	GroundingPolicy  ClaimGroundingPolicy
+	ClaimID            string
+	Source             string
+	AggregateIndex     int
+	AggregateKind      AnswerAggregateKind
+	AggregateRole      AnswerAggregateRole
+	Label              string
+	Value              string
+	TargetRef          string
+	Origin             AnswerEvidenceOrigin
+	RequestedOutputs   []AnswerRequestedOutput
+	SupportRefs        []string
+	ExactSourceSupport bool
+	GroundingPolicy    ClaimGroundingPolicy
 }
 
 func CompileAnswerClaimBindings(facts []AnswerAggregateFact, rm *RequestModel, answerContract *AnswerContract) []AnswerClaimBinding {
@@ -61,19 +62,27 @@ func CompileAnswerClaimBindingsFromAggregateFacts(facts []AnswerAggregateFact, r
 			if origin == AnswerEvidenceOriginUnknown || !origin.IsValid() {
 				continue
 			}
+			exactCurrentSourceSupport := origin == AnswerEvidenceOriginCurrentSource && answerAggregateFactHasExactCurrentSourceSupport(fact)
+			policy := AnswerClaimBindingGroundingPolicy(origin, role)
+			if origin == AnswerEvidenceOriginCurrentSource &&
+				policy == ClaimGroundingHard &&
+				!exactCurrentSourceSupport {
+				policy = ClaimGroundingRepairable
+			}
 			out = append(out, AnswerClaimBinding{
-				ClaimID:          answerClaimBindingID(idx, origin),
-				Source:           "aggregate_facts",
-				AggregateIndex:   idx,
-				AggregateKind:    fact.Kind,
-				AggregateRole:    role,
-				Label:            fact.Label,
-				Value:            fact.Value,
-				TargetRef:        answerClaimBindingTargetRef(fact),
-				Origin:           origin,
-				RequestedOutputs: cloneAnswerRequestedOutputs(outputs),
-				SupportRefs:      cloneAnswerClaimBindingStrings(fact.SupportRefs),
-				GroundingPolicy:  AnswerClaimBindingGroundingPolicy(origin, role),
+				ClaimID:            answerClaimBindingID(idx, origin),
+				Source:             "aggregate_facts",
+				AggregateIndex:     idx,
+				AggregateKind:      fact.Kind,
+				AggregateRole:      role,
+				Label:              fact.Label,
+				Value:              fact.Value,
+				TargetRef:          answerClaimBindingTargetRef(fact),
+				Origin:             origin,
+				RequestedOutputs:   cloneAnswerRequestedOutputs(outputs),
+				SupportRefs:        cloneAnswerClaimBindingStrings(fact.SupportRefs),
+				ExactSourceSupport: exactCurrentSourceSupport,
+				GroundingPolicy:    policy,
 			})
 		}
 	}
@@ -137,6 +146,43 @@ func AnswerClaimBindingGroundingPolicy(origin AnswerEvidenceOrigin, role AnswerA
 	default:
 		return ClaimGroundingSoft
 	}
+}
+
+// AnswerClaimBindingHasExactCurrentSourceSupport reports whether a compiled
+// claim binding carries an explicit current-checkout source location. It is a
+// citation-eligibility helper, not an evidence classifier.
+func AnswerClaimBindingHasExactCurrentSourceSupport(binding AnswerClaimBinding) bool {
+	if binding.Origin != AnswerEvidenceOriginCurrentSource {
+		return false
+	}
+	if binding.ExactSourceSupport {
+		return true
+	}
+	for _, ref := range binding.SupportRefs {
+		if answerSupportRefHasSourceLine(ref) {
+			return true
+		}
+	}
+	return false
+}
+
+func answerAggregateFactHasExactCurrentSourceSupport(fact AnswerAggregateFact) bool {
+	for _, ref := range fact.SupportRefs {
+		if answerSupportRefHasSourceLine(ref) {
+			return true
+		}
+	}
+	for _, member := range fact.Members {
+		if answerSupportRefHasSourceLine(member) {
+			return true
+		}
+	}
+	return false
+}
+
+func answerSupportRefHasSourceLine(raw string) bool {
+	_, loc, ok := ParseAnswerSupportRefMemberLocation(raw)
+	return ok && strings.TrimSpace(loc.File) != "" && loc.LineStart > 0
 }
 
 func answerClaimBindingID(index int, origin AnswerEvidenceOrigin) string {

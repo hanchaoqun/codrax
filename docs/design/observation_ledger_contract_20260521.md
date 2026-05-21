@@ -389,8 +389,19 @@ flowchart TD
 - [x] Add shared `AnswerEvidenceOriginCarriesOriginSpecificSupport` helper so
   VCS/diff/runtime/command/repo-negative/cross-repo/external/web/MCP/connector
   support lanes are not re-listed by every consumer.
-- [ ] Keep source evidence gates hard only for `origin=current_source` records with exact source spans.
+- [x] Add shared helpers for current-source citation eligibility:
+  `ObservationRecordHasCurrentSourceLineSpan`,
+  `ObservationRecordHasStrongCurrentSourceAnchor`, and
+  `AnswerClaimBindingHasExactCurrentSourceSupport`. These helpers are the only
+  accepted predicates for deciding that a current-source claim can create
+  source-line citation pressure.
+- [x] Keep source evidence gates hard only for `origin=current_source` records
+  with exact source spans, and downgrade current-source aggregate/ledger records
+  without file-line support to `repairable` rather than forcing a broad rewrite.
 - [ ] Make non-source repair paths prefer local supplement / boundary disclosure over broad finalizer rewrite.
+- [x] Add type-layer red-line tests that external/web/MCP/connector observations
+  never import `internal/tool/ground`, never become repo citations, and preserve
+  origin-specific support instead of fake `file:line` anchors.
 - [ ] Add regression tests for no fake `file:line`, no duplicated raw table, no stale failed closure record.
 
 ### Batch 6 — Eval And Gap Closure
@@ -487,3 +498,19 @@ flowchart TD
   narrative-support path consumes it. Tests cover new external/MCP origins so
   future consumers do not forget them when deciding whether a non-source claim
   can be locally disclosed instead of forcing current-source citation repair.
+- 2026-05-21: Batch 5 follow-up scope refreshed: the next implementation slice
+  centralizes current-source citation eligibility in the type layer. The intent
+  is not to weaken exact current-code grounding; it is to prevent aggregate,
+  command, git, log, trace, MCP, web, or connector observations from being
+  mistaken for source-line citation obligations when they do not carry an exact
+  current-checkout span.
+- 2026-05-21: Batch 5 current-source citation eligibility implemented:
+  `ObservationRecordHasCurrentSourceLineSpan` and
+  `ObservationRecordHasStrongCurrentSourceAnchor` now drive ledger ranking and
+  hard-policy downgrades, while `AnswerClaimBindingHasExactCurrentSourceSupport`
+  exposes the same distinction to finalizer and reviewer prompts. Current-source
+  aggregate/ledger records without exact line support become `repairable`; log /
+  trace artifact-local lines, VCS hunks, command output rows, MCP/web/connector
+  resources, and other non-current origins stay origin-specific support. Tests
+  cover source-location members, no-support current-source aggregates, artifact
+  local lines, and type-layer no-import of `internal/tool/ground`.
