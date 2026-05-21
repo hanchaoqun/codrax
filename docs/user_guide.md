@@ -1,7 +1,9 @@
 # codrax 使用指南
 
 > **CODRAX — Code Of Deterministic Reasoning, Anchored eXplanation**
+>
 > **CODRAX —— 推理确定,解释锚定**
+>
 > 每条结论锚到字节,每段推理可被复核。
 
 ---
@@ -60,7 +62,7 @@
 
 只需要 3 样东西:
 
-1. `codrax` 可执行文件(从 Release 下载;Windows 是 `codrax.exe`)
+1. `codrax` 可执行文件 —— 下载预编译发布包(最省事),或 `git clone` 仓库后 `make` 自行构建(构建需 CGO 工具链:macOS `xcode-select --install`、Debian/Ubuntu `gcc musl-tools`)
 2. 一把能访问 OpenAI 兼容接口的 LLM API key(OpenAI / DeepSeek / Qwen / 本地 vLLM / Ollama 都兼容)
 3. 你想问的代码仓库
 
@@ -105,10 +107,14 @@ llm:
 
 ## 1.5 第一个问题
 
+> **codrax 把「你启动它时所在的目录」当作要分析的代码仓库。** 它不会弹窗问你「要分析哪个项目」—— 默认分析的就是当前工作目录(等价 `--repo .`)。所以使用前请务必先 `cd` 进你想分析的项目根目录,再运行 `codrax`;在别的目录启动,它就会去分析那个目录。
+
 ```bash
-cd /path/to/your/repo    # 任何 git 仓
-codrax
+cd /path/to/your/repo    # ① 先进入你要分析的代码仓库(任何 git 仓)
+codrax                   # ② 再启动;它会索引「当前目录」这个仓库
 ```
+
+启动后 codrax 会在当前目录建一个 `.codrax/` 子目录,存放日志、对话记忆、缓存等运行产物;读模式只读你的源码、从不修改。想分析的不是当前目录时,用 `--repo /path/to/repo` 显式指定。
 
 看到这个就是启动成功了(每一行都是真实输出,版本号和路径会按你的环境替换):
 
@@ -1068,7 +1074,7 @@ agents:
 代码默认值 < codrax.yaml < 命令行 flag
 ```
 
-只有这些 flag 会覆盖 yaml:`--repo` / `--branch` / `--lang` / `--log-level` / `--log-dir` / `--log-stdout` / `--memory-dir` / `--cache-dir` / `--pipeline-max-steps` / `--pipeline-max-retries` / `--pipeline-max-stage-visits` / `--log` / `--log-text` / `--log-source-prefix` / `--htrace` / `--htrace-text` / `--atrace` / `--atrace-text` / `--chitchat-classifier` / `--mode` / `--auto-apply` / `--plan-out` / `--plan-file` / `--auto-init-repo` / `--allow-scaffold` / `--color`。
+只有这些 flag 会覆盖 yaml:`--repo` / `--branch` / `--multi-repo` / `--lang` / `--log-level` / `--log-dir` / `--log-stdout` / `--memory-dir` / `--cache-dir` / `--pipeline-max-steps` / `--pipeline-max-retries` / `--pipeline-max-stage-visits` / `--max-prescan-rounds` / `--log` / `--log-text` / `--log-source-prefix` / `--htrace` / `--htrace-text` / `--atrace` / `--atrace-text` / `--chitchat-classifier` / `--mode` / `--auto-apply` / `--plan-out` / `--plan-file` / `--auto-init-repo` / `--allow-scaffold` / `--color` / `--mermaid-render`。
 
 ---
 
@@ -1149,10 +1155,13 @@ codrax [flags] [request...]
 |---|---|---|
 | `--repo` | `.` | 目标仓库根 |
 | `--branch` | `main` | 默认 git branch |
+| `--multi-repo` | —(继承 yaml) | `=true` / `=false` 本次 Run 覆盖 `multi_repo_enabled`;省略则不覆盖(见 3.6) |
+| `--focus <slug>`(可重复) | — | 多仓启动时预 pin 子仓,等价启动后立刻 `/repos focus`;单仓静默忽略 |
 | `--request, -r` | — | 单次模式问题(等价位置参数) |
 | `--providers` | `<exeDir>/providers.yaml` | 替代 providers.yaml 路径 |
 | `--lang` | `zh` | 答案语言;`off` 关闭 |
 | `--color` | `auto` | `auto` / `always` / `never`(`NO_COLOR` env 永远强制关) |
+| `--mermaid-render` | `false` | 仅单次模式:把 `mermaid` 代码围栏渲染成对齐 ASCII;默认输出原始 Mermaid 源码。REPL 无视此 flag,总是渲染 |
 | `--log-level` | `debug` | error / warning / info / debug |
 | `--log-dir` | yaml 默认 | 日志目录 |
 | `--log-stdout` | `false` | 日志同时打 stdout |
@@ -1161,6 +1170,7 @@ codrax [flags] [request...]
 | `--pipeline-max-steps` | 50 | 总步数 |
 | `--pipeline-max-retries` | 0(继承 yaml) | 每阶段重试 |
 | `--pipeline-max-stage-visits` | 0(继承 yaml) | 每阶段最多访问次数 |
+| `--max-prescan-rounds` | 0(继承 yaml) | 覆盖 analyzer 预扫轮数预算(`analysis_max_prescan_rounds`);多主题问题再 +1,上限 4 |
 | `--log <path>` (可重复) | — | 附加日志文件;`-` 表示 stdin |
 | `--log-text <inline>` | — | 内联日志文本 |
 | `--log-source-prefix <prefix>` | — | 剥掉 C/C++ 编译路径前缀再去仓库找 |

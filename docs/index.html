@@ -3,499 +3,771 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CODRAX</title>
+  <title>CODRAX —— 推理确定，解释锚定</title>
+  <meta name="description" content="CODRAX 是一个 LLM 驱动的代码分析与变更提议工具。用自然语言问代码，输出带 file:line 引用的结构化答案；证据不足时诚实地停下。" />
   <style>
     :root {
-      --body-bg: #d6d3d1;
-      --bg-main: #fdfcf8;
-      --bg-panel: #f4f1eb;
-      --border-color: rgba(0, 0, 0, 0.06);
-      --title-text: #27272a;
-      --text-main: #3f3f46;
-      --text-muted: #71717a;
-      --accent-orange: #d97706;
-      --accent-cyan: #0f766e;
-      --shadow-color: rgba(0, 0, 0, 0.08);
+      --bg: #ffffff;
+      --bg-soft: #fafafa;
+      --bg-sunken: #f4f4f5;
+      --border: #e7e7ea;
+      --border-strong: #d4d4d8;
+      --fg: #18181b;
+      --fg-body: #3f3f46;
+      --fg-muted: #71717a;
+      --fg-faint: #a1a1aa;
+      --accent: #4f46e5;
+      --accent-hover: #4338ca;
+      --accent-soft: #eef2ff;
+      --accent-border: #c7d2fe;
+      --code-bg: #f6f6f7;
+      --header-h: 58px;
+      --mono: "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, "Liberation Mono", monospace;
+      --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { width: 100%; height: 100%; overflow: hidden; }
-
+    html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
     body {
-      background: var(--body-bg);
-      color: var(--text-main);
-      font-family: "Inter", -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--fg-body);
+      font-family: var(--sans);
+      font-size: 16px;
+      line-height: 1.7;
       -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-hover); }
+    code {
+      font-family: var(--mono);
+      font-size: 0.88em;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 0.08em 0.36em;
+      color: #4338ca;
     }
 
-    .shell {
-      width: 100vw;
-      height: 100vh;
-      padding: 10px;
-      display: grid;
-      grid-template-rows: auto 1fr;
-      gap: 8px;
-    }
-
-    .topbar {
+    /* ---------- header ---------- */
+    .site-header {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: var(--header-h);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      width: calc(100% - 16px);
-      justify-self: center;
-      gap: 0.85rem;
-      padding: 10px 14px;
-      border: 1px solid var(--border-color);
-      border-radius: 10px;
-      background: rgba(253, 252, 248, 0.82);
+      padding: 0 22px;
+      background: rgba(255, 255, 255, 0.86);
       backdrop-filter: blur(10px);
-      box-shadow: 0 18px 40px var(--shadow-color);
-      min-height: 58px;
+      -webkit-backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
+      z-index: 50;
     }
-
     .brand {
-      min-width: 0;
-      display: grid;
-      gap: 0.18rem;
-    }
-
-    .eyebrow {
       display: inline-flex;
       align-items: center;
-      width: fit-content;
-      padding: 0.34rem 0.72rem;
-      border-radius: 999px;
-      background: var(--accent-orange);
-      color: #fffdf8;
-      font-size: 0.74rem;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      font-weight: 800;
-      box-shadow: 0 10px 22px rgba(217, 119, 6, 0.18);
-    }
-
-    h1 {
-      color: var(--text-muted);
-      font-size: clamp(0.84rem, 1.12vw, 1.08rem);
-      line-height: 1.14;
+      gap: 9px;
+      font-weight: 700;
+      font-size: 1.04rem;
+      color: var(--fg);
       letter-spacing: -0.01em;
-      font-weight: 600;
-      opacity: 0.78;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
     }
-
-    .actions {
-      display: flex;
-      align-items: center;
-      gap: 0.48rem;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-      flex-shrink: 0;
-    }
-
-    .link-actions {
-      display: flex;
-      align-items: center;
-      gap: 0.48rem;
-      flex-wrap: wrap;
-    }
-
-    .action {
+    .brand:hover { color: var(--fg); }
+    .brand-mark {
+      width: 26px; height: 26px;
+      border-radius: 7px;
+      background: var(--accent);
+      color: #fff;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      padding: 0.64rem 0.94rem;
-      min-width: 100px;
-      border: 1px solid var(--border-color);
-      border-radius: 999px;
-      background: var(--bg-main);
-      color: var(--title-text);
-      text-decoration: none;
-      font-size: 0.88rem;
+      font-family: var(--mono);
       font-weight: 700;
-      transition: 0.2s ease;
-      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.05);
+      font-size: 0.96rem;
+    }
+    .brand-mark span { transform: translateY(-0.5px); }
+    .nav { display: flex; align-items: center; gap: 4px; }
+    .nav a {
+      color: var(--fg-muted);
+      font-size: 0.9rem;
+      font-weight: 500;
+      padding: 7px 11px;
+      border-radius: 7px;
+    }
+    .nav a:hover { color: var(--fg); background: var(--bg-sunken); }
+    .nav a.is-active { color: var(--accent); }
+    .nav-gh { display: inline-flex; align-items: center; gap: 6px; }
+    .nav-gh svg { width: 16px; height: 16px; }
+
+    /* ---------- shared section ---------- */
+    main { padding-top: var(--header-h); }
+    .section { padding: 76px clamp(20px, 5vw, 40px); }
+    .section--soft { background: var(--bg-soft); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+    .wrap { max-width: 1080px; margin: 0 auto; }
+    .section-head { max-width: 660px; margin: 0 auto 44px; text-align: center; }
+    .kicker {
+      display: inline-block;
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+    .section-head h2 {
+      font-size: clamp(1.55rem, 3.3vw, 2.05rem);
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      color: var(--fg);
+      line-height: 1.25;
+      text-wrap: balance;
+    }
+    .section-head p {
+      margin-top: 12px;
+      color: var(--fg-muted);
+      font-size: 1.02rem;
     }
 
-    .action:hover {
-      transform: translateY(-1px);
-      border-color: rgba(15, 118, 110, 0.22);
-      background: #f7f4ee;
+    /* ---------- hero ---------- */
+    .hero {
+      padding: clamp(54px, 8vw, 96px) clamp(20px, 5vw, 40px) clamp(60px, 8vw, 92px);
     }
-
-    .action-primary {
-      background: var(--accent-orange);
-      color: #fffdf8;
-      border-color: transparent;
+    .hero-grid {
+      max-width: 1120px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1.05fr 0.95fr;
+      gap: clamp(28px, 5vw, 60px);
+      align-items: center;
     }
-
-    .action-primary:hover {
-      background: #c96d06;
-    }
-
-    .deck-controls {
+    .badge {
       display: inline-flex;
       align-items: center;
-      gap: 0.18rem;
-      padding: 0.18rem;
-      border: 1px solid var(--border-color);
+      gap: 8px;
+      padding: 5px 12px 5px 8px;
+      border: 1px solid var(--accent-border);
+      background: var(--accent-soft);
       border-radius: 999px;
-      background: rgba(253, 252, 248, 0.86);
-      box-shadow: 0 10px 22px rgba(0, 0, 0, 0.05);
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--accent-hover);
+      margin-bottom: 22px;
     }
-
-    .control-btn {
-      appearance: none;
-      border: 0;
-      background: transparent;
-      color: var(--title-text);
-      min-width: 58px;
-      padding: 0.5rem 0.76rem;
-      border-radius: 999px;
-      font: inherit;
-      font-size: 0.8rem;
-      font-weight: 700;
+    .badge .dot {
+      width: 6px; height: 6px; border-radius: 999px;
+      background: var(--accent);
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 4.6vw, 3.05rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1.16;
+      color: var(--fg);
+    }
+    .hero h1 .em { color: var(--accent); }
+    .hero-sub {
+      margin-top: 20px;
+      font-size: 1.07rem;
+      color: var(--fg-body);
+      max-width: 36em;
+    }
+    .hero-acro {
+      margin-top: 18px;
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      color: var(--fg-faint);
+    }
+    .hero-acro b { color: var(--accent); font-weight: 700; }
+    .cta-row {
+      margin-top: 30px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 11px 20px;
+      border-radius: 9px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      border: 1px solid transparent;
+      transition: background 0.15s ease, border-color 0.15s ease, transform 0.05s ease;
       cursor: pointer;
-      transition: 0.2s ease;
     }
-
-    .control-btn:hover {
-      background: #f1ede5;
-      color: var(--accent-cyan);
+    .btn:active { transform: translateY(1px); }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-hover); color: #fff; }
+    .btn-ghost {
+      background: var(--bg);
+      color: var(--fg);
+      border-color: var(--border-strong);
     }
+    .btn-ghost:hover { background: var(--bg-sunken); color: var(--fg); border-color: var(--fg-faint); }
+    .btn svg { width: 16px; height: 16px; }
 
-    .control-btn.is-playing {
-      background: var(--accent-cyan);
-      color: #fffdf8;
-    }
-
-    .stage {
-      position: relative;
-      min-height: 0;
-      padding: 0;
-      border: 0;
-      border-radius: 0;
+    /* terminal mockup */
+    .terminal {
+      background: #1d1d22;
+      border: 1px solid #2e2e36;
+      border-radius: 13px;
       overflow: hidden;
-      background: transparent;
-      backdrop-filter: none;
-      box-shadow: none;
+      box-shadow: 0 24px 60px rgba(24, 24, 27, 0.22);
     }
-
-    .mobile-dock {
-      display: none;
+    .term-bar {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      padding: 11px 14px;
+      background: #26262d;
+      border-bottom: 1px solid #2e2e36;
     }
-
-    .mobile-brandline {
-      display: none;
+    .term-bar i { width: 11px; height: 11px; border-radius: 999px; display: block; }
+    .term-bar .r { background: #ef5f5f; }
+    .term-bar .y { background: #f0b942; }
+    .term-bar .g { background: #4cc168; }
+    .term-bar span {
+      margin-left: 8px;
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      color: #7a7a86;
     }
+    .term-body {
+      padding: 16px 18px 20px;
+      font-family: var(--mono);
+      font-size: 0.795rem;
+      line-height: 1.78;
+      color: #c8c8d2;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .term-body .muted { color: #7a7a86; }
+    .term-body .you { color: #f4f4f5; }
+    .term-body .ok { color: #5fd17e; }
+    .term-body .cite { color: #9aa2ee; }
+    .term-body .think { color: #8a8a96; }
 
-    iframe {
-      width: 100%;
-      height: 100%;
-      border: 0;
+    /* ---------- positioning ---------- */
+    .pos-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .pos-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 22px 22px;
+    }
+    .pos-card h3 {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--fg);
+      margin-bottom: 10px;
+    }
+    .pos-card ul { list-style: none; }
+    .pos-card li {
+      position: relative;
+      padding-left: 19px;
+      margin: 8px 0;
+      font-size: 0.92rem;
+    }
+    .pos-card li::before {
+      content: "";
+      position: absolute;
+      left: 2px; top: 0.66em;
+      width: 5px; height: 5px;
+      border-radius: 1.5px;
+      background: var(--accent);
+    }
+    .pos-card.is-warn li::before { background: var(--fg-faint); }
+
+    /* ---------- features ---------- */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .feature {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px 22px;
+    }
+    .feature .ico {
+      width: 40px; height: 40px;
+      border-radius: 10px;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent);
+      margin-bottom: 15px;
+    }
+    .feature .ico svg { width: 20px; height: 20px; }
+    .feature h3 {
+      font-size: 1.04rem;
+      font-weight: 700;
+      color: var(--fg);
+      margin-bottom: 7px;
+    }
+    .feature p { font-size: 0.93rem; color: var(--fg-muted); }
+
+    /* ---------- how it works ---------- */
+    .flow {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 8px;
+      margin: 0 auto 26px;
+      max-width: 920px;
+    }
+    .flow-node {
+      background: var(--bg);
+      border: 1px solid var(--border-strong);
       border-radius: 8px;
+      padding: 9px 14px;
+      font-size: 0.86rem;
+      font-weight: 600;
+      color: var(--fg-body);
+      white-space: nowrap;
+    }
+    .flow-node--accent { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .flow-arrow { color: var(--fg-faint); }
+    .howit-cols {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      max-width: 820px;
+      margin: 0 auto;
+    }
+    .howit-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 22px;
+    }
+    .howit-card h3 { font-size: 1rem; font-weight: 700; color: var(--fg); margin-bottom: 7px; }
+    .howit-card p { font-size: 0.93rem; color: var(--fg-muted); }
+    .howit-more { text-align: center; margin-top: 30px; }
+
+    /* ---------- quick start ---------- */
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
+      max-width: 880px;
+      margin: 0 auto;
+    }
+    .step {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 22px;
+    }
+    .step-top { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
+    .step-no {
+      flex: none;
+      width: 28px; height: 28px;
+      border-radius: 8px;
+      background: var(--fg);
+      color: #fff;
+      font-family: var(--mono);
+      font-weight: 700;
+      font-size: 0.82rem;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .step-top h3 { font-size: 1rem; font-weight: 700; color: var(--fg); }
+    .step pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 11px 13px;
+      overflow-x: auto;
+      margin: 0 0 4px;
+    }
+    .step pre code {
+      background: none; border: 0; padding: 0;
+      font-size: 0.78rem; line-height: 1.62;
+      color: var(--fg-body); white-space: pre;
+    }
+    .step pre code .c { color: var(--fg-faint); }
+    .step p { font-size: 0.88rem; color: var(--fg-muted); margin-top: 8px; }
+    .callout {
+      max-width: 880px;
+      margin: 18px auto 0;
+      background: #fffbeb;
+      border: 1px solid #fcd987;
+      border-radius: 11px;
+      padding: 14px 18px;
+      font-size: 0.94rem;
+      line-height: 1.62;
+      color: #78350f;
+    }
+    .callout strong { color: #78350f; }
+    .callout code { background: #fef3c7; border-color: #fde68a; color: #92400e; }
+
+    /* ---------- doc cards ---------- */
+    .doc-cards {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+    .doc-card {
       display: block;
-      background: transparent;
-      box-shadow: none;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px 22px;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+    }
+    .doc-card:hover {
+      border-color: var(--accent-border);
+      box-shadow: 0 12px 28px rgba(79, 70, 229, 0.08);
+      transform: translateY(-2px);
+    }
+    .doc-card .dc-eyebrow {
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--fg-faint);
+    }
+    .doc-card h3 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--fg);
+      margin: 8px 0 7px;
+    }
+    .doc-card p { font-size: 0.92rem; color: var(--fg-muted); }
+    .doc-card .dc-go {
+      margin-top: 14px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: var(--accent);
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
     }
 
-    @media (max-width: 1040px) {
-      .shell {
-        padding: 8px;
-        gap: 8px;
-      }
-
-      .topbar {
-        width: 100%;
-        justify-self: stretch;
-        align-items: flex-start;
-        flex-direction: column;
-      }
-
-      .actions {
-        width: 100%;
-        justify-content: flex-start;
-      }
-
-      .link-actions {
-        width: 100%;
-      }
-
-      h1 {
-        white-space: normal;
-      }
+    /* ---------- footer ---------- */
+    .site-footer {
+      border-top: 1px solid var(--border);
+      background: var(--bg-soft);
+    }
+    .footer-inner {
+      max-width: 1080px;
+      margin: 0 auto;
+      padding: 30px clamp(20px, 5vw, 40px);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px 26px;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .footer-inner .f-brand { display: flex; align-items: center; gap: 9px; }
+    .footer-inner .f-links { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+    .footer-inner .f-links a { color: var(--fg-muted); font-size: 0.88rem; }
+    .footer-inner .f-links a:hover { color: var(--accent); }
+    .footer-inner .f-meta {
+      width: 100%;
+      color: var(--fg-faint);
+      font-size: 0.82rem;
+      border-top: 1px solid var(--border);
+      padding-top: 14px;
+      margin-top: 4px;
     }
 
-    @media (max-width: 900px) {
-      html, body {
-        height: 100%;
-        min-height: 100%;
-        overflow: hidden;
-      }
-
-      body {
-        padding-bottom: 0;
-      }
-
-      .shell {
-        height: 100svh;
-        min-height: 100svh;
-        grid-template-rows: auto 1fr auto;
-        padding: 5px 5px calc(env(safe-area-inset-bottom) + 3px);
-        gap: 5px;
-      }
-
-      .topbar {
-        display: none;
-      }
-
-      .mobile-brandline {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        padding-top: 2px;
-      }
-
-      .mobile-brandline .mobile-badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 0.2rem 0.6rem;
-        border-radius: 999px;
-        background: var(--accent-orange);
-        color: #fffdf8;
-        font-size: 0.58rem;
-        letter-spacing: 0.14em;
-        text-transform: uppercase;
-        font-weight: 800;
-        box-shadow: 0 8px 18px rgba(217, 119, 6, 0.16);
-      }
-
-      .stage {
-        padding: 0;
-        height: 100%;
-        min-height: 0;
-        border-radius: 14px;
-        box-shadow: 0 18px 34px rgba(0, 0, 0, 0.06);
-      }
-
-      .stage-frame {
-        width: 100%;
-        height: 100%;
-        padding: 0;
-        border: 0;
-        border-radius: inherit;
-        background: transparent;
-        box-shadow: none;
-      }
-
-      .mobile-dock {
-        display: block;
-        padding-top: 0.34rem;
-        padding-bottom: calc(env(safe-area-inset-bottom) + 0.18rem);
-      }
-
-      .mobile-links {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 0.28rem;
-      }
-
-      .mobile-links .action {
-        width: 100%;
-        min-width: 0;
-        min-height: 34px;
-        padding: 0.4rem 0.18rem;
-        font-size: 0.7rem;
-        box-shadow: none;
-        background: rgba(253, 252, 248, 0.92);
-        color: rgba(39, 39, 42, 0.82);
-        border-color: rgba(39, 39, 42, 0.08);
-      }
-
-      .mobile-links .action-primary {
-        background: rgba(253, 252, 248, 0.92);
-        border-color: rgba(184, 106, 23, 0.18);
-        color: #9a5b10;
-      }
-
-      .mobile-links .action-primary:hover {
-        background: rgba(253, 252, 248, 0.96);
-      }
-
+    /* ---------- responsive ---------- */
+    @media (max-width: 880px) {
+      .hero-grid { grid-template-columns: 1fr; }
+      .hero { text-align: center; }
+      .hero-sub { margin-left: auto; margin-right: auto; }
+      .cta-row { justify-content: center; }
+      .badge { margin-left: auto; margin-right: auto; }
+      .pos-grid, .features, .doc-cards { grid-template-columns: 1fr; }
+      .howit-cols, .steps { grid-template-columns: 1fr; }
     }
-
-    @media (max-width: 520px) {
-      .shell {
-        height: 100svh;
-        min-height: 100svh;
-        padding: 4px 4px calc(env(safe-area-inset-bottom) + 2px);
-        gap: 4px;
-      }
-
-      .mobile-brandline {
-        padding-top: 0;
-      }
-
-      .mobile-brandline .mobile-badge {
-        padding: 0.18rem 0.52rem;
-        font-size: 0.54rem;
-      }
-
-      .mobile-dock {
-        padding-top: 0.28rem;
-        padding-bottom: calc(env(safe-area-inset-bottom) + 0.22rem);
-      }
-
-      .mobile-links {
-        gap: 0.28rem;
-      }
-
-      .mobile-links .action {
-        min-height: 30px;
-        padding: 0.3rem 0.12rem;
-        font-size: 0.64rem;
-      }
-
-      .stage {
-        border-radius: 0;
-      }
-
-      iframe {
-        border-radius: 8px;
-        box-shadow: none;
-      }
+    @media (max-width: 560px) {
+      body { font-size: 15px; }
+      .section { padding: 56px 18px; }
+      .hero { padding-left: 18px; padding-right: 18px; }
+      .nav a:not(.nav-gh) { display: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .doc-card { transition: none; }
     }
   </style>
 </head>
-  <body>
-  <main class="shell">
-    <header class="topbar">
-      <div class="brand">
-        <div class="eyebrow">CODRAX</div>
-        <h1>推理确定，解释锚定。</h1>
-      </div>
-      <div class="actions">
-        <nav class="link-actions" aria-label="主导航">
-          <a class="action action-primary" href="./download/index.html">下载安装</a>
-          <a class="action" href="./user_guide.html">使用手册</a>
-        </nav>
-        <div class="deck-controls" role="group" aria-label="演示控制">
-          <button class="control-btn" id="deckPrevBtn" type="button">上页</button>
-          <button class="control-btn" id="deckToggleBtn" type="button" aria-label="开启自动播放" aria-pressed="false">播放</button>
-          <button class="control-btn" id="deckNextBtn" type="button">下页</button>
+<body>
+
+  <header class="site-header">
+    <a class="brand" href="./index.html" aria-label="CODRAX 首页">
+      <span class="brand-mark"><span>C</span></span>
+      codrax
+    </a>
+    <nav class="nav" aria-label="主导航">
+      <a href="./index.html" class="is-active">首页</a>
+      <a href="./codrax_authoritative_guide.html">使用与技术说明</a>
+      <a href="./user_guide.html">使用手册</a>
+      <a href="./download/index.html">下载</a>
+      <a href="https://github.com/hanchaoqun/codrax" class="nav-gh" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        GitHub
+      </a>
+    </nav>
+  </header>
+
+  <main>
+
+    <!-- ============ hero ============ -->
+    <section class="hero">
+      <div class="hero-grid">
+        <div class="hero-text">
+          <span class="badge"><span class="dot"></span>代码分析 + 变更提议工具</span>
+          <h1>用自然语言问代码，<br>每条结论都<span class="em">锚定到代码行</span></h1>
+          <p class="hero-sub">
+            CODRAX 默认只读：输入一个关于仓库的自然语言问题，输出一份带 <code>file:line</code> 引用的结构化答案，
+            不触碰任何源文件。证据不足时，它会诚实地停下，而不是编一个像样的答案。
+          </p>
+          <p class="hero-acro">
+            <b>C</b>ode <b>O</b>f <b>D</b>eterministic <b>R</b>easoning, <b>A</b>nchored e<b>X</b>planation
+          </p>
+          <div class="cta-row">
+            <a class="btn btn-primary" href="./download/index.html">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>
+              下载安装
+            </a>
+            <a class="btn btn-ghost" href="./codrax_authoritative_guide.html">阅读使用说明</a>
+          </div>
+        </div>
+
+        <div class="terminal" aria-hidden="true">
+          <div class="term-bar">
+            <i class="r"></i><i class="y"></i><i class="g"></i>
+            <span>codrax — read mode</span>
+          </div>
+<div class="term-body"><span class="muted">$ codrax</span>
+<span class="muted">   CODRAX  v0.1.x  git:main  /help · /exit</span>
+
+<span class="muted">❯❯</span> <span class="you">explorer 的 ShouldStop 是怎么决定的？</span>
+  <span class="think">💭 [explorer] 先看停机条件在哪里收口…</span>
+<span class="ok">✓ 已撰写最终答案</span>
+
+  │ ShouldStop 在每轮调查收口时由调度器判定：
+  │ 引用是否够、关键文件是否读完、是否连续
+  │ 无进展。三者任一不满足就继续查。
+  │ <span class="cite">- internal/orchestrator/scheduler.go:142</span>
+  │ <span class="cite">- internal/agent/explorer.go:88</span>
+</div>
         </div>
       </div>
-    </header>
-
-    <div class="mobile-brandline" aria-hidden="true">
-      <span class="mobile-badge">CODRAX</span>
-    </div>
-
-    <section class="stage" aria-label="演示文稿">
-      <iframe
-        id="deckFrame"
-        src="./codrax_authoritative_guide.html?embed=1&loop=1&interval=6000"
-        title="CODRAX authoritative guide"
-        loading="eager"
-        referrerpolicy="no-referrer"
-      ></iframe>
     </section>
 
-    <section class="mobile-dock" aria-label="移动端控制">
-      <nav class="mobile-links" aria-label="移动端入口">
-        <a class="action action-primary" href="./download/index.html">下载安装</a>
-        <a class="action" href="./user_guide.html">使用手册</a>
-      </nav>
+    <!-- ============ positioning ============ -->
+    <section class="section section--soft" id="about">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="kicker">它是什么</span>
+          <h2>一个会读仓库、会追证据、会给引用的分析助手</h2>
+          <p>不是“模型直连仓库”的聊天壳，也不是靠文风自信制造正确感的问答器。</p>
+        </div>
+        <div class="pos-grid">
+          <div class="pos-card">
+            <h3>可以把它当成什么</h3>
+            <ul>
+              <li>熟悉陌生系统、线上排障、架构讲解的工程工作台。</li>
+              <li>审批后能在沙箱里走完整改动闭环的变更助手。</li>
+            </ul>
+          </div>
+          <div class="pos-card is-warn">
+            <h3>不该把它当成什么</h3>
+            <ul>
+              <li>不是无约束的“让模型自由发挥”问答。</li>
+              <li>不承诺“永远秒答”——它承诺的是可复核。</li>
+            </ul>
+          </div>
+          <div class="pos-card">
+            <h3>一个正确预期</h3>
+            <ul>
+              <li>能证实的尽量证实，证不实的明确标边界。</li>
+              <li>价值在于更稳地把复杂问题拆清楚。</li>
+            </ul>
+          </div>
+        </div>
+      </div>
     </section>
+
+    <!-- ============ features ============ -->
+    <section class="section" id="features">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="kicker">核心特性</span>
+          <h2>为什么它的答案值得信</h2>
+          <p>每一项特性都指向同一件事——让结论可被复核，让不确定被说清。</p>
+        </div>
+        <div class="features">
+          <div class="feature">
+            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4"/></svg></div>
+            <h3>证据锚定的答案</h3>
+            <p>每条结论都带 <code>file:line</code> 引用，经 7 层落地校验；编造或与源码不一致的引用会被隔离，不入正文。</p>
+          </div>
+          <div class="feature">
+            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h6a2 2 0 0 1 2 2V14M6.5 10v4a2 2 0 0 0 2 2H14"/></svg></div>
+            <h3>确定性流水线</h3>
+            <p>模型只在很窄的位置参与；调查顺序、停止条件、答案放行都由固定代码接管，同样的问题走同一套闸门。</p>
+          </div>
+          <div class="feature">
+            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h2l1.5 3 2-6L15 13h1"/></svg></div>
+            <h3>日志 / 性能现场分诊</h3>
+            <p>挂上崩溃日志或 HiTrace / atrace / perfetto，先抽成结构化锚点，再让主流水线只读真正相关的文件。</p>
+          </div>
+          <div class="feature">
+            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg></div>
+            <h3>写模式沙箱</h3>
+            <p><code>计划 → 改动 → 验证</code> 全程在 git worktree 里跑，主仓 HEAD 永不自动变；只有你显式批准才落地。</p>
+          </div>
+          <div class="feature">
+            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M3 11h18"/></svg></div>
+            <h3>跨仓 workspace</h3>
+            <p>父目录下多个独立 git 仓共存时自动发现，跨子仓查询正确，内存可控，单仓用户零影响。</p>
+          </div>
+          <div class="feature">
+            <div class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m8 6-6 6 6 6m8-12 6 6-6 6"/></svg></div>
+            <h3>多语言 · 多 runner</h3>
+            <p>覆盖十余种语言的代码索引；写模式验证自动探测 12 类测试工具，零测试发现不会被误判为失败。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ how it works ============ -->
+    <section class="section section--soft" id="how">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="kicker">它怎么工作</span>
+          <h2>不是把问题丢给模型，而是编成一条调查协议</h2>
+          <p>模型负责读现场、交阶段结果；系统负责决定证据是否成立、流程是否继续、答案是否放行。</p>
+        </div>
+        <div class="flow" role="img" aria-label="流水线：用户请求到带引用的答案">
+          <span class="flow-node">用户请求</span><span class="flow-arrow">→</span>
+          <span class="flow-node">轻量预扫</span><span class="flow-arrow">→</span>
+          <span class="flow-node">分析清单</span><span class="flow-arrow">→</span>
+          <span class="flow-node">调查</span><span class="flow-arrow">→</span>
+          <span class="flow-node">提炼</span><span class="flow-arrow">→</span>
+          <span class="flow-node">验收</span><span class="flow-arrow">→</span>
+          <span class="flow-node flow-node--accent">带引用的答案</span>
+        </div>
+        <div class="howit-cols">
+          <div class="howit-card">
+            <h3>模型被限制在很窄的位置</h3>
+            <p>分析阶段只能轻量预扫，确认仓里有没有这个对象；它必须把问题写成结构化任务单，写不出来就停下。</p>
+          </div>
+          <div class="howit-card">
+            <h3>调查、提炼、成稿彼此隔离</h3>
+            <p>调查只交事实，提炼只做判断，成稿只负责表达。没读到的文件，后面没有权限“脑补”进答案。</p>
+          </div>
+        </div>
+        <div class="howit-more">
+          <a class="btn btn-ghost" href="./codrax_authoritative_guide.html">读懂内部六项技术 →</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ quick start ============ -->
+    <section class="section" id="start">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="kicker">快速上手</span>
+          <h2>四步从零跑起来</h2>
+          <p>最快的方式是下载预编译发布包；想自己构建也只多一步。完整说明见使用手册。</p>
+        </div>
+        <div class="steps">
+          <div class="step">
+            <div class="step-top"><span class="step-no">1</span><h3>获取 codrax</h3></div>
+            <pre><code>git clone https://github.com/hanchaoqun/codrax.git
+cd codrax &amp;&amp; make   <span class="c"># 或到下载页取预编译包</span></code></pre>
+            <p>下载预编译发布包<strong>免构建、最省事</strong>；源码构建需要 CGO（macOS 先 <code>xcode-select --install</code>）。</p>
+          </div>
+          <div class="step">
+            <div class="step-top"><span class="step-no">2</span><h3>加进 PATH</h3></div>
+            <pre><code>echo 'export PATH="/path/to/codrax:$PATH"' &gt;&gt; ~/.bashrc   <span class="c"># bash</span>
+echo 'export PATH="/path/to/codrax:$PATH"' &gt;&gt; ~/.zshrc    <span class="c"># zsh</span>
+exec "$SHELL" -l</code></pre>
+            <p>之后在任何目录都能直接敲 <code>codrax</code> 启动。</p>
+          </div>
+          <div class="step">
+            <div class="step-top"><span class="step-no">3</span><h3>配置 providers.yaml</h3></div>
+            <pre><code>cp providers.yaml.example providers.yaml
+<span class="c"># 填 api_key + model，和二进制放同一目录</span></code></pre>
+            <p>连接 LLM 凭证，支持任何 OpenAI 兼容服务：OpenAI / DeepSeek / Qwen / 本地 vLLM / Ollama。</p>
+          </div>
+          <div class="step">
+            <div class="step-top"><span class="step-no">4</span><h3>cd 进仓库再启动</h3></div>
+            <pre><code>cd /path/to/your/repo   <span class="c"># 先进入要分析的项目</span>
+codrax                  <span class="c"># 再启动交互控制台</span></code></pre>
+            <p>答案带 <code>file:line</code> 引用；<code>/help</code> 列出全部斜杠命令。</p>
+          </div>
+        </div>
+        <div class="callout">
+          <strong>⚠ codrax 把「当前目录」当作要分析的代码仓库。</strong>
+          使用前务必先 <code>cd</code> 进你的项目根目录再运行 —— 它分析的就是你启动它时所在的那个目录，运行产物也都写在该目录的 <code>.codrax/</code> 子目录下。
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ doc cards ============ -->
+    <section class="section section--soft" id="docs">
+      <div class="wrap">
+        <div class="section-head">
+          <span class="kicker">继续了解</span>
+          <h2>从这里深入</h2>
+        </div>
+        <div class="doc-cards">
+          <a class="doc-card" href="./codrax_authoritative_guide.html">
+            <div class="dc-eyebrow">通俗讲解</div>
+            <h3>使用与技术说明</h3>
+            <p>四条上手路径、典型场景，以及用大白话讲清楚的内部六项技术。新人首选。</p>
+            <span class="dc-go">开始阅读 →</span>
+          </a>
+          <a class="doc-card" href="./user_guide.html">
+            <div class="dc-eyebrow">参考手册</div>
+            <h3>完整使用手册</h3>
+            <p>安装、配置、两种模式、写模式全流程、CLI / REPL 命令参考与排错。</p>
+            <span class="dc-go">查阅手册 →</span>
+          </a>
+          <a class="doc-card" href="./download/index.html">
+            <div class="dc-eyebrow">获取</div>
+            <h3>下载安装</h3>
+            <p>各平台预编译二进制与构建说明，挑一个适合你系统的版本。</p>
+            <span class="dc-go">前往下载 →</span>
+          </a>
+        </div>
+      </div>
+    </section>
+
   </main>
 
-  <script>
-    const deckFrame = document.getElementById("deckFrame");
-    const pageParams = new URLSearchParams(window.location.search);
-    const pageHash = (window.location.hash || "").replace(/^#/, "");
-    const deckPrevBtn = document.getElementById("deckPrevBtn");
-    const deckToggleBtn = document.getElementById("deckToggleBtn");
-    const deckNextBtn = document.getElementById("deckNextBtn");
-    let autoplayActive = false;
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div class="f-brand">
+        <span class="brand-mark"><span>C</span></span>
+        <strong style="color:var(--fg)">codrax</strong>
+      </div>
+      <nav class="f-links" aria-label="页脚导航">
+        <a href="./codrax_authoritative_guide.html">使用与技术说明</a>
+        <a href="./user_guide.html">使用手册</a>
+        <a href="./download/index.html">下载</a>
+        <a href="https://github.com/hanchaoqun/codrax" target="_blank" rel="noopener">GitHub</a>
+      </nav>
+      <div class="f-meta">CODRAX —— Code Of Deterministic Reasoning, Anchored eXplanation. 推理确定，解释锚定。</div>
+    </div>
+  </footer>
 
-    if (deckFrame) {
-      const deckUrl = new URL("./codrax_authoritative_guide.html", window.location.href);
-      deckUrl.searchParams.set("embed", "1");
-      deckUrl.searchParams.set("loop", "1");
-      deckUrl.searchParams.set("interval", "6000");
-      const requestedPage = pageParams.get("page") || pageParams.get("slide") || pageHash;
-      if (requestedPage) {
-        deckUrl.searchParams.set("page", requestedPage);
-      }
-      deckFrame.src = deckUrl.toString();
-    }
-
-    function sendDeckAction(action, value) {
-      if (!deckFrame || !deckFrame.contentWindow) return;
-      deckFrame.contentWindow.postMessage({ type: "codrax-deck", action, value }, "*");
-    }
-
-    function syncToggleButton() {
-      [deckToggleBtn].filter(Boolean).forEach((button) => {
-        button.textContent = autoplayActive ? "暂停" : "播放";
-        button.classList.toggle("is-playing", autoplayActive);
-        button.setAttribute("aria-label", autoplayActive ? "暂停自动播放" : "开启自动播放");
-        button.setAttribute("aria-pressed", String(autoplayActive));
-      });
-    }
-
-    function handleDeckHotkeys(event) {
-      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
-      const interactiveTarget = event.target && typeof event.target.closest === "function"
-        ? event.target.closest("input, textarea, select, button, a")
-        : null;
-      if (interactiveTarget) return;
-
-      if (["ArrowRight", "ArrowDown", " ", "Enter", "PageDown"].includes(event.key)) {
-        event.preventDefault();
-        sendDeckAction("next");
-        return;
-      }
-
-      if (["ArrowLeft", "ArrowUp", "PageUp"].includes(event.key)) {
-        event.preventDefault();
-        sendDeckAction("prev");
-      }
-    }
-
-    [deckPrevBtn].filter(Boolean).forEach((button) => {
-      button.addEventListener("click", () => sendDeckAction("prev"));
-    });
-    [deckToggleBtn].filter(Boolean).forEach((button) => {
-      button.addEventListener("click", () => sendDeckAction("toggleAutoplay"));
-    });
-    [deckNextBtn].filter(Boolean).forEach((button) => {
-      button.addEventListener("click", () => sendDeckAction("next"));
-    });
-
-    if (deckFrame) {
-      deckFrame.addEventListener("pointerdown", () => sendDeckAction("setAutoplay", false));
-      deckFrame.addEventListener("touchstart", () => sendDeckAction("setAutoplay", false), { passive: true });
-    }
-
-    if (deckFrame) {
-      deckFrame.addEventListener("load", () => {
-        window.setTimeout(() => sendDeckAction("reportState"), 180);
-      });
-    }
-
-    window.addEventListener("message", (event) => {
-      const data = event.data;
-      if (!data || data.type !== "codrax-deck-state") return;
-      autoplayActive = Boolean(data.autoplayActive);
-      syncToggleButton();
-    });
-
-    window.addEventListener("keydown", handleDeckHotkeys);
-    syncToggleButton();
-  </script>
 </body>
 </html>

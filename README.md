@@ -32,7 +32,7 @@ codrax
 REPL 里直接发问:
 
 ```
-   CODRAX  v0.1.20260424  /help · /exit
+   CODRAX  v0.1.x  git:main  /help · /exit
 
 ❯❯ explorer 的 ShouldStop 是怎么决定的?
 ```

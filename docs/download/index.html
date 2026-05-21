@@ -1,922 +1,535 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CODRAX 下载</title>
+  <meta name="description" content="下载 CODRAX —— Linux x64 静态版与 macOS universal 发布包。" />
   <style>
     :root {
-      --body-bg: #d6d3d1;
-      --bg-main: #fdfcf8;
-      --bg-panel: #f4f1eb;
-      --bg-soft: rgba(244, 241, 235, 0.86);
-      --border-color: rgba(0, 0, 0, 0.07);
-      --title-text: #27272a;
-      --text-main: #3f3f46;
-      --text-muted: #71717a;
-      --accent-orange: #d97706;
-      --accent-orange-soft: rgba(217, 119, 6, 0.1);
-      --accent-cyan: #0f766e;
-      --accent-cyan-soft: rgba(15, 118, 110, 0.08);
-      --shadow-color: rgba(0, 0, 0, 0.08);
+      --bg: #ffffff;
+      --bg-soft: #fafafa;
+      --bg-sunken: #f4f4f5;
+      --border: #e7e7ea;
+      --border-strong: #d4d4d8;
+      --fg: #18181b;
+      --fg-body: #3f3f46;
+      --fg-muted: #71717a;
+      --fg-faint: #a1a1aa;
+      --accent: #4f46e5;
+      --accent-hover: #4338ca;
+      --accent-soft: #eef2ff;
+      --accent-border: #c7d2fe;
+      --code-bg: #f6f6f7;
+      --header-h: 58px;
+      --mono: "SF Mono", "Cascadia Code", "JetBrains Mono", Consolas, "Liberation Mono", monospace;
+      --sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
-
-    html,
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { -webkit-text-size-adjust: 100%; }
     body {
-      min-height: 100%;
-    }
-
-    body {
-      background: radial-gradient(circle at top left, rgba(253, 252, 248, 0.92), rgba(214, 211, 209, 0.94) 48%, rgba(214, 211, 209, 1) 100%);
-      color: var(--text-main);
-      font-family: "Inter", -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: var(--bg);
+      color: var(--fg-body);
+      font-family: var(--sans);
+      font-size: 16px;
+      line-height: 1.7;
       -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { color: var(--accent-hover); }
+    code {
+      font-family: var(--mono);
+      font-size: 0.86em;
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      padding: 0.08em 0.36em;
+      color: #4338ca;
+      word-break: break-word;
     }
 
-    code,
-    pre {
-      font-family: "Cascadia Code", Consolas, "SFMono-Regular", monospace;
-    }
-
-    .shell {
-      width: min(1240px, calc(100vw - 28px));
-      margin: 0 auto;
-      padding: 12px 0 24px;
-      display: grid;
-      gap: 12px;
-    }
-
-    .topbar,
-    .hero,
-    .card,
-    .install-note {
-      border: 1px solid var(--border-color);
-      border-radius: 22px;
-      background: rgba(253, 252, 248, 0.82);
-      backdrop-filter: blur(10px);
-      box-shadow: 0 18px 40px var(--shadow-color);
-    }
-
-    .topbar {
+    /* ---------- header ---------- */
+    .site-header {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      height: var(--header-h);
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 0.85rem;
-      padding: 11px 16px;
+      padding: 0 22px;
+      background: rgba(255, 255, 255, 0.86);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
+      z-index: 50;
     }
-
     .brand {
-      min-width: 0;
-      display: grid;
-      gap: 0.22rem;
-    }
-
-    .eyebrow {
       display: inline-flex;
       align-items: center;
-      width: fit-content;
-      padding: 0.34rem 0.72rem;
-      border-radius: 999px;
-      background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
-      color: #fffdf8;
-      font-size: 0.74rem;
-      letter-spacing: 0.14em;
-      text-transform: uppercase;
-      font-weight: 800;
-      box-shadow: 0 10px 22px rgba(217, 119, 6, 0.18);
+      gap: 9px;
+      font-weight: 700;
+      font-size: 1.04rem;
+      color: var(--fg);
+      letter-spacing: -0.01em;
     }
-
-    h1 {
-      color: var(--title-text);
-      font-size: clamp(1.62rem, 3.2vw, 2.7rem);
-      line-height: 1.04;
-      letter-spacing: -0.04em;
+    .brand:hover { color: var(--fg); }
+    .brand-mark {
+      width: 26px; height: 26px;
+      border-radius: 7px;
+      background: var(--accent);
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-family: var(--mono);
+      font-weight: 700;
+      font-size: 0.96rem;
     }
-
-    .sub {
-      color: var(--text-muted);
+    .brand-mark span { transform: translateY(-0.5px); }
+    .nav { display: flex; align-items: center; gap: 4px; }
+    .nav a {
+      color: var(--fg-muted);
       font-size: 0.9rem;
-      line-height: 1.6;
-      max-width: 58rem;
+      font-weight: 500;
+      padding: 7px 11px;
+      border-radius: 7px;
+    }
+    .nav a:hover { color: var(--fg); background: var(--bg-sunken); }
+    .nav a.is-active { color: var(--accent); }
+    .nav-gh { display: inline-flex; align-items: center; gap: 6px; }
+    .nav-gh svg { width: 16px; height: 16px; }
+
+    /* ---------- layout ---------- */
+    main { padding-top: var(--header-h); }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 0 clamp(20px, 5vw, 40px); }
+
+    /* hero */
+    .hero { padding: clamp(44px, 6vw, 72px) 0 14px; }
+    .kicker {
+      display: inline-block;
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.13em;
+      text-transform: uppercase;
+      color: var(--accent);
+      margin-bottom: 12px;
+    }
+    .hero h1 {
+      font-size: clamp(1.9rem, 4vw, 2.6rem);
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      color: var(--fg);
+      line-height: 1.2;
+    }
+    .hero p {
+      margin-top: 14px;
+      font-size: 1.02rem;
+      color: var(--fg-body);
+      max-width: 44em;
     }
 
-    .top-actions {
-      display: flex;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-      justify-content: flex-end;
+    .section { padding: 34px 0; }
+    .section-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--fg);
+      letter-spacing: -0.02em;
+      margin-bottom: 16px;
     }
 
-    .hero {
-      padding: clamp(22px, 3.2vw, 34px);
-      display: grid;
-      gap: 0.92rem;
-    }
-
-    .hero-copy {
-      display: grid;
-      gap: 0.72rem;
-      max-width: 62rem;
-    }
-
+    /* decision grid */
     .decision-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 0.72rem;
-      max-width: 62rem;
+      gap: 14px;
     }
-
     .decision {
+      background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      padding: 16px 18px;
+    }
+    .decision strong { display: block; color: var(--fg); font-size: 0.97rem; margin-bottom: 5px; }
+    .decision span { font-size: 0.91rem; color: var(--fg-muted); }
+
+    /* platform cards */
+    .cards {
       display: grid;
-      gap: 0.34rem;
-      padding: 0.9rem 1rem;
-      border-radius: 16px;
-      border: 1px solid var(--border-color);
-      background: rgba(253, 252, 248, 0.92);
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 16px;
     }
-
-    .decision strong {
-      color: var(--title-text);
-      font-size: 0.92rem;
-      line-height: 1.3;
+    .card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 13px;
+      padding: 24px 22px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
     }
-
-    .decision span {
-      color: var(--text-main);
-      font-size: 0.84rem;
-      line-height: 1.58;
+    .card-head { display: flex; align-items: center; gap: 10px; }
+    .badge {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent-hover);
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-border);
+      border-radius: 999px;
+      padding: 3px 10px;
     }
-
-    .hero h2 {
-      color: var(--title-text);
-      font-size: clamp(1.16rem, 2.1vw, 1.72rem);
-      line-height: 1.2;
+    .card h3 {
+      font-size: 1.18rem;
+      font-weight: 700;
+      color: var(--fg);
       letter-spacing: -0.02em;
-      text-wrap: balance;
     }
+    .card .desc { font-size: 0.93rem; color: var(--fg-muted); }
 
-    .hero p {
-      color: var(--text-main);
-      font-size: 0.95rem;
-      line-height: 1.68;
-    }
-
-    .hero-note {
+    .dl-btn {
       display: inline-flex;
       align-items: center;
-      gap: 0.48rem;
-      width: fit-content;
-      padding: 0.64rem 0.92rem;
-      border-radius: 999px;
-      background: #f7f4ee;
-      border: 1px solid var(--border-color);
-      color: var(--accent-cyan);
-      font-size: 0.84rem;
-      font-weight: 700;
+      gap: 8px;
+      align-self: flex-start;
+      padding: 10px 18px;
+      border-radius: 9px;
+      background: var(--accent);
+      color: #fff;
+      font-size: 0.92rem;
+      font-weight: 600;
+      border: 1px solid transparent;
+    }
+    .dl-btn:hover { background: var(--accent-hover); color: #fff; }
+    .dl-btn svg { width: 15px; height: 15px; }
+
+    .pkg-label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--fg-muted);
+    }
+    .chips { display: flex; flex-wrap: wrap; gap: 7px; }
+    .chip {
+      font-family: var(--mono);
+      font-size: 0.76rem;
+      color: var(--fg-body);
+      background: var(--bg-sunken);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 3px 8px;
     }
 
-    .hero-note::before {
-      content: "";
-      width: 0.55rem;
-      height: 0.55rem;
-      border-radius: 999px;
-      background: var(--accent-orange);
-      box-shadow: 0 0 0 4px rgba(217, 119, 6, 0.12);
+    /* command shell */
+    .cmd {
+      background: var(--bg-sunken);
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      overflow: hidden;
+    }
+    .cmd-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 8px 7px 13px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg-soft);
+    }
+    .cmd-top .lbl {
+      font-family: var(--mono);
+      font-size: 0.74rem;
+      color: var(--fg-muted);
+    }
+    .copy-button {
+      appearance: none;
+      border: 1px solid var(--border-strong);
+      background: var(--bg);
+      color: var(--fg-body);
+      font-size: 0.76rem;
+      font-weight: 600;
+      padding: 4px 11px;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .copy-button:hover { border-color: var(--accent-border); color: var(--accent); }
+    .cmd pre {
+      margin: 0;
+      padding: 12px 14px;
+      overflow-x: auto;
+    }
+    .cmd pre code {
+      background: none; border: 0; padding: 0;
+      font-size: 0.79rem; line-height: 1.7;
+      color: var(--fg-body); white-space: pre;
     }
 
-    .cards {
+    /* details */
+    details {
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: var(--bg-soft);
+      overflow: hidden;
+    }
+    summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 12px 16px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--fg);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    summary::-webkit-details-marker { display: none; }
+    summary::after { content: "展开"; font-size: 0.78rem; font-weight: 600; color: var(--fg-muted); }
+    details[open] > summary::after { content: "收起"; }
+    details[open] > summary { border-bottom: 1px solid var(--border); }
+    .details-body { padding: 14px 16px; display: grid; gap: 14px; }
+    .setup h4 { font-size: 0.92rem; font-weight: 700; color: var(--fg); margin-bottom: 5px; }
+    .setup p { font-size: 0.88rem; color: var(--fg-muted); margin-bottom: 8px; }
+    .details-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
       gap: 14px;
     }
 
-    .card {
-      padding: 20px 20px 18px;
-      display: grid;
-      gap: 0.92rem;
-      align-content: start;
-      min-height: 100%;
-    }
-
-    .card-head {
-      display: grid;
-      gap: 0.42rem;
-    }
-
-    .badge {
-      width: fit-content;
-      padding: 0.34rem 0.62rem;
-      border-radius: 999px;
-      background: var(--accent-cyan-soft);
-      color: var(--accent-cyan);
-      font-size: 0.72rem;
-      font-weight: 700;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-    }
-
-    .platform {
-      color: var(--title-text);
-      font-size: 1.28rem;
-      line-height: 1.1;
-      font-weight: 700;
-      letter-spacing: -0.03em;
-    }
-
-    .desc {
-      color: var(--text-main);
-      font-size: 0.92rem;
-      line-height: 1.64;
-    }
-
-    .quick,
-    .manual-block,
-    .install-note {
-      display: grid;
-      gap: 0.66rem;
-      padding: 0.96rem 1rem;
-      border-radius: 16px;
-      border: 1px solid var(--border-color);
+    /* notes */
+    .notes {
       background: var(--bg-soft);
+      border: 1px solid var(--border);
+      border-radius: 11px;
+      padding: 18px 20px;
+      display: grid;
+      gap: 9px;
     }
+    .notes p { font-size: 0.92rem; color: var(--fg-body); }
+    .notes strong { color: var(--fg); }
 
-    .fold-summary {
-      list-style: none;
+    /* footer */
+    .site-footer { border-top: 1px solid var(--border); background: var(--bg-soft); margin-top: 40px; }
+    .footer-inner {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 26px clamp(20px, 5vw, 40px);
       display: flex;
+      flex-wrap: wrap;
+      gap: 12px 26px;
       align-items: center;
       justify-content: space-between;
-      gap: 0.8rem;
-      cursor: pointer;
-      padding: 0.92rem 1rem;
-      color: var(--title-text);
-      font-size: 0.98rem;
-      line-height: 1.2;
-      font-weight: 700;
     }
-
-    .fold-summary::-webkit-details-marker {
-      display: none;
-    }
-
-    .fold-summary::after {
-      content: "展开";
-      flex: none;
-      color: var(--text-muted);
-      font-size: 0.76rem;
-      letter-spacing: 0.04em;
-      font-weight: 700;
-    }
-
-    details[open] > .fold-summary::after {
-      content: "收起";
-    }
-
-    .manual-body,
-    .note-body {
-      display: grid;
-      gap: 0.72rem;
-      padding: 0 1rem 1rem;
-    }
-
-    .section-head {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.6rem;
-      flex-wrap: wrap;
-    }
-
-    .section-head-main {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-      min-width: 0;
-    }
-
-    .section-head h3 {
-      color: var(--title-text);
-      font-size: 0.98rem;
-      line-height: 1.2;
-      font-weight: 700;
-    }
-
-    .tag {
-      display: inline-flex;
-      align-items: center;
-      padding: 0.3rem 0.56rem;
-      border-radius: 999px;
-      background: var(--accent-orange-soft);
-      color: var(--accent-orange);
-      font-size: 0.72rem;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-    }
-
-    .quick p,
-    .manual-block p,
-    .install-note p {
-      color: var(--text-main);
-      font-size: 0.85rem;
-      line-height: 1.62;
-    }
-
-    .install-points {
-      list-style: none;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.44rem;
-    }
-
-    .install-points li {
-      padding: 0.42rem 0.68rem;
-      border-radius: 999px;
-      background: rgba(253, 252, 248, 0.96);
-      border: 1px solid var(--border-color);
-      color: var(--text-main);
-      font-size: 0.78rem;
-      line-height: 1.3;
-      white-space: nowrap;
-    }
-
-    .command-shell {
-      display: grid;
-      gap: 0.48rem;
-    }
-
-    .command-top {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.6rem;
-      flex-wrap: wrap;
-    }
-
-    .command-meta,
-    .command-actions {
-      display: flex;
-      align-items: center;
-      gap: 0.46rem;
-      flex-wrap: wrap;
-    }
-
-    .command-label {
-      color: var(--text-muted);
-      font-size: 0.74rem;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      font-weight: 700;
-    }
-
-    .inline-link {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 30px;
-      padding: 0.34rem 0.62rem;
-      border-radius: 999px;
-      border: 1px solid var(--border-color);
-      background: rgba(253, 252, 248, 0.96);
-      color: var(--text-muted);
-      text-decoration: none;
-      font-size: 0.74rem;
-      font-weight: 700;
-      transition: 0.2s ease;
-    }
-
-    .inline-link:hover {
-      border-color: rgba(15, 118, 110, 0.18);
-      background: #f7f4ee;
-      color: var(--title-text);
-    }
-
-    .copy-button {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 34px;
-      padding: 0.44rem 0.78rem;
-      border-radius: 999px;
-      border: 1px solid var(--border-color);
-      background: var(--bg-main);
-      color: var(--title-text);
-      font-size: 0.78rem;
-      font-weight: 700;
-      cursor: pointer;
-      transition: 0.2s ease;
-    }
-
-    .copy-button:hover {
-      border-color: rgba(15, 118, 110, 0.18);
-      background: #f7f4ee;
-    }
-
-    .command-line {
-      border-radius: 14px;
-      border: 1px solid var(--border-color);
-      background: var(--bg-main);
-      padding: 0.84rem 0.88rem;
-      font-size: 0.8rem;
-      line-height: 1.5;
-      color: var(--accent-cyan);
-      white-space: pre-wrap;
-      word-break: break-word;
-    }
-
-    .actions {
-      margin-top: 0.04rem;
-      display: flex;
-      gap: 0.6rem;
-      flex-wrap: wrap;
-    }
-
-    .action {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 40px;
-      padding: 0.64rem 0.92rem;
-      border-radius: 999px;
-      border: 1px solid var(--border-color);
-      background: var(--bg-main);
-      color: var(--title-text);
-      text-decoration: none;
-      font-size: 0.86rem;
-      font-weight: 700;
-      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.05);
-      transition: 0.2s ease;
-    }
-
-    .action:hover {
-      transform: translateY(-1px);
-      border-color: rgba(15, 118, 110, 0.2);
-      background: #f7f4ee;
-    }
-
-    .action-primary {
-      background: var(--accent-orange);
-      color: #fffdf8;
-      border-color: transparent;
-    }
-
-    .action-primary:hover {
-      background: #c96d06;
-    }
-
-    .mini-action {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      min-height: 32px;
-      padding: 0.42rem 0.78rem;
-      border-radius: 999px;
-      border: 1px solid transparent;
-      background: var(--accent-orange);
-      color: #fffdf8;
-      text-decoration: none;
-      font-size: 0.74rem;
-      font-weight: 700;
-      line-height: 1;
-      white-space: nowrap;
-      transition: 0.2s ease;
-    }
-
-    .mini-action:hover {
-      background: #c96d06;
-    }
-
-    .manual-grid {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 0.72rem;
-    }
-
-    .setup {
-      display: grid;
-      gap: 0.62rem;
-      padding: 0.9rem 0.94rem;
-      border-radius: 14px;
-      border: 1px solid var(--border-color);
-      background: rgba(253, 252, 248, 0.96);
-    }
-
-    .setup h4 {
-      color: var(--title-text);
-      font-size: 0.9rem;
-      line-height: 1.2;
-      font-weight: 700;
-    }
-
-    .setup p {
-      color: var(--text-main);
-      font-size: 0.82rem;
-      line-height: 1.58;
-    }
-
-    .command-list {
-      display: grid;
-      gap: 0.42rem;
-    }
-
-    .specs {
-      list-style: none;
-      display: grid;
-      gap: 0.58rem;
-    }
-
-    .specs li {
-      position: relative;
-      padding-left: 18px;
-      color: var(--text-main);
-      font-size: 0.86rem;
-      line-height: 1.52;
-    }
-
-    .specs li::before {
-      content: "";
-      position: absolute;
-      left: 0;
-      top: 0.5rem;
-      width: 0.42rem;
-      height: 0.42rem;
-      border-radius: 999px;
-      background: var(--accent-orange);
-      box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.12);
-    }
-
-    .install-note strong,
-    .footnote strong {
-      color: var(--title-text);
-    }
-
-    .footnote {
-      color: var(--text-muted);
-      font-size: 0.84rem;
-      line-height: 1.62;
-      padding: 0 2px;
-    }
-
-    @media (max-width: 1080px) {
-      .cards,
-      .manual-grid,
-      .decision-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .topbar {
-        flex-direction: column;
-        align-items: flex-start;
-      }
-
-      .top-actions {
-        justify-content: flex-start;
-      }
-    }
-
-    @media (max-width: 900px) {
-      .shell {
-        width: min(100vw - 12px, 1280px);
-        padding: 8px 0 calc(env(safe-area-inset-bottom) + 34px);
-        gap: 10px;
-      }
-
-      .topbar {
-        flex-direction: column;
-        align-items: flex-start;
-        padding: 10px 14px;
-      }
-
-      .eyebrow {
-        display: none;
-      }
-
-      .top-actions {
-        width: 100%;
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 0.5rem;
-      }
-
-      .top-actions .action {
-        width: 100%;
-        min-width: 0;
-      }
-
-      .topbar,
-      .hero,
-      .card,
-      .install-note {
-        border-radius: 18px;
-      }
-
-      .hero {
-        padding: 18px 16px;
-      }
-
-      .hero h2 {
-        font-size: clamp(1rem, 4.4vw, 1.24rem);
-        line-height: 1.24;
-      }
-
-      .hero p,
-      .desc,
-      .specs li,
-      .footnote {
-        font-size: 0.84rem;
-      }
-
-      .card {
-        padding: 16px;
-        gap: 0.78rem;
-      }
-
-      .platform {
-        font-size: 1.12rem;
-      }
-
-      .actions .action {
-        width: 100%;
-      }
-
-      .mini-action {
-        min-height: 30px;
-        padding: 0.38rem 0.72rem;
-        font-size: 0.72rem;
-      }
-
-      .manual-body,
-      .note-body {
-        padding: 0 0.9rem 0.9rem;
-      }
-
-      .fold-summary {
-        padding: 0.88rem 0.9rem;
-      }
-    }
-
-    @media (max-width: 520px) {
-      .shell {
-        width: min(100vw - 8px, 1280px);
-        padding: 6px 0 calc(env(safe-area-inset-bottom) + 38px);
-        gap: 8px;
-      }
-
-      .topbar,
-      .hero,
-      .card,
-      .install-note {
-        border-radius: 16px;
-      }
-
-      .topbar {
-        padding: 8px 12px;
-      }
-
-      .top-actions {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 0.32rem;
-      }
-
-      .top-actions .action {
-        min-height: 36px;
-        padding: 0.46rem 0.14rem;
-        font-size: 0.72rem;
-      }
-
-      h1 {
-        font-size: clamp(1.36rem, 7vw, 1.82rem);
-      }
-
-      .sub {
-        font-size: 0.84rem;
-        line-height: 1.54;
-      }
-
-      .hero-note {
-        font-size: 0.76rem;
-      }
-
-      .command-line {
-        font-size: 0.76rem;
-      }
-
-      .install-points li {
-        white-space: normal;
-      }
+    .footer-inner .f-links { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+    .footer-inner a { color: var(--fg-muted); font-size: 0.88rem; }
+    .footer-inner a:hover { color: var(--accent); }
+    .footer-inner .f-meta { color: var(--fg-faint); font-size: 0.82rem; }
+
+    @media (max-width: 760px) {
+      body { font-size: 15px; }
+      .decision-grid, .cards, .details-grid { grid-template-columns: 1fr; }
+      .nav a:not(.nav-gh) { display: none; }
     }
   </style>
 </head>
 <body>
-  <main class="shell">
-    <header class="topbar">
-      <div class="brand">
-        <div class="eyebrow">CODRAX</div>
-        <h1>下载安装</h1>
-        <div class="sub">这里只提供 Linux 和 macOS 发布包。每个包只包含 <code>codrax</code> 编译结果、<code>codrax.yaml.example</code>、<code>providers.yaml.example</code> 和 <code>docs/user_guide.md</code>，不附带第三方依赖包或安装脚本。</div>
-      </div>
-      <nav class="top-actions" aria-label="页面导航">
-        <a class="action" href="../index.html">返回首页</a>
-        <a class="action" href="../user_guide.html">使用手册</a>
-      </nav>
-    </header>
 
-    <section class="hero">
-      <div class="hero-copy">
-        <div class="hero-note">Linux / macOS 发布包</div>
-        <h2>按系统和 CPU 架构下载。Linux 使用静态编译版本，macOS 使用原生编译版本。</h2>
-        <p>发布包是最小可运行布局：二进制和配置样例放在包根目录，Markdown 用户手册放在 <code>docs/user_guide.md</code>。如果你需要 <code>git</code>、<code>ripgrep</code>、<code>patch</code> 等外部工具，请按目标系统自行安装。</p>
-      </div>
-      <div class="decision-grid" aria-label="下载方式判断">
-        <div class="decision">
-          <strong>Linux 服务器或容器</strong>
-          <span>下载 <code>codrax-linux-amd64.tar.gz</code>。该二进制通过 musl 静态链接，适合 x64 Linux 环境直接运行。</span>
-        </div>
-        <div class="decision">
-          <strong>macOS 开发机</strong>
-          <span>下载 <code>codrax-macos-universal.tar.gz</code>。包内是 macOS universal 二进制，同时支持 Apple Silicon 和 Intel。</span>
-        </div>
-      </div>
-    </section>
+  <header class="site-header">
+    <a class="brand" href="../index.html" aria-label="CODRAX 首页">
+      <span class="brand-mark"><span>C</span></span>
+      codrax
+    </a>
+    <nav class="nav" aria-label="主导航">
+      <a href="../index.html">首页</a>
+      <a href="../codrax_authoritative_guide.html">使用与技术说明</a>
+      <a href="../user_guide.html">使用手册</a>
+      <a href="./index.html" class="is-active">下载</a>
+      <a href="https://github.com/hanchaoqun/codrax" class="nav-gh" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        GitHub
+      </a>
+    </nav>
+  </header>
 
-    <section class="cards" aria-label="平台下载安装">
-      <article class="card">
-        <div class="card-head">
-          <div class="badge">Linux</div>
-          <div class="platform">Linux x64 静态版</div>
-        </div>
-        <p class="desc">适合服务器、容器和远程终端环境。Linux 发布包只包含 Codrax 自身产物和文档配置样例，二进制由 musl 静态编译。</p>
+  <main>
+    <div class="wrap">
 
-        <section class="quick" aria-label="Linux 发布包下载">
-          <div class="section-head">
-            <div class="section-head-main">
-              <h3>下载发布包</h3>
-              <span class="tag">static</span>
-            </div>
-            <a class="mini-action" href="./codrax-linux-amd64.tar.gz">下载 Linux x64</a>
+      <section class="hero">
+        <span class="kicker">下载安装</span>
+        <h1>下载 CODRAX</h1>
+        <p>
+          这里提供 Linux 和 macOS 发布包。每个包只包含 <code>codrax</code> 二进制、<code>codrax.yaml.example</code>、
+          <code>providers.yaml.example</code> 和 <code>docs/user_guide.md</code>，不附带第三方依赖或安装脚本。
+        </p>
+      </section>
+
+      <section class="section">
+        <h2 class="section-title">选择适合你的版本</h2>
+        <div class="decision-grid">
+          <div class="decision">
+            <strong>Linux 服务器或容器</strong>
+            <span>下载 <code>codrax-linux-amd64.tar.gz</code>。二进制通过 musl 静态链接，适合 x64 Linux 环境直接运行。</span>
           </div>
-          <p>包内固定包含以下内容，不包含额外依赖、安装器或脚本。</p>
-          <ul class="install-points">
-            <li><code>codrax</code> 静态二进制</li>
-            <li><code>codrax.yaml.example</code></li>
-            <li><code>providers.yaml.example</code></li>
-            <li><code>docs/user_guide.md</code></li>
-          </ul>
-          <div class="command-shell">
-            <div class="command-top">
-              <div class="command-meta">
-                <div class="command-label">Bash</div>
-              </div>
-              <div class="command-actions">
-                <button class="copy-button" type="button">复制命令</button>
+          <div class="decision">
+            <strong>macOS 开发机</strong>
+            <span>下载 <code>codrax-macos-universal.tar.gz</code>。universal 二进制，同时支持 Apple Silicon 和 Intel。</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <h2 class="section-title">发布包</h2>
+        <div class="cards">
+
+          <article class="card">
+            <div class="card-head">
+              <span class="badge">Linux</span>
+              <h3>Linux x64 静态版</h3>
+            </div>
+            <p class="desc">适合服务器、容器和远程终端环境，二进制由 musl 静态编译，不依赖系统 glibc 版本。</p>
+            <a class="dl-btn" href="./codrax-linux-amd64.tar.gz">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>
+              下载 Linux x64
+            </a>
+            <div>
+              <div class="pkg-label">包内容</div>
+              <div class="chips" style="margin-top:7px">
+                <span class="chip">codrax</span>
+                <span class="chip">codrax.yaml.example</span>
+                <span class="chip">providers.yaml.example</span>
+                <span class="chip">docs/user_guide.md</span>
               </div>
             </div>
-            <pre class="command-line"><code>tar -xzf codrax-linux-amd64.tar.gz
+            <div class="cmd">
+              <div class="cmd-top">
+                <span class="lbl">bash</span>
+                <button class="copy-button" type="button">复制</button>
+              </div>
+              <pre><code>tar -xzf codrax-linux-amd64.tar.gz
 cd codrax-linux-amd64
 cp providers.yaml.example providers.yaml
 chmod +x ./codrax
 ./codrax version</code></pre>
-          </div>
-        </section>
-
-        <details class="manual-block" aria-label="Linux 补充说明">
-          <summary class="fold-summary">展开运行建议</summary>
-          <div class="manual-body">
-            <div class="manual-grid">
-              <div class="setup">
-                <h4>常用外部工具</h4>
-                <p>Codrax 可以启动，但代码搜索和变更流程通常会用到 <code>git / ripgrep / grep / findutils / patch</code>。这些工具不随发布包分发。</p>
-                <div class="command-list">
-                  <div class="command-line">Debian / Ubuntu:
-sudo apt-get update
-sudo apt-get install -y git ripgrep grep findutils patch bash</div>
-                  <div class="command-line">RHEL / Rocky / CentOS:
-sudo yum install -y git ripgrep grep findutils patch bash</div>
-                  <div class="command-line">Alpine:
-sudo apk add --no-cache git ripgrep grep findutils patch bash</div>
+            </div>
+            <details>
+              <summary>运行建议</summary>
+              <div class="details-body">
+                <div class="setup">
+                  <h4>常用外部工具</h4>
+                  <p>Codrax 可独立启动，但代码搜索与变更流程通常会用到 <code>git / ripgrep / grep / findutils / patch</code>，这些工具不随发布包分发。</p>
+                  <div class="cmd">
+                    <div class="cmd-top"><span class="lbl">Debian / Ubuntu</span></div>
+                    <pre><code>sudo apt-get update
+sudo apt-get install -y git ripgrep grep findutils patch bash</code></pre>
+                  </div>
+                </div>
+                <div class="setup">
+                  <h4>首次配置</h4>
+                  <p>第一次运行前至少复制 <code>providers.yaml.example</code>，填入模型地址、模型名和密钥。</p>
+                  <div class="cmd">
+                    <div class="cmd-top"><span class="lbl">bash</span></div>
+                    <pre><code>cp providers.yaml.example providers.yaml
+$EDITOR providers.yaml</code></pre>
+                  </div>
                 </div>
               </div>
-              <div class="setup">
-                <h4>首次配置</h4>
-                <p>第一次运行前至少复制 <code>providers.yaml.example</code>，填入模型地址、模型名和密钥。需要调整运行时参数时再复制 <code>codrax.yaml.example</code>。</p>
-                <div class="command-list">
-                  <div class="command-line">cp providers.yaml.example providers.yaml
-$EDITOR providers.yaml
-cp codrax.yaml.example codrax.yaml
-$EDITOR codrax.yaml</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </details>
-      </article>
+            </details>
+          </article>
 
-      <article class="card">
-        <div class="card-head">
-          <div class="badge">macOS</div>
-          <div class="platform">macOS Universal</div>
-        </div>
-        <p class="desc">适合本地开发机和终端环境。请按芯片选择对应包，包内同样只包含 Codrax 编译结果、配置样例和 Markdown 用户手册。</p>
-
-        <section class="quick" aria-label="macOS 发布包下载">
-          <div class="section-head">
-            <div class="section-head-main">
-              <h3>下载发布包</h3>
-              <span class="tag">native</span>
+          <article class="card">
+            <div class="card-head">
+              <span class="badge">macOS</span>
+              <h3>macOS Universal</h3>
             </div>
-            <a class="mini-action" href="./codrax-macos-universal.tar.gz">下载 macOS</a>
-          </div>
-          <p>该包使用 universal 二进制，Apple Silicon 和 Intel macOS 都可直接运行。</p>
-          <ul class="install-points">
-            <li><code>codrax</code> macOS 二进制</li>
-            <li><code>codrax.yaml.example</code></li>
-            <li><code>providers.yaml.example</code></li>
-            <li><code>docs/user_guide.md</code></li>
-          </ul>
-          <div class="command-shell">
-            <div class="command-top">
-              <div class="command-meta">
-                <div class="command-label">zsh / Bash</div>
-              </div>
-              <div class="command-actions">
-                <button class="copy-button" type="button">复制命令</button>
+            <p class="desc">适合本地开发机和终端环境。universal 二进制，Apple Silicon 和 Intel macOS 都可直接运行。</p>
+            <a class="dl-btn" href="./codrax-macos-universal.tar.gz">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 21h14"/></svg>
+              下载 macOS
+            </a>
+            <div>
+              <div class="pkg-label">包内容</div>
+              <div class="chips" style="margin-top:7px">
+                <span class="chip">codrax</span>
+                <span class="chip">codrax.yaml.example</span>
+                <span class="chip">providers.yaml.example</span>
+                <span class="chip">docs/user_guide.md</span>
               </div>
             </div>
-            <pre class="command-line"><code>tar -xzf codrax-macos-universal.tar.gz
+            <div class="cmd">
+              <div class="cmd-top">
+                <span class="lbl">zsh / bash</span>
+                <button class="copy-button" type="button">复制</button>
+              </div>
+              <pre><code>tar -xzf codrax-macos-universal.tar.gz
 cd codrax-macos-universal
 cp providers.yaml.example providers.yaml
 xattr -d com.apple.quarantine ./codrax 2&gt;/dev/null || true
 ./codrax version</code></pre>
-          </div>
-        </section>
-
-        <details class="manual-block" aria-label="macOS 补充说明">
-          <summary class="fold-summary">展开运行建议</summary>
-          <div class="manual-body">
-            <div class="manual-grid">
-              <div class="setup">
-                <h4>架构检查</h4>
-                <p>如果你想确认当前机器架构或二进制内容，可以用下面的命令查看。</p>
-                <div class="command-list">
-                  <div class="command-line">uname -m
-lipo -info ./codrax</div>
-                </div>
-              </div>
-              <div class="setup">
-                <h4>常用外部工具</h4>
-                <p>建议准备 <code>git</code> 和 <code>ripgrep</code>。如果系统没有命令行开发工具，可先安装 Xcode Command Line Tools。</p>
-                <div class="command-list">
-                  <div class="command-line">xcode-select --install
-brew install ripgrep</div>
-                </div>
-              </div>
             </div>
-          </div>
-        </details>
-      </article>
-    </section>
+            <details>
+              <summary>运行建议</summary>
+              <div class="details-body">
+                <div class="setup">
+                  <h4>架构检查</h4>
+                  <p>想确认当前机器架构或二进制内容，可以用下面的命令查看。</p>
+                  <div class="cmd">
+                    <div class="cmd-top"><span class="lbl">zsh</span></div>
+                    <pre><code>uname -m
+lipo -info ./codrax</code></pre>
+                  </div>
+                </div>
+                <div class="setup">
+                  <h4>常用外部工具</h4>
+                  <p>建议准备 <code>git</code> 和 <code>ripgrep</code>。若系统没有命令行开发工具，可先安装 Xcode Command Line Tools。</p>
+                  <div class="cmd">
+                    <div class="cmd-top"><span class="lbl">zsh</span></div>
+                    <pre><code>xcode-select --install
+brew install ripgrep</code></pre>
+                  </div>
+                </div>
+              </div>
+            </details>
+          </article>
 
-    <details class="install-note" aria-label="发布包补充说明">
-      <summary class="fold-summary">展开补充说明</summary>
-      <div class="note-body">
-        <p><strong>包内容固定：</strong> <code>codrax</code>、<code>codrax.yaml.example</code>、<code>providers.yaml.example</code>、<code>docs/user_guide.md</code>。除此之外不再放入依赖压缩包、安装脚本或其它工具。</p>
-        <p><strong>Linux 构建要求：</strong> Linux x64 包必须来自静态编译，发布侧使用 <code>make release</code> 时会用 <code>musl-gcc</code> 构建 <code>dist/codrax-linux-amd64</code> 后再打包。</p>
-        <p><strong>安装完成后的第一件事</strong> 是打开 <code>providers.yaml</code>，填入你的模型地址、模型名和密钥；更完整的配置说明、日志和 trace 的使用方法，请直接看上面的 <a href="../user_guide.html">使用手册</a>。</p>
-      </div>
-    </details>
+        </div>
+      </section>
 
-    <p class="footnote">
-      <strong>说明：</strong> 这页只保留 Linux 和 macOS 下载信息。如果你更关心如何提问、如何带日志分析、如何切换模式，或者想看完整的配置说明，请打开上方的“使用手册”。
-    </p>
+      <section class="section">
+        <h2 class="section-title">补充说明</h2>
+        <div class="notes">
+          <p><strong>包内容固定：</strong><code>codrax</code>、<code>codrax.yaml.example</code>、<code>providers.yaml.example</code>、<code>docs/user_guide.md</code>。不再放入依赖压缩包、安装脚本或其它工具。</p>
+          <p><strong>Linux 构建要求：</strong>Linux x64 包必须来自静态编译；发布侧用 <code>make release</code> 时会以 <code>musl-gcc</code> 构建 <code>dist/codrax-linux-amd64</code> 后再打包。</p>
+          <p><strong>安装完成后第一件事</strong>是打开 <code>providers.yaml</code> 填入模型地址、模型名和密钥；更完整的配置、日志和 trace 用法见 <a href="../user_guide.html">使用手册</a>。</p>
+        </div>
+      </section>
+
+    </div>
   </main>
+
+  <footer class="site-footer">
+    <div class="footer-inner">
+      <div class="f-links">
+        <a href="../index.html">首页</a>
+        <a href="../codrax_authoritative_guide.html">使用与技术说明</a>
+        <a href="../user_guide.html">使用手册</a>
+        <a href="https://github.com/hanchaoqun/codrax" target="_blank" rel="noopener">GitHub</a>
+      </div>
+      <div class="f-meta">CODRAX —— 推理确定，解释锚定。</div>
+    </div>
+  </footer>
 
   <script>
     function legacyCopy(text) {
-      const textarea = document.createElement("textarea");
-      textarea.value = text;
-      textarea.setAttribute("readonly", "");
-      textarea.style.position = "fixed";
-      textarea.style.top = "-9999px";
-      textarea.style.left = "-9999px";
-      document.body.appendChild(textarea);
-      textarea.focus();
-      textarea.select();
-      textarea.setSelectionRange(0, textarea.value.length);
-
-      let ok = false;
-      try {
-        ok = document.execCommand("copy");
-      } finally {
-        document.body.removeChild(textarea);
-      }
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.top = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand("copy"); } finally { document.body.removeChild(ta); }
       return ok;
     }
-
     async function copyText(text) {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(text);
@@ -924,29 +537,18 @@ brew install ripgrep</div>
       }
       return legacyCopy(text);
     }
-
-    const copyButtons = document.querySelectorAll(".copy-button");
-
-    copyButtons.forEach((button) => {
-      button.addEventListener("click", async () => {
-        const code = button.closest(".command-shell")?.querySelector("code");
+    document.querySelectorAll(".copy-button").forEach(function (button) {
+      button.addEventListener("click", async function () {
+        var code = button.closest(".cmd") && button.closest(".cmd").querySelector("code");
         if (!code) return;
-
-        const text = code.textContent.trim();
-        const original = button.textContent;
-
+        var original = button.textContent;
         try {
-          const ok = await copyText(text);
+          var ok = await copyText(code.textContent.trim());
           button.textContent = ok ? "已复制" : "复制失败";
-          setTimeout(() => {
-            button.textContent = original;
-          }, 1400);
-        } catch (error) {
+        } catch (e) {
           button.textContent = "复制失败";
-          setTimeout(() => {
-            button.textContent = original;
-          }, 1400);
         }
+        setTimeout(function () { button.textContent = original; }, 1400);
       });
     });
   </script>
