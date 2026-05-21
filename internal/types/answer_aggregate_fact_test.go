@@ -1873,6 +1873,21 @@ func TestMutableState_StableInvestigationAggregateFactsRetention(t *testing.T) {
 	if again[0].Members[0] != "--foo" {
 		t.Fatalf("StableInvestigationAggregateFacts must return a defensive copy: %+v", again)
 	}
+
+	// A later rejected/downgraded closure may decode a new aggregate payload
+	// before its gates fail. That in-flight payload must never replace the
+	// accepted stable pool until the completion flag is set and the tool retains
+	// it after all gates pass.
+	mu.SetInvestigationAggregateFacts([]AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "stale downgraded payload",
+		Value:   "1",
+		Members: []string{"stale"},
+	}})
+	stable := mu.StableInvestigationAggregateFacts()
+	if len(stable) != 1 || stable[0].Label != "CLI bucket" || stable[0].Members[0] != "--foo" {
+		t.Fatalf("downgraded in-flight aggregate facts polluted stable pool: %+v", stable)
+	}
 }
 
 func TestMutableState_MergeExploreForkUnionsStableAggregateFacts(t *testing.T) {

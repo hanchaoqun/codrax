@@ -402,7 +402,7 @@ flowchart TD
 - [x] Add type-layer red-line tests that external/web/MCP/connector observations
   never import `internal/tool/ground`, never become repo citations, and preserve
   origin-specific support instead of fake `file:line` anchors.
-- [ ] Add regression tests for no fake `file:line`, no duplicated raw table, no stale failed closure record.
+- [x] Add regression tests for no fake `file:line`, no duplicated raw table, no stale failed closure record.
 
 ### Batch 6 — Eval And Gap Closure
 
@@ -514,3 +514,8 @@ flowchart TD
   resources, and other non-current origins stay origin-specific support. Tests
   cover source-location members, no-support current-source aggregates, artifact
   local lines, and type-layer no-import of `internal/tool/ground`.
+- 2026-05-21: Batch 5 regression guards refreshed: the table compiler already
+  had explicit no-duplicate / preserve-authored-markdown / marked-supplement
+  tests; this batch added stale failed-closure coverage so in-flight
+  downgraded `aggregate_facts` cannot replace the accepted stable pool, plus the
+  current-source/external span tests above for no fake `file:line`.
