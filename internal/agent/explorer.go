@@ -5915,9 +5915,12 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 		if mutateERM {
 			e.ermRequirements = reqs
 		}
-		if hasEnough && !ermSatisfied {
-			hasEnough = false
-		} else if !hasEnough && ermSatisfied && len(e.structuredEvidence) > 0 {
+		// ERM requirements are breadth guidance, not proof that an
+		// otherwise grounded investigation is incomplete. Keep an
+		// all-satisfied ERM result as a positive completion signal for
+		// sparse-but-closed investigations, but do not let ERM-only gaps
+		// demote HasEnoughFacts or force another exploration round.
+		if !hasEnough && ermSatisfied && len(e.structuredEvidence) > 0 {
 			hasEnough = true
 		}
 	}
@@ -9659,9 +9662,6 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		} else if !readiness.ExplanationAnchorReady {
 			hintKey = "explorer.retry.explanation-anchor"
 			out.RetryHint = fmt.Sprintf("Previous attempt covered %d of %d required explanation anchors. Read the missing topic anchors and emit grounded evidence for each before completing.", readiness.ExplanationAnchorCovered, readiness.ExplanationAnchorTotal)
-		} else if len(e.ermRequirements) > 0 && !ermAllSatisfied(e.ermRequirements) {
-			hintKey = "explorer.retry.erm-unsatisfied"
-			out.RetryHint = "Previous attempt left evidence requirements unsatisfied. " + ermUnsatisfiedGaps(e.ermRequirements)
 		} else {
 			hintKey = "explorer.retry.file-coverage"
 			out.RetryHint = fmt.Sprintf("Previous attempt read only %d of %d discovered relevant files (%.0f%% coverage, %d relevant). Read more of the discovered files.", readiness.ScopeReadCount, max(readiness.ScopeTotalCount, readiness.DiscoveredCount), readiness.Coverage*100, readiness.RelevantRead)

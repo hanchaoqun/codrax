@@ -581,3 +581,11 @@ flowchart TD
   3. targeted tests cover analyzer soft coverage, still-hard structural gates,
      and ERM-only non-retry so future contributors cannot reintroduce the
      screenshot class by adding a new default-hard check.
+- 2026-05-21: Batch 7 step 1 shipped in `78cfa938`: analyzer gate hard rejects
+  now use a typed allowlist, and coverage/search-hint gaps remain visible but
+  cannot alone retry analysis.
+- 2026-05-21: Batch 7 step 2 implemented: ERM requirement satisfaction remains
+  a readiness face and positive completion signal, but ERM-only unsatisfied
+  breadth gaps no longer demote `HasEnoughFacts` or build an explorer fact
+  retry. Targeted tests pin that an otherwise-ready investigation completes
+  without the old `explorer.retry.erm-unsatisfied` path.

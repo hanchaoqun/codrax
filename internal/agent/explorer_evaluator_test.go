@@ -329,9 +329,11 @@ func TestParseOutput_MechanismEvidenceDoesNotUseDirectRegistrationFloor(t *testi
 	}
 }
 
-func TestParseOutput_ERMUnsatisfiedDemotes(t *testing.T) {
-	// All quantitative floors pass (2 tool types, 3 reads, 2 DIRECT
-	// tags) but ERM has an unsatisfied requirement. Expect demote.
+func TestParseOutput_ERMUnsatisfiedDoesNotDemoteOtherwiseReady(t *testing.T) {
+	// All quantitative floors pass (2 tool types, 2 covered reads, 2 DIRECT
+	// tags) but ERM has an unsatisfied requirement. ERM is advisory
+	// breadth guidance, so it must not be the sole reason to reopen
+	// exploration.
 	eval := &explorerEvaluator{
 		userQuestion: "question",
 		structuredEvidence: []types.EvidenceItem{
@@ -347,16 +349,17 @@ func TestParseOutput_ERMUnsatisfiedDemotes(t *testing.T) {
 	}
 	out, err := eval.ParseOutput(parseOutputCtx("", ""), nil, []types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: "a.go:1\nb.go:5"},
-		{ToolName: "read_file", Success: true, Summary: "a.go (full file)\nb.go (full file)\nc.go (full file)"},
+		{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 1-20 of 20 total]"},
+		{ToolName: "read_file", Success: true, Summary: "[b.go: showing lines 1-20 of 20 total]"},
 	}, nil)
 	if err != nil {
 		t.Fatalf("ParseOutput error: %v", err)
 	}
-	if out.SignalUpdates == nil || out.SignalUpdates.HasEnoughFacts {
-		t.Fatal("hasEnough must be demoted to false when ERM has unsatisfied requirements")
+	if out.SignalUpdates == nil || !out.SignalUpdates.HasEnoughFacts {
+		t.Fatalf("otherwise-ready investigation must stay complete despite ERM-only gaps, retry=%q", out.RetryHint)
 	}
-	if !strings.Contains(out.RetryHint, "evidence requirements unsatisfied") {
-		t.Errorf("RetryHint should diagnose ERM gap, got: %q", out.RetryHint)
+	if strings.Contains(out.RetryHint, "evidence requirements unsatisfied") {
+		t.Errorf("RetryHint must not turn ERM-only gaps into fact retry, got: %q", out.RetryHint)
 	}
 }
 
