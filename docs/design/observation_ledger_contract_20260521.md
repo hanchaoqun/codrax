@@ -377,6 +377,12 @@ flowchart TD
   observations.
 - [x] Add tests for external-only history/log/trace questions: requested
   external observations outrank incidental current-source reads.
+- [x] Add a prompt-budget diversity guard: when a mixed request has multiple
+  typed requested origins, the compact ledger keeps the best record for each
+  requested origin before filling the remaining budget by rank. This prevents
+  many current-source rows from squeezing out equally relevant git/diff/log
+  observations while preserving exact current-source rows first when current
+  code is part of the request.
 - [x] Add tests that shared context adapters prefer accepted Turn A artifacts
   over analyzer/pre-scan noise.
 - [x] Add eval backlog / executable guards for "基于 git diff + 当前源码分析影响"
@@ -488,6 +494,11 @@ flowchart TD
   source impact, and `logtri_line_current_code` covers artifact-local log line
   + current-code explanation. MCP/web mixed-origin evals stay explicitly
   tracked but unimplemented until the runner has those producers.
+- 2026-05-21: Batch 4C prompt-budget guard refined: `PrioritizeObservationRecords`
+  now seeds the compact view with one best record per typed requested origin
+  before filling by score. This keeps mixed code+git/diff/log/trace evidence
+  balanced under prompt pressure without changing external-only or source-only
+  ordering semantics.
 - 2026-05-21: Batch 4B VCS/tool coordinate projection completed: git/diff/history
   and exec-command observations now keep blob `RawRef` plus structured
   `ref/pathspec/window_path/diff_path/answer_count/command` coordinates in the

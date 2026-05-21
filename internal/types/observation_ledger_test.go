@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -472,6 +473,66 @@ func TestPrioritizeObservationRecords_MixedHistoryAndCurrentCodeKeepsExactSource
 	got := PrioritizeObservationRecords(records, &rm, nil, 2)
 	if len(got) != 2 || got[0].ID != "evidence:current" || got[1].ID != "tool:0#vcs_metadata" {
 		t.Fatalf("mixed history+current-code ranking should keep exact current source first, got %+v", got)
+	}
+}
+
+func TestPrioritizeObservationRecords_MixedHistoryBudgetPreservesEachRequestedOrigin(t *testing.T) {
+	records := []ObservationRecord{
+		{
+			ID:      "tool:0#vcs_metadata",
+			Origin:  AnswerEvidenceOriginVCSMetadata,
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Summary: "latest commit explains the feature",
+		},
+		{
+			ID:      "tool:1#vcs_diff",
+			Origin:  AnswerEvidenceOriginVCSDiff,
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Summary: "diff hunk shows the historical change",
+		},
+	}
+	for i := 0; i < 6; i++ {
+		records = append(records, ObservationRecord{
+			ID:     fmt.Sprintf("evidence:current:%d", i),
+			Origin: AnswerEvidenceOriginCurrentSource,
+			Role:   AnswerAggregateRoleSupportingCoverage,
+			SourceRef: ObservationSourceRef{
+				Kind: ObservationSourceCurrentSource,
+				Path: fmt.Sprintf("internal/current_%d.go", i),
+			},
+			Span:            ObservationSpan{LineStart: 10 + i},
+			AnchorKind:      AnchorDefinition,
+			EvidenceScope:   ScopeLine,
+			GroundingStatus: GroundingGrounded,
+			Summary:         "current source detail",
+		})
+	}
+	rm := RequestModel{
+		Intent: IntentExplain,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+		ChangeImpactProfile: &ChangeImpactProfile{IsChangeImpact: true},
+	}
+	got := PrioritizeObservationRecords(records, &rm, nil, 3)
+	if len(got) != 3 {
+		t.Fatalf("got %d records, want 3: %+v", len(got), got)
+	}
+	seen := map[AnswerEvidenceOrigin]bool{}
+	for _, record := range got {
+		seen[record.Origin] = true
+	}
+	for _, want := range []AnswerEvidenceOrigin{
+		AnswerEvidenceOriginCurrentSource,
+		AnswerEvidenceOriginVCSMetadata,
+		AnswerEvidenceOriginVCSDiff,
+	} {
+		if !seen[want] {
+			t.Fatalf("mixed-origin budget dropped requested origin %s: %+v", want, got)
+		}
+	}
+	if got[0].Origin != AnswerEvidenceOriginCurrentSource {
+		t.Fatalf("exact current-source evidence should remain the first mixed-origin record, got %+v", got)
 	}
 }
 

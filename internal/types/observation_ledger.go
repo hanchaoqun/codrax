@@ -133,9 +133,54 @@ func PrioritizeObservationRecords(records []ObservationRecord, rm *RequestModel,
 		return observationRecordRank(out[i], intent) < observationRecordRank(out[j], intent)
 	})
 	if len(out) > limit {
-		out = out[:limit]
+		out = budgetObservationRecordsByOrigin(out, intent, limit)
 	}
 	return out
+}
+
+func budgetObservationRecordsByOrigin(sorted []ObservationRecord, intent *AnswerIntentContract, limit int) []ObservationRecord {
+	if limit <= 0 || len(sorted) <= limit {
+		return sorted
+	}
+	selected := make([]bool, len(sorted))
+	out := make([]ObservationRecord, 0, limit)
+	if intent != nil {
+		for _, origin := range intent.Origins {
+			if len(out) >= limit {
+				break
+			}
+			idx := firstObservationRecordIndexForOrigin(sorted, selected, origin)
+			if idx < 0 {
+				continue
+			}
+			selected[idx] = true
+			out = append(out, sorted[idx])
+		}
+	}
+	for i, record := range sorted {
+		if len(out) >= limit {
+			break
+		}
+		if selected[i] {
+			continue
+		}
+		selected[i] = true
+		out = append(out, record)
+	}
+	return out
+}
+
+func firstObservationRecordIndexForOrigin(records []ObservationRecord, selected []bool, origin AnswerEvidenceOrigin) int {
+	if origin == AnswerEvidenceOriginUnknown {
+		return -1
+	}
+	for i, record := range records {
+		if selected[i] || record.Origin != origin {
+			continue
+		}
+		return i
+	}
+	return -1
 }
 
 // ObservationLedgerInput carries existing accepted producer outputs into the
