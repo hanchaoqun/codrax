@@ -230,6 +230,59 @@ func TestCompileObservationLedger_MixedPositiveAndNegativeExternalFactsStayTarge
 	}
 }
 
+func TestCompileObservationLedger_PreservesExternalPagingRefsAndLocalSpans(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		AggregateFacts: []AnswerAggregateFact{{
+			Kind:  AnswerAggregateScalar,
+			Label: "line total",
+			Value: "70693",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: string(AnswerEvidenceOriginCommandMeasurement)},
+				{Name: "command", Value: "find internal/tool -name '*.go' | xargs wc -l"},
+				{Name: "raw_ref", Value: "/tmp/codrax/blob/exec_command-1234.txt"},
+			},
+		}},
+		ToolResults: []ToolResult{{
+			ToolName: "git_log",
+			Success:  true,
+			Summary:  "[git_log: evidence_origin=vcs_metadata count=20]\nabc123 feature summary",
+			RawRef:   "/tmp/codrax/blob/git_log-5678.txt",
+		}},
+		LogBundle: &LogBundle{Observations: []LogObservation{{
+			Kind:      LogObservationRuntimeEvent,
+			Subject:   "panic frame",
+			Summary:   "panic at frame",
+			LineStart: 40,
+			LineEnd:   43,
+		}}},
+		PerfBundle: &PerfBundle{Observations: []PerfObservation{{
+			Kind:      "jank",
+			Subject:   "render stall",
+			Summary:   "render stall in trace",
+			LineStart: 9,
+			StartTsMs: 120.5,
+			EndTsMs:   168.75,
+		}}},
+	})
+
+	measurement := findObservationRecord(t, ledger, "aggregate:0#command_measurement")
+	if measurement.SourceRef.RawRef != "/tmp/codrax/blob/exec_command-1234.txt" || measurement.SourceRef.Command == "" {
+		t.Fatalf("command measurement should preserve blob paging ref and command: %+v", measurement)
+	}
+	gitRecord := findObservationRecord(t, ledger, "tool:0#vcs_metadata")
+	if gitRecord.SourceRef.RawRef != "/tmp/codrax/blob/git_log-5678.txt" {
+		t.Fatalf("git tool observation should preserve blob paging ref: %+v", gitRecord)
+	}
+	logRecord := findObservationRecord(t, ledger, "log:observation:0")
+	if logRecord.Span.LineStart != 40 || logRecord.Span.LineEnd != 43 {
+		t.Fatalf("log observation should preserve artifact-local lines: %+v", logRecord)
+	}
+	perfRecord := findObservationRecord(t, ledger, "perf:observation:0")
+	if perfRecord.Span.LineStart != 9 || perfRecord.Span.StartTsMs != 120.5 || perfRecord.Span.EndTsMs != 168.75 {
+		t.Fatalf("perf observation should preserve artifact-local line/time spans: %+v", perfRecord)
+	}
+}
+
 func assertObservationRecord(t *testing.T, ledger ObservationLedger, id string, origin AnswerEvidenceOrigin, source ObservationSourceKind) {
 	t.Helper()
 	record := findObservationRecord(t, ledger, id)

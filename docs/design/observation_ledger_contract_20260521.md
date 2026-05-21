@@ -372,3 +372,9 @@ flowchart TD
   relationship is exact (aggregate index + origin) or runtime-artifact typed
   bundle matching is available. This keeps bindings and ledger records aligned
   without adding another origin inference path.
+- 2026-05-21: Batch 4B first guardrail landed in the type layer: aggregate facts
+  can carry `raw_ref` / `blob_ref` into `ObservationSourceRef.RawRef`, and tests
+  now verify command/git blob refs plus log/perf artifact-local line/time spans
+  are preserved. This is not the full external-resource paging adapter yet; it
+  locks down the reusable blob/span contract before MCP/web/connector producers
+  grow their own implementations.

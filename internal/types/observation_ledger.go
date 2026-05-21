@@ -488,6 +488,7 @@ func aggregateFactResultCount(fact AnswerAggregateFact, dims map[string]string) 
 
 func sourceRefForAggregateFact(origin AnswerEvidenceOrigin, dims map[string]string) ObservationSourceRef {
 	ref := ObservationSourceRef{Kind: ObservationSourceKindForOrigin(origin)}
+	ref.RawRef = firstNonEmptyString(dims["raw_ref"], dims["blob_ref"], dims["source_blob"], dims["tool_raw_ref"])
 	switch origin {
 	case AnswerEvidenceOriginCurrentSource, AnswerEvidenceOriginRepoNegativeSearch:
 		ref.Repo = dims["repo"]
