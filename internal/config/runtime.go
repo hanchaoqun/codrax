@@ -1057,8 +1057,9 @@ type RuntimeSettings struct {
 	// RepomapScanReserveCPUs caps GOMAXPROCS during a scan to
 	// (cores - this), so the *entire* Go runtime — parse workers, GC
 	// workers, graph build/rank — leaves that many cores free for
-	// interactive processes. Defaults to 1; set 0 to disable. nil →
-	// code default (1) applied in cmd/root.go.
+	// interactive processes. Defaults to 0 (opt-in); set 1 on a small
+	// remote host where a scan otherwise starves sshd. nil → code
+	// default (0) applied in cmd/root.go.
 	RepomapScanReserveCPUs *int `yaml:"repomap_scan_reserve_cpus"`
 
 	// CGEC (Citation-Grounded Evidence Closure) tunables. All

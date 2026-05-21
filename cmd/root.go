@@ -1652,9 +1652,10 @@ func initApp(cmd *cobra.Command, args []string) error {
 	// core; on a small remote host that can starve sshd and drop the
 	// operator's SSH session. RepomapScanReserveCPUs caps GOMAXPROCS
 	// during a scan so the entire Go runtime (parse, GC, graph build)
-	// leaves that many cores free for interactive processes. Default 1.
-	// See docs/design/large_repo_memory_resilience.md.
-	scanReserveCPUs := 1
+	// leaves that many cores free for interactive processes. Default 0
+	// (opt-in); operators on small remote hosts set it to 1. See
+	// docs/design/large_repo_memory_resilience.md.
+	scanReserveCPUs := 0
 	if rs != nil && rs.RepomapScanReserveCPUs != nil {
 		scanReserveCPUs = *rs.RepomapScanReserveCPUs
 	}

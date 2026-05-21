@@ -197,15 +197,17 @@ not compound the subtraction; the parse worker pool size
 agree.
 
 This is a *hard* guarantee and does cost scan throughput — reserving 1 of
-4 cores is a ~25 % slower parse — which is why it is a single tunable
-knob. It defaults to `1`: a dropped SSH session is a worse outcome than a
-moderately slower scan, and on hosts with many cores the cost is
-negligible. Pure Go, cross-platform, no platform-specific code.
+4 cores is a ~25 % slower parse. Because that cost applies to every
+scan, it defaults to `0` (off): codrax does not silently slow scans for
+everyone. An operator who hits dropped SSH sessions while scanning a
+huge repo on a small remote host sets it to `1`. Pure Go,
+cross-platform, no platform-specific code.
 
 Config knob:
 
 - `repomap_scan_reserve_cpus` — cores held free for the host during a
-  scan (default `1`; `0` disables and lets the scan use every core).
+  scan (default `0`, i.e. use every core; set `1` on a small remote
+  host where a scan starves sshd).
 
 ## Concurrency safety
 

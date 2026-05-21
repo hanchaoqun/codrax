@@ -142,17 +142,18 @@
 
 # repomap_scan_reserve_cpus — a repomap full scan is CPU-bound across
 #   every core; on a small remote host that can starve sshd and drop the
-#   SSH session. During a scan codrax caps GOMAXPROCS to (cores - this),
-#   so the WHOLE Go runtime — parse workers, GC workers, graph
-#   build/rank — leaves that many cores free for interactive processes.
-#   It costs some scan throughput (reserving 1 of 4 cores ≈ 25% slower);
-#   set 0 to disable. Default: 1.
+#   SSH session. When set > 0, codrax caps GOMAXPROCS to (cores - this)
+#   during a scan, so the WHOLE Go runtime — parse workers, GC workers,
+#   graph build/rank — leaves that many cores free for interactive
+#   processes. It costs some scan throughput (reserving 1 of 4 cores
+#   ≈ 25% slower), so it is opt-in: default 0. Set 1 on a small remote
+#   host where a scan drops your SSH session. Default: 0.
 #   repomap 全量扫描会占满每个 CPU 核心;在核数偏小的远程主机上可能饿死
-#   sshd、导致 SSH 断连。扫描期间 codrax 把 GOMAXPROCS 压到 (核数 - 该值),
-#   让整个 Go 运行时(解析 worker、GC worker、图构建/排序)都留出这么多
-#   核心给交互进程。会损失一些扫描吞吐(4 核留 1 ≈ 慢 25%);设为 0 可关闭。
-#   默认 1。
-# repomap_scan_reserve_cpus: 1
+#   sshd、导致 SSH 断连。设为 >0 时,扫描期间 codrax 把 GOMAXPROCS 压到
+#   (核数 - 该值),让整个 Go 运行时(解析 worker、GC worker、图构建/排序)
+#   都留出这么多核心给交互进程。会损失一些扫描吞吐(4 核留 1 ≈ 慢 25%),
+#   故默认 0(按需开启);在会掉 SSH 的小远程机上设为 1。默认 0。
+# repomap_scan_reserve_cpus: 0
 
 # ---------------------------------------------------------------------------
 # Tool output blobs  ·  工具输出 blob

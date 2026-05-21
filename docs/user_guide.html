@@ -1459,8 +1459,8 @@ multi_repo_enabled: false
 </tr>
 <tr>
 <td><code>repomap_scan_reserve_cpus</code></td>
-<td><code>1</code></td>
-<td>扫描期间把 <code>GOMAXPROCS</code> 压到 <code>核数 - 该值</code>,让整个 Go 运行时(解析 worker、<strong>GC worker</strong>、图构建/排序)都留出这么多核心给交互进程,避免占满 CPU 饿死 sshd 导致远程 SSH 断连。损失一些扫描吞吐(4 核留 1 ≈ 慢 25%);设 <code>0</code> 可关闭</td>
+<td><code>0</code></td>
+<td>设为 <code>&gt;0</code> 时,扫描期间把 <code>GOMAXPROCS</code> 压到 <code>核数 - 该值</code>,让整个 Go 运行时(解析 worker、<strong>GC worker</strong>、图构建/排序)都留出这么多核心给交互进程,避免占满 CPU 饿死 sshd 导致远程 SSH 断连。损失一些扫描吞吐(4 核留 1 ≈ 慢 25%),故默认 <code>0</code> 按需开启;小远程机掉 SSH 时设 <code>1</code></td>
 </tr>
 </tbody>
 </table></div>
@@ -2201,7 +2201,7 @@ codrax --mode=verify --plan-file=/tmp/plan.json
 <p><strong>扫描超大仓库时进程被杀(<code>Killed</code> / dmesg 里有 OOM)</strong>
 → 在内存偏小的机器上扫巨型仓库(如 Linux 内核)时,repomap 全量扫描可能耗尽宿主 RAM。codrax 默认已三管齐下缓解:启动设 GOMEMLIMIT 软上限、解析后立即回收内存、被中断的扫描下次自动从已落盘 chunk 续扫(见 5.2「大仓内存韧性」)。若仍被杀:① 临时加 swap 让首次扫描扛过峰值、把 cache 建出来;② 用 <code>--repo</code> 指向更小的子目录而非整棵树;③ 内存极小的机器可调低 <code>memory_soft_limit_fraction</code>。日志里的 <code>repo_map: resuming interrupted scan</code> 行说明续扫已生效。</p>
 <p><strong>扫描超大仓库时 SSH 断连 / 远程终端卡死</strong>
-→ 全量扫描会占满每个 CPU 核心,可能饿死 sshd。codrax 默认 <code>repomap_scan_reserve_cpus: 1</code> —— 扫描期间把 <code>GOMAXPROCS</code> 压低一核,让<strong>整个 Go 运行时(含 GC 线程)</strong>都留一个空闲核心给 sshd。启动日志 <code>cpu: repomap scan reserves 1 core(s)</code> 可确认。注意:调度 nice 值管不住 Go 运行时自己的 GC 线程,所以 codrax 不靠 nice、直接用 <code>GOMAXPROCS</code> 上限作硬保证。若 16 核以上大机器想要满速,可设 <code>repomap_scan_reserve_cpus: 0</code>;若小机器仍卡顿,设为 <code>2</code>。</p>
+→ 全量扫描会占满每个 CPU 核心,可能饿死 sshd。把 <code>repomap_scan_reserve_cpus</code> 设为 <code>1</code>:扫描期间 codrax 把 <code>GOMAXPROCS</code> 压低一核,让<strong>整个 Go 运行时(含 GC 线程)</strong>都留一个空闲核心给 sshd。启动日志 <code>cpu: repomap scan reserves 1 core(s)</code> 可确认。注意:调度 nice 值管不住 Go 运行时自己的 GC 线程,所以这里用 <code>GOMAXPROCS</code> 上限作硬保证。该键默认 <code>0</code>(不改变默认行为、不损失扫描速度);小远程机掉 SSH 就设 <code>1</code>,仍卡顿设 <code>2</code>。</p>
 <h2 id="84-写模式特有">8.4 写模式特有</h2>
 <p><strong><code>/mode plan</code> 报 <code>write_enabled is false</code></strong>
 → <code>codrax.yaml</code> 加 <code>write_enabled: true</code>,重启 codrax。</p>

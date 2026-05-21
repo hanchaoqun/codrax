@@ -981,7 +981,7 @@ agents:
 
 ### 大仓内存韧性
 
-扫描超大仓库(如 Linux 内核:约 6.4 万个待解析源文件)时,repomap 全量扫描在内存和 CPU 两个维度都会压满小机器:进程内存可能超出宿主 RAM 被 OOM 杀掉,所有核心被占满又可能饿死 sshd 导致远程 SSH 断连。下面这些键默认即开,无需配置;低配机器上扫巨型仓库才需要关注。详见 `docs/design/large_repo_memory_resilience.md`。
+扫描超大仓库(如 Linux 内核:约 6.4 万个待解析源文件)时,repomap 全量扫描在内存和 CPU 两个维度都会压满小机器:进程内存可能超出宿主 RAM 被 OOM 杀掉,所有核心被占满又可能饿死 sshd 导致远程 SSH 断连。内存相关的键默认即开、无需配置;CPU 那个键(`repomap_scan_reserve_cpus`)按需开启。详见 `docs/design/large_repo_memory_resilience.md`。
 
 | 键 | 默认 | 作用 |
 |---|---|---|
@@ -989,7 +989,7 @@ agents:
 | `memory_soft_limit_fraction` | `0.8` | 目标占检测到的宿主 RAM 的比例,范围 `(0,1]`。宿主 RAM 检测支持 Linux(`/proc/meminfo`)/ macOS(`hw.memsize`)/ Windows(`GlobalMemoryStatusEx`) |
 | `memory_soft_limit_bytes` | `0` | 直接以字节指定软上限;`>0` 时跳过宿主 RAM 检测,低于 512 MiB 抬到该下限。RAM 检测覆盖不到的平台用这个键 |
 | `repomap_resume_interrupted_scan` | `true` | 全量扫描复用上次被中断(如被 OOM 杀掉)的扫描已落盘的 chunk,经内容哈希校验后跳过重解析;重试逐步收敛而非从零重来。覆盖全部 15 种语言 |
-| `repomap_scan_reserve_cpus` | `1` | 扫描期间把 `GOMAXPROCS` 压到 `核数 - 该值`,让整个 Go 运行时(解析 worker、**GC worker**、图构建/排序)都留出这么多核心给交互进程,避免占满 CPU 饿死 sshd 导致远程 SSH 断连。损失一些扫描吞吐(4 核留 1 ≈ 慢 25%);设 `0` 可关闭 |
+| `repomap_scan_reserve_cpus` | `0` | 设为 `>0` 时,扫描期间把 `GOMAXPROCS` 压到 `核数 - 该值`,让整个 Go 运行时(解析 worker、**GC worker**、图构建/排序)都留出这么多核心给交互进程,避免占满 CPU 饿死 sshd 导致远程 SSH 断连。损失一些扫描吞吐(4 核留 1 ≈ 慢 25%),故默认 `0` 按需开启;小远程机掉 SSH 时设 `1` |
 
 ### 流水线预算
 
@@ -1282,7 +1282,7 @@ CLI 单次模式输出:
 → 在内存偏小的机器上扫巨型仓库(如 Linux 内核)时,repomap 全量扫描可能耗尽宿主 RAM。codrax 默认已三管齐下缓解:启动设 GOMEMLIMIT 软上限、解析后立即回收内存、被中断的扫描下次自动从已落盘 chunk 续扫(见 5.2「大仓内存韧性」)。若仍被杀:① 临时加 swap 让首次扫描扛过峰值、把 cache 建出来;② 用 `--repo` 指向更小的子目录而非整棵树;③ 内存极小的机器可调低 `memory_soft_limit_fraction`。日志里的 `repo_map: resuming interrupted scan` 行说明续扫已生效。
 
 **扫描超大仓库时 SSH 断连 / 远程终端卡死**
-→ 全量扫描会占满每个 CPU 核心,可能饿死 sshd。codrax 默认 `repomap_scan_reserve_cpus: 1` —— 扫描期间把 `GOMAXPROCS` 压低一核,让**整个 Go 运行时(含 GC 线程)**都留一个空闲核心给 sshd。启动日志 `cpu: repomap scan reserves 1 core(s)` 可确认。注意:调度 nice 值管不住 Go 运行时自己的 GC 线程,所以 codrax 不靠 nice、直接用 `GOMAXPROCS` 上限作硬保证。若 16 核以上大机器想要满速,可设 `repomap_scan_reserve_cpus: 0`;若小机器仍卡顿,设为 `2`。
+→ 全量扫描会占满每个 CPU 核心,可能饿死 sshd。把 `repomap_scan_reserve_cpus` 设为 `1`:扫描期间 codrax 把 `GOMAXPROCS` 压低一核,让**整个 Go 运行时(含 GC 线程)**都留一个空闲核心给 sshd。启动日志 `cpu: repomap scan reserves 1 core(s)` 可确认。注意:调度 nice 值管不住 Go 运行时自己的 GC 线程,所以这里用 `GOMAXPROCS` 上限作硬保证。该键默认 `0`(不改变默认行为、不损失扫描速度);小远程机掉 SSH 就设 `1`,仍卡顿设 `2`。
 
 ## 8.4 写模式特有
 
