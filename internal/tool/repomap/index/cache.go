@@ -15,7 +15,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hanchaoqun/codrax/internal/cpulimit"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 )
@@ -47,14 +46,12 @@ func SetResumeInterruptedScan(enabled bool) {
 
 // scanReserveCPUs is the number of CPU cores a repomap scan leaves
 // free for interactive processes (notably sshd) so a long full scan of
-// a huge repository does not freeze a remote session. Default 0 —
-// process-level niceness (internal/cpulimit) is the primary lever and,
-// unlike core reservation, costs no scan throughput when the host is
-// otherwise idle.
+// a huge repository does not freeze a remote session. It is enforced by
+// ApplyScanGOMAXPROCS, which caps the whole Go runtime for the scan.
 var scanReserveCPUs int
 
-// SetScanReserveCPUs sets how many cores scan worker pools leave free.
-// Called once from main.go before any tool runs.
+// SetScanReserveCPUs sets how many cores a scan leaves free. Called
+// once from main.go before any tool runs.
 func SetScanReserveCPUs(n int) {
 	if n < 0 {
 		n = 0
@@ -62,14 +59,44 @@ func SetScanReserveCPUs(n int) {
 	scanReserveCPUs = n
 }
 
-// scanCPUBudget is how many CPUs scan work may occupy: GOMAXPROCS minus
-// the reserved cores, always at least 1.
+// baseGOMAXPROCS captures the process's intended parallelism once at
+// package init, before any scan lowers runtime.GOMAXPROCS. Scan budgets
+// derive from this stable base so repeated ApplyScanGOMAXPROCS calls do
+// not compound the subtraction.
+var baseGOMAXPROCS = runtime.GOMAXPROCS(0)
+
+// scanCPUBudget is how many CPUs scan work may occupy: the process's
+// base GOMAXPROCS minus the reserved cores, always at least 1.
 func scanCPUBudget() int {
-	n := runtime.GOMAXPROCS(0) - scanReserveCPUs
+	n := baseGOMAXPROCS - scanReserveCPUs
 	if n < 1 {
 		n = 1
 	}
 	return n
+}
+
+// ApplyScanGOMAXPROCS caps runtime.GOMAXPROCS to the scan CPU budget for
+// the duration of a scan and returns a function that restores the
+// previous value.
+//
+// Per-thread niceness only tames the threads codrax explicitly creates
+// and locks (the parse-worker pool). The Go runtime's own threads — GC
+// workers (which GOMEMLIMIT keeps busy), the scheduler, and the
+// goroutines that build and rank the graph — run at normal priority and
+// can still saturate every core. GOMAXPROCS is the lever that bounds
+// the *entire* runtime: capping it hard-reserves cores for interactive
+// processes (sshd) regardless of what the Go side is doing. No-op when
+// no cores are reserved.
+func ApplyScanGOMAXPROCS() func() {
+	if scanReserveCPUs <= 0 {
+		return func() {}
+	}
+	budget := scanCPUBudget()
+	prev := runtime.GOMAXPROCS(budget)
+	if prev == budget {
+		return func() {}
+	}
+	return func() { runtime.GOMAXPROCS(prev) }
 }
 
 // CacheDir returns the cache directory for a given repo root.
@@ -828,8 +855,6 @@ func ChangedFilesWithProgress(repoRoot, cacheDir string, entries []FileEntry, pr
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			runtime.LockOSThread()
-			cpulimit.NiceCurrentThread()
 			for job := range jobs {
 				newHash, err := hashFile(job.entry.AbsPath)
 				if err != nil || newHash != job.old {
@@ -1043,8 +1068,6 @@ func verifyResumableFileInfos(entries []FileEntry, candidates map[string]*types.
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			runtime.LockOSThread()
-			cpulimit.NiceCurrentThread()
 			for j := range jobs {
 				// A re-classified extension would have parsed under a
 				// different extractor — never reuse across a language

@@ -30,7 +30,7 @@ Four independent causes, four independent fixes:
 | 1 | Go heap grows unbounded; GC is not pressured to run before RSS crosses the host OOM threshold. | Install a soft heap limit (`GOMEMLIMIT`) derived from host RAM at startup. |
 | 2 | The parse phase produces a large volume of transient garbage (file bytes, tree-sitter ASTs) that is never returned to the OS before the graph-build phase allocates on top of it. | Force a GC + `debug.FreeOSMemory()` after the parse phase. |
 | 3 | An interrupted scan installs no manifest, so its already-parsed chunks are unreachable; the next run re-parses everything. | Detect orphan chunk directories and resume from them (hash-verified). |
-| 4 | The parse phase runs one CPU-bound worker per core at normal priority, starving interactive processes (sshd) and dropping remote sessions. | Raise the process / worker-thread scheduling nice value; optional core reservation. |
+| 4 | The parse phase saturates every CPU core, starving interactive processes (sshd) and dropping remote sessions. | Cap `GOMAXPROCS` during a scan so the whole Go runtime leaves cores free for the host. |
 
 Fixes 1–3 are synergistic: #1 caps RSS, #2 lowers the graph-build
 baseline, #3 shrinks the parse working set on every retry. #4 is
@@ -154,56 +154,58 @@ reused record can never have been produced by a stale extractor of any
 language. `TestResumableFileInfos_ReusesAcrossAllLanguages` exercises
 the reuse path against every versioned language.
 
-## Part 4 — CPU politeness (`internal/cpulimit`)
+## Part 4 — CPU headroom for interactive processes
 
-The parse phase runs one tree-sitter worker per CPU core
-(`scanCPUBudget`), each pegged at 100 % for the minutes a huge-repo scan
-takes. At normal scheduling priority that leaves the kernel little room
-to run interactive processes; on a small host `sshd` misses enough
-keepalives to drop the operator's session.
+The parse phase runs one tree-sitter worker per CPU core, each pegged at
+100 % for the minutes a huge-repo scan takes. With every core saturated,
+a small host has no room left to schedule interactive processes; on a
+remote box `sshd` misses enough keepalives to drop the operator's
+session.
 
-The fix is scheduling niceness, not fewer workers. `cpulimit.Apply`
-raises the process nice value at startup, and every scan worker
-goroutine additionally pins niceness on its own OS thread —
-`runtime.LockOSThread` then `cpulimit.NiceCurrentThread` — so the
-CPU-bound thread is polite regardless of when the Go runtime created the
-underlying M. The kernel then lets normal-priority processes preempt
-scan work whenever they are runnable.
+### Why scheduling niceness is not enough
 
-The key property: **niceness costs no scan throughput when the host is
-otherwise idle.** A niced worker still gets every spare cycle; it only
-yields under contention, and `sshd` needs only a sliver. So the scan
-runs at full speed in the common case and merely shares fairly when
-something interactive wakes up — exactly the desired trade-off, with no
-fixed efficiency tax.
+The obvious fix — raise the process / worker-thread `nice` value so the
+kernel preempts scan work — was tried and found insufficient. Niceness
+is a *per-OS-thread* attribute, and codrax can only reliably renice the
+threads it explicitly creates and pins. The threads that *also* burn CPU
+are outside that set:
 
-Politeness is lowered, never raised, so it never needs privilege.
-`setThreadNice` is build-tagged per platform: Linux/Unix use
-`setpriority` (per-thread); Windows uses `SetPriorityClass` to drop the
-process to `BELOW_NORMAL_PRIORITY_CLASS` — process-wide, so every thread
-is covered and the per-worker calls are simply idempotent. Windows has
-no fine-grained nice scale, so `cpu_politeness_nice` is bucketed there
-(`0` → normal, any positive value → below-normal). On a platform with
-neither API `Apply` degrades to a logged no-op and the operator falls
-back to core reservation.
+- the Go runtime's **GC worker threads** — and `GOMEMLIMIT` (Part 1)
+  deliberately keeps the GC busy;
+- the goroutines that run `BuildGraph` and `RankGraph` after parsing,
+  scheduled by the runtime onto arbitrary Ms;
+- the scheduler / sysmon threads.
 
-### Optional core reservation
+That residual normal-priority CPU still saturated the host. Niceness
+addressed the parse workers but not the runtime itself, so it was
+removed rather than kept as misleading half-coverage.
 
-`repomap_scan_reserve_cpus` (default `0`) caps every scan worker pool at
-`GOMAXPROCS` minus the reserved count, leaving that many cores entirely
-free. Unlike niceness this is a *hard* headroom guarantee, but it does
-cost scan throughput even on an idle host (e.g. reserving 1 of 4 cores
-is a ~25 % slower parse). It is left off by default precisely because
-niceness already keeps the host responsive at no throughput cost; the
-knob exists for platforms without `setpriority` or for operators who
-want a guaranteed-free core regardless of scheduler behaviour.
+### The fix — cap `GOMAXPROCS` for the scan
 
-Config knobs:
+`runtime.GOMAXPROCS` bounds how many OS threads execute Go code
+simultaneously across the *entire* runtime — parse workers, GC workers,
+graph build and rank alike. `ApplyScanGOMAXPROCS` lowers it to
+`baseGOMAXPROCS − repomap_scan_reserve_cpus` for the duration of
+`buildOrLoadGraph` and restores it on return. With the budget set to
+`cores − 1`, at most `cores − 1` threads ever run Go code at once, so one
+core is genuinely free for the OS and `sshd` no matter what the Go side
+is doing.
 
-- `cpu_politeness_enabled` — master switch (default `true`).
-- `cpu_politeness_nice` — target nice value, clamped to `[0, 19]`
-  (default `10`).
-- `repomap_scan_reserve_cpus` — cores left free (default `0`).
+`baseGOMAXPROCS` is captured once at package init so repeated calls do
+not compound the subtraction; the parse worker pool size
+(`scanCPUBudget`) derives from the same base, so workers and `GOMAXPROCS`
+agree.
+
+This is a *hard* guarantee and does cost scan throughput — reserving 1 of
+4 cores is a ~25 % slower parse — which is why it is a single tunable
+knob. It defaults to `1`: a dropped SSH session is a worse outcome than a
+moderately slower scan, and on hosts with many cores the cost is
+negligible. Pure Go, cross-platform, no platform-specific code.
+
+Config knob:
+
+- `repomap_scan_reserve_cpus` — cores held free for the host during a
+  scan (default `1`; `0` disables and lets the scan use every core).
 
 ## Concurrency safety
 
@@ -257,20 +259,18 @@ that without a lock.
 | Soft heap limit — auto host-RAM detection | ✓ `/proc/meminfo` | ✓ `hw.memsize` | ✓ `GlobalMemoryStatusEx` | ✗ → use explicit bytes |
 | Post-parse `FreeOSMemory` reclaim | ✓ | ✓ | ✓ | ✓ |
 | Resumable interrupted scan | ✓ | ✓ | ✓ | ✓ |
-| CPU politeness | ✓ `setpriority` | ✓ `setpriority` | ✓ `SetPriorityClass` | ✗ → use core reservation |
-| Core reservation (`repomap_scan_reserve_cpus`) | ✓ | ✓ | ✓ | ✓ |
+| Scan CPU headroom (`repomap_scan_reserve_cpus`) | ✓ | ✓ | ✓ | ✓ |
 
 Every capability either works natively or degrades to a logged no-op —
-nothing crashes or fails to build on any platform. Platform-specific
-code is isolated behind build tags (`*_linux.go` / `*_darwin.go` /
-`*_windows.go` / `*_other.go`, and `//go:build unix`).
+nothing crashes or fails to build on any platform. The host-RAM
+detectors are isolated behind build tags (`memlimit_linux.go` /
+`_darwin.go` / `_windows.go` / `_other.go`).
 
-Both `internal/memlimit` and `internal/cpulimit` are **pure Go**: they
-reach platform APIs through the standard `syscall` package
-(`syscall.Setpriority`, `syscall.Sysctl`, `syscall.NewLazyDLL`), with no
-`import "C"`. They therefore build with `CGO_ENABLED` either on or off
-and add no C-toolchain requirement — a Windows build via MinGW (needed
-only for the tree-sitter cgo elsewhere in codrax) compiles these
-packages with no extra setup. All host-RAM detectors return a 64-bit
-byte count and all handle values are `uintptr`-typed, so the code is
-correct on 64-bit hosts (amd64, arm64) as well as 32-bit.
+`internal/memlimit` is **pure Go**: it reaches platform APIs through the
+standard `syscall` package (`syscall.Sysctl`, `syscall.NewLazyDLL`),
+with no `import "C"`. It therefore builds with `CGO_ENABLED` either on or
+off and adds no C-toolchain requirement — a Windows build via MinGW
+(needed only for the tree-sitter cgo elsewhere in codrax) compiles it
+with no extra setup. All host-RAM detectors return a 64-bit byte count,
+so the code is correct on 64-bit hosts (amd64, arm64) as well as 32-bit.
+The `GOMAXPROCS` cap is plain `runtime` API — platform-independent.

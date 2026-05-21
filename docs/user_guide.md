@@ -989,9 +989,7 @@ agents:
 | `memory_soft_limit_fraction` | `0.8` | 目标占检测到的宿主 RAM 的比例,范围 `(0,1]`。宿主 RAM 检测支持 Linux(`/proc/meminfo`)/ macOS(`hw.memsize`)/ Windows(`GlobalMemoryStatusEx`) |
 | `memory_soft_limit_bytes` | `0` | 直接以字节指定软上限;`>0` 时跳过宿主 RAM 检测,低于 512 MiB 抬到该下限。RAM 检测覆盖不到的平台用这个键 |
 | `repomap_resume_interrupted_scan` | `true` | 全量扫描复用上次被中断(如被 OOM 杀掉)的扫描已落盘的 chunk,经内容哈希校验后跳过重解析;重试逐步收敛而非从零重来。覆盖全部 15 种语言 |
-| `cpu_politeness_enabled` | `true` | 抬高进程 / 扫描 worker 线程的调度优先级礼让度,让 CPU 密集的扫描在有交互进程(尤其 sshd)时让路,避免远程 SSH 被饿断。主机空闲时**不损失扫描吞吐**。Linux/macOS 用 `setpriority`,Windows 用 `SetPriorityClass` |
-| `cpu_politeness_nice` | `10` | 目标 nice 值,范围 `[0,19]`,越大越礼让(Windows 无细粒度 nice,`>0` 即归到 below-normal 优先级) |
-| `repomap_scan_reserve_cpus` | `0` | 额外把扫描 worker 池上限压到 `GOMAXPROCS` 减该核数,硬性留出空闲核心。与 nice 不同,即使主机空闲也会损失吞吐(4 核留 1 ≈ 慢 25%);默认 0 仅靠 nice。仅当 SSH 仍卡顿或平台无调度优先级接口时设 1 |
+| `repomap_scan_reserve_cpus` | `1` | 扫描期间把 `GOMAXPROCS` 压到 `核数 - 该值`,让整个 Go 运行时(解析 worker、**GC worker**、图构建/排序)都留出这么多核心给交互进程,避免占满 CPU 饿死 sshd 导致远程 SSH 断连。损失一些扫描吞吐(4 核留 1 ≈ 慢 25%);设 `0` 可关闭 |
 
 ### 流水线预算
 
@@ -1284,7 +1282,7 @@ CLI 单次模式输出:
 → 在内存偏小的机器上扫巨型仓库(如 Linux 内核)时,repomap 全量扫描可能耗尽宿主 RAM。codrax 默认已三管齐下缓解:启动设 GOMEMLIMIT 软上限、解析后立即回收内存、被中断的扫描下次自动从已落盘 chunk 续扫(见 5.2「大仓内存韧性」)。若仍被杀:① 临时加 swap 让首次扫描扛过峰值、把 cache 建出来;② 用 `--repo` 指向更小的子目录而非整棵树;③ 内存极小的机器可调低 `memory_soft_limit_fraction`。日志里的 `repo_map: resuming interrupted scan` 行说明续扫已生效。
 
 **扫描超大仓库时 SSH 断连 / 远程终端卡死**
-→ 全量扫描会占满每个 CPU 核心,可能饿死 sshd。codrax 默认已抬高扫描线程的调度 nice 值(启动日志 `cpu: CPU politeness: nice=10`),让扫描在 sshd 需要时让路 —— **主机空闲时不损失扫描速度**,只在有交互进程时礼让。若仍卡顿:把 `repomap_scan_reserve_cpus` 设为 `1`,硬性留出一个空闲核心(代价是扫描慢约 25%)。礼让在 Linux / macOS / Windows 均原生生效;该 reserve 键则适用于任何平台。
+→ 全量扫描会占满每个 CPU 核心,可能饿死 sshd。codrax 默认 `repomap_scan_reserve_cpus: 1` —— 扫描期间把 `GOMAXPROCS` 压低一核,让**整个 Go 运行时(含 GC 线程)**都留一个空闲核心给 sshd。启动日志 `cpu: repomap scan reserves 1 core(s)` 可确认。注意:调度 nice 值管不住 Go 运行时自己的 GC 线程,所以 codrax 不靠 nice、直接用 `GOMAXPROCS` 上限作硬保证。若 16 核以上大机器想要满速,可设 `repomap_scan_reserve_cpus: 0`;若小机器仍卡顿,设为 `2`。
 
 ## 8.4 写模式特有
 

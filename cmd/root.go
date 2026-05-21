@@ -22,7 +22,6 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/logtriage"
 	"github.com/hanchaoqun/codrax/internal/authority"
 	"github.com/hanchaoqun/codrax/internal/config"
-	"github.com/hanchaoqun/codrax/internal/cpulimit"
 	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -1649,27 +1648,21 @@ func initApp(cmd *cobra.Command, args []string) error {
 	logging.Info("memory: %s", memlimit.Apply(heapLimitCfg))
 	repomap.SetResumeInterruptedScan(resumeInterruptedScan)
 
-	// CPU politeness. A repomap full scan is CPU-bound across every
-	// core; raising the process / worker-thread nice value lets the
-	// kernel preempt scan work for interactive processes (notably sshd)
-	// so a long scan does not drop a remote session. RepomapScanReserveCPUs
-	// is an optional hard headroom guarantee on top. See
-	// docs/design/large_repo_memory_resilience.md.
-	cpuPoliteCfg := cpulimit.Config{Enabled: true, Nice: 10}
-	scanReserveCPUs := 0
-	if rs != nil {
-		if rs.CPUPolitenessEnabled != nil {
-			cpuPoliteCfg.Enabled = *rs.CPUPolitenessEnabled
-		}
-		if rs.CPUPolitenessNice != nil {
-			cpuPoliteCfg.Nice = *rs.CPUPolitenessNice
-		}
-		if rs.RepomapScanReserveCPUs != nil && *rs.RepomapScanReserveCPUs > 0 {
-			scanReserveCPUs = *rs.RepomapScanReserveCPUs
-		}
+	// Scan CPU headroom. A repomap full scan is CPU-bound across every
+	// core; on a small remote host that can starve sshd and drop the
+	// operator's SSH session. RepomapScanReserveCPUs caps GOMAXPROCS
+	// during a scan so the entire Go runtime (parse, GC, graph build)
+	// leaves that many cores free for interactive processes. Default 1.
+	// See docs/design/large_repo_memory_resilience.md.
+	scanReserveCPUs := 1
+	if rs != nil && rs.RepomapScanReserveCPUs != nil {
+		scanReserveCPUs = *rs.RepomapScanReserveCPUs
 	}
-	logging.Info("cpu: %s", cpulimit.Apply(cpuPoliteCfg))
+	if scanReserveCPUs < 0 {
+		scanReserveCPUs = 0
+	}
 	repomap.SetScanReserveCPUs(scanReserveCPUs)
+	logging.Info("cpu: repomap scan reserves %d core(s) (GOMAXPROCS cap)", scanReserveCPUs)
 
 	// Multi-repo discovery. Always runs — the §3.3.1 fast path keeps
 	// single-repo cost at ~50µs (one os.Stat for flagRepo/.git, one

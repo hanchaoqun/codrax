@@ -275,7 +275,7 @@ REPL:`/htrace <path>` / `/htrace append <path>` / `/htrace show` / `/htrace clea
 | 文件 | 负责 | 典型键 |
 |---|---|---|
 | [`providers.yaml`](providers.yaml.example) | LLM 凭证与路由 — 每个 agent 用哪个 provider | `api_key` / `model` / `base_url` / `stream` / `tls_*` |
-| [`codrax.yaml`](codrax.yaml.example) | 本次运行怎么跑 — 日志 / memory / 语言 / 目标 repo / 流水线预算 / 写模式开关 + 写模式调优 / 大仓内存韧性 | `log_level`, `memory_dir`, `lang`, `repo`, `branch`, `pipeline_max_steps`, `pipeline_write_retry_budget`, `pipeline_baseline_capture_enabled`, `pipeline_keep_worktree_on_success`, `write_enabled`, `blob_*`, `log_max_files`, `memory_soft_limit_*`, `repomap_resume_interrupted_scan`, `cpu_politeness_*`, `repomap_scan_reserve_cpus` |
+| [`codrax.yaml`](codrax.yaml.example) | 本次运行怎么跑 — 日志 / memory / 语言 / 目标 repo / 流水线预算 / 写模式开关 + 写模式调优 / 大仓内存韧性 | `log_level`, `memory_dir`, `lang`, `repo`, `branch`, `pipeline_max_steps`, `pipeline_write_retry_budget`, `pipeline_baseline_capture_enabled`, `pipeline_keep_worktree_on_success`, `write_enabled`, `blob_*`, `log_max_files`, `memory_soft_limit_*`, `repomap_resume_interrupted_scan`, `repomap_scan_reserve_cpus` |
 
 流水线拓扑(读模式 4 阶段 × 4 agent + 写模式 plan/apply/verify)是硬编码的,没有 YAML 对应项。
 

@@ -5,11 +5,38 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 )
+
+func TestApplyScanGOMAXPROCS(t *testing.T) {
+	defer func(prev int) { scanReserveCPUs = prev }(scanReserveCPUs)
+
+	// Reserve 0 → no-op: GOMAXPROCS untouched.
+	scanReserveCPUs = 0
+	before := runtime.GOMAXPROCS(0)
+	ApplyScanGOMAXPROCS()()
+	if got := runtime.GOMAXPROCS(0); got != before {
+		t.Fatalf("reserve=0 must not change GOMAXPROCS: %d → %d", before, got)
+	}
+
+	// Reserve 1 → GOMAXPROCS capped to the budget for the scan, then
+	// restored. On a single-core base the budget clamps to 1 and the
+	// call is a no-op, which is still correct.
+	scanReserveCPUs = 1
+	before = runtime.GOMAXPROCS(0)
+	restore := ApplyScanGOMAXPROCS()
+	if during, want := runtime.GOMAXPROCS(0), scanCPUBudget(); during != want {
+		t.Fatalf("during scan GOMAXPROCS = %d, want budget %d", during, want)
+	}
+	restore()
+	if after := runtime.GOMAXPROCS(0); after != before {
+		t.Fatalf("GOMAXPROCS not restored: %d → %d", before, after)
+	}
+}
 
 // resumeTestLanguages is every language the repomap cache versions —
 // resume must be language-agnostic, so the reuse path is exercised

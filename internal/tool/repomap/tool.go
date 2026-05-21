@@ -364,6 +364,12 @@ func BuildOrLoadGraphWithin(repoRoot, allowedRoot, query string) (*Graph, error)
 }
 
 func buildOrLoadGraph(repoRoot, query string) (*Graph, error) {
+	// Cap the Go runtime to the scan CPU budget for the whole scan —
+	// parse, change detection, graph build, ranking and GC — so it
+	// leaves the reserved cores free for interactive processes.
+	// Restored on return; no-op when repomap_scan_reserve_cpus is 0.
+	defer index.ApplyScanGOMAXPROCS()()
+
 	cacheDir := index.CacheDir(repoRoot)
 
 	// Scan files
