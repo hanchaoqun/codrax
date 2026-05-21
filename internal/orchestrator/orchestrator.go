@@ -4127,6 +4127,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// without --log / --htrace stay byte-identical.
 			env.LogTriage = o.busCtx.Mutable.LogTriage()
 			env.PerfTrace = o.busCtx.Mutable.PerfTrace()
+			env.InvestigationComplete = o.busCtx.Mutable.IsInvestigationComplete()
 		}
 		return env
 	}
@@ -6477,6 +6478,10 @@ func (o *Orchestrator) runAutoVerdicts() {
 	}
 	mu := o.busCtx.Mutable
 	if mu == nil {
+		return
+	}
+	if o.busCtx.AnalysisIR.RequestModel.HasObservationOnlyRuntimeArtifact() {
+		logging.Debug("[orchestrator] auto-verdict skipped for observation-only runtime artifact")
 		return
 	}
 	var taToolResults []types.ToolResult

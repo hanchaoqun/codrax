@@ -3059,6 +3059,13 @@ func CollectArtifactExternalObservationSeeds(bundle *LogBundle, perf *PerfBundle
 			continue
 		}
 		raw := summary
+		if obs.LineStart > 0 {
+			if obs.LineEnd > obs.LineStart {
+				raw = fmt.Sprintf("log_lines=%d-%d %s", obs.LineStart, obs.LineEnd, raw)
+			} else {
+				raw = fmt.Sprintf("log_line=%d %s", obs.LineStart, raw)
+			}
+		}
 		if len(raw) > 240 {
 			raw = raw[:240]
 		}
@@ -3221,6 +3228,20 @@ func collectPerfExternalObservationSeeds(bundle *PerfBundle, observed []LogSourc
 		record(ExternalObservationSeed{
 			Kind: "perf_frame",
 			Raw:  fmt.Sprintf("frame %d duration %.2fms", f.FrameNo, f.DurationMs),
+		})
+		if len(out) >= 6 {
+			return out
+		}
+	}
+	for _, obs := range bundle.Observations {
+		raw := strings.TrimSpace(firstNonEmptySurfaceString(obs.Summary, obs.Evidence, obs.Subject))
+		if raw == "" {
+			continue
+		}
+		record(ExternalObservationSeed{
+			Kind: "perf_observation",
+			Raw:  raw,
+			Func: strings.TrimSpace(obs.Subject),
 		})
 		if len(out) >= 6 {
 			return out

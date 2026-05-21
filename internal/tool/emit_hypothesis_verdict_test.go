@@ -187,6 +187,197 @@ func TestEmitHypothesisVerdict_NormalizesExternalLogFrameCitation(t *testing.T) 
 	}
 }
 
+func TestEmitHypothesisVerdict_NormalizesWrappedExternalLogFrameCitation(t *testing.T) {
+	tool := &EmitHypothesisVerdict{}
+	logBundle := &types.LogBundle{
+		Meta: types.LogMeta{Lang: "cangjie", Signals: []types.LogSignal{types.SignalPanic}},
+		Errors: []types.LogError{{
+			Type: "panic",
+			Frames: []types.LogFrame{{
+				Lang:       "cangjie",
+				File:       "",
+				Line:       78,
+				Func:       "demo.cart.Cart.itemAt",
+				Raw:        "at demo.cart.Cart.itemAt(src/cart/Cart.cj:78)",
+				Confidence: 0.95,
+			}},
+		}},
+		IntentHint: types.IntentRootCause,
+	}
+	mut := types.NewMutableState("")
+	mut.SetLogTriage(logBundle)
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			Version: types.AnalysisIRVersion,
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				LogTriage: logBundle,
+			},
+		},
+	}
+	params := json.RawMessage(`{"items":[{"hypothesis_id":"h1","status":"confirmed","rationale":"日志帧显示 itemAt 越界 panic","citation":"runtime artifact frame: demo.cart.Cart.itemAt(src/cart/Cart.cj:78)"}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("wrapped external artifact citation should be accepted, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedHypothesisVerdicts()
+	if len(got) != 1 {
+		t.Fatalf("want 1 verdict, got %d", len(got))
+	}
+	if got[0].Citation != "" {
+		t.Fatalf("external frame must not leak into repo citation field, got %q", got[0].Citation)
+	}
+	if !strings.Contains(got[0].Rationale, "外部运行时帧：src/cart/Cart.cj:78") {
+		t.Fatalf("rationale should preserve artifact frame location, got %q", got[0].Rationale)
+	}
+}
+
+func TestEmitHypothesisVerdict_NormalizesArtifactLocalLogLineCitation(t *testing.T) {
+	tool := &EmitHypothesisVerdict{}
+	logBundle := &types.LogBundle{
+		Meta: types.LogMeta{Lang: "text", Signals: []types.LogSignal{types.SignalValidation}},
+		Observations: []types.LogObservation{{
+			Kind:       types.LogObservationRuntimeEvent,
+			Summary:    "WARN appears on the third attached-log line",
+			LineStart:  3,
+			LineEnd:    3,
+			Diagnostic: true,
+			Confidence: 0.95,
+		}},
+		IntentHint: types.IntentReturnValue,
+	}
+	mut := types.NewMutableState("")
+	mut.SetLogTriage(logBundle)
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			Version: types.AnalysisIRVersion,
+			RequestModel: types.RequestModel{
+				Language:  "zh",
+				Intent:    types.IntentReturnValue,
+				LogTriage: logBundle,
+			},
+		},
+	}
+	params := json.RawMessage(`{"items":[{"hypothesis_id":"h1","status":"confirmed","rationale":"WARN 出现在附件日志第 3 行","citation":"runtime_artifact:3"}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("artifact-local log line citation should be accepted, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedHypothesisVerdicts()
+	if len(got) != 1 {
+		t.Fatalf("want 1 verdict, got %d", len(got))
+	}
+	if got[0].Citation != "" {
+		t.Fatalf("artifact-local line must not leak into repo citation field, got %q", got[0].Citation)
+	}
+	if !strings.Contains(got[0].Rationale, "附件日志行：3") {
+		t.Fatalf("rationale should preserve artifact-local line, got %q", got[0].Rationale)
+	}
+}
+
+func TestEmitHypothesisVerdict_AcceptsRationaleOnlyRuntimeArtifactVerdict(t *testing.T) {
+	tool := &EmitHypothesisVerdict{}
+	logBundle := &types.LogBundle{
+		Meta: types.LogMeta{Lang: "text", Signals: []types.LogSignal{types.SignalValidation}},
+		Observations: []types.LogObservation{{
+			Kind:       types.LogObservationRuntimeEvent,
+			Summary:    "WARN appears on the third attached-log line",
+			LineStart:  3,
+			Diagnostic: true,
+			Confidence: 0.95,
+		}},
+		IntentHint: types.IntentReturnValue,
+	}
+	mut := types.NewMutableState("")
+	mut.SetLogTriage(logBundle)
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			Version: types.AnalysisIRVersion,
+			RequestModel: types.RequestModel{
+				Language:  "zh",
+				Intent:    types.IntentReturnValue,
+				LogTriage: logBundle,
+			},
+		},
+	}
+	params := json.RawMessage(`{"items":[{"hypothesis_id":"h1","status":"confirmed","rationale":"WARN 出现在附件日志第 3 行。"}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("rationale-only runtime artifact verdict should be accepted, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedHypothesisVerdicts()
+	if len(got) != 1 {
+		t.Fatalf("want 1 verdict, got %d", len(got))
+	}
+	if got[0].Citation != "" {
+		t.Fatalf("runtime artifact rationale must not become repo citation, got %q", got[0].Citation)
+	}
+}
+
+func TestEmitHypothesisVerdict_NormalizesArtifactLocalTraceLineCitation(t *testing.T) {
+	tool := &EmitHypothesisVerdict{}
+	perfBundle := &types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace", Signals: []string{"gc-pause"}},
+		Observations: []types.PerfObservation{{
+			Kind:       "span",
+			Subject:    "H:GC:Collect",
+			Summary:    "GC span starts on trace line 5 and ends on line 6",
+			LineStart:  5,
+			LineEnd:    6,
+			DurationMs: 8,
+			Confidence: 0.95,
+		}},
+		IntentHint: string(types.IntentReturnValue),
+	}
+	mut := types.NewMutableState("")
+	mut.SetPerfTrace(perfBundle)
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			Version: types.AnalysisIRVersion,
+			RequestModel: types.RequestModel{
+				Language:  "zh",
+				Intent:    types.IntentReturnValue,
+				PerfTrace: perfBundle,
+			},
+		},
+	}
+	params := json.RawMessage(`{"items":[{"hypothesis_id":"h1","status":"confirmed","rationale":"GC span 位于 trace 第 5-6 行","citation":"trace:5-6"}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("artifact-local trace line citation should be accepted, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedHypothesisVerdicts()
+	if len(got) != 1 {
+		t.Fatalf("want 1 verdict, got %d", len(got))
+	}
+	if got[0].Citation != "" {
+		t.Fatalf("artifact-local trace line must not leak into repo citation field, got %q", got[0].Citation)
+	}
+	if !strings.Contains(got[0].Rationale, "附件 trace 行：5-6") {
+		t.Fatalf("rationale should preserve artifact-local trace line, got %q", got[0].Rationale)
+	}
+}
+
 func TestEmitHypothesisVerdict_DoesNotNormalizeRepoCitationWithoutExternalArtifact(t *testing.T) {
 	tool := &EmitHypothesisVerdict{}
 	ctx := newVerdictCtx()

@@ -460,6 +460,31 @@ func TestCompileFacetCoverage_ExternalOnlyRuntimeDoesNotPromoteCurrentCodePath(t
 	}
 }
 
+func TestCompileFacetCoverage_LogObservationOnlyDoesNotPromoteCurrentCodePath(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentRootCause,
+		LogTriage: &LogBundle{
+			Observations: []LogObservation{{
+				Kind:       LogObservationRuntimeEvent,
+				Subject:    "WARN 日志行号",
+				Summary:    "WARN 出现在附件日志第 3 行",
+				Diagnostic: true,
+				Confidence: 1,
+			}},
+			ResolvedFiles: nil,
+		},
+	}
+	plan := CompileFacetCoverage(rm, nil)
+	if plan == nil {
+		t.Fatal("plan must be non-nil")
+	}
+	for _, req := range plan.Required {
+		if req.Kind == FacetCurrentCodePath {
+			t.Fatalf("log-observation-only runtime artifact must not require current_code_path: %+v", req)
+		}
+	}
+}
+
 // TestCompileFacetCoverage_EmptySurfaceInconclusiveNoSoftening
 // pins R3.1 (post_shape_residual_audit.md, 2026-05-04): when
 // CompileFacetCoverage runs at analyzer-time (before any emit_evidence

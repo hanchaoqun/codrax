@@ -183,6 +183,24 @@ func TestAnswerAggregateFactEvidenceOrigins_NegativeSearch(t *testing.T) {
 	}
 }
 
+func TestAnswerAggregateFactEvidenceOrigins_NegativeObservation(t *testing.T) {
+	fact := AnswerAggregateFact{
+		Kind:  AnswerAggregateNegativeObservation,
+		Label: "trace window has no long GC span",
+		Value: "0",
+		Dimensions: []AnswerAggregateDimension{
+			{Name: "origin", Value: "runtime_artifact"},
+			{Name: "target", Value: "GC span > 50ms"},
+			{Name: "scope", Value: "attached trace"},
+		},
+	}
+	got := AnswerAggregateFactEvidenceOrigins(fact, nil)
+	want := []AnswerEvidenceOrigin{AnswerEvidenceOriginRuntimeArtifact}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("origins mismatch\ngot:  %#v\nwant: %#v", got, want)
+	}
+}
+
 func TestAnswerAggregateFactEvidenceOrigins_RuntimeArtifact(t *testing.T) {
 	fact := AnswerAggregateFact{
 		Kind:  AnswerAggregateScalar,

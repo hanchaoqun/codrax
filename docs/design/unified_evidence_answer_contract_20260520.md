@@ -121,7 +121,8 @@ Initial closed enum:
 - `runtime_artifact`: attached logs, traces, dumps, or perf artifacts.
 - `command_measurement`: deterministic read-only command result such as a line
   count, file count, checksum, or bounded grep count.
-- `repo_negative_search`: scoped repo query with `result_count=0`.
+- `repo_negative_search`: scoped current-repository query with
+  `result_count=0`. This is intentionally narrower than all negative evidence.
 - `cross_repo_index`: repo-map / multi-repo index metadata not tied to one
   source line.
 - `system_inference`: deterministic system-derived support, never principal
@@ -201,6 +202,10 @@ Support reference shape by origin:
   citation unless resolved to current source.
 - `command_measurement`: command/tool result id + scope + parsed value.
 - `repo_negative_search`: repo + query/pattern + result_count=0 + searched_at.
+- Non-repo negative observation: origin + target/query/pattern/predicate +
+  scope + result_count=0 + searched_at. This covers bounded "not observed"
+  facts in git history/diff output, attached logs, traces, command output, and
+  repo-map/index output without inventing a repo dimension.
 - `cross_repo_index`: repo slug + graph snapshot id + path/symbol if present.
 
 ### 4.4 Gate Policy
@@ -771,8 +776,13 @@ boundary:
   git output: `origin=vcs_diff` or `diff_origin=vcs_diff`.
 - `emit_log_triage` and `emit_perf_trace`: `origin=runtime_artifact`.
 - deterministic safe shell measurements: `origin=command_measurement`.
-- scoped zero-result searches: `origin=repo_negative_search` with
+- scoped zero-result repo searches: `origin=repo_negative_search` with
   `repo/scope/query|pattern/result_count/searched_at`.
+- non-repo zero-result observations: `kind=negative_observation` with
+  `origin` set to `vcs_metadata`, `vcs_diff`, `runtime_artifact`,
+  `command_measurement`, or `cross_repo_index`, plus
+  `target/query/pattern/predicate`, `scope`, `result_count=0`, and
+  `searched_at`.
 - repo-map and multi-repo overview facts: `origin=cross_repo_index`.
 
 The producer contract answers "where did this fact come from"; it does not say
@@ -789,6 +799,9 @@ Exploration hands off non-code evidence through:
   scalar values, groups, exclusions, and bounded absences that must be preserved
   as structured data;
 - runtime bundles (`LogBundle`, `PerfBundle`) for attached artifacts.
+- `negative_observation` aggregate facts for bounded absence in non-repo
+  evidence sources such as git history, diffs, logs, traces, command output, or
+  repo-map/index summaries.
 
 `emit_evidence` remains the current-checkout source citation tool. It is valid
 only when the model has read and grounded a real current source/config/doc line.
@@ -805,9 +818,10 @@ reserved for precise principal violations under the active origin:
 - exact scalar/count/absence outputs must visibly preserve their exact value or
   boundary.
 - `vcs_metadata`, `vcs_diff`, `runtime_artifact`, `command_measurement`,
-  `repo_negative_search`, and `cross_repo_index` principal claims should be
-  locally repaired or disclosed when imperfect; they must not trigger
-  current-source forced reads unless the user also asked for current behavior.
+  `repo_negative_search`, `negative_observation`, and `cross_repo_index`
+  principal claims should be locally repaired or disclosed when imperfect; they
+  must not trigger current-source forced reads unless the user also asked for
+  current behavior.
 
 This preserves user intent: a commit-history list remains a list, a diff+current
 code question keeps two lanes, and a log-only diagnostic may answer from the
@@ -1079,6 +1093,161 @@ Required tests before the contract is considered complete:
   `finalizer_iters=1`, `semantic_quality_dispatches=0`, no runtime citation
   pool, no system-generated member table).
 
+2026-05-21 Batch F.11 code audit:
+
+- Audited whether exploration can hand off external information, history,
+  logs, traces, and command output as evidence. The answer is yes, but not all
+  of it travels through `emit_evidence`. That is intentional.
+  `emit_evidence` remains the current-checkout source-line citation tool. It
+  accepts grounded source/config/doc anchors and scoped repo negative search;
+  it should not become a catch-all for git metadata, historical diff hunks,
+  runtime stack-frame coordinates, shell output rows, or repo-map summaries.
+- The first-class contract is the origin-aware claim/evidence ledger:
+  producer-origin markers, `ToolResults`, runtime bundles, stable
+  `aggregate_facts`, `AnswerClaimBinding`, and finalizer/reviewer prompt
+  handoff. This preserves non-code facts without forcing them into fake
+  `file:line` citations.
+
+Code-verified carrier matrix:
+
+| Source family | Explorer producer | Structured carrier | Downstream consumer | Status |
+| --- | --- | --- | --- | --- |
+| Current checkout source/config/docs | `read_file` / `grep` followed by `emit_evidence` | `EvidenceItem` with source path, line, anchor, summary | extractor support lanes, finalizer typed enrichment, citation gates | Complete for current-source claims |
+| Scoped repo absence | `grep`/search result plus `emit_evidence(scope=negative)` or `aggregate_facts.kind=negative_search` | `repo`, `scope`, `query`/`pattern`, `result_count=0`, `searched_at` dimensions | claim bindings and exact-absence / negative-search finalizer guidance | Mostly complete; long-term per-target binding still tracked |
+| Non-repo negative observation | `git_*`, `exec_command`, log/trace triage, or `repo_map` result proving no bounded hit | `aggregate_facts.kind=negative_observation` with `origin`, target/query/pattern/predicate, scope, `result_count=0`, `searched_at` | origin-specific claim bindings and finalizer negative-observation guidance | New F.12 slice; designed to avoid misusing repo `negative_search` |
+| Structured git metadata/history | `git_log`, metadata-only `git_show`, `git_history_search` | typed tool-result banner (`evidence_origin=vcs_metadata`), raw tool output, `aggregate_facts` / closure reason | raw tool-output lane, aggregate-origin projection, claim bindings, finalizer VCS guidance | Complete enough for current VCS evals; still no universal observation ledger |
+| VCS diffs and old/deleted lines | `git_diff`, patch/stat/name-only `git_show`, diff-like `exec_command git ...` | `diff_origin=vcs_diff`, raw tool output, optional aggregate dimensions | diff/current two-lane prompt, claim bindings, no current-source citation pressure | Mostly complete; mixed diff+current evals remain verification targets |
+| Deterministic command measurements | `exec_command` with parseable deterministic count proof | typed banner (`evidence_origin=command_measurement`), deterministic count aggregate | scalar/count claim bindings and raw tool output | Complete for counts; arbitrary command narratives stay raw/support only |
+| Runtime logs / external frames | `emit_log_triage` and runtime-aware exploration closure | `LogBundle`, runtime observation claim bindings, observed-artifact support lane, `RuntimeObservationOnlyCompletion` | finalizer claim bindings, reviewer skip, citation normalization, current-source gate bypass | Complete for observation-only log/hilog cases; first-class `artifact_frame_set` still open |
+| Perf / HiTrace / atrace | `emit_perf_trace` bundle when correctly dispatched | `PerfBundle`, runtime claim bindings | same runtime artifact lane | Partially connected; dispatch and facet accounting gaps remain G137-G140 |
+| Repo-map / multi-repo index facts | `repo_map` and cross-repo overview tools | raw tool output plus `cross_repo_index` origin projection when surfaced through aggregate dimensions | finalizer origin boundary and claim bindings when present | Partial; needs first-class aggregate producer for graph/index facts |
+
+Current hardening added in this batch:
+
+- Observation-only runtime artifacts now satisfy the evidence-count floor from
+  their structured artifact observations instead of being compared against
+  repo-line evidence counts.
+- Orchestrator and extractor auto-verdict paths skip code-call hypothesis
+  criteria for observation-only runtime artifacts, preventing artifact-only
+  answers from being falsified by missing current-source call evidence.
+- Decorated runtime aggregate members in an observation-only runtime lane no
+  longer require repo `support_refs`. Decorated current-source code members
+  still require member-specific grounding.
+- `emit_hypothesis_verdict` accepts wrapped/raw external frame citations that
+  match attached log frames and moves them into rationale context instead of
+  treating them as unresolved repo citations.
+
+Validation:
+
+- `go test ./internal/analysis/criterion ./internal/tool ./internal/agent ./internal/orchestrator`
+  PASS for the targeted runtime-artifact guards.
+- `bash eval/run.sh eval/cases/harmony/hilog_cangjie_panic.case 1`
+  PASS in `eval/results/hilog_cangjie_panic-20260521-024522`:
+  `tool_read_file=0`, `midloop_inject=0`, `analyzer_iters=1`,
+  `explorer_iters=2`, `extractor_iters=1`, `finalizer_iters=1`,
+  `semantic_quality_dispatches=0`, and no finalizer rewrite / forced
+  current-source citation pool.
+
+Remaining architectural gap:
+
+- The contract is now consistent, but the physical carriers are still
+  distributed (`ToolResults`, runtime bundles, aggregate facts, evidence items,
+  and raw tool-output prompt sections). A future cleanup should introduce a
+  single internal observation ledger that indexes all accepted non-code facts by
+  `origin`, `target_ref`, and `support_ref`. That ledger should be a refactor of
+  the existing carriers, not a parallel evidence stack.
+
+2026-05-21 Batch F.12:
+
+- Split bounded absence into two structured shapes:
+  - `negative_search`: a strict repo/sub-repo search result with
+    `repo + query|pattern + scope + result_count=0 + searched_at`;
+  - `negative_observation`: a strict non-repo zero-result observation with
+    `origin + target|query|pattern|predicate + scope + result_count=0 +
+    searched_at`.
+- This is the architecture-safe answer to git/log/trace/command negative
+  detection. A question such as "最近 50 次提交里没有 X 吗？" should use
+  `origin=vcs_metadata`; "这个 diff 没改调度路径吗？" should use
+  `origin=vcs_diff`; "日志里没有 FATAL 吗？" and "trace 里没有超过 50ms 的 GC span
+  吗？" should use `origin=runtime_artifact`; command-derived zero counts can
+  use `origin=command_measurement`.
+- Kept `negative_search` strict instead of making `repo` optional. This protects
+  multi-repo search isolation and prevents a runtime/log/git absence from being
+  accidentally rendered as if it were a current-repo grep proof.
+- Added compatibility normalization for safe legacy emissions: if the model
+  emits `kind=negative_search` with a non-repo explicit origin and no repo
+  dimension, the system rewrites the aggregate kind to `negative_observation`
+  before validation. If it lacks a non-repo origin, it still rejects rather than
+  guessing.
+- Added eval guards `u7m`, `logtri_no_fatal`, and
+  `hitrace_no_long_gc` for git-history no-hit, log no-fatal, and trace
+  no-long-span questions. Diff no-change and command zero-count guards remain
+  useful follow-ups.
+- Added mixed positive+negative observation guards `u7n`,
+  `logtri_warn_no_fatal`, and `hitrace_gc_present_no_long`. These protect the
+  target-binding requirement: an absent target in one origin/scope must not
+  suppress or relabel a present target in the same answer.
+- Claim bindings for `negative_search` and `negative_observation` now prefer
+  the structured absent target (`target`, `query`, `pattern`, or `predicate`)
+ plus `scope` over the generic aggregate label. This keeps mixed answers
+ target-scoped instead of document-scoped.
+
+2026-05-21 Batch F.13:
+
+- Added artifact-local line anchors for attached logs and traces. This answers
+  questions such as "日志第几行出现 WARN?" or "trace 第几个事件开始 GC span?"
+  without pretending those coordinates are current-repo `file:line`
+  citations.
+- The implementation intentionally reuses the same gutter contract as
+  `read_file`: each visible artifact line is rendered as `N│ text`, where `N`
+  is a 1-based line number inside the attached artifact. A new shared
+  `internal/textfmt.LineGutter` helper backs both source-file reads and
+  attached-artifact prompt rendering, so future changes to the visible gutter
+  shape have one utility to update.
+- The prompt explicitly names the boundary: artifact-local `N│` values are
+  valid support for line/order questions over the log/trace itself; they are
+  not repository source citations. Source stack frames still use the literal
+  `file:line` tokens inside the artifact text and keep the runtime-artifact
+  origin unless current source is separately read.
+- Oversized artifacts continue to use blob offload. The head/tail preview now
+  keeps artifact-local line gutters for shown lines, and the prompt tells the
+  model to use `read_file` on the blob for exact middle-line anchors. This
+  avoids byte-sliced preview lines being treated as complete evidence.
+- Added eval guards `logtri_artifact_line_anchor` and
+  `hitrace_artifact_line_anchor` for log-line and trace-event questions. These
+  are runtime-artifact provenance tests, not current-source citation tests.
+- `emit_hypothesis_verdict` now accepts artifact-local anchors in the same
+  observation-only runtime shape: `log:3`, `trace:5-6`, or
+  `runtime_artifact:1-5` are normalized into the verdict rationale as attached
+  artifact context and deliberately cleared from the repo citation field. This
+  closes the old prompt/tool mismatch where the extractor was told artifact
+  anchors were acceptable but the tool only parsed repo-shaped `path:line`.
+- Analyzer/extractor gates were narrowed for this family: scalar
+  log/trace line/order answers no longer fail generic-subject or multi-topic
+  hard gates, return-value hypotheses are not phrased as enumeration
+  hypotheses, and observation-only runtime artifacts can skip source-code
+  hypothesis verdict obligations when typed observations already carry the
+  answer-grade facts.
+- `emit_analysis` treats `field_value_profile` and non-verbatim
+  `exact_targets` as optional refinements in observation-only runtime
+  artifact requests. Invalid derived values are logged and dropped (with
+  any request-verbatim targets kept) instead of forcing the analyzer to retry;
+  the primary typed answer still flows through intent/predicates, artifact
+  observations, and claim bindings.
+- When a runtime artifact line/event-row observation is already typed and the
+  analyzer marks the request as scalar role-locate but omits
+  `answer_subject.kind`, the tool defaults it to `numeric`. Likewise,
+  citation-less hypothesis verdicts with a non-empty rationale are accepted
+  for observation-only runtime artifacts as rationale-only artifact context,
+  never as repo citations. These are compatibility lanes only; current-source
+  role-locate and citation rules remain strict.
+- If the same observation-only request is structurally scalar
+  (`question_kind=return_value` + `is_scalar_answer=true`) but the analyzer
+  labels the broad intent as `explain`, `emit_analysis` normalizes the intent
+  back to `return_value`. This prevents the finalizer from loading
+  architecture/explanation block obligations for simple log/trace line
+  questions.
+
 ## 7. Acceptance Matrix
 
 The contract is not accepted until these families pass without answer collapse
@@ -1096,6 +1265,7 @@ or noisy retries:
 | Diff + current code | VCS diff facts and current-source facts stay separate |
 | Diff + diagram | diagram obligation survives VCS routing |
 | Runtime log/trace | artifact frames do not become repo citations |
+| Runtime artifact line/order | log/trace `N│` line anchors answer artifact-local questions without repo citations |
 | Exact absence | zero-result query scope/result_count shown |
 | Multi-repo compare | repo bucket isolation prevents cross-contamination |
 
@@ -1143,6 +1313,15 @@ or noisy retries:
   citations.
 - [x] Batch F.8: keep external-source runtime artifacts observation-only unless
   a typed current-checkout verification anchor exists.
+- [x] Batch F.11: audit and document every non-code evidence carrier from
+  producer to finalizer/reviewer consumption, and close the observation-only
+  runtime artifact validator gaps found by `hilog_cangjie_panic`.
+- [x] Batch F.12: add the `negative_observation` aggregate lane for bounded
+  zero-result facts in git/log/trace/command/index evidence without weakening
+  repo-scoped `negative_search`.
+- [x] Batch F.13: expose artifact-local line gutters for attached logs/traces
+  so line/order questions can be answered from runtime-artifact provenance
+  without faking repo citations.
 - [x] Batch D.1: compile aggregate claim bindings and render them in the final
   answer-writing prompt.
 - [x] Batch D.2: make pre-emit scalar/value coverage consume claim bindings

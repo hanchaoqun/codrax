@@ -64,8 +64,8 @@ func Plan(rm types.RequestModel) []types.Hypothesis {
 		// onto the first plausible one. Single-symbol root_cause
 		// would otherwise emit just one hypothesis (the symbol's
 		// rootCauseHypothesis), letting downstream verdict pinning
-        // converge prematurely. Pure structural trigger
-        // (Intent + Complexity), no keyword classification.
+		// converge prematurely. Pure structural trigger
+		// (Intent + Complexity), no keyword classification.
 		if len(out) < 2 && (rm.Complexity == types.ComplexityModerate || rm.Complexity == types.ComplexityComplex) {
 			out = append(out, alternativeRootCauseHypothesis(nextID()))
 		}
@@ -77,7 +77,15 @@ func Plan(rm types.RequestModel) []types.Hypothesis {
 				out = append(out, configQueryHypothesis(nextID(), sym))
 			}
 		}
-	case types.IntentReturnValue, types.IntentEnumerate:
+	case types.IntentReturnValue:
+		if len(syms) == 0 {
+			out = append(out, returnValueHypothesis(nextID(), "the requested value"))
+		} else {
+			for _, sym := range syms {
+				out = append(out, returnValueHypothesis(nextID(), sym))
+			}
+		}
+	case types.IntentEnumerate:
 		if len(syms) == 0 {
 			out = append(out, enumerateHypothesis(nextID(), "the subject"))
 		} else {
@@ -258,7 +266,7 @@ func rootCauseHypothesis(id, sym string) types.Hypothesis {
 // first hypothesis.
 func alternativeRootCauseHypothesis(id string) types.Hypothesis {
 	return types.Hypothesis{
-		ID: id,
+		ID:        id,
 		Statement: "An alternative root cause exists upstream of the prime suspect — caller-side argument construction, initialisation order, or shared mutable state may have produced the observed failure.",
 		RequiredEvidence: []types.Criterion{
 			{Kind: types.CritEvidenceCount, Expr: ">=1"},
@@ -296,6 +304,20 @@ func enumerateHypothesis(id, sym string) types.Hypothesis {
 			{Kind: types.CritAnswerSetBounded, Expr: "<=50"},
 		},
 		FalsificationCondition: types.Criterion{Kind: types.CritAnswerSetUnbounded},
+		Status:                 types.HypUnknown,
+	}
+}
+
+func returnValueHypothesis(id, sym string) types.Hypothesis {
+	return types.Hypothesis{
+		ID: id,
+		Statement: fmt.Sprintf(
+			"The requested value can be derived from evidence about %s.",
+			sym),
+		RequiredEvidence: []types.Criterion{
+			{Kind: types.CritEvidenceCount, Expr: ">=1"},
+		},
+		FalsificationCondition: types.Criterion{Kind: types.CritNoRelevantEvidence},
 		Status:                 types.HypUnknown,
 	}
 }

@@ -3204,9 +3204,6 @@ func skipLLMAnswerReviewForObservationOnlyArtifact(ctx *types.BusContext, doc *t
 	if len(doc.Citations) != 0 {
 		return false
 	}
-	if !answerDocumentHasObservedArtifactCarrier(doc) {
-		return false
-	}
 	return answerDocumentOnlyDeclaresObservationArtifactFacets(doc)
 }
 

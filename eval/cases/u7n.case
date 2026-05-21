@@ -1,0 +1,11 @@
+# Grid B — U7 History / Mixed Positive + Negative Observation
+#
+# Regression target: one VCS-history answer may contain both an observed
+# positive fact and a bounded negative observation. The negative side must bind
+# to its own marker/scope and must not suppress the positive scalar/list detail.
+ID="u7n"
+NAME="history — recent commits mixed hit and no-hit"
+QUESTION="最近 20 次提交里有没有提到 scalar？同时有没有提到 definitely_no_such_marker_20260521_negative_observation？请分别说明存在和不存在的搜索结果。"
+EXPECT_NOT_CONTAINS="**值：**"
+EXPECT_MATCHES_REGEX="(scalar|标量).*(有|存在|提到|找到|命中)|(有|存在|提到|找到|命中).*(scalar|标量)
+(definitely_no_such_marker_20260521_negative_observation).*(没有|未发现|未找到|0)|(没有|未发现|未找到|0).*(definitely_no_such_marker_20260521_negative_observation)"

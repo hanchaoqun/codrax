@@ -87,6 +87,12 @@ func TestBuildArtifactObservationProfile_PreservesTraceSignals(t *testing.T) {
 			Kind:       "io",
 			Symbol:     "LoadAvatar",
 		}},
+		Observations: []PerfObservation{{
+			Subject:    "GC span start",
+			Summary:    "GC:Collect begins on trace line 5 and lasts 8ms",
+			LineStart:  5,
+			DurationMs: 8,
+		}},
 	})
 	if profile == nil {
 		t.Fatal("profile = nil")
@@ -102,7 +108,8 @@ func TestBuildArtifactObservationProfile_PreservesTraceSignals(t *testing.T) {
 		t.Fatalf("trace observations missing: %+v", profile.ObservationKinds)
 	}
 	if !containsProfileString(profile.SubjectCandidates, "RenderList") ||
-		!containsProfileString(profile.SubjectCandidates, "LoadAvatar") {
+		!containsProfileString(profile.SubjectCandidates, "LoadAvatar") ||
+		!containsProfileString(profile.SubjectCandidates, "GC span start") {
 		t.Fatalf("trace subjects missing: %+v", profile.SubjectCandidates)
 	}
 }

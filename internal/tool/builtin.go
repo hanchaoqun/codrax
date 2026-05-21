@@ -15,6 +15,7 @@ import (
 	"time"
 
 	promptctx "github.com/hanchaoqun/codrax/internal/context"
+	"github.com/hanchaoqun/codrax/internal/textfmt"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -1647,30 +1648,7 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 //     it (an empty line is still a line in the file).
 //   - If `lines` is empty, returns "" unchanged.
 func renderWithLineGutter(lines []string, startLineNo int) string {
-	if len(lines) == 0 {
-		return ""
-	}
-	// Pre-estimate buffer size: ~10 gutter bytes + average line length.
-	avg := 0
-	for _, l := range lines {
-		avg += len(l)
-	}
-	avg /= len(lines)
-	if avg < 1 {
-		avg = 1
-	}
-	var b strings.Builder
-	b.Grow(len(lines) * (avg + 11))
-	for i, l := range lines {
-		// Gutter: right-aligned 6-digit line number, U+2502, space.
-		// Using Fprintf avoids allocating a throwaway intermediate
-		// string per line.
-		fmt.Fprintf(&b, "%6d│ %s", startLineNo+i, l)
-		if i < len(lines)-1 {
-			b.WriteByte('\n')
-		}
-	}
-	return b.String()
+	return textfmt.LineGutter(lines, startLineNo)
 }
 
 // ---------------------------------------------------------------------------

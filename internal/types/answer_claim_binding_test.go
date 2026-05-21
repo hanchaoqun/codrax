@@ -1,6 +1,9 @@
 package types
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestCompileAnswerClaimBindingsFromAggregateFacts_HistoryCountKeepsVCSAndMeasurement(t *testing.T) {
 	rm := RequestModel{
@@ -94,6 +97,36 @@ func TestCompileAnswerClaimBindingsFromAggregateFacts_DiffOnlyDoesNotBecomeCurre
 	}
 }
 
+func TestCompileAnswerClaimBindingsFromAggregateFacts_NegativeObservationTargetsAbsentThing(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentExplain,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+	}
+	facts, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:  AnswerAggregateNegativeObservation,
+		Label: "history no-hit",
+		Value: "0",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []AnswerAggregateDimension{
+			{Name: "origin", Value: "vcs_metadata"},
+			{Name: "target", Value: "definitely_no_such_marker"},
+			{Name: "commit_range", Value: "HEAD~20..HEAD"},
+			{Name: "result_count", Value: "0"},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("negative observation should normalize: %v", err)
+	}
+
+	got := CompileAnswerClaimBindingsFromAggregateFacts(facts, &rm, nil)
+	b := assertClaimBinding(t, got, AnswerEvidenceOriginVCSMetadata, ClaimGroundingRepairable, AnswerRequestedOutputMechanism)
+	if b.TargetRef != "definitely_no_such_marker @ HEAD~20..HEAD" {
+		t.Fatalf("target ref = %q", b.TargetRef)
+	}
+}
+
 func TestCompileRuntimeArtifactClaimBindings_LogBundleCreatesRuntimeBinding(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentRootCause,
@@ -110,10 +143,11 @@ func TestCompileRuntimeArtifactClaimBindings_LogBundleCreatesRuntimeBinding(t *t
 				}},
 			}},
 			Observations: []LogObservation{{
-				Kind:     LogObservationRetryCycle,
-				Subject:  "finalizer retry",
-				Summary:  "finalizer retried after a schema repair",
-				Evidence: "答案待完善，正在重写",
+				Kind:      LogObservationRetryCycle,
+				Subject:   "finalizer retry",
+				Summary:   "finalizer retried after a schema repair",
+				Evidence:  "答案待完善，正在重写",
+				LineStart: 17,
 			}},
 		},
 	}
@@ -131,7 +165,9 @@ func TestCompileRuntimeArtifactClaimBindings_LogBundleCreatesRuntimeBinding(t *t
 	}
 	var sawObservation bool
 	for _, binding := range got {
-		if binding.TargetRef == "finalizer retry" && claimBindingHasSupport(binding, "finalizer retried after a schema repair") {
+		if binding.TargetRef == "finalizer retry" &&
+			claimBindingHasSupportContaining(binding, "log_line=17") &&
+			claimBindingHasSupportContaining(binding, "finalizer retried after a schema repair") {
 			sawObservation = true
 		}
 		if binding.Origin == AnswerEvidenceOriginCurrentSource {
@@ -153,6 +189,12 @@ func TestCompileRuntimeArtifactClaimBindings_PerfBundleCreatesRuntimeBinding(t *
 			Frames: []PerfFrame{{FrameNo: 7, DurationMs: 24.5, Phase: "draw", Janky: true}},
 			Janks:  []PerfJank{{StartTsMs: 100, DurationMs: 48, TriggerSpan: "RenderFrame", Reason: "heavy-compute"}},
 			Stalls: []PerfStall{{StartTsMs: 120, DurationMs: 33, Kind: "io", Symbol: "ReadConfig", File: "src/app.cpp", Line: 88}},
+			Observations: []PerfObservation{{
+				Subject:    "GC span start",
+				Summary:    "GC:Collect begins on trace line 5",
+				LineStart:  5,
+				DurationMs: 8,
+			}},
 		},
 	}
 
@@ -167,10 +209,17 @@ func TestCompileRuntimeArtifactClaimBindings_PerfBundleCreatesRuntimeBinding(t *
 	if !claimBindingHasSupport(frameBinding, "duration_ms=24.500 phase=draw janky=true") {
 		t.Fatalf("runtime perf duration support was not preserved: %+v", frameBinding.SupportRefs)
 	}
+	var sawObservation bool
 	for _, binding := range got {
 		if binding.Origin == AnswerEvidenceOriginCurrentSource {
 			t.Fatalf("runtime perf binding should not synthesize current_source: %+v", got)
 		}
+		if binding.TargetRef == "GC span start" && claimBindingHasSupportContaining(binding, "trace_line=5") {
+			sawObservation = true
+		}
+	}
+	if !sawObservation {
+		t.Fatalf("runtime perf observation did not become a claim binding: %+v", got)
 	}
 }
 
@@ -204,6 +253,15 @@ func claimBindingHasOutput(binding AnswerClaimBinding, want AnswerRequestedOutpu
 func claimBindingHasSupport(binding AnswerClaimBinding, want string) bool {
 	for _, got := range binding.SupportRefs {
 		if got == want {
+			return true
+		}
+	}
+	return false
+}
+
+func claimBindingHasSupportContaining(binding AnswerClaimBinding, want string) bool {
+	for _, got := range binding.SupportRefs {
+		if strings.Contains(got, want) {
 			return true
 		}
 	}

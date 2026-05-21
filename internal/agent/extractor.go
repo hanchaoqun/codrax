@@ -1318,7 +1318,7 @@ func (e *extractorEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Messag
 	// drain hook downstream still records progress. For
 	// FalsificationCondition: if it is satisfied, inject a rejected
 	// verdict (or override an existing LLM verdict to rejected).
-	if ctx.AnalysisIR != nil && len(ctx.AnalysisIR.HypothesisSet) > 0 {
+	if ctx.AnalysisIR != nil && len(ctx.AnalysisIR.HypothesisSet) > 0 && !extractorObservationOnlyRuntimeArtifact(ctx) {
 		var taToolResults []types.ToolResult
 		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
 			taToolResults = ta.ToolResults
@@ -1372,6 +1372,12 @@ func (e *extractorEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Messag
 	}
 
 	return out, nil
+}
+
+func extractorObservationOnlyRuntimeArtifact(ctx *types.AgentContext) bool {
+	return ctx != nil &&
+		ctx.AnalysisIR != nil &&
+		ctx.AnalysisIR.RequestModel.HasObservationOnlyRuntimeArtifact()
 }
 
 // validateCompletenessClaim is the hard cardinality validator for the
@@ -2569,6 +2575,9 @@ func hasPendingHypotheses(ctx *types.AgentContext) bool {
 		return false
 	}
 	if len(ctx.AnalysisIR.HypothesisSet) == 0 {
+		return false
+	}
+	if extractorObservationOnlyRuntimeArtifact(ctx) {
 		return false
 	}
 	verdicted := make(map[string]bool)

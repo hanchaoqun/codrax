@@ -26,13 +26,14 @@ import "strings"
 // JSON tags are stable — this struct is part of the write-once
 // handoff contract and gets persisted in the Run's debug log.
 type PerfBundle struct {
-	Meta     PerfMeta     `json:"meta"`
-	Frames   []PerfFrame  `json:"frames,omitempty"`
-	Janks    []PerfJank   `json:"janks,omitempty"`
-	Stalls   []PerfStall  `json:"stalls,omitempty"`
-	Startup  *PerfStartup `json:"startup,omitempty"`
-	Residue  []string     `json:"residue,omitempty"`
-	Coverage float64      `json:"coverage,omitempty"`
+	Meta         PerfMeta          `json:"meta"`
+	Frames       []PerfFrame       `json:"frames,omitempty"`
+	Janks        []PerfJank        `json:"janks,omitempty"`
+	Stalls       []PerfStall       `json:"stalls,omitempty"`
+	Startup      *PerfStartup      `json:"startup,omitempty"`
+	Observations []PerfObservation `json:"observations,omitempty"`
+	Residue      []string          `json:"residue,omitempty"`
+	Coverage     float64           `json:"coverage,omitempty"`
 
 	// Layer-4 derivation. Validator-written.
 	ResolvedFiles []string `json:"resolved_files,omitempty"`
@@ -48,7 +49,8 @@ func (b *PerfBundle) HasStructuredObservations() bool {
 	if b == nil {
 		return false
 	}
-	return len(b.Frames) > 0 || len(b.Janks) > 0 || len(b.Stalls) > 0 || b.Startup != nil
+	return len(b.Frames) > 0 || len(b.Janks) > 0 || len(b.Stalls) > 0 ||
+		b.Startup != nil || len(b.Observations) > 0
 }
 
 // IsExternalSource reports whether the trace has structured perf
@@ -133,6 +135,25 @@ type PerfMeta struct {
 	// provided by the LLM (≤200 chars). Rendered verbatim by the
 	// finalizer.
 	Summary string `json:"summary,omitempty"`
+}
+
+// PerfObservation preserves trace-local facts that are important to the user
+// but are not necessarily janky frames, stalls, or startup envelopes. Examples:
+// "GC:Collect begins on artifact line 5", "the GC span lasts 8ms", or
+// "no GC span exceeds 50ms". These are runtime-artifact facts, not current
+// repository source citations.
+type PerfObservation struct {
+	Kind       string   `json:"kind,omitempty"`
+	Subject    string   `json:"subject,omitempty"`
+	Summary    string   `json:"summary,omitempty"`
+	Evidence   string   `json:"evidence,omitempty"`
+	LineStart  int      `json:"line_start,omitempty"`
+	LineEnd    int      `json:"line_end,omitempty"`
+	StartTsMs  float64  `json:"start_ts_ms,omitempty"`
+	EndTsMs    float64  `json:"end_ts_ms,omitempty"`
+	DurationMs float64  `json:"duration_ms,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
+	Confidence float64  `json:"confidence,omitempty"`
 }
 
 // PerfFrame represents a single UI frame the trace observed.

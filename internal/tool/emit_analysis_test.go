@@ -143,6 +143,27 @@ func TestValidateSelfConsistency_RoleLocateRequiresScalarValueAndSubject(t *test
 	}
 }
 
+func TestValidateSelfConsistency_RoleLocateAllowsNumericLineAnswer(t *testing.T) {
+	preds := types.SemanticPredicates{
+		IsScalarAnswer:     true,
+		IsRoleLocateLookup: true,
+	}
+	reason := validateSelfConsistency(
+		types.IntentReturnValue,
+		types.ScenarioGeneric,
+		"return_value",
+		preds,
+		types.DiagnosticIntentProfile{},
+		types.AxisReturn,
+		[]string{"WARN"},
+		nil,
+		types.AnswerSubject{Kind: types.SubjectNumeric, Confidence: 0.9},
+	)
+	if reason != "" {
+		t.Fatalf("numeric line/event-row answers are legitimate scalar role-locate values, got %q", reason)
+	}
+}
+
 func TestReconcileSetValuedRoleLocatePredicates(t *testing.T) {
 	preds := types.SemanticPredicates{
 		IsScalarAnswer:        false,
@@ -1513,7 +1534,7 @@ func TestEmitAnalysis_Execute_ScalarCountStripsScopeEnumerationBoundary(t *testi
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
 
 	payload := `{
-		"intent": "return_value",
+		"intent": "explain",
 		"scenario": "generic",
 		"complexity": "simple",
 		"intent_confidence": 0.95,
@@ -3120,6 +3141,73 @@ func TestEmitAnalysis_Execute_RejectsUngroundedFieldValueProfile(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_DropsInvalidFieldValueProfileForRuntimeArtifact(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("这段 HiTrace 里 GC span 的开始事件在附件 trace 的第几行？有没有超过 50ms 的 GC span？")
+	mu.SetPerfTrace(&types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace", Signals: []string{"gc-pause"}},
+		Observations: []types.PerfObservation{{
+			Kind:       "span",
+			Subject:    "H:GC:Collect",
+			Summary:    "GC span starts on trace line 5 and lasts 8ms",
+			LineStart:  5,
+			LineEnd:    6,
+			DurationMs: 8,
+			Confidence: 0.95,
+		}},
+	})
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "return_value",
+		"scenario": "generic",
+		"complexity": "simple",
+		"keywords": ["GC", "span", "trace", "50ms"],
+		"entities": ["H:GC:Collect"],
+		"question_kind": "return_value",
+		"answer_subject": {"kind": "numeric", "confidence": 0.9},
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.8,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": true,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"field_value_profile": {
+			"is_field_value_lookup": true,
+			"literal": "8ms",
+			"literal_kind": "number",
+			"source_quote": "有没有超过 50ms 的 GC span",
+			"confidence": 0.96
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("invalid optional field_value_profile on runtime artifact should be dropped, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.FieldValueProfile != nil {
+		t.Fatalf("invalid runtime-artifact field_value_profile should be dropped, got %+v", rm.FieldValueProfile)
+	}
+}
+
 func TestEmitAnalysis_Execute_PersistsAnswerExclusionPolicy(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
@@ -3648,6 +3736,127 @@ func TestEmitAnalysis_Execute_RejectsInvalidExactTargets(t *testing.T) {
 	}
 	if !strings.Contains(res.Summary, "exact_targets") {
 		t.Fatalf("reject summary should mention exact_targets, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_Execute_DropsInvalidExactTargetsForRuntimeArtifact(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("这段 HiTrace 里 GC span 的开始事件在附件 trace 的第几行？有没有超过 50ms 的 GC span？")
+	mu.SetPerfTrace(&types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace", Signals: []string{"gc-pause"}},
+		Observations: []types.PerfObservation{{
+			Kind:       "span",
+			Subject:    "H:GC:Collect",
+			Summary:    "GC span starts on trace line 5 and lasts 8ms",
+			LineStart:  5,
+			LineEnd:    6,
+			DurationMs: 8,
+			Confidence: 0.95,
+		}},
+	})
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "return_value",
+		"scenario": "generic",
+		"complexity": "simple",
+		"keywords": ["GC", "span", "trace", "50ms"],
+		"entities": ["H:GC:Collect"],
+		"question_kind": "return_value",
+		"answer_subject": {"kind": "numeric", "confidence": 0.9},
+		"exact_targets": ["H:GC:Collect", "50ms"],
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.8,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": true,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("invalid optional exact_targets on runtime artifact should be filtered, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if got := rm.AnalyzerHints.ExactTargets; len(got) != 1 || got[0] != "50ms" {
+		t.Fatalf("should keep only request-verbatim exact target, got %#v", got)
+	}
+}
+
+func TestEmitAnalysis_Execute_DefaultsRuntimeArtifactRoleLocateSubject(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("这段日志里 WARN 在附件日志的第几行？")
+	mu.SetLogTriage(&types.LogBundle{
+		Meta: types.LogMeta{Lang: "text", Signals: []types.LogSignal{types.SignalValidation}},
+		Observations: []types.LogObservation{{
+			Kind:       types.LogObservationRuntimeEvent,
+			Summary:    "WARN appears on line 3",
+			LineStart:  3,
+			Diagnostic: true,
+			Confidence: 0.95,
+		}},
+	})
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "explain",
+		"scenario": "generic",
+		"complexity": "simple",
+		"keywords": ["WARN", "日志", "行号"],
+		"entities": ["WARN"],
+		"question_kind": "return_value",
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.8,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": true,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("runtime artifact line lookup should default answer_subject.kind, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.AnswerSubject.Kind != types.SubjectNumeric {
+		t.Fatalf("answer_subject.kind should default to numeric, got %+v", rm.AnswerSubject)
+	}
+	if rm.Intent != types.IntentReturnValue {
+		t.Fatalf("runtime artifact scalar question should normalize to return_value, got %s", rm.Intent)
 	}
 }
 

@@ -1,0 +1,25 @@
+# Perf-triage — mixed present GC span and absent long GC span
+#
+# Regression target: the trace contains a GC span, but no GC span over 50ms.
+# The positive observed span and negative threshold observation must remain
+# separate claims.
+ID="hitrace_gc_present_no_long"
+NAME="perf-triage GC present but no long GC"
+QUESTION="这段 HiTrace 里有没有 GC span？有没有超过 50ms 的 GC span？请分别说明。"
+HTRACE='# tracer: nop
+# entries-in-buffer/entries-written: 128/128   #P:4
+#
+#                              _-----=> irqs-off
+#                             / _----=> need-resched
+#                            | / _---=> hardirq/softirq
+#                            || / _--=> preempt-depth
+#                            ||| /     delay
+#           TASK-PID   CPU#  ||||    TIMESTAMP  FUNCTION
+#              | |       |   ||||       |         |
+   com.example-1000 [001] ...1 22345.100000: tracing_mark_write: B|1000|H:GC:Collect
+   com.example-1000 [001] ...1 22345.108000: tracing_mark_write: E|1000
+   com.example-1000 [001] ...1 22345.110000: tracing_mark_write: B|1000|H:RenderService:DoFrame
+   com.example-1000 [001] ...1 22345.120000: tracing_mark_write: E|1000
+'
+EXPECT_MATCHES_REGEX="(GC).*(有|存在|出现|8ms|8 ms)|(有|存在|出现|8ms|8 ms).*(GC)
+(50ms|50 ms).*(没有|未发现|未看到|0)|(没有|未发现|未看到|0).*(50ms|50 ms)"

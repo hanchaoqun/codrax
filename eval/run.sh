@@ -52,9 +52,16 @@ EXPECT_CONTAINS="${EXPECT_CONTAINS:-}"
 EXPECT_NOT_CONTAINS="${EXPECT_NOT_CONTAINS:-}"
 EXPECT_MATCHES_REGEX="${EXPECT_MATCHES_REGEX:-}"
 EXPECT_SECTIONS="${EXPECT_SECTIONS:-}"
-# Log-triage eval cases may set LOG=<inline panic/trace> to attach a
-# runtime log excerpt to the request via --log-text. Empty = no log.
+# Log-triage eval cases may set LOG=<inline panic> to attach a runtime log
+# excerpt via --log-text. Perf-trace eval cases should set HTRACE=<inline
+# trace> so the binary exercises the dedicated --htrace-text / perf_triage
+# channel instead of the generic log_triager.
 LOG="${LOG:-}"
+HTRACE="${HTRACE:-}"
+if [[ -n "$LOG" && -n "$HTRACE" ]]; then
+  echo "case must not set both LOG and HTRACE" >&2
+  exit 2
+fi
 # Write-mode eval vars (session 35). MODE=plan|apply switches the
 # runner from the default read-mode dispatch to the write pipeline;
 # FIXTURE points at a source tree under eval/fixtures/ that gets
@@ -231,12 +238,18 @@ run_read_step() {
   # topology has no sub-repo to match the value, so the flag is a
   # no-op. Building the args dynamically keeps single-repo runs
   # byte-identical (no extra flag passed).
+  local attach_args=()
   if [[ -n "$LOG" ]]; then
+    attach_args=(--log-text "$LOG")
+  elif [[ -n "$HTRACE" ]]; then
+    attach_args=(--htrace-text "$HTRACE")
+  fi
+  if [[ ${#attach_args[@]} -gt 0 ]]; then
     if [[ -n "$FOCUS" ]]; then
       "$CODRAX_BIN" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
         --log-level debug \
         --log-dir "$logdir" \
-        --log-text "$LOG" \
+        "${attach_args[@]}" \
         --focus "$FOCUS" \
         --request "$QUESTION" \
         >"$out" 2>&1
@@ -244,7 +257,7 @@ run_read_step() {
       "$CODRAX_BIN" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
         --log-level debug \
         --log-dir "$logdir" \
-        --log-text "$LOG" \
+        "${attach_args[@]}" \
         --request "$QUESTION" \
         >"$out" 2>&1
     fi

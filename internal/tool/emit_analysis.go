@@ -358,7 +358,7 @@ func buildEmitAnalysisSchema() {
 				"description": "Cross-language semantic self-assessment of the question. Every field is required; emit true OR false explicitly. A missing field is fail-loud rejection, not a silent default.",
 				"properties": map[string]any{
 					"is_scalar_answer":        map[string]any{"type": "boolean", "description": "True if the answer is a single scalar (a number, a literal, a path) rather than a set or sequence."},
-					"is_role_locate_lookup":   map[string]any{"type": "boolean", "description": "True only for scalar lookups where the request names a clue / output / context entity, but the answer is one DIFFERENT literal that plays a role relative to that clue (entry function, defining file, config key, route, owner symbol, etc.). For set-valued tables such as every package -> entry function, set this false and use category/relational enumeration predicates. Implies is_scalar_answer=true and requires answer_subject.kind."},
+					"is_role_locate_lookup":   map[string]any{"type": "boolean", "description": "True only for scalar lookups where the request names a clue / output / context entity, but the answer is one DIFFERENT literal that plays a role relative to that clue (line number / event row, entry function, defining file, config key, route, owner symbol, etc.). For set-valued tables such as every package -> entry function, set this false and use category/relational enumeration predicates. Implies is_scalar_answer=true and requires answer_subject.kind."},
 					"is_count_question":       map[string]any{"type": "boolean", "description": "True when the answer is a single number that must be computed by aggregating values across multiple source units — e.g. counting items, summing lines of code, summing file sizes, totalling bytes across a directory tree. Implies is_scalar_answer. Set false when the user asks to list/enumerate members and include counts per list/group; those counts are attributes of an enumeration, not a scalar count question. Also set false when the answer is a number that already exists as a single source-code literal (a const declaration, a default value, an enum ordinal) — that case is is_scalar_answer=true without is_count_question."},
 					"is_cross_component":      map[string]any{"type": "boolean", "description": "True if the question genuinely spans multiple distinct components / subsystems / independently-answerable code regions. Leave false for a single named target that merely needs nearby context, precedence layers, or override stages, and also leave false for one ordered source-to-sink call/flow trace even when that chain crosses files or packages."},
 					"is_relational_lookup":    map[string]any{"type": "boolean", "description": "True if filtering set X by a relationship to Y ('functions that return Z', 'agents that use skill Y')."},
@@ -858,6 +858,13 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	artifactOnlyRuntime := emitAnalysisObservationOnlyRuntimeArtifact(ctx)
+	if normalizedIntent, normalizedScenario, warning := normalizeRuntimeArtifactScalarIntent(artifactOnlyRuntime, intent, scenario, kind, predicates); warning != "" {
+		intent = normalizedIntent
+		scenario = normalizedScenario
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	conversationReferenceProfile, conversationReferenceErr := parseConversationReferenceProfile(p.ConversationReferenceProfile)
 	if conversationReferenceErr != "" {
 		return types.ToolResult{
@@ -979,12 +986,17 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	}
 	fieldValueProfile, fieldValueErr := parseFieldValueProfile(raw, p.FieldValueProfile)
 	if fieldValueErr != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_analysis rejected: " + fieldValueErr,
-			Timestamp: time.Now(),
-		}, nil
+		if !artifactOnlyRuntime {
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   "emit_analysis rejected: " + fieldValueErr,
+				Timestamp: time.Now(),
+			}, nil
+		}
+		warning := "dropped invalid optional field_value_profile for observation-only runtime artifact: " + fieldValueErr
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
 	}
 	var enumerationBoundary *types.RequestedEnumerationBoundary
 	if p.EnumerationBoundary != nil &&
@@ -1035,15 +1047,28 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	}
 	exactTargets, exactTargetErr := validateExactTargets(raw, p.ExactTargets)
 	if exactTargetErr != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_analysis rejected: " + exactTargetErr,
-			Timestamp: time.Now(),
-		}, nil
+		if !artifactOnlyRuntime {
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   "emit_analysis rejected: " + exactTargetErr,
+				Timestamp: time.Now(),
+			}, nil
+		}
+		exactTargets = types.MentionedEntitiesFromRawRequest(raw, p.ExactTargets)
+		warning := "dropped invalid optional exact_targets for observation-only runtime artifact: " + exactTargetErr
+		if len(exactTargets) > 0 {
+			warning = fmt.Sprintf("%s; kept %d verbatim target(s)", warning, len(exactTargets))
+		}
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
 	}
 	mentionedEntities := types.MentionedEntitiesFromRawRequest(raw, entities)
 	answerSubject := parseAnswerSubject(p.AnswerSubject)
+	if normalized, warning := normalizeRuntimeArtifactRoleLocateAnswerSubject(ctx, artifactOnlyRuntime, predicates, answerSubject); warning != "" {
+		answerSubject = normalized
+		val.Warnings = append(val.Warnings, warning)
+	}
 	if normalized, warning := normalizeMissingAnswerSubjectForNonScalarExplain(axis, intent, predicates, entities, p.SubTopics, answerSubject); warning != "" {
 		answerSubject = normalized
 		val.Warnings = append(val.Warnings, warning)
@@ -1317,7 +1342,7 @@ func validateSelfConsistencyDetailed(
 			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_role_locate_lookup=true requires is_scalar_answer=true — a role-locate question still resolves to one literal answer"}
 		}
 		if !roleLocateSubjectKindAllowed(answerSubject.Kind) {
-			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_role_locate_lookup=true requires answer_subject.kind to name the located literal kind (function_name / type_name / file_path / handler_route / config_key / interface_name / struct_field / enum_value)"}
+			return selfConsistencyIssue{Kind: selfConsistencyIssueOther, Reason: "is_role_locate_lookup=true requires answer_subject.kind to name the located literal kind (numeric / string_literal / function_name / type_name / file_path / handler_route / config_key / interface_name / struct_field / enum_value)"}
 		}
 	}
 	// Count question must resolve to a scalar answer, not a list. The
@@ -1395,7 +1420,8 @@ func roleLocateSubjectKindAllowed(kind types.AnswerSubjectKind) bool {
 		types.SubjectFilePath,
 		types.SubjectStructField,
 		types.SubjectEnumValue,
-		types.SubjectStringLiteral:
+		types.SubjectStringLiteral,
+		types.SubjectNumeric:
 		return true
 	}
 	return false
@@ -2293,6 +2319,88 @@ func validateExactTargets(raw string, in []string) ([]string, string) {
 		"exact_targets must be copied verbatim from the current request text; these item(s) were not validated: %s",
 		strings.Join(invalid, ", "),
 	)
+}
+
+func emitAnalysisObservationOnlyRuntimeArtifact(ctx *types.BusContext) bool {
+	if ctx == nil {
+		return false
+	}
+	rm := types.RequestModel{}
+	if ctx.AnalysisIR != nil {
+		rm = ctx.AnalysisIR.RequestModel
+	}
+	if ctx.Mutable != nil {
+		if bundle := ctx.Mutable.LogTriage(); bundle != nil {
+			rm.LogTriage = bundle
+		}
+		if bundle := ctx.Mutable.PerfTrace(); bundle != nil {
+			rm.PerfTrace = bundle
+		}
+	}
+	return rm.HasObservationOnlyRuntimeArtifact()
+}
+
+func normalizeRuntimeArtifactScalarIntent(artifactOnlyRuntime bool, intent types.Intent, scenario types.Scenario, kind string, predicates types.SemanticPredicates) (types.Intent, types.Scenario, string) {
+	if !artifactOnlyRuntime || !predicates.IsScalarAnswer || kind != string(types.ReqReturnValue) {
+		return intent, scenario, ""
+	}
+	switch intent {
+	case types.IntentReturnValue:
+		return intent, scenario, ""
+	case types.IntentExplain, types.IntentUnknown:
+		return types.IntentReturnValue, types.ScenarioGeneric, "normalized observation-only runtime scalar answer to intent=return_value"
+	default:
+		return intent, scenario, ""
+	}
+}
+
+func normalizeRuntimeArtifactRoleLocateAnswerSubject(ctx *types.BusContext, artifactOnlyRuntime bool, predicates types.SemanticPredicates, answerSubject types.AnswerSubject) (types.AnswerSubject, string) {
+	if !artifactOnlyRuntime || !predicates.IsRoleLocateLookup || !predicates.IsScalarAnswer ||
+		roleLocateSubjectKindAllowed(answerSubject.Kind) || !emitAnalysisRuntimeArtifactHasLineAnchors(ctx) {
+		return answerSubject, ""
+	}
+	answerSubject.Kind = types.SubjectNumeric
+	if answerSubject.Confidence <= 0 {
+		answerSubject.Confidence = 0.8
+	}
+	return answerSubject, "defaulted answer_subject.kind=numeric for observation-only runtime artifact line/event-row lookup"
+}
+
+func emitAnalysisRuntimeArtifactHasLineAnchors(ctx *types.BusContext) bool {
+	if ctx == nil {
+		return false
+	}
+	checkLog := func(bundle *types.LogBundle) bool {
+		if bundle == nil {
+			return false
+		}
+		for _, obs := range bundle.Observations {
+			if obs.LineStart > 0 {
+				return true
+			}
+		}
+		return false
+	}
+	checkPerf := func(bundle *types.PerfBundle) bool {
+		if bundle == nil {
+			return false
+		}
+		for _, obs := range bundle.Observations {
+			if obs.LineStart > 0 {
+				return true
+			}
+		}
+		return false
+	}
+	if ctx.Mutable != nil {
+		if checkLog(ctx.Mutable.LogTriage()) || checkPerf(ctx.Mutable.PerfTrace()) {
+			return true
+		}
+	}
+	if ctx.AnalysisIR != nil {
+		return checkLog(ctx.AnalysisIR.RequestModel.LogTriage) || checkPerf(ctx.AnalysisIR.RequestModel.PerfTrace)
+	}
+	return false
 }
 
 func sanitizeExactContextTerms(exactTargets, mentionedEntities, in []string) ([]string, string) {

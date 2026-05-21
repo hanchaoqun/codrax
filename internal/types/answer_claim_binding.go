@@ -144,6 +144,11 @@ func runtimeArtifactClaimBindingID(source string, index int) string {
 }
 
 func answerClaimBindingTargetRef(fact AnswerAggregateFact) string {
+	if fact.Kind == AnswerAggregateNegativeSearch || fact.Kind == AnswerAggregateNegativeObservation {
+		if target := answerClaimBindingNegativeTargetRef(fact); target != "" {
+			return target
+		}
+	}
 	label := strings.TrimSpace(fact.Label)
 	if label != "" {
 		return label
@@ -152,6 +157,19 @@ func answerClaimBindingTargetRef(fact AnswerAggregateFact) string {
 		return strings.TrimSpace(fact.Members[0])
 	}
 	return strings.TrimSpace(fact.Value)
+}
+
+func answerClaimBindingNegativeTargetRef(fact AnswerAggregateFact) string {
+	dims := aggregateDimensionMap(fact.Dimensions)
+	target := firstNonEmptyAggregateDim(dims, "target", "query", "pattern", "predicate")
+	scope := strings.TrimSpace(dims["scope"])
+	if target == "" {
+		return ""
+	}
+	if scope != "" {
+		return target + " @ " + scope
+	}
+	return target
 }
 
 func cloneAnswerRequestedOutputs(in []AnswerRequestedOutput) []AnswerRequestedOutput {
@@ -213,7 +231,25 @@ func logBundleClaimBindings(bundle *LogBundle, outputs []AnswerRequestedOutput) 
 		if target == "" {
 			target = strings.TrimSpace(string(obs.Kind))
 		}
-		add(target, []string{strings.TrimSpace(obs.Summary), strings.TrimSpace(obs.Evidence)})
+		var support []string
+		var parts []string
+		if obs.LineStart > 0 {
+			if obs.LineEnd > obs.LineStart {
+				parts = append(parts, fmt.Sprintf("log_lines=%d-%d", obs.LineStart, obs.LineEnd))
+			} else {
+				parts = append(parts, fmt.Sprintf("log_line=%d", obs.LineStart))
+			}
+		}
+		if obs.Summary != "" {
+			parts = append(parts, "summary="+obs.Summary)
+		}
+		if len(parts) > 0 {
+			support = append(support, strings.Join(parts, " "))
+		}
+		if obs.Evidence != "" {
+			support = append(support, strings.TrimSpace(obs.Evidence))
+		}
+		add(target, support)
 	}
 	return out
 }
@@ -234,6 +270,15 @@ func logFrameSupportRefs(frames []LogFrame) []string {
 		}
 	}
 	return out
+}
+
+func firstNonEmptyAnswerString(values ...string) string {
+	for _, value := range values {
+		if s := strings.TrimSpace(value); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func perfBundleClaimBindings(bundle *PerfBundle, outputs []AnswerRequestedOutput) []AnswerClaimBinding {
@@ -278,6 +323,28 @@ func perfBundleClaimBindings(bundle *PerfBundle, outputs []AnswerRequestedOutput
 			target = stall.Kind
 		}
 		add(target, []string{fmt.Sprintf("start_ts_ms=%.3f duration_ms=%.3f file=%s:%d", stall.StartTsMs, stall.DurationMs, stall.File, stall.Line)})
+	}
+	for _, obs := range bundle.Observations {
+		target := firstNonEmptyAnswerString(obs.Subject, obs.Kind, "trace observation")
+		support := []string{}
+		var parts []string
+		if obs.LineStart > 0 {
+			if obs.LineEnd > obs.LineStart {
+				parts = append(parts, fmt.Sprintf("trace_lines=%d-%d", obs.LineStart, obs.LineEnd))
+			} else {
+				parts = append(parts, fmt.Sprintf("trace_line=%d", obs.LineStart))
+			}
+		}
+		if obs.DurationMs > 0 {
+			parts = append(parts, fmt.Sprintf("duration_ms=%.3f", obs.DurationMs))
+		}
+		if obs.Summary != "" {
+			parts = append(parts, "summary="+obs.Summary)
+		}
+		if len(parts) > 0 {
+			support = append(support, strings.Join(parts, " "))
+		}
+		add(target, support)
 	}
 	if bundle.Startup != nil {
 		add("startup "+bundle.Startup.Mode, []string{fmt.Sprintf("app_launch_ms=%.3f ability_init_ms=%.3f first_frame_ms=%.3f", bundle.Startup.AppLaunchMs, bundle.Startup.AbilityInitMs, bundle.Startup.FirstFrameMs)})

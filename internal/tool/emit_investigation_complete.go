@@ -96,8 +96,8 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 					"properties": {
 						"kind": {
 							"type": "string",
-							"enum": ["total_count", "unique_count", "grouped_count", "bucket_count", "excluded_count", "scalar_value", "member_set", "negative_search"],
-							"description": "total_count = total principal hits or a typed pre-filter candidate pool when dimensions name that stage; unique_count = size of a distinct set such as unique files; grouped_count = count for a syntax/category/dimension group; bucket_count = count for one user-named bucket; excluded_count = non-counted candidate bucket; scalar_value = other derived scalar; member_set = exact exhaustive principal member list whose value equals len(members); negative_search = a verified zero-result repository search. For negative_search, set value=\"0\", unit=\"matches\", and dimensions for repo, query or pattern, scope, and searched_at; do NOT fake a file:line evidence item such as repo:0 for not-found proof."
+							"enum": ["total_count", "unique_count", "grouped_count", "bucket_count", "excluded_count", "scalar_value", "member_set", "negative_search", "negative_observation"],
+							"description": "total_count = total principal hits or a typed pre-filter candidate pool when dimensions name that stage; unique_count = size of a distinct set such as unique files; grouped_count = count for a syntax/category/dimension group; bucket_count = count for one user-named bucket; excluded_count = non-counted candidate bucket; scalar_value = other derived scalar; member_set = exact exhaustive principal member list whose value equals len(members); negative_search = a verified zero-result repository search. For negative_search, set value=\"0\", unit=\"matches\", and dimensions for repo, query or pattern, scope, and searched_at; do NOT fake a file:line evidence item such as repo:0 for not-found proof. negative_observation = a verified zero-result observation over a non-repo source such as git history/diff output, an attached log, a trace, command output, or repo-map/index output. For negative_observation, set value=\"0\", unit=\"matches\", include origin/evidence_origin, target/query/pattern/predicate, scope, and searched_at; do NOT invent repo dimensions."
 						},
 						"label": {
 							"type": "string",
@@ -105,7 +105,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"value": {
 							"type": "string",
-							"description": "Exact value to preserve. For count kinds use a non-negative integer string such as \"0\", \"3\", or \"12\"; put words like files/locations in unit. For kind=negative_search, value must be \"0\". For kind=member_set only, this may be omitted when members is the complete exact set."
+							"description": "Exact value to preserve. For count kinds use a non-negative integer string such as \"0\", \"3\", or \"12\"; put words like files/locations in unit. For kind=negative_search or kind=negative_observation, value must be \"0\". For kind=member_set only, this may be omitted when members is the complete exact set."
 						},
 						"role": {
 							"type": "string",
@@ -122,7 +122,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"dimensions": {
 							"type": "array",
-							"description": "Optional typed axes that make the aggregate precise, e.g. [{name:\"scope\", value:\"production\"}, {name:\"syntax\", value:\"struct_literal\"}, {name:\"stage\", value:\"candidate_pre_filter\"}, {name:\"basis\", value:\"verified_member_set\"}]. For kind=negative_search, include repo, query or pattern, scope, and searched_at. Use searched_at=\"current_investigation\" when no wall-clock timestamp is available. If a broad candidate search count differs from the final verified member_set, emit companion total_count/excluded_count facts with dimensions that explain the stage/basis instead of burying the discrepancy in prose.",
+							"description": "Optional typed axes that make the aggregate precise, e.g. [{name:\"scope\", value:\"production\"}, {name:\"syntax\", value:\"struct_literal\"}, {name:\"stage\", value:\"candidate_pre_filter\"}, {name:\"basis\", value:\"verified_member_set\"}]. For kind=negative_search, include repo, query or pattern, scope, and searched_at. For kind=negative_observation, include origin/evidence_origin plus target, query, pattern, or predicate; include scope for the bounded observed surface, such as a commit range, tool result, artifact id, or trace window. Use searched_at=\"current_investigation\" when no wall-clock timestamp is available. If a broad candidate search count differs from the final verified member_set, emit companion total_count/excluded_count facts with dimensions that explain the stage/basis instead of burying the discrepancy in prose.",
 							"items": {
 								"type": "object",
 								"properties": {
@@ -144,7 +144,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"support_refs": {
 							"type": "array",
-							"description": "Optional evidence ids, file:line labels, command labels, or member-specific refs like \"Member: file:line\" or \"Member @ file:line\" that back this aggregate. REQUIRED for kind=member_set when ANY member is shaped \"<code identifier> (<qualifier>)\" — for example \"Orchestrator (4阶段管道整合)\" or \"Gate.Run (8 checks)\" — because the decorator changes the surface text so the member never auto-resolves against an evidence anchor named just \"Orchestrator\" / \"Gate.Run\". Without support_refs the answer-document oracle rejects every row that quotes such a decorated member. Use either labeled refs [\"<leading-symbol>: <file>:<line>\", …] where the label is the member's bare leading identifier (no decorator), or positional refs [\"<file>:<line>\", …] with one entry per members[] in the same order. For bare code-identity members (no decorator) and pure display-prose members, support_refs is still optional — the framework auto-resolves bare symbols against verbatim evidence anchors and treats prose members as display-only.",
+							"description": "Optional evidence ids, file:line labels, command labels, or member-specific refs like \"Member: file:line\" or \"Member @ file:line\" that back this aggregate. REQUIRED for kind=member_set when ANY current-source member is shaped \"<code identifier> (<qualifier>)\" — for example \"Orchestrator (4阶段管道整合)\" or \"Gate.Run (8 checks)\" — because the decorator changes the surface text so the member never auto-resolves against an evidence anchor named just \"Orchestrator\" / \"Gate.Run\". Without support_refs the answer-document oracle rejects every row that quotes such a decorated current-source member. Use either labeled refs [\"<leading-symbol>: <file>:<line>\", …] where the label is the member's bare leading identifier (no decorator), or positional refs [\"<file>:<line>\", …] with one entry per members[] in the same order. Observation-only runtime artifacts and VCS commit members do not need repo file:line support_refs; keep them in their typed aggregate/provenance lane. For bare code-identity members (no decorator) and pure display-prose members, support_refs is still optional — the framework auto-resolves bare symbols against verbatim evidence anchors and treats prose members as display-only.",
 							"items": {"type": "string"}
 						}
 					},
@@ -440,6 +440,7 @@ func normalizeCompletionAggregateFacts(
 	resultKind string,
 	raw []types.AnswerAggregateFact,
 ) ([]types.AnswerAggregateFact, []string, error) {
+	raw = normalizeCompletionNegativeObservationFacts(ctx, raw)
 	normalized, err := types.NormalizeAnswerAggregateFacts(raw)
 	if err == nil || len(raw) == 0 || !completionAggregateFactsAreOptional(ctx, resultKind) {
 		return normalized, nil, err
@@ -467,6 +468,52 @@ func normalizeCompletionAggregateFacts(
 	return merged, notes, nil
 }
 
+func normalizeCompletionNegativeObservationFacts(ctx *types.BusContext, raw []types.AnswerAggregateFact) []types.AnswerAggregateFact {
+	if len(raw) == 0 {
+		return raw
+	}
+	out := append([]types.AnswerAggregateFact(nil), raw...)
+	for i := range out {
+		fact := &out[i]
+		if fact.Kind != types.AnswerAggregateNegativeObservation {
+			continue
+		}
+		dims := completionAggregateDimensionMap(fact.Dimensions)
+		if dims["origin"] == "" && dims["evidence_origin"] == "" {
+			switch {
+			case strings.TrimSpace(fact.Provenance) != "":
+				fact.Dimensions = append(fact.Dimensions, types.AnswerAggregateDimension{Name: "origin", Value: strings.TrimSpace(fact.Provenance)})
+				dims["origin"] = strings.TrimSpace(fact.Provenance)
+			case ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.HasExternalOnlyRuntimeArtifact():
+				fact.Dimensions = append(fact.Dimensions, types.AnswerAggregateDimension{Name: "origin", Value: string(types.AnswerEvidenceOriginRuntimeArtifact)})
+				dims["origin"] = string(types.AnswerEvidenceOriginRuntimeArtifact)
+			}
+		}
+		if dims["target"] == "" && dims["query"] == "" && dims["pattern"] == "" && dims["predicate"] == "" && len(fact.Excluded) > 0 {
+			if target := strings.TrimSpace(fact.Excluded[0]); target != "" {
+				fact.Dimensions = append(fact.Dimensions, types.AnswerAggregateDimension{Name: "target", Value: target})
+			}
+		}
+	}
+	return out
+}
+
+func completionAggregateDimensionMap(dims []types.AnswerAggregateDimension) map[string]string {
+	out := make(map[string]string, len(dims))
+	for _, dim := range dims {
+		name := strings.ToLower(strings.TrimSpace(dim.Name))
+		name = strings.ReplaceAll(name, "-", "_")
+		name = strings.ReplaceAll(name, " ", "_")
+		switch name {
+		case "origin", "evidence_origin", "target", "query", "pattern", "predicate":
+			if out[name] == "" {
+				out[name] = strings.TrimSpace(dim.Value)
+			}
+		}
+	}
+	return out
+}
+
 func completionAggregateFactsAreOptional(ctx *types.BusContext, resultKind string) bool {
 	if !strings.EqualFold(strings.TrimSpace(resultKind), "resolved") {
 		return false
@@ -475,6 +522,9 @@ func completionAggregateFactsAreOptional(ctx *types.BusContext, resultKind strin
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
+	if rm.HasObservationOnlyRuntimeArtifact() {
+		return true
+	}
 	if rm.Intent == types.IntentEnumerate ||
 		rm.Predicates.IsScalarAnswer ||
 		rm.Predicates.IsRoleLocateLookup ||
@@ -2348,6 +2398,9 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 			if decoratedAggregateMemberCanRelyOnVCSProvenance(ctx, fact, member) {
 				continue
 			}
+			if decoratedAggregateMemberCanRelyOnRuntimeArtifactProvenance(ctx, fact, member) {
+				continue
+			}
 			if memberHasDecoratedCodeIdentityBase(member) {
 				decorated = append(decorated, member)
 			}
@@ -2388,6 +2441,22 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 	return nil
 }
 
+func decoratedAggregateMemberCanRelyOnRuntimeArtifactProvenance(ctx *types.BusContext, fact types.AnswerAggregateFact, member string) bool {
+	if !memberHasDecoratedCodeIdentityBase(member) {
+		return false
+	}
+	rm := requestModelForAggregateSupport(ctx)
+	if rm == nil || !rm.HasObservationOnlyRuntimeArtifact() {
+		return false
+	}
+	for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
+		if origin == types.AnswerEvidenceOriginRuntimeArtifact {
+			return true
+		}
+	}
+	return false
+}
+
 func decoratedAggregateMemberCanRelyOnVCSProvenance(ctx *types.BusContext, fact types.AnswerAggregateFact, member string) bool {
 	base, _, ok := types.AnswerAggregateDecoratedLabelParts(member)
 	if !ok {
@@ -2397,16 +2466,26 @@ func decoratedAggregateMemberCanRelyOnVCSProvenance(ctx *types.BusContext, fact 
 	if !aggregateMemberVCSCommitHashBaseRe.MatchString(base) {
 		return false
 	}
-	var rm *types.RequestModel
-	if ctx != nil && ctx.AnalysisIR != nil {
-		rm = &ctx.AnalysisIR.RequestModel
-	}
+	rm := requestModelForAggregateSupport(ctx)
 	for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
 		if origin == types.AnswerEvidenceOriginVCSMetadata || origin == types.AnswerEvidenceOriginVCSDiff {
 			return true
 		}
 	}
 	return false
+}
+
+func requestModelForAggregateSupport(ctx *types.BusContext) *types.RequestModel {
+	if ctx == nil {
+		return nil
+	}
+	if ctx.AnalysisIR != nil {
+		return &ctx.AnalysisIR.RequestModel
+	}
+	if ctx.Mutable != nil {
+		return ctx.Mutable.RequestModel()
+	}
+	return nil
 }
 
 func enrichCompletionAggregateFactsWithMemberSupport(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFact {

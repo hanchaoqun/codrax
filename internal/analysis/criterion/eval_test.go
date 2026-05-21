@@ -1,6 +1,7 @@
 package criterion
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -80,6 +81,67 @@ func TestEval_EvidenceCount_Comparison(t *testing.T) {
 		if r.Satisfied != c.want {
 			t.Errorf("expr=%q: want %v got %v (%s)", c.expr, c.want, r.Satisfied, r.Detail)
 		}
+	}
+}
+
+func TestEval_EvidenceCount_ObservationOnlyRuntimeUsesArtifactFacts(t *testing.T) {
+	logBundle := &types.LogBundle{
+		Errors: []types.LogError{{
+			Type:    "panic",
+			Message: "index out of bounds: index=5, size=3",
+			Frames: []types.LogFrame{{
+				Func: "Cart.itemAt",
+				File: "src/cart/Cart.cj",
+				Line: 78,
+			}},
+		}},
+	}
+	env := Env{
+		IR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioRootCause,
+				LogTriage: logBundle,
+			},
+		},
+		LogTriage: logBundle,
+	}
+	r := Eval(types.Criterion{Kind: string(KindEvidenceCount), Expr: ">=3"}, env)
+	if !r.Satisfied {
+		t.Fatalf("observation-only runtime artifact should waive repo evidence_count, got: %s", r.Detail)
+	}
+	if !strings.Contains(r.Detail, "runtime_artifact_observations=") ||
+		!strings.Contains(r.Detail, "repo evidence_count floor >= 3 waived") {
+		t.Fatalf("detail should explain artifact evidence accounting, got: %s", r.Detail)
+	}
+}
+
+func TestEval_EvidenceCount_CurrentVerificationDoesNotUseArtifactWaiver(t *testing.T) {
+	logBundle := &types.LogBundle{
+		Errors: []types.LogError{{Type: "panic"}},
+	}
+	env := Env{
+		IR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentRootCause,
+				DiagnosticProfile: types.DiagnosticIntentProfile{
+					IsDiagnostic:        true,
+					CurrentVersionCheck: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					RequiredFileHints: []types.RequiredFileHint{{Path: "src/cart/Cart.cj"}},
+				},
+				LogTriage: logBundle,
+			},
+		},
+		LogTriage: logBundle,
+	}
+	r := Eval(types.Criterion{Kind: string(KindEvidenceCount), Expr: ">=1"}, env)
+	if r.Satisfied {
+		t.Fatalf("current-code verification should still require repo evidence, got: %s", r.Detail)
+	}
+	if !strings.Contains(r.Detail, "|evidence|=0 >= 1") {
+		t.Fatalf("detail should stay on repo evidence accounting, got: %s", r.Detail)
 	}
 }
 

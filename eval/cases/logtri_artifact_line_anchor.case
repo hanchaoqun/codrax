@@ -1,0 +1,15 @@
+# Log-triage — artifact-local line anchors
+#
+# Regression target: attached logs have their own line numbers. A question
+# asking "第几行" should be answered from artifact-local line gutters, not from
+# repository source citations or model-estimated counting.
+ID="logtri_artifact_line_anchor"
+NAME="log-triage artifact line anchor"
+QUESTION="这段日志里 WARN 在附件日志的第几行？FATAL 是否存在？"
+LOG='2026-05-21T10:00:00Z INFO boot start
+2026-05-21T10:00:01Z INFO loading config
+2026-05-21T10:00:02Z WARN retrying slow dependency
+2026-05-21T10:00:03Z INFO boot done
+'
+EXPECT_MATCHES_REGEX="(第 ?3 ?行|3 ?行|line ?3|L3).*(WARN)|(WARN).*(第 ?3 ?行|3 ?行|line ?3|L3)
+(FATAL).*(没有|未发现|未看到|不存在|0)|(没有|未发现|未看到|不存在|0).*(FATAL)"

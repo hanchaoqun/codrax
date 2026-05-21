@@ -104,6 +104,13 @@ func TestEmitLogTriage_Schema_HasObservations(t *testing.T) {
 	if len(wantReq) > 0 {
 		t.Fatalf("observation required missing: %v", wantReq)
 	}
+	obsProps := item["properties"].(map[string]any)
+	if _, ok := obsProps["line_start"]; !ok {
+		t.Fatal("observation schema missing line_start")
+	}
+	if _, ok := obsProps["line_end"]; !ok {
+		t.Fatal("observation schema missing line_end")
+	}
 }
 
 func TestEmitLogTriage_Execute_ObservationOnlyAccepted(t *testing.T) {
@@ -119,6 +126,7 @@ func TestEmitLogTriage_Execute_ObservationOnlyAccepted(t *testing.T) {
 			Subject:    "answer topic",
 			Summary:    "review reported that the body answered a different topic",
 			Evidence:   "topic mismatch",
+			LineStart:  3,
 			Diagnostic: true,
 			Confidence: 0.9,
 		}},
@@ -138,6 +146,9 @@ func TestEmitLogTriage_Execute_ObservationOnlyAccepted(t *testing.T) {
 	bundle := bus.Mutable.LogTriage()
 	if bundle == nil || len(bundle.Observations) != 1 {
 		t.Fatalf("bundle observations missing: %+v", bundle)
+	}
+	if bundle.Observations[0].LineStart != 3 {
+		t.Fatalf("observation line_start not preserved: %+v", bundle.Observations[0])
 	}
 	if bundle.IntentHint != types.IntentRootCause {
 		t.Fatalf("IntentHint = %q, want root_cause", bundle.IntentHint)

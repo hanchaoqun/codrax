@@ -143,6 +143,13 @@ type LogObservation struct {
 	// citation.
 	Evidence string `json:"evidence,omitempty"`
 
+	// LineStart / LineEnd are artifact-local gutter lines inside the
+	// attached log. They are answer-grade anchors for "which line" /
+	// "which event row" questions, but they are not repository source
+	// citations.
+	LineStart int `json:"line_start,omitempty"`
+	LineEnd   int `json:"line_end,omitempty"`
+
 	// Diagnostic is true when this observation describes a failure,
 	// regression, mismatch, stalled/retried process, or current-risk
 	// verification target rather than neutral context.
@@ -453,12 +460,24 @@ func IsValidLogSignal(s LogSignal) bool {
 	return false
 }
 
+// HasStructuredObservations reports whether the bundle carries typed
+// runtime facts that can answer an artifact-local question. It includes
+// stack/error trees and non-stack observations such as "WARN appears on
+// artifact line 3" or "FATAL was not observed".
+func (b *LogBundle) HasStructuredObservations() bool {
+	if b == nil {
+		return false
+	}
+	return len(b.Errors) > 0 || len(b.Observations) > 0
+}
+
 // IsExternalSourceLog reports whether the bundle represents an
-// external-source log — one that carries structured errors but whose
-// stack frames did not resolve to any file in this repo. The
-// canonical case is a customer-trace paste (another service's Go
-// panic, a Java Caused-by chain from a microservice, a Python
-// traceback from a library) dropped into a codrax REPL.
+// external-source log — one that carries structured runtime observations but
+// whose stack/source frames did not resolve to any file in this repo. The
+// canonical cases are a customer-trace paste (another service's Go panic, a
+// Java Caused-by chain from a microservice, a Python traceback from a library)
+// and artifact-local log lookup questions that are answered by structured log
+// observations rather than current source.
 //
 // Downstream emit tools (emit_evidence, emit_answer_symbol,
 // emit_answer_document) use this flag to redirect their per-item
@@ -476,7 +495,7 @@ func (b *LogBundle) IsExternalSource() bool {
 	if b == nil {
 		return false
 	}
-	return len(b.ResolvedFiles) == 0 && len(b.Errors) > 0
+	return len(b.ResolvedFiles) == 0 && b.HasStructuredObservations()
 }
 
 // HasDiagnosticObservations reports whether the bundle contains a

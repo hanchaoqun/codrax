@@ -73,6 +73,8 @@ type emitLogTriageObservation struct {
 	Subject    string  `json:"subject,omitempty"`
 	Summary    string  `json:"summary"`
 	Evidence   string  `json:"evidence,omitempty"`
+	LineStart  int     `json:"line_start,omitempty"`
+	LineEnd    int     `json:"line_end,omitempty"`
 	Diagnostic bool    `json:"diagnostic"`
 	Confidence float64 `json:"confidence"`
 }
@@ -201,6 +203,8 @@ func buildEmitLogTriageSchema() {
 			"subject":    map[string]any{"type": "string", "maxLength": 120},
 			"summary":    map[string]any{"type": "string", "minLength": 1, "maxLength": 240},
 			"evidence":   map[string]any{"type": "string", "maxLength": 300},
+			"line_start": map[string]any{"type": "integer", "minimum": 1},
+			"line_end":   map[string]any{"type": "integer", "minimum": 1},
 			"diagnostic": map[string]any{"type": "boolean"},
 			"confidence": map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0},
 		},
@@ -544,12 +548,20 @@ func toValidateObservations(in []emitLogTriageObservation) []types.LogObservatio
 		if severity != "" && !types.IsValidLogObservationSeverity(severity) {
 			severity = ""
 		}
+		lineStart, lineEnd := obs.LineStart, obs.LineEnd
+		if lineStart <= 0 {
+			lineStart, lineEnd = 0, 0
+		} else if lineEnd > 0 && lineEnd < lineStart {
+			lineEnd = lineStart
+		}
 		out = append(out, types.LogObservation{
 			Kind:       kind,
 			Severity:   severity,
 			Subject:    obs.Subject,
 			Summary:    obs.Summary,
 			Evidence:   obs.Evidence,
+			LineStart:  lineStart,
+			LineEnd:    lineEnd,
 			Diagnostic: obs.Diagnostic,
 			Confidence: obs.Confidence,
 		})

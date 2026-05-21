@@ -13,6 +13,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/config"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/textfmt"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -2532,60 +2533,146 @@ func attachedTraceTriageState(ac *types.AgentContext) attachedRuntimeTriageState
 }
 
 func attachedLogPreamble(state attachedRuntimeTriageState) string {
+	lineNote := "Every line in the fenced block carries an artifact-local gutter `N│`; " +
+		"use that N only as the attached-log line number, not as a repository source citation. " +
+		"Source file:line frames remain the literal file:line tokens inside the log text.\n\n"
 	switch state {
 	case attachedTriageProducer:
 		return "The user attached the runtime log below alongside their question. " +
-			"Prepare a structured summary for this raw log, preserving stack-frame order, error chains, and literal file:line anchors.\n\n"
+			"Prepare a structured summary for this raw log, preserving stack-frame order, error chains, and literal file:line anchors. " +
+			lineNote
 	case attachedTriageStructured:
 		return "The user attached the runtime log below alongside their question. " +
-			"A structured log summary is already available above and is the preferred source for stack frames, file:line anchors, function names, and cause chains. Consult the raw log only for literal message text or frames not visible in the structured summary.\n\n"
+			"A structured log summary is already available above and is the preferred source for stack frames, file:line anchors, function names, and cause chains. Consult the raw log only for literal message text, artifact line numbers, or frames not visible in the structured summary. " +
+			lineNote
 	default:
 		return "The user attached the runtime log below alongside their question. " +
-			"No structured log summary is available in this prompt. Treat this raw log as unparsed input: establish any stack-frame file:line anchors yourself before relying on them later.\n\n"
+			"No structured log summary is available in this prompt. Treat this raw log as unparsed input: establish any stack-frame file:line anchors yourself before relying on them later. " +
+			lineNote
 	}
 }
 
 func attachedTracePreamble(state attachedRuntimeTriageState) string {
+	lineNote := "Every line in the fenced block carries an artifact-local gutter `N│`; " +
+		"use that N only as the attached-trace line number / event row, not as a repository source citation. " +
+		"Trace timestamps, span names, and source-frame tokens remain the literal text after the gutter.\n\n"
 	switch state {
 	case attachedTriageProducer:
 		return "The user attached the performance trace below alongside their question. " +
-			"Prepare a structured summary for this raw trace, capturing hotspots, stalls, frame spans, and startup or jank envelopes.\n\n"
+			"Prepare a structured summary for this raw trace, capturing hotspots, stalls, frame spans, and startup or jank envelopes. " +
+			lineNote
 	case attachedTriageStructured:
 		return "The user attached the performance trace below alongside their question. " +
-			"A structured performance summary is already available above and is the preferred source for hotspots, stalls, frame spans, and startup or jank envelopes. Consult the raw trace only for literal timestamps, thread names, or event tags not visible in the structured summary.\n\n"
+			"A structured performance summary is already available above and is the preferred source for hotspots, stalls, frame spans, and startup or jank envelopes. Consult the raw trace only for literal timestamps, thread names, artifact line numbers, or event tags not visible in the structured summary. " +
+			lineNote
 	default:
 		return "The user attached the performance trace below alongside their question. " +
-			"No structured performance summary is available in this prompt. Treat this raw trace as unparsed input: derive hotspots, stalls, timestamps, and thread/event anchors yourself before relying on them later.\n\n"
+			"No structured performance summary is available in this prompt. Treat this raw trace as unparsed input: derive hotspots, stalls, timestamps, and thread/event anchors yourself before relying on them later. " +
+			lineNote
 	}
+}
+
+func normalizeAttachedArtifactText(raw string) string {
+	raw = strings.ReplaceAll(raw, "\r\n", "\n")
+	raw = strings.ReplaceAll(raw, "\r", "\n")
+	return raw
+}
+
+func renderAttachedArtifactLines(raw string, startLineNo int) string {
+	if raw == "" {
+		return ""
+	}
+	return textfmt.LineGutter(strings.Split(raw, "\n"), startLineNo)
+}
+
+type attachedArtifactPreview struct {
+	head          string
+	tail          string
+	tailStartLine int
+	elidedBytes   int
+}
+
+func buildAttachedArtifactPreview(raw string) attachedArtifactPreview {
+	headEnd := attachedLogHeadCap
+	if headEnd > len(raw) {
+		headEnd = len(raw)
+	}
+	if idx := strings.LastIndex(raw[:headEnd], "\n"); idx > 0 {
+		headEnd = idx
+	}
+	tailStart := len(raw) - attachedLogTailCap
+	if tailStart < headEnd {
+		tailStart = headEnd
+	}
+	if tailStart > 0 && tailStart < len(raw) {
+		if idx := strings.Index(raw[tailStart:], "\n"); idx >= 0 {
+			tailStart += idx + 1
+		}
+	}
+	if tailStart >= len(raw) {
+		tailStart = len(raw) - attachedLogTailCap
+		if tailStart < headEnd {
+			tailStart = headEnd
+		}
+	}
+	head := raw[:headEnd]
+	tail := raw[tailStart:]
+	return attachedArtifactPreview{
+		head:          head,
+		tail:          tail,
+		tailStartLine: 1 + strings.Count(raw[:tailStart], "\n"),
+		elidedBytes:   tailStart - headEnd,
+	}
+}
+
+func renderAttachedArtifactPreviewBlock(preview attachedArtifactPreview, blobPath string) string {
+	var b strings.Builder
+	b.WriteString("```text\n")
+	if head := renderAttachedArtifactLines(preview.head, 1); head != "" {
+		b.WriteString(head)
+		b.WriteByte('\n')
+	}
+	if blobPath != "" {
+		fmt.Fprintf(&b, "... [%d bytes elided — read %s for exact middle artifact-line anchors] ...\n", preview.elidedBytes, blobPath)
+	} else {
+		fmt.Fprintf(&b, "... [%d bytes elided] ...\n", preview.elidedBytes)
+	}
+	if tail := renderAttachedArtifactLines(preview.tail, preview.tailStartLine); tail != "" {
+		b.WriteString(tail)
+		b.WriteByte('\n')
+	}
+	b.WriteString("```")
+	return b.String()
 }
 
 // formatAttachedLog renders the user-attached runtime log excerpt as a
 // prompt section. Two size regimes keep the overall prompt bounded:
 //
-//   - ≤ attachedLogInlineCap (4 KB): inline the whole body verbatim.
-//     Typical panic / short exception / single-stack sanitizer report
-//     lands here — LLM sees everything without indirection.
+//   - ≤ attachedLogInlineCap (4 KB): inline the whole body with
+//     artifact-local line gutters. Typical panic / short exception /
+//     single-stack sanitizer report lands here — LLM sees everything
+//     without indirection, including stable attached-log line numbers.
 //   - > attachedLogInlineCap: write the full body to
 //     `<workDir>/attached_log.txt` (mirrors the tool/blob pattern),
-//     inline a head+tail preview, and instruct the LLM to use
-//     `read_file` on the blob path for paginated access to the middle.
-//     The explorer has read_file in its tool allowlist. When the
-//     structured triage bundle is absent, the preamble tells the LLM
-//     this raw artifact is unparsed instead of implying pre-stage
-//     success.
+//     inline a head+tail preview with artifact-local line gutters for
+//     visible lines, and instruct the LLM to use `read_file` on the
+//     blob path for paginated access to the middle. The explorer has
+//     read_file in its tool allowlist. When the structured triage
+//     bundle is absent, the preamble tells the LLM this raw artifact
+//     is unparsed instead of implying pre-stage success.
 //
 // Returns "" for empty input so the caller can skip the section.
 // Falls back to head+tail inline when workDir is empty or the blob
 // write fails (no-op degrade, no error surfaces to the caller).
 func formatAttachedLog(raw, workDir string, state attachedRuntimeTriageState) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
+	if strings.TrimSpace(raw) == "" {
 		return ""
 	}
+	raw = normalizeAttachedArtifactText(raw)
 	preamble := attachedLogPreamble(state)
 
 	if len(raw) <= attachedLogInlineCap {
-		return preamble + "```\n" + raw + "\n```"
+		return preamble + "```text\n" + renderAttachedArtifactLines(raw, 1) + "\n```"
 	}
 
 	// Over cap — attempt blob offload.
@@ -2599,30 +2686,24 @@ func formatAttachedLog(raw, workDir string, state attachedRuntimeTriageState) st
 		}
 	}
 
-	head := raw[:attachedLogHeadCap]
-	tail := raw[len(raw)-attachedLogTailCap:]
-	elided := len(raw) - attachedLogHeadCap - attachedLogTailCap
+	preview := buildAttachedArtifactPreview(raw)
 
 	if blobPath != "" {
 		return preamble +
-			fmt.Sprintf("Total log size: %d bytes. Preview below shows head (%d B) + tail (%d B); "+
+			fmt.Sprintf("Total log size: %d bytes. Preview below shows head + tail with artifact-local line gutters; "+
 				"the middle (%d B) is elided. The complete log is saved to `%s` — "+
 				"use `read_file` with offset+limit on that path to paginate through the "+
-				"elided region if you need frames beyond the preview.\n\n",
-				len(raw), attachedLogHeadCap, attachedLogTailCap, elided, blobPath) +
-			"```\n" + head +
-			fmt.Sprintf("\n... [%d bytes elided — read %s for full log] ...\n", elided, blobPath) +
-			tail + "\n```"
+				"elided region if you need exact line anchors beyond the preview.\n\n",
+				len(raw), preview.elidedBytes, blobPath) +
+			renderAttachedArtifactPreviewBlock(preview, blobPath)
 	}
 
 	// Fallback: no workDir or write failed. Degrade to head+tail with
 	// an elision marker so the caller still gets bounded rendering.
 	return preamble +
-		fmt.Sprintf("Total log size: %d bytes; showing head (%d B) + tail (%d B), middle elided.\n\n",
-			len(raw), attachedLogHeadCap, attachedLogTailCap) +
-		"```\n" + head +
-		fmt.Sprintf("\n... [%d bytes elided] ...\n", elided) +
-		tail + "\n```"
+		fmt.Sprintf("Total log size: %d bytes; showing head + tail with artifact-local line gutters, middle elided.\n\n",
+			len(raw)) +
+		renderAttachedArtifactPreviewBlock(preview, "")
 }
 
 // formatAttachedTrace mirrors formatAttachedLog for performance traces
@@ -2631,14 +2712,14 @@ func formatAttachedLog(raw, workDir string, state attachedRuntimeTriageState) st
 // and prevents blob-path collisions when a run carries both
 // attachments.
 func formatAttachedTrace(raw, workDir string, state attachedRuntimeTriageState) string {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
+	if strings.TrimSpace(raw) == "" {
 		return ""
 	}
+	raw = normalizeAttachedArtifactText(raw)
 	preamble := attachedTracePreamble(state)
 
 	if len(raw) <= attachedLogInlineCap {
-		return preamble + "```\n" + raw + "\n```"
+		return preamble + "```text\n" + renderAttachedArtifactLines(raw, 1) + "\n```"
 	}
 
 	blobPath := ""
@@ -2651,28 +2732,22 @@ func formatAttachedTrace(raw, workDir string, state attachedRuntimeTriageState) 
 		}
 	}
 
-	head := raw[:attachedLogHeadCap]
-	tail := raw[len(raw)-attachedLogTailCap:]
-	elided := len(raw) - attachedLogHeadCap - attachedLogTailCap
+	preview := buildAttachedArtifactPreview(raw)
 
 	if blobPath != "" {
 		return preamble +
-			fmt.Sprintf("Total trace size: %d bytes. Preview below shows head (%d B) + tail (%d B); "+
+			fmt.Sprintf("Total trace size: %d bytes. Preview below shows head + tail with artifact-local line gutters; "+
 				"the middle (%d B) is elided. The complete trace is saved to `%s` — "+
 				"use `read_file` with offset+limit on that path to paginate through the "+
-				"elided region if you need events beyond the preview.\n\n",
-				len(raw), attachedLogHeadCap, attachedLogTailCap, elided, blobPath) +
-			"```\n" + head +
-			fmt.Sprintf("\n... [%d bytes elided — read %s for full trace] ...\n", elided, blobPath) +
-			tail + "\n```"
+				"elided region if you need exact event-line anchors beyond the preview.\n\n",
+				len(raw), preview.elidedBytes, blobPath) +
+			renderAttachedArtifactPreviewBlock(preview, blobPath)
 	}
 
 	return preamble +
-		fmt.Sprintf("Total trace size: %d bytes; showing head (%d B) + tail (%d B), middle elided.\n\n",
-			len(raw), attachedLogHeadCap, attachedLogTailCap) +
-		"```\n" + head +
-		fmt.Sprintf("\n... [%d bytes elided] ...\n", elided) +
-		tail + "\n```"
+		fmt.Sprintf("Total trace size: %d bytes; showing head + tail with artifact-local line gutters, middle elided.\n\n",
+			len(raw)) +
+		renderAttachedArtifactPreviewBlock(preview, "")
 }
 
 // formatLogTriageStructured renders the validated LogBundle as an
@@ -2980,6 +3055,13 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 			if obs.Severity != "" {
 				fmt.Fprintf(&b, " severity=%s", obs.Severity)
 			}
+			if obs.LineStart > 0 {
+				if obs.LineEnd > obs.LineStart {
+					fmt.Fprintf(&b, " log_lines=%d-%d", obs.LineStart, obs.LineEnd)
+				} else {
+					fmt.Fprintf(&b, " log_line=%d", obs.LineStart)
+				}
+			}
 			fmt.Fprintf(&b, " diagnostic=%t confidence=%.2f", obs.Diagnostic, obs.Confidence)
 			if obs.Subject != "" {
 				fmt.Fprintf(&b, " subject=`%s`", obs.Subject)
@@ -2989,6 +3071,7 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 				fmt.Fprintf(&b, "     evidence: %s\n", truncateForPrompt(obs.Evidence, 240))
 			}
 		}
+		b.WriteString("Observation log_line/log_lines are artifact-local anchors from the attached log, not repository source citations.\n")
 		b.WriteString("\n")
 	}
 
@@ -3071,6 +3154,7 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 	}
 	if len(bundle.Frames) == 0 && len(bundle.Janks) == 0 &&
 		len(bundle.Stalls) == 0 && bundle.Startup == nil &&
+		len(bundle.Observations) == 0 &&
 		len(bundle.Residue) == 0 {
 		return ""
 	}
@@ -3143,6 +3227,38 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 			fmt.Fprintf(&b, " first_frame=%.1fms", bundle.Startup.FirstFrameMs)
 		}
 		b.WriteString("\n\n")
+	}
+
+	if len(bundle.Observations) > 0 {
+		fmt.Fprintf(&b, "**Trace observations** (%d):\n", len(bundle.Observations))
+		for i, obs := range bundle.Observations {
+			label := strings.TrimSpace(obs.Subject)
+			if label == "" {
+				label = "observation"
+			}
+			fmt.Fprintf(&b, "  [%d] %s", i+1, label)
+			if obs.LineStart > 0 {
+				if obs.LineEnd > obs.LineStart {
+					fmt.Fprintf(&b, " trace_lines=%d-%d", obs.LineStart, obs.LineEnd)
+				} else {
+					fmt.Fprintf(&b, " trace_line=%d", obs.LineStart)
+				}
+			}
+			if obs.DurationMs > 0 {
+				fmt.Fprintf(&b, " duration=%.3fms", obs.DurationMs)
+			}
+			if len(obs.Tags) > 0 {
+				fmt.Fprintf(&b, " tags=%s", strings.Join(obs.Tags, " → "))
+			}
+			if obs.Summary != "" {
+				fmt.Fprintf(&b, " — %s", obs.Summary)
+			}
+			if obs.Evidence != "" {
+				fmt.Fprintf(&b, "\n      evidence: %s", obs.Evidence)
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
 	}
 
 	// Janks — most actionable, list every entry up to schema cap.
@@ -3225,6 +3341,7 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 	b.WriteString("Citation contract:\n")
 	b.WriteString("- Stalls marked `★ resolved` carry a repo-relative path that survived os.Stat verification — those are citation-grade.\n")
 	b.WriteString("- Jank `trigger` and `tags` fields are tracing_mark_write tag literals from the trace — quote them verbatim, do NOT translate or paraphrase.\n")
+	b.WriteString("- Trace observations with `trace_line=N` are artifact-local line anchors, not repository source citations.\n")
 	b.WriteString("- Coverage < 1.0 means some trace bytes ended up in residue; treat residue chunks as advisory context, not as primary evidence.\n")
 
 	return strings.TrimRight(b.String(), "\n")
@@ -4333,7 +4450,8 @@ func formatEvidenceOriginBoundaryHint(ac *types.AgentContext) string {
 		b.WriteString("- Runtime log/trace observations are valid observed facts even when no stack frame maps to the active checkout. Do not invent current-source citations to make them look grounded.\n")
 	}
 	if contract.HasOrigin(types.AnswerEvidenceOriginRepoNegativeSearch) {
-		b.WriteString("- A negative-search fact must preserve its repo/scope/query/result_count boundary. It proves bounded absence, not global unknowability outside that boundary.\n")
+		b.WriteString("- A `negative_search` fact must preserve its repo/scope/query/result_count boundary. It proves bounded repository absence, not global unknowability outside that boundary.\n")
+		b.WriteString("- For git history/diff output, attached logs, traces, command output, or repo-map/index output, use `negative_observation` with origin/target-or-query/scope/result_count/searched_at instead of pretending the absence is a repository grep result.\n")
 	}
 	return b.String()
 }

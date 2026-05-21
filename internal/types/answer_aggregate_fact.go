@@ -17,15 +17,16 @@ import (
 type AnswerAggregateKind string
 
 const (
-	AnswerAggregateUnknown        AnswerAggregateKind = ""
-	AnswerAggregateTotalCount     AnswerAggregateKind = "total_count"
-	AnswerAggregateUniqueCount    AnswerAggregateKind = "unique_count"
-	AnswerAggregateGroupedCount   AnswerAggregateKind = "grouped_count"
-	AnswerAggregateBucketCount    AnswerAggregateKind = "bucket_count"
-	AnswerAggregateExcluded       AnswerAggregateKind = "excluded_count"
-	AnswerAggregateScalar         AnswerAggregateKind = "scalar_value"
-	AnswerAggregateMemberSet      AnswerAggregateKind = "member_set"
-	AnswerAggregateNegativeSearch AnswerAggregateKind = "negative_search"
+	AnswerAggregateUnknown             AnswerAggregateKind = ""
+	AnswerAggregateTotalCount          AnswerAggregateKind = "total_count"
+	AnswerAggregateUniqueCount         AnswerAggregateKind = "unique_count"
+	AnswerAggregateGroupedCount        AnswerAggregateKind = "grouped_count"
+	AnswerAggregateBucketCount         AnswerAggregateKind = "bucket_count"
+	AnswerAggregateExcluded            AnswerAggregateKind = "excluded_count"
+	AnswerAggregateScalar              AnswerAggregateKind = "scalar_value"
+	AnswerAggregateMemberSet           AnswerAggregateKind = "member_set"
+	AnswerAggregateNegativeSearch      AnswerAggregateKind = "negative_search"
+	AnswerAggregateNegativeObservation AnswerAggregateKind = "negative_observation"
 )
 
 var allAnswerAggregateKinds = []AnswerAggregateKind{
@@ -37,6 +38,7 @@ var allAnswerAggregateKinds = []AnswerAggregateKind{
 	AnswerAggregateScalar,
 	AnswerAggregateMemberSet,
 	AnswerAggregateNegativeSearch,
+	AnswerAggregateNegativeObservation,
 }
 
 // AllAnswerAggregateKinds returns the canonical non-empty aggregate
@@ -1927,7 +1929,12 @@ func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact,
 	if fact.Kind == AnswerAggregateMemberSet && len(fact.Members) > 0 {
 		fact.Members, fact.SupportRefs = normalizeAggregateMemberSetMemberSupportSurfaces(fact.Members, fact.SupportRefs)
 	}
+	fact = normalizeLegacyNegativeSearchByNonRepoOrigin(fact)
 	fact, err = normalizeNegativeSearchAggregateFact(fact)
+	if err != nil {
+		return AnswerAggregateFact{}, err
+	}
+	fact, err = normalizeNegativeObservationAggregateFact(fact)
 	if err != nil {
 		return AnswerAggregateFact{}, err
 	}
@@ -2287,6 +2294,111 @@ func normalizeNegativeSearchAggregateFact(fact AnswerAggregateFact) (AnswerAggre
 	return fact, nil
 }
 
+func normalizeLegacyNegativeSearchByNonRepoOrigin(fact AnswerAggregateFact) AnswerAggregateFact {
+	if fact.Kind != AnswerAggregateNegativeSearch {
+		return fact
+	}
+	dims := aggregateDimensionMap(canonicalNegativeSearchDimensions(fact.Dimensions))
+	if dims["repo"] != "" {
+		return fact
+	}
+	if len(negativeObservationNonRepoOrigins(fact)) == 0 {
+		return fact
+	}
+	fact.Kind = AnswerAggregateNegativeObservation
+	return fact
+}
+
+func normalizeNegativeObservationAggregateFact(fact AnswerAggregateFact) (AnswerAggregateFact, error) {
+	if fact.Kind != AnswerAggregateNegativeObservation {
+		return fact, nil
+	}
+	fact.Dimensions = canonicalNegativeObservationDimensions(fact.Dimensions)
+	dims := aggregateDimensionMap(fact.Dimensions)
+	if fact.Value == "" {
+		fact.Value = dims["result_count"]
+	}
+	if fact.Value == "" {
+		fact.Value = "0"
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(fact.Value))
+	if err != nil || n != 0 {
+		return AnswerAggregateFact{}, fmt.Errorf("%s %q must use value \"0\" for a verified zero-result observation",
+			fact.Kind, fact.Label)
+	}
+	fact.Value = "0"
+	if dims["result_count"] == "" {
+		if len(fact.Dimensions) >= maxAnswerAggregateDimensions {
+			return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension result_count=0 for a verified zero-result observation",
+				fact.Kind, fact.Label)
+		}
+		fact.Dimensions = append(fact.Dimensions, AnswerAggregateDimension{Name: "result_count", Value: "0"})
+		dims["result_count"] = "0"
+	}
+	if fact.Unit == "" {
+		fact.Unit = "matches"
+	}
+	origins := negativeObservationNonRepoOrigins(fact)
+	if len(origins) == 0 {
+		return AnswerAggregateFact{}, fmt.Errorf("%s %q requires a non-repo origin dimension such as origin=vcs_metadata, origin=vcs_diff, origin=runtime_artifact, origin=command_measurement, or origin=cross_repo_index",
+			fact.Kind, fact.Label)
+	}
+	if dims["target"] == "" && dims["query"] == "" && dims["pattern"] == "" && dims["predicate"] == "" {
+		return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension target, query, pattern, or predicate for the absent thing",
+			fact.Kind, fact.Label)
+	}
+	if dims["scope"] == "" {
+		scope := firstNonEmptyAggregateDim(dims, "artifact_id", "trace_window", "commit_range", "tool_result", "source_ref")
+		if scope == "" {
+			return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension scope=<bounded observed surface>",
+				fact.Kind, fact.Label)
+		}
+		if len(fact.Dimensions) >= maxAnswerAggregateDimensions {
+			return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension scope=<bounded observed surface>",
+				fact.Kind, fact.Label)
+		}
+		fact.Dimensions = append(fact.Dimensions, AnswerAggregateDimension{Name: "scope", Value: scope})
+		dims["scope"] = scope
+	}
+	if dims["searched_at"] == "" {
+		if len(fact.Dimensions) >= maxAnswerAggregateDimensions {
+			return AnswerAggregateFact{}, fmt.Errorf("%s %q requires dimension searched_at=<search timestamp or current_investigation>",
+				fact.Kind, fact.Label)
+		}
+		fact.Dimensions = append(fact.Dimensions, AnswerAggregateDimension{Name: "searched_at", Value: "current_investigation"})
+	}
+	return fact, nil
+}
+
+func negativeObservationNonRepoOrigins(fact AnswerAggregateFact) []AnswerEvidenceOrigin {
+	var out []AnswerEvidenceOrigin
+	seen := map[AnswerEvidenceOrigin]bool{}
+	for _, origin := range answerAggregateFactExplicitEvidenceOrigins(fact) {
+		switch origin {
+		case AnswerEvidenceOriginVCSMetadata,
+			AnswerEvidenceOriginVCSDiff,
+			AnswerEvidenceOriginRuntimeArtifact,
+			AnswerEvidenceOriginCommandMeasurement,
+			AnswerEvidenceOriginCrossRepoIndex,
+			AnswerEvidenceOriginSystemInference:
+			if !seen[origin] {
+				seen[origin] = true
+				out = append(out, origin)
+			}
+		}
+	}
+	return out
+}
+
+func firstNonEmptyAggregateDim(dims map[string]string, names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(dims[name]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
 func canonicalNegativeSearchDimensions(dims []AnswerAggregateDimension) []AnswerAggregateDimension {
 	if len(dims) == 0 {
 		return nil
@@ -2295,6 +2407,28 @@ func canonicalNegativeSearchDimensions(dims []AnswerAggregateDimension) []Answer
 	seen := map[string]bool{}
 	for _, dim := range dims {
 		name := canonicalNegativeSearchDimensionName(dim.Name)
+		value := trimAggregateText(dim.Value)
+		if name == "" || value == "" {
+			continue
+		}
+		key := strings.ToLower(name)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, AnswerAggregateDimension{Name: name, Value: value})
+	}
+	return out
+}
+
+func canonicalNegativeObservationDimensions(dims []AnswerAggregateDimension) []AnswerAggregateDimension {
+	if len(dims) == 0 {
+		return nil
+	}
+	out := make([]AnswerAggregateDimension, 0, len(dims))
+	seen := map[string]bool{}
+	for _, dim := range dims {
+		name := canonicalNegativeObservationDimensionName(dim.Name)
 		value := trimAggregateText(dim.Value)
 		if name == "" || value == "" {
 			continue
@@ -2328,6 +2462,42 @@ func canonicalNegativeSearchDimensionName(raw string) string {
 		return "result_count"
 	case "tool", "file_type", "files_only", "ignore_case":
 		return name
+	default:
+		return trimAggregateText(raw)
+	}
+}
+
+func canonicalNegativeObservationDimensionName(raw string) string {
+	name := strings.ToLower(trimAggregateText(raw))
+	name = strings.ReplaceAll(name, "-", "_")
+	name = strings.ReplaceAll(name, " ", "_")
+	switch name {
+	case "origin", "evidence_origin", "source_origin":
+		return "origin"
+	case "query", "search_query", "term", "terms":
+		return "query"
+	case "pattern", "regex", "regexp", "search_pattern":
+		return "pattern"
+	case "target", "subject", "symbol", "member", "entity":
+		return "target"
+	case "predicate", "condition", "absence", "negative_predicate":
+		return "predicate"
+	case "scope", "search_scope", "observed_scope", "window", "range":
+		return "scope"
+	case "artifact", "artifact_id", "log", "log_id", "trace", "trace_id":
+		return "artifact_id"
+	case "trace_window", "span_window", "time_window":
+		return "trace_window"
+	case "commit_range", "git_range", "revision_range", "history_window":
+		return "commit_range"
+	case "tool_result", "tool_result_id", "command_id", "command_result":
+		return "tool_result"
+	case "source", "source_ref", "tool", "producer":
+		return "source_ref"
+	case "searched_at", "search_time", "searched_in", "tool_time", "time":
+		return "searched_at"
+	case "result_count", "count", "matches", "match_count", "observed_count":
+		return "result_count"
 	default:
 		return trimAggregateText(raw)
 	}

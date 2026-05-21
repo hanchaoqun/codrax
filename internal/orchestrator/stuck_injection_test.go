@@ -110,6 +110,43 @@ func TestInjectInconclusiveForStuck_EmptyHypothesisSet_Noop(t *testing.T) {
 	}
 }
 
+func TestRunAutoVerdicts_SkipsObservationOnlyRuntimeArtifact(t *testing.T) {
+	logBundle := &types.LogBundle{
+		Errors: []types.LogError{{
+			Type: "panic",
+			Frames: []types.LogFrame{{
+				Func: "Cart.itemAt",
+				File: "src/cart/Cart.cj",
+				Line: 78,
+			}},
+		}},
+	}
+	mut := types.NewMutableState("runtime panic")
+	mut.SetLogTriage(logBundle)
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioRootCause,
+				LogTriage: logBundle,
+			},
+			HypothesisSet: []types.Hypothesis{{
+				ID:                     "h1",
+				Status:                 types.HypUnknown,
+				FalsificationCondition: types.Criterion{Kind: types.CritNoCallSites, Expr: "Cart.itemAt"},
+			}},
+		},
+	}
+	o := &Orchestrator{busCtx: bus}
+
+	o.runAutoVerdicts()
+
+	if got := bus.Mutable.EmittedHypothesisVerdicts(); len(got) != 0 {
+		t.Fatalf("observation-only artifact should not get repo-evidence auto-verdicts, got %+v", got)
+	}
+}
+
 // TestInjectInconclusiveForStuck_NilGuardsDontPanic covers the
 // defensive paths — nil bus, nil IR, nil mutable all return 0
 // without panicking.

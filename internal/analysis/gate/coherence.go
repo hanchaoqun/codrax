@@ -684,10 +684,13 @@ func attributeBearingEnumerationBypassesAxisCollapse(rm types.RequestModel) bool
 // the AnswerSemanticView ↔ AnswerSubject ↔ Predicates triangle. Both
 // routes catch genuine LLM contradictions rather than judgement calls.
 //
-// R2.1 Scalar vs multi-topic: Predicates.IsScalarAnswer is true but
-//
-//	the LLM emitted ≥2 sub-topics. A scalar answer cannot be the
-//	union of multiple independently-answerable sub-topics.
+// R2.1 Scalar vs multi-topic was originally a hard gate: Predicates.
+// IsScalarAnswer=true with ≥2 sub-topics. That proved too broad for
+// legitimate composite scalar requests ("which line is WARN, and is
+// FATAL present?", "give hash and author", "count X and Y"). It is now
+// an advisory detail only; the precise hard contradiction lives in R2.2
+// where a long-form answer surface is paired with a high-confidence
+// scalar subject.
 //
 // R2.2 Long-form view with scalar subject: the compiled
 //
@@ -699,17 +702,6 @@ func attributeBearingEnumerationBypassesAxisCollapse(rm types.RequestModel) bool
 func checkShapeSubjectCoherence(ir *types.AnalysisIR) types.GateCheck {
 	rm := ir.RequestModel
 	nSub := len(rm.SubTopics)
-
-	// R2.1 — IsScalarAnswer with ≥2 sub-topics.
-	if rm.Predicates.IsScalarAnswer && nSub >= 2 {
-		return types.GateCheck{
-			Name:   "shape_subject_coherence",
-			Passed: false,
-			Detail: fmt.Sprintf(
-				"R2.1 scalar_multi_topic: Predicates.IsScalarAnswer=true but %d sub-topics emitted",
-				nSub),
-		}
-	}
 
 	// R2.2 — Long-form view with high-confidence scalar subject.
 	//
@@ -734,9 +726,10 @@ func checkShapeSubjectCoherence(ir *types.AnalysisIR) types.GateCheck {
 		family = view.Family
 		// Principal payload is NOT a scalar literal — i.e. the
 		// answer is prose / ordered list / enumeration slate.
-		isLongForm = !view.NeedsPrincipalScalar()
+		isLongForm = family != types.QFGeneric && !view.NeedsPrincipalScalar()
 	}
 	if isLongForm && isScalarSubjectKind(rm.AnswerSubject.Kind) &&
+		!(rm.Intent == types.IntentReturnValue && rm.Predicates.IsScalarAnswer) &&
 		!rm.Predicates.IsCountQuestion &&
 		float32(rm.AnswerSubject.Confidence) >= coherenceSubjectConfidenceFloor {
 		return types.GateCheck{
@@ -750,12 +743,16 @@ func checkShapeSubjectCoherence(ir *types.AnalysisIR) types.GateCheck {
 		}
 	}
 
+	detail := fmt.Sprintf("family=%s subject_kind=%s scalar_pred=%t sub_topics=%d",
+		family, rm.AnswerSubject.Kind, rm.Predicates.IsScalarAnswer, nSub)
+	if rm.Predicates.IsScalarAnswer && nSub >= 2 {
+		detail += " | R2.1 scalar_multi_topic advisory: composite scalar request accepted"
+	}
 	return types.GateCheck{
 		Name:   "shape_subject_coherence",
 		Passed: true,
 		Score:  1.0,
-		Detail: fmt.Sprintf("family=%s subject_kind=%s scalar_pred=%t sub_topics=%d",
-			family, rm.AnswerSubject.Kind, rm.Predicates.IsScalarAnswer, nSub),
+		Detail: detail,
 	}
 }
 

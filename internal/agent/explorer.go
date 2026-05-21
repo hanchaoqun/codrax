@@ -606,6 +606,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	b.WriteString("- Do not leave those conclusions only in free-form text before the tool call; put them in `reason` so the next stages receive them even when prose is absent or parallel investigations are merged.\n")
 	b.WriteString("- Keep counts, complete member sets, and per-bucket facts in `aggregate_facts`; use `absence_justification` for a genuine zero or not-found result.\n")
 	b.WriteString("- For a verified zero-result search inside a repository or sub-repo, use `aggregate_facts` with `kind=\"negative_search\"`, `value=\"0\"`, and dimensions for `repo`, `query` or `pattern`, `scope`, and `searched_at`. Do not emit fake file:line evidence such as `repo:0` for a not-found result.\n")
+	b.WriteString("- For verified absence in non-repo evidence such as git history/diff output, an attached log, a trace, command output, or repo-map/index output, use `aggregate_facts` with `kind=\"negative_observation\"`, `value=\"0\"`, and dimensions for `origin`, `target` or `query`/`pattern`/`predicate`, `scope`, and `searched_at`. Do not invent repo dimensions for these cases.\n")
 	b.WriteString("- Ground the conclusion in tool output and emitted evidence. The `reason` is preserved as context, not as a citation.\n\n")
 	if ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
 		b.WriteString("### Repository Command Scope\n\n")

@@ -1,0 +1,19 @@
+# Perf-triage — artifact-local trace line anchors
+#
+# Regression target: attached traces have artifact-local event rows. A question
+# asking "第几行 / 第几个事件" should stay in runtime-artifact provenance and not
+# require current-source file:line citations.
+ID="hitrace_artifact_line_anchor"
+NAME="perf-triage artifact line anchor"
+QUESTION="这段 HiTrace 里 GC span 的开始事件在附件 trace 的第几行？有没有超过 50ms 的 GC span？"
+HTRACE='# tracer: nop
+# entries-in-buffer/entries-written: 128/128   #P:4
+#
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+   com.example-1000 [001] ...1 22345.100000: tracing_mark_write: B|1000|H:GC:Collect
+   com.example-1000 [001] ...1 22345.108000: tracing_mark_write: E|1000
+   com.example-1000 [001] ...1 22345.110000: tracing_mark_write: B|1000|H:RenderService:DoFrame
+   com.example-1000 [001] ...1 22345.120000: tracing_mark_write: E|1000
+'
+EXPECT_MATCHES_REGEX="(第 ?5 ?行|5 ?行|line ?5|L5).*(GC)|(GC).*(第 ?5 ?行|5 ?行|line ?5|L5)
+(50ms|50 ms).*(没有|未发现|未看到|不存在|0)|(没有|未发现|未看到|不存在|0).*(50ms|50 ms)"

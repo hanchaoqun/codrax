@@ -672,6 +672,63 @@ func TestBuildAnalysisIR_ExternalOnlyCurrentRiskWithoutCurrentVersionStaysObserv
 	}
 }
 
+func TestBuildAnalysisIR_LogObservationOnlyLookupStaysObservationOnly(t *testing.T) {
+	mut := types.NewMutableState("这段日志里 WARN 在附件日志的第几行？FATAL 是否存在？")
+	mut.SetLogTriage(&types.LogBundle{
+		Observations: []types.LogObservation{
+			{
+				Kind:       types.LogObservationRuntimeEvent,
+				Subject:    "WARN 日志行号",
+				Summary:    "WARN 出现在附件日志第 3 行",
+				Evidence:   "2026-05-21T10:00:02Z WARN retrying slow dependency",
+				Diagnostic: true,
+				Confidence: 1,
+			},
+			{
+				Kind:       types.LogObservationRuntimeEvent,
+				Subject:    "FATAL 检查结果",
+				Summary:    "FATAL 在附件日志中不存在",
+				Evidence:   "附件日志中未搜索到 FATAL 字样",
+				Confidence: 1,
+			},
+		},
+	})
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "这段日志里 WARN 在附件日志的第几行？FATAL 是否存在？",
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		Complexity: types.ComplexitySimple,
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords: []string{"WARN", "FATAL", "附件日志", "行号"},
+			Entities: []string{"WARN", "FATAL"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic: true,
+			Confidence:   0.95,
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	if !ir.RequestModel.HasObservationOnlyRuntimeArtifact() {
+		t.Fatalf("log observation lookup should be observation-only: %+v", ir.RequestModel)
+	}
+	if ir.AnswerContract.CitationReq.Required {
+		t.Fatal("artifact-local log lookup must not require repo citations")
+	}
+	for _, req := range types.CompileFacetCoverage(ir.RequestModel, nil).Required {
+		if req.Kind == types.FacetCurrentCodePath {
+			t.Fatalf("artifact-local log lookup must not require current_code_path: %+v", req)
+		}
+	}
+}
+
 func TestBuildAnalysisIR_ExternalOnlyCurrentVersionCheckKeepsCurrentStatus(t *testing.T) {
 	mut := types.NewMutableState("确认这个日志问题当前版本 my_app::config::load 是否还存在")
 	mut.SetLogTriage(&types.LogBundle{

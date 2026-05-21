@@ -592,7 +592,13 @@ func TestValidateObservationOnlyRuntimeToolCall(t *testing.T) {
 	analyzeCtx := &types.AgentContext{
 		Stage: types.StageAnalyze,
 		LogTriage: &types.LogBundle{
-			Errors: []types.LogError{{Type: "RuntimeError"}},
+			Observations: []types.LogObservation{{
+				Kind:       types.LogObservationRuntimeEvent,
+				Subject:    "WARN 日志行号",
+				Summary:    "WARN 出现在附件日志第 3 行",
+				Diagnostic: true,
+				Confidence: 1,
+			}},
 		},
 	}
 	for _, name := range []string{"grep", "repo_map", "list_files"} {

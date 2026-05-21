@@ -45,3 +45,49 @@ func TestEmitPerfTrace_Execute_TagsRuntimeArtifactOrigin(t *testing.T) {
 		t.Fatalf("perf bundle missing frame: %+v", bundle)
 	}
 }
+
+func TestEmitPerfTrace_Execute_AcceptsTraceObservationsOnly(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable:         types.NewMutableState("trace line lookup"),
+		AttachedHitrace: "1│ tracing_mark_write: B|1000|H:GC:Collect\n2│ tracing_mark_write: E|1000\n",
+	}
+	params, err := json.Marshal(emitPerfTraceParams{
+		Meta: emitPerfTraceMeta{
+			Source:  "hitrace",
+			Summary: "GC span line/duration lookup",
+		},
+		Observations: []emitPerfTraceObservation{{
+			Kind:       "line_anchor",
+			Subject:    "GC span start",
+			Summary:    "GC:Collect begins on attached trace line 1 and lasts 8ms; no GC span exceeds 50ms",
+			Evidence:   "B|1000|H:GC:Collect",
+			LineStart:  1,
+			LineEnd:    2,
+			DurationMs: 8,
+			Tags:       []string{"H:GC:Collect"},
+			Confidence: 1,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tool := &EmitPerfTrace{}
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("success=false, summary=%s", res.Summary)
+	}
+	bundle := bus.Mutable.PerfTrace()
+	if bundle == nil || len(bundle.Observations) != 1 {
+		t.Fatalf("perf observation bundle missing: %+v", bundle)
+	}
+	if !bundle.IsExternalSource() {
+		t.Fatalf("observation-only trace should be external runtime evidence: %+v", bundle)
+	}
+	if !strings.Contains(res.Summary, "observations=1") {
+		t.Fatalf("summary should report observations count: %q", res.Summary)
+	}
+}

@@ -949,7 +949,7 @@ func TestSubtopicCoherence_R1_4_AttributeBearingPackageEnumeration_NoOp(t *testi
 
 // ── checkShapeSubjectCoherence ────────────────────────────────────
 
-func TestShapeSubjectCoherence_R2_1_ScalarMultiTopic_Fails(t *testing.T) {
+func TestShapeSubjectCoherence_R2_1_ScalarMultiTopic_IsAdvisory(t *testing.T) {
 	rm := types.RequestModel{
 		Predicates: types.SemanticPredicates{IsScalarAnswer: true},
 		SubTopics: []types.SubTopic{
@@ -959,11 +959,11 @@ func TestShapeSubjectCoherence_R2_1_ScalarMultiTopic_Fails(t *testing.T) {
 	}
 	ir := coherenceFixtureIR(rm)
 	check := checkShapeSubjectCoherence(ir)
-	if check.Passed {
-		t.Fatalf("R2.1 must fail when IsScalarAnswer=true and 2+ sub-topics; got %+v", check)
+	if !check.Passed {
+		t.Fatalf("scalar questions may legitimately contain multiple scalar sub-answers; got %+v", check)
 	}
 	if !strings.Contains(check.Detail, "R2.1") {
-		t.Errorf("detail must cite R2.1; got %q", check.Detail)
+		t.Errorf("detail should retain an advisory R2.1 breadcrumb; got %q", check.Detail)
 	}
 }
 
@@ -979,6 +979,8 @@ func TestShapeSubjectCoherence_R2_1_SingleTopicScalarPasses(t *testing.T) {
 
 func TestShapeSubjectCoherence_R2_2_ExplanationScalarSubject_Fails(t *testing.T) {
 	rm := types.RequestModel{
+		Intent:   types.IntentExplain,
+		Scenario: types.ScenarioArchitectureExplain,
 		AnswerSubject: types.AnswerSubject{
 			Kind:       types.SubjectNumeric,
 			Confidence: 0.85,
@@ -991,6 +993,23 @@ func TestShapeSubjectCoherence_R2_2_ExplanationScalarSubject_Fails(t *testing.T)
 	}
 	if !strings.Contains(check.Detail, "R2.2") {
 		t.Errorf("detail must cite R2.2; got %q", check.Detail)
+	}
+}
+
+func TestShapeSubjectCoherence_GenericScalarSubjectPasses(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentReturnValue,
+		Predicates: types.SemanticPredicates{
+			IsScalarAnswer: true,
+		},
+		AnswerSubject: types.AnswerSubject{
+			Kind:       types.SubjectNumeric,
+			Confidence: 0.85,
+		},
+	}
+	ir := coherenceFixtureIR(rm)
+	if check := checkShapeSubjectCoherence(ir); !check.Passed {
+		t.Fatalf("generic return-value scalar should not trigger long-form mismatch: %+v", check)
 	}
 }
 

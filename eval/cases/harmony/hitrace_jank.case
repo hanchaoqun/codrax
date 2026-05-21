@@ -16,7 +16,7 @@
 ID="hitrace_jank"
 NAME="perf-triage HiTrace jank with main-thread sync I/O"
 QUESTION="这段 HiTrace 显示哪一帧卡顿，原因是什么？卡顿调用栈位于哪里？"
-LOG='# tracer: nop
+HTRACE='# tracer: nop
 # entries-in-buffer/entries-written: 4096/4096   #P:8
 #
 #                              _-----=> irqs-off

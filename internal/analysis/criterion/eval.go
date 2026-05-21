@@ -734,6 +734,14 @@ func evalEvidenceCount(expr string, env Env) Result {
 	if !ok {
 		return Result{Satisfied: false, Detail: fmt.Sprintf("malformed comparison %q", expr)}
 	}
+	if artifactCount, waived := externalRuntimeEvidenceFloorWaived(env); waived {
+		return Result{
+			Satisfied: true,
+			Detail: fmt.Sprintf(
+				"runtime_artifact_observations=%d; repo evidence_count floor %s %d waived for observation-only artifact",
+				artifactCount, op, threshold),
+		}
+	}
 	n := len(env.Evidence)
 	// Under the "soft" investigation-complete policy, the LLM's
 	// explicit completion signal lowers the threshold to 1. The LLM
@@ -749,6 +757,40 @@ func evalEvidenceCount(expr string, env Env) Result {
 		Satisfied: compareInt(n, op, threshold),
 		Detail:    fmt.Sprintf("|evidence|=%d %s %d", n, op, threshold),
 	}
+}
+
+func externalRuntimeEvidenceFloorWaived(env Env) (count int, waived bool) {
+	if env.IR == nil || !env.IR.RequestModel.HasObservationOnlyRuntimeArtifact() {
+		return 0, false
+	}
+	count = runtimeArtifactObservationCount(env.LogTriage, env.PerfTrace)
+	if count <= 0 {
+		return 0, false
+	}
+	return count, true
+}
+
+func runtimeArtifactObservationCount(logBundle *types.LogBundle, perfBundle *types.PerfBundle) int {
+	count := 0
+	if logBundle != nil {
+		count += len(logBundle.Meta.Signals)
+		count += len(types.LogBundleErrorTypes(logBundle))
+		count += len(types.LogBundleErrorMessages(logBundle))
+		count += len(logBundle.Observations)
+		types.WalkLogFrames(logBundle, func(types.LogFrame) {
+			count++
+		})
+	}
+	if perfBundle != nil {
+		count += len(perfBundle.Meta.Signals)
+		count += len(perfBundle.Frames)
+		count += len(perfBundle.Janks)
+		count += len(perfBundle.Stalls)
+		if perfBundle.Startup != nil {
+			count++
+		}
+	}
+	return count
 }
 
 func evalCitationCountGE(expr string, env Env) Result {

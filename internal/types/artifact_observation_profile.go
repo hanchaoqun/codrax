@@ -169,10 +169,16 @@ func mergeLogObservationProfile(out *ArtifactObservationProfile, bundle *LogBund
 		if subject := strings.TrimSpace(obs.Subject); subject != "" {
 			out.SubjectCandidates = append(out.SubjectCandidates, subject)
 		}
-		if evidence := strings.TrimSpace(obs.Evidence); evidence != "" {
+		evidence := strings.TrimSpace(firstNonEmptySurfaceString(obs.Evidence, obs.Summary))
+		if obs.LineStart > 0 && evidence != "" {
+			if obs.LineEnd > obs.LineStart {
+				evidence = fmt.Sprintf("log_lines=%d-%d %s", obs.LineStart, obs.LineEnd, evidence)
+			} else {
+				evidence = fmt.Sprintf("log_line=%d %s", obs.LineStart, evidence)
+			}
+		}
+		if evidence != "" {
 			out.EvidenceSnippets = append(out.EvidenceSnippets, clampProfileSnippet(evidence))
-		} else if summary := strings.TrimSpace(obs.Summary); summary != "" {
-			out.EvidenceSnippets = append(out.EvidenceSnippets, clampProfileSnippet(summary))
 		}
 		if obs.Diagnostic && obs.Confidence > out.DiagnosticConfidence {
 			out.DiagnosticConfidence = obs.Confidence
@@ -228,6 +234,14 @@ func mergePerfObservationProfile(out *ArtifactObservationProfile, bundle *PerfBu
 		}
 		out.EvidenceSnippets = append(out.EvidenceSnippets,
 			clampProfileSnippet(fmt.Sprintf("stall %.2fms %s", s.DurationMs, strings.TrimSpace(s.Kind))))
+	}
+	for _, obs := range bundle.Observations {
+		out.ObservationKinds = append(out.ObservationKinds, ObservationKindPerfFrame)
+		if subj := strings.TrimSpace(obs.Subject); subj != "" {
+			out.SubjectCandidates = append(out.SubjectCandidates, subj)
+		}
+		out.EvidenceSnippets = append(out.EvidenceSnippets,
+			clampProfileSnippet(firstNonEmptySurfaceString(obs.Summary, obs.Evidence, obs.Subject)))
 	}
 	if bundle.Startup != nil {
 		out.ObservationKinds = append(out.ObservationKinds, ObservationKindPerfStartup)

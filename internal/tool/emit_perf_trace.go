@@ -34,12 +34,13 @@ type EmitPerfTrace struct {
 // emitPerfTraceParams is the wire shape of the emit. It carries
 // EXACTLY Layer 1-3; the post-handler derives Layer 4.
 type emitPerfTraceParams struct {
-	Meta    emitPerfTraceMeta     `json:"meta"`
-	Frames  []emitPerfTraceFrame  `json:"frames,omitempty"`
-	Janks   []emitPerfTraceJank   `json:"janks,omitempty"`
-	Stalls  []emitPerfTraceStall  `json:"stalls,omitempty"`
-	Startup *emitPerfTraceStartup `json:"startup,omitempty"`
-	Residue []string              `json:"residue,omitempty"`
+	Meta         emitPerfTraceMeta          `json:"meta"`
+	Frames       []emitPerfTraceFrame       `json:"frames,omitempty"`
+	Janks        []emitPerfTraceJank        `json:"janks,omitempty"`
+	Stalls       []emitPerfTraceStall       `json:"stalls,omitempty"`
+	Startup      *emitPerfTraceStartup      `json:"startup,omitempty"`
+	Observations []emitPerfTraceObservation `json:"observations,omitempty"`
+	Residue      []string                   `json:"residue,omitempty"`
 }
 
 type emitPerfTraceMeta struct {
@@ -80,6 +81,20 @@ type emitPerfTraceStartup struct {
 	AppLaunchMs   float64 `json:"app_launch_ms,omitempty"`
 	AbilityInitMs float64 `json:"ability_init_ms,omitempty"`
 	FirstFrameMs  float64 `json:"first_frame_ms,omitempty"`
+}
+
+type emitPerfTraceObservation struct {
+	Kind       string   `json:"kind,omitempty"`
+	Subject    string   `json:"subject"`
+	Summary    string   `json:"summary"`
+	Evidence   string   `json:"evidence,omitempty"`
+	LineStart  int      `json:"line_start,omitempty"`
+	LineEnd    int      `json:"line_end,omitempty"`
+	StartTsMs  float64  `json:"start_ts_ms,omitempty"`
+	EndTsMs    float64  `json:"end_ts_ms,omitempty"`
+	DurationMs float64  `json:"duration_ms,omitempty"`
+	Tags       []string `json:"tags,omitempty"`
+	Confidence float64  `json:"confidence,omitempty"`
 }
 
 // Name returns the tool's stable identifier.
@@ -139,14 +154,14 @@ func (t *EmitPerfTrace) Execute(ctx *types.BusContext, params json.RawMessage) (
 		}, err
 	}
 
-	// Cross-field sanity: at least one of frames/janks/stalls/startup
-	// must be populated. An all-empty emission means the LLM saw
-	// nothing useful — better to fail loud and retry than store a
-	// vacuous bundle.
-	if len(p.Frames) == 0 && len(p.Janks) == 0 && len(p.Stalls) == 0 && p.Startup == nil {
+	// Cross-field sanity: at least one structured trace fact must be
+	// populated. observations[] covers user-relevant trace facts that are
+	// not jank/stall/startup, such as line/order and threshold checks.
+	if len(p.Frames) == 0 && len(p.Janks) == 0 && len(p.Stalls) == 0 &&
+		p.Startup == nil && len(p.Observations) == 0 {
 		return types.ToolResult{
 			ToolName: t.Name(), Success: false,
-			Summary:   "emit_perf_trace rejected: frames / janks / stalls / startup all empty",
+			Summary:   "emit_perf_trace rejected: frames / janks / stalls / startup / observations all empty",
 			Timestamp: time.Now(),
 		}, nil
 	}
@@ -205,9 +220,9 @@ func (t *EmitPerfTrace) Execute(ctx *types.BusContext, params json.RawMessage) (
 		ToolName: t.Name(),
 		Success:  true,
 		Summary: fmt.Sprintf(
-			"[emit_perf_trace: frames=%d janks=%d stalls=%d signals=%d intent=%s evidence_origin=%s]\nperf bundle stored",
+			"[emit_perf_trace: frames=%d janks=%d stalls=%d observations=%d signals=%d intent=%s evidence_origin=%s]\nperf bundle stored",
 			len(bundle.Frames), len(bundle.Janks), len(bundle.Stalls),
-			len(bundle.Meta.Signals), bundle.IntentHint, string(types.AnswerEvidenceOriginRuntimeArtifact)),
+			len(bundle.Observations), len(bundle.Meta.Signals), bundle.IntentHint, string(types.AnswerEvidenceOriginRuntimeArtifact)),
 		Timestamp: time.Now(),
 	}, nil
 }
@@ -244,6 +259,15 @@ func toPerfBundle(p *emitPerfTraceParams) *types.PerfBundle {
 			AbilityInitMs: p.Startup.AbilityInitMs, FirstFrameMs: p.Startup.FirstFrameMs,
 		}
 	}
+	observations := make([]types.PerfObservation, len(p.Observations))
+	for i, obs := range p.Observations {
+		observations[i] = types.PerfObservation{
+			Kind: obs.Kind, Subject: obs.Subject, Summary: obs.Summary,
+			Evidence: obs.Evidence, LineStart: obs.LineStart, LineEnd: obs.LineEnd,
+			StartTsMs: obs.StartTsMs, EndTsMs: obs.EndTsMs, DurationMs: obs.DurationMs,
+			Tags: append([]string(nil), obs.Tags...), Confidence: obs.Confidence,
+		}
+	}
 	return &types.PerfBundle{
 		Meta: types.PerfMeta{
 			Source: p.Meta.Source, DurationMs: p.Meta.DurationMs,
@@ -251,7 +275,7 @@ func toPerfBundle(p *emitPerfTraceParams) *types.PerfBundle {
 			Summary: p.Meta.Summary,
 		},
 		Frames: frames, Janks: janks, Stalls: stalls,
-		Startup: startup, Residue: append([]string(nil), p.Residue...),
+		Startup: startup, Observations: observations, Residue: append([]string(nil), p.Residue...),
 		Coverage: 1.0,
 	}
 }
@@ -293,6 +317,12 @@ func derivePerfLayer4(b *types.PerfBundle) {
 	}
 	if b.Startup != nil && b.Startup.Mode != "" {
 		add(b.Startup.Mode + "-start")
+	}
+	for _, obs := range b.Observations {
+		add(obs.Subject)
+		for _, tag := range obs.Tags {
+			add(tag)
+		}
 	}
 
 	// Signals augmentation.
@@ -392,6 +422,24 @@ func buildEmitPerfTraceSchema() map[string]any {
 			"first_frame_ms":  map[string]any{"type": "number", "minimum": 0},
 		},
 	}
+	observationSchema := map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"required":             []string{"subject", "summary"},
+		"properties": map[string]any{
+			"kind":        map[string]any{"type": "string", "maxLength": 64, "description": "trace-local fact type, e.g. span, threshold_check, line_anchor, duration, absence"},
+			"subject":     map[string]any{"type": "string", "maxLength": 120},
+			"summary":     map[string]any{"type": "string", "maxLength": 300},
+			"evidence":    map[string]any{"type": "string", "maxLength": 300},
+			"line_start":  map[string]any{"type": "integer", "minimum": 0},
+			"line_end":    map[string]any{"type": "integer", "minimum": 0},
+			"start_ts_ms": map[string]any{"type": "number"},
+			"end_ts_ms":   map[string]any{"type": "number"},
+			"duration_ms": map[string]any{"type": "number", "minimum": 0},
+			"tags":        map[string]any{"type": "array", "maxItems": 16, "items": map[string]any{"type": "string", "maxLength": 120}},
+			"confidence":  map[string]any{"type": "number", "minimum": 0, "maximum": 1},
+		},
+	}
 	return map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
@@ -418,11 +466,12 @@ func buildEmitPerfTraceSchema() map[string]any {
 					"summary": map[string]any{"type": "string", "maxLength": 200},
 				},
 			},
-			"frames":  map[string]any{"type": "array", "maxItems": 200, "items": frameSchema},
-			"janks":   map[string]any{"type": "array", "maxItems": 50, "items": jankSchema},
-			"stalls":  map[string]any{"type": "array", "maxItems": 50, "items": stallSchema},
-			"startup": startupSchema,
-			"residue": map[string]any{"type": "array", "maxItems": 8, "items": map[string]any{"type": "string", "maxLength": 500}},
+			"frames":       map[string]any{"type": "array", "maxItems": 200, "items": frameSchema},
+			"janks":        map[string]any{"type": "array", "maxItems": 50, "items": jankSchema},
+			"stalls":       map[string]any{"type": "array", "maxItems": 50, "items": stallSchema},
+			"startup":      startupSchema,
+			"observations": map[string]any{"type": "array", "maxItems": 50, "items": observationSchema},
+			"residue":      map[string]any{"type": "array", "maxItems": 8, "items": map[string]any{"type": "string", "maxLength": 500}},
 		},
 	}
 }

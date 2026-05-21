@@ -121,7 +121,8 @@ func aggregateFactKindCanCarryVCSMetadata(kind AnswerAggregateKind) bool {
 		AnswerAggregateGroupedCount,
 		AnswerAggregateBucketCount,
 		AnswerAggregateScalar,
-		AnswerAggregateMemberSet:
+		AnswerAggregateMemberSet,
+		AnswerAggregateNegativeObservation:
 		return true
 	default:
 		return false
@@ -136,7 +137,8 @@ func aggregateFactKindCanCarryCommandMeasurement(kind AnswerAggregateKind) bool 
 		AnswerAggregateBucketCount,
 		AnswerAggregateExcluded,
 		AnswerAggregateScalar,
-		AnswerAggregateMemberSet:
+		AnswerAggregateMemberSet,
+		AnswerAggregateNegativeObservation:
 		return true
 	default:
 		return false
@@ -148,7 +150,8 @@ func aggregateFactKindCanCarryRuntimeArtifact(kind AnswerAggregateKind) bool {
 	case AnswerAggregateScalar,
 		AnswerAggregateMemberSet,
 		AnswerAggregateGroupedCount,
-		AnswerAggregateBucketCount:
+		AnswerAggregateBucketCount,
+		AnswerAggregateNegativeObservation:
 		return true
 	default:
 		return false
@@ -159,7 +162,8 @@ func aggregateFactKindUsuallyCurrentSource(kind AnswerAggregateKind) bool {
 	switch kind {
 	case AnswerAggregateUnknown:
 		return false
-	case AnswerAggregateNegativeSearch:
+	case AnswerAggregateNegativeSearch,
+		AnswerAggregateNegativeObservation:
 		return false
 	default:
 		return true

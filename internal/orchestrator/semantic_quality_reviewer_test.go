@@ -895,6 +895,29 @@ func TestSkipSemanticQualityForObservationOnlyArtifact_SkipsOnlyPureSimpleArtifa
 		t.Fatal("shared LLM-review gate should skip the same pure observation-only artifact answer")
 	}
 
+	summaryScalarDoc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "s1",
+				Kind: types.BlockSummary,
+				Text: "WARN 在附件日志第 3 行，FATAL 在第 1-5 行全文中不存在；结论来自附件日志本身。",
+			},
+			{
+				ID:   "line",
+				Kind: types.BlockScalar,
+				Text: "3",
+				ClaimUses: []types.RenderedClaimUse{{
+					ClaimForm: types.ClaimExternalObservation,
+					FacetID:   string(types.FacetObservedArtifactFact),
+				}},
+				Items: []types.AnswerBlockItem{{ID: "v", CitationRef: -1}},
+			},
+		},
+	}
+	if !skipLLMAnswerReviewForObservationOnlyArtifact(ctx, summaryScalarDoc, nil) {
+		t.Fatal("summary+scalar observation-only artifact answer should skip LLM reviewers even without explicit block facet_ids")
+	}
+
 	withCitation := *pureArtifactDoc
 	withCitation.Citations = []types.Citation{{File: "src/config.rs", Line: 42}}
 	if skipSemanticQualityForObservationOnlyArtifact(ctx, &withCitation, nil) {

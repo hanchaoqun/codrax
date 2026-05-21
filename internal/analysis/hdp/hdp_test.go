@@ -67,6 +67,21 @@ func TestPlan_Ambiguity_ProducesHypothesisPerClause(t *testing.T) {
 	}
 }
 
+func TestPlan_ReturnValue_UsesScalarHypothesisNotEnumeration(t *testing.T) {
+	hs := Plan(rm(types.IntentReturnValue, "WARN", "FATAL"))
+	if len(hs) != 2 {
+		t.Fatalf("return-value request should produce one value hypothesis per subject; got %+v", hs)
+	}
+	for _, h := range hs {
+		if strings.Contains(h.Statement, "finite set of symbols") {
+			t.Fatalf("return-value hypothesis must not force enumeration wording: %+v", h)
+		}
+		if !strings.Contains(h.Statement, "requested value") {
+			t.Fatalf("return-value hypothesis should describe value derivation: %+v", h)
+		}
+	}
+}
+
 func TestPlan_HighSecurity_AddsUntrustedPathHypothesis(t *testing.T) {
 	input := rm(types.IntentExplain, "Auth")
 	input.RiskMatrix.Security.Level = 4

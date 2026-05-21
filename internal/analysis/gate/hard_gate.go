@@ -147,13 +147,6 @@ var RegisteredHardGates = []HardGate{
 		LLMAdvisoryHint: "If the question asks for a single computed number that aggregates across multiple source units (e.g. 'how many lines', 'total of N items', 'count of registered handlers'), set BOTH `is_count_question=true` AND `is_scalar_answer=true`. Without `is_count_question=true` the long-form-explanation surface conflicts with the numeric subject and the question is rejected.",
 	},
 	{
-		Name:            "R2.1",
-		SourceFile:      "internal/analysis/gate/coherence.go",
-		TriggerSummary:  "The question is declared as having a single scalar answer yet two or more independent sub-topics are emitted — a scalar answer cannot decompose into multiple sub-answers.",
-		CarveOuts:       nil, // direct contradiction; no legitimate carve-out
-		LLMAdvisoryHint: "",
-	},
-	{
 		Name:            "R1.2",
 		SourceFile:      "internal/analysis/gate/coherence.go",
 		TriggerSummary:  "The question is declared as cross-component (comparing or relating two distinct subsystems) yet zero or one sub-topic is emitted — a cross-component answer requires at least two component sub-topics.",

@@ -739,6 +739,99 @@ func TestEmitInvestigationComplete_DropsOptionalUnsupportedDecoratedMemberSetAft
 	}
 }
 
+func TestEmitInvestigationComplete_RuntimeNegativeObservationCompat(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			LogTriage: &types.LogBundle{Observations: []types.LogObservation{{
+				Kind:       types.LogObservationRuntimeEvent,
+				Summary:    "FATAL is absent",
+				Confidence: 1,
+			}}},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"FATAL absent from attached log",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"negative_observation",
+			"label":"FATAL absence",
+			"value":"0",
+			"excluded":["FATAL"],
+			"dimensions":[
+				{"name":"scope","value":"attached log"},
+				{"name":"searched_at","value":"current_investigation"}
+			]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("runtime negative observation should be normalized instead of rejected: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 {
+		t.Fatalf("expected one aggregate fact, got %+v", facts)
+	}
+	var dimParts []string
+	for _, dim := range facts[0].Dimensions {
+		dimParts = append(dimParts, dim.Name+"="+dim.Value)
+	}
+	joined := strings.Join(dimParts, ",")
+	if !strings.Contains(joined, "origin=runtime_artifact") || !strings.Contains(joined, "target=FATAL") {
+		t.Fatalf("negative observation dimensions not normalized: %s", joined)
+	}
+}
+
+func TestEmitInvestigationComplete_RuntimeArtifactDropsInvalidOptionalAggregateFact(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentReturnValue,
+			Predicates: types.SemanticPredicates{
+				IsScalarAnswer: true,
+			},
+			LogTriage: &types.LogBundle{Observations: []types.LogObservation{{
+				Kind:       types.LogObservationRuntimeEvent,
+				Summary:    "FATAL is absent",
+				Confidence: 1,
+			}}},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"WARN line and FATAL absence are visible in the attached log observations",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{"kind":"scalar_value","label":"WARN line","value":"3","provenance":"runtime_artifact"},
+			{"kind":"negative_observation","label":"FATAL absence","value":"0","dimensions":[{"name":"scope","value":"attached log"}]}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("invalid optional runtime aggregate fact should not force retry: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "dropped optional aggregate_facts") {
+		t.Fatalf("summary should disclose optional aggregate drop: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 || facts[0].Kind != types.AnswerAggregateScalar {
+		t.Fatalf("valid scalar aggregate should survive while invalid negative observation drops: %+v", facts)
+	}
+}
+
 func TestEmitInvestigationComplete_RejectsInconsistentAggregateFacts(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}
@@ -3976,6 +4069,102 @@ func TestEmitInvestigationComplete_DecoratedCodeMemberStillRequiresSupportRefsWi
 	}
 	if res.Success {
 		t.Fatalf("decorated code member should still require support_refs even with VCS origin: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "support_refs is empty") {
+		t.Fatalf("summary should preserve support_refs contract, got: %s", res.Summary)
+	}
+}
+
+func TestEmitInvestigationComplete_AllowsDecoratedRuntimeMemberSetForObservationOnlyLog(t *testing.T) {
+	logBundle := &types.LogBundle{
+		Errors: []types.LogError{{
+			Type: "panic",
+			Frames: []types.LogFrame{{
+				Func: "Cart.itemAt",
+				File: "src/cart/Cart.cj",
+				Line: 78,
+			}},
+		}},
+	}
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:    types.IntentRootCause,
+			Scenario:  types.ScenarioRootCause,
+			LogTriage: logBundle,
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"runtime call chain collected",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"evidence_floor_waiver":{
+			"reason":"external_only_log",
+			"rationale":"the log frames point to external paths and do not resolve in this checkout"
+		},
+		"aggregate_facts":[
+			{
+				"kind":"member_set",
+				"label":"call_chain",
+				"value":"3",
+				"members":[
+					"Cart.itemAt (origin)",
+					"Cart.checkout (trigger)",
+					"demo.app.entry (entry)"
+				]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("observation-only runtime member_set should not require repo support_refs: %s", res.Summary)
+	}
+}
+
+func TestEmitInvestigationComplete_DecoratedRuntimeMemberSetRequiresSupportRefsForCurrentVerification(t *testing.T) {
+	logBundle := &types.LogBundle{
+		Errors: []types.LogError{{Type: "panic"}},
+	}
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentRootCause,
+			DiagnosticProfile: types.DiagnosticIntentProfile{
+				IsDiagnostic:        true,
+				CurrentVersionCheck: true,
+			},
+			AnalyzerHints: types.AnalyzerHints{
+				RequiredFileHints: []types.RequiredFileHint{{Path: "src/cart/Cart.cj"}},
+			},
+			LogTriage: logBundle,
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"current code verification requires source support",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"member_set",
+				"label":"call_chain",
+				"value":"1",
+				"members":["Cart.itemAt (origin)"]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("current-code verification should still require support_refs: %s", res.Summary)
 	}
 	if !strings.Contains(res.Summary, "support_refs is empty") {
 		t.Fatalf("summary should preserve support_refs contract, got: %s", res.Summary)

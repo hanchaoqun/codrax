@@ -167,6 +167,12 @@ func TestBuildPromptContext_AttachedLogSection_Rendered(t *testing.T) {
 	if !strings.Contains(found.Content, "/src/main.go:42") {
 		t.Errorf("section content missing frame file:line; got %q", found.Content)
 	}
+	if !strings.Contains(found.Content, "     1│ panic: runtime error") {
+		t.Errorf("section content missing artifact-local line gutter; got %q", found.Content)
+	}
+	if !strings.Contains(found.Content, "not as a repository source citation") {
+		t.Errorf("section content missing artifact/source boundary note; got %q", found.Content)
+	}
 }
 
 // TestBuildPromptContext_AttachedLogSection_OmittedWhenEmpty confirms
@@ -189,12 +195,19 @@ func TestBuildPromptContext_AttachedLogSection_OmittedWhenEmpty(t *testing.T) {
 }
 
 // TestFormatAttachedLog_InlineSmall verifies the ≤ 4 KB fast path —
-// whole body rendered verbatim, no elision, no blob.
+// whole body rendered with artifact-local line gutters, no elision,
+// no blob.
 func TestFormatAttachedLog_InlineSmall(t *testing.T) {
 	payload := "panic: boom\n\ngoroutine 1 [running]:\nmain.x()\n\t/src/a.go:1 +0x1\n"
 	got := formatAttachedLog(payload, "", attachedTriageStructured)
 	if !strings.Contains(got, "main.x()") || !strings.Contains(got, "/src/a.go:1") {
-		t.Errorf("small payload not rendered verbatim: %s", got)
+		t.Errorf("small payload not rendered: %s", got)
+	}
+	if !strings.Contains(got, "     1│ panic: boom") || !strings.Contains(got, "     5│ \t/src/a.go:1 +0x1") {
+		t.Errorf("small payload missing stable artifact line gutters: %s", got)
+	}
+	if strings.Contains(got, "```go") || !strings.Contains(got, "```text") {
+		t.Errorf("attached artifact should render as text fence: %s", got)
 	}
 	if strings.Contains(got, "bytes elided") {
 		t.Errorf("small payload should not have elision marker")
@@ -248,6 +261,25 @@ func TestFormatAttachedLog_BlobOffload(t *testing.T) {
 	}
 }
 
+func TestFormatAttachedLog_BlobPreviewKeepsArtifactLineGutters(t *testing.T) {
+	dir := t.TempDir()
+	lines := make([]string, 600)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line-%03d %s", i+1, strings.Repeat("x", 12))
+	}
+	payload := strings.Join(lines, "\n")
+	got := formatAttachedLog(payload, dir, attachedTriageStructured)
+	if !strings.Contains(got, "     1│ line-001") {
+		t.Fatalf("head preview missing artifact line gutter:\n%s", got)
+	}
+	if !strings.Contains(got, "exact middle artifact-line anchors") {
+		t.Fatalf("blob preview should tell the model how to get exact middle artifact lines:\n%s", got)
+	}
+	if !strings.Contains(got, "│ line-600") {
+		t.Fatalf("tail preview should keep original artifact line number:\n%s", got)
+	}
+}
+
 // TestFormatAttachedLog_NoWorkDirFallsBack confirms that when WorkDir
 // is empty (unit-test context / degraded runtime), the function still
 // returns a bounded head+tail rendering instead of dumping the full
@@ -287,6 +319,17 @@ func TestFormatAttachedTrace_BlobOffload_UsesDistinctBlobName(t *testing.T) {
 	}
 	if len(written) != N {
 		t.Fatalf("trace blob size = %d, want %d", len(written), N)
+	}
+}
+
+func TestFormatAttachedTrace_InlineSmallHasArtifactLineGutters(t *testing.T) {
+	payload := "sched_switch: prev_comm=main next_comm=RenderThread\ntracing_mark_write: B|1|H:GC\n"
+	got := formatAttachedTrace(payload, "", attachedTriageStructured)
+	if !strings.Contains(got, "     1│ sched_switch") || !strings.Contains(got, "     2│ tracing_mark_write") {
+		t.Fatalf("trace prompt should expose artifact-local event line gutters:\n%s", got)
+	}
+	if !strings.Contains(got, "not as a repository source citation") {
+		t.Fatalf("trace prompt should separate artifact lines from repo citations:\n%s", got)
 	}
 }
 

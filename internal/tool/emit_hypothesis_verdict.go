@@ -85,9 +85,10 @@ func (t *EmitHypothesisVerdict) Description() string {
 		"flagged. status is one of: confirmed (transcript supports it), rejected (transcript " +
 		"falsifies it), inconclusive (investigated but evidence is insufficient — distinct from " +
 		"'never investigated'). Current-repo confirmed and rejected verdicts require a citation in " +
-		"the form 'path:line' or 'path:line-end'. For external-only log / trace questions, a citation " +
-		"that exactly matches an attached runtime frame is accepted as artifact context and is not " +
-		"published as a repo citation. Inconclusive verdicts may omit the citation."
+		"the form 'path:line' or 'path:line-end'. For observation-only external log / trace questions, " +
+		"a citation that exactly matches an attached runtime frame or an artifact-local gutter line " +
+		"(for example 'log:3', 'trace:5-6', or 'runtime_artifact:1-5') is accepted as artifact " +
+		"context and is not published as a repo citation. Inconclusive verdicts may omit the citation."
 }
 
 func (t *EmitHypothesisVerdict) Parameters() json.RawMessage {
@@ -101,9 +102,9 @@ func (t *EmitHypothesisVerdict) Parameters() json.RawMessage {
         "type": "object",
         "properties": {
           "hypothesis_id": {"type": "string", "description": "Hypothesis ID listed in the Hypotheses section of the prompt. Required. Unknown IDs are diagnosed."},
-          "status":        {"type": "string", "enum": ["confirmed", "rejected", "inconclusive"], "description": "Verdict. Current-repo confirmed/rejected verdicts require a citation; external-only runtime-frame citations are accepted as artifact context; inconclusive may omit it."},
+          "status":        {"type": "string", "enum": ["confirmed", "rejected", "inconclusive"], "description": "Verdict. Current-repo confirmed/rejected verdicts require a citation; observation-only runtime-frame or artifact-local line citations are accepted as artifact context; inconclusive may omit it."},
           "rationale":     {"type": "string", "description": "Rationale for the verdict — explain the mechanism or invariant that produced the status. Reference load-bearing identifiers with inline ` + "`" + `code` + "`" + `. Strongly recommended."},
-          "citation":      {"type": "string", "description": "Concrete current-repo code anchor in the form 'path:line' or 'path:line-end'. For external-only log / trace questions, this may instead be an exact attached runtime frame location; the tool preserves it as artifact context rather than repo proof. Required for current-repo confirmed/rejected unless evidence_id names an already accepted grounded evidence item."},
+          "citation":      {"type": "string", "description": "Concrete current-repo code anchor in the form 'path:line' or 'path:line-end'. For observation-only external log / trace questions, this may instead be an exact attached runtime frame or artifact-local gutter location such as 'log:3', 'trace:5-6', or 'runtime_artifact:1-5'; the tool preserves it as artifact context rather than repo proof. Required for current-repo confirmed/rejected unless evidence_id names an already accepted grounded evidence item."},
           "evidence_id":   {"type": "string", "description": "Optional local-model compatibility shortcut: id of an already accepted grounded evidence item. The tool resolves it to citation automatically; do not invent ids."}
         },
         "required": ["hypothesis_id", "status"]
@@ -300,9 +301,23 @@ func normalizeHypothesisVerdictArtifactCitations(ctx *types.BusContext, items []
 	for i := range items {
 		citation := strings.TrimSpace(items[i].Citation)
 		if citation == "" {
+			if artifactCitation, ok := hypothesisVerdictRationaleOnlyArtifactCitation(ctx, items[i].Rationale); ok {
+				items[i].ArtifactCitationAccepted = true
+				items[i].ArtifactCitation = artifactCitation
+				items[i].Rationale = appendHypothesisArtifactCitationNote(ctx, items[i].Rationale, artifactCitation)
+				normalized++
+			}
 			continue
 		}
-		cit, err := parseEmitHypothesisCitation(citation)
+		if artifactCitation, ok := hypothesisVerdictLocalArtifactCitation(ctx, citation); ok {
+			items[i].ArtifactCitationAccepted = true
+			items[i].ArtifactCitation = artifactCitation
+			items[i].Citation = ""
+			items[i].Rationale = appendHypothesisArtifactCitationNote(ctx, items[i].Rationale, artifactCitation)
+			normalized++
+			continue
+		}
+		cit, err := parseEmitHypothesisCitation(extractHypothesisArtifactCitationCandidate(citation))
 		if err != nil {
 			continue
 		}
@@ -317,6 +332,187 @@ func normalizeHypothesisVerdictArtifactCitations(ctx *types.BusContext, items []
 		normalized++
 	}
 	return normalized
+}
+
+func hypothesisVerdictRationaleOnlyArtifactCitation(ctx *types.BusContext, rationale string) (string, bool) {
+	if ctx == nil || ctx.AnalysisIR == nil || !ctx.AnalysisIR.RequestModel.HasObservationOnlyRuntimeArtifact() ||
+		strings.TrimSpace(rationale) == "" {
+		return "", false
+	}
+	hasLog, hasTrace := hypothesisVerdictHasLogTraceArtifacts(ctx)
+	if hypothesisVerdictPrefersChinese(ctx) {
+		switch {
+		case hasLog && !hasTrace:
+			return "附件日志", true
+		case hasTrace && !hasLog:
+			return "附件 trace", true
+		default:
+			return "附件运行时材料", true
+		}
+	}
+	switch {
+	case hasLog && !hasTrace:
+		return "attached log", true
+	case hasTrace && !hasLog:
+		return "attached trace", true
+	default:
+		return "attached runtime artifact", true
+	}
+}
+
+func hypothesisVerdictLocalArtifactCitation(ctx *types.BusContext, raw string) (string, bool) {
+	if ctx == nil || ctx.AnalysisIR == nil || !ctx.AnalysisIR.RequestModel.HasObservationOnlyRuntimeArtifact() {
+		return "", false
+	}
+	candidates := []string{strings.TrimSpace(raw)}
+	extracted := strings.TrimSpace(extractHypothesisArtifactCitationCandidate(raw))
+	if extracted != "" && extracted != candidates[0] {
+		candidates = append(candidates, extracted)
+	}
+	for _, candidate := range candidates {
+		prefix, start, end, ok := parseHypothesisLocalArtifactLineCitation(candidate)
+		if !ok || !hypothesisVerdictArtifactPrefixMatches(ctx, prefix) {
+			continue
+		}
+		return renderHypothesisLocalArtifactCitation(ctx, prefix, start, end), true
+	}
+	return "", false
+}
+
+func parseHypothesisLocalArtifactLineCitation(raw string) (prefix string, start, end int, ok bool) {
+	s := strings.Trim(strings.TrimSpace(raw), "` \t\r\n.,;()[]{}")
+	idx := strings.LastIndex(s, ":")
+	if idx <= 0 || idx == len(s)-1 {
+		return "", 0, 0, false
+	}
+	prefix = normalizeHypothesisArtifactPrefix(s[:idx])
+	if !isHypothesisArtifactLinePrefix(prefix) {
+		return "", 0, 0, false
+	}
+	linePart := s[idx+1:]
+	startText, endText := linePart, ""
+	if dash := strings.Index(linePart, "-"); dash > 0 {
+		startText = linePart[:dash]
+		endText = linePart[dash+1:]
+	}
+	start, err := strconv.Atoi(startText)
+	if err != nil || start <= 0 {
+		return "", 0, 0, false
+	}
+	end = start
+	if endText != "" {
+		end, err = strconv.Atoi(endText)
+		if err != nil || end < start {
+			return "", 0, 0, false
+		}
+	}
+	return prefix, start, end, true
+}
+
+func normalizeHypothesisArtifactPrefix(prefix string) string {
+	prefix = strings.ToLower(strings.TrimSpace(prefix))
+	prefix = strings.ReplaceAll(prefix, "_", "-")
+	prefix = strings.ReplaceAll(prefix, " ", "-")
+	return prefix
+}
+
+func isHypothesisArtifactLinePrefix(prefix string) bool {
+	switch prefix {
+	case "runtime-artifact", "artifact", "attached-artifact",
+		"log", "attached-log", "runtime-log",
+		"trace", "hitrace", "atrace", "perf-trace", "attached-trace":
+		return true
+	default:
+		return false
+	}
+}
+
+func hypothesisVerdictArtifactPrefixMatches(ctx *types.BusContext, prefix string) bool {
+	hasLog, hasTrace := hypothesisVerdictHasLogTraceArtifacts(ctx)
+	switch prefix {
+	case "log", "attached-log", "runtime-log":
+		return hasLog
+	case "trace", "hitrace", "atrace", "perf-trace", "attached-trace":
+		return hasTrace
+	default:
+		return hasLog || hasTrace
+	}
+}
+
+func hypothesisVerdictHasLogTraceArtifacts(ctx *types.BusContext) (hasLog, hasTrace bool) {
+	if ctx == nil {
+		return false, false
+	}
+	if ctx.Mutable != nil {
+		hasLog = ctx.Mutable.LogTriage() != nil
+		hasTrace = ctx.Mutable.PerfTrace() != nil
+	}
+	if ctx.AnalysisIR != nil {
+		hasLog = hasLog || ctx.AnalysisIR.RequestModel.LogTriage != nil
+		hasTrace = hasTrace || ctx.AnalysisIR.RequestModel.PerfTrace != nil
+	}
+	return hasLog, hasTrace
+}
+
+func renderHypothesisLocalArtifactCitation(ctx *types.BusContext, prefix string, start, end int) string {
+	hasLog, hasTrace := hypothesisVerdictHasLogTraceArtifacts(ctx)
+	nounZH, nounEN := "附件运行时材料", "attached runtime artifact"
+	switch prefix {
+	case "log", "attached-log", "runtime-log":
+		nounZH, nounEN = "附件日志", "attached log"
+	case "trace", "hitrace", "atrace", "perf-trace", "attached-trace":
+		nounZH, nounEN = "附件 trace", "attached trace"
+	default:
+		if hasLog && !hasTrace {
+			nounZH, nounEN = "附件日志", "attached log"
+		} else if hasTrace && !hasLog {
+			nounZH, nounEN = "附件 trace", "attached trace"
+		}
+	}
+	line := strconv.Itoa(start)
+	if end > start {
+		line = fmt.Sprintf("%d-%d", start, end)
+	}
+	if hypothesisVerdictPrefersChinese(ctx) {
+		sep := ""
+		if strings.Contains(nounZH, "trace") {
+			sep = " "
+		}
+		return nounZH + sep + "行：" + line
+	}
+	return nounEN + " line " + line
+}
+
+func extractHypothesisArtifactCitationCandidate(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	if _, err := parseEmitHypothesisCitation(s); err == nil {
+		return s
+	}
+	candidates := make([]string, 0, 4)
+	if open := strings.LastIndex(s, "("); open >= 0 {
+		if closeRel := strings.Index(s[open+1:], ")"); closeRel >= 0 {
+			candidates = append(candidates, strings.TrimSpace(s[open+1:open+1+closeRel]))
+		}
+	}
+	if open := strings.LastIndex(s, "`"); open >= 0 {
+		prefix := s[:open]
+		if prev := strings.LastIndex(prefix, "`"); prev >= 0 {
+			candidates = append(candidates, strings.TrimSpace(s[prev+1:open]))
+		}
+	}
+	fields := strings.Fields(s)
+	if len(fields) > 0 {
+		candidates = append(candidates, strings.Trim(fields[len(fields)-1], " \t\r\n.,;:()[]{}"))
+	}
+	for _, candidate := range candidates {
+		if _, err := parseEmitHypothesisCitation(candidate); err == nil {
+			return candidate
+		}
+	}
+	return s
 }
 
 func hypothesisVerdictExternalArtifactCitation(ctx *types.BusContext, cit types.Citation) (string, bool) {
@@ -389,13 +585,17 @@ func hypothesisVerdictPerfBundles(ctx *types.BusContext) []*types.PerfBundle {
 }
 
 func artifactCitationMatchesLogFrame(cit types.Citation, frame types.LogFrame) bool {
-	if cit.Line <= 0 || frame.Line <= 0 {
+	if cit.Line <= 0 {
 		return false
 	}
-	if frame.Line < cit.Line || frame.Line > cit.LineEnd {
+	frameFile, frameLine := artifactFrameCitationParts(frame)
+	if frameLine <= 0 {
 		return false
 	}
-	return artifactCitationPathMatches(cit.File, frame.File)
+	if frameLine < cit.Line || frameLine > cit.LineEnd {
+		return false
+	}
+	return artifactCitationPathMatches(cit.File, frameFile)
 }
 
 func artifactCitationPathMatches(citationPath, framePath string) bool {
@@ -426,11 +626,35 @@ func canonicalArtifactCitationPath(path string) string {
 }
 
 func artifactFrameCitationSurface(frame types.LogFrame) string {
-	file := canonicalArtifactCitationPath(frame.File)
-	if file == "" || frame.Line <= 0 {
+	file, line := artifactFrameCitationParts(frame)
+	if file == "" || line <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("%s:%d", file, frame.Line)
+	return fmt.Sprintf("%s:%d", file, line)
+}
+
+func artifactFrameCitationParts(frame types.LogFrame) (file string, line int) {
+	file = canonicalArtifactCitationPath(frame.File)
+	line = frame.Line
+	if file != "" && line > 0 {
+		return file, line
+	}
+	raw := strings.TrimSpace(frame.Raw)
+	if raw == "" {
+		return file, line
+	}
+	candidate := extractHypothesisArtifactCitationCandidate(raw)
+	cit, err := parseEmitHypothesisCitation(candidate)
+	if err != nil {
+		return file, line
+	}
+	if file == "" {
+		file = canonicalArtifactCitationPath(cit.File)
+	}
+	if line <= 0 {
+		line = cit.Line
+	}
+	return file, line
 }
 
 func appendHypothesisArtifactCitationNote(ctx *types.BusContext, rationale, artifactCitation string) string {

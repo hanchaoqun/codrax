@@ -1,0 +1,24 @@
+# Perf-triage — bounded absence in a HiTrace excerpt
+#
+# Regression target: a trace can prove "no span over a threshold" as a runtime
+# negative observation. This should not require current-repo citations and
+# should not be rendered as a repository negative_search result.
+ID="hitrace_no_long_gc"
+NAME="perf-triage HiTrace no long GC span"
+QUESTION="这段 HiTrace 里有没有超过 50ms 的 GC span？如果没有，请说明观察范围。"
+HTRACE='# tracer: nop
+# entries-in-buffer/entries-written: 128/128   #P:4
+#
+#                              _-----=> irqs-off
+#                             / _----=> need-resched
+#                            | / _---=> hardirq/softirq
+#                            || / _--=> preempt-depth
+#                            ||| /     delay
+#           TASK-PID   CPU#  ||||    TIMESTAMP  FUNCTION
+#              | |       |   ||||       |         |
+   com.example-1000 [001] ...1 22345.100000: tracing_mark_write: B|1000|H:GC:Collect
+   com.example-1000 [001] ...1 22345.108000: tracing_mark_write: E|1000
+   com.example-1000 [001] ...1 22345.110000: tracing_mark_write: B|1000|H:RenderService:DoFrame
+   com.example-1000 [001] ...1 22345.120000: tracing_mark_write: E|1000
+'
+EXPECT_MATCHES_REGEX="(没有|未发现|未看到|0).*(GC|50ms)|(GC|50ms).*(没有|未发现|未看到|0)"

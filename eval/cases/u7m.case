@@ -1,0 +1,11 @@
+# Grid B — U7 History / Negative Observation
+#
+# Regression target: a bounded no-hit result in git history is VCS negative
+# observation, not a repository grep absence and not a scalar commit answer.
+# The answer should state the searched history scope and the zero-result
+# boundary without inventing current-source file:line citations.
+ID="u7m"
+NAME="history — recent commit no-hit negative observation"
+QUESTION="最近 20 次提交里有没有提到 definitely_no_such_marker_20260521_negative_observation？如果没有，请说明搜索范围。"
+EXPECT_NOT_CONTAINS="**值：**"
+EXPECT_MATCHES_REGEX="(没有|未发现|未找到|0).*(definitely_no_such_marker_20260521_negative_observation|最近 20 次|20 次提交)|(definitely_no_such_marker_20260521_negative_observation|最近 20 次|20 次提交).*(没有|未发现|未找到|0)"

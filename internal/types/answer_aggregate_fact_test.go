@@ -144,6 +144,70 @@ func TestNormalizeAnswerAggregateFacts_AcceptsNegativeSearch(t *testing.T) {
 	}
 }
 
+func TestNormalizeAnswerAggregateFacts_AcceptsNegativeObservation(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:  AnswerAggregateNegativeObservation,
+		Label: "history search found no backport commits",
+		Dimensions: []AnswerAggregateDimension{
+			{Name: "evidence_origin", Value: "vcs_metadata"},
+			{Name: "target", Value: "Backport Foo"},
+			{Name: "commit_range", Value: "HEAD~50..HEAD"},
+			{Name: "matches", Value: "0"},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("negative_observation aggregate should validate: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d facts, want 1", len(got))
+	}
+	fact := got[0]
+	if fact.Kind != AnswerAggregateNegativeObservation || fact.Value != "0" || fact.Unit != "matches" {
+		t.Fatalf("negative_observation not normalized: %+v", fact)
+	}
+	dims := aggregateDimensionMap(fact.Dimensions)
+	for _, name := range []string{"origin", "target", "commit_range", "scope", "searched_at", "result_count"} {
+		if dims[name] == "" {
+			t.Fatalf("missing canonical dimension %q in %+v", name, fact.Dimensions)
+		}
+	}
+}
+
+func TestNormalizeAnswerAggregateFacts_NormalizesNonRepoNegativeSearchToObservation(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:  AnswerAggregateNegativeSearch,
+		Label: "log has no fatal error",
+		Dimensions: []AnswerAggregateDimension{
+			{Name: "origin", Value: "runtime_artifact"},
+			{Name: "pattern", Value: "FATAL"},
+			{Name: "artifact_id", Value: "attached-log"},
+			{Name: "result_count", Value: "0"},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("legacy non-repo negative_search should normalize: %v", err)
+	}
+	if len(got) != 1 || got[0].Kind != AnswerAggregateNegativeObservation {
+		t.Fatalf("got %+v, want one negative_observation", got)
+	}
+}
+
+func TestNormalizeAnswerAggregateFacts_RejectsNegativeObservationWithoutNonRepoOrigin(t *testing.T) {
+	_, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:  AnswerAggregateNegativeObservation,
+		Label: "missing symbol",
+		Dimensions: []AnswerAggregateDimension{
+			{Name: "origin", Value: "current_source"},
+			{Name: "target", Value: "ShapeValue"},
+			{Name: "scope", Value: "internal/types"},
+			{Name: "result_count", Value: "0"},
+		},
+	}})
+	if err == nil {
+		t.Fatal("expected negative_observation without non-repo origin to reject")
+	}
+}
+
 func TestMergeAnswerAggregateFacts_UnionsCompatibleMemberSets(t *testing.T) {
 	got := MergeAnswerAggregateFacts(
 		[]AnswerAggregateFact{{

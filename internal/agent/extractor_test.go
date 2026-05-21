@@ -1651,6 +1651,46 @@ func TestExtractor_Validator_EmptySlate_LeavesCompletenessZero(t *testing.T) {
 	}
 }
 
+func TestExtractor_ParseOutput_SkipsAutoVerdictsForObservationOnlyRuntimeArtifact(t *testing.T) {
+	logBundle := &types.LogBundle{
+		Errors: []types.LogError{{
+			Type: "panic",
+			Frames: []types.LogFrame{{
+				Func: "Cart.itemAt",
+				File: "src/cart/Cart.cj",
+				Line: 78,
+			}},
+		}},
+	}
+	mu := types.NewMutableState("runtime panic")
+	mu.SetLogTriage(logBundle)
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{RuntimeObservationOnlyCompletion: true})
+	ctx := &types.AgentContext{
+		Objective: "runtime panic",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioRootCause,
+				LogTriage: logBundle,
+			},
+			HypothesisSet: []types.Hypothesis{{
+				ID:                     "h1",
+				Status:                 types.HypUnknown,
+				FalsificationCondition: types.Criterion{Kind: types.CritNoCallSites, Expr: "Cart.itemAt"},
+			}},
+		},
+	}
+	e := &extractorEvaluator{}
+
+	if _, err := e.ParseOutput(ctx, nil, nil, nil); err != nil {
+		t.Fatalf("ParseOutput: %v", err)
+	}
+	if got := mu.EmittedHypothesisVerdicts(); len(got) != 0 {
+		t.Fatalf("observation-only artifact should not get repo-evidence auto-verdicts, got %+v", got)
+	}
+}
+
 func TestExtractor_ParseOutputHandlesNilMutable(t *testing.T) {
 	// Defensive: sub-agent dispatch passes a context with Mutable nil.
 	// The extractor is not a sub-agent target today, but the symmetry
@@ -1864,6 +1904,27 @@ func TestExtractor_Observe_MidLoop_MissingVerdict_Continues(t *testing.T) {
 	sig := e.Observe(ctx, obs)
 	if sig.StopRequested {
 		t.Fatalf("missing emit_hypothesis_verdict → must NOT StopRequested; got %+v", sig)
+	}
+}
+
+func TestExtractor_Observe_RuntimeArtifactOnly_DoesNotRequireHypothesisVerdict(t *testing.T) {
+	ctx, obs := observeMidLoopFixture(
+		types.IntentReturnValue,
+		[]types.Hypothesis{{ID: "h1"}},
+		nil,
+		nil,
+	)
+	ctx.AnalysisIR.RequestModel.LogTriage = &types.LogBundle{
+		Observations: []types.LogObservation{{
+			Kind:       types.LogObservationRuntimeEvent,
+			Summary:    "WARN appears on attached log line 3",
+			Confidence: 1,
+		}},
+	}
+	e := &extractorEvaluator{}
+	sig := e.Observe(ctx, obs)
+	if !sig.StopRequested {
+		t.Fatalf("observation-only runtime artifacts should not force emit_hypothesis_verdict; got %+v", sig)
 	}
 }
 
