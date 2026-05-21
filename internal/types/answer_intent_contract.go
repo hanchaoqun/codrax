@@ -17,6 +17,10 @@ const (
 	AnswerEvidenceOriginCommandMeasurement AnswerEvidenceOrigin = "command_measurement"
 	AnswerEvidenceOriginRepoNegativeSearch AnswerEvidenceOrigin = "repo_negative_search"
 	AnswerEvidenceOriginCrossRepoIndex     AnswerEvidenceOrigin = "cross_repo_index"
+	AnswerEvidenceOriginExternalDocument   AnswerEvidenceOrigin = "external_document"
+	AnswerEvidenceOriginWebPage            AnswerEvidenceOrigin = "web_page"
+	AnswerEvidenceOriginMCPResource        AnswerEvidenceOrigin = "mcp_resource"
+	AnswerEvidenceOriginConnectorResource  AnswerEvidenceOrigin = "connector_resource"
 	AnswerEvidenceOriginSystemInference    AnswerEvidenceOrigin = "system_inference"
 )
 
@@ -30,6 +34,10 @@ func AllAnswerEvidenceOrigins() []AnswerEvidenceOrigin {
 		AnswerEvidenceOriginCommandMeasurement,
 		AnswerEvidenceOriginRepoNegativeSearch,
 		AnswerEvidenceOriginCrossRepoIndex,
+		AnswerEvidenceOriginExternalDocument,
+		AnswerEvidenceOriginWebPage,
+		AnswerEvidenceOriginMCPResource,
+		AnswerEvidenceOriginConnectorResource,
 		AnswerEvidenceOriginSystemInference,
 	}
 }

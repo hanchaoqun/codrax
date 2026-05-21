@@ -2340,7 +2340,7 @@ func normalizeNegativeObservationAggregateFact(fact AnswerAggregateFact) (Answer
 	}
 	origins := negativeObservationNonRepoOrigins(fact)
 	if len(origins) == 0 {
-		return AnswerAggregateFact{}, fmt.Errorf("%s %q requires a non-repo origin dimension such as origin=vcs_metadata, origin=vcs_diff, origin=runtime_artifact, origin=command_measurement, or origin=cross_repo_index",
+		return AnswerAggregateFact{}, fmt.Errorf("%s %q requires a non-repo origin dimension such as origin=vcs_metadata, origin=vcs_diff, origin=runtime_artifact, origin=command_measurement, origin=cross_repo_index, origin=web_page, origin=mcp_resource, origin=external_document, or origin=connector_resource",
 			fact.Kind, fact.Label)
 	}
 	if dims["target"] == "" && dims["query"] == "" && dims["pattern"] == "" && dims["predicate"] == "" {
@@ -2380,6 +2380,10 @@ func negativeObservationNonRepoOrigins(fact AnswerAggregateFact) []AnswerEvidenc
 			AnswerEvidenceOriginRuntimeArtifact,
 			AnswerEvidenceOriginCommandMeasurement,
 			AnswerEvidenceOriginCrossRepoIndex,
+			AnswerEvidenceOriginExternalDocument,
+			AnswerEvidenceOriginWebPage,
+			AnswerEvidenceOriginMCPResource,
+			AnswerEvidenceOriginConnectorResource,
 			AnswerEvidenceOriginSystemInference:
 			if !seen[origin] {
 				seen[origin] = true

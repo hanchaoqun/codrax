@@ -120,7 +120,11 @@ func AnswerClaimBindingGroundingPolicy(origin AnswerEvidenceOrigin, role AnswerA
 	case AnswerEvidenceOriginVCSMetadata,
 		AnswerEvidenceOriginVCSDiff,
 		AnswerEvidenceOriginRuntimeArtifact,
-		AnswerEvidenceOriginCrossRepoIndex:
+		AnswerEvidenceOriginCrossRepoIndex,
+		AnswerEvidenceOriginExternalDocument,
+		AnswerEvidenceOriginWebPage,
+		AnswerEvidenceOriginMCPResource,
+		AnswerEvidenceOriginConnectorResource:
 		if principal {
 			return ClaimGroundingRepairable
 		}

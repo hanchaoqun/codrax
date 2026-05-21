@@ -89,6 +89,14 @@ func answerEvidenceOriginFromStructuredToken(raw string, add func(AnswerEvidence
 		add(AnswerEvidenceOriginRepoNegativeSearch)
 	case "cross_repo_index", "repo_map", "multi_repo_index":
 		add(AnswerEvidenceOriginCrossRepoIndex)
+	case "external_document", "external_doc", "document_resource", "external_resource":
+		add(AnswerEvidenceOriginExternalDocument)
+	case "web_page", "webpage", "web", "url", "http", "https":
+		add(AnswerEvidenceOriginWebPage)
+	case "mcp_resource", "mcp", "mcp_tool", "mcp_response":
+		add(AnswerEvidenceOriginMCPResource)
+	case "connector_resource", "connector", "app_connector", "app_resource":
+		add(AnswerEvidenceOriginConnectorResource)
 	case "system_inference", "system":
 		add(AnswerEvidenceOriginSystemInference)
 	}

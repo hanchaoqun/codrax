@@ -226,14 +226,14 @@ flowchart TD
 
 - [x] Audit current producers, handoff state, consumers, and gaps.
 - [x] Record the end-to-end design and task list in this document.
-- [ ] Commit the design baseline before code changes.
+- [x] Commit the design baseline before code changes. Commit: `f23d6a2e`.
 
 ### Batch 1 — Ledger Skeleton And Origin Extensibility
 
-- [ ] Add `AnswerEvidenceOriginWebPage`, `AnswerEvidenceOriginMCPResource`, `AnswerEvidenceOriginExternalDocument`, and `AnswerEvidenceOriginConnectorResource`.
-- [ ] Add `ObservationRecord`, `ObservationSourceRef`, `ObservationSpan`, `ObservationLedger`, and `ObservationLedgerInput` in `internal/types`.
-- [ ] Add tests proving unknown/current behavior remains unchanged and new origins are valid but do not become current-source.
-- [ ] Add a red-line test proving non-current origins default to non-hard current-source citation pressure.
+- [x] Add `AnswerEvidenceOriginWebPage`, `AnswerEvidenceOriginMCPResource`, `AnswerEvidenceOriginExternalDocument`, and `AnswerEvidenceOriginConnectorResource`.
+- [x] Add `ObservationRecord`, `ObservationSourceRef`, `ObservationSpan`, `ObservationLedger`, and `ObservationLedgerInput` in `internal/types`.
+- [x] Add tests proving unknown/current behavior remains unchanged and new origins are valid but do not become current-source.
+- [x] Add a red-line test proving non-current origins default to non-hard current-source citation pressure.
 
 ### Batch 2 — Compile Existing Accepted Carriers
 
@@ -288,3 +288,8 @@ flowchart TD
 ## 10. Progress Log
 
 - 2026-05-21: Created design baseline from code audit. No code changes yet.
+- 2026-05-21: Batch 1 completed: added external evidence origins, ledger
+  skeleton types, source/span model, no-op compiler API, and origin-policy
+  tests. This batch intentionally does not change prompts or runtime behavior.
+  Validation: `go test ./internal/types ./internal/agent ./internal/tool
+  ./internal/orchestrator`.
