@@ -1995,9 +1995,10 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			// partial RequestModel + AnalyzerHints + Predicates so
 			// explorer/extractor still have semantic context to work
 			// with. The richer TaskGraph (probe → evidence → reconcile
-			// → finalize) ensures explore/extract dispatch (legacy
-			// path's single-finalize graph caused them to be skipped,
-			// leading to empty "(no result)" outputs).
+			// → finalize) ensures explore/extract dispatch. The older
+			// single-finalize recovery graph skipped those stages and could
+			// leave the user with an empty-answer symptom; this branch is the
+			// current fix, not that legacy behaviour.
 			//
 			// When o.busCtx.AnalysisIR is nil (analyzer NEVER emit_analysis'd),
 			// buildDegradedSemanticIR delegates to the legacy zero-info
@@ -2011,8 +2012,8 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			// here. Line ~1921 below guards `if LastError == "" { runTaskPhase }`
 			// — setting it before the degraded scheduler runs causes the
 			// entire Phase 2 (explorer / extractor / finalizer dispatch)
-			// to be SKIPPED, which is exactly the "(no result)" symptom
-			// users hit on a degraded path. The analyzer error is
+			// to be SKIPPED, recreating the legacy empty-answer symptom that
+			// this recovery path is designed to avoid. The analyzer error is
 			// preserved on the new AnalysisIR.QualityGate.Detail
 			// ("degraded_semantic_recovery" check) for operator visibility,
 			// and the SoftAnalyzerError field carries the original error
@@ -7583,7 +7584,8 @@ func buildDegradedFallbackIR(objective string, analyzerErr error) *types.Analysi
 // rejected the IR repeatedly. Compared with buildDegradedFallbackIR
 // (legacy zero-info path), this path keeps the LLM's already-
 // extracted keywords / entities / sub_topics so downstream stages
-// can build a useful answer instead of producing "(no result)".
+// can build a useful answer instead of the legacy empty-answer
+// symptom.
 //
 // Behaviour rules:
 //   - When partialIR is nil (analyzer never emit_analysis'd):

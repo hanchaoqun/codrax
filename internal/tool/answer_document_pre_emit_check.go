@@ -5720,7 +5720,7 @@ func normalizeRequiredMechanismAnchorCarriersWithContext(doc *types.AnswerDocume
 	if len(missing) == 0 {
 		return 0
 	}
-	blockIdx := ensureRequiredMechanismAnchorBlock(doc)
+	blockIdx := ensureRequiredMechanismAnchorBlock(doc, ctx)
 	if blockIdx < 0 || blockIdx >= len(doc.Blocks) {
 		return 0
 	}
@@ -5741,7 +5741,7 @@ func normalizeRequiredMechanismAnchorCarriersWithContext(doc *types.AnswerDocume
 	return added
 }
 
-func ensureRequiredMechanismAnchorBlock(doc *types.AnswerDocumentV2) int {
+func ensureRequiredMechanismAnchorBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
 	if doc == nil {
 		return -1
 	}
@@ -5753,7 +5753,7 @@ func ensureRequiredMechanismAnchorBlock(doc *types.AnswerDocumentV2) int {
 	block := types.AnswerBlock{
 		ID:    uniqueRequiredMechanismAnchorBlockID(doc),
 		Kind:  types.BlockOrderedList,
-		Title: "Key anchors",
+		Title: requiredMechanismAnchorBlockTitle(ctx),
 		FacetIDs: []string{
 			string(types.FacetCurrentCodePath),
 		},
@@ -5764,6 +5764,13 @@ func ensureRequiredMechanismAnchorBlock(doc *types.AnswerDocumentV2) int {
 	}
 	doc.Blocks = append(doc.Blocks, block)
 	return len(doc.Blocks) - 1
+}
+
+func requiredMechanismAnchorBlockTitle(ctx *types.BusContext) string {
+	if answerDocumentRequiresChinese(requestedAnswerDocumentLanguage(ctx)) {
+		return "关键锚点"
+	}
+	return "Key anchors"
 }
 
 func uniqueRequiredMechanismAnchorBlockID(doc *types.AnswerDocumentV2) string {

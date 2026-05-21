@@ -226,6 +226,43 @@ func TestAxisAnchorRetryHint_BoundedPrincipalStepListSkipsRetry(t *testing.T) {
 	}
 }
 
+func TestAxisAnchorRetryHint_MultiTopicExplanationSkeletonSkipsConditionRetry(t *testing.T) {
+	ir := &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent:        types.IntentExplain,
+			Scenario:      types.ScenarioArchitectureExplain,
+			PredicateAxis: types.AxisCondition,
+			SubTopics: []types.SubTopic{
+				{Entities: []string{"AnalysisIR"}, Summary: "AnalysisIR fallback semantics"},
+				{Entities: []string{"fallbackWriteAnalysisIR"}, Summary: "write-mode fallback semantics"},
+			},
+		},
+	}
+	mut := types.NewMutableState("")
+	mut.SetRequestModel(ir.RequestModel)
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{
+			Source:       "internal/orchestrator/orchestrator.go",
+			LineStart:    2297,
+			AnchorKind:   types.AnchorCondition,
+			AnchorSymbol: "out.AnalysisIR != nil",
+			Summary:      "runAnalyzePhase succeeds only when AnalysisIR is non-nil and Error is empty",
+		},
+	}})
+	mut.SetEmittedAnswerSymbols([]types.AnswerSymbol{
+		{Name: "AnalysisIR", File: "internal/agent/agent.go", Line: 129, Kind: types.KindStruct},
+		{Name: "fallbackWriteAnalysisIR", File: "internal/orchestrator/orchestrator.go", Line: 2764, Kind: types.KindFunction},
+	}, types.CompletenessComplete)
+
+	ctx := &types.AgentContext{AnalysisIR: ir, Mutable: mut}
+	if !isMultiTopicExplanation(ctx) {
+		t.Fatal("test setup must exercise the multi-topic explanation skeleton path")
+	}
+	if hint := axisAnchorRetryHint(ctx); hint != "" {
+		t.Fatalf("multi-topic explanation skeleton should keep condition evidence in support lanes instead of forcing emit_answer_symbol retry; got %q", hint)
+	}
+}
+
 func containsAll(haystack string, needles []string) bool {
 	for _, n := range needles {
 		if !stringsContains(haystack, n) {

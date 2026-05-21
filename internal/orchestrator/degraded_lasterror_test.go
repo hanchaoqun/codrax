@@ -6,7 +6,7 @@
 // orchestrator.go:1921 checks `if LastError == ""` before
 // dispatching Phase 2 — so setting LastError before the degraded
 // path's runTaskPhase call caused the entire scheduler to be
-// skipped, producing "(no result)" outputs.
+// skipped, producing empty-answer outputs.
 //
 // The fix splits the analyzer error into:
 //   - LastError: hard-fail signal (e.g. unknown pipeline mode,

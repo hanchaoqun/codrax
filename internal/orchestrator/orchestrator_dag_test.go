@@ -967,7 +967,7 @@ func TestRunTaskGraph_NilIRFailsFast(t *testing.T) {
 	// is recorded on TaskState.SoftAnalyzerError (not
 	// LastError) so the runTaskPhase guard at line 1921 still
 	// fires and the finalizer can produce a degraded answer
-	// instead of "(no result)". LastError is reserved for
+	// instead of an empty-output symptom. LastError is reserved for
 	// hard failures where Phase 2 truly cannot run (unknown
 	// pipeline mode etc.).
 	if busCtx.TaskState.SoftAnalyzerError == "" {

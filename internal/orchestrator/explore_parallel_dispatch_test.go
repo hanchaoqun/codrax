@@ -268,7 +268,7 @@ func TestParallelExploreAllowsEarlyConvergence_HistoryCurrentCodeMechanism(t *te
 	}
 }
 
-func TestParallelExploreAllowsEarlyConvergence_HistoryCurrentCrossComponentWaits(t *testing.T) {
+func TestParallelExploreAllowsEarlyConvergence_BareCrossComponentMechanismConverges(t *testing.T) {
 	o := &Orchestrator{busCtx: &types.BusContext{
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
@@ -287,8 +287,62 @@ func TestParallelExploreAllowsEarlyConvergence_HistoryCurrentCrossComponentWaits
 		},
 	}}
 
+	if !o.parallelExploreAllowsEarlyConvergence() {
+		t.Fatal("bare cross-component/sub-topic breadth is advisory; accepted closure should converge")
+	}
+}
+
+func TestParallelExploreAllowsEarlyConvergence_BucketedComparisonWaits(t *testing.T) {
+	o := &Orchestrator{busCtx: &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+				Predicates: types.SemanticPredicates{
+					IsCrossComponent: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+				Buckets: []types.QuestionBucket{
+					{Label: "component A", Index: 1},
+					{Label: "component B", Index: 2},
+				},
+			},
+		},
+	}}
+
 	if o.parallelExploreAllowsEarlyConvergence() {
-		t.Fatal("history-backed cross-component mechanism should wait for sibling handoffs")
+		t.Fatal("explicit user bucket partitions should wait for sibling handoffs")
+	}
+}
+
+func TestParallelExploreAllowsEarlyConvergence_InferredBucketsStayAdvisory(t *testing.T) {
+	o := &Orchestrator{busCtx: &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest:    "说明 Foo 和 Bar 共同参与的重试机制",
+				Intent:        types.IntentExplain,
+				Scenario:      types.ScenarioArchitectureExplain,
+				PredicateAxis: types.AxisCondition,
+				Predicates: types.SemanticPredicates{
+					IsCrossComponent: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:              string(types.ReqMechanism),
+					MentionedEntities: []string{"Foo", "Bar"},
+				},
+				SubTopics: []types.SubTopic{
+					{Summary: "Foo"},
+					{Summary: "Bar"},
+				},
+			},
+		},
+	}}
+
+	if buckets := o.busCtx.AnalysisIR.RequestModel.QuestionStructure().Buckets; len(buckets) < 2 {
+		t.Fatalf("fixture should exercise inferred bucket fallback, got %+v", buckets)
+	}
+	if !o.parallelExploreAllowsEarlyConvergence() {
+		t.Fatal("system-inferred buckets are useful for rendering, but must not hard-block accepted closure convergence")
 	}
 }
 

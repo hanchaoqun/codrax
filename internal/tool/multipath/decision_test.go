@@ -967,6 +967,34 @@ func TestRenderSymbolDemandRationale_OffsetIsZeroBased(t *testing.T) {
 	}
 }
 
+func TestRenderSymbolDemandRationale_AllRangesGetReadCommands(t *testing.T) {
+	missing := []types.LineRange{
+		{Start: 2749, End: 2804},
+		{Start: 3755, End: 3800},
+	}
+	got := renderSymbolDemandRationale(
+		"internal/orchestrator/orchestrator.go",
+		[]string{"fallbackWriteAnalysisIR", "runTaskGraph"},
+		[]SymbolDef{
+			{Name: "fallbackWriteAnalysisIR", Line: 2764, EndLine: 2789},
+			{Name: "runTaskGraph", Line: 3770, EndLine: 3785},
+		},
+		missing,
+		15,
+	)
+	for _, want := range []string{
+		`read_file(path="internal/orchestrator/orchestrator.go", offset=2748, limit=56)`,
+		`read_file(path="internal/orchestrator/orchestrator.go", offset=3754, limit=46)`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing exact read command %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "for the first range") {
+		t.Fatalf("multi-range rationale must not leave later ranges to model arithmetic:\n%s", got)
+	}
+}
+
 func TestRenderKeywordDemandRationale_OffsetIsZeroBased(t *testing.T) {
 	missing := []types.LineRange{{Start: 50, End: 65}}
 	got := renderKeywordDemandRationale(
@@ -983,6 +1011,22 @@ func TestRenderKeywordDemandRationale_OffsetIsZeroBased(t *testing.T) {
 	}
 	if !strings.Contains(got, "limit=16") { // 65 - 50 + 1
 		t.Errorf("limit math (65 - 50 + 1 = 16) wrong: %q", got)
+	}
+}
+
+func TestRenderKeywordDemandRationale_AllRangesGetReadCommands(t *testing.T) {
+	missing := []types.LineRange{
+		{Start: 85, End: 115},
+		{Start: 135, End: 165},
+	}
+	got := renderKeywordDemandRationale("config.yaml", []int{100, 150}, missing, 15)
+	for _, want := range []string{
+		`read_file(path="config.yaml", offset=84, limit=31)`,
+		`read_file(path="config.yaml", offset=134, limit=31)`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing exact read command %q in:\n%s", want, got)
+		}
 	}
 }
 

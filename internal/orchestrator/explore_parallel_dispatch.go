@@ -265,21 +265,46 @@ func (o *Orchestrator) parallelExploreAllowsEarlyConvergence() bool {
 	if types.HistoryLookupPrefersVCSNarrativePrincipal(rm, &o.busCtx.AnalysisIR.AnswerContract) {
 		return true
 	}
-	if types.IsHistoryBackedCurrentCodeExplanation(rm) &&
-		!rm.QuestionStructure().HasAnyObligation() &&
-		!rm.Predicates.IsCrossComponent &&
-		!types.IsCategoryEnumerationAnswerShape(rm) &&
-		!types.RequiresRelationMemberSetHandoff(rm) {
-		return true
-	}
-	if len(rm.SubTopics) > 1 ||
-		types.IsCategoryEnumerationAnswerShape(rm) ||
-		types.RequiresRelationMemberSetHandoff(rm) ||
-		rm.Predicates.IsCrossComponent ||
-		rm.Intent == types.IntentEnumerate {
+	if parallelExploreMustWaitForSiblingHandoffs(rm, &o.busCtx.AnalysisIR.AnswerContract) {
 		return false
 	}
 	return true
+}
+
+func parallelExploreMustWaitForSiblingHandoffs(rm types.RequestModel, contract *types.AnswerContract) bool {
+	if hasExplicitQuestionStructureObligation(rm) {
+		return true
+	}
+	if types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
+		types.RequiresRelationMemberSetHandoff(rm) ||
+		rm.Intent == types.IntentEnumerate {
+		return true
+	}
+	if contract != nil && contract.Diagram != nil && contract.Diagram.Required {
+		return true
+	}
+	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
+		return true
+	}
+	if rm.FieldValueProfile != nil && rm.FieldValueProfile.Active() {
+		return true
+	}
+	if rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
+		rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() ||
+		rm.Predicates.IsDiagnosticQuestion {
+		return true
+	}
+	return false
+}
+
+func hasExplicitQuestionStructureObligation(rm types.RequestModel) bool {
+	if rm.EnumerationBoundary != nil && rm.EnumerationBoundary.DeclaredCount > 0 {
+		return true
+	}
+	if rm.CompletenessObligation.IsActive() {
+		return true
+	}
+	return len(rm.Buckets) >= 2
 }
 
 func (o *Orchestrator) applyExploreIterationScaling(agentCtx *types.AgentContext) {

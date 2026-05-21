@@ -1278,3 +1278,123 @@ convergence tails.
   in mixed questions or let external-only observations be swallowed by
   incidental source reads. MCP/web mixed-origin cases remain backlog items
   until those producers are executable in the eval runner.
+
+### Batch 12 — Parallel Explorer Closure Convergence
+
+- Scope: address G149 without turning a single customer log into a bespoke
+  branch. The code audit shows existing early-convergence support in
+  `dispatchExploreWindowsParallel`, but the wait/continue predicate still
+  treats broad analyzer signals (`sub_topics` and `is_cross_component`) as
+  hard blockers. That conflicts with the project red line: noisy breadth
+  signals may guide exploration, but they must not by themselves force all
+  sibling lanes to chase surgical forced reads after a lane has passed
+  `emit_investigation_complete` pre-complete gates.
+- Contract update: parallel siblings must all finish only when a precise,
+  user-structure signal says the answer is partitioned or complete-set shaped:
+  explicit analyzer-emitted `QuestionStructure` buckets/count/completeness,
+  diagram presentation, relation/enumeration member-set handoff,
+  change-impact/file-site outputs, field-value profiles, or diagnostic/current
+  status obligations. Bare `is_cross_component=true` and internally expanded
+  `sub_topics` remain scheduling breadth signals, not convergence blockers.
+- Safety guard: true comparison / multi-repo questions stay protected through
+  analyzer-emitted `Buckets`, relation predicates, required diagram, or
+  change-impact obligations. System-inferred buckets from required files or
+  user-mentioned entities still help rendering/support planning, but are not a
+  hard parallel-convergence blocker because they are fallback structure rather
+  than a direct model-authored partition. If those typed hard carriers are
+  absent, an accepted closure is allowed to converge the parallel window
+  because the model still saw the full user request and the tool pre-complete
+  checks already accepted its structured conclusion.
+- Task list:
+  1. Refactor `parallelExploreAllowsEarlyConvergence` into a positive
+     "must wait for sibling handoffs" predicate that consumes only precise
+     typed obligations.
+  2. Update tests to preserve true bucketed/diagram/enumeration wait behavior
+     while allowing bare cross-component/mechanism breadth to converge after
+     an accepted closure.
+  3. Rerun targeted orchestrator tests and the `read_combo_analyze_retry_anchor`
+     eval; record whether explorer iterations and mid-loop injections drop
+     without losing final-answer completeness.
+
+Progress 2026-05-21:
+
+- Implemented the first predicate refactor and tests. Follow-up replay
+  `read_combo_analyze_retry_anchor-20260521-141645` showed the original
+  parallel wait condition was only one part of the problem: the eval failed
+  with `no_result` because the final answer quoted the literal legacy symptom
+  `(no result)`, and exploration still reached 101 model turns.
+- Root-cause split:
+  - The current source comment in `orchestrator.go` described the avoided
+    historical empty-result failure with wording that the model could read as
+    current behavior. That polluted the accepted closure reason and final
+    answer. Fix: rewrite the comment to explicitly say this is legacy behavior
+    avoided by the current recovery path and remove the literal marker that
+    eval treats as a real no-result answer.
+  - `emit_investigation_complete.aggregate_facts` carried optional mechanism
+    scaffolding as a decorated `principal_answer` member_set without
+    `support_refs`. For true enumeration / relation / count / bucketed
+    structure this must remain hard, but for a narrative mechanism answer it
+    is optional support: rejecting the completion forced another explorer turn
+    even though grounded prose and evidence were sufficient. Fix: under the
+    existing `completionAggregateFactsAreOptional` typed predicate, drop
+    unsupported decorated member_sets even when the model marked them
+    `principal_answer`, disclose the drop in the tool summary, and let the
+    accepted closure proceed. This does not weaken precise structural outputs
+    because the optional predicate is false for scalar/count/enumeration/
+    relation/diagnostic/change-impact/field-value/question-structure cases.
+- New test guard: mechanism narrative completions with optional decorated
+  principal member_sets no longer retry, while existing decorated code member
+  tests still require `support_refs` for true principal structured outputs.
+- Replay `read_combo_analyze_retry_anchor-20260521-144112` PASSed after the
+  legacy-comment and optional-member-set fixes: `tool_read_file=17`,
+  `midloop_inject=11`, `explorer_iters=24`, `extractor_iters=3`, and
+  `finalizer_iters=1`. This confirms the no-result pollution is gone and the
+  finalizer no longer retries. Residual observations are now narrower:
+  extractor can still choose a call-site line for one answer symbol and repair
+  itself, and the answer may include system-supplemented sections; both are
+  non-blocking compared with the previous exploration/finalizer loop.
+- UX/localization follow-up: the system-injected required-mechanism-anchor
+  block was titled `Key anchors`. This is not model output, so the title now
+  follows the requested answer language (`关键锚点` for Chinese, unchanged
+  English otherwise). Tests cover both languages and keep the change scoped to
+  system-added blocks only.
+- Forced-read repair follow-up: multipath surgical-read rationale previously
+  emitted a copy-pasteable `read_file(...)` command only for the first missing
+  range. When a file had multiple missing windows, the model had to infer the
+  later `offset` values and could miss a boundary line, producing the familiar
+  "I already read it but the system still says unread" loop. The shared
+  renderer now emits one exact zero-based `read_file` command per missing
+  range (capped for pathological cases) across symbol, keyword, and small-file
+  demand paths. Regression tests pin the real two-range pattern
+  `2749-2804, 3755-3800` and the keyword analogue.
+- Extractor contract follow-up: replay
+  `read_combo_analyze_retry_anchor-20260521-144956` PASSed with
+  `finalizer_iters=1`, confirming the final answer no longer falls back to
+  the legacy empty-result wording. It also exposed a separate prompt/schema
+  mismatch: the axis-alignment retry asked the model to add a `condition`
+  anchor to `emit_answer_symbol`, but `emit_answer_symbol.kind` deliberately
+  has no `condition` kind. The second attempt therefore emitted exactly what
+  the hint implied and the tool dropped it. The fix keeps the L3 axis retry
+  for real enumeration/symbol slates, but skips it for multi-topic
+  explanation anchor skeletons. In those narrative answers, condition /
+  return / assignment evidence stays in the normal evidence/support lanes
+  where finalizer can cite it without forcing a non-symbol fact into the
+  symbol taxonomy.
+- Latest replay data after the forced-read renderer change:
+  `tool_read_file=30`, `midloop_inject=22`, `explorer_iters=46`,
+  `extractor_iters=2`, `finalizer_iters=1`. This is functionally stable but
+  shows remaining exploration-budget noise from repeated evidence/partial-read
+  hints. Treat that as a follow-up optimization target, not as proof that the
+  answer contract failed.
+- Replay after the axis-skeleton fix
+  `read_combo_analyze_retry_anchor-20260521-150115` also PASSed:
+  `tool_read_file=25`, `midloop_inject=18`, `explorer_iters=32`,
+  `extractor_iters=2`, `finalizer_iters=1`, and no `axis-anchor mismatch` /
+  `unknown kind` marker. The remaining extractor retry was a separate
+  symbol-line repair (`buildDegradedSemanticIR` was cited at a fallback
+  sibling line), so it should be handled through existing answer-symbol line
+  repair work rather than re-opening the axis contract. This replay also
+  proved one more source comment still exposed the legacy empty-answer marker;
+  source comments/tests now describe it generically as an empty-output symptom
+  so model-visible code-reading runs do not accidentally quote the sentinel as
+  current behavior.

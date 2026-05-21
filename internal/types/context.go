@@ -31,7 +31,7 @@ type TaskState struct {
 	// Distinct from LastError because LastError is consumed by the
 	// outer guard at runTaskPhase entry — setting LastError here
 	// would skip explorer/extractor/finalizer dispatch entirely,
-	// turning the degraded path into a no-op "(no result)" output.
+	// turning the degraded path into a no-op empty output.
 	// SoftAnalyzerError is informational only: rendered into the
 	// user-panel caveat after the degraded answer materialises, and
 	// surfaced to operators via TaskState diagnostics. Empty in the

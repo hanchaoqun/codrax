@@ -739,6 +739,66 @@ func TestEmitInvestigationComplete_DropsOptionalUnsupportedDecoratedMemberSetAft
 	}
 }
 
+func TestEmitInvestigationComplete_DropsOptionalPrincipalDecoratedMemberSetForMechanismNarrative(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		ID:              "run-analyze-phase",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/orchestrator/orchestrator.go",
+		LineStart:       2225,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "runAnalyzePhase",
+		Subject:         "runAnalyzePhase",
+		Summary:         "runAnalyzePhase owns the analyzer retry loop and records degraded recovery when emit_analysis cannot be obtained.",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RawRequest: "说明 runTaskGraph 下 analyze 阶段如果一直没有调用 emit_analysis 会怎样重试",
+			Intent:     types.IntentExplain,
+			Scenario:   types.ScenarioArchitectureExplain,
+			Complexity: types.ComplexityComplex,
+			Predicates: types.SemanticPredicates{
+				IsScalarAnswer:        false,
+				IsCountQuestion:       false,
+				IsCategoryEnumeration: false,
+				IsRelationalLookup:    false,
+			},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"grounded prose evidence already explains the retry mechanism; aggregate_facts is only an optional row scaffold",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"member_set",
+			"label":"analyze 阶段重试关键点",
+			"role":"principal_answer",
+			"value":"2",
+			"members":["MaxRetriesPerStage (配置上限)", "dynamicAnalyzeRetries (动态扩展)"]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("optional decorated principal member_set should not force mechanism exploration retry: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "dropped principal_answer member_set") {
+		t.Fatalf("summary should disclose dropped optional principal member_set: %s", res.Summary)
+	}
+	if got := mut.StableInvestigationAggregateFacts(); len(got) != 0 {
+		t.Fatalf("unsupported optional principal member_set must be dropped, got %+v", got)
+	}
+}
+
 func TestEmitInvestigationComplete_RuntimeNegativeObservationCompat(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{

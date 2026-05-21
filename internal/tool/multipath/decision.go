@@ -778,20 +778,7 @@ func renderSymbolDemandRationale(
 		}
 		b.WriteString(strings.Join(parts, ", "))
 		b.WriteString(". ")
-		// Surface the first missing range as a copy-pasteable command;
-		// remaining ranges are listed above. The LLM can issue one
-		// read_file per range or batch them.
-		first := missing[0]
-		// read_file's offset parameter is 0-based (see
-		// internal/tool/builtin.go schema); LineRange.Start is
-		// 1-based. types.LineToReadFileOffset bridges them so the
-		// suggested invocation actually reads the demanded line
-		// (forensic 2026-05-10: emitting offset=first.Start fed the
-		// LLM a +1 offset that cycled forever).
-		fmt.Fprintf(&b,
-			"Use `read_file(path=%q, offset=%d, limit=%d)` for the first range. ",
-			file, types.LineToReadFileOffset(first.Start), first.End-first.Start+1,
-		)
+		b.WriteString(renderReadFileCommandsForRanges(file, missing))
 	}
 	b.WriteString("This demand is SURGICAL — read ONLY the named ranges; do not paginate the rest of the file.")
 	return b.String()
@@ -835,17 +822,7 @@ func renderKeywordDemandRationale(
 		}
 		b.WriteString(strings.Join(parts, ", "))
 		b.WriteString(". ")
-		first := missing[0]
-		// read_file's offset parameter is 0-based (see
-		// internal/tool/builtin.go schema); LineRange.Start is
-		// 1-based. types.LineToReadFileOffset bridges them so the
-		// suggested invocation actually reads the demanded line
-		// (forensic 2026-05-10: emitting offset=first.Start fed the
-		// LLM a +1 offset that cycled forever).
-		fmt.Fprintf(&b,
-			"Use `read_file(path=%q, offset=%d, limit=%d)` for the first range. ",
-			file, types.LineToReadFileOffset(first.Start), first.End-first.Start+1,
-		)
+		b.WriteString(renderReadFileCommandsForRanges(file, missing))
 	}
 	b.WriteString("This demand is SURGICAL — read ONLY the named ranges; do not paginate the rest of the file.")
 	return b.String()
@@ -874,19 +851,48 @@ func renderSmallFileFullRationale(
 		}
 		b.WriteString(strings.Join(parts, ", "))
 		b.WriteString(". ")
-		first := missing[0]
+		b.WriteString(renderReadFileCommandsForRanges(file, missing))
+	}
+	b.WriteString("This demand is bounded by file size — total read is at most the file's line count.")
+	return b.String()
+}
+
+func renderReadFileCommandsForRanges(file string, ranges []types.LineRange) string {
+	if len(ranges) == 0 {
+		return ""
+	}
+	const maxInlineReadCommands = 8
+	n := len(ranges)
+	if n > maxInlineReadCommands {
+		n = maxInlineReadCommands
+	}
+	cmds := make([]string, 0, n)
+	for _, r := range ranges[:n] {
+		if r.Start <= 0 || r.End < r.Start {
+			continue
+		}
 		// read_file's offset parameter is 0-based (see
 		// internal/tool/builtin.go schema); LineRange.Start is
 		// 1-based. types.LineToReadFileOffset bridges them so the
 		// suggested invocation actually reads the demanded line
 		// (forensic 2026-05-10: emitting offset=first.Start fed the
 		// LLM a +1 offset that cycled forever).
-		fmt.Fprintf(&b,
-			"Use `read_file(path=%q, offset=%d, limit=%d)` for the first range. ",
-			file, types.LineToReadFileOffset(first.Start), first.End-first.Start+1,
-		)
+		cmds = append(cmds, fmt.Sprintf("`read_file(path=%q, offset=%d, limit=%d)`",
+			file, types.LineToReadFileOffset(r.Start), r.End-r.Start+1))
 	}
-	b.WriteString("This demand is bounded by file size — total read is at most the file's line count.")
+	if len(cmds) == 0 {
+		return ""
+	}
+	if len(ranges) == 1 {
+		return "Use " + cmds[0] + ". "
+	}
+	var b strings.Builder
+	b.WriteString("Use these `read_file` calls for the missing ranges: ")
+	b.WriteString(strings.Join(cmds, "; "))
+	if len(ranges) > n {
+		fmt.Fprintf(&b, "; plus %d more range(s) listed above using offset=start-1", len(ranges)-n)
+	}
+	b.WriteString(". ")
 	return b.String()
 }
 

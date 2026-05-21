@@ -78,7 +78,7 @@ func TestNormalizeRequiredMechanismAnchorCarriers_AppendsCitedAnchorBlock(t *tes
 		Snippet:         `return "explorer"`,
 		GroundingStatus: types.GroundingGrounded,
 	}})
-	ctx := &types.BusContext{Mutable: mu}
+	ctx := &types.BusContext{Mutable: mu, Language: "zh"}
 	view := &types.AnswerSemanticView{
 		RequiredMechanismAnchors: []types.AnswerRequiredAnchor{{
 			Text: "explorer",
@@ -100,7 +100,30 @@ func TestNormalizeRequiredMechanismAnchorCarriers_AppendsCitedAnchorBlock(t *tes
 	if len(doc.Citations) != 1 || doc.Citations[0].File != "internal/agent/sub_explorer.go" || doc.Citations[0].Line != 32 {
 		t.Fatalf("anchor repair should append matching citation, got %+v", doc.Citations)
 	}
+	if got := doc.Blocks[len(doc.Blocks)-1].Title; got != "关键锚点" {
+		t.Fatalf("system-injected anchor title should follow requested language, got %q", got)
+	}
 	if hints := preCheckItemCitationAlignment(doc, view, ctx); len(hints) != 0 {
 		t.Fatalf("repaired anchor citation should align, got %+v", hints)
+	}
+}
+
+func TestNormalizeRequiredMechanismAnchorCarriers_EnglishTitle(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "The prose mentions runAnalyzePhase.",
+	}}}
+	view := &types.AnswerSemanticView{RequiredMechanismAnchors: []types.AnswerRequiredAnchor{{
+		Text: "runAnalyzePhase",
+		Kind: types.ContractTermSymbol,
+	}}}
+	ctx := &types.BusContext{Language: "en"}
+
+	if fixed := normalizeRequiredMechanismAnchorCarriers(doc, view, ctx); fixed != 1 {
+		t.Fatalf("fixed=%d want 1", fixed)
+	}
+	if got := doc.Blocks[len(doc.Blocks)-1].Title; got != "Key anchors" {
+		t.Fatalf("English request should keep English system title, got %q", got)
 	}
 }

@@ -1999,6 +1999,16 @@ func axisAnchorRetryHint(ctx *types.AgentContext) string {
 		// surface authorities and destabilizes ordered-set questions.
 		return ""
 	}
+	if isMultiTopicExplanation(ctx) && !viewNeedsEnumerationSlate(ctx) {
+		// Multi-topic explanations use answer_symbols as lightweight
+		// prose skeleton anchors, not as the principal answer surface.
+		// Axis evidence such as guard conditions, returns, assignments,
+		// or call sites already flows through the evidence/support lanes;
+		// forcing those non-symbol anchors into emit_answer_symbol both
+		// over-constrains narrative answers and can ask for kinds that
+		// the answer-symbol taxonomy deliberately does not contain.
+		return ""
+	}
 	rm := ctx.Mutable.RequestModel()
 	if rm == nil {
 		return ""

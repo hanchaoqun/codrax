@@ -668,11 +668,11 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	effectiveAggregateFacts = normalizeAggregateFactsForTypedExclusion(ctx, effectiveAggregateFacts)
 	if resultKind == "absence" {
 		var notes []string
-		effectiveAggregateFacts, notes = dropNonPrincipalUnsupportedDecoratedMemberSets(effectiveAggregateFacts, "absence handoff")
+		effectiveAggregateFacts, notes = dropUnsupportedDecoratedMemberSets(effectiveAggregateFacts, "absence handoff", false)
 		aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, notes...)
 	} else if completionAggregateFactsAreOptional(ctx, resultKind) {
 		var notes []string
-		effectiveAggregateFacts, notes = dropNonPrincipalUnsupportedDecoratedMemberSets(effectiveAggregateFacts, "optional aggregate handoff")
+		effectiveAggregateFacts, notes = dropUnsupportedDecoratedMemberSets(effectiveAggregateFacts, "optional aggregate handoff", true)
 		aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, notes...)
 	}
 
@@ -6754,7 +6754,7 @@ func aggregateFactsContainNegativeSearchForTarget(facts []types.AnswerAggregateF
 	return false
 }
 
-func dropNonPrincipalUnsupportedDecoratedMemberSets(facts []types.AnswerAggregateFact, contextLabel string) ([]types.AnswerAggregateFact, []string) {
+func dropUnsupportedDecoratedMemberSets(facts []types.AnswerAggregateFact, contextLabel string, includePrincipal bool) ([]types.AnswerAggregateFact, []string) {
 	if len(facts) == 0 {
 		return facts, nil
 	}
@@ -6768,7 +6768,7 @@ func dropNonPrincipalUnsupportedDecoratedMemberSets(facts []types.AnswerAggregat
 		role := types.NormalizeAnswerAggregateRole(fact.Role)
 		if fact.Kind != types.AnswerAggregateMemberSet ||
 			role == types.AnswerAggregateRoleUnknown ||
-			role.IsPrincipal() ||
+			(role.IsPrincipal() && !includePrincipal) ||
 			len(fact.SupportRefs) > 0 ||
 			!aggregateMemberSetHasUnsupportedDecoratedCodeMembers(fact) {
 			out = append(out, fact)
