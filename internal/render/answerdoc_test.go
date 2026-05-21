@@ -201,6 +201,26 @@ func TestRenderV2_BlockScalarZH(t *testing.T) {
 	}
 }
 
+func TestRenderV2_BlockScalarTitleBecomesVisibleLabel(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:    "v1",
+				Kind:  types.BlockScalar,
+				Title: `包含 "scalar" 的提交数量`,
+				Text:  "6",
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "zh")
+	if !strings.Contains(out, `**包含 "scalar" 的提交数量：** `+"`6`") {
+		t.Fatalf("scalar title should label the value instead of becoming a footnote:\n%s", out)
+	}
+	if strings.Contains(out, "值：") {
+		t.Fatalf("titled scalar should not be flattened to a generic value label:\n%s", out)
+	}
+}
+
 func TestRenderV2_BlockDecision(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{

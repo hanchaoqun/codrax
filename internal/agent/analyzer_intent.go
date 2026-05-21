@@ -106,6 +106,27 @@ func reconcileNonScalarExplanationSubject(rm types.RequestModel) (types.RequestM
 	return rm, "cleared scalar answer_subject.kind=" + string(before) + " because the typed route is an explanation-shaped answer, not a scalar literal lookup"
 }
 
+func reconcileHistoryMultiTargetScalar(rm types.RequestModel) (types.RequestModel, string) {
+	if !rm.Predicates.IsHistoryLookup ||
+		!rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsRoleLocateLookup {
+		return rm, ""
+	}
+	targetCount := types.HistoryLookupScalarTargetCount(rm)
+	if targetCount <= 1 {
+		return rm, ""
+	}
+	rm.Predicates.IsScalarAnswer = false
+	if rm.Intent == types.IntentReturnValue {
+		rm.Intent = types.IntentEnumerate
+	}
+	if scalarAnswerSubjectKind(rm.AnswerSubject.Kind) {
+		rm.AnswerSubject = types.AnswerSubject{}
+	}
+	return rm, "history lookup has multiple typed targets; answer is a per-target result set, not one scalar literal"
+}
+
 func scalarAnswerSubjectKind(kind types.AnswerSubjectKind) bool {
 	switch kind {
 	case types.SubjectStringLiteral, types.SubjectNumeric, types.SubjectReturnValue:

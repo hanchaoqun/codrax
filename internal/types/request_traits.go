@@ -221,6 +221,36 @@ func HistoryLookupPrefersVCSNarrativePrincipal(rm RequestModel, contract *Answer
 	return true
 }
 
+// HistoryLookupScalarTargetCount returns the typed number of independent
+// history/search targets carried by the analyzer. It deliberately consumes only
+// structured lanes; raw request prose is not used to infer answer shape.
+func HistoryLookupScalarTargetCount(rm RequestModel) int {
+	var targets []string
+	switch {
+	case len(rm.AnalyzerHints.MentionedEntities) > 0:
+		targets = append(targets, rm.AnalyzerHints.MentionedEntities...)
+	case len(rm.AnalyzerHints.PrimaryEntities) > 0:
+		targets = append(targets, rm.AnalyzerHints.PrimaryEntities...)
+	default:
+		targets = append(targets, rm.AnalyzerHints.Entities...)
+	}
+	for _, topic := range rm.SubTopics {
+		targets = append(targets, topic.Entities...)
+	}
+	for _, bucket := range rm.QuestionStructure().Buckets {
+		targets = append(targets, bucket.Label)
+	}
+	seen := map[string]bool{}
+	for _, target := range targets {
+		key := strings.ToLower(strings.TrimSpace(target))
+		if key == "" {
+			continue
+		}
+		seen[key] = true
+	}
+	return len(seen)
+}
+
 // IsHistoryBackedCurrentCodeExplanation reports whether the request combines a
 // history/diff lookup with a current-code mechanism explanation. In this shape
 // VCS facts are provenance/support for "what changed", while current source

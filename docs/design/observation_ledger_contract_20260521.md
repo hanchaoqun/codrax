@@ -530,3 +530,20 @@ flowchart TD
   tests; this batch added stale failed-closure coverage so in-flight
   downgraded `aggregate_facts` cannot replace the accepted stable pool, plus the
   current-source/external span tests above for no fake `file:line`.
+- 2026-05-21: Batch 6 targeted eval tranche started. `u7o` (latest diff +
+  current source impact) and `logtri_line_current_code` both passed with
+  `finalizer_iters=1` and no repair/rewrite. `u7n` exposed a true follow-up:
+  two-target history existence checks must not remain `return_value` /
+  scalar-answer shaped, and committed absent-marker literals can self-poison git
+  history evals. The gap is recorded as `E20260521-G142` in
+  `docs/design/eval_20260520_full_sweep_gap_tracking.md`; this batch adds a
+  typed analyzer reconciliation plus an eval marker construction fix.
+- 2026-05-21: Batch 6 mitigation verified. The analyzer and answer-intent
+  contract now demote multi-target history existence lookups from anonymous
+  scalar output to per-target set/enumeration output unless the request is a true
+  count or role-locate scalar. The renderer also preserves a model-authored
+  scalar `title` as the visible label, so any remaining titled scalar is not
+  flattened into generic `值/Value` wording. `u7n-20260521-113334` passed with
+  `requested outputs: summary, enumeration`, one finalizer round, and no
+  repair/rewrite; the absent-marker eval now constructs the marker from split
+  shell fragments to avoid committing the exact negative token into git history.

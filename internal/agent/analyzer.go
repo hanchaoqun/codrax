@@ -1550,6 +1550,19 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		))
 		rm.Intent = intentResolved
 
+		if resolved, reason := reconcileHistoryMultiTargetScalar(rm); reason != "" {
+			recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+				"history_shape",
+				string(rm.Intent)+"/scalar="+fmt.Sprint(rm.Predicates.IsScalarAnswer),
+				string(resolved.Intent)+"/scalar="+fmt.Sprint(resolved.Predicates.IsScalarAnswer),
+				rm.IntentConfidence,
+				reason,
+				resolved.Predicates,
+			))
+			logging.Info("[analyzer] history shape reconciled: %s", reason)
+			rm = resolved
+		}
+
 		if resolved, reason := reconcileNonScalarExplanationSubject(rm); reason != "" {
 			recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
 				"subject",

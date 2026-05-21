@@ -24,6 +24,46 @@ func TestCompileAnswerIntentContract_HistoryScalarKeepsOriginSeparateFromShape(t
 	}
 }
 
+func TestCompileAnswerIntentContract_HistoryMultiTargetScalarBecomesPerTargetSet(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentReturnValue,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+			IsScalarAnswer:  true,
+		},
+		AnalyzerHints: AnalyzerHints{
+			Kind:            string(ReqHistory),
+			PrimaryEntities: []string{"scalar", "definitely_absent_marker"},
+		},
+	}
+	got := CompileAnswerIntentContract(rm, nil)
+	if got.HasOutput(AnswerRequestedOutputScalar) {
+		t.Fatalf("multi-target history existence query must not request scalar output: %+v", got.RequestedOutputs)
+	}
+	if !got.HasOutput(AnswerRequestedOutputEnumeration) {
+		t.Fatalf("multi-target history query should keep a per-target answer surface: %+v", got.RequestedOutputs)
+	}
+}
+
+func TestCompileAnswerIntentContract_HistoryMultiTargetCountStaysScalar(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentReturnValue,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+			IsScalarAnswer:  true,
+			IsCountQuestion: true,
+		},
+		AnalyzerHints: AnalyzerHints{
+			Kind:            string(ReqHistory),
+			PrimaryEntities: []string{"scalar", "other"},
+		},
+	}
+	got := CompileAnswerIntentContract(rm, nil)
+	if !got.HasOutput(AnswerRequestedOutputScalar) || !got.HasOutput(AnswerRequestedOutputCount) {
+		t.Fatalf("true multi-target history count should remain scalar/count: %+v", got.RequestedOutputs)
+	}
+}
+
 func TestCompileAnswerIntentContract_HistoryNarrativeDoesNotCollapseToScalar(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentExplain,

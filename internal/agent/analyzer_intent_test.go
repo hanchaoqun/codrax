@@ -34,6 +34,74 @@ func TestDropCitationCountGE(t *testing.T) {
 	}
 }
 
+func TestReconcileHistoryMultiTargetScalar_DemotesPerTargetHistorySet(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentReturnValue,
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"scalar", "definitely_absent_marker"},
+		},
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectStringLiteral},
+		Predicates: types.SemanticPredicates{
+			IsHistoryLookup: true,
+			IsScalarAnswer:  true,
+		},
+	}
+	got, reason := reconcileHistoryMultiTargetScalar(rm)
+	if reason == "" {
+		t.Fatal("expected multi-target history scalar to reconcile")
+	}
+	if got.Predicates.IsScalarAnswer {
+		t.Fatalf("multi-target history query must not stay scalar: %+v", got.Predicates)
+	}
+	if got.Intent != types.IntentEnumerate {
+		t.Fatalf("intent = %q, want enumerate", got.Intent)
+	}
+	if got.AnswerSubject.Kind != "" {
+		t.Fatalf("scalar answer subject should be cleared, got %+v", got.AnswerSubject)
+	}
+}
+
+func TestReconcileHistoryMultiTargetScalar_PreservesTrueScalarCount(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentReturnValue,
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"scalar", "other"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsHistoryLookup: true,
+			IsScalarAnswer:  true,
+			IsCountQuestion: true,
+		},
+	}
+	got, reason := reconcileHistoryMultiTargetScalar(rm)
+	if reason != "" {
+		t.Fatalf("count-valued history query should stay scalar, got reason %q", reason)
+	}
+	if !got.Predicates.IsScalarAnswer || got.Intent != types.IntentReturnValue {
+		t.Fatalf("true scalar count drifted: %+v", got)
+	}
+}
+
+func TestReconcileHistoryMultiTargetScalar_PreservesSingleTargetLookup(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentReturnValue,
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"scalar"},
+		},
+		Predicates: types.SemanticPredicates{
+			IsHistoryLookup: true,
+			IsScalarAnswer:  true,
+		},
+	}
+	got, reason := reconcileHistoryMultiTargetScalar(rm)
+	if reason != "" {
+		t.Fatalf("single-target scalar lookup should not reconcile, got reason %q", reason)
+	}
+	if !got.Predicates.IsScalarAnswer || got.Intent != types.IntentReturnValue {
+		t.Fatalf("single scalar history lookup drifted: %+v", got)
+	}
+}
+
 func TestReconcileChangeImpactProfile_ForcesAffectedFileSetRouting(t *testing.T) {
 	rm := types.RequestModel{
 		Intent: types.IntentTrace,

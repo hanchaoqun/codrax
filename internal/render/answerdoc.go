@@ -253,10 +253,6 @@ func renderV2BlockBulletList(b *strings.Builder, blk types.AnswerBlock, doc *typ
 }
 
 func renderV2BlockScalar(b *strings.Builder, blk types.AnswerBlock, doc *types.AnswerDocumentV2, lang answerDocLang) {
-	prefix := "Value:"
-	if lang == answerDocLangZH {
-		prefix = "值："
-	}
 	literal := renderUserSurfaceText(blk.Text)
 	if len(blk.Items) > 0 && literal == "" {
 		// Scalar may use first item's Label as literal when Text is
@@ -266,15 +262,23 @@ func renderV2BlockScalar(b *strings.Builder, blk types.AnswerBlock, doc *types.A
 	if literal == "" {
 		return
 	}
-	fmt.Fprintf(b, "**%s** `%s`", prefix, literal)
+	label := renderUserSurfaceText(blk.Title)
+	if label == "" {
+		label = "Value"
+		if lang == answerDocLangZH {
+			label = "值"
+		}
+	}
+	sep := ":"
+	if lang == answerDocLangZH {
+		sep = "："
+	}
+	fmt.Fprintf(b, "**%s%s** `%s`", label, sep, literal)
 	cite := blockTopCitation(blk, doc)
 	if cite != "" {
 		fmt.Fprintf(b, " (%s)", cite)
 	}
 	b.WriteString("\n\n")
-	if strings.TrimSpace(blk.Title) != "" {
-		fmt.Fprintf(b, "*%s*\n\n", blk.Title)
-	}
 }
 
 func renderV2BlockDecision(b *strings.Builder, blk types.AnswerBlock, doc *types.AnswerDocumentV2, lang answerDocLang) {

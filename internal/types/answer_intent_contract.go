@@ -210,13 +210,16 @@ func CompileAnswerIntentContract(rm RequestModel, contract *AnswerContract) Answ
 	if rm.Predicates.IsCountQuestion {
 		addOutput(AnswerRequestedOutputCount)
 	}
-	if rm.Predicates.IsScalarAnswer || rm.Predicates.IsRoleLocateLookup || rm.Intent == IntentReturnValue {
+	if requestModelShouldRequestScalarOutput(rm) {
 		addOutput(AnswerRequestedOutputScalar)
 	}
 	if rm.FieldValueProfile != nil && rm.FieldValueProfile.Active() {
 		addOutput(AnswerRequestedOutputKeyValue)
 	}
 	if shouldRequestEnumerationOutput(rm) {
+		addOutput(AnswerRequestedOutputEnumeration)
+	}
+	if historyLookupHasMultipleNonScalarTargets(rm) {
 		addOutput(AnswerRequestedOutputEnumeration)
 	}
 	if len(rm.QuestionStructure().Buckets) >= 2 ||
@@ -259,6 +262,20 @@ func CompileAnswerIntentContract(rm RequestModel, contract *AnswerContract) Answ
 		return answerRequestedOutputRank(outputs[i]) < answerRequestedOutputRank(outputs[j])
 	})
 	return AnswerIntentContract{Origins: origins, RequestedOutputs: outputs}
+}
+
+func requestModelShouldRequestScalarOutput(rm RequestModel) bool {
+	if historyLookupHasMultipleNonScalarTargets(rm) {
+		return false
+	}
+	return rm.Predicates.IsScalarAnswer || rm.Predicates.IsRoleLocateLookup || rm.Intent == IntentReturnValue
+}
+
+func historyLookupHasMultipleNonScalarTargets(rm RequestModel) bool {
+	return rm.Predicates.IsHistoryLookup &&
+		!rm.Predicates.IsCountQuestion &&
+		!rm.Predicates.IsRoleLocateLookup &&
+		HistoryLookupScalarTargetCount(rm) > 1
 }
 
 func historyRequestNeedsVCSDiffOrigin(rm RequestModel, contract *AnswerContract) bool {
