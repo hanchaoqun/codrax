@@ -1156,6 +1156,10 @@ Remaining architectural gap:
   single internal observation ledger that indexes all accepted non-code facts by
   `origin`, `target_ref`, and `support_ref`. That ledger should be a refactor of
   the existing carriers, not a parallel evidence stack.
+- 2026-05-21 follow-up: the dedicated design and task tracker lives in
+  `docs/design/observation_ledger_contract_20260521.md`. Treat that document as
+  the current source of truth for ledger batches, producer adapters, downstream
+  consumers, and future web/MCP evidence-origin extension.
 
 2026-05-21 Batch F.12:
 
