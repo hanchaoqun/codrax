@@ -1051,6 +1051,53 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
+	t.Run("file_type filters repomap languages without rg native type support", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(tmpDir, "src"), 0o755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, "src", "Entry.ets"), []byte("@Entry\nstruct Entry { build() {} }\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, "src", "Entry.ts"), []byte("@Entry\nexport class EntryTs {}\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, "src", "Service.cj"), []byte("public class Service {}\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		ctx := newBusContext()
+		ctx.RepoRoot = tmpDir
+		tool := &GrepTool{}
+
+		params, _ := json.Marshal(grepToolParams{Pattern: "@Entry", Path: ".", FileType: "arkts", FilesOnly: true})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected arkts error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("arkts search should not fail on backend type support; got:\n%s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "src/Entry.ets") {
+			t.Fatalf("arkts file_type should include .ets files, got:\n%s", result.Summary)
+		}
+		if strings.Contains(result.Summary, "src/Entry.ts") {
+			t.Fatalf("arkts file_type should not broaden to ordinary .ts without a project probe, got:\n%s", result.Summary)
+		}
+
+		params, _ = json.Marshal(grepToolParams{Pattern: "Service", Path: ".", FileType: "cangjie", FilesOnly: true})
+		result, err = tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected cangjie error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("cangjie search should not fail on backend type support; got:\n%s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "src/Service.cj") {
+			t.Fatalf("cangjie file_type should include .cj files, got:\n%s", result.Summary)
+		}
+	})
+
 	t.Run("analyze files_only marks auxiliary-only matches without production proof", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		if err := os.MkdirAll(filepath.Join(tmpDir, "tests", "cangjie"), 0o755); err != nil {
@@ -1496,6 +1543,8 @@ func TestFileTypeToGlobs(t *testing.T) {
 		{"js", 3, "*.jsx"},
 		{"ts", 2, "*.tsx"},
 		{"java", 3, "*.java"},
+		{"arkts", 1, "*.ets"},
+		{"cangjie", 1, "*.cj"},
 		{"yaml", 2, "*.yml"},
 		{"config", 4, "*.ini"},
 		{"unknown_lang", 1, "*.unknown_lang"},

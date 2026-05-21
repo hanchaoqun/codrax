@@ -1007,7 +1007,9 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			args = append(args, "--glob", "!"+glob)
 		}
 		if p.FileType != "" {
-			args = append(args, "--type", p.FileType)
+			for _, glob := range fileTypeToGlobs(p.FileType) {
+				args = append(args, "--glob", glob)
+			}
 		}
 		if p.Include != "" {
 			args = append(args, "--glob", p.Include)
@@ -1252,10 +1254,11 @@ func grepOutputLinePath(line string, filesOnly bool) (string, bool) {
 	return "", false
 }
 
-// fileTypeToGlobs maps a language/file type name to glob patterns,
-// mirroring ripgrep's built-in --type definitions for the GNU grep
-// fallback. Only the most commonly used types are listed; unknown
-// types fall back to a best-effort "*.type" glob.
+// fileTypeToGlobs maps a language/file type name to glob patterns shared by
+// every search backend. Do not pass repo-map-only languages straight to
+// `rg --type`: local ripgrep builds do not know ArkTS/Cangjie and would reject
+// otherwise valid searches before the model gets any useful evidence.
+// Unknown types fall back to a best-effort "*.type" glob.
 func fileTypeToGlobs(ft string) []string {
 	switch strings.ToLower(ft) {
 	case "go":
