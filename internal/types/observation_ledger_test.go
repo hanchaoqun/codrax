@@ -27,6 +27,34 @@ func TestObservationLedgerExternalOriginsAreValidAndNonSource(t *testing.T) {
 	}
 }
 
+func TestAnswerEvidenceOriginCarriesOriginSpecificSupport(t *testing.T) {
+	for _, origin := range []AnswerEvidenceOrigin{
+		AnswerEvidenceOriginVCSMetadata,
+		AnswerEvidenceOriginVCSDiff,
+		AnswerEvidenceOriginRuntimeArtifact,
+		AnswerEvidenceOriginCommandMeasurement,
+		AnswerEvidenceOriginRepoNegativeSearch,
+		AnswerEvidenceOriginCrossRepoIndex,
+		AnswerEvidenceOriginExternalDocument,
+		AnswerEvidenceOriginWebPage,
+		AnswerEvidenceOriginMCPResource,
+		AnswerEvidenceOriginConnectorResource,
+	} {
+		if !AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
+			t.Fatalf("origin %q should be origin-specific support", origin)
+		}
+	}
+	for _, origin := range []AnswerEvidenceOrigin{
+		AnswerEvidenceOriginUnknown,
+		AnswerEvidenceOriginCurrentSource,
+		AnswerEvidenceOriginSystemInference,
+	} {
+		if AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
+			t.Fatalf("origin %q should not be origin-specific non-source support", origin)
+		}
+	}
+}
+
 func TestAnswerAggregateFactEvidenceOrigins_ExternalResourceTokens(t *testing.T) {
 	facts := []struct {
 		token string

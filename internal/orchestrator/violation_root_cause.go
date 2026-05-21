@@ -223,13 +223,7 @@ func claimBindingsDescribeNonHardNarrativeSupport(bindings []types.AnswerClaimBi
 		if binding.GroundingPolicy == types.ClaimGroundingHard || claimBindingHasExactRequestedOutput(binding) {
 			return false
 		}
-		switch binding.Origin {
-		case types.AnswerEvidenceOriginVCSMetadata,
-			types.AnswerEvidenceOriginVCSDiff,
-			types.AnswerEvidenceOriginRuntimeArtifact,
-			types.AnswerEvidenceOriginCommandMeasurement,
-			types.AnswerEvidenceOriginRepoNegativeSearch,
-			types.AnswerEvidenceOriginCrossRepoIndex:
+		if types.AnswerEvidenceOriginCarriesOriginSpecificSupport(binding.Origin) {
 			hasPrincipalNonHardSupport = true
 		}
 	}

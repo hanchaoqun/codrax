@@ -386,6 +386,9 @@ flowchart TD
 ### Batch 5 — Gate Consolidation
 
 - [ ] Replace scattered origin checks in finalizer pre-emit, contract check, and reviewer with ledger-based helpers.
+- [x] Add shared `AnswerEvidenceOriginCarriesOriginSpecificSupport` helper so
+  VCS/diff/runtime/command/repo-negative/cross-repo/external/web/MCP/connector
+  support lanes are not re-listed by every consumer.
 - [ ] Keep source evidence gates hard only for `origin=current_source` records with exact source spans.
 - [ ] Make non-source repair paths prefer local supplement / boundary disclosure over broad finalizer rewrite.
 - [ ] Add regression tests for no fake `file:line`, no duplicated raw table, no stale failed closure record.
@@ -479,3 +482,8 @@ flowchart TD
   `ref/pathspec/window_path/diff_path/answer_count/command` coordinates in the
   ledger. This keeps VCS/diff facts addressable without pretending they are
   current-checkout `file:line` citations.
+- 2026-05-21: Batch 5 first consolidation guard landed: origin-specific
+  support classification is now a shared `types` helper and the root-cause /
+  narrative-support path consumes it. Tests cover new external/MCP origins so
+  future consumers do not forget them when deciding whether a non-source claim
+  can be locally disclosed instead of forcing current-source citation repair.

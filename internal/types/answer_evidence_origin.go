@@ -70,6 +70,28 @@ func AnswerAggregateFactPrimaryEvidenceOrigin(fact AnswerAggregateFact, rm *Requ
 	return origins[0]
 }
 
+// AnswerEvidenceOriginCarriesOriginSpecificSupport reports whether an origin is
+// a first-class non-current-source observation lane. These origins may support
+// user-visible claims, but they must not be converted into current-checkout
+// file:line citation pressure.
+func AnswerEvidenceOriginCarriesOriginSpecificSupport(origin AnswerEvidenceOrigin) bool {
+	switch origin {
+	case AnswerEvidenceOriginVCSMetadata,
+		AnswerEvidenceOriginVCSDiff,
+		AnswerEvidenceOriginRuntimeArtifact,
+		AnswerEvidenceOriginCommandMeasurement,
+		AnswerEvidenceOriginRepoNegativeSearch,
+		AnswerEvidenceOriginCrossRepoIndex,
+		AnswerEvidenceOriginExternalDocument,
+		AnswerEvidenceOriginWebPage,
+		AnswerEvidenceOriginMCPResource,
+		AnswerEvidenceOriginConnectorResource:
+		return true
+	default:
+		return false
+	}
+}
+
 func answerEvidenceOriginFromStructuredToken(raw string, add func(AnswerEvidenceOrigin)) {
 	token := strings.ToLower(strings.TrimSpace(raw))
 	switch token {

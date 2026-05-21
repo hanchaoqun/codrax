@@ -49,6 +49,23 @@ func TestComputeRootCauseClosure_DiagramRotation(t *testing.T) {
 	}
 }
 
+func TestClaimBindingsDescribeNonHardNarrativeSupport_UsesSharedOriginClass(t *testing.T) {
+	bindings := []types.AnswerClaimBinding{{
+		Origin:           types.AnswerEvidenceOriginMCPResource,
+		AggregateRole:    types.AnswerAggregateRolePrincipalAnswer,
+		GroundingPolicy:  types.ClaimGroundingRepairable,
+		RequestedOutputs: []types.AnswerRequestedOutput{types.AnswerRequestedOutputMechanism},
+	}}
+	if !claimBindingsDescribeNonHardNarrativeSupport(bindings) {
+		t.Fatal("external/MCP principal support should use the shared origin-specific support class")
+	}
+	bindings[0].Origin = types.AnswerEvidenceOriginCurrentSource
+	bindings[0].GroundingPolicy = types.ClaimGroundingHard
+	if claimBindingsDescribeNonHardNarrativeSupport(bindings) {
+		t.Fatal("current-source hard support must not be treated as non-hard narrative support")
+	}
+}
+
 // TestComputeRootCauseClosure_DifferentFingerprintsStaySeparate —
 // only same-fingerprint groups collapse. Two ViolFacetUncovered on
 // different facets stay independent even though their kinds match.
