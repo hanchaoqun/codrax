@@ -213,6 +213,41 @@ func TestMissingRequiredMechanismAnchors_UsesStructuredFieldsOnly(t *testing.T) 
 	}
 }
 
+func TestMissingRequiredMechanismAnchors_StructuredQualifiedLabelsSatisfyParts(t *testing.T) {
+	required := []AnswerRequiredAnchor{
+		{Text: "StageOutput", Kind: ContractTermSymbol},
+		{Text: "AnalysisIR", Kind: ContractTermSymbol},
+	}
+	doc := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID:   "mechanism",
+		Kind: BlockSection,
+		Items: []AnswerBlockItem{{
+			Label: "StageOutput.AnalysisIR",
+			Text:  "AnalysisIR is the analyzer result field on StageOutput.",
+		}},
+	}}}
+	if missing := MissingRequiredMechanismAnchors(doc, required); len(missing) != 0 {
+		t.Fatalf("qualified structured labels should satisfy owner/member anchors, missing %+v", missing)
+	}
+}
+
+func TestMissingRequiredMechanismAnchors_StructuredIdentifierVariantSatisfiesToolName(t *testing.T) {
+	required := []AnswerRequiredAnchor{
+		{Text: "emit_analysis", Kind: ContractTermToolName},
+	}
+	doc := &AnswerDocumentV2{Blocks: []AnswerBlock{{
+		ID:   "mechanism",
+		Kind: BlockSection,
+		Items: []AnswerBlockItem{{
+			Label: "EmitAnalysis",
+			Text:  "tool carrier type",
+		}},
+	}}}
+	if missing := MissingRequiredMechanismAnchors(doc, required); len(missing) != 0 {
+		t.Fatalf("structured code identifier variants should satisfy tool-name anchors, missing %+v", missing)
+	}
+}
+
 func TestBuildAnswerSemanticView_ErrorGranularityRequiresPrincipalDecision(t *testing.T) {
 	ir := &AnalysisIR{
 		RequestModel: RequestModel{

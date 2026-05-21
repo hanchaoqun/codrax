@@ -182,7 +182,7 @@ func MissingRequiredMechanismAnchors(doc *AnswerDocumentV2, required []AnswerReq
 			continue
 		}
 		seenRequired[key] = struct{}{}
-		if _, ok := present[key]; ok {
+		if requiredAnchorAnyKeyPresent(anchor.Text, present) {
 			continue
 		}
 		missing = append(missing, anchor)
@@ -191,11 +191,9 @@ func MissingRequiredMechanismAnchors(doc *AnswerDocumentV2, required []AnswerReq
 }
 
 func recordAnchorSurface(dst map[string]struct{}, text string) {
-	key := requiredAnchorKey(text)
-	if key == "" {
-		return
+	for _, key := range requiredAnchorSurfaceKeys(text) {
+		dst[key] = struct{}{}
 	}
-	dst[key] = struct{}{}
 }
 
 func requiredAnchorKey(text string) string {
@@ -208,4 +206,80 @@ func requiredAnchorKey(text string) string {
 		return ""
 	}
 	return strings.ToLower(text)
+}
+
+func requiredAnchorAnyKeyPresent(text string, present map[string]struct{}) bool {
+	for _, key := range requiredAnchorSurfaceKeys(text) {
+		if _, ok := present[key]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func requiredAnchorSurfaceKeys(text string) []string {
+	primary := requiredAnchorKey(text)
+	if primary == "" {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, 4)
+	add := func(key string) {
+		key = strings.TrimSpace(strings.ToLower(key))
+		if key == "" {
+			return
+		}
+		if _, dup := seen[key]; dup {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, key)
+	}
+	add(primary)
+	if compact := requiredAnchorCompactKey(primary); compact != "" {
+		add("compact:" + compact)
+	}
+	if owner, member, ok := requiredAnchorQualifiedParts(primary); ok {
+		add(owner)
+		add(member)
+		if compact := requiredAnchorCompactKey(owner); compact != "" {
+			add("compact:" + compact)
+		}
+		if compact := requiredAnchorCompactKey(member); compact != "" {
+			add("compact:" + compact)
+		}
+	}
+	return out
+}
+
+func requiredAnchorQualifiedParts(key string) (owner, member string, ok bool) {
+	key = strings.TrimSpace(strings.ToLower(key))
+	if key == "" || strings.Contains(key, "/") {
+		return "", "", false
+	}
+	var parts []string
+	switch {
+	case strings.Count(key, ".") == 1:
+		parts = strings.Split(key, ".")
+	case strings.Count(key, "::") == 1:
+		parts = strings.Split(key, "::")
+	default:
+		return "", "", false
+	}
+	owner = strings.TrimSpace(parts[0])
+	member = strings.TrimSpace(parts[1])
+	if owner == "" || member == "" {
+		return "", "", false
+	}
+	return owner, member, true
+}
+
+func requiredAnchorCompactKey(key string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(key)) {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }

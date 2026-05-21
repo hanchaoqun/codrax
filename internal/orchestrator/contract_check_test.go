@@ -1,11 +1,13 @@
 package orchestrator
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -71,6 +73,64 @@ func TestFinalizerCitationSupportCount_IgnoresUngroundedVisibleAnchors(t *testin
 	if got := finalizerCitationSupportCount(bus, out); got != 1 {
 		t.Fatalf("citation support count = %d, want only the citation pool entry", got)
 	}
+}
+
+func TestRunContractCheck_SkipLLMReviewSuppressesReviewerNotices(t *testing.T) {
+	mut := types.NewMutableState("检查最终答案")
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:       "summary",
+			Kind:     types.BlockSummary,
+			Text:     strings.Repeat("这是一个足够长的摘要，用于触发自洽 reviewer 的输入门槛。", 4),
+			FacetIDs: []string{"principal_mechanism"},
+		},
+		{
+			ID:       "body",
+			Kind:     types.BlockSection,
+			Text:     "正文说明 answer contract 已经具备可审阅内容。",
+			FacetIDs: []string{"principal_mechanism"},
+			Items: []types.AnswerBlockItem{
+				{ID: "a", Label: "A", Text: "第一项"},
+				{ID: "b", Label: "B", Text: "第二项"},
+				{ID: "c", Label: "C", Text: "第三项"},
+			},
+		},
+	}}
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{Ctx: context.Background(), Mutable: mut, Language: "zh"}
+	o.SetSelfConsistencyReviewer(fakeSelfConsistencyReviewer{
+		result: &SelfConsistencyResult{Consistent: true, Confidence: 0.99},
+	})
+	o.SetSemanticQualityReviewer(fakeSemanticQualityReviewer{
+		verdict: &SemanticQualityResult{Sufficient: true, Confidence: 0.99},
+	})
+	var events []render.Event
+	o.SetEmitter(func(ev render.Event) { events = append(events, ev) })
+
+	out := &agent.StageOutput{FinalAnswer: "answer"}
+	runContractCheck(out, types.AnswerContract{}, mut, o)
+	if got := countReviewerStartNotices(events); got == 0 {
+		t.Fatalf("baseline reviewer start notices = %d, want at least one eligible reviewer; events=%+v", got, events)
+	}
+
+	events = nil
+	runContractCheck(out, types.AnswerContract{}, mut, o, contractCheckSkipLLMReview())
+	if got := countReviewerStartNotices(events); got != 0 {
+		t.Fatalf("skip option reviewer start notices = %d, want 0; events=%+v", got, events)
+	}
+}
+
+func countReviewerStartNotices(events []render.Event) int {
+	count := 0
+	for _, ev := range events {
+		switch ev.NoticeKind {
+		case render.NoticeSelfConsistencyStart, render.NoticeSemanticQualityReviewStart:
+			count++
+		}
+	}
+	return count
 }
 
 func TestExtractCitations_RangeForm(t *testing.T) {

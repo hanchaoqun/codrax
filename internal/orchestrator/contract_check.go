@@ -105,6 +105,18 @@ func (t contractCheckTrace) start(name string) func(int) {
 	}
 }
 
+type contractCheckOptions struct {
+	skipLLMReview bool
+}
+
+type contractCheckOption func(*contractCheckOptions)
+
+func contractCheckSkipLLMReview() contractCheckOption {
+	return func(opts *contractCheckOptions) {
+		opts.skipLLMReview = true
+	}
+}
+
 // runContractCheck runs the AnswerContract validator over a finalizer
 // StageOutput and returns the violations slice. nil means no
 // violations OR no contract was declared. The caller is expected to
@@ -113,9 +125,15 @@ func (t contractCheckTrace) start(name string) func(int) {
 //
 // Returns the typed contract.Result so callers can render a
 // per-violation diagnostic for the explorer's retry hint.
-func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types.MutableState, o *Orchestrator) contract.Result {
+func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types.MutableState, o *Orchestrator, optionFns ...contractCheckOption) contract.Result {
 	if out == nil {
 		return contract.Result{Passed: true}
+	}
+	var opts contractCheckOptions
+	for _, fn := range optionFns {
+		if fn != nil {
+			fn(&opts)
+		}
 	}
 	trace := newContractCheckTrace(o)
 	if runtimeArtifactCitationFloorWaived(mut, o) {
@@ -398,7 +416,7 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	//     own derived context (reviewer_deadline.go:39) so the two
 	//     deadlines do not interfere.
 	var sqOutcome semanticQualityReviewOutcome
-	strictReview := o == nil || o.strictAnswerReviewEnabledValue()
+	strictReview := !opts.skipLLMReview && (o == nil || o.strictAnswerReviewEnabledValue())
 	if strictReview && !deterministicReviewerHandled {
 		preReviewerStrict := hasAnyStrictViolation(result.Violations)
 		if preReviewerStrict {

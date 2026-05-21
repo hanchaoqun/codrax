@@ -4955,7 +4955,18 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		if scOK && len(res.Violations) > 0 && o.tryAutoRepairFinalizerAnswerDocument(out, res.Violations) {
 			logging.Info("[orchestrator] finalizer auto-repair applied for deterministic answer-document metadata/inline-code issues; re-running contract check")
 			stopLocal = o.startSchedulerLocalWork(types.StageFinalize, "answer_contract_check_auto_repair")
-			res = runContractCheck(out, ir.AnswerContract, o.busCtx.Mutable, o)
+			var repairCheckOptions []contractCheckOption
+			if res.Passed {
+				// The first pass already ran any eligible LLM reviewers.
+				// Deterministic auto-repair only mutates metadata / carrier
+				// structure, so the follow-up pass should verify typed
+				// contracts without re-emitting identical reviewer status
+				// rows or spending another pair of reviewer calls. If the
+				// first pass failed a strict deterministic gate, reviewers
+				// were intentionally skipped and remain eligible after repair.
+				repairCheckOptions = append(repairCheckOptions, contractCheckSkipLLMReview())
+			}
+			res = runContractCheck(out, ir.AnswerContract, o.busCtx.Mutable, o, repairCheckOptions...)
 			if len(res.Violations) > 0 {
 				res.Violations = ComputeRootCauseClosure(res.Violations)
 			}
