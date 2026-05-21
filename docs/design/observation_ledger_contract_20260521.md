@@ -375,8 +375,9 @@ flowchart TD
   external observations outrank incidental current-source reads.
 - [x] Add tests that shared context adapters prefer accepted Turn A artifacts
   over analyzer/pre-scan noise.
-- [ ] Add eval backlog entries for "基于 git diff + 当前源码分析影响",
-  "结合日志第 N 行和当前源码解释原因", and "基于 MCP/网页内容 + 当前实现对照".
+- [x] Add eval backlog / executable guards for "基于 git diff + 当前源码分析影响"
+  and "结合日志第 N 行和当前源码解释原因". MCP/web mixed-content cases remain
+  backlog until those producers have executable eval plumbing.
 
 ### Batch 5 — Gate Consolidation
 
@@ -465,3 +466,7 @@ flowchart TD
   call it, and tests cover mixed history/diff + current-code priority,
   external-only history priority, shared accepted-carrier context adapters, and
   finalizer/reviewer prompt ordering. Validation: `go test ./...`.
+- 2026-05-21: Batch 4C eval guards added: `u7o` covers latest diff + current
+  source impact, and `logtri_line_current_code` covers artifact-local log line
+  + current-code explanation. MCP/web mixed-origin evals stay explicitly
+  tracked but unimplemented until the runner has those producers.

@@ -1,0 +1,17 @@
+# Log-triage — artifact line plus current-code explanation
+#
+# Regression target: attached log rows have artifact-local line anchors, while
+# current checkout source explains behavior. The answer should preserve the log
+# line coordinate and use source evidence only for the current-code explanation,
+# not convert the log row into a fake repo citation or drop the line number.
+ID="logtri_line_current_code"
+NAME="log-triage line anchor plus current code"
+QUESTION="这段日志第 3 行 first_byte_timeout 表示什么？请结合当前源码解释这种超时后系统如何重试或提示用户。"
+LOG='2026-05-21T10:00:00.000 DEBUG [llm] request: model=demo stream=true
+2026-05-21T10:00:20.000 WARN [diag analyzer] stage=analyze still waiting
+2026-05-21T10:00:40.000 WARN [llm] first_byte_timeout exceeded after 40s
+2026-05-21T10:00:40.001 INFO [render] ⟳ 1/4 模型响应出错,正在重新理解问题
+'
+EXPECT_NOT_CONTAINS="**值：**"
+EXPECT_MATCHES_REGEX="(第 ?3 ?行|3 ?行|line ?3|L3).*(first_byte_timeout)|(first_byte_timeout).*(第 ?3 ?行|3 ?行|line ?3|L3)
+(重试|重新|提示|模型响应出错|timeout|超时).*(源码|代码|实现)|(源码|代码|实现).*(重试|重新|提示|模型响应出错|timeout|超时)"

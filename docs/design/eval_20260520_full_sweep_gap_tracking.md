@@ -1257,3 +1257,11 @@ convergence tails.
   `explorer_iters=1`, `extractor_iters=1`, `finalizer_iters=1`, no semantic
   concerns, and no `TOOLRESULT ... ok=false` / finalizer retry markers in the
   logs.
+- Observation-ledger Batch 4C added two mixed-origin guards after the unified
+  prioritization work: `u7o` for "latest git diff + current source impact" and
+  `logtri_line_current_code` for "artifact-local log line + current-code
+  explanation". These extend the earlier `u7k/u7l` and artifact-line cases so
+  future compact-ledger budgeting cannot hide grounded current-source evidence
+  in mixed questions or let external-only observations be swallowed by
+  incidental source reads. MCP/web mixed-origin cases remain backlog items
+  until those producers are executable in the eval runner.

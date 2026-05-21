@@ -1,0 +1,16 @@
+# Grid B — U7 History Diff + Current Source Impact
+#
+# Regression target: a commit diff can be first-class VCS evidence while the
+# current checkout explains the present implementation/impact. The answer must
+# keep both lanes visible instead of forcing old diff hunks into current
+# file:line citations or collapsing the request to one commit id/value.
+#
+# Ground truth drifts whenever this repository receives a new commit. Keep this
+# case shape-oriented: it should mention diff/commit provenance, current code or
+# current implementation, and the impact/flow relationship.
+ID="u7o"
+NAME="history — latest diff plus current source impact"
+QUESTION="根据最近一次提交的代码 diff，再结合当前源码，分析这次改动对现在实现链路的影响；请说明 commit/diff 线索、当前关键代码，以及影响关系，不要只给 commit id。"
+EXPECT_NOT_CONTAINS="**值：**"
+EXPECT_MATCHES_REGEX="(commit|提交|diff|差异).*(当前|源码|现在|实现)|(当前|源码|现在|实现).*(commit|提交|diff|差异)
+(影响|链路|关系|流程).*(当前|源码|现在|实现)|(当前|源码|现在|实现).*(影响|链路|关系|流程)"
