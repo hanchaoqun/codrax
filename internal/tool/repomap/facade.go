@@ -134,6 +134,10 @@ func SetCacheDir(dir string) { index.SetCacheDir(dir) }
 // Default (unset) is enabled.
 func SetResumeInterruptedScan(enabled bool) { index.SetResumeInterruptedScan(enabled) }
 
+// SetScanReserveCPUs sets how many CPU cores repomap scan worker pools
+// leave free for interactive processes. Default (unset) is 0.
+func SetScanReserveCPUs(n int) { index.SetScanReserveCPUs(n) }
+
 // IsSpecialFile reports whether a file path is a recognised project
 // file (go.mod, Cargo.toml, tsconfig.json, ...).
 func IsSpecialFile(name string) (bool, string) {

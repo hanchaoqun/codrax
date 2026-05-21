@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/cpulimit"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 )
@@ -42,6 +43,33 @@ var resumeInterruptedScan = true
 // from main.go before any tool runs.
 func SetResumeInterruptedScan(enabled bool) {
 	resumeInterruptedScan = enabled
+}
+
+// scanReserveCPUs is the number of CPU cores a repomap scan leaves
+// free for interactive processes (notably sshd) so a long full scan of
+// a huge repository does not freeze a remote session. Default 0 —
+// process-level niceness (internal/cpulimit) is the primary lever and,
+// unlike core reservation, costs no scan throughput when the host is
+// otherwise idle.
+var scanReserveCPUs int
+
+// SetScanReserveCPUs sets how many cores scan worker pools leave free.
+// Called once from main.go before any tool runs.
+func SetScanReserveCPUs(n int) {
+	if n < 0 {
+		n = 0
+	}
+	scanReserveCPUs = n
+}
+
+// scanCPUBudget is how many CPUs scan work may occupy: GOMAXPROCS minus
+// the reserved cores, always at least 1.
+func scanCPUBudget() int {
+	n := runtime.GOMAXPROCS(0) - scanReserveCPUs
+	if n < 1 {
+		n = 1
+	}
+	return n
 }
 
 // CacheDir returns the cache directory for a given repo root.
@@ -800,6 +828,8 @@ func ChangedFilesWithProgress(repoRoot, cacheDir string, entries []FileEntry, pr
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			runtime.LockOSThread()
+			cpulimit.NiceCurrentThread()
 			for job := range jobs {
 				newHash, err := hashFile(job.entry.AbsPath)
 				if err != nil || newHash != job.old {
@@ -846,7 +876,7 @@ func changedFilesWorkers(total int) int {
 	if total <= 1 {
 		return 1
 	}
-	n := runtime.GOMAXPROCS(0) * 2
+	n := scanCPUBudget() * 2
 	if n < 2 {
 		n = 2
 	}
@@ -1013,6 +1043,8 @@ func verifyResumableFileInfos(entries []FileEntry, candidates map[string]*types.
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			runtime.LockOSThread()
+			cpulimit.NiceCurrentThread()
 			for j := range jobs {
 				// A re-classified extension would have parsed under a
 				// different extractor — never reuse across a language

@@ -1050,6 +1050,23 @@ type RuntimeSettings struct {
 	// never changes scan output. nil/true → enabled.
 	RepomapResumeInterruptedScan *bool `yaml:"repomap_resume_interrupted_scan"`
 
+	// CPU politeness. A repomap full scan of a very large repository is
+	// CPU-bound across every core; on a small remote host that can
+	// starve sshd and drop the operator's SSH session. CPUPolitenessEnabled
+	// raises the process (and every scan worker thread) nice value so
+	// scan work yields to interactive processes — it costs no scan
+	// throughput when the host is otherwise idle. CPUPolitenessNice is
+	// the target nice value, clamped to [0, 19].
+	//
+	// RepomapScanReserveCPUs additionally caps every scan worker pool to
+	// GOMAXPROCS minus this many cores, leaving them entirely free — a
+	// hard headroom guarantee, but one that does cost scan throughput.
+	// Default 0 relies on niceness alone (no throughput cost). nil →
+	// code default applied in cmd/root.go.
+	CPUPolitenessEnabled   *bool `yaml:"cpu_politeness_enabled"`
+	CPUPolitenessNice      *int  `yaml:"cpu_politeness_nice"`
+	RepomapScanReserveCPUs *int  `yaml:"repomap_scan_reserve_cpus"`
+
 	// CGEC (Citation-Grounded Evidence Closure) tunables. All
 	// optional; nil → code default in
 	// orchestrator.cgecForcedReadsPerRound /

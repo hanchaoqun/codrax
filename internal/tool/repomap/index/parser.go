@@ -8,6 +8,7 @@ import (
 
 	sitter "github.com/smacker/go-tree-sitter"
 
+	"github.com/hanchaoqun/codrax/internal/cpulimit"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 )
 
@@ -35,10 +36,11 @@ func ParseFilesWithProgress(entries []FileEntry, repoRoot string, progress func(
 // are collected so callers can keep serving the current in-memory graph
 // and merely degrade cache persistence.
 func ParseFilesWithProgressAndSink(entries []FileEntry, repoRoot string, progress func(done, total int), sink func(*types.FileInfo) error) ([]*types.FileInfo, error) {
-	workers := runtime.GOMAXPROCS(0)
-	if workers < 1 {
-		workers = 4
-	}
+	// Leave reserved cores free (scanCPUBudget) so a full scan of a
+	// huge repository does not freeze the host; every worker also pins
+	// scheduling niceness on its own OS thread so the CPU-bound
+	// tree-sitter loop yields to interactive processes (e.g. sshd).
+	workers := scanCPUBudget()
 
 	type result struct {
 		idx  int
@@ -53,6 +55,8 @@ func ParseFilesWithProgressAndSink(entries []FileEntry, repoRoot string, progres
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			runtime.LockOSThread()
+			cpulimit.NiceCurrentThread()
 			for idx := range jobs {
 				fi := parseOneFile(entries[idx])
 				results <- result{idx: idx, info: fi}

@@ -138,6 +138,35 @@
 #   改变扫描结果——重试是逐步收敛而非从零重来。默认 true。
 # repomap_resume_interrupted_scan: true
 
+# cpu_politeness_enabled — a repomap full scan is CPU-bound across every
+#   core; on a small remote host that can starve sshd and drop the SSH
+#   session. When true, codrax raises its process/worker-thread scheduling
+#   nice value so scan work yields to interactive processes. This costs no
+#   scan throughput when the host is otherwise idle — the scan still uses
+#   every spare cycle. Default: true.
+#   repomap 全量扫描会占满每个 CPU 核心;在核数偏小的远程主机上可能饿死
+#   sshd、导致 SSH 断连。开启后 codrax 抬高进程/worker 线程的调度 nice
+#   值,让扫描在有交互进程时让路。主机空闲时不损失扫描吞吐——扫描仍占满
+#   空闲算力。默认 true。
+# cpu_politeness_enabled: true
+
+# cpu_politeness_nice — target scheduling nice value, clamped to [0, 19].
+#   Higher = more polite. Default: 10.
+#   目标调度 nice 值,范围 [0, 19],越大越"礼让"。默认 10。
+# cpu_politeness_nice: 10
+
+# repomap_scan_reserve_cpus — additionally cap every scan worker pool at
+#   GOMAXPROCS minus this many cores, leaving them entirely free. A hard
+#   headroom guarantee, but unlike niceness it DOES cost scan throughput
+#   even on an idle host (reserving 1 of 4 cores ≈ 25% slower parse).
+#   Default 0 relies on niceness alone. Raise to 1 only if SSH still
+#   struggles, or on platforms without setpriority.
+#   再把每个扫描 worker 池上限压到 GOMAXPROCS 减去该核数,留出空闲核心。
+#   这是硬性余量保证,但与 nice 不同,即使主机空闲也会损失扫描吞吐
+#   (4 核留 1 核 ≈ 解析慢 25%)。默认 0,仅靠 nice 让路。仅当 SSH 仍卡顿
+#   或平台不支持 setpriority 时才设为 1。
+# repomap_scan_reserve_cpus: 0
+
 # ---------------------------------------------------------------------------
 # Tool output blobs  ·  工具输出 blob
 # ---------------------------------------------------------------------------

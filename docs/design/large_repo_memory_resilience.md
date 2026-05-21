@@ -1,12 +1,15 @@
-# Large-repo memory resilience
+# Large-repo scan resilience
 
-Status: implemented (branch `large-repo-memory-resilience`).
+Status: implemented.
 
 ## Problem
 
-Scanning a very large repository can OOM-kill the codrax process during
-the repomap full scan. Observed on the Linux kernel tree (93 461 files,
-63 896 parsed source files) on a 3.7 GiB host:
+A repomap full scan of a very large repository (the Linux kernel tree:
+93 461 files, 63 896 parsed source files) stresses a small host on two
+axes — memory and CPU — and either can take the process or the operator
+down.
+
+**Memory.** The scan was OOM-killed mid-parse on a 3.7 GiB host:
 
 ```
 dmesg: Out of memory: Killed process (codrax) anon-rss:2618512kB
@@ -16,16 +19,22 @@ Two consecutive runs died at the identical point — the parse phase of
 `repomap: full scan (... no cache)` — and each produced no usable cache,
 so every retry repeated the full cost from zero.
 
-Three independent causes, three independent fixes:
+**CPU.** With the OOM addressed, a later run instead saturated every CPU
+core for the duration of the parse phase, starving `sshd` enough to drop
+the operator's remote SSH session.
+
+Four independent causes, four independent fixes:
 
 | # | Cause | Fix |
 |---|-------|-----|
 | 1 | Go heap grows unbounded; GC is not pressured to run before RSS crosses the host OOM threshold. | Install a soft heap limit (`GOMEMLIMIT`) derived from host RAM at startup. |
 | 2 | The parse phase produces a large volume of transient garbage (file bytes, tree-sitter ASTs) that is never returned to the OS before the graph-build phase allocates on top of it. | Force a GC + `debug.FreeOSMemory()` after the parse phase. |
 | 3 | An interrupted scan installs no manifest, so its already-parsed chunks are unreachable; the next run re-parses everything. | Detect orphan chunk directories and resume from them (hash-verified). |
+| 4 | The parse phase runs one CPU-bound worker per core at normal priority, starving interactive processes (sshd) and dropping remote sessions. | Raise the process / worker-thread scheduling nice value; optional core reservation. |
 
-The three are synergistic: #1 caps RSS, #2 lowers the graph-build
-baseline, #3 shrinks the parse working set on every retry.
+Fixes 1–3 are synergistic: #1 caps RSS, #2 lowers the graph-build
+baseline, #3 shrinks the parse working set on every retry. #4 is
+orthogonal — it addresses host responsiveness, not process survival.
 
 ## Part 1 — soft heap limit (`internal/memlimit`)
 
@@ -142,6 +151,51 @@ to any one extractor invalidates resume for the whole directory, so a
 reused record can never have been produced by a stale extractor of any
 language. `TestResumableFileInfos_ReusesAcrossAllLanguages` exercises
 the reuse path against every versioned language.
+
+## Part 4 — CPU politeness (`internal/cpulimit`)
+
+The parse phase runs one tree-sitter worker per CPU core
+(`scanCPUBudget`), each pegged at 100 % for the minutes a huge-repo scan
+takes. At normal scheduling priority that leaves the kernel little room
+to run interactive processes; on a small host `sshd` misses enough
+keepalives to drop the operator's session.
+
+The fix is scheduling niceness, not fewer workers. `cpulimit.Apply`
+raises the process nice value at startup, and every scan worker
+goroutine additionally pins niceness on its own OS thread —
+`runtime.LockOSThread` then `cpulimit.NiceCurrentThread` — so the
+CPU-bound thread is polite regardless of when the Go runtime created the
+underlying M. The kernel then lets normal-priority processes preempt
+scan work whenever they are runnable.
+
+The key property: **niceness costs no scan throughput when the host is
+otherwise idle.** A niced worker still gets every spare cycle; it only
+yields under contention, and `sshd` needs only a sliver. So the scan
+runs at full speed in the common case and merely shares fairly when
+something interactive wakes up — exactly the desired trade-off, with no
+fixed efficiency tax.
+
+Niceness is raised, never lowered, so it never needs privilege. It is
+Linux/Unix-only (`setpriority`); on other platforms `Apply` degrades to
+a logged no-op and the operator can fall back to core reservation.
+
+### Optional core reservation
+
+`repomap_scan_reserve_cpus` (default `0`) caps every scan worker pool at
+`GOMAXPROCS` minus the reserved count, leaving that many cores entirely
+free. Unlike niceness this is a *hard* headroom guarantee, but it does
+cost scan throughput even on an idle host (e.g. reserving 1 of 4 cores
+is a ~25 % slower parse). It is left off by default precisely because
+niceness already keeps the host responsive at no throughput cost; the
+knob exists for platforms without `setpriority` or for operators who
+want a guaranteed-free core regardless of scheduler behaviour.
+
+Config knobs:
+
+- `cpu_politeness_enabled` — master switch (default `true`).
+- `cpu_politeness_nice` — target nice value, clamped to `[0, 19]`
+  (default `10`).
+- `repomap_scan_reserve_cpus` — cores left free (default `0`).
 
 ## Concurrency safety
 

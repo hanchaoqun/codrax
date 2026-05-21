@@ -1457,6 +1457,21 @@ multi_repo_enabled: false
 <td><code>true</code></td>
 <td>全量扫描复用上次被中断(如被 OOM 杀掉)的扫描已落盘的 chunk,经内容哈希校验后跳过重解析;重试逐步收敛而非从零重来。覆盖全部 15 种语言</td>
 </tr>
+<tr>
+<td><code>cpu_politeness_enabled</code></td>
+<td><code>true</code></td>
+<td>抬高进程 / 扫描 worker 线程的调度 nice 值,让 CPU 密集的扫描在有交互进程(尤其 sshd)时让路,避免远程 SSH 被饿断。主机空闲时<strong>不损失扫描吞吐</strong></td>
+</tr>
+<tr>
+<td><code>cpu_politeness_nice</code></td>
+<td><code>10</code></td>
+<td>目标 nice 值,范围 <code>[0,19]</code>,越大越礼让</td>
+</tr>
+<tr>
+<td><code>repomap_scan_reserve_cpus</code></td>
+<td><code>0</code></td>
+<td>额外把扫描 worker 池上限压到 <code>GOMAXPROCS</code> 减该核数,硬性留出空闲核心。与 nice 不同,即使主机空闲也会损失吞吐(4 核留 1 ≈ 慢 25%);默认 0 仅靠 nice。仅当 SSH 仍卡顿或平台无 <code>setpriority</code> 时设 1</td>
+</tr>
 </tbody>
 </table></div>
 <h3 id="流水线预算">流水线预算</h3>
@@ -2195,6 +2210,8 @@ codrax --mode=verify --plan-file=/tmp/plan.json
 → 某种语言的 tree-sitter 解析失败率偏高。问题不大,但建议升级 codrax 或反馈给团队。</p>
 <p><strong>扫描超大仓库时进程被杀(<code>Killed</code> / dmesg 里有 OOM)</strong>
 → 在内存偏小的机器上扫巨型仓库(如 Linux 内核)时,repomap 全量扫描可能耗尽宿主 RAM。codrax 默认已三管齐下缓解:启动设 GOMEMLIMIT 软上限、解析后立即回收内存、被中断的扫描下次自动从已落盘 chunk 续扫(见 5.2「大仓内存韧性」)。若仍被杀:① 临时加 swap 让首次扫描扛过峰值、把 cache 建出来;② 用 <code>--repo</code> 指向更小的子目录而非整棵树;③ 内存极小的机器可调低 <code>memory_soft_limit_fraction</code>。日志里的 <code>repo_map: resuming interrupted scan</code> 行说明续扫已生效。</p>
+<p><strong>扫描超大仓库时 SSH 断连 / 远程终端卡死</strong>
+→ 全量扫描会占满每个 CPU 核心,可能饿死 sshd。codrax 默认已抬高扫描线程的调度 nice 值(启动日志 <code>cpu: CPU politeness: nice=10</code>),让扫描在 sshd 需要时让路 —— <strong>主机空闲时不损失扫描速度</strong>,只在有交互进程时礼让。若仍卡顿:把 <code>repomap_scan_reserve_cpus</code> 设为 <code>1</code>,硬性留出一个空闲核心(代价是扫描慢约 25%)。该键也适用于不支持 <code>setpriority</code> 的平台。</p>
 <h2 id="84-写模式特有">8.4 写模式特有</h2>
 <p><strong><code>/mode plan</code> 报 <code>write_enabled is false</code></strong>
 → <code>codrax.yaml</code> 加 <code>write_enabled: true</code>,重启 codrax。</p>
