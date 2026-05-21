@@ -284,7 +284,7 @@ flowchart TD
 ### Batch 3 — Finalizer / Reviewer Consumption
 
 - [x] Render a compact `Observation Ledger` prompt section before raw tool output.
-- [ ] Update claim binding rendering to point at ledger record IDs where possible.
+- [x] Update claim binding rendering to point at ledger record IDs where possible.
 - [x] Keep raw tool output as fallback/audit, not principal interpretation.
 - [ ] Update semantic reviewer input to consume ledger summaries.
 - [x] Add tests that a git feature-summary answer is not compressed to a commit hash.
@@ -367,3 +367,8 @@ flowchart TD
   artifact paging are the reuse target; the missing work is making every
   external producer expose a ledger `RawRef` / resource URI and local spans when
   the source supports line/row/JSON/time coordinates.
+- 2026-05-21: Batch 3 claim-binding bridge completed: the finalizer's claim
+  binding handoff now lists matching `Observation Ledger` record ids where the
+  relationship is exact (aggregate index + origin) or runtime-artifact typed
+  bundle matching is available. This keeps bindings and ledger records aligned
+  without adding another origin inference path.

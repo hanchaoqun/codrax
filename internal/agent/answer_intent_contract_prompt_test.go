@@ -158,6 +158,8 @@ func TestRenderAnswerDocClaimBindings_ShowsOriginSpecificPolicies(t *testing.T) 
 		"origin=`vcs_metadata`; policy=`repairable`",
 		"origin=`command_measurement`; policy=`hard`",
 		"outputs=`summary`, `scalar`, `count`",
+		"ledger_records=aggregate:0#vcs_metadata",
+		"ledger_records=aggregate:0#command_measurement",
 		"Do not translate non-`current_source` bindings into current-source file:line requirements",
 	} {
 		if !strings.Contains(got, want) {
@@ -194,6 +196,7 @@ func TestRenderAnswerDocClaimBindings_RuntimeArtifactWithoutAggregateFacts(t *te
 		"origin=`runtime_artifact`; policy=`repairable`",
 		"source=`log_triage`",
 		"support_refs=1",
+		"ledger_records=log:error:0",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("runtime artifact claim binding prompt missing %q:\n%s", want, got)

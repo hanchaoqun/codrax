@@ -3524,6 +3524,7 @@ func renderAnswerDocClaimBindings(ctx *types.AgentContext) string {
 	b.WriteString("- The following claim bindings are compiled from typed `aggregate_facts`, runtime artifacts, evidence origins, and requested outputs. They are the shared interpretation for answer-writing and review lanes.\n")
 	b.WriteString("- Do not translate non-`current_source` bindings into current-source file:line requirements. Use each binding's origin-specific support shape.\n")
 	b.WriteString("- `hard` means the principal claim itself must be exact; `repairable` / `soft` defects should be locally repaired or disclosed in a localized supplement rather than forcing a broad rewrite.\n")
+	ledger := answerDocObservationLedger(ctx)
 	limit := len(bindings)
 	if limit > 12 {
 		limit = 12
@@ -3534,8 +3535,13 @@ func renderAnswerDocClaimBindings(ctx *types.AgentContext) string {
 		if binding.AggregateIndex < 0 {
 			source = fmt.Sprintf("source=`%s`", binding.Source)
 		}
+		ledgerIDs := answerDocClaimBindingLedgerRecordIDs(binding, ledger)
+		ledgerPart := ""
+		if len(ledgerIDs) > 0 {
+			ledgerPart = fmt.Sprintf("; ledger_records=%s", strings.Join(ledgerIDs, ","))
+		}
 		fmt.Fprintf(&b,
-			"- `%s`: origin=`%s`; policy=`%s`; outputs=%s; %s; target=%q; support_refs=%d\n",
+			"- `%s`: origin=`%s`; policy=`%s`; outputs=%s; %s; target=%q; support_refs=%d%s\n",
 			binding.ClaimID,
 			binding.Origin,
 			binding.GroundingPolicy,
@@ -3543,6 +3549,7 @@ func renderAnswerDocClaimBindings(ctx *types.AgentContext) string {
 			source,
 			binding.TargetRef,
 			len(binding.SupportRefs),
+			ledgerPart,
 		)
 	}
 	if len(bindings) > limit {
@@ -3550,6 +3557,58 @@ func renderAnswerDocClaimBindings(ctx *types.AgentContext) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func answerDocClaimBindingLedgerRecordIDs(binding types.AnswerClaimBinding, ledger types.ObservationLedger) []string {
+	if len(ledger.Records) == 0 {
+		return nil
+	}
+	if binding.AggregateIndex >= 0 {
+		want := fmt.Sprintf("aggregate:%d#%s", binding.AggregateIndex, binding.Origin)
+		for _, record := range ledger.Records {
+			if record.ID == want {
+				return []string{want}
+			}
+		}
+		return nil
+	}
+	var prefix string
+	switch strings.TrimSpace(binding.Source) {
+	case "log_triage":
+		prefix = "log:"
+	case "perf_trace":
+		prefix = "perf:"
+	default:
+		return nil
+	}
+	target := strings.TrimSpace(binding.TargetRef)
+	out := make([]string, 0, 3)
+	for _, record := range ledger.Records {
+		if len(out) >= 3 {
+			break
+		}
+		if record.Origin != binding.Origin || !strings.HasPrefix(record.ID, prefix) {
+			continue
+		}
+		if target != "" &&
+			!strings.EqualFold(strings.TrimSpace(record.ClaimKey), target) &&
+			!strings.EqualFold(strings.TrimSpace(record.Subject), target) {
+			continue
+		}
+		out = append(out, record.ID)
+	}
+	if len(out) > 0 {
+		return out
+	}
+	for _, record := range ledger.Records {
+		if len(out) >= 3 {
+			break
+		}
+		if record.Origin == binding.Origin && strings.HasPrefix(record.ID, prefix) {
+			out = append(out, record.ID)
+		}
+	}
+	return out
 }
 
 const answerDocObservationLedgerPromptLimit = 18
