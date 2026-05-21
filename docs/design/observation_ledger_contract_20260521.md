@@ -353,13 +353,17 @@ flowchart TD
 
 ### Batch 4B — External Artifact Paging And Anchor Readiness
 
-- [ ] Audit every non-code producer (`git_log`, `git_show`, `git_diff`,
+- [x] Audit every non-code producer (`git_log`, `git_show`, `git_diff`,
   `exec_command`, attached log/trace, future MCP/web/connector) for whether large
   payloads expose `RawRef` and whether exact local coordinates are recoverable.
-- [ ] Reuse the existing blob session + `read_file` paging path for large
+- [x] Reuse the existing blob session + `read_file` paging path for large
   command/git/log/trace outputs; do not invent a second storage mechanism.
-- [ ] Add tests that ledger records preserve `RawRef` for blob-backed command/git
+- [x] Add tests that ledger records preserve `RawRef` for blob-backed command/git
   output and preserve artifact-local line/row/JSON/time spans where available.
+- [x] Project VCS tool banner coordinates (`ref`, `pathspec`, `window_path`,
+  `diff_path`, `answer_count`, command string) into ledger `SourceRef` /
+  `ResultCount` so consumers can distinguish commit/diff/history coordinates
+  from current-source citations.
 - [ ] Add eval cases for "log line N", "trace window around event", "git diff hunk
   around file", "MCP JSON field exists/absent", and "web paragraph contains/does
   not contain term".
@@ -470,3 +474,8 @@ flowchart TD
   source impact, and `logtri_line_current_code` covers artifact-local log line
   + current-code explanation. MCP/web mixed-origin evals stay explicitly
   tracked but unimplemented until the runner has those producers.
+- 2026-05-21: Batch 4B VCS/tool coordinate projection completed: git/diff/history
+  and exec-command observations now keep blob `RawRef` plus structured
+  `ref/pathspec/window_path/diff_path/answer_count/command` coordinates in the
+  ledger. This keeps VCS/diff facts addressable without pretending they are
+  current-checkout `file:line` citations.

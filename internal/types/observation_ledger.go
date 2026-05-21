@@ -352,6 +352,8 @@ func compileToolResultObservations(results []ToolResult, add func(ObservationRec
 		if !result.Success {
 			continue
 		}
+		banners := toolResultBanners(result.Summary)
+		command := toolResultCommandLine(result.Summary)
 		origins := toolResultEvidenceOrigins(result)
 		for _, origin := range origins {
 			role := AnswerAggregateRoleSupportingCoverage
@@ -361,15 +363,12 @@ func compileToolResultObservations(results []ToolResult, add func(ObservationRec
 				Producer:        strings.TrimSpace(result.ToolName),
 				Role:            role,
 				GroundingPolicy: AnswerClaimBindingGroundingPolicy(origin, role),
-				SourceRef: ObservationSourceRef{
-					Kind:       ObservationSourceKindForOrigin(origin),
-					ToolCallID: fmt.Sprintf("%s[%d]", strings.TrimSpace(result.ToolName), i),
-					RawRef:     strings.TrimSpace(result.RawRef),
-				},
-				ClaimKey:   strings.TrimSpace(result.ToolName),
-				Summary:    firstNonBannerLine(result.Summary),
-				RawExcerpt: clippedObservationExcerpt(result.Summary),
-				ObservedAt: result.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
+				SourceRef:       sourceRefForToolResult(origin, result, i, banners, command),
+				ClaimKey:        toolResultClaimKey(result, banners),
+				ResultCount:     toolResultResultCount(result.Summary, banners),
+				Summary:         firstNonBannerLine(result.Summary),
+				RawExcerpt:      clippedObservationExcerpt(result.Summary),
+				ObservedAt:      result.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
 			})
 		}
 	}
@@ -612,6 +611,98 @@ func sourceRefForAggregateFact(origin AnswerEvidenceOrigin, dims map[string]stri
 	return ref
 }
 
+func sourceRefForToolResult(origin AnswerEvidenceOrigin, result ToolResult, index int, banners []map[string]string, command string) ObservationSourceRef {
+	ref := ObservationSourceRef{
+		Kind:       ObservationSourceKindForOrigin(origin),
+		ToolCallID: fmt.Sprintf("%s[%d]", strings.TrimSpace(result.ToolName), index),
+		RawRef:     strings.TrimSpace(result.RawRef),
+	}
+	switch origin {
+	case AnswerEvidenceOriginVCSMetadata, AnswerEvidenceOriginVCSDiff:
+		ref.Repo = firstBannerValue(banners, "repo", "repo_path", "path")
+		ref.Commit = firstBannerValue(banners, "commit")
+		ref.Range = firstBannerValue(banners, "commit_range", "range", "ref")
+		ref.Pathspec = firstBannerValue(banners, "pathspec", "diff_path", "window_path")
+		if ref.Pathspec == "" && result.ToolName == "git_show" {
+			ref.Pathspec = firstBannerValue(banners, "path")
+		}
+		if result.ToolName == "git_show" && ref.Commit == "" {
+			ref.Commit = firstBannerValue(banners, "ref")
+		}
+		if result.ToolName == "git_history_search" {
+			ref.Range = compactToolResultRange(
+				firstBannerValue(banners, "order"),
+				firstBannerValue(banners, "window_count"),
+			)
+		}
+	case AnswerEvidenceOriginCommandMeasurement:
+		ref.Command = command
+	}
+	if ref.Command == "" && result.ToolName == "exec_command" {
+		ref.Command = command
+	}
+	return ref
+}
+
+func compactToolResultRange(order, count string) string {
+	order = strings.TrimSpace(order)
+	count = strings.TrimSpace(count)
+	switch {
+	case order != "" && count != "":
+		return fmt.Sprintf("order=%s window_count=%s", order, count)
+	case order != "":
+		return "order=" + order
+	case count != "":
+		return "window_count=" + count
+	default:
+		return ""
+	}
+}
+
+func toolResultClaimKey(result ToolResult, banners []map[string]string) string {
+	return firstNonEmptyString(
+		firstBannerValue(banners, "target", "query", "contains", "ref", "pathspec", "diff_path", "window_path"),
+		strings.TrimSpace(result.ToolName),
+	)
+}
+
+func toolResultResultCount(summary string, banners []map[string]string) *int {
+	for _, raw := range []string{
+		firstKeyValueLine(summary, "answer_count"),
+		firstKeyValueLine(summary, "result_count"),
+		firstBannerValue(banners, "answer_count", "result_count"),
+	} {
+		n, err := strconv.Atoi(strings.TrimSpace(raw))
+		if err == nil && n >= 0 {
+			return &n
+		}
+	}
+	return nil
+}
+
+func firstKeyValueLine(summary, key string) string {
+	prefix := strings.ToLower(strings.TrimSpace(key)) + "="
+	for _, line := range strings.Split(summary, "\n") {
+		trimmed := strings.TrimSpace(line)
+		lower := strings.ToLower(trimmed)
+		if strings.HasPrefix(lower, prefix) {
+			return strings.TrimSpace(trimmed[len(prefix):])
+		}
+	}
+	return ""
+}
+
+func firstBannerValue(banners []map[string]string, keys ...string) string {
+	for _, banner := range banners {
+		for _, key := range keys {
+			if value := strings.TrimSpace(banner[strings.ToLower(strings.TrimSpace(key))]); value != "" {
+				return value
+			}
+		}
+	}
+	return ""
+}
+
 func toolResultEvidenceOrigins(result ToolResult) []AnswerEvidenceOrigin {
 	seen := map[AnswerEvidenceOrigin]bool{}
 	var out []AnswerEvidenceOrigin
@@ -628,6 +719,17 @@ func toolResultEvidenceOrigins(result ToolResult) []AnswerEvidenceOrigin {
 		}
 	}
 	return out
+}
+
+func toolResultCommandLine(summary string) string {
+	for _, line := range strings.Split(summary, "\n") {
+		line = strings.TrimSpace(line)
+		const prefix = "[exec_command: $ "
+		if strings.HasPrefix(line, prefix) && strings.HasSuffix(line, "]") {
+			return strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(line, prefix), "]"))
+		}
+	}
+	return ""
 }
 
 func toolResultBanners(summary string) []map[string]string {

@@ -283,6 +283,53 @@ func TestCompileObservationLedger_PreservesExternalPagingRefsAndLocalSpans(t *te
 	}
 }
 
+func TestCompileObservationLedger_ProjectsToolBannerCoordinates(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{ToolResults: []ToolResult{
+		{
+			ToolName: "git_show",
+			Success:  true,
+			Summary:  "[git_show: repo_path=. ref=abc123 path=internal/tool format=medium no_patch=false stat=false name_only=false evidence_origin=vcs_metadata diff_origin=vcs_diff]\ncommit abc123\n",
+			RawRef:   "/tmp/codrax/blob/git_show-1.txt",
+		},
+		{
+			ToolName: "git_history_search",
+			Success:  true,
+			Summary: "[git_history_search: window_path=internal/orchestrator window_count=20 order=recent diff_path=internal/orchestrator contains=runTaskGraph evidence_origin=vcs_metadata]\n" +
+				"window_size=20\nanswer_count=0\nmatched_commits:\n- none\n",
+			RawRef: "/tmp/codrax/blob/git_history_search-1.txt",
+		},
+		{
+			ToolName: "exec_command",
+			Success:  true,
+			Summary:  "[exec_command: $ git log --oneline -n 3]\n[exec_command: evidence_origin=vcs_metadata]\nabc123 feature\n",
+			RawRef:   "/tmp/codrax/blob/exec_command-1.txt",
+		},
+	}})
+	showMetadata := findObservationRecord(t, ledger, "tool:0#vcs_metadata")
+	if showMetadata.SourceRef.Commit != "abc123" ||
+		showMetadata.SourceRef.Pathspec != "internal/tool" ||
+		showMetadata.SourceRef.RawRef != "/tmp/codrax/blob/git_show-1.txt" {
+		t.Fatalf("git_show metadata coordinates not projected: %+v", showMetadata.SourceRef)
+	}
+	showDiff := findObservationRecord(t, ledger, "tool:0#vcs_diff")
+	if showDiff.SourceRef.Commit != "abc123" || showDiff.SourceRef.Pathspec != "internal/tool" {
+		t.Fatalf("git_show diff coordinates not projected: %+v", showDiff.SourceRef)
+	}
+	history := findObservationRecord(t, ledger, "tool:1#vcs_metadata")
+	if history.SourceRef.Pathspec != "internal/orchestrator" ||
+		history.SourceRef.Range != "order=recent window_count=20" ||
+		history.ResultCount == nil ||
+		*history.ResultCount != 0 ||
+		history.ClaimKey != "runTaskGraph" {
+		t.Fatalf("git_history_search coordinates/result count not projected: record=%+v", history)
+	}
+	exec := findObservationRecord(t, ledger, "tool:2#vcs_metadata")
+	if exec.SourceRef.Command != "git log --oneline -n 3" ||
+		exec.SourceRef.RawRef != "/tmp/codrax/blob/exec_command-1.txt" {
+		t.Fatalf("exec_command command/raw ref not projected: %+v", exec.SourceRef)
+	}
+}
+
 func TestPrioritizeObservationRecords_MixedHistoryAndCurrentCodeKeepsExactSourceFirst(t *testing.T) {
 	records := []ObservationRecord{
 		{
