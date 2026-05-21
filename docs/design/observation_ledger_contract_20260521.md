@@ -603,3 +603,10 @@ flowchart TD
   architecture explanations with multiple subtopics can still use evidence
   guidance, but they no longer inherit exhaustive enumeration coverage pressure
   from a stale fork-local flag.
+- 2026-05-21: Batch 8 rerun result: `read_combo_analyze_retry_anchor` passed
+  again; the erroneous enumeration hint disappeared, `explorer_iters` improved
+  from 52 to 42, and `midloop_inject` improved from 28 to 21. Residual work is
+  now split into two explicit gaps: semantic-quality diagram concern noise for
+  mechanism questions without an explicit diagram request, and parallel-lane
+  convergence / forced-read repair churn after one lane has already closed a
+  grounded principal answer.
