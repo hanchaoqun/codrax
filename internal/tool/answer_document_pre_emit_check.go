@@ -5720,7 +5720,13 @@ func normalizeRequiredMechanismAnchorCarriersWithContext(doc *types.AnswerDocume
 	if len(missing) == 0 {
 		return 0
 	}
-	blockIdx := ensureRequiredMechanismAnchorBlock(doc, ctx)
+	blockIdx := requiredMechanismAnchorBlockIndex(doc)
+	if blockIdx < 0 {
+		if !shouldMaterializeRequiredMechanismAnchorBlock(view, ctx) {
+			return 0
+		}
+		blockIdx = appendRequiredMechanismAnchorBlock(doc, ctx)
+	}
 	if blockIdx < 0 || blockIdx >= len(doc.Blocks) {
 		return 0
 	}
@@ -5741,7 +5747,14 @@ func normalizeRequiredMechanismAnchorCarriersWithContext(doc *types.AnswerDocume
 	return added
 }
 
-func ensureRequiredMechanismAnchorBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+func shouldMaterializeRequiredMechanismAnchorBlock(view *types.AnswerSemanticView, ctx *types.BusContext) bool {
+	if view == nil || ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	return view.RequiresAnchorSkeleton(ctx.AnalysisIR.RequestModel)
+}
+
+func requiredMechanismAnchorBlockIndex(doc *types.AnswerDocumentV2) int {
 	if doc == nil {
 		return -1
 	}
@@ -5749,6 +5762,13 @@ func ensureRequiredMechanismAnchorBlock(doc *types.AnswerDocumentV2, ctx *types.
 		if block.ID == "required_mechanism_anchors" {
 			return i
 		}
+	}
+	return -1
+}
+
+func appendRequiredMechanismAnchorBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil {
+		return -1
 	}
 	block := types.AnswerBlock{
 		ID:    uniqueRequiredMechanismAnchorBlockID(doc),

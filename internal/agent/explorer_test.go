@@ -4429,6 +4429,46 @@ func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *test
 		}
 	})
 
+	t.Run("multiple read repairs render one forced-read section", func(t *testing.T) {
+		hint := renderClosureRepairHint([]types.RepairDirective{
+			{
+				Kind:      types.RepairReadFile,
+				Files:     []string{"internal/agent/agent.go"},
+				Rationale: "first exact-anchor blocker",
+				Origin:    "emit_investigation_complete.primary_anchor",
+			},
+			{
+				Kind:      types.RepairReadFile,
+				Files:     []string{"internal/orchestrator/orchestrator.go", "internal/types/config.go"},
+				Rationale: "second exact-anchor blocker",
+				Origin:    "emit_investigation_complete.symbol_demand",
+			},
+		})
+		if got := strings.Count(hint, "## Forced Read List"); got != 1 {
+			t.Fatalf("closure repair hint should merge read repairs into one section, got %d headings:\n%s", got, hint)
+		}
+		for _, want := range []string{"internal/agent/agent.go", "internal/orchestrator/orchestrator.go"} {
+			if !strings.Contains(hint, want) {
+				t.Fatalf("merged forced-read hint missing %q:\n%s", want, hint)
+			}
+		}
+	})
+
+	t.Run("empty expand-search repair does not render an empty section", func(t *testing.T) {
+		hint := renderClosureRepairHint([]types.RepairDirective{
+			{
+				Kind:  types.RepairReadFile,
+				Files: []string{"internal/agent/agent.go"},
+			},
+			{
+				Kind: types.RepairExpandSearch,
+			},
+		})
+		if strings.Contains(hint, "## Search Coverage Gap") {
+			t.Fatalf("empty expand-search repair should not render an empty heading:\n%s", hint)
+		}
+	})
+
 	t.Run("hard rejection with structured repair also prioritizes closure repair", func(t *testing.T) {
 		mut := types.NewMutableState("q")
 		mut.EvidenceClosure().AddRepair(types.RepairDirective{

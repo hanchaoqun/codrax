@@ -78,8 +78,15 @@ func TestNormalizeRequiredMechanismAnchorCarriers_AppendsCitedAnchorBlock(t *tes
 		Snippet:         `return "explorer"`,
 		GroundingStatus: types.GroundingGrounded,
 	}})
-	ctx := &types.BusContext{Mutable: mu, Language: "zh"}
+	ctx := &types.BusContext{
+		Mutable:  mu,
+		Language: "zh",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SubTopics: []types.SubTopic{{Summary: "agent"}, {Summary: "tool"}},
+		}},
+	}
 	view := &types.AnswerSemanticView{
+		Family: types.QFGeneric,
 		RequiredMechanismAnchors: []types.AnswerRequiredAnchor{{
 			Text: "explorer",
 			Kind: types.ContractTermSymbol,
@@ -108,6 +115,33 @@ func TestNormalizeRequiredMechanismAnchorCarriers_AppendsCitedAnchorBlock(t *tes
 	}
 }
 
+func TestNormalizeRequiredMechanismAnchorCarriers_DoesNotCreateBlockForArchitecture(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "The mechanism is already explained in prose sections.",
+	}}}
+	view := &types.AnswerSemanticView{
+		Family: types.QFArchitecture,
+		RequiredMechanismAnchors: []types.AnswerRequiredAnchor{{
+			Text: "runTaskGraph",
+			Kind: types.ContractTermSymbol,
+		}},
+	}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		SubTopics: []types.SubTopic{{Summary: "runTaskGraph"}, {Summary: "AnalysisIR"}},
+	}}}
+
+	if fixed := normalizeRequiredMechanismAnchorCarriers(doc, view, ctx); fixed != 0 {
+		t.Fatalf("architecture mechanism answers should not get system-injected key-anchor blocks, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	for _, block := range doc.Blocks {
+		if block.ID == "required_mechanism_anchors" {
+			t.Fatalf("system-injected key-anchor block should stay support-only for architecture answers: %+v", block)
+		}
+	}
+}
+
 func TestNormalizeRequiredMechanismAnchorCarriers_EnglishTitle(t *testing.T) {
 	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
 		ID:   "summary",
@@ -118,7 +152,13 @@ func TestNormalizeRequiredMechanismAnchorCarriers_EnglishTitle(t *testing.T) {
 		Text: "runAnalyzePhase",
 		Kind: types.ContractTermSymbol,
 	}}}
-	ctx := &types.BusContext{Language: "en"}
+	view.Family = types.QFGeneric
+	ctx := &types.BusContext{
+		Language: "en",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SubTopics: []types.SubTopic{{Summary: "analyze"}, {Summary: "retry"}},
+		}},
+	}
 
 	if fixed := normalizeRequiredMechanismAnchorCarriers(doc, view, ctx); fixed != 1 {
 		t.Fatalf("fixed=%d want 1", fixed)

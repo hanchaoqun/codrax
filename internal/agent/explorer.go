@@ -5604,10 +5604,16 @@ func renderCompactClosureRepairSection(repair types.RepairDirective) string {
 			b.WriteString("Re-emit grounded evidence from the already-read anchor lines before retrying completion.\n")
 		}
 	case types.RepairExpandSearch:
+		if len(repair.Keywords) == 0 && strings.TrimSpace(repair.Rationale) == "" {
+			return ""
+		}
 		b.WriteString("## Search Coverage Gap\n")
 		if len(repair.Keywords) > 0 {
 			b.WriteString("Broaden the search with these keyword stems: ")
 			b.WriteString(strings.Join(repair.Keywords, ", "))
+			b.WriteString("\n")
+		} else {
+			b.WriteString(strings.TrimSpace(repair.Rationale))
 			b.WriteString("\n")
 		}
 	case types.RepairSwapView:
@@ -5631,6 +5637,7 @@ func renderClosureRepairHint(repairs []types.RepairDirective) string {
 	if len(repairs) == 0 {
 		return ""
 	}
+	repairs = mergeClosureRepairsForHint(repairs)
 	var b strings.Builder
 	b.WriteString("MID-LOOP CHECK: the last completion attempt already queued structured closure repairs. Finish the blocking repair first instead of returning to generic navigation.\n\n")
 	limit := len(repairs)
@@ -5650,6 +5657,59 @@ func renderClosureRepairHint(repairs []types.RepairDirective) string {
 	}
 	b.WriteString("After one repair succeeds, re-emit grounded evidence if needed, then retry `emit_investigation_complete(reason, confidence, result_kind)`.")
 	return strings.TrimSpace(b.String())
+}
+
+func mergeClosureRepairsForHint(repairs []types.RepairDirective) []types.RepairDirective {
+	if len(repairs) <= 1 {
+		return repairs
+	}
+	type key struct {
+		kind     types.RepairKind
+		subject  string
+		advisory bool
+	}
+	order := make([]key, 0, len(repairs))
+	merged := make(map[key]types.RepairDirective, len(repairs))
+	for _, repair := range repairs {
+		k := key{kind: repair.Kind, subject: repair.Subject, advisory: repair.Advisory}
+		cur, ok := merged[k]
+		if !ok {
+			merged[k] = repair
+			order = append(order, k)
+			continue
+		}
+		cur.Files = dedupMergeStrings(cur.Files, repair.Files)
+		cur.Keywords = dedupMergeStrings(cur.Keywords, repair.Keywords)
+		if strings.TrimSpace(cur.Rationale) == "" {
+			cur.Rationale = repair.Rationale
+		}
+		if strings.TrimSpace(cur.Origin) == "" {
+			cur.Origin = repair.Origin
+		}
+		merged[k] = cur
+	}
+	out := make([]types.RepairDirective, 0, len(order))
+	for _, k := range order {
+		out = append(out, merged[k])
+	}
+	return out
+}
+
+func dedupMergeStrings(base, extra []string) []string {
+	if len(extra) == 0 {
+		return base
+	}
+	seen := make(map[string]bool, len(base)+len(extra))
+	out := make([]string, 0, len(base)+len(extra))
+	for _, value := range append(append([]string(nil), base...), extra...) {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" || seen[trimmed] {
+			continue
+		}
+		seen[trimmed] = true
+		out = append(out, trimmed)
+	}
+	return out
 }
 
 func (e *explorerEvaluator) awaitingClosureRepair(results []types.ToolResult) bool {
