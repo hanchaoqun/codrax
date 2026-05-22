@@ -162,7 +162,9 @@ func normalizeAggregateFactsForTypedExclusion(ctx *types.BusContext, facts []typ
 // EffectiveAnswerExclusionRolesForAgentContext returns the exclusion roles that
 // remain safe to show to the finalizer. Exclusions are typed user-intent
 // boundaries; a later principal aggregate fact cannot protect a same-role
-// candidate from a role the current request explicitly excluded.
+// candidate from a role the current request explicitly excluded. Positive typed
+// request lanes such as source_inventory_profile / answer_role_profile are the
+// exception because they describe the user's requested principal role.
 func EffectiveAnswerExclusionRolesForAgentContext(ctx *types.AgentContext) []types.AnswerCandidateRole {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return nil
@@ -216,7 +218,36 @@ func answerDocumentEffectiveExcludedRoleSet(
 		ctx.AnalysisIR.RequestModel.AnswerVisibilityProfile.ExcludesPrivateSymbols() {
 		roles[types.AnswerCandidateRolePrivate] = true
 	}
+	for role := range answerDocumentRequestProtectedPrincipalRoles(ctx) {
+		delete(roles, role)
+	}
 	return roles
+}
+
+func answerDocumentRequestProtectedPrincipalRoles(ctx *types.BusContext) map[types.AnswerCandidateRole]bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	rm := &ctx.AnalysisIR.RequestModel
+	protected := map[types.AnswerCandidateRole]bool{}
+	if profile := rm.SourceInventoryProfile; profile != nil && profile.Active() {
+		for _, role := range profile.PrincipalTargetRoles() {
+			if role != types.AnswerCandidateRoleUnknown && role != types.AnswerCandidateRolePrivate {
+				protected[role] = true
+			}
+		}
+	}
+	if profile := rm.AnswerRoleProfile; profile != nil && profile.Active() {
+		for _, role := range profile.RequiredCandidateRoles {
+			if role != types.AnswerCandidateRoleUnknown && role != types.AnswerCandidateRolePrivate {
+				protected[role] = true
+			}
+		}
+	}
+	if len(protected) == 0 {
+		return nil
+	}
+	return protected
 }
 
 func answerDocumentPrincipalAggregateProtectedRoles(
@@ -338,8 +369,10 @@ func answerDocumentExcludedCandidateNamesForTextRedaction(ctx *types.BusContext,
 			addExcludedAggregateCandidates(ta.AcceptedAggregateFacts, add)
 		}
 	}
+	graphRoles := copyAnswerDocumentRoleSet(roles)
+	delete(graphRoles, types.AnswerCandidateRolePrivate)
 	for _, graph := range answerDocumentExclusionGraphs(ctx) {
-		addExcludedGraphSymbolsForTextRedaction(graph, roles, add)
+		addExcludedGraphSymbolsForTextRedaction(graph, graphRoles, add)
 	}
 	out := make([]string, 0, len(seen))
 	for candidate := range seen {
@@ -351,6 +384,19 @@ func answerDocumentExcludedCandidateNamesForTextRedaction(ctx *types.BusContext,
 		}
 		return out[i] < out[j]
 	})
+	return out
+}
+
+func copyAnswerDocumentRoleSet(roles map[types.AnswerCandidateRole]bool) map[types.AnswerCandidateRole]bool {
+	if len(roles) == 0 {
+		return nil
+	}
+	out := make(map[types.AnswerCandidateRole]bool, len(roles))
+	for role, ok := range roles {
+		if ok {
+			out[role] = true
+		}
+	}
 	return out
 }
 

@@ -320,7 +320,7 @@ Implementation / validation notes:
 
 ### Batch 3 — Origin-specific provenance and supplement cleanup
 
-Status: in progress.
+Status: implemented and audited.
 
 Root-cause refresh:
 
@@ -541,7 +541,7 @@ Implementation notes:
 
 ### Batch 6 — Tool-call narrative preservation without prose takeover
 
-Status: in progress.
+Status: completed.
 
 Root-cause refresh:
 
@@ -575,10 +575,10 @@ Implementation tasks:
 2. [x] Reuse existing typed exclusion sanitization so explicitly excluded
    candidates in closure prose are redacted before reaching extractor/finalizer
    prompts.
-3. [ ] Add targeted eval coverage for a principal member-set inventory where
+3. [x] Add targeted eval coverage for a principal member-set inventory where
    `emit_investigation_complete.reason` carries scope/methodology prose that
    must survive while member rows remain authoritative.
-4. [ ] Extend the same audit to VCS/latest-feature, recent-N history,
+4. [x] Extend the same audit to VCS/latest-feature, recent-N history,
    diff+current-code, log/trace positive+negative mix, and cross-repo
    no-interaction runs. These external evidence families often put the most
    useful answer-level synthesis in the accepted closure reason.
@@ -592,6 +592,44 @@ Implementation notes:
   typed observation ledgers outrank closure prose. Closure prose may explain
   scope and boundary; it must not substitute for a load-bearing citation in
   current-code control-flow answers.
+- Targeted eval added: `read_combo_member_set_closure_scope`. The first broad
+  package run (`20260523-013720`) proved the closure-summary handoff but was
+  intentionally high-cost (`110/110` source-inventory rows). The stable guard is
+  now file-scoped to `internal/types/evidence.go` so it watches the contract
+  without turning every run into a package-wide stress test.
+- Targeted eval `read_combo_member_set_closure_scope-20260523-022037`: PASS,
+  `finalizer_iters=1`, `extractor_iters=1`,
+  `semantic_quality_concerns=0`. The final answer preserved the opening
+  verification scope / filtering method / exclusion prose and rendered exactly
+  the 11 public string-enum types in `internal/types/evidence.go` with
+  locations and useful responsibilities. No `[excluded]` leakage, no scalar
+  compression, and no directory-wide `internal/types`補表 expansion.
+- Two source fixes were required:
+  - `sourceInventoryScopeForSurface` now preserves an exact file scope instead
+    of broadening it to the parent directory. A request scoped to
+    `internal/types/evidence.go` must not materialize siblings from
+    `internal/types/`.
+  - Positive principal source-inventory roles protect the requested role from
+    contradictory analyzer `answer_exclusion_policy` drift. Visibility/private
+    pruning still applies to principal rows/member sets, but free-form scope
+    prose may mention private examples without being rewritten to `[excluded]`.
+- System补表 boundary clarified: deterministic source-inventory completion is
+  allowed only for typed, mechanically provable scopes and roles. Open requests
+  such as "匹配 xxx 模式的列表" require explorer-emitted structured
+  member_set/evidence or a dedicated deterministic adapter; the system must not
+  infer a table from natural-language prose or pattern-looking text.
+
+External-evidence audit:
+
+| Family | Existing case/log | Audit result | Follow-up |
+| --- | --- | --- | --- |
+| VCS latest feature | `u7c-20260521-120536` and current `u7c` coverage | PASS shape-positive: feature narrative no longer collapses to `值: commitid`; VCS conclusion is carried through `emit_investigation_complete.reason` / VCS origin lanes. | No closure-summary gap. Continue tracking transport timeouts and source-read cost separately. |
+| Recent-N history | `u7l-20260521-114048` | PASS: 0 `read_file`, one finalizer pass, ordered commit purposes/impacts preserved. | No closure-summary gap. Existing semantic-review concern is about VCS row polish, not dropped narrative. |
+| History + current source | `u7k-20260520-221645` | PASS: commit clue and current-code explanation both survive; VCS and current-source origins remain visible. | Cost remains high (`tool_read_file=18`, `explorer_iters=15`) and is tracked under the hybrid-history convergence gaps, not Batch 6. |
+| History + attached log | `u7f-20260522-182125` | PASS but still demonstrates a separate mixed-lane convergence issue: one lane used VCS history, another lane later claimed VCS access was blocked and closed from log-only evidence. The finalizer did preserve closure prose, so this is not a closure-summary suppression bug. | Keep under the existing runtime+history lane split gaps (`E20260522-G141/G142` family). Do not solve by promoting arbitrary prose; solve by lane arbitration. |
+| Runtime log negative/present mix | `logtri_no_fatal-20260522-135719`, `logtri_line_current_code-20260523-010443` | Observation-only log negatives and mixed log+current-source explanations converge without finalizer rewrite after recent fixes; runtime observations are passed through typed artifact lanes and closure/ledger summaries. | Remaining issues are origin/citation polish and exploration cost, already tracked in G175/G176. |
+| Trace positive/negative mix | `hitrace_no_long_gc-20260522-134137` | PASS: closure reason with trace lines 11-12, 8ms duration, and observation scope appears in finalizer prompt; runtime artifact ledgers keep trace facts out of repo citations. | `behavior_outcome` may still project as `current_source` in one ledger row; leave under origin-normalization backlog, not Batch 6. |
+| Cross-repo no interaction | `read_combo_multirepo_negative_interaction-20260522-160606` | PASS: negative-search scope and both repo responsibility summaries survive; no finalizer retry. | No closure-summary gap. Continue tracking multi-repo search cost and negative evidence ergonomics separately. |
 
 ## Batch Ledger
 

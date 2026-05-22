@@ -4,7 +4,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -414,7 +413,7 @@ func sourceInventoryScopeForSurface(graph *repotypes.Graph, raw string) string {
 	}
 	if graph != nil {
 		if _, ok := graph.FileIndex[surface]; ok {
-			return path.Dir(surface)
+			return surface
 		}
 		for file := range graph.FileIndex {
 			file = strings.Trim(file, "/")
@@ -422,7 +421,7 @@ func sourceInventoryScopeForSurface(graph *repotypes.Graph, raw string) string {
 				return surface
 			}
 			if aggregateReadFilePathMatchesQualifier(file, surface) {
-				return path.Dir(file)
+				return file
 			}
 		}
 	}

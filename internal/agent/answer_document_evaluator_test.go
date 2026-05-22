@@ -193,7 +193,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_PrincipalMemberSetSuppr
 	}
 	if !strings.Contains(prompt, "model-authored closure set-level summary") ||
 		!strings.Contains(prompt, "[excluded candidate omitted]") ||
-		!strings.Contains(prompt, "typed `aggregate_facts.member_set` rows below remain the authoritative member carrier") {
+		!strings.Contains(prompt, "typed `aggregate_facts.member_set` rows/counts below remain the authoritative member carrier") {
 		t.Fatalf("finalizer prompt should preserve sanitized tool-call closure prose as set-level advisory context:\n%s", prompt)
 	}
 	if !strings.Contains(prompt, "member=`Eval`") ||

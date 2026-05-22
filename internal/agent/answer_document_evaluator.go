@@ -3449,7 +3449,7 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 			b.WriteString("- model-authored closure reason omitted from this authority section because the typed observed-artifact lane is authoritative for direct runtime facts. Any preserved runtime narrative appears only as advisory synthesis below, not as caller-side provenance or current-source proof.\n")
 		} else if suppressUnstructuredClosureReasonForPrincipalMemberSets(ctx, plan.StableAggregateFacts) {
 			reason = sanitizeAggregateExcludedCandidatesForPrompt(ctx, reason, plan.StableAggregateFacts)
-			fmt.Fprintf(&b, "- model-authored closure set-level summary (advisory only; typed `aggregate_facts.member_set` rows below remain the authoritative member carrier): %s\n", truncateAnswerDocPromptText(reason, 700))
+			fmt.Fprintf(&b, "- model-authored closure set-level summary (advisory only; typed `aggregate_facts.member_set` rows/counts below remain the authoritative member carrier if any number or member identity conflicts): %s\n", truncateAnswerDocPromptText(reason, 700))
 		} else {
 			reason = sanitizeAggregateExcludedCandidatesForPrompt(ctx, reason, plan.StableAggregateFacts)
 			fmt.Fprintf(&b, "- model-authored closure reason: %s\n", truncateAnswerDocPromptText(reason, 900))

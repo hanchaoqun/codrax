@@ -288,6 +288,20 @@ System补表 may run only when:
 
 Otherwise system additions must be localized supplements with explicit labels.
 
+For source-inventory补表 this rule is intentionally narrow. The trigger must be
+a typed, current-request `source_inventory_profile` / principal `member_set`
+shape plus a mechanically provable scope and candidate role. Exact file scopes
+remain exact files; directory/package scopes remain directory/package scopes;
+the compiler must not broaden an exact file into its parent directory. Positive
+principal roles from `source_inventory_profile.target_roles` or
+`answer_role_profile.required_candidate_roles` outrank contradictory exclusion
+drift for that same role, while visibility/private and explicitly excluded
+non-requested roles still prune principal rows. Open natural-language requests
+such as "匹配 xxx 模式的列表" are not a generic补表 trigger: without a structured
+member_set/evidence payload or a dedicated deterministic adapter, the system
+should let the model answer from collected evidence and disclose limits rather
+than synthesize a table from prose or pattern-looking text.
+
 ### Renderer / Reviewers
 
 Reviewers must consume the exact post-normalization rendered surface plus block
@@ -1370,6 +1384,11 @@ or noisy retries:
   extractor/finalizer even when principal `member_set` rows remain the
   authoritative member carrier; the reason is advisory-only, sanitized through
   typed exclusion policy, and cannot replace evidence summaries, member notes,
-  support refs, or current-source citations.
+  support refs, current-source citations, or typed member-set counts. Guarded
+  by `read_combo_member_set_closure_scope` (`20260523-022037`: PASS,
+  finalizer_iters=1, file-scoped 11/11 source-inventory review). The guard also
+  pins two negative rules: exact file scope must not broaden to a directory, and
+  public/private visibility pruning must not rewrite explanatory scope prose to
+  `[excluded]`.
 - [ ] Run targeted evals after each batch and update
   `eval_20260520_full_sweep_gap_tracking.md`.

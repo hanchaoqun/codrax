@@ -692,7 +692,7 @@ func TestExtractor_BuildPrompt_MemberSetSuppressesAnalyzerSoftGuidanceNames(t *t
 	}
 	if !contains(prompt, "model-authored closure set-level summary") ||
 		!contains(prompt, "[excluded candidate omitted]") ||
-		!contains(prompt, "typed `aggregate_facts.member_set` rows below remain the authoritative member carrier") {
+		!contains(prompt, "typed `aggregate_facts.member_set` rows/counts below remain the authoritative member carrier") {
 		t.Fatalf("prompt should preserve sanitized tool-call closure prose as set-level advisory context:\n%s", prompt)
 	}
 }

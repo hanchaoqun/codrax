@@ -323,6 +323,74 @@ const (
 	}
 }
 
+func TestReconcileCompletionAggregateFactsWithSourceInventory_FileScopeDoesNotBroadenToDirectory(t *testing.T) {
+	repo := t.TempDir()
+	evidenceSource := `package types
+
+// EvidenceKind classifies evidence rows.
+type EvidenceKind string
+// GroundingStatus classifies grounding results.
+type GroundingStatus string
+
+const (
+	EvidenceDirect EvidenceKind = "direct"
+	GroundingAccepted GroundingStatus = "grounded"
+)
+`
+	otherSource := `package types
+
+// OtherKind belongs to a sibling file and must not leak into a file-scoped inventory.
+type OtherKind string
+
+const (
+	OtherValue OtherKind = "other"
+)
+`
+	writeAggregateReconcileTestFile(t, repo, "internal/types/evidence.go", evidenceSource)
+	writeAggregateReconcileTestFile(t, repo, "internal/types/other.go", otherSource)
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{
+			RelPath:  "internal/types/evidence.go",
+			Language: "go",
+			Symbols: []repotypes.Symbol{
+				{Name: "EvidenceKind", Kind: "type", File: "internal/types/evidence.go", Line: 4, EndLine: 4, Exported: true, Doc: "// EvidenceKind classifies evidence rows."},
+				{Name: "GroundingStatus", Kind: "type", File: "internal/types/evidence.go", Line: 6, EndLine: 6, Exported: true, Doc: "// GroundingStatus classifies grounding results."},
+			},
+		},
+		{
+			RelPath:  "internal/types/other.go",
+			Language: "go",
+			Symbols: []repotypes.Symbol{
+				{Name: "OtherKind", Kind: "type", File: "internal/types/other.go", Line: 4, EndLine: 4, Exported: true, Doc: "// OtherKind belongs to a sibling file and must not leak into a file-scoped inventory."},
+			},
+		},
+	})
+	ctx := sourceInventoryTestContext(repo, graph, "internal/types/evidence.go", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+		TypeUnderlying:    types.SourceInventoryTypeUnderlyingString,
+		RequiresConstSet:  true,
+		RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+		Confidence:        0.95,
+	})
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "internal/types/evidence.go public string enum types",
+		Value:   "1",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"EvidenceKind"},
+	}}
+
+	got := reconcileCompletionAggregateFactsWithSourceInventory(ctx, facts, nil)
+	want := []string{"EvidenceKind", "GroundingStatus"}
+	if !reflect.DeepEqual(got[0].Members, want) {
+		t.Fatalf("file-scoped source inventory members = %#v, want %#v", got[0].Members, want)
+	}
+	if containsString(got[0].Members, "OtherKind") || strings.Contains(strings.Join(got[0].SupportRefs, " "), "other.go") {
+		t.Fatalf("sibling file enum leaked into file-scoped inventory: members=%#v refs=%#v", got[0].Members, got[0].SupportRefs)
+	}
+}
+
 func TestSourceInventoryCommentDescribesSymbolRequiresIdentifierToken(t *testing.T) {
 	if !sourceInventoryCommentDescribesSymbol("AnswerSymbolVisibility controls visibility.", "AnswerSymbolVisibility") {
 		t.Fatal("expected exact symbol token in doc comment to match")

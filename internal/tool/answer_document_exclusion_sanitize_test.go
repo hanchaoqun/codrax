@@ -202,6 +202,48 @@ func TestNormalizeTypedExcludedAnswerSurface_DropsPrincipalExcludedRoleRows(t *t
 	}
 }
 
+func TestNormalizeTypedExcludedAnswerSurface_SourceInventoryTargetRoleOverridesContradictoryExclusion(t *testing.T) {
+	ctx := &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+				TypeUnderlying:    types.SourceInventoryTypeUnderlyingString,
+				RequiresConstSet:  true,
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+				},
+				Confidence: 0.95,
+			},
+			AnswerExclusionPolicy: &types.AnswerExclusionPolicy{
+				IsExclusionRequested: true,
+				ExcludedCandidateRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRoleType,
+					types.AnswerCandidateRoleVariable,
+				},
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:          "list",
+		Kind:        types.BlockOrderedList,
+		SurfaceRole: types.SurfacePrincipal,
+		Items: []types.AnswerBlockItem{
+			{ID: "type", Label: "EvidenceKind", CandidateRole: types.AnswerCandidateRoleType},
+			{ID: "var", Label: "scratch", CandidateRole: types.AnswerCandidateRoleVariable},
+		},
+	}}}
+
+	changed := normalizeTypedExcludedAnswerSurface(doc, ctx)
+	if changed != 1 {
+		t.Fatalf("changed=%d want only non-requested variable row dropped; items=%+v", changed, doc.Blocks[0].Items)
+	}
+	if len(doc.Blocks[0].Items) != 1 || doc.Blocks[0].Items[0].Label != "EvidenceKind" {
+		t.Fatalf("source inventory target type row should survive contradictory exclusion: %+v", doc.Blocks[0].Items)
+	}
+}
+
 func TestNormalizeAggregateFactsForTypedVisibilityPrunesPrivateMembers(t *testing.T) {
 	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{
 		"Eval":              {{Name: "Eval", Kind: "function", Exported: true}},
@@ -372,6 +414,47 @@ func TestNormalizeTypedExcludedAnswerSurface_RedactsGraphOnlyExcludedVariables(t
 	}
 }
 
+func TestNormalizeTypedExcludedAnswerSurface_PublicVisibilityKeepsPrivateExamplesInScopeProse(t *testing.T) {
+	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{
+		"allNegativeScopes": {{
+			Name:     "allNegativeScopes",
+			Kind:     "var",
+			Exported: false,
+		}},
+		"allEvidenceKinds": {{
+			Name:     "allEvidenceKinds",
+			Kind:     "var",
+			Exported: false,
+		}},
+	}}
+	mut := types.NewMutableState("test")
+	mut.SetSearchGraph(graph)
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			AnswerVisibilityProfile: &types.AnswerVisibilityProfile{
+				SymbolVisibility: types.AnswerSymbolVisibilityPublicExported,
+				Confidence:       0.95,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "排除的非目标类型包括非导出类型，如 allNegativeScopes 变量、allEvidenceKinds 变量。",
+	}}}
+
+	changed := normalizeTypedExcludedAnswerSurface(doc, ctx)
+	if changed != 0 {
+		t.Fatalf("public visibility should not redact private examples from scope prose; changed=%d text=%q", changed, doc.Blocks[0].Text)
+	}
+	if strings.Contains(doc.Blocks[0].Text, "[excluded]") ||
+		!strings.Contains(doc.Blocks[0].Text, "allNegativeScopes") ||
+		!strings.Contains(doc.Blocks[0].Text, "allEvidenceKinds") {
+		t.Fatalf("scope examples were unexpectedly redacted: %q", doc.Blocks[0].Text)
+	}
+}
+
 func TestNormalizeAggregateFactsForTypedExclusion_PrunesExactMemberSets(t *testing.T) {
 	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{
 		"Eval":            {{Name: "Eval", Kind: "function", Exported: true}},
@@ -459,6 +542,63 @@ func TestNormalizeAggregateFactsForTypedExclusion_HonorsExcludedRoleOverSameRole
 	}
 	if got[1].Value != "0" || len(got[1].Members) != 0 {
 		t.Fatalf("mixed set should prune all explicitly excluded roles: %+v", got[1])
+	}
+}
+
+func TestNormalizeAggregateFactsForTypedExclusion_SourceInventoryTargetRoleOverridesContradictoryExclusion(t *testing.T) {
+	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{
+		"EvidenceKind":    {{Name: "EvidenceKind", Kind: "type", File: "internal/types/evidence.go", Line: 11, EndLine: 11, Exported: true}},
+		"GroundingStatus": {{Name: "GroundingStatus", Kind: "type", File: "internal/types/evidence.go", Line: 21, EndLine: 21, Exported: true}},
+		"scratch":         {{Name: "scratch", Kind: "var", File: "internal/types/evidence.go", Line: 99, EndLine: 99, Exported: false}},
+	}}
+	mut := types.NewMutableState("test")
+	mut.SetSearchGraph(graph)
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+				TypeUnderlying:    types.SourceInventoryTypeUnderlyingString,
+				RequiresConstSet:  true,
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+				},
+				Confidence: 0.95,
+			},
+			AnswerExclusionPolicy: &types.AnswerExclusionPolicy{
+				IsExclusionRequested: true,
+				ExcludedCandidateRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRoleType,
+					types.AnswerCandidateRoleVariable,
+				},
+			},
+		}},
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "internal/types/evidence.go public string enum types",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Value:   "3",
+		Members: []string{"EvidenceKind", "GroundingStatus", "scratch"},
+		SupportRefs: []string{
+			"EvidenceKind: internal/types/evidence.go:11",
+			"GroundingStatus: internal/types/evidence.go:21",
+			"scratch: internal/types/evidence.go:99",
+		},
+	}}
+
+	got := normalizeAggregateFactsForTypedExclusion(ctx, facts)
+	if len(got) != 1 {
+		t.Fatalf("facts len=%d want 1", len(got))
+	}
+	if got[0].Value != "2" ||
+		strings.Join(got[0].Members, ",") != "EvidenceKind,GroundingStatus" ||
+		len(got[0].SupportRefs) != 2 ||
+		!strings.Contains(got[0].SupportRefs[0], "EvidenceKind") ||
+		!strings.Contains(got[0].SupportRefs[1], "GroundingStatus") {
+		t.Fatalf("source inventory target types should survive while variables prune: %+v", got[0])
 	}
 }
 

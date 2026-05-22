@@ -1,0 +1,18 @@
+# Read-mode combo — principal member_set plus closure scope/method summary
+#
+# Regression target: when exploration closes with a principal member_set,
+# typed member rows stay authoritative, but the accepted tool-call narrative
+# (`emit_investigation_complete.reason`) must still reach extractor/finalizer
+# as set-level scope/methodology context. The final answer should therefore
+# list the enum types and also explain the verification boundary, instead of
+# becoming a dry symbol table.
+ID="read_combo_member_set_closure_scope"
+NAME="read combo — member-set inventory keeps closure scope summary"
+QUESTION="列出 internal/types/evidence.go 文件里公开的字符串枚举类型名（type X string 且有 const 集合），并在答案开头说明你验证的范围、筛选方法和不包含哪些非目标类型；成员列表只需要类型名、位置和一句职责说明。"
+EXPECT_CONTAINS="EvidenceKind GroundingStatus AnchorKind EvidenceContextRole EvidenceDiagramRole GroundingTier EvidenceScope FileRoleLabel CrossfileAssertionKind NegativeScope CompletenessClaim internal/types/evidence.go"
+EXPECT_MATCHES_REGEX="(范围|边界|验证|筛选|方法|检索|扫描).*(type X string|字符串枚举|const|internal/types)|(type X string|字符串枚举|const|internal/types).*(范围|边界|验证|筛选|方法|检索|扫描)
+(职责|说明|用于|表示|代表|描述)"
+# Only forbid scalar compression. The answer may legitimately mention
+# source-code visibility enum values such as `private_only`, or disclose that
+# private / lowercase types were excluded by the user's "公开" scope.
+EXPECT_NOT_CONTAINS="**值：** [excluded]"
