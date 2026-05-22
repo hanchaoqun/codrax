@@ -137,6 +137,11 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 							"description": "Optional exact principal members backing the aggregate, such as enum/type names, file:line labels for total_count, or file paths for unique_count. For member_set this is required and must be the complete answer member set. If you provide members for a count fact, the member count must equal value; omit members rather than provide samples.",
 							"items": {"type": "string"}
 						},
+						"member_notes": {
+							"type": "array",
+							"description": "Optional per-member explanatory notes aligned by index with members[]. Use this only for verified role/rationale/meaning that should make the final answer less dry; it does not define member identity and must not replace support_refs or evidence. Omit entries you cannot explain.",
+							"items": {"type": "string"}
+						},
 						"excluded": {
 							"type": "array",
 							"description": "Optional excluded candidate labels for excluded_count or for explaining why a total is bounded.",
@@ -657,15 +662,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 			Timestamp: time.Now(),
 		}, nil
 	}
-	effectiveAggregateFacts := effectiveCompletionAggregateFacts(ctx, aggregateFacts)
-	effectiveAggregateFacts = enrichCompletionAggregateFactsWithMemberSupportWithEvidence(ctx, effectiveAggregateFacts, evidenceSnapshot)
-	effectiveAggregateFacts = reconcileCompletionAggregateFactsWithDefinitionEvidence(ctx, effectiveAggregateFacts, evidenceSnapshot)
-	effectiveAggregateFacts = enrichCompletionAggregateFactsWithDeterministicCount(ctx, effectiveAggregateFacts)
-	effectiveAggregateFacts = enrichCompletionAggregateFactsWithDeterministicHistoryCount(ctx, effectiveAggregateFacts)
-	if ctx.AnalysisIR != nil {
-		effectiveAggregateFacts = types.NormalizeAggregateFactRolesForRequest(effectiveAggregateFacts, &ctx.AnalysisIR.RequestModel)
-	}
-	effectiveAggregateFacts = normalizeAggregateFactsForTypedExclusion(ctx, effectiveAggregateFacts)
+	effectiveAggregateFacts := effectiveCompletionAggregateFactsForValidation(ctx, aggregateFacts, evidenceSnapshot)
 	if resultKind == "absence" {
 		var notes []string
 		effectiveAggregateFacts, notes = dropUnsupportedDecoratedMemberSets(effectiveAggregateFacts, "absence handoff", false)
@@ -1378,7 +1375,7 @@ func preCompleteContractCheckWithEvidence(ctx *types.BusContext, justification s
 	if len(aggregateFactsOpt) > 0 {
 		aggregateFacts = aggregateFactsOpt[0]
 	}
-	aggregateFacts = effectiveCompletionAggregateFacts(ctx, aggregateFacts)
+	aggregateFacts = effectiveCompletionAggregateFactsForValidation(ctx, aggregateFacts, evidence)
 	// Honor agent_investigation_complete_policy=override. The DAG
 	// scheduler will skip all criteria when this policy is set, so
 	// running the pre-complete gates would contradict operator
@@ -1759,6 +1756,20 @@ func effectiveCompletionAggregateFacts(ctx *types.BusContext, current []types.An
 	return cloneCompletionAggregateFacts(stable)
 }
 
+func effectiveCompletionAggregateFactsForValidation(ctx *types.BusContext, current []types.AnswerAggregateFact, evidence []types.EvidenceItem) []types.AnswerAggregateFact {
+	effective := effectiveCompletionAggregateFacts(ctx, current)
+	effective = enrichCompletionAggregateFactsWithMemberSupportWithEvidence(ctx, effective, evidence)
+	effective = reconcileCompletionAggregateFactsWithDefinitionEvidence(ctx, effective, evidence)
+	effective = reconcileCompletionAggregateFactsWithSourceInventory(ctx, effective, evidence)
+	effective = enrichCompletionAggregateFactsWithDeterministicCount(ctx, effective)
+	effective = enrichCompletionAggregateFactsWithDeterministicHistoryCount(ctx, effective)
+	if ctx != nil && ctx.AnalysisIR != nil {
+		effective = types.NormalizeAggregateFactRolesForRequest(effective, &ctx.AnalysisIR.RequestModel)
+	}
+	effective = normalizeAggregateFactsForTypedExclusion(ctx, effective)
+	return effective
+}
+
 func cloneCompletionAggregateFacts(in []types.AnswerAggregateFact) []types.AnswerAggregateFact {
 	if len(in) == 0 {
 		return nil
@@ -1771,6 +1782,9 @@ func cloneCompletionAggregateFacts(in []types.AnswerAggregateFact) []types.Answe
 		}
 		if fact.Members != nil {
 			out[i].Members = append([]string(nil), fact.Members...)
+		}
+		if fact.MemberNotes != nil {
+			out[i].MemberNotes = append([]string(nil), fact.MemberNotes...)
 		}
 		if fact.Excluded != nil {
 			out[i].Excluded = append([]string(nil), fact.Excluded...)
@@ -2270,12 +2284,13 @@ func aggregateFactCategoryKey(fact types.AnswerAggregateFact) string {
 }
 
 type aggregateMemberSupportIndex struct {
-	byLabel             map[string][]types.EvidenceItem
-	byLocation          map[string][]types.EvidenceItem
-	byID                map[string]types.EvidenceItem
-	answerSyms          map[string]types.AnswerSymbol
-	toolLinesByLocation map[string][]string
-	readFileLines       []aggregateToolLine
+	byLabel                         map[string][]types.EvidenceItem
+	byLocation                      map[string][]types.EvidenceItem
+	byID                            map[string]types.EvidenceItem
+	answerSyms                      map[string]types.AnswerSymbol
+	toolLinesByLocation             map[string][]string
+	sourceInventoryLabelsByLocation map[string][]string
+	readFileLines                   []aggregateToolLine
 }
 
 func buildAggregateMemberSupportIndex(ctx *types.BusContext) aggregateMemberSupportIndex {
@@ -2288,12 +2303,13 @@ func buildAggregateMemberSupportIndex(ctx *types.BusContext) aggregateMemberSupp
 
 func buildAggregateMemberSupportIndexWithEvidence(ctx *types.BusContext, evidence []types.EvidenceItem) aggregateMemberSupportIndex {
 	idx := aggregateMemberSupportIndex{
-		byLabel:             map[string][]types.EvidenceItem{},
-		byLocation:          map[string][]types.EvidenceItem{},
-		byID:                map[string]types.EvidenceItem{},
-		answerSyms:          map[string]types.AnswerSymbol{},
-		toolLinesByLocation: map[string][]string{},
-		readFileLines:       nil,
+		byLabel:                         map[string][]types.EvidenceItem{},
+		byLocation:                      map[string][]types.EvidenceItem{},
+		byID:                            map[string]types.EvidenceItem{},
+		answerSyms:                      map[string]types.AnswerSymbol{},
+		toolLinesByLocation:             map[string][]string{},
+		sourceInventoryLabelsByLocation: map[string][]string{},
+		readFileLines:                   nil,
 	}
 	if ctx == nil || ctx.Mutable == nil {
 		return idx
@@ -2344,7 +2360,41 @@ func buildAggregateMemberSupportIndexWithEvidence(ctx *types.BusContext, evidenc
 			idx.toolLinesByLocation[loc] = append(idx.toolLinesByLocation[loc], lines...)
 		}
 	}
+	appendSourceInventorySupportLocations(ctx, &idx)
 	return idx
+}
+
+func appendSourceInventorySupportLocations(ctx *types.BusContext, idx *aggregateMemberSupportIndex) {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil || idx == nil {
+		return
+	}
+	profile := ctx.AnalysisIR.RequestModel.SourceInventoryProfile
+	if !profile.Active() || profile.Confidence < 0.70 {
+		return
+	}
+	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+	if graph == nil {
+		return
+	}
+	scopes := sourceInventoryScopes(ctx, graph, nil)
+	if len(scopes) == 0 {
+		return
+	}
+	for _, set := range sourceInventoryCandidateSets(ctx, graph, scopes, profile) {
+		if !set.complete {
+			continue
+		}
+		for _, candidate := range set.candidates {
+			loc := aggregateSupportLocationKey(candidate.file, candidate.line)
+			if loc == "" || strings.TrimSpace(candidate.member) == "" {
+				continue
+			}
+			idx.sourceInventoryLabelsByLocation[loc] = append(idx.sourceInventoryLabelsByLocation[loc], candidate.member)
+		}
+	}
+	for loc, labels := range idx.sourceInventoryLabelsByLocation {
+		idx.sourceInventoryLabelsByLocation[loc] = dedupStringsPreserveOrder(labels)
+	}
 }
 
 // memberHasDecoratedCodeIdentityBase reports whether an aggregate-
@@ -2682,7 +2732,20 @@ func aggregateSupportLocationMatchesMemberLabels(location string, labels []strin
 	}
 	memberLabels := aggregateSupportLabels("", labels)
 	return aggregateLocationEvidenceMatchesLabels(location, memberLabels, support.byLocation) ||
-		aggregateToolLocationMatchesLabels(location, memberLabels, support.toolLinesByLocation)
+		aggregateToolLocationMatchesLabels(location, memberLabels, support.toolLinesByLocation) ||
+		aggregateSourceInventoryLocationMatchesLabels(location, memberLabels, support.sourceInventoryLabelsByLocation)
+}
+
+func aggregateSourceInventoryLocationMatchesLabels(location string, labels []string, byLocation map[string][]string) bool {
+	if location == "" || len(labels) == 0 {
+		return false
+	}
+	for _, label := range byLocation[location] {
+		if aggregateSupportLabelMatchesMember(label, labels) {
+			return true
+		}
+	}
+	return false
 }
 
 func aggregateMemberReadFileSupportRef(member string, support aggregateMemberSupportIndex) (string, bool) {

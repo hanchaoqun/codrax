@@ -209,6 +209,17 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 		}, nil
 	}
 
+	var notes []string
+	var deterministicSlate []types.AnswerSymbol
+	if len(p.Items) == 0 {
+		deterministicSlate = sourceInventoryAggregateAnswerSymbolFallback(ctx)
+		if len(deterministicSlate) > 0 {
+			claim = types.CompletenessComplete
+			notes = append(notes,
+				fmt.Sprintf("materialized %d answer-symbol item(s) from accepted source-inventory aggregate_facts member_set support_refs", len(deterministicSlate)))
+		}
+	}
+
 	// Empty-set handling. "How many Python files?" legitimately
 	// returns 0; "List all deprecated methods" legitimately returns
 	// zero items. Reject items=[] ONLY when paired with
@@ -216,7 +227,7 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	// these" — a nonsensical claim on zero items. complete (zero
 	// confirmed, none more) and unknown (could not determine) are
 	// both honest outcomes on an empty set and pass through.
-	if len(p.Items) == 0 {
+	if len(p.Items) == 0 && len(deterministicSlate) == 0 {
 		if claim == types.CompletenessLowerBound {
 			return failEmit(t.Name(), now, "items is empty but completeness=lower_bound claims more items exist; use completeness=complete for a confirmed empty set or completeness=unknown when you cannot determine")
 		}
@@ -299,23 +310,26 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	surfacePlan := types.BuildAnswerSurfacePlanForBusContext(ctx)
 	stepCandidates := compiledStepCandidateNames(surfacePlan)
 	groundedCandidates := buildAnswerSymbolGroundedCandidates(ctx, surfacePlan)
-	built := make([]types.AnswerSymbol, 0, len(p.Items))
+	built := make([]types.AnswerSymbol, 0, len(p.Items)+len(deterministicSlate))
 	var dropped []string
 	var repaired []string
-	var notes []string
-	for i, in := range p.Items {
-		sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, bundle, groundCtx, stepCandidates, groundedCandidates, &repaired)
-		if perr != nil {
-			dropped = append(dropped, perr.Error())
-			// P1 #3 (2026-05-03) — feed the per-Run rejection
-			// counter so runSymbolAnchorTrackOracle can spot
-			// repeated def-line misses and escalate to a
-			// BackToExplore fallback rather than silently letting
-			// the iteration cap bury the failure.
-			ctx.Mutable.EvidenceClosure().IncrementSymbolEmitRejection()
-			continue
+	if len(deterministicSlate) > 0 {
+		built = append(built, deterministicSlate...)
+	} else {
+		for i, in := range p.Items {
+			sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, bundle, groundCtx, stepCandidates, groundedCandidates, &repaired)
+			if perr != nil {
+				dropped = append(dropped, perr.Error())
+				// P1 #3 (2026-05-03) — feed the per-Run rejection
+				// counter so runSymbolAnchorTrackOracle can spot
+				// repeated def-line misses and escalate to a
+				// BackToExplore fallback rather than silently letting
+				// the iteration cap bury the failure.
+				ctx.Mutable.EvidenceClosure().IncrementSymbolEmitRejection()
+				continue
+			}
+			built = append(built, sym)
 		}
-		built = append(built, sym)
 	}
 
 	// Partial-drop: when some items are invalid but others survive,
@@ -369,6 +383,9 @@ func emitAnswerSymbolSlateExpected(ctx *types.BusContext) bool {
 		return true
 	}
 	rm := ctx.AnalysisIR.RequestModel
+	if rm.SourceInventoryProfile.Active() {
+		return true
+	}
 	view := types.BuildAnswerSemanticViewForBusContext(ctx)
 	if view != nil && view.AllowsAnchorSkeleton(rm) {
 		return true
@@ -663,6 +680,169 @@ func answerSymbolNameGrounds(groundCtx *ground.Context, file string, line int, n
 	}
 	if idx := strings.LastIndex(name, "."); idx >= 0 && idx+1 < len(name) {
 		if _, ok, _ := ground.ResolveSymbolLineAnchor(groundCtx, file, line, name[idx+1:], 2); ok {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceInventoryAggregateAnswerSymbolFallback(ctx *types.BusContext) []types.AnswerSymbol {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || !emitAnswerSymbolSlateExpected(ctx) {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	profile := rm.SourceInventoryProfile
+	principalRoles := profile.PrincipalTargetRoles()
+	if !profile.Active() || len(principalRoles) != 1 {
+		return nil
+	}
+	role := principalRoles[0]
+	kind, ok := answerSymbolKindForSourceInventoryRole(role)
+	if !ok {
+		return nil
+	}
+	facts := ctx.Mutable.StableInvestigationAggregateFacts()
+	if len(facts) == 0 {
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			facts = ta.AcceptedAggregateFacts
+		}
+	}
+	if len(facts) == 0 {
+		return nil
+	}
+	facts = types.NormalizeAggregateFactRolesForRequest(facts, &rm)
+	refs := types.PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm)
+	if len(refs) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []types.AnswerSymbol
+	for _, ref := range refs {
+		fact := ref.Fact
+		if fact.Kind != types.AnswerAggregateMemberSet ||
+			!types.AnswerAggregateFactCarriesCompleteMemberSet(fact) ||
+			len(fact.Members) == 0 {
+			continue
+		}
+		syms, ok := sourceInventoryAnswerSymbolsFromAggregateFact(fact, kind, sourceInventoryFallbackRationale(ctx))
+		if !ok {
+			continue
+		}
+		for _, sym := range syms {
+			key := emitAnswerSymbolDedupKey(sym)
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, sym)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func emitAnswerSymbolDedupKey(sym types.AnswerSymbol) string {
+	name := strings.TrimSpace(sym.Name)
+	if name == "" {
+		return ""
+	}
+	if sym.Kind == types.KindLiteral {
+		return name
+	}
+	return name + "\x1f" + strings.TrimSpace(sym.File) + "\x1f" + fmt.Sprintf("%d", sym.Line)
+}
+
+func answerSymbolKindForSourceInventoryRole(role types.AnswerCandidateRole) (types.AnswerSymbolKind, bool) {
+	switch role {
+	case types.AnswerCandidateRoleFunction:
+		return types.KindFunction, true
+	case types.AnswerCandidateRoleMethod:
+		return types.KindMethod, true
+	case types.AnswerCandidateRoleType:
+		return types.KindType, true
+	case types.AnswerCandidateRoleConstant:
+		return types.KindConst, true
+	case types.AnswerCandidateRoleVariable:
+		return types.KindVar, true
+	case types.AnswerCandidateRoleField:
+		return types.KindField, true
+	case types.AnswerCandidateRolePackage:
+		return types.KindPackage, true
+	case types.AnswerCandidateRoleConfigKey, types.AnswerCandidateRoleRoute, types.AnswerCandidateRoleLiteralValue:
+		return types.KindLiteral, true
+	default:
+		return "", false
+	}
+}
+
+func sourceInventoryFallbackRationale(ctx *types.BusContext) string {
+	if ctx != nil && strings.HasPrefix(strings.ToLower(strings.TrimSpace(ctx.Language)), "zh") {
+		return "来自已验收的结构化成员集合和逐成员 file:line 支撑"
+	}
+	return "materialized from accepted structured member_set support_refs"
+}
+
+func sourceInventoryAnswerSymbolsFromAggregateFact(fact types.AnswerAggregateFact, kind types.AnswerSymbolKind, rationale string) ([]types.AnswerSymbol, bool) {
+	if len(fact.Members) == 0 {
+		return nil, false
+	}
+	out := make([]types.AnswerSymbol, 0, len(fact.Members))
+	for i, member := range fact.Members {
+		name, file, line, ok := sourceInventoryMemberLocation(member, answerSymbolSupportRefAt(fact.SupportRefs, i))
+		if !ok {
+			return nil, false
+		}
+		out = append(out, types.AnswerSymbol{
+			Name:      name,
+			File:      file,
+			Line:      line,
+			Kind:      kind,
+			Rationale: rationale,
+		})
+	}
+	return out, true
+}
+
+func answerSymbolSupportRefAt(refs []string, idx int) string {
+	if idx < 0 || idx >= len(refs) {
+		return ""
+	}
+	return strings.TrimSpace(refs[idx])
+}
+
+func sourceInventoryMemberLocation(member string, supportRef string) (name string, file string, line int, ok bool) {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return "", "", 0, false
+	}
+	if label, loc, parsed := types.ParseAnswerSupportRefMemberLocation(member); parsed {
+		label = strings.TrimSpace(label)
+		if label == "" {
+			label = member
+		}
+		if loc.File != "" && loc.LineStart > 0 {
+			return label, loc.File, loc.LineStart, true
+		}
+	}
+	refLabel, loc, parsed := types.ParseAnswerSupportRefMemberLocation(supportRef)
+	if !parsed || loc.File == "" || loc.LineStart <= 0 {
+		return "", "", 0, false
+	}
+	if !sourceInventorySupportRefMatchesMember(refLabel, member) {
+		return "", "", 0, false
+	}
+	return member, loc.File, loc.LineStart, true
+}
+
+func sourceInventorySupportRefMatchesMember(refLabel string, member string) bool {
+	refLabel = strings.TrimSpace(refLabel)
+	if refLabel == "" || types.AnswerSupportRefLabelIsGeneric(refLabel) {
+		return true
+	}
+	for _, candidate := range types.AnswerAggregateMemberDisplayCandidates(member) {
+		if strings.EqualFold(strings.TrimSpace(candidate), refLabel) {
 			return true
 		}
 	}

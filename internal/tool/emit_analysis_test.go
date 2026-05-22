@@ -3355,6 +3355,70 @@ func TestEmitAnalysis_Execute_PersistsAnswerVisibilityProfile(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_PersistsSourceInventoryProfile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("列出 internal/types 包里所有公开的 type X string 加 const 集合的枚举类型名。")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["symbol", "enum", "type", "string"],
+		"entities": ["internal/types"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.94,
+		"complexity_confidence": 0.76,
+		"kind_confidence": 0.9,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["type"],
+			"type_underlying": "string",
+			"requires_const_set": true,
+			"requested_fields": ["name", "location", "count"],
+			"source_quotes": ["公开的 type X string"],
+			"confidence": 0.95,
+			"rationale": "current request asks for public string enum type names"
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "source_inventory=type") ||
+		!strings.Contains(res.Summary, "inventory_underlying=string") ||
+		!strings.Contains(res.Summary, "inventory_const_set=true") {
+		t.Fatalf("summary should surface source inventory lane, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		t.Fatalf("SourceInventoryProfile not persisted: %+v", rm)
+	}
+	if !rm.SourceInventoryProfile.RequiresRole(types.AnswerCandidateRoleType) ||
+		rm.SourceInventoryProfile.TypeUnderlying != types.SourceInventoryTypeUnderlyingString ||
+		!rm.SourceInventoryProfile.RequiresConstSet {
+		t.Fatalf("SourceInventoryProfile wrong: %+v", rm.SourceInventoryProfile)
+	}
+}
+
 func TestEmitAnalysis_Execute_RejectsUngroundedAnswerExclusionPolicy(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

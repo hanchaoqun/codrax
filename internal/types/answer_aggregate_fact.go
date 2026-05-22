@@ -137,6 +137,7 @@ type AnswerAggregateFact struct {
 	Unit        string                     `json:"unit,omitempty"`
 	Dimensions  []AnswerAggregateDimension `json:"dimensions,omitempty"`
 	Members     []string                   `json:"members,omitempty"`
+	MemberNotes []string                   `json:"member_notes,omitempty"`
 	Excluded    []string                   `json:"excluded,omitempty"`
 	SupportRefs []string                   `json:"support_refs,omitempty"`
 }
@@ -323,7 +324,7 @@ func NormalizeAnswerAggregateMemberSetSurfaces(facts []AnswerAggregateFact) []An
 		if !answerAggregateFactCarriesCompleteMemberSet(out[i]) || len(out[i].Members) == 0 {
 			continue
 		}
-		out[i].Members, out[i].SupportRefs = normalizeAggregateMemberSetMemberSupportSurfaces(out[i].Members, out[i].SupportRefs)
+		out[i].Members, out[i].SupportRefs, out[i].MemberNotes = normalizeAggregateMemberSetMemberSupportNoteSurfaces(out[i].Members, out[i].SupportRefs, out[i].MemberNotes)
 		if out[i].Kind == AnswerAggregateMemberSet {
 			out[i].Value = strconv.Itoa(len(out[i].Members))
 			out[i].Label = normalizeAggregateMemberSetLabelCardinality(out[i].Label, len(out[i].Members))
@@ -357,6 +358,7 @@ func PruneAggregateMemberSetsByStructuredExclusions(facts []AnswerAggregateFact)
 		}
 		keptMembers := make([]string, 0, len(out[i].Members))
 		keptRefs := make([]string, 0, len(out[i].SupportRefs))
+		keptNotes := make([]string, 0, len(out[i].MemberNotes))
 		removed := 0
 		for memberIdx, member := range out[i].Members {
 			if aggregateMemberMatchesStructuredExclusion(member, excluded) {
@@ -367,6 +369,9 @@ func PruneAggregateMemberSetsByStructuredExclusions(facts []AnswerAggregateFact)
 			if memberIdx < len(out[i].SupportRefs) {
 				keptRefs = append(keptRefs, out[i].SupportRefs[memberIdx])
 			}
+			if memberIdx < len(out[i].MemberNotes) {
+				keptNotes = append(keptNotes, out[i].MemberNotes[memberIdx])
+			}
 		}
 		if removed == 0 {
 			continue
@@ -374,6 +379,7 @@ func PruneAggregateMemberSetsByStructuredExclusions(facts []AnswerAggregateFact)
 		changed = true
 		out[i].Members = keptMembers
 		out[i].SupportRefs = keptRefs
+		out[i].MemberNotes = trimTrailingEmptyAggregateStrings(keptNotes)
 		if len(keptMembers) == 0 {
 			out[i].Role = AnswerAggregateRoleSupportingCoverage
 			out[i].Value = "0"
@@ -754,6 +760,9 @@ func mergeAnswerAggregateMemberSet(dst, src AnswerAggregateFact) AnswerAggregate
 		if len(src.SupportRefs) > i {
 			dst.SupportRefs = appendAggregateSupportRefAtMemberIndex(dst.SupportRefs, len(dst.Members)-1, src.SupportRefs[i])
 		}
+		if len(src.MemberNotes) > i {
+			dst.MemberNotes = appendAggregateStringAtMemberIndex(dst.MemberNotes, len(dst.Members)-1, src.MemberNotes[i])
+		}
 	}
 	if AnswerAggregateRolePriority(src.Role) > AnswerAggregateRolePriority(dst.Role) {
 		dst.Role = NormalizeAnswerAggregateRole(src.Role)
@@ -900,6 +909,23 @@ func appendAggregateSupportRefAtMemberIndex(refs []string, memberIndex int, ref 
 		refs[memberIndex] = ref
 	}
 	return refs
+}
+
+func appendAggregateStringAtMemberIndex(values []string, memberIndex int, value string) []string {
+	value = trimAggregateText(value)
+	for len(values) < memberIndex {
+		values = append(values, "")
+	}
+	if len(values) == memberIndex {
+		values = append(values, value)
+		return values
+	}
+	if values[memberIndex] == "" {
+		values[memberIndex] = value
+	} else {
+		values[memberIndex] = MergeEvidenceSummaries(values[memberIndex], value)
+	}
+	return values
 }
 
 // PrincipalAggregateMemberSetFactRefs returns the member_set facts that should
@@ -2061,8 +2087,9 @@ func normalizeAnswerAggregateFact(raw AnswerAggregateFact) (AnswerAggregateFact,
 	fact.Members = normalizeAggregateStrings(raw.Members, maxAnswerAggregateMembers)
 	fact.Excluded = normalizeAggregateStrings(raw.Excluded, maxAnswerAggregateMembers)
 	fact.SupportRefs = normalizeAggregateStrings(raw.SupportRefs, maxAnswerAggregateMembers)
+	fact.MemberNotes = normalizeAggregateStrings(raw.MemberNotes, maxAnswerAggregateMembers)
 	if fact.Kind == AnswerAggregateMemberSet && len(fact.Members) > 0 {
-		fact.Members, fact.SupportRefs = normalizeAggregateMemberSetMemberSupportSurfaces(fact.Members, fact.SupportRefs)
+		fact.Members, fact.SupportRefs, fact.MemberNotes = normalizeAggregateMemberSetMemberSupportNoteSurfaces(fact.Members, fact.SupportRefs, fact.MemberNotes)
 	}
 	fact = normalizeLegacyNegativeSearchByNonRepoOrigin(fact)
 	fact, err = normalizeNegativeSearchAggregateFact(fact)
@@ -2159,14 +2186,20 @@ func aggregateFactOriginDimensionName(origin AnswerEvidenceOrigin, dims map[stri
 type aggregateMemberSupportSurface struct {
 	member string
 	ref    string
+	note   string
 	label  string
 	loc    AnswerSourceLocationSurface
 	hasLoc bool
 }
 
 func normalizeAggregateMemberSetMemberSupportSurfaces(members []string, refs []string) ([]string, []string) {
+	outMembers, outRefs, _ := normalizeAggregateMemberSetMemberSupportNoteSurfaces(members, refs, nil)
+	return outMembers, outRefs
+}
+
+func normalizeAggregateMemberSetMemberSupportNoteSurfaces(members []string, refs []string, notes []string) ([]string, []string, []string) {
 	if len(members) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	out := make([]aggregateMemberSupportSurface, 0, len(members))
 	for i, member := range members {
@@ -2174,7 +2207,12 @@ func normalizeAggregateMemberSetMemberSupportSurfaces(members []string, refs []s
 		if i < len(refs) {
 			ref = strings.TrimSpace(refs[i])
 		}
+		note := ""
+		if i < len(notes) {
+			note = trimAggregateText(notes[i])
+		}
 		surface := normalizeAggregateMemberSupportSurface(member, ref)
+		surface.note = note
 		if surface.member == "" {
 			continue
 		}
@@ -2192,18 +2230,24 @@ func normalizeAggregateMemberSetMemberSupportSurfaces(members []string, refs []s
 		}
 	}
 	if len(out) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	outMembers := make([]string, 0, len(out))
 	outRefs := make([]string, len(out))
+	outNotes := make([]string, len(out))
 	seenRefs := make(map[string]bool, len(out)+len(refs))
 	lastRef := -1
+	lastNote := -1
 	for i, surface := range out {
 		outMembers = append(outMembers, surface.member)
 		if ref := strings.TrimSpace(surface.ref); ref != "" {
 			outRefs[i] = ref
 			seenRefs[strings.ToLower(ref)] = true
 			lastRef = i
+		}
+		if note := trimAggregateText(surface.note); note != "" {
+			outNotes[i] = note
+			lastNote = i
 		}
 	}
 	if len(refs) > len(members) {
@@ -2221,10 +2265,15 @@ func normalizeAggregateMemberSetMemberSupportSurfaces(members []string, refs []s
 			lastRef = len(outRefs) - 1
 		}
 	}
-	if lastRef < 0 {
-		return outMembers, nil
+	if lastNote < 0 {
+		outNotes = nil
+	} else {
+		outNotes = outNotes[:lastNote+1]
 	}
-	return outMembers, outRefs[:lastRef+1]
+	if lastRef < 0 {
+		return outMembers, nil, outNotes
+	}
+	return outMembers, outRefs[:lastRef+1], outNotes
 }
 
 func normalizeAggregateMemberExtraSupportRef(ref string, members []string) string {
@@ -2364,6 +2413,7 @@ func mergeAggregateMemberSupportSurface(existing, candidate aggregateMemberSuppo
 		out.hasLoc = true
 	}
 	out.ref = chooseAggregateMemberSupportRef(out.ref, candidate.ref)
+	out.note = MergeEvidenceSummaries(out.note, candidate.note)
 	return out
 }
 
@@ -3335,6 +3385,19 @@ func normalizeAggregateStrings(in []string, limit int) []string {
 	return out
 }
 
+func trimTrailingEmptyAggregateStrings(in []string) []string {
+	last := -1
+	for i, value := range in {
+		if strings.TrimSpace(value) != "" {
+			last = i
+		}
+	}
+	if last < 0 {
+		return nil
+	}
+	return append([]string(nil), in[:last+1]...)
+}
+
 func trimAggregateText(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
@@ -3529,6 +3592,9 @@ func cloneAnswerAggregateFacts(in []AnswerAggregateFact) []AnswerAggregateFact {
 		}
 		if fact.Members != nil {
 			out[i].Members = append([]string(nil), fact.Members...)
+		}
+		if fact.MemberNotes != nil {
+			out[i].MemberNotes = append([]string(nil), fact.MemberNotes...)
 		}
 		if fact.Excluded != nil {
 			out[i].Excluded = append([]string(nil), fact.Excluded...)

@@ -68,6 +68,36 @@ func TestPreCheckNegativeCitationBoundsRejectsUnboundedAbsenceCitation(t *testin
 	}
 }
 
+func TestPreEmitStructuredMemberBlockCoversFactAcrossBlocks(t *testing.T) {
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:   "model_table",
+			Kind: types.BlockTable,
+			Text: "| 名称 | 位置 |\n|---|---|\n| Eval | eval.go:15 |\n| EvalAll | eval.go:36 |",
+		},
+		{
+			ID:    "system_missing_rows",
+			Kind:  types.BlockTable,
+			Title: "系统按已验证证据补充成员：公开函数（1）",
+			Items: []types.AnswerBlockItem{{
+				ID:    "registered",
+				Label: "RegisteredKinds",
+				Text:  "RegisteredKinds 返回已注册 Kind。",
+			}},
+		},
+	}}
+	fact := types.AnswerAggregateFact{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "公开函数",
+		Value:   "3",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Eval", "EvalAll", "RegisteredKinds"},
+	}
+	if !preEmitStructuredMemberBlockCoversFact(doc, fact) {
+		t.Fatalf("member-set coverage should compose across model rows and localized supplement blocks")
+	}
+}
+
 func TestPreCheckRuntimeObservationRepoContaminationRejectsRepoCitationsOnly(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetLogTriage(&types.LogBundle{

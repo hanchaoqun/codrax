@@ -136,7 +136,7 @@ Validation:
 
 ### Batch 2 — Structural inventory candidate compilers
 
-Status: planned.
+Status: completed in `2026-05-22` local batch; pending commit.
 
 - Design and implement deterministic candidate generation for bounded source
   inventories, starting with Go because the failing evals are Go, but the
@@ -144,6 +144,133 @@ Status: planned.
   typed membership authority; model summaries remain enrichment.
 - Add language matrix notes for exported/public/private and enum/type-taxonomy
   semantics. Hard gates consume typed parser/export signals only.
+
+Architecture decision:
+
+- Do not add a parallel answer surface. The existing
+  `emit_investigation_complete` aggregate-facts lane remains the only stable
+  handoff to extractor/finalizer. The existing
+  `reconcileCompletionAggregateFactsWithDefinitionEvidence` pass already
+  proves the right shape: it repairs scoped inventory member sets only from
+  typed evidence/graph signals and never from user/model prose keywords.
+- Add a typed analyzer lane, `source_inventory_profile`, for bounded source
+  inventories. It records whether the current request asks for structural code
+  members, the target candidate roles (`function`, `method`, `type`,
+  `constant`, etc.), optional structural facets such as `type_underlying=string`
+  and `requires_const_set`, and requested answer fields such as `name`,
+  `location`, `summary`, `values`. Downstream hard decisions consume only this
+  typed lane plus repo-map/AST facts; if the lane is absent or unsupported, the
+  system falls back to the current model-driven path.
+- Candidate generation is an authority source for membership only. It must not
+  overwrite model-authored rich summaries. Existing evidence-summary merging
+  (`MergeEvidenceSummaries`, enrichment rows, support refs) remains responsible
+  for preserving the explorer's narrative detail.
+- Structural candidates are append/reconcile inputs, not finalizer rewrite
+  triggers. If a candidate cannot be generated with parser/graph certainty, it
+  becomes a localized supplement or remains unknown; it must not force a late
+  finalizer retry.
+
+Language matrix:
+
+| Family | Membership source | Visibility source | Supported in Batch 2 |
+| --- | --- | --- | --- |
+| Go | repo-map graph for functions/methods/types/consts/vars/fields; `go/parser` for `type X string` + const-set string enum inventories | repo-map `Symbol.Exported` plus Go exported-name rules | Yes |
+| Java / Kotlin / C++ / C / Rust / Python / TS / ArkTS / Cangjie / PHP / Ruby / Swift / Shell / config-like files | repo-map graph for broad symbol roles where extractors expose them | repo-map `Symbol.Exported` when available; otherwise advisory/no hard expansion | Graph-backed role inventory only; language-specific enum semantics remain no-op until a typed adapter exists |
+
+Implementation tasks:
+
+1. Add `types.SourceInventoryProfile` and expose it in
+   `emit_analysis` schema/parser/summary and analysis-skill prompt. The profile
+   is optional and advisory unless confidence plus structural facets are
+   present.
+2. Add source-inventory candidate helpers behind the existing aggregate
+   reconcile path:
+   - graph-backed exported function/method/type/const/var/member discovery for
+     scoped source inventory;
+   - Go string-enum type discovery via `go/parser`, requiring `type X string`
+     and at least one associated const declaration.
+3. Reconcile model aggregate facts with deterministic candidates only when all
+   guards are true: scoped inventory enabled, requested candidate roles are
+   typed, requested path/source scope is known, and the candidate role/facet
+   matches the active member-set. Update adjacent counts consistently.
+4. Preserve rich evidence summaries by leaving evidence/enrichment rows intact
+   and only adding support refs for missing deterministic members.
+5. Add tests that prove:
+   - `QuestionFamily` is included for public string enum inventories while
+     non-string types and enum values such as `private_only` are not promoted;
+   - missing exported functions such as `SetExternalArtifactFloor` can be
+     recovered from structure without pulling variables/helpers;
+   - unsupported language/facet combinations no-op rather than hard fail.
+6. Rerun targeted evals `u8b`, `read_combo_criterion_rich_functions`, and
+   `qf_multi_member_set_count_caveat`, then update this ledger with pass/fail
+   and residual gaps.
+
+Implementation / validation notes:
+
+- Added `source_inventory_profile` as the typed analyzer lane for bounded
+  source inventories. The lane carries structural target roles, visibility,
+  requested fields, and facets such as `type_underlying=string` plus
+  `requires_const_set`; hard repairs consume this lane and parser/repomap data,
+  never request prose.
+- Added a Go source-inventory reconciler that proves exported `type X string`
+  enum types by parsing `TypeSpec` plus associated const declarations, then
+  emits member support refs (`Member: file:line`) through the existing
+  aggregate-facts path. Constants are treated as enum-likeness qualifiers when
+  the principal target is `type`, so enum values such as `private_only` are not
+  promoted into the answer unless `values` is explicitly requested.
+- Unified pre-complete validation, accepted aggregate state, extractor prompt,
+  and finalizer support checks on the same effective source-inventory aggregate
+  facts. This closes the failure mode where the model saw a complete textual
+  investigation but was asked to invent 110 individual file:line anchors.
+- Source-inventory support refs are now accepted as precise typed support when
+  they are produced by a complete parser/graph candidate set; they do not rely
+  on the model re-emitting the same 110 rows through `emit_evidence`.
+- Added `member_notes[]` to aggregate facts so each deterministic member can
+  carry the richest available explanation downstream. Notes are merged by member
+  identity and de-duplicated by text, so parser/graph membership authority does
+  not erase explorer summaries or model-authored descriptions.
+- Cross-language source-inventory notes use repo-map symbol docs where
+  available, but hard decisions remain conservative: structural tokens such as
+  decorators/modifiers are filtered out; adjacent comments must mention the
+  symbol as an identifier token; Python docstrings are accepted because the
+  parser binds them structurally inside the symbol node. Language-specific enum
+  semantics beyond Go still no-op unless a typed adapter proves them.
+- System-generated enumeration tables are append-only. When a model-authored
+  table is merely partial, the system appends only missing verified rows. When a
+  model-authored table appears to be a full attempt but has duplicate,
+  unexpected, or missing rows, the system preserves that authored table and
+  appends a clearly localized `系统按已验证证据给出的完整成员表` block instead of
+  silently rewriting the model's table.
+- Targeted tests:
+  `go test ./internal/tool -run 'TestReconcileCompletionAggregateFactsWithSourceInventory|TestEffectiveCompletionAggregateFactsForValidation|TestPreEmitStructuredMemberBlockCoversFactAcrossBlocks|TestEmitAnswerSymbol_MaterializesSourceInventoryAggregateSlate|TestNormalizePrincipalEnumerationRowBlocks'`;
+  `go test ./internal/types -run 'TestSourceInventoryProfile|TestCompileEnumerationDisplaySets_SourceInventorySuppressesUnrequestedValues|TestCompileEnumerationDisplaySets_MultiCategoryRowsPreserveRichNotes'`;
+  `go test ./internal/agent -run 'TestAnswerDocument|TestExtractor_BuildPrompt|TestRenderStructuredAggregateFacts'`;
+  `go test ./internal/tool ./internal/types ./internal/agent ./internal/orchestrator`.
+- Targeted eval `u8b-20260522-203744`: PASS, `explorer_iters=6`,
+  `extractor_iters=1`, `finalizer_iters=1`, no `DOWNGRADED`, no hard
+  finalizer retry, and deterministic exhaustive review reported
+  `members=110 principal_items=110 missing=0 unexpected=0 dup_cit=0
+  invalid_cit=0`.
+- Targeted eval `u8b-20260522-211112`: PASS but exposed a display-contract
+  regression: the finalizer's authored table attempted a complete 110-row
+  answer but contained duplicate/unexpected row identities, while the system
+  appended only a one-row supplement. This proved that "missing rows only" is
+  not enough when the authored table is a corrupt complete attempt.
+- Targeted eval `u8b-20260522-212302`: PASS, `finalizer_iters=1`, no finalizer
+  rewrite, deterministic exhaustive review again reported
+  `members=110 principal_items=110 missing=0 unexpected=0 dup_cit=0
+  invalid_cit=0`. The model-authored table was already clean in this run; the
+  corrupt-complete-table branch is now covered by unit tests so a future bad
+  authored table is separated from, not merged with, the verified system table.
+- Residual follow-up: extractor still chose to mirror all 110 answer symbols
+  manually instead of taking the empty-items deterministic fallback. This is now
+  safe because file:line support refs are present, but a future ergonomic pass
+  can lower model token load by making aggregate-backed answer-symbol
+  materialization more explicit in the extractor contract.
+- Residual follow-up: analyzer may still request broader fields (`values`) than
+  the user's names-only source-inventory question needs. The renderer now
+  suppresses values unless requested, but a later analyzer ergonomics pass should
+  reduce that pressure at the source.
 
 ### Batch 3 — Origin-specific provenance and supplement cleanup
 
@@ -390,10 +517,10 @@ Status: planned.
 | E20260522-G162 | `u7o-20260522-184901` | P1 | Open | The final answer correctly identifies the latest commit and current code path, but it also says the old default reserve-1 behavior “可能饿死 sshd 进程反而引发断连.” The commit message and code comments say the opposite: a full scan can starve sshd; setting reserve CPUs >0 leaves cores free and is the opt-in mitigation. | Hybrid VCS+current-source synthesis can still invert causal direction when it compresses commit rationale, config comment, and current implementation into prose. The current reviewers did not flag this semantic contradiction because the answer also contained the correct mitigation sentence elsewhere. | For history/current-code impact answers, preserve producer-side commit-message causal relations as typed VCS observations (`problem`, `old_behavior`, `new_default`, `operator_opt_in`). Self-consistency should check contradictions among these typed roles, not only file/line/count surfaces. |
 | E20260522-G163 | `u8a-20260522-184901` | P0 | Open | The answer's grounded member list contains 25 Kind constants with 20 read-mode entries (`grammar.go:29-48`), 4 write-mode entries (`54-57`), and 1 compatibility entry (`65`). However summary and a system-materialized grouping say `读模式 18`, `写模式 5`, `兼容 1`, which sums to 24 and contradicts the visible list. Self-consistency reported this at confidence 0.95 with `rewrite_on=true effective_rewrite=false`; the answer shipped unchanged. | Model-authored grouped_count aggregates can contradict higher-authority grounded member rows, and deterministic materialization can amplify the stale aggregate into a visible system supplement. A high-confidence deterministic arithmetic/count contradiction is being treated as record-only. | Validate grouped_count aggregates against grounded member rows before finalizer/render. When grouped counts disagree with member identity/line ranges, suppress or repair the grouped_count locally from the grounded rows; do not materialize it. High-confidence self-consistency on exact arithmetic/member-count contradictions should trigger local cleanup even when broad LLM rewrite is disabled. |
 | E20260522-G164 | `u8a-20260522-184901` | P1 | Open | `emit_answer_document` logged `normalized 6 principal enumeration block(s)` and `materialized 3 principal aggregate member row(s)`; the visible answer then added “系统按已验证证据补充成员：按类别导出数量” and “Kind 值按阶段分组.” The first is harmless but noisy; the second is wrong and duplicates a concept already covered by the richer principal list. | System补表 still lacks a strict append-only/non-conflicting contract for aggregate metadata. Counts and group summaries are being treated as answer-grade principal rows even when the model-authored main answer already contains richer, cited content. | Make aggregate metadata render only when it adds non-duplicative value and passes consistency checks against principal rows. Prefer folding safe counts into the lead summary; suppress separate system sections for derived counts unless the user asked for count tables or the model omitted required totals. |
-| E20260522-G165 | `u8b-20260522-191031` | P0 | Open | The final answer listed 108 "public string enum types" but included non-string-enum surfaces such as `Criterion` (`type Criterion struct`), `ArtifactObservationProfile` (struct profile), and `AnswerDisplayAttachment` (struct plus string literal attachment kinds). The eval failed on banned `private`, but the underlying defect is broader: the principal set violated the user's `type X string + const 集合` constraint. | The source-side enum inventory still relies too much on model-emitted evidence and broad file reads. It does not have a deterministic typed compiler that first proves `TypeSpec` underlying type is `string` and then associates a typed const set before promoting a member to principal. | Add an AST/repomap-backed enum-type candidate compiler for Go and equivalent language-specific enum taxonomies for other supported languages. Promote only members that satisfy the typed enum definition; keep struct profiles, untyped string constants, and related mechanisms as optional support unless the user asks for them. |
-| E20260522-G166 | `u8b-20260522-191031` | P1 | Open | The user asked for enum type names, but the answer rendered enum values/descriptions for many rows, including `AnswerSymbolVisibility` values `unknown/public_exported/all/private_only`. That extra value surface caused the banned `private` failure and made the answer shape broader than requested. | Answer-shape preservation is incomplete for inventory questions. "Names only" and "names plus values/details" are both enumeration-family answers, but the downstream renderer/finalizer does not consistently keep the narrower surface when the user asks only for type names. | Carry a typed `inventory_surface` / `requested_fields` shape from analyzer to finalizer. For names-only requests, render only names and definition locations in the principal list; values and rich descriptions may go to a localized optional support note only when requested or necessary to disambiguate. |
+| E20260522-G165 | `u8b-20260522-191031`, reruns `u8b-20260522-203744`, `u8b-20260522-212302` | P0 | Mitigated | Original run listed 108 "public string enum types" but included non-string-enum surfaces such as `Criterion`, `ArtifactObservationProfile`, and `AnswerDisplayAttachment`. Reruns now converge on 110 verified `type X string` + const-set members with deterministic review `missing=0 unexpected=0`. | Batch 2 added a Go parser-backed source-inventory reconciler that proves `TypeSpec` underlying type is `string` and associates an actual const set before promoting a member to principal. This fixes the Go failure path without adding prose/keyword hard gates. | Keep the Go compiler as the high-authority source for Go string-enum inventories. Equivalent language-specific enum adapters remain future work and must no-op safely until their parser semantics are proven. |
+| E20260522-G166 | `u8b-20260522-191031`, reruns `u8b-20260522-203744`, `u8b-20260522-212302` | P1 | Mitigated | Original answer rendered enum values/descriptions for a names-only request, including banned value text such as `private_only`. Reruns render enum type names, locations, and concise descriptions without promoting enum values as principal members. | `source_inventory_profile.requested_fields` now flows through aggregate facts and display-row compilation; constants are treated as enum-likeness qualifiers when the target role is `type`, not as answer rows. | Residual: analyzer may still over-request `values` for names-only prompts, but downstream rendering suppresses values unless requested. A later analyzer ergonomics pass should reduce this pressure at source. |
 | E20260522-G167 | `u8b-20260522-191031`, rerun `u8b-20260522-193225` | P1 | Mitigated | Analyzer first rejected the request because `is_category_enumeration=true` had only the example entity `Intent`; the actual members were to be discovered under `internal/types`, not named in the request. Rerun no longer hit the L0-B hard reject, but still spent two analyzer rounds. | The analyzer taxonomy conflates "enumerate named entities already visible in the request" with "discover all entities satisfying a relation under a scope." Batch 1 now adds a typed `RequiredFileHints + AnswerVisibilityProfile` scoped-inventory carve-out; residual cost belongs to analyzer fast-path work, not the old hard reject. | Keep the new typed carve-out. Follow-up: deterministic source inventory classification/fast path should emit analysis after existence pre-scan and defer implementation proof to exploration. |
-| E20260522-G168 | `u8b-20260522-191031` | P1 | Open | The enum inventory route used 42 `read_file` calls, 24 explorer iterations, 9 mid-loop injections, and duplicate evidence repair. The final answer still over-included invalid members. | Exhaustive API-surface inventories are being solved with broad LLM exploration rather than deterministic candidate generation. This is slow and less reliable than structural parsing for languages the repo map already understands. | Build deterministic candidate generation into exploration for structural inventories: use repo-map/AST to enumerate candidates, then let the model add rich summaries and edge-case judgments. The deterministic set is the high-authority principal membership source; model prose is enrichment. |
+| E20260522-G168 | `u8b-20260522-191031`, reruns `u8b-20260522-203744`, `u8b-20260522-212302` | P1 | Mitigated | Original enum inventory route used 42 `read_file` calls, 24 explorer iterations, 9 mid-loop injections, duplicate repair, and still over-included invalid members. Reruns pass with deterministic membership and no finalizer rewrite; one run dropped to 6 explorer iterations, while the later run still did manual blob-reading but the high-authority member set remained correct. | Deterministic candidate generation now exists for Go string-enum source inventories and is consumed by pre-complete validation, extractor prompt, finalizer support checks, and post-render review. The pipeline still allows the model to add rich summaries rather than replacing them. | Residual performance work: make aggregate-backed answer-symbol materialization explicit so extractor/explorer do not mirror large deterministic sets manually; extend structural inventory compilers to other repo-map languages only where typed parser semantics are safe. |
 | E20260522-G169 | `u8b-20260522-191031`, rerun `u8b-20260522-193225` | P2 | Mitigated | Exploration emitted `anchor_kind:"mechanism"` while intending `evidence_kind:"mechanism"`, causing rejected rows and another repair round. Rerun showed no schema near-miss for `anchor_kind=mechanism`. | The evidence schema has adjacent enum names that invite a common near-miss. Batch 1 repairs only the safe line-groundable shape: valid source, positive line, anchor symbol, and summary; it preserves semantic evidence kind and uses `anchor_kind=text_reference`. Ungroundable or ambiguous shapes remain fail-loud. | Keep telemetry on compatibility repairs. Do not broaden this into arbitrary anchor coercion. |
 | E20260522-G170 | `u9a-20260522-191031` | P1 | Open | The final answer's key claim is that `executeTool` returns `violation, nil` at `agent.go:2481-2482`, but the visible citation pool contains only `rejectAnalyzerPrescanTool` and its call sites at `2658/2664/2686`. The answer explicitly says the early-return fact comes from "探索闭包的确认结论" rather than a formal citation. | Closure prose is being allowed to substitute for a load-bearing current-code citation. For control-flow questions, the closure may summarize what was found, but it should not be the authoritative support for an exact branch/return-line claim. | Require principal current-code control-flow claims to cite the guard/call line and the branch/return line when both were read and grounded. Reviewer and pre-emit checks should not mark the claim fully cited solely because closure text mentions the line range. |
 | E20260522-G171 | `u9a-20260522-191031` | P2 | Open | Analyzer spent five rounds on a precise function-path conditional question, repeatedly trying pre-scan grep and learning that non-`files_only` grep is normalized/rejected before finally emitting analysis. The classification did not require those rounds. | Exact-symbol conditional questions still overuse analyzer pre-scan. The analyzer prompt says it is a classifier, but prompt-only guidance is insufficient when the model wants to inspect implementation details. | Add a deterministic exact-symbol analyzer fast path: once the named function/file exists, emit `question_kind=conditional` / mechanism classification and defer code-path proof to exploration. Keep analyzer grep limited to existence checks. |

@@ -93,6 +93,52 @@ func TestCompileEnumerationDisplaySets_MultiCategoryRowsPreserveRichNotes(t *tes
 	}
 }
 
+func TestCompileEnumerationDisplaySets_SourceInventorySuppressesUnrequestedValues(t *testing.T) {
+	rm := &RequestModel{
+		Language: "zh",
+		Intent:   IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType, AnswerCandidateRoleConstant},
+			TypeUnderlying:    SourceInventoryTypeUnderlyingString,
+			RequiresConstSet:  true,
+			RequestedFields: []SourceInventoryRequestedField{
+				SourceInventoryFieldName,
+				SourceInventoryFieldLocation,
+			},
+			Confidence: 0.95,
+		},
+	}
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:        AnswerAggregateMemberSet,
+			Label:       "公开字符串枚举类型",
+			Value:       "2",
+			Role:        AnswerAggregateRolePrincipalAnswer,
+			Members:     []string{"AnswerCandidateRole", "AnswerSymbolVisibility"},
+			MemberNotes: []string{"AnswerCandidateRole 枚举 — 候选符号的角色分类（function/method/type/constant/variable/field/package/file/test/generated/private/documentation）", "AnswerSymbolVisibility 枚举 — 决定 private/internal 符号是否可作为 principal member"},
+			SupportRefs: []string{"AnswerCandidateRole @ internal/types/answer_candidate_role.go:9", "AnswerSymbolVisibility @ internal/types/answer_visibility_profile.go:7"},
+		}},
+	}
+
+	sets := CompileEnumerationDisplaySets(rm, plan)
+	if len(sets) != 1 || len(sets[0].Rows) != 2 {
+		t.Fatalf("sets = %+v", sets)
+	}
+	joined := sets[0].Rows[0].Note + "\n" + sets[0].Rows[1].Note
+	for _, banned := range []string{"function/method", "private"} {
+		if strings.Contains(joined, banned) {
+			t.Fatalf("unrequested enum values / English visibility terms should not leak into source-inventory notes: %q", joined)
+		}
+	}
+	if !strings.Contains(joined, "候选符号的角色分类") || !strings.Contains(joined, "非公开/内部") {
+		t.Fatalf("sanitizer should preserve useful summary while localizing visibility wording: %q", joined)
+	}
+}
+
 func TestCompileEnumerationDisplaySets_UsesCanonicalMembersAndSupportRefs(t *testing.T) {
 	rm := &RequestModel{
 		Intent: IntentEnumerate,

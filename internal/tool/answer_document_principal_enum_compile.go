@@ -53,9 +53,15 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 			changed += annotated
 		}
 		missingRows := missingBySet[set.ID]
-		missingRows = principalEnumerationRenderableSupplementRows(missingRows)
-		if len(missingRows) > 0 {
-			doc.Blocks = append(doc.Blocks, buildPrincipalEnumerationRowsBlock(doc, set, missingRows, zh))
+		supplementRows := missingRows
+		supplementMode := principalEnumerationSupplementMissing
+		if principalEnumerationNeedsFullVerifiedSupplement(doc, set) {
+			supplementRows = set.Rows
+			supplementMode = principalEnumerationSupplementFullVerified
+		}
+		supplementRows = principalEnumerationRenderableSupplementRows(supplementRows)
+		if len(supplementRows) > 0 {
+			doc.Blocks = append(doc.Blocks, buildPrincipalEnumerationRowsBlock(doc, set, supplementRows, zh, supplementMode))
 			changed++
 		}
 		if normalizePrincipalEnumerationSectionBlocks(doc, set) > 0 {
@@ -64,6 +70,13 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 	}
 	return changed
 }
+
+type principalEnumerationSupplementMode int
+
+const (
+	principalEnumerationSupplementMissing principalEnumerationSupplementMode = iota
+	principalEnumerationSupplementFullVerified
+)
 
 func principalEnumerationSystemSupplementSuppressed(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
 	if doc == nil || ctx == nil || ctx.AnalysisIR == nil || doc.ExactResolution == nil {
@@ -537,14 +550,14 @@ func principalEnumerationSetLabelMatchScore(surface string, set types.Enumeratio
 	return 0
 }
 
-func buildPrincipalEnumerationRowsBlock(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet, rows []types.EnumerationDisplayRow, zh bool) types.AnswerBlock {
+func buildPrincipalEnumerationRowsBlock(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet, rows []types.EnumerationDisplayRow, zh bool, mode principalEnumerationSupplementMode) types.AnswerBlock {
 	blockSet := set
 	blockSet.Rows = append([]types.EnumerationDisplayRow(nil), rows...)
 	shape := principalEnumerationTableShapeForRows(blockSet.Rows, nil)
 	block := types.AnswerBlock{
 		ID:          uniqueAnswerBlockID(doc, "principal_enum_"+sanitizeEnumerationBlockID(set.ID)),
 		Kind:        types.BlockTable,
-		Title:       principalEnumerationRowsBlockTitle(set, rows, zh),
+		Title:       principalEnumerationRowsBlockTitle(set, rows, zh, mode),
 		SurfaceRole: types.SurfacePrincipal,
 		FacetIDs:    []string{string(types.FacetEnumerationItem)},
 		ClaimUses: []types.RenderedClaimUse{{
@@ -555,6 +568,92 @@ func buildPrincipalEnumerationRowsBlock(doc *types.AnswerDocumentV2, set types.E
 	}
 	block.Items = principalEnumerationItemsForSet(doc, blockSet, block.Kind, nil, shape)
 	return block
+}
+
+func principalEnumerationNeedsFullVerifiedSupplement(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet) bool {
+	if doc == nil || len(set.Rows) == 0 {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		stats := principalEnumerationAuthoredMarkdownTableStats(block, set)
+		if stats.dataRows == 0 || stats.matchedRows == 0 {
+			continue
+		}
+		if stats.dataRows < len(set.Rows) {
+			continue
+		}
+		if stats.missingRows > 0 || stats.duplicateRows > 0 || stats.unexpectedRows > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+type principalEnumerationMarkdownTableStats struct {
+	dataRows       int
+	matchedRows    int
+	missingRows    int
+	duplicateRows  int
+	unexpectedRows int
+}
+
+func principalEnumerationAuthoredMarkdownTableStats(block types.AnswerBlock, set types.EnumerationDisplaySet) principalEnumerationMarkdownTableStats {
+	var stats principalEnumerationMarkdownTableStats
+	if block.Kind != types.BlockTable || strings.TrimSpace(block.Text) == "" || len(set.Rows) == 0 {
+		return stats
+	}
+	rows := principalEnumerationMarkdownTableRows(block.Text)
+	stats.dataRows = len(rows)
+	if len(rows) == 0 {
+		return stats
+	}
+	expected := map[string]bool{}
+	for _, row := range set.Rows {
+		if key := principalEnumerationPrimaryRowKey(row); key != "" {
+			expected[key] = true
+		}
+	}
+	seen := map[string]bool{}
+	for _, cells := range rows {
+		key, ok := principalEnumerationMarkdownRowMatchedKey(cells, set)
+		if !ok || key == "" {
+			stats.unexpectedRows++
+			continue
+		}
+		stats.matchedRows++
+		if seen[key] {
+			stats.duplicateRows++
+			continue
+		}
+		seen[key] = true
+	}
+	for key := range expected {
+		if !seen[key] {
+			stats.missingRows++
+		}
+	}
+	return stats
+}
+
+func principalEnumerationMarkdownRowMatchedKey(cells []string, set types.EnumerationDisplaySet) (string, bool) {
+	matched := ""
+	for _, row := range set.Rows {
+		if !principalEnumerationMarkdownRowCoversRow(cells, row) {
+			continue
+		}
+		key := principalEnumerationPrimaryRowKey(row)
+		if key == "" {
+			continue
+		}
+		if matched != "" && matched != key {
+			return "", false
+		}
+		matched = key
+	}
+	if matched == "" {
+		return "", false
+	}
+	return matched, true
 }
 
 func principalEnumerationRenderableSupplementRows(rows []types.EnumerationDisplayRow) []types.EnumerationDisplayRow {
@@ -601,10 +700,16 @@ func principalEnumerationRowHasOrigin(row types.EnumerationDisplayRow, origin ty
 	return false
 }
 
-func principalEnumerationRowsBlockTitle(set types.EnumerationDisplaySet, rows []types.EnumerationDisplayRow, zh bool) string {
+func principalEnumerationRowsBlockTitle(set types.EnumerationDisplaySet, rows []types.EnumerationDisplayRow, zh bool, mode principalEnumerationSupplementMode) string {
 	label := strings.TrimSpace(set.Label)
 	if label == "" {
 		label = "成员清单"
+	}
+	if mode == principalEnumerationSupplementFullVerified {
+		if zh {
+			return fmt.Sprintf("系统按已验证证据给出的完整成员表：%s（%d）", label, len(rows))
+		}
+		return fmt.Sprintf("System-verified complete member table: %s (%d)", label, len(rows))
 	}
 	if zh {
 		return fmt.Sprintf("系统按已验证证据补充成员：%s（%d）", label, len(rows))

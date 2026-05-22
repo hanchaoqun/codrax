@@ -90,6 +90,170 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForPartial
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_AppendsVerifiedTableForNearCompleteSourceInventoryTable(t *testing.T) {
+	mu := types.NewMutableState("列出公开字符串枚举类型")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "公开字符串枚举类型",
+		Value:   "3",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Intent", "QuestionFamily", "AnswerRequestedOutput"},
+		SupportRefs: []string{
+			"Intent @ internal/types/analysis_ir.go:847",
+			"QuestionFamily @ internal/types/facet_plan.go:48",
+			"AnswerRequestedOutput @ internal/types/answer_intent_contract.go:61",
+		},
+		MemberNotes: []string{
+			"Intent classifies the user's request intent.",
+			"QuestionFamily names the broad answer family.",
+			"AnswerRequestedOutput names the visible answer surface the user requested.",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+				TypeUnderlying:    types.SourceInventoryTypeUnderlyingString,
+				RequiresConstSet:  true,
+				RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+				Confidence:        0.95,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "internal/types 包中共有 3 个公开字符串枚举类型。",
+		},
+		{
+			ID:    "enum_table",
+			Kind:  types.BlockTable,
+			Title: "公开字符串枚举类型",
+			Text: strings.Join([]string{
+				"| 类型名 | 文件位置 | 说明 |",
+				"|---|---|---|",
+				"| Intent | internal/types/analysis_ir.go:847 | 用户意图分类 |",
+				"| Intent | internal/types/analysis_ir.go:847 | 重复行，应被结构化清理 |",
+				"| AnswerAnswerRequestedOutput | internal/types/answer_intent_contract.go:61 | 错误标签 |",
+			}, "\n"),
+		},
+	}}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatal("expected source-inventory verified supplement")
+	}
+	if len(doc.Blocks) != 3 {
+		t.Fatalf("near-complete source inventory table should preserve model output and append a system table: %+v", doc.Blocks)
+	}
+	modelTable := answerDocumentTestBlockByID(t, doc, "enum_table")
+	if strings.TrimSpace(modelTable.Text) == "" || len(modelTable.Items) != 0 {
+		t.Fatalf("model-authored markdown table should remain separate, got %+v", modelTable)
+	}
+	modelVisible := types.AnswerBlockVisibleSurface(modelTable)
+	for _, want := range []string{"Intent", "AnswerAnswerRequestedOutput", "重复行，应被结构化清理"} {
+		if !strings.Contains(modelVisible, want) {
+			t.Fatalf("model table should be preserved with authored content %q:\n%s", want, modelVisible)
+		}
+	}
+	systemTable := doc.Blocks[2]
+	if !strings.Contains(systemTable.Title, "系统按已验证证据给出的完整成员表") {
+		t.Fatalf("system supplement should be clearly separated, got title %q", systemTable.Title)
+	}
+	if strings.TrimSpace(systemTable.Text) != "" || len(systemTable.Items) != 3 {
+		t.Fatalf("expected full verified structured table rows, got %+v", systemTable)
+	}
+	visible := types.AnswerBlockVisibleSurface(systemTable)
+	for _, want := range []string{"Intent", "QuestionFamily", "AnswerRequestedOutput", "classifies the user's request intent", "broad answer family"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("system verified table missing %q:\n%s", want, visible)
+		}
+	}
+	for _, banned := range []string{"AnswerAnswerRequestedOutput", "重复行，应被结构化清理", "系统按已验证证据补充成员"} {
+		if strings.Contains(visible, banned) {
+			t.Fatalf("system verified table should not copy invalid/duplicate model rows %q:\n%s", banned, visible)
+		}
+	}
+}
+
+func TestNormalizePrincipalEnumerationRowBlocks_AppendsFullVerifiedTableForCorruptCompleteAttempt(t *testing.T) {
+	mu := types.NewMutableState("列出公开字符串枚举类型")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("alpha", "AlphaKind", "internal/types/a.go", 10, "AlphaKind 表示第一类枚举。"),
+		enumEvidence("beta", "BetaKind", "internal/types/b.go", 20, "BetaKind 表示第二类枚举。"),
+		enumEvidence("gamma", "GammaKind", "internal/types/c.go", 30, "GammaKind 表示第三类枚举。"),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "公开字符串枚举类型",
+		Value:   "3",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"AlphaKind", "BetaKind", "GammaKind"},
+		SupportRefs: []string{
+			"AlphaKind @ internal/types/a.go:10",
+			"BetaKind @ internal/types/b.go:20",
+			"GammaKind @ internal/types/c.go:30",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:    "model_table",
+		Kind:  types.BlockTable,
+		Title: "模型整理的枚举类型表",
+		Text: strings.Join([]string{
+			"| 类型名 | 文件位置 |",
+			"|---|---|",
+			"| AlphaKind | internal/types/a.go:10 |",
+			"| AlphaKind | internal/types/a.go:10 |",
+			"| GammaKindTypo | internal/types/c.go:30 |",
+		}, "\n"),
+	}}}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatal("expected deterministic full verified supplement for corrupt complete table")
+	}
+	if len(doc.Blocks) != 3 {
+		t.Fatalf("expected summary, preserved model table, and full system table; got %+v", doc.Blocks)
+	}
+	if !strings.Contains(types.AnswerBlockVisibleSurface(doc.Blocks[1]), "GammaKindTypo") {
+		t.Fatalf("model-authored table should remain visibly separate, got %+v", doc.Blocks[1])
+	}
+	system := doc.Blocks[2]
+	if !strings.Contains(system.Title, "系统按已验证证据给出的完整成员表") {
+		t.Fatalf("full verified table should be clearly labeled, got %q", system.Title)
+	}
+	if len(system.Items) != 3 {
+		t.Fatalf("full verified table should carry every deterministic row, got %+v", system.Items)
+	}
+	visible := types.AnswerBlockVisibleSurface(system)
+	for _, want := range []string{"AlphaKind", "BetaKind", "GammaKind", "第二类枚举"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("full verified table missing %q:\n%s", want, visible)
+		}
+	}
+	if strings.Contains(system.Title, "（1）") || strings.Contains(system.Title, "补充成员") {
+		t.Fatalf("corrupt complete attempt must not degrade into a one-row missing supplement: %q", system.Title)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_DoesNotPromoteMechanismMemberSet(t *testing.T) {
 	mu := types.NewMutableState("analyze retry mechanism")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

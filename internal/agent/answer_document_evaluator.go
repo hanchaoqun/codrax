@@ -4068,6 +4068,10 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 	b.WriteString("- Preserve every `member` as the principal row identity. Use `display_label`, `location`, and `citation_key` to build clear table cells; use `note` to keep the answer explanatory instead of a dry symbol dump.\n")
 	b.WriteString("- Render these rows as the actual principal `ordered_list`, `bullet_list`, or `table` blocks for the answer. Do not mention the row set only inside prose sections and rely on system-side fallback carriers; that creates duplicate user-visible lists.\n")
 	b.WriteString("- A row without `citation_key` is a legitimate non-file aggregate member; do not invent a `repo:0` citation for it.\n\n")
+	if guidance := renderAnswerDocSourceInventoryRowGuidance(ctx); guidance != "" {
+		b.WriteString(guidance)
+		b.WriteString("\n")
+	}
 	for _, set := range sets {
 		title := strings.TrimSpace(set.Label)
 		if title == "" {
@@ -4108,6 +4112,30 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 			b.WriteString("\n")
 		}
 		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func renderAnswerDocSourceInventoryRowGuidance(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.RequestModel.SourceInventoryProfile == nil ||
+		!ctx.AnalysisIR.RequestModel.SourceInventoryProfile.Active() {
+		return ""
+	}
+	profile := ctx.AnalysisIR.RequestModel.SourceInventoryProfile
+	var fields []string
+	for _, field := range profile.RequestedFields {
+		fields = append(fields, string(field))
+	}
+	if len(fields) == 0 {
+		fields = append(fields, "name", "location")
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Source-inventory row contract: the requested answer fields are `%s`.\n", strings.Join(fields, "`, `"))
+	if profile.RequiresConstSet {
+		b.WriteString("- `requires_const_set=true` is a membership qualifier for enum-like types; it does not by itself mean the final answer should list every const/member value.\n")
+	}
+	if !profile.RequestsField(types.SourceInventoryFieldValues) {
+		b.WriteString("- Do not surface literal enum/member values or variant lists in the principal table/list unless they are already part of the type name/location itself. Keep the principal surface aligned to the requested fields.\n")
 	}
 	return b.String()
 }

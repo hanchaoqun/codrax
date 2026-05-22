@@ -304,6 +304,61 @@ func TestEmitAnalysisSchemaIncludesSourceScopeProfile(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysisSchemaIncludesSourceInventoryProfile(t *testing.T) {
+	var parsed struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	raw := (&EmitAnalysis{}).Parameters()
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("emit_analysis schema is not valid JSON: %v\nraw=%s", err, string(raw))
+	}
+	propRaw, ok := parsed.Properties["source_inventory_profile"]
+	if !ok {
+		t.Fatal("emit_analysis schema is missing property \"source_inventory_profile\"")
+	}
+	var prop struct {
+		Properties map[string]struct {
+			Type  string   `json:"type"`
+			Enum  []string `json:"enum"`
+			Items struct {
+				Enum []string `json:"enum"`
+			} `json:"items"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(propRaw, &prop); err != nil {
+		t.Fatalf("source_inventory_profile property is not valid JSON schema: %v\nraw=%s", err, string(propRaw))
+	}
+	for _, want := range []string{"is_source_inventory", "confidence"} {
+		found := false
+		for _, field := range prop.Required {
+			if field == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("source_inventory_profile.required = %v, want %s included", prop.Required, want)
+		}
+	}
+	var wantRoles []string
+	for _, role := range types.AllAnswerCandidateRoles() {
+		wantRoles = append(wantRoles, string(role))
+	}
+	if !reflect.DeepEqual(prop.Properties["target_roles"].Items.Enum, wantRoles) {
+		t.Fatalf("source_inventory_profile.target_roles enum = %v, want %v",
+			prop.Properties["target_roles"].Items.Enum, wantRoles)
+	}
+	var wantUnderlying []string
+	for _, underlying := range types.AllSourceInventoryTypeUnderlyings() {
+		wantUnderlying = append(wantUnderlying, string(underlying))
+	}
+	if !reflect.DeepEqual(prop.Properties["type_underlying"].Enum, wantUnderlying) {
+		t.Fatalf("source_inventory_profile.type_underlying enum = %v, want %v",
+			prop.Properties["type_underlying"].Enum, wantUnderlying)
+	}
+}
+
 func TestEmitAnalysisSchemaIncludesFieldValueProfile(t *testing.T) {
 	var parsed struct {
 		Properties map[string]json.RawMessage `json:"properties"`

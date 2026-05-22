@@ -1,7 +1,10 @@
 package tool
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
@@ -247,6 +250,288 @@ func TestReconcileCompletionAggregateFactsWithDefinitionEvidence_ExpandsSameCons
 	}
 }
 
+func TestReconcileCompletionAggregateFactsWithSourceInventory_GoStringEnumTypes(t *testing.T) {
+	repo := t.TempDir()
+	source := `package types
+
+// Intent classifies the user's request intent.
+type Intent string
+// QuestionFamily names the broad answer family.
+type QuestionFamily string
+type NonString int
+type PublicNoConst string
+// AnswerSymbolVisibility controls whether exported or internal symbols are included.
+type AnswerSymbolVisibility string
+
+const (
+	IntentExplain Intent = "explain"
+	QuestionFamilyCode QuestionFamily = "code"
+	AnswerSymbolVisibilityPublicExported AnswerSymbolVisibility = "public_exported"
+	AnswerSymbolVisibilityPrivateOnly AnswerSymbolVisibility = "private_only"
+)
+`
+	writeAggregateReconcileTestFile(t, repo, "internal/types/enums.go", source)
+	graph := testGraphWithFiles([]*repotypes.FileInfo{{
+		RelPath:  "internal/types/enums.go",
+		Language: "go",
+		Symbols: []repotypes.Symbol{
+			{Name: "Intent", Kind: "type", File: "internal/types/enums.go", Line: 4, EndLine: 4, Exported: true, Doc: "// Intent classifies the user's request intent."},
+			{Name: "QuestionFamily", Kind: "type", File: "internal/types/enums.go", Line: 6, EndLine: 6, Exported: true, Doc: "/* QuestionFamily names the broad answer family. */"},
+			{Name: "NonString", Kind: "type", File: "internal/types/enums.go", Line: 7, EndLine: 7, Exported: true, Doc: "// Intentional adjacent prose must not describe Intent."},
+			{Name: "PublicNoConst", Kind: "type", File: "internal/types/enums.go", Line: 8, EndLine: 8, Exported: true},
+			{Name: "AnswerSymbolVisibility", Kind: "type", File: "internal/types/enums.go", Line: 10, EndLine: 10, Exported: true, Doc: "// AnswerSymbolVisibility controls whether exported or internal symbols are included."},
+		},
+	}})
+	ctx := sourceInventoryTestContext(repo, graph, "internal/types", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+		TypeUnderlying:    types.SourceInventoryTypeUnderlyingString,
+		RequiresConstSet:  true,
+		RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+		Confidence:        0.95,
+	})
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "public string enum types",
+		Value:   "3",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Intent", "NonString", "private_only"},
+	}}
+
+	got := reconcileCompletionAggregateFactsWithSourceInventory(ctx, facts, nil)
+	if len(got) != 1 {
+		t.Fatalf("facts len = %d, want 1", len(got))
+	}
+	for _, want := range []string{"Intent", "QuestionFamily", "AnswerSymbolVisibility"} {
+		if !containsString(got[0].Members, want) {
+			t.Fatalf("members missing %q: %#v", want, got[0].Members)
+		}
+	}
+	for _, banned := range []string{"NonString", "PublicNoConst", "private_only"} {
+		if containsString(got[0].Members, banned) || strings.Contains(strings.Join(got[0].SupportRefs, " "), banned) {
+			t.Fatalf("invalid enum member/value %q leaked into source inventory: members=%#v refs=%#v", banned, got[0].Members, got[0].SupportRefs)
+		}
+	}
+	joinedNotes := strings.Join(got[0].MemberNotes, "\n")
+	if !strings.Contains(joinedNotes, "classifies the user's request intent") ||
+		!strings.Contains(joinedNotes, "broad answer family") ||
+		!strings.Contains(joinedNotes, "controls whether exported or internal symbols are included") {
+		t.Fatalf("source inventory should preserve safe type comments as member notes, got %#v", got[0].MemberNotes)
+	}
+	if strings.Contains(joinedNotes, "//") || strings.Contains(joinedNotes, "/*") || strings.Contains(joinedNotes, "*/") {
+		t.Fatalf("source inventory notes should be clean user-facing prose, got %#v", got[0].MemberNotes)
+	}
+}
+
+func TestSourceInventoryCommentDescribesSymbolRequiresIdentifierToken(t *testing.T) {
+	if !sourceInventoryCommentDescribesSymbol("AnswerSymbolVisibility controls visibility.", "AnswerSymbolVisibility") {
+		t.Fatal("expected exact symbol token in doc comment to match")
+	}
+	if sourceInventoryCommentDescribesSymbol("Intentional adjacent prose mentions a prefix only.", "Intent") {
+		t.Fatal("substring prefix should not qualify as the symbol's doc comment")
+	}
+	if got := sourceInventoryCompactNote("/*\n * Intent classifies requests.\n */"); got != "Intent classifies requests." {
+		t.Fatalf("comment marker cleanup = %q", got)
+	}
+}
+
+func TestSourceInventoryCandidateNoteFromGraphCrossLanguageSafety(t *testing.T) {
+	cases := []struct {
+		name     string
+		lang     string
+		symbol   string
+		doc      string
+		wantNote bool
+	}{
+		{
+			name:     "go doc convention accepted",
+			lang:     repotypes.LangGo,
+			symbol:   "Intent",
+			doc:      "// Intent classifies requests.",
+			wantNote: true,
+		},
+		{
+			name:     "adjacent comment without symbol is not promoted",
+			lang:     repotypes.LangJava,
+			symbol:   "RequestHandler",
+			doc:      "// Handles incoming requests.",
+			wantNote: false,
+		},
+		{
+			name:     "python docstring is structurally bound",
+			lang:     repotypes.LangPython,
+			symbol:   "handle_request",
+			doc:      "Handles incoming requests.",
+			wantNote: true,
+		},
+		{
+			name:     "arkts decorator metadata is not descriptive doc",
+			lang:     repotypes.LangArkTS,
+			symbol:   "RuntimePanel",
+			doc:      "@Component @Entry",
+			wantNote: false,
+		},
+		{
+			name:     "cangjie modifier metadata is not descriptive doc",
+			lang:     repotypes.LangCangjie,
+			symbol:   "Runtime",
+			doc:      "public open",
+			wantNote: false,
+		},
+		{
+			name:     "substring prefix is rejected across languages",
+			lang:     repotypes.LangTypeScript,
+			symbol:   "Intent",
+			doc:      "/** Intentional state bucket. */",
+			wantNote: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := sourceInventoryCandidateNoteFromGraph(&repotypes.Symbol{Name: tc.symbol, Doc: tc.doc}, tc.lang)
+			if (got != "") != tc.wantNote {
+				t.Fatalf("note accepted=%v want %v; got %q", got != "", tc.wantNote, got)
+			}
+			if strings.Contains(got, "//") || strings.Contains(got, "/*") || strings.Contains(got, "*/") {
+				t.Fatalf("note should be cleaned, got %q", got)
+			}
+		})
+	}
+}
+
+func TestEffectiveCompletionAggregateFactsForValidation_ReconcilesSourceInventoryBeforePreComplete(t *testing.T) {
+	repo := t.TempDir()
+	source := `package types
+
+type Intent string
+type QuestionFamily string
+type NonString int
+type PublicNoConst string
+type AnswerSymbolVisibility string
+
+const (
+	IntentExplain Intent = "explain"
+	QuestionFamilyCode QuestionFamily = "code"
+	AnswerSymbolVisibilityPublicExported AnswerSymbolVisibility = "public_exported"
+	AnswerSymbolVisibilityPrivateOnly AnswerSymbolVisibility = "private_only"
+)
+`
+	writeAggregateReconcileTestFile(t, repo, "internal/types/enums.go", source)
+	graph := testGraphWithFiles([]*repotypes.FileInfo{{
+		RelPath:  "internal/types/enums.go",
+		Language: "go",
+		Symbols: []repotypes.Symbol{
+			{Name: "Intent", Kind: "type", File: "internal/types/enums.go", Line: 3, EndLine: 3, Exported: true},
+			{Name: "QuestionFamily", Kind: "type", File: "internal/types/enums.go", Line: 4, EndLine: 4, Exported: true},
+			{Name: "NonString", Kind: "type", File: "internal/types/enums.go", Line: 5, EndLine: 5, Exported: true},
+			{Name: "PublicNoConst", Kind: "type", File: "internal/types/enums.go", Line: 6, EndLine: 6, Exported: true},
+			{Name: "AnswerSymbolVisibility", Kind: "type", File: "internal/types/enums.go", Line: 7, EndLine: 7, Exported: true},
+		},
+	}})
+	ctx := sourceInventoryTestContext(repo, graph, "internal/types", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles: []types.AnswerCandidateRole{
+			types.AnswerCandidateRoleType,
+			types.AnswerCandidateRoleConstant,
+		},
+		TypeUnderlying:   types.SourceInventoryTypeUnderlyingString,
+		RequiresConstSet: true,
+		RequestedFields: []types.SourceInventoryRequestedField{
+			types.SourceInventoryFieldName,
+			types.SourceInventoryFieldLocation,
+		},
+		Confidence: 0.95,
+	})
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "internal/types public string enum types",
+		Value:   "1",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Intent"},
+	}}
+
+	got := effectiveCompletionAggregateFactsForValidation(ctx, facts, nil)
+	if len(got) != 1 {
+		t.Fatalf("facts len = %d, want 1", len(got))
+	}
+	wantMembers := []string{"Intent", "QuestionFamily", "AnswerSymbolVisibility"}
+	if !reflect.DeepEqual(got[0].Members, wantMembers) {
+		t.Fatalf("members = %#v, want %#v", got[0].Members, wantMembers)
+	}
+	if got[0].Value != "3" {
+		t.Fatalf("value = %q, want 3", got[0].Value)
+	}
+	if len(got[0].SupportRefs) != len(wantMembers) {
+		t.Fatalf("support refs = %#v, want one per member", got[0].SupportRefs)
+	}
+	ok, invalid := exhaustiveEnumerationMemberSetUsable(ctx, got)
+	if !ok {
+		t.Fatalf("effective source-inventory fact should be pre-complete usable, invalid=%s facts=%#v", invalid, got)
+	}
+}
+
+func TestReconcileCompletionAggregateFactsWithSourceInventory_GraphBackedPublicFunctions(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{{
+		RelPath:  "internal/analysis/criterion/eval.go",
+		Language: "go",
+		Symbols: []repotypes.Symbol{
+			{Name: "Eval", Kind: "function", File: "internal/analysis/criterion/eval.go", Line: 15, EndLine: 20, Exported: true},
+			{Name: "EvalAll", Kind: "function", File: "internal/analysis/criterion/eval.go", Line: 36, EndLine: 45, Exported: true},
+			{Name: "SetExternalArtifactFloor", Kind: "function", File: "internal/analysis/criterion/eval.go", Line: 1029, EndLine: 1032, Exported: true},
+			{Name: "parseComparison", Kind: "function", File: "internal/analysis/criterion/eval.go", Line: 1100, EndLine: 1110, Exported: false},
+			{Name: "registered", Kind: "var", File: "internal/analysis/criterion/eval.go", Line: 1120, EndLine: 1120, Exported: false},
+		},
+	}})
+	ctx := sourceInventoryTestContext("", graph, "internal/analysis/criterion", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation, types.SourceInventoryFieldSummary},
+		Confidence:        0.95,
+	})
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "public functions",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Eval", "EvalAll"},
+	}}
+
+	got := reconcileCompletionAggregateFactsWithSourceInventory(ctx, facts, nil)
+	want := []string{"Eval", "EvalAll", "SetExternalArtifactFloor"}
+	if !reflect.DeepEqual(got[0].Members, want) {
+		t.Fatalf("members = %#v, want %#v", got[0].Members, want)
+	}
+	for _, banned := range []string{"parseComparison", "registered"} {
+		if containsString(got[0].Members, banned) {
+			t.Fatalf("private/helper member %q leaked into public function inventory: %#v", banned, got[0].Members)
+		}
+	}
+}
+
+func TestReconcileCompletionAggregateFactsWithSourceInventory_MixedLanguageNoOp(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{RelPath: "src/a.go", Language: "go", Symbols: []repotypes.Symbol{{Name: "Eval", Kind: "function", File: "src/a.go", Line: 1, Exported: true}}},
+		{RelPath: "src/B.java", Language: "java", Symbols: []repotypes.Symbol{{Name: "Run", Kind: "function", File: "src/B.java", Line: 1, Exported: true}}},
+	})
+	ctx := sourceInventoryTestContext("", graph, "src", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		Confidence:        0.95,
+	})
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "public functions",
+		Value:   "1",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Eval"},
+	}}
+
+	got := reconcileCompletionAggregateFactsWithSourceInventory(ctx, facts, nil)
+	if !reflect.DeepEqual(got, facts) {
+		t.Fatalf("mixed-language scope should no-op until the adapter can prove completeness;\ngot  %#v\nwant %#v", got, facts)
+	}
+}
+
 func aggregateReconcileTestContext() *types.BusContext {
 	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{}}
 	add := func(name, kind string, line int, exported bool) {
@@ -287,6 +572,75 @@ func aggregateReconcileTestContext() *types.BusContext {
 			},
 		}},
 	}
+}
+
+func writeAggregateReconcileTestFile(t *testing.T, repo, rel, content string) {
+	t.Helper()
+	full := filepath.Join(repo, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(full), err)
+	}
+	if err := os.WriteFile(full, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", full, err)
+	}
+}
+
+func sourceInventoryTestContext(repo string, graph *repotypes.Graph, scope string, profile *types.SourceInventoryProfile) *types.BusContext {
+	mut := types.NewMutableState("source inventory")
+	mut.SetSearchGraph(graph)
+	return &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.9,
+			},
+			AnswerVisibilityProfile: &types.AnswerVisibilityProfile{
+				SymbolVisibility: types.AnswerSymbolVisibilityPublicExported,
+				Confidence:       0.95,
+			},
+			SourceInventoryProfile: profile,
+			AnalyzerHints: types.AnalyzerHints{
+				Entities: []string{scope},
+			},
+		}},
+	}
+}
+
+func testGraphWithFiles(files []*repotypes.FileInfo) *repotypes.Graph {
+	g := &repotypes.Graph{
+		Files:      files,
+		FileIndex:  map[string]*repotypes.FileInfo{},
+		SymbolDefs: map[string][]*repotypes.Symbol{},
+	}
+	for _, fi := range files {
+		if fi == nil {
+			continue
+		}
+		g.FileIndex[fi.RelPath] = fi
+		for i := range fi.Symbols {
+			sym := &fi.Symbols[i]
+			if sym.File == "" {
+				sym.File = fi.RelPath
+			}
+			g.SymbolDefs[sym.Name] = append(g.SymbolDefs[sym.Name], sym)
+		}
+	}
+	return g
+}
+
+func containsString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
 }
 
 func aggregateReconcileStageAgentContext() *types.BusContext {

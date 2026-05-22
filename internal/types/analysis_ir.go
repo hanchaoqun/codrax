@@ -114,6 +114,13 @@ type RequestModel struct {
 	// out of public/exported answer sets without scanning raw request prose.
 	AnswerVisibilityProfile *AnswerVisibilityProfile `json:"answer_visibility_profile,omitempty"`
 
+	// SourceInventoryProfile is the analyzer LLM's typed lane for bounded
+	// source-code inventories: which structural roles are requested and which
+	// parser-proved facets (for example Go `type X string` with a const set)
+	// should constrain membership. Downstream hard decisions consume only this
+	// profile plus repo-map/AST facts, not raw request text or model prose.
+	SourceInventoryProfile *SourceInventoryProfile `json:"source_inventory_profile,omitempty"`
+
 	// ChangeImpactProfile is the analyzer LLM's typed lane for
 	// migration / affected-site questions: "which files/sites would
 	// need changes if target X changed shape". Downstream planners use

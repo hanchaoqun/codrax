@@ -64,6 +64,63 @@ func TestEmitAnswerSymbol_AcceptsValidBatch(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerSymbol_MaterializesSourceInventoryAggregateSlate(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	ctx.Language = "zh"
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		CompletenessObligation: &types.CompletenessObligation{
+			Required:    true,
+			SourceQuote: "all public string enum types",
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			TypeUnderlying:    types.SourceInventoryTypeUnderlyingString,
+			RequiresConstSet:  true,
+			Confidence:        0.95,
+		},
+	}}
+	ctx.Mutable.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "internal/types public string enum types",
+		Value:       "2",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Provenance:  "system:source_inventory",
+		Members:     []string{"Intent", "Scenario"},
+		SupportRefs: []string{"Intent: internal/types/analysis_ir.go:847", "Scenario: internal/types/analysis_ir.go:867"},
+	}})
+	ctx.Mutable.RetainInvestigationAggregateFacts()
+	params := json.RawMessage(`{
+        "items": [],
+        "completeness": "unknown"
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected deterministic materialization success, got: %s", res.Summary)
+	}
+	got, claim := ctx.Mutable.EmittedAnswerSymbols()
+	if claim != types.CompletenessComplete {
+		t.Fatalf("claim = %q, want complete", claim)
+	}
+	if len(got) != 2 {
+		t.Fatalf("want 2 materialized symbols, got %+v", got)
+	}
+	if got[0].Name != "Intent" || got[0].File != "internal/types/analysis_ir.go" || got[0].Line != 847 || got[0].Kind != types.KindType {
+		t.Fatalf("first materialized symbol mismatch: %+v", got[0])
+	}
+	if !strings.Contains(res.Summary, "materialized 2 answer-symbol") {
+		t.Fatalf("summary should disclose deterministic materialization, got: %s", res.Summary)
+	}
+}
+
 func TestEmitAnswerSymbol_CanonicalizesDocCommentLineToDefinition(t *testing.T) {
 	tool := &EmitAnswerSymbol{}
 	ctx := newAnswerSymbolCtx()

@@ -76,6 +76,7 @@ type emitAnalysisParams struct {
 	ConversationReferenceProfile *emitConversationReferenceProfileParam `json:"conversation_reference_profile,omitempty"`
 	SourceScopeProfile           *emitSourceScopeProfileParam           `json:"source_scope_profile,omitempty"`
 	AnswerVisibilityProfile      *emitAnswerVisibilityProfileParam      `json:"answer_visibility_profile,omitempty"`
+	SourceInventoryProfile       *emitSourceInventoryProfileParam       `json:"source_inventory_profile,omitempty"`
 	ChangeImpactProfile          *emitChangeImpactProfileParam          `json:"change_impact_profile,omitempty"`
 	FieldValueProfile            *emitFieldValueProfileParam            `json:"field_value_profile,omitempty"`
 	AnswerExclusionPolicy        *emitAnswerExclusionPolicyParam        `json:"answer_exclusion_policy,omitempty"`
@@ -170,6 +171,17 @@ type emitAnswerVisibilityProfileParam struct {
 	SourceQuotes     []string `json:"source_quotes,omitempty"`
 	Confidence       *float64 `json:"confidence"`
 	Rationale        string   `json:"rationale,omitempty"`
+}
+
+type emitSourceInventoryProfileParam struct {
+	IsSourceInventory *bool    `json:"is_source_inventory"`
+	TargetRoles       []string `json:"target_roles,omitempty"`
+	TypeUnderlying    string   `json:"type_underlying,omitempty"`
+	RequiresConstSet  *bool    `json:"requires_const_set,omitempty"`
+	RequestedFields   []string `json:"requested_fields,omitempty"`
+	SourceQuotes      []string `json:"source_quotes,omitempty"`
+	Confidence        *float64 `json:"confidence"`
+	Rationale         string   `json:"rationale,omitempty"`
 }
 
 type emitChangeImpactProfileParam struct {
@@ -429,6 +441,21 @@ func buildEmitAnalysisSchema() {
 				},
 				"required": []string{"symbol_visibility", "confidence"},
 			},
+			"source_inventory_profile": map[string]any{
+				"type":        "object",
+				"description": "Optional typed source-inventory intent. Emit when the current request asks for bounded structural source members such as public functions, public types, constants, enum-like types, fields, or methods under a path/package/file scope. This is the user's requested membership shape, not evidence. Downstream may use parser/repo-map facts to recover missing members, but it must keep model summaries as enrichment.",
+				"properties": map[string]any{
+					"is_source_inventory": map[string]any{"type": "boolean", "description": "True only when the answer's principal payload is a bounded inventory of source-code members."},
+					"target_roles":        map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": answerCandidateRoleValues()}, "description": "Principal source-member roles requested by the user, such as function, method, type, constant, variable, or field."},
+					"type_underlying":     map[string]any{"type": "string", "enum": sourceInventoryTypeUnderlyingValues(), "description": "Optional structural facet for type inventories. Use string for requests like Go `type X string`; use unknown when no underlying type facet is requested."},
+					"requires_const_set":  map[string]any{"type": "boolean", "description": "True when a type inventory requires an associated const/enum declaration set, such as string enum types. False or omit for ordinary type inventories."},
+					"requested_fields":    map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": sourceInventoryRequestedFieldValues()}, "description": "Fields the user wants shown: name, location, summary, values, count. Do not include values unless the request asks for enum/member literal values."},
+					"source_quotes":       map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Verbatim current-request phrase(s) that state the inventory shape or structural facet."},
+					"confidence":          map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this source-inventory profile in [0,1]."},
+					"rationale":           map[string]any{"type": "string", "description": "Short audit rationale for why this inventory profile applies."},
+				},
+				"required": []string{"is_source_inventory", "confidence"},
+			},
 			"change_impact_profile": map[string]any{
 				"type":        "object",
 				"description": "Optional typed profile for migration / affected-site questions. Use only when the CURRENT request asks which code sites, files, symbols, APIs, config locations, or downstream artifacts would need changes if a named target changed. Do not use for ordinary mechanism explanations, current-status diagnostics, or simple value lookups.",
@@ -624,6 +651,24 @@ func sourceScopeValues() []string {
 
 func answerSymbolVisibilityValues() []string {
 	values := types.AllAnswerSymbolVisibilities()
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, string(v))
+	}
+	return out
+}
+
+func sourceInventoryTypeUnderlyingValues() []string {
+	values := types.AllSourceInventoryTypeUnderlyings()
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, string(v))
+	}
+	return out
+}
+
+func sourceInventoryRequestedFieldValues() []string {
+	values := types.AllSourceInventoryRequestedFields()
 	out := make([]string, 0, len(values))
 	for _, v := range values {
 		out = append(out, string(v))
@@ -958,6 +1003,19 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	sourceInventoryProfile, sourceInventoryErr, sourceInventoryWarnings := parseSourceInventoryProfile(raw, p.SourceInventoryProfile)
+	if sourceInventoryErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + sourceInventoryErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	for _, warning := range sourceInventoryWarnings {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	answerRoleProfile, answerRoleErr, answerRoleWarnings := parseAnswerRoleProfile(raw, p.AnswerRoleProfile)
 	if answerRoleErr != "" {
 		return types.ToolResult{
@@ -1138,6 +1196,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		ConversationReferenceProfile: conversationReferenceProfile,
 		SourceScopeProfile:           sourceScopeProfile,
 		AnswerVisibilityProfile:      answerVisibilityProfile,
+		SourceInventoryProfile:       sourceInventoryProfile,
 		ChangeImpactProfile:          changeImpactProfile,
 		FieldValueProfile:            fieldValueProfile,
 		AnswerExclusionPolicy:        answerExclusionPolicy,
@@ -1866,6 +1925,98 @@ func parseAnswerVisibilityProfile(raw string, p *emitAnswerVisibilityProfilePara
 		SourceQuotes:     append([]string(nil), sourceQuotes...),
 		Confidence:       *p.Confidence,
 		Rationale:        strings.TrimSpace(p.Rationale),
+	}, "", warnings
+}
+
+func parseSourceInventoryProfile(raw string, p *emitSourceInventoryProfileParam) (*types.SourceInventoryProfile, string, []string) {
+	if p == nil {
+		return nil, "", nil
+	}
+	var warnings []string
+	if p.Confidence != nil && (*p.Confidence < 0 || *p.Confidence > 1) {
+		return nil, fmt.Sprintf("source_inventory_profile.confidence %.2f out of [0,1]", *p.Confidence), nil
+	}
+	confidence := 0.5
+	if p.Confidence != nil {
+		confidence = *p.Confidence
+	} else {
+		warnings = append(warnings, "source_inventory_profile.confidence omitted; downstream will treat the profile as low-confidence advisory data")
+	}
+	if p.IsSourceInventory == nil {
+		warnings = append(warnings, "source_inventory_profile.is_source_inventory omitted; profile ignored")
+		return nil, "", warnings
+	}
+	if !*p.IsSourceInventory {
+		return nil, "", warnings
+	}
+	seenRoles := map[types.AnswerCandidateRole]bool{}
+	var roles []types.AnswerCandidateRole
+	for i, rawRole := range p.TargetRoles {
+		role, ok := types.NormalizeAnswerCandidateRole(rawRole)
+		if !ok || role == types.AnswerCandidateRoleUnknown {
+			return nil, fmt.Sprintf(
+				"source_inventory_profile.target_roles[%d] %q is invalid; use one of %s",
+				i, rawRole, strings.Join(answerCandidateRoleValues(), ", "),
+			), nil
+		}
+		if seenRoles[role] {
+			continue
+		}
+		seenRoles[role] = true
+		roles = append(roles, role)
+	}
+	if len(roles) == 0 {
+		warnings = append(warnings, "source_inventory_profile.target_roles omitted or empty; profile ignored")
+		return nil, "", warnings
+	}
+	underlying := types.SourceInventoryTypeUnderlying(strings.TrimSpace(p.TypeUnderlying))
+	if underlying == "" {
+		underlying = types.SourceInventoryTypeUnderlyingUnknown
+	}
+	if !underlying.IsValid() {
+		return nil, fmt.Sprintf(
+			"source_inventory_profile.type_underlying %q is invalid; use one of %s",
+			p.TypeUnderlying, strings.Join(sourceInventoryTypeUnderlyingValues(), ", "),
+		), nil
+	}
+	requiresConstSet := false
+	if p.RequiresConstSet != nil {
+		requiresConstSet = *p.RequiresConstSet
+	}
+	seenFields := map[types.SourceInventoryRequestedField]bool{}
+	var fields []types.SourceInventoryRequestedField
+	for i, rawField := range p.RequestedFields {
+		field := types.SourceInventoryRequestedField(strings.TrimSpace(rawField))
+		if !field.IsValid() {
+			return nil, fmt.Sprintf(
+				"source_inventory_profile.requested_fields[%d] %q is invalid; use one of %s",
+				i, rawField, strings.Join(sourceInventoryRequestedFieldValues(), ", "),
+			), nil
+		}
+		if seenFields[field] {
+			continue
+		}
+		seenFields[field] = true
+		fields = append(fields, field)
+	}
+	sourceQuotes := trimStringSlice(p.SourceQuotes)
+	keptQuotes := sourceQuotes[:0]
+	for _, quote := range sourceQuotes {
+		if sourceQuotePresentInCurrentRequest(raw, quote) {
+			keptQuotes = append(keptQuotes, quote)
+			continue
+		}
+		warnings = append(warnings, "source_inventory_profile.source_quotes entry ignored because it is not copied verbatim from the current request")
+	}
+	return &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       roles,
+		TypeUnderlying:    underlying,
+		RequiresConstSet:  requiresConstSet,
+		RequestedFields:   fields,
+		SourceQuotes:      append([]string(nil), keptQuotes...),
+		Confidence:        confidence,
+		Rationale:         strings.TrimSpace(p.Rationale),
 	}, "", warnings
 }
 
@@ -2763,6 +2914,19 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 	if rm.AnswerVisibilityProfile != nil && rm.AnswerVisibilityProfile.Active() {
 		fmt.Fprintf(&b, " symbol_visibility=%s", rm.AnswerVisibilityProfile.SymbolVisibility)
+	}
+	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+		roles := make([]string, 0, len(rm.SourceInventoryProfile.TargetRoles))
+		for _, role := range rm.SourceInventoryProfile.TargetRoles {
+			roles = append(roles, string(role))
+		}
+		fmt.Fprintf(&b, " source_inventory=%s", strings.Join(roles, ","))
+		if rm.SourceInventoryProfile.TypeUnderlying != "" && rm.SourceInventoryProfile.TypeUnderlying != types.SourceInventoryTypeUnderlyingUnknown {
+			fmt.Fprintf(&b, " inventory_underlying=%s", rm.SourceInventoryProfile.TypeUnderlying)
+		}
+		if rm.SourceInventoryProfile.RequiresConstSet {
+			b.WriteString(" inventory_const_set=true")
+		}
 	}
 	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.IsChangeImpact {
 		fmt.Fprintf(&b, " change_impact=%s", rm.ChangeImpactProfile.Target)

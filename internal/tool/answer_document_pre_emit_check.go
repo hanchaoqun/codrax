@@ -2883,14 +2883,17 @@ func preEmitStructuredMemberBlockCoversFact(doc *types.AnswerDocumentV2, fact ty
 	if doc == nil || len(fact.Members) == 0 {
 		return false
 	}
+	matched := make(map[int]bool, len(fact.Members))
 	for _, block := range doc.Blocks {
 		switch block.Kind {
 		case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
 		default:
 			continue
 		}
-		matched := make(map[int]bool, len(fact.Members))
 		for idx, member := range fact.Members {
+			if matched[idx] {
+				continue
+			}
 			if preEmitStructuredBlockCoversAggregateMember(block, member) {
 				matched[idx] = true
 			}

@@ -587,15 +587,55 @@ func renderExtractorPrincipalAggregateSlate(ctx *types.AgentContext, facts []typ
 			fmt.Fprintf(&b, ", declared value=%s", fact.Value)
 		}
 		b.WriteString("; copy every member below into the answer-symbol slate when `emit_answer_symbol` is active for this dispatch. Do not downgrade to `lower_bound` merely because earlier transcript prose was truncated; this typed aggregate fact is the accepted closure payload.\n")
-		for _, member := range fact.Members {
+		for memberIdx, member := range fact.Members {
 			member = strings.TrimSpace(member)
 			if member == "" {
 				continue
 			}
-			fmt.Fprintf(&b, "    - `%s`\n", member)
+			if line := renderExtractorPrincipalAggregateMemberLine(member, supportRefAt(fact.SupportRefs, memberIdx), supportRefAt(fact.MemberNotes, memberIdx)); line != "" {
+				fmt.Fprintf(&b, "    - %s\n", line)
+			}
 		}
 	}
 	return b.String()
+}
+
+func supportRefAt(refs []string, idx int) string {
+	if idx < 0 || idx >= len(refs) {
+		return ""
+	}
+	return strings.TrimSpace(refs[idx])
+}
+
+func renderExtractorPrincipalAggregateMemberLine(member string, supportRef string, note string) string {
+	member = strings.TrimSpace(member)
+	if member == "" {
+		return ""
+	}
+	note = strings.Join(strings.Fields(strings.TrimSpace(note)), " ")
+	withNote := func(base string) string {
+		if note == "" {
+			return base
+		}
+		return base + " — note: " + note
+	}
+	if label, loc, ok := types.ParseAnswerSupportRefMemberLocation(member); ok {
+		label = strings.TrimSpace(label)
+		if label == "" {
+			label = member
+		}
+		if loc.File != "" && loc.LineStart > 0 {
+			return withNote(fmt.Sprintf("`%s` @ %s:%d", label, loc.File, loc.LineStart))
+		}
+		return withNote(fmt.Sprintf("`%s`", label))
+	}
+	if _, loc, ok := types.ParseAnswerSupportRefMemberLocation(supportRef); ok && loc.File != "" && loc.LineStart > 0 {
+		return withNote(fmt.Sprintf("`%s` @ %s:%d", member, loc.File, loc.LineStart))
+	}
+	if supportRef != "" {
+		return withNote(fmt.Sprintf("`%s` — support_ref: `%s`", member, supportRef))
+	}
+	return withNote(fmt.Sprintf("`%s`", member))
 }
 
 func renderExtractorValidationBoundaryNotes(ta *types.TurnAArtifacts) string {

@@ -93,7 +93,7 @@ func CompileEnumerationDisplaySets(rm *RequestModel, plan *AnswerSurfacePlan) []
 			EvidenceOrigins: cloneEnumerationDisplayOrigins(AnswerAggregateFactEvidenceOrigins(fact, rm)),
 		}
 		for memberIdx, member := range fact.Members {
-			row, ok := compileEnumerationDisplayRow(set, fact, ref.Index, memberIdx, member, support, anchorSummaries, stepSupport)
+			row, ok := compileEnumerationDisplayRow(rm, set, fact, ref.Index, memberIdx, member, support, anchorSummaries, stepSupport)
 			if !ok {
 				continue
 			}
@@ -168,6 +168,7 @@ func enumerationDisplayFactRefPreferred(candidate, existing AnswerAggregateFactR
 }
 
 func compileEnumerationDisplayRow(
+	rm *RequestModel,
 	set EnumerationDisplaySet,
 	fact AnswerAggregateFact,
 	factIdx int,
@@ -231,7 +232,135 @@ func compileEnumerationDisplayRow(
 		row.Note = MergeEvidenceSummaries(row.Note, stepNote)
 		row.Detail = enumerationDisplayDetail(entry.Detail, row.Note)
 	}
+	if memberNote := answerAggregateMemberNoteAt(fact.MemberNotes, memberIdx); memberNote != "" {
+		row.Note = MergeEvidenceSummaries(row.Note, memberNote)
+		row.Detail = enumerationDisplayDetail(entry.Detail, row.Note)
+	}
+	row.Note = enumerationDisplayRowNoteForRequest(rm, row.Note)
+	row.Detail = enumerationDisplayDetail(entry.Detail, row.Note)
 	return row, true
+}
+
+func answerAggregateMemberNoteAt(notes []string, idx int) string {
+	if idx < 0 || idx >= len(notes) {
+		return ""
+	}
+	return strings.Join(strings.Fields(strings.TrimSpace(notes[idx])), " ")
+}
+
+func enumerationDisplayRowNoteForRequest(rm *RequestModel, note string) string {
+	note = strings.Join(strings.Fields(strings.TrimSpace(note)), " ")
+	if note == "" || rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return note
+	}
+	profile := rm.SourceInventoryProfile
+	if !profile.RequestsField(SourceInventoryFieldValues) {
+		note = stripEnumerationValueExamplesFromNote(note)
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(rm.Language)), "zh") {
+			note = localizeEnumerationVisibilityNote(note)
+		}
+	}
+	return strings.Join(strings.Fields(strings.TrimSpace(note)), " ")
+}
+
+func stripEnumerationValueExamplesFromNote(note string) string {
+	runes := []rune(note)
+	if len(runes) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i := 0; i < len(runes); i++ {
+		open := runes[i]
+		close := rune(0)
+		switch open {
+		case '(':
+			close = ')'
+		case '（':
+			close = '）'
+		default:
+			b.WriteRune(open)
+			continue
+		}
+		end := -1
+		for j := i + 1; j < len(runes); j++ {
+			if runes[j] == close {
+				end = j
+				break
+			}
+		}
+		if end > i {
+			body := string(runes[i+1 : end])
+			if enumerationValueExampleListLike(body) {
+				i = end
+				continue
+			}
+		}
+		b.WriteRune(open)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func enumerationValueExampleListLike(body string) bool {
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return false
+	}
+	hasListSeparator := strings.ContainsAny(body, "/,，、|")
+	if !hasListSeparator {
+		return false
+	}
+	for _, r := range body {
+		if unicode.Is(unicode.Han, r) {
+			return false
+		}
+	}
+	tokens := strings.FieldsFunc(body, func(r rune) bool {
+		switch r {
+		case '/', ',', '，', '、', '|', ' ', '\t', '\n', '\r':
+			return true
+		default:
+			return false
+		}
+	})
+	codeTokens := 0
+	for _, token := range tokens {
+		token = strings.Trim(token, "`'\"…")
+		if token == "" {
+			continue
+		}
+		if enumerationValueExampleTokenLike(token) {
+			codeTokens++
+		}
+	}
+	return codeTokens >= 2
+}
+
+func enumerationValueExampleTokenLike(token string) bool {
+	if token == "" {
+		return false
+	}
+	hasAlphaNum := false
+	for _, r := range token {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			hasAlphaNum = true
+		case r == '_' || r == '-' || r == '.':
+		default:
+			return false
+		}
+	}
+	return hasAlphaNum
+}
+
+func localizeEnumerationVisibilityNote(note string) string {
+	replacer := strings.NewReplacer(
+		"private/internal", "非公开/内部",
+		"private / internal", "非公开/内部",
+		"private or internal", "非公开或内部",
+		"private/internal", "非公开/内部",
+		"private", "非公开",
+	)
+	return replacer.Replace(note)
 }
 
 func cloneEnumerationDisplayOrigins(in []AnswerEvidenceOrigin) []AnswerEvidenceOrigin {

@@ -640,10 +640,11 @@ func TestExtractor_BuildPrompt_MemberSetSuppressesAnalyzerSoftGuidanceNames(t *t
 		TerminalEvidenceCount: 1,
 		AcceptedClosureReason: "complete set found; variable defaultExternalArtifactFloor was excluded",
 		AcceptedAggregateFacts: []types.AnswerAggregateFact{{
-			Kind:    types.AnswerAggregateMemberSet,
-			Label:   "verified enum members",
-			Value:   "2",
-			Members: []string{"Intent", "Scenario"},
+			Kind:        types.AnswerAggregateMemberSet,
+			Label:       "verified enum members",
+			Value:       "2",
+			Members:     []string{"Intent", "Scenario"},
+			SupportRefs: []string{"Intent: internal/types/analysis_ir.go:847", "Scenario: internal/types/analysis_ir.go:867"},
 		}},
 	})
 	ctx := &types.AgentContext{
@@ -669,8 +670,8 @@ func TestExtractor_BuildPrompt_MemberSetSuppressesAnalyzerSoftGuidanceNames(t *t
 	}
 	if !contains(prompt, "principal aggregate member_set obligations") ||
 		!contains(prompt, "copy every member below into the answer-symbol slate") ||
-		!contains(prompt, "`Intent`") ||
-		!contains(prompt, "`Scenario`") {
+		!contains(prompt, "`Intent` @ internal/types/analysis_ir.go:847") ||
+		!contains(prompt, "`Scenario` @ internal/types/analysis_ir.go:867") {
 		t.Fatalf("accepted principal member_set should be rendered as an explicit extractor slate obligation:\n%s", prompt)
 	}
 	if contains(prompt, "defaultExternalArtifactFloor") {
