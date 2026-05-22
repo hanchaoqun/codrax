@@ -289,11 +289,14 @@ func parallelExploreMustWaitForSiblingHandoffs(rm types.RequestModel, contract *
 	if rm.FieldValueProfile != nil && rm.FieldValueProfile.Active() {
 		return true
 	}
-	if rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
-		rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() ||
-		rm.Predicates.IsDiagnosticQuestion {
-		return true
-	}
+	// Diagnostic / current-status flags describe answer semantics, not a
+	// principal sibling-handoff shape by themselves. The accepted
+	// emit_investigation_complete pre-complete gates already protect precise
+	// obligations such as current-source required files, evidence grounding,
+	// and runtime-artifact boundaries. Treating a broad diagnostic flag as a
+	// hard wait made parallel exploration duplicate accepted closures and widen
+	// into adjacent details. Explicit buckets, exhaustive sets, relation sets,
+	// field/value, and change-impact contracts above remain the typed blockers.
 	return false
 }
 

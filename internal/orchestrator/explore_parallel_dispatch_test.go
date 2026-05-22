@@ -315,6 +315,66 @@ func TestParallelExploreAllowsEarlyConvergence_BucketedComparisonWaits(t *testin
 	}
 }
 
+func TestParallelExploreAllowsEarlyConvergence_DiagnosticFlagAloneConverges(t *testing.T) {
+	o := &Orchestrator{busCtx: &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+				Predicates: types.SemanticPredicates{
+					IsDiagnosticQuestion: true,
+					IsCrossComponent:     true,
+				},
+				DiagnosticProfile: types.DiagnosticIntentProfile{
+					IsDiagnostic:        true,
+					CurrentVersionCheck: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind: string(types.ReqMechanism),
+					RequiredFileHints: []types.RequiredFileHint{
+						{Path: "internal/llm/openai.go", Confidence: 0.9},
+						{Path: "internal/orchestrator/read_stage_retry.go", Confidence: 0.8},
+					},
+				},
+				SubTopics: []types.SubTopic{
+					{Summary: "runtime artifact symptom", Entities: []string{"first_byte_timeout"}},
+					{Summary: "current source retry behavior", Entities: []string{"retry"}},
+				},
+			},
+		},
+	}}
+
+	if !o.parallelExploreAllowsEarlyConvergence() {
+		t.Fatal("diagnostic/current-check flags are answer semantics; accepted closure plus required-file prechecks should converge")
+	}
+}
+
+func TestParallelExploreAllowsEarlyConvergence_DiagnosticExplicitBucketsWait(t *testing.T) {
+	o := &Orchestrator{busCtx: &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+				Predicates: types.SemanticPredicates{
+					IsDiagnosticQuestion: true,
+				},
+				DiagnosticProfile: types.DiagnosticIntentProfile{
+					IsDiagnostic:        true,
+					CurrentVersionCheck: true,
+				},
+				Buckets: []types.QuestionBucket{
+					{Label: "日志现象", Index: 1},
+					{Label: "当前源码", Index: 2},
+				},
+			},
+		},
+	}}
+
+	if o.parallelExploreAllowsEarlyConvergence() {
+		t.Fatal("explicit user buckets remain sibling handoff obligations even for diagnostic answers")
+	}
+}
+
 func TestParallelExploreAllowsEarlyConvergence_InferredBucketsStayAdvisory(t *testing.T) {
 	o := &Orchestrator{busCtx: &types.BusContext{
 		AnalysisIR: &types.AnalysisIR{
