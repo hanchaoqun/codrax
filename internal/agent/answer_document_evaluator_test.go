@@ -162,12 +162,23 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_PrincipalMemberSetSuppr
 		Value:   "1",
 		Role:    types.AnswerAggregateRolePrincipalAnswer,
 		Members: []string{"Eval"},
+	}, {
+		Kind:     types.AnswerAggregateExcluded,
+		Label:    "excluded variables",
+		Value:    "1",
+		Excluded: []string{"defaultExternalArtifactFloor"},
 	}})
 	mut.RetainInvestigationAggregateFacts()
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
 				Intent: types.IntentEnumerate,
+				AnswerExclusionPolicy: &types.AnswerExclusionPolicy{
+					IsExclusionRequested: true,
+					ExcludedCandidateRoles: []types.AnswerCandidateRole{
+						types.AnswerCandidateRoleVariable,
+					},
+				},
 				Predicates: types.SemanticPredicates{
 					IsCategoryEnumeration: true,
 				},
@@ -180,8 +191,10 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_PrincipalMemberSetSuppr
 	if strings.Contains(prompt, "defaultExternalArtifactFloor") {
 		t.Fatalf("finalizer prompt should not project unstructured closure prose candidates when principal member_set exists:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, "model-authored closure reason omitted") {
-		t.Fatalf("finalizer prompt should explain closure prose suppression:\n%s", prompt)
+	if !strings.Contains(prompt, "model-authored closure set-level summary") ||
+		!strings.Contains(prompt, "[excluded candidate omitted]") ||
+		!strings.Contains(prompt, "typed `aggregate_facts.member_set` rows below remain the authoritative member carrier") {
+		t.Fatalf("finalizer prompt should preserve sanitized tool-call closure prose as set-level advisory context:\n%s", prompt)
 	}
 	if !strings.Contains(prompt, "member=`Eval`") ||
 		!strings.Contains(prompt, "members_rendered_in=authoritative_principal_member_rows") {

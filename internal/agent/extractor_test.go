@@ -645,13 +645,26 @@ func TestExtractor_BuildPrompt_MemberSetSuppressesAnalyzerSoftGuidanceNames(t *t
 			Value:       "2",
 			Members:     []string{"Intent", "Scenario"},
 			SupportRefs: []string{"Intent: internal/types/analysis_ir.go:847", "Scenario: internal/types/analysis_ir.go:867"},
+		}, {
+			Kind:     types.AnswerAggregateExcluded,
+			Label:    "excluded variables",
+			Value:    "1",
+			Excluded: []string{"defaultExternalArtifactFloor"},
 		}},
 	})
 	ctx := &types.AgentContext{
 		Objective: "list all enum types",
 		Mutable:   mu,
 		AnalysisIR: &types.AnalysisIR{
-			RequestModel: types.RequestModel{Intent: types.IntentEnumerate},
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				AnswerExclusionPolicy: &types.AnswerExclusionPolicy{
+					IsExclusionRequested: true,
+					ExcludedCandidateRoles: []types.AnswerCandidateRole{
+						types.AnswerCandidateRoleVariable,
+					},
+				},
+			},
 			AnswerContract: types.AnswerContract{MustInclude: []string{
 				"Intent", "Scenario", "HelperThatShouldStaySoft",
 			}},
@@ -677,8 +690,10 @@ func TestExtractor_BuildPrompt_MemberSetSuppressesAnalyzerSoftGuidanceNames(t *t
 	if contains(prompt, "defaultExternalArtifactFloor") {
 		t.Fatalf("principal member_set prompt should not project unstructured closure prose candidates:\n%s", prompt)
 	}
-	if !contains(prompt, "model-authored closure reason omitted") {
-		t.Fatalf("prompt should explain why closure prose was suppressed:\n%s", prompt)
+	if !contains(prompt, "model-authored closure set-level summary") ||
+		!contains(prompt, "[excluded candidate omitted]") ||
+		!contains(prompt, "typed `aggregate_facts.member_set` rows below remain the authoritative member carrier") {
+		t.Fatalf("prompt should preserve sanitized tool-call closure prose as set-level advisory context:\n%s", prompt)
 	}
 }
 

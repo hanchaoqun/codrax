@@ -532,7 +532,8 @@ func renderExtractorAcceptedClosure(ctx *types.AgentContext, ta *types.TurnAArti
 	}
 	if reason != "" {
 		if suppressUnstructuredClosureReasonForPrincipalMemberSets(ctx, aggregateFacts) {
-			b.WriteString("- model-authored closure reason omitted from this prompt because principal `aggregate_facts.member_set` rows below are the authoritative enumeration handoff.\n")
+			reason = sanitizeAggregateExcludedCandidatesForPrompt(ctx, reason, aggregateFacts)
+			fmt.Fprintf(&b, "- model-authored closure set-level summary (advisory only; typed `aggregate_facts.member_set` rows below remain the authoritative member carrier): %s\n", truncateExtractorPromptText(reason, 700))
 		} else {
 			reason = sanitizeAggregateExcludedCandidatesForPrompt(ctx, reason, aggregateFacts)
 			fmt.Fprintf(&b, "- model-authored closure reason: %s\n", truncateExtractorPromptText(reason, 900))

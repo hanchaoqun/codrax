@@ -539,6 +539,60 @@ Implementation notes:
   diagram-missing disclosure.
 - Verification: `go test ./internal/types ./internal/tool ./internal/orchestrator`.
 
+### Batch 6 — Tool-call narrative preservation without prose takeover
+
+Status: in progress.
+
+Root-cause refresh:
+
+- The valuable narrative that must survive is the prose embedded in accepted
+  tool payloads (`emit_evidence.summary`,
+  `emit_investigation_complete.reason`, and
+  `aggregate_facts.member_notes`). Ordinary assistant prose outside tool calls
+  remains low-authority background and should not be promoted into the answer
+  contract.
+- The existing architecture already has the right carrier:
+  `StableInvestigationReason` / `AcceptedClosureReason` plus
+  `member_notes` / evidence summaries. The gap is that extractor/finalizer
+  prompt rendering suppresses the closure reason entirely when a principal
+  `aggregate_facts.member_set` is present. This protects member identity, but
+  it can hide useful set-level scope, methodology, count boundary, VCS/log
+  verdict, or search-summary prose.
+- Eval evidence: in `u8b-20260522-193225`, Turn A wrote
+  `TurnAArtifacts (0 notes, ... evidence ...)`, because ordinary tool-turn
+  assistant prose was not captured as notes. The accepted
+  `emit_investigation_complete.reason` did carry the useful internal/types
+  scope/count/methodology summary, but both extractor/finalizer prompts later
+  printed `model-authored closure reason omitted ... principal member_set rows
+  are the authoritative enumeration handoff`. That is too binary.
+
+Implementation tasks:
+
+1. [x] Preserve tool-call-internal closure prose as a bounded set-level summary
+   even when principal member-set rows remain the authoritative member carrier.
+   The summary is advisory only, not a citation, and cannot override typed
+   member rows, support refs, or current-source citations.
+2. [x] Reuse existing typed exclusion sanitization so explicitly excluded
+   candidates in closure prose are redacted before reaching extractor/finalizer
+   prompts.
+3. [ ] Add targeted eval coverage for a principal member-set inventory where
+   `emit_investigation_complete.reason` carries scope/methodology prose that
+   must survive while member rows remain authoritative.
+4. [ ] Extend the same audit to VCS/latest-feature, recent-N history,
+   diff+current-code, log/trace positive+negative mix, and cross-repo
+   no-interaction runs. These external evidence families often put the most
+   useful answer-level synthesis in the accepted closure reason.
+
+Implementation notes:
+
+- This is not a new evidence channel. It reuses the existing accepted closure
+  handoff and leaves `emit_evidence.summary` / `member_notes` as the per-row
+  rich-detail source.
+- The answer-side rule remains: grounded in-scope evidence, support refs, and
+  typed observation ledgers outrank closure prose. Closure prose may explain
+  scope and boundary; it must not substitute for a load-bearing citation in
+  current-code control-flow answers.
+
 ## Batch Ledger
 
 | Batch | Cases | Verdict | Runtime | Notes |
