@@ -1357,5 +1357,13 @@ or noisy retries:
 - [x] Batch F.6: suppress imprecise VCS row-order reviewer false positives,
   avoid duplicate system VCS supplements, and preserve richer VCS raw/closure
   context for finalization.
+- [x] Batch G.1: centralize count-vs-member-set authority so `total_count`,
+  `unique_count`, `grouped_count`, and `bucket_count` members stay support-only
+  unless the typed request declares an exhaustive/source-inventory/relation
+  member surface. This prevents comparison/count/mechanism answers from gaining
+  bogus one-row system补表 blocks.
+- [x] Batch G.2: filter generic soft caveats through the unified typed
+  contract. Metadata-only or low-precision accepted-path issues should remain
+  telemetry unless they can be rendered as a precise localized boundary note.
 - [ ] Run targeted evals after each batch and update
   `eval_20260520_full_sweep_gap_tracking.md`.

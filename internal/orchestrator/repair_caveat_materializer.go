@@ -152,6 +152,10 @@ func AppendSoftContractCaveatsToAnswerForBus(answer string, violations []types.V
 		}
 		return AppendUserCaveatsToAnswer(answer, remaining, lang)
 	}
+	soft = suppressGenericSoftCaveatsForAcceptedSurface(soft, ctx)
+	if len(soft) == 0 {
+		return answer
+	}
 	return AppendUserCaveatsToAnswer(answer, soft, lang)
 }
 
@@ -213,6 +217,102 @@ func pureHistoryNarrativeSuppressibleCaveat(kind types.ViolationKind) bool {
 	default:
 		return false
 	}
+}
+
+func suppressGenericSoftCaveatsForAcceptedSurface(violations []types.Violation, ctx *types.BusContext) []types.Violation {
+	if len(violations) == 0 {
+		return nil
+	}
+	rm, answerContract := requestModelAndAnswerContractForBus(ctx)
+	if rm == nil {
+		return violations
+	}
+	intentContract := types.CompileAnswerIntentContract(*rm, answerContract)
+	out := make([]types.Violation, 0, len(violations))
+	for _, v := range violations {
+		if genericAcceptedPathCaveatIsTelemetry(v, rm, intentContract) {
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+func genericAcceptedPathCaveatIsTelemetry(v types.Violation, rm *types.RequestModel, contract types.AnswerIntentContract) bool {
+	switch v.Kind {
+	case types.ViolPrincipalClaimUseMissing,
+		types.ViolLaneBlockKindMismatch,
+		types.ViolRichnessRegression,
+		types.ViolRichnessGlaringGap,
+		types.ViolPrincipalProseUnderfilled:
+		return true
+	case types.ViolEnumerationLabelUngrounded,
+		types.ViolEnumerationEvidenceUnderspecified,
+		types.ViolEnumerationItemLabelExtractorDrift,
+		types.ViolPrincipalSupportMemberOmitted,
+		types.ViolExhaustiveMemberSetCoverageDrift:
+		return !principalEnumerationSurfaceRequested(rm, contract)
+	case types.ViolUncertaintyBlockMissing:
+		return !contract.HasOutput(types.AnswerRequestedOutputAbsence) &&
+			!contract.HasOutput(types.AnswerRequestedOutputDiagnostic)
+	case types.ViolBlockCoverageMissing:
+		return blockCoverageCaveatIsTelemetry(v, rm, contract)
+	default:
+		return false
+	}
+}
+
+func blockCoverageCaveatIsTelemetry(v types.Violation, rm *types.RequestModel, contract types.AnswerIntentContract) bool {
+	blockKind := types.AnswerBlockKind(residualClusterValue(v.ClusterKey, "block_kind"))
+	switch blockKind {
+	case types.BlockDiagram:
+		return !contract.HasOutput(types.AnswerRequestedOutputDiagram)
+	case types.BlockScalar, types.BlockDecision:
+		return !contract.HasOutput(types.AnswerRequestedOutputScalar) &&
+			!contract.HasOutput(types.AnswerRequestedOutputKeyValue) &&
+			!contract.HasOutput(types.AnswerRequestedOutputCount)
+	case types.BlockOrderedList, types.BlockBulletList, types.BlockTable:
+		if principalEnumerationSurfaceRequested(rm, contract) {
+			return false
+		}
+		if blockKind == types.BlockTable && contract.HasOutput(types.AnswerRequestedOutputComparison) {
+			return false
+		}
+		return true
+	case types.BlockSummary, types.BlockSection, types.BlockCaveat, "":
+		return true
+	default:
+		return false
+	}
+}
+
+func principalEnumerationSurfaceRequested(rm *types.RequestModel, contract types.AnswerIntentContract) bool {
+	if rm == nil {
+		return contract.HasOutput(types.AnswerRequestedOutputEnumeration)
+	}
+	if types.RequiresExhaustiveEnumerationMemberSetHandoff(*rm) ||
+		types.RequiresRelationMemberSetHandoff(*rm) {
+		return true
+	}
+	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() &&
+		(rm.Intent == types.IntentEnumerate || rm.Predicates.IsCategoryEnumeration || rm.QuestionStructure().HasAnyObligation()) {
+		return true
+	}
+	if rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsScalarAnswer {
+		return false
+	}
+	if rm.Intent == types.IntentEnumerate || rm.Predicates.IsCategoryEnumeration {
+		return contract.HasOutput(types.AnswerRequestedOutputEnumeration)
+	}
+	if rm.Predicates.IsCrossComponent ||
+		types.IsArchitectureNarrativeExplanation(*rm) ||
+		types.IsSingleTopicMechanismExplanation(*rm) {
+		return false
+	}
+	return contract.HasOutput(types.AnswerRequestedOutputEnumeration) ||
+		rm.Intent == types.IntentEnumerate ||
+		rm.Predicates.IsCategoryEnumeration
 }
 
 func runtimeWaiverObservationOnly(w *types.EvidenceFloorWaiver) bool {

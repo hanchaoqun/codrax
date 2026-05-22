@@ -300,6 +300,48 @@ func TestNormalizePrincipalEnumerationRowBlocks_DoesNotPromoteMechanismMemberSet
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_SuppressesGroupedCountComparisonSupplement(t *testing.T) {
+	mu := types.NewMutableState("对比两个子系统的节点类型数量和职责差异")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateGroupedCount,
+		Label:   "TaskGraph 节点类型数量（单 SubTopic）",
+		Value:   "1",
+		Unit:    "node_types",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"final"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentExplain,
+			Scenario:   types.ScenarioArchitectureExplain,
+			Complexity: types.ComplexityComplex,
+			Language:   "zh",
+			Predicates: types.SemanticPredicates{
+				IsCrossComponent: true,
+			},
+			Buckets: []types.QuestionBucket{{Label: "子系统 A"}, {Label: "子系统 B"}},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "两个子系统都只有一个 final 节点类型，但职责边界不同，不能把这个计数分区渲染成主成员清单。",
+	}}}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed != 0 {
+		t.Fatalf("comparison grouped_count members are support partitions, not supplement rows; fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if len(doc.Blocks) != 1 {
+		t.Fatalf("normalizer must not append one-row count member supplement, got %+v", doc.Blocks)
+	}
+	visible := types.AnswerBlockVisibleSurface(doc.Blocks[0])
+	if !strings.Contains(visible, "职责边界不同") {
+		t.Fatalf("model-authored comparison prose should remain dominant:\n%s", visible)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_DoesNotDuplicateVCSCommitRowsAlreadyVisible(t *testing.T) {
 	mu := types.NewMutableState("最近 10 次提交都做了哪些事情")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

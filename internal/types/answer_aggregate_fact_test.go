@@ -617,6 +617,58 @@ func TestPrincipalAggregateMemberSetFactRefsForRequest_DemotesNarrativeGroupedCo
 	}
 }
 
+func TestPrincipalAggregateMemberSetFactRefsForRequest_DemotesCountMembersForComparison(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:    AnswerAggregateGroupedCount,
+		Label:   "TaskGraph 节点类型数量（单 SubTopic）",
+		Value:   "1",
+		Unit:    "node_types",
+		Role:    AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"final"},
+	}}
+	rm := RequestModel{
+		Intent:     IntentExplain,
+		Scenario:   ScenarioArchitectureExplain,
+		Complexity: ComplexityComplex,
+		Predicates: SemanticPredicates{
+			IsCrossComponent: true,
+		},
+		Buckets: []QuestionBucket{{Label: "A"}, {Label: "B"}},
+	}
+
+	if got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm); len(got) != 0 {
+		t.Fatalf("comparison count partitions must not become principal member supplements: %+v", got)
+	}
+	if role := AnswerAggregateFactRoleForRequest(facts[0], &rm); role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("comparison count fact role = %q, want supporting_coverage", role)
+	}
+}
+
+func TestPrincipalAggregateMemberSetFactRefsForRequest_CountMembersStayPrincipalForExplicitInventory(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:    AnswerAggregateGroupedCount,
+		Label:   "公开函数",
+		Value:   "2",
+		Unit:    "functions",
+		Members: []string{"Eval", "EvalAll"},
+	}}
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "全部公开函数"},
+	}
+
+	got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm)
+	if len(got) != 1 {
+		t.Fatalf("explicit complete inventory should keep count members as principal rows: %+v", got)
+	}
+	if role := AnswerAggregateFactRoleForRequest(facts[0], &rm); role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("explicit inventory count fact role = %q, want principal_answer", role)
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_CanonicalizesMemberSetValueFromMembers(t *testing.T) {
 	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
 		Kind:    AnswerAggregateMemberSet,

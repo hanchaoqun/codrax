@@ -478,6 +478,67 @@ Status: planned.
     requests. This reuses the completion-time contract and avoids an avoidable
     downgrade/re-emit loop.
 
+### Batch 5 — System supplement authority and count/member boundaries
+
+Status: implemented in code; targeted package tests passed.
+
+Root-cause refresh:
+
+- The remaining visible clutter is not a single renderer bug. It is a shared
+  contract leak: accepted aggregate facts can still be treated as answer-grade
+  member rows even when the typed user surface is a count, comparison,
+  mechanism, history narrative, or runtime diagnostic. Once that happens,
+  deterministic补表 can append rows that are lower-authority than the
+  model-authored answer, duplicate it, or contradict it.
+- `grouped_count` / `bucket_count` / `total_count` / `unique_count` facts are
+  count facts first. Their `members[]` field can be a proof/sample/partition
+  list. It may become a visible member table only when the request has a typed
+  complete-member obligation. It must not become a table just because
+  `value == len(members)`.
+- Soft metadata violations such as missing carrier `claim_uses`, optional block
+  shape, low-precision facet coverage, or advisory enumeration labels should
+  not automatically produce generic answer-level caveats. If the system cannot
+  localize the defect to a concrete user-visible boundary, the right default is
+  telemetry; if it can localize, render a precise localized note.
+
+Implementation tasks:
+
+1. [x] Centralize count-vs-member-set projection so all aggregate consumers agree:
+   count/grouped-count facts are support-only unless a typed source-inventory,
+   relation, exhaustive enumeration, or explicit complete-member request is
+   active.
+2. [x] Keep model-authored prose/tables/diagrams dominant. System-generated tables
+   remain append-only and are allowed only for non-overlapping, non-conflicting
+   verified rows.
+3. [x] Extend caveat materialization with a typed "generic soft caveat
+   suppressible" filter. The filter must consume violation kinds, cluster
+   metadata, request/output contract, and origin lanes; it must not scan user or
+   model prose.
+4. [x] Add guards for comparison/count questions so a scalar or grouped count
+   cannot materialize as a one-row "member supplement" table.
+5. [x] Add guards for mechanism answers with soft ordered-list/anchor advisories so
+   generic enumeration/acceptance caveats are not shown unless a precise
+   missing required facet remains.
+
+Implementation notes:
+
+- `AnswerAggregateFactRoleForRequest` and
+  `PrincipalAggregateMemberSetFactRefsForRequest` now share the same
+  count-vs-member-set projection. Even an explicitly principal
+  `grouped_count` / `bucket_count` / `total_count` / `unique_count` is demoted
+  to supporting coverage when the request's typed output is comparison,
+  mechanism, history/runtime diagnostic, scalar, or count rather than complete
+  member enumeration.
+- `normalizePrincipalEnumerationRowBlocks` is covered by a regression test that
+  prevents comparison grouped-count partitions from rendering as one-row system
+  supplement tables.
+- `AppendSoftContractCaveatsToAnswerForBus` now runs generic accepted-path soft
+  caveats through the unified output contract. Mechanism answers suppress
+  enumeration/metadata advisories; true enumeration requests still surface
+  enumeration-depth caveats; explicit diagram requests still surface a precise
+  diagram-missing disclosure.
+- Verification: `go test ./internal/types ./internal/tool ./internal/orchestrator`.
+
 ## Batch Ledger
 
 | Batch | Cases | Verdict | Runtime | Notes |

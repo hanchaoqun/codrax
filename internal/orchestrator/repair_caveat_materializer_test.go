@@ -157,6 +157,107 @@ func TestAppendSoftContractCaveatsToAnswerForBus_PureHistoryNarrativeSuppressesC
 	}
 }
 
+func TestAppendSoftContractCaveatsToAnswerForBus_MechanismSuppressesGenericEnumerationAdvisories(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	rm := types.RequestModel{
+		RawRequest: "解释 explorer 如何调用 subagent",
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioArchitectureExplain,
+		Predicates: types.SemanticPredicates{},
+		AnalyzerHints: types.AnalyzerHints{
+			Kind: string(types.ReqMechanism),
+		},
+	}
+	mut := types.NewMutableState(rm.RawRequest)
+	mut.SetRequestModel(rm)
+	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+
+	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{
+		{Kind: types.ViolEnumerationEvidenceUnderspecified},
+		{Kind: types.ViolEnumerationLabelUngrounded},
+		{Kind: types.ViolPrincipalClaimUseMissing},
+		{Kind: types.ViolBlockCoverageMissing, ClusterKey: types.BlockKindClusterKey(types.BlockOrderedList, "answer_block_coverage")},
+	}, "zh", ctx)
+	if out != "正文" {
+		t.Fatalf("mechanism answers should not surface generic enumeration/metadata caveats on accepted path:\n%s", out)
+	}
+}
+
+func TestAppendSoftContractCaveatsToAnswerForBus_EnumerationKeepsEnumerationBoundaryCaveat(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	rm := types.RequestModel{
+		RawRequest: "列出全部公开函数",
+		Intent:     types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+		CompletenessObligation: &types.CompletenessObligation{
+			Required:    true,
+			SourceQuote: "全部公开函数",
+		},
+	}
+	mut := types.NewMutableState(rm.RawRequest)
+	mut.SetRequestModel(rm)
+	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+
+	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{
+		{Kind: types.ViolEnumerationEvidenceUnderspecified},
+	}, "zh", ctx)
+	if !strings.Contains(out, "**补充说明：**") {
+		t.Fatalf("true enumeration gaps should remain visible caveats:\n%s", out)
+	}
+}
+
+func TestAppendSoftContractCaveatsToAnswerForBus_CrossComponentEnumerationKeepsEnumerationCaveat(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	rm := types.RequestModel{
+		RawRequest: "分别列出 A 和 B 的全部公开函数",
+		Intent:     types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsCrossComponent:      true,
+		},
+		Buckets: []types.QuestionBucket{{Label: "A"}, {Label: "B"}},
+	}
+	mut := types.NewMutableState(rm.RawRequest)
+	mut.SetRequestModel(rm)
+	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+
+	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{
+		{Kind: types.ViolEnumerationEvidenceUnderspecified},
+	}, "zh", ctx)
+	if !strings.Contains(out, "**补充说明：**") {
+		t.Fatalf("cross-component enumeration still has a principal enumeration surface:\n%s", out)
+	}
+}
+
+func TestAppendSoftContractCaveatsToAnswerForBus_DiagramRequestKeepsDiagramBlockCoverageCaveat(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	rm := types.RequestModel{
+		RawRequest:    "解释流程并画图",
+		Intent:        types.IntentExplain,
+		Scenario:      types.ScenarioArchitectureExplain,
+		DiagramHint:   &types.DiagramHint{Kind: types.DiagramArchitecture},
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+	}
+	mut := types.NewMutableState(rm.RawRequest)
+	mut.SetRequestModel(rm)
+	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+
+	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{
+		{Kind: types.ViolBlockCoverageMissing, ClusterKey: types.BlockKindClusterKey(types.BlockDiagram, "answer_block_coverage")},
+	}, "zh", ctx)
+	if !strings.Contains(out, "**补充说明：**") {
+		t.Fatalf("explicit diagram requests should keep precise diagram-missing disclosure:\n%s", out)
+	}
+}
+
 func TestAppendSoftContractCaveatsToAnswer_SkipsStrictPromotedConcern(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, []string{string(types.ViolUncertaintyBlockMissing)})

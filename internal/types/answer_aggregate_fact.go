@@ -1007,6 +1007,9 @@ func PrincipalAggregateMemberSetFactRefsForRequest(facts []AnswerAggregateFact, 
 	}
 	out := make([]AnswerAggregateFactRef, 0, len(refs))
 	for _, ref := range refs {
+		if AggregateCountFactMembersAreSupportOnlyForRequest(rm, ref.Fact) {
+			continue
+		}
 		if AggregateMemberSetIsScalarCountSupport(rm, ref.Fact) {
 			continue
 		}
@@ -1684,6 +1687,9 @@ func AnswerAggregateFactRoleForRequest(fact AnswerAggregateFact, rm *RequestMode
 		return AnswerAggregateRoleSupportingCoverage
 	}
 	if role != AnswerAggregateRoleUnknown {
+		if role == AnswerAggregateRolePrincipalAnswer && AggregateCountFactMembersAreSupportOnlyForRequest(rm, fact) {
+			return AnswerAggregateRoleSupportingCoverage
+		}
 		return role
 	}
 	if fact.Kind == AnswerAggregateMemberSet {
@@ -1697,6 +1703,9 @@ func AnswerAggregateFactRoleForRequest(fact AnswerAggregateFact, rm *RequestMode
 		return AnswerAggregateRolePrincipalAnswer
 	}
 	if answerAggregateFactCarriesCompleteMemberSet(fact) {
+		if AggregateCountFactMembersAreSupportOnlyForRequest(rm, fact) {
+			return AnswerAggregateRoleSupportingCoverage
+		}
 		if rm != nil && aggregateCountMemberSetIsNarrativeCoverageOnly(fact, *rm) {
 			return AnswerAggregateRoleSupportingCoverage
 		}
@@ -1850,6 +1859,59 @@ func AggregateMemberSetIsScalarCountSupport(rm *RequestModel, fact AnswerAggrega
 	return rm.Predicates.IsHistoryLookup ||
 		rm.Intent == IntentReturnValue ||
 		rm.AnswerSubject.Kind == SubjectNumeric
+}
+
+// AggregateCountFactMembersAreSupportOnlyForRequest reports whether a count
+// aggregate's members are proof/support rows rather than the user-visible
+// member set. Count-shaped facts (`total_count`, `unique_count`,
+// `grouped_count`, `bucket_count`) often carry members as the measured
+// partitions or proof samples; treating `value == len(members)` as a visible
+// list creates bogus system补表 for count, comparison, mechanism, runtime, and
+// VCS answers. Only typed complete-member request shapes may promote these
+// members to a principal enumeration surface.
+func AggregateCountFactMembersAreSupportOnlyForRequest(rm *RequestModel, fact AnswerAggregateFact) bool {
+	if rm == nil || fact.Kind == AnswerAggregateMemberSet || !answerAggregateFactCarriesCompleteMemberSet(fact) {
+		return false
+	}
+	if aggregateRequestRequiresPathMemberSetAsPrincipal(*rm) ||
+		RequiresExhaustiveEnumerationMemberSetHandoff(*rm) ||
+		RequiresRelationMemberSetHandoff(*rm) {
+		return false
+	}
+	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() &&
+		(rm.Intent == IntentEnumerate || rm.Predicates.IsCategoryEnumeration || rm.QuestionStructure().HasAnyObligation()) {
+		return false
+	}
+	if rm.Intent == IntentEnumerate || rm.Predicates.IsCategoryEnumeration {
+		if rm.Predicates.IsCountQuestion ||
+			rm.Predicates.IsScalarAnswer ||
+			rm.Predicates.IsCrossComponent ||
+			len(rm.QuestionStructure().Buckets) >= 2 {
+			return true
+		}
+		return false
+	}
+	if rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsDiagnosticQuestion ||
+		rm.Predicates.IsCrossComponent ||
+		len(rm.QuestionStructure().Buckets) >= 2 ||
+		IsArchitectureNarrativeExplanation(*rm) ||
+		IsSingleTopicMechanismExplanation(*rm) {
+		return true
+	}
+	contract := CompileAnswerIntentContract(*rm, nil)
+	if contract.HasOutput(AnswerRequestedOutputComparison) ||
+		contract.HasOutput(AnswerRequestedOutputCount) ||
+		contract.HasOutput(AnswerRequestedOutputScalar) ||
+		contract.HasOutput(AnswerRequestedOutputMechanism) ||
+		contract.HasOutput(AnswerRequestedOutputDiagnostic) ||
+		contract.HasOutput(AnswerRequestedOutputTrace) ||
+		contract.HasOutput(AnswerRequestedOutputChangeImpact) {
+		return true
+	}
+	return false
 }
 
 func PrincipalRelationMemberSetFactRefsForRequest(facts []AnswerAggregateFact, rm *RequestModel) []AnswerAggregateFactRef {
