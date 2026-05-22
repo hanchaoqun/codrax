@@ -236,7 +236,7 @@ func compileEnumerationDisplayRow(
 		row.Note = MergeEvidenceSummaries(row.Note, memberNote)
 		row.Detail = enumerationDisplayDetail(entry.Detail, row.Note)
 	}
-	row.Note = enumerationDisplayRowNoteForRequest(rm, row.Note)
+	row.Note = SanitizeSourceInventoryNoteForRequest(rm, row.Note)
 	row.Detail = enumerationDisplayDetail(entry.Detail, row.Note)
 	return row, true
 }
@@ -248,7 +248,7 @@ func answerAggregateMemberNoteAt(notes []string, idx int) string {
 	return strings.Join(strings.Fields(strings.TrimSpace(notes[idx])), " ")
 }
 
-func enumerationDisplayRowNoteForRequest(rm *RequestModel, note string) string {
+func SanitizeSourceInventoryNoteForRequest(rm *RequestModel, note string) string {
 	note = strings.Join(strings.Fields(strings.TrimSpace(note)), " ")
 	if note == "" || rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
 		return note

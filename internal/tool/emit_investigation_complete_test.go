@@ -4252,6 +4252,20 @@ func TestEmitInvestigationComplete_AllowsDecoratedRuntimeMemberSetForObservation
 	}
 }
 
+func TestEmitInvestigationCompleteSchema_DocumentsRuntimeDirectObservationBoundary(t *testing.T) {
+	params := string((&EmitInvestigationComplete{}).Parameters())
+	for _, want := range []string{
+		"external runtime/log/trace artifacts",
+		"direct observations separate from inferred upstream causes",
+		"variable/parameter/caller",
+		"possible upstream investigation direction",
+	} {
+		if !strings.Contains(params, want) {
+			t.Fatalf("emit_investigation_complete schema should teach runtime direct-observation boundary; missing %q in:\n%s", want, params)
+		}
+	}
+}
+
 func TestEmitInvestigationComplete_DecoratedRuntimeMemberSetRequiresSupportRefsForCurrentVerification(t *testing.T) {
 	logBundle := &types.LogBundle{
 		Errors: []types.LogError{{Type: "panic"}},

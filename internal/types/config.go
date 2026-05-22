@@ -573,7 +573,7 @@ type AgentSettings struct {
 	//                it is useful for entity disambiguation ("它 = last
 	//                turn's subject"). Explorer / extractor / finalizer
 	//                stay blind so they cannot copy a prior-turn wrong
-	//                answer verbatim. AnalysisIR.RequestModel.Entities
+	//                answer verbatim. AnalysisIR.RequestModel.AnalyzerHints.Entities
 	//                carries any disambiguated identifiers downstream.
 	//
 	//   "continue" — analyzer always; explorer/extractor/finalizer see

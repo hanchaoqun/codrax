@@ -482,9 +482,9 @@ func (b *LogBundle) HasStructuredObservations() bool {
 // Downstream emit tools (emit_evidence, emit_answer_symbol,
 // emit_answer_document) use this flag to redirect their per-item
 // "line > 0" / "file required" rejections toward the proper
-// schema-legal escape (citation_ref=-1 for value shape,
+// schema-legal no-citation carrier for value shape, or
 // symbols_completeness=unknown for list_of_symbols / multi-topic
-// explanation skeleton) rather than letting the LLM hammer the gates
+// explanation skeleton, rather than letting the LLM hammer the gates
 // with manufactured anchors. Pairs with the front-loaded "External-
 // source log" directive rendered at the top of the Log Triage
 // Validated Extraction section — same predicate, both sides.

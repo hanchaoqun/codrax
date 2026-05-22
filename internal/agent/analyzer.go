@@ -1593,6 +1593,14 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			))
 			rm.AnswerSubject = subject
 		}
+		if types.NormalizeSourceInventoryRequestedFieldsForAnswerSubject(rm.SourceInventoryProfile, rm.AnswerSubject) {
+			reason := "source_inventory_profile.requested_fields removed values after answer_subject inference because requires_const_set is a structural qualifier for a type inventory"
+			logging.Info("[analyzer] source inventory fields reconciled: %s", reason)
+			recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+				"source_inventory_fields", "values", "name/location",
+				rm.SourceInventoryProfile.Confidence, reason, rm.Predicates,
+			))
+		}
 		// PredicateAxis extraction. Orthogonal to AnswerSubject: this
 		// captures the question's action verb ("how does X CALL Y" →
 		// AxisCall; "how is X REGISTERED" → AxisRegister). The evidence

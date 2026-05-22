@@ -1779,6 +1779,50 @@ func TestNormalizeAggregateFactRolesForRequest_DemotesNonScalarHistoryScalars(t 
 	}
 }
 
+func TestNormalizeAggregateFactRolesForRequest_DemotesRuntimeObservationAdvisoryAggregates(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:  AnswerAggregateBehaviorOutcome,
+		Label: "崩溃根因",
+		Value: "IndexPage 传递给 UserCard 的数据源中存在 undefined 条目",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+	}, {
+		Kind:        AnswerAggregateBehaviorOutcome,
+		Label:       "直接观察",
+		Value:       "UserCard 渲染期间触发 TypeError",
+		Role:        AnswerAggregateRolePrincipalAnswer,
+		SupportRefs: []string{"attached-log:12"},
+	}, {
+		Kind:  AnswerAggregateErrorGranularity,
+		Label: "错误范围",
+		Value: "single_runtime_failure",
+	}}
+	rm := RequestModel{
+		LogTriage: &LogBundle{Errors: []LogError{{Type: "TypeError"}}},
+	}
+
+	got := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if got[0].Role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("unsupported runtime behavior outcome should be support-only, got %+v", got[0])
+	}
+	if !strings.Contains(got[0].Provenance, "demoted:runtime_observation_advisory_aggregate") {
+		t.Fatalf("runtime demotion provenance missing: %+v", got[0])
+	}
+	if got[1].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("supported direct runtime observation should keep principal role, got %+v", got[1])
+	}
+	if got[2].Role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("unsupported runtime error-granularity aggregate should be support-only, got %+v", got[2])
+	}
+	if role := AnswerAggregateFactRoleForRequest(facts[0], &rm); role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("role resolver should demote explicit principal runtime advisory aggregate, got %q", role)
+	}
+
+	rm.LogTriage.ResolvedFiles = []string{"ets/components/UserCard.ets"}
+	if role := AnswerAggregateFactRoleForRequest(facts[0], &rm); role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("current-source resolved runtime aggregates should keep explicit principal role, got %q", role)
+	}
+}
+
 func TestPrincipalAggregateMemberSetFactRefsForRequest_HistoryMechanismTreatsExplicitSetsAsSupport(t *testing.T) {
 	facts := []AnswerAggregateFact{{
 		Kind:       AnswerAggregateMemberSet,

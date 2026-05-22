@@ -101,6 +101,10 @@ func TestBuildAnswerSupportPlan_RootCauseTraceCompilesTypedLanes(t *testing.T) {
 	if !strings.Contains(observedGuidance, "they do not prove caller-side provenance, source-parameter mapping") {
 		t.Fatalf("observed artifact guidance missing raw-argument boundary: %q", observedGuidance)
 	}
+	if !strings.Contains(observedGuidance, "variable/parameter") ||
+		!strings.Contains(observedGuidance, "possible upstream investigation directions") {
+		t.Fatalf("observed artifact guidance should distinguish direct observations from inferred upstream provenance: %q", observedGuidance)
+	}
 	if got, want := strings.Join(observedAllowed, ","), "summary,caveat"; got != want {
 		t.Fatalf("observed lane allowed blocks = %q, want %q", got, want)
 	}

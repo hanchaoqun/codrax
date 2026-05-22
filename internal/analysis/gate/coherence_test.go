@@ -203,6 +203,58 @@ func TestSubtopicCoherence_R1_3_EntityOrphan_SinglePrimarySkipped(t *testing.T) 
 	}
 }
 
+func TestSubtopicCoherence_R1_3_SourceInventoryFileSubtopicsAreAdvisory(t *testing.T) {
+	rm := types.RequestModel{
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"internal/types", "Intent"},
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			TypeUnderlying:    types.SourceInventoryTypeUnderlyingString,
+			RequiresConstSet:  true,
+			Confidence:        0.95,
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "analysis IR enums", Entities: []string{"internal/types/analysis_ir.go"}},
+			{Summary: "answer enum helpers", Entities: []string{"internal/types/answer_candidate_role.go"}},
+		},
+	}
+	ir := coherenceFixtureIR(rm)
+	check := checkSubtopicCoherence(ir, nil)
+	if !check.Passed {
+		t.Fatalf("R1.3 must be advisory for source-inventory file planning anchors inside the requested scope; got %+v", check)
+	}
+	if !strings.Contains(check.Detail, "source-inventory questions") {
+		t.Fatalf("detail should explain source-inventory scoped planning advisory; got %q", check.Detail)
+	}
+}
+
+func TestSubtopicCoherence_R1_3_SourceInventoryOutsideScopeStillFails(t *testing.T) {
+	rm := types.RequestModel{
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"internal/types", "Intent"},
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			TypeUnderlying:    types.SourceInventoryTypeUnderlyingString,
+			RequiresConstSet:  true,
+			Confidence:        0.95,
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "outside helper", Entities: []string{"internal/tool/emit_analysis.go"}},
+		},
+	}
+	ir := coherenceFixtureIR(rm)
+	check := checkSubtopicCoherence(ir, nil)
+	if check.Passed {
+		t.Fatalf("R1.3 must still fail when source-inventory subtopic paths leave the requested scope; got %+v", check)
+	}
+}
+
 func TestSubtopicCoherence_R1_3_EntityOrphan_OverlapPasses(t *testing.T) {
 	rm := types.RequestModel{
 		AnalyzerHints: types.AnalyzerHints{
@@ -283,6 +335,41 @@ func TestSubtopicCoherence_R1_5_AllEntitiesUnresolved_Fails(t *testing.T) {
 	}
 	if !strings.Contains(check.Detail, "sub-topic 3") {
 		t.Errorf("detail must name the failing sub-topic index; got %q", check.Detail)
+	}
+}
+
+func TestSubtopicCoherence_R1_5_SourceInventoryFileAsymmetryIsAdvisory(t *testing.T) {
+	resolver := &fakeSymbolResolver{
+		byFile: map[string][]normalizer.SymbolHit{
+			"internal/types/analysis_ir.go": {{Canonical: "analysis_ir.go", Domain: "types"}},
+			// answer_candidate_role.go deliberately absent to create
+			// the mixed hit/miss shape that R1.5 usually rejects.
+		},
+	}
+	rm := types.RequestModel{
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"internal/types", "Intent"},
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+			TypeUnderlying:    types.SourceInventoryTypeUnderlyingString,
+			RequiresConstSet:  true,
+			Confidence:        0.95,
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "analysis IR enums", Entities: []string{"internal/types/analysis_ir.go"}},
+			{Summary: "answer enum helpers", Entities: []string{"internal/types/answer_candidate_role.go"}},
+		},
+	}
+	ir := coherenceFixtureIR(rm)
+	check := checkSubtopicCoherence(ir, resolver)
+	if !check.Passed {
+		t.Fatalf("R1.5 must be advisory for source-inventory file planning anchors inside the requested scope; got %+v", check)
+	}
+	if !strings.Contains(check.Detail, "source-inventory questions") {
+		t.Fatalf("detail should explain source-inventory scoped planning advisory; got %q", check.Detail)
 	}
 }
 

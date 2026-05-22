@@ -35,7 +35,12 @@ func compileObservedArtifactSupportLane(rm RequestModel, plan *AnswerSurfacePlan
 			"mechanism. These facts can explain what was observed (which frame fired, " +
 			"which signal triggered) but they do not prove caller-side provenance, " +
 			"source-parameter mapping, or exact downstream branch execution unless " +
-			"a separately-cited current-code line establishes that mapping.",
+			"a separately-cited current-code line establishes that mapping. A runtime " +
+			"message that names a property, operation, index, or frame does not by " +
+			"itself name the variable/parameter, owning caller, or upstream data " +
+			"construction that produced the bad value; treat those as possible " +
+			"upstream investigation directions unless they are literally present in " +
+			"the artifact observation or current-source proof.",
 	}
 	if runtimeObservationOnly(plan) {
 		lane.Guidance += " For an external-only runtime artifact with no current-repo intersection, this lane is allowed to carry the principal answer list itself: each item should be an observed frame / event / span from the artifact with artifact provenance rather than a current-repo citation. Do not substitute current-repo analysis helpers, resolver functions, or nearby implementation details for the artifact facts the user asked about."
@@ -290,7 +295,7 @@ func renderExternalObservationSupportEntry(seed ExternalObservationSeed) (string
 		case "error_head_frame":
 			rolePrefix = "runtime artifact identifies error head " + frameNoun
 		case "caller_frame":
-			rolePrefix = "runtime artifact includes caller/context " + frameNoun
+			rolePrefix = "runtime artifact includes caller/context " + frameNoun + " (context only; not proof that this caller supplied the bad value)"
 		}
 		if observedLoc != "" {
 			return fmt.Sprintf("%s %q at observed %s", rolePrefix, funcLabel, observedLoc), ""

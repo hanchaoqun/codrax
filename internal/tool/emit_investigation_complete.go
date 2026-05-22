@@ -72,7 +72,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 		"properties": {
 			"reason": {
 				"type": "string",
-				"description": "Concise completion conclusion for later answer writing: state what the investigation found, why it is complete, and any important scope boundary, no-hit/exclusion finding, cross-repository or cross-component distinction, or caveat that should not be lost. Do not leave the conclusion only in free-form text before the tool call. Keep counts, complete member lists, and per-bucket facts in aggregate_facts; use absence_justification for a genuine zero or not-found result. This field is preserved as context, not as a citation."
+				"description": "Concise completion conclusion for later answer writing: state what the investigation found, why it is complete, and any important scope boundary, no-hit/exclusion finding, cross-repository or cross-component distinction, or caveat that should not be lost. Do not leave the conclusion only in free-form text before the tool call. Keep counts, complete member lists, and per-bucket facts in aggregate_facts; use absence_justification for a genuine zero or not-found result. This field is preserved as context, not as a citation. For external runtime/log/trace artifacts, keep direct observations separate from inferred upstream causes: the artifact can directly prove the error message, observed operation/property, frame/span, signal, duration, and trace order. It does not by itself prove which variable/parameter/caller supplied the bad value or how upstream data was constructed; put that as a possible upstream investigation direction unless the artifact text or separately grounded current-source evidence proves it."
 			},
 			"confidence": {
 				"type": "string",

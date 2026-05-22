@@ -374,6 +374,18 @@ func TestPlan_RootCause_SingleSymbolComplex_AddsAlternativeHypothesis(t *testing
 	}
 }
 
+func TestPlan_RootCause_ObservationOnlyRuntimeSkipsAlternativeHypothesis(t *testing.T) {
+	input := rm(types.IntentRootCause, "UserCard")
+	input.Complexity = types.ComplexityComplex
+	input.LogTriage = &types.LogBundle{
+		Errors: []types.LogError{{Type: "TypeError"}},
+	}
+	hs := Plan(input)
+	if findByStatement(hs, "alternative root cause") != nil {
+		t.Fatalf("observation-only runtime root-cause should not inject caller-side alternative hypothesis: %+v", hs)
+	}
+}
+
 // TestPlan_RootCause_SingleSymbolSimple_NoFloor preserves the
 // minimal-cost path for Simple root_cause: don't add a second
 // hypothesis if the analyzer judged the question simple. Pre-fix

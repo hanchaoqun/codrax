@@ -1323,6 +1323,17 @@ func NormalizeAggregateFactRolesForRequest(facts []AnswerAggregateFact, rm *Requ
 		if role == AnswerAggregateRoleAuditLedger {
 			continue
 		}
+		if AggregateFactIsRuntimeObservationAdvisory(rm, out[i]) {
+			if role != AnswerAggregateRoleSupportingCoverage {
+				out[i].Role = AnswerAggregateRoleSupportingCoverage
+				out[i].Provenance = appendAggregateFactProvenance(
+					out[i].Provenance,
+					"demoted:runtime_observation_advisory_aggregate",
+				)
+				changed = true
+			}
+			continue
+		}
 		if AggregateMemberSetIsScalarCountSupport(rm, out[i]) {
 			if role != AnswerAggregateRoleSupportingCoverage {
 				out[i].Role = AnswerAggregateRoleSupportingCoverage
@@ -1665,7 +1676,14 @@ func answerAggregateFactRef(index int, fact AnswerAggregateFact, role AnswerAggr
 }
 
 func AnswerAggregateFactRoleForRequest(fact AnswerAggregateFact, rm *RequestModel) AnswerAggregateRole {
-	if role := NormalizeAnswerAggregateRole(fact.Role); role != AnswerAggregateRoleUnknown {
+	role := NormalizeAnswerAggregateRole(fact.Role)
+	if role == AnswerAggregateRoleAuditLedger {
+		return role
+	}
+	if AggregateFactIsRuntimeObservationAdvisory(rm, fact) {
+		return AnswerAggregateRoleSupportingCoverage
+	}
+	if role != AnswerAggregateRoleUnknown {
 		return role
 	}
 	if fact.Kind == AnswerAggregateMemberSet {
@@ -1685,6 +1703,25 @@ func AnswerAggregateFactRoleForRequest(fact AnswerAggregateFact, rm *RequestMode
 		return AnswerAggregateRolePrincipalAnswer
 	}
 	return AnswerAggregateRolePrincipalAnswer
+}
+
+// AggregateFactIsRuntimeObservationAdvisory reports whether a model-authored
+// runtime/log/trace aggregate is useful context but not direct proof of caller
+// ownership, upstream data construction, or root-cause provenance. External
+// artifacts can directly prove observed error classes, frames, spans, timing,
+// and literal log content; broader "behavior outcome" conclusions need either
+// explicit support refs or current-source evidence before they can become the
+// principal answer lane.
+func AggregateFactIsRuntimeObservationAdvisory(rm *RequestModel, fact AnswerAggregateFact) bool {
+	if rm == nil || !rm.HasExternalOnlyRuntimeArtifact() {
+		return false
+	}
+	switch fact.Kind {
+	case AnswerAggregateBehaviorOutcome, AnswerAggregateErrorGranularity:
+		return len(fact.SupportRefs) == 0
+	default:
+		return false
+	}
 }
 
 // AggregateMemberSetIsScalarCountSupport reports whether a model-emitted

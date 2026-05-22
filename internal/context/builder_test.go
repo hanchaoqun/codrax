@@ -3423,7 +3423,7 @@ func TestFormatPerfTriageStructured_ExternalSourceDirective(t *testing.T) {
 	for _, want := range []string{
 		"External-source trace",
 		"resolved_files=0",
-		"`citation_ref=-1`",
+		"leave the claim uncited",
 		"foreign/render.cpp:42 observed, unresolved",
 	} {
 		if !strings.Contains(got, want) {

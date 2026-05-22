@@ -1746,6 +1746,10 @@ func TestExplorerObservationOnlyRuntimeSkipsRepoKeywordSearch(t *testing.T) {
 	if !strings.Contains(prompt, "Do not call `emit_evidence` for unresolved artifact frames") {
 		t.Fatalf("runtime-only prompt should keep artifact facts out of current-source evidence tool:\n%s", prompt)
 	}
+	if !strings.Contains(prompt, "Keep direct observations and inferred upstream causes separate") ||
+		!strings.Contains(prompt, "which variable/parameter/caller supplied the bad value") {
+		t.Fatalf("runtime-only prompt should prevent artifact frames from becoming caller-side provenance:\n%s", prompt)
+	}
 	if strings.Contains(prompt, "Breadth Scan") || strings.Contains(prompt, "Focused Depth Start") || strings.Contains(prompt, "fixture_test.go") {
 		t.Fatalf("runtime-only prompt leaked repo search/focus context:\n%s", prompt)
 	}
@@ -5295,6 +5299,9 @@ func TestObserveMidLoop_ExternalSourceLogRedirect(t *testing.T) {
 	}
 	if !strings.Contains(sig.Hint, "resolved_files=0") || !strings.Contains(sig.Hint, "emit_investigation_complete") {
 		t.Fatalf("hint should redirect to external-log closure path, got: %s", sig.Hint)
+	}
+	if !strings.Contains(sig.Hint, "not caller-side value provenance") {
+		t.Fatalf("hint should preserve direct-observation/upstream-inference boundary, got: %s", sig.Hint)
 	}
 }
 

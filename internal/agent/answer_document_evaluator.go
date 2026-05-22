@@ -3445,7 +3445,9 @@ func renderAnswerDocAcceptedClosure(ctx *types.AgentContext) string {
 		fmt.Fprintf(&b, "- result_kind: `%s`\n", strings.TrimSpace(plan.StableInvestigationResultKind))
 	}
 	if reason := strings.TrimSpace(plan.StableInvestigationReason); reason != "" {
-		if suppressUnstructuredClosureReasonForPrincipalMemberSets(ctx, plan.StableAggregateFacts) {
+		if runtimeObservationOnlyForAnswerDoc(ctx) {
+			b.WriteString("- model-authored closure reason omitted from this authority section because the typed observed-artifact lane is authoritative for direct runtime facts. Any preserved runtime narrative appears only as advisory synthesis below, not as caller-side provenance or current-source proof.\n")
+		} else if suppressUnstructuredClosureReasonForPrincipalMemberSets(ctx, plan.StableAggregateFacts) {
 			b.WriteString("- model-authored closure reason omitted from this prompt because principal `aggregate_facts.member_set` rows are the authoritative enumeration handoff.\n")
 		} else {
 			reason = sanitizeAggregateExcludedCandidatesForPrompt(ctx, reason, plan.StableAggregateFacts)
@@ -3826,10 +3828,19 @@ func renderAnswerDocInvestigationNarrativeHandoff(ctx *types.AgentContext) strin
 		return ""
 	}
 	ta := ctx.Mutable.TurnAArtifacts()
-	if ta == nil || len(ta.InvestigationNotes) == 0 {
+	if ta == nil {
 		return ""
 	}
-	notes := recentSanitizedInvestigationNarrativeNotes(ta.InvestigationNotes)
+	raw := append([]string(nil), ta.InvestigationNotes...)
+	if runtimeObservationOnlyForAnswerDoc(ctx) {
+		if reason := strings.TrimSpace(ta.AcceptedClosureReason); reason != "" {
+			raw = append(raw, "Accepted runtime closure reason (advisory only; direct artifact facts remain authoritative): "+reason)
+		}
+	}
+	if len(raw) == 0 {
+		return ""
+	}
+	notes := recentSanitizedInvestigationNarrativeNotes(raw)
 	if len(notes) == 0 {
 		return ""
 	}
@@ -3838,8 +3849,11 @@ func renderAnswerDocInvestigationNarrativeHandoff(ctx *types.AgentContext) strin
 	b.WriteString("- These are bounded, model-authored exploration notes from the accepted investigation window. They are advisory synthesis only: not citations, not source code, not a hard gate, and not a replacement for typed support lanes.\n")
 	b.WriteString("- Use them to preserve scope boundaries, negative-search conclusions, cross-bucket / cross-repository distinctions, and investigator caveats that would otherwise be lost when the structured evidence is one-sided.\n")
 	b.WriteString("- If these notes conflict with typed support lanes, structured aggregate facts, current citations, or tool outputs, prefer the typed/structured evidence and disclose the boundary instead of silently dropping a user-requested side.\n\n")
-	if len(ta.InvestigationNotes) > len(notes) {
-		fmt.Fprintf(&b, "*(showing the %d most recent usable note(s) of %d total)*\n\n", len(notes), len(ta.InvestigationNotes))
+	if runtimeObservationOnlyForAnswerDoc(ctx) {
+		b.WriteString("- For observation-only runtime artifacts, any note that names a variable/parameter, caller-owned value, or upstream data construction is only a possible upstream investigation direction unless the typed observed-artifact lane or current-source evidence independently proves it.\n\n")
+	}
+	if len(raw) > len(notes) {
+		fmt.Fprintf(&b, "*(showing the %d most recent usable note(s) of %d total)*\n\n", len(notes), len(raw))
 	}
 	for i, note := range notes {
 		fmt.Fprintf(&b, "**Note %d:**\n%s\n\n", i+1, note)
@@ -4015,6 +4029,9 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 	var b strings.Builder
 	b.WriteString("## Structured Aggregate Facts\n\n")
 	b.WriteString("- These aggregate facts were emitted by the investigator through `emit_investigation_complete.aggregate_facts` after exploration. They are model-authored structured handoff values, not system-synthesised answer text.\n")
+	if runtimeObservationOnlyForAnswerDoc(ctx) {
+		b.WriteString("- Observation-only runtime/log/trace answers: direct artifact observations are authoritative for error type, message, stack/span/timing, artifact-local line/order, and literal log content. Model-authored aggregate facts with `kind=behavior_outcome` or `kind=error_granularity_verdict` are supporting synthesis unless they carry explicit support refs or current-source proof; do not promote caller-owned values, variable provenance, or upstream data construction from those aggregate facts into a final root-cause fact.\n")
+	}
 	b.WriteString("- Preserve each `value` exactly when the corresponding fact answers the user's requested scalar, unique-set, group, bucket, exclusion, or exhaustive-member question. Use `members` for requested concrete lists such as enum/type names, file paths, or file:line locations.\n")
 	b.WriteString("- Facts marked `role=principal_answer` are answer payloads even when they have no file:line citation: preserve principal `total_count`, `unique_count`, `grouped_count`, `bucket_count`, `scalar_value`, `negative_search`, and `negative_observation` values with their typed dimensions, or explain the boundary in a caveat instead of dropping them.\n")
 	if aggregateFactPromptOmitExcludedCandidates(ctx) {
@@ -4226,6 +4243,9 @@ func renderAnswerDocTypedExplorationEnrichment(ctx *types.AgentContext, supportR
 				fmt.Fprintf(&b, " @ %s", loc)
 			}
 			surface := sanitizeAggregateExcludedCandidatesForPrompt(ctx, fact.surface, stableFacts)
+			if ctx != nil && ctx.AnalysisIR != nil {
+				surface = types.SanitizeSourceInventoryNoteForRequest(&ctx.AnalysisIR.RequestModel, surface)
+			}
 			fmt.Fprintf(&b, ": %s", surface)
 			if role := answerDocEvidenceRoleTag(fact.item); role != "" {
 				fmt.Fprintf(&b, " (%s)", role)
@@ -5045,6 +5065,7 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 		b.WriteString("- Keep observed runtime facts, current code path facts, nearest grounded mechanism facts, and uncertainty disclosures in their own lanes.\n")
 		b.WriteString("- Do not promote an observation lane into caller-side provenance, old-build internals, or exact mechanism unless a current cited line explicitly proves that stronger claim.\n\n")
 		b.WriteString("- Items rendered under the **Observed artifact facts** lane are runtime trace observations (the system tags them by typed source: panic / exception / traceback / perf bundle, regardless of language). They prove that the runtime hit the cited frame, but do NOT, by themselves, prove which source parameter was nil, which caller originated the value, or which exact downstream branch executed. Promotion to caller-side provenance / source-parameter mapping / exact mechanism requires a separately-cited current-code line.\n\n")
+		b.WriteString("- For attached-artifact answers, keep the direct cause at the level literally observed by the artifact: error type/message, property or operation, frame/function, line/span, signal, and duration. If you infer a variable/parameter name, caller-side data construction, or ownership of the bad value without artifact text or current-source proof, label it as a possible upstream investigation direction rather than the root cause fact.\n\n")
 		b.WriteString("- If a function, file, or hop appears elsewhere in the prompt but does NOT appear in the current code path / nearest mechanism / boundary lanes below, treat it as background only: do not turn it into a principal ordered-list hop, summary claim, or diagram node.\n\n")
 		b.WriteString("- In drift-bounded root-cause answers, a current guard plus a later dereference proves the current code contains both sites; it does NOT by itself prove the runtime artifact actually passed the guard and reached the dereference path.\n\n")
 		b.WriteString("- If the lanes below do NOT recover a grounded inner trigger statement, do NOT fill the gap with generic language-runtime guesses such as nil-map write, nil-slice index, field dereference, or similar builtin panic classes. State only that the exact internal trigger remains unrecovered in the current checkout.\n\n")
@@ -5093,7 +5114,13 @@ func renderAnswerDocSupportPlan(ctx *types.AgentContext) string {
 			if text == "" {
 				continue
 			}
+			if ctx != nil && ctx.AnalysisIR != nil {
+				text = types.SanitizeSourceInventoryNoteForRequest(&ctx.AnalysisIR.RequestModel, text)
+			}
 			if detail := strings.TrimSpace(entry.Detail); detail != "" {
+				if ctx != nil && ctx.AnalysisIR != nil {
+					detail = types.SanitizeSourceInventoryNoteForRequest(&ctx.AnalysisIR.RequestModel, detail)
+				}
 				text += " — Evidence note: " + detail
 			}
 			if loc := strings.TrimSpace(entry.Location); loc != "" {

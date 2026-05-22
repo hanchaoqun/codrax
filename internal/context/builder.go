@@ -1867,13 +1867,12 @@ var rawToolOutputSkipTools = map[string]bool{
 // emit_answer_document.citations[] pool. Without this line the LLM
 // tries to cite "tool:exec_command" as a file — rejected by the
 // path validator — then gets stuck in a retry loop that never
-// produces a valid document. For citation-free scalar answers (a
-// BlockScalar with no citation floor), citation_ref=-1 on the value
-// is the correct answer.
+// produces a valid document. Citation-free scalar answers should use
+// the schema's explicit no-citation carrier, not fake source citations.
 const rawToolOutputPreamble = "These are the raw outputs of commands run during the investigation. " +
 	"Use them as the source of TRUTH for citation-free command / VCS answers: scalar measurements, commit hashes, subject lines, feature summaries, recent-merge lists, commit comparisons, and history-backed diagnostics. " +
 	"These tool outputs are NOT repo files — they MUST NOT appear in citations[]. " +
-	"When the user asked for one literal scalar, emit a `scalar` block whose `text` starts with the literal taken directly from the tool output tail, and attach a one-element `items=[{id:\"v\", citation_ref:-1}]` anchor. When the user asked for a summary, list, comparison, or diagnostic, use `summary` / `section` / `table` / `ordered_list` blocks and cite command/VCS provenance in prose with `citation_ref:-1` only where an item needs an anchor; do not collapse the answer into a bare scalar just because the evidence came from git or a shell command.\n\n"
+	"When the user asked for one literal scalar, emit a `scalar` block whose `text` starts with the literal taken directly from the tool output tail, and attach a one-element uncited item anchor. When the user asked for a summary, list, comparison, or diagnostic, use `summary` / `section` / `table` / `ordered_list` blocks and cite command/VCS provenance in prose with uncited items only where an item needs an anchor; do not collapse the answer into a bare scalar just because the evidence came from git or a shell command.\n\n"
 
 // formatRawToolOutputs renders the successful subset of Turn A's tool
 // results as a bulleted section. Each call shows head + (mid-trim
@@ -2976,8 +2975,8 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 	// literals against repo code, finds nothing, and at the
 	// finalize stage the emit_answer_document literal-grounding
 	// gate rejects the citation — burning a full cycle before the
-	// LLM learns to use citation_ref=-1 (observed: 16 min on
-	// the partial eval case).
+	// LLM learns to leave external observations uncited (observed:
+	// 16 min on the partial eval case).
 	//
 	// Surfacing the directive at the TOP of the log-triage section
 	// means every agent (analyzer / explorer / extractor /
@@ -2985,8 +2984,8 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 	// call is burned on a dead-end.
 	if bundle.IsExternalSource() {
 		b.WriteString("⚠ **External-source log**: the attached log's stack frames do NOT resolve to any file in this repo (resolved_files=0). The answer must come from the log's own semantics — do NOT open repo files hoping to ground the log's frame literals, they are not there.\n")
-		b.WriteString("  - For a BlockScalar answer (single literal, optionally with config-key facet), set `citation_ref=-1` and state in `summary` that the literal is drawn from the attached log (no grounded repo source).\n")
-		b.WriteString("  - The literal-grounding gate on emit_answer_document rejects citations whose cited line does NOT contain the literal; `-1` is the honest, tool-schema-legal escape.\n")
+		b.WriteString("  - For a BlockScalar answer (single literal, optionally with config-key facet), leave the value uncited and state in `summary` that the literal is drawn from the attached log (no grounded repo source).\n")
+		b.WriteString("  - The literal-grounding gate on emit_answer_document rejects citations whose cited line does NOT contain the literal; do not borrow an unrelated repo citation just to satisfy a source habit.\n")
 		b.WriteString("  - For an ordered hop-chain block or a summary-led explanation answer, cite log content by paraphrasing frames, not by inventing file:line anchors in this repo.\n")
 		b.WriteString("  - For an answer-symbol slate or a multi-topic anchor skeleton, set symbols_completeness=\"unknown\" and omit items[] entirely — those channels require repo-grounded file:line anchors, which external-log content cannot satisfy. The summary prose is the answer.\n\n")
 	}
@@ -3182,7 +3181,7 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 
 	if bundle.IsExternalSource() {
 		b.WriteString("⚠ **External-source trace**: the attached trace's structured observations do NOT resolve to any file in this repo (resolved_files=0). The answer must come from the trace's own timing / jank / stall semantics — do NOT open repo files hoping to ground trace literals that are not in this checkout.\n")
-		b.WriteString("  - For scalar or summary claims drawn directly from the trace, use `citation_ref=-1` unless a current repo line literally states the same claim.\n")
+		b.WriteString("  - For scalar or summary claims drawn directly from the trace, leave the claim uncited unless a current repo line literally states the same claim.\n")
 		b.WriteString("  - Quote trace span names, tags, stall symbols, and timing values as runtime observations; do not invent file:line anchors in this repo.\n\n")
 	}
 
@@ -4402,9 +4401,9 @@ func formatToolSourcedValueHint(ac *types.AgentContext) string {
 		}
 		b.WriteString("- If one repo anchor is needed to disambiguate the target, read it once; otherwise a tool-only investigation may complete cleanly.\n")
 	case types.StageExtract, types.StageFinalize:
-		b.WriteString("- When the literal comes from command output / VCS metadata rather than repo code, set `citation_ref=-1` and explain the provenance in `summary`.\n")
+		b.WriteString("- When the literal comes from command output / VCS metadata rather than repo code, leave the item uncited and explain the provenance in `summary`.\n")
 		b.WriteString("- Do NOT copy tool outputs into `citations[]`; those entries are reserved for repo file:line anchors.\n")
-		b.WriteString("- `citation_ref=-1` is an internal carrier. In visible prose, say the fact came from repository history / diff output / command output; never mention `citation_ref` or `citations[]` to the user.\n")
+		b.WriteString("- In visible prose, say the fact came from repository history / diff output / command output; never mention internal citation carriers or `citations[]` to the user.\n")
 		b.WriteString("- When summarizing multiple commits, keep grouping/count language exactly aligned with the VCS list; avoid approximate phrases such as 'near half' unless the exact count supports them.\n")
 		b.WriteString("- Do not introduce module/component/category counts unless that exact count is present in the VCS/command output or in `aggregate_facts`; prefer qualitative grouping when only the commit list is available.\n")
 		b.WriteString("- For VCS history lists, each commit item should state both the observed change and the effect/impact that follows from the subject/stat/name output. If the available VCS output proves only a subject/stat, say that boundary instead of filling generic path-only prose.\n")

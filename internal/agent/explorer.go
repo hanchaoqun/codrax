@@ -2949,6 +2949,7 @@ func (e *explorerEvaluator) buildRuntimeObservationOnlyStartInstruction(ctx *typ
 	b.WriteString("Workflow:\n")
 	b.WriteString("- Do not run repo breadth search (`repo_map`, `grep`, `list_files`) and do not read current-repo files just because artifact labels resemble repo symbols.\n")
 	b.WriteString("- Explain the artifact's own observed frames, spans, messages, or cause chain. If those facts are already present in the Log / Trace Triage section, proceed to completion instead of looking for same-named tests or helpers.\n")
+	b.WriteString("- Keep direct observations and inferred upstream causes separate. The artifact can directly establish the error message, observed operation/property, frame/span, signal, duration, and trace order. It does not by itself prove which variable/parameter/caller supplied the bad value or how upstream data was constructed; phrase that as a possible upstream investigation direction unless the artifact text literally says it.\n")
 	b.WriteString("- Do not call `emit_evidence` for unresolved artifact frames: that tool is for current-checkout source anchors. Preserve artifact facts in `emit_investigation_complete.reason` and, when useful, `aggregate_facts`.\n")
 	b.WriteString("- If the artifact is sufficient, call `emit_investigation_complete` with a resolved result and, when needed, `evidence_floor_waiver.reason=\"external_only_log\"` or `\"external_only_trace\"` so the final answer preserves the observation-only boundary.\n\n")
 	if ctx != nil && ctx.LogTriage != nil {
@@ -5185,6 +5186,7 @@ func (e *explorerEvaluator) postExternalLogRedirectSignal(obs LoopObservation) L
 			HintKey:       hintKey,
 			Hint: fmt.Sprintf("MID-LOOP CHECK: the attached %s is an external-source runtime artifact (resolved_files=0). ", artifactLabel) +
 				"Runtime frames / spans that do not resolve to repo files cannot go through `emit_evidence`, and reading unrelated repo files just to manufacture citations is wasted work. " +
+				"Keep direct observations separate from inferred upstream causes: artifact bytes prove observed messages/frames/spans, not caller-side value provenance unless the artifact literally says so. " +
 				"If the structured runtime artifact already answers the question, call `emit_investigation_complete` now — the answer can be composed from the log / trace semantics alone. " +
 				"Only continue repo reads if you have identified a real repository file that explains how this repo handles the observed runtime behavior.",
 			Progress:       true,

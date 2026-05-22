@@ -134,6 +134,85 @@ func (p *SourceInventoryProfile) RequiresPrincipalRole(role AnswerCandidateRole)
 	return false
 }
 
+// AnswerSubjectForSourceInventoryProfile derives the answer-subject lane from
+// a typed source-inventory request. This is intentionally language-neutral: it
+// consumes the structural candidate role emitted by the analyzer, not raw
+// request words or model prose. Unknown/compound inventories stay passive.
+func AnswerSubjectForSourceInventoryProfile(profile *SourceInventoryProfile) (AnswerSubject, bool) {
+	if profile == nil || !profile.Active() {
+		return AnswerSubject{}, false
+	}
+	roles := profile.PrincipalTargetRoles()
+	if len(roles) != 1 {
+		return AnswerSubject{}, false
+	}
+	var kind AnswerSubjectKind
+	var axis string
+	switch roles[0] {
+	case AnswerCandidateRoleFunction, AnswerCandidateRoleMethod:
+		kind = SubjectFunctionName
+		axis = string(roles[0]) + " → name"
+	case AnswerCandidateRoleType:
+		kind = SubjectTypeName
+		axis = "type → name"
+	case AnswerCandidateRoleField:
+		kind = SubjectStructField
+		axis = "field → name"
+	case AnswerCandidateRoleConfigKey:
+		kind = SubjectConfigKey
+		axis = "config → key"
+	case AnswerCandidateRoleRoute:
+		kind = SubjectHandlerRoute
+		axis = "route → handler"
+	case AnswerCandidateRoleFile:
+		kind = SubjectFilePath
+		axis = "file → path"
+	default:
+		return AnswerSubject{}, false
+	}
+	return AnswerSubject{
+		Kind:       kind,
+		EntityAxes: []string{axis},
+		Confidence: 0.62,
+	}, true
+}
+
+// NormalizeSourceInventoryRequestedFieldsForAnswerSubject removes contradictory
+// requested-field drift after the answer subject has been inferred. A string
+// enum "type X string + const set" inventory asks for type identities unless
+// the source-inventory profile survives as a non-type subject; in that type
+// inventory shape, const/member values are a membership qualifier, not a
+// requested visible field.
+func NormalizeSourceInventoryRequestedFieldsForAnswerSubject(profile *SourceInventoryProfile, answerSubject AnswerSubject) bool {
+	if profile == nil || !profile.Active() || !profile.RequestsField(SourceInventoryFieldValues) {
+		return false
+	}
+	if answerSubject.Kind != SubjectTypeName {
+		return false
+	}
+	if profile.TypeUnderlying != SourceInventoryTypeUnderlyingString || !profile.RequiresConstSet {
+		return false
+	}
+	principalRoles := profile.PrincipalTargetRoles()
+	if len(principalRoles) != 1 || principalRoles[0] != AnswerCandidateRoleType {
+		return false
+	}
+	fields := make([]SourceInventoryRequestedField, 0, len(profile.RequestedFields))
+	removed := false
+	for _, field := range profile.RequestedFields {
+		if field == SourceInventoryFieldValues {
+			removed = true
+			continue
+		}
+		fields = append(fields, field)
+	}
+	if !removed {
+		return false
+	}
+	profile.RequestedFields = fields
+	return true
+}
+
 func (p *SourceInventoryProfile) RequestsField(field SourceInventoryRequestedField) bool {
 	if p == nil || field == "" {
 		return false

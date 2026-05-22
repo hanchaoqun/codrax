@@ -387,7 +387,7 @@ func TestFormatLogTriageStructured_ExternalSourceDirective_FiresWhenResolvedZero
 	for _, want := range []string{
 		"External-source log",
 		"resolved_files=0",
-		"citation_ref=-1",
+		"leave the value uncited",
 		"literal-grounding gate",
 	} {
 		if !strings.Contains(got, want) {

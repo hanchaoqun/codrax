@@ -181,7 +181,9 @@ func aggregateFactKindCanCarryRuntimeArtifact(kind AnswerAggregateKind) bool {
 		AnswerAggregateMemberSet,
 		AnswerAggregateGroupedCount,
 		AnswerAggregateBucketCount,
-		AnswerAggregateNegativeObservation:
+		AnswerAggregateNegativeObservation,
+		AnswerAggregateBehaviorOutcome,
+		AnswerAggregateErrorGranularity:
 		return true
 	default:
 		return false

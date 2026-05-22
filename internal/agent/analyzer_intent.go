@@ -365,6 +365,9 @@ func inferAnswerSubject(rm types.RequestModel) (types.AnswerSubject, string) {
 	if rm.AnswerSubject.Kind != types.SubjectUnknown {
 		return rm.AnswerSubject, ""
 	}
+	if subject, ok := types.AnswerSubjectForSourceInventoryProfile(rm.SourceInventoryProfile); ok {
+		return subject, "source_inventory_profile.target_roles → " + string(subject.Kind)
+	}
 	switch rm.AnalyzerHints.Kind {
 	case "config_mapping":
 		return types.AnswerSubject{Kind: types.SubjectConfigKey, EntityAxes: []string{"key → value"}, Confidence: 0.4},

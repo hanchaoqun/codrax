@@ -164,7 +164,10 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 				msg := fmt.Sprintf(
 					"R1.3 entity_orphan: sub-topic entities %s share no element with primary entities %s",
 					formatStringList(subTokens), formatStringList(primaryTokens))
-				if subtopicEntityOrphanShouldBeAdvisory(rm) {
+				if sourceInventorySubtopicsWithinPrimaryScope(rm) {
+					softAdvisories = append(softAdvisories, strings.Replace(msg, "R1.3 entity_orphan:", "R1.3 entity_orphan (advisory):", 1)+
+						" — source-inventory questions may decompose the requested package/path into concrete file or directory planning anchors; let exploration verify those scoped anchors before forcing an analyzer rewrite")
+				} else if subtopicEntityOrphanShouldBeAdvisory(rm) {
 					softAdvisories = append(softAdvisories, strings.Replace(msg, "R1.3 entity_orphan:", "R1.3 entity_orphan (advisory):", 1)+
 						" — cross-scope comparisons may decompose by mechanism, facet, or file anchors without repeating each sub-repo slug; let exploration verify the anchors before forcing a rewrite")
 				} else {
@@ -269,7 +272,10 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 			}
 			msg := "R1.5 entity_unresolvable: " + strings.Join(unresolved, "; ") +
 				" — these sub-topics' entities don't resolve to any repo symbol, while sibling sub-topics did; the asymmetry suggests one sub-topic was hallucinated. Rename the entities to identifiers visible in the repo overview, or drop the unresolvable sub-topic and merge its content into a sibling"
-			if subtopicResolverAsymmetryShouldBeAdvisory(rm) {
+			if sourceInventorySubtopicsWithinPrimaryScope(rm) {
+				softAdvisories = append(softAdvisories, strings.Replace(msg, "R1.5 entity_unresolvable:", "R1.5 entity_unresolvable (advisory):", 1)+
+					" — source-inventory questions may carry directory/file planning anchors that are valid scoped search leads even when they are not symbol declarations; downstream evidence gates decide whether each anchor exists")
+			} else if subtopicResolverAsymmetryShouldBeAdvisory(rm) {
 				softAdvisories = append(softAdvisories, strings.Replace(msg, "R1.5 entity_unresolvable:", "R1.5 entity_unresolvable (advisory):", 1)+
 					" — broad architecture/design-document questions often use module, directory, subsystem, or conceptual axes that are valid search leads even when they are not declared symbols; let exploration verify or discard the axis before forcing an analyzer rewrite")
 			} else {
@@ -464,6 +470,96 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 
 func subtopicEntityOrphanShouldBeAdvisory(rm types.RequestModel) bool {
 	return rm.Predicates.IsCrossComponent && len(rm.AnalyzerHints.PrimaryScopes) >= 2
+}
+
+func sourceInventorySubtopicsWithinPrimaryScope(rm types.RequestModel) bool {
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() || len(rm.SubTopics) == 0 {
+		return false
+	}
+	scopes := sourceInventoryCoherenceScopes(rm)
+	if len(scopes) == 0 {
+		return false
+	}
+	seen := false
+	for _, st := range rm.SubTopics {
+		for _, entity := range st.Entities {
+			entity = normalizeCoherencePathSurface(entity)
+			if entity == "" {
+				continue
+			}
+			seen = true
+			if !coherencePathWithinAnyScope(entity, scopes) {
+				return false
+			}
+		}
+		for _, scope := range st.Scopes {
+			scope = normalizeCoherencePathSurface(scope)
+			if scope == "" {
+				continue
+			}
+			seen = true
+			if !coherencePathWithinAnyScope(scope, scopes) {
+				return false
+			}
+		}
+	}
+	return seen
+}
+
+func sourceInventoryCoherenceScopes(rm types.RequestModel) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(raw string) {
+		scope := normalizeCoherencePathSurface(raw)
+		if scope == "" || !coherenceLooksLikePathScope(scope) || seen[scope] {
+			return
+		}
+		seen[scope] = true
+		out = append(out, scope)
+	}
+	for _, entity := range rm.AnalyzerHints.PrimaryEntities {
+		add(entity)
+	}
+	for _, scope := range rm.AnalyzerHints.PrimaryScopes {
+		add(scope)
+	}
+	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+		add(hint.Path)
+	}
+	for _, entity := range rm.AnalyzerHints.Entities {
+		add(entity)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func normalizeCoherencePathSurface(raw string) string {
+	raw = strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+	raw = strings.Trim(raw, "`'\" ")
+	raw = strings.Trim(raw, "/")
+	for strings.Contains(raw, "//") {
+		raw = strings.ReplaceAll(raw, "//", "/")
+	}
+	return raw
+}
+
+func coherenceLooksLikePathScope(surface string) bool {
+	if surface == "" {
+		return false
+	}
+	return strings.Contains(surface, "/") || strings.HasPrefix(surface, ".")
+}
+
+func coherencePathWithinAnyScope(surface string, scopes []string) bool {
+	for _, scope := range scopes {
+		if scope == "" {
+			continue
+		}
+		if surface == scope || strings.HasPrefix(surface, scope+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 func diagnosticFacetSubTopicsBypassResolverAsymmetry(rm types.RequestModel) bool {

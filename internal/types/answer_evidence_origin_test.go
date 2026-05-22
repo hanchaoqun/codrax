@@ -216,6 +216,21 @@ func TestAnswerAggregateFactEvidenceOrigins_RuntimeArtifact(t *testing.T) {
 	}
 }
 
+func TestAnswerAggregateFactEvidenceOrigins_RuntimeBehaviorOutcome(t *testing.T) {
+	fact := AnswerAggregateFact{
+		Kind:  AnswerAggregateBehaviorOutcome,
+		Label: "崩溃根因",
+		Value: "UserCard 接收到了 undefined 并触发 ArkTS panic",
+	}
+	got := AnswerAggregateFactEvidenceOrigins(fact, &RequestModel{
+		LogTriage: &LogBundle{Errors: []LogError{{Type: "TypeError"}}},
+	})
+	want := []AnswerEvidenceOrigin{AnswerEvidenceOriginRuntimeArtifact}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("runtime behavior outcome origins mismatch\ngot:  %#v\nwant: %#v", got, want)
+	}
+}
+
 func TestAnswerAggregateFactEvidenceOrigins_DefaultsToCurrentSourceForOrdinaryAggregate(t *testing.T) {
 	fact := AnswerAggregateFact{
 		Kind:    AnswerAggregateMemberSet,

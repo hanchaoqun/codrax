@@ -3866,6 +3866,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExternalObservat
 		`runtime artifact identifies error head stack frame "github.com/hanchaoqun/codrax/internal/agent.(*analyzerEvaluator).ParseOutput" at observed internal/agent/analyzer.go:320`,
 		"internal/agent/analyzer.go:651",
 		"Items rendered under the **Observed artifact facts** lane are runtime trace observations",
+		"possible upstream investigation direction",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
@@ -3891,6 +3892,10 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeGrounding
 		Rationale: "synthetic frames represent a different deployed build",
 	})
 	mut.RetainEvidenceFloorWaiver()
+	mut.SetInvestigationComplete("IndexPage supplied the undefined user object, but the artifact directly shows only the RuntimeError frame")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		AcceptedClosureReason: "IndexPage supplied the undefined user object, but the artifact directly shows only the RuntimeError frame",
+	})
 	ctx := &types.AgentContext{
 		Mutable: mut,
 		AnalysisIR: &types.AnalysisIR{
@@ -3910,10 +3915,16 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeGrounding
 		"synthetic frames represent a different deployed build",
 		"runtime/artifact provenance lane",
 		"This dispatch is observation-only",
+		"model-authored closure reason omitted from this authority section",
+		"Accepted runtime closure reason (advisory only",
+		"possible upstream investigation direction",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
+	}
+	if strings.Contains(prompt, "model-authored closure reason: IndexPage supplied") {
+		t.Fatalf("runtime observation-only closure reason must not appear as authority text:\n%s", prompt)
 	}
 }
 

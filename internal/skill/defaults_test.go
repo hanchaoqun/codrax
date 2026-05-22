@@ -358,6 +358,8 @@ func TestExtractSkill_DoesNotTeachLegacySymbolsArray(t *testing.T) {
 		"Analyzer sub_topics alone are guidance, not a hard slate obligation",
 		"Requested Set Boundary block declares an explicit count N",
 		"Plain single-topic call-chain / root-cause / mechanism questions WITHOUT case (b) or (c) do NOT use emit_answer_symbol",
+		"does NOT explicitly say `This dispatch does NOT require emit_answer_symbol`",
+		"principal set has NOT already been accepted as an aggregate_facts.member_set",
 	} {
 		if !strings.Contains(blob, want) {
 			t.Fatalf("extract-skill missing updated answer-symbol slate guidance %q:\n%s", want, blob)

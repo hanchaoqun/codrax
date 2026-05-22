@@ -66,7 +66,9 @@ func Plan(rm types.RequestModel) []types.Hypothesis {
 		// rootCauseHypothesis), letting downstream verdict pinning
 		// converge prematurely. Pure structural trigger
 		// (Intent + Complexity), no keyword classification.
-		if len(out) < 2 && (rm.Complexity == types.ComplexityModerate || rm.Complexity == types.ComplexityComplex) {
+		if len(out) < 2 &&
+			!rm.HasObservationOnlyRuntimeArtifact() &&
+			(rm.Complexity == types.ComplexityModerate || rm.Complexity == types.ComplexityComplex) {
 			out = append(out, alternativeRootCauseHypothesis(nextID()))
 		}
 	case types.IntentConfigQuery:
