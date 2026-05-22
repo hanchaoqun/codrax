@@ -2580,6 +2580,7 @@ func renderAnswerDocErrorGranularityContract(view *types.AnswerSemanticView) str
 	}
 	b.WriteString("- Choose the enum from grounded evidence: `per_item_rejection` means the bad item or record is rejected while valid siblings continue; `whole_batch_failure` means one failure rejects the whole call or batch; `partial_success` means a mixed result is returned; `fail_fast` means processing stops at the first failure; `collect_errors` means errors are accumulated for reporting; `not_enough_evidence` means the evidence cannot decide.\n")
 	b.WriteString("- Put the rationale and citations in the same decision block; do not satisfy this contract with prose-only wording.\n\n")
+	b.WriteString("- For item-vs-batch or fail-fast judgments, cite both sides when available: the item-level handling branch (append/skip/continue/return for one record) and the batch-level gate (for example `len(built)==0`, rollback, or first-error return). Closure prose may summarize the verdict, but it is not a citation.\n\n")
 	return b.String()
 }
 

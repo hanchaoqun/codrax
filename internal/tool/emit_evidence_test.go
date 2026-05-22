@@ -1015,6 +1015,46 @@ func TestEmitEvidence_RejectsEvidenceKindValueInsideAnchorKind(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_RepairsEvidenceKindValueInsideAnchorKindWhenLineGroundable(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/tool/emit_evidence.go", 1367,
+		"\tif preAnchorKindKey == \"\" {",
+		"\t\treturn \"\", \"\", fmt.Errorf(\"items[%d]: anchor_kind is required\", index)",
+	)
+	params := json.RawMessage(`{
+		"items": [{
+			"scope": "line",
+			"evidence_kind": "direct",
+			"source": "internal/tool/emit_evidence.go",
+			"line_start": 1367,
+			"anchor_kind": "mechanism",
+			"anchor_symbol": "preAnchorKindKey",
+			"summary": "parseAnchorFields checks preAnchorKindKey before accepting anchor fields."
+		}]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected schema compatibility repair to succeed, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 emitted evidence item, got %d", len(got))
+	}
+	if got[0].Kind != types.EvidenceMechanism {
+		t.Fatalf("kind=%q, want %q", got[0].Kind, types.EvidenceMechanism)
+	}
+	if got[0].AnchorKind != types.AnchorTextReference {
+		t.Fatalf("anchor_kind=%q, want %q", got[0].AnchorKind, types.AnchorTextReference)
+	}
+	if !strings.Contains(res.Summary, "schema-shape compatibility repair") {
+		t.Fatalf("summary should mention compatibility repair, got: %s", res.Summary)
+	}
+}
+
 func TestEmitEvidence_RepairsAnchorKindInEvidenceKindAndFileScopeLineAnchor(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

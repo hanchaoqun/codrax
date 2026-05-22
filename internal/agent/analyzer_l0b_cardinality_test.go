@@ -70,6 +70,7 @@ func TestL0B_EnumerationCardinalityGate_PresentInSource(t *testing.T) {
 	// IsCategoryEnumeration=true + IsRelationalLookup=true + 1 entity.
 	const wantRelationalCarveOut = "!rm.Predicates.IsRelationalLookup"
 	const wantHistoryCarveOut = "!rm.Predicates.IsHistoryLookup"
+	const wantVisibilityCarveOut = "rm.AnswerVisibilityProfile.Active()"
 
 	src := readAnalyzerSource(t)
 
@@ -90,6 +91,9 @@ func TestL0B_EnumerationCardinalityGate_PresentInSource(t *testing.T) {
 	}
 	if !strings.Contains(src, wantHistoryCarveOut) {
 		t.Errorf("L0-B gate must carry the IsHistoryLookup carve-out (expected substring %q) — pure VCS history enumerations list commits discovered by git tools, not analyzer-time code entities", wantHistoryCarveOut)
+	}
+	if !strings.Contains(src, wantVisibilityCarveOut) {
+		t.Errorf("L0-B gate must carry the typed AnswerVisibilityProfile inventory carve-out (expected substring %q) — package-scope source inventories may name only one example entity and discover members later", wantVisibilityCarveOut)
 	}
 }
 
@@ -149,12 +153,28 @@ func TestL0B_GateClassification_TableDriven(t *testing.T) {
 				rm.SourceScopeProfile = &types.SourceScopeProfile{RequestedScope: types.SourceScopeProduction, Confidence: 0.9}
 				rm.AnalyzerHints.RequiredFileHints = []types.RequiredFileHint{{Path: "internal/analysis/criterion/grammar.go", Confidence: 0.95}}
 			}, false},
+		{"scoped_inventory_single_entity_with_required_files_and_visibility",
+			true, false, []string{"Intent"}, func(rm *types.RequestModel) {
+				rm.AnswerVisibilityProfile = &types.AnswerVisibilityProfile{
+					SymbolVisibility: types.AnswerSymbolVisibilityPublicExported,
+					Confidence:       0.9,
+				}
+				rm.AnalyzerHints.RequiredFileHints = []types.RequiredFileHint{{Path: "internal/types/analysis_ir.go", Confidence: 0.95}}
+			}, false},
 		{"scoped_inventory_single_entity_with_subtopics",
 			true, false, []string{"criterion"}, func(rm *types.RequestModel) {
 				rm.SubTopics = []types.SubTopic{{Summary: "types"}, {Summary: "functions"}}
 			}, false},
 		{"required_files_without_scope_still_rejects",
 			true, false, []string{"criterion"}, func(rm *types.RequestModel) {
+				rm.AnalyzerHints.RequiredFileHints = []types.RequiredFileHint{{Path: "internal/analysis/criterion/grammar.go", Confidence: 0.95}}
+			}, true},
+		{"required_files_with_unknown_visibility_still_rejects",
+			true, false, []string{"criterion"}, func(rm *types.RequestModel) {
+				rm.AnswerVisibilityProfile = &types.AnswerVisibilityProfile{
+					SymbolVisibility: types.AnswerSymbolVisibilityUnknown,
+					Confidence:       0.9,
+				}
 				rm.AnalyzerHints.RequiredFileHints = []types.RequiredFileHint{{Path: "internal/analysis/criterion/grammar.go", Confidence: 0.95}}
 			}, true},
 	}

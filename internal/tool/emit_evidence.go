@@ -1073,6 +1073,7 @@ func repairEmitEvidenceItemShape(in *emitEvidenceItem, index int, compatRepairs 
 					index, kindField, kindText, mapped, in.AnchorKind))
 		}
 	}
+	repairEvidenceKindValueInAnchorKind(in, index, compatRepairs)
 
 	scope := types.EvidenceScope(strings.ToLower(strings.TrimSpace(in.Scope)))
 	if scope == types.ScopeFile && in.LineStart.Int() > 0 && emitEvidenceItemHasLineAnchorShape(*in) {
@@ -1090,6 +1091,42 @@ func repairEmitEvidenceItemShape(in *emitEvidenceItem, index int, compatRepairs 
 	}
 }
 
+func repairEvidenceKindValueInAnchorKind(in *emitEvidenceItem, index int, compatRepairs *[]string) {
+	if in == nil {
+		return
+	}
+	anchorKindKey := strings.ToLower(strings.TrimSpace(in.AnchorKind))
+	evidenceKind, ok := emitEvidenceAllowedKinds[anchorKindKey]
+	if !ok || evidenceKind == types.EvidenceAbsent {
+		return
+	}
+	if !emitEvidenceItemHasGroundableLineShape(*in) {
+		return
+	}
+	existingKind := strings.TrimSpace(in.EvidenceKind)
+	existingKindField := "evidence_kind"
+	if existingKind == "" {
+		existingKind = strings.TrimSpace(in.LegacyKind)
+		existingKindField = "kind"
+	}
+	if existingKind == "" ||
+		strings.EqualFold(existingKind, string(types.EvidenceDirect)) ||
+		strings.EqualFold(existingKind, string(evidenceKind)) {
+		if strings.TrimSpace(in.EvidenceKind) != "" || strings.TrimSpace(in.LegacyKind) == "" {
+			in.EvidenceKind = string(evidenceKind)
+			existingKindField = "evidence_kind"
+		} else {
+			in.LegacyKind = string(evidenceKind)
+		}
+	}
+	in.AnchorKind = string(types.AnchorTextReference)
+	if compatRepairs != nil {
+		*compatRepairs = append(*compatRepairs,
+			fmt.Sprintf("items[%d].anchor_kind=%q was an evidence_kind; used anchor_kind=%q and %s=%q",
+				index, anchorKindKey, in.AnchorKind, existingKindField, strings.TrimSpace(firstNonEmpty(in.EvidenceKind, in.LegacyKind))))
+	}
+}
+
 func evidenceKindForAnchorShape(anchorKind types.AnchorKind, in emitEvidenceItem) types.EvidenceKind {
 	switch anchorKind {
 	case types.AnchorCondition:
@@ -1102,6 +1139,13 @@ func evidenceKindForAnchorShape(anchorKind types.AnchorKind, in emitEvidenceItem
 	default:
 		return types.EvidenceDirect
 	}
+}
+
+func emitEvidenceItemHasGroundableLineShape(in emitEvidenceItem) bool {
+	return strings.TrimSpace(in.Source) != "" &&
+		in.LineStart.Int() > 0 &&
+		strings.TrimSpace(in.AnchorSymbol) != "" &&
+		strings.TrimSpace(in.Summary) != ""
 }
 
 func emitEvidenceItemHasLineAnchorShape(in emitEvidenceItem) bool {

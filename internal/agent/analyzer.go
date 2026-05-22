@@ -3438,8 +3438,15 @@ func hasScopedInventoryEnumerationCarveOut(rm *types.RequestModel) bool {
 	if len(rm.SubTopics) >= 2 || len(rm.Buckets) >= 2 {
 		return true
 	}
-	if len(rm.AnalyzerHints.RequiredFileHints) > 0 && rm.SourceScopeProfile != nil {
+	if len(rm.AnalyzerHints.RequiredFileHints) > 0 &&
+		(rm.SourceScopeProfile != nil || hasActiveInventoryVisibilityProfile(rm)) {
 		return true
 	}
 	return false
+}
+
+func hasActiveInventoryVisibilityProfile(rm *types.RequestModel) bool {
+	return rm != nil &&
+		rm.AnswerVisibilityProfile != nil &&
+		rm.AnswerVisibilityProfile.Active()
 }
