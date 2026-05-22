@@ -182,6 +182,41 @@ func TestRenderConsistencyReviewBodyV2_IncludesStructuredVisibleSurface(t *testi
 	}
 }
 
+func TestRenderConsistencyReviewBodyV2_AppendsTypedItemCitationRefs(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/orchestrator/orchestrator.go", Line: 5690},
+			{File: "internal/orchestrator/orchestrator.go", Line: 5702},
+		},
+		Blocks: []types.AnswerBlock{
+			{Kind: types.BlockSummary, Text: "summary text"},
+			{
+				Kind: types.BlockOrderedList,
+				Items: []types.AnswerBlockItem{{
+					Label:       "错误传播到重试层",
+					Text:        "IsStreamLevelRetryable 判断 stream-level 错误可重试。",
+					CitationRef: 0,
+				}, {
+					Label:       "软重试提示用户",
+					Text:        "render.EventOrchestratorNotice 提示用户正在重试。",
+					CitationRef: 1,
+				}},
+			},
+		},
+	}
+	got := renderSemanticQualityReviewBodyV2(doc)
+	for _, want := range []string{
+		"错误传播到重试层",
+		"cite: internal/orchestrator/orchestrator.go:5690",
+		"软重试提示用户",
+		"cite: internal/orchestrator/orchestrator.go:5702",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("review body must expose typed item citation %q:\n%s", want, got)
+		}
+	}
+}
+
 // TestRenderConsistencyReviewBodyV2_NilSafe confirms graceful nil.
 func TestRenderConsistencyReviewBodyV2_NilSafe(t *testing.T) {
 	if got := renderConsistencyReviewBodyV2(nil); got != "" {

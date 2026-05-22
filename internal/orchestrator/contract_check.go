@@ -820,24 +820,7 @@ func runExternalArtifactTypedCoverageCheck(ctx *types.BusContext, doc *types.Ans
 }
 
 func requiresObservedArtifactCarrier(ctx *types.BusContext) bool {
-	if ctx == nil {
-		return false
-	}
-	if plan := types.BuildAnswerSupportPlanForBusContext(ctx); plan != nil {
-		for _, lane := range plan.Lanes {
-			if lane.Kind == types.SupportLaneObservedArtifact && len(lane.Entries) > 0 {
-				return true
-			}
-		}
-	}
-	if view := types.BuildAnswerSemanticViewForBusContext(ctx); view != nil && view.FacetCoverage != nil {
-		for _, req := range view.FacetCoverage.Required {
-			if req.Kind == types.FacetObservedArtifactFact && req.IsPromoted() {
-				return true
-			}
-		}
-	}
-	return false
+	return types.AnswerRequiresObservedArtifactCarrier(ctx)
 }
 
 func answerDocumentHasObservedArtifactCarrier(doc *types.AnswerDocumentV2) bool {
@@ -2557,7 +2540,7 @@ func renderReviewBodyV2(doc *types.AnswerDocumentV2, includeDiagrams bool) strin
 				fmt.Fprintf(&b, "%s\n\n", text)
 			}
 			for i, it := range blk.Items {
-				desc := itemBodyText(it)
+				desc := itemBodyTextWithCitation(it, doc)
 				fmt.Fprintf(&b, "%d. %s\n", i+1, desc)
 			}
 			b.WriteString("\n")
@@ -2570,7 +2553,7 @@ func renderReviewBodyV2(doc *types.AnswerDocumentV2, includeDiagrams bool) strin
 				fmt.Fprintf(&b, "Columns: %s\n", strings.Join(blk.Columns, " | "))
 			}
 			for _, it := range blk.Items {
-				desc := itemBodyText(it)
+				desc := itemBodyTextWithCitation(it, doc)
 				fmt.Fprintf(&b, "- %s\n", desc)
 			}
 			b.WriteString("\n")
@@ -2595,6 +2578,26 @@ func renderReviewBodyV2(doc *types.AnswerDocumentV2, includeDiagrams bool) strin
 		}
 	}
 	return b.String()
+}
+
+func itemBodyTextWithCitation(it types.AnswerBlockItem, doc *types.AnswerDocumentV2) string {
+	base := itemBodyText(it)
+	if doc == nil || it.CitationRef < 0 || it.CitationRef >= len(doc.Citations) {
+		return base
+	}
+	cit := doc.Citations[it.CitationRef]
+	file := strings.TrimSpace(cit.File)
+	if file == "" || cit.Line <= 0 {
+		return base
+	}
+	loc := fmt.Sprintf("%s:%d", file, cit.Line)
+	if strings.Contains(base, loc) {
+		return base
+	}
+	if base == "" {
+		return "cite: " + loc
+	}
+	return base + " (cite: " + loc + ")"
 }
 
 func renderReviewBlockTitle(b *strings.Builder, blk types.AnswerBlock) {

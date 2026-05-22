@@ -272,6 +272,53 @@ func TestBuildAnswerSupportPlan_ObservedArtifactRuntimeMessageKeepsVisibleQuotes
 	}
 }
 
+func TestBuildAnswerSupportPlan_ObservedArtifactPrioritizesLineObservationOverGenericSignals(t *testing.T) {
+	plan := &AnswerSurfacePlan{
+		ExternalObservationSeeds: []ExternalObservationSeed{
+			{Kind: "signal", Raw: "timeout"},
+			{Kind: "signal", Raw: "performance"},
+			{Kind: "log_observation", Raw: "log_line=3 first_byte_timeout exceeded after 40s", Func: "LLM 首字节响应超时", Line: 3},
+			{Kind: "log_observation", Raw: "log_line=4 ⟳ 1/4 模型响应出错,正在重新理解问题", Func: "render 层发起第 1/4 次重试", Line: 4},
+		},
+	}
+	got := BuildAnswerSupportPlan(RequestModel{
+		Intent:    IntentRootCause,
+		LogTriage: &LogBundle{Observations: []LogObservation{{Kind: LogObservationPerformance, Summary: "first byte timeout", LineStart: 3}}},
+		SubTopics: []SubTopic{
+			{Summary: "line-specific timeout observation", Entities: []string{"first_byte_timeout"}},
+		},
+	}, plan)
+	if got == nil {
+		t.Fatal("expected support plan")
+	}
+	var observed *AnswerSupportLane
+	for i := range got.Lanes {
+		if got.Lanes[i].Kind == SupportLaneObservedArtifact {
+			observed = &got.Lanes[i]
+			break
+		}
+	}
+	if observed == nil {
+		t.Fatal("expected observed artifact lane")
+	}
+	var joined string
+	for _, entry := range observed.Entries {
+		joined += entry.Text + "\n"
+	}
+	for _, want := range []string{
+		"log_line=3 first_byte_timeout exceeded after 40s",
+		"log_line=4",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("line-bearing observations should win the budget over generic signals; missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, `structured runtime signal "timeout"`) ||
+		strings.Contains(joined, `structured runtime signal "performance"`) {
+		t.Fatalf("generic signal seeds should not displace exact artifact lines in a focused support lane:\n%s", joined)
+	}
+}
+
 func TestBuildAnswerSupportPlan_ExternalOnlyObservedArtifactKeepsRepresentativeFramesForErrorTargets(t *testing.T) {
 	plan := &AnswerSurfacePlan{
 		RuntimeGroundingDisposition: &RuntimeGroundingDisposition{

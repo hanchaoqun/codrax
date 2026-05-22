@@ -358,11 +358,17 @@ Sub-batches:
    when literally present in the artifact observation or backed by a separate
    current-source citation; otherwise they must be phrased as possible upstream
    investigation directions.
-3. **3.3 Generic caveat consolidation.** Suppress source/list coverage
-   supplements for accepted observation-only answers unless a precise missing
-   typed facet remains. When a boundary note is still useful, render a localized
-   artifact-scope note instead of source-code核对 or enumeration completeness
-   boilerplate.
+3. **3.3 Generic caveat consolidation (active).** Suppress source/list
+   coverage supplements for accepted observation-only or mixed artifact+source
+   answers unless a precise missing typed facet remains. When a boundary note is
+   still useful, render a localized artifact-scope note instead of source-code
+   核对, 验收未达标, or enumeration completeness boilerplate. Root cause from
+   `logtri_line_current_code-20260522-234431`: the model already rendered the
+   observed runtime fact and declared `observed_artifact_fact`, but omitted the
+   non-visible `claim_form=external_observation` metadata. That is a local
+   schema-carrier repair, not a user-facing answer caveat and not a finalizer
+   rewrite reason. The unified fix belongs in the pre-emit normalization
+   chokepoint so full emit, patch, and recovery paths share it.
 4. **3.4 VCS / command / negative observation provenance.** Reuse
    `ObservationLedger` to render VCS metadata, diffs, command measurements, and
    negative observations as origin-specific support refs. `citations[]` stays
@@ -435,6 +441,16 @@ Implementation / validation notes:
   rejection prose. Residual: aggregate member-set soft advisories can still
   produce a generic "补充说明" caveat on otherwise sufficient answers; keep this
   as a convergence/UX cleanup gap, not a hard retry.
+- Follow-up reruns `logtri_line_current_code-20260522-235802` and
+  `logtri_line_current_code-20260523-001023` confirmed that observed-artifact
+  carrier repair and reviewer citation rendering remove the generic caveats
+  without finalizer retry. `logtri_line_current_code-20260523-001843` then
+  exposed the next upstream gap: the answer preserved "日志第 3 行", but missed
+  the high-confidence current-source file `internal/llm/openai.go`. The fix is
+  not to make the finalizer guess a citation; it is to keep current-source
+  closure open while high-confidence analyzer `required_files` remain unread in
+  mixed runtime/history + current-code requests. Observation-only runtime
+  requests still bypass repo grounding.
 
 ### Batch 4 — Convergence, status, and repo-map wait visibility
 
@@ -682,7 +698,8 @@ Status: planned.
 | E20260522-G172 | `u9b-20260522-192229`, rerun `u9b-20260522-193913` | P1 | Mitigated | The original final answer correctly stated per-item rejection, but cited only one endpoint. Rerun PASS cites `rejectedItems`, `append`, `len(built)==0`, and `parseAnchorFields` with one finalizer turn. | The same closure-as-citation problem from `u9a` appears for error-granularity questions. Batch 1 strengthens finalizer guidance so item-vs-batch answers cite both the item-level handling branch and the batch-level gate. | Keep as soft guidance/local support, not a new rewrite gate. Residual analyzer over-scan remains `E20260522-G173`. |
 | E20260522-G173 | `u9b-20260522-192229` | P2 | Open | Analyzer used 3 pre-scan rounds and hit the `analyzer.must-emit` budget before classifying an obvious `error_granularity_profile` question. One of those rounds used `repo_map file_map` in analyze to understand implementation details, which belongs in explore. | Error-granularity classification is now typed, but the analyzer still treats the implementation proof as part of classification. Prompt guidance alone is not enough. | Add a deterministic or schema-aware analyzer rule: when the request explicitly contrasts one bad item vs whole batch, set `error_granularity_profile.is_granularity_question=true` after existence pre-scan and defer implementation proof to exploration. |
 | E20260522-G174 | `u9b-20260522-192229` | P2 | Open | Exploration first emitted `preAnchorKindKey @ emit_evidence.go:1367` and the tool reported it ungrounded, even though the same token on the same line was accepted on the next `emit_evidence` attempt after two extra reads. | The line-text grounding/audit feedback can produce transient false negatives for exact tokens, causing model-visible confusion and unnecessary repair loops. | Investigate token normalization around camelCase identifiers and nearby-line windows. If the same `(file,line,anchor_symbol)` can be validated from the already-read buffer, auto-promote the row or emit a soft diagnostic instead of forcing another model repair round. |
-| E20260522-G175 | `logtri_line_current_code-20260522-234431` | P2 | Open | The final answer passed and preserved current-source citations, but the log still recorded DEBUG soft advisories for aggregate member-set coverage and the answer appended a generic "答案在部分验收检查上未达到预期标准" supplement. No retry occurred. | Soft advisory telemetry is now non-blocking and non-alarming, but generic caveat materialization can still leak broad validation language to users even when semantic quality is sufficient and the main answer is cited. | Localize and specialize soft-caveat rendering: if the remaining issue is a non-principal/member-set advisory and all cited principal claims are preserved, suppress the generic caveat or replace it with a precise, optional audit note. Do not turn this back into a finalizer rewrite. |
+| E20260522-G175 | `logtri_line_current_code-20260522-234431`, reruns `logtri_line_current_code-20260522-235802`, `logtri_line_current_code-20260523-001023`, `logtri_line_current_code-20260523-001843`, `logtri_line_current_code-20260523-003039` | P2 | Mitigated | The original final answer passed and preserved current-source citations, but appended a generic "答案在部分验收检查上未达到预期标准" supplement. Reruns removed the generic caveats and preserved "日志第 3 行", but one run missed the actual adapter source `internal/llm/openai.go`; the final answer cited retry/error definitions while claiming the adapter constructs the timeout. Latest rerun PASSes with artifact line coordinate and `internal/llm/openai.go` citations. | Deep root cause has four layers. First, post-emit `runExternalArtifactTypedCoverageCheck` required the observed-artifact lane to carry both `facet_id=observed_artifact_fact` and `claim_form=external_observation`; the finalizer had already rendered the runtime observation and declared the facet, so this was a locally repairable non-visible metadata omission. Second, the semantic reviewer body renderer failed to expose `items[].citation_ref` as file:line even though the final user-visible answer rendered those citations. Third, the observed-artifact support lane selected generic `signal:timeout/performance` seeds before line-bearing `log_observation` seeds, so artifact-local lines could drop out of the main typed lane. Fourth, high-confidence analyzer `required_files` were only prompt/pre-read guidance in the generic explorer path, and the external-source log grounding bypass cleared pending read obligations even when `current_version_check=true`; this let mixed runtime+current-code closure complete without reading `internal/llm/openai.go`. | Implemented a shared `types.AnswerRequiresObservedArtifactCarrier` predicate and pre-emit normalizer that appends missing `external_observation` claim_use only to visible blocks already declaring `observed_artifact_fact`. Reviewer-only body rendering now appends typed item citation refs as `cite: file:line`. Observed-artifact support selection now prefers typed line/span observations over generic signals. External-source runtime bypass now applies only to observation-only artifact requests; mixed artifact/history + current-source requests enqueue unread high-confidence `required_files` as precise pending reads before completion. Targeted eval `logtri_line_current_code-20260523-003039`: PASS, `finalizer_iters=1`, semantic concerns 0, visible answer cites `internal/llm/openai.go`. Residual exploration cost is tracked separately in G176. |
+| E20260522-G176 | `logtri_line_current_code-20260523-003039` | P1 | Open | The corrected run PASSed but used `explorer_iters=51`, `tool_read_file=36`, and `midloop_inject=24`. After one parallel lane had already reached a sufficient closure, other lanes continued pursuing adjacent UI details such as the exact `1/4` rendering path and repeated grounding repairs. | The new high-confidence required-file coverage gate is precise, but parallel explorer convergence is still too permissive after the required repairs are satisfied. The system lacks a post-repair "close if all requested facets are covered" coordinator across lanes, so a lane can keep widening into display minutiae even when current-source, artifact-line, retry mechanism, and user-message facts are already grounded. | Add a parallel-explorer convergence pass: after a forced-read repair drains and the support plan has all required hard facets covered, suppress further generic navigation and accept the first sufficient `emit_investigation_complete` rather than allowing sibling lanes to keep expanding. This should consume typed facet coverage / closure state only, not prose keywords, and must preserve safety for genuinely incomplete multi-topic questions. |
 
 ## 2026-05-22 Late Contract Follow-up
 

@@ -1411,6 +1411,7 @@ func preCompleteContractCheckWithEvidence(ctx *types.BusContext, justification s
 	// because there is no code-level cross-file flow to balance —
 	// README + manifest + entry-point already cover the answer space.
 	if justification == "" {
+		raiseRequiredFileHintPendingReads(ctx, closure, evidence)
 		if narrativePrincipalMemberSetCompletesBoundary(ctx, aggregateFacts, evidence) {
 			logging.Info("[emit_investigation_complete] generic forced-read gates bypassed by grounded principal aggregate member_set")
 		} else {
@@ -1972,12 +1973,34 @@ func repoGroundingBypassLabel(ctx *types.BusContext) (string, bool) {
 		return fmt.Sprintf("evidence_floor_waiver=%s", w.Reason), true
 	}
 	if bundle := ctx.Mutable.LogTriage(); bundle != nil && bundle.IsExternalSource() {
+		if !runtimeArtifactGroundingBypassAllowed(ctx) {
+			return "", false
+		}
 		return "system-detected external-source log", true
 	}
 	if perf := ctx.Mutable.PerfTrace(); perf != nil && perf.IsExternalSource() {
+		if !runtimeArtifactGroundingBypassAllowed(ctx) {
+			return "", false
+		}
 		return "system-detected external-source trace", true
 	}
 	return "", false
+}
+
+func runtimeArtifactGroundingBypassAllowed(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return true
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if ctx.Mutable != nil {
+		if rm.LogTriage == nil {
+			rm.LogTriage = ctx.Mutable.LogTriage()
+		}
+		if rm.PerfTrace == nil {
+			rm.PerfTrace = ctx.Mutable.PerfTrace()
+		}
+	}
+	return rm.HasObservationOnlyRuntimeArtifact()
 }
 
 func historyCountAggregateHandoffDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {
@@ -4552,6 +4575,84 @@ func raisePrimaryAnchorPendingRead(ctx *types.BusContext, closure *types.Evidenc
 		logging.Info("[CGEC] primary_anchor_unread: queued forced-read file=%s", canon)
 		return
 	}
+}
+
+const requiredFileHintCoverageMax = 4
+
+func raiseRequiredFileHintPendingReads(ctx *types.BusContext, closure *types.EvidenceClosure, evidence []types.EvidenceItem) {
+	if ctx == nil || ctx.AnalysisIR == nil || closure == nil {
+		return
+	}
+	if !requiredFileHintCoverageApplies(ctx.AnalysisIR.RequestModel) {
+		return
+	}
+	var unread []string
+	for _, hint := range ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints {
+		if hint.Confidence < 0.8 {
+			continue
+		}
+		canon := phase1UnreadCanonPath(hint.Path, ctx.RepoRoot)
+		if canon == "" {
+			continue
+		}
+		qualified, ok := qualifyForcedReadSeedPath(ctx, canon)
+		if !ok {
+			logging.Warning("[CGEC] required_file_hint_unread: skipping phantom path file=%s", canon)
+			continue
+		}
+		canon = qualified
+		if closure.HasRead(canon) || groundedEvidenceCoversFile(evidence, canon, ctx.RepoRoot) {
+			continue
+		}
+		unread = append(unread, canon)
+		if len(unread) >= requiredFileHintCoverageMax {
+			break
+		}
+	}
+	if len(unread) == 0 {
+		return
+	}
+	for _, file := range unread {
+		closure.AddPendingRead(types.PendingRead{
+			File:      file,
+			Rationale: "High-confidence current-source file from request analysis remains unread — mixed artifact/history + current-code answers must verify this source before completion",
+			Origin:    "required_file_hint_unread",
+		})
+		logging.Info("[CGEC] required_file_hint_unread: queued forced-read file=%s", file)
+	}
+	closure.AddRepair(types.RepairDirective{
+		Kind:      types.RepairExpandSearch,
+		Files:     unread,
+		Rationale: fmt.Sprintf("%d high-confidence current-source required file(s) remain unread; inspect them before re-calling emit_investigation_complete", len(unread)),
+		Origin:    "pre_complete.required_file_hint_unread",
+	})
+}
+
+func requiredFileHintCoverageApplies(rm types.RequestModel) bool {
+	if len(rm.AnalyzerHints.RequiredFileHints) == 0 || rm.HasObservationOnlyRuntimeArtifact() {
+		return false
+	}
+	if rm.HasExternalOnlyRuntimeArtifact() && rm.HasRuntimeArtifactCurrentVerificationAnchor() {
+		return true
+	}
+	return types.IsHistoryBackedCurrentCodeExplanation(rm)
+}
+
+func groundedEvidenceCoversFile(evidence []types.EvidenceItem, file, repoRoot string) bool {
+	file = phase1UnreadCanonPath(file, repoRoot)
+	if file == "" {
+		return false
+	}
+	for _, ev := range evidence {
+		if ev.GroundingStatus == types.GroundingUngrounded || ev.LineStart <= 0 {
+			continue
+		}
+		source := phase1UnreadCanonPath(ev.Source, repoRoot)
+		if source == file {
+			return true
+		}
+	}
+	return false
 }
 
 // applyMultiPathAnchorChecks is the symbol-anchored verification the

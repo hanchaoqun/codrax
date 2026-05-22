@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -101,7 +102,7 @@ func selectSupportExternalObservationSeeds(rm RequestModel, seeds []ExternalObse
 		return true
 	}
 
-	for _, seed := range SelectExternalObservationSeedsForPrompt(seeds, limit) {
+	for _, seed := range prioritizeSupportExternalObservationSeeds(SelectExternalObservationSeedsForPrompt(seeds, limit)) {
 		if externalObservationSeedIsFrame(seed) {
 			continue
 		}
@@ -171,6 +172,40 @@ func selectSupportExternalObservationSeeds(rm RequestModel, seeds []ExternalObse
 		return out
 	}
 	return SelectExternalObservationSeedsForPrompt(seeds, limit)
+}
+
+func prioritizeSupportExternalObservationSeeds(seeds []ExternalObservationSeed) []ExternalObservationSeed {
+	if len(seeds) <= 1 {
+		return seeds
+	}
+	out := append([]ExternalObservationSeed(nil), seeds...)
+	sort.SliceStable(out, func(i, j int) bool {
+		return externalObservationSupportSeedRank(out[i]) < externalObservationSupportSeedRank(out[j])
+	})
+	return out
+}
+
+func externalObservationSupportSeedRank(seed ExternalObservationSeed) int {
+	rank := 100
+	if seed.Line > 0 || seed.AnchoredLine > 0 {
+		rank -= 40
+	}
+	if strings.TrimSpace(seed.Raw) != "" {
+		rank -= 5
+	}
+	switch strings.TrimSpace(seed.Kind) {
+	case "log_observation", "perf_jank", "perf_stall", "perf_startup":
+		rank -= 30
+	case "error_chain", "error_message":
+		rank -= 20
+	case "error_type":
+		rank -= 15
+	case "log_frame", "frame", "perf_frame":
+		rank -= 10
+	case "signal":
+		rank += 20
+	}
+	return rank
 }
 
 func principalObservationTargets(rm RequestModel) []string {

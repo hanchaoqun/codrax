@@ -242,6 +242,32 @@ func BuildAnswerSupportPlanForBusContext(bus *BusContext) *AnswerSupportPlan {
 	return cloneAnswerSupportPlan(out)
 }
 
+// AnswerRequiresObservedArtifactCarrier is the shared typed predicate for the
+// observed-artifact answer lane. Emit-time normalizers and post-emit contract
+// checks both use this helper so the system does not drift into two subtly
+// different definitions of when runtime/log/trace observations must be declared
+// in the AnswerDocument.
+func AnswerRequiresObservedArtifactCarrier(bus *BusContext) bool {
+	if bus == nil {
+		return false
+	}
+	if plan := BuildAnswerSupportPlanForBusContext(bus); plan != nil {
+		for _, lane := range plan.Lanes {
+			if lane.Kind == SupportLaneObservedArtifact && len(lane.Entries) > 0 {
+				return true
+			}
+		}
+	}
+	if view := BuildAnswerSemanticViewForBusContext(bus); view != nil && view.FacetCoverage != nil {
+		for _, req := range view.FacetCoverage.Required {
+			if req.Kind == FacetObservedArtifactFact && req.IsPromoted() {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func currentStatusDiagnosticContractFromIR(ir *AnalysisIR) *CurrentStatusDiagnosticContract {
 	if ir == nil || ir.AnswerContract.CurrentStatusDiagnostic == nil ||
 		!ir.AnswerContract.CurrentStatusDiagnostic.Required {

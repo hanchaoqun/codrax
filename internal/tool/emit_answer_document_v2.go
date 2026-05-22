@@ -554,6 +554,9 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if fixed := normalizeViewCompatibleAnswerDocument(doc, view); fixed > 0 {
 		logging.Warning("[%s] repaired %d view-compatible typed lane field(s)", toolName, fixed)
 	}
+	if fixed := normalizeObservedArtifactClaimUseCarriers(doc, ctx); fixed > 0 {
+		logging.Warning("[%s] repaired %d observed-artifact claim_use carrier(s)", toolName, fixed)
+	}
 	if fixed := normalizeCitationBackedPrincipalClaimUses(doc, view, pctx); fixed > 0 {
 		logging.Warning("[%s] repaired %d citation-backed principal claim_use carrier(s)", toolName, fixed)
 	}

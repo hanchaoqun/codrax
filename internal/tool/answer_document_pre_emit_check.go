@@ -5761,6 +5761,60 @@ func normalizeViewCompatibleAnswerDocument(doc *types.AnswerDocumentV2, view *ty
 	return fixed
 }
 
+// normalizeObservedArtifactClaimUseCarriers repairs the non-visible typed
+// carrier for runtime/log/trace observations. If the typed bus contract says an
+// observed-artifact lane is required and the model already marked a visible
+// block with facet_id=observed_artifact_fact, adding
+// claim_form=external_observation is schema metadata over existing content. It
+// does not author a new answer fact, does not inspect user/model prose, and
+// avoids turning a local carrier omission into a generic user-facing acceptance
+// caveat.
+func normalizeObservedArtifactClaimUseCarriers(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || !types.AnswerRequiresObservedArtifactCarrier(ctx) {
+		return 0
+	}
+	const facet = string(types.FacetObservedArtifactFact)
+	fixed := 0
+	for i := range doc.Blocks {
+		block := &doc.Blocks[i]
+		if !preEmitBlockHasVisiblePayload(*block) {
+			continue
+		}
+		if !preEmitBlockSharesFacet(*block, []string{facet}) {
+			continue
+		}
+		if blockHasObservedArtifactClaimUse(*block) {
+			continue
+		}
+		block.ClaimUses = append(block.ClaimUses, types.RenderedClaimUse{
+			ClaimForm: types.ClaimExternalObservation,
+			FacetID:   facet,
+		})
+		fixed++
+	}
+	return fixed
+}
+
+func blockHasObservedArtifactClaimUse(block types.AnswerBlock) bool {
+	const facet = string(types.FacetObservedArtifactFact)
+	blockDeclaresFacet := false
+	for _, id := range block.FacetIDs {
+		if strings.TrimSpace(id) == facet {
+			blockDeclaresFacet = true
+			break
+		}
+	}
+	for _, cu := range block.ClaimUses {
+		if cu.ClaimForm != types.ClaimExternalObservation {
+			continue
+		}
+		if strings.TrimSpace(cu.FacetID) == facet || blockDeclaresFacet {
+			return true
+		}
+	}
+	return false
+}
+
 func normalizeCitationBackedPrincipalClaimUses(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, pctx *preEmitCheckContext) int {
 	if doc == nil || view == nil || pctx == nil || pctx.ctx == nil || pctx.ctx.Mutable == nil {
 		return 0

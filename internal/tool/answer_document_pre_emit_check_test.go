@@ -2828,6 +2828,87 @@ func TestNormalizeViewCompatibleAnswerDocument_DoesNotAutoClaimListRelations(t *
 	}
 }
 
+func TestNormalizeObservedArtifactClaimUseCarriers_RepairsFacetOnlyBlock(t *testing.T) {
+	bundle := &types.LogBundle{
+		Errors: []types.LogError{{Type: "timeout", Message: "first_byte_timeout exceeded after 40s"}},
+	}
+	rm := types.RequestModel{
+		RawRequest: "第 3 行 first_byte_timeout 表示什么？",
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		LogTriage:  bundle,
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic: true,
+		},
+	}
+	mut := types.NewMutableState(rm.RawRequest)
+	mut.SetRequestModel(rm)
+	mut.SetLogTriage(bundle)
+	ctx := &types.BusContext{
+		Mutable:    mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: rm},
+	}
+	if !types.AnswerRequiresObservedArtifactCarrier(ctx) {
+		t.Fatal("test setup should require an observed-artifact carrier")
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:       "artifact_boundary",
+			Kind:     types.BlockCaveat,
+			FacetIDs: []string{string(types.FacetObservedArtifactFact)},
+			Text:     "日志第 3 行的 first_byte_timeout 是运行时观察到的信号。",
+		}},
+	}
+
+	if fixed := normalizeObservedArtifactClaimUseCarriers(doc, ctx); fixed != 1 {
+		t.Fatalf("fixed=%d, want 1; doc=%+v", fixed, doc.Blocks[0].ClaimUses)
+	}
+	if got := doc.Blocks[0].ClaimUses; len(got) != 1 ||
+		got[0].ClaimForm != types.ClaimExternalObservation ||
+		got[0].FacetID != string(types.FacetObservedArtifactFact) {
+		t.Fatalf("observed-artifact claim_use was not repaired correctly: %+v", got)
+	}
+	if fixed := normalizeObservedArtifactClaimUseCarriers(doc, ctx); fixed != 0 {
+		t.Fatalf("repair must be idempotent, got fixed=%d doc=%+v", fixed, doc.Blocks[0].ClaimUses)
+	}
+}
+
+func TestNormalizeObservedArtifactClaimUseCarriers_DoesNotInventCarrierWithoutFacet(t *testing.T) {
+	bundle := &types.LogBundle{
+		Errors: []types.LogError{{Type: "timeout", Message: "first_byte_timeout exceeded after 40s"}},
+	}
+	rm := types.RequestModel{
+		RawRequest: "第 3 行 first_byte_timeout 表示什么？",
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		LogTriage:  bundle,
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic: true,
+		},
+	}
+	mut := types.NewMutableState(rm.RawRequest)
+	mut.SetRequestModel(rm)
+	mut.SetLogTriage(bundle)
+	ctx := &types.BusContext{
+		Mutable:    mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: rm},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "当前源码说明超时后的重试路径。",
+		}},
+	}
+
+	if fixed := normalizeObservedArtifactClaimUseCarriers(doc, ctx); fixed != 0 {
+		t.Fatalf("normalizer must not invent observed-artifact facts without a typed facet, fixed=%d doc=%+v", fixed, doc.Blocks[0].ClaimUses)
+	}
+	if len(doc.Blocks[0].ClaimUses) != 0 {
+		t.Fatalf("unexpected claim_use invention: %+v", doc.Blocks[0].ClaimUses)
+	}
+}
+
 // TestPreCheckPrincipalClaimUse_SingleFormRelaxation — when contract
 // declares exactly one AcceptableClaimForm AND the block carries
 // structural grounding (facet_ids + cited items), the missing

@@ -2093,6 +2093,101 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ExternalSourceLogWaivesCitat
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_ExternalSourceCurrentVerificationRequiresHintRead(t *testing.T) {
+	logBundle := &types.LogBundle{
+		Observations: []types.LogObservation{{
+			Kind:      types.LogObservationRetryCycle,
+			Severity:  types.LogObservationWarning,
+			Summary:   "first_byte_timeout exceeded after 40s",
+			LineStart: 3,
+		}},
+	}
+	mut := types.NewMutableState("mixed runtime + current source")
+	mut.SetLogTriage(logBundle)
+	mut.EvidenceClosure().SetReadSet(map[string]bool{
+		"internal/llm/stream_errors.go": true,
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentRootCause,
+				DiagnosticProfile: types.DiagnosticIntentProfile{
+					IsDiagnostic:        true,
+					CurrentVersionCheck: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind: string(types.ReqMechanism),
+					RequiredFileHints: []types.RequiredFileHint{
+						{Path: "internal/llm/stream_errors.go", Confidence: 0.9},
+						{Path: "internal/llm/openai.go", Confidence: 0.85},
+						{Path: "internal/llm/retryable_error.go", Confidence: 0.7},
+					},
+				},
+				LogTriage: logBundle,
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "runtime timeout plus current source explanation",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("mixed runtime/current verification should block unread high-confidence current-source hints, got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "internal/llm/openai.go") {
+		t.Fatalf("unread high-confidence hint should be listed, got: %s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "internal/llm/retryable_error.go") {
+		t.Fatalf("soft-confidence hint must remain advisory, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("InvestigationComplete must remain false until high-confidence current-source hints are covered")
+	}
+}
+
+func TestRepoGroundingBypassLabel_CurrentVersionCheckDisablesExternalSourceBypass(t *testing.T) {
+	logBundle := &types.LogBundle{
+		Observations: []types.LogObservation{{
+			Kind:      types.LogObservationPerformance,
+			Severity:  types.LogObservationWarning,
+			Summary:   "first_byte_timeout exceeded",
+			LineStart: 3,
+		}},
+	}
+	mut := types.NewMutableState("mixed runtime + current source")
+	mut.SetLogTriage(logBundle)
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				DiagnosticProfile: types.DiagnosticIntentProfile{
+					IsDiagnostic:        true,
+					CurrentVersionCheck: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					RequiredFileHints: []types.RequiredFileHint{{Path: "internal/llm/openai.go", Confidence: 0.9}},
+				},
+				LogTriage: logBundle,
+			},
+		},
+	}
+	if label, ok := repoGroundingBypassLabel(bus); ok {
+		t.Fatalf("current-version verification must keep current-source grounding active, got bypass %q", label)
+	}
+}
+
 // TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorPasses_WithEligibleEvidence:
 // when ReadSet covers the evidence Source, the floor is satisfied.
 func TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorPasses(t *testing.T) {
