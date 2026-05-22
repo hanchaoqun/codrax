@@ -560,6 +560,9 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if fixed := normalizeRuntimeArtifactCitationRefs(doc, ctx); fixed > 0 {
 		logging.Warning("[%s] normalized %d runtime-artifact citation carrier(s) to observation provenance", toolName, fixed)
 	}
+	if fixed := normalizeRuntimeArtifactVisibleCitationSentinels(doc, ctx); fixed > 0 {
+		logging.Warning("[%s] sanitized %d runtime-artifact visible citation sentinel(s)", toolName, fixed)
+	}
 }
 
 func normalizeClaimUseEvidenceIDsByProjection(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {

@@ -74,7 +74,7 @@ func BuildAnswerDocumentSemanticContractDescription() string {
 		"\n\n" +
 		"DIAGRAM BLOCKS — `diagram.kind` is the SEMANTIC FAMILY (`flow` / `sequence` / `architecture` / `call_dag`), NOT a Mermaid keyword. Mermaid syntax (`flowchart` / `sequenceDiagram`) goes inside `diagram.body` with `diagram.language=\"mermaid\"`. " +
 		"\n\n" +
-		"Citations live in a shared `citations` pool; per-item `citation_ref` is a zero-based index into it (or -1 for no cite). `claim_use` / `claim_uses` never carry `citation_ref`. " +
+		"Citations live in a shared `citations` pool; per-item `citation_ref` is a zero-based index into it (or -1 / omitted for no current-repo cite). This is an internal carrier only: do not mention `citation_ref` or `citations[]` in visible answer prose. `claim_use` / `claim_uses` never carry `citation_ref`. " +
 		"`exact_resolution`, `missing_requested_roles[]`, `caveats[]`, `snippets[]` are document-level optional fields. Use `missing_requested_roles[]` only when the question explicitly asked for named config-precedence layers and one or more of those requested layers has NO grounded binding for the exact target. Each entry is `{role: default|config|runtime|override, label?: <user-facing bucket name>}`; the renderer materialises the explicit missing-layer prose from this typed field, so do not hide missing requested layers behind vague placeholders like `N/A`. " +
 		"\n\n" +
 		"Top-level fields shape / steps / symbols / value / boolean / summary are NOT accepted at runtime — the entire answer payload lives inside blocks[] only." +

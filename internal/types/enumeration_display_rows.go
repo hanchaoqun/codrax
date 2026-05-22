@@ -256,6 +256,7 @@ func enumerationDisplayRowNoteForRequest(rm *RequestModel, note string) string {
 	profile := rm.SourceInventoryProfile
 	if !profile.RequestsField(SourceInventoryFieldValues) {
 		note = stripEnumerationValueExamplesFromNote(note)
+		note = stripEnumerationValueClausesFromNote(note)
 		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(rm.Language)), "zh") {
 			note = localizeEnumerationVisibilityNote(note)
 		}
@@ -298,6 +299,86 @@ func stripEnumerationValueExamplesFromNote(note string) string {
 		b.WriteRune(open)
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func stripEnumerationValueClausesFromNote(note string) string {
+	note = strings.TrimSpace(note)
+	if note == "" {
+		return ""
+	}
+	clauses := splitEnumerationNoteClauses(note)
+	if len(clauses) <= 1 {
+		if enumerationValueClauseLike(note) {
+			return ""
+		}
+		return note
+	}
+	kept := make([]string, 0, len(clauses))
+	for _, clause := range clauses {
+		clause = strings.TrimSpace(clause)
+		if clause == "" || enumerationValueClauseLike(clause) {
+			continue
+		}
+		kept = append(kept, clause)
+	}
+	if len(kept) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(strings.Join(kept, "，"))
+}
+
+func splitEnumerationNoteClauses(note string) []string {
+	return strings.FieldsFunc(note, func(r rune) bool {
+		switch r {
+		case '，', '。', '；', ';':
+			return true
+		default:
+			return false
+		}
+	})
+}
+
+func enumerationValueClauseLike(clause string) bool {
+	clause = strings.TrimSpace(clause)
+	if clause == "" {
+		return false
+	}
+	lower := strings.ToLower(clause)
+	hasTrigger := strings.Contains(lower, "const") ||
+		strings.Contains(lower, "value") ||
+		strings.Contains(lower, "literal") ||
+		strings.Contains(clause, "常量") ||
+		strings.Contains(clause, "取值") ||
+		strings.Contains(clause, "枚举值") ||
+		strings.Contains(clause, "成员值") ||
+		strings.Contains(clause, "定义了") ||
+		strings.Contains(clause, "包含")
+	if !hasTrigger || !strings.ContainsAny(clause, "/,，、|") {
+		return false
+	}
+	return enumerationValueCodeTokenCount(clause) >= 2
+}
+
+func enumerationValueCodeTokenCount(text string) int {
+	tokens := strings.FieldsFunc(text, func(r rune) bool {
+		switch r {
+		case '/', ',', '，', '、', '|', ' ', '\t', '\n', '\r', '`', '\'', '"', '“', '”', '‘', '’', '(', ')', '（', '）':
+			return true
+		default:
+			return false
+		}
+	})
+	count := 0
+	for _, token := range tokens {
+		token = strings.Trim(token, "`'\"“”‘’…:：;；.。")
+		if token == "" {
+			continue
+		}
+		if enumerationValueExampleTokenLike(token) {
+			count++
+		}
+	}
+	return count
 }
 
 func enumerationValueExampleListLike(body string) bool {

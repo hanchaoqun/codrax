@@ -114,12 +114,15 @@ func TestCompileEnumerationDisplaySets_SourceInventorySuppressesUnrequestedValue
 	}
 	plan := &AnswerSurfacePlan{
 		StableAggregateFacts: []AnswerAggregateFact{{
-			Kind:        AnswerAggregateMemberSet,
-			Label:       "公开字符串枚举类型",
-			Value:       "2",
-			Role:        AnswerAggregateRolePrincipalAnswer,
-			Members:     []string{"AnswerCandidateRole", "AnswerSymbolVisibility"},
-			MemberNotes: []string{"AnswerCandidateRole 枚举 — 候选符号的角色分类（function/method/type/constant/variable/field/package/file/test/generated/private/documentation）", "AnswerSymbolVisibility 枚举 — 决定 private/internal 符号是否可作为 principal member"},
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "公开字符串枚举类型",
+			Value:   "2",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"AnswerCandidateRole", "AnswerSymbolVisibility"},
+			MemberNotes: []string{
+				"AnswerCandidateRole 枚举 — 候选符号的角色分类（function/method/type/constant/variable/field/package/file/test/generated/private/documentation）",
+				"AnswerSymbolVisibility 枚举 — 决定 private/internal 符号是否可作为 principal member，包含 public_exported / all / private_only 等 4 种范围常量。",
+			},
 			SupportRefs: []string{"AnswerCandidateRole @ internal/types/answer_candidate_role.go:9", "AnswerSymbolVisibility @ internal/types/answer_visibility_profile.go:7"},
 		}},
 	}
@@ -136,6 +139,9 @@ func TestCompileEnumerationDisplaySets_SourceInventorySuppressesUnrequestedValue
 	}
 	if !strings.Contains(joined, "候选符号的角色分类") || !strings.Contains(joined, "非公开/内部") {
 		t.Fatalf("sanitizer should preserve useful summary while localizing visibility wording: %q", joined)
+	}
+	if strings.Contains(joined, "public_exported") || strings.Contains(joined, "private_only") || strings.Contains(joined, "包含") {
+		t.Fatalf("unrequested value-list clause should be removed: %q", joined)
 	}
 }
 

@@ -1,7 +1,15 @@
 package tool
 
 import (
+	"regexp"
+	"strings"
+
 	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+var (
+	runtimeCitationRefSentinelRe = regexp.MustCompile("`?citation_ref`?\\s*(?:=|:|：)\\s*`?-1`?")
+	runtimeCitationRefMarkedRe   = regexp.MustCompile("`?citation_ref`?\\s*(?:被)?(?:标记|设置|置|设|记)为\\s*`?-1`?")
 )
 
 func answerDocumentRuntimeObservationOnly(ctx *types.BusContext) bool {
@@ -75,4 +83,60 @@ func dropAnswerDocumentCitationsByIndex(doc *types.AnswerDocumentV2, remove map[
 		}
 	}
 	return changed
+}
+
+// normalizeRuntimeArtifactVisibleCitationSentinels removes internal
+// citation-carrier vocabulary that a model copied into visible runtime-artifact
+// prose. The decision is typed: only observation-only attached log/trace
+// answers enter this path. Current-source and Codrax-internal answers keep their
+// literal text untouched.
+func normalizeRuntimeArtifactVisibleCitationSentinels(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || !answerDocumentRuntimeObservationOnly(ctx) {
+		return 0
+	}
+	replacement := runtimeArtifactVisibleCitationBoundaryText(ctx)
+	changed := 0
+	normalize := func(ptr *string) {
+		if ptr == nil || strings.TrimSpace(*ptr) == "" {
+			return
+		}
+		next := sanitizeRuntimeArtifactVisibleCitationSentinel(*ptr, replacement)
+		if next != *ptr {
+			*ptr = next
+			changed++
+		}
+	}
+	for i := range doc.Caveats {
+		normalize(&doc.Caveats[i])
+	}
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		normalize(&block.Title)
+		normalize(&block.Text)
+		for ii := range block.Items {
+			item := &block.Items[ii]
+			normalize(&item.Label)
+			normalize(&item.Text)
+			for ci := range item.Cells {
+				normalize(&item.Cells[ci])
+			}
+		}
+	}
+	return changed
+}
+
+func sanitizeRuntimeArtifactVisibleCitationSentinel(s, replacement string) string {
+	if s == "" {
+		return s
+	}
+	out := runtimeCitationRefMarkedRe.ReplaceAllString(s, replacement)
+	out = runtimeCitationRefSentinelRe.ReplaceAllString(out, replacement)
+	return out
+}
+
+func runtimeArtifactVisibleCitationBoundaryText(ctx *types.BusContext) string {
+	if ctx != nil && strings.HasPrefix(strings.ToLower(strings.TrimSpace(ctx.Language)), "en") {
+		return "runtime-artifact observation, not a current-repository source citation"
+	}
+	return "来自附件运行时材料，未绑定当前仓库源码引用"
 }

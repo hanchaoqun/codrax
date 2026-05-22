@@ -3419,6 +3419,72 @@ func TestEmitAnalysis_Execute_PersistsSourceInventoryProfile(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_SourceInventoryConstSetDoesNotImplyValuesField(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("列出 internal/types 包里所有公开的字符串枚举类型名（type X string 加 const 集合）。")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "moderate",
+		"keywords": ["symbol", "enum", "type", "string"],
+		"entities": ["internal/types"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.94,
+		"complexity_confidence": 0.76,
+		"kind_confidence": 0.9,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"answer_subject": {
+			"kind": "type_name",
+			"entity_axes": ["type → const_set"],
+			"confidence": 0.9
+		},
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["type", "constant"],
+			"type_underlying": "string",
+			"requires_const_set": true,
+			"requested_fields": ["name", "location", "values"],
+			"source_quotes": ["字符串枚举类型名"],
+			"confidence": 0.95,
+			"rationale": "current request asks for public string enum type names"
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.SourceInventoryProfile == nil {
+		t.Fatalf("SourceInventoryProfile not persisted: %+v", rm)
+	}
+	if rm.SourceInventoryProfile.RequestsField(types.SourceInventoryFieldValues) {
+		t.Fatalf("const-set qualifier should not request enum values for a type-name inventory: %+v", rm.SourceInventoryProfile.RequestedFields)
+	}
+	if !rm.SourceInventoryProfile.RequestsField(types.SourceInventoryFieldName) ||
+		!rm.SourceInventoryProfile.RequestsField(types.SourceInventoryFieldLocation) {
+		t.Fatalf("normalizer should preserve requested name/location fields: %+v", rm.SourceInventoryProfile.RequestedFields)
+	}
+}
+
 func TestEmitAnalysis_Execute_RejectsUngroundedAnswerExclusionPolicy(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

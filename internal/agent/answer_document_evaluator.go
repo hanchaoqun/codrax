@@ -3299,9 +3299,9 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 			b.WriteString("- Because the exact config key is absent, do NOT emit a principal scalar block with a synthetic literal such as `(missing)` / `(不存在)`. Prefer a summary-led explanation so the answer can lead with the exact absence and then explain any grounded same-family precedence chain as related context only.\n")
 			b.WriteString("- For config-trace related context, grounded same-scope anchors may appear in `summary` even when they do not carry a validated diagram role. But fenced diagrams and diagram citations are stricter: only anchors with a validated `diagram_role_hint` (`default`, `config`, `runtime`, or `override`) may become diagram nodes.\n")
 			b.WriteString("- When a requested precedence layer has no grounded binding, say that layer absence explicitly (for example, `no config-file key matches this target` or `no CLI flag binds this key`) instead of vague placeholders like `N/A` / `不适用`.\n")
-			b.WriteString("- For config-precedence answers, only create a separate numbered step when that layer has its own grounded repo anchor. If a layer is absent or only inferred from the exact-absence state, keep it in `summary` or set that step's `citation_ref=-1` instead of borrowing a nearby config-file / struct citation.\n")
-			b.WriteString("- In an ordered-list block, any step with `citation_ref >= 0` must mention at least one identifier that appears on the cited line or its nearby corroboration window. If the step summarizes a whole struct/range/absence conclusion rather than one corroborated line, use `citation_ref=-1` and keep the precise line-backed facts in neighboring steps.\n")
-			b.WriteString("- A repo-wide search result, aggregate absence conclusion, or test-only proof step usually has no single corroborating production line. In `step_list`, default those steps to `citation_ref=-1` unless one cited line literally states the same claim.\n")
+			b.WriteString("- For config-precedence answers, only create a separate numbered step when that layer has its own grounded repo anchor. If a layer is absent or only inferred from the exact-absence state, keep it in `summary` or leave that step uncited instead of borrowing a nearby config-file / struct citation.\n")
+			b.WriteString("- In an ordered-list block, any step with `citation_ref >= 0` must mention at least one identifier that appears on the cited line or its nearby corroboration window. If the step summarizes a whole struct/range/absence conclusion rather than one corroborated line, leave that step uncited and keep the precise line-backed facts in neighboring steps.\n")
+			b.WriteString("- A repo-wide search result, aggregate absence conclusion, or test-only proof step usually has no single corroborating production line. In `step_list`, keep those steps uncited unless one cited line literally states the same claim.\n")
 			if roles := types.JoinEvidenceDiagramRoles(contract.RequestedContextRoles); roles != "" {
 				fmt.Fprintf(&b, "- The user explicitly asked to cover these nearby precedence roles when you keep follow-on context: `%s`. Do not collapse the answer to only one surviving layer when grounded anchors for the other requested roles are still available in this dispatch.\n", roles)
 			}
@@ -4033,7 +4033,7 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 			b.WriteString("- For multi-member relation sets, render the qualifying members as list/table rows before any broader mechanism narrative.\n")
 		}
 	}
-	b.WriteString("- When a `members` entry is a source location such as `file.ext:line`, or a member-specific `support_refs` entry maps `Member @ file.ext:line`, `Member | file.ext:line`, or `Member (file.ext:line)`, create or reuse a matching `citations[]` entry and set that item's `citation_ref`. Reserve `citation_ref:-1` only for member labels that have no citable source-location handoff.\n")
+	b.WriteString("- When a `members` entry is a source location such as `file.ext:line`, or a member-specific `support_refs` entry maps `Member @ file.ext:line`, `Member | file.ext:line`, or `Member (file.ext:line)`, create or reuse a matching `citations[]` entry and set that item's `citation_ref`. Member labels with no citable source-location handoff should remain uncited rather than borrowing an adjacent citation.\n")
 	b.WriteString("- Do not render internal provenance strings such as `source=emit_investigation_complete.aggregate_facts` in the user-visible answer text. Use provenance only to choose the correct member set and citations.\n")
 	b.WriteString("- Do not recompute new aggregate values in finalization. If analyzer hints, unstructured prose, or raw tool snippets conflict with these facts, prefer rows marked `role=principal_answer` for the principal list. If a same-member grounded definition evidence row provides richer detail, use that evidence to explain the member instead of deleting the detail.\n\n")
 	if rows != "" {
@@ -4956,8 +4956,8 @@ func renderAnswerDocRuntimeGroundingDisposition(ctx *types.AgentContext) string 
 	fmt.Fprintf(&b, "- Source: `%s`\n", d.Source)
 	fmt.Fprintf(&b, "- Reason: `%s`\n", d.Reason)
 	fmt.Fprintf(&b, "- Rationale: %s\n", strings.TrimSpace(d.Rationale))
-	b.WriteString("- Citation policy: claims whose source is the attached log / trace itself must use `citation_ref=-1` unless a cited current-repo line literally states the same claim.\n")
-	b.WriteString("- Do not put attached-log / external-trace paths into `citations[]` just to quote artifact text. `citations[]` is for current-repo lines or bounded negative-scope proofs with `negative_pattern`; runtime observations stay on `citation_ref=-1`.\n")
+	b.WriteString("- Citation policy: claims whose source is the attached log / trace itself stay in the runtime/artifact provenance lane unless a cited current-repo line literally states the same claim.\n")
+	b.WriteString("- Do not put attached-log / external-trace paths into `citations[]` just to quote artifact text. `citations[]` is for current-repo lines or bounded negative-scope proofs with `negative_pattern`; visible prose should say these facts come from the attached runtime artifact.\n")
 	if runtimeObservationOnlyForAnswerDoc(ctx) {
 		b.WriteString("- This dispatch is observation-only: the current request asks what the runtime artifact shows, not whether the current checkout still has the issue. Leave current-repo files, helper symbols, and citations out of the answer even if an earlier exploration step read them accidentally.\n\n")
 	} else {
@@ -5693,7 +5693,7 @@ func renderAnswerDocExternalObservationSeeds(ctx *types.AgentContext) string {
 	}
 	var b strings.Builder
 	b.WriteString("## External Observation Seeds\n\n")
-	b.WriteString("These observations come from the attached runtime / external trace rather than directly from current repo code. They are answer-grade context, but if you surface one as its own `step_list` hop, scalar provenance fact, or boolean rationale without a repo line that literally states the same claim, default that field's `citation_ref` to `-1` instead of borrowing a nearby repo citation.\n\n")
+	b.WriteString("These observations come from the attached runtime / external trace rather than directly from current repo code. They are answer-grade context, but if you surface one as its own list hop, scalar provenance fact, or boolean rationale without a repo line that literally states the same claim, keep it as attached-artifact provenance instead of borrowing a nearby repo citation.\n\n")
 	for _, seed := range types.SelectExternalObservationSeedsForPrompt(plan.ExternalObservationSeeds, types.ExternalObservationPromptSeedLimit) {
 		switch strings.TrimSpace(seed.Kind) {
 		case "error_type":
@@ -6753,7 +6753,7 @@ func (e *answerDocumentEvaluator) unexpectedFinalizerToolSignal(obs LoopObservat
 		HintRequested:  true,
 		BypassThrottle: true,
 		HintKey:        fmt.Sprintf("answer_doc.unexpected_tool.%d.%s", obs.Iteration, toolList),
-		Hint:           fmt.Sprintf("This stage is a pure answer synthesizer. Do NOT call `%s` or any other read/search tool. Re-emit `emit_answer_document` using only the already-provided grounded evidence: `citations[]`, Diagram Seeds, Exact Resolution Seeds, and the prompt's Diagram Node Allowlist. If a step cannot honestly cite one grounded line, keep that fact in `summary` or set that step's `citation_ref=-1` instead of reopening files. Do not write free-form prose outside the tool call.", toolList),
+		Hint:           fmt.Sprintf("This stage is a pure answer synthesizer. Do NOT call `%s` or any other read/search tool. Re-emit `emit_answer_document` using only the already-provided grounded evidence: `citations[]`, Diagram Seeds, Exact Resolution Seeds, and the prompt's Diagram Node Allowlist. If a step cannot honestly cite one grounded line, keep that fact in `summary` or leave the item uncited instead of reopening files. Do not write free-form prose outside the tool call.", toolList),
 	}
 }
 
@@ -7143,9 +7143,9 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	// Session-22 special-case: the literal-grounding gate on a
 	// resolved-literal answer fires when the cited line has zero
 	// identifier overlap with the emitted literal. The tool's error body
-	// already names citation_ref=-1 as the escape, but that's
-	// buried after diagnostic detail — the LLM sometimes keeps
-	// trying fresh fabrications instead of reaching for -1.
+	// already describes the no-citation escape, but that's buried after
+	// diagnostic detail — the LLM sometimes keeps trying fresh
+	// fabrications instead of leaving the item uncited.
 	// Pattern-match the error substring here and surface the
 	// action-to-take at the top of the mid-loop hint so the LLM
 	// self-corrects in one round instead of burning the whole
@@ -8004,17 +8004,30 @@ func buildLiteralGroundingRetryHint(summary string) string {
 	refField := "value.citation_ref"
 	subject := "`value.literal`"
 	context := "the literal is drawn from the attached log / external source (no grounded repo citation)"
-	extra := "Do NOT try to find a different file:line — if the literal came from an external trace (panic frame, log function name, etc.), no repo citation exists by definition and -1 is the tool-schema-legal escape."
+	extra := "Do NOT try to find a different file:line — if the literal came from an external trace (panic frame, log function name, etc.), no repo citation exists by definition; leave the structural citation carrier empty/uncited and explain that boundary in summary."
 	if idx, ok := parseLiteralGroundingStepIndex(firstLine); ok {
 		refField = fmt.Sprintf("steps[%d].citation_ref", idx)
 		subject = fmt.Sprintf("`steps[%d].description`", idx)
 		context = "that step summarizes a repo-wide search, aggregate absence, test-only proof, or other claim that has no single corroborating repo line"
-		extra = "Do NOT try to borrow a nearby file:line just to satisfy the schema — if the step summarizes an aggregate search result or absence conclusion rather than one corroborated line, `-1` is the tool-schema-legal escape."
+		extra = "Do NOT try to borrow a nearby file:line just to satisfy the schema — if the step summarizes an aggregate search result or absence conclusion rather than one corroborated line, leave the step uncited and explain that boundary in summary."
 	}
+	firstLine = sanitizeLiteralGroundingToolErrorForPrompt(firstLine)
 	return "Your last `emit_answer_document` call was rejected by the LITERAL-GROUNDING gate: the cited file:line does NOT corroborate " + subject + ". " +
-		fmt.Sprintf("The single-action fix: re-emit now with `%s = -1`", refField) +
+		fmt.Sprintf("The single-action fix: re-emit now with `%s` left uncited", refField) +
 		" AND add a sentence to `summary` stating that " + context + ". " +
 		extra + " Full tool error: " + firstLine
+}
+
+func sanitizeLiteralGroundingToolErrorForPrompt(s string) string {
+	replacer := strings.NewReplacer(
+		"set citation_ref=-1 and state in summary that the answer is derived from log semantics (no grounded repo source)",
+		"leave the item uncited and state in summary that the answer is derived from log semantics (no grounded repo source)",
+		"set citation_ref=-1 so the renderer drops the suffix",
+		"leave the step uncited so the renderer does not attach a misleading source suffix",
+		"citation_ref=-1",
+		"no current-repo citation",
+	)
+	return replacer.Replace(s)
 }
 
 var literalGroundingStepRe = regexp.MustCompile(`^steps\[(\d+)\]\.description\b`)

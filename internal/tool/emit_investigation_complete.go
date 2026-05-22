@@ -1586,7 +1586,7 @@ func preCompleteContractCheckWithEvidence(ctx *types.BusContext, justification s
 			// External-source logs/traces and model-declared waivers are
 			// answered from structured runtime semantics, not from repo
 			// file:line anchors. Builder/front-end already teach
-			// downstream stages to use summary prose and citation_ref=-1
+			// downstream stages to use runtime/artifact provenance
 			// where appropriate; forcing a repo citation floor here only
 			// creates pointless read-more loops against unrelated files.
 			logging.Info("[emit_investigation_complete] citation-floor bypassed by %s", label)

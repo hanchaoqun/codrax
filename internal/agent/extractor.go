@@ -2465,11 +2465,47 @@ func needsAnswerSymbols(ctx *types.AgentContext) bool {
 	if pureVCSMetadataAnswerRendersWithoutAnswerSymbols(ctx) {
 		return false
 	}
+	if sourceInventoryPrincipalAggregateRendersWithoutAnswerSymbols(ctx) {
+		return false
+	}
 	if requiresMultiTopicAnchorSkeleton(ctx) || viewNeedsBoundedPrincipalList(ctx) {
 		return true
 	}
 	if viewNeedsEnumerationSlate(ctx) {
 		return !enumerationPrincipalEvidenceRendersWithoutAnswerSymbols(ctx)
+	}
+	return false
+}
+
+func sourceInventoryPrincipalAggregateRendersWithoutAnswerSymbols(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !rm.SourceInventoryProfile.Active() || viewNeedsBoundedPrincipalList(ctx) {
+		return false
+	}
+	plan := extractorAnswerSurfacePlan(ctx)
+	sets := types.CompileEnumerationDisplaySets(&rm, plan)
+	if len(sets) == 0 {
+		return false
+	}
+	for _, set := range sets {
+		if !set.Role.IsPrincipal() || len(set.Rows) == 0 {
+			continue
+		}
+		completeGroundedRows := true
+		for _, row := range set.Rows {
+			if strings.TrimSpace(row.DisplayLabel) == "" ||
+				strings.TrimSpace(row.Source) == "" ||
+				row.LineStart <= 0 {
+				completeGroundedRows = false
+				break
+			}
+		}
+		if completeGroundedRows {
+			return true
+		}
 	}
 	return false
 }

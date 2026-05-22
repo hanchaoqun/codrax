@@ -1528,6 +1528,77 @@ func TestExtractor_BuildPrompt_PureHistoryEnumerationSkipsAnswerSymbol(t *testin
 	}
 }
 
+func TestExtractor_BuildPrompt_SourceInventoryAggregateSkipsAnswerSymbol(t *testing.T) {
+	mu := types.NewMutableState("list public string enum types")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles:             []string{"internal/types/analysis_ir.go"},
+		TerminalEvidenceCount: 0,
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "internal/types public string enum types",
+		Value:      "2",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: "system:source_inventory",
+		Members:    []string{"Intent", "Scenario"},
+		MemberNotes: []string{
+			"Intent describes the top-level request purpose.",
+			"Scenario describes the answer workflow family.",
+		},
+		SupportRefs: []string{
+			"Intent: internal/types/analysis_ir.go:847",
+			"Scenario: internal/types/analysis_ir.go:867",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		Objective: "列出 internal/types 里的公开字符串枚举类型名",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "所有公开字符串枚举类型名",
+				},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+					TypeUnderlying:    types.SourceInventoryTypeUnderlyingString,
+					RequiresConstSet:  true,
+					RequestedFields: []types.SourceInventoryRequestedField{
+						types.SourceInventoryFieldName,
+						types.SourceInventoryFieldLocation,
+						types.SourceInventoryFieldSummary,
+					},
+					Confidence: 0.95,
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	if !viewNeedsEnumerationSlate(ctx) {
+		t.Fatal("fixture must remain enumeration-shaped")
+	}
+	if !sourceInventoryPrincipalAggregateRendersWithoutAnswerSymbols(ctx) {
+		t.Fatal("complete source-inventory aggregate rows should render without an answer-symbol slate")
+	}
+	if needsAnswerSymbols(ctx) {
+		t.Fatal("source-inventory aggregate rows must not force the model to re-emit 100+ answer symbols")
+	}
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "does NOT require `emit_answer_symbol`") {
+		t.Fatalf("prompt should disable answer-symbol slate for grounded source inventory aggregates:\n%s", prompt)
+	}
+	if !contains(prompt, "Intent: 2 member(s)") && !contains(prompt, "internal/types public string enum types: 2 member(s)") {
+		t.Fatalf("prompt should still carry the structured aggregate handoff:\n%s", prompt)
+	}
+}
+
 func TestExtractor_BuildPrompt_DefinitionEnumerationStillRequiresAnswerSymbols(t *testing.T) {
 	mu := types.NewMutableState("list functions")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{

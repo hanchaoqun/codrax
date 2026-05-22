@@ -140,7 +140,7 @@ func rootCauseTracePrincipalListRequirement(plan *AnswerSurfacePlan) BlockRequir
 			},
 			Rationale: "List the principal runtime observations that answer the user's diagnostic question " +
 				"(for example the failing frames, error events, or trace spans) in the user's requested order. " +
-				"These items come from the attached artifact and should use citation_ref=-1 unless a current " +
+				"These items come from the attached artifact and should stay in artifact provenance unless a current " +
 				"repo citation literally proves the same fact. Do not replace them with helper functions or " +
 				"resolver internals from the current repository.",
 			SurfaceRoleHint: SurfacePrincipal,
@@ -184,7 +184,7 @@ func rootCauseTraceSummaryRationale(plan *AnswerSurfacePlan) string {
 func rootCauseTraceOrderedListRationale(plan *AnswerSurfacePlan) string {
 	if runtimeObservationOnly(plan) {
 		return "Walk the observed artifact frames / events in the order that answers the user. " +
-			"Use citation_ref=-1 for artifact-only facts and do not substitute current-repo helper code."
+			"Keep artifact-only facts in artifact provenance and do not substitute current-repo helper code."
 	}
 	if plan != nil && plan.SummarySurfaceMode == AnswerSummarySurfaceDriftBoundedRootCause {
 		return "Walk the grounded current-code path from the innermost cited frame outward. " +

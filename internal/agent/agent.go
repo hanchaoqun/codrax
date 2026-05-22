@@ -1050,7 +1050,7 @@ func contextPressureFixAndAllowed(name types.AgentName) (string, []hint.Allowed)
 				{Kind: AllowedTerminalTool, Value: "emit_hypothesis_verdict", Hint: "verdict per hypothesis entry"},
 			}
 	case types.AgentFinalizer:
-		return "Call `emit_answer_document` with the cited evidence already collected. If citation grounding rejects an item, use `citation_ref=-1` and move on.",
+		return "Call `emit_answer_document` with the cited evidence already collected. If citation grounding rejects an item, leave that item uncited and explain the boundary in prose rather than reopening files.",
 			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "emit_answer_document", Hint: "produce the final structured answer now"}}
 	case types.AgentLogTriager:
 		return "Call `emit_log_triage` with whatever meta, errors and residue you have parsed so far. Incomplete bundles are tolerated by the validator (coverage low but non-zero).",

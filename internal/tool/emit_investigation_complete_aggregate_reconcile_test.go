@@ -508,10 +508,11 @@ func TestReconcileCompletionAggregateFactsWithSourceInventory_GraphBackedPublicF
 	}
 }
 
-func TestReconcileCompletionAggregateFactsWithSourceInventory_MixedLanguageNoOp(t *testing.T) {
+func TestReconcileCompletionAggregateFactsWithSourceInventory_MixedLanguageGraphBackedPublicFunctions(t *testing.T) {
 	graph := testGraphWithFiles([]*repotypes.FileInfo{
 		{RelPath: "src/a.go", Language: "go", Symbols: []repotypes.Symbol{{Name: "Eval", Kind: "function", File: "src/a.go", Line: 1, Exported: true}}},
 		{RelPath: "src/B.java", Language: "java", Symbols: []repotypes.Symbol{{Name: "Run", Kind: "function", File: "src/B.java", Line: 1, Exported: true}}},
+		{RelPath: "src/c.ts", Language: "typescript", Symbols: []repotypes.Symbol{{Name: "render", Kind: "function", File: "src/c.ts", Line: 12, Exported: false}}},
 	})
 	ctx := sourceInventoryTestContext("", graph, "src", &types.SourceInventoryProfile{
 		IsSourceInventory: true,
@@ -527,8 +528,12 @@ func TestReconcileCompletionAggregateFactsWithSourceInventory_MixedLanguageNoOp(
 	}}
 
 	got := reconcileCompletionAggregateFactsWithSourceInventory(ctx, facts, nil)
-	if !reflect.DeepEqual(got, facts) {
-		t.Fatalf("mixed-language scope should no-op until the adapter can prove completeness;\ngot  %#v\nwant %#v", got, facts)
+	want := []string{"Run", "Eval"}
+	if !reflect.DeepEqual(got[0].Members, want) {
+		t.Fatalf("mixed-language graph-backed scope should reconcile across repomap languages;\ngot  %#v\nwant %#v", got[0].Members, want)
+	}
+	if containsString(got[0].Members, "render") {
+		t.Fatalf("non-exported TypeScript function leaked into public inventory: %#v", got[0].Members)
 	}
 }
 

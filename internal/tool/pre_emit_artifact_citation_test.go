@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -32,7 +33,7 @@ func TestPreCheckArtifactObservedFrameCitations_RejectsObservedLineAsSourceCitat
 	if hints[0].ExpectedShape == "" || hints[0].Reason == "" {
 		t.Fatalf("hint should explain the typed artifact/source boundary: %+v", hints[0])
 	}
-	wantShape := "runtime artifact frame coordinates should stay in observed-artifact rows with `citation_ref=-1`; cite the current grounded source anchor instead: internal/agent/analyzer.go:861"
+	wantShape := "runtime artifact frame coordinates should stay in observed-artifact rows without current-repo citations; cite the current grounded source anchor instead: internal/agent/analyzer.go:861"
 	if hints[0].ExpectedShape != wantShape {
 		t.Fatalf("hint shape = %q, want %q", hints[0].ExpectedShape, wantShape)
 	}
@@ -129,6 +130,72 @@ func TestNormalizeRuntimeArtifactCitationRefs_DriftedObservedFrameRemapsMixedPoo
 	}
 	if hints := preCheckArtifactObservedFrameCitations(doc, ctx); len(hints) != 0 {
 		t.Fatalf("normalized artifact citation should not be rejected, got %+v", hints)
+	}
+}
+
+func TestNormalizeRuntimeArtifactVisibleCitationSentinels_SanitizesOnlyTypedObservationOnly(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Type: "RuntimeError", Frames: []types.LogFrame{{Func: "init"}}}},
+	})
+	ctx := &types.BusContext{
+		Language: "zh",
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:    types.IntentRootCause,
+			Scenario:  types.ScenarioRootCause,
+			LogTriage: mut.LogTriage(),
+			DiagnosticProfile: types.DiagnosticIntentProfile{
+				IsDiagnostic: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:    "caveat",
+		Kind:  types.BlockCaveat,
+		Title: "运行时观察（citation_ref=-1）",
+		Text:  "因此 citation_ref 标记为 -1，不绑定当前源码。",
+		Items: []types.AnswerBlockItem{{
+			ID:    "row",
+			Label: "`citation_ref=-1`",
+			Text:  "运行时 panic 日志的观察结果（citation_ref=-1）",
+			Cells: []string{"事实", "citation_ref = -1"},
+		}},
+	}}, Caveats: []string{"这些日志事实来自外部工件，citation_ref=-1。"}}
+
+	fixed := normalizeRuntimeArtifactVisibleCitationSentinels(doc, ctx)
+	if fixed == 0 {
+		t.Fatal("expected visible sentinel text to be sanitized")
+	}
+	rendered := doc.Blocks[0].Title + "\n" + doc.Blocks[0].Text + "\n" +
+		doc.Blocks[0].Items[0].Label + "\n" + doc.Blocks[0].Items[0].Text + "\n" +
+		doc.Blocks[0].Items[0].Cells[1] + "\n" + doc.Caveats[0]
+	if strings.Contains(rendered, "citation_ref") {
+		t.Fatalf("runtime artifact visible text should not expose citation_ref carrier:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "来自附件运行时材料，未绑定当前仓库源码引用") {
+		t.Fatalf("sanitized text should explain artifact provenance, got:\n%s", rendered)
+	}
+}
+
+func TestNormalizeRuntimeArtifactVisibleCitationSentinels_DoesNotTouchCurrentSourceAnswers(t *testing.T) {
+	ctx := &types.BusContext{
+		Language: "zh",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RawRequest: "解释 Codrax 的 citation_ref=-1 语义",
+			Intent:     types.IntentExplain,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "s",
+		Kind: types.BlockSummary,
+		Text: "Codrax 的 `citation_ref=-1` 表示没有当前仓库引用。",
+	}}}
+	if fixed := normalizeRuntimeArtifactVisibleCitationSentinels(doc, ctx); fixed != 0 {
+		t.Fatalf("non-runtime answers must not be sanitized, fixed=%d", fixed)
+	}
+	if !strings.Contains(doc.Blocks[0].Text, "citation_ref=-1") {
+		t.Fatalf("current-source/Codrax-internal text should remain literal: %q", doc.Blocks[0].Text)
 	}
 }
 

@@ -63,7 +63,7 @@ func TestPreCheckNegativeCitationBoundsRejectsUnboundedAbsenceCitation(t *testin
 		t.Fatal("expected unbounded negative citation rejection")
 	}
 	if !strings.Contains(hints[0].ExpectedShape, "negative_pattern") ||
-		!strings.Contains(hints[0].Reason, "citation_ref=-1") {
+		!strings.Contains(hints[0].Reason, "runtime-observation lane") {
 		t.Fatalf("hint should steer external observations away from fake absence citations: %+v", hints[0])
 	}
 }

@@ -274,12 +274,69 @@ Implementation / validation notes:
 
 ### Batch 3 — Origin-specific provenance and supplement cleanup
 
-Status: planned.
+Status: in progress.
 
-- Remove remaining sentinel / pseudo-citation surfaces for VCS/log/trace/command
-  answers. Render observation refs as origin-specific provenance.
-- Suppress generic coverage supplements unless a precise missing facet remains.
-  System-added sections must be append-only, localized, and non-conflicting.
+Root-cause refresh:
+
+- The repo already has the correct reusable wheel for non-source observations:
+  `ObservationLedger` plus origin-aware record prioritization. Do not introduce a
+  second external-citation channel. VCS metadata/diff, runtime logs, perf traces,
+  command measurements, and future MCP/web/connector observations should flow
+  through that ledger / aggregate-facts provenance path, then be ranked together
+  with current-source evidence by the typed answer contract.
+- The remaining leak is partly prompt-induced: several pre-emit / contract
+  repair hints still tell the finalizer to use the internal structural sentinel
+  `citation_ref=-1` for artifact-only observations. The renderer hides negative
+  citation carriers, but it cannot hide the same text after the model copied it
+  into user-visible prose. This is a display-contract bug, not an answer-content
+  reason to force another LLM rewrite.
+- Mixed-origin questions such as "基于日志/diff，再结合当前代码分析" must keep both
+  lanes. Current-source evidence with grounded file:line anchors remains
+  principal when the user asks for code analysis; external observations remain
+  first-class context/provenance and must not be dropped or projected as fake
+  current-source citations.
+
+Sub-batches:
+
+1. **3.1 Runtime/artifact sentinel cleanup (completed).** Remove prompt wording
+   that encourages `citation_ref=-1` in visible prose, and add a typed
+   observation-only sanitizer that rewrites internal citation-carrier wording to
+   localized artifact provenance. This must be context-gated by typed runtime
+   artifact disposition, not by user/model prose keywords.
+2. **3.2 Generic caveat consolidation.** Suppress source/list coverage
+   supplements for accepted observation-only answers unless a precise missing
+   typed facet remains. When a boundary note is still useful, render a localized
+   artifact-scope note instead of source-code核对 or enumeration completeness
+   boilerplate.
+3. **3.3 VCS / command / negative observation provenance.** Reuse
+   `ObservationLedger` to render VCS metadata, diffs, command measurements, and
+   negative observations as origin-specific support refs. `citations[]` stays
+   current-source only; non-source rows should carry typed observation refs and
+   rich summaries rather than pseudo `file:0` or `citation_ref=-1` prose.
+
+Implementation / validation notes:
+
+- Reworded runtime-artifact finalizer support lanes, runtime grounding
+  disposition, observed-artifact block rationale, and literal-grounding retry
+  hints so they no longer teach the model to copy the `citation_ref=-1` internal
+  sentinel into user-visible prose. The schema still has a structural uncited
+  carrier, but the prompt now describes the user-facing concept as
+  artifact/runtime provenance or an uncited boundary.
+- Added a typed observation-only sanitizer in the answer-document normalization
+  chokepoint. It rewrites visible `citation_ref=-1` / `citation_ref 标记为 -1`
+  carrier text to localized artifact provenance only when the bus context proves
+  this is an observation-only attached runtime artifact answer. Current-source
+  and Codrax-internal answers that legitimately discuss `citation_ref` remain
+  untouched.
+- Unit tests cover the sanitizer, the non-runtime no-op path, and updated
+  finalizer prompt/retry wording. Package tests passed:
+  `go test ./internal/agent ./internal/types ./internal/tool ./internal/orchestrator`.
+- Targeted eval `hilog_arkts_panic-20260522-215005`: PASS,
+  `finalizer_iters=1`, no repo reads, and `run-1.out` contains no
+  `citation_ref=-1`, `runtime_artifact`, `attached_log`, `current_code_path`, or
+  similar internal provenance tokens. Residual issue E20260522-G8 remains: the
+  answer still over-promotes caller-side provenance from artifact frames, which
+  needs the typed direct-cause / inferred-upstream split in a later batch.
 
 ### Batch 4 — Convergence, status, and repo-map wait visibility
 
@@ -358,7 +415,7 @@ Status: planned.
 | E20260522-G3 | `arkts_repomap`, `cangjie_repomap` | P1 | Open | Exploration closure still spends turns teaching schema: `negative_observation` for repo search was rejected and retried as `negative_search`; decorated `member_set` rows without `support_refs` were rejected; Cangjie negative evidence first omitted `negative_query` and retried. These did not cause finalizer retries, but they inflated explorer turns (`17` / `35`) and mid-loop injections (`5` / `13`). | The observation/negative/member-set schema is precise but not ergonomic enough. Some near-miss shapes are safely inferable from typed context (`repo search result_count=0`, file-scoped absence, decorated member with already accepted evidence), yet the system still asks the model to re-emit instead of normalizing or supplementing locally. | Add safe, lossless schema-aware normalization at the emit boundary for common near-misses: repo-scoped `negative_observation` → `negative_search` when dimensions prove repository search; `scope=negative` with `source` + absent pattern in summary should receive a structured repair hint or deterministic `negative_query` only when the exact pattern is available from tool output; decorated member support_refs can be filled from unique accepted evidence endpoints. |
 | E20260522-G4 | `cangjie_repomap-20260522-132558` | P1 | Open | The Cangjie eval explores ArkTS corpus and Cangjie interface/struct/enum declarations, then lets those support facts appear as answer-like appendices. Some expansion is understandable because the raw user wording says “仓库里有哪些 extend 块”, but the final answer must distinguish primary requested categories from adjacent language/support examples. | Language/category scope is not first-class enough in aggregate facts and final rendering. Adjacent constructs (`@Extend`, `public interface`, `public struct`, `public enum`) are useful context but should not become principal rows for `extend block` / `public class` unless the question explicitly broadens the category. | Add typed `category_role` / `requested_category_match` or equivalent lane to preserve adjacent-language context as support. The renderer should label support examples separately and never count them in the requested bucket unless the analyzer/explorer declares a precise category equivalence. |
 | E20260522-G5 | Eval telemetry for batch 1, `qf_multi_member_set_count_caveat-20260522-153606`, `qf_type_relation_loop_controller-20260522-154429`, `read_combo_answer_document_tools-20260522-155214` | P2 | Open | Metrics report `explorer_dispatches=0` while cases clearly ran explorer (`arkts_repomap`/`cangjie_repomap`: `explorer_iters=17`/`35`; `qf_multi_member_set_count_caveat`: `explorer_iters=17`; `qf_type_relation_loop_controller`: `explorer_iters=47`; `read_combo_answer_document_tools`: `explorer_iters=12`). `semantic_quality_dispatches=0` with `semantic_quality_concerns=1` also appears for `arkts_repomap`, while `qf_type_relation_loop_controller` had a semantic reviewer `sufficient=false confidence=0.88` but metrics still show `semantic_quality_concerns=0`. | Eval metric patterns drifted from the current diag log shape, weakening batch-by-batch observability. This can hide parallel explorer behavior, reviewer insufficiency, and reviewer cost regressions during full sweeps. | Update eval metric extraction to the current log vocabulary, and add a guard that impossible combinations (`iters>0 && dispatches=0`, `sufficient=false && concerns=0`, `concerns>0 && dispatches=0`) are flagged in the sweep summary. |
-| E20260522-G6 | `hilog_arkts_panic-20260522-133348`, `hilog_cangjie_panic-20260522-133348` | P0 | Open | Final answers explicitly say `citation_ref=-1` in the user-visible caveat: “因此 citation_ref 标记为 -1” / “运行时 panic 日志的观察结果（citation_ref=-1）”. This leaks internal structured-answer machinery despite prompt text saying not to surface `citation_ref` / `citations[]`. | Renderer/finalizer contract has the right typed policy but no post-emit sanitizer for internal sentinel vocabulary in observation-only answers. The model followed internal implementation language instead of localized user language. | Add deterministic display sanitization or finalizer repair for internal sentinels: render “来自运行时日志，未对应到当前仓库源码行” instead of `citation_ref=-1`. This should be a local display/output contract, not another LLM retry. Add eval expectations banning `citation_ref`, `citations[]`, `emit_*`, and `repo_map` in user-facing answers unless the user explicitly asks about Codrax internals. |
+| E20260522-G6 | `hilog_arkts_panic-20260522-133348`, `hilog_cangjie_panic-20260522-133348` | P0 | Fixed in Batch 3.1 | Final answers explicitly say `citation_ref=-1` in the user-visible caveat: “因此 citation_ref 标记为 -1” / “运行时 panic 日志的观察结果（citation_ref=-1）”. This leaks internal structured-answer machinery despite prompt text saying not to surface `citation_ref` / `citations[]`. | Renderer/finalizer contract had the right typed policy but no post-emit sanitizer for internal sentinel vocabulary in observation-only answers. Several finalizer prompt lanes also taught the model to use that sentinel for attached-artifact observations. | Fixed by removing sentinel wording from runtime-artifact prompt lanes / retry hints and adding typed observation-only visible-text sanitization. Targeted eval `hilog_arkts_panic-20260522-215005` no longer exposes the sentinel or adjacent internal provenance tokens in `run-1.out`. Keep broader VCS/command sentinel removal under G151/G156 and Batch 3.3. |
 | E20260522-G7 | `hilog_arkts_panic`, `hilog_cangjie_panic`, batches 7-8 logtri cases | P1 | Open | External-only log cases consistently build/rank the repo_map before log triage (`repo_map: incremental`, phase `rank`, cache write; ~7s on this small repo) even when the structured log triage later reports `resolved_files=0` and the answer never uses current source. This repeats in `logtri_degraded`, `logtri_goroutine_dump`, and `logtri_java`. | Pipeline preflight still does repository indexing before artifact triage can prove observation-only routing. This is tolerable on the self repo but becomes a large-repo UX/performance problem, especially for pasted logs where users expect an immediate diagnostic answer. | Move or defer repo_map initialization for `--log/--htrace` runs until after log/perf triage decides whether current-source resolution is needed. For `resolved_files=0` and no explicit current-code verification request, skip repo_map entirely or run it lazily in the background with no user-visible blocking. |
 | E20260522-G8 | `hilog_cangjie_panic-20260522-133348` | P1 | Open | The summary says “根因是上游的 checkout 或 entry 函数传入了超出容器范围的索引值”, while the caveat later admits the exact upstream mechanism is unverified. The direct observed cause is `Cart.itemAt` receiving index 5 for size 3; upstream provenance is plausible but not proven by the artifact alone. | Runtime-artifact answers can over-promote an inferred caller-side cause into a root-cause fact even when no current-code citation proves parameter provenance. Existing artifact-lane guidance says not to promote caller-side provenance without current code, but it remains prompt-only. | Add a typed distinction between `observed_direct_cause` and `inferred_upstream_possibility` for runtime artifacts. Final answers should say “直接原因” for observed frame facts and “可能需要在 checkout/entry 的索引计算处排查” for unverified upstream sources. |
 | E20260522-G9 | `hilog_cangjie_panic`, `logtri_custom`, `logtri_java` prompt ledgers | P2 | Open | Finalizer prompts still include `aggregate_facts[#current_source]` rows for runtime-artifact dispositions and behavior labels, e.g. panic kind / resolved repo files / exception chain facts, sometimes with `exact_source_support=false`. They did not always leak visibly, but they are semantically odd and can confuse finalizer/reviewer decisions. | Runtime artifact projection still maps some artifact dispositions into `current_source` origin because behavior labels and exact-resolution metadata are represented as aggregate facts without a clean non-source origin. | Normalize artifact disposition aggregates under `runtime_artifact` / `artifact_resolution` origin, not `current_source`, unless a separate current-code verification lane exists. Keep `resolved_files=0` as boundary metadata rather than a principal current-source fact. |

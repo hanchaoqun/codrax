@@ -808,7 +808,7 @@ func runExternalArtifactTypedCoverageCheck(ctx *types.BusContext, doc *types.Ans
 		Repair: "emit an AnswerDocumentV2 block for the runtime observation lane. Declare " +
 			"facet_ids=[\"observed_artifact_fact\"] on the block or claim_use.facet_id, and add " +
 			"claim_uses=[{claim_form:\"external_observation\", facet_id:\"observed_artifact_fact\"}]. " +
-			"Use citation_ref=-1 for artifact-only observations unless a current-repo citation proves the same fact.",
+			"Keep artifact-only observations in the runtime/artifact provenance lane unless a current-repo citation proves the same fact.",
 		ClusterKey: facetClusterKey(string(types.FacetObservedArtifactFact), "external_artifact_coverage"),
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "answer_document.observed_artifact_fact",

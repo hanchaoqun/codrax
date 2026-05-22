@@ -3908,7 +3908,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeGrounding
 		"## Runtime Grounding Disposition",
 		"`no_repo_intersection`",
 		"synthetic frames represent a different deployed build",
-		"`citation_ref=-1`",
+		"runtime/artifact provenance lane",
 		"This dispatch is observation-only",
 	} {
 		if !strings.Contains(prompt, want) {
@@ -5169,9 +5169,9 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopCitationRefRepairUsesStructuredH
 // pins the session-22 in-dispatch self-correction nudge: when the
 // literal-grounding gate rejects a value-shape citation, the
 // mid-loop reject hint must surface the single-action fix
-// ("citation_ref=-1 + summary caveat") at the TOP of the hint so
+// ("leave uncited + summary caveat") at the TOP of the hint so
 // the LLM stops trying more fabrications and reaches for the
-// escape. Without this special-case, the generic "fix the exact
+// no-current-repo-citation escape. Without this special-case, the generic "fix the exact
 // validation error" hint buried the action behind diagnostic
 // prose and the LLM burned the full retry budget on fresh
 // fabrications before the dispatch exited (observed: 16 min on
@@ -5192,12 +5192,15 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopLiteralGroundingRejectSurfacesAc
 	}
 	// The action must appear BEFORE the diagnostic prose so the LLM
 	// acts on it before scrolling past.
-	actionIdx := strings.Index(sig.Hint, "citation_ref = -1")
+	actionIdx := strings.Index(sig.Hint, "`value.citation_ref` left uncited")
 	diagIdx := strings.Index(sig.Hint, "Full tool error")
 	if actionIdx < 0 || diagIdx < 0 || actionIdx > diagIdx {
-		t.Fatalf("citation_ref=-1 action must appear before diagnostic body "+
+		t.Fatalf("uncited action must appear before diagnostic body "+
 			"(action at %d, diagnostic at %d); hint:\n%s",
 			actionIdx, diagIdx, sig.Hint)
+	}
+	if strings.Contains(sig.Hint, "citation_ref=-1") || strings.Contains(sig.Hint, "citation_ref = -1") {
+		t.Fatalf("literal-grounding hint should not teach visible sentinel wording:\n%s", sig.Hint)
 	}
 	if !strings.Contains(sig.Hint, "LITERAL-GROUNDING") {
 		t.Errorf("hint should name the gate so operators can trace the signal: %q", sig.Hint)
@@ -5221,11 +5224,14 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopLiteralGroundingRejectSurfacesSt
 	if !sig.HintRequested {
 		t.Fatalf("step literal-grounding reject should request a correction hint, got %+v", sig)
 	}
-	actionIdx := strings.Index(sig.Hint, "steps[0].citation_ref = -1")
+	actionIdx := strings.Index(sig.Hint, "`steps[0].citation_ref` left uncited")
 	diagIdx := strings.Index(sig.Hint, "Full tool error")
 	if actionIdx < 0 || diagIdx < 0 || actionIdx > diagIdx {
-		t.Fatalf("steps[0].citation_ref=-1 action must appear before diagnostic body (action at %d, diagnostic at %d); hint:\n%s",
+		t.Fatalf("steps[0] uncited action must appear before diagnostic body (action at %d, diagnostic at %d); hint:\n%s",
 			actionIdx, diagIdx, sig.Hint)
+	}
+	if strings.Contains(sig.Hint, "citation_ref=-1") || strings.Contains(sig.Hint, "citation_ref = -1") {
+		t.Fatalf("step literal-grounding hint should not teach visible sentinel wording:\n%s", sig.Hint)
 	}
 	for _, want := range []string{
 		"LITERAL-GROUNDING",

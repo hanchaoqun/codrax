@@ -1131,6 +1131,9 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		answerSubject = normalized
 		val.Warnings = append(val.Warnings, warning)
 	}
+	if warning := normalizeSourceInventoryRequestedFieldsForAnswerSubject(sourceInventoryProfile, answerSubject); warning != "" {
+		val.Warnings = append(val.Warnings, warning)
+	}
 	// Self-consistency: after typed, deterministic normalizers have
 	// absorbed safe drift, reject only contradictions that still need
 	// the LLM to reconcile its own classification.
@@ -2018,6 +2021,36 @@ func parseSourceInventoryProfile(raw string, p *emitSourceInventoryProfileParam)
 		Confidence:        confidence,
 		Rationale:         strings.TrimSpace(p.Rationale),
 	}, "", warnings
+}
+
+func normalizeSourceInventoryRequestedFieldsForAnswerSubject(profile *types.SourceInventoryProfile, answerSubject types.AnswerSubject) string {
+	if profile == nil || !profile.Active() || !profile.RequestsField(types.SourceInventoryFieldValues) {
+		return ""
+	}
+	if answerSubject.Kind != types.SubjectTypeName {
+		return ""
+	}
+	if profile.TypeUnderlying != types.SourceInventoryTypeUnderlyingString || !profile.RequiresConstSet {
+		return ""
+	}
+	principalRoles := profile.PrincipalTargetRoles()
+	if len(principalRoles) != 1 || principalRoles[0] != types.AnswerCandidateRoleType {
+		return ""
+	}
+	fields := make([]types.SourceInventoryRequestedField, 0, len(profile.RequestedFields))
+	removed := false
+	for _, field := range profile.RequestedFields {
+		if field == types.SourceInventoryFieldValues {
+			removed = true
+			continue
+		}
+		fields = append(fields, field)
+	}
+	if !removed {
+		return ""
+	}
+	profile.RequestedFields = fields
+	return "source_inventory_profile.requested_fields removed values because answer_subject=type_name and requires_const_set is a structural qualifier for the requested type inventory"
 }
 
 func parseChangeImpactProfile(p *emitChangeImpactProfileParam) (*types.ChangeImpactProfile, string) {

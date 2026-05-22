@@ -463,7 +463,7 @@ func preCheckNegativeCitationBounds(doc *types.AnswerDocumentV2) []emitFixHint {
 		return []emitFixHint{{
 			Field:         "citations[]",
 			ExpectedShape: "remove negative-scope citations that are not bounded absence proofs, or add `negative_pattern` naming the exact query whose zero matches prove the absence",
-			Reason:        "a citation rendered as an absence proof must be reproducible; attached log / trace observations should use citation_ref=-1 instead of a fake negative citation.",
+			Reason:        "a citation rendered as an absence proof must be reproducible; attached log / trace observations belong in the runtime-observation lane rather than fake current-repo absence citations.",
 		}}
 	}
 	return nil
@@ -481,7 +481,7 @@ func preCheckRuntimeObservationRepoContamination(doc *types.AnswerDocumentV2, ct
 	if len(doc.Citations) > 0 {
 		return []emitFixHint{{
 			Field:         "citations[]",
-			ExpectedShape: "for an observation-only external runtime artifact answer, omit current-repo citations and set runtime-observation items to `citation_ref=-1`",
+			ExpectedShape: "for an observation-only external runtime artifact answer, omit current-repo citations and keep visible provenance as attached-log / attached-trace observations",
 			Reason:        "this request asks what the attached log / trace observed; current-repo citations would imply the checkout produced or proves the external artifact.",
 		}}
 	}
@@ -501,7 +501,7 @@ func preCheckArtifactObservedFrameCitations(doc *types.AnswerDocumentV2, ctxOpt 
 		if !ok {
 			continue
 		}
-		expected := "runtime artifact frame coordinates should stay in observed-artifact rows with `citation_ref=-1`"
+		expected := "runtime artifact frame coordinates should stay in observed-artifact rows without current-repo citations"
 		if current != "" {
 			expected += "; cite the current grounded source anchor instead: " + current
 		}
@@ -5987,7 +5987,7 @@ func preCheckRequiredMechanismAnchors(doc *types.AnswerDocumentV2, view *types.A
 	}
 	return []emitFixHint{{
 		Field:         "blocks[].items[].label",
-		ExpectedShape: "structured answer anchor label(s) must preserve: " + strings.Join(labels, ", ") + ". Add or keep an ordered_list/table item whose label is exactly each missing anchor; use a matching citation_ref when available, otherwise citation_ref=-1.",
+		ExpectedShape: "structured answer anchor label(s) must preserve: " + strings.Join(labels, ", ") + ". Add or keep an ordered_list/table item whose label is exactly each missing anchor; use a matching citation_ref when available, otherwise leave it uncited.",
 		Reason:        "the typed mechanism-anchor contract requires exact endpoint anchors in structured fields; summary prose alone cannot satisfy this boundary.",
 	}}
 }

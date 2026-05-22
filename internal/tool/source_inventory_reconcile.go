@@ -201,7 +201,7 @@ func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph,
 }
 
 func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile, role types.AnswerCandidateRole) sourceInventoryCandidateSet {
-	set := sourceInventoryCandidateSet{role: role, complete: sourceInventoryScopesAllLanguage(graph, scopes, "go")}
+	set := sourceInventoryCandidateSet{role: role, complete: sourceInventoryScopesHaveIndexedSourceFiles(graph, scopes)}
 	if graph == nil {
 		return set
 	}
@@ -480,6 +480,22 @@ func sourceInventoryScopesAllLanguage(graph *repotypes.Graph, scopes []string, l
 		}
 	}
 	return true
+}
+
+func sourceInventoryScopesHaveIndexedSourceFiles(graph *repotypes.Graph, scopes []string) bool {
+	files := sourceInventoryScopedGraphFiles(graph, scopes, "")
+	if len(files) == 0 {
+		return false
+	}
+	for _, fi := range files {
+		if fi == nil || fi.IsSpecial {
+			continue
+		}
+		if strings.TrimSpace(fi.Language) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func sourceInventoryGraphSymbols(graph *repotypes.Graph) []*repotypes.Symbol {
