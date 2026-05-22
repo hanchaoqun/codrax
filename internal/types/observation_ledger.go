@@ -488,12 +488,13 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 		walkErr(err)
 	}
 	for i, obs := range bundle.Observations {
+		role := logObservationRecordRole(bundle, obs)
 		add(ObservationRecord{
 			ID:              fmt.Sprintf("log:observation:%d", i),
 			Origin:          AnswerEvidenceOriginRuntimeArtifact,
 			Producer:        "log_triage",
-			Role:            AnswerAggregateRolePrincipalAnswer,
-			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
+			Role:            role,
+			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, role),
 			SourceRef: ObservationSourceRef{
 				Kind:         ObservationSourceRuntimeArtifact,
 				ArtifactKind: "log",
@@ -510,6 +511,19 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 			Confidence: obs.Confidence,
 		})
 	}
+}
+
+func logObservationRecordRole(bundle *LogBundle, obs LogObservation) AnswerAggregateRole {
+	if bundle == nil {
+		return AnswerAggregateRolePrincipalAnswer
+	}
+	if bundle.IsExternalSource() &&
+		len(bundle.Errors) > 0 &&
+		!obs.Diagnostic &&
+		(obs.Severity == "" || obs.Severity == LogObservationInfo) {
+		return AnswerAggregateRoleSupportingCoverage
+	}
+	return AnswerAggregateRolePrincipalAnswer
 }
 
 func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecord)) {

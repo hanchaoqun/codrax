@@ -1795,6 +1795,11 @@ func TestNormalizeAggregateFactRolesForRequest_DemotesRuntimeObservationAdvisory
 		Kind:  AnswerAggregateErrorGranularity,
 		Label: "错误范围",
 		Value: "single_runtime_failure",
+	}, {
+		Kind:  AnswerAggregateScalar,
+		Label: "上游数据来源",
+		Value: "IndexPage.build 构造 UserCard 时传入 undefined 数据",
+		Role:  AnswerAggregateRolePrincipalAnswer,
 	}}
 	rm := RequestModel{
 		LogTriage: &LogBundle{Errors: []LogError{{Type: "TypeError"}}},
@@ -1813,8 +1818,17 @@ func TestNormalizeAggregateFactRolesForRequest_DemotesRuntimeObservationAdvisory
 	if got[2].Role != AnswerAggregateRoleSupportingCoverage {
 		t.Fatalf("unsupported runtime error-granularity aggregate should be support-only, got %+v", got[2])
 	}
+	if got[3].Role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("unsupported runtime scalar aggregate should be support-only for non-scalar questions, got %+v", got[3])
+	}
 	if role := AnswerAggregateFactRoleForRequest(facts[0], &rm); role != AnswerAggregateRoleSupportingCoverage {
 		t.Fatalf("role resolver should demote explicit principal runtime advisory aggregate, got %q", role)
+	}
+
+	scalarRM := rm
+	scalarRM.Predicates.IsScalarAnswer = true
+	if role := AnswerAggregateFactRoleForRequest(facts[3], &scalarRM); role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("scalar runtime questions should preserve scalar aggregate principal role, got %q", role)
 	}
 
 	rm.LogTriage.ResolvedFiles = []string{"ets/components/UserCard.ets"}

@@ -175,6 +175,17 @@ func TestAnalysisIR_JSONRoundtrip(t *testing.T) {
 	}
 }
 
+func TestRequestModel_DoesNotExposeLegacyTopLevelEntities(t *testing.T) {
+	requestModelType := reflect.TypeOf(RequestModel{})
+	if _, ok := requestModelType.FieldByName("Entities"); ok {
+		t.Fatalf("RequestModel must not expose legacy top-level Entities; use AnalyzerHints.Entities with provenance lanes")
+	}
+	analyzerHintsType := reflect.TypeOf(AnalyzerHints{})
+	if _, ok := analyzerHintsType.FieldByName("Entities"); !ok {
+		t.Fatalf("AnalyzerHints.Entities is the canonical analyzer-emitted entity lane")
+	}
+}
+
 func TestAnalysisIR_VersionConstant(t *testing.T) {
 	// v14 adds error_granularity_profile so batch-vs-item / fail-fast /
 	// partial-success requests require a typed decision verdict instead of

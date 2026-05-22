@@ -278,6 +278,40 @@ func TestCompileObservationLedger_CurrentSourceHardRequiresExactLineSpan(t *test
 	}
 }
 
+func TestCompileObservationLedger_ExternalErrorInfoObservationIsSupportOnly(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		LogBundle: &LogBundle{
+			Errors: []LogError{{
+				Type:    "TypeError",
+				Message: "Cannot read property name of undefined",
+			}},
+			Observations: []LogObservation{{
+				Kind:       LogObservationRuntimeEvent,
+				Subject:    "UserCard.build",
+				Summary:    "UserCard.build 读取 undefined.name 时崩溃",
+				Diagnostic: true,
+				Severity:   LogObservationFailure,
+				LineStart:  42,
+			}, {
+				Kind:      LogObservationRuntimeEvent,
+				Subject:   "IndexPage.build",
+				Summary:   "IndexPage.build 位于调用栈上",
+				Severity:  LogObservationInfo,
+				LineStart: 128,
+			}},
+		},
+	})
+
+	diagnostic := findObservationRecord(t, ledger, "log:observation:0")
+	if diagnostic.Role != AnswerAggregateRolePrincipalAnswer || diagnostic.GroundingPolicy != ClaimGroundingRepairable {
+		t.Fatalf("diagnostic runtime observation should remain principal repairable evidence, got %+v", diagnostic)
+	}
+	context := findObservationRecord(t, ledger, "log:observation:1")
+	if context.Role != AnswerAggregateRoleSupportingCoverage || context.GroundingPolicy != ClaimGroundingSoft {
+		t.Fatalf("non-diagnostic info observation in an external error log should be support-only, got %+v", context)
+	}
+}
+
 func TestObservationRecordCurrentSourceSpanDistinguishesExternalCoordinates(t *testing.T) {
 	logRecord := ObservationRecord{
 		Origin:    AnswerEvidenceOriginRuntimeArtifact,

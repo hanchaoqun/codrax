@@ -1716,12 +1716,104 @@ func AggregateFactIsRuntimeObservationAdvisory(rm *RequestModel, fact AnswerAggr
 	if rm == nil || !rm.HasExternalOnlyRuntimeArtifact() {
 		return false
 	}
+	if len(fact.SupportRefs) > 0 {
+		return false
+	}
 	switch fact.Kind {
 	case AnswerAggregateBehaviorOutcome, AnswerAggregateErrorGranularity:
-		return len(fact.SupportRefs) == 0
+		return true
+	case AnswerAggregateScalar:
+		if aggregateScalarRestatesDirectRuntimeObservation(rm, fact) {
+			return false
+		}
+		return !rm.Predicates.IsScalarAnswer && !rm.Predicates.IsCountQuestion
+	case AnswerAggregateTotalCount,
+		AnswerAggregateUniqueCount,
+		AnswerAggregateGroupedCount,
+		AnswerAggregateBucketCount:
+		return !rm.Predicates.IsScalarAnswer && !rm.Predicates.IsCountQuestion
 	default:
 		return false
 	}
+}
+
+func aggregateScalarRestatesDirectRuntimeObservation(rm *RequestModel, fact AnswerAggregateFact) bool {
+	if rm == nil || fact.Kind != AnswerAggregateScalar {
+		return false
+	}
+	factText := normalizeRuntimeObservationFactText(firstNonEmptyString(fact.Value, fact.Label))
+	if factText == "" {
+		return false
+	}
+	if rm.LogTriage != nil && logBundleDirectObservationContains(rm.LogTriage, factText) {
+		return true
+	}
+	if rm.PerfTrace != nil && perfBundleDirectObservationContains(rm.PerfTrace, factText) {
+		return true
+	}
+	return false
+}
+
+func logBundleDirectObservationContains(bundle *LogBundle, factText string) bool {
+	if bundle == nil || factText == "" {
+		return false
+	}
+	var walk func(LogError) bool
+	walk = func(err LogError) bool {
+		if runtimeObservationTextMatches(factText, err.Type) ||
+			runtimeObservationTextMatches(factText, err.Message) {
+			return true
+		}
+		for _, frame := range err.Frames {
+			if runtimeObservationTextMatches(factText, frame.Func) ||
+				runtimeObservationTextMatches(factText, frame.File) {
+				return true
+			}
+		}
+		return err.Cause != nil && walk(*err.Cause)
+	}
+	for _, err := range bundle.Errors {
+		if walk(err) {
+			return true
+		}
+	}
+	for _, obs := range bundle.Observations {
+		if !obs.Diagnostic {
+			continue
+		}
+		if runtimeObservationTextMatches(factText, obs.Subject) ||
+			runtimeObservationTextMatches(factText, obs.Summary) ||
+			runtimeObservationTextMatches(factText, obs.Evidence) {
+			return true
+		}
+	}
+	return false
+}
+
+func perfBundleDirectObservationContains(bundle *PerfBundle, factText string) bool {
+	if bundle == nil || factText == "" {
+		return false
+	}
+	for _, obs := range bundle.Observations {
+		if runtimeObservationTextMatches(factText, obs.Subject) ||
+			runtimeObservationTextMatches(factText, obs.Summary) ||
+			runtimeObservationTextMatches(factText, obs.Evidence) {
+			return true
+		}
+	}
+	return false
+}
+
+func runtimeObservationTextMatches(factText, direct string) bool {
+	direct = normalizeRuntimeObservationFactText(direct)
+	if direct == "" {
+		return false
+	}
+	return strings.Contains(factText, direct) || strings.Contains(direct, factText)
+}
+
+func normalizeRuntimeObservationFactText(s string) string {
+	return strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(s)), " "))
 }
 
 // AggregateMemberSetIsScalarCountSupport reports whether a model-emitted

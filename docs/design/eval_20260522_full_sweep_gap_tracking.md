@@ -639,3 +639,24 @@ Status: planned.
 | E20260522-G172 | `u9b-20260522-192229`, rerun `u9b-20260522-193913` | P1 | Mitigated | The original final answer correctly stated per-item rejection, but cited only one endpoint. Rerun PASS cites `rejectedItems`, `append`, `len(built)==0`, and `parseAnchorFields` with one finalizer turn. | The same closure-as-citation problem from `u9a` appears for error-granularity questions. Batch 1 strengthens finalizer guidance so item-vs-batch answers cite both the item-level handling branch and the batch-level gate. | Keep as soft guidance/local support, not a new rewrite gate. Residual analyzer over-scan remains `E20260522-G173`. |
 | E20260522-G173 | `u9b-20260522-192229` | P2 | Open | Analyzer used 3 pre-scan rounds and hit the `analyzer.must-emit` budget before classifying an obvious `error_granularity_profile` question. One of those rounds used `repo_map file_map` in analyze to understand implementation details, which belongs in explore. | Error-granularity classification is now typed, but the analyzer still treats the implementation proof as part of classification. Prompt guidance alone is not enough. | Add a deterministic or schema-aware analyzer rule: when the request explicitly contrasts one bad item vs whole batch, set `error_granularity_profile.is_granularity_question=true` after existence pre-scan and defer implementation proof to exploration. |
 | E20260522-G174 | `u9b-20260522-192229` | P2 | Open | Exploration first emitted `preAnchorKindKey @ emit_evidence.go:1367` and the tool reported it ungrounded, even though the same token on the same line was accepted on the next `emit_evidence` attempt after two extra reads. | The line-text grounding/audit feedback can produce transient false negatives for exact tokens, causing model-visible confusion and unnecessary repair loops. | Investigate token normalization around camelCase identifiers and nearby-line windows. If the same `(file,line,anchor_symbol)` can be validated from the already-read buffer, auto-promote the row or emit a soft diagnostic instead of forcing another model repair round. |
+
+## 2026-05-22 Late Contract Follow-up
+
+### RequestModel entity lane boundary
+
+- Audit result: legacy `RequestModel.Entities` is no longer a valid field in the Go type. Exact search for `RequestModel.Entities`, `rm.Entities`, and `AnalysisIR.RequestModel.Entities` found no live code usage.
+- Canonical lane: analyzer-emitted entities live only at `RequestModel.AnalyzerHints.Entities`, with provenance/role side lanes such as `PrimaryEntities`, `MentionedEntities`, `DerivedEntities`, and `EntityProvenance`.
+- Boundary: consumers may read `AnalyzerHints.Entities` as a typed analyzer hint, but must not treat every entity as a grounded source symbol. Hard principal-member use must go through the existing typed traits/provenance helpers, not raw entity-list presence.
+- Guardrail added: `TestRequestModel_DoesNotExposeLegacyTopLevelEntities` fails if a future change reintroduces top-level `RequestModel.Entities` or removes `AnalyzerHints.Entities`.
+
+### Runtime artifact root-cause provenance
+
+- Root cause confirmed from `hilog_arkts_panic`: direct runtime facts are `TypeError`, the crashing frame `UserCard.build`, and the artifact-local stack order. Caller-owned value construction / upstream data source is not proven unless the artifact explicitly states it or current source evidence supports it.
+- Systemic fix: unsupported runtime `behavior_outcome`, `error_granularity`, and non-scalar runtime scalar aggregates without direct artifact support are demoted to `supporting_coverage`; direct structured error facts such as `panic`/`TypeError` remain principal runtime observations.
+- Ledger fix: in external-source error logs, non-diagnostic info observations become support-only while diagnostic observations remain principal repairable evidence.
+- HDP fix: observation-only runtime artifacts no longer inject a generic “alternative upstream root cause” hypothesis that can over-promote caller frames.
+- Verification: `go test ./internal/types ./internal/agent ./internal/tool ./internal/orchestrator ./internal/analysis/gate ./internal/context ./internal/analysis/hdp` passed; `./eval/run.sh eval/cases/harmony/hilog_arkts_panic.case 1` passed at `eval/results/hilog_arkts_panic-20260522-222640` with one finalizer turn and no mid-loop repair.
+
+### Open follow-up from the same eval
+
+- The successful external-only finalizer payload still uses no-source item citation carriers internally (`citation_ref=-1`). Rendering hides this, but the pure external-observation answer path should eventually have a lean schema/prompt that uses typed observation refs instead of source-citation sentinel semantics.
