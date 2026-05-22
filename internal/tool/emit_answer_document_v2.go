@@ -231,7 +231,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			}
 			hardHints, advisoryHints := splitPreEmitHintsByGate(hints)
 			if len(advisoryHints) > 0 {
-				logging.Warning("[emit_answer_document] pre-emit advisory not hard-rejected: %s", formatEmitFixHints(advisoryHints))
+				logSoftPreEmitAdvisory(toolName, "pre-emit structural", advisoryHints)
 			}
 			if len(hardHints) > 0 {
 				rememberRejectedAnswerDocumentDraft(ctx, doc)
@@ -241,7 +241,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		}
 	}
 	if hints := preCheckModelSurfaceTerms(doc, ctx); len(hints) > 0 {
-		logging.Warning("[emit_answer_document] model-emitted surface_terms advisory not hard-rejected: %s", formatEmitFixHints(hints))
+		logSoftPreEmitAdvisory(toolName, "model-emitted surface_terms", hints)
 	}
 
 	// v3 B4 (2026-05-04): route the full-emit write through the
@@ -536,6 +536,9 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	}
 	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed > 0 {
 		logging.Warning("[%s] normalized %d principal enumeration block(s) from accepted evidence-rich row contract", toolName, fixed)
+	}
+	if fixed := normalizeCurrentSourceCitationSupplement(doc, ctx, pctx); fixed > 0 {
+		logging.Warning("[%s] materialized %d current-source citation support row(s) from accepted evidence", toolName, fixed)
 	}
 	if fixed := compileCitationBackedTableRows(doc); fixed > 0 {
 		logging.Warning("[%s] compiled %d citation-backed table row(s) from incomplete structured table carriers", toolName, fixed)

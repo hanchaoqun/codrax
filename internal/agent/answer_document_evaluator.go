@@ -4990,7 +4990,8 @@ func runtimeObservationOnlyForAnswerDoc(ctx *types.AgentContext) bool {
 	plan := answerSurfacePlan(ctx)
 	return plan != nil &&
 		plan.RuntimeGroundingDisposition.IsActive() &&
-		!plan.CurrentStatusDiagnosticRequired
+		!plan.CurrentStatusDiagnosticRequired &&
+		!plan.CurrentSourceEvidenceOrigin
 }
 
 func renderAnswerDocCurrentStatusDiagnostic(ctx *types.AgentContext) string {

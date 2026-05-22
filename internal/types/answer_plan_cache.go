@@ -249,6 +249,7 @@ func cloneAnswerSurfacePlan(in *AnswerSurfacePlan) *AnswerSurfacePlan {
 		disposition := *in.RuntimeGroundingDisposition
 		out.RuntimeGroundingDisposition = &disposition
 	}
+	out.CurrentSourceEvidenceOrigin = in.CurrentSourceEvidenceOrigin
 	if in.RequestedEnumerationBoundary != nil {
 		boundary := *in.RequestedEnumerationBoundary
 		out.RequestedEnumerationBoundary = &boundary

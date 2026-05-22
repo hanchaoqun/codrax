@@ -602,13 +602,10 @@ func TestValidateObservationOnlyRuntimeToolCall(t *testing.T) {
 		},
 	}
 	for _, name := range []string{"grep", "repo_map", "list_files"} {
-		t.Run("analyze blocks "+name, func(t *testing.T) {
+		t.Run("analyze allows "+name, func(t *testing.T) {
 			got := validateObservationOnlyRuntimeToolCall(analyzeCtx, llm.ToolCall{Name: name, Params: json.RawMessage(`{"files_only":true}`)})
-			if got == nil {
-				t.Fatalf("analyzer tool %q should be blocked for external-only runtime artifact", name)
-			}
-			if !strings.Contains(got.Summary, "emit_analysis") {
-				t.Fatalf("analyzer runtime block should redirect to emit_analysis, got %q", got.Summary)
+			if got != nil {
+				t.Fatalf("analyzer pre-scan tool %q must not be hard-blocked for mixed runtime+current-source classification, got %+v", name, got)
 			}
 		})
 	}
@@ -703,7 +700,7 @@ func TestBuildToolSchemas_ObservationOnlyRuntimeHidesRepoTools(t *testing.T) {
 	}
 }
 
-func TestBuildToolSchemas_ObservationOnlyRuntimeHidesAnalyzerPrescanTools(t *testing.T) {
+func TestBuildToolSchemas_ObservationOnlyRuntimeKeepsAnalyzerPrescanTools(t *testing.T) {
 	registry := tool.NewRegistry()
 	registry.Register(&tool.GrepTool{})
 	registry.Register(&tool.ListFiles{})
@@ -723,9 +720,9 @@ func TestBuildToolSchemas_ObservationOnlyRuntimeHidesAnalyzerPrescanTools(t *tes
 	for _, s := range schemas {
 		got[s.Name] = true
 	}
-	for _, blocked := range []string{"grep", "list_files"} {
-		if got[blocked] {
-			t.Fatalf("observation-only runtime analyzer schema exposed prescan tool %q: %+v", blocked, schemas)
+	for _, allowed := range []string{"grep", "list_files"} {
+		if !got[allowed] {
+			t.Fatalf("runtime analyzer schema should keep pre-scan tool %q available for mixed artifact+current-source requests: %+v", allowed, schemas)
 		}
 	}
 	if !got["emit_analysis"] {

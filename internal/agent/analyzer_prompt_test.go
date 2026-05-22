@@ -278,7 +278,8 @@ func TestAnalyzerPrompt_RuntimeObservationOnlyShortcut(t *testing.T) {
 	for _, want := range []string{
 		"Runtime Artifact Classification Shortcut",
 		"external to the current checkout",
-		"Do not call repo_map, grep, or list_files in analyze",
+		"Do not run repo pre-scan just to classify stack-frame or trace literals",
+		"you may use the normal analyzer pre-scan tools for request terms",
 		"call `emit_analysis` now",
 	} {
 		if !strings.Contains(got, want) {

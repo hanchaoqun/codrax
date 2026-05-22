@@ -81,7 +81,8 @@ func defaultEdgeRelationsForPlan(plan *AnswerSurfacePlan, familyDefault DiagramK
 func runtimeObservationOnly(plan *AnswerSurfacePlan) bool {
 	return plan != nil &&
 		plan.RuntimeGroundingDisposition.IsActive() &&
-		!plan.CurrentStatusDiagnosticRequired
+		!plan.CurrentStatusDiagnosticRequired &&
+		!plan.CurrentSourceEvidenceOrigin
 }
 
 func optionalDiagramBlock(rationale string, facetIDs ...string) BlockRequirement {

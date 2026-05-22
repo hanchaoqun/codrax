@@ -37,6 +37,7 @@ type AnswerSurfacePlan struct {
 	DriftBoundedSurfaceItems        []EvidenceItem
 	RuntimeGroundingDisposition     *RuntimeGroundingDisposition
 	CurrentStatusDiagnosticRequired bool
+	CurrentSourceEvidenceOrigin     bool
 
 	ExactResolution          *ExactResolutionContract
 	PreferredExactResolution *AnswerExactResolution
@@ -1698,6 +1699,10 @@ func BuildAnswerSurfacePlan(
 	if ir.AnswerContract.CurrentStatusDiagnostic != nil && ir.AnswerContract.CurrentStatusDiagnostic.Required {
 		plan.CurrentStatusDiagnosticRequired = true
 	}
+	plan.CurrentSourceEvidenceOrigin = CompileAnswerIntentContract(
+		ir.RequestModel,
+		&ir.AnswerContract,
+	).HasOrigin(AnswerEvidenceOriginCurrentSource)
 
 	plan.ExactResolution = ir.AnswerContract.ExactResolution
 	if plan.ExactResolution == nil {

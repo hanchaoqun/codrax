@@ -149,8 +149,9 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 func renderAnalyzerRuntimeObservationOnlyShortcut() string {
 	return "## Runtime Artifact Classification Shortcut\n\n" +
 		"The structured Log/Trace Triage for this dispatch is external to the current checkout (`resolved_files=0`). " +
-		"Do not call repo_map, grep, or list_files in analyze. Classify from the current request plus the structured runtime artifact facts and call `emit_analysis` now. " +
-		"Keep `diagnostic_profile.current_version_check=false` when the request asks what the artifact shows; if the request explicitly asks to verify the current checkout, express that through structured current-version / exact-target fields and let explore do the verification.\n\n"
+		"Do not run repo pre-scan just to classify stack-frame or trace literals from the artifact; classify from the current request plus the structured runtime artifact facts and call `emit_analysis` now when the request only asks what the artifact shows. " +
+		"If the current request explicitly asks to explain or verify against the current checkout, you may use the normal analyzer pre-scan tools for request terms (files-only grep / repo_map / list_files), then express that requirement through structured current-version / exact-target / required-file fields so explore can verify it. " +
+		"Keep `diagnostic_profile.current_version_check=false` only when the request asks what the artifact shows and does not request current-checkout verification.\n\n"
 }
 
 // prependAnswerPitfalls renders the read-mode Answer Taxonomy

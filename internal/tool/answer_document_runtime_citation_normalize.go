@@ -16,7 +16,8 @@ func answerDocumentRuntimeObservationOnly(ctx *types.BusContext) bool {
 	plan := answerSurfacePlan(ctx)
 	return plan != nil &&
 		plan.RuntimeGroundingDisposition.IsActive() &&
-		!plan.CurrentStatusDiagnosticRequired
+		!plan.CurrentStatusDiagnosticRequired &&
+		!plan.CurrentSourceEvidenceOrigin
 }
 
 // normalizeRuntimeArtifactCitationRefs removes citation-pool entries that
@@ -32,7 +33,9 @@ func normalizeRuntimeArtifactCitationRefs(doc *types.AnswerDocumentV2, ctx *type
 		return 0
 	}
 	remove := make(map[int]bool)
-	if plan.RuntimeGroundingDisposition.IsActive() && !plan.CurrentStatusDiagnosticRequired {
+	if plan.RuntimeGroundingDisposition.IsActive() &&
+		!plan.CurrentStatusDiagnosticRequired &&
+		!plan.CurrentSourceEvidenceOrigin {
 		for i := range doc.Citations {
 			remove[i] = true
 		}

@@ -240,6 +240,28 @@ func TestCompileAnswerIntentContract_ExternalRuntimeArtifactCurrentStatusWithExa
 	)
 }
 
+func TestCompileAnswerIntentContract_ExternalRuntimeArtifactRequiredFilesKeepCurrentSourceExplanation(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioArchitectureExplain,
+		LogTriage: &LogBundle{
+			Errors: []LogError{{Type: "timeout"}},
+		},
+		AnalyzerHints: AnalyzerHints{
+			RequiredFileHints: []RequiredFileHint{{
+				Path:       "internal/llm/openai.go",
+				Confidence: 0.9,
+				Rationale:  "pre-scan matched the current-source mechanism requested by the user",
+			}},
+		},
+	}
+	got := CompileAnswerIntentContract(rm, nil)
+	assertAnswerIntentContract(t, got,
+		[]AnswerEvidenceOrigin{AnswerEvidenceOriginCurrentSource, AnswerEvidenceOriginRuntimeArtifact},
+		[]AnswerRequestedOutput{AnswerRequestedOutputSummary, AnswerRequestedOutputMechanism, AnswerRequestedOutputDiagnostic},
+	)
+}
+
 func TestCompileAnswerIntentContract_CurrentSourceMechanismBaseline(t *testing.T) {
 	rm := RequestModel{
 		Intent:     IntentExplain,

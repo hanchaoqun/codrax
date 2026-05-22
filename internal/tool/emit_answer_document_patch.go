@@ -261,7 +261,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 				}
 				hardHints, advisoryHints := splitPreEmitHintsByGate(hints)
 				if len(advisoryHints) > 0 {
-					logging.Warning("[emit_answer_document_patch] pre-emit advisory not hard-rejected: %s", formatEmitFixHints(advisoryHints))
+					logSoftPreEmitAdvisory(t.Name(), "pre-emit structural", advisoryHints)
 				}
 				if len(hardHints) > 0 {
 					rememberRejectedAnswerDocumentDraft(ctx, merged)
@@ -269,7 +269,7 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 				}
 			}
 			if hints := preCheckModelSurfaceTerms(merged, ctx); len(hints) > 0 {
-				logging.Warning("[emit_answer_document_patch] model-emitted surface_terms advisory not hard-rejected: %s", formatEmitFixHints(hints))
+				logSoftPreEmitAdvisory(t.Name(), "model-emitted surface_terms", hints)
 			}
 			return persistMergedAnswerDocument(ctx, t.Name(), types.MutationPartial, mutation.Summary(), merged, now)
 		}

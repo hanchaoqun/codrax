@@ -3020,6 +3020,109 @@ func TestFormatEmitFixHints_RedlineAudit(t *testing.T) {
 	}
 }
 
+func TestFormatEmitAdvisoryHints_DoesNotLookLikeRejection(t *testing.T) {
+	hints := []emitFixHint{
+		{Field: "blocks[].items[].label", ExpectedShape: "keep the cited item label aligned with an already-grounded symbol", Reason: "soft label polish"},
+	}
+	got := formatEmitAdvisoryHints(hints)
+	if strings.Contains(got, "does not yet meet") || strings.Contains(got, "re-emit") || strings.Contains(got, "rejection") {
+		t.Fatalf("advisory prose must not look like a retry/rejection hint, got %q", got)
+	}
+	if !strings.Contains(got, "blocks[].items[].label") {
+		t.Fatalf("advisory summary should preserve the affected field, got %q", got)
+	}
+	if got := formatEmitAdvisoryHints(nil); got != "" {
+		t.Fatalf("empty advisory hints -> empty string, got %q", got)
+	}
+}
+
+func TestNormalizeCurrentSourceCitationSupplement_MaterializesDroppedCitationPool(t *testing.T) {
+	mu := types.NewMutableState("解释日志 first_byte_timeout 并结合当前源码说明重试")
+	logBundle := &types.LogBundle{Observations: []types.LogObservation{{
+		Kind:      types.LogObservationRuntimeEvent,
+		LineStart: 3,
+		Summary:   "first_byte_timeout exceeded after 40s",
+	}}}
+	mu.SetLogTriage(logBundle)
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceMechanism,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "StreamFirstByteTimeoutError",
+			Source:          "internal/llm/stream_errors.go",
+			LineStart:       97,
+			Scope:           types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+			Origin:          types.ClaimOriginCurrentRepo,
+			Summary:         "首字节超时的具体错误类型，记录看门狗等待时长。",
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "defaultStreamFirstByteTimeout",
+			Source:          "internal/llm/openai.go",
+			LineStart:       670,
+			Scope:           types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+			Origin:          types.ClaimOriginCurrentRepo,
+			Summary:         "默认首字节超时阈值为 40 秒。",
+		},
+		{
+			Kind:            types.EvidenceRegistration,
+			AnchorKind:      types.AnchorStringLiteral,
+			AnchorSymbol:    "模型响应出错,正在重新理解问题",
+			Source:          "internal/render/status_messages.go",
+			LineStart:       208,
+			Scope:           types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+			Origin:          types.ClaimOriginCurrentRepo,
+			Summary:         "分析阶段模型响应错误时的用户可见重试提示。",
+		},
+	})
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioRootCause,
+				Language:  "zh",
+				LogTriage: logBundle,
+				AnalyzerHints: types.AnalyzerHints{
+					RequiredFileHints: []types.RequiredFileHint{
+						{Path: "internal/llm/openai.go", Confidence: 0.9, Rationale: "first-byte timeout implementation"},
+						{Path: "internal/render/status_messages.go", Confidence: 0.9, Rationale: "retry message rendering"},
+					},
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:          "s1",
+		Kind:        types.BlockSummary,
+		Text:        "first_byte_timeout 表示默认 40 秒内没有收到首个有效 SSE 数据块；系统会识别 StreamFirstByteTimeoutError 并提示用户模型响应出错。",
+		SurfaceRole: types.SurfacePrincipal,
+		Items:       []types.AnswerBlockItem{{ID: "c0", CitationRef: 4}},
+	}}}
+
+	fixed := normalizeCurrentSourceCitationSupplement(doc, ctx, newPreEmitCheckContext(ctx))
+	if fixed < 2 {
+		t.Fatalf("expected source supplement rows for dropped citation pool, got %d", fixed)
+	}
+	visible := answerDocumentVisibleText(doc)
+	for _, want := range []string{
+		"系统按已验证证据补充关键源码锚点",
+		"internal/llm/openai.go:670",
+		"internal/render/status_messages.go:208",
+	} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("visible supplement missing %q:\n%s", want, visible)
+		}
+	}
+	if len(doc.Citations) < fixed {
+		t.Fatalf("citations not materialized with supplement rows: citations=%d rows=%d", len(doc.Citations), fixed)
+	}
+}
+
 // TestRunPreEmitChecks_AggregatesAcrossAllAxes — happy + fail mix.
 // Pin that the four checks all wire through the top-level dispatcher.
 func TestRunPreEmitChecks_AggregatesAcrossAllAxes(t *testing.T) {

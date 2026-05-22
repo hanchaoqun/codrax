@@ -48,6 +48,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"unicode"
@@ -248,6 +249,22 @@ func preEmitHintHardByDefault(hint emitFixHint) bool {
 	return types.ViolationProfileFor(hint.Kind, false).RetryEligible
 }
 
+func logSoftPreEmitAdvisory(toolName, label string, hints []emitFixHint) {
+	if len(hints) == 0 {
+		return
+	}
+	toolName = strings.TrimSpace(toolName)
+	if toolName == "" {
+		toolName = "emit_answer_document"
+	}
+	label = strings.TrimSpace(label)
+	if label == "" {
+		label = "pre-emit"
+	}
+	logging.Debug("[%s] %s accepted as soft advisory; no retry requested: %s",
+		toolName, label, formatEmitAdvisoryHints(hints))
+}
+
 // runPreEmitChecks runs chokepoint checks on the just-built
 // (but-not-yet-persisted) document. Returns nil when the shape is
 // compliant; otherwise a non-empty list of typed fix hints. The executor
@@ -377,7 +394,7 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 		if preEmitAggregateMemberSetCoverageHardGate(ctxOpt...) {
 			hints = appendPreEmitHints(hints, types.ViolExhaustiveMemberSetCoverageDrift, h)
 		} else {
-			logging.Warning("[emit_answer_document] aggregate member_set coverage advisory not hard-rejected: %s", formatEmitFixHints(h))
+			logSoftPreEmitAdvisory("emit_answer_document", "aggregate member_set coverage", h)
 		}
 	}
 	if h := preCheckAggregateCardinalityConsistency(doc, ctxOpt...); len(h) > 0 {
@@ -407,7 +424,7 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 		if preEmitEnumerationLabelGroundingHardGate(pctx) {
 			hints = appendPreEmitHints(hints, types.ViolEnumerationLabelHallucinated, h)
 		} else {
-			logging.Warning("[emit_answer_document] enumeration label grounding advisory not hard-rejected: %s", formatEmitFixHints(h))
+			logSoftPreEmitAdvisory("emit_answer_document", "enumeration label grounding", h)
 		}
 	}
 
@@ -475,7 +492,9 @@ func preCheckRuntimeObservationRepoContamination(doc *types.AnswerDocumentV2, ct
 	}
 	ctx := ctxOpt[0]
 	plan := answerSurfacePlan(ctx)
-	if plan == nil || !plan.RuntimeGroundingDisposition.IsActive() || plan.CurrentStatusDiagnosticRequired {
+	if plan == nil || !plan.RuntimeGroundingDisposition.IsActive() ||
+		plan.CurrentStatusDiagnosticRequired ||
+		plan.CurrentSourceEvidenceOrigin {
 		return nil
 	}
 	if len(doc.Citations) > 0 {
@@ -572,6 +591,245 @@ func answerDocumentVisibleText(doc *types.AnswerDocumentV2) string {
 		b.WriteByte('\n')
 	}
 	return b.String()
+}
+
+func normalizeCurrentSourceCitationSupplement(doc *types.AnswerDocumentV2, ctx *types.BusContext, pctx *preEmitCheckContext) int {
+	if doc == nil || ctx == nil || ctx.AnalysisIR == nil {
+		return 0
+	}
+	plan := answerSurfacePlan(ctx)
+	if plan == nil || !plan.CurrentSourceEvidenceOrigin || answerDocumentRuntimeObservationOnly(ctx) {
+		return 0
+	}
+	if answerDocumentHasCurrentSourceCitation(doc) {
+		return 0
+	}
+	if pctx == nil {
+		pctx = newPreEmitCheckContext(ctx)
+	}
+	rows := currentSourceCitationSupplementRows(doc, ctx, pctx, 6)
+	if len(rows) == 0 {
+		return 0
+	}
+	zh := principalEnumerationPrefersZH(ctx)
+	block := types.AnswerBlock{
+		ID:       nextCurrentSourceCitationSupplementBlockID(doc),
+		Kind:     types.BlockTable,
+		Title:    currentSourceCitationSupplementTitle(zh, len(rows)),
+		FacetIDs: []string{string(types.FacetCurrentCodePath)},
+		Columns:  currentSourceCitationSupplementColumns(zh),
+		ClaimUses: []types.RenderedClaimUse{{
+			FacetID:   string(types.FacetCurrentCodePath),
+			ClaimForm: types.ClaimDefinitionFact,
+		}},
+	}
+	for i, row := range rows {
+		ref := appendOrReusePreEmitCitation(doc, types.Citation{
+			File:    row.ev.Source,
+			Line:    row.ev.LineStart,
+			LineEnd: row.ev.LineEnd,
+			Scope:   row.ev.Scope,
+		})
+		if ref < 0 {
+			continue
+		}
+		block.Items = append(block.Items, types.AnswerBlockItem{
+			ID:          fmt.Sprintf("source_anchor_%d", i+1),
+			Label:       currentSourceCitationSupplementLabel(row.ev),
+			Text:        strings.TrimSpace(row.ev.Summary),
+			Cells:       currentSourceCitationSupplementCells(row.ev, zh),
+			CitationRef: ref,
+		})
+	}
+	if len(block.Items) == 0 {
+		return 0
+	}
+	doc.Blocks = append(doc.Blocks, block)
+	return len(block.Items)
+}
+
+func answerDocumentHasCurrentSourceCitation(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, cit := range doc.Citations {
+		file := strings.TrimSpace(cit.File)
+		if file != "" && cit.Line > 0 && cit.Scope != types.ScopeNegative {
+			return true
+		}
+	}
+	return false
+}
+
+type currentSourceCitationSupplementRow struct {
+	ev    types.EvidenceItem
+	score int
+	seq   int
+}
+
+func currentSourceCitationSupplementRows(doc *types.AnswerDocumentV2, ctx *types.BusContext, pctx *preEmitCheckContext, limit int) []currentSourceCitationSupplementRow {
+	if limit <= 0 {
+		limit = 6
+	}
+	visible := answerDocumentVisibleText(doc)
+	required := currentSourceRequiredFileSet(ctx)
+	var rows []currentSourceCitationSupplementRow
+	seen := map[string]bool{}
+	for seq, ev := range pctx.evidenceItems() {
+		if !currentSourceEvidenceCitable(ev) {
+			continue
+		}
+		key := strings.ToLower(fmt.Sprintf("%s:%d", strings.TrimSpace(ev.Source), ev.LineStart))
+		if seen[key] {
+			continue
+		}
+		score := currentSourceCitationSupplementScore(ev, visible, required)
+		if score <= 0 {
+			continue
+		}
+		seen[key] = true
+		rows = append(rows, currentSourceCitationSupplementRow{ev: ev, score: score, seq: seq})
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].score != rows[j].score {
+			return rows[i].score > rows[j].score
+		}
+		return rows[i].seq < rows[j].seq
+	})
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	return rows
+}
+
+func currentSourceEvidenceCitable(ev types.EvidenceItem) bool {
+	if ev.GroundingStatus == types.GroundingUngrounded ||
+		strings.TrimSpace(ev.Source) == "" ||
+		ev.LineStart <= 0 {
+		return false
+	}
+	switch ev.Origin {
+	case types.ClaimOriginLog, types.ClaimOriginPerf:
+		return false
+	}
+	switch ev.Scope {
+	case types.ScopeLine, types.ScopeLineRange, types.ScopeSection:
+		return true
+	default:
+		return false
+	}
+}
+
+func currentSourceRequiredFileSet(ctx *types.BusContext) map[string]bool {
+	out := map[string]bool{}
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return out
+	}
+	for _, hint := range ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints {
+		path := strings.TrimSpace(strings.ReplaceAll(hint.Path, `\`, `/`))
+		if path == "" {
+			continue
+		}
+		out[strings.ToLower(path)] = true
+	}
+	return out
+}
+
+func currentSourceCitationSupplementScore(ev types.EvidenceItem, visible string, required map[string]bool) int {
+	score := 0
+	if preEmitItemSurfaceMentionsEvidence("", visible, ev) ||
+		(strings.TrimSpace(ev.Summary) != "" && types.AnswerCodeSurfaceAppearsInText(visible, ev.Summary)) {
+		score += 100
+	}
+	source := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(ev.Source, `\`, `/`)))
+	if required[source] {
+		score += 70
+	}
+	switch ev.Salience {
+	case types.SalienceLoadBearing:
+		score += 40
+	case types.SalienceExhaustListed:
+		score += 30
+	case types.SalienceSupporting:
+		score += 15
+	}
+	switch ev.Kind {
+	case types.EvidenceDirect, types.EvidenceMechanism, types.EvidenceConditional:
+		score += 12
+	case types.EvidenceRegistration, types.EvidenceRelationship:
+		score += 8
+	}
+	switch ev.AnchorKind {
+	case types.AnchorDefinition, types.AnchorInitializer, types.AnchorAssignment:
+		score += 8
+	case types.AnchorCall, types.AnchorCondition, types.AnchorReturn:
+		score += 5
+	}
+	if strings.TrimSpace(ev.Summary) != "" {
+		score += 5
+	}
+	return score
+}
+
+func currentSourceCitationSupplementTitle(zh bool, n int) string {
+	if zh {
+		return fmt.Sprintf("系统按已验证证据补充关键源码锚点（%d）", n)
+	}
+	return fmt.Sprintf("System-verified source anchor supplement (%d)", n)
+}
+
+func currentSourceCitationSupplementColumns(zh bool) []string {
+	if zh {
+		return []string{"位置", "锚点", "说明"}
+	}
+	return []string{"Location", "Anchor", "Note"}
+}
+
+func currentSourceCitationSupplementCells(ev types.EvidenceItem, zh bool) []string {
+	return []string{
+		currentSourceEvidenceLocation(ev),
+		currentSourceCitationSupplementLabel(ev),
+		strings.TrimSpace(ev.Summary),
+	}
+}
+
+func currentSourceEvidenceLocation(ev types.EvidenceItem) string {
+	file := strings.TrimSpace(ev.Source)
+	if file == "" || ev.LineStart <= 0 {
+		return ""
+	}
+	if ev.LineEnd > ev.LineStart {
+		return fmt.Sprintf("%s:%d-%d", file, ev.LineStart, ev.LineEnd)
+	}
+	return fmt.Sprintf("%s:%d", file, ev.LineStart)
+}
+
+func currentSourceCitationSupplementLabel(ev types.EvidenceItem) string {
+	for _, s := range []string{ev.AnchorSymbol, ev.Subject, ev.Object, ev.OwnerSymbol} {
+		if s = strings.TrimSpace(s); s != "" {
+			return s
+		}
+	}
+	return currentSourceEvidenceLocation(ev)
+}
+
+func nextCurrentSourceCitationSupplementBlockID(doc *types.AnswerDocumentV2) string {
+	base := "current-source-anchor-supplement"
+	used := make(map[string]bool, len(doc.Blocks))
+	for _, block := range doc.Blocks {
+		if id := strings.TrimSpace(block.ID); id != "" {
+			used[id] = true
+		}
+	}
+	if !used[base] {
+		return base
+	}
+	for i := 2; ; i++ {
+		id := fmt.Sprintf("%s-%d", base, i)
+		if !used[id] {
+			return id
+		}
+	}
 }
 
 func preCheckSummaryLeadBlock(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView) []emitFixHint {
@@ -6412,4 +6670,29 @@ func formatEmitFixHints(hints []emitFixHint) string {
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func formatEmitAdvisoryHints(hints []emitFixHint) string {
+	if len(hints) == 0 {
+		return ""
+	}
+	const maxHints = 4
+	parts := make([]string, 0, min(len(hints), maxHints)+1)
+	for i, h := range hints {
+		if i >= maxHints {
+			parts = append(parts, fmt.Sprintf("+%d more", len(hints)-maxHints))
+			break
+		}
+		field := strings.TrimSpace(h.Field)
+		if field == "" {
+			field = "answer field"
+		}
+		action := strings.TrimSpace(h.ExpectedShape)
+		if action == "" {
+			parts = append(parts, field)
+			continue
+		}
+		parts = append(parts, field+": "+action)
+	}
+	return strings.Join(parts, "; ")
 }

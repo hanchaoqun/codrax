@@ -1997,12 +1997,6 @@ func observationOnlyRuntimeBlocksTool(ctx *types.AgentContext, name string) bool
 		return false
 	}
 	canonical := types.CanonicalToolName(name)
-	if ctx.Stage == types.StageAnalyze && observationOnlyRuntimeArtifactForAnalyzer(ctx) {
-		switch canonical {
-		case "repo_map", "grep", "list_files":
-			return true
-		}
-	}
 	if ctx.Stage != types.StageExplore || !observationOnlyRuntimeArtifactForExplorer(ctx) {
 		return false
 	}

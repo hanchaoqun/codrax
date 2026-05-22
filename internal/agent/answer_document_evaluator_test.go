@@ -3928,6 +3928,39 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeGrounding
 	}
 }
 
+func TestAnswerDocumentEvaluator_MixedRuntimeCurrentSourceDoesNotRenderObservationOnly(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Type: "timeout"}},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentExplain,
+				Scenario:  types.ScenarioArchitectureExplain,
+				LogTriage: mut.LogTriage(),
+				AnalyzerHints: types.AnalyzerHints{
+					RequiredFileHints: []types.RequiredFileHint{{
+						Path:       "internal/llm/openai.go",
+						Confidence: 0.9,
+						Rationale:  "current-source mechanism requested by the user",
+					}},
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if strings.Contains(prompt, "This dispatch is observation-only") {
+		t.Fatalf("mixed runtime+current-source prompt must not claim observation-only:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Current repository citations may still be used") {
+		t.Fatalf("mixed runtime+current-source prompt missing current citation allowance:\n%s", prompt)
+	}
+}
+
 func TestAnswerDocumentEvaluator_RuntimeObservationOnlySuppressesRepoEnrichment(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetLogTriage(&types.LogBundle{

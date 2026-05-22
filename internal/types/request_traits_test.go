@@ -85,6 +85,31 @@ func TestHasAttributeBearingEnumeration_TypedOnly(t *testing.T) {
 	}
 }
 
+func TestHasObservationOnlyRuntimeArtifact_RequiredFilesOpenCurrentSourceLane(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioArchitectureExplain,
+		LogTriage: &LogBundle{
+			Errors: []LogError{{Type: "timeout"}},
+		},
+		AnalyzerHints: AnalyzerHints{
+			RequiredFileHints: []RequiredFileHint{{
+				Path:       "internal/llm/openai.go",
+				Confidence: 0.9,
+				Rationale:  "pre-scan matched the current-source mechanism requested by the user",
+			}},
+		},
+	}
+	if rm.HasObservationOnlyRuntimeArtifact() {
+		t.Fatal("external runtime artifact with typed required files must keep the current-source explanation lane open")
+	}
+
+	rm.AnalyzerHints.RequiredFileHints = nil
+	if !rm.HasObservationOnlyRuntimeArtifact() {
+		t.Fatal("external runtime artifact without a typed current-source anchor should remain observation-only")
+	}
+}
+
 func TestHasBoundedCategoryEnumerationMembers_TypedOnly(t *testing.T) {
 	rm := RequestModel{
 		Predicates: SemanticPredicates{IsCategoryEnumeration: true},

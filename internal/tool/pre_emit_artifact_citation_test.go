@@ -91,6 +91,53 @@ func TestNormalizeRuntimeArtifactCitationRefs_ObservationOnlyDropsCitationPool(t
 	}
 }
 
+func TestNormalizeRuntimeArtifactCitationRefs_MixedRuntimeCurrentSourceKeepsCurrentCitations(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Type: "timeout"}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentExplain,
+				Scenario:  types.ScenarioArchitectureExplain,
+				LogTriage: mut.LogTriage(),
+				AnalyzerHints: types.AnalyzerHints{
+					RequiredFileHints: []types.RequiredFileHint{{
+						Path:       "internal/llm/openai.go",
+						Confidence: 0.9,
+						Rationale:  "current-source mechanism requested by the user",
+					}},
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/llm/openai.go", Line: 608}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "当前源码说明 first byte watchdog 如何取消请求。",
+			Items: []types.AnswerBlockItem{{
+				ID:          "current",
+				Label:       "watchdog",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeRuntimeArtifactCitationRefs(doc, ctx); fixed != 0 {
+		t.Fatalf("mixed runtime+current-source answer should keep current citations, fixed=%d doc=%+v", fixed, doc)
+	}
+	if len(doc.Citations) != 1 || doc.Blocks[0].Items[0].CitationRef != 0 {
+		t.Fatalf("current-source citation was not preserved: %+v", doc)
+	}
+	if hints := preCheckRuntimeObservationRepoContamination(doc, ctx); len(hints) != 0 {
+		t.Fatalf("mixed runtime+current-source citations should not be rejected, got %+v", hints)
+	}
+}
+
 func TestNormalizeRuntimeArtifactCitationRefs_DriftedObservedFrameRemapsMixedPool(t *testing.T) {
 	ctx := artifactFrameDriftBusContext()
 	doc := &types.AnswerDocumentV2{
