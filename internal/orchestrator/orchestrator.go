@@ -4323,6 +4323,10 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// over them in the SAME dispatch, rather than waiting
 			// for the next retry round. Harmless no-op when
 			// PendingReads is empty.
+			preseededRequiredFiles := o.seedRequiredFileHintForcedReadsBeforeExplore()
+			if preseededRequiredFiles > 0 {
+				logging.Info("[CGEC] pre-dispatch seeded %d required-file forced-read(s)", preseededRequiredFiles)
+			}
 			stopLocal = o.startSchedulerLocalWork(types.StageExplore, "forced_reads_pre_dispatch")
 			read := o.runForcedReads()
 			if o.finishSchedulerLocalWork(stopLocal, "forced_reads_pre_dispatch", stepsUsed) {

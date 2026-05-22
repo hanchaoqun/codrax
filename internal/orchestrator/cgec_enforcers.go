@@ -152,6 +152,10 @@ func (o *Orchestrator) runForcedReads() int {
 	// at line 150 will fire. The advisory warning here gives the
 	// operator a grep-able heads-up before the attempt.
 	var toRead []types.PendingRead
+	limit := cgecForcedReadsPerRound
+	if hasPreDispatchRequiredFilePendingRead(closure) && limit < types.RequiredFileHintCoverageMax {
+		limit = types.RequiredFileHintCoverageMax
+	}
 	for _, p := range closure.PendingReads() {
 		// 2026-05-10 path-canonicalization audit: switched from
 		// raw `readSet[p.File]` to closure.HasRead(p.File). The
@@ -168,7 +172,7 @@ func (o *Orchestrator) runForcedReads() int {
 			logging.Warning("[CGEC] D4 runForcedReads: attempting read of file=%s origin=%s NOT in ScannedSet — may be ghost path", p.File, p.Origin)
 		}
 		toRead = append(toRead, p)
-		if len(toRead) >= cgecForcedReadsPerRound {
+		if len(toRead) >= limit {
 			break
 		}
 	}
@@ -349,6 +353,71 @@ func (o *Orchestrator) runForcedReads() int {
 	return success
 }
 
+func (o *Orchestrator) seedRequiredFileHintForcedReadsBeforeExplore() int {
+	if o == nil || o.busCtx == nil || o.busCtx.AnalysisIR == nil || o.busCtx.Mutable == nil {
+		return 0
+	}
+	rm := o.busCtx.AnalysisIR.RequestModel
+	if !types.RequiredFileHintCurrentSourceCoverageApplies(rm) {
+		return 0
+	}
+	closure := o.busCtx.Mutable.EvidenceClosure()
+	if closure == nil {
+		return 0
+	}
+	queued := 0
+	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+		if hint.Confidence < 0.8 {
+			continue
+		}
+		file, ok := types.QualifyForcedReadSeedPath(o.busCtx, hint.Path)
+		if !ok {
+			logging.Warning("[CGEC] pre-dispatch required_file_hint_unread: skipping phantom path file=%s",
+				types.CanonicalRequiredFileHintPath(hint.Path, o.busCtx.RepoRoot))
+			continue
+		}
+		if file == "" || closure.HasRead(file) || pendingReadQueuedForFile(closure, file) {
+			continue
+		}
+		closure.AddPendingRead(types.PendingRead{
+			File:      file,
+			Rationale: "High-confidence current-source file from request analysis should be read before the first explore completion attempt",
+			Origin:    "pre_dispatch.required_file_hint_unread",
+			Stage:     string(types.StageExplore),
+		})
+		queued++
+		logging.Info("[CGEC] pre-dispatch required_file_hint_unread: queued forced-read file=%s", file)
+		if queued >= types.RequiredFileHintCoverageMax {
+			break
+		}
+	}
+	return queued
+}
+
+func pendingReadQueuedForFile(closure *types.EvidenceClosure, file string) bool {
+	if closure == nil || file == "" {
+		return false
+	}
+	for _, pending := range closure.PendingReads() {
+		if pending.File == file {
+			return true
+		}
+	}
+	return false
+}
+
+func hasPreDispatchRequiredFilePendingRead(closure *types.EvidenceClosure) bool {
+	if closure == nil {
+		return false
+	}
+	for _, pending := range closure.PendingReads() {
+		if pending.Origin == "pre_dispatch.required_file_hint_unread" {
+			return true
+		}
+	}
+	return false
+}
+
 // abandonUnrecoverableForcedRead drops a PendingRead the framework
 // cannot read (typically because the path does not exist, the
 // process lacks permission, the path is a directory / broken
@@ -435,11 +504,11 @@ func (o *Orchestrator) emitAbandonEvent(file, cause string) {
 //
 // Cross-platform notes:
 //   - Linux:   os.IsNotExist matches ENOENT, os.IsPermission matches
-//              EACCES / EPERM
+//     EACCES / EPERM
 //   - macOS:   POSIX-equivalent errnos; behaves identically
 //   - Windows: ERROR_FILE_NOT_FOUND / ERROR_PATH_NOT_FOUND map to
-//              IsNotExist; ERROR_ACCESS_DENIED maps to IsPermission;
-//              os.FileInfo.IsDir works on NTFS / ReFS uniformly
+//     IsNotExist; ERROR_ACCESS_DENIED maps to IsPermission;
+//     os.FileInfo.IsDir works on NTFS / ReFS uniformly
 //
 // Returns the FIRST informative probe error for rationale
 // (typically the verbatim probe's; falls back to the joined probe
@@ -582,7 +651,7 @@ func isStructurallyUnrecoverableReadFailure(busCtx *types.BusContext, file strin
 //   - Linux:   ENOENT / EACCES / EPERM
 //   - macOS:   ENOENT / EACCES / EPERM (POSIX-equivalent)
 //   - Windows: ERROR_FILE_NOT_FOUND / ERROR_PATH_NOT_FOUND /
-//              ERROR_ACCESS_DENIED
+//     ERROR_ACCESS_DENIED
 //
 // Falls back to a generic message + the tool's wrapped summary
 // (with the "read failed: " prefix stripped) when we can't classify.

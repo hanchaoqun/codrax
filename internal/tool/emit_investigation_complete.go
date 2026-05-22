@@ -4577,13 +4577,11 @@ func raisePrimaryAnchorPendingRead(ctx *types.BusContext, closure *types.Evidenc
 	}
 }
 
-const requiredFileHintCoverageMax = 4
-
 func raiseRequiredFileHintPendingReads(ctx *types.BusContext, closure *types.EvidenceClosure, evidence []types.EvidenceItem) {
 	if ctx == nil || ctx.AnalysisIR == nil || closure == nil {
 		return
 	}
-	if !requiredFileHintCoverageApplies(ctx.AnalysisIR.RequestModel) {
+	if !types.RequiredFileHintCurrentSourceCoverageApplies(ctx.AnalysisIR.RequestModel) {
 		return
 	}
 	var unread []string
@@ -4591,21 +4589,17 @@ func raiseRequiredFileHintPendingReads(ctx *types.BusContext, closure *types.Evi
 		if hint.Confidence < 0.8 {
 			continue
 		}
-		canon := phase1UnreadCanonPath(hint.Path, ctx.RepoRoot)
-		if canon == "" {
-			continue
-		}
-		qualified, ok := qualifyForcedReadSeedPath(ctx, canon)
+		canon, ok := types.QualifyForcedReadSeedPath(ctx, hint.Path)
 		if !ok {
-			logging.Warning("[CGEC] required_file_hint_unread: skipping phantom path file=%s", canon)
+			logging.Warning("[CGEC] required_file_hint_unread: skipping phantom path file=%s",
+				types.CanonicalRequiredFileHintPath(hint.Path, ctx.RepoRoot))
 			continue
 		}
-		canon = qualified
 		if closure.HasRead(canon) || groundedEvidenceCoversFile(evidence, canon, ctx.RepoRoot) {
 			continue
 		}
 		unread = append(unread, canon)
-		if len(unread) >= requiredFileHintCoverageMax {
+		if len(unread) >= types.RequiredFileHintCoverageMax {
 			break
 		}
 	}
@@ -4628,18 +4622,8 @@ func raiseRequiredFileHintPendingReads(ctx *types.BusContext, closure *types.Evi
 	})
 }
 
-func requiredFileHintCoverageApplies(rm types.RequestModel) bool {
-	if len(rm.AnalyzerHints.RequiredFileHints) == 0 || rm.HasObservationOnlyRuntimeArtifact() {
-		return false
-	}
-	if rm.HasExternalOnlyRuntimeArtifact() && rm.HasRuntimeArtifactCurrentVerificationAnchor() {
-		return true
-	}
-	return types.IsHistoryBackedCurrentCodeExplanation(rm)
-}
-
 func groundedEvidenceCoversFile(evidence []types.EvidenceItem, file, repoRoot string) bool {
-	file = phase1UnreadCanonPath(file, repoRoot)
+	file = types.CanonicalRequiredFileHintPath(file, repoRoot)
 	if file == "" {
 		return false
 	}
@@ -4647,7 +4631,7 @@ func groundedEvidenceCoversFile(evidence []types.EvidenceItem, file, repoRoot st
 		if ev.GroundingStatus == types.GroundingUngrounded || ev.LineStart <= 0 {
 			continue
 		}
-		source := phase1UnreadCanonPath(ev.Source, repoRoot)
+		source := types.CanonicalRequiredFileHintPath(ev.Source, repoRoot)
 		if source == file {
 			return true
 		}

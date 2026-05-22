@@ -509,6 +509,79 @@ func newTestOrch(t *testing.T) *Orchestrator {
 	return &Orchestrator{busCtx: bus, emit: render.NopEmitter}
 }
 
+func TestSeedRequiredFileHintForcedReadsBeforeExplore_UsesSharedCurrentSourceContract(t *testing.T) {
+	o := newTestOrch(t)
+	o.busCtx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain,
+		LogTriage: &types.LogBundle{
+			Errors: []types.LogError{{Type: "first_byte_timeout"}},
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic:        true,
+			CurrentVersionCheck: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{RequiredFileHints: []types.RequiredFileHint{
+			{Path: "./internal/llm/openai.go", Confidence: 0.9},
+			{Path: "internal/orchestrator/read_stage_retry.go", Confidence: 0.8},
+			{Path: "internal/render/status_messages.go", Confidence: 0.79},
+		}},
+	}}
+
+	if got := o.seedRequiredFileHintForcedReadsBeforeExplore(); got != 2 {
+		t.Fatalf("seeded required-file pending reads = %d, want 2 high-confidence hints", got)
+	}
+	pending := o.busCtx.Mutable.EvidenceClosure().PendingReads()
+	if len(pending) != 2 {
+		t.Fatalf("pending reads = %+v, want 2", pending)
+	}
+	if pending[0].File != "internal/llm/openai.go" {
+		t.Errorf("first pending file = %q, want canonical internal/llm/openai.go", pending[0].File)
+	}
+	if pending[0].Origin != "pre_dispatch.required_file_hint_unread" {
+		t.Errorf("pending origin = %q", pending[0].Origin)
+	}
+	if again := o.seedRequiredFileHintForcedReadsBeforeExplore(); again != 0 {
+		t.Fatalf("second seed should dedupe existing pending reads, got %d", again)
+	}
+}
+
+func TestSeedRequiredFileHintForcedReadsBeforeExplore_ObservationOnlySkips(t *testing.T) {
+	o := newTestOrch(t)
+	o.busCtx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent: types.IntentExplain,
+		LogTriage: &types.LogBundle{
+			Errors: []types.LogError{{Type: "first_byte_timeout"}},
+		},
+	}}
+
+	if got := o.seedRequiredFileHintForcedReadsBeforeExplore(); got != 0 {
+		t.Fatalf("observation-only artifact should not seed current-source reads, got %d", got)
+	}
+}
+
+func TestRunForcedReads_PreDispatchRequiredFilesUseSharedCoverageCap(t *testing.T) {
+	o := newTestOrch(t)
+	closure := o.busCtx.Mutable.EvidenceClosure()
+	for i, rel := range []string{"a.go", "b.go", "c.go", "d.go"} {
+		if err := os.WriteFile(filepath.Join(o.busCtx.RepoRoot, rel), []byte("package p\n"), 0o644); err != nil {
+			t.Fatalf("write fixture %d: %v", i, err)
+		}
+		closure.AddPendingRead(types.PendingRead{
+			File:      rel,
+			Origin:    "pre_dispatch.required_file_hint_unread",
+			Rationale: "required-file preseed",
+			Stage:     string(types.StageExplore),
+		})
+	}
+
+	if got := o.runForcedReads(); got != types.RequiredFileHintCoverageMax {
+		t.Fatalf("forced reads = %d, want shared required-file cap %d", got, types.RequiredFileHintCoverageMax)
+	}
+	if pending := closure.PendingReads(); len(pending) != 0 {
+		t.Fatalf("pre-dispatch required-file reads should drain in one pass, got %+v", pending)
+	}
+}
+
 // TestRunForcedReads_PathIsDirectory_AbandonsAcrossPlatforms pins
 // the IsDir cross-platform branch: a PendingRead pointing at a
 // directory (broken classification, race, manifest-included path
