@@ -2,7 +2,7 @@
 
 Date: 2026-05-24
 
-Status: design accepted, implementation in progress.
+Status: implemented and validated.
 
 ## Code Audit Before Design
 
@@ -189,12 +189,12 @@ languages in the repository's repomap matrix.
 
 | Batch | Status | Task | Validation |
 | --- | --- | --- | --- |
-| T9-B0 | In Progress | Land this design and link it from the gap tracker. | doc review |
+| T9-B0 | Done | Land this design and link it from the gap tracker. | doc review |
 | T9-B1 | Done | Add `CurrentSourceExplanationProfile` types, mode normalization, source-quote validation reuse, and unit tests. | `go test ./internal/types -run 'TestNormalizeCurrentSourceExplanationProfile|TestAnalysisIR_JSONRoundtrip|TestRequestModel_DoesNotExposeLegacyTopLevelEntities'` |
 | T9-B2 | Done | Extend `emit_analysis` params/schema/parser/summary and analyzer prompt guidance. Keep invalid optional profile as warning/drop, not hard retry. | `go test ./internal/tool -run 'TestEmitAnalysis_(CurrentSourceExplanationProfile|RequestedAnswerDimensions)|TestEmitAnalysisSchemaIncludesCurrentSourceExplanationProfile|TestEmitAnalysisSchemaMatchesContract'`; `go test ./internal/skill -run 'TestAnalysisSkill_CurrentQuestionPrimacy_NamesEveryIntentField'` |
 | T9-B3 | Done | Wire profile into `HasRuntimeArtifactCurrentVerificationAnchor`, `HasObservationOnlyRuntimeArtifact`, `AnswerIntentContract`, explorer runtime shortcut, and finalizer prompt projection. | `go test ./internal/types ./internal/agent ./internal/tool ./internal/skill` |
-| T9-B4 | Pending | Add focused eval cases for log+code, trace+code, VCS+code, and command+code mixed requests; include placeholder coverage notes for MCP/web/connector producers. | focused eval batch |
-| T9-B5 | Pending | Refresh gap tracker with results, classify any retries/rejects as model error vs system over-gate, then close T9. | docs + final push |
+| T9-B4 | Done | Add focused eval cases for log+code, trace+code, VCS+code, and command+code mixed requests; include placeholder coverage notes for MCP/web/connector producers. | `PARALLEL=2 TIMEOUT=1800 CASES_GLOB='eval/cases/read_combo_*current_source_explanation.case' bash eval/parallel_all.sh` |
+| T9-B5 | Done | Refresh gap tracker with results, classify any retries/rejects as model error vs system over-gate, then close T9. | docs + final push |
 
 ## Acceptance Criteria
 
@@ -209,3 +209,30 @@ languages in the repository's repomap matrix.
   loops.
 - Unit tests protect the boundary so future developers cannot accidentally
   route current-source explanation through raw keyword checks.
+
+## Validation Results
+
+Focused eval batch:
+
+| Case | Result | Notes |
+| --- | --- | --- |
+| `read_combo_command_current_source_explanation` | PASS | Command measurement stayed non-scalar and combined with current source. |
+| `read_combo_git_current_source_explanation` | PASS | Latest-merge feature answer stayed narrative; it did not collapse to a commit id. |
+| `read_combo_log_current_source_explanation` | PASS | Runtime timeout observation and current-code distinction were both visible. |
+| `read_combo_trace_current_source_explanation` | PASS | Trace coordinates stayed runtime-artifact facts while current source explained parsing / jank classification. |
+
+Initial trace run exposed one unrelated answer-document recovery defect: a model
+emitted `blocks` as a JSON-encoded string and added one impossible dangling quote
+after an `items[]` array. The old recovery path dropped later visible blocks and
+forced a finalizer retry, which then caused low-quality system supplements to
+appear. This was fixed in the shared answer-document compatibility layer by
+removing only structurally impossible dangling quotes after composite JSON values
+and preserving every block/item. Focused rerun
+`eval/results/read_combo_trace_current_source_explanation-20260524-015426`
+passed with zero answer-document rejects, one finalizer turn, and no system
+supplement pollution.
+
+Non-blocking telemetry: the trace rerun still logged one softened
+`answer_richness_facet_coverage` advisory. It was accepted without retry and
+does not change answer content. Treat this as advisory-cost telemetry work, not
+as a T9 correctness blocker.

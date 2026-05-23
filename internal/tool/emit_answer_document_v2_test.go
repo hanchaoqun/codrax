@@ -1016,6 +1016,29 @@ func TestEmitAnswerDocumentV2_BraceFallbackRejectsUnattachedDroppedBlock(t *test
 	}
 }
 
+func TestEmitAnswerDocumentV2_BlocksStringStripsDanglingCompositeQuote(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	raw := json.RawMessage(`{"blocks":"[{\"id\":\"sum1\",\"kind\":\"summary\",\"text\":\"hi\"},{\"id\":\"list1\",\"kind\":\"ordered_list\",\"items\":[{\"id\":\"i1\",\"label\":\"step\",\"text\":\"detail\"}]\"},{\"id\":\"caveat1\",\"kind\":\"caveat\",\"text\":\"boundary\"}]"}`)
+	res, err := tool.Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("emit error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("dangling quote after items[] should be repaired without retry, got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil {
+		t.Fatal("answer document was not persisted")
+	}
+	if got := len(doc.Blocks); got != 3 {
+		t.Fatalf("recovered block count = %d, want 3; doc=%+v", got, doc.Blocks)
+	}
+	if doc.Blocks[1].Kind != types.BlockOrderedList || len(doc.Blocks[1].Items) != 1 {
+		t.Fatalf("ordered list items were not preserved: %+v", doc.Blocks[1])
+	}
+}
+
 func TestEmitAnswerDocumentV2_PromotesRecoveredDiagramWhenRequired(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",

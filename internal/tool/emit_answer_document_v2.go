@@ -976,12 +976,38 @@ func tryRepairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
 	if !strings.HasPrefix(trimmed, "[") {
 		return nil, false
 	}
+	if patched, ok := tryRepairBlocksStringBody(probe, trimmed); ok {
+		return patched, true
+	}
+	if repaired, changed := stripDanglingQuotesAfterCompositeValues(trimmed); changed {
+		if patched, ok := tryRepairBlocksStringBody(probe, repaired); ok {
+			return patched, true
+		}
+	}
+	if normalised, changed := normalizeControlCharsInJSONStrings(trimmed); changed {
+		if patched, ok := tryRepairBlocksStringBody(probe, normalised); ok {
+			return patched, true
+		}
+		if repaired, changed := stripDanglingQuotesAfterCompositeValues(normalised); changed {
+			if patched, ok := tryRepairBlocksStringBody(probe, repaired); ok {
+				return patched, true
+			}
+		}
+	}
+	return nil, false
+}
+
+func tryRepairBlocksStringBody(probe map[string]json.RawMessage, trimmed string) (json.RawMessage, bool) {
+	if !strings.HasPrefix(strings.TrimSpace(trimmed), "[") {
+		return nil, false
+	}
 	// Path A: pure-array stringify. Repair just blocks; preserve all
 	// other top-level keys verbatim.
 	var inner []json.RawMessage
 	if err := json.Unmarshal([]byte(trimmed), &inner); err == nil {
-		probe["blocks"] = mustMarshal(inner)
-		if patched, err := json.Marshal(probe); err == nil {
+		merged := cloneRawMessageMap(probe)
+		merged["blocks"] = mustMarshal(inner)
+		if patched, err := json.Marshal(merged); err == nil {
 			return patched, true
 		}
 	}
@@ -993,8 +1019,9 @@ func tryRepairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
 	// is accepted only if the entire result parses into block-shaped
 	// objects.
 	if repairedBlocks, ok := repairAnswerBlocksArraySyntax(trimmed); ok {
-		probe["blocks"] = repairedBlocks
-		if patched, err := json.Marshal(probe); err == nil {
+		merged := cloneRawMessageMap(probe)
+		merged["blocks"] = repairedBlocks
+		if patched, err := json.Marshal(merged); err == nil {
 			return patched, true
 		}
 	}
@@ -1014,24 +1041,83 @@ func tryRepairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
 	if patched, ok := finishWholeDocumentStringRepair(probe, trimmed); ok {
 		return patched, true
 	}
-	// Path C inner pass: the outer parse succeeded, but the decoded
-	// inner string itself carries unescaped control chars (typical
-	// when the LLM stringifies an array containing a multi-line
-	// diagram body). Re-normalise the trimmed inner string and
-	// retry both Path A and Path B.
-	if normalised, changed := normalizeControlCharsInJSONStrings(trimmed); changed {
-		var innerC []json.RawMessage
-		if err := json.Unmarshal([]byte(normalised), &innerC); err == nil {
-			probe["blocks"] = mustMarshal(innerC)
-			if patched, err := json.Marshal(probe); err == nil {
-				return patched, true
+	return nil, false
+}
+
+func cloneRawMessageMap(in map[string]json.RawMessage) map[string]json.RawMessage {
+	out := make(map[string]json.RawMessage, len(in))
+	for k, v := range in {
+		out[k] = append(json.RawMessage(nil), v...)
+	}
+	return out
+}
+
+func stripDanglingQuotesAfterCompositeValues(s string) (string, bool) {
+	if s == "" {
+		return s, false
+	}
+	var out strings.Builder
+	out.Grow(len(s))
+	inStr := false
+	esc := false
+	changed := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if inStr {
+			out.WriteByte(c)
+			if esc {
+				esc = false
+				continue
 			}
+			switch c {
+			case '\\':
+				esc = true
+			case '"':
+				inStr = false
+			}
+			continue
 		}
-		if patched, ok := finishWholeDocumentStringRepair(probe, normalised); ok {
-			return patched, true
+		if c == '"' && danglingQuoteAfterCompositeValue(s, i) {
+			changed = true
+			continue
+		}
+		out.WriteByte(c)
+		if c == '"' {
+			inStr = true
 		}
 	}
-	return nil, false
+	if !changed {
+		return s, false
+	}
+	return out.String(), true
+}
+
+func danglingQuoteAfterCompositeValue(s string, quoteAt int) bool {
+	prev := byte(0)
+	for i := quoteAt - 1; i >= 0; i-- {
+		if isAnswerDocJSONSpace(s[i]) {
+			continue
+		}
+		prev = s[i]
+		break
+	}
+	if prev != ']' && prev != '}' {
+		return false
+	}
+	next := byte(0)
+	for i := quoteAt + 1; i < len(s); i++ {
+		if isAnswerDocJSONSpace(s[i]) {
+			continue
+		}
+		next = s[i]
+		break
+	}
+	switch next {
+	case '}', ']', ',':
+		return true
+	default:
+		return false
+	}
 }
 
 func losslessRecoveryReport(mode string, patched json.RawMessage) answerDocumentRecoveryReport {
