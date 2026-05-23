@@ -184,6 +184,65 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsVerifiedTableForNearCompl
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_AppendsSupplementForIncompatibleStructuredTable(t *testing.T) {
+	mu := types.NewMutableState("列出公开函数")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("eval", "Eval", "internal/analysis/criterion/eval.go", 15, "Eval 对单个 Criterion 求值并返回 Result。"),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "公开函数",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Unit:        "函数",
+		Members:     []string{"Eval"},
+		SupportRefs: []string{"Eval @ internal/analysis/criterion/eval.go:15"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:      "model_structured_table",
+		Kind:    types.BlockTable,
+		Title:   "模型给出的公开函数表",
+		Columns: []string{"类别", "符号名称", "定义位置", "说明"},
+		Items: []types.AnswerBlockItem{{
+			ID:    "eval",
+			Label: "Eval",
+		}},
+	}}}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatal("expected separated deterministic supplement for incompatible structured table")
+	}
+	if len(doc.Blocks) != 3 {
+		t.Fatalf("expected summary, preserved model table, and supplement; got %+v", doc.Blocks)
+	}
+	model := answerDocumentTestBlockByID(t, doc, "model_structured_table")
+	if len(model.Items) != 1 || len(model.Items[0].Cells) != 0 ||
+		len(model.Columns) != 4 || model.Columns[0] != "类别" {
+		t.Fatalf("model-authored structured table must remain untouched: %+v", model)
+	}
+	supplement := doc.Blocks[2]
+	if !strings.Contains(supplement.Title, "系统按已验证证据给出的完整成员表") {
+		t.Fatalf("system supplement should be clearly labeled, got %q", supplement.Title)
+	}
+	visible := types.AnswerBlockVisibleSurface(supplement)
+	for _, want := range []string{"Eval", "internal/analysis/criterion/eval.go:15", "单个 Criterion"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("supplement missing %q:\n%s", want, visible)
+		}
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_AppendsFullVerifiedTableForCorruptCompleteAttempt(t *testing.T) {
 	mu := types.NewMutableState("列出公开字符串枚举类型")
 	mu.AppendEvidence([]types.EvidenceItem{

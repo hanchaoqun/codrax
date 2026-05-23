@@ -639,6 +639,41 @@ func principalEnumerationNeedsFullVerifiedSupplement(doc *types.AnswerDocumentV2
 			return true
 		}
 	}
+	if principalEnumerationHasIncompatibleStructuredTableAttempt(doc, set) {
+		return true
+	}
+	return false
+}
+
+func principalEnumerationHasIncompatibleStructuredTableAttempt(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet) bool {
+	if doc == nil || len(set.Rows) == 0 {
+		return false
+	}
+	index := enumerationDisplayRowIndex([]types.EnumerationDisplaySet{set})
+	if len(index) == 0 {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if block.Kind != types.BlockTable || strings.TrimSpace(block.Text) != "" {
+			continue
+		}
+		rows, ok := enumerationDisplayRowsForIncompleteTable(block, index)
+		if !ok || !principalEnumerationRowsHaveLocationOrNote(rows) {
+			continue
+		}
+		if _, ok := enumerationDisplayExistingTableShape(block, rows); !ok {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationRowsHaveLocationOrNote(rows []types.EnumerationDisplayRow) bool {
+	for _, row := range rows {
+		if strings.TrimSpace(row.Location) != "" || strings.TrimSpace(row.Note) != "" {
+			return true
+		}
+	}
 	return false
 }
 

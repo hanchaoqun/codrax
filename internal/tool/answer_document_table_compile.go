@@ -84,29 +84,10 @@ func compileEnumerationDisplayTableRows(doc *types.AnswerDocumentV2, ctx *types.
 		if !ok {
 			continue
 		}
-		includeCategory := false
-		includeLocation := false
-		includeNote := false
-		for ii, row := range rows {
-			if strings.TrimSpace(row.Category) != "" {
-				includeCategory = true
-			}
-			if strings.TrimSpace(row.Location) != "" {
-				includeLocation = true
-			}
-			itemText := ""
-			if ii < len(block.Items) {
-				itemText = block.Items[ii].Text
-			}
-			if strings.TrimSpace(row.Note) != "" || strings.TrimSpace(itemText) != "" {
-				includeNote = true
-			}
-		}
-		if !enumerationDisplayRowsCompatibleWithTableShape(*block, rows, includeCategory, includeLocation, includeNote) {
+		shape, ok := enumerationDisplayExistingTableShape(*block, rows)
+		if !ok {
 			continue
 		}
-		zh := answerTableCompilePrefersZH(block.Columns)
-		block.Columns = enumerationDisplayTableColumns(zh, includeCategory, includeLocation, includeNote)
 		for ii := range block.Items {
 			item := &block.Items[ii]
 			row := rows[ii]
@@ -114,8 +95,7 @@ func compileEnumerationDisplayTableRows(doc *types.AnswerDocumentV2, ctx *types.
 				continue
 			}
 			note := answerTableCompileFirstNonEmptyString(item.Text, row.Note)
-			item.Label = answerTableCompileFirstNonEmptyString(row.DisplayLabel, item.Label, row.Member)
-			item.Cells = enumerationDisplayTableCells(row, includeCategory, includeLocation, includeNote, note)
+			item.Cells = enumerationDisplayTableCellsForShape(row, note, shape)
 			if strings.TrimSpace(item.Text) == "" {
 				item.Text = strings.TrimSpace(row.Note)
 			}
@@ -133,6 +113,18 @@ func compileEnumerationDisplayTableRows(doc *types.AnswerDocumentV2, ctx *types.
 		}
 	}
 	return fixed
+}
+
+type enumerationDisplayColumnRole string
+
+const (
+	enumerationDisplayColumnCategory enumerationDisplayColumnRole = "category"
+	enumerationDisplayColumnLocation enumerationDisplayColumnRole = "location"
+	enumerationDisplayColumnNote     enumerationDisplayColumnRole = "note"
+)
+
+type enumerationDisplayExistingShape struct {
+	roles []enumerationDisplayColumnRole
 }
 
 func shouldCompileCitationBackedTableRows(block types.AnswerBlock, doc *types.AnswerDocumentV2) bool {
@@ -219,31 +211,79 @@ func enumerationDisplayRowsForIncompleteTable(block types.AnswerBlock, index map
 	return rows, true
 }
 
-func enumerationDisplayRowsCompatibleWithTableShape(block types.AnswerBlock, rows []types.EnumerationDisplayRow, includeCategory bool, includeLocation bool, includeNote bool) bool {
-	if len(rows) == 0 {
-		return false
+func enumerationDisplayExistingTableShape(block types.AnswerBlock, rows []types.EnumerationDisplayRow) (enumerationDisplayExistingShape, bool) {
+	if len(rows) == 0 || len(block.Columns) < 2 {
+		return enumerationDisplayExistingShape{}, false
 	}
+	// With item.Label present, the renderer uses the label as the first
+	// visible column and items[].cells as the remaining columns. Therefore
+	// inline repair is lossless only when the model's existing header count
+	// already matches label + cells. Unknown headers are not interpreted; a
+	// later supplement can carry deterministic rows in a clearly separated
+	// system block instead of rewriting the model table.
+	tail := block.Columns[1:]
+	roles := make([]enumerationDisplayColumnRole, 0, len(tail))
+	seen := map[enumerationDisplayColumnRole]bool{}
+	for _, column := range tail {
+		role := enumerationDisplayColumnRoleForHeader(column)
+		if role == "" || seen[role] {
+			return enumerationDisplayExistingShape{}, false
+		}
+		seen[role] = true
+		roles = append(roles, role)
+	}
+	shape := enumerationDisplayExistingShape{roles: roles}
 	for ii, row := range rows {
 		note := strings.TrimSpace(row.Note)
 		if ii < len(block.Items) {
 			note = answerTableCompileFirstNonEmptyString(block.Items[ii].Text, note)
 		}
-		if !enumerationDisplayRowCompatibleWithTableShape(row, includeCategory, includeLocation, includeNote, note) {
-			return false
+		if !enumerationDisplayRowCompatibleWithExistingShape(row, note, shape) {
+			return enumerationDisplayExistingShape{}, false
 		}
 	}
-	return true
+	return shape, true
 }
 
-func enumerationDisplayRowCompatibleWithTableShape(row types.EnumerationDisplayRow, includeCategory bool, includeLocation bool, includeNote bool, note string) bool {
-	if includeCategory && strings.TrimSpace(row.Category) == "" {
-		return false
+func enumerationDisplayColumnRoleForHeader(raw string) enumerationDisplayColumnRole {
+	header := strings.ToLower(strings.Join(strings.Fields(strings.TrimSpace(raw)), " "))
+	if header == "" {
+		return ""
 	}
-	if includeLocation && strings.TrimSpace(row.Location) == "" {
-		return false
+	switch {
+	case strings.Contains(header, "类别") ||
+		strings.Contains(header, "分类") ||
+		strings.Contains(header, "category") ||
+		header == "kind":
+		return enumerationDisplayColumnCategory
+	case strings.Contains(header, "位置") ||
+		strings.Contains(header, "定义") ||
+		strings.Contains(header, "文件") ||
+		strings.Contains(header, "行号") ||
+		strings.Contains(header, "location") ||
+		strings.Contains(header, "file") ||
+		strings.Contains(header, "line"):
+		return enumerationDisplayColumnLocation
+	case strings.Contains(header, "说明") ||
+		strings.Contains(header, "描述") ||
+		strings.Contains(header, "备注") ||
+		strings.Contains(header, "职责") ||
+		strings.Contains(header, "作用") ||
+		strings.Contains(header, "note") ||
+		strings.Contains(header, "detail") ||
+		strings.Contains(header, "summary") ||
+		strings.Contains(header, "description"):
+		return enumerationDisplayColumnNote
+	default:
+		return ""
 	}
-	if includeNote && strings.TrimSpace(note) == "" {
-		return false
+}
+
+func enumerationDisplayRowCompatibleWithExistingShape(row types.EnumerationDisplayRow, note string, shape enumerationDisplayExistingShape) bool {
+	for _, role := range shape.roles {
+		if strings.TrimSpace(enumerationDisplayCellForRole(row, note, role)) == "" {
+			return false
+		}
 	}
 	return true
 }
@@ -255,47 +295,25 @@ func normalizeEnumerationDisplayTableKey(raw string) string {
 	return raw
 }
 
-func enumerationDisplayTableColumns(zh bool, includeCategory bool, includeLocation bool, includeNote bool) []string {
-	columns := []string{"Name"}
-	if zh {
-		columns = []string{"符号名称"}
-	}
-	if includeCategory {
-		if zh {
-			columns = append(columns, "类别")
-		} else {
-			columns = append(columns, "Category")
-		}
-	}
-	if includeLocation {
-		if zh {
-			columns = append(columns, "定义位置")
-		} else {
-			columns = append(columns, "Location")
-		}
-	}
-	if includeNote {
-		if zh {
-			columns = append(columns, "说明")
-		} else {
-			columns = append(columns, "Notes")
-		}
-	}
-	return columns
-}
-
-func enumerationDisplayTableCells(row types.EnumerationDisplayRow, includeCategory bool, includeLocation bool, includeNote bool, note string) []string {
-	cells := make([]string, 0, 3)
-	if includeCategory {
-		cells = append(cells, strings.TrimSpace(row.Category))
-	}
-	if includeLocation {
-		cells = append(cells, strings.TrimSpace(row.Location))
-	}
-	if includeNote {
-		cells = append(cells, strings.TrimSpace(note))
+func enumerationDisplayTableCellsForShape(row types.EnumerationDisplayRow, note string, shape enumerationDisplayExistingShape) []string {
+	cells := make([]string, 0, len(shape.roles))
+	for _, role := range shape.roles {
+		cells = append(cells, strings.TrimSpace(enumerationDisplayCellForRole(row, note, role)))
 	}
 	return cells
+}
+
+func enumerationDisplayCellForRole(row types.EnumerationDisplayRow, note string, role enumerationDisplayColumnRole) string {
+	switch role {
+	case enumerationDisplayColumnCategory:
+		return row.Category
+	case enumerationDisplayColumnLocation:
+		return row.Location
+	case enumerationDisplayColumnNote:
+		return note
+	default:
+		return ""
+	}
 }
 
 func answerTableCompileFirstNonEmptyString(items ...string) string {

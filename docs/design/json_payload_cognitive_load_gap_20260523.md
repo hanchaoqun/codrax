@@ -2,7 +2,7 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-23 are complete and verified; the
+Status: partially implemented. Batches 1-24 are complete and verified; the
 shared schema-aware repair path is active across the high-frequency structured
 emit tools, including the legacy top-level JSON-string repair wrappers.
 Remaining work is still tracked below, starting with P1 carrier compilers /
@@ -146,6 +146,13 @@ Implementation progress:
   This is a developer-facing regression fence: new local `invalid params`
   branches in structured emitters must route through the shared repair lane, or
   the test fails.
+- 2026-05-23 Batch 24 narrowed deterministic table-hole filling so it respects
+  model-authored table surfaces. Enumeration row repair now fills only
+  already-missing cells whose existing column headers clearly map to typed
+  row fields; it no longer rewrites model-authored column titles or row labels.
+  If the model table shape is incompatible but the accepted row contract has
+  richer location/note data, the runtime preserves the model table and appends a
+  separate localized system-verified supplement.
 - Remaining work starts at P1 carrier compilers / row-set compilers; the
   completed ref batch deliberately did not change answer materialization policy.
 

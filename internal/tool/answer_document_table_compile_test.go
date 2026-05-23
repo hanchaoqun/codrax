@@ -100,7 +100,7 @@ func TestCompileEnumerationDisplayTableRows_FillsRowsFromPrincipalEvidence(t *te
 		t.Fatalf("fixed=%d, want 1", fixed)
 	}
 	table := doc.Blocks[0]
-	if got, want := table.Columns, []string{"符号名称", "类别", "定义位置", "说明"}; len(got) != len(want) {
+	if got, want := table.Columns, []string{"符号名称", "定义位置", "说明"}; len(got) != len(want) {
 		t.Fatalf("columns=%v, want %v", got, want)
 	} else {
 		for i := range want {
@@ -113,10 +113,9 @@ func TestCompileEnumerationDisplayTableRows_FillsRowsFromPrincipalEvidence(t *te
 	if item.Label != "Eval" {
 		t.Fatalf("label changed: %#v", item)
 	}
-	if got := item.Cells; len(got) != 3 ||
-		got[0] != "函数" ||
-		got[1] != "internal/analysis/criterion/eval.go:15" ||
-		got[2] != "Eval 对单个 Criterion 进行求值并返回 Result。" {
+	if got := item.Cells; len(got) != 2 ||
+		got[0] != "internal/analysis/criterion/eval.go:15" ||
+		got[1] != "Eval 对单个 Criterion 进行求值并返回 Result。" {
 		t.Fatalf("cells not compiled from deterministic row: %#v", got)
 	}
 	if item.Text != "Eval 对单个 Criterion 进行求值并返回 Result。" {
@@ -126,6 +125,67 @@ func TestCompileEnumerationDisplayTableRows_FillsRowsFromPrincipalEvidence(t *te
 		doc.Citations[0].File != "internal/analysis/criterion/eval.go" ||
 		doc.Citations[0].Line != 15 {
 		t.Fatalf("citation was not appended/reused: item=%#v citations=%#v", item, doc.Citations)
+	}
+}
+
+func TestCompileEnumerationDisplayTableRows_RefusesToRewriteModelColumnShape(t *testing.T) {
+	mut := types.NewMutableState("list public functions")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "公开函数",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Unit:        "函数",
+		Members:     []string{"Eval"},
+		SupportRefs: []string{"Eval @ internal/analysis/criterion/eval.go:15"},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "ev-eval",
+			Kind:            types.EvidenceDirect,
+			Subject:         "Eval",
+			AnchorSymbol:    "Eval",
+			AnchorKind:      types.AnchorDefinition,
+			Source:          "internal/analysis/criterion/eval.go",
+			LineStart:       15,
+			Scope:           types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+			Summary:         "Eval 对单个 Criterion 进行求值并返回 Result。",
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:      "public_functions",
+			Kind:    types.BlockTable,
+			Title:   "公开函数",
+			Columns: []string{"类别", "符号名称", "定义位置", "说明"},
+			Items: []types.AnswerBlockItem{{
+				ID:          "eval",
+				Label:       "Eval",
+				CitationRef: -1,
+			}},
+		}},
+	}
+
+	if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed != 0 {
+		t.Fatalf("incompatible model-authored column shape must not be rewritten inline; fixed=%d doc=%+v", fixed, doc.Blocks[0])
+	}
+	table := doc.Blocks[0]
+	if got, want := table.Columns, []string{"类别", "符号名称", "定义位置", "说明"}; len(got) != len(want) {
+		t.Fatalf("columns should be preserved: %v, want %v", got, want)
+	}
+	if len(table.Items[0].Cells) != 0 || table.Items[0].Label != "Eval" {
+		t.Fatalf("model row surface must remain untouched: %+v", table.Items[0])
 	}
 }
 
@@ -187,10 +247,9 @@ func TestCompileEnumerationDisplayTableRows_PreservesModelItemTextOverDryRowNote
 	if item.Text != "Kind = Kind(types.CritExternalArtifactDecoded)，为兼容性保留，已废弃" {
 		t.Fatalf("model-authored item text must remain authoritative: %#v", item)
 	}
-	if got := item.Cells; len(got) != 3 ||
-		got[0] != "常量" ||
-		got[1] != "internal/analysis/criterion/grammar.go:65" ||
-		got[2] != "Kind = Kind(types.CritExternalArtifactDecoded)，为兼容性保留，已废弃" {
+	if got := item.Cells; len(got) != 2 ||
+		got[0] != "internal/analysis/criterion/grammar.go:65" ||
+		got[1] != "Kind = Kind(types.CritExternalArtifactDecoded)，为兼容性保留，已废弃" {
 		t.Fatalf("compiled cells must carry model-authored note, got %#v", got)
 	}
 }
@@ -223,27 +282,21 @@ func TestCompileEnumerationDisplayTableRows_OmitsLocationColumnForNonFileRows(t 
 			Kind:    types.BlockTable,
 			Columns: []string{"模式", "说明"},
 			Items: []types.AnswerBlockItem{
-				{ID: "read", Label: "read"},
-				{ID: "write", Label: "write"},
+				{ID: "read", Label: "read", CitationRef: -1},
+				{ID: "write", Label: "write", CitationRef: -1},
 			},
 		}},
 	}
 
-	if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed != 2 {
-		t.Fatalf("fixed=%d, want 2", fixed)
+	if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed != 0 {
+		t.Fatalf("label-only rows without location/note should be left as model-authored surface; fixed=%d", fixed)
 	}
-	if got, want := doc.Blocks[0].Columns, []string{"符号名称", "类别"}; len(got) != len(want) {
-		t.Fatalf("columns=%v, want %v", got, want)
-	} else {
-		for i := range want {
-			if got[i] != want[i] {
-				t.Fatalf("columns=%v, want %v", got, want)
-			}
-		}
+	if got, want := doc.Blocks[0].Columns, []string{"模式", "说明"}; len(got) != len(want) {
+		t.Fatalf("columns should be preserved: %v, want %v", got, want)
 	}
 	for _, item := range doc.Blocks[0].Items {
-		if len(item.Cells) != 1 || item.Cells[0] != "模式" {
-			t.Fatalf("non-file row should not get an empty location cell: %#v", item)
+		if len(item.Cells) != 0 {
+			t.Fatalf("non-file row must not be rewritten into synthetic cells: %#v", item)
 		}
 		if item.CitationRef >= 0 || len(doc.Citations) != 0 {
 			t.Fatalf("non-file row must not synthesize citation: item=%#v citations=%#v", item, doc.Citations)
