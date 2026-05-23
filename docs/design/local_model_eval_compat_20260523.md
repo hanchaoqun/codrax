@@ -369,6 +369,11 @@ file-coverage semantics.
   single-topic trace helper. The bounded-trace predicate now preserves
   `intent=trace` / `question_kind=call_chain` contracts unless a typed
   principal-member obligation explicitly says otherwise.
+- 2026-05-24: Re-ran `qf_sequence_analyzer_gate` with the local
+  `Qwen3.5-9B-OptiQ-4bit` provider after Batch 6/7. Result: PASS. Important
+  counters: `enumeration_push=0`, `finalizer_iters=1`, `tool_read_file=13`,
+  `midloop_inject=17`. The answer document was accepted on the first finalizer
+  emit and preserved the requested `sequenceDiagram`.
 
 ## Observations
 
@@ -504,6 +509,23 @@ Prompt-free fallback candidates:
   same wrong location.
 - Track a metric such as `repair_target_invalidated` so this class of stall is
   visible in eval dashboards.
+
+Follow-up rerun after Batch 6/7:
+
+- Result: PASS.
+- The analyzer still attempted disallowed read/search tools after terminal
+  emit-only state, but every attempt was rejected before dispatch and the next
+  successful `emit_analysis` preserved `intent=trace`, `question_kind=call_chain`,
+  and `diagram_hint=sequence`.
+- The broad enumeration mid-loop hint no longer fired (`enumeration_push=0`);
+  analyzer sub-topics no longer changed the user request from bounded sequence
+  trace to file inventory.
+- Finalizer produced a valid `emit_answer_document` on the first iteration,
+  including a Mermaid `sequenceDiagram`.
+- Remaining non-blocking cost gap: explorer can still spend several iterations
+  on navigation after completion-ready has already fired. This did not affect
+  correctness in the rerun, but the same schema/runtime parity pattern can be
+  applied to completion-ready escalation in a later batch to reduce latency.
 
 ## Candidate Fallback Backlog
 
