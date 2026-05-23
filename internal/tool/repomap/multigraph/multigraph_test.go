@@ -888,6 +888,51 @@ func TestMultiGraph_ImportEdgesPrefixed(t *testing.T) {
 	}
 }
 
+func TestMultiGraph_TypedRelationCandidatesImportExportPrefixed(t *testing.T) {
+	gA := makeGraph("a", []string{"main.go", "util.go"}, nil) // creates main.go → util.go edge
+	build := func(root, _ string) (*rmtypes.Graph, error) {
+		if root == "/parent/repo-a" {
+			return gA, nil
+		}
+		return nil, fmt.Errorf("unknown root %q", root)
+	}
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "repo-a", RootAbs: "/parent/repo-a", RootRel: "repo-a"},
+	})
+	mg, _ := New(Config{Topology: topo, Build: build, Cap: 3})
+	mg.EnsureLoaded("repo-a")
+
+	imports := mg.TypedRelationCandidates(types.TypedRelationQuery{
+		Kinds:   []types.TypedRelationKind{types.TypedRelationImports},
+		Sources: []string{"repo-a/main.go"},
+		Purpose: types.TypedRelationPurposeCoverageGate,
+	})
+	if len(imports) != 1 {
+		t.Fatalf("imports candidates = %+v, want one", imports)
+	}
+	if imports[0].SourceName != "repo-a/main.go" ||
+		imports[0].SourceFile != "repo-a/main.go" ||
+		imports[0].Member.File != "repo-a/util.go" ||
+		imports[0].Carrier != types.TypedRelationCarrierMultiGraph {
+		t.Fatalf("import candidate should be path-from-parent prefixed: %+v", imports[0])
+	}
+
+	exports := mg.TypedRelationCandidates(types.TypedRelationQuery{
+		Kinds:   []types.TypedRelationKind{types.TypedRelationExports},
+		Sources: []string{"repo-a/util.go"},
+		Purpose: types.TypedRelationPurposeCoverageGate,
+	})
+	if len(exports) != 1 {
+		t.Fatalf("exports candidates = %+v, want one", exports)
+	}
+	if exports[0].SourceName != "repo-a/util.go" ||
+		exports[0].SourceFile != "repo-a/main.go" ||
+		exports[0].Member.File != "repo-a/main.go" ||
+		exports[0].Carrier != types.TypedRelationCarrierMultiGraph {
+		t.Fatalf("export candidate should be path-from-parent prefixed: %+v", exports[0])
+	}
+}
+
 // TestMultiGraph_SubRepoNames is the F1 companion regression: the
 // internal/types package needs a way to discriminate project-name
 // tokens from code symbols when building RequiredMechanismAnchor.

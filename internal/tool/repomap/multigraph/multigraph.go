@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	rmrelation "github.com/hanchaoqun/codrax/internal/tool/repomap/relation"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
 	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -832,44 +833,131 @@ func (m *MultiGraph) ImplementerMembersOf(interfaceName string) []types.TypedRel
 
 // TypedRelationCandidates exposes multi-repo typed relation rows through the
 // shared types-only provider boundary. The initial implementation returns the
-// same exact implementer relation as ImplementerMembersOf; future relation
-// families can plug into this method without downstream packages learning the
-// concrete MultiGraph type.
+// exact implementer relation plus graph-backed import/export rows without
+// downstream packages learning the concrete MultiGraph type.
 func (m *MultiGraph) TypedRelationCandidates(q types.TypedRelationQuery) []types.TypedRelationCandidate {
-	if m == nil || !q.AllowsKind(types.TypedRelationImplements) {
+	if m == nil {
 		return nil
 	}
 	var out []types.TypedRelationCandidate
 	seen := map[string]bool{}
+	add := func(row types.TypedRelationCandidate) bool {
+		if row.Relation == "" || strings.TrimSpace(row.SourceName) == "" || strings.TrimSpace(row.Member.Name) == "" {
+			return false
+		}
+		key := strings.ToLower(string(row.Relation)) + "|" +
+			strings.ToLower(strings.TrimSpace(row.SourceName)) + "|" +
+			strings.ToLower(strings.TrimSpace(row.Member.Name)) + "|" +
+			strings.TrimSpace(row.Member.File) + "|" +
+			strings.TrimSpace(row.SourceFile)
+		if seen[key] {
+			return false
+		}
+		seen[key] = true
+		out = append(out, row)
+		return q.MaxMembers > 0 && len(out) >= q.MaxMembers
+	}
+	if q.AllowsKind(types.TypedRelationImplements) {
+		for _, source := range q.Sources {
+			source = strings.TrimSpace(source)
+			if source == "" {
+				continue
+			}
+			members := m.ImplementerMembersOf(source)
+			for _, member := range members {
+				name := strings.TrimSpace(member.Name)
+				if name == "" {
+					continue
+				}
+				member.Name = name
+				if add(types.TypedRelationCandidate{
+					Relation:   types.TypedRelationImplements,
+					SourceName: source,
+					Member:     member,
+					Carrier:    types.TypedRelationCarrierMultiGraph,
+					Precision:  types.TypedRelationPrecisionExactSymbolID,
+				}) {
+					return out
+				}
+			}
+		}
+	}
+	for _, row := range m.importExportRelationCandidates(q) {
+		if add(row) {
+			return out
+		}
+	}
+	return out
+}
+
+func (m *MultiGraph) importExportRelationCandidates(q types.TypedRelationQuery) []types.TypedRelationCandidate {
+	if m == nil || (!q.AllowsKind(types.TypedRelationImports) && !q.AllowsKind(types.TypedRelationExports)) {
+		return nil
+	}
+	graphs := m.AllGraphs()
+	if len(graphs) == 0 {
+		return nil
+	}
+	subMap := make(map[string]*topology.SubRepo, len(m.topo.Repos))
+	for i := range m.topo.Repos {
+		subMap[m.topo.Repos[i].Slug] = &m.topo.Repos[i]
+	}
+	var out []types.TypedRelationCandidate
 	for _, source := range q.Sources {
-		source = strings.TrimSpace(source)
+		source = strings.TrimSpace(strings.ReplaceAll(source, `\`, `/`))
 		if source == "" {
 			continue
 		}
-		members := m.ImplementerMembersOf(source)
-		for _, member := range members {
-			name := strings.TrimSpace(member.Name)
-			if name == "" {
+		if g, sr, hit := m.GraphFor(source); hit && g != nil {
+			local := q
+			local.Sources = []string{stripSubRepoPrefix(sr, source)}
+			local.Kinds = importExportKinds(q)
+			for _, row := range rmrelation.TypedRelationCandidates(g, local) {
+				out = append(out, prefixTypedRelationCandidate(sr, row))
+			}
+			continue
+		}
+		for slug, g := range graphs {
+			if g == nil {
 				continue
 			}
-			key := strings.ToLower(source) + "|" + strings.ToLower(name) + "|" + strings.TrimSpace(member.File)
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			out = append(out, types.TypedRelationCandidate{
-				Relation:   types.TypedRelationImplements,
-				SourceName: source,
-				Member:     member,
-				Carrier:    types.TypedRelationCarrierMultiGraph,
-				Precision:  types.TypedRelationPrecisionExactSymbolID,
-			})
-			if q.MaxMembers > 0 && len(out) >= q.MaxMembers {
-				return out
+			local := q
+			local.Sources = []string{source}
+			local.Kinds = importExportKinds(q)
+			for _, row := range rmrelation.TypedRelationCandidates(g, local) {
+				out = append(out, prefixTypedRelationCandidate(subMap[slug], row))
 			}
 		}
 	}
 	return out
+}
+
+func importExportKinds(q types.TypedRelationQuery) []types.TypedRelationKind {
+	var out []types.TypedRelationKind
+	if q.AllowsKind(types.TypedRelationImports) {
+		out = append(out, types.TypedRelationImports)
+	}
+	if q.AllowsKind(types.TypedRelationExports) {
+		out = append(out, types.TypedRelationExports)
+	}
+	return out
+}
+
+func prefixTypedRelationCandidate(sr *topology.SubRepo, row types.TypedRelationCandidate) types.TypedRelationCandidate {
+	row.Carrier = types.TypedRelationCarrierMultiGraph
+	if row.Member.File != "" {
+		row.Member.File = SubRepoRelPath(sr, row.Member.File)
+	}
+	if row.SourceFile != "" {
+		row.SourceFile = SubRepoRelPath(sr, row.SourceFile)
+	}
+	switch row.SourceKind {
+	case "file", "directory":
+		if row.SourceName != "" {
+			row.SourceName = SubRepoRelPath(sr, row.SourceName)
+		}
+	}
+	return row
 }
 
 // TypedRelationSourceFacts exposes exact symbol-kind facts for relation query

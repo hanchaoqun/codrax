@@ -319,6 +319,9 @@ func aggregateMemberEvidenceByLabel(member string, support *aggregateMemberEvide
 		if key == "" {
 			continue
 		}
+		if support.byKeyCount[key] != 1 {
+			continue
+		}
 		if ev, ok := support.byKey[key]; ok {
 			return ev, true
 		}
@@ -382,6 +385,9 @@ func aggregateEvidenceIdentityMatchScore(item EvidenceItem, keys map[string]bool
 		}
 		if key := AnswerAggregateMemberSurfaceKey(raw); key != "" && keys[strings.ToLower(key)] {
 			return score
+		}
+		if aggregateEvidenceRawPathSuffixMatches(raw, keys) {
+			return score - 5
 		}
 		return -1
 	}
@@ -453,6 +459,9 @@ func aggregateMemberIdentityKeys(member string) map[string]bool {
 		if key := AnswerAggregateMemberSurfaceKey(raw); key != "" {
 			out[strings.ToLower(key)] = true
 		}
+		if suffix := aggregateMemberPathSuffixIdentity(raw); suffix != "" {
+			out["pathsuffix:"+suffix] = true
+		}
 	}
 	for _, candidate := range aggregateMemberDisplayCandidates(member) {
 		add(candidate)
@@ -462,6 +471,39 @@ func aggregateMemberIdentityKeys(member string) map[string]bool {
 		return nil
 	}
 	return out
+}
+
+func aggregateMemberPathSuffixIdentity(raw string) string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.Trim(raw, "`\"'")
+	raw = strings.ReplaceAll(raw, `\`, `/`)
+	for strings.HasPrefix(raw, "./") {
+		raw = strings.TrimPrefix(raw, "./")
+	}
+	if raw == "" || strings.ContainsAny(raw, " \t\r\n") || !strings.Contains(raw, "/") {
+		return ""
+	}
+	if strings.Contains(raw, "://") {
+		return ""
+	}
+	return strings.ToLower(raw)
+}
+
+func aggregateEvidenceRawPathSuffixMatches(raw string, keys map[string]bool) bool {
+	candidate := aggregateMemberPathSuffixIdentity(raw)
+	if candidate == "" {
+		return false
+	}
+	for key := range keys {
+		suffix, ok := strings.CutPrefix(key, "pathsuffix:")
+		if !ok || suffix == "" {
+			continue
+		}
+		if candidate == suffix || strings.HasSuffix(candidate, "/"+suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 func aggregateEvidenceIdentityMatchesAny(item EvidenceItem, keys map[string]bool) bool {

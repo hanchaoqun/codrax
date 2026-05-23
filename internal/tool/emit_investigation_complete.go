@@ -16,6 +16,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/tool/multipath"
+	rmrelation "github.com/hanchaoqun/codrax/internal/tool/repomap/relation"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/toolparam"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -2198,13 +2199,16 @@ func relationCandidatesForRequest(ctx *types.BusContext, rm types.RequestModel) 
 			return out
 		}
 	}
+	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+	if out := relationFilterCoverageCandidates(rmrelation.TypedRelationCandidates(graph, query), rm); len(out) > 0 {
+		return out
+	}
 	if query.AllowsKind(types.TypedRelationImplements) {
 		if provider, ok := ctx.MultiGraph.(types.TypedRelationImplementerSource); ok && provider != nil {
 			if out := relationTypedImplementersFromProvider(provider, query.Sources, rm); len(out) > 0 {
 				return out
 			}
 		}
-		graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
 		if out := relationTypedImplementersFromGraph(graph, query.Sources, rm); len(out) > 0 {
 			return out
 		}
@@ -2366,7 +2370,7 @@ func relationGroundedCandidateEvidenceKeys(ctx *types.BusContext, expected []typ
 				continue
 			}
 			for _, expectedItem := range expectedItems {
-				if source != canonicalRelationSourcePath(expectedItem.Member.File) {
+				if !relationCandidateGroundedInFile(expectedItem, source) {
 					continue
 				}
 				if candidateKey := relationCandidateEvidenceKey(expectedItem); candidateKey != "" {
@@ -2374,6 +2378,43 @@ func relationGroundedCandidateEvidenceKeys(ctx *types.BusContext, expected []typ
 				}
 			}
 		}
+	}
+	return out
+}
+
+func relationCandidateGroundedInFile(candidate types.TypedRelationCandidate, source string) bool {
+	source = canonicalRelationSourcePath(source)
+	if source == "" {
+		return false
+	}
+	for _, file := range relationCandidateGroundingFiles(candidate) {
+		if source == canonicalRelationSourcePath(file) {
+			return true
+		}
+	}
+	return false
+}
+
+func relationCandidateGroundingFiles(candidate types.TypedRelationCandidate) []string {
+	var out []string
+	add := func(file string) {
+		file = canonicalRelationSourcePath(file)
+		if file == "" {
+			return
+		}
+		for _, existing := range out {
+			if existing == file {
+				return
+			}
+		}
+		out = append(out, file)
+	}
+	switch candidate.Relation {
+	case types.TypedRelationImports, types.TypedRelationExports:
+		add(candidate.SourceFile)
+		add(candidate.Member.File)
+	default:
+		add(candidate.Member.File)
 	}
 	return out
 }

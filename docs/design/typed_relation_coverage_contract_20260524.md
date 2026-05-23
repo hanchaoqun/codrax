@@ -370,12 +370,124 @@ architecture task is to move this and future relation triggers into one central
 
 ### R3. Import/dependency relation provider
 
-Status: **Pending**
+Status: **Done — 2026-05-24**
 
 - Add exact file relation candidates for direct imports and reverse imports.
 - Use `ImportGraph` / `ReverseImports` rather than scanning import strings.
 - Treat unresolved imports as negative/uncertain evidence, not hard coverage.
 - Add Go + at least one non-Go fixture/eval case.
+
+Detailed design:
+
+1. Add a reusable graph adapter package under repomap, not a new evidence
+   stack:
+   - input: `*repomap/types.Graph` + `types.TypedRelationQuery`;
+   - output: `[]types.TypedRelationCandidate`;
+   - supported in this batch: existing exact `implements` rows plus new
+     `imports` / `exports` rows.
+   The adapter may import `internal/types`, but the low-level
+   `repomap/types.Graph` package must stay free of `internal/types` imports.
+   This avoids forcing the graph model itself to know about answer-stage
+   contracts while still preventing duplicate provider logic in context,
+   multigraph, and pre-complete coverage.
+
+2. Import/export semantics:
+   - `imports`: source file/package/directory depends on member file(s).
+   - `exports`: source file is imported by member file(s) (reverse import
+     edge). The name is kept for compatibility with the existing relation enum;
+     it is a typed reverse-dependency row, not a claim that the source language
+     has an `export` keyword.
+   - For exact file sources, precision is `ExactFile` and rows are eligible for
+     future hard coverage only after the existing downstream requirements also
+     hold: current-source scope, grounded same-member evidence, and a
+     model-authored principal `member_set` omission.
+   - For directory/package scoped prompt hints, rows may be surfaced as
+     prompt guidance but must be `NameOnly` / soft when the source itself is not
+     an exact file. This keeps broad package questions useful without letting a
+     directory-wide graph walk become a hard gate.
+
+3. Grounding and source-file policy:
+   - The candidate member for `imports` is the imported file path; the observed
+     relation source is the importer file.
+   - The candidate member for `exports` is the importing file path; the observed
+     relation source is also that importing file.
+   - No fake line numbers are invented. If repomap cannot map an import
+     statement line to a resolved edge, the edge remains file-exact and
+     line-less. Any later hard gate still requires separate grounded evidence
+     emitted by the model.
+
+4. Multi-repo behavior:
+   - `MultiGraph.TypedRelationCandidates` delegates to the same graph adapter
+     for active sub-repos and prefixes file paths back to path-from-parent.
+   - Cross-sub-repo import edges are not invented; current repomap namespaces
+     each sub-repo independently.
+   - Exact file sources remain hard-gate eligible only inside the active graph
+     that owns the file. Package/name-only sources are prompt-only.
+
+5. Language coverage:
+   - The implementation does not parse language syntax. It consumes
+     `ImportGraph`, `ReverseImports`, `FileInfo.Package`, and `FileInfo.Language`
+     that are already produced by repomap's language extractors/resolvers.
+   - Tests must prove the adapter is language-neutral by running the same graph
+     edge fixture across `SupportedReadLanguages()` and by pinning a non-Go
+     package/directory prompt case.
+
+R3 task list:
+
+- [x] Audit existing import graph primitives and typed relation selector.
+- [x] Add shared graph relation adapter for `imports` / `exports`.
+- [x] Wire single-repo prompt probing through the shared adapter.
+- [x] Wire `MultiGraph.TypedRelationCandidates` through the shared adapter with
+  path-from-parent prefixing.
+- [x] Update coverage fallback to use the shared graph adapter instead of
+  implementer-only graph fallback.
+- [x] Add unit tests for exact file imports, reverse imports, directory/package
+  soft prompt hints, multi-repo path prefixing, and all supported repomap
+  languages.
+- [x] Run focused unit tests and update this document with results.
+
+R3 implementation results:
+
+- Added `internal/tool/repomap/relation` as the shared graph adapter. It
+  consumes existing repomap graph carriers (`ImplementersOf`, `ImportGraph`,
+  `ReverseImports`, `FileInfo.Package`, `FileInfo.Language`) and emits
+  `TypedRelationCandidate` rows without adding a second evidence stack.
+- `internal/context.ProbeTypedRelations` now uses the same adapter for
+  single-repo graphs. For import-path inventory questions, exact required files
+  are added to typed query sources before probing, so analyzer entities like
+  `explorer.go` do not hide exact paths such as `internal/agent/explorer.go`.
+- `internal/tool/repomap/multigraph.MultiGraph` delegates import/export
+  candidate lookup to the shared adapter per active sub-repo, then prefixes
+  returned files back to parent-repo paths. It does not invent cross-sub-repo
+  edges.
+- `emit_investigation_complete` uses the same provider for pre-complete
+  relation coverage. For `imports` / `exports`, grounded evidence may live at
+  the observed importer file or the member file; this avoids forcing the model
+  to read an imported target file when the relation was already observed at the
+  import site.
+- A replay exposed a separate systemic evidence-matching risk: path-like
+  members with the same tail segment, such as `internal/types` and
+  `internal/tool/repomap/types`, could inherit the wrong citation when the
+  model's member_set omitted support refs. The aggregate matcher now accepts a
+  tail fallback only when that tail is unique, and otherwise prefers exact
+  multi-segment path-suffix identity. This fix is language-neutral for import /
+  use / require style paths and prevents the support plan from silently
+  mis-citing same-tail members.
+- Focused tests passed:
+  `go test ./internal/types ./internal/tool/repomap/relation ./internal/context ./internal/tool/repomap/multigraph ./internal/tool`.
+- Focused eval passed:
+  `eval/results/qf_imports-20260524-051527`. The final answer preserved all
+  import members, including `github.com/hanchaoqun/codrax/internal/types`
+  with the correct `internal/agent/explorer.go:29` citation, with no finalizer
+  retry and no answer-contract rejection.
+
+R3 residual note:
+
+- The same `qf_imports` replay still used four analyzer rounds before emitting
+  `emit_analysis`. This was not a reject loop and did not affect final answer
+  correctness, but it is a lower-priority analyzer pre-scan efficiency gap to
+  revisit under prompt/agent-budget work rather than the typed relation
+  provider contract.
 
 ### R4. Inheritance/subclass relation provider
 

@@ -145,8 +145,9 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		// per the feedback_no_system_backfill_to_user_panel red line
 		// the hint never reaches user-facing fields.
 		if bus.AnalysisIR != nil {
+			rm := requestModelWithImportRelationRequiredFiles(bus.AnalysisIR.RequestModel, bus.AnalysisIR.EvidencePlan.RequiredFiles)
 			for _, carrier := range typedRelationCarriersFromBus(bus) {
-				if hints := ProbeTypedRelations(carrier, &bus.AnalysisIR.RequestModel); len(hints) > 0 {
+				if hints := ProbeTypedRelations(carrier, &rm); len(hints) > 0 {
 					ac.TypedRelationHints = appendTypedRelationHints(ac.TypedRelationHints, hints...)
 				}
 			}

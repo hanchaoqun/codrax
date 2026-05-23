@@ -221,6 +221,64 @@ func TestCompileEnumerationDisplaySets_UsesCanonicalMembersAndSupportRefs(t *tes
 	}
 }
 
+func TestCompileEnumerationDisplaySets_ImportPathSuffixDisambiguatesSameTail(t *testing.T) {
+	rm := &RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+	}
+	plan := &AnswerSurfacePlan{
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "internal imports",
+			Value:   "2",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Unit:    "package",
+			Members: []string{"internal/tool/repomap/types", "internal/types"},
+		}},
+		SurfaceEvidence: []EvidenceItem{
+			{
+				ID:              "ev-repomap-types",
+				Kind:            EvidenceDirect,
+				AnchorSymbol:    "github.com/hanchaoqun/codrax/internal/tool/repomap/types",
+				AnchorKind:      AnchorImport,
+				Source:          "internal/agent/explorer.go",
+				LineStart:       28,
+				Scope:           ScopeLine,
+				GroundingStatus: GroundingGrounded,
+				Summary:         "仓库映射类型定义包，别名 repotypes",
+			},
+			{
+				ID:              "ev-types",
+				Kind:            EvidenceDirect,
+				AnchorSymbol:    "github.com/hanchaoqun/codrax/internal/types",
+				AnchorKind:      AnchorImport,
+				Source:          "internal/agent/explorer.go",
+				LineStart:       29,
+				Scope:           ScopeLine,
+				GroundingStatus: GroundingGrounded,
+				Summary:         "通用类型定义包",
+			},
+		},
+	}
+
+	sets := CompileEnumerationDisplaySets(rm, plan)
+	if len(sets) != 1 || len(sets[0].Rows) != 2 {
+		t.Fatalf("sets = %+v", sets)
+	}
+	if got := sets[0].Rows[0]; got.Member != "internal/tool/repomap/types" ||
+		got.Location != "internal/agent/explorer.go:28" ||
+		!strings.Contains(got.Note, "仓库映射类型") {
+		t.Fatalf("repomap/types row matched the wrong import evidence: %+v", got)
+	}
+	if got := sets[0].Rows[1]; got.Member != "internal/types" ||
+		got.Location != "internal/agent/explorer.go:29" ||
+		!strings.Contains(got.Note, "通用类型") {
+		t.Fatalf("internal/types row must not fall back to ambiguous tail `types`: %+v", got)
+	}
+}
+
 func TestCompileEnumerationDisplaySets_DedupAppendsSameAnchorSummaries(t *testing.T) {
 	rm := &RequestModel{
 		Intent: IntentEnumerate,

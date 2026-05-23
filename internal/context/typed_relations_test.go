@@ -389,6 +389,54 @@ func TestProbeTypedRelations_UsesCentralQueryForGenericRelationKinds(t *testing.
 	}
 }
 
+func TestProbeTypedRelations_ImportPathProfileUsesGraphImportEdges(t *testing.T) {
+	root := &repotypes.FileInfo{RelPath: "cmd/root.go", Language: repotypes.LangGo}
+	dep := &repotypes.FileInfo{RelPath: "internal/tool/tool.go", Language: repotypes.LangGo}
+	g := &repotypes.Graph{
+		Files:          []*repotypes.FileInfo{root, dep},
+		FileIndex:      map[string]*repotypes.FileInfo{root.RelPath: root, dep.RelPath: dep},
+		ImportGraph:    map[string][]string{root.RelPath: []string{dep.RelPath}},
+		ReverseImports: map[string][]string{dep.RelPath: []string{root.RelPath}},
+	}
+	rm := &types.RequestModel{
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleImportPath},
+		},
+		AnalyzerHints: types.AnalyzerHints{PrimaryEntities: []string{"cmd/root.go"}},
+	}
+	hints := ProbeTypedRelations(g, rm)
+	if len(hints) != 1 {
+		t.Fatalf("expected graph import relation hint, got %+v", hints)
+	}
+	if hints[0].Relation != types.TypedRelationImports || hints[0].SourceName != "cmd/root.go" {
+		t.Fatalf("unexpected import relation hint: %+v", hints[0])
+	}
+	if len(hints[0].Members) != 1 || hints[0].Members[0].Name != "internal/tool/tool.go" {
+		t.Fatalf("unexpected import members: %+v", hints[0].Members)
+	}
+}
+
+func TestRequestModelWithImportRelationRequiredFilesAddsTypedSourcesOnlyForImportInventory(t *testing.T) {
+	rm := types.RequestModel{
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleImportPath},
+		},
+		AnalyzerHints: types.AnalyzerHints{Entities: []string{"explorer.go"}},
+	}
+	got := requestModelWithImportRelationRequiredFiles(rm, []string{"internal/agent/explorer.go", "internal/agent/explorer.go"})
+	if len(got.AnalyzerHints.ExactTargets) != 1 || got.AnalyzerHints.ExactTargets[0] != "internal/agent/explorer.go" {
+		t.Fatalf("required file should become an exact typed relation source once, got %+v", got.AnalyzerHints.ExactTargets)
+	}
+
+	rm.SourceInventoryProfile.TargetRoles = []types.AnswerCandidateRole{types.AnswerCandidateRoleType}
+	got = requestModelWithImportRelationRequiredFiles(rm, []string{"internal/agent/explorer.go"})
+	if len(got.AnalyzerHints.ExactTargets) != 0 {
+		t.Fatalf("non-import inventories must not receive required-file relation sources, got %+v", got.AnalyzerHints.ExactTargets)
+	}
+}
+
 func TestTypedRelationCarrierFromBusPrefersGenericProviderOverLegacySearchGraph(t *testing.T) {
 	legacy := buildLooperGraphForTypedRelations(t)
 	provider := fakeTypedRelationCandidateSource{rows: []types.TypedRelationCandidate{{

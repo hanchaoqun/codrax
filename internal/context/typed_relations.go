@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	rmrelation "github.com/hanchaoqun/codrax/internal/tool/repomap/relation"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -200,6 +201,38 @@ func typedRelationSourceFacts(graph any, sources []string) []types.TypedRelation
 	return out
 }
 
+func requestModelWithImportRelationRequiredFiles(rm types.RequestModel, requiredFiles []string) types.RequestModel {
+	if len(requiredFiles) == 0 || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return rm
+	}
+	needsImportPath := false
+	for _, role := range rm.SourceInventoryProfile.PrincipalTargetRoles() {
+		if role == types.AnswerCandidateRoleImportPath {
+			needsImportPath = true
+			break
+		}
+	}
+	if !needsImportPath {
+		return rm
+	}
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		for _, existing := range rm.AnalyzerHints.ExactTargets {
+			if strings.EqualFold(existing, value) {
+				return
+			}
+		}
+		rm.AnalyzerHints.ExactTargets = append(rm.AnalyzerHints.ExactTargets, value)
+	}
+	for _, file := range requiredFiles {
+		add(file)
+	}
+	return rm
+}
+
 func appendTypedRelationHints(dst []types.TypedRelationHint, src ...types.TypedRelationHint) []types.TypedRelationHint {
 	if len(src) == 0 {
 		return dst
@@ -243,11 +276,10 @@ func typedRelationHintMemberKey(hint types.TypedRelationHint, member types.Typed
 }
 
 func probeTypedRelationCandidateSource(graph any, query types.TypedRelationQuery) []types.TypedRelationHint {
-	provider, ok := graph.(types.TypedRelationCandidateSource)
-	if !ok || provider == nil || len(query.Sources) == 0 {
+	if len(query.Sources) == 0 {
 		return nil
 	}
-	rows := provider.TypedRelationCandidates(query)
+	rows := typedRelationCandidateRows(graph, query)
 	if len(rows) == 0 {
 		return nil
 	}
@@ -309,6 +341,16 @@ func probeTypedRelationCandidateSource(graph any, query types.TypedRelationQuery
 		})
 	}
 	return hints
+}
+
+func typedRelationCandidateRows(graph any, query types.TypedRelationQuery) []types.TypedRelationCandidate {
+	if provider, ok := graph.(types.TypedRelationCandidateSource); ok && provider != nil {
+		return provider.TypedRelationCandidates(query)
+	}
+	if g, ok := graph.(*repotypes.Graph); ok && g != nil {
+		return rmrelation.TypedRelationCandidates(g, query)
+	}
+	return nil
 }
 
 // probeImplements walks Graph.ImplementersOf for one entity name.
