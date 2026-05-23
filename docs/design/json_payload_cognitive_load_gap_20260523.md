@@ -1008,6 +1008,33 @@ untouched.
       notices for that pass only. The direct reviewer methods still emit their
       existing specific notices. Regression tests cover the coalesced
       contract-check path and the user-message redline audit.
+  - Slice 46.2 — fallback retry status wording taxonomy. Status: planned.
+    - Detailed design before code: reuse the existing `FallbackTarget`,
+      `noticeKindForFallbackTarget`, and retry-routing policy. Do not change
+      which violations retry, which layer they retry from, or whether a failed
+      review becomes advisory. This slice is display-only telemetry: the same
+      runtime decision must render with a clearer localized status line.
+    - Root gap: several very different fallback paths can currently look like
+      the same "答案待完善/正在重写" event in the REPL, so users cannot
+      distinguish a finalizer-only rewrite from extractor restructuring,
+      evidence-layer fallback, or terminal accept-with-boundary behavior. That
+      obscures whether the system is doing a cheap local repair or has really
+      gone back upstream.
+    - Rule: keep one user-facing sentence per fallback target, with stable
+      semantic boundaries:
+        1. `FallbackFinalizerOnly` means only the final answer is being
+           rewritten from accepted context;
+        2. `FallbackBackToExtract` means the structured answer slate is being
+           rebuilt from already accepted evidence;
+        3. `FallbackBackToExplore` means the pipeline is returning to evidence
+           collection for missing context;
+        4. `FallbackFailLoud` means no more rewrite is useful and the answer
+           should ship with a visible boundary/advisory note.
+    - Guardrail tests: localized messages for the four targets must be
+      distinct, avoid internal enum names, avoid transport-error wording, and
+      avoid the overly broad "答案待完善" phrase on target-specific fallback
+      lines. Unknown/reserved targets still degrade to the generic answer-check
+      retry message.
 
 - Batch 47 — diagram/renderability hardening. Status: planned.
   - Keep Mermaid/code-fence display fixes renderer-only, but add deterministic
