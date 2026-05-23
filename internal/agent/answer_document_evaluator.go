@@ -3670,6 +3670,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 		if summary := strings.TrimSpace(record.Summary); summary != "" {
 			fmt.Fprintf(&b, "; summary=%q", truncateAnswerDocPromptText(summary, 180))
 		}
+		if excerpt := renderAnswerDocObservationExcerpt(record); excerpt != "" {
+			fmt.Fprintf(&b, "; excerpt=%q", excerpt)
+		}
 		if len(record.RichNotes) > 0 {
 			if notes := renderAnswerDocObservationNotes(record.RichNotes, answerDocObservationNoteLimit(record)); notes != "" {
 				fmt.Fprintf(&b, "; notes=%s", notes)
@@ -3701,6 +3704,22 @@ func prioritizedObservationLedgerRecords(ctx *types.AgentContext, records []type
 		contract = &ctx.AnalysisIR.AnswerContract
 	}
 	return types.PrioritizeObservationRecords(records, rm, contract, limit)
+}
+
+func renderAnswerDocObservationExcerpt(record types.ObservationRecord) string {
+	if record.Origin == types.AnswerEvidenceOriginCurrentSource {
+		return ""
+	}
+	excerpt := strings.Join(strings.Fields(strings.TrimSpace(record.RawExcerpt)), " ")
+	if excerpt == "" || excerpt == strings.Join(strings.Fields(strings.TrimSpace(record.Summary)), " ") {
+		return ""
+	}
+	limit := 180
+	if types.NormalizeAnswerAggregateRole(record.Role).IsPrincipal() ||
+		types.AnswerEvidenceOriginCarriesOriginSpecificSupport(record.Origin) {
+		limit = 260
+	}
+	return truncateAnswerDocPromptText(excerpt, limit)
 }
 
 func renderAnswerDocObservationSource(ref types.ObservationSourceRef) string {

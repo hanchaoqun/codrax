@@ -164,6 +164,11 @@ Implementation progress:
   suffixes that point back into the active repo graph. This keeps typed
   source-inventory carriers scoped to the user's requested package/file without
   broadening to sibling files or relying on prose keywords.
+- 2026-05-23 Batch 27 surfaced compact external-observation excerpts in both
+  finalizer and semantic-reviewer Observation Ledger prompts. `RawExcerpt` was
+  already compiled for git/diff/command/log/trace/MCP records, but was not
+  visible downstream; now non-current-source observations can carry a bounded
+  excerpt alongside summary/value/notes without creating fake repo citations.
 - Remaining work starts at P1 carrier compilers / row-set compilers; the
   completed ref batch deliberately did not change answer materialization policy.
 
@@ -431,6 +436,10 @@ overriding better model-authored descriptions.
   command/git/log/trace outputs by projecting legacy `ToolResult.RawRef` and
   aggregate `blob_ref`/`payload_ref` dimensions into typed
   `ObservationSourceRef.PayloadRef`.
+- DONE (Batch 27): finalizer/reviewer now render bounded `RawExcerpt` for
+  non-current-source observations, so large external payloads still have a
+  useful inline preview while full content remains behind `payload_ref` /
+  `row_set_ref`.
 - DONE (Batch 12): preserve typed `row_set_ref` and `page_ref` dimensions in the
   observation ledger and render them explicitly in finalizer/reviewer prompt
   sources.

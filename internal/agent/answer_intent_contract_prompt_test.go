@@ -408,3 +408,39 @@ func TestRenderAnswerDocObservationLedger_RendersTypedPayloadRefs(t *testing.T) 
 		}
 	}
 }
+
+func TestRenderAnswerDocObservationLedger_RendersExternalRawExcerpt(t *testing.T) {
+	mut := types.NewMutableState("基于 git diff 和当前代码分析")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "exec_command",
+		Success:  true,
+		Summary: "[git_show: evidence_origin=vcs_diff]\n" +
+			"commit abc123\n" +
+			"详细说明：新增调度入口并调整兼容保护。\n" +
+			"影响：当前代码需要结合 scheduler.go 的新入口理解。",
+		RawRef: "blob://payload/git-show-abc123.txt",
+	}}})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup: true,
+				},
+				ChangeImpactProfile: &types.ChangeImpactProfile{IsChangeImpact: true},
+			},
+		},
+	}
+	got := renderAnswerDocObservationLedger(ctx)
+	for _, want := range []string{
+		"`tool:0#vcs_diff`",
+		"source=`kind=vcs_diff | payload_ref=blob://payload/git-show-abc123.txt`",
+		"summary=\"commit abc123\"",
+		"excerpt=\"[git_show: evidence_origin=vcs_diff] commit abc123 详细说明：新增调度入口并调整兼容保护。 影响：当前代码需要结合 scheduler.go 的新入口理解。\"",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("observation ledger prompt missing external raw excerpt %q:\n%s", want, got)
+		}
+	}
+}

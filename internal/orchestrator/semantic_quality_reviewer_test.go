@@ -1232,6 +1232,7 @@ func TestSemanticObservationSummaries_UsesIntentAwareLedgerPriority(t *testing.T
 				"变更把调度入口从旧路由切到新策略。",
 				"当前 diff 还包含回滚保护。",
 			},
+			RawExcerpt:  "[git_show]\ncommit abc123\n详细说明了调度入口切换和兼容影响。",
 			SupportRefs: []string{"payload_ref:git-show"},
 		},
 		{
@@ -1260,7 +1261,7 @@ func TestSemanticObservationSummaries_UsesIntentAwareLedgerPriority(t *testing.T
 	if len(got) < 2 || got[0].ID != "evidence:current" || got[1].ID != "tool:0#vcs_diff" {
 		t.Fatalf("semantic reviewer should use shared mixed-origin ledger priority, got %+v", got)
 	}
-	if got[1].Value != "abc123" || len(got[1].Notes) != 2 || got[1].SupportRefCount != 1 {
+	if got[1].Value != "abc123" || got[1].Excerpt == "" || len(got[1].Notes) != 2 || got[1].SupportRefCount != 1 {
 		t.Fatalf("semantic reviewer should preserve VCS value/rich notes/support refs, got %+v", got[1])
 	}
 }
@@ -1280,6 +1281,7 @@ func TestRenderSemanticQualityUserMessage_RendersObservationLedgerBoundaries(t *
 			Claim:           "git_log",
 			Value:           "abc123",
 			Summary:         "abc123 优化 repo map 缓存",
+			Excerpt:         "commit abc123: 优化 repo map 缓存并减少冷启动扫描。",
 			Notes:           []string{"该提交减少 repo map 冷启动扫描。"},
 			ResultCount:     &count,
 			SupportRefCount: 2,
@@ -1293,6 +1295,7 @@ func TestRenderSemanticQualityUserMessage_RendersObservationLedgerBoundaries(t *
 		"result_count=0",
 		"value=\"abc123\"",
 		"abc123 优化 repo map 缓存",
+		"excerpt=\"commit abc123: 优化 repo map 缓存并减少冷启动扫描。\"",
 		"notes=[\"该提交减少 repo map 冷启动扫描。\"]",
 		"support_refs=2",
 	} {

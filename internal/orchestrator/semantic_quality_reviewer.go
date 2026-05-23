@@ -167,6 +167,7 @@ type SemanticObservationSummary struct {
 	Claim           string
 	Value           string
 	Summary         string
+	Excerpt         string
 	Notes           []string
 	Negative        bool
 	ResultCount     *int
@@ -699,7 +700,7 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 	}
 	if len(in.Observations) > 0 {
 		b.WriteString("\n## OBSERVATION LEDGER (typed evidence / external-resource view)\n")
-		b.WriteString("Each row: record_id / origin / role / policy / source / span / claim / value / summary / notes. Non-current-source rows are valid observations but are not current-repo citations; evaluate coverage using their origin-specific support.\n\n")
+		b.WriteString("Each row: record_id / origin / role / policy / source / span / claim / value / summary / excerpt / notes. Non-current-source rows are valid observations but are not current-repo citations; evaluate coverage using their origin-specific support.\n\n")
 		for _, obs := range in.Observations {
 			fmt.Fprintf(&b, "- record_id=%q origin=`%s` role=`%s` policy=`%s` source=%q",
 				obs.ID, obs.Origin, obs.Role, obs.Policy, obs.Source)
@@ -720,6 +721,9 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 			}
 			if obs.Summary != "" {
 				fmt.Fprintf(&b, " summary=%q", obs.Summary)
+			}
+			if obs.Excerpt != "" {
+				fmt.Fprintf(&b, " excerpt=%q", obs.Excerpt)
 			}
 			if len(obs.Notes) > 0 {
 				fmt.Fprintf(&b, " notes=%s", renderSemanticObservationNotes(obs.Notes))
@@ -785,6 +789,7 @@ func semanticObservationSummaries(ledger types.ObservationLedger, rm *types.Requ
 			Claim:           strings.TrimSpace(record.ClaimKey),
 			Value:           clampSemanticObservationText(record.Value, 120),
 			Summary:         clampSemanticObservationText(record.Summary, 180),
+			Excerpt:         semanticObservationExcerpt(record),
 			Notes:           semanticObservationNotes(record),
 			Negative:        record.Negative,
 			ResultCount:     record.ResultCount,
@@ -792,6 +797,22 @@ func semanticObservationSummaries(ledger types.ObservationLedger, rm *types.Requ
 		})
 	}
 	return out
+}
+
+func semanticObservationExcerpt(record types.ObservationRecord) string {
+	if record.Origin == types.AnswerEvidenceOriginCurrentSource {
+		return ""
+	}
+	excerpt := strings.Join(strings.Fields(strings.TrimSpace(record.RawExcerpt)), " ")
+	if excerpt == "" || excerpt == strings.Join(strings.Fields(strings.TrimSpace(record.Summary)), " ") {
+		return ""
+	}
+	limit := 120
+	if types.NormalizeAnswerAggregateRole(record.Role).IsPrincipal() ||
+		types.AnswerEvidenceOriginCarriesOriginSpecificSupport(record.Origin) {
+		limit = 180
+	}
+	return clampSemanticObservationText(excerpt, limit)
 }
 
 func semanticObservationNotes(record types.ObservationRecord) []string {
