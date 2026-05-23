@@ -2,12 +2,12 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-24 are complete and verified; the
+Status: partially implemented. Batches 1-29 are complete and verified; the
 shared schema-aware repair path is active across the high-frequency structured
 emit tools, including the legacy top-level JSON-string repair wrappers.
 Remaining work is still tracked below, starting with P1 carrier compilers /
-row-set compilers, followed by transactional document updates, typed repair
-hints for remaining validators, and prompt/ledger deduplication.
+row-set compilers, followed by deeper transactional document updates, typed
+repair hints for remaining validators, and prompt/ledger deduplication.
 
 Implementation progress:
 
@@ -175,6 +175,12 @@ Implementation progress:
   writer. Large `member_set` rows now get a `row_set_ref` JSONL artifact while
   the prompt keeps only the compact prioritized ledger row, preserving rich
   per-member notes without forcing the model to emit or reread huge JSON arrays.
+- 2026-05-23 Batch 29 added the first transactional answer-document patch
+  normalization pass for lossless id-surface issues. Patch op ids are trimmed,
+  duplicate id-list entries are dropped, and byte-identical duplicate
+  `replace_blocks` / `add_blocks` entries are coalesced before semantic
+  validation. Same-id blocks with different payloads are still rejected, so the
+  runtime never chooses between conflicting model-authored answer variants.
 - Remaining work starts at P1 carrier compilers / row-set compilers; the
   completed ref batch deliberately did not change answer materialization policy.
 
@@ -474,6 +480,10 @@ overriding better model-authored descriptions.
   typed metadata for pre-emit hard structural hints derived from existing
   `emitFixHint` fields. Batch 19 carries strict-decode field repair metadata
   for common structured emit tools without changing the sanitized prose error.
+- PARTIAL (Batch 29): patch transactions now absorb lossless id-surface carrier
+  noise before validation: whitespace around op ids and exact duplicate op
+  declarations no longer force a finalizer retry. Conflicting duplicate blocks
+  still fail loudly because choosing one payload would alter model intent.
 - Remaining: extend the same typed repair lane to other deterministic
   answer-document validators only where the target field/action is precise.
 - Make patch/full-emit transitions transactional so carrier errors are fixed

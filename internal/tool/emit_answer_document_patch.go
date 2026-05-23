@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -217,6 +218,10 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 		}
 		patch.AddBlocks = converted
 	}
+	if changed, fields := normalizeAnswerDocumentPatchIDSurface(patch); changed {
+		logging.Warning("[emit_answer_document_patch] id/op duplicate(s) normalized via transactional tolerance: %s",
+			strings.Join(fields, ", "))
+	}
 	if changed, fields := normalizeAnswerDocumentPatchBlockOps(prev, patch); changed {
 		logging.Warning("[emit_answer_document_patch] block op(s) normalized via prev-id tolerance: %s",
 			strings.Join(fields, ", "))
@@ -267,6 +272,73 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	}
 
 	return ApplyAndPersistMutation(ctx, t.Name(), mutation, prev, now)
+}
+
+func normalizeAnswerDocumentPatchIDSurface(patch *types.AnswerDocumentV2Patch) (bool, []string) {
+	if patch == nil {
+		return false, nil
+	}
+	var fields []string
+	patch.UnchangedBlockIDs = normalizePatchIDList("unchanged_block_ids", patch.UnchangedBlockIDs, &fields)
+	patch.RemoveBlockIDs = normalizePatchIDList("remove_block_ids", patch.RemoveBlockIDs, &fields)
+	patch.ReplaceBlocks = normalizePatchBlockList("replace_blocks", patch.ReplaceBlocks, &fields)
+	patch.AddBlocks = normalizePatchBlockList("add_blocks", patch.AddBlocks, &fields)
+	return len(fields) > 0, fields
+}
+
+func normalizePatchIDList(field string, ids []string, fields *[]string) []string {
+	if len(ids) == 0 {
+		return ids
+	}
+	out := make([]string, 0, len(ids))
+	seen := map[string]bool{}
+	for _, raw := range ids {
+		id := strings.TrimSpace(raw)
+		if id == "" {
+			*fields = append(*fields, field+"[empty] dropped")
+			continue
+		}
+		if id != raw {
+			*fields = append(*fields, fmt.Sprintf("%s[%q] trimmed", field, id))
+		}
+		if seen[id] {
+			*fields = append(*fields, fmt.Sprintf("%s[%q] duplicate dropped", field, id))
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out
+}
+
+func normalizePatchBlockList(field string, blocks []types.AnswerBlock, fields *[]string) []types.AnswerBlock {
+	if len(blocks) == 0 {
+		return blocks
+	}
+	out := make([]types.AnswerBlock, 0, len(blocks))
+	seen := map[string]int{}
+	for _, block := range blocks {
+		rawID := block.ID
+		block.ID = strings.TrimSpace(block.ID)
+		if block.ID != rawID {
+			*fields = append(*fields, fmt.Sprintf("%s[%q] id trimmed", field, block.ID))
+		}
+		if block.ID == "" {
+			out = append(out, block)
+			continue
+		}
+		if idx, ok := seen[block.ID]; ok {
+			if reflect.DeepEqual(out[idx], block) {
+				*fields = append(*fields, fmt.Sprintf("%s[%q] identical duplicate dropped", field, block.ID))
+				continue
+			}
+			out = append(out, block)
+			continue
+		}
+		seen[block.ID] = len(out)
+		out = append(out, block)
+	}
+	return out
 }
 
 func normalizeAnswerDocumentPatchBlockOps(prev *types.AnswerDocumentV2, patch *types.AnswerDocumentV2Patch) (bool, []string) {

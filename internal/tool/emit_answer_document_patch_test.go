@@ -330,6 +330,74 @@ func TestEmitAnswerDocumentPatch_NormalizesRemoveThenAddSameExistingBlockToRepla
 	}
 }
 
+func TestEmitAnswerDocumentPatch_NormalizesWhitespaceAndIdenticalDuplicateOps(t *testing.T) {
+	bus := newPatchTestBusContext()
+	tool := &EmitAnswerDocumentPatch{}
+	params := json.RawMessage(`{
+		"remove_block_ids": [" list1 ", "list1"],
+		"replace_blocks": [
+			{
+				"id": " s1 ",
+				"kind": "summary",
+				"surface_role": "principal",
+				"text": "fixed summary",
+				"facet_ids": ["current_code_path"],
+				"claim_uses": [{"claim_form": "definition_fact", "evidence_id": "ev1"}]
+			},
+			{
+				"id": "s1",
+				"kind": "summary",
+				"surface_role": "principal",
+				"text": "fixed summary",
+				"facet_ids": ["current_code_path"],
+				"claim_uses": [{"claim_form": "definition_fact", "evidence_id": "ev1"}]
+			}
+		],
+		"add_blocks": [
+			{"id": " extra ", "kind": "section", "text": "extra detail"},
+			{"id": "extra", "kind": "section", "text": "extra detail"}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute err: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("whitespace/identical duplicate patch ops should be normalized transactionally; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 {
+		t.Fatalf("normalized patch should replace s1, remove list1, add extra; got %+v", doc)
+	}
+	if doc.Blocks[0].ID != "s1" || doc.Blocks[0].Text != "fixed summary" {
+		t.Fatalf("replacement block was not normalized/applied: %+v", doc.Blocks[0])
+	}
+	if doc.Blocks[1].ID != "extra" || doc.Blocks[1].Text != "extra detail" {
+		t.Fatalf("add block was not normalized/applied: %+v", doc.Blocks[1])
+	}
+}
+
+func TestEmitAnswerDocumentPatch_ConflictingDuplicateBlocksStillReject(t *testing.T) {
+	bus := newPatchTestBusContext()
+	tool := &EmitAnswerDocumentPatch{}
+	params := json.RawMessage(`{
+		"replace_blocks": [
+			{"id": "s1", "kind": "summary", "text": "first"},
+			{"id": " s1 ", "kind": "summary", "text": "second"}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute err: %v", err)
+	}
+	if res.Success {
+		t.Fatal("same-id blocks with different payloads must still reject; runtime must not choose between model-authored variants")
+	}
+	if !strings.Contains(res.Summary, `replace_blocks["s1"] duplicated`) {
+		t.Fatalf("reject should preserve the precise duplicate-id diagnostic, got %q", res.Summary)
+	}
+}
+
 // TestEmitAnswerDocumentPatch_RecoverFromRetryState confirms the
 // fallback path: when AnswerDocumentV2 was cleared (e.g. by
 // ResetForFallback), the tool falls back to RetryState.PrevEmitJSON.
