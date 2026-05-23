@@ -33,7 +33,7 @@ Eval run root:
   stale enumeration file-coverage floors and broad ranker-coverage pushbacks.
   The legacy overview-window check no longer parses assistant prose keywords;
   it is driven by typed RequestModel / QuestionFamily signals only.
-- Batch 4 implemented locally: evidence ranking now has a baseline structural ordering
+- Batch 4 landed in `4abba21a`: evidence ranking now has a baseline structural ordering
   even when no question entities are extracted, so grounded/read/citable
   definition and call anchors are not left behind broad concrete-value noise by
   input order alone.
