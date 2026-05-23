@@ -5466,14 +5466,23 @@ var completionProgressToolNames = map[string]bool{
 	"emit_investigation_complete": true,
 }
 
+var evidenceRepairToolNames = map[string]bool{
+	"read_file":                   true,
+	"emit_evidence":               true,
+	"emit_investigation_complete": true,
+}
+
 // FilterToolSchemas narrows explorer turns only after the runtime has
 // observed a concrete evidence backlog: source material was read, but
 // the model still has not materialized it through emit_evidence /
 // emit_investigation_complete, or a prior evidence batch needs a
-// grounded repair. This is intentionally state-driven, not text-driven:
-// it does not inspect the user's question or the model's prose, and it
-// leaves the normal tool surface unchanged until a loop observer has
-// already raised a structured backlog signal.
+// grounded repair. Evidence repair is a special case: the current hint
+// asks the model to re-read exact source locations before re-emitting
+// grounded evidence, so the schema must keep `read_file` available while
+// still removing broad navigation tools. This is intentionally
+// state-driven, not text-driven: it does not inspect the user's question
+// or the model's prose, and it leaves the normal tool surface unchanged
+// until a loop observer has already raised a structured backlog signal.
 //
 // The filter is fail-open. If the current skill/schema set does not
 // include an actionable materialization tool, the original schemas are
@@ -5482,12 +5491,13 @@ func (e *explorerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas [
 	if e == nil || ctx == nil || ctx.Stage != types.StageExplore || len(schemas) == 0 || e.investigationComplete {
 		return schemas
 	}
-	if !e.materializationOnlyToolSurfaceActive() {
+	allowed := e.restrictedToolSurface()
+	if len(allowed) == 0 {
 		return schemas
 	}
 	out := make([]llm.ToolSchema, 0, len(schemas))
 	for _, schema := range schemas {
-		if completionProgressToolNames[strings.TrimSpace(schema.Name)] {
+		if allowed[strings.TrimSpace(schema.Name)] {
 			out = append(out, schema)
 		}
 	}
@@ -5497,14 +5507,21 @@ func (e *explorerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas [
 	return out
 }
 
-func (e *explorerEvaluator) materializationOnlyToolSurfaceActive() bool {
+func (e *explorerEvaluator) restrictedToolSurface() map[string]bool {
 	if e == nil {
-		return false
+		return nil
 	}
 	if e.midLoopEvidenceRepairSent && e.midLoopEvidenceRepairResultsLen > 0 {
-		return true
+		return evidenceRepairToolNames
 	}
-	return e.midLoopNoEmitPushSent && e.midLoopNoEmitEscalated
+	if e.midLoopNoEmitPushSent && e.midLoopNoEmitEscalated {
+		return completionProgressToolNames
+	}
+	return nil
+}
+
+func (e *explorerEvaluator) materializationOnlyToolSurfaceActive() bool {
+	return len(e.restrictedToolSurface()) > 0
 }
 
 func hasSuccessfulTool(results []types.ToolResult, toolName string) bool {

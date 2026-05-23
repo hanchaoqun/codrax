@@ -896,6 +896,40 @@ func TestAnalyzer_RejectsContentToolBeforeExecution(t *testing.T) {
 	}
 }
 
+func TestAnalyzer_TerminalEmitOnlyRejectsHandwrittenPrescanTool(t *testing.T) {
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: types.NewMutableState("question")}
+	first := validateAnalyzerToolBoundary(ctx, llm.ToolCall{
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"internal/agent/analyzer.go"}`),
+	})
+	if first == nil || first.Success {
+		t.Fatalf("expected initial deep-read rejection, got %+v", first)
+	}
+
+	got := validateAnalyzerToolBoundary(ctx, llm.ToolCall{
+		Name:   "grep",
+		Params: json.RawMessage(`{"pattern":"buildAnalysisIR","files_only":true}`),
+	})
+	if got == nil {
+		t.Fatal("expected terminal emit-only runtime boundary to reject handwritten grep")
+	}
+	if got.Success {
+		t.Fatalf("terminal emit-only rejection must be unsuccessful: %+v", got)
+	}
+	if got.Repair == nil || got.Repair.Code != analyzerPrescanTerminalEmitModeCode {
+		t.Fatalf("expected repair code %q, got %+v", analyzerPrescanTerminalEmitModeCode, got.Repair)
+	}
+	if !strings.Contains(got.Summary, "available tools here: emit_analysis") {
+		t.Fatalf("summary should expose only emit_analysis, got %q", got.Summary)
+	}
+	if ctx.Mutable.PrescanRoundCount() != 0 {
+		t.Fatalf("rejected handwritten prescan tool must not spend prescan rounds, got %d", ctx.Mutable.PrescanRoundCount())
+	}
+	if ok := validateAnalyzerToolBoundary(ctx, llm.ToolCall{Name: "emit_analysis", Params: json.RawMessage(`{}`)}); ok != nil {
+		t.Fatalf("emit_analysis should remain allowed in terminal emit-only mode, got %+v", ok)
+	}
+}
+
 func TestAnalyzer_BlockedUnsafePathDoesNotEnterPrescanCorpus(t *testing.T) {
 	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: types.NewMutableState("question")}
 	res := validateAnalyzerToolBoundary(ctx, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"../huge-repo/secret.go"}`)})

@@ -346,10 +346,16 @@ func schemaPropertyKeyAliasFromNames(key string, names map[string]struct{}) (str
 	if canonical, ok := compositeSchemaPropertyKeyAlias(quoteTrimmed, names); ok {
 		return canonical, "property_key_composite_fragment", true
 	}
+	if canonical, ok := schemaStringSuffixPropertyAlias(quoteTrimmed, names); ok {
+		return canonical, "property_key_string_suffix", true
+	}
 	snake := schemaStyleKeyAlias(quoteTrimmed)
 	if snake != quoteTrimmed {
 		if _, ok := names[snake]; ok {
 			return snake, "property_key_case_style", true
+		}
+		if canonical, ok := schemaStringSuffixPropertyAlias(snake, names); ok {
+			return canonical, "property_key_string_suffix", true
 		}
 	}
 	if canonical, ok := uniqueSchemaPropertyFingerprintAlias(quoteTrimmed, names, false); ok {
@@ -359,6 +365,21 @@ func schemaPropertyKeyAliasFromNames(key string, names map[string]struct{}) (str
 		return canonical, "property_key_id_plural", true
 	}
 	return "", "", false
+}
+
+func schemaStringSuffixPropertyAlias(key string, names map[string]struct{}) (string, bool) {
+	const suffix = "_str"
+	if !strings.HasSuffix(key, suffix) || len(key) <= len(suffix) {
+		return "", false
+	}
+	base := strings.TrimSpace(strings.TrimSuffix(key, suffix))
+	if base == "" {
+		return "", false
+	}
+	if _, ok := names[base]; ok {
+		return base, true
+	}
+	return "", false
 }
 
 func compositeSchemaPropertyKeyAlias(key string, names map[string]struct{}) (string, bool) {

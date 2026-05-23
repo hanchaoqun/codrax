@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -3688,8 +3689,49 @@ func TestExplorer_FilterToolSchemas_EvidenceRepairMaterializationOnly(t *testing
 	}
 
 	got := eval.FilterToolSchemas(ctx, schemas)
-	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "emit_evidence,emit_investigation_complete" {
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,emit_evidence,emit_investigation_complete" {
 		t.Fatalf("repair materialization-only schema names = %v", gotNames)
+	}
+}
+
+func TestExplorer_RuntimeBoundary_ReadWithoutEmitRejectsNavigation(t *testing.T) {
+	eval := &explorerEvaluator{
+		midLoopNoEmitPushSent:  true,
+		midLoopNoEmitEscalated: true,
+	}
+	ctx := &types.AgentContext{Stage: types.StageExplore}
+
+	got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "grep", Params: json.RawMessage(`{"pattern":"x"}`)})
+	if got == nil || got.Success {
+		t.Fatalf("expected read-without-emit restricted surface to reject grep, got %+v", got)
+	}
+	if got.Repair == nil || got.Repair.Code != explorerRestrictedToolSurfaceCode {
+		t.Fatalf("expected repair code %q, got %+v", explorerRestrictedToolSurfaceCode, got.Repair)
+	}
+	if !strings.Contains(got.Summary, "emit_evidence") || strings.Contains(got.Summary, "read_file") {
+		t.Fatalf("summary should expose only completion tools, got %q", got.Summary)
+	}
+	if ok := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "emit_evidence", Params: json.RawMessage(`{}`)}); ok != nil {
+		t.Fatalf("emit_evidence should remain allowed, got %+v", ok)
+	}
+}
+
+func TestExplorer_RuntimeBoundary_EvidenceRepairAllowsReadFileButRejectsBroadSearch(t *testing.T) {
+	eval := &explorerEvaluator{
+		midLoopEvidenceRepairSent:       true,
+		midLoopEvidenceRepairResultsLen: 1,
+	}
+	ctx := &types.AgentContext{Stage: types.StageExplore}
+
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"x.go","offset":1}`)}); got != nil {
+		t.Fatalf("read_file should remain available for exact evidence repair, got %+v", got)
+	}
+	got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "grep", Params: json.RawMessage(`{"pattern":"x"}`)})
+	if got == nil || got.Success {
+		t.Fatalf("expected evidence repair restricted surface to reject broad grep, got %+v", got)
+	}
+	if !strings.Contains(got.Summary, "read_file") || !strings.Contains(got.Summary, "emit_evidence") {
+		t.Fatalf("summary should expose read_file plus emit tools, got %q", got.Summary)
 	}
 }
 

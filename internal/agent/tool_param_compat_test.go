@@ -70,6 +70,34 @@ func TestNormalizeToolCallParams_AuditDoesNotMutate(t *testing.T) {
 	}
 }
 
+func TestNormalizeToolCallParams_RepairsBooleanStringsWhenSchemaAvailable(t *testing.T) {
+	base := &BaseAgent{
+		name: types.AgentExplorer,
+		deps: &Dependencies{
+			ToolParamCompatByAgent: map[types.AgentName]types.ToolParamCompatConfig{
+				types.AgentExplorer: {Mode: types.ToolParamCompatRepair},
+			},
+		},
+	}
+	calls := []llm.ToolCall{{
+		ID:     "call_1",
+		Name:   "grep",
+		Params: json.RawMessage(`{"pattern":"func buildAnalysisIR","files_only":"True"}`),
+	}}
+	schemas := []llm.ToolSchema{{Name: "grep", Parameters: grepCompatTestSchema()}}
+
+	got := base.normalizeToolCallParams(calls, schemas)
+	var decoded struct {
+		FilesOnly bool `json:"files_only"`
+	}
+	if err := json.Unmarshal(got[0].Params, &decoded); err != nil {
+		t.Fatalf("repaired params are invalid JSON: %v\n%s", err, got[0].Params)
+	}
+	if !decoded.FilesOnly {
+		t.Fatalf("files_only should be normalized true: %s", got[0].Params)
+	}
+}
+
 func TestNormalizeToolCallParams_RepairStringWrappedArrayWithBareQuotes(t *testing.T) {
 	base := &BaseAgent{
 		name: types.AgentExplorer,
@@ -304,6 +332,18 @@ func readFileCompatTestSchema() json.RawMessage {
 			"limit": {"type": "integer"}
 		},
 		"required": ["path"]
+	}`)
+}
+
+func grepCompatTestSchema() json.RawMessage {
+	return json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"pattern": {"type": "string"},
+			"files_only": {"type": "boolean"},
+			"file_type": {"type": "string"}
+		},
+		"required": ["pattern"]
 	}`)
 }
 

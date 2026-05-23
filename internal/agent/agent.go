@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -2499,6 +2500,9 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 	if violation := validateAnalyzerPrescanToolCall(ctx, tc); violation != nil {
 		return violation, nil
 	}
+	if violation := validateExplorerToolBoundary(ctx, b.eval, tc); violation != nil {
+		return violation, nil
+	}
 	if violation := validateObservationOnlyRuntimeToolCall(ctx, tc); violation != nil {
 		return violation, nil
 	}
@@ -2619,6 +2623,9 @@ func stageAllowedToolSummary(ctx *types.AgentContext) string {
 	}
 	switch ctx.Stage {
 	case types.StageAnalyze:
+		if analyzerTerminalEmitOnly(ctx) {
+			return "emit_analysis"
+		}
 		return "emit_analysis, grep(files_only=true), repo_map"
 	case types.StageExplore:
 		return "read/search tools, git tools, emit_evidence, emit_investigation_complete"
@@ -2755,6 +2762,10 @@ func validateAnalyzerToolBoundary(ctx *types.AgentContext, tc llm.ToolCall) *typ
 	if ctx == nil || ctx.Stage != types.StageAnalyze {
 		return nil
 	}
+	if analyzerTerminalEmitOnly(ctx) && tc.Name != "emit_analysis" {
+		return rejectAnalyzerTool(ctx, tc, "analyzer_tool_rejected", analyzerPrescanTerminalEmitModeCode,
+			fmt.Sprintf("analyze is already in terminal emit mode; tool %q is not available now; available tools here: emit_analysis. Call emit_analysis with the best classification and routing hints you have.", tc.Name))
+	}
 	if isAnalyzerStageAllowedTool(tc.Name) {
 		return nil
 	}
@@ -2764,6 +2775,43 @@ func validateAnalyzerToolBoundary(ctx *types.AgentContext, tc llm.ToolCall) *typ
 
 func isAnalyzerStageAllowedTool(name string) bool {
 	return name == "emit_analysis" || isPrescanTool(name)
+}
+
+const explorerRestrictedToolSurfaceCode = "explorer_restricted_tool_surface"
+
+func validateExplorerToolBoundary(ctx *types.AgentContext, eval Evaluator, tc llm.ToolCall) *types.ToolResult {
+	if ctx == nil || ctx.Stage != types.StageExplore {
+		return nil
+	}
+	explorerEval, ok := eval.(*explorerEvaluator)
+	if !ok || explorerEval == nil || explorerEval.investigationComplete {
+		return nil
+	}
+	allowed := explorerEval.restrictedToolSurface()
+	if len(allowed) == 0 || allowed[tc.Name] {
+		return nil
+	}
+	allowedNames := sortedToolNames(allowed)
+	reason := fmt.Sprintf("tool %q is not available in the current explorer repair state; available tools here: %s. Use the already-read or exact repair context to emit structured evidence before widening scope.", tc.Name, strings.Join(allowedNames, ", "))
+	logging.Warning("[explorer] tool %q rejected: %s", tc.Name, reason)
+	return &types.ToolResult{
+		ToolName:  tc.Name,
+		Success:   false,
+		Summary:   reason,
+		Repair:    &types.ToolRepair{Code: explorerRestrictedToolSurfaceCode, Hint: reason},
+		Timestamp: time.Now(),
+	}
+}
+
+func sortedToolNames(names map[string]bool) []string {
+	out := make([]string, 0, len(names))
+	for name, ok := range names {
+		if ok && strings.TrimSpace(name) != "" {
+			out = append(out, name)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // rejectAnalyzerPrescanTool synthesises the failed ToolResult

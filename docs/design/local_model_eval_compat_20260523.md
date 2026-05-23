@@ -37,6 +37,18 @@ Eval run root:
   even when no question entities are extracted, so grounded/read/citable
   definition and call anchors are not left behind broad concrete-value noise by
   input order alone.
+- Batch 5 started from the real `qf_sequence_analyzer_gate` eval: analyzer
+  schema filtering alone was not enough because a local model can still emit a
+  handwritten prescan tool call after the runtime has moved the stage into
+  terminal `emit_analysis` mode. The runtime execution boundary now shares the
+  same terminal emit-only predicate, so hidden or text-recovered calls cannot
+  bypass the analyzer/explorer contract.
+- Batch 6 extends the same schema/runtime parity to explorer repair states:
+  read-without-emit escalation now rejects hidden navigation calls at execution
+  time, while evidence-repair keeps `read_file` available because the structured
+  hint asks for exact re-reads before re-emitting grounded evidence. The shared
+  tool-parameter compatibility layer also handles explicit `_str` field-name
+  variants such as `offset_str` / `limit_str` before schema scalar repair.
 
 ## Operating Principles
 
@@ -159,6 +171,42 @@ guard: it now fires only when the analyzer's typed output says the answer needs
 project or architecture overview coverage, and bounded trace/call-chain
 requests are excluded.
 
+### RC8 - Schema Filters Are Advisory Unless Runtime Enforces The Same Boundary
+
+The `qf_sequence_analyzer_gate` eval exposed a deeper stage-policy issue. After
+an analyze-stage `read_file` was correctly blocked, `FilterToolSchemas` exposed
+only `emit_analysis` on the next model request. The local model nevertheless
+emitted handwritten `grep` calls. Because the execution path still treated
+prescan tools as generally allowed during analyze, those calls executed and the
+analyzer started drifting back toward investigation.
+
+Systemic fix: every schema-level action-space filter needs a matching
+pre-execution runtime boundary. The runtime predicate is authoritative; schemas
+are only the model-facing affordance. For analyzer terminal emit-only mode, all
+tools except `emit_analysis` are rejected before normalization or dispatch, and
+the rejection reports only `emit_analysis` as the available action.
+
+The same rule applies horizontally to explorer. A read-without-emit escalation
+that exposes only materialization tools must reject hidden `grep` / `read_file`
+calls before dispatch. Evidence repair is different: its hint explicitly asks
+the model to re-read exact source windows, so the correct restricted surface is
+`read_file` plus structured completion tools, not completion tools only.
+
+### RC9 - Schema-Compatible Field Name Variants Can Otherwise Drop Intent
+
+Small models sometimes emit explicit string-typed field variants such as
+`offset_str` / `limit_str`. If these are left as unknown JSON fields, Go's
+strict struct decoder may either reject the call or silently ignore the model's
+intended range, causing `read_file` to return the wrong slice and feeding bad
+line-number state downstream.
+
+Systemic fix: handle this in the existing schema-aware `toolparam` normalizer,
+not in per-tool ad hoc code. A key ending in `_str` aliases to the canonical
+schema field only when that exact base field exists and the alias is
+unambiguous; the existing scalar repair then converts `"2310"` to `2310` if
+the schema says the field is an integer. No missing fields are invented and no
+prose is inspected.
+
 ## Red-Line Design Boundaries
 
 - No keyword matching against the user question or model prose for intent or
@@ -245,6 +293,21 @@ requests are excluded.
 - Track pass/fail plus cost metrics: iterations, midloop injections,
   compatibility repairs, finalizer rewrites, and recovered-but-extra-rounds.
 
+### Batch 6 - Stage Policy Runtime Parity
+
+- Audit every evaluator `FilterToolSchemas` implementation and ensure the same
+  condition is enforced before tool execution.
+- For analyzer terminal emit-only mode, reject handwritten / recovered prescan
+  calls before parameter compatibility repair or actual tool dispatch.
+- For explorer read-without-emit escalation, reject hidden navigation calls
+  before dispatch; for evidence repair, keep `read_file` available and reject
+  broad search/navigation tools.
+- Ensure user-facing repair summaries show the current effective tool surface,
+  not the broader stage default.
+- Add regression tests for schema-filter bypass via handwritten tool calls.
+- Extend shared tool-parameter normalization for unambiguous `_str` field-name
+  variants so range/counter intent is not silently dropped.
+
 ## Progress
 
 - 2026-05-23: Synced `main` to `d4547331`, built successfully, ran local small
@@ -257,6 +320,17 @@ requests are excluded.
   round, and force the next analyzer request to `emit_analysis` only. Added
   regression tests for safe path capture, unsafe path exclusion, and clean
   emit-only schema behavior.
+- 2026-05-23: Real `qf_sequence_analyzer_gate` rerun found a schema/runtime
+  parity gap: after terminal emit-only schema filtering, handwritten `grep`
+  still executed. The runtime analyzer boundary now rejects every non
+  `emit_analysis` tool in the same state and reports only the effective allowed
+  tool surface.
+- 2026-05-23: The same eval exposed explorer parity gaps: read-without-emit
+  escalation allowed hidden broad `grep`, and evidence-repair schema filtering
+  contradicted its own exact re-read hint. Explorer now enforces restricted
+  surfaces at runtime, and evidence repair exposes `read_file` plus emit tools.
+  The shared normalizer also repairs `_str` schema-key variants before scalar
+  conversion.
 
 ## Observations
 

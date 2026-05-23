@@ -517,6 +517,42 @@ func TestNormalize_RepairsGeneralSchemaPropertyKeyVariants(t *testing.T) {
 	}
 }
 
+func TestNormalize_RepairsStringSuffixPropertyKeyVariant(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "path":{"type":"string"},
+	    "offset":{"type":"integer"},
+	    "limit":{"type":"integer"}
+	  }
+	}`)
+	raw := json.RawMessage(`{"path":"internal/agent/analyzer.go","offset_str":"2310","limit_str":"50"}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if !hasRepair(report, "$.offset_str", "property_key_string_suffix") {
+		t.Fatalf("expected offset_str key repair, got %+v", report)
+	}
+	if !hasRepair(report, "$.limit_str", "property_key_string_suffix") {
+		t.Fatalf("expected limit_str key repair, got %+v", report)
+	}
+	if !hasRepair(report, "$.offset", "string_integer") {
+		t.Fatalf("expected offset scalar repair after key repair, got %+v", report)
+	}
+	if !hasRepair(report, "$.limit", "string_integer") {
+		t.Fatalf("expected limit scalar repair after key repair, got %+v", report)
+	}
+	var decoded struct {
+		Offset int `json:"offset"`
+		Limit  int `json:"limit"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if decoded.Offset != 2310 || decoded.Limit != 50 {
+		t.Fatalf("offset/limit = %d/%d, want 2310/50; raw=%s", decoded.Offset, decoded.Limit, got)
+	}
+}
+
 func TestNormalize_RepairsCompositePropertyKeyFragment(t *testing.T) {
 	schema := json.RawMessage(`{
 	  "type":"object",
