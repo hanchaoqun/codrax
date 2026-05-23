@@ -153,8 +153,8 @@ Rules:
 | T2 | Partially done | Add regression tests for VCS/history, runtime artifact, command, MCP/web/connector-like rows so non-code supplements use origin-aware labels or are suppressed when dry. | `internal/tool/*_test.go`, `internal/render/*_test.go` | VCS missing-row supplement plus all current origin labels covered; broader eval replay remains under T5. |
 | T3 | Done | Introduce a shared reviewer visible-surface helper and route self-consistency / semantic-quality inputs through it. | `internal/orchestrator/contract_check.go`, `semantic_quality_reviewer.go`, self-consistency tests | `go test ./internal/orchestrator -run 'TestBuildReviewerAnswerSurface|TestRenderConsistencyReviewBodyV2|TestRunSemanticQualityReviewWithOutcome|TestRenderSemanticQualityUserMessage'` |
 | T4 | Partially done | Add telemetry/tests proving reviewer sees system supplements, model Markdown tables, diagrams, attachments, and external observations exactly as the final panel does. | `internal/orchestrator/*reviewer*_test.go`, `internal/render/answerdoc_test.go` | Shared surface test covers supplements, diagrams, and attachments; external observations already covered by semantic reviewer tests. Targeted eval replay remains under T5. |
-| T5 | Pending | Run targeted evals for principal-ledger/history, source-inventory, multi-repo compare, log/trace artifact, and mixed external+code analysis. | `eval/results/...` | inspect logs for retries, supplements, and lost summaries |
-| T6 | Pending | Refresh gap docs with confirmed residuals and decide next architecture batch. | `docs/design/eval_20260520_full_sweep_gap_tracking.md`, related design docs | doc diff |
+| T5 | Partially done | Run targeted evals for principal-ledger/history, source-inventory, multi-repo compare, log/trace artifact, and mixed external+code analysis. | `eval/results/...` | `u7l` and `logtri_artifact_line_anchor` replayed with no finalizer retry; broader mixed/multi-repo tranche remains for the next batch. |
+| T6 | Partially done | Refresh gap docs with confirmed residuals and decide next architecture batch. | `docs/design/eval_20260520_full_sweep_gap_tracking.md`, related design docs | VCS path/date literal fidelity residual recorded as `E20260520-G153`. |
 
 ## Developer Guardrails
 
@@ -194,3 +194,15 @@ Rules:
   fixture proves system supplements, diagram bodies, and recovered display
   attachments are visible in the expected projection without adding a second
   prompt surface.
+- 2026-05-23: Targeted replay covered
+  `eval/results/u7l-20260523-222442` and
+  `eval/results/logtri_artifact_line_anchor-20260523-222442`; both passed with
+  one finalizer round, no finalizer reject, and no duplicate first-draft panel.
+  `u7l` preserved the rich recent-commit list and did not render a dry
+  system-generated symbol table. `logtri_artifact_line_anchor` preserved the
+  runtime-artifact boundary and answered the line-number / absence mix without
+  current-source citations. Residual found: `u7l` still allowed the finalizer to
+  miscopy a VCS-mentioned design-doc date in a path (`20260523` became
+  `20250523`). This is tracked in the full eval gap ledger as
+  `E20260520-G153`; it requires typed VCS path/file-detail preservation rather
+  than another supplement-table patch.
