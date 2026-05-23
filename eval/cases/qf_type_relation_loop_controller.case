@@ -1,14 +1,15 @@
 # Diagram — class/type relation view for LoopController implementers
 #
-# Mermaid has no separate first-class UML contract in codrax today, so
-# this case exercises the generic diagram contract for a class/type
-# relationship view: interface node plus implementer nodes. It catches
-# diagram grounding and member-boundary drift for "class diagram" style
-# requests without adding language-specific syntax assumptions.
+# Mermaid has no separate first-class UML contract in codrax today, so this
+# case exercises the generic diagram contract for a class/type relationship
+# view: interface node plus implementer nodes. It also guards that typed
+# relation facts are not restricted to enumeration-only paths: log/perf
+# pre-stage evaluators and write_analyzer implement LoopController too and
+# should remain visible in diagram/mechanism relation answers.
 ID="qf_type_relation_loop_controller"
 NAME="diagram — type relation LoopController implementers"
 QUESTION="请用 Mermaid 类图或类型关系图表示 LoopController 接口和它的主要实现类型之间的关系，并列出每个实现类型所在文件。"
-EXPECT_CONTAINS="LoopController analyzerEvaluator explorerEvaluator extractorEvaluator"
+EXPECT_CONTAINS="LoopController analyzerEvaluator explorerEvaluator extractorEvaluator answerDocumentEvaluator subExplorerEvaluator logTriagerEvaluator perfTriagerEvaluator writeAnalyzerEvaluator"
 EXPECT_MATCHES_REGEX='(```mermaid|classDiagram|flowchart|graph[[:space:]]+(TD|LR))
 (answerDocumentEvaluator|finalizer.*Evaluator|plannerEvaluator|verifierEvaluator|writeAnalyzerEvaluator)'
-EXPECT_NOT_CONTAINS=".java BaseAgent.java"
+EXPECT_NOT_CONTAINS=".java BaseAgent.java StageOutput Dependencies ToolSchemaFilter streamPreviewBuffer"

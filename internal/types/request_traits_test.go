@@ -586,6 +586,41 @@ func TestStructuralRelationScopeCandidates_LegacyEntitiesFallback(t *testing.T) 
 	}
 }
 
+func TestShouldSurfaceTypedRelationHints_ImplementAxisCoversDiagramMechanism(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentExplain,
+		Scenario:      ScenarioArchitectureExplain,
+		PredicateAxis: AxisImplement,
+		DiagramHint:   &DiagramHint{Kind: DiagramArchitecture},
+	}
+	if !ShouldSurfaceTypedRelationHints(rm) {
+		t.Fatal("predicate_axis=implement should surface typed relation facts even outside enumeration")
+	}
+	rm.PredicateAxis = AxisUnknown
+	if ShouldSurfaceTypedRelationHints(rm) {
+		t.Fatal("plain architecture diagram without a typed relation axis must not surface relation hints")
+	}
+	rm.Predicates.IsRelationalLookup = true
+	if !ShouldSurfaceTypedRelationHints(rm) {
+		t.Fatal("relational lookup should continue surfacing typed relation facts")
+	}
+}
+
+func TestHasTypedRelationMemberSetShape_TypedOnly(t *testing.T) {
+	rm := RequestModel{PredicateAxis: AxisImplement}
+	if !HasTypedRelationMemberSetShape(rm) {
+		t.Fatal("predicate_axis=implement should mark principal member sets as relation membership")
+	}
+	rm.PredicateAxis = AxisUnknown
+	if HasTypedRelationMemberSetShape(rm) {
+		t.Fatal("unknown axis without relational predicate must not mark source inventory as relation membership")
+	}
+	rm.Predicates.IsRelationalLookup = true
+	if !HasTypedRelationMemberSetShape(rm) {
+		t.Fatal("relational lookup predicate should mark principal member sets as relation membership")
+	}
+}
+
 func TestArchitectureNarrativeExplanation_TypedBoundary(t *testing.T) {
 	rm := RequestModel{
 		Intent:     IntentExplain,

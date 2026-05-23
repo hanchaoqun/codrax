@@ -8379,7 +8379,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		// ranker's 12+ unrelated ones.
 		var typedScope []string
 		if e.analysisIR != nil &&
-			e.analysisIR.RequestModel.Predicates.IsCategoryEnumeration {
+			types.ShouldSurfaceTypedRelationHints(e.analysisIR.RequestModel) {
 			rmHints := e.analysisIR.RequestModel.AnalyzerHints
 			candidateEntities := append([]string(nil), rmHints.PrimaryEntities...)
 			candidateEntities = append(candidateEntities, rmHints.Entities...)

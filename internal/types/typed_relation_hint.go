@@ -58,6 +58,15 @@ type TypedRelationMember struct {
 	Distance int `json:"distance,omitempty"`
 }
 
+// TypedRelationImplementerSource is the narrow, cycle-free bridge for
+// relation consumers that need multi-repo implementer members without
+// importing the concrete repomap/multigraph package. Single-repo callers may
+// still read *repomap/types.Graph directly; multi-repo carriers implement this
+// interface and return path-from-parent file surfaces.
+type TypedRelationImplementerSource interface {
+	ImplementerMembersOf(interfaceName string) []TypedRelationMember
+}
+
 // TypedRelationProvenance is the Provenance column tag used in the
 // unified Structured Evidence rendering. Two values today: LLM-side
 // emit_evidence vs system-derived typed graph traversal.

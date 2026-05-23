@@ -935,6 +935,46 @@ func TestPrincipalAggregateMemberSetFactRefsForRequest_SourceInventoryDemotesOut
 	}
 }
 
+func TestPrincipalAggregateMemberSetFactRefsForRequest_TypedRelationIgnoresSourceInventoryScope(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "LoopController implementers",
+		Value: "2",
+		Role:  AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"analyzerEvaluator",
+			"logTriagerEvaluator",
+		},
+		SupportRefs: []string{
+			"analyzerEvaluator: internal/agent/analyzer.go:46",
+			"logTriagerEvaluator: internal/agent/log_triager.go:99",
+		},
+	}}
+	rm := RequestModel{
+		Intent:        IntentExplain,
+		Scenario:      ScenarioArchitectureExplain,
+		PredicateAxis: AxisImplement,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsRelationalLookup:    true,
+		},
+		AnalyzerHints: AnalyzerHints{Entities: []string{"LoopController"}},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType},
+		},
+	}
+
+	got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm)
+	if len(got) != 1 || got[0].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("typed relation member_set must remain principal despite source-inventory scope, got %+v", got)
+	}
+	normalized := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if role := NormalizeAnswerAggregateRole(normalized[0].Role); role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("typed relation member_set was demoted to %q: %+v", role, normalized[0])
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_CanonicalizesMemberSetValueFromMembers(t *testing.T) {
 	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
 		Kind:    AnswerAggregateMemberSet,

@@ -600,6 +600,52 @@ func TestReconcileCompletionAggregateFactsWithSourceInventory_GraphBackedPublicF
 	}
 }
 
+func TestReconcileCompletionAggregateFactsWithSourceInventory_RelationMemberSetNotRewritten(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{RelPath: "internal/agent/agent.go", Language: "go", Symbols: []repotypes.Symbol{
+			{Name: "StageOutput", Kind: "type", File: "internal/agent/agent.go", Line: 24, Exported: true},
+			{Name: "LoopController", Kind: "interface", File: "internal/agent/agent.go", Line: 430, Exported: true},
+			{Name: "ToolSchemaFilter", Kind: "type", File: "internal/agent/agent.go", Line: 259, Exported: true},
+		}},
+		{RelPath: "internal/agent/analyzer.go", Language: "go", Symbols: []repotypes.Symbol{{
+			Name: "analyzerEvaluator", Kind: "struct", File: "internal/agent/analyzer.go", Line: 46,
+		}}},
+		{RelPath: "internal/agent/log_triager.go", Language: "go", Symbols: []repotypes.Symbol{{
+			Name: "logTriagerEvaluator", Kind: "struct", File: "internal/agent/log_triager.go", Line: 99,
+		}}},
+	})
+	ctx := sourceInventoryTestContext("", graph, "internal/agent/agent.go", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+		RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+		Confidence:        0.95,
+	})
+	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisImplement
+	ctx.AnalysisIR.RequestModel.Predicates.IsRelationalLookup = true
+	facts := []types.AnswerAggregateFact{{
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "LoopController production implementers",
+		Value:      "2",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: "emit_investigation_complete.aggregate_facts, typed_graph",
+		Members:    []string{"analyzerEvaluator", "logTriagerEvaluator"},
+		SupportRefs: []string{
+			"analyzerEvaluator: internal/agent/analyzer.go:46",
+			"logTriagerEvaluator: internal/agent/log_triager.go:99",
+		},
+	}}
+
+	got := reconcileCompletionAggregateFactsWithSourceInventory(ctx, facts, nil)
+	if !reflect.DeepEqual(got[0].Members, facts[0].Members) {
+		t.Fatalf("relation member set was rewritten by source inventory:\ngot  %#v\nwant %#v", got[0].Members, facts[0].Members)
+	}
+	for _, banned := range []string{"StageOutput", "LoopController", "ToolSchemaFilter"} {
+		if containsString(got[0].Members, banned) {
+			t.Fatalf("source inventory member %q leaked into relation member set: %#v", banned, got[0].Members)
+		}
+	}
+}
+
 func TestReconcileCompletionAggregateFactsWithSourceInventory_MixedLanguageGraphBackedPublicFunctions(t *testing.T) {
 	graph := testGraphWithFiles([]*repotypes.FileInfo{
 		{RelPath: "src/a.go", Language: "go", Symbols: []repotypes.Symbol{{Name: "Eval", Kind: "function", File: "src/a.go", Line: 1, Exported: true}}},
@@ -667,11 +713,12 @@ func TestReconcileCompletionAggregateFactsWithSourceInventory_PreservesExplorerN
 		Confidence: 0.95,
 	})
 	facts := []types.AnswerAggregateFact{{
-		Kind:    types.AnswerAggregateMemberSet,
-		Label:   "public functions",
-		Value:   "1",
-		Role:    types.AnswerAggregateRolePrincipalAnswer,
-		Members: []string{"Eval", "render"},
+		Kind:       types.AnswerAggregateMemberSet,
+		Label:      "public functions",
+		Value:      "1",
+		Role:       types.AnswerAggregateRolePrincipalAnswer,
+		Provenance: "emit_investigation_complete.aggregate_facts",
+		Members:    []string{"Eval", "render"},
 		MemberNotes: []string{
 			"Eval 对单个 Criterion 执行评估，未知 Kind 返回 UnknownKind。",
 			"render 是探索早期误收集的私有函数。",
@@ -702,6 +749,10 @@ func TestReconcileCompletionAggregateFactsWithSourceInventory_PreservesExplorerN
 	}
 	if !reflect.DeepEqual(got[0].SupportRefs, []string{"Run: src/B.java:20", "Eval: src/a.go:10"}) {
 		t.Fatalf("support refs should remain graph-authoritative after replacement, got %#v", got[0].SupportRefs)
+	}
+	if !strings.Contains(got[0].Provenance, "emit_investigation_complete.aggregate_facts") ||
+		!strings.Contains(got[0].Provenance, "system:source_inventory") {
+		t.Fatalf("source-inventory rewrite must leave provenance marker, got %q", got[0].Provenance)
 	}
 }
 

@@ -217,6 +217,124 @@ func TestEmitInvestigationComplete_PreCompleteCheck_RoleLabeledSupportRefStillRe
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_RelationMemberSetMustCoverGroundedTypedImplementers(t *testing.T) {
+	bus := relationMemberSetTestBus(t)
+	bus.AnalysisIR.RequestModel.PredicateAxis = types.AxisImplement
+	bus.AnalysisIR.RequestModel.AnalyzerHints.PrimaryEntities = []string{"Looper"}
+	bus.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"Looper"}
+	bus.Mutable.SetSearchGraph(relationMemberSetGraph(t,
+		relationMemberSetGraphSymbol{name: "alpha", file: "impl_alpha.go", line: 14},
+		relationMemberSetGraphSymbol{name: "beta", file: "impl_beta.go", line: 22},
+	))
+	bus.Mutable.AppendEvidence([]types.EvidenceItem{
+		relationMemberSetEvidence("alpha", "impl_alpha.go", 14),
+		relationMemberSetEvidence("beta", "impl_beta.go", 22),
+	})
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "alpha only",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "Looper implementers",
+			"value":        "1",
+			"members":      []string{"alpha"},
+			"support_refs": []string{"alpha @ impl_alpha.go:14"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "omits grounded typed implementer evidence") ||
+		!strings.Contains(res.Summary, "beta @ impl_beta.go:22") {
+		t.Fatalf("grounded typed implementer omission should downgrade with precise member: %s", res.Summary)
+	}
+	if bus.Mutable.IsInvestigationComplete() {
+		t.Fatalf("investigation must remain open when a grounded typed implementer is omitted")
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_RelationGraphOnlyImplementerDoesNotForceClosure(t *testing.T) {
+	bus := relationMemberSetTestBus(t)
+	bus.AnalysisIR.RequestModel.PredicateAxis = types.AxisImplement
+	bus.AnalysisIR.RequestModel.AnalyzerHints.PrimaryEntities = []string{"Looper"}
+	bus.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"Looper"}
+	bus.Mutable.SetSearchGraph(relationMemberSetGraph(t,
+		relationMemberSetGraphSymbol{name: "alpha", file: "impl_alpha.go", line: 14},
+		relationMemberSetGraphSymbol{name: "beta", file: "impl_beta.go", line: 22},
+	))
+	bus.Mutable.AppendEvidence([]types.EvidenceItem{
+		relationMemberSetEvidence("alpha", "impl_alpha.go", 14),
+	})
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "alpha is the verified implementer in this run",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "Looper implementers",
+			"value":        "1",
+			"members":      []string{"alpha"},
+			"support_refs": []string{"alpha @ impl_alpha.go:14"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "omits grounded typed implementer evidence") {
+		t.Fatalf("graph-only implementer without grounded evidence must not be hard-forced: %s", res.Summary)
+	}
+	if !bus.Mutable.IsInvestigationComplete() {
+		t.Fatalf("investigation should complete when all grounded typed implementers are represented")
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_RelationGroundedAuxiliaryImplementerRespectsProductionScope(t *testing.T) {
+	bus := relationMemberSetTestBus(t)
+	bus.AnalysisIR.RequestModel.PredicateAxis = types.AxisImplement
+	bus.AnalysisIR.RequestModel.AnalyzerHints.PrimaryEntities = []string{"Looper"}
+	bus.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"Looper"}
+	bus.Mutable.SetSearchGraph(relationMemberSetGraph(t,
+		relationMemberSetGraphSymbol{name: "alpha", file: "impl_alpha.go", line: 14},
+		relationMemberSetGraphSymbol{name: "testLooper", file: "impl_alpha_test.go", line: 40},
+	))
+	bus.Mutable.AppendEvidence([]types.EvidenceItem{
+		relationMemberSetEvidence("alpha", "impl_alpha.go", 14),
+		relationMemberSetEvidence("testLooper", "impl_alpha_test.go", 40),
+	})
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "alpha is production; testLooper is test-only",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "Looper production implementers",
+			"value":        "1",
+			"members":      []string{"alpha"},
+			"excluded":     []string{"testLooper (test file)"},
+			"support_refs": []string{"alpha @ impl_alpha.go:14"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "testLooper") && strings.Contains(res.Summary, "omits grounded typed implementer evidence") {
+		t.Fatalf("production scope must not force test-only implementers: %s", res.Summary)
+	}
+	if !bus.Mutable.IsInvestigationComplete() {
+		t.Fatalf("investigation should complete when omitted grounded implementer is auxiliary under production scope")
+	}
+}
+
 func relationMemberSetTestBus(t *testing.T) *types.BusContext {
 	t.Helper()
 	return &types.BusContext{
@@ -237,6 +355,59 @@ func relationMemberSetTestBus(t *testing.T) *types.BusContext {
 				CitationReq: types.CitationReq{Required: false},
 			},
 		},
+	}
+}
+
+type relationMemberSetGraphSymbol struct {
+	name string
+	file string
+	line int
+}
+
+func relationMemberSetGraph(t *testing.T, impls ...relationMemberSetGraphSymbol) *repotypes.Graph {
+	t.Helper()
+	ifaceFile := &repotypes.FileInfo{RelPath: "iface.go", Language: "go"}
+	ifaceSym := repotypes.Symbol{Name: "Looper", Kind: "interface", File: "iface.go", Line: 7}
+	ifaceSym.ID = repotypes.DeriveSymbolID(ifaceFile, &ifaceSym)
+	ifaceFile.Symbols = []repotypes.Symbol{ifaceSym}
+
+	files := []*repotypes.FileInfo{ifaceFile}
+	fileIndex := map[string]*repotypes.FileInfo{"iface.go": ifaceFile}
+	symbolByID := map[repotypes.SymbolID]*repotypes.Symbol{ifaceSym.ID: &ifaceFile.Symbols[0]}
+	for _, impl := range impls {
+		fi := &repotypes.FileInfo{RelPath: impl.file, Language: "go"}
+		sym := repotypes.Symbol{
+			Name:       impl.name,
+			Kind:       "struct",
+			File:       impl.file,
+			Line:       impl.line,
+			Implements: []repotypes.SymbolID{ifaceSym.ID},
+		}
+		sym.ID = repotypes.DeriveSymbolID(fi, &sym)
+		fi.Symbols = []repotypes.Symbol{sym}
+		files = append(files, fi)
+		fileIndex[impl.file] = fi
+		symbolByID[sym.ID] = &fi.Symbols[0]
+	}
+	return &repotypes.Graph{
+		Files:      files,
+		FileIndex:  fileIndex,
+		SymbolDefs: map[string][]*repotypes.Symbol{"Looper": {&ifaceFile.Symbols[0]}},
+		SymbolByID: symbolByID,
+	}
+}
+
+func relationMemberSetEvidence(name, file string, line int) types.EvidenceItem {
+	return types.EvidenceItem{
+		Kind:            types.EvidenceDirect,
+		Source:          file,
+		LineStart:       line,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    name,
+		Snippet:         "type " + name + " struct {}",
+		Summary:         name + " implements Looper.",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
 	}
 }
 

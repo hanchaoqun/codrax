@@ -790,6 +790,46 @@ func (m *MultiGraph) ImplementersOf(interfaceName string) []ImplementerHit {
 	return out
 }
 
+// ImplementerMembersOf exposes the same typed implementer relation through a
+// types-only interface so packages that cannot import multigraph directly
+// (notably internal/tool) can still reason about multi-repo relation members
+// without creating an import cycle. Returned File values are path-from-parent
+// surfaces via SubRepoRelPath.
+func (m *MultiGraph) ImplementerMembersOf(interfaceName string) []types.TypedRelationMember {
+	hits := m.ImplementersOf(interfaceName)
+	if len(hits) == 0 {
+		return nil
+	}
+	out := make([]types.TypedRelationMember, 0, len(hits))
+	seen := map[string]bool{}
+	for _, hit := range hits {
+		sym, _, ok := m.LookupSymbolByID(hit.ID)
+		if !ok || sym == nil || strings.TrimSpace(sym.Name) == "" {
+			continue
+		}
+		file := SubRepoRelPath(hit.Sub, sym.File)
+		key := strings.ToLower(strings.TrimSpace(sym.Name)) + "|" + file
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, types.TypedRelationMember{
+			Name:     strings.TrimSpace(sym.Name),
+			File:     file,
+			Line:     sym.Line,
+			Kind:     sym.Kind,
+			Distance: 1,
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Name != out[j].Name {
+			return out[i].Name < out[j].Name
+		}
+		return out[i].File < out[j].File
+	})
+	return out
+}
+
 // LookupSymbolByID fans out the SymbolID lookup across active
 // sub-repos. Returns the (Symbol, SubRepo) of the first match —
 // SymbolID is canonical and globally unique per Symbol so multi

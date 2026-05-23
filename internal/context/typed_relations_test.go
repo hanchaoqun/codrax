@@ -13,12 +13,17 @@ import (
 // + 3 concrete types whose method set satisfies it via P0a/P0b.
 func buildLooperGraphForTypedRelations(t *testing.T) *repotypes.Graph {
 	t.Helper()
-	ifaceFile := &repotypes.FileInfo{RelPath: "iface.go", Language: "go"}
-	a := &repotypes.FileInfo{RelPath: "impl_alpha.go", Language: "go"}
-	b := &repotypes.FileInfo{RelPath: "impl_beta.go", Language: "go"}
-	c := &repotypes.FileInfo{RelPath: "impl_gamma.go", Language: "go"}
+	return buildLooperGraphForTypedRelationsLang(t, "go", "interface")
+}
 
-	ifaceSym := repotypes.Symbol{Name: "Looper", Kind: "interface", File: "iface.go", Line: 7}
+func buildLooperGraphForTypedRelationsLang(t *testing.T, lang, ifaceKind string) *repotypes.Graph {
+	t.Helper()
+	ifaceFile := &repotypes.FileInfo{RelPath: "iface.go", Language: lang}
+	a := &repotypes.FileInfo{RelPath: "impl_alpha.go", Language: lang}
+	b := &repotypes.FileInfo{RelPath: "impl_beta.go", Language: lang}
+	c := &repotypes.FileInfo{RelPath: "impl_gamma.go", Language: lang}
+
+	ifaceSym := repotypes.Symbol{Name: "Looper", Kind: ifaceKind, File: "iface.go", Line: 7}
 	ifaceSym.ID = repotypes.DeriveSymbolID(ifaceFile, &ifaceSym)
 	ifaceFile.Symbols = []repotypes.Symbol{ifaceSym}
 
@@ -106,6 +111,24 @@ func TestProbeTypedRelations_DerivedContextEntityDoesNotSeedHint(t *testing.T) {
 	}
 }
 
+func TestProbeTypedRelations_PromptHintCanUseEntitiesWhenNoProvenanceLane(t *testing.T) {
+	g := buildLooperGraphForTypedRelations(t)
+	rm := &types.RequestModel{
+		PredicateAxis: types.AxisImplement,
+		AnalyzerHints: types.AnalyzerHints{
+			Entities:        []string{"Looper", "alpha", "beta"},
+			DerivedEntities: []string{"alpha", "beta"},
+		},
+	}
+	hints := ProbeTypedRelations(g, rm)
+	if len(hints) != 1 {
+		t.Fatalf("expected exact graph probe to recover relation source from Entities; got %d", len(hints))
+	}
+	if hints[0].SourceName != "Looper" || len(hints[0].Members) != 3 {
+		t.Fatalf("unexpected relation hint: %+v", hints[0])
+	}
+}
+
 func TestProbeTypedRelations_NilGraphSkips(t *testing.T) {
 	if hints := ProbeTypedRelations(nil, enumerationRequestModel()); hints != nil {
 		t.Errorf("expected no hints when graph is nil; got %v", hints)
@@ -132,6 +155,50 @@ func TestProbeTypedRelations_CountQuestionAlsoFires(t *testing.T) {
 	rm.AnalyzerHints.PrimaryEntities = []string{"Looper"}
 	if hints := ProbeTypedRelations(g, rm); len(hints) != 1 {
 		t.Errorf("expected 1 hint on IsCountQuestion; got %d", len(hints))
+	}
+}
+
+func TestProbeTypedRelations_ImplementAxisFiresForDiagramMechanism(t *testing.T) {
+	g := buildLooperGraphForTypedRelations(t)
+	rm := &types.RequestModel{
+		Intent:        types.IntentExplain,
+		Scenario:      types.ScenarioArchitectureExplain,
+		PredicateAxis: types.AxisImplement,
+		DiagramHint:   &types.DiagramHint{Kind: types.DiagramArchitecture},
+		AnalyzerHints: types.AnalyzerHints{PrimaryEntities: []string{"Looper"}},
+	}
+	hints := ProbeTypedRelations(g, rm)
+	if len(hints) != 1 {
+		t.Fatalf("expected implement-axis relation hint; got %d", len(hints))
+	}
+	if len(hints[0].Members) != 3 {
+		t.Fatalf("expected 3 implementers for diagram/mechanism relation; got %+v", hints[0].Members)
+	}
+}
+
+func TestProbeTypedRelations_ImplementAxisFiresForAllSupportedLanguages(t *testing.T) {
+	for _, lang := range repotypes.SupportedReadLanguages() {
+		ifaceKind := "interface"
+		switch lang {
+		case repotypes.LangRust:
+			ifaceKind = "trait"
+		case repotypes.LangSwift:
+			ifaceKind = "protocol"
+		}
+		t.Run(lang, func(t *testing.T) {
+			g := buildLooperGraphForTypedRelationsLang(t, lang, ifaceKind)
+			rm := &types.RequestModel{
+				PredicateAxis: types.AxisImplement,
+				AnalyzerHints: types.AnalyzerHints{PrimaryEntities: []string{"Looper"}},
+			}
+			hints := ProbeTypedRelations(g, rm)
+			if len(hints) != 1 {
+				t.Fatalf("expected relation hint for %s; got %d", lang, len(hints))
+			}
+			if hints[0].SourceKind != ifaceKind {
+				t.Fatalf("source kind for %s = %q, want %q", lang, hints[0].SourceKind, ifaceKind)
+			}
+		})
 	}
 }
 

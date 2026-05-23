@@ -3559,6 +3559,68 @@ func TestEmitAnalysis_Execute_PersistsSourceInventoryProfile(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_DropsSourceInventoryForTypedRelation(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("请用类型关系图表示 LoopController 接口和主要实现类型，并列出所在文件。")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["LoopController", "interface", "implementer"],
+		"entities": ["LoopController"],
+		"question_kind": "enumeration",
+		"intent_confidence": 0.94,
+		"complexity_confidence": 0.76,
+		"kind_confidence": 0.9,
+		"predicate_axis": "implement",
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": true,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["type"],
+			"requested_fields": ["name", "location"],
+			"source_quotes": ["LoopController 接口和主要实现类型"],
+			"confidence": 0.95,
+			"rationale": "relation implementer inventory"
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	if strings.Contains(res.Summary, "source_inventory=") {
+		t.Fatalf("typed relation summary must not advertise source inventory lane, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+		t.Fatalf("typed relation request must drop source inventory profile: %+v", rm.SourceInventoryProfile)
+	}
+	if !types.HasTypedRelationMemberSetShape(*rm) {
+		t.Fatalf("typed relation shape should remain active: %+v", rm)
+	}
+}
+
 func TestEmitAnalysis_Execute_SourceInventoryConstSetDoesNotImplyValuesField(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

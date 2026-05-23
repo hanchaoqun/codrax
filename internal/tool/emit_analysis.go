@@ -1311,6 +1311,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		CompletenessObligation:          completenessObligation,
 		Buckets:                         buckets,
 	}
+	if dropSourceInventoryProfileForTypedRelation(&rm) {
+		warning := "source_inventory_profile ignored because predicate_axis / relational predicate declares a typed relation answer; relation member sets must be carried by typed graph/evidence, not source-inventory repair"
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	ctx.Mutable.SetRequestModel(rm)
 	recordExactTargetPrescanFindings(ctx, rm, seenBlob)
 
@@ -2128,6 +2133,17 @@ func normalizeSourceInventoryRequestedFieldsForAnswerSubject(profile *types.Sour
 		return ""
 	}
 	return "source_inventory_profile.requested_fields removed values because answer_subject=type_name and requires_const_set is a structural qualifier for the requested type inventory"
+}
+
+func dropSourceInventoryProfileForTypedRelation(rm *types.RequestModel) bool {
+	if rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	if !types.HasTypedRelationMemberSetShape(*rm) {
+		return false
+	}
+	rm.SourceInventoryProfile = nil
+	return true
 }
 
 func parseChangeImpactProfile(p *emitChangeImpactProfileParam) (*types.ChangeImpactProfile, string) {

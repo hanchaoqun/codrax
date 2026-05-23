@@ -2310,6 +2310,9 @@ func aggregateFactOutsideRequestedSourceInventoryScope(fact AnswerAggregateFact,
 	if rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
 		return false
 	}
+	if HasTypedRelationMemberSetShape(*rm) {
+		return false
+	}
 	if !answerAggregateFactCarriesCompleteMemberSet(fact) {
 		return false
 	}

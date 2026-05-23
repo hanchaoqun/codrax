@@ -91,6 +91,37 @@ func HasPrincipalCategoryEnumerationMemberLane(rm RequestModel) bool {
 	}
 }
 
+// ShouldSurfaceTypedRelationHints reports whether downstream agents should see
+// typed graph relation rows such as interface→implementer membership.
+//
+// This is intentionally broader than enumeration: the same precise relation
+// fact can be needed by a list, count, comparison, architecture explanation, or
+// diagram. The signal remains schema-only. It consumes analyzer predicates and
+// PredicateAxis, never localized raw request text, so relation facts stay
+// language-neutral across every repomap-supported language.
+func ShouldSurfaceTypedRelationHints(rm RequestModel) bool {
+	if rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsCountQuestion {
+		return true
+	}
+	return rm.PredicateAxis == AxisImplement
+}
+
+// HasTypedRelationMemberSetShape reports whether a principal member_set, when
+// present, should be interpreted as relation membership rather than a generic
+// source inventory.
+//
+// Source inventory repair can safely fill package/file symbol lists, but it
+// must not rewrite a model-authored relation set such as "interface
+// implementers" into "all types in the interface file". The signal is
+// schema-only: PredicateAxis and relational predicates, never request prose or
+// localized keywords. This keeps the rule language-neutral across all
+// repomap-supported languages.
+func HasTypedRelationMemberSetShape(rm RequestModel) bool {
+	return rm.PredicateAxis == AxisImplement || rm.Predicates.IsRelationalLookup
+}
+
 // RequiresExhaustiveEnumerationMemberSetHandoff reports whether a
 // set-valued enumeration answer must be carried downstream as a
 // model-authored aggregate_facts.member_set before later stages are

@@ -2052,6 +2052,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalEnumera
 		"note: Eval 对单个 Criterion 进行求值并返回 Result。",
 		"END_MARKER",
 		"Use `display_label`, `location`, and `citation_key` to build clear table cells",
+		"render that note on the same row as a concise description/说明 column",
 		"members_rendered_in=authoritative_principal_member_rows",
 		"Entries already rendered in `Principal Enumeration Rows`: 1",
 	} {

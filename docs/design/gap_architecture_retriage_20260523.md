@@ -184,6 +184,9 @@ violating the user's requested evidence mix.
 | T9 | Done | Prompt-only runtime mixed-lane guidance is not sufficient. Add a typed `current_source_explanation_profile` that reuses existing `AnswerIntentContract`, runtime observation-only routing, and `ObservationLedger` instead of creating a duplicate evidence stack. | `docs/design/current_source_explanation_profile_20260524.md`, analyzer schema / request traits / finalizer prompt | typed unit tests + regression evals for log+code, trace+code, VCS+code, command+code |
 | T10 | Done | Preserve explicit user-requested answer dimensions (for example `diff 线索 / 当前关键代码 / 作用 / 影响`) through analyzer → surface plan → finalizer prompt without hard gates or system table replacement. Typed contract, finalizer prompt, runtime/current-source lane routing, and VCS/log/trace eval coverage are complete. | `docs/design/user_requested_answer_dimensions_20260524.md`, analyzer schema, `AnswerPresentationContract`, `RequestModel.HasRuntimeArtifactCurrentVerificationAnchor`, finalizer prompt, `eval/cases/read_combo_*_dimensions.case` | typed unit tests + focused mixed evidence evals |
 | T11 | In progress | Make explorer completion monotonic: accepted parallel closures own principal state, non-winning partial siblings cannot pollute aggregate facts or repair debt, and post-completion support reads become enrichment unless a typed load-bearing facet is still missing. B1-B3 are done; hybrid origin/facet partition and focused eval replay remain. | `docs/design/explorer_convergence_monotonicity_20260524.md`, `internal/orchestrator/explore_parallel_dispatch.go`, `internal/orchestrator/orchestrator.go`, `internal/types/evidence_closure.go` | parallel convergence unit tests + focused qf/s5b/u7k evals |
+| T12 | In progress | Generalize typed relation facts beyond enumeration-only paths while preventing source-inventory repair from rewriting relation member sets. Interface/trait/protocol → implementer relations are foundational repomap facts and must surface for diagrams, mechanism explanations, comparisons, counts, and enumerations when analyzer emits a typed relation axis such as `predicate_axis=implement`. | `internal/context/typed_relations.go`, `internal/types/request_traits.go`, `internal/agent/explorer.go`, `internal/tool/source_inventory_reconcile.go`, `eval/cases/qf_type_relation_loop_controller.case` | typed relation unit tests across repomap languages + focused qf replay |
+| T13 | Proposed | Relation coverage should become a common typed contract, not an `implements`-only special case. Extend the same "typed relation member + grounded evidence + source scope + model-authored member_set" safety rule to inheritance/subclass, override/conformance, caller/callee, registration/binding, import/dependency, package/export membership, config key→read site, route→handler, event→observer/subscriber, and external observation→source-anchor relations as their precise graph/evidence carriers become available. | new relation coverage helper under `internal/types` or `internal/context`, existing repomap graph relations, evidence origins | per-relation unit tests, at least one non-Go fixture for each graph-backed relation |
+| T14 | Proposed | Rich row notes can still be rendered dry when the finalizer chooses a Markdown table and puts per-member descriptions only in the summary paragraph. Do not rewrite or delete model tables; add a localized, append-only "已验证说明补充" block only when principal rows have notes and the visible principal member table/list omits row-level descriptions. | answer document display supplement, principal enumeration row compiler | table/list tests proving model-authored content is preserved and supplement is independent |
 
 ## Implementation Notes For Future Batches
 
@@ -232,6 +235,80 @@ violating the user's requested evidence mix.
     reopen exploration after a valid closure; unknown/exact debt remains
     blocking by default, including `primary_anchor`, `required_file_hint`, and
     `multi_path_anchor`.
+- 2026-05-24 T12 started:
+  - Focused `qf_type_relation_loop_controller` replay passed but was
+    semantically incomplete: the answer surfaced the main read-pipeline
+    evaluators plus `subExplorerEvaluator`, but omitted `logTriagerEvaluator`,
+    `perfTriagerEvaluator`, and `writeAnalyzerEvaluator`, all of which
+    implement `LoopController.Observe`.
+  - Root cause is not lack of graph data. `repomap.Graph.ImplementersOf`
+    already provides a language-neutral typed relation over
+    `Symbol.Implements`; the context probe only exposed it for category
+    enumeration / relation lookup / count questions. Architecture, diagram,
+    mechanism, and comparison questions with `predicate_axis=implement`
+    therefore fell back to grep/read discovery and could miss conditional
+    pre-stage or write-mode evaluators.
+  - Design decision: typed relation hints are foundational evidence context,
+    not an enumeration-only feature. They remain prompt hints, not
+    system-authored user-facing replacements, and they are emitted only from
+    precise analyzer fields plus exact repomap graph relations.
+  - Follow-up replay after broadening relation hints exposed a deeper
+    source-inventory contract bug: the model emitted a correct typed relation
+    member set for 8 production `LoopController` implementers, then
+    `source_inventory` reconciliation replaced it with "all exported types in
+    `internal/agent/agent.go`" (`StageOutput`, `Dependencies`,
+    `ToolSchemaFilter`, `streamPreviewBuffer`, ...). This is a system
+    overreach, not a model error. Fix direction: source inventory may repair
+    explicit package/file symbol inventory questions, but when typed request
+    fields identify a relation-shaped answer (`predicate_axis=implement` or
+    relational lookup), it must not rewrite or append principal relation
+    members. This preserves relation facts for every repomap-supported
+    language and keeps system supplements append-only rather than replacing the
+    model's relation answer.
+  - A second replay showed why the previous bug caused so many retries:
+    analyzer could emit both `predicate_axis=implement` /
+    `is_relational_lookup=true` and `source_inventory_profile=true`. The
+    source-inventory scope filter then treated `LoopController` as a file/path
+    inventory scope and demoted the correct relation member_set to
+    `supporting_coverage`, even when the model explicitly set
+    `role=principal_answer`. T12 therefore treats typed relations as a higher
+    precedence contract: emit_analysis drops source-inventory profiles for
+    relation-shaped requests, aggregate role normalization ignores
+    source-inventory scope filters for typed relations, and source-inventory
+    rewrites always append `system:source_inventory` provenance when they do
+    legitimately repair source inventory questions.
+  - Final T12 batch in this turn:
+    - Added typed relation pre-complete coverage for implementer sets:
+      exploration may not close a relation member_set that omits a production
+      implementer when both signals are precise: `Graph.ImplementersOf`
+      reports the member and the explorer already emitted grounded evidence
+      for that same member/file inside the requested source scope. Graph-only
+      members are not forced, and test/doc/auxiliary members remain excluded
+      under production scope unless the analyzer explicitly opts them in.
+    - Added `types.TypedRelationImplementerSource` so multi-repo implementer
+      carriers can participate without `internal/tool` importing concrete
+      multigraph code and creating an import cycle. Single-repo continues to
+      use `*repomap/types.Graph` directly.
+    - Added finalizer prompt guidance that non-empty principal row notes should
+      appear on the same row as a description/说明 column or equivalent item
+      text. Focused replay `qf_type_relation_loop_controller-20260524-031521`
+      now passes and includes all 8 production implementers, including
+      `answerDocumentEvaluator`, `logTriagerEvaluator`,
+      `perfTriagerEvaluator`, and `writeAnalyzerEvaluator`.
+    - Residual UX/content gap: the replay still placed per-member
+      descriptions in the summary paragraph while the Markdown table stayed
+      dry (`实现类型 / 文件位置 / Observe 方法行号`). This is not evidence loss
+      — the prompt contained rich notes and the final answer summary used
+      them — but the table-level presentation is weaker than desired. T14 tracks
+      an append-only localized supplement instead of system replacement.
+  - Relation classes that need the same contract after `implements`:
+    inheritance/subclass, override/conformance, caller/callee, registration or
+    binding table, import/dependency, package/export membership, config key to
+    read site, route to handler, event/observer/subscriber, and external
+    observation to current-source anchor. The gate criterion must remain
+    source-agnostic: precise typed carrier + grounded observation/evidence +
+    source scope + model-authored member_set, never raw keyword matching over
+    the user request or model prose.
 - 2026-05-24 T9 complete:
   - Added a typed `current_source_explanation_profile` so analyzer can request
     current-source explanation for external observations without overloading

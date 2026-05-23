@@ -63,6 +63,9 @@ func reconcileCompletionAggregateFactsWithSourceInventory(ctx *types.BusContext,
 			len(out[i].Members) == 0 {
 			continue
 		}
+		if sourceInventoryMustNotRewriteRelationMemberSet(ctx, out[i]) {
+			continue
+		}
 		role, ok := sourceInventoryFactRole(ctx, out[i], evidence, profile, families)
 		if !ok || !profile.RequiresPrincipalRole(role) {
 			continue
@@ -88,6 +91,20 @@ func reconcileCompletionAggregateFactsWithSourceInventory(ctx *types.BusContext,
 		return facts
 	}
 	return out
+}
+
+func sourceInventoryMustNotRewriteRelationMemberSet(ctx *types.BusContext, fact types.AnswerAggregateFact) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	if !types.HasTypedRelationMemberSetShape(ctx.AnalysisIR.RequestModel) {
+		return false
+	}
+	// In relation-shaped questions the model-authored member_set is the
+	// relation carrier. Source inventory remains useful evidence, but replacing
+	// or appending principal members from "all symbols in the scoped file" can
+	// turn precise implementers/callees into unrelated neighboring definitions.
+	return types.AnswerAggregateFactRoleForRequest(fact, &ctx.AnalysisIR.RequestModel) == types.AnswerAggregateRolePrincipalAnswer
 }
 
 func sourceInventoryFactRole(ctx *types.BusContext, fact types.AnswerAggregateFact, evidence []types.EvidenceItem, profile *types.SourceInventoryProfile, families *aggregateDeclarationFamilyLookup) (types.AnswerCandidateRole, bool) {
@@ -154,9 +171,7 @@ func sourceInventoryReplaceMemberSet(fact *types.AnswerAggregateFact, candidates
 	fact.SupportRefs = refs
 	fact.MemberNotes = notes
 	fact.Value = strconvItoa(len(members))
-	if strings.TrimSpace(fact.Provenance) == "" {
-		fact.Provenance = "system:source_inventory"
-	}
+	fact.Provenance = sourceInventoryAppendProvenance(fact.Provenance)
 	return true
 }
 
@@ -209,11 +224,23 @@ func sourceInventoryAppendMissingCandidates(fact *types.AnswerAggregateFact, can
 	}
 	if changed {
 		fact.Value = strconvItoa(len(fact.Members))
-		if strings.TrimSpace(fact.Provenance) == "" {
-			fact.Provenance = "system:source_inventory"
-		}
+		fact.Provenance = sourceInventoryAppendProvenance(fact.Provenance)
 	}
 	return changed
+}
+
+func sourceInventoryAppendProvenance(current string) string {
+	current = strings.TrimSpace(current)
+	const marker = "system:source_inventory"
+	if current == "" {
+		return marker
+	}
+	for _, part := range strings.Split(current, ",") {
+		if strings.EqualFold(strings.TrimSpace(part), marker) {
+			return current
+		}
+	}
+	return current + ", " + marker
 }
 
 func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile) map[types.AnswerCandidateRole]sourceInventoryCandidateSet {

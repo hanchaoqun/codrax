@@ -2115,13 +2115,18 @@ func relationMemberSetHandoffDowngrade(ctx *types.BusContext, closure *types.Evi
 		return ""
 	}
 	ok, invalid := exhaustiveEnumerationMemberSetUsable(ctx, aggregateFacts)
-	if ok {
+	relationGaps := relationMemberSetGroundedImplementerGaps(ctx, aggregateFacts)
+	if ok && len(relationGaps) == 0 {
 		return ""
 	}
 	if closure != nil {
+		files := completionMaterializationReadFiles(closure)
+		for _, gap := range relationGaps {
+			files = append(files, gap.File)
+		}
 		closure.AddRepair(types.RepairDirective{
 			Kind:      types.RepairEmitEvidence,
-			Files:     completionMaterializationReadFiles(closure),
+			Files:     dedupStringsPreserveOrder(files),
 			Keywords:  dedupStringsPreserveOrder(append(append([]string{}, types.StructuralRelationScopeCandidates(rm)...), append(rm.AnalyzerHints.PrimaryEntities, rm.AnalyzerHints.Entities...)...)),
 			Rationale: "relation lookup needs a typed principal member_set so finalization answers with qualifying members before mechanism explanation",
 			Origin:    "pre_complete.relation_member_set",
@@ -2133,8 +2138,235 @@ func relationMemberSetHandoffDowngrade(ctx *types.BusContext, closure *types.Evi
 	if strings.TrimSpace(invalid) != "" {
 		fmt.Fprintf(&b, "A `member_set` was present but is not usable as relation principal-member data: %s\n\n", invalid)
 	}
+	if len(relationGaps) > 0 {
+		fmt.Fprintf(&b, "The current `member_set` omits grounded typed implementer evidence that was already emitted and is inside the requested source scope: %s. Include these members in the principal `member_set`, or place them in `excluded[]` with an explicit reason if the user-facing answer intentionally excludes them.\n\n", relationMemberSetGapSummary(relationGaps))
+	}
 	b.WriteString("Emit `aggregate_facts` with kind=`member_set`, value equal to the exact qualifying-member count, and members containing the verified relation answer set. For relation rows you may use compact surfaces such as `caller → callee`, `package: entry`, `module/import`, or a plain qualifying member when the relation target is already clear from the request and evidence. Each member must be backed by typed evidence or member-specific support_refs. Then re-call `emit_investigation_complete`.")
 	return b.String()
+}
+
+type relationTypedImplementerGap struct {
+	Name string
+	File string
+	Line int
+}
+
+func relationMemberSetGroundedImplementerGaps(ctx *types.BusContext, facts []types.AnswerAggregateFact) []relationTypedImplementerGap {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !types.HasTypedRelationMemberSetShape(rm) {
+		return nil
+	}
+	expected := relationTypedImplementersForRequest(ctx, rm)
+	if len(expected) == 0 {
+		return nil
+	}
+	evidenceKeys := relationGroundedImplementerEvidenceKeys(ctx, expected)
+	if len(evidenceKeys) == 0 {
+		return nil
+	}
+	included, excluded := relationPrincipalMemberSetKeys(ctx, facts)
+	var gaps []relationTypedImplementerGap
+	for _, item := range expected {
+		key := aggregateMemberKey(item.Name)
+		if key == "" || !evidenceKeys[key] || included[key] || excluded[key] {
+			continue
+		}
+		gaps = append(gaps, item)
+	}
+	return gaps
+}
+
+func relationTypedImplementersForRequest(ctx *types.BusContext, rm types.RequestModel) []relationTypedImplementerGap {
+	candidates := types.StructuralRelationScopeCandidates(rm)
+	if len(candidates) == 0 {
+		candidates = dedupStringsPreserveOrder(append(append([]string{}, rm.AnalyzerHints.PrimaryEntities...), rm.AnalyzerHints.Entities...))
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	if provider, ok := ctx.MultiGraph.(types.TypedRelationImplementerSource); ok && provider != nil {
+		return relationTypedImplementersFromProvider(provider, candidates, rm)
+	}
+	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+	return relationTypedImplementersFromGraph(graph, candidates, rm)
+}
+
+func relationTypedImplementersFromProvider(provider types.TypedRelationImplementerSource, candidates []string, rm types.RequestModel) []relationTypedImplementerGap {
+	if provider == nil {
+		return nil
+	}
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		members := provider.ImplementerMembersOf(candidate)
+		if len(members) == 0 {
+			continue
+		}
+		var out []relationTypedImplementerGap
+		seen := map[string]bool{}
+		for _, member := range members {
+			name := strings.TrimSpace(member.Name)
+			if name == "" {
+				continue
+			}
+			file := canonicalRelationSourcePath(member.File)
+			if !relationSourceInRequestedScope(file, rm) {
+				continue
+			}
+			key := aggregateMemberKey(name) + "|" + file
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, relationTypedImplementerGap{Name: name, File: file, Line: member.Line})
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return nil
+}
+
+func relationTypedImplementersFromGraph(graph *repotypes.Graph, candidates []string, rm types.RequestModel) []relationTypedImplementerGap {
+	if graph == nil {
+		return nil
+	}
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			continue
+		}
+		ids := graph.ImplementersOf(candidate)
+		if len(ids) == 0 {
+			continue
+		}
+		var out []relationTypedImplementerGap
+		seen := map[string]bool{}
+		for _, id := range ids {
+			sym, ok := graph.SymbolByID[id]
+			if !ok || sym == nil || strings.TrimSpace(sym.Name) == "" {
+				continue
+			}
+			file := canonicalRelationSourcePath(sym.File)
+			if !relationSourceInRequestedScope(file, rm) {
+				continue
+			}
+			key := aggregateMemberKey(sym.Name) + "|" + file
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, relationTypedImplementerGap{Name: strings.TrimSpace(sym.Name), File: file, Line: sym.Line})
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return nil
+}
+
+func relationGroundedImplementerEvidenceKeys(ctx *types.BusContext, expected []relationTypedImplementerGap) map[string]bool {
+	expectedByKey := map[string]relationTypedImplementerGap{}
+	for _, item := range expected {
+		key := aggregateMemberKey(item.Name)
+		if key == "" {
+			continue
+		}
+		expectedByKey[key] = item
+	}
+	if len(expectedByKey) == 0 {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, ev := range ctx.Mutable.EmittedEvidence() {
+		if ev.GroundingStatus == types.GroundingUngrounded {
+			continue
+		}
+		source := canonicalRelationSourcePath(ev.Source)
+		if source == "" {
+			continue
+		}
+		for _, raw := range aggregateEvidenceMemberLabels(ev) {
+			key := aggregateMemberKey(raw)
+			expectedItem, ok := expectedByKey[key]
+			if !ok {
+				continue
+			}
+			if source != canonicalRelationSourcePath(expectedItem.File) {
+				continue
+			}
+			out[key] = true
+		}
+	}
+	return out
+}
+
+func relationPrincipalMemberSetKeys(ctx *types.BusContext, facts []types.AnswerAggregateFact) (map[string]bool, map[string]bool) {
+	included := map[string]bool{}
+	excluded := map[string]bool{}
+	var rm *types.RequestModel
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm = &ctx.AnalysisIR.RequestModel
+	}
+	for _, fact := range facts {
+		if !types.AnswerAggregateFactCarriesCompleteMemberSet(fact) ||
+			!types.AnswerAggregateFactRoleForRequest(fact, rm).IsPrincipal() {
+			continue
+		}
+		for _, member := range fact.Members {
+			for _, candidate := range aggregateMemberDisplayCandidates(member) {
+				if key := aggregateMemberKey(candidate); key != "" {
+					included[key] = true
+				}
+			}
+		}
+		for _, member := range fact.Excluded {
+			for _, candidate := range aggregateMemberDisplayCandidates(member) {
+				if key := aggregateMemberKey(candidate); key != "" {
+					excluded[key] = true
+				}
+			}
+		}
+	}
+	return included, excluded
+}
+
+func relationSourceInRequestedScope(source string, rm types.RequestModel) bool {
+	scope := types.SourceScopeProduction
+	if rm.SourceScopeProfile != nil && rm.SourceScopeProfile.RequestedScope != "" {
+		scope = rm.SourceScopeProfile.RequestedScope
+	}
+	return types.SourceScopeAllowsPathRole(scope, types.ClassifySourcePathRole(source))
+}
+
+func canonicalRelationSourcePath(raw string) string {
+	raw = strings.ReplaceAll(strings.TrimSpace(raw), `\`, `/`)
+	raw = strings.TrimPrefix(raw, "./")
+	return strings.TrimSpace(raw)
+}
+
+func relationMemberSetGapSummary(gaps []relationTypedImplementerGap) string {
+	if len(gaps) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(gaps))
+	for _, gap := range gaps {
+		if gap.File != "" && gap.Line > 0 {
+			parts = append(parts, fmt.Sprintf("%s @ %s:%d", gap.Name, gap.File, gap.Line))
+			continue
+		}
+		if gap.File != "" {
+			parts = append(parts, fmt.Sprintf("%s @ %s", gap.Name, gap.File))
+			continue
+		}
+		parts = append(parts, gap.Name)
+	}
+	return strings.Join(parts, "; ")
 }
 
 func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {

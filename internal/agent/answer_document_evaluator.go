@@ -4160,6 +4160,7 @@ func renderAnswerDocPrincipalEnumerationRows(ctx *types.AgentContext, plan *type
 	b.WriteString("## Principal Enumeration Rows\n\n")
 	b.WriteString("- These rows are compiled deterministically from accepted principal aggregate facts, member-specific support refs, and grounded evidence. Use them as the stable row/citation skeleton for enumeration tables or lists.\n")
 	b.WriteString("- Preserve every `member` as the principal row identity. Use `display_label`, `location`, and `citation_key` to build clear table cells; use `note` to keep the answer explanatory instead of a dry symbol dump.\n")
+	b.WriteString("- When any row has a non-empty `note`, render that note on the same row as a concise description/说明 column or equivalent item text. Do not collapse per-row notes only into a summary paragraph.\n")
 	b.WriteString("- Render these rows as the actual principal `ordered_list`, `bullet_list`, or `table` blocks for the answer. Do not mention the row set only inside prose sections and rely on system-side fallback carriers; that creates duplicate user-visible lists.\n")
 	b.WriteString("- A row without `citation_key` is a legitimate non-file aggregate member; do not invent a `repo:0` citation for it.\n\n")
 	if guidance := renderAnswerDocSourceInventoryRowGuidance(ctx); guidance != "" {
