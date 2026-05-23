@@ -310,6 +310,9 @@ func isEnumerationRequestModel(rm types.RequestModel) bool {
 	if types.IsArchitectureNarrativeExplanation(rm) {
 		return false
 	}
+	if isTypedBoundedStructuralTraceRequestModel(rm) {
+		return false
+	}
 	if types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqEnumeration {
 		return true
 	}
@@ -317,6 +320,31 @@ func isEnumerationRequestModel(rm types.RequestModel) bool {
 		return true
 	}
 	return types.ResolveQuestionFamily(rm) == types.QFEnumeration
+}
+
+func isTypedBoundedStructuralTraceRequestModel(rm types.RequestModel) bool {
+	if types.IsSingleTopicStructuralTrace(rm) {
+		return true
+	}
+	if rm.Intent != types.IntentTrace {
+		return false
+	}
+	if types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
+		rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsRelationalLookup {
+		return false
+	}
+	switch rm.PredicateAxis {
+	case types.AxisCall, types.AxisCondition, types.AxisRegister:
+		return true
+	}
+	switch types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case types.ReqCallChain, types.ReqConditional, types.ReqMechanism, types.ReqRegistration:
+		return true
+	default:
+		return false
+	}
 }
 
 func appendSecondaryKindsForModel(reqs []EvidenceRequirement, entities []string, rm types.RequestModel) []EvidenceRequirement {

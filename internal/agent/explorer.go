@@ -5904,7 +5904,7 @@ func (e *explorerEvaluator) boundedStructuralTraceRequest() bool {
 		return false
 	}
 	rm := e.analysisIR.RequestModel
-	if types.IsSingleTopicStructuralTrace(rm) {
+	if isTypedBoundedStructuralTraceRequestModel(rm) {
 		return true
 	}
 	family := types.ResolveQuestionFamily(rm)

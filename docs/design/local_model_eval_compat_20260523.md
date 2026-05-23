@@ -49,6 +49,12 @@ Eval run root:
   hint asks for exact re-reads before re-emitting grounded evidence. The shared
   tool-parameter compatibility layer also handles explicit `_str` field-name
   variants such as `offset_str` / `limit_str` before schema scalar repair.
+- Batch 7 fixes a typed-contract leak in bounded trace requests: an analyzer may
+  split one trace request into multiple operational sub-topics ("call order" and
+  "key intermediate functions") without turning the user request into an
+  exhaustive file enumeration. `IntentTrace` + call/conditional/register
+  requirement now remains in the bounded-trace lane unless an explicit typed
+  member-set/count/relation/category obligation is present.
 
 ## Operating Principles
 
@@ -207,6 +213,24 @@ unambiguous; the existing scalar repair then converts `"2310"` to `2310` if
 the schema says the field is an integer. No missing fields are invented and no
 prose is inspected.
 
+### RC10 - Analyzer Sub-Topics Are Work Decomposition, Not User Intent Override
+
+The local `qf_sequence_analyzer_gate` eval showed a bounded sequence-diagram
+request classified correctly as `intent=trace`, `question_kind=call_chain`, and
+`diagram_hint=sequence`. The analyzer also split the work into two sub-topics:
+one for the call order and one for key intermediate functions. A downstream
+single-topic trace helper treated `len(sub_topics)>1` as disqualifying and let
+the broad enumeration coverage gate fire, telling explorer to read 23
+discovered files. That changed the user's path-shaped request into a system
+preferred inventory task.
+
+Systemic fix: distinguish user intent from orchestration decomposition. A typed
+trace/call-chain request remains bounded when it has no explicit member-set,
+count, relation, or category-enumeration obligation, even if the analyzer split
+the work into multiple operational sub-topics. The system may use those
+sub-topics to schedule work, but must not use them to impose exhaustive
+file-coverage semantics.
+
 ## Red-Line Design Boundaries
 
 - No keyword matching against the user question or model prose for intent or
@@ -308,6 +332,15 @@ prose is inspected.
 - Extend shared tool-parameter normalization for unambiguous `_str` field-name
   variants so range/counter intent is not silently dropped.
 
+### Batch 7 - Bounded Trace Contract Preservation
+
+- Treat analyzer sub-topics as work decomposition unless a separate typed
+  principal-member obligation is present.
+- Keep `IntentTrace` + `call_chain` / `conditional` / `registration` requests
+  out of broad enumeration coverage gates.
+- Add regression coverage for sequence-diagram requests that ask for key
+  intermediate functions but do not ask for an exhaustive member set.
+
 ## Progress
 
 - 2026-05-23: Synced `main` to `d4547331`, built successfully, ran local small
@@ -331,6 +364,11 @@ prose is inspected.
   surfaces at runtime, and evidence repair exposes `read_file` plus emit tools.
   The shared normalizer also repairs `_str` schema-key variants before scalar
   conversion.
+- 2026-05-23: The follow-up run showed the trace request still being pulled into
+  broad discovered-file coverage because analyzer sub-topics disqualified the
+  single-topic trace helper. The bounded-trace predicate now preserves
+  `intent=trace` / `question_kind=call_chain` contracts unless a typed
+  principal-member obligation explicitly says otherwise.
 
 ## Observations
 

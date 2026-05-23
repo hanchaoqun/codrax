@@ -605,6 +605,34 @@ func TestExplorerReadiness_BoundedTraceSuppressesEnumerationCoverageFloors(t *te
 	}
 }
 
+func TestExplorerReadiness_MultiSubtopicCallChainTraceSuppressesEnumerationCoverage(t *testing.T) {
+	ctx := parseOutputCtx(string(types.ReqCallChain), "")
+	rm := &ctx.AnalysisIR.RequestModel
+	rm.Intent = types.IntentTrace
+	rm.PredicateAxis = types.AxisCall
+	rm.Predicates.IsCrossComponent = true
+	rm.DiagramHint = &types.DiagramHint{Kind: types.DiagramSequence}
+	rm.AnalyzerHints.Entities = []string{"buildAnalysisIR", "gate.Run", "analyzer.go"}
+	rm.SubTopics = []types.SubTopic{
+		{Summary: "调用链从 buildAnalysisIR 到 gate.Run 的完整顺序", Entities: []string{"buildAnalysisIR", "gate.Run"}},
+		{Summary: "关键中间函数的列表", Entities: []string{"buildAnalysisIR", "gate.Run"}},
+	}
+	eval := &explorerEvaluator{
+		isEnumerationQuery: true, // stale fork-local flag must not override the typed trace contract.
+		analysisIR:         ctx.AnalysisIR,
+	}
+
+	if enumerationIntentForContext(ctx) {
+		t.Fatal("typed call-chain trace must not be treated as an exhaustive enumeration request")
+	}
+	if !eval.boundedStructuralTraceRequest() {
+		t.Fatal("multi-subtopic call-chain trace should stay in the bounded trace lane")
+	}
+	if eval.shouldRunEnumerationCoverageMidLoop() {
+		t.Fatal("bounded trace must not run broad discovered-file enumeration coverage")
+	}
+}
+
 // -----------------------------------------------------------------------------
 // DetermineMissingPiece
 // -----------------------------------------------------------------------------
