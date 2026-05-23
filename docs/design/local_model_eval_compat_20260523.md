@@ -1740,6 +1740,126 @@ Batch 17 task list:
       `go test ./...`.
 - [x] Commit and push Batch 17.
 
+## 2026-05-24 Batch 18 - Relation Eval Recheck, Remaining Gaps
+
+Eval run:
+
+- Case: `eval/cases/qf_relation_subagent_registry.case`
+- Output root:
+  `.codrax/eval-batch18/qf_relation_subagent_registry-20260524-035436`
+- Model observed in log: `Qwen3.5-9B-OptiQ-4bit`
+- The run was stopped after the blocking gaps below were captured. Continuing
+  would mostly spend local-model time on the already-observed repair loop.
+- The planned second eval (`qf_type_relation_loop_controller`) is still pending
+  for this batch. If another user/customer eval is already running, do not
+  interrupt it.
+
+Positive signal from Batch 17:
+
+- Broad line-output grep now ranks typed relevance correctly. In the
+  `RegisterDefaultSubAgents` grep with 105 matching lines, the inline summary
+  reported:
+  `decision=broad_result_compacted mode=line_output entries=105 production=14 auxiliary=91`
+  and
+  `relevance=required=2 read_or_evidence=10 phase1_ranked=1 production_rest=1 auxiliary_rest=91`.
+- The first production rows were the correct anchors:
+  `internal/agent/subagent.go:62-63`, before ordinary production noise such as
+  comments in `internal/tool/builtin.go`.
+- This confirms the typed relevance index is useful and should be reused beyond
+  only the broad-compaction path.
+
+Remaining gaps discovered:
+
+1. Medium/narrow grep output still uses path-role ordering only.
+
+   - The current implementation applies typed relevance ranking in
+     `compactBroadGrepOutput`, but the non-compacted annotation path still goes
+     through `annotateGrepOutputByPathRole`.
+   - In the same eval, a `files_only` grep and a 21-line grep did not trigger
+     broad compaction. Their production sections still surfaced ordinary
+     production files such as `internal/tool/builtin.go`,
+     `internal/tool/defaults.go`, or `internal/skill/defaults.go` before
+     already-read / evidence-bearing `internal/agent/subagent.go`.
+   - This can still lead the model into irrelevant reads even after Batch 17.
+   - Preferred fix: reuse the same typed relevance partition for every grep
+     result that is sectioned by path role, not only broad compacted output.
+     Narrow output should keep the existing headers and should not add noisy
+     governor metadata unless useful, but the row order should still be
+     structured-state-aware.
+
+2. Explorer keeps expanding after sufficient principal evidence exists.
+
+   - By iteration 7, the run had accepted 9 grounded evidence items covering:
+     `SubAgentRegistry`, `Register`, `RegisterDefaultSubAgents`,
+     `NewSubExplorer`, and `SubExplorer.Name() -> "explorer"`.
+   - The model then correctly stated in prose that the default registered
+     subagent name is only `"explorer"`, but continued to verify with more grep
+     and reads (`cmd/root.go`, `internal/tool/builtin.go`, etc.).
+   - Context grew from roughly 53k to 63k estimated tokens and added several
+     slow local-model turns.
+   - Existing mid-loop hints did eventually force evidence emission, but they
+     did not strongly convert "principal enumeration evidence is sufficient"
+     into a closure-only path.
+   - Preferred fix: add a typed sufficiency gate for enumeration/relation
+     questions that uses structured facts only: accepted grounded member
+     evidence, required evidence axes, aggregate member count, and absence of
+     actionable repair targets. When satisfied, prefer
+     `emit_investigation_complete` / repair-only tools over generic
+     navigation. Do not infer this from user text or model prose.
+
+3. `emit_investigation_complete` member-set support matching is too strict for
+   value-return members.
+
+   - The model emitted:
+     `aggregate_facts=[{kind:"member_set", value:"1", members:["explorer"], support_refs:["SubExplorer (internal/agent/sub_explorer.go:31)"]}]`.
+   - This was downgraded as:
+     `member "explorer" has no typed evidence / member-specific support_ref`.
+   - However, grounded evidence already existed at
+     `internal/agent/sub_explorer.go:31`, with `anchor_kind=return`,
+     `anchor_symbol=Name`, and a snippet / source line returning `"explorer"`.
+   - The current validator appears to require the member string to match the
+     evidence subject/object/anchor name too literally, and does not treat a
+     grounded return line containing the exact quoted member literal as member
+     support.
+   - Preferred fix: extend member-set support resolution to accept grounded
+     evidence when the cited source line or snippet contains the exact member
+     literal, especially for `return` / assignment / concrete-value evidence.
+     This is a structural source-line check, not a free-form prose heuristic.
+
+4. Duplicate evidence skipping interacts poorly with closure repair.
+
+   - After the first downgrade, the model attempted to add evidence for the
+     same `Name @ sub_explorer.go:31` return line. `emit_evidence` correctly
+     skipped duplicates, but the closure validator still could not use the
+     already-buffered duplicate target as member support.
+   - This creates a repair loop: the model is told to add support, the support
+     already exists, the duplicate is skipped, and the next completion attempt
+     may fail the same way.
+   - Preferred fix: make closure repair consume the existing deduplicated
+     evidence pool before asking for more evidence, and make the downgrade
+     message name the exact accepted support forms only when the pool truly
+     lacks them.
+
+5. Closure reason can contain a model-side naming slip that should not override
+   structured aggregate facts.
+
+   - The closure reason said the "完整成员名" was `SubExplorer`, while the
+     structured aggregate member was correctly `explorer`.
+   - Downstream answer construction should prioritize the structured
+     `member_set.members` value and the grounded return-literal evidence over
+     the explanatory prose reason.
+   - This does not require changing the prompt. It is another reason to make the
+     structured member-set handoff succeed when its evidence is valid.
+
+Next high-ROI candidates from this eval:
+
+1. Reuse typed relevance ordering for all grep sectioned output, not only broad
+   compaction.
+2. Fix member-set support matching for exact return/assignment/concrete-value
+   literals.
+3. Add relation/enumeration sufficiency gating to reduce post-evidence
+   over-exploration.
+
 ## Open Questions
 
 - Whether `emit_evidence.anchor_kind` auto-repair should run inside
