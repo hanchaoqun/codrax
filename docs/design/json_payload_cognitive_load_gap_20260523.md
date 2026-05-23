@@ -2,8 +2,8 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-40 are complete and verified; Batch 41
-is the active visible-supplement authority pass. The shared schema-aware repair
+Status: partially implemented. Batches 1-41 are complete and verified; Batch 42
+is the active external-observation provenance pass. The shared schema-aware repair
 path is active across the high-frequency structured emit tools, including the
 legacy top-level JSON-string repair wrappers. Remaining work is tracked below as
 explicit batches so implementation does not rely on memory: visible supplement
@@ -423,7 +423,7 @@ untouched.
 
 ### Batch 41+ Task Queue
 
-- Batch 41 — visible supplement authority contract. Status: in progress.
+- Batch 41 — visible supplement authority contract. Status: completed.
   - Design principle: model-authored prose, markdown tables, structured tables,
     diagrams, and caveats are the primary answer surface. Runtime may append
     localized supplements only when a typed, mechanically verified carrier proves
@@ -479,6 +479,13 @@ untouched.
     absence, true enumeration/member-set, trace/call-chain/conditional/
     registration requests continue to surface grounding boundaries when the
     typed contract requires them.
+  - Delivered in Batch 41.4: guardrail coverage now pins the bilingual visible
+    supplement contract. The tests cover preserved model-authored markdown
+    tables, preserved incompatible structured tables, localized
+    `field supplement` titles, source-anchor supplement gating, and accepted
+    mechanism/history generic-caveat suppression. These guards intentionally use
+    typed request/evidence fields rather than user prose or model free-form
+    keyword checks.
 
 - Batch 42 — external observation refs and no-hit answer shape. Status:
   in progress.

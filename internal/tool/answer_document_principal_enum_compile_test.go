@@ -243,6 +243,65 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsSupplementForIncompatible
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_UsesEnglishFieldSupplementForIncompatibleStructuredTable(t *testing.T) {
+	mu := types.NewMutableState("list exported functions")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("eval", "Eval", "internal/analysis/criterion/eval.go", 15, "Eval evaluates one Criterion and returns Result."),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "exported functions",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"Eval"},
+		SupportRefs: []string{"Eval @ internal/analysis/criterion/eval.go:15"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "en",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:      "model_structured_table",
+		Kind:    types.BlockTable,
+		Title:   "Model-authored exported function table",
+		Columns: []string{"Category", "Name", "Location", "Description"},
+		Items: []types.AnswerBlockItem{{
+			ID:    "eval",
+			Label: "Eval",
+		}},
+	}}}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatal("expected separated deterministic field supplement")
+	}
+	model := answerDocumentTestBlockByID(t, doc, "model_structured_table")
+	if len(model.Columns) != 4 || model.Columns[0] != "Category" ||
+		len(model.Items) != 1 || model.Items[0].Label != "Eval" ||
+		len(model.Items[0].Cells) != 0 {
+		t.Fatalf("model-authored structured table must remain untouched: %+v", model)
+	}
+	supplement := doc.Blocks[len(doc.Blocks)-1]
+	if !strings.Contains(supplement.Title, "System-verified field supplement") {
+		t.Fatalf("supplement title should mark a localized field supplement, got %q", supplement.Title)
+	}
+	if strings.Contains(supplement.Title, "complete member table") {
+		t.Fatalf("supplement title must not present itself as a replacement table: %q", supplement.Title)
+	}
+	visible := types.AnswerBlockVisibleSurface(supplement)
+	for _, want := range []string{"Eval", "internal/analysis/criterion/eval.go:15", "returns Result"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("English field supplement missing %q:\n%s", want, visible)
+		}
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_AppendsMissingRowsForCorruptCompleteAttempt(t *testing.T) {
 	mu := types.NewMutableState("列出公开字符串枚举类型")
 	mu.AppendEvidence([]types.EvidenceItem{
