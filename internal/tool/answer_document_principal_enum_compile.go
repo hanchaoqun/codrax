@@ -617,7 +617,7 @@ func buildPrincipalEnumerationRowsBlock(doc *types.AnswerDocumentV2, set types.E
 			ClaimForm: types.ClaimDefinitionFact,
 			FacetID:   string(types.FacetEnumerationItem),
 		}},
-		Columns: principalEnumerationTableColumns(zh, shape),
+		Columns: principalEnumerationTableColumns(zh, shape, blockSet.Rows),
 	}
 	block.Items = principalEnumerationItemsForSet(doc, blockSet, block.Kind, nil, shape)
 	return block
@@ -817,11 +817,8 @@ func principalEnumerationTableShapeForRows(rows []types.EnumerationDisplayRow, e
 	return shape
 }
 
-func principalEnumerationTableColumns(zh bool, shape principalEnumerationTableShape) []string {
-	columns := []string{"Name"}
-	if zh {
-		columns = []string{"符号名称"}
-	}
+func principalEnumerationTableColumns(zh bool, shape principalEnumerationTableShape, rows []types.EnumerationDisplayRow) []string {
+	columns := []string{principalEnumerationPrimaryColumnLabel(zh, rows)}
 	if shape.includeLocation {
 		if zh {
 			columns = append(columns, "定义位置")
@@ -837,6 +834,89 @@ func principalEnumerationTableColumns(zh bool, shape principalEnumerationTableSh
 		}
 	}
 	return columns
+}
+
+func principalEnumerationPrimaryColumnLabel(zh bool, rows []types.EnumerationDisplayRow) string {
+	origin, ok := principalEnumerationUniformPrimaryOrigin(rows)
+	if !ok {
+		if zh {
+			return "项目"
+		}
+		return "Item"
+	}
+	switch origin {
+	case types.AnswerEvidenceOriginVCSMetadata:
+		if zh {
+			return "提交"
+		}
+		return "Commit"
+	case types.AnswerEvidenceOriginVCSDiff:
+		if zh {
+			return "变更"
+		}
+		return "Change"
+	case types.AnswerEvidenceOriginRuntimeArtifact:
+		if zh {
+			return "观察项"
+		}
+		return "Observation"
+	case types.AnswerEvidenceOriginCommandMeasurement:
+		if zh {
+			return "命令结果"
+		}
+		return "Command result"
+	case types.AnswerEvidenceOriginRepoNegativeSearch:
+		if zh {
+			return "负向查询"
+		}
+		return "Negative check"
+	case types.AnswerEvidenceOriginCrossRepoIndex:
+		if zh {
+			return "仓库项"
+		}
+		return "Repository item"
+	case types.AnswerEvidenceOriginExternalDocument,
+		types.AnswerEvidenceOriginWebPage,
+		types.AnswerEvidenceOriginMCPResource,
+		types.AnswerEvidenceOriginConnectorResource:
+		if zh {
+			return "资源项"
+		}
+		return "Resource"
+	default:
+		if zh {
+			return "符号名称"
+		}
+		return "Name"
+	}
+}
+
+func principalEnumerationUniformPrimaryOrigin(rows []types.EnumerationDisplayRow) (types.AnswerEvidenceOrigin, bool) {
+	var out types.AnswerEvidenceOrigin
+	for _, row := range rows {
+		origin := principalEnumerationPrimaryOrigin(row)
+		if out == "" {
+			out = origin
+			continue
+		}
+		if origin != out {
+			return "", false
+		}
+	}
+	if out == "" {
+		return types.AnswerEvidenceOriginCurrentSource, true
+	}
+	return out, true
+}
+
+func principalEnumerationPrimaryOrigin(row types.EnumerationDisplayRow) types.AnswerEvidenceOrigin {
+	for _, origin := range row.EvidenceOrigins {
+		if origin == types.AnswerEvidenceOriginUnknown || !origin.IsValid() {
+			continue
+		}
+		return origin
+	}
+	return types.AnswerEvidenceOriginCurrentSource
 }
 
 func principalEnumerationItemsForSet(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet, kind types.AnswerBlockKind, existingNotes map[string]string, shape principalEnumerationTableShape) []types.AnswerBlockItem {

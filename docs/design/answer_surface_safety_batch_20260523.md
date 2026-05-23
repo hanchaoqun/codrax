@@ -149,8 +149,8 @@ Rules:
 | Batch | Status | Task | Code Areas | Validation |
 | --- | --- | --- | --- | --- |
 | T0 | Done in this doc | Record design, red lines, existing components, and implementation plan. | `docs/design/answer_surface_safety_batch_20260523.md` | Doc review |
-| T1 | Pending | Add a central supplement-policy helper around principal enumeration supplements. It should localize origin-aware labels, suppress all-empty/dry supplements, and keep model-authored tables untouched. | `internal/tool/answer_document_principal_enum_compile.go`, related tests | `go test ./internal/tool -run 'PrincipalEnumeration|RenderV2_BlockTable'` |
-| T2 | Pending | Add regression tests for VCS/history, runtime artifact, command, MCP/web/connector-like rows so non-code supplements use origin-aware labels or are suppressed when dry. | `internal/tool/*_test.go`, `internal/render/*_test.go` | focused Go tests |
+| T1 | Done | Add a central supplement-policy helper around principal enumeration supplements. It should localize origin-aware labels, suppress all-empty/dry supplements, and keep model-authored tables untouched. | `internal/tool/answer_document_principal_enum_compile.go`, related tests | `go test ./internal/tool -run 'TestNormalizePrincipalEnumerationRowBlocks|TestPrincipalEnumerationPrimaryColumnLabel'` |
+| T2 | Partially done | Add regression tests for VCS/history, runtime artifact, command, MCP/web/connector-like rows so non-code supplements use origin-aware labels or are suppressed when dry. | `internal/tool/*_test.go`, `internal/render/*_test.go` | VCS missing-row supplement plus all current origin labels covered; broader eval replay remains under T5. |
 | T3 | Pending | Introduce a shared reviewer visible-surface helper and route self-consistency / semantic-quality inputs through it. | `internal/orchestrator/contract_check.go`, `semantic_quality_reviewer.go`, self-consistency tests | focused reviewer tests |
 | T4 | Pending | Add telemetry/tests proving reviewer sees system supplements, model Markdown tables, diagrams, attachments, and external observations exactly as the final panel does. | `internal/orchestrator/*reviewer*_test.go`, `internal/render/answerdoc_test.go` | focused Go tests |
 | T5 | Pending | Run targeted evals for principal-ledger/history, source-inventory, multi-repo compare, log/trace artifact, and mixed external+code analysis. | `eval/results/...` | inspect logs for retries, supplements, and lost summaries |
@@ -178,4 +178,10 @@ Rules:
   `semantic_quality_reviewer.go`. Existing schema repair/quarantine and
   Observation Ledger components are sufficient; this batch should not introduce
   a parallel evidence channel.
-
+- 2026-05-23: Batch T1 implemented origin-aware primary column labels for
+  deterministic principal-enumeration system supplements. Current-source
+  supplements keep `符号名称` / `Name`; non-code origins now render as
+  commit/change/observation/command/resource semantics instead of pretending to
+  be code symbols. Regression coverage includes a VCS missing-row supplement and
+  every declared `AnswerEvidenceOrigin` family. Existing model-authored table
+  preservation behavior is unchanged.

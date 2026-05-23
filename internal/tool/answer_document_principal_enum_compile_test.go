@@ -696,6 +696,107 @@ func TestNormalizePrincipalEnumerationRowBlocks_DoesNotDuplicateShortVCSHashes(t
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_VCSSupplementUsesCommitColumn(t *testing.T) {
+	mu := types.NewMutableState("最近 3 次提交都做了哪些事情")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "最近提交",
+		Value: "3",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"ae1dd6b256fab219104c09447b6ffe3697239b7a: evidence: unify vcs provenance lanes",
+			"3ae8465b6afe3fb16902d511d51482fefd09a103: orchestrator: route retries through claim bindings",
+			"125687ab6f1ff7cd1187183fc459efe65be10fb3: orchestrator: suppress generic caveats after semantic pass",
+		},
+		Dimensions: []types.AnswerAggregateDimension{{Name: "evidence_origin", Value: "vcs_metadata"}},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:          "summary",
+		Kind:        types.BlockSummary,
+		SurfaceRole: types.SurfacePrincipal,
+		Text:        "已说明 ae1dd6b2 和 3ae8465b 两个提交，还缺第三个提交。",
+	}}}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatal("expected missing VCS row supplement")
+	}
+	var supplement *types.AnswerBlock
+	for i := range doc.Blocks {
+		if strings.Contains(doc.Blocks[i].Title, "系统按已验证证据补充成员：最近提交") {
+			supplement = &doc.Blocks[i]
+			break
+		}
+	}
+	if supplement == nil {
+		t.Fatalf("expected VCS supplement, got %+v", doc.Blocks)
+	}
+	if got, want := supplement.Columns, []string{"提交"}; len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("VCS supplement should use origin-aware column label, got %#v", got)
+	}
+	visible := types.AnswerBlockVisibleSurface(*supplement)
+	for _, want := range []string{"125687ab6f1ff7cd1187183fc459efe65be10fb3", "generic caveats"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("supplement missing VCS row detail %q:\n%s", want, visible)
+		}
+	}
+	if strings.Contains(visible, "符号名称") {
+		t.Fatalf("VCS supplement must not render generic code-symbol heading:\n%s", visible)
+	}
+}
+
+func TestPrincipalEnumerationPrimaryColumnLabel_OriginSpecific(t *testing.T) {
+	cases := []struct {
+		name   string
+		origin types.AnswerEvidenceOrigin
+		zh     string
+		en     string
+	}{
+		{"current", types.AnswerEvidenceOriginCurrentSource, "符号名称", "Name"},
+		{"vcs", types.AnswerEvidenceOriginVCSMetadata, "提交", "Commit"},
+		{"diff", types.AnswerEvidenceOriginVCSDiff, "变更", "Change"},
+		{"runtime", types.AnswerEvidenceOriginRuntimeArtifact, "观察项", "Observation"},
+		{"command", types.AnswerEvidenceOriginCommandMeasurement, "命令结果", "Command result"},
+		{"repo_negative", types.AnswerEvidenceOriginRepoNegativeSearch, "负向查询", "Negative check"},
+		{"cross_repo", types.AnswerEvidenceOriginCrossRepoIndex, "仓库项", "Repository item"},
+		{"external_doc", types.AnswerEvidenceOriginExternalDocument, "资源项", "Resource"},
+		{"web", types.AnswerEvidenceOriginWebPage, "资源项", "Resource"},
+		{"mcp", types.AnswerEvidenceOriginMCPResource, "资源项", "Resource"},
+		{"connector", types.AnswerEvidenceOriginConnectorResource, "资源项", "Resource"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rows := []types.EnumerationDisplayRow{{EvidenceOrigins: []types.AnswerEvidenceOrigin{tc.origin}}}
+			if got := principalEnumerationPrimaryColumnLabel(true, rows); got != tc.zh {
+				t.Fatalf("zh label = %q, want %q", got, tc.zh)
+			}
+			if got := principalEnumerationPrimaryColumnLabel(false, rows); got != tc.en {
+				t.Fatalf("en label = %q, want %q", got, tc.en)
+			}
+		})
+	}
+	mixed := []types.EnumerationDisplayRow{
+		{EvidenceOrigins: []types.AnswerEvidenceOrigin{types.AnswerEvidenceOriginCurrentSource}},
+		{EvidenceOrigins: []types.AnswerEvidenceOrigin{types.AnswerEvidenceOriginVCSMetadata}},
+	}
+	if got := principalEnumerationPrimaryColumnLabel(true, mixed); got != "项目" {
+		t.Fatalf("mixed-origin zh label = %q, want 项目", got)
+	}
+	if got := principalEnumerationPrimaryColumnLabel(false, mixed); got != "Item" {
+		t.Fatalf("mixed-origin en label = %q, want Item", got)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_VisibleArchitectureCoveragePreventsSystemSupplements(t *testing.T) {
 	mu := types.NewMutableState("codrax 的 read-mode pipeline 由哪几个 stage 组成？")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
