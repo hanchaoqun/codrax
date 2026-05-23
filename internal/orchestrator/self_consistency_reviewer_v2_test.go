@@ -182,6 +182,60 @@ func TestRenderConsistencyReviewBodyV2_IncludesStructuredVisibleSurface(t *testi
 	}
 }
 
+func TestBuildReviewerAnswerSurface_SharedProjection(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{Kind: types.BlockSummary, Text: "summary text"},
+			{Kind: types.BlockSection, Title: "Details", Text: "body text"},
+			{
+				Kind:    types.BlockTable,
+				Title:   "系统按已验证证据补充成员：最近提交（1）",
+				Columns: []string{"提交"},
+				Items: []types.AnswerBlockItem{{
+					Label: "ae1dd6b256fab219104c09447b6ffe3697239b7a",
+					Text:  "统一 VCS 证据通道。",
+				}},
+			},
+			{
+				Kind:  types.BlockDiagram,
+				Title: "逻辑视图",
+				Diagram: &types.AnswerDiagramBlock{
+					Language: "mermaid",
+					Body:     "flowchart TD\n  A --> B",
+				},
+			},
+		},
+	}
+	attachments := []types.AnswerDisplayAttachment{{
+		Kind:   types.AnswerDisplayAttachmentMarkdown,
+		Title:  "保留的原文",
+		Body:   "模型原文中的补充说明。",
+		Source: "test",
+	}}
+
+	proseSurface := buildReviewerAnswerSurface(doc, attachments, "zh", false)
+	if proseSurface.Summary != "summary text" {
+		t.Fatalf("summary = %q", proseSurface.Summary)
+	}
+	for _, want := range []string{"## Details", "body text", "系统按已验证证据补充成员：最近提交", "ae1dd6b256"} {
+		if !strings.Contains(proseSurface.Body, want) {
+			t.Fatalf("shared reviewer body missing %q:\n%s", want, proseSurface.Body)
+		}
+	}
+	if strings.Contains(proseSurface.Body, "flowchart TD") {
+		t.Fatalf("self-consistency projection should not include diagrams:\n%s", proseSurface.Body)
+	}
+	if !strings.Contains(proseSurface.FullMarkdown, "模型原文中的补充说明。") ||
+		!strings.Contains(proseSurface.FullMarkdown, "flowchart TD") {
+		t.Fatalf("full rendered surface should include attachments and diagrams:\n%s", proseSurface.FullMarkdown)
+	}
+
+	semanticSurface := buildReviewerAnswerSurface(doc, attachments, "zh", true)
+	if !strings.Contains(semanticSurface.Body, "flowchart TD") {
+		t.Fatalf("semantic projection should include diagram body:\n%s", semanticSurface.Body)
+	}
+}
+
 func TestRenderConsistencyReviewBodyV2_AppendsTypedItemCitationRefs(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Citations: []types.Citation{

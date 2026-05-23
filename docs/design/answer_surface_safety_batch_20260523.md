@@ -151,8 +151,8 @@ Rules:
 | T0 | Done in this doc | Record design, red lines, existing components, and implementation plan. | `docs/design/answer_surface_safety_batch_20260523.md` | Doc review |
 | T1 | Done | Add a central supplement-policy helper around principal enumeration supplements. It should localize origin-aware labels, suppress all-empty/dry supplements, and keep model-authored tables untouched. | `internal/tool/answer_document_principal_enum_compile.go`, related tests | `go test ./internal/tool -run 'TestNormalizePrincipalEnumerationRowBlocks|TestPrincipalEnumerationPrimaryColumnLabel'` |
 | T2 | Partially done | Add regression tests for VCS/history, runtime artifact, command, MCP/web/connector-like rows so non-code supplements use origin-aware labels or are suppressed when dry. | `internal/tool/*_test.go`, `internal/render/*_test.go` | VCS missing-row supplement plus all current origin labels covered; broader eval replay remains under T5. |
-| T3 | Pending | Introduce a shared reviewer visible-surface helper and route self-consistency / semantic-quality inputs through it. | `internal/orchestrator/contract_check.go`, `semantic_quality_reviewer.go`, self-consistency tests | focused reviewer tests |
-| T4 | Pending | Add telemetry/tests proving reviewer sees system supplements, model Markdown tables, diagrams, attachments, and external observations exactly as the final panel does. | `internal/orchestrator/*reviewer*_test.go`, `internal/render/answerdoc_test.go` | focused Go tests |
+| T3 | Done | Introduce a shared reviewer visible-surface helper and route self-consistency / semantic-quality inputs through it. | `internal/orchestrator/contract_check.go`, `semantic_quality_reviewer.go`, self-consistency tests | `go test ./internal/orchestrator -run 'TestBuildReviewerAnswerSurface|TestRenderConsistencyReviewBodyV2|TestRunSemanticQualityReviewWithOutcome|TestRenderSemanticQualityUserMessage'` |
+| T4 | Partially done | Add telemetry/tests proving reviewer sees system supplements, model Markdown tables, diagrams, attachments, and external observations exactly as the final panel does. | `internal/orchestrator/*reviewer*_test.go`, `internal/render/answerdoc_test.go` | Shared surface test covers supplements, diagrams, and attachments; external observations already covered by semantic reviewer tests. Targeted eval replay remains under T5. |
 | T5 | Pending | Run targeted evals for principal-ledger/history, source-inventory, multi-repo compare, log/trace artifact, and mixed external+code analysis. | `eval/results/...` | inspect logs for retries, supplements, and lost summaries |
 | T6 | Pending | Refresh gap docs with confirmed residuals and decide next architecture batch. | `docs/design/eval_20260520_full_sweep_gap_tracking.md`, related design docs | doc diff |
 
@@ -185,3 +185,12 @@ Rules:
   be code symbols. Regression coverage includes a VCS missing-row supplement and
   every declared `AnswerEvidenceOrigin` family. Existing model-authored table
   preservation behavior is unchanged.
+- 2026-05-23: Batch T3 introduced `buildReviewerAnswerSurface`, a shared
+  reviewer projection that derives stripped summary, reviewer body, and full
+  rendered markdown from the same `AnswerDocumentV2` plus attachments. Both
+  self-consistency and semantic-quality reviewers now consume this helper.
+  Self-consistency still excludes diagrams by design; semantic-quality includes
+  diagrams because requested visual structure is part of completeness. The test
+  fixture proves system supplements, diagram bodies, and recovered display
+  attachments are visible in the expected projection without adding a second
+  prompt surface.

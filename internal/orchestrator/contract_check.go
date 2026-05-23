@@ -2525,6 +2525,29 @@ func renderSemanticQualityReviewBodyV2(doc *types.AnswerDocumentV2) string {
 	return renderReviewBodyV2(doc, true)
 }
 
+type reviewerAnswerSurface struct {
+	Summary      string
+	Body         string
+	FullMarkdown string
+}
+
+func buildReviewerAnswerSurface(doc *types.AnswerDocumentV2, attachments []types.AnswerDisplayAttachment, lang string, includeDiagrams bool) reviewerAnswerSurface {
+	if doc == nil {
+		return reviewerAnswerSurface{}
+	}
+	var summaryText strings.Builder
+	for _, blk := range doc.Blocks {
+		if blk.Kind == types.BlockSummary {
+			summaryText.WriteString(blk.Text)
+		}
+	}
+	return reviewerAnswerSurface{
+		Summary:      render.StripAuthorityArtifacts(summaryText.String()),
+		Body:         render.StripAuthorityArtifacts(renderReviewBodyV2(doc, includeDiagrams)),
+		FullMarkdown: render.StripAuthorityArtifacts(render.RenderAnswerDocumentWithAttachments(doc, attachments, lang)),
+	}
+}
+
 func renderReviewBodyV2(doc *types.AnswerDocumentV2, includeDiagrams bool) string {
 	if doc == nil {
 		return ""
@@ -2714,19 +2737,14 @@ func (o *Orchestrator) runSelfConsistencyReviewV2WithStartNotice(doc *types.Answ
 		})
 	}
 
-	// Pull summary + body off V2 blocks. Strip system-injected
-	// hedge / Authority caveat tokens so the reviewer LLM doesn't
-	// flag system annotations as factual contradictions.
-	summaryText := ""
-	for _, blk := range doc.Blocks {
-		if blk.Kind == types.BlockSummary {
-			summaryText += blk.Text
-		}
-	}
+	// Pull summary + body off the shared reviewer surface. Strip
+	// system-injected hedge / Authority caveat tokens so the reviewer LLM
+	// doesn't flag system annotations as factual contradictions.
+	surface := buildReviewerAnswerSurface(doc, mut.AnswerDisplayAttachments(), o.busCtx.Language, false)
 	in := SelfConsistencyInput{
 		OriginalRequest:   mut.Objective(),
-		AnswerSummary:     render.StripAuthorityArtifacts(summaryText),
-		AnswerBody:        render.StripAuthorityArtifacts(renderConsistencyReviewBodyV2(doc)),
+		AnswerSummary:     surface.Summary,
+		AnswerBody:        surface.Body,
 		EvidenceAnchorSet: buildReviewerEvidenceAnchorSet(mut, doc, o.busCtx),
 	}
 
@@ -3403,16 +3421,11 @@ func (o *Orchestrator) runSemanticQualityReviewWithOutcomeAndStartNotice(doc *ty
 
 	// Project the typed orchestrator state into the reviewer input.
 	view := types.BuildAnswerSemanticViewForBusContext(o.busCtx)
-	summaryText := ""
-	for _, blk := range doc.Blocks {
-		if blk.Kind == types.BlockSummary {
-			summaryText += blk.Text
-		}
-	}
+	surface := buildReviewerAnswerSurface(doc, mut.AnswerDisplayAttachments(), o.busCtx.Language, true)
 	in := BuildSemanticQualityInput(
 		mut.Objective(),
-		render.StripAuthorityArtifacts(summaryText),
-		render.StripAuthorityArtifacts(renderSemanticQualityReviewBodyV2(doc)),
+		surface.Summary,
+		surface.Body,
 		doc, view,
 		buildReviewerEvidenceAnchorSet(mut, doc, o.busCtx),
 	)
