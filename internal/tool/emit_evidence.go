@@ -3129,6 +3129,17 @@ func failEmit(name string, now time.Time, format string, args ...interface{}) (t
 	}, nil
 }
 
+func failEmitWithRepair(name string, now time.Time, repair *types.ToolRepair, format string, args ...interface{}) (types.ToolResult, error) {
+	msg := fmt.Sprintf(format, args...)
+	return types.ToolResult{
+		ToolName:  name,
+		Success:   false,
+		Summary:   msg,
+		Repair:    repair,
+		Timestamp: now,
+	}, nil
+}
+
 // Session 11 R4 helpers — self-reference trap detection.
 
 // extractPrimaryEntity returns the first element of

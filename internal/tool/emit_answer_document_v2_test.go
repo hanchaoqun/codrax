@@ -83,6 +83,30 @@ func TestEmitAnswerDocumentV2_AcceptsValidV2(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_EmptyBlocksRejectsWithStructuredRepair(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	res, err := tool.Execute(bus, json.RawMessage(`{"blocks":[],"citations":[{"file":"x.go","line":1}]}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("empty blocks[] must reject")
+	}
+	if res.Repair == nil {
+		t.Fatalf("empty blocks[] rejection should carry structured repair metadata: %+v", res)
+	}
+	if res.Repair.Code != "answer_doc_blocks_required" {
+		t.Fatalf("repair code = %q", res.Repair.Code)
+	}
+	for _, want := range []string{"blocks", "non-empty `blocks[]`", "Preserve the same answer facts"} {
+		joined := strings.Join(append(res.Repair.Fields, res.Repair.Hint), "\n")
+		if !strings.Contains(joined, want) {
+			t.Fatalf("repair metadata missing %q: %+v", want, res.Repair)
+		}
+	}
+}
+
 func TestEmitAnswerDocumentV2_PreEmitSoftHintsDoNotReject(t *testing.T) {
 	bus := newV2TestBusContext()
 	bus.AnalysisIR = &types.AnalysisIR{

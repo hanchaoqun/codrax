@@ -2,12 +2,12 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-14 are complete and verified; the
+Status: partially implemented. Batches 1-15 are complete and verified; the
 shared schema-aware repair path is active across the high-frequency structured
 emit tools, including the legacy top-level JSON-string repair wrappers.
 Remaining work is still tracked below, starting with P1 carrier compilers /
 row-set compilers, followed by transactional document updates, typed repair
-hints, and prompt/ledger deduplication.
+hints for remaining validators, and prompt/ledger deduplication.
 
 Implementation progress:
 
@@ -88,6 +88,14 @@ Implementation progress:
   `artifact_id=attached_log` / `artifact_id=attached_trace` plus their
   artifact-local line/time spans, so finalizer/reviewer can discuss "line N in
   the attached log/trace" without converting those lines into repo citations.
+- 2026-05-23 Batch 15 started the typed repair-hint lane for deterministic
+  answer-document carrier rejects. Full emits with empty `blocks[]` now return a
+  structured `ToolRepair` instead of prose-only failure, and patch mutation
+  failures for citation-mode conflicts, adding an existing block, or replacing
+  the citation pool while preserving citation-bearing blocks now carry stable
+  repair codes and field paths. This does not loosen validation or alter answer
+  content; it gives finalizer a typed repair target when runtime cannot safely
+  normalize the carrier.
 - Remaining work starts at P1 carrier compilers / row-set compilers; the
   completed ref batch deliberately did not change answer materialization policy.
 
@@ -364,7 +372,13 @@ overriding better model-authored descriptions.
 
 ### P2. Typed repair hints and transaction updates
 
-- Add typed repair hints for deterministic validators.
+- PARTIAL (Batch 15): add typed repair hints for common deterministic
+  answer-document carrier validators: empty full-emit `blocks[]`, patch citation
+  operation conflicts, existing-block add/replace confusion after normalization
+  is not possible, and citation-pool replacement that would preserve old
+  citation-bearing blocks.
+- Remaining: extend the same typed repair lane to other deterministic
+  answer-document validators only where the target field/action is precise.
 - Make patch/full-emit transitions transactional so carrier errors are fixed
   before semantic checks.
 - Cap rewrite loops and ship with caveats for non-critical, non-lossless

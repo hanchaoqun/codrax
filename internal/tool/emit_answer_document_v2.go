@@ -158,7 +158,11 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	// re-introduce validation here.
 	if len(p.Blocks) == 0 {
 		persistRecoveredAnswerDraft(ctx, raw, recovery, nil)
-		return failEmit(toolName, now,
+		return failEmitWithRepair(toolName, now, &types.ToolRepair{
+			Code:   "answer_doc_blocks_required",
+			Fields: []string{"blocks"},
+			Hint:   "Re-emit a complete `emit_answer_document` payload with a non-empty `blocks[]` array. Preserve the same answer facts and citations; do not send only `citations[]`, metadata, or free-form prose outside the tool call.",
+		},
 			"blocks[] is required and must be non-empty")
 	}
 

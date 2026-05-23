@@ -70,13 +70,43 @@ func ApplyAndPersistMutation(
 
 	merged, err := mutation.Apply(prev)
 	if err != nil {
-		return failEmit(toolName, now, "mutation apply rejected: %v", err)
+		return failEmitWithRepair(toolName, now, answerDocumentMutationRepair(err),
+			"mutation apply rejected: %v", err)
 	}
 	if merged == nil {
 		return failEmit(toolName, now,
 			"mutation apply produced a nil document — internal error")
 	}
 	return persistMergedAnswerDocument(ctx, toolName, mutation.Kind, mutation.Summary(), merged, now)
+}
+
+func answerDocumentMutationRepair(err error) *types.ToolRepair {
+	if err == nil {
+		return nil
+	}
+	msg := err.Error()
+	switch {
+	case strings.Contains(msg, "replace_citations and append_citations are mutually exclusive"):
+		return &types.ToolRepair{
+			Code:   "answer_doc_patch_citation_mode_conflict",
+			Fields: []string{"replace_citations", "append_citations"},
+			Hint:   "Re-emit `emit_answer_document_patch` with exactly one citation-pool operation: use `append_citations` when only adding citations, or `replace_citations` only when every citation_ref-bearing block is also replaced/removed. If many citations change, switch to a full `emit_answer_document` payload.",
+		}
+	case strings.Contains(msg, "add_blocks[") && strings.Contains(msg, "already exists in previous emit"):
+		return &types.ToolRepair{
+			Code:   "answer_doc_patch_existing_block",
+			Fields: []string{"add_blocks", "replace_blocks", "unchanged_block_ids"},
+			Hint:   "Move any block id that already exists in the previous emit out of `add_blocks`. Put the edited block in `replace_blocks`, or list it in `unchanged_block_ids` when it should stay byte-identical.",
+		}
+	case strings.Contains(msg, "replace_citations cannot preserve citation-bearing block"):
+		return &types.ToolRepair{
+			Code:   "answer_doc_patch_replace_citations_with_preserved_blocks",
+			Fields: []string{"replace_citations", "append_citations", "replace_blocks", "remove_block_ids"},
+			Hint:   "Do not replace the citation pool while preserving old blocks that still contain citation_ref values. Use `append_citations`, replace/remove every citation-bearing block, or switch to a full `emit_answer_document` payload with a complete zero-based citation pool.",
+		}
+	default:
+		return nil
+	}
 }
 
 func persistMergedAnswerDocument(

@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -301,4 +302,70 @@ func TestApplyAndPersistMutation_SummaryReportsMutationKind(t *testing.T) {
 	if !strings.Contains(res.Summary, "replace_all") {
 		t.Errorf("Summary should name mutation kind; got %q", res.Summary)
 	}
+}
+
+func TestAnswerDocumentMutationRepair_MapsDeterministicPatchRejects(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantCode   string
+		wantFields []string
+		wantHint   string
+	}{
+		{
+			name:       "citation mode conflict",
+			err:        fmt.Errorf("patch: replace_citations and append_citations are mutually exclusive (contract invariant 5); set exactly one"),
+			wantCode:   "answer_doc_patch_citation_mode_conflict",
+			wantFields: []string{"replace_citations", "append_citations"},
+			wantHint:   "exactly one citation-pool operation",
+		},
+		{
+			name:       "existing block added",
+			err:        fmt.Errorf("patch: add_blocks[%q] already exists in previous emit (use replace_blocks to modify)", "s1"),
+			wantCode:   "answer_doc_patch_existing_block",
+			wantFields: []string{"add_blocks", "replace_blocks", "unchanged_block_ids"},
+			wantHint:   "already exists",
+		},
+		{
+			name:       "replace citations preserves old cited block",
+			err:        fmt.Errorf("patch: replace_citations cannot preserve citation-bearing block %q; replace/remove that block too, use append_citations, or re-emit a full emit_answer_document so every citation_ref is renumbered against the new pool", "list1"),
+			wantCode:   "answer_doc_patch_replace_citations_with_preserved_blocks",
+			wantFields: []string{"replace_citations", "append_citations", "replace_blocks", "remove_block_ids"},
+			wantHint:   "citation_ref",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repair := answerDocumentMutationRepair(tt.err)
+			if repair == nil {
+				t.Fatalf("expected structured repair for %v", tt.err)
+			}
+			if repair.Code != tt.wantCode {
+				t.Fatalf("repair code = %q, want %q", repair.Code, tt.wantCode)
+			}
+			for _, field := range tt.wantFields {
+				if !mutationRepairStringSliceContains(repair.Fields, field) {
+					t.Fatalf("repair fields missing %q: %+v", field, repair.Fields)
+				}
+			}
+			if !strings.Contains(repair.Hint, tt.wantHint) {
+				t.Fatalf("repair hint %q does not contain %q", repair.Hint, tt.wantHint)
+			}
+		})
+	}
+}
+
+func TestAnswerDocumentMutationRepair_UnknownErrorStaysUnstructured(t *testing.T) {
+	if repair := answerDocumentMutationRepair(fmt.Errorf("patch: unrelated validation failure")); repair != nil {
+		t.Fatalf("unknown mutation error should not fabricate repair metadata: %+v", repair)
+	}
+}
+
+func mutationRepairStringSliceContains(xs []string, want string) bool {
+	for _, x := range xs {
+		if x == want {
+			return true
+		}
+	}
+	return false
 }
