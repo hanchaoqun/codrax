@@ -2,7 +2,7 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-17 are complete and verified; the
+Status: partially implemented. Batches 1-18 are complete and verified; the
 shared schema-aware repair path is active across the high-frequency structured
 emit tools, including the legacy top-level JSON-string repair wrappers.
 Remaining work is still tracked below, starting with P1 carrier compilers /
@@ -110,6 +110,12 @@ Implementation progress:
   observations can show more de-duplicated rich notes, while support-only rows
   stay compact. This keeps explorer-authored member explanations available to
   finalizer without duplicating the full aggregate body elsewhere.
+- 2026-05-23 Batch 18 connected pre-emit hard structural hints to the same
+  `ToolRepair` lane. When pre-emit rejects for already-typed answer-document
+  contract gaps, the tool result now carries de-duplicated schema fields,
+  violation-kind metadata, and bounded expected-shape text alongside the
+  existing human-readable correction list. This keeps the gate unchanged while
+  reducing model burden on same-turn JSON repair.
 - Remaining work starts at P1 carrier compilers / row-set compilers; the
   completed ref batch deliberately did not change answer materialization policy.
 
@@ -386,12 +392,14 @@ overriding better model-authored descriptions.
 
 ### P2. Typed repair hints and transaction updates
 
-- PARTIAL (Batches 15-16): add typed repair hints for common deterministic
+- PARTIAL (Batches 15-16, 18): add typed repair hints for common deterministic
   answer-document carrier validators: empty full-emit `blocks[]`, patch citation
   operation conflicts, existing-block add/replace confusion after normalization
   is not possible, citation-pool replacement that would preserve old
   citation-bearing blocks, and lossy `blocks` string recovery where some visible
-  model-authored blocks could not be safely preserved.
+  model-authored blocks could not be safely preserved. Batch 18 also carries
+  typed metadata for pre-emit hard structural hints derived from existing
+  `emitFixHint` fields.
 - Remaining: extend the same typed repair lane to other deterministic
   answer-document validators only where the target field/action is precise.
 - Make patch/full-emit transitions transactional so carrier errors are fixed

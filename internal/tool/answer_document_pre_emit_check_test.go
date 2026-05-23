@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
@@ -3098,6 +3099,60 @@ func TestFormatEmitFixHints_RedlineAudit(t *testing.T) {
 	// Empty list → empty string.
 	if got := formatEmitFixHints(nil); got != "" {
 		t.Errorf("empty hints → empty string; got %q", got)
+	}
+}
+
+func TestEmitFixHintsRepair_CarriesTypedFieldsAndKinds(t *testing.T) {
+	hints := []emitFixHint{
+		{
+			Field:         "blocks[].kind=ordered_list",
+			ExpectedShape: "emit at least 1 block of kind=ordered_list",
+			Reason:        "enumeration",
+			Kind:          types.ViolBlockCoverageMissing,
+		},
+		{
+			Field:         "blocks[id=\"l1\"].claim_uses",
+			ExpectedShape: "add a one-element claim_uses[]",
+			Reason:        "principal claim required",
+			Kind:          types.ViolPrincipalClaimUseMissing,
+		},
+		{
+			Field:         "blocks[id=\"l1\"].claim_uses",
+			ExpectedShape: "duplicate field should not duplicate repair field",
+			Kind:          types.ViolPrincipalClaimUseMissing,
+		},
+	}
+	repair := emitFixHintsRepair(hints)
+	if repair == nil {
+		t.Fatal("expected structured repair")
+	}
+	if repair.Code != "answer_doc_pre_emit_contract" {
+		t.Fatalf("repair code = %q", repair.Code)
+	}
+	for _, want := range []string{"blocks[].kind=ordered_list", "blocks[id=\"l1\"].claim_uses"} {
+		if !slices.Contains(repair.Fields, want) {
+			t.Fatalf("repair fields missing %q: %+v", want, repair.Fields)
+		}
+	}
+	if len(repair.Fields) != 2 {
+		t.Fatalf("repair fields should be de-duplicated, got %+v", repair.Fields)
+	}
+	for _, want := range []string{string(types.ViolBlockCoverageMissing), string(types.ViolPrincipalClaimUseMissing)} {
+		if !strings.Contains(repair.Metadata["violation_kinds"], want) {
+			t.Fatalf("repair metadata missing kind %q: %+v", want, repair.Metadata)
+		}
+	}
+	if repair.Metadata["hint_count"] != "3" {
+		t.Fatalf("repair hint_count = %q", repair.Metadata["hint_count"])
+	}
+	if !strings.Contains(repair.Hint, "Preserve existing answer facts") {
+		t.Fatalf("repair hint should preserve model content, got %q", repair.Hint)
+	}
+}
+
+func TestEmitFixHintsRepair_Empty(t *testing.T) {
+	if repair := emitFixHintsRepair(nil); repair != nil {
+		t.Fatalf("empty hints should not fabricate repair metadata: %+v", repair)
 	}
 }
 

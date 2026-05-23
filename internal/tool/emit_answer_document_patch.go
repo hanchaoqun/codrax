@@ -256,7 +256,8 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 				}
 				if len(hardHints) > 0 {
 					rememberRejectedAnswerDocumentDraft(ctx, merged)
-					return failEmit(t.Name(), now, "%s", formatEmitFixHints(hardHints))
+					return failEmitWithRepair(t.Name(), now, emitFixHintsRepair(hardHints),
+						"%s", formatEmitFixHints(hardHints))
 				}
 			}
 			if hints := preCheckModelSurfaceTerms(merged, ctx); len(hints) > 0 {

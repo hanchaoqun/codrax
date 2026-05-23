@@ -6757,6 +6757,50 @@ func formatEmitFixHints(hints []emitFixHint) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+func emitFixHintsRepair(hints []emitFixHint) *types.ToolRepair {
+	if len(hints) == 0 {
+		return nil
+	}
+	fields := make([]string, 0, len(hints))
+	kinds := make([]string, 0, len(hints))
+	shapes := make([]string, 0, len(hints))
+	seenFields := map[string]struct{}{}
+	seenKinds := map[string]struct{}{}
+	for _, h := range hints {
+		if field := strings.TrimSpace(h.Field); field != "" {
+			if _, ok := seenFields[field]; !ok {
+				seenFields[field] = struct{}{}
+				fields = append(fields, field)
+			}
+		}
+		if h.Kind != "" {
+			kind := string(h.Kind)
+			if _, ok := seenKinds[kind]; !ok {
+				seenKinds[kind] = struct{}{}
+				kinds = append(kinds, kind)
+			}
+		}
+		if shape := strings.TrimSpace(h.ExpectedShape); shape != "" && len(shapes) < 3 {
+			shapes = append(shapes, shape)
+		}
+	}
+	meta := map[string]string{
+		"hint_count": strconv.Itoa(len(hints)),
+	}
+	if len(kinds) > 0 {
+		meta["violation_kinds"] = strings.Join(kinds, ",")
+	}
+	if len(shapes) > 0 {
+		meta["expected_shapes"] = strings.Join(shapes, " | ")
+	}
+	return &types.ToolRepair{
+		Code:     "answer_doc_pre_emit_contract",
+		Fields:   fields,
+		Hint:     "Apply these typed answer-document schema corrections and re-emit the same tool call. Preserve existing answer facts and change only the listed fields or missing block carriers.",
+		Metadata: meta,
+	}
+}
+
 func formatEmitAdvisoryHints(hints []emitFixHint) string {
 	if len(hints) == 0 {
 		return ""

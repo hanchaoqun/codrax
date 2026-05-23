@@ -231,7 +231,8 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			if len(hardHints) > 0 {
 				rememberRejectedAnswerDocumentDraft(ctx, doc)
 				persistRecoveredAnswerDraft(ctx, raw, visibleRecovery, doc)
-				return failEmit(toolName, now, "%s", formatEmitFixHints(hardHints))
+				return failEmitWithRepair(toolName, now, emitFixHintsRepair(hardHints),
+					"%s", formatEmitFixHints(hardHints))
 			}
 		}
 	}
