@@ -121,12 +121,7 @@ func (t *EmitPerfSegmentation) Execute(ctx *types.BusContext, params json.RawMes
 
 	var p emitPerfSegmentationParams
 	if err := json.Unmarshal(params, &p); err != nil {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   fmt.Sprintf("invalid params: %v", err),
-			Timestamp: time.Now(),
-		}, err
+		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil)
 	}
 
 	traceLen := len(ctx.AttachedHitrace)

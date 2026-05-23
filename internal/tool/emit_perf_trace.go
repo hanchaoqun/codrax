@@ -147,13 +147,7 @@ func (t *EmitPerfTrace) Execute(ctx *types.BusContext, params json.RawMessage) (
 	dec := json.NewDecoder(strings.NewReader(string(params)))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&p); err != nil {
-		err = RemapStrictDecodeError(err, nil)
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   fmt.Sprintf("invalid params: %v", err),
-			Timestamp: time.Now(),
-		}, err
+		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil)
 	}
 
 	// Cross-field sanity: at least one structured trace fact must be

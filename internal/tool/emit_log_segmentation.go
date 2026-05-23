@@ -112,12 +112,7 @@ func (t *EmitLogSegmentation) Execute(ctx *types.BusContext, params json.RawMess
 
 	var p emitLogSegmentationParams
 	if err := json.Unmarshal(params, &p); err != nil {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   fmt.Sprintf("invalid params: %v", err),
-			Timestamp: time.Now(),
-		}, err
+		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil)
 	}
 
 	logLen := len(ctx.AttachedLog)

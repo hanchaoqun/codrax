@@ -227,6 +227,23 @@ func TestFailStrictDecode_AttachesRepairAndSanitizedSummary(t *testing.T) {
 	}
 }
 
+func TestFailStrictDecodeWithError_AttachesRepairAndReturnsError(t *testing.T) {
+	original := produceStrictDecodeErr(t, `{"inner":{"form":"x","extra":1}}`)
+	res, err := failStrictDecodeWithError("emit_perf_trace", time.Now(), original, nil)
+	if err == nil {
+		t.Fatal("failStrictDecodeWithError must preserve the historical non-nil error return")
+	}
+	if res.Success {
+		t.Fatal("strict decode failure must not succeed")
+	}
+	if res.Repair == nil || res.Repair.Code != "tool_param_unknown_field" {
+		t.Fatalf("missing repair metadata: %+v", res)
+	}
+	if !strings.Contains(res.Summary, `unknown field "extra"`) {
+		t.Fatalf("summary should preserve sanitized decode failure: %s", res.Summary)
+	}
+}
+
 // TestRemapStrictDecodeError_SanitizeStripsGoTypeNames pins the
 // fall-through path: even when no hint matches and no pattern
 // rewrites, R4 sanitization MUST strip Go type names.

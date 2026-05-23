@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -11,6 +12,18 @@ func failStrictDecode(name string, now time.Time, err error, hints []MisplacedFi
 	repair := strictDecodeToolRepair(err, hints)
 	err = RemapStrictDecodeError(err, hints)
 	return failEmitWithRepair(name, now, repair, "invalid params: %v", err)
+}
+
+func failStrictDecodeWithError(name string, now time.Time, err error, hints []MisplacedFieldHint) (types.ToolResult, error) {
+	repair := strictDecodeToolRepair(err, hints)
+	err = RemapStrictDecodeError(err, hints)
+	return types.ToolResult{
+		ToolName:  name,
+		Success:   false,
+		Summary:   fmt.Sprintf("invalid params: %v", err),
+		Repair:    repair,
+		Timestamp: now,
+	}, err
 }
 
 func strictDecodeToolRepair(err error, hints []MisplacedFieldHint) *types.ToolRepair {

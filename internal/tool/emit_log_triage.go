@@ -292,13 +292,7 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 	}
 	if !decoded {
 		if err := json.Unmarshal(params, &p); err != nil {
-			remapped := RemapStrictDecodeError(err, nil)
-			return types.ToolResult{
-				ToolName:  t.Name(),
-				Success:   false,
-				Summary:   fmt.Sprintf("invalid params: %v", remapped),
-				Timestamp: time.Now(),
-			}, remapped
+			return failStrictDecodeWithError(t.Name(), time.Now(), err, nil)
 		}
 	}
 

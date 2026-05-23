@@ -2,7 +2,7 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-19 are complete and verified; the
+Status: partially implemented. Batches 1-20 are complete and verified; the
 shared schema-aware repair path is active across the high-frequency structured
 emit tools, including the legacy top-level JSON-string repair wrappers.
 Remaining work is still tracked below, starting with P1 carrier compilers /
@@ -124,6 +124,12 @@ Implementation progress:
   preserving the existing sanitized error text. Initial call sites cover
   answer-document full/patch emits, `emit_evidence`, `emit_answer_symbol`, and
   `emit_hypothesis_verdict`.
+- 2026-05-23 Batch 20 extended the same typed strict-decode repair metadata to
+  the log/perf runtime artifact emitters and segmenters. These tools keep their
+  historical non-nil Go error return on malformed parameters, but their
+  `ToolResult` now carries the same stable repair codes. This keeps retry
+  guidance consistent for attached logs, traces, and command-derived runtime
+  artifacts without weakening business validation.
 - Remaining work starts at P1 carrier compilers / row-set compilers; the
   completed ref batch deliberately did not change answer materialization policy.
 
