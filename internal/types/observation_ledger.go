@@ -1,6 +1,7 @@
 package types
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strconv"
@@ -198,7 +199,14 @@ type ObservationLedgerInput struct {
 	MCPResponses   []MCPResponse
 	RequestModel   *RequestModel
 	AnswerContract *AnswerContract
+	RowSetWriter   ObservationRowSetWriter
 }
+
+// ObservationRowSetWriter stores a large, already-structured row set and
+// returns a page-able reference. It is optional: nil keeps ledger compilation
+// pure and side-effect-free. Callers with a WorkDir can wire this to the blob
+// subsystem without making the types package depend on tool storage.
+type ObservationRowSetWriter func(name, content string) string
 
 // CompileObservationLedger projects accepted producer outputs into one read-only
 // ledger. It deliberately consumes structured fields and system-authored tool
@@ -227,7 +235,7 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 		out = append(out, record)
 	}
 	compileEvidenceItemObservations(input.EvidenceItems, add)
-	compileAggregateFactObservations(input.AggregateFacts, input.RequestModel, add)
+	compileAggregateFactObservations(input.AggregateFacts, input.RequestModel, input.RowSetWriter, add)
 	compileToolResultObservations(input.ToolResults, add)
 	compileLogBundleObservations(input.LogBundle, add)
 	compilePerfBundleObservations(input.PerfBundle, add)
@@ -396,7 +404,7 @@ func compileEvidenceItemObservations(items []EvidenceItem, add func(ObservationR
 	}
 }
 
-func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestModel, add func(ObservationRecord)) {
+func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestModel, rowSetWriter ObservationRowSetWriter, add func(ObservationRecord)) {
 	for i, fact := range facts {
 		role := AnswerAggregateFactRoleForRequest(fact, rm)
 		origins := AnswerAggregateFactEvidenceOrigins(fact, rm)
@@ -406,13 +414,17 @@ func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestMo
 		dims := aggregateDimensionMap(fact.Dimensions)
 		for _, origin := range origins {
 			resultCount := aggregateFactResultCount(fact, dims)
+			sourceRef := sourceRefForAggregateFact(origin, dims)
+			if sourceRef.RowSetRef == "" {
+				sourceRef.RowSetRef = observationRowSetRefForAggregateFact(rowSetWriter, i, origin, fact)
+			}
 			add(ObservationRecord{
 				ID:              fmt.Sprintf("aggregate:%d#%s", i, origin),
 				Origin:          origin,
 				Producer:        firstNonEmptyString(fact.Provenance, "aggregate_facts"),
 				Role:            role,
 				GroundingPolicy: AnswerClaimBindingGroundingPolicy(origin, role),
-				SourceRef:       sourceRefForAggregateFact(origin, dims),
+				SourceRef:       sourceRef,
 				ClaimKey:        firstNonEmptyString(dims["target"], dims["query"], dims["pattern"], dims["predicate"], fact.Label),
 				Subject:         firstNonEmptyString(dims["target"], dims["query"], dims["pattern"], fact.Label),
 				Predicate:       dims["predicate"],
@@ -428,6 +440,83 @@ func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestMo
 			})
 		}
 	}
+}
+
+const observationRowSetMinRows = 24
+
+type observationRowSetLine struct {
+	Index      int    `json:"index"`
+	Member     string `json:"member,omitempty"`
+	SupportRef string `json:"support_ref,omitempty"`
+	Note       string `json:"note,omitempty"`
+	Label      string `json:"label,omitempty"`
+	Kind       string `json:"kind,omitempty"`
+	Role       string `json:"role,omitempty"`
+}
+
+func observationRowSetRefForAggregateFact(writer ObservationRowSetWriter, factIndex int, origin AnswerEvidenceOrigin, fact AnswerAggregateFact) string {
+	if writer == nil || !AnswerAggregateFactCarriesCompleteMemberSet(fact) || len(fact.Members) < observationRowSetMinRows {
+		return ""
+	}
+	content := observationRowSetJSONLForAggregateFact(fact)
+	if strings.TrimSpace(content) == "" {
+		return ""
+	}
+	name := fmt.Sprintf("aggregate-%03d-%s-row-set.jsonl", factIndex, origin)
+	return strings.TrimSpace(writer(name, content))
+}
+
+func observationRowSetJSONLForAggregateFact(fact AnswerAggregateFact) string {
+	if len(fact.Members) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, member := range fact.Members {
+		line := observationRowSetLine{
+			Index:  i,
+			Member: strings.TrimSpace(member),
+			Label:  strings.TrimSpace(fact.Label),
+			Kind:   string(fact.Kind),
+			Role:   string(NormalizeAnswerAggregateRole(fact.Role)),
+		}
+		line.SupportRef = observationRowSetSupportRefAt(fact, i, member)
+		if i < len(fact.MemberNotes) {
+			line.Note = strings.Join(strings.Fields(strings.TrimSpace(fact.MemberNotes[i])), " ")
+		}
+		if line.Member == "" && line.SupportRef == "" && line.Note == "" {
+			continue
+		}
+		raw, err := json.Marshal(line)
+		if err != nil {
+			continue
+		}
+		b.Write(raw)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func observationRowSetSupportRefAt(fact AnswerAggregateFact, idx int, member string) string {
+	if idx < 0 || len(fact.SupportRefs) == 0 {
+		return ""
+	}
+	if len(fact.SupportRefs) == len(fact.Members) && idx < len(fact.SupportRefs) {
+		return strings.TrimSpace(fact.SupportRefs[idx])
+	}
+	memberKey := AnswerAggregateMemberSurfaceKey(member)
+	if memberKey == "" {
+		return ""
+	}
+	for _, ref := range fact.SupportRefs {
+		label, _, ok := strings.Cut(ref, ":")
+		if !ok {
+			continue
+		}
+		if AnswerAggregateMemberSurfaceKey(label) == memberKey {
+			return strings.TrimSpace(ref)
+		}
+	}
+	return ""
 }
 
 func compileToolResultObservations(results []ToolResult, add func(ObservationRecord)) {

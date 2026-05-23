@@ -3693,6 +3693,7 @@ func answerDocObservationLedger(ctx *types.AgentContext) types.ObservationLedger
 	}
 	input := types.ObservationLedgerInputFromAgentContext(ctx, 64)
 	input.AggregateFacts = answerDocStableAggregateFacts(ctx)
+	input.RowSetWriter = answerDocObservationRowSetWriter(ctx)
 	return types.CompileObservationLedger(input)
 }
 
@@ -3704,6 +3705,15 @@ func prioritizedObservationLedgerRecords(ctx *types.AgentContext, records []type
 		contract = &ctx.AnalysisIR.AnswerContract
 	}
 	return types.PrioritizeObservationRecords(records, rm, contract, limit)
+}
+
+func answerDocObservationRowSetWriter(ctx *types.AgentContext) types.ObservationRowSetWriter {
+	if ctx == nil || strings.TrimSpace(ctx.WorkDir) == "" {
+		return nil
+	}
+	return func(name, content string) string {
+		return tool.StoreBlobArtifact(ctx.WorkDir, "answer_observation_row_set", name, content)
+	}
 }
 
 func renderAnswerDocObservationExcerpt(record types.ObservationRecord) string {

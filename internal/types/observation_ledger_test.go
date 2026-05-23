@@ -515,6 +515,100 @@ func TestCompileObservationLedger_PreservesExternalPagingRefsAndLocalSpans(t *te
 	}
 }
 
+func TestCompileObservationLedger_AutoCreatesLargeAggregateRowSetRef(t *testing.T) {
+	members := make([]string, 0, observationRowSetMinRows)
+	notes := make([]string, 0, observationRowSetMinRows)
+	refs := make([]string, 0, observationRowSetMinRows)
+	for i := 0; i < observationRowSetMinRows; i++ {
+		members = append(members, fmt.Sprintf("Kind%02d", i))
+		notes = append(notes, fmt.Sprintf("Kind%02d 的中文说明", i))
+		refs = append(refs, fmt.Sprintf("Kind%02d: internal/types/kind.go:%d", i, i+10))
+	}
+	var seenName, seenContent string
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		AggregateFacts: []AnswerAggregateFact{{
+			Kind:        AnswerAggregateMemberSet,
+			Label:       "Kind members",
+			Role:        AnswerAggregateRolePrincipalAnswer,
+			Members:     members,
+			MemberNotes: notes,
+			SupportRefs: refs,
+		}},
+		RowSetWriter: func(name, content string) string {
+			seenName = name
+			seenContent = content
+			return "blob://rows/" + name
+		},
+	})
+	got := findObservationRecord(t, ledger, "aggregate:0#current_source")
+	if got.SourceRef.RowSetRef != "blob://rows/aggregate-000-current_source-row-set.jsonl" {
+		t.Fatalf("row_set_ref not attached: %+v", got.SourceRef)
+	}
+	if seenName != "aggregate-000-current_source-row-set.jsonl" {
+		t.Fatalf("unexpected row-set artifact name %q", seenName)
+	}
+	for _, want := range []string{
+		`"member":"Kind00"`,
+		`"support_ref":"Kind00: internal/types/kind.go:10"`,
+		`"note":"Kind00 的中文说明"`,
+		`"label":"Kind members"`,
+	} {
+		if !strings.Contains(seenContent, want) {
+			t.Fatalf("row-set content missing %q:\n%s", want, seenContent)
+		}
+	}
+}
+
+func TestCompileObservationLedger_SmallAggregateDoesNotCreateRowSetRef(t *testing.T) {
+	called := false
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		AggregateFacts: []AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "small",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"A", "B"},
+		}},
+		RowSetWriter: func(name, content string) string {
+			called = true
+			return "blob://rows/" + name
+		},
+	})
+	got := findObservationRecord(t, ledger, "aggregate:0#current_source")
+	if called || got.SourceRef.RowSetRef != "" {
+		t.Fatalf("small aggregate should stay inline-only, called=%v ref=%q", called, got.SourceRef.RowSetRef)
+	}
+}
+
+func TestCompileObservationLedger_RowSetSupportRefsAvoidIndexMismatches(t *testing.T) {
+	members := make([]string, 0, observationRowSetMinRows)
+	notes := make([]string, 0, observationRowSetMinRows)
+	for i := 0; i < observationRowSetMinRows; i++ {
+		members = append(members, fmt.Sprintf("Kind%02d", i))
+		notes = append(notes, fmt.Sprintf("Kind%02d note", i))
+	}
+	var seenContent string
+	CompileObservationLedger(ObservationLedgerInput{
+		AggregateFacts: []AnswerAggregateFact{{
+			Kind:        AnswerAggregateMemberSet,
+			Label:       "Kind members",
+			Role:        AnswerAggregateRolePrincipalAnswer,
+			Members:     members,
+			MemberNotes: notes,
+			SupportRefs: []string{"Kind07: internal/types/kind.go:70"},
+		}},
+		RowSetWriter: func(name, content string) string {
+			seenContent = content
+			return "blob://rows/" + name
+		},
+	})
+	if strings.Contains(seenContent, `"member":"Kind00","support_ref"`) {
+		t.Fatalf("short support_refs must not be attached by index:\n%s", seenContent)
+	}
+	if !strings.Contains(seenContent, `"member":"Kind07","support_ref":"Kind07: internal/types/kind.go:70"`) {
+		t.Fatalf("label-matched support_ref should be preserved:\n%s", seenContent)
+	}
+}
+
 func TestCompileObservationLedger_ProjectsToolBannerCoordinates(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{ToolResults: []ToolResult{
 		{

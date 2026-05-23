@@ -1,6 +1,11 @@
 package tool
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 // TestSetBlobLimits is the contract test for the runtime override
 // hook used by main.go after loading codrax.yaml. The function must:
@@ -55,5 +60,26 @@ func TestSetBlobLimits(t *testing.T) {
 	if MaxInlineBytes != 64*1024 || previewHeadBytes != 32*1024 || previewTailBytes != 16*1024 {
 		t.Errorf("negative values should be no-op; got max=%d head=%d tail=%d",
 			MaxInlineBytes, previewHeadBytes, previewTailBytes)
+	}
+}
+
+func TestStoreBlobArtifactAlwaysWritesStructuredRef(t *testing.T) {
+	dir := t.TempDir()
+	ref := StoreBlobArtifact(dir, "answer_observation_row_set", "aggregate-000-current_source-row-set.jsonl", "one\n")
+	if ref == "" {
+		t.Fatal("expected artifact ref")
+	}
+	if filepath.Dir(ref) != dir {
+		t.Fatalf("artifact should be stored in work dir, got %s", ref)
+	}
+	if !strings.HasSuffix(ref, ".jsonl") {
+		t.Fatalf("artifact should preserve structured extension, got %s", ref)
+	}
+	body, err := os.ReadFile(ref)
+	if err != nil {
+		t.Fatalf("read artifact: %v", err)
+	}
+	if string(body) != "one\n" {
+		t.Fatalf("artifact body = %q", string(body))
 	}
 }

@@ -3401,7 +3401,7 @@ func (o *Orchestrator) runSemanticQualityReviewWithOutcome(doc *types.AnswerDocu
 		ac = &o.busCtx.AnalysisIR.AnswerContract
 	}
 	in.Observations = semanticObservationSummaries(
-		types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(o.busCtx, 64)),
+		semanticObservationLedgerForBus(o.busCtx),
 		rm,
 		ac,
 	)

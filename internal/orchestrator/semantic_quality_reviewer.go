@@ -8,6 +8,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -797,6 +798,21 @@ func semanticObservationSummaries(ledger types.ObservationLedger, rm *types.Requ
 		})
 	}
 	return out
+}
+
+func semanticObservationLedgerForBus(bus *types.BusContext) types.ObservationLedger {
+	input := types.ObservationLedgerInputFromBusContext(bus, 64)
+	input.RowSetWriter = semanticObservationRowSetWriter(bus)
+	return types.CompileObservationLedger(input)
+}
+
+func semanticObservationRowSetWriter(bus *types.BusContext) types.ObservationRowSetWriter {
+	if bus == nil || strings.TrimSpace(bus.WorkDir) == "" {
+		return nil
+	}
+	return func(name, content string) string {
+		return tool.StoreBlobArtifact(bus.WorkDir, "review_observation_row_set", name, content)
+	}
 }
 
 func semanticObservationExcerpt(record types.ObservationRecord) string {

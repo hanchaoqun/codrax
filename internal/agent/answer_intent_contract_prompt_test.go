@@ -1,6 +1,9 @@
 package agent
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -442,5 +445,57 @@ func TestRenderAnswerDocObservationLedger_RendersExternalRawExcerpt(t *testing.T
 		if !strings.Contains(got, want) {
 			t.Fatalf("observation ledger prompt missing external raw excerpt %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestRenderAnswerDocObservationLedger_CreatesLargeAggregateRowSetArtifact(t *testing.T) {
+	members := make([]string, 0, 24)
+	notes := make([]string, 0, 24)
+	refs := make([]string, 0, 24)
+	for i := 0; i < 24; i++ {
+		member := fmt.Sprintf("Kind%02d", i)
+		members = append(members, member)
+		notes = append(notes, fmt.Sprintf("%s 用于保持第 %d 类条件的中文说明", member, i+1))
+		refs = append(refs, fmt.Sprintf("%s: internal/types/kind.go:%d", member, i+1))
+	}
+	mut := types.NewMutableState("列出 Kind 成员")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "Kind members",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     members,
+		MemberNotes: notes,
+		SupportRefs: refs,
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	workDir := t.TempDir()
+	ctx := &types.AgentContext{
+		WorkDir: workDir,
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	got := renderAnswerDocObservationLedger(ctx)
+	if !strings.Contains(got, "row_set_ref=") {
+		t.Fatalf("large aggregate ledger should expose row_set_ref:\n%s", got)
+	}
+	matches, err := filepath.Glob(filepath.Join(workDir, "aggregate-000-current_source-row-set-*.jsonl"))
+	if err != nil {
+		t.Fatalf("glob row-set artifact: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected one row-set artifact, got %v", matches)
+	}
+	body, err := os.ReadFile(matches[0])
+	if err != nil {
+		t.Fatalf("read row-set artifact: %v", err)
+	}
+	if !strings.Contains(string(body), `"member":"Kind00"`) ||
+		!strings.Contains(string(body), `"note":"Kind00 用于保持第 1 类条件的中文说明"`) {
+		t.Fatalf("row-set artifact missing member details:\n%s", string(body))
 	}
 }

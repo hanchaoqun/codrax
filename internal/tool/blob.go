@@ -156,6 +156,43 @@ func StoreBlobHeadOnly(ctx *types.BusContext, toolName string, output string) (s
 	return buildHeadPreview(data, path, toolName), path
 }
 
+// StoreBlobArtifact writes structured auxiliary payloads that are meant to be
+// referenced from another prompt surface rather than displayed as a tool result
+// preview. It reuses the same WorkDir/session directory and filename sanitizing
+// policy as StoreBlob, but always writes when WorkDir is available.
+func StoreBlobArtifact(workDir, toolName, nameHint, output string) string {
+	if strings.TrimSpace(output) == "" || strings.TrimSpace(workDir) == "" {
+		return ""
+	}
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(output))
+	rawName := firstNonEmptyBlobName(nameHint, toolName, "artifact")
+	ext := filepath.Ext(rawName)
+	if ext == "" {
+		ext = ".txt"
+	}
+	stem := sanitizeToolName(strings.TrimSuffix(rawName, filepath.Ext(rawName)))
+	if stem == "" {
+		stem = sanitizeToolName(firstNonEmptyBlobName(toolName, "artifact"))
+	}
+	path := filepath.Join(workDir, fmt.Sprintf("%s-%s%s", stem, hex.EncodeToString(sum[:4]), ext))
+	if err := os.WriteFile(path, []byte(output), 0o644); err != nil {
+		return ""
+	}
+	return path
+}
+
+func firstNonEmptyBlobName(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return "artifact"
+}
+
 // buildHeadPreview returns the leading slice of data with a line-aware
 // truncation notice. It deliberately omits the tail because hiding a
 // middle of source code without flagging it has caused real failures

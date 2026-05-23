@@ -169,6 +169,12 @@ Implementation progress:
   already compiled for git/diff/command/log/trace/MCP records, but was not
   visible downstream; now non-current-source observations can carry a bounded
   excerpt alongside summary/value/notes without creating fake repo citations.
+- 2026-05-23 Batch 28 added optional automatic row-set artifact creation for
+  large structured aggregate carriers. The ledger compiler remains pure by
+  default; finalizer/reviewer call sites with a WorkDir install a blob-backed
+  writer. Large `member_set` rows now get a `row_set_ref` JSONL artifact while
+  the prompt keeps only the compact prioritized ledger row, preserving rich
+  per-member notes without forcing the model to emit or reread huge JSON arrays.
 - Remaining work starts at P1 carrier compilers / row-set compilers; the
   completed ref batch deliberately did not change answer materialization policy.
 
@@ -429,6 +435,10 @@ overriding better model-authored descriptions.
   normalization boundary before graph matching, including `./` and absolute
   path suffix forms, so carrier recovery does not silently disappear when the
   analyzer or tool returns a different path spelling.
+- DONE (Batch 28): complete large `member_set` aggregate facts can now publish
+  a row-set JSONL artifact through an optional writer, keeping row identity,
+  support refs, and rich member notes page-able without changing the model's
+  visible answer.
 
 ### P2. PayloadRef / RowSetRef
 
@@ -448,8 +458,10 @@ overriding better model-authored descriptions.
 - DONE (Batch 14): attach stable runtime-artifact ids to log/trace ledger rows
   so existing artifact-local spans become usable downstream without fake
   `file:line` grounding.
-- Remaining: add automatic row-set artifact creation for very large compiled
-  carriers and selected high-salience row expansion policies.
+- PARTIAL (Batch 28): automatic row-set artifact creation exists for large
+  complete `member_set` aggregate carriers. Remaining work is selected
+  high-salience row expansion policies for other carrier families, driven by
+  eval data rather than broad automatic table generation.
 
 ### P2. Typed repair hints and transaction updates
 
