@@ -255,6 +255,51 @@ func TestSubtopicCoherence_R1_3_SourceInventoryOutsideScopeStillFails(t *testing
 	}
 }
 
+func TestSubtopicCoherence_R1_3_MarkerInventoryFileBucketsAreAdvisory(t *testing.T) {
+	rm := types.RequestModel{
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"@Entry", "@Builder"},
+			Entities:        []string{"@Entry", "@Builder"},
+			RequiredFileHints: []types.RequiredFileHint{
+				{Path: "entry/src/main/ets/pages/Index.ets", Confidence: 0.9},
+				{Path: "entry/src/main/ets/components/Card.ets", Confidence: 0.8},
+			},
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "page marker bucket", Entities: []string{"entry/src/main/ets/pages/Index.ets"}},
+			{Summary: "component marker bucket", Entities: []string{"entry/src/main/ets/components/Card.ets"}},
+		},
+	}
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), nil)
+	if !check.Passed {
+		t.Fatalf("R1.3 must be advisory for marker inventory file buckets, got %+v", check)
+	}
+	if !strings.Contains(check.Detail, "marker/decorator inventory") {
+		t.Fatalf("detail should explain marker/decorator advisory; got %q", check.Detail)
+	}
+}
+
+func TestSubtopicCoherence_R1_3_MarkerInventoryInventedSymbolStillFails(t *testing.T) {
+	rm := types.RequestModel{
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"@Entry", "@Builder"},
+			Entities:        []string{"@Entry", "@Builder"},
+			RequiredFileHints: []types.RequiredFileHint{
+				{Path: "entry/src/main/ets/pages/Index.ets", Confidence: 0.9},
+			},
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "invented member", Entities: []string{"InventedDecoratorBucket"}},
+		},
+	}
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), nil)
+	if check.Passed {
+		t.Fatalf("marker inventory carve-out must not bless invented non-file symbols, got %+v", check)
+	}
+}
+
 func TestSubtopicCoherence_R1_3_EntityOrphan_OverlapPasses(t *testing.T) {
 	rm := types.RequestModel{
 		AnalyzerHints: types.AnalyzerHints{
@@ -370,6 +415,68 @@ func TestSubtopicCoherence_R1_5_SourceInventoryFileAsymmetryIsAdvisory(t *testin
 	}
 	if !strings.Contains(check.Detail, "source-inventory questions") {
 		t.Fatalf("detail should explain source-inventory scoped planning advisory; got %q", check.Detail)
+	}
+}
+
+func TestSubtopicCoherence_R1_5_MarkerInventoryFileAsymmetryIsAdvisory(t *testing.T) {
+	resolver := &fakeSymbolResolver{
+		byFile: map[string][]normalizer.SymbolHit{
+			"entry/src/main/ets/pages/Index.ets": {{Canonical: "Index.ets", Domain: "entry"}},
+			// Card.ets deliberately absent to create the mixed hit/miss shape.
+		},
+	}
+	rm := types.RequestModel{
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"@Entry", "@Builder"},
+			Entities:        []string{"@Entry", "@Builder"},
+			RequiredFileHints: []types.RequiredFileHint{
+				{Path: "entry/src/main/ets/pages/Index.ets", Confidence: 0.9},
+				{Path: "entry/src/main/ets/components/Card.ets", Confidence: 0.8},
+			},
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "page marker bucket", Entities: []string{"entry/src/main/ets/pages/Index.ets"}},
+			{Summary: "component marker bucket", Entities: []string{"entry/src/main/ets/components/Card.ets"}},
+		},
+	}
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	if !check.Passed {
+		t.Fatalf("R1.5 must be advisory for marker inventory file buckets, got %+v", check)
+	}
+	if !strings.Contains(check.Detail, "marker/decorator inventory") {
+		t.Fatalf("detail should explain marker/decorator advisory; got %q", check.Detail)
+	}
+}
+
+func TestSubtopicCoherence_R1_4_MarkerInventoryFileBucketsAvoidAxisCollapse(t *testing.T) {
+	resolver := &fakeSymbolResolver{
+		byFile: map[string][]normalizer.SymbolHit{
+			"entry/src/main/ets/pages/Index.ets":     {{Canonical: "Index.ets", Domain: "entry"}},
+			"entry/src/main/ets/components/Card.ets": {{Canonical: "Card.ets", Domain: "entry"}},
+		},
+	}
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"@Entry", "@Builder"},
+			Entities:        []string{"@Entry", "@Builder"},
+			RequiredFileHints: []types.RequiredFileHint{
+				{Path: "entry/src/main/ets/pages/Index.ets", Confidence: 0.9},
+				{Path: "entry/src/main/ets/components/Card.ets", Confidence: 0.8},
+			},
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "page marker bucket", Entities: []string{"entry/src/main/ets/pages/Index.ets"}},
+			{Summary: "component marker bucket", Entities: []string{"entry/src/main/ets/components/Card.ets"}},
+		},
+	}
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	if !check.Passed {
+		t.Fatalf("R1.4 should not collapse marker inventory file buckets, got %+v", check)
 	}
 }
 

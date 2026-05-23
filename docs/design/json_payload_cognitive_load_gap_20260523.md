@@ -730,7 +730,7 @@ untouched.
     can use stack frames as runtime support without promoting them to
     current-source root-cause proof.
 
-- Batch 44 — analyzer fast-path consolidation. Status: ready for implementation.
+- Batch 44 — analyzer fast-path consolidation. Status: in progress.
   - Add typed fast paths for exact-file import literal enumeration,
     history+current-code hybrid classification, exact-symbol conditional
     questions, and item-vs-batch error-granularity questions. These must use
@@ -738,7 +738,7 @@ untouched.
   - Guardrail tests: analyzer emits classification after existence checks and
     leaves implementation proof to exploration.
   - First implementation slice (44.1): marker/decorator/annotation inventory
-    coherence.
+    coherence. Status: completed.
     - Root gap: `subtopic_coherence` still treats marker-token primary entities
       such as ArkTS/TS/Python decorators or Java/Kotlin annotations as if every
       valid sub-topic must repeat those exact markers. In marker inventory
@@ -761,6 +761,10 @@ untouched.
       with `.ets` sub-topic files pass as advisory even with mixed resolver
       hit/miss; an invented enum member still fails in a normal
       category-enumeration question.
+    - Delivered in this slice: `subtopic_coherence` now recognizes the typed
+      marker-inventory shape from analyzer fields only. R1.3/R1.5/R1.4 become
+      advisory for marker-shaped primary entities with file/path bucket
+      sub-topics, while non-file invented members remain hard failures.
 
 - Batch 45 — hybrid explorer partitioning and repo-map wait visibility. Status:
   planned.

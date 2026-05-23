@@ -164,7 +164,10 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 				msg := fmt.Sprintf(
 					"R1.3 entity_orphan: sub-topic entities %s share no element with primary entities %s",
 					formatStringList(subTokens), formatStringList(primaryTokens))
-				if sourceInventorySubtopicsWithinPrimaryScope(rm) {
+				if markerInventorySubtopicsSupportedByFiles(rm) {
+					softAdvisories = append(softAdvisories, strings.Replace(msg, "R1.3 entity_orphan:", "R1.3 entity_orphan (advisory):", 1)+
+						" — marker/decorator inventory questions may decompose marker tokens into discovered file or function buckets; let exploration verify each bucket before forcing an analyzer rewrite")
+				} else if sourceInventorySubtopicsWithinPrimaryScope(rm) {
 					softAdvisories = append(softAdvisories, strings.Replace(msg, "R1.3 entity_orphan:", "R1.3 entity_orphan (advisory):", 1)+
 						" — source-inventory questions may decompose the requested package/path into concrete file or directory planning anchors; let exploration verify those scoped anchors before forcing an analyzer rewrite")
 				} else if subtopicEntityOrphanShouldBeAdvisory(rm) {
@@ -272,7 +275,10 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 			}
 			msg := "R1.5 entity_unresolvable: " + strings.Join(unresolved, "; ") +
 				" — these sub-topics' entities don't resolve to any repo symbol, while sibling sub-topics did; the asymmetry suggests one sub-topic was hallucinated. Rename the entities to identifiers visible in the repo overview, or drop the unresolvable sub-topic and merge its content into a sibling"
-			if sourceInventorySubtopicsWithinPrimaryScope(rm) {
+			if markerInventorySubtopicsSupportedByFiles(rm) {
+				softAdvisories = append(softAdvisories, strings.Replace(msg, "R1.5 entity_unresolvable:", "R1.5 entity_unresolvable (advisory):", 1)+
+					" — marker/decorator inventory questions may carry file or function buckets that are valid scoped search leads even when they are not symbol declarations; downstream evidence gates decide whether each marker exists")
+			} else if sourceInventorySubtopicsWithinPrimaryScope(rm) {
 				softAdvisories = append(softAdvisories, strings.Replace(msg, "R1.5 entity_unresolvable:", "R1.5 entity_unresolvable (advisory):", 1)+
 					" — source-inventory questions may carry directory/file planning anchors that are valid scoped search leads even when they are not symbol declarations; downstream evidence gates decide whether each anchor exists")
 			} else if subtopicResolverAsymmetryShouldBeAdvisory(rm) {
@@ -316,6 +322,7 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 	//    component.
 	if resolver != nil && nSub >= 2 && !rm.Predicates.IsCrossComponent &&
 		!attributeBearingEnumerationBypassesAxisCollapse(rm) &&
+		!markerInventorySubtopicsSupportedByFiles(rm) &&
 		(rm.Predicates.IsCategoryEnumeration || rm.Intent == types.IntentEnumerate) {
 		seen := make(map[string]bool)
 		for _, st := range rm.SubTopics {
@@ -470,6 +477,112 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 
 func subtopicEntityOrphanShouldBeAdvisory(rm types.RequestModel) bool {
 	return rm.Predicates.IsCrossComponent && len(rm.AnalyzerHints.PrimaryScopes) >= 2
+}
+
+func markerInventorySubtopicsSupportedByFiles(rm types.RequestModel) bool {
+	if !rm.Predicates.IsCategoryEnumeration || rm.Predicates.IsRelationalLookup || len(rm.SubTopics) == 0 {
+		return false
+	}
+	if !coherenceHasMarkerSurface(rm.AnalyzerHints.PrimaryEntities, rm.AnalyzerHints.Entities) {
+		return false
+	}
+	anchors := markerInventoryFileAnchors(rm)
+	if len(anchors) == 0 {
+		return false
+	}
+	seen := false
+	for _, st := range rm.SubTopics {
+		for _, entity := range st.Entities {
+			entity = normalizeCoherencePathSurface(entity)
+			if entity == "" {
+				continue
+			}
+			seen = true
+			if !markerInventoryBucketAnchorAllowed(entity, anchors) {
+				return false
+			}
+		}
+		for _, scope := range st.Scopes {
+			scope = normalizeCoherencePathSurface(scope)
+			if scope == "" {
+				continue
+			}
+			seen = true
+			if !markerInventoryBucketAnchorAllowed(scope, anchors) {
+				return false
+			}
+		}
+	}
+	return seen
+}
+
+func coherenceHasMarkerSurface(groups ...[]string) bool {
+	for _, group := range groups {
+		for _, raw := range group {
+			if coherenceLooksLikeMarkerSurface(raw) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func coherenceLooksLikeMarkerSurface(raw string) bool {
+	s := strings.TrimSpace(raw)
+	s = strings.Trim(s, "`'\" ")
+	if len(s) < 2 || !strings.HasPrefix(s, "@") {
+		return false
+	}
+	return types.IsCodeIdentitySurface(s)
+}
+
+func markerInventoryFileAnchors(rm types.RequestModel) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(raw string) {
+		surface := normalizeCoherencePathSurface(raw)
+		if surface == "" || !coherenceLooksLikeFileBucketSurface(surface) || seen[surface] {
+			return
+		}
+		seen[surface] = true
+		out = append(out, surface)
+	}
+	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+		add(hint.Path)
+	}
+	for _, st := range rm.SubTopics {
+		for _, entity := range st.Entities {
+			add(entity)
+		}
+		for _, scope := range st.Scopes {
+			add(scope)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func markerInventoryBucketAnchorAllowed(surface string, anchors []string) bool {
+	if !coherenceLooksLikeFileBucketSurface(surface) {
+		return false
+	}
+	for _, anchor := range anchors {
+		if surface == anchor || strings.HasPrefix(surface, anchor+"/") || strings.HasPrefix(anchor, surface+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func coherenceLooksLikeFileBucketSurface(surface string) bool {
+	if !coherenceLooksLikePathScope(surface) {
+		return false
+	}
+	base := surface
+	if idx := strings.LastIndex(base, "/"); idx >= 0 {
+		base = base[idx+1:]
+	}
+	return strings.Contains(base, ".")
 }
 
 func sourceInventorySubtopicsWithinPrimaryScope(rm types.RequestModel) bool {
