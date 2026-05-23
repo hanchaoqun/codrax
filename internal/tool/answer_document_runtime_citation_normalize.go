@@ -65,6 +65,37 @@ func answerDocumentExternalObservationOnly(ctx *types.BusContext) bool {
 	return hasExternal
 }
 
+func answerDocumentHasExternalObservationSupport(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	contract := types.CompileAnswerIntentContract(rm, &ctx.AnalysisIR.AnswerContract)
+	for _, origin := range contract.Origins {
+		if answerEvidenceOriginIsExternalObservationSupport(origin) {
+			return true
+		}
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, 64))
+	for _, record := range ledger.Records {
+		if answerEvidenceOriginIsExternalObservationSupport(record.Origin) {
+			return true
+		}
+	}
+	return false
+}
+
+func answerEvidenceOriginIsExternalObservationSupport(origin types.AnswerEvidenceOrigin) bool {
+	switch origin {
+	case types.AnswerEvidenceOriginCurrentSource,
+		types.AnswerEvidenceOriginUnknown,
+		types.AnswerEvidenceOriginSystemInference:
+		return false
+	default:
+		return types.AnswerEvidenceOriginCarriesOriginSpecificSupport(origin)
+	}
+}
+
 // normalizeRuntimeArtifactCitationRefs removes citation-pool entries that
 // would make an attached runtime artifact look like current-repo source proof.
 // The visible answer content is preserved; only citation_ref carriers that
@@ -95,6 +126,43 @@ func normalizeRuntimeArtifactCitationRefs(doc *types.AnswerDocumentV2, ctx *type
 		return 0
 	}
 	return dropAnswerDocumentCitationsByIndex(doc, remove)
+}
+
+// normalizeExternalObservationPseudoCitations removes non-positive line-shaped
+// citation carriers when the run has typed external observation support. A
+// current-source citation must be a real file:line (or an explicit non-line
+// scope such as ScopeFile/ScopeSection); VCS paths, command rows, log lines, and
+// trace spans should travel through ObservationSourceRef/ObservationSpan instead
+// of masquerading as `file:0` citations. The model-authored answer surface is
+// preserved; only invalid citation carriers are detached.
+func normalizeExternalObservationPseudoCitations(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || len(doc.Citations) == 0 || !answerDocumentHasExternalObservationSupport(ctx) {
+		return 0
+	}
+	remove := make(map[int]bool)
+	for i, cit := range doc.Citations {
+		if citationIsPseudoCurrentSourceCarrier(cit) {
+			remove[i] = true
+		}
+	}
+	if len(remove) == 0 {
+		return 0
+	}
+	return dropAnswerDocumentCitationsByIndex(doc, remove)
+}
+
+func citationIsPseudoCurrentSourceCarrier(cit types.Citation) bool {
+	if cit.Line > 0 {
+		return false
+	}
+	switch cit.Scope {
+	case "", types.ScopeLine, types.ScopeLineRange:
+		return true
+	case types.ScopeSection:
+		return strings.TrimSpace(cit.SectionPath) == ""
+	default:
+		return false
+	}
 }
 
 func dropAnswerDocumentCitationsByIndex(doc *types.AnswerDocumentV2, remove map[int]bool) int {

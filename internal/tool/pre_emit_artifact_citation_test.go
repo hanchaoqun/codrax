@@ -382,6 +382,153 @@ func TestNormalizeExternalObservationVisibleCitationSentinels_SanitizesCommandOn
 	}
 }
 
+func TestNormalizeExternalObservationPseudoCitations_DropsLineZeroVCSCitation(t *testing.T) {
+	mut := types.NewMutableState("history")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateScalar,
+		Label: "changed path",
+		Value: "internal/tool/builtin.go",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "origin", Value: "vcs_diff"},
+			{Name: "diff_path", Value: "internal/tool/builtin.go"},
+			{Name: "payload_ref", Value: "blob://payload/git-show.txt"},
+		},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{File: "internal/tool/builtin.go", Line: 0}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "list",
+			Kind: types.BlockBulletList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "path",
+				Label:       "internal/tool/builtin.go",
+				Text:        "changed by the inspected diff",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeExternalObservationPseudoCitations(doc, ctx); fixed == 0 {
+		t.Fatal("expected line-zero external citation carrier to be detached")
+	}
+	if len(doc.Citations) != 0 {
+		t.Fatalf("line-zero pseudo citation should be removed, got %+v", doc.Citations)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got >= 0 {
+		t.Fatalf("item citation_ref should be detached, got %d", got)
+	}
+}
+
+func TestNormalizeExternalObservationPseudoCitations_KeepsScopeFileCitation(t *testing.T) {
+	mut := types.NewMutableState("history plus file layer")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateScalar,
+		Label: "commit",
+		Value: "abc123",
+		Role:  types.AnswerAggregateRoleSupportingCoverage,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "origin", Value: "vcs_metadata"},
+		},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{{
+			File:          "internal/tool/builtin.go",
+			Scope:         types.ScopeFile,
+			FileRoleLabel: "tool implementation",
+		}},
+		Blocks: []types.AnswerBlock{{
+			ID:   "list",
+			Kind: types.BlockBulletList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "file",
+				Label:       "builtin.go",
+				Text:        "file-level implementation context",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeExternalObservationPseudoCitations(doc, ctx); fixed != 0 {
+		t.Fatalf("explicit ScopeFile citation must remain intact, fixed=%d", fixed)
+	}
+	if len(doc.Citations) != 1 || doc.Blocks[0].Items[0].CitationRef != 0 {
+		t.Fatalf("ScopeFile citation should be preserved: doc=%+v", doc)
+	}
+}
+
+func TestNormalizeExternalObservationPseudoCitations_KeepsCurrentSourceLineAndDropsPseudoExternal(t *testing.T) {
+	mut := types.NewMutableState("diff plus current source")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateScalar,
+		Label: "commit",
+		Value: "abc123",
+		Role:  types.AnswerAggregateRoleSupportingCoverage,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "origin", Value: "vcs_diff"},
+			{Name: "payload_ref", Value: "blob://payload/git-show.txt"},
+		},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+			ChangeImpactProfile: &types.ChangeImpactProfile{IsChangeImpact: true},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/agent/explorer.go", Line: 42},
+			{File: "internal/tool/builtin.go", Line: 0},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:   "list",
+			Kind: types.BlockBulletList,
+			Items: []types.AnswerBlockItem{
+				{ID: "current", Label: "current source", Text: "grounded present implementation", CitationRef: 0},
+				{ID: "diff", Label: "changed path", Text: "diff-only changed path", CitationRef: 1},
+			},
+		}},
+	}
+
+	if fixed := normalizeExternalObservationPseudoCitations(doc, ctx); fixed == 0 {
+		t.Fatal("expected only the line-zero external citation carrier to be detached")
+	}
+	if len(doc.Citations) != 1 || doc.Citations[0].File != "internal/agent/explorer.go" || doc.Citations[0].Line != 42 {
+		t.Fatalf("current-source file:line citation should remain: %+v", doc.Citations)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("current-source citation_ref should remain 0, got %d", got)
+	}
+	if got := doc.Blocks[0].Items[1].CitationRef; got >= 0 {
+		t.Fatalf("external pseudo citation_ref should be detached, got %d", got)
+	}
+}
+
 func TestPreCheckArtifactObservedFrameCitations_AllowsCurrentAnchoredLine(t *testing.T) {
 	ctx := artifactFrameDriftBusContext()
 	doc := &types.AnswerDocumentV2{

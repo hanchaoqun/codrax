@@ -25,6 +25,29 @@ func TestRenderV2_BlockSummary(t *testing.T) {
 	}
 }
 
+func TestRenderV2_CitationDisplayNeverPrintsLineZero(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "b1",
+			Kind: types.BlockBulletList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "i1",
+				Label:       "changed path",
+				Text:        "external diff path without a current-source line",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "internal/tool/builtin.go", Line: 0}},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if strings.Contains(out, ":0") || strings.Contains(out, "line 0") {
+		t.Fatalf("renderer must not display non-positive pseudo citation lines:\n%s", out)
+	}
+	if !strings.Contains(out, "`internal/tool/builtin.go`") {
+		t.Fatalf("renderer should still display the model-authored citation file when no pre-emit normalizer ran:\n%s", out)
+	}
+}
+
 func TestRenderV2_PreservesAuthoredTextAcrossBlockKinds(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{

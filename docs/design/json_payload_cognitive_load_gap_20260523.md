@@ -577,7 +577,7 @@ untouched.
         artifact-local spans, bounded raw excerpts, rich notes, result counts,
         and support-ref counts. It does not add a second citation pool and does
         not teach the legacy no-current-source citation sentinel.
-      - Next batch (42.3c): converge renderer/reviewer/presentation consumers on
+      - Delivered batch (42.3c): converge renderer/reviewer/presentation consumers on
         observation refs over pseudo citations for changed-path/stat rows
         (`line=0` VCS paths), artifact-local log lines, trace spans, command
         rows, and future connector/web rows.
@@ -596,12 +596,13 @@ untouched.
           external observation without a repo citation, the system may append a
           localized boundary note, but must not turn it into a fake
           `repo:0`/`file:0` citation or replace the model's prose/table.
-        - Guardrails to add before closing 42.3c: reviewer input keeps
-          artifact-local and VCS path/span refs as observation refs; renderer
-          does not display `:0` suffixes for external-only rows; mixed
-          "git/log/trace + current source" answers keep current-source
-          citations and external refs side-by-side without either origin
-          stealing the other's grounding policy.
+        - Delivered guardrails: pre-emit normalization detaches only
+          non-positive line-shaped citation carriers when a typed external
+          observation ledger/contract is present; explicit `ScopeFile` /
+          `ScopeSection` and real current-source `file:line` citations remain
+          intact. Reviewer input keeps line-zero VCS/stat/path rows as
+          observation refs without rendering `line 0`, and render tests pin that
+          the markdown renderer never prints a `:0` suffix.
   - Delivered so far: no-hit supplements now preserve typed scope coordinates
     such as `window_count`, `unmatched`, `order`, `window_path`, `diff_path`,
     `tool_result`, `payload_ref`, and `row_set_ref` in the localized
@@ -662,11 +663,15 @@ untouched.
     mixed diff+current-source separation, MCP resource handling, typed
     payload/row-set refs, external raw excerpts, and large row-set artifact
     creation.
-  - Remaining 42.3c implementation status: ready for code. Do not change
-    answer materialization policy or citation schema. The next patch should
-    tighten consumer/display behavior around observation refs and add guardrail
-    tests for reviewer/render paths that could still surface `line=0` as if it
-    were a current-source citation.
+  - Delivered in Batch 42.3c: invalid external-observation pseudo citations are
+    normalized away before final structural checks. The runtime only detaches
+    citations with non-positive line-shaped scopes (`empty`, `line`,
+    `line_range`, or empty-section) and only when a typed non-current-source
+    observation is present. It preserves model-authored prose/tables, legitimate
+    `ScopeFile`/section citations, and mixed answers' real current-source
+    citations. Reviewer and renderer guards ensure VCS path/stat rows and
+    artifact-local rows stay observation refs rather than becoming
+    current-source `file:0` citations.
 
 - Batch 43 — runtime artifact provenance split. Status: planned.
   - Carry `observed_direct_cause`, `artifact_span`, and

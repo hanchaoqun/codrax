@@ -1305,6 +1305,54 @@ func TestRenderSemanticQualityUserMessage_RendersObservationLedgerBoundaries(t *
 	}
 }
 
+func TestSemanticObservationSummaries_LineZeroExternalSpanStaysObservationRef(t *testing.T) {
+	ledger := types.ObservationLedger{Records: []types.ObservationRecord{{
+		ID:              "aggregate:0#vcs_diff",
+		Origin:          types.AnswerEvidenceOriginVCSDiff,
+		Role:            types.AnswerAggregateRolePrincipalAnswer,
+		GroundingPolicy: types.ClaimGroundingRepairable,
+		Summary:         "diff stat names internal/tool/builtin.go without a current-source gutter",
+		SourceRef: types.ObservationSourceRef{
+			Kind:       types.ObservationSourceVCSDiff,
+			Pathspec:   "internal/tool/builtin.go",
+			PayloadRef: "blob://payload/git-show.txt",
+		},
+		Span: types.ObservationSpan{
+			LineStart: 0,
+			NewLine:   0,
+		},
+	}}}
+	got := semanticObservationSummaries(ledger, &types.RequestModel{
+		Intent: types.IntentExplain,
+		Predicates: types.SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+	}, nil)
+	if len(got) != 1 {
+		t.Fatalf("expected one observation summary, got %+v", got)
+	}
+	if !strings.Contains(got[0].Source, "kind=vcs_diff") ||
+		!strings.Contains(got[0].Source, "pathspec=internal/tool/builtin.go") ||
+		!strings.Contains(got[0].Source, "payload_ref=blob://payload/git-show.txt") {
+		t.Fatalf("external path/stat row should stay in source ref, got %+v", got[0])
+	}
+	if got[0].Span != "" {
+		t.Fatalf("line-zero external span must not be rendered as a current-source line: %+v", got[0])
+	}
+	msg := renderSemanticQualityUserMessage(SemanticQualityInput{
+		OriginalRequest: "看这个 diff 的影响",
+		AnswerSummary:   "summary",
+		AnswerBody:      "body",
+		Observations:    got,
+	})
+	if strings.Contains(msg, `span="line 0"`) || strings.Contains(msg, "line 0") {
+		t.Fatalf("reviewer prompt must not surface line-zero pseudo citations:\n%s", msg)
+	}
+	if !strings.Contains(msg, "Non-current-source rows are valid observations but are not current-repo citations") {
+		t.Fatalf("reviewer prompt should carry observation boundary:\n%s", msg)
+	}
+}
+
 func TestSuppressSemanticSufficientCaveatViolations_KeepsPreciseAndStrictSignals(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, nil)
