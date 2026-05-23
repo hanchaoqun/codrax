@@ -379,13 +379,19 @@ func sourceInventoryScopes(ctx *types.BusContext, graph *repotypes.Graph, facts 
 		seen[scope] = true
 		scopes = append(scopes, scope)
 	}
+	// Source-inventory recovery is allowed to fill holes inside the user's
+	// requested package/path, but it must not promote analyzer-related context
+	// files into principal inventory rows. Prefer path-like current-request
+	// entity lanes; fall back to required file hints only when no request scope
+	// was resolved. Subtopics and aggregate support refs remain legacy fallbacks.
+	for _, scope := range sourceInventoryRequestedScopes(ctx, graph) {
+		add(scope)
+	}
+	if len(scopes) > 0 {
+		sort.Strings(scopes)
+		return scopes
+	}
 	if ctx != nil && ctx.AnalysisIR != nil {
-		for _, hint := range ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints {
-			add(hint.Path)
-		}
-		for _, entity := range ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities {
-			add(entity)
-		}
 		for _, topic := range ctx.AnalysisIR.RequestModel.SubTopics {
 			for _, entity := range topic.Entities {
 				add(entity)
@@ -404,6 +410,42 @@ func sourceInventoryScopes(ctx *types.BusContext, graph *repotypes.Graph, facts 
 	}
 	sort.Strings(scopes)
 	return scopes
+}
+
+func sourceInventoryRequestedScopes(ctx *types.BusContext, graph *repotypes.Graph) []string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	hints := ctx.AnalysisIR.RequestModel.AnalyzerHints
+	seen := map[string]bool{}
+	var out []string
+	add := func(raw string) {
+		scope := sourceInventoryScopeForSurface(graph, raw)
+		if scope == "" || seen[scope] {
+			return
+		}
+		seen[scope] = true
+		out = append(out, scope)
+	}
+	for _, group := range [][]string{
+		hints.ExactTargets,
+		hints.MentionedEntities,
+		hints.PrimaryEntities,
+		hints.Entities,
+	} {
+		for _, raw := range group {
+			add(raw)
+		}
+	}
+	if len(out) > 0 {
+		sort.Strings(out)
+		return out
+	}
+	for _, hint := range hints.RequiredFileHints {
+		add(hint.Path)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func sourceInventoryScopeForSurface(graph *repotypes.Graph, raw string) string {

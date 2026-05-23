@@ -287,6 +287,13 @@ System补表 may run only when:
   content.
 
 Otherwise system additions must be localized supplements with explicit labels.
+They are strictly append-only user-visible material: the system must not
+replace, compress, delete, reorder, or rewrite any model-authored prose/table
+content to make room for a deterministic table. If a model-authored table is
+incomplete or contains a provably wrong row, the deterministic compiler may add
+a separate localized block that names the exact typed defect and lists only the
+verified correction/supplement. This block is lower UX priority than the
+model-authored answer and must never silently become the main answer body.
 
 For source-inventory补表 this rule is intentionally narrow. The trigger must be
 a typed, current-request `source_inventory_profile` / principal `member_set`
@@ -301,6 +308,10 @@ such as "匹配 xxx 模式的列表" are not a generic补表 trigger: without a 
 member_set/evidence payload or a dedicated deterministic adapter, the system
 should let the model answer from collected evidence and disclose limits rather
 than synthesize a table from prose or pattern-looking text.
+Analyzer-related context such as referenced type definitions outside the
+current package/path may remain support context, but cannot seed principal
+source-inventory candidates or deterministic补表 unless the current request
+explicitly asks for cross-package relationships.
 
 ### Renderer / Reviewers
 
@@ -1390,5 +1401,33 @@ or noisy retries:
   pins two negative rules: exact file scope must not broaden to a directory, and
   public/private visibility pruning must not rewrite explanatory scope prose to
   `[excluded]`.
+- [x] Batch G.4: make count/group aggregate metadata subordinate to richer
+  principal member carriers. If an accepted `member_set` is the principal
+  answer-grade carrier for a typed request, sibling `total_count`,
+  `unique_count`, `grouped_count`, or `bucket_count` facts with complete
+  members are retained as structured support but cannot create Principal
+  Enumeration Rows or deterministic system补表. This prevents stale grouped
+  counts from overriding or duplicating grounded member tables while preserving
+  the count facts for summaries, reviewer context, and precise boundary notes.
+  The arbitration consumes only aggregate kind/role/cardinality and
+  `RequestModel` traits, so it applies across all repo-map languages and
+  external-origin evidence without keyword matching over user/model prose.
+  The same batch aligns decorated-member support refs end to end:
+  `members=["Foo (qualifier)"]` plus `support_refs=["Foo: file:line"]` is
+  accepted, compiled into row location metadata, and considered covered when
+  the final answer already has a cited `Foo` row. This is a typed
+  citation-backed coverage rule, not a prose substring shortcut.
+- [x] Batch G.5: enforce requested source-inventory scope before deterministic
+  补表. Source-inventory candidate generation now prefers current-request
+  path/entity lanes and falls back to required files only when no path scope is
+  known; analyzer subtopics and aggregate support refs are legacy fallback
+  inputs, not scope expanders. Aggregate facts whose support refs/member
+  surfaces point outside the requested source-inventory scope are demoted to
+  support before finalizer/reviewer prompts, so related files such as
+  `internal/types/analysis_ir.go` cannot become principal API inventory rows
+  for a question scoped to `internal/analysis/criterion`. Targeted eval
+  `u8a-20260523-100158`: PASS, `finalizer_iters=1`, no system补表 pollution,
+  no `analysis_ir.go` rows in the final surface, and rich model-authored
+  Chinese explanations preserved.
 - [ ] Run targeted evals after each batch and update
   `eval_20260520_full_sweep_gap_tracking.md`.

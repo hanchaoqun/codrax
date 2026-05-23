@@ -544,8 +544,8 @@ func TestPrincipalAggregateMemberSetFactRefsForRequest_DemotesPathCoverageForArc
 		},
 		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "all files"},
 	}
-	if got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &enum); len(got) != 2 {
-		t.Fatalf("enumeration path set should remain principal, got %+v", got)
+	if got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &enum); len(got) != 1 || got[0].Fact.Kind != AnswerAggregateMemberSet {
+		t.Fatalf("enumeration path member_set should remain principal while duplicate count metadata stays support, got %+v", got)
 	}
 }
 
@@ -666,6 +666,125 @@ func TestPrincipalAggregateMemberSetFactRefsForRequest_CountMembersStayPrincipal
 	}
 	if role := AnswerAggregateFactRoleForRequest(facts[0], &rm); role != AnswerAggregateRolePrincipalAnswer {
 		t.Fatalf("explicit inventory count fact role = %q, want principal_answer", role)
+	}
+}
+
+func TestPrincipalAggregateMemberSetFactRefsForRequest_CountMembersDemoteBehindRicherMemberSet(t *testing.T) {
+	facts := []AnswerAggregateFact{
+		{
+			Kind:    AnswerAggregateGroupedCount,
+			Label:   "Kind 值按阶段分组",
+			Value:   "3",
+			Unit:    "groups",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"读模式 Kind (18个)", "写模式 Kind (5个)", "兼容性保留 Kind (1个)"},
+		},
+		{
+			Kind:  AnswerAggregateMemberSet,
+			Label: "Kind 常量成员",
+			Value: "4",
+			Role:  AnswerAggregateRolePrincipalAnswer,
+			Members: []string{
+				"KindSymbolPresent @ internal/analysis/criterion/grammar.go:29",
+				"KindNoCallSites @ internal/analysis/criterion/grammar.go:30",
+				"KindAnswerSetBounded @ internal/analysis/criterion/grammar.go:31",
+				"KindExternalArtifactDecoded @ internal/analysis/criterion/grammar.go:65",
+			},
+			SupportRefs: []string{
+				"internal/analysis/criterion/grammar.go:29",
+				"internal/analysis/criterion/grammar.go:30",
+				"internal/analysis/criterion/grammar.go:31",
+				"internal/analysis/criterion/grammar.go:65",
+			},
+		},
+	}
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		CompletenessObligation: &CompletenessObligation{Required: true, SourceQuote: "全部公开常量"},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleConstant},
+		},
+	}
+
+	got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm)
+	if len(got) != 1 || got[0].Fact.Kind != AnswerAggregateMemberSet {
+		t.Fatalf("richer member_set must be the only principal member carrier, got %+v", got)
+	}
+	normalized := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if role := NormalizeAnswerAggregateRole(normalized[0].Role); role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("subordinate grouped_count role = %q, want supporting_coverage; facts=%+v", role, normalized)
+	}
+	if role := AnswerAggregateFactRoleForRequest(facts[0], &rm); role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("single-fact role should remain principal without sibling context, got %q", role)
+	}
+}
+
+func TestPrincipalAggregateMemberSetFactRefsForRequest_SourceInventoryDemotesOutOfScopeFacts(t *testing.T) {
+	facts := []AnswerAggregateFact{
+		{
+			Kind:  AnswerAggregateMemberSet,
+			Label: "criterion exported types",
+			Value: "3",
+			Role:  AnswerAggregateRolePrincipalAnswer,
+			Members: []string{
+				"Kind @ internal/analysis/criterion/grammar.go:26",
+				"Env @ internal/analysis/criterion/grammar.go:124",
+				"Result @ internal/analysis/criterion/grammar.go:185",
+			},
+			SupportRefs: []string{
+				"Kind: internal/analysis/criterion/grammar.go:26",
+				"Env: internal/analysis/criterion/grammar.go:124",
+				"Result: internal/analysis/criterion/grammar.go:185",
+			},
+		},
+		{
+			Kind:  AnswerAggregateMemberSet,
+			Label: "related analysis IR exported types",
+			Value: "2",
+			Role:  AnswerAggregateRolePrincipalAnswer,
+			Members: []string{
+				"AnalysisIR @ internal/types/analysis_ir.go:29",
+				"RequestModel @ internal/types/analysis_ir.go:47",
+			},
+			SupportRefs: []string{
+				"AnalysisIR: internal/types/analysis_ir.go:29",
+				"RequestModel: internal/types/analysis_ir.go:47",
+			},
+			Provenance: "system:source_inventory",
+		},
+	}
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: AnalyzerHints{
+			Entities: []string{"internal/analysis/criterion"},
+			RequiredFileHints: []RequiredFileHint{
+				{Path: "internal/analysis/criterion/eval.go", Confidence: 0.9},
+				{Path: "internal/analysis/criterion/grammar.go", Confidence: 0.9},
+			},
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleType, AnswerCandidateRoleFunction},
+		},
+	}
+
+	got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm)
+	if len(got) != 1 || got[0].Index != 0 {
+		t.Fatalf("only in-scope source inventory fact should remain principal, got %+v", got)
+	}
+	normalized := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if role := NormalizeAnswerAggregateRole(normalized[1].Role); role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("out-of-scope source inventory fact role = %q, want supporting_coverage; facts=%+v", role, normalized)
+	}
+	if !strings.Contains(normalized[1].Provenance, "outside_requested_source_inventory_scope") {
+		t.Fatalf("demotion provenance missing: %+v", normalized[1])
 	}
 }
 

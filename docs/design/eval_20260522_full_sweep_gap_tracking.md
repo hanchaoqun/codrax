@@ -532,12 +532,43 @@ Implementation notes:
 - `normalizePrincipalEnumerationRowBlocks` is covered by a regression test that
   prevents comparison grouped-count partitions from rendering as one-row system
   supplement tables.
+- Follow-up `2026-05-23`: the projection is now sibling-aware. When a richer
+  principal `member_set` carrier exists for the same typed request surface,
+  count-shaped carriers (`total_count`, `unique_count`, `grouped_count`,
+  `bucket_count`) are demoted to supporting coverage even if they were emitted
+  as `principal_answer`. This keeps counts available to the finalizer as
+  structured support while preventing stale group/count metadata from becoming
+  deterministic system补表 over grounded member rows. The rule is typed-only:
+  aggregate kind/role/cardinality plus request model; it does not inspect user
+  prose, model markdown, labels, or language-specific syntax.
+- Same follow-up also fixed decorated-member coverage at the source-support
+  layer. The prompt already allows `members=["Foo (qualifier)"]` with
+  `support_refs=["Foo: file:line"]`; the display compiler now consumes the same
+  contract, so a model-authored row labeled `Foo` with a matching citation is
+  recognized as covering the decorated structured member. This prevents
+  duplicate one-row system补表 while preserving the richer member note for
+  prompt/reviewer support.
 - `AppendSoftContractCaveatsToAnswerForBus` now runs generic accepted-path soft
   caveats through the unified output contract. Mechanism answers suppress
   enumeration/metadata advisories; true enumeration requests still surface
   enumeration-depth caveats; explicit diagram requests still surface a precise
   diagram-missing disclosure.
 - Verification: `go test ./internal/types ./internal/tool ./internal/orchestrator`.
+  Follow-up guard coverage:
+  `go test ./internal/types -run 'TestPrincipalAggregateMemberSetFactRefsForRequest|TestNormalizeAggregateFactRolesForRequest'`
+  and
+  `go test ./internal/tool -run 'TestNormalizePrincipalEnumerationRowBlocks'`.
+
+New residual gap observed during the targeted u8a rerun:
+
+- Explorer closure remains too model-dependent for large inventories. Several
+  `emit_investigation_complete` attempts were rejected for decorated
+  `member_set` support refs, mismatched aggregate count members, and one
+  malformed long JSON closure. The answer eventually converged, but this is
+  upstream waste and should be handled by schema-aware repair / deterministic
+  source-inventory handoff instead of asking the model to restate every support
+  ref. Track this under the structural inventory compiler family rather than
+  finalizer retry.
 
 ### Batch 6 — Tool-call narrative preservation without prose takeover
 
@@ -618,6 +649,26 @@ Implementation notes:
   such as "匹配 xxx 模式的列表" require explorer-emitted structured
   member_set/evidence or a dedicated deterministic adapter; the system must not
   infer a table from natural-language prose or pattern-looking text.
+- System补表 UX contract tightened after `u8a`: generated supplements are
+  append-only and may not replace, rewrite, compress, delete, or reorder
+  model-authored prose/tables. They may appear only as a separate localized
+  block when typed evidence proves the model surface is incomplete or wrong,
+  and they must name the system-supplement nature instead of silently becoming
+  the answer body. This keeps model-generated rich explanations as the primary
+  user experience; system rows are a narrow correction/audit fallback.
+- `u8a-20260523-095157` exposed a deeper scope-pollution root cause: analyzer
+  related context (`internal/types/analysis_ir.go`, introduced via `Criterion`
+  repo-map/subtopic expansion) was allowed to seed source-inventory candidates
+  for a request explicitly scoped to `internal/analysis/criterion`. That caused
+  deterministic补表 to append huge, dry, wrong tables. The fix is two-layered:
+  source-inventory candidate generation now prefers current-request
+  path/entity scopes and does not broaden through subtopic context; aggregate
+  facts with support refs/member locations outside the requested inventory
+  scope are demoted before finalizer/reviewer prompts. Targeted rerun
+  `u8a-20260523-100158`: PASS, `tool_read_file=3`, `explorer_iters=6`,
+  `finalizer_iters=1`, no `系统按已验证证据补充成员`, no `analysis_ir.go`
+  rows in the final answer, and the rich model-authored Chinese table notes
+  were preserved.
 
 External-evidence audit:
 
@@ -854,8 +905,8 @@ External-evidence audit:
 | E20260522-G160 | `u7o-20260522-184901`, `u8a-20260522-184901` | P0 | Open | Two eval processes started simultaneously on the same repo. Both logs show `repo_map: phase build_graph` at `18:49:01`, then no phase progress until `phase rank` at `19:04:11`; rendered output still reported the index ready in `7.7s`. The user-visible stall was ~15 minutes, but the internal elapsed only counted ~7.5s. | Repo-map concurrent cache rebuild / graph build scheduling is either serialized behind an unreported wait or blocked in an uninstrumented section. The progress model excludes wall-clock wait time, so users see “扫描中” without truthful elapsed/progress, and eval runtime is dominated by hidden startup cost. | Add repo-map concurrency instrumentation and cache-build coordination: if a process waits on another build/cache lock, render `等待同仓索引构建完成` with wall-clock elapsed; otherwise reuse the in-flight cache/build result instead of duplicating work. Elapsed reporting must include lock waits and any pre-rank wall time. Add a parallel two-process repo-map regression. |
 | E20260522-G161 | `u7o-20260522-184901`, `u8a-20260522-184901`, related to transient-retry findings | P1 | Open | Both runs hit analyzer EOF after a useful first pre-scan; REPL rendered `✗ analyze` and then `⟳ 2/4 模型响应出错,正在重新理解问题` even though the retry was still analysis stage. | Transport retry status is still mapped through the wrong stage label in some analyze retry paths. This repeats the broader retry UX problem: users cannot distinguish network retry from semantic re-analysis, and the stage number can jump to 2/4 before exploration begins. | Normalize retry status events from the orchestrator stage enum, not from the next DAG node. Display `⟳ 1/4 连接/流式响应异常，正在重新理解问题` for analyzer transport retries, and keep semantic validation retries separately counted. |
 | E20260522-G162 | `u7o-20260522-184901` | P1 | Open | The final answer correctly identifies the latest commit and current code path, but it also says the old default reserve-1 behavior “可能饿死 sshd 进程反而引发断连.” The commit message and code comments say the opposite: a full scan can starve sshd; setting reserve CPUs >0 leaves cores free and is the opt-in mitigation. | Hybrid VCS+current-source synthesis can still invert causal direction when it compresses commit rationale, config comment, and current implementation into prose. The current reviewers did not flag this semantic contradiction because the answer also contained the correct mitigation sentence elsewhere. | For history/current-code impact answers, preserve producer-side commit-message causal relations as typed VCS observations (`problem`, `old_behavior`, `new_default`, `operator_opt_in`). Self-consistency should check contradictions among these typed roles, not only file/line/count surfaces. |
-| E20260522-G163 | `u8a-20260522-184901` | P0 | Open | The answer's grounded member list contains 25 Kind constants with 20 read-mode entries (`grammar.go:29-48`), 4 write-mode entries (`54-57`), and 1 compatibility entry (`65`). However summary and a system-materialized grouping say `读模式 18`, `写模式 5`, `兼容 1`, which sums to 24 and contradicts the visible list. Self-consistency reported this at confidence 0.95 with `rewrite_on=true effective_rewrite=false`; the answer shipped unchanged. | Model-authored grouped_count aggregates can contradict higher-authority grounded member rows, and deterministic materialization can amplify the stale aggregate into a visible system supplement. A high-confidence deterministic arithmetic/count contradiction is being treated as record-only. | Validate grouped_count aggregates against grounded member rows before finalizer/render. When grouped counts disagree with member identity/line ranges, suppress or repair the grouped_count locally from the grounded rows; do not materialize it. High-confidence self-consistency on exact arithmetic/member-count contradictions should trigger local cleanup even when broad LLM rewrite is disabled. |
-| E20260522-G164 | `u8a-20260522-184901` | P1 | Open | `emit_answer_document` logged `normalized 6 principal enumeration block(s)` and `materialized 3 principal aggregate member row(s)`; the visible answer then added “系统按已验证证据补充成员：按类别导出数量” and “Kind 值按阶段分组.” The first is harmless but noisy; the second is wrong and duplicates a concept already covered by the richer principal list. | System补表 still lacks a strict append-only/non-conflicting contract for aggregate metadata. Counts and group summaries are being treated as answer-grade principal rows even when the model-authored main answer already contains richer, cited content. | Make aggregate metadata render only when it adds non-duplicative value and passes consistency checks against principal rows. Prefer folding safe counts into the lead summary; suppress separate system sections for derived counts unless the user asked for count tables or the model omitted required totals. |
+| E20260522-G163 | `u8a-20260522-184901`; rerun `u8a-20260523-100158` | P0 | Mitigated | The answer's grounded member list contains 25 Kind constants with 20 read-mode entries (`grammar.go:29-48`), 4 write-mode entries (`54-57`), and 1 compatibility entry (`65`). Original summary/system grouping said `读模式 18`, `写模式 5`, `兼容 1`, which contradicted the visible list. Rerun PASSes with one finalizer turn and no stale grouped-count补表. | Model-authored grouped_count aggregates can contradict higher-authority grounded member rows, and deterministic materialization can amplify stale aggregates. Batch G.4 demotes count/group carriers behind richer principal member sets, keeping them as support only. | Keep grouped/count metadata subordinate to grounded member rows. Future work: when the user explicitly asks for grouped counts, locally validate arithmetic against member rows and render a precise correction block rather than rewriting model prose. |
+| E20260522-G164 | `u8a-20260522-184901`; rerun `u8a-20260523-100158` | P1 | Mitigated | Original run appended “系统按已验证证据补充成员：按类别导出数量” and “Kind 值按阶段分组.” A later rerun exposed a worse variant where `internal/types/analysis_ir.go` polluted the principal source inventory and generated dry external tables. Latest rerun has no system补表 in the final answer and no `analysis_ir.go` rows. | System补表 lacked two boundaries: append-only UX contract and requested-scope arbitration. Batch G.4/G.5 now keeps count metadata support-only and demotes out-of-scope source-inventory aggregates before finalizer/render. | Continue auditing other supplement paths, but the current source-inventory path is guarded by typed scope tests and `u8a.case` now bans `系统按已验证证据补充成员` for this shape. |
 | E20260522-G165 | `u8b-20260522-191031`, reruns `u8b-20260522-203744`, `u8b-20260522-212302` | P0 | Mitigated | Original run listed 108 "public string enum types" but included non-string-enum surfaces such as `Criterion`, `ArtifactObservationProfile`, and `AnswerDisplayAttachment`. Reruns now converge on 110 verified `type X string` + const-set members with deterministic review `missing=0 unexpected=0`. | Batch 2 added a Go parser-backed source-inventory reconciler that proves `TypeSpec` underlying type is `string` and associates an actual const set before promoting a member to principal. This fixes the Go failure path without adding prose/keyword hard gates. | Keep the Go compiler as the high-authority source for Go string-enum inventories. Equivalent language-specific enum adapters remain future work and must no-op safely until their parser semantics are proven. |
 | E20260522-G166 | `u8b-20260522-191031`, reruns `u8b-20260522-203744`, `u8b-20260522-212302`, `u8b-20260522-221303` | P1 | Mitigated | Original answer rendered enum values/descriptions for a names-only request, including banned value text such as `private_only`. Reruns render enum type names, locations, and concise descriptions without promoting enum values as principal members. | `source_inventory_profile.requested_fields` now flows through aggregate facts and display-row compilation; constants are treated as enum-likeness qualifiers when the target role is `type`, not as answer rows. The latest rerun also reconciles analyzer over-requested `values` immediately after typed answer-subject inference, so finalizer sees `name/location/summary` rather than stale value fields. | Keep the source-inventory requested-field normalizer and prompt-lane sanitizer. Future language-specific enum adapters must follow the same rule: membership qualifiers do not become visible fields unless requested. |
 | E20260522-G167 | `u8b-20260522-191031`, rerun `u8b-20260522-193225` | P1 | Mitigated | Analyzer first rejected the request because `is_category_enumeration=true` had only the example entity `Intent`; the actual members were to be discovered under `internal/types`, not named in the request. Rerun no longer hit the L0-B hard reject, but still spent two analyzer rounds. | The analyzer taxonomy conflates "enumerate named entities already visible in the request" with "discover all entities satisfying a relation under a scope." Batch 1 now adds a typed `RequiredFileHints + AnswerVisibilityProfile` scoped-inventory carve-out; residual cost belongs to analyzer fast-path work, not the old hard reject. | Keep the new typed carve-out. Follow-up: deterministic source inventory classification/fast path should emit analysis after existence pre-scan and defer implementation proof to exploration. |

@@ -474,6 +474,9 @@ func principalEnumerationMarkdownRowCoversRow(cells []string, row types.Enumerat
 }
 
 func principalEnumerationStructuredItemCoversRow(item types.AnswerBlockItem, doc *types.AnswerDocumentV2, row types.EnumerationDisplayRow) bool {
+	if principalEnumerationStructuredItemCoversDecoratedBase(item, doc, row) {
+		return true
+	}
 	surface := types.AnswerBlockItemVisibleSurface(item)
 	if !principalEnumerationAnySurfaceMatchesRow([]string{surface, item.Label}, row) {
 		return false
@@ -483,6 +486,56 @@ func principalEnumerationStructuredItemCoversRow(item types.AnswerBlockItem, doc
 	}
 	return principalEnumerationItemCitationCompatible(item, doc, row) ||
 		principalEnumerationItemCitationFileCompatible(item, doc, row)
+}
+
+func principalEnumerationStructuredItemCoversDecoratedBase(item types.AnswerBlockItem, doc *types.AnswerDocumentV2, row types.EnumerationDisplayRow) bool {
+	bases := principalEnumerationRowDecoratedBaseCandidates(row)
+	if len(bases) == 0 {
+		return false
+	}
+	surface := types.AnswerBlockItemVisibleSurface(item)
+	labelKey := normalizeEnumerationDisplayTableKey(item.Label)
+	for _, base := range bases {
+		baseKey := normalizeEnumerationDisplayTableKey(base)
+		if baseKey == "" {
+			continue
+		}
+		if labelKey != baseKey && !preEmitAggregateScalarValueAppears(base, surface) {
+			continue
+		}
+		if len(aggregateToolLocationPattern.FindAllString(surface, -1)) > 0 &&
+			principalEnumerationCandidateLocationCompatible(surface, row) {
+			return true
+		}
+		if principalEnumerationItemCitationCompatible(item, doc, row) ||
+			principalEnumerationItemCitationFileCompatible(item, doc, row) {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationRowDecoratedBaseCandidates(row types.EnumerationDisplayRow) []string {
+	raw := []string{row.DisplayLabel, row.Member}
+	if label, _, ok := types.ParseAnswerSupportRefMemberLocation(row.Member); ok {
+		raw = append(raw, label)
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, candidate := range raw {
+		base, _, ok := types.AnswerAggregateDecoratedLabelParts(candidate)
+		if !ok {
+			continue
+		}
+		base = strings.TrimSpace(base)
+		key := strings.ToLower(base)
+		if base == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, base)
+	}
+	return out
 }
 
 func principalEnumerationItemCitationCompatible(item types.AnswerBlockItem, doc *types.AnswerDocumentV2, row types.EnumerationDisplayRow) bool {

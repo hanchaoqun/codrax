@@ -342,6 +342,146 @@ func TestNormalizePrincipalEnumerationRowBlocks_SuppressesGroupedCountComparison
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_SuppressesCountMetadataBehindRicherMemberSet(t *testing.T) {
+	mu := types.NewMutableState("internal/analysis/criterion 对外导出的全部 API（函数、类型、常量、变量）共有哪些？分类列出。")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind:    types.AnswerAggregateGroupedCount,
+			Label:   "Kind 值按阶段分组",
+			Value:   "3",
+			Unit:    "groups",
+			Role:    types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"读模式 Kind (18个)", "写模式 Kind (5个)", "兼容性保留 Kind (1个)"},
+		},
+		{
+			Kind:  types.AnswerAggregateMemberSet,
+			Label: "Kind 常量成员",
+			Value: "4",
+			Role:  types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{
+				"KindSymbolPresent @ internal/analysis/criterion/grammar.go:29",
+				"KindNoCallSites @ internal/analysis/criterion/grammar.go:30",
+				"KindAnswerSetBounded @ internal/analysis/criterion/grammar.go:31",
+				"KindExternalArtifactDecoded @ internal/analysis/criterion/grammar.go:65",
+			},
+		},
+	})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "全部公开 API"},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleConstant},
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "Kind 常量成员已经在表格中列出。",
+		},
+		{
+			ID:          "kind_members",
+			Kind:        types.BlockTable,
+			SurfaceRole: types.SurfacePrincipal,
+			Title:       "Kind 常量成员",
+			Columns:     []string{"符号名称", "定义位置"},
+			Items: []types.AnswerBlockItem{
+				{ID: "k1", Label: "KindSymbolPresent", Text: "internal/analysis/criterion/grammar.go:29"},
+				{ID: "k2", Label: "KindNoCallSites", Text: "internal/analysis/criterion/grammar.go:30"},
+				{ID: "k3", Label: "KindAnswerSetBounded", Text: "internal/analysis/criterion/grammar.go:31"},
+				{ID: "k4", Label: "KindExternalArtifactDecoded", Text: "internal/analysis/criterion/grammar.go:65"},
+			},
+		},
+	}}
+
+	_ = normalizePrincipalEnumerationRowBlocks(doc, ctx)
+	var surfaces []string
+	for _, block := range doc.Blocks {
+		surfaces = append(surfaces, block.Title, types.AnswerBlockVisibleSurface(block))
+	}
+	visible := strings.Join(surfaces, "\n")
+	if strings.Contains(visible, "Kind 值按阶段分组") ||
+		strings.Contains(visible, "读模式 Kind (18个)") ||
+		strings.Contains(visible, "系统按已验证证据补充成员：Kind 值按阶段分组") {
+		t.Fatalf("count/group metadata must not materialize over richer member rows:\n%s", visible)
+	}
+	if got := strings.Count(visible, "KindSymbolPresent"); got != 1 {
+		t.Fatalf("model-authored member table should remain the visible carrier, occurrences=%d:\n%s", got, visible)
+	}
+}
+
+func TestNormalizePrincipalEnumerationRowBlocks_DecoratedMemberCoveredByCitedBareLabel(t *testing.T) {
+	mu := types.NewMutableState("列出 internal/analysis/criterion 对外导出的变量")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "导出包级变量",
+		Value:   "1",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"ErrUnknownKind (grammar.go:118, error)"},
+		SupportRefs: []string{
+			"ErrUnknownKind: internal/analysis/criterion/grammar.go:118",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "导出的变量"},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "vars",
+				Kind:        types.BlockOrderedList,
+				SurfaceRole: types.SurfacePrincipal,
+				Items: []types.AnswerBlockItem{{
+					ID:          "v1",
+					Label:       "ErrUnknownKind",
+					Text:        "导出包级变量，类型为 error。",
+					CitationRef: 0,
+				}},
+			},
+		},
+		Citations: []types.Citation{{File: "internal/analysis/criterion/grammar.go", Line: 118}},
+	}
+
+	sets := types.CompileEnumerationDisplaySets(&ctx.AnalysisIR.RequestModel, answerSurfacePlan(ctx))
+	if len(sets) != 1 || len(sets[0].Rows) != 1 {
+		t.Fatalf("expected one compiled decorated row, got %+v", sets)
+	}
+	if !principalEnumerationStructuredItemCoversRow(doc.Blocks[0].Items[0], doc, sets[0].Rows[0]) {
+		t.Fatalf("decorated row should be covered by cited bare label item: row=%+v item=%+v citations=%+v", sets[0].Rows[0], doc.Blocks[0].Items[0], doc.Citations)
+	}
+	_ = normalizePrincipalEnumerationRowBlocks(doc, ctx)
+	var surfaces []string
+	for _, block := range doc.Blocks {
+		surfaces = append(surfaces, block.Title, types.AnswerBlockVisibleSurface(block))
+	}
+	visible := strings.Join(surfaces, "\n")
+	if strings.Contains(visible, "系统按已验证证据补充成员：导出包级变量") {
+		t.Fatalf("cited bare-label item already covers decorated member; no duplicate supplement expected:\n%s", visible)
+	}
+	if got := strings.Count(visible, "ErrUnknownKind"); got != 1 {
+		t.Fatalf("expected one visible ErrUnknownKind row, got %d:\n%s", got, visible)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_DoesNotDuplicateVCSCommitRowsAlreadyVisible(t *testing.T) {
 	mu := types.NewMutableState("最近 10 次提交都做了哪些事情")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

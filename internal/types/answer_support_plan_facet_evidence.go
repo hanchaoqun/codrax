@@ -807,6 +807,7 @@ func aggregateMemberStructuredLocation(fact AnswerAggregateFact, memberIdx int, 
 		return refLocation.File, refLocation.LineStart, aggregateMemberStartLocation(refLocation)
 	}
 	memberKey := strings.ToLower(strings.TrimSpace(member))
+	memberLabel := aggregateMemberSupportSurfaceLabel(member)
 	var bareRefs []AnswerSourceLocationSurface
 	var genericRefs []AnswerSourceLocationSurface
 	for _, ref := range fact.SupportRefs {
@@ -822,7 +823,8 @@ func aggregateMemberStructuredLocation(fact AnswerAggregateFact, memberIdx int, 
 			genericRefs = append(genericRefs, refLocation)
 			continue
 		}
-		if strings.ToLower(refMember) == memberKey {
+		if strings.ToLower(refMember) == memberKey ||
+			aggregateSupportRefCanDescribeMember(refMember, memberLabel) {
 			return refLocation.File, refLocation.LineStart, aggregateMemberStartLocation(refLocation)
 		}
 	}

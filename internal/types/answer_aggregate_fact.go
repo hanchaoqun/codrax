@@ -1002,11 +1002,18 @@ func PrincipalAggregateMemberSetFactRefsForRequest(facts []AnswerAggregateFact, 
 	if len(refs) == 0 || rm == nil {
 		return refs
 	}
-	if aggregateRequestRequiresPathMemberSetAsPrincipal(*rm) {
+	hasRicherPrincipalMemberSet := aggregateFactRefsContainPrincipalMemberSet(refs)
+	if !hasRicherPrincipalMemberSet && aggregateRequestRequiresPathMemberSetAsPrincipal(*rm) {
 		return refs
 	}
 	out := make([]AnswerAggregateFactRef, 0, len(refs))
 	for _, ref := range refs {
+		if hasRicherPrincipalMemberSet && aggregateFactIsCountCompleteMemberCarrier(ref.Fact) {
+			continue
+		}
+		if aggregateFactOutsideRequestedSourceInventoryScope(ref.Fact, rm) {
+			continue
+		}
 		if AggregateCountFactMembersAreSupportOnlyForRequest(rm, ref.Fact) {
 			continue
 		}
@@ -1321,9 +1328,32 @@ func NormalizeAggregateFactRolesForRequest(facts []AnswerAggregateFact, rm *Requ
 	}
 	out := cloneAnswerAggregateFacts(facts)
 	changed := false
+	hasRicherPrincipalMemberSet := aggregateFactsContainPrincipalMemberSetCarrier(out, rm)
 	for i := range out {
 		role := NormalizeAnswerAggregateRole(out[i].Role)
 		if role == AnswerAggregateRoleAuditLedger {
+			continue
+		}
+		if aggregateFactOutsideRequestedSourceInventoryScope(out[i], rm) {
+			if role != AnswerAggregateRoleSupportingCoverage {
+				out[i].Role = AnswerAggregateRoleSupportingCoverage
+				out[i].Provenance = appendAggregateFactProvenance(
+					out[i].Provenance,
+					"demoted:outside_requested_source_inventory_scope",
+				)
+				changed = true
+			}
+			continue
+		}
+		if hasRicherPrincipalMemberSet && aggregateFactIsCountCompleteMemberCarrier(out[i]) {
+			if role != AnswerAggregateRoleSupportingCoverage {
+				out[i].Role = AnswerAggregateRoleSupportingCoverage
+				out[i].Provenance = appendAggregateFactProvenance(
+					out[i].Provenance,
+					"demoted:subordinate_to_principal_member_set",
+				)
+				changed = true
+			}
 			continue
 		}
 		if AggregateFactIsRuntimeObservationAdvisory(rm, out[i]) {
@@ -1910,6 +1940,209 @@ func AggregateCountFactMembersAreSupportOnlyForRequest(rm *RequestModel, fact An
 		contract.HasOutput(AnswerRequestedOutputTrace) ||
 		contract.HasOutput(AnswerRequestedOutputChangeImpact) {
 		return true
+	}
+	return false
+}
+
+func aggregateFactIsCountCompleteMemberCarrier(fact AnswerAggregateFact) bool {
+	switch fact.Kind {
+	case AnswerAggregateTotalCount, AnswerAggregateUniqueCount, AnswerAggregateGroupedCount, AnswerAggregateBucketCount:
+		return answerAggregateFactCarriesCompleteMemberSet(fact)
+	default:
+		return false
+	}
+}
+
+func aggregateFactRefsContainPrincipalMemberSet(refs []AnswerAggregateFactRef) bool {
+	for _, ref := range refs {
+		if ref.Fact.Kind == AnswerAggregateMemberSet && answerAggregateFactCarriesCompleteMemberSet(ref.Fact) &&
+			NormalizeAnswerAggregateRole(ref.Role) == AnswerAggregateRolePrincipalAnswer {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateFactsContainPrincipalMemberSetCarrier(facts []AnswerAggregateFact, rm *RequestModel) bool {
+	for _, fact := range facts {
+		if fact.Kind != AnswerAggregateMemberSet || !answerAggregateFactCarriesCompleteMemberSet(fact) {
+			continue
+		}
+		if aggregateFactOutsideRequestedSourceInventoryScope(fact, rm) {
+			continue
+		}
+		if AnswerAggregateFactRoleForRequest(fact, rm) == AnswerAggregateRolePrincipalAnswer {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateFactOutsideRequestedSourceInventoryScope(fact AnswerAggregateFact, rm *RequestModel) bool {
+	if rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	if !answerAggregateFactCarriesCompleteMemberSet(fact) {
+		return false
+	}
+	scopes := aggregateRequestedSourceInventoryScopes(rm)
+	if len(scopes) == 0 {
+		return false
+	}
+	files := aggregateFactSourceFiles(fact)
+	if len(files) == 0 {
+		return false
+	}
+	for _, file := range files {
+		if !aggregateSourceFileInAnyScope(file, scopes) {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateRequestedSourceInventoryScopes(rm *RequestModel) []string {
+	if rm == nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(raw string) {
+		scope := aggregateRequestedSourceInventoryScope(raw)
+		if scope == "" || seen[scope] {
+			return
+		}
+		seen[scope] = true
+		out = append(out, scope)
+	}
+	for _, group := range [][]string{
+		rm.AnalyzerHints.ExactTargets,
+		rm.AnalyzerHints.MentionedEntities,
+		rm.AnalyzerHints.PrimaryEntities,
+		rm.AnalyzerHints.Entities,
+	} {
+		for _, raw := range group {
+			add(raw)
+		}
+	}
+	if len(out) > 0 {
+		sort.Strings(out)
+		return out
+	}
+	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+		add(hint.Path)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func aggregateRequestedSourceInventoryScope(raw string) string {
+	raw = strings.Trim(strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`)), "`'\" ")
+	if raw == "" || strings.ContainsAny(raw, "\n\r") {
+		return ""
+	}
+	if label, loc, ok := ParseAnswerSupportRefMemberLocation(raw); ok {
+		_ = label
+		raw = loc.File
+	} else if loc, ok := ParseAnswerSourceLocationSurface(raw); ok {
+		raw = loc.File
+	} else if file, ok := ParseAnswerFilePathSurface(raw); ok {
+		raw = file
+	}
+	raw = strings.Trim(strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`)), "/")
+	if raw == "" || strings.Contains(raw, " ") {
+		return ""
+	}
+	if !strings.Contains(raw, "/") {
+		return ""
+	}
+	return strings.ToLower(raw)
+}
+
+func aggregateFactSourceFiles(fact AnswerAggregateFact) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(raw string) {
+		for _, file := range aggregateSourceFilesFromSurface(raw) {
+			if file == "" || seen[file] {
+				continue
+			}
+			seen[file] = true
+			out = append(out, file)
+		}
+	}
+	for _, ref := range fact.SupportRefs {
+		add(ref)
+	}
+	for _, member := range fact.Members {
+		add(member)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func aggregateSourceFilesFromSurface(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	add := func(file string) {
+		file = strings.Trim(strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`)), "/")
+		if file == "" {
+			return
+		}
+		out = append(out, strings.ToLower(file))
+	}
+	if _, loc, ok := ParseAnswerSupportRefMemberLocation(raw); ok {
+		add(loc.File)
+	}
+	if loc, ok := ParseAnswerSourceLocationSurface(raw); ok {
+		add(loc.File)
+	}
+	if file, ok := ParseAnswerFilePathSurface(raw); ok {
+		add(file)
+	}
+	if _, qualifier, ok := AnswerAggregateDecoratedLabelParts(raw); ok {
+		if loc, parsed := ParseAnswerSourceLocationSurface(qualifier); parsed {
+			add(loc.File)
+		} else if file, parsed := ParseAnswerFilePathSurface(qualifier); parsed {
+			add(file)
+		}
+	}
+	return aggregateDedupSourceFiles(out)
+}
+
+func aggregateDedupSourceFiles(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, value := range in {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
+func aggregateSourceFileInAnyScope(file string, scopes []string) bool {
+	file = strings.ToLower(strings.Trim(strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`)), "/"))
+	if file == "" {
+		return false
+	}
+	for _, scope := range scopes {
+		scope = strings.ToLower(strings.Trim(strings.TrimSpace(strings.ReplaceAll(scope, `\`, `/`)), "/"))
+		if scope == "" {
+			continue
+		}
+		if file == scope || strings.HasPrefix(file, scope+"/") || strings.HasSuffix(file, "/"+scope) {
+			return true
+		}
 	}
 	return false
 }
