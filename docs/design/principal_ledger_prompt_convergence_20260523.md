@@ -126,7 +126,7 @@ current-source citations for external observations.
   projection without changing user-visible section semantics.
 - [x] T3: Refactor semantic reviewer observation summaries to consume the same
   projection.
-- [ ] T4: Audit finalizer/extractor/reviewer prompt surfaces and document
+- [x] T4: Audit finalizer/extractor/reviewer prompt surfaces and document
   whether each surface is authoritative, support, raw backstop, or removable.
 - [x] T5: Run targeted tests and update this document with results.
 - [ ] T6: Run targeted evals and update
@@ -186,6 +186,45 @@ Result: pass.
 
 Document every prompt evidence surface and remove/demote only obviously
 duplicated legacy surfaces with tests.
+
+Status: done for code-level audit; no broad prompt deletion in this batch.
+
+Audit table:
+
+| Surface | Producer | Consumers | Role | Decision |
+|---|---|---|---|---|
+| `Observation Ledger` | `types.CompileObservationLedger` | finalizer, semantic reviewer | authoritative typed compact view for current-source, VCS/diff, command, runtime, MCP/external observations | keep; now rendered through shared projection |
+| `Claim Bindings` | aggregate/runtime claim binding compiler | finalizer, semantic reviewer | origin/policy/output boundary, especially citation-pressure policy | keep; complementary to ledger, not duplicate fact prose |
+| `Evidence Origin Boundary` | context builder / finalizer evaluator | explorer/extractor upstream, finalizer dynamic copy only | origin policy and mixed-lane plan | keep; existing tests pin no duplicate finalizer copy from `BuildPromptContext` |
+| `Knowledge & Evidence Pool` | context builder from `EvidenceItems` | finalizer and non-extractor skills | current-source citation pool | keep; it is the current-source citation authority, not a replacement for external observations |
+| extractor `Investigation transcript digest` | extractor evaluator from accepted Turn A snapshot | extractor only | Turn A handoff: accepted closure, read files, ranked evidence, flow findings, cardinality guidance | keep; extractor deliberately skips the generic Structured Evidence section to avoid duplicate evidence surfaces |
+| `Accepted exploration closure` | accepted `emit_investigation_complete` payload | extractor, finalizer dynamic sections | advisory set-level model summary plus structured aggregate facts | keep with current caveat: aggregate facts remain authoritative if member/count identity conflicts |
+| `Raw Tool Outputs` | context builder from accepted Turn A tool results | extractor/finalizer only for citation-free value/history paths | raw backstop for command/VCS facts that cannot become `emit_evidence` rows | keep gated; not a general evidence prompt and not rendered for ordinary source-code explanations |
+| `Principal member set contract` | finalizer evaluator from stable aggregate facts | finalizer | hard visible-member obligation for typed principal member sets | keep; prevents hidden member loss but must not author prose/table content |
+| `Typed Exploration Enrichment` / support plan | finalizer evaluator | finalizer | current-source support lanes and rich evidence hints | keep; code already suppresses duplicate external seeds when typed support rendered |
+| semantic reviewer `Evidence Anchors` | orchestrator reviewer input | semantic reviewer | identifier cross-reference set for contradiction/fabrication checks | keep; reviewer-only, not an answer-authoring fact surface |
+
+Findings:
+
+- No second authoritative ledger surface remains after Batch 2. Finalizer and
+  reviewer share the same `ObservationPromptRecord` projection.
+- The extractor already has a deliberate non-duplication rule:
+  `BuildPromptContext` skips the generic Structured Evidence section for
+  extract-skill because the extractor's own Turn A digest carries the curated
+  evidence handoff.
+- `Raw Tool Outputs` is still a necessary raw backstop for citation-free
+  command/VCS/history questions. It is tightly gated by typed answer shape and
+  stage, so removing it now would reintroduce lost git/log/count facts.
+- No prompt surface was removed in this batch because the audit did not find a
+  clearly redundant authoritative duplicate with zero unique responsibility.
+
+Targeted code references:
+
+- `internal/context/builder.go::shouldRenderRawToolOutputs`
+- `internal/context/builder.go::BuildPromptContext`
+- `internal/agent/extractor.go::BuildInitialInstruction`
+- `internal/agent/answer_document_evaluator.go::renderAnswerDocObservationLedger`
+- `internal/orchestrator/semantic_quality_reviewer.go::semanticObservationSummaries`
 
 ### Batch 4: Eval Pass
 
