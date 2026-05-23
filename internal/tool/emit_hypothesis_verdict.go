@@ -126,6 +126,8 @@ func (t *EmitHypothesisVerdict) Execute(ctx *types.BusContext, params json.RawMe
 		}, nil
 	}
 
+	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
+
 	dec := json.NewDecoder(bytes.NewReader(params))
 	dec.DisallowUnknownFields()
 	var p emitHypothesisVerdictParams

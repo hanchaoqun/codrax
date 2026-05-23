@@ -64,6 +64,30 @@ func TestEmitAnswerSymbol_AcceptsValidBatch(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerSymbol_StructuredPayloadCompatRepairsStringItemsAndCount(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	params := json.RawMessage(`{
+		"items": "[{\"name\":\"ExplorerAgent\",\"file\":\"internal/agent/explorer.go\",\"line\":\"23\",\"kind\":\"type\"}]",
+		"completeness": "\"complete\"",
+		"count": "1"
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected schema-compatible payload to be accepted, got: %s", res.Summary)
+	}
+	got, claim := ctx.Mutable.EmittedAnswerSymbols()
+	if len(got) != 1 || got[0].Line != 23 || got[0].Name != "ExplorerAgent" {
+		t.Fatalf("answer symbol item was not preserved after compat repair: %+v", got)
+	}
+	if claim != types.CompletenessComplete {
+		t.Fatalf("completeness claim = %q, want complete", claim)
+	}
+}
+
 func TestEmitAnswerSymbol_MaterializesSourceInventoryAggregateSlate(t *testing.T) {
 	tool := &EmitAnswerSymbol{}
 	ctx := newAnswerSymbolCtx()

@@ -108,6 +108,8 @@ func (t *EmitLogSegmentation) Execute(ctx *types.BusContext, params json.RawMess
 		}, nil
 	}
 
+	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
+
 	var p emitLogSegmentationParams
 	if err := json.Unmarshal(params, &p); err != nil {
 		return types.ToolResult{

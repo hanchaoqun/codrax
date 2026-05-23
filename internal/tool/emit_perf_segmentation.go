@@ -117,6 +117,8 @@ func (t *EmitPerfSegmentation) Execute(ctx *types.BusContext, params json.RawMes
 		}, nil
 	}
 
+	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
+
 	var p emitPerfSegmentationParams
 	if err := json.Unmarshal(params, &p); err != nil {
 		return types.ToolResult{

@@ -177,6 +177,8 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 		}, nil
 	}
 
+	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
+
 	dec := json.NewDecoder(bytes.NewReader(params))
 	dec.DisallowUnknownFields()
 	var p emitAnswerSymbolParams

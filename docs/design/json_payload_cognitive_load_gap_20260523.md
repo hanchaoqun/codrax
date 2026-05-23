@@ -19,6 +19,10 @@ Implementation progress:
   `salience` class from E20260522-G121: item-only metadata is moved into the
   sole item only when that mapping is lossless; multi-item payloads stay strict
   and receive a precise `items[i].field` schema hint.
+- 2026-05-23 Batch 3 extended the same shared compatibility entry point to the
+  remaining extractor / runtime segmentation emit tools:
+  `emit_answer_symbol`, `emit_hypothesis_verdict`,
+  `emit_log_segmentation`, and `emit_perf_segmentation`.
 - Remaining work starts at P1 carrier compilers / row-set references; the first
   batch deliberately did not change answer materialization policy.
 
