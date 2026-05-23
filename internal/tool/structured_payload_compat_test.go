@@ -29,6 +29,7 @@ func TestStructuredPayloadCompatCoverageForStructuredEmitTools(t *testing.T) {
 		"emit_write_analysis.go",
 		"emit_change_plan.go",
 		"emit_plan_skeleton.go",
+		"emit_plan_change.go",
 		"emit_test_results.go",
 	}
 	for _, name := range files {
