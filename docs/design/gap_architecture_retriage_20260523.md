@@ -182,6 +182,7 @@ violating the user's requested evidence mix.
 | T7 | Done | Reduce mixed VCS/current-source exploration repair cost without relaxing evidence grounding. | explorer mid-loop policy, evidence salience/ranking | targeted VCS eval; compare `midloop_inject` / `explorer_iters` |
 | T8 | Done | Deepen answer-document JSON recovery for JSON-encoded `blocks[]` / native-array confusion so light model syntax slips do not cause visible finalizer reject loops. | answer-document tool param compat / recovery | focused finalizer recovery unit tests |
 | T9 | Pending | Decide whether prompt-only runtime mixed-lane guidance is sufficient or a typed `current_source_explanation` profile is needed. | analyzer schema / request traits | regression evals for log+code, trace+code, VCS+code |
+| T10 | In Progress | Preserve explicit user-requested answer dimensions (for example `diff 线索 / 当前关键代码 / 作用 / 影响`) through analyzer → surface plan → finalizer prompt without hard gates or system table replacement. | `docs/design/user_requested_answer_dimensions_20260524.md`, analyzer schema, `AnswerPresentationContract`, finalizer prompt | typed unit tests + focused mixed evidence evals |
 
 ## Implementation Notes For Future Batches
 
@@ -420,3 +421,15 @@ violating the user's requested evidence mix.
       The case still failed its literal regex because the final answer did not
       put `diff/current-source` wording in the expected shape; that is a
       separate user-surface preservation gap, not a JSON recovery failure.
+
+- 2026-05-24 T10 started:
+  - Added `docs/design/user_requested_answer_dimensions_20260524.md`.
+  - Root cause: mixed-evidence answers can preserve origins and summaries while
+    dropping the user-visible dimensions explicitly requested in the question.
+    This is an answer-surface contract gap, not a JSON repair or VCS evidence
+    gap.
+  - Direction: add a soft, typed analyzer profile for user-requested dimensions
+    and project it into the existing `AnswerPresentationContract`. The profile
+    must guide finalizer presentation only; it must not become a hard rewrite
+    gate and must not let deterministic system补表 replace model-authored
+    content.
