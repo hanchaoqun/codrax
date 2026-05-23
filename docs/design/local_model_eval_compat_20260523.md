@@ -1611,6 +1611,135 @@ Batch 15 task list:
 - [x] Run full `go test ./...`.
 - [x] Commit and push Batch 15.
 
+## 2026-05-24 Batch 16 - Relation Member-Set Recheck After Upstream Fixes
+
+Problem statement:
+
+- Batch 14 found that `qf_relation_subagent_registry` repeatedly emitted the
+  correct member set (`explorer`, count `1`) but
+  `emit_investigation_complete` kept reporting the relation handoff as
+  `supporting_coverage` rather than `principal_answer`.
+- Remote `main` then added relation-focused commits:
+  `688ffdba Preserve typed relation implementer sets` and
+  `d1c28447 Design typed relation coverage contract`.
+- Batch 15 also reduced broad `grep` result noise, which should help the same
+  eval avoid irrelevant auxiliary/test/doc matches.
+
+Design:
+
+- Re-run `qf_relation_subagent_registry` once with the current `providers.yaml`
+  local model and a fresh result root.
+- Inspect whether:
+  - `emit_investigation_complete` now accepts the relation `member_set`;
+  - the final answer contains count `1`, the member `explorer`, registration
+    evidence, and `Name()` return evidence;
+  - broad `grep` calls are compacted by the retrieval governor rather than
+    flooding the model context;
+  - retries are bounded and do not re-enter generic exploration after a valid
+    member set has been produced.
+- Only patch code if the log shows a remaining structural/system-side gap.
+
+Batch 16 task list:
+
+- [x] Confirm branch is clean and includes upstream relation commits.
+- [x] Run `qf_relation_subagent_registry`.
+- [x] Analyze result, metrics, and log signatures.
+- [x] Decide whether the next batch is relation-handoff repair or `repo_map`
+      retrieval-governor expansion.
+
+Batch 16 observations:
+
+- The Batch 15 grep governor did fire and preserved full raw results through
+  blob artifacts. The model no longer received hundreds of inline auxiliary
+  matches.
+- The remaining failure was ordering, not truncation. A broad production grep
+  still surfaced an unrelated production comment before the already-read /
+  evidence-bearing SubAgent files. The local model followed the inline order,
+  read the wrong file, and then spent turns repairing anchors from irrelevant
+  code.
+- This shows that production-vs-auxiliary classification is necessary but not
+  sufficient. The next layer must rank broad inline results by typed relevance:
+  explicit tool scope, analyzer-required files, already-read files, accepted
+  evidence files, and phase-1 ranked candidates. The raw backend order must be
+  preserved within each equal relevance tier so the model's own scoped search
+  order is still respected.
+
+## 2026-05-24 Batch 17 - Typed Relevance Tiering for Broad Grep Results
+
+Problem statement:
+
+- Broad grep compaction now protects context size, but broad production results
+  can still place generic implementation/comment hits ahead of files that the
+  system already knows are more relevant from structured state.
+- This is especially harmful for small local models: they often trust the first
+  inline item and spend multiple turns repairing anchors from the wrong file.
+  Large models also benefit because the finalizer/extractor JSON contracts are
+  already cognitively heavy; retrieval order should reduce, not add, load.
+
+Current code anchors:
+
+- `internal/tool/builtin.go`:
+  - `GrepTool.Execute` executes the exact model query and builds the params
+    banner.
+  - `finalizeGrepOutput` decides whether to return narrow output or compact a
+    broad result.
+  - `compactBroadGrepOutput` currently partitions only by source path role.
+  - `annotateGrepOutputByPathRole` must remain stable for narrow output and
+    analyzer prescan compatibility.
+- `internal/types/context.go` already exposes the needed structured signals:
+  - `BusContext.AnalysisIR.EvidencePlan.RequiredFiles`;
+  - `MutableState.ExactContextRequiredFiles`;
+  - `MutableState.Phase1Ranking`;
+  - `MutableState.TurnAArtifacts().ReadFiles`;
+  - `MutableState.TurnAArtifacts().ToolResults`;
+  - `MutableState.EmittedEvidence`;
+  - `BusContext.EvidenceItems`, `AnswerChains`, and `ToolResults`.
+- `internal/tool/ground` already contains the canonical read-file banner parser
+  and repo-relative path canonicalizer, so this batch should reuse those instead
+  of adding another parser.
+
+Design:
+
+- Keep query semantics unchanged:
+  - do not rewrite the user's request;
+  - do not rewrite the model's grep pattern/path/file type;
+  - do not inspect model free-form prose or user-prose keywords to decide
+    relevance;
+  - continue storing the complete raw result when compaction fires.
+- Build a `grepRelevanceIndex` from structured state only:
+  1. exact explicit file path from the current tool call;
+  2. analyzer-required and exact-context-required files;
+  3. already-read files and accepted/emitted evidence source files;
+  4. phase-1 ranked files;
+  5. explicit directory scope from the current tool call;
+  6. ordinary production matches;
+  7. auxiliary/test/doc/fixture matches.
+- Preserve model/system ordering:
+  - the model's current tool parameters define the search scope and are never
+    widened;
+  - ordered structural lists keep their order as the secondary sort key;
+  - raw backend order is stable within the same tier and same structural rank.
+- Keep path-role partitioning intact:
+  - production matches are still listed before auxiliary/test/doc matches;
+  - each section is internally relevance-tiered;
+  - auxiliary files that are already read or evidence-bearing are promoted only
+    inside the auxiliary section, not mislabeled as production proof.
+- Keep narrow output stable:
+  - if a result is below broadness thresholds, the existing annotation path is
+    unchanged.
+
+Batch 17 task list:
+
+- [x] Explore existing BusContext/MutableState relevance signals and grep
+      compaction code.
+- [x] Record the typed relevance design in this document.
+- [x] Implement structured relevance indexing for broad grep compaction.
+- [x] Add regression tests for evidence/required files ranking ahead of generic
+      production hits while preserving stable order inside equal tiers.
+- [x] Run focused tool tests, affected agent/tool tests, `make build`, and full
+      `go test ./...`.
+- [x] Commit and push Batch 17.
+
 ## Open Questions
 
 - Whether `emit_evidence.anchor_kind` auto-repair should run inside

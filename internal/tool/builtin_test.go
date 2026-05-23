@@ -1328,6 +1328,79 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
+	t.Run("broad result ranks structured relevance before generic production noise", func(t *testing.T) {
+		ctx := newBusContext()
+		ctx.Mutable = types.NewMutableState("relation lookup")
+		ctx.AnalysisIR = &types.AnalysisIR{
+			EvidencePlan: types.EvidencePlan{
+				RequiredFiles: []string{"internal/agent/subagent.go"},
+			},
+		}
+		ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+			ReadFiles: []string{"internal/agent/sub_explorer.go"},
+			EvidenceItems: []types.EvidenceItem{{
+				Source: "internal/agent/subagent_runtime.go",
+			}},
+		})
+		ctx.Mutable.SetPhase1Ranking([]types.Phase1RankedFile{
+			{Path: "internal/agent/agent.go", Score: 99},
+		})
+		raw := strings.Join([]string{
+			"internal/tool/builtin.go:855: comment mentions RegisterDefaultSubAgents and SubAgentRegistry",
+			"internal/agent/agent.go:1649: schemas = append(schemas, proposeSubAgents)",
+			"internal/agent/subagent_runtime.go:82: type SubAgentRuntime struct {}",
+			"internal/agent/sub_explorer.go:31: func (s *SubExplorer) Name() string { return \"explorer\" }",
+			"internal/agent/subagent.go:64: registry.Register(NewSubExplorer(deps))",
+			"internal/orchestrator/orchestrator.go:6065: extractSubAgentProposal(output, agentName)",
+			"docs/subagent.md:1: RegisterDefaultSubAgents notes",
+		}, "\n")
+
+		production, auxiliary, other, stats := partitionGrepOutputByRelevance(ctx, grepToolParams{Pattern: "RegisterDefaultSubAgents"}, raw)
+		if len(other) != 0 {
+			t.Fatalf("did not expect passthrough output: %#v", other)
+		}
+		if len(auxiliary) != 1 || !strings.Contains(auxiliary[0], "docs/subagent.md") {
+			t.Fatalf("expected docs match to stay auxiliary, got %#v", auxiliary)
+		}
+		wantOrder := []string{
+			"internal/agent/subagent.go",
+			"internal/agent/sub_explorer.go",
+			"internal/agent/subagent_runtime.go",
+			"internal/agent/agent.go",
+			"internal/tool/builtin.go",
+			"internal/orchestrator/orchestrator.go",
+		}
+		if len(production) != len(wantOrder) {
+			t.Fatalf("production len=%d want %d: %#v", len(production), len(wantOrder), production)
+		}
+		for i, want := range wantOrder {
+			if !strings.Contains(production[i], want) {
+				t.Fatalf("production[%d] = %q, want path %q; full=%#v", i, production[i], want, production)
+			}
+		}
+		for _, want := range []string{"required=1", "read_or_evidence=2", "phase1_ranked=1", "production_rest=2", "auxiliary_rest=1"} {
+			if !strings.Contains(stats, want) {
+				t.Fatalf("stats missing %q: %q", want, stats)
+			}
+		}
+	})
+
+	t.Run("broad result preserves backend order within equal relevance tier", func(t *testing.T) {
+		ctx := newBusContext()
+		raw := strings.Join([]string{
+			"src/a.go:1: EqualTierNeedle",
+			"src/b.go:1: EqualTierNeedle",
+			"src/c.go:1: EqualTierNeedle",
+		}, "\n")
+		production, auxiliary, other, _ := partitionGrepOutputByRelevance(ctx, grepToolParams{Pattern: "EqualTierNeedle"}, raw)
+		if len(auxiliary) != 0 || len(other) != 0 {
+			t.Fatalf("unexpected non-production output aux=%#v other=%#v", auxiliary, other)
+		}
+		if got := strings.Join(production, "\n"); got != raw {
+			t.Fatalf("equal-tier production order changed:\n got: %s\nwant: %s", got, raw)
+		}
+	})
+
 	// Noise exclusion tests: grep should skip directories that produce
 	// noise without useful signal (.git, logs, memory, node_modules, etc.)
 

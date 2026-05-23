@@ -11,12 +11,14 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
 
 	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/textfmt"
+	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -968,7 +970,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			unit = "matching files"
 		}
 		countBanner := fmt.Sprintf("[grep: %d %s]\n", nres.Matches, unit)
-		summary, ref := finalizeGrepOutput(ctx, p.FilesOnly, countBanner, paramsBanner, nres.Output)
+		summary, ref := finalizeGrepOutput(ctx, p, countBanner, paramsBanner, nres.Output)
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   true,
@@ -1132,7 +1134,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		countBanner = fmt.Sprintf("[grep: %d %s]\n", lines, unit)
 	}
-	summary, ref := finalizeGrepOutput(ctx, p.FilesOnly, countBanner, paramsBanner, output)
+	summary, ref := finalizeGrepOutput(ctx, p, countBanner, paramsBanner, output)
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
@@ -1152,21 +1154,21 @@ const (
 	grepGovernorOtherCap           = 16
 )
 
-func finalizeGrepOutput(ctx *types.BusContext, filesOnly bool, countBanner, paramsBanner, rawOutput string) (summary, ref string) {
-	annotated := annotateGrepOutputByPathRole(ctx, filesOnly, rawOutput)
-	if compacted, rawRef, ok := compactBroadGrepOutput(ctx, filesOnly, countBanner, paramsBanner, rawOutput, annotated); ok {
+func finalizeGrepOutput(ctx *types.BusContext, params grepToolParams, countBanner, paramsBanner, rawOutput string) (summary, ref string) {
+	annotated := annotateGrepOutputByPathRole(ctx, params.FilesOnly, rawOutput)
+	if compacted, rawRef, ok := compactBroadGrepOutput(ctx, params, countBanner, paramsBanner, rawOutput, annotated); ok {
 		return compacted, rawRef
 	}
 	return StoreBlob(ctx, "grep", countBanner+paramsBanner+annotated)
 }
 
-func compactBroadGrepOutput(ctx *types.BusContext, filesOnly bool, countBanner, paramsBanner, rawOutput, annotatedOutput string) (summary, rawRef string, ok bool) {
-	production, auxiliary, other := partitionGrepOutputByPathRole(ctx, filesOnly, rawOutput)
+func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countBanner, paramsBanner, rawOutput, annotatedOutput string) (summary, rawRef string, ok bool) {
+	production, auxiliary, other, relevanceStats := partitionGrepOutputByRelevance(ctx, params, rawOutput)
 	entryCount := len(production) + len(auxiliary) + len(other)
 	threshold := grepGovernorLineEntryThreshold
 	prodCap := grepGovernorLineProductionCap
 	mode := "line_output"
-	if filesOnly {
+	if params.FilesOnly {
 		threshold = grepGovernorFileEntryThreshold
 		prodCap = grepGovernorFileProductionCap
 		mode = "files_only"
@@ -1188,12 +1190,15 @@ func compactBroadGrepOutput(ctx *types.BusContext, filesOnly bool, countBanner, 
 	fmt.Fprintf(&b, "decision=broad_result_compacted mode=%s entries=%d production=%d auxiliary=%d other=%d\n",
 		mode, entryCount, len(production), len(auxiliary), len(other))
 	fmt.Fprintf(&b, "inline_caps production=%d auxiliary=%d other=%d\n", prodCap, grepGovernorAuxiliaryCap, grepGovernorOtherCap)
+	if relevanceStats != "" {
+		fmt.Fprintf(&b, "relevance=%s\n", relevanceStats)
+	}
 	if rawRef != "" {
 		fmt.Fprintf(&b, "full_raw_saved=%s\n", rawRef)
 	} else {
 		b.WriteString("full_raw_saved=unavailable (no workdir configured)\n")
 	}
-	if filesOnly {
+	if params.FilesOnly {
 		b.WriteString("next_shape=read_file a top production path for exact evidence, or re-run grep with a narrower path/file_type.\n")
 	} else {
 		b.WriteString("next_shape=for exact line evidence, re-run grep with path set to one top production file and context_lines<=3; for discovery use files_only=true.\n")
@@ -1203,6 +1208,83 @@ func compactBroadGrepOutput(ctx *types.BusContext, filesOnly bool, countBanner, 
 	writeCappedGrepSection(&b, auxiliaryHeader, auxiliary, grepGovernorAuxiliaryCap, "")
 	writeCappedGrepSection(&b, otherHeader, other, grepGovernorOtherCap, "")
 	return b.String(), rawRef, true
+}
+
+type grepRelevanceTier int
+
+const (
+	grepRelevanceExplicitFile grepRelevanceTier = iota
+	grepRelevanceRequiredFile
+	grepRelevanceReadOrEvidenceFile
+	grepRelevancePhase1RankedFile
+	grepRelevanceExplicitScope
+	grepRelevanceProduction
+	grepRelevanceAuxiliary
+)
+
+const grepRelevanceNoOrder = int(^uint(0) >> 1)
+
+type grepRelevanceRank struct {
+	tier  grepRelevanceTier
+	order int
+}
+
+type grepRelevanceIndex struct {
+	paths          map[string]grepRelevanceRank
+	explicitScopes []string
+	nextOrder      int
+}
+
+type grepOutputEntry struct {
+	raw     string
+	path    string
+	role    types.SourcePathRole
+	rank    grepRelevanceRank
+	ordinal int
+}
+
+type grepRelevanceStats struct {
+	explicitFile  int
+	required      int
+	readEvidence  int
+	phase1Ranked  int
+	explicitScope int
+	production    int
+	auxiliary     int
+}
+
+func partitionGrepOutputByRelevance(ctx *types.BusContext, params grepToolParams, output string) (production, auxiliary, other []string, stats string) {
+	idx := buildGrepRelevanceIndex(ctx, params)
+	var productionEntries []grepOutputEntry
+	var auxiliaryEntries []grepOutputEntry
+	var stat grepRelevanceStats
+	ordinal := 0
+	for _, raw := range strings.Split(output, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if relPath, ok := grepOutputLinePath(line, params.FilesOnly); ok {
+			path := canonicalGrepResultPath(ctx, relPath)
+			role := types.ClassifySourcePathRole(path)
+			rank := idx.rank(path, role)
+			entry := grepOutputEntry{raw: raw, path: path, role: role, rank: rank, ordinal: ordinal}
+			ordinal++
+			addGrepRelevanceStat(&stat, rank)
+			if types.SourcePathRoleIsAuxiliary(role) {
+				auxiliaryEntries = append(auxiliaryEntries, entry)
+			} else {
+				productionEntries = append(productionEntries, entry)
+			}
+			continue
+		}
+		other = append(other, raw)
+	}
+	sortGrepEntries(productionEntries)
+	sortGrepEntries(auxiliaryEntries)
+	production = grepEntryLines(productionEntries)
+	auxiliary = grepEntryLines(auxiliaryEntries)
+	return production, auxiliary, other, stat.String()
 }
 
 func partitionGrepOutputByPathRole(ctx *types.BusContext, filesOnly bool, output string) (production, auxiliary, other []string) {
@@ -1222,6 +1304,223 @@ func partitionGrepOutputByPathRole(ctx *types.BusContext, filesOnly bool, output
 		other = append(other, raw)
 	}
 	return production, auxiliary, other
+}
+
+func buildGrepRelevanceIndex(ctx *types.BusContext, params grepToolParams) grepRelevanceIndex {
+	idx := grepRelevanceIndex{paths: make(map[string]grepRelevanceRank)}
+	if ctx == nil {
+		return idx
+	}
+	if explicit, ok := explicitGrepPath(ctx, params.Path); ok {
+		if explicit.isFile {
+			idx.addPath(ctx, explicit.path, grepRelevanceExplicitFile)
+		} else if explicit.path != "" {
+			idx.explicitScopes = append(idx.explicitScopes, explicit.path)
+		}
+	}
+	if ctx.AnalysisIR != nil {
+		idx.addPaths(ctx, ctx.AnalysisIR.EvidencePlan.RequiredFiles, grepRelevanceRequiredFile)
+	}
+	if ctx.Mutable != nil {
+		idx.addPaths(ctx, ctx.Mutable.ExactContextRequiredFiles(), grepRelevanceRequiredFile)
+		if ranked := ctx.Mutable.Phase1Ranking(); len(ranked) > 0 {
+			for _, item := range ranked {
+				idx.addPath(ctx, item.Path, grepRelevancePhase1RankedFile)
+			}
+		}
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			idx.addPaths(ctx, ta.ReadFiles, grepRelevanceReadOrEvidenceFile)
+			idx.addEvidenceSources(ctx, ta.EvidenceItems)
+			idx.addReadFilesFromToolResults(ctx, ta.ToolResults)
+		}
+		idx.addEvidenceSources(ctx, ctx.Mutable.EmittedEvidence())
+		idx.addReadFilesFromToolResults(ctx, ctx.Mutable.DispatchToolResults())
+	}
+	idx.addEvidenceSources(ctx, ctx.EvidenceItems)
+	idx.addEvidenceSources(ctx, types.AnswerChainItems(ctx.AnswerChains))
+	idx.addReadFilesFromToolResults(ctx, ctx.ToolResults)
+	return idx
+}
+
+type explicitGrepPathResult struct {
+	path   string
+	isFile bool
+}
+
+func explicitGrepPath(ctx *types.BusContext, raw string) (explicitGrepPathResult, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "." || raw == "./" {
+		return explicitGrepPathResult{}, false
+	}
+	canon := canonicalGrepResultPath(ctx, raw)
+	if canon == "" || canon == "." || canon == "/" {
+		return explicitGrepPathResult{}, false
+	}
+	res := explicitGrepPathResult{path: canon}
+	resolved := resolveToolPath(ctx, raw)
+	if resolved != "" {
+		if info, err := os.Stat(resolved); err == nil {
+			res.isFile = !info.IsDir()
+			return res, true
+		}
+	}
+	base := path.Base(canon)
+	if base != "." && base != "/" && strings.Contains(base, ".") && !strings.HasSuffix(canon, "/") {
+		res.isFile = true
+	}
+	return res, true
+}
+
+func (idx *grepRelevanceIndex) addPaths(ctx *types.BusContext, files []string, tier grepRelevanceTier) {
+	for _, file := range files {
+		idx.addPath(ctx, file, tier)
+	}
+}
+
+func (idx *grepRelevanceIndex) addEvidenceSources(ctx *types.BusContext, items []types.EvidenceItem) {
+	for _, item := range items {
+		idx.addPath(ctx, item.Source, grepRelevanceReadOrEvidenceFile)
+	}
+}
+
+func (idx *grepRelevanceIndex) addReadFilesFromToolResults(ctx *types.BusContext, results []types.ToolResult) {
+	for _, result := range results {
+		if result.ToolName != "read_file" || strings.TrimSpace(result.Summary) == "" {
+			continue
+		}
+		if file, _, _, ok := ground.ParseReadFileBanner(result.Summary); ok {
+			idx.addPath(ctx, file, grepRelevanceReadOrEvidenceFile)
+		}
+	}
+}
+
+func (idx *grepRelevanceIndex) addPath(ctx *types.BusContext, raw string, tier grepRelevanceTier) {
+	if idx == nil {
+		return
+	}
+	path := canonicalGrepResultPath(ctx, raw)
+	if path == "" {
+		return
+	}
+	if idx.paths == nil {
+		idx.paths = make(map[string]grepRelevanceRank)
+	}
+	rank := grepRelevanceRank{tier: tier, order: idx.nextOrder}
+	idx.nextOrder++
+	if prev, ok := idx.paths[path]; ok {
+		if prev.tier < rank.tier || (prev.tier == rank.tier && prev.order <= rank.order) {
+			return
+		}
+	}
+	idx.paths[path] = rank
+}
+
+func (idx grepRelevanceIndex) rank(path string, role types.SourcePathRole) grepRelevanceRank {
+	if idx.paths != nil {
+		if rank, ok := idx.paths[path]; ok {
+			return rank
+		}
+	}
+	for _, scope := range idx.explicitScopes {
+		if grepPathWithinScope(path, scope) {
+			return grepRelevanceRank{tier: grepRelevanceExplicitScope, order: grepRelevanceNoOrder}
+		}
+	}
+	if types.SourcePathRoleIsAuxiliary(role) {
+		return grepRelevanceRank{tier: grepRelevanceAuxiliary, order: grepRelevanceNoOrder}
+	}
+	return grepRelevanceRank{tier: grepRelevanceProduction, order: grepRelevanceNoOrder}
+}
+
+func sortGrepEntries(entries []grepOutputEntry) {
+	sort.SliceStable(entries, func(i, j int) bool {
+		left := entries[i].rank
+		right := entries[j].rank
+		if left.tier != right.tier {
+			return left.tier < right.tier
+		}
+		if left.order != right.order {
+			return left.order < right.order
+		}
+		return false
+	})
+}
+
+func grepEntryLines(entries []grepOutputEntry) []string {
+	out := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		out = append(out, entry.raw)
+	}
+	return out
+}
+
+func addGrepRelevanceStat(stat *grepRelevanceStats, rank grepRelevanceRank) {
+	if stat == nil {
+		return
+	}
+	switch rank.tier {
+	case grepRelevanceExplicitFile:
+		stat.explicitFile++
+	case grepRelevanceRequiredFile:
+		stat.required++
+	case grepRelevanceReadOrEvidenceFile:
+		stat.readEvidence++
+	case grepRelevancePhase1RankedFile:
+		stat.phase1Ranked++
+	case grepRelevanceExplicitScope:
+		stat.explicitScope++
+	case grepRelevanceAuxiliary:
+		stat.auxiliary++
+	default:
+		stat.production++
+	}
+}
+
+func (s grepRelevanceStats) String() string {
+	var parts []string
+	if s.explicitFile > 0 {
+		parts = append(parts, fmt.Sprintf("explicit_file=%d", s.explicitFile))
+	}
+	if s.required > 0 {
+		parts = append(parts, fmt.Sprintf("required=%d", s.required))
+	}
+	if s.readEvidence > 0 {
+		parts = append(parts, fmt.Sprintf("read_or_evidence=%d", s.readEvidence))
+	}
+	if s.phase1Ranked > 0 {
+		parts = append(parts, fmt.Sprintf("phase1_ranked=%d", s.phase1Ranked))
+	}
+	if s.explicitScope > 0 {
+		parts = append(parts, fmt.Sprintf("explicit_scope=%d", s.explicitScope))
+	}
+	if s.production > 0 {
+		parts = append(parts, fmt.Sprintf("production_rest=%d", s.production))
+	}
+	if s.auxiliary > 0 {
+		parts = append(parts, fmt.Sprintf("auxiliary_rest=%d", s.auxiliary))
+	}
+	return strings.Join(parts, " ")
+}
+
+func canonicalGrepResultPath(ctx *types.BusContext, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	repoRoot := ""
+	if ctx != nil {
+		repoRoot = ctx.RepoRoot
+	}
+	return ground.CanonicalRepoRelative(raw, repoRoot)
+}
+
+func grepPathWithinScope(filePath, scope string) bool {
+	filePath = strings.Trim(strings.TrimSpace(filePath), "/")
+	scope = strings.Trim(strings.TrimSpace(scope), "/")
+	if filePath == "" || scope == "" || scope == "." {
+		return false
+	}
+	return filePath == scope || strings.HasPrefix(filePath, scope+"/")
 }
 
 func writeCappedGrepSection(b *strings.Builder, header string, lines []string, cap int, emptyLine string) {
