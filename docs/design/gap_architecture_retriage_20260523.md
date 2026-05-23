@@ -125,6 +125,20 @@ runs and look like finalizer pressure.
 Risk if ignored: customer UX still reads "the system is fighting itself" even
 when the answer is accepted.
 
+### R6. Runtime Artifact Mixed Requests Need Explicit Two-Lane Language
+
+The ledger and request traits already distinguish observation-only runtime
+artifacts from mixed artifact + current-source requests, but one prompt surface
+still used wording equivalent to "the answer must come from the log/trace
+itself" whenever `resolved_files=0`. That wording was too broad: it was correct
+for artifact-only questions, but it caused the analyzer to ignore a separate
+user request to explain the observation against current source code.
+
+Risk if ignored: any log/trace/web/MCP/connector fact that has no direct current
+source hit can suppress a legitimate current-code explanation lane. The failure
+mode is subtle because the artifact-only answer may look plausible while still
+violating the user's requested evidence mix.
+
 ## Priority Order
 
 1. **Batch A — external observation contract hardening.**
@@ -164,7 +178,10 @@ when the answer is accepted.
 | T3 | Done | Audit pre-emit / contract / reviewer origin decisions and replace local origin switches with shared ledger helpers where safe. | `internal/tool/answer_document_pre_emit_check.go`, `internal/orchestrator/contract_check.go`, `internal/orchestrator/semantic_quality_reviewer.go`, `internal/types/answer_claim_binding.go`, `internal/types/answer_evidence_origin.go` | `go test ./internal/types ./internal/tool` |
 | T4 | Done | Add supplement safety guard tests across current-source, VCS, runtime, command, cross-repo, web/MCP/connector-like origins. | `internal/tool/*supplement*_test.go`, `internal/render/answerdoc_test.go` | `go test ./internal/tool` |
 | T5 | Done | Add executable eval cases for existing producers and placeholder/documented skeletons for future MCP/web/connector producers. | `eval/cases`, docs | `bash -n eval/cases/read_combo_*.case` |
-| T6 | Pending | Run targeted eval batch and refresh gap ledgers with every retry/reject, classifying model error vs system over-gate. | `eval/results`, `docs/design/eval_*.md` | per-run log audit |
+| T6 | Done | Run targeted eval batch and refresh gap ledgers with every retry/reject, classifying model error vs system over-gate. | `eval/results`, `docs/design/eval_*.md` | targeted eval reruns + prompt tests |
+| T7 | Pending | Reduce mixed VCS/current-source exploration repair cost without relaxing evidence grounding. | explorer mid-loop policy, evidence salience/ranking | targeted VCS eval; compare `midloop_inject` / `explorer_iters` |
+| T8 | Pending | Deepen answer-document JSON recovery for JSON-encoded `blocks[]` / native-array confusion so light model syntax slips do not cause visible finalizer reject loops. | answer-document tool param compat / recovery | focused finalizer recovery unit tests |
+| T9 | Pending | Decide whether prompt-only runtime mixed-lane guidance is sufficient or a typed `current_source_explanation` profile is needed. | analyzer schema / request traits | regression evals for log+code, trace+code, VCS+code |
 
 ## Implementation Notes For Future Batches
 
@@ -240,3 +257,50 @@ when the answer is accepted.
   - Validation: `bash -n eval/cases/read_combo_git_two_diffs_current_code.case
     eval/cases/read_combo_log_current_code_boundary.case
     eval/cases/read_combo_trace_current_code_boundary.case`.
+- 2026-05-23 T6 complete:
+  - Targeted batch before the fix: 2/3 PASS.
+    - `read_combo_git_two_diffs_current_code`: PASS, no finalizer reject, but
+      high exploration cost (`explorer_iters=41`, `midloop_inject=19`). The
+      answer preserved VCS diff + current-code lanes and did not collapse to a
+      scalar commit id.
+    - `read_combo_trace_current_code_boundary`: PASS, preserved trace duration
+      and current-code explanation, but had one light finalizer reject:
+      `structured recovery could not preserve every visible blocks[] item`;
+      second emit succeeded. Track under T8 rather than changing answer
+      semantics.
+    - `read_combo_log_current_code_boundary`: FAIL because the answer stayed
+      observation-only and emitted no current-source file:line even though the
+      user asked to combine the log with current source.
+  - Root cause for the failing log case: two prompt surfaces were fighting the
+    unified evidence contract. The Log/Trace Triage external-source directive
+    said the answer must come from artifact semantics, while the analyzer
+    runtime shortcut separately allowed mixed current-source verification. The
+    broader wording won, so the analyzer emitted
+    `current_version_check=false` and no `required_files` / `exact_targets`.
+  - Fix:
+    - Log/Trace Triage now says artifact facts must stay in the attached-log /
+      attached-trace lane, but mixed requests must keep a separate
+      current-source lane.
+    - Analyzer runtime shortcut now distinguishes current-status diagnostics
+      from mechanism explanations backed by current code: the former can use
+      `current_version_check`; the latter should use `required_files` /
+      `exact_targets` when the pre-scan finds concrete anchors.
+  - Validation:
+    - `go test ./internal/context -run 'TestFormat(Log|Perf)TriageStructured_ExternalSourceDirective'`
+    - `go test ./internal/agent -run 'TestAnalyzerPrompt_RuntimeObservationOnlyShortcut|TestBuildAnalysisIR_ExternalOnly|TestValidateObservationOnlyRuntimeToolCall|TestBuildToolSchemas_ObservationOnlyRuntime'`
+    - Rerun `read_combo_log_current_code_boundary`: PASS. The final answer
+      cited current-source files including `internal/orchestrator/user_messages.go`,
+      `internal/orchestrator/read_stage_retry.go`,
+      `internal/render/renderer_dock.go`, `internal/llm/openai.go`, and
+      `internal/agent/answer_document_evaluator.go`, while preserving the log
+      line as runtime-artifact evidence.
+  - Residuals:
+    - The passing log rerun still used `explorer_iters=24` and
+      `midloop_inject=12`, plus one accepted `emit_investigation_complete`
+      retry caused by an underspecified `negative_observation` aggregate fact.
+      This is not a final answer correctness issue, but it is a cognitive-load
+      / tool-contract polish gap.
+    - Semantic reviewer accepted the answer. Self-consistency noted a line
+      mismatch (`6942` vs `6943`) at confidence below rewrite floor, so the
+      system correctly did not force another finalizer rewrite. Keep observing
+      this class under advisory-cost telemetry rather than hard gating.

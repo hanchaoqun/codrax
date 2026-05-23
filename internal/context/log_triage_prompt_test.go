@@ -387,12 +387,17 @@ func TestFormatLogTriageStructured_ExternalSourceDirective_FiresWhenResolvedZero
 	for _, want := range []string{
 		"External-source log",
 		"resolved_files=0",
+		"attached-log observation lane",
+		"keep two lanes",
 		"leave the value uncited",
 		"literal-grounding gate",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("directive missing %q in render:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "The answer must come from the log's own semantics") {
+		t.Errorf("external-source directive must not collapse mixed current-code requests into observation-only:\n%s", got)
 	}
 	// The directive must come BEFORE the Meta block so iter 0 sees
 	// it immediately. Language line is the first Meta entry.

@@ -2983,7 +2983,8 @@ func formatLogTriageStructured(bundle *types.LogBundle, locator types.SymbolLoca
 	// finalizer) sees it in iter 0 and can act before any tool
 	// call is burned on a dead-end.
 	if bundle.IsExternalSource() {
-		b.WriteString("⚠ **External-source log**: the attached log's stack frames do NOT resolve to any file in this repo (resolved_files=0). The answer must come from the log's own semantics — do NOT open repo files hoping to ground the log's frame literals, they are not there.\n")
+		b.WriteString("⚠ **External-source log**: the attached log's stack frames do NOT resolve to any file in this repo (resolved_files=0). Facts drawn from the log must stay in the attached-log observation lane — do NOT open repo files hoping to ground the log's frame literals, they are not there.\n")
+		b.WriteString("  - If the current request separately asks to explain or verify current-checkout code, keep two lanes: attached-log observations for what happened, and current-source evidence for how this repo implements the related behavior. Do not collapse a mixed request into observation-only just because the log frames are external.\n")
 		b.WriteString("  - For a BlockScalar answer (single literal, optionally with config-key facet), leave the value uncited and state in `summary` that the literal is drawn from the attached log (no grounded repo source).\n")
 		b.WriteString("  - The literal-grounding gate on emit_answer_document rejects citations whose cited line does NOT contain the literal; do not borrow an unrelated repo citation just to satisfy a source habit.\n")
 		b.WriteString("  - For an ordered hop-chain block or a summary-led explanation answer, cite log content by paraphrasing frames, not by inventing file:line anchors in this repo.\n")
@@ -3180,7 +3181,8 @@ func formatPerfTriageStructured(bundle *types.PerfBundle, locator types.SymbolLo
 	b.WriteString(renderBugClassesSection(bundle.Meta.BugClasses, "trace"))
 
 	if bundle.IsExternalSource() {
-		b.WriteString("⚠ **External-source trace**: the attached trace's structured observations do NOT resolve to any file in this repo (resolved_files=0). The answer must come from the trace's own timing / jank / stall semantics — do NOT open repo files hoping to ground trace literals that are not in this checkout.\n")
+		b.WriteString("⚠ **External-source trace**: the attached trace's structured observations do NOT resolve to any file in this repo (resolved_files=0). Facts drawn from the trace must stay in the attached-trace observation lane — do NOT open repo files hoping to ground trace literals that are not in this checkout.\n")
+		b.WriteString("  - If the current request separately asks to explain or verify current-checkout code, keep two lanes: attached-trace timing / jank / stall observations for what happened, and current-source evidence for how this repo analyzes or implements the related behavior. Do not collapse a mixed request into observation-only just because the trace spans are external.\n")
 		b.WriteString("  - For scalar or summary claims drawn directly from the trace, leave the claim uncited unless a current repo line literally states the same claim.\n")
 		b.WriteString("  - Quote trace span names, tags, stall symbols, and timing values as runtime observations; do not invent file:line anchors in this repo.\n\n")
 	}

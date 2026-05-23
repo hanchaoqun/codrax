@@ -150,7 +150,9 @@ func renderAnalyzerRuntimeObservationOnlyShortcut() string {
 	return "## Runtime Artifact Classification Shortcut\n\n" +
 		"The structured Log/Trace Triage for this dispatch is external to the current checkout (`resolved_files=0`). " +
 		"Do not run repo pre-scan just to classify stack-frame or trace literals from the artifact; classify from the current request plus the structured runtime artifact facts and call `emit_analysis` now when the request only asks what the artifact shows. " +
-		"If the current request explicitly asks to explain or verify against the current checkout, you may use the normal analyzer pre-scan tools for request terms (files-only grep / repo_map / list_files), then express that requirement through structured current-version / exact-target / required-file fields so explore can verify it. " +
+		"If the current request explicitly asks to explain, distinguish, trace, or verify the artifact against the current checkout, keep a separate current-source lane: use the normal analyzer pre-scan tools for request terms (files-only grep / repo_map / list_files), then express that requirement through structured required_files / exact_targets when concrete files or targets are found. " +
+		"Use diagnostic_profile.current_version_check only for current-status / still-present / fixed-style diagnostics; for mechanism explanations backed by current code, required_files or exact_targets are the current-source anchor and current_version_check can remain false. " +
+		"Do not collapse a mixed artifact + current-code request into observation-only just because resolved_files=0; only the artifact frame literals are external. " +
 		"Keep `diagnostic_profile.current_version_check=false` only when the request asks what the artifact shows and does not request current-checkout verification.\n\n"
 }
 

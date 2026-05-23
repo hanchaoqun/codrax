@@ -3465,12 +3465,17 @@ func TestFormatPerfTriageStructured_ExternalSourceDirective(t *testing.T) {
 	for _, want := range []string{
 		"External-source trace",
 		"resolved_files=0",
+		"attached-trace observation lane",
+		"keep two lanes",
 		"leave the claim uncited",
 		"foreign/render.cpp:42 observed, unresolved",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("perf structured section missing %q:\n%s", want, got)
 		}
+	}
+	if strings.Contains(got, "The answer must come from the trace's own timing") {
+		t.Fatalf("external-source directive must not collapse mixed current-code requests into observation-only:\n%s", got)
 	}
 	if strings.Contains(got, "foreign/render.cpp:42 ★ resolved") {
 		t.Fatalf("unresolved trace file must not be marked citation-grade:\n%s", got)
