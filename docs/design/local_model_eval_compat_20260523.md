@@ -18,6 +18,18 @@ Eval run root:
 
 - `eval/results/local-small-20260523`
 
+## Implementation Status
+
+- Batch 1 landed in `b43154dc`: analyze-stage disallowed deep-read calls now
+  capture safe routing intent, append safe paths/patterns to the prescan
+  summary, and force the next analyzer turn to `emit_analysis` without reading
+  source content in the analyze stage.
+- Batch 2 implemented locally: explorer evidence-backlog and evidence-repair states now
+  have schema-level action-space gating, so repeated ignored hints expose only
+  structured materialization tools instead of relying on prose nudges. The
+  repair hint now allows a stale or wrong row to be omitted/replaced when the
+  just-read source window proves it is not grounded.
+
 ## Operating Principles
 
 - Do not change prompt code for these compatibility fixes unless there is no safe

@@ -3639,6 +3639,85 @@ func TestExplorerProgressCountersIgnoreDuplicateEvidenceNoop(t *testing.T) {
 	}
 }
 
+func TestExplorer_FilterToolSchemas_NormalExploreUnchanged(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{Stage: types.StageExplore}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,grep,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("normal explorer schema names = %v", gotNames)
+	}
+}
+
+func TestExplorer_FilterToolSchemas_ReadWithoutEmitEscalatedMaterializationOnly(t *testing.T) {
+	eval := &explorerEvaluator{
+		midLoopNoEmitPushSent:  true,
+		midLoopNoEmitEscalated: true,
+	}
+	ctx := &types.AgentContext{Stage: types.StageExplore}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "emit_evidence,emit_investigation_complete" {
+		t.Fatalf("materialization-only schema names = %v", gotNames)
+	}
+}
+
+func TestExplorer_FilterToolSchemas_EvidenceRepairMaterializationOnly(t *testing.T) {
+	eval := &explorerEvaluator{
+		midLoopEvidenceRepairSent:       true,
+		midLoopEvidenceRepairResultsLen: 1,
+	}
+	ctx := &types.AgentContext{Stage: types.StageExplore}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "repo_map"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "emit_evidence,emit_investigation_complete" {
+		t.Fatalf("repair materialization-only schema names = %v", gotNames)
+	}
+}
+
+func TestExplorer_FilterToolSchemas_DoesNotReturnEmpty(t *testing.T) {
+	eval := &explorerEvaluator{
+		midLoopNoEmitPushSent:  true,
+		midLoopNoEmitEscalated: true,
+	}
+	ctx := &types.AgentContext{Stage: types.StageExplore}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+	}
+
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,grep" {
+		t.Fatalf("fail-open schema names = %v", gotNames)
+	}
+}
+
+func explorerSchemaNames(schemas []llm.ToolSchema) []string {
+	out := make([]string, 0, len(schemas))
+	for _, schema := range schemas {
+		out = append(out, schema.Name)
+	}
+	return out
+}
+
 func TestObserveMidLoop_EvidenceRepairPrefersStructuredTargets(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:            1,

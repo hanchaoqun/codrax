@@ -4670,7 +4670,8 @@ func renderEmitEvidenceRepairClosureOnlyHint(targets []evidenceRepairTarget) str
 		}
 		fmt.Fprintf(&b, "  - `%s` near lines %s\n", target.file, lines)
 	}
-	b.WriteString("\nDo not open more files or complete the investigation until the repaired `emit_evidence(items=[...])` call succeeds.")
+	b.WriteString("\nIf the just-read gutter proves a previous row's anchor is stale, absent, or belongs to another location, do not keep repairing that exact row. Emit grounded replacement rows, or omit the bad row and close from the accepted evidence you can actually cite.")
+	b.WriteString("\nDo not open more files until the repaired or replacement `emit_evidence(items=[...])` call succeeds, unless the accepted evidence is already sufficient to call `emit_investigation_complete`.")
 	return b.String()
 }
 
@@ -5460,6 +5461,47 @@ var navigationToolNames = map[string]bool{
 var completionProgressToolNames = map[string]bool{
 	"emit_evidence":               true,
 	"emit_investigation_complete": true,
+}
+
+// FilterToolSchemas narrows explorer turns only after the runtime has
+// observed a concrete evidence backlog: source material was read, but
+// the model still has not materialized it through emit_evidence /
+// emit_investigation_complete, or a prior evidence batch needs a
+// grounded repair. This is intentionally state-driven, not text-driven:
+// it does not inspect the user's question or the model's prose, and it
+// leaves the normal tool surface unchanged until a loop observer has
+// already raised a structured backlog signal.
+//
+// The filter is fail-open. If the current skill/schema set does not
+// include an actionable materialization tool, the original schemas are
+// returned so we never strand a dispatch with zero tools.
+func (e *explorerEvaluator) FilterToolSchemas(ctx *types.AgentContext, schemas []llm.ToolSchema) []llm.ToolSchema {
+	if e == nil || ctx == nil || ctx.Stage != types.StageExplore || len(schemas) == 0 || e.investigationComplete {
+		return schemas
+	}
+	if !e.materializationOnlyToolSurfaceActive() {
+		return schemas
+	}
+	out := make([]llm.ToolSchema, 0, len(schemas))
+	for _, schema := range schemas {
+		if completionProgressToolNames[strings.TrimSpace(schema.Name)] {
+			out = append(out, schema)
+		}
+	}
+	if len(out) == 0 {
+		return schemas
+	}
+	return out
+}
+
+func (e *explorerEvaluator) materializationOnlyToolSurfaceActive() bool {
+	if e == nil {
+		return false
+	}
+	if e.midLoopEvidenceRepairSent && e.midLoopEvidenceRepairResultsLen > 0 {
+		return true
+	}
+	return e.midLoopNoEmitPushSent && e.midLoopNoEmitEscalated
 }
 
 func hasSuccessfulTool(results []types.ToolResult, toolName string) bool {

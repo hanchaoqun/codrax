@@ -474,7 +474,7 @@ func TestRenderAnswerDocObservationLedger_RendersExternalRawExcerpt(t *testing.T
 	got := renderAnswerDocObservationLedger(ctx)
 	for _, want := range []string{
 		"`tool:0#vcs_diff`",
-		"source=`kind=vcs_diff | payload_ref=blob://payload/git-show-abc123.txt`",
+		"source=`kind=vcs_diff | tool_call_id=exec_command[0] | payload_ref=blob://payload/git-show-abc123.txt`",
 		"summary=\"commit abc123\"",
 		"excerpt=\"[git_show: evidence_origin=vcs_diff] commit abc123 详细说明：新增调度入口并调整兼容保护。 影响：当前代码需要结合 scheduler.go 的新入口理解。\"",
 	} {
