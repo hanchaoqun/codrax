@@ -4436,6 +4436,9 @@ func formatEvidenceOriginBoundaryHint(ac *types.AgentContext) string {
 	b.WriteString("- `current_source` facts may use `emit_evidence` and file:line citations after the source line was read and grounded.\n")
 	b.WriteString("- Non-current-source facts are first-class evidence in their own lane. Do not convert VCS history, diff hunks, attached logs/traces, command measurements, negative searches, or repo-index facts into fake current-source `emit_evidence` rows.\n")
 	b.WriteString("- Keep lanes separate when a question mixes origins: VCS diff/log/trace facts prove what happened historically or externally; current-source claims still need current-source evidence.\n")
+	if answerIntentContractHasMixedCurrentAndNonSourceOrigin(contract) {
+		b.WriteString("- Mixed-origin lane plan: first collect each non-current-source observation with its producer tool and preserve its typed origin in `reason` / `aggregate_facts`; then read current-source anchors only for present-checkout implementation claims. If both lanes discuss the same target, keep both summaries instead of converting one lane into the other's citation or repeating the same search.\n")
+	}
 	switch ac.Stage {
 	case types.StageExplore:
 		b.WriteString("- During exploration, use the producer tool for the origin (`git_log`/`git_show`/`git_diff`, log/perf triage bundles, `exec_command`, grep negative searches, or repo_map) and hand off the result through `emit_investigation_complete.reason` plus structured `aggregate_facts` when a count, list, scalar, absence, or grouping must be preserved.\n")
@@ -4454,6 +4457,10 @@ func formatEvidenceOriginBoundaryHint(ac *types.AgentContext) string {
 		b.WriteString("- For git history/diff output, attached logs, traces, command output, or repo-map/index output, use `negative_observation` with origin/target-or-query/scope/result_count/searched_at instead of pretending the absence is a repository grep result.\n")
 	}
 	return b.String()
+}
+
+func answerIntentContractHasMixedCurrentAndNonSourceOrigin(contract types.AnswerIntentContract) bool {
+	return contract.HasOrigin(types.AnswerEvidenceOriginCurrentSource) && answerIntentContractHasNonSourceOrigin(contract)
 }
 
 func answerIntentContractHasNonSourceOrigin(contract types.AnswerIntentContract) bool {

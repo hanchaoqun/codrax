@@ -2222,6 +2222,9 @@ func TestBuildPromptContext_EvidenceOriginBoundary_RendersUpstreamOnly(t *testin
 				t.Fatalf("stage %s evidence-origin section missing %q:\n%s", stage, want, sec.Content)
 			}
 		}
+		if strings.Contains(sec.Content, "Mixed-origin lane plan") {
+			t.Fatalf("pure VCS history should not render mixed-origin lane plan:\n%s", sec.Content)
+		}
 	}
 
 	ac := &types.AgentContext{
@@ -2234,6 +2237,45 @@ func TestBuildPromptContext_EvidenceOriginBoundary_RendersUpstreamOnly(t *testin
 	pc := BuildPromptContext(ac, &skill.Config{Name: "finalize-answer"})
 	if sec := findSectionTitle(pc, SectionEvidenceOrigin); sec != nil {
 		t.Fatalf("finalizer must not get duplicate Evidence Origin Boundary from BuildPromptContext; evaluator renders the finalizer copy:\n%s", sec.Content)
+	}
+}
+
+func TestBuildPromptContext_EvidenceOriginBoundary_MixedOriginLanePlan(t *testing.T) {
+	ir := &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Scenario: types.ScenarioArchitectureExplain,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		},
+		AnswerContract: types.AnswerContract{CitationReq: types.CitationReq{Required: false}},
+	}
+	ac := &types.AgentContext{
+		AgentName:  types.AgentExplorer,
+		Stage:      types.StageExplore,
+		Objective:  "根据最近一次合入解释当前实现",
+		Mutable:    types.NewMutableState("根据最近一次合入解释当前实现"),
+		AnalysisIR: ir,
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "explorer-skill"})
+	sec := findSectionTitle(pc, SectionEvidenceOrigin)
+	if sec == nil {
+		t.Fatal("mixed VCS/current-source request should render Evidence Origin Boundary")
+	}
+	for _, want := range []string{
+		"Mixed-origin lane plan",
+		"preserve its typed origin",
+		"present-checkout implementation claims",
+		"keep both summaries",
+	} {
+		if !strings.Contains(sec.Content, want) {
+			t.Fatalf("mixed-origin section missing %q:\n%s", want, sec.Content)
+		}
+	}
+	if !strings.Contains(sec.Content, "current_source") || !strings.Contains(sec.Content, "vcs_metadata") {
+		t.Fatalf("mixed-origin section should show both evidence lanes:\n%s", sec.Content)
 	}
 }
 

@@ -913,8 +913,8 @@ untouched.
       sub-repo label and file count instead of looking like a frozen request.
       Regression tests cover both the multigraph wait event and the rendered
       localized messages.
-  - Slice 45.2 — mixed-origin lane plan in upstream prompts. Status: in
-    progress.
+  - Slice 45.2 — mixed-origin lane plan in upstream prompts. Status:
+    completed.
     - Detailed design before code: reuse the existing
       `CompileAnswerIntentContract` typed origin/output contract and the single
       upstream `Evidence Origin Boundary` prompt section. Do not create a second
@@ -941,6 +941,14 @@ untouched.
       language and keep both origins/output shapes; pure history remains free of
       current-source obligations; finalizer still does not receive a duplicate
       builder-side Evidence Origin Boundary.
+    - Delivered in this slice: the upstream Evidence Origin Boundary now emits
+      a mixed-origin lane plan only when the typed contract contains both
+      `current_source` and a non-current-source origin. The plan tells explorer
+      to collect VCS/log/trace/command observations with producer tools, hand
+      them off through typed `reason` / `aggregate_facts`, and read current
+      source only for present-checkout claims. Pure VCS/history prompts and
+      finalizer prompts remain on their prior non-duplicated paths. Regression
+      tests cover mixed-origin, pure-history, and finalizer-no-duplicate cases.
 
 - Batch 46 — retry/status telemetry taxonomy. Status: planned.
   - Split status and metrics into transport retry, schema/carrier repair,
