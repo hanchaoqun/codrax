@@ -627,18 +627,11 @@ func principalEnumerationNeedsFullVerifiedSupplement(doc *types.AnswerDocumentV2
 	if doc == nil || len(set.Rows) == 0 {
 		return false
 	}
-	for _, block := range doc.Blocks {
-		stats := principalEnumerationAuthoredMarkdownTableStats(block, set)
-		if stats.dataRows == 0 || stats.matchedRows == 0 {
-			continue
-		}
-		if stats.dataRows < len(set.Rows) {
-			continue
-		}
-		if stats.missingRows > 0 || stats.duplicateRows > 0 || stats.unexpectedRows > 0 {
-			return true
-		}
-	}
+	// Do not publish a second full table just because a model-authored markdown
+	// table has duplicate or unexpected rows. That turns a local carrier repair
+	// into a competing answer surface. Missing deterministic rows are handled by
+	// the ordinary missing-row supplement path above, while the authored table is
+	// preserved byte-for-byte for user inspection.
 	if principalEnumerationHasIncompatibleStructuredTableAttempt(doc, set) {
 		return true
 	}

@@ -90,7 +90,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForPartial
 	}
 }
 
-func TestNormalizePrincipalEnumerationRowBlocks_AppendsVerifiedTableForNearCompleteSourceInventoryTable(t *testing.T) {
+func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForCorruptMarkdownSourceInventoryTable(t *testing.T) {
 	mu := types.NewMutableState("列出公开字符串枚举类型")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:    types.AnswerAggregateMemberSet,
@@ -149,10 +149,10 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsVerifiedTableForNearCompl
 	}}
 
 	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
-		t.Fatal("expected source-inventory verified supplement")
+		t.Fatal("expected source-inventory missing-row supplement")
 	}
 	if len(doc.Blocks) != 3 {
-		t.Fatalf("near-complete source inventory table should preserve model output and append a system table: %+v", doc.Blocks)
+		t.Fatalf("near-complete source inventory table should preserve model output and append only missing rows: %+v", doc.Blocks)
 	}
 	modelTable := answerDocumentTestBlockByID(t, doc, "enum_table")
 	if strings.TrimSpace(modelTable.Text) == "" || len(modelTable.Items) != 0 {
@@ -165,21 +165,21 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsVerifiedTableForNearCompl
 		}
 	}
 	systemTable := doc.Blocks[2]
-	if !strings.Contains(systemTable.Title, "系统按已验证证据给出的完整成员表") {
-		t.Fatalf("system supplement should be clearly separated, got title %q", systemTable.Title)
+	if !strings.Contains(systemTable.Title, "系统按已验证证据补充成员") {
+		t.Fatalf("system supplement should be a missing-row supplement, got title %q", systemTable.Title)
 	}
-	if strings.TrimSpace(systemTable.Text) != "" || len(systemTable.Items) != 3 {
-		t.Fatalf("expected full verified structured table rows, got %+v", systemTable)
+	if strings.TrimSpace(systemTable.Text) != "" || len(systemTable.Items) != 2 {
+		t.Fatalf("expected only missing structured table rows, got %+v", systemTable)
 	}
 	visible := types.AnswerBlockVisibleSurface(systemTable)
-	for _, want := range []string{"Intent", "QuestionFamily", "AnswerRequestedOutput", "classifies the user's request intent", "broad answer family"} {
+	for _, want := range []string{"QuestionFamily", "AnswerRequestedOutput", "broad answer family", "visible answer surface"} {
 		if !strings.Contains(visible, want) {
 			t.Fatalf("system verified table missing %q:\n%s", want, visible)
 		}
 	}
-	for _, banned := range []string{"AnswerAnswerRequestedOutput", "重复行，应被结构化清理", "系统按已验证证据补充成员"} {
+	for _, banned := range []string{"Intent", "AnswerAnswerRequestedOutput", "重复行，应被结构化清理", "系统按已验证证据给出的完整成员表"} {
 		if strings.Contains(visible, banned) {
-			t.Fatalf("system verified table should not copy invalid/duplicate model rows %q:\n%s", banned, visible)
+			t.Fatalf("system supplement should not copy already-visible or invalid model rows %q:\n%s", banned, visible)
 		}
 	}
 }
@@ -243,7 +243,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsSupplementForIncompatible
 	}
 }
 
-func TestNormalizePrincipalEnumerationRowBlocks_AppendsFullVerifiedTableForCorruptCompleteAttempt(t *testing.T) {
+func TestNormalizePrincipalEnumerationRowBlocks_AppendsMissingRowsForCorruptCompleteAttempt(t *testing.T) {
 	mu := types.NewMutableState("列出公开字符串枚举类型")
 	mu.AppendEvidence([]types.EvidenceItem{
 		enumEvidence("alpha", "AlphaKind", "internal/types/a.go", 10, "AlphaKind 表示第一类枚举。"),
@@ -287,29 +287,31 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsFullVerifiedTableForCorru
 	}}}
 
 	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
-		t.Fatal("expected deterministic full verified supplement for corrupt complete table")
+		t.Fatal("expected deterministic missing-row supplement for corrupt complete table")
 	}
 	if len(doc.Blocks) != 3 {
-		t.Fatalf("expected summary, preserved model table, and full system table; got %+v", doc.Blocks)
+		t.Fatalf("expected summary, preserved model table, and missing-row system table; got %+v", doc.Blocks)
 	}
 	if !strings.Contains(types.AnswerBlockVisibleSurface(doc.Blocks[1]), "GammaKindTypo") {
 		t.Fatalf("model-authored table should remain visibly separate, got %+v", doc.Blocks[1])
 	}
 	system := doc.Blocks[2]
-	if !strings.Contains(system.Title, "系统按已验证证据给出的完整成员表") {
-		t.Fatalf("full verified table should be clearly labeled, got %q", system.Title)
+	if !strings.Contains(system.Title, "系统按已验证证据补充成员") {
+		t.Fatalf("missing-row supplement should be clearly labeled, got %q", system.Title)
 	}
-	if len(system.Items) != 3 {
-		t.Fatalf("full verified table should carry every deterministic row, got %+v", system.Items)
+	if len(system.Items) != 2 {
+		t.Fatalf("supplement should carry only rows missing from the model table, got %+v", system.Items)
 	}
 	visible := types.AnswerBlockVisibleSurface(system)
-	for _, want := range []string{"AlphaKind", "BetaKind", "GammaKind", "第二类枚举"} {
+	for _, want := range []string{"BetaKind", "GammaKind", "第二类枚举", "第三类枚举"} {
 		if !strings.Contains(visible, want) {
 			t.Fatalf("full verified table missing %q:\n%s", want, visible)
 		}
 	}
-	if strings.Contains(system.Title, "（1）") || strings.Contains(system.Title, "补充成员") {
-		t.Fatalf("corrupt complete attempt must not degrade into a one-row missing supplement: %q", system.Title)
+	for _, banned := range []string{"AlphaKind", "GammaKindTypo", "系统按已验证证据给出的完整成员表"} {
+		if strings.Contains(visible, banned) {
+			t.Fatalf("supplement should not republish already-visible or invalid model rows %q:\n%s", banned, visible)
+		}
 	}
 }
 

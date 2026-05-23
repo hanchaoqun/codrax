@@ -345,6 +345,150 @@ observations.
     model-response retry even though the upstream model may simply be slow to
     produce the first usable SSE event.
 
+## 2026-05-23 Cross-GAP Architecture Scan
+
+This scan reconciles the active JSON / evidence handoff work with
+`eval_20260522_full_sweep_gap_tracking.md`,
+`observation_ledger_contract_20260521.md`,
+`unified_evidence_answer_contract_20260520.md`, and
+`systemic_evidence_handoff_gap_tracking.md`. The remaining work is not a set of
+isolated case fixes. The recurring pattern is that typed evidence carriers,
+visible answer supplements, retry telemetry, and stage boundaries still have a
+few split-brain paths. The solution should keep moving deterministic carrier
+work into runtime code, while leaving the model-owned answer prose and tables
+untouched.
+
+### Closed / Mitigated Clusters
+
+- JSON-string arrays/objects for the highest-frequency structured tools now go
+  through the shared compatibility boundary. Lossless repair is typed and
+  telemetry-backed rather than prompt-only.
+- Large complete member carriers and exact exclusion carriers can use row-set
+  artifacts. Rich same-member summaries are merged by stable identity before
+  finalizer/reviewer budgeting.
+- Source-inventory path spelling is normalized once before graph matching,
+  including `./` and absolute-path suffix forms. Go string-enum inventories use
+  parser-backed proof only for the explicit string-enum contract; other
+  language inventories rely on repomap graph metadata.
+- Pure VCS/history answers no longer force `current_source`; recent commits,
+  latest merge, and commit comparisons preserve VCS narrative origins and typed
+  git coordinates.
+- Transport first-byte timeout has a slow-model-safe lower-bound test, and
+  transport retries have started separating from semantic rewrite status.
+- Extractor stage boundary is fail-closed for unavailable tools: unknown tool
+  calls are visible failed `ToolResult`s, and extractor completion requires
+  accepted structured emits or an explicit safe stop.
+
+### Still-Open Architecture Clusters
+
+1. **Visible system supplements still have too much authority.** Full-sweep
+   gaps G1/G2/G4/G13/G18/G153 show that system-generated tables/caveats can
+   appear principal even when the model-authored answer is already sufficient.
+   This must become a visible-surface contract: system supplements are
+   append-only, localized, non-principal by default, unique by requested bucket
+   and member identity, and suppressed when they add no typed non-overlapping
+   value.
+
+2. **External/VCS/runtime evidence still sometimes rides source-shaped
+   contracts.** G9/G14/G151/G156/G157/G159 show runtime artifact facts, VCS
+   negatives, and artifact line anchors still leaking through `current_source`
+   lanes or `citation_ref=-1` sentinel semantics. The system needs one
+   external-observation citation/ref contract for git, logs, traces, command
+   output, and future MCP/web payloads.
+
+3. **Negative/scalar answers can still be coerced into enumeration contracts.**
+   G157/G158/G159 show zero-result VCS/search observations being treated as
+   member inventories. The typed principal answer for a no-hit question is
+   `absence + scope + result_count=0 + provenance`; searched-window inventory
+   is optional and must not be synthesized unless requested.
+
+4. **Analyzer/explorer still spend model rounds on classification/protocol
+   work.** G50/G149/G154/G171/G173 show analyzer over-investigating exact-file,
+   history+current-code, exact-symbol conditional, and error-granularity
+   questions. G152/G160/G176 show exploration lanes duplicating hybrid
+   VCS/current-source work or waiting on uninstrumented repo-map work.
+
+5. **Runtime artifact provenance still needs direct-vs-inferred separation.**
+   G8/G12/G15/G17/G162 show direct log/trace observations, inferred upstream
+   hypotheses, and current-code causal explanations can be compressed into one
+   prose claim. Direct observed facts must stay distinct from inferred
+   possibilities unless current-source evidence proves the bridge.
+
+6. **Reviewer/status telemetry still conflates advisory, schema, transport, and
+   semantic failures.** G5/G76/G155/G161 show metrics/status vocabulary is not
+   yet authoritative enough for customers or eval sweeps. Accepted advisory
+   findings should not look like finalizer reject pressure, and transport
+   retries should not count as answer rewrites.
+
+### Batch 41+ Task Queue
+
+- Batch 41 — visible supplement authority contract. Status: in progress.
+  - Implement deterministic visible-surface cleanup for system-generated
+    supplements: suppress duplicate system blocks whose normalized members are
+    already represented in model-authored principal blocks; demote adjacent or
+    support-only categories to clearly labeled support notes; suppress generic
+    coverage caveats for observation-only or already bounded answers.
+  - Guardrail tests: model table/prose is never replaced; system supplements are
+    appended only when typed non-overlapping value exists; Chinese answers do
+    not show raw facet ids such as `observed_artifact_fact` / `absence_fact`.
+  - Delivered so far: corrupt or noisy model-authored markdown tables no longer
+    trigger a second full system-generated member table. The compiler now
+    preserves the model table and appends only the deterministic missing rows;
+    duplicate or unexpected model rows stay visible as model-authored content
+    but are not copied into the system supplement.
+
+- Batch 42 — external observation refs and no-hit answer shape. Status:
+  planned.
+  - Introduce a first-class visible/ref contract for VCS/log/trace/command
+    observations so finalizer/reviewer stop relying on no-source citation
+    sentinels.
+  - Materialize typed no-hit answers from `result_count=0` producer outputs
+    without requiring the model to enumerate searched commits/files/rows unless
+    the user asked for that inventory.
+  - Guardrail tests: VCS negative search renders `未命中 + 范围 + 0 结果 +
+    工具/时间/窗口`; optional model-authored tables are preserved but not
+    required; fake current-source citations are rejected or normalized away.
+
+- Batch 43 — runtime artifact provenance split. Status: planned.
+  - Carry `observed_direct_cause`, `artifact_span`, and
+    `inferred_upstream_possibility` as typed lanes for log/trace/perf answers.
+  - Guardrail tests: trace answers do not expose internal zero-based frame
+    indices unless the artifact contains a frame ordinal; log answers do not
+    promote caller-side root cause without current-source proof.
+
+- Batch 44 — analyzer fast-path consolidation. Status: planned.
+  - Add typed fast paths for exact-file import literal enumeration,
+    history+current-code hybrid classification, exact-symbol conditional
+    questions, and item-vs-batch error-granularity questions. These must use
+    typed request-shape/provenance fields, not user-prose keyword hard gates.
+  - Guardrail tests: analyzer emits classification after existence checks and
+    leaves implementation proof to exploration.
+
+- Batch 45 — hybrid explorer partitioning and repo-map wait visibility. Status:
+  planned.
+  - Partition hybrid questions by typed origin/facet: VCS lane owns history
+    narrative; current-source lane owns present implementation; sibling lanes
+    converge once their facet is covered.
+  - Instrument repo-map concurrent build/cache waits and show truthful progress
+    including lock waits.
+  - Guardrail tests: mixed history+current-source cases avoid duplicated
+    searches/reads; two concurrent repo-map builds report wait state instead of
+    silent stalls.
+
+- Batch 46 — retry/status telemetry taxonomy. Status: planned.
+  - Split status and metrics into transport retry, schema/carrier repair,
+    semantic rewrite, reviewer advisory, and accepted local supplement.
+  - Guardrail tests: analyzer/finalizer transport errors render the current
+    stage number; accepted advisory checks do not increment semantic rewrite
+    counters.
+
+- Batch 47 — diagram/renderability hardening. Status: planned.
+  - Keep Mermaid/code-fence display fixes renderer-only, but add deterministic
+    render/subset validation so supported diagrams degrade to a localized text
+    fallback instead of silently failing in UI.
+  - Guardrail tests: supported diagram kinds render or produce the existing
+    `text` fence warning; model memory/output still preserves original source.
+
 ## Scope
 
 This document clusters recurring failures where the model is forced to produce,
