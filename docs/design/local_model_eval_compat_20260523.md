@@ -214,6 +214,12 @@ wrong.
   model eval samples, and captured root causes above.
 - 2026-05-23: Batch 0 documentation prepared. Code implementation starts with
   Batch 1.
+- 2026-05-23: Batch 1 implemented. Analyze-stage blocked deep-read calls now
+  record safe non-content intent metadata, keep source content blocked, preserve
+  safe path/pattern hints in the analysis corpus without spending a pre-scan
+  round, and force the next analyzer request to `emit_analysis` only. Added
+  regression tests for safe path capture, unsafe path exclusion, and clean
+  emit-only schema behavior.
 
 ## Observations
 

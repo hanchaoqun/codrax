@@ -2359,6 +2359,9 @@ func analyzerTerminalEmitOnly(ctx *types.AgentContext) bool {
 	if ctx.Mutable == nil {
 		return false
 	}
+	if ctx.Mutable.AnalyzerBlockedToolIntentCount() > 0 {
+		return true
+	}
 	limit := ctx.Mutable.PrescanRoundLimit()
 	return limit > 0 && ctx.Mutable.PrescanRoundCount() >= limit
 }
@@ -2776,6 +2779,9 @@ func rejectAnalyzerPrescanTool(ctx *types.AgentContext, tc llm.ToolCall, code, r
 }
 
 func rejectAnalyzerTool(ctx *types.AgentContext, tc llm.ToolCall, decisionKind, code, reason string) *types.ToolResult {
+	if code == analyzerToolNotAllowedCode {
+		recordAnalyzerBlockedToolIntent(ctx, tc)
+	}
 	logging.Warning("[analyzer] tool %q rejected: %s", tc.Name, reason)
 	if ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.AppendAnalyzerDecision(types.AnalyzerDecisionSignal{
@@ -2792,6 +2798,92 @@ func rejectAnalyzerTool(ctx *types.AgentContext, tc llm.ToolCall, decisionKind, 
 		Repair:    &types.ToolRepair{Code: code, Hint: reason},
 		Timestamp: time.Now(),
 	}
+}
+
+func recordAnalyzerBlockedToolIntent(ctx *types.AgentContext, tc llm.ToolCall) {
+	if ctx == nil || ctx.Mutable == nil || ctx.Stage != types.StageAnalyze {
+		return
+	}
+	intent := analyzerBlockedToolIntentFromCall(tc)
+	if strings.TrimSpace(intent.ToolName) == "" {
+		return
+	}
+	before := ctx.Mutable.AnalyzerBlockedToolIntentCount()
+	count := ctx.Mutable.RecordAnalyzerBlockedToolIntent(intent)
+	if count == 0 || count <= before {
+		return
+	}
+	if summary := analyzerBlockedToolIntentSummary(intent); summary != "" {
+		ctx.Mutable.AppendPrescanIntentSummary(summary)
+	}
+}
+
+func analyzerBlockedToolIntentFromCall(tc llm.ToolCall) types.AnalyzerBlockedToolIntent {
+	intent := types.AnalyzerBlockedToolIntent{
+		ToolName: strings.TrimSpace(tc.Name),
+		TS:       time.Now(),
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(tc.Params, &obj); err != nil || len(obj) == 0 {
+		return intent
+	}
+	intent.Path = analyzerBlockedParamString(obj, "path", "file", "filename")
+	intent.Pattern = analyzerBlockedParamString(obj, "pattern", "regex", "symbol")
+	intent.Query = analyzerBlockedParamString(obj, "query", "q", "name")
+	return intent
+}
+
+func analyzerBlockedParamString(obj map[string]json.RawMessage, keys ...string) string {
+	for _, key := range keys {
+		raw, ok := obj[key]
+		if !ok {
+			continue
+		}
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			continue
+		}
+		s = strings.TrimSpace(s)
+		if s == "" || strings.ContainsAny(s, "\r\n") {
+			continue
+		}
+		if len(s) > 240 {
+			s = s[:240]
+		}
+		return s
+	}
+	return ""
+}
+
+func analyzerBlockedToolIntentSummary(intent types.AnalyzerBlockedToolIntent) string {
+	parts := []string{"[blocked_analyze_tool", "tool=" + intent.ToolName}
+	if safeAnalyzerIntentValue(intent.Path) {
+		parts = append(parts, "path="+intent.Path)
+	}
+	if safeAnalyzerIntentValue(intent.Pattern) {
+		parts = append(parts, "pattern="+intent.Pattern)
+	}
+	if safeAnalyzerIntentValue(intent.Query) {
+		parts = append(parts, "query="+intent.Query)
+	}
+	if len(parts) <= 2 {
+		return strings.Join(parts, " ") + "]"
+	}
+	return strings.Join(parts, " ") + "]"
+}
+
+func safeAnalyzerIntentValue(v string) bool {
+	v = strings.TrimSpace(v)
+	if v == "" || strings.ContainsAny(v, "\r\n") {
+		return false
+	}
+	// Keep boundary-crossing paths out of the pre-scan corpus. They remain
+	// blocked at the tool boundary; explore's normal path gates can handle a
+	// user-supplied safe repo-relative path later.
+	if strings.Contains(v, "..") || strings.HasPrefix(v, "/") || strings.HasPrefix(v, "~") {
+		return false
+	}
+	return true
 }
 
 // clampGrepMaxCount rewrites the max_count field of a grep param

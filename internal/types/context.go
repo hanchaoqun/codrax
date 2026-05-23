@@ -526,6 +526,13 @@ type MutableState struct {
 	// tooling at end-of-Run.
 	analyzerDecisions []AnalyzerDecisionSignal
 
+	// analyzerBlockedToolIntents records analyze-stage tool calls that
+	// were blocked by the classification-only boundary but still carry
+	// useful routing metadata (for example read_file(path=...)). The
+	// content read is never executed in analyze; downstream stages can
+	// consume the non-content path/pattern intent as a candidate lead.
+	analyzerBlockedToolIntents []AnalyzerBlockedToolIntent
+
 	// retryState is the R14 typed retry-state contract surface
 	// (post_shape_residual_audit.md, 2026-05-04). Populated by the
 	// orchestrator + contract_check at retry-decision time;
@@ -671,6 +678,18 @@ type AnalyzerDecisionSignal struct {
 	After  string `json:"after,omitempty"`
 	Reason string `json:"reason,omitempty"`
 	Detail string `json:"detail,omitempty"`
+}
+
+// AnalyzerBlockedToolIntent captures non-content metadata from a tool call
+// that analyze rejected before execution. It deliberately stores only
+// routing-safe fields; no file contents, command output, or model prose enters
+// this channel.
+type AnalyzerBlockedToolIntent struct {
+	ToolName string    `json:"tool_name"`
+	Path     string    `json:"path,omitempty"`
+	Pattern  string    `json:"pattern,omitempty"`
+	Query    string    `json:"query,omitempty"`
+	TS       time.Time `json:"ts,omitempty"`
 }
 
 // RichnessTelemetrySignal is a single observation emitted by the
@@ -3218,6 +3237,20 @@ func (m *MutableState) AppendPrescanSummary(summary string) {
 	m.prescanRoundCount++
 }
 
+// AppendPrescanIntentSummary adds non-content analyzer intent metadata to the
+// same lowercased corpus used by emit_analysis validation, without spending a
+// pre-scan round. This lets blocked deep-read paths help entity/path retention
+// while preserving the evidence-lite boundary.
+func (m *MutableState) AppendPrescanIntentSummary(summary string) {
+	if m == nil || strings.TrimSpace(summary) == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.prescanSummaryBlob.WriteString(strings.ToLower(summary))
+	m.prescanSummaryBlob.WriteByte('\n')
+}
+
 // PrescanRoundCount returns the number of analyzer pre-scan rounds
 // that have completed in the current analyze dispatch.
 func (m *MutableState) PrescanRoundCount() int {
@@ -3280,6 +3313,7 @@ func (m *MutableState) ResetPrescanSummary() {
 	m.prescanSummaryBlob.Reset()
 	m.prescanRoundCount = 0
 	m.prescanRoundLimit = 0
+	m.analyzerBlockedToolIntents = nil
 }
 
 // ── Session 11 C0' ClassificationGrep accessors ────────────────────
@@ -3519,6 +3553,62 @@ func (m *MutableState) AnalyzerDecisions() []AnalyzerDecisionSignal {
 	}
 	out := make([]AnalyzerDecisionSignal, len(m.analyzerDecisions))
 	copy(out, m.analyzerDecisions)
+	return out
+}
+
+// RecordAnalyzerBlockedToolIntent stores routing-safe metadata from a tool call
+// rejected by the analyze-stage boundary. It deduplicates by tool/path/pattern/
+// query so a model that repeats the same blocked read does not bloat state.
+// Returns the number of distinct blocked intents now recorded.
+func (m *MutableState) RecordAnalyzerBlockedToolIntent(intent AnalyzerBlockedToolIntent) int {
+	if m == nil || strings.TrimSpace(intent.ToolName) == "" {
+		return 0
+	}
+	intent.ToolName = strings.TrimSpace(intent.ToolName)
+	intent.Path = strings.TrimSpace(intent.Path)
+	intent.Pattern = strings.TrimSpace(intent.Pattern)
+	intent.Query = strings.TrimSpace(intent.Query)
+	if intent.TS.IsZero() {
+		intent.TS = time.Now()
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, existing := range m.analyzerBlockedToolIntents {
+		if existing.ToolName == intent.ToolName &&
+			existing.Path == intent.Path &&
+			existing.Pattern == intent.Pattern &&
+			existing.Query == intent.Query {
+			return len(m.analyzerBlockedToolIntents)
+		}
+	}
+	m.analyzerBlockedToolIntents = append(m.analyzerBlockedToolIntents, intent)
+	return len(m.analyzerBlockedToolIntents)
+}
+
+// AnalyzerBlockedToolIntentCount reports whether the analyzer has tried to
+// cross the classification-only boundary during this dispatch.
+func (m *MutableState) AnalyzerBlockedToolIntentCount() int {
+	if m == nil {
+		return 0
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.analyzerBlockedToolIntents)
+}
+
+// AnalyzerBlockedToolIntents returns a defensive copy of blocked analyze-stage
+// tool intents.
+func (m *MutableState) AnalyzerBlockedToolIntents() []AnalyzerBlockedToolIntent {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.analyzerBlockedToolIntents) == 0 {
+		return nil
+	}
+	out := make([]AnalyzerBlockedToolIntent, len(m.analyzerBlockedToolIntents))
+	copy(out, m.analyzerBlockedToolIntents)
 	return out
 }
 

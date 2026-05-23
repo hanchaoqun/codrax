@@ -872,6 +872,42 @@ func TestAnalyzer_RejectsContentToolBeforeExecution(t *testing.T) {
 	if !strings.Contains(res.Summary, "emit_analysis") {
 		t.Fatalf("rejection should direct the model to emit_analysis, got %q", res.Summary)
 	}
+	intents := ctx.Mutable.AnalyzerBlockedToolIntents()
+	if len(intents) != 1 {
+		t.Fatalf("blocked read intent should be recorded once, got %+v", intents)
+	}
+	if intents[0].ToolName != "read_file" || intents[0].Path != "internal/agent/analyzer.go" {
+		t.Fatalf("blocked intent = %+v", intents[0])
+	}
+	if ctx.Mutable.PrescanRoundCount() != 0 {
+		t.Fatalf("blocked deep read must not spend prescan rounds, got %d", ctx.Mutable.PrescanRoundCount())
+	}
+	if blob := ctx.Mutable.PrescanSummaryBlob(); !strings.Contains(blob, "internal/agent/analyzer.go") {
+		t.Fatalf("blocked path should be available to analysis validation corpus, got %q", blob)
+	}
+	gotSchemas := (&analyzerEvaluator{}).FilterToolSchemas(ctx, []llm.ToolSchema{
+		{Name: "emit_analysis"},
+		{Name: "repo_map"},
+		{Name: "grep"},
+		{Name: "list_files"},
+	})
+	if len(gotSchemas) != 1 || gotSchemas[0].Name != "emit_analysis" {
+		t.Fatalf("blocked deep-read intent should force next analyzer request to emit-only, got %+v", gotSchemas)
+	}
+}
+
+func TestAnalyzer_BlockedUnsafePathDoesNotEnterPrescanCorpus(t *testing.T) {
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: types.NewMutableState("question")}
+	res := validateAnalyzerToolBoundary(ctx, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"../huge-repo/secret.go"}`)})
+	if res == nil || res.Success {
+		t.Fatalf("expected rejected unsafe read_file, got %+v", res)
+	}
+	if got := ctx.Mutable.AnalyzerBlockedToolIntentCount(); got != 1 {
+		t.Fatalf("blocked intent count = %d, want 1", got)
+	}
+	if blob := ctx.Mutable.PrescanSummaryBlob(); strings.Contains(blob, "../huge-repo") {
+		t.Fatalf("unsafe boundary-crossing path must not enter prescan corpus, got %q", blob)
+	}
 }
 
 func TestAnalyzer_Observe_BudgetRejectedPrescanGetsEmitOnlyHint(t *testing.T) {
