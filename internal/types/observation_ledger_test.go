@@ -555,6 +555,31 @@ func TestCompileObservationLedger_ProjectsToolBannerCoordinates(t *testing.T) {
 	}
 }
 
+func TestFormatObservationSourceRef_LabelsExternalPayloadRefs(t *testing.T) {
+	got := FormatObservationSourceRef(ObservationSourceRef{
+		Kind:       ObservationSourceCommand,
+		Command:    "git log --oneline -n 10",
+		RawRef:     "blob://payload/git-log-full.txt",
+		PayloadRef: "blob://payload/git-log-full.txt",
+		RowSetRef:  "blob://rows/git-log-rows.jsonl",
+		PageRef:    "blob://payload/git-log-full.txt?page=1",
+	}, 90)
+	for _, want := range []string{
+		"kind=command",
+		"command=git log --oneline -n 10",
+		"payload_ref=blob://payload/git-log-full.txt",
+		"row_set_ref=blob://rows/git-log-rows.jsonl",
+		"page_ref=blob://payload/git-log-full.txt?page=1",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("formatted source ref missing %q: %s", want, got)
+		}
+	}
+	if strings.Contains(got, "raw_ref=") {
+		t.Fatalf("raw_ref should not duplicate payload_ref in formatted source: %s", got)
+	}
+}
+
 func TestPrioritizeObservationRecords_MixedHistoryAndCurrentCodeKeepsExactSourceFirst(t *testing.T) {
 	records := []ObservationRecord{
 		{

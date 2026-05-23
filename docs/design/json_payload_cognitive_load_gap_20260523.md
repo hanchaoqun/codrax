@@ -2,7 +2,7 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-12 are complete and verified; the
+Status: partially implemented. Batches 1-13 are complete and verified; the
 shared schema-aware repair path is active across the high-frequency structured
 emit tools, including the legacy top-level JSON-string repair wrappers.
 Remaining work is still tracked below, starting with P1 carrier compilers /
@@ -78,6 +78,11 @@ Implementation progress:
   finalizer/reviewer sources with explicit labels. This makes git/diff/log/trace
   and command payloads visible as origin-specific evidence refs instead of
   unlabeled strings or fake repo citations.
+- 2026-05-23 Batch 13 moved observation source-ref formatting into
+  `types.FormatObservationSourceRef` so finalizer and reviewer consume the same
+  labeled external-payload contract. This is a guardrail against future drift
+  where one consumer sees `payload_ref`/`row_set_ref` and another falls back to
+  an unlabeled `raw_ref` string.
 - Remaining work starts at P1 carrier compilers / row-set compilers; the
   completed ref batch deliberately did not change answer materialization policy.
 
@@ -344,6 +349,8 @@ overriding better model-authored descriptions.
 - DONE (Batch 12): preserve typed `row_set_ref` and `page_ref` dimensions in the
   observation ledger and render them explicitly in finalizer/reviewer prompt
   sources.
+- DONE (Batch 13): centralize source-ref formatting so all downstream
+  prompt/reviewer consumers present the same labeled external payload contract.
 - Remaining: add automatic row-set artifact creation for very large compiled
   carriers and selected high-salience row expansion policies.
 

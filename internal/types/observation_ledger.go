@@ -745,6 +745,58 @@ func sourceRefForToolResult(origin AnswerEvidenceOrigin, result ToolResult, inde
 	return ref
 }
 
+// FormatObservationSourceRef renders an origin-specific source address for
+// downstream prompts. It deliberately labels every field so external payloads
+// are not mistaken for current-source file:line citations.
+func FormatObservationSourceRef(ref ObservationSourceRef, maxValueLen int) string {
+	parts := make([]string, 0, 8)
+	if ref.Kind != ObservationSourceUnknown {
+		parts = append(parts, "kind="+string(ref.Kind))
+	}
+	appendPart := func(key, value string) {
+		if value = strings.TrimSpace(value); value != "" {
+			parts = append(parts, key+"="+clampObservationSourceRefValue(value, maxValueLen))
+		}
+	}
+	appendPart("repo", ref.Repo)
+	appendPart("path", ref.Path)
+	appendPart("commit", ref.Commit)
+	appendPart("range", ref.Range)
+	appendPart("pathspec", ref.Pathspec)
+	appendPart("command", ref.Command)
+	appendPart("payload_ref", ref.PayloadRef)
+	appendPart("row_set_ref", ref.RowSetRef)
+	appendPart("page_ref", ref.PageRef)
+	if raw := strings.TrimSpace(ref.RawRef); raw != "" &&
+		raw != strings.TrimSpace(ref.PayloadRef) &&
+		raw != strings.TrimSpace(ref.RowSetRef) &&
+		raw != strings.TrimSpace(ref.PageRef) {
+		appendPart("raw_ref", raw)
+	}
+	appendPart("artifact_id", ref.ArtifactID)
+	appendPart("artifact_kind", ref.ArtifactKind)
+	appendPart("url", ref.URL)
+	appendPart("server", ref.Server)
+	appendPart("resource_uri", ref.ResourceURI)
+	appendPart("connector", ref.Connector)
+	if len(parts) == 0 {
+		return "unknown"
+	}
+	return strings.Join(parts, " | ")
+}
+
+func clampObservationSourceRefValue(value string, max int) string {
+	value = strings.TrimSpace(value)
+	if max <= 0 {
+		return value
+	}
+	runes := []rune(value)
+	if len(runes) <= max {
+		return value
+	}
+	return strings.TrimSpace(string(runes[:max])) + "...[truncated]"
+}
+
 func compactToolResultRange(order, count string) string {
 	order = strings.TrimSpace(order)
 	count = strings.TrimSpace(count)

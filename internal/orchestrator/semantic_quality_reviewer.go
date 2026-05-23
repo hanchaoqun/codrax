@@ -780,37 +780,7 @@ func semanticObservationSummaries(ledger types.ObservationLedger, rm *types.Requ
 }
 
 func semanticObservationSource(ref types.ObservationSourceRef) string {
-	var parts []string
-	if ref.Kind != types.ObservationSourceUnknown {
-		parts = append(parts, "kind="+string(ref.Kind))
-	}
-	appendPart := func(key, value string) {
-		if value = strings.TrimSpace(value); value != "" {
-			parts = append(parts, key+"="+clampSemanticObservationText(value, 90))
-		}
-	}
-	appendPart("repo", ref.Repo)
-	appendPart("path", ref.Path)
-	appendPart("commit", ref.Commit)
-	appendPart("range", ref.Range)
-	appendPart("pathspec", ref.Pathspec)
-	appendPart("command", ref.Command)
-	appendPart("payload_ref", ref.PayloadRef)
-	appendPart("row_set_ref", ref.RowSetRef)
-	appendPart("page_ref", ref.PageRef)
-	if raw := strings.TrimSpace(ref.RawRef); raw != "" &&
-		raw != strings.TrimSpace(ref.PayloadRef) &&
-		raw != strings.TrimSpace(ref.RowSetRef) &&
-		raw != strings.TrimSpace(ref.PageRef) {
-		appendPart("raw_ref", raw)
-	}
-	appendPart("artifact_id", ref.ArtifactID)
-	appendPart("artifact_kind", ref.ArtifactKind)
-	appendPart("url", ref.URL)
-	appendPart("server", ref.Server)
-	appendPart("resource_uri", ref.ResourceURI)
-	appendPart("connector", ref.Connector)
-	return strings.Join(parts, " | ")
+	return types.FormatObservationSourceRef(ref, 90)
 }
 
 func semanticObservationSpan(span types.ObservationSpan) string {
