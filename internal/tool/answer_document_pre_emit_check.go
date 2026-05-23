@@ -1604,13 +1604,14 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 	if len(refs) == 0 {
 		return 0
 	}
+	visibleSurface := preEmitVisibleAnswerSurface(doc)
 	displayRows := aggregateMemberSetDisplayRowsByFactIndex(ctx)
 	fixed := 0
 	for _, ref := range refs {
 		fact := ref.Fact
 		if preEmitAggregateMemberSetIsScalarCountSupport(ctx, fact) ||
 			len(fact.Members) == 0 ||
-			preEmitStructuredMemberBlockCoversFact(doc, fact) {
+			preEmitAnswerDocumentCoversAggregateMemberSetFact(doc, ctx, fact, visibleSurface) {
 			continue
 		}
 		if len(fact.Members) == 1 && preEmitPrincipalStructuredBlockClaimsAggregateCategory(doc, fact) {
@@ -1664,6 +1665,36 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 		}
 	}
 	return fixed
+}
+
+func preEmitAnswerDocumentCoversAggregateMemberSetFact(doc *types.AnswerDocumentV2, ctx *types.BusContext, fact types.AnswerAggregateFact, surface string) bool {
+	if preEmitStructuredMemberBlockCoversFact(doc, fact) {
+		return true
+	}
+	if doc == nil || len(fact.Members) == 0 || strings.TrimSpace(surface) == "" {
+		return false
+	}
+	for idx, member := range fact.Members {
+		if !preEmitAggregateMemberAppearsInDocument(member, doc, surface) {
+			return false
+		}
+		if !preEmitAggregateMemberLocationAppearsInSurface(fact, idx, member, ctx, surface) {
+			return false
+		}
+	}
+	return true
+}
+
+func preEmitAggregateMemberLocationAppearsInSurface(fact types.AnswerAggregateFact, memberIdx int, member string, ctx *types.BusContext, surface string) bool {
+	cit, ok := citationForAggregateMemberSetMember(fact, memberIdx, member, ctx)
+	if !ok {
+		return false
+	}
+	file := strings.TrimSpace(cit.File)
+	if file == "" || cit.Line <= 0 {
+		return false
+	}
+	return strings.Contains(surface, fmt.Sprintf("%s:%d", file, cit.Line))
 }
 
 func preEmitPrincipalStructuredBlockClaimsAggregateCategory(doc *types.AnswerDocumentV2, fact types.AnswerAggregateFact) bool {

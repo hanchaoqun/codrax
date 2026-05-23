@@ -37,6 +37,14 @@ Implementation progress:
   `member_notes[]` now enter `ObservationLedger.RichNotes` ahead of dry member
   names, so finalizer/reviewer prompt budget preserves explorer-authored
   explanations instead of only seeing mechanical row ids.
+- 2026-05-23 Batch 8 tightened the append-only system-supplement boundary:
+  `normalizeAggregateMemberSetCarriers` now reuses the full visible-answer
+  member coverage check before appending deterministic aggregate-member blocks.
+  If the model already rendered every accepted member with its typed location
+  in prose, table text, or structured items, the runtime does not add a
+  duplicate dry carrier. This keeps hard exhaustive/relation obligations
+  available for truly missing members while avoiding a second system-generated
+  answer surface.
 - Remaining work starts at P1 carrier compilers / row-set references; the first
   batch deliberately did not change answer materialization policy.
 

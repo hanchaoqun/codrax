@@ -1519,6 +1519,46 @@ func TestNormalizePrincipalEnumerationRowBlocks_RuntimeArtifactGoroutineShorthan
 	}
 }
 
+func TestNormalizeAggregateMemberSetCarriers_VisibleProseCoveragePreventsDuplicateCarrier(t *testing.T) {
+	mu := types.NewMutableState("列出完整公开函数")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "公开函数",
+		Value:   "3",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Eval", "EvalAll", "RegisteredKinds"},
+		SupportRefs: []string{
+			"Eval @ internal/analysis/criterion/eval.go:15",
+			"EvalAll @ internal/analysis/criterion/eval.go:36",
+			"RegisteredKinds @ internal/analysis/criterion/grammar.go:118",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "完整公开函数"},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "answer",
+		Kind: types.BlockSummary,
+		Text: "公开函数完整包含 Eval @ internal/analysis/criterion/eval.go:15、EvalAll @ internal/analysis/criterion/eval.go:36 和 RegisteredKinds @ internal/analysis/criterion/grammar.go:118；模型已在主回答中解释三者职责。",
+	}}}
+
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
+		t.Fatalf("model-authored visible prose already covers every member; system carrier must not duplicate it, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if len(doc.Blocks) != 1 {
+		t.Fatalf("system duplicate carrier appended despite visible coverage: %+v", doc.Blocks)
+	}
+}
+
 func enumEvidence(id, symbol, source string, line int, summary string) types.EvidenceItem {
 	return types.EvidenceItem{
 		ID:              id,
