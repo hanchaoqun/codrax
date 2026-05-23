@@ -1708,6 +1708,18 @@ func TestGitShow(t *testing.T) {
 }
 
 func TestGitLog(t *testing.T) {
+	t.Run("description teaches merge history lane", func(t *testing.T) {
+		desc := (&GitLog{}).Description()
+		for _, want := range []string{"merges_only=true", "first_parent=true", "最近一次合入", "Git metadata is VCS provenance"} {
+			if !strings.Contains(desc, want) {
+				t.Fatalf("git_log description missing %q:\n%s", want, desc)
+			}
+		}
+		if strings.Contains(desc, "--no-stat") {
+			t.Fatalf("git_log description must not suggest unsupported git show flags:\n%s", desc)
+		}
+	})
+
 	t.Run("skip if not in git repo", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		tool := &GitLog{}
@@ -1806,6 +1818,117 @@ func TestGitLog(t *testing.T) {
 		}
 		if result.Success || !strings.Contains(result.Summary, "mutually exclusive") {
 			t.Fatalf("stat+name_only should be rejected, got success=%v summary=%q", result.Success, result.Summary)
+		}
+	})
+
+	t.Run("supports merge and ref filters without shell fragments", func(t *testing.T) {
+		ctx := gitWorktreeFixture(t, "seed\n")
+		run := func(args ...string) string {
+			t.Helper()
+			cmd, cancel := NewGitCommand(nil, args...)
+			defer cancel()
+			cmd.Dir = ctx.RepoRoot
+			cmd.Env = append(os.Environ(),
+				"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
+				"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com")
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("git %v: %v\n%s", args, err, out)
+			}
+			return strings.TrimSpace(string(out))
+		}
+		writeAndCommit := func(name, body, subject string) {
+			t.Helper()
+			if err := os.WriteFile(filepath.Join(ctx.RepoRoot, name), []byte(body), 0o644); err != nil {
+				t.Fatalf("write %s: %v", name, err)
+			}
+			run("add", name)
+			run("commit", "-q", "-m", subject)
+		}
+
+		baseBranch := run("branch", "--show-current")
+		if baseBranch == "" {
+			baseBranch = "master"
+		}
+		writeAndCommit("main.txt", "main\n", "main feature")
+		run("checkout", "-q", "-b", "topic", "HEAD~1")
+		writeAndCommit("topic.txt", "topic\n", "topic feature")
+		run("checkout", "-q", baseBranch)
+		run("merge", "--no-ff", "-q", "-m", "merge topic feature", "topic")
+
+		tool := &GitLog{}
+		for _, tc := range []struct {
+			name    string
+			in      gitLogParams
+			want    string
+			mustNot string
+		}{
+			{
+				name: "latest merge",
+				in: gitLogParams{
+					Count:       1,
+					Format:      "oneline",
+					MergesOnly:  true,
+					FirstParent: true,
+				},
+				want: "merge topic feature",
+			},
+			{
+				name: "exclude merges",
+				in: gitLogParams{
+					Count:    3,
+					Format:   "oneline",
+					NoMerges: true,
+				},
+				want:    "main feature",
+				mustNot: "merge topic feature",
+			},
+			{
+				name: "ref starts history",
+				in: gitLogParams{
+					Count:  1,
+					Format: "oneline",
+					Ref:    "HEAD~1",
+				},
+				want: "main feature",
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				params, _ := json.Marshal(tc.in)
+				result, err := tool.Execute(ctx, params)
+				if err != nil {
+					t.Fatalf("unexpected error: %v", err)
+				}
+				if !result.Success || !strings.Contains(result.Summary, tc.want) {
+					t.Fatalf("git_log %s failed or missed %q: success=%v summary=%q", tc.name, tc.want, result.Success, result.Summary)
+				}
+				for _, want := range []string{"ref=", "merges_only=", "first_parent=", "evidence_origin=vcs_metadata"} {
+					if !strings.Contains(result.Summary, want) {
+						t.Fatalf("git_log %s banner missing %q: %q", tc.name, want, result.Summary)
+					}
+				}
+				if tc.mustNot != "" && strings.Contains(result.Summary, tc.mustNot) {
+					t.Fatalf("git_log %s unexpectedly included %q:\n%s", tc.name, tc.mustNot, result.Summary)
+				}
+			})
+		}
+
+		params, _ := json.Marshal(gitLogParams{MergesOnly: true, NoMerges: true})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Success || !strings.Contains(result.Summary, "merges_only and no_merges are mutually exclusive") {
+			t.Fatalf("merges_only+no_merges should be rejected, got success=%v summary=%q", result.Success, result.Summary)
+		}
+
+		params, _ = json.Marshal(gitLogParams{Ref: "--all"})
+		result, err = tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Success || !strings.Contains(result.Summary, "ref must not start") {
+			t.Fatalf("unsafe ref should be rejected, got success=%v summary=%q", result.Success, result.Summary)
 		}
 	})
 }

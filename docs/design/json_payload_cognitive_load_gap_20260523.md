@@ -202,6 +202,71 @@ Implementation progress:
 - Remaining work starts at P1 carrier compilers / row-set compilers; the
   completed ref batch deliberately did not change answer materialization policy.
 
+## 2026-05-23 Batch 33+ Delivery Queue
+
+This queue is the active implementation ledger after Batches 1-32. It is
+ordered by customer-visible ROI and by architectural leverage. Each batch must
+preserve the same red lines as the earlier work: no hard decisions from
+user/model prose keyword matching, no replacement or deletion of model-authored
+answer content, and no fake current-source `file:line` citations for external
+observations.
+
+- Batch 33 — VCS/git history tool contract. Status: completed.
+  - Add typed `git_log` controls for merge/history questions:
+    `merges_only`, `no_merges`, `first_parent`, and optional `ref`.
+  - Keep these as semantic tool parameters, not shell fragments, and reject
+    only precise invalid combinations such as `merges_only && no_merges`.
+  - Regression coverage: latest merge/last-N commit summaries, pathspec
+    scoping, and no unsupported `git show --no-stat` style guidance leakage.
+  - Delivered in this batch: `git_log` now exposes the typed controls above,
+    rejects only precise invalid combinations / unsafe revision tokens, and has
+    fixture-backed coverage for latest merge, no-merge filtering, explicit ref
+    starting points, pathspec scoping, and tool-description guidance.
+
+- Batch 34 — VCS answer-shape contract. Status: planned.
+  - Treat "recent merge / recent commits / compare commits / explain impact" as
+    VCS narrative evidence unless the user also asks for current-source
+    analysis, diagrams, tests, logs, or trace correlation.
+  - Preserve commit subject/body/stat/name-only summaries as rich observation
+    notes; never collapse a feature-summary answer to only `value=<commit>`.
+  - Mixed history + current-code questions must rank both origins by the typed
+    request shape instead of fixed origin preference.
+
+- Batch 35 — extractor stage boundary. Status: planned.
+  - Ensure extractor completion is based on accepted structured emits or
+    explicit soft-stop policy, not on unknown/unavailable tool calls.
+  - Keep extractor prompts aligned with its actual tool set and existing
+    Observation Ledger handoff; do not introduce another evidence surface.
+
+- Batch 36 — scalar/negative/external handoff closure. Status: planned.
+  - Generalize existing count/scalar aggregate handoff without turning narrative
+    answers into scalar-only answers.
+  - Keep negative observations typed by origin and bounded scope, including git,
+    command, log, trace, and future MCP/web payloads.
+
+- Batch 37 — language-aware source inventory/export semantics. Status:
+  planned.
+  - Reuse repomap language metadata where available instead of Go-only
+    heuristics.
+  - Source inventory supplements remain separate localized system notes and do
+    not replace model tables or prose.
+
+- Batch 38 — runtime artifact origin normalization. Status: planned.
+  - Align git/log/trace/command observation refs, excerpts, and line/span labels
+    so finalizer/reviewer consume the same external-evidence contract.
+  - Preserve pagination through existing blob/row-set mechanisms.
+
+- Batch 39 — system supplement and caveat authority cleanup. Status: planned.
+  - System supplements must be clearly localized and append-only.
+  - Non-critical, non-lossless issues should become bounded notes rather than
+    finalizer rewrites.
+
+- Batch 40 — performance and convergence guards. Status: planned.
+  - Analyzer fast paths and parallel exploration convergence should reduce wait
+    time without changing user intent.
+  - Add regression guards where a future developer could accidentally re-open
+    hard gates from noisy evidence.
+
 ## Scope
 
 This document clusters recurring failures where the model is forced to produce,

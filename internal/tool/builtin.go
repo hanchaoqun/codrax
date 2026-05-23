@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"time"
+	"unicode"
 
 	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/textfmt"
@@ -1980,12 +1981,9 @@ func (t *GitShow) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 	if err := json.Unmarshal(params, &p); err != nil {
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
 	}
-	ref := strings.TrimSpace(p.Ref)
-	if ref == "" {
-		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: "invalid params: ref is required", Timestamp: time.Now()}, nil
-	}
-	if strings.HasPrefix(ref, "-") {
-		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: "invalid params: ref must not start with '-'", Timestamp: time.Now()}, nil
+	ref, refErr := normalizeGitRefParam(p.Ref, true)
+	if refErr != "" {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: refErr, Timestamp: time.Now()}, nil
 	}
 	format := strings.TrimSpace(p.Format)
 	if format == "" {
@@ -2078,17 +2076,21 @@ type GitLog struct {
 }
 
 type gitLogParams struct {
-	Path     string `json:"path,omitempty"`
-	Pathspec string `json:"pathspec,omitempty"`
-	Count    int    `json:"count,omitempty"`
-	Format   string `json:"format,omitempty"`
-	Stat     bool   `json:"stat,omitempty"`
-	NameOnly bool   `json:"name_only,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Pathspec    string `json:"pathspec,omitempty"`
+	Ref         string `json:"ref,omitempty"`
+	Count       int    `json:"count,omitempty"`
+	Format      string `json:"format,omitempty"`
+	Stat        bool   `json:"stat,omitempty"`
+	NameOnly    bool   `json:"name_only,omitempty"`
+	MergesOnly  bool   `json:"merges_only,omitempty"`
+	NoMerges    bool   `json:"no_merges,omitempty"`
+	FirstParent bool   `json:"first_parent,omitempty"`
 }
 
 func (t *GitLog) Name() string { return "git_log" }
 func (t *GitLog) Description() string {
-	return "List recent git commits safely. Use this for latest/last-N history questions; for “最近 N 次提交做了什么/影响是什么” use count=N with format=medium and stat=true (or name_only=true for only changed paths), then optionally git_show one commit for full patch detail. Git metadata is VCS provenance, not source file:line evidence; do not emit_evidence for commit hashes or subjects."
+	return "List recent git commits safely. Use this for latest/last-N history questions; for “最近 N 次提交做了什么/影响是什么” use count=N with format=medium and stat=true (or name_only=true for only changed paths). For “最近一次合入/merge” use merges_only=true, first_parent=true, count=1. Use ref to start from a branch/tag/commit. Then optionally git_show one commit for full patch detail. Git metadata is VCS provenance, not source file:line evidence; do not emit_evidence for commit hashes or subjects."
 }
 
 func (t *GitLog) Parameters() json.RawMessage {
@@ -2097,10 +2099,14 @@ func (t *GitLog) Parameters() json.RawMessage {
   "properties": {
     "path":      {"type": "string",  "description": "Optional repository working directory, resolved under the active repo root; omit for the active repo root. This is not a file pathspec."},
     "pathspec":  {"type": "string",  "description": "Optional repo-relative pathspec to limit commit history, e.g. internal/tool/"},
-    "count":     {"type": "integer", "description": "Number of commits to show (default 10, max 100)"},
-    "format":    {"type": "string",  "description": "Log format: oneline, short, medium, full (default oneline). Use medium with stat=true for commit-impact summaries."},
-    "stat":      {"type": "boolean", "description": "Include --stat changed-file summary for each commit; useful for recent-N feature/impact summaries."},
-    "name_only": {"type": "boolean", "description": "Include --name-only changed paths for each commit without patch text."}
+    "ref":        {"type": "string",  "description": "Optional git revision/ref to start from, e.g. HEAD, main, origin/main, a tag, or a commit hash. Omit for HEAD."},
+    "count":      {"type": "integer", "description": "Number of commits to show (default 10, max 100)"},
+    "format":     {"type": "string",  "description": "Log format: oneline, short, medium, full (default oneline). Use medium with stat=true for commit-impact summaries."},
+    "stat":       {"type": "boolean", "description": "Include --stat changed-file summary for each commit; useful for recent-N feature/impact summaries."},
+    "name_only":  {"type": "boolean", "description": "Include --name-only changed paths for each commit without patch text."},
+    "merges_only":{"type": "boolean", "description": "Only show merge commits (--merges). Use with first_parent=true for recent integration/合入 questions."},
+    "no_merges":  {"type": "boolean", "description": "Exclude merge commits (--no-merges). Mutually exclusive with merges_only."},
+    "first_parent":{"type": "boolean", "description": "Follow only the first-parent history (--first-parent), useful for integration branch summaries and latest merge questions."}
   }
 }`)
 }
@@ -2127,18 +2133,32 @@ func (t *GitLog) Execute(ctx *types.BusContext, params json.RawMessage) (types.T
 	default:
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: "invalid params: format must be oneline, short, medium, or full", Timestamp: time.Now()}, nil
 	}
+	ref, refErr := normalizeGitRefParam(p.Ref, false)
+	if refErr != "" {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: refErr, Timestamp: time.Now()}, nil
+	}
+	if ref == "" {
+		ref = "HEAD"
+	}
 
 	banner := kvBanner("git_log",
 		"path", p.Path,
 		"pathspec", p.Pathspec,
+		"ref", ref,
 		"count", fmt.Sprintf("%d", count),
 		"format", format,
 		"stat", fmt.Sprintf("%t", p.Stat),
 		"name_only", fmt.Sprintf("%t", p.NameOnly),
+		"merges_only", fmt.Sprintf("%t", p.MergesOnly),
+		"no_merges", fmt.Sprintf("%t", p.NoMerges),
+		"first_parent", fmt.Sprintf("%t", p.FirstParent),
 		"evidence_origin", string(types.AnswerEvidenceOriginVCSMetadata),
 	)
 	if p.Stat && p.NameOnly {
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + "invalid params: stat and name_only are mutually exclusive", Timestamp: time.Now()}, nil
+	}
+	if p.MergesOnly && p.NoMerges {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + "invalid params: merges_only and no_merges are mutually exclusive", Timestamp: time.Now()}, nil
 	}
 
 	// Same RepoRoot anchoring as GitDiff above.
@@ -2152,12 +2172,22 @@ func (t *GitLog) Execute(ctx *types.BusContext, params json.RawMessage) (types.T
 	}
 
 	args := []string{"log", fmt.Sprintf("-n%d", count), fmt.Sprintf("--format=%s", format)}
+	if p.FirstParent {
+		args = append(args, "--first-parent")
+	}
+	if p.MergesOnly {
+		args = append(args, "--merges")
+	}
+	if p.NoMerges {
+		args = append(args, "--no-merges")
+	}
 	if p.Stat {
 		args = append(args, "--stat")
 	}
 	if p.NameOnly {
 		args = append(args, "--name-only")
 	}
+	args = append(args, ref)
 	if pathspec != "" {
 		args = append(args, "--", pathspec)
 	}
@@ -2348,6 +2378,28 @@ func normalizeGitHistoryPathspec(s string, repoRoot string) string {
 		return normalized
 	}
 	return cleaned
+}
+
+func normalizeGitRefParam(s string, required bool) (string, string) {
+	ref := strings.TrimSpace(s)
+	if ref == "" {
+		if required {
+			return "", "invalid params: ref is required"
+		}
+		return "", ""
+	}
+	if strings.HasPrefix(ref, "-") {
+		return "", "invalid params: ref must not start with '-'"
+	}
+	if strings.ContainsAny(ref, " \t\r\n") {
+		return "", "invalid params: ref must be a single git revision token"
+	}
+	for _, r := range ref {
+		if unicode.IsControl(r) {
+			return "", "invalid params: ref must not contain control characters"
+		}
+	}
+	return ref, ""
 }
 
 func gitHistorySearchWindow(dir string, count int, windowPath, order string) ([]gitHistorySearchCommit, string) {
