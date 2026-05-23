@@ -455,7 +455,7 @@ type observationRowSetLine struct {
 }
 
 func observationRowSetRefForAggregateFact(writer ObservationRowSetWriter, factIndex int, origin AnswerEvidenceOrigin, fact AnswerAggregateFact) string {
-	if writer == nil || !AnswerAggregateFactCarriesCompleteMemberSet(fact) || len(fact.Members) < observationRowSetMinRows {
+	if writer == nil || observationRowSetStructuredRowCount(fact) < observationRowSetMinRows {
 		return ""
 	}
 	content := observationRowSetJSONLForAggregateFact(fact)
@@ -467,11 +467,12 @@ func observationRowSetRefForAggregateFact(writer ObservationRowSetWriter, factIn
 }
 
 func observationRowSetJSONLForAggregateFact(fact AnswerAggregateFact) string {
-	if len(fact.Members) == 0 {
+	rows := observationRowSetMembersForAggregateFact(fact)
+	if len(rows) == 0 {
 		return ""
 	}
 	var b strings.Builder
-	for i, member := range fact.Members {
+	for i, member := range rows {
 		line := observationRowSetLine{
 			Index:  i,
 			Member: strings.TrimSpace(member),
@@ -496,11 +497,40 @@ func observationRowSetJSONLForAggregateFact(fact AnswerAggregateFact) string {
 	return b.String()
 }
 
+func observationRowSetStructuredRowCount(fact AnswerAggregateFact) int {
+	if AnswerAggregateFactCarriesCompleteMemberSet(fact) {
+		return len(fact.Members)
+	}
+	if observationRowSetCarriesCompleteExcludedSet(fact) {
+		return len(fact.Excluded)
+	}
+	return 0
+}
+
+func observationRowSetMembersForAggregateFact(fact AnswerAggregateFact) []string {
+	if observationRowSetCarriesCompleteExcludedSet(fact) {
+		return cloneStringSlice(fact.Excluded)
+	}
+	if AnswerAggregateFactCarriesCompleteMemberSet(fact) {
+		return cloneStringSlice(fact.Members)
+	}
+	return nil
+}
+
+func observationRowSetCarriesCompleteExcludedSet(fact AnswerAggregateFact) bool {
+	if fact.Kind != AnswerAggregateExcluded || len(fact.Excluded) == 0 {
+		return false
+	}
+	want, ok, err := parseAggregateCountValue(fact)
+	return err == nil && ok && want == len(fact.Excluded)
+}
+
 func observationRowSetSupportRefAt(fact AnswerAggregateFact, idx int, member string) string {
 	if idx < 0 || len(fact.SupportRefs) == 0 {
 		return ""
 	}
-	if len(fact.SupportRefs) == len(fact.Members) && idx < len(fact.SupportRefs) {
+	rowCount := observationRowSetStructuredRowCount(fact)
+	if len(fact.SupportRefs) == rowCount && idx < len(fact.SupportRefs) {
 		return strings.TrimSpace(fact.SupportRefs[idx])
 	}
 	memberKey := AnswerAggregateMemberSurfaceKey(member)

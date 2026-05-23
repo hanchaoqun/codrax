@@ -2,7 +2,7 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-29 are complete and verified; the
+Status: partially implemented. Batches 1-30 are complete and verified; the
 shared schema-aware repair path is active across the high-frequency structured
 emit tools, including the legacy top-level JSON-string repair wrappers.
 Remaining work is still tracked below, starting with P1 carrier compilers /
@@ -181,6 +181,12 @@ Implementation progress:
   `replace_blocks` / `add_blocks` entries are coalesced before semantic
   validation. Same-id blocks with different payloads are still rejected, so the
   runtime never chooses between conflicting model-authored answer variants.
+- 2026-05-23 Batch 30 extended automatic row-set artifact creation from complete
+  member carriers to exact `excluded_count.excluded[]` carriers. Exact exclusion
+  lists now get the same JSONL `row_set_ref` treatment as large member sets,
+  while partial exclusions remain inline/count-only and do not create row-set
+  artifacts. This keeps "present plus absent/excluded" mixed answers from
+  forcing the model to serialize large negative-side row lists.
 - Remaining work starts at P1 carrier compilers / row-set compilers; the
   completed ref batch deliberately did not change answer materialization policy.
 
@@ -445,6 +451,10 @@ overriding better model-authored descriptions.
   a row-set JSONL artifact through an optional writer, keeping row identity,
   support refs, and rich member notes page-able without changing the model's
   visible answer.
+- DONE (Batch 30): exact large `excluded_count.excluded[]` aggregate facts now
+  use the same row-set artifact path. Partial exclusion lists are deliberately
+  ignored by the writer because they are examples/support, not a complete row
+  carrier.
 
 ### P2. PayloadRef / RowSetRef
 
@@ -464,10 +474,10 @@ overriding better model-authored descriptions.
 - DONE (Batch 14): attach stable runtime-artifact ids to log/trace ledger rows
   so existing artifact-local spans become usable downstream without fake
   `file:line` grounding.
-- PARTIAL (Batch 28): automatic row-set artifact creation exists for large
-  complete `member_set` aggregate carriers. Remaining work is selected
-  high-salience row expansion policies for other carrier families, driven by
-  eval data rather than broad automatic table generation.
+- PARTIAL (Batches 28, 30): automatic row-set artifact creation exists for
+  large complete member carriers and exact exclusion carriers. Remaining work
+  is selected high-salience row expansion policies for other carrier families,
+  driven by eval data rather than broad automatic table generation.
 
 ### P2. Typed repair hints and transaction updates
 

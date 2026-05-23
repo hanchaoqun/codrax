@@ -609,6 +609,64 @@ func TestCompileObservationLedger_RowSetSupportRefsAvoidIndexMismatches(t *testi
 	}
 }
 
+func TestCompileObservationLedger_AutoCreatesLargeExcludedRowSetRef(t *testing.T) {
+	excluded := make([]string, 0, observationRowSetMinRows)
+	refs := make([]string, 0, observationRowSetMinRows)
+	for i := 0; i < observationRowSetMinRows; i++ {
+		excluded = append(excluded, fmt.Sprintf("legacy-%02d", i))
+		refs = append(refs, fmt.Sprintf("legacy-%02d: internal/types/legacy.go:%d", i, i+20))
+	}
+	var seenContent string
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		AggregateFacts: []AnswerAggregateFact{{
+			Kind:        AnswerAggregateExcluded,
+			Label:       "excluded legacy constants",
+			Value:       fmt.Sprintf("%d", len(excluded)),
+			Role:        AnswerAggregateRoleSupportingCoverage,
+			Excluded:    excluded,
+			SupportRefs: refs,
+		}},
+		RowSetWriter: func(name, content string) string {
+			seenContent = content
+			return "blob://rows/" + name
+		},
+	})
+	got := findObservationRecord(t, ledger, "aggregate:0#current_source")
+	if got.SourceRef.RowSetRef != "blob://rows/aggregate-000-current_source-row-set.jsonl" {
+		t.Fatalf("row_set_ref not attached for exact excluded set: %+v", got.SourceRef)
+	}
+	for _, want := range []string{
+		`"member":"legacy-00"`,
+		`"support_ref":"legacy-00: internal/types/legacy.go:20"`,
+		`"label":"excluded legacy constants"`,
+		`"kind":"excluded_count"`,
+	} {
+		if !strings.Contains(seenContent, want) {
+			t.Fatalf("excluded row-set content missing %q:\n%s", want, seenContent)
+		}
+	}
+}
+
+func TestCompileObservationLedger_PartialExcludedSetDoesNotCreateRowSetRef(t *testing.T) {
+	called := false
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		AggregateFacts: []AnswerAggregateFact{{
+			Kind:     AnswerAggregateExcluded,
+			Label:    "partial excluded",
+			Value:    "3",
+			Excluded: []string{"legacy-00", "legacy-01"},
+		}},
+		RowSetWriter: func(name, content string) string {
+			called = true
+			return "blob://rows/" + name
+		},
+	})
+	got := findObservationRecord(t, ledger, "aggregate:0#current_source")
+	if called || got.SourceRef.RowSetRef != "" {
+		t.Fatalf("partial excluded set should stay inline-only, called=%v ref=%q", called, got.SourceRef.RowSetRef)
+	}
+}
+
 func TestCompileObservationLedger_ProjectsToolBannerCoordinates(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{ToolResults: []ToolResult{
 		{
