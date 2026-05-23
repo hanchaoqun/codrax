@@ -6503,6 +6503,9 @@ func (e *explorerEvaluator) needsStructuredMemberSetHandoff(ctx *types.AgentCont
 		return false
 	}
 	rm := ir.RequestModel
+	if types.RequiresRelationMemberSetHandoff(rm) {
+		return true
+	}
 	if !types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
 		return false
 	}
@@ -6565,7 +6568,10 @@ func explorerReadinessFaces(
 }
 
 func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopSignal {
-	if e.midLoopCompletionReadySent || e.phase != 1 || e.investigationComplete {
+	if e.midLoopCompletionReadySent || e.investigationComplete {
+		return LoopSignal{}
+	}
+	if e.phase != 1 && !e.needsStructuredMemberSetHandoff(nil) {
 		return LoopSignal{}
 	}
 	if obs.Iteration < e.heuristics.MidLoopMinIteration {
@@ -6636,7 +6642,7 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 		fmt.Fprintf(&b, "- answer-ready faces: %s\n", strings.Join(readiness.ReadyFaces, ", "))
 	}
 	if e.needsStructuredMemberSetHandoff(nil) {
-		b.WriteString("- this is an exhaustive principal-member enumeration; your successful close must include `aggregate_facts` with kind=`member_set`, numeric `value`, and every principal member in `members`\n")
+		b.WriteString("- this answer needs a structured principal `member_set`; your successful close must include `aggregate_facts` with kind=`member_set`, numeric `value`, and every principal member in `members`\n")
 	}
 	b.WriteString("Only continue reading if one specific unresolved branch would still change the final answer.")
 	return LoopSignal{

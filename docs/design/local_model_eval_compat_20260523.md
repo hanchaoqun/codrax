@@ -1956,6 +1956,57 @@ Batch 20 task list:
       and full `go test ./...`.
 - [x] Commit and push Batch 20.
 
+## 2026-05-24 Batch 21 - Typed Set-Handoff Completion Convergence
+
+Problem statement:
+
+- After Batch 19/20 the local model can surface the right relation/enumeration
+  evidence and can hand off value-literal members correctly, but explorer can
+  still spend extra rounds widening search before it closes.
+- The existing completion-ready lane is already the right mechanism: first emit
+  an advisory close-now hint, then escalate through the existing schema/runtime
+  restricted tool surface if the model ignores it.
+- The observed gap is that the generic completion-ready signal is depth-phase
+  only. Typed relation/enumeration questions can collect enough structured
+  member evidence during the breadth/focused-search part of a dispatch, then
+  keep widening solely because the convergence lane is not eligible yet.
+
+Design:
+
+- Reuse the existing `postCompletionReadySignal`,
+  `postCompletionReadyEscalationSignal`, `FilterToolSchemas`, and
+  `validateExplorerToolBoundary` lanes. Do not create a parallel hard-stop
+  mechanism.
+- Keep ordinary breadth exploration unchanged. Early convergence before depth
+  is allowed only when the request carries a typed structured set-handoff
+  obligation:
+  - `RequiresRelationMemberSetHandoff`, or
+  - the existing exhaustive-enumeration member-set handoff predicate.
+- The same existing readiness gates must still pass:
+  - a successful `emit_evidence` has occurred;
+  - tool-source diversity, file coverage, and evidence-quality readiness are
+    all satisfied;
+  - there is a terminal evidence carrier.
+- The hint must explicitly preserve the structured handoff contract by telling
+  the model that the successful close needs `aggregate_facts.kind=member_set`.
+- This is not a semantic answer decision. The system does not infer members
+  from user text or assistant prose; it only changes when the already-existing
+  close-now lane becomes eligible.
+
+Batch 21 task list:
+
+- [x] Add a regression proving typed relation set evidence can trigger
+      completion-ready before depth phase.
+- [x] Add a negative regression proving ordinary non-set breadth exploration
+      still does not close early.
+- [x] Extend `needsStructuredMemberSetHandoff` to reuse the relation handoff
+      predicate as well as exhaustive enumeration.
+- [x] Gate early completion-ready with typed set-handoff eligibility, not with
+      prose keywords.
+- [x] Run focused explorer tests, affected agent/tool/types tests, `make build`,
+      and full `go test ./...`.
+- [x] Commit and push Batch 21.
+
 ## Open Questions
 
 - Whether `emit_evidence.anchor_kind` auto-repair should run inside

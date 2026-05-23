@@ -5864,6 +5864,137 @@ func TestObserveMidLoop_CompletionReadyHint(t *testing.T) {
 	}
 }
 
+func TestObserveMidLoop_CompletionReadyHint_AllowsTypedRelationSetBeforeDepth(t *testing.T) {
+	newReadResult := func(path string) types.ToolResult {
+		return types.ToolResult{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[" + path + ": showing lines 1-30 of 120]\npackage fixture\n",
+		}
+	}
+
+	eval := &explorerEvaluator{
+		phase:        0,
+		heuristics:   types.ExploreHeuristics{MidLoopMinIteration: 2},
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		analysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsRelationalLookup:    true,
+					IsCategoryEnumeration: true,
+				},
+			},
+		},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceRegistration,
+				Subject:         "SubExplorer",
+				Predicate:       "registered_as",
+				Object:          "explorer",
+				Source:          "internal/agent/subagent.go",
+				AnchorKind:      types.AnchorDefinition,
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceRelationship,
+				Subject:         "buildToolSchemas",
+				Predicate:       "exposes",
+				Object:          "propose_sub_agents",
+				Source:          "internal/agent/agent.go",
+				AnchorKind:      types.AnchorCall,
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+		investigationNotes: []string{
+			"[REGISTRATION] SubExplorer is the typed member that registers the explorer relation.",
+			"[DIRECT] buildToolSchemas exposes propose_sub_agents for matching typed agents.",
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "internal/agent/subagent.go\ninternal/agent/agent.go"},
+		newReadResult("internal/agent/subagent.go"),
+		newReadResult("internal/agent/agent.go"),
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      3,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("typed relation set should be allowed to converge before depth, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.completion-ready" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "member_set") || !strings.Contains(sig.Hint, "aggregate_facts") {
+		t.Fatalf("typed relation close hint should preserve structured member_set contract, got: %s", sig.Hint)
+	}
+}
+
+func TestObserveMidLoop_CompletionReadyHint_DoesNotClosePlainBreadthEarly(t *testing.T) {
+	newReadResult := func(path string) types.ToolResult {
+		return types.ToolResult{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[" + path + ": showing lines 1-30 of 120]\npackage fixture\n",
+		}
+	}
+
+	eval := &explorerEvaluator{
+		phase:        0,
+		heuristics:   types.ExploreHeuristics{MidLoopMinIteration: 2},
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		analysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+			},
+		},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceMechanism,
+				Subject:         "BuildAnalysisIR",
+				Predicate:       "drives",
+				Object:          "analysis IR construction",
+				Source:          "internal/agent/analyzer.go",
+				AnchorKind:      types.AnchorDefinition,
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "AnalysisIR",
+				Predicate:       "defined_in",
+				Object:          "internal/types/analysis_ir.go",
+				Source:          "internal/types/analysis_ir.go",
+				AnchorKind:      types.AnchorDefinition,
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+		investigationNotes: []string{
+			"[DIRECT] BuildAnalysisIR is the structured IR entrypoint for analyzer dispatch.",
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "internal/agent/analyzer.go\ninternal/types/analysis_ir.go"},
+		newReadResult("internal/agent/analyzer.go"),
+		newReadResult("internal/types/analysis_ir.go"),
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      3,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if sig.HintRequested && sig.HintKey == "explorer.mid-loop.completion-ready" {
+		t.Fatalf("plain breadth exploration must not use typed set early convergence, got %+v", sig)
+	}
+}
+
 func TestExplorerReadinessFaces_RecordsReadyAndMissing(t *testing.T) {
 	ready, missing := explorerReadinessFaces(
 		true,  // tool diversity
