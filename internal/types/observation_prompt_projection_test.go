@@ -131,6 +131,96 @@ func TestProjectObservationPromptRecords_OriginSpecificPrincipalGetsRicherBudget
 	}
 }
 
+func TestProjectObservationPromptRecords_PreservesExternalExactDetailsAcrossOrigins(t *testing.T) {
+	zero := 0
+	records := []ObservationRecord{
+		{
+			ID:         "log:observation:0",
+			Origin:     AnswerEvidenceOriginRuntimeArtifact,
+			Role:       AnswerAggregateRolePrincipalAnswer,
+			SourceRef:  ObservationSourceRef{Kind: ObservationSourceRuntimeArtifact, ArtifactID: "attached_log", ArtifactKind: "log", PayloadRef: "blob://payload/log.txt"},
+			Span:       ObservationSpan{LineStart: 3, LineEnd: 5},
+			Summary:    "WARN appears in attached artifact",
+			RawExcerpt: "3│ WARN retrying slow dependency",
+		},
+		{
+			ID:          "aggregate:command",
+			Origin:      AnswerEvidenceOriginCommandMeasurement,
+			Role:        AnswerAggregateRolePrincipalAnswer,
+			SourceRef:   ObservationSourceRef{Kind: ObservationSourceCommand, Command: "wc -l trace.log", PayloadRef: "blob://payload/wc.txt", RowSetRef: "blob://rows/wc.jsonl"},
+			Span:        ObservationSpan{Row: 1},
+			Value:       "70693",
+			ResultCount: &zero,
+			Summary:     "deterministic command count",
+		},
+		{
+			ID:        "index:repo",
+			Origin:    AnswerEvidenceOriginCrossRepoIndex,
+			Role:      AnswerAggregateRoleSupportingCoverage,
+			SourceRef: ObservationSourceRef{Kind: ObservationSourceCrossRepoIndex, Repo: "frameworks/base", Path: "services/core"},
+			Summary:   "cross-repo index node",
+		},
+		{
+			ID:        "doc:external",
+			Origin:    AnswerEvidenceOriginExternalDocument,
+			Role:      AnswerAggregateRoleSupportingCoverage,
+			SourceRef: ObservationSourceRef{Kind: ObservationSourceExternalDocument, ResourceURI: "drive://doc/123", PageRef: "page=2"},
+			Span:      ObservationSpan{Paragraph: 7},
+			Summary:   "external design paragraph",
+		},
+		{
+			ID:        "web:page",
+			Origin:    AnswerEvidenceOriginWebPage,
+			Role:      AnswerAggregateRoleSupportingCoverage,
+			SourceRef: ObservationSourceRef{Kind: ObservationSourceWebPage, URL: "https://example.test/spec", FetchedAt: "2026-05-23T10:00:00Z"},
+			Span:      ObservationSpan{Selector: "#api-contract"},
+			Summary:   "web page section",
+		},
+		{
+			ID:        "mcp:0",
+			Origin:    AnswerEvidenceOriginMCPResource,
+			Role:      AnswerAggregateRoleSupportingCoverage,
+			SourceRef: ObservationSourceRef{Kind: ObservationSourceMCPResource, Server: "docs", ResourceURI: "mcp://docs/spec", RawRef: "mcp://docs/spec#v1"},
+			Span:      ObservationSpan{JSONPointer: "/items/0/title"},
+			Summary:   "MCP resource row",
+		},
+		{
+			ID:        "connector:0",
+			Origin:    AnswerEvidenceOriginConnectorResource,
+			Role:      AnswerAggregateRoleSupportingCoverage,
+			SourceRef: ObservationSourceRef{Kind: ObservationSourceConnector, Connector: "jira", ResourceURI: "jira://ISSUE-7"},
+			Span:      ObservationSpan{Row: 2},
+			Summary:   "connector issue row",
+		},
+	}
+	got := ProjectObservationPromptRecords(records, nil, nil, DefaultObservationPromptProjectionOptions(len(records)))
+	byID := map[string]ObservationPromptRecord{}
+	for _, record := range got {
+		byID[record.ID] = record
+	}
+	checks := map[string][]string{
+		"log:observation:0": {"kind=runtime_artifact", "artifact_id=attached_log", "payload_ref=blob://payload/log.txt", "lines 3-5"},
+		"aggregate:command": {"kind=command", "command=wc -l trace.log", "row_set_ref=blob://rows/wc.jsonl", "row 1", "70693"},
+		"index:repo":        {"kind=cross_repo_index", "repo=frameworks/base", "path=services/core"},
+		"doc:external":      {"kind=external_document", "resource_uri=drive://doc/123", "page_ref=page=2", "paragraph 7"},
+		"web:page":          {"kind=web_page", "url=https://example.test/spec", "selector \"#api-contract\""},
+		"mcp:0":             {"kind=mcp_resource", "server=docs", "resource_uri=mcp://docs/spec", "json \"/items/0/title\""},
+		"connector:0":       {"kind=connector_resource", "connector=jira", "resource_uri=jira://ISSUE-7", "row 2"},
+	}
+	for id, wants := range checks {
+		record, ok := byID[id]
+		if !ok {
+			t.Fatalf("missing projected record %s in %+v", id, got)
+		}
+		haystack := record.Source + " " + record.Span + " " + record.Value + " " + record.Summary + " " + record.Excerpt
+		for _, want := range wants {
+			if !strings.Contains(haystack, want) {
+				t.Fatalf("record %s lost exact external detail %q: %+v", id, want, record)
+			}
+		}
+	}
+}
+
 func TestFormatObservationSpan_CoversExternalCoordinates(t *testing.T) {
 	got := FormatObservationSpan(ObservationSpan{
 		OldLine:     12,
