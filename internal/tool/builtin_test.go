@@ -1401,6 +1401,85 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
+	t.Run("narrow files_only result ranks required file before generic production", func(t *testing.T) {
+		ctx := newBusContext()
+		ctx.AnalysisIR = &types.AnalysisIR{
+			EvidencePlan: types.EvidencePlan{
+				RequiredFiles: []string{"internal/agent/subagent.go"},
+			},
+		}
+		raw := strings.Join([]string{
+			"internal/tool/defaults.go",
+			"internal/agent/subagent.go",
+			"internal/skill/defaults.go",
+		}, "\n")
+		got := annotateGrepOutputByRelevance(ctx, grepToolParams{FilesOnly: true}, raw)
+		if strings.Contains(got, "[grep retrieval governor]") {
+			t.Fatalf("narrow annotation must not add governor metadata:\n%s", got)
+		}
+		requiredIdx := strings.Index(got, "internal/agent/subagent.go")
+		toolIdx := strings.Index(got, "internal/tool/defaults.go")
+		if requiredIdx < 0 || toolIdx < 0 || requiredIdx > toolIdx {
+			t.Fatalf("required file should rank before generic production:\n%s", got)
+		}
+		if !strings.Contains(got, "[grep production matches]") {
+			t.Fatalf("reordered narrow output should use the existing production section header:\n%s", got)
+		}
+	})
+
+	t.Run("narrow line result ranks read evidence before generic production", func(t *testing.T) {
+		ctx := newBusContext()
+		ctx.Mutable = types.NewMutableState("relation lookup")
+		ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+			ReadFiles: []string{"internal/agent/subagent.go"},
+		})
+		raw := strings.Join([]string{
+			"internal/tool/defaults.go:6:func RegisterDefaults(r *Registry) {",
+			"internal/agent/subagent.go:63:func RegisterDefaultSubAgents(r *SubAgentRegistry, deps *Dependencies) {",
+			"internal/skill/defaults.go:12:func RegisterDefaults(r *Registry) {",
+			"internal/tool/defaults_test.go:8:func TestRegisterDefaults(t *testing.T) {",
+		}, "\n")
+		got := annotateGrepOutputByRelevance(ctx, grepToolParams{}, raw)
+		if strings.Contains(got, "[grep retrieval governor]") {
+			t.Fatalf("narrow annotation must not add governor metadata:\n%s", got)
+		}
+		readIdx := strings.Index(got, "internal/agent/subagent.go:63")
+		genericIdx := strings.Index(got, "internal/tool/defaults.go:6")
+		auxIdx := strings.Index(got, "[grep auxiliary matches - supporting context, not production proof]")
+		if readIdx < 0 || genericIdx < 0 || readIdx > genericIdx {
+			t.Fatalf("read/evidence file should rank before generic production:\n%s", got)
+		}
+		if auxIdx < 0 || auxIdx < strings.Index(got, "internal/skill/defaults.go:12") {
+			t.Fatalf("auxiliary section should remain after production matches:\n%s", got)
+		}
+	})
+
+	t.Run("legacy path-role wrapper stays removed from grep output path", func(t *testing.T) {
+		srcBytes, err := os.ReadFile("builtin.go")
+		if err != nil {
+			t.Fatalf("read builtin.go: %v", err)
+		}
+		src := string(srcBytes)
+		if strings.Contains(src, "func annotateGrepOutputByPathRole(") {
+			t.Fatal("legacy annotateGrepOutputByPathRole wrapper should stay deleted; use annotateGrepOutputByRelevance")
+		}
+		start := strings.Index(src, "func finalizeGrepOutput(")
+		if start < 0 {
+			t.Fatal("finalizeGrepOutput not found")
+		}
+		endRel := strings.Index(src[start:], "\n}\n\nfunc compactBroadGrepOutput(")
+		if endRel < 0 {
+			t.Fatal("finalizeGrepOutput end marker not found")
+		}
+		body := src[start : start+endRel]
+		if strings.Contains(body, "annotateGrepOutputByPathRole") {
+			t.Fatalf("finalizeGrepOutput must not use legacy path-role wrapper:\n%s", body)
+		}
+		if !strings.Contains(body, "annotateGrepOutputByRelevance") {
+			t.Fatalf("finalizeGrepOutput must call relevance-aware annotation:\n%s", body)
+		}
+	})
+
 	// Noise exclusion tests: grep should skip directories that produce
 	// noise without useful signal (.git, logs, memory, node_modules, etc.)
 

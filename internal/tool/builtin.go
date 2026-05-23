@@ -1155,7 +1155,7 @@ const (
 )
 
 func finalizeGrepOutput(ctx *types.BusContext, params grepToolParams, countBanner, paramsBanner, rawOutput string) (summary, ref string) {
-	annotated := annotateGrepOutputByPathRole(ctx, params.FilesOnly, rawOutput)
+	annotated := annotateGrepOutputByRelevance(ctx, params, rawOutput)
 	if compacted, rawRef, ok := compactBroadGrepOutput(ctx, params, countBanner, paramsBanner, rawOutput, annotated); ok {
 		return compacted, rawRef
 	}
@@ -1547,31 +1547,21 @@ func writeCappedGrepSection(b *strings.Builder, header string, lines []string, c
 	}
 }
 
-func annotateGrepOutputByPathRole(ctx *types.BusContext, filesOnly bool, output string) string {
+func annotateGrepOutputByRelevance(ctx *types.BusContext, params grepToolParams, output string) string {
 	if ctx == nil || strings.TrimSpace(output) == "" {
 		return output
 	}
-	var production []string
-	var auxiliary []string
-	var passthrough []string
-	for _, raw := range strings.Split(output, "\n") {
-		line := strings.TrimSpace(raw)
-		if line == "" {
-			continue
-		}
-		if path, ok := grepOutputLinePath(line, filesOnly); ok {
-			if types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(path)) {
-				auxiliary = append(auxiliary, raw)
-			} else {
-				production = append(production, raw)
-			}
-			continue
-		}
-		passthrough = append(passthrough, raw)
-	}
-	if len(auxiliary) == 0 {
+	production, auxiliary, passthrough, _ := partitionGrepOutputByRelevance(ctx, params, output)
+	if len(production) == 0 && len(auxiliary) == 0 {
 		return output
 	}
+	if len(auxiliary) == 0 && len(passthrough) == 0 && grepLinesEqual(production, grepNonEmptyLines(output)) {
+		return output
+	}
+	return renderGrepPathRoleSections(ctx, production, auxiliary, passthrough)
+}
+
+func renderGrepPathRoleSections(ctx *types.BusContext, production, auxiliary, passthrough []string) string {
 	productionHeader, otherHeader, auxiliaryHeader := grepPathRoleSectionHeaders(ctx)
 	var b strings.Builder
 	if len(production) > 0 {
@@ -1603,6 +1593,29 @@ func annotateGrepOutputByPathRole(ctx *types.BusContext, filesOnly bool, output 
 	return b.String()
 }
 
+func grepNonEmptyLines(output string) []string {
+	var lines []string
+	for _, raw := range strings.Split(output, "\n") {
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		lines = append(lines, raw)
+	}
+	return lines
+}
+
+func grepLinesEqual(left, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		if left[i] != right[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func grepPathRoleSectionHeaders(ctx *types.BusContext) (production, other, auxiliary string) {
 	if ctx != nil && ctx.PipelineStage == types.StageAnalyze {
 		return "[prescan production matches]",
@@ -1618,7 +1631,7 @@ func grepPathRoleSectionHeaders(ctx *types.BusContext) (production, other, auxil
 // for older tests and call sites. The implementation now partitions grep
 // results by typed path role for every stage, not only analyzer prescan.
 func annotateAnalyzerPrescanGrepOutput(ctx *types.BusContext, filesOnly bool, output string) string {
-	return annotateGrepOutputByPathRole(ctx, filesOnly, output)
+	return annotateGrepOutputByRelevance(ctx, grepToolParams{FilesOnly: filesOnly}, output)
 }
 
 func grepOutputLinePath(line string, filesOnly bool) (string, bool) {

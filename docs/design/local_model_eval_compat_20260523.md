@@ -1860,6 +1860,49 @@ Next high-ROI candidates from this eval:
 3. Add relation/enumeration sufficiency gating to reduce post-evidence
    over-exploration.
 
+## 2026-05-24 Batch 19 - Relevance Ordering for All Grep Sections
+
+Problem statement:
+
+- Batch 17 ranked broad compacted grep output correctly, but Batch 18 showed the
+  same model can still be misled by medium/narrow grep results that do not cross
+  compaction thresholds.
+- Those results still use `annotateGrepOutputByPathRole`, which separates
+  production vs auxiliary but preserves raw backend order inside production.
+  Ordinary production files can therefore appear before already-read,
+  required, or evidence-bearing files.
+
+Design:
+
+- Use the existing `grepRelevanceIndex` and `partitionGrepOutputByRelevance`
+  for every grep output that is rendered with path-role sections.
+- Preserve narrow-output surface stability:
+  - keep `[grep production matches]` / `[prescan production matches]` headers;
+  - do not add `[grep retrieval governor]` metadata unless broad compaction
+    actually fires;
+  - preserve backend order within equal relevance tiers.
+- Keep semantic boundaries:
+  - do not change the model's query, path, file type, or context setting;
+  - do not inspect model prose or user-prose keywords;
+  - do not relabel auxiliary/test/doc files as production even if they are
+    evidence-bearing; only rank them earlier inside their own auxiliary section.
+- Remove the old `annotateGrepOutputByPathRole` helper instead of leaving a
+  tempting downgrade path. The existing `annotateAnalyzerPrescanGrepOutput`
+  compatibility shim can call `annotateGrepOutputByRelevance` directly with the
+  legacy `filesOnly` bit.
+- Add a source-level regression test to keep `finalizeGrepOutput` on the
+  relevance-aware path and to keep the deleted legacy wrapper from coming back.
+
+Batch 19 task list:
+
+- [x] Confirm current narrow output path and call sites.
+- [x] Route `finalizeGrepOutput` through relevance-aware annotation.
+- [x] Add regression coverage for narrow `files_only` and narrow line-output
+      ordering.
+- [x] Run focused grep tests, affected agent/tool tests, `make build`, and full
+      `go test ./...`.
+- [x] Commit and push Batch 19.
+
 ## Open Questions
 
 - Whether `emit_evidence.anchor_kind` auto-repair should run inside
