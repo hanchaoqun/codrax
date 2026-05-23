@@ -1043,12 +1043,39 @@ untouched.
       localized messages and rejects enum leaks, transport wording, and the
       over-broad "答案待完善" phrase on target-specific fallback notices.
 
-- Batch 47 — diagram/renderability hardening. Status: planned.
-  - Keep Mermaid/code-fence display fixes renderer-only, but add deterministic
-    render/subset validation so supported diagrams degrade to a localized text
-    fallback instead of silently failing in UI.
-  - Guardrail tests: supported diagram kinds render or produce the existing
-    `text` fence warning; model memory/output still preserves original source.
+- Batch 47 — diagram/renderability hardening. Status: in progress.
+  - Keep Mermaid/code-fence display fixes renderer-only. This batch must not
+    alter answer documents, memory, evidence, finalizer prompts, or diagram
+    gate strictness.
+  - Slice 47.1 — shared Mermaid fence detection for terminal and preview.
+    Status: planned.
+    - Detailed design before code: reuse the existing terminal renderer's
+      Mermaid detection contract instead of adding a second browser-only
+      heuristic. Move the known Mermaid keyword registry and tiny structural
+      helpers (`first keyword`, `supported subset`, `info-string directive`,
+      `body starts with Mermaid directive`) into `internal/mermaidcompat`.
+      Keep terminal rendering policy unchanged: only flowchart/graph/sequence
+      are rendered to ASCII; unsupported Mermaid kinds become the existing
+      localized `text` fallback. Browser preview policy is different because it
+      ships Mermaid.js: every known Mermaid syntax family, including
+      `classDiagram`, should become a `<div class="mermaid">`.
+    - Root gap: the terminal renderer already recognizes common model forms
+      such as ` ```flowchart TD` and bare fences whose first body line is
+      `flowchart`, but the preview renderer only routed fences whose first info
+      token was exactly `mermaid`. The result is a silent UI degradation:
+      diagrams that can render in the browser are displayed as ordinary code
+      blocks.
+    - Rule: route a fence to browser Mermaid when either (a) the info string is
+      `mermaid ...`, (b) the info string itself begins with a known Mermaid
+      directive such as `flowchart TD` or `classDiagram`, or (c) the fence is
+      bare / `text` and its first non-empty body line begins with a known
+      Mermaid directive. Do not route `bash`/`json`/language-tagged code blocks
+      even if their body happens to contain arrows or Mermaid-like text.
+    - Guardrail tests: preview renders direct-info `flowchart` and
+      `classDiagram` fences as `<div class="mermaid">`; bare Mermaid-shaped
+      fences render; ordinary code fences stay escaped `<pre><code>`; terminal
+      renderer tests continue to pin unsupported-kind fallback and supported
+      subset behavior.
 
 ## Scope
 
