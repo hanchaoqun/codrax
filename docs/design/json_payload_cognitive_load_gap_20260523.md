@@ -2,12 +2,12 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-10 are complete and verified; the
+Status: partially implemented. Batches 1-11 are complete and verified; the
 shared schema-aware repair path is active across the high-frequency structured
-emit tools. Remaining work is still tracked below, starting with P1 carrier
-compilers / row-set references, followed by PayloadRef/RowSetRef,
-transactional document updates, typed repair hints, and prompt/ledger
-deduplication.
+emit tools, including the legacy top-level JSON-string repair wrappers.
+Remaining work is still tracked below, starting with P1 carrier compilers /
+row-set references, followed by PayloadRef/RowSetRef, transactional document
+updates, typed repair hints, and prompt/ledger deduplication.
 
 Implementation progress:
 
