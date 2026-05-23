@@ -3704,27 +3704,34 @@ func prioritizedObservationLedgerRecords(ctx *types.AgentContext, records []type
 func renderAnswerDocObservationSource(ref types.ObservationSourceRef) string {
 	parts := make([]string, 0, 4)
 	if ref.Kind != types.ObservationSourceUnknown {
-		parts = append(parts, string(ref.Kind))
+		parts = append(parts, "kind="+string(ref.Kind))
 	}
-	for _, value := range []string{
-		ref.Repo,
-		ref.Path,
-		ref.Commit,
-		ref.Range,
-		ref.Pathspec,
-		ref.Command,
-		ref.RawRef,
-		ref.ArtifactID,
-		ref.ArtifactKind,
-		ref.URL,
-		ref.Server,
-		ref.ResourceURI,
-		ref.Connector,
-	} {
+	appendObservationSourcePart := func(key, value string) {
 		if value = strings.TrimSpace(value); value != "" {
-			parts = append(parts, truncateAnswerDocPromptText(value, 90))
+			parts = append(parts, key+"="+truncateAnswerDocPromptText(value, 90))
 		}
 	}
+	appendObservationSourcePart("repo", ref.Repo)
+	appendObservationSourcePart("path", ref.Path)
+	appendObservationSourcePart("commit", ref.Commit)
+	appendObservationSourcePart("range", ref.Range)
+	appendObservationSourcePart("pathspec", ref.Pathspec)
+	appendObservationSourcePart("command", ref.Command)
+	appendObservationSourcePart("payload_ref", ref.PayloadRef)
+	appendObservationSourcePart("row_set_ref", ref.RowSetRef)
+	appendObservationSourcePart("page_ref", ref.PageRef)
+	if raw := strings.TrimSpace(ref.RawRef); raw != "" &&
+		raw != strings.TrimSpace(ref.PayloadRef) &&
+		raw != strings.TrimSpace(ref.RowSetRef) &&
+		raw != strings.TrimSpace(ref.PageRef) {
+		appendObservationSourcePart("raw_ref", raw)
+	}
+	appendObservationSourcePart("artifact_id", ref.ArtifactID)
+	appendObservationSourcePart("artifact_kind", ref.ArtifactKind)
+	appendObservationSourcePart("url", ref.URL)
+	appendObservationSourcePart("server", ref.Server)
+	appendObservationSourcePart("resource_uri", ref.ResourceURI)
+	appendObservationSourcePart("connector", ref.Connector)
 	if len(parts) == 0 {
 		return "unknown"
 	}

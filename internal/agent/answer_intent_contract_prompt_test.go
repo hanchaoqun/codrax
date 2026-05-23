@@ -354,12 +354,51 @@ func TestRenderAnswerDocObservationLedger_RendersMCPResourceWithoutRepoCitationP
 	for _, want := range []string{
 		"`mcp:0`",
 		"origin=`mcp_resource`",
-		"source=`mcp_resource | mcp://issues/17 | issues`",
+		"source=`kind=mcp_resource | raw_ref=mcp://issues/17 | server=issues`",
 		"release note says the regression",
 		"non-`current_source` observations",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("MCP observation ledger prompt missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderAnswerDocObservationLedger_RendersTypedPayloadRefs(t *testing.T) {
+	mut := types.NewMutableState("基于命令输出分析")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateScalar,
+		Label: "最近 10 次提交的结构化摘要",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "origin", Value: string(types.AnswerEvidenceOriginCommandMeasurement)},
+			{Name: "command", Value: "git log --oneline -n 10"},
+			{Name: "payload_ref", Value: "blob://payload/git-log-full.txt"},
+			{Name: "row_set_ref", Value: "blob://rows/git-log-rows.jsonl"},
+			{Name: "page_ref", Value: "blob://payload/git-log-full.txt?page=1"},
+		},
+	}})
+	mut.SetInvestigationComplete("done")
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup: true,
+				},
+			},
+		},
+	}
+	got := renderAnswerDocObservationLedger(ctx)
+	for _, want := range []string{
+		"`aggregate:0#command_measurement`",
+		"source=`kind=command | command=git log --oneline -n 10 | payload_ref=blob://payload/git-log-full.txt | row_set_ref=blob://rows/git-log-rows.jsonl | page_ref=blob://payload/git-log-full.txt?page=1`",
+		"最近 10 次提交的结构化摘要",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("observation ledger prompt missing typed payload ref %q:\n%s", want, got)
 		}
 	}
 }

@@ -2,12 +2,12 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-11 are complete and verified; the
+Status: partially implemented. Batches 1-12 are complete and verified; the
 shared schema-aware repair path is active across the high-frequency structured
 emit tools, including the legacy top-level JSON-string repair wrappers.
 Remaining work is still tracked below, starting with P1 carrier compilers /
-row-set references, followed by PayloadRef/RowSetRef, transactional document
-updates, typed repair hints, and prompt/ledger deduplication.
+row-set compilers, followed by transactional document updates, typed repair
+hints, and prompt/ledger deduplication.
 
 Implementation progress:
 
@@ -71,8 +71,15 @@ Implementation progress:
   schema-aware compat pass. This keeps behavior-preserving legacy recovery for
   answer-document/log/evidence/analyzer payloads while removing the scattered
   "local helper then shared helper" pattern from tool implementations.
-- Remaining work starts at P1 carrier compilers / row-set references; the first
-  batch deliberately did not change answer materialization policy.
+- 2026-05-23 Batch 12 tightened the first `PayloadRef / RowSetRef` handoff
+  without inventing new storage. The observation ledger now carries typed
+  `payload_ref`, `row_set_ref`, and `page_ref` fields alongside legacy
+  `raw_ref`, maps existing tool-result blob refs into `payload_ref`, and renders
+  finalizer/reviewer sources with explicit labels. This makes git/diff/log/trace
+  and command payloads visible as origin-specific evidence refs instead of
+  unlabeled strings or fake repo citations.
+- Remaining work starts at P1 carrier compilers / row-set compilers; the
+  completed ref batch deliberately did not change answer materialization policy.
 
 ## Scope
 
@@ -330,11 +337,15 @@ overriding better model-authored descriptions.
 
 ### P2. PayloadRef / RowSetRef
 
-- Reuse existing blob/session artifact storage for large command/git/log/trace
-  outputs.
-- Add paginated and line-addressable metadata for non-code artifacts.
-- Teach downstream prompts to consume concise refs plus selected high-salience
-  rows rather than full payloads.
+- DONE (Batch 12): reuse existing blob/session artifact storage for large
+  command/git/log/trace outputs by projecting legacy `ToolResult.RawRef` and
+  aggregate `blob_ref`/`payload_ref` dimensions into typed
+  `ObservationSourceRef.PayloadRef`.
+- DONE (Batch 12): preserve typed `row_set_ref` and `page_ref` dimensions in the
+  observation ledger and render them explicitly in finalizer/reviewer prompt
+  sources.
+- Remaining: add automatic row-set artifact creation for very large compiled
+  carriers and selected high-salience row expansion policies.
 
 ### P2. Typed repair hints and transaction updates
 

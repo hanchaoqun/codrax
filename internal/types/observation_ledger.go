@@ -39,6 +39,9 @@ type ObservationSourceRef struct {
 	Command      string                `json:"command,omitempty"`
 	ToolCallID   string                `json:"tool_call_id,omitempty"`
 	RawRef       string                `json:"raw_ref,omitempty"`
+	PayloadRef   string                `json:"payload_ref,omitempty"`
+	RowSetRef    string                `json:"row_set_ref,omitempty"`
+	PageRef      string                `json:"page_ref,omitempty"`
 	ArtifactID   string                `json:"artifact_id,omitempty"`
 	ArtifactKind string                `json:"artifact_kind,omitempty"`
 	URL          string                `json:"url,omitempty"`
@@ -671,7 +674,10 @@ func aggregateFactResultCount(fact AnswerAggregateFact, dims map[string]string) 
 
 func sourceRefForAggregateFact(origin AnswerEvidenceOrigin, dims map[string]string) ObservationSourceRef {
 	ref := ObservationSourceRef{Kind: ObservationSourceKindForOrigin(origin)}
-	ref.RawRef = firstNonEmptyString(dims["raw_ref"], dims["blob_ref"], dims["source_blob"], dims["tool_raw_ref"])
+	ref.PayloadRef = firstNonEmptyString(dims["payload_ref"], dims["blob_ref"], dims["source_blob"], dims["tool_raw_ref"], dims["raw_ref"])
+	ref.RowSetRef = dims["row_set_ref"]
+	ref.PageRef = dims["page_ref"]
+	ref.RawRef = firstNonEmptyString(dims["raw_ref"], ref.PayloadRef, ref.RowSetRef, ref.PageRef)
 	switch origin {
 	case AnswerEvidenceOriginCurrentSource, AnswerEvidenceOriginRepoNegativeSearch:
 		ref.Repo = dims["repo"]
@@ -710,6 +716,7 @@ func sourceRefForToolResult(origin AnswerEvidenceOrigin, result ToolResult, inde
 		Kind:       ObservationSourceKindForOrigin(origin),
 		ToolCallID: fmt.Sprintf("%s[%d]", strings.TrimSpace(result.ToolName), index),
 		RawRef:     strings.TrimSpace(result.RawRef),
+		PayloadRef: strings.TrimSpace(result.RawRef),
 	}
 	switch origin {
 	case AnswerEvidenceOriginVCSMetadata, AnswerEvidenceOriginVCSDiff:

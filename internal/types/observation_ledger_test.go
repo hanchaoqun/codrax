@@ -446,6 +446,16 @@ func TestCompileObservationLedger_PreservesExternalPagingRefsAndLocalSpans(t *te
 				{Name: "command", Value: "find internal/tool -name '*.go' | xargs wc -l"},
 				{Name: "raw_ref", Value: "/tmp/codrax/blob/exec_command-1234.txt"},
 			},
+		}, {
+			Kind:  AnswerAggregateMemberSet,
+			Label: "external row set",
+			Value: "2",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: string(AnswerEvidenceOriginCommandMeasurement)},
+				{Name: "payload_ref", Value: "blob://payload/exec-command-full.txt"},
+				{Name: "row_set_ref", Value: "blob://rows/exec-command-rows.jsonl"},
+				{Name: "page_ref", Value: "blob://payload/exec-command-full.txt?page=1"},
+			},
 		}},
 		ToolResults: []ToolResult{{
 			ToolName: "git_log",
@@ -471,8 +481,16 @@ func TestCompileObservationLedger_PreservesExternalPagingRefsAndLocalSpans(t *te
 	})
 
 	measurement := findObservationRecord(t, ledger, "aggregate:0#command_measurement")
-	if measurement.SourceRef.RawRef != "/tmp/codrax/blob/exec_command-1234.txt" || measurement.SourceRef.Command == "" {
+	if measurement.SourceRef.RawRef != "/tmp/codrax/blob/exec_command-1234.txt" ||
+		measurement.SourceRef.PayloadRef != "/tmp/codrax/blob/exec_command-1234.txt" ||
+		measurement.SourceRef.Command == "" {
 		t.Fatalf("command measurement should preserve blob paging ref and command: %+v", measurement)
+	}
+	rowSet := findObservationRecord(t, ledger, "aggregate:1#command_measurement")
+	if rowSet.SourceRef.PayloadRef != "blob://payload/exec-command-full.txt" ||
+		rowSet.SourceRef.RowSetRef != "blob://rows/exec-command-rows.jsonl" ||
+		rowSet.SourceRef.PageRef != "blob://payload/exec-command-full.txt?page=1" {
+		t.Fatalf("typed payload/row/page refs should be preserved: %+v", rowSet.SourceRef)
 	}
 	gitRecord := findObservationRecord(t, ledger, "tool:0#vcs_metadata")
 	if gitRecord.SourceRef.RawRef != "/tmp/codrax/blob/git_log-5678.txt" {
@@ -513,7 +531,8 @@ func TestCompileObservationLedger_ProjectsToolBannerCoordinates(t *testing.T) {
 	showMetadata := findObservationRecord(t, ledger, "tool:0#vcs_metadata")
 	if showMetadata.SourceRef.Commit != "abc123" ||
 		showMetadata.SourceRef.Pathspec != "internal/tool" ||
-		showMetadata.SourceRef.RawRef != "/tmp/codrax/blob/git_show-1.txt" {
+		showMetadata.SourceRef.RawRef != "/tmp/codrax/blob/git_show-1.txt" ||
+		showMetadata.SourceRef.PayloadRef != "/tmp/codrax/blob/git_show-1.txt" {
 		t.Fatalf("git_show metadata coordinates not projected: %+v", showMetadata.SourceRef)
 	}
 	showDiff := findObservationRecord(t, ledger, "tool:0#vcs_diff")
@@ -530,7 +549,8 @@ func TestCompileObservationLedger_ProjectsToolBannerCoordinates(t *testing.T) {
 	}
 	exec := findObservationRecord(t, ledger, "tool:2#vcs_metadata")
 	if exec.SourceRef.Command != "git log --oneline -n 3" ||
-		exec.SourceRef.RawRef != "/tmp/codrax/blob/exec_command-1.txt" {
+		exec.SourceRef.RawRef != "/tmp/codrax/blob/exec_command-1.txt" ||
+		exec.SourceRef.PayloadRef != "/tmp/codrax/blob/exec_command-1.txt" {
 		t.Fatalf("exec_command command/raw ref not projected: %+v", exec.SourceRef)
 	}
 }
