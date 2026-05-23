@@ -3259,6 +3259,113 @@ func TestNormalizeCurrentSourceCitationSupplement_MaterializesDroppedCitationPoo
 	}
 }
 
+func TestNormalizeAggregateNegativeProofSupplement_MaterializesRepoNegativeSearch(t *testing.T) {
+	mu := types.NewMutableState("确认 legacy_config_key 是否仍存在")
+	mu.SetInvestigationResultKind("absence")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateNegativeSearch,
+		Label: "legacy_config_key absent",
+		Value: "0",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "repo", Value: "."},
+			{Name: "pattern", Value: "legacy_config_key"},
+			{Name: "scope", Value: "codrax.yaml.example"},
+			{Name: "result_count", Value: "0"},
+			{Name: "searched_at", Value: "explore iteration 3"},
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Language: "zh",
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionAbsent},
+		Blocks: []types.AnswerBlock{{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "当前没有找到该配置项。",
+		}},
+	}
+
+	if fixed := normalizeAggregateNegativeProofSupplement(doc, ctx); fixed != 1 {
+		t.Fatalf("fixed=%d, want 1", fixed)
+	}
+	visible := answerDocumentVisibleText(doc)
+	for _, want := range []string{
+		"系统按已验证证据补充未命中范围",
+		"legacy_config_key",
+		"codrax.yaml.example",
+		"0 个匹配",
+	} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("visible supplement missing %q:\n%s", want, visible)
+		}
+	}
+	if len(doc.Citations) != 1 || doc.Citations[0].Scope != types.ScopeNegative ||
+		doc.Citations[0].NegativePattern != "legacy_config_key" {
+		t.Fatalf("negative citation not materialized: %+v", doc.Citations)
+	}
+	if hints := preCheckAbsenceScopeBound(doc); len(hints) != 0 {
+		t.Fatalf("materialized negative citation should satisfy absence scope bound: %+v", hints)
+	}
+}
+
+func TestNormalizeAggregateNegativeProofSupplement_MaterializesNegativeObservationWithoutRepoCitation(t *testing.T) {
+	mu := types.NewMutableState("最近历史里有没有 Backport Foo")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateNegativeObservation,
+		Label: "history search found no backport commits",
+		Value: "0",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "origin", Value: string(types.AnswerEvidenceOriginVCSMetadata)},
+			{Name: "target", Value: "Backport Foo"},
+			{Name: "commit_range", Value: "HEAD~50..HEAD"},
+			{Name: "result_count", Value: "0"},
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Language: "zh",
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "s1",
+		Kind: types.BlockSummary,
+		Text: "最近历史没有相关提交。",
+	}}}
+
+	if fixed := normalizeAggregateNegativeProofSupplement(doc, ctx); fixed != 1 {
+		t.Fatalf("fixed=%d, want 1", fixed)
+	}
+	visible := answerDocumentVisibleText(doc)
+	for _, want := range []string{
+		"vcs_metadata",
+		"Backport Foo",
+		"HEAD~50..HEAD",
+		"0 个匹配",
+	} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("visible supplement missing %q:\n%s", want, visible)
+		}
+	}
+	if len(doc.Citations) != 0 {
+		t.Fatalf("non-repo negative observation must not invent repo citations: %+v", doc.Citations)
+	}
+	if len(doc.Blocks[len(doc.Blocks)-1].ClaimUses) != 1 ||
+		doc.Blocks[len(doc.Blocks)-1].ClaimUses[0].ClaimForm != types.ClaimExternalObservation {
+		t.Fatalf("negative observation supplement should carry external observation claim_use: %+v", doc.Blocks[len(doc.Blocks)-1].ClaimUses)
+	}
+}
+
 // TestRunPreEmitChecks_AggregatesAcrossAllAxes — happy + fail mix.
 // Pin that the four checks all wire through the top-level dispatcher.
 func TestRunPreEmitChecks_AggregatesAcrossAllAxes(t *testing.T) {

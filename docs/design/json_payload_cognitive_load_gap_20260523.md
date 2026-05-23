@@ -251,11 +251,21 @@ observations.
     succeeded. This protects the stage boundary without turning answer content
     into a hard gate.
 
-- Batch 36 — scalar/negative/external handoff closure. Status: planned.
+- Batch 36 — scalar/negative/external handoff closure. Status: completed.
   - Generalize existing count/scalar aggregate handoff without turning narrative
     answers into scalar-only answers.
   - Keep negative observations typed by origin and bounded scope, including git,
     command, log, trace, and future MCP/web payloads.
+  - Delivered in this batch: structured origin projection now recognizes
+    known tool/source tokens carried in `source_ref`, `tool_result`, and
+    `producer` dimensions (including bracketed tool-call ids such as
+    `git_log[0]`) without reading raw prose. Principal typed no-hit facts
+    (`negative_search` / `negative_observation`) that the finalizer omits are
+    materialized as an append-only localized supplement block; repository
+    no-hit facts also add a bounded `scope=negative` citation, while non-repo
+    observations remain citation-free origin-specific evidence. This avoids
+    finalizer rewrites for missing zero-result proof text while preserving the
+    model-authored answer above it.
 
 - Batch 37 — language-aware source inventory/export semantics. Status:
   planned.

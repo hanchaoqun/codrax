@@ -54,7 +54,7 @@ func answerAggregateFactExplicitEvidenceOrigins(fact AnswerAggregateFact) []Answ
 	}
 	dims := aggregateDimensionMap(fact.Dimensions)
 	for _, key := range []string{
-		"origin", "evidence_origin", "secondary_origin", "diff_origin", "proof_source", "tool", "source", "measurement_kind", "measurement_origin",
+		"origin", "evidence_origin", "secondary_origin", "diff_origin", "proof_source", "tool", "source", "source_ref", "tool_result", "producer", "measurement_kind", "measurement_origin",
 	} {
 		answerEvidenceOriginFromStructuredToken(dims[key], add)
 	}
@@ -94,6 +94,9 @@ func AnswerEvidenceOriginCarriesOriginSpecificSupport(origin AnswerEvidenceOrigi
 
 func answerEvidenceOriginFromStructuredToken(raw string, add func(AnswerEvidenceOrigin)) {
 	token := strings.ToLower(strings.TrimSpace(raw))
+	if idx := strings.Index(token, "["); idx > 0 && strings.HasSuffix(token, "]") {
+		token = strings.TrimSpace(token[:idx])
+	}
 	switch token {
 	case "", "model_emitted":
 		return

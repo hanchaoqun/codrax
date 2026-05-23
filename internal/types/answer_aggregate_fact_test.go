@@ -258,6 +258,32 @@ func TestNormalizeAnswerAggregateFacts_AcceptsNegativeObservation(t *testing.T) 
 	}
 }
 
+func TestNormalizeAnswerAggregateFacts_NegativeObservationInfersOriginFromStructuredSourceRef(t *testing.T) {
+	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:  AnswerAggregateNegativeObservation,
+		Label: "history search found no backport commits",
+		Dimensions: []AnswerAggregateDimension{
+			{Name: "source_ref", Value: "git_history_search"},
+			{Name: "target", Value: "Backport Foo"},
+			{Name: "commit_range", Value: "HEAD~50..HEAD"},
+			{Name: "matches", Value: "0"},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("negative_observation should infer origin from structured source_ref: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("got %d facts, want 1", len(got))
+	}
+	dims := aggregateDimensionMap(got[0].Dimensions)
+	if dims["origin"] != string(AnswerEvidenceOriginVCSMetadata) {
+		t.Fatalf("origin = %q, want vcs_metadata; dims=%+v", dims["origin"], got[0].Dimensions)
+	}
+	if dims["source_ref"] != "git_history_search" {
+		t.Fatalf("source_ref should remain visible for source coordinates: %+v", got[0].Dimensions)
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_NormalizesNonRepoNegativeSearchToObservation(t *testing.T) {
 	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
 		Kind:  AnswerAggregateNegativeSearch,

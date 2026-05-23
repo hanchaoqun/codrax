@@ -553,6 +553,9 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if fixed := normalizeCurrentSourceCitationSupplement(doc, ctx, pctx); fixed > 0 {
 		logging.Warning("[%s] materialized %d current-source citation support row(s) from accepted evidence", toolName, fixed)
 	}
+	if fixed := normalizeAggregateNegativeProofSupplement(doc, ctx); fixed > 0 {
+		logging.Warning("[%s] materialized %d typed negative-proof supplement row(s) from accepted aggregate evidence", toolName, fixed)
+	}
 	if fixed := compileCitationBackedTableRows(doc); fixed > 0 {
 		logging.Warning("[%s] compiled %d citation-backed table row(s) from incomplete structured table carriers", toolName, fixed)
 	}

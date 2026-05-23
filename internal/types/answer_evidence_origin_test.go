@@ -87,6 +87,43 @@ func TestAnswerAggregateFactEvidenceOrigins_GitShowMetadataAndDiff(t *testing.T)
 	}
 }
 
+func TestAnswerAggregateFactEvidenceOrigins_SourceRefToolTokens(t *testing.T) {
+	cases := []struct {
+		name string
+		dim  AnswerAggregateDimension
+		want AnswerEvidenceOrigin
+	}{
+		{
+			name: "source_ref exact git history tool",
+			dim:  AnswerAggregateDimension{Name: "source_ref", Value: "git_history_search"},
+			want: AnswerEvidenceOriginVCSMetadata,
+		},
+		{
+			name: "tool_result bracketed git log call",
+			dim:  AnswerAggregateDimension{Name: "tool_result", Value: "git_log[0]"},
+			want: AnswerEvidenceOriginVCSMetadata,
+		},
+		{
+			name: "producer runtime triage",
+			dim:  AnswerAggregateDimension{Name: "producer", Value: "emit_log_triage"},
+			want: AnswerEvidenceOriginRuntimeArtifact,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := AnswerAggregateFactEvidenceOrigins(AnswerAggregateFact{
+				Kind:       AnswerAggregateNegativeObservation,
+				Label:      "no-hit",
+				Value:      "0",
+				Dimensions: []AnswerAggregateDimension{tc.dim},
+			}, nil)
+			if len(got) != 1 || got[0] != tc.want {
+				t.Fatalf("origins = %+v, want [%s]", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_AddsStructuredOriginDimensionsFromLegacyProvenance(t *testing.T) {
 	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
 		Kind:       AnswerAggregateMemberSet,

@@ -2485,7 +2485,7 @@ func preEmitAggregateFactValueAppears(fact types.AnswerAggregateFact, surface st
 	if value == "" || !preEmitAggregateScalarValueAppears(value, surface) {
 		return false
 	}
-	if fact.Kind != types.AnswerAggregateNegativeSearch {
+	if fact.Kind != types.AnswerAggregateNegativeSearch && fact.Kind != types.AnswerAggregateNegativeObservation {
 		return true
 	}
 	return preEmitNegativeSearchFactDimensionsAppear(fact, surface)
@@ -2501,6 +2501,9 @@ func preEmitNegativeSearchFactDimensionsAppear(fact types.AnswerAggregateFact, s
 	if query == "" {
 		query = dims["pattern"]
 	}
+	if query == "" {
+		query = firstNonEmptyPreEmitDim(dims, "target", "predicate")
+	}
 	if query != "" && !preEmitAggregateSearchPatternAppears(query, surface) {
 		return false
 	}
@@ -2509,6 +2512,217 @@ func preEmitNegativeSearchFactDimensionsAppear(fact types.AnswerAggregateFact, s
 		return false
 	}
 	return repo != "" || query != "" || scope != ""
+}
+
+type aggregateNegativeProofSupplementRow struct {
+	kind      types.AnswerAggregateKind
+	origin    string
+	target    string
+	query     string
+	scope     string
+	searched  string
+	citation  types.Citation
+	hasCite   bool
+	claimForm types.ClaimForm
+}
+
+func normalizeAggregateNegativeProofSupplement(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || ctx == nil || ctx.Mutable == nil || len(doc.Blocks) >= maxBlocksPerDoc {
+		return 0
+	}
+	facts := ctx.Mutable.StableInvestigationAggregateFacts()
+	if len(facts) == 0 {
+		return 0
+	}
+	surface := preEmitVisibleAnswerSurface(doc)
+	rows := make([]aggregateNegativeProofSupplementRow, 0)
+	seen := map[string]bool{}
+	for idx, fact := range facts {
+		if fact.Kind != types.AnswerAggregateNegativeSearch && fact.Kind != types.AnswerAggregateNegativeObservation {
+			continue
+		}
+		if !preEmitNegativeAggregateFactRequiresVisibleProof(ctx, facts, idx, fact) {
+			continue
+		}
+		if value := strings.TrimSpace(fact.Value); value != "" && value != "0" {
+			continue
+		}
+		if preEmitAggregateFactValueAppears(fact, surface) {
+			continue
+		}
+		row, ok := aggregateNegativeProofSupplementRowFromFact(fact)
+		if !ok {
+			continue
+		}
+		key := strings.Join([]string{string(row.kind), row.origin, row.target, row.query, row.scope}, "\x00")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		rows = append(rows, row)
+		if len(rows) >= 6 {
+			break
+		}
+	}
+	if len(rows) == 0 {
+		return 0
+	}
+	zh := principalEnumerationPrefersZH(ctx)
+	block := types.AnswerBlock{
+		ID:    uniqueAnswerBlockID(doc, "negative-proof-supplement"),
+		Kind:  types.BlockCaveat,
+		Title: aggregateNegativeProofSupplementTitle(zh),
+		Text:  aggregateNegativeProofSupplementText(rows, zh),
+	}
+	claimForms := map[types.ClaimForm]bool{}
+	for _, row := range rows {
+		if row.claimForm != "" && !claimForms[row.claimForm] {
+			block.ClaimUses = append(block.ClaimUses, types.RenderedClaimUse{ClaimForm: row.claimForm})
+			claimForms[row.claimForm] = true
+		}
+		if row.hasCite {
+			appendOrReuseNegativePreEmitCitation(doc, row.citation)
+		}
+	}
+	doc.Blocks = append(doc.Blocks, block)
+	return len(rows)
+}
+
+func preEmitNegativeAggregateFactRequiresVisibleProof(ctx *types.BusContext, facts []types.AnswerAggregateFact, idx int, fact types.AnswerAggregateFact) bool {
+	if ctx != nil && ctx.AnalysisIR != nil &&
+		types.AggregateFactConflictsWithPrincipalMemberSetCounts(facts, &ctx.AnalysisIR.RequestModel, idx) {
+		return false
+	}
+	if types.NormalizeAnswerAggregateRole(fact.Role) == types.AnswerAggregateRolePrincipalAnswer {
+		return true
+	}
+	if fact.Kind == types.AnswerAggregateNegativeSearch && ctx != nil && ctx.Mutable != nil &&
+		strings.EqualFold(strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()), "absence") {
+		return true
+	}
+	if ctx != nil && ctx.AnalysisIR != nil {
+		contract := types.CompileAnswerIntentContract(ctx.AnalysisIR.RequestModel, &ctx.AnalysisIR.AnswerContract)
+		return contract.HasOutput(types.AnswerRequestedOutputAbsence)
+	}
+	return false
+}
+
+func aggregateNegativeProofSupplementRowFromFact(fact types.AnswerAggregateFact) (aggregateNegativeProofSupplementRow, bool) {
+	dims := preEmitAggregateDimensionMap(fact.Dimensions)
+	row := aggregateNegativeProofSupplementRow{
+		kind:     fact.Kind,
+		origin:   firstNonEmptyPreEmitDim(dims, "origin", "evidence_origin", "source_ref"),
+		target:   firstNonEmptyPreEmitDim(dims, "target", "query", "pattern", "predicate"),
+		query:    firstNonEmptyPreEmitDim(dims, "query", "pattern", "predicate", "target"),
+		scope:    firstNonEmptyPreEmitDim(dims, "scope", "commit_range", "artifact_id", "trace_window", "tool_result", "source_ref"),
+		searched: firstNonEmptyPreEmitDim(dims, "searched_at", "time"),
+	}
+	if row.target == "" && strings.TrimSpace(fact.Label) != "" {
+		row.target = strings.TrimSpace(fact.Label)
+	}
+	if row.query == "" {
+		row.query = row.target
+	}
+	if row.scope == "" {
+		return aggregateNegativeProofSupplementRow{}, false
+	}
+	switch fact.Kind {
+	case types.AnswerAggregateNegativeSearch:
+		repo := firstNonEmptyPreEmitDim(dims, "repo")
+		if repo != "" && row.origin == "" {
+			row.origin = repo
+		}
+		if row.query == "" {
+			return aggregateNegativeProofSupplementRow{}, false
+		}
+		row.claimForm = types.ClaimAbsenceFact
+		row.citation = types.Citation{
+			File:            row.scope,
+			Scope:           types.ScopeNegative,
+			NegativePattern: row.query,
+		}
+		row.hasCite = strings.TrimSpace(row.citation.File) != "" && strings.TrimSpace(row.citation.NegativePattern) != ""
+	case types.AnswerAggregateNegativeObservation:
+		if row.origin == "" || row.target == "" {
+			return aggregateNegativeProofSupplementRow{}, false
+		}
+		row.claimForm = types.ClaimExternalObservation
+	default:
+		return aggregateNegativeProofSupplementRow{}, false
+	}
+	if row.searched == "" {
+		row.searched = "current_investigation"
+	}
+	return row, true
+}
+
+func firstNonEmptyPreEmitDim(dims map[string]string, names ...string) string {
+	for _, name := range names {
+		if value := strings.TrimSpace(dims[name]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func aggregateNegativeProofSupplementTitle(zh bool) string {
+	if zh {
+		return "系统按已验证证据补充未命中范围"
+	}
+	return "System-verified no-hit scope supplement"
+}
+
+func aggregateNegativeProofSupplementText(rows []aggregateNegativeProofSupplementRow, zh bool) string {
+	var b strings.Builder
+	if zh {
+		b.WriteString("以下内容来自已验收的结构化零结果证据，仅补充上方回答未显示的检索/观察范围，不替换模型回答：\n")
+	} else {
+		b.WriteString("The following lines come from accepted structured zero-result evidence and only supplement no-hit scopes not already visible above; they do not replace the model answer:\n")
+	}
+	for _, row := range rows {
+		if zh {
+			if row.kind == types.AnswerAggregateNegativeSearch {
+				fmt.Fprintf(&b, "- 仓库/范围 `%s` 中检索 `%s`：0 个匹配（%s）。\n",
+					row.scope, row.query, row.searched)
+			} else {
+				fmt.Fprintf(&b, "- `%s` 在 `%s` 中观察 `%s`：0 个匹配（%s）。\n",
+					aggregateNegativeProofOriginLabel(row.origin), row.scope, row.target, row.searched)
+			}
+			continue
+		}
+		if row.kind == types.AnswerAggregateNegativeSearch {
+			fmt.Fprintf(&b, "- Search `%s` in `%s`: 0 matches (%s).\n", row.query, row.scope, row.searched)
+		} else {
+			fmt.Fprintf(&b, "- `%s` observed `%s` in `%s`: 0 matches (%s).\n",
+				aggregateNegativeProofOriginLabel(row.origin), row.target, row.scope, row.searched)
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func aggregateNegativeProofOriginLabel(origin string) string {
+	origin = strings.TrimSpace(origin)
+	if origin == "" {
+		return "observation"
+	}
+	return origin
+}
+
+func appendOrReuseNegativePreEmitCitation(doc *types.AnswerDocumentV2, cit types.Citation) int {
+	if doc == nil || cit.Scope != types.ScopeNegative || strings.TrimSpace(cit.NegativePattern) == "" {
+		return -1
+	}
+	file := preEmitNormalizePath(cit.File)
+	pattern := strings.TrimSpace(cit.NegativePattern)
+	for i, existing := range doc.Citations {
+		if existing.Scope == types.ScopeNegative &&
+			preEmitNormalizePath(existing.File) == file &&
+			strings.TrimSpace(existing.NegativePattern) == pattern {
+			return i
+		}
+	}
+	doc.Citations = append(doc.Citations, cit)
+	return len(doc.Citations) - 1
 }
 
 func preEmitAggregateSearchPatternAppears(pattern, surface string) bool {
