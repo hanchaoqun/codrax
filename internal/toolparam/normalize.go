@@ -137,6 +137,12 @@ func normalizeValue(value any, schema json.RawMessage, path string, cfg types.To
 	}
 
 	if schemaExpectsArray(node) {
+		if m, ok := value.(map[string]any); ok && !typeAllows(node.Type, "object") && arrayItemsExpectObject(node) {
+			repairs := []Repair{repair(path, "singleton_object_array", valueKind(value), "array")}
+			value = []any{m}
+			out, nestedRepairs := normalizeArray(value.([]any), node, path, cfg)
+			return out, append(repairs, nestedRepairs...)
+		}
 		if s, ok := value.(string); ok && !typeAllows(node.Type, "string") {
 			if decoded, rule, ok := decodeJSONStringAs(s, "array"); ok {
 				repairs := []Repair{repair(path, rule, valueKind(value), "array")}
@@ -689,6 +695,14 @@ func schemaExpectsObject(node schemaNode) bool {
 
 func schemaExpectsArray(node schemaNode) bool {
 	return typeAllows(node.Type, "array") || (node.Type == nil && len(node.Items) > 0)
+}
+
+func arrayItemsExpectObject(node schemaNode) bool {
+	child, ok := parseSchema(node.Items)
+	if !ok {
+		return false
+	}
+	return schemaExpectsObject(child)
 }
 
 func arrayItemsAllowOnlyString(node schemaNode) bool {

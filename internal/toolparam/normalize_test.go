@@ -48,6 +48,58 @@ func TestNormalize_StringScalarsAgainstSchema(t *testing.T) {
 	}
 }
 
+func TestNormalize_SingletonObjectArrayAgainstSchema(t *testing.T) {
+	schema := json.RawMessage(`{
+	  "type":"object",
+	  "properties":{
+	    "items":{
+	      "type":"array",
+	      "items":{
+	        "type":"object",
+	        "properties":{
+	          "label":{"type":"string"},
+	          "citation_ref":{"type":"integer"}
+	        }
+	      }
+	    }
+	  }
+	}`)
+	raw := json.RawMessage(`{"items":{"label":"Eval","citation_ref":"3"}}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if !hasRepair(report, "$.items", "singleton_object_array") {
+		t.Fatalf("expected singleton-object array repair, got %+v", report)
+	}
+	if !hasRepair(report, "$.items[0].citation_ref", "string_integer") {
+		t.Fatalf("expected nested scalar repair after wrapping, got %+v", report)
+	}
+	var decoded struct {
+		Items []struct {
+			Label       string `json:"label"`
+			CitationRef int    `json:"citation_ref"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if len(decoded.Items) != 1 || decoded.Items[0].Label != "Eval" || decoded.Items[0].CitationRef != 3 {
+		t.Fatalf("unexpected normalized items: %+v", decoded.Items)
+	}
+}
+
+func TestNormalize_DoesNotWrapObjectForStringArray(t *testing.T) {
+	schema := json.RawMessage(`{"type":"object","properties":{"keywords":{"type":"array","items":{"type":"string"}}}}`)
+	raw := json.RawMessage(`{"keywords":{"value":"agent"}}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if report.Changed() {
+		t.Fatalf("object must not be wrapped for array-of-string fields: %+v", report)
+	}
+	if string(got) != string(raw) {
+		t.Fatalf("payload must remain unchanged: got %s want %s", got, raw)
+	}
+}
+
 func TestNormalize_StringScalarsWithStructuralNumericPrefix(t *testing.T) {
 	schema := json.RawMessage(`{
 	  "type":"object",

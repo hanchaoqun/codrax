@@ -45,6 +45,13 @@ Implementation progress:
   duplicate dry carrier. This keeps hard exhaustive/relation obligations
   available for truly missing members while avoiding a second system-generated
   answer surface.
+- 2026-05-23 Batch 9 moved another local-model carrier mismatch into the
+  shared schema-aware layer: when a schema field expects an array of objects
+  and the model emits a single object, `internal/toolparam` now wraps it as a
+  one-element array and then applies normal nested repairs. Array-of-string
+  fields remain strict unless the existing explicit `split_string_arrays` knob
+  is enabled, so this benefits structured row carriers without parsing
+  user/model prose or inventing rows.
 - Remaining work starts at P1 carrier compilers / row-set references; the first
   batch deliberately did not change answer materialization policy.
 
