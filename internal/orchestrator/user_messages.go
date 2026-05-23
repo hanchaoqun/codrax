@@ -135,6 +135,13 @@ func semanticQualityReviewStartMessage(lang string) string {
 	return "› Reviewing answer coverage"
 }
 
+func combinedAnswerReviewStartMessage(lang string) string {
+	if preferZhMessage(lang) {
+		return "› 正在审阅答案完整性与一致性"
+	}
+	return "› Reviewing answer coverage and consistency"
+}
+
 // selfConsistencyContradictionMessage (commit 62): rendered when
 // the reviewer reports >= 1 contradiction at confidence >= floor.
 // Variants: "rewriting" only when the current soft/strict policy will

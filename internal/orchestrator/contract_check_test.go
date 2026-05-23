@@ -122,6 +122,52 @@ func TestRunContractCheck_SkipLLMReviewSuppressesReviewerNotices(t *testing.T) {
 	}
 }
 
+func TestRunContractCheck_CoalescesParallelReviewerStartNotice(t *testing.T) {
+	mut := types.NewMutableState("检查最终答案")
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:       "summary",
+			Kind:     types.BlockSummary,
+			Text:     strings.Repeat("这是一个足够长的摘要，用于触发自洽 reviewer 的输入门槛。", 4),
+			FacetIDs: []string{"principal_mechanism"},
+		},
+		{
+			ID:       "body",
+			Kind:     types.BlockSection,
+			Text:     "正文说明 answer contract 已经具备可审阅内容。",
+			FacetIDs: []string{"principal_mechanism"},
+			Items: []types.AnswerBlockItem{
+				{ID: "a", Label: "A", Text: "第一项"},
+				{ID: "b", Label: "B", Text: "第二项"},
+				{ID: "c", Label: "C", Text: "第三项"},
+			},
+		},
+	}}
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, doc)
+
+	o := New(types.PipelineSettings{MaxParallelism: 2}, nil, nil, nil)
+	o.busCtx = &types.BusContext{Ctx: context.Background(), Mutable: mut, Language: "zh"}
+	o.SetSelfConsistencyReviewer(fakeSelfConsistencyReviewer{
+		result: &SelfConsistencyResult{Consistent: true, Confidence: 0.99},
+	})
+	o.SetSemanticQualityReviewer(fakeSemanticQualityReviewer{
+		verdict: &SemanticQualityResult{Sufficient: true, Confidence: 0.99},
+	})
+	var events []render.Event
+	o.SetEmitter(func(ev render.Event) { events = append(events, ev) })
+
+	runContractCheck(&agent.StageOutput{FinalAnswer: "answer"}, types.AnswerContract{}, mut, o)
+
+	starts := reviewerStartEvents(events)
+	if len(starts) != 1 {
+		t.Fatalf("reviewer start notices = %d, want one coalesced notice; events=%+v", len(starts), events)
+	}
+	if starts[0].NoticeKind != render.NoticeSemanticQualityReviewStart ||
+		!strings.Contains(starts[0].Reasoning, "完整性与一致性") {
+		t.Fatalf("coalesced reviewer notice should name both checks, got %+v", starts[0])
+	}
+}
+
 func countReviewerStartNotices(events []render.Event) int {
 	count := 0
 	for _, ev := range events {
@@ -131,6 +177,17 @@ func countReviewerStartNotices(events []render.Event) int {
 		}
 	}
 	return count
+}
+
+func reviewerStartEvents(events []render.Event) []render.Event {
+	var out []render.Event
+	for _, ev := range events {
+		switch ev.NoticeKind {
+		case render.NoticeSelfConsistencyStart, render.NoticeSemanticQualityReviewStart:
+			out = append(out, ev)
+		}
+	}
+	return out
 }
 
 func TestExtractCitations_RangeForm(t *testing.T) {

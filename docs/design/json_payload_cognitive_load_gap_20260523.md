@@ -950,12 +950,34 @@ untouched.
       finalizer prompts remain on their prior non-duplicated paths. Regression
       tests cover mixed-origin, pure-history, and finalizer-no-duplicate cases.
 
-- Batch 46 — retry/status telemetry taxonomy. Status: planned.
+- Batch 46 — retry/status telemetry taxonomy. Status: in progress.
   - Split status and metrics into transport retry, schema/carrier repair,
     semantic rewrite, reviewer advisory, and accepted local supplement.
   - Guardrail tests: analyzer/finalizer transport errors render the current
     stage number; accepted advisory checks do not increment semantic rewrite
     counters.
+  - Slice 46.1 — coalesced answer-review start notice. Status: completed.
+    - Detailed design before code: reuse the existing reviewer dispatch logic,
+      reviewer eligibility gates, and `EventOrchestratorNotice` rendering. Do
+      not change reviewer prompts, reviewer results, violation strictness, or
+      retry routing. Only change the user-visible start notice when both
+      self-consistency and semantic-quality reviewers are runnable in the same
+      contract-check pass.
+    - When both reviewers run, emit one localized progress notice ("reviewing
+      answer coverage and consistency") before dispatch and suppress the two
+      per-reviewer start notices inside that pass. When only one reviewer runs,
+      keep its existing specific notice. Direct calls to the reviewer methods
+      keep the historical per-reviewer notice, so tests and future call sites
+      still get truthful visibility.
+    - Guardrail tests: a contract check with both reviewers eligible emits one
+      start notice, not two; single-reviewer/direct-reviewer paths continue to
+      emit their existing notices; no retry/advisory semantics change.
+    - Delivered in this slice: `runContractCheck` now emits one combined
+      localized progress notice when both self-consistency and semantic-quality
+      reviewers run in the same pass, then suppresses their per-reviewer start
+      notices for that pass only. The direct reviewer methods still emit their
+      existing specific notices. Regression tests cover the coalesced
+      contract-check path and the user-message redline audit.
 
 - Batch 47 — diagram/renderability hardening. Status: planned.
   - Keep Mermaid/code-fence display fixes renderer-only, but add deterministic

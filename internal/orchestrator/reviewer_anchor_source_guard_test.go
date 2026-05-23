@@ -18,8 +18,8 @@ func TestReviewerRuntimeUsesCitationAwareAnchorSet(t *testing.T) {
 	}
 
 	for _, marker := range []string{
-		"func (o *Orchestrator) runSelfConsistencyReviewV2",
-		"func (o *Orchestrator) runSemanticQualityReviewWithOutcome",
+		"func (o *Orchestrator) runSelfConsistencyReviewV2WithStartNotice",
+		"func (o *Orchestrator) runSemanticQualityReviewWithOutcomeAndStartNotice",
 	} {
 		body := reviewerAnchorSourceSection(t, src, marker)
 		if !strings.Contains(body, "buildReviewerEvidenceAnchorSet(mut, doc, o.busCtx)") {

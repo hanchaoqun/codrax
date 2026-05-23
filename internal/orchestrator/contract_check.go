@@ -480,10 +480,20 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 				scViolations []types.Violation
 				sqViolations []types.Violation
 			)
+			coalescedStartNotice := runSC && runSQ
+			if coalescedStartNotice && o != nil && o.busCtx != nil {
+				o.emit(render.Event{
+					Kind:       render.EventOrchestratorNotice,
+					Timestamp:  time.Now(),
+					Agent:      "orchestrator",
+					NoticeKind: render.NoticeSemanticQualityReviewStart,
+					Reasoning:  combinedAnswerReviewStartMessage(o.busCtx.Language),
+				})
+			}
 			runSCFn := func() {
 				scViolations = runReviewerWithDeadline(parent, reviewerSlotSelfConsistency, fraction,
 					func(context.Context) []types.Violation {
-						return o.runSelfConsistencyReviewV2(scDocV2, mut)
+						return o.runSelfConsistencyReviewV2WithStartNotice(scDocV2, mut, !coalescedStartNotice)
 					})
 			}
 			runSQFn := func() {
@@ -491,7 +501,7 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 					func(context.Context) []types.Violation {
 						var outcome semanticQualityReviewOutcome
 						var violations []types.Violation
-						violations, outcome = o.runSemanticQualityReviewWithOutcome(sqDocV2, mut)
+						violations, outcome = o.runSemanticQualityReviewWithOutcomeAndStartNotice(sqDocV2, mut, !coalescedStartNotice)
 						sqOutcome = outcome
 						return violations
 					})
@@ -2678,6 +2688,10 @@ func nonEmptyReviewItemCells(cells []string) []string {
 // verdict / sub-floor confidence are non-fatal (answer ships,
 // learning failure recorded, no violations returned).
 func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, mut *types.MutableState) []types.Violation {
+	return o.runSelfConsistencyReviewV2WithStartNotice(doc, mut, true)
+}
+
+func (o *Orchestrator) runSelfConsistencyReviewV2WithStartNotice(doc *types.AnswerDocumentV2, mut *types.MutableState, emitStartNotice bool) []types.Violation {
 	if o == nil || o.selfConsistencyReviewer == nil || doc == nil || mut == nil {
 		return nil
 	}
@@ -2686,14 +2700,19 @@ func (o *Orchestrator) runSelfConsistencyReviewV2(doc *types.AnswerDocumentV2, m
 		floor = 0.8
 	}
 
-	// Status line: never silent background work.
-	o.emit(render.Event{
-		Kind:       render.EventOrchestratorNotice,
-		Timestamp:  time.Now(),
-		Agent:      "orchestrator",
-		NoticeKind: render.NoticeSelfConsistencyStart,
-		Reasoning:  selfConsistencyReviewStartMessage(o.busCtx.Language),
-	})
+	// Status line: never silent background work. When runContractCheck
+	// dispatches the two reviewers together it emits one combined start
+	// notice and calls this helper with emitStartNotice=false to avoid
+	// visually duplicated "reviewing..." rows.
+	if emitStartNotice && o.busCtx != nil {
+		o.emit(render.Event{
+			Kind:       render.EventOrchestratorNotice,
+			Timestamp:  time.Now(),
+			Agent:      "orchestrator",
+			NoticeKind: render.NoticeSelfConsistencyStart,
+			Reasoning:  selfConsistencyReviewStartMessage(o.busCtx.Language),
+		})
+	}
 
 	// Pull summary + body off V2 blocks. Strip system-injected
 	// hedge / Authority caveat tokens so the reviewer LLM doesn't
@@ -3353,6 +3372,10 @@ type semanticQualityReviewOutcome struct {
 }
 
 func (o *Orchestrator) runSemanticQualityReviewWithOutcome(doc *types.AnswerDocumentV2, mut *types.MutableState) ([]types.Violation, semanticQualityReviewOutcome) {
+	return o.runSemanticQualityReviewWithOutcomeAndStartNotice(doc, mut, true)
+}
+
+func (o *Orchestrator) runSemanticQualityReviewWithOutcomeAndStartNotice(doc *types.AnswerDocumentV2, mut *types.MutableState, emitStartNotice bool) ([]types.Violation, semanticQualityReviewOutcome) {
 	var outcome semanticQualityReviewOutcome
 	if o == nil || o.semanticQualityReviewer == nil || doc == nil || mut == nil {
 		return nil, outcome
@@ -3361,7 +3384,7 @@ func (o *Orchestrator) runSemanticQualityReviewWithOutcome(doc *types.AnswerDocu
 	// so the user knows the second reviewer is running. Parallels
 	// selfConsistencyReviewStartMessage at the top of
 	// runSelfConsistencyReviewV2.
-	if o.busCtx != nil {
+	if emitStartNotice && o.busCtx != nil {
 		o.emit(render.Event{
 			Kind:       render.EventOrchestratorNotice,
 			Timestamp:  time.Now(),

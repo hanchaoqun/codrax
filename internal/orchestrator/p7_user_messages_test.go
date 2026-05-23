@@ -92,6 +92,25 @@ func TestSemanticQualityReviewStartMessage_RedlineAudit(t *testing.T) {
 	}
 }
 
+func TestCombinedAnswerReviewStartMessage_RedlineAudit(t *testing.T) {
+	zh := combinedAnswerReviewStartMessage("zh")
+	en := combinedAnswerReviewStartMessage("en")
+	if !strings.Contains(zh, "完整性与一致性") || !strings.Contains(en, "coverage and consistency") {
+		t.Fatalf("combined reviewer notice should name both user-visible checks, got zh=%q en=%q", zh, en)
+	}
+	for _, msg := range []string{zh, en} {
+		for _, banned := range []string{
+			"FacetCoverage", "G5", "reviewer", "Reviewer",
+			"ViolKind", "AnchoredCount", "DeclaredCount",
+			"semantic_quality", "self_consistency", "answer-document-skill",
+		} {
+			if strings.Contains(msg, banned) {
+				t.Errorf("must not leak internal token %q; got %q", banned, msg)
+			}
+		}
+	}
+}
+
 // TestPolishedMessages_NoTechnicalJargon — pin the 4 P7 polish
 // targets (BackToExplore / completeness gap / answer-check retry /
 // generic retry hint). Each must read in user vocabulary, not the
