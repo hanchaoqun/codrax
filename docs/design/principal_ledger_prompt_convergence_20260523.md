@@ -1,7 +1,7 @@
 # Principal Ledger Prompt Convergence
 
 Date: 2026-05-23
-Status: Batch 1 and Batch 2 implemented; prompt audit/eval pass pending
+Status: Batch 1 through Batch 5 implemented; targeted eval replay passed
 
 ## Problem
 
@@ -129,8 +129,12 @@ current-source citations for external observations.
 - [x] T4: Audit finalizer/extractor/reviewer prompt surfaces and document
   whether each surface is authoritative, support, raw backstop, or removable.
 - [x] T5: Run targeted tests and update this document with results.
-- [ ] T6: Run targeted evals and update
+- [x] T6: Run targeted evals and update
   `docs/design/eval_20260520_full_sweep_gap_tracking.md` with any new gap.
+- [x] T7: Generalize the recent-N VCS member-list fix into an
+  origin-specific principal-member contract for VCS/diff, runtime/log/trace,
+  command output, cross-repo index, external document, web, MCP, and connector
+  observations without creating current-source citation pressure.
 
 ## Batch Plan
 
@@ -230,3 +234,80 @@ Targeted code references:
 
 Run targeted evals, record retry/reject data, and decide the next high-ROI gap
 from evidence rather than speculation.
+
+Status: done for the first replay tranche.
+
+Targeted replay:
+
+```bash
+EVAL_RESULTS_ROOT=eval/results/principal-ledger-u7l-fix-20260523-213328 \
+  bash eval/run.sh eval/cases/u7l.case 1
+```
+
+Result: `u7l` PASS, with `analyzer_iters=1`, `explorer_iters=5`,
+`extractor_iters=1`, `finalizer_iters=1`, `midloop_inject=0`, and no finalizer
+rewrite. The answer now carries the model's grouped explanation and an explicit
+recent-10 commit member list instead of collapsing to a single summary.
+
+Finding from the replay:
+
+- The prior failure was not only a renderer issue. The accepted
+  `emit_investigation_complete.aggregate_facts.member_set` for the recent
+  commit list was structurally VCS-backed but had no current-source
+  `support_refs`. The older support-ref filter treated decorated member labels
+  as current-source code identities, dropped the structured member set, and
+  left finalizer with only a narrative summary. That made a missing principal
+  list look acceptable.
+
+### Batch 5: Origin-Specific Principal Member Contract
+
+Status: done.
+
+Implemented:
+
+- `types.OriginSpecificMemberSetIsPrincipalList` and
+  `types.HasPrincipalOriginSpecificMemberSetForRequest` define the shared
+  principal-member contract for non-current-source observations.
+- `HistoryMemberSetIsPrincipalList` now reuses the origin-specific path while
+  preserving the legacy implicit recent-N VCS behavior.
+- `preEmitAggregateMemberSetCoverageHardGate` reads the generalized predicate,
+  so an explicit principal MCP/web/log/trace/command member list cannot be
+  silently compressed away.
+- `decoratedAggregateMemberCanRelyOnOriginSpecificProvenance` keeps decorated
+  external-observation members from being rejected for missing current-source
+  `support_refs`; current-source decorated members and VCS code identifiers
+  still require support refs unless the member is a real commit hash or an
+  observation-only runtime/log/trace frame.
+
+Guardrails:
+
+- Unknown-role external member sets stay soft unless the model explicitly marks
+  `role=principal_answer`, except for the typed pure-history VCS recent-N list
+  compatibility path.
+- Support/audit roles remain support/audit and do not become hard visible-member
+  gates.
+- Current-code verification requests with attached logs/traces still require
+  current-source grounding; artifact-local observations do not become checkout
+  citations.
+- Full commit hashes may be satisfied by standard short-hash renderings (7+
+  hex chars) in the model-authored answer. The system must not append a dry
+  verified-member table merely because the visible answer used `bfc2054`
+  instead of the 40-character hash.
+
+Targeted tests:
+
+```bash
+go test ./internal/types ./internal/tool -run 'TestHistoryMemberSetIsPrincipalList|TestOriginSpecificMemberSetIsPrincipalList|TestRunPreEmitChecks_AggregateMemberSetCoverageHardForHistoryList|TestRunPreEmitChecks_AggregateMemberSetCoverageHardForOriginSpecificPrincipalList|TestDropUnsupportedDecoratedMemberSets|TestEmitInvestigationComplete_AllowsDecoratedCommitHashMemberSet|TestEmitInvestigationComplete_DecoratedCodeMemberStillRequiresSupportRefsWithVCSOrigin|TestEmitInvestigationComplete_AllowsDecoratedRuntimeMemberSet|TestEmitInvestigationComplete_DecoratedRuntimeMemberSetRequiresSupportRefsForCurrentVerification|TestEmitInvestigationComplete_AllowsDecoratedExternalOriginMemberSet'
+```
+
+Result: pass.
+
+Follow-up replay after the short-hash supplement fix:
+
+```bash
+EVAL_RESULTS_ROOT=eval/results/principal-ledger-short-hash-20260523-215117 \
+  bash eval/run.sh eval/cases/u7l.case 1
+```
+
+Result: PASS, `analyzer_iters=1`, `explorer_iters=3`, `extractor_iters=1`,
+`finalizer_iters=1`, `midloop_inject=0`, and no visible system-supplement table.

@@ -662,11 +662,11 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	effectiveAggregateFacts := effectiveCompletionAggregateFactsForValidation(ctx, aggregateFacts, evidenceSnapshot)
 	if resultKind == "absence" {
 		var notes []string
-		effectiveAggregateFacts, notes = dropUnsupportedDecoratedMemberSets(effectiveAggregateFacts, "absence handoff", false)
+		effectiveAggregateFacts, notes = dropUnsupportedDecoratedMemberSets(ctx, effectiveAggregateFacts, "absence handoff", false)
 		aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, notes...)
 	} else if completionAggregateFactsAreOptional(ctx, resultKind) {
 		var notes []string
-		effectiveAggregateFacts, notes = dropUnsupportedDecoratedMemberSets(effectiveAggregateFacts, "optional aggregate handoff", true)
+		effectiveAggregateFacts, notes = dropUnsupportedDecoratedMemberSets(ctx, effectiveAggregateFacts, "optional aggregate handoff", true)
 		aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, notes...)
 	}
 
@@ -2472,10 +2472,7 @@ func validateAggregateMemberSetSupportRefs(ctx *types.BusContext, facts []types.
 		}
 		var decorated []string
 		for _, member := range fact.Members {
-			if decoratedAggregateMemberCanRelyOnVCSProvenance(ctx, fact, member) {
-				continue
-			}
-			if decoratedAggregateMemberCanRelyOnRuntimeArtifactProvenance(ctx, fact, member) {
+			if decoratedAggregateMemberCanRelyOnOriginSpecificProvenance(ctx, fact, member) {
 				continue
 			}
 			if memberHasDecoratedCodeIdentityBase(member) {
@@ -2528,6 +2525,32 @@ func decoratedAggregateMemberCanRelyOnRuntimeArtifactProvenance(ctx *types.BusCo
 	}
 	for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
 		if origin == types.AnswerEvidenceOriginRuntimeArtifact {
+			return true
+		}
+	}
+	return false
+}
+
+func decoratedAggregateMemberCanRelyOnOriginSpecificProvenance(ctx *types.BusContext, fact types.AnswerAggregateFact, member string) bool {
+	if !memberHasDecoratedCodeIdentityBase(member) {
+		return false
+	}
+	if decoratedAggregateMemberCanRelyOnVCSProvenance(ctx, fact, member) {
+		return true
+	}
+	if decoratedAggregateMemberCanRelyOnRuntimeArtifactProvenance(ctx, fact, member) {
+		return true
+	}
+	rm := requestModelForAggregateSupport(ctx)
+	for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
+		switch origin {
+		case types.AnswerEvidenceOriginCommandMeasurement,
+			types.AnswerEvidenceOriginRepoNegativeSearch,
+			types.AnswerEvidenceOriginCrossRepoIndex,
+			types.AnswerEvidenceOriginExternalDocument,
+			types.AnswerEvidenceOriginWebPage,
+			types.AnswerEvidenceOriginMCPResource,
+			types.AnswerEvidenceOriginConnectorResource:
 			return true
 		}
 	}
@@ -6906,7 +6929,7 @@ func aggregateFactsContainNegativeSearchForTarget(facts []types.AnswerAggregateF
 	return false
 }
 
-func dropUnsupportedDecoratedMemberSets(facts []types.AnswerAggregateFact, contextLabel string, includePrincipal bool) ([]types.AnswerAggregateFact, []string) {
+func dropUnsupportedDecoratedMemberSets(ctx *types.BusContext, facts []types.AnswerAggregateFact, contextLabel string, includePrincipal bool) ([]types.AnswerAggregateFact, []string) {
 	if len(facts) == 0 {
 		return facts, nil
 	}
@@ -6922,7 +6945,7 @@ func dropUnsupportedDecoratedMemberSets(facts []types.AnswerAggregateFact, conte
 			role == types.AnswerAggregateRoleUnknown ||
 			(role.IsPrincipal() && !includePrincipal) ||
 			len(fact.SupportRefs) > 0 ||
-			!aggregateMemberSetHasUnsupportedDecoratedCodeMembers(fact) {
+			!aggregateMemberSetHasUnsupportedDecoratedCodeMembersForContext(ctx, fact) {
 			out = append(out, fact)
 			continue
 		}
@@ -6936,13 +6959,21 @@ func dropUnsupportedDecoratedMemberSets(facts []types.AnswerAggregateFact, conte
 }
 
 func aggregateMemberSetHasUnsupportedDecoratedCodeMembers(fact types.AnswerAggregateFact) bool {
+	return aggregateMemberSetHasUnsupportedDecoratedCodeMembersForContext(nil, fact)
+}
+
+func aggregateMemberSetHasUnsupportedDecoratedCodeMembersForContext(ctx *types.BusContext, fact types.AnswerAggregateFact) bool {
 	if fact.Kind != types.AnswerAggregateMemberSet || len(fact.SupportRefs) > 0 {
 		return false
 	}
 	for _, member := range fact.Members {
-		if memberHasDecoratedCodeIdentityBase(member) {
-			return true
+		if !memberHasDecoratedCodeIdentityBase(member) {
+			continue
 		}
+		if decoratedAggregateMemberCanRelyOnOriginSpecificProvenance(ctx, fact, member) {
+			continue
+		}
+		return true
 	}
 	return false
 }

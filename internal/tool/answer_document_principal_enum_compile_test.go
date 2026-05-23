@@ -659,6 +659,43 @@ func TestNormalizePrincipalEnumerationRowBlocks_DoesNotDuplicateVCSCommitRowsAlr
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_DoesNotDuplicateShortVCSHashes(t *testing.T) {
+	mu := types.NewMutableState("最近 10 次提交都做了哪些事情")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "最近提交",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"ae1dd6b256fab219104c09447b6ffe3697239b7a",
+			"3ae8465b6afe3fb16902d511d51482fefd09a103",
+		},
+		Dimensions: []types.AnswerAggregateDimension{{Name: "evidence_origin", Value: "vcs_metadata"}},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:          "summary",
+		Kind:        types.BlockSummary,
+		SurfaceRole: types.SurfacePrincipal,
+		Text:        "1. ae1dd6b2 — 统一 VCS 证据通道。\n2. 3ae8465b — 将重试路由绑定到 claim 机制。",
+	}}}
+
+	normalizePrincipalEnumerationRowBlocks(doc, ctx)
+	if len(doc.Blocks) != 1 {
+		t.Fatalf("must not append dry hash table when short hashes are visible: %+v", doc.Blocks)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_VisibleArchitectureCoveragePreventsSystemSupplements(t *testing.T) {
 	mu := types.NewMutableState("codrax 的 read-mode pipeline 由哪几个 stage 组成？")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{

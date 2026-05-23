@@ -972,6 +972,9 @@ func principalEnumerationVisibleSurfaceCoversRow(surface string, row types.Enume
 	if !principalEnumerationCandidateLocationCompatible(surface, row) {
 		return false
 	}
+	if principalEnumerationCommitSurfaceMatchesRow([]string{surface}, row) {
+		return true
+	}
 	for _, candidate := range principalEnumerationRowSurfaceCandidates(row) {
 		if preEmitDecoratedAggregateMemberAppearsInText(candidate, surface) ||
 			preEmitAggregateScalarValueAppears(candidate, surface) ||
@@ -1181,17 +1184,31 @@ func principalEnumerationCommitSurfaceMatchesRow(surfaces []string, row types.En
 		principalEnumerationLeadingCommitHash(row.Member),
 	}
 	for _, surface := range surfaces {
-		surfaceHash := principalEnumerationLeadingCommitHash(surface)
-		if surfaceHash == "" {
-			continue
-		}
-		for _, rowHash := range rowHashes {
-			if principalEnumerationCommitHashPrefixMatch(surfaceHash, rowHash) {
-				return true
+		for _, surfaceHash := range principalEnumerationCommitHashesInSurface(surface) {
+			if surfaceHash == "" {
+				continue
+			}
+			for _, rowHash := range rowHashes {
+				if principalEnumerationCommitHashPrefixMatch(surfaceHash, rowHash) {
+					return true
+				}
 			}
 		}
 	}
 	return false
+}
+
+func principalEnumerationCommitHashesInSurface(surface string) []string {
+	var out []string
+	if hash := principalEnumerationLeadingCommitHash(surface); hash != "" {
+		out = append(out, hash)
+	}
+	for _, token := range principalEnumerationCodeTokens(surface) {
+		if hash := principalEnumerationLeadingCommitHash(token); hash != "" {
+			out = append(out, hash)
+		}
+	}
+	return dedupPreEmitStringCandidates(out)
 }
 
 func principalEnumerationCommitHashPrefixMatch(a, b string) bool {

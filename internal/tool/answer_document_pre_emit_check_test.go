@@ -1254,6 +1254,161 @@ func TestRunPreEmitChecks_AggregateMemberSetCoverageHardForExhaustiveEnumeration
 	}
 }
 
+func TestRunPreEmitChecks_AggregateMemberSetCoverageHardForHistoryList(t *testing.T) {
+	mu := types.NewMutableState("recent commit impact rollup")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "最近10次提交",
+		Value: "2",
+		Members: []string{
+			"abc1234 (docs: plan contract)",
+			"def5678 (agent: preserve VCS summaries)",
+		},
+		Dimensions: []types.AnswerAggregateDimension{{Name: "origin", Value: "vcs_metadata"}},
+	}})
+	mu.SetInvestigationComplete("VCS member_set handoff ready")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "最近提交主要围绕 prompt ledger 和渲染稳定性展开。",
+	}}}
+	hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil, ctx)
+	if len(hints) == 0 {
+		t.Fatal("principal VCS history member_set must not be silently collapsed to a summary")
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "abc1234") ||
+		!strings.Contains(hints[0].ExpectedShape, "def5678") {
+		t.Fatalf("history-list hint should name omitted commit members, got %+v", hints[0])
+	}
+
+	doc.Blocks[0].Text += " abc1234 (docs: plan contract); def5678 (agent: preserve VCS summaries)."
+	if got := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil, ctx); len(got) != 0 {
+		t.Fatalf("visible commit members should satisfy history member_set coverage, got %+v", got)
+	}
+}
+
+func TestRunPreEmitChecks_AggregateMemberSetCoverageHardForOriginSpecificPrincipalList(t *testing.T) {
+	mu := types.NewMutableState("incident list rollup")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "open incidents",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"INC-17 (owner runtime)",
+			"INC-42 (owner storage)",
+		},
+		Dimensions: []types.AnswerAggregateDimension{{Name: "origin", Value: "mcp_resource"}},
+	}})
+	mu.SetInvestigationComplete("MCP incident list handoff ready")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "当前有两个打开的事故。",
+	}}}
+	hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil, ctx)
+	if len(hints) == 0 {
+		t.Fatal("explicit principal MCP member_set must not be silently collapsed to a summary")
+	}
+	if !strings.Contains(hints[0].ExpectedShape, "INC-17") ||
+		!strings.Contains(hints[0].ExpectedShape, "INC-42") {
+		t.Fatalf("origin-specific hint should name omitted members, got %+v", hints[0])
+	}
+
+	doc.Blocks[0].Text += " INC-17 (owner runtime); INC-42 (owner storage)."
+	if got := runPreEmitChecks(doc, &types.AnswerSemanticView{}, nil, ctx); len(got) != 0 {
+		t.Fatalf("visible origin-specific members should satisfy coverage, got %+v", got)
+	}
+}
+
+func TestDropUnsupportedDecoratedMemberSets_KeepsVCSCommitMembersWithoutSupportRefs(t *testing.T) {
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "recent commits",
+		Value: "2",
+		Members: []string{
+			"abc1234 (docs: plan contract)",
+			"def5678 (agent: preserve VCS summaries)",
+		},
+		Dimensions: []types.AnswerAggregateDimension{{Name: "origin", Value: "vcs_metadata"}},
+	}}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:     types.IntentExplain,
+		Predicates: types.SemanticPredicates{IsHistoryLookup: true},
+	}}}
+	got, notes := dropUnsupportedDecoratedMemberSets(ctx, facts, "optional aggregate handoff", true)
+	if len(notes) != 0 {
+		t.Fatalf("VCS commit members should rely on VCS provenance instead of current-source support_refs, notes=%v", notes)
+	}
+	if len(got) != 1 || len(got[0].Members) != 2 {
+		t.Fatalf("VCS commit member_set was dropped: %+v", got)
+	}
+}
+
+func TestDropUnsupportedDecoratedMemberSets_KeepsOriginSpecificMembersWithoutSupportRefs(t *testing.T) {
+	for _, origin := range []types.AnswerEvidenceOrigin{
+		types.AnswerEvidenceOriginCommandMeasurement,
+		types.AnswerEvidenceOriginCrossRepoIndex,
+		types.AnswerEvidenceOriginExternalDocument,
+		types.AnswerEvidenceOriginWebPage,
+		types.AnswerEvidenceOriginMCPResource,
+		types.AnswerEvidenceOriginConnectorResource,
+	} {
+		facts := []types.AnswerAggregateFact{{
+			Kind:  types.AnswerAggregateMemberSet,
+			Label: "external principal rows",
+			Value: "1",
+			Role:  types.AnswerAggregateRolePrincipalAnswer,
+			Members: []string{
+				"ServiceA (observed externally)",
+			},
+			Dimensions: []types.AnswerAggregateDimension{{Name: "origin", Value: string(origin)}},
+		}}
+		got, notes := dropUnsupportedDecoratedMemberSets(&types.BusContext{}, facts, "optional aggregate handoff", true)
+		if len(notes) != 0 {
+			t.Fatalf("origin %q should rely on origin-specific provenance instead of current-source support_refs, notes=%v", origin, notes)
+		}
+		if len(got) != 1 || len(got[0].Members) != 1 {
+			t.Fatalf("origin %q member_set was dropped: %+v", origin, got)
+		}
+	}
+}
+
+func TestDropUnsupportedDecoratedMemberSets_CurrentSourceStillRequiresSupportRefs(t *testing.T) {
+	facts := []types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "code rows",
+		Value: "1",
+		Role:  types.AnswerAggregateRoleSupportingCoverage,
+		Members: []string{
+			"ServiceA (current source role)",
+		},
+		Dimensions: []types.AnswerAggregateDimension{{Name: "origin", Value: "current_source"}},
+	}}
+	got, notes := dropUnsupportedDecoratedMemberSets(&types.BusContext{}, facts, "optional aggregate handoff", true)
+	if len(notes) == 0 {
+		t.Fatal("current-source decorated member without support_refs should still be dropped from optional handoff")
+	}
+	if len(got) != 0 {
+		t.Fatalf("current-source unsupported member_set should be dropped, got %+v", got)
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_GroupedCountNarrativeIsSupportOnly(t *testing.T) {
 	mu := types.NewMutableState("architecture grouped count handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

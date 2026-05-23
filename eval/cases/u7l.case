@@ -17,3 +17,5 @@ EXPECT_CONTAINS="提交"
 EXPECT_NOT_CONTAINS="**值：**"
 EXPECT_MATCHES_REGEX="(10|十|最近).*提交|提交.*(10|十|最近)
 (作用|做了什么|变更|改动|目的|建立|实现|调整|引入|完善).*(影响|结果|效果|提升|减少|防止|支持|确保|提供)|(影响|结果|效果|提升|减少|防止|支持|确保|提供).*(作用|做了什么|变更|改动|目的|建立|实现|调整|引入|完善)"
+EXPECT_MATCHES_REGEX="${EXPECT_MATCHES_REGEX}
+[0-9a-f]{7,40}.*(docs|agent|render|preview|orchestrator|commit|提交|文档|实现|调整|重构|修复)"

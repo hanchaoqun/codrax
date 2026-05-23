@@ -1713,13 +1713,26 @@ func preEmitAnswerDocumentCoversAggregateMemberSetFact(doc *types.AnswerDocument
 func preEmitAggregateMemberLocationAppearsInSurface(fact types.AnswerAggregateFact, memberIdx int, member string, ctx *types.BusContext, surface string) bool {
 	cit, ok := citationForAggregateMemberSetMember(fact, memberIdx, member, ctx)
 	if !ok {
-		return false
+		return preEmitAggregateFactHasOriginSpecificSupport(fact, ctx)
 	}
 	file := strings.TrimSpace(cit.File)
 	if file == "" || cit.Line <= 0 {
-		return false
+		return preEmitAggregateFactHasOriginSpecificSupport(fact, ctx)
 	}
 	return strings.Contains(surface, fmt.Sprintf("%s:%d", file, cit.Line))
+}
+
+func preEmitAggregateFactHasOriginSpecificSupport(fact types.AnswerAggregateFact, ctx *types.BusContext) bool {
+	var rm *types.RequestModel
+	if ctx != nil && ctx.AnalysisIR != nil {
+		rm = &ctx.AnalysisIR.RequestModel
+	}
+	for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
+		if types.AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
+			return true
+		}
+	}
+	return false
 }
 
 func preEmitPrincipalStructuredBlockClaimsAggregateCategory(doc *types.AnswerDocumentV2, fact types.AnswerAggregateFact) bool {
@@ -3097,7 +3110,11 @@ func preEmitAggregateMemberSetCoverageHardGate(ctxOpt ...*types.BusContext) bool
 	if len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].AnalysisIR == nil {
 		return true
 	}
-	rm := ctxOpt[0].AnalysisIR.RequestModel
+	ctx := ctxOpt[0]
+	rm := ctx.AnalysisIR.RequestModel
+	if ctx.Mutable != nil && types.HasPrincipalOriginSpecificMemberSetForRequest(&rm, ctx.Mutable.StableInvestigationAggregateFacts()) {
+		return true
+	}
 	return types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
 		types.RequiresRelationMemberSetHandoff(rm)
 }
@@ -3636,6 +3653,9 @@ func preEmitAggregateMemberAppearsInText(member string, surface string) bool {
 	if preEmitDecoratedAggregateMemberAppearsInText(member, surface) {
 		return true
 	}
+	if preEmitAggregateCommitMemberAppears(member, surface) {
+		return true
+	}
 	if preEmitAnyAggregateMemberAppears(candidates, surface) {
 		return true
 	}
@@ -3676,6 +3696,19 @@ func preEmitAggregateMemberAppearsInDocument(member string, doc *types.AnswerDoc
 	}
 	if preEmitMultiTargetRelationAppearsInStructuredDocument(member, doc) {
 		return true
+	}
+	return false
+}
+
+func preEmitAggregateCommitMemberAppears(member, surface string) bool {
+	memberHash := principalEnumerationLeadingCommitHash(member)
+	if memberHash == "" {
+		return false
+	}
+	for _, token := range principalEnumerationCodeTokens(surface) {
+		if principalEnumerationCommitHashPrefixMatch(token, memberHash) {
+			return true
+		}
 	}
 	return false
 }

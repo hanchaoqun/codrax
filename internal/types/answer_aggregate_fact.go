@@ -1685,6 +1685,9 @@ func AggregateFactIsNarrativeHistorySupport(rm *RequestModel, fact AnswerAggrega
 	if !rm.Predicates.IsHistoryLookup {
 		return false
 	}
+	if HistoryMemberSetIsPrincipalList(rm, fact) {
+		return false
+	}
 	if rm.Predicates.IsScalarAnswer || rm.Predicates.IsCountQuestion {
 		return false
 	}
@@ -1699,6 +1702,162 @@ func AggregateFactIsNarrativeHistorySupport(rm *RequestModel, fact AnswerAggrega
 		return false
 	}
 	return true
+}
+
+// OriginSpecificMemberSetIsPrincipalList reports whether a model-authored
+// member_set is a principal visible slate backed by a non-current-source
+// observation lane such as VCS metadata/diff, an attached runtime artifact,
+// command output, MCP/connector/web resources, or an external document.
+//
+// The predicate is intentionally conservative:
+//
+//   - an explicit support/audit role always stays support/audit;
+//   - an explicit principal role is trusted only when the aggregate carries an
+//     origin-specific non-current-source evidence origin;
+//   - the only implicit promotion is the historical recent-N VCS list shape
+//     that predated the explicit role lane and is still emitted by models.
+//
+// It never scans user prose, model free-form text, markdown table content, or
+// language syntax. Current-source member sets still use the normal
+// file:line/support_refs contract.
+func OriginSpecificMemberSetIsPrincipalList(rm *RequestModel, fact AnswerAggregateFact) bool {
+	if fact.Kind != AnswerAggregateMemberSet || !answerAggregateFactCarriesCompleteMemberSet(fact) || len(fact.Members) == 0 {
+		return false
+	}
+	role := NormalizeAnswerAggregateRole(fact.Role)
+	if role == AnswerAggregateRoleSupportingCoverage || role == AnswerAggregateRoleAuditLedger {
+		return false
+	}
+	if !aggregateFactHasOriginSpecificSupport(fact, rm) {
+		return false
+	}
+	if rm != nil && IsHistoryBackedCurrentCodeExplanation(*rm) {
+		return false
+	}
+	if rm != nil && rm.Predicates.IsHistoryLookup &&
+		(rm.Predicates.IsDiagnosticQuestion ||
+			rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
+			rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() ||
+			(rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active()) ||
+			(rm.FieldValueProfile != nil && rm.FieldValueProfile.Active())) {
+		return false
+	}
+	if rm != nil && rm.Predicates.IsHistoryLookup && historyMemberSetHasVCSOrigin(rm, fact) &&
+		len(fact.Members) < 2 &&
+		rm.Intent != IntentEnumerate &&
+		!rm.Predicates.IsCategoryEnumeration &&
+		!rm.Predicates.IsRelationalLookup &&
+		!rm.QuestionStructure().HasAnyObligation() {
+		return false
+	}
+	if role == AnswerAggregateRolePrincipalAnswer {
+		if AggregateMemberSetIsScalarCountSupport(rm, fact) {
+			return false
+		}
+		if rm != nil && AggregateMemberSetIsNoHitWindowSupport(rm, []AnswerAggregateFact{fact}, 0) {
+			return false
+		}
+		if AggregateMemberSetIsArchitectureNarrativeSupport(rm, fact) ||
+			AggregateMemberSetIsMechanismNarrativeSupport(rm, fact) {
+			return false
+		}
+		return true
+	}
+	return historyMemberSetIsImplicitPrincipalList(rm, fact)
+}
+
+// HistoryMemberSetIsPrincipalList reports whether a model-authored
+// member_set is the principal visible slate for a pure repository-history
+// list/rollup answer.
+//
+// This protects recent-N commit summaries and similar VCS-list questions from
+// being collapsed into a one-paragraph overview. The rule is typed-only: it
+// consumes the analyzer's history/source-shape flags plus the structured
+// aggregate fact's origin and role. It does not inspect user prose, model
+// thoughts, markdown table text, or commit-message wording.
+func HistoryMemberSetIsPrincipalList(rm *RequestModel, fact AnswerAggregateFact) bool {
+	if fact.Kind != AnswerAggregateMemberSet {
+		return false
+	}
+	return historyMemberSetIsImplicitPrincipalList(rm, fact) ||
+		(historyMemberSetHasVCSOrigin(rm, fact) && OriginSpecificMemberSetIsPrincipalList(rm, fact))
+}
+
+func historyMemberSetIsImplicitPrincipalList(rm *RequestModel, fact AnswerAggregateFact) bool {
+	if rm == nil || fact.Kind != AnswerAggregateMemberSet || !answerAggregateFactCarriesCompleteMemberSet(fact) {
+		return false
+	}
+	if len(fact.Members) < 2 {
+		return false
+	}
+	if !rm.Predicates.IsHistoryLookup || rm.Predicates.IsScalarAnswer || rm.Predicates.IsCountQuestion {
+		return false
+	}
+	if IsHistoryBackedCurrentCodeExplanation(*rm) ||
+		rm.Predicates.IsDiagnosticQuestion ||
+		rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
+		rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() ||
+		(rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active()) ||
+		(rm.FieldValueProfile != nil && rm.FieldValueProfile.Active()) {
+		return false
+	}
+	role := NormalizeAnswerAggregateRole(fact.Role)
+	if role == AnswerAggregateRoleSupportingCoverage || role == AnswerAggregateRoleAuditLedger {
+		return false
+	}
+	return historyMemberSetHasVCSOrigin(rm, fact)
+}
+
+func historyMemberSetHasVCSOrigin(rm *RequestModel, fact AnswerAggregateFact) bool {
+	for _, origin := range AnswerAggregateFactEvidenceOrigins(fact, rm) {
+		if origin == AnswerEvidenceOriginVCSMetadata || origin == AnswerEvidenceOriginVCSDiff {
+			return true
+		}
+	}
+	return false
+}
+
+// HasPrincipalHistoryMemberSetForRequest reports whether accepted aggregate
+// facts contain a principal VCS history list that the final answer must not
+// omit. It is used by prompt and pre-emit layers so both read the same typed
+// contract.
+func HasPrincipalHistoryMemberSetForRequest(rm *RequestModel, facts []AnswerAggregateFact) bool {
+	if rm == nil || len(facts) == 0 {
+		return false
+	}
+	for _, fact := range facts {
+		if HistoryMemberSetIsPrincipalList(rm, fact) &&
+			AnswerAggregateFactRoleForRequest(fact, rm) == AnswerAggregateRolePrincipalAnswer {
+			return true
+		}
+	}
+	return false
+}
+
+// HasPrincipalOriginSpecificMemberSetForRequest reports whether accepted
+// aggregate facts contain a principal list backed by an origin-specific
+// non-current-source observation. Finalization must preserve these rows, but
+// they do not create current-source citation pressure.
+func HasPrincipalOriginSpecificMemberSetForRequest(rm *RequestModel, facts []AnswerAggregateFact) bool {
+	if len(facts) == 0 {
+		return false
+	}
+	for _, fact := range facts {
+		if OriginSpecificMemberSetIsPrincipalList(rm, fact) &&
+			AnswerAggregateFactRoleForRequest(fact, rm) == AnswerAggregateRolePrincipalAnswer {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateFactHasOriginSpecificSupport(fact AnswerAggregateFact, rm *RequestModel) bool {
+	for _, origin := range AnswerAggregateFactEvidenceOrigins(fact, rm) {
+		if AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
+			return true
+		}
+	}
+	return false
 }
 
 func AggregateFactConflictsWithPrincipalMemberSetCounts(facts []AnswerAggregateFact, rm *RequestModel, idx int) bool {

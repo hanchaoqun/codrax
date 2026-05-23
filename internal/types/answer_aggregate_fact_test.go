@@ -91,6 +91,127 @@ func TestNormalizeAnswerAggregateFacts_AcceptsMemberSet(t *testing.T) {
 	}
 }
 
+func TestHistoryMemberSetIsPrincipalList_PureVCSRecentN(t *testing.T) {
+	rm := &RequestModel{
+		Intent: IntentExplain,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+	}
+	fact := AnswerAggregateFact{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "recent commits",
+		Value: "2",
+		Members: []string{
+			"abc1234 (docs: plan contract)",
+			"def5678 (agent: preserve VCS summaries)",
+		},
+		Dimensions: []AnswerAggregateDimension{{Name: "origin", Value: "vcs_metadata"}},
+	}
+	if !HistoryMemberSetIsPrincipalList(rm, fact) {
+		t.Fatal("pure non-scalar VCS history member_set should be a principal visible list")
+	}
+	if AggregateFactIsNarrativeHistorySupport(rm, fact) {
+		t.Fatal("principal VCS list must not be demoted to narrative support")
+	}
+	if !HasPrincipalHistoryMemberSetForRequest(rm, []AnswerAggregateFact{fact}) {
+		t.Fatal("request should expose a principal history member_set contract")
+	}
+}
+
+func TestHistoryMemberSetIsPrincipalList_RespectsSupportAndMixedShapes(t *testing.T) {
+	base := AnswerAggregateFact{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "recent commits",
+		Value: "2",
+		Members: []string{
+			"abc1234 (docs: plan contract)",
+			"def5678 (agent: preserve VCS summaries)",
+		},
+		Dimensions: []AnswerAggregateDimension{{Name: "origin", Value: "vcs_metadata"}},
+	}
+	support := base
+	support.Role = AnswerAggregateRoleSupportingCoverage
+	if HistoryMemberSetIsPrincipalList(&RequestModel{
+		Intent:     IntentExplain,
+		Predicates: SemanticPredicates{IsHistoryLookup: true},
+	}, support) {
+		t.Fatal("explicit supporting_coverage VCS member_set must stay support-only")
+	}
+	if HistoryMemberSetIsPrincipalList(&RequestModel{
+		Intent: IntentExplain,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+			IsCountQuestion: true,
+			IsScalarAnswer:  true,
+		},
+	}, base) {
+		t.Fatal("history count/scalar answers must not force member-set visibility")
+	}
+	if HistoryMemberSetIsPrincipalList(&RequestModel{
+		Intent:     IntentExplain,
+		Predicates: SemanticPredicates{IsHistoryLookup: true},
+		ChangeImpactProfile: &ChangeImpactProfile{
+			IsChangeImpact:  true,
+			RequestedOutput: ImpactOutputFiles,
+		},
+	}, base) {
+		t.Fatal("history-backed change-impact requests need their own impact surface, not a VCS member list gate")
+	}
+}
+
+func TestOriginSpecificMemberSetIsPrincipalList_ExplicitRoleAcrossExternalOrigins(t *testing.T) {
+	rm := &RequestModel{Intent: IntentExplain}
+	for _, origin := range []AnswerEvidenceOrigin{
+		AnswerEvidenceOriginRuntimeArtifact,
+		AnswerEvidenceOriginCommandMeasurement,
+		AnswerEvidenceOriginCrossRepoIndex,
+		AnswerEvidenceOriginExternalDocument,
+		AnswerEvidenceOriginWebPage,
+		AnswerEvidenceOriginMCPResource,
+		AnswerEvidenceOriginConnectorResource,
+	} {
+		fact := AnswerAggregateFact{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "external rows",
+			Value:   "2",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"row A (observed)", "row B (observed)"},
+			Dimensions: []AnswerAggregateDimension{{
+				Name:  "origin",
+				Value: string(origin),
+			}},
+		}
+		if !OriginSpecificMemberSetIsPrincipalList(rm, fact) {
+			t.Fatalf("explicit principal member_set for origin %q should be visible principal list", origin)
+		}
+		if !HasPrincipalOriginSpecificMemberSetForRequest(rm, []AnswerAggregateFact{fact}) {
+			t.Fatalf("origin %q should expose principal origin-specific member_set contract", origin)
+		}
+	}
+}
+
+func TestOriginSpecificMemberSetIsPrincipalList_DoesNotInferUnknownExternalSupport(t *testing.T) {
+	rm := &RequestModel{Intent: IntentExplain}
+	fact := AnswerAggregateFact{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "external rows",
+		Value:   "2",
+		Members: []string{"row A (observed)", "row B (observed)"},
+		Dimensions: []AnswerAggregateDimension{{
+			Name:  "origin",
+			Value: string(AnswerEvidenceOriginMCPResource),
+		}},
+	}
+	if OriginSpecificMemberSetIsPrincipalList(rm, fact) {
+		t.Fatal("unknown-role non-history external member_set must stay soft unless the model marks it principal")
+	}
+	fact.Role = AnswerAggregateRoleSupportingCoverage
+	if OriginSpecificMemberSetIsPrincipalList(rm, fact) {
+		t.Fatal("supporting external member_set must not become a principal visible list")
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_PreservesRoleAndProvenance(t *testing.T) {
 	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
 		Kind:       AnswerAggregateMemberSet,

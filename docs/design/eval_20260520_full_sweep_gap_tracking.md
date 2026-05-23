@@ -49,6 +49,38 @@ thin or misleading answer, record it here before choosing a fix.
 - `u7n` / `logtri_warn_no_fatal` / `hitrace_gc_present_no_long` — mixed
   positive+negative observation guards, ensuring a bounded absent target does
   not erase an observed present target in the same answer.
+- `u7l` expectation was tightened after the 2026-05-23 replay to require at
+  least one commit-like hash in the final answer, so a recent-N history answer
+  cannot pass with only a compressed overview.
+
+## 2026-05-23 Targeted Principal-Ledger Replay
+
+- Results root:
+  `eval/results/principal-ledger-u7l-fix-20260523-213328`
+- Case: `u7l` — "最近 10 次提交都做了哪些事情？请逐个说明每次提交的作用和影响。"
+- Result: PASS, `analyzer_iters=1`, `explorer_iters=5`, `extractor_iters=1`,
+  `finalizer_iters=1`, `midloop_inject=0`.
+- Root cause of the earlier thin answer: the accepted VCS
+  `aggregate_facts.member_set` used decorated commit labels and no current
+  source `support_refs`. The old optional-handoff filter only understood
+  current-source decorated members, so it dropped the structured recent-10
+  commit list and left finalizer with prose context only.
+- Fix class: origin-specific principal member sets. A model-authored
+  `member_set` with `role=principal_answer` and an explicit non-current-source
+  origin is a principal answer payload without current-source citation pressure.
+  The same contract now covers VCS/diff, observation-only log/trace runtime
+  artifacts, command measurements, cross-repo index observations, external
+  documents, web pages, MCP resources, and connector resources.
+- Safety boundary: unknown-role external member sets remain soft unless a typed
+  pure-history VCS list shape applies; current-source decorated members and
+  VCS code identifiers still need support refs, while real commit-hash labels
+  can rely on VCS provenance.
+- Second replay after short-hash coverage:
+  `eval/results/principal-ledger-short-hash-20260523-215117/u7l-20260523-215120`
+  PASSed with `finalizer_iters=1`, `midloop_inject=0`, and no visible
+  system-generated "符号名称" / verified-member supplement table. This closes
+  the immediate UX regression where a rich commit-by-commit answer was followed
+  by a dry full-hash table.
 
 ## Active Finding Ledger
 

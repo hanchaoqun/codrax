@@ -1302,6 +1302,46 @@ func TestRenderAnswerDocPrincipalMemberSetContract_SkipsNoHitSearchedWindowSuppo
 	}
 }
 
+func TestRenderAnswerDocPrincipalMemberSetContract_HistoryList(t *testing.T) {
+	mut := types.NewMutableState("recent commit impact rollup")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "最近10次提交",
+		Value: "2",
+		Members: []string{
+			"abc1234 (docs: plan contract)",
+			"def5678 (agent: preserve VCS summaries)",
+		},
+		Dimensions: []types.AnswerAggregateDimension{{Name: "origin", Value: "vcs_metadata"}},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentExplain,
+			Predicates: types.SemanticPredicates{IsHistoryLookup: true},
+		}},
+		Mutable: mut,
+	}
+
+	contract := renderAnswerDocPrincipalMemberSetContract(ctx)
+	if contract == "" {
+		t.Fatal("history list member_set should produce a visible preservation contract")
+	}
+	if !strings.Contains(contract, `principal set "最近10次提交"`) ||
+		!strings.Contains(contract, "Principal Enumeration Rows") {
+		t.Fatalf("history principal contract should point at the single rich row surface:\n%s", contract)
+	}
+	rows := renderAnswerDocAggregateFacts(ctx)
+	for _, want := range []string{
+		"member=`abc1234 (docs: plan contract)`",
+		"member=`def5678 (agent: preserve VCS summaries)`",
+	} {
+		if !strings.Contains(rows, want) {
+			t.Fatalf("history principal rows missing %q:\n%s", want, rows)
+		}
+	}
+}
+
 // TestRenderAnswerDocPrincipalMemberSetContract_BuildInitialInstructionWiring
 // pins that the new section is wired into BuildInitialInstruction so the
 // finalizer prompt actually sees it.

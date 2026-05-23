@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -4308,6 +4309,43 @@ func TestEmitInvestigationComplete_DecoratedRuntimeMemberSetRequiresSupportRefsF
 	}
 	if !strings.Contains(res.Summary, "support_refs is empty") {
 		t.Fatalf("summary should preserve support_refs contract, got: %s", res.Summary)
+	}
+}
+
+func TestEmitInvestigationComplete_AllowsDecoratedExternalOriginMemberSet(t *testing.T) {
+	for _, origin := range []types.AnswerEvidenceOrigin{
+		types.AnswerEvidenceOriginCommandMeasurement,
+		types.AnswerEvidenceOriginCrossRepoIndex,
+		types.AnswerEvidenceOriginExternalDocument,
+		types.AnswerEvidenceOriginWebPage,
+		types.AnswerEvidenceOriginMCPResource,
+		types.AnswerEvidenceOriginConnectorResource,
+	} {
+		mut := types.NewMutableState("q")
+		bus := &types.BusContext{Mutable: mut}
+		tool := &EmitInvestigationComplete{}
+		params := json.RawMessage(fmt.Sprintf(`{
+			"reason":"external observation rows collected",
+			"confidence":"high",
+			"result_kind":"resolved",
+			"aggregate_facts":[
+				{
+					"kind":"member_set",
+					"label":"external rows",
+					"value":"1",
+					"role":"principal_answer",
+					"dimensions":[{"name":"origin","value":%q}],
+					"members":["ServiceA (observed externally)"]
+				}
+			]
+		}`, string(origin)))
+		res, err := tool.Execute(bus, params)
+		if err != nil {
+			t.Fatalf("origin %q: unexpected error: %v", origin, err)
+		}
+		if !res.Success {
+			t.Fatalf("origin %q decorated member_set should rely on origin-specific provenance: %s", origin, res.Summary)
+		}
 	}
 }
 
