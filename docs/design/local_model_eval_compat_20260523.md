@@ -867,6 +867,44 @@ Preferred runtime-side design:
   degraded but valid `emit_analysis` draft instead of spending another full LLM
   round on the same mistake.
 
+Batch 10 implementation plan (2026-05-24):
+
+- Reuse the existing call-chain endpoint contract in
+  `answer_support_plan_call_chain.go`; export only small endpoint helper wrappers
+  instead of rebuilding a second matcher in explorer.
+- Treat endpoint coverage as typed runtime state:
+  grounded/recovered `emit_evidence` fields, current `AnswerSurfacePlan`
+  surface evidence, and `read_file` windows that cover a matching repomap symbol.
+  Raw user text and model prose remain out of the decision path.
+- When read-without-emit escalation is about to hide navigation tools on a
+  bounded trace, first check the terminal endpoint. If it is uncovered, emit one
+  targeted endpoint hint and keep the normal tool surface open. Once the terminal
+  endpoint is covered, fall back to the existing emit-only escalation.
+- For generic partial-read hints on bounded traces, suppress whole-function
+  pagination once a typed path carrier and the terminal endpoint are covered.
+  If the terminal endpoint is still missing, keep partial-read nudges only for
+  the endpoint-bearing symbol; otherwise let the endpoint hint guide a targeted
+  read/grep rather than "finish the entire large function".
+- Tests:
+  - bounded trace with missing terminal endpoint must not latch
+    `midLoopNoEmitEscalated`;
+  - bounded trace with covered terminal endpoint keeps the existing emit-only
+    behavior;
+  - bounded trace partial-read hints are suppressed after terminal endpoint plus
+    call-chain evidence coverage;
+  - unrelated partial-read hints are not used as a surrogate for a missing
+    terminal endpoint.
+
+Task status:
+
+- [x] Audit existing loop-control and support-lane code paths.
+- [x] Export endpoint helper wrappers from `internal/types`.
+- [x] Add explorer endpoint-coverage helpers based on structured evidence,
+  answer-surface plan, repomap symbols, and read windows.
+- [x] Gate read-without-emit escalation on terminal endpoint coverage.
+- [x] Gate bounded-trace partial-read hints on endpoint/path-carrier coverage.
+- [x] Add focused regression tests and run targeted test suites.
+
 Why this is graceful:
 
 - The user's question and the model's prose are not inspected for special cases.

@@ -161,6 +161,7 @@ type explorerEvaluator struct {
 	midLoopOrientationFinalizeSent  bool
 	midLoopNoEmitPushSent           bool // one-shot: current evidence-materialization backlog window already received its read-without-emit nudge
 	midLoopNoEmitEscalated          bool // one-shot: stronger "emit evidence now" escalation after the current backlog window's nudge was ignored
+	midLoopNoEmitEndpointSent       bool // one-shot: bounded trace backlog could not be narrowed because the terminal endpoint is not covered yet
 	midLoopExecRedirectSent         bool // one-shot: redirected shell-style browsing back to built-in grep/read_file before recording the current backlog window
 	midLoopExplanationAnchorSent    bool // one-shot: multi-topic explanation still lacks one grounded anchor per sub-topic
 	midLoopCompletionReadySent      bool // one-shot: generic "you already have enough grounded evidence; close now" hint already pushed this dispatch
@@ -357,6 +358,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopOrientationFinalizeSent = false
 		e.midLoopNoEmitPushSent = false
 		e.midLoopNoEmitEscalated = false
+		e.midLoopNoEmitEndpointSent = false
 		e.midLoopExecRedirectSent = false
 		e.midLoopExplanationAnchorSent = false
 		e.midLoopCompletionReadySent = false
@@ -493,6 +495,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopOrientationFinalizeSent = false
 	e.midLoopNoEmitPushSent = false
 	e.midLoopNoEmitEscalated = false
+	e.midLoopNoEmitEndpointSent = false
 	e.midLoopExecRedirectSent = false
 	e.midLoopExplanationAnchorSent = false
 	e.midLoopCompletionReadySent = false
@@ -4982,6 +4985,20 @@ func (e *explorerEvaluator) postReadWithoutEmitEscalationSignal(obs LoopObservat
 	if navigationCalls < 2 {
 		return LoopSignal{}
 	}
+	if missing := e.tracePathMissingTerminalEndpointHints(obs.AllToolResults); len(missing) > 0 {
+		if e.midLoopNoEmitEndpointSent {
+			return LoopSignal{}
+		}
+		e.midLoopNoEmitEndpointSent = true
+		return LoopSignal{
+			HintRequested:  true,
+			HintKey:        e.emitBacklogWindowHintKey("explorer.mid-loop.read-without-emit-path-endpoint"),
+			Hint:           renderBoundedTraceEndpointBacklogHint(missing),
+			Progress:       true,
+			BypassThrottle: true,
+			BypassBudget:   true,
+		}
+	}
 	e.midLoopNoEmitEscalated = true
 	backlogScope := "after additional tool rounds"
 	if e.midLoopEmitBacklogBaseLen > 0 {
@@ -4999,6 +5016,185 @@ func (e *explorerEvaluator) postReadWithoutEmitEscalationSignal(obs LoopObservat
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+func renderBoundedTraceEndpointBacklogHint(missing []string) string {
+	missing = dedupMergeStrings(nil, missing)
+	if len(missing) == 0 {
+		return ""
+	}
+	display := "`" + strings.Join(missing, "`, `") + "`"
+	return "MID-LOOP CHECK: this dispatch is a bounded path/trace, and the terminal endpoint from the typed analysis is not grounded in the read windows yet: " + display + ". " +
+		"Do not switch into broad navigation or whole-function pagination. First emit any current path anchors already visible in the lines you read with `emit_evidence(items=[...])`; then use a targeted `grep` / `read_file` for the missing endpoint or the edge that reaches it. " +
+		"Only call `emit_investigation_complete` after the endpoint/edge is represented by grounded structured evidence."
+}
+
+func (e *explorerEvaluator) tracePathEndpointHints() []string {
+	if e == nil || e.analysisIR == nil || !e.boundedStructuralTraceRequest() {
+		return nil
+	}
+	return types.CallChainRequestedEndpointHints(e.analysisIR.RequestModel)
+}
+
+func (e *explorerEvaluator) tracePathTerminalEndpointHints() []string {
+	return types.CallChainTerminalEndpointHints(e.tracePathEndpointHints())
+}
+
+func (e *explorerEvaluator) tracePathMissingTerminalEndpointHints(history []types.ToolResult) []string {
+	endpoints := e.tracePathTerminalEndpointHints()
+	if len(endpoints) == 0 {
+		return nil
+	}
+	var missing []string
+	for _, endpoint := range endpoints {
+		if !e.tracePathEndpointCovered(endpoint, history) {
+			missing = append(missing, endpoint)
+		}
+	}
+	return missing
+}
+
+func (e *explorerEvaluator) tracePathEndpointCovered(endpoint string, history []types.ToolResult) bool {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return true
+	}
+	if e.tracePathEndpointCoveredByEvidence(endpoint) {
+		return true
+	}
+	if e.tracePathEndpointCoveredBySupportPlan(endpoint) {
+		return true
+	}
+	return e.tracePathEndpointCoveredByReadWindow(endpoint, history)
+}
+
+func (e *explorerEvaluator) tracePathEndpointCoveredByEvidence(endpoint string) bool {
+	if e == nil || len(e.structuredEvidence) == 0 {
+		return false
+	}
+	for _, item := range e.structuredEvidence {
+		switch item.GroundingStatus {
+		case "", types.GroundingGrounded, types.GroundingRecovered:
+		default:
+			continue
+		}
+		for _, surface := range []string{item.AnchorSymbol, item.OwnerSymbol, item.Subject, item.Object} {
+			if traceEndpointSurfaceCompatible(surface, endpoint) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (e *explorerEvaluator) tracePathEndpointCoveredBySupportPlan(endpoint string) bool {
+	if e == nil || e.analysisIR == nil {
+		return false
+	}
+	support := types.BuildAnswerSupportPlan(e.analysisIR.RequestModel, e.answerSurfacePlan())
+	if support == nil {
+		return false
+	}
+	for _, lane := range support.Lanes {
+		for _, entry := range lane.Entries {
+			if traceEndpointSurfaceCompatible(entry.Text, endpoint) ||
+				traceEndpointSurfaceCompatible(entry.Location, endpoint) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (e *explorerEvaluator) tracePathEndpointCoveredByReadWindow(endpoint string, history []types.ToolResult) bool {
+	if e == nil || e.searchResult == nil || e.searchResult.Graph == nil || len(history) == 0 {
+		return false
+	}
+	intervalsByFile := readFileIntervalsFromHistory(history)
+	if len(intervalsByFile) == 0 {
+		return false
+	}
+	for file, intervals := range intervalsByFile {
+		fi := e.searchResult.Graph.FileIndex[canonicalExplorerPath(file)]
+		if fi == nil {
+			continue
+		}
+		for _, sym := range fi.Symbols {
+			if !repomapSymbolEndpointCompatible(sym, endpoint) {
+				continue
+			}
+			if readIntervalsCoverLine(intervals, sym.Line) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func repomapSymbolEndpointCompatible(sym repomap.Symbol, endpoint string) bool {
+	for _, surface := range []string{
+		sym.Name,
+		strings.TrimSpace(sym.Receiver + "." + sym.Name),
+		strings.TrimSpace(sym.Parent + "." + sym.Name),
+		sym.Signature,
+	} {
+		if traceEndpointSurfaceCompatible(surface, endpoint) {
+			return true
+		}
+	}
+	return false
+}
+
+func traceEndpointSurfaceCompatible(candidate, endpoint string) bool {
+	candidate = strings.TrimSpace(candidate)
+	endpoint = strings.TrimSpace(endpoint)
+	if candidate == "" || endpoint == "" {
+		return false
+	}
+	if strings.Contains(strings.ToLower(candidate), strings.ToLower(endpoint)) {
+		return true
+	}
+	endQual, endName, qualified := traceEndpointQualifiedParts(endpoint)
+	if !qualified {
+		return types.CallChainEndpointCompatible(candidate, endpoint)
+	}
+	candQual, candName, candQualified := traceEndpointQualifiedParts(candidate)
+	if !candQualified {
+		return false
+	}
+	return candQual == endQual && candName == endName
+}
+
+func traceEndpointQualifiedParts(raw string) (qualifierTail, nameTail string, qualified bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", "", false
+	}
+	if fields := strings.Fields(raw); len(fields) > 0 {
+		raw = fields[0]
+	}
+	raw = strings.Trim(raw, "`")
+	raw = strings.TrimSuffix(raw, "()")
+	raw = strings.ReplaceAll(raw, "::", ".")
+	idx := strings.LastIndex(raw, ".")
+	if idx < 0 {
+		return "", types.NormalizedSurfaceSymbolTail(raw), false
+	}
+	qualifierTail = types.NormalizedSurfaceSymbolTail(raw[:idx])
+	nameTail = types.NormalizedSurfaceSymbolTail(raw[idx+1:])
+	return qualifierTail, nameTail, qualifierTail != "" && nameTail != ""
+}
+
+func readIntervalsCoverLine(intervals []readInterval, line int) bool {
+	if line <= 0 {
+		return false
+	}
+	for _, interval := range intervals {
+		if line >= interval.start && line <= interval.end {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *explorerEvaluator) postReadWithoutEmitClosureOnlySignal(obs LoopObservation) LoopSignal {
@@ -5594,6 +5790,7 @@ func (e *explorerEvaluator) syncEmitBacklogWindow(results []types.ToolResult) {
 	e.midLoopEmitBacklogBaseLen = baseLen
 	e.midLoopNoEmitPushSent = false
 	e.midLoopNoEmitEscalated = false
+	e.midLoopNoEmitEndpointSent = false
 	e.midLoopExecRedirectSent = false
 	e.midLoopNoEmitPushIter = 0
 	e.midLoopNoEmitPushResultsLen = 0
@@ -7151,7 +7348,7 @@ func (e *explorerEvaluator) postPrimaryReadMidLoopSignal(obs LoopObservation) Lo
 		}
 	}
 	if partials := detectPartiallyReadSymbols(obs.AllToolResults, e.searchResult.Graph); len(partials) > 0 {
-		partials = e.filterPartialReadsForPostPrimary(partials)
+		partials = e.filterPartialReadsForPostPrimaryWithHistory(partials, obs.AllToolResults)
 		if len(partials) == 0 {
 			return LoopSignal{}
 		}
@@ -7251,7 +7448,7 @@ func (e *explorerEvaluator) orderedSameFileTracePartialReadHint() string {
 			return ""
 		}
 	}
-	return "Because this dispatch wants an ordered in-file trace, first materialize the call / assignment / guard anchors that are ALREADY visible in the current read span in source order. Then keep paging this same function until the requested source-to-sink interval is covered before widening to sibling helpers or nearby files.\n"
+	return "Because this dispatch wants an ordered in-file trace, first materialize the call / assignment / guard anchors that are ALREADY visible in the current read span in source order. If a terminal endpoint is still missing, target that endpoint or the edge that reaches it directly; do not page unrelated parts of a large function just to reach whole-body coverage.\n"
 }
 
 func (e *explorerEvaluator) filterPartialReadsByAuthoritativeFrames(hints []partialReadHint) []partialReadHint {
@@ -7273,12 +7470,17 @@ func (e *explorerEvaluator) filterPartialReadsByAuthoritativeFrames(hints []part
 }
 
 func (e *explorerEvaluator) filterPartialReadsForPostPrimary(hints []partialReadHint) []partialReadHint {
+	return e.filterPartialReadsForPostPrimaryWithHistory(hints, nil)
+}
+
+func (e *explorerEvaluator) filterPartialReadsForPostPrimaryWithHistory(hints []partialReadHint, history []types.ToolResult) []partialReadHint {
 	if len(hints) == 0 {
 		return nil
 	}
 	hints = e.filterPartialReadsByAuthoritativeFrames(hints)
 	hints = e.filterPartialReadsBySurfaceIntent(hints)
 	hints = e.filterPartialReadsByTypedRelevance(hints)
+	hints = e.filterPartialReadsByBoundedPathCoverage(hints, history)
 	return hints
 }
 
@@ -7290,7 +7492,57 @@ func (e *explorerEvaluator) filterPartialReadsForCurrentContext(hints []partialR
 	hints = e.filterPartialReadsBySurfaceIntent(hints)
 	hints = e.filterPartialReadsByTypedRelevance(hints)
 	hints = e.filterPartialReadsByGroundedEvidence(hints)
+	hints = e.filterPartialReadsByBoundedPathCoverage(hints, nil)
 	return hints
+}
+
+func (e *explorerEvaluator) filterPartialReadsByBoundedPathCoverage(hints []partialReadHint, history []types.ToolResult) []partialReadHint {
+	if len(hints) == 0 || e == nil || !e.boundedStructuralTraceRequest() {
+		return hints
+	}
+	missingTerminal := e.tracePathMissingTerminalEndpointHints(history)
+	if len(missingTerminal) == 0 && e.tracePathHasCurrentPathCarrier() {
+		return nil
+	}
+	if len(missingTerminal) == 0 {
+		return hints
+	}
+	out := make([]partialReadHint, 0, len(hints))
+	for _, hint := range hints {
+		if partialReadHintMatchesAnyEndpoint(hint, missingTerminal) {
+			out = append(out, hint)
+		}
+	}
+	return out
+}
+
+func (e *explorerEvaluator) tracePathHasCurrentPathCarrier() bool {
+	if e == nil {
+		return false
+	}
+	if len(e.flowFindings) > 0 {
+		return true
+	}
+	for _, item := range e.structuredEvidence {
+		switch item.GroundingStatus {
+		case "", types.GroundingGrounded, types.GroundingRecovered:
+		default:
+			continue
+		}
+		if types.EvidenceStructurallyMatchesRequirement(item, types.ReqCallChain) {
+			return true
+		}
+	}
+	return false
+}
+
+func partialReadHintMatchesAnyEndpoint(hint partialReadHint, endpoints []string) bool {
+	for _, endpoint := range endpoints {
+		if traceEndpointSurfaceCompatible(hint.symbolName, endpoint) {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *explorerEvaluator) filterPartialReadsBySurfaceIntent(hints []partialReadHint) []partialReadHint {

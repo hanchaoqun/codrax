@@ -3796,6 +3796,57 @@ func TestExplorer_RuntimeBoundary_ReadWithoutEmitRejectsNavigation(t *testing.T)
 	}
 }
 
+func TestExplorer_ReadWithoutEmitEscalationKeepsPathEndpointReadable(t *testing.T) {
+	eval := boundedTraceEndpointEval()
+	eval.midLoopNoEmitPushSent = true
+	eval.midLoopNoEmitPushIter = 1
+	eval.midLoopNoEmitPushResultsLen = 1
+	results := []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[source.go: showing lines 1-80 of 200]\n10| func (s Source) Start() {}"},
+		{ToolName: "grep", Success: true, Summary: "[grep: 1 matching files]\nsource.go"},
+		{ToolName: "read_file", Success: true, Summary: "[source.go: showing lines 81-120 of 200]\n"},
+	}
+
+	sig := eval.postReadWithoutEmitEscalationSignal(LoopObservation{
+		Iteration:      3,
+		AllToolResults: results,
+	})
+
+	if !sig.HintRequested {
+		t.Fatal("missing terminal endpoint should produce a targeted bounded-path hint")
+	}
+	if eval.midLoopNoEmitEscalated {
+		t.Fatal("missing terminal endpoint must not switch explorer into emit-only mode")
+	}
+	if !strings.Contains(sig.Hint, "Sink.Done") {
+		t.Fatalf("hint should name the typed missing terminal endpoint, got %q", sig.Hint)
+	}
+}
+
+func TestExplorer_ReadWithoutEmitEscalationEmitsOnlyAfterPathEndpointCovered(t *testing.T) {
+	eval := boundedTraceEndpointEval()
+	eval.midLoopNoEmitPushSent = true
+	eval.midLoopNoEmitPushIter = 1
+	eval.midLoopNoEmitPushResultsLen = 1
+	results := []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[source.go: showing lines 1-80 of 200]\n10| func (s Source) Start() {}"},
+		{ToolName: "grep", Success: true, Summary: "[grep: 1 matching files]\nsink.go"},
+		{ToolName: "read_file", Success: true, Summary: "[sink.go: showing lines 20-45 of 120]\n30| func (s Sink) Done() {}"},
+	}
+
+	sig := eval.postReadWithoutEmitEscalationSignal(LoopObservation{
+		Iteration:      3,
+		AllToolResults: results,
+	})
+
+	if !sig.HintRequested {
+		t.Fatal("covered endpoint should fall back to the existing emit-only escalation")
+	}
+	if !eval.midLoopNoEmitEscalated {
+		t.Fatal("covered terminal endpoint should allow the existing emit-only latch")
+	}
+}
+
 func TestExplorer_RuntimeBoundary_EvidenceRepairAllowsReadFileButRejectsBroadSearch(t *testing.T) {
 	eval := &explorerEvaluator{
 		midLoopEvidenceRepairSent:       true,
@@ -5351,6 +5402,88 @@ func TestFilterPartialReadsForPostPrimary_UsesTypedRelevanceNotRawQuestion(t *te
 	}
 	if filtered[0].symbolName != "Orchestrator.dispatchStage" {
 		t.Fatalf("remaining hint = %q, want Orchestrator.dispatchStage", filtered[0].symbolName)
+	}
+}
+
+func TestFilterPartialReadsForBoundedTraceSuppressesWholeFunctionAfterEndpointCoverage(t *testing.T) {
+	eval := boundedTraceEndpointEval()
+	eval.structuredEvidence = []types.EvidenceItem{{
+		Kind:            types.EvidenceRelationship,
+		AnchorKind:      types.AnchorCall,
+		AnchorSymbol:    "Source.Start",
+		Subject:         "Source.Start",
+		Predicate:       "calls",
+		Object:          "Sink.Done",
+		GroundingStatus: types.GroundingGrounded,
+		Source:          "source.go",
+		LineStart:       42,
+	}}
+	hints := []partialReadHint{{
+		file:       "source.go",
+		symbolName: "Source.Start",
+		symStart:   10,
+		symEnd:     300,
+		readEnd:    80,
+		coverage:   0.24,
+	}}
+
+	if filtered := eval.filterPartialReadsForCurrentContext(hints); len(filtered) != 0 {
+		t.Fatalf("covered bounded path should suppress whole-function pagination, got %+v", filtered)
+	}
+}
+
+func TestFilterPartialReadsForBoundedTraceDoesNotUseSourceFunctionAsMissingSink(t *testing.T) {
+	eval := boundedTraceEndpointEval()
+	hints := []partialReadHint{{
+		file:       "source.go",
+		symbolName: "Source.Start",
+		symStart:   10,
+		symEnd:     300,
+		readEnd:    80,
+		coverage:   0.24,
+	}}
+
+	if filtered := eval.filterPartialReadsForPostPrimaryWithHistory(hints, nil); len(filtered) != 0 {
+		t.Fatalf("source partial-read must not masquerade as missing terminal endpoint, got %+v", filtered)
+	}
+}
+
+func boundedTraceEndpointEval() *explorerEvaluator {
+	return &explorerEvaluator{
+		phase: 1,
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:              string(types.ReqCallChain),
+				MentionedEntities: []string{"Source.Start", "Sink.Done"},
+			},
+		}},
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{
+			FileIndex: map[string]*repomap.FileInfo{
+				"source.go": {
+					RelPath: "source.go",
+					Symbols: []repomap.Symbol{{
+						Name:     "Start",
+						Kind:     "method",
+						Receiver: "Source",
+						File:     "source.go",
+						Line:     10,
+						EndLine:  300,
+					}},
+				},
+				"sink.go": {
+					RelPath: "sink.go",
+					Symbols: []repomap.Symbol{{
+						Name:     "Done",
+						Kind:     "method",
+						Receiver: "Sink",
+						File:     "sink.go",
+						Line:     30,
+						EndLine:  80,
+					}},
+				},
+			},
+		}},
 	}
 }
 

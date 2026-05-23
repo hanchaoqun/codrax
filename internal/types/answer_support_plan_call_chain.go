@@ -358,6 +358,14 @@ func callChainTerminalEndpointHints(endpoints []string) []string {
 	return []string{last}
 }
 
+// CallChainTerminalEndpointHints exposes the support-lane endpoint contract to
+// runtime loop controllers. It intentionally delegates to the same private
+// helper used by answer support lanes so explorer/finalizer guidance cannot
+// drift into separate endpoint semantics.
+func CallChainTerminalEndpointHints(endpoints []string) []string {
+	return callChainTerminalEndpointHints(endpoints)
+}
+
 func callChainEndpointCoverage(entries []AnswerSupportEntry, endpoints []string) int {
 	if len(entries) == 0 || len(endpoints) == 0 {
 		return 0
@@ -374,6 +382,13 @@ func callChainEndpointCoverage(entries []AnswerSupportEntry, endpoints []string)
 	return len(covered)
 }
 
+// CallChainEndpointCoverage counts how many requested endpoints are mentioned by
+// support-lane entries using the same compatibility rule as the call-chain
+// support renderer.
+func CallChainEndpointCoverage(entries []AnswerSupportEntry, endpoints []string) int {
+	return callChainEndpointCoverage(entries, endpoints)
+}
+
 func callChainEntryMentionsEndpoint(entry AnswerSupportEntry, endpoint string) bool {
 	endpoint = strings.TrimSpace(endpoint)
 	if endpoint == "" {
@@ -386,6 +401,13 @@ func callChainEntryMentionsEndpoint(entry AnswerSupportEntry, endpoint string) b
 		}
 	}
 	return false
+}
+
+// CallChainEntryMentionsEndpoint is the exported runtime-safe form of
+// callChainEntryMentionsEndpoint. It exists so loop controllers can consume the
+// same typed support-lane endpoint semantics without duplicating matcher logic.
+func CallChainEntryMentionsEndpoint(entry AnswerSupportEntry, endpoint string) bool {
+	return callChainEntryMentionsEndpoint(entry, endpoint)
 }
 
 func callChainEndpointCompatible(candidate, endpoint string) bool {
@@ -407,6 +429,14 @@ func callChainEndpointCompatible(candidate, endpoint string) bool {
 	return cTail == eTail ||
 		strings.HasPrefix(cTail, eTail) ||
 		strings.HasPrefix(eTail, cTail)
+}
+
+// CallChainEndpointCompatible reports whether a symbol/location surface can
+// stand for a requested call-chain endpoint. It is intentionally broad enough to
+// handle qualified names from multiple languages, but it never inspects user
+// prose; callers pass typed endpoint and evidence surfaces.
+func CallChainEndpointCompatible(candidate, endpoint string) bool {
+	return callChainEndpointCompatible(candidate, endpoint)
 }
 
 func callChainRequestedEndpointHints(rm RequestModel) []string {
@@ -438,6 +468,13 @@ func callChainRequestedEndpointHints(rm RequestModel) []string {
 		}
 	}
 	return out
+}
+
+// CallChainRequestedEndpointHints extracts endpoint-like identifiers from the
+// analyzer RequestModel using the same priority order as the final answer
+// support-lane compiler.
+func CallChainRequestedEndpointHints(rm RequestModel) []string {
+	return callChainRequestedEndpointHints(rm)
 }
 
 func callChainEndpointHintLooksLikePath(raw string) bool {
