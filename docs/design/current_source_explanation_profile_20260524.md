@@ -190,7 +190,7 @@ languages in the repository's repomap matrix.
 | Batch | Status | Task | Validation |
 | --- | --- | --- | --- |
 | T9-B0 | In Progress | Land this design and link it from the gap tracker. | doc review |
-| T9-B1 | Pending | Add `CurrentSourceExplanationProfile` types, mode normalization, source-quote validation reuse, and unit tests. | `go test ./internal/types` |
+| T9-B1 | Done | Add `CurrentSourceExplanationProfile` types, mode normalization, source-quote validation reuse, and unit tests. | `go test ./internal/types -run 'TestNormalizeCurrentSourceExplanationProfile|TestAnalysisIR_JSONRoundtrip|TestRequestModel_DoesNotExposeLegacyTopLevelEntities'` |
 | T9-B2 | Pending | Extend `emit_analysis` params/schema/parser/summary and analyzer prompt guidance. Keep invalid optional profile as warning/drop, not hard retry. | `go test ./internal/tool ./internal/skill -run CurrentSourceExplanation` |
 | T9-B3 | Pending | Wire profile into `HasRuntimeArtifactCurrentVerificationAnchor`, `HasObservationOnlyRuntimeArtifact`, `AnswerIntentContract`, explorer runtime shortcut, and finalizer prompt projection. | `go test ./internal/types ./internal/agent` |
 | T9-B4 | Pending | Add focused eval cases for log+code, trace+code, VCS+code, and command+code mixed requests; include placeholder coverage notes for MCP/web/connector producers. | focused eval batch |

@@ -165,6 +165,14 @@ type RequestModel struct {
 	// content.
 	RequestedAnswerDimensions *RequestedAnswerDimensionProfile `json:"requested_answer_dimensions,omitempty"`
 
+	// CurrentSourceExplanationProfile is the analyzer LLM's soft typed lane
+	// for mixed external-observation + current-checkout questions. It says the
+	// answer should relate non-current evidence such as logs, traces, git,
+	// command output, MCP/web/connector data, or external docs back to current
+	// source. It is an evidence-lane routing hint, not a display dimension and
+	// not permission for deterministic answer replacement.
+	CurrentSourceExplanationProfile *CurrentSourceExplanationProfile `json:"current_source_explanation_profile,omitempty"`
+
 	// SubTopics lists independently-answerable sub-topics detected by
 	// the analyzer. When non-empty, the compiler generates one evidence
 	// DAG node per sub-topic. Empty for single-topic questions.
