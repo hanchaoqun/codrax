@@ -730,13 +730,37 @@ untouched.
     can use stack frames as runtime support without promoting them to
     current-source root-cause proof.
 
-- Batch 44 — analyzer fast-path consolidation. Status: planned.
+- Batch 44 — analyzer fast-path consolidation. Status: ready for implementation.
   - Add typed fast paths for exact-file import literal enumeration,
     history+current-code hybrid classification, exact-symbol conditional
     questions, and item-vs-batch error-granularity questions. These must use
     typed request-shape/provenance fields, not user-prose keyword hard gates.
   - Guardrail tests: analyzer emits classification after existence checks and
     leaves implementation proof to exploration.
+  - First implementation slice (44.1): marker/decorator/annotation inventory
+    coherence.
+    - Root gap: `subtopic_coherence` still treats marker-token primary entities
+      such as ArkTS/TS/Python decorators or Java/Kotlin annotations as if every
+      valid sub-topic must repeat those exact markers. In marker inventory
+      questions, valid sub-topics are often discovered file/function buckets
+      that will be verified by exploration.
+    - Typed signal only: the carve-out may read
+      `Predicates.IsCategoryEnumeration`, `AnalyzerHints.PrimaryEntities`,
+      `AnalyzerHints.Entities`, `AnalyzerHints.RequiredFileHints`,
+      `SubTopics.Entities`, and `SubTopics.Scopes`. It must not parse the raw
+      user request or model prose for localized words like "decorator".
+    - Advisory scope: when at least one primary/entity token is marker-shaped
+      (for example starts with `@` and carries an identifier) and sub-topic
+      anchors are path/file/bucket-like surfaces within required-file or
+      sub-topic scopes, R1.3/R1.5/R1.4 should become advisory. Exploration still
+      decides whether each file bucket actually contains the marker.
+    - Hard scope preserved: ordinary category enumerations over symbol members,
+      exact scalar lookups, relation lookups, diagnostics, and unresolved
+      invented symbol members remain hard where they are hard today.
+    - Regression coverage: ArkTS-style `@Entry` / `@Builder` primary markers
+      with `.ets` sub-topic files pass as advisory even with mixed resolver
+      hit/miss; an invented enum member still fails in a normal
+      category-enumeration question.
 
 - Batch 45 — hybrid explorer partitioning and repo-map wait visibility. Status:
   planned.
