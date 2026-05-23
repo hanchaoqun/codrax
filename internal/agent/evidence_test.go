@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -1114,6 +1115,41 @@ func TestRankEvidenceWithAxis_NoEntitiesStillUsesAxis(t *testing.T) {
 	}
 	if ranked[0].Subject != "CallAnchor" {
 		t.Fatalf("AxisCall should rank call evidence first even with no extracted entities; got %q", ranked[0].Subject)
+	}
+}
+
+func TestRankEvidenceByRelevance_NoEntitiesStillPrefersGroundedReadDefinition(t *testing.T) {
+	items := []types.EvidenceItem{
+		{
+			Kind:       types.EvidenceConcrete,
+			Producer:   "concrete_values",
+			Subject:    "NearbyConstant",
+			Predicate:  "returns",
+			Object:     `"noise"`,
+			Source:     "internal/noise.go",
+			LineStart:  5,
+			AnchorKind: types.AnchorReturn,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Producer:        tool.EmitEvidenceProducer,
+			Subject:         "LoadBearingType",
+			Source:          "./internal/agent/load_bearing.go",
+			LineStart:       42,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "LoadBearingType",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+
+	ranked := rankEvidenceByRelevance("???", items, map[string]bool{
+		"internal/agent/load_bearing.go": true,
+	})
+	if len(ranked) != 2 {
+		t.Fatalf("got %d items, want 2", len(ranked))
+	}
+	if ranked[0].Subject != "LoadBearingType" {
+		t.Fatalf("grounded read definition should outrank broad concrete noise with no extracted entities; got order=%v", subjectSlice(ranked))
 	}
 }
 

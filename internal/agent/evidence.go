@@ -664,9 +664,6 @@ func rankEvidenceByRelevanceWithSubject(question string, items []types.EvidenceI
 		return items
 	}
 	entities := extractRankingEntitiesWithGraph(question, nil)
-	if len(entities) == 0 && expected.Kind == types.SubjectUnknown && predicateAxis == types.AxisUnknown {
-		return items // no entities, no subject, AND no axis → nothing to rank by
-	}
 
 	type scored struct {
 		item  types.EvidenceItem
@@ -850,7 +847,7 @@ func evidenceRelevanceScore(item types.EvidenceItem, entities []string, readFile
 	// an unread file defeats the programmatic layer's purpose, which
 	// is exactly to supply evidence for files the LLM missed.
 	sourceWeight := 0.5
-	if readFiles != nil && readFiles[item.Source] {
+	if readFiles != nil && readSetContains(readFiles, item.Source) {
 		sourceWeight = 1.0
 	} else if item.Producer == "concrete_values" || item.Producer == "bridge_literal_terminal" {
 		sourceWeight = 1.0
@@ -879,7 +876,52 @@ func evidenceRelevanceScore(item types.EvidenceItem, entities []string, readFile
 		}
 	}
 
-	return entityScore * kindWeight * sourceWeight * bridgeBonus * producerBoost
+	return entityScore *
+		kindWeight *
+		sourceWeight *
+		bridgeBonus *
+		producerBoost *
+		evidenceGroundingWeight(item) *
+		evidenceAnchorWeight(item) *
+		evidenceCitationWeight(item)
+}
+
+func evidenceGroundingWeight(item types.EvidenceItem) float64 {
+	switch item.GroundingStatus {
+	case types.GroundingGrounded:
+		return 1.25
+	case types.GroundingRecovered:
+		return 0.85
+	case types.GroundingUngrounded:
+		return 0.30
+	default:
+		return 1.0
+	}
+}
+
+func evidenceAnchorWeight(item types.EvidenceItem) float64 {
+	switch item.AnchorKind {
+	case types.AnchorDefinition:
+		return 1.25
+	case types.AnchorCall:
+		return 1.15
+	case types.AnchorAssignment, types.AnchorInitializer, types.AnchorCondition, types.AnchorReturn:
+		return 1.10
+	case types.AnchorImport, types.AnchorStringLiteral, types.AnchorTextReference:
+		return 1.0
+	default:
+		return 0.95
+	}
+}
+
+func evidenceCitationWeight(item types.EvidenceItem) float64 {
+	if item.IsCitable() {
+		if item.LineStart > 0 {
+			return 1.10
+		}
+		return 1.0
+	}
+	return 0.60
 }
 
 // normalizeEntityHaystack strips underscores and hyphens from a

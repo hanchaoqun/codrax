@@ -29,10 +29,14 @@ Eval run root:
   structured materialization tools instead of relying on prose nudges. The
   repair hint now allows a stale or wrong row to be omitted/replaced when the
   just-read source window proves it is not grounded.
-- Batch 3 implemented locally: bounded trace / call-chain requests now suppress
+- Batch 3 landed in `029e661c`: bounded trace / call-chain requests now suppress
   stale enumeration file-coverage floors and broad ranker-coverage pushbacks.
   The legacy overview-window check no longer parses assistant prose keywords;
   it is driven by typed RequestModel / QuestionFamily signals only.
+- Batch 4 implemented locally: evidence ranking now has a baseline structural ordering
+  even when no question entities are extracted, so grounded/read/citable
+  definition and call anchors are not left behind broad concrete-value noise by
+  input order alone.
 
 ## Operating Principles
 
