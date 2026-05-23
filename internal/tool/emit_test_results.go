@@ -115,8 +115,7 @@ func (t *EmitTestResults) Execute(ctx *types.BusContext, params json.RawMessage)
 	dec.DisallowUnknownFields()
 	var p emitTestResultsParams
 	if err := dec.Decode(&p); err != nil {
-		err = RemapStrictDecodeError(err, nil)
-		return errResult(t.Name(), fmt.Sprintf("invalid params: %v", err)), err
+		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil)
 	}
 	// Schema-level required-key enforcement. JSON unmarshal accepts
 	// missing keys as zero-value (nil slice); we want the contract

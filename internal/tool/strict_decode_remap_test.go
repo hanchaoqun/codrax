@@ -244,6 +244,21 @@ func TestFailStrictDecodeWithError_AttachesRepairAndReturnsError(t *testing.T) {
 	}
 }
 
+func TestFailStrictDecodeWithErrorMessage_PreservesReminderAndRepair(t *testing.T) {
+	original := produceStrictDecodeErr(t, `{"inner":{"form":"x","extra":1}}`)
+	res, err := failStrictDecodeWithErrorMessage("emit_change_plan", time.Now(), original, nil, "emit_change_plan rejected: ", ". REQUIRED schema: {...}")
+	if err == nil {
+		t.Fatal("expected non-nil decode error")
+	}
+	if res.Repair == nil || res.Repair.Code != "tool_param_unknown_field" {
+		t.Fatalf("missing repair metadata: %+v", res.Repair)
+	}
+	if !strings.HasPrefix(res.Summary, "emit_change_plan rejected: invalid params:") ||
+		!strings.Contains(res.Summary, "REQUIRED schema") {
+		t.Fatalf("summary should preserve tool-specific prefix and reminder: %s", res.Summary)
+	}
+}
+
 // TestRemapStrictDecodeError_SanitizeStripsGoTypeNames pins the
 // fall-through path: even when no hint matches and no pattern
 // rewrites, R4 sanitization MUST strip Go type names.

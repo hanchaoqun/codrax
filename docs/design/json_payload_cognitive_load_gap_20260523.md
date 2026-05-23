@@ -2,7 +2,7 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-20 are complete and verified; the
+Status: partially implemented. Batches 1-21 are complete and verified; the
 shared schema-aware repair path is active across the high-frequency structured
 emit tools, including the legacy top-level JSON-string repair wrappers.
 Remaining work is still tracked below, starting with P1 carrier compilers /
@@ -130,6 +130,13 @@ Implementation progress:
   `ToolResult` now carries the same stable repair codes. This keeps retry
   guidance consistent for attached logs, traces, and command-derived runtime
   artifacts without weakening business validation.
+- 2026-05-23 Batch 21 closed the remaining structured-emitter decode gaps in
+  analyzer, investigation completion, and write-mode emitters. Tool-specific
+  schema reminders are preserved where they already existed, but the result now
+  also carries typed strict-decode repair metadata. Business tools such as
+  `read_file`, git helpers, shell execution, and patch application remain
+  outside this JSON-carrier lane because their failures are semantic parameter
+  errors, not model-authored answer serialization.
 - Remaining work starts at P1 carrier compilers / row-set compilers; the
   completed ref batch deliberately did not change answer materialization policy.
 

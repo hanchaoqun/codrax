@@ -217,13 +217,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	dec.DisallowUnknownFields()
 	var p emitChangePlanParams
 	if err := dec.Decode(&p); err != nil {
-		err = RemapStrictDecodeError(err, nil)
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   fmt.Sprintf("emit_change_plan rejected: invalid params: %v. ", err) + emitChangePlanSchemaReminder,
-			Timestamp: time.Now(),
-		}, err
+		return failStrictDecodeWithErrorMessage(t.Name(), time.Now(), err, nil, "emit_change_plan rejected: ", ". "+emitChangePlanSchemaReminder)
 	}
 
 	if strings.TrimSpace(p.Summary) == "" {

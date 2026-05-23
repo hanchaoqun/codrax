@@ -149,13 +149,7 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 	dec.DisallowUnknownFields()
 	var p emitPlanSkeletonParams
 	if err := dec.Decode(&p); err != nil {
-		err = RemapStrictDecodeError(err, nil)
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   fmt.Sprintf("emit_plan_skeleton rejected: invalid params: %v. ", err) + emitPlanSkeletonSchemaReminder,
-			Timestamp: time.Now(),
-		}, err
+		return failStrictDecodeWithErrorMessage(t.Name(), time.Now(), err, nil, "emit_plan_skeleton rejected: ", ". "+emitPlanSkeletonSchemaReminder)
 	}
 
 	if strings.TrimSpace(p.Summary) == "" {

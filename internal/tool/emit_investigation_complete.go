@@ -599,12 +599,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 
 	var p emitInvestigationCompleteParams
 	if err := json.Unmarshal(params, &p); err != nil {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Summary:   fmt.Sprintf("emit_investigation_complete: invalid params: %v", err),
-			Success:   false,
-			Timestamp: time.Now(),
-		}, nil
+		return failStrictDecodeMessage(t.Name(), time.Now(), err, nil, "emit_investigation_complete: ", "")
 	}
 
 	conf := strings.ToLower(strings.TrimSpace(p.Confidence))

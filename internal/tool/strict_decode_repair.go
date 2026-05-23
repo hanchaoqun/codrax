@@ -9,21 +9,35 @@ import (
 )
 
 func failStrictDecode(name string, now time.Time, err error, hints []MisplacedFieldHint) (types.ToolResult, error) {
-	repair := strictDecodeToolRepair(err, hints)
-	err = RemapStrictDecodeError(err, hints)
-	return failEmitWithRepair(name, now, repair, "invalid params: %v", err)
+	return strictDecodeFailure(name, now, err, hints, "", "", false)
 }
 
 func failStrictDecodeWithError(name string, now time.Time, err error, hints []MisplacedFieldHint) (types.ToolResult, error) {
+	return strictDecodeFailure(name, now, err, hints, "", "", true)
+}
+
+func failStrictDecodeMessage(name string, now time.Time, err error, hints []MisplacedFieldHint, prefix, suffix string) (types.ToolResult, error) {
+	return strictDecodeFailure(name, now, err, hints, prefix, suffix, false)
+}
+
+func failStrictDecodeWithErrorMessage(name string, now time.Time, err error, hints []MisplacedFieldHint, prefix, suffix string) (types.ToolResult, error) {
+	return strictDecodeFailure(name, now, err, hints, prefix, suffix, true)
+}
+
+func strictDecodeFailure(name string, now time.Time, err error, hints []MisplacedFieldHint, prefix, suffix string, returnErr bool) (types.ToolResult, error) {
 	repair := strictDecodeToolRepair(err, hints)
-	err = RemapStrictDecodeError(err, hints)
-	return types.ToolResult{
+	remapped := RemapStrictDecodeError(err, hints)
+	res := types.ToolResult{
 		ToolName:  name,
 		Success:   false,
-		Summary:   fmt.Sprintf("invalid params: %v", err),
+		Summary:   fmt.Sprintf("%sinvalid params: %v%s", prefix, remapped, suffix),
 		Repair:    repair,
 		Timestamp: now,
-	}, err
+	}
+	if returnErr {
+		return res, remapped
+	}
+	return res, nil
 }
 
 func strictDecodeToolRepair(err error, hints []MisplacedFieldHint) *types.ToolRepair {
