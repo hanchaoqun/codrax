@@ -55,7 +55,7 @@ Eval run root:
   exhaustive file enumeration. `IntentTrace` + call/conditional/register
   requirement now remains in the bounded-trace lane unless an explicit typed
   member-set/count/relation/category obligation is present.
-- Batch 8 designs the explorer "Closing Lane": completion-readiness is treated
+- Batch 8 landed: the explorer "Closing Lane" treats completion-readiness
   as a fallible structured signal, not an oracle. The first readiness hint stays
   advisory. Only after the model ignores that hint long enough to enter the
   existing completion-ready escalation state does the runtime narrow the action
@@ -458,6 +458,13 @@ Follow-up batches if eval shows remaining latency:
   evidence repair and read-without-emit escalation. The next implementation
   reuses that policy surface to block broad post-ready expansion after
   escalation while keeping exact `read_file` and structured emit tools.
+- 2026-05-24: Batch 8 implemented. `restrictedToolSurface()` now keeps the first
+  completion-ready state advisory and activates the Closing Lane only when
+  `midLoopCompletionReadyEscalated` is set. The lane exposes `read_file`,
+  `emit_evidence`, and `emit_investigation_complete`; hidden broad expansion
+  calls are rejected before execution by the existing explorer runtime boundary.
+  Added regression tests for advisory schema stability, escalated schema
+  narrowing, and runtime rejection of hidden broad calls.
 
 ## Observations
 

@@ -3694,6 +3694,46 @@ func TestExplorer_FilterToolSchemas_EvidenceRepairMaterializationOnly(t *testing
 	}
 }
 
+func TestExplorer_FilterToolSchemas_CompletionReadyAdvisoryUnchanged(t *testing.T) {
+	eval := &explorerEvaluator{
+		midLoopCompletionReadySent: true,
+	}
+	ctx := &types.AgentContext{Stage: types.StageExplore}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "repo_map"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,grep,repo_map,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("advisory completion-ready should leave schema unchanged, got %v", gotNames)
+	}
+}
+
+func TestExplorer_FilterToolSchemas_CompletionReadyEscalatedClosingLane(t *testing.T) {
+	eval := &explorerEvaluator{
+		midLoopCompletionReadySent:      true,
+		midLoopCompletionReadyEscalated: true,
+	}
+	ctx := &types.AgentContext{Stage: types.StageExplore}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "repo_map"},
+		{Name: "exec_command"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("completion-ready closing lane schema names = %v", gotNames)
+	}
+}
+
 func TestExplorer_RuntimeBoundary_ReadWithoutEmitRejectsNavigation(t *testing.T) {
 	eval := &explorerEvaluator{
 		midLoopNoEmitPushSent:  true,
@@ -3732,6 +3772,31 @@ func TestExplorer_RuntimeBoundary_EvidenceRepairAllowsReadFileButRejectsBroadSea
 	}
 	if !strings.Contains(got.Summary, "read_file") || !strings.Contains(got.Summary, "emit_evidence") {
 		t.Fatalf("summary should expose read_file plus emit tools, got %q", got.Summary)
+	}
+}
+
+func TestExplorer_RuntimeBoundary_CompletionReadyEscalatedRejectsBroadExpansion(t *testing.T) {
+	eval := &explorerEvaluator{
+		midLoopCompletionReadySent:      true,
+		midLoopCompletionReadyEscalated: true,
+	}
+	ctx := &types.AgentContext{Stage: types.StageExplore}
+
+	got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "repo_map", Params: json.RawMessage(`{"query":"x"}`)})
+	if got == nil || got.Success {
+		t.Fatalf("expected completion-ready closing lane to reject repo_map, got %+v", got)
+	}
+	if got.Repair == nil || got.Repair.Code != explorerRestrictedToolSurfaceCode {
+		t.Fatalf("expected repair code %q, got %+v", explorerRestrictedToolSurfaceCode, got.Repair)
+	}
+	if !strings.Contains(got.Summary, "available tools here: emit_evidence, emit_investigation_complete, read_file") {
+		t.Fatalf("summary should expose read_file plus emit tools, got %q", got.Summary)
+	}
+	if ok := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"x.go","offset":1}`)}); ok != nil {
+		t.Fatalf("read_file should remain available for exact post-ready checks, got %+v", ok)
+	}
+	if ok := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "emit_investigation_complete", Params: json.RawMessage(`{}`)}); ok != nil {
+		t.Fatalf("emit_investigation_complete should remain available, got %+v", ok)
 	}
 }
 

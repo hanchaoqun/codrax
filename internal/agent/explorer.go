@@ -5472,6 +5472,12 @@ var evidenceRepairToolNames = map[string]bool{
 	"emit_investigation_complete": true,
 }
 
+var completionReadyClosingToolNames = map[string]bool{
+	"read_file":                   true,
+	"emit_evidence":               true,
+	"emit_investigation_complete": true,
+}
+
 // FilterToolSchemas narrows explorer turns only after the runtime has
 // observed a concrete evidence backlog: source material was read, but
 // the model still has not materialized it through emit_evidence /
@@ -5479,7 +5485,11 @@ var evidenceRepairToolNames = map[string]bool{
 // grounded repair. Evidence repair is a special case: the current hint
 // asks the model to re-read exact source locations before re-emitting
 // grounded evidence, so the schema must keep `read_file` available while
-// still removing broad navigation tools. This is intentionally
+// still removing broad navigation tools. Completion-ready escalation is
+// another narrow lane: the first completion-ready hint is advisory, but
+// after the existing escalation latch fires, broad scope-expansion tools
+// are removed while exact `read_file` checks and structured emit tools
+// remain available. This is intentionally
 // state-driven, not text-driven: it does not inspect the user's question
 // or the model's prose, and it leaves the normal tool surface unchanged
 // until a loop observer has already raised a structured backlog signal.
@@ -5516,6 +5526,9 @@ func (e *explorerEvaluator) restrictedToolSurface() map[string]bool {
 	}
 	if e.midLoopNoEmitPushSent && e.midLoopNoEmitEscalated {
 		return completionProgressToolNames
+	}
+	if e.midLoopCompletionReadySent && e.midLoopCompletionReadyEscalated {
+		return completionReadyClosingToolNames
 	}
 	return nil
 }
