@@ -133,6 +133,7 @@ func (r *Renderer) handleEvent(ev Event) {
 		if line == "" {
 			return
 		}
+		r.recordOrchestratorNoticeTelemetry(ev.NoticeKind)
 		if ev.NoticeKind == NoticeFinalizing {
 			r.activity = activityState{kind: activityFinalizing}
 			r.streamTail = ""
@@ -1779,58 +1780,80 @@ func formatPhaseProgressLine(lang string, idx, total int, kind PhaseProgressKind
 	return out
 }
 
-// retryCountSuffix renders the "(retried N times)" / "(已重试 N 次)" trailer
-// the dock terminal-summary line appends when adapter retries or
-// fallbacks fired during this Run. Both 0 → empty (no suffix; the
-// summary stays terse for clean / one-shot runs). Surfacing the
-// counter on a fail / cancel summary communicates "we tried" so a
-// budget-exhausted failure reads distinctly from a one-shot failure.
-//
-// Pluralization mirrors the project's existing en/zh patterns (e.g.
-// metaToolCountPhrase): English uses "1 time" vs "N times"; Chinese
-// uses "N 次" uniformly. Provider-fallback count is appended only
-// when non-zero so the suffix stays compact for the common case
-// (retries without a provider switch).
+// retryCountSuffix preserves the historical adapter-only helper for callers
+// and tests that only know about model-request retry / provider fallback.
+// runTelemetrySuffix is the newer run-summary surface that also carries typed
+// answer-rework and accept-with-boundary advisory counts.
 func retryCountSuffix(retries, fallbacks int, zh bool) string {
-	if retries == 0 && fallbacks == 0 {
+	return runTelemetrySuffix(retries, fallbacks, 0, 0, zh)
+}
+
+func runTelemetrySuffix(modelRetries, providerFallbacks, answerRewrites, advisoryAccepts int, zh bool) string {
+	if modelRetries == 0 && providerFallbacks == 0 && answerRewrites == 0 && advisoryAccepts == 0 {
 		return ""
 	}
+	parts := make([]string, 0, 4)
 	if zh {
-		var b strings.Builder
-		b.WriteString("(")
-		if retries > 0 {
-			b.WriteString(fmt.Sprintf("已重试 %d 次", retries))
+		if modelRetries > 0 {
+			parts = append(parts, fmt.Sprintf("模型请求重试 %d 次", modelRetries))
 		}
-		if fallbacks > 0 {
-			if retries > 0 {
-				b.WriteString("，")
-			}
-			b.WriteString(fmt.Sprintf("切换 provider %d 次", fallbacks))
+		if providerFallbacks > 0 {
+			parts = append(parts, fmt.Sprintf("切换 provider %d 次", providerFallbacks))
 		}
-		b.WriteString(")")
-		return b.String()
+		if answerRewrites > 0 {
+			parts = append(parts, fmt.Sprintf("答案返工 %d 次", answerRewrites))
+		}
+		if advisoryAccepts > 0 {
+			parts = append(parts, fmt.Sprintf("带边界接受 %d 次", advisoryAccepts))
+		}
+		return "(" + strings.Join(parts, "，") + ")"
 	}
-	var b strings.Builder
-	b.WriteString("(")
-	if retries > 0 {
-		if retries == 1 {
-			b.WriteString("retried 1 time")
+	if modelRetries > 0 {
+		if modelRetries == 1 {
+			parts = append(parts, "model request retried once")
 		} else {
-			b.WriteString(fmt.Sprintf("retried %d times", retries))
+			parts = append(parts, fmt.Sprintf("model request retried %d times", modelRetries))
 		}
 	}
-	if fallbacks > 0 {
-		if retries > 0 {
-			b.WriteString(", ")
-		}
-		if fallbacks == 1 {
-			b.WriteString("switched provider once")
+	if providerFallbacks > 0 {
+		if providerFallbacks == 1 {
+			parts = append(parts, "switched provider once")
 		} else {
-			b.WriteString(fmt.Sprintf("switched provider %d times", fallbacks))
+			parts = append(parts, fmt.Sprintf("switched provider %d times", providerFallbacks))
 		}
 	}
-	b.WriteString(")")
-	return b.String()
+	if answerRewrites > 0 {
+		if answerRewrites == 1 {
+			parts = append(parts, "answer reworked once")
+		} else {
+			parts = append(parts, fmt.Sprintf("answer reworked %d times", answerRewrites))
+		}
+	}
+	if advisoryAccepts > 0 {
+		if advisoryAccepts == 1 {
+			parts = append(parts, "accepted with boundary note once")
+		} else {
+			parts = append(parts, fmt.Sprintf("accepted with boundary notes %d times", advisoryAccepts))
+		}
+	}
+	return "(" + strings.Join(parts, ", ") + ")"
+}
+
+func (r *Renderer) recordOrchestratorNoticeTelemetry(kind OrchestratorNoticeKind) {
+	switch kind {
+	case NoticeAnswerCheckRetry,
+		NoticeFallbackFinalizerOnly,
+		NoticeFallbackBackToExtract,
+		NoticeFallbackBackToExplore,
+		NoticeSelfConsistencyContradictionRewriting:
+		r.answerRewriteTotal++
+	case NoticeFallbackFailLoud,
+		NoticeFinalizeRepairCap,
+		NoticeSelfConsistencyContradictionLogged,
+		NoticeLowGrounding,
+		NoticeYieldKill:
+		r.answerAdvisoryTotal++
+	}
 }
 
 // orchestratorNoticeStyle returns the pterm style the dock should
@@ -2565,15 +2588,13 @@ func (r *Renderer) commitDockShutdownLocked() {
 		body.WriteString(statusMeta.Sprint("·"))
 		body.WriteString(" ")
 		body.WriteString(statusMeta.Sprint(totalElapsedPhrase(totalElapsed, r.lang)))
-		// Append "(retried N times)" / "(已重试 N 次)" when adapter retries
-		// or fallbacks fired during this Run. Communicates "we tried before
-		// failing" so a one-shot failure (N=0, no suffix) and an exhaustive
-		// retry exhaustion (N>0) read distinctly. Cancelled rows use the same
-		// suffix because user cancel after multiple retries is also useful
-		// context. The suffix is dim gray so it doesn't compete with the
-		// head; it is appended INSIDE the bodyStyle wrap so the entire body
-		// shares one styled segment.
-		if suffix := retryCountSuffix(r.adapterRetryTotal, r.adapterFallbackTotal, zh); suffix != "" {
+		// Append a compact typed telemetry suffix when the run had model
+		// request retries, provider fallback, semantic answer rework, or
+		// accept-with-boundary advisory outcomes. These buckets are separate:
+		// transport backoff is not answer rewrite, and advisory acceptance is
+		// not a retry. The suffix is dim gray so it does not compete with the
+		// summary head.
+		if suffix := runTelemetrySuffix(r.adapterRetryTotal, r.adapterFallbackTotal, r.answerRewriteTotal, r.answerAdvisoryTotal, zh); suffix != "" {
 			body.WriteString(" ")
 			body.WriteString(statusMeta.Sprint(suffix))
 		}

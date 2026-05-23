@@ -250,10 +250,21 @@ type Renderer struct {
 	// the success / clean-fail summary stays unchanged.
 	//
 	// adapterFallbackTotal mirrors EventAdapterFallback so the same
-	// summary can name "(retried 3 times, switched provider once)"
-	// when the LLM fallback chain kicked in.
+	// summary can name "(model request retried 3 times, switched
+	// provider once)" when the LLM fallback chain kicked in.
 	adapterRetryTotal    int
 	adapterFallbackTotal int
+
+	// answerRewriteTotal counts typed orchestrator notices that re-run or
+	// rewrite answer work after a candidate answer exists. It is deliberately
+	// separate from adapterRetryTotal: transport backoff and semantic answer
+	// repair are different user-visible costs.
+	answerRewriteTotal int
+
+	// answerAdvisoryTotal counts typed orchestrator notices where the system
+	// proceeds with an answer plus a visible boundary/advisory note instead of
+	// triggering another semantic rewrite.
+	answerAdvisoryTotal int
 
 	// lang is the user-facing locale code consumed by the status
 	// localization layer (status_messages.go). Empty defaults to

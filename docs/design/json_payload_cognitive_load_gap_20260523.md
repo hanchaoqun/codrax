@@ -1044,7 +1044,7 @@ untouched.
       localized messages and rejects enum leaks, transport wording, and the
       over-broad "答案待完善" phrase on target-specific fallback notices.
   - Slice 46.3 — terminal summary retry/advisory counter split. Status:
-    planned.
+    completed.
     - Detailed design before code: keep all retry/advisory decisions in the
       orchestrator as-is and reuse typed `render.OrchestratorNoticeKind` in the
       renderer. Do not parse localized notice text, violation prose, model
@@ -1076,6 +1076,15 @@ untouched.
       accepts in both zh/en; advisory-only events must not increment semantic
       rewrite counters; transport adapter retries stay in their existing
       bucket.
+    - Delivered in this slice: renderer run-summary telemetry now keeps
+      adapter model retries, provider switches, semantic answer rework, and
+      accept-with-boundary advisory outcomes in separate counters. The final
+      summary suffix renders them as distinct localized phrases, for example
+      "模型请求重试 N 次 / 答案返工 N 次 / 带边界接受 N 次". The counters are
+      driven only by typed `OrchestratorNoticeKind`; advisory-only notices do
+      not increment answer-rewrite counts, and progress/review/scan/no-tool
+      notices do not affect the telemetry suffix. Regression tests pin both
+      languages and the notice-kind bucket mapping.
 
 - Batch 47 — diagram/renderability hardening. Status: completed.
   - Keep Mermaid/code-fence display fixes renderer-only. This batch must not
