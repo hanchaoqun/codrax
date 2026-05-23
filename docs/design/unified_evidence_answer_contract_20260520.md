@@ -71,6 +71,12 @@ creating a parallel stack.
   temporary decorated-hash compatibility shim.
 - Command measurements such as line counts are not first-class citation-grade
   evidence, so models still try to encode them as fake file evidence.
+- Large structured handoffs such as member sets, support refs, citation pools,
+  answer blocks, git/log/trace rows, and command observations can still be
+  model-serialized as long JSON. The follow-up gap cluster
+  `json_payload_cognitive_load_gap_20260523.md` treats this as a carrier
+  contract problem: deterministic rows should move through typed compilers and
+  payload/row-set references, while the model owns explanation and judgment.
 - `aggregate_facts.provenance` is a free string. It can annotate provenance but
   does not drive a closed-enum gate policy.
 - Answer shape is distributed across old predicates, family routing, semantic

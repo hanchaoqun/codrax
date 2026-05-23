@@ -569,6 +569,13 @@ New residual gap observed during the targeted u8a rerun:
   source-inventory handoff instead of asking the model to restate every support
   ref. Track this under the structural inventory compiler family rather than
   finalizer retry.
+- Follow-up cluster analysis: JSON-string arrays, malformed long closures,
+  patch/full-emit citation drift, and prose repair hints are now tracked as one
+  architecture gap in
+  `docs/design/json_payload_cognitive_load_gap_20260523.md`. The common root is
+  excessive model responsibility for mechanical carrier serialization; the
+  proposed fix is a shared schema-aware compatibility layer plus server-side
+  carrier compilers and payload/row-set references.
 
 ### Batch 6 — Tool-call narrative preservation without prose takeover
 
