@@ -2115,7 +2115,7 @@ func relationMemberSetHandoffDowngrade(ctx *types.BusContext, closure *types.Evi
 		return ""
 	}
 	ok, invalid := exhaustiveEnumerationMemberSetUsable(ctx, aggregateFacts)
-	relationGaps := relationMemberSetGroundedImplementerGaps(ctx, aggregateFacts)
+	relationGaps := relationMemberSetCoverageGaps(ctx, aggregateFacts)
 	if ok && len(relationGaps) == 0 {
 		return ""
 	}
@@ -2139,19 +2139,21 @@ func relationMemberSetHandoffDowngrade(ctx *types.BusContext, closure *types.Evi
 		fmt.Fprintf(&b, "A `member_set` was present but is not usable as relation principal-member data: %s\n\n", invalid)
 	}
 	if len(relationGaps) > 0 {
-		fmt.Fprintf(&b, "The current `member_set` omits grounded typed implementer evidence that was already emitted and is inside the requested source scope: %s. Include these members in the principal `member_set`, or place them in `excluded[]` with an explicit reason if the user-facing answer intentionally excludes them.\n\n", relationMemberSetGapSummary(relationGaps))
+		fmt.Fprintf(&b, "The current `member_set` omits grounded typed relation evidence that was already emitted and is inside the requested source scope: %s. Include these members in the principal `member_set`, or place them in `excluded[]` with an explicit reason if the user-facing answer intentionally excludes them.\n\n", relationMemberSetGapSummary(relationGaps))
 	}
 	b.WriteString("Emit `aggregate_facts` with kind=`member_set`, value equal to the exact qualifying-member count, and members containing the verified relation answer set. For relation rows you may use compact surfaces such as `caller → callee`, `package: entry`, `module/import`, or a plain qualifying member when the relation target is already clear from the request and evidence. Each member must be backed by typed evidence or member-specific support_refs. Then re-call `emit_investigation_complete`.")
 	return b.String()
 }
 
-type relationTypedImplementerGap struct {
-	Name string
-	File string
-	Line int
+type relationCoverageGap struct {
+	Relation   types.TypedRelationKind
+	SourceName string
+	Name       string
+	File       string
+	Line       int
 }
 
-func relationMemberSetGroundedImplementerGaps(ctx *types.BusContext, facts []types.AnswerAggregateFact) []relationTypedImplementerGap {
+func relationMemberSetCoverageGaps(ctx *types.BusContext, facts []types.AnswerAggregateFact) []relationCoverageGap {
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
 		return nil
 	}
@@ -2159,27 +2161,34 @@ func relationMemberSetGroundedImplementerGaps(ctx *types.BusContext, facts []typ
 	if !types.HasTypedRelationMemberSetShape(rm) {
 		return nil
 	}
-	expected := relationTypedImplementersForRequest(ctx, rm)
+	expected := relationCandidatesForRequest(ctx, rm)
 	if len(expected) == 0 {
 		return nil
 	}
-	evidenceKeys := relationGroundedImplementerEvidenceKeys(ctx, expected)
+	evidenceKeys := relationGroundedCandidateEvidenceKeys(ctx, expected)
 	if len(evidenceKeys) == 0 {
 		return nil
 	}
 	included, excluded := relationPrincipalMemberSetKeys(ctx, facts)
-	var gaps []relationTypedImplementerGap
+	var gaps []relationCoverageGap
 	for _, item := range expected {
-		key := aggregateMemberKey(item.Name)
-		if key == "" || !evidenceKeys[key] || included[key] || excluded[key] {
+		memberKey := aggregateMemberKey(item.Member.Name)
+		candidateKey := relationCandidateEvidenceKey(item)
+		if memberKey == "" || candidateKey == "" || !evidenceKeys[candidateKey] || included[memberKey] || excluded[memberKey] {
 			continue
 		}
-		gaps = append(gaps, item)
+		gaps = append(gaps, relationCoverageGap{
+			Relation:   item.Relation,
+			SourceName: item.SourceName,
+			Name:       strings.TrimSpace(item.Member.Name),
+			File:       canonicalRelationSourcePath(item.Member.File),
+			Line:       item.Member.Line,
+		})
 	}
 	return gaps
 }
 
-func relationTypedImplementersForRequest(ctx *types.BusContext, rm types.RequestModel) []relationTypedImplementerGap {
+func relationCandidatesForRequest(ctx *types.BusContext, rm types.RequestModel) []types.TypedRelationCandidate {
 	candidates := types.StructuralRelationScopeCandidates(rm)
 	if len(candidates) == 0 {
 		candidates = dedupStringsPreserveOrder(append(append([]string{}, rm.AnalyzerHints.PrimaryEntities...), rm.AnalyzerHints.Entities...))
@@ -2187,14 +2196,28 @@ func relationTypedImplementersForRequest(ctx *types.BusContext, rm types.Request
 	if len(candidates) == 0 {
 		return nil
 	}
+	query := types.TypedRelationQuery{
+		Kinds:      []types.TypedRelationKind{types.TypedRelationImplements},
+		Sources:    candidates,
+		Request:    &rm,
+		Purpose:    types.TypedRelationPurposeCoverageGate,
+		MaxMembers: 0,
+	}
+	if provider, ok := ctx.MultiGraph.(types.TypedRelationCandidateSource); ok && provider != nil {
+		if out := relationFilterCoverageCandidates(provider.TypedRelationCandidates(query), rm); len(out) > 0 {
+			return out
+		}
+	}
 	if provider, ok := ctx.MultiGraph.(types.TypedRelationImplementerSource); ok && provider != nil {
-		return relationTypedImplementersFromProvider(provider, candidates, rm)
+		if out := relationTypedImplementersFromProvider(provider, candidates, rm); len(out) > 0 {
+			return out
+		}
 	}
 	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
 	return relationTypedImplementersFromGraph(graph, candidates, rm)
 }
 
-func relationTypedImplementersFromProvider(provider types.TypedRelationImplementerSource, candidates []string, rm types.RequestModel) []relationTypedImplementerGap {
+func relationTypedImplementersFromProvider(provider types.TypedRelationImplementerSource, candidates []string, rm types.RequestModel) []types.TypedRelationCandidate {
 	if provider == nil {
 		return nil
 	}
@@ -2207,7 +2230,7 @@ func relationTypedImplementersFromProvider(provider types.TypedRelationImplement
 		if len(members) == 0 {
 			continue
 		}
-		var out []relationTypedImplementerGap
+		var out []types.TypedRelationCandidate
 		seen := map[string]bool{}
 		for _, member := range members {
 			name := strings.TrimSpace(member.Name)
@@ -2223,7 +2246,15 @@ func relationTypedImplementersFromProvider(provider types.TypedRelationImplement
 				continue
 			}
 			seen[key] = true
-			out = append(out, relationTypedImplementerGap{Name: name, File: file, Line: member.Line})
+			member.Name = name
+			member.File = file
+			out = append(out, types.TypedRelationCandidate{
+				Relation:   types.TypedRelationImplements,
+				SourceName: candidate,
+				Member:     member,
+				Carrier:    types.TypedRelationCarrierMultiGraph,
+				Precision:  types.TypedRelationPrecisionExactSymbolID,
+			})
 		}
 		if len(out) > 0 {
 			return out
@@ -2232,7 +2263,7 @@ func relationTypedImplementersFromProvider(provider types.TypedRelationImplement
 	return nil
 }
 
-func relationTypedImplementersFromGraph(graph *repotypes.Graph, candidates []string, rm types.RequestModel) []relationTypedImplementerGap {
+func relationTypedImplementersFromGraph(graph *repotypes.Graph, candidates []string, rm types.RequestModel) []types.TypedRelationCandidate {
 	if graph == nil {
 		return nil
 	}
@@ -2245,7 +2276,7 @@ func relationTypedImplementersFromGraph(graph *repotypes.Graph, candidates []str
 		if len(ids) == 0 {
 			continue
 		}
-		var out []relationTypedImplementerGap
+		var out []types.TypedRelationCandidate
 		seen := map[string]bool{}
 		for _, id := range ids {
 			sym, ok := graph.SymbolByID[id]
@@ -2261,7 +2292,19 @@ func relationTypedImplementersFromGraph(graph *repotypes.Graph, candidates []str
 				continue
 			}
 			seen[key] = true
-			out = append(out, relationTypedImplementerGap{Name: strings.TrimSpace(sym.Name), File: file, Line: sym.Line})
+			out = append(out, types.TypedRelationCandidate{
+				Relation:   types.TypedRelationImplements,
+				SourceName: candidate,
+				Member: types.TypedRelationMember{
+					Name:     strings.TrimSpace(sym.Name),
+					File:     file,
+					Line:     sym.Line,
+					Kind:     sym.Kind,
+					Distance: 1,
+				},
+				Carrier:   types.TypedRelationCarrierGraph,
+				Precision: types.TypedRelationPrecisionExactSymbolID,
+			})
 		}
 		if len(out) > 0 {
 			return out
@@ -2270,14 +2313,44 @@ func relationTypedImplementersFromGraph(graph *repotypes.Graph, candidates []str
 	return nil
 }
 
-func relationGroundedImplementerEvidenceKeys(ctx *types.BusContext, expected []relationTypedImplementerGap) map[string]bool {
-	expectedByKey := map[string]relationTypedImplementerGap{}
+func relationFilterCoverageCandidates(candidates []types.TypedRelationCandidate, rm types.RequestModel) []types.TypedRelationCandidate {
+	if len(candidates) == 0 {
+		return nil
+	}
+	out := make([]types.TypedRelationCandidate, 0, len(candidates))
+	seen := map[string]bool{}
+	for _, candidate := range candidates {
+		if !candidate.CoverageGateEligible() {
+			continue
+		}
+		member := candidate.Member
+		member.Name = strings.TrimSpace(member.Name)
+		member.File = canonicalRelationSourcePath(member.File)
+		if member.Name == "" || !relationSourceInRequestedScope(member.File, rm) {
+			continue
+		}
+		candidate.Member = member
+		key := relationCandidateEvidenceKey(candidate)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, candidate)
+	}
+	return out
+}
+
+func relationGroundedCandidateEvidenceKeys(ctx *types.BusContext, expected []types.TypedRelationCandidate) map[string]bool {
+	expectedByKey := map[string][]types.TypedRelationCandidate{}
 	for _, item := range expected {
-		key := aggregateMemberKey(item.Name)
+		if !item.CoverageGateEligible() {
+			continue
+		}
+		key := aggregateMemberKey(item.Member.Name)
 		if key == "" {
 			continue
 		}
-		expectedByKey[key] = item
+		expectedByKey[key] = append(expectedByKey[key], item)
 	}
 	if len(expectedByKey) == 0 {
 		return nil
@@ -2293,14 +2366,18 @@ func relationGroundedImplementerEvidenceKeys(ctx *types.BusContext, expected []r
 		}
 		for _, raw := range aggregateEvidenceMemberLabels(ev) {
 			key := aggregateMemberKey(raw)
-			expectedItem, ok := expectedByKey[key]
+			expectedItems, ok := expectedByKey[key]
 			if !ok {
 				continue
 			}
-			if source != canonicalRelationSourcePath(expectedItem.File) {
-				continue
+			for _, expectedItem := range expectedItems {
+				if source != canonicalRelationSourcePath(expectedItem.Member.File) {
+					continue
+				}
+				if candidateKey := relationCandidateEvidenceKey(expectedItem); candidateKey != "" {
+					out[candidateKey] = true
+				}
 			}
-			out[key] = true
 		}
 	}
 	return out
@@ -2350,21 +2427,39 @@ func canonicalRelationSourcePath(raw string) string {
 	return strings.TrimSpace(raw)
 }
 
-func relationMemberSetGapSummary(gaps []relationTypedImplementerGap) string {
+func relationCandidateEvidenceKey(candidate types.TypedRelationCandidate) string {
+	memberKey := aggregateMemberKey(candidate.Member.Name)
+	if memberKey == "" {
+		return ""
+	}
+	file := canonicalRelationSourcePath(candidate.Member.File)
+	return string(candidate.Relation) + "|" + memberKey + "|" + file
+}
+
+func relationMemberSetGapSummary(gaps []relationCoverageGap) string {
 	if len(gaps) == 0 {
 		return ""
 	}
 	parts := make([]string, 0, len(gaps))
 	for _, gap := range gaps {
+		prefix := strings.TrimSpace(string(gap.Relation))
+		if gap.SourceName != "" {
+			if prefix != "" {
+				prefix += " "
+			}
+			prefix += gap.SourceName + " -> "
+		} else if prefix != "" {
+			prefix += " "
+		}
 		if gap.File != "" && gap.Line > 0 {
-			parts = append(parts, fmt.Sprintf("%s @ %s:%d", gap.Name, gap.File, gap.Line))
+			parts = append(parts, fmt.Sprintf("%s%s @ %s:%d", prefix, gap.Name, gap.File, gap.Line))
 			continue
 		}
 		if gap.File != "" {
-			parts = append(parts, fmt.Sprintf("%s @ %s", gap.Name, gap.File))
+			parts = append(parts, fmt.Sprintf("%s%s @ %s", prefix, gap.Name, gap.File))
 			continue
 		}
-		parts = append(parts, gap.Name)
+		parts = append(parts, prefix+gap.Name)
 	}
 	return strings.Join(parts, "; ")
 }

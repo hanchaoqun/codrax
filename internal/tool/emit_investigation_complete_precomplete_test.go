@@ -248,12 +248,12 @@ func TestEmitInvestigationComplete_PreCompleteCheck_RelationMemberSetMustCoverGr
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	if !strings.Contains(res.Summary, "omits grounded typed implementer evidence") ||
-		!strings.Contains(res.Summary, "beta @ impl_beta.go:22") {
-		t.Fatalf("grounded typed implementer omission should downgrade with precise member: %s", res.Summary)
+	if !strings.Contains(res.Summary, "omits grounded typed relation evidence") ||
+		!strings.Contains(res.Summary, "implements Looper -> beta @ impl_beta.go:22") {
+		t.Fatalf("grounded typed relation omission should downgrade with precise member: %s", res.Summary)
 	}
 	if bus.Mutable.IsInvestigationComplete() {
-		t.Fatalf("investigation must remain open when a grounded typed implementer is omitted")
+		t.Fatalf("investigation must remain open when a grounded typed relation member is omitted")
 	}
 }
 
@@ -287,7 +287,7 @@ func TestEmitInvestigationComplete_PreCompleteCheck_RelationGraphOnlyImplementer
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	if strings.Contains(res.Summary, "omits grounded typed implementer evidence") {
+	if strings.Contains(res.Summary, "omits grounded typed relation evidence") {
 		t.Fatalf("graph-only implementer without grounded evidence must not be hard-forced: %s", res.Summary)
 	}
 	if !bus.Mutable.IsInvestigationComplete() {
@@ -327,7 +327,7 @@ func TestEmitInvestigationComplete_PreCompleteCheck_RelationGroundedAuxiliaryImp
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	if strings.Contains(res.Summary, "testLooper") && strings.Contains(res.Summary, "omits grounded typed implementer evidence") {
+	if strings.Contains(res.Summary, "testLooper") && strings.Contains(res.Summary, "omits grounded typed relation evidence") {
 		t.Fatalf("production scope must not force test-only implementers: %s", res.Summary)
 	}
 	if !bus.Mutable.IsInvestigationComplete() {

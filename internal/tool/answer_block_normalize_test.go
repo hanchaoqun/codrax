@@ -286,8 +286,8 @@ func TestNormalizeEmitAnswerBlock_DiagramKindRequiresPayload(t *testing.T) {
 	}
 }
 
-func TestNormalizeEmitAnswerBlock_DiagramPayloadRequiresDiagramKind(t *testing.T) {
-	_, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+func TestNormalizeEmitAnswerBlock_DiagramPayloadNormalizesDiagramKind(t *testing.T) {
+	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
 		ID:   "b1",
 		Kind: string(types.BlockSection),
 		Diagram: &emitAnswerDiagramV2{
@@ -295,11 +295,31 @@ func TestNormalizeEmitAnswerBlock_DiagramPayloadRequiresDiagramKind(t *testing.T
 			Body: "flowchart TD\n  A --> B",
 		},
 	}, "blocks[0]")
-	if err == nil {
-		t.Fatal("must reject diagram payload on non-diagram block")
+	if err != nil {
+		t.Fatalf("diagram payload with stale kind should normalize instead of reject: %v", err)
 	}
-	if !strings.Contains(err.Error(), "kind=diagram") {
-		t.Fatalf("hint should tell the model to set kind=diagram, got %q", err.Error())
+	if got.Kind != types.BlockDiagram {
+		t.Fatalf("kind = %q, want diagram", got.Kind)
+	}
+	if got.Diagram == nil || !strings.Contains(got.Diagram.Body, "A --> B") {
+		t.Fatalf("diagram payload should be preserved, got %+v", got.Diagram)
+	}
+}
+
+func TestNormalizeEmitAnswerBlock_DoesNotInferDiagramKindFromText(t *testing.T) {
+	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:   "b1",
+		Kind: string(types.BlockSection),
+		Text: "```mermaid\nflowchart TD\n  A --> B\n```",
+	}, "blocks[0]")
+	if err != nil {
+		t.Fatalf("section text should not be interpreted as a typed diagram: %v", err)
+	}
+	if got.Kind != types.BlockSection {
+		t.Fatalf("kind = %q, want section", got.Kind)
+	}
+	if got.Diagram != nil {
+		t.Fatalf("diagram should remain nil when only text contains Mermaid: %+v", got.Diagram)
 	}
 }
 

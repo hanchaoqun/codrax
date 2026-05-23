@@ -145,9 +145,10 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		// per the feedback_no_system_backfill_to_user_panel red line
 		// the hint never reaches user-facing fields.
 		if bus.AnalysisIR != nil {
-			graph := analyzerGraphFromBus(bus)
-			if hints := ProbeTypedRelations(graph, &bus.AnalysisIR.RequestModel); len(hints) > 0 {
-				ac.TypedRelationHints = hints
+			for _, carrier := range typedRelationCarriersFromBus(bus) {
+				if hints := ProbeTypedRelations(carrier, &bus.AnalysisIR.RequestModel); len(hints) > 0 {
+					ac.TypedRelationHints = appendTypedRelationHints(ac.TypedRelationHints, hints...)
+				}
 			}
 		}
 
@@ -1611,7 +1612,7 @@ func renderTypedRelationAppendix(hints []types.TypedRelationHint, llmItems []typ
 func evidenceLineForTypedMember(h types.TypedRelationHint, m types.TypedRelationMember, ak types.AnchorKind) string {
 	var b strings.Builder
 	b.WriteString("[")
-	b.WriteString(h.Relation)
+	b.WriteString(string(h.Relation))
 	b.WriteString("] ")
 	b.WriteString(h.SourceName)
 	b.WriteString(" — ")

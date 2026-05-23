@@ -176,6 +176,27 @@ func TestProbeTypedRelations_ImplementAxisFiresForDiagramMechanism(t *testing.T)
 	}
 }
 
+func TestProbeTypedRelations_InterfaceDiagramShapeFiresWhenAxisDriftsToDefine(t *testing.T) {
+	g := buildLooperGraphForTypedRelations(t)
+	rm := &types.RequestModel{
+		Intent:        types.IntentExplain,
+		Scenario:      types.ScenarioArchitectureExplain,
+		PredicateAxis: types.AxisDefine,
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectInterface},
+		DiagramHint:   &types.DiagramHint{Kind: types.DiagramArchitecture},
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"Looper", "internal/agent/agent.go"},
+		},
+	}
+	hints := ProbeTypedRelations(g, rm)
+	if len(hints) != 1 {
+		t.Fatalf("expected interface-diagram relation hint despite axis drift; got %d", len(hints))
+	}
+	if hints[0].SourceName != "Looper" || len(hints[0].Members) != 3 {
+		t.Fatalf("unexpected relation hint: %+v", hints[0])
+	}
+}
+
 func TestProbeTypedRelations_ImplementAxisFiresForAllSupportedLanguages(t *testing.T) {
 	for _, lang := range repotypes.SupportedReadLanguages() {
 		ifaceKind := "interface"
@@ -199,6 +220,137 @@ func TestProbeTypedRelations_ImplementAxisFiresForAllSupportedLanguages(t *testi
 				t.Fatalf("source kind for %s = %q, want %q", lang, hints[0].SourceKind, ifaceKind)
 			}
 		})
+	}
+}
+
+type fakeTypedRelationCandidateSource struct {
+	rows []types.TypedRelationCandidate
+}
+
+func (f fakeTypedRelationCandidateSource) TypedRelationCandidates(q types.TypedRelationQuery) []types.TypedRelationCandidate {
+	if !q.AllowsKind(types.TypedRelationImplements) {
+		return nil
+	}
+	var out []types.TypedRelationCandidate
+	for _, row := range f.rows {
+		for _, source := range q.Sources {
+			if strings.EqualFold(row.SourceName, source) {
+				out = append(out, row)
+				break
+			}
+		}
+	}
+	return out
+}
+
+func TestProbeTypedRelations_UsesGenericCandidateSourceWhenGraphIsOpaque(t *testing.T) {
+	provider := fakeTypedRelationCandidateSource{rows: []types.TypedRelationCandidate{
+		{
+			Relation:   types.TypedRelationImplements,
+			SourceName: "Looper",
+			SourceKind: "interface",
+			Member:     types.TypedRelationMember{Name: "alpha", File: "impl_alpha.go", Line: 14, Kind: "struct"},
+			Carrier:    types.TypedRelationCarrierMultiGraph,
+			Precision:  types.TypedRelationPrecisionExactSymbolID,
+		},
+		{
+			Relation:   types.TypedRelationImplements,
+			SourceName: "Looper",
+			SourceKind: "interface",
+			Member:     types.TypedRelationMember{Name: "beta", File: "impl_beta.go", Line: 22, Kind: "struct"},
+			Carrier:    types.TypedRelationCarrierMultiGraph,
+			Precision:  types.TypedRelationPrecisionExactSymbolID,
+		},
+	}}
+	rm := &types.RequestModel{
+		PredicateAxis: types.AxisImplement,
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"Looper"},
+		},
+	}
+	hints := ProbeTypedRelations(provider, rm)
+	if len(hints) != 1 {
+		t.Fatalf("expected provider-backed relation hint; got %d", len(hints))
+	}
+	if hints[0].Relation != types.TypedRelationImplements || hints[0].SourceName != "Looper" {
+		t.Fatalf("unexpected hint header: %+v", hints[0])
+	}
+	if got := len(hints[0].Members); got != 2 {
+		t.Fatalf("members=%d, want 2: %+v", got, hints[0].Members)
+	}
+}
+
+func TestTypedRelationCarrierFromBusPrefersGenericProviderOverLegacySearchGraph(t *testing.T) {
+	legacy := buildLooperGraphForTypedRelations(t)
+	provider := fakeTypedRelationCandidateSource{rows: []types.TypedRelationCandidate{{
+		Relation:   types.TypedRelationImplements,
+		SourceName: "Looper",
+		SourceKind: "interface",
+		Member:     types.TypedRelationMember{Name: "providerImpl", File: "provider_impl.go", Line: 9},
+		Carrier:    types.TypedRelationCarrierMultiGraph,
+		Precision:  types.TypedRelationPrecisionExactSymbolID,
+	}}}
+	bus := &types.BusContext{
+		Mutable:    types.NewMutableState("test"),
+		MultiGraph: provider,
+	}
+	bus.Mutable.SetSearchGraph(legacy)
+	if _, ok := typedRelationCarrierFromBus(bus).(fakeTypedRelationCandidateSource); !ok {
+		t.Fatalf("typed relation carrier should prefer generic MultiGraph provider over legacy SearchGraph")
+	}
+	carriers := typedRelationCarriersFromBus(bus)
+	if len(carriers) != 2 {
+		t.Fatalf("expected provider plus legacy graph carriers, got %d", len(carriers))
+	}
+	hints := ProbeTypedRelations(typedRelationCarrierFromBus(bus), enumerationRequestModel())
+	if len(hints) != 1 || len(hints[0].Members) != 1 || hints[0].Members[0].Name != "providerImpl" {
+		t.Fatalf("expected provider-backed hint, got %+v", hints)
+	}
+}
+
+func TestTypedRelationCarrierFromBusFallsBackToLegacySearchGraph(t *testing.T) {
+	legacy := buildLooperGraphForTypedRelations(t)
+	bus := &types.BusContext{Mutable: types.NewMutableState("test")}
+	bus.Mutable.SetSearchGraph(legacy)
+	if got := typedRelationCarrierFromBus(bus); got != legacy {
+		t.Fatalf("typed relation carrier should fall back to legacy SearchGraph")
+	}
+	hints := ProbeTypedRelations(typedRelationCarrierFromBus(bus), enumerationRequestModel())
+	if len(hints) != 1 || len(hints[0].Members) != 3 {
+		t.Fatalf("expected legacy graph-backed hint, got %+v", hints)
+	}
+}
+
+func TestAppendTypedRelationHintsDedupsAcrossCarriers(t *testing.T) {
+	a := types.TypedRelationHint{
+		Relation:   types.TypedRelationImplements,
+		SourceName: "Looper",
+		Members: []types.TypedRelationMember{
+			{Name: "alpha", File: "impl_alpha.go", Line: 14},
+		},
+	}
+	b := types.TypedRelationHint{
+		Relation:   types.TypedRelationImplements,
+		SourceName: "Looper",
+		Members: []types.TypedRelationMember{
+			{Name: "alpha", File: "impl_alpha.go", Line: 14},
+			{Name: "beta", File: "impl_beta.go", Line: 22},
+		},
+	}
+	got := appendTypedRelationHints(nil, a)
+	got = appendTypedRelationHints(got, b)
+	if len(got) != 2 {
+		t.Fatalf("expected two hint groups preserving provenance order, got %+v", got)
+	}
+	total := 0
+	for _, hint := range got {
+		total += len(hint.Members)
+	}
+	if total != 2 {
+		t.Fatalf("expected duplicate alpha to be removed and beta kept, got %+v", got)
+	}
+	if got[1].Members[0].Name != "beta" {
+		t.Fatalf("expected beta as second-carrier unique member, got %+v", got)
 	}
 }
 

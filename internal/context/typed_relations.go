@@ -1,6 +1,7 @@
 package context
 
 import (
+	"reflect"
 	"sort"
 	"strings"
 
@@ -8,16 +9,86 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// analyzerGraphFromBus extracts the typed repomap.Graph from a
-// BusContext via Mutable.SearchGraph(). Returns nil when Mutable is
-// nil or no graph has been seeded yet (analyzer-only paths, sub-
-// agent paths that intentionally skip the graph). Callers MUST
-// nil-check; the probe gracefully returns no hints.
-func analyzerGraphFromBus(bus *types.BusContext) any {
-	if bus == nil || bus.Mutable == nil {
+// typedRelationCarriersFromBus returns the authoritative carrier sequence
+// for typed relation probes.
+//
+// Historical note: the codebase has two graph-shaped fields:
+// Mutable.SearchGraph() is the legacy single-repo graph cache, while
+// BusContext.MultiGraph is the newer multi-repo carrier that is also
+// used for single-repo runs when multi_repo is enabled. Relation probes
+// must not read only one of them directly; otherwise single-repo evals
+// running through MultiGraph lose typed_graph hints, while older tests
+// that seed only Mutable.SearchGraph lose coverage. This helper encodes
+// the precedence in one place: try generic relation providers first,
+// then fall back to the legacy graph. Callers merge/dedup the outputs
+// instead of assuming the first carrier is always complete; MultiGraph
+// can legitimately return no active rows in early prompt assembly.
+func typedRelationCarriersFromBus(bus *types.BusContext) []any {
+	if bus == nil {
 		return nil
 	}
-	return bus.Mutable.SearchGraph()
+	var out []any
+	add := func(carrier any) {
+		if carrier == nil {
+			return
+		}
+		if typedRelationCarrierAlreadyPresent(out, carrier) {
+			return
+		}
+		out = append(out, carrier)
+	}
+	multiGraphAdded := false
+	if provider, ok := bus.MultiGraph.(types.TypedRelationCandidateSource); ok && provider != nil {
+		add(provider)
+		multiGraphAdded = true
+	}
+	if bus.Mutable != nil {
+		if graph := bus.Mutable.SearchGraph(); graph != nil {
+			add(graph)
+		}
+	}
+	if !multiGraphAdded {
+		add(bus.MultiGraph)
+	}
+	return out
+}
+
+// typedRelationCarrierFromBus returns the first carrier for legacy callers.
+// New code that needs robust prompt hints should use
+// typedRelationCarriersFromBus and merge all carriers.
+func typedRelationCarrierFromBus(bus *types.BusContext) any {
+	carriers := typedRelationCarriersFromBus(bus)
+	if len(carriers) == 0 {
+		return nil
+	}
+	return carriers[0]
+}
+
+func typedRelationCarrierAlreadyPresent(existing []any, candidate any) bool {
+	if candidate == nil {
+		return true
+	}
+	candidateType := reflect.TypeOf(candidate)
+	if candidateType == nil || !candidateType.Comparable() {
+		return false
+	}
+	for _, item := range existing {
+		if item == nil || reflect.TypeOf(item) != candidateType {
+			continue
+		}
+		if item == candidate {
+			return true
+		}
+	}
+	return false
+}
+
+// analyzerGraphFromBus is kept as a compatibility wrapper for older
+// call sites/tests. New typed relation code should call
+// typedRelationCarrierFromBus so the MultiGraph/SearchGraph precedence
+// stays centralized.
+func analyzerGraphFromBus(bus *types.BusContext) any {
+	return typedRelationCarrierFromBus(bus)
 }
 
 // typedRelationProbeMaxMembers caps the per-relation member count
@@ -63,6 +134,9 @@ func ProbeTypedRelations(graph any, rm *types.RequestModel) []types.TypedRelatio
 	if len(candidates) == 0 {
 		return nil
 	}
+	if hints := probeTypedRelationCandidateSource(graph, candidates); len(hints) > 0 {
+		return hints
+	}
 	var hints []types.TypedRelationHint
 	seenSource := make(map[string]bool)
 	for _, name := range candidates {
@@ -78,6 +152,122 @@ func ProbeTypedRelations(graph any, rm *types.RequestModel) []types.TypedRelatio
 	return hints
 }
 
+func appendTypedRelationHints(dst []types.TypedRelationHint, src ...types.TypedRelationHint) []types.TypedRelationHint {
+	if len(src) == 0 {
+		return dst
+	}
+	seen := map[string]bool{}
+	for _, hint := range dst {
+		for _, member := range hint.Members {
+			seen[typedRelationHintMemberKey(hint, member)] = true
+		}
+	}
+	for _, hint := range src {
+		if hint.Relation == "" || strings.TrimSpace(hint.SourceName) == "" || len(hint.Members) == 0 {
+			continue
+		}
+		var members []types.TypedRelationMember
+		for _, member := range hint.Members {
+			key := typedRelationHintMemberKey(hint, member)
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			members = append(members, member)
+		}
+		if len(members) == 0 {
+			continue
+		}
+		hint.Members = members
+		dst = append(dst, hint)
+	}
+	return dst
+}
+
+func typedRelationHintMemberKey(hint types.TypedRelationHint, member types.TypedRelationMember) string {
+	if hint.Relation == "" || strings.TrimSpace(hint.SourceName) == "" || strings.TrimSpace(member.Name) == "" {
+		return ""
+	}
+	return strings.ToLower(string(hint.Relation)) + "|" +
+		strings.ToLower(strings.TrimSpace(hint.SourceName)) + "|" +
+		strings.ToLower(strings.TrimSpace(member.Name)) + "|" +
+		strings.TrimSpace(member.File)
+}
+
+func probeTypedRelationCandidateSource(graph any, candidates []string) []types.TypedRelationHint {
+	provider, ok := graph.(types.TypedRelationCandidateSource)
+	if !ok || provider == nil || len(candidates) == 0 {
+		return nil
+	}
+	rows := provider.TypedRelationCandidates(types.TypedRelationQuery{
+		Kinds:      []types.TypedRelationKind{types.TypedRelationImplements},
+		Sources:    candidates,
+		MaxMembers: typedRelationProbeMaxMembers,
+		Purpose:    types.TypedRelationPurposePromptHint,
+	})
+	if len(rows) == 0 {
+		return nil
+	}
+	type groupKey struct {
+		relation types.TypedRelationKind
+		source   string
+	}
+	groups := make(map[groupKey][]types.TypedRelationMember)
+	sourceKind := make(map[groupKey]string)
+	seen := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		if row.Relation == "" || strings.TrimSpace(row.SourceName) == "" || strings.TrimSpace(row.Member.Name) == "" {
+			continue
+		}
+		key := groupKey{relation: row.Relation, source: strings.TrimSpace(row.SourceName)}
+		member := row.Member
+		member.Name = strings.TrimSpace(member.Name)
+		member.File = strings.TrimSpace(member.File)
+		dedupKey := string(key.relation) + "|" + strings.ToLower(key.source) + "|" + strings.ToLower(member.Name) + "|" + member.File
+		if seen[dedupKey] {
+			continue
+		}
+		seen[dedupKey] = true
+		groups[key] = append(groups[key], member)
+		if sourceKind[key] == "" {
+			sourceKind[key] = strings.TrimSpace(row.SourceKind)
+		}
+	}
+	if len(groups) == 0 {
+		return nil
+	}
+	keys := make([]groupKey, 0, len(groups))
+	for key := range groups {
+		keys = append(keys, key)
+	}
+	sort.SliceStable(keys, func(i, j int) bool {
+		if keys[i].relation != keys[j].relation {
+			return keys[i].relation < keys[j].relation
+		}
+		return keys[i].source < keys[j].source
+	})
+	hints := make([]types.TypedRelationHint, 0, len(keys))
+	for _, key := range keys {
+		members := groups[key]
+		sort.SliceStable(members, func(i, j int) bool {
+			if members[i].Name != members[j].Name {
+				return members[i].Name < members[j].Name
+			}
+			return members[i].File < members[j].File
+		})
+		if len(members) > typedRelationProbeMaxMembers {
+			members = members[:typedRelationProbeMaxMembers]
+		}
+		hints = append(hints, types.TypedRelationHint{
+			Relation:   key.relation,
+			SourceName: key.source,
+			SourceKind: sourceKind[key],
+			Members:    members,
+		})
+	}
+	return hints
+}
+
 // shouldProbeTypedRelations gates the probe on the analyzer's typed
 // predicates. A typed-relation hint helps three families of
 // answer shapes plus relation-diagram / relation-explanation shapes:
@@ -85,15 +275,16 @@ func ProbeTypedRelations(graph any, rm *types.RequestModel) []types.TypedRelatio
 //	IsCategoryEnumeration  — "list all X of Y"
 //	IsRelationalLookup     — "which X have Y"
 //	IsCountQuestion        — "how many X" when X is a typed set
+//	SubjectInterface+Diagram — "draw/type-relationship view for interface X"
 //	PredicateAxis=implement — "show/explain the implementation relation"
 //
-// The last branch is deliberately axis-based instead of question-kind
-// based: a Mermaid type-relation diagram, an architecture explanation,
-// a comparison, and an enumeration can all depend on the same
-// interface→implementer relation. The probe itself remains precise
-// because it only emits rows when the typed graph resolves the named
-// entity to an interface / trait / protocol with concrete implementers.
-// No raw user/model prose is parsed here.
+// The diagram branch is still typed: answer_subject and diagram_hint are
+// analyzer fields, not localized prose. A Mermaid type-relation diagram, an
+// architecture explanation, a comparison, and an enumeration can all depend on
+// the same interface→implementer relation. The probe itself remains precise
+// because it only emits rows when the typed graph resolves the named entity to
+// an interface / trait / protocol with concrete implementers. No raw
+// user/model prose is parsed here.
 func shouldProbeTypedRelations(rm *types.RequestModel) bool {
 	if rm == nil {
 		return false
@@ -169,7 +360,7 @@ func probeImplements(graph any, name string) *types.TypedRelationHint {
 		return nil
 	}
 	hint := types.TypedRelationHint{
-		Relation:   "implements",
+		Relation:   types.TypedRelationImplements,
 		SourceName: name,
 		SourceKind: sourceKind,
 	}

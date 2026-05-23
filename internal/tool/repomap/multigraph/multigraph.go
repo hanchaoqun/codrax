@@ -830,6 +830,48 @@ func (m *MultiGraph) ImplementerMembersOf(interfaceName string) []types.TypedRel
 	return out
 }
 
+// TypedRelationCandidates exposes multi-repo typed relation rows through the
+// shared types-only provider boundary. The initial implementation returns the
+// same exact implementer relation as ImplementerMembersOf; future relation
+// families can plug into this method without downstream packages learning the
+// concrete MultiGraph type.
+func (m *MultiGraph) TypedRelationCandidates(q types.TypedRelationQuery) []types.TypedRelationCandidate {
+	if m == nil || !q.AllowsKind(types.TypedRelationImplements) {
+		return nil
+	}
+	var out []types.TypedRelationCandidate
+	seen := map[string]bool{}
+	for _, source := range q.Sources {
+		source = strings.TrimSpace(source)
+		if source == "" {
+			continue
+		}
+		members := m.ImplementerMembersOf(source)
+		for _, member := range members {
+			name := strings.TrimSpace(member.Name)
+			if name == "" {
+				continue
+			}
+			key := strings.ToLower(source) + "|" + strings.ToLower(name) + "|" + strings.TrimSpace(member.File)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, types.TypedRelationCandidate{
+				Relation:   types.TypedRelationImplements,
+				SourceName: source,
+				Member:     member,
+				Carrier:    types.TypedRelationCarrierMultiGraph,
+				Precision:  types.TypedRelationPrecisionExactSymbolID,
+			})
+			if q.MaxMembers > 0 && len(out) >= q.MaxMembers {
+				return out
+			}
+		}
+	}
+	return out
+}
+
 // LookupSymbolByID fans out the SymbolID lookup across active
 // sub-repos. Returns the (Symbol, SubRepo) of the first match —
 // SymbolID is canonical and globally unique per Symbol so multi

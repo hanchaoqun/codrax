@@ -606,6 +606,26 @@ func TestShouldSurfaceTypedRelationHints_ImplementAxisCoversDiagramMechanism(t *
 	}
 }
 
+func TestShouldSurfaceTypedRelationHints_InterfaceDiagramShapeCoversAxisDrift(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentExplain,
+		Scenario:      ScenarioArchitectureExplain,
+		PredicateAxis: AxisDefine,
+		AnswerSubject: AnswerSubject{Kind: SubjectInterface},
+		DiagramHint:   &DiagramHint{Kind: DiagramArchitecture},
+	}
+	if !ShouldSurfaceTypedRelationHints(rm) {
+		t.Fatal("interface architecture diagram should surface typed relation facts even if predicate_axis drifted to define")
+	}
+	if !HasTypedRelationMemberSetShape(rm) {
+		t.Fatal("interface diagram relation member sets must be protected from source-inventory rewrite")
+	}
+	rm.DiagramHint = nil
+	if ShouldSurfaceTypedRelationHints(rm) {
+		t.Fatal("interface subject alone is not enough to surface relation hints")
+	}
+}
+
 func TestHasTypedRelationMemberSetShape_TypedOnly(t *testing.T) {
 	rm := RequestModel{PredicateAxis: AxisImplement}
 	if !HasTypedRelationMemberSetShape(rm) {

@@ -44,6 +44,8 @@ import (
 //     - every block has a non-empty id
 //     - block ids are unique
 //     - kind=diagram blocks carry a non-nil Diagram payload
+//     - explicit diagram payloads with a stale non-diagram discriminator
+//     are normalized to kind=diagram before validation
 //     (More invariants extend this list — keep them merged-doc-shape
 //     checks rather than per-emit-input checks so both paths share
 //     them.)
@@ -132,6 +134,9 @@ func persistMergedAnswerDocument(
 		if fixed := normalizeViewCompatibleAnswerDocument(merged, view); fixed > 0 {
 			logging.Warning("[%s] repaired %d view-compatible typed lane field(s) before persist", toolName, fixed)
 		}
+	}
+	if fixed := normalizeMergedDiagramPayloadKinds(merged); fixed > 0 {
+		logging.Warning("[%s] repaired %d diagram block discriminator(s) before persist", toolName, fixed)
 	}
 	if vErr := validateMergedV2Doc(merged); vErr != nil {
 		return failEmit(toolName, now, "%s", vErr.Error())
@@ -224,6 +229,20 @@ func validateMergedV2Doc(doc *types.AnswerDocumentV2) error {
 		}
 	}
 	return nil
+}
+
+func normalizeMergedDiagramPayloadKinds(doc *types.AnswerDocumentV2) int {
+	if doc == nil {
+		return 0
+	}
+	fixed := 0
+	for i := range doc.Blocks {
+		if doc.Blocks[i].Diagram != nil && doc.Blocks[i].Kind != types.BlockDiagram {
+			doc.Blocks[i].Kind = types.BlockDiagram
+			fixed++
+		}
+	}
+	return fixed
 }
 
 // canonicalizeSummaryLeadBlock moves the first renderable summary block in

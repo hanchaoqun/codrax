@@ -278,7 +278,7 @@ changes behavior:
 
 ### R0. Design and inventory
 
-Status: **In progress**
+Status: **Done**
 
 - [x] Inspect `TypedRelationHint`, context probe, graph carriers, aggregate
   relation matchers, and pre-complete relation member-set guard.
@@ -286,36 +286,87 @@ Status: **In progress**
   inheritance, references, scoped symbols, and implementers.
 - [x] Confirm existing aggregate/finalizer helpers are already relation-generic
   and should not be duplicated.
-- [ ] Land this design and link it from the gap tracker.
+- [x] Land this design and link it from the gap tracker.
 
 ### R1. Common relation types and provider boundary
 
-Status: **Pending**
+Status: **Done**
 
-- Add typed constants around existing relation string values.
-- Add `TypedRelationQuery`, `TypedRelationCandidate`,
+- [x] Add typed constants around existing relation string values.
+- [x] Add `TypedRelationQuery`, `TypedRelationCandidate`,
   `TypedRelationCandidateSource`, precision enum, and helper canonicalizers in
   `internal/types`.
-- Keep JSON/string wire values stable.
-- Add structural tests:
+- [x] Keep JSON/string wire values stable.
+- [x] Add structural tests:
   - every `AllTypedRelations()` value maps to anchor kind
   - every relation kind has a declared precision policy
   - provider boundary has no package cycle
+- [x] Add a generic `MultiGraph.TypedRelationCandidates` bridge for the already
+  precise implementer relation while preserving the older
+  `TypedRelationImplementerSource` compatibility path.
+- [x] Centralize relation carrier selection in
+  `internal/context.typedRelationCarriersFromBus`: merge generic
+  `BusContext.MultiGraph` providers and legacy `Mutable.SearchGraph()` with
+  stable de-dup. This prevents future single-vs-multi repo drift where a caller
+  accidentally reads only one graph-shaped field, and also handles early prompt
+  assembly when a MultiGraph provider is present but currently returns no active
+  candidates.
 
 ### R2. Migrate implementer coverage to common helper
 
-Status: **Pending**
+Status: **Done**
 
-- Replace `relationTypedImplementerGap` and
+- [x] Replace `relationTypedImplementerGap` and
   `relationMemberSetGroundedImplementerGaps` with a generic relation coverage
   helper.
-- Keep existing implementer behavior byte-equivalent:
+- [x] Keep existing implementer behavior equivalent:
   - graph-only members not forced
   - production source scope honored
   - omitted grounded implementer prompts structured handoff
   - multi-repo provider still works
-- Add regression tests that prove the generic helper catches the current s5a
+- [x] Add regression tests that prove the generic helper catches the current s5a
   class without mentioning implementers in gate logic.
+
+Implementation note: this batch deliberately does not activate imports,
+inheritance, caller/callee, or registration carriers yet. It only moves the
+existing precise implementer safety rule onto the common candidate contract, so
+future relation families can reuse the same exact-carrier + grounded-evidence +
+scope + model-authored-member_set rule without adding one-off gates.
+
+Regression note: the first focused replay after R1/R2 initially failed because
+the explorer prompt still read typed relation hints only from
+`Mutable.SearchGraph()`, while the normal single-repo run was using
+`BusContext.MultiGraph` as the active carrier. A later replay exposed the
+opposite edge: MultiGraph may be present but empty/early, so relation hints must
+not stop there. The fix is not a one-off qf patch: relation probes now go
+through the centralized carrier sequence and merge outputs with relation/source/
+member/file de-dup. Tests pin provider-preferred, legacy fallback, and
+cross-carrier de-dup behavior.
+
+Schema-repair note from the same replay: the finalizer can emit a block with a
+valid typed `diagram` payload but a stale outer `kind` discriminator (for
+example `kind=section`). This is a lossless schema mismatch, not a content
+error. The unified answer-block normalizer and final persist chokepoint now
+repair only this precise condition by setting `kind=diagram`. The system still
+does **not** infer diagrams from Mermaid-looking prose or `text`, and still
+rejects `kind=diagram` blocks that omit the typed `diagram` object.
+
+Axis-drift note: a later replay showed the analyzer can classify an explicit
+interface type-relationship diagram as `predicate_axis=define` while still
+emitting typed `answer_subject=interface_name` and `diagram_hint=architecture`.
+The short-term repair allows typed relation probes for this schema shape, but
+this must remain a prompt-hint allowance only: hard coverage still requires
+exact graph candidates plus grounded same-member evidence. The long-term
+architecture task is to move this and future relation triggers into one central
+`TypedRelationQuery` kind-selection policy:
+
+- interface / trait / protocol diagrams may request `implements` and `extends`;
+- caller/callee questions map through typed axis/profile to `called-by`;
+- import/export/dependency questions map through typed axis/profile to
+  `imports` / `exports`;
+- registration/event/config/route/external-observation relations enter through
+  their precise typed profiles or evidence carriers;
+- no relation kind is selected from raw user prose or model free-form text.
 
 ### R3. Import/dependency relation provider
 
@@ -373,7 +424,22 @@ Status: **Pending**
   duplicate tuples.
 - Preserve localized append-only supplement wording.
 
-### R9. Eval and telemetry
+### R9. Central relation-kind selection
+
+Status: **Pending**
+
+- Replace scattered relation-trigger checks with one
+  `TypedRelationQuery`-building policy that maps typed request shape to allowed
+  relation kinds.
+- Keep current short-term interface-diagram support as the first test case, but
+  migrate it into this central selector.
+- Add tests for interface diagram, call relation, import/export relation,
+  registration/event relation, and external-observation→source-anchor relation.
+- Prove every selector input is typed (`AnswerSubject`, `DiagramHint`,
+  `PredicateAxis`, request profiles, or precise evidence carrier), never raw
+  request/model prose.
+
+### R10. Eval and telemetry
 
 Status: **Pending**
 

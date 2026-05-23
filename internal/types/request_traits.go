@@ -96,16 +96,32 @@ func HasPrincipalCategoryEnumerationMemberLane(rm RequestModel) bool {
 //
 // This is intentionally broader than enumeration: the same precise relation
 // fact can be needed by a list, count, comparison, architecture explanation, or
-// diagram. The signal remains schema-only. It consumes analyzer predicates and
-// PredicateAxis, never localized raw request text, so relation facts stay
-// language-neutral across every repomap-supported language.
+// diagram. The signal remains schema-only. It consumes analyzer predicates,
+// AnswerSubject, DiagramHint, and PredicateAxis, never localized raw request
+// text, so relation facts stay language-neutral across every repomap-supported
+// language.
 func ShouldSurfaceTypedRelationHints(rm RequestModel) bool {
 	if rm.Predicates.IsCategoryEnumeration ||
 		rm.Predicates.IsRelationalLookup ||
 		rm.Predicates.IsCountQuestion {
 		return true
 	}
+	if HasInterfaceTypedRelationDiagramShape(rm) {
+		return true
+	}
 	return rm.PredicateAxis == AxisImplement
+}
+
+// HasInterfaceTypedRelationDiagramShape reports a typed shape where the user
+// needs a structural diagram of an interface / trait / protocol relation even
+// if the analyzer chose a broad predicate axis such as "define". This helper is
+// deliberately schema-only: it allows exact graph relation probes to run, but
+// the probe still emits nothing unless repomap resolves the entity as an
+// interface-like symbol with concrete relation members.
+func HasInterfaceTypedRelationDiagramShape(rm RequestModel) bool {
+	return rm.AnswerSubject.Kind == SubjectInterface &&
+		rm.DiagramHint != nil &&
+		rm.DiagramHint.Kind != DiagramNone
 }
 
 // HasTypedRelationMemberSetShape reports whether a principal member_set, when
@@ -119,7 +135,9 @@ func ShouldSurfaceTypedRelationHints(rm RequestModel) bool {
 // localized keywords. This keeps the rule language-neutral across all
 // repomap-supported languages.
 func HasTypedRelationMemberSetShape(rm RequestModel) bool {
-	return rm.PredicateAxis == AxisImplement || rm.Predicates.IsRelationalLookup
+	return rm.PredicateAxis == AxisImplement ||
+		rm.Predicates.IsRelationalLookup ||
+		HasInterfaceTypedRelationDiagramShape(rm)
 }
 
 // RequiresExhaustiveEnumerationMemberSetHandoff reports whether a

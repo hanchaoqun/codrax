@@ -28,7 +28,7 @@ type TypedRelationHint struct {
 	// Closed enum: implements / extends / called-by / scoped-to /
 	// registers / overrides / references. Adding a new value requires
 	// adding a probe in internal/context/typed_relations.go.
-	Relation string `json:"relation"`
+	Relation TypedRelationKind `json:"relation"`
 
 	// SourceName is the user-named anchor entity the relation is
 	// keyed on (interface name / class name / function name / package
@@ -56,6 +56,133 @@ type TypedRelationMember struct {
 	// depth matters (inheritance chain, call-graph). 1 = direct; 2+ =
 	// transitive. Direct-only relations leave it 0 / 1.
 	Distance int `json:"distance,omitempty"`
+}
+
+// TypedRelationKind is the closed relation vocabulary shared by
+// prompt hints, coverage checks, and future relation providers.
+//
+// Values are intentionally stable wire strings: existing JSON,
+// prompt rendering, and aggregate relation surfaces continue to use
+// the same text values while internal code gets a typed boundary.
+type TypedRelationKind string
+
+const (
+	TypedRelationImplements TypedRelationKind = "implements"
+	TypedRelationExtends    TypedRelationKind = "extends"
+	TypedRelationCalledBy   TypedRelationKind = "called-by"
+	TypedRelationScopedTo   TypedRelationKind = "scoped-to"
+	TypedRelationRegisters  TypedRelationKind = "registers"
+	TypedRelationOverrides  TypedRelationKind = "overrides"
+	TypedRelationReferences TypedRelationKind = "references"
+	TypedRelationImports    TypedRelationKind = "imports"
+	TypedRelationExports    TypedRelationKind = "exports"
+)
+
+// TypedRelationPurpose tells providers whether candidates are being
+// assembled for prompt context or for a hard coverage gate. Providers
+// may expose softer rows for prompt context, but coverage gates must
+// consume exact rows only.
+type TypedRelationPurpose string
+
+const (
+	TypedRelationPurposePromptHint   TypedRelationPurpose = "prompt_hint"
+	TypedRelationPurposeCoverageGate TypedRelationPurpose = "coverage_gate"
+)
+
+// TypedRelationPrecision records how trustworthy a relation carrier is.
+// Only exact precision levels may participate in hard coverage gates;
+// name-only and heuristic rows are guidance for the model, never proof
+// that the model is wrong.
+type TypedRelationPrecision string
+
+const (
+	TypedRelationPrecisionExactSymbolID TypedRelationPrecision = "exact_symbol_id"
+	TypedRelationPrecisionExactFile     TypedRelationPrecision = "exact_file"
+	TypedRelationPrecisionExactEvidence TypedRelationPrecision = "exact_evidence"
+	TypedRelationPrecisionNameOnly      TypedRelationPrecision = "name_only"
+	TypedRelationPrecisionHeuristic     TypedRelationPrecision = "heuristic"
+)
+
+// CoverageGateEligible reports whether this precision is exact enough
+// to support a hard relation coverage check.
+func (p TypedRelationPrecision) CoverageGateEligible() bool {
+	switch p {
+	case TypedRelationPrecisionExactSymbolID,
+		TypedRelationPrecisionExactFile,
+		TypedRelationPrecisionExactEvidence:
+		return true
+	default:
+		return false
+	}
+}
+
+// TypedRelationCarrierKind identifies the structural source of a
+// relation candidate. It is diagnostic/provenance metadata, not a
+// user-facing answer label.
+type TypedRelationCarrierKind string
+
+const (
+	TypedRelationCarrierGraph               TypedRelationCarrierKind = "graph"
+	TypedRelationCarrierMultiGraph          TypedRelationCarrierKind = "multi_graph"
+	TypedRelationCarrierEvidence            TypedRelationCarrierKind = "evidence"
+	TypedRelationCarrierExternalObservation TypedRelationCarrierKind = "external_observation"
+)
+
+// TypedRelationQuery is the cycle-free request passed to relation
+// providers. It contains only typed analyzer/request data and scoped
+// source names; providers must not inspect raw user prose.
+type TypedRelationQuery struct {
+	Kinds      []TypedRelationKind  `json:"kinds,omitempty"`
+	Sources    []string             `json:"sources,omitempty"`
+	Request    *RequestModel        `json:"-"`
+	MaxMembers int                  `json:"max_members,omitempty"`
+	Purpose    TypedRelationPurpose `json:"purpose,omitempty"`
+}
+
+// AllowsKind reports whether a provider should return rows for kind.
+// An empty Kinds list means "any supported kind".
+func (q TypedRelationQuery) AllowsKind(kind TypedRelationKind) bool {
+	if kind == "" {
+		return false
+	}
+	if len(q.Kinds) == 0 {
+		return true
+	}
+	for _, candidate := range q.Kinds {
+		if candidate == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// TypedRelationCandidate is the internal carrier used by relation
+// coverage checks. Prompt rendering may still use TypedRelationHint,
+// but both should be derived from the same provider data over time.
+type TypedRelationCandidate struct {
+	Relation   TypedRelationKind        `json:"relation"`
+	SourceName string                   `json:"source_name,omitempty"`
+	SourceKind string                   `json:"source_kind,omitempty"`
+	SourceFile string                   `json:"source_file,omitempty"`
+	SourceLine int                      `json:"source_line,omitempty"`
+	Member     TypedRelationMember      `json:"member"`
+	Carrier    TypedRelationCarrierKind `json:"carrier,omitempty"`
+	Precision  TypedRelationPrecision   `json:"precision,omitempty"`
+}
+
+// CoverageGateEligible reports whether the candidate can be considered
+// by a hard relation coverage gate. Callers must still verify source
+// scope and same-member grounded evidence before rejecting anything.
+func (c TypedRelationCandidate) CoverageGateEligible() bool {
+	return c.Relation != "" && c.Precision.CoverageGateEligible()
+}
+
+// TypedRelationCandidateSource is the common, cycle-free relation
+// provider boundary. Multi-repo carriers, external observation ledgers,
+// and future graph adapters can implement this without downstream
+// packages importing their concrete types.
+type TypedRelationCandidateSource interface {
+	TypedRelationCandidates(TypedRelationQuery) []TypedRelationCandidate
 }
 
 // TypedRelationImplementerSource is the narrow, cycle-free bridge for
@@ -94,32 +221,36 @@ const (
 // Adding a new Relation value requires adding the matching AnchorKind
 // row here. The TestTypedRelationAnchorKindCoverage structural test
 // (in internal/types/typed_relation_hint_test.go) enforces it.
-func TypedRelationAnchorKind(relation string) AnchorKind {
+func TypedRelationAnchorKind(relation TypedRelationKind) AnchorKind {
 	switch relation {
-	case "implements", "extends", "scoped-to":
+	case TypedRelationImplements, TypedRelationExtends, TypedRelationScopedTo:
 		return AnchorDefinition
-	case "overrides":
+	case TypedRelationOverrides, TypedRelationExports:
 		return AnchorDefinition
-	case "called-by", "references":
+	case TypedRelationCalledBy, TypedRelationReferences:
 		return AnchorCall
-	case "registers":
+	case TypedRelationRegisters:
 		return AnchorAssignment
+	case TypedRelationImports:
+		return AnchorImport
 	}
 	return ""
 }
 
-// AllTypedRelations enumerates every Relation value the probe table
-// supports. Mirrors the AllAnchorKinds / AllViolationKinds pattern.
-// Used by structural tests to guarantee no relation slips through
-// without a probe and an AnchorKind mapping.
-func AllTypedRelations() []string {
-	return []string{
-		"implements",
-		"extends",
-		"called-by",
-		"scoped-to",
-		"registers",
-		"overrides",
-		"references",
+// AllTypedRelations enumerates every Relation value the shared
+// relation contract knows about. A value in this list is not
+// automatically hard-gate eligible; precision policy and provider
+// support decide that per relation family.
+func AllTypedRelations() []TypedRelationKind {
+	return []TypedRelationKind{
+		TypedRelationImplements,
+		TypedRelationExtends,
+		TypedRelationCalledBy,
+		TypedRelationScopedTo,
+		TypedRelationRegisters,
+		TypedRelationOverrides,
+		TypedRelationReferences,
+		TypedRelationImports,
+		TypedRelationExports,
 	}
 }

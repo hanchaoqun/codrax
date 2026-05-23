@@ -131,7 +131,13 @@ func NormalizeEmitAnswerBlock(raw emitAnswerBlockV2, fieldPath string) (types.An
 	}
 	if raw.Diagram != nil {
 		if blk.Kind != types.BlockDiagram {
-			return types.AnswerBlock{}, fmt.Errorf("%s: diagram payload is only valid when kind=diagram; set kind=\"diagram\" so the renderer emits the Mermaid block, or remove the sibling `diagram` object from this %q block", fieldPath, raw.Kind)
+			// A non-empty typed diagram sibling is a precise schema signal:
+			// the model already chose the diagram carrier and only left the
+			// discriminator stale. Correct the discriminator locally instead
+			// of spending a finalizer retry on a lossless shape repair. Do
+			// not infer diagrams from prose/text here; only an explicit
+			// raw.Diagram payload is eligible.
+			blk.Kind = types.BlockDiagram
 		}
 		normalizeEmitAnswerDiagram(raw.Diagram)
 		diag := &types.AnswerDiagramBlock{
