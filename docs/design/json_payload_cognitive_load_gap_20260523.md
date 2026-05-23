@@ -2,7 +2,7 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-31 are complete and verified; the
+Status: partially implemented. Batches 1-32 are complete and verified; the
 shared schema-aware repair path is active across the high-frequency structured
 emit tools, including the legacy top-level JSON-string repair wrappers.
 Remaining work is still tracked below, starting with P1 carrier compilers /
@@ -193,6 +193,12 @@ Implementation progress:
   rich notes, and support refs are preserved. Distinct claims on the same line
   remain separate, so the runtime reduces prompt duplication without changing
   answer content or collapsing different facts.
+- 2026-05-23 Batch 32 extended the same lossless id-surface transaction rule to
+  full `emit_answer_document` emits. Whitespace around block ids is normalized
+  and byte-identical duplicate blocks are coalesced before merged-doc
+  validation; same-id blocks with different visible or typed payloads still
+  fail loudly. This removes another deterministic retry source without
+  replacing model-authored answer content.
 - Remaining work starts at P1 carrier compilers / row-set compilers; the
   completed ref batch deliberately did not change answer materialization policy.
 
@@ -500,6 +506,9 @@ overriding better model-authored descriptions.
   noise before validation: whitespace around op ids and exact duplicate op
   declarations no longer force a finalizer retry. Conflicting duplicate blocks
   still fail loudly because choosing one payload would alter model intent.
+- PARTIAL (Batch 32): full document emits now use the same lossless block-id
+  normalization for exact duplicate blocks. This keeps patch/full emit behavior
+  aligned at the transaction boundary.
 - Remaining: extend the same typed repair lane to other deterministic
   answer-document validators only where the target field/action is precise.
 - Make patch/full-emit transitions transactional so carrier errors are fixed

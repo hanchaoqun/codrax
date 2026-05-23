@@ -187,6 +187,10 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		}
 		doc.Blocks = append(doc.Blocks, blk)
 	}
+	if changed, fields := normalizeAnswerDocumentBlockIDSurface(doc); changed {
+		logging.Warning("[emit_answer_document] id duplicate(s) normalized via transactional tolerance: %s",
+			strings.Join(fields, ", "))
+	}
 	canonicalizeSummaryLeadBlock(doc)
 	if answerDocumentRecoveryLostUnattachedBlocks(recovery) {
 		persistRecoveredAnswerDraft(ctx, raw, mergeAnswerDocumentRecoveryAttachments(recovery, doc), doc)

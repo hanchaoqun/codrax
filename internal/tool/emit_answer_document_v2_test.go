@@ -620,6 +620,41 @@ func TestEmitAnswerDocumentV2_RejectsDuplicateBlockIDs(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_NormalizesWhitespaceAndIdenticalDuplicateBlockIDs(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	dup := json.RawMessage(`{
+		"blocks": [
+			{
+				"id":" lead ",
+				"kind":"summary",
+				"surface_role":"principal",
+				"text":"same answer"
+			},
+			{
+				"id":"lead",
+				"kind":"summary",
+				"surface_role":"principal",
+				"text":"same answer"
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, dup)
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("identical duplicate block ids should be normalized instead of forcing retry: %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 {
+		t.Fatalf("duplicate block should be coalesced, got %+v", doc)
+	}
+	if doc.Blocks[0].ID != "lead" || doc.Blocks[0].Text != "same answer" {
+		t.Fatalf("normalized block should preserve visible content and trimmed id, got %+v", doc.Blocks[0])
+	}
+}
+
 func TestEmitAnswerDocumentV2_DiagramBlockRequiresPayload(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

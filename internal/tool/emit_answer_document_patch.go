@@ -286,6 +286,15 @@ func normalizeAnswerDocumentPatchIDSurface(patch *types.AnswerDocumentV2Patch) (
 	return len(fields) > 0, fields
 }
 
+func normalizeAnswerDocumentBlockIDSurface(doc *types.AnswerDocumentV2) (bool, []string) {
+	if doc == nil || len(doc.Blocks) == 0 {
+		return false, nil
+	}
+	var fields []string
+	doc.Blocks = normalizePatchBlockList("blocks", doc.Blocks, &fields)
+	return len(fields) > 0, fields
+}
+
 func normalizePatchIDList(field string, ids []string, fields *[]string) []string {
 	if len(ids) == 0 {
 		return ids
