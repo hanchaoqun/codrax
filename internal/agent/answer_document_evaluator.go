@@ -3671,7 +3671,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 			fmt.Fprintf(&b, "; summary=%q", truncateAnswerDocPromptText(summary, 180))
 		}
 		if len(record.RichNotes) > 0 {
-			fmt.Fprintf(&b, "; notes=%s", renderAnswerDocObservationNotes(record.RichNotes, 2))
+			if notes := renderAnswerDocObservationNotes(record.RichNotes, answerDocObservationNoteLimit(record)); notes != "" {
+				fmt.Fprintf(&b, "; notes=%s", notes)
+			}
 		}
 		if len(record.SupportRefs) > 0 {
 			fmt.Fprintf(&b, "; support_refs=%d", len(record.SupportRefs))
@@ -3703,6 +3705,21 @@ func prioritizedObservationLedgerRecords(ctx *types.AgentContext, records []type
 
 func renderAnswerDocObservationSource(ref types.ObservationSourceRef) string {
 	return types.FormatObservationSourceRef(ref, 90)
+}
+
+func answerDocObservationNoteLimit(record types.ObservationRecord) int {
+	limit := 2
+	if types.NormalizeAnswerAggregateRole(record.Role).IsPrincipal() {
+		limit = 4
+	}
+	if record.Origin == types.AnswerEvidenceOriginCurrentSource && types.ObservationRecordHasStrongCurrentSourceAnchor(record) && limit < 3 {
+		limit = 3
+	}
+	if types.AnswerEvidenceOriginCarriesOriginSpecificSupport(record.Origin) &&
+		types.NormalizeAnswerAggregateRole(record.Role).IsPrincipal() && limit < 4 {
+		limit = 4
+	}
+	return limit
 }
 
 func renderAnswerDocObservationSpan(span types.ObservationSpan) string {

@@ -2,7 +2,7 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-16 are complete and verified; the
+Status: partially implemented. Batches 1-17 are complete and verified; the
 shared schema-aware repair path is active across the high-frequency structured
 emit tools, including the legacy top-level JSON-string repair wrappers.
 Remaining work is still tracked below, starting with P1 carrier compilers /
@@ -104,6 +104,12 @@ Implementation progress:
   candidate/recovered counts. The runtime still keeps recovered draft
   attachments for display fallback, but it does not publish a partial structured
   answer or ask the model to infer the missing carrier from prose.
+- 2026-05-23 Batch 17 tightened the prompt-dedupe / rich-ledger handoff without
+  adding another prompt surface. Observation Ledger notes now use a typed
+  role/origin-aware budget: principal records and origin-specific principal
+  observations can show more de-duplicated rich notes, while support-only rows
+  stay compact. This keeps explorer-authored member explanations available to
+  finalizer without duplicating the full aggregate body elsewhere.
 - Remaining work starts at P1 carrier compilers / row-set compilers; the
   completed ref batch deliberately did not change answer materialization policy.
 
@@ -396,6 +402,10 @@ overriding better model-authored descriptions.
 ### P3. Prompt dedupe and principal ledger
 
 - Audit finalizer/extractor prompts for duplicate evidence surfaces.
+- PARTIAL (Batch 17): Observation Ledger keeps the single existing surface but
+  raises rich-note budget only for typed principal rows/origin-specific
+  principal observations, reducing dry answer risk without a second duplicate
+  prompt section.
 - Preserve rich summaries while collapsing repeated carriers.
 - Ensure mixed questions such as "based on this diff, analyze current code" rank
   both VCS observations and current-source anchors according to the typed user
