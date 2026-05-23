@@ -745,6 +745,12 @@ func TestCompileObservationLedger_ProjectsToolBannerCoordinates(t *testing.T) {
 			RawRef: "/tmp/codrax/blob/git_history_search-1.txt",
 		},
 		{
+			ToolName: "git_log",
+			Success:  true,
+			Summary:  "[git_log: pathspec=internal/tool ref=HEAD count=1 format=medium stat=true name_only=false merges_only=true no_merges=false first_parent=true evidence_origin=vcs_metadata]\ncommit abc123\n",
+			RawRef:   "/tmp/codrax/blob/git_log-merge.txt",
+		},
+		{
 			ToolName: "exec_command",
 			Success:  true,
 			Summary:  "[exec_command: $ git log --oneline -n 3]\n[exec_command: evidence_origin=vcs_metadata]\nabc123 feature\n",
@@ -770,7 +776,14 @@ func TestCompileObservationLedger_ProjectsToolBannerCoordinates(t *testing.T) {
 		history.ClaimKey != "runTaskGraph" {
 		t.Fatalf("git_history_search coordinates/result count not projected: record=%+v", history)
 	}
-	exec := findObservationRecord(t, ledger, "tool:2#vcs_metadata")
+	log := findObservationRecord(t, ledger, "tool:2#vcs_metadata")
+	if log.SourceRef.Pathspec != "internal/tool" ||
+		log.SourceRef.Range != "ref=HEAD count=1 first_parent=true merges_only=true" ||
+		log.SourceRef.RawRef != "/tmp/codrax/blob/git_log-merge.txt" ||
+		log.SourceRef.PayloadRef != "/tmp/codrax/blob/git_log-merge.txt" {
+		t.Fatalf("git_log filter coordinates not projected: %+v", log.SourceRef)
+	}
+	exec := findObservationRecord(t, ledger, "tool:3#vcs_metadata")
 	if exec.SourceRef.Command != "git log --oneline -n 3" ||
 		exec.SourceRef.RawRef != "/tmp/codrax/blob/exec_command-1.txt" ||
 		exec.SourceRef.PayloadRef != "/tmp/codrax/blob/exec_command-1.txt" {

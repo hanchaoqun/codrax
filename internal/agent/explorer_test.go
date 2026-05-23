@@ -1007,6 +1007,42 @@ func TestBuildInitialInstructionRecentCommitEnumerationUsesVCSLane(t *testing.T)
 	}
 }
 
+func TestBuildInitialInstructionHistoryComparisonUsesVCSLane(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Objective: "对比最近两个合入分别做了什么，影响有什么不同。",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup:  true,
+					IsCrossComponent: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqHistory)},
+				Buckets: []types.QuestionBucket{
+					{Label: "merge A", Index: 1},
+					{Label: "merge B", Index: 2},
+				},
+			},
+			EvidencePlan: types.EvidencePlan{RequiredFiles: []string{
+				"internal/current_noise.go",
+			}},
+		},
+		RepoRoot: ".",
+	}
+
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "VCS History Narrative Handoff") {
+		t.Fatalf("pure history comparison should use VCS narrative lane:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "Mixed History / Current-source Handoff") {
+		t.Fatalf("pure history comparison must not force mixed current-source handoff:\n%s", prompt)
+	}
+	if len(eval.requiredFiles) != 0 {
+		t.Fatalf("pure history comparison should drop mandatory current-source required files, got %v", eval.requiredFiles)
+	}
+}
+
 func TestBuildInitialInstructionHistoryDiagramKeepsMixedLane(t *testing.T) {
 	eval := &explorerEvaluator{}
 	ctx := &types.AgentContext{

@@ -223,7 +223,7 @@ observations.
     fixture-backed coverage for latest merge, no-merge filtering, explicit ref
     starting points, pathspec scoping, and tool-description guidance.
 
-- Batch 34 — VCS answer-shape contract. Status: planned.
+- Batch 34 — VCS answer-shape contract. Status: completed.
   - Treat "recent merge / recent commits / compare commits / explain impact" as
     VCS narrative evidence unless the user also asks for current-source
     analysis, diagrams, tests, logs, or trace correlation.
@@ -231,6 +231,13 @@ observations.
     notes; never collapse a feature-summary answer to only `value=<commit>`.
   - Mixed history + current-code questions must rank both origins by the typed
     request shape instead of fixed origin preference.
+  - Delivered in this batch: pure typed commit-history comparisons now keep
+    `vcs_metadata` / `vcs_diff` origins without forcing `current_source`;
+    mixed history+diagram/change-impact/current-code routes still keep current
+    source. `git_log` filter coordinates (`ref`, `count`, `first_parent`,
+    `merges_only`, `no_merges`, `pathspec`) are projected into the Observation
+    Ledger source ref so finalizer/reviewer can preserve history narrative
+    context instead of seeing only a raw commit id.
 
 - Batch 35 — extractor stage boundary. Status: planned.
   - Ensure extractor completion is based on accepted structured emits or

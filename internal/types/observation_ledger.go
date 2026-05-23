@@ -1029,6 +1029,15 @@ func sourceRefForToolResult(origin AnswerEvidenceOrigin, result ToolResult, inde
 				firstBannerValue(banners, "window_count"),
 			)
 		}
+		if result.ToolName == "git_log" {
+			ref.Range = compactGitLogToolResultRange(
+				firstBannerValue(banners, "ref"),
+				firstBannerValue(banners, "count"),
+				firstBannerValue(banners, "first_parent"),
+				firstBannerValue(banners, "merges_only"),
+				firstBannerValue(banners, "no_merges"),
+			)
+		}
 	case AnswerEvidenceOriginCommandMeasurement:
 		ref.Command = command
 	}
@@ -1036,6 +1045,28 @@ func sourceRefForToolResult(origin AnswerEvidenceOrigin, result ToolResult, inde
 		ref.Command = command
 	}
 	return ref
+}
+
+func compactGitLogToolResultRange(ref, count, firstParent, mergesOnly, noMerges string) string {
+	var parts []string
+	appendPart := func(key, value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		parts = append(parts, key+"="+value)
+	}
+	appendBool := func(key, value string) {
+		if strings.EqualFold(strings.TrimSpace(value), "true") {
+			parts = append(parts, key+"=true")
+		}
+	}
+	appendPart("ref", ref)
+	appendPart("count", count)
+	appendBool("first_parent", firstParent)
+	appendBool("merges_only", mergesOnly)
+	appendBool("no_merges", noMerges)
+	return strings.Join(parts, " ")
 }
 
 // FormatObservationSourceRef renders an origin-specific source address for

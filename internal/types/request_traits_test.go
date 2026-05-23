@@ -271,6 +271,16 @@ func TestHistoryLookupPrefersVCSNarrativePrincipal_TypedBoundary(t *testing.T) {
 	}
 	rm.Predicates.IsCategoryEnumeration = false
 
+	rm.Predicates.IsCrossComponent = true
+	rm.AnalyzerHints = AnalyzerHints{Kind: string(ReqHistory)}
+	rm.Buckets = []QuestionBucket{{Label: "commit A", Index: 1}, {Label: "commit B", Index: 2}}
+	if !HistoryLookupPrefersVCSNarrativePrincipal(rm, nil) {
+		t.Fatal("pure typed commit-history comparison should remain VCS-principal instead of forcing current-source reads")
+	}
+	rm.Buckets = nil
+	rm.Predicates.IsCrossComponent = false
+	rm.AnalyzerHints = AnalyzerHints{}
+
 	currentSourceContract := &AnswerContract{Diagram: &DiagramContract{Required: true, RequiredKind: DiagramFlow}}
 	if HistoryLookupPrefersVCSNarrativePrincipal(rm, currentSourceContract) {
 		t.Fatal("answer contract current_source origin must keep mixed history/current-source lane")

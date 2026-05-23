@@ -299,6 +299,31 @@ func TestCompileAnswerIntentContract_BucketedComparisonPreservesOutput(t *testin
 	}
 }
 
+func TestCompileAnswerIntentContract_HistoryCommitComparisonStaysVCS(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentExplain,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup:  true,
+			IsCrossComponent: true,
+		},
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqHistory)},
+		Buckets: []QuestionBucket{
+			{Label: "commit A", Index: 1},
+			{Label: "commit B", Index: 2},
+		},
+	}
+	got := CompileAnswerIntentContract(rm, nil)
+	if !reflect.DeepEqual(got.Origins, []AnswerEvidenceOrigin{AnswerEvidenceOriginVCSMetadata, AnswerEvidenceOriginVCSDiff}) {
+		t.Fatalf("pure commit-history comparison origins mismatch: %+v", got.Origins)
+	}
+	if !got.HasOutput(AnswerRequestedOutputComparison) || got.HasOutput(AnswerRequestedOutputScalar) {
+		t.Fatalf("pure commit-history comparison should keep comparison shape without scalar collapse: %+v", got.RequestedOutputs)
+	}
+	if got.HasOrigin(AnswerEvidenceOriginCurrentSource) {
+		t.Fatalf("pure commit-history comparison must not require current-source origin: %+v", got.Origins)
+	}
+}
+
 func TestCompileAnswerIntentContract_ExactResolutionAllowsAbsenceOutput(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentExplain,

@@ -258,8 +258,10 @@ func HistoryLookupPrefersVCSNarrativePrincipal(rm RequestModel, contract *Answer
 	if rm.Predicates.IsScalarAnswer ||
 		rm.Predicates.IsCountQuestion ||
 		rm.Predicates.IsRelationalLookup ||
-		rm.Predicates.IsCrossComponent ||
 		rm.Predicates.IsDiagnosticQuestion {
+		return false
+	}
+	if rm.Predicates.IsCrossComponent && kind != ReqHistory {
 		return false
 	}
 	if rm.DiagnosticProfile.RequiresDiagnosticRootCause() ||
