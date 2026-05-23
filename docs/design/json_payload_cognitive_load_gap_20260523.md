@@ -949,6 +949,27 @@ untouched.
       source only for present-checkout claims. Pure VCS/history prompts and
       finalizer prompts remain on their prior non-duplicated paths. Regression
       tests cover mixed-origin, pure-history, and finalizer-no-duplicate cases.
+  - Slice 45.3 — mixed-origin parallel convergence guard. Status: in progress.
+    - Detailed design before code: reuse `CompileAnswerIntentContract` and the
+      existing `parallelExploreAllowsEarlyConvergence` /
+      `parallelExploreMustWaitForSiblingHandoffs` decision point. Do not add a
+      new dispatcher, do not classify by user-prose keywords such as "current"
+      or "diff", and do not inspect model free text.
+    - Root gap: after Slice 45.2 the prompt tells explorers to keep VCS/log/trace
+      and current-source lanes separate, but the parallel dispatcher can still
+      cancel a slower current-source sibling when a VCS/history fork reaches
+      `emit_investigation_complete` first. That loses the present-checkout
+      explanation lane in mixed "history/diff + current code" questions.
+    - Rule: if the typed answer-intent contract contains `current_source` plus at
+      least one non-current-source origin, and the requested output shape needs
+      synthesized reasoning (mechanism, trace, diagram, diagnostic,
+      change-impact, comparison, enumeration, or absence), parallel exploration
+      waits for sibling handoffs. Scalar/count/key-value lookups may still
+      converge early because the typed literal lane is the principal payload.
+    - Guardrail tests: pure VCS/history narratives still converge early; mixed
+      history+current-code mechanisms do not cancel the current-source sibling;
+      ordinary bare cross-component mechanisms without external origin keep the
+      existing early-convergence behavior.
 
 - Batch 46 — retry/status telemetry taxonomy. Status: in progress.
   - Split status and metrics into transport retry, schema/carrier repair,
