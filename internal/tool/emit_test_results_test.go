@@ -81,6 +81,31 @@ func TestEmitTestResults_EmptyArraysValid(t *testing.T) {
 	}
 }
 
+func TestEmitTestResults_StructuredPayloadCompatRepairsStringArrays(t *testing.T) {
+	ctx := emitTestResultsFixture(&types.ChangeReport{Passed: false})
+	tool := &EmitTestResults{}
+	params := `{
+		"regression_assertions": "[\"TestA\"]",
+		"preexisting_assertions": "[]",
+		"fixed_assertions": "[\"TestFixed\"]",
+		"failure_summary": "TestA regressed; TestFixed is now green."
+	}`
+	res, err := tool.Execute(ctx, json.RawMessage(params))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected schema-compatible payload to be accepted, got: %s", res.Summary)
+	}
+	report := ctx.Mutable.ChangeReport()
+	if len(report.RegressionAssertions) != 1 || report.RegressionAssertions[0] != "TestA" {
+		t.Fatalf("regression assertions were not repaired: %+v", report.RegressionAssertions)
+	}
+	if len(report.FixedAssertions) != 1 || report.FixedAssertions[0] != "TestFixed" {
+		t.Fatalf("fixed assertions were not repaired: %+v", report.FixedAssertions)
+	}
+}
+
 // Populated arrays write through to ChangeReport. Dedup of duplicates
 // + filter of empty strings happens server-side so downstream
 // evaluators don't have to defend.

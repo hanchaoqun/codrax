@@ -143,6 +143,7 @@ func (t *EmitPlanSkeleton) Execute(ctx *types.BusContext, params json.RawMessage
 			Timestamp: time.Now(),
 		}, nil
 	}
+	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
 
 	dec := json.NewDecoder(strings.NewReader(string(params)))
 	dec.DisallowUnknownFields()

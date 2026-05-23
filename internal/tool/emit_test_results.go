@@ -45,11 +45,11 @@ type EmitTestResults struct {
 // optional narrative; Passed is advisory (tool uses Mutable's
 // deterministic value).
 type emitTestResultsParams struct {
-	FailureSummary         string   `json:"failure_summary,omitempty"`
-	Passed                 *bool    `json:"passed,omitempty"`
-	RegressionAssertions   []string `json:"regression_assertions"`
-	PreexistingAssertions  []string `json:"preexisting_assertions"`
-	FixedAssertions        []string `json:"fixed_assertions"`
+	FailureSummary        string   `json:"failure_summary,omitempty"`
+	Passed                *bool    `json:"passed,omitempty"`
+	RegressionAssertions  []string `json:"regression_assertions"`
+	PreexistingAssertions []string `json:"preexisting_assertions"`
+	FixedAssertions       []string `json:"fixed_assertions"`
 }
 
 // Name returns the stable tool identifier.
@@ -108,6 +108,8 @@ func (t *EmitTestResults) Execute(ctx *types.BusContext, params json.RawMessage)
 	if ctx == nil || ctx.Mutable == nil {
 		return errResult(t.Name(), "emit_test_results requires a writable run context (the orchestrator did not provide one)"), nil
 	}
+
+	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
 
 	dec := json.NewDecoder(strings.NewReader(string(params)))
 	dec.DisallowUnknownFields()

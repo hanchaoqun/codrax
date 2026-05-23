@@ -54,6 +54,34 @@ func TestEmitPlanSkeleton_HappyPath_InstallsPartialPlan(t *testing.T) {
 	}
 }
 
+func TestEmitPlanSkeleton_StructuredPayloadCompatRepairsStringArrays(t *testing.T) {
+	tool := &EmitPlanSkeleton{}
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	params := json.RawMessage(`{
+		"request": "Add SSH MCP server",
+		"summary": "Plan creates a new SSH MCP server in internal/mcp/, registers it via cmd/root.go, and adds the crypto/ssh dependency to go.mod.",
+		"changes": "[{\"path\":\"internal/mcp/ssh.go\",\"kind\":\"create\",\"rationale\":\"new SSH MCP server impl\"},{\"path\":\"cmd/root.go\",\"kind\":\"modify\",\"rationale\":\"register the new MCP server\",\"depends_on\":\"[\\\"internal/mcp/ssh.go\\\"]\"}]",
+		"acceptance_tests": "[\"ssh_download tool is callable\"]"
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("execute err: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected schema-compatible payload to be accepted, got: %s", res.Summary)
+	}
+	pp := bus.Mutable.PartialChangePlan()
+	if pp == nil || len(pp.Changes) != 2 {
+		t.Fatalf("PartialChangePlan should be installed from repaired payload: %+v", pp)
+	}
+	if len(pp.Changes[1].DependsOn) != 1 || pp.Changes[1].DependsOn[0] != "internal/mcp/ssh.go" {
+		t.Fatalf("nested depends_on was not repaired: %+v", pp.Changes[1].DependsOn)
+	}
+	if len(pp.AcceptanceTests) != 1 || pp.AcceptanceTests[0] != "ssh_download tool is callable" {
+		t.Fatalf("acceptance tests were not repaired: %+v", pp.AcceptanceTests)
+	}
+}
+
 // TestEmitPlanSkeleton_RejectsTruncatedPayload pins the Layer-3
 // re-prime: a too-small payload returns the schema reminder so a
 // streaming-truncation retry has the structural shape.

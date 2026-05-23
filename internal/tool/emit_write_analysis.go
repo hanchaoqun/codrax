@@ -29,13 +29,13 @@ type EmitWriteAnalysis struct {
 }
 
 type emitWriteAnalysisParams struct {
-	RawRequest       string                            `json:"raw_request"`
-	Task             emitWriteAnalysisTask             `json:"task"`
-	Risk             emitWriteAnalysisRisk             `json:"risk"`
-	ScopeAnchors     []string                          `json:"scope_anchors,omitempty"`
-	Constraints      []emitWriteAnalysisConstraint     `json:"constraints,omitempty"`
-	ExpectedOutcomes []string                          `json:"expected_outcomes,omitempty"`
-	PhaseProposal    *emitWriteAnalysisPhaseProposal   `json:"phase_proposal,omitempty"`
+	RawRequest         string                          `json:"raw_request"`
+	Task               emitWriteAnalysisTask           `json:"task"`
+	Risk               emitWriteAnalysisRisk           `json:"risk"`
+	ScopeAnchors       []string                        `json:"scope_anchors,omitempty"`
+	Constraints        []emitWriteAnalysisConstraint   `json:"constraints,omitempty"`
+	ExpectedOutcomes   []string                        `json:"expected_outcomes,omitempty"`
+	PhaseProposal      *emitWriteAnalysisPhaseProposal `json:"phase_proposal,omitempty"`
 	ApplicablePitfalls []string                        `json:"applicable_pitfalls,omitempty"`
 }
 
@@ -110,6 +110,8 @@ func (t *EmitWriteAnalysis) Execute(ctx *types.BusContext, params json.RawMessag
 			Timestamp: time.Now(),
 		}, nil
 	}
+
+	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
 
 	var p emitWriteAnalysisParams
 	dec := json.NewDecoder(strings.NewReader(string(params)))

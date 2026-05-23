@@ -29,6 +29,10 @@ Implementation progress:
 - 2026-05-23 Batch 5 closed the main perf/trace emitter gap:
   `emit_perf_trace` now shares the same compatibility layer as log/perf
   segmentation and is covered by a string-wrapped trace-observation regression.
+- 2026-05-23 Batch 6 extended the same structural carrier repair to write-mode
+  emitters where large arrays recur (`emit_write_analysis`,
+  `emit_change_plan`, `emit_plan_skeleton`, `emit_test_results`) without
+  changing their semantic validators.
 - Remaining work starts at P1 carrier compilers / row-set references; the first
   batch deliberately did not change answer materialization policy.
 

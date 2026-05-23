@@ -207,6 +207,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 			Timestamp: time.Now(),
 		}, nil
 	}
+	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
 
 	// Strict decode — unknown fields fail loudly so a schema drift
 	// surfaces during development, not as silent data loss. On decode
@@ -1510,8 +1511,8 @@ func dryBuildJava(ctx *types.BusContext, changes []types.FileChange) string {
 	gradleGroovy := filepath.Join(repoRoot, "build.gradle")
 
 	var (
-		cmdName string
-		cmdArgs []string
+		cmdName  string
+		cmdArgs  []string
 		cmdLabel string
 	)
 	switch {
@@ -1819,29 +1820,30 @@ type LintLang struct {
 // is alphabetical by language for predictability — change with care.
 //
 // Coverage status (matches run_tests.go runner whitelist size 12):
-//   ✓ C          — gcc -Wall -Wextra -Werror -fsyntax-only (system gcc)
-//   ✓ C++        — g++ -Wall -Wextra -Werror -fsyntax-only -std=c++17 (system g++)
-//   ✓ Go         — gofmt -l (bundled with go toolchain)
-//   ✓ Java       — javac -Xlint:all (bundled with JDK)
-//   ✓ JavaScript — node --check (bundled with node)
-//   ✓ Python     — ruff check --select=E,F (pip install ruff)
-//   ✓ Ruby       — ruby -wc (bundled with ruby)
-//   ✓ Rust       — rustc --edition=2021 --emit=metadata (bundled with rustup)
-//   ✓ Swift      — swift -frontend -typecheck (bundled with swift)
-//   ✓ TypeScript — tsc --noEmit --strict (single file; npm install -g typescript)
-//   ✗ ArkTS      — hvigor lint requires project-level oh-package.json5; deferred
-//                  to a future "project-aware" V6 layer. Single-file lint is
-//                  not viable for ArkTS by design (decorators reach into the
-//                  project's bundle map).
-//   ✗ Cangjie    — cjpm check requires cjpm.toml + module resolution; same
-//                  project-context constraint as ArkTS. Defer until upstream
-//                  ships a single-file standalone checker (or until we add
-//                  a V6 project-aware lint layer).
-//   ✗ CMake/Meson/Make — these are build-system declarative files, not
-//                  "code" in the lint sense. cmake-lint exists but is a
-//                  style nitpicker; meson has only a formatter. Make has
-//                  no real linter. Adding any of these would generate
-//                  noise without value.
+//
+//	✓ C          — gcc -Wall -Wextra -Werror -fsyntax-only (system gcc)
+//	✓ C++        — g++ -Wall -Wextra -Werror -fsyntax-only -std=c++17 (system g++)
+//	✓ Go         — gofmt -l (bundled with go toolchain)
+//	✓ Java       — javac -Xlint:all (bundled with JDK)
+//	✓ JavaScript — node --check (bundled with node)
+//	✓ Python     — ruff check --select=E,F (pip install ruff)
+//	✓ Ruby       — ruby -wc (bundled with ruby)
+//	✓ Rust       — rustc --edition=2021 --emit=metadata (bundled with rustup)
+//	✓ Swift      — swift -frontend -typecheck (bundled with swift)
+//	✓ TypeScript — tsc --noEmit --strict (single file; npm install -g typescript)
+//	✗ ArkTS      — hvigor lint requires project-level oh-package.json5; deferred
+//	               to a future "project-aware" V6 layer. Single-file lint is
+//	               not viable for ArkTS by design (decorators reach into the
+//	               project's bundle map).
+//	✗ Cangjie    — cjpm check requires cjpm.toml + module resolution; same
+//	               project-context constraint as ArkTS. Defer until upstream
+//	               ships a single-file standalone checker (or until we add
+//	               a V6 project-aware lint layer).
+//	✗ CMake/Meson/Make — these are build-system declarative files, not
+//	               "code" in the lint sense. cmake-lint exists but is a
+//	               style nitpicker; meson has only a formatter. Make has
+//	               no real linter. Adding any of these would generate
+//	               noise without value.
 //
 // 10 of 12 covered with first-class V5 lint. The 2 deferred languages
 // (ArkTS, Cangjie) need project-context awareness that doesn't fit
@@ -2120,13 +2122,13 @@ func formatLintRejection(lang, cmdDescr string, stderr []byte, originalLen int) 
 // invoke the command as a project would.
 //
 // Trigger conditions (ALL must hold):
-//   1. Plan touches a file with the language's extension
-//      (e.g. .ets for ArkTS, .cj for Cangjie)
-//   2. Project root contains the language's manifest file
-//      (e.g. oh-package.json5, cjpm.toml) — proves this IS a
-//      ${lang} project, not just a file with that extension
-//   3. Language's lint binary is on PATH
-//   4. SetLintEnabled(true) (same master switch as V5)
+//  1. Plan touches a file with the language's extension
+//     (e.g. .ets for ArkTS, .cj for Cangjie)
+//  2. Project root contains the language's manifest file
+//     (e.g. oh-package.json5, cjpm.toml) — proves this IS a
+//     ${lang} project, not just a file with that extension
+//  3. Language's lint binary is on PATH
+//  4. SetLintEnabled(true) (same master switch as V5)
 //
 // Same severity policy as V5: kind=create only; modify skipped.
 // Failure routes through formatLintRejection with a "V6 project
@@ -2189,8 +2191,9 @@ type ProjectLintLang struct {
 // matters: rows run sequentially; first failure wins.
 //
 // Coverage status (matches the 2 V5-deferred languages):
-//   ✓ ArkTS   — hvigor lint (HarmonyOS DevEco toolchain)
-//   ✓ Cangjie — cjpm check (Cangjie package manager / build tool)
+//
+//	✓ ArkTS   — hvigor lint (HarmonyOS DevEco toolchain)
+//	✓ Cangjie — cjpm check (Cangjie package manager / build tool)
 //
 // Both are silently inactive on hosts without the toolchain (the
 // LookPath miss + missing-manifest checks both short-circuit). The

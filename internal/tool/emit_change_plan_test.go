@@ -77,6 +77,35 @@ func TestEmitChangePlan_HappyPath(t *testing.T) {
 	}
 }
 
+func TestEmitChangePlan_StructuredPayloadCompatRepairsStringArrays(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "add a comment to main.go",
+		"summary": "Add a one-line header comment to main.go explaining the binary's role. Trivial change; no behavior impact.",
+		"changes": "[{\"path\":\"main.go\",\"kind\":\"modify\",\"new_content\":\"// codrax entry point\\npackage main\\n\",\"rationale\":\"add a brief header comment\",\"depends_on\":\"[]\"}]",
+		"acceptance_tests": "[\"go build ./... passes\"]"
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected schema-compatible payload to be accepted, got: %s", res.Summary)
+	}
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil || len(plan.Changes) != 1 {
+		t.Fatalf("ChangePlan not installed from repaired payload: %+v", plan)
+	}
+	if plan.Changes[0].Path != "main.go" || !strings.Contains(plan.Changes[0].NewContent, "package main") {
+		t.Fatalf("change row was not preserved after compat repair: %+v", plan.Changes[0])
+	}
+	if len(plan.AcceptanceTests) != 1 || plan.AcceptanceTests[0] != "go build ./... passes" {
+		t.Fatalf("acceptance tests were not repaired: %+v", plan.AcceptanceTests)
+	}
+}
+
 // TestEmitChangePlan_EmptyChangesRejected locks the hard cross-
 // field check: a plan with zero changes is meaningless and must
 // fail with a clear diagnostic.

@@ -70,6 +70,52 @@ func TestEmitWriteAnalysis_HappyPath(t *testing.T) {
 	}
 }
 
+func TestEmitWriteAnalysis_StructuredPayloadCompatRepairsStringArrays(t *testing.T) {
+	tool := &EmitWriteAnalysis{}
+	bus := newTestBusForWriteAnalysis()
+	params := json.RawMessage(`{
+		"raw_request": "add a --quiet flag",
+		"task": {
+			"kind": "feature",
+			"scope": "micro",
+			"summary": "wire a --quiet flag through cmd/root.go"
+		},
+		"risk": {
+			"affects_public_api": true,
+			"changes_persistence": false,
+			"changes_build_system": false,
+			"overall": "low"
+		},
+		"scope_anchors": "[\"cmd/root.go\", \"internal/render\"]",
+		"expected_outcomes": "[\"quiet flag suppresses info output\", \"existing tests pass\"]",
+		"phase_proposal": {
+			"split": "sequential",
+			"phases": "[{\"goal\":\"wire flag\",\"rough_target_paths\":\"[\\\"cmd/root.go\\\"]\"},{\"goal\":\"update render tests\",\"rough_target_paths\":\"[\\\"internal/render\\\"]\"}]"
+		}
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected schema-compatible payload to be accepted, got: %s", res.Summary)
+	}
+	ir := bus.Mutable.WriteAnalysisIR()
+	if ir == nil {
+		t.Fatal("WriteAnalysisIR not stored")
+	}
+	if len(ir.Request.ScopeAnchors) != 2 || ir.Request.ScopeAnchors[0] != "cmd/root.go" {
+		t.Fatalf("scope anchors were not repaired: %+v", ir.Request.ScopeAnchors)
+	}
+	if len(ir.Request.ExpectedOutcomes) != 2 {
+		t.Fatalf("expected outcomes were not repaired: %+v", ir.Request.ExpectedOutcomes)
+	}
+	if ir.PhaseProposal.Split != "sequential" || len(ir.PhaseProposal.Phases) != 2 ||
+		len(ir.PhaseProposal.Phases[0].RoughTargetPaths) != 1 {
+		t.Fatalf("nested phase proposal arrays were not repaired: %+v", ir.PhaseProposal)
+	}
+}
+
 // TestEmitWriteAnalysis_EnumFallback verifies unknown enum values
 // fall back to the safest option rather than rejecting the emit.
 func TestEmitWriteAnalysis_EnumFallback(t *testing.T) {
