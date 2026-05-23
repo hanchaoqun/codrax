@@ -2495,6 +2495,78 @@ func PrincipalRelationMemberSetFactRefsForRequest(facts []AnswerAggregateFact, r
 	return out
 }
 
+// PrincipalMemberSetHasRelationEvidence reports whether a principal
+// aggregate member_set is already backed by model-emitted relation evidence
+// such as calls, assignments, imports, guards, returns, or other non-definition
+// line-shaped anchors. This is the shared "do not synthesize a second
+// answer-symbol slate" predicate for extractor and emit_answer_symbol.
+//
+// The check is deliberately structural: it reads aggregate_facts members and
+// EvidenceItem fields only. It does not inspect user text, labels, closure
+// prose, localized words, or final-answer prose.
+func PrincipalMemberSetHasRelationEvidence(facts []AnswerAggregateFact, evidence []EvidenceItem, rm *RequestModel) bool {
+	if len(facts) == 0 || len(evidence) == 0 {
+		return false
+	}
+	if rm != nil {
+		facts = NormalizeAggregateFactRolesForRequest(facts, rm)
+	}
+	refs := PrincipalAggregateMemberSetFactRefsForRequest(facts, rm)
+	if len(refs) == 0 {
+		return false
+	}
+	members := map[string]bool{}
+	for _, ref := range refs {
+		for _, member := range ref.Fact.Members {
+			if key := aggregateAxisMemberKey(member); key != "" {
+				members[key] = true
+			}
+		}
+	}
+	if len(members) == 0 {
+		return false
+	}
+	for _, item := range evidence {
+		if !item.IsCitable() || !item.Scope.IsLineShaped() || item.LineStart <= 0 {
+			continue
+		}
+		if item.AnchorKind == "" || item.AnchorKind == AnchorDefinition {
+			continue
+		}
+		if evidenceItemMatchesAggregateMember(item, members) {
+			return true
+		}
+	}
+	return false
+}
+
+func evidenceItemMatchesAggregateMember(item EvidenceItem, members map[string]bool) bool {
+	for _, surface := range []string{item.Subject, item.Object, item.AnchorSymbol} {
+		if aggregateSurfaceMatchesMember(surface, members) {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateSurfaceMatchesMember(surface string, members map[string]bool) bool {
+	key := aggregateAxisMemberKey(surface)
+	if key == "" {
+		return false
+	}
+	if members[key] {
+		return true
+	}
+	for member := range members {
+		if strings.HasPrefix(member, key+" ") ||
+			strings.HasPrefix(member, key+"(") ||
+			strings.Contains(member, " "+key+" ") {
+			return true
+		}
+	}
+	return false
+}
+
 func aggregateRequestRequiresPathMemberSetAsPrincipal(rm RequestModel) bool {
 	if RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
 		RequiresRelationMemberSetHandoff(rm) {

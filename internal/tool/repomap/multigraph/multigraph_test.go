@@ -933,6 +933,70 @@ func TestMultiGraph_TypedRelationCandidatesImportExportPrefixed(t *testing.T) {
 	}
 }
 
+func TestMultiGraph_TypedRelationCandidatesCalledByPrefixed(t *testing.T) {
+	build := func(_, _ string) (*rmtypes.Graph, error) {
+		targetFile := &rmtypes.FileInfo{RelPath: "lib/target.go", Language: rmtypes.LangGo, Package: "main"}
+		targetFile.Symbols = []rmtypes.Symbol{{Name: "Target", Kind: "function", File: "lib/target.go", Line: 7}}
+		callerFile := &rmtypes.FileInfo{
+			RelPath:  "cmd/main.go",
+			Language: rmtypes.LangGo,
+			Package:  "main",
+			Symbols:  []rmtypes.Symbol{{Name: "Run", Kind: "function", File: "cmd/main.go", Line: 20, EndLine: 24}},
+			Relations: []rmtypes.Relation{{
+				Kind: "call",
+				From: "cmd/main.go",
+				To:   "Target",
+				File: "cmd/main.go",
+				Line: 22,
+				ToEP: rmtypes.RelationEndpoint{Name: "Target", File: "cmd/main.go", Line: 22},
+			}},
+		}
+		for _, fi := range []*rmtypes.FileInfo{targetFile, callerFile} {
+			for i := range fi.Symbols {
+				fi.Symbols[i].ID = rmtypes.DeriveSymbolID(fi, &fi.Symbols[i])
+			}
+		}
+		return &rmtypes.Graph{
+			Files:     []*rmtypes.FileInfo{targetFile, callerFile},
+			FileIndex: map[string]*rmtypes.FileInfo{targetFile.RelPath: targetFile, callerFile.RelPath: callerFile},
+			SymbolDefs: map[string][]*rmtypes.Symbol{
+				"Target": {&targetFile.Symbols[0]},
+				"Run":    {&callerFile.Symbols[0]},
+			},
+			SymbolByID: map[rmtypes.SymbolID]*rmtypes.Symbol{
+				targetFile.Symbols[0].ID: &targetFile.Symbols[0],
+				callerFile.Symbols[0].ID: &callerFile.Symbols[0],
+			},
+			MethodIndex: map[rmtypes.MethodKey]*rmtypes.Symbol{
+				{Pkg: "main", Receiver: "", Name: "Target"}: &targetFile.Symbols[0],
+				{Pkg: "main", Receiver: "", Name: "Run"}:    &callerFile.Symbols[0],
+			},
+			ImportGraph:    map[string][]string{},
+			ReverseImports: map[string][]string{},
+		}, nil
+	}
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "repo-a", RootAbs: "/parent/repo-a", RootRel: "repo-a"},
+	})
+	mg, _ := New(Config{Topology: topo, Build: build, Cap: 3})
+	mg.EnsureLoaded("repo-a")
+
+	rows := mg.TypedRelationCandidates(types.TypedRelationQuery{
+		Kinds:   []types.TypedRelationKind{types.TypedRelationCalledBy},
+		Sources: []string{"Target"},
+		Purpose: types.TypedRelationPurposeCoverageGate,
+	})
+	if len(rows) != 1 {
+		t.Fatalf("called-by candidates = %+v, want one", rows)
+	}
+	if rows[0].SourceFile != "repo-a/lib/target.go" ||
+		rows[0].Member.File != "repo-a/cmd/main.go" ||
+		rows[0].Member.Name != "Run" ||
+		rows[0].Carrier != types.TypedRelationCarrierMultiGraph {
+		t.Fatalf("called-by candidate should be path-from-parent prefixed: %+v", rows[0])
+	}
+}
+
 // TestMultiGraph_SubRepoNames is the F1 companion regression: the
 // internal/types package needs a way to discriminate project-name
 // tokens from code symbols when building RequiredMechanismAnchor.

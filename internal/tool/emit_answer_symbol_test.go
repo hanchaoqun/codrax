@@ -302,6 +302,108 @@ func TestEmitAnswerSymbol_IgnoresUnexpectedSlateWhenSupportLaneIsNonSymbol(t *te
 	}
 }
 
+func TestEmitAnswerSymbol_IgnoresRelationMemberSetSupportLane(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent:        types.IntentEnumerate,
+			PredicateAxis: types.AxisCall,
+			Predicates: types.SemanticPredicates{
+				IsRelationalLookup: true,
+			},
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		},
+	}
+	ctx.Mutable.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "appendTypedRelationKinds callers",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"BuildTypedRelationQueryWithResolvedSources", "TypedRelationKindsForRequest"},
+		SupportRefs: []string{
+			"BuildTypedRelationQueryWithResolvedSources: internal/types/typed_relation_hint.go:182",
+			"TypedRelationKindsForRequest: internal/types/typed_relation_hint.go:209",
+		},
+	}})
+	ctx.Mutable.RetainInvestigationAggregateFacts()
+
+	params := json.RawMessage(`{
+		"items": [
+			{"name": "BuildTypedRelationQueryWithResolvedSources", "file": "internal/types/typed_relation_hint.go", "line": 182, "kind": "function"},
+			{"name": "TypedRelationKindsForRequest", "file": "internal/types/typed_relation_hint.go", "line": 209, "kind": "function"}
+		],
+		"completeness": "complete",
+		"count": 2
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("relation member-set support lane should no-op unexpected answer-symbol slate, got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "ignored") {
+		t.Fatalf("summary should make the no-op explicit, got: %s", res.Summary)
+	}
+	got, claim := ctx.Mutable.EmittedAnswerSymbols()
+	if len(got) != 0 || claim != types.CompletenessUnknown {
+		t.Fatalf("relation member-set support lane must not populate prior slate, got symbols=%+v claim=%q", got, claim)
+	}
+}
+
+func TestEmitAnswerSymbol_IgnoresRelationEvidenceEvenWhenAnalyzerMissesRelation(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent:     types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+		},
+	}
+	ctx.Mutable.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "appendTypedRelationKinds callers",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"TypedRelationKindsForRequest"},
+		SupportRefs: []string{"TypedRelationKindsForRequest: internal/types/typed_relation_hint.go:209"},
+	}})
+	ctx.Mutable.RetainInvestigationAggregateFacts()
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		ID:              "call-site",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/types/typed_relation_hint.go",
+		LineStart:       209,
+		AnchorKind:      types.AnchorCall,
+		AnchorSymbol:    "appendTypedRelationKinds",
+		Subject:         "TypedRelationKindsForRequest",
+		Object:          "appendTypedRelationKinds",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+
+	params := json.RawMessage(`{
+		"items": [
+			{"name": "TypedRelationKindsForRequest", "file": "internal/types/typed_relation_hint.go", "line": 209, "kind": "function"}
+		],
+		"completeness": "complete",
+		"count": 1
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success || !strings.Contains(res.Summary, "ignored") {
+		t.Fatalf("relation evidence should no-op unexpected answer-symbol slate even when analyzer missed relation shape, got: %+v", res)
+	}
+	got, claim := ctx.Mutable.EmittedAnswerSymbols()
+	if len(got) != 0 || claim != types.CompletenessUnknown {
+		t.Fatalf("relation evidence no-op must not populate prior slate, got symbols=%+v claim=%q", got, claim)
+	}
+}
+
 // TestEmitAnswerSymbol_NoCountIsBackcompat pins back-compat:
 // pre-commit-49 calls without count field still work.
 func TestEmitAnswerSymbol_NoCountIsBackcompat(t *testing.T) {

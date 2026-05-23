@@ -501,11 +501,132 @@ Status: **Pending**
 
 ### R5. Caller/callee provider
 
-Status: **Pending**
+Status: **Done — 2026-05-24**
 
 - Prefer `CallersOfID` and `ResolveCallTarget`.
 - Mark `CallersOf(name)` results as `NameOnly` / prompt-only.
 - Add tests where same method name appears on multiple receivers.
+
+Detailed design:
+
+1. Reuse the existing repomap call graph. Do not add another call-chain or
+   evidence stack:
+   - source symbols come from `Graph.SymbolByID`, `Graph.SymbolDefs`, and
+     the same `DeriveSymbolID` identity that indexers already populate;
+   - call targets are resolved with `Graph.ResolveCallTarget(fi, rel)`;
+   - the legacy `Graph.CallersOf(name)` remains name-only fallback knowledge
+     and must not feed hard coverage.
+
+2. Candidate semantics:
+   - `called-by`: the query source is the callee / target symbol; members are
+     concrete call sites or caller symbols that invoke it.
+   - For exact resolved call targets, `Precision=ExactSymbolID`; these rows may
+     participate in hard coverage only after the common downstream conditions
+     also hold: requested source scope, grounded same-member evidence, and a
+     model-authored principal `member_set` omission.
+   - If the query source is ambiguous by name, prompt hints may still show
+     resolved per-target rows, but coverage mode must not rely on a bare
+     name-only target. The provider must keep `NameOnly` rows out of hard
+     coverage.
+
+3. Caller member surface:
+   - Prefer the enclosing symbol at the call line when the graph has line spans
+     (`symbol.Line <= rel.Line <= symbol.EndLine`). This keeps answers useful
+     for "who calls X" rather than returning only filenames.
+   - Fall back to the relation's file and call line when no enclosing symbol is
+     available. Do not invent a caller function name.
+   - The candidate member file/line is the observed call-site file/line; the
+     source file/line is the callee definition.
+
+4. Multi-repo behavior:
+   - `MultiGraph.TypedRelationCandidates` delegates `called-by` rows to the same
+     shared graph adapter for every active sub-repo and prefixes files back to
+     path-from-parent.
+   - Cross-sub-repo call edges are not invented. If no active graph resolves the
+     target, the provider emits nothing and the model continues with normal
+     exploration.
+
+5. Language coverage:
+   - The provider does not parse language syntax. It consumes repomap's
+     language-neutral `Relation{Kind:"call"}`, `ToEP`, symbol IDs, packages,
+     receivers, and file/line spans.
+   - Tests must include duplicate method names on different receivers and run
+     a fixture across every `SupportedReadLanguages()` value to prevent a
+     Go-only implementation.
+
+R5 task list:
+
+- [x] Audit existing call graph primitives and confirm `CallersOfID` /
+  `ResolveCallTarget` are reusable.
+- [x] Add shared graph adapter support for `called-by` rows.
+- [x] Keep ambiguous name-only caller rows prompt-only and out of hard coverage.
+- [x] Wire `MultiGraph.TypedRelationCandidates` through the same adapter for
+  `called-by` with path-from-parent prefixing.
+- [x] Add unit tests for exact function callers, duplicate receiver method
+  disambiguation, prompt-only ambiguous names, multi-repo prefixing, and all
+  supported repomap languages.
+- [x] Run focused unit tests and update this document with results.
+
+R5 implementation results:
+
+- `internal/tool/repomap/relation.TypedRelationCandidates` now emits
+  `called-by` rows from existing repomap call relations. Exact rows resolve the
+  target through `Graph.ResolveCallTarget` / canonical symbol IDs and use the
+  enclosing caller symbol at the call site when line spans are available.
+- Ambiguous bare target names remain `NameOnly` prompt guidance and are not
+  coverage-gate eligible. Duplicate receiver-method fixtures pin this boundary.
+- `internal/tool/repomap/multigraph.MultiGraph` delegates `called-by` rows to
+  the same shared adapter for active sub-repos and prefixes member/source paths
+  back to the parent workspace. It does not invent cross-sub-repo call edges.
+- `internal/context` now renders typed relation hints even when the LLM has not
+  emitted any evidence rows yet, so exact graph caller rows are visible as a
+  structured evidence appendix instead of silently disappearing behind an empty
+  evidence list.
+- Extractor/finalizer handoff stays append-only: relation principal
+  `aggregate_facts.member_set` rows render through the principal member/evidence
+  lane. `emit_answer_symbol` is explicitly no-op for these relation member-set
+  dispatches, and the extractor observer uses the same contract so it does not
+  retry merely because no answer-symbol slate was stored.
+- The relation lane is not solely dependent on perfect analyzer axes. A shared
+  `types.PrincipalMemberSetHasRelationEvidence` helper now detects when a
+  principal member_set is already backed by structured non-definition evidence
+  (`call`, `import`, `guard`, `assignment`, etc.). Extractor and
+  `emit_answer_symbol` both use this helper, so analyzer misses do not revive
+  the old prior-slate path.
+- The accepted-closure prompt now states the active/inactive answer-symbol
+  state directly. Inactive relation member-set dispatches say "do not re-emit
+  them as an answer-symbol slate" instead of the older ambiguous "when active"
+  wording.
+- Analyzer schema compatibility now repairs a common `irrelevant_files` shape
+  where a model emits object entries with a `path` field. The repair is confined
+  to the typed field payload and does not inspect user/model prose.
+- Final answer duplicate-supplement prevention was tightened for contiguous
+  comma line lists such as `file.go:182, 183`; the visible model answer now
+  covers those rows without a system-added duplicate block.
+- Focused tests passed:
+  `go test ./internal/tool ./internal/agent ./internal/context ./internal/types ./internal/tool/repomap/relation ./internal/tool/repomap/multigraph`
+  with the R5-specific test filters.
+- Focused eval passed:
+  `eval/results/qf_called_by_typed_relation_query-20260524-063715`. The run had
+  `extractor_iters=1`, `finalizer_iters=1`, `semantic_quality_concerns=0`, no
+  finalizer rejection, no duplicate system supplement, no prior-slate pollution,
+  and an explicit `emit_answer_symbol ignored` trace showing the relation
+  member-set no-op guard fired at the shared tool boundary.
+- A later replay showed a stricter variant where analyzer failed to mark the
+  request as relational but exploration still emitted exact call-edge evidence.
+  That led to a bad prior slate (`TypedRelationKindsForRequest`'s call line was
+  canonicalized back to the callee). The shared relation-evidence helper above
+  closes this class: exact non-definition evidence plus a principal member_set
+  is sufficient to keep the relation answer on the principal row/evidence lane.
+
+R5 residual note:
+
+- The explorer may still need one lightweight repair when it first emits a
+  decorated `member_set` without `support_refs`. This is the existing
+  structured handoff guard doing useful work: it repairs the source of truth
+  before extractor/finalizer, rather than letting downstream stages infer row
+  citations from prose. This is lower priority than finalizer retry reduction,
+  but future prompt work can make the `support_refs` requirement more salient.
 
 ### R6. Registration/binding and event observer evidence carrier
 

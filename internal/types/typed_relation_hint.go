@@ -218,6 +218,13 @@ func TypedRelationKindsForRequest(rm RequestModel, purpose TypedRelationPurpose)
 		add(TypedRelationRegisters)
 	}
 
+	switch NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case ReqCallChain:
+		add(TypedRelationCalledBy)
+	case ReqRegistration:
+		add(TypedRelationRegisters)
+	}
+
 	if HasInterfaceTypedRelationDiagramShape(rm) {
 		add(TypedRelationImplements, TypedRelationExtends)
 	}

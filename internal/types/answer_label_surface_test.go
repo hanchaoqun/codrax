@@ -54,6 +54,7 @@ func TestParseAnswerSupportRefMemberLocation_CompositeDisplays(t *testing.T) {
 		{"KindSymbolPresent: internal/analysis/criterion/grammar.go:29", "KindSymbolPresent", "internal/analysis/criterion/grammar.go", 29},
 		{"Ability@entry/src/main/ets/pages/Index.ets:20", "Ability", "entry/src/main/ets/pages/Index.ets", 20},
 		{"RouteHandler (src/routes/user.ts:42)", "RouteHandler", "src/routes/user.ts", 42},
+		{"BuildTypedRelationQueryWithResolvedSources (internal/types/typed_relation_hint.go:182, 183)", "BuildTypedRelationQueryWithResolvedSources", "internal/types/typed_relation_hint.go", 182},
 		{"ParserObserver@src/parser/observer.cpp:73", "ParserObserver", "src/parser/observer.cpp", 73},
 		{"explorer (via SubExplorer.Name @ internal/agent/sub_explorer.go:31)", "explorer", "internal/agent/sub_explorer.go", 31},
 	}
@@ -66,6 +67,32 @@ func TestParseAnswerSupportRefMemberLocation_CompositeDisplays(t *testing.T) {
 			t.Fatalf("ParseAnswerSupportRefMemberLocation(%q) = (%q, %+v), want %q %s:%d",
 				tc.raw, label, loc, tc.label, tc.file, tc.line)
 		}
+	}
+}
+
+func TestParseAnswerSupportRefMemberLocation_ContiguousCommaLineList(t *testing.T) {
+	label, loc, ok := ParseAnswerSupportRefMemberLocation("Caller (src/foo.cpp:182, 183)")
+	if !ok {
+		t.Fatal("comma-separated contiguous call-site lines should parse as one source-location surface")
+	}
+	if label != "Caller" || loc.File != "src/foo.cpp" || loc.LineStart != 182 || loc.LineEnd != 183 {
+		t.Fatalf("got label=%q loc=%+v", label, loc)
+	}
+	if !AnswerSourceLocationSurfaceMatchesCitation(loc, Citation{File: "src/foo.cpp", Line: 183}) {
+		t.Fatalf("line list should match the contiguous second line: %+v", loc)
+	}
+}
+
+func TestParseAnswerSupportRefMemberLocation_DiscreteCommaLineListKeepsFirstLineOnly(t *testing.T) {
+	label, loc, ok := ParseAnswerSupportRefMemberLocation("Caller (src/foo.cpp:182, 209)")
+	if !ok {
+		t.Fatal("comma-separated discrete call-site lines should still expose the first grounded source line")
+	}
+	if label != "Caller" || loc.File != "src/foo.cpp" || loc.LineStart != 182 || loc.LineEnd != 182 {
+		t.Fatalf("got label=%q loc=%+v", label, loc)
+	}
+	if AnswerSourceLocationSurfaceMatchesCitation(loc, Citation{File: "src/foo.cpp", Line: 209}) {
+		t.Fatal("discrete non-contiguous line lists must not be treated as a broad range")
 	}
 }
 

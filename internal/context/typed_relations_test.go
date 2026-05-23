@@ -636,3 +636,22 @@ func TestFormatEvidenceItems_TypedHintsAppendedAfterLLMRows(t *testing.T) {
 		t.Errorf("expected LLM row to precede typed rows; alpha at %d, beta at %d", llmIdx, typedIdx)
 	}
 }
+
+func TestFormatEvidenceItems_TypedHintsRenderedWithoutLLMRows(t *testing.T) {
+	hints := []types.TypedRelationHint{{
+		Relation:   types.TypedRelationCalledBy,
+		SourceName: "Run",
+		SourceKind: "function",
+		Members: []types.TypedRelationMember{
+			{Name: "main", File: "cmd/root.go", Line: 42, Kind: "function"},
+		},
+	}}
+	out := formatEvidenceItemsWithOptions(nil, 18, evidenceRenderOptions{
+		TypedRelationHints: hints,
+	})
+	if !strings.Contains(out, "[called-by] Run") ||
+		!strings.Contains(out, "main (cmd/root.go:42)") ||
+		!strings.Contains(out, "provenance=typed_graph") {
+		t.Fatalf("typed graph rows must render even before LLM evidence exists, got %q", out)
+	}
+}

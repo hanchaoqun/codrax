@@ -98,6 +98,18 @@ func TestBuildTypedRelationQuery_SelectsKindsFromTypedFields(t *testing.T) {
 	assertTypedRelationKinds(t, q.Kinds, TypedRelationRegisters)
 }
 
+func TestBuildTypedRelationQuery_SelectsCallRelationFromRequirementKind(t *testing.T) {
+	rm := RequestModel{
+		AnalyzerHints: AnalyzerHints{
+			Kind:            string(ReqCallChain),
+			PrimaryEntities: []string{"appendTypedRelationKinds"},
+		},
+	}
+	q := BuildTypedRelationQuery(rm, TypedRelationPurposePromptHint, 0)
+	assertTypedRelationKinds(t, q.Kinds, TypedRelationCalledBy)
+	assertStringSlice(t, q.Sources, []string{"appendTypedRelationKinds"})
+}
+
 func TestBuildTypedRelationQuery_InterfaceDiagramSelectsImplementAndExtends(t *testing.T) {
 	rm := RequestModel{
 		Intent:        IntentExplain,

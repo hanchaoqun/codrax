@@ -654,8 +654,8 @@ func buildEmitAnalysisSchema() {
 			},
 			"irrelevant_files": map[string]any{
 				"type":        "array",
-				"description": "Optional. Negative-channel counterpart of required_files. When you have READ a candidate file in pre-scan and judged it OFF-TOPIC for the user's question, list its repo-relative POSIX path here. The file will NOT be re-injected via pre-read content, mid-loop reading suggestions, or primary-file selection — saves prompt tokens and prevents the system from contradicting your judgment on later iterations. Use sparingly: at most 10 paths, only files you actually inspected. Empty list is fine when no candidates need explicit exclusion.",
-				"items":       map[string]any{"type": "string"},
+				"description": "Optional. Negative-channel counterpart of required_files. When you have READ a candidate file in pre-scan and judged it OFF-TOPIC for the user's question, list its repo-relative POSIX path here. The file will NOT be re-injected via pre-read content, mid-loop reading suggestions, or primary-file selection — saves prompt tokens and prevents the system from contradicting your judgment on later iterations. Use sparingly: at most 10 paths, only files you actually inspected. Empty list is fine when no candidates need explicit exclusion. Emit an array of plain strings only, e.g. [\"internal/foo.go\"]; do not emit objects with confidence/rationale.",
+				"items":       map[string]any{"type": "string", "description": "Plain repo-relative POSIX path string only; do not emit an object."},
 				"maxItems":    10,
 			},
 		},
@@ -865,6 +865,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		"enumeration_boundary",
 		"completeness_obligation",
 	)
+	var compatWarnings []string
+	if repaired, warnings, ok := repairEmitAnalysisIrrelevantFilePathObjects(params); ok {
+		params = repaired
+		compatWarnings = append(compatWarnings, warnings...)
+	}
 
 	var p emitAnalysisParams
 	if err := json.Unmarshal(params, &p); err != nil {
@@ -904,6 +909,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	seenBlob := ctx.Mutable.PrescanSummaryBlob()
 	prescanRounds := countPrescanRounds(seenBlob)
 	val := validateAnalysisInput(keywords, entities, limits, seenBlob, prescanRounds)
+	val.Warnings = append(val.Warnings, compatWarnings...)
 	if val.BlocklistShadowSummary != "" {
 		logging.Info("[emit_analysis] %s", val.BlocklistShadowSummary)
 	}
@@ -3544,6 +3550,100 @@ const (
 	// declaration silently hides answer-bearing files.
 	irrelevantFilesMax = 10
 )
+
+// repairEmitAnalysisIrrelevantFilePathObjects absorbs a common schema-adjacent
+// drift where a model mirrors required_files' object shape inside
+// irrelevant_files. The field's semantic contract is still path-only: only an
+// explicit `path` string is extracted; confidence/rationale are ignored; objects
+// without a path are dropped as malformed optional negative hints.
+func repairEmitAnalysisIrrelevantFilePathObjects(raw json.RawMessage) (json.RawMessage, []string, bool) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil || len(obj) == 0 {
+		return raw, nil, false
+	}
+	listRaw, ok := obj["irrelevant_files"]
+	if !ok {
+		return raw, nil, false
+	}
+	trimmedList := strings.TrimSpace(string(listRaw))
+	if trimmedList == "" || trimmedList == "null" {
+		return raw, nil, false
+	}
+	var entries []json.RawMessage
+	if err := json.Unmarshal(listRaw, &entries); err != nil {
+		return raw, nil, false
+	}
+	if len(entries) == 0 {
+		return raw, nil, false
+	}
+	out := make([]json.RawMessage, 0, len(entries))
+	extracted := 0
+	dropped := 0
+	changed := false
+	for _, entry := range entries {
+		trimmed := strings.TrimSpace(string(entry))
+		if trimmed == "" || trimmed == "null" {
+			dropped++
+			changed = true
+			continue
+		}
+		switch trimmed[0] {
+		case '"':
+			out = append(out, entry)
+		case '{':
+			var m map[string]json.RawMessage
+			if err := json.Unmarshal(entry, &m); err != nil {
+				dropped++
+				changed = true
+				continue
+			}
+			pathRaw, ok := m["path"]
+			if !ok {
+				dropped++
+				changed = true
+				continue
+			}
+			var path string
+			if err := json.Unmarshal(pathRaw, &path); err != nil || strings.TrimSpace(path) == "" {
+				dropped++
+				changed = true
+				continue
+			}
+			encoded, err := json.Marshal(strings.TrimSpace(path))
+			if err != nil {
+				dropped++
+				changed = true
+				continue
+			}
+			out = append(out, encoded)
+			extracted++
+			changed = true
+		default:
+			dropped++
+			changed = true
+		}
+	}
+	if !changed {
+		return raw, nil, false
+	}
+	encodedList, err := json.Marshal(out)
+	if err != nil {
+		return raw, nil, false
+	}
+	obj["irrelevant_files"] = encodedList
+	patched, err := json.Marshal(obj)
+	if err != nil || !json.Valid(patched) {
+		return raw, nil, false
+	}
+	warnings := make([]string, 0, 2)
+	if extracted > 0 {
+		warnings = append(warnings, fmt.Sprintf("irrelevant_files: repaired %d object entries by extracting path strings", extracted))
+	}
+	if dropped > 0 {
+		warnings = append(warnings, fmt.Sprintf("irrelevant_files: dropped %d malformed optional entries before decode", dropped))
+	}
+	return json.RawMessage(patched), warnings, true
+}
 
 // validateAndBuildIrrelevantFiles canonicalises and caps the
 // LLM-emitted irrelevant_files array. Same rules as the per-entry

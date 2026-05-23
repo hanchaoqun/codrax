@@ -1315,6 +1315,146 @@ func TestExtractor_BuildPrompt_AggregateImportEnumerationUsesSupportLane(t *test
 	}
 }
 
+func TestExtractor_BuildPrompt_CallRelationEnumerationUsesSupportLane(t *testing.T) {
+	mu := types.NewMutableState("which production functions call helper")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles:             []string{"internal/types/typed_relation_hint.go"},
+		TerminalEvidenceCount: 2,
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID:              "call-a",
+				Kind:            types.EvidenceDirect,
+				Scope:           types.ScopeLine,
+				Source:          "internal/types/typed_relation_hint.go",
+				LineStart:       182,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "appendTypedRelationKinds",
+				Subject:         "BuildTypedRelationQueryWithResolvedSources",
+				Object:          "appendTypedRelationKinds",
+				Predicate:       "calls",
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				ID:              "call-b",
+				Kind:            types.EvidenceDirect,
+				Scope:           types.ScopeLine,
+				Source:          "internal/types/typed_relation_hint.go",
+				LineStart:       209,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "appendTypedRelationKinds",
+				Subject:         "TypedRelationKindsForRequest",
+				Object:          "appendTypedRelationKinds",
+				Predicate:       "calls",
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	})
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:              "call-a",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/types/typed_relation_hint.go",
+			LineStart:       182,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "appendTypedRelationKinds",
+			Subject:         "BuildTypedRelationQueryWithResolvedSources",
+			Object:          "appendTypedRelationKinds",
+			Predicate:       "calls",
+			Producer:        "explorer.emit_evidence",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "call-b",
+			Kind:            types.EvidenceDirect,
+			Scope:           types.ScopeLine,
+			Source:          "internal/types/typed_relation_hint.go",
+			LineStart:       209,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "appendTypedRelationKinds",
+			Subject:         "TypedRelationKindsForRequest",
+			Object:          "appendTypedRelationKinds",
+			Predicate:       "calls",
+			Producer:        "explorer.emit_evidence",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "调用 appendTypedRelationKinds 的生产代码函数",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"BuildTypedRelationQueryWithResolvedSources", "TypedRelationKindsForRequest"},
+	}})
+	mu.SetInvestigationComplete("call relation member_set accepted")
+	ctx := &types.AgentContext{
+		Objective: "哪些生产代码函数调用了 appendTypedRelationKinds？",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentEnumerate,
+				PredicateAxis: types.AxisCall,
+				Predicates: types.SemanticPredicates{
+					IsRelationalLookup: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{Kind: "enumeration"},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID:              "call-a",
+				Kind:            types.EvidenceDirect,
+				Scope:           types.ScopeLine,
+				Source:          "internal/types/typed_relation_hint.go",
+				LineStart:       182,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "appendTypedRelationKinds",
+				Subject:         "BuildTypedRelationQueryWithResolvedSources",
+				Object:          "appendTypedRelationKinds",
+				Predicate:       "calls",
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				ID:              "call-b",
+				Kind:            types.EvidenceDirect,
+				Scope:           types.ScopeLine,
+				Source:          "internal/types/typed_relation_hint.go",
+				LineStart:       209,
+				AnchorKind:      types.AnchorCall,
+				AnchorSymbol:    "appendTypedRelationKinds",
+				Subject:         "TypedRelationKindsForRequest",
+				Object:          "appendTypedRelationKinds",
+				Predicate:       "calls",
+				Producer:        "explorer.emit_evidence",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+
+	if !viewNeedsEnumerationSlate(ctx) {
+		t.Fatal("fixture must still be an enumeration-shaped answer")
+	}
+	if !relationAxisPrincipalEvidenceRendersWithoutAnswerSymbols(ctx) {
+		t.Fatal("call-edge member_set should render through the relation/evidence support lane")
+	}
+	if needsAnswerSymbols(ctx) {
+		t.Fatal("call-edge enumeration must not force a symbol-definition answer slate")
+	}
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "relation-edge evidence enumeration") ||
+		contains(prompt, "emit_answer_symbol batch MUST have") {
+		t.Fatalf("prompt should disable answer-symbol slate for call-edge member_set:\n%s", prompt)
+	}
+	if contains(prompt, "copy every member below into the answer-symbol slate") ||
+		!contains(prompt, "does NOT require `emit_answer_symbol`") {
+		t.Fatalf("relation member_set prompt must not contradict the inactive answer-symbol contract:\n%s", prompt)
+	}
+}
+
 func TestExtractor_BuildPrompt_ChangeImpactFileEnumerationUsesSupportLane(t *testing.T) {
 	mu := types.NewMutableState("list affected files")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{
@@ -2029,6 +2169,149 @@ func TestExtractor_Observe_MidLoop_MissingSymbols_Continues(t *testing.T) {
 	sig := e.Observe(ctx, obs)
 	if sig.StopRequested {
 		t.Fatalf("missing emit_answer_symbol → must NOT StopRequested; got %+v", sig)
+	}
+}
+
+func TestExtractor_Observe_MidLoop_RelationMemberSetNoOpSymbolsStops(t *testing.T) {
+	mu := types.NewMutableState("q")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "appendTypedRelationKinds callers",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"BuildTypedRelationQueryWithResolvedSources", "TypedRelationKindsForRequest"},
+		SupportRefs: []string{
+			"BuildTypedRelationQueryWithResolvedSources: internal/types/typed_relation_hint.go:182",
+			"TypedRelationKindsForRequest: internal/types/typed_relation_hint.go:209",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		Objective: "q",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+					IsRelationalLookup:    true,
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+	if needsAnswerSymbols(ctx) {
+		t.Fatal("relation member_set handoff should render without answer-symbol slate")
+	}
+	obs := LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		AllToolResults: []types.ToolResult{
+			{ToolName: "emit_answer_symbol", Success: true, Summary: "ignored"},
+		},
+	}
+	e := &extractorEvaluator{maxRetries: 1}
+	sig := e.Observe(ctx, obs)
+	if !sig.StopRequested {
+		t.Fatalf("successful no-op answer_symbol with no pending verdicts should stop, got %+v", sig)
+	}
+	if sig.HintRequested {
+		t.Fatalf("relation member_set no-op must not request symbol materialization, got %+v", sig)
+	}
+}
+
+func TestExtractor_Observe_MidLoop_RelationEvidenceNoOpWhenAnalyzerMissesRelation(t *testing.T) {
+	mu := types.NewMutableState("q")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "appendTypedRelationKinds callers",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"TypedRelationKindsForRequest"},
+		SupportRefs: []string{"TypedRelationKindsForRequest: internal/types/typed_relation_hint.go:209"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	mu.AppendEvidence([]types.EvidenceItem{{
+		ID:              "call-site",
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		Source:          "internal/types/typed_relation_hint.go",
+		LineStart:       209,
+		AnchorKind:      types.AnchorCall,
+		AnchorSymbol:    "appendTypedRelationKinds",
+		Subject:         "TypedRelationKindsForRequest",
+		Object:          "appendTypedRelationKinds",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	ctx := &types.AgentContext{
+		Objective: "q",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+	if needsAnswerSymbols(ctx) {
+		t.Fatal("relation evidence should disable answer-symbol slate even when analyzer missed relation flags")
+	}
+	obs := LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		AllToolResults: []types.ToolResult{
+			{ToolName: "emit_answer_symbol", Success: true, Summary: "ignored"},
+		},
+	}
+	e := &extractorEvaluator{maxRetries: 1}
+	sig := e.Observe(ctx, obs)
+	if !sig.StopRequested || sig.HintRequested {
+		t.Fatalf("relation evidence no-op should stop without materialization retry, got %+v", sig)
+	}
+}
+
+func TestExtractor_Observe_MidLoop_RelationMemberSetNoOpWaitsForVerdictOnly(t *testing.T) {
+	mu := types.NewMutableState("q")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "appendTypedRelationKinds callers",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"TypedRelationKindsForRequest"},
+		SupportRefs: []string{"TypedRelationKindsForRequest: internal/types/typed_relation_hint.go:209"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		Objective: "q",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsRelationalLookup: true,
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+			HypothesisSet:  []types.Hypothesis{{ID: "h1"}},
+		},
+	}
+	obs := LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		AllToolResults: []types.ToolResult{
+			{ToolName: "emit_answer_symbol", Success: true, Summary: "ignored"},
+			{ToolName: "emit_hypothesis_verdict", Success: false, Summary: "citation required"},
+		},
+	}
+	e := &extractorEvaluator{maxRetries: 1}
+	sig := e.Observe(ctx, obs)
+	if sig.StopRequested {
+		t.Fatalf("pending verdict should still keep extractor open, got %+v", sig)
+	}
+	if sig.HintRequested {
+		t.Fatalf("pending verdict path must not ask for answer_symbol materialization, got %+v", sig)
 	}
 }
 

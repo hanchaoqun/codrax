@@ -1,0 +1,12 @@
+# Relation coverage — called-by provider
+#
+# Guards the shared TypedRelationCandidate provider for call relations. The
+# target function is intentionally same-package so repomap's existing
+# ResolveCallTarget carrier can resolve it exactly without package-import
+# inference. A correct answer names the caller functions rather than returning
+# only filenames, and it must not rely on test-only callers.
+ID="qf_called_by_typed_relation_query"
+NAME="relation — callers of appendTypedRelationKinds"
+QUESTION="哪些生产代码函数调用了 internal/types/typed_relation_hint.go 里的 appendTypedRelationKinds？逐一列出调用者函数和文件，不列测试。"
+EXPECT_CONTAINS="appendTypedRelationKinds BuildTypedRelationQueryWithResolvedSources TypedRelationKindsForRequest internal/types/typed_relation_hint.go"
+EXPECT_NOT_CONTAINS="typed_relation_hint_test.go"

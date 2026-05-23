@@ -5,8 +5,11 @@
 package tool
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 func TestValidateAndBuildIrrelevantFiles_NilInput_NilOutput(t *testing.T) {
@@ -74,6 +77,48 @@ func TestValidateAndBuildIrrelevantFiles_CanonicalisesPaths(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysisExecute_RepairsIrrelevantFilesObjectEntries(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	mu := types.NewMutableState("explain the analyzer")
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["analyzer", "irrelevant", "files"],
+		"entities": ["analyzer"],
+		"question_kind": "mechanism",
+		"irrelevant_files": [
+			{"path": "./internal/noise.go", "confidence": 0.2, "rationale": "off-topic"},
+			{"file": "internal/no-path.go", "confidence": 0.1},
+			"internal/other.go"
+		]
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("object-shaped irrelevant_files should be repaired, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	got := rm.AnalyzerHints.IrrelevantFiles
+	if len(got) != 2 || got[0] != "internal/noise.go" || got[1] != "internal/other.go" {
+		t.Fatalf("irrelevant files = %+v, want repaired paths", got)
+	}
+	if !strings.Contains(res.Summary, "repaired 1 object entries") {
+		t.Fatalf("summary should disclose object-entry repair, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "dropped 1 malformed optional entries") {
+		t.Fatalf("summary should disclose dropped malformed entry, got %q", res.Summary)
+	}
+}
+
 // === schema smoke ===
 
 func TestEmitAnalysisSchema_IrrelevantFilesPresent(t *testing.T) {
@@ -83,5 +128,8 @@ func TestEmitAnalysisSchema_IrrelevantFilesPresent(t *testing.T) {
 	}
 	if !strings.Contains(string(emitAnalysisSchemaCache), `OFF-TOPIC`) {
 		t.Error("irrelevant_files description should mention OFF-TOPIC")
+	}
+	if !strings.Contains(string(emitAnalysisSchemaCache), `plain strings only`) {
+		t.Error("irrelevant_files description should explicitly require string entries")
 	}
 }

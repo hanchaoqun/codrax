@@ -394,6 +394,9 @@ func emitAnswerSymbolSlateExpected(ctx *types.BusContext) bool {
 	if emitAnswerSymbolNeedsBoundedPrincipalList(rm, view) {
 		return true
 	}
+	if emitAnswerSymbolRelationMemberSetRendersWithoutSlate(ctx, rm) {
+		return false
+	}
 	if view != nil && view.NeedsEnumerationSlate() {
 		support := types.BuildAnswerSupportPlanForBusContext(ctx)
 		nonSymbol, symbolLike := types.AnswerSupportPlanPrincipalSurfaceCounts(support)
@@ -403,6 +406,42 @@ func emitAnswerSymbolSlateExpected(ctx *types.BusContext) bool {
 		return true
 	}
 	return false
+}
+
+func emitAnswerSymbolRelationMemberSetRendersWithoutSlate(ctx *types.BusContext, rm types.RequestModel) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	facts := ctx.Mutable.StableInvestigationAggregateFacts()
+	if len(facts) == 0 {
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			facts = ta.AcceptedAggregateFacts
+		}
+	}
+	if len(facts) == 0 {
+		return false
+	}
+	facts = types.NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if (types.RequiresRelationMemberSetHandoff(rm) || types.HasTypedRelationMemberSetShape(rm)) &&
+		len(types.PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm)) > 0 {
+		return true
+	}
+	return types.PrincipalMemberSetHasRelationEvidence(facts, emitAnswerSymbolEvidencePool(ctx), &rm)
+}
+
+func emitAnswerSymbolEvidencePool(ctx *types.BusContext) []types.EvidenceItem {
+	if ctx == nil {
+		return nil
+	}
+	var out []types.EvidenceItem
+	out = append(out, ctx.EvidenceItems...)
+	if ctx.Mutable != nil {
+		out = append(out, ctx.Mutable.EmittedEvidence()...)
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			out = append(out, ta.EvidenceItems...)
+		}
+	}
+	return out
 }
 
 func emitAnswerSymbolNeedsBoundedPrincipalList(rm types.RequestModel, view *types.AnswerSemanticView) bool {

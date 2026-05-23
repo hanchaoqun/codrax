@@ -316,7 +316,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 			b.WriteString("\n")
 		} else {
 			b.WriteString("### Structured emit obligations\n\n")
-			b.WriteString("This dispatch does NOT require `emit_answer_symbol`. The principal answer will be rendered downstream from typed ordered_list / diagram / prose support lanes, so do not manufacture a symbol slate just because the user asked for a call chain, mechanism walk, architecture explanation, or non-symbol evidence enumeration. Only an explicit Anchor skeleton block, a Requested Set Boundary, or a symbol-backed enumeration activates `emit_answer_symbol` as a hard obligation; analyzer sub-topics alone are guidance.\n\n")
+			b.WriteString("This dispatch does NOT require `emit_answer_symbol`. The principal answer will be rendered downstream from typed ordered_list / diagram / prose support lanes, so do not manufacture a symbol slate just because the user asked for a call chain, mechanism walk, architecture explanation, relation-edge evidence enumeration, or non-symbol evidence enumeration. Only an explicit Anchor skeleton block, a Requested Set Boundary, or a symbol-backed enumeration without a principal relation/evidence lane activates `emit_answer_symbol` as a hard obligation; analyzer sub-topics alone are guidance.\n\n")
 		}
 	}
 
@@ -587,7 +587,11 @@ func renderExtractorPrincipalAggregateSlate(ctx *types.AgentContext, facts []typ
 		if strings.TrimSpace(fact.Value) != "" {
 			fmt.Fprintf(&b, ", declared value=%s", fact.Value)
 		}
-		b.WriteString("; copy every member below into the answer-symbol slate when `emit_answer_symbol` is active for this dispatch. Do not downgrade to `lower_bound` merely because earlier transcript prose was truncated; this typed aggregate fact is the accepted closure payload.\n")
+		if needsAnswerSymbols(ctx) {
+			b.WriteString("; copy every member below into the answer-symbol slate because `emit_answer_symbol` is active for this dispatch. Do not downgrade to `lower_bound` merely because earlier transcript prose was truncated; this typed aggregate fact is the accepted closure payload.\n")
+		} else {
+			b.WriteString("; this dispatch does NOT require `emit_answer_symbol`. Use the members below as the downstream principal member contract; do not re-emit them as an answer-symbol slate.\n")
+		}
 		for memberIdx, member := range fact.Members {
 			member = strings.TrimSpace(member)
 			if member == "" {
@@ -2519,6 +2523,12 @@ func needsAnswerSymbols(ctx *types.AgentContext) bool {
 	if sourceInventoryPrincipalAggregateRendersWithoutAnswerSymbols(ctx) {
 		return false
 	}
+	if relationPrincipalMemberSetRendersWithoutAnswerSymbols(ctx) {
+		return false
+	}
+	if relationAxisPrincipalEvidenceRendersWithoutAnswerSymbols(ctx) {
+		return false
+	}
 	if requiresMultiTopicAnchorSkeleton(ctx) || viewNeedsBoundedPrincipalList(ctx) {
 		return true
 	}
@@ -2526,6 +2536,28 @@ func needsAnswerSymbols(ctx *types.AgentContext) bool {
 		return !enumerationPrincipalEvidenceRendersWithoutAnswerSymbols(ctx)
 	}
 	return false
+}
+
+func relationPrincipalMemberSetRendersWithoutAnswerSymbols(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil || viewNeedsBoundedPrincipalList(ctx) {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	facts := ctx.Mutable.StableInvestigationAggregateFacts()
+	if len(facts) == 0 {
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			facts = ta.AcceptedAggregateFacts
+		}
+	}
+	if len(facts) == 0 {
+		return false
+	}
+	facts = types.NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if (types.RequiresRelationMemberSetHandoff(rm) || types.HasTypedRelationMemberSetShape(rm)) &&
+		len(types.PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm)) > 0 {
+		return true
+	}
+	return types.PrincipalMemberSetHasRelationEvidence(facts, mergeEvidenceForAxisCheck(ctx), &rm)
 }
 
 func sourceInventoryPrincipalAggregateRendersWithoutAnswerSymbols(ctx *types.AgentContext) bool {
@@ -2555,6 +2587,31 @@ func sourceInventoryPrincipalAggregateRendersWithoutAnswerSymbols(ctx *types.Age
 			}
 		}
 		if completeGroundedRows {
+			return true
+		}
+	}
+	return false
+}
+
+func relationAxisPrincipalEvidenceRendersWithoutAnswerSymbols(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil ||
+		!viewNeedsEnumerationSlate(ctx) || viewNeedsBoundedPrincipalList(ctx) {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.PredicateAxis == types.AxisUnknown || rm.PredicateAxis == types.AxisDefine {
+		return false
+	}
+	facts := ctx.Mutable.StableInvestigationAggregateFacts()
+	if len(facts) == 0 {
+		return false
+	}
+	if !types.PrincipalMemberSetHasRelationEvidence(facts, mergeEvidenceForAxisCheck(ctx), &rm) {
+		return false
+	}
+	for _, item := range mergeEvidenceForAxisCheck(ctx) {
+		if item.AnchorKind != "" && item.AnchorKind != types.AnchorDefinition &&
+			axis.Affinity(rm.PredicateAxis, item.AnchorKind) >= axisStrongAffinityThreshold {
 			return true
 		}
 	}

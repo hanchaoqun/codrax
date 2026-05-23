@@ -279,6 +279,9 @@ func parseAnswerLineSurface(raw string) (int, int, bool) {
 	if raw == "" {
 		return 0, 0, false
 	}
+	if strings.ContainsAny(raw, ",，、") {
+		return parseAnswerLineListSurface(raw)
+	}
 	startPart := raw
 	endPart := ""
 	if dash := strings.Index(raw, "-"); dash >= 0 {
@@ -296,6 +299,44 @@ func parseAnswerLineSurface(raw string) (int, int, bool) {
 			return 0, 0, false
 		}
 		end = parsedEnd
+	}
+	return start, end, true
+}
+
+func parseAnswerLineListSurface(raw string) (int, int, bool) {
+	parts := strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == '，' || r == '、'
+	})
+	if len(parts) == 0 {
+		return 0, 0, false
+	}
+	lines := make([]int, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" || strings.Contains(part, "-") {
+			return 0, 0, false
+		}
+		line, err := strconv.Atoi(part)
+		if err != nil || line <= 0 {
+			return 0, 0, false
+		}
+		lines = append(lines, line)
+	}
+	if len(lines) == 0 {
+		return 0, 0, false
+	}
+	start := lines[0]
+	end := start
+	contiguous := true
+	for i := 1; i < len(lines); i++ {
+		if lines[i] != lines[i-1]+1 {
+			contiguous = false
+			break
+		}
+		end = lines[i]
+	}
+	if !contiguous {
+		end = start
 	}
 	return start, end, true
 }

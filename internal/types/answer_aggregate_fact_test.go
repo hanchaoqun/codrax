@@ -2678,3 +2678,32 @@ func TestReconcilePrincipalAggregateMemberSetSupersets_PromotesFilteredSuperset(
 		t.Fatalf("superset members changed: %+v", got[1])
 	}
 }
+
+func TestPrincipalMemberSetHasRelationEvidence(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:        AnswerAggregateMemberSet,
+		Label:       "appendTypedRelationKinds callers",
+		Value:       "1",
+		Role:        AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"TypedRelationKindsForRequest"},
+		SupportRefs: []string{"TypedRelationKindsForRequest: internal/types/typed_relation_hint.go:209"},
+	}}
+	evidence := []EvidenceItem{{
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/types/typed_relation_hint.go",
+		LineStart:       209,
+		AnchorKind:      AnchorCall,
+		AnchorSymbol:    "appendTypedRelationKinds",
+		Subject:         "TypedRelationKindsForRequest",
+		Object:          "appendTypedRelationKinds",
+		GroundingStatus: GroundingGrounded,
+	}}
+	if !PrincipalMemberSetHasRelationEvidence(facts, evidence, nil) {
+		t.Fatal("call-edge evidence should mark the principal member_set as relation-backed")
+	}
+	evidence[0].AnchorKind = AnchorDefinition
+	if PrincipalMemberSetHasRelationEvidence(facts, evidence, nil) {
+		t.Fatal("definition evidence must not be treated as relation-backed")
+	}
+}

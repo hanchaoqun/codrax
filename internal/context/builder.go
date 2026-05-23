@@ -1419,7 +1419,7 @@ func formatEvidenceItems(items []types.EvidenceItem, limit int, strictLocation b
 
 func formatEvidenceItemsWithOptions(items []types.EvidenceItem, limit int, opts evidenceRenderOptions) string {
 	if len(items) == 0 {
-		return ""
+		return strings.TrimSpace(renderTypedRelationAppendix(opts.TypedRelationHints, nil))
 	}
 	if limit <= 0 || limit > len(items) {
 		limit = len(items)

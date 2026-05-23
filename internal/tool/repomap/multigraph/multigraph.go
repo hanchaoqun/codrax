@@ -882,7 +882,7 @@ func (m *MultiGraph) TypedRelationCandidates(q types.TypedRelationQuery) []types
 			}
 		}
 	}
-	for _, row := range m.importExportRelationCandidates(q) {
+	for _, row := range m.graphBackedRelationCandidates(q) {
 		if add(row) {
 			return out
 		}
@@ -890,8 +890,9 @@ func (m *MultiGraph) TypedRelationCandidates(q types.TypedRelationQuery) []types
 	return out
 }
 
-func (m *MultiGraph) importExportRelationCandidates(q types.TypedRelationQuery) []types.TypedRelationCandidate {
-	if m == nil || (!q.AllowsKind(types.TypedRelationImports) && !q.AllowsKind(types.TypedRelationExports)) {
+func (m *MultiGraph) graphBackedRelationCandidates(q types.TypedRelationQuery) []types.TypedRelationCandidate {
+	kinds := graphBackedRelationKinds(q)
+	if m == nil || len(kinds) == 0 {
 		return nil
 	}
 	graphs := m.AllGraphs()
@@ -911,7 +912,7 @@ func (m *MultiGraph) importExportRelationCandidates(q types.TypedRelationQuery) 
 		if g, sr, hit := m.GraphFor(source); hit && g != nil {
 			local := q
 			local.Sources = []string{stripSubRepoPrefix(sr, source)}
-			local.Kinds = importExportKinds(q)
+			local.Kinds = kinds
 			for _, row := range rmrelation.TypedRelationCandidates(g, local) {
 				out = append(out, prefixTypedRelationCandidate(sr, row))
 			}
@@ -923,7 +924,7 @@ func (m *MultiGraph) importExportRelationCandidates(q types.TypedRelationQuery) 
 			}
 			local := q
 			local.Sources = []string{source}
-			local.Kinds = importExportKinds(q)
+			local.Kinds = kinds
 			for _, row := range rmrelation.TypedRelationCandidates(g, local) {
 				out = append(out, prefixTypedRelationCandidate(subMap[slug], row))
 			}
@@ -932,8 +933,11 @@ func (m *MultiGraph) importExportRelationCandidates(q types.TypedRelationQuery) 
 	return out
 }
 
-func importExportKinds(q types.TypedRelationQuery) []types.TypedRelationKind {
+func graphBackedRelationKinds(q types.TypedRelationQuery) []types.TypedRelationKind {
 	var out []types.TypedRelationKind
+	if q.AllowsKind(types.TypedRelationCalledBy) {
+		out = append(out, types.TypedRelationCalledBy)
+	}
 	if q.AllowsKind(types.TypedRelationImports) {
 		out = append(out, types.TypedRelationImports)
 	}

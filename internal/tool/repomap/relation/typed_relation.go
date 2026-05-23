@@ -27,6 +27,9 @@ func TypedRelationCandidates(g *rmtypes.Graph, q types.TypedRelationQuery) []typ
 	if q.AllowsKind(types.TypedRelationExports) {
 		out = append(out, importEdgeCandidates(g, q, types.TypedRelationExports)...)
 	}
+	if q.AllowsKind(types.TypedRelationCalledBy) {
+		out = append(out, calledByCandidates(g, q)...)
+	}
 	if len(out) == 0 {
 		return nil
 	}
@@ -134,11 +137,256 @@ func importEdgeCandidates(g *rmtypes.Graph, q types.TypedRelationQuery, kind typ
 	return out
 }
 
+func calledByCandidates(g *rmtypes.Graph, q types.TypedRelationQuery) []types.TypedRelationCandidate {
+	var out []types.TypedRelationCandidate
+	seen := map[string]bool{}
+	for _, source := range q.Sources {
+		for _, ref := range relationSourceSymbolRefs(g, source, q.Purpose) {
+			if q.Purpose == types.TypedRelationPurposeCoverageGate && !ref.precision.CoverageGateEligible() {
+				continue
+			}
+			for _, fi := range g.Files {
+				if fi == nil {
+					continue
+				}
+				file := cleanRelationPath(fi.RelPath)
+				if file == "" {
+					continue
+				}
+				for _, rel := range fi.Relations {
+					if rel.Kind != "call" || !relationCallTargetsSymbol(g, fi, rel, ref.symbol) {
+						continue
+					}
+					line := rel.Line
+					if line <= 0 {
+						line = rel.ToEP.Line
+					}
+					member := callerRelationMember(fi, file, line)
+					if strings.TrimSpace(member.Name) == "" {
+						continue
+					}
+					key := strings.ToLower(ref.display) + "|called-by|" +
+						strings.ToLower(member.Name) + "|" + member.File + "|" + string(ref.id)
+					if seen[key] {
+						continue
+					}
+					seen[key] = true
+					out = append(out, types.TypedRelationCandidate{
+						Relation:   types.TypedRelationCalledBy,
+						SourceName: ref.display,
+						SourceKind: strings.TrimSpace(ref.symbol.Kind),
+						SourceFile: cleanRelationPath(ref.symbol.File),
+						SourceLine: ref.symbol.Line,
+						Member:     member,
+						Carrier:    types.TypedRelationCarrierGraph,
+						Precision:  ref.precision,
+					})
+				}
+			}
+		}
+	}
+	return out
+}
+
 type relationSourceFileRef struct {
 	display   string
 	file      string
 	kind      string
 	precision types.TypedRelationPrecision
+}
+
+type relationSourceSymbolRef struct {
+	display   string
+	id        rmtypes.SymbolID
+	symbol    *rmtypes.Symbol
+	precision types.TypedRelationPrecision
+}
+
+func relationSourceSymbolRefs(g *rmtypes.Graph, raw string, purpose types.TypedRelationPurpose) []relationSourceSymbolRef {
+	if g == nil {
+		return nil
+	}
+	source := strings.TrimSpace(raw)
+	if source == "" {
+		return nil
+	}
+	var refs []relationSourceSymbolRef
+	seen := map[rmtypes.SymbolID]bool{}
+	add := func(display string, sym *rmtypes.Symbol, precision types.TypedRelationPrecision) {
+		if sym == nil || sym.ID == "" || strings.TrimSpace(sym.Name) == "" {
+			return
+		}
+		if seen[sym.ID] {
+			return
+		}
+		if purpose == types.TypedRelationPurposeCoverageGate && !precision.CoverageGateEligible() {
+			return
+		}
+		seen[sym.ID] = true
+		refs = append(refs, relationSourceSymbolRef{
+			display:   strings.TrimSpace(display),
+			id:        sym.ID,
+			symbol:    sym,
+			precision: precision,
+		})
+	}
+	if sym := g.SymbolByID[rmtypes.SymbolID(source)]; sym != nil {
+		add(source, sym, types.TypedRelationPrecisionExactSymbolID)
+		return refs
+	}
+	matches := relationSymbolMatches(g, source)
+	precision := types.TypedRelationPrecisionExactSymbolID
+	if len(matches) != 1 {
+		precision = types.TypedRelationPrecisionNameOnly
+	}
+	for _, sym := range matches {
+		add(source, sym, precision)
+	}
+	return refs
+}
+
+func relationSymbolMatches(g *rmtypes.Graph, source string) []*rmtypes.Symbol {
+	if g == nil {
+		return nil
+	}
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return nil
+	}
+	var out []*rmtypes.Symbol
+	seen := map[rmtypes.SymbolID]bool{}
+	add := func(sym *rmtypes.Symbol) {
+		if sym == nil || sym.ID == "" || strings.TrimSpace(sym.Name) == "" || seen[sym.ID] {
+			return
+		}
+		seen[sym.ID] = true
+		out = append(out, sym)
+	}
+	if defs := g.SymbolDefs[source]; len(defs) > 0 {
+		for _, sym := range defs {
+			add(sym)
+		}
+	}
+	for name, defs := range g.SymbolDefs {
+		if !strings.EqualFold(name, source) {
+			continue
+		}
+		for _, sym := range defs {
+			add(sym)
+		}
+	}
+	for _, sym := range g.SymbolByID {
+		if relationSymbolSurfaceMatches(sym, source) {
+			add(sym)
+		}
+	}
+	return out
+}
+
+func relationSymbolSurfaceMatches(sym *rmtypes.Symbol, source string) bool {
+	if sym == nil {
+		return false
+	}
+	sourceKey := strings.ToLower(strings.TrimSpace(source))
+	if sourceKey == "" {
+		return false
+	}
+	for _, surface := range relationSymbolSurfaces(sym) {
+		if strings.ToLower(surface) == sourceKey {
+			return true
+		}
+	}
+	return false
+}
+
+func relationSymbolSurfaces(sym *rmtypes.Symbol) []string {
+	if sym == nil {
+		return nil
+	}
+	name := strings.TrimSpace(sym.Name)
+	if name == "" {
+		return nil
+	}
+	var out []string
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		for _, existing := range out {
+			if strings.EqualFold(existing, value) {
+				return
+			}
+		}
+		out = append(out, value)
+	}
+	add(name)
+	if sym.Receiver != "" {
+		add(sym.Receiver + "." + name)
+	}
+	if sym.Parent != "" {
+		add(sym.Parent + "." + name)
+	}
+	if sym.File != "" {
+		add(sym.File + ":" + name)
+	}
+	return out
+}
+
+func relationCallTargetsSymbol(g *rmtypes.Graph, fi *rmtypes.FileInfo, rel rmtypes.Relation, target *rmtypes.Symbol) bool {
+	if g == nil || fi == nil || target == nil || target.ID == "" {
+		return false
+	}
+	if rel.ToEP.ID != "" {
+		return rel.ToEP.ID == target.ID
+	}
+	resolved := g.ResolveCallTarget(fi, rel)
+	return resolved != nil && resolved.ID == target.ID
+}
+
+func callerRelationMember(fi *rmtypes.FileInfo, file string, line int) types.TypedRelationMember {
+	caller := enclosingCallerSymbol(fi, line)
+	name := file
+	kind := "call_site"
+	if caller != nil && strings.TrimSpace(caller.Name) != "" {
+		name = strings.TrimSpace(caller.Name)
+		if caller.Receiver != "" {
+			name = caller.Receiver + "." + name
+		} else if caller.Parent != "" {
+			name = caller.Parent + "." + name
+		}
+		kind = strings.TrimSpace(caller.Kind)
+		if kind == "" {
+			kind = "caller"
+		}
+	}
+	return types.TypedRelationMember{
+		Name:     name,
+		File:     file,
+		Line:     line,
+		Kind:     kind,
+		Distance: 1,
+	}
+}
+
+func enclosingCallerSymbol(fi *rmtypes.FileInfo, line int) *rmtypes.Symbol {
+	if fi == nil || line <= 0 {
+		return nil
+	}
+	var best *rmtypes.Symbol
+	for i := range fi.Symbols {
+		sym := &fi.Symbols[i]
+		if sym.Line <= 0 || sym.Line > line {
+			continue
+		}
+		if sym.EndLine > 0 && line > sym.EndLine {
+			continue
+		}
+		if best == nil || sym.Line >= best.Line {
+			best = sym
+		}
+	}
+	return best
 }
 
 func relationSourceFileRefs(g *rmtypes.Graph, raw string, purpose types.TypedRelationPurpose) []relationSourceFileRef {

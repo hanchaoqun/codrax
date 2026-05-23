@@ -602,6 +602,63 @@ func TestNormalizePrincipalEnumerationRowBlocks_DecoratedMemberCoveredByCitedBar
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_CommaLineMemberCoveredByVisibleCaller(t *testing.T) {
+	mu := types.NewMutableState("哪些生产代码函数调用了 appendTypedRelationKinds？")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "appendTypedRelationKinds 的生产代码调用者",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"BuildTypedRelationQueryWithResolvedSources (internal/types/typed_relation_hint.go:182, 183)",
+			"TypedRelationKindsForRequest (internal/types/typed_relation_hint.go:209)",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+				IsRelationalLookup:    true,
+			},
+			PredicateAxis: types.AxisCall,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:          "callers",
+				Kind:        types.BlockOrderedList,
+				SurfaceRole: types.SurfacePrincipal,
+				Items: []types.AnswerBlockItem{
+					{ID: "c1", Label: "BuildTypedRelationQueryWithResolvedSources", Text: "在第 182 和 183 行两次调用 appendTypedRelationKinds。", CitationRef: 0},
+					{ID: "c2", Label: "TypedRelationKindsForRequest", Text: "在第 209 行调用 appendTypedRelationKinds。", CitationRef: 1},
+				},
+			},
+		},
+		Citations: []types.Citation{
+			{File: "internal/types/typed_relation_hint.go", Line: 182},
+			{File: "internal/types/typed_relation_hint.go", Line: 209},
+		},
+	}
+
+	_ = normalizePrincipalEnumerationRowBlocks(doc, ctx)
+	var surfaces []string
+	for _, block := range doc.Blocks {
+		surfaces = append(surfaces, block.Title, types.AnswerBlockVisibleSurface(block))
+	}
+	visible := strings.Join(surfaces, "\n")
+	if strings.Contains(visible, "系统按已验证证据补充缺失成员") {
+		t.Fatalf("visible caller list already covers comma-line aggregate members; no duplicate supplement expected:\n%s", visible)
+	}
+	if got := strings.Count(visible, "BuildTypedRelationQueryWithResolvedSources"); got != 1 {
+		t.Fatalf("expected one visible BuildTypedRelationQueryWithResolvedSources row, got %d:\n%s", got, visible)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_DoesNotDuplicateVCSCommitRowsAlreadyVisible(t *testing.T) {
 	mu := types.NewMutableState("最近 10 次提交都做了哪些事情")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
