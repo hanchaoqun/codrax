@@ -145,9 +145,8 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	dec.DisallowUnknownFields()
 	var p emitAnswerDocumentV2Params
 	if err := dec.Decode(&p); err != nil {
-		err = RemapStrictDecodeError(err, answerDocumentV2MisplacedHints)
 		persistRecoveredAnswerDraft(ctx, raw, recovery, nil)
-		return failEmit(toolName, now, "invalid params: %v", err)
+		return failStrictDecode(toolName, now, err, answerDocumentV2MisplacedHints)
 	}
 
 	// document_model is no longer surfaced to the LLM. The system

@@ -149,20 +149,27 @@ var cannotUnmarshalStringRe = regexp.MustCompile(
 // LLM-actionable guidance. Returns (wrapped err, true) on match;
 // (nil, false) otherwise.
 func remapCannotUnmarshalStringIntoArray(err error) (error, bool) {
-	if err == nil {
+	field := extractCannotUnmarshalStringField(err)
+	if field == "" {
 		return nil, false
+	}
+	return fmt.Errorf(
+		"the %q field must be a native JSON array of objects (e.g. %q), not a JSON-encoded string. The streaming layer wrapped your %q value in quotes — re-emit %q as a native array (no surrounding quotes, no escaped inner quotes)",
+		field, field+`: [{...}, {...}]`, field, field), true
+}
+
+func extractCannotUnmarshalStringField(err error) string {
+	if err == nil {
+		return ""
 	}
 	for cur := err; cur != nil; cur = errors.Unwrap(cur) {
 		m := cannotUnmarshalStringRe.FindStringSubmatch(cur.Error())
 		if len(m) != 2 {
 			continue
 		}
-		field := m[1] // e.g. "blocks"
-		return fmt.Errorf(
-			"the %q field must be a native JSON array of objects (e.g. %q), not a JSON-encoded string. The streaming layer wrapped your %q value in quotes — re-emit %q as a native array (no surrounding quotes, no escaped inner quotes)",
-			field, field+`: [{...}, {...}]`, field, field), true
+		return m[1] // e.g. "blocks"
 	}
-	return nil, false
+	return ""
 }
 
 // goInternalTypeRe matches Go-internal type tokens that R4 forbids

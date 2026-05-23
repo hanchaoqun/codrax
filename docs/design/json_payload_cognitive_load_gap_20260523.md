@@ -2,7 +2,7 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-18 are complete and verified; the
+Status: partially implemented. Batches 1-19 are complete and verified; the
 shared schema-aware repair path is active across the high-frequency structured
 emit tools, including the legacy top-level JSON-string repair wrappers.
 Remaining work is still tracked below, starting with P1 carrier compilers /
@@ -116,6 +116,14 @@ Implementation progress:
   violation-kind metadata, and bounded expected-shape text alongside the
   existing human-readable correction list. This keeps the gate unchanged while
   reducing model burden on same-turn JSON repair.
+- 2026-05-23 Batch 19 extended typed repair metadata to strict JSON decode
+  failures on the high-frequency structured emit tools. Unknown fields,
+  known misplaced fields, and JSON-string carriers now produce stable
+  `ToolRepair` codes (`tool_param_unknown_field`,
+  `tool_param_misplaced_field`, `tool_param_json_string_carrier`) while
+  preserving the existing sanitized error text. Initial call sites cover
+  answer-document full/patch emits, `emit_evidence`, `emit_answer_symbol`, and
+  `emit_hypothesis_verdict`.
 - Remaining work starts at P1 carrier compilers / row-set compilers; the
   completed ref batch deliberately did not change answer materialization policy.
 
@@ -392,14 +400,15 @@ overriding better model-authored descriptions.
 
 ### P2. Typed repair hints and transaction updates
 
-- PARTIAL (Batches 15-16, 18): add typed repair hints for common deterministic
+- PARTIAL (Batches 15-16, 18-19): add typed repair hints for common deterministic
   answer-document carrier validators: empty full-emit `blocks[]`, patch citation
   operation conflicts, existing-block add/replace confusion after normalization
   is not possible, citation-pool replacement that would preserve old
   citation-bearing blocks, and lossy `blocks` string recovery where some visible
   model-authored blocks could not be safely preserved. Batch 18 also carries
   typed metadata for pre-emit hard structural hints derived from existing
-  `emitFixHint` fields.
+  `emitFixHint` fields. Batch 19 carries strict-decode field repair metadata
+  for common structured emit tools without changing the sanitized prose error.
 - Remaining: extend the same typed repair lane to other deterministic
   answer-document validators only where the target field/action is precise.
 - Make patch/full-emit transitions transactional so carrier errors are fixed

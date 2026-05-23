@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 )
 
 // produceStrictDecodeErr returns an actual strict-decode error
@@ -147,6 +149,80 @@ func TestRemapStrictDecodeError_CannotUnmarshalStringRewritten(t *testing.T) {
 	} {
 		if strings.Contains(msg, banned) {
 			t.Errorf("R4 leak — Go-internal token %q present in LLM-facing message: %s", banned, msg)
+		}
+	}
+}
+
+func TestStrictDecodeToolRepair_MisplacedField(t *testing.T) {
+	original := produceStrictDecodeErr(t, `{"inner":{"form":"x","citation_ref":7}}`)
+	repair := strictDecodeToolRepair(original, []MisplacedFieldHint{{
+		Field:          "citation_ref",
+		ContainerNames: []string{"claim_use", "claim_uses"},
+		CorrectPaths:   []string{"items[i].citation_ref", "value.citation_ref"},
+	}})
+	if repair == nil {
+		t.Fatal("expected structured repair metadata")
+	}
+	if repair.Code != "tool_param_misplaced_field" {
+		t.Fatalf("repair code = %q", repair.Code)
+	}
+	for _, want := range []string{"items[i].citation_ref", "value.citation_ref"} {
+		if !slices.Contains(repair.Fields, want) {
+			t.Fatalf("repair fields missing %q: %+v", want, repair.Fields)
+		}
+	}
+	if repair.Metadata["field"] != "citation_ref" ||
+		!strings.Contains(repair.Metadata["invalid_containers"], "claim_use") {
+		t.Fatalf("repair metadata incomplete: %+v", repair.Metadata)
+	}
+}
+
+func TestStrictDecodeToolRepair_UnknownField(t *testing.T) {
+	original := produceStrictDecodeErr(t, `{"inner":{"form":"x","extra":1}}`)
+	repair := strictDecodeToolRepair(original, nil)
+	if repair == nil || repair.Code != "tool_param_unknown_field" {
+		t.Fatalf("expected unknown-field repair metadata, got %+v", repair)
+	}
+	if len(repair.Fields) != 1 || repair.Fields[0] != "extra" {
+		t.Fatalf("repair fields = %+v", repair.Fields)
+	}
+	if !strings.Contains(repair.Hint, "without changing the answer facts") {
+		t.Fatalf("repair hint should protect model content: %q", repair.Hint)
+	}
+}
+
+func TestStrictDecodeToolRepair_JSONStringCarrier(t *testing.T) {
+	original := errors.New(
+		`json: cannot unmarshal string into Go struct field emitAnswerDocumentV2Params.blocks of type []tool.emitAnswerBlockV2`)
+	repair := strictDecodeToolRepair(original, nil)
+	if repair == nil || repair.Code != "tool_param_json_string_carrier" {
+		t.Fatalf("expected JSON-string carrier repair metadata, got %+v", repair)
+	}
+	if len(repair.Fields) != 1 || repair.Fields[0] != "blocks" {
+		t.Fatalf("repair fields = %+v", repair.Fields)
+	}
+	if !strings.Contains(repair.Hint, "native JSON") ||
+		!strings.Contains(repair.Hint, "Preserve the same rows") {
+		t.Fatalf("repair hint should explain native JSON without content rewrite: %q", repair.Hint)
+	}
+}
+
+func TestFailStrictDecode_AttachesRepairAndSanitizedSummary(t *testing.T) {
+	original := errors.New(
+		`json: cannot unmarshal string into Go struct field emitAnswerDocumentV2Params.blocks of type []tool.emitAnswerBlockV2`)
+	res, err := failStrictDecode("emit_answer_document", time.Now(), original, nil)
+	if err != nil {
+		t.Fatalf("failStrictDecode should return tool-level failure without Go error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("strict decode failure must not succeed")
+	}
+	if res.Repair == nil || res.Repair.Code != "tool_param_json_string_carrier" {
+		t.Fatalf("missing repair metadata: %+v", res)
+	}
+	for _, banned := range []string{"emitAnswerDocumentV2Params", "tool.emitAnswerBlockV2", "Go struct field"} {
+		if strings.Contains(res.Summary, banned) {
+			t.Fatalf("summary leaked internal decode token %q: %s", banned, res.Summary)
 		}
 	}
 }
