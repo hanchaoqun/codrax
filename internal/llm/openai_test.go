@@ -764,3 +764,15 @@ func TestStreamStallTimeout_SaneDefaults(t *testing.T) {
 		t.Errorf("tick interval %v must be < stall timeout %v so detection has resolution", streamStallTickInterval, defaultStreamStallTimeout)
 	}
 }
+
+func TestStreamFirstByteTimeout_SaneDefaults(t *testing.T) {
+	if defaultStreamFirstByteTimeout < 40*time.Second {
+		t.Errorf("defaultStreamFirstByteTimeout=%v is too aggressive; slow upstream models can need 30-40s before the first usable SSE event", defaultStreamFirstByteTimeout)
+	}
+	if defaultStreamFirstByteTimeout > defaultStreamStallTimeout {
+		t.Errorf("defaultStreamFirstByteTimeout=%v must not exceed stall timeout %v", defaultStreamFirstByteTimeout, defaultStreamStallTimeout)
+	}
+	if streamStallTickInterval >= defaultStreamFirstByteTimeout {
+		t.Errorf("tick interval %v must be < first-byte timeout %v so detection has resolution", streamStallTickInterval, defaultStreamFirstByteTimeout)
+	}
+}

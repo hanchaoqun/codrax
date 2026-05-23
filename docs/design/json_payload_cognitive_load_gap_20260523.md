@@ -333,11 +333,17 @@ observations.
     principal member set is missing from the visible answer; it does not replace
     or edit model-authored prose/tables.
 
-- Batch 40 — performance and convergence guards. Status: planned.
+- Batch 40 — performance and convergence guards. Status: completed.
   - Analyzer fast paths and parallel exploration convergence should reduce wait
     time without changing user intent.
   - Add regression guards where a future developer could accidentally re-open
     hard gates from noisy evidence.
+  - Delivered in this batch: the stream first-byte watchdog default is now
+    pinned by regression coverage to stay at a slow-model-safe lower bound
+    (`>=40s`) and below the stall timeout. This guards the customer-visible
+    failure mode where an overly aggressive first-byte timeout is rendered as a
+    model-response retry even though the upstream model may simply be slow to
+    produce the first usable SSE event.
 
 ## Scope
 
