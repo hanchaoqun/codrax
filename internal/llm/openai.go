@@ -198,8 +198,11 @@ func NewOpenAIAdapter(apiKey, model, baseURL string, opts AdapterOptions) *OpenA
 		httpClient:             buildHTTPClient(opts.TLS, baseURL, opts.RequestTimeout),
 		// Streaming client gets NO outer timeout (Duration(0)); the
 		// per-request context + streamStallTimeout watchdog own
-		// cancellation. See struct field commentary for rationale.
-		streamHTTPClient: buildHTTPClient(opts.TLS, baseURL, 0),
+		// cancellation after response headers arrive. The transport
+		// still caps response-header wait with firstByteTimeout so a
+		// provider that never starts the stream cannot hang before the
+		// watchdog exists.
+		streamHTTPClient: buildStreamHTTPClient(opts.TLS, baseURL, firstByteTimeout),
 	}
 }
 
@@ -211,11 +214,29 @@ func NewOpenAIAdapter(apiKey, model, baseURL string, opts AdapterOptions) *OpenA
 // startup warnings and fall back to the system trust pool, matching
 // the precedent of "never block on a misconfigured optional field."
 func buildHTTPClient(tlsOpts TLSOptions, baseURL string, timeout time.Duration) *http.Client {
-	if tlsOpts.CAFile == "" && !tlsOpts.InsecureSkipVerify {
+	return buildHTTPClientWithTransportOptions(tlsOpts, baseURL, timeout, 0)
+}
+
+func buildStreamHTTPClient(tlsOpts TLSOptions, baseURL string, responseHeaderTimeout time.Duration) *http.Client {
+	return buildHTTPClientWithTransportOptions(tlsOpts, baseURL, 0, responseHeaderTimeout)
+}
+
+func buildHTTPClientWithTransportOptions(tlsOpts TLSOptions, baseURL string, timeout, responseHeaderTimeout time.Duration) *http.Client {
+	if tlsOpts.CAFile == "" && !tlsOpts.InsecureSkipVerify && responseHeaderTimeout <= 0 {
 		return &http.Client{Timeout: timeout}
 	}
 
-	tlsCfg := &tls.Config{}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	if responseHeaderTimeout > 0 {
+		transport.ResponseHeaderTimeout = responseHeaderTimeout
+	}
+	tlsCfg := transport.TLSClientConfig
+	if tlsCfg == nil {
+		tlsCfg = &tls.Config{}
+	} else {
+		tlsCfg = tlsCfg.Clone()
+	}
+	customTLS := false
 
 	if tlsOpts.CAFile != "" {
 		pool, err := x509.SystemCertPool()
@@ -230,28 +251,23 @@ func buildHTTPClient(tlsOpts TLSOptions, baseURL string, timeout time.Duration) 
 		} else {
 			logging.Info("[llm/tls] appended custom CA bundle %q to system trust pool for %s", tlsOpts.CAFile, baseURL)
 			tlsCfg.RootCAs = pool
+			customTLS = true
 		}
 	}
 
 	if tlsOpts.InsecureSkipVerify {
 		tlsCfg.InsecureSkipVerify = true
+		customTLS = true
 		logging.Warning("[llm/tls] ! tls_insecure_skip_verify=true for %s — certificate validation DISABLED, API key is vulnerable to on-path interception", baseURL)
 		fmt.Fprintf(os.Stderr, "  ! TLS verification DISABLED for %s (tls_insecure_skip_verify=true)\n", baseURL)
 	}
+	if customTLS {
+		transport.TLSClientConfig = tlsCfg
+	}
 
 	return &http.Client{
-		Timeout: timeout,
-		Transport: &http.Transport{
-			TLSClientConfig: tlsCfg,
-			// Mirror the non-TLS knobs of http.DefaultTransport so a
-			// TLS-overriding client doesn't silently regress on
-			// connection pooling, proxy detection, etc.
-			Proxy:                 http.ProxyFromEnvironment,
-			MaxIdleConns:          100,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-		},
+		Timeout:   timeout,
+		Transport: transport,
 	}
 }
 
@@ -525,6 +541,15 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 
 	httpResp, err := o.streamHTTPClient.Do(req)
 	if err != nil {
+		if cerr := ctx.Err(); cerr != nil {
+			return Response{}, cerr
+		}
+		if isResponseHeaderTimeout(err) {
+			return Response{}, &StreamFirstByteTimeoutError{
+				IdleFor: o.streamFirstByteTimeout,
+				Cause:   fmt.Errorf("http request: %w", err),
+			}
+		}
 		return Response{}, fmt.Errorf("http request: %w", err)
 	}
 	defer httpResp.Body.Close()
@@ -651,6 +676,15 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 		}
 	}
 	return resp, err
+}
+
+func isResponseHeaderTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "timeout awaiting response headers") ||
+		strings.Contains(msg, "ResponseHeaderTimeout")
 }
 
 // defaultStreamStallTimeout is the package-level fallback for the

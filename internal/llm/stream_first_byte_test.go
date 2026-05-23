@@ -91,6 +91,49 @@ func TestDoStreamRequest_FirstByteTimeoutFires(t *testing.T) {
 	}
 }
 
+func TestDoStreamRequest_FirstByteTimeoutFiresBeforeHeaders(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Simulate OpenAI-compatible local servers that do not flush
+		// response headers until the first token is ready. Before this
+		// path was covered by ResponseHeaderTimeout, the SSE watchdog
+		// never started because http.Client.Do had not returned yet.
+		select {
+		case <-r.Context().Done():
+			return
+		case <-time.After(5 * time.Second):
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		}
+	}))
+	defer server.Close()
+
+	adapter := NewOpenAIAdapter("k", "m", server.URL, AdapterOptions{
+		Stream:                 true,
+		RequestTimeout:         10 * time.Second,
+		RetryMaxAttempts:       1,
+		StreamFirstByteTimeout: 500 * time.Millisecond,
+		StreamStallTimeout:     5 * time.Second,
+	})
+
+	start := time.Now()
+	_, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{})
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatalf("expected pre-header first-byte timeout error; got nil")
+	}
+	if !errors.Is(err, ErrStreamFirstByteTimeout) {
+		t.Fatalf("expected ErrStreamFirstByteTimeout in chain; got %v", err)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("pre-header first-byte timeout took %v; expected <2s", elapsed)
+	}
+	if !strings.Contains(err.Error(), "no usable SSE data") {
+		t.Errorf("error message should name 'no usable SSE data'; got %q", err.Error())
+	}
+}
+
 func TestDoStreamRequest_FirstByteTimeoutIgnoresKeepAliveFrames(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

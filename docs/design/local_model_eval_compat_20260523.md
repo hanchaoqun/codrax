@@ -2110,3 +2110,50 @@ Post-merge eval observation:
 - Whether analyze-stage `read_file` should be silently compacted into a policy
   notice or surfaced visibly as a recoverable model mistake. The current visible
   behavior is debuggable but costs context and iterations.
+
+## 2026-05-24 Batch 23 - Streaming Pre-Header Timeout Contract
+
+Problem statement:
+
+- Batch 22's focused eval later stalled in the extractor after logging:
+  `phase=llm_request ... timeout=4m0s first_byte_timeout=40s stall_timeout=2m0s`.
+- No `first_byte_timeout`, `stream stalled`, retry, or response log appeared
+  before manual termination.
+- Code audit found the gap in `internal/llm/openai.go`: streaming requests use
+  a dedicated `streamHTTPClient` with `Timeout=0` so long active streams are not
+  killed by a cumulative wall-clock cap. That part is correct.
+- However, the streaming watchdog starts only after `streamHTTPClient.Do(req)`
+  returns a `200 OK` response and a body. If an OpenAI-compatible local server
+  waits to send HTTP response headers until the first token/tool delta is ready,
+  or deadlocks before headers, the watchdog never starts. The request can then
+  sit inside `Do()` with no progress log even though `first_byte_timeout` is
+  configured.
+
+Design:
+
+- Keep the no-outer-timeout invariant for streaming response bodies.
+  Active long streams must not be capped by total request wall time.
+- Add a response-header timeout to the streaming HTTP transport, set to the
+  resolved `stream_first_byte_timeout_seconds` value.
+  - Before headers: no usable model output can possibly be observed, so this is
+    the same operator contract as first-byte timeout.
+  - After headers: the existing watchdog continues to own usable-SSE first byte
+    and mid-stream stall detection.
+- Classify a response-header timeout as `ErrStreamFirstByteTimeout` so existing
+  retry/fallback/rendering paths keep working and users see the same category
+  of failure instead of an opaque `net/http` timeout.
+- Preserve user cancellation priority. If the caller context is canceled while
+  waiting for headers, return the caller's context error rather than rewriting it
+  as an upstream timeout.
+- Do not add prompt changes, user/model prose matching, or model-specific
+  special cases.
+
+Batch 23 task list:
+
+- [x] Build the streaming HTTP client with `ResponseHeaderTimeout` while keeping
+      `http.Client.Timeout == 0`.
+- [x] Wrap pre-header response timeouts as `StreamFirstByteTimeoutError`.
+- [x] Add tests for a server that accepts the connection but delays headers past
+      `StreamFirstByteTimeout`.
+- [x] Re-run focused LLM tests, `make build`, and full `go test ./...`.
+- [x] Commit and push Batch 23.
