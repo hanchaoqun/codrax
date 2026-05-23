@@ -5418,6 +5418,9 @@ func (e *explorerEvaluator) shouldRunEnumerationCoverageMidLoop() bool {
 	if e == nil || !e.isEnumerationQuery || e.analysisIR == nil {
 		return false
 	}
+	if e.boundedStructuralTraceRequest() {
+		return false
+	}
 	rm := e.analysisIR.RequestModel
 	if types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
 		return true
@@ -5867,6 +5870,9 @@ func (e *explorerEvaluator) strictEnumerationReadinessFloor() bool {
 	if types.IsArchitectureNarrativeExplanation(rm) {
 		return false
 	}
+	if e.boundedStructuralTraceRequest() {
+		return false
+	}
 	if types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqEnumeration {
 		return true
 	}
@@ -5874,6 +5880,44 @@ func (e *explorerEvaluator) strictEnumerationReadinessFloor() bool {
 		return true
 	}
 	return types.ResolveQuestionFamily(rm) == types.QFEnumeration
+}
+
+func (e *explorerEvaluator) boundedStructuralTraceRequest() bool {
+	if e == nil || e.analysisIR == nil {
+		return false
+	}
+	rm := e.analysisIR.RequestModel
+	if types.IsSingleTopicStructuralTrace(rm) {
+		return true
+	}
+	family := types.ResolveQuestionFamily(rm)
+	if family != types.QFCallChain && family != types.QFRootCauseTrace {
+		return false
+	}
+	if types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
+		rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsRelationalLookup {
+		return false
+	}
+	return true
+}
+
+func (e *explorerEvaluator) typedStructuralOverviewRequiresWideRead() bool {
+	if e == nil || e.analysisIR == nil {
+		return false
+	}
+	rm := e.analysisIR.RequestModel
+	if e.boundedStructuralTraceRequest() {
+		return false
+	}
+	if types.IsProjectOrientationQuestion(rm) {
+		return true
+	}
+	if types.ResolveQuestionFamily(rm) == types.QFArchitecture {
+		return true
+	}
+	return rm.Scenario == types.ScenarioArchitectureExplain
 }
 
 func (e *explorerEvaluator) groundedRequirementCarrierCount() int {
@@ -5989,10 +6033,11 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 	}
 	minDirect := 2
 	evidenceQuality := directCount >= minDirect
+	groundedCarrierCount := e.groundedRequirementCarrierCount()
 	narrativeCarrier := e.narrativeClosureCarrierReady()
 	if !e.strictEnumerationReadinessFloor() &&
 		(hasGroundedTerminalEvidence(e.structuredEvidence) ||
-			e.groundedRequirementCarrierCount() >= minDirect ||
+			groundedCarrierCount >= minDirect ||
 			narrativeCarrier ||
 			len(e.flowFindings) > 0) {
 		evidenceQuality = true
@@ -6014,6 +6059,12 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 			minDirect = 2
 		}
 		evidenceQuality = directCount >= minDirect
+	}
+	if e.boundedStructuralTraceRequest() &&
+		(hasGroundedTerminalEvidence(e.structuredEvidence) ||
+			groundedCarrierCount > 0 ||
+			len(e.flowFindings) > 0) {
+		fileCoverage = true
 	}
 	if sourceCount == 1 {
 		toolDiversity = true
@@ -8076,15 +8127,14 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		}
 	}
 
-	// Check 5: structural-intent vs narrow-window mismatch (session 22).
+	// Check 5: typed structural-overview vs narrow-window mismatch.
 	//
-	// Symptom from a customer trace: the LLM said in its iter content
-	// "最后确认 agent.go 中 ReAct 循环的大致结构" — a declared intent to
-	// grasp overall STRUCTURE — while the accompanying read_file call
-	// covered lines 527-586 of a 1549-line file (3.9%). A 60-line
-	// window cannot support a structural-overview conclusion; the LLM
-	// subsequently exited with a "未完整取证" caveat because its own
-	// coverage was demonstrably shallow.
+	// A narrow read window cannot support project-orientation or
+	// architecture-overview answers when the typed RequestModel says the
+	// requested surface is structural. This used to key off assistant
+	// prose tokens such as "overall structure"; it is now driven only by
+	// typed analyzer output / QuestionFamily so runtime flow control does
+	// not parse model prose.
 	//
 	// detectPartiallyReadSymbols only detects SYMBOL-RANGE gaps (LLM
 	// started reading a function at line N but did not reach its
@@ -8092,23 +8142,22 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	// function's entry zone — common when the LLM grep-directs a
 	// read_file to a specific offset — slips through that check.
 	//
-	// This branch triggers on the *semantic* mismatch: structural
-	// intent tokens in the assistant content AND a read_file window
-	// covering ≤ 15% of a file ≥ 300 lines. The hint directs the LLM
-	// to either list_files (to see the module layout) or a wider
-	// read_file window starting from the top.
+	// This branch triggers on the typed request shape plus a read_file
+	// window covering ≤ 15% of a file ≥ 300 lines. Bounded trace /
+	// call-chain requests are excluded; their contract is ordered path
+	// coverage, not whole-file overview coverage.
 	//
 	// Fires at most once per dispatch (midLoopIntentWindowSent flag)
 	// so the hint does not recur on every subsequent read.
 	if b.Len() == 0 && !e.midLoopIntentWindowSent &&
 		obs.LastToolResult != nil && obs.LastToolResult.ToolName == "read_file" &&
-		obs.LastToolResult.Success && isStructuralIntent(obs.Response.Content) {
+		obs.LastToolResult.Success && e.typedStructuralOverviewRequiresWideRead() {
 		if path, rng, total, ok := parseReadFileBanner(obs.LastToolResult.Summary); ok && total >= 300 {
 			windowSize := rng.End - rng.Start + 1
 			if windowSize > 0 && float64(windowSize)/float64(total) < 0.15 {
 				windowPct := float64(windowSize) * 100 / float64(total)
 				fmt.Fprintf(&b,
-					"MID-LOOP CHECK: your note signals a structural / overview intent, "+
+					"MID-LOOP CHECK: the typed request shape requires a structural / overview answer, "+
 						"but the read_file window covers lines %d-%d of %d total in `%s` "+
 						"(%.1f%% of the file). A narrow window cannot support a conclusion "+
 						"about the file's OVERALL structure. Before ending the investigation, "+
@@ -8155,6 +8204,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	if b.Len() == 0 && !e.midLoopRankerCoverageSent &&
 		iteration >= e.heuristics.MidLoopMinIteration*2 &&
 		len(e.allScoredFiles) >= 6 &&
+		!e.boundedStructuralTraceRequest() &&
 		!e.authoritativeFailureCovered(allResults) {
 		_, readSet, _ := extractFileCoverage(allResults, e.repoRoot)
 		rankedFiles := e.rankerCoverageFilesForReadSet(readSet)
@@ -15461,41 +15511,6 @@ func readFileIntervalsFromHistory(history []types.ToolResult) map[string][]readI
 		fileReads[path] = append(fileReads[path], readInterval{start: rng.Start, end: rng.End})
 	}
 	return fileReads
-}
-
-// structuralIntentTokens are the surface forms the LLM uses when it
-// declares a "give me the big picture / overall structure" intent —
-// i.e. a goal that a 60-line targeted window over a 1500-line file
-// will answer poorly. zh-first because customer reports were
-// zh-dominant; the en forms cover parallel English phrasings.
-var structuralIntentTokens = []string{
-	// zh
-	"整体结构", "大致结构", "整个结构", "整体流程",
-	"整个流程", "大致流程", "整体架构", "大致架构",
-	"整体布局", "整体梳理", "全貌", "概览",
-	// en
-	"overall structure", "overall flow", "overall layout",
-	"overall architecture", "big picture", "high level",
-	"high-level overview", "full structure", "whole structure",
-	"whole flow", "whole file",
-}
-
-// isStructuralIntent reports whether an assistant message content
-// expresses a structural / overview intent — a goal that requires
-// broad file coverage rather than a narrow targeted read. Returns
-// false on empty content. Case-insensitive on English tokens; zh
-// tokens are matched verbatim (case does not apply to CJK).
-func isStructuralIntent(content string) bool {
-	if content == "" {
-		return false
-	}
-	lower := strings.ToLower(content)
-	for _, tok := range structuralIntentTokens {
-		if strings.Contains(lower, strings.ToLower(tok)) {
-			return true
-		}
-	}
-	return false
 }
 
 // trackCrossReferences scans an investigation note for symbol names

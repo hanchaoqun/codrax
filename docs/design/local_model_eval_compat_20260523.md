@@ -24,11 +24,15 @@ Eval run root:
   capture safe routing intent, append safe paths/patterns to the prescan
   summary, and force the next analyzer turn to `emit_analysis` without reading
   source content in the analyze stage.
-- Batch 2 implemented locally: explorer evidence-backlog and evidence-repair states now
+- Batch 2 landed in `c9d1fe22`: explorer evidence-backlog and evidence-repair states now
   have schema-level action-space gating, so repeated ignored hints expose only
   structured materialization tools instead of relying on prose nudges. The
   repair hint now allows a stale or wrong row to be omitted/replaced when the
   just-read source window proves it is not grounded.
+- Batch 3 implemented locally: bounded trace / call-chain requests now suppress
+  stale enumeration file-coverage floors and broad ranker-coverage pushbacks.
+  The legacy overview-window check no longer parses assistant prose keywords;
+  it is driven by typed RequestModel / QuestionFamily signals only.
 
 ## Operating Principles
 
@@ -137,6 +141,20 @@ being converted into fake source citations. Current source can verify or bound
 them, but must not erase the original external observation unless it is proven
 wrong.
 
+### RC7 - Legacy Prose-Keyword Flow Control Violates The Intent Boundary
+
+A horizontal scan found an older mid-loop guard that inferred a structural
+overview intent by scanning assistant prose for phrases such as "overall
+structure" / "整体结构". Even when useful, that class of logic is fragile and
+violates the product rule that runtime flow control must not keyword-match user
+or model text.
+
+Systemic fix: replace this class with typed RequestModel / QuestionFamily /
+tool-result metadata checks. The first cleanup is the explorer overview-window
+guard: it now fires only when the analyzer's typed output says the answer needs
+project or architecture overview coverage, and bounded trace/call-chain
+requests are excluded.
+
 ## Red-Line Design Boundaries
 
 - No keyword matching against the user question or model prose for intent or
@@ -186,6 +204,9 @@ wrong.
 
 - Reuse typed helpers such as `IsSingleTopicStructuralTrace` to keep
   trace/call-chain/sequence contracts out of broad enumeration coverage hints.
+- Remove legacy model-prose keyword flow control from explorer mid-loop checks;
+  overview/window guards must consume typed RequestModel / QuestionFamily
+  signals instead.
 - Add tests for a trace/sequence request with key intermediate functions: no
   "read N discovered files" enumeration hint unless typed exhaustive-member
   obligations are present.

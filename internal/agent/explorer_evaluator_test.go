@@ -568,6 +568,43 @@ func TestParseOutput_EnumerationStricterFloors(t *testing.T) {
 	}
 }
 
+func TestExplorerReadiness_BoundedTraceSuppressesEnumerationCoverageFloors(t *testing.T) {
+	ctx := parseOutputCtx(string(types.ReqEnumeration), "")
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
+	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisCall
+	eval := &explorerEvaluator{
+		isEnumerationQuery: true, // stale over-broad flag from analyzer must not impose enumeration coverage.
+		analysisIR:         ctx.AnalysisIR,
+		structuredEvidence: []types.EvidenceItem{{
+			Kind:            types.EvidenceRelationship,
+			Predicate:       "calls",
+			Subject:         "buildAnalysisIR",
+			Object:          "Run",
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       100,
+			GroundingStatus: types.GroundingGrounded,
+			Summary:         "buildAnalysisIR calls the gate path",
+		}},
+	}
+
+	if eval.strictEnumerationReadinessFloor() {
+		t.Fatal("single-topic structural trace must not use strict enumeration readiness floors")
+	}
+	if eval.shouldRunEnumerationCoverageMidLoop() {
+		t.Fatal("single-topic structural trace must not run enumeration mid-loop coverage")
+	}
+	readiness := eval.completionReadinessWithCoverage(nil, 2, false, false,
+		[]string{"a.go", "b.go", "c.go", "d.go", "e.go", "f.go", "g.go", "h.go", "i.go", "j.go"},
+		map[string]bool{"a.go": true, "b.go": true},
+	)
+	if !readiness.FileCoverage {
+		t.Fatalf("bounded trace with grounded chain evidence should not require broad file coverage, got %+v", readiness)
+	}
+	if !readiness.HasEnough {
+		t.Fatalf("bounded trace should be ready once tool/evidence quality is satisfied, got %+v", readiness)
+	}
+}
+
 // -----------------------------------------------------------------------------
 // DetermineMissingPiece
 // -----------------------------------------------------------------------------
