@@ -1317,6 +1317,117 @@ func TestEmitInvestigationComplete_PreCompleteCheck_GenericMemberSupportRefStill
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_ValueLiteralMemberMayUseOwnerSupportRef(t *testing.T) {
+	mut := types.NewMutableState("列出默认注册的组件名称")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/agent/sub_explorer.go",
+		LineStart:       31,
+		AnchorKind:      types.AnchorReturn,
+		AnchorSymbol:    "Name",
+		Snippet:         "func (s *SubExplorer) Name() string {",
+		Summary:         "SubExplorer.Name() returns the registered name \"explorer\".",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "默认注册的组件名称"},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "value literal member is backed by a value-bearing owner location",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "registered component names",
+			"value":        "1",
+			"members":      []string{"explorer"},
+			"support_refs": []string{"SubExplorer (internal/agent/sub_explorer.go:31)"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "exhaustive member-set handoff is missing") {
+		t.Fatalf("owner support_ref should certify exact value literal from accepted return evidence: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("owner support_ref should allow completion once the exact member appears in accepted value evidence")
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_ValueLiteralOwnerSupportRefRequiresExactMember(t *testing.T) {
+	mut := types.NewMutableState("列出默认注册的组件名称")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/agent/sub_explorer.go",
+		LineStart:       31,
+		AnchorKind:      types.AnchorReturn,
+		AnchorSymbol:    "Name",
+		Snippet:         "func (s *SubExplorer) Name() string {",
+		Summary:         "SubExplorer.Name() returns the registered name \"explorer\".",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "默认注册的组件名称"},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "different value member must remain blocked",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "registered component names",
+			"value":        "1",
+			"members":      []string{"worker"},
+			"support_refs": []string{"SubExplorer (internal/agent/sub_explorer.go:31)"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "exhaustive member-set handoff is missing") ||
+		!strings.Contains(res.Summary, "worker") {
+		t.Fatalf("owner support_ref must not certify a different value literal: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("investigation must remain open when the requested member is absent from accepted value evidence")
+	}
+}
+
 func TestFieldValueCountCandidates_CoversCrossLanguageInitializerSurfaces(t *testing.T) {
 	repoRoot := t.TempDir()
 	writeTestFile(t, repoRoot, "src/config.ets", `

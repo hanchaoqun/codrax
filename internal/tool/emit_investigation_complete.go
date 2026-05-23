@@ -3507,10 +3507,7 @@ func aggregateToolLineSupportsLabels(line string, labels []string) bool {
 }
 
 func aggregateEvidenceTextContainsAnyLabel(ev types.EvidenceItem, labels []string) bool {
-	text := strings.TrimSpace(ev.Snippet)
-	if ev.LoadBearingSummary {
-		text = strings.TrimSpace(text + "\n" + ev.Summary)
-	}
+	text := aggregateEvidenceMemberSupportText(ev)
 	if text == "" {
 		return false
 	}
@@ -3524,6 +3521,26 @@ func aggregateEvidenceTextContainsAnyLabel(ev types.EvidenceItem, labels []strin
 		}
 	}
 	return false
+}
+
+func aggregateEvidenceMemberSupportText(ev types.EvidenceItem) string {
+	text := strings.TrimSpace(ev.Snippet)
+	if ev.LoadBearingSummary || aggregateValueBearingEvidenceCanUseSummary(ev) {
+		text = strings.TrimSpace(text + "\n" + ev.Summary)
+	}
+	return text
+}
+
+func aggregateValueBearingEvidenceCanUseSummary(ev types.EvidenceItem) bool {
+	if ev.GroundingStatus == types.GroundingUngrounded {
+		return false
+	}
+	switch ev.AnchorKind {
+	case types.AnchorReturn, types.AnchorAssignment, types.AnchorInitializer, types.AnchorStringLiteral:
+		return strings.TrimSpace(ev.Summary) != ""
+	default:
+		return false
+	}
 }
 
 func aggregateEvidenceMatchesAnyLabel(ev types.EvidenceItem, labels []string) bool {

@@ -1903,6 +1903,59 @@ Batch 19 task list:
       `go test ./...`.
 - [x] Commit and push Batch 19.
 
+## 2026-05-24 Batch 20 - Value-Literal Member Support Reconciliation
+
+Problem statement:
+
+- Batch 18 exposed a reusable support-matching gap, not a one-off
+  `SubExplorer` issue.
+- A model can correctly emit a principal `member_set` whose visible member is a
+  value literal, config key, route string, enum string, registered name, or
+  other scalar identity, while its `support_refs[]` points at the owner or
+  declaration line that produced the value.
+- The grounded evidence is already value-bearing (`return`, `assignment`,
+  `initializer`, or `string_literal`) and the accepted evidence summary/snippet
+  contains the exact value, but the current member support check may only
+  compare the member to the evidence anchor symbol / subject / object at the
+  exact cited line.
+- This incorrectly asks the model to re-emit evidence that the system already
+  accepted, causing duplicate-evidence skips and closure-repair loops.
+
+Design:
+
+- Reuse the existing support-ref parser, location index, and
+  `AnswerCodeSurfaceAppearsInText` identity-boundary matcher. Do not add a
+  separate parser or any user/model prose keyword logic.
+- Treat an accepted evidence item as member support when all of these hold:
+  - the support_ref resolves to the same file:line location as the evidence;
+  - the evidence is not ungrounded;
+  - the evidence anchor kind is value-bearing:
+    `return`, `assignment`, `initializer`, or `string_literal`;
+  - the existing identity-boundary matcher finds the exact member surface in
+    the accepted snippet or, for these value-bearing anchors only, in the
+    accepted evidence summary.
+- Keep the boundary conservative:
+  - no semantic migration between different members;
+  - no guessing from the closure reason or assistant prose;
+  - no acceptance when the requested member value does not appear in the
+    accepted value-bearing evidence text.
+- This is language-neutral. The anchor kinds already cover Go, Java, Kotlin,
+  JavaScript/TypeScript/ArkTS, Python, Rust, C/C++, Cangjie, config-like object
+  initializers, and other repomap-supported languages through the shared
+  evidence model.
+
+Batch 20 task list:
+
+- [x] Add a regression for owner-labeled support_ref plus returned literal
+      member.
+- [x] Add a negative regression proving a different member literal is still
+      rejected.
+- [x] Reuse `aggregateEvidenceTextContainsAnyLabel` with a value-bearing
+      evidence text policy instead of adding a new matching path.
+- [x] Run focused pre-complete tests, affected tool/types tests, `make build`,
+      and full `go test ./...`.
+- [x] Commit and push Batch 20.
+
 ## Open Questions
 
 - Whether `emit_evidence.anchor_kind` auto-repair should run inside
