@@ -296,10 +296,29 @@ observations.
     `public_exported`, and explorer-authored Chinese summaries survive the
     replacement path.
 
-- Batch 38 — runtime artifact origin normalization. Status: planned.
+- Batch 38 — runtime artifact origin normalization. Status: completed.
   - Align git/log/trace/command observation refs, excerpts, and line/span labels
     so finalizer/reviewer consume the same external-evidence contract.
   - Preserve pagination through existing blob/row-set mechanisms.
+  - Current sub-tasks:
+    1. Project typed aggregate-fact source coordinates (`tool_result`,
+       `payload_ref`, `row_set_ref`, `page_ref`, `line_start`, `line_end`,
+       `row`, trace timestamps, and related selectors) into the same
+       `ObservationSourceRef + ObservationSpan` contract already used by
+       concrete tool results.
+    2. Keep git/log/trace/command/MCP/web coordinates origin-specific; external
+       artifact lines must not become current-source citations.
+    3. Add regression coverage for mixed external observations that combine
+       existence/no-hit facts with addressable artifact/command spans.
+  - Delivered in this batch: aggregate facts now project typed external
+    coordinates into the same ledger contract as concrete tool results.
+    `tool_result` / `tool_call_id`, command text, payload/page/row-set refs,
+    runtime artifact ids/kinds, artifact paths, current line ranges, VCS hunk
+    lines, table rows, selectors, JSON pointers, and trace timestamps are
+    preserved as `ObservationSourceRef + ObservationSpan`. External log/trace
+    lines remain runtime-artifact spans and do not qualify as current-source
+    citations. Regression coverage pins git no-hit observations, attached-log
+    line ranges, and command-output row coordinates.
 
 - Batch 39 — system supplement and caveat authority cleanup. Status: planned.
   - System supplements must be clearly localized and append-only.

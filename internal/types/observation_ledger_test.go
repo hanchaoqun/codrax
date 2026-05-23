@@ -791,6 +791,90 @@ func TestCompileObservationLedger_ProjectsToolBannerCoordinates(t *testing.T) {
 	}
 }
 
+func TestCompileObservationLedger_ProjectsAggregateExternalCoordinates(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{AggregateFacts: []AnswerAggregateFact{
+		{
+			Kind:       AnswerAggregateNegativeObservation,
+			Label:      "git history no-hit",
+			Value:      "0",
+			Unit:       "matches",
+			Role:       AnswerAggregateRolePrincipalAnswer,
+			Provenance: "git_log",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: string(AnswerEvidenceOriginVCSMetadata)},
+				{Name: "tool_result", Value: "git_log[0]"},
+				{Name: "commit_range", Value: "ref=HEAD count=10"},
+				{Name: "pathspec", Value: "internal/tool"},
+				{Name: "query", Value: "runTaskGraph"},
+				{Name: "payload_ref", Value: "blob://payload/git-log.txt"},
+			},
+		},
+		{
+			Kind:       AnswerAggregateNegativeObservation,
+			Label:      "attached log no-hit",
+			Value:      "0",
+			Unit:       "matches",
+			Role:       AnswerAggregateRolePrincipalAnswer,
+			Provenance: "log_triage",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: string(AnswerEvidenceOriginRuntimeArtifact)},
+				{Name: "artifact_id", Value: "attached_log"},
+				{Name: "artifact_kind", Value: "log"},
+				{Name: "line_start", Value: "40"},
+				{Name: "line_end", Value: "43"},
+				{Name: "pattern", Value: "panic"},
+				{Name: "payload_ref", Value: "blob://payload/log.txt"},
+				{Name: "page_ref", Value: "blob://payload/log.txt?page=2"},
+			},
+		},
+		{
+			Kind:       AnswerAggregateScalar,
+			Label:      "command output row",
+			Value:      "70693",
+			Unit:       "lines",
+			Role:       AnswerAggregateRolePrincipalAnswer,
+			Provenance: "exec_command",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: string(AnswerEvidenceOriginCommandMeasurement)},
+				{Name: "tool_result", Value: "exec_command[2]"},
+				{Name: "command", Value: "wc -l"},
+				{Name: "row", Value: "1"},
+				{Name: "payload_ref", Value: "blob://payload/wc.txt"},
+			},
+		},
+	}})
+	git := findObservationRecord(t, ledger, "aggregate:0#vcs_metadata")
+	if git.SourceRef.Kind != ObservationSourceVCSMetadata ||
+		git.SourceRef.ToolCallID != "git_log[0]" ||
+		git.SourceRef.Range != "ref=HEAD count=10" ||
+		git.SourceRef.Pathspec != "internal/tool" ||
+		git.SourceRef.PayloadRef != "blob://payload/git-log.txt" ||
+		git.ClaimKey != "runTaskGraph" ||
+		git.ResultCount == nil ||
+		*git.ResultCount != 0 {
+		t.Fatalf("git aggregate coordinates not projected: %+v", git)
+	}
+	log := findObservationRecord(t, ledger, "aggregate:1#runtime_artifact")
+	if log.SourceRef.Kind != ObservationSourceRuntimeArtifact ||
+		log.SourceRef.ArtifactID != "attached_log" ||
+		log.SourceRef.ArtifactKind != "log" ||
+		log.SourceRef.PayloadRef != "blob://payload/log.txt" ||
+		log.SourceRef.PageRef != "blob://payload/log.txt?page=2" ||
+		log.Span.LineStart != 40 ||
+		log.Span.LineEnd != 43 ||
+		ObservationRecordHasCurrentSourceLineSpan(log) {
+		t.Fatalf("runtime artifact aggregate coordinates not projected as external span: %+v", log)
+	}
+	cmd := findObservationRecord(t, ledger, "aggregate:2#command_measurement")
+	if cmd.SourceRef.Kind != ObservationSourceCommand ||
+		cmd.SourceRef.ToolCallID != "exec_command[2]" ||
+		cmd.SourceRef.Command != "wc -l" ||
+		cmd.Span.Row != 1 ||
+		cmd.SourceRef.PayloadRef != "blob://payload/wc.txt" {
+		t.Fatalf("command aggregate coordinates not projected: %+v", cmd)
+	}
+}
+
 func TestFormatObservationSourceRef_LabelsExternalPayloadRefs(t *testing.T) {
 	got := FormatObservationSourceRef(ObservationSourceRef{
 		Kind:       ObservationSourceCommand,

@@ -588,6 +588,7 @@ func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestMo
 				Role:            role,
 				GroundingPolicy: AnswerClaimBindingGroundingPolicy(origin, role),
 				SourceRef:       sourceRef,
+				Span:            observationSpanForAggregateFact(dims),
 				ClaimKey:        firstNonEmptyString(dims["target"], dims["query"], dims["pattern"], dims["predicate"], fact.Label),
 				Subject:         firstNonEmptyString(dims["target"], dims["query"], dims["pattern"], fact.Label),
 				Predicate:       dims["predicate"],
@@ -971,6 +972,8 @@ func sourceRefForAggregateFact(origin AnswerEvidenceOrigin, dims map[string]stri
 	ref.RowSetRef = dims["row_set_ref"]
 	ref.PageRef = dims["page_ref"]
 	ref.RawRef = firstNonEmptyString(dims["raw_ref"], ref.PayloadRef, ref.RowSetRef, ref.PageRef)
+	ref.ToolCallID = firstNonEmptyString(dims["tool_call_id"], dims["tool_result"])
+	ref.Command = strings.TrimSpace(dims["command"])
 	switch origin {
 	case AnswerEvidenceOriginCurrentSource, AnswerEvidenceOriginRepoNegativeSearch:
 		ref.Repo = dims["repo"]
@@ -983,9 +986,9 @@ func sourceRefForAggregateFact(origin AnswerEvidenceOrigin, dims map[string]stri
 	case AnswerEvidenceOriginRuntimeArtifact:
 		ref.ArtifactID = firstNonEmptyString(dims["artifact_id"], dims["trace_window"], dims["scope"])
 		ref.ArtifactKind = firstNonEmptyString(dims["artifact_kind"], dims["origin"], "runtime_artifact")
+		ref.Path = firstNonEmptyString(dims["path"], dims["artifact_path"])
 	case AnswerEvidenceOriginCommandMeasurement:
 		ref.Command = dims["command"]
-		ref.ToolCallID = firstNonEmptyString(dims["tool_result"], dims["tool_call_id"])
 	case AnswerEvidenceOriginCrossRepoIndex:
 		ref.Repo = dims["repo"]
 		ref.Path = dims["scope"]
@@ -1002,6 +1005,59 @@ func sourceRefForAggregateFact(origin AnswerEvidenceOrigin, dims map[string]stri
 		ref.ResourceURI = firstNonEmptyString(dims["resource_uri"], dims["source_ref"], dims["scope"])
 	}
 	return ref
+}
+
+func observationSpanForAggregateFact(dims map[string]string) ObservationSpan {
+	if len(dims) == 0 {
+		return ObservationSpan{}
+	}
+	span := ObservationSpan{
+		LineStart:   firstNonNegativeIntDim(dims, "line_start", "line"),
+		LineEnd:     firstNonNegativeIntDim(dims, "line_end"),
+		OldLine:     firstNonNegativeIntDim(dims, "old_line"),
+		NewLine:     firstNonNegativeIntDim(dims, "new_line"),
+		Paragraph:   firstNonNegativeIntDim(dims, "paragraph"),
+		Row:         firstNonNegativeIntDim(dims, "row"),
+		TextStart:   firstNonNegativeIntDim(dims, "text_start"),
+		TextEnd:     firstNonNegativeIntDim(dims, "text_end"),
+		StartTsMs:   firstFloatDim(dims, "start_ts_ms", "start_ms"),
+		EndTsMs:     firstFloatDim(dims, "end_ts_ms", "end_ms"),
+		HunkHeader:  strings.TrimSpace(dims["hunk_header"]),
+		Selector:    strings.TrimSpace(dims["selector"]),
+		JSONPointer: strings.TrimSpace(dims["json_pointer"]),
+	}
+	if span.LineEnd == 0 && span.LineStart > 0 {
+		span.LineEnd = span.LineStart
+	}
+	return span
+}
+
+func firstNonNegativeIntDim(dims map[string]string, keys ...string) int {
+	for _, key := range keys {
+		raw := strings.TrimSpace(dims[key])
+		if raw == "" {
+			continue
+		}
+		n, err := strconv.Atoi(raw)
+		if err == nil && n >= 0 {
+			return n
+		}
+	}
+	return 0
+}
+
+func firstFloatDim(dims map[string]string, keys ...string) float64 {
+	for _, key := range keys {
+		raw := strings.TrimSpace(dims[key])
+		if raw == "" {
+			continue
+		}
+		n, err := strconv.ParseFloat(raw, 64)
+		if err == nil {
+			return n
+		}
+	}
+	return 0
 }
 
 func sourceRefForToolResult(origin AnswerEvidenceOrigin, result ToolResult, index int, banners []map[string]string, command string) ObservationSourceRef {
