@@ -590,6 +590,12 @@ untouched.
     prompt from reintroducing the hard verbatim-member obligation after the
     typed role projection has demoted the ledger. Scalar-count support and
     empty/no-fact prompts remain covered by the same prompt tests.
+  - Delivered in Batch 42.2c: eval coverage now includes
+    `u7p` for "recent N commits, zero-hit scope, do not enumerate each
+    searched commit" and the priority sweep includes VCS no-hit, mixed
+    hit/no-hit, log no-fatal, and HiTrace no-long-GC negative-observation
+    cases. These cases track the cross-origin contract instead of only the
+    single original VCS marker scenario.
 
 - Batch 43 — runtime artifact provenance split. Status: planned.
   - Carry `observed_direct_cause`, `artifact_span`, and

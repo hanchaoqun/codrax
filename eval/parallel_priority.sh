@@ -26,6 +26,12 @@ PRIORITY_CASES=(
   eval/cases/s7a.case
   eval/cases/s7b.case
   eval/cases/s8a.case
+  # Unified evidence/no-hit answer-shape smoke.
+  eval/cases/u7m.case
+  eval/cases/u7n.case
+  eval/cases/u7p.case
+  eval/cases/logtri_no_fatal.case
+  eval/cases/harmony/hitrace_no_long_gc.case
   # Phase 1 / Phase 2 originally-real-fail smoke.
   eval/cases/u4a.case
   eval/cases/u4b.case

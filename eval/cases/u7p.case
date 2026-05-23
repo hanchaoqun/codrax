@@ -1,0 +1,12 @@
+# Grid B — U7 History / No-Hit Scope Without Window Enumeration
+#
+# Regression target: a bounded zero-result VCS history answer should preserve
+# the absence proof and searched scope without turning the searched commit
+# window itself into the principal answer table. This protects the
+# result_count=0 + searched-window support-ledger contract.
+ID="u7p"
+NAME="history — no-hit scope without searched-window enumeration"
+ABSENT_MARKER="definitely_no_such_marker_20260523"_"window_support"
+QUESTION="最近 20 次提交里有没有提到 ${ABSENT_MARKER}？如果没有，请只说明搜索范围和 0 命中结论，不需要逐个列出每个提交。"
+EXPECT_NOT_CONTAINS="**值：** Required.Principal.Member.Set"
+EXPECT_MATCHES_REGEX="(没有|未发现|未找到|0).*(${ABSENT_MARKER}|最近 20 次|20 次提交)|(${ABSENT_MARKER}|最近 20 次|20 次提交).*(没有|未发现|未找到|0)"
