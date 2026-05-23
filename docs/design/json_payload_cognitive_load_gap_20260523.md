@@ -2,7 +2,7 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-15 are complete and verified; the
+Status: partially implemented. Batches 1-16 are complete and verified; the
 shared schema-aware repair path is active across the high-frequency structured
 emit tools, including the legacy top-level JSON-string repair wrappers.
 Remaining work is still tracked below, starting with P1 carrier compilers /
@@ -96,6 +96,14 @@ Implementation progress:
   repair codes and field paths. This does not loosen validation or alter answer
   content; it gives finalizer a typed repair target when runtime cannot safely
   normalize the carrier.
+- 2026-05-23 Batch 16 extended the same lane to answer-document-specific deep
+  recovery. When a JSON-string / partially truncated `blocks` payload can
+  recover some structured blocks or display attachments but cannot preserve
+  every visible model-authored block, the tool now rejects with
+  `answer_doc_lossy_blocks_string_recovery`, typed `blocks` field metadata, and
+  candidate/recovered counts. The runtime still keeps recovered draft
+  attachments for display fallback, but it does not publish a partial structured
+  answer or ask the model to infer the missing carrier from prose.
 - Remaining work starts at P1 carrier compilers / row-set compilers; the
   completed ref batch deliberately did not change answer materialization policy.
 
@@ -372,11 +380,12 @@ overriding better model-authored descriptions.
 
 ### P2. Typed repair hints and transaction updates
 
-- PARTIAL (Batch 15): add typed repair hints for common deterministic
+- PARTIAL (Batches 15-16): add typed repair hints for common deterministic
   answer-document carrier validators: empty full-emit `blocks[]`, patch citation
   operation conflicts, existing-block add/replace confusion after normalization
-  is not possible, and citation-pool replacement that would preserve old
-  citation-bearing blocks.
+  is not possible, citation-pool replacement that would preserve old
+  citation-bearing blocks, and lossy `blocks` string recovery where some visible
+  model-authored blocks could not be safely preserved.
 - Remaining: extend the same typed repair lane to other deterministic
   answer-document validators only where the target field/action is precise.
 - Make patch/full-emit transitions transactional so carrier errors are fixed

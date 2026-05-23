@@ -918,6 +918,18 @@ func TestEmitAnswerDocumentV2_BraceFallbackRejectsUnattachedDroppedBlock(t *test
 	if !strings.Contains(res.Summary, "could not preserve every visible blocks[] item") {
 		t.Fatalf("failure should explain lossy structured recovery, got %q", res.Summary)
 	}
+	if res.Repair == nil || res.Repair.Code != "answer_doc_lossy_blocks_string_recovery" {
+		t.Fatalf("lossy blocks[] recovery should carry structured repair metadata, got %+v", res.Repair)
+	}
+	if got := res.Repair.Metadata["candidate_blocks"]; got != "2" {
+		t.Fatalf("repair metadata candidate_blocks = %q, want 2; repair=%+v", got, res.Repair)
+	}
+	if got := res.Repair.Metadata["recovered_blocks"]; got != "1" {
+		t.Fatalf("repair metadata recovered_blocks = %q, want 1; repair=%+v", got, res.Repair)
+	}
+	if !strings.Contains(res.Repair.Hint, "native JSON array") {
+		t.Fatalf("repair hint should explain native blocks[] array, got %q", res.Repair.Hint)
+	}
 	if doc := bus.Mutable.AnswerDocumentV2(); doc != nil {
 		t.Fatalf("partial recovered document must not be published, got %+v", doc)
 	}

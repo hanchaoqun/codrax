@@ -191,7 +191,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 	canonicalizeSummaryLeadBlock(doc)
 	if answerDocumentRecoveryLostUnattachedBlocks(recovery) {
 		persistRecoveredAnswerDraft(ctx, raw, mergeAnswerDocumentRecoveryAttachments(recovery, doc), doc)
-		return failEmit(toolName, now,
+		return failEmitWithRepair(toolName, now, answerDocumentLossyBlocksRecoveryRepair(recovery),
 			"structured recovery could not preserve every visible blocks[] item (%d candidate block(s), %d structured block(s), %d recovered attachment(s)); re-emit a complete native JSON blocks[] array, not a JSON-encoded string",
 			recovery.CandidateBlocks, recovery.RecoveredBlocks, len(recovery.Attachments))
 	}
@@ -385,6 +385,20 @@ func answerDocumentRecoveryLostUnattachedBlocks(report answerDocumentRecoveryRep
 	}
 	recoveredVisible := report.RecoveredBlocks + len(report.Attachments)
 	return report.CandidateBlocks > recoveredVisible
+}
+
+func answerDocumentLossyBlocksRecoveryRepair(report answerDocumentRecoveryReport) *types.ToolRepair {
+	return &types.ToolRepair{
+		Code:   "answer_doc_lossy_blocks_string_recovery",
+		Fields: []string{"blocks"},
+		Hint:   "Re-emit `emit_answer_document` with `blocks` as a complete native JSON array of block objects. Do not JSON-encode the array as a string, and preserve every model-authored visible block from the previous draft.",
+		Metadata: map[string]string{
+			"candidate_blocks":      strconv.Itoa(report.CandidateBlocks),
+			"recovered_blocks":      strconv.Itoa(report.RecoveredBlocks),
+			"recovered_attachments": strconv.Itoa(len(report.Attachments)),
+			"recovery_mode":         strings.TrimSpace(report.Mode),
+		},
+	}
 }
 
 func renderRecoveredAnswerDocumentDraft(doc *types.AnswerDocumentV2) string {
