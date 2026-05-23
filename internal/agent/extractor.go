@@ -2234,6 +2234,18 @@ func mergeEvidenceForAxisCheck(ctx *types.AgentContext) []types.EvidenceItem {
 // semantics: last-written wins); it simply isn't forced to.
 func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
 	if obs.Phase == PhaseMidLoop {
+		if unsupported := extractorUnsupportedToolCalls(obs.Response.ToolCalls); len(unsupported) > 0 &&
+			!extractorHasSuccessfulAllowedToolResult(obs.AllToolResults) &&
+			e.retriesUsed < e.maxRetries {
+			e.retriesUsed++
+			return LoopSignal{
+				HintRequested: true,
+				HintKey:       fmt.Sprintf("extractor.unsupported_tool.%d", e.retriesUsed),
+				Hint: fmt.Sprintf(
+					"The extractor stage cannot use tool(s): %s. Use only `emit_evidence`, `emit_answer_symbol`, and `emit_hypothesis_verdict`; do not read/search files here because the investigation snapshot is already fixed. If no structured extraction emit is required, stop without calling unavailable tools.",
+					strings.Join(unsupported, ", ")),
+			}
+		}
 		gotSymbols, gotVerdicts := false, false
 		for _, r := range obs.AllToolResults {
 			if !r.Success {
@@ -2351,6 +2363,44 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 		HintKey:       fmt.Sprintf("extractor.missing_emits.%d", e.retriesUsed),
 		Hint:          priorEmitContext + body,
 	}
+}
+
+func extractorUnsupportedToolCalls(calls []llm.ToolCall) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, call := range calls {
+		name := types.CanonicalToolName(call.Name)
+		if extractorAllowedToolName(name) {
+			continue
+		}
+		if name == "" {
+			name = strings.TrimSpace(call.Name)
+		}
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out
+}
+
+func extractorAllowedToolName(name string) bool {
+	switch types.CanonicalToolName(name) {
+	case "emit_evidence", "emit_answer_symbol", "emit_hypothesis_verdict":
+		return true
+	default:
+		return false
+	}
+}
+
+func extractorHasSuccessfulAllowedToolResult(results []types.ToolResult) bool {
+	for _, result := range results {
+		if result.Success && extractorAllowedToolName(result.ToolName) {
+			return true
+		}
+	}
+	return false
 }
 
 // latestExtractorEmitFailureContext returns a short prefix sentence

@@ -2586,7 +2586,46 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 	}
 
 	logging.Warning("tool not found: %s", tc.Name)
-	return nil, nil
+	return unknownToolResult(ctx, tc), nil
+}
+
+func unknownToolResult(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
+	stage := ""
+	if ctx != nil && ctx.Stage != "" {
+		stage = string(ctx.Stage)
+	}
+	allowed := stageAllowedToolSummary(ctx)
+	msg := fmt.Sprintf("tool %q is not available", tc.Name)
+	if stage != "" {
+		msg += " in stage " + stage
+	}
+	if allowed != "" {
+		msg += "; available tools here: " + allowed
+	}
+	return &types.ToolResult{
+		ToolName:  tc.Name,
+		Summary:   msg,
+		Success:   false,
+		Timestamp: time.Now(),
+	}
+}
+
+func stageAllowedToolSummary(ctx *types.AgentContext) string {
+	if ctx == nil {
+		return ""
+	}
+	switch ctx.Stage {
+	case types.StageAnalyze:
+		return "emit_analysis, grep(files_only=true), repo_map"
+	case types.StageExplore:
+		return "read/search tools, git tools, emit_evidence, emit_investigation_complete"
+	case types.StageExtract:
+		return "emit_evidence, emit_answer_symbol, emit_hypothesis_verdict"
+	case types.StageFinalize:
+		return "emit_answer_document, emit_answer_document_patch"
+	default:
+		return ""
+	}
 }
 
 // buildToolBusContext narrows the agent's AgentContext into a

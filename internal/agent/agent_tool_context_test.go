@@ -91,6 +91,29 @@ func TestExecuteTool_MalformedParamsRejectedBeforeToolExecution(t *testing.T) {
 	}
 }
 
+func TestExecuteTool_UnknownToolReturnsFailedResult(t *testing.T) {
+	base := NewBaseAgent(types.AgentExtractor, &Dependencies{Tools: toolpkg.NewRegistry()}, nil)
+	res, mcp := base.executeTool(&types.AgentContext{Stage: types.StageExtract}, llm.ToolCall{
+		ID:     "unknown",
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"a.go"}`),
+	})
+	if mcp != nil {
+		t.Fatalf("unknown local tool should not return MCP response: %+v", mcp)
+	}
+	if res == nil {
+		t.Fatal("unknown tool should return a failed ToolResult, not disappear")
+	}
+	if res.Success {
+		t.Fatalf("unknown tool result should fail: %+v", res)
+	}
+	for _, want := range []string{"tool \"read_file\" is not available", "stage extract", "emit_answer_symbol"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("unknown-tool summary missing %q: %q", want, res.Summary)
+		}
+	}
+}
+
 func TestExecuteTool_TruncatedParamsGetsTypedCompactGuidance(t *testing.T) {
 	reg := toolpkg.NewRegistry()
 	capture := &captureBusContextTool{}

@@ -239,11 +239,17 @@ observations.
     Ledger source ref so finalizer/reviewer can preserve history narrative
     context instead of seeing only a raw commit id.
 
-- Batch 35 — extractor stage boundary. Status: planned.
+- Batch 35 — extractor stage boundary. Status: completed.
   - Ensure extractor completion is based on accepted structured emits or
     explicit soft-stop policy, not on unknown/unavailable tool calls.
   - Keep extractor prompts aligned with its actual tool set and existing
     Observation Ledger handoff; do not introduce another evidence surface.
+  - Delivered in this batch: unavailable tools now return an explicit failed
+    `ToolResult` instead of disappearing from the ReAct transcript, and the
+    extractor mid-loop controller treats stage-outside tool calls as a
+    repairable protocol issue unless a valid structured extractor emit already
+    succeeded. This protects the stage boundary without turning answer content
+    into a hard gate.
 
 - Batch 36 — scalar/negative/external handoff closure. Status: planned.
   - Generalize existing count/scalar aggregate handoff without turning narrative

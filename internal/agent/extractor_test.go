@@ -2144,6 +2144,52 @@ func TestExtractor_Observe_MidLoop_NonListShapeNoHypothesis_NothingExpected_AnyS
 	}
 }
 
+func TestExtractor_Observe_MidLoop_UnsupportedToolDoesNotCompleteStage(t *testing.T) {
+	ctx, obs := observeMidLoopFixture(
+		types.IntentExplain,
+		nil,
+		nil,
+		[]types.ToolResult{
+			{ToolName: "read_file", Success: false, Summary: "tool is not available in stage extract"},
+		},
+	)
+	obs.Response = llm.Response{ToolCalls: []llm.ToolCall{{Name: "read_file"}}}
+	e := &extractorEvaluator{maxRetries: 1}
+	sig := e.Observe(ctx, obs)
+	if sig.StopRequested {
+		t.Fatalf("unsupported extractor tool call must not complete the stage: %+v", sig)
+	}
+	if !sig.HintRequested {
+		t.Fatalf("unsupported extractor tool call should receive a stage-boundary hint: %+v", sig)
+	}
+	for _, want := range []string{"read_file", "emit_answer_symbol", "do not read/search"} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("unsupported-tool hint missing %q: %q", want, sig.Hint)
+		}
+	}
+}
+
+func TestExtractor_Observe_MidLoop_UnsupportedToolAfterValidEmitDoesNotBlockStop(t *testing.T) {
+	ctx, obs := observeMidLoopFixture(
+		types.IntentEnumerate,
+		nil,
+		nil,
+		[]types.ToolResult{
+			{ToolName: "emit_answer_symbol", Success: true},
+			{ToolName: "read_file", Success: false, Summary: "tool is not available in stage extract"},
+		},
+	)
+	ctx.Mutable.SetEmittedAnswerSymbols([]types.AnswerSymbol{
+		{Name: "Foo", File: "a.go", Line: 5, Kind: "function"},
+	}, types.CompletenessLowerBound)
+	obs.Response = llm.Response{ToolCalls: []llm.ToolCall{{Name: "emit_answer_symbol"}, {Name: "read_file"}}}
+	e := &extractorEvaluator{maxRetries: 1}
+	sig := e.Observe(ctx, obs)
+	if !sig.StopRequested {
+		t.Fatalf("valid structured emit should not be blocked by an extra failed unavailable call: %+v", sig)
+	}
+}
+
 // -----------------------------------------------------------------------------
 // Observe — soft-stop correction (option B)
 // -----------------------------------------------------------------------------
