@@ -819,7 +819,7 @@ untouched.
         principal answer sections; set-valued and relational role lookups keep
         their topics.
     - Slice 44.4 — explicit-file literal/import/source-inventory analyzer stop
-      condition. Status: planned.
+      condition. Status: completed.
       - Root gaps: E20260522-G50 / G57 and E20260520 import/inventory cases
         show analyzer spending rounds on content searches after file or package
         existence has already been established.
@@ -832,6 +832,14 @@ untouched.
       - Guardrail tests: import literal enumeration and explicit source
         inventory classify after existence proof; broad category enumeration
         without explicit scope still follows the normal analyzer route.
+      - Delivered in this slice: analyzer mid-loop observation now emits a
+        soft `analyzer.path-scoped-prescan-ready` hint after a successful
+        path-scoped `grep(files_only=true)` result with matching files. The
+        hint asks the analyzer to emit classification and leave line/member
+        proof to explore; it is not a hard stop. Guardrails skip repo-wide
+        paths, failed greps, non-`files_only` searches, line-match greps,
+        up-directory paths, and non-grep tools so broad discovery and normal
+        analyzer routes remain untouched.
     - Slice 44.5 — exact-symbol conditional / premise-invalid boundary.
       Status: planned.
       - Root gaps: E20260520-G84/G85 and related change-impact cases show

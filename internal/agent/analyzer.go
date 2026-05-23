@@ -1021,6 +1021,14 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	if max <= 0 {
 		return LoopSignal{}
 	}
+	if e.prescanRounds < max && analyzerPrescanResultSupportsClassificationStop(*obs.LastToolResult) {
+		return LoopSignal{
+			HintRequested: true,
+			Progress:      true,
+			HintKey:       "analyzer.path-scoped-prescan-ready",
+			Hint:          "This path-scoped files-only pre-scan has already established location/existence for classification. Do not try to gather line-level proof in analyze. If the request is an explicit file/package/import/literal/source-inventory question, call emit_analysis next with the structured scope and let explore read exact lines and members.",
+		}
+	}
 	// Last-legal-round warning: the LLM just consumed the final
 	// prescan slot. Inject a strong must-emit hint so the next
 	// response has a chance to call emit_analysis instead of hitting
@@ -1056,6 +1064,88 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 		e.prescanRounds, max)
 	logging.Warning("[analyzer] %s", reason)
 	return LoopSignal{StopRequested: true, StopReason: reason}
+}
+
+func analyzerPrescanResultSupportsClassificationStop(result types.ToolResult) bool {
+	if result.ToolName != "grep" || !result.Success {
+		return false
+	}
+	summary := result.Summary
+	if !strings.Contains(summary, "[grep:") ||
+		!strings.Contains(summary, "matching files]") ||
+		!strings.Contains(summary, "files_only=true") {
+		return false
+	}
+	path := analyzerBannerValue(summary, "grep params", "path")
+	if path == "" || path == "." || path == "/" {
+		return false
+	}
+	if strings.Contains(path, "\n") || strings.Contains(path, "..") {
+		return false
+	}
+	return true
+}
+
+func analyzerBannerValue(summary, bannerName, key string) string {
+	prefix := "[" + bannerName + ": "
+	start := strings.Index(summary, prefix)
+	if start < 0 {
+		return ""
+	}
+	rest := summary[start+len(prefix):]
+	end := strings.Index(rest, "]")
+	if end < 0 {
+		return ""
+	}
+	body := rest[:end]
+	want := key + "="
+	for i := 0; i < len(body); {
+		for i < len(body) && body[i] == ' ' {
+			i++
+		}
+		if i >= len(body) {
+			break
+		}
+		keyStart := i
+		for i < len(body) && body[i] != '=' && body[i] != ' ' {
+			i++
+		}
+		if i >= len(body) || body[i] != '=' {
+			for i < len(body) && body[i] != ' ' {
+				i++
+			}
+			continue
+		}
+		fieldKey := body[keyStart:i]
+		i++ // '='
+		valueStart := i
+		for i < len(body) {
+			if body[i] == ' ' && analyzerLooksLikeBannerField(body, i+1) {
+				break
+			}
+			i++
+		}
+		if fieldKey+"=" == want {
+			return strings.TrimSpace(body[valueStart:i])
+		}
+	}
+	return ""
+}
+
+func analyzerLooksLikeBannerField(body string, start int) bool {
+	if start >= len(body) || body[start] == ' ' || body[start] == '=' {
+		return false
+	}
+	i := start
+	for i < len(body) && body[i] != '=' && body[i] != ' ' {
+		c := body[i]
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' {
+			i++
+			continue
+		}
+		return false
+	}
+	return i > start && i < len(body) && body[i] == '='
 }
 
 func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, toolResults []types.ToolResult, _ []types.MCPResponse) (*StageOutput, error) {

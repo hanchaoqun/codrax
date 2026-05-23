@@ -702,6 +702,114 @@ func TestAnalyzer_PrescanBudget_MustEmitHintOnLastLegalRound(t *testing.T) {
 	}
 }
 
+func TestAnalyzer_PrescanBudget_PathScopedGrepHintsEmitBeforeBudgetWall(t *testing.T) {
+	restoreAnalysisLimits(t)
+	tool.SetAnalysisLimits(tool.AnalysisLimits{MaxPrescanRounds: 3})
+
+	mu := types.NewMutableState("explicit file import inventory")
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mu}
+	e := &analyzerEvaluator{}
+	e.BuildInitialInstruction(ctx, nil)
+
+	result := types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary:  "[grep: 1 matching files]\n[grep params: pattern=import path=internal/tool/emit_analysis.go files_only=true]\ninternal/tool/emit_analysis.go\n",
+	}
+	sig := e.Observe(ctx, LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      0,
+		LastToolResult: &result,
+		AllToolResults: []types.ToolResult{result},
+	})
+	if !sig.HintRequested {
+		t.Fatal("path-scoped files-only grep should ask analyzer to emit classification")
+	}
+	if sig.HintKey != "analyzer.path-scoped-prescan-ready" {
+		t.Fatalf("HintKey = %q, want analyzer.path-scoped-prescan-ready", sig.HintKey)
+	}
+	if sig.StopRequested {
+		t.Fatalf("path-scoped hint should be soft, got stop reason %q", sig.StopReason)
+	}
+	if !strings.Contains(sig.Hint, "line-level proof") || !strings.Contains(sig.Hint, "emit_analysis") {
+		t.Fatalf("hint should preserve analyzer/explorer boundary, got %q", sig.Hint)
+	}
+}
+
+func TestAnalyzer_PrescanResultSupportsClassificationStop_GuardsBroadOrLineGreps(t *testing.T) {
+	tests := []struct {
+		name string
+		res  types.ToolResult
+		want bool
+	}{
+		{
+			name: "path scoped files-only match",
+			res: types.ToolResult{
+				ToolName: "grep", Success: true,
+				Summary: "[grep: 2 matching files]\n[grep params: pattern=foo path=internal/agent files_only=true]\ninternal/agent/a.go\n",
+			},
+			want: true,
+		},
+		{
+			name: "path with spaces stays path scoped",
+			res: types.ToolResult{
+				ToolName: "grep", Success: true,
+				Summary: "[grep: 1 matching files]\n[grep params: pattern=foo path=sample project/src files_only=true]\nsample project/src/a.go\n",
+			},
+			want: true,
+		},
+		{
+			name: "repo root too broad",
+			res: types.ToolResult{
+				ToolName: "grep", Success: true,
+				Summary: "[grep: 2 matching files]\n[grep params: pattern=foo path=. files_only=true]\na.go\n",
+			},
+		},
+		{
+			name: "up-directory path ignored",
+			res: types.ToolResult{
+				ToolName: "grep", Success: true,
+				Summary: "[grep: 1 matching files]\n[grep params: pattern=foo path=../other files_only=true]\n../other/a.go\n",
+			},
+		},
+		{
+			name: "failed grep ignored",
+			res: types.ToolResult{
+				ToolName: "grep", Success: false,
+				Summary: "[grep: 1 matching files]\n[grep params: pattern=foo path=internal/agent files_only=true]\ninternal/agent/a.go\n",
+			},
+		},
+		{
+			name: "non-files-only grep ignored",
+			res: types.ToolResult{
+				ToolName: "grep", Success: true,
+				Summary: "[grep: 2 matching files]\n[grep params: pattern=foo path=internal/agent]\ninternal/agent/a.go\n",
+			},
+		},
+		{
+			name: "line grep not analyzer classification proof",
+			res: types.ToolResult{
+				ToolName: "grep", Success: true,
+				Summary: "[grep: 2 matching lines]\n[grep params: pattern=foo path=internal/agent]\na.go:1:foo\n",
+			},
+		},
+		{
+			name: "repo map ignored",
+			res: types.ToolResult{
+				ToolName: "repo_map", Success: true,
+				Summary: "internal/agent/analyzer.go",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := analyzerPrescanResultSupportsClassificationStop(tt.res); got != tt.want {
+				t.Fatalf("supportsClassificationStop = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestAnalyzer_FilterToolSchemas_NormalDropsContentTools(t *testing.T) {
 	e := &analyzerEvaluator{}
 	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: types.NewMutableState("question")}
