@@ -91,3 +91,41 @@ func TestEmitPerfTrace_Execute_AcceptsTraceObservationsOnly(t *testing.T) {
 		t.Fatalf("summary should report observations count: %q", res.Summary)
 	}
 }
+
+func TestEmitPerfTrace_Execute_StructuredPayloadCompatRepairsStringWrappedArrays(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable:         types.NewMutableState("trace json compatibility"),
+		AttachedHitrace: "1│ B|1000|H:RenderService:DoFrame\n2│ E|1000\n",
+	}
+	params := json.RawMessage(`{
+		"meta": {
+			"source": "hitrace",
+			"signals": "[\"jank\"]",
+			"summary": "one frame observation"
+		},
+		"observations": "[{\"kind\":\"line_anchor\",\"subject\":\"DoFrame\",\"summary\":\"DoFrame span is observed on trace lines 1-2\",\"evidence\":\"H:RenderService:DoFrame\",\"line_start\":\"1\",\"line_end\":\"2\",\"tags\":\"[\\\"render\\\"]\"}]"
+	}`)
+
+	tool := &EmitPerfTrace{}
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("expected schema-compatible payload to be accepted, got: %s", res.Summary)
+	}
+	bundle := bus.Mutable.PerfTrace()
+	if bundle == nil || len(bundle.Observations) != 1 {
+		t.Fatalf("perf observation bundle missing: %+v", bundle)
+	}
+	got := bundle.Observations[0]
+	if got.LineStart != 1 || got.LineEnd != 2 || got.Subject != "DoFrame" {
+		t.Fatalf("observation was not preserved after compat repair: %+v", got)
+	}
+	if len(got.Tags) != 1 || got.Tags[0] != "render" {
+		t.Fatalf("nested string-wrapped tags were not repaired: %+v", got.Tags)
+	}
+	if len(bundle.Meta.Signals) == 0 || bundle.Meta.Signals[0] != "jank" {
+		t.Fatalf("meta signals were not repaired: %+v", bundle.Meta.Signals)
+	}
+}

@@ -26,6 +26,9 @@ Implementation progress:
 - 2026-05-23 Batch 4 added a structural regression guard so the current
   structured emit tools cannot accidentally bypass `StructuredPayloadCompat`
   in future edits.
+- 2026-05-23 Batch 5 closed the main perf/trace emitter gap:
+  `emit_perf_trace` now shares the same compatibility layer as log/perf
+  segmentation and is covered by a string-wrapped trace-observation regression.
 - Remaining work starts at P1 carrier compilers / row-set references; the first
   batch deliberately did not change answer materialization policy.
 
