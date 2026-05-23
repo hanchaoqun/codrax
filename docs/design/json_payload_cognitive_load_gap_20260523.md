@@ -617,6 +617,13 @@ untouched.
     hit/no-hit, log no-fatal, and HiTrace no-long-GC negative-observation
     cases. These cases track the cross-origin contract instead of only the
     single original VCS marker scenario.
+  - Delivered in Batch 42.3a: visible `citation_ref=-1` sanitizer now covers
+    typed external-observation-only answers, not just runtime artifacts. The
+    gate is compiled from `AnswerIntentContract` plus `ObservationLedger`: it
+    requires at least one non-current-source origin and rejects any actual
+    current-source ledger record/current-source diagnostic requirement. Mixed
+    "history/log/trace + current source" answers and Codrax-internal questions
+    keep literal text untouched.
 
 - Batch 43 — runtime artifact provenance split. Status: planned.
   - Carry `observed_direct_cause`, `artifact_span`, and

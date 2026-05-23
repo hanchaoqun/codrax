@@ -246,6 +246,142 @@ func TestNormalizeRuntimeArtifactVisibleCitationSentinels_DoesNotTouchCurrentSou
 	}
 }
 
+func TestNormalizeExternalObservationVisibleCitationSentinels_SanitizesVCSOnlyAnswers(t *testing.T) {
+	mut := types.NewMutableState("history")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateNegativeObservation,
+		Label: "recent history no-hit",
+		Value: "0",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "origin", Value: "vcs_metadata"},
+			{Name: "target", Value: "missing-marker"},
+			{Name: "commit_range", Value: "HEAD~20..HEAD"},
+			{Name: "result_count", Value: "0"},
+		},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Language: "zh",
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:    "summary",
+		Kind:  types.BlockSummary,
+		Title: "版本历史观察（citation_ref=-1）",
+		Text:  "该结论来自 git history，citation_ref=-1。",
+		Items: []types.AnswerBlockItem{{
+			ID:    "row",
+			Label: "`citation_ref=-1`",
+			Text:  "最近 20 次提交内 0 命中（citation_ref=-1）。",
+			Cells: []string{"范围", "citation_ref = -1"},
+		}},
+	}}, Caveats: []string{"版本历史观察 citation_ref=-1。"}}
+
+	fixed := normalizeExternalObservationVisibleCitationSentinels(doc, ctx)
+	if fixed == 0 {
+		t.Fatal("expected external-observation visible sentinel text to be sanitized")
+	}
+	rendered := doc.Blocks[0].Title + "\n" + doc.Blocks[0].Text + "\n" +
+		doc.Blocks[0].Items[0].Label + "\n" + doc.Blocks[0].Items[0].Text + "\n" +
+		doc.Blocks[0].Items[0].Cells[1] + "\n" + doc.Caveats[0]
+	if strings.Contains(rendered, "citation_ref") {
+		t.Fatalf("external observation visible text should not expose citation_ref carrier:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "来自外部观察结果，未绑定当前仓库源码引用") {
+		t.Fatalf("sanitized text should explain external provenance, got:\n%s", rendered)
+	}
+}
+
+func TestNormalizeExternalObservationVisibleCitationSentinels_DoesNotTouchMixedCurrentSource(t *testing.T) {
+	mut := types.NewMutableState("history plus current source")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateScalar,
+		Label: "commit",
+		Value: "abc123",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "origin", Value: "vcs_metadata"},
+		},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Language: "zh",
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup:  true,
+				IsCrossComponent: true,
+			},
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "current-source",
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/tool/emit_answer_document_v2.go",
+			LineStart:       1,
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "s",
+		Kind: types.BlockSummary,
+		Text: "这里讨论 Codrax 内部的 `citation_ref=-1` 兼容语义。",
+	}}}
+
+	if fixed := normalizeExternalObservationVisibleCitationSentinels(doc, ctx); fixed != 0 {
+		t.Fatalf("mixed current-source answers must not be sanitized, fixed=%d", fixed)
+	}
+	if !strings.Contains(doc.Blocks[0].Text, "citation_ref=-1") {
+		t.Fatalf("mixed current-source literal text should remain visible: %q", doc.Blocks[0].Text)
+	}
+}
+
+func TestNormalizeExternalObservationVisibleCitationSentinels_SanitizesCommandOnlyAnswers(t *testing.T) {
+	mut := types.NewMutableState("count lines")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateScalar,
+		Label: "line count",
+		Value: "42",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "origin", Value: "command_measurement"},
+			{Name: "tool_result", Value: "exec-command-001"},
+		},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Language: "en",
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentReturnValue,
+			Predicates: types.SemanticPredicates{
+				IsCountQuestion: true,
+				IsScalarAnswer:  true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "scalar",
+		Kind: types.BlockScalar,
+		Text: "42 (citation_ref=-1)",
+	}}}
+
+	if fixed := normalizeExternalObservationVisibleCitationSentinels(doc, ctx); fixed == 0 {
+		t.Fatal("expected command-only external observation sentinel to be sanitized")
+	}
+	if strings.Contains(doc.Blocks[0].Text, "citation_ref") ||
+		!strings.Contains(doc.Blocks[0].Text, "external observation, not a current-repository source citation") {
+		t.Fatalf("command-only text was not sanitized correctly: %q", doc.Blocks[0].Text)
+	}
+}
+
 func TestPreCheckArtifactObservedFrameCitations_AllowsCurrentAnchoredLine(t *testing.T) {
 	ctx := artifactFrameDriftBusContext()
 	doc := &types.AnswerDocumentV2{

@@ -585,6 +585,9 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if fixed := normalizeRuntimeArtifactVisibleCitationSentinels(doc, ctx); fixed > 0 {
 		logging.Warning("[%s] sanitized %d runtime-artifact visible citation sentinel(s)", toolName, fixed)
 	}
+	if fixed := normalizeExternalObservationVisibleCitationSentinels(doc, ctx); fixed > 0 {
+		logging.Warning("[%s] sanitized %d external-observation visible citation sentinel(s)", toolName, fixed)
+	}
 }
 
 func normalizeClaimUseEvidenceIDsByProjection(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {

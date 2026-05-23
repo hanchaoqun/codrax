@@ -20,6 +20,51 @@ func answerDocumentRuntimeObservationOnly(ctx *types.BusContext) bool {
 		!plan.CurrentSourceEvidenceOrigin
 }
 
+func answerDocumentExternalObservationOnly(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	contract := types.CompileAnswerIntentContract(rm, &ctx.AnalysisIR.AnswerContract)
+	hasExternal := false
+	for _, origin := range contract.Origins {
+		switch origin {
+		case types.AnswerEvidenceOriginCurrentSource:
+			// The compiled contract can include current_source as a conservative
+			// default for generic/count shapes. Do not let that default alone
+			// suppress cleanup when the accepted ledger is purely external; real
+			// current-source answers are blocked by the answer surface plan or
+			// by current-source ledger records below.
+			continue
+		case types.AnswerEvidenceOriginUnknown, types.AnswerEvidenceOriginSystemInference:
+			continue
+		default:
+			if types.AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
+				hasExternal = true
+			}
+		}
+	}
+	if plan := answerSurfacePlan(ctx); plan != nil {
+		if plan.CurrentStatusDiagnosticRequired {
+			return false
+		}
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, 64))
+	for _, record := range ledger.Records {
+		switch record.Origin {
+		case types.AnswerEvidenceOriginCurrentSource:
+			return false
+		case types.AnswerEvidenceOriginUnknown, types.AnswerEvidenceOriginSystemInference:
+			continue
+		default:
+			if types.AnswerEvidenceOriginCarriesOriginSpecificSupport(record.Origin) {
+				hasExternal = true
+			}
+		}
+	}
+	return hasExternal
+}
+
 // normalizeRuntimeArtifactCitationRefs removes citation-pool entries that
 // would make an attached runtime artifact look like current-repo source proof.
 // The visible answer content is preserved; only citation_ref carriers that
@@ -97,7 +142,20 @@ func normalizeRuntimeArtifactVisibleCitationSentinels(doc *types.AnswerDocumentV
 	if doc == nil || !answerDocumentRuntimeObservationOnly(ctx) {
 		return 0
 	}
-	replacement := runtimeArtifactVisibleCitationBoundaryText(ctx)
+	return normalizeVisibleCitationSentinels(doc, runtimeArtifactVisibleCitationBoundaryText(ctx))
+}
+
+func normalizeExternalObservationVisibleCitationSentinels(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
+	if doc == nil || answerDocumentRuntimeObservationOnly(ctx) || !answerDocumentExternalObservationOnly(ctx) {
+		return 0
+	}
+	return normalizeVisibleCitationSentinels(doc, externalObservationVisibleCitationBoundaryText(ctx))
+}
+
+func normalizeVisibleCitationSentinels(doc *types.AnswerDocumentV2, replacement string) int {
+	if doc == nil {
+		return 0
+	}
 	changed := 0
 	normalize := func(ptr *string) {
 		if ptr == nil || strings.TrimSpace(*ptr) == "" {
@@ -142,4 +200,11 @@ func runtimeArtifactVisibleCitationBoundaryText(ctx *types.BusContext) string {
 		return "runtime-artifact observation, not a current-repository source citation"
 	}
 	return "来自附件运行时材料，未绑定当前仓库源码引用"
+}
+
+func externalObservationVisibleCitationBoundaryText(ctx *types.BusContext) string {
+	if ctx != nil && strings.HasPrefix(strings.ToLower(strings.TrimSpace(ctx.Language)), "en") {
+		return "external observation, not a current-repository source citation"
+	}
+	return "来自外部观察结果，未绑定当前仓库源码引用"
 }
