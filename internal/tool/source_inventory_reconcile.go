@@ -128,13 +128,23 @@ func sourceInventoryReplaceMemberSet(fact *types.AnswerAggregateFact, candidates
 	if fact == nil || len(candidates) == 0 {
 		return false
 	}
+	existingByKey := sourceInventoryExistingMemberCarriers(*fact)
 	members := make([]string, 0, len(candidates))
 	refs := make([]string, 0, len(candidates))
 	notes := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
+		existing := existingByKey[candidate.key]
+		supportRef := candidate.supportRef
+		if strings.TrimSpace(supportRef) == "" {
+			supportRef = existing.supportRef
+		}
+		note := sourceInventoryCandidateNote(candidate)
+		if strings.TrimSpace(existing.note) != "" {
+			note = types.MergeEvidenceSummaries(existing.note, note)
+		}
 		members = append(members, candidate.member)
-		refs = append(refs, candidate.supportRef)
-		notes = append(notes, sourceInventoryCandidateNote(candidate))
+		refs = append(refs, supportRef)
+		notes = append(notes, note)
 	}
 	notes = trimTrailingEmptyStrings(notes)
 	if stringSlicesEqual(fact.Members, members) && stringSlicesEqual(fact.SupportRefs, refs) && stringSlicesEqual(fact.MemberNotes, notes) {
@@ -148,6 +158,30 @@ func sourceInventoryReplaceMemberSet(fact *types.AnswerAggregateFact, candidates
 		fact.Provenance = "system:source_inventory"
 	}
 	return true
+}
+
+type sourceInventoryExistingMemberCarrier struct {
+	note       string
+	supportRef string
+}
+
+func sourceInventoryExistingMemberCarriers(fact types.AnswerAggregateFact) map[string]sourceInventoryExistingMemberCarrier {
+	out := map[string]sourceInventoryExistingMemberCarrier{}
+	for idx, member := range fact.Members {
+		key := aggregateMemberKey(member)
+		if key == "" {
+			continue
+		}
+		existing := out[key]
+		if idx < len(fact.MemberNotes) {
+			existing.note = types.MergeEvidenceSummaries(existing.note, fact.MemberNotes[idx])
+		}
+		if strings.TrimSpace(existing.supportRef) == "" && idx < len(fact.SupportRefs) {
+			existing.supportRef = strings.TrimSpace(fact.SupportRefs[idx])
+		}
+		out[key] = existing
+	}
+	return out
 }
 
 func sourceInventoryAppendMissingCandidates(fact *types.AnswerAggregateFact, candidates []sourceInventoryCandidate) bool {

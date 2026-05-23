@@ -629,6 +629,82 @@ func TestReconcileCompletionAggregateFactsWithSourceInventory_MixedLanguageGraph
 	}
 }
 
+func TestReconcileCompletionAggregateFactsWithSourceInventory_PreservesExplorerNotesWhenReplacing(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{RelPath: "src/a.go", Language: "go", Symbols: []repotypes.Symbol{{
+			Name:     "Eval",
+			Kind:     "function",
+			File:     "src/a.go",
+			Line:     10,
+			Exported: true,
+			Doc:      "// Eval evaluates one Criterion against the current environment.",
+		}}},
+		{RelPath: "src/B.java", Language: "java", Symbols: []repotypes.Symbol{{
+			Name:     "Run",
+			Kind:     "function",
+			File:     "src/B.java",
+			Line:     20,
+			Exported: true,
+			Doc:      "/** Run executes the Java entrypoint. */",
+		}}},
+		{RelPath: "src/c.ts", Language: "typescript", Symbols: []repotypes.Symbol{{
+			Name:     "render",
+			Kind:     "function",
+			File:     "src/c.ts",
+			Line:     30,
+			Exported: false,
+			Doc:      "/** render updates the private view. */",
+		}}},
+	})
+	ctx := sourceInventoryTestContext("", graph, "src", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		RequestedFields: []types.SourceInventoryRequestedField{
+			types.SourceInventoryFieldName,
+			types.SourceInventoryFieldLocation,
+			types.SourceInventoryFieldSummary,
+		},
+		Confidence: 0.95,
+	})
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "public functions",
+		Value:   "1",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Eval", "render"},
+		MemberNotes: []string{
+			"Eval 对单个 Criterion 执行评估，未知 Kind 返回 UnknownKind。",
+			"render 是探索早期误收集的私有函数。",
+		},
+		SupportRefs: []string{
+			"Eval @ src/a.go:10",
+			"render @ src/c.ts:30",
+		},
+	}}
+
+	got := reconcileCompletionAggregateFactsWithSourceInventory(ctx, facts, nil)
+	wantMembers := []string{"Run", "Eval"}
+	if !reflect.DeepEqual(got[0].Members, wantMembers) {
+		t.Fatalf("members = %#v, want %#v", got[0].Members, wantMembers)
+	}
+	if len(got[0].MemberNotes) != 2 {
+		t.Fatalf("member notes = %#v, want one note per retained member", got[0].MemberNotes)
+	}
+	if !strings.Contains(got[0].MemberNotes[0], "Java entrypoint") {
+		t.Fatalf("new graph-backed member should keep graph doc note, got %#v", got[0].MemberNotes)
+	}
+	if !strings.Contains(got[0].MemberNotes[1], "单个 Criterion") ||
+		!strings.Contains(got[0].MemberNotes[1], "evaluates one Criterion") {
+		t.Fatalf("same-member explorer note should merge with graph doc instead of being overwritten: %#v", got[0].MemberNotes)
+	}
+	if strings.Contains(strings.Join(got[0].MemberNotes, "\n"), "误收集") {
+		t.Fatalf("dropped private/out-of-scope member notes must not attach to retained members: %#v", got[0].MemberNotes)
+	}
+	if !reflect.DeepEqual(got[0].SupportRefs, []string{"Run: src/B.java:20", "Eval: src/a.go:10"}) {
+		t.Fatalf("support refs should remain graph-authoritative after replacement, got %#v", got[0].SupportRefs)
+	}
+}
+
 func aggregateReconcileTestContext() *types.BusContext {
 	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{}}
 	add := func(name, kind string, line int, exported bool) {

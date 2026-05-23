@@ -268,11 +268,33 @@ observations.
     model-authored answer above it.
 
 - Batch 37 — language-aware source inventory/export semantics. Status:
-  planned.
+  completed.
   - Reuse repomap language metadata where available instead of Go-only
     heuristics.
   - Source inventory supplements remain separate localized system notes and do
     not replace model tables or prose.
+  - Current sub-tasks:
+    1. Preserve explorer-authored `member_notes[]` when source-inventory
+       reconciliation replaces a stale/incomplete aggregate member set with the
+       typed graph/parser-complete set. Same-member summaries must be merged by
+       stable member identity, not overwritten by graph/doc comments.
+    2. Keep the Go parser path limited to the explicit `type_underlying=string`
+       + `requires_const_set` type-inventory qualifier. All other languages and
+       general source inventories must use repomap graph metadata (`language`,
+       `kind`, `exported`, `file:line`) so the feature benefits every supported
+       language.
+    3. Add regression coverage proving mixed-language source inventories keep
+       exported symbols, exclude private/internal symbols when requested, and
+       carry rich notes downstream without replacing model-authored final-answer
+       tables.
+  - Delivered in this batch: `sourceInventoryReplaceMemberSet` now merges
+    existing same-member `member_notes[]` ahead of graph/parser candidate notes
+    while retaining graph-authoritative `file:line` support refs. Dropped
+    private/out-of-scope members do not leak their notes onto retained members.
+    Regression coverage pins mixed Go/Java/TypeScript source inventories so
+    exported cross-language symbols are kept, private symbols are excluded under
+    `public_exported`, and explorer-authored Chinese summaries survive the
+    replacement path.
 
 - Batch 38 — runtime artifact origin normalization. Status: planned.
   - Align git/log/trace/command observation refs, excerpts, and line/span labels
