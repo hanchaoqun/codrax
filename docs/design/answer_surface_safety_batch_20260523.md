@@ -192,7 +192,7 @@ Contract:
 | T4 | Partially done | Add telemetry/tests proving reviewer sees system supplements, model Markdown tables, diagrams, attachments, and external observations exactly as the final panel does. | `internal/orchestrator/*reviewer*_test.go`, `internal/render/answerdoc_test.go` | Shared surface test covers supplements, diagrams, and attachments; external observations already covered by semantic reviewer tests. Targeted eval replay remains under T5. |
 | T5 | Partially done | Run targeted evals for principal-ledger/history, source-inventory, multi-repo compare, log/trace artifact, and mixed external+code analysis. | `eval/results/...` | `u7l` and `logtri_artifact_line_anchor` replayed with no finalizer retry; broader mixed/multi-repo tranche remains for the next batch. |
 | T6 | Partially done | Refresh gap docs with confirmed residuals and decide next architecture batch. | `docs/design/eval_20260520_full_sweep_gap_tracking.md`, related design docs | VCS path/date literal fidelity residual recorded as `E20260520-G153`. |
-| T7 | Pending | Add exact external-detail preservation for VCS tool outputs, starting with `git_log stat=true` exact changed paths and prompt guidance that forbids expanding abbreviated stat paths. | `internal/tool/builtin.go`, `internal/types/observation_ledger.go`, finalizer prompt tests | unit tests + `u7l` replay |
+| T7 | Done | Add exact external-detail preservation for VCS tool outputs, starting with `git_log stat=true` exact changed paths and prompt guidance that forbids expanding abbreviated stat paths. | `internal/tool/builtin.go`, `internal/types/observation_ledger.go`, finalizer prompt tests | `go test ./internal/...`; `u7l-20260523-223616` PASS with `finalizer_iters=1`, no rejects, exact path `answer_surface_safety_batch_20260523.md` preserved. |
 | T8 | Pending | Generalize exact-detail projection tests for non-VCS origins so logs/traces/commands/MCP/connectors keep artifact-local coordinates and resource IDs as origin-local evidence. | `internal/types/observation_*_test.go`, selected eval cases | targeted log/trace/command/MCP-style fixtures |
 
 ## Developer Guardrails
@@ -252,3 +252,13 @@ Contract:
   paths from `...` abbreviations. Batch T7 will add bounded exact changed-path
   companions at the VCS producer layer and prompt guidance to copy exact literals
   only from exact detail/raw payload, not from abbreviated display strings.
+- 2026-05-23: Batch T7 implemented bounded `exact_changed_paths` companions for
+  `git_log stat=true` and `git_show stat=true`. The exact detail is emitted by
+  the VCS producer, carried into Observation Ledger rich notes, and reinforced in
+  finalizer prompt guidance as copy-only origin-local support. It does not create
+  current-source `file:line` pressure. `go test ./internal/...` passed, and
+  `eval/results/u7l-20260523-223616` passed with `finalizer_iters=1`,
+  `midloop_inject=0`, and no finalizer reject. The final answer preserved
+  `docs/design/answer_surface_safety_batch_20260523.md`; the remaining
+  `20250523` mention was only a quoted description of the historical error
+  recorded in the latest design commit, not a path literal regression.

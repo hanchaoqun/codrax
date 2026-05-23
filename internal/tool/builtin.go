@@ -1957,7 +1957,7 @@ type gitShowParams struct {
 
 func (t *GitShow) Name() string { return "git_show" }
 func (t *GitShow) Description() string {
-	return "Show a commit/ref safely. Use this instead of shelling out to git show; no_patch gives metadata only, stat gives --stat, name_only gives changed paths, and the default includes the patch without using unsupported --no-stat."
+	return "Show a commit/ref safely. Use this instead of shelling out to git show; no_patch gives metadata only, stat gives --stat plus exact_changed_paths, name_only gives changed paths, and the default includes the patch without using unsupported --no-stat. Copy exact paths from exact_changed_paths or name_only output; do not expand abbreviated --stat paths containing `...`."
 }
 
 func (t *GitShow) Parameters() json.RawMessage {
@@ -2055,7 +2055,12 @@ func (t *GitShow) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 			Timestamp: time.Now(),
 		}, nil
 	}
-	summary, refBlob := StoreBlob(ctx, t.Name(), banner+stdout.String())
+	body := banner
+	if p.Stat {
+		body += gitExactChangedPathsSection(dir, []string{ref}, pathspec)
+	}
+	body += stdout.String()
+	summary, refBlob := StoreBlob(ctx, t.Name(), body)
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
@@ -2090,7 +2095,7 @@ type gitLogParams struct {
 
 func (t *GitLog) Name() string { return "git_log" }
 func (t *GitLog) Description() string {
-	return "List recent git commits safely. Use this for latest/last-N history questions; for “最近 N 次提交做了什么/影响是什么” use count=N with format=medium and stat=true (or name_only=true for only changed paths). For “最近一次合入/merge” use merges_only=true, first_parent=true, count=1. Use ref to start from a branch/tag/commit. Then optionally git_show one commit for full patch detail. Git metadata is VCS provenance, not source file:line evidence; do not emit_evidence for commit hashes or subjects."
+	return "List recent git commits safely. Use this for latest/last-N history questions; for “最近 N 次提交做了什么/影响是什么” use count=N with format=medium and stat=true (or name_only=true for only changed paths). stat=true output includes an exact_changed_paths section; copy exact paths from that section or name_only output, and do not expand Git's abbreviated --stat paths that contain `...`. For “最近一次合入/merge” use merges_only=true, first_parent=true, count=1. Use ref to start from a branch/tag/commit. Then optionally git_show one commit for full patch detail. Git metadata is VCS provenance, not source file:line evidence; do not emit_evidence for commit hashes or subjects."
 }
 
 func (t *GitLog) Parameters() json.RawMessage {
@@ -2210,7 +2215,14 @@ func (t *GitLog) Execute(ctx *types.BusContext, params json.RawMessage) (types.T
 		}, nil
 	}
 
-	summary, ref := StoreBlob(ctx, t.Name(), banner+stdout.String())
+	body := banner
+	if p.Stat {
+		if commits, errSummary := gitLogCommitHashes(dir, ref, count, pathspec, p.FirstParent, p.MergesOnly, p.NoMerges); errSummary == "" {
+			body += gitExactChangedPathsSection(dir, commits, pathspec)
+		}
+	}
+	body += stdout.String()
+	summary, ref := StoreBlob(ctx, t.Name(), body)
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
@@ -2454,6 +2466,118 @@ func gitHistorySearchPatch(dir, hash, diffPath string) (string, string) {
 		return "", fmt.Sprintf("git show %s failed: %v: %s", shortGitHash(hash), err, strings.TrimSpace(stderr.String()))
 	}
 	return stdout.String(), ""
+}
+
+const (
+	gitExactChangedPathsMaxCommits = 20
+	gitExactChangedPathsMaxPaths   = 24
+)
+
+func gitLogCommitHashes(dir, ref string, count int, pathspec string, firstParent, mergesOnly, noMerges bool) ([]string, string) {
+	if count <= 0 {
+		count = 10
+	}
+	if count > gitExactChangedPathsMaxCommits {
+		count = gitExactChangedPathsMaxCommits
+	}
+	args := []string{"log", fmt.Sprintf("-n%d", count), "--format=%H"}
+	if firstParent {
+		args = append(args, "--first-parent")
+	}
+	if mergesOnly {
+		args = append(args, "--merges")
+	}
+	if noMerges {
+		args = append(args, "--no-merges")
+	}
+	if strings.TrimSpace(ref) == "" {
+		ref = "HEAD"
+	}
+	args = append(args, ref)
+	if pathspec != "" {
+		args = append(args, "--", pathspec)
+	}
+	cmd, cancel := NewGitLongCommand(nil, args...)
+	defer cancel()
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Sprintf("git log exact changed paths failed: %v: %s", err, strings.TrimSpace(stderr.String()))
+	}
+	var hashes []string
+	for _, line := range strings.Split(strings.ReplaceAll(stdout.String(), "\r\n", "\n"), "\n") {
+		hash := strings.TrimSpace(line)
+		if hash == "" {
+			continue
+		}
+		hashes = append(hashes, hash)
+	}
+	return hashes, ""
+}
+
+func gitExactChangedPathsSection(dir string, commits []string, pathspec string) string {
+	if len(commits) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("exact_changed_paths: copy these exact paths; do not expand abbreviated --stat paths containing `...`.\n")
+	for i, hash := range commits {
+		if i >= gitExactChangedPathsMaxCommits {
+			fmt.Fprintf(&b, "exact_path_omitted commits=%d\n", len(commits)-i)
+			break
+		}
+		paths, errSummary := gitChangedPathsForCommit(dir, hash, pathspec)
+		if errSummary != "" {
+			fmt.Fprintf(&b, "exact_path_unavailable commit=%s reason=%q\n", shortGitHash(hash), errSummary)
+			continue
+		}
+		for j, changedPath := range paths {
+			if j >= gitExactChangedPathsMaxPaths {
+				fmt.Fprintf(&b, "exact_path_omitted commit=%s paths=%d\n", shortGitHash(hash), len(paths)-j)
+				break
+			}
+			fmt.Fprintf(&b, "exact_path commit=%s path=%q\n", shortGitHash(hash), changedPath)
+		}
+	}
+	b.WriteByte('\n')
+	return b.String()
+}
+
+func gitChangedPathsForCommit(dir, hash, pathspec string) ([]string, string) {
+	hash = strings.TrimSpace(hash)
+	if hash == "" {
+		return nil, "empty commit"
+	}
+	args := []string{"show", "--format=", "--name-only", "--no-ext-diff", hash}
+	if strings.TrimSpace(pathspec) != "" {
+		args = append(args, "--", pathspec)
+	}
+	cmd, cancel := NewGitLongCommand(nil, args...)
+	defer cancel()
+	if dir != "" {
+		cmd.Dir = dir
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Sprintf("git show %s name-only failed: %v: %s", shortGitHash(hash), err, strings.TrimSpace(stderr.String()))
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, line := range strings.Split(strings.ReplaceAll(stdout.String(), "\r\n", "\n"), "\n") {
+		changedPath := strings.TrimSpace(line)
+		if changedPath == "" || seen[changedPath] {
+			continue
+		}
+		seen[changedPath] = true
+		out = append(out, filepath.ToSlash(changedPath))
+	}
+	return out, ""
 }
 
 func gitHistoryPatchContains(patch, needle string, caseInsensitive bool) bool {

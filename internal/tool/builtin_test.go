@@ -1677,6 +1677,7 @@ func TestGitShow(t *testing.T) {
 	}{
 		{"no-patch", gitShowParams{Ref: "HEAD", NoPatch: true, Format: "oneline"}, "show target", false},
 		{"name-only", gitShowParams{Ref: "HEAD", NameOnly: true}, "file.txt", true},
+		{"stat", gitShowParams{Ref: "HEAD", Stat: true}, "exact_changed_paths", true},
 		{"default patch", gitShowParams{Ref: "HEAD"}, "+new", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1694,6 +1695,9 @@ func TestGitShow(t *testing.T) {
 			hasDiffOrigin := strings.Contains(result.Summary, "diff_origin=vcs_diff")
 			if hasDiffOrigin != tc.wantDiffOrigin {
 				t.Fatalf("git_show %s diff origin = %v, want %v; summary=%q", tc.name, hasDiffOrigin, tc.wantDiffOrigin, result.Summary)
+			}
+			if tc.name == "stat" && !strings.Contains(result.Summary, `exact_path commit=HEAD path="file.txt"`) {
+				t.Fatalf("git_show stat should expose exact changed path, got %q", result.Summary)
 			}
 		})
 	}
@@ -1818,6 +1822,50 @@ func TestGitLog(t *testing.T) {
 		}
 		if result.Success || !strings.Contains(result.Summary, "mutually exclusive") {
 			t.Fatalf("stat+name_only should be rejected, got success=%v summary=%q", result.Success, result.Summary)
+		}
+	})
+
+	t.Run("stat includes exact changed paths before abbreviated stat display", func(t *testing.T) {
+		ctx := gitWorktreeFixture(t, "seed\n")
+		run := func(args ...string) {
+			t.Helper()
+			cmd, cancel := NewGitCommand(nil, args...)
+			defer cancel()
+			cmd.Dir = ctx.RepoRoot
+			cmd.Env = append(os.Environ(),
+				"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
+				"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com")
+			if out, err := cmd.CombinedOutput(); err != nil {
+				t.Fatalf("git %v: %v\n%s", args, err, out)
+			}
+		}
+		exactPath := "docs/design/answer_surface_safety_batch_20260523.md"
+		if err := os.MkdirAll(filepath.Join(ctx.RepoRoot, filepath.Dir(exactPath)), 0o755); err != nil {
+			t.Fatalf("mkdir nested path: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(ctx.RepoRoot, exactPath), []byte(strings.Repeat("line\n", 20)), 0o644); err != nil {
+			t.Fatalf("write nested path: %v", err)
+		}
+		run("add", exactPath)
+		run("commit", "-q", "-m", "add exact path doc")
+
+		tool := &GitLog{}
+		params, _ := json.Marshal(gitLogParams{Count: 1, Format: "medium", Stat: true})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("git_log stat failed: %s", result.Summary)
+		}
+		for _, want := range []string{
+			"exact_changed_paths: copy these exact paths",
+			`path="docs/design/answer_surface_safety_batch_20260523.md"`,
+			"do not expand abbreviated --stat paths",
+		} {
+			if !strings.Contains(result.Summary, want) {
+				t.Fatalf("git_log stat exact path output missing %q:\n%s", want, result.Summary)
+			}
 		}
 	})
 

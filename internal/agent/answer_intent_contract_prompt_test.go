@@ -236,6 +236,7 @@ func TestRenderAnswerDocObservationLedger_RendersVCSNarrativeAsOriginSpecificSup
 		"policy=`soft`",
 		"abc123 Add observation ledger feature",
 		"Do not turn non-`current_source` observations into source `file:line` citation requirements",
+		"Do not expand abbreviated display strings such as git `--stat` paths containing `...`",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("observation ledger prompt missing %q:\n%s", want, got)

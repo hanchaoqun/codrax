@@ -800,6 +800,7 @@ func compileToolResultObservations(results []ToolResult, add func(ObservationRec
 				ResultCount:     toolResultResultCount(result.Summary, banners),
 				Summary:         firstNonBannerLine(result.Summary),
 				RawExcerpt:      clippedObservationExcerpt(result.Summary),
+				RichNotes:       toolResultRichNotes(result.Summary),
 				ObservedAt:      result.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
 			})
 		}
@@ -1474,9 +1475,35 @@ func firstNonBannerLine(s string) string {
 		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
 			continue
 		}
+		if toolResultExactDetailLine(line) {
+			continue
+		}
 		return line
 	}
 	return firstLine(s)
+}
+
+func toolResultRichNotes(summary string) []string {
+	const maxNotes = 16
+	var out []string
+	for _, line := range strings.Split(summary, "\n") {
+		line = strings.TrimSpace(line)
+		if !toolResultExactDetailLine(line) {
+			continue
+		}
+		out = appendUniqueObservationString(out, line)
+		if len(out) >= maxNotes {
+			break
+		}
+	}
+	return out
+}
+
+func toolResultExactDetailLine(line string) bool {
+	line = strings.TrimSpace(line)
+	return strings.HasPrefix(line, "exact_changed_paths:") ||
+		strings.HasPrefix(line, "exact_path ") ||
+		strings.HasPrefix(line, "exact_path_")
 }
 
 func clippedObservationExcerpt(s string) string {

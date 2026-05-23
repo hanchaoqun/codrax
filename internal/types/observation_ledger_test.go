@@ -861,8 +861,11 @@ func TestCompileObservationLedger_ProjectsToolBannerCoordinates(t *testing.T) {
 		{
 			ToolName: "git_log",
 			Success:  true,
-			Summary:  "[git_log: pathspec=internal/tool ref=HEAD count=1 format=medium stat=true name_only=false merges_only=true no_merges=false first_parent=true evidence_origin=vcs_metadata]\ncommit abc123\n",
-			RawRef:   "/tmp/codrax/blob/git_log-merge.txt",
+			Summary: "[git_log: pathspec=internal/tool ref=HEAD count=1 format=medium stat=true name_only=false merges_only=true no_merges=false first_parent=true evidence_origin=vcs_metadata]\n" +
+				"exact_changed_paths: copy these exact paths; do not expand abbreviated --stat paths containing `...`.\n" +
+				"exact_path commit=abc123 path=\"docs/design/answer_surface_safety_batch_20260523.md\"\n\n" +
+				"commit abc123\n",
+			RawRef: "/tmp/codrax/blob/git_log-merge.txt",
 		},
 		{
 			ToolName: "exec_command",
@@ -896,6 +899,11 @@ func TestCompileObservationLedger_ProjectsToolBannerCoordinates(t *testing.T) {
 		log.SourceRef.RawRef != "/tmp/codrax/blob/git_log-merge.txt" ||
 		log.SourceRef.PayloadRef != "/tmp/codrax/blob/git_log-merge.txt" {
 		t.Fatalf("git_log filter coordinates not projected: %+v", log.SourceRef)
+	}
+	if log.Summary != "commit abc123" ||
+		len(log.RichNotes) == 0 ||
+		!strings.Contains(strings.Join(log.RichNotes, "\n"), "answer_surface_safety_batch_20260523.md") {
+		t.Fatalf("git_log exact detail should be notes while summary stays commit line: summary=%q notes=%v", log.Summary, log.RichNotes)
 	}
 	exec := findObservationRecord(t, ledger, "tool:3#vcs_metadata")
 	if exec.SourceRef.Command != "git log --oneline -n 3" ||
