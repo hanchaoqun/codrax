@@ -92,6 +92,24 @@ func AnswerEvidenceOriginCarriesOriginSpecificSupport(origin AnswerEvidenceOrigi
 	}
 }
 
+// AnswerEvidenceOriginsAreOriginSpecificOnly reports whether a set of typed
+// evidence origins is entirely non-current-source origin-specific support. This
+// is the shared guard for suppressing current-source citation fallbacks without
+// every consumer re-implementing origin switches.
+func AnswerEvidenceOriginsAreOriginSpecificOnly(origins []AnswerEvidenceOrigin) bool {
+	hasOriginSpecific := false
+	for _, origin := range origins {
+		if origin == AnswerEvidenceOriginUnknown {
+			continue
+		}
+		if !AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
+			return false
+		}
+		hasOriginSpecific = true
+	}
+	return hasOriginSpecific
+}
+
 func answerEvidenceOriginFromStructuredToken(raw string, add func(AnswerEvidenceOrigin)) {
 	token := strings.ToLower(strings.TrimSpace(raw))
 	if idx := strings.Index(token, "["); idx > 0 && strings.HasSuffix(token, "]") {

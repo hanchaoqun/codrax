@@ -2069,16 +2069,7 @@ func aggregateFactSuppressesCurrentSourceLocationFallbacks(fact types.AnswerAggr
 	if len(origins) == 0 {
 		return false
 	}
-	hasNonCurrent := false
-	for _, origin := range origins {
-		switch origin {
-		case types.AnswerEvidenceOriginCurrentSource, types.AnswerEvidenceOriginUnknown:
-			return false
-		default:
-			hasNonCurrent = true
-		}
-	}
-	return hasNonCurrent
+	return types.AnswerEvidenceOriginsAreOriginSpecificOnly(origins)
 }
 
 func aggregateMemberSetEvidenceMatchesCitation(ev types.EvidenceItem, cit types.Citation) bool {
@@ -2502,29 +2493,8 @@ func preEmitAggregateFactIsNonExactOriginSupport(ctx *types.BusContext, fact typ
 	if len(bindings) == 0 {
 		return false
 	}
-	hasExactOutput := false
-	hasCurrentSource := false
-	hasNonSourceOrigin := false
-	for _, binding := range bindings {
-		for _, output := range binding.RequestedOutputs {
-			switch output {
-			case types.AnswerRequestedOutputScalar,
-				types.AnswerRequestedOutputKeyValue,
-				types.AnswerRequestedOutputCount,
-				types.AnswerRequestedOutputAbsence:
-				hasExactOutput = true
-			}
-		}
-		switch binding.Origin {
-		case types.AnswerEvidenceOriginCurrentSource:
-			hasCurrentSource = true
-		case types.AnswerEvidenceOriginUnknown:
-			// ignore
-		default:
-			hasNonSourceOrigin = true
-		}
-	}
-	return hasNonSourceOrigin && !hasCurrentSource && !hasExactOutput
+	return types.AnswerClaimBindingsHaveOnlyOriginSpecificSupport(bindings) &&
+		!types.AnswerClaimBindingsRequestExactOutput(bindings)
 }
 
 func preEmitAggregateRequestWantsCountValue(ctx *types.BusContext) bool {

@@ -166,6 +166,47 @@ func AnswerClaimBindingHasExactCurrentSourceSupport(binding AnswerClaimBinding) 
 	return false
 }
 
+func AnswerClaimBindingCarriesOriginSpecificSupport(binding AnswerClaimBinding) bool {
+	return AnswerEvidenceOriginCarriesOriginSpecificSupport(binding.Origin)
+}
+
+func AnswerClaimBindingsHaveOnlyOriginSpecificSupport(bindings []AnswerClaimBinding) bool {
+	hasOriginSpecific := false
+	for _, binding := range bindings {
+		if binding.Origin == AnswerEvidenceOriginUnknown {
+			continue
+		}
+		if !AnswerClaimBindingCarriesOriginSpecificSupport(binding) {
+			return false
+		}
+		hasOriginSpecific = true
+	}
+	return hasOriginSpecific
+}
+
+func AnswerClaimBindingsRequestExactOutput(bindings []AnswerClaimBinding) bool {
+	for _, binding := range bindings {
+		for _, output := range binding.RequestedOutputs {
+			if AnswerRequestedOutputIsExactValueShape(output) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func AnswerRequestedOutputIsExactValueShape(output AnswerRequestedOutput) bool {
+	switch output {
+	case AnswerRequestedOutputScalar,
+		AnswerRequestedOutputKeyValue,
+		AnswerRequestedOutputCount,
+		AnswerRequestedOutputAbsence:
+		return true
+	default:
+		return false
+	}
+}
+
 func answerAggregateFactHasExactCurrentSourceSupport(fact AnswerAggregateFact) bool {
 	for _, ref := range fact.SupportRefs {
 		if answerSupportRefHasSourceLine(ref) {

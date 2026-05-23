@@ -124,6 +124,32 @@ func TestAnswerAggregateFactEvidenceOrigins_SourceRefToolTokens(t *testing.T) {
 	}
 }
 
+func TestAnswerEvidenceOriginsAreOriginSpecificOnly(t *testing.T) {
+	if !AnswerEvidenceOriginsAreOriginSpecificOnly([]AnswerEvidenceOrigin{
+		AnswerEvidenceOriginVCSMetadata,
+		AnswerEvidenceOriginMCPResource,
+		AnswerEvidenceOriginCommandMeasurement,
+	}) {
+		t.Fatal("mixed external observation origins should be origin-specific only")
+	}
+	if AnswerEvidenceOriginsAreOriginSpecificOnly([]AnswerEvidenceOrigin{
+		AnswerEvidenceOriginVCSMetadata,
+		AnswerEvidenceOriginCurrentSource,
+	}) {
+		t.Fatal("current_source mixed with external support must not be origin-specific only")
+	}
+	if AnswerEvidenceOriginsAreOriginSpecificOnly([]AnswerEvidenceOrigin{
+		AnswerEvidenceOriginUnknown,
+	}) {
+		t.Fatal("unknown-only origin set must not suppress current-source fallbacks")
+	}
+	if AnswerEvidenceOriginsAreOriginSpecificOnly([]AnswerEvidenceOrigin{
+		AnswerEvidenceOriginSystemInference,
+	}) {
+		t.Fatal("system inference is display support, not origin-specific evidence support")
+	}
+}
+
 func TestNormalizeAnswerAggregateFacts_AddsStructuredOriginDimensionsFromLegacyProvenance(t *testing.T) {
 	got, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
 		Kind:       AnswerAggregateMemberSet,

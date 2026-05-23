@@ -260,6 +260,44 @@ func TestCompileRuntimeArtifactClaimBindings_PerfBundleCreatesRuntimeBinding(t *
 	}
 }
 
+func TestAnswerClaimBindingOriginSpecificHelpers(t *testing.T) {
+	originOnly := []AnswerClaimBinding{
+		{
+			Origin:           AnswerEvidenceOriginVCSMetadata,
+			RequestedOutputs: []AnswerRequestedOutput{AnswerRequestedOutputSummary},
+		},
+		{
+			Origin:           AnswerEvidenceOriginMCPResource,
+			RequestedOutputs: []AnswerRequestedOutput{AnswerRequestedOutputMechanism},
+		},
+	}
+	if !AnswerClaimBindingsHaveOnlyOriginSpecificSupport(originOnly) {
+		t.Fatalf("origin-specific bindings should be recognized: %+v", originOnly)
+	}
+	if AnswerClaimBindingsRequestExactOutput(originOnly) {
+		t.Fatalf("summary/mechanism outputs should not be exact-value pressure: %+v", originOnly)
+	}
+
+	withCurrent := append([]AnswerClaimBinding(nil), originOnly...)
+	withCurrent = append(withCurrent, AnswerClaimBinding{Origin: AnswerEvidenceOriginCurrentSource})
+	if AnswerClaimBindingsHaveOnlyOriginSpecificSupport(withCurrent) {
+		t.Fatalf("current_source binding should prevent origin-specific-only classification: %+v", withCurrent)
+	}
+
+	exactExternal := []AnswerClaimBinding{{
+		Origin:           AnswerEvidenceOriginCommandMeasurement,
+		RequestedOutputs: []AnswerRequestedOutput{AnswerRequestedOutputCount},
+	}}
+	if !AnswerClaimBindingsRequestExactOutput(exactExternal) {
+		t.Fatalf("count output should remain exact-value pressure: %+v", exactExternal)
+	}
+	if AnswerClaimBindingsHaveOnlyOriginSpecificSupport([]AnswerClaimBinding{{
+		Origin: AnswerEvidenceOriginSystemInference,
+	}}) {
+		t.Fatal("system_inference should not be treated as origin-specific evidence support")
+	}
+}
+
 func assertClaimBinding(t *testing.T, bindings []AnswerClaimBinding, origin AnswerEvidenceOrigin, policy ClaimGroundingPolicy, output AnswerRequestedOutput) AnswerClaimBinding {
 	t.Helper()
 	for _, binding := range bindings {
