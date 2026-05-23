@@ -841,7 +841,7 @@ untouched.
         up-directory paths, and non-grep tools so broad discovery and normal
         analyzer routes remain untouched.
     - Slice 44.5 — exact-symbol conditional / premise-invalid boundary.
-      Status: planned.
+      Status: completed.
       - Root gaps: E20260520-G84/G85 and related change-impact cases show
         stale analyzer assumptions or same-family matches overriding later
         exact absence/premise-invalid evidence.
@@ -855,6 +855,39 @@ untouched.
       - Guardrail tests: exact target absence leads the final answer; same-family
         symbols do not become principal affected members; mixed present+absent
         answers preserve both target-bound claims.
+      - Detailed design before code:
+        1. Reuse existing `ChangeImpactProfile`, `AnswerSurfacePlan.StableAbsent`,
+           `ExactResolution*`, and typed support-lane compilers. Do not create a
+           second absence detector and do not scan user/model prose for target
+           words.
+        2. Extend the existing change-impact principal evidence filter so
+           simple exact targets (for example `ShapeValue`, not only
+           owner-qualified `CitationReq.Required`) must be structurally present
+           in evidence fields (`anchor_symbol`, `owner_symbol`, `subject`,
+           `object`, `condition`, `snippet`, `surface_terms`). Same-family
+           symbols remain support context unless an explicit alias/proof lane
+           names them.
+        3. When `AnswerSurfacePlan.StableAbsent` is true, aggregate
+           change-impact member_set rows are not allowed to resurrect stale or
+           same-family positive members. A system/materialized aggregate row may
+           stay principal only when its support evidence at the cited location
+           structurally names the requested target. Otherwise it stays out of
+           the principal lane and the finalizer should lead with the absence /
+           premise-invalid correction.
+        4. Preserve non-absence change-impact behavior: existing aggregate
+           member_set handoffs and heterogeneous affected-site roles remain
+           principal when the target is present or no stable absence was
+           accepted. This avoids suppressing legitimate broad impact answers.
+      - Delivered in this slice: change-impact principal evidence now requires
+        simple exact targets to appear structurally in answer-grade evidence,
+        closing the gap where same-family symbols could become principal merely
+        because the target was not owner-qualified. Stable-absence
+        change-impact aggregate rows additionally require support evidence at
+        the cited location that structurally names the requested target, so a
+        premise-invalid / absent-target investigation cannot be overwritten by
+        stale aggregate rows or sibling symbols. Existing non-absence aggregate
+        member handoff and owner-qualified heterogeneous affected-site coverage
+        remain covered by regression tests.
 
 - Batch 45 — hybrid explorer partitioning and repo-map wait visibility. Status:
   planned.

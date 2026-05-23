@@ -1471,6 +1471,151 @@ func TestBuildAnswerSupportPlan_ChangeImpactKeepsHeterogeneousAffectedSites(t *t
 	}
 }
 
+func TestBuildAnswerSupportPlan_ChangeImpactSimpleTargetFiltersSameFamilyEvidence(t *testing.T) {
+	profile := &ChangeImpactProfile{
+		IsChangeImpact:  true,
+		Target:          "ShapeValue",
+		TargetKind:      SubjectEnumValue,
+		Scope:           ImpactScopeProduction,
+		RequestedOutput: ImpactOutputFiles,
+		AffectedSiteKinds: []ImpactAffectedSiteKind{
+			ImpactSiteDefinition,
+			ImpactSiteRead,
+		},
+		Confidence: 0.92,
+	}
+	exact := EvidenceItem{
+		ID:              "shapevalue-definition",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/types/analysis_ir.go",
+		LineStart:       1235,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "ShapeValue",
+		Subject:         "ShapeValue",
+		Snippet:         "ShapeValue AnswerShape = \"value\"",
+		Summary:         "ShapeValue defines the requested exact target.",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	sameFamily := EvidenceItem{
+		ID:              "shape-step-list",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/types/answer_surface_plan.go",
+		LineStart:       295,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "ShapeStepList",
+		Subject:         "ShapeStepList",
+		Snippet:         "case ShapeStepList:",
+		Summary:         "ShapeStepList is a nearby answer-shape value, not ShapeValue.",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	evidence := []EvidenceItem{sameFamily, exact}
+	rm := RequestModel{
+		Intent:              IntentEnumerate,
+		AnalyzerHints:       AnalyzerHints{Kind: string(ReqEnumeration)},
+		ChangeImpactProfile: profile,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+	}
+	plan := &AnswerSurfacePlan{
+		SurfaceEvidence:     evidence,
+		ChangeImpactProfile: profile,
+		FacetCoverage:       CompileFacetCoverage(rm, evidence),
+	}
+
+	got := BuildAnswerSupportPlan(rm, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) != 1 {
+		t.Fatalf("simple exact target should keep only exact-target principal evidence, got %+v", got)
+	}
+	if !strings.Contains(lane.Entries[0].Location, "analysis_ir.go") {
+		t.Fatalf("principal lane should keep ShapeValue evidence, got %+v", lane.Entries)
+	}
+	if strings.Contains(answerSupportLaneText(lane), "ShapeStepList") ||
+		strings.Contains(answerSupportLaneText(lane), "answer_surface_plan.go") {
+		t.Fatalf("same-family symbol leaked into principal lane: %+v", lane.Entries)
+	}
+}
+
+func TestBuildAnswerSupportPlan_ChangeImpactStableAbsenceSuppressesAggregateSameFamilyMembers(t *testing.T) {
+	profile := &ChangeImpactProfile{
+		IsChangeImpact:  true,
+		Target:          "ShapeValue",
+		TargetKind:      SubjectEnumValue,
+		Scope:           ImpactScopeProduction,
+		RequestedOutput: ImpactOutputFiles,
+		AffectedSiteKinds: []ImpactAffectedSiteKind{
+			ImpactSiteDefinition,
+			ImpactSiteRead,
+		},
+		Confidence: 0.92,
+	}
+	exact := EvidenceItem{
+		ID:              "shapevalue-comment",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/types/analysis_ir.go",
+		LineStart:       1235,
+		AnchorKind:      AnchorTextReference,
+		AnchorSymbol:    "ShapeValue",
+		Subject:         "ShapeValue",
+		Snippet:         "// ShapeValue legacy mention",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	sameFamily := EvidenceItem{
+		ID:              "shape-step-list",
+		Kind:            EvidenceDirect,
+		Scope:           ScopeLine,
+		Source:          "internal/types/answer_surface_plan.go",
+		LineStart:       295,
+		AnchorKind:      AnchorDefinition,
+		AnchorSymbol:    "ShapeStepList",
+		Subject:         "ShapeStepList",
+		Snippet:         "case ShapeStepList:",
+		Producer:        "explorer.emit_evidence",
+		GroundingStatus: GroundingGrounded,
+	}
+	evidence := []EvidenceItem{sameFamily, exact}
+	rm := RequestModel{
+		Intent:              IntentEnumerate,
+		AnalyzerHints:       AnalyzerHints{Kind: string(ReqEnumeration)},
+		ChangeImpactProfile: profile,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+	}
+	plan := &AnswerSurfacePlan{
+		StableAbsent:        true,
+		SurfaceEvidence:     evidence,
+		ChangeImpactProfile: profile,
+		StableAggregateFacts: []AnswerAggregateFact{{
+			Kind:        AnswerAggregateMemberSet,
+			Label:       "affected files",
+			Members:     []string{"internal/types/answer_surface_plan.go", "internal/types/analysis_ir.go"},
+			SupportRefs: []string{"internal/types/answer_surface_plan.go:295", "internal/types/analysis_ir.go:1235"},
+		}},
+		FacetCoverage: CompileFacetCoverage(rm, evidence),
+	}
+
+	got := BuildAnswerSupportPlan(rm, plan)
+	lane := answerSupportLaneByKind(got, SupportLanePrincipalEvidence)
+	if lane == nil || len(lane.Entries) != 1 {
+		t.Fatalf("stable absence should keep only aggregate rows with exact target support, got %+v", got)
+	}
+	if !strings.Contains(lane.Entries[0].Location, "analysis_ir.go") {
+		t.Fatalf("exact-supported aggregate row should survive, got %+v", lane.Entries)
+	}
+	if strings.Contains(answerSupportLaneText(lane), "answer_surface_plan.go") ||
+		strings.Contains(answerSupportLaneText(lane), "ShapeStepList") {
+		t.Fatalf("stable absence resurrected same-family aggregate row: %+v", lane.Entries)
+	}
+}
+
 func supportLaneHasSource(lane *AnswerSupportLane, source string) bool {
 	if lane == nil {
 		return false

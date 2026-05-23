@@ -84,12 +84,13 @@ func compileChangeImpactAggregateMemberSupportLane(rm RequestModel, plan *Answer
 	}
 	supportEvidence := changeImpactSupportEvidenceByLocation(plan.SurfaceEvidence)
 	seen := map[string]bool{}
+	requireTargetProof := plan.StableAbsent
 	for factIdx, fact := range plan.StableAggregateFacts {
 		if fact.Kind != AnswerAggregateMemberSet || len(fact.Members) == 0 {
 			continue
 		}
 		for memberIdx, member := range fact.Members {
-			entry, ok := changeImpactAggregateMemberSupportEntry(rm.ChangeImpactProfile, fact, factIdx, memberIdx, member, supportEvidence)
+			entry, ok := changeImpactAggregateMemberSupportEntry(rm.ChangeImpactProfile, fact, factIdx, memberIdx, member, supportEvidence, requireTargetProof)
 			if !ok {
 				continue
 			}
@@ -969,7 +970,7 @@ func aggregateMemberSurface(member string, location string) AnswerPrincipalMembe
 	return PrincipalMemberSurfaceDisplayLabel
 }
 
-func changeImpactAggregateMemberSupportEntry(profile *ChangeImpactProfile, fact AnswerAggregateFact, factIdx, memberIdx int, member string, supportEvidence map[string]EvidenceItem) (AnswerSupportEntry, bool) {
+func changeImpactAggregateMemberSupportEntry(profile *ChangeImpactProfile, fact AnswerAggregateFact, factIdx, memberIdx int, member string, supportEvidence map[string]EvidenceItem, requireTargetProof bool) (AnswerSupportEntry, bool) {
 	if profile == nil || !profile.Active() {
 		return AnswerSupportEntry{}, false
 	}
@@ -1004,6 +1005,18 @@ func changeImpactAggregateMemberSupportEntry(profile *ChangeImpactProfile, fact 
 	if file == "" || line <= 0 || location == "" {
 		return AnswerSupportEntry{}, false
 	}
+	var supportItem EvidenceItem
+	var hasSupportItem bool
+	if ev, ok := supportEvidence[changeImpactSupportLocationKey(file, line)]; ok {
+		supportItem = ev
+		hasSupportItem = true
+	}
+	if requireTargetProof {
+		target := parseChangeImpactPrincipalTarget(profile)
+		if strings.TrimSpace(target.path) == "" || !hasSupportItem || !changeImpactEvidenceMatchesTarget(supportItem, nil, target) {
+			return AnswerSupportEntry{}, false
+		}
+	}
 	text := display
 	if label := strings.TrimSpace(fact.Label); label != "" {
 		text = label + ": " + display
@@ -1023,7 +1036,8 @@ func changeImpactAggregateMemberSupportEntry(profile *ChangeImpactProfile, fact 
 		Producer:      "explorer.emit_investigation_complete.aggregate_facts",
 		GroundingTier: TierLineText,
 	}
-	if ev, ok := supportEvidence[changeImpactSupportLocationKey(file, line)]; ok {
+	if hasSupportItem {
+		ev := supportItem
 		entry.ClaimForm = ClaimFormOf(ev)
 		entry.LabelSurface = entry.ClaimForm.LabelSurfaceKind()
 		entry.Subject = strings.TrimSpace(ev.Subject)
@@ -1597,7 +1611,7 @@ func filterChangeImpactPrincipalEvidence(profile *ChangeImpactProfile, items []E
 		return nil, false
 	}
 	target := parseChangeImpactPrincipalTarget(profile)
-	if !target.ownerQualified {
+	if strings.TrimSpace(target.path) == "" {
 		if roleFiltered {
 			return candidates, true
 		}
@@ -1612,10 +1626,7 @@ func filterChangeImpactPrincipalEvidence(profile *ChangeImpactProfile, items []E
 	if len(out) > 0 {
 		return out, true
 	}
-	if roleFiltered {
-		return candidates, true
-	}
-	return nil, false
+	return nil, true
 }
 
 func changeImpactPrincipalEvidenceRoleEligible(profile *ChangeImpactProfile, item EvidenceItem) bool {
@@ -1736,8 +1747,11 @@ func parseChangeImpactPrincipalTarget(profile *ChangeImpactProfile) changeImpact
 }
 
 func changeImpactEvidenceMatchesTarget(item EvidenceItem, peers []EvidenceItem, target changeImpactPrincipalTarget) bool {
-	if !target.ownerQualified {
+	if strings.TrimSpace(target.path) == "" {
 		return true
+	}
+	if !target.ownerQualified {
+		return changeImpactEvidenceHasTargetPath(item, target.path)
 	}
 	if changeImpactEvidenceHasTargetPath(item, target.path) {
 		return true
