@@ -797,6 +797,61 @@ func TestPrincipalEnumerationPrimaryColumnLabel_OriginSpecific(t *testing.T) {
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_ExternalResourceSupplementIsMarkedAppendOnly(t *testing.T) {
+	mu := types.NewMutableState("列出 MCP 返回的打开事故")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "打开事故",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"INC-17", "INC-42"},
+		MemberNotes: []string{
+			"INC-17 由 runtime 组件负责，来自 MCP incidents 资源。",
+			"INC-42 由 storage 组件负责，来自 MCP incidents 资源。",
+		},
+		Dimensions: []types.AnswerAggregateDimension{{
+			Name:  "origin",
+			Value: string(types.AnswerEvidenceOriginMCPResource),
+		}},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Language: "zh",
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "当前 MCP incidents 资源里有打开事故，但正文尚未展开每一项。",
+	}}}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatal("expected external resource supplement")
+	}
+	if len(doc.Blocks) != 2 || doc.Blocks[0].Text != "当前 MCP incidents 资源里有打开事故，但正文尚未展开每一项。" {
+		t.Fatalf("system supplement must append only and preserve authored summary: %+v", doc.Blocks)
+	}
+	supplement := doc.Blocks[1]
+	if !strings.Contains(supplement.Title, "系统按已验证证据补充成员：打开事故") {
+		t.Fatalf("external resource supplement should be clearly marked, got %q", supplement.Title)
+	}
+	if got, want := supplement.Columns, []string{"资源项", "说明"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("external resource supplement should use resource/note columns, got %#v", got)
+	}
+	visible := types.AnswerBlockVisibleSurface(supplement)
+	for _, want := range []string{"INC-17", "INC-42", "runtime 组件负责", "storage 组件负责"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("external supplement lost rich note %q:\n%s", want, visible)
+		}
+	}
+	if strings.Contains(visible, "符号名称") || len(doc.Citations) != 0 {
+		t.Fatalf("external resource supplement must not look like a source-symbol table or invent citations: visible=%s citations=%+v", visible, doc.Citations)
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_VisibleArchitectureCoveragePreventsSystemSupplements(t *testing.T) {
 	mu := types.NewMutableState("codrax 的 read-mode pipeline 由哪几个 stage 组成？")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{

@@ -3632,6 +3632,96 @@ func TestNormalizeAggregateNegativeProofSupplement_MaterializesNegativeObservati
 	}
 }
 
+func TestNormalizeAggregateNegativeProofSupplement_MaterializesFutureExternalObservationOrigins(t *testing.T) {
+	mu := types.NewMutableState("外部资料里是否存在这些条目")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind:  types.AnswerAggregateNegativeObservation,
+			Label: "web no-hit",
+			Value: "0",
+			Role:  types.AnswerAggregateRolePrincipalAnswer,
+			Dimensions: []types.AnswerAggregateDimension{
+				{Name: "origin", Value: string(types.AnswerEvidenceOriginWebPage)},
+				{Name: "target", Value: "Deprecated API"},
+				{Name: "scope", Value: "https://example.test/spec"},
+				{Name: "result_count", Value: "0"},
+				{Name: "payload_ref", Value: "blob://payload/spec.html"},
+			},
+		},
+		{
+			Kind:  types.AnswerAggregateNegativeObservation,
+			Label: "mcp no-hit",
+			Value: "0",
+			Role:  types.AnswerAggregateRolePrincipalAnswer,
+			Dimensions: []types.AnswerAggregateDimension{
+				{Name: "origin", Value: string(types.AnswerEvidenceOriginMCPResource)},
+				{Name: "target", Value: "INC-999"},
+				{Name: "scope", Value: "mcp://docs/incidents"},
+				{Name: "result_count", Value: "0"},
+				{Name: "row_set_ref", Value: "blob://rows/incidents.jsonl"},
+			},
+		},
+		{
+			Kind:  types.AnswerAggregateNegativeObservation,
+			Label: "connector no-hit",
+			Value: "0",
+			Role:  types.AnswerAggregateRolePrincipalAnswer,
+			Dimensions: []types.AnswerAggregateDimension{
+				{Name: "origin", Value: string(types.AnswerEvidenceOriginConnectorResource)},
+				{Name: "target", Value: "JIRA-404"},
+				{Name: "scope", Value: "jira://project/search"},
+				{Name: "result_count", Value: "0"},
+				{Name: "tool_result", Value: "jira_search[0]"},
+			},
+		},
+	})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Language: "zh",
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "s1",
+		Kind: types.BlockSummary,
+		Text: "外部资料没有发现相关条目。",
+	}}}
+
+	if fixed := normalizeAggregateNegativeProofSupplement(doc, ctx); fixed != 3 {
+		t.Fatalf("fixed=%d, want 3", fixed)
+	}
+	visible := answerDocumentVisibleText(doc)
+	for _, want := range []string{
+		"系统按已验证证据补充未命中范围",
+		"网页",
+		"Deprecated API",
+		"https://example.test/spec",
+		"MCP 资源",
+		"INC-999",
+		"mcp://docs/incidents",
+		"连接器资源",
+		"JIRA-404",
+		"jira://project/search",
+		"载荷=blob://payload/spec.html",
+		"行集=blob://rows/incidents.jsonl",
+		"工具结果=jira_search[0]",
+	} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("visible external no-hit supplement missing %q:\n%s", want, visible)
+		}
+	}
+	for _, banned := range []string{"web_page", "mcp_resource", "connector_resource"} {
+		if strings.Contains(visible, banned) {
+			t.Fatalf("visible supplement should localize typed origin %q:\n%s", banned, visible)
+		}
+	}
+	if len(doc.Citations) != 0 {
+		t.Fatalf("external no-hit observations must not invent current-source citations: %+v", doc.Citations)
+	}
+}
+
 func TestNormalizeAggregateNegativeProofSupplement_LocalizesEnglishNegativeObservationOrigin(t *testing.T) {
 	mu := types.NewMutableState("Did the last 50 commits mention Backport Foo?")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

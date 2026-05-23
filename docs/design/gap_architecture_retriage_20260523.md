@@ -162,7 +162,7 @@ when the answer is accepted.
 | T1 | Done | Add code-level tests that aggregate facts for web, external docs, MCP, connectors, cross-repo index, VCS, command, log, and trace all project through `ObservationLedger` with origin-local `SourceRef` / `ObservationSpan`, not current-source citations. | `internal/types/observation_ledger.go`, `internal/types/observation_ledger_test.go`, `internal/types/observation_prompt_projection_test.go` | `go test ./internal/types` |
 | T2 | Done | Extend MCP response projection, if current fields are too weak, without duplicating the ledger. Prefer typed fields only when producers can populate them; otherwise keep support-only `RawRef`. | `internal/types/context.go`, `internal/types/observation_ledger.go`, MCP tests | `go test ./internal/types ./internal/mcp` |
 | T3 | Done | Audit pre-emit / contract / reviewer origin decisions and replace local origin switches with shared ledger helpers where safe. | `internal/tool/answer_document_pre_emit_check.go`, `internal/orchestrator/contract_check.go`, `internal/orchestrator/semantic_quality_reviewer.go`, `internal/types/answer_claim_binding.go`, `internal/types/answer_evidence_origin.go` | `go test ./internal/types ./internal/tool` |
-| T4 | Pending | Add supplement safety guard tests across current-source, VCS, runtime, command, cross-repo, web/MCP/connector-like origins. | `internal/tool/*supplement*_test.go`, `internal/render/answerdoc_test.go` | no duplicate/dry supplement regression |
+| T4 | Done | Add supplement safety guard tests across current-source, VCS, runtime, command, cross-repo, web/MCP/connector-like origins. | `internal/tool/*supplement*_test.go`, `internal/render/answerdoc_test.go` | `go test ./internal/tool` |
 | T5 | Pending | Add executable eval cases for existing producers and placeholder/documented skeletons for future MCP/web/connector producers. | `eval/cases`, docs | targeted eval batch, no product-code change during log collection |
 | T6 | Pending | Run targeted eval batch and refresh gap ledgers with every retry/reject, classifying model error vs system over-gate. | `eval/results`, `docs/design/eval_*.md` | per-run log audit |
 
@@ -213,3 +213,13 @@ when the answer is accepted.
   - Added helper tests proving current-source, system-inference, and unknown
     origins cannot accidentally suppress current-source citation fallbacks.
   - Validation: `go test ./internal/types ./internal/tool`.
+- 2026-05-23 T4 complete:
+  - Added an external-resource member supplement guard proving system-generated
+    resource tables are append-only, explicitly marked, localized, rich-note
+    preserving, and do not invent current-source citations.
+  - Added web/MCP/connector negative-observation guards proving no-hit
+    supplements localize origin labels, keep payload/row/tool-result details,
+    and stay citation-free.
+  - Existing current-source, VCS, runtime, command, and architecture supplement
+    guards remain covered by the `internal/tool` suite.
+  - Validation: `go test ./internal/tool`.
