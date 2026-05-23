@@ -565,13 +565,43 @@ untouched.
         Mixed "external info + current code" answers are explicitly excluded so
         literal discussion of Codrax internals or citation mechanics stays
         untouched.
-      - Follow-up batch (42.3b): expose observation IDs / source refs in the
-        finalizer prompt lane where VCS/log/trace/command rows currently depend
-        on uncited item carriers. This should reuse `ObservationLedger` and
-        `FormatObservationSourceRef` rather than adding a second citation pool.
-      - Follow-up batch (42.3c): renderer/reviewer should prefer observation
-        refs over pseudo citations for changed-path/stat rows (`line=0` VCS
-        paths, artifact-local log lines, trace spans, command rows).
+      - Delivered batch (42.3b): expose observation IDs / source refs in the
+        finalizer prompt lane where VCS/log/trace/command rows previously
+        depended on uncited item carriers. The shipped entry point is
+        `answer_document_evaluator.go::renderAnswerDocObservationLedger`, fed by
+        `ObservationLedgerInputFromAgentContext`,
+        `CompileObservationLedger`, `PrioritizeObservationRecords`, and
+        `FormatObservationSourceRef`. It renders current source, VCS/diff,
+        command, runtime-artifact, MCP/resource, scalar, negative, and row-set
+        records in one typed ledger, including `payload_ref`, `row_set_ref`,
+        artifact-local spans, bounded raw excerpts, rich notes, result counts,
+        and support-ref counts. It does not add a second citation pool and does
+        not teach the legacy no-current-source citation sentinel.
+      - Next batch (42.3c): converge renderer/reviewer/presentation consumers on
+        observation refs over pseudo citations for changed-path/stat rows
+        (`line=0` VCS paths), artifact-local log lines, trace spans, command
+        rows, and future connector/web rows.
+        - Code entry points audited:
+          `semantic_quality_reviewer.go::semanticObservationSummaries` already
+          uses the same ledger/source-ref contract as finalizer; answer-document
+          pre-emit still owns current-source citation integrity; render-side
+          answer display owns user-facing citation suffixes and preserved
+          attachments. The implementation must reuse those paths instead of
+          adding another formatter.
+        - Contract: `citations[]` remains only for current-repository
+          `file:line` evidence with `line > 0`. External observations must stay
+          on `ObservationSourceRef`/`ObservationSpan` (`payload_ref`,
+          `row_set_ref`, `artifact_id`, artifact-local line/span, command,
+          VCS ref/path/hunk coordinates). If a model-authored answer mentions an
+          external observation without a repo citation, the system may append a
+          localized boundary note, but must not turn it into a fake
+          `repo:0`/`file:0` citation or replace the model's prose/table.
+        - Guardrails to add before closing 42.3c: reviewer input keeps
+          artifact-local and VCS path/span refs as observation refs; renderer
+          does not display `:0` suffixes for external-only rows; mixed
+          "git/log/trace + current source" answers keep current-source
+          citations and external refs side-by-side without either origin
+          stealing the other's grounding policy.
   - Delivered so far: no-hit supplements now preserve typed scope coordinates
     such as `window_count`, `unmatched`, `order`, `window_path`, `diff_path`,
     `tool_result`, `payload_ref`, and `row_set_ref` in the localized
@@ -624,6 +654,19 @@ untouched.
     current-source ledger record/current-source diagnostic requirement. Mixed
     "history/log/trace + current source" answers and Codrax-internal questions
     keep literal text untouched.
+  - Delivered in Batch 42.3b: finalizer prompt wiring now receives the typed
+    Observation Ledger directly. VCS metadata/diff, command output, runtime
+    artifacts, MCP/resource observations, row-set artifacts, and current-source
+    evidence are all shown with origin/policy/source/span boundaries plus rich
+    notes/excerpts where available. Tests pin VCS narrative preservation,
+    mixed diff+current-source separation, MCP resource handling, typed
+    payload/row-set refs, external raw excerpts, and large row-set artifact
+    creation.
+  - Remaining 42.3c implementation status: ready for code. Do not change
+    answer materialization policy or citation schema. The next patch should
+    tighten consumer/display behavior around observation refs and add guardrail
+    tests for reviewer/render paths that could still surface `line=0` as if it
+    were a current-source citation.
 
 - Batch 43 — runtime artifact provenance split. Status: planned.
   - Carry `observed_direct_cause`, `artifact_span`, and
