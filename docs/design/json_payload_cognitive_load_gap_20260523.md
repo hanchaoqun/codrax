@@ -949,7 +949,7 @@ untouched.
       source only for present-checkout claims. Pure VCS/history prompts and
       finalizer prompts remain on their prior non-duplicated paths. Regression
       tests cover mixed-origin, pure-history, and finalizer-no-duplicate cases.
-  - Slice 45.3 — mixed-origin parallel convergence guard. Status: in progress.
+  - Slice 45.3 — mixed-origin parallel convergence guard. Status: completed.
     - Detailed design before code: reuse `CompileAnswerIntentContract` and the
       existing `parallelExploreAllowsEarlyConvergence` /
       `parallelExploreMustWaitForSiblingHandoffs` decision point. Do not add a
@@ -970,6 +970,15 @@ untouched.
       history+current-code mechanisms do not cancel the current-source sibling;
       ordinary bare cross-component mechanisms without external origin keep the
       existing early-convergence behavior.
+    - Delivered in this slice: `parallelExploreMustWaitForSiblingHandoffs`
+      now delegates mixed-origin detection to the unified answer-intent
+      contract. Current-source-only mechanisms and pure history narratives keep
+      the existing convergence behavior, while mixed VCS/diff/log/command plus
+      current-source synthesis waits for every sibling lane to hand off its
+      accepted facts before cancellation is allowed. Regression coverage pins
+      mixed history+current-code mechanism dispatch, pure VCS early convergence,
+      history-backed cross-component waiting, and current-source-only
+      cross-component early convergence.
 
 - Batch 46 — retry/status telemetry taxonomy. Status: in progress.
   - Split status and metrics into transport retry, schema/carrier repair,

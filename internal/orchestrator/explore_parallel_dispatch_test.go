@@ -263,12 +263,76 @@ func TestParallelExploreAllowsEarlyConvergence_HistoryCurrentCodeMechanism(t *te
 		},
 	}}
 
-	if !o.parallelExploreAllowsEarlyConvergence() {
-		t.Fatal("history-backed current-code mechanism can converge once a fork passes emit_investigation_complete prechecks")
+	if o.parallelExploreAllowsEarlyConvergence() {
+		t.Fatal("history-backed current-code mechanism must wait for both VCS and current-source handoffs")
 	}
 }
 
-func TestParallelExploreAllowsEarlyConvergence_BareCrossComponentMechanismConverges(t *testing.T) {
+func TestDispatchExploreWindowsParallel_MixedOriginMechanismWaitsForSourceSibling(t *testing.T) {
+	var slowStarted sync.Once
+	slowStartedCh := make(chan struct{})
+	doneFinishedCh := make(chan struct{})
+	var slowCanceled int32
+
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			switch ctx.ExploreDispatchKey {
+			case "history-done":
+				<-slowStartedCh
+				ctx.Mutable.SetInvestigationComplete("VCS lane collected the merge narrative")
+				close(doneFinishedCh)
+				return &agent.StageOutput{
+					MissingPiece:  types.MissingNone,
+					SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				}, nil
+			case "current-source":
+				slowStarted.Do(func() { close(slowStartedCh) })
+				select {
+				case <-ctx.Context().Done():
+					atomic.StoreInt32(&slowCanceled, 1)
+					return nil, ctx.Context().Err()
+				case <-doneFinishedCh:
+				}
+				ctx.Mutable.SetInvestigationComplete("current-source lane collected present implementation anchors")
+				return &agent.StageOutput{
+					MissingPiece:  types.MissingNone,
+					SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				}, nil
+			default:
+				t.Fatalf("unexpected dispatch key %q", ctx.ExploreDispatchKey)
+				return nil, nil
+			}
+		},
+	})
+	o := New(types.PipelineSettings{MaxParallelism: 2}, ar, sr, sar)
+	o.busCtx = &types.BusContext{
+		PipelineStage: types.StageAnalyze,
+		ActiveAgent:   types.AgentAnalyzer,
+		Mutable:       types.NewMutableState("mixed history plus current code"),
+		Signals:       types.ExecutionSignals{},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Scenario: types.ScenarioArchitectureExplain,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		}},
+	}
+
+	_, err := o.dispatchExploreWindowsParallel([][]*types.TaskNode{
+		{{ID: "history-done"}},
+		{{ID: "current-source"}},
+	}, nil, 2)
+	if err != nil {
+		t.Fatalf("mixed-origin siblings should finish instead of being canceled: %v", err)
+	}
+	if atomic.LoadInt32(&slowCanceled) != 0 {
+		t.Fatal("current-source sibling was canceled even though mixed-origin mechanism needs both lanes")
+	}
+}
+
+func TestParallelExploreAllowsEarlyConvergence_HistoryCrossComponentMechanismWaits(t *testing.T) {
 	o := &Orchestrator{busCtx: &types.BusContext{
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
@@ -287,8 +351,31 @@ func TestParallelExploreAllowsEarlyConvergence_BareCrossComponentMechanismConver
 		},
 	}}
 
+	if o.parallelExploreAllowsEarlyConvergence() {
+		t.Fatal("history-backed cross-component mechanism must wait for both VCS and current-source handoffs")
+	}
+}
+
+func TestParallelExploreAllowsEarlyConvergence_BareCurrentCrossComponentMechanismConverges(t *testing.T) {
+	o := &Orchestrator{busCtx: &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+				Predicates: types.SemanticPredicates{
+					IsCrossComponent: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+				SubTopics: []types.SubTopic{
+					{Summary: "component A"},
+					{Summary: "component B"},
+				},
+			},
+		},
+	}}
+
 	if !o.parallelExploreAllowsEarlyConvergence() {
-		t.Fatal("bare cross-component/sub-topic breadth is advisory; accepted closure should converge")
+		t.Fatal("current-source-only cross-component/sub-topic breadth is advisory; accepted closure should converge")
 	}
 }
 

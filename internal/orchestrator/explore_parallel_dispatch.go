@@ -272,6 +272,9 @@ func (o *Orchestrator) parallelExploreAllowsEarlyConvergence() bool {
 }
 
 func parallelExploreMustWaitForSiblingHandoffs(rm types.RequestModel, contract *types.AnswerContract) bool {
+	if parallelExploreMixedOriginNeedsSiblingHandoffs(rm, contract) {
+		return true
+	}
 	if hasExplicitQuestionStructureObligation(rm) {
 		return true
 	}
@@ -297,6 +300,37 @@ func parallelExploreMustWaitForSiblingHandoffs(rm types.RequestModel, contract *
 	// hard wait made parallel exploration duplicate accepted closures and widen
 	// into adjacent details. Explicit buckets, exhaustive sets, relation sets,
 	// field/value, and change-impact contracts above remain the typed blockers.
+	return false
+}
+
+func parallelExploreMixedOriginNeedsSiblingHandoffs(rm types.RequestModel, contract *types.AnswerContract) bool {
+	intentContract := types.CompileAnswerIntentContract(rm, contract)
+	if !intentContract.HasOrigin(types.AnswerEvidenceOriginCurrentSource) {
+		return false
+	}
+	hasNonSource := false
+	for _, origin := range intentContract.Origins {
+		if origin != types.AnswerEvidenceOriginUnknown && origin != types.AnswerEvidenceOriginCurrentSource {
+			hasNonSource = true
+			break
+		}
+	}
+	if !hasNonSource {
+		return false
+	}
+	for _, output := range intentContract.RequestedOutputs {
+		switch output {
+		case types.AnswerRequestedOutputMechanism,
+			types.AnswerRequestedOutputTrace,
+			types.AnswerRequestedOutputDiagram,
+			types.AnswerRequestedOutputDiagnostic,
+			types.AnswerRequestedOutputChangeImpact,
+			types.AnswerRequestedOutputComparison,
+			types.AnswerRequestedOutputEnumeration,
+			types.AnswerRequestedOutputAbsence:
+			return true
+		}
+	}
 	return false
 }
 
