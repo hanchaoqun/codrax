@@ -69,6 +69,23 @@ func reconcileEnumerationBoundaryScope(rm types.RequestModel, graph *repomap.Gra
 	return rm, strings.Join(reasons, "; ")
 }
 
+// reconcileScalarRoleLocateScope keeps a scalar role-locate request as
+// one principal question even when the analyzer LLM emitted exploratory
+// sub-topics. Cross-file or cross-repo search breadth is still available
+// through entities and search hints; sub_topics are only removed so they
+// do not become independent answer sections.
+func reconcileScalarRoleLocateScope(rm types.RequestModel) (types.RequestModel, string) {
+	if !rm.Predicates.IsRoleLocateLookup ||
+		!rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRelationalLookup ||
+		signalsExplicitMultiAxis(rm.Predicates) ||
+		len(rm.SubTopics) == 0 {
+		return rm, ""
+	}
+	rm.SubTopics = nil
+	return rm, "dropped exploratory sub_topics for scalar role-locate lookup; breadth remains search context, not principal answer topics"
+}
+
 func equalFoldSlice(a, b []string) bool {
 	if len(a) != len(b) {
 		return false

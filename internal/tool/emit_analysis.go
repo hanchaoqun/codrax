@@ -1108,6 +1108,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		answerSubject = normalized
 		val.Warnings = append(val.Warnings, warning)
 	}
+	if normalized, warning := normalizeTypedRoleLocateAnswerSubject(kind, axis, predicates, answerSubject); warning != "" {
+		answerSubject = normalized
+		val.Warnings = append(val.Warnings, warning)
+	}
 	if normalized, warning := normalizeMissingAnswerSubjectForNonScalarExplain(axis, intent, predicates, entities, p.SubTopics, answerSubject); warning != "" {
 		answerSubject = normalized
 		val.Warnings = append(val.Warnings, warning)
@@ -2506,6 +2510,47 @@ func normalizeRuntimeArtifactRoleLocateAnswerSubject(ctx *types.BusContext, arti
 		answerSubject.Confidence = 0.8
 	}
 	return answerSubject, "defaulted answer_subject.kind=numeric for observation-only runtime artifact line/event-row lookup"
+}
+
+func normalizeTypedRoleLocateAnswerSubject(kind string, axis types.PredicateAxis, predicates types.SemanticPredicates, answerSubject types.AnswerSubject) (types.AnswerSubject, string) {
+	if !predicates.IsRoleLocateLookup || !predicates.IsScalarAnswer ||
+		roleLocateSubjectKindAllowed(answerSubject.Kind) {
+		return answerSubject, ""
+	}
+	subject, reason := inferTypedRoleLocateAnswerSubject(kind, axis)
+	if subject.Kind == types.SubjectUnknown {
+		return answerSubject, ""
+	}
+	if answerSubject.Confidence > subject.Confidence {
+		subject.Confidence = answerSubject.Confidence
+	}
+	return subject, reason
+}
+
+func inferTypedRoleLocateAnswerSubject(kind string, axis types.PredicateAxis) (types.AnswerSubject, string) {
+	switch strings.TrimSpace(kind) {
+	case "return_value":
+		return types.AnswerSubject{Kind: types.SubjectReturnValue, EntityAxes: []string{"function → value"}, Confidence: 0.65},
+			"defaulted answer_subject.kind=return_value from typed role-locate question_kind=return_value"
+	case "call_chain":
+		return types.AnswerSubject{Kind: types.SubjectFunctionName, EntityAxes: []string{"behavior → function"}, Confidence: 0.65},
+			"defaulted answer_subject.kind=function_name from typed role-locate question_kind=call_chain"
+	case "config_mapping":
+		return types.AnswerSubject{Kind: types.SubjectConfigKey, EntityAxes: []string{"key → value"}, Confidence: 0.65},
+			"defaulted answer_subject.kind=config_key from typed role-locate question_kind=config_mapping"
+	}
+	switch axis {
+	case types.AxisReturn:
+		return types.AnswerSubject{Kind: types.SubjectReturnValue, EntityAxes: []string{"function → value"}, Confidence: 0.6},
+			"defaulted answer_subject.kind=return_value from typed role-locate predicate_axis=return"
+	case types.AxisCall:
+		return types.AnswerSubject{Kind: types.SubjectFunctionName, EntityAxes: []string{"behavior → function"}, Confidence: 0.6},
+			"defaulted answer_subject.kind=function_name from typed role-locate predicate_axis=call"
+	case types.AxisConfigure:
+		return types.AnswerSubject{Kind: types.SubjectConfigKey, EntityAxes: []string{"key → value"}, Confidence: 0.6},
+			"defaulted answer_subject.kind=config_key from typed role-locate predicate_axis=configure"
+	}
+	return types.AnswerSubject{}, ""
 }
 
 func emitAnalysisRuntimeArtifactHasLineAnchors(ctx *types.BusContext) bool {

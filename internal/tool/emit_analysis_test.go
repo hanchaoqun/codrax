@@ -4027,6 +4027,97 @@ func TestEmitAnalysis_Execute_DefaultsRuntimeArtifactRoleLocateSubject(t *testin
 	}
 }
 
+func TestEmitAnalysis_Execute_DefaultsTypedRoleLocateSubjectFromQuestionKind(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("Which function is the entry point for this behavior?")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "explain",
+		"scenario": "generic",
+		"complexity": "simple",
+		"keywords": ["entry", "function", "behavior"],
+		"entities": ["behavior"],
+		"question_kind": "call_chain",
+		"predicate_axis": "call",
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.8,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": true,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("typed role-locate subject should default from question_kind, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.AnswerSubject.Kind != types.SubjectFunctionName {
+		t.Fatalf("answer_subject.kind = %q, want function_name", rm.AnswerSubject.Kind)
+	}
+}
+
+func TestEmitAnalysis_Execute_DoesNotDefaultAmbiguousRoleLocateSubject(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("Locate the thing related to this mechanism.")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "explain",
+		"scenario": "generic",
+		"complexity": "simple",
+		"keywords": ["thing", "mechanism"],
+		"entities": ["mechanism"],
+		"question_kind": "mechanism",
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.8,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": true,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if res.Success {
+		t.Fatal("ambiguous role-locate subject should remain fail-loud")
+	}
+	if !strings.Contains(res.Summary, "answer_subject.kind") {
+		t.Fatalf("rejection should point at missing answer_subject.kind, got %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_Execute_DropsInvalidExactContextTermsWithWarning(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

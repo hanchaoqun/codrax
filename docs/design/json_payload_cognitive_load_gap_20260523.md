@@ -793,7 +793,7 @@ untouched.
         drift is cleared. Diagnostic predicates, current-risk/current-version
         diagnostics, and attached runtime artifacts are explicitly guarded.
     - Slice 44.3 — exact role-locate and scalar symbol scope preservation.
-      Status: planned.
+      Status: completed.
       - Root gaps: E20260520-G5 / G88 / G90 / G127 show role-locate questions
         either missing an inferable `answer_subject.kind` or being widened into
         related architecture sub-topics and function-body coverage.
@@ -809,6 +809,15 @@ untouched.
       - Guardrail tests: exact "entry function + file" answers keep one
         principal target; coverage/existence questions that merely mention a
         target are not forced into role-locate.
+      - Delivered in this slice: `emit_analysis` now safely fills missing
+        role-locate `answer_subject.kind` only from typed `question_kind` /
+        `predicate_axis` combinations that identify the located literal
+        (`return_value`, `call_chain`, `config_mapping`, return/call/configure
+        axes). Ambiguous role-locate subjects remain fail-loud. The analyzer IR
+        builder also collapses exploratory `sub_topics` for scalar role-locate
+        lookups so related files/components remain search context instead of
+        principal answer sections; set-valued and relational role lookups keep
+        their topics.
     - Slice 44.4 — explicit-file literal/import/source-inventory analyzer stop
       condition. Status: planned.
       - Root gaps: E20260522-G50 / G57 and E20260520 import/inventory cases

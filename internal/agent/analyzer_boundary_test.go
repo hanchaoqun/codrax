@@ -119,3 +119,58 @@ func TestReconcileEnumerationBoundaryScope_CollapsesWithoutExactGraphHit(t *test
 		t.Fatalf("sub_topics = %d, want 0 after boundary collapse", len(got.SubTopics))
 	}
 }
+
+func TestReconcileScalarRoleLocateScope_DropsExploratorySubTopics(t *testing.T) {
+	rm := types.RequestModel{
+		RawRequest: "Which function is the entry point for this behavior?",
+		Predicates: types.SemanticPredicates{
+			IsRoleLocateLookup: true,
+			IsScalarAnswer:     true,
+			IsCrossComponent:   true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"entry", "behavior"},
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "entry function"},
+			{Summary: "related call chain"},
+		},
+	}
+
+	got, reason := reconcileScalarRoleLocateScope(rm)
+	if reason == "" {
+		t.Fatal("expected scalar role-locate scope reconcile")
+	}
+	if len(got.SubTopics) != 0 {
+		t.Fatalf("sub_topics = %d, want 0 after role-locate collapse", len(got.SubTopics))
+	}
+	if len(got.AnalyzerHints.Entities) != len(rm.AnalyzerHints.Entities) {
+		t.Fatalf("entities should remain available as search context: got %v want %v", got.AnalyzerHints.Entities, rm.AnalyzerHints.Entities)
+	}
+}
+
+func TestReconcileScalarRoleLocateScope_PreservesSetValuedOrRelationalTopics(t *testing.T) {
+	base := types.RequestModel{
+		Predicates: types.SemanticPredicates{
+			IsRoleLocateLookup: true,
+			IsScalarAnswer:     true,
+		},
+		SubTopics: []types.SubTopic{{Summary: "A"}, {Summary: "B"}},
+	}
+	t.Run("set valued", func(t *testing.T) {
+		rm := base
+		rm.Predicates.IsScalarAnswer = false
+		got, reason := reconcileScalarRoleLocateScope(rm)
+		if reason != "" || len(got.SubTopics) != len(base.SubTopics) {
+			t.Fatalf("set-valued role lookup should keep topics, reason=%q got=%+v", reason, got.SubTopics)
+		}
+	})
+	t.Run("relational", func(t *testing.T) {
+		rm := base
+		rm.Predicates.IsRelationalLookup = true
+		got, reason := reconcileScalarRoleLocateScope(rm)
+		if reason != "" || len(got.SubTopics) != len(base.SubTopics) {
+			t.Fatalf("relational role lookup should keep topics, reason=%q got=%+v", reason, got.SubTopics)
+		}
+	})
+}

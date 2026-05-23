@@ -1399,6 +1399,18 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		))
 		rm = resolved
 	}
+	if resolved, reason := reconcileScalarRoleLocateScope(rm); reason != "" {
+		logging.Debug("[analyzer] role-locate scope reconcile: %s", reason)
+		recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+			"role_locate_scope",
+			fmt.Sprintf("sub_topics=%d scalar=%t", len(rm.SubTopics), rm.Predicates.IsScalarAnswer),
+			fmt.Sprintf("sub_topics=%d scalar=%t", len(resolved.SubTopics), resolved.Predicates.IsScalarAnswer),
+			rm.KindConfidence,
+			reason,
+			resolved.Predicates,
+		))
+		rm = resolved
+	}
 
 	// Log-triage augmentation. The log_triage pre-stage has already
 	// run and written a validated LogBundle onto Mutable.LogTriage
