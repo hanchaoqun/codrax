@@ -159,8 +159,8 @@ soft supplement input.
 | D0 | Done | Create this design and link it from the gap retriage document. | Doc review |
 | B1 | Done | Add typed structs, analyzer schema/prompt, parser normalization, RequestModel projection, and semantic-view/presentation projection. | `go test ./internal/types ./internal/tool` |
 | B2 | Done | Render finalizer prompt section from the typed dimensions; add prompt tests for mixed VCS+current-source and generic dimensioned answers. | `go test ./internal/agent -run RequestedAnswerDimensions` |
-| B3 | Pending | Add eval coverage for recent diff+current-source dimensions, log+current-code dimensions, and trace+current-code dimensions. | focused eval batch |
-| B4 | Pending | Analyze eval logs and decide whether a soft accepted-path supplement is justified. | gap doc update |
+| B3 | Done | Add eval coverage for recent diff+current-source dimensions, log+current-code dimensions, and trace+current-code dimensions. | focused eval batch |
+| B4 | Done | Analyze eval logs and decide whether a soft accepted-path supplement is justified. Current evidence says no supplement is justified; the missing behavior was a source-lane routing bug fixed at `RequestModel.HasRuntimeArtifactCurrentVerificationAnchor`. | gap doc update |
 
 ## Open Risks
 
@@ -187,3 +187,38 @@ soft supplement input.
   - Validation:
     - `go test ./internal/types ./internal/tool ./internal/agent`
     - `git diff --check`
+
+- 2026-05-24 B3 partial:
+  - `eval/cases/read_combo_git_two_diffs_current_code.case` passed once at
+    `eval/results/read_combo_git_two_diffs_current_code-20260524-005936`.
+  - The run confirmed analyzer → semantic view projection:
+    `answer_dimensions=4` and `requested_dimensions=4`; finalizer completed in
+    one iteration with no rewrite.
+  - Added explicit-dimension mixed artifact cases:
+    `read_combo_log_current_code_dimensions` and
+    `read_combo_trace_current_code_dimensions`.
+
+- 2026-05-24 B3/B4 complete:
+  - Initial log/trace explicit-dimension runs failed without finalizer retries:
+    both answered from the runtime artifact only and did not read current
+    source. This was not a local-model issue; it exposed a system trait gap.
+  - Root cause: `HasRuntimeArtifactCurrentVerificationAnchor` treated external
+    log/trace dispatches as observation-only unless analyzer emitted
+    `required_files`, `exact_targets`, or resolved artifact files. It did not
+    consume the newly typed `requested_answer_dimensions.current_key_code`
+    signal, even though that signal is a request-anchored, language-neutral
+    current-source lane request.
+  - Fix: `current_key_code` dimensions now open the current-source lane for
+    external runtime artifacts; other presentation dimensions such as `impact`
+    remain observation-only so ordinary log/trace summaries do not trigger repo
+    reads.
+  - Validation after the fix:
+    - `read_combo_log_current_code_dimensions-20260524-011006`: PASS,
+      `tool_read_file=8`, `finalizer_iters=1`.
+    - `read_combo_trace_current_code_dimensions-20260524-011006`: PASS,
+      `tool_read_file=11`, `finalizer_iters=1`.
+    - `read_combo_git_two_diffs_current_code-20260524-005936`: PASS,
+      `answer_dimensions=4`, `requested_dimensions=4`, `finalizer_iters=1`.
+  - Decision: no accepted-path supplement is needed for this batch. The
+    correct fix was upstream lane routing, not renderer-side table or prose
+    supplementation.

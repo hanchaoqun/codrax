@@ -818,6 +818,13 @@ func (rm RequestModel) HasRuntimeArtifactCurrentVerificationAnchor() bool {
 			return true
 		}
 	}
+	if rm.RequestedAnswerDimensions != nil && rm.RequestedAnswerDimensions.Active() {
+		for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
+			if dim.Role == RequestedAnswerDimensionCurrentKeyCode {
+				return true
+			}
+		}
+	}
 	return false
 }
 

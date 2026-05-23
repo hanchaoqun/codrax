@@ -1,0 +1,19 @@
+# Read combo — log observation plus current-code answer dimensions
+#
+# Regression target: explicit user-requested answer dimensions must survive for
+# mixed artifact/current-code questions too. The log line is artifact-local
+# evidence; current source explains how the system distinguishes LLM transport
+# failures from answer-contract failures. The answer must not collapse to a
+# scalar value and must not cite the log line as a source file.
+ID="read_combo_log_current_code_dimensions"
+NAME="read combo — log plus current code requested dimensions"
+QUESTION="这段日志为什么触发 finalizer 重写？请分别说明日志线索、当前关键代码、异常类型区分、影响和边界；不要把日志行当成当前源码引用。"
+LOG='2026-05-23T09:00:00.000 DEBUG [diag finalizer] iter=0 phase=llm_request model=demo
+2026-05-23T09:00:20.000 WARN [llm] first_byte_timeout exceeded after 40s
+2026-05-23T09:00:20.001 WARN [orchestrator] finalizer attempt 1/3 failed: LLM stream timeout
+2026-05-23T09:00:20.002 INFO [render] ⟳ 4/4 模型响应出错,正在重新撰写答案
+'
+EXPECT_NOT_CONTAINS="**值：**"
+EXPECT_MATCHES_REGEX="(日志线索|日志|第 ?[0-9]+ ?行|line).*(当前关键代码|当前源码|源码|实现)|(当前关键代码|当前源码|源码|实现).*(日志线索|日志|第 ?[0-9]+ ?行|line)
+(异常类型|模型响应|timeout|超时|校验失败|成文校验).*(区分|边界|影响)|(区分|边界|影响).*(异常类型|模型响应|timeout|超时|校验失败|成文校验)
+internal/(orchestrator|agent|llm|render|tool)/[^[:space:]]+\.go:[0-9]+"

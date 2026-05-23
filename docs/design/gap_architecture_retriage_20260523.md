@@ -182,7 +182,7 @@ violating the user's requested evidence mix.
 | T7 | Done | Reduce mixed VCS/current-source exploration repair cost without relaxing evidence grounding. | explorer mid-loop policy, evidence salience/ranking | targeted VCS eval; compare `midloop_inject` / `explorer_iters` |
 | T8 | Done | Deepen answer-document JSON recovery for JSON-encoded `blocks[]` / native-array confusion so light model syntax slips do not cause visible finalizer reject loops. | answer-document tool param compat / recovery | focused finalizer recovery unit tests |
 | T9 | Pending | Decide whether prompt-only runtime mixed-lane guidance is sufficient or a typed `current_source_explanation` profile is needed. | analyzer schema / request traits | regression evals for log+code, trace+code, VCS+code |
-| T10 | In Progress | Preserve explicit user-requested answer dimensions (for example `diff 线索 / 当前关键代码 / 作用 / 影响`) through analyzer → surface plan → finalizer prompt without hard gates or system table replacement. B1/B2 typed contract and prompt are done; B3 eval coverage remains. | `docs/design/user_requested_answer_dimensions_20260524.md`, analyzer schema, `AnswerPresentationContract`, finalizer prompt | typed unit tests + focused mixed evidence evals |
+| T10 | Done | Preserve explicit user-requested answer dimensions (for example `diff 线索 / 当前关键代码 / 作用 / 影响`) through analyzer → surface plan → finalizer prompt without hard gates or system table replacement. Typed contract, finalizer prompt, runtime/current-source lane routing, and VCS/log/trace eval coverage are complete. | `docs/design/user_requested_answer_dimensions_20260524.md`, analyzer schema, `AnswerPresentationContract`, `RequestModel.HasRuntimeArtifactCurrentVerificationAnchor`, finalizer prompt, `eval/cases/read_combo_*_dimensions.case` | typed unit tests + focused mixed evidence evals |
 
 ## Implementation Notes For Future Batches
 
@@ -197,6 +197,18 @@ violating the user's requested evidence mix.
   clearly marked supplemental block. It must not rewrite or replace the table.
 - If a non-critical, non-lossless issue remains, prefer localized boundary
   disclosure or accepted-with-advisory telemetry over finalizer rewrite.
+
+- 2026-05-24 T10 complete:
+  - Focused VCS/log/trace evals cover explicit requested dimensions across
+    history, runtime log, and runtime trace evidence mixed with current source.
+  - A concrete routing gap was found and fixed: request-anchored
+    `requested_answer_dimensions.current_key_code` now opens the current-source
+    lane for external runtime artifacts. This keeps ordinary observation-only
+    artifacts lightweight while honoring explicit "current key code" requests.
+  - No deterministic supplement was added. The eval evidence showed the safer
+    architecture fix was upstream lane routing; renderer supplements remain a
+    last resort only when accepted-path telemetry proves a deterministic,
+    append-only supplement is necessary.
 
 ## Progress Log
 

@@ -110,6 +110,34 @@ func TestHasObservationOnlyRuntimeArtifact_RequiredFilesOpenCurrentSourceLane(t 
 	}
 }
 
+func TestHasObservationOnlyRuntimeArtifact_CurrentKeyCodeDimensionOpensCurrentSourceLane(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioRootCause,
+		LogTriage: &LogBundle{
+			Errors: []LogError{{Type: "timeout"}},
+		},
+		RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Confidence:          0.9,
+			Dimensions: []RequestedAnswerDimension{{
+				Label:    "当前关键代码",
+				Role:     RequestedAnswerDimensionCurrentKeyCode,
+				Required: true,
+				Index:    1,
+			}},
+		},
+	}
+	if rm.HasObservationOnlyRuntimeArtifact() {
+		t.Fatal("explicit current_key_code dimension should keep mixed runtime/current-source lane open")
+	}
+
+	rm.RequestedAnswerDimensions.Dimensions[0].Role = RequestedAnswerDimensionImpact
+	if !rm.HasObservationOnlyRuntimeArtifact() {
+		t.Fatal("non-current-source presentation dimensions must not open repo reads for external-only runtime artifacts")
+	}
+}
+
 func TestHasBoundedCategoryEnumerationMembers_TypedOnly(t *testing.T) {
 	rm := RequestModel{
 		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
