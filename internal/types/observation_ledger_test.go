@@ -1418,6 +1418,47 @@ func TestObservationLedgerInputFromAgentContext_CarriesMCPAndRuntimeBundles(t *t
 	}
 }
 
+func TestCompileObservationLedger_MCPResponseTypedCoordinates(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		MCPResponses: []MCPResponse{{
+			ServerName:  "docs",
+			Method:      "read_resource",
+			Success:     true,
+			Summary:     "spec row confirms the contract",
+			RawRef:      "mcp://docs/spec#raw",
+			PayloadRef:  "blob://payload/mcp-spec.json",
+			RowSetRef:   "blob://rows/mcp-spec.jsonl",
+			PageRef:     "blob://payload/mcp-spec.json?page=1",
+			ResourceURI: "mcp://docs/spec",
+			MIMEType:    "application/json",
+			JSONPointer: "/items/0/title",
+			Selector:    "$.items[0]",
+			Row:         3,
+			LineStart:   12,
+			LineEnd:     13,
+		}},
+	})
+	got := findObservationRecord(t, ledger, "mcp:0")
+	if got.SourceRef.Kind != ObservationSourceMCPResource ||
+		got.SourceRef.Server != "docs" ||
+		got.SourceRef.RawRef != "mcp://docs/spec#raw" ||
+		got.SourceRef.PayloadRef != "blob://payload/mcp-spec.json" ||
+		got.SourceRef.RowSetRef != "blob://rows/mcp-spec.jsonl" ||
+		got.SourceRef.PageRef != "blob://payload/mcp-spec.json?page=1" ||
+		got.SourceRef.ResourceURI != "mcp://docs/spec" ||
+		got.SourceRef.MIMEType != "application/json" ||
+		got.Span.JSONPointer != "/items/0/title" ||
+		got.Span.Selector != "$.items[0]" ||
+		got.Span.Row != 3 ||
+		got.Span.LineStart != 12 ||
+		got.Span.LineEnd != 13 {
+		t.Fatalf("MCP typed coordinates were not preserved: %+v", got)
+	}
+	if ObservationRecordHasCurrentSourceLineSpan(got) || ObservationRecordHasStrongCurrentSourceAnchor(got) {
+		t.Fatalf("MCP typed coordinates must not become current-source citation anchors: %+v", got)
+	}
+}
+
 func assertObservationRecord(t *testing.T, ledger ObservationLedger, id string, origin AnswerEvidenceOrigin, source ObservationSourceKind) {
 	t.Helper()
 	record := findObservationRecord(t, ledger, id)

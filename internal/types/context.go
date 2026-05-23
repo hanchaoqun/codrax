@@ -4169,12 +4169,22 @@ type ToolResult struct {
 
 // MCPResponse records a response from an MCP server.
 type MCPResponse struct {
-	ServerName string    `json:"server_name"`
-	Method     string    `json:"method"`
-	Summary    string    `json:"summary"`
-	RawRef     string    `json:"raw_ref,omitempty"`
-	Success    bool      `json:"success"`
-	Timestamp  time.Time `json:"timestamp"`
+	ServerName  string    `json:"server_name"`
+	Method      string    `json:"method"`
+	Summary     string    `json:"summary"`
+	RawRef      string    `json:"raw_ref,omitempty"`
+	PayloadRef  string    `json:"payload_ref,omitempty"`
+	RowSetRef   string    `json:"row_set_ref,omitempty"`
+	PageRef     string    `json:"page_ref,omitempty"`
+	ResourceURI string    `json:"resource_uri,omitempty"`
+	MIMEType    string    `json:"mime_type,omitempty"`
+	JSONPointer string    `json:"json_pointer,omitempty"`
+	Selector    string    `json:"selector,omitempty"`
+	Row         int       `json:"row,omitempty"`
+	LineStart   int       `json:"line_start,omitempty"`
+	LineEnd     int       `json:"line_end,omitempty"`
+	Success     bool      `json:"success"`
+	Timestamp   time.Time `json:"timestamp"`
 }
 
 // ExecutionSignals tracks boolean signals produced by agents. After

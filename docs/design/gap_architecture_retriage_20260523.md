@@ -160,7 +160,7 @@ when the answer is accepted.
 | --- | --- | --- | --- | --- |
 | T0 | Done | Create this retriage document with A/B decision, root causes, and task order. | `docs/design/gap_architecture_retriage_20260523.md` | Doc review |
 | T1 | Done | Add code-level tests that aggregate facts for web, external docs, MCP, connectors, cross-repo index, VCS, command, log, and trace all project through `ObservationLedger` with origin-local `SourceRef` / `ObservationSpan`, not current-source citations. | `internal/types/observation_ledger.go`, `internal/types/observation_ledger_test.go`, `internal/types/observation_prompt_projection_test.go` | `go test ./internal/types` |
-| T2 | Pending | Extend MCP response projection, if current fields are too weak, without duplicating the ledger. Prefer typed fields only when producers can populate them; otherwise keep support-only `RawRef`. | `internal/types/context.go`, `internal/types/observation_ledger.go`, MCP tests | `go test ./internal/types ./internal/mcp` |
+| T2 | Done | Extend MCP response projection, if current fields are too weak, without duplicating the ledger. Prefer typed fields only when producers can populate them; otherwise keep support-only `RawRef`. | `internal/types/context.go`, `internal/types/observation_ledger.go`, MCP tests | `go test ./internal/types ./internal/mcp` |
 | T3 | Pending | Audit pre-emit / contract / reviewer origin decisions and replace local origin switches with shared ledger helpers where safe. | `internal/tool/answer_document_pre_emit_check.go`, `internal/orchestrator/contract_check.go`, `internal/orchestrator/semantic_quality_reviewer.go` | focused unit tests plus no broad behavior drift |
 | T4 | Pending | Add supplement safety guard tests across current-source, VCS, runtime, command, cross-repo, web/MCP/connector-like origins. | `internal/tool/*supplement*_test.go`, `internal/render/answerdoc_test.go` | no duplicate/dry supplement regression |
 | T5 | Pending | Add executable eval cases for existing producers and placeholder/documented skeletons for future MCP/web/connector producers. | `eval/cases`, docs | targeted eval batch, no product-code change during log collection |
@@ -193,3 +193,13 @@ when the answer is accepted.
   - Filled existing `ObservationSourceRef` passthrough gaps for `mime_type`,
     `fetched_at`, `tool_call_id`, and cross-repo `path`.
   - Validation: `go test ./internal/types`.
+- 2026-05-23 T2 complete:
+  - Extended the existing `MCPResponse` carrier with typed resource coordinates
+    (`resource_uri`, `payload_ref`, `row_set_ref`, `page_ref`, `mime_type`,
+    `json_pointer`, `selector`, `row`, and line span).
+  - Projected those fields through `ObservationLedger` as
+    `mcp_resource` origin-local support, while preserving the old `raw_ref`
+    support-only path.
+  - Added a regression proving MCP coordinates do not become current-source
+    citation anchors.
+  - Validation: `go test ./internal/types ./internal/mcp`.
