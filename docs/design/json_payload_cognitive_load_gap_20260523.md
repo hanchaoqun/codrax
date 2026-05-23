@@ -673,12 +673,51 @@ untouched.
     artifact-local rows stay observation refs rather than becoming
     current-source `file:0` citations.
 
-- Batch 43 — runtime artifact provenance split. Status: planned.
-  - Carry `observed_direct_cause`, `artifact_span`, and
-    `inferred_upstream_possibility` as typed lanes for log/trace/perf answers.
-  - Guardrail tests: trace answers do not expose internal zero-based frame
-    indices unless the artifact contains a frame ordinal; log answers do not
-    promote caller-side root cause without current-source proof.
+- Batch 43 — runtime artifact provenance split. Status: ready for implementation.
+  - Design decision: reuse `ObservationLedger` as the only downstream evidence
+    surface. Do not add a second runtime-artifact prompt section or a new
+    pseudo-citation channel.
+  - Add a typed observation provenance lane on `ObservationRecord` with the
+    narrow values below:
+    - `observed_direct_cause`: the artifact itself reports the failure/symptom
+      or causally-labelled runtime event, such as a parsed `LogError`, a
+      diagnostic failure observation, or a trace jank/stall record with an
+      explicit runtime reason/symbol.
+    - `artifact_span`: the record is an addressable artifact-local coordinate
+      or measurement, such as a log line, trace timestamp span, command row, or
+      frame duration. It is answer-grade for artifact questions but must not
+      become a current-source root-cause proof.
+    - `inferred_upstream_possibility`: the record is a bounded possible upstream
+      explanation or bridge to current source. It is useful context, but it is
+      never enough by itself to hard-block or rewrite the final answer.
+  - Producer mapping:
+    - `LogBundle.Errors` -> `observed_direct_cause`, with stack-frame support
+      refs treated as artifact-local support unless separately grounded by
+      current-source evidence.
+    - `LogBundle.Observations` -> `observed_direct_cause` only when typed as
+      diagnostic/failure/warning; otherwise `artifact_span`.
+    - `PerfBundle.Frames` -> `artifact_span`; do not render internal zero-based
+      frame counters when `FrameNo` is absent/zero.
+    - `PerfBundle.Janks` / `PerfBundle.Stalls` -> `observed_direct_cause` when
+      the typed runtime reason/symbol exists, otherwise `artifact_span`.
+    - `aggregate_facts` may opt in with structured dimensions
+      `observation_lane`, `runtime_lane`, or `provenance_lane`; invalid values
+      are ignored rather than guessed.
+  - Consumer mapping:
+    - Finalizer prompt and semantic reviewer render the lane alongside
+      `origin/source/span`, so both agents can distinguish direct artifact facts
+      from possible upstream interpretations without reading raw prose.
+    - Pre-emit current-source citation gates continue to use
+      `ObservationRecordHasCurrentSourceLineSpan` and must not treat runtime
+      lanes as citation eligibility.
+  - Guardrail tests:
+    - Trace/perf prompt rows do not expose `frame 0` / zero-based frame wording
+      unless `FrameNo > 0`.
+    - Log answers see `observed_direct_cause` for the parsed error and an
+      explicit boundary note that stack support refs are artifact-local unless
+      current-source evidence grounds them.
+    - Aggregate facts preserve a typed `inferred_upstream_possibility` lane via
+      structured dimensions without changing model-authored answer text.
 
 - Batch 44 — analyzer fast-path consolidation. Status: planned.
   - Add typed fast paths for exact-file import literal enumeration,
