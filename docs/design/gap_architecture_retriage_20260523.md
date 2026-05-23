@@ -182,7 +182,7 @@ violating the user's requested evidence mix.
 | T7 | Done | Reduce mixed VCS/current-source exploration repair cost without relaxing evidence grounding. | explorer mid-loop policy, evidence salience/ranking | targeted VCS eval; compare `midloop_inject` / `explorer_iters` |
 | T8 | Done | Deepen answer-document JSON recovery for JSON-encoded `blocks[]` / native-array confusion so light model syntax slips do not cause visible finalizer reject loops. | answer-document tool param compat / recovery | focused finalizer recovery unit tests |
 | T9 | Pending | Decide whether prompt-only runtime mixed-lane guidance is sufficient or a typed `current_source_explanation` profile is needed. | analyzer schema / request traits | regression evals for log+code, trace+code, VCS+code |
-| T10 | In Progress | Preserve explicit user-requested answer dimensions (for example `diff 线索 / 当前关键代码 / 作用 / 影响`) through analyzer → surface plan → finalizer prompt without hard gates or system table replacement. | `docs/design/user_requested_answer_dimensions_20260524.md`, analyzer schema, `AnswerPresentationContract`, finalizer prompt | typed unit tests + focused mixed evidence evals |
+| T10 | In Progress | Preserve explicit user-requested answer dimensions (for example `diff 线索 / 当前关键代码 / 作用 / 影响`) through analyzer → surface plan → finalizer prompt without hard gates or system table replacement. B1/B2 typed contract and prompt are done; B3 eval coverage remains. | `docs/design/user_requested_answer_dimensions_20260524.md`, analyzer schema, `AnswerPresentationContract`, finalizer prompt | typed unit tests + focused mixed evidence evals |
 
 ## Implementation Notes For Future Batches
 
@@ -433,3 +433,14 @@ violating the user's requested evidence mix.
     must guide finalizer presentation only; it must not become a hard rewrite
     gate and must not let deterministic system补表 replace model-authored
     content.
+
+- 2026-05-24 T10 B1/B2 complete:
+  - Added `RequestedAnswerDimensionProfile` as a soft analyzer-emitted
+    presentation contract with current-request provenance validation.
+  - Projected dimensions through `RequestModel`, `QuestionStructureView`,
+    `AnswerSurfacePlan`, and `AnswerPresentationContract`.
+  - Rendered a localized finalizer prompt section that asks the model to keep
+    user-requested dimensions visible without replacing richer content with a
+    system table.
+  - Added tests covering normalization, `emit_analysis` persistence, semantic
+    view projection, and finalizer prompt rendering.

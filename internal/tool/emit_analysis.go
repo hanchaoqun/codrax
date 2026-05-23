@@ -81,6 +81,7 @@ type emitAnalysisParams struct {
 	AnswerExclusionPolicy        *emitAnswerExclusionPolicyParam        `json:"answer_exclusion_policy,omitempty"`
 	AnswerRoleProfile            *emitAnswerRoleProfileParam            `json:"answer_role_profile,omitempty"`
 	ErrorGranularityProfile      *emitErrorGranularityProfileParam      `json:"error_granularity_profile,omitempty"`
+	RequestedAnswerDimensions    *emitRequestedAnswerDimensionsParam    `json:"requested_answer_dimensions,omitempty"`
 	PredicateAxis                string                                 `json:"predicate_axis,omitempty"`
 	DiagramHint                  *emitDiagramHintParam                  `json:"diagram_hint,omitempty"`
 	EnumerationBoundary          *emitEnumerationBoundaryParam          `json:"enumeration_boundary,omitempty"`
@@ -226,6 +227,21 @@ type emitErrorGranularityProfileParam struct {
 	SourceQuotes            []string `json:"source_quotes,omitempty"`
 	Confidence              *float64 `json:"confidence"`
 	Rationale               string   `json:"rationale,omitempty"`
+}
+
+type emitRequestedAnswerDimensionsParam struct {
+	IsDimensionedAnswer *bool                               `json:"is_dimensioned_answer"`
+	Dimensions          []emitRequestedAnswerDimensionParam `json:"dimensions,omitempty"`
+	Confidence          *float64                            `json:"confidence"`
+	Rationale           string                              `json:"rationale,omitempty"`
+}
+
+type emitRequestedAnswerDimensionParam struct {
+	Label       string `json:"label"`
+	Role        string `json:"role,omitempty"`
+	SourceQuote string `json:"source_quote,omitempty"`
+	Required    *bool  `json:"required,omitempty"`
+	Index       int    `json:"index,omitempty"`
 }
 
 // emitAnswerSubjectParam is the wire shape of the optional
@@ -527,6 +543,31 @@ func buildEmitAnalysisSchema() {
 				},
 				"required": []string{"is_granularity_question", "confidence"},
 			},
+			"requested_answer_dimensions": map[string]any{
+				"type":        "object",
+				"description": "Optional soft typed profile for visible answer dimensions the CURRENT request explicitly asks the final answer to preserve, such as diff clues, current key code, purpose/function, impact, comparison axes, evidence source, or boundary notes. This is presentation guidance only, not an evidence origin and not a hard validation gate.",
+				"properties": map[string]any{
+					"is_dimensioned_answer": map[string]any{"type": "boolean", "description": "True when the user explicitly asks the answer to cover named visible dimensions; false otherwise."},
+					"dimensions": map[string]any{
+						"type":        "array",
+						"description": "Requested answer dimensions in the order they appear in the current request. Use the user's own label when possible.",
+						"items": map[string]any{
+							"type": "object",
+							"properties": map[string]any{
+								"label":        map[string]any{"type": "string", "description": "User-facing dimension label, preferably copied from the current request, such as `diff 线索`, `当前关键代码`, `作用`, or `影响`."},
+								"role":         map[string]any{"type": "string", "enum": requestedAnswerDimensionRoleValues(), "description": "Language-neutral dimension role."},
+								"source_quote": map[string]any{"type": "string", "description": "Verbatim current-request phrase that states this dimension. If the label itself is verbatim, reuse it."},
+								"required":     map[string]any{"type": "boolean", "description": "True for dimensions the user directly requested; false for optional stylistic preferences."},
+								"index":        map[string]any{"type": "integer", "minimum": 1, "description": "1-based order in the current request."},
+							},
+							"required": []string{"label"},
+						},
+					},
+					"confidence": map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this presentation profile in [0,1]."},
+					"rationale":  map[string]any{"type": "string", "description": "Short audit rationale for why these answer dimensions were requested."},
+				},
+				"required": []string{"is_dimensioned_answer", "confidence"},
+			},
 			"predicate_axis": map[string]any{
 				"type":        "string",
 				"enum":        skill.AnalysisPredicateAxisValues(),
@@ -732,6 +773,15 @@ func errorGranularityRequestedOptionValues() []string {
 	return out
 }
 
+func requestedAnswerDimensionRoleValues() []string {
+	values := types.AllRequestedAnswerDimensionRoles()
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, string(v))
+	}
+	return out
+}
+
 // Execute is the runtime quality gate. The JSON schema caught the
 // structural problems (wrong type, unknown enum, missing required
 // field); this method handles everything the schema cannot express:
@@ -774,6 +824,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		"answer_exclusion_policy",
 		"answer_role_profile",
 		"error_granularity_profile",
+		"requested_answer_dimensions",
 		"diagram_hint",
 		"enumeration_boundary",
 		"completeness_obligation",
@@ -1023,6 +1074,19 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	requestedAnswerDimensions, requestedAnswerDimensionsErr, requestedAnswerDimensionsWarnings := parseRequestedAnswerDimensions(raw, p.RequestedAnswerDimensions)
+	if requestedAnswerDimensionsErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + requestedAnswerDimensionsErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	for _, warning := range requestedAnswerDimensionsWarnings {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	fieldValueProfile, fieldValueErr := parseFieldValueProfile(raw, p.FieldValueProfile)
 	if fieldValueErr != "" {
 		if !artifactOnlyRuntime {
@@ -1190,6 +1254,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		AnswerExclusionPolicy:        answerExclusionPolicy,
 		AnswerRoleProfile:            answerRoleProfile,
 		ErrorGranularityProfile:      errorGranularityProfile,
+		RequestedAnswerDimensions:    requestedAnswerDimensions,
 		PredicateAxis:                axis,
 		DiagramHint:                  diagramHint,
 		EnumerationBoundary:          enumerationBoundary,
@@ -2358,6 +2423,52 @@ func parseErrorGranularityProfile(raw string, p *emitErrorGranularityProfilePara
 	}, "", warnings
 }
 
+func parseRequestedAnswerDimensions(raw string, p *emitRequestedAnswerDimensionsParam) (*types.RequestedAnswerDimensionProfile, string, []string) {
+	if p == nil {
+		return nil, "", nil
+	}
+	var missing []string
+	if p.IsDimensionedAnswer == nil {
+		missing = append(missing, "is_dimensioned_answer")
+	}
+	if p.Confidence == nil {
+		missing = append(missing, "confidence")
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Sprintf(
+			"requested_answer_dimensions missing required field(s): %s",
+			strings.Join(missing, ", "),
+		), nil
+	}
+	if *p.Confidence < 0 || *p.Confidence > 1 {
+		return nil, fmt.Sprintf("requested_answer_dimensions.confidence %.2f out of [0,1]", *p.Confidence), nil
+	}
+	if !*p.IsDimensionedAnswer {
+		return nil, "", nil
+	}
+	dimensions := make([]types.RequestedAnswerDimension, 0, len(p.Dimensions))
+	for _, dim := range p.Dimensions {
+		required := true
+		if dim.Required != nil {
+			required = *dim.Required
+		}
+		dimensions = append(dimensions, types.RequestedAnswerDimension{
+			Label:       dim.Label,
+			Role:        types.NormalizeRequestedAnswerDimensionRole(dim.Role),
+			SourceQuote: dim.SourceQuote,
+			Required:    required,
+			Index:       dim.Index,
+		})
+	}
+	profile, warnings := types.NormalizeRequestedAnswerDimensionProfile(raw, &types.RequestedAnswerDimensionProfile{
+		IsDimensionedAnswer: true,
+		Dimensions:          dimensions,
+		Confidence:          *p.Confidence,
+		Rationale:           p.Rationale,
+	})
+	return profile, "", warnings
+}
+
 func sourceQuotePresentInCurrentRequest(raw, quote string) bool {
 	raw = strings.TrimSpace(raw)
 	quote = strings.TrimSpace(quote)
@@ -2993,6 +3104,9 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 			}
 			fmt.Fprintf(&b, " error_options=%s", strings.Join(options, ","))
 		}
+	}
+	if rm.RequestedAnswerDimensions != nil && rm.RequestedAnswerDimensions.Active() {
+		fmt.Fprintf(&b, " answer_dimensions=%d", len(rm.RequestedAnswerDimensions.Dimensions))
 	}
 
 	// Normalization delta — only fields where raw ≠ canonical get

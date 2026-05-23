@@ -4015,6 +4015,41 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExternalObservat
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedAnswerDimensions(t *testing.T) {
+	ctx := &types.AgentContext{
+		Language: "zh",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+				RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+					IsDimensionedAnswer: true,
+					Dimensions: []types.RequestedAnswerDimension{
+						{Label: "diff 线索", Role: types.RequestedAnswerDimensionDiffClue, SourceQuote: "diff 线索", Required: true, Index: 1},
+						{Label: "当前关键代码", Role: types.RequestedAnswerDimensionCurrentKeyCode, SourceQuote: "当前关键代码", Required: true, Index: 2},
+						{Label: "作用和影响", Role: types.RequestedAnswerDimensionImpact, SourceQuote: "作用和影响", Required: true, Index: 3},
+					},
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## 用户要求的答案维度",
+		"diff 线索",
+		"当前关键代码",
+		"作用和影响",
+		"展示契约，不是新的证据来源",
+		"不要为了套表格而删除、替换或压扁更丰富的说明",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeGroundingDisposition(t *testing.T) {
 	mut := types.NewMutableState("q")
 	// A runtime artifact MUST be attached for the disposition to

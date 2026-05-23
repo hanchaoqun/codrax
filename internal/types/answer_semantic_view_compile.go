@@ -18,13 +18,14 @@ func emitSemanticViewTrace(source string, view *AnswerSemanticView, ir *Analysis
 	if ir != nil {
 		intent = ir.RequestModel.Intent
 	}
-	logging.Debug("[trace/sv] source=%s family=%s intent=%s required_blocks=%d optional_blocks=%d presentation_allowed_blocks=%d has_diagram=%v uncertainty_rules=%d richness_candidates=%d required_candidate_roles=%d required_mechanism_anchors=%d error_granularity=%v facet_coverage_present=%v exact_resolution_present=%v summary_mode=%q",
+	logging.Debug("[trace/sv] source=%s family=%s intent=%s required_blocks=%d optional_blocks=%d presentation_allowed_blocks=%d requested_dimensions=%d has_diagram=%v uncertainty_rules=%d richness_candidates=%d required_candidate_roles=%d required_mechanism_anchors=%d error_granularity=%v facet_coverage_present=%v exact_resolution_present=%v summary_mode=%q",
 		source,
 		view.Family,
 		intent,
 		len(view.RequiredBlocks),
 		len(view.OptionalBlocks),
 		len(view.Presentation.AllowedBlocks),
+		len(view.Presentation.RequestedDimensions),
 		hasDiagram,
 		len(view.UncertaintyRules),
 		len(view.RichnessCandidates),

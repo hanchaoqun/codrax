@@ -157,8 +157,8 @@ soft supplement input.
 | Batch | Status | Task | Validation |
 | --- | --- | --- | --- |
 | D0 | Done | Create this design and link it from the gap retriage document. | Doc review |
-| B1 | Pending | Add typed structs, analyzer schema/prompt, parser normalization, RequestModel projection, and semantic-view/presentation projection. | `go test ./internal/types ./internal/tool` |
-| B2 | Pending | Render finalizer prompt section from the typed dimensions; add prompt tests for mixed VCS+current-source and generic dimensioned answers. | `go test ./internal/agent -run RequestedAnswerDimensions` |
+| B1 | Done | Add typed structs, analyzer schema/prompt, parser normalization, RequestModel projection, and semantic-view/presentation projection. | `go test ./internal/types ./internal/tool` |
+| B2 | Done | Render finalizer prompt section from the typed dimensions; add prompt tests for mixed VCS+current-source and generic dimensioned answers. | `go test ./internal/agent -run RequestedAnswerDimensions` |
 | B3 | Pending | Add eval coverage for recent diff+current-source dimensions, log+current-code dimensions, and trace+current-code dimensions. | focused eval batch |
 | B4 | Pending | Analyze eval logs and decide whether a soft accepted-path supplement is justified. | gap doc update |
 
@@ -171,3 +171,19 @@ soft supplement input.
 - A later supplement must not create the old "system补表 beats model answer"
   failure mode. Any deterministic supplement must be separate, localized, and
   append-only.
+
+## Progress
+
+- 2026-05-24 B1/B2 complete:
+  - Added `RequestedAnswerDimensionProfile` and normalized request-anchored
+    dimensions with soft warnings for unanchored entries.
+  - Wired the profile through `RequestModel`, `QuestionStructureView`,
+    `AnswerSurfacePlan`, `AnswerPresentationContract`, and semantic-view trace.
+  - Extended `emit_analysis` schema and analyzer skill guidance without making
+    the profile required.
+  - Added a finalizer prompt section that preserves the user's requested answer
+    dimensions as headings, columns, list labels, or prose labels while
+    explicitly forbidding table-forcing and content replacement.
+  - Validation:
+    - `go test ./internal/types ./internal/tool ./internal/agent`
+    - `git diff --check`

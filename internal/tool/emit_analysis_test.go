@@ -256,6 +256,56 @@ func TestEmitAnalysis_SetValuedRoleLocateNormalizesToEnumeration(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_RequestedAnswerDimensionsSoftProfile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	objective := "对比最近两次提交的代码 diff，再结合当前源码分析它们分别影响了哪些当前实现链路；请说明每次提交的 diff 线索、当前关键代码、作用和影响，不要只给 commit id。"
+	mu := types.NewMutableState(objective)
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "complex",
+		"keywords": ["commit", "diff", "current source", "impact"],
+		"entities": ["commit", "diff"],
+		"question_kind": "history",
+		"requested_answer_dimensions": {
+			"is_dimensioned_answer": true,
+			"confidence": 0.9,
+			"dimensions": [
+				{"label": "diff 线索", "role": "diff_clue", "source_quote": "diff 线索", "required": true, "index": 1},
+				{"label": "当前关键代码", "role": "current_key_code", "source_quote": "当前关键代码", "required": true, "index": 2},
+				{"label": "not in request", "role": "impact", "source_quote": "not in request", "required": true, "index": 3},
+				{"label": "影响", "role": "impact", "source_quote": "影响", "required": true, "index": 4}
+			]
+		}
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("profile should be soft-normalized, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.RequestedAnswerDimensions == nil || !rm.RequestedAnswerDimensions.Active() {
+		t.Fatalf("requested dimensions not persisted: rm=%+v", rm)
+	}
+	if len(rm.RequestedAnswerDimensions.Dimensions) != 3 {
+		t.Fatalf("dimensions=%d want 3: %+v", len(rm.RequestedAnswerDimensions.Dimensions), rm.RequestedAnswerDimensions.Dimensions)
+	}
+	if !strings.Contains(res.Summary, "answer_dimensions=3") {
+		t.Fatalf("summary should report dimension count, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "requested_answer_dimensions ignored unanchored dimension") {
+		t.Fatalf("summary should warn for unanchored optional dimension, got %q", res.Summary)
+	}
+}
+
 func TestValidateSelfConsistency_DefineAxisSingleTargetRequiresSubjectDisambiguation(t *testing.T) {
 	preds := types.SemanticPredicates{
 		IsScalarAnswer:        false,

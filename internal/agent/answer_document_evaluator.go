@@ -458,6 +458,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "requested_answer_dimensions", func() string {
+		return renderAnswerDocRequestedAnswerDimensions(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "claim_bindings", func() string {
 		return renderAnswerDocClaimBindings(ctx)
 	}) {
@@ -3781,6 +3786,49 @@ func renderAnswerIntentOutputs(outputs []types.AnswerRequestedOutput) string {
 		return "(none)"
 	}
 	return strings.Join(parts, ", ")
+}
+
+func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if view == nil || len(view.Presentation.RequestedDimensions) == 0 {
+		return ""
+	}
+	lang := extractAnswerDocLang(ctx)
+	var b strings.Builder
+	if lang == "zh" {
+		b.WriteString("## 用户要求的答案维度\n\n")
+		b.WriteString("- 当前问题显式要求最终答案保留下面这些可见维度。请把它们自然地呈现为小标题、表格列、列表标签或紧凑段落标签。\n")
+		b.WriteString("- 这些维度是展示契约，不是新的证据来源；不要为没有证据支撑的维度编造内容，证据不足时在边界说明中说清楚。\n")
+		b.WriteString("- 保留模型已经写好的内容；不要为了套表格而删除、替换或压扁更丰富的说明。\n\n")
+	} else {
+		b.WriteString("## User-Requested Answer Dimensions\n\n")
+		b.WriteString("- The current request explicitly asks the final answer to preserve the visible dimensions below. Render them naturally as headings, table columns, list labels, or compact paragraph labels.\n")
+		b.WriteString("- These dimensions are presentation guidance, not new evidence origins. Do not invent unsupported content; disclose missing evidence in a boundary note or caveat.\n")
+		b.WriteString("- Preserve model-authored content; do not delete, replace, or flatten richer explanation just to fit a table.\n\n")
+	}
+	for _, dim := range view.Presentation.RequestedDimensions {
+		label := strings.TrimSpace(dim.Label)
+		if label == "" {
+			continue
+		}
+		if lang == "zh" {
+			fmt.Fprintf(&b, "- 第 %d 维：%s", dim.Index, label)
+		} else {
+			fmt.Fprintf(&b, "- Dimension %d: %s", dim.Index, label)
+		}
+		if dim.Role != "" && dim.Role != types.RequestedAnswerDimensionOther {
+			fmt.Fprintf(&b, " (`%s`)", dim.Role)
+		}
+		if dim.SourceQuote != "" && dim.SourceQuote != label {
+			fmt.Fprintf(&b, " — source quote: %q", dim.SourceQuote)
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	return b.String()
 }
 
 func renderAnswerDocInvestigationNarrativeHandoff(ctx *types.AgentContext) string {

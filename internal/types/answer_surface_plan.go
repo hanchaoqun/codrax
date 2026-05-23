@@ -53,6 +53,7 @@ type AnswerSurfacePlan struct {
 	CapabilitySurface             *CapabilitySurfaceHint
 	CapabilityAuthorityFiles      []string
 	ChangeImpactProfile           *ChangeImpactProfile
+	RequestedAnswerDimensions     []RequestedAnswerDimension
 
 	SurfaceEvidence []EvidenceItem
 
@@ -1697,6 +1698,9 @@ func BuildAnswerSurfacePlan(
 	plan := &AnswerSurfacePlan{
 		RequestedEnumerationBoundary: ir.RequestModel.EnumerationBoundary,
 		ChangeImpactProfile:          ir.RequestModel.ChangeImpactProfile,
+	}
+	if ir.RequestModel.RequestedAnswerDimensions != nil && ir.RequestModel.RequestedAnswerDimensions.Active() {
+		plan.RequestedAnswerDimensions = append([]RequestedAnswerDimension(nil), ir.RequestModel.RequestedAnswerDimensions.Dimensions...)
 	}
 	plan.CurrentStatusDiagnosticRequired = ir.RequestModel.DiagnosticProfile.RequiresCurrentStatusDiagnostic()
 	if ir.AnswerContract.CurrentStatusDiagnostic != nil && ir.AnswerContract.CurrentStatusDiagnostic.Required {

@@ -6,12 +6,13 @@ package types
 // schema should tolerate so a model-authored table, scalar, decision, or
 // explicitly requested diagram is not squeezed back into prose.
 type AnswerPresentationContract struct {
-	AllowedBlocks   []AnswerBlockKind
-	DiagramRequired bool
-	DiagramKind     DiagramKind
+	AllowedBlocks       []AnswerBlockKind
+	DiagramRequired     bool
+	DiagramKind         DiagramKind
+	RequestedDimensions []RequestedAnswerDimension
 }
 
-func CompileAnswerPresentationContract(_ *AnalysisIR, plan *AnswerSurfacePlan) AnswerPresentationContract {
+func CompileAnswerPresentationContract(ir *AnalysisIR, plan *AnswerSurfacePlan) AnswerPresentationContract {
 	contract := AnswerPresentationContract{}
 	// These carriers are display shapes, not alternate answer intent. Keeping
 	// them schema-allowed avoids finalizer retries when the model chooses a
@@ -22,6 +23,11 @@ func CompileAnswerPresentationContract(_ *AnalysisIR, plan *AnswerSurfacePlan) A
 		contract.DiagramRequired = true
 		contract.DiagramKind = resolvedDiagramKindForPlan(plan, DiagramNone)
 		contract.AllowBlocks(BlockDiagram)
+	}
+	if plan != nil && len(plan.RequestedAnswerDimensions) > 0 {
+		contract.RequestedDimensions = append([]RequestedAnswerDimension(nil), plan.RequestedAnswerDimensions...)
+	} else if ir != nil && ir.RequestModel.RequestedAnswerDimensions != nil && ir.RequestModel.RequestedAnswerDimensions.Active() {
+		contract.RequestedDimensions = append([]RequestedAnswerDimension(nil), ir.RequestModel.RequestedAnswerDimensions.Dimensions...)
 	}
 	return contract
 }

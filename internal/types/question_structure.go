@@ -192,6 +192,7 @@ type QuestionStructureView struct {
 	EnumerationBoundary    *RequestedEnumerationBoundary
 	CompletenessObligation *CompletenessObligation
 	Buckets                []QuestionBucket
+	RequestedDimensions    []RequestedAnswerDimension
 }
 
 // HasAnyObligation reports whether ANY axis is populated. Used by
@@ -226,10 +227,15 @@ func (v QuestionStructureView) ResolvedDeclaredCount() int {
 // obligations on this RequestModel. Cheap (3 pointer reads) so
 // downstream consumers can call repeatedly without caching.
 func (rm RequestModel) QuestionStructure() QuestionStructureView {
+	var dimensions []RequestedAnswerDimension
+	if rm.RequestedAnswerDimensions != nil && rm.RequestedAnswerDimensions.Active() {
+		dimensions = append([]RequestedAnswerDimension(nil), rm.RequestedAnswerDimensions.Dimensions...)
+	}
 	return QuestionStructureView{
 		EnumerationBoundary:    rm.EnumerationBoundary,
 		CompletenessObligation: rm.CompletenessObligation,
 		Buckets:                EffectiveQuestionBuckets(rm),
+		RequestedDimensions:    dimensions,
 	}
 }
 

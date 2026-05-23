@@ -157,6 +157,14 @@ type RequestModel struct {
 	// of relying on natural-language synonyms in the answer.
 	ErrorGranularityProfile *ErrorGranularityProfile `json:"error_granularity_profile,omitempty"`
 
+	// RequestedAnswerDimensions is the analyzer LLM's soft typed lane for
+	// visible answer dimensions explicitly requested by the current user
+	// question, for example "diff 线索", "当前关键代码", "作用", and "影响".
+	// It guides final-answer presentation only. It is never a hard evidence
+	// origin and never authorizes deterministic replacement of model-authored
+	// content.
+	RequestedAnswerDimensions *RequestedAnswerDimensionProfile `json:"requested_answer_dimensions,omitempty"`
+
 	// SubTopics lists independently-answerable sub-topics detected by
 	// the analyzer. When non-empty, the compiler generates one evidence
 	// DAG node per sub-topic. Empty for single-topic questions.
