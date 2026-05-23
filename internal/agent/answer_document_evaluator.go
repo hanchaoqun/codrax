@@ -3652,6 +3652,9 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 			record.Role,
 			record.GroundingPolicy,
 		)
+		if record.ProvenanceLane.IsValid() {
+			fmt.Fprintf(&b, "; lane=`%s`", record.ProvenanceLane)
+		}
 		if span := renderAnswerDocObservationSpan(record.Span); span != "" {
 			fmt.Fprintf(&b, "; span=%s", span)
 		}

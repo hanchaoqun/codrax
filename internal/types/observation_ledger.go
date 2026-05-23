@@ -73,37 +73,75 @@ type ObservationSpan struct {
 	EndTsMs     float64 `json:"end_ts_ms,omitempty"`
 }
 
+// ObservationProvenanceLane names how a non-current-source observation should
+// be interpreted. It is intentionally a small typed enum: callers may use it to
+// separate direct artifact facts from artifact-local coordinates and bounded
+// upstream possibilities without inspecting user prose or model free text.
+type ObservationProvenanceLane string
+
+const (
+	ObservationProvenanceUnknown                     ObservationProvenanceLane = ""
+	ObservationProvenanceObservedDirectCause         ObservationProvenanceLane = "observed_direct_cause"
+	ObservationProvenanceArtifactSpan                ObservationProvenanceLane = "artifact_span"
+	ObservationProvenanceInferredUpstreamPossibility ObservationProvenanceLane = "inferred_upstream_possibility"
+)
+
+func (l ObservationProvenanceLane) IsValid() bool {
+	switch l {
+	case ObservationProvenanceObservedDirectCause,
+		ObservationProvenanceArtifactSpan,
+		ObservationProvenanceInferredUpstreamPossibility:
+		return true
+	default:
+		return false
+	}
+}
+
+func NormalizeObservationProvenanceLane(raw string) ObservationProvenanceLane {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case string(ObservationProvenanceObservedDirectCause), "direct_cause", "direct_runtime_cause", "observed_failure":
+		return ObservationProvenanceObservedDirectCause
+	case string(ObservationProvenanceArtifactSpan), "artifact_coordinate", "artifact_line", "artifact_measurement":
+		return ObservationProvenanceArtifactSpan
+	case string(ObservationProvenanceInferredUpstreamPossibility), "upstream_possibility", "possible_upstream_cause", "bounded_inference":
+		return ObservationProvenanceInferredUpstreamPossibility
+	default:
+		return ObservationProvenanceUnknown
+	}
+}
+
 // ObservationRecord is the normalized, read-only fact surface compiled from
 // accepted producer outputs. It is not a replacement for EvidenceItem; source
 // evidence remains the only lane that may become repo citations. The ledger
 // gives non-code facts an equally typed route to finalizer/reviewer consumers.
 type ObservationRecord struct {
-	ID              string               `json:"id"`
-	Origin          AnswerEvidenceOrigin `json:"origin"`
-	Producer        string               `json:"producer,omitempty"`
-	Role            AnswerAggregateRole  `json:"role,omitempty"`
-	GroundingPolicy ClaimGroundingPolicy `json:"grounding_policy,omitempty"`
-	SourceRef       ObservationSourceRef `json:"source_ref,omitempty"`
-	Span            ObservationSpan      `json:"span,omitempty"`
-	EvidenceKind    EvidenceKind         `json:"evidence_kind,omitempty"`
-	AnchorKind      AnchorKind           `json:"anchor_kind,omitempty"`
-	EvidenceScope   EvidenceScope        `json:"evidence_scope,omitempty"`
-	GroundingStatus GroundingStatus      `json:"grounding_status,omitempty"`
-	ClaimKey        string               `json:"claim_key,omitempty"`
-	Subject         string               `json:"subject,omitempty"`
-	Predicate       string               `json:"predicate,omitempty"`
-	Object          string               `json:"object,omitempty"`
-	Value           string               `json:"value,omitempty"`
-	Unit            string               `json:"unit,omitempty"`
-	Negative        bool                 `json:"negative,omitempty"`
-	ResultCount     *int                 `json:"result_count,omitempty"`
-	Summary         string               `json:"summary,omitempty"`
-	RawExcerpt      string               `json:"raw_excerpt,omitempty"`
-	RichNotes       []string             `json:"rich_notes,omitempty"`
-	SupportRefs     []string             `json:"support_refs,omitempty"`
-	ObservedAt      string               `json:"observed_at,omitempty"`
-	Scope           string               `json:"scope,omitempty"`
-	Confidence      float64              `json:"confidence,omitempty"`
+	ID              string                    `json:"id"`
+	Origin          AnswerEvidenceOrigin      `json:"origin"`
+	Producer        string                    `json:"producer,omitempty"`
+	Role            AnswerAggregateRole       `json:"role,omitempty"`
+	GroundingPolicy ClaimGroundingPolicy      `json:"grounding_policy,omitempty"`
+	ProvenanceLane  ObservationProvenanceLane `json:"provenance_lane,omitempty"`
+	SourceRef       ObservationSourceRef      `json:"source_ref,omitempty"`
+	Span            ObservationSpan           `json:"span,omitempty"`
+	EvidenceKind    EvidenceKind              `json:"evidence_kind,omitempty"`
+	AnchorKind      AnchorKind                `json:"anchor_kind,omitempty"`
+	EvidenceScope   EvidenceScope             `json:"evidence_scope,omitempty"`
+	GroundingStatus GroundingStatus           `json:"grounding_status,omitempty"`
+	ClaimKey        string                    `json:"claim_key,omitempty"`
+	Subject         string                    `json:"subject,omitempty"`
+	Predicate       string                    `json:"predicate,omitempty"`
+	Object          string                    `json:"object,omitempty"`
+	Value           string                    `json:"value,omitempty"`
+	Unit            string                    `json:"unit,omitempty"`
+	Negative        bool                      `json:"negative,omitempty"`
+	ResultCount     *int                      `json:"result_count,omitempty"`
+	Summary         string                    `json:"summary,omitempty"`
+	RawExcerpt      string                    `json:"raw_excerpt,omitempty"`
+	RichNotes       []string                  `json:"rich_notes,omitempty"`
+	SupportRefs     []string                  `json:"support_refs,omitempty"`
+	ObservedAt      string                    `json:"observed_at,omitempty"`
+	Scope           string                    `json:"scope,omitempty"`
+	Confidence      float64                   `json:"confidence,omitempty"`
 }
 
 // ObservationLedger is the deterministic, compiled fact ledger for a run. Later
@@ -341,6 +379,9 @@ func mergeObservationRecord(dst, src ObservationRecord) ObservationRecord {
 	if observationGroundingPolicyPriority(src.GroundingPolicy) > observationGroundingPolicyPriority(dst.GroundingPolicy) {
 		dst.GroundingPolicy = src.GroundingPolicy
 	}
+	if observationProvenanceLanePriority(src.ProvenanceLane) > observationProvenanceLanePriority(dst.ProvenanceLane) {
+		dst.ProvenanceLane = src.ProvenanceLane
+	}
 	if dst.Summary == "" {
 		dst.Summary = strings.TrimSpace(src.Summary)
 	}
@@ -371,6 +412,19 @@ func mergeObservationRecordRichNotes(dst, src ObservationRecord) []string {
 	}
 	out = appendUniqueObservationStrings(out, src.RichNotes...)
 	return out
+}
+
+func observationProvenanceLanePriority(lane ObservationProvenanceLane) int {
+	switch lane {
+	case ObservationProvenanceObservedDirectCause:
+		return 3
+	case ObservationProvenanceInferredUpstreamPossibility:
+		return 2
+	case ObservationProvenanceArtifactSpan:
+		return 1
+	default:
+		return 0
+	}
 }
 
 func observationGroundingPolicyPriority(policy ClaimGroundingPolicy) int {
@@ -587,6 +641,7 @@ func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestMo
 				Producer:        firstNonEmptyString(fact.Provenance, "aggregate_facts"),
 				Role:            role,
 				GroundingPolicy: AnswerClaimBindingGroundingPolicy(origin, role),
+				ProvenanceLane:  observationProvenanceLaneForAggregateFact(dims),
 				SourceRef:       sourceRef,
 				Span:            observationSpanForAggregateFact(dims),
 				ClaimKey:        firstNonEmptyString(dims["target"], dims["query"], dims["pattern"], dims["predicate"], fact.Label),
@@ -604,6 +659,17 @@ func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestMo
 			})
 		}
 	}
+}
+
+func observationProvenanceLaneForAggregateFact(dims map[string]string) ObservationProvenanceLane {
+	if len(dims) == 0 {
+		return ObservationProvenanceUnknown
+	}
+	return NormalizeObservationProvenanceLane(firstNonEmptyString(
+		dims["observation_lane"],
+		dims["runtime_lane"],
+		dims["provenance_lane"],
+	))
 }
 
 const observationRowSetMinRows = 24
@@ -755,6 +821,7 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 				Producer:        "log_triage",
 				Role:            AnswerAggregateRolePrincipalAnswer,
 				GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
+				ProvenanceLane:  ObservationProvenanceObservedDirectCause,
 				SourceRef: ObservationSourceRef{
 					Kind:         ObservationSourceRuntimeArtifact,
 					ArtifactID:   "attached_log",
@@ -763,6 +830,7 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 				ClaimKey:    target,
 				Subject:     target,
 				Summary:     firstNonEmptyString(err.Message, err.Type),
+				RichNotes:   logErrorObservationRichNotes(err),
 				SupportRefs: logFrameRawRefs(err.Frames),
 			})
 			errIndex++
@@ -782,6 +850,7 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 			Producer:        "log_triage",
 			Role:            role,
 			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, role),
+			ProvenanceLane:  observationProvenanceLaneForLogObservation(obs),
 			SourceRef: ObservationSourceRef{
 				Kind:         ObservationSourceRuntimeArtifact,
 				ArtifactID:   "attached_log",
@@ -799,6 +868,23 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 			Confidence: obs.Confidence,
 		})
 	}
+}
+
+func logErrorObservationRichNotes(err LogError) []string {
+	if len(err.Frames) == 0 {
+		return nil
+	}
+	return []string{"Stack frames are artifact-local runtime support; they are not current-source root-cause proof unless separate current-source evidence grounds them."}
+}
+
+func observationProvenanceLaneForLogObservation(obs LogObservation) ObservationProvenanceLane {
+	if obs.Diagnostic || obs.Severity == LogObservationFailure || obs.Severity == LogObservationWarning {
+		return ObservationProvenanceObservedDirectCause
+	}
+	if obs.LineStart > 0 || obs.LineEnd > 0 || strings.TrimSpace(obs.Evidence) != "" {
+		return ObservationProvenanceArtifactSpan
+	}
+	return ObservationProvenanceUnknown
 }
 
 func logObservationRecordRole(bundle *LogBundle, obs LogObservation) AnswerAggregateRole {
@@ -819,19 +905,25 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 		return
 	}
 	for i, frame := range bundle.Frames {
+		label := perfFrameObservationLabel(frame)
 		add(ObservationRecord{
 			ID:              fmt.Sprintf("perf:frame:%d", i),
 			Origin:          AnswerEvidenceOriginRuntimeArtifact,
 			Producer:        "perf_trace",
 			Role:            AnswerAggregateRolePrincipalAnswer,
 			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
+			ProvenanceLane:  ObservationProvenanceArtifactSpan,
 			SourceRef:       perfObservationSourceRef(bundle, ""),
-			ClaimKey:        fmt.Sprintf("frame:%d", frame.FrameNo),
-			Subject:         fmt.Sprintf("frame %d", frame.FrameNo),
-			Value:           strconv.FormatFloat(frame.DurationMs, 'f', -1, 64),
-			Unit:            "ms",
-			Summary:         fmt.Sprintf("frame %d duration %gms", frame.FrameNo, frame.DurationMs),
-			ObservedAt:      strconv.FormatFloat(frame.TsMs, 'f', -1, 64),
+			Span: ObservationSpan{
+				StartTsMs: frame.TsMs,
+				EndTsMs:   perfFrameEndTs(frame),
+			},
+			ClaimKey:   firstNonEmptyString(label.ClaimKey, "frame_sample"),
+			Subject:    firstNonEmptyString(label.Subject, "frame sample"),
+			Value:      strconv.FormatFloat(frame.DurationMs, 'f', -1, 64),
+			Unit:       "ms",
+			Summary:    fmt.Sprintf("%s duration %gms", firstNonEmptyString(label.Subject, "frame sample"), frame.DurationMs),
+			ObservedAt: strconv.FormatFloat(frame.TsMs, 'f', -1, 64),
 		})
 	}
 	for i, jank := range bundle.Janks {
@@ -841,6 +933,7 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 			Producer:        "perf_trace",
 			Role:            AnswerAggregateRolePrincipalAnswer,
 			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
+			ProvenanceLane:  observationProvenanceLaneForPerfJank(jank),
 			SourceRef:       perfObservationSourceRef(bundle, ""),
 			Span: ObservationSpan{
 				StartTsMs: jank.StartTsMs,
@@ -862,6 +955,7 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 			Producer:        "perf_trace",
 			Role:            AnswerAggregateRolePrincipalAnswer,
 			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
+			ProvenanceLane:  observationProvenanceLaneForPerfStall(stall),
 			SourceRef:       perfObservationSourceRef(bundle, stall.File),
 			Span: ObservationSpan{
 				LineStart: stall.Line,
@@ -883,6 +977,7 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 			Producer:        "perf_trace",
 			Role:            AnswerAggregateRolePrincipalAnswer,
 			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
+			ProvenanceLane:  ObservationProvenanceArtifactSpan,
 			SourceRef:       perfObservationSourceRef(bundle, ""),
 			ClaimKey:        firstNonEmptyString(bundle.Startup.Mode, "startup"),
 			Subject:         firstNonEmptyString(bundle.Startup.Mode, "startup"),
@@ -899,6 +994,7 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 			Producer:        "perf_trace",
 			Role:            AnswerAggregateRolePrincipalAnswer,
 			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
+			ProvenanceLane:  observationProvenanceLaneForPerfObservation(obs),
 			SourceRef:       perfObservationSourceRef(bundle, ""),
 			Span: ObservationSpan{
 				LineStart: obs.LineStart,
@@ -917,6 +1013,52 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 			Confidence: obs.Confidence,
 		})
 	}
+}
+
+type perfFrameObservationLabelResult struct {
+	ClaimKey string
+	Subject  string
+}
+
+func perfFrameObservationLabel(frame PerfFrame) perfFrameObservationLabelResult {
+	if frame.FrameNo > 0 {
+		return perfFrameObservationLabelResult{
+			ClaimKey: fmt.Sprintf("frame:%d", frame.FrameNo),
+			Subject:  fmt.Sprintf("frame %d", frame.FrameNo),
+		}
+	}
+	return perfFrameObservationLabelResult{
+		ClaimKey: "frame_sample",
+		Subject:  "frame sample",
+	}
+}
+
+func perfFrameEndTs(frame PerfFrame) float64 {
+	if frame.TsMs <= 0 || frame.DurationMs <= 0 {
+		return 0
+	}
+	return frame.TsMs + frame.DurationMs
+}
+
+func observationProvenanceLaneForPerfJank(jank PerfJank) ObservationProvenanceLane {
+	if strings.TrimSpace(jank.Reason) != "" || strings.TrimSpace(jank.TriggerSpan) != "" {
+		return ObservationProvenanceObservedDirectCause
+	}
+	return ObservationProvenanceArtifactSpan
+}
+
+func observationProvenanceLaneForPerfStall(stall PerfStall) ObservationProvenanceLane {
+	if strings.TrimSpace(stall.Kind) != "" || strings.TrimSpace(stall.Symbol) != "" {
+		return ObservationProvenanceObservedDirectCause
+	}
+	return ObservationProvenanceArtifactSpan
+}
+
+func observationProvenanceLaneForPerfObservation(obs PerfObservation) ObservationProvenanceLane {
+	if obs.LineStart > 0 || obs.LineEnd > 0 || obs.StartTsMs > 0 || obs.EndTsMs > 0 || obs.DurationMs > 0 {
+		return ObservationProvenanceArtifactSpan
+	}
+	return ObservationProvenanceUnknown
 }
 
 func perfObservationSourceRef(bundle *PerfBundle, path string) ObservationSourceRef {

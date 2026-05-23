@@ -673,7 +673,7 @@ untouched.
     artifact-local rows stay observation refs rather than becoming
     current-source `file:0` citations.
 
-- Batch 43 — runtime artifact provenance split. Status: ready for implementation.
+- Batch 43 — runtime artifact provenance split. Status: completed.
   - Design decision: reuse `ObservationLedger` as the only downstream evidence
     surface. Do not add a second runtime-artifact prompt section or a new
     pseudo-citation channel.
@@ -718,6 +718,17 @@ untouched.
       current-source evidence grounds them.
     - Aggregate facts preserve a typed `inferred_upstream_possibility` lane via
       structured dimensions without changing model-authored answer text.
+  - Delivered in this batch: `ObservationRecord` now carries a narrow
+    `provenance_lane` enum, populated by accepted runtime producers and by
+    structured aggregate dimensions only. Finalizer and semantic reviewer render
+    the lane next to `origin/source/span`, while current-source citation
+    eligibility remains solely controlled by exact current-source span helpers.
+    `PerfBundle.Frames` with absent/zero `FrameNo` now render as a generic
+    `frame sample` with timestamp span instead of leaking an internal
+    zero-based `frame 0`; explicit artifact ordinals still render normally.
+    Log-error records carry an artifact-local stack boundary note so the model
+    can use stack frames as runtime support without promoting them to
+    current-source root-cause proof.
 
 - Batch 44 — analyzer fast-path consolidation. Status: planned.
   - Add typed fast paths for exact-file import literal enumeration,

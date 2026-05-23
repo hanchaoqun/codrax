@@ -385,6 +385,9 @@ func TestCompileObservationLedger_ExternalErrorInfoObservationIsSupportOnly(t *t
 			Errors: []LogError{{
 				Type:    "TypeError",
 				Message: "Cannot read property name of undefined",
+				Frames: []LogFrame{{
+					Raw: "at UserCard.build (entry/src/main/ets/UserCard.ets:42)",
+				}},
 			}},
 			Observations: []LogObservation{{
 				Kind:       LogObservationRuntimeEvent,
@@ -407,9 +410,120 @@ func TestCompileObservationLedger_ExternalErrorInfoObservationIsSupportOnly(t *t
 	if diagnostic.Role != AnswerAggregateRolePrincipalAnswer || diagnostic.GroundingPolicy != ClaimGroundingRepairable {
 		t.Fatalf("diagnostic runtime observation should remain principal repairable evidence, got %+v", diagnostic)
 	}
+	if diagnostic.ProvenanceLane != ObservationProvenanceObservedDirectCause {
+		t.Fatalf("diagnostic runtime observation should carry observed_direct_cause lane, got %+v", diagnostic)
+	}
 	context := findObservationRecord(t, ledger, "log:observation:1")
 	if context.Role != AnswerAggregateRoleSupportingCoverage || context.GroundingPolicy != ClaimGroundingSoft {
 		t.Fatalf("non-diagnostic info observation in an external error log should be support-only, got %+v", context)
+	}
+	if context.ProvenanceLane != ObservationProvenanceArtifactSpan {
+		t.Fatalf("non-diagnostic log line should carry artifact_span lane, got %+v", context)
+	}
+	errRecord := findObservationRecord(t, ledger, "log:error:0")
+	if errRecord.ProvenanceLane != ObservationProvenanceObservedDirectCause {
+		t.Fatalf("log error should carry observed_direct_cause lane, got %+v", errRecord)
+	}
+	if len(errRecord.RichNotes) == 0 || !strings.Contains(errRecord.RichNotes[0], "artifact-local") {
+		t.Fatalf("log error should warn that stack refs are artifact-local support, got %+v", errRecord.RichNotes)
+	}
+}
+
+func TestCompileObservationLedger_RuntimeArtifactProvenanceLanes(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		AggregateFacts: []AnswerAggregateFact{{
+			Kind:  AnswerAggregateScalar,
+			Label: "possible upstream explanation",
+			Value: "candidate",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: string(AnswerEvidenceOriginRuntimeArtifact)},
+				{Name: "runtime_lane", Value: string(ObservationProvenanceInferredUpstreamPossibility)},
+				{Name: "artifact_id", Value: "attached_log"},
+			},
+		}},
+		PerfBundle: &PerfBundle{
+			Frames: []PerfFrame{{
+				DurationMs: 24.5,
+				TsMs:       100,
+			}, {
+				FrameNo:    7,
+				DurationMs: 31,
+				TsMs:       140,
+			}},
+			Janks: []PerfJank{{
+				StartTsMs:   200,
+				DurationMs:  120,
+				TriggerSpan: "RenderPipeline.Draw",
+				Reason:      "io",
+			}},
+			Stalls: []PerfStall{{
+				StartTsMs:  220,
+				DurationMs: 110,
+				Kind:       "lock",
+				Symbol:     "WaitFence",
+			}},
+		},
+	})
+
+	agg := findObservationRecord(t, ledger, "aggregate:0#runtime_artifact")
+	if agg.ProvenanceLane != ObservationProvenanceInferredUpstreamPossibility {
+		t.Fatalf("aggregate runtime_lane should survive as typed provenance lane, got %+v", agg)
+	}
+	frame0 := findObservationRecord(t, ledger, "perf:frame:0")
+	if frame0.ProvenanceLane != ObservationProvenanceArtifactSpan {
+		t.Fatalf("frame sample should carry artifact_span lane, got %+v", frame0)
+	}
+	for _, forbidden := range []string{frame0.ClaimKey, frame0.Subject, frame0.Summary} {
+		if strings.Contains(forbidden, "frame 0") || strings.Contains(forbidden, "frame:0") {
+			t.Fatalf("frame without artifact ordinal must not expose zero-based frame label: %+v", frame0)
+		}
+	}
+	if frame0.Span.StartTsMs != 100 || frame0.Span.EndTsMs != 124.5 {
+		t.Fatalf("frame sample should preserve trace time span, got %+v", frame0.Span)
+	}
+	frame7 := findObservationRecord(t, ledger, "perf:frame:1")
+	if !strings.Contains(frame7.Summary, "frame 7") {
+		t.Fatalf("explicit artifact frame ordinal should be preserved, got %+v", frame7)
+	}
+	jank := findObservationRecord(t, ledger, "perf:jank:0")
+	if jank.ProvenanceLane != ObservationProvenanceObservedDirectCause {
+		t.Fatalf("typed jank reason should carry observed_direct_cause lane, got %+v", jank)
+	}
+	stall := findObservationRecord(t, ledger, "perf:stall:0")
+	if stall.ProvenanceLane != ObservationProvenanceObservedDirectCause {
+		t.Fatalf("typed stall symbol should carry observed_direct_cause lane, got %+v", stall)
+	}
+}
+
+func TestCompileObservationLedger_MergesDuplicateRuntimeLanesWithoutLosingStrongerLane(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{AggregateFacts: []AnswerAggregateFact{
+		{
+			Kind:  AnswerAggregateScalar,
+			Label: "runtime symptom",
+			Value: "TypeError",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: string(AnswerEvidenceOriginRuntimeArtifact)},
+				{Name: "artifact_id", Value: "attached_log"},
+				{Name: "line_start", Value: "42"},
+			},
+		},
+		{
+			Kind:  AnswerAggregateScalar,
+			Label: "runtime symptom",
+			Value: "TypeError",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: string(AnswerEvidenceOriginRuntimeArtifact)},
+				{Name: "runtime_lane", Value: string(ObservationProvenanceObservedDirectCause)},
+				{Name: "artifact_id", Value: "attached_log"},
+				{Name: "line_start", Value: "42"},
+			},
+		},
+	}})
+	if len(ledger.Records) != 1 {
+		t.Fatalf("same runtime observation should merge even when one record adds a lane: %+v", ledger.Records)
+	}
+	if ledger.Records[0].ProvenanceLane != ObservationProvenanceObservedDirectCause {
+		t.Fatalf("merged runtime observation should preserve stronger lane, got %+v", ledger.Records[0])
 	}
 }
 

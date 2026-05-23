@@ -163,6 +163,7 @@ type SemanticObservationSummary struct {
 	Origin          string
 	Role            string
 	Policy          string
+	Lane            string
 	Source          string
 	Span            string
 	Claim           string
@@ -701,10 +702,14 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 	}
 	if len(in.Observations) > 0 {
 		b.WriteString("\n## OBSERVATION LEDGER (typed evidence / external-resource view)\n")
-		b.WriteString("Each row: record_id / origin / role / policy / source / span / claim / value / summary / excerpt / notes. Non-current-source rows are valid observations but are not current-repo citations; evaluate coverage using their origin-specific support.\n\n")
+		b.WriteString("Each row: record_id / origin / role / policy / lane / source / span / claim / value / summary / excerpt / notes. Non-current-source rows are valid observations but are not current-repo citations; evaluate coverage using their origin-specific support.\n\n")
 		for _, obs := range in.Observations {
-			fmt.Fprintf(&b, "- record_id=%q origin=`%s` role=`%s` policy=`%s` source=%q",
-				obs.ID, obs.Origin, obs.Role, obs.Policy, obs.Source)
+			fmt.Fprintf(&b, "- record_id=%q origin=`%s` role=`%s` policy=`%s`",
+				obs.ID, obs.Origin, obs.Role, obs.Policy)
+			if obs.Lane != "" {
+				fmt.Fprintf(&b, " lane=`%s`", obs.Lane)
+			}
+			fmt.Fprintf(&b, " source=%q", obs.Source)
 			if obs.Span != "" {
 				fmt.Fprintf(&b, " span=%q", obs.Span)
 			}
@@ -785,6 +790,7 @@ func semanticObservationSummaries(ledger types.ObservationLedger, rm *types.Requ
 			Origin:          string(record.Origin),
 			Role:            string(record.Role),
 			Policy:          string(record.GroundingPolicy),
+			Lane:            string(record.ProvenanceLane),
 			Source:          semanticObservationSource(record.SourceRef),
 			Span:            semanticObservationSpan(record.Span),
 			Claim:           strings.TrimSpace(record.ClaimKey),

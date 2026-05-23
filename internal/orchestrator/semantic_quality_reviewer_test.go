@@ -1277,6 +1277,7 @@ func TestRenderSemanticQualityUserMessage_RendersObservationLedgerBoundaries(t *
 			Origin:          string(types.AnswerEvidenceOriginVCSMetadata),
 			Role:            string(types.AnswerAggregateRoleSupportingCoverage),
 			Policy:          string(types.ClaimGroundingSoft),
+			Lane:            string(types.ObservationProvenanceObservedDirectCause),
 			Source:          "vcs_metadata | /tmp/codrax/blob/git_log-1234.txt",
 			Claim:           "git_log",
 			Value:           "abc123",
@@ -1291,6 +1292,7 @@ func TestRenderSemanticQualityUserMessage_RendersObservationLedgerBoundaries(t *
 		"## OBSERVATION LEDGER",
 		"record_id=\"tool:0#vcs_metadata\"",
 		"origin=`vcs_metadata`",
+		"lane=`observed_direct_cause`",
 		"Non-current-source rows are valid observations but are not current-repo citations",
 		"result_count=0",
 		"value=\"abc123\"",
@@ -1302,6 +1304,39 @@ func TestRenderSemanticQualityUserMessage_RendersObservationLedgerBoundaries(t *
 		if !strings.Contains(msg, want) {
 			t.Fatalf("semantic reviewer prompt missing %q:\n%s", want, msg)
 		}
+	}
+}
+
+func TestSemanticObservationSummaries_PreservesRuntimeProvenanceLane(t *testing.T) {
+	ledger := types.ObservationLedger{Records: []types.ObservationRecord{{
+		ID:              "log:error:0",
+		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Role:            types.AnswerAggregateRolePrincipalAnswer,
+		GroundingPolicy: types.ClaimGroundingRepairable,
+		ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
+		SourceRef: types.ObservationSourceRef{
+			Kind:         types.ObservationSourceRuntimeArtifact,
+			ArtifactID:   "attached_log",
+			ArtifactKind: "log",
+		},
+		Summary: "TypeError: Cannot read property name of undefined",
+		RichNotes: []string{
+			"Stack frames are artifact-local runtime support; they are not current-source root-cause proof unless separate current-source evidence grounds them.",
+		},
+	}}}
+	got := semanticObservationSummaries(ledger, &types.RequestModel{Intent: types.IntentRootCause}, nil)
+	if len(got) != 1 || got[0].Lane != string(types.ObservationProvenanceObservedDirectCause) {
+		t.Fatalf("semantic observation should preserve runtime provenance lane, got %+v", got)
+	}
+	msg := renderSemanticQualityUserMessage(SemanticQualityInput{
+		OriginalRequest: "分析日志崩溃原因",
+		AnswerSummary:   "summary",
+		AnswerBody:      "body",
+		Observations:    got,
+	})
+	if !strings.Contains(msg, "lane=`observed_direct_cause`") ||
+		!strings.Contains(msg, "artifact-local runtime support") {
+		t.Fatalf("reviewer prompt should render runtime provenance lane and boundary note:\n%s", msg)
 	}
 }
 

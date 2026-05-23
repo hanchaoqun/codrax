@@ -448,6 +448,39 @@ func TestRenderAnswerDocObservationLedger_RendersExternalRawExcerpt(t *testing.T
 	}
 }
 
+func TestRenderAnswerDocObservationLedger_RendersRuntimeProvenanceLane(t *testing.T) {
+	logBundle := &types.LogBundle{
+		Errors: []types.LogError{{
+			Type:    "TypeError",
+			Message: "Cannot read property name of undefined",
+			Frames: []types.LogFrame{{
+				Raw: "at UserCard.build (entry/src/main/ets/UserCard.ets:42)",
+			}},
+		}},
+	}
+	mut := types.NewMutableState("分析日志崩溃原因")
+	mut.SetLogTriage(logBundle)
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				LogTriage: logBundle,
+			},
+		},
+	}
+	got := renderAnswerDocObservationLedger(ctx)
+	for _, want := range []string{
+		"`log:error:0`",
+		"lane=`observed_direct_cause`",
+		"Stack frames are artifact-local runtime support",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("observation ledger prompt missing runtime provenance lane %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderAnswerDocObservationLedger_CreatesLargeAggregateRowSetArtifact(t *testing.T) {
 	members := make([]string, 0, 24)
 	notes := make([]string, 0, 24)
