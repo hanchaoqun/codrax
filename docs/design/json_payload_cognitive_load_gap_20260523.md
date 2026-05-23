@@ -1043,6 +1043,39 @@ untouched.
       retry budgets are untouched. Regression coverage pins distinct
       localized messages and rejects enum leaks, transport wording, and the
       over-broad "答案待完善" phrase on target-specific fallback notices.
+  - Slice 46.3 — terminal summary retry/advisory counter split. Status:
+    planned.
+    - Detailed design before code: keep all retry/advisory decisions in the
+      orchestrator as-is and reuse typed `render.OrchestratorNoticeKind` in the
+      renderer. Do not parse localized notice text, violation prose, model
+      output, or user request wording. This slice is render telemetry only.
+    - Root gap: the run-end summary currently reports adapter-level model
+      retries and provider switches, but semantic answer rewrites, extractor /
+      explorer fallback retries, and accepted-with-boundary/advisory outcomes
+      only appear as transient/permanent notice rows. Users looking at the
+      final "已结束" line cannot tell whether the long run retried transport,
+      rewrote the answer, or accepted a boundary advisory.
+    - Rule: add renderer-local counters with three distinct buckets:
+        1. model-request retries/provider fallback: existing
+           `EventAdapterRetry` / `EventAdapterFallback` counters;
+        2. semantic answer work: typed retry-class notices that actually
+           re-run/rewrite answer work (`NoticeFallbackFinalizerOnly`,
+           `NoticeFallbackBackToExtract`, `NoticeFallbackBackToExplore`,
+           `NoticeSelfConsistencyContradictionRewriting`,
+           `NoticeAnswerCheckRetry`);
+        3. accepted advisory/boundary: typed info/warning notices that ship the
+           answer or continue without a rewrite (`NoticeFallbackFailLoud`,
+           `NoticeFinalizeRepairCap`,
+           `NoticeSelfConsistencyContradictionLogged`, `NoticeLowGrounding`,
+           `NoticeYieldKill`).
+      Generic progress, review-start, repo-map scan, forced-read, no-tool-call,
+      and transport retry notices must not be counted as semantic answer
+      rewrites.
+    - Guardrail tests: final summary suffix can render model retries,
+      provider fallbacks, semantic answer rewrites, and advisory/boundary
+      accepts in both zh/en; advisory-only events must not increment semantic
+      rewrite counters; transport adapter retries stay in their existing
+      bucket.
 
 - Batch 47 — diagram/renderability hardening. Status: completed.
   - Keep Mermaid/code-fence display fixes renderer-only. This batch must not
