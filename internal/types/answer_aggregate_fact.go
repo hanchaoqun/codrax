@@ -1020,6 +1020,9 @@ func PrincipalAggregateMemberSetFactRefsForRequest(facts []AnswerAggregateFact, 
 		if AggregateMemberSetIsScalarCountSupport(rm, ref.Fact) {
 			continue
 		}
+		if AggregateMemberSetIsNoHitWindowSupport(rm, facts, ref.Index) {
+			continue
+		}
 		if AggregateMemberSetIsMechanismNarrativeSupport(rm, ref.Fact) {
 			continue
 		}
@@ -1378,6 +1381,17 @@ func NormalizeAggregateFactRolesForRequest(facts []AnswerAggregateFact, rm *Requ
 			}
 			continue
 		}
+		if AggregateMemberSetIsNoHitWindowSupport(rm, out, i) {
+			if role != AnswerAggregateRoleSupportingCoverage {
+				out[i].Role = AnswerAggregateRoleSupportingCoverage
+				out[i].Provenance = appendAggregateFactProvenance(
+					out[i].Provenance,
+					"demoted:negative_result_window_support",
+				)
+				changed = true
+			}
+			continue
+		}
 		if AggregateMemberSetIsArchitectureNarrativeSupport(rm, out[i]) {
 			if role != AnswerAggregateRoleSupportingCoverage {
 				out[i].Role = AnswerAggregateRoleSupportingCoverage
@@ -1417,6 +1431,161 @@ func NormalizeAggregateFactRolesForRequest(facts []AnswerAggregateFact, rm *Requ
 		return cloneAnswerAggregateFacts(facts)
 	}
 	return out
+}
+
+// AggregateMemberSetIsNoHitWindowSupport reports whether a complete member set
+// is the searched-window ledger behind a zero-result proof rather than the
+// visible answer set itself.
+//
+// This keeps no-hit answers stable across VCS history, diff, log/trace,
+// command-output, connector, and repo-search observations: `result_count=0`
+// remains the principal fact, while searched commits/files/rows/spans stay as
+// support context unless the typed request explicitly asks to enumerate that
+// inventory. The predicate is intentionally structural-only. It consumes
+// aggregate kind/role, numeric zero-result fields, typed dimensions, evidence
+// origins, and RequestModel traits; it never inspects user prose, model prose,
+// markdown table titles, or language-specific source syntax.
+func AggregateMemberSetIsNoHitWindowSupport(rm *RequestModel, facts []AnswerAggregateFact, idx int) bool {
+	if rm == nil || idx < 0 || idx >= len(facts) {
+		return false
+	}
+	if aggregateRequestRequiresNoHitWindowAsPrincipal(*rm) {
+		return false
+	}
+	fact := facts[idx]
+	if !answerAggregateFactCarriesCompleteMemberSet(fact) {
+		return false
+	}
+	if !aggregateFactsContainPrincipalZeroResult(facts, rm) {
+		return false
+	}
+	return aggregateFactLooksLikeSearchedWindowLedger(fact)
+}
+
+func aggregateRequestRequiresNoHitWindowAsPrincipal(rm RequestModel) bool {
+	if aggregateRequestRequiresPathMemberSetAsPrincipal(rm) ||
+		RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
+		RequiresRelationMemberSetHandoff(rm) {
+		return true
+	}
+	if rm.Intent == IntentEnumerate ||
+		rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.QuestionStructure().HasAnyObligation() {
+		return true
+	}
+	return false
+}
+
+func aggregateFactsContainPrincipalZeroResult(facts []AnswerAggregateFact, rm *RequestModel) bool {
+	for _, fact := range facts {
+		switch fact.Kind {
+		case AnswerAggregateNegativeSearch, AnswerAggregateNegativeObservation:
+		default:
+			continue
+		}
+		if !aggregateFactHasZeroResult(fact) {
+			continue
+		}
+		if AnswerAggregateFactRoleForRequest(fact, rm) == AnswerAggregateRolePrincipalAnswer {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateFactHasZeroResult(fact AnswerAggregateFact) bool {
+	for _, raw := range []string{fact.Value, aggregateFactDimensionValue(fact, "result_count", "count", "matches", "match_count", "observed_count")} {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		n, err := strconv.Atoi(raw)
+		return err == nil && n == 0
+	}
+	return false
+}
+
+func aggregateFactLooksLikeSearchedWindowLedger(fact AnswerAggregateFact) bool {
+	if aggregateFactHasSearchedWindowCoordinate(fact) {
+		return true
+	}
+	for _, origin := range answerAggregateFactExplicitEvidenceOrigins(fact) {
+		if origin == AnswerEvidenceOriginCurrentSource || origin == AnswerEvidenceOriginSystemInference {
+			continue
+		}
+		if AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateFactHasSearchedWindowCoordinate(fact AnswerAggregateFact) bool {
+	for _, dim := range fact.Dimensions {
+		name := normalizeAggregateFactDimensionKey(dim.Name)
+		value := strings.TrimSpace(dim.Value)
+		if name == "" || value == "" {
+			continue
+		}
+		switch name {
+		case "window_count",
+			"window_size",
+			"unmatched",
+			"unmatched_count",
+			"commit_range",
+			"git_range",
+			"revision_range",
+			"history_window",
+			"tool_result",
+			"tool_result_id",
+			"command_id",
+			"command_result",
+			"payload_ref",
+			"row_set_ref",
+			"artifact_id",
+			"trace_window",
+			"span_window",
+			"log_window",
+			"diff_path",
+			"window_path",
+			"files_searched",
+			"searched_files",
+			"rows_searched",
+			"searched_rows",
+			"order":
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateFactDimensionValue(fact AnswerAggregateFact, names ...string) string {
+	if len(names) == 0 || len(fact.Dimensions) == 0 {
+		return ""
+	}
+	wanted := make(map[string]bool, len(names))
+	for _, name := range names {
+		if key := normalizeAggregateFactDimensionKey(name); key != "" {
+			wanted[key] = true
+		}
+	}
+	for _, dim := range fact.Dimensions {
+		if !wanted[normalizeAggregateFactDimensionKey(dim.Name)] {
+			continue
+		}
+		if value := strings.TrimSpace(dim.Value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func normalizeAggregateFactDimensionKey(raw string) string {
+	key := strings.ToLower(strings.TrimSpace(raw))
+	key = strings.ReplaceAll(key, "-", "_")
+	key = strings.ReplaceAll(key, " ", "_")
+	return key
 }
 
 // AggregateMemberSetIsArchitectureNarrativeSupport reports whether a

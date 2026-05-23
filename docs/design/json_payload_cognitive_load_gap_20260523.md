@@ -574,6 +574,16 @@ untouched.
     visible supplement. External negative observations still carry
     `external_observation` claim uses and do not create current-source
     citations.
+  - Delivered in Batch 42.2a: request-aware aggregate role projection now
+    demotes searched-window member sets paired with a principal
+    `result_count=0` negative search/observation into `supporting_coverage`.
+    This uses typed dimensions (`commit_range`, `window_count`, `unmatched`,
+    `tool_result`, `payload_ref`, `row_set_ref`, artifact/log/trace windows)
+    and explicit evidence origins only. The principal member-set projection and
+    deterministic enumeration row compiler both skip those support ledgers, so
+    no-hit answers are no longer forced into searched-commit/log-row tables.
+    Explicit enumeration/relation/source-inventory obligations still preserve
+    the searched-window member set as principal.
 
 - Batch 43 — runtime artifact provenance split. Status: planned.
   - Carry `observed_direct_cause`, `artifact_span`, and

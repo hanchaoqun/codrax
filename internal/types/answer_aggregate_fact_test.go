@@ -1808,6 +1808,114 @@ func TestNormalizeAggregateFactRolesForRequest_DemotesScalarCountMemberSetAtSour
 	}
 }
 
+func TestNormalizeAggregateFactRolesForRequest_DemotesNoHitWindowMemberSetAtSource(t *testing.T) {
+	facts := []AnswerAggregateFact{
+		{
+			Kind:  AnswerAggregateNegativeObservation,
+			Label: "recent history does not touch ResSchedClient",
+			Value: "0",
+			Role:  AnswerAggregateRolePrincipalAnswer,
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: "vcs_metadata"},
+				{Name: "target", Value: "ResSchedClient"},
+				{Name: "commit_range", Value: "HEAD~10..HEAD"},
+				{Name: "result_count", Value: "0"},
+				{Name: "tool_result", Value: "git-history-search-001"},
+			},
+		},
+		{
+			Kind:  AnswerAggregateMemberSet,
+			Label: "searched commits",
+			Value: "3",
+			Role:  AnswerAggregateRolePrincipalAnswer,
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: "vcs_metadata"},
+				{Name: "commit_range", Value: "HEAD~10..HEAD"},
+				{Name: "window_count", Value: "10"},
+				{Name: "unmatched", Value: "10"},
+				{Name: "tool_result", Value: "git-history-search-001"},
+			},
+			Members: []string{"c1 fix docs", "c2 tune search", "c3 update tests"},
+		},
+	}
+	rm := RequestModel{
+		Intent: IntentExplain,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+	}
+
+	got := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if got[0].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("zero-result observation should remain principal, got %+v", got[0])
+	}
+	if got[1].Role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("searched-window member_set should become support, got %+v", got[1])
+	}
+	if !strings.Contains(got[1].Provenance, "demoted:negative_result_window_support") {
+		t.Fatalf("negative-window demotion provenance missing: %+v", got[1])
+	}
+	if refs := PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm); len(refs) != 0 {
+		t.Fatalf("searched-window ledger must not create principal enumeration rows, got %+v", refs)
+	}
+	if sets := CompileEnumerationDisplaySets(&rm, &AnswerSurfacePlan{StableAggregateFacts: facts}); len(sets) != 0 {
+		t.Fatalf("searched-window ledger must not compile deterministic principal rows, got %+v", sets)
+	}
+
+	rm.Intent = IntentEnumerate
+	rm.Predicates.IsCategoryEnumeration = true
+	got = NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if got[1].Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("explicit inventory request should preserve searched-window member_set, got %+v", got[1])
+	}
+	if refs := PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm); len(refs) != 1 {
+		t.Fatalf("explicit inventory request should keep principal member_set refs, got %+v", refs)
+	}
+}
+
+func TestNormalizeAggregateFactRolesForRequest_DemotesNoHitCommandWindowMemberSet(t *testing.T) {
+	facts := []AnswerAggregateFact{
+		{
+			Kind:  AnswerAggregateNegativeObservation,
+			Label: "log window contains no panic",
+			Value: "0",
+			Role:  AnswerAggregateRolePrincipalAnswer,
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: "runtime_artifact"},
+				{Name: "pattern", Value: "panic"},
+				{Name: "artifact_id", Value: "log:latest"},
+				{Name: "result_count", Value: "0"},
+			},
+		},
+		{
+			Kind:  AnswerAggregateMemberSet,
+			Label: "checked log chunks",
+			Value: "2",
+			Role:  AnswerAggregateRolePrincipalAnswer,
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: "runtime_artifact"},
+				{Name: "payload_ref", Value: "blob:log:latest"},
+				{Name: "row_set_ref", Value: "rows:0-200"},
+			},
+			Members: []string{"lines 1-100", "lines 101-200"},
+		},
+	}
+	rm := RequestModel{
+		Intent: IntentExplain,
+		LogTriage: &LogBundle{
+			Errors: []LogError{{Type: "panic"}},
+		},
+	}
+
+	got := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if got[1].Role != AnswerAggregateRoleSupportingCoverage {
+		t.Fatalf("runtime no-hit checked-window member_set should be support, got %+v", got[1])
+	}
+	if refs := PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm); len(refs) != 0 {
+		t.Fatalf("runtime no-hit window ledger must not be principal, got %+v", refs)
+	}
+}
+
 func TestNormalizeAggregateFactRolesForRequest_DemotesMechanismMemberSetAtSource(t *testing.T) {
 	facts := []AnswerAggregateFact{{
 		Kind:  AnswerAggregateMemberSet,
