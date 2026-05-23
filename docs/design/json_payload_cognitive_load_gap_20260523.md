@@ -2,7 +2,7 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-22 are complete and verified; the
+Status: partially implemented. Batches 1-23 are complete and verified; the
 shared schema-aware repair path is active across the high-frequency structured
 emit tools, including the legacy top-level JSON-string repair wrappers.
 Remaining work is still tracked below, starting with P1 carrier compilers /
@@ -141,6 +141,11 @@ Implementation progress:
   `emit_plan_change` and extended the structural coverage guard to include it.
   This keeps the partial-plan per-file body emitter aligned with the rest of the
   structured emitter family instead of relying on a local strict-decoder path.
+- 2026-05-23 Batch 23 added a structural guard that every supported structured
+  emitter must attach typed decode-repair metadata on JSON carrier failures.
+  This is a developer-facing regression fence: new local `invalid params`
+  branches in structured emitters must route through the shared repair lane, or
+  the test fails.
 - Remaining work starts at P1 carrier compilers / row-set compilers; the
   completed ref batch deliberately did not change answer materialization policy.
 

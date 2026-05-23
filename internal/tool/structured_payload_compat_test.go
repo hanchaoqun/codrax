@@ -44,3 +44,38 @@ func TestStructuredPayloadCompatCoverageForStructuredEmitTools(t *testing.T) {
 		}
 	}
 }
+
+func TestStructuredEmitToolsAttachTypedDecodeRepair(t *testing.T) {
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	dir := filepath.Dir(currentFile)
+	files := []string{
+		"emit_analysis.go",
+		"emit_evidence.go",
+		"emit_investigation_complete.go",
+		"emit_log_triage.go",
+		"emit_answer_document_v2.go",
+		"emit_answer_document_patch.go",
+		"emit_answer_symbol.go",
+		"emit_hypothesis_verdict.go",
+		"emit_log_segmentation.go",
+		"emit_perf_trace.go",
+		"emit_perf_segmentation.go",
+		"emit_write_analysis.go",
+		"emit_change_plan.go",
+		"emit_plan_skeleton.go",
+		"emit_plan_change.go",
+		"emit_test_results.go",
+	}
+	for _, name := range files {
+		raw, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		if !strings.Contains(string(raw), "failStrictDecode") {
+			t.Fatalf("%s must attach typed ToolRepair metadata on structured JSON decode failures", name)
+		}
+	}
+}
