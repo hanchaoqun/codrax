@@ -516,14 +516,14 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	}
 	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
 	if repaired, paths, ok := repairEmitEvidenceKnownCompatFields(params); ok {
-		logging.Warning("[emit_evidence] local-model compatibility fields ignored before strict decode: %s", strings.Join(paths, ", "))
+		logging.Warning("[emit_evidence] local-model compatibility fields normalized before strict decode: %s", strings.Join(paths, ", "))
 		params = repaired
 	}
 	dec := json.NewDecoder(bytes.NewReader(params))
 	dec.DisallowUnknownFields()
 	var p emitEvidenceParams
 	if err := dec.Decode(&p); err != nil {
-		err = RemapStrictDecodeError(err, nil)
+		err = RemapStrictDecodeError(err, emitEvidenceMisplacedHints)
 		return failEmit(t.Name(), now, "invalid params: %v", err)
 	}
 	if len(p.Items) == 0 {
@@ -876,6 +876,20 @@ func repairEmitEvidenceKnownCompatFields(raw json.RawMessage) (json.RawMessage, 
 		delete(items[i], "field")
 		paths = append(paths, fmt.Sprintf("items[%d].field", i))
 	}
+	if len(items) == 1 {
+		for _, field := range emitEvidenceItemOnlyCompatFields {
+			value, exists := probe[field]
+			if !exists {
+				continue
+			}
+			if _, already := items[0][field]; already {
+				continue
+			}
+			items[0][field] = value
+			delete(probe, field)
+			paths = append(paths, fmt.Sprintf("$.%s->items[0].%s", field, field))
+		}
+	}
 	if len(paths) == 0 {
 		return raw, nil, false
 	}
@@ -889,6 +903,36 @@ func repairEmitEvidenceKnownCompatFields(raw json.RawMessage) (json.RawMessage, 
 		return raw, nil, false
 	}
 	return patched, paths, true
+}
+
+var emitEvidenceItemOnlyCompatFields = []string{
+	"salience",
+	"load_bearing_summary",
+	"context_role_hint",
+	"diagram_role_hint",
+}
+
+var emitEvidenceMisplacedHints = []MisplacedFieldHint{
+	{
+		Field:          "salience",
+		ContainerNames: []string{"the top-level tool payload"},
+		CorrectPaths:   []string{"items[i].salience"},
+	},
+	{
+		Field:          "load_bearing_summary",
+		ContainerNames: []string{"the top-level tool payload"},
+		CorrectPaths:   []string{"items[i].load_bearing_summary"},
+	},
+	{
+		Field:          "context_role_hint",
+		ContainerNames: []string{"the top-level tool payload"},
+		CorrectPaths:   []string{"items[i].context_role_hint"},
+	},
+	{
+		Field:          "diagram_role_hint",
+		ContainerNames: []string{"the top-level tool payload"},
+		CorrectPaths:   []string{"items[i].diagram_role_hint"},
+	},
 }
 
 // buildEmitEvidenceItemWithSwap wraps buildEmitEvidenceItem with the

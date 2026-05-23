@@ -15,6 +15,10 @@ Implementation progress:
 - Batch 1 also added operator telemetry for repaired payload byte size,
   top-level array lengths, and repair summaries, plus a direct
   `emit_evidence` regression for JSON-string `items` with camelCase keys.
+- 2026-05-23 Batch 2 mitigated the `emit_evidence.items` + misplaced
+  `salience` class from E20260522-G121: item-only metadata is moved into the
+  sole item only when that mapping is lossless; multi-item payloads stay strict
+  and receive a precise `items[i].field` schema hint.
 - Remaining work starts at P1 carrier compilers / row-set references; the first
   batch deliberately did not change answer materialization policy.
 

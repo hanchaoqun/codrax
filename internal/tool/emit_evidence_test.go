@@ -97,6 +97,54 @@ func TestEmitEvidence_StructuredPayloadCompatRepairsStringItemsAndKeyAliases(t *
 	}
 }
 
+func TestEmitEvidence_MovesSingleTopLevelSalienceIntoOnlyItem(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+		"items": [{
+			"kind": "direct",
+			"source": "internal/agent/foo.go",
+			"line_start": 30,
+			"summary": "principal proof",
+			"anchor_kind": "definition",
+			"anchor_symbol": "TargetSymbol"
+		}],
+		"salience": "exhaust_listed"
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("single-item top-level salience should be normalized into the item, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 || got[0].Salience != types.SalienceExhaustListed {
+		t.Fatalf("salience was not preserved on the only item: %+v", got)
+	}
+}
+
+func TestEmitEvidence_MultiItemTopLevelSalienceGetsPreciseHint(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+		"items": [
+			{"kind": "direct", "source": "a.go", "line_start": 1, "summary": "A", "anchor_kind": "definition", "anchor_symbol": "A"},
+			{"kind": "direct", "source": "b.go", "line_start": 2, "summary": "B", "anchor_kind": "definition", "anchor_symbol": "B"}
+		],
+		"salience": "exhaust_listed"
+	}`)
+
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("multi-item top-level salience is ambiguous and must not be silently copied: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "items[i].salience") {
+		t.Fatalf("ambiguous misplaced salience should produce an actionable item path hint, got: %s", res.Summary)
+	}
+}
+
 func TestEmitEvidence_DuplicateBatchIsNoProgress(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
