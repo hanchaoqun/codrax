@@ -3378,6 +3378,11 @@ func TestNormalizeAggregateNegativeProofSupplement_MaterializesNegativeObservati
 			{Name: "target", Value: "Backport Foo"},
 			{Name: "commit_range", Value: "HEAD~50..HEAD"},
 			{Name: "result_count", Value: "0"},
+			{Name: "window_count", Value: "50"},
+			{Name: "unmatched", Value: "50"},
+			{Name: "order", Value: "recent"},
+			{Name: "window_path", Value: "internal/orchestrator"},
+			{Name: "tool_result", Value: "git_history_search[0]"},
 		},
 	}})
 	mu.RetainInvestigationAggregateFacts()
@@ -3403,6 +3408,11 @@ func TestNormalizeAggregateNegativeProofSupplement_MaterializesNegativeObservati
 		"Backport Foo",
 		"HEAD~50..HEAD",
 		"0 个匹配",
+		"检索窗口=50",
+		"未命中项=50",
+		"顺序=recent",
+		"历史路径=internal/orchestrator",
+		"工具结果=git_history_search[0]",
 	} {
 		if !strings.Contains(visible, want) {
 			t.Fatalf("visible supplement missing %q:\n%s", want, visible)

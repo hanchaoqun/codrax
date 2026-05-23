@@ -438,7 +438,7 @@ untouched.
     but are not copied into the system supplement.
 
 - Batch 42 — external observation refs and no-hit answer shape. Status:
-  planned.
+  in progress.
   - Introduce a first-class visible/ref contract for VCS/log/trace/command
     observations so finalizer/reviewer stop relying on no-source citation
     sentinels.
@@ -448,6 +448,12 @@ untouched.
   - Guardrail tests: VCS negative search renders `未命中 + 范围 + 0 结果 +
     工具/时间/窗口`; optional model-authored tables are preserved but not
     required; fake current-source citations are rejected or normalized away.
+  - Delivered so far: no-hit supplements now preserve typed scope coordinates
+    such as `window_count`, `unmatched`, `order`, `window_path`, `diff_path`,
+    `tool_result`, `payload_ref`, and `row_set_ref` in the localized
+    supplement text. This keeps VCS/log/trace/command zero-result answers as
+    absence proofs instead of nudging the finalizer toward enumerating searched
+    windows.
 
 - Batch 43 — runtime artifact provenance split. Status: planned.
   - Carry `observed_direct_cause`, `artifact_span`, and

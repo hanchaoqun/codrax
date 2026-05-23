@@ -2539,9 +2539,15 @@ type aggregateNegativeProofSupplementRow struct {
 	query     string
 	scope     string
 	searched  string
+	details   []aggregateNegativeProofDetail
 	citation  types.Citation
 	hasCite   bool
 	claimForm types.ClaimForm
+}
+
+type aggregateNegativeProofDetail struct {
+	name  string
+	value string
 }
 
 func normalizeAggregateNegativeProofSupplement(doc *types.AnswerDocumentV2, ctx *types.BusContext) int {
@@ -2634,6 +2640,7 @@ func aggregateNegativeProofSupplementRowFromFact(fact types.AnswerAggregateFact)
 		query:    firstNonEmptyPreEmitDim(dims, "query", "pattern", "predicate", "target"),
 		scope:    firstNonEmptyPreEmitDim(dims, "scope", "commit_range", "artifact_id", "trace_window", "tool_result", "source_ref"),
 		searched: firstNonEmptyPreEmitDim(dims, "searched_at", "time"),
+		details:  aggregateNegativeProofDetails(dims),
 	}
 	if row.target == "" && strings.TrimSpace(fact.Label) != "" {
 		row.target = strings.TrimSpace(fact.Label)
@@ -2674,6 +2681,36 @@ func aggregateNegativeProofSupplementRowFromFact(fact types.AnswerAggregateFact)
 	return row, true
 }
 
+func aggregateNegativeProofDetails(dims map[string]string) []aggregateNegativeProofDetail {
+	if len(dims) == 0 {
+		return nil
+	}
+	names := []string{
+		"window_count",
+		"window_size",
+		"unmatched",
+		"order",
+		"window_path",
+		"diff_path",
+		"path",
+		"source_ref",
+		"tool_result",
+		"payload_ref",
+		"row_set_ref",
+	}
+	out := make([]aggregateNegativeProofDetail, 0, len(names))
+	seen := map[string]bool{}
+	for _, name := range names {
+		value := strings.TrimSpace(dims[name])
+		if value == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, aggregateNegativeProofDetail{name: name, value: value})
+	}
+	return out
+}
+
 func firstNonEmptyPreEmitDim(dims map[string]string, names ...string) string {
 	for _, name := range names {
 		if value := strings.TrimSpace(dims[name]); value != "" {
@@ -2700,22 +2737,96 @@ func aggregateNegativeProofSupplementText(rows []aggregateNegativeProofSupplemen
 	for _, row := range rows {
 		if zh {
 			if row.kind == types.AnswerAggregateNegativeSearch {
-				fmt.Fprintf(&b, "- 仓库/范围 `%s` 中检索 `%s`：0 个匹配（%s）。\n",
-					row.scope, row.query, row.searched)
+				fmt.Fprintf(&b, "- 仓库/范围 `%s` 中检索 `%s`：0 个匹配（%s）%s。\n",
+					row.scope, row.query, row.searched, aggregateNegativeProofDetailSuffix(row.details, zh))
 			} else {
-				fmt.Fprintf(&b, "- `%s` 在 `%s` 中观察 `%s`：0 个匹配（%s）。\n",
-					aggregateNegativeProofOriginLabel(row.origin), row.scope, row.target, row.searched)
+				fmt.Fprintf(&b, "- `%s` 在 `%s` 中观察 `%s`：0 个匹配（%s）%s。\n",
+					aggregateNegativeProofOriginLabel(row.origin), row.scope, row.target, row.searched, aggregateNegativeProofDetailSuffix(row.details, zh))
 			}
 			continue
 		}
 		if row.kind == types.AnswerAggregateNegativeSearch {
-			fmt.Fprintf(&b, "- Search `%s` in `%s`: 0 matches (%s).\n", row.query, row.scope, row.searched)
+			fmt.Fprintf(&b, "- Search `%s` in `%s`: 0 matches (%s)%s.\n", row.query, row.scope, row.searched, aggregateNegativeProofDetailSuffix(row.details, zh))
 		} else {
-			fmt.Fprintf(&b, "- `%s` observed `%s` in `%s`: 0 matches (%s).\n",
-				aggregateNegativeProofOriginLabel(row.origin), row.target, row.scope, row.searched)
+			fmt.Fprintf(&b, "- `%s` observed `%s` in `%s`: 0 matches (%s)%s.\n",
+				aggregateNegativeProofOriginLabel(row.origin), row.target, row.scope, row.searched, aggregateNegativeProofDetailSuffix(row.details, zh))
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func aggregateNegativeProofDetailSuffix(details []aggregateNegativeProofDetail, zh bool) string {
+	if len(details) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(details))
+	for _, detail := range details {
+		if strings.TrimSpace(detail.name) == "" || strings.TrimSpace(detail.value) == "" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%s", aggregateNegativeProofDetailLabel(detail.name, zh), detail.value))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	if zh {
+		return "；范围细节：" + strings.Join(parts, "，")
+	}
+	return "; scope details: " + strings.Join(parts, ", ")
+}
+
+func aggregateNegativeProofDetailLabel(name string, zh bool) string {
+	name = strings.TrimSpace(name)
+	if !zh {
+		switch name {
+		case "window_count", "window_size":
+			return "window"
+		case "unmatched":
+			return "unmatched"
+		case "order":
+			return "order"
+		case "window_path":
+			return "history path"
+		case "diff_path":
+			return "diff path"
+		case "path":
+			return "path"
+		case "source_ref":
+			return "source"
+		case "tool_result":
+			return "tool result"
+		case "payload_ref":
+			return "payload"
+		case "row_set_ref":
+			return "row set"
+		default:
+			return name
+		}
+	}
+	switch name {
+	case "window_count", "window_size":
+		return "检索窗口"
+	case "unmatched":
+		return "未命中项"
+	case "order":
+		return "顺序"
+	case "window_path":
+		return "历史路径"
+	case "diff_path":
+		return "diff 路径"
+	case "path":
+		return "路径"
+	case "source_ref":
+		return "来源"
+	case "tool_result":
+		return "工具结果"
+	case "payload_ref":
+		return "载荷"
+	case "row_set_ref":
+		return "行集"
+	default:
+		return name
+	}
 }
 
 func aggregateNegativeProofOriginLabel(origin string) string {
