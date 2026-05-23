@@ -2765,7 +2765,7 @@ func aggregateNegativeProofSupplementText(rows []aggregateNegativeProofSupplemen
 					row.scope, row.query, row.searched, aggregateNegativeProofDetailSuffix(row.details, zh))
 			} else {
 				fmt.Fprintf(&b, "- `%s` 在 `%s` 中观察 `%s`：0 个匹配（%s）%s。\n",
-					aggregateNegativeProofOriginLabel(row.origin), row.scope, row.target, row.searched, aggregateNegativeProofDetailSuffix(row.details, zh))
+					aggregateNegativeProofOriginLabel(row.origin, zh), row.scope, row.target, row.searched, aggregateNegativeProofDetailSuffix(row.details, zh))
 			}
 			continue
 		}
@@ -2773,7 +2773,7 @@ func aggregateNegativeProofSupplementText(rows []aggregateNegativeProofSupplemen
 			fmt.Fprintf(&b, "- Search `%s` in `%s`: 0 matches (%s)%s.\n", row.query, row.scope, row.searched, aggregateNegativeProofDetailSuffix(row.details, zh))
 		} else {
 			fmt.Fprintf(&b, "- `%s` observed `%s` in `%s`: 0 matches (%s)%s.\n",
-				aggregateNegativeProofOriginLabel(row.origin), row.target, row.scope, row.searched, aggregateNegativeProofDetailSuffix(row.details, zh))
+				aggregateNegativeProofOriginLabel(row.origin, zh), row.target, row.scope, row.searched, aggregateNegativeProofDetailSuffix(row.details, zh))
 		}
 	}
 	return strings.TrimSpace(b.String())
@@ -2853,10 +2853,60 @@ func aggregateNegativeProofDetailLabel(name string, zh bool) string {
 	}
 }
 
-func aggregateNegativeProofOriginLabel(origin string) string {
+func aggregateNegativeProofOriginLabel(origin string, zh bool) string {
 	origin = strings.TrimSpace(origin)
 	if origin == "" {
+		if zh {
+			return "外部观察"
+		}
 		return "observation"
+	}
+	switch types.AnswerEvidenceOrigin(origin) {
+	case types.AnswerEvidenceOriginVCSMetadata:
+		if zh {
+			return "版本历史"
+		}
+		return "VCS history"
+	case types.AnswerEvidenceOriginVCSDiff:
+		if zh {
+			return "版本差异"
+		}
+		return "VCS diff"
+	case types.AnswerEvidenceOriginRuntimeArtifact:
+		if zh {
+			return "运行时附件"
+		}
+		return "runtime artifact"
+	case types.AnswerEvidenceOriginCommandMeasurement:
+		if zh {
+			return "命令输出"
+		}
+		return "command output"
+	case types.AnswerEvidenceOriginCrossRepoIndex:
+		if zh {
+			return "多仓索引"
+		}
+		return "cross-repo index"
+	case types.AnswerEvidenceOriginExternalDocument:
+		if zh {
+			return "外部文档"
+		}
+		return "external document"
+	case types.AnswerEvidenceOriginWebPage:
+		if zh {
+			return "网页"
+		}
+		return "web page"
+	case types.AnswerEvidenceOriginMCPResource:
+		if zh {
+			return "MCP 资源"
+		}
+		return "MCP resource"
+	case types.AnswerEvidenceOriginConnectorResource:
+		if zh {
+			return "连接器资源"
+		}
+		return "connector resource"
 	}
 	return origin
 }

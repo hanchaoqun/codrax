@@ -498,6 +498,23 @@ untouched.
   - Guardrail tests: VCS negative search renders `未命中 + 范围 + 0 结果 +
     工具/时间/窗口`; optional model-authored tables are preserved but not
     required; fake current-source citations are rejected or normalized away.
+  - Batch 42.1 task: localize system-generated no-hit provenance surfaces. The
+    supplement may render typed origins such as VCS metadata/diff, runtime
+    artifacts, command output, web/MCP/connector resources, and cross-repo
+    indexes, but it must show user-facing labels rather than enum names like
+    `vcs_metadata`. This is a display-only normalization of system-authored
+    supplement text; it must not rewrite model-authored prose and must not
+    create repo citations for external observations.
+  - Batch 42.2 task: collapse optional searched-window inventories. If the
+    principal typed fact is `result_count=0`, finalizer should not be forced to
+    enumerate every searched commit/file/row unless the user requested that
+    inventory. Optional model-authored tables remain visible, but exact
+    mismatch handling should prefer preserving the clean no-hit answer plus a
+    localized scope supplement over generic enumeration caveats.
+  - Batch 42.3 task: replace remaining sentinel-based external provenance in
+    VCS/log/trace/command finalizer payloads with typed observation refs. This
+    should reuse `ObservationLedger`, `payload_ref`, `row_set_ref`, and
+    artifact-local coordinates instead of inventing a parallel citation system.
   - Delivered so far: no-hit supplements now preserve typed scope coordinates
     such as `window_count`, `unmatched`, `order`, `window_path`, `diff_path`,
     `tool_result`, `payload_ref`, and `row_set_ref` in the localized
@@ -514,6 +531,13 @@ untouched.
     `external_observation` carrier vocabulary instead of spelling the legacy
     no-citation sentinel, so advisory/debug detail no longer reintroduces the
     same prompt leak through a different stage.
+  - Delivered in Batch 42.1: system-generated no-hit supplements now localize
+    typed external origins (`版本历史` / `VCS history`, `版本差异` / `VCS diff`,
+    runtime artifacts, command output, web/MCP/connector resources, etc.) and
+    tests assert that enum values such as `vcs_metadata` do not leak into the
+    visible supplement. External negative observations still carry
+    `external_observation` claim uses and do not create current-source
+    citations.
 
 - Batch 43 — runtime artifact provenance split. Status: planned.
   - Carry `observed_direct_cause`, `artifact_span`, and

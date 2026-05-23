@@ -3451,7 +3451,7 @@ func TestNormalizeAggregateNegativeProofSupplement_MaterializesNegativeObservati
 	}
 	visible := answerDocumentVisibleText(doc)
 	for _, want := range []string{
-		"vcs_metadata",
+		"版本历史",
 		"Backport Foo",
 		"HEAD~50..HEAD",
 		"0 个匹配",
@@ -3465,12 +3465,70 @@ func TestNormalizeAggregateNegativeProofSupplement_MaterializesNegativeObservati
 			t.Fatalf("visible supplement missing %q:\n%s", want, visible)
 		}
 	}
+	if strings.Contains(visible, "vcs_metadata") {
+		t.Fatalf("visible supplement should localize typed origin instead of leaking enum names:\n%s", visible)
+	}
 	if len(doc.Citations) != 0 {
 		t.Fatalf("non-repo negative observation must not invent repo citations: %+v", doc.Citations)
 	}
 	if len(doc.Blocks[len(doc.Blocks)-1].ClaimUses) != 1 ||
 		doc.Blocks[len(doc.Blocks)-1].ClaimUses[0].ClaimForm != types.ClaimExternalObservation {
 		t.Fatalf("negative observation supplement should carry external observation claim_use: %+v", doc.Blocks[len(doc.Blocks)-1].ClaimUses)
+	}
+}
+
+func TestNormalizeAggregateNegativeProofSupplement_LocalizesEnglishNegativeObservationOrigin(t *testing.T) {
+	mu := types.NewMutableState("Did the last 50 commits mention Backport Foo?")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateNegativeObservation,
+		Label: "history search found no backport commits",
+		Value: "0",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "origin", Value: string(types.AnswerEvidenceOriginVCSMetadata)},
+			{Name: "target", Value: "Backport Foo"},
+			{Name: "commit_range", Value: "HEAD~50..HEAD"},
+			{Name: "result_count", Value: "0"},
+			{Name: "window_count", Value: "50"},
+			{Name: "tool_result", Value: "git_history_search[0]"},
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Language: "en",
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "s1",
+		Kind: types.BlockSummary,
+		Text: "No related commit was found in the recent history window.",
+	}}}
+
+	if fixed := normalizeAggregateNegativeProofSupplement(doc, ctx); fixed != 1 {
+		t.Fatalf("fixed=%d, want 1", fixed)
+	}
+	visible := answerDocumentVisibleText(doc)
+	for _, want := range []string{
+		"System-verified no-hit scope supplement",
+		"VCS history",
+		"Backport Foo",
+		"HEAD~50..HEAD",
+		"0 matches",
+		"window=50",
+		"tool result=git_history_search[0]",
+	} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("visible English supplement missing %q:\n%s", want, visible)
+		}
+	}
+	if strings.Contains(visible, "vcs_metadata") {
+		t.Fatalf("visible English supplement should localize typed origin instead of leaking enum names:\n%s", visible)
+	}
+	if len(doc.Citations) != 0 {
+		t.Fatalf("external negative observation must not create repo citations: %+v", doc.Citations)
 	}
 }
 
