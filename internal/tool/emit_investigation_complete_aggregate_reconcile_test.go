@@ -403,6 +403,30 @@ func TestSourceInventoryCommentDescribesSymbolRequiresIdentifierToken(t *testing
 	}
 }
 
+func TestSourceInventoryScopeForSurface_NormalizesPathForms(t *testing.T) {
+	repo := t.TempDir()
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{RelPath: "internal/types/evidence.go"},
+		{RelPath: "internal/types/other.go"},
+		{RelPath: "internal/tool/source_inventory.go"},
+	})
+	for _, tc := range []struct {
+		raw  string
+		want string
+	}{
+		{raw: "./internal/types", want: "internal/types"},
+		{raw: `.\internal\types`, want: "internal/types"},
+		{raw: "internal/types/../types", want: "internal/types"},
+		{raw: filepath.Join(repo, "internal", "types"), want: "internal/types"},
+		{raw: filepath.Join(repo, "internal", "types", "evidence.go"), want: "internal/types/evidence.go"},
+		{raw: filepath.Join(repo, "missing", "types"), want: ""},
+	} {
+		if got := sourceInventoryScopeForSurface(graph, tc.raw); got != tc.want {
+			t.Fatalf("scope(%q) = %q, want %q", tc.raw, got, tc.want)
+		}
+	}
+}
+
 func TestSourceInventoryCandidateNoteFromGraphCrossLanguageSafety(t *testing.T) {
 	cases := []struct {
 		name     string

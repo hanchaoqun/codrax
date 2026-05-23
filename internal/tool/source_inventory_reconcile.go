@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -449,13 +450,16 @@ func sourceInventoryRequestedScopes(ctx *types.BusContext, graph *repotypes.Grap
 }
 
 func sourceInventoryScopeForSurface(graph *repotypes.Graph, raw string) string {
-	surface := strings.Trim(strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`)), "/")
+	surface := normalizeSourceInventoryScopeSurface(raw)
 	if surface == "" {
 		return ""
 	}
 	if graph != nil {
 		if _, ok := graph.FileIndex[surface]; ok {
 			return surface
+		}
+		if scope := sourceInventoryScopeFromAbsoluteSuffix(graph, surface); scope != "" {
+			return scope
 		}
 		for file := range graph.FileIndex {
 			file = strings.Trim(file, "/")
@@ -468,6 +472,48 @@ func sourceInventoryScopeForSurface(graph *repotypes.Graph, raw string) string {
 		}
 	}
 	return ""
+}
+
+func normalizeSourceInventoryScopeSurface(raw string) string {
+	surface := strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+	if surface == "" {
+		return ""
+	}
+	surface = filepath.ToSlash(filepath.Clean(surface))
+	if surface == "." {
+		return ""
+	}
+	surface = strings.TrimPrefix(surface, "./")
+	return strings.Trim(surface, "/")
+}
+
+func sourceInventoryScopeFromAbsoluteSuffix(graph *repotypes.Graph, surface string) string {
+	if graph == nil || len(graph.FileIndex) == 0 || surface == "" {
+		return ""
+	}
+	best := ""
+	consider := func(candidate string) {
+		candidate = strings.Trim(candidate, "/")
+		if candidate == "" {
+			return
+		}
+		if surface == candidate || strings.HasSuffix(surface, "/"+candidate) {
+			if len(candidate) > len(best) {
+				best = candidate
+			}
+		}
+	}
+	for file := range graph.FileIndex {
+		file = strings.Trim(file, "/")
+		if file == "" {
+			continue
+		}
+		consider(file)
+		for dir := path.Dir(file); dir != "." && dir != "/" && dir != ""; dir = path.Dir(dir) {
+			consider(dir)
+		}
+	}
+	return best
 }
 
 func sourceInventoryScopedGraphFiles(graph *repotypes.Graph, scopes []string, language string) []*repotypes.FileInfo {

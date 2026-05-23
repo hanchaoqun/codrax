@@ -159,6 +159,11 @@ Implementation progress:
   origin/source/span/summary. This closes a prompt-ledger gap where VCS, diff,
   command, runtime, or MCP observations could be rich enough for finalizer but
   appear dry to the reviewer, causing avoidable "answer too thin" pressure.
+- 2026-05-23 Batch 26 normalized source-inventory scope resolution across
+  `./path`, cleaned relative paths, Windows-style separators, and absolute path
+  suffixes that point back into the active repo graph. This keeps typed
+  source-inventory carriers scoped to the user's requested package/file without
+  broadening to sibling files or relying on prose keywords.
 - Remaining work starts at P1 carrier compilers / row-set compilers; the
   completed ref batch deliberately did not change answer materialization policy.
 
@@ -415,6 +420,10 @@ overriding better model-authored descriptions.
   anchor.
 - Render any system-generated completion as a separate localized supplement,
   never as a replacement for the model answer.
+- DONE (Batch 26): source-inventory carrier scope now has a single path
+  normalization boundary before graph matching, including `./` and absolute
+  path suffix forms, so carrier recovery does not silently disappear when the
+  analyzer or tool returns a different path spelling.
 
 ### P2. PayloadRef / RowSetRef
 
