@@ -36,7 +36,9 @@ func TestStructuredPayloadCompatCoverageForStructuredEmitTools(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read %s: %v", name, err)
 		}
-		if !strings.Contains(string(raw), "applyStructuredPayloadCompat(") {
+		src := string(raw)
+		if !strings.Contains(src, "applyStructuredPayloadCompat(") &&
+			!strings.Contains(src, "applyStructuredPayloadCompatWithLegacyStringFieldRepair(") {
 			t.Fatalf("%s must route structured tool payloads through applyStructuredPayloadCompat", name)
 		}
 	}

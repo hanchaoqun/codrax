@@ -763,12 +763,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		}, nil
 	}
 
-	if repaired, fields, ok := repairStringWrappedArrayFields(params); ok {
-		logging.Warning("[emit_analysis] top-level arrays arrived as JSON-encoded strings (fields: %s); re-parsed via flat-mode tolerance path",
-			strings.Join(fields, ", "))
-		params = repaired
-	}
-	if repaired, fields, ok := repairStringWrappedObjectFields(params,
+	params = applyStructuredPayloadCompatWithLegacyStringFieldRepair(t.Name(), params, t.Parameters(),
 		"answer_subject",
 		"predicates",
 		"diagnostic_profile",
@@ -782,12 +777,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		"diagram_hint",
 		"enumeration_boundary",
 		"completeness_obligation",
-	); ok {
-		logging.Warning("[emit_analysis] top-level objects arrived as JSON-encoded strings (fields: %s); re-parsed via flat-mode tolerance path",
-			strings.Join(fields, ", "))
-		params = repaired
-	}
-	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
+	)
 
 	var p emitAnalysisParams
 	if err := json.Unmarshal(params, &p); err != nil {

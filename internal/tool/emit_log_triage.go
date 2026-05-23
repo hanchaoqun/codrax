@@ -277,19 +277,10 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 		}, nil
 	}
 
-	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
+	params = applyStructuredPayloadCompatWithLegacyStringFieldRepair(t.Name(), params, t.Parameters())
 
 	var p emitLogTriageParams
 	decoded := false
-	if repaired, fields, ok := repairStringWrappedArrayFields(params); ok {
-		var repairedParams emitLogTriageParams
-		if err := json.Unmarshal(repaired, &repairedParams); err == nil {
-			p = repairedParams
-			params = repaired
-			decoded = true
-			logging.Info("[emit_log_triage] repaired string-wrapped array fields: %v", fields)
-		}
-	}
 	if !decoded {
 		if err := json.Unmarshal(params, &p); err != nil {
 			if salvaged, fields, ok := salvageLogTriageStringWrappedArrays(params); ok {

@@ -129,22 +129,12 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 		raw = repaired
 		recovery = report
 	}
-	if repaired, fields, ok := repairStringWrappedArrayFields(raw); ok {
-		logging.Warning("[emit_answer_document] top-level arrays arrived as JSON-encoded strings (fields: %s); re-parsed via flat-mode tolerance path",
-			strings.Join(fields, ", "))
-		raw = repaired
-	}
-	if repaired, fields, ok := repairStringWrappedObjectFields(raw, "exact_resolution"); ok {
-		logging.Warning("[emit_answer_document] top-level objects arrived as JSON-encoded strings (fields: %s); re-parsed via flat-mode tolerance path",
-			strings.Join(fields, ", "))
-		raw = repaired
-	}
+	raw = applyStructuredPayloadCompatWithLegacyStringFieldRepair(toolName, raw, (&EmitAnswerDocument{}).Parameters(), "exact_resolution")
 	if repaired, paths, ok := repairNestedAnswerBlockFields(raw); ok {
 		logging.Warning("[emit_answer_document] nested block fields normalized via local-model JSON tolerance (paths: %s)",
 			strings.Join(paths, ", "))
 		raw = repaired
 	}
-	raw = applyStructuredPayloadCompat(toolName, raw, (&EmitAnswerDocument{}).Parameters())
 	if repaired, paths, ok := quarantineUnknownAnswerDocumentFields(raw, answerDocumentFullEmitQuarantineProfile); ok {
 		logging.Warning("[emit_answer_document] quarantined schema-unknown answer-document field(s) without retry: %s",
 			strings.Join(paths, ", "))

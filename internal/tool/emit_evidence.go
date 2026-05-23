@@ -510,11 +510,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// 'evidence' instead of 'items', or 'note' instead of 'summary')
 	// fails loudly at parse time rather than silently producing a
 	// well-formed-looking item the parser quietly drops fields from.
-	if repaired, fields, ok := repairStringWrappedArrayFields(params); ok {
-		logging.Warning("[emit_evidence] string-wrapped array field(s) re-parsed via flat-mode tolerance: %s", strings.Join(fields, ", "))
-		params = repaired
-	}
-	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
+	params = applyStructuredPayloadCompatWithLegacyStringFieldRepair(t.Name(), params, t.Parameters())
 	if repaired, paths, ok := repairEmitEvidenceKnownCompatFields(params); ok {
 		logging.Warning("[emit_evidence] local-model compatibility fields normalized before strict decode: %s", strings.Join(paths, ", "))
 		params = repaired

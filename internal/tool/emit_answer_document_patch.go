@@ -170,22 +170,12 @@ func (t *EmitAnswerDocumentPatch) Execute(ctx *types.BusContext, params json.Raw
 	// replace_caveats / replace_snippets / unchanged_block_ids /
 	// remove_block_ids all get the same Path A/C recovery without
 	// forcing an LLM retry round-trip.
-	if repaired, fields, ok := repairStringWrappedArrayFields(params); ok {
-		logging.Warning("[emit_answer_document_patch] string-wrapped array field(s) re-parsed via flat-mode tolerance: %s",
-			strings.Join(fields, ", "))
-		params = repaired
-	}
-	if repaired, fields, ok := repairStringWrappedObjectFields(params, "replace_exact_resolution"); ok {
-		logging.Warning("[emit_answer_document_patch] string-wrapped object field(s) re-parsed via flat-mode tolerance: %s",
-			strings.Join(fields, ", "))
-		params = repaired
-	}
+	params = applyStructuredPayloadCompatWithLegacyStringFieldRepair(t.Name(), params, t.Parameters(), "replace_exact_resolution")
 	if repaired, paths, ok := repairNestedArraysInPatch(params); ok {
 		logging.Warning("[emit_answer_document_patch] nested block fields normalized via local-model JSON tolerance: %s",
 			strings.Join(paths, ", "))
 		params = repaired
 	}
-	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
 	if repaired, paths, ok := quarantineUnknownAnswerDocumentFields(params, answerDocumentPatchQuarantineProfile); ok {
 		logging.Warning("[emit_answer_document_patch] quarantined schema-unknown answer-document patch field(s) without retry: %s",
 			strings.Join(paths, ", "))

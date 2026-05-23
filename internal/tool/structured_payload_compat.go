@@ -33,6 +33,29 @@ func applyStructuredPayloadCompat(toolName string, raw json.RawMessage, schema j
 	return repaired
 }
 
+// applyStructuredPayloadCompatWithLegacyStringFieldRepair keeps the remaining
+// flat-mode string-wrapper tolerance behind the shared compatibility boundary.
+// The legacy helpers handle provider/local-model artefacts that are still
+// outside internal/toolparam's fully schema-driven normalizer, such as
+// object-fragment arrays or selected object fields that arrived as JSON
+// strings. They are still structural-only repairs: no answer rows, summaries,
+// citations, or user intent are authored here.
+func applyStructuredPayloadCompatWithLegacyStringFieldRepair(toolName string, raw json.RawMessage, schema json.RawMessage, objectFields ...string) json.RawMessage {
+	if repaired, fields, ok := repairStringWrappedArrayFields(raw); ok {
+		logging.Warning("[structured_payload_compat] tool=%s legacy string-wrapped array field(s) repaired before schema normalization: %s",
+			toolName, strings.Join(fields, ", "))
+		raw = repaired
+	}
+	if len(objectFields) > 0 {
+		if repaired, fields, ok := repairStringWrappedObjectFields(raw, objectFields...); ok {
+			logging.Warning("[structured_payload_compat] tool=%s legacy string-wrapped object field(s) repaired before schema normalization: %s",
+				toolName, strings.Join(fields, ", "))
+			raw = repaired
+		}
+	}
+	return applyStructuredPayloadCompat(toolName, raw, schema)
+}
+
 func topLevelArrayLengthSummary(raw json.RawMessage) string {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &obj); err != nil || len(obj) == 0 {

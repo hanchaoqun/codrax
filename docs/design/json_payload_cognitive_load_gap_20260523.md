@@ -64,6 +64,13 @@ Implementation progress:
   native JSON object, and keep model-authored prose in text/summary fields.
   This does not complete missing JSON or invent rows; it only reduces retry
   entropy when the previous payload was mechanically cut off.
+- 2026-05-23 Batch 11 wrapped the remaining top-level string-wrapped
+  array/object tolerance behind the shared compatibility boundary. Tools that
+  still need the legacy flat-mode helpers now call
+  `applyStructuredPayloadCompatWithLegacyStringFieldRepair`, then the normal
+  schema-aware compat pass. This keeps behavior-preserving legacy recovery for
+  answer-document/log/evidence/analyzer payloads while removing the scattered
+  "local helper then shared helper" pattern from tool implementations.
 - Remaining work starts at P1 carrier compilers / row-set references; the first
   batch deliberately did not change answer materialization policy.
 
@@ -299,12 +306,16 @@ overriding better model-authored descriptions.
 - DONE (Batch 1): route the high-frequency structured emit tools through a
   shared compatibility entry point that delegates to the existing
   `internal/toolparam` schema-aware normalizer.
-- TODO: move or wrap the remaining local JSON-string repair helpers behind the
-  same entry point where doing so is behavior-preserving.
-- Move existing local JSON-string repair into one package used by
-  `emit_analysis`, `emit_evidence`, `emit_investigation_complete`,
-  `emit_answer_document`, `emit_answer_document_patch`, and log/perf triage
-  tools.
+- DONE (Batch 11): move or wrap the remaining behavior-preserving top-level
+  JSON-string repair helpers behind the same compatibility boundary.
+- Remaining: answer-document-specific deep recovery/quarantine helpers still
+  live with the answer-document implementation because they are not generic
+  schema repair; refactor only after a transactional document-update layer
+  exists.
+- Common top-level JSON-string repair is now reached through the shared wrapper
+  for `emit_analysis`, `emit_evidence`, `emit_answer_document`,
+  `emit_answer_document_patch`, and log triage tools. Tools without the legacy
+  wrapper already use the normal schema-aware entry point directly.
 - Keep per-tool schema allowlists so repair is typed, not heuristic.
 - Unit test every supported tool boundary.
 
