@@ -1368,6 +1368,51 @@ Task list:
 - [x] Run focused tests plus `make build`.
 - [x] Commit and push Batch 12.
 
+## 2026-05-24 Batch 13 - Analyzer Action Boundary Completion
+
+Problem statement:
+
+- Latest `main` already contains most analyzer action gating:
+  `FilterToolSchemas` narrows analyze to `emit_analysis` plus lightweight
+  pre-scan tools, `validateAnalyzerToolBoundary` blocks content-reading tools
+  before execution, and blocked deep-read intent forces the next request into
+  terminal emit-only mode.
+- The remaining small-model gap is the low-level `grep` parameter mistake:
+  when compatibility repair is disabled or unavailable, a model may call
+  `grep` without `files_only=true`. The runtime rejects it, but only the tool
+  result carries the correction. Some small models miss that correction and
+  spend another turn as if analyze were an investigation stage.
+
+Existing code to reuse:
+
+- `analyzerEvaluator.Observe` already translates structured tool repairs into
+  loop hints for prescan budget and terminal-emit mode.
+- `normalizeAnalyzerPrescanGrepCompat` already auto-adds `files_only=true` when
+  per-agent tool-param compatibility repair is enabled.
+- `validateAnalyzerPrescanToolCall` is the authoritative runtime gate for
+  pre-scan tool shape. Do not duplicate its JSON validation elsewhere.
+
+Design:
+
+- Add one Observe branch for `analyzer_grep_files_only_required`.
+- The branch should emit a typed loop hint that says the only valid next actions
+  are `grep(files_only=true)` for the same lightweight pre-scan purpose, or
+  `emit_analysis` with current classification. It must not tell the model to
+  read file contents.
+- Do not force emit-only solely because of this shape error: the user/model may
+  still need one files-only pre-scan query. The hard boundary remains runtime
+  validation plus the existing prescan budget.
+- This keeps large-model behavior stable: compliant tool calls are unaffected,
+  and repair-mode providers already auto-normalize before this branch matters.
+
+Task list:
+
+- [x] Confirm existing analyzer action-gating code and tests on current `main`.
+- [x] Add loop hint for rejected analyze-stage `grep` without `files_only=true`.
+- [x] Add regression test for the new Observe branch.
+- [x] Run analyzer/tool-param focused tests plus `make build`.
+- [x] Commit and push Batch 13.
+
 ## Open Questions
 
 - Whether `emit_evidence.anchor_kind` auto-repair should run inside

@@ -968,6 +968,30 @@ func TestAnalyzer_Observe_BudgetRejectedPrescanGetsEmitOnlyHint(t *testing.T) {
 	}
 }
 
+func TestAnalyzer_Observe_GrepFilesOnlyRejectedGetsShapeHint(t *testing.T) {
+	e := &analyzerEvaluator{}
+	result := types.ToolResult{
+		ToolName: "grep",
+		Success:  false,
+		Summary:  "grep in analyze stage must use files_only=true",
+		Repair:   &types.ToolRepair{Code: analyzerGrepFilesOnlyRequiredCode},
+	}
+	sig := e.Observe(&types.AgentContext{Stage: types.StageAnalyze}, LoopObservation{
+		Phase:          PhaseMidLoop,
+		LastToolResult: &result,
+		AllToolResults: []types.ToolResult{result},
+	})
+	if sig.StopRequested {
+		t.Fatalf("files_only shape rejection should get one correction hint before stage retry, got stop=%q", sig.StopReason)
+	}
+	if !sig.HintRequested || !strings.Contains(sig.Hint, "files_only=true") || !strings.Contains(sig.Hint, "emit_analysis") {
+		t.Fatalf("expected files_only/emit_analysis hint, got %+v", sig)
+	}
+	if e.prescanRounds != 0 {
+		t.Fatalf("rejected grep shape should not increment prescanRounds; got %d", e.prescanRounds)
+	}
+}
+
 func analyzerSchemaNames(schemas []llm.ToolSchema) map[string]bool {
 	out := make(map[string]bool, len(schemas))
 	for _, schema := range schemas {

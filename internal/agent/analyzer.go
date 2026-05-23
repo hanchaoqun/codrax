@@ -1000,6 +1000,12 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 				HintKey:       "analyzer.tool-boundary",
 				Hint:          "That tool is outside the analyze-stage boundary. Analyze is classification-only: use only repo_map, grep(files_only=true), list_files for light location checks, or call emit_analysis now. Do not call read_file or content-reading tools in analyze.",
 			}
+		case analyzerGrepFilesOnlyRequiredCode:
+			return LoopSignal{
+				HintRequested: true,
+				HintKey:       "analyzer.grep-files-only",
+				Hint:          "The analyze-stage grep call must be a lightweight file-location pre-scan with files_only=true. Do not request line-level grep output or read file contents in analyze. Retry grep with files_only=true only if that location check is still needed; otherwise call emit_analysis now with the best classification and routing hints you already have.",
+			}
 		}
 	}
 	if !isPrescanTool(obs.LastToolResult.ToolName) {
