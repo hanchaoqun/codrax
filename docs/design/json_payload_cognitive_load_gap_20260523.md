@@ -23,6 +23,9 @@ Implementation progress:
   remaining extractor / runtime segmentation emit tools:
   `emit_answer_symbol`, `emit_hypothesis_verdict`,
   `emit_log_segmentation`, and `emit_perf_segmentation`.
+- 2026-05-23 Batch 4 added a structural regression guard so the current
+  structured emit tools cannot accidentally bypass `StructuredPayloadCompat`
+  in future edits.
 - Remaining work starts at P1 carrier compilers / row-set references; the first
   batch deliberately did not change answer materialization policy.
 
