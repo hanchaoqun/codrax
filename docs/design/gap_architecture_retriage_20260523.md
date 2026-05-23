@@ -163,7 +163,7 @@ when the answer is accepted.
 | T2 | Done | Extend MCP response projection, if current fields are too weak, without duplicating the ledger. Prefer typed fields only when producers can populate them; otherwise keep support-only `RawRef`. | `internal/types/context.go`, `internal/types/observation_ledger.go`, MCP tests | `go test ./internal/types ./internal/mcp` |
 | T3 | Done | Audit pre-emit / contract / reviewer origin decisions and replace local origin switches with shared ledger helpers where safe. | `internal/tool/answer_document_pre_emit_check.go`, `internal/orchestrator/contract_check.go`, `internal/orchestrator/semantic_quality_reviewer.go`, `internal/types/answer_claim_binding.go`, `internal/types/answer_evidence_origin.go` | `go test ./internal/types ./internal/tool` |
 | T4 | Done | Add supplement safety guard tests across current-source, VCS, runtime, command, cross-repo, web/MCP/connector-like origins. | `internal/tool/*supplement*_test.go`, `internal/render/answerdoc_test.go` | `go test ./internal/tool` |
-| T5 | Pending | Add executable eval cases for existing producers and placeholder/documented skeletons for future MCP/web/connector producers. | `eval/cases`, docs | targeted eval batch, no product-code change during log collection |
+| T5 | Done | Add executable eval cases for existing producers and placeholder/documented skeletons for future MCP/web/connector producers. | `eval/cases`, docs | `bash -n eval/cases/read_combo_*.case` |
 | T6 | Pending | Run targeted eval batch and refresh gap ledgers with every retry/reject, classifying model error vs system over-gate. | `eval/results`, `docs/design/eval_*.md` | per-run log audit |
 
 ## Implementation Notes For Future Batches
@@ -223,3 +223,20 @@ when the answer is accepted.
   - Existing current-source, VCS, runtime, command, and architecture supplement
     guards remain covered by the `internal/tool` suite.
   - Validation: `go test ./internal/tool`.
+- 2026-05-23 T5 complete:
+  - Added executable mixed-observation evals for the currently supported
+    producers:
+    - `read_combo_git_two_diffs_current_code`: recent two commit diffs plus
+      current-source implementation impact, guarding against scalar commit-id
+      collapse.
+    - `read_combo_log_current_code_boundary`: attached log line plus current
+      source boundary, guarding against treating artifact lines as source
+      citations.
+    - `read_combo_trace_current_code_boundary`: HiTrace duration plus current
+      source explanation, guarding against trace line/source line conflation.
+  - Added `external_observation_skeletons.md` for future MCP/web/connector eval
+    producers. These are intentionally not `.case` files until the runner has
+    first-class typed attachment knobs for those origins.
+  - Validation: `bash -n eval/cases/read_combo_git_two_diffs_current_code.case
+    eval/cases/read_combo_log_current_code_boundary.case
+    eval/cases/read_combo_trace_current_code_boundary.case`.

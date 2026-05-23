@@ -1,0 +1,20 @@
+# Read combo — trace window plus current-code explanation
+#
+# Regression target: trace windows have artifact-local time/line anchors. A
+# mixed question may still ask current code to explain the scheduling path. The
+# answer should preserve trace duration/line facts and use current-source
+# citations only for current implementation details.
+ID="read_combo_trace_current_code_boundary"
+NAME="read combo — trace window plus current code boundary"
+QUESTION="这段 HiTrace 里 RenderService DoFrame span 是否超过 50ms？请结合当前源码解释系统会如何分析这种 trace 卡顿，但不要把 trace 行号当成源码行号。"
+HTRACE='# tracer: nop
+# entries-in-buffer/entries-written: 128/128   #P:4
+#
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+   render_service-2000 [002] ...1 1000.100000: tracing_mark_write: B|2000|H:RenderService:DoFrame
+   render_service-2000 [002] ...1 1000.186111: tracing_mark_write: E|2000
+'
+EXPECT_NOT_CONTAINS="**值：**"
+EXPECT_MATCHES_REGEX="(RenderService|DoFrame).*(86\.111|86ms|超过 ?50ms|> ?50)|(86\.111|86ms|超过 ?50ms|> ?50).*(RenderService|DoFrame)
+(trace|HiTrace|附件|行号|时间窗).*(源码|当前代码|实现)|(源码|当前代码|实现).*(trace|HiTrace|附件|行号|时间窗)
+internal/(analysis|tool|agent|orchestrator)/[^[:space:]]+\.go:[0-9]+"

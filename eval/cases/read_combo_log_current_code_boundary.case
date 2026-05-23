@@ -1,0 +1,17 @@
+# Read combo — artifact log observation plus current-code boundary
+#
+# Regression target: an attached log line is artifact-local evidence, while the
+# current checkout explains how the system handles that condition. The answer
+# should keep the log line coordinate and current source refs separate.
+ID="read_combo_log_current_code_boundary"
+NAME="read combo — log line plus current code boundary"
+QUESTION="这段日志第 4 行为什么显示 finalizer 进入重写？请结合当前源码说明这是网络/模型响应异常、系统校验失败，还是两者如何区分；不要把日志行当成当前源码引用。"
+LOG='2026-05-23T09:00:00.000 DEBUG [diag finalizer] iter=0 phase=llm_request model=demo
+2026-05-23T09:00:20.000 WARN [llm] first_byte_timeout exceeded after 40s
+2026-05-23T09:00:20.001 WARN [orchestrator] finalizer attempt 1/3 failed: LLM stream timeout
+2026-05-23T09:00:20.002 INFO [render] ⟳ 4/4 模型响应出错,正在重新撰写答案
+'
+EXPECT_NOT_CONTAINS="**值：**"
+EXPECT_MATCHES_REGEX="(第 ?4 ?行|4 ?行|line ?4|L4).*(模型响应出错|重新撰写|重写)|(模型响应出错|重新撰写|重写).*(第 ?4 ?行|4 ?行|line ?4|L4)
+(网络|timeout|超时|模型响应|LLM).*(校验|成文|结构|区分)|(校验|成文|结构|区分).*(网络|timeout|超时|模型响应|LLM)
+internal/(orchestrator|agent|llm|render)/[^[:space:]]+\.go:[0-9]+"
