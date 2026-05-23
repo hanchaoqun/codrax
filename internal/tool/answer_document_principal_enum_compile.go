@@ -787,6 +787,12 @@ func principalEnumerationRowsBlockTitle(set types.EnumerationDisplaySet, rows []
 	if label == "" {
 		label = "成员清单"
 	}
+	if mode == principalEnumerationSupplementMissing {
+		if zh {
+			return fmt.Sprintf("系统按已验证证据补充缺失成员：%s（%d）", label, len(rows))
+		}
+		return fmt.Sprintf("System-verified missing member supplement: %s (%d)", label, len(rows))
+	}
 	if mode == principalEnumerationSupplementVerifiedFields {
 		if zh {
 			return fmt.Sprintf("系统按已验证证据补充可校验字段：%s（%d）", label, len(rows))
@@ -837,6 +843,12 @@ func principalEnumerationTableColumns(zh bool, shape principalEnumerationTableSh
 }
 
 func principalEnumerationPrimaryColumnLabel(zh bool, rows []types.EnumerationDisplayRow) string {
+	if principalEnumerationRowsUseFilePrimarySurface(rows) {
+		if zh {
+			return "文件"
+		}
+		return "File"
+	}
 	origin, ok := principalEnumerationUniformPrimaryOrigin(rows)
 	if !ok {
 		if zh {
@@ -889,6 +901,36 @@ func principalEnumerationPrimaryColumnLabel(zh bool, rows []types.EnumerationDis
 		}
 		return "Name"
 	}
+}
+
+func principalEnumerationRowsUseFilePrimarySurface(rows []types.EnumerationDisplayRow) bool {
+	if len(rows) == 0 {
+		return false
+	}
+	checked := 0
+	for _, row := range rows {
+		surface := strings.TrimSpace(firstNonEmptyAnswerString(row.DisplayLabel, row.Member))
+		if surface == "" {
+			continue
+		}
+		if label, location, ok := types.ParseAnswerSupportRefMemberLocation(surface); ok {
+			if strings.TrimSpace(label) != "" {
+				surface = strings.TrimSpace(label)
+			} else {
+				surface = location.File
+			}
+		}
+		if _, ok := types.ParseAnswerFilePathSurface(surface); ok {
+			checked++
+			continue
+		}
+		if _, ok := types.ParseAnswerSourceLocationSurface(surface); ok {
+			checked++
+			continue
+		}
+		return false
+	}
+	return checked > 0
 }
 
 func principalEnumerationUniformPrimaryOrigin(rows []types.EnumerationDisplayRow) (types.AnswerEvidenceOrigin, bool) {

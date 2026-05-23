@@ -1634,9 +1634,11 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 	fixed := 0
 	for _, ref := range refs {
 		fact := ref.Fact
+		rows := displayRows[ref.Index]
 		if preEmitAggregateMemberSetIsScalarCountSupport(ctx, fact) ||
 			len(fact.Members) == 0 ||
-			preEmitAnswerDocumentCoversAggregateMemberSetFact(doc, ctx, fact, visibleSurface) {
+			preEmitAnswerDocumentCoversAggregateMemberSetFact(doc, ctx, fact, visibleSurface) ||
+			preEmitAnswerDocumentCoversEnumerationDisplayRows(doc, rows) {
 			continue
 		}
 		if len(fact.Members) == 1 && preEmitPrincipalStructuredBlockClaimsAggregateCategory(doc, fact) {
@@ -1654,7 +1656,6 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 			ClaimForm: types.ClaimDefinitionFact,
 		})
 		block.Text = aggregateMemberSetCarrierText(fact.Label, zh)
-		rows := displayRows[ref.Index]
 		for memberIdx, member := range fact.Members {
 			member = strings.TrimSpace(member)
 			if member == "" {
@@ -1690,6 +1691,28 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 		}
 	}
 	return fixed
+}
+
+func preEmitAnswerDocumentCoversEnumerationDisplayRows(doc *types.AnswerDocumentV2, rows []types.EnumerationDisplayRow) bool {
+	if doc == nil || len(rows) == 0 {
+		return false
+	}
+	for _, row := range rows {
+		covered := false
+		for _, block := range doc.Blocks {
+			if !preEmitSystemEnumerationRowSupplementBlock(block) {
+				continue
+			}
+			if principalEnumerationBlockCoversRow(block, doc, row) {
+				covered = true
+				break
+			}
+		}
+		if !covered {
+			return false
+		}
+	}
+	return true
 }
 
 func preEmitAnswerDocumentCoversAggregateMemberSetFact(doc *types.AnswerDocumentV2, ctx *types.BusContext, fact types.AnswerAggregateFact, surface string) bool {
@@ -3328,6 +3351,9 @@ func preEmitAggregateScopedCountClaims(doc *types.AnswerDocumentV2, fact types.A
 	}
 	var out []preEmitAggregateCountClaim
 	for _, block := range doc.Blocks {
+		if preEmitSystemMissingMemberSupplementBlock(block) {
+			continue
+		}
 		surface := strings.TrimSpace(block.Title + "\n" + block.Text)
 		if surface == "" {
 			continue
@@ -3343,6 +3369,19 @@ func preEmitAggregateScopedCountClaims(doc *types.AnswerDocumentV2, fact types.A
 		}
 	}
 	return out
+}
+
+func preEmitSystemMissingMemberSupplementBlock(block types.AnswerBlock) bool {
+	title := strings.TrimSpace(block.Title)
+	return strings.HasPrefix(title, "系统按已验证证据补充缺失成员：") ||
+		strings.HasPrefix(title, "System-verified missing member supplement:")
+}
+
+func preEmitSystemEnumerationRowSupplementBlock(block types.AnswerBlock) bool {
+	title := strings.TrimSpace(block.Title)
+	return preEmitSystemMissingMemberSupplementBlock(block) ||
+		strings.HasPrefix(title, "系统按已验证证据补充可校验字段：") ||
+		strings.HasPrefix(title, "System-verified field supplement:")
 }
 
 func preEmitBlockBindsToAggregateCount(block types.AnswerBlock, surface string, fact types.AnswerAggregateFact, memberBindingMin int) bool {

@@ -165,7 +165,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForCorrupt
 		}
 	}
 	systemTable := doc.Blocks[2]
-	if !strings.Contains(systemTable.Title, "系统按已验证证据补充成员") {
+	if !strings.Contains(systemTable.Title, "系统按已验证证据补充缺失成员") {
 		t.Fatalf("system supplement should be a missing-row supplement, got title %q", systemTable.Title)
 	}
 	if strings.TrimSpace(systemTable.Text) != "" || len(systemTable.Items) != 2 {
@@ -355,7 +355,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsMissingRowsForCorruptComp
 		t.Fatalf("model-authored table should remain visibly separate, got %+v", doc.Blocks[1])
 	}
 	system := doc.Blocks[2]
-	if !strings.Contains(system.Title, "系统按已验证证据补充成员") {
+	if !strings.Contains(system.Title, "系统按已验证证据补充缺失成员") {
 		t.Fatalf("missing-row supplement should be clearly labeled, got %q", system.Title)
 	}
 	if len(system.Items) != 2 {
@@ -733,7 +733,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_VCSSupplementUsesCommitColumn(t 
 	}
 	var supplement *types.AnswerBlock
 	for i := range doc.Blocks {
-		if strings.Contains(doc.Blocks[i].Title, "系统按已验证证据补充成员：最近提交") {
+		if strings.Contains(doc.Blocks[i].Title, "系统按已验证证据补充缺失成员：最近提交") {
 			supplement = &doc.Blocks[i]
 			break
 		}
@@ -752,6 +752,65 @@ func TestNormalizePrincipalEnumerationRowBlocks_VCSSupplementUsesCommitColumn(t 
 	}
 	if strings.Contains(visible, "符号名称") {
 		t.Fatalf("VCS supplement must not render generic code-symbol heading:\n%s", visible)
+	}
+}
+
+func TestNormalizePrincipalEnumerationRowBlocks_VCSChangedPathSupplementUsesFileColumn(t *testing.T) {
+	mu := types.NewMutableState("对比最近两次提交的代码 diff，并结合当前源码分析影响链路")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "commit c9d1fe22 涉及文件",
+		Value: "3",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"docs/design/local_model_eval_compat_20260523.md",
+			"internal/agent/explorer.go",
+			"internal/agent/explorer_test.go",
+		},
+		Dimensions: []types.AnswerAggregateDimension{{Name: "evidence_origin", Value: "vcs_metadata"}},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:          "summary",
+		Kind:        types.BlockSummary,
+		SurfaceRole: types.SurfacePrincipal,
+		Text:        "当前回答已经说明了 internal/agent/explorer.go 的 FilterToolSchemas 机制，还需要补充其它变更文件。",
+	}}}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatal("expected missing changed-path supplement")
+	}
+	var supplement *types.AnswerBlock
+	for i := range doc.Blocks {
+		if strings.Contains(doc.Blocks[i].Title, "系统按已验证证据补充缺失成员：commit c9d1fe22 涉及文件") {
+			supplement = &doc.Blocks[i]
+			break
+		}
+	}
+	if supplement == nil {
+		t.Fatalf("expected changed-path supplement, got %+v", doc.Blocks)
+	}
+	if got, want := supplement.Columns, []string{"文件"}; len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("changed-path VCS supplement should use file column label, got %#v", got)
+	}
+	visible := types.AnswerBlockVisibleSurface(*supplement)
+	if strings.Contains(visible, "| 提交 |") || strings.Contains(visible, "| 变更 |") {
+		t.Fatalf("changed-path supplement must not render commit/change column:\n%s", visible)
+	}
+	for _, want := range []string{"docs/design/local_model_eval_compat_20260523.md", "internal/agent/explorer_test.go"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("supplement missing changed path %q:\n%s", want, visible)
+		}
 	}
 }
 
@@ -795,6 +854,16 @@ func TestPrincipalEnumerationPrimaryColumnLabel_OriginSpecific(t *testing.T) {
 	if got := principalEnumerationPrimaryColumnLabel(false, mixed); got != "Item" {
 		t.Fatalf("mixed-origin en label = %q, want Item", got)
 	}
+	pathRows := []types.EnumerationDisplayRow{
+		{Member: "docs/design/local_model_eval_compat_20260523.md", EvidenceOrigins: []types.AnswerEvidenceOrigin{types.AnswerEvidenceOriginVCSMetadata}},
+		{Member: "internal/agent/explorer.go", EvidenceOrigins: []types.AnswerEvidenceOrigin{types.AnswerEvidenceOriginVCSMetadata}},
+	}
+	if got := principalEnumerationPrimaryColumnLabel(true, pathRows); got != "文件" {
+		t.Fatalf("path-primary zh label = %q, want 文件", got)
+	}
+	if got := principalEnumerationPrimaryColumnLabel(false, pathRows); got != "File" {
+		t.Fatalf("path-primary en label = %q, want File", got)
+	}
 }
 
 func TestNormalizePrincipalEnumerationRowBlocks_ExternalResourceSupplementIsMarkedAppendOnly(t *testing.T) {
@@ -835,7 +904,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_ExternalResourceSupplementIsMark
 		t.Fatalf("system supplement must append only and preserve authored summary: %+v", doc.Blocks)
 	}
 	supplement := doc.Blocks[1]
-	if !strings.Contains(supplement.Title, "系统按已验证证据补充成员：打开事故") {
+	if !strings.Contains(supplement.Title, "系统按已验证证据补充缺失成员：打开事故") {
 		t.Fatalf("external resource supplement should be clearly marked, got %q", supplement.Title)
 	}
 	if got, want := supplement.Columns, []string{"资源项", "说明"}; len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
@@ -1210,7 +1279,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_UsesEnglishSupplementTitle(t *te
 	if len(doc.Blocks) != 3 {
 		t.Fatalf("expected summary, authored table, and English supplement, got %+v", doc.Blocks)
 	}
-	if !strings.Contains(doc.Blocks[2].Title, "System-verified member supplement") {
+	if !strings.Contains(doc.Blocks[2].Title, "System-verified missing member supplement") {
 		t.Fatalf("supplement title should follow answer language, got %q", doc.Blocks[2].Title)
 	}
 }
@@ -1255,7 +1324,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_SystemSupplementOmitsEmptyLocati
 	if supplement == nil {
 		t.Fatalf("expected system supplement table, got %+v", doc.Blocks)
 	}
-	if !strings.Contains(supplement.Title, "系统按已验证证据补充成员") {
+	if !strings.Contains(supplement.Title, "系统按已验证证据补充缺失成员") {
 		t.Fatalf("system-generated table should be explicitly marked, got %q", supplement.Title)
 	}
 	if got, want := supplement.Columns, []string{"符号名称"}; len(got) != len(want) || got[0] != want[0] {
@@ -1869,6 +1938,62 @@ func TestNormalizeAggregateMemberSetCarriers_VisibleProseCoveragePreventsDuplica
 	}
 	if len(doc.Blocks) != 1 {
 		t.Fatalf("system duplicate carrier appended despite visible coverage: %+v", doc.Blocks)
+	}
+}
+
+func TestNormalizeAggregateMemberSetCarriers_SystemRowSupplementPreventsDuplicateCarrier(t *testing.T) {
+	mu := types.NewMutableState("列出完整公开函数")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "公开函数",
+		Value:   "3",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Eval", "EvalAll", "RegisteredKinds"},
+		SupportRefs: []string{
+			"Eval @ internal/analysis/criterion/eval.go:15",
+			"EvalAll @ internal/analysis/criterion/eval.go:36",
+			"RegisteredKinds @ internal/analysis/criterion/grammar.go:118",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "完整公开函数"},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "这里先解释整体语义，模型没有逐条列出成员。",
+	}}}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatalf("expected row compiler to append the missing-member supplement")
+	}
+	before := len(doc.Blocks)
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
+		t.Fatalf("aggregate carrier must not duplicate rows already covered by the system row supplement, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if len(doc.Blocks) != before {
+		t.Fatalf("aggregate carrier appended a duplicate block; before=%d after=%d doc=%+v", before, len(doc.Blocks), doc.Blocks)
+	}
+	var missingSupplements, legacyCarriers int
+	for _, block := range doc.Blocks {
+		if strings.Contains(block.Title, "系统按已验证证据补充缺失成员") {
+			missingSupplements++
+		}
+		if strings.Contains(block.Title, "系统按已验证证据补充成员") {
+			legacyCarriers++
+		}
+	}
+	if missingSupplements != 1 || legacyCarriers != 0 {
+		t.Fatalf("expected exactly one missing-member supplement and no legacy carrier; missing=%d carriers=%d doc=%+v", missingSupplements, legacyCarriers, doc.Blocks)
 	}
 }
 

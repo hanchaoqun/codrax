@@ -304,3 +304,79 @@ violating the user's requested evidence mix.
       mismatch (`6942` vs `6943`) at confidence below rewrite floor, so the
       system correctly did not force another finalizer rewrite. Keep observing
       this class under advisory-cost telemetry rather than hard gating.
+
+- 2026-05-23 T7 partial:
+  - Integrated the upstream explorer-tool-surface narrowing fix already present
+    on `main` (`c9d1fe22`): when evidence backlog / no-emit escalation is active,
+    the explorer tool list is narrowed to materialization tools instead of
+    continuing broad reads. This reused the existing `FilterToolSchemas` hook
+    and avoided a duplicate gating layer.
+  - Rerun `read_combo_git_two_diffs_current_code`: PASS, runtime reduced from
+    426s to 231s, `explorer_iters` from 41 to 34, and `midloop_inject` from 19
+    to 13. No finalizer retry was needed.
+  - Residual found in the accepted answer: deterministic system supplements for
+    VCS changed-file sets were rendered as partial tables titled like complete
+    member tables and used the primary column label `提交` even when every row
+    was a file path. The same system-generated partial count then triggered a
+    soft count advisory (`expected_count=4/6`, visible supplement count=3/4),
+    which leaked as a generic "验收未达到预期" note.
+  - Fix in this batch:
+    - Missing-row supplements are now titled as
+      `系统按已验证证据补充缺失成员...` /
+      `System-verified missing member supplement...`, making the append-only
+      and partial nature explicit.
+    - The aggregate-count checker ignores these system missing-member
+      supplement counts, because they represent only rows not already visible in
+      the model answer. Complete model-authored tables and verified-field
+      supplements remain checked.
+    - The primary column label now follows the row's structural surface before
+      origin: path-like rows (using the shared code/config path grammar that
+      covers all repomap-supported language extensions plus config/docs) render
+      as `文件` / `File`; VCS commit rows still render as `提交` / `Commit`.
+  - Guard tests:
+    - VCS recent-commit supplements still use the commit column.
+    - VCS changed-file supplements use the file column and no longer look like a
+      commit table.
+    - System missing-member supplements do not trip aggregate cardinality drift.
+    - Existing external-resource append-only supplement tests were updated to
+      the clearer missing-member title.
+- 2026-05-24 T7 complete:
+  - Added accepted-path caveat filtering for typed facet coverage telemetry:
+    `facet_uncovered` now stays user-visible for exact/scalar/enumeration/
+    explicit-diagram/relational-comparison surfaces, but architecture/mechanism
+    answers no longer append generic "coverage may be insufficient" notes for
+    non-requested `component_relation` / `diagram_spine` metadata.
+  - Replaced generic self-consistency caveats with a specific, localized
+    summary/body conflict note when the reviewer already emitted structured
+    contradiction claims. This keeps the no-rewrite policy while making the
+    shipped boundary actionable.
+  - Fixed a second supplement path: the older aggregate member-set carrier now
+    reuses the deterministic row compiler's system-supplement coverage, so a
+    member set rendered once as a missing-row table is not appended again as a
+    dry ordered list.
+  - Guard tests:
+    - explicit diagram requests keep diagram facet/block caveats;
+    - architecture/history accepted answers suppress optional facet telemetry;
+    - relational comparisons keep `component_relation` caveats;
+    - self-contradiction caveats include the conflicting claims rather than the
+      generic family template;
+    - aggregate member carriers do not duplicate rows already covered by a
+      system row supplement, while legacy carrier tests still materialize rows
+      when only prose mentions members.
+  - Validation:
+    - `go test ./internal/tool`
+    - `go test ./internal/orchestrator`
+    - Focused eval `read_combo_git_two_diffs_current_code`:
+      - PASS after fixes.
+      - Latest run: 214s, `explorer_iters=8`, `midloop_inject=4`,
+        `finalizer_iters=3`, `semantic_quality_concerns=0`.
+      - Final visible answer no longer has duplicate carrier/list supplements;
+        system supplements are limited to append-only missing changed-file
+        groups whose covered rows were not already in the model-authored body.
+  - Residual recorded for next JSON/payload batch:
+    - The latest eval still had two light finalizer rejects before success:
+      `structured recovery could not preserve every visible blocks[] item`;
+      logs show the model attempted to emit JSON-encoded blocks rather than a
+      native `blocks[]` array. The final answer shipped correctly after a third
+      emit, so this is not an answer correctness issue, but it remains a
+      latency/model-cognitive-load gap under the JSON Payload cluster.

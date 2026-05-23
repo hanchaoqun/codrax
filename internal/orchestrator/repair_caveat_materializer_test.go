@@ -74,6 +74,30 @@ func TestAppendSoftContractCaveatsToAnswer_MaterializesDefaultSoftConcerns(t *te
 	}
 }
 
+func TestAppendSoftContractCaveatsToAnswer_MaterializesSpecificSelfContradiction(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	out := AppendSoftContractCaveatsToAnswer("正文", []types.Violation{{
+		Kind:       types.ViolSelfContradiction,
+		Detail:     `self_contradiction[counts] — SUMMARY: "c9d1fe22 4 个、9419be91 2 个" ⇄ BODY: "c9d1fe22 2 个、9419be91 4 个"`,
+		ClusterKey: types.TopicClusterKey("counts", "answer_summary_body_consistency"),
+	}}, "zh")
+	for _, want := range []string{
+		"**补充说明：**",
+		"答案有一处前后不一致",
+		"c9d1fe22 4 个、9419be91 2 个",
+		"c9d1fe22 2 个、9419be91 4 个",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("specific self-contradiction caveat missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "答案前后某些表述存在不完全一致") {
+		t.Fatalf("self-contradiction should use the specific reviewer claims, not the generic caveat:\n%s", out)
+	}
+}
+
 func TestAppendSoftContractCaveatsToAnswerForBus_ObservationOnlyUsesBoundaryCaveat(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, nil)
@@ -320,6 +344,83 @@ func TestAppendSoftContractCaveatsToAnswerForBus_DiagramRequestKeepsDiagramBlock
 	}, "zh", ctx)
 	if !strings.Contains(out, "**补充说明：**") {
 		t.Fatalf("explicit diagram requests should keep precise diagram-missing disclosure:\n%s", out)
+	}
+}
+
+func TestAppendSoftContractCaveatsToAnswerForBus_DiagramRequestKeepsDiagramFacetCaveat(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	rm := types.RequestModel{
+		RawRequest:    "解释流程并画图",
+		Intent:        types.IntentExplain,
+		Scenario:      types.ScenarioArchitectureExplain,
+		DiagramHint:   &types.DiagramHint{Kind: types.DiagramArchitecture},
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+	}
+	mut := types.NewMutableState(rm.RawRequest)
+	mut.SetRequestModel(rm)
+	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+
+	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{
+		{Kind: types.ViolFacetUncovered, ClusterKey: types.FacetClusterKey(string(types.FacetDiagramSpine), "answer_facet_coverage")},
+	}, "zh", ctx)
+	if !strings.Contains(out, "**补充说明：**") {
+		t.Fatalf("explicit diagram requests should keep diagram facet disclosure:\n%s", out)
+	}
+}
+
+func TestAppendSoftContractCaveatsToAnswerForBus_AcceptedMechanismSuppressesOptionalFacetTelemetry(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	rm := types.RequestModel{
+		RawRequest: "分析这两次提交对当前代码路径的影响",
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioArchitectureExplain,
+		Predicates: types.SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+		AnalyzerHints:       types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		ChangeImpactProfile: &types.ChangeImpactProfile{IsChangeImpact: true},
+	}
+	mut := types.NewMutableState(rm.RawRequest)
+	mut.SetRequestModel(rm)
+	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+
+	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{
+		{Kind: types.ViolFacetUncovered, ClusterKey: types.FacetClusterKey(string(types.FacetComponentRelation), "answer_facet_coverage")},
+		{Kind: types.ViolFacetUncovered, ClusterKey: types.FacetClusterKey(string(types.FacetDiagramSpine), "answer_richness_facet_coverage")},
+	}, "zh", ctx)
+	if out != "正文" {
+		t.Fatalf("accepted mechanism/history answers should not surface generic facet telemetry:\n%s", out)
+	}
+}
+
+func TestAppendSoftContractCaveatsToAnswerForBus_RelationalComparisonKeepsComponentRelationFacetCaveat(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	rm := types.RequestModel{
+		RawRequest: "这两个模块通过哪些接口交互？",
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioArchitectureExplain,
+		Predicates: types.SemanticPredicates{
+			IsCrossComponent:   true,
+			IsRelationalLookup: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		Buckets:       []types.QuestionBucket{{Label: "A"}, {Label: "B"}},
+	}
+	mut := types.NewMutableState(rm.RawRequest)
+	mut.SetRequestModel(rm)
+	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+
+	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{
+		{Kind: types.ViolFacetUncovered, ClusterKey: types.FacetClusterKey(string(types.FacetComponentRelation), "answer_facet_coverage")},
+	}, "zh", ctx)
+	if !strings.Contains(out, "**补充说明：**") {
+		t.Fatalf("relational comparison should keep component-relation disclosure:\n%s", out)
 	}
 }
 

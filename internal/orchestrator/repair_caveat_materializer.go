@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -80,6 +81,11 @@ func MaterializeUnresolvedViolationsAsCaveats(violations []types.Violation, lang
 		if useChinese {
 			body = fam.ZH
 		}
+		if fam.ID == types.CaveatFamilyConsistency {
+			if specific := materializeSelfContradictionCaveat(violations, useChinese); specific != "" {
+				body = specific
+			}
+		}
 		body = strings.TrimSpace(body)
 		if body == "" {
 			continue
@@ -90,6 +96,83 @@ func MaterializeUnresolvedViolationsAsCaveats(violations []types.Violation, lang
 		}
 	}
 	return out
+}
+
+func materializeSelfContradictionCaveat(violations []types.Violation, useChinese bool) string {
+	for _, v := range violations {
+		if v.Kind != types.ViolSelfContradiction {
+			continue
+		}
+		summary, body := parseSelfContradictionClaims(v.Detail)
+		if summary == "" && body == "" {
+			continue
+		}
+		topic := residualClusterValue(v.ClusterKey, "topic")
+		if useChinese {
+			prefix := "答案有一处前后不一致"
+			if topic != "" {
+				prefix += "（" + trimUserVisibleQuote(topic, 40) + "）"
+			}
+			if summary != "" && body != "" {
+				return prefix + "：摘要写到“" + trimUserVisibleQuote(summary, 96) + "”，正文/表格写到“" + trimUserVisibleQuote(body, 96) + "”；请按引用和表格核对该项。"
+			}
+			if summary != "" {
+				return prefix + "：摘要写到“" + trimUserVisibleQuote(summary, 120) + "”；请按引用和正文核对该项。"
+			}
+			return prefix + "：正文写到“" + trimUserVisibleQuote(body, 120) + "”；请按引用和摘要核对该项。"
+		}
+		prefix := "One answer passage is internally inconsistent"
+		if topic != "" {
+			prefix += " (" + trimUserVisibleQuote(topic, 40) + ")"
+		}
+		if summary != "" && body != "" {
+			return prefix + ": the summary says \"" + trimUserVisibleQuote(summary, 96) + "\", while the body/table says \"" + trimUserVisibleQuote(body, 96) + "\"; verify that item against the citations and table."
+		}
+		if summary != "" {
+			return prefix + ": the summary says \"" + trimUserVisibleQuote(summary, 120) + "\"; verify that item against the citations and body."
+		}
+		return prefix + ": the body says \"" + trimUserVisibleQuote(body, 120) + "\"; verify that item against the citations and summary."
+	}
+	return ""
+}
+
+func parseSelfContradictionClaims(detail string) (summary, body string) {
+	detail = strings.TrimSpace(detail)
+	const summaryMarker = "SUMMARY: "
+	const bodyMarker = " ⇄ BODY: "
+	si := strings.Index(detail, summaryMarker)
+	bi := strings.Index(detail, bodyMarker)
+	if si < 0 || bi < 0 || bi <= si {
+		return "", ""
+	}
+	summary = strings.TrimSpace(detail[si+len(summaryMarker) : bi])
+	body = strings.TrimSpace(detail[bi+len(bodyMarker):])
+	return trimQuotedClaim(summary), trimQuotedClaim(body)
+}
+
+func trimQuotedClaim(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		if unquoted, err := strconv.Unquote(s); err == nil {
+			return strings.TrimSpace(unquoted)
+		}
+	}
+	return strings.Trim(s, "\"")
+}
+
+func trimUserVisibleQuote(s string, maxRunes int) string {
+	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
+	if maxRunes <= 0 {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
+		return s
+	}
+	if maxRunes <= 1 {
+		return string(runes[:maxRunes])
+	}
+	return string(runes[:maxRunes-1]) + "…"
 }
 
 // AppendUserCaveatsToAnswer renders materialized caveats as a
@@ -256,6 +339,8 @@ func genericAcceptedPathCaveatIsTelemetry(v types.Violation, rm *types.RequestMo
 	case types.ViolUncertaintyBlockMissing:
 		return !contract.HasOutput(types.AnswerRequestedOutputAbsence) &&
 			!contract.HasOutput(types.AnswerRequestedOutputDiagnostic)
+	case types.ViolFacetUncovered:
+		return facetUncoveredCaveatIsTelemetry(v, rm, contract)
 	case types.ViolBlockCoverageMissing:
 		return blockCoverageCaveatIsTelemetry(v, rm, contract)
 	case types.ViolCitation,
@@ -268,6 +353,36 @@ func genericAcceptedPathCaveatIsTelemetry(v types.Violation, rm *types.RequestMo
 		types.ViolAcceptance,
 		types.ViolSuccessCriterion,
 		types.ViolClaimFormUnsupported:
+		return !acceptedPathNeedsPreciseGroundingDisclosure(rm, contract)
+	default:
+		return false
+	}
+}
+
+func facetUncoveredCaveatIsTelemetry(v types.Violation, rm *types.RequestModel, contract types.AnswerIntentContract) bool {
+	root := residualClusterValue(v.ClusterKey, "root")
+	facet := types.AnswerFacetKind(residualClusterValue(v.ClusterKey, "facet"))
+	if facet == "" {
+		return false
+	}
+	if root == "answer_richness_facet_coverage" {
+		return true
+	}
+	if root != "answer_facet_coverage" {
+		return false
+	}
+	switch facet {
+	case types.FacetDiagramSpine:
+		return !contract.HasOutput(types.AnswerRequestedOutputDiagram) &&
+			!contract.HasOutput(types.AnswerRequestedOutputTrace)
+	case types.FacetComponentRelation:
+		if rm != nil && rm.Predicates.IsRelationalLookup {
+			return false
+		}
+		return !contract.HasOutput(types.AnswerRequestedOutputComparison)
+	case types.FacetNearestMechanism, types.FacetUncertaintyBoundary:
+		return !acceptedPathNeedsPreciseGroundingDisclosure(rm, contract)
+	case types.FacetCurrentCodePath:
 		return !acceptedPathNeedsPreciseGroundingDisclosure(rm, contract)
 	default:
 		return false

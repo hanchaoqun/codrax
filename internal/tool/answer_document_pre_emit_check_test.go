@@ -1597,6 +1597,42 @@ func TestPreCheckAggregateCardinalityConsistency_RejectsScopedCountMismatch(t *t
 	}
 }
 
+func TestPreCheckAggregateCardinalityConsistency_IgnoresSystemMissingMemberSupplementCounts(t *testing.T) {
+	mu := types.NewMutableState("diff plus current source")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "commit c9d1fe22 涉及文件",
+		Value: "4",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"internal/agent/explorer.go",
+			"internal/agent/explorer_test.go",
+			"internal/agent/answer_intent_contract_prompt_test.go",
+			"docs/design/local_model_eval_compat_20260523.md",
+		},
+		Dimensions: []types.AnswerAggregateDimension{{Name: "evidence_origin", Value: "vcs_metadata"}},
+	}})
+	mu.SetInvestigationComplete("structured member set accepted")
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:    "supplement",
+		Kind:  types.BlockTable,
+		Title: "系统按已验证证据补充缺失成员：commit c9d1fe22 涉及文件（3）",
+		Columns: []string{
+			"文件",
+		},
+		Items: []types.AnswerBlockItem{
+			{Label: "internal/agent/explorer_test.go"},
+			{Label: "internal/agent/answer_intent_contract_prompt_test.go"},
+			{Label: "docs/design/local_model_eval_compat_20260523.md"},
+		},
+	}}}
+
+	if got := preCheckAggregateCardinalityConsistency(doc, ctx); len(got) != 0 {
+		t.Fatalf("system missing-member supplement is partial by design and must not trip aggregate count drift, got %+v", got)
+	}
+}
+
 func TestPreCheckAggregateCardinalityConsistency_MultipleSetsRequireExplicitLabelBinding(t *testing.T) {
 	mu := types.NewMutableState("multi member-set cardinality handoff")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
