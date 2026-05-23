@@ -316,7 +316,7 @@ write_metrics() {
     echo "concrete_values=$(count_pattern 'concrete values' "$log")"
     echo "synthesis_runs=$(count_pattern 'SYNTHESIS prompt' "$log")"
     echo "function_boundary_push=$(count_pattern 'CRITICAL.*Incomplete' "$log")"
-    echo "enumeration_push=$(count_pattern 'Principal Enumeration Rows|系统按已验证证据补充成员|系统按已验证证据补充缺失成员' "$log")"
+    echo "enumeration_push=$(count_pattern 'explorer\\.mid-loop\\.enumeration|Principal Enumeration Rows|系统按已验证证据补充成员|系统按已验证证据补充缺失成员' "$log")"
     echo "focus_warning=$(count_pattern 'Potential Focus' "$log")"
     echo "t11_gate_skip=$(count_pattern 'T1.1 gate.*skipping' "$log")"
     echo "t11_gate_run=$(count_pattern 'T1.1 gate.*running' "$log")"

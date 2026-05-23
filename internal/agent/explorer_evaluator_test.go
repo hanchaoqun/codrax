@@ -633,6 +633,43 @@ func TestExplorerReadiness_MultiSubtopicCallChainTraceSuppressesEnumerationCover
 	}
 }
 
+func TestExplorerReadiness_SequenceTraceSuppressesEnumerationAndOverviewHints(t *testing.T) {
+	eval := &explorerEvaluator{
+		isEnumerationQuery: true, // stale fork-local flag must not override the typed path contract.
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentTrace,
+			Scenario:   types.ScenarioArchitectureExplain,
+			Complexity: types.ComplexityModerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: false,
+				IsRelationalLookup:    false,
+				IsCountQuestion:       false,
+			},
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:     string(types.ReqCallChain),
+				Entities: []string{"analyzer.go", "buildAnalysisIR", "gate.Run"},
+			},
+			DiagramHint: &types.DiagramHint{Kind: types.DiagramSequence},
+		}},
+	}
+
+	if !typedTracePathRequestModel(eval.analysisIR.RequestModel) {
+		t.Fatal("sequence call-chain trace should be treated as a bounded path contract")
+	}
+	if !eval.boundedStructuralTraceRequest() {
+		t.Fatal("sequence call-chain trace should stay in the bounded trace lane")
+	}
+	if eval.strictEnumerationReadinessFloor() {
+		t.Fatal("sequence call-chain trace must not use strict enumeration readiness floors")
+	}
+	if eval.shouldRunEnumerationCoverageMidLoop() {
+		t.Fatal("sequence call-chain trace must not run broad discovered-file enumeration coverage")
+	}
+	if eval.typedStructuralOverviewRequiresWideRead() {
+		t.Fatal("sequence call-chain trace must not ask for whole-file architecture overview coverage")
+	}
+}
+
 // -----------------------------------------------------------------------------
 // DetermineMissingPiece
 // -----------------------------------------------------------------------------

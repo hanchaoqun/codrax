@@ -141,6 +141,7 @@ type explorerEvaluator struct {
 	midLoopBudgetExhaustedSent      map[string]bool
 	midLoopEvidenceRepairSent       bool // one-shot: recovered/ungrounded emit_evidence repair hint already pushed this dispatch
 	midLoopEvidenceRepairResultsLen int  // allResults length when the current emit_evidence repair hint fired
+	midLoopEvidenceRepairEmitOnly   bool // repair target windows are already covered; allow only evidence materialization/closure
 	midLoopSurfaceTermReviewSent    bool // one-shot: model-authored surface_terms review hint already pushed this dispatch
 	midLoopClosureRepairSent        bool // one-shot: structured closure repair from a downgraded completion already pushed this dispatch
 	midLoopClosureRepairResultsLen  int  // allResults length when the current closure repair hint fired
@@ -5415,20 +5416,23 @@ func currentBatchHasSuccessfulRead(results []types.ToolResult, prevLen int) bool
 }
 
 func (e *explorerEvaluator) shouldRunEnumerationCoverageMidLoop() bool {
-	if e == nil || !e.isEnumerationQuery || e.analysisIR == nil {
-		return false
-	}
-	if e.boundedStructuralTraceRequest() {
+	if e == nil || e.analysisIR == nil {
 		return false
 	}
 	rm := e.analysisIR.RequestModel
+	if typedTracePathRequestModel(rm) || e.boundedStructuralTraceRequest() {
+		return false
+	}
+	if !e.isEnumerationQuery {
+		return false
+	}
 	if types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
 		return true
 	}
 	if rm.EnumerationBoundary != nil || rm.CompletenessObligation.IsActive() {
 		return true
 	}
-	return types.IsCategoryEnumerationAnswerShape(rm)
+	return false
 }
 
 func currentBatchHasSuccessfulTool(results []types.ToolResult, prevLen int, toolName string) bool {
@@ -5484,8 +5488,10 @@ var completionReadyClosingToolNames = map[string]bool{
 // emit_investigation_complete, or a prior evidence batch needs a
 // grounded repair. Evidence repair is a special case: the current hint
 // asks the model to re-read exact source locations before re-emitting
-// grounded evidence, so the schema must keep `read_file` available while
-// still removing broad navigation tools. Completion-ready escalation is
+// grounded evidence, so the schema initially keeps `read_file` available while
+// still removing broad navigation tools. Once the target windows are covered,
+// the same repair lane narrows to emit-only to prevent adjacent-window loops.
+// Completion-ready escalation is
 // another narrow lane: the first completion-ready hint is advisory, but
 // after the existing escalation latch fires, broad scope-expansion tools
 // are removed while exact `read_file` checks and structured emit tools
@@ -5522,6 +5528,9 @@ func (e *explorerEvaluator) restrictedToolSurface() map[string]bool {
 		return nil
 	}
 	if e.midLoopEvidenceRepairSent && e.midLoopEvidenceRepairResultsLen > 0 {
+		if e.midLoopEvidenceRepairEmitOnly {
+			return completionProgressToolNames
+		}
 		return evidenceRepairToolNames
 	}
 	if e.midLoopNoEmitPushSent && e.midLoopNoEmitEscalated {
@@ -5606,13 +5615,89 @@ func (e *explorerEvaluator) awaitingEvidenceRepair(results []types.ToolResult) b
 
 func (e *explorerEvaluator) syncEvidenceRepairState(results []types.ToolResult) {
 	if !e.midLoopEvidenceRepairSent || e.midLoopEvidenceRepairResultsLen == 0 {
+		e.midLoopEvidenceRepairEmitOnly = false
 		return
 	}
 	if successfulToolCountSince(results, e.midLoopEvidenceRepairResultsLen, map[string]bool{"emit_evidence": true}) == 0 {
+		e.midLoopEvidenceRepairEmitOnly = e.evidenceRepairShouldBeEmitOnly(results)
 		return
 	}
 	e.midLoopEvidenceRepairSent = false
 	e.midLoopEvidenceRepairResultsLen = 0
+	e.midLoopEvidenceRepairEmitOnly = false
+}
+
+func (e *explorerEvaluator) evidenceRepairShouldBeEmitOnly(results []types.ToolResult) bool {
+	if e == nil || !e.midLoopEvidenceRepairSent || e.midLoopEvidenceRepairResultsLen <= 0 || e.midLoopEvidenceRepairResultsLen > len(results) {
+		return false
+	}
+	targets := e.pendingEvidenceRepairTargets(results)
+	if len(targets) == 0 {
+		return false
+	}
+	if evidenceRepairTargetsCoveredByReadWindows(targets, results, e.repoRoot) {
+		return true
+	}
+	readAttempts := successfulToolCountSince(results, e.midLoopEvidenceRepairResultsLen, map[string]bool{"read_file": true})
+	return readAttempts >= evidenceRepairReadQuota(targets)
+}
+
+func evidenceRepairReadQuota(targets []evidenceRepairTarget) int {
+	if len(targets) <= 1 {
+		return 2
+	}
+	quota := len(targets) * 2
+	if quota < 2 {
+		return 2
+	}
+	if quota > 6 {
+		return 6
+	}
+	return quota
+}
+
+func evidenceRepairTargetsCoveredByReadWindows(targets []evidenceRepairTarget, results []types.ToolResult, repoRoot string) bool {
+	if len(targets) == 0 {
+		return false
+	}
+	readSet, readRanges, _, _ := extractFileCoverageWithTotals(results, repoRoot)
+	canon := func(path string) string {
+		if repoRoot != "" {
+			return ground.CanonicalRepoRelative(path, repoRoot)
+		}
+		return canonicalExplorerPath(path)
+	}
+	for _, target := range targets {
+		file := canon(target.file)
+		if file == "" {
+			return false
+		}
+		ranges := readRanges[file]
+		if len(target.lines) == 0 {
+			if !readSetContains(readSet, file) {
+				return false
+			}
+			continue
+		}
+		for _, line := range target.lines {
+			if !lineCoveredByAnyRange(line, ranges) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func lineCoveredByAnyRange(line int, ranges []types.LineRange) bool {
+	if line <= 0 {
+		return false
+	}
+	for _, rng := range ranges {
+		if line >= rng.Start && line <= rng.End {
+			return true
+		}
+	}
+	return false
 }
 
 func closureRepairDirectives(mutable *types.MutableState) []types.RepairDirective {
@@ -5900,7 +5985,7 @@ func (e *explorerEvaluator) strictEnumerationReadinessFloor() bool {
 	if types.IsArchitectureNarrativeExplanation(rm) {
 		return false
 	}
-	if e.boundedStructuralTraceRequest() {
+	if typedTracePathRequestModel(rm) || e.boundedStructuralTraceRequest() {
 		return false
 	}
 	if types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqEnumeration {
@@ -5912,12 +5997,38 @@ func (e *explorerEvaluator) strictEnumerationReadinessFloor() bool {
 	return types.ResolveQuestionFamily(rm) == types.QFEnumeration
 }
 
+func typedTracePathRequestModel(rm types.RequestModel) bool {
+	if rm.Intent != types.IntentTrace {
+		return false
+	}
+	if types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
+		types.IsCategoryEnumerationAnswerShape(rm) ||
+		rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsRelationalLookup {
+		return false
+	}
+	switch rm.PredicateAxis {
+	case types.AxisCall, types.AxisCondition, types.AxisRegister:
+		return true
+	}
+	switch types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case types.ReqCallChain, types.ReqConditional, types.ReqMechanism, types.ReqRegistration:
+		return true
+	}
+	if rm.DiagramHint != nil && rm.DiagramHint.Kind == types.DiagramSequence {
+		return true
+	}
+	family := types.ResolveQuestionFamily(rm)
+	return family == types.QFCallChain || family == types.QFRootCauseTrace
+}
+
 func (e *explorerEvaluator) boundedStructuralTraceRequest() bool {
 	if e == nil || e.analysisIR == nil {
 		return false
 	}
 	rm := e.analysisIR.RequestModel
-	if isTypedBoundedStructuralTraceRequestModel(rm) {
+	if typedTracePathRequestModel(rm) || isTypedBoundedStructuralTraceRequestModel(rm) {
 		return true
 	}
 	family := types.ResolveQuestionFamily(rm)
@@ -5938,7 +6049,7 @@ func (e *explorerEvaluator) typedStructuralOverviewRequiresWideRead() bool {
 		return false
 	}
 	rm := e.analysisIR.RequestModel
-	if e.boundedStructuralTraceRequest() {
+	if typedTracePathRequestModel(rm) || e.boundedStructuralTraceRequest() {
 		return false
 	}
 	if types.IsProjectOrientationQuestion(rm) {

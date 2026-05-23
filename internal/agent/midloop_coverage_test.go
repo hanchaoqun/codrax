@@ -615,11 +615,13 @@ func TestMidLoopCheck_Enumeration_OneShotWithinDispatch(t *testing.T) {
 		isEnumerationQuery: true,
 		analysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
-				Intent: types.IntentEnumerate,
+				Intent:     types.IntentEnumerate,
+				RawRequest: "list all Register calls",
 				Predicates: types.SemanticPredicates{
 					IsCategoryEnumeration: true,
 				},
-				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqEnumeration)},
+				CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "all"},
+				AnalyzerHints:          types.AnalyzerHints{Kind: string(types.ReqEnumeration)},
 			},
 		},
 	}

@@ -61,6 +61,17 @@ Eval run root:
   existing completion-ready escalation state does the runtime narrow the action
   space by blocking broad scope-expansion tools while still allowing exact
   `read_file` checks and structured emit tools.
+- Batch 9 was scoped from the post-Batch-8 eval.
+  Correctness held, but two typed-policy leaks still cost rounds: bounded trace
+  can still receive broad enumeration / overview-window hints in at least one
+  runtime path, and evidence repair still allows repeated `read_file` calls after
+  the targeted source windows have already been read. Both fixes are state- and
+  RequestModel-driven; neither may inspect user prose or model prose keywords.
+- Batch 9 landed: broad enumeration mid-loop hints now require an explicit typed
+  exhaustive obligation rather than a loose category fallback, trace/path-shaped
+  requests suppress overview-wide-read hints through a typed guard, and evidence
+  repair switches from `read_file + emit` to emit-only after target windows are
+  covered or a bounded repair-read quota is exhausted.
 
 ## Operating Principles
 
@@ -465,6 +476,35 @@ Follow-up batches if eval shows remaining latency:
   calls are rejected before execution by the existing explorer runtime boundary.
   Added regression tests for advisory schema stability, escalated schema
   narrowing, and runtime rejection of hidden broad calls.
+- 2026-05-24: Re-ran `qf_sequence_analyzer_gate` after Batch 8. Result: PASS,
+  with `finalizer_iters=1`, `answer_chain_lines=14`, and a valid final answer.
+  The cost profile is still not acceptable for customer-scale repos:
+  `explorer_iters=40`, `midloop_inject=23`, `tool_read_file=19`, and
+  `explorer_dispatches=2`. Raw logs also show `explorer.mid-loop.enumeration`
+  injected for a typed `IntentTrace` / `ReqCallChain` / sequence-diagram request,
+  even though the eval summary counter reported `enumeration_push=0`. This is a
+  logging / metric mismatch plus a real policy leak; Batch 9 is scoped to close
+  that gap and tighten evidence-repair reads.
+- 2026-05-24: Batch 9 implemented. `shouldRunEnumerationCoverageMidLoop()` now
+  refuses trace/path contracts before any broad file-coverage calculation and no
+  longer treats a loose category-shaped fallback as sufficient for "read N
+  discovered files"; explicit typed exhaustive obligations still trigger the
+  enumeration lane. Evidence repair now tracks structured repair targets against
+  read-file line windows and narrows to emit-only once the target window is
+  covered. Added regression tests for sequence-trace suppression, repair-window
+  coverage, runtime rejection after coverage, and the explicit-obligation
+  enumeration path.
+- 2026-05-24: Post-Batch-9 targeted tests and `make build` passed. A real
+  `qf_sequence_analyzer_gate` rerun with a 10 minute cap timed out in finalizer
+  after reaching the first finalizer model request. Important observations:
+  no `explorer.mid-loop.enumeration` and no `intent-window-mismatch` appeared in
+  the raw log; evidence repair did switch to tools=2 after the exact target
+  window was read. Remaining cost is now dominated by path-specific issues:
+  large-function partial-read nudges pushed pagination through most of
+  `buildAnalysisIR`, and read-without-emit escalation narrowed tools to emit-only
+  before the sink endpoint was fully covered, causing one local-model
+  "I cannot read anymore" absence attempt. These are Batch 10 candidates, not a
+  regression in Batch 9.
 
 ## Observations
 
@@ -618,6 +658,55 @@ Follow-up rerun after Batch 6/7:
   correctness in the rerun, but the same schema/runtime parity pattern can be
   applied to completion-ready escalation in a later batch to reduce latency.
 
+Follow-up rerun after Batch 8:
+
+- Result: PASS.
+- Metrics: `tool_read_file=19`, `midloop_inject=23`, `analyzer_iters=5`,
+  `explorer_iters=40`, `extractor_iters=1`, `finalizer_iters=1`,
+  `explorer_dispatches=2`, `answer_chain_lines=14`.
+- Batch 8 did not regress correctness. Finalizer accepted the first
+  `emit_answer_document`; no finalizer rewrite storm occurred.
+- The Closing Lane did not address the dominant cost in this run because the
+  completion-ready escalation state did not become the primary loop controller
+  before evidence-repair / refinement lanes took over.
+- Raw logs show `explorer.mid-loop.enumeration` injected at explorer iteration 2
+  for a typed trace request (`intent=trace`, `question_kind=call_chain`,
+  `diagram_hint=sequence`, `is_category_enumeration=false`). That should be
+  impossible for bounded trace and must be treated as a P0 policy leak, not as a
+  prompt issue.
+- Raw logs also show `explorer.mid-loop.intent-window-mismatch` being built for
+  the same trace request. It was throttled rather than injected in this run, but
+  the "overview needs wide read" lane should not even be considered for bounded
+  endpoint/path contracts.
+- Evidence-repair worked eventually, but the model spent multiple turns reading
+  around the same target windows after the relevant windows were already
+  available. The repair surface should transition from `read_file + emit` to
+  emit-only once every active repair target has a covering read window or a
+  small bounded read quota has been consumed.
+
+Follow-up rerun after Batch 9:
+
+- Result: TIMEOUT at 10 minutes during the first finalizer LLM request. The run
+  had already reached finalize; the timeout is a latency / cost failure, not an
+  observed answer-quality failure.
+- The P0 leaks addressed by Batch 9 stayed closed in the raw log:
+  `explorer.mid-loop.enumeration` did not appear, and neither did
+  `explorer.mid-loop.intent-window-mismatch`.
+- Evidence repair target coverage behaved as designed. After the model read
+  `internal/agent/analyzer.go` lines 2321-2340 for a recovered
+  `analyzerGraphForNormalize` row, the next request exposed only
+  `emit_evidence` and `emit_investigation_complete`, and the model re-emitted
+  the corrected row.
+- The run surfaced two next root causes. First, the generic partial-read nudge
+  treated a bounded path through a very large function as if the entire function
+  body had to be read, even after the requested terminal call was covered.
+  Second, read-without-emit escalation can be too blunt for bounded traces: it
+  may hide `read_file` / `grep` before the sink endpoint or repair target is
+  covered, making small models complain that they cannot continue investigating.
+- The next batch should narrow these generic loop policies by typed path state,
+  not by user text: endpoint coverage, terminal call coverage, active repair
+  targets, and current support-lane gaps.
+
 ## Candidate Fallback Backlog
 
 ### P0 - Lossless Runtime Normalization
@@ -678,6 +767,102 @@ Implementation shape:
   (`intent`, `question_kind`, entities/keywords or suggested files), make the
   next mid-loop hint a short "emit analysis now; exploration will read files"
   nudge and suppress repeated per-file rejection text.
+
+### P0 - Bounded Trace Leak Audit
+
+Observed after Batch 8 in `qf_sequence_analyzer_gate`: the analyzer emitted a
+typed bounded trace contract (`IntentTrace`, `ReqCallChain`, `diagram_hint`
+sequence, and no category enumeration), but explorer still injected a broad
+"read N discovered files" enumeration hint. The summary metric did not count it,
+which means the metric pipeline can under-report the exact hint class that most
+hurts small-model latency.
+
+Preferred runtime-side design:
+
+- Treat bounded trace as an answer-shape contract, not as a natural-language
+  heuristic. The guard should depend only on the typed `RequestModel`,
+  `AnalyzerHints`, and explicit exhaustive obligations.
+- `IntentTrace` plus call-chain / conditional-flow / registration-flow should
+  suppress broad enumeration hints unless the RequestModel also carries a typed
+  principal member-set, count, relation, category enumeration, or exhaustive
+  completeness obligation.
+- Apply the same suppression before building overview-window mismatch hints.
+  A path/sequence answer needs endpoint and edge coverage; it does not need a
+  whole-file structural overview unless the typed request separately asks for
+  file architecture.
+- Add a regression test that mirrors the raw log shape, including analyzer
+  sub-topics and a sequence diagram hint, and asserts no enumeration or
+  overview-wide-read hint is injected or built.
+- Fix eval metric extraction so an injected `explorer.mid-loop.enumeration`
+  cannot be reported as `enumeration_push=0`.
+
+### P0 - Evidence Repair Read-After-Target Gate
+
+Observed after Batch 8: evidence repair correctly exposed `read_file` because
+the repair hint can require exact source rechecks. However, after the target
+window has been read, allowing unlimited further reads lets small models loop on
+nearby offsets instead of making the only safe decision: re-emit grounded rows
+or drop/replace invalid ones.
+
+Preferred runtime-side design:
+
+- Keep the first repair turn permissive: `read_file`, `emit_evidence`, and
+  `emit_investigation_complete`.
+- Track active repair targets structurally from validator output and read-window
+  coverage from tool results. Do not parse model prose to decide whether a
+  target is fixed.
+- Once every active target has a covering read window, or once a small bounded
+  quota of repair reads is exhausted, narrow the repair surface to emit-only:
+  `emit_evidence` and `emit_investigation_complete`.
+- If a later validator error introduces a new target, reopen the exact-read
+  allowance for that new target only.
+- Never synthesize replacement evidence content. The runtime only narrows the
+  action space after the model has enough source to decide; the validator still
+  enforces grounding.
+- Add telemetry: repair target count, covering read count, repair-read quota
+  use, and whether the surface moved to emit-only.
+
+### P0 - Bounded Path Partial-Read Policy
+
+Observed after Batch 9: a sequence/call-chain request over a large function kept
+receiving generic partial-read nudges until most of the function body was read.
+For a path answer, the runtime should care about endpoint and edge coverage, not
+whole-function pagination once the requested sink edge has been grounded.
+
+Preferred runtime-side design:
+
+- Keep generic partial-read hints for mechanism explanations, architecture
+  surveys, and cases where the model has only entered the beginning of a
+  relevant function and has not found the requested terminal edge yet.
+- For typed path requests, suppress or soften partial-read once the current
+  grounded chain lane includes the source endpoint, at least one intermediate
+  call edge, and the sink/terminal edge or a typed waiver explaining why the
+  sink is indirect.
+- If a path request still lacks the sink, emit a targeted missing-endpoint hint
+  naming the endpoint and nearest already-read range instead of asking the model
+  to read the rest of the entire function.
+- Use existing `FlowFindings`, `EvidenceRequirement`, and answer-chain lane data;
+  do not create a parallel path-ranking system.
+
+### P0 - Read-Without-Emit Escalation Must Respect Uncovered Path Endpoints
+
+Observed after Batch 9: read-without-emit escalation correctly prevents endless
+navigation, but in a bounded trace it can activate before the sink endpoint has
+been covered. The small model then sees only emit tools and may conclude it
+cannot finish the investigation.
+
+Preferred runtime-side design:
+
+- Before switching to emit-only for bounded path requests, check whether the
+  source endpoint, sink endpoint, or active repair target lacks a covering
+  read-file window.
+- If an endpoint is still uncovered, keep a narrow `read_file` allowance for that
+  endpoint file/range instead of the full broad navigation surface. `grep` may be
+  allowed only when it is path-scoped to an already-known file or endpoint
+  symbol; repo-wide expansion remains blocked.
+- Once endpoint coverage exists, reuse the existing emit-only escalation.
+- The decision must come from typed endpoint/requirement structures and tool
+  results, never from model prose such as "I need to read".
 - If the model repeats the same blocked deep-read fingerprint, break early to a
   degraded but valid `emit_analysis` draft instead of spending another full LLM
   round on the same mistake.
