@@ -5673,7 +5673,6 @@ var evidenceRepairToolNames = map[string]bool{
 }
 
 var completionReadyClosingToolNames = map[string]bool{
-	"read_file":                   true,
 	"emit_evidence":               true,
 	"emit_investigation_complete": true,
 }
@@ -5687,11 +5686,11 @@ var completionReadyClosingToolNames = map[string]bool{
 // grounded evidence, so the schema initially keeps `read_file` available while
 // still removing broad navigation tools. Once the target windows are covered,
 // the same repair lane narrows to emit-only to prevent adjacent-window loops.
-// Completion-ready escalation is
-// another narrow lane: the first completion-ready hint is advisory, but
-// after the existing escalation latch fires, broad scope-expansion tools
-// are removed while exact `read_file` checks and structured emit tools
-// remain available. This is intentionally
+// Completion-ready escalation is another narrow lane: the first
+// completion-ready hint is advisory, but after the existing escalation
+// latch fires, navigation tools are removed and only structured progress
+// tools remain. Exact `read_file` checks still belong to the separate
+// evidence-repair lane where a typed repair target exists. This is intentionally
 // state-driven, not text-driven: it does not inspect the user's question
 // or the model's prose, and it leaves the normal tool surface unchanged
 // until a loop observer has already raised a structured backlog signal.

@@ -1114,6 +1114,7 @@ func repairEmitEvidenceItemShape(in *emitEvidenceItem, index int, compatRepairs 
 		}
 	}
 	repairEvidenceKindValueInAnchorKind(in, index, compatRepairs)
+	repairMisplacedScopeSemanticValue(in, index, compatRepairs)
 
 	scope := types.EvidenceScope(strings.ToLower(strings.TrimSpace(in.Scope)))
 	if scope == types.ScopeFile && in.LineStart.Int() > 0 && emitEvidenceItemHasLineAnchorShape(*in) {
@@ -1128,6 +1129,61 @@ func repairEmitEvidenceItemShape(in *emitEvidenceItem, index int, compatRepairs 
 				fmt.Sprintf("items[%d].scope=%q carried line anchor fields at line_start=%d; treated as scope=%q",
 					index, oldScope, in.LineStart.Int(), in.Scope))
 		}
+	}
+}
+
+func repairMisplacedScopeSemanticValue(in *emitEvidenceItem, index int, compatRepairs *[]string) {
+	if in == nil {
+		return
+	}
+	rawScope := strings.TrimSpace(in.Scope)
+	if rawScope == "" {
+		return
+	}
+	scopeKey := strings.ToLower(rawScope)
+	if types.EvidenceScope(scopeKey).IsValid() {
+		return
+	}
+	if !emitEvidenceItemHasLineCoordinateShape(*in) {
+		return
+	}
+
+	var mappedKind types.EvidenceKind
+	var mappedAnchor types.AnchorKind
+	mapped := false
+	if kind, ok := emitEvidenceAllowedKinds[scopeKey]; ok && kind != types.EvidenceAbsent {
+		mappedKind = kind
+		mapped = true
+	} else if anchorKind, ok := emitAnchorKinds[scopeKey]; ok {
+		mappedAnchor = anchorKind
+		mappedKind = evidenceKindForAnchorShape(anchorKind, *in)
+		mapped = true
+	}
+	if !mapped {
+		return
+	}
+
+	if in.LineEnd.Int() > in.LineStart.Int() {
+		in.Scope = string(types.ScopeLineRange)
+	} else {
+		in.Scope = string(types.ScopeLine)
+	}
+	if strings.TrimSpace(in.EvidenceKind) == "" && strings.TrimSpace(in.LegacyKind) == "" {
+		in.EvidenceKind = string(mappedKind)
+	}
+	if mappedAnchor != "" && strings.TrimSpace(in.AnchorKind) == "" && strings.TrimSpace(in.AnchorSymbol) != "" {
+		in.AnchorKind = string(mappedAnchor)
+	}
+	if compatRepairs != nil {
+		detail := fmt.Sprintf("items[%d].scope=%q was a semantic/location value; treated as scope=%q",
+			index, rawScope, in.Scope)
+		if mappedAnchor != "" && strings.TrimSpace(in.AnchorKind) == string(mappedAnchor) {
+			detail += fmt.Sprintf(" with anchor_kind=%q", mappedAnchor)
+		}
+		if strings.TrimSpace(in.EvidenceKind) == string(mappedKind) || strings.TrimSpace(in.LegacyKind) == string(mappedKind) {
+			detail += fmt.Sprintf(" and evidence_kind=%q", mappedKind)
+		}
+		*compatRepairs = append(*compatRepairs, detail)
 	}
 }
 
@@ -1186,6 +1242,10 @@ func emitEvidenceItemHasGroundableLineShape(in emitEvidenceItem) bool {
 		in.LineStart.Int() > 0 &&
 		strings.TrimSpace(in.AnchorSymbol) != "" &&
 		strings.TrimSpace(in.Summary) != ""
+}
+
+func emitEvidenceItemHasLineCoordinateShape(in emitEvidenceItem) bool {
+	return strings.TrimSpace(in.Source) != "" && in.LineStart.Int() > 0
 }
 
 func emitEvidenceItemHasLineAnchorShape(in emitEvidenceItem) bool {

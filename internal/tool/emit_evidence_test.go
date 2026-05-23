@@ -1171,6 +1171,150 @@ func TestEmitEvidence_RepairsAnchorKindInEvidenceKindAndFileScopeLineAnchor(t *t
 	}
 }
 
+func TestEmitEvidence_RepairsSemanticValueInScopeToLineScope(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/agent/scope_repair.go", 80,
+		"func execute(req Request) error {",
+		"\treturn runtime.Run(req)",
+		"}",
+	)
+	params := json.RawMessage(`{
+		"items": [{
+			"scope": "mechanism",
+			"evidence_kind": "mechanism",
+			"subject": "execute",
+			"predicate": "calls",
+			"object": "Run",
+			"source": "internal/agent/scope_repair.go",
+			"line_start": 81,
+			"anchor_kind": "call",
+			"anchor_symbol": "Run",
+			"summary": "execute calls Run at the anchored line."
+		}]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected semantic scope repair to succeed, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 emitted evidence item, got %d", len(got))
+	}
+	if got[0].Scope != types.ScopeLine {
+		t.Fatalf("scope=%q, want %q", got[0].Scope, types.ScopeLine)
+	}
+	if got[0].Kind != types.EvidenceMechanism {
+		t.Fatalf("kind=%q, want %q", got[0].Kind, types.EvidenceMechanism)
+	}
+	if !strings.Contains(res.Summary, "schema-shape compatibility repair") {
+		t.Fatalf("summary should mention compatibility repair, got: %s", res.Summary)
+	}
+}
+
+func TestEmitEvidence_RepairsAnchorKindValueInScopeAndFillsKind(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/agent/scope_repair.go", 20,
+		"type ScopeThing struct {",
+		"\tName string",
+		"}",
+	)
+	params := json.RawMessage(`{
+		"items": [{
+			"scope": "definition",
+			"subject": "ScopeThing",
+			"source": "internal/agent/scope_repair.go",
+			"line_start": 20,
+			"anchor_symbol": "ScopeThing",
+			"summary": "ScopeThing is defined on this line."
+		}]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected anchor scope repair to succeed, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 emitted evidence item, got %d", len(got))
+	}
+	if got[0].Scope != types.ScopeLine || got[0].Kind != types.EvidenceDirect || got[0].AnchorKind != types.AnchorDefinition {
+		t.Fatalf("unexpected repaired evidence: %+v", got[0])
+	}
+}
+
+func TestEmitEvidence_DoesNotRepairSemanticScopeWithoutLineCoordinates(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+		"items": [{
+			"scope": "mechanism",
+			"evidence_kind": "mechanism",
+			"source": "internal/agent/scope_repair.go",
+			"anchor_kind": "call",
+			"anchor_symbol": "Run",
+			"summary": "Missing line_start is not enough to infer a line scope."
+		}]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("expected failure without line coordinates, got: %s", res.Summary)
+	}
+	if len(ctx.Mutable.EmittedEvidence()) != 0 {
+		t.Fatalf("invalid item should not be emitted")
+	}
+}
+
+func TestEmitEvidence_RepairsSemanticValueInScopeToLineRange(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/agent/scope_repair.go", 100,
+		"func outer() {",
+		"\tinner()",
+		"\tother()",
+		"}",
+	)
+	params := json.RawMessage(`{
+		"items": [{
+			"scope": "relationship",
+			"evidence_kind": "relationship",
+			"subject": "outer",
+			"predicate": "calls",
+			"object": "inner",
+			"source": "internal/agent/scope_repair.go",
+			"line_start": 100,
+			"line_end": 103,
+			"summary": "The function body shows the relationship."
+		}]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected semantic scope repair to range to succeed, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 emitted evidence item, got %d", len(got))
+	}
+	if got[0].Scope != types.ScopeLineRange {
+		t.Fatalf("scope=%q, want %q", got[0].Scope, types.ScopeLineRange)
+	}
+	if got[0].Kind != types.EvidenceRelationship {
+		t.Fatalf("kind=%q, want %q", got[0].Kind, types.EvidenceRelationship)
+	}
+}
+
 func TestEmitEvidence_RepairsStringLiteralIdentifierAnchorToDefinition(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

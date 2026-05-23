@@ -1156,6 +1156,218 @@ Next batches after this patch:
 - Audit answer-document validation rejections after this handoff fix to avoid
   fixing downstream symptoms that are caused by upstream evidence narrowing.
 
+### Targeted Eval Observations - 2026-05-24
+
+Model/config:
+
+- Local provider: `Qwen3.5-9B-OptiQ-4bit`.
+- `recover_text_tool_calls: true`.
+- Binary: current `main` after Batch 11.
+
+Raw artifacts:
+
+- Custom q1:
+  `.codrax/eval-targeted-handoff/q1/explorer_subagent_sequence.out`
+- Custom q1 log:
+  `.codrax/logs/targeted-handoff/q1/codrax-20260524-021239-000-25243.log`
+- Eval q2:
+  `.codrax/eval-targeted-handoff/qf_relation_subagent_registry-20260524-022554/run-1.out`
+- Eval q2 log:
+  `.codrax/eval-targeted-handoff/qf_relation_subagent_registry-20260524-022554/run-1.logs/codrax-20260524-022555-000-32917.log`
+
+Confirmed observations:
+
+- Batch 11 handoff behavior is visible in q1. One explorer branch wrote
+  `TurnAArtifacts` with `24 evidence` and `termCount=0`, preserving the ranked
+  mechanism evidence for downstream stages instead of handing off an empty
+  mechanism snapshot.
+- The analyzer still frequently acts like an investigator. In q1 it attempted
+  `read_file` and then `list_files` after analyze had entered terminal emit
+  mode. In q2 it also called `read_file x2` during analyze before `emit_analysis`.
+  The boundary rejection works, but it costs multiple LLM rounds before the real
+  exploration stage begins.
+- Small models confuse evidence semantic kind with evidence location scope. In
+  q1 the first `emit_evidence` batch used
+  `scope="definition"|"mechanism"|"relationship"` while `evidence_kind` already
+  carried the correct semantic value. The validator rejected the whole batch;
+  the next retry fixed it to `line` / `line_range` and succeeded. This is a safe
+  auto-repair candidate: when `scope` is one of known evidence kinds and
+  `source + line_start` are present, move the semantic value to
+  `evidence_kind` only if needed and set `scope=line` or `line_range` based on
+  whether `line_end` is present. Do not invent evidence content.
+- Explorer often writes a complete prose answer before structured closure. In q1
+  the model produced a long complete answer with call-chain diagram/code blocks
+  inside explore. In q2 it produced the exact answer: one default subagent,
+  member `explorer`, plus registration and `Name()` evidence. The UI surfaced
+  this text, which is good, but the controller treated it as phase progress and
+  kept exploring instead of converging.
+- Soft-stop / readiness is not yet monotonic enough for local models. In q2 the
+  system later emitted `explorer.mid-loop.completion-ready`, but only after the
+  model had already spent many rounds widening scope. After a correct prose
+  conclusion, it still searched for other default subagents before attempting
+  closure.
+- Narrow relation/member-set questions still over-expand. q2 should terminate
+  once `RegisterDefaultSubAgents`, `Register`, and `SubExplorer.Name()` are
+  grounded and the model-authored member set is `{explorer}`. Instead it read
+  unrelated neighboring files and emitted unrelated evidence such as
+  `ExecCommand`, showing that principal/support boundaries remain too weak in
+  explorer guidance and evidence lanes.
+- Closure JSON compatibility still has gaps. In q2 the first
+  `emit_investigation_complete` included `aggregate_facts.kind="registration"`,
+  which is not accepted. The next attempt omitted aggregate facts and was
+  downgraded for missing relation member-set handoff. A later attempt included a
+  usable-looking `member_set`, but the downgrade message referenced stale or
+  unrelated members from other aggregate facts (`NewSubExplorer`,
+  `buildScopedSearchGraph`, `egrepQueryFromObjective`, `NewSubAgentRegistry`).
+  This suggests the closure repair target/context may be mixing historical
+  aggregate candidates with the current attempted payload.
+- After repeated closure downgrades, the q2 model said it needed to "clear the
+  evidence cache" and re-emit evidence. This is not an action the model can
+  actually perform, and it indicates the repair diagnostics are pushing the
+  model toward imaginary state management instead of a concrete current-payload
+  fix.
+- Stream stalls can multiply exploration cost. In q1 the model generated a rich
+  explorer answer, then the LLM stream later stalled and the orchestrator retried
+  exploration, causing duplicate work rather than salvaging the already visible
+  draft/evidence.
+
+High-ROI follow-up design candidates:
+
+- Analyze-stage action gating:
+  once analyze has enough pre-scan signals or has rejected a deep-reading tool,
+  constrain the tool surface to `emit_analysis` earlier and stop offering
+  navigation tools for that dispatch. Trigger from stage/tool state only, not
+  user text.
+- `emit_evidence.scope` semantic-value repair:
+  implement in the shared text/tool-call normalization or emit-evidence
+  parameter normalization layer. The repair is structural and schema-safe when
+  file/line anchors exist.
+- Explorer convergence guard:
+  when the branch has grounded principal evidence plus a model-authored prose
+  conclusion that matches already accepted structured evidence, push closure
+  rather than a phase transition. Do not use user-question keywords; rely on
+  evidence buffer, accepted aggregate facts, and typed answer-shape readiness.
+- Relation/member-set principal boundary:
+  for typed relation/enumeration requests, rank and hint principal evidence
+  separately from generic support/context. Evidence such as tools, registries,
+  runtimes, and neighboring helpers may explain why, but must not compete with
+  the verified principal member set.
+- Closure repair isolation:
+  when `emit_investigation_complete` is retried, diagnostics should be scoped to
+  the current payload plus accepted evidence buffer. Historical rejected
+  aggregate members must not pollute the next error unless they are still present
+  in the current payload.
+- Prose salvage path:
+  preserve explorer-stage complete answers as transparent progress, but mark
+  them as non-final. If a later stall/retry happens, downstream should still be
+  able to use the already accepted evidence and saved draft for finalizer
+  context without forcing a full re-exploration loop.
+
+## 2026-05-24 Batch 12 - Closure Convergence and Evidence-Scope Compatibility
+
+Problem statement:
+
+- The latest local-model evals show the explorer can collect the right facts and
+  even write a correct provisional answer, but still burn many rounds because
+  completion-ready is advisory for too long and the escalated closing lane still
+  exposes `read_file`.
+- The first q1 `emit_evidence` batch failed only because the model put semantic
+  evidence words (`definition`, `mechanism`, `relationship`) into `scope`. The
+  same payload already contained source, line, anchor, and semantic fields, so
+  this is a structural compatibility issue, not a factual one.
+- q2 closure failures also showed that repair hints must stay scoped to the
+  current payload and live accepted evidence. Historical rejected aggregate
+  members must never reappear as if they were part of the current repair.
+
+Existing code to reuse:
+
+- `toolparam.Normalize` remains the generic schema-aware JSON repair layer.
+  Batch 12 must not add a second generic JSON normalizer.
+- `emit_evidence.repairEmitEvidenceItemShape` is already the tool-local place
+  for evidence semantic/location confusion such as evidence_kind vs anchor_kind.
+- `explorerEvaluator.FilterToolSchemas` already narrows the runtime tool surface
+  after structured loop signals. It is the right place to make completion-ready
+  convergence monotonic.
+- `effectiveCompletionAggregateFacts` already preserves a crucial isolation
+  invariant: when the current `emit_investigation_complete` payload has
+  aggregate facts, older retained facts are not merged back into it. Future
+  changes must preserve this invariant.
+- `EvidenceClosure.ActiveRepairs` already filters stale read repairs against
+  current pending reads. Do not bypass it with direct repair-ledger reads.
+
+Design:
+
+- P0-A: tighten completion-ready escalation.
+  - First `explorer.mid-loop.completion-ready` remains advisory.
+  - After the existing escalation latch fires, the schema filter should expose
+    only structured progress tools: `emit_evidence` and
+    `emit_investigation_complete`.
+  - Exact additional reads remain available through the separate
+    evidence-repair lane (`midLoopEvidenceRepairSent`) and pending-read repair
+    lane. Completion-ready by itself is a "close or materialize current facts"
+    state, not a permission to keep browsing.
+  - This is typed-state driven only: no user question keyword matching and no
+    model prose matching.
+
+- P0-B: repair `emit_evidence.scope` semantic-value mistakes conservatively.
+  - If `scope` is not a valid evidence scope but equals a known semantic
+    evidence kind, or an anchor-kind alias such as `definition` / `call`, and
+    the item already has a repo source plus positive `line_start`, rewrite the
+    scope to `line` or `line_range` based only on `line_end`.
+  - Preserve an already valid `evidence_kind`.
+  - If `evidence_kind` is missing and the misplaced scope can be mapped to a
+    valid evidence kind, fill it from the misplaced value using the existing
+    `evidenceKindForAnchorShape` mapping for anchor-kind words.
+  - Do not repair `negative`, `file`, `crossfile`, or any non-line-shaped item
+    without source/line data. Do not invent subject/object/summary/content.
+
+- P0-C: keep closure repair diagnostics isolated.
+  - Current-payload aggregate facts must remain authoritative for the current
+    closure attempt.
+  - Empty-payload retries may still carry the last accepted aggregate handoff,
+    because that is the existing narrow repair-window behavior.
+  - Tests should pin this boundary so future refactors do not accidentally
+    merge historical rejected member sets into a non-empty current payload.
+
+- P1: analyzer phase action gating.
+  - Analyze is classification and light routing. Once the analyzer has already
+    crossed a terminal-emit boundary or a deep-reading tool has been rejected,
+    keep the schema surface to `emit_analysis` for that dispatch.
+  - This belongs in `analyzerEvaluator.FilterToolSchemas`, reusing the existing
+    analyzer terminal-emit state, not in prompt text.
+
+- P2: eval expansion.
+  - Keep q1/q2 as regression probes.
+  - Add one scalar/count question, one runtime/log artifact question, one
+    cross-language Java/C++ or Kotlin/Java relation question, and one
+    diagram-request question to cover the same failure class beyond the CodraX
+    Go repo.
+
+Commercial safety boundaries:
+
+- The system must not change user intent or rewrite model conclusions. Batch 12
+  only changes available tool surfaces after typed readiness signals and repairs
+  schema/location fields that are mechanically verifiable.
+- Big-model quality is preserved because normal exploration remains unchanged
+  until completion-ready escalation or an already-existing repair state fires.
+- The scope repair is language-agnostic: it relies on source path + line anchor
+  metadata and existing grounders, not Go syntax or case-specific identifiers.
+- If a repair cannot be proven structurally, the validator still rejects with a
+  normal tool error.
+
+Task list:
+
+- [x] Update `completionReadyClosingToolNames` and tests so escalated
+  completion-ready is emit-only.
+- [x] Add conservative `emit_evidence.scope` semantic-value repair in
+  `repairEmitEvidenceItemShape`.
+- [x] Add regression tests for semantic scope values, anchor-kind scope aliases,
+  missing evidence_kind fill, and no repair when source/line are absent.
+- [x] Add regression coverage for aggregate-fact current-payload isolation
+  (`TestEffectiveCompletionAggregateFacts_CurrentPayloadReplacesStaleRetainedFacts`).
+- [x] Run focused tests plus `make build`.
+- [x] Commit and push Batch 12.
+
 ## Open Questions
 
 - Whether `emit_evidence.anchor_kind` auto-repair should run inside

@@ -3769,7 +3769,7 @@ func TestExplorer_FilterToolSchemas_CompletionReadyEscalatedClosingLane(t *testi
 	}
 
 	got := eval.FilterToolSchemas(ctx, schemas)
-	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,emit_evidence,emit_investigation_complete" {
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "emit_evidence,emit_investigation_complete" {
 		t.Fatalf("completion-ready closing lane schema names = %v", gotNames)
 	}
 }
@@ -3900,11 +3900,12 @@ func TestExplorer_RuntimeBoundary_CompletionReadyEscalatedRejectsBroadExpansion(
 	if got.Repair == nil || got.Repair.Code != explorerRestrictedToolSurfaceCode {
 		t.Fatalf("expected repair code %q, got %+v", explorerRestrictedToolSurfaceCode, got.Repair)
 	}
-	if !strings.Contains(got.Summary, "available tools here: emit_evidence, emit_investigation_complete, read_file") {
-		t.Fatalf("summary should expose read_file plus emit tools, got %q", got.Summary)
+	if !strings.Contains(got.Summary, "available tools here: emit_evidence, emit_investigation_complete") ||
+		strings.Contains(got.Summary, "read_file") {
+		t.Fatalf("summary should expose emit-only tools, got %q", got.Summary)
 	}
-	if ok := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"x.go","offset":1}`)}); ok != nil {
-		t.Fatalf("read_file should remain available for exact post-ready checks, got %+v", ok)
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"x.go","offset":1}`)}); got == nil || got.Success {
+		t.Fatalf("completion-ready closing lane should reject read_file unless a typed repair lane is active, got %+v", got)
 	}
 	if ok := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "emit_investigation_complete", Params: json.RawMessage(`{}`)}); ok != nil {
 		t.Fatalf("emit_investigation_complete should remain available, got %+v", ok)
