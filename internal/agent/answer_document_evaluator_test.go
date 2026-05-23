@@ -5261,6 +5261,14 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopCitationRefRepairUsesStructuredH
 			t.Fatalf("citation_ref repair hint missing %q: %q", want, sig.Hint)
 		}
 	}
+	for _, forbidden := range []string{"-1 for 'no citation'", "`-1` for 'no citation'", "citation_ref=-1", "citation_ref = -1"} {
+		if strings.Contains(sig.Hint, forbidden) {
+			t.Fatalf("citation_ref repair hint should not teach no-citation sentinel %q: %q", forbidden, sig.Hint)
+		}
+	}
+	if !strings.Contains(sig.Hint, "omitting the field for no current-repo citation") {
+		t.Fatalf("citation_ref repair hint should prefer omitted-field wording: %q", sig.Hint)
+	}
 }
 
 // TestAnswerDocumentEvaluator_Observe_MidLoopLiteralGroundingRejectSurfacesAction

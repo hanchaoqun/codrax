@@ -7244,6 +7244,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	if !strings.Contains(hint, "Do not write free-form prose outside the tool call.") {
 		hint += " Do not write free-form prose outside the tool call."
 	}
+	hint = sanitizeNoCitationSentinelForPrompt(hint)
 
 	// B2-F4 retry escalation: the dedup key already embeds the
 	// retry counter so each retry gets a fresh delivery, but the
@@ -8071,12 +8072,28 @@ func buildLiteralGroundingRetryHint(summary string) string {
 }
 
 func sanitizeLiteralGroundingToolErrorForPrompt(s string) string {
+	return sanitizeNoCitationSentinelForPrompt(s)
+}
+
+func sanitizeNoCitationSentinelForPrompt(s string) string {
 	replacer := strings.NewReplacer(
 		"set citation_ref=-1 and state in summary that the answer is derived from log semantics (no grounded repo source)",
 		"leave the item uncited and state in summary that the answer is derived from log semantics (no grounded repo source)",
 		"set citation_ref=-1 so the renderer drops the suffix",
 		"leave the step uncited so the renderer does not attach a misleading source suffix",
+		"`-1` for 'no citation'",
+		"omitting the field for no current-repo citation",
+		"-1 for 'no citation'",
+		"omitting the field for no current-repo citation",
+		"or `-1` for no current-repo cite",
+		"or omit it for no current-repo cite",
+		"or -1 / omitted when no current-repo cite backs the item",
+		"or omitted when no current-repo cite backs the item",
+		"or -1 / omitted for no current-repo cite",
+		"or omitted for no current-repo cite",
 		"citation_ref=-1",
+		"no current-repo citation",
+		"citation_ref = -1",
 		"no current-repo citation",
 	)
 	return replacer.Replace(s)

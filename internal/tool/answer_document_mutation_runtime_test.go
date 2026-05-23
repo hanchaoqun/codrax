@@ -285,6 +285,21 @@ func TestBuildAnswerDocumentSemanticContractDescription_SharedBetweenTools(t *te
 	if !strings.Contains(patch, body) {
 		t.Errorf("patch Description() missing the shared SST body")
 	}
+	for _, surface := range []struct {
+		name string
+		text string
+	}{
+		{name: "shared description", text: body},
+		{name: "full description", text: full},
+		{name: "patch description", text: patch},
+		{name: "full parameters", text: string((&EmitAnswerDocument{}).Parameters())},
+	} {
+		for _, forbidden := range []string{"citation_ref=-1", "citation_ref = -1", "-1 / omitted", "or -1 / omitted"} {
+			if strings.Contains(surface.text, forbidden) {
+				t.Fatalf("%s should not teach no-citation sentinel %q:\n%s", surface.name, forbidden, surface.text)
+			}
+		}
+	}
 }
 
 // TestApplyAndPersistMutation_SummaryReportsMutationKind — ToolResult

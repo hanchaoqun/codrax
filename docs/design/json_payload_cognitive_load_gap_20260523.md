@@ -454,6 +454,12 @@ untouched.
     supplement text. This keeps VCS/log/trace/command zero-result answers as
     absence proofs instead of nudging the finalizer toward enumerating searched
     windows.
+  - Delivered so far: model-facing answer-document schema and mid-loop repair
+    hints no longer teach the internal no-citation sentinel value. Runtime
+    compatibility still accepts legacy no-source citation carriers, but prompts
+    now instruct the model to omit the citation field / leave the row uncited
+    when a fact is backed by an external observation rather than current repo
+    source.
 
 - Batch 43 — runtime artifact provenance split. Status: planned.
   - Carry `observed_direct_cause`, `artifact_span`, and
