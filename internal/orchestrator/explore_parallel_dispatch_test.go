@@ -62,6 +62,101 @@ func TestDispatchExploreWindowsParallel_CancelsSiblingAfterConvergence(t *testin
 	}
 }
 
+func TestDispatchExploreWindowsParallel_SkipsNonWinningPartialSiblingAfterConvergence(t *testing.T) {
+	partialDoneCh := make(chan struct{})
+
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			switch ctx.ExploreDispatchKey {
+			case "partial":
+				ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+					UserQuestion:          "q",
+					AcceptedClosureReason: "partial sibling never closed",
+					AcceptedAggregateFacts: []types.AnswerAggregateFact{{
+						Kind:    types.AnswerAggregateMemberSet,
+						Label:   "broad partial members",
+						Value:   "2",
+						Role:    types.AnswerAggregateRolePrincipalAnswer,
+						Members: []string{"HelperA", "HelperB"},
+					}},
+				})
+				close(partialDoneCh)
+				return &agent.StageOutput{
+					MissingPiece: types.MissingFacts,
+					StageReport:  "partial branch report",
+					Repairs: []types.RepairDirective{{
+						Kind:      types.RepairEmitEvidence,
+						Files:     []string{"support_only.go"},
+						Rationale: "partial sibling support debt",
+						Origin:    "test_partial_sibling",
+					}},
+					SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: false},
+				}, nil
+			case "winner":
+				<-partialDoneCh
+				facts := []types.AnswerAggregateFact{{
+					Kind:    types.AnswerAggregateMemberSet,
+					Label:   "accepted members",
+					Value:   "1",
+					Role:    types.AnswerAggregateRolePrincipalAnswer,
+					Members: []string{"AnswerA"},
+				}}
+				ctx.Mutable.SetInvestigationAggregateFacts(facts)
+				ctx.Mutable.SetInvestigationComplete("winning branch accepted closure")
+				ctx.Mutable.RetainInvestigationAggregateFacts()
+				ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+					UserQuestion:                     "q",
+					AcceptedClosureReason:            "winning branch accepted closure",
+					AcceptedAggregateFacts:           facts,
+					TerminalEvidenceCount:            1,
+					RuntimeObservationOnlyCompletion: false,
+				})
+				return &agent.StageOutput{
+					MissingPiece:  types.MissingNone,
+					StageReport:   "winner branch report",
+					SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				}, nil
+			default:
+				t.Fatalf("unexpected dispatch key %q", ctx.ExploreDispatchKey)
+				return nil, nil
+			}
+		},
+	})
+	o := New(types.PipelineSettings{MaxParallelism: 2}, ar, sr, sar)
+	o.busCtx = &types.BusContext{
+		Mutable: types.NewMutableState("parallel winner owns principal closure"),
+		Signals: types.ExecutionSignals{},
+	}
+
+	out, err := o.dispatchExploreWindowsParallel([][]*types.TaskNode{
+		{{ID: "partial"}},
+		{{ID: "winner"}},
+	}, nil, 2)
+	if err != nil {
+		t.Fatalf("winning branch should absorb non-winning partial sibling, got error: %v", err)
+	}
+	if out == nil || out.SignalUpdates == nil || !out.SignalUpdates.HasEnoughFacts {
+		t.Fatalf("merged output should preserve winning enough-facts signal, got %+v", out)
+	}
+	if len(o.busCtx.StageReports) != 1 || o.busCtx.StageReports[0].Findings != "winner branch report" {
+		t.Fatalf("stage reports = %+v, want only winning branch report", o.busCtx.StageReports)
+	}
+	if repairs := o.busCtx.Mutable.EvidenceClosure().PendingRepairs(); len(repairs) != 0 {
+		t.Fatalf("non-winning partial repairs leaked into parent: %+v", repairs)
+	}
+	facts := o.busCtx.Mutable.StableInvestigationAggregateFacts()
+	if len(facts) != 1 || strings.Join(facts[0].Members, ",") != "AnswerA" {
+		t.Fatalf("stable aggregate facts = %+v, want only winning closure members", facts)
+	}
+	ta := o.busCtx.Mutable.TurnAArtifacts()
+	if ta == nil || strings.TrimSpace(ta.AcceptedClosureReason) != "winning branch accepted closure" {
+		t.Fatalf("TurnA accepted closure = %+v, want winning closure only", ta)
+	}
+	if len(ta.AcceptedAggregateFacts) != 1 || strings.Join(ta.AcceptedAggregateFacts[0].Members, ",") != "AnswerA" {
+		t.Fatalf("TurnA aggregate facts = %+v, want only winning facts", ta.AcceptedAggregateFacts)
+	}
+}
+
 func TestDispatchExploreWindowsParallel_HistoryNarrativeSubtopicsCanConvergeEarly(t *testing.T) {
 	var slowStarted sync.Once
 	slowStartedCh := make(chan struct{})

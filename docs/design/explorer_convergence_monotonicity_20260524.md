@@ -145,8 +145,8 @@ cannot be parsed for hard control flow.
 | Batch | Status | Task | Code / docs | Validation |
 | --- | --- | --- | --- | --- |
 | B0 | In progress | Land this design and task tracker. | `docs/design/explorer_convergence_monotonicity_20260524.md`, `gap_architecture_retriage_20260523.md` | doc review |
-| B1 | Pending | Make parallel result merge winner-aware: when early convergence fires, merge only completed/converged forks; skip non-completed siblings and log why. Preserve existing full merge when early convergence is disabled. | `internal/orchestrator/explore_parallel_dispatch.go`, tests | `go test ./internal/orchestrator -run TestDispatchExploreWindowsParallel` |
-| B2 | Pending | Add regression tests proving non-winning partial forks cannot import aggregate facts, StageOutput, or pending forced-read debt after a winning closure; explicit enumeration/bucket/diagram/mixed-origin waits still merge siblings. | orchestrator/type tests | targeted unit tests |
+| B1 | Done | Make parallel result merge winner-aware: when early convergence fires, merge only the winning completed fork; skip non-winning siblings and log why. Preserve existing full merge when early convergence is disabled. | `internal/orchestrator/explore_parallel_dispatch.go`, tests | `go test ./internal/orchestrator -run 'TestDispatchExploreWindowsParallel|TestParallelExploreAllowsEarlyConvergence'` |
+| B2 | Done | Add regression tests proving non-winning partial forks cannot import aggregate facts, StageOutput, or pending repair debt after a winning closure; explicit enumeration/bucket/diagram/mixed-origin waits still merge siblings. | orchestrator/type tests | targeted unit tests |
 | B3 | Pending | Tighten accepted-closure auto-complete around support-only post-completion debt. Audit pending read/repair directive origins and add a typed helper that distinguishes load-bearing from enrichment/advisory. | `internal/orchestrator/orchestrator.go`, `internal/types/repair.go`, `internal/types/evidence_closure.go` | forced-read/reconcile unit tests |
 | B4 | Pending | Add origin/facet partition follow-up for hybrid external+current-source questions. First design the typed lane ownership contract; then implement if code already has enough metadata. | orchestrator dispatch hints, answer intent contract, observation ledger | mixed VCS/log/trace/command evals |
 | B5 | Pending | Rerun focused evals and refresh gap docs with before/after metrics: `qf_architecture`, `qf_diagram_pipeline`, `qf_type_relation_loop_controller`, `s5b`, `u7k`, and one small mechanism case. | eval results + gap docs | compare explorer_iters/read_file/midloop/finalizer_iters |
@@ -168,3 +168,10 @@ cannot be parsed for hard control flow.
   accepted closure reuse, aggregate fact merge, and Turn A artifact merge.
   Root cause is a missing winner-aware merge boundary, not lack of parallel
   dispatch.
+- 2026-05-24 B1/B2: implemented winner-aware parallel result merge. When
+  early convergence is allowed and one lane accepts completion, non-winning
+  sibling forks are skipped instead of merged into parent state. Regression
+  guard proves a partial sibling cannot leak `StageReport`, repair debt,
+  `TurnAArtifacts.AcceptedAggregateFacts`, or stable aggregate members after
+  the winning closure. Existing tests still prove explicit enumeration and
+  mixed-origin mechanism questions wait for sibling handoffs.

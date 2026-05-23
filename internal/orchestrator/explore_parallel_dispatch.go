@@ -146,8 +146,12 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 
 	results := make([]exploreParallelResult, 0, len(windows))
 	earlyConverged := false
+	winningConvergedIndex := -1
 	for res := range resultCh {
 		if allowEarlyConvergence && exploreParallelResultConverged(res) {
+			if !earlyConverged {
+				winningConvergedIndex = res.index
+			}
 			earlyConverged = true
 			cancel()
 		}
@@ -161,6 +165,18 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 	}
 	for i := range results {
 		res := results[i]
+		if earlyConverged && winningConvergedIndex >= 0 && res.index != winningConvergedIndex {
+			if res.err != nil {
+				if errors.Is(res.err, context.Canceled) {
+					continue
+				}
+				logging.Warning("[orchestrator] parallel explore sibling ended after convergence: %v", res.err)
+				continue
+			}
+			logging.Info("[orchestrator] skipping non-winning parallel explore sibling after accepted closure key=%s winner=%s",
+				exploreDispatchKeyForWindow(res.window), unitIDs[winningConvergedIndex])
+			continue
+		}
 		if res.err != nil {
 			if earlyConverged && errors.Is(res.err, context.Canceled) {
 				continue
