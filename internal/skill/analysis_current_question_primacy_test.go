@@ -125,6 +125,7 @@ func TestAnalysisSkill_CurrentQuestionPrimacy_NamesEveryIntentField(t *testing.T
 		"answer_exclusion_policy",
 		"answer_role_profile",
 		"error_granularity_profile",
+		"current_source_explanation_profile",
 		"diagram_hint",
 		"completeness_obligation",
 		"enumeration_boundary",

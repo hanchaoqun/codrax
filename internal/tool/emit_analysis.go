@@ -82,6 +82,7 @@ type emitAnalysisParams struct {
 	AnswerRoleProfile            *emitAnswerRoleProfileParam            `json:"answer_role_profile,omitempty"`
 	ErrorGranularityProfile      *emitErrorGranularityProfileParam      `json:"error_granularity_profile,omitempty"`
 	RequestedAnswerDimensions    *emitRequestedAnswerDimensionsParam    `json:"requested_answer_dimensions,omitempty"`
+	CurrentSourceExplanation     *emitCurrentSourceExplanationParam     `json:"current_source_explanation_profile,omitempty"`
 	PredicateAxis                string                                 `json:"predicate_axis,omitempty"`
 	DiagramHint                  *emitDiagramHintParam                  `json:"diagram_hint,omitempty"`
 	EnumerationBoundary          *emitEnumerationBoundaryParam          `json:"enumeration_boundary,omitempty"`
@@ -242,6 +243,15 @@ type emitRequestedAnswerDimensionParam struct {
 	SourceQuote string `json:"source_quote,omitempty"`
 	Required    *bool  `json:"required,omitempty"`
 	Index       int    `json:"index,omitempty"`
+}
+
+type emitCurrentSourceExplanationParam struct {
+	IsCurrentSourceExplanationRequested *bool    `json:"is_current_source_explanation_requested"`
+	Modes                               []string `json:"modes,omitempty"`
+	SourceQuotes                        []string `json:"source_quotes,omitempty"`
+	TargetTerms                         []string `json:"target_terms,omitempty"`
+	Confidence                          *float64 `json:"confidence"`
+	Rationale                           string   `json:"rationale,omitempty"`
 }
 
 // emitAnswerSubjectParam is the wire shape of the optional
@@ -568,6 +578,23 @@ func buildEmitAnalysisSchema() {
 				},
 				"required": []string{"is_dimensioned_answer", "confidence"},
 			},
+			"current_source_explanation_profile": map[string]any{
+				"type":        "object",
+				"description": "Optional soft typed profile for mixed external-observation + current-checkout requests. Emit it when the CURRENT request asks to explain, verify, trace, compare, locate, or assess an external/non-source observation against current source. This opens the current-source evidence lane; it is not a display dimension and not a hard answer gate.",
+				"properties": map[string]any{
+					"is_current_source_explanation_requested": map[string]any{"type": "boolean", "description": "True only when the current request explicitly asks to relate external/non-source evidence to the current checkout/source."},
+					"modes": map[string]any{
+						"type":        "array",
+						"description": "Why current source is needed for this mixed request.",
+						"items":       map[string]any{"type": "string", "enum": currentSourceExplanationModeValues()},
+					},
+					"source_quotes": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Verbatim current-request phrase(s) that ask for current-source explanation / verification / trace / comparison / location / impact."},
+					"target_terms":  map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Optional user-visible terms that should guide current-source ranking. These are not evidence and do not create hard gates."},
+					"confidence":    map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this mixed current-source explanation profile in [0,1]."},
+					"rationale":     map[string]any{"type": "string", "description": "Short audit rationale for why current-source explanation is or is not requested."},
+				},
+				"required": []string{"is_current_source_explanation_requested", "confidence"},
+			},
 			"predicate_axis": map[string]any{
 				"type":        "string",
 				"enum":        skill.AnalysisPredicateAxisValues(),
@@ -775,6 +802,15 @@ func errorGranularityRequestedOptionValues() []string {
 
 func requestedAnswerDimensionRoleValues() []string {
 	values := types.AllRequestedAnswerDimensionRoles()
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, string(v))
+	}
+	return out
+}
+
+func currentSourceExplanationModeValues() []string {
+	values := types.AllCurrentSourceExplanationModes()
 	out := make([]string, 0, len(values))
 	for _, v := range values {
 		out = append(out, string(v))
@@ -1087,6 +1123,19 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
+	currentSourceExplanation, currentSourceExplanationErr, currentSourceExplanationWarnings := parseCurrentSourceExplanationProfile(raw, p.CurrentSourceExplanation)
+	if currentSourceExplanationErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + currentSourceExplanationErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	for _, warning := range currentSourceExplanationWarnings {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
 	fieldValueProfile, fieldValueErr := parseFieldValueProfile(raw, p.FieldValueProfile)
 	if fieldValueErr != "" {
 		if !artifactOnlyRuntime {
@@ -1239,27 +1288,28 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			IrrelevantFiles:   validateAndBuildIrrelevantFiles(p.IrrelevantFiles, &val),
 			Kind:              kind,
 		},
-		AnswerSubject:                answerSubject,
-		IntentConfidence:             p.IntentConfidence,
-		ComplexityConfidence:         p.ComplexityConfidence,
-		KindConfidence:               p.KindConfidence,
-		Predicates:                   predicates,
-		DiagnosticProfile:            diagnosticProfile,
-		ConversationReferenceProfile: conversationReferenceProfile,
-		SourceScopeProfile:           sourceScopeProfile,
-		AnswerVisibilityProfile:      answerVisibilityProfile,
-		SourceInventoryProfile:       sourceInventoryProfile,
-		ChangeImpactProfile:          changeImpactProfile,
-		FieldValueProfile:            fieldValueProfile,
-		AnswerExclusionPolicy:        answerExclusionPolicy,
-		AnswerRoleProfile:            answerRoleProfile,
-		ErrorGranularityProfile:      errorGranularityProfile,
-		RequestedAnswerDimensions:    requestedAnswerDimensions,
-		PredicateAxis:                axis,
-		DiagramHint:                  diagramHint,
-		EnumerationBoundary:          enumerationBoundary,
-		CompletenessObligation:       completenessObligation,
-		Buckets:                      buckets,
+		AnswerSubject:                   answerSubject,
+		IntentConfidence:                p.IntentConfidence,
+		ComplexityConfidence:            p.ComplexityConfidence,
+		KindConfidence:                  p.KindConfidence,
+		Predicates:                      predicates,
+		DiagnosticProfile:               diagnosticProfile,
+		ConversationReferenceProfile:    conversationReferenceProfile,
+		SourceScopeProfile:              sourceScopeProfile,
+		AnswerVisibilityProfile:         answerVisibilityProfile,
+		SourceInventoryProfile:          sourceInventoryProfile,
+		ChangeImpactProfile:             changeImpactProfile,
+		FieldValueProfile:               fieldValueProfile,
+		AnswerExclusionPolicy:           answerExclusionPolicy,
+		AnswerRoleProfile:               answerRoleProfile,
+		ErrorGranularityProfile:         errorGranularityProfile,
+		RequestedAnswerDimensions:       requestedAnswerDimensions,
+		CurrentSourceExplanationProfile: currentSourceExplanation,
+		PredicateAxis:                   axis,
+		DiagramHint:                     diagramHint,
+		EnumerationBoundary:             enumerationBoundary,
+		CompletenessObligation:          completenessObligation,
+		Buckets:                         buckets,
 	}
 	ctx.Mutable.SetRequestModel(rm)
 	recordExactTargetPrescanFindings(ctx, rm, seenBlob)
@@ -2469,6 +2519,42 @@ func parseRequestedAnswerDimensions(raw string, p *emitRequestedAnswerDimensions
 	return profile, "", warnings
 }
 
+func parseCurrentSourceExplanationProfile(raw string, p *emitCurrentSourceExplanationParam) (*types.CurrentSourceExplanationProfile, string, []string) {
+	if p == nil {
+		return nil, "", nil
+	}
+	var warnings []string
+	if p.IsCurrentSourceExplanationRequested == nil {
+		return nil, "", []string{"current_source_explanation_profile ignored: is_current_source_explanation_requested missing"}
+	}
+	if !*p.IsCurrentSourceExplanationRequested {
+		return nil, "", nil
+	}
+	confidence := 0.5
+	if p.Confidence == nil {
+		warnings = append(warnings, "current_source_explanation_profile confidence missing; defaulted to 0.5")
+	} else {
+		confidence = *p.Confidence
+		if confidence < 0 || confidence > 1 {
+			warnings = append(warnings, fmt.Sprintf("current_source_explanation_profile confidence %.2f out of [0,1]; clamped", confidence))
+		}
+	}
+	modes := make([]types.CurrentSourceExplanationMode, 0, len(p.Modes))
+	for _, mode := range p.Modes {
+		modes = append(modes, types.NormalizeCurrentSourceExplanationMode(mode))
+	}
+	profile, normalizeWarnings := types.NormalizeCurrentSourceExplanationProfile(raw, &types.CurrentSourceExplanationProfile{
+		IsCurrentSourceExplanationRequested: true,
+		Modes:                               modes,
+		SourceQuotes:                        p.SourceQuotes,
+		TargetTerms:                         p.TargetTerms,
+		Confidence:                          confidence,
+		Rationale:                           p.Rationale,
+	})
+	warnings = append(warnings, normalizeWarnings...)
+	return profile, "", warnings
+}
+
 func sourceQuotePresentInCurrentRequest(raw, quote string) bool {
 	raw = strings.TrimSpace(raw)
 	quote = strings.TrimSpace(quote)
@@ -3107,6 +3193,9 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 	if rm.RequestedAnswerDimensions != nil && rm.RequestedAnswerDimensions.Active() {
 		fmt.Fprintf(&b, " answer_dimensions=%d", len(rm.RequestedAnswerDimensions.Dimensions))
+	}
+	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
+		fmt.Fprintf(&b, " current_source_explanation=%d", len(rm.CurrentSourceExplanationProfile.Modes))
 	}
 
 	// Normalization delta — only fields where raw ≠ canonical get

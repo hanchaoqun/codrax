@@ -306,6 +306,96 @@ func TestEmitAnalysis_RequestedAnswerDimensionsSoftProfile(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_CurrentSourceExplanationProfileSoftProfile(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	objective := "结合这段 trace 和当前源码解释调度链路，并说明现在实现是否还会触发"
+	mu := types.NewMutableState(objective)
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "complex",
+		"keywords": ["trace", "current source", "scheduler", "flow"],
+		"entities": ["trace", "scheduler"],
+		"question_kind": "mechanism",
+		"current_source_explanation_profile": {
+			"is_current_source_explanation_requested": true,
+			"confidence": 0.9,
+			"modes": ["trace_current_flow", "bogus_future_mode"],
+			"source_quotes": ["当前源码解释", "现在实现是否还会触发", "not in request"],
+			"target_terms": ["调度链路", "trace"],
+			"rationale": "current request asks to connect trace with current source"
+		}
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("profile should be soft-normalized, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.CurrentSourceExplanationProfile == nil || !rm.CurrentSourceExplanationProfile.Active() {
+		t.Fatalf("current source explanation profile not persisted: rm=%+v", rm)
+	}
+	if got := rm.CurrentSourceExplanationProfile.Modes; len(got) != 2 ||
+		got[0] != types.CurrentSourceExplanationTraceCurrentFlow ||
+		got[1] != types.CurrentSourceExplanationOther {
+		t.Fatalf("modes=%v", got)
+	}
+	if !strings.Contains(res.Summary, "current_source_explanation=2") {
+		t.Fatalf("summary should report current source explanation modes, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "current_source_explanation_profile ignored unanchored source_quote") {
+		t.Fatalf("summary should warn for unanchored optional source quote, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_CurrentSourceExplanationProfileMissingFieldsSoftDrops(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	mu := types.NewMutableState("只总结日志里发生了什么")
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["log", "summary"],
+		"entities": ["log"],
+		"question_kind": "mechanism",
+		"current_source_explanation_profile": {
+			"confidence": 0.8,
+			"source_quotes": ["current source"]
+		}
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("missing optional profile field should not reject analysis, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.CurrentSourceExplanationProfile != nil {
+		t.Fatalf("invalid optional profile must be dropped, got %+v", rm.CurrentSourceExplanationProfile)
+	}
+	if !strings.Contains(res.Summary, "current_source_explanation_profile ignored") {
+		t.Fatalf("summary should disclose soft drop, got %q", res.Summary)
+	}
+}
+
 func TestValidateSelfConsistency_DefineAxisSingleTargetRequiresSubjectDisambiguation(t *testing.T) {
 	preds := types.SemanticPredicates{
 		IsScalarAnswer:        false,
