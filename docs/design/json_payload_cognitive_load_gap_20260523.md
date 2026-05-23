@@ -913,6 +913,34 @@ untouched.
       sub-repo label and file count instead of looking like a frozen request.
       Regression tests cover both the multigraph wait event and the rendered
       localized messages.
+  - Slice 45.2 — mixed-origin lane plan in upstream prompts. Status: in
+    progress.
+    - Detailed design before code: reuse the existing
+      `CompileAnswerIntentContract` typed origin/output contract and the single
+      upstream `Evidence Origin Boundary` prompt section. Do not create a second
+      source-mix classifier, do not inspect raw user prose/model prose, and do
+      not add a new hard gate.
+    - For contracts that contain `current_source` plus at least one
+      non-current-source origin (VCS metadata/diff, runtime artifact, command
+      measurement, repo negative search, external/MCP/connector observations),
+      render an explicit lane plan:
+        1. non-current-source producer tools prove historical/external observed
+           facts and hand them off through `reason` / `aggregate_facts` with
+           typed origin dimensions;
+        2. `current_source` reads/`emit_evidence` prove only present-checkout
+           implementation claims;
+        3. when both lanes touch the same target, preserve both summaries rather
+           than turning one lane into the other's fake `file:line` citation or
+           re-running duplicate searches.
+    - Pure VCS/history, pure runtime/log, pure current-source, and finalizer
+      prompts remain on their existing paths: pure VCS still tells explorer not
+      to call `read_file` just to satisfy source habits; finalizer still receives
+      the unified contract from `answer_document_evaluator` so the boundary is
+      not duplicated.
+    - Guardrail tests: mixed history+current-source prompts include lane-plan
+      language and keep both origins/output shapes; pure history remains free of
+      current-source obligations; finalizer still does not receive a duplicate
+      builder-side Evidence Origin Boundary.
 
 - Batch 46 — retry/status telemetry taxonomy. Status: planned.
   - Split status and metrics into transport retry, schema/carrier repair,
