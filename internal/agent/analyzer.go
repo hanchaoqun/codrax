@@ -1631,6 +1631,18 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			logging.Info("[analyzer] diagnostic profile reconciled: %s", reason)
 			rm = resolved
 		}
+		if resolved, reason := reconcileNonDiagnosticErrorGranularityRoute(rm); reason != "" {
+			recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+				"error_granularity_route",
+				fmt.Sprintf("intent=%s scenario=%s diagnostic=%t", rm.Intent, rm.Scenario, rm.DiagnosticProfile.IsDiagnostic),
+				fmt.Sprintf("intent=%s scenario=%s diagnostic=%t", resolved.Intent, resolved.Scenario, resolved.DiagnosticProfile.IsDiagnostic),
+				rm.ErrorGranularityProfile.Confidence,
+				reason,
+				resolved.Predicates,
+			))
+			logging.Info("[analyzer] error-granularity route reconciled: %s", reason)
+			rm = resolved
+		}
 		if resolved, reason := reconcileExternalOnlyRuntimeDiagnosticProfile(rm); reason != "" {
 			recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
 				"diagnostic_profile",

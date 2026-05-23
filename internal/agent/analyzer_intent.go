@@ -226,6 +226,51 @@ func reconcileDiagnosticQuestionProfile(rm types.RequestModel) (types.RequestMod
 	return rm, "diagnostic semantic predicate aligned " + strings.Join(changes, ", ")
 }
 
+// reconcileNonDiagnosticErrorGranularityRoute keeps item-vs-batch /
+// fail-fast-vs-collect behavior questions out of the diagnostic
+// root-cause family when the analyzer emitted no typed diagnostic or
+// runtime-artifact signal. The active ErrorGranularityProfile says the
+// final answer needs a decision verdict; it does not by itself mean
+// the user asked to diagnose a runtime failure.
+func reconcileNonDiagnosticErrorGranularityRoute(rm types.RequestModel) (types.RequestModel, string) {
+	if rm.ErrorGranularityProfile == nil || !rm.ErrorGranularityProfile.Active() {
+		return rm, ""
+	}
+	if errorGranularityHasDiagnosticRouteSignal(rm) {
+		return rm, ""
+	}
+	var changes []string
+	if rm.Intent == types.IntentRootCause {
+		rm.Intent = types.IntentExplain
+		changes = append(changes, "intent root_cause→explain")
+	}
+	switch rm.Scenario {
+	case types.ScenarioRootCause, types.ScenarioPerformanceBottleneck:
+		rm.Scenario = types.ScenarioGeneric
+		changes = append(changes, "scenario→generic")
+	}
+	if rm.DiagnosticProfile.IsDiagnostic {
+		rm.DiagnosticProfile.IsDiagnostic = false
+		changes = append(changes, "diagnostic_profile.is_diagnostic→false")
+	}
+	if len(changes) == 0 {
+		return rm, ""
+	}
+	return rm, "error-granularity profile is a code-behavior verdict without typed diagnostic/runtime signal; " + strings.Join(changes, ", ")
+}
+
+func errorGranularityHasDiagnosticRouteSignal(rm types.RequestModel) bool {
+	if rm.Predicates.IsDiagnosticQuestion ||
+		rm.DiagnosticProfile.CurrentRisk ||
+		rm.DiagnosticProfile.HistoricalRegression {
+		return true
+	}
+	if rm.DiagnosticProfile.IsDiagnostic && rm.DiagnosticProfile.CurrentVersionCheck {
+		return true
+	}
+	return rm.LogTriage != nil || rm.PerfTrace != nil
+}
+
 func reconcileExternalOnlyRuntimeDiagnosticProfile(rm types.RequestModel) (types.RequestModel, string) {
 	if !rm.HasExternalOnlyRuntimeArtifact() {
 		return rm, ""

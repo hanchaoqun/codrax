@@ -245,6 +245,84 @@ func TestReconcileDiagnosticQuestionProfile_PredicateStillRoutesDiagnostic(t *te
 	}
 }
 
+func TestReconcileNonDiagnosticErrorGranularityRoute_NormalizesRootCauseDrift(t *testing.T) {
+	rm := types.RequestModel{
+		Intent:   types.IntentRootCause,
+		Scenario: types.ScenarioRootCause,
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: false,
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic: true, // profile-only mirror drift; not a route signal.
+			Confidence:   0.8,
+		},
+		ErrorGranularityProfile: &types.ErrorGranularityProfile{
+			IsGranularityQuestion: true,
+			Confidence:            0.9,
+		},
+	}
+
+	got, reason := reconcileNonDiagnosticErrorGranularityRoute(rm)
+	if reason == "" {
+		t.Fatal("expected non-diagnostic error-granularity route reconcile")
+	}
+	if got.Intent != types.IntentExplain {
+		t.Fatalf("Intent = %q, want explain", got.Intent)
+	}
+	if got.Scenario != types.ScenarioGeneric {
+		t.Fatalf("Scenario = %q, want generic", got.Scenario)
+	}
+	if got.DiagnosticProfile.IsDiagnostic {
+		t.Fatal("profile-only diagnostic mirror drift should be cleared")
+	}
+}
+
+func TestReconcileNonDiagnosticErrorGranularityRoute_PreservesDiagnosticSignals(t *testing.T) {
+	tests := []struct {
+		name string
+		rm   types.RequestModel
+	}{
+		{
+			name: "diagnostic predicate",
+			rm: types.RequestModel{
+				Predicates: types.SemanticPredicates{IsDiagnosticQuestion: true},
+			},
+		},
+		{
+			name: "current risk",
+			rm: types.RequestModel{
+				DiagnosticProfile: types.DiagnosticIntentProfile{CurrentRisk: true},
+			},
+		},
+		{
+			name: "current version diagnostic",
+			rm: types.RequestModel{
+				DiagnosticProfile: types.DiagnosticIntentProfile{IsDiagnostic: true, CurrentVersionCheck: true},
+			},
+		},
+		{
+			name: "runtime artifact",
+			rm: types.RequestModel{
+				LogTriage: &types.LogBundle{},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.rm.Intent = types.IntentRootCause
+			tt.rm.Scenario = types.ScenarioRootCause
+			tt.rm.ErrorGranularityProfile = &types.ErrorGranularityProfile{IsGranularityQuestion: true}
+			got, reason := reconcileNonDiagnosticErrorGranularityRoute(tt.rm)
+			if reason != "" {
+				t.Fatalf("diagnostic/runtime signal should not reconcile, got %q", reason)
+			}
+			if got.Intent != types.IntentRootCause || got.Scenario != types.ScenarioRootCause {
+				t.Fatalf("route changed despite diagnostic/runtime signal: intent=%s scenario=%s", got.Intent, got.Scenario)
+			}
+		})
+	}
+}
+
 func TestReconcileQualifiedCodeSymbolConfigDrift_RoutesQualifiedSymbolsToComparison(t *testing.T) {
 	graph := &repomap.Graph{SymbolDefs: map[string][]*repomap.Symbol{
 		"templateArchitectureExplain": {{

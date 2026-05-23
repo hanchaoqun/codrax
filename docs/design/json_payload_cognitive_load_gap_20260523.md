@@ -767,7 +767,7 @@ untouched.
       sub-topics, while non-file invented members remain hard failures.
   - Remaining implementation slices:
     - Slice 44.2 — non-diagnostic error-granularity route normalization.
-      Status: planned.
+      Status: completed.
       - Root gaps: E20260520-G118 / E20260522 u9a-u9b show analyzer retries
         where a code-behavior question about item-vs-batch rejection is first
         routed as `root_cause`, then rejected and reclassified as `explain`.
@@ -785,6 +785,13 @@ untouched.
       - Guardrail tests: direct item-vs-batch behavior questions normalize to
         explain without a second analyzer dispatch; real diagnostic/runtime
         error-granularity questions are not downgraded.
+      - Delivered in this slice: analyzer reconciliation now keeps active
+        `error_granularity_profile` as a verdict requirement rather than a
+        diagnostic signal. If the route drifted into `root_cause` with no typed
+        diagnostic/current-risk/current-version/runtime-artifact signal, it is
+        normalized back to `explain`/`generic` and profile-only diagnostic mirror
+        drift is cleared. Diagnostic predicates, current-risk/current-version
+        diagnostics, and attached runtime artifacts are explicitly guarded.
     - Slice 44.3 — exact role-locate and scalar symbol scope preservation.
       Status: planned.
       - Root gaps: E20260520-G5 / G88 / G90 / G127 show role-locate questions
