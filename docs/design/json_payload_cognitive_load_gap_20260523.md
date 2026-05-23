@@ -2,14 +2,12 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-45 are complete and verified; Batch 46
-remains the active retry/status telemetry pass, and Batch 47.1 has completed the
-current diagram-preview hardening slice. The shared schema-aware repair path is
-active across the high-frequency structured emit tools, including the legacy
-top-level JSON-string repair wrappers. Remaining work is tracked below as
-explicit batches so implementation does not rely on memory: retry telemetry
-follow-ups plus the open carrier/payload/prompt-ledger questions at the end of
-this document.
+Status: partially implemented. Batches 1-47 are complete and verified for the
+scoped slices recorded below. The shared schema-aware repair path is active
+across the high-frequency structured emit tools, including the legacy top-level
+JSON-string repair wrappers. Remaining work is tracked below as explicit
+batches so implementation does not rely on memory: the open
+carrier/payload/prompt-ledger questions at the end of this document.
 
 Implementation progress:
 
@@ -981,7 +979,7 @@ untouched.
       history-backed cross-component waiting, and current-source-only
       cross-component early convergence.
 
-- Batch 46 — retry/status telemetry taxonomy. Status: in progress.
+- Batch 46 — retry/status telemetry taxonomy. Status: completed.
   - Split status and metrics into transport retry, schema/carrier repair,
     semantic rewrite, reviewer advisory, and accepted local supplement.
   - Guardrail tests: analyzer/finalizer transport errors render the current
