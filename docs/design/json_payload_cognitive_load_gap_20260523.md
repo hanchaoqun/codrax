@@ -551,6 +551,27 @@ untouched.
     VCS/log/trace/command finalizer payloads with typed observation refs. This
     should reuse `ObservationLedger`, `payload_ref`, `row_set_ref`, and
     artifact-local coordinates instead of inventing a parallel citation system.
+    - Detailed design:
+      - Short-term compatibility remains: `items[].citation_ref=-1` is still a
+        structural uncited carrier accepted from legacy finalizer payloads, but
+        it must never be taught as user-visible provenance and must never be the
+        only way external observations reach reviewer/finalizer context.
+      - First code batch (42.3a): extend the visible sentinel sanitizer from
+        runtime-only answers to typed external-observation-only answers. The
+        typed gate is `ObservationLedger` / `AnswerIntentContract`: it must see
+        at least one non-current-source origin (VCS metadata/diff, runtime
+        artifact, command output, web/MCP/connector/cross-repo) and no requested
+        current-source origin. It must not inspect user prose or model prose.
+        Mixed "external info + current code" answers are explicitly excluded so
+        literal discussion of Codrax internals or citation mechanics stays
+        untouched.
+      - Follow-up batch (42.3b): expose observation IDs / source refs in the
+        finalizer prompt lane where VCS/log/trace/command rows currently depend
+        on uncited item carriers. This should reuse `ObservationLedger` and
+        `FormatObservationSourceRef` rather than adding a second citation pool.
+      - Follow-up batch (42.3c): renderer/reviewer should prefer observation
+        refs over pseudo citations for changed-path/stat rows (`line=0` VCS
+        paths, artifact-local log lines, trace spans, command rows).
   - Delivered so far: no-hit supplements now preserve typed scope coordinates
     such as `window_count`, `unmatched`, `order`, `window_path`, `diff_path`,
     `tool_result`, `payload_ref`, and `row_set_ref` in the localized
