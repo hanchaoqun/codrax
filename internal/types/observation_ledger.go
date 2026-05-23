@@ -474,6 +474,7 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 				GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
 				SourceRef: ObservationSourceRef{
 					Kind:         ObservationSourceRuntimeArtifact,
+					ArtifactID:   "attached_log",
 					ArtifactKind: "log",
 				},
 				ClaimKey:    target,
@@ -500,6 +501,7 @@ func compileLogBundleObservations(bundle *LogBundle, add func(ObservationRecord)
 			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, role),
 			SourceRef: ObservationSourceRef{
 				Kind:         ObservationSourceRuntimeArtifact,
+				ArtifactID:   "attached_log",
 				ArtifactKind: "log",
 			},
 			Span: ObservationSpan{
@@ -540,7 +542,7 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 			Producer:        "perf_trace",
 			Role:            AnswerAggregateRolePrincipalAnswer,
 			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
-			SourceRef:       ObservationSourceRef{Kind: ObservationSourceRuntimeArtifact, ArtifactKind: firstNonEmptyString(bundle.Meta.Source, "trace")},
+			SourceRef:       perfObservationSourceRef(bundle, ""),
 			ClaimKey:        fmt.Sprintf("frame:%d", frame.FrameNo),
 			Subject:         fmt.Sprintf("frame %d", frame.FrameNo),
 			Value:           strconv.FormatFloat(frame.DurationMs, 'f', -1, 64),
@@ -556,7 +558,7 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 			Producer:        "perf_trace",
 			Role:            AnswerAggregateRolePrincipalAnswer,
 			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
-			SourceRef:       ObservationSourceRef{Kind: ObservationSourceRuntimeArtifact, ArtifactKind: firstNonEmptyString(bundle.Meta.Source, "trace")},
+			SourceRef:       perfObservationSourceRef(bundle, ""),
 			Span: ObservationSpan{
 				StartTsMs: jank.StartTsMs,
 				EndTsMs:   jank.StartTsMs + jank.DurationMs,
@@ -577,11 +579,7 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 			Producer:        "perf_trace",
 			Role:            AnswerAggregateRolePrincipalAnswer,
 			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
-			SourceRef: ObservationSourceRef{
-				Kind:         ObservationSourceRuntimeArtifact,
-				ArtifactKind: firstNonEmptyString(bundle.Meta.Source, "trace"),
-				Path:         strings.TrimSpace(stall.File),
-			},
+			SourceRef:       perfObservationSourceRef(bundle, stall.File),
 			Span: ObservationSpan{
 				LineStart: stall.Line,
 				StartTsMs: stall.StartTsMs,
@@ -602,7 +600,7 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 			Producer:        "perf_trace",
 			Role:            AnswerAggregateRolePrincipalAnswer,
 			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
-			SourceRef:       ObservationSourceRef{Kind: ObservationSourceRuntimeArtifact, ArtifactKind: firstNonEmptyString(bundle.Meta.Source, "trace")},
+			SourceRef:       perfObservationSourceRef(bundle, ""),
 			ClaimKey:        firstNonEmptyString(bundle.Startup.Mode, "startup"),
 			Subject:         firstNonEmptyString(bundle.Startup.Mode, "startup"),
 			Predicate:       "launch_duration",
@@ -618,7 +616,7 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 			Producer:        "perf_trace",
 			Role:            AnswerAggregateRolePrincipalAnswer,
 			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
-			SourceRef:       ObservationSourceRef{Kind: ObservationSourceRuntimeArtifact, ArtifactKind: firstNonEmptyString(bundle.Meta.Source, "trace")},
+			SourceRef:       perfObservationSourceRef(bundle, ""),
 			Span: ObservationSpan{
 				LineStart: obs.LineStart,
 				LineEnd:   obs.LineEnd,
@@ -635,6 +633,19 @@ func compilePerfBundleObservations(bundle *PerfBundle, add func(ObservationRecor
 			RichNotes:  cloneStringSlice(obs.Tags),
 			Confidence: obs.Confidence,
 		})
+	}
+}
+
+func perfObservationSourceRef(bundle *PerfBundle, path string) ObservationSourceRef {
+	artifactKind := "trace"
+	if bundle != nil {
+		artifactKind = firstNonEmptyString(bundle.Meta.Source, artifactKind)
+	}
+	return ObservationSourceRef{
+		Kind:         ObservationSourceRuntimeArtifact,
+		Path:         strings.TrimSpace(path),
+		ArtifactID:   "attached_trace",
+		ArtifactKind: artifactKind,
 	}
 }
 

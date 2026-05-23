@@ -185,6 +185,12 @@ func TestCompileObservationLedger_CompilesExistingCarriers(t *testing.T) {
 	if got := findObservationRecord(t, ledger, "tool:0#vcs_metadata"); got.Summary != "abc123 latest feature" {
 		t.Fatalf("tool ledger summary should skip typed banner line, got: %+v", got)
 	}
+	if got := findObservationRecord(t, ledger, "log:observation:0"); got.SourceRef.ArtifactID != "attached_log" || got.Span.LineStart != 12 {
+		t.Fatalf("log observation should preserve artifact-local identity and line: %+v", got)
+	}
+	if got := findObservationRecord(t, ledger, "perf:observation:0"); got.SourceRef.ArtifactID != "attached_trace" || got.Span.LineStart != 5 {
+		t.Fatalf("perf observation should preserve artifact-local identity and line: %+v", got)
+	}
 	if len(input.EvidenceItems) != 1 || input.EvidenceItems[0].Summary != "source fact" {
 		t.Fatalf("compiler mutated input: %+v", input)
 	}
@@ -497,11 +503,14 @@ func TestCompileObservationLedger_PreservesExternalPagingRefsAndLocalSpans(t *te
 		t.Fatalf("git tool observation should preserve blob paging ref: %+v", gitRecord)
 	}
 	logRecord := findObservationRecord(t, ledger, "log:observation:0")
-	if logRecord.Span.LineStart != 40 || logRecord.Span.LineEnd != 43 {
+	if logRecord.SourceRef.ArtifactID != "attached_log" || logRecord.Span.LineStart != 40 || logRecord.Span.LineEnd != 43 {
 		t.Fatalf("log observation should preserve artifact-local lines: %+v", logRecord)
 	}
 	perfRecord := findObservationRecord(t, ledger, "perf:observation:0")
-	if perfRecord.Span.LineStart != 9 || perfRecord.Span.StartTsMs != 120.5 || perfRecord.Span.EndTsMs != 168.75 {
+	if perfRecord.SourceRef.ArtifactID != "attached_trace" ||
+		perfRecord.Span.LineStart != 9 ||
+		perfRecord.Span.StartTsMs != 120.5 ||
+		perfRecord.Span.EndTsMs != 168.75 {
 		t.Fatalf("perf observation should preserve artifact-local line/time spans: %+v", perfRecord)
 	}
 }

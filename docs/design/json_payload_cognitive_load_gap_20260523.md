@@ -2,7 +2,7 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-13 are complete and verified; the
+Status: partially implemented. Batches 1-14 are complete and verified; the
 shared schema-aware repair path is active across the high-frequency structured
 emit tools, including the legacy top-level JSON-string repair wrappers.
 Remaining work is still tracked below, starting with P1 carrier compilers /
@@ -83,6 +83,11 @@ Implementation progress:
   labeled external-payload contract. This is a guardrail against future drift
   where one consumer sees `payload_ref`/`row_set_ref` and another falls back to
   an unlabeled `raw_ref` string.
+- 2026-05-23 Batch 14 made attached log/trace observations explicitly
+  artifact-addressable in the ledger. Runtime-artifact records now carry stable
+  `artifact_id=attached_log` / `artifact_id=attached_trace` plus their
+  artifact-local line/time spans, so finalizer/reviewer can discuss "line N in
+  the attached log/trace" without converting those lines into repo citations.
 - Remaining work starts at P1 carrier compilers / row-set compilers; the
   completed ref batch deliberately did not change answer materialization policy.
 
@@ -351,6 +356,9 @@ overriding better model-authored descriptions.
   sources.
 - DONE (Batch 13): centralize source-ref formatting so all downstream
   prompt/reviewer consumers present the same labeled external payload contract.
+- DONE (Batch 14): attach stable runtime-artifact ids to log/trace ledger rows
+  so existing artifact-local spans become usable downstream without fake
+  `file:line` grounding.
 - Remaining: add automatic row-set artifact creation for very large compiled
   carriers and selected high-salience row expansion policies.
 
