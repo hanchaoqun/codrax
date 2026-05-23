@@ -320,10 +320,18 @@ observations.
     citations. Regression coverage pins git no-hit observations, attached-log
     line ranges, and command-output row coordinates.
 
-- Batch 39 — system supplement and caveat authority cleanup. Status: planned.
+- Batch 39 — system supplement and caveat authority cleanup. Status: completed.
   - System supplements must be clearly localized and append-only.
   - Non-critical, non-lossless issues should become bounded notes rather than
     finalizer rewrites.
+  - Delivered in this batch: aggregate member-set carrier supplements now
+    follow the answer language and mark themselves as system-verified
+    supplements in the title and body. Chinese answers render
+    `系统按已验证证据补充成员...`; English answers render
+    `System-verified member supplement...`. The runtime still appends these as
+    separate blocks only after typed hard handoff checks decide a complete
+    principal member set is missing from the visible answer; it does not replace
+    or edit model-authored prose/tables.
 
 - Batch 40 — performance and convergence guards. Status: planned.
   - Analyzer fast paths and parallel exploration convergence should reduce wait

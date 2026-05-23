@@ -1606,6 +1606,7 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 	}
 	visibleSurface := preEmitVisibleAnswerSurface(doc)
 	displayRows := aggregateMemberSetDisplayRowsByFactIndex(ctx)
+	zh := principalEnumerationPrefersZH(ctx)
 	fixed := 0
 	for _, ref := range refs {
 		fact := ref.Fact
@@ -1617,7 +1618,7 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 		if len(fact.Members) == 1 && preEmitPrincipalStructuredBlockClaimsAggregateCategory(doc, fact) {
 			continue
 		}
-		blockIdx := appendAggregateMemberSetCarrierBlock(doc, ref.Index, aggregateMemberSetCarrierTitle(fact))
+		blockIdx := appendAggregateMemberSetCarrierBlock(doc, ref.Index, aggregateMemberSetCarrierTitle(fact, zh))
 		if blockIdx < 0 || blockIdx >= len(doc.Blocks) {
 			continue
 		}
@@ -1628,7 +1629,7 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 			FacetID:   string(types.FacetEnumerationItem),
 			ClaimForm: types.ClaimDefinitionFact,
 		})
-		block.Text = aggregateMemberSetCarrierText(fact.Label)
+		block.Text = aggregateMemberSetCarrierText(fact.Label, zh)
 		rows := displayRows[ref.Index]
 		for memberIdx, member := range fact.Members {
 			member = strings.TrimSpace(member)
@@ -1768,15 +1769,26 @@ func appendAggregateMemberSetCarrierBlock(doc *types.AnswerDocumentV2, factIdx i
 	return len(doc.Blocks) - 1
 }
 
-func aggregateMemberSetCarrierTitle(fact types.AnswerAggregateFact) string {
+func aggregateMemberSetCarrierTitle(fact types.AnswerAggregateFact, zh bool) string {
 	label := strings.TrimSpace(fact.Label)
 	if label == "" {
-		label = "Principal member set"
+		if zh {
+			label = "成员清单"
+		} else {
+			label = "principal member set"
+		}
 	}
-	if n := len(fact.Members); n > 0 && !strings.Contains(label, strconv.Itoa(n)) {
-		label = fmt.Sprintf("%s（%d）", label, n)
+	n := len(fact.Members)
+	if zh {
+		if n > 0 && !strings.Contains(label, strconv.Itoa(n)) {
+			label = fmt.Sprintf("%s（%d）", label, n)
+		}
+		return "系统按已验证证据补充成员：" + label
 	}
-	return label
+	if n > 0 && !strings.Contains(label, strconv.Itoa(n)) {
+		label = fmt.Sprintf("%s (%d)", label, n)
+	}
+	return "System-verified member supplement: " + label
 }
 
 func aggregateMemberSetCarrierItemID(blockID string, idx int, member string) string {
@@ -1844,8 +1856,14 @@ func aggregateMemberSetCarrierLabel(member string) string {
 	return strings.TrimSpace(member)
 }
 
-func aggregateMemberSetCarrierText(factLabel string) string {
+func aggregateMemberSetCarrierText(factLabel string, zh bool) string {
 	factLabel = strings.TrimSpace(factLabel)
+	if !zh {
+		if factLabel == "" {
+			return "The following rows come from the accepted structured investigation checklist. The system keeps this supplement separate to preserve a complete enumeration."
+		}
+		return "The following rows come from the accepted structured investigation checklist for " + factLabel + ". The system keeps this supplement separate to preserve a complete enumeration."
+	}
 	if factLabel == "" {
 		return "以下成员来自已验收的结构化调查清单；系统保留该清单以确保完整枚举。"
 	}

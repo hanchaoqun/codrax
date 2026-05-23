@@ -1037,6 +1037,57 @@ func TestNormalizeAggregateMemberSetCarriers_MaterializesExhaustiveEnumerationRo
 	if block.Items[0].Label != "KindA" || block.Items[0].CitationRef < 0 || len(doc.Citations) != 3 {
 		t.Fatalf("items should preserve member labels and cite support_refs: block=%+v citations=%+v", block, doc.Citations)
 	}
+	if !strings.Contains(block.Title, "系统按已验证证据补充成员") ||
+		!strings.Contains(block.Text, "结构化调查清单") {
+		t.Fatalf("zh system supplement should be clearly marked and localized: %+v", block)
+	}
+}
+
+func TestNormalizeAggregateMemberSetCarriers_LocalizesEnglishSystemSupplement(t *testing.T) {
+	mu := types.NewMutableState("exhaustive aggregate handoff")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "Kind constants",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"KindA", "KindB"},
+		SupportRefs: []string{
+			"KindA: internal/analysis/criterion/grammar.go:29",
+			"KindB: internal/analysis/criterion/grammar.go:30",
+		},
+	}})
+	mu.SetInvestigationComplete("member set handoff ready")
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "en",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			CompletenessObligation: &types.CompletenessObligation{
+				Required:    true,
+				SourceQuote: "all member names",
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:   "summary",
+		Kind: types.BlockSummary,
+		Text: "KindA and KindB are present.",
+	}}}
+
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 2 {
+		t.Fatalf("fixed=%d, want 2", fixed)
+	}
+	block := doc.Blocks[1]
+	if !strings.Contains(block.Title, "System-verified member supplement") ||
+		!strings.Contains(block.Text, "accepted structured investigation checklist") {
+		t.Fatalf("English system supplement should be clearly marked and localized: %+v", block)
+	}
+	if strings.Contains(block.Title+block.Text, "系统") || strings.Contains(block.Title+block.Text, "结构化调查") {
+		t.Fatalf("English system supplement should not leak zh copy: %+v", block)
+	}
 }
 
 func TestNormalizeAggregateMemberSetCarriers_DoesNotOverrideSingletonModelCategoryBlock(t *testing.T) {
