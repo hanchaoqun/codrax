@@ -74,6 +74,29 @@ func TestEmitEvidence_AcceptsValidBatch(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_StructuredPayloadCompatRepairsStringItemsAndKeyAliases(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+		"items":"[{\"kind\":\"direct\",\"source\":\"internal/agent/foo.go\",\"lineStart\":\"30\",\"summary\":\"isOK definition\",\"anchorKind\":\"definition\",\"anchorSymbol\":\"isOK\"}]"
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected schema-compatible payload to be accepted, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].LineStart != 30 || got[0].AnchorKind != types.AnchorDefinition || got[0].AnchorSymbol != "isOK" {
+		t.Fatalf("structured payload compatibility did not preserve repaired item: %+v", got[0])
+	}
+}
+
 func TestEmitEvidence_DuplicateBatchIsNoProgress(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

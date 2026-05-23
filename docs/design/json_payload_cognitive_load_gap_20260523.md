@@ -4,6 +4,20 @@ Date: 2026-05-23
 
 Status: architecture gap recorded; implementation plan pending prioritization
 
+Implementation progress:
+
+- 2026-05-23 Batch 1 completed: added a shared tool-boundary
+  `StructuredPayloadCompat` entry point that reuses `internal/toolparam` and is
+  now called by `emit_analysis`, `emit_evidence`,
+  `emit_investigation_complete`, `emit_log_triage`,
+  `emit_answer_document`, and `emit_answer_document_patch`. This is structural
+  carrier repair only; it does not author, delete, or reorder answer content.
+- Batch 1 also added operator telemetry for repaired payload byte size,
+  top-level array lengths, and repair summaries, plus a direct
+  `emit_evidence` regression for JSON-string `items` with camelCase keys.
+- Remaining work starts at P1 carrier compilers / row-set references; the first
+  batch deliberately did not change answer materialization policy.
+
 ## Scope
 
 This document clusters recurring failures where the model is forced to produce,
@@ -233,6 +247,11 @@ overriding better model-authored descriptions.
 
 ### P1. Shared compatibility layer
 
+- DONE (Batch 1): route the high-frequency structured emit tools through a
+  shared compatibility entry point that delegates to the existing
+  `internal/toolparam` schema-aware normalizer.
+- TODO: move or wrap the remaining local JSON-string repair helpers behind the
+  same entry point where doing so is behavior-preserving.
 - Move existing local JSON-string repair into one package used by
   `emit_analysis`, `emit_evidence`, `emit_investigation_complete`,
   `emit_answer_document`, `emit_answer_document_patch`, and log/perf triage
@@ -280,4 +299,3 @@ overriding better model-authored descriptions.
   or only as prompt context with selected pages.
 - How to express future MCP/web evidence origins without coupling to a specific
   connector.
-

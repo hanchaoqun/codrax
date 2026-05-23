@@ -13,7 +13,6 @@ import (
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	repomap "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
-	"github.com/hanchaoqun/codrax/internal/toolparam"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -788,10 +787,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			strings.Join(fields, ", "))
 		params = repaired
 	}
-	if repaired, report := toolparam.Normalize(params, t.Parameters(), types.DefaultToolParamCompatConfig()); report.Changed() {
-		logging.Warning("[emit_analysis] params schema-normalized at tool boundary: %s", report.Summary(8))
-		params = repaired
-	}
+	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
 
 	var p emitAnalysisParams
 	if err := json.Unmarshal(params, &p); err != nil {

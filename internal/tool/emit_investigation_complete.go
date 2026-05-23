@@ -595,6 +595,8 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		}, nil
 	}
 
+	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
+
 	var p emitInvestigationCompleteParams
 	if err := json.Unmarshal(params, &p); err != nil {
 		return types.ToolResult{

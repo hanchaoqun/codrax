@@ -277,6 +277,8 @@ func (t *EmitLogTriage) Execute(ctx *types.BusContext, params json.RawMessage) (
 		}, nil
 	}
 
+	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
+
 	var p emitLogTriageParams
 	decoded := false
 	if repaired, fields, ok := repairStringWrappedArrayFields(params); ok {

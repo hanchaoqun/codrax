@@ -144,6 +144,7 @@ func executeAnswerDocumentV2(toolName string, ctx *types.BusContext, raw json.Ra
 			strings.Join(paths, ", "))
 		raw = repaired
 	}
+	raw = applyStructuredPayloadCompat(toolName, raw, (&EmitAnswerDocument{}).Parameters())
 	if repaired, paths, ok := quarantineUnknownAnswerDocumentFields(raw, answerDocumentFullEmitQuarantineProfile); ok {
 		logging.Warning("[emit_answer_document] quarantined schema-unknown answer-document field(s) without retry: %s",
 			strings.Join(paths, ", "))

@@ -514,6 +514,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_evidence] string-wrapped array field(s) re-parsed via flat-mode tolerance: %s", strings.Join(fields, ", "))
 		params = repaired
 	}
+	params = applyStructuredPayloadCompat(t.Name(), params, t.Parameters())
 	if repaired, paths, ok := repairEmitEvidenceKnownCompatFields(params); ok {
 		logging.Warning("[emit_evidence] local-model compatibility fields ignored before strict decode: %s", strings.Join(paths, ", "))
 		params = repaired
