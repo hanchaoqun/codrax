@@ -156,6 +156,9 @@ func TestEval_CitationCountGE_ExternalSourceLogWaivesFloor(t *testing.T) {
 	if !r.Satisfied {
 		t.Fatalf("external-source log should waive citation_count_ge, got: %s", r.Detail)
 	}
+	if strings.Contains(r.Detail, "citation_ref=-1") || !strings.Contains(r.Detail, "external_observation") {
+		t.Fatalf("waiver detail should use typed external_observation wording, got: %s", r.Detail)
+	}
 }
 
 func TestEval_CitationCountGE_CapsToPrincipalMemberSetCardinality(t *testing.T) {
@@ -204,6 +207,9 @@ func TestEval_ContractSatisfied_ExternalSourceTraceWaivesFloor(t *testing.T) {
 	r := Eval(types.Criterion{Kind: string(KindContractSatisfied)}, env)
 	if !r.Satisfied {
 		t.Fatalf("external-source trace should waive contract citation floor, got: %s", r.Detail)
+	}
+	if strings.Contains(r.Detail, "citation_ref=-1") || !strings.Contains(r.Detail, "external_observation") {
+		t.Fatalf("waiver detail should use typed external_observation wording, got: %s", r.Detail)
 	}
 }
 

@@ -706,7 +706,7 @@ func evalContractSatisfied(env Env) Result {
 		return Result{Satisfied: true, Detail: "draft exists; no IR to cross-check"}
 	}
 	if externalRuntimeCitationFloorWaived(env) {
-		return Result{Satisfied: true, Detail: "external runtime artifact facts use citation_ref=-1; repo citation floor waived"}
+		return Result{Satisfied: true, Detail: "external runtime artifact facts use typed external_observation carriers; repo citation floor waived"}
 	}
 	if env.IR.AnswerContract.CitationReq.Required && env.DraftCitations < env.IR.AnswerContract.CitationReq.MinCitations {
 		return Result{Satisfied: false,
@@ -799,7 +799,7 @@ func evalCitationCountGE(expr string, env Env) Result {
 		return Result{Satisfied: false, Detail: fmt.Sprintf("malformed integer %q", expr)}
 	}
 	if externalRuntimeCitationFloorWaived(env) {
-		return Result{Satisfied: true, Detail: "external runtime artifact facts use citation_ref=-1; repo citation floor waived"}
+		return Result{Satisfied: true, Detail: "external runtime artifact facts use typed external_observation carriers; repo citation floor waived"}
 	}
 	if env.DraftCitations >= threshold {
 		return Result{Satisfied: true, Detail: fmt.Sprintf("%d citations ≥ %d", env.DraftCitations, threshold)}

@@ -460,6 +460,10 @@ untouched.
     now instruct the model to omit the citation field / leave the row uncited
     when a fact is backed by an external observation rather than current repo
     source.
+  - Delivered so far: criterion/gate waiver details also use the typed
+    `external_observation` carrier vocabulary instead of spelling the legacy
+    no-citation sentinel, so advisory/debug detail no longer reintroduces the
+    same prompt leak through a different stage.
 
 - Batch 43 — runtime artifact provenance split. Status: planned.
   - Carry `observed_direct_cause`, `artifact_span`, and

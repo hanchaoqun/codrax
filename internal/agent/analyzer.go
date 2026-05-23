@@ -2001,8 +2001,8 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// not source lines. An external-only runtime artifact (log/trace
 	// decoded successfully but no frame resolved to this checkout)
 	// is answer-grade as an observation, but its facts must be
-	// rendered with citation_ref=-1 rather than by hunting for
-	// unrelated current-repo fixtures.
+	// rendered through external-observation carriers rather than
+	// by hunting for unrelated current-repo fixtures.
 	//
 	// The isMeasurementScalar signal (computed by
 	// isMeasurementScalarRequest in analyzer_intent.go) is a 0-error
