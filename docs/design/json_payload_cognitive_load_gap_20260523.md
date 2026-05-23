@@ -511,6 +511,42 @@ untouched.
     inventory. Optional model-authored tables remain visible, but exact
     mismatch handling should prefer preserving the clean no-hit answer plus a
     localized scope supplement over generic enumeration caveats.
+    - Detailed design:
+      - Principal answer contract: a typed `negative_search` /
+        `negative_observation` with `result_count=0` is the answer-grade fact.
+        The searched commits, files, trace spans, log windows, command rows, or
+        connector pages that produced that zero result are provenance/support
+        unless the request model carries an explicit enumeration/member-set
+        obligation.
+      - Reuse existing role projection instead of adding a second filter:
+        `NormalizeAggregateFactRolesForRequest` demotes support ledgers before
+        prompt/render surfaces, and
+        `PrincipalAggregateMemberSetFactRefsForRequest` is the guardrail for
+        callers that project principal member sets directly.
+      - Typed-only trigger: demotion may look at aggregate kind/role, numeric
+        zero-result fields (`value=0`, `result_count=0`), structured coordinates
+        (`window_count`, `unmatched`, `commit_range`, `tool_result`,
+        `payload_ref`, `row_set_ref`, artifact span refs), request-model traits,
+        and evidence-origin enums. It must not inspect user prose, model prose,
+        table titles, or repository-language keywords.
+      - Preservation rule: if the model authored an optional table/list about
+        the searched window, the system must not delete or rewrite it. The
+        demotion only prevents deterministic补表 / hard principal-member gates
+        from treating that window inventory as the required final answer.
+      - Explicit inventory exception: enumeration, relation lookup, source/path
+        inventory, or other typed exhaustive-member-set requests keep the
+        member set principal even when a zero-result fact is also present.
+      - First code batch (42.2a): demote searched-window member sets paired with
+        a principal zero-result external/repo observation and add tests for VCS
+        history no-hit, command/log no-hit support ledgers, and explicit
+        enumeration preserving the window set.
+      - Follow-up batch (42.2b): route accepted no-hit exact-mismatch issues to
+        localized scope supplements instead of generic enumeration caveats when
+        the mismatch only concerns support-window cardinality.
+      - Eval batch (42.2c): add varied cases for "recent N commits did/did not
+        touch X", "search logs/traces for pattern and explain no-hit", and
+        "list searched windows plus explain absence" so the exception boundary
+        is covered.
   - Batch 42.3 task: replace remaining sentinel-based external provenance in
     VCS/log/trace/command finalizer payloads with typed observation refs. This
     should reuse `ObservationLedger`, `payload_ref`, `row_set_ref`, and
