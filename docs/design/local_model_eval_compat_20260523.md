@@ -2080,6 +2080,28 @@ Batch 22 task list:
 - [x] Run focused orchestrator tests, `make build`, and full `go test ./...`.
 - [x] Commit and push Batch 22.
 
+Post-merge eval observation:
+
+- Re-ran the same focused case at
+  `.codrax/eval-batch22/qf_relation_subagent_registry-20260524-050353`.
+- The target regression did not reproduce: after analyze there was a single
+  evidence node (`→ evidence · Collect evidence...`) and no stale
+  `n1_evidence_t0/t1/t2` lanes. This confirms the deterministic recompile
+  path fixed the search-width bug that Batch 22 targeted.
+- Two separate residual issues appeared and should be tracked outside Batch 22:
+  - Analyze still spent early rounds on recovered `repo_map` / `grep` /
+    `read_file` attempts before the eventual `emit_analysis`. Existing guards
+    contained it, but the UX/cost can still improve.
+  - The run later stalled inside an extractor LLM request after logging
+    `timeout=4m0s first_byte_timeout=40s stall_timeout=2m0s`; no timeout or
+    retry log appeared before the eval was terminated manually. This points to
+    a request-cancellation / timeout-enforcement audit, not to analyzer IR
+    compilation.
+- A minor small-model compatibility cost remains: the model cited a definition
+  line with `anchor_kind="call"`, forcing a repair round. This is a candidate
+  for a future conservative grounding repair only when the source line shape is
+  unambiguous and the rewritten anchor kind is fully validator-checked.
+
 ## Open Questions
 
 - Whether `emit_evidence.anchor_kind` auto-repair should run inside
