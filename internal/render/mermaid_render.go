@@ -308,10 +308,10 @@ var fencedBlockRe = regexp.MustCompile("(?s)```([^\\n]*)\\n(.*?)\\n```")
 // callers downstream remain stable).
 var mermaidFenceRe = regexp.MustCompile("(?s)```mermaid[^\\n]*\\n(.*?)\\n```")
 
-// mermaidBodyKeywords lists every Mermaid-spec diagram-type token
-// we recognise as a "mermaid block" for routing purposes. The first
-// non-empty body line of an untagged fence must begin with one of
-// these (case-sensitive — Mermaid spec).
+// mermaidBodyKeywords lists every Mermaid-spec diagram-type token we recognise
+// as a "mermaid block" for routing purposes. The registry lives in
+// internal/mermaidcompat so terminal and browser preview share the same
+// structural detection boundary.
 //
 // Routing distinction (load-bearing):
 //
@@ -335,44 +335,16 @@ var mermaidFenceRe = regexp.MustCompile("(?s)```mermaid[^\\n]*\\n(.*?)\\n```")
 // looksLikeMermaidBody / infoLineStartsWithMermaidKeyword for the
 // detection step. The supported / unsupported split kicks in inside
 // maybeReplaceMermaidFence after detection.
-var mermaidBodyKeywords = append(append([]string(nil), mermaidSupportedKeywords...), mermaidUnsupportedKeywords...)
-
-var mermaidSupportedKeywords = []string{
-	"flowchart",
-	"graph",
-	"sequenceDiagram",
-}
-
-var mermaidUnsupportedKeywords = []string{
-	"classDiagram",
-	"stateDiagram",
-	"stateDiagram-v2",
-	"erDiagram",
-	"journey",
-	"gantt",
-	"pie",
-	"mindmap",
-	"timeline",
-	"gitGraph",
-	"requirementDiagram",
-	"C4Context",
-}
+var mermaidBodyKeywords = mermaidcompat.KnownKeywords()
+var mermaidSupportedKeywords = mermaidcompat.SupportedKeywords()
+var mermaidUnsupportedKeywords = mermaidcompat.UnsupportedKeywords()
 
 // firstMermaidKeywordIn returns the first known mermaid keyword the
 // line begins with (matching word-boundary so "graph" doesn't shadow
 // "graphTD"). Returns "" when no keyword matches. Used by the
 // supported / unsupported routing split.
 func firstMermaidKeywordIn(line string) string {
-	line = strings.TrimSpace(line)
-	if line == "" {
-		return ""
-	}
-	for _, kw := range mermaidBodyKeywords {
-		if line == kw || strings.HasPrefix(line, kw+" ") || strings.HasPrefix(line, kw+"\t") {
-			return kw
-		}
-	}
-	return ""
+	return mermaidcompat.FirstKeywordIn(line)
 }
 
 // firstNonEmptyTrimmed returns the first non-empty trimmed line of a
@@ -389,12 +361,7 @@ func firstNonEmptyTrimmed(body string) string {
 // isMermaidSupportedKind reports whether the keyword belongs to the
 // pgavlin subset we can actually render.
 func isMermaidSupportedKind(kw string) bool {
-	for _, s := range mermaidSupportedKeywords {
-		if s == kw {
-			return true
-		}
-	}
-	return false
+	return mermaidcompat.IsSupportedKeyword(kw)
 }
 
 // infoLineStartsWithMermaidKeyword reports whether the fence's
@@ -406,32 +373,11 @@ func isMermaidSupportedKind(kw string) bool {
 // caller must reassemble the `mermaid`-tagged form by prepending
 // the info-line as the body's first line.
 func infoLineStartsWithMermaidKeyword(info string) bool {
-	info = strings.TrimSpace(info)
-	if info == "" {
-		return false
-	}
-	for _, kw := range mermaidBodyKeywords {
-		if info == kw || strings.HasPrefix(info, kw+" ") || strings.HasPrefix(info, kw+"\t") {
-			return true
-		}
-	}
-	return false
+	return mermaidcompat.InfoLineStartsWithKeyword(info)
 }
 
 func mermaidInfoLineDirective(info string) (directive string, keyword string) {
-	info = strings.TrimSpace(info)
-	if info != "mermaid" && !strings.HasPrefix(info, "mermaid ") && !strings.HasPrefix(info, "mermaid\t") {
-		return "", ""
-	}
-	rest := strings.TrimSpace(strings.TrimPrefix(info, "mermaid"))
-	if rest == "" {
-		return "", ""
-	}
-	kw := firstMermaidKeywordIn(rest)
-	if kw == "" {
-		return "", ""
-	}
-	return rest, kw
+	return mermaidcompat.InfoLineDirective(info)
 }
 
 // preprocessMermaidBody is the single entry point that runs every
@@ -751,19 +697,7 @@ func flattenMermaidSubgraphs(body string) string {
 // trimmed line begins with a known mermaid diagram-type keyword.
 // Used to opt untagged fences into mermaid rendering.
 func looksLikeMermaidBody(body string) bool {
-	for _, line := range strings.Split(body, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		for _, kw := range mermaidBodyKeywords {
-			if line == kw || strings.HasPrefix(line, kw+" ") || strings.HasPrefix(line, kw+"\t") {
-				return true
-			}
-		}
-		return false
-	}
-	return false
+	return mermaidcompat.LooksLikeBody(body)
 }
 
 // maybeReplaceMermaidFence dispatches a fenced-block match to one of

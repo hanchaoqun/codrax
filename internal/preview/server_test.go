@@ -103,6 +103,45 @@ func TestServerRegisterMarkdownAllowsClassDiagramInBrowserMermaid(t *testing.T) 
 	}
 }
 
+func TestRenderMarkdownHTMLRecognizesMermaidKeywordFences(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "direct flowchart info string",
+			body: "```flowchart TD\n  A --> B\n```\n",
+			want: "flowchart TD",
+		},
+		{
+			name: "direct classDiagram info string",
+			body: "```classDiagram\n  class Animal\n  Animal <|-- Duck\n```\n",
+			want: "classDiagram",
+		},
+		{
+			name: "bare mermaid-shaped fence",
+			body: "```\nflowchart LR\n  A --> B\n```\n",
+			want: "flowchart LR",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := RenderMarkdownHTML([]byte(tc.body))
+			if err != nil {
+				t.Fatalf("RenderMarkdownHTML: %v", err)
+			}
+			if !strings.Contains(got, `<div class="mermaid">`) ||
+				!strings.Contains(got, tc.want) {
+				t.Fatalf("mermaid-like fence was not routed to browser Mermaid:\n%s", got)
+			}
+			if strings.Contains(got, "<pre><code") {
+				t.Fatalf("mermaid-like fence should not stay an ordinary code block:\n%s", got)
+			}
+		})
+	}
+}
+
 func TestRenderMarkdownHTMLNormalizesBareSubgraphTitles(t *testing.T) {
 	body := []byte("```mermaid\nflowchart TD\n  subgraph Explorer System\n    A --> B\n  end\n  subgraph AlreadyValid[Already Valid]\n    C --> D\n  end\n```\n")
 	got, err := RenderMarkdownHTML(body)
@@ -140,6 +179,21 @@ func TestRenderMarkdownHTMLPlainFenceWithoutInfo(t *testing.T) {
 	if !strings.Contains(got, "<pre><code>") ||
 		!strings.Contains(got, "Start -&gt; Execute -&gt; Result") {
 		t.Fatalf("plain info-less fence not rendered safely:\n%s", got)
+	}
+}
+
+func TestRenderMarkdownHTMLTaggedCodeContainingMermaidTextStaysCode(t *testing.T) {
+	body := []byte("```bash\ncat <<'EOF'\nflowchart LR\n  A --> B\nEOF\n```\n")
+	got, err := RenderMarkdownHTML(body)
+	if err != nil {
+		t.Fatalf("RenderMarkdownHTML: %v", err)
+	}
+	if strings.Contains(got, `<div class="mermaid">`) {
+		t.Fatalf("bash fence must not be routed to Mermaid just because its body contains Mermaid text:\n%s", got)
+	}
+	if !strings.Contains(got, `<pre><code class="language-bash">`) ||
+		!strings.Contains(got, "flowchart LR") {
+		t.Fatalf("bash fence should remain ordinary escaped code:\n%s", got)
 	}
 }
 

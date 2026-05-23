@@ -1048,7 +1048,7 @@ untouched.
     alter answer documents, memory, evidence, finalizer prompts, or diagram
     gate strictness.
   - Slice 47.1 — shared Mermaid fence detection for terminal and preview.
-    Status: planned.
+    Status: completed.
     - Detailed design before code: reuse the existing terminal renderer's
       Mermaid detection contract instead of adding a second browser-only
       heuristic. Move the known Mermaid keyword registry and tiny structural
@@ -1076,6 +1076,15 @@ untouched.
       fences render; ordinary code fences stay escaped `<pre><code>`; terminal
       renderer tests continue to pin unsupported-kind fallback and supported
       subset behavior.
+    - Delivered in this slice: Mermaid syntax keyword detection now lives in
+      `internal/mermaidcompat` and is reused by terminal rendering and browser
+      preview. Terminal behavior is unchanged: only flowchart/graph/sequence
+      render to ASCII, and unsupported kinds keep the existing localized text
+      fallback. Browser preview now routes direct `flowchart` /
+      `classDiagram` info strings and bare Mermaid-shaped fences to Mermaid.js
+      instead of silently showing ordinary code. Regression tests cover shared
+      keyword detection, preview routing, non-Mermaid code fences, and the
+      existing terminal renderer subset.
 
 ## Scope
 

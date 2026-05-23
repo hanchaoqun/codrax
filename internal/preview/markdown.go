@@ -60,7 +60,7 @@ func (f fencedCodeRenderer) renderFencedCodeBlock(w util.BufWriter, source []byt
 	}
 	lang := firstInfoToken(info)
 	body := fencedCodeBody(block, source)
-	if strings.EqualFold(lang, "mermaid") {
+	if browserShouldRenderMermaid(info, body) {
 		_, _ = fmt.Fprint(w, `<div class="mermaid">`+"\n")
 		_, _ = fmt.Fprint(w, stdhtml.EscapeString(normalizeBrowserMermaid(info, body)))
 		_, _ = fmt.Fprint(w, "\n</div>\n")
@@ -93,8 +93,22 @@ func normalizeBrowserMermaid(info, body string) string {
 	return normalizeBrowserMermaidSubgraphs(body)
 }
 
+func browserShouldRenderMermaid(info, body string) bool {
+	info = strings.TrimSpace(info)
+	if strings.EqualFold(firstInfoToken(info), "mermaid") {
+		return true
+	}
+	if mermaidcompat.InfoLineStartsWithKeyword(info) {
+		return true
+	}
+	if info == "" || strings.EqualFold(info, "text") {
+		return mermaidcompat.LooksLikeBody(body)
+	}
+	return false
+}
+
 func prependBrowserMermaidInfoDirective(info, body string) string {
-	directive := browserMermaidInfoDirective(info)
+	directive, _ := mermaidcompat.InfoLineDirective(info)
 	if directive == "" {
 		return body
 	}
@@ -107,17 +121,6 @@ func prependBrowserMermaidInfoDirective(info, body string) string {
 		return directive
 	}
 	return directive + "\n" + body
-}
-
-func browserMermaidInfoDirective(info string) string {
-	info = strings.TrimSpace(info)
-	if !strings.EqualFold(firstInfoToken(info), "mermaid") {
-		return ""
-	}
-	if len(info) <= len("mermaid") {
-		return ""
-	}
-	return strings.TrimSpace(info[len("mermaid"):])
 }
 
 func firstNonEmptyLine(text string) string {
