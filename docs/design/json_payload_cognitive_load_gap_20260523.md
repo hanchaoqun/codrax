@@ -1008,7 +1008,7 @@ untouched.
       notices for that pass only. The direct reviewer methods still emit their
       existing specific notices. Regression tests cover the coalesced
       contract-check path and the user-message redline audit.
-  - Slice 46.2 — fallback retry status wording taxonomy. Status: planned.
+  - Slice 46.2 — fallback retry status wording taxonomy. Status: completed.
     - Detailed design before code: reuse the existing `FallbackTarget`,
       `noticeKindForFallbackTarget`, and retry-routing policy. Do not change
       which violations retry, which layer they retry from, or whether a failed
@@ -1035,6 +1035,13 @@ untouched.
       avoid the overly broad "答案待完善" phrase on target-specific fallback
       lines. Unknown/reserved targets still degrade to the generic answer-check
       retry message.
+    - Delivered in this slice: target-specific fallback status lines now
+      distinguish final-answer rewrite, structured-answer rebuild,
+      evidence-context fallback, and terminal accept-with-boundary behavior.
+      The change is display-only: fallback routing, reviewer strictness, and
+      retry budgets are untouched. Regression coverage pins distinct
+      localized messages and rejects enum leaks, transport wording, and the
+      over-broad "答案待完善" phrase on target-specific fallback notices.
 
 - Batch 47 — diagram/renderability hardening. Status: planned.
   - Keep Mermaid/code-fence display fixes renderer-only, but add deterministic

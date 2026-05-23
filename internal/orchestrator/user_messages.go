@@ -367,17 +367,17 @@ func softFallbackTargetMessage(lang string, target FallbackTarget) string {
 	switch target {
 	case FallbackFailLoud:
 		if zh {
-			return "· 答案存在未解决问题，已无法通过重试修复"
+			return "· 当前答案已保留，并补充未解决边界"
 		}
-		return "· Answer has unresolved issues that retry cannot fix"
+		return "· Keeping the answer with unresolved-boundary notes"
 	case FallbackFinalizerOnly:
 		if zh {
-			return "⟳ 答案待完善，正在重写"
+			return "⟳ 正在重写最终答案"
 		}
-		return "⟳ Polishing the answer — rewriting"
+		return "⟳ Rewriting the final answer"
 	case FallbackBackToExtract:
 		if zh {
-			return "⟳ 重新整理答案结构"
+			return "⟳ 正在重新整理答案结构"
 		}
 		return "⟳ Reworking the answer structure"
 	case FallbackBackToExplore:
@@ -387,9 +387,9 @@ func softFallbackTargetMessage(lang string, target FallbackTarget) string {
 		// phrasing makes the subject explicit (the system, not the
 		// user) and avoids "探索" which sounds technical.
 		if zh {
-			return "⟳ 还需要更多上下文，继续查找资料"
+			return "⟳ 回到证据阶段补充关键上下文"
 		}
-		return "⟳ Gathering more context — continuing to look up material"
+		return "⟳ Returning to evidence collection for key context"
 	}
 	return softAnswerCheckRetryMessage(lang)
 }

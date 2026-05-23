@@ -234,6 +234,46 @@ func TestSoftFallbackTargetMessage_DistinctPerTarget(t *testing.T) {
 	}
 }
 
+func TestSoftFallbackTargetMessage_TaxonomyIsSpecific(t *testing.T) {
+	targets := []FallbackTarget{
+		FallbackFailLoud, FallbackFinalizerOnly,
+		FallbackBackToExtract, FallbackBackToExplore,
+	}
+	for _, lang := range []string{"en", "zh"} {
+		for _, tgt := range targets {
+			msg := softFallbackTargetMessage(lang, tgt)
+			if strings.Contains(msg, string(tgt)) {
+				t.Errorf("lang=%s target=%s leaked enum in %q", lang, tgt, msg)
+			}
+			for _, banned := range []string{
+				"transport", "Transport", "stream", "流式响应", "连接",
+				"答案待完善", "再跑一轮", "模型响应出错",
+			} {
+				if strings.Contains(msg, banned) {
+					t.Errorf("lang=%s target=%s message %q uses over-broad/transport wording %q", lang, tgt, msg, banned)
+				}
+			}
+		}
+	}
+
+	zhFinal := softFallbackTargetMessage("zh", FallbackFinalizerOnly)
+	zhExtract := softFallbackTargetMessage("zh", FallbackBackToExtract)
+	zhExplore := softFallbackTargetMessage("zh", FallbackBackToExplore)
+	zhFail := softFallbackTargetMessage("zh", FallbackFailLoud)
+	if !strings.Contains(zhFinal, "最终答案") || !strings.Contains(zhFinal, "重写") {
+		t.Fatalf("finalizer-only fallback should name final-answer rewrite, got %q", zhFinal)
+	}
+	if !strings.Contains(zhExtract, "答案结构") {
+		t.Fatalf("extract fallback should name answer-structure rebuild, got %q", zhExtract)
+	}
+	if !strings.Contains(zhExplore, "证据阶段") || !strings.Contains(zhExplore, "上下文") {
+		t.Fatalf("explore fallback should name evidence-context collection, got %q", zhExplore)
+	}
+	if !strings.Contains(zhFail, "保留") || !strings.Contains(zhFail, "边界") {
+		t.Fatalf("fail-loud fallback should name accept-with-boundary behavior, got %q", zhFail)
+	}
+}
+
 // TestSoftPlanCriticReviewMessage_HonoursCount pins the per-count
 // branch: 0 risks renders cleanly without a count, ≥1 renders the
 // count plus a /plan show pointer so the user knows where to read
