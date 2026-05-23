@@ -2,13 +2,14 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-41 are complete and verified; Batch 42
-is the active external-observation provenance pass. The shared schema-aware repair
-path is active across the high-frequency structured emit tools, including the
-legacy top-level JSON-string repair wrappers. Remaining work is tracked below as
-explicit batches so implementation does not rely on memory: visible supplement
-authority, external observation refs, runtime provenance, analyzer fast paths,
-hybrid explorer partitioning, retry telemetry, and diagram renderability.
+Status: partially implemented. Batches 1-45 are complete and verified; Batch 46
+remains the active retry/status telemetry pass, and Batch 47.1 has completed the
+current diagram-preview hardening slice. The shared schema-aware repair path is
+active across the high-frequency structured emit tools, including the legacy
+top-level JSON-string repair wrappers. Remaining work is tracked below as
+explicit batches so implementation does not rely on memory: retry telemetry
+follow-ups plus the open carrier/payload/prompt-ledger questions at the end of
+this document.
 
 Implementation progress:
 
@@ -730,7 +731,7 @@ untouched.
     can use stack frames as runtime support without promoting them to
     current-source root-cause proof.
 
-- Batch 44 — analyzer fast-path consolidation. Status: in progress.
+- Batch 44 — analyzer fast-path consolidation. Status: completed.
   - Add typed fast paths for exact-file import literal enumeration,
     history+current-code hybrid classification, exact-symbol conditional
     questions, and item-vs-batch error-granularity questions. These must use
@@ -890,7 +891,7 @@ untouched.
         remain covered by regression tests.
 
 - Batch 45 — hybrid explorer partitioning and repo-map wait visibility. Status:
-  in progress.
+  completed.
   - Partition hybrid questions by typed origin/facet: VCS lane owns history
     narrative; current-source lane owns present implementation; sibling lanes
     converge once their facet is covered.
@@ -1043,7 +1044,7 @@ untouched.
       localized messages and rejects enum leaks, transport wording, and the
       over-broad "答案待完善" phrase on target-specific fallback notices.
 
-- Batch 47 — diagram/renderability hardening. Status: in progress.
+- Batch 47 — diagram/renderability hardening. Status: completed.
   - Keep Mermaid/code-fence display fixes renderer-only. This batch must not
     alter answer documents, memory, evidence, finalizer prompts, or diagram
     gate strictness.
