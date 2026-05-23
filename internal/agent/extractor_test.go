@@ -2335,6 +2335,53 @@ func TestExtractor_MultiTopicExplanationTriggersAnchorSkeleton(t *testing.T) {
 	}
 }
 
+func TestExtractor_HistorySubTopicsStayOptionalStructure(t *testing.T) {
+	ir := &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent:        types.IntentExplain,
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqHistory)},
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+			SubTopics: []types.SubTopic{
+				{Summary: "latest merge", Entities: []string{"mergeCommit"}},
+				{Summary: "commit impact", Entities: []string{"ApplyPatch"}},
+			},
+		},
+		AnswerContract: types.AnswerContract{},
+	}
+	mut := types.NewMutableState("q")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ReadFiles: []string{"internal/agent/explorer.go"}})
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "internal/agent/explorer.go",
+		LineStart:       3572,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "mergeCommit",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+	ctx := &types.AgentContext{
+		AnalysisIR: ir,
+		Mutable:    mut,
+	}
+
+	if !isMultiTopicExplanation(ctx) {
+		t.Fatal("history sub-topics should still be rendered as optional structure guidance")
+	}
+	if requiresMultiTopicAnchorSkeleton(ctx) {
+		t.Fatal("history sub-topics must not force emit_answer_symbol")
+	}
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "## Optional sub-topic structure") {
+		t.Fatalf("history prompt should keep optional sub-topic structure:\n%s", prompt)
+	}
+	if contains(prompt, "## Anchor skeleton") ||
+		contains(prompt, "For each, call emit_answer_symbol with ONE anchor symbol") ||
+		contains(prompt, "Grounded anchor candidates already compiled") {
+		t.Fatalf("history prompt must not promote sub-topics into code-anchor skeletons:\n%s", prompt)
+	}
+}
+
 func TestExtractor_ArchitectureMultiTopicSubtopicsAreOptionalStructure(t *testing.T) {
 	ir := &types.AnalysisIR{
 		RequestModel: types.RequestModel{

@@ -947,3 +947,31 @@ External-evidence audit:
 ### Open follow-up from the same eval
 
 - The successful external-only finalizer payload still uses no-source item citation carriers internally (`citation_ref=-1`). Rendering hides this, but the pure external-observation answer path should eventually have a lean schema/prompt that uses typed observation refs instead of source-citation sentinel semantics.
+
+## 2026-05-23 Contract Follow-up
+
+### History / VCS sub-topics must not become code-anchor skeletons
+
+- Root cause linked to E20260522-G149/G150: analyzer `sub_topics` are useful
+  prose-structure hints, but the generic explanation path could still promote
+  them into `emit_answer_symbol` / visible "Key Anchors" support blocks even
+  when the typed answer source was repository history or VCS metadata.
+- Contract update: history/VCS sub-topics remain available as optional answer
+  structure guidance, but they do not materialize or hard-require a
+  current-source code-anchor skeleton. Mixed history+current-code answers keep
+  current-source evidence through the normal evidence/support lanes; they are
+  not forced to create one symbol per analyzer sub-topic.
+- Implementation:
+  - `RequiresAnchorSkeleton` now refuses `Predicates.IsHistoryLookup`.
+  - `CompileExplanationAnchorBackbone` skips history/VCS request models, so a
+    VCS run cannot compile stale source anchors into downstream prompt support.
+  - Finalizer only echoes per-topic key-anchor blocks for the hard-required
+    generic shape, and the system-generated title is localized (`关键锚点` for
+    Chinese output).
+- Guardrails:
+  - Types tests pin that history sub-topics can still guide structure but do
+    not force anchors.
+  - Surface-plan tests pin that grounded source evidence from a history run is
+    not converted into an explanation anchor backbone.
+  - Extractor/finalizer tests pin that stale support symbols do not become
+    visible Key Anchors in history answers.

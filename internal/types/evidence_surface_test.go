@@ -1509,6 +1509,49 @@ func TestBuildAnswerSurfacePlan_CompilesExplanationAnchorBackboneFromEvidence(t 
 	}
 }
 
+func TestBuildAnswerSurfacePlan_HistorySubTopicsDoNotCompileExplanationAnchorBackbone(t *testing.T) {
+	ir := &AnalysisIR{
+		RequestModel: RequestModel{
+			Intent:        IntentExplain,
+			AnalyzerHints: AnalyzerHints{Kind: string(ReqHistory)},
+			Predicates: SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+			SubTopics: []SubTopic{
+				{Summary: "latest merge", Entities: []string{"mergeCommit"}},
+				{Summary: "commit impact", Entities: []string{"ApplyPatch"}},
+			},
+		},
+		AnswerContract: AnswerContract{},
+	}
+	evidence := []EvidenceItem{
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/tool/emit_answer_document.go",
+			LineStart:       1001,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "ApplyPatch",
+			GroundingStatus: GroundingGrounded,
+		},
+		{
+			Kind:            EvidenceDirect,
+			Source:          "internal/agent/explorer.go",
+			LineStart:       3572,
+			AnchorKind:      AnchorDefinition,
+			AnchorSymbol:    "mergeCommit",
+			GroundingStatus: GroundingGrounded,
+		},
+	}
+
+	plan := BuildAnswerSurfacePlan(ir, NewMutableState(""), nil, nil, nil, evidence)
+	if plan == nil {
+		t.Fatal("BuildAnswerSurfacePlan returned nil")
+	}
+	if len(plan.ExplanationAnchorBackbone) != 0 || len(plan.ExplanationAnchorMissingTopics) != 0 {
+		t.Fatalf("history sub-topics must not materialize code-anchor skeletons, got anchors=%+v missing=%+v", plan.ExplanationAnchorBackbone, plan.ExplanationAnchorMissingTopics)
+	}
+}
+
 func TestBuildAnswerSurfacePlan_ExplanationAnchorBackboneSkipsAuxiliaryEvidence(t *testing.T) {
 	ir := &AnalysisIR{
 		RequestModel: RequestModel{

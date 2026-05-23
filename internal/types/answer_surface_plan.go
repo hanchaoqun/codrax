@@ -596,6 +596,9 @@ func CompileExplanationAnchorBackbone(ir *AnalysisIR, evidence []EvidenceItem) (
 	if !IRAllowsAnchorSkeleton(ir) || len(evidence) == 0 {
 		return nil, nil, CompletenessUnknown
 	}
+	if !subTopicsMayMaterializeCodeAnchorSkeleton(ir.RequestModel) {
+		return nil, nil, CompletenessUnknown
+	}
 	topics := ir.RequestModel.SubTopics
 	if len(topics) == 0 {
 		return nil, nil, CompletenessUnknown

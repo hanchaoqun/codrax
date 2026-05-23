@@ -1398,6 +1398,47 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SingleTopicExplanationL
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_HistorySubTopicsDoNotEchoKeyAnchors(t *testing.T) {
+	ctx := &types.AgentContext{
+		Objective: "最近三次合入分别做了什么？",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentExplain,
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqHistory)},
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup: true,
+				},
+				SubTopics: []types.SubTopic{
+					{Summary: "最近合入"},
+					{Summary: "影响范围"},
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+		Mutable: types.NewMutableState(""),
+		AnswerSymbols: []types.AnswerSymbol{{
+			Name:      "scalar",
+			File:      "internal/agent/explorer.go",
+			Line:      3572,
+			Rationale: "support-only stale symbol from extraction",
+		}},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if strings.Contains(prompt, "Key Anchors block beneath") ||
+		strings.Contains(prompt, "关键锚点 block beneath") {
+		t.Fatalf("history answers must not promote support symbols into a visible key-anchor block:\n%s", prompt)
+	}
+}
+
+func TestAnswerDocKeyAnchorsTitleLocalizesChinese(t *testing.T) {
+	if got := answerDocKeyAnchorsTitle("zh-CN"); got != "关键锚点" {
+		t.Fatalf("Chinese key-anchor title = %q", got)
+	}
+	if got := answerDocKeyAnchorsTitle("en"); got != "Key Anchors" {
+		t.Fatalf("English key-anchor title = %q", got)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_ResolvesAbsentConfigValueToExplanation(t *testing.T) {
 	mut := types.NewMutableState("")
 	mut.SetInvestigationResultKind("absence")

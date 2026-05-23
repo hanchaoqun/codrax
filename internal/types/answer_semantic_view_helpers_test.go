@@ -213,6 +213,23 @@ func TestRequiresAnchorSkeletonNarrowsOptionalArchitectureAnchors(t *testing.T) 
 	if generic.AllowsAnchorSkeleton(mechanism) || generic.RequiresAnchorSkeleton(mechanism) {
 		t.Fatal("mechanism sub-topic decomposition must not require or invite an anchor skeleton")
 	}
+	history := RequestModel{
+		Intent:        IntentExplain,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqHistory)},
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+		SubTopics: []SubTopic{
+			{Summary: "latest merge"},
+			{Summary: "commit impact"},
+		},
+	}
+	if !generic.AllowsAnchorSkeleton(history) {
+		t.Fatal("history sub-topics should still be available as optional structure guidance")
+	}
+	if generic.RequiresAnchorSkeleton(history) {
+		t.Fatal("history sub-topics must not force a current-source anchor skeleton")
+	}
 }
 
 func TestNeedsCitationFreeScalarIngest(t *testing.T) {

@@ -664,21 +664,17 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 			}
 			b.WriteString("\nProvide citations for each section.\n\n")
 
-			// Anchor skeleton: when the extractor produced a per-topic
-			// anchor slate (answer-symbols emitted during Turn B for
-			// multi-topic explanation questions, sub_topics ≥ 1), echo
-			// those anchors in the finalizer prompt so the LLM re-emits
-			// them as items inside an optional `ordered_list` Key Anchors
-			// block alongside the principal blocks. The renderer draws
-			// the Key Anchors block beneath the summary block when the
-			// LLM emits one. This pins the load-bearing identifiers in
-			// the rendered output and stops the finalizer from
-			// synthesizing prose that drifts from Turn A's evidence.
-			if view.AllowsAnchorSkeleton(ctx.AnalysisIR.RequestModel) && len(ctx.AnswerSymbols) > 0 {
+			// Anchor skeleton: only the typed generic multi-topic shape may
+			// materialize a visible per-topic code-anchor block. History/VCS and
+			// architecture/mechanism narratives should preserve sub-topic
+			// structure in prose/sections without turning support anchors into
+			// user-visible principal content.
+			if view.RequiresAnchorSkeleton(ctx.AnalysisIR.RequestModel) && len(ctx.AnswerSymbols) > 0 {
+				keyAnchorTitle := answerDocKeyAnchorsTitle(extractAnswerDocLang(ctx))
 				b.WriteString("### Anchor skeleton (emit as one optional ordered_list block)\n\n")
 				b.WriteString("The extractor produced these per-sub-topic anchors. " +
 					"Re-emit them verbatim as an additional `ordered_list` block (one item per anchor; each item carries `id`, `label=<symbol-name>`, `text=<rationale>`, top-level `citation_ref=N` (zero-based index into doc.citations[])), and declare the block-level `claim_uses=[{claim_form=definition_fact}]` (or whichever claim_form matches the cited lines). " +
-					"so the renderer can show them as a Key Anchors block beneath your prose. " +
+					fmt.Sprintf("so the renderer can show them as a %s block beneath your prose. ", keyAnchorTitle) +
 					"Each anchor's file:line is authoritative — do not modify.\n\n")
 				for _, s := range ctx.AnswerSymbols {
 					if s.File != "" && s.Line > 0 {
@@ -699,6 +695,13 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}
 
 	return b.String()
+}
+
+func answerDocKeyAnchorsTitle(lang string) string {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "zh") {
+		return "关键锚点"
+	}
+	return "Key Anchors"
 }
 
 func answerDocMustIncludeTerms(ctx *types.AgentContext, contract types.AnswerContract) []types.ContractTerm {

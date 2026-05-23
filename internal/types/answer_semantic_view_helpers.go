@@ -121,6 +121,13 @@ func (v *AnswerSemanticView) AllowsAnchorSkeleton(rm RequestModel) bool {
 	return len(rm.SubTopics) > 1
 }
 
+func subTopicsMayMaterializeCodeAnchorSkeleton(rm RequestModel) bool {
+	// Repository history is an evidence origin, not a code-symbol answer shape.
+	// Its sub-topics can still guide prose/section structure, but they must not
+	// be promoted into a visible or hard-required current-source anchor skeleton.
+	return !rm.Predicates.IsHistoryLookup
+}
+
 // RequiresAnchorSkeleton reports whether a missing multi-topic anchor
 // skeleton is precise enough to block exploration closure. This is narrower
 // than AllowsAnchorSkeleton: architecture / comparison narratives can still
@@ -130,6 +137,9 @@ func (v *AnswerSemanticView) AllowsAnchorSkeleton(rm RequestModel) bool {
 // override a later model-owned, grounded conclusion.
 func (v *AnswerSemanticView) RequiresAnchorSkeleton(rm RequestModel) bool {
 	if v == nil || !v.AllowsAnchorSkeleton(rm) {
+		return false
+	}
+	if !subTopicsMayMaterializeCodeAnchorSkeleton(rm) {
 		return false
 	}
 	return v.Family == QFGeneric
