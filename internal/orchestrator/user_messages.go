@@ -267,6 +267,35 @@ func softRetryHintForStage(lang string, stage types.PipelineStage) string {
 	return softRetryHintMessage(lang)
 }
 
+func softTransportRetryHintForStage(lang string, stage types.PipelineStage) string {
+	labelZh, labelEn := transportRetryStageLabel(stage)
+	if preferZhMessage(lang) {
+		return fmt.Sprintf("⟳ 连接/流式响应异常，正在重试模型请求（%s）", labelZh)
+	}
+	return fmt.Sprintf("⟳ Connection/stream issue; retrying model request (%s)", labelEn)
+}
+
+func transportRetryStageLabel(stage types.PipelineStage) (zh, en string) {
+	switch stage {
+	case types.StageAnalyze:
+		return "理解问题", "understanding the request"
+	case types.StageExplore:
+		return "收集证据", "collecting evidence"
+	case types.StageExtract:
+		return "提炼关键发现", "extracting key findings"
+	case types.StageFinalize:
+		return "撰写最终答案", "composing the final answer"
+	case types.StagePlan:
+		return "生成改动方案", "drafting the change plan"
+	case types.StageApply:
+		return "应用改动", "applying changes"
+	case types.StageVerify:
+		return "运行验证", "running verification"
+	default:
+		return "当前阶段", "current stage"
+	}
+}
+
 func softAgentOutputRetryMessage(lang string, stage types.PipelineStage, missing types.MissingPiece) string {
 	if stage == types.StageExplore && missing == types.MissingFacts {
 		if preferZhMessage(lang) {

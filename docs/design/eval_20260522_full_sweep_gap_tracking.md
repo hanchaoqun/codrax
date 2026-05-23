@@ -975,3 +975,25 @@ External-evidence audit:
     not converted into an explanation anchor backbone.
   - Extractor/finalizer tests pin that stale support symbols do not become
     visible Key Anchors in history answers.
+
+### Transport retry status must not look like semantic rewriting
+
+- Root cause linked to E20260522-G136/G155/G161: transient stream/connection
+  failures were retried correctly, but the user-facing notice reused semantic
+  retry copy such as "模型响应出错,正在重新撰写答案" or generic validation copy.
+  This made finalizer transport recovery look like another answer rewrite and
+  inflated perceived finalizer instability.
+- Contract update: transport/stream retry paths now use a separate localized
+  notice: `连接/流式响应异常，正在重试模型请求（<stage>）`. Semantic retry paths
+  keep the existing validation/rewrite wording. The retry behavior and budgets
+  are unchanged; only the operator-facing classification is corrected.
+- Implementation:
+  - Added `softTransportRetryHintForStage`.
+  - Wired read-mode transient retries, analyze transient retries, force-finalize
+    transient retry, and write-scheduler transient retries to the transport
+    notice.
+  - Kept success-criteria / validation / answer-check retries on the semantic
+    notice paths.
+- Guardrail: orchestrator tests pin that transport retry copy mentions
+  connection/stream issues and does not contain "验证还不够稳", "模型响应出错",
+  or "重写".

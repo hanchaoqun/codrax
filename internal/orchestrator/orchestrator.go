@@ -2284,7 +2284,7 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 					Timestamp:  time.Now(),
 					Agent:      "orchestrator",
 					NoticeKind: render.NoticeRetry,
-					Reasoning:  softRetryHintForStage(o.busCtx.Language, types.StageAnalyze),
+					Reasoning:  softTransportRetryHintForStage(o.busCtx.Language, types.StageAnalyze),
 				})
 				continue
 			}
@@ -5708,7 +5708,7 @@ contractFailureBreak:
 				Timestamp:  time.Now(),
 				Agent:      "orchestrator",
 				NoticeKind: render.NoticeRetry,
-				Reasoning:  softRetryHintMessage(o.busCtx.Language),
+				Reasoning:  softTransportRetryHintForStage(o.busCtx.Language, types.StageFinalize),
 			})
 			// Reuse the LLM adapter's production-tested backoff
 			// schedule (Retry-After header > quota long-ramp >

@@ -2,7 +2,12 @@
 
 Date: 2026-05-23
 
-Status: architecture gap recorded; implementation plan pending prioritization
+Status: partially implemented. Batches 1-10 are complete and verified; the
+shared schema-aware repair path is active across the high-frequency structured
+emit tools. Remaining work is still tracked below, starting with P1 carrier
+compilers / row-set references, followed by PayloadRef/RowSetRef,
+transactional document updates, typed repair hints, and prompt/ledger
+deduplication.
 
 Implementation progress:
 

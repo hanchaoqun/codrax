@@ -129,14 +129,24 @@ func TestSoftRetryHintMessage_DropsInternalPromptMarkup(t *testing.T) {
 	}
 }
 
-func TestSoftRetryHintForStage_AnalyzeTransientUsesResponseErrorCopy(t *testing.T) {
-	zh := softRetryHintForStage("zh", types.StageAnalyze)
-	if !strings.Contains(zh, "模型响应出错") || strings.Contains(zh, "验证还不够稳") {
-		t.Fatalf("analyze transient retry must describe model response failure, got %q", zh)
+func TestSoftTransportRetryHintForStage_SeparatesTransportFromSemanticRetry(t *testing.T) {
+	zh := softTransportRetryHintForStage("zh", types.StageAnalyze)
+	if !strings.Contains(zh, "连接/流式响应异常") ||
+		!strings.Contains(zh, "理解问题") ||
+		strings.Contains(zh, "验证还不够稳") ||
+		strings.Contains(zh, "模型响应出错") {
+		t.Fatalf("analyze transport retry must describe transport retry, got %q", zh)
 	}
-	en := softRetryHintForStage("en", types.StageAnalyze)
-	if !strings.Contains(en, "Model response error") || strings.Contains(en, "Validation needs") {
-		t.Fatalf("analyze transient retry must describe model response failure, got %q", en)
+	en := softTransportRetryHintForStage("en", types.StageAnalyze)
+	if !strings.Contains(en, "Connection/stream issue") ||
+		!strings.Contains(en, "understanding the request") ||
+		strings.Contains(en, "Validation needs") ||
+		strings.Contains(en, "Model response error") {
+		t.Fatalf("analyze transport retry must describe transport retry, got %q", en)
+	}
+	finalizeZH := softTransportRetryHintForStage("zh", types.StageFinalize)
+	if !strings.Contains(finalizeZH, "撰写最终答案") || strings.Contains(finalizeZH, "重写") {
+		t.Fatalf("finalize transport retry must not read like semantic rewrite, got %q", finalizeZH)
 	}
 }
 

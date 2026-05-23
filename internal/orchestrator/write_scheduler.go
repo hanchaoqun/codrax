@@ -253,7 +253,7 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 						Timestamp:  time.Now(),
 						Agent:      "orchestrator",
 						NoticeKind: render.NoticeRetry,
-						Reasoning:  softRetryHintForStage(o.busCtx.Language, stage),
+						Reasoning:  softTransportRetryHintForStage(o.busCtx.Language, stage),
 					})
 					// IMPORTANT: do NOT emit EventTaskNodeEnd here.
 					// The node is going to be re-dispatched, so the

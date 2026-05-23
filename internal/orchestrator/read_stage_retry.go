@@ -104,7 +104,7 @@ func (o *Orchestrator) retryReadStageDispatchError(
 		Timestamp:  time.Now(),
 		Agent:      "orchestrator",
 		NoticeKind: render.NoticeRetry,
-		Reasoning:  softRetryHintForStage(o.busCtx.Language, stage),
+		Reasoning:  softTransportRetryHintForStage(o.busCtx.Language, stage),
 	})
 	return true
 }
@@ -139,7 +139,7 @@ func (o *Orchestrator) retryReadStandaloneDispatchError(
 		Timestamp:  time.Now(),
 		Agent:      "orchestrator",
 		NoticeKind: render.NoticeRetry,
-		Reasoning:  softRetryHintForStage(o.busCtx.Language, stage),
+		Reasoning:  softTransportRetryHintForStage(o.busCtx.Language, stage),
 	})
 	return true
 }
