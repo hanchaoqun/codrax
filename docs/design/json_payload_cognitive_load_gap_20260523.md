@@ -765,6 +765,72 @@ untouched.
       marker-inventory shape from analyzer fields only. R1.3/R1.5/R1.4 become
       advisory for marker-shaped primary entities with file/path bucket
       sub-topics, while non-file invented members remain hard failures.
+  - Remaining implementation slices:
+    - Slice 44.2 — non-diagnostic error-granularity route normalization.
+      Status: planned.
+      - Root gaps: E20260520-G118 / E20260522 u9a-u9b show analyzer retries
+        where a code-behavior question about item-vs-batch rejection is first
+        routed as `root_cause`, then rejected and reclassified as `explain`.
+      - Typed signal only: consume `error_granularity_profile`,
+        `diagnostic_profile`, `predicates.is_diagnostic_question`,
+        `intent`, `scenario`, and artifact/current-status typed flags. Do not
+        parse the user request or model text for words such as "error",
+        "reject", or localized equivalents.
+      - Normalization rule: when `is_granularity_question=true` and no typed
+        diagnostic/current-risk/current-version/runtime-artifact signal is
+        present, the answer shape is code-behavior explanation. Normalize
+        `intent=root_cause` / diagnostic scenario drift to the explain route
+        before analyzer quality gates. True log/trace/current-regression
+        diagnostics keep their diagnostic/root-cause route.
+      - Guardrail tests: direct item-vs-batch behavior questions normalize to
+        explain without a second analyzer dispatch; real diagnostic/runtime
+        error-granularity questions are not downgraded.
+    - Slice 44.3 — exact role-locate and scalar symbol scope preservation.
+      Status: planned.
+      - Root gaps: E20260520-G5 / G88 / G90 / G127 show role-locate questions
+        either missing an inferable `answer_subject.kind` or being widened into
+        related architecture sub-topics and function-body coverage.
+      - Typed signal only: consume `predicates.is_role_locate_lookup`,
+        `answer_subject`, `answer_role_profile`, `question_kind`,
+        explicit `sub_topics`, and resolved required-file/symbol hints. Do not
+        infer new user asks from nearby repo terms.
+      - Normalization rule: if the role-locate target kind is structurally
+        inferable, fill the missing typed subject field locally; if a scalar
+        role-locate has exactly one requested target, demote unrelated
+        relationship/call-chain subtopics to support hints rather than
+        principal subquestions.
+      - Guardrail tests: exact "entry function + file" answers keep one
+        principal target; coverage/existence questions that merely mention a
+        target are not forced into role-locate.
+    - Slice 44.4 — explicit-file literal/import/source-inventory analyzer stop
+      condition. Status: planned.
+      - Root gaps: E20260522-G50 / G57 and E20260520 import/inventory cases
+        show analyzer spending rounds on content searches after file or package
+        existence has already been established.
+      - Typed signal only: consume `required_files`, source-inventory traits,
+        literal/import/reference bucket fields, and tool results that prove
+        file/package existence. Analyzer must not attempt line-level proof.
+      - Normalization rule: once explicit file/package scope and requested
+        bucket family are typed, emit analysis and leave line/member extraction
+        to exploration. Analyzer may carry search results as soft hints only.
+      - Guardrail tests: import literal enumeration and explicit source
+        inventory classify after existence proof; broad category enumeration
+        without explicit scope still follows the normal analyzer route.
+    - Slice 44.5 — exact-symbol conditional / premise-invalid boundary.
+      Status: planned.
+      - Root gaps: E20260520-G84/G85 and related change-impact cases show
+        stale analyzer assumptions or same-family matches overriding later
+        exact absence/premise-invalid evidence.
+      - Typed signal only: consume exact target bindings, exact-resolution /
+        negative-observation facts, alias bindings, and support refs. Same
+        family or regex-nearby evidence remains support unless an alias is
+        typed.
+      - Normalization rule: exact absent/premise-invalid facts for the target
+        dominate stale positive labels for that target, but must not suppress
+        independent present targets in mixed positive/negative answers.
+      - Guardrail tests: exact target absence leads the final answer; same-family
+        symbols do not become principal affected members; mixed present+absent
+        answers preserve both target-bound claims.
 
 - Batch 45 — hybrid explorer partitioning and repo-map wait visibility. Status:
   planned.
