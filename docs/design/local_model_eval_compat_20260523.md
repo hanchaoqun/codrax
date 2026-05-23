@@ -2240,3 +2240,85 @@ Batch 24 task list:
       terminal-aware hint wording.
 - [x] Run focused tests, build, and full `go test ./...`.
 - [x] Commit and push Batch 24.
+
+Post-eval verification (2026-05-24):
+
+- Ran focused local-provider evals with `providers.yaml` default local model
+  (`Qwen3.5-9B-OptiQ-4bit`) under `.codrax/eval-batch24`.
+- `qf_sequence_analyzer_gate`:
+  `.codrax/eval-batch24/qf_sequence_analyzer_gate-20260524-053349`.
+  Result: PASS.
+  - The Batch 24 target passed: analyzer emitted `emit_analysis` in round 1
+    (`analyzer_iters=1`, `analyzer_dispatches=1`), with no analyzer
+    content-reading pre-scan.
+  - Finalizer also converged in one iteration (`finalizer_iters=1`).
+  - Remaining cost is now downstream: `explorer_iters=35`,
+    `explorer_dispatches=2`, `midloop_inject=17`.
+  - Root observation: the user asked for a bounded sequence/call-order answer,
+    but the explore guard injected `intent-window-mismatch` structural-coverage
+    guidance and the source-to-sink closure gate requeued exploration after a
+    successful first investigation. The closure gate also reported "previous
+    attempt collected 3 [DIRECT]/[REGISTRATION] evidence entries" despite many
+    grounded call-chain facts. This suggests the evidence quota is not yet
+    typed tightly enough to the requested answer shape.
+  - Quality note: the visible answer passed the eval but one list item cited a
+    suspicious adjacent source (`reconcileExternalOnlyRuntimeDiagnosticProfile`
+    surfaced with `internal/analysis/gate/gate.go:127`). Future evals should
+    track "PASS but citation abstraction drift" separately from hard failures.
+- `qf_relation_subagent_registry`:
+  `.codrax/eval-batch24/qf_relation_subagent_registry-20260524-055032`.
+  Result: PASS.
+  - The hard analyzer boundary held: when the local model tried `read_file` in
+    analyze, the tool was rejected before execution and the next request exposed
+    emit-only.
+  - The model still spent analyzer budget before convergence
+    (`analyzer_iters=5`, `analyzer_dispatches=2`). First `emit_analysis` was
+    rejected because the enumeration gate required enumerated members before
+    exploration. The successful retry used broader entities (`codrax`,
+    `SubAgentRegistry`) and let exploration discover the actual member.
+  - Explore still paid path-confusion tax: the local model repeatedly prefixed
+    repo-relative paths with the repository label (`codrax-small/...`,
+    `codrax/...`) before finding `internal/...`.
+  - Final answer passed and preserved the member set (`explorer`), but carried
+    a system-generated supplemental-anchor block and a generic "may need
+    additional verification" note. This is acceptable as a fallback, but should
+    not be common for clean relation lookups.
+- `read_combo_analyze_retry_anchor`:
+  `.codrax/eval-batch24/read_combo_analyze_retry_anchor-20260524-055446`.
+  Manually stopped after the run exceeded the useful verification window.
+  - Analyzer was healthy (`emit_analysis` in round 1). The remaining problem is
+    not analyze classification.
+  - Explore expanded into multiple routes, repeatedly read broad file windows,
+    and spent many rounds repairing recovered/ungrounded evidence anchors.
+  - The same `intent-window-mismatch` structural-coverage guard fired on narrow
+    windows even though the user asked for specific retry/IR mechanism anchors,
+    not an overall file-structure answer.
+  - This case should become the next high-ROI benchmark for "bounded mechanism
+    answer does not require overview coverage once typed anchor obligations are
+    satisfied".
+
+Next high-ROI gap from this eval batch:
+
+- Tighten explore readiness/repair gates by typed answer shape:
+  - For bounded sequence/call-chain/mechanism questions, prioritize grounded
+    chain/intermediate/condition facts over generic DIRECT/REGISTRATION counts.
+  - Do not inject structural overview coverage (`intent-window-mismatch`) unless
+    the typed request actually requires file/module overview coverage.
+  - Treat recovered-but-equivalent symbol-line corrections as a low-cost repair
+    path when the corrected line is already supplied by the tool result; avoid
+    forcing another model round when the system can deterministically cite the
+    corrected anchor without changing semantic content.
+  - Normalize harmless repository-label path prefixes at tool boundaries when
+    they map unambiguously back inside the active repo root, while preserving
+    existing hard protections against `..`, absolute path escape, and symlink
+    escape.
+
+Task backlog:
+
+- [ ] Add eval telemetry for `intent_window_mismatch_injections`,
+      `explore_fact_requeues`, `recovered_anchor_extra_rounds`, and
+      `repo_label_path_rewrites`.
+- [ ] Design a typed explore-readiness contract that consumes support lanes /
+      answer shape instead of generic evidence-kind quotas.
+- [ ] Re-run the three cases above after the next explore-readiness batch and
+      compare analyzer/explorer/finalizer iteration counts, not only PASS/FAIL.
