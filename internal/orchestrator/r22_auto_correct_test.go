@@ -302,6 +302,7 @@ func TestAutoCorrectAnalyzerStageOutput_R14ClearsErrorBeforeApply(t *testing.T) 
 	o := &Orchestrator{
 		busCtx: &types.BusContext{
 			Mode:      types.ModeRead,
+			Mutable:   types.NewMutableState("which values are registered"),
 			TaskState: types.TaskState{LastError: "old analyzer gate error"},
 		},
 	}
@@ -322,16 +323,24 @@ func TestAutoCorrectAnalyzerStageOutput_R14ClearsErrorBeforeApply(t *testing.T) 
 			},
 			TaskGraph: types.TaskGraph{
 				Nodes: []types.TaskNode{
-					{ID: "n0", Type: types.NodeEvidence, Objective: "collect", Hypotheses: []string{"h0"}},
-					{ID: "n1", Type: types.NodeFinalize, Objective: "render", Hypotheses: []string{"h0"}},
+					{ID: "n0_probe", Type: types.NodeProbe, Objective: "probe", Hypotheses: []string{"h0"}},
+					{ID: "n1_evidence_t0", Type: types.NodeEvidence, Objective: "collect stale lane 0", Hypotheses: []string{"h0"}},
+					{ID: "n1_evidence_t1", Type: types.NodeEvidence, Objective: "collect stale lane 1", Hypotheses: []string{"h0"}},
+					{ID: "n1_evidence_t2", Type: types.NodeEvidence, Objective: "collect stale lane 2", Hypotheses: []string{"h0"}},
+					{ID: "n2_finalize", Type: types.NodeFinalize, Objective: "render", Hypotheses: []string{"h0"}},
 				},
 				Edges: []types.TaskEdge{
-					{From: "n0", To: "n1", EdgeType: types.EdgeHardDependency},
+					{From: "n0_probe", To: "n1_evidence_t0", EdgeType: types.EdgeHardDependency},
+					{From: "n0_probe", To: "n1_evidence_t1", EdgeType: types.EdgeHardDependency},
+					{From: "n0_probe", To: "n1_evidence_t2", EdgeType: types.EdgeHardDependency},
+					{From: "n1_evidence_t0", To: "n2_finalize", EdgeType: types.EdgeHardDependency},
+					{From: "n1_evidence_t1", To: "n2_finalize", EdgeType: types.EdgeHardDependency},
+					{From: "n1_evidence_t2", To: "n2_finalize", EdgeType: types.EdgeHardDependency},
 				},
 				ExecutionPolicy: types.ExecutionPolicy{
 					MaxParallelism: 1,
 					RetryBudget:    1,
-					CriticalPath:   []string{"n0", "n1"},
+					CriticalPath:   []string{"n0_probe", "n1_evidence_t0", "n2_finalize"},
 				},
 			},
 			EvidencePlan: types.EvidencePlan{
@@ -365,6 +374,17 @@ func TestAutoCorrectAnalyzerStageOutput_R14ClearsErrorBeforeApply(t *testing.T) 
 	if out.AnalysisIR.QualityGate.Rejected {
 		t.Fatalf("quality gate should pass after correction: %#v", out.AnalysisIR.QualityGate)
 	}
+	if got := testCountTaskNodes(out.AnalysisIR.TaskGraph, types.NodeEvidence); got != 1 {
+		t.Fatalf("R1.4 correction should recompile away stale subtopic evidence lanes; got %d evidence nodes in %#v", got, out.AnalysisIR.TaskGraph.Nodes)
+	}
+	for _, n := range out.AnalysisIR.TaskGraph.Nodes {
+		if n.ID == "n1_evidence_t0" || n.ID == "n1_evidence_t1" || n.ID == "n1_evidence_t2" {
+			t.Fatalf("stale pre-correction evidence lane survived rebuild: %q", n.ID)
+		}
+	}
+	if got := o.busCtx.Mutable.RequestModel(); got == nil || len(got.SubTopics) != 0 {
+		t.Fatalf("mutable request model should reflect corrected subtopic collapse; got %#v", got)
+	}
 }
 
 func testStringSliceContains(in []string, want string) bool {
@@ -374,4 +394,14 @@ func testStringSliceContains(in []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func testCountTaskNodes(graph types.TaskGraph, typ types.TaskNodeType) int {
+	count := 0
+	for _, n := range graph.Nodes {
+		if n.Type == typ {
+			count++
+		}
+	}
+	return count
 }

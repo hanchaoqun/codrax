@@ -2441,10 +2441,17 @@ func (o *Orchestrator) autoCorrectAnalyzerStageOutput(output *agent.StageOutput,
 	}
 	if r14AutoCollapseEnumerationSubtopics(output.AnalysisIR) {
 		logging.Warning("[orchestrator] analyze R1.4 auto-correct on attempt %d: collapsed single-axis enumeration sub_topics; re-running gate", attempt+1)
+		if err := rebuildAnalysisIRCompiledArtifactsAfterAutoCorrect(output.AnalysisIR); err != nil {
+			logging.Warning("[orchestrator] analyze R1.4 auto-correct rebuild failed: %v", err)
+			return false
+		}
 		if rerunAnalyzerGateReport(output.AnalysisIR, mode) {
 			clearAnalyzerStageOutputError(output)
 			if o != nil && o.busCtx != nil {
 				o.busCtx.TaskState.LastError = ""
+				if o.busCtx.Mutable != nil {
+					o.busCtx.Mutable.SetRequestModel(output.AnalysisIR.RequestModel)
+				}
 			}
 			logging.Info("[orchestrator] analyze R1.4 auto-correct succeeded — gate now passes; continuing pipeline")
 			return true
@@ -2460,10 +2467,17 @@ func (o *Orchestrator) autoCorrectAnalyzerStageOutput(output *agent.StageOutput,
 	// resolver-backed checks.
 	if attempt >= 1 && r22AutoCorrectShapeSubject(output.AnalysisIR) {
 		logging.Warning("[orchestrator] analyze R2.2 auto-correct on attempt %d: cleared scalar AnswerSubject.Kind; re-running gate", attempt+1)
+		if err := rebuildAnalysisIRCompiledArtifactsAfterAutoCorrect(output.AnalysisIR); err != nil {
+			logging.Warning("[orchestrator] analyze R2.2 auto-correct rebuild failed: %v", err)
+			return false
+		}
 		if rerunAnalyzerGateReport(output.AnalysisIR, mode) {
 			clearAnalyzerStageOutputError(output)
 			if o != nil && o.busCtx != nil {
 				o.busCtx.TaskState.LastError = ""
+				if o.busCtx.Mutable != nil {
+					o.busCtx.Mutable.SetRequestModel(output.AnalysisIR.RequestModel)
+				}
 			}
 			logging.Info("[orchestrator] analyze R2.2 auto-correct succeeded — gate now passes; continuing pipeline")
 			return true

@@ -72,6 +72,11 @@ Eval run root:
   requests suppress overview-wide-read hints through a typed guard, and evidence
   repair switches from `read_file + emit` to emit-only after target windows are
   covered or a bounded repair-read quota is exhausted.
+- Batch 22 targets a deeper search-width root cause from
+  `qf_relation_subagent_registry`: analyzer R1.4/R2.2 auto-corrections mutate
+  `RequestModel`, but the already-compiled `TaskGraph`, `EvidencePlan`, and
+  `AnswerContract` can stay stale. The fix is to recompile the deterministic IR
+  artifacts after a structural auto-correction before the gate is re-run.
 
 ## Operating Principles
 
@@ -2006,6 +2011,74 @@ Batch 21 task list:
 - [x] Run focused explorer tests, affected agent/tool/types tests, `make build`,
       and full `go test ./...`.
 - [x] Commit and push Batch 21.
+
+## 2026-05-24 Batch 22 - Analyzer Auto-Correction Recompile Contract
+
+Problem statement:
+
+- The focused local-model eval
+  `.codrax/eval-batch21/qf_relation_subagent_registry-20260524-043606`
+  found a search-width failure that survived the previous convergence fixes.
+- The analyzer emitted three same-axis enumeration `sub_topics` for one
+  logical set lookup. The R1.4 auto-correction correctly identified this as a
+  single-axis enumeration, moved the sub-topic terms into analyzer hints, and
+  cleared `RequestModel.SubTopics`.
+- However, `TaskGraph` had already been compiled before the correction. Its
+  stale evidence nodes (`n1_evidence_t0`, `n1_evidence_t1`,
+  `n1_evidence_t2`) still represented the old sub-topics, so the scheduler ran
+  multiple exploration lanes even though the corrected `RequestModel` no longer
+  had multiple lanes.
+- This is not a model-output compatibility issue alone. It is a deterministic
+  IR consistency bug: after any accepted structural mutation of the
+  `RequestModel`, every derived artifact must either be recomputed or proven
+  unaffected.
+
+Design:
+
+- Add a shared analyzer-auto-correction rebuild step in the orchestrator.
+  Existing R1.4 and R2.2 corrections remain the only callers; no new
+  correction condition is introduced.
+- Rebuild only deterministic artifacts derived from the corrected
+  `RequestModel`:
+  - `TaskGraph`
+  - `EvidencePlan`
+  - `AnswerContract`
+  - `HypothesisSet`
+- Reuse the same existing analyzer pipeline components rather than hand-editing
+  the graph:
+  - `compiler.Compile`
+  - `hdp.Plan`
+  - `compiler.RecomputeBudget`
+  - `amplifier.AmplifyPostCompile`
+  - `binder.BindByRelevance`
+  - `counterfactual.Expand` when the corrected request still qualifies
+- Preserve analyzer post-compile data that the orchestrator cannot safely
+  regenerate without analyzer-only context:
+  - carry forward an already-required diagram contract so user/model diagram
+    intent is not lost;
+  - preserve citation-free carve-outs when the previous contract had already
+    removed the citation floor;
+  - merge previously computed required-file hints with newly compiled hints.
+- After rebuilding, write the corrected `RequestModel` back into
+  `BusContext.Mutable` so downstream tools do not read pre-correction state.
+- Keep the safety boundary:
+  - no user-text or model-prose keyword matching;
+  - no answer-content synthesis;
+  - no change to prompt code;
+  - no weakening of the existing gate. The gate is still re-run after rebuild,
+    and mixed failures remain refused by the existing R1.4/R2.2 guards.
+
+Batch 22 task list:
+
+- [x] Add an orchestrator helper to rebuild analyzer-derived artifacts after a
+      structural auto-correction.
+- [x] Wire R1.4 and R2.2 auto-correct paths through that helper before
+      `rerunAnalyzerGateReport`.
+- [x] Update mutable request-model writeback after a successful correction.
+- [x] Add regression coverage proving R1.4 collapse also removes stale
+      `_t*` evidence lanes from `TaskGraph`.
+- [x] Run focused orchestrator tests, `make build`, and full `go test ./...`.
+- [x] Commit and push Batch 22.
 
 ## Open Questions
 
