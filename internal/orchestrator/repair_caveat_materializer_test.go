@@ -139,6 +139,9 @@ func TestAppendSoftContractCaveatsToAnswerForBus_PureHistoryNarrativeSuppressesC
 		{Kind: types.ViolBlockCoverageMissing},
 		{Kind: types.ViolEnumerationLabelUngrounded},
 		{Kind: types.ViolAnswerSemanticUnderfilled},
+		{Kind: types.ViolCitation},
+		{Kind: types.ViolAcceptance},
+		{Kind: types.ViolSymbolAnchorMismatch},
 	}, "zh", ctx)
 	if out != "正文" {
 		t.Fatalf("pure VCS history narrative should not get generic current-source coverage caveats:\n%s", out)
@@ -182,6 +185,68 @@ func TestAppendSoftContractCaveatsToAnswerForBus_MechanismSuppressesGenericEnume
 	}, "zh", ctx)
 	if out != "正文" {
 		t.Fatalf("mechanism answers should not surface generic enumeration/metadata caveats on accepted path:\n%s", out)
+	}
+}
+
+func TestAppendSoftContractCaveatsToAnswerForBus_MechanismSuppressesGenericCitationAndAcceptanceAdvisories(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	rm := types.RequestModel{
+		RawRequest: "解释 Criterion 和 Hypothesis 的工作流",
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioArchitectureExplain,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind: string(types.ReqMechanism),
+		},
+	}
+	mut := types.NewMutableState(rm.RawRequest)
+	mut.SetRequestModel(rm)
+	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+
+	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{
+		{Kind: types.ViolCitation},
+		{Kind: types.ViolGhostAnchor},
+		{Kind: types.ViolChainDemoted},
+		{Kind: types.ViolLiteralFormFailed},
+		{Kind: types.ViolSymbolAnchorMismatch},
+		{Kind: types.ViolAcceptance},
+		{Kind: types.ViolSuccessCriterion},
+		{Kind: types.ViolFamilyMismatch},
+		{Kind: types.ViolClaimFormUnsupported},
+	}, "zh", ctx)
+	if out != "正文" {
+		t.Fatalf("accepted mechanism answers should not surface generic citation/acceptance caveats:\n%s", out)
+	}
+}
+
+func TestAppendSoftContractCaveatsToAnswerForBus_ScalarKeepsCitationGroundingCaveat(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	rm := types.RequestModel{
+		RawRequest: "defaultMaxSteps 的默认值是多少？",
+		Intent:     types.IntentReturnValue,
+		Predicates: types.SemanticPredicates{
+			IsScalarAnswer: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			Kind: string(types.ReqReturnValue),
+		},
+	}
+	mut := types.NewMutableState(rm.RawRequest)
+	mut.SetRequestModel(rm)
+	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+
+	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{
+		{Kind: types.ViolCitation},
+		{Kind: types.ViolSymbolAnchorMismatch},
+	}, "zh", ctx)
+	if !strings.Contains(out, "**补充说明：**") {
+		t.Fatalf("exact scalar answers should keep citation-boundary disclosure:\n%s", out)
+	}
+	if !strings.Contains(out, "锚点") {
+		t.Fatalf("expected citation-grounding caveat for scalar answer:\n%s", out)
 	}
 }
 

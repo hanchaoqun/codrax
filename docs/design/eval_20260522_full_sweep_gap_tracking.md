@@ -552,8 +552,11 @@ Implementation notes:
   prompt/reviewer support.
 - `AppendSoftContractCaveatsToAnswerForBus` now runs generic accepted-path soft
   caveats through the unified output contract. Mechanism answers suppress
-  enumeration/metadata advisories; true enumeration requests still surface
-  enumeration-depth caveats; explicit diagram requests still surface a precise
+  enumeration/metadata advisories and broad citation/acceptance leftovers; pure
+  VCS/history narratives go through the same suppressor after history-specific
+  filtering. True enumeration, scalar/count/key-value/config, exact absence,
+  trace/call-chain/conditional/registration requests still surface precise
+  grounding boundaries; explicit diagram requests still surface a precise
   diagram-missing disclosure.
 - Verification: `go test ./internal/types ./internal/tool ./internal/orchestrator`.
   Follow-up guard coverage:

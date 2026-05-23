@@ -147,6 +147,7 @@ func AppendSoftContractCaveatsToAnswerForBus(answer string, violations []types.V
 	}
 	if historyNarrativeCaveatContext(ctx) {
 		remaining := filterPureHistoryNarrativeCaveats(soft)
+		remaining = suppressGenericSoftCaveatsForAcceptedSurface(remaining, ctx)
 		if len(remaining) == 0 {
 			return answer
 		}
@@ -257,9 +258,55 @@ func genericAcceptedPathCaveatIsTelemetry(v types.Violation, rm *types.RequestMo
 			!contract.HasOutput(types.AnswerRequestedOutputDiagnostic)
 	case types.ViolBlockCoverageMissing:
 		return blockCoverageCaveatIsTelemetry(v, rm, contract)
+	case types.ViolCitation,
+		types.ViolGhostAnchor,
+		types.ViolChainDemoted,
+		types.ViolLiteralFormFailed,
+		types.ViolSymbolAnchorMismatch:
+		return !acceptedPathNeedsPreciseGroundingDisclosure(rm, contract)
+	case types.ViolFamilyMismatch,
+		types.ViolAcceptance,
+		types.ViolSuccessCriterion,
+		types.ViolClaimFormUnsupported:
+		return !acceptedPathNeedsPreciseGroundingDisclosure(rm, contract)
 	default:
 		return false
 	}
+}
+
+func acceptedPathNeedsPreciseGroundingDisclosure(rm *types.RequestModel, contract types.AnswerIntentContract) bool {
+	if rm == nil {
+		return true
+	}
+	if principalEnumerationSurfaceRequested(rm, contract) {
+		return true
+	}
+	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsRoleLocateLookup {
+		return true
+	}
+	switch rm.Intent {
+	case types.IntentConfigQuery, types.IntentReturnValue, types.IntentTrace:
+		return true
+	}
+	if contract.HasOutput(types.AnswerRequestedOutputScalar) ||
+		contract.HasOutput(types.AnswerRequestedOutputKeyValue) ||
+		contract.HasOutput(types.AnswerRequestedOutputCount) ||
+		contract.HasOutput(types.AnswerRequestedOutputEnumeration) ||
+		contract.HasOutput(types.AnswerRequestedOutputTrace) ||
+		contract.HasOutput(types.AnswerRequestedOutputAbsence) {
+		return true
+	}
+	switch types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case types.ReqReturnValue,
+		types.ReqConditional,
+		types.ReqConfigMapping,
+		types.ReqRegistration,
+		types.ReqCallChain:
+		return true
+	}
+	return false
 }
 
 func blockCoverageCaveatIsTelemetry(v types.Violation, rm *types.RequestModel, contract types.AnswerIntentContract) bool {

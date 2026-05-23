@@ -472,6 +472,13 @@ untouched.
     either visible evidence mention or an out-of-range citation carrier that
     proves the model dropped the citation pool. High-confidence required-file
     hints alone no longer create a generic "more source anchors" appendix.
+  - Delivered in Batch 41.3: accepted-path soft caveats now suppress generic
+    citation/acceptance leftovers for ordinary mechanism narratives and pure
+    VCS/history narratives once the answer is otherwise accepted. Precise
+    surfaces still keep disclosure: scalar/count/key-value/config, exact
+    absence, true enumeration/member-set, trace/call-chain/conditional/
+    registration requests continue to surface grounding boundaries when the
+    typed contract requires them.
 
 - Batch 42 — external observation refs and no-hit answer shape. Status:
   in progress.
