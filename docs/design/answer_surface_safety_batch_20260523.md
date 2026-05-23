@@ -144,6 +144,43 @@ Rules:
 - Large payloads use existing payload/row-set refs and blob pagination. They
   should not force the model to serialize huge JSON arrays.
 
+### 4. Exact External Detail Preservation
+
+`E20260520-G153` exposed a broader contract gap: external observations may be
+accepted as principal evidence, but exact path/date/resource literals inside
+the observation can still degrade into ordinary prose. In the replay, `git_log
+--stat` returned abbreviated stat paths such as
+`.../design/answer_surface_safety_batch_20260523.md`; the finalizer expanded
+the abbreviation and changed `20260523` to `20250523`. The answer shape was
+good, but an exact literal was no longer trustworthy.
+
+This is not a VCS-only issue. The same class applies to:
+
+- VCS metadata/diff: commit IDs, changed-file paths, hunks, old/new line spans.
+- Runtime logs/traces: artifact-local line numbers, event IDs, span names,
+  timestamps, thread/process IDs.
+- Command output: table rows, counts, JSON fields, shell output line numbers.
+- Cross-repo index: repo slug, package path, symbol path, graph node ID.
+- External document / web / MCP / connector: URL/resource URI, page/paragraph,
+  JSON pointer, row ID, fetched timestamp, connector object ID.
+
+Contract:
+
+- Producers should expose exact literal detail as typed fields, exact detail
+  sections, `PayloadRef`, or `RowSetRef`, not only as narrative prose.
+- If a producer emits an abbreviated display (for example git stat's `...` path
+  compaction), it must also emit an exact companion detail when the exact value
+  is cheap and bounded.
+- Finalizer/reviewer prompts should tell the model to copy path-like,
+  date-like, URL-like, and ID-like literals only from exact typed detail or raw
+  payload, and to avoid expanding abbreviated display strings.
+- This layer remains presentation/support evidence. It must not become
+  current-source `file:line` pressure unless a separate current-source read
+  grounds the same claim.
+- The mechanism is language-agnostic. It treats paths/IDs/rows as origin-local
+  observation details and does not infer semantics from Go, Java, C++, Python,
+  TS, ArkTS, Cangjie, Ruby, Shell, or any other repomap language.
+
 ## Batch Task List
 
 | Batch | Status | Task | Code Areas | Validation |
@@ -155,6 +192,8 @@ Rules:
 | T4 | Partially done | Add telemetry/tests proving reviewer sees system supplements, model Markdown tables, diagrams, attachments, and external observations exactly as the final panel does. | `internal/orchestrator/*reviewer*_test.go`, `internal/render/answerdoc_test.go` | Shared surface test covers supplements, diagrams, and attachments; external observations already covered by semantic reviewer tests. Targeted eval replay remains under T5. |
 | T5 | Partially done | Run targeted evals for principal-ledger/history, source-inventory, multi-repo compare, log/trace artifact, and mixed external+code analysis. | `eval/results/...` | `u7l` and `logtri_artifact_line_anchor` replayed with no finalizer retry; broader mixed/multi-repo tranche remains for the next batch. |
 | T6 | Partially done | Refresh gap docs with confirmed residuals and decide next architecture batch. | `docs/design/eval_20260520_full_sweep_gap_tracking.md`, related design docs | VCS path/date literal fidelity residual recorded as `E20260520-G153`. |
+| T7 | Pending | Add exact external-detail preservation for VCS tool outputs, starting with `git_log stat=true` exact changed paths and prompt guidance that forbids expanding abbreviated stat paths. | `internal/tool/builtin.go`, `internal/types/observation_ledger.go`, finalizer prompt tests | unit tests + `u7l` replay |
+| T8 | Pending | Generalize exact-detail projection tests for non-VCS origins so logs/traces/commands/MCP/connectors keep artifact-local coordinates and resource IDs as origin-local evidence. | `internal/types/observation_*_test.go`, selected eval cases | targeted log/trace/command/MCP-style fixtures |
 
 ## Developer Guardrails
 
@@ -206,3 +245,10 @@ Rules:
   `20250523`). This is tracked in the full eval gap ledger as
   `E20260520-G153`; it requires typed VCS path/file-detail preservation rather
   than another supplement-table patch.
+- 2026-05-23: Code/log audit for `E20260520-G153` found the deep root cause:
+  `git_log stat=true` exposes Git's abbreviated `--stat` display to the model,
+  while exact changed paths are not separately carried in the typed observation
+  surface. The finalizer prompt had full tool output, but it had to infer exact
+  paths from `...` abbreviations. Batch T7 will add bounded exact changed-path
+  companions at the VCS producer layer and prompt guidance to copy exact literals
+  only from exact detail/raw payload, not from abbreviated display strings.
