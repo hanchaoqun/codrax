@@ -232,7 +232,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsSupplementForIncompatible
 		t.Fatalf("model-authored structured table must remain untouched: %+v", model)
 	}
 	supplement := doc.Blocks[2]
-	if !strings.Contains(supplement.Title, "系统按已验证证据给出的完整成员表") {
+	if !strings.Contains(supplement.Title, "系统按已验证证据补充可校验字段") {
 		t.Fatalf("system supplement should be clearly labeled, got %q", supplement.Title)
 	}
 	visible := types.AnswerBlockVisibleSurface(supplement)

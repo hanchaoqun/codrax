@@ -673,6 +673,7 @@ func currentSourceCitationSupplementRows(doc *types.AnswerDocumentV2, ctx *types
 	}
 	visible := answerDocumentVisibleText(doc)
 	required := currentSourceRequiredFileSet(ctx)
+	droppedCitationPool := answerDocumentHasOutOfRangeCitationRefs(doc)
 	var rows []currentSourceCitationSupplementRow
 	seen := map[string]bool{}
 	for seq, ev := range pctx.evidenceItems() {
@@ -681,6 +682,9 @@ func currentSourceCitationSupplementRows(doc *types.AnswerDocumentV2, ctx *types
 		}
 		key := strings.ToLower(fmt.Sprintf("%s:%d", strings.TrimSpace(ev.Source), ev.LineStart))
 		if seen[key] {
+			continue
+		}
+		if !droppedCitationPool && !currentSourceCitationSupplementVisibleHit(ev, visible) {
 			continue
 		}
 		score := currentSourceCitationSupplementScore(ev, visible, required)
@@ -700,6 +704,27 @@ func currentSourceCitationSupplementRows(doc *types.AnswerDocumentV2, ctx *types
 		rows = rows[:limit]
 	}
 	return rows
+}
+
+func answerDocumentHasOutOfRangeCitationRefs(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		for _, item := range block.Items {
+			if item.CitationRef > 0 && item.CitationRef >= len(doc.Citations) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func currentSourceCitationSupplementVisibleHit(ev types.EvidenceItem, visible string) bool {
+	if preEmitItemSurfaceMentionsEvidence("", visible, ev) {
+		return true
+	}
+	return strings.TrimSpace(ev.Summary) != "" && types.AnswerCodeSurfaceAppearsInText(visible, ev.Summary)
 }
 
 func currentSourceEvidenceCitable(ev types.EvidenceItem) bool {
@@ -737,8 +762,7 @@ func currentSourceRequiredFileSet(ctx *types.BusContext) map[string]bool {
 
 func currentSourceCitationSupplementScore(ev types.EvidenceItem, visible string, required map[string]bool) int {
 	score := 0
-	if preEmitItemSurfaceMentionsEvidence("", visible, ev) ||
-		(strings.TrimSpace(ev.Summary) != "" && types.AnswerCodeSurfaceAppearsInText(visible, ev.Summary)) {
+	if currentSourceCitationSupplementVisibleHit(ev, visible) {
 		score += 100
 	}
 	source := strings.ToLower(strings.TrimSpace(strings.ReplaceAll(ev.Source, `\`, `/`)))

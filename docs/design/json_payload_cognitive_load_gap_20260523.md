@@ -2,12 +2,13 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-32 are complete and verified; the
-shared schema-aware repair path is active across the high-frequency structured
-emit tools, including the legacy top-level JSON-string repair wrappers.
-Remaining work is still tracked below, starting with P1 carrier compilers /
-row-set compilers, followed by deeper transactional document updates, typed
-repair hints for remaining validators, and prompt/ledger deduplication.
+Status: partially implemented. Batches 1-40 are complete and verified; Batch 41
+is the active visible-supplement authority pass. The shared schema-aware repair
+path is active across the high-frequency structured emit tools, including the
+legacy top-level JSON-string repair wrappers. Remaining work is tracked below as
+explicit batches so implementation does not rely on memory: visible supplement
+authority, external observation refs, runtime provenance, analyzer fast paths,
+hybrid explorer partitioning, retry telemetry, and diagram renderability.
 
 Implementation progress:
 
@@ -423,19 +424,54 @@ untouched.
 ### Batch 41+ Task Queue
 
 - Batch 41 — visible supplement authority contract. Status: in progress.
-  - Implement deterministic visible-surface cleanup for system-generated
-    supplements: suppress duplicate system blocks whose normalized members are
-    already represented in model-authored principal blocks; demote adjacent or
-    support-only categories to clearly labeled support notes; suppress generic
-    coverage caveats for observation-only or already bounded answers.
-  - Guardrail tests: model table/prose is never replaced; system supplements are
-    appended only when typed non-overlapping value exists; Chinese answers do
-    not show raw facet ids such as `observed_artifact_fact` / `absence_fact`.
+  - Design principle: model-authored prose, markdown tables, structured tables,
+    diagrams, and caveats are the primary answer surface. Runtime may append
+    localized supplements only when a typed, mechanically verified carrier proves
+    a non-overlapping visible gap. Runtime must not rewrite, delete, compress, or
+    silently replace model-authored answer content.
+  - Code entry points audited for this batch:
+    `normalizePrincipalEnumerationRowBlocks`,
+    `normalizeAggregateMemberSetCarriers`,
+    `normalizeCurrentSourceCitationSupplement`,
+    `normalizeAggregateNegativeProofSupplement`,
+    `materializeRequiredCaveatWhenOnlyMissing`,
+    `AppendSoftContractCaveatsToAnswerForBus`, and renderer-side preserved
+    attachment output.
+  - Batch 41.1 task: make enumeration supplements strictly local. If a
+    model-authored table/list already names the member, runtime may append only
+    the missing verified fields/rows in a clearly labeled supplement. It must not
+    publish a competing "complete system table" just because the model's table
+    layout is incompatible with the deterministic row compiler.
+  - Batch 41.2 task: tighten current-source anchor supplements. They should fire
+    only when the answer explicitly needs current-source support and the model
+    surface dropped the citation pool; they should not become a generic
+    "more anchors" appendix for an already bounded model answer.
+  - Batch 41.3 task: route accepted-path soft caveats through one suppressor.
+    Generic coverage / metadata / richness caveats remain telemetry unless the
+    system can name a precise user-visible missing facet. Observation-only,
+    history-only, mechanism, scalar/count, and already bounded answers should not
+    receive broad "coverage may be insufficient" notes.
+  - Batch 41.4 task: add a guardrail test family covering Chinese and English
+    supplements, model-authored markdown table preservation, structured-table
+    preservation, source-anchor supplement gating, and generic caveat
+    suppression. Tests must use typed request/evidence signals only; no hard gate
+    may inspect user prose or model free-form text except for visible-coverage
+    detection.
   - Delivered so far: corrupt or noisy model-authored markdown tables no longer
     trigger a second full system-generated member table. The compiler now
     preserves the model table and appends only the deterministic missing rows;
     duplicate or unexpected model rows stay visible as model-authored content
     but are not copied into the system supplement.
+  - Delivered in Batch 41.1: incompatible model-authored structured tables no
+    longer produce a competing "complete system table." The runtime keeps the
+    model table untouched and, when deterministic fields cannot be filled in
+    place, appends a localized `System-verified field supplement` /
+    `系统按已验证证据补充可校验字段` block. This keeps the supplemental nature
+    explicit while preserving model-authored table layout.
+  - Delivered in Batch 41.2: current-source anchor supplements now require
+    either visible evidence mention or an out-of-range citation carrier that
+    proves the model dropped the citation pool. High-confidence required-file
+    hints alone no longer create a generic "more source anchors" appendix.
 
 - Batch 42 — external observation refs and no-hit answer shape. Status:
   in progress.

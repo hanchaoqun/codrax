@@ -55,9 +55,9 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 		missingRows := missingBySet[set.ID]
 		supplementRows := missingRows
 		supplementMode := principalEnumerationSupplementMissing
-		if principalEnumerationNeedsFullVerifiedSupplement(doc, set) {
+		if principalEnumerationNeedsVerifiedFieldSupplement(doc, set) {
 			supplementRows = set.Rows
-			supplementMode = principalEnumerationSupplementFullVerified
+			supplementMode = principalEnumerationSupplementVerifiedFields
 		}
 		supplementRows = principalEnumerationRenderableSupplementRows(supplementRows)
 		if len(supplementRows) > 0 {
@@ -75,7 +75,7 @@ type principalEnumerationSupplementMode int
 
 const (
 	principalEnumerationSupplementMissing principalEnumerationSupplementMode = iota
-	principalEnumerationSupplementFullVerified
+	principalEnumerationSupplementVerifiedFields
 )
 
 func principalEnumerationSystemSupplementSuppressed(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
@@ -623,15 +623,16 @@ func buildPrincipalEnumerationRowsBlock(doc *types.AnswerDocumentV2, set types.E
 	return block
 }
 
-func principalEnumerationNeedsFullVerifiedSupplement(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet) bool {
+func principalEnumerationNeedsVerifiedFieldSupplement(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet) bool {
 	if doc == nil || len(set.Rows) == 0 {
 		return false
 	}
-	// Do not publish a second full table just because a model-authored markdown
-	// table has duplicate or unexpected rows. That turns a local carrier repair
-	// into a competing answer surface. Missing deterministic rows are handled by
-	// the ordinary missing-row supplement path above, while the authored table is
-	// preserved byte-for-byte for user inspection.
+	// Do not publish a second "complete system table" just because a
+	// model-authored table layout is incompatible with the deterministic
+	// compiler. That turns a local carrier repair into a competing answer
+	// surface. When the table already names the intended rows but cannot be
+	// safely rewritten in place, the separate supplement is framed as verified
+	// fields for those rows, not as a replacement table.
 	if principalEnumerationHasIncompatibleStructuredTableAttempt(doc, set) {
 		return true
 	}
@@ -786,11 +787,11 @@ func principalEnumerationRowsBlockTitle(set types.EnumerationDisplaySet, rows []
 	if label == "" {
 		label = "成员清单"
 	}
-	if mode == principalEnumerationSupplementFullVerified {
+	if mode == principalEnumerationSupplementVerifiedFields {
 		if zh {
-			return fmt.Sprintf("系统按已验证证据给出的完整成员表：%s（%d）", label, len(rows))
+			return fmt.Sprintf("系统按已验证证据补充可校验字段：%s（%d）", label, len(rows))
 		}
-		return fmt.Sprintf("System-verified complete member table: %s (%d)", label, len(rows))
+		return fmt.Sprintf("System-verified field supplement: %s (%d)", label, len(rows))
 	}
 	if zh {
 		return fmt.Sprintf("系统按已验证证据补充成员：%s（%d）", label, len(rows))

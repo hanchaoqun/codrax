@@ -3310,6 +3310,53 @@ func TestNormalizeCurrentSourceCitationSupplement_MaterializesDroppedCitationPoo
 	}
 }
 
+func TestNormalizeCurrentSourceCitationSupplement_DoesNotAppendGenericAnchorAppendix(t *testing.T) {
+	mu := types.NewMutableState("结合当前源码说明重试体验")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "defaultStreamFirstByteTimeout",
+			Source:          "internal/llm/openai.go",
+			LineStart:       670,
+			Scope:           types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+			Origin:          types.ClaimOriginCurrentRepo,
+			Summary:         "默认首字节超时阈值为 40 秒。",
+		},
+	})
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioArchitectureExplain,
+				Language: "zh",
+				AnalyzerHints: types.AnalyzerHints{
+					RequiredFileHints: []types.RequiredFileHint{{
+						Path:       "internal/llm/openai.go",
+						Confidence: 0.9,
+						Rationale:  "first-byte timeout implementation",
+					}},
+				},
+			},
+		},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:          "s1",
+		Kind:        types.BlockSummary,
+		Text:        "这次调整主要让慢模型等待更稳，避免把连接/流式异常误显示成语义重写。",
+		SurfaceRole: types.SurfacePrincipal,
+	}}}
+
+	if fixed := normalizeCurrentSourceCitationSupplement(doc, ctx, newPreEmitCheckContext(ctx)); fixed != 0 {
+		t.Fatalf("required_file hints alone must not create a generic source-anchor appendix, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if visible := answerDocumentVisibleText(doc); strings.Contains(visible, "系统按已验证证据补充关键源码锚点") {
+		t.Fatalf("generic source-anchor supplement leaked into visible answer:\n%s", visible)
+	}
+}
+
 func TestNormalizeAggregateNegativeProofSupplement_MaterializesRepoNegativeSearch(t *testing.T) {
 	mu := types.NewMutableState("确认 legacy_config_key 是否仍存在")
 	mu.SetInvestigationResultKind("absence")

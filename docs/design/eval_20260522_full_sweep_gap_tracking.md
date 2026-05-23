@@ -255,10 +255,12 @@ Implementation / validation notes:
   semantics beyond Go still no-op unless a typed adapter proves them.
 - System-generated enumeration tables are append-only. When a model-authored
   table is merely partial, the system appends only missing verified rows. When a
-  model-authored table appears to be a full attempt but has duplicate,
-  unexpected, or missing rows, the system preserves that authored table and
-  appends a clearly localized `系统按已验证证据给出的完整成员表` block instead of
-  silently rewriting the model's table.
+  model-authored structured table already names the intended rows but its
+  layout is incompatible with deterministic cell repair, the system preserves
+  that authored table and appends only a clearly localized
+  `系统按已验证证据补充可校验字段` block. It must not silently rewrite the
+  model's table or publish a competing "complete system table" as if it were the
+  primary answer.
 - Targeted tests:
   `go test ./internal/tool -run 'TestReconcileCompletionAggregateFactsWithSourceInventory|TestEffectiveCompletionAggregateFactsForValidation|TestPreEmitStructuredMemberBlockCoversFactAcrossBlocks|TestEmitAnswerSymbol_MaterializesSourceInventoryAggregateSlate|TestNormalizePrincipalEnumerationRowBlocks'`;
   `go test ./internal/types -run 'TestSourceInventoryProfile|TestCompileEnumerationDisplaySets_SourceInventorySuppressesUnrequestedValues|TestCompileEnumerationDisplaySets_MultiCategoryRowsPreserveRichNotes'`;
