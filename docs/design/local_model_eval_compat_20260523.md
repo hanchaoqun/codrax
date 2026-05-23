@@ -55,6 +55,12 @@ Eval run root:
   exhaustive file enumeration. `IntentTrace` + call/conditional/register
   requirement now remains in the bounded-trace lane unless an explicit typed
   member-set/count/relation/category obligation is present.
+- Batch 8 designs the explorer "Closing Lane": completion-readiness is treated
+  as a fallible structured signal, not an oracle. The first readiness hint stays
+  advisory. Only after the model ignores that hint long enough to enter the
+  existing completion-ready escalation state does the runtime narrow the action
+  space by blocking broad scope-expansion tools while still allowing exact
+  `read_file` checks and structured emit tools.
 
 ## Operating Principles
 
@@ -231,6 +237,47 @@ the work into multiple operational sub-topics. The system may use those
 sub-topics to schedule work, but must not use them to impose exhaustive
 file-coverage semantics.
 
+### RC11 - Completion-Ready Needs A Gradual Runtime Lane, Not A Hard Stop
+
+The explorer already has a `postCompletionReadySignal` that fires when typed
+readiness says the current evidence can answer the user request. The log-backed
+eval shows this signal is often correct, but it must not become a hard stop:
+large repositories, multi-language call chains, attached logs/traces, git
+history, command outputs, cross-repo indexes, MCP/connector data, and external
+documents can all produce legitimate last-mile checks after the first ready
+signal.
+
+The current code therefore has the right first step:
+`postCompletionReadySignal` only injects a hint. The systemic gap is the second
+step. When the model ignores the hint for multiple turns,
+`postCompletionReadyEscalationSignal` and
+`postCompletionReadyClosureOnlySignal` still only speak in prose. A local model
+can keep widening with `grep`, `list_files`, `repo_map`, or shell commands even
+after the system has a typed, citable answer surface. This does not usually
+break correctness, but it increases latency, context size, and downstream noise.
+
+Systemic fix: introduce a Closing Lane that activates only after the existing
+completion-ready escalation latch is set. The lane is state-driven and
+tool-class based:
+
+- The initial completion-ready hint is advisory and leaves the normal explorer
+  tool surface unchanged.
+- Escalated completion-ready blocks broad scope expansion tools, not final
+  answer content. It allows structured progress tools and exact source
+  inspection: `read_file`, `emit_evidence`, and `emit_investigation_complete`.
+- Evidence repair remains higher priority and may keep exact `read_file`
+  available for validator-named repair targets.
+- The lane must not inspect user-question keywords or model prose. It is derived
+  from existing evaluator fields (`midLoopCompletionReadySent`,
+  `midLoopCompletionReadyEscalated`, repair latches, and tool names).
+- If a future structured gap requires another narrow tool class, add it through
+  an explicit typed repair state rather than by parsing answer text.
+
+This keeps user intent primary: the system does not decide the answer text or
+diagram shape, and it does not force a rewrite. It only stops ungrounded
+post-ready expansion while preserving a small, language-agnostic escape hatch for
+exact file checks across every repomap-supported language.
+
 ## Red-Line Design Boundaries
 
 - No keyword matching against the user question or model prose for intent or
@@ -341,6 +388,37 @@ file-coverage semantics.
 - Add regression coverage for sequence-diagram requests that ask for key
   intermediate functions but do not ask for an exhaustive member set.
 
+### Batch 8 - Explorer Closing Lane
+
+- Reuse `explorerEvaluator.restrictedToolSurface()` and
+  `validateExplorerToolBoundary()`; do not create a separate policy stack.
+- Keep the first completion-ready signal advisory: no schema/runtime restriction
+  while `midLoopCompletionReadySent=true` and
+  `midLoopCompletionReadyEscalated=false`.
+- After `midLoopCompletionReadyEscalated=true`, expose only
+  `read_file`, `emit_evidence`, and `emit_investigation_complete`.
+- Reject hidden / text-recovered broad expansion calls at runtime with the same
+  effective tool surface summary shown by schema filtering.
+- Preserve higher-priority repair states:
+  - evidence repair keeps exact `read_file` plus emit tools;
+  - read-without-emit escalation remains materialization-only because no
+    structured evidence exists yet.
+- Add regression tests for:
+  - advisory completion-ready leaves schemas unchanged;
+  - escalated completion-ready filters broad tools but keeps `read_file`;
+  - runtime execution rejects hidden `grep` / `repo_map` in the escalated lane;
+  - `emit_investigation_complete` and `emit_evidence` still pass.
+
+Follow-up batches if eval shows remaining latency:
+
+- Add parameter-aware "known path only" checks for `read_file` after escalation,
+  using already-read files and structured repair targets. This is intentionally
+  not part of Batch 8 because a tool-name-only lane is lower risk and avoids
+  false negatives on multi-language source layouts.
+- Extend typed repair states for git/history, command-output-only, MCP,
+  connector, and external-document lanes before allowing any additional narrow
+  post-ready tool class.
+
 ## Progress
 
 - 2026-05-23: Synced `main` to `d4547331`, built successfully, ran local small
@@ -374,6 +452,12 @@ file-coverage semantics.
   counters: `enumeration_push=0`, `finalizer_iters=1`, `tool_read_file=13`,
   `midloop_inject=17`. The answer document was accepted on the first finalizer
   emit and preserved the requested `sequenceDiagram`.
+- 2026-05-24: Designed Batch 8 Closing Lane against the current code. Root
+  cause: `postCompletionReadySignal` and its escalation correctly identify a
+  typed close-ready state, but the existing restricted tool surface only covered
+  evidence repair and read-without-emit escalation. The next implementation
+  reuses that policy surface to block broad post-ready expansion after
+  escalation while keeping exact `read_file` and structured emit tools.
 
 ## Observations
 
