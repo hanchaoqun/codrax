@@ -1227,6 +1227,12 @@ func TestSemanticObservationSummaries_UsesIntentAwareLedgerPriority(t *testing.T
 			Origin:  types.AnswerEvidenceOriginVCSDiff,
 			Role:    types.AnswerAggregateRolePrincipalAnswer,
 			Summary: "diff touched scheduler routing",
+			Value:   "abc123",
+			RichNotes: []string{
+				"变更把调度入口从旧路由切到新策略。",
+				"当前 diff 还包含回滚保护。",
+			},
+			SupportRefs: []string{"payload_ref:git-show"},
 		},
 		{
 			ID:     "evidence:current",
@@ -1254,6 +1260,9 @@ func TestSemanticObservationSummaries_UsesIntentAwareLedgerPriority(t *testing.T
 	if len(got) < 2 || got[0].ID != "evidence:current" || got[1].ID != "tool:0#vcs_diff" {
 		t.Fatalf("semantic reviewer should use shared mixed-origin ledger priority, got %+v", got)
 	}
+	if got[1].Value != "abc123" || len(got[1].Notes) != 2 || got[1].SupportRefCount != 1 {
+		t.Fatalf("semantic reviewer should preserve VCS value/rich notes/support refs, got %+v", got[1])
+	}
 }
 
 func TestRenderSemanticQualityUserMessage_RendersObservationLedgerBoundaries(t *testing.T) {
@@ -1263,14 +1272,17 @@ func TestRenderSemanticQualityUserMessage_RendersObservationLedgerBoundaries(t *
 		AnswerSummary:   "summary",
 		AnswerBody:      "body",
 		Observations: []SemanticObservationSummary{{
-			ID:          "tool:0#vcs_metadata",
-			Origin:      string(types.AnswerEvidenceOriginVCSMetadata),
-			Role:        string(types.AnswerAggregateRoleSupportingCoverage),
-			Policy:      string(types.ClaimGroundingSoft),
-			Source:      "vcs_metadata | /tmp/codrax/blob/git_log-1234.txt",
-			Claim:       "git_log",
-			Summary:     "abc123 优化 repo map 缓存",
-			ResultCount: &count,
+			ID:              "tool:0#vcs_metadata",
+			Origin:          string(types.AnswerEvidenceOriginVCSMetadata),
+			Role:            string(types.AnswerAggregateRoleSupportingCoverage),
+			Policy:          string(types.ClaimGroundingSoft),
+			Source:          "vcs_metadata | /tmp/codrax/blob/git_log-1234.txt",
+			Claim:           "git_log",
+			Value:           "abc123",
+			Summary:         "abc123 优化 repo map 缓存",
+			Notes:           []string{"该提交减少 repo map 冷启动扫描。"},
+			ResultCount:     &count,
+			SupportRefCount: 2,
 		}},
 	})
 	for _, want := range []string{
@@ -1279,7 +1291,10 @@ func TestRenderSemanticQualityUserMessage_RendersObservationLedgerBoundaries(t *
 		"origin=`vcs_metadata`",
 		"Non-current-source rows are valid observations but are not current-repo citations",
 		"result_count=0",
+		"value=\"abc123\"",
 		"abc123 优化 repo map 缓存",
+		"notes=[\"该提交减少 repo map 冷启动扫描。\"]",
+		"support_refs=2",
 	} {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("semantic reviewer prompt missing %q:\n%s", want, msg)

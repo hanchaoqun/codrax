@@ -153,6 +153,12 @@ Implementation progress:
   If the model table shape is incompatible but the accepted row contract has
   richer location/note data, the runtime preserves the model table and appends a
   separate localized system-verified supplement.
+- 2026-05-23 Batch 25 aligned the semantic reviewer with the finalizer's
+  Observation Ledger surface. Reviewer observations now carry compact `value`,
+  de-duplicated `rich_notes`, and support-ref counts in addition to
+  origin/source/span/summary. This closes a prompt-ledger gap where VCS, diff,
+  command, runtime, or MCP observations could be rich enough for finalizer but
+  appear dry to the reviewer, causing avoidable "answer too thin" pressure.
 - Remaining work starts at P1 carrier compilers / row-set compilers; the
   completed ref batch deliberately did not change answer materialization policy.
 
@@ -452,6 +458,9 @@ overriding better model-authored descriptions.
   raises rich-note budget only for typed principal rows/origin-specific
   principal observations, reducing dry answer risk without a second duplicate
   prompt section.
+- PARTIAL (Batch 25): semantic reviewer now consumes the same compact
+  rich-note/value/support-ref projection as the finalizer, so prompt-ledger
+  convergence covers both final answer writing and second-opinion review.
 - Preserve rich summaries while collapsing repeated carriers.
 - Ensure mixed questions such as "based on this diff, analyze current code" rank
   both VCS observations and current-source anchors according to the typed user

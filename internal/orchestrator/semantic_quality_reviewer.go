@@ -158,16 +158,19 @@ type SemanticClaimBindingSummary struct {
 // finalizer's Observation Ledger prompt while staying compact enough for the
 // reviewer budget.
 type SemanticObservationSummary struct {
-	ID          string
-	Origin      string
-	Role        string
-	Policy      string
-	Source      string
-	Span        string
-	Claim       string
-	Summary     string
-	Negative    bool
-	ResultCount *int
+	ID              string
+	Origin          string
+	Role            string
+	Policy          string
+	Source          string
+	Span            string
+	Claim           string
+	Value           string
+	Summary         string
+	Notes           []string
+	Negative        bool
+	ResultCount     *int
+	SupportRefCount int
 }
 
 // SemanticFacetSummary is the typed projection of one
@@ -696,7 +699,7 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 	}
 	if len(in.Observations) > 0 {
 		b.WriteString("\n## OBSERVATION LEDGER (typed evidence / external-resource view)\n")
-		b.WriteString("Each row: record_id / origin / role / policy / source / span / claim / summary. Non-current-source rows are valid observations but are not current-repo citations; evaluate coverage using their origin-specific support.\n\n")
+		b.WriteString("Each row: record_id / origin / role / policy / source / span / claim / value / summary / notes. Non-current-source rows are valid observations but are not current-repo citations; evaluate coverage using their origin-specific support.\n\n")
 		for _, obs := range in.Observations {
 			fmt.Fprintf(&b, "- record_id=%q origin=`%s` role=`%s` policy=`%s` source=%q",
 				obs.ID, obs.Origin, obs.Role, obs.Policy, obs.Source)
@@ -712,8 +715,17 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 			if obs.ResultCount != nil {
 				fmt.Fprintf(&b, " result_count=%d", *obs.ResultCount)
 			}
+			if obs.Value != "" {
+				fmt.Fprintf(&b, " value=%q", obs.Value)
+			}
 			if obs.Summary != "" {
 				fmt.Fprintf(&b, " summary=%q", obs.Summary)
+			}
+			if len(obs.Notes) > 0 {
+				fmt.Fprintf(&b, " notes=%s", renderSemanticObservationNotes(obs.Notes))
+			}
+			if obs.SupportRefCount > 0 {
+				fmt.Fprintf(&b, " support_refs=%d", obs.SupportRefCount)
 			}
 			b.WriteString("\n")
 		}
@@ -764,19 +776,73 @@ func semanticObservationSummaries(ledger types.ObservationLedger, rm *types.Requ
 	for i := 0; i < limit; i++ {
 		record := records[i]
 		out = append(out, SemanticObservationSummary{
-			ID:          strings.TrimSpace(record.ID),
-			Origin:      string(record.Origin),
-			Role:        string(record.Role),
-			Policy:      string(record.GroundingPolicy),
-			Source:      semanticObservationSource(record.SourceRef),
-			Span:        semanticObservationSpan(record.Span),
-			Claim:       strings.TrimSpace(record.ClaimKey),
-			Summary:     clampSemanticObservationText(record.Summary, 180),
-			Negative:    record.Negative,
-			ResultCount: record.ResultCount,
+			ID:              strings.TrimSpace(record.ID),
+			Origin:          string(record.Origin),
+			Role:            string(record.Role),
+			Policy:          string(record.GroundingPolicy),
+			Source:          semanticObservationSource(record.SourceRef),
+			Span:            semanticObservationSpan(record.Span),
+			Claim:           strings.TrimSpace(record.ClaimKey),
+			Value:           clampSemanticObservationText(record.Value, 120),
+			Summary:         clampSemanticObservationText(record.Summary, 180),
+			Notes:           semanticObservationNotes(record),
+			Negative:        record.Negative,
+			ResultCount:     record.ResultCount,
+			SupportRefCount: len(record.SupportRefs),
 		})
 	}
 	return out
+}
+
+func semanticObservationNotes(record types.ObservationRecord) []string {
+	if len(record.RichNotes) == 0 {
+		return nil
+	}
+	limit := 2
+	if record.Role == types.AnswerAggregateRolePrincipalAnswer {
+		limit = 3
+	}
+	if record.Origin != types.AnswerEvidenceOriginCurrentSource &&
+		record.Role == types.AnswerAggregateRolePrincipalAnswer {
+		limit = 4
+	}
+	out := make([]string, 0, limit)
+	seen := map[string]bool{}
+	summary := strings.TrimSpace(record.Summary)
+	for _, note := range record.RichNotes {
+		note = strings.TrimSpace(note)
+		if note == "" || note == summary {
+			continue
+		}
+		key := strings.ToLower(note)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, clampSemanticObservationText(note, 160))
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func renderSemanticObservationNotes(notes []string) string {
+	if len(notes) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(notes))
+	for _, note := range notes {
+		note = strings.TrimSpace(note)
+		if note == "" {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%q", note))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "[" + strings.Join(parts, "; ") + "]"
 }
 
 func semanticObservationSource(ref types.ObservationSourceRef) string {
