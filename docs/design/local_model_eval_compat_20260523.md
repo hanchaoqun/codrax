@@ -1072,6 +1072,90 @@ Preferred runtime-side design:
 - Do not treat recovered preview content as validated evidence or citation-bearing
   answer content unless it passes the normal answer-document validator.
 
+## 2026-05-24 Batch 11 - Evidence Backbone Handoff Fidelity
+
+Problem statement:
+
+- The explorer already builds a ranked, deduplicated evidence backbone in
+  `StageOutput.EvidenceItems`.
+- The extractor's primary deterministic digest reads
+  `TurnAArtifacts.EvidenceItems`.
+- For non-mechanism questions with strict answer chains, the current Turn A
+  handoff stores only the strict chain terminals. That is correct for the
+  cardinality baseline, but it can hide adjacent grounded/read/scope-relevant
+  mechanism facts from Turn B. Small models then either shrink the final answer
+  or spend retries trying to rediscover details they are no longer allowed to
+  read.
+
+Existing code to reuse:
+
+- `rankEvidenceByRelevanceWithSubject` already orders evidence by the request
+  model, subject, read-file coverage, graph relation, anchor kind, salience, and
+  diversity. Do not add a second scorer.
+- `EvidenceSalience` and `SalienceLockedForScoring` already protect
+  load-bearing / exhaustively listed evidence.
+- `supportLaneScope`, `BuildAnswerSupportPlan`, and typed enrichment lanes
+  already constrain finalizer enrichment. Do not introduce a parallel support
+  plan.
+- `TerminalEvidenceCount` is already the strict answer-cardinality baseline and
+  is explicitly not `len(EvidenceItems)`.
+
+Design:
+
+- Split Turn A handoff evidence into two semantic roles:
+  - strict terminal evidence, used only to compute and preserve
+    `TerminalEvidenceCount`;
+  - support evidence, already ranked and grounded by the explorer, used as
+    extractor/finalizer context.
+- Store a deduped union in `TurnAArtifacts.EvidenceItems`: strict terminals
+  first, then top ranked support evidence up to the existing extractor display
+  budget.
+- Keep `TerminalEvidenceCount` unchanged. Adding support evidence must never
+  create a larger required answer-symbol slate.
+- Preserve current mechanism behavior: mechanism/step-list paths with no strict
+  chains still seed the handoff from ranked evidence.
+- Preserve the old conservative boundary for non-seed paths with no strict
+  terminal evidence: do not newly expose loose ranked evidence unless the
+  request shape already allowed ranked-evidence seeding.
+- Prefer existing IDs via `StableEvidenceID`; no prose matching, user-question
+  keyword matching, or case-specific answer matching is allowed.
+- Do not mutate evidence content or promote context rows into principal members.
+  Downstream prompts and support lanes already state that deterministic evidence
+  rows are enrichment/context unless a typed support lane or answer contract
+  makes them principal.
+
+Commercial safety boundaries:
+
+- Big-model quality is preserved because validators, support lanes, and
+  finalizer contracts are unchanged.
+- Small-model compatibility improves because useful evidence is visible in the
+  no-tool extractor phase.
+- The fix is language-agnostic: it works over `EvidenceItem` metadata produced
+  by the existing repomap/grounding layer for every supported language.
+- The handoff remains bounded by `extractorMaxEvidence`, so large customer repos
+  do not get an unbounded transcript blow-up.
+
+Task list:
+
+- [x] Add a shared helper that builds Turn A handoff evidence from strict chains
+  plus ranked evidence.
+- [x] Replace the inline strict-evidence construction in `explorer.ParseOutput`
+  with that helper.
+- [x] Add regression tests for:
+  - strict terminals remain first and do not block ranked support details;
+  - `TerminalEvidenceCount` remains independent from support evidence count;
+  - mechanism no-chain behavior stays capped at `extractorMaxEvidence`;
+  - duplicate strict/ranked items are deduped by stable evidence ID.
+- [x] Run targeted tests and full build.
+
+Next batches after this patch:
+
+- Evaluate whether extractor value-fact rendering should explicitly label rows
+  as `principal` vs `support` using existing `ContextRole`/support-lane
+  metadata, without changing schemas.
+- Audit answer-document validation rejections after this handoff fix to avoid
+  fixing downstream symptoms that are caused by upstream evidence narrowing.
+
 ## Open Questions
 
 - Whether `emit_evidence.anchor_kind` auto-repair should run inside

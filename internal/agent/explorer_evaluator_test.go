@@ -786,6 +786,9 @@ func TestParseOutput_WritesTurnAArtifactsAndLeavesSlateEmpty(t *testing.T) {
 	if ta.TerminalEvidenceCount < 0 {
 		t.Errorf("TurnAArtifacts.TerminalEvidenceCount negative: %d", ta.TerminalEvidenceCount)
 	}
+	if len(ta.EvidenceItems) <= ta.TerminalEvidenceCount {
+		t.Errorf("support evidence should not inflate terminal baseline: evidence=%d terminal=%d", len(ta.EvidenceItems), ta.TerminalEvidenceCount)
+	}
 	// Defensive-copy invariant: mutating the caller's
 	// investigationNotes after handoff must not leak into the
 	// snapshot. Session 1 Phase 6 locked this invariant; Phase 11

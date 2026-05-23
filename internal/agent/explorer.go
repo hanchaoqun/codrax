@@ -10149,30 +10149,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// BuildInitialInstruction sees the complete payload.
 	if ctx != nil && ctx.Mutable != nil {
 		stopParseSection = startExplorerParseSectionWatchdog(ctx, "turn_a_handoff")
-		// Turn B gets the strict subset of answer-relevant evidence —
-		// the items that passed the L0-1 terminal/origin predicates.
-		// Demoted items are dropped here because Turn B's cardinality
-		// validator needs a predicate-passing baseline, not the loose
-		// Ground Truth fallback.
-		strictEvidence := make([]types.EvidenceItem, 0, len(answerChains))
-		for _, c := range answerChains {
-			if c.StrictOK {
-				strictEvidence = append(strictEvidence, c.Item)
-			}
-		}
-		if len(strictEvidence) == 0 && shouldSeedTurnAStrictEvidenceFromRanked(ctx, questionKind) && len(rankedEvidence) > 0 {
-			// Mechanism answers intentionally drop answer chains above:
-			// step-list finalization should read the grounded mechanism
-			// evidence directly, not a terminal-symbol slate. Preserve
-			// the same concise top-N digest Turn B renders, so it does
-			// not see an empty handoff while avoiding a noisy hundreds-
-			// item transcript snapshot from deterministic scanners.
-			limit := len(rankedEvidence)
-			if limit > extractorMaxEvidence {
-				limit = extractorMaxEvidence
-			}
-			strictEvidence = append(strictEvidence, rankedEvidence[:limit]...)
-		}
+		handoffEvidence := buildTurnAHandoffEvidence(ctx, questionKind, rankedEvidence, answerChains)
 		snapshot := types.TurnAArtifacts{
 			UserQuestion:           e.userQuestion,
 			InvestigationNotes:     e.investigationNotes,
@@ -10184,7 +10161,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			RuntimeObservationOnlyCompletion: observationOnlyRuntimeArtifactForExplorer(ctx) &&
 				strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason()) != "" &&
 				strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()) != "",
-			EvidenceItems:         strictEvidence,
+			EvidenceItems:         handoffEvidence,
 			FlowFindings:          rankedFindings,
 			TerminalEvidenceCount: terminalEvidenceCount,
 		}
