@@ -257,6 +257,68 @@ func TestCompileObservationLedger_AggregateRichNotesPreferMemberNotes(t *testing
 	}
 }
 
+func TestCompileObservationLedger_MergesDuplicateSourceAnchorsRichSummaries(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		EvidenceItems: []EvidenceItem{
+			{
+				ID:           "eval-main",
+				Kind:         EvidenceDirect,
+				Source:       "internal/analysis/criterion/eval.go",
+				LineStart:    15,
+				AnchorKind:   AnchorDefinition,
+				AnchorSymbol: "Eval",
+				Summary:      "Eval 对单个 Criterion 求值。",
+				SurfaceTerms: []string{"Eval"},
+				Salience:     SalienceLoadBearing,
+			},
+			{
+				ID:           "eval-unknown",
+				Kind:         EvidenceDirect,
+				Source:       "internal/analysis/criterion/eval.go",
+				LineStart:    15,
+				AnchorKind:   AnchorDefinition,
+				AnchorSymbol: "Eval",
+				Summary:      "未知 Kind 返回 Result.UnknownKind。",
+				SurfaceTerms: []string{"Result.UnknownKind"},
+			},
+			{
+				ID:           "eval-call",
+				Kind:         EvidenceDirect,
+				Source:       "internal/analysis/criterion/eval.go",
+				LineStart:    15,
+				AnchorKind:   AnchorCall,
+				AnchorSymbol: "Eval",
+				Predicate:    "calls",
+				Object:       "registry.Lookup",
+				Summary:      "Eval 会查询注册表。",
+			},
+		},
+	})
+	if len(ledger.Records) != 2 {
+		t.Fatalf("same-anchor summaries should merge while distinct claims remain separate: %+v", ledger.Records)
+	}
+	got := findObservationRecord(t, ledger, "evidence:eval-main")
+	if got.Role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("merged record should preserve stronger role, got %+v", got.Role)
+	}
+	for _, want := range []string{
+		"Eval 对单个 Criterion 求值。",
+		"未知 Kind 返回 Result.UnknownKind。",
+	} {
+		if !containsObservationString(got.RichNotes, want) {
+			t.Fatalf("merged rich notes missing %q: %+v", want, got.RichNotes)
+		}
+	}
+	for _, want := range []string{"Eval", "Result.UnknownKind"} {
+		if !containsObservationString(got.SupportRefs, want) {
+			t.Fatalf("merged support refs missing %q: %+v", want, got.SupportRefs)
+		}
+	}
+	if findObservationRecord(t, ledger, "evidence:eval-call").Object != "registry.Lookup" {
+		t.Fatalf("distinct call claim should not be merged away: %+v", ledger.Records)
+	}
+}
+
 func TestCompileObservationLedger_MixedDiffAndCurrentSourceStaySeparate(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		EvidenceItems: []EvidenceItem{{
@@ -961,4 +1023,14 @@ func findObservationRecord(t *testing.T, ledger ObservationLedger, id string) Ob
 	}
 	t.Fatalf("record %q not found in %+v", id, ledger.Records)
 	return ObservationRecord{}
+}
+
+func containsObservationString(values []string, want string) bool {
+	want = strings.Join(strings.Fields(strings.TrimSpace(want)), " ")
+	for _, value := range values {
+		if strings.Join(strings.Fields(strings.TrimSpace(value)), " ") == want {
+			return true
+		}
+	}
+	return false
 }

@@ -240,7 +240,170 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 	compileLogBundleObservations(input.LogBundle, add)
 	compilePerfBundleObservations(input.PerfBundle, add)
 	compileMCPResponseObservations(input.MCPResponses, add)
+	out = dedupeObservationRecords(out)
 	return ObservationLedger{Records: out}
+}
+
+type observationRecordMergeKey struct {
+	Origin          AnswerEvidenceOrigin
+	SourceRef       ObservationSourceRef
+	Span            ObservationSpan
+	EvidenceKind    EvidenceKind
+	AnchorKind      AnchorKind
+	EvidenceScope   EvidenceScope
+	ClaimKey        string
+	Subject         string
+	Predicate       string
+	Object          string
+	Value           string
+	Negative        bool
+	ResultCount     string
+	Scope           string
+	GroundingStatus GroundingStatus
+}
+
+func dedupeObservationRecords(in []ObservationRecord) []ObservationRecord {
+	if len(in) < 2 {
+		return in
+	}
+	out := make([]ObservationRecord, 0, len(in))
+	seen := map[observationRecordMergeKey]int{}
+	for _, record := range in {
+		key, ok := observationRecordMergeKeyFor(record)
+		if !ok {
+			out = append(out, record)
+			continue
+		}
+		if idx, exists := seen[key]; exists {
+			out[idx] = mergeObservationRecord(out[idx], record)
+			continue
+		}
+		seen[key] = len(out)
+		out = append(out, record)
+	}
+	return out
+}
+
+func observationRecordMergeKeyFor(record ObservationRecord) (observationRecordMergeKey, bool) {
+	if !observationRecordHasMergeAnchor(record) {
+		return observationRecordMergeKey{}, false
+	}
+	resultCount := ""
+	if record.ResultCount != nil {
+		resultCount = strconv.Itoa(*record.ResultCount)
+	}
+	return observationRecordMergeKey{
+		Origin:          record.Origin,
+		SourceRef:       record.SourceRef,
+		Span:            record.Span,
+		EvidenceKind:    record.EvidenceKind,
+		AnchorKind:      record.AnchorKind,
+		EvidenceScope:   record.EvidenceScope,
+		ClaimKey:        strings.TrimSpace(record.ClaimKey),
+		Subject:         strings.TrimSpace(record.Subject),
+		Predicate:       strings.TrimSpace(record.Predicate),
+		Object:          strings.TrimSpace(record.Object),
+		Value:           strings.TrimSpace(record.Value),
+		Negative:        record.Negative,
+		ResultCount:     resultCount,
+		Scope:           strings.TrimSpace(record.Scope),
+		GroundingStatus: record.GroundingStatus,
+	}, true
+}
+
+func observationRecordHasMergeAnchor(record ObservationRecord) bool {
+	if ObservationRecordHasCurrentSourceLineSpan(record) {
+		return true
+	}
+	ref := record.SourceRef
+	if strings.TrimSpace(ref.PayloadRef) != "" ||
+		strings.TrimSpace(ref.RowSetRef) != "" ||
+		strings.TrimSpace(ref.PageRef) != "" ||
+		strings.TrimSpace(ref.RawRef) != "" ||
+		strings.TrimSpace(ref.ArtifactID) != "" ||
+		strings.TrimSpace(ref.URL) != "" ||
+		strings.TrimSpace(ref.ResourceURI) != "" ||
+		strings.TrimSpace(ref.Commit) != "" ||
+		strings.TrimSpace(ref.Command) != "" ||
+		strings.TrimSpace(ref.Path) != "" {
+		return true
+	}
+	if strings.TrimSpace(record.ClaimKey) == "" {
+		return false
+	}
+	return strings.TrimSpace(record.Value) != "" || record.ResultCount != nil || record.Negative
+}
+
+func mergeObservationRecord(dst, src ObservationRecord) ObservationRecord {
+	if AnswerAggregateRolePriority(src.Role) > AnswerAggregateRolePriority(dst.Role) {
+		dst.Role = src.Role
+	}
+	if observationGroundingPolicyPriority(src.GroundingPolicy) > observationGroundingPolicyPriority(dst.GroundingPolicy) {
+		dst.GroundingPolicy = src.GroundingPolicy
+	}
+	if dst.Summary == "" {
+		dst.Summary = strings.TrimSpace(src.Summary)
+	}
+	dst.RichNotes = mergeObservationRecordRichNotes(dst, src)
+	dst.SupportRefs = appendUniqueObservationStrings(dst.SupportRefs, src.SupportRefs...)
+	if dst.RawExcerpt == "" {
+		dst.RawExcerpt = strings.TrimSpace(src.RawExcerpt)
+	}
+	if dst.ObservedAt == "" {
+		dst.ObservedAt = strings.TrimSpace(src.ObservedAt)
+	}
+	if dst.ResultCount == nil && src.ResultCount != nil {
+		n := *src.ResultCount
+		dst.ResultCount = &n
+	}
+	if src.Confidence > dst.Confidence {
+		dst.Confidence = src.Confidence
+	}
+	return dst
+}
+
+func mergeObservationRecordRichNotes(dst, src ObservationRecord) []string {
+	var out []string
+	out = appendUniqueObservationString(out, dst.Summary)
+	out = appendUniqueObservationStrings(out, dst.RichNotes...)
+	if strings.TrimSpace(src.Summary) != strings.TrimSpace(dst.Summary) {
+		out = appendUniqueObservationString(out, src.Summary)
+	}
+	out = appendUniqueObservationStrings(out, src.RichNotes...)
+	return out
+}
+
+func observationGroundingPolicyPriority(policy ClaimGroundingPolicy) int {
+	switch policy {
+	case ClaimGroundingHard:
+		return 3
+	case ClaimGroundingRepairable:
+		return 2
+	case ClaimGroundingSoft:
+		return 1
+	default:
+		return 0
+	}
+}
+
+func appendUniqueObservationStrings(dst []string, values ...string) []string {
+	for _, value := range values {
+		dst = appendUniqueObservationString(dst, value)
+	}
+	return dst
+}
+
+func appendUniqueObservationString(dst []string, value string) []string {
+	value = strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+	if value == "" {
+		return dst
+	}
+	for _, existing := range dst {
+		if strings.Join(strings.Fields(strings.TrimSpace(existing)), " ") == value {
+			return dst
+		}
+	}
+	return append(dst, value)
 }
 
 func ObservationSourceKindForOrigin(origin AnswerEvidenceOrigin) ObservationSourceKind {

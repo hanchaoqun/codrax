@@ -2,7 +2,7 @@
 
 Date: 2026-05-23
 
-Status: partially implemented. Batches 1-30 are complete and verified; the
+Status: partially implemented. Batches 1-31 are complete and verified; the
 shared schema-aware repair path is active across the high-frequency structured
 emit tools, including the legacy top-level JSON-string repair wrappers.
 Remaining work is still tracked below, starting with P1 carrier compilers /
@@ -187,6 +187,12 @@ Implementation progress:
   while partial exclusions remain inline/count-only and do not create row-set
   artifacts. This keeps "present plus absent/excluded" mixed answers from
   forcing the model to serialize large negative-side row lists.
+- 2026-05-23 Batch 31 added stable-anchor de-duplication inside the Observation
+  Ledger compiler. Records with the same typed origin, source/span, claim key,
+  value, and anchor shape are merged before prompt budgeting; unique summaries,
+  rich notes, and support refs are preserved. Distinct claims on the same line
+  remain separate, so the runtime reduces prompt duplication without changing
+  answer content or collapsing different facts.
 - Remaining work starts at P1 carrier compilers / row-set compilers; the
   completed ref batch deliberately did not change answer materialization policy.
 
@@ -511,6 +517,9 @@ overriding better model-authored descriptions.
 - PARTIAL (Batch 25): semantic reviewer now consumes the same compact
   rich-note/value/support-ref projection as the finalizer, so prompt-ledger
   convergence covers both final answer writing and second-opinion review.
+- DONE (Batch 31): duplicate ledger records for the same stable typed anchor now
+  merge their unique summaries/rich notes/support refs before finalizer/reviewer
+  budgeting. This protects richness while removing repeated prompt surfaces.
 - Preserve rich summaries while collapsing repeated carriers.
 - Ensure mixed questions such as "based on this diff, analyze current code" rank
   both VCS observations and current-source anchors according to the typed user
