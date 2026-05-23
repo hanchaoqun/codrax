@@ -2,9 +2,11 @@ package tool
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -1194,6 +1196,135 @@ func TestGrepTool(t *testing.T) {
 		auxPathIdx := strings.Index(result.Summary, "tests/cangjie/feature_test.cj")
 		if prodPathIdx < 0 || auxPathIdx < 0 || !(prodIdx < prodPathIdx && prodPathIdx < auxIdx && auxIdx < auxPathIdx) {
 			t.Fatalf("expected Cangjie production path before auxiliary test path, got:\n%s", result.Summary)
+		}
+	})
+
+	t.Run("files_only broad result is compacted with raw blob preserved", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		for i := 0; i < 130; i++ {
+			dir := filepath.Join(tmpDir, "src", "pkg")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatalf("setup: %v", err)
+			}
+			ext := ".go"
+			if i%3 == 1 {
+				ext = ".java"
+			} else if i%3 == 2 {
+				ext = ".cj"
+			}
+			name := filepath.Join(dir, "Prod"+strconv.Itoa(i)+ext)
+			if err := os.WriteFile(name, []byte("const WideNeedle = true\n"), 0o644); err != nil {
+				t.Fatalf("setup: %v", err)
+			}
+		}
+		for i := 0; i < 35; i++ {
+			dir := filepath.Join(tmpDir, "tests", "feature")
+			if err := os.MkdirAll(dir, 0o755); err != nil {
+				t.Fatalf("setup: %v", err)
+			}
+			name := filepath.Join(dir, "Feature"+strconv.Itoa(i)+".test.ts")
+			if err := os.WriteFile(name, []byte("const WideNeedle = true\n"), 0o644); err != nil {
+				t.Fatalf("setup: %v", err)
+			}
+		}
+		if err := os.MkdirAll(filepath.Join(tmpDir, "docs"), 0o755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(tmpDir, "docs", "wide.md"), []byte("WideNeedle\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		ctx := newBusContext()
+		ctx.PipelineStage = types.StageExplore
+		ctx.RepoRoot = tmpDir
+		ctx.WorkDir = t.TempDir()
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: "WideNeedle", Path: ".", FilesOnly: true})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		for _, want := range []string{
+			"[grep retrieval governor]",
+			"decision=broad_result_compacted mode=files_only",
+			"[grep production matches]",
+			"[grep auxiliary matches - supporting context, not production proof]",
+			"omitted",
+			"full_raw_saved=",
+		} {
+			if !strings.Contains(result.Summary, want) {
+				t.Fatalf("expected %q in compacted summary:\n%s", want, result.Summary)
+			}
+		}
+		if result.RawRef == "" {
+			t.Fatalf("expected raw ref for compacted broad result")
+		}
+		if _, err := os.Stat(result.RawRef); err != nil {
+			t.Fatalf("expected raw blob to exist: %v", err)
+		}
+		prodIdx := strings.Index(result.Summary, "[grep production matches]")
+		auxIdx := strings.Index(result.Summary, "[grep auxiliary matches - supporting context, not production proof]")
+		if prodIdx < 0 || auxIdx < 0 || prodIdx > auxIdx {
+			t.Fatalf("expected production section before auxiliary section:\n%s", result.Summary)
+		}
+	})
+
+	t.Run("line broad result is compacted without losing exact raw output", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		srcDir := filepath.Join(tmpDir, "src", "main", "java", "app")
+		testDir := filepath.Join(tmpDir, "src", "test", "java", "app")
+		if err := os.MkdirAll(srcDir, 0o755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.MkdirAll(testDir, 0o755); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		var prod strings.Builder
+		for i := 0; i < 100; i++ {
+			fmt.Fprintf(&prod, "String value%d = \"LineWideNeedle prod %03d\";\n", i, i)
+		}
+		if err := os.WriteFile(filepath.Join(srcDir, "Controller.java"), []byte(prod.String()), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		var testContent strings.Builder
+		for i := 0; i < 30; i++ {
+			fmt.Fprintf(&testContent, "String value%d = \"LineWideNeedle test %03d\";\n", i, i)
+		}
+		if err := os.WriteFile(filepath.Join(testDir, "ControllerTest.java"), []byte(testContent.String()), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		ctx := newBusContext()
+		ctx.PipelineStage = types.StageExplore
+		ctx.RepoRoot = tmpDir
+		ctx.WorkDir = t.TempDir()
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: "LineWideNeedle", Path: "."})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "decision=broad_result_compacted mode=line_output") {
+			t.Fatalf("expected line-output compaction:\n%s", result.Summary)
+		}
+		if strings.Contains(result.Summary, "prod 099") {
+			t.Fatalf("late production line should be omitted from inline compacted summary:\n%s", result.Summary)
+		}
+		if result.RawRef == "" {
+			t.Fatalf("expected raw ref for compacted line output")
+		}
+		raw, err := os.ReadFile(result.RawRef)
+		if err != nil {
+			t.Fatalf("read raw blob: %v", err)
+		}
+		if !strings.Contains(string(raw), "prod 099") || !strings.Contains(string(raw), "ControllerTest.java") {
+			t.Fatalf("raw blob should preserve omitted production and auxiliary output:\n%s", string(raw))
 		}
 	})
 

@@ -968,8 +968,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			unit = "matching files"
 		}
 		countBanner := fmt.Sprintf("[grep: %d %s]\n", nres.Matches, unit)
-		matchOutput := annotateGrepOutputByPathRole(ctx, p.FilesOnly, nres.Output)
-		summary, ref := StoreBlob(ctx, t.Name(), countBanner+paramsBanner+matchOutput)
+		summary, ref := finalizeGrepOutput(ctx, p.FilesOnly, countBanner, paramsBanner, nres.Output)
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   true,
@@ -1133,10 +1132,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		countBanner = fmt.Sprintf("[grep: %d %s]\n", lines, unit)
 	}
-	matchOutput := annotateGrepOutputByPathRole(ctx, p.FilesOnly, output)
-	output = countBanner + paramsBanner + matchOutput
-
-	summary, ref := StoreBlob(ctx, t.Name(), output)
+	summary, ref := finalizeGrepOutput(ctx, p.FilesOnly, countBanner, paramsBanner, output)
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
@@ -1144,6 +1140,112 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+const (
+	grepGovernorLineEntryThreshold = 80
+	grepGovernorFileEntryThreshold = 120
+	grepGovernorByteThreshold      = 16 * 1024
+	grepGovernorLineProductionCap  = 48
+	grepGovernorFileProductionCap  = 80
+	grepGovernorAuxiliaryCap       = 24
+	grepGovernorOtherCap           = 16
+)
+
+func finalizeGrepOutput(ctx *types.BusContext, filesOnly bool, countBanner, paramsBanner, rawOutput string) (summary, ref string) {
+	annotated := annotateGrepOutputByPathRole(ctx, filesOnly, rawOutput)
+	if compacted, rawRef, ok := compactBroadGrepOutput(ctx, filesOnly, countBanner, paramsBanner, rawOutput, annotated); ok {
+		return compacted, rawRef
+	}
+	return StoreBlob(ctx, "grep", countBanner+paramsBanner+annotated)
+}
+
+func compactBroadGrepOutput(ctx *types.BusContext, filesOnly bool, countBanner, paramsBanner, rawOutput, annotatedOutput string) (summary, rawRef string, ok bool) {
+	production, auxiliary, other := partitionGrepOutputByPathRole(ctx, filesOnly, rawOutput)
+	entryCount := len(production) + len(auxiliary) + len(other)
+	threshold := grepGovernorLineEntryThreshold
+	prodCap := grepGovernorLineProductionCap
+	mode := "line_output"
+	if filesOnly {
+		threshold = grepGovernorFileEntryThreshold
+		prodCap = grepGovernorFileProductionCap
+		mode = "files_only"
+	}
+	if entryCount <= threshold && len(annotatedOutput) <= grepGovernorByteThreshold {
+		return "", "", false
+	}
+
+	fullPayload := countBanner + paramsBanner + annotatedOutput
+	if ctx != nil && strings.TrimSpace(ctx.WorkDir) != "" {
+		rawRef = StoreBlobArtifact(ctx.WorkDir, "grep", "grep-full.txt", fullPayload)
+	}
+
+	productionHeader, otherHeader, auxiliaryHeader := grepPathRoleSectionHeaders(ctx)
+	var b strings.Builder
+	b.WriteString(countBanner)
+	b.WriteString(paramsBanner)
+	b.WriteString("[grep retrieval governor]\n")
+	fmt.Fprintf(&b, "decision=broad_result_compacted mode=%s entries=%d production=%d auxiliary=%d other=%d\n",
+		mode, entryCount, len(production), len(auxiliary), len(other))
+	fmt.Fprintf(&b, "inline_caps production=%d auxiliary=%d other=%d\n", prodCap, grepGovernorAuxiliaryCap, grepGovernorOtherCap)
+	if rawRef != "" {
+		fmt.Fprintf(&b, "full_raw_saved=%s\n", rawRef)
+	} else {
+		b.WriteString("full_raw_saved=unavailable (no workdir configured)\n")
+	}
+	if filesOnly {
+		b.WriteString("next_shape=read_file a top production path for exact evidence, or re-run grep with a narrower path/file_type.\n")
+	} else {
+		b.WriteString("next_shape=for exact line evidence, re-run grep with path set to one top production file and context_lines<=3; for discovery use files_only=true.\n")
+	}
+
+	writeCappedGrepSection(&b, productionHeader, production, prodCap, "no non-auxiliary matches found")
+	writeCappedGrepSection(&b, auxiliaryHeader, auxiliary, grepGovernorAuxiliaryCap, "")
+	writeCappedGrepSection(&b, otherHeader, other, grepGovernorOtherCap, "")
+	return b.String(), rawRef, true
+}
+
+func partitionGrepOutputByPathRole(ctx *types.BusContext, filesOnly bool, output string) (production, auxiliary, other []string) {
+	for _, raw := range strings.Split(output, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if path, ok := grepOutputLinePath(line, filesOnly); ok {
+			if types.SourcePathRoleIsAuxiliary(types.ClassifySourcePathRole(path)) {
+				auxiliary = append(auxiliary, raw)
+			} else {
+				production = append(production, raw)
+			}
+			continue
+		}
+		other = append(other, raw)
+	}
+	return production, auxiliary, other
+}
+
+func writeCappedGrepSection(b *strings.Builder, header string, lines []string, cap int, emptyLine string) {
+	if len(lines) == 0 && emptyLine == "" {
+		return
+	}
+	b.WriteString(header)
+	b.WriteByte('\n')
+	if len(lines) == 0 {
+		b.WriteString(emptyLine)
+		b.WriteByte('\n')
+		return
+	}
+	limit := cap
+	if limit > len(lines) {
+		limit = len(lines)
+	}
+	for _, line := range lines[:limit] {
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	if omitted := len(lines) - limit; omitted > 0 {
+		fmt.Fprintf(b, "... omitted %d additional entries from this section; see full_raw_saved above.\n", omitted)
+	}
 }
 
 func annotateGrepOutputByPathRole(ctx *types.BusContext, filesOnly bool, output string) string {

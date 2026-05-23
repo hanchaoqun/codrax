@@ -1413,6 +1413,204 @@ Task list:
 - [x] Run analyzer/tool-param focused tests plus `make build`.
 - [x] Commit and push Batch 13.
 
+## 2026-05-24 Batch 14 - Targeted Local-Model Eval After Batches 12/13
+
+Problem statement:
+
+- Batches 12 and 13 changed upstream convergence behavior. The next high-ROI
+  step is measurement, not another speculative code patch.
+- The eval must reuse existing harnesses and cases so results are comparable to
+  earlier `eval/results/local-small-*` runs.
+
+Existing assets to reuse:
+
+- `eval/run.sh` already builds the binary, runs a case serially, captures
+  stdout, debug logs, verdicts, and mechanism metrics.
+- Existing cases cover the three target surfaces:
+  - `qf_sequence_analyzer_gate.case`: analyzer-gate + sequence diagram.
+  - `qf_relation_subagent_registry.case`: relation/member_set principal answer.
+  - `read_combo_pipeline_sequence_table.case`: finalizer-heavy diagram + table.
+- Local provider from `providers.yaml` uses
+  `Qwen3.5-9B-OptiQ-4bit`, `recover_text_tool_calls=true`, and
+  `tool_param_compat` settings. Do not duplicate provider routing in the eval
+  command.
+
+Design:
+
+- Run the cases serially with `N=1` into a fresh results root:
+  `.codrax/eval-batch14-local-small`.
+- Use the existing single-shot read-mode path, not REPL, because the harness
+  already records comparable metrics and logs.
+- After every case, inspect:
+  - verdict and expected-surface failures;
+  - analyzer/explorer/extractor/finalizer iteration counts;
+  - `midloop_inject`, repair-plan, strict-decode, and answer-document rejection
+    signatures;
+  - whether provisional diagrams/tables are preserved into final output.
+- Only implement code after the logs identify a system-side repair that is
+  structural, typed, and safe. Do not react to one-off answer wording.
+
+Task list:
+
+- [x] Confirm current workspace is clean and eval harness/cases exist.
+- [x] Run `qf_sequence_analyzer_gate`.
+- [x] Run `qf_relation_subagent_registry`.
+- [ ] Run `read_combo_pipeline_sequence_table`.
+- [ ] Summarize metrics, failures, and remaining gaps in this document.
+- [ ] Decide the next code batch from observed evidence.
+
+Observed results so far:
+
+- `qf_sequence_analyzer_gate`: FAIL. The run was healthy from a loop/JSON
+  perspective (`analyzer_iters=3`, `explorer_iters=7`, `extractor_iters=1`,
+  `finalizer_iters=1`, `midloop_inject=3`, no strict-decode repairs), but the
+  final answer omitted the explicitly requested Mermaid sequence diagram.
+  The finalizer prompt had `has_diagram=true` and a required `diagram` block,
+  and the semantic reviewer correctly reported that the answer lacked Mermaid.
+  However, `emit_answer_document` accepted the missing diagram as a soft
+  pre-emit advisory (`blocks[].kind=diagram ... currently emitted: 0`) instead
+  of forcing an immediate repair. This is a system-side contract enforcement
+  gap, not a JSON recovery gap.
+- `qf_relation_subagent_registry`: manually stopped after repeated same-cause
+  relation handoff downgrades. The model repeatedly produced the correct
+  principal facts (`members=["explorer"]`, `value="1"`) and later added
+  `support_refs` plus `role="principal_answer"`, but
+  `emit_investigation_complete` still reported
+  `aggregate_facts[0] role="supporting_coverage" is not principal_answer`.
+  The run then re-entered exploration and kept collecting more evidence for an
+  already-proven member set. This indicates a system-side aggregate-fact
+  normalization/reconciliation bug: a verifiable relation `member_set` can be
+  demoted to supporting coverage even when the model marks it principal and
+  backs it with a source line.
+- The same run also showed a search-width usability issue. Broad symbol greps
+  such as `RegisterDefaultSubAgents` with context returned hundreds of
+  auxiliary/test/doc matches, increasing context without adding principal
+  evidence. This is secondary to the member-set bug, but worth addressing with
+  existing active-scope / production-priority tools rather than prompt changes.
+
+Search-width root cause and optimal design:
+
+- Current code already has useful local protections:
+  - `grep` separates production vs auxiliary results through
+    `annotateGrepOutputByPathRole`.
+  - `repo_map`, `grep`, and `list_files` share multi-repo active-set / path
+    scope gates, so parent-directory escape is hard-refused before scanning.
+  - analyzer pre-scan has a separate `files_only=true` and round-budget
+    contract.
+- The missing architecture is a shared retrieval-width contract across
+  discovery tools. Today each tool faithfully returns the result of the model's
+  broad query. The system only annotates or truncates after the fact, so a
+  broad query can still consume large context and bias later evidence selection.
+- The right fix is a single `retrieval governor` layer used by `grep`,
+  `repo_map`, `list_files`, and any future repository/external-observation
+  search tool. It should not inspect user prose or model free-form prose to
+  decide intent. It should only use typed state already produced by the system:
+  pipeline stage, active repository scope, structured analyzer fields
+  (`entities`, `exact_targets`, `required_files`, `source_scope_profile`,
+  `diagram_hint`, `question_kind`), current read-set/evidence-set, and the
+  tool parameters in the current call.
+- The governor should produce a structured `RetrievalPlan` before execution:
+  `scope_class` (primary_file / required_file / active_dir / repo_root),
+  `query_specificity` (exact_symbol / path_like / phrase / generic_regex),
+  `mode` (discovery / line_window / count / map), `budget`, and
+  `degrade_action`.
+- Execution should stay semantic-preserving:
+  - never rewrite the user's question or the model's answer;
+  - never change a query into a different semantic query;
+  - safe parameter normalization is allowed only when it narrows presentation,
+    not meaning: e.g. prefer `files_only=true` for broad discovery, clamp
+    `context_lines`, cap `top_n`, and partition production/auxiliary results;
+  - if a query is too broad for line output, return a successful, structured
+    `too_broad` result with top production files and a suggested next shape,
+    rather than dumping thousands of lines or forcing a model rewrite.
+- Returned results should be tiered, not merely truncated:
+  1. exact production hits inside required/primary/read files;
+  2. production hits inside active scope;
+  3. auxiliary/test/doc hits;
+  4. overflow counts and a blob reference for exact raw paging.
+  Downstream should see the top tiers inline and keep the full raw output
+  available through the existing blob path. This preserves information without
+  letting noise dominate context.
+- This must be language-agnostic. Source/auxiliary classification should use
+  existing `types.ClassifySourcePathRole`, `types.LooksLikeTestFilePath`,
+  repomap language metadata, and file-type mappings instead of Go-only suffixes.
+- The UI/log should report the governor decision compactly:
+  `grep narrowed: broad line query → discovery summary (production=12,
+  auxiliary=244, raw=blob://...)`. This helps users understand progress without
+  adding prompt noise.
+
+Implementation tasks for the search-width architecture:
+
+- [ ] Add a shared retrieval-governor package or helper beside existing tool
+      path/scope helpers; do not duplicate active-set logic.
+- [ ] Route `grep` through the governor before execution and through a tiered
+      result packer after execution.
+- [ ] Route `repo_map` through the same budget model for `top_n`, query length,
+      and root-wide task maps.
+- [ ] Extend tests with polyglot production/test/doc fixtures so the policy is
+      not Go-only.
+- [ ] Add telemetry counters for broad-query downgrades, production/auxiliary
+      counts, raw blob preservation, and user-visible summary text.
+
+## 2026-05-24 Batch 15 - Retrieval Width Governor, Grep First
+
+Problem statement:
+
+- Local-model eval showed broad repository searches can return hundreds of
+  inline matches. The result is technically correct but poor retrieval UX:
+  context grows, auxiliary/test/doc hits distract the model, and later stages
+  spend turns repairing a path that should have been focused earlier.
+- We need an architectural fix that is not prompt-specific, not
+  case-specific, and not tied to Go-only paths.
+
+Current code anchors:
+
+- `internal/tool/builtin.go` owns `GrepTool.Execute`, search backend selection,
+  params banners, timeout handling, and `StoreBlob` integration.
+- `annotateGrepOutputByPathRole` already partitions production vs auxiliary
+  matches using `types.ClassifySourcePathRole`.
+- `internal/tool/search.go` owns shared directory exclusions.
+- `internal/types/source_path.go` and `internal/types/test_path.go` provide
+  language-neutral production/test/doc/fixture classification.
+- `repo_map` already has hard path-scope guards in
+  `internal/tool/repomap/tool.go`; this batch does not duplicate them.
+
+Design:
+
+- Batch 15 implements the first slice in `grep` only:
+  - execute the model's exact query unchanged;
+  - compute full match counts and full annotated output;
+  - if the result is narrow, preserve the old byte-for-byte path through
+    `StoreBlob`;
+  - if the result is broad, keep the full result in an existing blob artifact
+    and return a compact tiered summary inline.
+- Broadness is structural, not semantic:
+  - `files_only=true` is broad when it returns too many paths;
+  - line/context mode is broad when it returns too many match/context lines or
+    too many bytes;
+  - thresholds are fixed conservative constants and do not depend on the user
+    wording or model prose.
+- Tiered summary contract:
+  - preserve the original `[grep: N matching ...]` prefix and `[grep params]`
+    banner for existing parsers;
+  - add a `[grep retrieval governor]` section with counts, caps, and raw blob;
+  - list production matches first, auxiliary/test/doc matches second, and
+    passthrough/context separators last;
+  - include omission counts for every tier;
+  - never discard full raw bytes when `ctx.WorkDir` is available.
+- This keeps large-model behavior stable: narrow compliant searches are
+  unchanged, while broad searches get less noisy but more explicit output.
+
+Batch 15 task list:
+
+- [x] Explore existing grep, source-role classification, blob, and tests.
+- [x] Add grep retrieval-governor helper.
+- [x] Wire helper into native and shell-backed grep result paths.
+- [x] Add polyglot tests covering production/test/doc broad result compaction.
+- [x] Run focused tool tests and `make build`.
+- [x] Run full `go test ./...`.
+- [x] Commit and push Batch 15.
+
 ## Open Questions
 
 - Whether `emit_evidence.anchor_kind` auto-repair should run inside
