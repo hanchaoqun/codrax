@@ -90,3 +90,34 @@ func TestExecuteTool_MalformedParamsRejectedBeforeToolExecution(t *testing.T) {
 		t.Fatalf("tool executed despite malformed params: %+v", capture.got)
 	}
 }
+
+func TestExecuteTool_TruncatedParamsGetsTypedCompactGuidance(t *testing.T) {
+	reg := toolpkg.NewRegistry()
+	capture := &captureBusContextTool{}
+	reg.Register(capture)
+
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{Tools: reg}, nil)
+	res, _ := base.executeTool(&types.AgentContext{Stage: types.StageExplore}, llm.ToolCall{
+		ID:     "truncated-json",
+		Name:   capture.Name(),
+		Params: json.RawMessage(`{"items":[{"summary":"unterminated}`),
+	})
+	if res == nil {
+		t.Fatal("expected failed ToolResult")
+	}
+	if res.Success {
+		t.Fatalf("truncated params should fail before execution: %+v", res)
+	}
+	for _, want := range []string{
+		"truncated JSON tool arguments",
+		"smaller native JSON object",
+		"preserve model-authored prose",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if capture.got != nil {
+		t.Fatalf("tool executed despite truncated params: %+v", capture.got)
+	}
+}

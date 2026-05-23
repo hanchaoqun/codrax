@@ -3,6 +3,7 @@ package agent
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 )
 
 // repairToolParamsJSON attempts to repair common LLM-induced JSON
@@ -68,6 +69,66 @@ func repairToolParamsJSON(raw json.RawMessage) (json.RawMessage, bool) {
 		return repaired, true
 	}
 	return raw, false
+}
+
+func toolParamsMalformedJSONKind(raw json.RawMessage, errText string) string {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return "empty_json"
+	}
+	if toolParamsLookTruncated(raw, errText) {
+		return "truncated_json"
+	}
+	return "malformed_json"
+}
+
+func toolParamsLookTruncated(raw json.RawMessage, errText string) bool {
+	if strings.Contains(strings.ToLower(errText), "unexpected end of json input") {
+		return true
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || (trimmed[0] != '{' && trimmed[0] != '[') || json.Valid(trimmed) {
+		return false
+	}
+	stack := make([]byte, 0, 4)
+	inString := false
+	escape := false
+	for _, b := range trimmed {
+		if escape {
+			escape = false
+			continue
+		}
+		if inString {
+			switch b {
+			case '\\':
+				escape = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		switch b {
+		case '"':
+			inString = true
+		case '{':
+			stack = append(stack, '}')
+		case '[':
+			stack = append(stack, ']')
+		case '}', ']':
+			if len(stack) == 0 || stack[len(stack)-1] != b {
+				return false
+			}
+			stack = stack[:len(stack)-1]
+		}
+	}
+	if escape || inString || len(stack) > 0 {
+		return true
+	}
+	switch trimmed[len(trimmed)-1] {
+	case ':', ',':
+		return true
+	default:
+		return false
+	}
 }
 
 // tryTrimTrailingGarbage handles the pattern "valid JSON value

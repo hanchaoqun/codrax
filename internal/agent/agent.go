@@ -705,12 +705,8 @@ func malformedToolParamsResult(tc llm.ToolCall) *types.ToolResult {
 			errText = err.Error()
 		}
 	}
-	summary := fmt.Sprintf(
-		"invalid params: malformed JSON tool arguments for %s (%s). "+
-			"Re-emit this tool call with a single native JSON object in arguments; do not wrap it as a string and do not emit partial JSON. "+
-			"Original argument bytes were not executed.",
-		tc.Name, errText,
-	)
+	kind := toolParamsMalformedJSONKind(tc.Params, errText)
+	summary := malformedToolParamsSummary(tc.Name, errText, kind)
 	logging.Warning("[agent] tool %q params rejected before execution: %s len=%d id=%s",
 		tc.Name, errText, len(tc.Params), tc.ID)
 	return &types.ToolResult{
@@ -718,6 +714,31 @@ func malformedToolParamsResult(tc llm.ToolCall) *types.ToolResult {
 		Success:   false,
 		Summary:   summary,
 		Timestamp: time.Now(),
+	}
+}
+
+func malformedToolParamsSummary(toolName, errText, kind string) string {
+	switch kind {
+	case "truncated_json":
+		return fmt.Sprintf(
+			"invalid params: truncated JSON tool arguments for %s (%s). "+
+				"The previous arguments ended before a complete native JSON object and were not executed. "+
+				"Re-emit the same semantic facts with a smaller native JSON object; preserve model-authored prose in text/summary fields, and avoid serializing a giant mechanical row set when a compact aggregate or accepted evidence reference is available.",
+			toolName, errText,
+		)
+	case "empty_json":
+		return fmt.Sprintf(
+			"invalid params: empty JSON tool arguments for %s. "+
+				"Re-emit this tool call with one native JSON object in arguments. Original argument bytes were not executed.",
+			toolName,
+		)
+	default:
+		return fmt.Sprintf(
+			"invalid params: malformed JSON tool arguments for %s (%s). "+
+				"Re-emit this tool call with a single native JSON object in arguments; do not wrap it as a string and do not emit partial JSON. "+
+				"Original argument bytes were not executed.",
+			toolName, errText,
+		)
 	}
 }
 

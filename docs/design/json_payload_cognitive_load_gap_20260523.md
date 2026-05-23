@@ -52,6 +52,13 @@ Implementation progress:
   fields remain strict unless the existing explicit `split_string_arrays` knob
   is enabled, so this benefits structured row carriers without parsing
   user/model prose or inventing rows.
+- 2026-05-23 Batch 10 tightened the non-lossless truncation path. When tool
+  arguments are still invalid after bounded structural repair, the agent now
+  distinguishes truly malformed JSON from partial/truncated JSON and returns a
+  concise typed failure: preserve the same semantic facts, re-emit a smaller
+  native JSON object, and keep model-authored prose in text/summary fields.
+  This does not complete missing JSON or invent rows; it only reduces retry
+  entropy when the previous payload was mechanically cut off.
 - Remaining work starts at P1 carrier compilers / row-set references; the first
   batch deliberately did not change answer materialization policy.
 
