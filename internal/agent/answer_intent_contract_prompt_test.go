@@ -297,6 +297,41 @@ func TestRenderAnswerDocObservationLedger_PreservesAggregateMemberNotes(t *testi
 	}
 }
 
+func TestRenderAnswerDocObservationLedger_DoesNotRepeatSummaryAsNote(t *testing.T) {
+	mut := types.NewMutableState("Kind 常量说明")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "KindSymbolPresent 用于符号存在性判定",
+		Value: "1",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"KindSymbolPresent",
+		},
+		MemberNotes: []string{
+			"KindSymbolPresent 用于符号存在性判定",
+		},
+		SupportRefs: []string{
+			"KindSymbolPresent @ internal/analysis/criterion/grammar.go:29",
+		},
+	}})
+	mut.SetInvestigationComplete("done")
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+			},
+		},
+	}
+	got := renderAnswerDocObservationLedger(ctx)
+	if strings.Count(got, "KindSymbolPresent 用于符号存在性判定") != 1 {
+		t.Fatalf("summary should not be duplicated as a rich note:\n%s", got)
+	}
+}
+
 func TestRenderAnswerDocObservationLedger_KeepsDiffAndCurrentSourceSeparate(t *testing.T) {
 	mut := types.NewMutableState("diff plus current source")
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{

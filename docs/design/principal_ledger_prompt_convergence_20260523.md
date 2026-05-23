@@ -1,7 +1,7 @@
 # Principal Ledger Prompt Convergence
 
 Date: 2026-05-23
-Status: design committed, implementation in progress
+Status: Batch 1 and Batch 2 implemented; prompt audit/eval pass pending
 
 ## Problem
 
@@ -118,17 +118,17 @@ current-source citations for external observations.
 ## Task List
 
 - [x] T0: Create this task/design document.
-- [ ] T1: Add shared `ObservationPromptRecord` projection helper in
+- [x] T1: Add shared `ObservationPromptRecord` projection helper in
   `internal/types` with unit tests for summary-note dedupe, mixed-origin
   ranking, current-source excerpt suppression, and origin-specific rich-note
   budgets.
-- [ ] T2: Refactor finalizer Observation Ledger prompt to consume the shared
+- [x] T2: Refactor finalizer Observation Ledger prompt to consume the shared
   projection without changing user-visible section semantics.
-- [ ] T3: Refactor semantic reviewer observation summaries to consume the same
+- [x] T3: Refactor semantic reviewer observation summaries to consume the same
   projection.
 - [ ] T4: Audit finalizer/extractor/reviewer prompt surfaces and document
   whether each surface is authoritative, support, raw backstop, or removable.
-- [ ] T5: Run targeted tests and update this document with results.
+- [x] T5: Run targeted tests and update this document with results.
 - [ ] T6: Run targeted evals and update
   `docs/design/eval_20260520_full_sweep_gap_tracking.md` with any new gap.
 
@@ -139,11 +139,48 @@ current-source citations for external observations.
 Deliver shared projection and types-level tests. No prompt text change except
 moving mechanical trimming rules into one helper.
 
+Status: done.
+
+Implemented:
+
+- `internal/types/observation_prompt_projection.go`
+- `internal/types/observation_prompt_projection_test.go`
+
+Guardrails:
+
+- notes are normalized and deduped;
+- visible summary text is not repeated as a note;
+- dry single-token member fallbacks are skipped when the summary/claim already
+  carries the same token;
+- current-source raw excerpts stay out of compact observation prompts;
+- external observations keep bounded excerpts;
+- runtime/git/log/trace origin-specific principal rows receive richer note
+  budgets;
+- span formatting covers current-source, VCS hunk, JSON pointer, row, selector,
+  paragraph, text range, and timestamp coordinates.
+
 ### Batch 2: Consumer Refactor
 
 Move finalizer and semantic reviewer to the shared projection. Add regression
 tests that both consumers preserve rich notes and do not duplicate summary text
 as notes.
+
+Status: done.
+
+Implemented:
+
+- `internal/agent/answer_document_evaluator.go` now renders Observation Ledger
+  rows from `types.ProjectObservationPromptRecords`.
+- `internal/orchestrator/semantic_quality_reviewer.go` now builds reviewer
+  observation summaries from the same projection.
+
+Targeted tests:
+
+```bash
+go test ./internal/types ./internal/agent ./internal/orchestrator -run 'TestProjectObservationPromptRecords|TestFormatObservationSpan|TestRenderAnswerDocObservationLedger|TestSemanticObservationSummaries|TestRenderSemanticQualityUserMessage'
+```
+
+Result: pass.
 
 ### Batch 3: Prompt Audit
 
@@ -154,4 +191,3 @@ duplicated legacy surfaces with tests.
 
 Run targeted evals, record retry/reject data, and decide the next high-ROI gap
 from evidence rather than speculation.
-

@@ -3631,7 +3631,7 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	if ledger.Empty() {
 		return ""
 	}
-	records := prioritizedObservationLedgerRecords(ctx, ledger.Records, answerDocObservationLedgerPromptLimit)
+	records := answerDocObservationPromptRecords(ctx, ledger.Records, answerDocObservationLedgerPromptLimit)
 	if len(records) == 0 {
 		return ""
 	}
@@ -3648,17 +3648,17 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 			"- `%s`: origin=`%s`; source=`%s`; role=`%s`; policy=`%s`",
 			record.ID,
 			record.Origin,
-			renderAnswerDocObservationSource(record.SourceRef),
+			record.Source,
 			record.Role,
 			record.GroundingPolicy,
 		)
 		if record.ProvenanceLane.IsValid() {
 			fmt.Fprintf(&b, "; lane=`%s`", record.ProvenanceLane)
 		}
-		if span := renderAnswerDocObservationSpan(record.Span); span != "" {
+		if span := strings.TrimSpace(record.Span); span != "" {
 			fmt.Fprintf(&b, "; span=%s", span)
 		}
-		if claim := strings.TrimSpace(record.ClaimKey); claim != "" {
+		if claim := strings.TrimSpace(record.Claim); claim != "" {
 			fmt.Fprintf(&b, "; claim=%q", claim)
 		}
 		if record.Negative {
@@ -3668,21 +3668,21 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 			fmt.Fprintf(&b, "; result_count=%d", *record.ResultCount)
 		}
 		if value := strings.TrimSpace(record.Value); value != "" {
-			fmt.Fprintf(&b, "; value=%q", truncateAnswerDocPromptText(value, 120))
+			fmt.Fprintf(&b, "; value=%q", value)
 		}
 		if summary := strings.TrimSpace(record.Summary); summary != "" {
-			fmt.Fprintf(&b, "; summary=%q", truncateAnswerDocPromptText(summary, 180))
+			fmt.Fprintf(&b, "; summary=%q", summary)
 		}
-		if excerpt := renderAnswerDocObservationExcerpt(record); excerpt != "" {
+		if excerpt := strings.TrimSpace(record.Excerpt); excerpt != "" {
 			fmt.Fprintf(&b, "; excerpt=%q", excerpt)
 		}
-		if len(record.RichNotes) > 0 {
-			if notes := renderAnswerDocObservationNotes(record.RichNotes, answerDocObservationNoteLimit(record)); notes != "" {
+		if len(record.Notes) > 0 {
+			if notes := renderAnswerDocObservationNotes(record.Notes, len(record.Notes)); notes != "" {
 				fmt.Fprintf(&b, "; notes=%s", notes)
 			}
 		}
-		if len(record.SupportRefs) > 0 {
-			fmt.Fprintf(&b, "; support_refs=%d", len(record.SupportRefs))
+		if record.SupportRefCount > 0 {
+			fmt.Fprintf(&b, "; support_refs=%d", record.SupportRefCount)
 		}
 		b.WriteString("\n")
 	}
@@ -3700,14 +3700,14 @@ func answerDocObservationLedger(ctx *types.AgentContext) types.ObservationLedger
 	return types.CompileObservationLedger(input)
 }
 
-func prioritizedObservationLedgerRecords(ctx *types.AgentContext, records []types.ObservationRecord, limit int) []types.ObservationRecord {
+func answerDocObservationPromptRecords(ctx *types.AgentContext, records []types.ObservationRecord, limit int) []types.ObservationPromptRecord {
 	var rm *types.RequestModel
 	var contract *types.AnswerContract
 	if ctx != nil && ctx.AnalysisIR != nil {
 		rm = &ctx.AnalysisIR.RequestModel
 		contract = &ctx.AnalysisIR.AnswerContract
 	}
-	return types.PrioritizeObservationRecords(records, rm, contract, limit)
+	return types.ProjectObservationPromptRecords(records, rm, contract, types.DefaultObservationPromptProjectionOptions(limit))
 }
 
 func answerDocObservationRowSetWriter(ctx *types.AgentContext) types.ObservationRowSetWriter {
@@ -3717,74 +3717,6 @@ func answerDocObservationRowSetWriter(ctx *types.AgentContext) types.Observation
 	return func(name, content string) string {
 		return tool.StoreBlobArtifact(ctx.WorkDir, "answer_observation_row_set", name, content)
 	}
-}
-
-func renderAnswerDocObservationExcerpt(record types.ObservationRecord) string {
-	if record.Origin == types.AnswerEvidenceOriginCurrentSource {
-		return ""
-	}
-	excerpt := strings.Join(strings.Fields(strings.TrimSpace(record.RawExcerpt)), " ")
-	if excerpt == "" || excerpt == strings.Join(strings.Fields(strings.TrimSpace(record.Summary)), " ") {
-		return ""
-	}
-	limit := 180
-	if types.NormalizeAnswerAggregateRole(record.Role).IsPrincipal() ||
-		types.AnswerEvidenceOriginCarriesOriginSpecificSupport(record.Origin) {
-		limit = 260
-	}
-	return truncateAnswerDocPromptText(excerpt, limit)
-}
-
-func renderAnswerDocObservationSource(ref types.ObservationSourceRef) string {
-	return types.FormatObservationSourceRef(ref, 90)
-}
-
-func answerDocObservationNoteLimit(record types.ObservationRecord) int {
-	limit := 2
-	if types.NormalizeAnswerAggregateRole(record.Role).IsPrincipal() {
-		limit = 4
-	}
-	if record.Origin == types.AnswerEvidenceOriginCurrentSource && types.ObservationRecordHasStrongCurrentSourceAnchor(record) && limit < 3 {
-		limit = 3
-	}
-	if types.AnswerEvidenceOriginCarriesOriginSpecificSupport(record.Origin) &&
-		types.NormalizeAnswerAggregateRole(record.Role).IsPrincipal() && limit < 4 {
-		limit = 4
-	}
-	return limit
-}
-
-func renderAnswerDocObservationSpan(span types.ObservationSpan) string {
-	parts := make([]string, 0, 4)
-	if span.LineStart > 0 {
-		if span.LineEnd > 0 && span.LineEnd != span.LineStart {
-			parts = append(parts, fmt.Sprintf("lines %d-%d", span.LineStart, span.LineEnd))
-		} else {
-			parts = append(parts, fmt.Sprintf("line %d", span.LineStart))
-		}
-	}
-	if span.OldLine > 0 {
-		parts = append(parts, fmt.Sprintf("old_line %d", span.OldLine))
-	}
-	if span.NewLine > 0 {
-		parts = append(parts, fmt.Sprintf("new_line %d", span.NewLine))
-	}
-	if span.HunkHeader != "" {
-		parts = append(parts, fmt.Sprintf("hunk %q", truncateAnswerDocPromptText(span.HunkHeader, 80)))
-	}
-	if span.Row > 0 {
-		parts = append(parts, fmt.Sprintf("row %d", span.Row))
-	}
-	if span.StartTsMs != 0 || span.EndTsMs != 0 {
-		parts = append(parts, fmt.Sprintf("%.3f-%.3fms", span.StartTsMs, span.EndTsMs))
-	}
-	if span.Selector != "" {
-		parts = append(parts, fmt.Sprintf("selector %q", truncateAnswerDocPromptText(span.Selector, 80)))
-	}
-	if span.JSONPointer != "" {
-		parts = append(parts, fmt.Sprintf("json %q", truncateAnswerDocPromptText(span.JSONPointer, 80)))
-	}
-	return strings.Join(parts, ", ")
 }
 
 func renderAnswerDocObservationNotes(notes []string, limit int) string {

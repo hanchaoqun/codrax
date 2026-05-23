@@ -1266,6 +1266,32 @@ func TestSemanticObservationSummaries_UsesIntentAwareLedgerPriority(t *testing.T
 	}
 }
 
+func TestSemanticObservationSummaries_DoesNotRepeatSummaryAsNote(t *testing.T) {
+	ledger := types.ObservationLedger{Records: []types.ObservationRecord{{
+		ID:              "tool:0#vcs_metadata",
+		Origin:          types.AnswerEvidenceOriginVCSMetadata,
+		Role:            types.AnswerAggregateRolePrincipalAnswer,
+		GroundingPolicy: types.ClaimGroundingRepairable,
+		Summary:         "abc123 优化 repo map 缓存",
+		RichNotes: []string{
+			"abc123 优化 repo map 缓存",
+			"该提交减少 repo map 冷启动扫描。",
+		},
+	}}}
+	got := semanticObservationSummaries(ledger, &types.RequestModel{
+		Intent: types.IntentExplain,
+		Predicates: types.SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+	}, nil)
+	if len(got) != 1 {
+		t.Fatalf("expected one observation, got %+v", got)
+	}
+	if len(got[0].Notes) != 1 || got[0].Notes[0] != "该提交减少 repo map 冷启动扫描。" {
+		t.Fatalf("semantic reviewer notes should skip duplicate summary and preserve richer note: %+v", got[0])
+	}
+}
+
 func TestRenderSemanticQualityUserMessage_RendersObservationLedgerBoundaries(t *testing.T) {
 	count := 0
 	msg := renderSemanticQualityUserMessage(SemanticQualityInput{

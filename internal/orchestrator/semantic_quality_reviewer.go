@@ -780,7 +780,12 @@ func semanticObservationSummaries(ledger types.ObservationLedger, rm *types.Requ
 		return nil
 	}
 	const maxSemanticObservations = 18
-	records := types.PrioritizeObservationRecords(ledger.Records, rm, contract, maxSemanticObservations)
+	records := types.ProjectObservationPromptRecords(
+		ledger.Records,
+		rm,
+		contract,
+		types.SemanticReviewObservationPromptProjectionOptions(maxSemanticObservations),
+	)
 	limit := len(records)
 	out := make([]SemanticObservationSummary, 0, limit)
 	for i := 0; i < limit; i++ {
@@ -791,16 +796,16 @@ func semanticObservationSummaries(ledger types.ObservationLedger, rm *types.Requ
 			Role:            string(record.Role),
 			Policy:          string(record.GroundingPolicy),
 			Lane:            string(record.ProvenanceLane),
-			Source:          semanticObservationSource(record.SourceRef),
-			Span:            semanticObservationSpan(record.Span),
-			Claim:           strings.TrimSpace(record.ClaimKey),
-			Value:           clampSemanticObservationText(record.Value, 120),
-			Summary:         clampSemanticObservationText(record.Summary, 180),
-			Excerpt:         semanticObservationExcerpt(record),
-			Notes:           semanticObservationNotes(record),
+			Source:          strings.TrimSpace(record.Source),
+			Span:            strings.TrimSpace(record.Span),
+			Claim:           strings.TrimSpace(record.Claim),
+			Value:           strings.TrimSpace(record.Value),
+			Summary:         strings.TrimSpace(record.Summary),
+			Excerpt:         strings.TrimSpace(record.Excerpt),
+			Notes:           append([]string(nil), record.Notes...),
 			Negative:        record.Negative,
 			ResultCount:     record.ResultCount,
-			SupportRefCount: len(record.SupportRefs),
+			SupportRefCount: record.SupportRefCount,
 		})
 	}
 	return out
@@ -821,55 +826,6 @@ func semanticObservationRowSetWriter(bus *types.BusContext) types.ObservationRow
 	}
 }
 
-func semanticObservationExcerpt(record types.ObservationRecord) string {
-	if record.Origin == types.AnswerEvidenceOriginCurrentSource {
-		return ""
-	}
-	excerpt := strings.Join(strings.Fields(strings.TrimSpace(record.RawExcerpt)), " ")
-	if excerpt == "" || excerpt == strings.Join(strings.Fields(strings.TrimSpace(record.Summary)), " ") {
-		return ""
-	}
-	limit := 120
-	if types.NormalizeAnswerAggregateRole(record.Role).IsPrincipal() ||
-		types.AnswerEvidenceOriginCarriesOriginSpecificSupport(record.Origin) {
-		limit = 180
-	}
-	return clampSemanticObservationText(excerpt, limit)
-}
-
-func semanticObservationNotes(record types.ObservationRecord) []string {
-	if len(record.RichNotes) == 0 {
-		return nil
-	}
-	limit := 2
-	if record.Role == types.AnswerAggregateRolePrincipalAnswer {
-		limit = 3
-	}
-	if record.Origin != types.AnswerEvidenceOriginCurrentSource &&
-		record.Role == types.AnswerAggregateRolePrincipalAnswer {
-		limit = 4
-	}
-	out := make([]string, 0, limit)
-	seen := map[string]bool{}
-	summary := strings.TrimSpace(record.Summary)
-	for _, note := range record.RichNotes {
-		note = strings.TrimSpace(note)
-		if note == "" || note == summary {
-			continue
-		}
-		key := strings.ToLower(note)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, clampSemanticObservationText(note, 160))
-		if len(out) >= limit {
-			break
-		}
-	}
-	return out
-}
-
 func renderSemanticObservationNotes(notes []string) string {
 	if len(notes) == 0 {
 		return ""
@@ -886,37 +842,6 @@ func renderSemanticObservationNotes(notes []string) string {
 		return ""
 	}
 	return "[" + strings.Join(parts, "; ") + "]"
-}
-
-func semanticObservationSource(ref types.ObservationSourceRef) string {
-	return types.FormatObservationSourceRef(ref, 90)
-}
-
-func semanticObservationSpan(span types.ObservationSpan) string {
-	var parts []string
-	if span.LineStart > 0 {
-		if span.LineEnd > 0 && span.LineEnd != span.LineStart {
-			parts = append(parts, fmt.Sprintf("lines %d-%d", span.LineStart, span.LineEnd))
-		} else {
-			parts = append(parts, fmt.Sprintf("line %d", span.LineStart))
-		}
-	}
-	if span.OldLine > 0 {
-		parts = append(parts, fmt.Sprintf("old_line %d", span.OldLine))
-	}
-	if span.NewLine > 0 {
-		parts = append(parts, fmt.Sprintf("new_line %d", span.NewLine))
-	}
-	if span.Row > 0 {
-		parts = append(parts, fmt.Sprintf("row %d", span.Row))
-	}
-	if span.JSONPointer != "" {
-		parts = append(parts, fmt.Sprintf("json %s", clampSemanticObservationText(span.JSONPointer, 80)))
-	}
-	if span.StartTsMs != 0 || span.EndTsMs != 0 {
-		parts = append(parts, fmt.Sprintf("%.3f-%.3fms", span.StartTsMs, span.EndTsMs))
-	}
-	return strings.Join(parts, ", ")
 }
 
 func clampSemanticObservationText(s string, max int) string {
