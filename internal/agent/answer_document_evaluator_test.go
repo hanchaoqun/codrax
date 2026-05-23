@@ -4137,6 +4137,50 @@ func TestAnswerDocumentEvaluator_MixedRuntimeCurrentSourceDoesNotRenderObservati
 	}
 }
 
+func TestAnswerDocumentEvaluator_CurrentSourceExplanationProfileRendersMixedGuidance(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Type: "timeout"}},
+	})
+	ctx := &types.AgentContext{
+		Language: "zh",
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentExplain,
+				Scenario:  types.ScenarioArchitectureExplain,
+				Language:  "zh",
+				LogTriage: mut.LogTriage(),
+				CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+					IsCurrentSourceExplanationRequested: true,
+					Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+					SourceQuotes:                        []string{"当前源码解释"},
+					TargetTerms:                         []string{"调度链路"},
+					Confidence:                          0.9,
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## 当前源码解释请求",
+		"外部观察 lane 和 current-source lane",
+		"`explain_current_mechanism`",
+		"当前源码解释",
+		"调度链路",
+		"Current repository citations may still be used",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "This dispatch is observation-only") {
+		t.Fatalf("profile-backed mixed runtime+current-source prompt must not claim observation-only:\n%s", prompt)
+	}
+}
+
 func TestAnswerDocumentEvaluator_RuntimeObservationOnlySuppressesRepoEnrichment(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetLogTriage(&types.LogBundle{

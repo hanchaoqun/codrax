@@ -262,6 +262,50 @@ func TestCompileAnswerIntentContract_ExternalRuntimeArtifactRequiredFilesKeepCur
 	)
 }
 
+func TestCompileAnswerIntentContract_ExternalRuntimeArtifactProfileKeepsCurrentSourceExplanation(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioArchitectureExplain,
+		LogTriage: &LogBundle{
+			Errors: []LogError{{Type: "timeout"}},
+		},
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+			SourceQuotes:                        []string{"当前源码解释"},
+			Confidence:                          0.9,
+		},
+	}
+	got := CompileAnswerIntentContract(rm, nil)
+	assertAnswerIntentContract(t, got,
+		[]AnswerEvidenceOrigin{AnswerEvidenceOriginCurrentSource, AnswerEvidenceOriginRuntimeArtifact},
+		[]AnswerRequestedOutput{AnswerRequestedOutputSummary, AnswerRequestedOutputMechanism, AnswerRequestedOutputDiagnostic},
+	)
+}
+
+func TestCompileAnswerIntentContract_HistoryScalarWithProfileKeepsCurrentSource(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentReturnValue,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+			IsScalarAnswer:  true,
+		},
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationLocateCurrentCode},
+			SourceQuotes:                        []string{"结合当前代码"},
+			Confidence:                          0.8,
+		},
+	}
+	got := CompileAnswerIntentContract(rm, nil)
+	if !got.HasOrigin(AnswerEvidenceOriginCurrentSource) {
+		t.Fatalf("explicit current-source explanation profile should override scalar history default: %+v", got.Origins)
+	}
+	if !got.HasOrigin(AnswerEvidenceOriginVCSMetadata) {
+		t.Fatalf("history provenance should remain present: %+v", got.Origins)
+	}
+}
+
 func TestCompileAnswerIntentContract_CurrentSourceMechanismBaseline(t *testing.T) {
 	rm := RequestModel{
 		Intent:     IntentExplain,

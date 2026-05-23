@@ -802,6 +802,9 @@ func (rm RequestModel) HasRuntimeArtifactCurrentVerificationAnchor() bool {
 	if !rm.HasExternalOnlyRuntimeArtifact() {
 		return false
 	}
+	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
+		return true
+	}
 	if rm.LogTriage != nil && len(rm.LogTriage.ResolvedFiles) > 0 {
 		return true
 	}

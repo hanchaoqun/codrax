@@ -463,6 +463,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "current_source_explanation_profile", func() string {
+		return renderAnswerDocCurrentSourceExplanationProfile(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "claim_bindings", func() string {
 		return renderAnswerDocClaimBindings(ctx)
 	}) {
@@ -3825,6 +3830,70 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 		if dim.SourceQuote != "" && dim.SourceQuote != label {
 			fmt.Fprintf(&b, " — source quote: %q", dim.SourceQuote)
 		}
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func renderAnswerDocCurrentSourceExplanationProfile(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	profile := ctx.AnalysisIR.RequestModel.CurrentSourceExplanationProfile
+	if profile == nil || !profile.Active() {
+		return ""
+	}
+	lang := extractAnswerDocLang(ctx)
+	var b strings.Builder
+	if lang == "zh" {
+		b.WriteString("## 当前源码解释请求\n\n")
+		b.WriteString("- 当前问题要求把外部/非源码观察与当前 checkout 的源码证据结合起来说明。请同时使用外部观察 lane 和 current-source lane；不要把外部观察伪装成源码 `file:line`，也不要因为外部观察存在就省略当前源码解释。\n")
+		b.WriteString("- 这是证据 lane 指引，不是系统补表许可；保留模型已经写好的丰富说明，证据不足时用边界说明而不是编造。\n\n")
+	} else {
+		b.WriteString("## Current-Source Explanation Request\n\n")
+		b.WriteString("- The current request asks the answer to combine external/non-source observations with current-checkout source evidence. Use both the external observation lane and the current-source lane; do not pretend external observations are source `file:line` proof, and do not omit current-source explanation just because an external observation exists.\n")
+		b.WriteString("- This is evidence-lane guidance, not permission for system table replacement. Preserve model-authored explanation; disclose unsupported parts in a boundary note instead of inventing facts.\n\n")
+	}
+	if len(profile.Modes) > 0 {
+		parts := make([]string, 0, len(profile.Modes))
+		for _, mode := range profile.Modes {
+			if mode == "" {
+				continue
+			}
+			parts = append(parts, "`"+string(mode)+"`")
+		}
+		if len(parts) > 0 {
+			if lang == "zh" {
+				fmt.Fprintf(&b, "- 模式：%s\n", strings.Join(parts, ", "))
+			} else {
+				fmt.Fprintf(&b, "- Modes: %s\n", strings.Join(parts, ", "))
+			}
+		}
+	}
+	if len(profile.SourceQuotes) > 0 {
+		if lang == "zh" {
+			b.WriteString("- 用户原文锚点：")
+		} else {
+			b.WriteString("- Source quotes: ")
+		}
+		quoted := make([]string, 0, len(profile.SourceQuotes))
+		for _, quote := range profile.SourceQuotes {
+			trimmed := strings.TrimSpace(quote)
+			if trimmed != "" {
+				quoted = append(quoted, fmt.Sprintf("%q", trimmed))
+			}
+		}
+		b.WriteString(strings.Join(quoted, ", "))
+		b.WriteString("\n")
+	}
+	if len(profile.TargetTerms) > 0 {
+		if lang == "zh" {
+			b.WriteString("- 搜索/排序提示词：")
+		} else {
+			b.WriteString("- Search/ranking terms: ")
+		}
+		b.WriteString(strings.Join(profile.TargetTerms, ", "))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")

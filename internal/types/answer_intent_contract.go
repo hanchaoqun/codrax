@@ -288,6 +288,9 @@ func historyRequestNeedsVCSDiffOrigin(rm RequestModel, contract *AnswerContract)
 	if IsHistoryBackedCurrentCodeExplanation(rm) {
 		return true
 	}
+	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
+		return true
+	}
 	if rm.Predicates.IsCrossComponent || len(rm.QuestionStructure().Buckets) >= 2 {
 		return true
 	}
@@ -305,6 +308,9 @@ func shouldIncludeCurrentSourceOrigin(rm RequestModel, contract *AnswerContract)
 		return false
 	}
 	if typesContractRequiresCurrentSource(contract) {
+		return true
+	}
+	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
 		return true
 	}
 	if rm.Predicates.IsHistoryLookup {

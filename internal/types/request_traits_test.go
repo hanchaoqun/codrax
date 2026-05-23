@@ -138,6 +138,30 @@ func TestHasObservationOnlyRuntimeArtifact_CurrentKeyCodeDimensionOpensCurrentSo
 	}
 }
 
+func TestHasObservationOnlyRuntimeArtifact_CurrentSourceExplanationProfileOpensLane(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioArchitectureExplain,
+		LogTriage: &LogBundle{
+			Errors: []LogError{{Type: "timeout"}},
+		},
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+			SourceQuotes:                        []string{"当前源码解释"},
+			Confidence:                          0.9,
+		},
+	}
+	if rm.HasObservationOnlyRuntimeArtifact() {
+		t.Fatal("typed current-source explanation profile should keep mixed runtime/current-source lane open")
+	}
+
+	rm.CurrentSourceExplanationProfile.SourceQuotes = nil
+	if !rm.HasObservationOnlyRuntimeArtifact() {
+		t.Fatal("inactive current-source explanation profile must not open current-source lane")
+	}
+}
+
 func TestHasBoundedCategoryEnumerationMembers_TypedOnly(t *testing.T) {
 	rm := RequestModel{
 		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
