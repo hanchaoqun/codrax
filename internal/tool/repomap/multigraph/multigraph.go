@@ -872,6 +872,69 @@ func (m *MultiGraph) TypedRelationCandidates(q types.TypedRelationQuery) []types
 	return out
 }
 
+// TypedRelationSourceFacts exposes exact symbol-kind facts for relation query
+// selection. It lets prompt-hint selection discover that a source entity is an
+// interface / trait / protocol without downstream code importing MultiGraph or
+// scanning user/model prose.
+func (m *MultiGraph) TypedRelationSourceFacts(sources []string) []types.TypedRelationSourceFact {
+	if m == nil || len(sources) == 0 {
+		return nil
+	}
+	graphs := m.AllGraphs()
+	if len(graphs) == 0 {
+		return nil
+	}
+	sourceSet := map[string]string{}
+	for _, source := range sources {
+		source = strings.TrimSpace(source)
+		if source == "" {
+			continue
+		}
+		sourceSet[strings.ToLower(source)] = source
+	}
+	if len(sourceSet) == 0 {
+		return nil
+	}
+	var out []types.TypedRelationSourceFact
+	seen := map[string]bool{}
+	for _, g := range graphs {
+		if g == nil {
+			continue
+		}
+		for lower, source := range sourceSet {
+			defs := g.SymbolDefs[source]
+			if len(defs) == 0 {
+				for name, candidates := range g.SymbolDefs {
+					if strings.EqualFold(name, source) {
+						defs = candidates
+						break
+					}
+				}
+			}
+			for _, def := range defs {
+				if def == nil || strings.TrimSpace(def.Name) == "" || strings.TrimSpace(def.Kind) == "" {
+					continue
+				}
+				file := strings.TrimSpace(def.File)
+				key := lower + "|" + strings.ToLower(def.Name) + "|" + strings.ToLower(def.Kind) + "|" + file
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				out = append(out, types.TypedRelationSourceFact{
+					Name:      strings.TrimSpace(def.Name),
+					Kind:      strings.TrimSpace(def.Kind),
+					File:      file,
+					Line:      def.Line,
+					Carrier:   types.TypedRelationCarrierMultiGraph,
+					Precision: types.TypedRelationPrecisionExactSymbolID,
+				})
+			}
+		}
+	}
+	return out
+}
+
 // LookupSymbolByID fans out the SymbolID lookup across active
 // sub-repos. Returns the (Symbol, SubRepo) of the first match —
 // SymbolID is canonical and globally unique per Symbol so multi

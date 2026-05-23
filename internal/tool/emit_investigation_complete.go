@@ -2189,32 +2189,27 @@ func relationMemberSetCoverageGaps(ctx *types.BusContext, facts []types.AnswerAg
 }
 
 func relationCandidatesForRequest(ctx *types.BusContext, rm types.RequestModel) []types.TypedRelationCandidate {
-	candidates := types.StructuralRelationScopeCandidates(rm)
-	if len(candidates) == 0 {
-		candidates = dedupStringsPreserveOrder(append(append([]string{}, rm.AnalyzerHints.PrimaryEntities...), rm.AnalyzerHints.Entities...))
-	}
-	if len(candidates) == 0 {
+	query := types.BuildTypedRelationQuery(rm, types.TypedRelationPurposeCoverageGate, 0)
+	if len(query.Kinds) == 0 || len(query.Sources) == 0 {
 		return nil
-	}
-	query := types.TypedRelationQuery{
-		Kinds:      []types.TypedRelationKind{types.TypedRelationImplements},
-		Sources:    candidates,
-		Request:    &rm,
-		Purpose:    types.TypedRelationPurposeCoverageGate,
-		MaxMembers: 0,
 	}
 	if provider, ok := ctx.MultiGraph.(types.TypedRelationCandidateSource); ok && provider != nil {
 		if out := relationFilterCoverageCandidates(provider.TypedRelationCandidates(query), rm); len(out) > 0 {
 			return out
 		}
 	}
-	if provider, ok := ctx.MultiGraph.(types.TypedRelationImplementerSource); ok && provider != nil {
-		if out := relationTypedImplementersFromProvider(provider, candidates, rm); len(out) > 0 {
+	if query.AllowsKind(types.TypedRelationImplements) {
+		if provider, ok := ctx.MultiGraph.(types.TypedRelationImplementerSource); ok && provider != nil {
+			if out := relationTypedImplementersFromProvider(provider, query.Sources, rm); len(out) > 0 {
+				return out
+			}
+		}
+		graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+		if out := relationTypedImplementersFromGraph(graph, query.Sources, rm); len(out) > 0 {
 			return out
 		}
 	}
-	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
-	return relationTypedImplementersFromGraph(graph, candidates, rm)
+	return nil
 }
 
 func relationTypedImplementersFromProvider(provider types.TypedRelationImplementerSource, candidates []string, rm types.RequestModel) []types.TypedRelationCandidate {

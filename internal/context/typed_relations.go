@@ -124,22 +124,27 @@ func ProbeTypedRelations(graph any, rm *types.RequestModel) []types.TypedRelatio
 	if rm == nil {
 		return nil
 	}
-	if !shouldProbeTypedRelations(rm) {
+	sources := types.TypedRelationQuerySources(*rm, types.TypedRelationPurposePromptHint)
+	if len(sources) == 0 {
+		return nil
+	}
+	resolvedSources := typedRelationSourceFacts(graph, sources)
+	query := types.BuildTypedRelationQueryWithResolvedSources(*rm, types.TypedRelationPurposePromptHint, typedRelationProbeMaxMembers, resolvedSources)
+	if len(query.Kinds) == 0 || len(query.Sources) == 0 {
 		return nil
 	}
 	if graph == nil {
 		return nil
 	}
-	candidates := candidateEntityNames(rm)
-	if len(candidates) == 0 {
-		return nil
-	}
-	if hints := probeTypedRelationCandidateSource(graph, candidates); len(hints) > 0 {
+	if hints := probeTypedRelationCandidateSource(graph, query); len(hints) > 0 {
 		return hints
+	}
+	if !query.AllowsKind(types.TypedRelationImplements) {
+		return nil
 	}
 	var hints []types.TypedRelationHint
 	seenSource := make(map[string]bool)
-	for _, name := range candidates {
+	for _, name := range query.Sources {
 		if seenSource[name] {
 			continue
 		}
@@ -150,6 +155,49 @@ func ProbeTypedRelations(graph any, rm *types.RequestModel) []types.TypedRelatio
 		}
 	}
 	return hints
+}
+
+func typedRelationSourceFacts(graph any, sources []string) []types.TypedRelationSourceFact {
+	if graph == nil || len(sources) == 0 {
+		return nil
+	}
+	if provider, ok := graph.(types.TypedRelationSourceFactProvider); ok && provider != nil {
+		if facts := provider.TypedRelationSourceFacts(sources); len(facts) > 0 {
+			return facts
+		}
+	}
+	g, ok := graph.(*repotypes.Graph)
+	if !ok || g == nil {
+		return nil
+	}
+	var out []types.TypedRelationSourceFact
+	seen := map[string]bool{}
+	for _, source := range sources {
+		source = strings.TrimSpace(source)
+		if source == "" {
+			continue
+		}
+		defs := g.SymbolDefs[source]
+		for _, def := range defs {
+			if def == nil || strings.TrimSpace(def.Name) == "" || strings.TrimSpace(def.Kind) == "" {
+				continue
+			}
+			key := strings.ToLower(def.Name) + "|" + strings.ToLower(def.Kind) + "|" + strings.TrimSpace(def.File)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, types.TypedRelationSourceFact{
+				Name:      strings.TrimSpace(def.Name),
+				Kind:      strings.TrimSpace(def.Kind),
+				File:      strings.TrimSpace(def.File),
+				Line:      def.Line,
+				Carrier:   types.TypedRelationCarrierGraph,
+				Precision: types.TypedRelationPrecisionExactSymbolID,
+			})
+		}
+	}
+	return out
 }
 
 func appendTypedRelationHints(dst []types.TypedRelationHint, src ...types.TypedRelationHint) []types.TypedRelationHint {
@@ -194,17 +242,12 @@ func typedRelationHintMemberKey(hint types.TypedRelationHint, member types.Typed
 		strings.TrimSpace(member.File)
 }
 
-func probeTypedRelationCandidateSource(graph any, candidates []string) []types.TypedRelationHint {
+func probeTypedRelationCandidateSource(graph any, query types.TypedRelationQuery) []types.TypedRelationHint {
 	provider, ok := graph.(types.TypedRelationCandidateSource)
-	if !ok || provider == nil || len(candidates) == 0 {
+	if !ok || provider == nil || len(query.Sources) == 0 {
 		return nil
 	}
-	rows := provider.TypedRelationCandidates(types.TypedRelationQuery{
-		Kinds:      []types.TypedRelationKind{types.TypedRelationImplements},
-		Sources:    candidates,
-		MaxMembers: typedRelationProbeMaxMembers,
-		Purpose:    types.TypedRelationPurposePromptHint,
-	})
+	rows := provider.TypedRelationCandidates(query)
 	if len(rows) == 0 {
 		return nil
 	}
@@ -266,59 +309,6 @@ func probeTypedRelationCandidateSource(graph any, candidates []string) []types.T
 		})
 	}
 	return hints
-}
-
-// shouldProbeTypedRelations gates the probe on the analyzer's typed
-// predicates. A typed-relation hint helps three families of
-// answer shapes plus relation-diagram / relation-explanation shapes:
-//
-//	IsCategoryEnumeration  — "list all X of Y"
-//	IsRelationalLookup     — "which X have Y"
-//	IsCountQuestion        — "how many X" when X is a typed set
-//	SubjectInterface+Diagram — "draw/type-relationship view for interface X"
-//	PredicateAxis=implement — "show/explain the implementation relation"
-//
-// The diagram branch is still typed: answer_subject and diagram_hint are
-// analyzer fields, not localized prose. A Mermaid type-relation diagram, an
-// architecture explanation, a comparison, and an enumeration can all depend on
-// the same interface→implementer relation. The probe itself remains precise
-// because it only emits rows when the typed graph resolves the named entity to
-// an interface / trait / protocol with concrete implementers. No raw
-// user/model prose is parsed here.
-func shouldProbeTypedRelations(rm *types.RequestModel) bool {
-	if rm == nil {
-		return false
-	}
-	return types.ShouldSurfaceTypedRelationHints(*rm)
-}
-
-// candidateEntityNames returns the narrow, provenance-carrying entity
-// tokens the probe should attempt to resolve. Broad analyzer Entities
-// can include repo-map expansion/context helpers; those remain search
-// hints and must not seed hard typed relation gates. This prompt-only
-// relation hint is softer: if no provenance lane exists, fall back to
-// Entities even when DerivedEntities is present. The subsequent graph
-// probe is still exact and emits rows only for entities that resolve
-// to an interface / trait / protocol with concrete implementers.
-func candidateEntityNames(rm *types.RequestModel) []string {
-	out := types.StructuralRelationScopeCandidates(*rm)
-	if len(out) > 0 || rm == nil || !types.ShouldSurfaceTypedRelationHints(*rm) {
-		return out
-	}
-	seen := make(map[string]bool, len(rm.AnalyzerHints.Entities))
-	for _, value := range rm.AnalyzerHints.Entities {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		key := strings.ToLower(value)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, value)
-	}
-	return out
 }
 
 // probeImplements walks Graph.ImplementersOf for one entity name.

@@ -101,15 +101,7 @@ func HasPrincipalCategoryEnumerationMemberLane(rm RequestModel) bool {
 // text, so relation facts stay language-neutral across every repomap-supported
 // language.
 func ShouldSurfaceTypedRelationHints(rm RequestModel) bool {
-	if rm.Predicates.IsCategoryEnumeration ||
-		rm.Predicates.IsRelationalLookup ||
-		rm.Predicates.IsCountQuestion {
-		return true
-	}
-	if HasInterfaceTypedRelationDiagramShape(rm) {
-		return true
-	}
-	return rm.PredicateAxis == AxisImplement
+	return HasTypedRelationQueryShape(rm, TypedRelationPurposePromptHint)
 }
 
 // HasInterfaceTypedRelationDiagramShape reports a typed shape where the user
@@ -135,6 +127,9 @@ func HasInterfaceTypedRelationDiagramShape(rm RequestModel) bool {
 // localized keywords. This keeps the rule language-neutral across all
 // repomap-supported languages.
 func HasTypedRelationMemberSetShape(rm RequestModel) bool {
+	if !HasTypedRelationQueryShape(rm, TypedRelationPurposeCoverageGate) {
+		return false
+	}
 	return rm.PredicateAxis == AxisImplement ||
 		rm.Predicates.IsRelationalLookup ||
 		HasInterfaceTypedRelationDiagramShape(rm)

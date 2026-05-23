@@ -197,6 +197,28 @@ func TestProbeTypedRelations_InterfaceDiagramShapeFiresWhenAxisDriftsToDefine(t 
 	}
 }
 
+func TestProbeTypedRelations_InterfaceDiagramUsesResolvedGraphSourceWhenAnalyzerSubjectMissing(t *testing.T) {
+	g := buildLooperGraphForTypedRelations(t)
+	rm := &types.RequestModel{
+		Intent:      types.IntentExplain,
+		Scenario:    types.ScenarioArchitectureExplain,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture},
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"Looper"},
+		},
+	}
+	hints := ProbeTypedRelations(g, rm)
+	if len(hints) != 1 {
+		t.Fatalf("expected exact interface source fact to unlock relation hint; got %d", len(hints))
+	}
+	if hints[0].Relation != types.TypedRelationImplements || hints[0].SourceName != "Looper" {
+		t.Fatalf("unexpected relation hint: %+v", hints[0])
+	}
+	if len(hints[0].Members) != 3 {
+		t.Fatalf("expected all implementers from exact graph source, got %+v", hints[0].Members)
+	}
+}
+
 func TestProbeTypedRelations_ImplementAxisFiresForAllSupportedLanguages(t *testing.T) {
 	for _, lang := range repotypes.SupportedReadLanguages() {
 		ifaceKind := "interface"
@@ -224,15 +246,29 @@ func TestProbeTypedRelations_ImplementAxisFiresForAllSupportedLanguages(t *testi
 }
 
 type fakeTypedRelationCandidateSource struct {
-	rows []types.TypedRelationCandidate
+	rows  []types.TypedRelationCandidate
+	facts []types.TypedRelationSourceFact
+}
+
+func (f fakeTypedRelationCandidateSource) TypedRelationSourceFacts(sources []string) []types.TypedRelationSourceFact {
+	var out []types.TypedRelationSourceFact
+	for _, fact := range f.facts {
+		for _, source := range sources {
+			if strings.EqualFold(fact.Name, source) {
+				out = append(out, fact)
+				break
+			}
+		}
+	}
+	return out
 }
 
 func (f fakeTypedRelationCandidateSource) TypedRelationCandidates(q types.TypedRelationQuery) []types.TypedRelationCandidate {
-	if !q.AllowsKind(types.TypedRelationImplements) {
-		return nil
-	}
 	var out []types.TypedRelationCandidate
 	for _, row := range f.rows {
+		if !q.AllowsKind(row.Relation) {
+			continue
+		}
 		for _, source := range q.Sources {
 			if strings.EqualFold(row.SourceName, source) {
 				out = append(out, row)
@@ -241,6 +277,42 @@ func (f fakeTypedRelationCandidateSource) TypedRelationCandidates(q types.TypedR
 		}
 	}
 	return out
+}
+
+func TestProbeTypedRelations_InterfaceDiagramUsesResolvedProviderSourceFacts(t *testing.T) {
+	provider := fakeTypedRelationCandidateSource{
+		facts: []types.TypedRelationSourceFact{{
+			Name:      "Looper",
+			Kind:      "interface",
+			File:      "iface.go",
+			Line:      7,
+			Carrier:   types.TypedRelationCarrierMultiGraph,
+			Precision: types.TypedRelationPrecisionExactSymbolID,
+		}},
+		rows: []types.TypedRelationCandidate{{
+			Relation:   types.TypedRelationImplements,
+			SourceName: "Looper",
+			SourceKind: "interface",
+			Member:     types.TypedRelationMember{Name: "alpha", File: "impl_alpha.go", Line: 14, Kind: "struct"},
+			Carrier:    types.TypedRelationCarrierMultiGraph,
+			Precision:  types.TypedRelationPrecisionExactSymbolID,
+		}},
+	}
+	rm := &types.RequestModel{
+		Intent:      types.IntentExplain,
+		Scenario:    types.ScenarioArchitectureExplain,
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramArchitecture},
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"Looper"},
+		},
+	}
+	hints := ProbeTypedRelations(provider, rm)
+	if len(hints) != 1 {
+		t.Fatalf("expected provider source fact to unlock relation hint; got %d", len(hints))
+	}
+	if hints[0].Relation != types.TypedRelationImplements || len(hints[0].Members) != 1 {
+		t.Fatalf("unexpected provider relation hint: %+v", hints[0])
+	}
 }
 
 func TestProbeTypedRelations_UsesGenericCandidateSourceWhenGraphIsOpaque(t *testing.T) {
@@ -277,6 +349,43 @@ func TestProbeTypedRelations_UsesGenericCandidateSourceWhenGraphIsOpaque(t *test
 	}
 	if got := len(hints[0].Members); got != 2 {
 		t.Fatalf("members=%d, want 2: %+v", got, hints[0].Members)
+	}
+}
+
+func TestProbeTypedRelations_UsesCentralQueryForGenericRelationKinds(t *testing.T) {
+	provider := fakeTypedRelationCandidateSource{rows: []types.TypedRelationCandidate{
+		{
+			Relation:   types.TypedRelationCalledBy,
+			SourceName: "Run",
+			SourceKind: "function",
+			Member:     types.TypedRelationMember{Name: "main", File: "cmd/root.go", Line: 42, Kind: "function"},
+			Carrier:    types.TypedRelationCarrierGraph,
+			Precision:  types.TypedRelationPrecisionExactSymbolID,
+		},
+		{
+			Relation:   types.TypedRelationImplements,
+			SourceName: "Run",
+			SourceKind: "interface",
+			Member:     types.TypedRelationMember{Name: "runner", File: "runner.go", Line: 7, Kind: "struct"},
+			Carrier:    types.TypedRelationCarrierGraph,
+			Precision:  types.TypedRelationPrecisionExactSymbolID,
+		},
+	}}
+	rm := &types.RequestModel{
+		PredicateAxis: types.AxisCall,
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"Run"},
+		},
+	}
+	hints := ProbeTypedRelations(provider, rm)
+	if len(hints) != 1 {
+		t.Fatalf("expected called-by relation hint from central query; got %d", len(hints))
+	}
+	if hints[0].Relation != types.TypedRelationCalledBy || hints[0].SourceName != "Run" {
+		t.Fatalf("unexpected relation hint: %+v", hints[0])
+	}
+	if got := len(hints[0].Members); got != 1 || hints[0].Members[0].Name != "main" {
+		t.Fatalf("unexpected called-by members: %+v", hints[0].Members)
 	}
 }
 

@@ -1,5 +1,7 @@
 package types
 
+import "strings"
+
 // TypedRelationHint is a system-derived structural-relation candidate
 // surfaced to the LLM as input HINTING (not as auto-filled answer).
 //
@@ -137,6 +139,206 @@ type TypedRelationQuery struct {
 	Request    *RequestModel        `json:"-"`
 	MaxMembers int                  `json:"max_members,omitempty"`
 	Purpose    TypedRelationPurpose `json:"purpose,omitempty"`
+}
+
+// TypedRelationSourceFact is an exact carrier-side fact about a query source.
+// It lets relation selection use resolved graph/evidence metadata (for example
+// "LoopController is an interface") without inspecting raw request prose or
+// model text.
+type TypedRelationSourceFact struct {
+	Name      string                   `json:"name"`
+	Kind      string                   `json:"kind,omitempty"`
+	File      string                   `json:"file,omitempty"`
+	Line      int                      `json:"line,omitempty"`
+	Carrier   TypedRelationCarrierKind `json:"carrier,omitempty"`
+	Precision TypedRelationPrecision   `json:"precision,omitempty"`
+}
+
+// TypedRelationSourceFactProvider is the optional provider boundary for exact
+// source-kind facts used by BuildTypedRelationQueryWithResolvedSources.
+type TypedRelationSourceFactProvider interface {
+	TypedRelationSourceFacts(sources []string) []TypedRelationSourceFact
+}
+
+// BuildTypedRelationQuery is the single request-shape selector for typed
+// relation providers. It maps typed analyzer/request fields onto the closed
+// relation vocabulary and carries the provenance-aware source candidates that
+// providers may resolve.
+//
+// The selector intentionally does not inspect RawRequest, analyzer EntityAxes
+// free-form text, model prose, or localized keywords. A selected relation kind
+// is only permission to query an exact provider; hard gates still require exact
+// carrier precision, current-source scope, grounded member evidence, and a
+// model-authored member_set before they may complain.
+func BuildTypedRelationQuery(rm RequestModel, purpose TypedRelationPurpose, maxMembers int) TypedRelationQuery {
+	return BuildTypedRelationQueryWithResolvedSources(rm, purpose, maxMembers, nil)
+}
+
+// BuildTypedRelationQueryWithResolvedSources extends BuildTypedRelationQuery
+// with exact source facts from a relation provider. This is still a typed
+// selector: source facts are graph/evidence records with precision metadata,
+// not prose-derived guesses.
+func BuildTypedRelationQueryWithResolvedSources(rm RequestModel, purpose TypedRelationPurpose, maxMembers int, resolved []TypedRelationSourceFact) TypedRelationQuery {
+	kinds := appendTypedRelationKinds(nil, TypedRelationKindsForRequest(rm, purpose)...)
+	kinds = appendTypedRelationKinds(kinds, TypedRelationKindsForResolvedSources(rm, purpose, resolved)...)
+	sources := TypedRelationQuerySources(rm, purpose)
+	if len(kinds) == 0 {
+		return TypedRelationQuery{
+			Sources:    sources,
+			Purpose:    purpose,
+			MaxMembers: maxMembers,
+		}
+	}
+	return TypedRelationQuery{
+		Kinds:      kinds,
+		Sources:    sources,
+		Request:    &rm,
+		MaxMembers: maxMembers,
+		Purpose:    purpose,
+	}
+}
+
+// TypedRelationKindsForRequest maps typed request-shape fields onto relation
+// kinds. It preserves the historical prompt hint behavior for bounded
+// category/count/relational shapes by asking for implementer rows, while future
+// providers can key off the same query for call, registration, inheritance, and
+// import/export families.
+func TypedRelationKindsForRequest(rm RequestModel, purpose TypedRelationPurpose) []TypedRelationKind {
+	var out []TypedRelationKind
+	add := func(kinds ...TypedRelationKind) {
+		out = appendTypedRelationKinds(out, kinds...)
+	}
+
+	switch rm.PredicateAxis {
+	case AxisImplement:
+		add(TypedRelationImplements)
+	case AxisCall:
+		add(TypedRelationCalledBy)
+	case AxisRegister:
+		add(TypedRelationRegisters)
+	}
+
+	if HasInterfaceTypedRelationDiagramShape(rm) {
+		add(TypedRelationImplements, TypedRelationExtends)
+	}
+
+	if rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsCountQuestion {
+		// Compatibility lane: the only exact provider shipped today is
+		// interface/trait/protocol implementer membership. Keeping this in
+		// the central selector prevents call sites from reintroducing their
+		// own "if enumeration then implements" branches.
+		add(TypedRelationImplements)
+		if rm.AnswerSubject.Kind == SubjectInterface {
+			add(TypedRelationExtends)
+		}
+	}
+
+	if sourceInventoryRequestsImportPath(rm) {
+		add(TypedRelationImports, TypedRelationExports)
+	}
+
+	return out
+}
+
+// TypedRelationKindsForResolvedSources selects relation families from exact
+// provider facts. It currently enables interface / trait / protocol diagrams to
+// receive implementer/inheritance candidates even when the analyzer only emitted
+// a broad diagram hint. This is prompt guidance only; coverage gates still need
+// independently grounded evidence before they can reject anything.
+func TypedRelationKindsForResolvedSources(rm RequestModel, purpose TypedRelationPurpose, resolved []TypedRelationSourceFact) []TypedRelationKind {
+	if purpose != TypedRelationPurposePromptHint || rm.DiagramHint == nil || rm.DiagramHint.Kind == DiagramNone {
+		return nil
+	}
+	for _, fact := range resolved {
+		if !fact.Precision.CoverageGateEligible() {
+			continue
+		}
+		switch strings.ToLower(strings.TrimSpace(fact.Kind)) {
+		case "interface", "trait", "protocol":
+			return []TypedRelationKind{TypedRelationImplements, TypedRelationExtends}
+		}
+	}
+	return nil
+}
+
+// TypedRelationQuerySources returns the source-entity lane for typed relation
+// probes. Prompt hints retain the previous soft fallback to analyzer entities
+// when no provenance lane exists; coverage gates retain their stricter
+// primary/entity fallback because candidate rows are filtered again by exact
+// precision, source scope, and grounded evidence before any hard complaint.
+func TypedRelationQuerySources(rm RequestModel, purpose TypedRelationPurpose) []string {
+	out := StructuralRelationScopeCandidates(rm)
+	if len(out) > 0 {
+		return out
+	}
+	switch purpose {
+	case TypedRelationPurposePromptHint:
+		return dedupTypedRelationStrings(rm.AnalyzerHints.Entities)
+	case TypedRelationPurposeCoverageGate:
+		return dedupTypedRelationStrings(append(append([]string{}, rm.AnalyzerHints.PrimaryEntities...), rm.AnalyzerHints.Entities...))
+	default:
+		return nil
+	}
+}
+
+// HasTypedRelationQueryShape reports whether the typed request model selects
+// any relation family for the supplied purpose.
+func HasTypedRelationQueryShape(rm RequestModel, purpose TypedRelationPurpose) bool {
+	return len(TypedRelationKindsForRequest(rm, purpose)) > 0
+}
+
+func appendTypedRelationKinds(dst []TypedRelationKind, kinds ...TypedRelationKind) []TypedRelationKind {
+	for _, kind := range kinds {
+		if kind == "" {
+			continue
+		}
+		seen := false
+		for _, existing := range dst {
+			if existing == kind {
+				seen = true
+				break
+			}
+		}
+		if !seen {
+			dst = append(dst, kind)
+		}
+	}
+	return dst
+}
+
+func sourceInventoryRequestsImportPath(rm RequestModel) bool {
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	for _, role := range rm.SourceInventoryProfile.PrincipalTargetRoles() {
+		if role == AnswerCandidateRoleImportPath {
+			return true
+		}
+	}
+	return false
+}
+
+func dedupTypedRelationStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	seen := make(map[string]bool, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		key := strings.ToLower(value)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 // AllowsKind reports whether a provider should return rows for kind.

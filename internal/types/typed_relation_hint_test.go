@@ -77,6 +77,144 @@ func TestTypedRelationQueryAllowsKind(t *testing.T) {
 	}
 }
 
+func TestBuildTypedRelationQuery_SelectsKindsFromTypedFields(t *testing.T) {
+	rm := RequestModel{
+		PredicateAxis: AxisImplement,
+		AnalyzerHints: AnalyzerHints{PrimaryEntities: []string{"Looper"}},
+	}
+	q := BuildTypedRelationQuery(rm, TypedRelationPurposePromptHint, 17)
+	assertTypedRelationKinds(t, q.Kinds, TypedRelationImplements)
+	assertStringSlice(t, q.Sources, []string{"Looper"})
+	if q.Purpose != TypedRelationPurposePromptHint || q.MaxMembers != 17 || q.Request == nil {
+		t.Fatalf("query metadata not preserved: %+v", q)
+	}
+
+	rm.PredicateAxis = AxisCall
+	q = BuildTypedRelationQuery(rm, TypedRelationPurposePromptHint, 0)
+	assertTypedRelationKinds(t, q.Kinds, TypedRelationCalledBy)
+
+	rm.PredicateAxis = AxisRegister
+	q = BuildTypedRelationQuery(rm, TypedRelationPurposePromptHint, 0)
+	assertTypedRelationKinds(t, q.Kinds, TypedRelationRegisters)
+}
+
+func TestBuildTypedRelationQuery_InterfaceDiagramSelectsImplementAndExtends(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentExplain,
+		Scenario:      ScenarioArchitectureExplain,
+		PredicateAxis: AxisDefine,
+		AnswerSubject: AnswerSubject{Kind: SubjectInterface},
+		DiagramHint:   &DiagramHint{Kind: DiagramArchitecture},
+		AnalyzerHints: AnalyzerHints{Entities: []string{"Looper", "Looper"}},
+	}
+	q := BuildTypedRelationQuery(rm, TypedRelationPurposePromptHint, 50)
+	assertTypedRelationKinds(t, q.Kinds, TypedRelationImplements, TypedRelationExtends)
+	assertStringSlice(t, q.Sources, []string{"Looper"})
+	if !ShouldSurfaceTypedRelationHints(rm) {
+		t.Fatal("interface diagram shape should surface typed relation hints through the central selector")
+	}
+}
+
+func TestBuildTypedRelationQuery_ResolvedInterfaceDiagramSelectsImplementAndExtends(t *testing.T) {
+	rm := RequestModel{
+		Intent:      IntentExplain,
+		Scenario:    ScenarioArchitectureExplain,
+		DiagramHint: &DiagramHint{Kind: DiagramArchitecture},
+		AnalyzerHints: AnalyzerHints{
+			Entities: []string{"LoopController"},
+		},
+	}
+	q := BuildTypedRelationQuery(rm, TypedRelationPurposePromptHint, 50)
+	if len(q.Kinds) != 0 {
+		t.Fatalf("without typed subject/axis or resolved source facts, architecture diagram should not select relation kinds: %+v", q.Kinds)
+	}
+	resolved := []TypedRelationSourceFact{{
+		Name:      "LoopController",
+		Kind:      "interface",
+		File:      "internal/agent/agent.go",
+		Line:      430,
+		Carrier:   TypedRelationCarrierGraph,
+		Precision: TypedRelationPrecisionExactSymbolID,
+	}}
+	q = BuildTypedRelationQueryWithResolvedSources(rm, TypedRelationPurposePromptHint, 50, resolved)
+	assertTypedRelationKinds(t, q.Kinds, TypedRelationImplements, TypedRelationExtends)
+	assertStringSlice(t, q.Sources, []string{"LoopController"})
+
+	q = BuildTypedRelationQueryWithResolvedSources(rm, TypedRelationPurposeCoverageGate, 0, resolved)
+	if len(q.Kinds) != 0 {
+		t.Fatalf("resolved interface diagram should remain prompt-only unless the request has a typed relation member-set shape, got %+v", q.Kinds)
+	}
+}
+
+func TestBuildTypedRelationQuery_ResolvedSourceFactsNeedExactPrecision(t *testing.T) {
+	rm := RequestModel{
+		DiagramHint:   &DiagramHint{Kind: DiagramArchitecture},
+		AnalyzerHints: AnalyzerHints{Entities: []string{"LoopController"}},
+	}
+	resolved := []TypedRelationSourceFact{{
+		Name:      "LoopController",
+		Kind:      "interface",
+		Precision: TypedRelationPrecisionNameOnly,
+	}}
+	q := BuildTypedRelationQueryWithResolvedSources(rm, TypedRelationPurposePromptHint, 50, resolved)
+	if len(q.Kinds) != 0 {
+		t.Fatalf("name-only source facts must not select relation kinds, got %+v", q.Kinds)
+	}
+}
+
+func TestBuildTypedRelationQuery_ImportPathProfileSelectsImportExport(t *testing.T) {
+	rm := RequestModel{
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleImportPath},
+		},
+		AnalyzerHints: AnalyzerHints{PrimaryEntities: []string{"internal/agent"}},
+	}
+	q := BuildTypedRelationQuery(rm, TypedRelationPurposePromptHint, 25)
+	assertTypedRelationKinds(t, q.Kinds, TypedRelationImports, TypedRelationExports)
+	assertStringSlice(t, q.Sources, []string{"internal/agent"})
+}
+
+func TestBuildTypedRelationQuery_DoesNotSelectFromRawProseOrEntityAxes(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "list everything that implements Looper and imports net/http",
+		AnswerSubject: AnswerSubject{
+			Kind:       SubjectGeneric,
+			EntityAxes: []string{"interface -> implementation", "module -> import"},
+		},
+		AnalyzerHints: AnalyzerHints{Entities: []string{"Looper"}},
+	}
+	q := BuildTypedRelationQuery(rm, TypedRelationPurposePromptHint, 10)
+	if len(q.Kinds) != 0 {
+		t.Fatalf("raw prose / entity_axes must not select relation kinds, got %+v", q.Kinds)
+	}
+	if ShouldSurfaceTypedRelationHints(rm) {
+		t.Fatal("raw prose / entity_axes alone must not surface typed relation hints")
+	}
+}
+
+func TestTypedRelationQuerySources_PromptAndCoverageFallbacks(t *testing.T) {
+	rm := RequestModel{
+		AnalyzerHints: AnalyzerHints{
+			PrimaryEntities: []string{"Primary"},
+			Entities:        []string{"Primary", "Secondary", "secondary"},
+		},
+	}
+	assertStringSlice(t,
+		TypedRelationQuerySources(rm, TypedRelationPurposePromptHint),
+		[]string{"Primary"},
+	)
+	rm.AnalyzerHints.PrimaryEntities = nil
+	assertStringSlice(t,
+		TypedRelationQuerySources(rm, TypedRelationPurposePromptHint),
+		[]string{"Primary", "Secondary"},
+	)
+	assertStringSlice(t,
+		TypedRelationQuerySources(rm, TypedRelationPurposeCoverageGate),
+		[]string{"Primary", "Secondary"},
+	)
+}
+
 func TestTypedRelationCandidateCoverageGateEligibility(t *testing.T) {
 	c := TypedRelationCandidate{
 		Relation:  TypedRelationImplements,
@@ -94,5 +232,29 @@ func TestTypedRelationCandidateCoverageGateEligibility(t *testing.T) {
 	c.Relation = ""
 	if c.CoverageGateEligible() {
 		t.Fatalf("candidate without relation kind must not be hard-gate eligible")
+	}
+}
+
+func assertTypedRelationKinds(t *testing.T, got []TypedRelationKind, want ...TypedRelationKind) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("relation kinds=%v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("relation kinds=%v, want %v", got, want)
+		}
+	}
+}
+
+func assertStringSlice(t *testing.T, got, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("strings=%v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("strings=%v, want %v", got, want)
+		}
 	}
 }

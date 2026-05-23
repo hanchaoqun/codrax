@@ -426,7 +426,7 @@ Status: **Pending**
 
 ### R9. Central relation-kind selection
 
-Status: **Pending**
+Status: **Done — 2026-05-24**
 
 - Replace scattered relation-trigger checks with one
   `TypedRelationQuery`-building policy that maps typed request shape to allowed
@@ -438,6 +438,129 @@ Status: **Pending**
 - Prove every selector input is typed (`AnswerSubject`, `DiagramHint`,
   `PredicateAxis`, request profiles, or precise evidence carrier), never raw
   request/model prose.
+
+Detailed design:
+
+1. Add one selector in `internal/types`:
+   `BuildTypedRelationQuery(RequestModel, TypedRelationPurpose, maxMembers)`.
+   The selector returns a `TypedRelationQuery` containing:
+   - `Kinds`: closed `TypedRelationKind` enum values selected only from typed
+     request fields.
+   - `Sources`: the existing provenance-aware
+     `StructuralRelationScopeCandidates` lane, with the same prompt/coverage
+     fallbacks the current callers already use.
+   - `Purpose`: `prompt_hint` or `coverage_gate`, so providers can keep soft
+     prompt rows separate from exact hard-gate rows.
+
+2. Selector inputs are intentionally narrow:
+   - `PredicateAxis=implement` selects `implements`.
+   - `AnswerSubject=interface_name` plus non-empty `DiagramHint` selects
+     `implements` and `extends`.
+   - `PredicateAxis=call` selects `called-by`.
+   - `PredicateAxis=register` selects `registers`.
+   - `SourceInventoryProfile` with principal/import-path roles selects
+     `imports` and `exports`.
+   - Existing category/count/relational shapes continue to request
+     `implements` for prompt compatibility, but hard coverage still requires
+     exact provider rows, current-source scope, and grounded member evidence
+     before it can complain.
+
+3. The selector must not inspect:
+   - `RequestModel.RawRequest`
+   - analyzer `EntityAxes` free-form strings
+   - model free-form prose, closure prose, or finalizer prose
+   - localized keywords such as "implements", "imports", "注册"
+
+4. Migration points:
+   - `ShouldSurfaceTypedRelationHints`, `HasTypedRelationMemberSetShape`, and
+     `HasInterfaceTypedRelationDiagramShape` become wrappers over the selector
+     where possible.
+   - `internal/context/typed_relations.go` builds its provider query through the
+     selector instead of hard-coding `implements`.
+   - `internal/tool/emit_investigation_complete.go` uses the same selector for
+     relation coverage gates. Legacy implementer fallback only runs when the
+     query allows `implements`.
+
+5. Safety / non-regression:
+   - A selected relation kind is only a request to a provider. If no exact
+     provider exists yet, the result is empty and no prompt/gate behavior
+     changes.
+   - Hard gates remain downstream of exact carrier precision +
+     current-source scope + same-member grounded evidence + model-authored
+     member_set comparison.
+   - The first batch does not implement new relation providers. It only
+     centralizes query construction so future `extends`, `called-by`,
+     `imports`, `exports`, `registers`, runtime/MCP/web carriers can plug into
+     one contract without adding side gates.
+
+6. Carrier-resolved source facts:
+   - The selector also has
+     `BuildTypedRelationQueryWithResolvedSources(RequestModel, purpose,
+     maxMembers, []TypedRelationSourceFact)`.
+   - `TypedRelationSourceFact` is a typed provider record such as
+     "LoopController resolved as interface at file:line"; it is not derived
+     from raw request text or model prose.
+   - In the first shipped batch, exact interface / trait / protocol source
+     facts activate `implements` + `extends` prompt hints for diagram requests
+     even when the analyzer only emitted a broad architecture diagram shape.
+   - This source-fact path is intentionally generic: later relation families
+     must plug precise source/evidence facts into the same selector instead of
+     adding side doors.
+
+R9 task list:
+
+- [x] Audit existing typed relation entry points and identify duplicated kind
+  selection.
+- [x] Add central `TypedRelationQuery` builder in `internal/types`.
+- [x] Migrate prompt hint probing and pre-complete coverage gates to the
+  builder.
+- [x] Add tests for interface diagram, call/register axes, import-path profile,
+  legacy prompt compatibility, and raw-prose non-selection.
+- [x] Run focused unit tests and `qf_type_relation_loop_controller`.
+- [x] Update this document with results and push the batch.
+
+R9 implementation results:
+
+- `internal/types.BuildTypedRelationQuery` is now the single typed request
+  selector for relation kinds.
+- `internal/types.BuildTypedRelationQueryWithResolvedSources` lets exact
+  carrier facts contribute source-kind information without scanning prose.
+- `internal/context.ProbeTypedRelations` builds provider queries through the
+  selector and resolves exact source facts from both single-repo graphs and
+  generic providers.
+- `internal/tool/repomap/multigraph.MultiGraph` now implements
+  `TypedRelationSourceFactProvider`, so single-repo and multi-repo runs use the
+  same source-fact lane.
+- `internal/tool/emit_investigation_complete.go` uses the same selector for
+  relation coverage gates. The legacy implementer fallback only runs when the
+  query explicitly allows `implements`.
+- Unit tests passed:
+  `go test ./internal/types ./internal/context ./internal/tool/repomap/multigraph ./internal/tool`.
+- Focused eval passed:
+  `eval/results/qf_type_relation_loop_controller-20260524-044346`.
+  The earlier failed replay showed the exact architecture gap: the analyzer
+  emitted a broad diagram hint plus entity, but not an interface answer subject;
+  resolved graph source facts now close that gap without using raw prose.
+
+R9 follow-up relation family activation:
+
+These are the next provider-mapping tasks. They must extend the same
+`BuildTypedRelationQuery*` selector and `TypedRelationCandidateSource` /
+`TypedRelationSourceFactProvider` boundaries. Do not add new per-family gates or
+raw-text selectors.
+
+| Family | Exact typed source/evidence fact needed | Provider work | Gate posture |
+|---|---|---|---|
+| `called-by` / call graph | function/method source resolves to canonical symbol ID; receiver disambiguated when present | Map `CallersOfID` / `ResolveCallTarget` rows into `TypedRelationCandidate` and add ambiguity tests for duplicate method names | Hard only for exact symbol ID + grounded same-member evidence; name-only callers remain prompt-only. |
+| `imports` / `exports` | file, package, module, or import path resolves through repomap import graph | Add provider over `ImportGraph`, `ReverseImports`, and exact package/module export rows; include Go plus non-Go fixtures covered by repomap import extraction | Hard only for exact file/import-path rows inside requested scope; unresolved imports become uncertainty/negative evidence. |
+| `registers` / event observer / binding | model/tool emits exact registration evidence or graph extractor emits exact binding relation | Keep evidence-driven first; add provider rows only when source and member both have exact anchors | No framework keyword tables; hard only after exact evidence + grounded same-member evidence. |
+| `extends` / inheritance / overrides | source type resolves as class/interface/trait/protocol and relation endpoint has exact graph file:line | Generalize graph relation rows for inheritance/override/conformance across languages with reliable extractor output | Prompt first; hard only for exact rows with grounded evidence. |
+| references / type usage | endpoint resolves to exact symbol ID and requested question asks for reference membership | Provider can expose capped prompt hints from exact graph references; high-volume rows need rank/budget policy | Soft by default; hard only for explicit bounded member_set with exact evidence. |
+| external observation -> source anchor | log/trace/VCS/command/MCP/web/connector artifact span plus current-source anchor | Reuse external evidence/artifact ledger and blob/page readers to create exact observation relation rows | Hard only when both artifact anchor and current-source anchor are exact; otherwise append localized uncertainty. |
+
+This backlog is intentionally relation-family agnostic: adding a family means
+supplying typed facts and provider tests, not teaching downstream stages a new
+case-by-case rule.
 
 ### R10. Eval and telemetry
 
