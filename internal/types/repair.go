@@ -91,6 +91,39 @@ func (k RepairKind) IsValid() bool {
 	return false
 }
 
+// PendingReadBlocksAcceptedClosure reports whether a pending read is still a
+// load-bearing reason to reopen exploration after the model has already passed
+// emit_investigation_complete pre-complete gates.
+//
+// The default is deliberately conservative: unknown origins keep blocking.
+// Only framework-owned support/breadth origins that are known to be soft after
+// a typed closure are allowed through. This is structured origin routing, not a
+// parse of user text or model prose.
+func PendingReadBlocksAcceptedClosure(p PendingRead) bool {
+	origin := strings.TrimSpace(p.Origin)
+	switch origin {
+	case "":
+		return true
+	case "phase1_unread":
+		return false
+	}
+	if strings.HasPrefix(origin, "chain_promotion.concrete_values_tracer") {
+		return false
+	}
+	return true
+}
+
+// RepairBlocksAcceptedClosure mirrors PendingReadBlocksAcceptedClosure for the
+// queued repair ledger. Advisory repairs are audit-only by contract. Read-file
+// repairs are represented by PendingReads for active gating, so the queued
+// historical repair entry itself does not block an accepted closure.
+func RepairBlocksAcceptedClosure(r RepairDirective) bool {
+	if r.Advisory || r.Kind == RepairReadFile {
+		return false
+	}
+	return r.Kind != ""
+}
+
 // RepairDirective is the structured payload one enforcer hands the
 // orchestrator. The renderer (scheduler.renderWindowHint) consumes
 // it via EvidenceClosure.ConsumeRepairs and turns each directive

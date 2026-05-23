@@ -6228,7 +6228,17 @@ func (o *Orchestrator) shouldAutoCompleteExploreWindowFromAcceptedClosure(pendin
 	if closure == nil {
 		return true
 	}
-	return len(closure.PendingRepairs()) == 0 && len(closure.PendingReads()) == 0
+	for _, repair := range closure.PendingRepairs() {
+		if types.RepairBlocksAcceptedClosure(repair) {
+			return false
+		}
+	}
+	for _, pending := range closure.PendingReads() {
+		if types.PendingReadBlocksAcceptedClosure(pending) {
+			return false
+		}
+	}
+	return true
 }
 
 func (o *Orchestrator) effectiveInvestigationCompletePolicy() string {

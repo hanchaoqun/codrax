@@ -147,7 +147,7 @@ cannot be parsed for hard control flow.
 | B0 | In progress | Land this design and task tracker. | `docs/design/explorer_convergence_monotonicity_20260524.md`, `gap_architecture_retriage_20260523.md` | doc review |
 | B1 | Done | Make parallel result merge winner-aware: when early convergence fires, merge only the winning completed fork; skip non-winning siblings and log why. Preserve existing full merge when early convergence is disabled. | `internal/orchestrator/explore_parallel_dispatch.go`, tests | `go test ./internal/orchestrator -run 'TestDispatchExploreWindowsParallel|TestParallelExploreAllowsEarlyConvergence'` |
 | B2 | Done | Add regression tests proving non-winning partial forks cannot import aggregate facts, StageOutput, or pending repair debt after a winning closure; explicit enumeration/bucket/diagram/mixed-origin waits still merge siblings. | orchestrator/type tests | targeted unit tests |
-| B3 | Pending | Tighten accepted-closure auto-complete around support-only post-completion debt. Audit pending read/repair directive origins and add a typed helper that distinguishes load-bearing from enrichment/advisory. | `internal/orchestrator/orchestrator.go`, `internal/types/repair.go`, `internal/types/evidence_closure.go` | forced-read/reconcile unit tests |
+| B3 | Done | Tighten accepted-closure auto-complete around support-only post-completion debt. Added typed helpers that keep unknown/exact pending reads blocking, while advisory repairs and known breadth/support pending reads no longer reopen exploration after an accepted closure. | `internal/orchestrator/orchestrator.go`, `internal/types/repair.go`, `internal/orchestrator/accepted_closure_monotonicity_test.go` | `go test ./internal/orchestrator -run 'TestShouldAutoCompleteExploreWindowFromAcceptedClosure|TestDispatchExploreWindowsParallel|TestParallelExploreAllowsEarlyConvergence'`; `go test ./internal/types -run 'Test.*Repair|Test.*PendingRead|TestMergeExploreFork_AcceptedCompletionClearsSiblingRepairs'` |
 | B4 | Pending | Add origin/facet partition follow-up for hybrid external+current-source questions. First design the typed lane ownership contract; then implement if code already has enough metadata. | orchestrator dispatch hints, answer intent contract, observation ledger | mixed VCS/log/trace/command evals |
 | B5 | Pending | Rerun focused evals and refresh gap docs with before/after metrics: `qf_architecture`, `qf_diagram_pipeline`, `qf_type_relation_loop_controller`, `s5b`, `u7k`, and one small mechanism case. | eval results + gap docs | compare explorer_iters/read_file/midloop/finalizer_iters |
 
@@ -175,3 +175,10 @@ cannot be parsed for hard control flow.
   `TurnAArtifacts.AcceptedAggregateFacts`, or stable aggregate members after
   the winning closure. Existing tests still prove explicit enumeration and
   mixed-origin mechanism questions wait for sibling handoffs.
+- 2026-05-24 B3: added `PendingReadBlocksAcceptedClosure` and
+  `RepairBlocksAcceptedClosure`. The default remains conservative: unknown
+  origins, `pre_complete.primary_anchor`, `required_file_hint_unread`, and
+  `pre_complete.multi_path_anchor` still block. Known breadth/support origins
+  such as `phase1_unread` and `chain_promotion.concrete_values_tracer*`, plus
+  advisory repairs, no longer turn a valid accepted closure into another
+  explorer round.

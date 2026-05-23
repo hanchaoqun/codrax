@@ -183,7 +183,7 @@ violating the user's requested evidence mix.
 | T8 | Done | Deepen answer-document JSON recovery for JSON-encoded `blocks[]` / native-array confusion so light model syntax slips do not cause visible finalizer reject loops. | answer-document tool param compat / recovery | focused finalizer recovery unit tests |
 | T9 | Done | Prompt-only runtime mixed-lane guidance is not sufficient. Add a typed `current_source_explanation_profile` that reuses existing `AnswerIntentContract`, runtime observation-only routing, and `ObservationLedger` instead of creating a duplicate evidence stack. | `docs/design/current_source_explanation_profile_20260524.md`, analyzer schema / request traits / finalizer prompt | typed unit tests + regression evals for log+code, trace+code, VCS+code, command+code |
 | T10 | Done | Preserve explicit user-requested answer dimensions (for example `diff 线索 / 当前关键代码 / 作用 / 影响`) through analyzer → surface plan → finalizer prompt without hard gates or system table replacement. Typed contract, finalizer prompt, runtime/current-source lane routing, and VCS/log/trace eval coverage are complete. | `docs/design/user_requested_answer_dimensions_20260524.md`, analyzer schema, `AnswerPresentationContract`, `RequestModel.HasRuntimeArtifactCurrentVerificationAnchor`, finalizer prompt, `eval/cases/read_combo_*_dimensions.case` | typed unit tests + focused mixed evidence evals |
-| T11 | In progress | Make explorer completion monotonic: accepted parallel closures own principal state, non-winning partial siblings cannot pollute aggregate facts or repair debt, and post-completion support reads become enrichment unless a typed load-bearing facet is still missing. B1/B2 winner-aware parallel merge is done; post-completion support-read enrichment remains. | `docs/design/explorer_convergence_monotonicity_20260524.md`, `internal/orchestrator/explore_parallel_dispatch.go`, `internal/orchestrator/orchestrator.go`, `internal/types/evidence_closure.go` | parallel convergence unit tests + focused qf/s5b/u7k evals |
+| T11 | In progress | Make explorer completion monotonic: accepted parallel closures own principal state, non-winning partial siblings cannot pollute aggregate facts or repair debt, and post-completion support reads become enrichment unless a typed load-bearing facet is still missing. B1-B3 are done; hybrid origin/facet partition and focused eval replay remain. | `docs/design/explorer_convergence_monotonicity_20260524.md`, `internal/orchestrator/explore_parallel_dispatch.go`, `internal/orchestrator/orchestrator.go`, `internal/types/evidence_closure.go` | parallel convergence unit tests + focused qf/s5b/u7k evals |
 
 ## Implementation Notes For Future Batches
 
@@ -226,6 +226,12 @@ violating the user's requested evidence mix.
     aggregate facts, or Turn A accepted aggregate facts. The existing typed
     wait rules for explicit enumeration, bucketed/diagram, and mixed-origin
     mechanism cases remain guarded by tests.
+  - B3 implemented and unit-tested: accepted-closure auto-complete now uses
+    shared typed debt helpers. Advisory repairs and known breadth/support reads
+    (`phase1_unread`, `chain_promotion.concrete_values_tracer*`) no longer
+    reopen exploration after a valid closure; unknown/exact debt remains
+    blocking by default, including `primary_anchor`, `required_file_hint`, and
+    `multi_path_anchor`.
 - 2026-05-24 T9 complete:
   - Added a typed `current_source_explanation_profile` so analyzer can request
     current-source explanation for external observations without overloading
