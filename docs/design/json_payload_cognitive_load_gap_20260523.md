@@ -345,6 +345,24 @@ observations.
     model-response retry even though the upstream model may simply be slow to
     produce the first usable SSE event.
 
+- Batch 41 — answer-document stringified block boundary recovery. Status:
+  completed.
+  - Keep the generic schema-aware repair path in `internal/toolparam`; do not
+    move answer-document block semantics into the global JSON normalizer.
+  - Add one answer-document-specific structural repair for JSON-encoded
+    `blocks[]` / `add_blocks[]` / `replace_blocks[]`: if a top-level block
+    object is still open and the next array element starts as a new block
+    object, insert the missing outer `}` and accept only when the whole array
+    parses into valid block-shaped objects (`id` + valid `kind`).
+  - This repairs the focused eval failure where a diagram block swallowed the
+    following caveat block and previously caused two finalizer retries. It is
+    lossless-only: no semantic prose is parsed, no answer text is invented, and
+    partial recovery still rejects with the existing typed repair metadata.
+  - Validation: `go test ./internal/tool`,
+    `go test ./internal/orchestrator`, `git diff --check`, and focused eval
+    `read_combo_git_two_diffs_current_code-20260524-002022` with
+    `finalizer_iters=1` and no answer-document recovery reject.
+
 ## 2026-05-23 Cross-GAP Architecture Scan
 
 This scan reconciles the active JSON / evidence handoff work with
@@ -1434,6 +1452,11 @@ overriding better model-authored descriptions.
 - PARTIAL (Batch 32): full document emits now use the same lossless block-id
   normalization for exact duplicate blocks. This keeps patch/full emit behavior
   aligned at the transaction boundary.
+- DONE (Batch 41): stringified answer-block arrays now share one
+  answer-document-specific lossless syntax repair across full emits and patch
+  add/replace block arrays. The generic JSON compatibility layer remains shared
+  and schema-aware; the block-boundary helper is intentionally local because it
+  depends on answer block ids and the block-kind enum.
 - Remaining: extend the same typed repair lane to other deterministic
   answer-document validators only where the target field/action is precise.
 - Make patch/full-emit transitions transactional so carrier errors are fixed

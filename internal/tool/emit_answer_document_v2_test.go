@@ -870,6 +870,52 @@ func TestRepairBlocksAsString_WholeDocumentStringifyWithTrailingBrace(t *testing
 	}
 }
 
+func TestRepairBlocksAsString_StringifiedBlocksMissingOuterBlockClose(t *testing.T) {
+	raw := json.RawMessage(`{"blocks": "[{\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"hi\"},{\"id\":\"d1\",\"kind\":\"diagram\",\"diagram\":{\"kind\":\"flow\",\"language\":\"mermaid\",\"body\":\"flowchart TD\\n    A --> B\"}, {\"id\":\"c1\",\"kind\":\"caveat\",\"text\":\"keep this caveat\"}]"}`)
+	patched, report, ok := repairBlocksAsStringDetailed(raw)
+	if !ok {
+		t.Fatal("repair did not fire on missing outer block close")
+	}
+	if !report.Lossless {
+		t.Fatalf("missing outer block close should be a lossless structural repair, got %+v", report)
+	}
+	var p emitAnswerDocumentV2Params
+	if err := json.Unmarshal(patched, &p); err != nil {
+		t.Fatalf("repaired payload no longer parses: %v\npayload=%s", err, patched)
+	}
+	if len(p.Blocks) != 3 {
+		t.Fatalf("expected summary, diagram, caveat blocks; got %+v", p.Blocks)
+	}
+	if p.Blocks[1].Diagram == nil || !strings.Contains(p.Blocks[1].Diagram.Body, "flowchart TD") {
+		t.Fatalf("diagram body not preserved: %+v", p.Blocks[1])
+	}
+	if p.Blocks[2].Kind != string(types.BlockCaveat) || !strings.Contains(p.Blocks[2].Text, "keep this caveat") {
+		t.Fatalf("caveat block was not preserved: %+v", p.Blocks[2])
+	}
+}
+
+func TestEmitAnswerDocumentV2_StringifiedBlocksMissingOuterBlockCloseAccepted(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	raw := json.RawMessage(`{
+		"blocks": "[{\"id\":\"s1\",\"kind\":\"summary\",\"text\":\"hi\"},{\"id\":\"d1\",\"kind\":\"diagram\",\"diagram\":{\"kind\":\"flow\",\"language\":\"mermaid\",\"body\":\"flowchart TD\\n    A --> B\"}, {\"id\":\"c1\",\"kind\":\"caveat\",\"text\":\"keep this caveat\"}]"
+	}`)
+	res, err := tool.Execute(bus, raw)
+	if err != nil {
+		t.Fatalf("emit error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("lossless stringified blocks repair should avoid finalizer retry, got: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 3 {
+		t.Fatalf("repaired doc not persisted: %+v", doc)
+	}
+	if got := bus.Mutable.AnswerDisplayAttachments(); len(got) != 0 {
+		t.Fatalf("lossless repair should not create fallback display attachments: %+v", got)
+	}
+}
+
 func TestRepairBlocksAsString_BraceFallbackSkipsCitationObjects(t *testing.T) {
 	raw := json.RawMessage(`{"blocks": "[{\"id\":\"b1\",\"kind\":\"summary\",\"text\":\"hi\"}], \"citations\": [{\"file\":\"x.go\",\"line\":1}], trailing"}`)
 	patched, ok := repairBlocksAsString(raw)

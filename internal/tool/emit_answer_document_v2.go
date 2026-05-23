@@ -985,6 +985,19 @@ func tryRepairBlocksAsString(raw json.RawMessage) (json.RawMessage, bool) {
 			return patched, true
 		}
 	}
+	// Path A1: stringified blocks array with a missing top-level
+	// block close before the next block begins. This is a common
+	// model syntax slip for diagram/table blocks that contain nested
+	// objects. The repair is still lossless: it only inserts the
+	// missing outer `}` at a top-level array element boundary, and it
+	// is accepted only if the entire result parses into block-shaped
+	// objects.
+	if repairedBlocks, ok := repairAnswerBlocksArraySyntax(trimmed); ok {
+		probe["blocks"] = repairedBlocks
+		if patched, err := json.Marshal(probe); err == nil {
+			return patched, true
+		}
+	}
 	// Path B: whole-document stringify — the LLM sometimes places
 	// the whole answer body inside the blocks string:
 	//
@@ -1892,12 +1905,157 @@ func finishWholeDocumentStringRepair(probe map[string]json.RawMessage, trimmed s
 		`{"blocks": ` + blocks + rest,
 		`{"blocks": ` + blocks + rest + `}`,
 	}
+	if repairedBlocks, ok := repairAnswerBlocksArraySyntax(blocks); ok {
+		repaired := string(repairedBlocks)
+		candidates = append([]string{
+			`{"blocks": ` + repaired + rest,
+			`{"blocks": ` + repaired + rest + `}`,
+		}, candidates...)
+	}
 	for _, candidate := range candidates {
 		if patched, ok := finishStringWrappedRepair(probe, []byte(candidate)); ok {
 			return patched, true
 		}
 	}
 	return nil, false
+}
+
+func repairAnswerBlocksArraySyntax(rawArray string) (json.RawMessage, bool) {
+	rawArray = strings.TrimSpace(rawArray)
+	if !strings.HasPrefix(rawArray, "[") {
+		return nil, false
+	}
+	for _, candidate := range answerBlocksArraySyntaxCandidates(rawArray) {
+		if candidate == rawArray {
+			continue
+		}
+		var inner []json.RawMessage
+		if err := json.Unmarshal([]byte(candidate), &inner); err != nil {
+			continue
+		}
+		if !rawAnswerBlockArrayLooksValid(inner) {
+			continue
+		}
+		return mustMarshal(inner), true
+	}
+	return nil, false
+}
+
+func answerBlocksArraySyntaxCandidates(rawArray string) []string {
+	candidates := make([]string, 0, 8)
+	seen := map[string]bool{}
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			return
+		}
+		seen[s] = true
+		candidates = append(candidates, s)
+	}
+	add(rawArray)
+	for i := 0; i < len(candidates) && len(candidates) < 16; i++ {
+		base := candidates[i]
+		if repaired, changed := insertMissingTopLevelBlockObjectClosers(base); changed {
+			add(repaired)
+		}
+		for _, candidate := range toolparam.JSONRepairCandidates(base) {
+			add(candidate)
+		}
+	}
+	return candidates
+}
+
+func rawAnswerBlockArrayLooksValid(blocks []json.RawMessage) bool {
+	if len(blocks) == 0 {
+		return false
+	}
+	for _, raw := range blocks {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &obj); err != nil {
+			return false
+		}
+		if !isAnswerBlockCandidate(obj) {
+			return false
+		}
+		if _, ok := blockKindFromObject(obj); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func insertMissingTopLevelBlockObjectClosers(s string) (string, bool) {
+	if strings.TrimSpace(s) == "" {
+		return s, false
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 4)
+	inString := false
+	escape := false
+	arrayDepth := 0
+	objectDepth := 0
+	changed := false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		if inString {
+			b.WriteByte(ch)
+			if escape {
+				escape = false
+				continue
+			}
+			switch ch {
+			case '\\':
+				escape = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		switch ch {
+		case '"':
+			inString = true
+			b.WriteByte(ch)
+		case '[':
+			arrayDepth++
+			b.WriteByte(ch)
+		case ']':
+			if arrayDepth > 0 {
+				arrayDepth--
+			}
+			b.WriteByte(ch)
+		case '{':
+			objectDepth++
+			b.WriteByte(ch)
+		case '}':
+			if objectDepth > 0 {
+				objectDepth--
+			}
+			b.WriteByte(ch)
+		case ',':
+			if arrayDepth == 1 && objectDepth == 1 && nextNonSpaceByteIs(s, i+1, '{') {
+				b.WriteByte('}')
+				objectDepth--
+				changed = true
+			}
+			b.WriteByte(ch)
+		default:
+			b.WriteByte(ch)
+		}
+	}
+	if !changed {
+		return s, false
+	}
+	return b.String(), true
+}
+
+func nextNonSpaceByteIs(s string, start int, want byte) bool {
+	for i := start; i < len(s); i++ {
+		if isAnswerDocJSONSpace(s[i]) {
+			continue
+		}
+		return s[i] == want
+	}
+	return false
 }
 
 func findMatchingJSONClose(s string, openAt int, open, close byte) int {
@@ -2064,6 +2222,13 @@ func repairStringWrappedArrayFields(raw json.RawMessage) (json.RawMessage, []str
 				repaired = append(repaired, key)
 				continue
 			}
+			if topLevelArrayFieldContainsAnswerBlocks(key) {
+				if repairedBlocks, ok := repairAnswerBlocksArraySyntax(trimmed); ok {
+					probe[key] = repairedBlocks
+					repaired = append(repaired, key)
+					continue
+				}
+			}
 			if repairedArray, ok := repairStringWrappedArrayJSON(trimmed); ok {
 				probe[key] = repairedArray
 				repaired = append(repaired, key)
@@ -2109,6 +2274,13 @@ func repairStringWrappedArrayFields(raw json.RawMessage) (json.RawMessage, []str
 					probe[key] = mustMarshal(inner)
 					repaired = append(repaired, key)
 					continue
+				}
+				if topLevelArrayFieldContainsAnswerBlocks(key) {
+					if repairedBlocks, ok := repairAnswerBlocksArraySyntax(normalised); ok {
+						probe[key] = repairedBlocks
+						repaired = append(repaired, key)
+						continue
+					}
 				}
 				if trimmedArray, ok := trimRedundantTrailingClosersAfterJSONArray(normalised); ok {
 					if err := json.Unmarshal([]byte(trimmedArray), &inner); err == nil {
@@ -2342,6 +2514,15 @@ func topLevelArrayFieldAcceptsSingletonObject(field string) bool {
 		"append_citations",
 		"replace_missing_requested_roles",
 		"replace_snippets":
+		return true
+	default:
+		return false
+	}
+}
+
+func topLevelArrayFieldContainsAnswerBlocks(field string) bool {
+	switch field {
+	case "blocks", "replace_blocks", "add_blocks":
 		return true
 	default:
 		return false

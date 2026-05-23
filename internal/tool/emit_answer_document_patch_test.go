@@ -563,6 +563,33 @@ func TestEmitAnswerDocumentPatch_StringWrappedReplaceBlocks(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentPatch_StringWrappedAddBlocksMissingOuterBlockClose(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("")}
+	prev := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "s1", Kind: types.BlockSummary, Text: "lead"},
+		},
+	}
+	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, prev)
+
+	params := json.RawMessage(`{"unchanged_block_ids":["s1"],"add_blocks":"[{\"id\":\"d1\",\"kind\":\"diagram\",\"diagram\":{\"kind\":\"flow\",\"language\":\"mermaid\",\"body\":\"flowchart TD\\n    A --> B\"}, {\"id\":\"c1\",\"kind\":\"caveat\",\"text\":\"keep this caveat\"}]"}`)
+	tool := &EmitAnswerDocumentPatch{}
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("patch tool must auto-repair stringified add_blocks missing outer block close; got: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 3 {
+		t.Fatalf("repaired patch did not preserve every block: %+v", doc)
+	}
+	if doc.Blocks[1].Kind != types.BlockDiagram || doc.Blocks[1].Diagram == nil {
+		t.Fatalf("diagram block not preserved: %+v", doc.Blocks[1])
+	}
+	if doc.Blocks[2].Kind != types.BlockCaveat || !strings.Contains(doc.Blocks[2].Text, "keep this caveat") {
+		t.Fatalf("caveat block not preserved: %+v", doc.Blocks[2])
+	}
+}
+
 func TestEmitAnswerDocumentPatch_PrunesScalarItemFragmentsWhenTextPreservesDisplay(t *testing.T) {
 	bus := &types.BusContext{Mutable: types.NewMutableState("")}
 	bus.Mutable.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{

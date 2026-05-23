@@ -179,8 +179,8 @@ violating the user's requested evidence mix.
 | T4 | Done | Add supplement safety guard tests across current-source, VCS, runtime, command, cross-repo, web/MCP/connector-like origins. | `internal/tool/*supplement*_test.go`, `internal/render/answerdoc_test.go` | `go test ./internal/tool` |
 | T5 | Done | Add executable eval cases for existing producers and placeholder/documented skeletons for future MCP/web/connector producers. | `eval/cases`, docs | `bash -n eval/cases/read_combo_*.case` |
 | T6 | Done | Run targeted eval batch and refresh gap ledgers with every retry/reject, classifying model error vs system over-gate. | `eval/results`, `docs/design/eval_*.md` | targeted eval reruns + prompt tests |
-| T7 | Pending | Reduce mixed VCS/current-source exploration repair cost without relaxing evidence grounding. | explorer mid-loop policy, evidence salience/ranking | targeted VCS eval; compare `midloop_inject` / `explorer_iters` |
-| T8 | Pending | Deepen answer-document JSON recovery for JSON-encoded `blocks[]` / native-array confusion so light model syntax slips do not cause visible finalizer reject loops. | answer-document tool param compat / recovery | focused finalizer recovery unit tests |
+| T7 | Done | Reduce mixed VCS/current-source exploration repair cost without relaxing evidence grounding. | explorer mid-loop policy, evidence salience/ranking | targeted VCS eval; compare `midloop_inject` / `explorer_iters` |
+| T8 | Done | Deepen answer-document JSON recovery for JSON-encoded `blocks[]` / native-array confusion so light model syntax slips do not cause visible finalizer reject loops. | answer-document tool param compat / recovery | focused finalizer recovery unit tests |
 | T9 | Pending | Decide whether prompt-only runtime mixed-lane guidance is sufficient or a typed `current_source_explanation` profile is needed. | analyzer schema / request traits | regression evals for log+code, trace+code, VCS+code |
 
 ## Implementation Notes For Future Batches
@@ -380,3 +380,43 @@ violating the user's requested evidence mix.
       native `blocks[]` array. The final answer shipped correctly after a third
       emit, so this is not an answer correctness issue, but it remains a
       latency/model-cognitive-load gap under the JSON Payload cluster.
+
+- 2026-05-24 T8 started:
+  - Root cause from `read_combo_git_two_diffs_current_code-20260524-000524`:
+    the first two finalizer emits contained a complete user-facing answer, but
+    `blocks` was a JSON-encoded string and one `diagram` block missed the outer
+    block-closing brace before the following caveat block. Existing recovery
+    could preserve two structured blocks plus the diagram attachment, but the
+    caveat block was swallowed by the malformed diagram candidate, so the tool
+    correctly rejected as lossy and forced two model retries.
+  - Planned fix: add an answer-document-specific, lossless-only structural
+    repair for stringified `blocks[]`: when scanning the top-level blocks array,
+    if a top-level block object is still open and the next array element starts
+    with a new object, insert the missing outer `}` and accept only if the full
+    array then parses into valid block-shaped objects. This does not inspect
+    user/model prose for semantics, does not invent answer content, and does not
+    publish partial recovery when the repair is uncertain.
+
+- 2026-05-24 T8 complete:
+  - Implemented one shared answer-block-array syntax repair helper used by both
+    full `emit_answer_document.blocks` and patch
+    `emit_answer_document_patch.add_blocks/replace_blocks`. The generic JSON
+    layer still lives in `internal/toolparam`; the new helper is deliberately
+    answer-document-specific because it must validate `id`, `kind`, and the
+    block-kind enum before accepting the repair.
+  - Added regressions for:
+    - stringified full `blocks[]` where a diagram block misses its outer block
+      close before the next caveat block;
+    - the same shape under patch `add_blocks`;
+    - the prior lossy fallback path still rejecting unattached dropped blocks.
+  - Validation:
+    - `go test ./internal/tool`
+    - `go test ./internal/orchestrator`
+    - `git diff --check`
+    - Focused eval
+      `read_combo_git_two_diffs_current_code-20260524-002022`: no
+      answer-document reject loop (`finalizer_iters=1`, no
+      `structured recovery could not preserve every visible blocks[] item`).
+      The case still failed its literal regex because the final answer did not
+      put `diff/current-source` wording in the expected shape; that is a
+      separate user-surface preservation gap, not a JSON recovery failure.
