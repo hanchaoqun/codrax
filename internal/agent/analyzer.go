@@ -965,10 +965,14 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 		// Use a unique key per iteration so LoopPolicy dedup doesn't
 		// swallow the second continuation — the LLM tends to produce
 		// multiple content-only turns before finally issuing tool calls.
+		hint := "You wrote text but did not call any tool. Do NOT write more analysis — call emit_analysis NOW with the fields you have. If you need to verify entities first, call grep(files_only=true) in the SAME response as your reasoning, not in a separate turn."
+		if analyzerTerminalEmitOnly(ctx) {
+			hint = analyzerTerminalEmitOnlyHint()
+		}
 		return LoopSignal{
 			HintRequested: true,
 			HintKey:       fmt.Sprintf("analyzer.continue.%d", obs.Iteration),
-			Hint:          "You wrote text but did not call any tool. Do NOT write more analysis — call emit_analysis NOW with the fields you have. If you need to verify entities first, call grep(files_only=true) in the SAME response as your reasoning, not in a separate turn.",
+			Hint:          hint,
 		}
 	}
 	if obs.Phase != PhaseMidLoop {
@@ -986,6 +990,9 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	if obs.LastToolResult.ToolName == "emit_analysis" && obs.LastToolResult.Success {
 		return LoopSignal{StopRequested: true, StopReason: "emit_analysis called"}
 	}
+	if analyzerToolResultsContainSuccessfulEmitAnalysis(obs.CurrentToolResults) {
+		return LoopSignal{StopRequested: true, StopReason: "emit_analysis called"}
+	}
 	if obs.LastToolResult.Repair != nil {
 		switch obs.LastToolResult.Repair.Code {
 		case analyzerPrescanBudgetReachedCode, analyzerPrescanTerminalEmitModeCode:
@@ -995,10 +1002,14 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 				Hint:          "The pre-scan budget is closed. Do not call repo_map, grep, list_files, read_file, or any other tool. The next response must call emit_analysis exactly once with the best classification you already have; unresolved targets belong in the structured fields for explore to verify.",
 			}
 		case analyzerToolNotAllowedCode:
+			hint := "That tool is outside the analyze-stage boundary. Analyze is classification-only: use only repo_map, grep(files_only=true), list_files for light location checks, or call emit_analysis now. Do not call read_file or content-reading tools in analyze."
+			if analyzerTerminalEmitOnly(ctx) {
+				hint = analyzerTerminalEmitOnlyHint()
+			}
 			return LoopSignal{
 				HintRequested: true,
 				HintKey:       "analyzer.tool-boundary",
-				Hint:          "That tool is outside the analyze-stage boundary. Analyze is classification-only: use only repo_map, grep(files_only=true), list_files for light location checks, or call emit_analysis now. Do not call read_file or content-reading tools in analyze.",
+				Hint:          hint,
 			}
 		case analyzerGrepFilesOnlyRequiredCode:
 			return LoopSignal{
@@ -1029,7 +1040,24 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	if max <= 0 {
 		return LoopSignal{}
 	}
-	if e.prescanRounds < max && analyzerPrescanResultSupportsClassificationStop(*obs.LastToolResult) {
+	if analyzerPrescanResultSupportsClassificationStop(*obs.LastToolResult) {
+		if analyzerShouldClosePrescanAfterReady(e.prescanRounds, max) {
+			if ctx != nil && ctx.Mutable != nil {
+				ctx.Mutable.MarkPrescanReady()
+				ctx.Mutable.AppendAnalyzerDecision(types.AnalyzerDecisionSignal{
+					Kind:   "prescan_ready",
+					Stage:  string(types.StageAnalyze),
+					Reason: "path-scoped files-only pre-scan established enough classification signal",
+					Detail: obs.LastToolResult.ToolName,
+				})
+			}
+			return LoopSignal{
+				HintRequested: true,
+				Progress:      true,
+				HintKey:       "analyzer.prescan-ready.emit-only",
+				Hint:          "This path-scoped files-only pre-scan has enough location/existence signal for analyze. Do not run more repo_map, grep, list_files, read_file, or other tools in analyze. The next response must call emit_analysis exactly once with the best classification and routing hints you already have; explore will gather line-level evidence.",
+			}
+		}
 		return LoopSignal{
 			HintRequested: true,
 			Progress:      true,
@@ -1072,6 +1100,29 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 		e.prescanRounds, max)
 	logging.Warning("[analyzer] %s", reason)
 	return LoopSignal{StopRequested: true, StopReason: reason}
+}
+
+func analyzerTerminalEmitOnlyHint() string {
+	return "Analyze is now in terminal emit-only mode. Do not call repo_map, grep, list_files, read_file, or any other tool. The next response must call emit_analysis exactly once with the best classification and routing hints you already have; unresolved targets belong in structured fields for explore to verify."
+}
+
+func analyzerToolResultsContainSuccessfulEmitAnalysis(results []types.ToolResult) bool {
+	for _, result := range results {
+		if result.ToolName == "emit_analysis" && result.Success {
+			return true
+		}
+	}
+	return false
+}
+
+func analyzerShouldClosePrescanAfterReady(rounds, max int) bool {
+	if max <= 0 || rounds <= 0 {
+		return false
+	}
+	if max <= 2 {
+		return true
+	}
+	return rounds >= max-1
 }
 
 func analyzerPrescanResultSupportsClassificationStop(result types.ToolResult) bool {

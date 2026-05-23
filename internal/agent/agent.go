@@ -327,6 +327,12 @@ type LoopObservation struct {
 	// slice — BaseAgent reuses it across observations.
 	AllToolResults []types.ToolResult
 
+	// CurrentToolResults is the subset of AllToolResults produced by the
+	// current LLM response's tool-call batch. It lets evaluators distinguish
+	// "this batch already reached a terminal emit" from older dispatch history.
+	// Evaluators must not mutate this slice.
+	CurrentToolResults []types.ToolResult
+
 	// IdleStreak is the number of consecutive Observe calls so far
 	// that returned LoopSignal{Progress: false, HintRequested: false}
 	// — i.e. the count of "truly idle" rounds. Owned and incremented
@@ -1727,6 +1733,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		// back to SEQUENTIAL execution because the grounder may need
 		// DispatchToolResults from a prior read_file in the same batch.
 		var lastToolResultPtr *types.ToolResult
+		toolResultsStart := len(allToolResults)
 		if canParallelizeToolBatch(resp.ToolCalls) && len(resp.ToolCalls) > 1 {
 			// ── PARALLEL PATH ──
 			type toolExecResult struct {
@@ -1893,6 +1900,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				Response:           resp,
 				LastToolResult:     lastToolResultPtr,
 				AllToolResults:     allToolResults,
+				CurrentToolResults: allToolResults[toolResultsStart:],
 				IdleStreak:         idle,
 				ContinuationsUsed:  conts,
 				MidLoopInjectsUsed: midLoopInjects,
@@ -2359,6 +2367,9 @@ func analyzerTerminalEmitOnly(ctx *types.AgentContext) bool {
 	}
 	if ctx.Mutable == nil {
 		return false
+	}
+	if ctx.Mutable.PrescanReady() {
+		return true
 	}
 	if ctx.Mutable.AnalyzerBlockedToolIntentCount() > 0 {
 		return true

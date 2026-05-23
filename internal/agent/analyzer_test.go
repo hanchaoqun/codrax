@@ -736,6 +736,91 @@ func TestAnalyzer_PrescanBudget_PathScopedGrepHintsEmitBeforeBudgetWall(t *testi
 	}
 }
 
+func TestAnalyzer_PrescanReady_DefaultBudgetForcesEmitOnlySurface(t *testing.T) {
+	restoreAnalysisLimits(t)
+	tool.SetAnalysisLimits(tool.AnalysisLimits{MaxPrescanRounds: 2})
+
+	mu := types.NewMutableState("explicit file import inventory")
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mu}
+	e := &analyzerEvaluator{}
+	e.BuildInitialInstruction(ctx, nil)
+
+	result := types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary:  "[grep: 1 matching files]\n[grep params: pattern=import path=internal/tool/emit_analysis.go files_only=true]\ninternal/tool/emit_analysis.go\n",
+	}
+	sig := e.Observe(ctx, LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      0,
+		LastToolResult: &result,
+		AllToolResults: []types.ToolResult{result},
+	})
+	if !sig.HintRequested || sig.HintKey != "analyzer.prescan-ready.emit-only" {
+		t.Fatalf("expected prescan-ready emit-only hint, got %+v", sig)
+	}
+	if !mu.PrescanReady() {
+		t.Fatal("path-scoped default-budget prescan should mark analyzer prescan ready")
+	}
+	gotSchemas := e.FilterToolSchemas(ctx, []llm.ToolSchema{
+		{Name: "emit_analysis"},
+		{Name: "repo_map"},
+		{Name: "grep"},
+		{Name: "list_files"},
+	})
+	if len(gotSchemas) != 1 || gotSchemas[0].Name != "emit_analysis" {
+		t.Fatalf("prescan-ready analyzer should expose only emit_analysis, got %+v", gotSchemas)
+	}
+	rejected := validateAnalyzerToolBoundary(ctx, llm.ToolCall{
+		Name:   "grep",
+		Params: json.RawMessage(`{"pattern":"import","files_only":true}`),
+	})
+	if rejected == nil || rejected.Success {
+		t.Fatalf("terminal prescan-ready boundary should reject handwritten grep, got %+v", rejected)
+	}
+	if rejected.Repair == nil || rejected.Repair.Code != analyzerPrescanTerminalEmitModeCode {
+		t.Fatalf("expected terminal emit repair code, got %+v", rejected.Repair)
+	}
+}
+
+func TestAnalyzer_PrescanReady_LargerBudgetDoesNotCloseOnFirstScopedProbe(t *testing.T) {
+	restoreAnalysisLimits(t)
+	tool.SetAnalysisLimits(tool.AnalysisLimits{MaxPrescanRounds: 4})
+
+	mu := types.NewMutableState("multi component inventory")
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mu}
+	e := &analyzerEvaluator{}
+	e.BuildInitialInstruction(ctx, nil)
+
+	result := types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary:  "[grep: 1 matching files]\n[grep params: pattern=foo path=internal/agent files_only=true]\ninternal/agent/a.go\n",
+	}
+	sig := e.Observe(ctx, LoopObservation{
+		Phase:          PhaseMidLoop,
+		LastToolResult: &result,
+		AllToolResults: []types.ToolResult{result},
+	})
+	if sig.HintKey != "analyzer.path-scoped-prescan-ready" {
+		t.Fatalf("first scoped probe under larger budget should stay soft-ready, got %+v", sig)
+	}
+	if mu.PrescanReady() {
+		t.Fatal("larger-budget analyzer should not close prescan after the first scoped probe")
+	}
+	names := analyzerSchemaNames(e.FilterToolSchemas(ctx, []llm.ToolSchema{
+		{Name: "emit_analysis"},
+		{Name: "repo_map"},
+		{Name: "grep"},
+		{Name: "list_files"},
+	}))
+	for _, want := range []string{"emit_analysis", "repo_map", "grep", "list_files"} {
+		if !names[want] {
+			t.Fatalf("larger-budget first probe should still expose %s; got %+v", want, names)
+		}
+	}
+}
+
 func TestAnalyzer_PrescanResultSupportsClassificationStop_GuardsBroadOrLineGreps(t *testing.T) {
 	tests := []struct {
 		name string
@@ -896,6 +981,33 @@ func TestAnalyzer_RejectsContentToolBeforeExecution(t *testing.T) {
 	}
 }
 
+func TestAnalyzer_Observe_BlockedToolHintMatchesTerminalEmitOnlySurface(t *testing.T) {
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: types.NewMutableState("question")}
+	res := validateAnalyzerToolBoundary(ctx, llm.ToolCall{
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"internal/agent/analyzer.go","limit":200}`),
+	})
+	if res == nil || res.Repair == nil || res.Repair.Code != analyzerToolNotAllowedCode {
+		t.Fatalf("expected read_file boundary repair, got %+v", res)
+	}
+	sig := (&analyzerEvaluator{}).Observe(ctx, LoopObservation{
+		Phase:          PhaseMidLoop,
+		LastToolResult: res,
+		AllToolResults: []types.ToolResult{*res},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("expected terminal correction hint, got %+v", sig)
+	}
+	if !strings.Contains(sig.Hint, "emit_analysis exactly once") {
+		t.Fatalf("hint should force terminal emit_analysis, got %q", sig.Hint)
+	}
+	for _, forbidden := range []string{"use only repo_map", "grep(files_only=true)", "Retry grep"} {
+		if strings.Contains(sig.Hint, forbidden) {
+			t.Fatalf("terminal hint should not invite navigation tools, got %q", sig.Hint)
+		}
+	}
+}
+
 func TestAnalyzer_TerminalEmitOnlyRejectsHandwrittenPrescanTool(t *testing.T) {
 	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: types.NewMutableState("question")}
 	first := validateAnalyzerToolBoundary(ctx, llm.ToolCall{
@@ -941,6 +1053,29 @@ func TestAnalyzer_BlockedUnsafePathDoesNotEnterPrescanCorpus(t *testing.T) {
 	}
 	if blob := ctx.Mutable.PrescanSummaryBlob(); strings.Contains(blob, "../huge-repo") {
 		t.Fatalf("unsafe boundary-crossing path must not enter prescan corpus, got %q", blob)
+	}
+}
+
+func TestAnalyzer_Observe_StopsWhenEmitAnalysisSucceededEarlierInBatch(t *testing.T) {
+	e := &analyzerEvaluator{}
+	emit := types.ToolResult{ToolName: "emit_analysis", Success: true, Summary: "analysis emitted"}
+	rejected := types.ToolResult{
+		ToolName: "grep",
+		Success:  false,
+		Summary:  "analyze is already in terminal emit mode",
+		Repair:   &types.ToolRepair{Code: analyzerPrescanTerminalEmitModeCode},
+	}
+	sig := e.Observe(&types.AgentContext{Stage: types.StageAnalyze}, LoopObservation{
+		Phase:              PhaseMidLoop,
+		LastToolResult:     &rejected,
+		AllToolResults:     []types.ToolResult{emit, rejected},
+		CurrentToolResults: []types.ToolResult{emit, rejected},
+	})
+	if !sig.StopRequested {
+		t.Fatalf("successful emit_analysis earlier in the batch should terminate analyze, got %+v", sig)
+	}
+	if sig.StopReason != "emit_analysis called" {
+		t.Fatalf("StopReason = %q, want emit_analysis called", sig.StopReason)
 	}
 }
 

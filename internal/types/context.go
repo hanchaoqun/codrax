@@ -451,6 +451,7 @@ type MutableState struct {
 	prescanSummaryBlob strings.Builder
 	prescanRoundCount  int
 	prescanRoundLimit  int
+	prescanReady       bool
 
 	// evidenceClosure is the cross-stage CGEC tracker (Citation-
 	// Grounded Evidence Closure). Records ReadSet, PendingReads,
@@ -3285,6 +3286,31 @@ func (m *MutableState) PrescanRoundLimit() int {
 	return m.prescanRoundLimit
 }
 
+// MarkPrescanReady records that the analyzer has gathered enough lightweight
+// location/existence signal for classification and should emit the analysis
+// result instead of widening pre-scan. It is per-dispatch analyzer state and is
+// reset with ResetPrescanSummary.
+func (m *MutableState) MarkPrescanReady() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.prescanReady = true
+}
+
+// PrescanReady reports whether the current analyze dispatch should expose only
+// the terminal emit tool because a bounded pre-scan already established enough
+// routing signal.
+func (m *MutableState) PrescanReady() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.prescanReady
+}
+
 // PrescanSummaryBlob returns the lowercased concatenation of every
 // pre-scan summary appended so far during the current analyze
 // dispatch. Returns an empty string when no summary has been
@@ -3313,6 +3339,7 @@ func (m *MutableState) ResetPrescanSummary() {
 	m.prescanSummaryBlob.Reset()
 	m.prescanRoundCount = 0
 	m.prescanRoundLimit = 0
+	m.prescanReady = false
 	m.analyzerBlockedToolIntents = nil
 }
 

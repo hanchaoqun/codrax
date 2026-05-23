@@ -2157,3 +2157,86 @@ Batch 23 task list:
       `StreamFirstByteTimeout`.
 - [x] Re-run focused LLM tests, `make build`, and full `go test ./...`.
 - [x] Commit and push Batch 23.
+
+## 2026-05-24 Batch 24 - Analyzer Prescan Convergence Boundary
+
+Problem statement:
+
+- Batch 12/13 already made analyze classification-only at the hard boundary:
+  content-reading tools are rejected before execution, rejected deep-read intent
+  is preserved as non-content routing metadata, and terminal emit-only mode
+  exposes only `emit_analysis`.
+- The remaining high-ROI gap is convergence after a useful lightweight pre-scan.
+  `analyzerPrescanResultSupportsClassificationStop` already recognizes a
+  path-scoped `grep(files_only=true)` result as enough for classification and
+  injects a hint, but the next request still exposes `repo_map`, `grep`, and
+  `list_files` until the whole pre-scan budget is spent. Local models often take
+  that exposed surface as permission to keep investigating, so analyze burns
+  rounds before the real explore stage begins.
+
+Root cause:
+
+- The system had a typed readiness detector, but readiness was prompt-only. The
+  model-facing tool surface did not become monotonic after readiness, so the
+  runtime contract and the schema affordance disagreed.
+- The same contradiction existed after rejected deep reads: state was already
+  terminal emit-only, but the repair hint still mentioned navigation tools as
+  possible next actions.
+
+Design:
+
+- Add a small per-dispatch analyzer state bit on `MutableState`: prescan-ready.
+  It means "the analyzer has enough lightweight location/existence signal for
+  classification; further content or navigation belongs to explore."
+- Reuse `analyzerTerminalEmitOnly(ctx)` as the single schema/runtime decision
+  point. It should return true when:
+  - an analyze retry is already in terminal mode;
+  - a deep-read or other disallowed analyze tool was rejected;
+  - the pre-scan budget is exhausted; or
+  - the new prescan-ready bit is set.
+- Mark prescan-ready only from stage/tool state, not from user text or model
+  prose:
+  - the last result is a successful path-scoped `grep(files_only=true)`;
+  - the effective pre-scan limit is enabled; and
+  - either the normal budget is small (`max<=2`) or the dispatch is one round
+    away from the larger multi-topic budget wall. This keeps multi-topic runs
+    from being cut off after the first scoped probe while still stopping the
+    default small-model over-scan pattern early.
+- When prescan-ready is set, the next request physically exposes only
+  `emit_analysis`; if the model handwrites a pre-scan call anyway, the existing
+  terminal boundary rejects it before execution.
+- Update repair hints so terminal emit-only states never invite more
+  `repo_map` / `grep` / `list_files` calls. This is UX/LLM-load reduction, not a
+  prompt rewrite.
+- Add a current-tool-batch view to `LoopObservation` so terminal emit decisions
+  can distinguish a successful `emit_analysis` in the current response from
+  older dispatch history.
+
+Commercial safety boundaries:
+
+- No user-question keyword matching and no model-prose matching.
+- No user intent or model conclusion is rewritten. The system only controls
+  which tools are valid inside the analyze stage after typed readiness.
+- Large-model behavior is unaffected on compliant paths: a model that emits
+  `emit_analysis` directly sees no change; a model that uses one valid
+  lightweight pre-scan is nudged into the intended terminal emit.
+- Multi-language support is preserved because the detector uses tool/result
+  shape (`grep(files_only=true)`, path-scoped result), not Go syntax or symbol
+  names.
+
+Batch 24 task list:
+
+- [x] Add `MutableState` prescan-ready state and reset it with the analyzer
+      pre-scan dispatch state.
+- [x] Wire prescan-ready into `analyzerTerminalEmitOnly`.
+- [x] Mark prescan-ready from path-scoped files-only pre-scan results using the
+      conservative budget-aware rule above.
+- [x] Make analyze soft-stop and repair hints terminal-aware so they do not
+      suggest unavailable navigation tools after readiness/boundary rejection.
+- [x] Treat a successful `emit_analysis` anywhere in the current tool batch as
+      terminal for analyze, even if a later batched pre-scan call was rejected.
+- [x] Add regression tests for default-budget early convergence, larger-budget
+      non-premature convergence, terminal-boundary runtime rejection, and
+      terminal-aware hint wording.
+- [x] Run focused tests, build, and full `go test ./...`.
+- [x] Commit and push Batch 24.
