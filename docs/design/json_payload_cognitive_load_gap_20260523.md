@@ -584,6 +584,12 @@ untouched.
     no-hit answers are no longer forced into searched-commit/log-row tables.
     Explicit enumeration/relation/source-inventory obligations still preserve
     the searched-window member set as principal.
+  - Delivered in Batch 42.2b: finalizer prompt wiring now has a regression
+    guard for the same projection. The `Required Principal Member Set` section
+    is omitted for no-hit searched-window support ledgers, preventing the
+    prompt from reintroducing the hard verbatim-member obligation after the
+    typed role projection has demoted the ledger. Scalar-count support and
+    empty/no-fact prompts remain covered by the same prompt tests.
 
 - Batch 43 — runtime artifact provenance split. Status: planned.
   - Carry `observed_direct_cause`, `artifact_span`, and

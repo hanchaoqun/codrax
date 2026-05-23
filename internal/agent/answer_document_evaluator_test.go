@@ -1255,6 +1255,53 @@ func TestRenderAnswerDocPrincipalMemberSetContract_SkipsScalarCountSupport(t *te
 	}
 }
 
+func TestRenderAnswerDocPrincipalMemberSetContract_SkipsNoHitSearchedWindowSupport(t *testing.T) {
+	mut := types.NewMutableState("最近 10 次提交有没有改 ResSchedClient")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind:  types.AnswerAggregateNegativeObservation,
+			Label: "recent commits do not touch ResSchedClient",
+			Value: "0",
+			Role:  types.AnswerAggregateRolePrincipalAnswer,
+			Dimensions: []types.AnswerAggregateDimension{
+				{Name: "origin", Value: "vcs_metadata"},
+				{Name: "target", Value: "ResSchedClient"},
+				{Name: "commit_range", Value: "HEAD~10..HEAD"},
+				{Name: "result_count", Value: "0"},
+				{Name: "tool_result", Value: "git-history-search-001"},
+			},
+		},
+		{
+			Kind:  types.AnswerAggregateMemberSet,
+			Label: "searched commits",
+			Value: "3",
+			Role:  types.AnswerAggregateRolePrincipalAnswer,
+			Dimensions: []types.AnswerAggregateDimension{
+				{Name: "origin", Value: "vcs_metadata"},
+				{Name: "commit_range", Value: "HEAD~10..HEAD"},
+				{Name: "window_count", Value: "10"},
+				{Name: "unmatched", Value: "10"},
+				{Name: "tool_result", Value: "git-history-search-001"},
+			},
+			Members: []string{"c1 fix docs", "c2 tune search", "c3 update tests"},
+		},
+	})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+		}},
+		Mutable: mut,
+	}
+
+	if got := renderAnswerDocPrincipalMemberSetContract(ctx); got != "" {
+		t.Fatalf("no-hit searched-window ledger must not become a required principal member contract:\n%s", got)
+	}
+}
+
 // TestRenderAnswerDocPrincipalMemberSetContract_BuildInitialInstructionWiring
 // pins that the new section is wired into BuildInitialInstruction so the
 // finalizer prompt actually sees it.
