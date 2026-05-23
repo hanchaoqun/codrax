@@ -418,7 +418,7 @@ func compileAggregateFactObservations(facts []AnswerAggregateFact, rm *RequestMo
 				Negative:        fact.Kind == AnswerAggregateNegativeSearch || fact.Kind == AnswerAggregateNegativeObservation,
 				ResultCount:     resultCount,
 				Summary:         strings.TrimSpace(fact.Label),
-				RichNotes:       cloneStringSlice(fact.Members),
+				RichNotes:       aggregateFactObservationRichNotes(fact),
 				SupportRefs:     cloneStringSlice(fact.SupportRefs),
 				ObservedAt:      dims["searched_at"],
 				Scope:           dims["scope"],
@@ -906,6 +906,33 @@ func clippedObservationExcerpt(s string) string {
 	}
 	runes := []rune(s)
 	return string(runes[:max]) + "...[truncated]"
+}
+
+func aggregateFactObservationRichNotes(fact AnswerAggregateFact) []string {
+	if len(fact.MemberNotes) == 0 {
+		return cloneStringSlice(fact.Members)
+	}
+	out := make([]string, 0, len(fact.MemberNotes)+len(fact.Members))
+	seen := make(map[string]struct{}, len(fact.MemberNotes)+len(fact.Members))
+	appendOne := func(raw string) {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			return
+		}
+		key := strings.Join(strings.Fields(trimmed), " ")
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		out = append(out, trimmed)
+	}
+	for _, note := range fact.MemberNotes {
+		appendOne(note)
+	}
+	for _, member := range fact.Members {
+		appendOne(member)
+	}
+	return out
 }
 
 func cloneStringSlice(in []string) []string {

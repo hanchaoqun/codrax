@@ -218,6 +218,39 @@ func TestCompileObservationLedger_CategoricalAggregateIsNotCount(t *testing.T) {
 	}
 }
 
+func TestCompileObservationLedger_AggregateRichNotesPreferMemberNotes(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		AggregateFacts: []AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "Kind 常量",
+			Value:   "2",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"KindSymbolPresent", "KindNoCallSites"},
+			MemberNotes: []string{
+				"KindSymbolPresent 用于符号存在性判定，检查目标符号是否能在当前证据中解析。",
+				"KindNoCallSites 用于调用点缺失判定，表达没有发现调用关系的负向条件。",
+			},
+			SupportRefs: []string{
+				"KindSymbolPresent @ internal/analysis/criterion/grammar.go:29",
+				"KindNoCallSites @ internal/analysis/criterion/grammar.go:30",
+			},
+		}},
+	})
+	got := findObservationRecord(t, ledger, "aggregate:0#current_source")
+	if len(got.RichNotes) < 2 {
+		t.Fatalf("rich member notes should be preserved in the ledger: %+v", got)
+	}
+	if got.RichNotes[0] != "KindSymbolPresent 用于符号存在性判定，检查目标符号是否能在当前证据中解析。" {
+		t.Fatalf("member_notes should outrank dry member names, got: %+v", got.RichNotes)
+	}
+	if got.RichNotes[1] != "KindNoCallSites 用于调用点缺失判定，表达没有发现调用关系的负向条件。" {
+		t.Fatalf("second member note lost: %+v", got.RichNotes)
+	}
+	if got.RichNotes[2] != "KindSymbolPresent" {
+		t.Fatalf("members should remain as fallback notes after rich notes, got: %+v", got.RichNotes)
+	}
+}
+
 func TestCompileObservationLedger_MixedDiffAndCurrentSourceStaySeparate(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		EvidenceItems: []EvidenceItem{{

@@ -33,6 +33,10 @@ Implementation progress:
   emitters where large arrays recur (`emit_write_analysis`,
   `emit_change_plan`, `emit_plan_skeleton`, `emit_test_results`) without
   changing their semantic validators.
+- 2026-05-23 Batch 7 tightened the principal ledger handoff: aggregate
+  `member_notes[]` now enter `ObservationLedger.RichNotes` ahead of dry member
+  names, so finalizer/reviewer prompt budget preserves explorer-authored
+  explanations instead of only seeing mechanical row ids.
 - Remaining work starts at P1 carrier compilers / row-set references; the first
   batch deliberately did not change answer materialization policy.
 

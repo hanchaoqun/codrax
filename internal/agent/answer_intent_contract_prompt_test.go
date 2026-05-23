@@ -243,6 +243,51 @@ func TestRenderAnswerDocObservationLedger_RendersVCSNarrativeAsOriginSpecificSup
 	}
 }
 
+func TestRenderAnswerDocObservationLedger_PreservesAggregateMemberNotes(t *testing.T) {
+	mut := types.NewMutableState("Kind 常量说明")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "Kind 常量",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"KindSymbolPresent", "KindNoCallSites"},
+		MemberNotes: []string{
+			"KindSymbolPresent 用于符号存在性判定，检查目标符号是否能在当前证据中解析。",
+			"KindNoCallSites 用于调用点缺失判定，表达没有发现调用关系的负向条件。",
+		},
+		SupportRefs: []string{
+			"KindSymbolPresent @ internal/analysis/criterion/grammar.go:29",
+			"KindNoCallSites @ internal/analysis/criterion/grammar.go:30",
+		},
+	}})
+	mut.SetInvestigationComplete("done")
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+			},
+		},
+	}
+	got := renderAnswerDocObservationLedger(ctx)
+	for _, want := range []string{
+		"`aggregate:0#current_source`",
+		"KindSymbolPresent 用于符号存在性判定",
+		"KindNoCallSites 用于调用点缺失判定",
+		"support_refs=2",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("observation ledger prompt missing rich aggregate note %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, `notes="KindSymbolPresent"`) {
+		t.Fatalf("dry member fallback should not crowd out rich member notes in prompt budget:\n%s", got)
+	}
+}
+
 func TestRenderAnswerDocObservationLedger_KeepsDiffAndCurrentSourceSeparate(t *testing.T) {
 	mut := types.NewMutableState("diff plus current source")
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{
