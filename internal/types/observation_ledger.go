@@ -1117,6 +1117,7 @@ func sourceRefForAggregateFact(origin AnswerEvidenceOrigin, dims map[string]stri
 	ref.RawRef = firstNonEmptyString(dims["raw_ref"], ref.PayloadRef, ref.RowSetRef, ref.PageRef)
 	ref.ToolCallID = firstNonEmptyString(dims["tool_call_id"], dims["tool_result"])
 	ref.Command = strings.TrimSpace(dims["command"])
+	ref.MIMEType = strings.TrimSpace(dims["mime_type"])
 	switch origin {
 	case AnswerEvidenceOriginCurrentSource, AnswerEvidenceOriginRepoNegativeSearch:
 		ref.Repo = dims["repo"]
@@ -1134,7 +1135,7 @@ func sourceRefForAggregateFact(origin AnswerEvidenceOrigin, dims map[string]stri
 		ref.Command = dims["command"]
 	case AnswerEvidenceOriginCrossRepoIndex:
 		ref.Repo = dims["repo"]
-		ref.Path = dims["scope"]
+		ref.Path = firstNonEmptyString(dims["path"], dims["scope"])
 	case AnswerEvidenceOriginExternalDocument:
 		ref.ResourceURI = firstNonEmptyString(dims["source_ref"], dims["resource_uri"], dims["scope"])
 	case AnswerEvidenceOriginWebPage:
@@ -1287,6 +1288,7 @@ func FormatObservationSourceRef(ref ObservationSourceRef, maxValueLen int) strin
 	appendPart("range", ref.Range)
 	appendPart("pathspec", ref.Pathspec)
 	appendPart("command", ref.Command)
+	appendPart("tool_call_id", ref.ToolCallID)
 	appendPart("payload_ref", ref.PayloadRef)
 	appendPart("row_set_ref", ref.RowSetRef)
 	appendPart("page_ref", ref.PageRef)
@@ -1299,8 +1301,10 @@ func FormatObservationSourceRef(ref ObservationSourceRef, maxValueLen int) strin
 	appendPart("artifact_id", ref.ArtifactID)
 	appendPart("artifact_kind", ref.ArtifactKind)
 	appendPart("url", ref.URL)
+	appendPart("fetched_at", ref.FetchedAt)
 	appendPart("server", ref.Server)
 	appendPart("resource_uri", ref.ResourceURI)
+	appendPart("mime_type", ref.MIMEType)
 	appendPart("connector", ref.Connector)
 	if len(parts) == 0 {
 		return "unknown"

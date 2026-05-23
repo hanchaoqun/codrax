@@ -159,7 +159,7 @@ when the answer is accepted.
 | Batch | Status | Task | Code / Doc Areas | Validation |
 | --- | --- | --- | --- | --- |
 | T0 | Done | Create this retriage document with A/B decision, root causes, and task order. | `docs/design/gap_architecture_retriage_20260523.md` | Doc review |
-| T1 | Pending | Add code-level tests that aggregate facts for web, external docs, MCP, connectors, cross-repo index, VCS, command, log, and trace all project through `ObservationLedger` with origin-local `SourceRef` / `ObservationSpan`, not current-source citations. | `internal/types/observation_ledger_test.go`, `internal/types/observation_prompt_projection_test.go` | `go test ./internal/types -run 'ObservationLedger.*External|ProjectObservation'` |
+| T1 | Done | Add code-level tests that aggregate facts for web, external docs, MCP, connectors, cross-repo index, VCS, command, log, and trace all project through `ObservationLedger` with origin-local `SourceRef` / `ObservationSpan`, not current-source citations. | `internal/types/observation_ledger.go`, `internal/types/observation_ledger_test.go`, `internal/types/observation_prompt_projection_test.go` | `go test ./internal/types` |
 | T2 | Pending | Extend MCP response projection, if current fields are too weak, without duplicating the ledger. Prefer typed fields only when producers can populate them; otherwise keep support-only `RawRef`. | `internal/types/context.go`, `internal/types/observation_ledger.go`, MCP tests | `go test ./internal/types ./internal/mcp` |
 | T3 | Pending | Audit pre-emit / contract / reviewer origin decisions and replace local origin switches with shared ledger helpers where safe. | `internal/tool/answer_document_pre_emit_check.go`, `internal/orchestrator/contract_check.go`, `internal/orchestrator/semantic_quality_reviewer.go` | focused unit tests plus no broad behavior drift |
 | T4 | Pending | Add supplement safety guard tests across current-source, VCS, runtime, command, cross-repo, web/MCP/connector-like origins. | `internal/tool/*supplement*_test.go`, `internal/render/answerdoc_test.go` | no duplicate/dry supplement regression |
@@ -180,3 +180,16 @@ when the answer is accepted.
 - If a non-critical, non-lossless issue remains, prefer localized boundary
   disclosure or accepted-with-advisory telemetry over finalizer rewrite.
 
+## Progress Log
+
+- 2026-05-23 T1 complete:
+  - Added a ledger compiler regression covering external document, web page,
+    MCP resource, connector resource, cross-repo index, VCS metadata, VCS diff,
+    command output, log artifact, and trace artifact aggregate facts.
+  - Verified every non-current origin keeps origin-local `SourceRef` /
+    `ObservationSpan` details and does not become current-source
+    citation-eligible.
+  - Reused the existing Observation Ledger instead of introducing a new carrier.
+  - Filled existing `ObservationSourceRef` passthrough gaps for `mime_type`,
+    `fetched_at`, `tool_call_id`, and cross-repo `path`.
+  - Validation: `go test ./internal/types`.

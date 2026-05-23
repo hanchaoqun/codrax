@@ -997,21 +997,217 @@ func TestCompileObservationLedger_ProjectsAggregateExternalCoordinates(t *testin
 	}
 }
 
+func TestCompileObservationLedger_AggregateExternalOriginsPreserveSourceRefsAndLocalSpans(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{AggregateFacts: []AnswerAggregateFact{
+		{
+			Kind:  AnswerAggregateScalar,
+			Label: "external design paragraph",
+			Value: "present",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: string(AnswerEvidenceOriginExternalDocument)},
+				{Name: "resource_uri", Value: "drive://doc/123"},
+				{Name: "page_ref", Value: "page=2"},
+				{Name: "paragraph", Value: "7"},
+				{Name: "payload_ref", Value: "blob://payload/design-doc.txt"},
+				{Name: "mime_type", Value: "text/markdown"},
+				{Name: "target", Value: "release-note"},
+			},
+		},
+		{
+			Kind:  AnswerAggregateScalar,
+			Label: "web API contract",
+			Value: "present",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: string(AnswerEvidenceOriginWebPage)},
+				{Name: "url", Value: "https://example.test/spec"},
+				{Name: "fetched_at", Value: "2026-05-23T10:00:00Z"},
+				{Name: "selector", Value: "#api-contract"},
+				{Name: "text_start", Value: "10"},
+				{Name: "text_end", Value: "42"},
+				{Name: "payload_ref", Value: "blob://payload/web-page.html"},
+			},
+		},
+		{
+			Kind:  AnswerAggregateScalar,
+			Label: "MCP resource row",
+			Value: "present",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: string(AnswerEvidenceOriginMCPResource)},
+				{Name: "server", Value: "docs"},
+				{Name: "resource_uri", Value: "mcp://docs/spec"},
+				{Name: "json_pointer", Value: "/items/0/title"},
+				{Name: "row_set_ref", Value: "blob://rows/mcp.jsonl"},
+				{Name: "payload_ref", Value: "blob://payload/mcp.json"},
+				{Name: "mime_type", Value: "application/json"},
+			},
+		},
+		{
+			Kind:  AnswerAggregateScalar,
+			Label: "connector issue row",
+			Value: "present",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: string(AnswerEvidenceOriginConnectorResource)},
+				{Name: "connector", Value: "jira"},
+				{Name: "resource_uri", Value: "jira://ISSUE-7"},
+				{Name: "row", Value: "2"},
+				{Name: "payload_ref", Value: "blob://payload/jira.json"},
+			},
+		},
+		{
+			Kind:  AnswerAggregateScalar,
+			Label: "cross repo index node",
+			Value: "present",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: string(AnswerEvidenceOriginCrossRepoIndex)},
+				{Name: "repo", Value: "tools"},
+				{Name: "path", Value: "tools/processor.py"},
+				{Name: "payload_ref", Value: "blob://payload/cross-repo-index.json"},
+			},
+		},
+		{
+			Kind:  AnswerAggregateScalar,
+			Label: "git metadata commit",
+			Value: "abc123",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: string(AnswerEvidenceOriginVCSMetadata)},
+				{Name: "repo", Value: "."},
+				{Name: "commit", Value: "abc123"},
+				{Name: "commit_range", Value: "HEAD~10..HEAD"},
+				{Name: "pathspec", Value: "internal/tool"},
+				{Name: "payload_ref", Value: "blob://payload/git-log.txt"},
+			},
+		},
+		{
+			Kind:  AnswerAggregateScalar,
+			Label: "git diff hunk",
+			Value: "scheduler hook changed",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: string(AnswerEvidenceOriginVCSDiff)},
+				{Name: "repo", Value: "."},
+				{Name: "commit", Value: "abc123"},
+				{Name: "diff_path", Value: "internal/scheduler.go"},
+				{Name: "old_line", Value: "12"},
+				{Name: "new_line", Value: "18"},
+				{Name: "hunk_header", Value: "@@ -12 +18 @@"},
+				{Name: "payload_ref", Value: "blob://payload/git-diff.patch"},
+			},
+		},
+		{
+			Kind:  AnswerAggregateScalar,
+			Label: "command row",
+			Value: "70693",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: string(AnswerEvidenceOriginCommandMeasurement)},
+				{Name: "command", Value: "wc -l"},
+				{Name: "row", Value: "1"},
+				{Name: "payload_ref", Value: "blob://payload/wc.txt"},
+				{Name: "row_set_ref", Value: "blob://rows/wc.jsonl"},
+			},
+		},
+		{
+			Kind:  AnswerAggregateScalar,
+			Label: "log line",
+			Value: "panic",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: string(AnswerEvidenceOriginRuntimeArtifact)},
+				{Name: "artifact_id", Value: "attached_log"},
+				{Name: "artifact_kind", Value: "log"},
+				{Name: "line_start", Value: "40"},
+				{Name: "line_end", Value: "43"},
+				{Name: "payload_ref", Value: "blob://payload/log.txt"},
+			},
+		},
+		{
+			Kind:  AnswerAggregateScalar,
+			Label: "trace window",
+			Value: "120.5ms",
+			Dimensions: []AnswerAggregateDimension{
+				{Name: "origin", Value: string(AnswerEvidenceOriginRuntimeArtifact)},
+				{Name: "artifact_id", Value: "attached_trace"},
+				{Name: "artifact_kind", Value: "trace"},
+				{Name: "start_ts_ms", Value: "120.5"},
+				{Name: "end_ts_ms", Value: "168.75"},
+				{Name: "payload_ref", Value: "blob://payload/trace.txt"},
+			},
+		},
+	}})
+
+	checks := []struct {
+		id     string
+		origin AnswerEvidenceOrigin
+		source ObservationSourceKind
+		check  func(ObservationRecord) bool
+	}{
+		{"aggregate:0#external_document", AnswerEvidenceOriginExternalDocument, ObservationSourceExternalDocument, func(r ObservationRecord) bool {
+			return r.SourceRef.ResourceURI == "drive://doc/123" && r.SourceRef.PageRef == "page=2" && r.SourceRef.MIMEType == "text/markdown" && r.Span.Paragraph == 7
+		}},
+		{"aggregate:1#web_page", AnswerEvidenceOriginWebPage, ObservationSourceWebPage, func(r ObservationRecord) bool {
+			return r.SourceRef.URL == "https://example.test/spec" && r.SourceRef.FetchedAt == "2026-05-23T10:00:00Z" && r.Span.Selector == "#api-contract" && r.Span.TextStart == 10 && r.Span.TextEnd == 42
+		}},
+		{"aggregate:2#mcp_resource", AnswerEvidenceOriginMCPResource, ObservationSourceMCPResource, func(r ObservationRecord) bool {
+			return r.SourceRef.Server == "docs" && r.SourceRef.ResourceURI == "mcp://docs/spec" && r.SourceRef.RowSetRef == "blob://rows/mcp.jsonl" && r.SourceRef.MIMEType == "application/json" && r.Span.JSONPointer == "/items/0/title"
+		}},
+		{"aggregate:3#connector_resource", AnswerEvidenceOriginConnectorResource, ObservationSourceConnector, func(r ObservationRecord) bool {
+			return r.SourceRef.Connector == "jira" && r.SourceRef.ResourceURI == "jira://ISSUE-7" && r.Span.Row == 2
+		}},
+		{"aggregate:4#cross_repo_index", AnswerEvidenceOriginCrossRepoIndex, ObservationSourceCrossRepoIndex, func(r ObservationRecord) bool {
+			return r.SourceRef.Repo == "tools" && r.SourceRef.Path == "tools/processor.py" && r.SourceRef.PayloadRef == "blob://payload/cross-repo-index.json"
+		}},
+		{"aggregate:5#vcs_metadata", AnswerEvidenceOriginVCSMetadata, ObservationSourceVCSMetadata, func(r ObservationRecord) bool {
+			return r.SourceRef.Commit == "abc123" && r.SourceRef.Range == "HEAD~10..HEAD" && r.SourceRef.Pathspec == "internal/tool"
+		}},
+		{"aggregate:6#vcs_diff", AnswerEvidenceOriginVCSDiff, ObservationSourceVCSDiff, func(r ObservationRecord) bool {
+			return r.SourceRef.Pathspec == "internal/scheduler.go" && r.Span.OldLine == 12 && r.Span.NewLine == 18 && r.Span.HunkHeader == "@@ -12 +18 @@"
+		}},
+		{"aggregate:7#command_measurement", AnswerEvidenceOriginCommandMeasurement, ObservationSourceCommand, func(r ObservationRecord) bool {
+			return r.SourceRef.Command == "wc -l" && r.SourceRef.RowSetRef == "blob://rows/wc.jsonl" && r.Span.Row == 1
+		}},
+		{"aggregate:8#runtime_artifact", AnswerEvidenceOriginRuntimeArtifact, ObservationSourceRuntimeArtifact, func(r ObservationRecord) bool {
+			return r.SourceRef.ArtifactID == "attached_log" && r.SourceRef.ArtifactKind == "log" && r.Span.LineStart == 40 && r.Span.LineEnd == 43
+		}},
+		{"aggregate:9#runtime_artifact", AnswerEvidenceOriginRuntimeArtifact, ObservationSourceRuntimeArtifact, func(r ObservationRecord) bool {
+			return r.SourceRef.ArtifactID == "attached_trace" && r.SourceRef.ArtifactKind == "trace" && r.Span.StartTsMs == 120.5 && r.Span.EndTsMs == 168.75
+		}},
+	}
+	for _, tc := range checks {
+		record := findObservationRecord(t, ledger, tc.id)
+		if record.Origin != tc.origin || record.SourceRef.Kind != tc.source {
+			t.Fatalf("%s origin/source drifted: %+v", tc.id, record)
+		}
+		if !tc.check(record) {
+			t.Fatalf("%s lost origin-local source/span details: %+v", tc.id, record)
+		}
+		if tc.origin != AnswerEvidenceOriginCurrentSource &&
+			(ObservationRecordHasCurrentSourceLineSpan(record) || ObservationRecordHasStrongCurrentSourceAnchor(record)) {
+			t.Fatalf("%s external observation became current-source citation-eligible: %+v", tc.id, record)
+		}
+		if !AnswerEvidenceOriginCarriesOriginSpecificSupport(tc.origin) {
+			t.Fatalf("%s origin should be origin-specific support: %s", tc.id, tc.origin)
+		}
+	}
+}
+
 func TestFormatObservationSourceRef_LabelsExternalPayloadRefs(t *testing.T) {
 	got := FormatObservationSourceRef(ObservationSourceRef{
 		Kind:       ObservationSourceCommand,
 		Command:    "git log --oneline -n 10",
+		ToolCallID: "exec_command[0]",
 		RawRef:     "blob://payload/git-log-full.txt",
 		PayloadRef: "blob://payload/git-log-full.txt",
 		RowSetRef:  "blob://rows/git-log-rows.jsonl",
 		PageRef:    "blob://payload/git-log-full.txt?page=1",
+		FetchedAt:  "2026-05-23T10:00:00Z",
+		MIMEType:   "text/plain",
 	}, 90)
 	for _, want := range []string{
 		"kind=command",
 		"command=git log --oneline -n 10",
+		"tool_call_id=exec_command[0]",
 		"payload_ref=blob://payload/git-log-full.txt",
 		"row_set_ref=blob://rows/git-log-rows.jsonl",
 		"page_ref=blob://payload/git-log-full.txt?page=1",
+		"fetched_at=2026-05-23T10:00:00Z",
+		"mime_type=text/plain",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("formatted source ref missing %q: %s", want, got)
