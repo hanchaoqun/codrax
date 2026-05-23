@@ -9,6 +9,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
 	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // makeGraph mints a tiny *rmtypes.Graph with a few files + symbols
@@ -362,6 +363,71 @@ func TestMultiGraph_EnsureLoadedCoalescesSameSlug(t *testing.T) {
 	}
 	if got := builds.Load(); got != 1 {
 		t.Fatalf("same-slug load should coalesce to 1 build, got %d", got)
+	}
+}
+
+func TestMultiGraph_EnsureLoadedEmitsWaitNoticeForCoalescedSameSlug(t *testing.T) {
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "repo-a", RootAbs: "/parent/repo-a", RootRel: "repo-a", FileCount: 42},
+	})
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	build := func(root, _ string) (*rmtypes.Graph, error) {
+		started <- struct{}{}
+		select {
+		case <-release:
+		case <-time.After(2 * time.Second):
+			return nil, fmt.Errorf("test timed out waiting for release")
+		}
+		return makeGraph(root, []string{"x.go"}, nil), nil
+	}
+	waitEvents := make(chan types.RepoMapScanEvent, 2)
+	mg, err := New(Config{
+		Topology: topo,
+		Build:    build,
+		Cap:      1,
+		WaitNotifier: func(ev types.RepoMapScanEvent) {
+			waitEvents <- ev
+		},
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	firstDone := make(chan error, 1)
+	go func() {
+		_, err := mg.EnsureLoaded("repo-a")
+		firstDone <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("repo-a build did not start")
+	}
+
+	secondDone := make(chan error, 1)
+	go func() {
+		_, err := mg.EnsureLoaded("repo-a")
+		secondDone <- err
+	}()
+	select {
+	case ev := <-waitEvents:
+		if ev.Phase != types.RepoMapScanPhaseWait || !ev.Started {
+			t.Fatalf("wait event = %+v, want wait/start", ev)
+		}
+		if ev.DisplayName != "repo-a" || ev.SubRepoRootRel != "repo-a" || ev.TotalFiles != 42 {
+			t.Fatalf("wait event should carry sub-repo label and file count, got %+v", ev)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("coalesced same-slug caller did not emit wait notice")
+	}
+
+	close(release)
+	if err := <-firstDone; err != nil {
+		t.Fatalf("first EnsureLoaded: %v", err)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatalf("second EnsureLoaded: %v", err)
 	}
 }
 

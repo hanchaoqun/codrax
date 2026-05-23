@@ -49,6 +49,9 @@ func BuildOrLoadMultiGraph(
 		OracleFactory:  func(g *rmtypes.Graph) types.SymbolOracle { return NewSymbolOracle(g) },
 		LocatorFactory: func(g *rmtypes.Graph) types.SymbolLocator { return NewSymbolLocator(g) },
 		ScanNotifier:   scanNotifier,
+		WaitNotifier: func(ev types.RepoMapScanEvent) {
+			notifyRepoMapScan(ev)
+		},
 	}
 	mg, err := multigraph.New(cfg)
 	if err != nil {

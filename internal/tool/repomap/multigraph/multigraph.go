@@ -64,6 +64,12 @@ type Config struct {
 	// goroutine, outside the MultiGraph mutex, so consumers should
 	// still keep them non-blocking.
 	ScanNotifier func(rootRel, slug string, started bool, ok bool, elapsedMs int64)
+
+	// WaitNotifier is fired when a caller joins an already in-flight
+	// same-slug graph load. The real build continues to emit the
+	// normal repo_map scan phases; this event only explains why the
+	// joining caller is waiting instead of launching duplicate work.
+	WaitNotifier func(types.RepoMapScanEvent)
 }
 
 // MultiGraph is the multi-repo carrier. See package doc.
@@ -98,6 +104,7 @@ type MultiGraph struct {
 	locatorFactory func(*rmtypes.Graph) types.SymbolLocator
 
 	scanNotifier func(rootRel, slug string, started bool, ok bool, elapsedMs int64)
+	waitNotifier func(types.RepoMapScanEvent)
 }
 
 type loadState struct {
@@ -145,6 +152,7 @@ func New(cfg Config) (*MultiGraph, error) {
 		oracleFactory:  cfg.OracleFactory,
 		locatorFactory: cfg.LocatorFactory,
 		scanNotifier:   cfg.ScanNotifier,
+		waitNotifier:   cfg.WaitNotifier,
 	}
 	for _, slug := range cfg.FocusSlugs {
 		mg.focusSet[slug] = true
@@ -261,6 +269,7 @@ func (m *MultiGraph) EnsureLoaded(slug string) (*rmtypes.Graph, error) {
 	if state := m.loading[slug]; state != nil {
 		done := state.done
 		m.mu.Unlock()
+		m.emitLoadWaitNotice(sr)
 		<-done
 		if state.err != nil {
 			return nil, state.err
@@ -294,6 +303,21 @@ func (m *MultiGraph) EnsureLoaded(slug string) (*rmtypes.Graph, error) {
 		return nil, finalErr
 	}
 	return g, nil
+}
+
+func (m *MultiGraph) emitLoadWaitNotice(sr *topology.SubRepo) {
+	if m == nil || sr == nil || m.waitNotifier == nil {
+		return
+	}
+	m.waitNotifier(types.RepoMapScanEvent{
+		RepoRoot:       sr.RootAbs,
+		DisplayName:    sr.RootRel,
+		SubRepoRootRel: sr.RootRel,
+		Phase:          types.RepoMapScanPhaseWait,
+		Started:        true,
+		OK:             true,
+		TotalFiles:     sr.FileCount,
+	})
 }
 
 func (m *MultiGraph) buildSubRepoGraph(slug string, sr *topology.SubRepo) (*rmtypes.Graph, error) {

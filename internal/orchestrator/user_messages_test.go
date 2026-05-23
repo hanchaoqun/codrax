@@ -432,6 +432,25 @@ func TestRepoMapScanMessagesShowInventoryAndChangePhases(t *testing.T) {
 	}
 }
 
+func TestRepoMapScanMessagesShowWaitPhase(t *testing.T) {
+	ev := types.RepoMapScanEvent{
+		RepoRoot:       "/work/mono/services/api",
+		DisplayName:    "services/api",
+		SubRepoRootRel: "services/api",
+		Phase:          types.RepoMapScanPhaseWait,
+		Started:        true,
+		TotalFiles:     259,
+	}
+	got := repoMapScanMessage("zh", ev)
+	if !strings.Contains(got, "子仓索引 `services/api`") || !strings.Contains(got, "正在等待已有索引构建") {
+		t.Fatalf("wait phase should explain in-flight repo_map build, got %q", got)
+	}
+	got = repoMapScanMessage("en", ev)
+	if !strings.Contains(got, "sub-repo index `services/api`") || !strings.Contains(got, "waiting for the in-progress index build") {
+		t.Fatalf("wait phase should be localized in English too, got %q", got)
+	}
+}
+
 func TestRepoMapScanMessagesUseSubRepoLabelWhenPresent(t *testing.T) {
 	ev := types.RepoMapScanEvent{
 		RepoRoot:       "/work/mono/services/api",

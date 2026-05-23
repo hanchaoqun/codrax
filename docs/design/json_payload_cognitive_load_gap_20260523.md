@@ -890,7 +890,7 @@ untouched.
         remain covered by regression tests.
 
 - Batch 45 — hybrid explorer partitioning and repo-map wait visibility. Status:
-  planned.
+  in progress.
   - Partition hybrid questions by typed origin/facet: VCS lane owns history
     narrative; current-source lane owns present implementation; sibling lanes
     converge once their facet is covered.
@@ -899,6 +899,20 @@ untouched.
   - Guardrail tests: mixed history+current-source cases avoid duplicated
     searches/reads; two concurrent repo-map builds report wait state instead of
     silent stalls.
+  - Slice 45.1 — coalesced repo-map wait visibility. Status: completed.
+    - Detailed design before code: reuse the existing typed
+      `RepoMapScanEvent` / orchestrator notice channel and the multigraph
+      same-slug in-flight table. Do not add a second renderer path or a model
+      prompt signal. Emit a wait-phase event only for callers that join an
+      already-running build; the original build still owns parse/build/rank/cache
+      progress and completion events.
+    - Delivered in this slice: added `RepoMapScanPhaseWait`, localized
+      Chinese/English wait wording, and a multigraph `WaitNotifier` hooked to
+      the existing repomap scan notifier. Concurrent `EnsureLoaded` calls for
+      the same slug now surface "waiting for the in-progress index build" with
+      sub-repo label and file count instead of looking like a frozen request.
+      Regression tests cover both the multigraph wait event and the rendered
+      localized messages.
 
 - Batch 46 — retry/status telemetry taxonomy. Status: planned.
   - Split status and metrics into transport retry, schema/carrier repair,

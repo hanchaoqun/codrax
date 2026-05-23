@@ -828,6 +828,8 @@ func repoMapScanPhaseActionZH(phase types.RepoMapScanPhase) string {
 		return "正在读取缓存"
 	case types.RepoMapScanPhaseCacheWrite:
 		return "正在写入索引缓存"
+	case types.RepoMapScanPhaseWait:
+		return "正在等待已有索引构建"
 	}
 	return ""
 }
@@ -846,6 +848,8 @@ func repoMapScanPhaseActionEN(phase types.RepoMapScanPhase) string {
 		return "loading the cache"
 	case types.RepoMapScanPhaseCacheWrite:
 		return "writing the index cache"
+	case types.RepoMapScanPhaseWait:
+		return "waiting for the in-progress index build"
 	}
 	return ""
 }

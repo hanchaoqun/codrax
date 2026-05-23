@@ -26,6 +26,7 @@ const (
 	RepoMapScanPhaseRank       RepoMapScanPhase = "rank"
 	RepoMapScanPhaseCacheLoad  RepoMapScanPhase = "cache_load"
 	RepoMapScanPhaseCacheWrite RepoMapScanPhase = "cache_write"
+	RepoMapScanPhaseWait       RepoMapScanPhase = "wait"
 )
 
 // RepoMapScanEvent is the typed progress payload emitted by the
