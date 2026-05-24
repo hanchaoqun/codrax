@@ -1630,7 +1630,12 @@ func evidenceLineForTypedMember(h types.TypedRelationHint, m types.TypedRelation
 		b.WriteString(" anchor_kind=")
 		b.WriteString(string(ak))
 	}
-	b.WriteString(" provenance=typed_graph")
+	provenance := h.Provenance
+	if provenance == "" {
+		provenance = types.TypedRelationProvenanceTypedGraph
+	}
+	b.WriteString(" provenance=")
+	b.WriteString(string(provenance))
 	if h.SourceKind != "" {
 		b.WriteString(" source_kind=")
 		b.WriteString(h.SourceKind)

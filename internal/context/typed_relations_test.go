@@ -389,6 +389,102 @@ func TestProbeTypedRelations_UsesCentralQueryForGenericRelationKinds(t *testing.
 	}
 }
 
+func TestProbeTypedRelations_UsesObservationLedgerSourceAnchors(t *testing.T) {
+	provider := types.ObservationRelationCandidateSource{Ledger: types.ObservationLedger{Records: []types.ObservationRecord{
+		{
+			ID:              "current",
+			Origin:          types.AnswerEvidenceOriginCurrentSource,
+			Role:            types.AnswerAggregateRolePrincipalAnswer,
+			GroundingPolicy: types.ClaimGroundingHard,
+			SourceRef:       types.ObservationSourceRef{Kind: types.ObservationSourceCurrentSource, Path: "internal/agent/explorer.go"},
+			Span:            types.ObservationSpan{LineStart: 6152, LineEnd: 6152},
+			ClaimKey:        "postProactiveClosureTargetSignal",
+			Subject:         "postProactiveClosureTargetSignal",
+			AnchorKind:      types.AnchorDefinition,
+			EvidenceKind:    types.EvidenceDirect,
+			EvidenceScope:   types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:      "diff",
+			Origin:  types.AnswerEvidenceOriginVCSDiff,
+			Subject: "postProactiveClosureTargetSignal",
+			SourceRef: types.ObservationSourceRef{
+				Kind:     types.ObservationSourceVCSDiff,
+				Commit:   "abc123",
+				Pathspec: "internal/agent/explorer.go",
+			},
+			Span:        types.ObservationSpan{NewLine: 6152},
+			SupportRefs: []string{"postProactiveClosureTargetSignal @ internal/agent/explorer.go:6152"},
+		},
+	}}}
+	rm := &types.RequestModel{
+		Intent:   types.IntentExplain,
+		Scenario: types.ScenarioArchitectureExplain,
+		Predicates: types.SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{PrimaryEntities: []string{"postProactiveClosureTargetSignal"}},
+	}
+	hints := ProbeTypedRelations(provider, rm)
+	if len(hints) != 1 {
+		t.Fatalf("expected one observation-backed source-anchor hint, got %+v", hints)
+	}
+	if hints[0].Relation != types.TypedRelationSourceAnchor ||
+		hints[0].Provenance != types.TypedRelationProvenanceTypedObservation ||
+		hints[0].Members[0].File != "internal/agent/explorer.go" {
+		t.Fatalf("unexpected observation-backed hint: %+v", hints[0])
+	}
+	rendered := renderTypedRelationAppendix(hints, nil)
+	if !strings.Contains(rendered, "provenance=typed_observation") ||
+		!strings.Contains(rendered, "source-anchor") {
+		t.Fatalf("rendered observation hint missing provenance/relation:\n%s", rendered)
+	}
+}
+
+func TestTypedRelationCarriersFromBusIncludesObservationLedgerSourceAnchors(t *testing.T) {
+	bus := &types.BusContext{
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "current",
+			Kind:            types.EvidenceDirect,
+			Subject:         "postProactiveClosureTargetSignal",
+			Summary:         "current source keeps the completion advisory signal",
+			Source:          "internal/agent/explorer.go",
+			LineStart:       6152,
+			LineEnd:         6152,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "postProactiveClosureTargetSignal",
+			GroundingStatus: types.GroundingGrounded,
+			Scope:           types.ScopeLine,
+		}},
+		ToolResults: []types.ToolResult{{
+			ToolName: "git_diff",
+			Success:  true,
+			Summary:  "[git_diff: evidence_origin=vcs_diff ref=HEAD path=internal/agent/explorer.go]\npostProactiveClosureTargetSignal @ internal/agent/explorer.go:6152\n",
+		}},
+	}
+	rm := &types.RequestModel{
+		Intent:   types.IntentExplain,
+		Scenario: types.ScenarioArchitectureExplain,
+		Predicates: types.SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{PrimaryEntities: []string{"postProactiveClosureTargetSignal"}},
+	}
+	var hints []types.TypedRelationHint
+	for _, carrier := range typedRelationCarriersFromBus(bus) {
+		hints = appendTypedRelationHints(hints, ProbeTypedRelations(carrier, rm)...)
+	}
+	if len(hints) != 1 {
+		t.Fatalf("expected one BusContext observation-backed source-anchor hint, got %+v", hints)
+	}
+	if hints[0].Relation != types.TypedRelationSourceAnchor ||
+		hints[0].Provenance != types.TypedRelationProvenanceTypedObservation ||
+		hints[0].Members[0].File != "internal/agent/explorer.go" {
+		t.Fatalf("unexpected BusContext observation-backed hint: %+v", hints[0])
+	}
+}
+
 func TestProbeTypedRelations_ImportPathProfileUsesGraphImportEdges(t *testing.T) {
 	root := &repotypes.FileInfo{RelPath: "cmd/root.go", Language: repotypes.LangGo}
 	dep := &repotypes.FileInfo{RelPath: "internal/tool/tool.go", Language: repotypes.LangGo}

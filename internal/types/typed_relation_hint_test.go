@@ -187,6 +187,46 @@ func TestBuildTypedRelationQuery_ImportPathProfileSelectsImportExport(t *testing
 	assertStringSlice(t, q.Sources, []string{"internal/agent"})
 }
 
+func TestBuildTypedRelationQuery_MixedExternalCurrentSourceSelectsSourceAnchor(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentExplain,
+		Scenario: ScenarioArchitectureExplain,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+		AnalyzerHints: AnalyzerHints{PrimaryEntities: []string{"QueueProactiveCallChainClosureRepairs"}},
+	}
+	q := BuildTypedRelationQuery(rm, TypedRelationPurposePromptHint, 25)
+	assertTypedRelationKinds(t, q.Kinds, TypedRelationSourceAnchor)
+
+	rm.Predicates.IsHistoryLookup = false
+	rm.LogTriage = &LogBundle{Errors: []LogError{{Type: "timeout"}}}
+	rm.CurrentSourceExplanationProfile = &CurrentSourceExplanationProfile{
+		IsCurrentSourceExplanationRequested: true,
+		Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationExplainCurrentMechanism},
+		SourceQuotes:                        []string{"结合当前代码"},
+	}
+	q = BuildTypedRelationQuery(rm, TypedRelationPurposePromptHint, 25)
+	assertTypedRelationKinds(t, q.Kinds, TypedRelationSourceAnchor)
+}
+
+func TestBuildTypedRelationQuery_CurrentSourceCountDoesNotSelectSourceAnchor(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentReturnValue,
+		Predicates: SemanticPredicates{
+			IsCountQuestion: true,
+			IsScalarAnswer:  true,
+		},
+		AnalyzerHints: AnalyzerHints{PrimaryEntities: []string{"internal/tool"}},
+	}
+	q := BuildTypedRelationQuery(rm, TypedRelationPurposePromptHint, 25)
+	for _, kind := range q.Kinds {
+		if kind == TypedRelationSourceAnchor {
+			t.Fatalf("plain current-source count should not select external source-anchor relation: %+v", q.Kinds)
+		}
+	}
+}
+
 func TestBuildTypedRelationQuery_DoesNotSelectFromRawProseOrEntityAxes(t *testing.T) {
 	rm := RequestModel{
 		RawRequest: "list everything that implements Looper and imports net/http",

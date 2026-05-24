@@ -639,13 +639,96 @@ Status: **Pending**
 
 ### R7. External observation relation carrier
 
-Status: **Pending**
+Status: **Done — 2026-05-24**
 
 - Model log/trace/VCS/command/MCP/web/connector observations as relation
   candidates only when they have exact artifact anchor plus current-source
   anchor.
 - Reuse existing external evidence/artifact ledgers and blob/page readers.
 - Add negative observation support through the same exact/uncertain split.
+
+Detailed design:
+
+1. Reuse the existing `ObservationLedger` as the only external-observation
+   source of truth.
+   - Do not add another artifact evidence stack.
+   - Do not teach `emit_evidence` to carry git/log/trace/MCP/web rows.
+   - Do not convert external artifact coordinates into current-source
+     citations.
+
+2. Add an observation-backed `TypedRelationCandidateSource` in `internal/types`.
+   It consumes already compiled `ObservationRecord` rows and emits
+   `source-anchor` relation candidates:
+   - source = external observation record, such as VCS diff hunk, log line,
+     trace span, command output row, MCP resource, web page, external document,
+     connector row, or cross-repo index hit;
+   - member = exact current-checkout source evidence row;
+   - carrier = `external_observation`;
+   - precision = `exact_evidence` only when the external record carries an exact
+     source-local coordinate that points at the same current source file/line;
+     otherwise `name_only` prompt guidance at most.
+
+3. Relation selection stays typed.
+   `BuildTypedRelationQuery` may select `source-anchor` only when the typed
+   request contract already asks for a mixed external + current-source answer:
+   history/current-code, runtime-artifact/current-code,
+   command-measurement/current-code, or future origin-specific/current-code
+   combinations. It must not inspect raw request text or model prose.
+
+4. Matching policy:
+   - exact match: external source ref path + local span matches the current
+     source record path/line; or an explicit external support ref parses to the
+     same file/line;
+   - soft match: stable claim key / subject / object matches but there is no
+     explicit file:line bridge. This can be surfaced to the model as prompt
+     guidance, but cannot trigger hard relation coverage;
+   - negative observations remain observation facts, not source-anchor
+     relations, unless a later typed negative relation carrier is designed.
+
+5. Prompt/render behavior:
+   - existing `TypedRelationHint` rendering is reused, but provenance must say
+     `typed_observation` instead of `typed_graph` for observation-backed rows;
+   - model-authored `emit_evidence` rows still win dedup when they describe the
+     same tuple;
+   - no final answer block is system-authored from these rows.
+
+6. Coverage/gate posture:
+   - this first batch is prompt/context only for normal mixed explanation
+     questions;
+   - a future hard coverage gate may consume these candidates only under the
+     existing exact-carrier + grounded same-member evidence + requested source
+     scope + model-authored member_set rule.
+
+R7 task list:
+
+- [x] Audit existing ObservationLedger, prompt projection, relation selector,
+  and context relation-carrier code to confirm no duplicate stack is needed.
+- [x] Add `source-anchor` relation kind and typed-observation provenance.
+- [x] Implement `ObservationRelationCandidateSource` over `ObservationLedger`.
+- [x] Wire the observation provider into context relation carriers so explorer /
+  extractor / finalizer prompt context can see exact external→source anchors.
+- [x] Add tests for VCS diff/current-source, runtime log/current-source,
+  command output/current-source, MCP/web/connector-like records, soft claim-only
+  rows, and negative-observation non-promotion.
+- [x] Run focused unit tests and at least one mixed external/current-source eval.
+- [x] Update this document and the gap tracker with results.
+
+Validation notes:
+
+- Unit coverage:
+  - `go test ./internal/types ./internal/context ./internal/tool ./internal/agent ./internal/orchestrator`
+  - `git diff --check`
+- Focused mixed eval:
+  - `CODRAX_BIN=$PWD/codrax eval/run.sh eval/cases/read_combo_git_two_diffs_current_code.case 1`
+  - Result: PASS, `finalizer_iters=1`, `semantic_quality_concerns=0`,
+    `strict_decode_remap_events=0`.
+  - The eval answer preserved the user-requested diff/current-source/作用/影响
+    dimensions and did not collapse to a scalar commit id. This run did not
+    surface `source-anchor` prompt rows because the accepted VCS ledger entries
+    were origin-specific support without an exact external line→current source
+    line bridge; the exact bridge itself is covered by unit and BusContext
+    integration tests so future carriers can expose it without another prompt
+    path.
 
 ### R8. Prompt and finalizer ledger alignment
 

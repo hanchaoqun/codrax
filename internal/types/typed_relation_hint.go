@@ -21,10 +21,10 @@ import "strings"
 // Render-time merge contract: the prompt assembler unifies hints with
 // the LLM-emitted EvidenceItem pool into a SINGLE "Structured
 // Evidence" table with a Provenance column distinguishing
-// "llm_evidence" (LLM's emit_evidence rows) from "typed_graph" (this
-// struct's rows). Dedup by (Subject, Object, AnchorKind) — when both
-// sources cover the same tuple the LLM-emit row wins (it carries
-// richer rationale).
+// "llm_evidence" (LLM's emit_evidence rows) from system-derived
+// provenance such as "typed_graph" or "typed_observation". Dedup by
+// (Subject, Object, AnchorKind) — when both sources cover the same tuple the
+// LLM-emit row wins (it carries richer rationale).
 type TypedRelationHint struct {
 	// Relation names the typed graph relation surfaced in this hint.
 	// Closed enum: implements / extends / called-by / scoped-to /
@@ -46,6 +46,10 @@ type TypedRelationHint struct {
 	// stable (alphabetic by Member.Name). Capped at the probe site to
 	// prevent prompt bloat on huge relations.
 	Members []TypedRelationMember `json:"members"`
+
+	// Provenance names the system carrier family used to derive this hint.
+	// Empty means typed_graph for backward compatibility.
+	Provenance TypedRelationProvenance `json:"provenance,omitempty"`
 }
 
 // TypedRelationMember is one member of a TypedRelationHint set.
@@ -78,6 +82,11 @@ const (
 	TypedRelationReferences TypedRelationKind = "references"
 	TypedRelationImports    TypedRelationKind = "imports"
 	TypedRelationExports    TypedRelationKind = "exports"
+	// TypedRelationSourceAnchor links an exact external observation
+	// (VCS/log/trace/command/MCP/web/connector/etc.) to an exact
+	// current-checkout source anchor through the shared relation contract.
+	// It is not a current-source citation by itself.
+	TypedRelationSourceAnchor TypedRelationKind = "source-anchor"
 )
 
 // TypedRelationPurpose tells providers whether candidates are being
@@ -245,8 +254,42 @@ func TypedRelationKindsForRequest(rm RequestModel, purpose TypedRelationPurpose)
 	if sourceInventoryRequestsImportPath(rm) {
 		add(TypedRelationImports, TypedRelationExports)
 	}
+	if requestNeedsExternalObservationSourceAnchorRelation(rm) {
+		add(TypedRelationSourceAnchor)
+	}
 
 	return out
+}
+
+func requestNeedsExternalObservationSourceAnchorRelation(rm RequestModel) bool {
+	contract := CompileAnswerIntentContract(rm, nil)
+	if !contract.HasOrigin(AnswerEvidenceOriginCurrentSource) {
+		return false
+	}
+	hasExternal := false
+	for _, origin := range contract.Origins {
+		if origin != AnswerEvidenceOriginCurrentSource && AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
+			hasExternal = true
+			break
+		}
+	}
+	if !hasExternal {
+		return false
+	}
+	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
+		return true
+	}
+	if rm.HasRuntimeArtifactCurrentVerificationAnchor() {
+		return true
+	}
+	if rm.Predicates.IsHistoryLookup &&
+		(contract.HasOutput(AnswerRequestedOutputMechanism) ||
+			contract.HasOutput(AnswerRequestedOutputChangeImpact) ||
+			contract.HasOutput(AnswerRequestedOutputDiagram) ||
+			contract.HasOutput(AnswerRequestedOutputComparison)) {
+		return true
+	}
+	return false
 }
 
 // TypedRelationKindsForResolvedSources selects relation families from exact
@@ -403,9 +446,10 @@ type TypedRelationImplementerSource interface {
 	ImplementerMembersOf(interfaceName string) []TypedRelationMember
 }
 
-// TypedRelationProvenance is the Provenance column tag used in the
-// unified Structured Evidence rendering. Two values today: LLM-side
-// emit_evidence vs system-derived typed graph traversal.
+// TypedRelationProvenance is the Provenance column tag used in the unified
+// Structured Evidence rendering. LLM evidence is model-authored; typed_graph
+// and typed_observation are system-derived prompt hints and never answer
+// authors.
 type TypedRelationProvenance string
 
 const (
@@ -420,6 +464,12 @@ const (
 	// pure "what the LLM observed" record); they are recomputed each
 	// dispatch from the typed graph, so persistence is unnecessary.
 	TypedRelationProvenanceTypedGraph TypedRelationProvenance = "typed_graph"
+
+	// TypedRelationProvenanceTypedObservation marks rows synthesised from the
+	// accepted ObservationLedger, such as an exact log/diff/command/MCP row
+	// linked to a current-source anchor. These are prompt hints, not
+	// current-source citations and not system-authored final answers.
+	TypedRelationProvenanceTypedObservation TypedRelationProvenance = "typed_observation"
 )
 
 // TypedRelationAnchorKind maps a relation tag to the AnchorKind that
@@ -442,6 +492,8 @@ func TypedRelationAnchorKind(relation TypedRelationKind) AnchorKind {
 		return AnchorAssignment
 	case TypedRelationImports:
 		return AnchorImport
+	case TypedRelationSourceAnchor:
+		return AnchorTextReference
 	}
 	return ""
 }
@@ -461,5 +513,6 @@ func AllTypedRelations() []TypedRelationKind {
 		TypedRelationReferences,
 		TypedRelationImports,
 		TypedRelationExports,
+		TypedRelationSourceAnchor,
 	}
 }

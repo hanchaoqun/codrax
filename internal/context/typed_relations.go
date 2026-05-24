@@ -43,6 +43,9 @@ func typedRelationCarriersFromBus(bus *types.BusContext) []any {
 		add(provider)
 		multiGraphAdded = true
 	}
+	if ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, 64)); !ledger.Empty() {
+		add(types.ObservationRelationCandidateSource{Ledger: ledger})
+	}
 	if bus.Mutable != nil {
 		if graph := bus.Mutable.SearchGraph(); graph != nil {
 			add(graph)
@@ -284,8 +287,9 @@ func probeTypedRelationCandidateSource(graph any, query types.TypedRelationQuery
 		return nil
 	}
 	type groupKey struct {
-		relation types.TypedRelationKind
-		source   string
+		relation   types.TypedRelationKind
+		source     string
+		provenance types.TypedRelationProvenance
 	}
 	groups := make(map[groupKey][]types.TypedRelationMember)
 	sourceKind := make(map[groupKey]string)
@@ -294,11 +298,15 @@ func probeTypedRelationCandidateSource(graph any, query types.TypedRelationQuery
 		if row.Relation == "" || strings.TrimSpace(row.SourceName) == "" || strings.TrimSpace(row.Member.Name) == "" {
 			continue
 		}
-		key := groupKey{relation: row.Relation, source: strings.TrimSpace(row.SourceName)}
+		key := groupKey{
+			relation:   row.Relation,
+			source:     strings.TrimSpace(row.SourceName),
+			provenance: typedRelationCandidateProvenance(row),
+		}
 		member := row.Member
 		member.Name = strings.TrimSpace(member.Name)
 		member.File = strings.TrimSpace(member.File)
-		dedupKey := string(key.relation) + "|" + strings.ToLower(key.source) + "|" + strings.ToLower(member.Name) + "|" + member.File
+		dedupKey := string(key.relation) + "|" + string(key.provenance) + "|" + strings.ToLower(key.source) + "|" + strings.ToLower(member.Name) + "|" + member.File
 		if seen[dedupKey] {
 			continue
 		}
@@ -338,9 +346,19 @@ func probeTypedRelationCandidateSource(graph any, query types.TypedRelationQuery
 			SourceName: key.source,
 			SourceKind: sourceKind[key],
 			Members:    members,
+			Provenance: key.provenance,
 		})
 	}
 	return hints
+}
+
+func typedRelationCandidateProvenance(row types.TypedRelationCandidate) types.TypedRelationProvenance {
+	switch row.Carrier {
+	case types.TypedRelationCarrierExternalObservation:
+		return types.TypedRelationProvenanceTypedObservation
+	default:
+		return types.TypedRelationProvenanceTypedGraph
+	}
 }
 
 func typedRelationCandidateRows(graph any, query types.TypedRelationQuery) []types.TypedRelationCandidate {
