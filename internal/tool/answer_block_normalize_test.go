@@ -349,6 +349,37 @@ func TestNormalizeEmitAnswerBlock_NormalizesDiagramKindFromMermaidSyntax(t *test
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_NormalizesSequenceParticipantMessagePrefix(t *testing.T) {
+	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:   "b1",
+		Kind: string(types.BlockDiagram),
+		Diagram: &emitAnswerDiagramV2{
+			Kind: string(types.DiagramSequence),
+			Body: strings.Join([]string{
+				"sequenceDiagram",
+				"    participant build as buildAnalysisIR",
+				"    participant normalizer->>resolver: resolver",
+				"    resolver->>build: done",
+			}, "\n"),
+		},
+	}, "blocks[0]")
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	if got.Diagram == nil {
+		t.Fatal("diagram missing")
+	}
+	if strings.Contains(got.Diagram.Body, "participant normalizer->>resolver") {
+		t.Fatalf("invalid participant-prefixed edge survived:\n%s", got.Diagram.Body)
+	}
+	if !strings.Contains(got.Diagram.Body, "    normalizer->>resolver: resolver") {
+		t.Fatalf("edge was not preserved:\n%s", got.Diagram.Body)
+	}
+	if !strings.Contains(got.Diagram.Body, "participant build as buildAnalysisIR") {
+		t.Fatalf("valid participant declaration changed:\n%s", got.Diagram.Body)
+	}
+}
+
 // TestNormalizeEmitAnswerBlock_AllFieldsPropagate uses reflection to
 // verify every field on emitAnswerBlockV2 surfaces as a non-zero
 // value on the resulting types.AnswerBlock when populated from a

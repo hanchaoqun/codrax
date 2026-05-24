@@ -885,6 +885,11 @@ func repairEmitEvidenceKnownCompatFields(raw json.RawMessage) (json.RawMessage, 
 			paths = append(paths, fmt.Sprintf("$.%s->items[0].%s", field, field))
 		}
 	}
+	for i := range items {
+		if repairEmitEvidenceLoadBearingSummaryString(items[i]) {
+			paths = append(paths, fmt.Sprintf("items[%d].load_bearing_summary string->bool", i))
+		}
+	}
 	if len(paths) == 0 {
 		return raw, nil, false
 	}
@@ -898,6 +903,44 @@ func repairEmitEvidenceKnownCompatFields(raw json.RawMessage) (json.RawMessage, 
 		return raw, nil, false
 	}
 	return patched, paths, true
+}
+
+func repairEmitEvidenceLoadBearingSummaryString(item map[string]json.RawMessage) bool {
+	if item == nil {
+		return false
+	}
+	raw, ok := item["load_bearing_summary"]
+	if !ok {
+		return false
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return false
+	}
+	text = strings.TrimSpace(text)
+	if parsed, err := strconv.ParseBool(strings.ToLower(text)); err == nil {
+		item["load_bearing_summary"], _ = json.Marshal(parsed)
+		return true
+	}
+	if text == "" {
+		item["load_bearing_summary"], _ = json.Marshal(false)
+		return true
+	}
+	if existingRaw, ok := item["summary"]; ok {
+		var existing string
+		if err := json.Unmarshal(existingRaw, &existing); err == nil {
+			existing = strings.TrimSpace(existing)
+			if existing == "" {
+				item["summary"], _ = json.Marshal(text)
+			} else if !strings.Contains(existing, text) {
+				item["summary"], _ = json.Marshal(existing + " " + text)
+			}
+		}
+	} else {
+		item["summary"], _ = json.Marshal(text)
+	}
+	item["load_bearing_summary"], _ = json.Marshal(true)
+	return true
 }
 
 var emitEvidenceItemOnlyCompatFields = []string{
@@ -1116,7 +1159,10 @@ func repairEmitEvidenceItemShape(in *emitEvidenceItem, index int, compatRepairs 
 		}
 	}
 	repairEvidenceKindValueInAnchorKind(in, index, compatRepairs)
+	repairMissingEvidenceKindFromAnchorShape(in, index, compatRepairs)
+	repairDirectEvidenceKindFromAnchorShape(in, index, compatRepairs)
 	repairMisplacedScopeSemanticValue(in, index, compatRepairs)
+	repairLineRangeScopeMissingEnd(in, index, compatRepairs)
 
 	scope := types.EvidenceScope(strings.ToLower(strings.TrimSpace(in.Scope)))
 	if scope == types.ScopeFile && in.LineStart.Int() > 0 && emitEvidenceItemHasLineAnchorShape(*in) {
@@ -1131,6 +1177,78 @@ func repairEmitEvidenceItemShape(in *emitEvidenceItem, index int, compatRepairs 
 				fmt.Sprintf("items[%d].scope=%q carried line anchor fields at line_start=%d; treated as scope=%q",
 					index, oldScope, in.LineStart.Int(), in.Scope))
 		}
+	}
+}
+
+func repairMissingEvidenceKindFromAnchorShape(in *emitEvidenceItem, index int, compatRepairs *[]string) {
+	if in == nil ||
+		strings.TrimSpace(in.EvidenceKind) != "" ||
+		strings.TrimSpace(in.LegacyKind) != "" ||
+		!emitEvidenceItemHasLineCoordinateShape(*in) {
+		return
+	}
+	anchorKind, ok := findAnchorKind(strings.ToLower(strings.TrimSpace(in.AnchorKind)))
+	if !ok {
+		return
+	}
+	mapped := evidenceKindForAnchorShape(anchorKind, *in)
+	if mapped == "" || mapped == types.EvidenceAbsent {
+		return
+	}
+	in.EvidenceKind = string(mapped)
+	if compatRepairs != nil {
+		*compatRepairs = append(*compatRepairs,
+			fmt.Sprintf("items[%d].evidence_kind was missing; inferred %q from anchor_kind=%q and typed fields",
+				index, mapped, anchorKind))
+	}
+}
+
+func repairDirectEvidenceKindFromAnchorShape(in *emitEvidenceItem, index int, compatRepairs *[]string) {
+	if in == nil || !emitEvidenceItemHasLineCoordinateShape(*in) {
+		return
+	}
+	kindText := strings.TrimSpace(in.EvidenceKind)
+	kindField := "evidence_kind"
+	if kindText == "" {
+		kindText = strings.TrimSpace(in.LegacyKind)
+		kindField = "kind"
+	}
+	if !strings.EqualFold(kindText, string(types.EvidenceDirect)) {
+		return
+	}
+	anchorKind, ok := findAnchorKind(strings.ToLower(strings.TrimSpace(in.AnchorKind)))
+	if !ok {
+		return
+	}
+	mapped := evidenceKindForAnchorShape(anchorKind, *in)
+	if mapped == "" || mapped == types.EvidenceAbsent || mapped == types.EvidenceDirect {
+		return
+	}
+	if strings.TrimSpace(in.EvidenceKind) != "" || strings.TrimSpace(in.LegacyKind) == "" {
+		in.EvidenceKind = string(mapped)
+		kindField = "evidence_kind"
+	} else {
+		in.LegacyKind = string(mapped)
+	}
+	if compatRepairs != nil {
+		*compatRepairs = append(*compatRepairs,
+			fmt.Sprintf("items[%d].%s=%q conflicted with anchor_kind=%q; treated as %q from typed anchor shape",
+				index, kindField, kindText, anchorKind, mapped))
+	}
+}
+
+func repairLineRangeScopeMissingEnd(in *emitEvidenceItem, index int, compatRepairs *[]string) {
+	if in == nil ||
+		!strings.EqualFold(strings.TrimSpace(in.Scope), string(types.ScopeLineRange)) ||
+		!emitEvidenceItemHasLineCoordinateShape(*in) ||
+		in.LineEnd.Int() > in.LineStart.Int() {
+		return
+	}
+	in.Scope = string(types.ScopeLine)
+	if compatRepairs != nil {
+		*compatRepairs = append(*compatRepairs,
+			fmt.Sprintf("items[%d].scope=line_range lacked a valid line_end; treated as scope=line at line_start=%d",
+				index, in.LineStart.Int()))
 	}
 }
 
@@ -1302,12 +1420,31 @@ func emitEvidenceIdentifierCandidates(text string) []string {
 		if !emitEvidenceLooksLikeAnchorCandidate(match) {
 			continue
 		}
+		if strings.ContainsAny(match, ".:") {
+			tail := emitEvidenceQualifiedIdentifierTail(match)
+			if tail != "" && emitEvidenceLooksLikeAnchorCandidate(tail) {
+				out = append(out, tail)
+			}
+			continue
+		}
 		out = append(out, match)
 	}
 	return out
 }
 
 var emitEvidenceIdentifierCandidateRe = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*(?:[.:][A-Za-z_][A-Za-z0-9_]*)*`)
+
+func emitEvidenceQualifiedIdentifierTail(raw string) string {
+	raw = strings.TrimSpace(strings.Trim(raw, ".:"))
+	if raw == "" {
+		return ""
+	}
+	raw = strings.ReplaceAll(raw, "::", ".")
+	if idx := strings.LastIndex(raw, "."); idx >= 0 {
+		raw = raw[idx+1:]
+	}
+	return strings.TrimSpace(strings.Trim(raw, ".:"))
+}
 
 func emitEvidenceLooksLikeAnchorCandidate(s string) bool {
 	if len(s) < 2 {

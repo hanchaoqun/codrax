@@ -1291,8 +1291,10 @@ Existing code to reuse:
 - `emit_evidence.repairEmitEvidenceItemShape` is already the tool-local place
   for evidence semantic/location confusion such as evidence_kind vs anchor_kind.
 - `explorerEvaluator.FilterToolSchemas` already narrows the runtime tool surface
-  after structured loop signals. It is the right place to make completion-ready
-  convergence monotonic.
+  after structured loop signals. Batch 12 used it for completion-ready
+  convergence; Batch 28 later superseded that choice after eval showed it could
+  overrule a model's valid need to verify a terminal path endpoint. Going
+  forward, this filter is for materialization/repair lanes only.
 - `effectiveCompletionAggregateFacts` already preserves a crucial isolation
   invariant: when the current `emit_investigation_complete` payload has
   aggregate facts, older retained facts are not merged back into it. Future
@@ -1302,17 +1304,10 @@ Existing code to reuse:
 
 Design:
 
-- P0-A: tighten completion-ready escalation.
-  - First `explorer.mid-loop.completion-ready` remains advisory.
-  - After the existing escalation latch fires, the schema filter should expose
-    only structured progress tools: `emit_evidence` and
-    `emit_investigation_complete`.
-  - Exact additional reads remain available through the separate
-    evidence-repair lane (`midLoopEvidenceRepairSent`) and pending-read repair
-    lane. Completion-ready by itself is a "close or materialize current facts"
-    state, not a permission to keep browsing.
-  - This is typed-state driven only: no user question keyword matching and no
-    model prose matching.
+- P0-A: tighten completion-ready escalation. Historical note: Batch 28
+  supersedes the tool-filtering part of this design. Completion-ready remains a
+  typed-state hint, but it is no longer a runtime schema-cutting lane because
+  that can substitute the system's convergence heuristic for model judgement.
 
 - P0-B: repair `emit_evidence.scope` semantic-value mistakes conservatively.
   - If `scope` is not a valid evidence scope but equals a known semantic
@@ -1351,8 +1346,8 @@ Design:
 Commercial safety boundaries:
 
 - The system must not change user intent or rewrite model conclusions. Batch 12
-  only changes available tool surfaces after typed readiness signals and repairs
-  schema/location fields that are mechanically verifiable.
+  repaired schema/location fields that are mechanically verifiable. The
+  completion-ready tool-surface change from this batch is deprecated by Batch 28.
 - Big-model quality is preserved because normal exploration remains unchanged
   until completion-ready escalation or an already-existing repair state fires.
 - The scope repair is language-agnostic: it relies on source path + line anchor
@@ -1362,8 +1357,9 @@ Commercial safety boundaries:
 
 Task list:
 
-- [x] Update `completionReadyClosingToolNames` and tests so escalated
-  completion-ready is emit-only.
+- [x] Historical Batch 12 experiment: made escalated completion-ready emit-only.
+  Deprecated by Batch 28; completion-ready is now advisory and does not cut
+  tools.
 - [x] Add conservative `emit_evidence.scope` semantic-value repair in
   `repairEmitEvidenceItemShape`.
 - [x] Add regression tests for semantic scope values, anchor-kind scope aliases,
@@ -2611,9 +2607,10 @@ thing" often becomes multiple reads.
 
 - `postCompletionReadySignal` records that typed readiness is enough, but it is
   deliberately advisory on its first fire.
-- `restrictedToolSurface()` narrows to `emit_evidence` /
-  `emit_investigation_complete` only when
-  `midLoopCompletionReadyEscalated=true`.
+- At the time, `restrictedToolSurface()` narrowed to `emit_evidence` /
+  `emit_investigation_complete` when
+  `midLoopCompletionReadyEscalated=true`. Batch 28 removes this behavior and
+  keeps the escalation as guidance only.
 - `postCompletionReadyEscalationSignal` currently waits until
   `obs.Iteration >= midLoopCompletionReadyIter + 2`, so a model can spend two
   navigation-only batches after readiness before the closing lane activates.
@@ -2634,18 +2631,16 @@ thing" often becomes multiple reads.
      navigation tools but no completion-progress tool (`emit_evidence` or
      `emit_investigation_complete`), fire the existing closure-only redirect
      immediately.
-   - Latch `midLoopCompletionReadyEscalated=true` in that same branch so the
-     next LLM turn uses the existing closing-only schema filter.
+   - Latch `midLoopCompletionReadyEscalated=true` in that same branch as a soft
+     loop-state signal only. Batch 28 removed the closing-only schema filter.
    - If the batch includes `emit_evidence`, it is structured progress, not
      drift; do not escalate solely because the model also navigated.
 
-3. Reuse the existing closing lane and runtime boundary
-   - Keep `completionReadyClosingToolNames` as the only allowed tool set after
-     escalation.
-   - Keep evidence-repair lanes higher priority so exact typed repair targets
-     can still allow `read_file` where the system has a specific range to
-     repair.
-   - Keep drift-bounded root-cause fast-track behavior intact.
+3. Historical closing-lane design
+   - Batch 27 reused the existing closing lane and runtime boundary.
+   - Batch 28 supersedes this: completion-ready no longer restricts tools.
+   - Evidence-repair lanes remain higher priority and may still allow or deny
+     `read_file` based on concrete typed repair targets.
 
 4. Commercial safety boundaries
    - No prompt-template rewrite.
@@ -2877,3 +2872,166 @@ Regression guard:
 - [ ] Run focused tests, `go test ./internal/agent`, broader module tests,
       `make build`, and rerun the sequence eval.
 - [ ] Commit and push Batch 27.
+
+### Batch 28 finding - completion-ready must not become a semantic decision
+
+After Batch 27, `qf_sequence_analyzer_gate` confirmed that the stale
+`AnswerChains` diagram seed no longer reaches the finalizer prompt. The next
+failure was a different root cause: the explorer declared completion-ready after
+early `buildAnalysisIR` evidence, then the verification-grace path escalated the
+dispatch after one navigation-only turn. The model was still trying to read the
+terminal call-chain endpoint (`gate.Run` / implementation-adjacent
+`gate.RunWith`), but the escalated closing lane removed navigation tools. The
+final answer therefore stayed thin and missed the lower half of the requested
+sequence.
+
+The systemic issue is not a single eval. A repository can be large, generated,
+multi-language, or split across runtime artifacts and code. No count-based
+system heuristic can prove that the model has semantically read enough. The
+system may identify a likely convergence point, but it must not substitute its
+judgement for the model's stated need to verify a specific branch.
+
+Design boundary:
+
+- Completion-ready is advisory. It may tell the model that the current
+  structured state appears close-ready, but it must not by itself remove
+  `read_file`, `grep`, `repo_map`, or other exploration tools.
+- Hard stops belong to system-owned contracts only: repository/path safety,
+  OOM guardrails, already-read evidence repair, no-progress materialization
+  loops, and typed answer-contract vetoes. These are structural safeguards, not
+  semantic claims that "the answer is done".
+- For typed call-chain / path questions, completion-ready is vetoed until the
+  terminal endpoint extracted from `AnalysisIR.RequestModel` is present in
+  grounded structured evidence or the validator-aligned support lane. This uses
+  only typed analyzer surfaces and evidence fields (`AnchorSymbol`,
+  `OwnerSymbol`, `Subject`, `Object`), never raw user text or model prose.
+- Qualified endpoints can materialize as unqualified anchors in source. For
+  example, a typed endpoint like `pkg.Func` may be grounded by an evidence row
+  whose source path carries `pkg` and whose anchor symbol is `Func` or a
+  validated implementation-adjacent form such as `FuncWith`. This is
+  language-neutral path/component matching, not a repository-specific rule.
+- Read-window presence alone is not enough for completion-ready. If the model
+  has merely opened the endpoint lines, the system should let it materialize
+  evidence instead of forcing closure.
+- Escalation hints may continue to nudge against runaway widening, but they are
+  UX guidance only. Runtime schema filtering remains reserved for evidence
+  materialization and repair lanes.
+
+Interleaved eval follow-up:
+
+- The same sequence eval produced a full first-draft explanation and Mermaid
+  sequence diagram during exploration. The controller preserved the text for
+  the REPL, but `observeSoftStop` then treated the large-file grep redirect as
+  a first-stop hard branch and pushed the model back to generic grep work.
+- That redirect is a strategy optimization, not proof that the model's current
+  conclusion is semantically incomplete. When the same structured readiness
+  contract already says the branch appears close-ready, the first no-tool
+  answer should fall through to the explicit `emit_investigation_complete`
+  reminder instead of reopening broad navigation.
+- Partial function reads, enumeration completeness, and contract-backed required
+  file gaps remain eligible to override a first soft-stop because those are
+  concrete structural defects. The change is intentionally limited to the
+  strategy-only large-file grep redirect.
+- A later run also showed `emit_evidence` items carrying `anchor_kind="call"`
+  plus `subject/predicate/object`, but missing `evidence_kind`. This is a
+  schema-shape omission rather than a semantic ambiguity: the existing
+  `evidenceKindForAnchorShape` mapping can infer `relationship` for call anchors
+  with an object, `conditional` for condition anchors, and `direct` otherwise.
+  Likewise, `scope="line_range"` with no valid `line_end` is safely downgraded
+  to a single-line scope instead of rejecting an otherwise anchored fact.
+- The same run showed `load_bearing_summary` used as a string carrier for
+  important summary text even though the schema field is boolean. This is safe
+  to repair before strict decode: parse boolean strings normally; for other
+  non-empty strings, preserve the model-authored text by appending it to
+  `summary` and set `load_bearing_summary=true`.
+- Another repeated closure loop came from a weaker variant of the same schema
+  mismatch: the model explicitly set `evidence_kind="direct"` on rows whose
+  typed anchor said `anchor_kind="call"`. Missing `evidence_kind` was already
+  mapped through `evidenceKindForAnchorShape`; explicit `direct` must follow the
+  same rule when the line anchor proves the row is a call-site shape. The repair
+  remains structural: `call` without an object becomes `mechanism`, while `call`
+  with an object becomes `relationship`; no user text or model prose is parsed.
+- The successful rerun exposed a diagram renderability edge case that the eval
+  assertion did not catch: a local model wrote a `sequenceDiagram` edge as
+  `participant normalizer->>resolver: resolver`. The authored semantic payload
+  is clearly the edge `normalizer->>resolver: resolver`; the leading
+  `participant` token is a Mermaid syntax slip. This is safe to normalize before
+  persistence and terminal rendering because it only removes a syntactically
+  invalid prefix from a line that already contains a sequence-message arrow and
+  message label. Valid participant declarations, including quoted labels that
+  contain arrows, remain unchanged.
+- The post-normalization rerun
+  `eval/results/qf_sequence_analyzer_gate-20260524-133051` passed 1/1. It also
+  exercised two important non-happy paths without losing the final answer:
+  an upstream explorer stream stall was retried, and the first finalizer draft
+  omitted the required diagram block but was repaired through the existing
+  answer-document patch path. This keeps the fix focused on structural
+  compatibility and avoids adding another prompt-specific retry lane.
+
+Follow-up design:
+
+1. Add a structured terminal-endpoint readiness check for bounded trace /
+   call-chain requests.
+   - Reuse `CallChainRequestedEndpointHints` and
+     `CallChainTerminalEndpointHints`; do not add a parallel endpoint parser.
+   - Reuse `traceEndpointSurfaceCompatible` and existing evidence/support-lane
+     coverage helpers.
+   - Exclude file/path-like surfaces through the existing call-chain endpoint
+     hint filter.
+   - Extend the existing `emit_evidence` anchor-symbol repair so qualified
+     typed fields such as `pkg.Func` can recover `anchor_symbol="Func"` from an
+     already-read line. This keeps terminal endpoint materialization from being
+     dropped when the model writes the semantically correct callee in `object`
+     but forgets the syntactic anchor field.
+2. Gate `postCompletionReadySignal` on this endpoint coverage.
+   - If the endpoint is not materialized, do not latch completion-ready.
+   - Let existing post-read / read-without-emit endpoint hints steer the model
+     toward targeted evidence instead of broad closure.
+3. Remove completion-ready from `restrictedToolSurface`.
+   - Keep materialization-only filtering for no-emit loops.
+   - Keep evidence-repair filtering, because it is tied to concrete repair
+     targets and fail-open schema checks.
+   - Add tests so future developers cannot reintroduce completion-ready as a
+     tool-cutting lane.
+4. Soften completion-ready hint wording.
+   - State that the structured state "appears close-ready".
+   - Preserve the model's ability to continue one specific evidence-changing
+     branch.
+5. Re-run the sequence eval and verify two independent properties:
+   - finalizer diagram seeds still do not contain stale `AnswerChains` /
+     `ir_accessor.go` chain data;
+   - explorer does not fire completion-ready before the terminal endpoint is
+     materialized as structured evidence.
+
+Batch 28 task list:
+
+- [x] Audit current completion-ready, schema filtering, endpoint coverage, and
+      stale `AnswerChains` guard code.
+- [x] Record this design and task list.
+- [x] Add typed terminal-endpoint veto for completion-ready.
+- [x] Add qualified typed-field anchor repair for missing
+      `emit_evidence.anchor_symbol`.
+- [x] Remove completion-ready from runtime tool-schema filtering and boundary
+      rejection.
+- [x] Update completion-ready hint wording from hard closure to advisory
+      convergence guidance.
+- [x] Add focused tests for missing/covered terminal endpoints and fail-open
+      completion-ready schemas.
+- [x] Suppress first-stop large-file grep redirects when accepted structured
+      evidence is already close-ready; remind the model to call
+      `emit_investigation_complete` instead.
+- [x] Add conservative `emit_evidence` compatibility for missing
+      `evidence_kind` derived from `anchor_kind` and for `line_range` payloads
+      that only carry a single anchored line.
+- [x] Add conservative `emit_evidence.load_bearing_summary` string repair that
+      preserves model-authored text and converts the flag to a native boolean.
+- [x] Add conservative `emit_evidence` repair for explicit `direct` rows whose
+      typed `anchor_kind` proves a stronger call-site evidence shape.
+- [x] Add conservative Mermaid `sequenceDiagram` normalization for
+      participant/actor-prefixed message lines so browser preview and terminal
+      rendering do not fail on a syntax-only local-model slip.
+- [x] Run focused tests, broader package tests, `make build`, and rerun the
+      sequence eval (`qf_sequence_analyzer_gate`, pass rate 1/1).
+- [x] Re-run `qf_sequence_analyzer_gate` after Mermaid normalization
+      (`eval/results/qf_sequence_analyzer_gate-20260524-133051`, pass rate 1/1).
+- [ ] Commit and push Batch 28.

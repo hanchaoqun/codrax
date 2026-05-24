@@ -34,6 +34,63 @@ func NormalizeSequenceStops(body string) string {
 	return strings.Join(lines, "\n")
 }
 
+// NormalizeSequenceParticipantMessagePrefixes repairs a small-model
+// Mermaid slip where a sequence message line is accidentally prefixed
+// with `participant` or `actor`, for example:
+//
+//	participant A->>B: call
+//
+// The prefix is syntactically invalid for Mermaid and carries no extra
+// semantic information. Removing only that prefix preserves the
+// authored edge and lets browser Mermaid / mermaid-ascii parse the
+// diagram. The guard requires a message arrow and a message label so
+// real participant declarations, including declarations with quoted
+// labels, are left untouched.
+func NormalizeSequenceParticipantMessagePrefixes(body string) string {
+	if !isSequenceDiagram(body) {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	changed := false
+	for i, line := range lines {
+		trimmedLeft := strings.TrimLeft(line, " \t")
+		indent := line[:len(line)-len(trimmedLeft)]
+		prefix := ""
+		switch {
+		case strings.HasPrefix(trimmedLeft, "participant "):
+			prefix = "participant "
+		case strings.HasPrefix(trimmedLeft, "actor "):
+			prefix = "actor "
+		default:
+			continue
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(trimmedLeft, prefix))
+		if !sequenceMessageLineLike(rest) {
+			continue
+		}
+		lines[i] = indent + rest
+		changed = true
+	}
+	if !changed {
+		return body
+	}
+	return strings.Join(lines, "\n")
+}
+
+func sequenceMessageLineLike(line string) bool {
+	arrowAt := -1
+	for _, op := range []string{"-->>", "->>", "-->", "->", "--x", "-x", "--)", "-)"} {
+		if idx := strings.Index(line, op); idx >= 0 && (arrowAt < 0 || idx < arrowAt) {
+			arrowAt = idx
+		}
+	}
+	if arrowAt <= 0 {
+		return false
+	}
+	colon := strings.Index(line[arrowAt:], ":")
+	return colon > 0 && strings.TrimSpace(line[:arrowAt]) != ""
+}
+
 func isSequenceDiagram(body string) bool {
 	for _, line := range strings.Split(body, "\n") {
 		line = strings.TrimSpace(line)

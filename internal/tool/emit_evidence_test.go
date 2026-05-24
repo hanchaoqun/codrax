@@ -97,6 +97,46 @@ func TestEmitEvidence_StructuredPayloadCompatRepairsStringItemsAndKeyAliases(t *
 	}
 }
 
+func TestEmitEvidence_RepairsStringLoadBearingSummary(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/agent/analyzer.go", 2278,
+		"ir.QualityGate = gate.RunWith(ir, gate.GlobalThresholds(), mode, gate.RunOptions{Resolver: resolver})",
+	)
+	params := json.RawMessage(`{
+		"items": [{
+			"kind": "direct",
+			"subject": "buildAnalysisIR",
+			"predicate": "calls",
+			"object": "gate.RunWith",
+			"source": "internal/agent/analyzer.go",
+			"line_start": 2278,
+			"summary": "buildAnalysisIR calls gate.RunWith.",
+			"anchor_kind": "call",
+			"anchor_symbol": "gate.RunWith",
+			"load_bearing_summary": "The resolver-aware gate call is the terminal hop."
+		}]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected string load_bearing_summary repair to succeed, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if !got[0].LoadBearingSummary {
+		t.Fatalf("load_bearing_summary should be repaired to true: %+v", got[0])
+	}
+	if !strings.Contains(got[0].Summary, "terminal hop") {
+		t.Fatalf("string payload should be preserved in summary, got %q", got[0].Summary)
+	}
+}
+
 func TestEmitEvidence_MovesSingleTopLevelSalienceIntoOnlyItem(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
@@ -163,6 +203,41 @@ func TestEmitEvidence_InfersMissingAnchorSymbolFromExactLineGraph(t *testing.T) 
 	}
 	if !strings.Contains(res.Summary, "anchor_symbol was missing") {
 		t.Fatalf("summary should disclose compatibility repair, got: %s", res.Summary)
+	}
+}
+
+func TestEmitEvidence_InfersMissingAnchorSymbolFromQualifiedObjectReadLine(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/agent/analyzer.go", 2278,
+		"ir.QualityGate = gate.RunWith(ir, gate.GlobalThresholds(), mode, gate.RunOptions{Resolver: resolver})")
+	params := json.RawMessage(`{"items":[{
+		"kind":"relationship",
+		"source":"internal/agent/analyzer.go",
+		"line_start":2278,
+		"subject":"buildAnalysisIR",
+		"predicate":"calls",
+		"object":"gate.RunWith",
+		"summary":"buildAnalysisIR calls gate.RunWith for quality gating",
+		"anchor_kind":"call"
+	}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected qualified object to provide a recoverable anchor_symbol, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 emitted item, got %d", len(got))
+	}
+	if got[0].AnchorSymbol != "RunWith" {
+		t.Fatalf("AnchorSymbol = %q, want RunWith", got[0].AnchorSymbol)
+	}
+	if !strings.Contains(res.Summary, "typed fields corroborated by the read line") {
+		t.Fatalf("summary should disclose typed-field compatibility repair, got: %s", res.Summary)
 	}
 }
 
@@ -1380,6 +1455,139 @@ func TestEmitEvidence_RepairsAnchorKindValueInScopeAndFillsKind(t *testing.T) {
 	}
 	if got[0].Scope != types.ScopeLine || got[0].Kind != types.EvidenceDirect || got[0].AnchorKind != types.AnchorDefinition {
 		t.Fatalf("unexpected repaired evidence: %+v", got[0])
+	}
+}
+
+func TestEmitEvidence_RepairsMissingEvidenceKindFromAnchorShape(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/agent/scope_repair.go", 40,
+		"func outer() {",
+		"\treturn inner()",
+		"}",
+	)
+	params := json.RawMessage(`{
+		"items": [{
+			"scope": "line",
+			"subject": "outer",
+			"predicate": "calls",
+			"object": "inner",
+			"source": "internal/agent/scope_repair.go",
+			"line_start": 41,
+			"anchor_kind": "call",
+			"anchor_symbol": "inner",
+			"summary": "outer calls inner at this line."
+		}]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected missing evidence_kind repair to succeed, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 emitted evidence item, got %d", len(got))
+	}
+	if got[0].Kind != types.EvidenceRelationship {
+		t.Fatalf("kind=%q, want %q", got[0].Kind, types.EvidenceRelationship)
+	}
+	if !strings.Contains(res.Summary, "evidence_kind was missing") {
+		t.Fatalf("summary should mention compatibility repair, got: %s", res.Summary)
+	}
+}
+
+func TestEmitEvidence_RepairsDirectEvidenceKindFromAnchorShape(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/agent/scope_repair.go", 50,
+		"func outer() {",
+		"\tinner()",
+		"\tsink()",
+		"}",
+	)
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"scope": "line",
+				"evidence_kind": "direct",
+				"subject": "outer",
+				"source": "internal/agent/scope_repair.go",
+				"line_start": 51,
+				"anchor_kind": "call",
+				"anchor_symbol": "inner",
+				"summary": "outer calls inner at this line."
+			},
+			{
+				"scope": "line",
+				"evidence_kind": "direct",
+				"subject": "outer",
+				"predicate": "calls",
+				"object": "sink",
+				"source": "internal/agent/scope_repair.go",
+				"line_start": 52,
+				"anchor_kind": "call",
+				"anchor_symbol": "sink",
+				"summary": "outer calls sink at this line."
+			}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected direct evidence_kind repair to succeed, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 2 {
+		t.Fatalf("want 2 emitted evidence items, got %d", len(got))
+	}
+	if got[0].Kind != types.EvidenceMechanism {
+		t.Fatalf("first kind=%q, want %q", got[0].Kind, types.EvidenceMechanism)
+	}
+	if got[1].Kind != types.EvidenceRelationship {
+		t.Fatalf("second kind=%q, want %q", got[1].Kind, types.EvidenceRelationship)
+	}
+	if !strings.Contains(res.Summary, "conflicted with anchor_kind") {
+		t.Fatalf("summary should mention compatibility repair, got: %s", res.Summary)
+	}
+}
+
+func TestEmitEvidence_RepairsLineRangeWithoutEndToLineScope(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/agent/scope_repair.go", 60,
+		"func target() error {",
+		"\treturn nil",
+		"}",
+	)
+	params := json.RawMessage(`{
+		"items": [{
+			"scope": "line_range",
+			"evidence_kind": "direct",
+			"subject": "target",
+			"source": "internal/agent/scope_repair.go",
+			"line_start": 60,
+			"anchor_kind": "definition",
+			"anchor_symbol": "target",
+			"summary": "target is defined here."
+		}]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected line_range-to-line repair to succeed, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 emitted evidence item, got %d", len(got))
+	}
+	if got[0].Scope != types.ScopeLine || got[0].LineEnd != got[0].LineStart {
+		t.Fatalf("unexpected repaired scope/lines: %+v", got[0])
 	}
 }
 
@@ -3875,11 +4083,10 @@ func TestEmitEvidence_RejectsScopeMissingRequiredField(t *testing.T) {
 		{"section scope missing path", `{"items": [{"scope": "section", "kind": "direct", "source": "a.go"}]}`, "section_path"},
 		{"crossfile missing query", `{"items": [{"scope": "crossfile", "kind": "direct"}]}`, "crossfile_query"},
 		{"negative missing query", `{"items": [{"scope": "negative", "kind": "absent", "source": "a.yaml", "negative_scope": "file"}]}`, "negative_query"},
-		// LineRange with line_end == line_start is degenerate (single
-		// line, should use ScopeLine). The auto-swap heuristic fixes
-		// `5,10` → `5,10`. This case uses identical values to confirm
-		// strict line_range > line_start invariant rejects degenerate.
-		{"line_range needs line_end > line_start", `{"items": [{"scope": "line_range", "kind": "direct", "source": "a.go", "line_start": 10, "line_end": 10, "anchor_kind": "definition", "anchor_symbol": "X"}]}`, "line_end"},
+		// Degenerate line_range values are compatibility-repaired to
+		// scope=line elsewhere; a missing starting coordinate is still
+		// structurally ungroundable and must reject.
+		{"line_range needs line_start", `{"items": [{"scope": "line_range", "kind": "direct", "source": "a.go", "line_end": 10, "anchor_kind": "definition", "anchor_symbol": "X"}]}`, "line_start"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

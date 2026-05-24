@@ -389,6 +389,7 @@ func mermaidInfoLineDirective(info string) (directive string, keyword string) {
 // Mermaid, the library still does the rendering, the system fills
 // the capability gap in between.
 func preprocessMermaidBody(body string) string {
+	body = mermaidcompat.NormalizeSequenceParticipantMessagePrefixes(body)
 	body = mermaidcompat.NormalizeSequenceStops(body)
 	body = normalizeSequenceDiagramEndpointAliases(body)
 	body = flattenMermaidSubgraphs(body)

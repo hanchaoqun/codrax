@@ -5054,6 +5054,20 @@ func (e *explorerEvaluator) tracePathMissingTerminalEndpointHints(history []type
 	return missing
 }
 
+func (e *explorerEvaluator) tracePathMissingStructuredTerminalEndpointHints() []string {
+	endpoints := e.tracePathTerminalEndpointHints()
+	if len(endpoints) == 0 {
+		return nil
+	}
+	var missing []string
+	for _, endpoint := range endpoints {
+		if !e.tracePathEndpointCoveredByStructuredEvidence(endpoint) {
+			missing = append(missing, endpoint)
+		}
+	}
+	return missing
+}
+
 func (e *explorerEvaluator) tracePathEndpointCovered(endpoint string, history []types.ToolResult) bool {
 	endpoint = strings.TrimSpace(endpoint)
 	if endpoint == "" {
@@ -5068,6 +5082,11 @@ func (e *explorerEvaluator) tracePathEndpointCovered(endpoint string, history []
 	return e.tracePathEndpointCoveredByReadWindow(endpoint, history)
 }
 
+func (e *explorerEvaluator) tracePathEndpointCoveredByStructuredEvidence(endpoint string) bool {
+	return e.tracePathEndpointCoveredByEvidence(endpoint) ||
+		e.tracePathEndpointCoveredBySupportPlan(endpoint)
+}
+
 func (e *explorerEvaluator) tracePathEndpointCoveredByEvidence(endpoint string) bool {
 	if e == nil || len(e.structuredEvidence) == 0 {
 		return false
@@ -5079,7 +5098,7 @@ func (e *explorerEvaluator) tracePathEndpointCoveredByEvidence(endpoint string) 
 			continue
 		}
 		for _, surface := range []string{item.AnchorSymbol, item.OwnerSymbol, item.Subject, item.Object} {
-			if traceEndpointSurfaceCompatible(surface, endpoint) {
+			if traceEndpointEvidenceSurfaceCompatible(item, surface, endpoint) {
 				return true
 			}
 		}
@@ -5139,6 +5158,40 @@ func repomapSymbolEndpointCompatible(sym repomap.Symbol, endpoint string) bool {
 		sym.Signature,
 	} {
 		if traceEndpointSurfaceCompatible(surface, endpoint) {
+			return true
+		}
+	}
+	return false
+}
+
+func traceEndpointEvidenceSurfaceCompatible(item types.EvidenceItem, surface, endpoint string) bool {
+	if traceEndpointSurfaceCompatible(surface, endpoint) {
+		return true
+	}
+	endQual, endName, qualified := traceEndpointQualifiedParts(endpoint)
+	if !qualified {
+		return false
+	}
+	candTail := types.NormalizedSurfaceSymbolTail(surface)
+	if candTail == "" || endName == "" {
+		return false
+	}
+	if candTail != endName && !strings.HasPrefix(candTail, endName) {
+		return false
+	}
+	return traceEndpointSourceCarriesQualifier(item.Source, endQual)
+}
+
+func traceEndpointSourceCarriesQualifier(source, qualifierTail string) bool {
+	qualifierTail = types.NormalizedSurfaceSymbolTail(qualifierTail)
+	if source == "" || qualifierTail == "" {
+		return false
+	}
+	parts := strings.FieldsFunc(strings.ReplaceAll(source, `\`, `/`), func(r rune) bool {
+		return r == '/' || r == '.' || r == '-' || r == '_'
+	})
+	for _, part := range parts {
+		if types.NormalizedSurfaceSymbolTail(part) == qualifierTail {
 			return true
 		}
 	}
@@ -5672,11 +5725,6 @@ var evidenceRepairToolNames = map[string]bool{
 	"emit_investigation_complete": true,
 }
 
-var completionReadyClosingToolNames = map[string]bool{
-	"emit_evidence":               true,
-	"emit_investigation_complete": true,
-}
-
 // FilterToolSchemas narrows explorer turns only after the runtime has
 // observed a concrete evidence backlog: source material was read, but
 // the model still has not materialized it through emit_evidence /
@@ -5686,16 +5734,13 @@ var completionReadyClosingToolNames = map[string]bool{
 // grounded evidence, so the schema initially keeps `read_file` available while
 // still removing broad navigation tools. Once the target windows are covered,
 // the same repair lane narrows to emit-only to prevent adjacent-window loops.
-// Completion-ready escalation is another narrow lane: the first
-// completion-ready hint is advisory, but once escalation latches, navigation
-// tools are removed and only structured progress tools remain. Escalation can
-// latch either after the ordinary repeated-drift timer or immediately after one
-// post-ready navigation-only verification batch; exact `read_file` checks still
-// belong to the separate evidence-repair lane where a typed repair target
-// exists. This is intentionally state-driven, not text-driven: it does not
-// inspect the user's question or the model's prose, and it leaves the normal
-// tool surface unchanged until a loop observer has already raised a structured
-// close/retry signal.
+// Completion-ready is deliberately advisory: it may nudge the model to avoid
+// broad widening, but it does not remove exploration tools. Whether a specific
+// unresolved branch could still change the answer is a semantic judgement the
+// model must retain. Runtime schema filtering is reserved for system-owned
+// materialization/repair lanes that have concrete structured targets. This is
+// intentionally state-driven, not text-driven: it does not inspect the user's
+// question or the model's prose.
 //
 // The filter is fail-open. If the current skill/schema set does not
 // include an actionable materialization tool, the original schemas are
@@ -5732,9 +5777,6 @@ func (e *explorerEvaluator) restrictedToolSurface() map[string]bool {
 	}
 	if e.midLoopNoEmitPushSent && e.midLoopNoEmitEscalated {
 		return completionProgressToolNames
-	}
-	if e.midLoopCompletionReadySent && e.midLoopCompletionReadyEscalated {
-		return completionReadyClosingToolNames
 	}
 	return nil
 }
@@ -6224,6 +6266,9 @@ type explorerCompletionReadiness struct {
 	ExplanationAnchorReady   bool
 	ExplanationAnchorCovered int
 	ExplanationAnchorTotal   int
+	TraceEndpointCovered     int
+	TraceEndpointTotal       int
+	TraceEndpointMissing     []string
 	ToolSources              int
 	ReadCount                int
 	DirectCount              int
@@ -6555,8 +6600,14 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 			hasEnough = false
 		}
 	}
+	traceEndpointMissing := e.tracePathMissingStructuredTerminalEndpointHints()
+	traceEndpointTotal := len(e.tracePathTerminalEndpointHints())
+	traceEndpointCovered := traceEndpointTotal - len(traceEndpointMissing)
 	if authoritativeClosure && e.driftBoundedCompletionReadyMode() {
 		hasEnough = true
+	}
+	if len(traceEndpointMissing) > 0 {
+		hasEnough = false
 	}
 	readyFaces, missingFaces := explorerReadinessFaces(
 		toolDiversity,
@@ -6568,6 +6619,9 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 		explanationAnchorReady,
 		authoritativeClosure,
 	)
+	if len(traceEndpointMissing) > 0 {
+		missingFaces = append(missingFaces, "trace endpoint")
+	}
 
 	return explorerCompletionReadiness{
 		HasEnough:                hasEnough,
@@ -6581,6 +6635,9 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 		ExplanationAnchorReady:   explanationAnchorReady,
 		ExplanationAnchorCovered: explanationAnchorCovered,
 		ExplanationAnchorTotal:   explanationAnchorTotal,
+		TraceEndpointCovered:     traceEndpointCovered,
+		TraceEndpointTotal:       traceEndpointTotal,
+		TraceEndpointMissing:     append([]string(nil), traceEndpointMissing...),
 		ToolSources:              sourceCount,
 		ReadCount:                len(readSet),
 		DirectCount:              directCount,
@@ -6699,19 +6756,14 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 		return LoopSignal{}
 	}
 	scalarLocateReady := e.scalarRoleLocateClosureReady()
-	if !hasTerminalEvidence(e.structuredEvidence) &&
-		len(e.flowFindings) == 0 &&
-		!hasGroundedRequirementCarrier(e.structuredEvidence, e.ermRequirements) &&
-		!readiness.NarrativeCarrier &&
-		!readiness.AuthoritativeClosure &&
-		!scalarLocateReady {
+	if !e.completionReadinessHasAnswerCarrier(readiness, scalarLocateReady) {
 		return LoopSignal{}
 	}
 	e.midLoopCompletionReadySent = true
 	e.midLoopCompletionReadyIter = obs.Iteration
 	var b strings.Builder
-	b.WriteString("MID-LOOP CHECK: you already have enough evidence to answer this question on the current branch. ")
-	b.WriteString("Stop widening scope and close the investigation now with `emit_investigation_complete(reason, confidence, result_kind)` instead of reading more neighboring files. Put the concise conclusion and any important boundary in `reason`. ")
+	b.WriteString("MID-LOOP CHECK: the current structured evidence appears close-ready on the current branch. ")
+	b.WriteString("Prefer closing with `emit_investigation_complete(reason, confidence, result_kind)` instead of widening by default. Put the concise conclusion and any important boundary in `reason`. ")
 	b.WriteString("Use `result_kind=\"resolved\"` unless this is a genuine honest-zero / not-found answer.\n")
 	if len(e.ermRequirements) > 0 && readiness.ERMSatisfied {
 		b.WriteString("- all current evidence requirements are satisfied\n")
@@ -6755,7 +6807,7 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	if e.needsStructuredMemberSetHandoff(nil) {
 		b.WriteString("- this answer needs a structured principal `member_set`; your successful close must include `aggregate_facts` with kind=`member_set`, numeric `value`, and every principal member in `members`\n")
 	}
-	b.WriteString("Only continue reading if one specific unresolved branch would still change the final answer.")
+	b.WriteString("If you believe one specific unresolved branch would still change the final answer, keep that verification targeted and materialize any new finding with structured evidence.")
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        "explorer.mid-loop.completion-ready",
@@ -6764,6 +6816,29 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+func (e *explorerEvaluator) completionReadinessHasAnswerCarrier(readiness explorerCompletionReadiness, scalarLocateReady bool) bool {
+	if e == nil {
+		return false
+	}
+	return hasTerminalEvidence(e.structuredEvidence) ||
+		len(e.flowFindings) > 0 ||
+		hasGroundedRequirementCarrier(e.structuredEvidence, e.ermRequirements) ||
+		readiness.NarrativeCarrier ||
+		readiness.AuthoritativeClosure ||
+		scalarLocateReady
+}
+
+func (e *explorerEvaluator) firstSoftStopLooksCloseReady(toolResults []types.ToolResult, discovered []string, readSet map[string]bool) bool {
+	if e == nil || e.investigationComplete || !hasSuccessfulTool(toolResults, "emit_evidence") {
+		return false
+	}
+	readiness := e.completionReadinessWithCoverage(toolResults, -1, false, false, discovered, readSet)
+	if !readiness.HasEnough {
+		return false
+	}
+	return e.completionReadinessHasAnswerCarrier(readiness, e.scalarRoleLocateClosureReady())
 }
 
 func (e *explorerEvaluator) authoritativeTier1Readiness() explorerTier1Readiness {
@@ -7179,9 +7254,9 @@ func (e *explorerEvaluator) postCompletionReadyEscalationSignal(obs LoopObservat
 		return LoopSignal{}
 	}
 	e.midLoopCompletionReadyEscalated = true
-	hint := "MID-LOOP CHECK: an earlier hint already established that the current evidence is sufficient. Do NOT reopen adjacent files or widen scope by default. Either call `emit_investigation_complete(reason, confidence, result_kind)` now, or verify exactly one concrete unresolved branch only if that branch could still change the final answer."
+	hint := "MID-LOOP CHECK: an earlier hint marked the structured state as close-ready. Avoid broad adjacent-file widening by default. Either call `emit_investigation_complete(reason, confidence, result_kind)` now, or verify exactly one concrete unresolved branch if that branch could still change the final answer."
 	if e.driftBoundedCompletionReadyMode() {
-		hint = "MID-LOOP CHECK: an earlier hint already established that the current checkout already explains the grounded failure path. Do NOT reopen upstream-caller or older-build-only branches by default. Either call `emit_investigation_complete(reason, confidence, result_kind)` now, or verify exactly one contradiction only if it would change the grounded current-branch answer."
+		hint = "MID-LOOP CHECK: an earlier hint marked the current checkout as close-ready for the grounded failure path. Avoid reopening upstream-caller or older-build-only branches by default. Either call `emit_investigation_complete(reason, confidence, result_kind)` now, or verify exactly one contradiction if it would change the grounded current-branch answer."
 	}
 	return LoopSignal{
 		HintRequested:  true,
@@ -7215,14 +7290,14 @@ func (e *explorerEvaluator) postCompletionReadyClosureOnlySignal(obs LoopObserva
 	if fastTrack {
 		e.midLoopCompletionReadyEscalated = true
 	}
-	hint := "MID-LOOP CHECK: completion-ready has already been established and escalated. The current batch still spent effort on navigation tools. Do NOT keep calling `read_file`, `grep`, `repo_map`, `list_files`, or `exec_command` unless this batch surfaced one concrete contradiction that would change the final answer. From here, either emit exactly one repair batch for that contradiction or call `emit_investigation_complete(reason, confidence, result_kind)` now."
+	hint := "MID-LOOP CHECK: the structured state was already marked close-ready, and this batch spent effort on navigation without structured progress. Before broadening further, either emit exactly one evidence batch for a concrete contradiction found in the lines you opened, or call `emit_investigation_complete(reason, confidence, result_kind)` now. If you continue reading, keep it to one evidence-changing branch."
 	if driftFastTrack {
-		hint = "MID-LOOP CHECK: completion-ready is already established for the grounded current branch, and this batch reopened navigation anyway. Do NOT keep tracing upstream-provenance or older-build-only branches from here. Either emit exactly one repair batch for a concrete contradiction from the lines you already opened, or call `emit_investigation_complete(reason, confidence, result_kind)` now."
+		hint = "MID-LOOP CHECK: the grounded current branch was already marked close-ready, and this batch reopened navigation. Avoid tracing upstream-provenance or older-build-only branches from here unless one concrete contradiction would change the current-branch answer. Either emit exactly one repair batch for such a contradiction from the lines you already opened, or call `emit_investigation_complete(reason, confidence, result_kind)` now."
 		if reason := e.driftBoundedCompletionHintReason(); reason != "" {
 			hint += " Reuse this bounded `reason` surface (or a weaker one): " + reason
 		}
 	} else if verifyGraceUsed {
-		hint = "MID-LOOP CHECK: completion-ready was already established, and this batch spent the allowed verification turn on navigation without emitting new structured evidence. Treat that verification branch as consumed. Do NOT keep calling `read_file`, `grep`, `repo_map`, `list_files`, or `exec_command` from here. Either emit exactly one evidence batch for a concrete contradiction found in the lines you just opened, or call `emit_investigation_complete(reason, confidence, result_kind)` now."
+		hint = "MID-LOOP CHECK: the structured state was already marked close-ready, and this batch spent the verification turn on navigation without emitting new structured evidence. Treat that verification branch as consumed unless the opened lines reveal a concrete contradiction. Either emit exactly one evidence batch for that contradiction, or call `emit_investigation_complete(reason, confidence, result_kind)` now."
 	}
 	return LoopSignal{
 		HintRequested:  true,
@@ -8929,7 +9004,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	//     with no tool calls for the first time, which is the
 	//     strongest "I'm done" signal the system gets. On this
 	//     stop, only HARD-evidence branches (partial-read /
-	//     enumeration / grep-redirect) are allowed to override the
+	//     enumeration / contract-backed file gaps) are allowed to override the
 	//     termination; SOFT heuristics (erm-gap / prescanned /
 	//     unanalyzed) and the structural `coverage` fallthrough
 	//     return an empty signal so the policy layer accepts the
@@ -9285,13 +9360,21 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	// where the LLM has NOT already grepped that file (with line-level
 	// results), and redirect to a grep-then-read strategy.
 	// Tracked per-file so each new large file gets its own redirect.
+	//
+	// This is a strategy nudge, not proof that the model's current
+	// conclusion is semantically incomplete. On the first voluntary
+	// no-tool answer, if the structured evidence is already close-ready
+	// under the same readiness contract used by the mid-loop close hint,
+	// do not override the model with more grep work; fall through to the
+	// explicit completion-tool reminder instead.
 	if e.grepRedirectedFiles == nil {
 		e.grepRedirectedFiles = make(map[string]bool)
 	}
 	truncated, grepped := detectTruncatedUngrepped(history)
 	var newTruncated []truncatedFileInfo
+	closeReadySoftStop := firstSoftStop && e.firstSoftStopLooksCloseReady(history, discovered, readSet)
 	for _, tf := range truncated {
-		if !e.grepRedirectedFiles[tf.path] {
+		if !closeReadySoftStop && !e.grepRedirectedFiles[tf.path] {
 			newTruncated = append(newTruncated, tf)
 		}
 	}

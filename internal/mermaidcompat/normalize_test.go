@@ -31,6 +31,36 @@ func TestNormalizeSequenceStops_LeavesNonSequenceBodiesAlone(t *testing.T) {
 	}
 }
 
+func TestNormalizeSequenceParticipantMessagePrefixes_RewritesMessageLine(t *testing.T) {
+	in := strings.Join([]string{
+		"sequenceDiagram",
+		"    participant build as buildAnalysisIR",
+		"    participant normalizer->>resolver: resolver",
+		"    actor resolver-->>build: done",
+	}, "\n")
+	got := NormalizeSequenceParticipantMessagePrefixes(in)
+	if strings.Contains(got, "participant normalizer->>resolver") || strings.Contains(got, "actor resolver-->>build") {
+		t.Fatalf("message prefix survived:\n%s", got)
+	}
+	if !strings.Contains(got, "    normalizer->>resolver: resolver") || !strings.Contains(got, "    resolver-->>build: done") {
+		t.Fatalf("message lines not preserved:\n%s", got)
+	}
+	if !strings.Contains(got, "participant build as buildAnalysisIR") {
+		t.Fatalf("valid participant declaration changed:\n%s", got)
+	}
+}
+
+func TestNormalizeSequenceParticipantMessagePrefixes_LeavesDeclarationsAlone(t *testing.T) {
+	in := strings.Join([]string{
+		"sequenceDiagram",
+		"    participant A as \"A->>B label\"",
+		"    A->>B: call",
+	}, "\n")
+	if got := NormalizeSequenceParticipantMessagePrefixes(in); got != in {
+		t.Fatalf("valid declaration changed:\n%s", got)
+	}
+}
+
 func TestMermaidKeywordRegistryCoversPreviewAndTerminalForms(t *testing.T) {
 	if got := FirstKeywordIn("flowchart TD"); got != "flowchart" {
 		t.Fatalf("flowchart keyword = %q", got)

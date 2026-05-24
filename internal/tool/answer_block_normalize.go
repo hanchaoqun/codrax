@@ -30,6 +30,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -177,6 +178,8 @@ func normalizeEmitAnswerDiagram(diag *emitAnswerDiagramV2) {
 		return
 	}
 	diag.Body = stripOuterDiagramFence(diag.Body)
+	diag.Body = mermaidcompat.NormalizeSequenceParticipantMessagePrefixes(diag.Body)
+	diag.Body = mermaidcompat.NormalizeSequenceStops(diag.Body)
 	family := types.MermaidBodySyntaxFamily(diag.Body)
 	if family == types.MermaidSyntaxUnknown || family == types.MermaidSyntaxUnsupported {
 		return

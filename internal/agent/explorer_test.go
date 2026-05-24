@@ -3753,7 +3753,7 @@ func TestExplorer_FilterToolSchemas_CompletionReadyAdvisoryUnchanged(t *testing.
 	}
 }
 
-func TestExplorer_FilterToolSchemas_CompletionReadyEscalatedClosingLane(t *testing.T) {
+func TestExplorer_FilterToolSchemas_CompletionReadyEscalatedStillAdvisory(t *testing.T) {
 	eval := &explorerEvaluator{
 		midLoopCompletionReadySent:      true,
 		midLoopCompletionReadyEscalated: true,
@@ -3769,8 +3769,8 @@ func TestExplorer_FilterToolSchemas_CompletionReadyEscalatedClosingLane(t *testi
 	}
 
 	got := eval.FilterToolSchemas(ctx, schemas)
-	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "emit_evidence,emit_investigation_complete" {
-		t.Fatalf("completion-ready closing lane schema names = %v", gotNames)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,grep,repo_map,exec_command,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("completion-ready escalation is advisory and should leave schema unchanged, got %v", gotNames)
 	}
 }
 
@@ -3886,7 +3886,7 @@ func TestExplorer_RuntimeBoundary_EvidenceRepairCoveredTargetsRejectReadFile(t *
 	}
 }
 
-func TestExplorer_RuntimeBoundary_CompletionReadyEscalatedRejectsBroadExpansion(t *testing.T) {
+func TestExplorer_RuntimeBoundary_CompletionReadyEscalatedAllowsModelVerification(t *testing.T) {
 	eval := &explorerEvaluator{
 		midLoopCompletionReadySent:      true,
 		midLoopCompletionReadyEscalated: true,
@@ -3894,18 +3894,11 @@ func TestExplorer_RuntimeBoundary_CompletionReadyEscalatedRejectsBroadExpansion(
 	ctx := &types.AgentContext{Stage: types.StageExplore}
 
 	got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "repo_map", Params: json.RawMessage(`{"query":"x"}`)})
-	if got == nil || got.Success {
-		t.Fatalf("expected completion-ready closing lane to reject repo_map, got %+v", got)
+	if got != nil {
+		t.Fatalf("completion-ready is advisory and must not reject repo_map, got %+v", got)
 	}
-	if got.Repair == nil || got.Repair.Code != explorerRestrictedToolSurfaceCode {
-		t.Fatalf("expected repair code %q, got %+v", explorerRestrictedToolSurfaceCode, got.Repair)
-	}
-	if !strings.Contains(got.Summary, "available tools here: emit_evidence, emit_investigation_complete") ||
-		strings.Contains(got.Summary, "read_file") {
-		t.Fatalf("summary should expose emit-only tools, got %q", got.Summary)
-	}
-	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"x.go","offset":1}`)}); got == nil || got.Success {
-		t.Fatalf("completion-ready closing lane should reject read_file unless a typed repair lane is active, got %+v", got)
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"x.go","offset":1}`)}); got != nil {
+		t.Fatalf("completion-ready is advisory and must not reject read_file, got %+v", got)
 	}
 	if ok := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "emit_investigation_complete", Params: json.RawMessage(`{}`)}); ok != nil {
 		t.Fatalf("emit_investigation_complete should remain available, got %+v", ok)
@@ -4249,7 +4242,7 @@ func TestBuildUniqueDefFileIndex(t *testing.T) {
 // The `TestExplorerSoftStop_*` tests below pin the 2026-04-15 soft-stop
 // differentiation contract in observeSoftStop: on the FIRST voluntary
 // soft-stop (ContinuationsUsed==0), only hard-evidence detection
-// branches (partial-read, enumeration, grep-redirect) can override
+// branches (partial-read, enumeration, contract-backed file gaps) can override
 // the LLM's "I'm done" signal. Soft heuristics (erm-gap, prescanned,
 // unanalyzed) and the structural `coverage` fallthrough must return
 // an empty signal so the policy layer accepts the stop. On the
@@ -4473,6 +4466,48 @@ func TestExplorerSoftStop_FirstStop_CoverageFallthrough_ReturnsEmpty(t *testing.
 	}
 	if sig.StopRequested {
 		t.Errorf("coverage fallthrough must not request explicit stop; got StopRequested=true")
+	}
+}
+
+func TestExplorerSoftStop_FirstStop_CloseReadySuppressesGrepRedirect(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		userQuestion: "show the call sequence from buildAnalysisIR to gate.Run",
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceRegistration,
+				Subject:         "buildAnalysisIR",
+				Predicate:       "calls",
+				Object:          "normalizer.Normalize",
+				Source:          "internal/agent/analyzer.go",
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "gate.RunWith",
+				Predicate:       "defined_in",
+				Object:          "gate.go",
+				Source:          "internal/analysis/gate/gate.go",
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+		investigationNotes: []string{
+			"buildAnalysisIR calls normalizer.Normalize and finally reaches gate.RunWith.",
+		},
+	}
+	history := []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 1-500 of 3635 total]\npackage agent"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/analysis/gate/gate.go: showing lines 1-40 of 40 total]\npackage gate"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/helper.go: showing lines 1-30 of 30 total]\npackage agent"},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 item(s)"},
+	}
+
+	sig := softStopWithContinuations(eval, "I have enough evidence to answer with a sequence diagram.", 12, 0, history)
+	if !sig.HintRequested || sig.HintKey != "explorer.completion-tool-reminder" {
+		t.Fatalf("close-ready first soft-stop should ask for explicit completion, not grep redirect; got %+v", sig)
+	}
+	if eval.grepRedirectedFiles["internal/agent/analyzer.go"] {
+		t.Fatalf("suppressed first-stop grep redirect must not mark the file as redirected")
 	}
 }
 
@@ -5891,7 +5926,7 @@ func TestObserveMidLoop_CompletionReadyHint(t *testing.T) {
 	if !sig.BypassBudget {
 		t.Fatal("completion-ready hint should bypass ordinary mid-loop budget pressure")
 	}
-	if !strings.Contains(sig.Hint, "emit_investigation_complete") || !strings.Contains(sig.Hint, "enough evidence") {
+	if !strings.Contains(sig.Hint, "emit_investigation_complete") || !strings.Contains(sig.Hint, "close-ready") {
 		t.Fatalf("hint should direct immediate closure, got: %s", sig.Hint)
 	}
 	for _, want := range []string{"answer-ready faces", "tool sources", "file coverage", "answer evidence"} {
@@ -5911,6 +5946,106 @@ func TestObserveMidLoop_CompletionReadyHint(t *testing.T) {
 	})
 	if again.HintRequested && again.HintKey == "explorer.mid-loop.completion-ready" {
 		t.Fatalf("completion-ready hint must be one-shot, fired again: %+v", again)
+	}
+}
+
+func TestObserveMidLoop_CompletionReadyWaitsForCallChainTerminalEndpoint(t *testing.T) {
+	eval := boundedTraceEndpointEval()
+	eval.heuristics = types.ExploreHeuristics{MidLoopMinIteration: 2}
+	eval.structuredEvidence = []types.EvidenceItem{{
+		Kind:            types.EvidenceRelationship,
+		AnchorKind:      types.AnchorCall,
+		AnchorSymbol:    "Source.Start",
+		Subject:         "Source.Start",
+		Predicate:       "calls",
+		Object:          "Middle.Step",
+		GroundingStatus: types.GroundingGrounded,
+		Source:          "source.go",
+		LineStart:       42,
+	}}
+	results := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "source.go\nsink.go"},
+		{ToolName: "read_file", Success: true, Summary: "[source.go: showing lines 1-80 of 200]\n10| func (s Source) Start() {}"},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item"},
+	}
+
+	readiness := eval.completionReadiness(results, -1, false, false)
+	if readiness.HasEnough {
+		t.Fatalf("call-chain completion readiness must wait for the terminal endpoint, got %+v", readiness)
+	}
+	if len(readiness.TraceEndpointMissing) != 1 || readiness.TraceEndpointMissing[0] != "Sink.Done" {
+		t.Fatalf("missing terminal endpoints = %v, want Sink.Done", readiness.TraceEndpointMissing)
+	}
+
+	sig := eval.postCompletionReadySignal(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      3,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if sig.HintRequested && sig.HintKey == "explorer.mid-loop.completion-ready" {
+		t.Fatalf("completion-ready must not fire before the typed terminal endpoint is materialized, got %+v", sig)
+	}
+	if eval.midLoopCompletionReadySent {
+		t.Fatal("completion-ready latch must remain unset while terminal endpoint is missing")
+	}
+}
+
+func TestObserveMidLoop_CompletionReadyAllowsImplementationAdjacentTerminalEndpoint(t *testing.T) {
+	eval := boundedTraceEndpointEval()
+	eval.heuristics = types.ExploreHeuristics{MidLoopMinIteration: 2}
+	eval.structuredEvidence = []types.EvidenceItem{{
+		Kind:            types.EvidenceRelationship,
+		AnchorKind:      types.AnchorCall,
+		AnchorSymbol:    "Sink.DoneWith",
+		Subject:         "Source.Start",
+		Predicate:       "calls",
+		Object:          "Sink.DoneWith",
+		GroundingStatus: types.GroundingGrounded,
+		Source:          "source.go",
+		LineStart:       42,
+	}}
+	results := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "source.go\nsink.go"},
+		{ToolName: "read_file", Success: true, Summary: "[source.go: showing lines 1-80 of 200]\n10| func (s Source) Start() {}"},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item"},
+	}
+
+	readiness := eval.completionReadiness(results, -1, false, false)
+	if !readiness.HasEnough {
+		t.Fatalf("implementation-adjacent terminal endpoint should satisfy typed readiness, got %+v", readiness)
+	}
+	if len(readiness.TraceEndpointMissing) != 0 {
+		t.Fatalf("terminal endpoint should be covered, missing=%v", readiness.TraceEndpointMissing)
+	}
+
+	sig := eval.postCompletionReadySignal(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      3,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("completion-ready hint should fire once the terminal endpoint is materialized, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.completion-ready" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready", sig.HintKey)
+	}
+}
+
+func TestTraceEndpointEvidenceSurfaceCompatible_QualifiedEndpointUsesSourceQualifier(t *testing.T) {
+	item := types.EvidenceItem{
+		AnchorSymbol: "Run",
+		Source:       "internal/analysis/gate/gate.go",
+	}
+	if !traceEndpointEvidenceSurfaceCompatible(item, item.AnchorSymbol, "gate.Run") {
+		t.Fatal("qualified endpoint should match unqualified symbol when the source path carries the qualifier")
+	}
+	if !traceEndpointEvidenceSurfaceCompatible(item, "RunWith", "gate.Run") {
+		t.Fatal("implementation-adjacent symbol should match when the source path carries the qualifier")
+	}
+	if traceEndpointEvidenceSurfaceCompatible(item, item.AnchorSymbol, "other.Run") {
+		t.Fatal("source qualifier must prevent unrelated qualified endpoint matches")
 	}
 }
 
@@ -7098,8 +7233,8 @@ func TestObserveMidLoop_CompletionReadyNavigationConsumesVerificationGrace(t *te
 		{Name: "emit_investigation_complete"},
 	}
 	got := eval.FilterToolSchemas(ctx, schemas)
-	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "emit_evidence,emit_investigation_complete" {
-		t.Fatalf("consumed verification grace should narrow next tool surface, got %v", gotNames)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,grep,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("completion-ready verification grace is advisory and should not narrow schemas, got %v", gotNames)
 	}
 }
 
