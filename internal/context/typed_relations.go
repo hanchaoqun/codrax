@@ -119,11 +119,10 @@ const typedRelationProbeMaxMembers = 50
 //	scoped-to              → walk FileInfo.Package / FileInfo.RelPath
 //	registers              → walk Symbol.AnchorKind=Assignment + name
 //
-// This first commit ships ONLY the implements probe (covers the s5a
-// regression class). The other relation tags are reserved in
-// AllTypedRelations() so their AnchorKind mappings + structural
-// tests are in place; their probe rows can be added incrementally
-// without touching the channel or the render path.
+// Provider-backed relation rows now cover precise implementer, inheritance,
+// call, import, and export carriers. The remaining reserved relation tags can
+// be added incrementally behind the same TypedRelationCandidateSource boundary
+// without touching prompt rendering or downstream gates.
 func ProbeTypedRelations(graph any, rm *types.RequestModel) []types.TypedRelationHint {
 	if rm == nil {
 		return nil

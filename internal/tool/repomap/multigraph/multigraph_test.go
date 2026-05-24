@@ -997,6 +997,71 @@ func TestMultiGraph_TypedRelationCandidatesCalledByPrefixed(t *testing.T) {
 	}
 }
 
+func TestMultiGraph_TypedRelationCandidatesExtendsPrefixed(t *testing.T) {
+	build := func(_, _ string) (*rmtypes.Graph, error) {
+		baseFile := &rmtypes.FileInfo{
+			RelPath:  "lib/base.go",
+			Language: rmtypes.LangJava,
+			Package:  "sample",
+			Symbols:  []rmtypes.Symbol{{Name: "Base", Kind: "class", File: "lib/base.go", Line: 4}},
+		}
+		childFile := &rmtypes.FileInfo{
+			RelPath:  "impl/child.java",
+			Language: rmtypes.LangJava,
+			Package:  "sample",
+			Symbols:  []rmtypes.Symbol{{Name: "Child", Kind: "class", File: "impl/child.java", Line: 11, EndLine: 18}},
+			Relations: []rmtypes.Relation{{
+				Kind: "inheritance",
+				From: "impl/child.java:Child",
+				To:   "Base",
+				File: "impl/child.java",
+				Line: 12,
+				ToEP: rmtypes.RelationEndpoint{Name: "Base", File: "impl/child.java", Line: 12},
+			}},
+		}
+		for _, fi := range []*rmtypes.FileInfo{baseFile, childFile} {
+			for i := range fi.Symbols {
+				fi.Symbols[i].ID = rmtypes.DeriveSymbolID(fi, &fi.Symbols[i])
+			}
+		}
+		return &rmtypes.Graph{
+			Files:     []*rmtypes.FileInfo{baseFile, childFile},
+			FileIndex: map[string]*rmtypes.FileInfo{baseFile.RelPath: baseFile, childFile.RelPath: childFile},
+			SymbolDefs: map[string][]*rmtypes.Symbol{
+				"Base":  {&baseFile.Symbols[0]},
+				"Child": {&childFile.Symbols[0]},
+			},
+			SymbolByID: map[rmtypes.SymbolID]*rmtypes.Symbol{
+				baseFile.Symbols[0].ID:  &baseFile.Symbols[0],
+				childFile.Symbols[0].ID: &childFile.Symbols[0],
+			},
+			ImportGraph:    map[string][]string{},
+			ReverseImports: map[string][]string{},
+		}, nil
+	}
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "repo-a", RootAbs: "/parent/repo-a", RootRel: "repo-a"},
+	})
+	mg, _ := New(Config{Topology: topo, Build: build, Cap: 3})
+	mg.EnsureLoaded("repo-a")
+
+	rows := mg.TypedRelationCandidates(types.TypedRelationQuery{
+		Kinds:   []types.TypedRelationKind{types.TypedRelationExtends},
+		Sources: []string{"Base"},
+		Purpose: types.TypedRelationPurposeCoverageGate,
+	})
+	if len(rows) != 1 {
+		t.Fatalf("extends candidates = %+v, want one", rows)
+	}
+	if rows[0].SourceFile != "repo-a/lib/base.go" ||
+		rows[0].Member.File != "repo-a/impl/child.java" ||
+		rows[0].Member.Name != "Child" ||
+		rows[0].Carrier != types.TypedRelationCarrierMultiGraph ||
+		rows[0].Precision != types.TypedRelationPrecisionExactSymbolID {
+		t.Fatalf("extends candidate should be path-from-parent prefixed: %+v", rows[0])
+	}
+}
+
 // TestMultiGraph_SubRepoNames is the F1 companion regression: the
 // internal/types package needs a way to discriminate project-name
 // tokens from code symbols when building RequiredMechanismAnchor.

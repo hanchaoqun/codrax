@@ -832,9 +832,10 @@ func (m *MultiGraph) ImplementerMembersOf(interfaceName string) []types.TypedRel
 }
 
 // TypedRelationCandidates exposes multi-repo typed relation rows through the
-// shared types-only provider boundary. The initial implementation returns the
-// exact implementer relation plus graph-backed import/export rows without
-// downstream packages learning the concrete MultiGraph type.
+// shared types-only provider boundary. Exact implementers are served by the
+// multi-repo index directly; graph-backed inheritance, call, and import/export
+// rows are delegated to the single-graph provider and path-prefixed here so
+// downstream packages do not learn the concrete MultiGraph type.
 func (m *MultiGraph) TypedRelationCandidates(q types.TypedRelationQuery) []types.TypedRelationCandidate {
 	if m == nil {
 		return nil
@@ -937,6 +938,9 @@ func graphBackedRelationKinds(q types.TypedRelationQuery) []types.TypedRelationK
 	var out []types.TypedRelationKind
 	if q.AllowsKind(types.TypedRelationCalledBy) {
 		out = append(out, types.TypedRelationCalledBy)
+	}
+	if q.AllowsKind(types.TypedRelationExtends) {
+		out = append(out, types.TypedRelationExtends)
 	}
 	if q.AllowsKind(types.TypedRelationImports) {
 		out = append(out, types.TypedRelationImports)

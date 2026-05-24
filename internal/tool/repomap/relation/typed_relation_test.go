@@ -195,6 +195,84 @@ func TestTypedRelationCandidates_CalledByIsLanguageNeutral(t *testing.T) {
 	}
 }
 
+func TestTypedRelationCandidates_ExtendsExactBase(t *testing.T) {
+	rows := TypedRelationCandidates(inheritanceGraphFixture(rmtypes.LangGo), types.TypedRelationQuery{
+		Kinds:   []types.TypedRelationKind{types.TypedRelationExtends},
+		Sources: []string{"Base"},
+		Purpose: types.TypedRelationPurposeCoverageGate,
+	})
+	if len(rows) != 1 {
+		t.Fatalf("extends candidates = %+v, want one", rows)
+	}
+	got := rows[0]
+	if got.Relation != types.TypedRelationExtends ||
+		got.SourceName != "Base" ||
+		got.SourceKind != "interface" ||
+		got.SourceFile != "lib/base.go" ||
+		got.SourceLine != 4 ||
+		got.Member.Name != "Child" ||
+		got.Member.File != "impl/child.go" ||
+		got.Member.Line != 11 ||
+		got.Member.Kind != "struct" ||
+		got.Precision != types.TypedRelationPrecisionExactSymbolID {
+		t.Fatalf("unexpected extends candidate: %+v", got)
+	}
+}
+
+func TestTypedRelationCandidates_ExtendsAmbiguousTargetIsPromptOnly(t *testing.T) {
+	g := inheritanceGraphFixture(rmtypes.LangGo)
+	otherFile := &rmtypes.FileInfo{
+		RelPath:  "other/base.go",
+		Language: rmtypes.LangGo,
+		Package:  "other",
+		Symbols:  []rmtypes.Symbol{{Name: "Base", Kind: "interface", File: "other/base.go", Line: 3}},
+	}
+	otherFile.Symbols[0].ID = rmtypes.DeriveSymbolID(otherFile, &otherFile.Symbols[0])
+	g.Files = append(g.Files, otherFile)
+	g.FileIndex[otherFile.RelPath] = otherFile
+	g.SymbolDefs["Base"] = append(g.SymbolDefs["Base"], &otherFile.Symbols[0])
+	g.SymbolByID[otherFile.Symbols[0].ID] = &otherFile.Symbols[0]
+
+	promptRows := TypedRelationCandidates(g, types.TypedRelationQuery{
+		Kinds:   []types.TypedRelationKind{types.TypedRelationExtends},
+		Sources: []string{"Base"},
+		Purpose: types.TypedRelationPurposePromptHint,
+	})
+	if len(promptRows) != 1 {
+		t.Fatalf("ambiguous prompt extends candidates = %+v, want one soft row", promptRows)
+	}
+	if promptRows[0].Precision != types.TypedRelationPrecisionNameOnly {
+		t.Fatalf("ambiguous extends prompt row must be name-only, got %+v", promptRows[0])
+	}
+
+	coverageRows := TypedRelationCandidates(g, types.TypedRelationQuery{
+		Kinds:   []types.TypedRelationKind{types.TypedRelationExtends},
+		Sources: []string{"Base"},
+		Purpose: types.TypedRelationPurposeCoverageGate,
+	})
+	if len(coverageRows) != 0 {
+		t.Fatalf("ambiguous extends rows must not feed coverage gate, got %+v", coverageRows)
+	}
+}
+
+func TestTypedRelationCandidates_ExtendsIsLanguageNeutral(t *testing.T) {
+	for _, lang := range rmtypes.SupportedReadLanguages() {
+		t.Run(lang, func(t *testing.T) {
+			rows := TypedRelationCandidates(inheritanceGraphFixture(lang), types.TypedRelationQuery{
+				Kinds:   []types.TypedRelationKind{types.TypedRelationExtends},
+				Sources: []string{"Base"},
+				Purpose: types.TypedRelationPurposeCoverageGate,
+			})
+			if len(rows) != 1 {
+				t.Fatalf("language %s extends rows = %+v, want one", lang, rows)
+			}
+			if rows[0].Member.File != "impl/child.go" || rows[0].Precision != types.TypedRelationPrecisionExactSymbolID {
+				t.Fatalf("language %s extends row lost exact semantics: %+v", lang, rows[0])
+			}
+		})
+	}
+}
+
 func importGraphFixture(lang string) *rmtypes.Graph {
 	root := &rmtypes.FileInfo{
 		RelPath:  "cmd/root.go",
@@ -213,6 +291,48 @@ func importGraphFixture(lang string) *rmtypes.Graph {
 		ReverseImports: map[string][]string{dep.RelPath: []string{root.RelPath}},
 		SymbolDefs:     map[string][]*rmtypes.Symbol{},
 		SymbolByID:     map[rmtypes.SymbolID]*rmtypes.Symbol{},
+	}
+}
+
+func inheritanceGraphFixture(lang string) *rmtypes.Graph {
+	baseFile := &rmtypes.FileInfo{
+		RelPath:  "lib/base.go",
+		Language: lang,
+		Package:  "sample",
+		Symbols:  []rmtypes.Symbol{{Name: "Base", Kind: "interface", File: "lib/base.go", Line: 4}},
+	}
+	childFile := &rmtypes.FileInfo{
+		RelPath:  "impl/child.go",
+		Language: lang,
+		Package:  "sample",
+		Symbols:  []rmtypes.Symbol{{Name: "Child", Kind: "struct", File: "impl/child.go", Line: 11, EndLine: 18}},
+		Relations: []rmtypes.Relation{{
+			Kind: "inheritance",
+			From: "impl/child.go:Child",
+			To:   "Base",
+			File: "impl/child.go",
+			Line: 12,
+			ToEP: rmtypes.RelationEndpoint{Name: "Base", File: "impl/child.go", Line: 12},
+		}},
+	}
+	for _, fi := range []*rmtypes.FileInfo{baseFile, childFile} {
+		for i := range fi.Symbols {
+			fi.Symbols[i].ID = rmtypes.DeriveSymbolID(fi, &fi.Symbols[i])
+		}
+	}
+	return &rmtypes.Graph{
+		Files:     []*rmtypes.FileInfo{baseFile, childFile},
+		FileIndex: map[string]*rmtypes.FileInfo{baseFile.RelPath: baseFile, childFile.RelPath: childFile},
+		SymbolDefs: map[string][]*rmtypes.Symbol{
+			"Base":  {&baseFile.Symbols[0]},
+			"Child": {&childFile.Symbols[0]},
+		},
+		SymbolByID: map[rmtypes.SymbolID]*rmtypes.Symbol{
+			baseFile.Symbols[0].ID:  &baseFile.Symbols[0],
+			childFile.Symbols[0].ID: &childFile.Symbols[0],
+		},
+		ImportGraph:    map[string][]string{},
+		ReverseImports: map[string][]string{},
 	}
 }
 

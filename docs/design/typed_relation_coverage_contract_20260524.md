@@ -243,7 +243,7 @@ system may provide soft guidance only.
 |---|---|---:|---|
 | implements | `Symbol.Implements`, `Graph.ImplementersOf`, `MultiGraph.ImplementerMembersOf` | Hard-gate eligible | Already shipped for exact + grounded evidence; migrate to common helper first. |
 | import/dependency | `FileInfo.Imports`, `ImportGraph`, `ReverseImports`, transitive deps | Hard-gate eligible for exact file paths | Works across resolver-supported languages; unresolved imports are negative/uncertain evidence, not hard coverage. |
-| inheritance/subclass | `Relation.Kind=inheritance`, symbols parent/receiver | Prompt hint first, hard-gate after exact source/member evidence | Extractor support varies by language; gate only exact rows with file/line. |
+| inheritance/subclass | `Relation.Kind=inheritance`, symbols parent/receiver | Hard-gate eligible only when target resolves to a unique symbol ID and same-member evidence is grounded | Extractor output is language-neutral; ambiguous same-name targets remain prompt-only. |
 | caller/callee | `CallersOfID`, `ResolveCallTarget`, `Relation.Kind=call` | Hard-gate eligible only with canonical target ID | `CallersOf(name)` remains legacy/name-only and must be soft. |
 | references/type usage | `Relation.Kind=reference/type_usage`, `RankIndex.RefCountByID` | Soft first | Often high volume and noisy; use as ranking/hints unless exact endpoint evidence exists. |
 | overrides/conformance | language extractors and `Relation.Kind=inheritance` derivatives | Soft first | Need extractor audit before hard-gate. |
@@ -491,13 +491,42 @@ R3 residual note:
 
 ### R4. Inheritance/subclass relation provider
 
-Status: **Pending**
+Status: **Done — 2026-05-24**
 
-- Read `Relation.Kind=inheritance` and symbol definitions.
-- Emit prompt hints across languages that populate inheritance relations.
-- Allow hard coverage only for exact source/member evidence.
-- Add fixtures for at least Java/Kotlin/TypeScript/Python or other supported
-  languages with reliable extractor output.
+- [x] Read `Relation.Kind=inheritance` and symbol definitions through the same
+  graph relation adapter used by implements/imports/called-by.
+- [x] Emit prompt hints across every language that populates repomap
+  inheritance relations. The provider itself is syntax-neutral and consumes the
+  normalized graph edge, not language-specific source text.
+- [x] Allow coverage-gate candidates only when both sides are precise:
+  source resolves through exact `SymbolID` / unique graph name, and the
+  inheritance target resolves uniquely to that symbol. Ambiguous same-name
+  targets are downgraded to `NameOnly` prompt guidance and cannot hard-reject
+  the model.
+- [x] Add single-repo and multi-repo tests, plus a
+  `SupportedReadLanguages()` fixture proving the provider does not depend on Go
+  syntax.
+
+Implementation notes:
+
+- The provider maps `extends` to existing repomap `inheritance` edges. This
+  covers class inheritance, interface extension, trait/supertrait,
+  protocol/conformance, and language-specific extension constructs only when
+  the extractor already normalized them into graph relations.
+- The relation member is the child/subtype side (`Relation.From`), resolved
+  back to the defining symbol when available so the row carries the declaration
+  file, line, kind, and display name. No fake file:line is invented.
+- Coverage mode requires exact target identity. When the edge only says
+  `To="Base"` and multiple `Base` symbols exist, the row remains soft
+  prompt context. This preserves the red line that graph/name ambiguity must
+  never become a hard gate.
+- `MultiGraph.TypedRelationCandidates` delegates `extends` to the same adapter
+  and prefixes files back to parent-repo paths. It does not create cross-repo
+  inheritance edges.
+
+Focused tests passed:
+
+`go test ./internal/tool/repomap/relation ./internal/tool/repomap/multigraph ./internal/context ./internal/types`
 
 ### R5. Caller/callee provider
 
@@ -949,10 +978,11 @@ raw-text selectors.
 
 | Family | Exact typed source/evidence fact needed | Provider work | Gate posture |
 |---|---|---|---|
-| `called-by` / call graph | function/method source resolves to canonical symbol ID; receiver disambiguated when present | Map `CallersOfID` / `ResolveCallTarget` rows into `TypedRelationCandidate` and add ambiguity tests for duplicate method names | Hard only for exact symbol ID + grounded same-member evidence; name-only callers remain prompt-only. |
-| `imports` / `exports` | file, package, module, or import path resolves through repomap import graph | Add provider over `ImportGraph`, `ReverseImports`, and exact package/module export rows; include Go plus non-Go fixtures covered by repomap import extraction | Hard only for exact file/import-path rows inside requested scope; unresolved imports become uncertainty/negative evidence. |
+| `called-by` / call graph | function/method source resolves to canonical symbol ID; receiver disambiguated when present | Done in R5 through `ResolveCallTarget`; duplicate method-name tests pin name-only fallback | Hard only for exact symbol ID + grounded same-member evidence; name-only callers remain prompt-only. |
+| `imports` / `exports` | file, package, module, or import path resolves through repomap import graph | Done in R3 through `ImportGraph` / `ReverseImports`; exact-file and package/directory-soft tests cover all supported read languages | Hard only for exact file/import-path rows inside requested scope; unresolved imports become uncertainty/negative evidence. |
 | `registers` / event observer / binding | model/tool emits exact registration evidence or graph extractor emits exact binding relation | Keep evidence-driven first; add provider rows only when source and member both have exact anchors | No framework keyword tables; hard only after exact evidence + grounded same-member evidence. |
-| `extends` / inheritance / overrides | source type resolves as class/interface/trait/protocol and relation endpoint has exact graph file:line | Generalize graph relation rows for inheritance/override/conformance across languages with reliable extractor output | Prompt first; hard only for exact rows with grounded evidence. |
+| `extends` / inheritance | source type resolves as class/interface/trait/protocol and relation endpoint uniquely resolves to that symbol | Done in R4 through `Relation.Kind=inheritance`; ambiguous same-name targets stay `NameOnly` prompt context | Hard only for exact rows with grounded evidence. |
+| overrides / conformance-specific rows | language extractor emits an exact override/conformance edge or evidence carrier with source/member anchors | Pending; do not infer from naming conventions or prose | Soft until exact provider and grounded same-member tests exist. |
 | references / type usage | endpoint resolves to exact symbol ID and requested question asks for reference membership | Provider can expose capped prompt hints from exact graph references; high-volume rows need rank/budget policy | Soft by default; hard only for explicit bounded member_set with exact evidence. |
 | external observation -> source anchor | log/trace/VCS/command/MCP/web/connector artifact span plus current-source anchor | Reuse external evidence/artifact ledger and blob/page readers to create exact observation relation rows | Hard only when both artifact anchor and current-source anchor are exact; otherwise append localized uncertainty. |
 

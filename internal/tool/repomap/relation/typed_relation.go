@@ -11,8 +11,9 @@ import (
 
 // TypedRelationCandidates adapts a repomap graph into the shared typed
 // relation provider contract. It consumes only graph-resolved structural data:
-// symbol implements edges and file-to-file import edges. It does not inspect
-// raw user prose, model prose, or source text.
+// symbol implements edges, inheritance relations, call relations, and
+// file-to-file import edges. It does not inspect raw user prose, model prose,
+// or source text.
 func TypedRelationCandidates(g *rmtypes.Graph, q types.TypedRelationQuery) []types.TypedRelationCandidate {
 	if g == nil || len(q.Sources) == 0 {
 		return nil
@@ -20,6 +21,9 @@ func TypedRelationCandidates(g *rmtypes.Graph, q types.TypedRelationQuery) []typ
 	var out []types.TypedRelationCandidate
 	if q.AllowsKind(types.TypedRelationImplements) {
 		out = append(out, implementerCandidates(g, q)...)
+	}
+	if q.AllowsKind(types.TypedRelationExtends) {
+		out = append(out, extendsCandidates(g, q)...)
 	}
 	if q.AllowsKind(types.TypedRelationImports) {
 		out = append(out, importEdgeCandidates(g, q, types.TypedRelationImports)...)
@@ -36,6 +40,65 @@ func TypedRelationCandidates(g *rmtypes.Graph, q types.TypedRelationQuery) []typ
 	sortTypedRelationCandidates(out)
 	if q.MaxMembers > 0 && len(out) > q.MaxMembers {
 		out = out[:q.MaxMembers]
+	}
+	return out
+}
+
+func extendsCandidates(g *rmtypes.Graph, q types.TypedRelationQuery) []types.TypedRelationCandidate {
+	var out []types.TypedRelationCandidate
+	seen := map[string]bool{}
+	for _, source := range q.Sources {
+		for _, ref := range relationSourceSymbolRefs(g, source, q.Purpose) {
+			if q.Purpose == types.TypedRelationPurposeCoverageGate && !ref.precision.CoverageGateEligible() {
+				continue
+			}
+			for _, fi := range g.Files {
+				if fi == nil {
+					continue
+				}
+				file := cleanRelationPath(fi.RelPath)
+				if file == "" {
+					continue
+				}
+				for _, rel := range fi.Relations {
+					if rel.Kind != "inheritance" {
+						continue
+					}
+					targetPrecision, ok := relationInheritanceTargetPrecision(g, rel, ref.symbol)
+					if !ok {
+						continue
+					}
+					precision := relationCandidatePrecision(ref.precision, targetPrecision)
+					if q.Purpose == types.TypedRelationPurposeCoverageGate && !precision.CoverageGateEligible() {
+						continue
+					}
+					member := inheritanceRelationMember(fi, file, rel)
+					if strings.TrimSpace(member.Name) == "" {
+						continue
+					}
+					refKey := string(ref.id)
+					if !precision.CoverageGateEligible() {
+						refKey = "name-only"
+					}
+					key := strings.ToLower(ref.display) + "|extends|" +
+						strings.ToLower(member.Name) + "|" + member.File + "|" + refKey
+					if seen[key] {
+						continue
+					}
+					seen[key] = true
+					out = append(out, types.TypedRelationCandidate{
+						Relation:   types.TypedRelationExtends,
+						SourceName: ref.display,
+						SourceKind: strings.TrimSpace(ref.symbol.Kind),
+						SourceFile: cleanRelationPath(ref.symbol.File),
+						SourceLine: ref.symbol.Line,
+						Member:     member,
+						Carrier:    types.TypedRelationCarrierGraph,
+						Precision:  precision,
+					})
+				}
+			}
+		}
 	}
 	return out
 }
@@ -342,6 +405,176 @@ func relationCallTargetsSymbol(g *rmtypes.Graph, fi *rmtypes.FileInfo, rel rmtyp
 	}
 	resolved := g.ResolveCallTarget(fi, rel)
 	return resolved != nil && resolved.ID == target.ID
+}
+
+func relationInheritanceTargetPrecision(g *rmtypes.Graph, rel rmtypes.Relation, target *rmtypes.Symbol) (types.TypedRelationPrecision, bool) {
+	if g == nil || target == nil || target.ID == "" {
+		return "", false
+	}
+	if rel.ToEP.ID != "" {
+		if rel.ToEP.ID == target.ID {
+			return types.TypedRelationPrecisionExactSymbolID, true
+		}
+		return "", false
+	}
+	for _, name := range relationEndpointNameVariants(rel.ToEP.Name, rel.To) {
+		if relationNameResolvesUniquelyToSymbol(g, name, target) {
+			return types.TypedRelationPrecisionExactSymbolID, true
+		}
+	}
+	for _, name := range relationEndpointNameVariants(rel.ToEP.Name, rel.To) {
+		if relationSymbolSurfaceMatches(target, name) || strings.EqualFold(strings.TrimSpace(target.Name), name) {
+			return types.TypedRelationPrecisionNameOnly, true
+		}
+		for _, candidate := range relationNameVariants(name) {
+			if relationSymbolSurfaceMatches(target, candidate) || strings.EqualFold(strings.TrimSpace(target.Name), candidate) {
+				return types.TypedRelationPrecisionNameOnly, true
+			}
+		}
+	}
+	return "", false
+}
+
+func relationNameResolvesUniquelyToSymbol(g *rmtypes.Graph, name string, target *rmtypes.Symbol) bool {
+	if g == nil || target == nil || target.ID == "" {
+		return false
+	}
+	for _, candidate := range relationNameVariants(name) {
+		matches := relationSymbolMatches(g, candidate)
+		if len(matches) == 1 && matches[0] != nil && matches[0].ID == target.ID {
+			return true
+		}
+	}
+	return false
+}
+
+func relationEndpointNameVariants(values ...string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, value := range values {
+		for _, candidate := range relationNameVariants(value) {
+			key := strings.ToLower(candidate)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, candidate)
+		}
+	}
+	return out
+}
+
+func relationNameVariants(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	add := func(value string) {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return
+		}
+		for _, existing := range out {
+			if strings.EqualFold(existing, value) {
+				return
+			}
+		}
+		out = append(out, value)
+	}
+	add(raw)
+	for _, sep := range []string{".", "::", "/"} {
+		if idx := strings.LastIndex(raw, sep); idx >= 0 && idx+len(sep) < len(raw) {
+			add(raw[idx+len(sep):])
+		}
+	}
+	return out
+}
+
+func relationCandidatePrecision(a, b types.TypedRelationPrecision) types.TypedRelationPrecision {
+	if a.CoverageGateEligible() && b.CoverageGateEligible() {
+		if a == types.TypedRelationPrecisionExactFile || b == types.TypedRelationPrecisionExactFile {
+			return types.TypedRelationPrecisionExactFile
+		}
+		if a == types.TypedRelationPrecisionExactEvidence || b == types.TypedRelationPrecisionExactEvidence {
+			return types.TypedRelationPrecisionExactEvidence
+		}
+		return types.TypedRelationPrecisionExactSymbolID
+	}
+	if a == types.TypedRelationPrecisionHeuristic || b == types.TypedRelationPrecisionHeuristic {
+		return types.TypedRelationPrecisionHeuristic
+	}
+	return types.TypedRelationPrecisionNameOnly
+}
+
+func inheritanceRelationMember(fi *rmtypes.FileInfo, file string, rel rmtypes.Relation) types.TypedRelationMember {
+	sym := relationFromSymbol(fi, rel)
+	line := rel.Line
+	if sym != nil {
+		line = sym.Line
+	}
+	if line <= 0 {
+		line = rel.ToEP.Line
+	}
+	name := strings.TrimSpace(rel.From)
+	kind := "type"
+	if sym != nil && strings.TrimSpace(sym.Name) != "" {
+		name = relationDisplayNameForSymbol(sym)
+		kind = strings.TrimSpace(sym.Kind)
+		if kind == "" {
+			kind = "type"
+		}
+	} else if idx := strings.LastIndex(name, ":"); idx >= 0 && idx+1 < len(name) {
+		name = strings.TrimSpace(name[idx+1:])
+	}
+	return types.TypedRelationMember{
+		Name:     name,
+		File:     file,
+		Line:     line,
+		Kind:     kind,
+		Distance: 1,
+	}
+}
+
+func relationFromSymbol(fi *rmtypes.FileInfo, rel rmtypes.Relation) *rmtypes.Symbol {
+	if fi == nil {
+		return nil
+	}
+	fromName := strings.TrimSpace(rel.From)
+	if idx := strings.LastIndex(fromName, ":"); idx >= 0 && idx+1 < len(fromName) {
+		fromName = strings.TrimSpace(fromName[idx+1:])
+	}
+	for i := range fi.Symbols {
+		sym := &fi.Symbols[i]
+		if fromName != "" {
+			for _, surface := range relationSymbolSurfaces(sym) {
+				if strings.EqualFold(surface, fromName) {
+					return sym
+				}
+			}
+		}
+	}
+	if rel.Line > 0 {
+		return enclosingCallerSymbol(fi, rel.Line)
+	}
+	return nil
+}
+
+func relationDisplayNameForSymbol(sym *rmtypes.Symbol) string {
+	if sym == nil {
+		return ""
+	}
+	name := strings.TrimSpace(sym.Name)
+	if name == "" {
+		return ""
+	}
+	if sym.Receiver != "" {
+		return sym.Receiver + "." + name
+	}
+	if sym.Parent != "" {
+		return sym.Parent + "." + name
+	}
+	return name
 }
 
 func callerRelationMember(fi *rmtypes.FileInfo, file string, line int) types.TypedRelationMember {
