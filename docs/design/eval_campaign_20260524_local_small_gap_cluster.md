@@ -1463,6 +1463,29 @@ Implementation notes:
   loader. This is a general repo-map path contract fix, not a question-specific
   special case; it reduces analyzer/explorer context noise before the model ever
   reaches the source-inventory lens.
+- 2026-05-24 post-fix eval (`s5b`, local small model, 900s cap) confirmed the
+  subdirectory root fix: `repo_map(path="internal/analysis", view="overview")`
+  and `view="file_map"` built the `analysis` graph only (95 files, 94 source
+  files), not the full repo. The run still timed out during exploration before
+  finalization. The remaining bottleneck is now one layer deeper: the model did
+  not select `repo_map(view="source_inventory")`; it used `overview`/`file_map`,
+  then repeatedly guessed per-package entry filenames, issued whole-file
+  `read_file` calls, hit path misses, and triggered a second exploration pass.
+  This is not a JSON-recovery issue. It shows the source-inventory lens must be
+  made easier to discover and must expose the right shape for "member + candidate
+  entry symbols" inventories without requiring the model to learn a separate
+  strategy. Any fix must stay advisory-only: it can offer a compact checklist
+  and exact count invariants, but must not turn navigation candidates into final
+  answer facts without `read_file`/grounded evidence.
+- Same eval also showed that analyzer emitted
+  `source_inventory_profile.target_roles=["file"]` for a directory-plus-entry
+  request. That preserved the bounded-inventory shape but not the nested
+  "directory member -> entry function" relation the explorer needed. The next
+  design batch should extend the typed inventory contract with composable
+  relation slots (for example member role + requested attribute role) instead of
+  hard-coding Go packages or a particular eval question. It must work over all
+  repomap languages, mixed-language subtrees, config-file surfaces, and active
+  multi-repo boundaries.
 - Tests added/updated:
   `TestSourceInventoryObservation*`,
   `TestCompileObservationLedger_SourceInventoryObservation`,
