@@ -169,6 +169,7 @@ type explorerEvaluator struct {
 	midLoopCompletionReadyIter       int  // iteration where completion-ready first fired
 	midLoopNoveltySeen               map[string]bool
 	midLoopNoNoveltyNavigationStreak int
+	midLoopNoNoveltyStreakByScope    map[string]int
 	midLoopLowNoveltyHintSent        bool
 	midLoopNoEmitPushIter            int  // iteration where the current backlog window's read-without-emit nudge fired
 	midLoopNoEmitPushResultsLen      int  // allResults length when the current backlog window's read-without-emit nudge fired
@@ -374,6 +375,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopCompletionReadyIter = 0
 		e.midLoopNoveltySeen = nil
 		e.midLoopNoNoveltyNavigationStreak = 0
+		e.midLoopNoNoveltyStreakByScope = nil
 		e.midLoopLowNoveltyHintSent = false
 		e.midLoopNoEmitPushIter = 0
 		e.midLoopNoEmitPushResultsLen = 0
@@ -516,6 +518,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopCompletionReadyIter = 0
 	e.midLoopNoveltySeen = nil
 	e.midLoopNoNoveltyNavigationStreak = 0
+	e.midLoopNoNoveltyStreakByScope = nil
 	e.midLoopLowNoveltyHintSent = false
 	e.midLoopNoEmitPushIter = 0
 	e.midLoopNoEmitPushResultsLen = 0
@@ -7414,24 +7417,27 @@ func (e *explorerEvaluator) postSameLaneLowNoveltySignal(obs LoopObservation) Lo
 	if len(obs.CurrentToolResults) == 0 {
 		return LoopSignal{}
 	}
-	relevantOrigins := e.sameLaneNoveltyOrigins(obs.CurrentToolResults)
+	relevantOrigins, scoped := e.sameLaneNoveltyOriginScope(obs.CurrentToolResults)
+	if !scoped {
+		return LoopSignal{}
+	}
+	scopeKey := explorerNoveltyOriginScopeKey(relevantOrigins)
 	newKeys, totalKeys := e.recordAcceptedTypedDeltaKeys(obs, relevantOrigins)
 	if newKeys > 0 {
-		e.midLoopNoNoveltyNavigationStreak = 0
+		e.resetNoNoveltyScope(scopeKey)
 		return LoopSignal{}
 	}
 	if totalKeys == 0 {
 		return LoopSignal{}
 	}
 	if successfulToolCountInBatch(obs.CurrentToolResults, completionProgressToolNames) > 0 {
-		e.midLoopNoNoveltyNavigationStreak = 0
+		e.resetNoNoveltyScope(scopeKey)
 		return LoopSignal{}
 	}
 	if successfulToolCountInBatch(obs.CurrentToolResults, explorerNoveltyNavigationToolNames) == 0 {
 		return LoopSignal{}
 	}
-	e.midLoopNoNoveltyNavigationStreak++
-	if e.midLoopNoNoveltyNavigationStreak < 2 {
+	if e.incrementNoNoveltyScope(scopeKey) < 2 {
 		return LoopSignal{}
 	}
 	e.midLoopLowNoveltyHintSent = true
@@ -7442,6 +7448,36 @@ func (e *explorerEvaluator) postSameLaneLowNoveltySignal(obs LoopObservation) Lo
 		Hint:          hint,
 		Progress:      false,
 	}
+}
+
+func (e *explorerEvaluator) resetNoNoveltyScope(scopeKey string) {
+	if e == nil {
+		return
+	}
+	scopeKey = strings.TrimSpace(scopeKey)
+	if scopeKey == "" {
+		scopeKey = "all"
+	}
+	if e.midLoopNoNoveltyStreakByScope != nil {
+		delete(e.midLoopNoNoveltyStreakByScope, scopeKey)
+	}
+	e.midLoopNoNoveltyNavigationStreak = 0
+}
+
+func (e *explorerEvaluator) incrementNoNoveltyScope(scopeKey string) int {
+	if e == nil {
+		return 0
+	}
+	scopeKey = strings.TrimSpace(scopeKey)
+	if scopeKey == "" {
+		scopeKey = "all"
+	}
+	if e.midLoopNoNoveltyStreakByScope == nil {
+		e.midLoopNoNoveltyStreakByScope = make(map[string]int)
+	}
+	e.midLoopNoNoveltyStreakByScope[scopeKey]++
+	e.midLoopNoNoveltyNavigationStreak = e.midLoopNoNoveltyStreakByScope[scopeKey]
+	return e.midLoopNoNoveltyStreakByScope[scopeKey]
 }
 
 func (e *explorerEvaluator) recordAcceptedTypedDeltaKeys(obs LoopObservation, origins map[types.AnswerEvidenceOrigin]bool) (newKeys int, totalKeys int) {
@@ -7518,31 +7554,69 @@ func (e *explorerEvaluator) acceptedTypedDeltaKeys(obs LoopObservation, origins 
 	return keys
 }
 
-func (e *explorerEvaluator) sameLaneNoveltyOrigins(results []types.ToolResult) map[types.AnswerEvidenceOrigin]bool {
+func (e *explorerEvaluator) sameLaneNoveltyOriginScope(results []types.ToolResult) (map[types.AnswerEvidenceOrigin]bool, bool) {
 	origins := explorerNavigationOrigins(results)
 	if len(origins) == 0 || e == nil || e.exploreLanePlan.Empty() {
-		return origins
+		return origins, true
 	}
-	planned := map[types.AnswerEvidenceOrigin]bool{}
+	planned := map[types.AnswerEvidenceOrigin]map[string]bool{}
 	for _, lane := range e.exploreLanePlan.Lanes {
 		if lane.Origin == types.AnswerEvidenceOriginUnknown {
 			continue
 		}
-		planned[lane.Origin] = true
+		key := lane.OwnershipKey()
+		if key == "" {
+			key = strings.TrimSpace(lane.ID)
+		}
+		if key == "" {
+			key = string(lane.Origin)
+		}
+		if planned[lane.Origin] == nil {
+			planned[lane.Origin] = map[string]bool{}
+		}
+		planned[lane.Origin][key] = true
 	}
 	if len(planned) == 0 {
-		return origins
+		return origins, true
 	}
 	out := map[types.AnswerEvidenceOrigin]bool{}
+	ambiguous := false
 	for origin := range origins {
-		if planned[origin] {
+		keys := planned[origin]
+		if len(keys) > 1 {
+			ambiguous = true
+			continue
+		}
+		if len(keys) == 1 {
 			out[origin] = true
+			continue
 		}
 	}
 	if len(out) == 0 {
-		return origins
+		if ambiguous {
+			return nil, false
+		}
+		return origins, true
 	}
-	return out
+	return out, true
+}
+
+func explorerNoveltyOriginScopeKey(origins map[types.AnswerEvidenceOrigin]bool) string {
+	if len(origins) == 0 {
+		return "all"
+	}
+	keys := make([]string, 0, len(origins))
+	for origin := range origins {
+		if origin == types.AnswerEvidenceOriginUnknown || !origin.IsValid() {
+			continue
+		}
+		keys = append(keys, string(origin))
+	}
+	if len(keys) == 0 {
+		return "all"
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, "+")
 }
 
 func explorerNavigationOrigins(results []types.ToolResult) map[types.AnswerEvidenceOrigin]bool {

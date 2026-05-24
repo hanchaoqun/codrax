@@ -107,6 +107,7 @@ lanes.
 | T20.5 Add same-lane accepted-delta novelty advisory/telemetry. | In progress | unit tests done, including lane-scoped VCS/current-source protection; focused `u7k`, log/source, trace/source, VCS/current reruns pending |
 | T20.6 Make read-without-emit hints origin-aware so VCS/log/trace/command observations are not forced into file:line `emit_evidence`. | Done | agent unit tests; rebuilt mixed VCS/current eval prompt audit proved origin-aware hint was injected and finalizer stayed one turn |
 | T20.7 Surface per-worker lane labels in durable parallel scrollback. | Done | `go test ./internal/render ./internal/orchestrator -run 'TestRenderer_ParallelExplorerScrollbackShows|TestDispatchExploreWindowsParallel_ScopesLanePlanPerEvidenceWindow|TestScopeExploreLanePlansForWindows_DemotesExactDuplicateLane|TestApplyExploreLaneHandoffIterationCap'` |
+| T20.8 Scope low-novelty streaks by typed origin and disable the hint when same-origin lanes cannot be mapped precisely. | Done | `go test ./internal/agent -run TestPostSameLaneLowNoveltySignal` |
 
 ## Slice 1 Validation
 
@@ -176,6 +177,29 @@ The ledger now scopes accepted-delta accounting by typed evidence origin:
 This is still advisory only. If no origin can be derived from structured tool
 metadata, the old all-lane behavior is preserved rather than guessing from
 prose.
+
+## Slice 5 Origin-Scoped Streak And Ambiguity Guard
+
+Status: Done for the code-level guard; focused eval replay still pending.
+
+The first low-novelty implementation filtered accepted deltas by evidence
+origin, but its "two rounds without novelty" streak was still global inside the
+explorer dispatch. That created a subtle red-line risk: a VCS history lane could
+consume one no-novelty round, and a later current-source lane could inherit that
+streak even though it was investigating a different typed evidence origin.
+
+The streak is now keyed by the typed origin scope used for the current
+navigation batch. A VCS no-novelty round and a current-source no-novelty round
+do not accumulate into one warning. Additionally, if the scoped
+`ExploreLanePlan` contains multiple lanes with the same origin but different
+ownership keys, the evaluator does not emit the low-novelty hint for that
+origin. The evidence items currently do not carry a precise investigation-unit
+key, so the system cannot safely decide which same-origin lane owns a fact.
+Suppressing the hint is intentionally conservative and keeps the mechanism in
+the "soft guidance only" lane.
+
+This still does not hard-stop exploration, does not rewrite evidence, and does
+not infer duplicate topics from raw prose or similarity.
 
 ## Slice 3 UX Validation
 

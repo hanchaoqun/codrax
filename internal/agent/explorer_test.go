@@ -8515,6 +8515,112 @@ func TestPostSameLaneLowNoveltySignal_DoesNotUseVCSFactsToThrottleCurrentSourceL
 	}
 }
 
+func TestPostSameLaneLowNoveltySignal_StreakIsScopedByOrigin(t *testing.T) {
+	item := types.EvidenceItem{
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "RuntimeConfig",
+		Source:          "internal/config/runtime.go",
+		LineStart:       20,
+		Summary:         "RuntimeConfig defines the current runtime settings",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	item.ID = types.StableEvidenceID(item)
+	eval := &explorerEvaluator{
+		phase:              1,
+		heuristics:         types.ExploreHeuristics{MidLoopMinIteration: 2},
+		structuredEvidence: []types.EvidenceItem{item},
+		midLoopNoveltySeen: map[string]bool{
+			explorerEvidenceDeltaKey(item): true,
+		},
+		exploreLanePlan: types.ExploreLanePlan{Lanes: []types.ExploreLane{
+			{Origin: types.AnswerEvidenceOriginVCSMetadata, Label: "历史"},
+			{Origin: types.AnswerEvidenceOriginCurrentSource, Label: "当前源码"},
+		}},
+	}
+	git := types.ToolResult{
+		ToolName: "git_log",
+		Success:  true,
+		Summary:  "[git_log: evidence_origin=vcs_metadata count=1]\ncommit abc123 preserve external observations",
+	}
+	_ = eval.postSameLaneLowNoveltySignal(LoopObservation{
+		Phase:              PhaseMidLoop,
+		Iteration:          3,
+		AllToolResults:     []types.ToolResult{git},
+		CurrentToolResults: []types.ToolResult{git},
+	})
+	_ = eval.postSameLaneLowNoveltySignal(LoopObservation{
+		Phase:              PhaseMidLoop,
+		Iteration:          4,
+		AllToolResults:     []types.ToolResult{git, git},
+		CurrentToolResults: []types.ToolResult{git},
+	})
+	read1 := types.ToolResult{ToolName: "read_file", Success: true, Summary: "[internal/config/runtime.go: showing lines 20-30 of 200]"}
+	sig := eval.postSameLaneLowNoveltySignal(LoopObservation{
+		Phase:              PhaseMidLoop,
+		Iteration:          5,
+		AllToolResults:     []types.ToolResult{git, git, read1},
+		CurrentToolResults: []types.ToolResult{read1},
+	})
+	if sig.HintRequested {
+		t.Fatalf("VCS low-novelty streak must not carry over to current-source scope: %+v", sig)
+	}
+}
+
+func TestPostSameLaneLowNoveltySignal_DoesNotThrottleAmbiguousSameOriginLanes(t *testing.T) {
+	item := types.EvidenceItem{
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "RuntimeConfig",
+		Source:          "internal/config/runtime.go",
+		LineStart:       20,
+		Summary:         "RuntimeConfig defines the current runtime settings",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	item.ID = types.StableEvidenceID(item)
+	eval := &explorerEvaluator{
+		phase:              1,
+		heuristics:         types.ExploreHeuristics{MidLoopMinIteration: 2},
+		structuredEvidence: []types.EvidenceItem{item},
+		midLoopNoveltySeen: map[string]bool{
+			explorerEvidenceDeltaKey(item): true,
+		},
+		exploreLanePlan: types.ExploreLanePlan{Lanes: []types.ExploreLane{
+			{
+				ID:                  "lane-a",
+				Origin:              types.AnswerEvidenceOriginCurrentSource,
+				InvestigationUnitID: "subtopic-1",
+				Label:               "当前源码 A",
+			},
+			{
+				ID:                  "lane-b",
+				Origin:              types.AnswerEvidenceOriginCurrentSource,
+				InvestigationUnitID: "subtopic-2",
+				Label:               "当前源码 B",
+			},
+		}},
+	}
+	read1 := types.ToolResult{ToolName: "read_file", Success: true, Summary: "[internal/config/runtime.go: showing lines 20-30 of 200]"}
+	read2 := types.ToolResult{ToolName: "grep", Success: true, Summary: "internal/config/runtime.go:20: type RuntimeConfig struct"}
+	_ = eval.postSameLaneLowNoveltySignal(LoopObservation{
+		Phase:              PhaseMidLoop,
+		Iteration:          3,
+		AllToolResults:     []types.ToolResult{read1},
+		CurrentToolResults: []types.ToolResult{read1},
+	})
+	sig := eval.postSameLaneLowNoveltySignal(LoopObservation{
+		Phase:              PhaseMidLoop,
+		Iteration:          4,
+		AllToolResults:     []types.ToolResult{read1, read2},
+		CurrentToolResults: []types.ToolResult{read2},
+	})
+	if sig.HintRequested {
+		t.Fatalf("same-origin multi-unit lanes cannot be mapped precisely, so no low-novelty nudge is allowed: %+v", sig)
+	}
+}
+
 func TestPostSameLaneLowNoveltySignal_DoesNotFireWithoutAcceptedTypedFacts(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:      1,
