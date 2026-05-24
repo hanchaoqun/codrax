@@ -337,7 +337,7 @@ func TestComposeDockRow2_ParallelMetaSitsWithStageBeforeModel(t *testing.T) {
 		},
 	}
 	plain := stripAnsiEscapes(composeDockRow2(state))
-	for _, want := range []string{"并行 2 路", "3 个关注点", "模型 MiniMax-M2.7-highspeed"} {
+	for _, want := range []string{"并行 2 路", "3 个调查单元", "模型 MiniMax-M2.7-highspeed"} {
 		if !strings.Contains(plain, want) {
 			t.Fatalf("row2 missing %q: %q", want, plain)
 		}
@@ -362,7 +362,7 @@ func TestComposeDockRow2_ParallelMetaDoesNotCrossStageFamily(t *testing.T) {
 			},
 		}
 		plain := stripAnsiEscapes(composeDockRow2(state))
-		if strings.Contains(plain, "并行") || strings.Contains(plain, "关注点") {
+		if strings.Contains(plain, "并行") || strings.Contains(plain, "调查单元") || strings.Contains(plain, "关注点") {
 			t.Fatalf("parallel explore meta leaked onto %s row: %q", key, plain)
 		}
 	}
@@ -889,7 +889,8 @@ func TestRenderer_ExtractStageClearsStaleParallelExploreTelemetry(t *testing.T) 
 	rows := r.composeCurrentDockRows()
 	row1 := stripAnsiEscapes(rows[0])
 	row2 := stripAnsiEscapes(rows[1])
-	if strings.Contains(row1, "并行") || strings.Contains(row2, "并行") || strings.Contains(row2, "关注点") {
+	if strings.Contains(row1, "并行") || strings.Contains(row2, "并行") ||
+		strings.Contains(row2, "调查单元") || strings.Contains(row2, "关注点") {
 		t.Fatalf("stale parallel/focus telemetry must not leak into extract rows; row1=%q row2=%q", row1, row2)
 	}
 	if !strings.Contains(row2, "3/4") || !strings.Contains(row2, "正在提炼关键发现") {
@@ -929,7 +930,7 @@ func TestRenderer_ActiveExploreParallelAnchorsDockBeforeExtract(t *testing.T) {
 	if !strings.Contains(row1, "并行") {
 		t.Fatalf("active parallel dispatch must own row1 until the dispatch ends; got %q", row1)
 	}
-	for _, want := range []string{"2/4", "正在探索代码并收集证据", "并行 2 路", "2 个关注点"} {
+	for _, want := range []string{"2/4", "正在探索代码并收集证据", "并行 2 路", "2 个调查单元"} {
 		if !strings.Contains(row2, want) {
 			t.Fatalf("active parallel explore row missing %q: %q", want, row2)
 		}

@@ -6460,6 +6460,7 @@ func (o *Orchestrator) emitAnalysisReady() {
 		return
 	}
 	nodes := o.busCtx.AnalysisIR.TaskGraph.Nodes
+	investigationPlan := types.CompileInvestigationPlan(o.busCtx.AnalysisIR.RequestModel, &o.busCtx.AnalysisIR.AnswerContract)
 	out := make([]render.TaskNodeInfo, 0, len(nodes))
 	for _, n := range nodes {
 		if n.IsCounterfactual {
@@ -6468,11 +6469,18 @@ func (o *Orchestrator) emitAnalysisReady() {
 		if n.Type == types.NodeProbe {
 			continue
 		}
-		out = append(out, render.TaskNodeInfo{
+		info := render.TaskNodeInfo{
 			ID:        n.ID,
 			Type:      string(n.Type),
 			Objective: n.Objective,
-		})
+		}
+		if n.Type == types.NodeEvidence {
+			if unit, ok := investigationPlan.InvestigationUnitForEvidenceNode(n.ID); ok {
+				info.HasInvestigationUnit = true
+				info.InvestigationUnit = unit
+			}
+		}
+		out = append(out, info)
 	}
 	if len(out) == 0 {
 		return

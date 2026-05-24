@@ -486,26 +486,28 @@ func looksLikeToolCall(s string) bool {
 	return toolNameLike.MatchString(strings.ToLower(s))
 }
 
-// topicCountPhrase produces "识别到 N 个关注点" / "N focus areas
-// found" — the secondary line below the parent stage when topic
-// rows are aggregated.
+// topicCountPhrase produces "拆分为 N 个调查单元" / "N investigation
+// units" — the secondary line below the parent stage when topic rows are
+// aggregated. "关注点 / focus area" was ambiguous: users read "2/2" as
+// completion, while the value only identifies the active analyzer-created
+// investigation unit.
 func topicCountPhrase(n int, lang string) string {
 	if isZh(lang) {
-		return fmt.Sprintf("识别到 %d 个关注点", n)
+		return fmt.Sprintf("拆分为 %d 个调查单元", n)
 	}
 	if n == 1 {
-		return "1 focus area found"
+		return "1 investigation unit"
 	}
-	return fmt.Sprintf("%d focus areas found", n)
+	return fmt.Sprintf("%d investigation units", n)
 }
 
-// topicLabelPhrase produces the per-row "关注点 N：" / "Focus N:"
+// topicLabelPhrase produces the per-row "调查单元 N：" / "Unit N:"
 // prefix shown next to the topic body text.
 func topicLabelPhrase(idx int, lang string) string {
 	if isZh(lang) {
-		return fmt.Sprintf("关注点 %d：", idx)
+		return fmt.Sprintf("调查单元 %d：", idx)
 	}
-	return fmt.Sprintf("Focus %d: ", idx)
+	return fmt.Sprintf("Unit %d: ", idx)
 }
 
 // topicProgressPhrase produces the compact ordinal segment used in the
@@ -517,9 +519,9 @@ func topicProgressPhrase(idxZero int, total int, lang string) string {
 	}
 	idx := idxZero + 1
 	if isZh(lang) {
-		return fmt.Sprintf("第 %d 个关注点，共 %d 个", idx, total)
+		return fmt.Sprintf("第 %d 个调查单元，共 %d 个", idx, total)
 	}
-	return fmt.Sprintf("focus %d of %d", idx, total)
+	return fmt.Sprintf("unit %d of %d", idx, total)
 }
 
 func parallelActivityPhrase(p *parallelActivitySnapshot, lang string) string {
@@ -643,24 +645,24 @@ func parallelFocusTotalPhrase(total int, lang string) string {
 		return ""
 	}
 	if isZh(lang) {
-		return fmt.Sprintf("%d 个关注点", total)
+		return fmt.Sprintf("%d 个调查单元", total)
 	}
 	if total == 1 {
-		return "1 focus area"
+		return "1 investigation unit"
 	}
-	return fmt.Sprintf("%d focus areas", total)
+	return fmt.Sprintf("%d investigation units", total)
 }
 
 // topicOverflowPhrase covers the >5 topics case: first 5 are shown
 // individually, the rest collapse into a single line.
 func topicOverflowPhrase(extra int, lang string) string {
 	if isZh(lang) {
-		return fmt.Sprintf("另有 %d 个关注点，已合并到后续分析中", extra)
+		return fmt.Sprintf("另有 %d 个调查单元，已合并到后续分析中", extra)
 	}
 	if extra == 1 {
-		return "1 more focus area merged into the follow-up analysis"
+		return "1 more investigation unit merged into the follow-up analysis"
 	}
-	return fmt.Sprintf("%d more focus areas merged into the follow-up analysis", extra)
+	return fmt.Sprintf("%d more investigation units merged into the follow-up analysis", extra)
 }
 
 // metaToolCountPhrase produces the dim "5 次工具调用" / "5 tool
@@ -767,7 +769,7 @@ func defaultCancelHint(lang string) string {
 }
 
 // normalizeTopicText cleans up an analyzer-emitted objective string
-// for display under "关注点 N：". Two transforms:
+// for display under "调查单元 N：". Two transforms:
 //
 //  1. Collapse runs of whitespace to single spaces.
 //  2. zh locale: insert a space between adjacent CJK and ASCII

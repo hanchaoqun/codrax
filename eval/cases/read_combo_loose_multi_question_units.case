@@ -1,0 +1,12 @@
+# Read combo — loosely-coupled multi-question request
+#
+# Regression target: analyzer sub-topics are investigation decomposition, not a
+# single "focus counter". A request with two loosely-coupled asks should keep
+# both answer surfaces visible and not flatten one into the other.
+ID="read_combo_loose_multi_question_units"
+NAME="read combo — loosely-coupled multi-question units stay visible"
+QUESTION="请分开回答两个相对独立的问题：第一，codrax 的运行时配置如何加载和覆盖；第二，REPL 中 Mermaid 图渲染失败时如何降级展示。请不要把两部分混在一起。"
+EXPECT_CONTAINS="codrax.yaml RuntimeSettings Mermaid"
+EXPECT_MATCHES_REGEX="(配置|config).*(codrax.yaml|RuntimeSettings)|(codrax.yaml|RuntimeSettings).*(配置|config)
+(Mermaid|mermaid).*(降级|fallback|text)|(降级|fallback|text).*(Mermaid|mermaid)
+(第一|1|运行时配置|配置加载).*(第二|2|Mermaid|图)|(Mermaid|图).*(配置|codrax.yaml)"

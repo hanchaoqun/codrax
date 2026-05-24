@@ -30,7 +30,8 @@ func stripAnsi(s string) string {
 }
 
 // TestFormatStageDoneLine_TopicOrdinalHidden pins the UX contract:
-// ordinal focus labels ("第 N 个关注点，共 M 个") are not stage progress.
+// ordinal investigation-unit labels ("第 N 个调查单元，共 M 个") are not stage
+// progress.
 // They belong in the topic-detail block, not in the top status or
 // completion rows where users read them as "done N/M".
 func TestFormatStageDoneLine_TopicOrdinalHidden(t *testing.T) {
@@ -54,7 +55,7 @@ func TestFormatStageDoneLine_TopicOrdinalHidden(t *testing.T) {
 	line := r.formatStageDoneLine(row, 2)
 	plain := stripAnsi(line)
 
-	if strings.Contains(plain, "关注点") || strings.Contains(plain, "focus") {
+	if strings.Contains(plain, "调查单元") || strings.Contains(plain, "关注点") || strings.Contains(plain, "focus") {
 		t.Fatalf("topic ordinal must stay out of stage completion row: %q", plain)
 	}
 	if !strings.Contains(plain, "已完成证据收集") {
@@ -72,7 +73,7 @@ func TestComposeDockRow2_TopicOrdinalHidden(t *testing.T) {
 	pterm.EnableColor()
 	defer pterm.DisableColor()
 
-	topicText := "第 2 个关注点，共 2 个"
+	topicText := "第 2 个调查单元，共 2 个"
 	row := composeDockRow2(dockRowState{
 		stageProgress:         "2/4",
 		topicProgress:         topicText,
@@ -89,7 +90,7 @@ func TestComposeDockRow2_TopicOrdinalHidden(t *testing.T) {
 			t.Fatalf("live dock row missing %q; got %q", want, plain)
 		}
 	}
-	if strings.Contains(plain, topicText) || strings.Contains(plain, "关注点") {
+	if strings.Contains(plain, topicText) || strings.Contains(plain, "调查单元") || strings.Contains(plain, "关注点") {
 		t.Fatalf("topic ordinal must stay out of live dock row; got %q", plain)
 	}
 }
@@ -119,7 +120,7 @@ func TestFormatStageDoneLine_TopicTagOnlyForMultiSubTopicEvidence(t *testing.T) 
 	// (a) Single-sub_topic (topicTotal=1): no tag.
 	row := base
 	plain := stripAnsi(r.formatStageDoneLine(&row, 1))
-	if strings.Contains(plain, "关注点") || strings.Contains(plain, "focus") {
+	if strings.Contains(plain, "调查单元") || strings.Contains(plain, "关注点") || strings.Contains(plain, "focus") {
 		t.Errorf("single-sub_topic row must NOT carry topic tag; got %q", plain)
 	}
 
@@ -128,7 +129,7 @@ func TestFormatStageDoneLine_TopicTagOnlyForMultiSubTopicEvidence(t *testing.T) 
 	row.nodeKind = "validate"
 	row.nodeID = "n2_validate"
 	plain = stripAnsi(r.formatStageDoneLine(&row, 2))
-	if strings.Contains(plain, "关注点") || strings.Contains(plain, "focus") {
+	if strings.Contains(plain, "调查单元") || strings.Contains(plain, "关注点") || strings.Contains(plain, "focus") {
 		t.Errorf("non-evidence node must NOT carry topic tag; got %q", plain)
 	}
 
@@ -138,7 +139,7 @@ func TestFormatStageDoneLine_TopicTagOnlyForMultiSubTopicEvidence(t *testing.T) 
 	row.nodeID = ""
 	row.nodeKind = ""
 	plain = stripAnsi(r.formatStageDoneLine(&row, 2))
-	if strings.Contains(plain, "关注点") || strings.Contains(plain, "focus") {
+	if strings.Contains(plain, "调查单元") || strings.Contains(plain, "关注点") || strings.Contains(plain, "focus") {
 		t.Errorf("non-node stage row must NOT carry topic tag; got %q", plain)
 	}
 }
@@ -163,7 +164,7 @@ func TestFormatStageDoneLine_TopicTagEnglishHidden(t *testing.T) {
 	}
 
 	plain := stripAnsi(r.formatStageDoneLine(row, 3))
-	if strings.Contains(plain, "focus") || strings.Contains(plain, "关注点") {
+	if strings.Contains(plain, "investigation unit") || strings.Contains(plain, "focus") || strings.Contains(plain, "关注点") {
 		t.Fatalf("topic ordinal must stay out of EN completion row; got %q", plain)
 	}
 }

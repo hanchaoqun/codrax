@@ -673,6 +673,14 @@ func TestFormatAnalysisToolResultSummaryZh(t *testing.T) {
 		"keywords": ["explorer", "SubExplorer", "sub_agent", "sequence", "流程图", "机制", "调用流程"],
 		"answer_subject": {"kind": "function_name", "entity_axes": ["SubAgent -> mechanism"]},
 		"diagram_hint": {"kind": "sequence"},
+		"sub_topics": [
+			{"summary": "explorer 调用入口", "entities": ["explorer"]},
+			{"summary": "subagent 注册与调度", "entities": ["subagent"]}
+		],
+		"buckets": [
+			{"index": 1, "label": "diff 线索"},
+			{"index": 2, "label": "当前代码"}
+		],
 		"requested_answer_dimensions": {
 			"is_dimensioned_answer": true,
 			"dimensions": [
@@ -694,6 +702,8 @@ func TestFormatAnalysisToolResultSummaryZh(t *testing.T) {
 		"答案主体 function_name",
 		"实体 6 个：SubExplorer, NewSubExplorer, RegisterDefaultSubAgents, buildToolSchemas, propose_sub_agents, +1",
 		"关键词 7 个：explorer, SubExplorer, sub_agent, sequence, 流程图, 机制, +1",
+		"调查单元 2 个：explorer 调用入口, subagent 注册与调度",
+		"用户分区 2 个：diff 线索, 当前代码",
 		"答案维度 2 个：diff 线索, 当前关键代码",
 		"源码关联 2 个：compare_with_current_source, SubExplorer",
 		"图 sequence",

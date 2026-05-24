@@ -14,10 +14,10 @@ import "github.com/pterm/pterm"
 //	  ▶ statusReasoningGlyph    — model thinking marker only
 //	  ▶ statusToolGlyph         — tool-dispatch marker only
 //	  ▶ statusReasoningBody     — model thinking body
-//	  ▶ statusTopicLabel        — "关注点 1：" / "Focus 1:"
-//	  ▶ statusTopicText         — focus-area body text
+//	  ▶ statusTopicLabel        — "调查单元 1：" / "Unit 1:"
+//	  ▶ statusTopicText         — investigation-unit body text
 //	  ▶ statusDetail            — tool-call / live status detail
-//	  ▶ statusSecondary         — "识别到 N 个关注点" / "N focus areas"
+//	  ▶ statusSecondary         — "拆分为 N 个调查单元" / "N investigation units"
 //	  ▶ statusFatal             — fatal error text body
 //	  ▶ statusRecoverable       — recoverable error text body
 //	  ▶ statusWarningMuted      — minor warnings

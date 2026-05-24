@@ -110,9 +110,9 @@ func TestLogFidelity_NoANSILeakage(t *testing.T) {
 	if strings.Contains(logs, "\x1b[") {
 		t.Errorf("dock log mirror leaked ANSI escapes; log:\n%s", logs)
 	}
-	// Sub-topic enumeration mirror must arrive, including the
-	// circled-digit prefix so the topic identity survives in log.
-	for _, want := range []string{"分析识别到", "topic A", "topic B"} {
+	// Investigation-unit enumeration mirror must arrive, including the
+	// circled-digit prefix so the unit identity survives in log.
+	for _, want := range []string{"分析拆分为", "调查单元", "topic A", "topic B"} {
 		if !strings.Contains(logs, want) {
 			t.Errorf("sub-topic mirror missing %q; log:\n%s", want, logs)
 		}

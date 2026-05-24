@@ -93,12 +93,14 @@ type taskRow struct {
 	// to the actually-active row reads as concurrent execution. paused
 	// rows render identically to pending rows (`·` glyph + DarkGray +
 	// "待 X" text) so the user reads only ONE active stage at a time.
-	isNodeRow bool
-	nodeID    string
-	nodeKind  string
-	objective string
-	pending   bool
-	paused    bool
+	isNodeRow            bool
+	nodeID               string
+	nodeKind             string
+	objective            string
+	hasInvestigationUnit bool
+	investigationUnit    types.InvestigationUnit
+	pending              bool
+	paused               bool
 
 	// skipped marks a node that completed without dispatching its
 	// agent — SkipOnFirstVisit (plan loaded from disk) or

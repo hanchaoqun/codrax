@@ -1,0 +1,21 @@
+# Read combo — runtime artifact plus current-source bucketed answer
+#
+# Regression target: external runtime observations and current-source analysis
+# are both first-class evidence origins. The answer should preserve the log
+# failure chain and then connect it to source-level repair / risk boundary, not
+# collapse the response into one scalar or one code-only section.
+ID="read_combo_log_current_source_bucketed_units"
+NAME="read combo — log/current-source user partitions"
+QUESTION="请分成两个用户分区回答：一部分基于这段 crash 日志解释故障链路；另一部分结合当前源码说明可能的修复位置和风险边界。"
+LOG="fatal error: concurrent map writes
+
+goroutine 458 [running]:
+github.com/hanchaoqun/codrax/internal/tool/repomap/retrieve.RankGraph(...)
+	/Users/han/opt/codrax/internal/tool/repomap/retrieve/rank.go:148
+github.com/hanchaoqun/codrax/internal/tool/repomap/render.buildTaskMapData(...)
+	/Users/han/opt/codrax/internal/tool/repomap/render/render.go:638
+github.com/hanchaoqun/codrax/internal/tool/repomap/render.GenerateViewData(...)
+	/Users/han/opt/codrax/internal/tool/repomap/render/render.go:145"
+EXPECT_CONTAINS="concurrent map writes RankGraph rank.go"
+EXPECT_MATCHES_REGEX="(日志|crash|panic).*(concurrent map writes|RankGraph)|(concurrent map writes|RankGraph).*(日志|crash|panic)
+(RankGraph|rank.go|internal/tool/repomap).*(buildTaskMapData|render.go|Graph)|(Graph|buildTaskMapData).*(RankGraph|rank.go)"

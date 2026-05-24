@@ -315,9 +315,11 @@ const (
 // probe) are filtered out by the orchestrator before this list is
 // emitted so the renderer does not need to know the filtering rules.
 type TaskNodeInfo struct {
-	ID        string
-	Type      string
-	Objective string
+	ID                   string
+	Type                 string
+	Objective            string
+	HasInvestigationUnit bool
+	InvestigationUnit    types.InvestigationUnit
 }
 
 // Event is a single lifecycle occurrence emitted by the pipeline.

@@ -328,11 +328,13 @@ func (r *Renderer) handleEvent(ev Event) {
 		}
 		for _, n := range ev.TaskNodes {
 			r.tasks = append(r.tasks, &taskRow{
-				isNodeRow: true,
-				nodeID:    n.ID,
-				nodeKind:  n.Type,
-				objective: n.Objective,
-				pending:   true,
+				isNodeRow:            true,
+				nodeID:               n.ID,
+				nodeKind:             n.Type,
+				objective:            n.Objective,
+				hasInvestigationUnit: n.HasInvestigationUnit,
+				investigationUnit:    n.InvestigationUnit,
+				pending:              true,
 			})
 		}
 		r.analysisReady = true
@@ -1625,16 +1627,20 @@ func rowFirstStart(row *taskRow) time.Time {
 	return row.startTime
 }
 
-// formatSubTopicsBlock returns the multi-line "分析识别到 N 个关注点：" enumeration
+// formatSubTopicsBlock returns the multi-line analyzer investigation-unit
+// enumeration
 // or empty when fewer than 2 evidence_tN nodes were emitted. Output
 // includes leading/trailing blank lines so commitToScrollback writes
 // it as a visually framed block.
+type renderedInvestigationTopic struct {
+	idx     int
+	text    string
+	unit    types.InvestigationUnit
+	hasUnit bool
+}
+
 func formatSubTopicsBlock(lang string, taskNodes []TaskNodeInfo) string {
-	type topic struct {
-		idx       int
-		objective string
-	}
-	var topics []topic
+	var topics []renderedInvestigationTopic
 	for _, n := range taskNodes {
 		if n.Type != "evidence" {
 			continue
@@ -1643,7 +1649,16 @@ func formatSubTopicsBlock(lang string, taskNodes []TaskNodeInfo) string {
 		if !ok {
 			continue
 		}
-		topics = append(topics, topic{idx: i, objective: n.Objective})
+		text := strings.TrimSpace(n.Objective)
+		if n.HasInvestigationUnit {
+			text = investigationUnitDisplayText(n.InvestigationUnit, text)
+		}
+		topics = append(topics, renderedInvestigationTopic{
+			idx:     i,
+			text:    text,
+			unit:    n.InvestigationUnit,
+			hasUnit: n.HasInvestigationUnit,
+		})
 	}
 	if len(topics) < 2 {
 		return ""
@@ -1655,9 +1670,15 @@ func formatSubTopicsBlock(lang string, taskNodes []TaskNodeInfo) string {
 			}
 		}
 	}
-	header := fmt.Sprintf("分析识别到 %d 个关注点：", len(topics))
+	header := fmt.Sprintf("分析拆分为 %d 个调查单元：", len(topics))
 	if !isZh(lang) {
-		header = fmt.Sprintf("Analyzer identified %d focus areas:", len(topics))
+		header = fmt.Sprintf("Analyzer split the request into %d investigation units:", len(topics))
+	}
+	if allTopicsAreUserBuckets(topics) {
+		header = fmt.Sprintf("分析保留了 %d 个用户分区：", len(topics))
+		if !isZh(lang) {
+			header = fmt.Sprintf("Analyzer kept %d user partitions:", len(topics))
+		}
 	}
 	circles := []string{"①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩"}
 	var b strings.Builder
@@ -1669,7 +1690,7 @@ func formatSubTopicsBlock(lang string, taskNodes []TaskNodeInfo) string {
 		if t.idx >= 0 && t.idx < len(circles) {
 			mark = circles[t.idx]
 		}
-		obj := strings.TrimSpace(t.objective)
+		obj := strings.TrimSpace(t.text)
 		if obj == "" {
 			continue
 		}
@@ -1681,6 +1702,33 @@ func formatSubTopicsBlock(lang string, taskNodes []TaskNodeInfo) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func investigationUnitDisplayText(unit types.InvestigationUnit, fallback string) string {
+	label := strings.TrimSpace(unit.Label)
+	summary := strings.TrimSpace(unit.Summary)
+	switch {
+	case label != "" && summary != "" && !strings.EqualFold(label, summary):
+		return label + " — " + summary
+	case summary != "":
+		return summary
+	case label != "":
+		return label
+	default:
+		return strings.TrimSpace(fallback)
+	}
+}
+
+func allTopicsAreUserBuckets(topics []renderedInvestigationTopic) bool {
+	if len(topics) == 0 {
+		return false
+	}
+	for _, t := range topics {
+		if !t.hasUnit || t.unit.AnswerPartition != types.InvestigationAnswerPartitionUserBucket {
+			return false
+		}
+	}
+	return true
 }
 
 // formatPhaseGroupBlock returns the multi-phase enumeration block

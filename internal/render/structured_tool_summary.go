@@ -630,8 +630,13 @@ type analysisSummaryPayload struct {
 	Entities      []string `json:"entities"`
 	SubTopics     []struct {
 		Title    string   `json:"title"`
+		Summary  string   `json:"summary"`
 		Entities []string `json:"entities"`
 	} `json:"sub_topics"`
+	Buckets []struct {
+		Label string `json:"label"`
+		Index int    `json:"index"`
+	} `json:"buckets"`
 	AnswerSubject *struct {
 		Kind       string   `json:"kind"`
 		EntityAxes []string `json:"entity_axes"`
@@ -694,6 +699,9 @@ func formatAnalysisToolResultSummary(paramsJSON, resultSummary, lang string) str
 	}
 	if len(p.SubTopics) > 0 {
 		lines = append(lines, truncByDisplayWidth(statusReasoningBody.Sprint("    "+subTopicPhrase(p.SubTopics, zh)), evidenceSummaryMaxCols))
+	}
+	if len(p.Buckets) > 0 {
+		lines = append(lines, truncByDisplayWidth(statusReasoningBody.Sprint("    "+bucketPhrase(p.Buckets, zh)), evidenceSummaryMaxCols))
 	}
 	if dims := requestedAnswerDimensionSummaryValues(p); len(dims) > 0 {
 		lines = append(lines, truncByDisplayWidth(statusReasoningBody.Sprint("    "+limitedListPhrase("answer dimensions", "答案维度", dims, 5, zh)), evidenceSummaryMaxCols))
@@ -869,11 +877,15 @@ func limitedListPhrase(enLabel, zhLabel string, values []string, limit int, zh b
 
 func subTopicPhrase(topics []struct {
 	Title    string   `json:"title"`
+	Summary  string   `json:"summary"`
 	Entities []string `json:"entities"`
 }, zh bool) string {
 	titles := make([]string, 0, len(topics))
 	for _, topic := range topics {
 		title := sanitizeEvidenceSummaryText(topic.Title)
+		if title == "" {
+			title = sanitizeEvidenceSummaryText(topic.Summary)
+		}
 		if title == "" && len(topic.Entities) > 0 {
 			title = sanitizeEvidenceSummaryText(topic.Entities[0])
 		}
@@ -882,9 +894,41 @@ func subTopicPhrase(topics []struct {
 		}
 	}
 	if zh {
-		return limitedListPhrase("subtopics", "子问题", titles, 3, zh)
+		return limitedListPhrase("investigation units", "调查单元", titles, 3, zh)
 	}
-	return limitedListPhrase("subtopics", "子问题", titles, 3, zh)
+	return limitedListPhrase("investigation units", "调查单元", titles, 3, zh)
+}
+
+func bucketPhrase(buckets []struct {
+	Label string `json:"label"`
+	Index int    `json:"index"`
+}, zh bool) string {
+	items := append([]struct {
+		Label string `json:"label"`
+		Index int    `json:"index"`
+	}(nil), buckets...)
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Index == items[j].Index {
+			return i < j
+		}
+		if items[i].Index <= 0 {
+			return false
+		}
+		if items[j].Index <= 0 {
+			return true
+		}
+		return items[i].Index < items[j].Index
+	})
+	labels := make([]string, 0, len(items))
+	for _, bucket := range items {
+		if label := sanitizeEvidenceSummaryText(bucket.Label); label != "" {
+			labels = append(labels, label)
+		}
+	}
+	if zh {
+		return limitedListPhrase("user partitions", "用户分区", labels, 4, zh)
+	}
+	return limitedListPhrase("user partitions", "用户分区", labels, 4, zh)
 }
 
 func parseEmitEvidenceSummary(summary string) (int, []renderedEvidenceItem) {

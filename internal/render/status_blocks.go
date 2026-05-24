@@ -6,13 +6,16 @@ import (
 	"time"
 
 	"github.com/pterm/pterm"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // statusBlock is one logical unit in the spinner area. Two shapes:
 //
 //   - Kind="line" — a single status row, primary text + detail + meta
-//   - Kind="topic_group" — a parent stage line ("Understanding the
-//     request") followed by an indented list of focus areas
+//   - Kind="topic_group" — a parent stage line ("Exploring code,
+//     collecting evidence") followed by an indented list of investigation
+//     units
 //
 // All taskRow → screen rendering goes through buildStatusBlocks +
 // renderStatusBlock so taskRow consumers (event handlers) can stay
@@ -42,13 +45,13 @@ type statusTopic struct {
 // taskRow slice + spinner frame + clock and emits the renderable
 // block list. Three responsibilities:
 //
-//   1. Drop internal rows the user shouldn't see (ungrouped topic
-//      shells, stale "[topic N]" markers).
-//   2. Aggregate evidence-with-_tN-suffix rows into one topic_group
-//      block, parented under the localized "Understanding the
-//      request" line.
-//   3. Emit one line block per remaining row, with primary/detail/
-//      meta strings already localized + error-classified.
+//  1. Drop internal rows the user shouldn't see (ungrouped topic
+//     shells, stale "[topic N]" markers).
+//  2. Aggregate evidence-with-_tN-suffix rows into one topic_group
+//     block, parented under the localized "Understanding the
+//     request" line.
+//  3. Emit one line block per remaining row, with primary/detail/
+//     meta strings already localized + error-classified.
 //
 // frame is the current spinner glyph (caller picks from
 // spinnerFrames). now is the wall-clock used for "running elapsed"
@@ -228,7 +231,7 @@ func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.
 	}
 	parentLine.PrimaryText = stagePhrase("evidence", r.lang, state)
 	count := len(topicRows)
-	parentLine.DetailText = topicCountPhrase(count, r.lang)
+	parentLine.DetailText = topicCountPhraseForRows(topicRows, r.lang)
 	// Override Icon / IconStyle / State to follow the aggregated
 	// state, not topicRows[0] alone. Six branches keep glyph +
 	// primary text + primary colour in lockstep:
@@ -277,7 +280,7 @@ func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.
 		}
 		topics = append(topics, statusTopic{
 			Index: idx,
-			Text:  normalizeTopicText(row.objective, r.lang),
+			Text:  normalizeTopicText(topicDisplayText(row), r.lang),
 		})
 	}
 	if overflow > 0 {
@@ -293,19 +296,67 @@ func (r *Renderer) buildTopicGroup(topicRows []*taskRow, frame string, now time.
 	}
 }
 
+func topicCountPhraseForRows(rows []*taskRow, lang string) string {
+	if len(rows) == 0 {
+		return ""
+	}
+	allBuckets := true
+	anyUnit := false
+	for _, row := range rows {
+		if row == nil || !row.hasInvestigationUnit {
+			allBuckets = false
+			continue
+		}
+		anyUnit = true
+		if row.investigationUnit.AnswerPartition != types.InvestigationAnswerPartitionUserBucket {
+			allBuckets = false
+		}
+	}
+	if anyUnit && allBuckets {
+		if isZh(lang) {
+			return fmt.Sprintf("保留 %d 个用户分区", len(rows))
+		}
+		if len(rows) == 1 {
+			return "1 user partition"
+		}
+		return fmt.Sprintf("%d user partitions", len(rows))
+	}
+	return topicCountPhrase(len(rows), lang)
+}
+
+func topicDisplayText(row *taskRow) string {
+	if row == nil {
+		return ""
+	}
+	if row.hasInvestigationUnit {
+		unit := row.investigationUnit
+		label := strings.TrimSpace(unit.Label)
+		summary := strings.TrimSpace(unit.Summary)
+		switch {
+		case label != "" && summary != "" && !strings.EqualFold(label, summary):
+			return label + " — " + summary
+		case summary != "":
+			return summary
+		case label != "":
+			return label
+		}
+	}
+	return row.objective
+}
+
 // statusIcon picks the glyph + colour + state-string for a row.
 // Six cases drive the result:
 //
-//   1. fatal error → ✗ in muted red, state="failed"
-//   2. recoverable error → ⟳ in muted amber, state="recoverable"
-//   3. cancelled → ⊘ in dim grey, state="cancelled" — distinct from
-//      ✗ because user-initiated stop is NOT a system failure;
-//      mirrors the dock-shutdown summary's commitRowCancelled visual
-//      (renderer_dock.go) so mid-flight rows and the run-end summary
-//      use the same glyph/palette for the same semantic.
-//   4. row terminated cleanly → ✓ muted green, state="done"
-//   5. row pending (planned, not run) → · dim grey, state="pending"
-//   6. row running → animated spinner frame in dim grey, state="running"
+//  1. fatal error → ✗ in muted red, state="failed"
+//  2. recoverable error → ⟳ in muted amber, state="recoverable"
+//  3. cancelled → ⊘ in dim grey, state="cancelled" — distinct from
+//     ✗ because user-initiated stop is NOT a system failure;
+//     mirrors the dock-shutdown summary's commitRowCancelled visual
+//     (renderer_dock.go) so mid-flight rows and the run-end summary
+//     use the same glyph/palette for the same semantic.
+//  4. row terminated cleanly → ✓ muted green, state="done"
+//  5. row pending (planned, not run) → · dim grey, state="pending"
+//  6. row running → animated spinner frame in dim grey, state="running"
 func (r *Renderer) statusIcon(row *taskRow, frame string, errKind statusErrorKind) (string, *pterm.Style, string) {
 	switch errKind {
 	case statusErrorFatal:
@@ -479,12 +530,12 @@ func localizeCollapsedMarker(s string, lang string) string {
 // friendlyDetailText returns the localized DetailText payload for a
 // row's status line. Priority:
 //
-//   1. recoverable error → recoverableDetailPhrase
-//   2. fatal error       → fatalDetailPhrase
-//   3. cancelled         → cancelledDetailPhrase
-//   4. thinking shape    → thinkingPhrase
-//   5. tool-call shape   → toolDetailPhrase
-//   6. anything else     → sanitized raw detail (truncated by caller)
+//  1. recoverable error → recoverableDetailPhrase
+//  2. fatal error       → fatalDetailPhrase
+//  3. cancelled         → cancelledDetailPhrase
+//  4. thinking shape    → thinkingPhrase
+//  5. tool-call shape   → toolDetailPhrase
+//  6. anything else     → sanitized raw detail (truncated by caller)
 //
 // Completion rule: when the row has TERMINATED (endTime != 0) AND
 // is not an error case, the live "thinking / round N / current
@@ -590,7 +641,7 @@ func renderStatusBlock(b statusBlock, lang string) []string {
 // renderStatusLine assembles a single status row from its component
 // parts. Layout:
 //
-//   "  <ICON> <PRIMARY> [· <DETAIL>] [· <META>]"
+//	"  <ICON> <PRIMARY> [· <DETAIL>] [· <META>]"
 //
 // All separators dim; meta strictly the dimmest.
 func renderStatusLine(line statusLine) string {
@@ -653,9 +704,9 @@ func renderStatusLine(line statusLine) string {
 
 // renderTopic renders one topic line: indented bullet + label +
 // body. Overflow lines (Index==0) skip the label and just surface
-// the "N more focus areas" sentinel as a dim continuation.
+// the "N more investigation units" sentinel as a dim continuation.
 //
-// parentState ties the bullet's "关注点 N：" label colour to the
+// parentState ties the bullet's "调查单元 N：" label colour to the
 // topic group's aggregated state, so glyph + parent text + bullet
 // label all read the same lifecycle phase:
 //   - "done"    → statusPrimaryDone (gray)   — section is history

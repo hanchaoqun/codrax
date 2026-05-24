@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // helper: build a Renderer in-process at a specific lang for the
@@ -40,8 +42,9 @@ func renderRows(t *testing.T, lang string, rows ...*taskRow) string {
 }
 
 // TestStatus_TopicAggregation_Zh exercises the canonical zh path:
-// three evidence_tN rows aggregate under "正在理解问题" and surface
-// "关注点 N：" labels.
+// three evidence_tN rows aggregate under the explore parent and surface
+// "调查单元 N：" labels. The wording intentionally avoids "关注点",
+// which users read as a completion counter in the live dock.
 func TestStatus_TopicAggregation_Zh(t *testing.T) {
 	rows := []*taskRow{
 		{isNodeRow: true, nodeID: "n1_evidence_t0", nodeKind: "evidence",
@@ -59,8 +62,8 @@ func TestStatus_TopicAggregation_Zh(t *testing.T) {
 		// artificial umbrella that hid the load-bearing label
 		// because production flows are predominantly multi-topic
 		// and per-row evidence labels fold into the bullet list.
-		"正在探索代码并收集证据", "识别到 3 个关注点",
-		"关注点 1：", "关注点 2：", "关注点 3：",
+		"正在探索代码并收集证据", "拆分为 3 个调查单元",
+		"调查单元 1：", "调查单元 2：", "调查单元 3：",
 		"analyzers 包", "trace 分析器",
 		"reporters 包",
 		"SKILL.md 在 OpenCode 平台中", "skill 规范",
@@ -95,8 +98,8 @@ func TestStatus_TopicAggregation_En(t *testing.T) {
 	}
 	out := renderRows(t, "en", rows...)
 	for _, want := range []string{
-		"Exploring code, collecting evidence", "3 focus areas found",
-		"Focus 1:", "Focus 2:", "Focus 3:",
+		"Exploring code, collecting evidence", "3 investigation units",
+		"Unit 1:", "Unit 2:", "Unit 3:",
 		"analyzers package trace analyzers",
 	} {
 		if !strings.Contains(out, want) {
@@ -105,11 +108,45 @@ func TestStatus_TopicAggregation_En(t *testing.T) {
 	}
 	for _, banned := range []string{
 		"[topic 1]", "n1_evidence_t0", "AnalyzerAgent",
-		"关注点", "正在理解问题", "Understanding the request",
+		"关注点", "focus area", "正在理解问题", "Understanding the request",
 	} {
 		if strings.Contains(out, banned) {
 			t.Errorf("banned token %q appeared in en output:\n%s", banned, out)
 		}
+	}
+}
+
+func TestStatus_TopicAggregation_UserBuckets(t *testing.T) {
+	rows := []*taskRow{
+		{isNodeRow: true, nodeID: "n1_evidence_t0", nodeKind: "evidence",
+			objective:            "old objective A",
+			hasInvestigationUnit: true,
+			investigationUnit: types.InvestigationUnit{
+				Label:           "codrax",
+				Summary:         "读模式防幻觉",
+				AnswerPartition: types.InvestigationAnswerPartitionUserBucket,
+			}},
+		{isNodeRow: true, nodeID: "n2_evidence_t1", nodeKind: "evidence",
+			objective:            "old objective B",
+			hasInvestigationUnit: true,
+			investigationUnit: types.InvestigationUnit{
+				Label:           "opencode",
+				Summary:         "读模式防幻觉",
+				AnswerPartition: types.InvestigationAnswerPartitionUserBucket,
+			}},
+	}
+	out := renderRows(t, "zh", rows...)
+	for _, want := range []string{
+		"保留 2 个用户分区",
+		"调查单元 1：codrax — 读模式防幻觉",
+		"调查单元 2：opencode — 读模式防幻觉",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("user bucket topic group missing %q; got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "old objective") || strings.Contains(out, "关注点") {
+		t.Fatalf("user bucket display should use typed labels and avoid legacy wording; got:\n%s", out)
 	}
 }
 
@@ -170,8 +207,8 @@ func TestStatus_AnalyzerAgentLocalization(t *testing.T) {
 	// done state
 	rowDone := &taskRow{
 		agent: "AnalyzerAgent", stage: "analyze",
-		startTime: time.Now().Add(-19 * time.Second),
-		endTime:   time.Now(),
+		startTime:  time.Now().Add(-19 * time.Second),
+		endTime:    time.Now(),
 		okFinished: true,
 	}
 	zhDone := renderRows(t, "zh", rowDone)
@@ -337,7 +374,7 @@ func TestStatus_CompletedRowDropsLiveThinking(t *testing.T) {
 func TestStatus_SingleTopicEvidenceUsesExploreCodeLabel(t *testing.T) {
 	row := &taskRow{
 		isNodeRow: true,
-		nodeID:    "evN",  // no _tN suffix → single-topic, NOT aggregated
+		nodeID:    "evN", // no _tN suffix → single-topic, NOT aggregated
 		nodeKind:  "evidence",
 		objective: "investigate the explorer agent",
 	}
@@ -873,7 +910,7 @@ func TestStatus_TopicGroupPartialDoneStaysRunning(t *testing.T) {
 func TestStatus_ThinkingSendingPhase(t *testing.T) {
 	freshRow := &taskRow{
 		isNodeRow: true, nodeID: "vN", nodeKind: "validate",
-		detail:      "thinking",
+		detail: "thinking",
 		// 100ms before the fixed now → ≪ sendingThreshold → "sending"
 		detailStart: renderRowsFixedNow.Add(-100 * time.Millisecond),
 	}
@@ -982,8 +1019,8 @@ func TestStatus_RecoverableErrors(t *testing.T) {
 	for _, c := range cases {
 		row := &taskRow{
 			isNodeRow: true, nodeID: "vN", nodeKind: "validate",
-			detail:    c.detail,
-			errorMsg:  c.errMsg,
+			detail:   c.detail,
+			errorMsg: c.errMsg,
 		}
 		// Note: "Filling in missing key information" comes from the
 		// CGEC E2 marker; let's simulate via an explicit detail
@@ -1230,17 +1267,17 @@ func TestStatus_TopicOverflow(t *testing.T) {
 		})
 	}
 	zhOut := renderRows(t, "zh", rows...)
-	if !strings.Contains(zhOut, "识别到 8 个关注点") {
+	if !strings.Contains(zhOut, "拆分为 8 个调查单元") {
 		t.Errorf("zh: expected total count; got:\n%s", zhOut)
 	}
-	if !strings.Contains(zhOut, "另有 3 个关注点") {
+	if !strings.Contains(zhOut, "另有 3 个调查单元") {
 		t.Errorf("zh: expected overflow sentinel for 8-5=3; got:\n%s", zhOut)
 	}
 	enOut := renderRows(t, "en", rows...)
-	if !strings.Contains(enOut, "8 focus areas found") {
+	if !strings.Contains(enOut, "8 investigation units") {
 		t.Errorf("en: expected total count; got:\n%s", enOut)
 	}
-	if !strings.Contains(enOut, "3 more focus areas merged") {
+	if !strings.Contains(enOut, "3 more investigation units merged") {
 		t.Errorf("en: expected overflow sentinel; got:\n%s", enOut)
 	}
 }
@@ -1269,7 +1306,7 @@ func TestStatus_LineWidthSafety(t *testing.T) {
 	}
 }
 
-func formatTopicID(i int) string                 { return "n_evidence_t" + itoa(i) }
+func formatTopicID(i int) string { return "n_evidence_t" + itoa(i) }
 func formatTopicObjective(i int) string {
 	return "topic content " + itoa(i)
 }
