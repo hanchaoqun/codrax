@@ -700,6 +700,9 @@ func currentSourceCitationSupplementRows(doc *types.AnswerDocumentV2, ctx *types
 		if seen[key] {
 			continue
 		}
+		if !droppedCitationPool && currentSourceCitationSupplementVisibleLocationHit(ev, visible) {
+			continue
+		}
 		if !droppedCitationPool && !currentSourceCitationSupplementVisibleHit(ev, visible) {
 			continue
 		}
@@ -720,6 +723,30 @@ func currentSourceCitationSupplementRows(doc *types.AnswerDocumentV2, ctx *types
 		rows = rows[:limit]
 	}
 	return rows
+}
+
+func currentSourceCitationSupplementVisibleLocationHit(ev types.EvidenceItem, visible string) bool {
+	location := currentSourceEvidenceLocation(ev)
+	if preEmitDisplaySurfaceAppears(location, visible) {
+		return true
+	}
+	file := strings.TrimSpace(strings.ReplaceAll(ev.Source, `\`, `/`))
+	if file == "" || ev.LineStart <= 0 {
+		return false
+	}
+	base := filepath.Base(file)
+	if base == "" || base == "." || base == "/" {
+		return false
+	}
+	short := fmt.Sprintf("%s:%d", base, ev.LineStart)
+	if ev.LineEnd > ev.LineStart {
+		short = fmt.Sprintf("%s:%d-%d", base, ev.LineStart, ev.LineEnd)
+	}
+	if short == location || !preEmitDisplaySurfaceAppears(short, visible) {
+		return false
+	}
+	label := currentSourceCitationSupplementLabel(ev)
+	return label == "" || preEmitDisplaySurfaceAppears(label, visible)
 }
 
 func answerDocumentHasOutOfRangeCitationRefs(doc *types.AnswerDocumentV2) bool {
@@ -2505,6 +2532,11 @@ func preCheckAggregateScalarValueCoverage(doc *types.AnswerDocumentV2, ctxOpt ..
 	seen := make(map[string]bool)
 	for idx, fact := range facts {
 		if !preEmitAggregateFactRequiresVisibleValue(ctxOpt[0], facts, idx, fact) {
+			continue
+		}
+		if fact.Kind == types.AnswerAggregateMemberSet &&
+			preEmitStructuredMemberBlockCoversFact(doc, fact) &&
+			!preEmitAggregateRequestWantsCountValue(ctxOpt[0]) {
 			continue
 		}
 		value := strings.TrimSpace(fact.Value)
