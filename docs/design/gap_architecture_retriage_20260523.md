@@ -1002,6 +1002,15 @@ syntax.
     now assert that no `系统按已验证证据补充...` / `System-verified...`
     competing table is appended. Existing no-carrier supplement tests still
     protect the low-priority fallback path.
+  - 2026-05-25 T19 follow-up:
+    - eval cases now reuse the existing `EXPECT_NOT_CONTAINS` channel to ban
+      localized and English system supplement markers on covered enumeration,
+      architecture, sequence/diagram, and mixed VCS+current-source surfaces;
+    - renderer preserved-content dedupe now suppresses Markdown/Text
+      attachments whose normalized content is already covered by the final
+      answer, while preserving attachments that add any extra model-authored
+      information. This is display-only and does not change memory, evidence,
+      or LLM-facing prompts.
 
 - 2026-05-25 B2-J9/T18/T20 regression audit:
   - Focused eval `s5b-20260525-002621` reported PASS, but the answer was not

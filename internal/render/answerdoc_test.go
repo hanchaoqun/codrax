@@ -888,6 +888,44 @@ func TestRenderV2_DedupesRecoveredTextAttachmentMatchingRenderedAnswer(t *testin
 	}
 }
 
+func TestRenderV2_DedupesRecoveredTextAttachmentCoveredByRenderedAnswer(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:    "s1",
+			Kind:  types.BlockSummary,
+			Title: "结论",
+			Text:  "主体答案包含关键结论，并解释当前实现影响。",
+		}},
+	}
+	out := RenderAnswerDocumentWithAttachments(doc, []types.AnswerDisplayAttachment{{
+		Kind: types.AnswerDisplayAttachmentMarkdown,
+		Body: "### 结论\n\n- 主体答案包含关键结论，并解释当前实现影响。",
+	}}, "zh")
+	if strings.Contains(out, "系统保留内容") || strings.Contains(out, "保留的原文") {
+		t.Fatalf("near-duplicate attachment already covered by final answer must be suppressed:\n%s", out)
+	}
+	if strings.Count(out, "主体答案包含关键结论") != 1 {
+		t.Fatalf("final answer should still render once:\n%s", out)
+	}
+}
+
+func TestRenderV2_KeepsRecoveredTextAttachmentWithAdditionalContent(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "主体答案包含关键结论，并解释当前实现影响。",
+		}},
+	}
+	out := RenderAnswerDocumentWithAttachments(doc, []types.AnswerDisplayAttachment{{
+		Kind: types.AnswerDisplayAttachmentMarkdown,
+		Body: "主体答案包含关键结论，并解释当前实现影响。\n\n额外模型观察：该路径仍需要后续验证。",
+	}}, "zh")
+	if !strings.Contains(out, "系统保留内容") || !strings.Contains(out, "额外模型观察") {
+		t.Fatalf("attachment with additional model-authored content must remain visible:\n%s", out)
+	}
+}
+
 func TestRenderV2_RecoveredAttachmentCapDisclosesOmittedItems(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{ID: "s1", Kind: types.BlockSummary, Text: "主体答案。"}},

@@ -43,6 +43,14 @@ Hard rule:
   exactly one marked, append-only supplement and no legacy duplicate carrier.
 - Added language-agnostic visible-location coverage for ArkTS (`.ets`) and C++
   (`.cpp`) paths, so the current-source supplement fence is not Go-specific.
+- Reused the existing eval `EXPECT_NOT_CONTAINS` channel to add redline sentinels
+  (`系统按已验证证据补充`, `System-verified`) to covered enumeration,
+  architecture, sequence/diagram, and mixed VCS+current-source cases. This is
+  deliberately an eval assertion, not a new runtime gate.
+- Added a renderer display guard for preserved text/Markdown attachments that
+  are structurally covered by the final answer but are not byte-identical
+  because of Markdown heading/list/quote formatting. Attachments with any
+  additional model-authored content remain visible.
 
 ## Product Fixes From This Batch
 
@@ -56,10 +64,8 @@ Hard rule:
 
 ## Remaining T19 Work
 
-- Add eval-level assertions for covered answers: no unwanted
-  `系统按已验证证据补充成员` / `System-verified member supplement` when the model
-  already rendered the accepted typed answer.
-- Add one display-layer assertion that preserved attachments do not surface as a
-  second answer when structurally equivalent but not byte-identical.
 - Keep expanding this matrix whenever a new deterministic supplement path is
   introduced.
+- Next follow-up belongs to the broader T17/T20 work: add full eval coverage for
+  log/trace/MCP/web/external-document observations using the same non-overwrite
+  redline sentinels.

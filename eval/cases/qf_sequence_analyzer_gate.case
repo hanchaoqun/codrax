@@ -10,4 +10,4 @@ QUESTION="请用 Mermaid 时序图展示 analyzer.go 里 buildAnalysisIR 到 gat
 EXPECT_CONTAINS="buildAnalysisIR gate.Run"
 EXPECT_MATCHES_REGEX='(```mermaid|sequenceDiagram)
 (normalizer\.Normalize|compiler\.Compile|hdp\.Plan|binder\.BindByRelevance|RecomputeBudget)'
-EXPECT_NOT_CONTAINS="runTaskGraph DesignReviewer"
+EXPECT_NOT_CONTAINS="runTaskGraph DesignReviewer 系统按已验证证据补充 System-verified"

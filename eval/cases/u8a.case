@@ -25,4 +25,4 @@ EXPECT_CONTAINS="Eval EvalAll RegisteredKinds"
 EXPECT_MATCHES_REGEX="\b(Kind|Env|Result)\b
 ErrUnknownKind
 \bKind[A-Z][a-zA-Z]+\b"
-EXPECT_NOT_CONTAINS="private internal.use 系统按已验证证据补充成员"
+EXPECT_NOT_CONTAINS="private internal.use 系统按已验证证据补充 System-verified"

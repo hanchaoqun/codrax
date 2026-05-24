@@ -60,4 +60,4 @@ EXPECT_MATCHES_REGEX="(classif|分类|hypothes|假设|意图|理解|推断|识�
 (read_file|grep|investig|读取|调查|探索|遍历|evidence|证据|分派|fan.?out)
 (structured|symbol|结构化|提取|抽取|validate|verify|验证|核实|证据链|抽证)
 (render|emit_answer_document|渲染|生成|产生|成文|最终答案|综合|输出|synthes|compose|合成)"
-EXPECT_NOT_CONTAINS=".java .py BaseAgent.java Spring Django"
+EXPECT_NOT_CONTAINS=".java .py BaseAgent.java Spring Django 系统按已验证证据补充 System-verified"

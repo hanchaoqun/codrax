@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -842,7 +843,7 @@ func renderAnswerDisplayAttachments(doc *types.AnswerDocumentV2, attachments []t
 	if len(attachments) == 0 {
 		return ""
 	}
-	seen := answerDocumentVisibleAttachmentKeys(doc, lang)
+	seen := answerDocumentVisibleAttachmentIndex(doc, lang)
 	var b strings.Builder
 	rendered := 0
 	skipped := 0
@@ -851,11 +852,10 @@ func renderAnswerDisplayAttachments(doc *types.AnswerDocumentV2, attachments []t
 		if body == "" {
 			continue
 		}
-		key := displayAttachmentKey(att.Kind, body)
-		if seen[key] {
+		if seen.Contains(att.Kind, body) {
 			continue
 		}
-		seen[key] = true
+		seen.Add(att.Kind, body)
 		if rendered >= maxAnswerDisplayAttachments {
 			skipped++
 			continue
@@ -876,28 +876,159 @@ func renderAnswerDisplayAttachments(doc *types.AnswerDocumentV2, attachments []t
 	return strings.TrimRight(b.String(), "\n") + "\n"
 }
 
-func answerDocumentVisibleAttachmentKeys(doc *types.AnswerDocumentV2, lang answerDocLang) map[string]bool {
-	seen := map[string]bool{}
+type displayAttachmentIndex struct {
+	exact     map[string]bool
+	plainText []string
+}
+
+func answerDocumentVisibleAttachmentIndex(doc *types.AnswerDocumentV2, lang answerDocLang) displayAttachmentIndex {
+	seen := displayAttachmentIndex{exact: map[string]bool{}}
 	if doc == nil {
 		return seen
 	}
 	if full := strings.TrimSpace(RenderAnswerDocument(doc, answerDocLangCode(lang))); full != "" {
-		seen[displayAttachmentKey(types.AnswerDisplayAttachmentMarkdown, full)] = true
-		seen[displayAttachmentKey(types.AnswerDisplayAttachmentText, full)] = true
+		seen.Add(types.AnswerDisplayAttachmentMarkdown, full)
+		seen.Add(types.AnswerDisplayAttachmentText, full)
 	}
 	for _, blk := range doc.Blocks {
 		if blk.Diagram != nil {
 			body := normalizeDiagramBodyForRender(blk.Diagram.Body)
 			if body != "" {
-				seen[displayAttachmentKey(types.AnswerDisplayAttachmentDiagram, body)] = true
+				seen.Add(types.AnswerDisplayAttachmentDiagram, body)
 			}
 		}
 		if text := strings.TrimSpace(blk.Text); text != "" {
-			seen[displayAttachmentKey(types.AnswerDisplayAttachmentMarkdown, text)] = true
-			seen[displayAttachmentKey(types.AnswerDisplayAttachmentText, text)] = true
+			seen.Add(types.AnswerDisplayAttachmentMarkdown, text)
+			seen.Add(types.AnswerDisplayAttachmentText, text)
 		}
 	}
 	return seen
+}
+
+func (idx *displayAttachmentIndex) Contains(kind, body string) bool {
+	if idx == nil {
+		return false
+	}
+	if idx.exact[displayAttachmentKey(kind, body)] {
+		return true
+	}
+	if !displayAttachmentKindCanUsePlainTextDedup(kind) {
+		return false
+	}
+	key := displayAttachmentPlainTextDedupKey(body)
+	if key == "" {
+		return false
+	}
+	for _, existing := range idx.plainText {
+		if existing == key || strings.Contains(existing, key) {
+			return true
+		}
+	}
+	return false
+}
+
+func (idx *displayAttachmentIndex) Add(kind, body string) {
+	if idx == nil {
+		return
+	}
+	if idx.exact == nil {
+		idx.exact = map[string]bool{}
+	}
+	idx.exact[displayAttachmentKey(kind, body)] = true
+	if !displayAttachmentKindCanUsePlainTextDedup(kind) {
+		return
+	}
+	if key := displayAttachmentPlainTextDedupKey(body); key != "" {
+		idx.plainText = append(idx.plainText, key)
+	}
+}
+
+func displayAttachmentKindCanUsePlainTextDedup(kind string) bool {
+	return kind == types.AnswerDisplayAttachmentMarkdown || kind == types.AnswerDisplayAttachmentText || strings.TrimSpace(kind) == ""
+}
+
+func displayAttachmentPlainTextDedupKey(s string) string {
+	s = renderUserSurfaceText(s)
+	if strings.TrimSpace(s) == "" {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	parts := make([]string, 0, len(lines))
+	inFence := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~") {
+			inFence = !inFence
+			continue
+		}
+		if !inFence && answerDocMarkdownTableSeparatorLine(trimmed) {
+			continue
+		}
+		parts = append(parts, displayAttachmentPlainLineKey(trimmed))
+	}
+	key := strings.Join(strings.Fields(strings.Join(parts, " ")), " ")
+	if utf8.RuneCountInString(key) < 16 {
+		return ""
+	}
+	return key
+}
+
+func answerDocMarkdownTableSeparatorLine(s string) bool {
+	if s == "" || !strings.Contains(s, "|") {
+		return false
+	}
+	for _, r := range s {
+		switch r {
+		case '|', '-', ':', ' ', '\t':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func displayAttachmentPlainLineKey(line string) string {
+	line = strings.TrimSpace(line)
+	for strings.HasPrefix(line, "#") {
+		line = strings.TrimSpace(strings.TrimPrefix(line, "#"))
+	}
+	for strings.HasPrefix(line, ">") {
+		line = strings.TrimSpace(strings.TrimPrefix(line, ">"))
+	}
+	for strings.HasPrefix(line, "- ") || strings.HasPrefix(line, "* ") {
+		line = strings.TrimSpace(line[2:])
+	}
+	if dot := strings.Index(line, ". "); dot > 0 {
+		prefix := line[:dot]
+		allDigits := true
+		for _, r := range prefix {
+			if !unicode.IsDigit(r) {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			line = strings.TrimSpace(line[dot+2:])
+		}
+	}
+	line = strings.ReplaceAll(line, "**", "")
+	line = strings.ReplaceAll(line, "__", "")
+	line = strings.ReplaceAll(line, "`", "")
+	var b strings.Builder
+	lastSpace := true
+	for _, r := range line {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(unicode.ToLower(r))
+			lastSpace = false
+			continue
+		}
+		if !lastSpace {
+			b.WriteByte(' ')
+			lastSpace = true
+		}
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func answerDocLangCode(lang answerDocLang) string {
