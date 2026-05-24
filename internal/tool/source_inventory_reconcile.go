@@ -602,7 +602,6 @@ func renderSourceInventoryDiscoveryHint(obs sourceInventoryDiscoveryObservation)
 		pathSurface = "."
 	}
 	attrRoles := sourceInventoryDiscoveryAttributeRoles(obs)
-	scopeRoles := []types.AnswerCandidateRole{types.AnswerCandidateRolePackage, types.AnswerCandidateRoleFile}
 	expandRoles := sourceInventoryDiscoveryExpandRoles(obs, attrRoles)
 	var b strings.Builder
 	b.WriteString("Repo Lens discovery hint (advisory): this navigation result is broad")
@@ -610,8 +609,8 @@ func renderSourceInventoryDiscoveryHint(obs sourceInventoryDiscoveryObservation)
 		fmt.Fprintf(&b, " (scope_groups=%d candidate_files=%d)", len(obs.ScopeGroups), obs.Files)
 	}
 	b.WriteString(". To inspect it incrementally, consider `repo_map(view=\"source_inventory\")` before reading many files. This is navigation only, not final-answer evidence.\n")
-	fmt.Fprintf(&b, "- scope summary: `%s`\n",
-		sourceInventoryCascadeRepoMapCall(pathSurface, "", nil, scopeRoles, attrRoles, 24, ""))
+	fmt.Fprintf(&b, "- broad member/attribute checklist: `%s`\n",
+		sourceInventoryCascadeRepoMapCall(pathSurface, "", nil, expandRoles, attrRoles, 24, ""))
 	if len(obs.ScopeGroups) > 0 {
 		b.WriteString("- expand only the branch that matches the user's intent:\n")
 		maxScopes := minInt(len(obs.ScopeGroups), 4)
@@ -1944,14 +1943,21 @@ func buildSourceInventoryAdvisoryForLens(ctx *types.BusContext, query types.Sour
 }
 
 func buildSourceInventoryAdvisoryWithQuery(ctx *types.BusContext, facts []types.AnswerAggregateFact, query types.SourceInventoryLensQuery, forceAdvisoryOnly bool, extraProvenance []string) types.SourceInventoryAdvisory {
-	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+	if ctx == nil || ctx.Mutable == nil {
 		return types.SourceInventoryAdvisory{}
 	}
 	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
 	if graph == nil {
 		return types.SourceInventoryAdvisory{}
 	}
-	profile, advisoryOnly, provenance := sourceInventoryAdvisoryProfile(ctx, graph)
+	var (
+		profile      *types.SourceInventoryProfile
+		advisoryOnly bool
+		provenance   []string
+	)
+	if ctx.AnalysisIR != nil {
+		profile, advisoryOnly, provenance = sourceInventoryAdvisoryProfile(ctx, graph)
+	}
 	if forceAdvisoryOnly {
 		advisoryOnly = true
 	}
@@ -1970,7 +1976,10 @@ func buildSourceInventoryAdvisoryWithQuery(ctx *types.BusContext, facts []types.
 	if !profile.Active() {
 		return types.SourceInventoryAdvisory{}
 	}
-	scopes := sourceInventoryScopes(ctx, graph, facts)
+	var scopes []string
+	if ctx.AnalysisIR != nil {
+		scopes = sourceInventoryScopes(ctx, graph, facts)
+	}
 	if lensScopes := sourceInventoryLensQueryScopes(ctx, graph, query); len(lensScopes) > 0 {
 		scopes = lensScopes
 		advisoryOnly = true
@@ -2903,8 +2912,12 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 		return set
 	}
 	excludedRoles := map[types.AnswerCandidateRole]bool{}
-	if policy := ctx.AnalysisIR.RequestModel.AnswerExclusionPolicy; policy != nil && policy.Active() {
-		excludedRoles = answerDocumentEffectiveExcludedRoleSet(ctx, policy, nil, nil)
+	var visibility *types.AnswerVisibilityProfile
+	if ctx != nil && ctx.AnalysisIR != nil {
+		visibility = ctx.AnalysisIR.RequestModel.AnswerVisibilityProfile
+		if policy := ctx.AnalysisIR.RequestModel.AnswerExclusionPolicy; policy != nil && policy.Active() {
+			excludedRoles = answerDocumentEffectiveExcludedRoleSet(ctx, policy, nil, nil)
+		}
 	}
 	seen := map[string]bool{}
 	for _, sym := range sourceInventoryGraphSymbols(graph) {
@@ -2915,7 +2928,7 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 		if !ok || candidateRole != role || answerDocumentSymbolMatchesExcludedRole(sym, excludedRoles) {
 			continue
 		}
-		if !sourceInventorySymbolMatchesVisibility(sym, ctx.AnalysisIR.RequestModel.AnswerVisibilityProfile) {
+		if !sourceInventorySymbolMatchesVisibility(sym, visibility) {
 			continue
 		}
 		candidate := sourceInventoryCandidateForSymbol(sym, role, graph)
@@ -2948,7 +2961,7 @@ func sourceInventoryCandidateDedupeKey(candidate sourceInventoryCandidate) strin
 
 func sourceInventoryGoStringEnumCandidates(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile) sourceInventoryCandidateSet {
 	set := sourceInventoryCandidateSet{role: types.AnswerCandidateRoleType, complete: true}
-	if graph == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+	if graph == nil || ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
 		set.complete = false
 		return set
 	}
@@ -3019,6 +3032,10 @@ func sourceInventoryGoStringEnumCandidates(ctx *types.BusContext, graph *repotyp
 			}
 		}
 	}
+	var visibility *types.AnswerVisibilityProfile
+	if ctx.AnalysisIR != nil {
+		visibility = ctx.AnalysisIR.RequestModel.AnswerVisibilityProfile
+	}
 	seen := map[string]bool{}
 	for name, info := range stringTypes {
 		if !constBacked[name] {
@@ -3033,7 +3050,7 @@ func sourceInventoryGoStringEnumCandidates(ctx *types.BusContext, graph *repotyp
 		if note == "" {
 			note = info.note
 		}
-		if !sourceInventoryVisibilityAllowsExported(exported, ctx.AnalysisIR.RequestModel.AnswerVisibilityProfile) {
+		if !sourceInventoryVisibilityAllowsExported(exported, visibility) {
 			continue
 		}
 		key := aggregateMemberKey(name)

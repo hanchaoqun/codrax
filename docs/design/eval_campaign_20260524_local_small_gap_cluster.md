@@ -1902,7 +1902,7 @@ Tasks:
 - [x] B2-J4: add tests proving no raw user/model-prose keyword dependency,
   dedupe across repeated tool calls, active-set safety, and non-Go route/config
   coverage.
-- [ ] B2-J5: rerun `s5b` plus one mechanism and one config/route case to verify
+- [x] B2-J5: rerun `s5b` plus one mechanism and one config/route case to verify
   the hint is generic and not enumeration-only.
 
 B2-J implementation note, 2026-05-24 CST:
@@ -1911,9 +1911,9 @@ B2-J implementation note, 2026-05-24 CST:
   views, `list_files`, and `grep(files_only=true)` results. The trigger uses
   only structured tool parameters plus result shape (candidate file count /
   child scope groups); it never reads the raw user question or model prose.
-- The hint is intentionally small: a scope-summary source-inventory call, up to
-  four branch-expansion calls, and a reminder that repo lens output is
-  navigation only and must be verified with source reads before citation.
+- The hint is intentionally small: a broad member/attribute source-inventory
+  call, up to four branch-expansion calls, and a reminder that repo lens output
+  is navigation only and must be verified with source reads before citation.
 - Path handling follows tool-layer semantics: banner paths already normalized by
   active-set gates are preferred, repo_map paths are re-run through the active
   multi-repo gate when present, parent escapes are refused, and absolute paths
@@ -1947,6 +1947,49 @@ B2-J smoke observation, 2026-05-25 00:10 CST:
   loops and one-file-at-a-time reads, and later the retry path complained that
   the exhaustive principal enumeration was not closed through
   `aggregate_facts.member_set`.
+
+B2-J5 focused eval note, 2026-05-25 CST:
+
+- `s5b` passed with no finalizer reject/rewrite. Metrics still showed high
+  navigation cost (`read_file=45`, `list_files=12`, `source_inventory_lens=3`).
+  Root cause: the analyzer did discover `repo_map(view="source_inventory")`,
+  but the first suggested call used a package/file scope-summary shape before
+  `emit_analysis` had produced `AnalysisIR`; the lens returned "no
+  source-inventory observation" and the model fell back to broad listing.
+- `qf_config_precedence` passed with no finalizer churn and exercised the same
+  discovery hint generically (`source_inventory_lens=2`).
+- `qf_architecture` had no finalizer churn but failed its expected surface
+  regex and produced one semantic concern about inline source identifiers. This
+  is a separate answer-richness/current-code-path gap, not a source-inventory
+  discovery safety issue.
+
+B2-J follow-up implementation note, 2026-05-25 CST:
+
+- Discovery hints can appear during analyzer pre-scan, before `AnalysisIR`
+  exists. If the lens implementation requires `AnalysisIR`, the model sees a
+  tool that is advertised but returns an empty observation.
+- Contract: a `repo_map(view="source_inventory")` call with explicit typed
+  `roles` and explicit/bounded `scope` or `scopes` is sufficient typed input for
+  navigation. The tool may render an advisory observation before analysis IR;
+  it still does not become final-answer evidence.
+- Hint shape now leads with a broad member/attribute checklist using
+  language-neutral roles (`function`, `method`, `type`, `config_key`, `route`)
+  or the structured roles already present in the tool params. It no longer
+  leads with `roles=["package","file"]` scope-summary calls, which can be useful
+  later but were a poor first hop for entry/member discovery.
+- Safety: no raw user/model prose is inspected; active-set and parent-escape
+  gates stay in the tool layer; the output remains explicitly advisory and must
+  be verified by `read_file`/`grep` before citation.
+
+Tasks:
+
+- [x] B2-J6: allow model-driven source-inventory lens calls with explicit
+  typed roles/scopes to work before `AnalysisIR` exists.
+- [x] B2-J7: change discovery hints to lead with member/attribute checklist
+  calls rather than package/file summary calls.
+- [x] B2-J8: add regression tests for pre-analysis source-inventory and for
+  discovery hints not emitting package/file summary calls as the first route.
+- [ ] B2-J9: rerun `s5b` after the shape fix and compare navigation cost.
 
 Design B2-K: source-inventory observation handoff without pretending it is
 evidence.

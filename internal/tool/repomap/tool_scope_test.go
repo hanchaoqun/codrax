@@ -148,6 +148,66 @@ func TestRepoMapSourceInventoryViewModelDrivenQuery(t *testing.T) {
 	}
 }
 
+func TestRepoMapSourceInventoryViewWorksBeforeAnalysisIREmission(t *testing.T) {
+	repo := t.TempDir()
+	mut := types.NewMutableState("source inventory before analysis")
+	graph := BuildGraph(repo, []*FileInfo{{
+		RelPath:  "src/alpha/a.py",
+		Language: LangPython,
+		Package:  "alpha",
+		Symbols: []Symbol{{
+			Name:     "run_alpha",
+			Kind:     "function",
+			File:     "src/alpha/a.py",
+			Line:     7,
+			Exported: true,
+		}},
+	}, {
+		RelPath:  "src/beta/B.java",
+		Language: LangJava,
+		Package:  "com.example.beta",
+		Symbols: []Symbol{{
+			Name:     "RunBeta",
+			Kind:     "function",
+			File:     "src/beta/B.java",
+			Line:     11,
+			Exported: true,
+		}},
+	}})
+	mut.SetSearchGraph(graph)
+	ctx := &types.BusContext{RepoRoot: repo, Mutable: mut}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"scopes": ["src/alpha", "src/beta"],
+		"roles": ["function"],
+		"include_attributes": true,
+		"include_counts": true
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error before analysis IR: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory should succeed before analysis IR: %+v", res)
+	}
+	for _, want := range []string{
+		"Repo Lens: Source Inventory",
+		"`run_alpha` @ src/alpha/a.py:7",
+		"`RunBeta` @ src/beta/B.java:11",
+		"repo_lens:roles",
+		"repo_lens:scopes",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("pre-analysis source_inventory summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+	obs := mut.SourceInventoryObservation()
+	if !obs.IsActive() || len(obs.Sets) != 1 || obs.Sets[0].Role != types.AnswerCandidateRoleFunction || obs.Sets[0].Count != 2 {
+		t.Fatalf("pre-analysis model-driven observation not stored: %+v", obs)
+	}
+}
+
 func TestRepoMapSourceInventoryViewAttributeRolesAttachFileLocalCandidates(t *testing.T) {
 	repo := t.TempDir()
 	mut := types.NewMutableState("source inventory attributes")

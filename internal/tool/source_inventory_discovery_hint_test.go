@@ -47,6 +47,8 @@ func TestSourceInventoryDiscoveryHintFromListFilesBroadResultDedupe(t *testing.T
 	for _, want := range []string{
 		"Repo Lens discovery hint (advisory)",
 		`repo_map {"path": "internal/analysis", "view": "source_inventory"`,
+		"broad member/attribute checklist",
+		`"roles": ["function", "method", "type", "config_key", "route"]`,
 		`"scope": "aggregator"`,
 		`"attribute_roles": ["function", "method", "type", "config_key", "route"]`,
 		"navigation only, not final-answer evidence",
@@ -54,6 +56,9 @@ func TestSourceInventoryDiscoveryHintFromListFilesBroadResultDedupe(t *testing.T
 		if !strings.Contains(hint, want) {
 			t.Fatalf("discovery hint missing %q:\n%s", want, hint)
 		}
+	}
+	if strings.Contains(hint, `"roles": ["package", "file"]`) || strings.Contains(hint, "scope summary") {
+		t.Fatalf("discovery hint should not lead with package/file summary calls that can be empty before analysis IR:\n%s", hint)
 	}
 	if again := SourceInventoryDiscoveryHintFromToolObservation(ctx, result, json.RawMessage(`{"path":"internal/analysis"}`)); again != "" {
 		t.Fatalf("discovery hint should dedupe repeated broad tool result, got:\n%s", again)
