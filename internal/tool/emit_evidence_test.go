@@ -307,6 +307,69 @@ func TestEmitEvidence_InfersMissingSourceFromExactReadLineAnchor(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_InfersMissingSourceFromPathValuedSubject(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "internal/analysis/binder/binder.go", 72, "return Bind(input)")
+	params := json.RawMessage(`{"items":[{
+		"kind":"mechanism",
+		"subject":"internal/analysis/binder/binder.go",
+		"object":"Bind",
+		"line_start":72,
+		"summary":"Bind is the entry point observed in this file",
+		"anchor_kind":"call"
+	}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected path-valued subject source repair, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 emitted item, got %d", len(got))
+	}
+	if got[0].Source != "internal/analysis/binder/binder.go" {
+		t.Fatalf("Source = %q", got[0].Source)
+	}
+	if got[0].AnchorSymbol != "Bind" {
+		t.Fatalf("AnchorSymbol = %q, want Bind", got[0].AnchorSymbol)
+	}
+	if !strings.Contains(res.Summary, "path-valued subject/object") {
+		t.Fatalf("summary should disclose path-slot source repair, got: %s", res.Summary)
+	}
+}
+
+func TestEmitEvidence_DoesNotInferMissingSourceFromAmbiguousPathSlots(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 10-10 of 10]\n  10│ result := pkg.Run(ctx)\n"},
+		{ToolName: "read_file", Success: true, Summary: "[b.go: showing lines 10-10 of 10]\n  10│ result := pkg.Run(ctx)\n"},
+	}})
+	params := json.RawMessage(`{"items":[{
+		"kind":"mechanism",
+		"subject":"a.go",
+		"object":"b.go",
+		"line_start":10,
+		"summary":"ambiguous path slots should not choose a source",
+		"anchor_kind":"call"
+	}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("ambiguous path-valued slots should remain rejected, got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "source is required") {
+		t.Fatalf("expected source-required guidance, got: %s", res.Summary)
+	}
+}
+
 func TestEmitEvidence_DoesNotInferMissingSourceFromAmbiguousReadLineAnchor(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

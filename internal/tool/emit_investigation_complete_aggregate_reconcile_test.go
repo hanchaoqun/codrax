@@ -427,6 +427,65 @@ func TestSourceInventoryScopeForSurface_NormalizesPathForms(t *testing.T) {
 	}
 }
 
+func TestSourceInventoryRequestedScopes_UsesListFilesToolScope(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{RelPath: "src/a.go"},
+		{RelPath: "src/nested/b.py"},
+		{RelPath: "other/c.go"},
+	})
+	ctx := sourceInventoryTestContext("", graph, "", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		Confidence:        0.95,
+	})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints = types.AnalyzerHints{}
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "list_files",
+		Success:  true,
+		Summary:  "[list_files: path=src recursive=false]\nsrc/a.go\nsrc/nested\n",
+	}}})
+
+	got := sourceInventoryRequestedScopes(ctx, graph)
+	if !reflect.DeepEqual(got, []string{"src"}) {
+		t.Fatalf("requested scopes = %#v, want src from list_files banner", got)
+	}
+}
+
+func TestReconcileCompletionAggregateFactsWithSourceInventory_ListFilesScope(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{RelPath: "src/a.py", Language: "python", Symbols: []repotypes.Symbol{{Name: "handle", Kind: "function", File: "src/a.py", Line: 7, Exported: true}}},
+		{RelPath: "src/B.java", Language: "java", Symbols: []repotypes.Symbol{{Name: "Run", Kind: "function", File: "src/B.java", Line: 20, Exported: true}}},
+		{RelPath: "other/c.go", Language: "go", Symbols: []repotypes.Symbol{{Name: "Eval", Kind: "function", File: "other/c.go", Line: 1, Exported: true}}},
+	})
+	ctx := sourceInventoryTestContext("", graph, "", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		Confidence:        0.95,
+	})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints = types.AnalyzerHints{}
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{{
+		ToolName: "list_files",
+		Success:  true,
+		Summary:  "[list_files: path=src recursive=false]\nsrc/a.py\nsrc/B.java\n",
+	}}})
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "public entry candidates",
+		Value:   "1",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"handle"},
+	}}
+
+	got := reconcileCompletionAggregateFactsWithSourceInventory(ctx, facts, nil)
+	want := []string{"Run", "handle"}
+	if !reflect.DeepEqual(got[0].Members, want) {
+		t.Fatalf("members = %#v, want cross-language functions from list_files scope %#v", got[0].Members, want)
+	}
+	if containsString(got[0].Members, "Eval") {
+		t.Fatalf("out-of-scope function leaked into source inventory: %#v", got[0].Members)
+	}
+}
+
 func TestSourceInventoryCandidateNoteFromGraphCrossLanguageSafety(t *testing.T) {
 	cases := []struct {
 		name     string

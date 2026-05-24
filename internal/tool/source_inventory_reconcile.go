@@ -503,11 +503,45 @@ func sourceInventoryRequestedScopes(ctx *types.BusContext, graph *repotypes.Grap
 		sort.Strings(out)
 		return out
 	}
+	for _, result := range aggregateSupportToolResults(ctx) {
+		if !result.Success || result.ToolName != "list_files" {
+			continue
+		}
+		add(sourceInventoryListFilesScope(result.Summary))
+	}
+	if len(out) > 0 {
+		sort.Strings(out)
+		return out
+	}
 	for _, hint := range hints.RequiredFileHints {
 		add(hint.Path)
 	}
 	sort.Strings(out)
 	return out
+}
+
+func sourceInventoryListFilesScope(summary string) string {
+	if strings.TrimSpace(summary) == "" {
+		return ""
+	}
+	firstLine := summary
+	if idx := strings.Index(firstLine, "\n"); idx >= 0 {
+		firstLine = firstLine[:idx]
+	}
+	firstLine = strings.TrimSpace(firstLine)
+	if !strings.HasPrefix(firstLine, "[list_files: ") || !strings.HasSuffix(firstLine, "]") {
+		return ""
+	}
+	const key = "path="
+	idx := strings.Index(firstLine, key)
+	if idx < 0 {
+		return ""
+	}
+	value := strings.TrimSpace(firstLine[idx+len(key) : len(firstLine)-1])
+	if split := strings.Index(value, " recursive="); split >= 0 {
+		value = strings.TrimSpace(value[:split])
+	}
+	return value
 }
 
 func sourceInventoryScopeForSurface(graph *repotypes.Graph, raw string) string {

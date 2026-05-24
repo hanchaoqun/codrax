@@ -625,3 +625,84 @@ P2 - Eval expansion:
   source-inventory fix cannot regress into Go-only behavior.
 - Add a timeout/convergence eval for broad enumeration that fails if exploration
   exceeds a bounded number of reads or repeats the same inventory across lanes.
+
+## Implementation Design - P0 Batch 1
+
+This batch deliberately reuses the existing source-inventory and evidence
+repair code instead of creating a second inventory lane.
+
+Existing code anchors:
+
+- `internal/tool/source_inventory_reconcile.go` already owns
+  source-inventory reconciliation. It consumes `SourceInventoryProfile`,
+  resolves request scopes, builds graph-backed candidate sets, preserves
+  member notes, and refuses to rewrite typed relation member sets via
+  `sourceInventoryMustNotRewriteRelationMemberSet`.
+- `internal/types/source_inventory_profile.go` is the typed analyzer lane for
+  inventory roles, requested fields, visibility, and enum-like qualifiers.
+- `internal/tool/repomap/types/types.go` is the language-neutral source model:
+  symbols carry `Kind`, `File`, `Line`, `Language`, `Exported`, `Doc`,
+  receiver/parent metadata, and relation fields across Go, Python,
+  JavaScript/TypeScript, Java/Kotlin, Rust, C/C++, Ruby, Swift, Lua, Proto,
+  ArkTS, Cangjie, and mixed repositories.
+- `internal/tool/emit_evidence.go` already performs local-model compatibility
+  repairs before strict validation, including missing `source` recovery from
+  exact read windows and anchor validation.
+- `internal/tool/emit_investigation_complete.go` already exposes
+  `aggregateSupportToolResults`, which is the canonical way for aggregate
+  repair to inspect prior `grep`, `read_file`, `repo_map`, `list_files`, and
+  command outputs without reparsing prompt prose.
+
+Design choices:
+
+- Source inventory remains advisory unless the analyzer/model emitted a typed
+  `SourceInventoryProfile`. This avoids the system deciding that a user wanted
+  a source inventory solely from raw request words or model prose.
+- Scope recovery may consume verified tool observation banners, such as
+  `list_files(path=...)`, only as scope evidence. It does not infer intent,
+  target roles, or entry-point semantics. Graph membership must corroborate the
+  scope before it is used.
+- Candidate membership continues to come from repomap graph symbols and
+  existing role/visibility filters. No Go-only filename, exported-name, or
+  `func` regex rule is introduced.
+- Evidence field repair is structural only. When a small model puts a file path
+  in `subject` or `object` and omits `source`, the system may copy that path
+  into `source` only if the path has an already-read line window and the
+  provided line/anchor is unambiguous, or the line window lets the existing
+  anchor-symbol repair run next. The semantic subject/object is not invented or
+  rewritten.
+- Relation-shaped principal member sets remain protected. Inventory repair must
+  not append all symbols from a scoped file into questions whose typed shape is
+  implementer/caller/callee/relationship lookup.
+
+Batch 1 implementation:
+
+- [x] `emit_evidence` path-slot repair:
+  `repairMissingEmitEvidenceSource` now checks path-valued `subject` and
+  `object` before failing on missing `source`. It only accepts a unique
+  already-read path and then lets the existing anchor-symbol and grounder
+  pipeline validate the row.
+- [x] Source-inventory scope recovery from structured tool observation:
+  `sourceInventoryRequestedScopes` now falls back to successful `list_files`
+  banners when analyzer scope lanes are empty. The recovered path is still
+  validated by `sourceInventoryScopeForSurface` against repomap graph files.
+- [x] Cross-language test coverage for the scope path:
+  the new source-inventory test uses Python and Java graph symbols under the
+  recovered scope and proves an out-of-scope Go function is not promoted.
+- [x] Ambiguity guard:
+  evidence path-slot repair refuses to choose between two candidate source
+  paths, preserving the existing fail-loud validator behavior.
+
+Remaining P0 work:
+
+- [ ] Add a shared advisory source-inventory candidate artifact for broad
+  attribute-bearing inventories. It should carry principal member candidates,
+  per-member attribute candidates, completeness, ambiguity, language, and
+  provenance across explorer lanes. It must not hard-trigger inventory flow
+  from raw keywords.
+- [ ] Feed that artifact into explorer/extractor/finalizer as structured
+  context so the model can respect user intent and choose the final answer
+  shape without repeating broad searches.
+- [ ] Add convergence evals where the analyzer omits
+  `source_inventory_profile`, ensuring the system still exposes bounded
+  verified candidates as advisory context without overriding the LLM.

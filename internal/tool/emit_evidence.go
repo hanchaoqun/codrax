@@ -1256,8 +1256,23 @@ func repairMissingEmitEvidenceSource(in *emitEvidenceItem, index int, gc *ground
 	if in == nil ||
 		strings.TrimSpace(in.Source) != "" ||
 		in.LineStart.Int() <= 0 ||
-		strings.TrimSpace(in.AnchorSymbol) == "" ||
 		gc == nil {
+		return
+	}
+	if source := uniqueString(pathSlotSourceCandidates(*in, gc)); source != "" {
+		in.Source = source
+		if compatRepairs != nil {
+			slot := "subject/object"
+			if strings.TrimSpace(in.AnchorSymbol) != "" {
+				slot += " plus anchor_symbol"
+			}
+			*compatRepairs = append(*compatRepairs,
+				fmt.Sprintf("items[%d].source was missing; inferred %q from path-valued %s at exact read_file line %d",
+					index, source, slot, in.LineStart.Int()))
+		}
+		return
+	}
+	if strings.TrimSpace(in.AnchorSymbol) == "" {
 		return
 	}
 	var candidates []string
@@ -1274,6 +1289,53 @@ func repairMissingEmitEvidenceSource(in *emitEvidenceItem, index int, gc *ground
 					index, source, in.LineStart.Int(), strings.TrimSpace(in.AnchorSymbol)))
 		}
 	}
+}
+
+func pathSlotSourceCandidates(in emitEvidenceItem, gc *ground.Context) []string {
+	if gc == nil || in.LineStart.Int() <= 0 {
+		return nil
+	}
+	var out []string
+	for _, raw := range []string{in.Subject, in.Object} {
+		candidate := canonicalEvidencePathSlot(raw, gc)
+		if candidate == "" {
+			continue
+		}
+		if strings.TrimSpace(in.AnchorSymbol) != "" {
+			if _, ok := ground.VerifyLineAnchor(gc, candidate, in.LineStart.Int(), in.AnchorSymbol, 0); ok {
+				out = append(out, candidate)
+			}
+			continue
+		}
+		if fileLines, ok := gc.LineIndex[candidate]; ok {
+			if _, ok := fileLines[in.LineStart.Int()]; ok {
+				out = append(out, candidate)
+			}
+		}
+	}
+	return out
+}
+
+func canonicalEvidencePathSlot(raw string, gc *ground.Context) string {
+	raw = strings.Trim(strings.TrimSpace(raw), "`\"'")
+	if raw == "" || !emitLooksLikePath(raw) {
+		return ""
+	}
+	candidate := ground.CanonicalRepoRelative(raw, "")
+	if gc != nil && strings.TrimSpace(gc.RepoRoot) != "" {
+		candidate = ground.CanonicalRepoRelative(raw, gc.RepoRoot)
+	}
+	candidate = strings.Trim(strings.TrimSpace(strings.ReplaceAll(candidate, `\`, `/`)), "/")
+	if candidate == "" || candidate == "." {
+		return ""
+	}
+	if gc == nil {
+		return ""
+	}
+	if _, ok := gc.LineIndex[candidate]; ok {
+		return candidate
+	}
+	return ""
 }
 
 func repairMissingEmitEvidenceAnchorSymbol(in *emitEvidenceItem, index int, gc *ground.Context, compatRepairs *[]string) {
