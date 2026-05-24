@@ -2832,3 +2832,54 @@ Hard-gate audit after B2-T1, 2026-05-25 CST:
   candidates rather than model-authored principal data must include a strong
   alignment check and a disclosure/exclusion escape hatch. Otherwise it belongs
   in advisory UI/hints, not in a blocking validator.
+
+New-model s5b eval observation, 2026-05-25 CST:
+
+- Run:
+  `eval/results/b2t-candidate-universe/s5b-20260525-031319`, model
+  `Qwen3.6-35B-A3B-4bit`, verdict PASS.
+- Positive validation:
+  - the direct `list_files internal/analysis` universe remained 25 directories;
+  - the model used `repo_map(view="source_inventory")` early instead of only
+    guessing files;
+  - the final extraction/final answer preserved all 25 package rows, including
+    `subject`;
+  - string-wrapped `emit_evidence.items` was repaired by the shared structured
+    payload compatibility path;
+  - a guessed missing path (`internal/analysis/gate/registrations.go`) received
+    an advisory same-scope candidate-file hint and recovered without hard
+    blocking the model.
+- Remaining generic gaps:
+  - `explorer_iters=35`, `tool_read_file=40`, `midloop_inject=12`. After the
+    first explorer lane had already emitted a complete 25-member investigation
+    closure, the reconcile / summary exploration lane reopened the same
+    bounded inventory and repeated reads for many already-grounded packages.
+    Evidence de-duplication prevented answer corruption, but the workflow paid
+    unnecessary model and tool cost.
+  - The finalizer's first turn returned an empty end-turn with no tool call and
+    no recoverable draft. The existing missing-document correction retry
+    recovered and did not count as a rejection, but the behavior should remain
+    visible in eval metrics because it affects latency.
+- Design implication:
+  - Candidate-universe correctness is now guarded well enough for this sample;
+    the next high-ROI work is lane-level reuse. A downstream reconcile / summary
+    lane should treat a prior exact-universe `emit_investigation_complete`
+    closure plus accepted evidence/member_set as the default source of truth,
+    and should ask for only missing/conflicting members instead of replaying the
+    full source-inventory workflow.
+  - This must stay generic: apply to any exact typed candidate universe
+    (directories, packages/modules, config files, route/config/member
+    inventories, multi-repo scopes, and non-Go languages). It should not infer
+    from raw user/model prose. It should key off structured provenance,
+    exact-universe coverage status, accepted evidence IDs, and model-authored
+    closure facts.
+- Candidate follow-up tasks:
+  - [ ] B2-T2-A: expose prior exact-universe closure state to reconcile /
+    summary lanes as a compact "already verified principal universe" handoff.
+  - [ ] B2-T2-B: when a lane has the same universe fingerprint and no missing
+    members/conflicts, prefer close/summary synthesis over repeated
+    `read_file`.
+  - [ ] B2-T2-C: add an eval metric for repeated reads of already-grounded
+    source-inventory members across sibling/reconcile lanes.
+  - [ ] B2-T2-D: keep finalizer empty-response retry telemetry separate from
+    validator rejects so PASS runs still surface local-model latency risks.
