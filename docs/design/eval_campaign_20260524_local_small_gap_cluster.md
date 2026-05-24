@@ -2883,3 +2883,49 @@ New-model s5b eval observation, 2026-05-25 CST:
     source-inventory members across sibling/reconcile lanes.
   - [ ] B2-T2-D: keep finalizer empty-response retry telemetry separate from
     validator rejects so PASS runs still surface local-model latency risks.
+
+B2-T2 root-cause refinement, 2026-05-25 CST:
+
+- The repeated "summary/reconcile exploration" was not caused by missing JSON
+  recovery or by a bad candidate-universe count. The first explorer lane had
+  already emitted a complete model-authored `aggregate_facts.member_set` over
+  the exact direct-child universe.
+- The deeper fault was a two-axis inventory mismatch:
+  - principal axis: exact members such as package/directory/module/config-file
+    rows observed by `list_files` / source-inventory direct-child provenance;
+  - attribute axis: candidate roles such as function/method/type/route/config
+    key attached under each principal member.
+- `source_inventory_profile.target_roles=["function"]` is valid guidance for
+  the attribute axis, but the current answer-subject fallback promoted it into
+  `answer_subject=function_name`. The chain-ranker / pre-complete subject gate
+  then raised `RepairRebindSubject(function_name)` even though the accepted
+  closure's principal member set was `package -> function`. That repair was
+  non-advisory, so reconcile auto-complete refused to skip the summary node and
+  the model replayed source-inventory reads.
+- Commercial fix boundary:
+  - do not globally disable subject constraints; they remain useful for true
+    scalar/source-literal lookups such as "which function/config key/handler";
+  - add a positive, typed-only proof helper:
+    `SourceInventoryAcceptedClosureCoversExactUniverse(ctx, facts)`;
+  - only when that proof is true and the blocking repair is the
+    source-inventory-derived attribute subject, demote `RepairRebindSubject` to
+    advisory for accepted-closure/reconcile auto-complete;
+  - suppress reconcile-only fact retries after the same proof, so meaningless
+    `0 of 0 discovered relevant files` coverage hints cannot reopen an already
+    closed exact universe;
+  - never synthesize missing members, never change model-authored facts, never
+    parse user/model prose to decide this.
+- Generality:
+  - applies to package -> exported function, route -> handler, config file ->
+    config key, module -> public type, class -> method, multi-repo service ->
+    entrypoint, and mixed-language inventories;
+  - the proof consumes only exact member-level provenance plus model-authored
+    aggregate facts/exclusions, so advisory repo-map graph rows and one-off
+    overlaps cannot become hard blockers or auto-complete proofs.
+- Hard-retry audit rule carried forward:
+  - if a system check starts from system-observed candidates, it may become a
+    hard retry only after exact provenance, strong typed alignment, and an
+    explicit model-authored answer/exclusion carrier are all present;
+  - when the model has already provided a complete structured closure, later
+    summary/finalization stages should prefer explaining/disclosing residual
+    uncertainty over forcing another exploration round.

@@ -3864,6 +3864,10 @@ func (o *Orchestrator) requeueExploreWindowForFactRetry(state *graphState, windo
 	if !readExploreOutputRequestsFactRetry(output) {
 		return false
 	}
+	if o.acceptedSourceInventoryClosureSuppressesReconcileFactRetry(window) {
+		logging.Info("[orchestrator] ignored reconcile fact retry because accepted source-inventory closure already covers an exact candidate universe")
+		return false
+	}
 	if state == nil || state.retryBudgetExhausted() {
 		logging.Warning("[orchestrator] explore requested fact retry but retry budget is exhausted; continuing toward finalize")
 		return false
@@ -6250,7 +6254,7 @@ func (o *Orchestrator) shouldAutoCompleteExploreWindowFromAcceptedClosure(pendin
 		return true
 	}
 	for _, repair := range closure.PendingRepairs() {
-		if types.RepairBlocksAcceptedClosure(repair) {
+		if o.repairBlocksAcceptedClosure(repair) {
 			return false
 		}
 	}
@@ -6422,14 +6426,78 @@ func (o *Orchestrator) hasBlockingReconcileRepair() bool {
 		return false
 	}
 	for _, r := range o.busCtx.Mutable.EvidenceClosure().ActiveRepairs() {
-		switch r.Kind {
-		case types.RepairExpandSearch, types.RepairForceCompleteDowngrade:
-			continue
-		default:
+		if o.repairBlocksReconcileAutoComplete(r) {
 			return true
 		}
 	}
 	return false
+}
+
+func (o *Orchestrator) repairBlocksReconcileAutoComplete(r types.RepairDirective) bool {
+	switch r.Kind {
+	case types.RepairExpandSearch, types.RepairForceCompleteDowngrade:
+		return false
+	default:
+		return o.repairBlocksAcceptedClosure(r)
+	}
+}
+
+func (o *Orchestrator) repairBlocksAcceptedClosure(r types.RepairDirective) bool {
+	if !types.RepairBlocksAcceptedClosure(r) {
+		return false
+	}
+	if o.sourceInventoryClosureMakesSubjectRebindAdvisory(r) {
+		logging.Info("[orchestrator] treating source-inventory subject rebind as advisory after exact-universe accepted closure: subject=%q origin=%q",
+			r.Subject, r.Origin)
+		return false
+	}
+	return true
+}
+
+func (o *Orchestrator) sourceInventoryClosureMakesSubjectRebindAdvisory(r types.RepairDirective) bool {
+	if r.Kind != types.RepairRebindSubject {
+		return false
+	}
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || o.busCtx.AnalysisIR == nil {
+		return false
+	}
+	profile := o.busCtx.AnalysisIR.RequestModel.SourceInventoryProfile
+	subject, ok := types.AnswerSubjectForSourceInventoryProfile(profile)
+	if !ok || subject.Kind == types.SubjectUnknown {
+		return false
+	}
+	if strings.TrimSpace(r.Subject) != string(subject.Kind) {
+		return false
+	}
+	return tool.SourceInventoryAcceptedClosureCoversExactUniverse(
+		o.busCtx,
+		o.busCtx.Mutable.StableInvestigationAggregateFacts(),
+	)
+}
+
+func (o *Orchestrator) acceptedSourceInventoryClosureSuppressesReconcileFactRetry(window []*types.TaskNode) bool {
+	if !exploreWindowOnlyReconcile(window) {
+		return false
+	}
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return false
+	}
+	return tool.SourceInventoryAcceptedClosureCoversExactUniverse(
+		o.busCtx,
+		o.busCtx.Mutable.StableInvestigationAggregateFacts(),
+	)
+}
+
+func exploreWindowOnlyReconcile(window []*types.TaskNode) bool {
+	if len(window) == 0 {
+		return false
+	}
+	for _, n := range window {
+		if n == nil || n.Type != types.NodeReconcile {
+			return false
+		}
+	}
+	return true
 }
 
 func (o *Orchestrator) drainIgnorableReconcileRepairs() {

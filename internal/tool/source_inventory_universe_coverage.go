@@ -142,6 +142,51 @@ func SourceInventoryCandidateUniverseCoverageGap(ctx *types.BusContext, facts []
 	return best
 }
 
+// SourceInventoryAcceptedClosureCoversExactUniverse reports whether a
+// model-authored aggregate handoff already covers at least one exact
+// source-inventory universe observed by navigation tools.
+//
+// This is a positive proof helper for retry/closure policy, not an answer
+// synthesizer. It only returns true when:
+//   - an exact universe exists with member-level exact provenance;
+//   - the model emitted a principal complete member_set/count-member carrier;
+//   - every exact universe member is either included by that carrier or
+//     explicitly excluded by the model; and
+//   - at least one member is included, so an exclusion-only boundary cannot
+//     masquerade as an answer slate.
+//
+// The comparison is intentionally language-neutral and reuses the same
+// normalized member-key machinery as SourceInventoryCandidateUniverseCoverageGap.
+// It never reads the raw user request, model thinking/prose, or language-specific
+// source syntax.
+func SourceInventoryAcceptedClosureCoversExactUniverse(ctx *types.BusContext, facts []types.AnswerAggregateFact) bool {
+	if ctx == nil || ctx.Mutable == nil || len(facts) == 0 {
+		return false
+	}
+	universes := sourceInventoryExactUniverseSets(ctx.Mutable.SourceInventoryObservation())
+	if len(universes) == 0 {
+		return false
+	}
+	var rm *types.RequestModel
+	if ctx.AnalysisIR != nil {
+		rm = &ctx.AnalysisIR.RequestModel
+	}
+	included, excluded := sourceInventoryAggregateCoverageKeys(facts, rm)
+	if len(included) == 0 {
+		return false
+	}
+	for _, universe := range universes {
+		if len(universe.members) == 0 {
+			continue
+		}
+		gap := sourceInventoryCoverageForUniverse(universe, included, excluded)
+		if gap.Count > 0 && gap.Covered > 0 && gap.Covered+gap.Excluded == gap.Count {
+			return true
+		}
+	}
+	return false
+}
+
 func sourceInventoryExactUniverseSets(observation types.SourceInventoryObservation) []sourceInventoryExactUniverseSet {
 	if !observation.IsActive() {
 		return nil

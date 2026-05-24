@@ -365,6 +365,56 @@ func TestSourceInventoryCandidateUniverseCoverageGap_ExplicitExclusionSatisfiesU
 	}
 }
 
+func TestSourceInventoryAcceptedClosureCoversExactUniverse_RelationMemberSet(t *testing.T) {
+	ctx := sourceInventoryUniverseTestContext([]string{"alpha", "beta", "gamma"})
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "package -> entrypoint",
+		Value:   "3",
+		Members: []string{"alpha -> Start", "beta -> Build", "gamma -> Run"},
+	}}
+	if !SourceInventoryAcceptedClosureCoversExactUniverse(ctx, facts) {
+		t.Fatalf("relation member_set should prove the exact principal universe is covered")
+	}
+}
+
+func TestSourceInventoryAcceptedClosureCoversExactUniverse_RequiresFullCoverage(t *testing.T) {
+	ctx := sourceInventoryUniverseTestContext([]string{"alpha", "beta", "gamma"})
+	partial := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "package -> entrypoint",
+		Value:   "2",
+		Members: []string{"alpha -> Start", "beta -> Build"},
+	}}
+	if SourceInventoryAcceptedClosureCoversExactUniverse(ctx, partial) {
+		t.Fatalf("partial model member_set must not prove exact-universe closure")
+	}
+
+	withExclusion := []types.AnswerAggregateFact{{
+		Kind:     types.AnswerAggregateMemberSet,
+		Label:    "package -> entrypoint",
+		Value:    "2",
+		Members:  []string{"alpha -> Start", "beta -> Build"},
+		Excluded: []string{"gamma"},
+	}}
+	if !SourceInventoryAcceptedClosureCoversExactUniverse(ctx, withExclusion) {
+		t.Fatalf("model-authored exclusion should satisfy the exact-universe boundary")
+	}
+}
+
+func TestSourceInventoryAcceptedClosureCoversExactUniverse_RejectsExclusionOnly(t *testing.T) {
+	ctx := sourceInventoryUniverseTestContext([]string{"alpha", "beta"})
+	facts := []types.AnswerAggregateFact{{
+		Kind:     types.AnswerAggregateExcluded,
+		Label:    "not answer members",
+		Value:    "2",
+		Excluded: []string{"alpha", "beta"},
+	}}
+	if SourceInventoryAcceptedClosureCoversExactUniverse(ctx, facts) {
+		t.Fatalf("exclusion-only boundary must not masquerade as accepted answer closure")
+	}
+}
+
 func sameStringSlice(got, want []string) bool {
 	if len(got) != len(want) {
 		return false
