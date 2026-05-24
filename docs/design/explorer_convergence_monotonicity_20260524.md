@@ -154,6 +154,7 @@ cannot be parsed for hard control flow.
 | B7 | Planned | External-observation extraction closure: VCS commit/diff facts, command measurements, runtime artifacts, logs/traces, MCP/web/connector/cross-repo rows need typed citation/passthrough support in extractor and hypothesis verdicts. They must not be forced through repo `file:line` citation or `emit_answer_symbol` unless the user asked for code symbols. | extractor controller, `emit_hypothesis_verdict`, observation ledger source refs, prompt sections | VCS diff + current-source eval, command measurement eval, log/trace current-source eval |
 | B8 | Planned | System supplement safety hardening: deterministic supplements must remain append-only, localized, and within the user-requested entity type. The `s5b` PASS exposed an unacceptable 72-row system supplement that broadened a package-entry question into unrelated exported functions. | answer document supplement compilers, source-inventory display sets, final answer renderer tests | source-inventory / package-entry eval + supplement regression tests |
 | B9 | In progress | Lane novelty / completed-lane throttling: after B6, same broad lanes can still over-investigate (`u7k=119` explorer iterations). Exact duplicate handoff caps are implemented and pushed; same-lane low-novelty advisory now uses accepted evidence/aggregate/ObservationLedger deltas. Prompt audit also found and patched an origin-specific conflict where generic read-without-emit hints forced VCS/log/trace/command facts toward source `emit_evidence`; mixed-origin hints now keep those lanes in `reason` / `aggregate_facts`. Do not gate or rewrite answers from noisy novelty scores. | orchestrator lane scheduler, explorer mid-loop, observation ledger deltas, telemetry | `u7k`, log/source, trace/source convergence metrics |
+| B10 | Done | Preserve superseded accepted closure prose as advisory context. Later accepted closures remain authoritative, but the earlier tool-call `reason` is appended to investigation notes when it would otherwise be overwritten, so extractor/finalizer context can reuse rich model-authored summary without treating it as a citation or hard validator fact. | `internal/types/context.go`, `internal/agent/turn_a_merge.go` | `go test ./internal/types ./internal/agent -run 'TestTurnAArtifacts_ExploreForkMergePreservesSupersededClosureReasonAsNote|TestMergeTurnAArtifactsWithPrior_PreservesSupersededClosureReasonAsNote'` |
 
 ### B5 Audit Plan — 2026-05-24 second pass
 
@@ -205,6 +206,10 @@ Code paths audited before running:
   `AnswerAggregateFact`, `TurnAArtifacts`, and `EvidenceClosure` already cover
   the data.
 - Keep single-threaded / non-parallel behavior unchanged.
+- When a later accepted closure replaces an earlier closure reason, keep the
+  earlier model-authored prose only as advisory investigation context. The
+  latest closure reason remains authoritative; the preserved prose must not
+  become a citation, hard gate, or system-written answer.
 
 ## Progress Log
 

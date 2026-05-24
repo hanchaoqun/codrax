@@ -54,6 +54,7 @@ func mergeTurnAArtifactsWithPrior(prior *types.TurnAArtifacts, current types.Tur
 		return current
 	}
 	merged := current
+	merged.InvestigationNotes = types.PreserveSupersededClosureReasonNote(merged.InvestigationNotes, prior.AcceptedClosureReason, current.AcceptedClosureReason)
 	merged.ReadFiles = mergeStrings(prior.ReadFiles, current.ReadFiles)
 	merged.ToolResults = append(append([]types.ToolResult(nil), prior.ToolResults...), current.ToolResults...)
 	if merged.AcceptedClosureReason == "" {

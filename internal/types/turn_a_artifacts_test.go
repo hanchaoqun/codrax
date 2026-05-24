@@ -10,6 +10,7 @@ package types
 // is the D7 deferred item from project_p1_3_deferred_items.md.
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -270,6 +271,35 @@ func TestTurnAArtifacts_ExploreForkMergeKeepsSiblingDeltas(t *testing.T) {
 		if !found {
 			t.Fatalf("read files %+v missing %s", got.ReadFiles, want)
 		}
+	}
+}
+
+func TestTurnAArtifacts_ExploreForkMergePreservesSupersededClosureReasonAsNote(t *testing.T) {
+	parent := NewMutableState("q")
+	parent.SetTurnAArtifacts(TurnAArtifacts{
+		InvestigationNotes:    []string{"base-note"},
+		AcceptedClosureReason: "first closure carried rich VCS and current-source synthesis",
+		AcceptedResultKind:    "resolved",
+	})
+	fork := parent.ForkForExploreDispatch()
+	ta := fork.TurnAArtifacts()
+	ta.InvestigationNotes = append(ta.InvestigationNotes, "fork-note")
+	ta.AcceptedClosureReason = "second closure verified the implementation path"
+	ta.AcceptedResultKind = "resolved"
+	fork.SetTurnAArtifacts(*ta)
+
+	parent.MergeExploreFork(fork)
+	got := parent.TurnAArtifacts()
+	if got == nil {
+		t.Fatal("expected merged TurnAArtifacts")
+	}
+	if got.AcceptedClosureReason != ta.AcceptedClosureReason {
+		t.Fatalf("current closure remains authoritative, got %q", got.AcceptedClosureReason)
+	}
+	joined := strings.Join(got.InvestigationNotes, "\n")
+	if !strings.Contains(joined, "first closure carried rich VCS") ||
+		!strings.Contains(joined, "preserved advisory, not a citation") {
+		t.Fatalf("superseded closure reason should survive as advisory note, got %+v", got.InvestigationNotes)
 	}
 }
 

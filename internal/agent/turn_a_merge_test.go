@@ -3,6 +3,7 @@ package agent
 import (
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -100,6 +101,29 @@ func TestMergeTurnAArtifactsWithPrior_PreservesAcceptedClosureWhenCurrentEmpty(t
 	}
 	if !got.RuntimeObservationOnlyCompletion {
 		t.Fatal("RuntimeObservationOnlyCompletion must survive closure-only retry windows")
+	}
+}
+
+func TestMergeTurnAArtifactsWithPrior_PreservesSupersededClosureReasonAsNote(t *testing.T) {
+	prior := &types.TurnAArtifacts{
+		AcceptedClosureReason: "first closure found the VCS clue and explained why the diff matters",
+		AcceptedResultKind:    "resolved",
+	}
+	current := types.TurnAArtifacts{
+		UserQuestion:          "same question",
+		InvestigationNotes:    []string{"current window read the implementation"},
+		AcceptedClosureReason: "current closure verified the implementation path",
+		AcceptedResultKind:    "resolved",
+	}
+
+	got := mergeTurnAArtifactsWithPrior(prior, current)
+	if got.AcceptedClosureReason != current.AcceptedClosureReason {
+		t.Fatalf("current closure remains authoritative, got %q", got.AcceptedClosureReason)
+	}
+	joined := strings.Join(got.InvestigationNotes, "\n")
+	if !strings.Contains(joined, prior.AcceptedClosureReason) ||
+		!strings.Contains(joined, "preserved advisory, not a citation") {
+		t.Fatalf("superseded closure reason should be preserved as advisory note, got %+v", got.InvestigationNotes)
 	}
 }
 

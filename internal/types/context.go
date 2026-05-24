@@ -3089,6 +3089,7 @@ func mergeTurnAArtifactsForMutable(prior *TurnAArtifacts, current TurnAArtifacts
 		append([]string(nil), prior.ValidationBoundaryNotes...),
 		current.ValidationBoundaryNotes[clampMergeSliceBase(base.ValidationBoundaryLen, len(current.ValidationBoundaryNotes)):]...,
 	)
+	merged.InvestigationNotes = PreserveSupersededClosureReasonNote(merged.InvestigationNotes, prior.AcceptedClosureReason, current.AcceptedClosureReason)
 	merged.ReadFiles = mergeStringsForMutable(prior.ReadFiles, current.ReadFiles)
 	merged.ToolResults = append(
 		append([]ToolResult(nil), prior.ToolResults...),
@@ -3115,6 +3116,26 @@ func mergeTurnAArtifactsForMutable(prior *TurnAArtifacts, current TurnAArtifacts
 		merged.TerminalEvidenceCount = current.TerminalEvidenceCount
 	}
 	return merged
+}
+
+// PreserveSupersededClosureReasonNote keeps rich model-authored closure prose
+// visible as advisory context when a later accepted closure replaces the
+// authoritative closure reason. The later reason remains authoritative; the
+// prior prose is retained only as an investigation note so downstream agents can
+// reuse useful explanation without treating it as a citation or validator fact.
+func PreserveSupersededClosureReasonNote(notes []string, priorReason, currentReason string) []string {
+	priorReason = strings.TrimSpace(priorReason)
+	currentReason = strings.TrimSpace(currentReason)
+	if priorReason == "" || currentReason == "" || strings.EqualFold(priorReason, currentReason) {
+		return notes
+	}
+	for _, note := range notes {
+		if strings.Contains(note, priorReason) {
+			return notes
+		}
+	}
+	const prefix = "Previous accepted closure reason (preserved advisory, not a citation): "
+	return append(notes, prefix+priorReason)
 }
 
 func clampMergeSliceBase(base, n int) int {
