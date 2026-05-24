@@ -1923,3 +1923,72 @@ B2-J implementation note, 2026-05-24 CST:
 - Mid-loop read-without-emit recovery can surface the same discovery hint only
   after telling the model to first emit already-read evidence, avoiding a
   system-driven detour that would discard gathered evidence.
+
+B2-J smoke observation, 2026-05-25 00:10 CST:
+
+- Ran one focused `s5b` sample with
+  `EVAL_RESULTS_ROOT=eval/results/b2j-smoke bash eval/run.sh
+  eval/cases/s5b.case 1` and stopped after enough signal rather than waiting
+  for the slow local model to finish the full case.
+- The new discovery hint fired correctly after a broad `list_files` result:
+  `scope_groups=25 candidate_files=25`, with normalized
+  `repo_map {"path": "internal/analysis", "view": "source_inventory", ...}`
+  follow-up calls.
+- The model did not use the hint in analyze; it tried forbidden `read_file`
+  calls, then recovered to `emit_analysis`. This confirms B2-J is advisory and
+  does not override stage policy, but also shows the analyzer does not preserve
+  the source-inventory opportunity as a structured handoff.
+- In explore, the model first used older shell/list/grep patterns, then adopted
+  `repo_map(view="source_inventory")` in round 6 and a scoped expansion
+  (`scope="aggregator"`) in round 7. The discovery → cascade path is therefore
+  learnable by the local model.
+- Remaining gap: source-inventory output is still treated as navigation, not as
+  a structured coverage/verification plan. The model kept returning to shell
+  loops and one-file-at-a-time reads, and later the retry path complained that
+  the exhaustive principal enumeration was not closed through
+  `aggregate_facts.member_set`.
+
+Design B2-K: source-inventory observation handoff without pretending it is
+evidence.
+
+- Goal: once a source-inventory lens has produced a bounded candidate set, carry
+  it forward as a typed verification checklist so explorer/extractor/finalizer
+  can preserve count/list coverage without forcing the model to rediscover the
+  same rows.
+- Boundary:
+  - source-inventory rows remain navigation / mechanical inventory candidates,
+    not final source evidence;
+  - final answer citations still require `read_file`, `grep`, real directory
+    listing evidence, or other source/artifact evidence according to the
+    existing contract;
+  - the system may preserve candidate set shape, counts, languages, files, and
+    provenance, but must not select the final "entry point" semantics for the
+    model.
+- Generic mechanism:
+  - when `SourceInventoryObservation` is active and the stage later records
+    matching grounded evidence, reconcile the verified evidence back to the
+    candidate rows by role/file/symbol support refs;
+  - expose an advisory "verification checklist" to the next stage: confirmed
+    rows, unverified rows, ambiguous rows, and `count == len(candidates)`;
+  - when the model calls `emit_investigation_complete` without a member_set but
+    verified source-inventory coverage is already complete, offer a typed repair
+    hint that references the checklist instead of asking it to reread files;
+  - if coverage is incomplete, surface only the missing candidate rows and their
+    suggested verification files, not a broad reread instruction.
+- Generality:
+  - applies to package/file/function/type inventories, route/config inventories,
+    mixed-language trees, multi-repo active-set scoped inventories, and external
+    artifact backed inventories when the candidate rows carry typed provenance;
+  - does not depend on raw user keywords or model prose.
+
+Tasks:
+
+- [ ] B2-K1: inspect existing `SourceInventoryObservation` persistence and
+  Turn-A handoff paths; reuse them rather than introducing a parallel carrier.
+- [ ] B2-K2: add a source-inventory verification checklist view that separates
+  candidate rows from verified evidence rows and keeps `count == len(rows)`.
+- [ ] B2-K3: teach the explorer close/retry path to point at missing checklist
+  rows when a member_set handoff is incomplete.
+- [ ] B2-K4: add tests covering function/package, route/config, multi-language,
+  and active-set scoped checklists.
+- [ ] B2-K5: rerun `s5b` plus one mechanism and one config/route case.
