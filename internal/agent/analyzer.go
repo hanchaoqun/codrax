@@ -49,6 +49,16 @@ type analyzerEvaluator struct {
 	// start of each dispatch.
 	prescanRounds int
 
+	// terminalEmitOnlyInstructionIssued records that this analyze
+	// dispatch has already told the model to stop pre-scanning and
+	// emit the full emit_analysis payload. A later rejected
+	// repo_map/grep/list_files call after this point is no longer
+	// useful corrective signal; it should end the current attempt so
+	// runAnalyzePhase can retry with the existing terminal-forcing
+	// path. This is deliberately per-dispatch state, reset by
+	// BuildInitialInstruction.
+	terminalEmitOnlyInstructionIssued bool
+
 	// prescanBudgetOverride, when > 0, replaces
 	// tool.CurrentAnalysisLimits().MaxPrescanRounds for this dispatch.
 	// Set in BuildInitialInstruction when the question text heuristically
@@ -64,7 +74,11 @@ type analyzerEvaluator struct {
 func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	_ = sk
 	e.prescanRounds = 0
+	e.terminalEmitOnlyInstructionIssued = false
 	e.prescanBudgetOverride = 0
+	if ctx != nil && ctx.EmitStageRetryAttempt > 0 {
+		e.terminalEmitOnlyInstructionIssued = true
+	}
 	if ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.ResetPrescanSummary()
 		// Session 11 C0' — also reset the classification grep state
@@ -968,6 +982,7 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 		hint := "You wrote text but did not call any tool. Do NOT write more analysis — call emit_analysis NOW with the fields you have. If you need to verify entities first, call grep(files_only=true) in the SAME response as your reasoning, not in a separate turn."
 		if analyzerTerminalEmitOnly(ctx) {
 			hint = analyzerTerminalEmitOnlyHint()
+			e.terminalEmitOnlyInstructionIssued = true
 		}
 		return LoopSignal{
 			HintRequested: true,
@@ -996,6 +1011,20 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	if obs.LastToolResult.Repair != nil {
 		switch obs.LastToolResult.Repair.Code {
 		case analyzerPrescanBudgetReachedCode, analyzerPrescanTerminalEmitModeCode:
+			if analyzerToolResultsContainEmitAnalysis(obs.CurrentToolResults) {
+				// The model attempted the required terminal emit in
+				// this batch. Let the emit_analysis validation error
+				// itself drive the next correction instead of
+				// classifying the batch as pure stale navigation.
+				return LoopSignal{}
+			}
+			if e.terminalEmitOnlyInstructionIssued {
+				return LoopSignal{
+					StopRequested: true,
+					StopReason:    "terminal emit-only prescan rejected after prior emit_analysis instruction",
+				}
+			}
+			e.terminalEmitOnlyInstructionIssued = true
 			return LoopSignal{
 				HintRequested: true,
 				HintKey:       "analyzer.emit-only.after-prescan-reject",
@@ -1005,6 +1034,7 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 			hint := "That tool is outside the analyze-stage boundary. Analyze is classification-only: use only repo_map, grep(files_only=true), list_files for light location checks, or call emit_analysis now. Do not call read_file or content-reading tools in analyze."
 			if analyzerTerminalEmitOnly(ctx) {
 				hint = analyzerTerminalEmitOnlyHint()
+				e.terminalEmitOnlyInstructionIssued = true
 			}
 			return LoopSignal{
 				HintRequested: true,
@@ -1051,6 +1081,7 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 					Detail: obs.LastToolResult.ToolName,
 				})
 			}
+			e.terminalEmitOnlyInstructionIssued = true
 			return LoopSignal{
 				HintRequested: true,
 				Progress:      true,
@@ -1084,6 +1115,7 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 			e.prescanRounds, max)
 		logging.Debug("[analyzer] must-emit hint built key=%q rounds=%d/%d len=%d body=%q",
 			hintKey, e.prescanRounds, max, len(hint), logging.Truncate(hint, logging.HintBodyMax))
+		e.terminalEmitOnlyInstructionIssued = true
 		return LoopSignal{
 			HintRequested: true,
 			Progress:      true,
@@ -1109,6 +1141,15 @@ func analyzerTerminalEmitOnlyHint() string {
 func analyzerToolResultsContainSuccessfulEmitAnalysis(results []types.ToolResult) bool {
 	for _, result := range results {
 		if result.ToolName == "emit_analysis" && result.Success {
+			return true
+		}
+	}
+	return false
+}
+
+func analyzerToolResultsContainEmitAnalysis(results []types.ToolResult) bool {
+	for _, result := range results {
+		if result.ToolName == "emit_analysis" {
 			return true
 		}
 	}

@@ -1103,6 +1103,76 @@ func TestAnalyzer_Observe_BudgetRejectedPrescanGetsEmitOnlyHint(t *testing.T) {
 	}
 }
 
+func TestAnalyzer_Observe_BudgetRejectedAfterMustEmitStopsAttempt(t *testing.T) {
+	e := &analyzerEvaluator{terminalEmitOnlyInstructionIssued: true}
+	result := types.ToolResult{
+		ToolName: "list_files",
+		Success:  false,
+		Summary:  "pre-scan budget already reached",
+		Repair:   &types.ToolRepair{Code: analyzerPrescanBudgetReachedCode},
+	}
+	sig := e.Observe(&types.AgentContext{Stage: types.StageAnalyze}, LoopObservation{
+		Phase:              PhaseMidLoop,
+		LastToolResult:     &result,
+		AllToolResults:     []types.ToolResult{result},
+		CurrentToolResults: []types.ToolResult{result},
+	})
+	if !sig.StopRequested {
+		t.Fatalf("terminal pre-scan rejection after prior must-emit hint should stop current attempt, got %+v", sig)
+	}
+	if sig.HintRequested {
+		t.Fatalf("terminal pre-scan rejection after prior must-emit hint should not inject another hint, got %+v", sig)
+	}
+	if !strings.Contains(sig.StopReason, "terminal emit-only") {
+		t.Fatalf("StopReason = %q, want terminal emit-only context", sig.StopReason)
+	}
+}
+
+func TestAnalyzer_Observe_TerminalRejectedBatchWithEmitAnalysisAttemptDoesNotStop(t *testing.T) {
+	e := &analyzerEvaluator{terminalEmitOnlyInstructionIssued: true}
+	failedEmit := types.ToolResult{
+		ToolName: "emit_analysis",
+		Success:  false,
+		Summary:  "emit_analysis rejected: predicates object missing",
+	}
+	rejectedPrescan := types.ToolResult{
+		ToolName: "list_files",
+		Success:  false,
+		Summary:  "pre-scan budget already reached",
+		Repair:   &types.ToolRepair{Code: analyzerPrescanBudgetReachedCode},
+	}
+	sig := e.Observe(&types.AgentContext{Stage: types.StageAnalyze}, LoopObservation{
+		Phase:              PhaseMidLoop,
+		LastToolResult:     &rejectedPrescan,
+		AllToolResults:     []types.ToolResult{failedEmit, rejectedPrescan},
+		CurrentToolResults: []types.ToolResult{failedEmit, rejectedPrescan},
+	})
+	if sig.StopRequested || sig.HintRequested {
+		t.Fatalf("failed emit_analysis in the same batch should get its own validation retry, not terminal pre-scan stop/hint: %+v", sig)
+	}
+}
+
+func TestAnalyzer_Observe_RetryTerminalRejectedPrescanStopsAttempt(t *testing.T) {
+	e := &analyzerEvaluator{}
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, EmitStageRetryAttempt: 1}
+	e.BuildInitialInstruction(ctx, nil)
+	result := types.ToolResult{
+		ToolName: "grep",
+		Success:  false,
+		Summary:  "analyze retry is already in terminal emit mode",
+		Repair:   &types.ToolRepair{Code: analyzerPrescanTerminalEmitModeCode},
+	}
+	sig := e.Observe(ctx, LoopObservation{
+		Phase:              PhaseMidLoop,
+		LastToolResult:     &result,
+		AllToolResults:     []types.ToolResult{result},
+		CurrentToolResults: []types.ToolResult{result},
+	})
+	if !sig.StopRequested {
+		t.Fatalf("retry terminal pre-scan rejection should stop current attempt, got %+v", sig)
+	}
+}
+
 func TestAnalyzer_Observe_GrepFilesOnlyRejectedGetsShapeHint(t *testing.T) {
 	e := &analyzerEvaluator{}
 	result := types.ToolResult{

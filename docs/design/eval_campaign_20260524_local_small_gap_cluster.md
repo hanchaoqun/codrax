@@ -1091,3 +1091,185 @@ Validation so far:
   rejections, and the run was interrupted. Remaining gap: analyzer terminal
   pre-scan recovery should avoid spending another LLM turn on rejected
   navigation calls when enough typed pre-scan observations already exist.
+
+### P0 Design - Analyzer Terminal Pre-scan Violation
+
+Root cause:
+
+- The tool schema was already narrowed to `emit_analysis`, but local providers
+  can still return stale or text-recovered `repo_map` / `grep` / `list_files`
+  calls from prior context. Runtime correctly rejects those calls, so the
+  repository boundary is safe.
+- `analyzerEvaluator.Observe` treated the rejection as an ordinary repairable
+  tool error and injected another emit-only hint. For small models that cannot
+  obey the terminal tool choice, this spends an extra LLM turn without adding
+  any information.
+- `MutableState.PrescanSummaryBlob()` is not a replacement for
+  `emit_analysis`. It does not contain the complete required schema:
+  confidence fields, all explicit semantic predicates, answer subject,
+  profiles, completeness obligations, requested dimensions, and optional
+  routing lanes. Therefore the system must not synthesize a full analyzer IR
+  from pre-scan summaries.
+
+Commercial-grade contract:
+
+- Preserve the last-legal-round grace turn. When the analyzer reaches its
+  pre-scan wall, it still emits the existing must-call-`emit_analysis` hint so a
+  compliant model can provide the full typed schema.
+- After that terminal instruction has been issued, any subsequent response in
+  the same analyze dispatch that contains only rejected pre-scan/navigation
+  calls is treated as a failed attempt, not as a reason to inject another
+  identical hint.
+- The failed attempt flows into `runAnalyzePhase`'s existing retry path. A retry
+  still asks the model for the real `emit_analysis` payload with named
+  tool-choice forcing. Only after the configured analyzer retry budget is
+  exhausted does the orchestrator use the existing degraded recovery path.
+- No prompt code changes, no user-prose keyword matching, no model-prose
+  intent inference, and no deterministic answer synthesis are introduced.
+  Pre-scan summaries remain advisory search leads for validation and later
+  exploration, never final answer facts.
+
+Task list:
+
+- [x] Track whether a terminal emit-only instruction was already issued in the
+  current analyzer dispatch.
+- [x] On `analyzer_prescan_budget_reached` /
+  `analyzer_terminal_emit_mode` repair results, inject at most one terminal
+  correction hint before forcing the current attempt to stop.
+- [x] Keep the first-hint behavior for rare states where a rejected terminal
+  pre-scan arrives without a prior terminal instruction.
+- [x] Add analyzer loop-control tests for both paths: first rejected terminal
+  pre-scan gets one correction when no terminal instruction was sent; rejected
+  pre-scan after the must-emit hint stops the attempt.
+
+Validation:
+
+- `go test ./internal/agent -run 'TestAnalyzer_Observe_(BudgetRejected|TerminalRejected|RetryTerminal)|TestAnalyzer_PrescanBudget_MustEmitHintOnLastLegalRound'`
+- `go test ./internal/agent ./internal/orchestrator`
+- `make build`
+- Targeted `s5b` eval with the local model:
+  `eval/results/local-small-20260524-analyzer-terminal/s5b-20260524-204201`
+  returned PASS.
+
+Post-validation observation:
+
+- Analyzer is no longer the terminal blocker. The successful run emitted
+  `emit_analysis` on the third analyzer iteration after the one-time terminal
+  hint.
+- The run still paid a high exploration cost: `read_file=39`,
+  `explorer_iters=44`, and `explorer_dispatches=3`.
+- `SourceInventoryAdvisory` was present in the explorer prompt and carried a
+  rich checklist for `internal/analysis`, including all package/directory
+  candidates and related callable attributes.
+- The advisory is explicitly "not final answer text and not citations by
+  itself", so the evidence contract still pushed the model to re-enumerate and
+  read many files before closure. This is correct for safety, but it exposes
+  the next P0: advisory context is not enough for broad source-inventory
+  questions; the system needs a structured, auditable observation artifact.
+- The model also claimed `26` subpackages while the member list held `25`
+  entries; aggregate normalization corrected `member_set.value 26->25`. A
+  source-inventory observation must make `count == len(members)` explicit and
+  machine-checkable.
+
+### P0 Design - Source Inventory Observation Lens
+
+Root cause:
+
+- The current `SourceInventoryAdvisory` is a useful navigation carrier, but it
+  intentionally has no evidence authority. Explorer therefore cannot safely
+  close an exhaustive source-inventory answer from the advisory alone.
+- Prompt-visible advisory rows compete with broader workflow instructions,
+  pre-scanned file rankings, and scheduler hints. Even when the advisory is
+  rich and correct, local models often fall back to repeated `repo_map`,
+  `list_files`, `grep`, `exec_command find`, and one-file-at-a-time
+  `read_file` loops to satisfy the evidence contract.
+- Re-dispatch after downgraded closure replays the same broad enumeration
+  unless the completed candidate coverage is carried as a structured artifact
+  across retries. This is not a Go-only problem; it applies to any language
+  covered by repo-map symbols or filesystem inventory.
+
+Commercial-grade contract:
+
+- Add a generic source-inventory observation lens rather than a case-specific
+  "entry-point function" shortcut. The lens consumes typed scope and model
+  declared roles from existing IR (`source_inventory_profile`,
+  `answer_role_profile`, bounded source enumeration traits, requested scopes),
+  never raw user-prose keywords or model prose.
+- The lens returns a compact, language-neutral candidate table:
+  members, symbols, attributes, coverage state, ambiguity, count, and
+  provenance. It should preserve model-provided scope/order when available and
+  use stable graph order only as a tie-break.
+- The lens is advisory for semantic choices but authoritative for mechanical
+  observations it directly obtains: directory/file membership from filesystem
+  scope, parser-backed symbol location from repo-map graph, and fallback search
+  output when used. Downstream validators can treat those rows as auditable
+  observations without pretending that the model has read each full file.
+- Ambiguous rows remain explicit. If a package has multiple plausible
+  entry/public/handler candidates, the system marks ambiguity and offers
+  bounded `next_reads`; it does not pick a winner on behalf of the model.
+- The artifact must carry `count`, `members`, and per-member support refs so
+  `count/list` drift is caught before finalizer. A corrected count may be
+  appended as system observation, but the answer text must still distinguish
+  model-authored conclusions from system-added caveats.
+- Existing `SourceInventoryAdvisory` remains the prompt-visible hint. The new
+  observation should reuse the same candidate builder and merge logic, not
+  duplicate source scanning or invent another ranking subsystem.
+
+Proposed schema:
+
+```json
+{
+  "scope": ["internal/analysis"],
+  "lens": ["members", "symbols", "attributes"],
+  "sets": [
+    {
+      "role": "package",
+      "complete": true,
+      "count": 25,
+      "members": [
+        {
+          "name": "aggregator",
+          "support_ref": "internal/analysis/aggregator",
+          "language": "go",
+          "attributes": [
+            {
+              "name": "New",
+              "role": "function",
+              "file": "internal/analysis/aggregator/aggregator.go",
+              "line": 112,
+              "ambiguity": "one_of_many_callable_attributes"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "provenance": ["filesystem_scope", "repomap_graph"],
+  "next_reads": [
+    {
+      "file": "internal/analysis/aggregator/aggregator.go",
+      "line_window": "108-132",
+      "why": "confirm semantic role among multiple callable attributes"
+    }
+  ]
+}
+```
+
+Task list:
+
+- [ ] Promote `SourceInventoryAdvisory` rows into a reusable
+  `SourceInventoryObservation` artifact with count/member/support-ref fields.
+- [ ] Register the artifact in `MutableState` / `TurnAArtifacts` so it survives
+  explorer retries and extractor/finalizer handoff.
+- [ ] Teach `emit_investigation_complete` member-set validation to accept
+  observation-backed rows for mechanical source-inventory facts, while still
+  requiring model evidence or explicit ambiguity for semantic choices.
+- [ ] Render the observation compactly in explorer and extractor prompts,
+  preserving model order and showing ambiguity/next-read rows without forcing
+  final-answer text.
+- [ ] Add cross-language tests using Go, Python, Java, TypeScript/ArkTS, Proto,
+  Kotlin/Cangjie-style symbols to ensure the lens consumes repo-map symbols,
+  not language-specific heuristics.
+- [ ] Add an eval guard for `s5b` that tracks not only PASS/FAIL but also
+  `read_file`, `explorer_iters`, and `explorer_dispatches`, so future changes
+  cannot silently regress to high-cost enumeration.
