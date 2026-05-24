@@ -2961,8 +2961,12 @@ func (m *MutableState) SetSourceInventoryAdvisory(a SourceInventoryAdvisory) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	priorActive := m.sourceInventoryAdvisory.IsActive()
+	priorObservation := CloneSourceInventoryObservation(m.sourceInventoryObservation)
 	m.sourceInventoryAdvisory = CloneSourceInventoryAdvisory(a)
 	m.sourceInventoryObservation = SourceInventoryObservationFromAdvisory(m.sourceInventoryAdvisory)
+	if priorObservation.IsActive() {
+		m.sourceInventoryObservation = MergeSourceInventoryObservation(priorObservation, m.sourceInventoryObservation)
+	}
 	if !m.sourceInventoryAdvisory.IsActive() || !priorActive {
 		m.sourceInventoryAdvisoryHinted = false
 	}

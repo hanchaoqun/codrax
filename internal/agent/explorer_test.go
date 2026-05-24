@@ -5953,6 +5953,7 @@ func TestObserveMidLoop_CompletionReadyHint(t *testing.T) {
 
 	eval := &explorerEvaluator{
 		phase:                      1,
+		isEnumerationQuery:         true,
 		heuristics:                 types.ExploreHeuristics{MidLoopMinIteration: 2},
 		searchResult:               &keywordSearchResult{Graph: &repomap.Graph{}},
 		midLoopPostPrimaryInjected: true,
@@ -6021,6 +6022,122 @@ func TestObserveMidLoop_CompletionReadyHint(t *testing.T) {
 	})
 	if again.HintRequested && again.HintKey == "explorer.mid-loop.completion-ready" {
 		t.Fatalf("completion-ready hint must be one-shot, fired again: %+v", again)
+	}
+}
+
+func TestObserveMidLoop_CompletionReadySuppressedByExactCandidateUniverse(t *testing.T) {
+	mut := types.NewMutableState("list all source scopes")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"src"},
+		Provenance:   []string{"tool:list_files:direct"},
+		Lens:         []string{"direct_children", "count"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRolePackage,
+			Complete: true,
+			Count:    3,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:       "alpha",
+				Key:        "src/alpha",
+				SupportRef: "src/alpha",
+				Provenance: []string{"tool:list_files:direct"},
+				Role:       types.AnswerCandidateRolePackage,
+				File:       "src/alpha",
+			}, {
+				Name:       "beta",
+				Key:        "src/beta",
+				SupportRef: "src/beta",
+				Provenance: []string{"tool:list_files:direct"},
+				Role:       types.AnswerCandidateRolePackage,
+				File:       "src/beta",
+			}, {
+				Name:       "gamma",
+				Key:        "src/gamma",
+				SupportRef: "src/gamma",
+				Provenance: []string{"tool:list_files:direct"},
+				Role:       types.AnswerCandidateRolePackage,
+				File:       "src/gamma",
+			}},
+		}},
+	})
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "source scopes",
+		Value:   "2",
+		Members: []string{"alpha", "beta"},
+	}})
+	eval := &explorerEvaluator{
+		phase:                      1,
+		heuristics:                 types.ExploreHeuristics{MidLoopMinIteration: 2},
+		searchResult:               &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopPostPrimaryInjected: true,
+		mutable:                    mut,
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+			AnalyzerHints: types.AnalyzerHints{
+				Kind: string(types.ReqEnumeration),
+			},
+			CompletenessObligation: &types.CompletenessObligation{
+				Required:    true,
+				SourceQuote: "all direct scopes",
+			},
+		}},
+		structuredEvidence: []types.EvidenceItem{{
+			Kind:            types.EvidenceDirect,
+			Subject:         "alpha",
+			Predicate:       "listed",
+			Object:          "source scope",
+			Source:          "src/alpha",
+			GroundingStatus: types.GroundingGrounded,
+		}, {
+			Kind:            types.EvidenceDirect,
+			Subject:         "beta",
+			Predicate:       "listed",
+			Object:          "source scope",
+			Source:          "src/beta",
+			GroundingStatus: types.GroundingGrounded,
+		}, {
+			Kind:            types.EvidenceDirect,
+			Subject:         "gamma",
+			Predicate:       "listed_candidate",
+			Object:          "source scope candidate",
+			Source:          "src/gamma",
+			GroundingStatus: types.GroundingGrounded,
+		}, {
+			Kind:            types.EvidenceRegistration,
+			Subject:         "alpha",
+			Predicate:       "registers",
+			Object:          "source scope",
+			Source:          "src/alpha",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+	results := []types.ToolResult{
+		{ToolName: "list_files", Success: true, Summary: "[list_files: path=src recursive=false]\nsrc/alpha\nsrc/beta\nsrc/gamma\n"},
+		{ToolName: "grep", Success: true, Summary: "src/alpha\nsrc/beta\nsrc/gamma"},
+		{ToolName: "read_file", Success: true, Summary: "[src/alpha: showing lines 1-20 of 20]\nalpha\n"},
+		{ToolName: "read_file", Success: true, Summary: "[src/beta: showing lines 1-20 of 20]\nbeta\n"},
+		{ToolName: "read_file", Success: true, Summary: "[src/gamma: showing lines 1-20 of 20]\ngamma\n"},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
+	}
+
+	sig := eval.postCompletionReadySignal(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      3,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.candidate-universe-pending" {
+		t.Fatalf("exact candidate universe gap should replace generic close-ready, got %+v", sig)
+	}
+	if !strings.Contains(sig.Hint, "gamma") || !strings.Contains(sig.Hint, "not yet fully covered") {
+		t.Fatalf("candidate-universe hint should name missing candidate and preserve advisory boundary, got: %s", sig.Hint)
+	}
+	if eval.midLoopCompletionReadySent {
+		t.Fatal("generic completion-ready latch must remain unset while exact candidate universe is pending")
 	}
 }
 

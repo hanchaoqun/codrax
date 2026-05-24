@@ -1321,6 +1321,84 @@ func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryChecklistGuid
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryExactUniverseRejectsPartialMemberSet(t *testing.T) {
+	mut := types.NewMutableState("list all source scopes")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"src"},
+		Provenance:   []string{"tool:list_files:direct"},
+		Lens:         []string{"direct_children", "count"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRolePackage,
+			Complete: true,
+			Count:    3,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:       "alpha",
+				Key:        "src/alpha",
+				SupportRef: "src/alpha",
+				Provenance: []string{"tool:list_files:direct"},
+				Role:       types.AnswerCandidateRolePackage,
+				File:       "src/alpha",
+			}, {
+				Name:       "beta",
+				Key:        "src/beta",
+				SupportRef: "src/beta",
+				Provenance: []string{"tool:list_files:direct"},
+				Role:       types.AnswerCandidateRolePackage,
+				File:       "src/beta",
+			}, {
+				Name:       "gamma",
+				Key:        "src/gamma",
+				SupportRef: "src/gamma",
+				Provenance: []string{"tool:list_files:direct"},
+				Role:       types.AnswerCandidateRolePackage,
+				File:       "src/gamma",
+			}},
+		}},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind: string(types.ReqEnumeration),
+				},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "all direct scopes",
+				},
+			},
+			AnswerContract: types.AnswerContract{CitationReq: types.CitationReq{Required: false}},
+		},
+	}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "alpha and beta are verified principal scopes",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "source scopes",
+			"value":        "2",
+			"members":      []string{"alpha", "beta"},
+			"support_refs": []string{"src/alpha", "src/beta"},
+		}},
+	})
+	res, err := (&EmitInvestigationComplete{}).Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "exact candidate universe") || !strings.Contains(res.Summary, "gamma") {
+		t.Fatalf("partial exact universe should reject with missing member guidance, got:\n%s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatal("investigation should remain open until the exact universe is covered or excluded")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_RelationMemberWithoutTypedSupportBlocks(t *testing.T) {
 	mut := types.NewMutableState("列出 internal/analysis/ 下所有子包的目录名，以及每个子包的单一入口函数")
 	mut.AppendEvidence([]types.EvidenceItem{{

@@ -1,0 +1,421 @@
+package tool
+
+import (
+	"fmt"
+	"path"
+	"sort"
+	"strconv"
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+const (
+	sourceInventoryExactUniverseProvenanceListFilesDirect        = "tool:list_files:direct"
+	sourceInventoryExactUniverseProvenanceRepoLensDirectChildren = "repo_lens:direct_children"
+)
+
+type sourceInventoryExactUniverseSet struct {
+	role    types.AnswerCandidateRole
+	scope   string
+	members []types.SourceInventoryObservationMember
+}
+
+// SourceInventoryCandidateUniverseGap describes a structural mismatch between
+// an exact candidate universe observed by navigation tools and the model's
+// own structured member_set/exclusion handoff. It never declares the observed
+// candidates to be final-answer members; callers use it only to avoid treating
+// a partial member_set as complete without an explicit model-authored
+// exclusion/disclosure.
+type SourceInventoryCandidateUniverseGap struct {
+	Role      types.AnswerCandidateRole
+	Scope     string
+	Count     int
+	Covered   int
+	Excluded  int
+	Missing   []types.SourceInventoryObservationMember
+	Blocking  bool
+	Disclosed bool
+}
+
+func (g SourceInventoryCandidateUniverseGap) IsActive() bool {
+	return g.Count > 0 && len(g.Missing) > 0
+}
+
+func (g SourceInventoryCandidateUniverseGap) Summary(maxMissing int) string {
+	if !g.IsActive() {
+		return ""
+	}
+	if maxMissing <= 0 {
+		maxMissing = 8
+	}
+	role := strings.TrimSpace(string(g.Role))
+	if role == "" {
+		role = "candidate"
+	}
+	scope := strings.TrimSpace(g.Scope)
+	if scope == "" {
+		scope = "."
+	}
+	names := g.MissingNames(maxMissing)
+	omitted := ""
+	if len(g.Missing) > len(names) {
+		omitted = fmt.Sprintf(" (+%d more)", len(g.Missing)-len(names))
+	}
+	return fmt.Sprintf("role=%s scope=%s exact_count=%d covered=%d excluded=%d missing=%d [%s]%s",
+		role, scope, g.Count, g.Covered, g.Excluded, len(g.Missing), strings.Join(names, ", "), omitted)
+}
+
+func (g SourceInventoryCandidateUniverseGap) MissingNames(max int) []string {
+	if max <= 0 || max > len(g.Missing) {
+		max = len(g.Missing)
+	}
+	out := make([]string, 0, max)
+	seen := make(map[string]bool, max)
+	for _, member := range g.Missing {
+		name := strings.TrimSpace(member.Name)
+		if name == "" {
+			name = strings.TrimSpace(member.Key)
+		}
+		if name == "" {
+			name = strings.TrimSpace(member.File)
+		}
+		if name == "" {
+			continue
+		}
+		key := sourceInventoryUniverseSurfaceKey(name)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, name)
+		if len(out) >= max {
+			break
+		}
+	}
+	return out
+}
+
+// SourceInventoryCandidateUniverseCoverageGap compares exact observed
+// candidate universes with model-authored aggregate facts. Exact universes are
+// currently published by direct, non-recursive list_files results and by the
+// model's explicit source_inventory lens requests when they ask for mechanical
+// direct-child roles such as package/file/config_file. Future structured tools
+// can opt in by attaching the same member-level exact provenance semantics.
+// Advisory repo-map/source-inventory graph rows without exact provenance are
+// intentionally ignored here.
+func SourceInventoryCandidateUniverseCoverageGap(ctx *types.BusContext, facts []types.AnswerAggregateFact) SourceInventoryCandidateUniverseGap {
+	if ctx == nil || ctx.Mutable == nil {
+		return SourceInventoryCandidateUniverseGap{}
+	}
+	universes := sourceInventoryExactUniverseSets(ctx.Mutable.SourceInventoryObservation())
+	if len(universes) == 0 {
+		return SourceInventoryCandidateUniverseGap{}
+	}
+	var rm *types.RequestModel
+	if ctx.AnalysisIR != nil {
+		rm = &ctx.AnalysisIR.RequestModel
+	}
+	included, excluded := sourceInventoryAggregateCoverageKeys(facts, rm)
+	best := SourceInventoryCandidateUniverseGap{}
+	for _, universe := range universes {
+		if len(universe.members) == 0 {
+			continue
+		}
+		gap := sourceInventoryCoverageForUniverse(universe, included, excluded)
+		if !gap.IsActive() {
+			continue
+		}
+		if len(facts) > 0 && !sourceInventoryUniverseStronglyAligned(gap) {
+			continue
+		}
+		if gap.Covered > 0 && sourceInventoryAggregateHasCountDisclosure(facts, len(gap.Missing)) {
+			gap.Blocking = false
+			gap.Disclosed = true
+		} else {
+			gap.Blocking = true
+		}
+		if sourceInventoryCandidateUniverseGapBetter(gap, best) {
+			best = gap
+		}
+	}
+	return best
+}
+
+func sourceInventoryExactUniverseSets(observation types.SourceInventoryObservation) []sourceInventoryExactUniverseSet {
+	if !observation.IsActive() {
+		return nil
+	}
+	groups := map[string]*sourceInventoryExactUniverseSet{}
+	var order []string
+	for _, set := range observation.Sets {
+		if !set.Complete || len(set.Members) == 0 {
+			continue
+		}
+		for _, member := range set.Members {
+			if !sourceInventoryObservationMemberIsExactUniverse(member) {
+				continue
+			}
+			scope := sourceInventoryObservationMemberScope(member)
+			key := string(member.Role) + "\x00" + scope
+			group := groups[key]
+			if group == nil {
+				group = &sourceInventoryExactUniverseSet{role: member.Role, scope: scope}
+				groups[key] = group
+				order = append(order, key)
+			}
+			group.members = append(group.members, member)
+		}
+	}
+	out := make([]sourceInventoryExactUniverseSet, 0, len(order))
+	for _, key := range order {
+		group := groups[key]
+		if group == nil || len(group.members) == 0 {
+			continue
+		}
+		out = append(out, *group)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if len(out[i].members) != len(out[j].members) {
+			return len(out[i].members) > len(out[j].members)
+		}
+		if out[i].scope != out[j].scope {
+			return out[i].scope < out[j].scope
+		}
+		return string(out[i].role) < string(out[j].role)
+	})
+	return out
+}
+
+func sourceInventoryObservationMemberIsExactUniverse(member types.SourceInventoryObservationMember) bool {
+	for _, provenance := range member.Provenance {
+		switch strings.TrimSpace(provenance) {
+		case sourceInventoryExactUniverseProvenanceListFilesDirect,
+			sourceInventoryExactUniverseProvenanceRepoLensDirectChildren:
+			return true
+		}
+	}
+	return false
+}
+
+func sourceInventoryObservationMemberScope(member types.SourceInventoryObservationMember) string {
+	raw := strings.TrimSpace(member.Key)
+	if raw == "" {
+		raw = strings.TrimSpace(member.File)
+	}
+	raw = strings.Trim(strings.ReplaceAll(raw, `\`, `/`), "/")
+	if raw == "" {
+		return "."
+	}
+	dir := path.Dir(raw)
+	if dir == "." || dir == "/" || dir == "" {
+		return "."
+	}
+	return dir
+}
+
+func sourceInventoryCoverageForUniverse(universe sourceInventoryExactUniverseSet, included, excluded map[string]bool) SourceInventoryCandidateUniverseGap {
+	gap := SourceInventoryCandidateUniverseGap{
+		Role:  universe.role,
+		Scope: universe.scope,
+		Count: len(universe.members),
+	}
+	for _, member := range universe.members {
+		keys := sourceInventoryUniverseMemberKeys(member)
+		if sourceInventoryUniverseAnyKey(keys, included) {
+			gap.Covered++
+			continue
+		}
+		if sourceInventoryUniverseAnyKey(keys, excluded) {
+			gap.Excluded++
+			continue
+		}
+		gap.Missing = append(gap.Missing, member)
+	}
+	return gap
+}
+
+func sourceInventoryUniverseStronglyAligned(gap SourceInventoryCandidateUniverseGap) bool {
+	aligned := gap.Covered + gap.Excluded
+	if aligned <= 0 || gap.Count <= 0 || aligned >= gap.Count {
+		return false
+	}
+	if gap.Count <= 3 {
+		return aligned >= 2 && aligned >= gap.Count-1
+	}
+	return aligned >= 3 && aligned*5 >= gap.Count*3
+}
+
+func sourceInventoryAggregateCoverageKeys(facts []types.AnswerAggregateFact, rm *types.RequestModel) (map[string]bool, map[string]bool) {
+	included := map[string]bool{}
+	excluded := map[string]bool{}
+	addMany := func(target map[string]bool, raw string) {
+		for _, key := range sourceInventoryUniverseAggregateMemberKeys(raw) {
+			target[key] = true
+		}
+	}
+	for _, fact := range facts {
+		role := types.AnswerAggregateFactRoleForRequest(fact, rm)
+		if role == types.AnswerAggregateRolePrincipalAnswer && types.AnswerAggregateFactCarriesCompleteMemberSet(fact) {
+			for _, member := range fact.Members {
+				addMany(included, member)
+			}
+		}
+		for _, member := range fact.Excluded {
+			addMany(excluded, member)
+		}
+		if fact.Kind == types.AnswerAggregateExcluded {
+			for _, member := range fact.Members {
+				addMany(excluded, member)
+			}
+		}
+	}
+	return included, excluded
+}
+
+func sourceInventoryAggregateHasCountDisclosure(facts []types.AnswerAggregateFact, missingCount int) bool {
+	if missingCount <= 0 {
+		return true
+	}
+	for _, fact := range facts {
+		if fact.Kind != types.AnswerAggregateExcluded {
+			continue
+		}
+		value := strings.TrimSpace(fact.Value)
+		if value == "" {
+			continue
+		}
+		n, err := strconv.Atoi(value)
+		if err == nil && n == missingCount {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceInventoryCandidateUniverseGapBetter(candidate, current SourceInventoryCandidateUniverseGap) bool {
+	if !candidate.IsActive() {
+		return false
+	}
+	if !current.IsActive() {
+		return true
+	}
+	if candidate.Blocking != current.Blocking {
+		return candidate.Blocking
+	}
+	cAligned := candidate.Covered + candidate.Excluded
+	curAligned := current.Covered + current.Excluded
+	if cAligned != curAligned {
+		return cAligned > curAligned
+	}
+	if candidate.Count != current.Count {
+		return candidate.Count > current.Count
+	}
+	return len(candidate.Missing) > len(current.Missing)
+}
+
+func sourceInventoryUniverseAnyKey(keys []string, target map[string]bool) bool {
+	for _, key := range keys {
+		if target[key] {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceInventoryUniverseMemberKeys(member types.SourceInventoryObservationMember) []string {
+	var out []string
+	add := func(raw string) {
+		out = sourceInventoryUniverseAppendSurfaceKeys(out, raw)
+	}
+	add(member.Name)
+	add(member.Key)
+	add(member.SupportRef)
+	add(member.File)
+	return sourceInventoryUniverseDedupKeys(out)
+}
+
+func sourceInventoryUniverseAggregateMemberKeys(member string) []string {
+	var out []string
+	add := func(raw string) {
+		out = sourceInventoryUniverseAppendSurfaceKeys(out, raw)
+	}
+	add(member)
+	for _, candidate := range types.AnswerAggregateMemberDisplayCandidates(member) {
+		add(candidate)
+	}
+	if label, loc, ok := types.ParseAnswerSupportRefMemberLocation(member); ok {
+		add(label)
+		add(loc.File)
+	}
+	if left, right, ok := types.AnswerAggregateMemberRelationParts(member); ok {
+		add(left)
+		add(right)
+	}
+	if base, qualifier, ok := types.AnswerAggregateDecoratedLabelParts(member); ok {
+		add(base)
+		add(qualifier)
+	}
+	for _, sep := range []string{" @ ", "\t", " | "} {
+		if idx := strings.Index(member, sep); idx > 0 {
+			add(member[:idx])
+		}
+	}
+	return sourceInventoryUniverseDedupKeys(out)
+}
+
+func sourceInventoryUniverseAppendSurfaceKeys(out []string, raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return out
+	}
+	add := func(candidate string) {
+		if key := sourceInventoryUniverseSurfaceKey(candidate); key != "" {
+			out = append(out, key)
+		}
+	}
+	add(raw)
+	if label, loc, ok := types.ParseAnswerSupportRefMemberLocation(raw); ok {
+		add(label)
+		add(loc.File)
+	}
+	normalizedPath := strings.Trim(strings.ReplaceAll(raw, `\`, `/`), "/")
+	if normalizedPath != "" && strings.Contains(normalizedPath, "/") {
+		add(path.Base(normalizedPath))
+	}
+	if base, qualifier, ok := types.AnswerAggregateDecoratedLabelParts(raw); ok {
+		add(base)
+		add(qualifier)
+	}
+	if left, right, ok := types.AnswerAggregateMemberRelationParts(raw); ok {
+		add(left)
+		add(right)
+	}
+	return out
+}
+
+func sourceInventoryUniverseSurfaceKey(raw string) string {
+	raw = strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+	raw = strings.Trim(raw, "` \t\r\n")
+	if raw == "" {
+		return ""
+	}
+	return strings.ToLower(strings.Join(strings.Fields(raw), " "))
+}
+
+func sourceInventoryUniverseDedupKeys(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(in))
+	out := make([]string, 0, len(in))
+	for _, key := range in {
+		key = strings.TrimSpace(key)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	return out
+}

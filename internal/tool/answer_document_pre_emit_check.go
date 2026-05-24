@@ -47,6 +47,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -412,6 +413,9 @@ func runPreEmitChecksWithContext(doc *types.AnswerDocumentV2, view *types.Answer
 		} else {
 			logSoftPreEmitAdvisory("emit_answer_document", "aggregate member_set coverage", h)
 		}
+	}
+	if h := preCheckSourceInventoryCandidateUniverseCoverage(doc, ctxOpt...); len(h) > 0 {
+		hints = appendPreEmitHints(hints, types.ViolExhaustiveMemberSetCoverageDrift, h)
 	}
 	if h := preCheckAggregateCardinalityConsistency(doc, ctxOpt...); len(h) > 0 {
 		hints = appendPreEmitHints(hints, types.ViolCardinalityShort, h)
@@ -3247,6 +3251,103 @@ func preCheckAggregateMemberSetCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*
 	}}
 }
 
+func preCheckSourceInventoryCandidateUniverseCoverage(doc *types.AnswerDocumentV2, ctxOpt ...*types.BusContext) []emitFixHint {
+	if doc == nil || len(ctxOpt) == 0 || ctxOpt[0] == nil || ctxOpt[0].Mutable == nil {
+		return nil
+	}
+	ctx := ctxOpt[0]
+	if answerDocumentRuntimeObservationOnly(ctx) {
+		return nil
+	}
+	if ctx.AnalysisIR == nil || !types.RequiresExhaustiveEnumerationMemberSetHandoff(ctx.AnalysisIR.RequestModel) {
+		return nil
+	}
+	view := types.BuildAnswerSemanticViewForBusContext(ctx)
+	if view == nil || view.Family != types.QFEnumeration || !view.NeedsEnumerationSlate() {
+		return nil
+	}
+	gap := SourceInventoryCandidateUniverseCoverageGap(ctx, ctx.Mutable.StableInvestigationAggregateFacts())
+	if !gap.Blocking {
+		return nil
+	}
+	if preEmitDocumentHasExplicitCaveat(doc) {
+		return nil
+	}
+	surface := preEmitVisibleAnswerSurface(doc)
+	var missing []string
+	for _, member := range gap.Missing {
+		if preEmitSourceInventoryUniverseMemberAppearsInDocument(member, doc, surface) {
+			continue
+		}
+		name := strings.TrimSpace(member.Name)
+		if name == "" {
+			name = strings.TrimSpace(member.Key)
+		}
+		if name == "" {
+			name = strings.TrimSpace(member.File)
+		}
+		if name != "" {
+			missing = append(missing, name)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	if len(missing) > 12 {
+		missing = append(missing[:12], fmt.Sprintf("... %d more omitted candidate(s)", len(gap.Missing)-12))
+	}
+	return []emitFixHint{{
+		Field:         "aggregate_facts.member_set/excluded OR blocks[].kind=caveat",
+		ExpectedShape: "preserve the exact candidate-universe contract before presenting a complete enumeration: " + gap.Summary(12),
+		Reason:        "structured navigation observed an exact candidate universe, but the accepted investigation handoff did not cover or exclude every observed candidate. The system will not add those candidates to the answer; the model must either include verified principal members, explicitly exclude non-answer candidates, or disclose the remaining scope boundary in a caveat.",
+	}}
+}
+
+func preEmitSourceInventoryUniverseMemberAppearsInDocument(member types.SourceInventoryObservationMember, doc *types.AnswerDocumentV2, surface string) bool {
+	for _, candidate := range sourceInventoryUniverseMemberVisibleCandidates(member) {
+		if preEmitAggregateMemberAppearsInDocument(candidate, doc, surface) {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceInventoryUniverseMemberVisibleCandidates(member types.SourceInventoryObservationMember) []string {
+	var out []string
+	for _, raw := range []string{member.Name, member.Key, member.SupportRef, member.File} {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			continue
+		}
+		out = append(out, raw)
+		if label, _, ok := types.ParseAnswerSupportRefMemberLocation(raw); ok && strings.TrimSpace(label) != "" {
+			out = append(out, label)
+		}
+		normalizedPath := strings.Trim(strings.ReplaceAll(raw, `\`, `/`), "/")
+		if normalizedPath != "" && strings.Contains(normalizedPath, "/") {
+			out = append(out, path.Base(normalizedPath))
+		}
+	}
+	return dedupPreEmitStringCandidates(out)
+}
+
+func preEmitDocumentHasExplicitCaveat(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if block.Kind == types.BlockCaveat && strings.TrimSpace(types.AnswerBlockVisibleSurface(block)) != "" {
+			return true
+		}
+	}
+	for _, caveat := range doc.Caveats {
+		if strings.TrimSpace(caveat) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func preEmitAggregateMemberSetIsScalarCountSupport(ctx *types.BusContext, fact types.AnswerAggregateFact) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false
@@ -5589,7 +5690,7 @@ func preCheckEnumerationLabelGrounding(doc *types.AnswerDocumentV2, oracle types
 
 func preEmitEnumerationLabelGroundingHardGate(pctx *preEmitCheckContext) bool {
 	if pctx == nil || pctx.ctx == nil || pctx.ctx.AnalysisIR == nil {
-		return true
+		return false
 	}
 	rm := pctx.ctx.AnalysisIR.RequestModel
 	if types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||

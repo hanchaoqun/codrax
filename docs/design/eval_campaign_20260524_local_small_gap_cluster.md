@@ -2674,3 +2674,128 @@ B2-T enumeration completeness handoff must dominate close-ready, 2026-05-25 CST:
     tests, cross-repo active-set members, or external artifact sections;
   - the guard should operate over structured candidate universes and typed
     roles/provenance, not user-question keywords or model prose.
+
+Design B2-T1: candidate universe registry on existing source-inventory carriers.
+
+- Do not create a second fact system. Reuse `SourceInventoryObservation` as the
+  auditable candidate-universe carrier and keep `SourceInventoryAdvisory` as the
+  prompt/navigation hint. The observation already has `count == len(members)`,
+  role, support-ref, file, line, language, merge, ledger, and Turn-A handoff
+  semantics.
+- Publish exact candidate universes from structured tool results, starting with
+  non-recursive `list_files`. A non-recursive list over an active-set-safe path
+  is a mechanical direct-child universe: directories become
+  `AnswerCandidateRolePackage` (package/directory/module scope), regular files
+  become `file`, and recognizable config/manifest files become `config_file`.
+  This is language-neutral and multi-repo safe because it runs after the
+  existing path resolver, active-set gate, symlink/parent escape checks, and
+  shared exclude filters.
+- Keep source-inventory graph/lens rows advisory unless their exact universe is
+  backed by such a structured exact observation. Function/method/type/config-key
+  rows remain navigation candidates by default. The system must not broaden a
+  model-authored answer by appending every graph symbol in scope.
+- Coverage contract:
+  - close-ready must be suppressed or qualified when an exact candidate
+    universe is active and no model-authored principal `member_set` covers,
+    excludes, or honestly discloses the universe;
+  - `emit_investigation_complete` must reject an exact-universe mismatch when
+    the model emits a principal `member_set` that partially covers the universe
+    and claims completeness through `value == len(members)`;
+  - finalizer must not silently render an exhaustive answer that omits known
+    exact-universe candidates. If a legacy/bad handoff reaches finalization, the
+    model can either include the missing candidates itself or add a structured
+    caveat/lower-bound disclosure; the system still does not fill the answer.
+- Matching rules must be structural and language-neutral:
+  - compare observation member identities against model-authored members,
+    relation left axes, decorated-label bases, support-ref labels, and explicit
+    exclusions;
+  - never read the user question or model prose to decide whether a universe is
+    relevant;
+  - only hard-block when the request is already a typed exhaustive enumeration
+    and the model has strongly aligned its member_set/count facts with the exact
+    universe. Current guardrail: an incomplete universe must have at least two
+    aligned members for tiny sets, or at least three aligned members and >=60%
+    coverage/exclusion for larger sets. Purely unrelated list/file inventories,
+    one-off overlaps, mechanism/architecture/trace questions, and graph/lens
+    advisory rows stay advisory.
+- Task split:
+  - [x] B2-T1-A: publish non-recursive `list_files` results into
+    `SourceInventoryObservation` without overwriting existing advisory/lens
+    observations.
+  - [x] B2-T1-B: add a shared candidate-universe coverage helper over
+    `SourceInventoryObservation` + aggregate facts.
+  - [x] B2-T1-C: use the helper to suppress generic close-ready and emit a
+    candidate-universe reconciliation hint.
+  - [x] B2-T1-D: use the helper in `emit_investigation_complete` pre-complete
+    downgrade, preserving the existing support-ref and missing-member-set
+    repair flow.
+  - [x] B2-T1-E: add finalizer pre-emit protection for legacy/bad handoffs.
+  - [x] B2-T1-F: add tests for list-files publication, incomplete universe
+    rejection, explicit exclusion allowance, close-ready suppression, and
+    finalizer protection.
+  - [x] B2-T1-G: publish exact direct-child universes from explicit
+    `repo_map(view="source_inventory")` lens requests for mechanical direct
+    child roles (`package`, `file`, `config_file`). This is not Go-specific:
+    it scans the active-set-safe repo-relative direct children under the model's
+    typed `path`/`scope` query, reuses the shared search exclusion policy, and
+    stores the result as internal exact provenance
+    `repo_lens:direct_children` without duplicating rows in the visible lens
+    table.
+
+Follow-up observation during B2-T1 verification, 2026-05-25 CST:
+
+- The running s5b eval showed `建议文件 23 个` in the analyzer summary while
+  `repo_map(view="source_inventory")` actually returned
+  `scope_groups=25` and `roles=package:25` for `internal/analysis`.
+  Filesystem reality is also 25 direct directories. Therefore "23" was not a
+  repo-map count; it came from the model-authored `emit_analysis.required_files`
+  advisory list and was later confused with the source-inventory universe.
+- Root cause: analyzer `required_files` is a file-reading hint, not an
+  exhaustive candidate universe. It can be incomplete by design, especially
+  when derived from grep/repo-map prescan. It must not outrank an exact
+  source-inventory/list-files universe for exhaustive enumeration closure.
+- Implemented mitigation: explicit source-inventory lens direct children now
+  publish the same kind of exact universe as direct `list_files`, but with a
+  separate provenance marker. The visible lens keeps its compact summary and
+  cascade guidance, while close-ready / investigation-complete / finalizer read
+  the exact internal carrier. This avoids both user-facing row duplication and
+  downstream "23 files == 23 members" confusion.
+- Remaining watch point: analyzer summaries may still display the raw
+  `required_files` count as "suggested files". That is correct UX for reading
+  hints, but future wording should keep the "not an exhaustive inventory"
+  boundary obvious when an exact source-inventory universe is also active.
+
+Hard-gate audit after B2-T1, 2026-05-25 CST:
+
+- Existing hard gates are not all equivalent. The safe class is "preserve
+  model-authored structured data": if the model already emitted a principal
+  `member_set`, finalizer must not shrink it. That is `preCheckAggregateMemberSetCoverage`
+  and cardinality consistency. It can still be wrong only if an upstream
+  supporting/advisory set was misclassified as principal, so the prevention
+  point remains `AnswerAggregateFactRoleForRequest` demotion and typed request
+  shape, not finalizer prose matching.
+- Riskier class is "system observed candidates, model did not author them".
+  B2-T1 deliberately makes this class advisory by default. It hard-blocks only
+  when all of these typed conditions hold: exact non-recursive direct-child
+  universe provenance, exhaustive enumeration request, model-authored
+  principal `member_set`, strong alignment with that same universe, and no
+  explicit exclusion/disclosure. One-off overlaps and advisory repo-map graph
+  rows do not block.
+- Other current hard member-set gates to keep auditing:
+  - relation lookup handoff: only fires when `RequiresRelationMemberSetHandoff`
+    is true and the model/evidence already selected qualifying relation members;
+  - change-impact handoff: only fires when a typed `ChangeImpactProfile` requests
+    files/sites as the principal output;
+  - principal required-term handoff: only fires for answer-contract
+    `must_include` terms;
+  - enumeration label grounding: hard only for typed enumeration/member lanes
+    and long identifier-shaped labels with a SymbolOracle result. During this
+    audit, the no-typed-context path was explicitly changed to advisory-only so
+    a local SymbolOracle cannot reject external-artifact/runtime labels when the
+    request shape is unknown. This remains a possible future audit point for
+    non-code external-artifact labels, but it does not consume raw user/model
+    prose.
+- Red line for future changes: any new hard gate that starts from system
+  candidates rather than model-authored principal data must include a strong
+  alignment check and a disclosure/exclusion escape hatch. Otherwise it belongs
+  in advisory UI/hints, not in a blocking validator.

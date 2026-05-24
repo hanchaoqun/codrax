@@ -2552,10 +2552,11 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 	}
 	ok, invalid := exhaustiveEnumerationMemberSetUsable(ctx, aggregateFacts)
 	countGaps := exhaustiveEnumerationPrincipalGroupedCountGaps(ctx, aggregateFacts)
-	if ok && len(countGaps) == 0 {
+	universeGap := SourceInventoryCandidateUniverseCoverageGap(ctx, aggregateFacts)
+	if ok && len(countGaps) == 0 && !universeGap.Blocking {
 		return ""
 	}
-	if strings.TrimSpace(invalid) == "" && len(countGaps) == 0 {
+	if strings.TrimSpace(invalid) == "" && len(countGaps) == 0 && !universeGap.Blocking {
 		if syms, claim := ctx.Mutable.EmittedAnswerSymbols(); len(syms) > 0 && claim == types.CompletenessComplete {
 			return ""
 		}
@@ -2581,6 +2582,9 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 	}
 	if len(countGaps) > 0 {
 		fmt.Fprintf(&b, "Some principal grouped/bucket count facts declare answer categories without handing off their members: %s. Under an exhaustive enumeration request, every positive principal grouped/bucket count must either carry its exact `members[]` or be represented by a matching principal `member_set`.\n\n", strings.Join(countGaps, "; "))
+	}
+	if universeGap.Blocking {
+		fmt.Fprintf(&b, "An exact candidate universe observed through structured navigation is not covered or excluded by your current principal `member_set`: %s. This does not mean every candidate is automatically part of the final answer, but a complete close must either include verified principal members, explicitly list excluded candidates in `excluded`, or emit a matching `excluded_count` disclosure for candidates you intentionally ruled out.\n\n", universeGap.Summary(16))
 	}
 	if checklist := sourceInventoryMemberSetRepairChecklist(ctx, 16); checklist != "" {
 		b.WriteString(checklist)

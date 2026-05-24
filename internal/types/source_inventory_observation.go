@@ -69,6 +69,7 @@ type SourceInventoryObservationMember struct {
 	Key           string                                `json:"key,omitempty"`
 	SupportRef    string                                `json:"support_ref,omitempty"`
 	Note          string                                `json:"note,omitempty"`
+	Provenance    []string                              `json:"provenance,omitempty"`
 	Role          AnswerCandidateRole                   `json:"role,omitempty"`
 	Exported      bool                                  `json:"exported,omitempty"`
 	File          string                                `json:"file,omitempty"`
@@ -255,6 +256,7 @@ func cloneSourceInventoryObservationMembers(in []SourceInventoryObservationMembe
 	out := make([]SourceInventoryObservationMember, len(in))
 	for i, member := range in {
 		out[i] = member
+		out[i].Provenance = append([]string(nil), member.Provenance...)
 		out[i].Attributes = append([]SourceInventoryObservationAttribute(nil), member.Attributes...)
 	}
 	return out
@@ -278,6 +280,7 @@ func mergeSourceInventoryObservationMembers(existing, incoming []SourceInventory
 		}
 		if idx, ok := byKey[key]; ok {
 			out[idx].Attributes = mergeSourceInventoryObservationAttributes(out[idx].Attributes, member.Attributes)
+			out[idx].Provenance = mergeSourceInventoryAdvisoryStrings(out[idx].Provenance, member.Provenance)
 			if out[idx].CoverageState == SourceInventoryCoverageUnknown {
 				out[idx].CoverageState = member.CoverageState
 			}

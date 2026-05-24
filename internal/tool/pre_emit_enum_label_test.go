@@ -2343,7 +2343,15 @@ func TestRunPreEmitChecks_EnumLabelHallucination_FiresAlongsideOtherChecks(t *te
 		// No required blocks → other checks pass; only enum-label
 		// gate should fire.
 	}
-	hints := runPreEmitChecks(doc, view, oracle)
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		Intent:     types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:     string(types.ReqEnumeration),
+			Entities: []string{"MemberA", "MemberB"},
+		},
+	}}}
+	hints := runPreEmitChecks(doc, view, oracle, ctx)
 	if len(hints) == 0 {
 		t.Fatal("expected at least one hint from enum-label gate")
 	}
@@ -2379,6 +2387,23 @@ func TestRunPreEmitChecks_EnumLabelHallucination_AdvisoryForNarrativeComparison(
 	}
 	if hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, oracle, ctx); len(hints) != 0 {
 		t.Fatalf("narrative comparison labels should be advisory at emit-time, got %+v", hints)
+	}
+}
+
+func TestRunPreEmitChecks_EnumLabelHallucination_AdvisoryWithoutTypedContext(t *testing.T) {
+	oracle := &stubOracle{known: map[string]int{}}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "members", Kind: types.BlockOrderedList, Items: []types.AnswerBlockItem{
+				{Label: "fabricatedFunctionName — fake", CitationRef: -1},
+			}},
+		},
+	}
+	if direct := preCheckEnumerationLabelGrounding(doc, oracle); len(direct) == 0 {
+		t.Fatal("test setup should still detect an ungrounded identifier-shaped label")
+	}
+	if hints := runPreEmitChecks(doc, &types.AnswerSemanticView{}, oracle); len(hints) != 0 {
+		t.Fatalf("without typed request context, enum-label hallucination should stay advisory, got %+v", hints)
 	}
 }
 

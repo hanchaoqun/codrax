@@ -2704,6 +2704,7 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 			if hint := tool.PublishSourceInventoryAdvisoryFromToolObservation(busCtx, result); hint != "" {
 				result.Summary = strings.TrimRight(result.Summary, "\n") + "\n\n" + hint
 			}
+			tool.PublishSourceInventoryObservationFromToolObservation(busCtx, result)
 			if hint := tool.SourceInventoryDiscoveryHintFromToolObservation(busCtx, result, tc.Params); hint != "" {
 				result.Summary = strings.TrimRight(result.Summary, "\n") + "\n\n" + hint
 			}

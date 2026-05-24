@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"path"
 	"path/filepath"
 	"sort"
@@ -140,6 +141,31 @@ func PublishSourceInventoryAdvisoryFromToolObservation(ctx *types.BusContext, re
 	return renderSourceInventoryAdvisoryToolHint(ctx.Mutable.SourceInventoryAdvisory())
 }
 
+// PublishSourceInventoryObservationFromToolObservation stores exact mechanical
+// candidate universes discovered by bounded navigation tools. This complements
+// SourceInventoryAdvisory: advisory/lens rows help the model navigate, while a
+// non-recursive list_files result is an auditable direct-child universe that
+// downstream close gates can compare against model-authored member_set facts.
+//
+// The function is intentionally narrow and structural. It consumes only the
+// tool name, list_files banner, result rows, repo path resolver, and filesystem
+// metadata inside the active repository. It never inspects user prose or model
+// prose and never turns rows into final answer members on its own.
+func PublishSourceInventoryObservationFromToolObservation(ctx *types.BusContext, result types.ToolResult) bool {
+	if ctx == nil || ctx.Mutable == nil || !result.Success {
+		return false
+	}
+	observation := sourceInventoryObservationFromListFilesToolResult(ctx, result)
+	if !observation.IsActive() {
+		return false
+	}
+	if current := ctx.Mutable.SourceInventoryObservation(); current.IsActive() {
+		observation = types.MergeSourceInventoryObservation(current, observation)
+	}
+	ctx.Mutable.SetSourceInventoryObservation(observation)
+	return true
+}
+
 func publishSourceInventoryAdvisorySnapshot(ctx *types.BusContext, provenance string, advisoryOnly bool) bool {
 	if ctx == nil || ctx.Mutable == nil {
 		return false
@@ -159,6 +185,129 @@ func publishSourceInventoryAdvisorySnapshot(ctx *types.BusContext, provenance st
 	return true
 }
 
+func sourceInventoryObservationFromListFilesToolResult(ctx *types.BusContext, result types.ToolResult) types.SourceInventoryObservation {
+	if types.CanonicalToolName(result.ToolName) != "list_files" || !sourceInventoryListFilesResultIsDirect(result.Summary) {
+		return types.SourceInventoryObservation{}
+	}
+	listPath := sourceInventoryDiscoveryPathFromBanner(result.Summary, "list_files")
+	if listPath == "" {
+		listPath = "."
+	}
+	listPath, ok := sourceInventoryDiscoveryNormalizeToolPath(ctx, "list_files", listPath, result.Summary, "list_files")
+	if !ok {
+		return types.SourceInventoryObservation{}
+	}
+	setsByRole := map[types.AnswerCandidateRole]*types.SourceInventoryObservationSet{}
+	roleOrder := []types.AnswerCandidateRole{}
+	add := func(member types.SourceInventoryObservationMember) {
+		name := strings.TrimSpace(member.Name)
+		if name == "" {
+			return
+		}
+		if member.Role == types.AnswerCandidateRoleUnknown {
+			return
+		}
+		set := setsByRole[member.Role]
+		if set == nil {
+			set = &types.SourceInventoryObservationSet{Role: member.Role, Complete: true}
+			setsByRole[member.Role] = set
+			roleOrder = append(roleOrder, member.Role)
+		}
+		set.Members = append(set.Members, member)
+		set.Count = len(set.Members)
+	}
+	for _, line := range sourceInventoryDiscoveryResultLines(result.Summary) {
+		if strings.HasPrefix(line, "[list_files:") {
+			continue
+		}
+		rel := sourceInventoryDiscoverySafeResultPath(ctx, line)
+		if rel == "" {
+			continue
+		}
+		member := sourceInventoryObservationMemberFromListFilesPath(ctx, rel)
+		add(member)
+	}
+	if len(roleOrder) == 0 {
+		return types.SourceInventoryObservation{}
+	}
+	out := types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{listPath},
+		Provenance:   []string{"tool:list_files:direct"},
+		Lens:         []string{"direct_children", "count"},
+		Sets:         make([]types.SourceInventoryObservationSet, 0, len(roleOrder)),
+	}
+	for _, role := range roleOrder {
+		set := setsByRole[role]
+		if set == nil || len(set.Members) == 0 {
+			continue
+		}
+		set.Count = len(set.Members)
+		out.Sets = append(out.Sets, *set)
+	}
+	if len(out.Sets) == 0 {
+		return types.SourceInventoryObservation{}
+	}
+	return types.CloneSourceInventoryObservation(out)
+}
+
+func sourceInventoryListFilesResultIsDirect(summary string) bool {
+	for _, line := range strings.Split(summary, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "[list_files:") {
+			continue
+		}
+		for _, field := range strings.Fields(strings.TrimSuffix(strings.TrimPrefix(line, "[list_files:"), "]")) {
+			key, value, ok := strings.Cut(field, "=")
+			if ok && key == "recursive" && strings.EqualFold(strings.TrimSpace(value), "true") {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func sourceInventoryObservationMemberFromListFilesPath(ctx *types.BusContext, rel string) types.SourceInventoryObservationMember {
+	rel = strings.Trim(strings.TrimSpace(strings.ReplaceAll(rel, `\`, `/`)), "/")
+	if rel == "" {
+		return types.SourceInventoryObservationMember{}
+	}
+	role := types.AnswerCandidateRoleFile
+	name := rel
+	if sourceInventoryListFilesPathIsDir(ctx, rel) {
+		role = types.AnswerCandidateRolePackage
+		if base := path.Base(rel); base != "." && base != "/" && base != "" {
+			name = base
+		}
+	} else if types.LooksLikeConfigFilePath(rel) {
+		role = types.AnswerCandidateRoleConfigFile
+	}
+	return types.SourceInventoryObservationMember{
+		Name:          name,
+		Key:           rel,
+		SupportRef:    rel,
+		Provenance:    []string{"tool:list_files:direct"},
+		Role:          role,
+		File:          rel,
+		CoverageState: types.SourceInventoryCoverageObserved,
+	}
+}
+
+func sourceInventoryListFilesPathIsDir(ctx *types.BusContext, rel string) bool {
+	if ctx == nil {
+		return false
+	}
+	fsPath := resolveToolPath(ctx, rel)
+	if strings.TrimSpace(fsPath) == "" {
+		return false
+	}
+	info, err := os.Stat(fsPath)
+	return err == nil && info.IsDir()
+}
+
 // PublishSourceInventoryObservationFromLens builds and stores a model-driven
 // source-inventory lens view. It is deliberately advisory-only: even when the
 // model asks for a role/scope slice explicitly, the result is a repo-map
@@ -176,7 +325,163 @@ func PublishSourceInventoryObservationFromLens(ctx *types.BusContext, query type
 	} else {
 		ctx.Mutable.SetSourceInventoryAdvisory(advisory)
 	}
-	return types.SourceInventoryObservationFromAdvisory(advisory)
+	renderObservation := ctx.Mutable.SourceInventoryObservation()
+	if exact := sourceInventoryObservationFromLensDirectChildren(ctx, query); exact.IsActive() {
+		current := ctx.Mutable.SourceInventoryObservation()
+		if current.IsActive() {
+			exact = types.MergeSourceInventoryObservation(current, exact)
+		}
+		ctx.Mutable.SetSourceInventoryObservation(exact)
+	}
+	if renderObservation.IsActive() {
+		return renderObservation
+	}
+	return ctx.Mutable.SourceInventoryObservation()
+}
+
+func sourceInventoryObservationFromLensDirectChildren(ctx *types.BusContext, query types.SourceInventoryLensQuery) types.SourceInventoryObservation {
+	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+		return types.SourceInventoryObservation{}
+	}
+	roleAllowed := sourceInventoryLensDirectChildRoles(query.Roles)
+	if len(roleAllowed) == 0 {
+		return types.SourceInventoryObservation{}
+	}
+	scopes := sourceInventoryLensDirectChildScopes(query)
+	if len(scopes) == 0 {
+		return types.SourceInventoryObservation{}
+	}
+	setsByRole := map[types.AnswerCandidateRole]*types.SourceInventoryObservationSet{}
+	var roleOrder []types.AnswerCandidateRole
+	add := func(member types.SourceInventoryObservationMember) {
+		if member.Role == types.AnswerCandidateRoleUnknown || !roleAllowed[member.Role] {
+			return
+		}
+		if strings.TrimSpace(member.Name) == "" {
+			return
+		}
+		set := setsByRole[member.Role]
+		if set == nil {
+			set = &types.SourceInventoryObservationSet{Role: member.Role, Complete: true}
+			setsByRole[member.Role] = set
+			roleOrder = append(roleOrder, member.Role)
+		}
+		set.Members = append(set.Members, member)
+		set.Count = len(set.Members)
+	}
+	for _, scope := range scopes {
+		scope, ok := sourceInventoryDiscoveryNormalizeToolPath(ctx, "repo_map", scope, "", "")
+		if !ok {
+			continue
+		}
+		fsPath := resolveToolPath(ctx, scope)
+		entries, err := os.ReadDir(fsPath)
+		if err != nil {
+			continue
+		}
+		dirFilter := NewSearchDirFilter(ctx.RepoRoot, fsPath)
+		for _, entry := range entries {
+			name := strings.TrimSpace(entry.Name())
+			if name == "" {
+				continue
+			}
+			rel := path.Join(scope, name)
+			if entry.IsDir() {
+				if dirFilter.ExcludesRepoRelativePath(rel) {
+					continue
+				}
+			} else if IsExcludedDirName(name) {
+				continue
+			}
+			member := sourceInventoryObservationMemberFromListFilesPath(ctx, rel)
+			if member.Role == types.AnswerCandidateRoleFile && types.LooksLikeConfigFilePath(rel) {
+				member.Role = types.AnswerCandidateRoleConfigFile
+			}
+			member.Provenance = []string{sourceInventoryExactUniverseProvenanceRepoLensDirectChildren}
+			member.Note = "exact direct child observed for source_inventory navigation"
+			add(member)
+		}
+	}
+	if len(roleOrder) == 0 {
+		return types.SourceInventoryObservation{}
+	}
+	out := types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       scopes,
+		Provenance:   []string{sourceInventoryExactUniverseProvenanceRepoLensDirectChildren},
+		Lens:         []string{"direct_children", "count"},
+		Sets:         make([]types.SourceInventoryObservationSet, 0, len(roleOrder)),
+	}
+	for _, role := range roleOrder {
+		set := setsByRole[role]
+		if set == nil || len(set.Members) == 0 {
+			continue
+		}
+		set.Count = len(set.Members)
+		out.Sets = append(out.Sets, *set)
+	}
+	return types.CloneSourceInventoryObservation(out)
+}
+
+func sourceInventoryLensDirectChildRoles(roles []types.AnswerCandidateRole) map[types.AnswerCandidateRole]bool {
+	out := map[types.AnswerCandidateRole]bool{}
+	for _, role := range roles {
+		switch role {
+		case types.AnswerCandidateRolePackage,
+			types.AnswerCandidateRoleFile,
+			types.AnswerCandidateRoleConfigFile:
+			out[role] = true
+		}
+	}
+	return out
+}
+
+func sourceInventoryLensDirectChildScopes(query types.SourceInventoryLensQuery) []string {
+	base, ok := sourceInventoryLensSafeRelativePath(query.Path)
+	if !ok {
+		return nil
+	}
+	if base == "" || base == "." {
+		base = "."
+	}
+	rawScopes := append([]string(nil), query.Scopes...)
+	if len(rawScopes) == 0 {
+		rawScopes = []string{"."}
+	}
+	var scopes []string
+	for _, raw := range rawScopes {
+		raw, ok = sourceInventoryLensSafeRelativePath(raw)
+		if !ok {
+			continue
+		}
+		if raw == "" || raw == "." {
+			scopes = append(scopes, base)
+			continue
+		}
+		if base != "." && !strings.HasPrefix(raw, base+"/") && raw != base {
+			raw = path.Join(base, raw)
+		}
+		scopes = append(scopes, raw)
+	}
+	return dedupStringsPreserveOrder(scopes)
+}
+
+func sourceInventoryLensSafeRelativePath(raw string) (string, bool) {
+	p := strings.Trim(strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`)), "/")
+	if p == "" || p == "." {
+		return ".", true
+	}
+	if toolPathIsAbs(p) {
+		return "", false
+	}
+	for _, part := range strings.Split(p, "/") {
+		if part == ".." {
+			return "", false
+		}
+	}
+	return sourceInventoryDiscoverySafeToolPath(p)
 }
 
 func sourceInventoryObservationTool(name string) bool {
@@ -2147,7 +2452,7 @@ func sourceInventoryLensQueryScopes(ctx *types.BusContext, graph *repotypes.Grap
 	seen := map[string]bool{}
 	var scopes []string
 	for _, raw := range query.Scopes {
-		scope := sourceInventoryScopeForLensSurface(graph, raw)
+		scope := sourceInventoryScopeForLensSurfaceWithPath(graph, query.Path, raw)
 		if scope == "" || seen[scope] {
 			continue
 		}
@@ -2162,6 +2467,25 @@ func sourceInventoryLensQueryScopes(ctx *types.BusContext, graph *repotypes.Grap
 		scopes = append(scopes, scope)
 	}
 	return sourceInventoryDedupeScopeAliases(scopes)
+}
+
+func sourceInventoryScopeForLensSurfaceWithPath(graph *repotypes.Graph, queryPath, raw string) string {
+	scope := sourceInventoryScopeForLensSurface(graph, raw)
+	if scope != "" {
+		return scope
+	}
+	base, okBase := sourceInventoryLensSafeRelativePath(queryPath)
+	candidate, okCandidate := sourceInventoryLensSafeRelativePath(raw)
+	if !okBase || !okCandidate || base == "" || base == "." || candidate == "" {
+		return ""
+	}
+	switch {
+	case candidate == base:
+		return sourceInventoryScopeForLensSurface(graph, ".")
+	case strings.HasPrefix(candidate, base+"/"):
+		return sourceInventoryScopeForLensSurface(graph, strings.TrimPrefix(candidate, base+"/"))
+	}
+	return ""
 }
 
 func sourceInventoryDedupeScopeAliases(scopes []string) []string {

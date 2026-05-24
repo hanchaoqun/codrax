@@ -834,6 +834,55 @@ func TestPreCheckAggregateMemberSetCoverage_ScalarCountTreatsMembersAsSupportOnl
 	}
 }
 
+func TestPreCheckSourceInventoryCandidateUniverseCoverage_RequiresCoverageOrCaveat(t *testing.T) {
+	ctx := sourceInventoryUniverseTestContext([]string{"alpha", "beta", "gamma"})
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent:     types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+			AnalyzerHints: types.AnalyzerHints{
+				Kind: string(types.ReqEnumeration),
+			},
+			CompletenessObligation: &types.CompletenessObligation{
+				Required:    true,
+				SourceQuote: "all direct scopes",
+			},
+		},
+	}
+	ctx.Mutable.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "source scopes",
+		Value:   "2",
+		Members: []string{"alpha", "beta"},
+	}})
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "list",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:    "alpha",
+				Label: "alpha",
+			}, {
+				ID:    "beta",
+				Label: "beta",
+			}},
+		}},
+	}
+	hints := preCheckSourceInventoryCandidateUniverseCoverage(doc, ctx)
+	if len(hints) != 1 || !strings.Contains(hints[0].ExpectedShape, "gamma") {
+		t.Fatalf("missing exact-universe candidate should produce gamma hint, got %+v", hints)
+	}
+
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{
+		ID:   "scope",
+		Kind: types.BlockCaveat,
+		Text: "gamma was a direct candidate but was intentionally out of the requested principal answer boundary.",
+	})
+	if got := preCheckSourceInventoryCandidateUniverseCoverage(doc, ctx); len(got) != 0 {
+		t.Fatalf("explicit caveat should satisfy boundary disclosure, got %+v", got)
+	}
+}
+
 func TestPreCheckAggregateMemberSetCoverage_PrincipalFactsDoNotDependOnRequestFamily(t *testing.T) {
 	mu := types.NewMutableState("relation aggregate handoff routed as architecture")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{

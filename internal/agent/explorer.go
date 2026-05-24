@@ -165,6 +165,7 @@ type explorerEvaluator struct {
 	midLoopExecRedirectSent          bool // one-shot: redirected shell-style browsing back to built-in grep/read_file before recording the current backlog window
 	midLoopExplanationAnchorSent     bool // one-shot: multi-topic explanation still lacks one grounded anchor per sub-topic
 	midLoopCompletionReadySent       bool // one-shot: generic "you already have enough grounded evidence; close now" hint already pushed this dispatch
+	midLoopCandidateUniverseSent     bool // one-shot: exact candidate universe is not yet covered/excluded by a structured member_set
 	midLoopCompletionReadyEscalated  bool // one-shot: stronger close-now escalation after the completion-ready hint was ignored
 	midLoopCompletionReadyIter       int  // iteration where completion-ready first fired
 	midLoopNoveltySeen               map[string]bool
@@ -371,6 +372,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopExecRedirectSent = false
 		e.midLoopExplanationAnchorSent = false
 		e.midLoopCompletionReadySent = false
+		e.midLoopCandidateUniverseSent = false
 		e.midLoopCompletionReadyEscalated = false
 		e.midLoopCompletionReadyIter = 0
 		e.midLoopNoveltySeen = nil
@@ -514,6 +516,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopExecRedirectSent = false
 	e.midLoopExplanationAnchorSent = false
 	e.midLoopCompletionReadySent = false
+	e.midLoopCandidateUniverseSent = false
 	e.midLoopCompletionReadyEscalated = false
 	e.midLoopCompletionReadyIter = 0
 	e.midLoopNoveltySeen = nil
@@ -6875,6 +6878,9 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	if !e.completionReadinessHasAnswerCarrier(readiness, scalarLocateReady) {
 		return LoopSignal{}
 	}
+	if gap := e.sourceInventoryCandidateUniverseCoverageGap(); gap.Blocking {
+		return e.postCandidateUniversePendingSignal(gap)
+	}
 	e.midLoopCompletionReadySent = true
 	e.midLoopCompletionReadyIter = obs.Iteration
 	var b strings.Builder
@@ -6934,6 +6940,38 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	}
 }
 
+func (e *explorerEvaluator) sourceInventoryCandidateUniverseCoverageGap() tool.SourceInventoryCandidateUniverseGap {
+	if e == nil || e.mutable == nil || e.analysisIR == nil || !e.needsStructuredMemberSetHandoff(nil) {
+		return tool.SourceInventoryCandidateUniverseGap{}
+	}
+	return tool.SourceInventoryCandidateUniverseCoverageGap(&types.BusContext{
+		RepoRoot:   e.repoRoot,
+		Mutable:    e.mutable,
+		AnalysisIR: e.analysisIR,
+		MultiGraph: e.multiGraphHandle,
+	}, e.mutable.StableInvestigationAggregateFacts())
+}
+
+func (e *explorerEvaluator) postCandidateUniversePendingSignal(gap tool.SourceInventoryCandidateUniverseGap) LoopSignal {
+	if e == nil || e.midLoopCandidateUniverseSent || !gap.Blocking {
+		return LoopSignal{}
+	}
+	e.midLoopCandidateUniverseSent = true
+	var b strings.Builder
+	b.WriteString("MID-LOOP CHECK: exact structured navigation has observed a candidate universe that is not yet fully covered or explicitly excluded by your structured `member_set`. ")
+	b.WriteString("Do not treat this as the system deciding the final answer set. Use it as a checklist: verify the missing candidates that are relevant to your answer, put verified principal members in `aggregate_facts.member_set`, and put intentionally ruled-out candidates in `excluded` or a matching `excluded_count` disclosure.\n")
+	fmt.Fprintf(&b, "- candidate universe gap: %s\n", gap.Summary(12))
+	b.WriteString("- if the exact candidate universe is broader than the user's requested answer, preserve that boundary in the structured handoff instead of silently closing with a smaller list.")
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        "explorer.mid-loop.candidate-universe-pending",
+		Hint:           b.String(),
+		Progress:       true,
+		BypassThrottle: true,
+		BypassBudget:   true,
+	}
+}
+
 func (e *explorerEvaluator) completionReadinessHasAnswerCarrier(readiness explorerCompletionReadiness, scalarLocateReady bool) bool {
 	if e == nil {
 		return false
@@ -6952,6 +6990,9 @@ func (e *explorerEvaluator) firstSoftStopLooksCloseReady(toolResults []types.Too
 	}
 	readiness := e.completionReadinessWithCoverage(toolResults, -1, false, false, discovered, readSet)
 	if !readiness.HasEnough {
+		return false
+	}
+	if gap := e.sourceInventoryCandidateUniverseCoverageGap(); gap.Blocking {
 		return false
 	}
 	return e.completionReadinessHasAnswerCarrier(readiness, e.scalarRoleLocateClosureReady())
