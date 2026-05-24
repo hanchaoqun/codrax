@@ -2643,6 +2643,9 @@ func normalizeAggregateNegativeProofSupplement(doc *types.AnswerDocumentV2, ctx 
 		if value := strings.TrimSpace(fact.Value); value != "" && value != "0" {
 			continue
 		}
+		if preEmitNegativeAggregateFactCoveredByStructuredAbsence(doc, fact, surface) {
+			continue
+		}
 		if preEmitAggregateFactValueAppears(fact, surface) {
 			continue
 		}
@@ -2682,6 +2685,51 @@ func normalizeAggregateNegativeProofSupplement(doc *types.AnswerDocumentV2, ctx 
 	}
 	doc.Blocks = append(doc.Blocks, block)
 	return len(rows)
+}
+
+func preEmitNegativeAggregateFactCoveredByStructuredAbsence(doc *types.AnswerDocumentV2, fact types.AnswerAggregateFact, surface string) bool {
+	if doc == nil || doc.ExactResolution == nil ||
+		doc.ExactResolution.Status != types.AnswerExactResolutionAbsent {
+		return false
+	}
+	if fact.Kind != types.AnswerAggregateNegativeSearch &&
+		fact.Kind != types.AnswerAggregateNegativeObservation {
+		return false
+	}
+	return preEmitNegativeAggregateFactScopeAndTargetAppear(fact, surface)
+}
+
+func preEmitNegativeAggregateFactScopeAndTargetAppear(fact types.AnswerAggregateFact, surface string) bool {
+	dims := preEmitAggregateDimensionMap(fact.Dimensions)
+	target := firstNonEmptyPreEmitDim(dims, "target", "query", "pattern", "predicate")
+	if target == "" {
+		target = strings.TrimSpace(fact.Label)
+	}
+	query := firstNonEmptyPreEmitDim(dims, "query", "pattern", "predicate", "target")
+	scope := firstNonEmptyPreEmitDim(dims, "scope", "commit_range", "artifact_id", "trace_window", "tool_result", "source_ref")
+	if scope == "" && fact.Kind == types.AnswerAggregateNegativeSearch {
+		scope = firstNonEmptyPreEmitDim(dims, "repo")
+	}
+	seen := false
+	if target != "" {
+		if !preEmitAggregateSearchPatternAppears(target, surface) {
+			return false
+		}
+		seen = true
+	}
+	if query != "" && query != target {
+		if !preEmitAggregateSearchPatternAppears(query, surface) {
+			return false
+		}
+		seen = true
+	}
+	if scope != "" {
+		if !preEmitAggregateDisplayPartAppears(scope, surface) {
+			return false
+		}
+		seen = true
+	}
+	return seen
 }
 
 func preEmitNegativeAggregateFactRequiresVisibleProof(ctx *types.BusContext, facts []types.AnswerAggregateFact, idx int, fact types.AnswerAggregateFact) bool {

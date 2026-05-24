@@ -364,9 +364,14 @@ flowchart TD
   `diff_path`, `answer_count`, command string) into ledger `SourceRef` /
   `ResultCount` so consumers can distinguish commit/diff/history coordinates
   from current-source citations.
-- [ ] Add eval cases for "log line N", "trace window around event", "git diff hunk
-  around file", "MCP JSON field exists/absent", and "web paragraph contains/does
-  not contain term".
+- [x] Add executable eval cases for existing producers: "log line N",
+  "trace window around event", and "git diff hunk around file" are covered by
+  `logtri_artifact_line_anchor`, `harmony/hitrace_artifact_line_anchor`,
+  `read_combo_trace_current_code_boundary`, and
+  `read_combo_git_diff_hunk_current_code`.
+- [ ] Add executable eval cases for future producers once attachment plumbing
+  exists: "MCP JSON field exists/absent" and "web paragraph contains/does not
+  contain term" remain tracked in `eval/cases/external_observation_skeletons.md`.
 
 ### Batch 4C — Mixed-Origin Ranking And Prompt Budget Guardrails
 
@@ -412,7 +417,7 @@ flowchart TD
 
 ### Batch 6 — Eval And Gap Closure
 
-- [ ] Run targeted evals: git latest feature, recent-N commits, diff+current analysis, log line anchor, trace line anchor, negative observation mixes.
+- [ ] Run targeted evals: git latest feature, recent-N commits, diff+current analysis, git diff hunk + current source, log line anchor, trace line anchor, negative observation mixes.
 - [ ] Add web/MCP placeholder evals once tools are available.
 - [ ] Update `docs/design/eval_20260520_full_sweep_gap_tracking.md` with every observed retry/reject and whether it was model error or system over-gate.
 

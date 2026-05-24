@@ -3681,6 +3681,49 @@ func TestNormalizeAggregateNegativeProofSupplement_MaterializesNegativeObservati
 	}
 }
 
+func TestNormalizeAggregateNegativeProofSupplement_StructuredAbsentModelAnswerSuppressesDuplicateSupplement(t *testing.T) {
+	mu := types.NewMutableState("最近历史里有没有 Backport Foo")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateNegativeObservation,
+		Label: "history search found no backport commits",
+		Value: "0",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "origin", Value: string(types.AnswerEvidenceOriginVCSMetadata)},
+			{Name: "target", Value: "Backport Foo"},
+			{Name: "commit_range", Value: "HEAD~50..HEAD"},
+			{Name: "result_count", Value: "0"},
+			{Name: "tool_result", Value: "git_history_search[0]"},
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Language: "zh",
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		ExactResolution: &types.AnswerExactResolution{Status: types.AnswerExactResolutionAbsent},
+		Blocks: []types.AnswerBlock{{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "Backport Foo 在 HEAD~50..HEAD 范围内没有相关提交；这个结论来自版本历史检索。",
+		}},
+	}
+
+	if fixed := normalizeAggregateNegativeProofSupplement(doc, ctx); fixed != 0 {
+		t.Fatalf("structured absent answer with visible target/scope should not get a duplicate system supplement, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	if visible := answerDocumentVisibleText(doc); strings.Contains(visible, "系统按已验证证据补充未命中范围") {
+		t.Fatalf("duplicate negative supplement leaked into visible answer:\n%s", visible)
+	}
+	if len(doc.Citations) != 0 {
+		t.Fatalf("VCS negative observation must not invent repo citations: %+v", doc.Citations)
+	}
+}
+
 func TestNormalizeAggregateNegativeProofSupplement_MaterializesFutureExternalObservationOrigins(t *testing.T) {
 	mu := types.NewMutableState("外部资料里是否存在这些条目")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
