@@ -290,6 +290,66 @@ func TestRepoMapSourceInventoryViewConfigFilesAreNavigationRows(t *testing.T) {
 	}
 }
 
+func TestRepoMapSourceInventoryViewPathDefaultsToScope(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "src", "alpha"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "src", "beta"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "src", "alpha", "alpha.go"), []byte(`package alpha
+
+func RunAlpha() {}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "src", "beta", "beta.go"), []byte(`package beta
+
+func RunBeta() {}
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  types.NewMutableState("source inventory path default scope"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				Confidence:        0.9,
+			},
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.9,
+			},
+			AnalyzerHints: types.AnalyzerHints{
+				MentionedEntities: []string{"src/alpha", "src/beta"},
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": "src/alpha",
+		"view": "source_inventory",
+		"roles": ["function"],
+		"include_counts": true
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
+	}
+	if !strings.Contains(res.Summary, "`RunAlpha`") || strings.Contains(res.Summary, "RunBeta") {
+		t.Fatalf("path should default source_inventory scope to src/alpha without explicit scope:\n%s", res.Summary)
+	}
+	obs := ctx.Mutable.SourceInventoryObservation()
+	if !obs.IsActive() || len(obs.Sets) != 1 || obs.Sets[0].Count != 1 {
+		t.Fatalf("path-default scoped observation should have one alpha function: %+v", obs)
+	}
+}
+
 func TestResolveRepoMapRootScopedAllowsChildren(t *testing.T) {
 	repo := t.TempDir()
 

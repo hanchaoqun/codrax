@@ -269,10 +269,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		if p.IncludeCounts != nil {
 			includeCounts = *p.IncludeCounts
 		}
-		scopes := append([]string(nil), p.Scopes...)
-		if strings.TrimSpace(p.Scope) != "" {
-			scopes = append([]string{strings.TrimSpace(p.Scope)}, scopes...)
-		}
+		scopes := sourceInventoryScopesForRepoMapParams(p, repoRoot, graph)
 		observation := tool.PublishSourceInventoryObservationFromLens(ctx, ctypes.SourceInventoryLensQuery{
 			Scopes:            scopes,
 			Roles:             append([]ctypes.AnswerCandidateRole(nil), p.Roles...),
@@ -317,6 +314,59 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func sourceInventoryScopesForRepoMapParams(p repoMapParams, resolvedRoot string, graph *Graph) []string {
+	scopes := append([]string(nil), p.Scopes...)
+	if strings.TrimSpace(p.Scope) != "" {
+		scopes = append([]string{strings.TrimSpace(p.Scope)}, scopes...)
+	}
+	if len(scopes) > 0 {
+		return scopes
+	}
+	if scope := sourceInventoryDefaultScopeForRepoMapPath(p.Path, resolvedRoot, graph); scope != "" {
+		return []string{scope}
+	}
+	return nil
+}
+
+func sourceInventoryDefaultScopeForRepoMapPath(requestedPath, resolvedRoot string, graph *Graph) string {
+	requested := strings.TrimSpace(strings.ReplaceAll(requestedPath, `\`, `/`))
+	if requested == "" || requested == "." || requested == "./" || requested == "/" {
+		return ""
+	}
+	if graph != nil && strings.TrimSpace(graph.Root) != "" && strings.TrimSpace(resolvedRoot) != "" {
+		if sameRepoMapRoot(graph.Root, resolvedRoot) {
+			return "."
+		}
+		if rel, ok := repoMapRelPathWithinRoot(graph.Root, resolvedRoot); ok {
+			return rel
+		}
+	}
+	if filepath.IsAbs(requested) {
+		return ""
+	}
+	return strings.Trim(strings.TrimSpace(requested), "/")
+}
+
+func repoMapRelPathWithinRoot(root, target string) (string, bool) {
+	rootAbs, errRoot := canonicalRepoMapPath(root)
+	targetAbs, errTarget := canonicalRepoMapPath(target)
+	if errRoot != nil || errTarget != nil || !repoMapPathWithinRoot(rootAbs, targetAbs) {
+		return "", false
+	}
+	rel, err := filepath.Rel(rootAbs, targetAbs)
+	if err != nil {
+		return "", false
+	}
+	rel = filepath.ToSlash(filepath.Clean(rel))
+	if rel == "." {
+		return ".", true
+	}
+	if strings.HasPrefix(rel, "../") || rel == ".." || filepath.IsAbs(rel) {
+		return "", false
+	}
+	return strings.Trim(rel, "/"), true
 }
 
 func resolveRepoMapRootScoped(requestedPath, sessionRoot, allowedRoot string) (string, error) {

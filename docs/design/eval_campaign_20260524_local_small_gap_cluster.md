@@ -1444,6 +1444,16 @@ Implementation notes:
   convergence audit includes `s5b` plus non-Go Harmony ArkTS and Cangjie cases
   and flags wide-search regressions when read/list/repo-map calls exceed the
   configured thresholds.
+- 2026-05-24 post-push real eval (`s5b`, local small model) exposed an
+  ergonomics gap: the model naturally called
+  `repo_map(path="internal/analysis/aggregator", view="source_inventory",
+  roles=["function"])` without an explicit `scope`, but the lens fell back to
+  analyzer/profile scopes and returned the broad `internal/analysis/*` function
+  table. This is a tool-contract issue, not a prompt issue. Fixed by deriving a
+  default lens scope from the model-supplied `repo_map.path` only when
+  `scope/scopes` are absent; explicit model scopes still win. The regression
+  test `TestRepoMapSourceInventoryViewPathDefaultsToScope` pins that subdir
+  path queries do not leak sibling package members.
 - Tests added/updated:
   `TestSourceInventoryObservation*`,
   `TestCompileObservationLedger_SourceInventoryObservation`,
@@ -1453,6 +1463,7 @@ Implementation notes:
   `TestRepoMapSourceInventoryViewModelDrivenQuery`,
   `TestRepoMapSourceInventoryViewSameRepoCrossLanguage`,
   `TestRepoMapSourceInventoryViewConfigFilesAreNavigationRows`,
+  `TestRepoMapSourceInventoryViewPathDefaultsToScope`,
   `TestRepoMapSourceInventoryViewMultiRepoHonorsActiveSubRepoScope`,
   `TestRepoMapSourceInventoryViewMultiRepoConfigFilesStayScoped`,
   `TestRepoMapSourceInventoryViewMultiRepoRejectsInactiveSubRepo`,
