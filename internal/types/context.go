@@ -125,6 +125,7 @@ type MutableState struct {
 	emittedAnswerSymbolDeclaredCount int
 	emittedHypothesisVerdicts        []HypothesisVerdict
 	sourceInventoryAdvisory          SourceInventoryAdvisory
+	sourceInventoryAdvisoryHinted    bool
 	turnAArtifacts                   *TurnAArtifacts
 	exploreForkTurnABaseNotesLen     int
 	exploreForkTurnABaseBoundaryLen  int
@@ -2893,7 +2894,11 @@ func (m *MutableState) SetSourceInventoryAdvisory(a SourceInventoryAdvisory) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	priorActive := m.sourceInventoryAdvisory.IsActive()
 	m.sourceInventoryAdvisory = CloneSourceInventoryAdvisory(a)
+	if !m.sourceInventoryAdvisory.IsActive() || !priorActive {
+		m.sourceInventoryAdvisoryHinted = false
+	}
 	m.bumpAnswerSurfaceRevisionLocked()
 }
 
@@ -2909,6 +2914,24 @@ func (m *MutableState) SourceInventoryAdvisory() SourceInventoryAdvisory {
 	return CloneSourceInventoryAdvisory(m.sourceInventoryAdvisory)
 }
 
+// ClaimSourceInventoryAdvisoryHint records that the compact advisory checklist
+// has already been attached to a model-visible tool result. It returns true
+// exactly once per active advisory lifecycle so pre-explore advisories can still
+// surface near the first discovery tool without spamming every repo_map/list_files
+// observation.
+func (m *MutableState) ClaimSourceInventoryAdvisoryHint() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.sourceInventoryAdvisory.IsActive() || m.sourceInventoryAdvisoryHinted {
+		return false
+	}
+	m.sourceInventoryAdvisoryHinted = true
+	return true
+}
+
 // ClearSourceInventoryAdvisory clears the current advisory artifact so stale
 // inventory candidates cannot leak across a fresh explore/extract cycle.
 func (m *MutableState) ClearSourceInventoryAdvisory() {
@@ -2918,6 +2941,7 @@ func (m *MutableState) ClearSourceInventoryAdvisory() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sourceInventoryAdvisory = SourceInventoryAdvisory{}
+	m.sourceInventoryAdvisoryHinted = false
 	m.bumpAnswerSurfaceRevisionLocked()
 }
 

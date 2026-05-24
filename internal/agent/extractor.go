@@ -696,7 +696,8 @@ func renderExtractorSourceInventoryAdvisory(ta *types.TurnAArtifacts) string {
 		if len(set.Candidates) == 0 || emitted >= extractorMaxSourceInventoryAdvisoryRows {
 			continue
 		}
-		fmt.Fprintf(&b, "- role `%s` candidates (complete=%t):\n", set.Role, set.Complete)
+		fmt.Fprintf(&b, "- role `%s` %s candidates (complete=%t):\n",
+			set.Role, types.SourceInventoryAdvisoryRoleLabel(set.Role), set.Complete)
 		for _, candidate := range set.Candidates {
 			if emitted >= extractorMaxSourceInventoryAdvisoryRows {
 				break
@@ -734,7 +735,48 @@ func renderExtractorSourceInventoryAdvisoryCandidate(candidate types.SourceInven
 	if note := truncateExtractorPromptText(candidate.Note, 180); note != "" {
 		parts = append(parts, "note: "+note)
 	}
+	if attrs := renderExtractorSourceInventoryAdvisoryAttributes(candidate.Attributes); attrs != "" {
+		parts = append(parts, attrs)
+	}
 	return strings.Join(parts, " — ")
+}
+
+func renderExtractorSourceInventoryAdvisoryAttributes(attrs []types.SourceInventoryAdvisoryAttribute) string {
+	if len(attrs) == 0 {
+		return ""
+	}
+	const max = 4
+	var parts []string
+	for _, attr := range attrs {
+		if len(parts) >= max {
+			break
+		}
+		member := strings.TrimSpace(attr.Member)
+		if member == "" {
+			continue
+		}
+		loc := strings.TrimSpace(attr.File)
+		if loc != "" && attr.Line > 0 {
+			loc = fmt.Sprintf("%s:%d", loc, attr.Line)
+		}
+		role := strings.TrimSpace(string(attr.Role))
+		if role == "" {
+			role = "candidate"
+		}
+		if loc != "" {
+			parts = append(parts, fmt.Sprintf("%s `%s` @ %s", role, member, loc))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s `%s`", role, member))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	suffix := ""
+	if len(attrs) > len(parts) {
+		suffix = fmt.Sprintf(" (+%d more)", len(attrs)-len(parts))
+	}
+	return "related_candidate_attributes: " + strings.Join(parts, "; ") + suffix
 }
 
 type extractorValueFact struct {

@@ -32,6 +32,24 @@ type SourceInventoryAdvisorySet struct {
 
 // SourceInventoryAdvisoryCandidate is one graph-backed candidate row.
 type SourceInventoryAdvisoryCandidate struct {
+	Member     string                             `json:"member,omitempty"`
+	Key        string                             `json:"key,omitempty"`
+	SupportRef string                             `json:"support_ref,omitempty"`
+	Note       string                             `json:"note,omitempty"`
+	Role       AnswerCandidateRole                `json:"role,omitempty"`
+	Exported   bool                               `json:"exported,omitempty"`
+	File       string                             `json:"file,omitempty"`
+	Line       int                                `json:"line,omitempty"`
+	Language   string                             `json:"language,omitempty"`
+	Attributes []SourceInventoryAdvisoryAttribute `json:"attributes,omitempty"`
+}
+
+// SourceInventoryAdvisoryAttribute is graph-backed context attached to a
+// candidate member, for example possible callable/entry attributes for a
+// package/directory candidate. Attributes are advisory context only: they are
+// not independent answer rows and do not act as citations without normal
+// grounded evidence.
+type SourceInventoryAdvisoryAttribute struct {
 	Member     string              `json:"member,omitempty"`
 	Key        string              `json:"key,omitempty"`
 	SupportRef string              `json:"support_ref,omitempty"`
@@ -43,6 +61,21 @@ type SourceInventoryAdvisoryCandidate struct {
 	Language   string              `json:"language,omitempty"`
 }
 
+// SourceInventoryAdvisoryRoleLabel returns the display label for advisory
+// candidate sets. It intentionally distinguishes the package role's source
+// inventory usage from a language-specific package answer: in this lane the
+// role is a bounded package/directory/module scope carrier.
+func SourceInventoryAdvisoryRoleLabel(role AnswerCandidateRole) string {
+	switch role {
+	case AnswerCandidateRolePackage:
+		return "package/directory/module scope"
+	case AnswerCandidateRoleUnknown:
+		return "candidate"
+	default:
+		return string(role)
+	}
+}
+
 func CloneSourceInventoryAdvisory(in SourceInventoryAdvisory) SourceInventoryAdvisory {
 	out := in
 	out.Scopes = append([]string(nil), in.Scopes...)
@@ -51,7 +84,13 @@ func CloneSourceInventoryAdvisory(in SourceInventoryAdvisory) SourceInventoryAdv
 		out.Sets = make([]SourceInventoryAdvisorySet, len(in.Sets))
 		for i, set := range in.Sets {
 			out.Sets[i] = set
-			out.Sets[i].Candidates = append([]SourceInventoryAdvisoryCandidate(nil), set.Candidates...)
+			if set.Candidates != nil {
+				out.Sets[i].Candidates = make([]SourceInventoryAdvisoryCandidate, len(set.Candidates))
+				for j, candidate := range set.Candidates {
+					out.Sets[i].Candidates[j] = candidate
+					out.Sets[i].Candidates[j].Attributes = append([]SourceInventoryAdvisoryAttribute(nil), candidate.Attributes...)
+				}
+			}
 		}
 	}
 	return out
@@ -110,22 +149,50 @@ func mergeSourceInventoryAdvisoryStrings(existing, incoming []string) []string {
 
 func mergeSourceInventoryAdvisoryCandidates(existing, incoming []SourceInventoryAdvisoryCandidate) []SourceInventoryAdvisoryCandidate {
 	if len(existing) == 0 {
-		return append([]SourceInventoryAdvisoryCandidate(nil), incoming...)
+		return CloneSourceInventoryAdvisory(SourceInventoryAdvisory{Active: true, Sets: []SourceInventoryAdvisorySet{{Candidates: incoming}}}).Sets[0].Candidates
 	}
-	out := append([]SourceInventoryAdvisoryCandidate(nil), existing...)
-	seen := make(map[string]bool, len(out)+len(incoming))
-	for _, candidate := range out {
+	out := CloneSourceInventoryAdvisory(SourceInventoryAdvisory{Active: true, Sets: []SourceInventoryAdvisorySet{{Candidates: existing}}}).Sets[0].Candidates
+	byKey := make(map[string]int, len(out)+len(incoming))
+	for i, candidate := range out {
 		if key := sourceInventoryAdvisoryCandidateKey(candidate); key != "" {
-			seen[key] = true
+			byKey[key] = i
 		}
 	}
 	for _, candidate := range incoming {
 		key := sourceInventoryAdvisoryCandidateKey(candidate)
+		if key == "" {
+			continue
+		}
+		if idx, ok := byKey[key]; ok {
+			out[idx].Attributes = mergeSourceInventoryAdvisoryAttributes(out[idx].Attributes, candidate.Attributes)
+			continue
+		}
+		byKey[key] = len(out)
+		cloned := candidate
+		cloned.Attributes = append([]SourceInventoryAdvisoryAttribute(nil), candidate.Attributes...)
+		out = append(out, cloned)
+	}
+	return out
+}
+
+func mergeSourceInventoryAdvisoryAttributes(existing, incoming []SourceInventoryAdvisoryAttribute) []SourceInventoryAdvisoryAttribute {
+	if len(existing) == 0 {
+		return append([]SourceInventoryAdvisoryAttribute(nil), incoming...)
+	}
+	out := append([]SourceInventoryAdvisoryAttribute(nil), existing...)
+	seen := make(map[string]bool, len(out)+len(incoming))
+	for _, attr := range out {
+		if key := sourceInventoryAdvisoryAttributeKey(attr); key != "" {
+			seen[key] = true
+		}
+	}
+	for _, attr := range incoming {
+		key := sourceInventoryAdvisoryAttributeKey(attr)
 		if key == "" || seen[key] {
 			continue
 		}
 		seen[key] = true
-		out = append(out, candidate)
+		out = append(out, attr)
 	}
 	return out
 }
@@ -139,4 +206,15 @@ func sourceInventoryAdvisoryCandidateKey(candidate SourceInventoryAdvisoryCandid
 		return ""
 	}
 	return string(candidate.Role) + "\x00" + key + "\x00" + strings.TrimSpace(candidate.File) + "\x00" + strings.TrimSpace(candidate.SupportRef)
+}
+
+func sourceInventoryAdvisoryAttributeKey(attr SourceInventoryAdvisoryAttribute) string {
+	key := strings.TrimSpace(attr.Key)
+	if key == "" {
+		key = strings.TrimSpace(attr.Member)
+	}
+	if key == "" {
+		return ""
+	}
+	return string(attr.Role) + "\x00" + key + "\x00" + strings.TrimSpace(attr.File) + "\x00" + strings.TrimSpace(attr.SupportRef)
 }

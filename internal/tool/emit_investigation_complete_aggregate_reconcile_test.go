@@ -998,6 +998,118 @@ func TestBuildSourceInventoryAdvisory_NoTypedRoleStaysSilent(t *testing.T) {
 	}
 }
 
+func TestBuildSourceInventoryAdvisory_BoundedScopeFallbackIsAdvisoryOnly(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{RelPath: "src/alpha/a.py", Language: "python", Package: "alpha", Symbols: []repotypes.Symbol{{
+			Name: "run_alpha", Kind: "function", File: "src/alpha/a.py", Line: 7, Exported: true,
+		}}},
+		{RelPath: "src/alpha/b.java", Language: "java", Package: "alpha", Symbols: []repotypes.Symbol{{
+			Name: "execute", Kind: "method", File: "src/alpha/b.java", Line: 11, Parent: "Beta", Exported: true,
+		}}},
+		{RelPath: "src/alpha/c.ts", Language: "typescript"},
+		{RelPath: "src/alpha/d.kt", Language: "kotlin"},
+		{RelPath: "src/alpha/e.proto", Language: "proto"},
+		{RelPath: "src/alpha/f.cj", Language: "cangjie"},
+	})
+	ctx := sourceInventoryTestContext("", graph, "", nil)
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = nil
+	ctx.AnalysisIR.EvidencePlan.RequiredFiles = []string{
+		"src/alpha/a.py",
+		"src/alpha/b.java",
+		"src/alpha/c.ts",
+		"src/alpha/d.kt",
+		"src/alpha/e.proto",
+		"src/alpha/f.cj",
+	}
+
+	advisory := buildSourceInventoryAdvisory(ctx, nil, nil)
+	if !advisory.IsActive() || !advisory.AdvisoryOnly {
+		t.Fatalf("bounded scope fallback advisory = %+v, want active advisory-only", advisory)
+	}
+	if !containsString(advisory.Provenance, "request_traits:bounded_source_enumeration_scope") {
+		t.Fatalf("provenance = %#v, want bounded_source_enumeration_scope", advisory.Provenance)
+	}
+	if len(advisory.Sets) != 1 || advisory.Sets[0].Role != types.AnswerCandidateRolePackage {
+		t.Fatalf("sets = %+v, want advisory package candidates only", advisory.Sets)
+	}
+	if got := advisoryMemberNames(advisory.Sets[0].Candidates); !reflect.DeepEqual(got, []string{"alpha"}) {
+		t.Fatalf("package candidates = %#v, want [alpha]", got)
+	}
+	attrs := advisory.Sets[0].Candidates[0].Attributes
+	if len(attrs) == 0 {
+		t.Fatalf("bounded fallback package candidate should carry graph-backed callable attributes: %+v", advisory)
+	}
+	if attrs[0].Member != "run_alpha" {
+		t.Fatalf("first callable attribute = %q, want run_alpha (attrs=%+v)", attrs[0].Member, attrs)
+	}
+}
+
+func TestBuildSourceInventoryAdvisory_BoundedScopeFallbackRespectsTypedRoleProfile(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{RelPath: "src/alpha/a.py", Language: "python", Package: "alpha", Symbols: []repotypes.Symbol{{
+			Name: "run_alpha", Kind: "function", File: "src/alpha/a.py", Line: 7, Exported: true,
+		}}},
+		{RelPath: "src/alpha/b.java", Language: "java"},
+		{RelPath: "src/alpha/c.ts", Language: "typescript"},
+		{RelPath: "src/alpha/d.kt", Language: "kotlin"},
+		{RelPath: "src/alpha/e.proto", Language: "proto"},
+		{RelPath: "src/alpha/f.cj", Language: "cangjie"},
+	})
+	ctx := sourceInventoryTestContext("", graph, "", nil)
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = nil
+	ctx.AnalysisIR.RequestModel.AnswerRoleProfile = &types.AnswerRoleProfile{
+		IsRoleBindingRequested: true,
+		RequiredCandidateRoles: []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+	}
+	ctx.AnalysisIR.EvidencePlan.RequiredFiles = []string{
+		"src/alpha/a.py",
+		"src/alpha/b.java",
+		"src/alpha/c.ts",
+		"src/alpha/d.kt",
+		"src/alpha/e.proto",
+		"src/alpha/f.cj",
+	}
+
+	advisory := buildSourceInventoryAdvisory(ctx, nil, nil)
+	if !advisory.IsActive() || !advisory.AdvisoryOnly {
+		t.Fatalf("bounded scope fallback advisory = %+v, want active advisory-only", advisory)
+	}
+	if len(advisory.Sets) != 1 || advisory.Sets[0].Role != types.AnswerCandidateRoleFunction {
+		t.Fatalf("sets = %+v, want model-suggested function role", advisory.Sets)
+	}
+	if got := advisoryMemberNames(advisory.Sets[0].Candidates); !reflect.DeepEqual(got, []string{"run_alpha"}) {
+		t.Fatalf("function candidates = %#v, want [run_alpha]", got)
+	}
+}
+
+func TestBuildSourceInventoryAdvisory_SourceScopeEntityFallbackIsAdvisoryOnly(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{RelPath: "src/alpha/a.py", Language: "python", Package: "alpha", Symbols: []repotypes.Symbol{{
+			Name: "run_alpha", Kind: "function", File: "src/alpha/a.py", Line: 7, Exported: true,
+		}}},
+		{RelPath: "src/beta/B.java", Language: "java", Package: "com.example.beta", Symbols: []repotypes.Symbol{{
+			Name: "execute", Kind: "method", File: "src/beta/B.java", Line: 11, Parent: "Beta", Exported: true,
+		}}},
+	})
+	ctx := sourceInventoryTestContext("", graph, "src", nil)
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.RequiredFileHints = nil
+	ctx.AnalysisIR.EvidencePlan.RequiredFiles = nil
+
+	advisory := buildSourceInventoryAdvisory(ctx, nil, nil)
+	if !advisory.IsActive() || !advisory.AdvisoryOnly {
+		t.Fatalf("source-scope entity fallback advisory = %+v, want active advisory-only", advisory)
+	}
+	if !containsString(advisory.Provenance, "request_traits:source_scope_enumeration") {
+		t.Fatalf("provenance = %#v, want source_scope_enumeration", advisory.Provenance)
+	}
+	if len(advisory.Sets) != 1 || advisory.Sets[0].Role != types.AnswerCandidateRolePackage {
+		t.Fatalf("sets = %+v, want package/directory/module scope candidates", advisory.Sets)
+	}
+	if got := advisoryMemberNames(advisory.Sets[0].Candidates); !reflect.DeepEqual(got, []string{"alpha", "com.example.beta"}) {
+		t.Fatalf("scope candidates = %#v", got)
+	}
+}
+
 func TestBuildSourceInventoryAdvisory_FileRoleUsesGraphFiles(t *testing.T) {
 	graph := testGraphWithFiles([]*repotypes.FileInfo{
 		{RelPath: "src/a.py", Language: "python", Symbols: []repotypes.Symbol{{
@@ -1101,6 +1213,98 @@ func TestPublishSourceInventoryAdvisoryFromTypedRequest_AdvisoryOnlyPackageAndFu
 	}
 }
 
+func TestPublishSourceInventoryAdvisory_PackageCandidatesCarryCrossLanguageCallableAttributes(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{
+			RelPath:  "src/alpha/a.py",
+			Language: "python",
+			Package:  "alpha",
+			Symbols: []repotypes.Symbol{
+				{Name: "Alpha", Kind: "class", File: "src/alpha/a.py", Line: 3, Exported: true},
+				{Name: "run_alpha", Kind: "function", File: "src/alpha/a.py", Line: 9, Exported: true},
+			},
+		},
+		{
+			RelPath:  "src/beta/B.java",
+			Language: "java",
+			Package:  "com.example.beta",
+			Symbols: []repotypes.Symbol{
+				{Name: "Beta", Kind: "class", File: "src/beta/B.java", Line: 4, Exported: true},
+				{Name: "execute", Kind: "method", File: "src/beta/B.java", Line: 18, Parent: "Beta", Exported: true},
+			},
+		},
+		{
+			RelPath:  "src/ui/Index.ets",
+			Language: "arkts",
+			Package:  "ui",
+			Symbols: []repotypes.Symbol{
+				{Name: "Index", Kind: "component", File: "src/ui/Index.ets", Line: 6, Exported: true},
+				{Name: "build", Kind: "ui-entry", File: "src/ui/Index.ets", Line: 24, Parent: "Index", Exported: true},
+			},
+		},
+		{
+			RelPath:  "src/proto/user.proto",
+			Language: "proto",
+			Package:  "user.v1",
+			Symbols: []repotypes.Symbol{
+				{Name: "UserService", Kind: "service", File: "src/proto/user.proto", Line: 8, Exported: true},
+				{Name: "GetUser", Kind: "rpc", File: "src/proto/user.proto", Line: 11, Parent: "UserService", Exported: true},
+			},
+		},
+		{
+			RelPath:  "src/cj/main.cj",
+			Language: "cangjie",
+			Package:  "cj",
+			Symbols: []repotypes.Symbol{{
+				Name: "main", Kind: "function", File: "src/cj/main.cj", Line: 5, Exported: true,
+			}},
+		},
+	})
+	ctx := sourceInventoryTestContext("", graph, "src", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRolePackage},
+		RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName},
+		Confidence:        0.95,
+	})
+
+	if !PublishSourceInventoryAdvisoryFromTypedRequest(ctx) {
+		t.Fatal("expected typed request to publish package advisory")
+	}
+	advisory := ctx.Mutable.SourceInventoryAdvisory()
+	var packageSet *types.SourceInventoryAdvisorySet
+	for i := range advisory.Sets {
+		if advisory.Sets[i].Role == types.AnswerCandidateRolePackage {
+			packageSet = &advisory.Sets[i]
+			break
+		}
+	}
+	if packageSet == nil {
+		t.Fatalf("package set missing from advisory: %+v", advisory)
+	}
+	attrsByMember := map[string][]types.SourceInventoryAdvisoryAttribute{}
+	for _, candidate := range packageSet.Candidates {
+		attrsByMember[candidate.Member] = candidate.Attributes
+	}
+	for member, want := range map[string]string{
+		"alpha":            "run_alpha",
+		"com.example.beta": "execute",
+		"ui":               "build",
+		"user.v1":          "GetUser",
+		"cj":               "main",
+	} {
+		attrs := attrsByMember[member]
+		if len(attrs) == 0 {
+			t.Fatalf("package candidate %q has no callable attributes; advisory=%+v", member, advisory)
+		}
+		if attrs[0].Member != want {
+			t.Fatalf("package %q first attribute = %q, want %q (attrs=%+v)", member, attrs[0].Member, want, attrs)
+		}
+		if attrs[0].File == "" || attrs[0].Line == 0 || attrs[0].Language == "" {
+			t.Fatalf("package %q attribute missing location/language: %+v", member, attrs[0])
+		}
+	}
+}
+
 func TestPublishSourceInventoryAdvisoryFromToolObservation_FirstActivationReturnsHint(t *testing.T) {
 	graph := testGraphWithFiles([]*repotypes.FileInfo{{
 		RelPath:  "src/alpha/a.py",
@@ -1134,6 +1338,68 @@ func TestPublishSourceInventoryAdvisoryFromToolObservation_FirstActivationReturn
 		Success:  true,
 	}); second != "" {
 		t.Fatalf("second observation should not spam another hint, got %q", second)
+	}
+}
+
+func TestPublishSourceInventoryAdvisoryFromToolObservation_RendersPackageAsScopeCarrier(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{{
+		RelPath:  "src/alpha/a.py",
+		Language: "python",
+		Package:  "alpha",
+	}})
+	ctx := sourceInventoryTestContext("", graph, "src", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRolePackage},
+		RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName},
+		Confidence:        0.95,
+	})
+
+	hint := PublishSourceInventoryAdvisoryFromToolObservation(ctx, types.ToolResult{
+		ToolName: "repo_map",
+		Success:  true,
+	})
+	if !strings.Contains(hint, "package/directory/module scope candidates") {
+		t.Fatalf("package advisory should render as scope carrier, got %q", hint)
+	}
+}
+
+func TestPublishSourceInventoryAdvisoryFromToolObservation_PreActiveStillHintsOnce(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{{
+		RelPath:  "src/alpha/a.py",
+		Language: "python",
+		Package:  "alpha",
+		Symbols: []repotypes.Symbol{{
+			Name:     "run_alpha",
+			Kind:     "function",
+			File:     "src/alpha/a.py",
+			Line:     7,
+			Exported: true,
+		}},
+	}})
+	ctx := sourceInventoryTestContext("", graph, "src", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRolePackage},
+		RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName},
+		Confidence:        0.95,
+	})
+	if !PublishSourceInventoryAdvisoryFromTypedRequest(ctx) {
+		t.Fatal("expected pre-explore advisory to publish")
+	}
+
+	first := PublishSourceInventoryAdvisoryFromToolObservation(ctx, types.ToolResult{
+		ToolName: "repo_map",
+		Success:  true,
+	})
+	if !strings.Contains(first, "Structured source-inventory candidate checklist") ||
+		!strings.Contains(first, "run_alpha") {
+		t.Fatalf("pre-active advisory should still attach one compact tool hint, got %q", first)
+	}
+	second := PublishSourceInventoryAdvisoryFromToolObservation(ctx, types.ToolResult{
+		ToolName: "list_files",
+		Success:  true,
+	})
+	if second != "" {
+		t.Fatalf("pre-active advisory hint should emit only once, got %q", second)
 	}
 }
 

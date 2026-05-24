@@ -196,6 +196,41 @@ func TestExplorer_BuildInitialInstruction_RendersSourceInventoryAdvisory(t *test
 	}
 }
 
+func TestRenderExtractorSourceInventoryAdvisory_RendersCandidateAttributes(t *testing.T) {
+	out := renderExtractorSourceInventoryAdvisory(&types.TurnAArtifacts{
+		SourceInventoryAdvisory: types.SourceInventoryAdvisory{
+			Active:       true,
+			AdvisoryOnly: true,
+			Sets: []types.SourceInventoryAdvisorySet{{
+				Role:     types.AnswerCandidateRolePackage,
+				Complete: true,
+				Candidates: []types.SourceInventoryAdvisoryCandidate{{
+					Member:   "alpha",
+					File:     "src/alpha",
+					Language: "python",
+					Role:     types.AnswerCandidateRolePackage,
+					Attributes: []types.SourceInventoryAdvisoryAttribute{{
+						Member:   "run_alpha",
+						File:     "src/alpha/a.py",
+						Line:     7,
+						Language: "python",
+						Role:     types.AnswerCandidateRoleFunction,
+					}},
+				}},
+			}},
+		},
+	})
+	for _, want := range []string{
+		"package/directory/module scope candidates",
+		"related_candidate_attributes",
+		"function `run_alpha` @ src/alpha/a.py:7",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rendered advisory missing %q:\n%s", want, out)
+		}
+	}
+}
+
 // -----------------------------------------------------------------------------
 // ParseOutput quality-floor branches
 // -----------------------------------------------------------------------------

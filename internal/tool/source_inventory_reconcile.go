@@ -27,6 +27,7 @@ type sourceInventoryCandidate struct {
 	file       string
 	line       int
 	language   string
+	attributes []sourceInventoryCandidate
 }
 
 type sourceInventoryCandidateSet struct {
@@ -66,17 +67,16 @@ func PublishSourceInventoryAdvisoryFromTypedRequest(ctx *types.BusContext) bool 
 // PublishSourceInventoryAdvisoryFromToolObservation publishes the same
 // advisory from a successful navigation observation. The returned string is a
 // compact model-visible hint for the current ReAct dispatch. Empty means either
-// no bounded source-inventory profile is active, no graph is available, or the
-// run already had an advisory visible.
+// no bounded source-inventory profile is active, no graph is available, or this
+// active advisory lifecycle already attached the compact hint to a tool result.
 func PublishSourceInventoryAdvisoryFromToolObservation(ctx *types.BusContext, result types.ToolResult) string {
 	if ctx == nil || ctx.Mutable == nil || !result.Success || !sourceInventoryObservationTool(result.ToolName) {
 		return ""
 	}
-	alreadyActive := ctx.Mutable.SourceInventoryAdvisory().IsActive()
 	if !publishSourceInventoryAdvisorySnapshot(ctx, "tool:"+types.CanonicalToolName(result.ToolName), true) {
 		return ""
 	}
-	if alreadyActive {
+	if !ctx.Mutable.ClaimSourceInventoryAdvisoryHint() {
 		return ""
 	}
 	return renderSourceInventoryAdvisoryToolHint(ctx.Mutable.SourceInventoryAdvisory())
@@ -149,7 +149,7 @@ func renderSourceInventoryAdvisoryToolHint(advisory types.SourceInventoryAdvisor
 		if emitted >= maxRows || len(set.Candidates) == 0 {
 			continue
 		}
-		fmt.Fprintf(&b, "- %s candidates:", set.Role)
+		fmt.Fprintf(&b, "- %s candidates:", types.SourceInventoryAdvisoryRoleLabel(set.Role))
 		for _, candidate := range set.Candidates {
 			if emitted >= maxRows {
 				break
@@ -165,6 +165,9 @@ func renderSourceInventoryAdvisoryToolHint(advisory types.SourceInventoryAdvisor
 			} else {
 				fmt.Fprintf(&b, " %s;", member)
 			}
+			if attrs := renderSourceInventoryAdvisoryToolHintAttributes(candidate.Attributes); attrs != "" {
+				fmt.Fprintf(&b, " {%s}", attrs)
+			}
 			emitted++
 		}
 		b.WriteByte('\n')
@@ -175,6 +178,39 @@ func renderSourceInventoryAdvisoryToolHint(advisory types.SourceInventoryAdvisor
 	return strings.TrimSpace(b.String())
 }
 
+func renderSourceInventoryAdvisoryToolHintAttributes(attrs []types.SourceInventoryAdvisoryAttribute) string {
+	if len(attrs) == 0 {
+		return ""
+	}
+	const max = 3
+	var parts []string
+	for _, attr := range attrs {
+		if len(parts) >= max {
+			break
+		}
+		member := strings.TrimSpace(attr.Member)
+		if member == "" {
+			continue
+		}
+		loc := strings.TrimSpace(attr.File)
+		if loc != "" && attr.Line > 0 {
+			loc = loc + ":" + strconvItoa(attr.Line)
+		}
+		if loc != "" {
+			parts = append(parts, member+"@"+loc)
+		} else {
+			parts = append(parts, member)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	if len(attrs) > len(parts) {
+		parts = append(parts, fmt.Sprintf("+%d", len(attrs)-len(parts)))
+	}
+	return "related callables: " + strings.Join(parts, ", ")
+}
+
 func buildSourceInventoryAdvisory(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) types.SourceInventoryAdvisory {
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
 		return types.SourceInventoryAdvisory{}
@@ -183,7 +219,7 @@ func buildSourceInventoryAdvisory(ctx *types.BusContext, facts []types.AnswerAgg
 	if graph == nil {
 		return types.SourceInventoryAdvisory{}
 	}
-	profile, advisoryOnly, provenance := sourceInventoryAdvisoryProfile(ctx)
+	profile, advisoryOnly, provenance := sourceInventoryAdvisoryProfile(ctx, graph)
 	if !profile.Active() {
 		return types.SourceInventoryAdvisory{}
 	}
@@ -221,6 +257,20 @@ func buildSourceInventoryAdvisory(ctx *types.BusContext, facts []types.AnswerAgg
 			Candidates: make([]types.SourceInventoryAdvisoryCandidate, 0, len(set.candidates)),
 		}
 		for _, candidate := range set.candidates {
+			attrs := make([]types.SourceInventoryAdvisoryAttribute, 0, len(candidate.attributes))
+			for _, attr := range candidate.attributes {
+				attrs = append(attrs, types.SourceInventoryAdvisoryAttribute{
+					Member:     attr.member,
+					Key:        attr.key,
+					SupportRef: attr.supportRef,
+					Note:       sourceInventoryCandidateNote(attr),
+					Role:       attr.role,
+					Exported:   attr.exported,
+					File:       attr.file,
+					Line:       attr.line,
+					Language:   attr.language,
+				})
+			}
 			advisorySet.Candidates = append(advisorySet.Candidates, types.SourceInventoryAdvisoryCandidate{
 				Member:     candidate.member,
 				Key:        candidate.key,
@@ -231,6 +281,7 @@ func buildSourceInventoryAdvisory(ctx *types.BusContext, facts []types.AnswerAgg
 				File:       candidate.file,
 				Line:       candidate.line,
 				Language:   candidate.language,
+				Attributes: attrs,
 			})
 		}
 		advisory.Sets = append(advisory.Sets, advisorySet)
@@ -241,7 +292,7 @@ func buildSourceInventoryAdvisory(ctx *types.BusContext, facts []types.AnswerAgg
 	return advisory
 }
 
-func sourceInventoryAdvisoryProfile(ctx *types.BusContext) (*types.SourceInventoryProfile, bool, []string) {
+func sourceInventoryAdvisoryProfile(ctx *types.BusContext, graph *repotypes.Graph) (*types.SourceInventoryProfile, bool, []string) {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return nil, false, nil
 	}
@@ -256,33 +307,75 @@ func sourceInventoryAdvisoryProfile(ctx *types.BusContext) (*types.SourceInvento
 		}
 		return &clone, false, []string{"source_inventory_profile"}
 	}
-	if rm.AnswerRoleProfile == nil || !rm.AnswerRoleProfile.Active() {
-		return nil, false, nil
+	var roleProfileRoles []types.AnswerCandidateRole
+	if rm.AnswerRoleProfile != nil && rm.AnswerRoleProfile.Active() {
+		roleProfileRoles = sourceInventoryAdvisoryPrincipalRolesFromRoleProfile(rm.AnswerRoleProfile)
+		var provenance []string
+		switch {
+		case types.HasAttributeBearingEnumeration(rm):
+			provenance = append(provenance, "request_traits:attribute_bearing_enumeration")
+		case types.RequiresExhaustiveEnumerationMemberSetHandoff(rm):
+			provenance = append(provenance, "request_traits:exhaustive_member_set")
+		default:
+			provenance = nil
+		}
+		if len(provenance) > 0 && len(roleProfileRoles) > 0 {
+			provenance = append(provenance, "answer_role_profile")
+			return &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       roleProfileRoles,
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldSummary,
+				},
+				Confidence: 0.50,
+			}, true, provenance
+		}
 	}
-	var provenance []string
-	switch {
-	case types.HasAttributeBearingEnumeration(rm):
-		provenance = append(provenance, "request_traits:attribute_bearing_enumeration")
-	case types.RequiresExhaustiveEnumerationMemberSetHandoff(rm):
-		provenance = append(provenance, "request_traits:exhaustive_member_set")
-	default:
-		return nil, false, nil
+	if types.HasBoundedSourceEnumerationScope(rm, ctx.AnalysisIR.EvidencePlan.RequiredFiles, ctx.RepoRoot) {
+		roles := roleProfileRoles
+		if len(roles) == 0 {
+			roles = []types.AnswerCandidateRole{types.AnswerCandidateRolePackage}
+		}
+		return &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       roles,
+			RequestedFields: []types.SourceInventoryRequestedField{
+				types.SourceInventoryFieldName,
+				types.SourceInventoryFieldLocation,
+				types.SourceInventoryFieldSummary,
+			},
+			Confidence: 0.45,
+		}, true, []string{"request_traits:bounded_source_enumeration_scope"}
 	}
-	roles := sourceInventoryAdvisoryPrincipalRolesFromRoleProfile(rm.AnswerRoleProfile)
-	if len(roles) == 0 {
-		return nil, false, nil
+	if sourceInventoryCanUseScopeEntityFallback(rm) && len(sourceInventoryRequestedScopes(ctx, graph)) > 0 {
+		roles := roleProfileRoles
+		if len(roles) == 0 {
+			roles = []types.AnswerCandidateRole{types.AnswerCandidateRolePackage}
+		}
+		return &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       roles,
+			RequestedFields: []types.SourceInventoryRequestedField{
+				types.SourceInventoryFieldName,
+				types.SourceInventoryFieldLocation,
+				types.SourceInventoryFieldSummary,
+			},
+			Confidence: 0.40,
+		}, true, []string{"request_traits:source_scope_enumeration"}
 	}
-	provenance = append(provenance, "answer_role_profile")
-	return &types.SourceInventoryProfile{
-		IsSourceInventory: true,
-		TargetRoles:       roles,
-		RequestedFields: []types.SourceInventoryRequestedField{
-			types.SourceInventoryFieldName,
-			types.SourceInventoryFieldLocation,
-			types.SourceInventoryFieldSummary,
-		},
-		Confidence: 0.50,
-	}, true, provenance
+	return nil, false, nil
+}
+
+func sourceInventoryCanUseScopeEntityFallback(rm types.RequestModel) bool {
+	if !types.IsTypedSourceEnumerationShape(rm) {
+		return false
+	}
+	if rm.CompletenessObligation != nil && rm.CompletenessObligation.IsActive() {
+		return false
+	}
+	return true
 }
 
 func sourceInventoryAdvisoryPrincipalRolesFromRoleProfile(profile *types.AnswerRoleProfile) []types.AnswerCandidateRole {
@@ -658,10 +751,96 @@ func sourceInventoryPackageCandidates(ctx *types.BusContext, graph *repotypes.Gr
 			exported:   true,
 			file:       key,
 			language:   sourceInventoryDominantMapKey(bucket.languages),
+			attributes: sourceInventoryPackageBucketCallableAttributes(ctx, graph, key),
 		})
 	}
 	sourceInventorySortCandidates(set.candidates)
 	return set
+}
+
+const sourceInventoryMaxPackageAttributes = 4
+
+func sourceInventoryPackageBucketCallableAttributes(ctx *types.BusContext, graph *repotypes.Graph, dir string) []sourceInventoryCandidate {
+	if graph == nil {
+		return nil
+	}
+	dir = strings.Trim(strings.TrimSpace(strings.ReplaceAll(dir, `\`, `/`)), "/")
+	if dir == "" {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []sourceInventoryCandidate
+	for _, sym := range sourceInventoryGraphSymbols(graph) {
+		if sym == nil || !sourceInventorySymbolInPackageDir(sym, dir) || !aggregateEvidenceSourceInRequestedScope(ctx, sym.File) {
+			continue
+		}
+		role, ok := sourceInventoryCallableAttributeRole(sym)
+		if !ok {
+			continue
+		}
+		if ctx != nil && ctx.AnalysisIR != nil &&
+			!sourceInventorySymbolMatchesVisibility(sym, ctx.AnalysisIR.RequestModel.AnswerVisibilityProfile) {
+			continue
+		}
+		candidate := sourceInventoryCandidateForSymbol(sym, role, graph)
+		key := string(role) + "\x00" + candidate.key + "\x00" + candidate.file + "\x00" + strconvItoa(candidate.line)
+		if candidate.key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, candidate)
+	}
+	sourceInventorySortCallableAttributes(out)
+	if len(out) > sourceInventoryMaxPackageAttributes {
+		out = out[:sourceInventoryMaxPackageAttributes]
+	}
+	return out
+}
+
+func sourceInventorySymbolInPackageDir(sym *repotypes.Symbol, dir string) bool {
+	if sym == nil {
+		return false
+	}
+	file := strings.Trim(strings.TrimSpace(strings.ReplaceAll(sym.File, `\`, `/`)), "/")
+	if file == "" || dir == "" {
+		return false
+	}
+	return file == dir || strings.HasPrefix(file, dir+"/")
+}
+
+func sourceInventoryCallableAttributeRole(sym *repotypes.Symbol) (types.AnswerCandidateRole, bool) {
+	if sym == nil {
+		return types.AnswerCandidateRoleUnknown, false
+	}
+	switch strings.ToLower(strings.TrimSpace(sym.Kind)) {
+	case "function", "foreign-func", "operator", "ui-entry", "builder", "rpc":
+		return types.AnswerCandidateRoleFunction, true
+	case "method", "ctor":
+		return types.AnswerCandidateRoleMethod, true
+	default:
+		return types.AnswerCandidateRoleUnknown, false
+	}
+}
+
+func sourceInventorySortCallableAttributes(candidates []sourceInventoryCandidate) {
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].exported != candidates[j].exported {
+			return candidates[i].exported
+		}
+		if candidates[i].file != candidates[j].file {
+			return candidates[i].file < candidates[j].file
+		}
+		if candidates[i].line != candidates[j].line {
+			if candidates[i].line == 0 {
+				return false
+			}
+			if candidates[j].line == 0 {
+				return true
+			}
+			return candidates[i].line < candidates[j].line
+		}
+		return candidates[i].member < candidates[j].member
+	})
 }
 
 func sourceInventoryPackageBucketMember(bucket *sourceInventoryPackageBucket) string {
@@ -978,6 +1157,9 @@ func sourceInventoryRequestedScopes(ctx *types.BusContext, graph *repotypes.Grap
 	if len(out) > 0 {
 		sort.Strings(out)
 		return out
+	}
+	for _, file := range ctx.AnalysisIR.EvidencePlan.RequiredFiles {
+		add(file)
 	}
 	for _, hint := range hints.RequiredFileHints {
 		add(hint.Path)

@@ -1,11 +1,6 @@
 package orchestrator
 
-import (
-	"path"
-	"strings"
-
-	"github.com/hanchaoqun/codrax/internal/types"
-)
+import "github.com/hanchaoqun/codrax/internal/types"
 
 // E' (2026-05-17 architecture §1.5/§1.6) — DAG node-level dispatch.
 //
@@ -128,7 +123,14 @@ func shouldKeepSourceInventoryExploreWindowUnified(ctx *types.BusContext, window
 	if sourceInventoryProfileActive(ctx) {
 		return true
 	}
-	return broadSourceEnumerationScopeActive(ctx)
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	return types.HasBoundedSourceEnumerationScope(
+		ctx.AnalysisIR.RequestModel,
+		ctx.AnalysisIR.EvidencePlan.RequiredFiles,
+		ctx.RepoRoot,
+	)
 }
 
 func sourceInventoryProfileActive(ctx *types.BusContext) bool {
@@ -146,104 +148,6 @@ func exploreEvidenceNodeCount(window []*types.TaskNode) int {
 		}
 	}
 	return evidenceCount
-}
-
-const broadSourceEnumerationMinFiles = 6
-
-// broadSourceEnumerationScopeActive recognizes the structural "one bounded
-// source inventory, multiple dimensions" shape even when the analyzer omitted
-// source_inventory_profile. The guard is intentionally conservative:
-//
-//   - category enumeration must be typed in the IR;
-//   - a sizeable set of source/config paths must be present in EvidencePlan or
-//     high-confidence RequiredFileHints;
-//   - those paths must share a non-root directory scope;
-//   - path-role filtering follows SourceScopeProfile rather than prose cues.
-//
-// The fallback can only reduce redundant sibling dispatches. It never makes a
-// membership/completeness claim and never authorizes final-answer supplements.
-func broadSourceEnumerationScopeActive(ctx *types.BusContext) bool {
-	if ctx == nil || ctx.AnalysisIR == nil {
-		return false
-	}
-	rm := ctx.AnalysisIR.RequestModel
-	if rm.Intent != types.IntentEnumerate || !rm.Predicates.IsCategoryEnumeration {
-		return false
-	}
-	files := broadSourceEnumerationFiles(ctx)
-	if len(files) < broadSourceEnumerationMinFiles {
-		return false
-	}
-	return commonNonRootDir(files) != ""
-}
-
-func broadSourceEnumerationFiles(ctx *types.BusContext) []string {
-	if ctx == nil || ctx.AnalysisIR == nil {
-		return nil
-	}
-	rm := ctx.AnalysisIR.RequestModel
-	seen := map[string]bool{}
-	var out []string
-	add := func(raw string) {
-		canon := types.CanonicalRequiredFileHintPath(raw, ctx.RepoRoot)
-		if canon == "" || seen[canon] || !broadSourceEnumerationPathAllowed(rm, canon) {
-			return
-		}
-		seen[canon] = true
-		out = append(out, canon)
-	}
-	for _, file := range ctx.AnalysisIR.EvidencePlan.RequiredFiles {
-		add(file)
-	}
-	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
-		if hint.Confidence < 0.5 {
-			continue
-		}
-		add(hint.Path)
-	}
-	return out
-}
-
-func broadSourceEnumerationPathAllowed(rm types.RequestModel, rel string) bool {
-	rel = strings.TrimSpace(strings.ReplaceAll(rel, `\`, `/`))
-	if rel == "" || rel == "." || strings.HasSuffix(rel, "/") {
-		return false
-	}
-	if !types.HasCodeOrConfigPathSuffix(rel) {
-		return false
-	}
-	scope := types.SourceScopeProduction
-	if rm.SourceScopeProfile != nil && rm.SourceScopeProfile.RequestedScope != "" {
-		scope = rm.SourceScopeProfile.RequestedScope
-	}
-	return types.SourceScopeAllowsPathRole(scope, types.ClassifySourcePathRole(rel))
-}
-
-func commonNonRootDir(files []string) string {
-	var common []string
-	for _, file := range files {
-		dir := strings.Trim(path.Dir(strings.Trim(strings.ReplaceAll(file, `\`, `/`), "/")), "/")
-		if dir == "" || dir == "." {
-			return ""
-		}
-		parts := strings.Split(dir, "/")
-		if len(common) == 0 {
-			common = append([]string(nil), parts...)
-			continue
-		}
-		n := 0
-		for n < len(common) && n < len(parts) && common[n] == parts[n] {
-			n++
-		}
-		common = common[:n]
-		if len(common) == 0 {
-			return ""
-		}
-	}
-	if len(common) == 0 {
-		return ""
-	}
-	return strings.Join(common, "/")
 }
 
 // trimExploreWindowToFirstEvidence drops all but the first

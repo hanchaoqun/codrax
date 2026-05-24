@@ -981,3 +981,113 @@ Validation:
   original run and 6 in the previous profile-omitted run. This does not prove
   the full answer is solved, but it verifies the high-risk duplicate-lane
   failure mode is guarded.
+
+### P0 Design - Cross-language Inventory Attribute Candidates
+
+Problem:
+
+- The current advisory carrier is role-flat: it can say "these are package
+  candidates" and "these are function candidates", but it cannot say "this
+  package candidate has these possible callable/entry attributes".
+- `s5b` is one visible sample, but the gap is broader: directory/package/module
+  inventories often ask for a per-member attribute (entry function, purpose,
+  registration point, handler, config anchor, etc.). If the system hands the
+  model only a flat set, local models still explore one package at a time with
+  grep/read loops.
+- A real "entrypoint" is not a universal language concept. The system must not
+  pick a single answer by name-pattern or localized request keywords. It can
+  safely expose graph-backed callable candidates and preserve ambiguity.
+
+Design:
+
+- Extend `SourceInventoryAdvisoryCandidate` with an `Attributes` side lane.
+  Each attribute is another graph-backed candidate row with role, member,
+  file, line, language, support_ref, exported flag, and note. The attribute is
+  context for its parent member, not an answer row by itself.
+- Populate package/directory/module candidates with bounded callable
+  attributes from repomap symbols inside the same directory scope:
+  `function`, `method`, and callable-like language adapter kinds such as
+  `ctor`, `foreign-func`, `operator`, `ui-entry`, `builder`, and `rpc`.
+- Do not infer a unique entrypoint. For each package member, keep a small,
+  source-order candidate list. Multiple attributes intentionally mean
+  "ambiguous candidates; model must verify or disclose".
+- Activation stays inside the existing source-inventory advisory path. No raw
+  user-question or model-prose keyword matching is introduced. The attribute
+  lane is only emitted when a source-inventory advisory is already active from
+  typed profile / advisory profile / tool observation.
+- Profile-omitted fallback uses the shared typed
+  `HasBoundedSourceEnumerationScope` guard. The same helper drives explore
+  scheduling and advisory activation, so a local model that omits optional
+  `source_inventory_profile` but emits a bounded category-enumeration IR still
+  receives a checklist without reopening duplicate lanes.
+- If a typed `answer_role_profile` is present, bounded fallback reuses those
+  roles instead of substituting a package view. Package candidates are only the
+  no-role fallback.
+- The no-role fallback renders the existing package role as
+  `package/directory/module scope candidates` so operators and future
+  developers do not mistake it for a language-package answer decision.
+- Keep validation unchanged: attributes are not citations by themselves and do
+  not authorize deterministic final-answer supplements.
+- Support every repomap language by consuming `repomap/types.Symbol` and
+  `FileInfo.Language`, not language-specific parsers. Existing Go-only enum
+  proof remains a separate narrow adapter.
+
+Task list:
+
+- [x] Add an attribute slice to `SourceInventoryAdvisoryCandidate` with clone
+  and merge support.
+- [x] Build bounded callable attributes for package/directory candidates from
+  existing graph symbols.
+- [x] Render attributes in explorer/extractor advisory blocks without making
+  them look mandatory or final.
+- [x] Add cross-language tests covering Python/Java/ArkTS/Proto/Cangjie-style
+  callable kinds and ambiguity preservation.
+- [x] Move bounded source-enumeration scope detection into `internal/types` and
+  reuse it from both explore-window scheduling and source-inventory advisory
+  activation.
+- [x] Add profile-omitted fallback coverage where only
+  `EvidencePlan.RequiredFiles` carries the bounded source scope.
+- [x] Add coverage that bounded fallback respects model-supplied typed roles
+  when `answer_role_profile` is present.
+- [x] Add display-level guardrails so package-role advisory rows are presented
+  as scope carriers rather than final answer type decisions.
+- [x] Attach the compact advisory checklist to the first eligible navigation
+  tool result even when the advisory was already published before explore
+  dispatch. This keeps the hint adjacent to the model's actual repo_map /
+  list_files observation without repeating it on every tool call.
+- [x] Add a graph-resolved source-scope fallback for role/profile/required-file
+  omissions: typed category enumeration plus a source entity that resolves to
+  a repo-map scope now activates advisory-only scope candidates.
+- [x] Keep that source-scope-only fallback silent when the typed model already
+  declares an explicit completeness obligation but omits the target role; in
+  that shape a package/directory fallback could become misleading noise.
+- [ ] Re-run targeted source-inventory tests and a short `s5b` observation.
+
+Validation so far:
+
+- `go test ./internal/types -run 'TestSourceInventory|TestHasBoundedSourceEnumerationScope'`
+- `go test ./internal/tool -run 'TestBuildSourceInventoryAdvisory|TestPublishSourceInventoryAdvisory|TestNormalizePrincipalEnumeration|TestReconcileCompletionAggregateFactsWithSourceInventory'`
+- `go test ./internal/agent -run 'TestExplorer_BuildInitialInstruction_RendersSourceInventoryAdvisory|TestRenderExtractorSourceInventoryAdvisory_RendersCandidateAttributes'`
+- `go test ./internal/orchestrator -run 'TestShouldKeepSourceInventoryExploreWindowUnified|TestExploreWindowDispatchGroups'`
+
+2026-05-24 short `s5b` observation:
+
+- Run: `eval/results/local-small-20260524-attribute-handoff/s5b-20260524-200839`
+  interrupted with SIGINT after explore iteration 12.
+- Positive: duplicate sibling lanes stayed fixed (`explorer_dispatches=1`), and
+  pre-explore advisory publication fired.
+- Gap found: because the advisory was already active, the tool-observation path
+  suppressed the compact checklist; the local model proceeded with repeated
+  repo_map/list_files/grep/read_file loops. This was fixed by adding a
+  once-per-advisory lifecycle hint claim in `MutableState`.
+- Follow-up run `eval/results/local-small-20260524-attribute-handoff3/s5b-20260524-201657`
+  found a second upstream omission: analyzer retry kept only
+  `entities=["internal/analysis"]` with no role/profile/required files. The
+  source-scope fallback covers this by using graph-resolved entities, not raw
+  request keywords.
+- Follow-up run `eval/results/local-small-20260524-attribute-handoff4/s5b-20260524-202124`
+  did not reach the explore advisory verification point. The analyzer used the
+  terminal emit-only budget turn for more `list_files` calls, received tool
+  rejections, and the run was interrupted. Remaining gap: analyzer terminal
+  pre-scan recovery should avoid spending another LLM turn on rejected
+  navigation calls when enough typed pre-scan observations already exist.
