@@ -1486,6 +1486,81 @@ Implementation notes:
   hard-coding Go packages or a particular eval question. It must work over all
   repomap languages, mixed-language subtrees, config-file surfaces, and active
   multi-repo boundaries.
+
+Next batch design: scoped repo-map projection + composable source-inventory
+relations.
+
+Problem A: scoped repo-map calls currently avoid the earlier full-repo noise
+bug, but they do so by loading a separate subdirectory graph/cache. On a cache
+hit this is cheap, yet it still repeats file listing, hash validation, graph
+build, and ranking when an in-memory whole-repo graph already exists. The safe
+commercial fix is not to blindly reuse the whole graph. Add a projection path
+that runs only after the existing active-set / symlink / parent-escape gates,
+filters the already-loaded graph to the requested subtree, rebases file paths
+to the scoped root, keeps only in-scope symbols/imports/relations, rebuilds the
+graph indexes with the existing `index.BuildGraph`, ranks the clone with the
+current query, and caches the projection for the current run under
+`canonical(parent_root) + canonical(scope_root) + query`. This preserves the
+boundary fix while avoiding repeated disk-cache graph construction. The
+projection must not replace the full `Mutable.SearchGraph`; downstream
+validators often need the full graph. It should be a repo-map execution cache,
+not a global semantic authority.
+
+Problem B: `source_inventory` already carries row-local attributes, but the
+model has to discover the exact `view="source_inventory"` shape and the current
+attributes are too generic for questions that ask for a two-level inventory
+such as "directory members plus each member's entry function". The next lens
+extension should add model-controlled, typed relation slots rather than
+case-specific prompts: `member_roles`/`roles` continue to define principal
+rows, while `attribute_roles` requests row-local related candidates such as
+function/method/type/config_key. If omitted, existing behavior remains intact.
+For directory-like members (`package`, `file`, `config_file`), attributes are
+selected from the same scope and ranked by structural signals already available
+in repomap: exported/public first when visibility asks for it, parser rank
+quality, file locality, symbol kind, line order, and graph score. The tool must
+return enough rows to be useful but label them as candidates/ambiguous when
+there are multiple possible entries. It must never assert "the entry point is X"
+without grounded evidence; it only gives a compact checklist of where the model
+should verify next.
+
+Batch tasks:
+
+- [x] B2-A: add run-scoped repo-map projection cache on `MutableState`, keyed by
+  parent root, scoped root, and query, returning defensive graph clones.
+- [x] B2-B: implement `ProjectGraphToRoot(parent, scope)` by reusing
+  `index.BuildGraph` so all graph indexes, import resolution, implementer
+  metadata, and ranking inputs stay single-source. Add tests that the projection
+  rebases paths, excludes sibling files/relations, and does not mutate the
+  full graph.
+- [x] B2-C: wire single-repo subdirectory `repo_map` calls through the projection
+  cache when a full in-memory graph is present; fall back to the current scoped
+  disk cache path when no full graph exists.
+- [x] B2-D: add source-inventory lens query fields for row-local
+  `attribute_roles` while keeping existing `roles` behavior and model learning
+  burden small. Render attributes as advisory "candidate attributes" with
+  support refs and ambiguity notes.
+- [ ] B2-E: update eval guardrails so `source_inventory_lens` use and
+  full-file `read_file` count can distinguish "subdir graph reuse works" from
+  "model still did manual broad reads".
+- [ ] B2-F: rerun `s5b` and record whether the eval now enters finalizer, how
+  many `read_file`/`list_files`/`repo_map` calls remain, and whether the model
+  naturally uses the lens or still needs discoverability work.
+
+Implementation notes for B2:
+
+- 2026-05-24: landed run-scoped graph projection without replacing the full
+  `Mutable.SearchGraph`. Subdirectory `repo_map` calls first try a cached
+  projection derived from an already-loaded full graph; only cache misses fall
+  back to the existing safe scoped loader. Projection filters and rebases files
+  and source-local symbol/relationship fields, then calls the existing
+  `index.BuildGraph` and `retrieve.RankGraph`, so graph indexes and language
+  behavior remain single-source.
+- 2026-05-24: landed `attribute_roles` for `repo_map(view="source_inventory")`.
+  The field is typed and model-driven: rows still come from `roles`, while
+  row-local candidate attributes can request functions, methods, types,
+  config keys, and other existing candidate roles. File, config-file, and
+  package/module rows can now expose bounded candidate attributes without
+  turning them into final facts.
 - Tests added/updated:
   `TestSourceInventoryObservation*`,
   `TestCompileObservationLedger_SourceInventoryObservation`,

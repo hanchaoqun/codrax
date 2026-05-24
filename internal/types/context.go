@@ -148,6 +148,12 @@ type MutableState struct {
 	// share the same graph instance with zero I/O.
 	searchGraph any
 
+	// scopedSearchGraphs stores run-local projections derived from
+	// searchGraph for repo_map subdirectory calls. Values are opaque for
+	// the same import-cycle reason as searchGraph. SetSearchGraph clears
+	// this cache so a projection cannot outlive the base graph.
+	scopedSearchGraphs map[string]any
+
 	// symbolOracle is the cached SymbolOracle the orchestrator
 	// builds once per Run from the same graph as searchGraph. Tools
 	// in internal/tool can't import internal/tool/repomap to
@@ -1173,6 +1179,43 @@ func (m *MutableState) SetSearchGraph(g any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.searchGraph = g
+	m.scopedSearchGraphs = nil
+}
+
+// ScopedSearchGraph returns a run-local graph projection cached under key.
+// The value is intentionally opaque so internal/types stays decoupled from
+// internal/tool/repomap; callers must type-assert and clone in their own
+// package before mutation.
+func (m *MutableState) ScopedSearchGraph(key string) any {
+	if m == nil || key == "" {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.scopedSearchGraphs == nil {
+		return nil
+	}
+	return m.scopedSearchGraphs[key]
+}
+
+// SetScopedSearchGraph stores a run-local graph projection. Passing nil clears
+// the specific key. The cache is also cleared whenever SetSearchGraph installs
+// a new base graph, which prevents scoped projections from outliving the graph
+// they were derived from.
+func (m *MutableState) SetScopedSearchGraph(key string, g any) {
+	if m == nil || key == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if g == nil {
+		delete(m.scopedSearchGraphs, key)
+		return
+	}
+	if m.scopedSearchGraphs == nil {
+		m.scopedSearchGraphs = map[string]any{}
+	}
+	m.scopedSearchGraphs[key] = g
 }
 
 // SymbolOracle returns the orchestrator-wired SymbolOracle for the

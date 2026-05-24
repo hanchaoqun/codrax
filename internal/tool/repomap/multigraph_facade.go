@@ -147,7 +147,7 @@ func MultiGraphFromAgentContext(ctx *types.AgentContext) *multigraph.MultiGraph 
 func GraphFromBusContextOrLoad(ctx *types.BusContext, repoRoot, query string) (*Graph, error) {
 	if mg := MultiGraphFromContext(ctx); mg != nil {
 		if mg.IsSingle() {
-			return graphFromSingleMultiGraphRoot(mg, repoRoot, query)
+			return graphFromSingleMultiGraphRootForBus(ctx, mg, repoRoot, query)
 		}
 		if g, ok, err := graphFromMultiGraphExactRoot(mg, repoRoot, query); ok || err != nil {
 			return g, err
@@ -162,6 +162,11 @@ func GraphFromBusContextOrLoad(ctx *types.BusContext, repoRoot, query string) (*
 	if ctx != nil && ctx.Mutable != nil {
 		if g, ok := reusableSearchGraph(repoRoot, ctx.Mutable.SearchGraph(), query); ok {
 			return g, nil
+		}
+		if ctx.RepoRoot != "" {
+			if g, ok, err := projectedGraphFromBusContext(ctx, ctx.RepoRoot, repoRoot, query); ok || err != nil {
+				return g, err
+			}
 		}
 	}
 	if repoRoot == "" {
@@ -178,7 +183,7 @@ func GraphFromBusContextOrLoad(ctx *types.BusContext, repoRoot, query string) (*
 func GraphFromAgentContextOrLoad(ctx *types.AgentContext, repoRoot, query string) (*Graph, error) {
 	if mg := MultiGraphFromAgentContext(ctx); mg != nil {
 		if mg.IsSingle() {
-			return graphFromSingleMultiGraphRoot(mg, repoRoot, query)
+			return graphFromSingleMultiGraphRootForAgent(ctx, mg, repoRoot, query)
 		}
 		if g, ok, err := graphFromMultiGraphExactRoot(mg, repoRoot, query); ok || err != nil {
 			return g, err
@@ -197,6 +202,11 @@ func GraphFromAgentContextOrLoad(ctx *types.AgentContext, repoRoot, query string
 		if ctx.Mutable != nil {
 			if g, ok := reusableSearchGraph(repoRoot, ctx.Mutable.SearchGraph(), query); ok {
 				return g, nil
+			}
+			if ctx.RepoRoot != "" {
+				if g, ok, err := projectedGraphFromAgentContext(ctx, ctx.RepoRoot, repoRoot, query); ok || err != nil {
+					return g, err
+				}
 			}
 		}
 	}
@@ -217,6 +227,55 @@ func graphFromSingleMultiGraphRoot(mg *multigraph.MultiGraph, repoRoot, query st
 		return mg.Single()
 	}
 	return BuildOrLoadGraphWithin(repoRoot, mg.Root(), query)
+}
+
+func graphFromSingleMultiGraphRootForBus(ctx *types.BusContext, mg *multigraph.MultiGraph, repoRoot, query string) (*Graph, error) {
+	if mg == nil {
+		return nil, fmt.Errorf("repomap: nil MultiGraph")
+	}
+	if repoRoot == "" || sameRepoMapRoot(mg.Root(), repoRoot) {
+		return mg.Single()
+	}
+	if g, ok, err := projectedGraphFromBusContext(ctx, mg.Root(), repoRoot, query); ok || err != nil {
+		return g, err
+	}
+	if g, ok, err := projectedGraphFromActiveSingle(mg, repoRoot, query); ok || err != nil {
+		return g, err
+	}
+	return BuildOrLoadGraphWithin(repoRoot, mg.Root(), query)
+}
+
+func graphFromSingleMultiGraphRootForAgent(ctx *types.AgentContext, mg *multigraph.MultiGraph, repoRoot, query string) (*Graph, error) {
+	if mg == nil {
+		return nil, fmt.Errorf("repomap: nil MultiGraph")
+	}
+	if repoRoot == "" || sameRepoMapRoot(mg.Root(), repoRoot) {
+		return mg.Single()
+	}
+	if g, ok, err := projectedGraphFromAgentContext(ctx, mg.Root(), repoRoot, query); ok || err != nil {
+		return g, err
+	}
+	if g, ok, err := projectedGraphFromActiveSingle(mg, repoRoot, query); ok || err != nil {
+		return g, err
+	}
+	return BuildOrLoadGraphWithin(repoRoot, mg.Root(), query)
+}
+
+func projectedGraphFromActiveSingle(mg *multigraph.MultiGraph, repoRoot, query string) (*Graph, bool, error) {
+	if mg == nil || !mg.IsSingle() || repoRoot == "" || sameRepoMapRoot(mg.Root(), repoRoot) {
+		return nil, false, nil
+	}
+	for _, base := range mg.AllGraphs() {
+		projected, err := projectGraphToRoot(base, mg.Root(), repoRoot, query)
+		if err != nil {
+			return nil, false, err
+		}
+		if projected != nil {
+			logging.Info("repo_map: projected scoped graph from active in-memory graph (%d files)", projected.Metadata.FileCount)
+			return projected, true, nil
+		}
+	}
+	return nil, false, nil
 }
 
 func graphFromMultiGraphExactRoot(mg *multigraph.MultiGraph, repoRoot, query string) (*Graph, bool, error) {

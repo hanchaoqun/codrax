@@ -37,6 +37,7 @@ type repoMapParams struct {
 	Scope             string                       `json:"scope,omitempty"`       // for source_inventory
 	Scopes            []string                     `json:"scopes,omitempty"`      // for source_inventory
 	Roles             []ctypes.AnswerCandidateRole `json:"roles,omitempty"`       // for source_inventory
+	AttributeRoles    []ctypes.AnswerCandidateRole `json:"attribute_roles,omitempty"`
 	IncludeAttributes *bool                        `json:"include_attributes,omitempty"`
 	IncludeCounts     *bool                        `json:"include_counts,omitempty"`
 	TopN              int                          `json:"top_n,omitempty"` // max items
@@ -53,7 +54,8 @@ func (t *RepoMapV2) Description() string {
 		"task_map (relevant subgraph for a query), call_path (dependency chain from entry point), " +
 		"edit_impact (what changes to a file would affect), " +
 		"semantic_subgraph (topological summary: linear chains, hub files, articulation-point bridges), " +
-		"source_inventory (typed repo lens for scoped members/symbols/attributes/counts)."
+		"source_inventory (typed repo lens for scoped members/symbols/attributes/counts). " +
+		"For broad scoped inventories, prefer source_inventory with roles and optional attribute_roles so the tool returns a compact checklist instead of forcing many read_file calls."
 }
 
 func (t *RepoMapV2) Parameters() json.RawMessage {
@@ -67,7 +69,7 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
     "view": {
       "type": "string",
       "enum": ["overview", "file_map", "task_map", "call_path", "edit_impact", "semantic_subgraph", "source_inventory"],
-      "description": "Type of map to generate (default: overview)"
+      "description": "Type of map to generate (default: overview). Use source_inventory for scoped member inventories and member→attribute candidate checklists."
     },
     "query": {
       "type": "string",
@@ -97,6 +99,14 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
         "enum": ["function", "method", "type", "constant", "variable", "field", "package", "file", "config_file", "config_key", "route", "import_path", "literal_value"]
       },
       "description": "For source_inventory view: candidate roles to list. Omit to use the current typed request roles."
+    },
+    "attribute_roles": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["function", "method", "type", "constant", "variable", "field", "package", "file", "config_file", "config_key", "route", "import_path", "literal_value"]
+      },
+      "description": "For source_inventory view: row-local candidate roles to attach under each listed member, e.g. functions/methods under a package or file. Advisory only; verify with read_file before citing."
     },
     "include_attributes": {
       "type": "boolean",
@@ -273,6 +283,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		observation := tool.PublishSourceInventoryObservationFromLens(ctx, ctypes.SourceInventoryLensQuery{
 			Scopes:            scopes,
 			Roles:             append([]ctypes.AnswerCandidateRole(nil), p.Roles...),
+			AttributeRoles:    append([]ctypes.AnswerCandidateRole(nil), p.AttributeRoles...),
 			IncludeAttributes: includeAttributes,
 			IncludeCounts:     includeCounts,
 			TopN:              p.TopN,
@@ -281,6 +292,9 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 			Query:             p.Query,
 		})
 		output := tool.RenderSourceInventoryObservationView(observation, ctypes.SourceInventoryLensQuery{
+			Scopes:            scopes,
+			Roles:             append([]ctypes.AnswerCandidateRole(nil), p.Roles...),
+			AttributeRoles:    append([]ctypes.AnswerCandidateRole(nil), p.AttributeRoles...),
 			IncludeAttributes: includeAttributes,
 			IncludeCounts:     includeCounts,
 			TopN:              p.TopN,

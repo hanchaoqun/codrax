@@ -37,6 +37,7 @@ type SourceInventoryObservation struct {
 type SourceInventoryLensQuery struct {
 	Scopes            []string              `json:"scopes,omitempty"`
 	Roles             []AnswerCandidateRole `json:"roles,omitempty"`
+	AttributeRoles    []AnswerCandidateRole `json:"attribute_roles,omitempty"`
 	IncludeAttributes bool                  `json:"include_attributes,omitempty"`
 	IncludeCounts     bool                  `json:"include_counts,omitempty"`
 	TopN              int                   `json:"top_n,omitempty"`

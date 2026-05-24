@@ -148,6 +148,80 @@ func TestRepoMapSourceInventoryViewModelDrivenQuery(t *testing.T) {
 	}
 }
 
+func TestRepoMapSourceInventoryViewAttributeRolesAttachFileLocalCandidates(t *testing.T) {
+	repo := t.TempDir()
+	mut := types.NewMutableState("source inventory attributes")
+	graph := BuildGraph(repo, []*FileInfo{{
+		RelPath:  "src/alpha/a.py",
+		Language: LangPython,
+		Package:  "alpha",
+		Symbols: []Symbol{{
+			Name:     "run_alpha",
+			Kind:     "function",
+			File:     "src/alpha/a.py",
+			Line:     7,
+			Exported: true,
+		}},
+	}, {
+		RelPath:  "src/beta/b.py",
+		Language: LangPython,
+		Package:  "beta",
+		Symbols: []Symbol{{
+			Name:     "run_beta",
+			Kind:     "function",
+			File:     "src/beta/b.py",
+			Line:     9,
+			Exported: true,
+		}},
+	}})
+	mut.SetSearchGraph(graph)
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.9,
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"scope": "src/alpha",
+		"roles": ["file"],
+		"attribute_roles": ["function"],
+		"include_attributes": true,
+		"include_counts": true
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
+	}
+	for _, want := range []string{
+		"attribute_roles: `function`",
+		"`src/alpha/a.py`",
+		"attributes: function `run_alpha` @ src/alpha/a.py:7",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("source_inventory attribute view missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "run_beta") {
+		t.Fatalf("source_inventory attribute view leaked sibling symbols:\n%s", res.Summary)
+	}
+	obs := mut.SourceInventoryObservation()
+	if !obs.IsActive() || len(obs.Sets) != 1 || len(obs.Sets[0].Members) != 1 {
+		t.Fatalf("unexpected observation: %+v", obs)
+	}
+	if attrs := obs.Sets[0].Members[0].Attributes; len(attrs) != 1 || attrs[0].Name != "run_alpha" {
+		t.Fatalf("file-local attribute not preserved: %+v", attrs)
+	}
+}
+
 func TestRepoMapSourceInventoryViewSameRepoCrossLanguage(t *testing.T) {
 	repo := t.TempDir()
 	mut := types.NewMutableState("source inventory same-repo xlang")
@@ -731,6 +805,87 @@ func TestGraphFromBusContextOrLoadSingleRepoHonorsSubdirRoot(t *testing.T) {
 	}
 	if _, ok := graph.FileIndex["src/beta/beta.go"]; ok {
 		t.Fatalf("single-repo subdir graph leaked beta file: keys=%v", graph.FileIndex)
+	}
+}
+
+func TestGraphFromBusContextOrLoadProjectsSubdirFromMutableGraph(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "src", "alpha"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "src", "beta"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	base := BuildGraph(repo, []*FileInfo{{
+		RelPath:  "src/alpha/alpha.go",
+		Language: LangGo,
+		Package:  "alpha",
+		Symbols: []Symbol{{
+			Name:     "RunAlpha",
+			Kind:     "function",
+			File:     "src/alpha/alpha.go",
+			Line:     3,
+			Exported: true,
+		}},
+		Relations: []Relation{{
+			Kind: "call",
+			From: "src/alpha/alpha.go:RunAlpha",
+			To:   "src/beta/beta.go:RunBeta",
+			File: "src/alpha/alpha.go",
+			Line: 4,
+			ToEP: RelationEndpoint{
+				Name: "RunBeta",
+				File: "src/beta/beta.go",
+				Line: 3,
+			},
+		}},
+	}, {
+		RelPath:  "src/beta/beta.go",
+		Language: LangGo,
+		Package:  "beta",
+		Symbols: []Symbol{{
+			Name:     "RunBeta",
+			Kind:     "function",
+			File:     "src/beta/beta.go",
+			Line:     3,
+			Exported: true,
+		}},
+	}})
+	mut := types.NewMutableState("scoped projection")
+	mut.SetSearchGraph(base)
+	ctx := &types.BusContext{RepoRoot: repo, Mutable: mut}
+
+	graph, err := GraphFromBusContextOrLoad(ctx, filepath.Join(repo, "src", "alpha"), "RunAlpha")
+	if err != nil {
+		t.Fatalf("GraphFromBusContextOrLoad returned error: %v", err)
+	}
+	if graph == nil {
+		t.Fatal("GraphFromBusContextOrLoad returned nil graph")
+	}
+	if !sameRepoMapRoot(graph.Root, filepath.Join(repo, "src", "alpha")) {
+		t.Fatalf("projected graph root = %q", graph.Root)
+	}
+	if _, ok := graph.FileIndex["alpha.go"]; !ok {
+		t.Fatalf("projected graph missing rebased alpha.go: keys=%v", graph.FileIndex)
+	}
+	if _, ok := graph.FileIndex["src/beta/beta.go"]; ok {
+		t.Fatalf("projected graph leaked beta file: keys=%v", graph.FileIndex)
+	}
+	if _, ok := graph.SymbolDefs["RunAlpha"]; !ok {
+		t.Fatalf("projected graph missing RunAlpha symbol: %+v", graph.SymbolDefs)
+	}
+	if strings.Contains(strings.Join(graph.ImportGraph["alpha.go"], ","), "beta") {
+		t.Fatalf("projected graph leaked cross-scope import graph: %+v", graph.ImportGraph)
+	}
+	if base.FileIndex["src/alpha/alpha.go"].Symbols[0].File != "src/alpha/alpha.go" {
+		t.Fatalf("projection mutated base graph symbol file: %+v", base.FileIndex["src/alpha/alpha.go"].Symbols[0])
+	}
+	cached, ok := mut.ScopedSearchGraph(scopedGraphProjectionCacheKey(repo, filepath.Join(repo, "src", "alpha"), "RunAlpha")).(*Graph)
+	if !ok || cached == nil {
+		t.Fatalf("projected graph was not cached")
+	}
+	if _, ok := cached.FileIndex["alpha.go"]; !ok {
+		t.Fatalf("cached projection missing alpha.go: %+v", cached.FileIndex)
 	}
 }
 

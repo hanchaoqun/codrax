@@ -2799,7 +2799,7 @@ func appendSourceInventorySupportLocations(ctx *types.BusContext, idx *aggregate
 	if len(scopes) == 0 {
 		return
 	}
-	for _, set := range sourceInventoryCandidateSets(ctx, graph, scopes, profile) {
+	for _, set := range sourceInventoryCandidateSets(ctx, graph, scopes, profile, nil, false) {
 		if !set.complete {
 			continue
 		}
