@@ -65,6 +65,32 @@ func TestSourceInventoryDiscoveryHintFromListFilesBroadResultDedupe(t *testing.T
 	}
 }
 
+func TestSourceInventoryDiscoveryHintSuppressedDuringAnalyze(t *testing.T) {
+	ctx := &types.BusContext{
+		Mutable:       types.NewMutableState("plain objective"),
+		PipelineStage: types.StageAnalyze,
+	}
+	result := types.ToolResult{
+		ToolName: "list_files",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[list_files: path=internal/analysis recursive=false]",
+			"internal/analysis/aggregator",
+			"internal/analysis/criterion",
+			"internal/analysis/normalizer",
+			"internal/analysis/subject",
+			"internal/analysis/sourcemix",
+			"internal/analysis/stopcond",
+			"internal/analysis/types",
+			"internal/analysis/trace",
+		}, "\n"),
+	}
+
+	if hint := SourceInventoryDiscoveryHintFromToolObservation(ctx, result, json.RawMessage(`{"path":"internal/analysis"}`)); hint != "" {
+		t.Fatalf("analyze stage must not advertise deep source-inventory expansion:\n%s", hint)
+	}
+}
+
 func TestSourceInventoryDiscoveryHintNormalizesActiveSetPath(t *testing.T) {
 	ctx := &types.BusContext{
 		Mutable: types.NewMutableState("plain objective"),

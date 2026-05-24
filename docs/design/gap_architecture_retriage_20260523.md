@@ -980,3 +980,32 @@ syntax.
     now assert that no `系统按已验证证据补充...` / `System-verified...`
     competing table is appended. Existing no-carrier supplement tests still
     protect the low-priority fallback path.
+
+- 2026-05-25 B2-J9/T18/T20 regression audit:
+  - Focused eval `s5b-20260525-002621` reported PASS, but the answer was not
+    commercially acceptable: analyzer spent one round issuing 25
+    `repo_map(view="source_inventory")` calls, parallel explorer lanes kept
+    investigating the same `current_source` topic, and deterministic
+    answer-document normalization moved model-emitted package row citations
+    across directories (`aggregator` displayed `hint/composer.go:142`, `gate`
+    displayed `aggregator.go:112`).
+  - Root cause cluster:
+    - source-inventory discovery was allowed to leak into analyze as deep
+      navigation even though analyze is classification-only;
+    - accepted parallel closures from sibling lanes were still all visible to
+      downstream aggregation, producing conflicting 25/47/21 member-set
+      obligations;
+    - citation repair treated generic symbol/function names as stronger than
+      the model's already same-directory package citation.
+  - First closure batch:
+    - suppress source-inventory discovery hints during analyze;
+    - reject `repo_map(view="source_inventory")` during analyze with a precise
+      stage-boundary repair hint that asks for `emit_analysis` and leaves row
+      verification to explore;
+    - in enumeration blocks, keep an already same-directory citation for a
+      directory/package label instead of moving it to a different package based
+      on generic symbol-citation repair.
+  - Remaining high-ROI tasks stay open under T20/B2-K: source-inventory lens
+    output should become a verification checklist, and lane ownership must
+    suppress conflicting sibling principal member sets before finalizer sees
+    them. This is a soft/convergence contract, not a hard semantic override.

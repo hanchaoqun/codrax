@@ -4088,6 +4088,48 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_UsesDecoratedAggregateFi
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_KeepsDirectoryScopedEnumerationCitation(t *testing.T) {
+	block := types.AnswerBlock{
+		ID:       "enum",
+		Kind:     types.BlockOrderedList,
+		FacetIDs: []string{string(types.FacetEnumerationItem)},
+	}
+	if !preEmitEnumerationDirectoryLabelCitationScoped(block, "aggregator", types.Citation{File: "internal/analysis/aggregator/aggregator.go", Line: 112}) {
+		t.Fatal("directory-scoped package label should protect an already same-package citation")
+	}
+	if preEmitEnumerationDirectoryLabelCitationScoped(block, "aggregator", types.Citation{File: "internal/analysis/hint/composer.go", Line: 142}) {
+		t.Fatal("different-package citation must not be treated as scoped to the label")
+	}
+
+	mu := types.NewMutableState("列出 internal/analysis 子包入口函数")
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "internal/analysis/aggregator/aggregator.go", Line: 112},
+			{File: "internal/analysis/hint/composer.go", Line: 142},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "enum",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Items: []types.AnswerBlockItem{{
+				ID:          "p1",
+				Label:       "aggregator",
+				Text:        "入口函数 New（构造函数），实例化 Aggregator 并返回 *Aggregator。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 0 {
+		t.Fatalf("same-directory citation should not be rewritten, fixed=%d doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("citation_ref changed to %d; system must not move package row citations across directories", got)
+	}
+}
+
 // === preEmitDisplaySurfaceAppears typographic normalisation ===
 //
 // docs/design/post_phase2a_forensic_followups.md §2.3 — finalizer

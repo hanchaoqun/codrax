@@ -533,6 +533,27 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 		}
 	})
 
+	t.Run("analyze stage rejects source inventory row expansion", func(t *testing.T) {
+		ctx := &types.AgentContext{Stage: types.StageAnalyze}
+		tc := llm.ToolCall{
+			Name:   "repo_map",
+			Params: json.RawMessage(`{"path":"internal/analysis","view":"source_inventory","roles":["function"],"scopes":["aggregator"]}`),
+		}
+		got := validateAnalyzerPrescanToolCall(ctx, tc)
+		if got == nil {
+			t.Fatal("expected source_inventory repo_map to be rejected during analyze")
+		}
+		if got.Success {
+			t.Fatalf("source_inventory boundary result should fail, got %+v", got)
+		}
+		if got.Repair == nil || got.Repair.Code != analyzerSourceInventoryAnalyzeBoundaryCode {
+			t.Fatalf("repair code = %+v, want %q", got.Repair, analyzerSourceInventoryAnalyzeBoundaryCode)
+		}
+		if !strings.Contains(got.Summary, "belongs to explore") {
+			t.Fatalf("summary should redirect source_inventory to explore, got %q", got.Summary)
+		}
+	})
+
 	t.Run("terminal emit retry blocks all prescan tools", func(t *testing.T) {
 		ctx := &types.AgentContext{
 			Stage:                 types.StageAnalyze,

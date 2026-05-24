@@ -1989,7 +1989,45 @@ Tasks:
   calls rather than package/file summary calls.
 - [x] B2-J8: add regression tests for pre-analysis source-inventory and for
   discovery hints not emitting package/file summary calls as the first route.
-- [ ] B2-J9: rerun `s5b` after the shape fix and compare navigation cost.
+- [x] B2-J9: rerun `s5b` after the shape fix and compare navigation cost.
+
+B2-J9 focused eval note, 2026-05-25 CST:
+
+- Ran `CODRAX_BIN=./codrax eval/run.sh eval/cases/s5b.case 1` after the
+  pre-analysis source-inventory shape fix. Result directory:
+  `eval/results/s5b-20260525-002621`. The case reported PASS with
+  `finalizer_rejects=0` and `finalizer_rewrites=0`.
+- The PASS is not acceptable as a quality signal by itself. Metrics regressed
+  badly: `tool_read_file=150`, `tool_repo_map=29`,
+  `tool_list_files=19`, `source_inventory_lens=71`,
+  `explorer_iters=64`, `parallel_sibling_skips=0`.
+- Root causes observed in the log:
+  - analyzer accepted deep `repo_map(view="source_inventory")` expansion and
+    spent an analyze round issuing 25 scoped source-inventory calls. This
+    violates the evidence-lite analyze boundary even though the tool params are
+    typed. Source-inventory row expansion belongs to explore after
+    `emit_analysis` preserves the request shape.
+  - parallel explorer lanes all worked the same `current_source` topic. One
+    lane emitted a high-quality 25-member `principal_answer` member_set, but
+    sibling lanes continued emitting conflicting 47/21/25 member-set variants.
+  - final answer row citations were corrupted after the model's first emit:
+    the first JSON payload cited `aggregator` at
+    `internal/analysis/aggregator/aggregator.go:112`, but deterministic
+    pre-emit normalization later displayed it as
+    `internal/analysis/hint/composer.go:142`; `gate` similarly displayed
+    `internal/analysis/aggregator/aggregator.go:112`. The pre-emit checker
+    logged the mismatch only as a soft advisory, so eval passed with a wrong
+    answer.
+- Follow-up closure:
+  - analyze-stage source-inventory discovery hints are now suppressed, and
+    `repo_map(view="source_inventory")` is rejected during analyze with a
+    precise stage-boundary repair hint to call `emit_analysis`;
+  - package/directory enumeration rows now keep an already same-directory
+    citation instead of letting generic symbol-citation repair move the row to
+    another package;
+  - remaining B2-K/T20 work still needs to make source-inventory observations a
+    verification checklist and prevent sibling lanes from preserving conflicting
+    principal member sets.
 
 Design B2-K: source-inventory observation handoff without pretending it is
 evidence.

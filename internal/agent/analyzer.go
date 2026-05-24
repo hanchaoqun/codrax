@@ -1047,6 +1047,12 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 				HintKey:       "analyzer.grep-files-only",
 				Hint:          "The analyze-stage grep call must be a lightweight file-location pre-scan with files_only=true. Do not request line-level grep output or read file contents in analyze. Retry grep with files_only=true only if that location check is still needed; otherwise call emit_analysis now with the best classification and routing hints you already have.",
 			}
+		case analyzerSourceInventoryAnalyzeBoundaryCode:
+			return LoopSignal{
+				HintRequested: true,
+				HintKey:       "analyzer.source-inventory-boundary",
+				Hint:          "Source-inventory row expansion belongs to explore, after analyze has emitted the typed request shape. Do not call repo_map(view=\"source_inventory\") in analyze. Call emit_analysis now with the source_inventory_profile, target_roles, scopes, and unresolved candidates you already identified; explore will expand and verify the rows.",
+			}
 		}
 	}
 	if !isPrescanTool(obs.LastToolResult.ToolName) {

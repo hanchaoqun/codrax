@@ -194,6 +194,9 @@ func sourceInventoryObservationTool(name string) bool {
 // uses only structured tool parameters plus the tool result shape; it never
 // inspects the user's raw question or the model's prose.
 func SourceInventoryDiscoveryHintFromToolObservation(ctx *types.BusContext, result types.ToolResult, params json.RawMessage) string {
+	if ctx != nil && ctx.PipelineStage == types.StageAnalyze {
+		return ""
+	}
 	obs, ok := sourceInventoryDiscoveryObservationFromTool(ctx, result, params)
 	if !ok {
 		return ""

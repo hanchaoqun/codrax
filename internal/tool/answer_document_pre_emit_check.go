@@ -1077,6 +1077,10 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 				continue
 			}
 			text := preEmitItemNonLabelSurface(*item)
+			if item.CitationRef >= 0 && item.CitationRef < len(doc.Citations) &&
+				preEmitEnumerationDirectoryLabelCitationScoped(*block, label, doc.Citations[item.CitationRef]) {
+				continue
+			}
 			if preEmitBlockPrefersExactDefinitionCitation(*block) {
 				if cit, ok := preEmitUniqueExactEndpointDefinitionCitationForLabelWithContext(pctx, label); ok {
 					ref := appendOrReusePreEmitCitation(doc, cit)
@@ -1111,6 +1115,27 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 		}
 	}
 	return fixed
+}
+
+func preEmitEnumerationDirectoryLabelCitationScoped(block types.AnswerBlock, label string, cit types.Citation) bool {
+	if !preEmitBlockSharesFacet(block, []string{string(types.FacetEnumerationItem)}) {
+		return false
+	}
+	labelKey := preEmitCodeIdentityKey(label)
+	if len(labelKey) < 3 || strings.TrimSpace(cit.File) == "" || cit.Line <= 0 {
+		return false
+	}
+	file := strings.Trim(strings.ReplaceAll(cit.File, `\`, `/`), "/")
+	parts := strings.Split(file, "/")
+	if len(parts) < 2 {
+		return false
+	}
+	for _, part := range parts[:len(parts)-1] {
+		if preEmitCodeIdentityKey(part) == labelKey {
+			return true
+		}
+	}
+	return false
 }
 
 func preEmitBlockPrefersExactDefinitionCitation(block types.AnswerBlock) bool {

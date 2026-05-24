@@ -2846,6 +2846,11 @@ func canParallelizeToolBatch(calls []llm.ToolCall) bool {
 //     return a ToolResult with Success=false and a descriptive
 //     Summary so the LLM sees the error in the next iteration's
 //     message stream and can retry correctly.
+//   - `repo_map(view="source_inventory")` is a deep navigation lens,
+//     not a classifier pre-scan. Analyze may use ordinary repo_map
+//     overview/file_map signals, but source-inventory row expansion
+//     belongs to explore after emit_analysis has preserved the typed
+//     request shape.
 //
 // Returns nil when no violation is detected — the caller then
 // proceeds to the normal tool execution path. Returns a
@@ -2877,6 +2882,10 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 					ctx.Mutable.PrescanRoundCount(), limit))
 		}
 	}
+	if tc.Name == "repo_map" && analyzerRepoMapSourceInventoryView(tc.Params) {
+		return rejectAnalyzerPrescanTool(ctx, tc, analyzerSourceInventoryAnalyzeBoundaryCode,
+			"repo_map(view=\"source_inventory\") belongs to explore, not analyze. Analyze is classification-only: call emit_analysis now with the best source_inventory_profile / target_roles / scopes you have; explore will expand and verify source-inventory rows.")
+	}
 	if tc.Name != "grep" {
 		return nil
 	}
@@ -2899,11 +2908,22 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 }
 
 const (
-	analyzerToolNotAllowedCode          = "analyzer_tool_not_allowed"
-	analyzerPrescanTerminalEmitModeCode = "analyzer_terminal_emit_mode"
-	analyzerPrescanBudgetReachedCode    = "analyzer_prescan_budget_reached"
-	analyzerGrepFilesOnlyRequiredCode   = "analyzer_grep_files_only_required"
+	analyzerToolNotAllowedCode                 = "analyzer_tool_not_allowed"
+	analyzerPrescanTerminalEmitModeCode        = "analyzer_terminal_emit_mode"
+	analyzerPrescanBudgetReachedCode           = "analyzer_prescan_budget_reached"
+	analyzerGrepFilesOnlyRequiredCode          = "analyzer_grep_files_only_required"
+	analyzerSourceInventoryAnalyzeBoundaryCode = "analyzer_source_inventory_analyze_boundary"
 )
+
+func analyzerRepoMapSourceInventoryView(params json.RawMessage) bool {
+	var p struct {
+		View string `json:"view"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(p.View), "source_inventory")
+}
 
 func validateAnalyzerToolBoundary(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
 	if ctx == nil || ctx.Stage != types.StageAnalyze {
