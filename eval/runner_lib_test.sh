@@ -38,6 +38,23 @@ printf 'one\nreject\nreject\n' >"$tmp/log.txt"
 assert_eq "$(eval_count_pattern 'reject' "$tmp/log.txt")" "2" "pattern count"
 assert_eq "$(eval_count_pattern 'reject' "$tmp/missing.log")" "0" "missing log pattern count"
 
+cat >"$tmp/finalizer-control.log" <<'LOG'
+2026-05-24T00:00:00.000 DEBUG [diag finalizer] iter=0 ASSISTANT content: source mentions finalizer_rejects=7 and 成文校验未通过 but this is answer text
+2026-05-24T00:00:00.001 DEBUG [diag explorer] iter=0 ASSISTANT content: ⟳ 4/4 答案待完善，正在重写 is quoted customer text
+2026-05-24T00:00:00.010 DEBUG [diag finalizer] iter=0 phase=toolresult TOOLRESULT emit_answer_document ok=false len=12:
+2026-05-24T00:00:00.020 INFO [render]   • 成文校验未通过
+2026-05-24T00:00:00.030 INFO [render]   ⟳ 4/4 答案待完善，正在重写
+LOG
+assert_eq "$(eval_count_finalizer_rejects "$tmp/finalizer-control.log")" "2" "finalizer reject control count"
+assert_eq "$(eval_count_finalizer_rewrites "$tmp/finalizer-control.log")" "1" "finalizer rewrite control count"
+
+cat >"$tmp/finalizer-content-only.log" <<'LOG'
+2026-05-24T00:00:00.000 DEBUG [diag finalizer] iter=0 ASSISTANT content: the source code contains TOOLRESULT emit_answer_document ok=false and finalizer_rewrites strings
+2026-05-24T00:00:00.001 DEBUG [diag explorer] iter=0 ASSISTANT content: 客户日志片段里有 成文校验未通过 和 ⟳ 4/4 答案待完善，正在重写
+LOG
+assert_eq "$(eval_count_finalizer_rejects "$tmp/finalizer-content-only.log")" "0" "finalizer reject content contamination"
+assert_eq "$(eval_count_finalizer_rewrites "$tmp/finalizer-content-only.log")" "0" "finalizer rewrite content contamination"
+
 if command -v timeout >/dev/null 2>&1 ||
   command -v gtimeout >/dev/null 2>&1 ||
   command -v python3 >/dev/null 2>&1; then

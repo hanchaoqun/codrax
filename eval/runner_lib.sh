@@ -102,6 +102,31 @@ eval_count_pattern() {
   echo "${n:-0}"
 }
 
+eval_count_finalizer_rejects() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  local tool render n
+  # Count control-plane events only. Whole-log grep of these strings is unsafe:
+  # source snippets and model answers may discuss `finalizer_rejects` or quote
+  # customer logs that contain "成文校验未通过".
+  tool=$(eval_count_pattern 'DEBUG \[diag finalizer\].*phase=toolresult TOOLRESULT emit_answer_document(_patch)? ok=false' "$file")
+  render=$(eval_count_pattern 'INFO \[render\].*成文[校交]验未通过' "$file")
+  n=$((tool + render))
+  echo "$n"
+}
+
+eval_count_finalizer_rewrites() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_pattern 'INFO \[render\].*⟳ 4/4 .*(答案待完善|正在重写答案|检测到 .*前后不一致)' "$file"
+}
+
 eval_running_jobs() {
   jobs -rp | wc -l | tr -d ' '
 }

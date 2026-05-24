@@ -10,5 +10,5 @@ NAME="read combo — recent two diffs plus current code impact"
 QUESTION="对比最近两次提交的代码 diff，再结合当前源码分析它们分别影响了哪些当前实现链路；请说明每次提交的 diff 线索、当前关键代码、作用和影响，不要只给 commit id。"
 EXPECT_NOT_CONTAINS="**值：**"
 EXPECT_MATCHES_REGEX="(最近|两次|2).*提交|提交.*(最近|两次|2)
-(commit|提交|diff|差异).*(当前|源码|现在|实现)|(当前|源码|现在|实现).*(commit|提交|diff|差异)
-(作用|影响|链路|关系|当前关键代码|实现链路).*(commit|提交|diff|当前|源码)|(commit|提交|diff|当前|源码).*(作用|影响|链路|关系|当前关键代码|实现链路)"
+(commit|提交|[Dd]iff|差异).*(当前|源码|现在|实现)|(当前|源码|现在|实现).*(commit|提交|[Dd]iff|差异)
+(作用|影响|链路|关系|当前关键代码|实现链路).*(commit|提交|[Dd]iff|当前|源码)|(commit|提交|[Dd]iff|当前|源码).*(作用|影响|链路|关系|当前关键代码|实现链路)"

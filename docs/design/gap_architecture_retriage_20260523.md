@@ -183,11 +183,12 @@ violating the user's requested evidence mix.
 | T8 | Done | Deepen answer-document JSON recovery for JSON-encoded `blocks[]` / native-array confusion so light model syntax slips do not cause visible finalizer reject loops. | answer-document tool param compat / recovery | focused finalizer recovery unit tests |
 | T9 | Done | Prompt-only runtime mixed-lane guidance is not sufficient. Add a typed `current_source_explanation_profile` that reuses existing `AnswerIntentContract`, runtime observation-only routing, and `ObservationLedger` instead of creating a duplicate evidence stack. | `docs/design/current_source_explanation_profile_20260524.md`, analyzer schema / request traits / finalizer prompt | typed unit tests + regression evals for log+code, trace+code, VCS+code, command+code |
 | T10 | Done | Preserve explicit user-requested answer dimensions (for example `diff 线索 / 当前关键代码 / 作用 / 影响`) through analyzer → surface plan → finalizer prompt without hard gates or system table replacement. Typed contract, finalizer prompt, runtime/current-source lane routing, and VCS/log/trace eval coverage are complete. | `docs/design/user_requested_answer_dimensions_20260524.md`, analyzer schema, `AnswerPresentationContract`, `RequestModel.HasRuntimeArtifactCurrentVerificationAnchor`, finalizer prompt, `eval/cases/read_combo_*_dimensions.case` | typed unit tests + focused mixed evidence evals |
-| T11 | In progress | Make explorer completion monotonic: accepted parallel closures own principal state, non-winning partial siblings cannot pollute aggregate facts or repair debt, and post-completion support reads become enrichment unless a typed load-bearing facet is still missing. B1-B4 are done; B5 now standardizes focused convergence eval metrics/audit before adding any new hard rule, so model choices are not overwritten by system preference. | `docs/design/explorer_convergence_monotonicity_20260524.md`, `internal/orchestrator/explore_parallel_dispatch.go`, `internal/orchestrator/orchestrator.go`, `internal/types/evidence_closure.go`, `eval/run.sh`, `eval/convergence_audit.sh` | convergence audit summary + parallel convergence unit tests + focused qf/s5b/u7k/mixed-origin evals |
+| T11 | In progress | Make explorer completion monotonic and lane-owned: accepted parallel closures own principal state, non-winning partial siblings cannot pollute aggregate facts or repair debt, post-completion support reads become enrichment unless a typed load-bearing facet is missing, and the next batch adds typed explore-lane ownership so multiple workers do not all deep-dive the same broad topic. B1-B5 are done; B6 is the next high-ROI systemic fix and remains typed-only, advisory-first, and non-answer-overriding. | `docs/design/explorer_convergence_monotonicity_20260524.md`, `internal/orchestrator/explore_parallel_dispatch.go`, `internal/orchestrator/orchestrator.go`, `internal/types/evidence_closure.go`, `eval/run.sh`, `eval/convergence_audit.sh` | convergence audit summary + parallel convergence unit tests + focused qf/s5b/u7k/mixed-origin evals |
 | T12 | In progress | Generalize typed relation facts beyond enumeration-only paths while preventing source-inventory repair from rewriting relation member sets. Interface/trait/protocol → implementer relations are foundational repomap facts and must surface for diagrams, mechanism explanations, comparisons, counts, and enumerations when analyzer emits a typed relation axis such as `predicate_axis=implement`. | `internal/context/typed_relations.go`, `internal/types/request_traits.go`, `internal/agent/explorer.go`, `internal/tool/source_inventory_reconcile.go`, `eval/cases/qf_type_relation_loop_controller.case` | typed relation unit tests across repomap languages + focused qf replay |
 | T13 | In progress | Relation coverage should become a common typed contract, not an `implements`-only special case. Extend the same "typed relation member + grounded evidence + source scope + model-authored member_set" safety rule to inheritance/subclass, override/conformance, caller/callee, registration/binding, import/dependency, package/export membership, config key→read site, route→handler, event/observer/subscriber, and external observation→source-anchor relations as their precise graph/evidence carriers become available. R1/R2/R3/R5/R7/R8/R9 are done; remaining high-ROI work is to connect the same selector to registration/event observer and route/config relation carriers when exact graph/evidence providers exist. Detailed contract and task list are tracked in `docs/design/typed_relation_coverage_contract_20260524.md`. | `internal/types` relation provider boundary, `internal/context` probe/render, existing repomap graph relations, observation ledger origins | per-relation unit tests, mixed external/current-source evals |
 | T14 | Done | Rich row notes can still be rendered dry when the finalizer chooses a Markdown table and puts per-member descriptions only in the summary paragraph. Implemented a localized, append-only verified-note supplement that never rewrites or deletes model tables and fires only when typed principal rows are visible but row-level descriptions are missing. | answer document display supplement, principal enumeration row compiler, `docs/design/typed_relation_coverage_contract_20260524.md` R8 | table/list tests proving model-authored content is preserved and supplement is independent; focused R8 eval passed with `finalizer_iters=1` |
 | T15 | Done | Multi-question requests need a unified investigation-unit contract. `SubTopics[]` is analyzer work decomposition, `Buckets[]` is user answer partition, and REPL "关注点" wording is ambiguous. Added derived `InvestigationPlan`, projected it to `EventAnalysisReady`, localized REPL/status summaries to "调查单元/用户分区", and added focused eval coverage. Runtime scheduling changes remain deliberately deferred to a separate eval-backed design so this batch does not replace model/user intent with system grouping. | `docs/design/multi_question_investigation_units_20260524.md`, `internal/types/investigation_plan.go`, render EventAnalysisReady projection, `eval/cases/read_combo_loose_multi_question_units.case`, `eval/cases/read_combo_log_current_source_bucketed_units.case` | `go test ./...`; focused evals passed with finalizer 1 round / no finalizer rejects |
+| T16 | In progress | Harden eval/convergence telemetry so answer/source/evidence content cannot be counted as system retries. The focused audit red row `read_combo_git_two_diffs_current_code` was a false finalizer-retry signal caused by whole-log grep of words that were themselves part of the user's source/eval target. Control counters are now scoped to render/diag control lines; remaining closure is focused rerun. | `eval/run.sh`, `eval/runner_lib.sh`, `eval/parallel_all.sh`, `eval/parallel_priority.sh`, `eval/telemetry`, eval case expectation helpers | `bash eval/runner_lib_test.sh`; `go test ./eval/telemetry`; rerun the 9-case convergence audit |
 
 ## Implementation Notes For Future Batches
 
@@ -253,6 +254,34 @@ violating the user's requested evidence mix.
     reopen exploration after a valid closure; unknown/exact debt remains
     blocking by default, including `primary_anchor`, `required_file_hint`, and
     `multi_path_anchor`.
+  - B5 focused audit completed with `PARALLEL=2 RUNS=1 TIMEOUT=1500
+    bash eval/convergence_audit.sh`. Eight of nine focused cases passed. The
+    only failing case was `read_combo_git_two_diffs_current_code`, where the
+    model had correct VCS diff/current-source evidence but visible wording did
+    not satisfy the case regex. Across the passing cases finalizer converged in
+    one iteration with zero finalizer rejects/rewrite renders.
+  - New systemic gap from B5: parallel explorer correctness is mostly stable,
+    but pre-dispatch focus ownership is weak. `u7k` took `explorer_iters=67`
+    and `midloop_inject=24`; logs show several workers independently digging
+    through the same scalar-history/current-source chain. B4's
+    mixed-origin lane guard prevents premature closure, but it does not assign
+    exclusive owners for `(origin, facet, dimension, investigation unit)` before
+    fork launch.
+  - T11 B6 is now the next systemic fix: add a typed `ExploreLanePlan` /
+    `ExploreLane` derived from `InvestigationPlan`, `AnswerIntentContract`,
+    `AnswerPresentationContract`, and existing evidence/facet contracts. It
+    must not scan user text/model prose, must not decide the answer, and must
+    not drop non-owner rich summaries; it only scopes which explorer owns which
+    lane and lets exact typed overlap become support/verification/delay rather
+    than duplicate principal digging.
+  - Full 9-case forensics are recorded in
+    `docs/design/explorer_convergence_monotonicity_20260524.md`. The resulting
+    priority order is: first fix telemetry false positives (T16), then implement
+    typed explore-lane ownership (T11 B6), then close schema-native repair gaps
+    for analyzer/source-inventory and `aggregate_facts`, then dedupe repeated
+    same-lane evidence-repair hints, and finally reduce generic caveat /
+    supplement noise. The failed mixed VCS/current-source case must not be used
+    as evidence of finalizer retry: actual finalizer accepted in one turn.
 - 2026-05-24 T12 started:
   - Focused `qf_type_relation_loop_controller` replay passed but was
     semantically incomplete: the answer surfaced the main read-pipeline

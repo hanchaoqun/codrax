@@ -189,3 +189,30 @@ func TestCollectAcceptsDirectTxtFragments(t *testing.T) {
 		t.Fatalf("direct txt fragment not collected: %+v", rep)
 	}
 }
+
+func TestCollectFinalizerTelemetryIgnoresQuotedAnswerContent(t *testing.T) {
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "codrax.log")
+	body := strings.Join([]string{
+		`2026-05-24T00:00:00.000 DEBUG [diag finalizer] iter=0 ASSISTANT content: source text says TOOLRESULT emit_answer_document ok=false, 成文校验未通过, and finalizer_rewrites=7`,
+		`2026-05-24T00:00:00.001 DEBUG [diag explorer] iter=0 ASSISTANT content: quoted customer UI line ⟳ 4/4 答案待完善，正在重写`,
+		`2026-05-24T00:00:00.010 DEBUG [diag finalizer] iter=0 phase=toolresult TOOLRESULT emit_answer_document_patch ok=false len=12: bad patch`,
+		`2026-05-24T00:00:00.020 INFO [render]   • 成文交验未通过`,
+		`2026-05-24T00:00:00.030 INFO [render]   ⟳ 4/4 检测到 1 处前后不一致，正在重写答案`,
+		``,
+	}, "\n")
+	if err := os.WriteFile(logPath, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	rep, err := collect([]string{dir})
+	if err != nil {
+		t.Fatalf("collect returned error: %v", err)
+	}
+	if rep.Finalizer.ToolRejects != 2 || rep.Finalizer.PatchRejects != 1 {
+		t.Fatalf("finalizer reject counters should count only control lines: %+v", rep.Finalizer)
+	}
+	if rep.Finalizer.RewriteRenders != 1 {
+		t.Fatalf("finalizer rewrite counters should count only render control lines: %+v", rep.Finalizer)
+	}
+}

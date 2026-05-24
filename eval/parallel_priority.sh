@@ -129,7 +129,7 @@ run_one() {
   extractor=$(eval_metric_field "$metrics" extractor_dispatches)
   finalizer=$(eval_metric_field "$metrics" finalizer_dispatches)
   repair=$(eval_metric_field "$metrics" repair_plan_lines)
-  rejects=$(eval_count_pattern 'TOOLRESULT emit_answer_document.*ok=false|TOOLRESULT emit_answer_document_patch ok=false|does not yet meet the structural contract' "$log")
+  rejects=$(eval_count_finalizer_rejects "$log")
   patches=$(eval_count_pattern 'emit_answer_document_patch params=' "$log")
   sem=$(eval_count_pattern 'semantic_quality_reviewer.*emitted [1-9]|semantic_quality_reviewer.*verdict sufficient=false' "$log")
   self=$(eval_count_pattern 'self_consistency_reviewer.*emitted|self_consistency_reviewer.*consistent=false|self_contradiction' "$log")

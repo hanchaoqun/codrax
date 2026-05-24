@@ -149,8 +149,48 @@ cannot be parsed for hard control flow.
 | B2 | Done | Add regression tests proving non-winning partial forks cannot import aggregate facts, StageOutput, or pending repair debt after a winning closure; explicit enumeration/bucket/diagram/mixed-origin waits still merge siblings. | orchestrator/type tests | targeted unit tests |
 | B3 | Done | Tighten accepted-closure auto-complete around support-only post-completion debt. Added typed helpers that keep unknown/exact pending reads blocking, while advisory repairs and known breadth/support pending reads no longer reopen exploration after an accepted closure. | `internal/orchestrator/orchestrator.go`, `internal/types/repair.go`, `internal/orchestrator/accepted_closure_monotonicity_test.go` | `go test ./internal/orchestrator -run 'TestShouldAutoCompleteExploreWindowFromAcceptedClosure|TestDispatchExploreWindowsParallel|TestParallelExploreAllowsEarlyConvergence'`; `go test ./internal/types -run 'Test.*Repair|Test.*PendingRead|TestMergeExploreFork_AcceptedCompletionClearsSiblingRepairs'` |
 | B4 | Done | Add origin/facet partition follow-up for hybrid external+current-source questions. First design the typed lane ownership contract; then implement if code already has enough metadata. | orchestrator dispatch hints, answer intent contract, observation ledger | mixed VCS/log/trace/command evals |
-| B5 | In progress | Rerun focused evals and refresh gap docs with before/after metrics: `qf_architecture`, `qf_diagram_pipeline`, `qf_type_relation_loop_controller`, `s5b`, `u7k`, mixed log/trace/command/current-source cases, and one small mechanism case. | eval results + gap docs | compare explorer_iters/read_file/midloop/finalizer_iters plus convergence-specific counters |
-| B6 | Pending | If B5 data proves a deterministic system shortcoming, design the smallest typed fix. Hard blocks may only use precise typed state; otherwise prefer prompt guidance, localized boundary disclosure, or telemetry. | orchestrator/context/types as needed | focused regression for the proven gap |
+| B5 | Done | Rerun focused evals and refresh gap docs with before/after metrics: `qf_architecture`, `qf_diagram_pipeline`, `qf_type_relation_loop_controller`, `s5b`, `u7k`, mixed log/trace/command/current-source cases, and one small mechanism case. | eval results + gap docs | compare explorer_iters/read_file/midloop/finalizer_iters plus convergence-specific counters |
+| B6 | Pending | Add a typed explore-lane ownership planner so parallel explorers do not all chase the same evidence lane. This is a pre-dispatch focus contract, not an answer override: hard decisions may only use typed unit/origin/facet state; model-authored conclusions remain authoritative when evidence is complete. | orchestrator/context/types as needed | focused unit tests + `u7k`, `read_combo_git_two_diffs_current_code`, log/trace/command mixed evals |
+
+### B5 Audit Plan — 2026-05-24 second pass
+
+This pass is an evidence-gathering audit, not a behavior change. It deliberately
+does not add a new gate before the eval/log/code evidence proves a deterministic
+system defect.
+
+Focused cases:
+
+- `qf_architecture`
+- `qf_diagram_pipeline`
+- `qf_type_relation_loop_controller`
+- `s5b`
+- `u7k`
+- `read_combo_git_two_diffs_current_code`
+- `read_combo_log_current_source_explanation`
+- `read_combo_trace_current_source_explanation`
+- `read_combo_command_current_source_explanation`
+
+Metrics to record for every run:
+
+- verdict, analyzer/explorer/extractor/finalizer iterations;
+- `midloop_inject`, `explorer_dispatches`, `parallel_sibling_skips`,
+  `mixed_origin_autocomplete_blocks`;
+- `finalizer_rejects`, `finalizer_rewrites`, `semantic_quality_concerns`;
+- any model-visible complaint that points to a system contract issue.
+
+Code paths audited before running:
+
+- `internal/orchestrator/explore_parallel_dispatch.go` winner-aware merge:
+  after accepted early convergence, only the winning completed fork may merge
+  principal state.
+- `internal/orchestrator/orchestrator.go::shouldAutoCompleteExploreWindowFromAcceptedClosure`:
+  accepted closures may skip later windows only when no typed mixed-origin lane
+  is missing and no load-bearing repair/read debt remains.
+- `internal/types/repair.go`: support/advisory debt is explicitly separated
+  from load-bearing post-closure debt.
+- `internal/types/observation_ledger_context.go` and
+  `internal/types/observation_ledger.go`: mixed-origin lane coverage is
+  compiled from accepted structured carriers, not raw user/model prose.
 
 ## Safety Checklist
 
@@ -306,3 +346,201 @@ cannot be parsed for hard control flow.
     `finalizer_rewrites=0`, `explorer_dispatches=1`, `midloop_inject=4`, and
     no advisory flags. This verifies the audit runner and new metrics without
     starting the full focused batch.
+- 2026-05-24 B5 second focused audit:
+  - Command:
+    `PARALLEL=2 RUNS=1 TIMEOUT=1500 bash eval/convergence_audit.sh`.
+  - Summary:
+    `eval/convergence_audit_summary.md`, sweep
+    `20260524-152143`.
+  - Results:
+    - PASS: `qf_architecture`, `qf_diagram_pipeline`,
+      `qf_type_relation_loop_controller`, `s5b`, `u7k`,
+      `read_combo_log_current_source_explanation`,
+      `read_combo_trace_current_source_explanation`,
+      `read_combo_command_current_source_explanation`.
+    - FAIL: `read_combo_git_two_diffs_current_code`.
+  - Metrics snapshot:
+    - `qf_architecture`: `explorer_iters=7`, `midloop_inject=3`,
+      `finalizer_iters=1`, one semantic advisory. This is not a hard gate; the
+      reviewer found the answer sufficient but noted prose could quote more
+      identifiers.
+    - `qf_diagram_pipeline`: `explorer_iters=50`, `midloop_inject=16`,
+      `finalizer_iters=1`. Root cost is repeated read-without-emit and
+      evidence-repair hints in a diagram explanation, not finalizer churn.
+    - `s5b`: `explorer_dispatches=2`, `explorer_iters=31`,
+      `midloop_inject=16`, `finalizer_iters=1`. The first closure lacked
+      several package entry-point anchors and triggered `⟳ 2/4 正在补充关键信息`.
+      The second pass converged; this is coverage-cost, not answer rewrite.
+    - `u7k`: `explorer_iters=67`, `midloop_inject=24`,
+      `finalizer_iters=1`. Parallel lanes repeatedly investigated the same
+      scalar-history/current-source chain from different directions. The answer
+      was accepted in one finalizer turn, so the system gap is pre-dispatch
+      focus ownership, not finalizer validation.
+    - `read_combo_git_two_diffs_current_code`: `explorer_iters=7`,
+      `parallel_sibling_skips=7`, `mixed_origin_autocomplete_blocks=7`,
+      `finalizer_iters=1`, but the case failed its explicit
+      `diff/current-source` regex. Inspection shows the model had the right
+      VCS diff and current-source evidence and produced a good table, but the
+      deterministic supplemental source-anchor table at the end shifted the
+      visible surface away from the requested wording. The convergence counters
+      also show that mixed-origin lane waiting worked, but focus ownership is
+      still noisy.
+    - `read_combo_log_current_source_explanation`: `explorer_iters=27`,
+      `midloop_inject=17`, `finalizer_iters=1`. The answer correctly separated
+      LLM stream timeout from contract violation, but evidence repair loops
+      around source anchors inflated exploration.
+    - `read_combo_trace_current_source_explanation`: `explorer_iters=24`,
+      `midloop_inject=7`, `finalizer_iters=1`. Runtime artifact + current
+      source lanes both reached finalizer.
+    - `read_combo_command_current_source_explanation`: `explorer_iters=10`,
+      `midloop_inject=7`, `finalizer_iters=1`. Command measurement and current
+      source lanes reached finalizer.
+  - Root-cause classification:
+    - No evidence of finalizer retry loops in the passing cases. The current
+      finalizer path usually accepts the first structured answer.
+    - The dominant cost is explorer focus drift: multiple parallel windows can
+      be launched with the same broad objective and then independently chase
+      the same topic, especially history + current-source chains.
+    - B4 prevents accepted closures from skipping missing mixed-origin lanes,
+      but it does not assign exclusive ownership of those lanes before dispatch.
+      That leaves duplicate work even when correctness is preserved.
+  - Some mid-loop hints are valuable repair signals, but repeated
+    read-without-emit / evidence-repair hints on the same semantic lane are a
+    symptom that the fork was not given a narrow enough contract at launch.
+
+#### Per-case forensics and gap clustering
+
+The B5 audit must be read case-by-case, because the single red row is not a
+runtime finalizer failure.
+
+| Case | Result | Forensic finding | Code-correlated gap |
+| --- | --- | --- | --- |
+| `qf_architecture` | PASS | Finalizer accepted in one turn. The only concern is a semantic-quality advisory: the answer is sufficient but could quote more identifiers such as `IsTerminal()`. | Advisory/reviewer output can still create generic supplement text. Keep it soft and localized; do not turn this into a hard rewrite. Relevant paths: semantic-quality reviewer + answer supplement rendering. |
+| `qf_diagram_pipeline` | PASS | Correct diagram answer, but `explorer_iters=50` and `midloop_inject=16`. Workers repeatedly hit read-without-emit and evidence-repair hints while pursuing the same broad architecture target. | Parallel dispatch is sibling-based (`internal/orchestrator/dag_node_dispatch.go`) rather than lane-owned. Need typed lane ownership before launching workers. |
+| `qf_type_relation_loop_controller` | PASS | Correct relation coverage after typed relation work, including log/perf/write/sub-explorer implementations. A residual weak-support caveat is low value. | Support-strength caveats should be specific advisory telemetry, not generic visible noise. Lower priority than lane ownership. |
+| `s5b` | PASS | First exploration close was rejected/reopened because package entry anchors were incomplete and one closure emitted `aggregate_facts` as the wrong JSON shape. Second pass converged; finalizer still one turn. | Closure schema compatibility and structured member-set repair still cost an explorer retry. Relevant paths: `emit_investigation_complete.aggregate_facts`, explorer closure evaluator. |
+| `u7k` | PASS | Worst cost case: `explorer_iters=67`, `midloop_inject=24`. Logs show several parallel workers separately chasing the same scalar-history/current-source chain. | Highest product ROI: add `ExploreLanePlan` ownership keyed by typed origin/facet/dimension/investigation unit; keep B4 missing-lane wait as safety net. |
+| `read_combo_git_two_diffs_current_code` | FAIL | The answer preserved both commits, VCS diff facts, current-source anchors,作用/影响 in a table, and finalizer accepted in one turn. The FAIL came from the case regex being too literal/case/line sensitive. The reported `finalizer_rejects=7` / `finalizer_rewrites=7` are false positives: `eval/run.sh::count_pattern` greps the whole log and counted the literal strings inside the requested source/eval content, not finalizer control lines. | Two eval-harness gaps: control metrics must be scoped to structured render/diag lines, and answer expectations for Markdown tables should be semantic/case-insensitive enough to accept `Diff 线索` + `当前关键代码` in separate cells. Product note: deterministic source-anchor supplement was append-only but may be visually noisy. |
+| `read_combo_log_current_source_explanation` | PASS | Good mixed log+source answer; it distinguishes first-byte timeout from contract failure. `explorer_iters=27`, `midloop_inject=17` show repair cost, not finalizer churn. | Runtime artifact + current-source lanes need the same ownership/scoping contract as VCS+source. |
+| `read_combo_trace_current_source_explanation` | PASS | Good mixed trace+source answer with runtime artifact and current-source evidence. Moderate repair cost. | Same typed lane ownership applies, but urgency is lower than `u7k` and log/source. |
+| `read_combo_command_current_source_explanation` | PASS | Good command measurement + source answer. Command-origin fact and source anchor both reached finalizer. | Minor source-attribution/evidence-repair cost; the existing ObservationLedger path is sound. |
+
+Priority order after clustering:
+
+1. **P0 telemetry correctness:** fix eval control counters so answer/source text
+   cannot masquerade as finalizer rejects or rewrites. Without this, every
+   later ROI decision can be skewed by false failures.
+2. **P1 typed lane ownership:** implement B6 so parallel explorers own distinct
+   `(origin, facet, dimension, investigation unit)` lanes before dispatch.
+   This addresses `u7k`, `qf_diagram_pipeline`, and mixed log/trace/command
+   over-exploration with one architecture change.
+3. **P2 schema-native repair:** close remaining native-array / JSON-string
+   slips for analyzer `source_inventory_profile` and
+   `emit_investigation_complete.aggregate_facts` through the shared tool-param
+   compatibility layer, not per-tool bespoke parsing.
+4. **P3 evidence-repair throttling:** after lane ownership, dedupe repeated
+   read-without-emit / evidence-repair hints within the same lane and preserve
+   accepted rich summaries instead of reopening broad exploration.
+5. **P4 visible noise cleanup:** generic caveats and deterministic supplements
+   should stay append-only, localized, and only visible when they materially
+   improve the answer. They must not replace model tables or become a reason
+   to rewrite.
+
+### B6 Systemic Fix Candidate — Typed Explore Lane Ownership
+
+Problem statement:
+
+Parallel exploration currently splits by DAG evidence sibling windows and uses
+winner-aware merge after completion. This avoids stale sibling pollution, but it
+does not prevent several active workers from pursuing the same broad evidence
+theme. In mixed VCS/log/trace/command + current-source questions, one worker can
+start from VCS and another from current source, yet both may recursively expand
+into the same scalar/history/current-source chain. The result is high
+`explorer_iters` and many mid-loop repair hints even when finalizer converges in
+one turn.
+
+Systemic solution:
+
+Add a typed pre-dispatch lane ownership planner. The planner derives lanes from
+structured state only:
+
+- `InvestigationPlan` units and coupling (`user_bucket`,
+  `analyzer_decomposition`, sequential/comparative/shared-context);
+- `AnswerIntentContract.Origins` (`current_source`, `vcs_metadata`,
+  `vcs_diff`, `runtime_artifact`, `command_measurement`, `external_document`,
+  `web`, `mcp`, `connector`, `cross_repo_index`);
+- requested answer dimensions from typed `AnswerPresentationContract`;
+- explicit facet/support requirements already present in `AnswerContract` and
+  evidence plan nodes.
+
+It must not scan the user question text, model prose, or model thoughts. It must
+not decide the answer. It only scopes which worker owns which evidence lane.
+
+Proposed lane contract:
+
+- A lane has: `id`, `origin`, `facet_ids`, `dimension_labels`,
+  `investigation_unit_id`, `role` (`principal`, `support`, `verification`),
+  `coupling`, and `handoff_policy`.
+- A dispatch window receives a lane hint saying what it owns and what it should
+  not widen into unless it first emits the owned evidence or a structured
+  `need_handoff` completion.
+- At most one active worker owns the same `(origin, facet, dimension, unit)`
+  key. Sibling workers with overlapping keys are demoted to
+  `verification/support` or delayed until the owner finishes.
+- Novelty is computed from typed ledger records: an owner has made progress
+  only when it adds new accepted evidence/aggregate/tool records for its lane.
+  Low novelty can trigger soft guidance or scheduling deprioritization, never a
+  hard answer rewrite.
+- B4's missing-lane auto-complete check remains the downstream safety net; B6
+  reduces duplicated work before the fork starts.
+
+Expected benefits:
+
+- `u7k`-style history/current-source questions should stop launching several
+  workers that all chase the same scalar chain.
+- Mixed log/trace/command/source questions keep all required lanes, but each
+  lane has a clear owner.
+- User bucket / comparative questions still get separate owners per bucket, so
+  genuinely different user questions are not collapsed.
+- Single-repo, multi-repo, code, git, runtime artifact, web/MCP/connector
+  sources all use the same origin/facet lane abstraction.
+
+Risks and guardrails:
+
+- Do not over-partition ordinary architecture explanations. If typed state only
+  says "shared context" without distinct origins/facets/dimensions, keep the
+  current behavior.
+- Do not block model exploration because a lane label looks semantically
+  similar. Similarity and frequency are noisy; they can only drive soft
+  scheduling preferences or telemetry.
+- Do not drop rich summaries from non-owner forks if they contain accepted,
+  lane-novel evidence. They may merge as support/enrichment, not as competing
+  principal state.
+
+B6 task list:
+
+- [ ] Code audit: identify every place that currently builds parallel explore
+      windows or hints (`splitExploreWindowForDispatch`,
+      `dispatchExploreWindowsParallel`, `runExploreAgentOnFork`,
+      `BuildAgentContext`, investigation-plan projection).
+- [ ] Add a `types.ExploreLanePlan` / `ExploreLane` derived view that reuses
+      `InvestigationPlan`, `AnswerIntentContract`, `AnswerPresentationContract`,
+      and `ObservationLedger`; do not create a duplicate evidence carrier.
+- [ ] Thread lane hints into `AgentContext` and explorer prompts as scoped
+      guidance. The prompt must say the lane is an ownership focus, not an
+      answer constraint.
+- [ ] Add scheduler-side overlap handling: exact typed lane-key conflicts are
+      support/verification/delay candidates; no raw text similarity.
+- [ ] Add tests:
+      - VCS diff + current-source mechanism creates two distinct owners;
+      - log/trace + current-source keeps runtime and source owners separate;
+      - command measurement + source keeps count and mechanism lanes separate;
+      - user buckets remain separate principal owners;
+      - ordinary architecture explanation with shared context is unchanged;
+      - non-owner accepted evidence can still merge as support.
+- [ ] Re-run focused evals: `u7k`,
+      `read_combo_git_two_diffs_current_code`,
+      `read_combo_log_current_source_explanation`,
+      `read_combo_trace_current_source_explanation`,
+      `read_combo_command_current_source_explanation`, plus one user-bucket
+      multi-question case.

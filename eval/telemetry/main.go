@@ -327,7 +327,7 @@ func (c *collector) observeLine(line string, fm *fileMetrics) {
 		c.report.Analyzer.RetryRenders++
 		fm.analyzerRetries++
 	}
-	if m := toolRejectRe.FindStringSubmatch(line); len(m) == 2 {
+	if m := toolRejectRe.FindStringSubmatch(line); len(m) == 2 && isDiagFinalizerToolResultLine(line) {
 		switch m[1] {
 		case "emit_answer_document":
 			c.report.Finalizer.ToolRejects++
@@ -339,14 +339,11 @@ func (c *collector) observeLine(line string, fm *fileMetrics) {
 			fm.finalizerRejects++
 		}
 	}
-	if strings.Contains(line, "does not yet meet the structural contract") ||
-		strings.Contains(line, "成文校验未通过") ||
-		strings.Contains(line, "成文交验未通过") {
+	if isFinalizerRejectRenderLine(line) {
 		c.report.Finalizer.ToolRejects++
 		fm.finalizerRejects++
 	}
-	if strings.Contains(line, "答案待完善") || strings.Contains(line, "正在重写答案") ||
-		strings.Contains(line, "检测到 ") && strings.Contains(line, "前后不一致") {
+	if isFinalizerRewriteRenderLine(line) {
 		c.report.Finalizer.RewriteRenders++
 		fm.finalizerRewrites++
 	}
@@ -711,6 +708,35 @@ func isTimeoutLine(line string) bool {
 		strings.Contains(lower, "deadline") ||
 		strings.Contains(lower, "first_byte") ||
 		strings.Contains(lower, "stall")
+}
+
+func isDiagFinalizerLine(line string) bool {
+	return strings.Contains(line, "[diag finalizer]")
+}
+
+func isDiagFinalizerToolResultLine(line string) bool {
+	return isDiagFinalizerLine(line) && strings.Contains(line, "phase=toolresult")
+}
+
+func isRenderInfoLine(line string) bool {
+	return strings.Contains(line, "INFO [render]")
+}
+
+func isFinalizerRejectRenderLine(line string) bool {
+	if !isRenderInfoLine(line) {
+		return false
+	}
+	return strings.Contains(line, "成文校验未通过") ||
+		strings.Contains(line, "成文交验未通过")
+}
+
+func isFinalizerRewriteRenderLine(line string) bool {
+	if !isRenderInfoLine(line) || !strings.Contains(line, "⟳ 4/4") {
+		return false
+	}
+	return strings.Contains(line, "答案待完善") ||
+		strings.Contains(line, "正在重写答案") ||
+		(strings.Contains(line, "检测到 ") && strings.Contains(line, "前后不一致"))
 }
 
 func writeMarkdown(w io.Writer, rep report, top int) {

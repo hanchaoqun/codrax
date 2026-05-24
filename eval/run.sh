@@ -24,6 +24,10 @@
 
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=eval/runner_lib.sh
+source "$SCRIPT_DIR/runner_lib.sh"
+
 # 2026-05-10 — honor sweep-private binary snapshot to avoid
 # concurrent-rebuild races. parallel_all.sh sets CODRAX_BIN to a
 # stable copy; standalone usage falls back to ./codrax.
@@ -328,8 +332,8 @@ write_metrics() {
     echo "midloop_inject=$(count_pattern 'MIDLOOP inject' "$log")"
     echo "parallel_sibling_skips=$(count_pattern 'skipping non-winning parallel explore sibling' "$log")"
     echo "mixed_origin_autocomplete_blocks=$(count_pattern 'accepted investigation closure cannot auto-complete mixed-origin explore window' "$log")"
-    echo "finalizer_rejects=$(count_pattern 'TOOLRESULT emit_answer_document.*ok=false|TOOLRESULT emit_answer_document_patch ok=false|成文校验未通过|does not yet meet the structural contract' "$log")"
-    echo "finalizer_rewrites=$(count_pattern '答案待完善|正在重写答案|检测到 .*前后不一致' "$log")"
+    echo "finalizer_rejects=$(eval_count_finalizer_rejects "$log")"
+    echo "finalizer_rewrites=$(eval_count_finalizer_rewrites "$log")"
     echo "answer_chain_lines=$(count_pattern 'answer_chain' "$log")"
     # B6-F5 (post-shape consolidated audit, 2026-05-04): per-agent
     # LLM-turn counters. Each ReAct iteration logs exactly one
