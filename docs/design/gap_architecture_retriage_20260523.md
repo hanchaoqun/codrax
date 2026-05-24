@@ -1005,6 +1005,12 @@ syntax.
     - in enumeration blocks, keep an already same-directory citation for a
       directory/package label instead of moving it to a different package based
       on generic symbol-citation repair.
+  - Post-fix verification `eval/results/s5b-20260525-004645`: PASS with
+    `tool_repo_map=1`, `tool_read_file=29`, `source_inventory_lens=3`,
+    `explorer_iters=11`, `finalizer_rejects=0`, and `finalizer_rewrites=0`.
+    The final answer retained the model-authored package rows and correct
+    same-directory citations for `aggregator`, `gate`, `logtriage`, and
+    `perftriage`; the previous citation-repair mutation was absent from logs.
   - Remaining high-ROI tasks stay open under T20/B2-K: source-inventory lens
     output should become a verification checklist, and lane ownership must
     suppress conflicting sibling principal member sets before finalizer sees

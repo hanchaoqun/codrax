@@ -2174,4 +2174,13 @@ B2-K post-pull audit note, 2026-05-25 CST:
   It saw source-inventory lens hints but still used older `exec_command` /
   `list_files` / `read_file` patterns and exited early with missing
   `normalizer`, `compiler`, `criterion`, `gate`, `subject`, `sourcemix`, and
-  `stopcond`. Re-run after `cd6c54c9` is still required.
+  `stopcond`.
+- Post-`cd6c54c9` verification completed with
+  `eval/results/s5b-20260525-004645`: PASS, `tool_repo_map=1`,
+  `tool_read_file=29`, `source_inventory_lens=3`, `explorer_iters=11`,
+  `finalizer_rejects=0`, `finalizer_rewrites=0`. The final answer kept the
+  model's package rows and preserved directory-scoped citations for
+  `aggregator`, `gate`, `logtriage`, and `perftriage`; no citation-repair log
+  rewrote those rows. B2-J9 is therefore closed for the analyze-boundary and
+  directory-citation regression. Remaining B2-K/T20 work is broader lane
+  ownership and verification-checklist convergence, not this regression.
