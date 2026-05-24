@@ -4255,14 +4255,16 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			// flow.
 			var parallelWindows [][]*types.TaskNode
 			parallelism := 1
-			if shouldDispatchExploreNodesIndividually(window) {
-				splitWindows := splitExploreWindowForDispatch(window)
-				parallelism = effectiveParallelism(o.orchestratorMaxParallelism(), len(splitWindows))
+			dispatchWindows := exploreWindowDispatchGroups(o.busCtx, window)
+			if len(dispatchWindows) > 1 {
+				parallelism = effectiveParallelism(o.orchestratorMaxParallelism(), len(dispatchWindows))
 				if parallelism > 1 {
-					parallelWindows = splitWindows
-				} else if len(splitWindows) > 0 {
-					window = splitWindows[0]
+					parallelWindows = dispatchWindows
+				} else {
+					window = dispatchWindows[0]
 				}
+			} else if len(dispatchWindows) == 1 {
+				window = dispatchWindows[0]
 			}
 			// CGEC D2: drain pending RepairDirectives from the
 			// closure so each fires exactly once. ConsumeRepairs is
@@ -6458,6 +6460,9 @@ func (o *Orchestrator) drainIgnorableReconcileRepairs() {
 func (o *Orchestrator) emitAnalysisReady() {
 	if o.busCtx == nil || o.busCtx.AnalysisIR == nil {
 		return
+	}
+	if tool.PublishSourceInventoryAdvisoryFromTypedRequest(o.busCtx) {
+		logging.Info("[orchestrator] pre-explore source-inventory advisory published")
 	}
 	nodes := o.busCtx.AnalysisIR.TaskGraph.Nodes
 	investigationPlan := types.CompileInvestigationPlan(o.busCtx.AnalysisIR.RequestModel, &o.busCtx.AnalysisIR.AnswerContract)

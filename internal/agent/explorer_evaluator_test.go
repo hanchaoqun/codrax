@@ -147,6 +147,55 @@ func TestExplorer_BuildInitialInstruction_AttributeBearingEnumerationIsCrossLang
 	}
 }
 
+func TestExplorer_BuildInitialInstruction_RendersSourceInventoryAdvisory(t *testing.T) {
+	mut := types.NewMutableState("list package entrypoints")
+	mut.SetSourceInventoryAdvisory(types.SourceInventoryAdvisory{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"src"},
+		Provenance:   []string{"pre_explore_typed_request"},
+		Sets: []types.SourceInventoryAdvisorySet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Candidates: []types.SourceInventoryAdvisoryCandidate{{
+				Member:   "Run",
+				File:     "src/run.py",
+				Line:     7,
+				Language: "python",
+				Role:     types.AnswerCandidateRoleFunction,
+			}},
+		}},
+	})
+	ctx := &types.AgentContext{
+		Objective: "list package entrypoints",
+		Mutable:   mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+				Confidence:        0.95,
+			},
+		}},
+	}
+
+	prompt := (&explorerEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Structured Source Inventory Progress",
+		"advisory context only",
+		"`Run`",
+		"src/run.py:7",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 // -----------------------------------------------------------------------------
 // ParseOutput quality-floor branches
 // -----------------------------------------------------------------------------

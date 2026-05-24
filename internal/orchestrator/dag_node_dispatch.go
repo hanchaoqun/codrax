@@ -1,6 +1,9 @@
 package orchestrator
 
 import (
+	"path"
+	"strings"
+
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -106,6 +109,143 @@ func shouldDispatchExploreNodesIndividually(window []*types.TaskNode) bool {
 	return false
 }
 
+// shouldKeepSourceInventoryExploreWindowUnified keeps bounded source-inventory
+// dimensions in one explorer dispatch. A typed source_inventory_profile is the
+// strongest signal, but local models sometimes omit that optional field while
+// still emitting a structured category-enumeration IR plus a bounded
+// RequiredFiles set under one source directory. In that fallback shape we also
+// keep the window unified, because splitting each evidence dimension into a
+// separate lane makes every lane rediscover the same directory/member set.
+//
+// This is scheduling only: it does not decide the answer, does not synthesize
+// rows, does not weaken downstream evidence validation, and does not inspect
+// raw user/model prose. It consumes typed IR fields and deterministic path
+// roles so the model remains authoritative over the actual answer.
+func shouldKeepSourceInventoryExploreWindowUnified(ctx *types.BusContext, window []*types.TaskNode) bool {
+	if exploreEvidenceNodeCount(window) < 2 {
+		return false
+	}
+	if sourceInventoryProfileActive(ctx) {
+		return true
+	}
+	return broadSourceEnumerationScopeActive(ctx)
+}
+
+func sourceInventoryProfileActive(ctx *types.BusContext) bool {
+	return ctx != nil &&
+		ctx.AnalysisIR != nil &&
+		ctx.AnalysisIR.RequestModel.SourceInventoryProfile != nil &&
+		ctx.AnalysisIR.RequestModel.SourceInventoryProfile.Active()
+}
+
+func exploreEvidenceNodeCount(window []*types.TaskNode) int {
+	evidenceCount := 0
+	for _, n := range window {
+		if n != nil && n.Type == types.NodeEvidence {
+			evidenceCount++
+		}
+	}
+	return evidenceCount
+}
+
+const broadSourceEnumerationMinFiles = 6
+
+// broadSourceEnumerationScopeActive recognizes the structural "one bounded
+// source inventory, multiple dimensions" shape even when the analyzer omitted
+// source_inventory_profile. The guard is intentionally conservative:
+//
+//   - category enumeration must be typed in the IR;
+//   - a sizeable set of source/config paths must be present in EvidencePlan or
+//     high-confidence RequiredFileHints;
+//   - those paths must share a non-root directory scope;
+//   - path-role filtering follows SourceScopeProfile rather than prose cues.
+//
+// The fallback can only reduce redundant sibling dispatches. It never makes a
+// membership/completeness claim and never authorizes final-answer supplements.
+func broadSourceEnumerationScopeActive(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.Intent != types.IntentEnumerate || !rm.Predicates.IsCategoryEnumeration {
+		return false
+	}
+	files := broadSourceEnumerationFiles(ctx)
+	if len(files) < broadSourceEnumerationMinFiles {
+		return false
+	}
+	return commonNonRootDir(files) != ""
+}
+
+func broadSourceEnumerationFiles(ctx *types.BusContext) []string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	seen := map[string]bool{}
+	var out []string
+	add := func(raw string) {
+		canon := types.CanonicalRequiredFileHintPath(raw, ctx.RepoRoot)
+		if canon == "" || seen[canon] || !broadSourceEnumerationPathAllowed(rm, canon) {
+			return
+		}
+		seen[canon] = true
+		out = append(out, canon)
+	}
+	for _, file := range ctx.AnalysisIR.EvidencePlan.RequiredFiles {
+		add(file)
+	}
+	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+		if hint.Confidence < 0.5 {
+			continue
+		}
+		add(hint.Path)
+	}
+	return out
+}
+
+func broadSourceEnumerationPathAllowed(rm types.RequestModel, rel string) bool {
+	rel = strings.TrimSpace(strings.ReplaceAll(rel, `\`, `/`))
+	if rel == "" || rel == "." || strings.HasSuffix(rel, "/") {
+		return false
+	}
+	if !types.HasCodeOrConfigPathSuffix(rel) {
+		return false
+	}
+	scope := types.SourceScopeProduction
+	if rm.SourceScopeProfile != nil && rm.SourceScopeProfile.RequestedScope != "" {
+		scope = rm.SourceScopeProfile.RequestedScope
+	}
+	return types.SourceScopeAllowsPathRole(scope, types.ClassifySourcePathRole(rel))
+}
+
+func commonNonRootDir(files []string) string {
+	var common []string
+	for _, file := range files {
+		dir := strings.Trim(path.Dir(strings.Trim(strings.ReplaceAll(file, `\`, `/`), "/")), "/")
+		if dir == "" || dir == "." {
+			return ""
+		}
+		parts := strings.Split(dir, "/")
+		if len(common) == 0 {
+			common = append([]string(nil), parts...)
+			continue
+		}
+		n := 0
+		for n < len(common) && n < len(parts) && common[n] == parts[n] {
+			n++
+		}
+		common = common[:n]
+		if len(common) == 0 {
+			return ""
+		}
+	}
+	if len(common) == 0 {
+		return ""
+	}
+	return strings.Join(common, "/")
+}
+
 // trimExploreWindowToFirstEvidence drops all but the first
 // NodeEvidence entry while preserving every non-evidence companion
 // (probe / validate / reconcile / counterfactual). The first
@@ -153,6 +293,10 @@ func trimExploreWindowToFirstEvidence(window []*types.TaskNode) []*types.TaskNod
 // declaration-ordered focused windows. It preserves the E' Phase 1 companion
 // semantics: non-evidence companion nodes travel with the first evidence
 // window, and later sibling windows contain only their evidence node.
+//
+// This is the raw splitter. Production scheduling should call
+// exploreWindowDispatchGroups so source-inventory and bounded source-enumeration
+// guards cannot be bypassed accidentally.
 func splitExploreWindowForDispatch(window []*types.TaskNode) [][]*types.TaskNode {
 	if len(window) == 0 {
 		return nil
@@ -180,4 +324,20 @@ func splitExploreWindowForDispatch(window []*types.TaskNode) [][]*types.TaskNode
 	out = append(out, first)
 	out = append(out, rest...)
 	return out
+}
+
+// exploreWindowDispatchGroups is the production explore-window dispatch
+// decision. It centralizes the raw sibling split plus the typed structural
+// guards that keep bounded source inventories unified. Keep this wrapper as the
+// only orchestrator call-site so future scheduling changes cannot accidentally
+// make optional source_inventory_profile omissions reopen duplicate lanes.
+func exploreWindowDispatchGroups(ctx *types.BusContext, window []*types.TaskNode) [][]*types.TaskNode {
+	if len(window) == 0 {
+		return nil
+	}
+	if shouldDispatchExploreNodesIndividually(window) && !shouldKeepSourceInventoryExploreWindowUnified(ctx, window) {
+		return splitExploreWindowForDispatch(window)
+	}
+	cp := append([]*types.TaskNode(nil), window...)
+	return [][]*types.TaskNode{cp}
 }

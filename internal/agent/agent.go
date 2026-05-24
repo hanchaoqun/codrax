@@ -2700,6 +2700,9 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 			// the only stage that takes this path; other stages
 			// short-circuit on the trigger flag being off.
 			analyzerPostProcessToolResult(ctx, tc, &result)
+			if hint := tool.PublishSourceInventoryAdvisoryFromToolObservation(busCtx, result); hint != "" {
+				result.Summary = strings.TrimRight(result.Summary, "\n") + "\n\n" + hint
+			}
 			// Refund budget for read_file calls that failed because
 			// the LLM picked a path that doesn't exist (or named a
 			// directory). The LLM is still triangulating the repo

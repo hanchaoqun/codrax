@@ -353,10 +353,10 @@ func TestReconcileCompletionAggregateFactsWithSourceInventory_DoesNotBroadenFunc
 		Confidence: 0.95,
 	})
 	facts := []types.AnswerAggregateFact{{
-		Kind:    types.AnswerAggregateMemberSet,
-		Label:   "internal/analysis 子包及入口函数",
-		Value:   "2",
-		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "internal/analysis 子包及入口函数",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
 		Members: []string{
 			"aggregator.New (internal/analysis/aggregator/aggregator.go:112)",
 			"priority.Score (internal/analysis/priority/score.go:34)",
@@ -1031,6 +1031,109 @@ func TestBuildSourceInventoryAdvisory_FileRoleUsesGraphFiles(t *testing.T) {
 	want := []string{"src/B.java", "src/a.py"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("file candidates = %#v, want %#v", got, want)
+	}
+}
+
+func TestPublishSourceInventoryAdvisoryFromTypedRequest_AdvisoryOnlyPackageAndFunctions(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{
+			RelPath:  "src/alpha/a.py",
+			Language: "python",
+			Package:  "alpha",
+			Symbols: []repotypes.Symbol{{
+				Name:     "run_alpha",
+				Kind:     "function",
+				File:     "src/alpha/a.py",
+				Line:     7,
+				Exported: true,
+			}},
+		},
+		{
+			RelPath:  "src/beta/B.java",
+			Language: "java",
+			Package:  "com.example.beta",
+			Symbols: []repotypes.Symbol{{
+				Name:     "RunBeta",
+				Kind:     "function",
+				File:     "src/beta/B.java",
+				Line:     11,
+				Exported: true,
+			}},
+		},
+	})
+	ctx := sourceInventoryTestContext("", graph, "src", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles: []types.AnswerCandidateRole{
+			types.AnswerCandidateRolePackage,
+			types.AnswerCandidateRoleFunction,
+		},
+		RequestedFields: []types.SourceInventoryRequestedField{
+			types.SourceInventoryFieldName,
+			types.SourceInventoryFieldLocation,
+		},
+		Confidence: 0.95,
+	})
+
+	if !PublishSourceInventoryAdvisoryFromTypedRequest(ctx) {
+		t.Fatal("expected typed request to publish pre-completion advisory")
+	}
+	advisory := ctx.Mutable.SourceInventoryAdvisory()
+	if !advisory.IsActive() || !advisory.AdvisoryOnly {
+		t.Fatalf("advisory = %+v, want active advisory-only", advisory)
+	}
+	if !containsString(advisory.Provenance, "pre_explore_typed_request") {
+		t.Fatalf("provenance = %#v, want pre_explore_typed_request", advisory.Provenance)
+	}
+	var packages, functions []string
+	for _, set := range advisory.Sets {
+		switch set.Role {
+		case types.AnswerCandidateRolePackage:
+			packages = advisoryMemberNames(set.Candidates)
+		case types.AnswerCandidateRoleFunction:
+			functions = advisoryMemberNames(set.Candidates)
+		}
+	}
+	if !reflect.DeepEqual(packages, []string{"alpha", "com.example.beta"}) {
+		t.Fatalf("package candidates = %#v", packages)
+	}
+	if !reflect.DeepEqual(functions, []string{"run_alpha", "RunBeta"}) {
+		t.Fatalf("function candidates = %#v", functions)
+	}
+}
+
+func TestPublishSourceInventoryAdvisoryFromToolObservation_FirstActivationReturnsHint(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{{
+		RelPath:  "src/alpha/a.py",
+		Language: "python",
+		Package:  "alpha",
+		Symbols: []repotypes.Symbol{{
+			Name:     "run_alpha",
+			Kind:     "function",
+			File:     "src/alpha/a.py",
+			Line:     7,
+			Exported: true,
+		}},
+	}})
+	ctx := sourceInventoryTestContext("", graph, "src", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName},
+		Confidence:        0.95,
+	})
+
+	hint := PublishSourceInventoryAdvisoryFromToolObservation(ctx, types.ToolResult{
+		ToolName: "repo_map",
+		Success:  true,
+	})
+	if !strings.Contains(hint, "Structured source-inventory candidate checklist") ||
+		!strings.Contains(hint, "run_alpha@src/alpha/a.py:7") {
+		t.Fatalf("hint did not expose compact advisory: %q", hint)
+	}
+	if second := PublishSourceInventoryAdvisoryFromToolObservation(ctx, types.ToolResult{
+		ToolName: "list_files",
+		Success:  true,
+	}); second != "" {
+		t.Fatalf("second observation should not spam another hint, got %q", second)
 	}
 }
 

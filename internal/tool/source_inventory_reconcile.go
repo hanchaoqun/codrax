@@ -35,6 +35,14 @@ type sourceInventoryCandidateSet struct {
 	complete   bool
 }
 
+type sourceInventoryPackageBucket struct {
+	dir       string
+	files     int
+	symbols   int
+	languages map[string]int
+	packages  map[string]int
+}
+
 func publishSourceInventoryAdvisory(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) {
 	if ctx == nil || ctx.Mutable == nil {
 		return
@@ -45,6 +53,126 @@ func publishSourceInventoryAdvisory(ctx *types.BusContext, facts []types.AnswerA
 		return
 	}
 	ctx.Mutable.ClearSourceInventoryAdvisory()
+}
+
+// PublishSourceInventoryAdvisoryFromTypedRequest publishes a pre-completion
+// source-inventory checklist from the already-typed request model and repo-map
+// graph. It is deliberately advisory-only: this is retrieval/navigation
+// context for explorer lanes, not answer text and not a completion signal.
+func PublishSourceInventoryAdvisoryFromTypedRequest(ctx *types.BusContext) bool {
+	return publishSourceInventoryAdvisorySnapshot(ctx, "pre_explore_typed_request", true)
+}
+
+// PublishSourceInventoryAdvisoryFromToolObservation publishes the same
+// advisory from a successful navigation observation. The returned string is a
+// compact model-visible hint for the current ReAct dispatch. Empty means either
+// no bounded source-inventory profile is active, no graph is available, or the
+// run already had an advisory visible.
+func PublishSourceInventoryAdvisoryFromToolObservation(ctx *types.BusContext, result types.ToolResult) string {
+	if ctx == nil || ctx.Mutable == nil || !result.Success || !sourceInventoryObservationTool(result.ToolName) {
+		return ""
+	}
+	alreadyActive := ctx.Mutable.SourceInventoryAdvisory().IsActive()
+	if !publishSourceInventoryAdvisorySnapshot(ctx, "tool:"+types.CanonicalToolName(result.ToolName), true) {
+		return ""
+	}
+	if alreadyActive {
+		return ""
+	}
+	return renderSourceInventoryAdvisoryToolHint(ctx.Mutable.SourceInventoryAdvisory())
+}
+
+func publishSourceInventoryAdvisorySnapshot(ctx *types.BusContext, provenance string, advisoryOnly bool) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	advisory := buildSourceInventoryAdvisory(ctx, nil, nil)
+	if !advisory.IsActive() {
+		return false
+	}
+	if advisoryOnly {
+		advisory.AdvisoryOnly = true
+	}
+	advisory.Provenance = sourceInventoryAdvisoryAppendProvenance(advisory.Provenance, provenance)
+	if current := ctx.Mutable.SourceInventoryAdvisory(); current.IsActive() {
+		advisory = types.MergeSourceInventoryAdvisory(current, advisory)
+	}
+	ctx.Mutable.SetSourceInventoryAdvisory(advisory)
+	return true
+}
+
+func sourceInventoryObservationTool(name string) bool {
+	switch types.CanonicalToolName(name) {
+	case "repo_map", "list_files":
+		return true
+	default:
+		return false
+	}
+}
+
+func sourceInventoryAdvisoryAppendProvenance(items []string, extra ...string) []string {
+	out := append([]string(nil), items...)
+	seen := make(map[string]bool, len(out)+len(extra))
+	for _, item := range out {
+		if key := strings.TrimSpace(item); key != "" {
+			seen[key] = true
+		}
+	}
+	for _, item := range extra {
+		key := strings.TrimSpace(item)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	return out
+}
+
+func renderSourceInventoryAdvisoryToolHint(advisory types.SourceInventoryAdvisory) string {
+	if !advisory.IsActive() {
+		return ""
+	}
+	const maxRows = 24
+	var b strings.Builder
+	b.WriteString("Structured source-inventory candidate checklist (advisory only, not final answer text):\n")
+	if len(advisory.Scopes) > 0 {
+		fmt.Fprintf(&b, "- scoped to: %s\n", strings.Join(advisory.Scopes, ", "))
+	}
+	b.WriteString("- reuse this checklist to avoid re-listing the same scope; verify/read unresolved rows before emitting evidence or aggregate_facts.\n")
+	emitted := 0
+	total := 0
+	for _, set := range advisory.Sets {
+		total += len(set.Candidates)
+	}
+	for _, set := range advisory.Sets {
+		if emitted >= maxRows || len(set.Candidates) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "- %s candidates:", set.Role)
+		for _, candidate := range set.Candidates {
+			if emitted >= maxRows {
+				break
+			}
+			member := strings.TrimSpace(candidate.Member)
+			if member == "" {
+				continue
+			}
+			if candidate.File != "" && candidate.Line > 0 {
+				fmt.Fprintf(&b, " %s@%s:%d;", member, candidate.File, candidate.Line)
+			} else if candidate.File != "" {
+				fmt.Fprintf(&b, " %s@%s;", member, candidate.File)
+			} else {
+				fmt.Fprintf(&b, " %s;", member)
+			}
+			emitted++
+		}
+		b.WriteByte('\n')
+	}
+	if total > emitted {
+		fmt.Fprintf(&b, "- showing %d of %d candidates; keep using typed evidence for any hidden rows that matter.\n", emitted, total)
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func buildSourceInventoryAdvisory(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) types.SourceInventoryAdvisory {
@@ -431,6 +559,8 @@ func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph,
 		switch {
 		case role == types.AnswerCandidateRoleFile:
 			out[role] = sourceInventoryFileCandidates(ctx, graph, scopes, profile)
+		case role == types.AnswerCandidateRolePackage:
+			out[role] = sourceInventoryPackageCandidates(ctx, graph, scopes, profile)
 		case role == types.AnswerCandidateRoleType &&
 			profile.TypeUnderlying == types.SourceInventoryTypeUnderlyingString &&
 			profile.RequiresConstSet:
@@ -473,6 +603,114 @@ func sourceInventoryFileCandidates(ctx *types.BusContext, graph *repotypes.Graph
 	}
 	sourceInventorySortCandidates(set.candidates)
 	return set
+}
+
+func sourceInventoryPackageCandidates(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile) sourceInventoryCandidateSet {
+	set := sourceInventoryCandidateSet{role: types.AnswerCandidateRolePackage, complete: sourceInventoryScopesHaveIndexedSourceFiles(graph, scopes)}
+	if graph == nil {
+		return set
+	}
+	buckets := map[string]*sourceInventoryPackageBucket{}
+	for _, fi := range sourceInventoryScopedGraphFiles(graph, scopes, "") {
+		if fi == nil || fi.IsSpecial || strings.TrimSpace(fi.RelPath) == "" || strings.TrimSpace(fi.Language) == "" {
+			continue
+		}
+		if !aggregateEvidenceSourceInRequestedScope(ctx, fi.RelPath) {
+			continue
+		}
+		dir := strings.Trim(path.Dir(strings.ReplaceAll(fi.RelPath, `\`, `/`)), "/")
+		if dir == "." || dir == "" {
+			dir = strings.Trim(strings.TrimSpace(fi.Package), "/")
+		}
+		if dir == "" {
+			continue
+		}
+		bucket := buckets[dir]
+		if bucket == nil {
+			bucket = &sourceInventoryPackageBucket{
+				dir:       dir,
+				languages: map[string]int{},
+				packages:  map[string]int{},
+			}
+			buckets[dir] = bucket
+		}
+		bucket.files++
+		bucket.symbols += len(fi.Symbols)
+		if lang := strings.TrimSpace(fi.Language); lang != "" {
+			bucket.languages[lang]++
+		}
+		if pkg := strings.TrimSpace(fi.Package); pkg != "" {
+			bucket.packages[pkg]++
+		}
+	}
+	for _, bucket := range buckets {
+		member := sourceInventoryPackageBucketMember(bucket)
+		key := strings.TrimSpace(bucket.dir)
+		if member == "" || key == "" {
+			continue
+		}
+		set.candidates = append(set.candidates, sourceInventoryCandidate{
+			member:     member,
+			key:        key,
+			supportRef: key,
+			note:       sourceInventoryPackageBucketNote(bucket),
+			role:       types.AnswerCandidateRolePackage,
+			exported:   true,
+			file:       key,
+			language:   sourceInventoryDominantMapKey(bucket.languages),
+		})
+	}
+	sourceInventorySortCandidates(set.candidates)
+	return set
+}
+
+func sourceInventoryPackageBucketMember(bucket *sourceInventoryPackageBucket) string {
+	if bucket == nil {
+		return ""
+	}
+	if pkg := sourceInventoryDominantMapKey(bucket.packages); pkg != "" {
+		return pkg
+	}
+	return path.Base(strings.Trim(bucket.dir, "/"))
+}
+
+func sourceInventoryPackageBucketNote(bucket *sourceInventoryPackageBucket) string {
+	if bucket == nil {
+		return ""
+	}
+	parts := []string{"directory=" + bucket.dir}
+	if lang := sourceInventoryDominantMapKey(bucket.languages); lang != "" {
+		parts = append(parts, "language="+lang)
+	}
+	if bucket.files > 0 {
+		parts = append(parts, fmt.Sprintf("files=%d", bucket.files))
+	}
+	if bucket.symbols > 0 {
+		parts = append(parts, fmt.Sprintf("symbols=%d", bucket.symbols))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func sourceInventoryDominantMapKey(counts map[string]int) string {
+	if len(counts) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(counts))
+	for key := range counts {
+		if strings.TrimSpace(key) != "" {
+			keys = append(keys, key)
+		}
+	}
+	if len(keys) == 0 {
+		return ""
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if counts[keys[i]] == counts[keys[j]] {
+			return keys[i] < keys[j]
+		}
+		return counts[keys[i]] > counts[keys[j]]
+	})
+	return keys[0]
 }
 
 func sourceInventoryFileCandidateNote(fi *repotypes.FileInfo) string {

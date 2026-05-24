@@ -777,3 +777,207 @@ Batch 2 task list:
 - [x] Render a compact extractor advisory handoff from Turn A.
 - [x] Add tests for active profile, typed advisory-only fallback,
   no-typed-role silence, and cross-language candidate preservation.
+
+## Eval Observation - 2026-05-24 Local Small Model After Batch 2
+
+Run:
+
+- Command:
+  `EVAL_RESULTS_ROOT=eval/results/local-small-20260524 CODRAX_BIN=./codrax bash eval/run.sh eval/cases/s5b.case 1`
+- Result directory:
+  `eval/results/local-small-20260524/s5b-20260524-190315`
+- Model/provider:
+  local OpenAI-compatible model from `providers.yaml`,
+  `recover_text_tool_calls=true`.
+
+Outcome:
+
+- `s5b` failed before extractor/finalizer: `read_exit:130`, missing required
+  tail anchors for `subject.Score`, `sourcemix.FromTemplateMix`, and
+  `stopcond.ShouldStop`.
+- Mechanism metrics: `tool_read_file=24`, `explorer_iters=39`,
+  `midloop_inject=7`, `extractor_iters=0`, `finalizer_iters=0`.
+- The first explore window reached around 58k estimated tokens and pruned tool
+  history. The local model then hit stream stalls twice and the orchestrator
+  retried exploration as transient.
+- During the first window, one lane discovered the 25
+  `internal/analysis/*` subdirectories from `list_files`, but continued
+  reading files in 6-file batches instead of emitting a complete
+  `aggregate_facts.member_set`.
+- A sibling lane repeated the same inventory work (`grep x25`, then
+  `read_file x6`). After transient retry, exploration restarted from the same
+  broad directory enumeration again.
+
+Root-cause hypothesis to validate in code:
+
+- Batch 2 advisory is produced only after a successful
+  `emit_investigation_complete`/handoff. It helps downstream, but cannot prevent
+  explorer from doing broad inventory repeatedly before closure.
+- Multi-lane exploration and transient retry do not share a bounded,
+  graph-backed inventory candidate artifact early enough. They preserve some
+  accumulated evidence on salvage, but not a reusable "scoped directory +
+  principal member candidates + missing attribute rows" work plan that can stop
+  sibling lanes from redoing the same list/grep/read loop.
+- Mid-loop hints correctly detect "read without emit_evidence", but they are
+  textual nudges. Local models may ignore them and continue navigation; the
+  system needs a deterministic, typed retry/fork handoff rather than more prose.
+
+High-priority follow-up:
+
+- [ ] Locate the DAG explore transient retry and fork merge paths that discard
+  or underuse inventory-progress state.
+- [ ] Promote source-inventory advisory construction earlier, from successful
+  structured tool observations such as `list_files`/`repo_map`, not only after
+  accepted completion.
+- [ ] Make sibling explore lanes and transient retries see the same advisory
+  candidate artifact so they can avoid repeating broad directory enumeration.
+- [ ] Preserve model authority: the artifact must remain advisory and typed;
+  it can guide tool choice / missing-member coverage, but must not decide the
+  user's answer or hard rewrite model prose.
+
+### P0 Design - Pre-completion Source Inventory Progress
+
+Root cause from the `s5b` run:
+
+- The analyzer already emitted a high-confidence typed
+  `source_inventory_profile` with package/function target roles and a bounded
+  `internal/analysis` scope.
+- The graph-backed `SourceInventoryAdvisory` carrier existed, and parallel
+  fork/merge already preserved it, but the carrier was only published after a
+  successful `emit_investigation_complete`.
+- The local model failed before closure, so both parallel lanes and the
+  transient retry had no shared structured candidate checklist and repeated
+  directory enumeration.
+
+Commercial-grade boundary:
+
+- Publish a pre-completion advisory from typed request data and validated tool
+  observations (`repo_map` / `list_files`) as soon as the current run has
+  `AnalysisIR` plus a repo-map graph.
+- Keep this early artifact `advisory_only=true`. It is not answer text, not a
+  citation, not a completion signal, and must not trigger deterministic system
+  supplement tables.
+- Use the existing source-inventory reconciler and `SourceInventoryAdvisory`
+  clone/merge path. Do not introduce a second inventory carrier.
+- Support all repo-map languages by using graph files/symbol kinds rather than
+  Go-specific parsing. Go-only enum proof remains the existing narrow adapter.
+- Preserve model authority: explorer may use the checklist to avoid re-listing
+  the same scope or to decide which candidates still need reading, but the model
+  still decides when to emit evidence and how to close the investigation.
+
+Implementation tasks:
+
+- [x] Add `PublishSourceInventoryAdvisoryFromTypedRequest` for the post-analyze,
+  pre-explore point. It builds the same advisory as the completion path, forces
+  `advisory_only=true`, and stores it on `MutableState`.
+- [x] Add `PublishSourceInventoryAdvisoryFromToolObservation` for successful
+  `repo_map` / `list_files` observations inside explore. It only publishes once
+  per run unless the stored advisory was inactive, and returns a compact
+  model-visible hint for the same ReAct dispatch.
+- [x] Add language-neutral package/directory candidates for
+  `AnswerCandidateRolePackage`, derived from repo-map `FileInfo` scope groups,
+  so path-scoped package inventories do not depend on Go package symbols.
+- [x] Render the active advisory in explorer retry/fresh instructions as
+  "structured candidate checklist", explicitly not final answer text.
+- [x] Regression tests:
+  - typed request publication is advisory-only and cross-language;
+  - tool observation emits the compact hint only on first activation;
+  - explorer prompt shows advisory context without changing answer authority.
+- [x] Keep typed source-inventory dimensions in one explorer dispatch instead
+  of splitting them into sibling lanes. The scheduler change is gated only by
+  `source_inventory_profile.Active()` plus a multi-evidence window; it avoids
+  duplicate enumeration but does not decide the answer.
+
+Related guardrail still open:
+
+- System supplement tables must not become a competing answer surface when
+  upstream evidence / accepted aggregate facts already carried a complete
+  model-collected set. Future work should prefer omission over an over-broad
+  supplement for ambiguous enumeration carriers; any system-added text must be
+  localized, append-only, and clearly marked as system-provided support.
+
+Validation note:
+
+- A post-advisory `s5b` run (`s5b-20260524-192902`) confirmed the first half of
+  the fix: `pre-explore source-inventory advisory published` appeared before
+  explore, and read volume dropped from 24 files to 7 before the run was
+  interrupted for further code work.
+- The same run showed both sibling lanes still repeated `repo_map` /
+  `list_files` against `internal/analysis`. That exposed the second half of the
+  root cause: source-inventory dimensions must be scheduled as one shared
+  inventory dispatch, not as independent parallel lanes.
+
+### Eval Observation - Profile-Omitted Source Inventory Shape
+
+Run:
+
+- Command:
+  `EVAL_RESULTS_ROOT=eval/results/local-small-20260524-post-unified CODRAX_BIN=./codrax bash eval/run.sh eval/cases/s5b.case 1`
+- Result directory:
+  `eval/results/local-small-20260524-post-unified/s5b-20260524-193249`
+- Result:
+  interrupted after collecting enough scheduling evidence (`read_exit:130`).
+
+Observed improvement:
+
+- Read volume stayed much lower than the original run:
+  `tool_read_file=6` before interrupt versus 24 in the first run.
+
+New root cause:
+
+- This analyzer emission omitted the optional `source_inventory_profile` field
+  even though the rest of the structured IR still described a bounded category
+  enumeration:
+  - `intent=enumerate`
+  - `predicates.is_category_enumeration=true`
+  - 25 suggested source files under `internal/analysis/*`
+  - two evidence siblings representing inventory dimensions
+- Because the scheduler guard was keyed only to
+  `source_inventory_profile.Active()`, the protection did not fire. The
+  explorer still split into sibling lanes and both lanes repeated directory /
+  symbol discovery.
+- This is a structural small-model compatibility gap, not a prompt problem:
+  the system must degrade gracefully when a helpful optional field is missing.
+
+Batch 3 design:
+
+- Add a scheduler-only fallback for typed bounded source enumerations:
+  category enumeration + a sizeable set of source/config required files under
+  one non-root directory + a multi-evidence ready window.
+- Keep this fallback narrower than source-inventory profile activation:
+  it only coalesces explore lanes; it does not publish candidate rows, does not
+  mark completion, does not synthesize final-answer members, and does not relax
+  validation.
+- Use existing language-neutral path utilities:
+  `types.CanonicalRequiredFileHintPath`,
+  `types.HasCodeOrConfigPathSuffix`, `types.ClassifySourcePathRole`, and
+  `types.SourceScopeAllowsPathRole`.
+- Do not inspect raw user text or model prose. The activation source is typed
+  IR plus deterministic path roles.
+- Preserve the model's suggested order by leaving the ready window intact,
+  instead of splitting sibling evidence nodes into competing lanes.
+
+Batch 3 tasks:
+
+- [x] Add `broadSourceEnumerationScopeActive` as a conservative scheduler
+  fallback when `source_inventory_profile` is absent.
+- [x] Gate it on typed enumerate/category flags, bounded required-file scope,
+  path-role scope, and a multi-evidence window.
+- [x] Add regression coverage for active profile, profile-omitted bounded
+  enumeration, non-enumeration silence, root-level unbounded silence, and
+  out-of-scope auxiliary silence.
+- [x] Move production explore scheduling to `exploreWindowDispatchGroups(ctx,
+  window)` and test that the final dispatch grouping, not just the lower-level
+  predicate, keeps profile-omitted bounded enumerations unified while ordinary
+  multi-topic evidence still splits.
+
+Validation:
+
+- `s5b-20260524-194057` was interrupted after the scheduling signal was
+  confirmed. The run used a profile-omitted analyzer shape and produced one
+  explorer dispatch (`explorer_dispatches=1`) with no `第 1 路 / 第 2 路`
+  sibling-lane fan-out in the REPL log.
+- Read volume before interrupt was `tool_read_file=5`, down from 24 in the
+  original run and 6 in the previous profile-omitted run. This does not prove
+  the full answer is solved, but it verifies the high-risk duplicate-lane
+  failure mode is guarded.

@@ -575,6 +575,9 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		b.WriteString("Focus on the gaps identified above. Do NOT re-read files you already analyzed.\n\n")
 		b.WriteString("**Tools:** use `grep` (efficient for locating patterns and scanning large files), `read_file` (for reading content), or both together. Pick the most efficient approach for each situation.\n\n")
 		b.WriteString("Prefer the built-in `grep` / `read_file` tools for repository browsing. Reserve `exec_command` for deterministic computations or checks that the structured tools cannot perform directly.\n\n")
+		if advisory := renderExplorerSourceInventoryAdvisory(ctx); advisory != "" {
+			b.WriteString(advisory)
+		}
 		b.WriteString("Evidence format (examples — adapt to what you find):\n")
 		b.WriteString("- `[DIRECT] functionName line N: <what this code establishes>`\n")
 		b.WriteString("- `[CONDITIONAL] functionName line N: <what happens> IF <condition>`\n")
@@ -691,6 +694,9 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			b.WriteString("- Support all language surfaces the repo map can expose: packages, modules, namespaces, crates, directories, files, classes, functions, methods, routes, config keys, and registry entries. Do not assume Go-only package/function naming.\n")
 			b.WriteString("- Once a principal member has a grounded attribute candidate, emit that candidate as evidence. If the attribute is ambiguous or not grounded for that member after the relevant file/list/grep scope has been checked, record the member with an explicit unresolved-attribute note instead of widening indefinitely.\n")
 			b.WriteString("- When the bounded / exhaustive principal member set is covered, call emit_investigation_complete. Do not keep searching solely to prove a unique attribute when the final answer can carry a caveat for that member.\n\n")
+		}
+		if advisory := renderExplorerSourceInventoryAdvisory(ctx); advisory != "" {
+			b.WriteString(advisory)
 		}
 		if types.ResolveQuestionFamily(rm) == types.QFArchitecture {
 			b.WriteString("### Architecture Role / Output Handoff\n\n")
@@ -1353,6 +1359,26 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		b.WriteString(guide)
 	}
 
+	return b.String()
+}
+
+func renderExplorerSourceInventoryAdvisory(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	advisory := ctx.Mutable.SourceInventoryAdvisory()
+	if !advisory.IsActive() {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Structured Source Inventory Progress\n\n")
+	b.WriteString("The framework has a typed, graph-backed candidate checklist for this source-inventory shape. It is advisory context only: it is not final answer text, not a citation, and not permission to skip grounded evidence.\n")
+	b.WriteString("- Use it to avoid re-enumerating the same scope in sibling lanes or transient retries.\n")
+	b.WriteString("- If the checklist matches what you need, verify/read unresolved candidates and carry the model-authored conclusion through emit_evidence / aggregate_facts.\n")
+	b.WriteString("- If it does not match, keep your own investigation boundary and explain the gap in the structured closure instead of silently widening the answer.\n\n")
+	b.WriteString(renderExtractorSourceInventoryAdvisory(&types.TurnAArtifacts{
+		SourceInventoryAdvisory: advisory,
+	}))
 	return b.String()
 }
 

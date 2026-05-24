@@ -134,6 +134,186 @@ func TestShouldDispatchExploreNodesIndividually_ProductionShapeWithCompanions(t 
 	}
 }
 
+func TestShouldKeepSourceInventoryExploreWindowUnified(t *testing.T) {
+	window := []*types.TaskNode{
+		{ID: "n1_evidence_t0", Type: types.NodeEvidence},
+		{ID: "n1_evidence_t1", Type: types.NodeEvidence},
+	}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles: []types.AnswerCandidateRole{
+				types.AnswerCandidateRolePackage,
+				types.AnswerCandidateRoleFunction,
+			},
+			Confidence: 0.9,
+		},
+	}}}
+
+	if !shouldDispatchExploreNodesIndividually(window) {
+		t.Fatal("fixture should otherwise be splittable")
+	}
+	if !shouldKeepSourceInventoryExploreWindowUnified(ctx, window) {
+		t.Fatal("source-inventory dimensions should share one explore dispatch")
+	}
+	ctx.AnalysisIR.RequestModel.SourceInventoryProfile = nil
+	if shouldKeepSourceInventoryExploreWindowUnified(ctx, window) {
+		t.Fatal("ordinary multi-evidence windows should keep existing split behavior")
+	}
+}
+
+func TestShouldKeepSourceInventoryExploreWindowUnified_BoundedEnumerationFallback(t *testing.T) {
+	window := []*types.TaskNode{
+		{ID: "n1_evidence_t0", Type: types.NodeEvidence},
+		{ID: "n1_evidence_t1", Type: types.NodeEvidence},
+	}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		},
+		EvidencePlan: types.EvidencePlan{RequiredFiles: []string{
+			"internal/analysis/aggregator/aggregator.go",
+			"internal/analysis/amplifier/amplifier.go",
+			"internal/analysis/binder/binder.go",
+			"internal/analysis/budget/budget.go",
+			"internal/analysis/compiler/compile.go",
+			"internal/analysis/gate/gate.go",
+		}},
+	}}
+
+	if !shouldDispatchExploreNodesIndividually(window) {
+		t.Fatal("fixture should otherwise be splittable")
+	}
+	if !shouldKeepSourceInventoryExploreWindowUnified(ctx, window) {
+		t.Fatal("bounded source enumeration should stay in one explore dispatch even without source_inventory_profile")
+	}
+}
+
+func TestShouldKeepSourceInventoryExploreWindowUnified_BoundedEnumerationFallbackConservative(t *testing.T) {
+	window := []*types.TaskNode{
+		{ID: "n1_evidence_t0", Type: types.NodeEvidence},
+		{ID: "n1_evidence_t1", Type: types.NodeEvidence},
+	}
+	cases := []struct {
+		name string
+		ir   *types.AnalysisIR
+	}{
+		{
+			name: "non_enumeration",
+			ir: &types.AnalysisIR{
+				RequestModel: types.RequestModel{
+					Intent: types.IntentExplain,
+					Predicates: types.SemanticPredicates{
+						IsCategoryEnumeration: true,
+					},
+				},
+				EvidencePlan: types.EvidencePlan{RequiredFiles: []string{
+					"internal/analysis/a/a.go",
+					"internal/analysis/b/b.go",
+					"internal/analysis/c/c.go",
+					"internal/analysis/d/d.go",
+					"internal/analysis/e/e.go",
+					"internal/analysis/f/f.go",
+				}},
+			},
+		},
+		{
+			name: "unbounded_roots",
+			ir: &types.AnalysisIR{
+				RequestModel: types.RequestModel{
+					Intent: types.IntentEnumerate,
+					Predicates: types.SemanticPredicates{
+						IsCategoryEnumeration: true,
+					},
+				},
+				EvidencePlan: types.EvidencePlan{RequiredFiles: []string{
+					"a.go",
+					"b.go",
+					"c.go",
+					"d.go",
+					"e.go",
+					"f.go",
+				}},
+			},
+		},
+		{
+			name: "auxiliary_out_of_scope",
+			ir: &types.AnalysisIR{
+				RequestModel: types.RequestModel{
+					Intent: types.IntentEnumerate,
+					Predicates: types.SemanticPredicates{
+						IsCategoryEnumeration: true,
+					},
+				},
+				EvidencePlan: types.EvidencePlan{RequiredFiles: []string{
+					"docs/analysis/a.md",
+					"docs/analysis/b.md",
+					"docs/analysis/c.md",
+					"docs/analysis/d.md",
+					"docs/analysis/e.md",
+					"docs/analysis/f.md",
+				}},
+			},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := &types.BusContext{AnalysisIR: tc.ir}
+			if shouldKeepSourceInventoryExploreWindowUnified(ctx, window) {
+				t.Fatalf("%s should not activate the bounded source-enumeration fallback", tc.name)
+			}
+		})
+	}
+}
+
+func TestExploreWindowDispatchGroups_ProfileOmittedBoundedEnumerationStaysUnified(t *testing.T) {
+	t0 := &types.TaskNode{ID: "n1_evidence_t0", Type: types.NodeEvidence}
+	t1 := &types.TaskNode{ID: "n1_evidence_t1", Type: types.NodeEvidence}
+	window := []*types.TaskNode{t0, t1}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		},
+		EvidencePlan: types.EvidencePlan{RequiredFiles: []string{
+			"internal/analysis/aggregator/aggregator.go",
+			"internal/analysis/amplifier/amplifier.go",
+			"internal/analysis/binder/binder.go",
+			"internal/analysis/budget/budget.go",
+			"internal/analysis/compiler/compile.go",
+			"internal/analysis/gate/gate.go",
+		}},
+	}}
+
+	groups := exploreWindowDispatchGroups(ctx, window)
+	if len(groups) != 1 {
+		t.Fatalf("bounded source enumeration without source_inventory_profile must stay unified; got %d groups", len(groups))
+	}
+	if len(groups[0]) != 2 || groups[0][0] != t0 || groups[0][1] != t1 {
+		t.Fatalf("unified dispatch should preserve the original evidence order, got %+v", groups[0])
+	}
+}
+
+func TestExploreWindowDispatchGroups_OrdinaryMultiTopicStillSplits(t *testing.T) {
+	t0 := &types.TaskNode{ID: "n1_evidence_t0", Type: types.NodeEvidence}
+	t1 := &types.TaskNode{ID: "n1_evidence_t1", Type: types.NodeEvidence}
+	groups := exploreWindowDispatchGroups(&types.BusContext{AnalysisIR: &types.AnalysisIR{
+		RequestModel: types.RequestModel{Intent: types.IntentExplain},
+	}}, []*types.TaskNode{t0, t1})
+
+	if len(groups) != 2 {
+		t.Fatalf("ordinary independent evidence siblings should still split; got %d groups", len(groups))
+	}
+	if len(groups[0]) != 1 || groups[0][0] != t0 || len(groups[1]) != 1 || groups[1][0] != t1 {
+		t.Fatalf("split groups should preserve declaration order, got %+v", groups)
+	}
+}
+
 // TestShouldDispatchExploreNodesIndividually_NilEntrySkipped pins the
 // defensive nil-entry check (the window slice is built by the
 // scheduler and SHOULD have no nil entries, but a future bug in
