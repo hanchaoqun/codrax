@@ -799,6 +799,11 @@ func TestLooksLikeConfigFilePath_AcceptsCommonConfigExtensionsAndChains(t *testi
 		"pyproject.toml",
 		"service.ini",
 		"local.properties",
+		"CMakeLists.txt",
+		"Makefile",
+		"Dockerfile",
+		"Jenkinsfile",
+		"meson.build",
 	} {
 		if !LooksLikeConfigFilePath(path) {
 			t.Fatalf("LooksLikeConfigFilePath(%q)=false, want true", path)

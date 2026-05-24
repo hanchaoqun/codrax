@@ -167,6 +167,9 @@ func AnswerSubjectForSourceInventoryProfile(profile *SourceInventoryProfile) (An
 	case AnswerCandidateRoleFile:
 		kind = SubjectFilePath
 		axis = "file → path"
+	case AnswerCandidateRoleConfigFile:
+		kind = SubjectFilePath
+		axis = "config_file → path"
 	default:
 		return AnswerSubject{}, false
 	}

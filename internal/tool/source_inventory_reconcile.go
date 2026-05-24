@@ -101,6 +101,26 @@ func publishSourceInventoryAdvisorySnapshot(ctx *types.BusContext, provenance st
 	return true
 }
 
+// PublishSourceInventoryObservationFromLens builds and stores a model-driven
+// source-inventory lens view. It is deliberately advisory-only: even when the
+// model asks for a role/scope slice explicitly, the result is a repo-map
+// observation checklist, not final answer text.
+func PublishSourceInventoryObservationFromLens(ctx *types.BusContext, query types.SourceInventoryLensQuery) types.SourceInventoryObservation {
+	if ctx == nil || ctx.Mutable == nil {
+		return types.SourceInventoryObservation{}
+	}
+	advisory := buildSourceInventoryAdvisoryForLens(ctx, query, true, []string{"repo_lens:tool_query"})
+	if !advisory.IsActive() {
+		return types.SourceInventoryObservation{}
+	}
+	if current := ctx.Mutable.SourceInventoryAdvisory(); current.IsActive() {
+		ctx.Mutable.SetSourceInventoryAdvisory(types.MergeSourceInventoryAdvisory(current, advisory))
+	} else {
+		ctx.Mutable.SetSourceInventoryAdvisory(advisory)
+	}
+	return types.SourceInventoryObservationFromAdvisory(advisory)
+}
+
 func sourceInventoryObservationTool(name string) bool {
 	switch types.CanonicalToolName(name) {
 	case "repo_map", "list_files":
@@ -211,7 +231,200 @@ func renderSourceInventoryAdvisoryToolHintAttributes(attrs []types.SourceInvento
 	return "related callables: " + strings.Join(parts, ", ")
 }
 
+// RenderSourceInventoryObservationView renders a compact model-facing repo lens
+// view. The underlying observation remains structured in MutableState; this
+// markdown is only a readable checklist for the current tool result.
+func RenderSourceInventoryObservationView(observation types.SourceInventoryObservation, query types.SourceInventoryLensQuery) string {
+	if !observation.IsActive() {
+		return "Repo Lens: no source-inventory observation is available for the requested typed scope/role slice. Try a narrower `scope` or provide `roles` that match repo-map candidate roles."
+	}
+	topN := query.TopN
+	if topN <= 0 {
+		topN = 60
+	}
+	offset := sourceInventoryLensQueryOffset(query)
+	includeCounts := query.IncludeCounts
+	includeAttributes := query.IncludeAttributes
+	var b strings.Builder
+	b.WriteString("# Repo Lens: Source Inventory\n\n")
+	b.WriteString("This is a repo-map observation checklist for navigation and mechanical member/count checks. It is not final answer text; semantic conclusions still need grounded evidence.\n\n")
+	if len(observation.Scopes) > 0 {
+		fmt.Fprintf(&b, "- scopes: `%s`\n", strings.Join(observation.Scopes, "`, `"))
+	}
+	if len(observation.Provenance) > 0 {
+		fmt.Fprintf(&b, "- provenance: `%s`\n", strings.Join(observation.Provenance, "`, `"))
+	}
+	if len(observation.Lens) > 0 {
+		fmt.Fprintf(&b, "- lens: `%s`\n", strings.Join(observation.Lens, "`, `"))
+	}
+	if includeCounts {
+		totalMembers := 0
+		for _, set := range observation.Sets {
+			totalMembers += len(set.Members)
+		}
+		fmt.Fprintf(&b, "- total_visible_member_count: %d\n", totalMembers)
+	}
+	if offset > 0 {
+		fmt.Fprintf(&b, "- page_offset: %d\n", offset)
+	}
+	b.WriteByte('\n')
+	emitted := 0
+	visited := 0
+	total := 0
+	for _, set := range observation.Sets {
+		total += len(set.Members)
+	}
+	for _, set := range observation.Sets {
+		if len(set.Members) == 0 || emitted >= topN {
+			continue
+		}
+		setRowsRemaining := len(set.Members)
+		if offset > visited {
+			skipInSet := minInt(offset-visited, len(set.Members))
+			setRowsRemaining -= skipInSet
+		}
+		if setRowsRemaining <= 0 {
+			visited += len(set.Members)
+			continue
+		}
+		if includeCounts {
+			fmt.Fprintf(&b, "## %s (%s)\n\ncount=%d complete=%t\n\n",
+				types.SourceInventoryAdvisoryRoleLabel(set.Role), set.Role, set.Count, set.Complete)
+		} else {
+			fmt.Fprintf(&b, "## %s (%s)\n\ncomplete=%t\n\n",
+				types.SourceInventoryAdvisoryRoleLabel(set.Role), set.Role, set.Complete)
+		}
+		for _, member := range set.Members {
+			if visited < offset {
+				visited++
+				continue
+			}
+			if emitted >= topN {
+				break
+			}
+			line := renderSourceInventoryObservationMember(member, includeAttributes)
+			visited++
+			if line == "" {
+				continue
+			}
+			b.WriteString("- ")
+			b.WriteString(line)
+			b.WriteByte('\n')
+			emitted++
+		}
+		b.WriteByte('\n')
+	}
+	if total > emitted {
+		end := offset + emitted
+		if end > total {
+			end = total
+		}
+		fmt.Fprintf(&b, "---\nshowing rows [%d,%d) of %d member rows in this tool result; the structured observation stored in run state preserves the full set.\n", offset, end, total)
+		if end < total {
+			fmt.Fprintf(&b, "next_cursor=%d\n", end)
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func sourceInventoryLensQueryOffset(query types.SourceInventoryLensQuery) int {
+	if query.Offset > 0 {
+		return query.Offset
+	}
+	cursor := strings.TrimSpace(query.Cursor)
+	if cursor == "" {
+		return 0
+	}
+	offset, err := strconv.Atoi(cursor)
+	if err != nil || offset < 0 {
+		return 0
+	}
+	return offset
+}
+
+func renderSourceInventoryObservationMember(member types.SourceInventoryObservationMember, includeAttributes bool) string {
+	name := strings.TrimSpace(member.Name)
+	if name == "" {
+		return ""
+	}
+	parts := []string{"`" + name + "`"}
+	loc := strings.TrimSpace(member.File)
+	if loc != "" && member.Line > 0 {
+		loc = loc + ":" + strconvItoa(member.Line)
+	}
+	if loc != "" {
+		parts = append(parts, "@ "+loc)
+	}
+	if member.Language != "" {
+		parts = append(parts, "language="+member.Language)
+	}
+	if member.SupportRef != "" {
+		parts = append(parts, "support_ref=`"+member.SupportRef+"`")
+	}
+	if member.CoverageState != "" {
+		parts = append(parts, "coverage="+string(member.CoverageState))
+	}
+	if note := strings.TrimSpace(member.Note); note != "" {
+		parts = append(parts, "note: "+note)
+	}
+	if includeAttributes {
+		if attrs := renderSourceInventoryObservationAttributes(member.Attributes); attrs != "" {
+			parts = append(parts, attrs)
+		}
+	}
+	return strings.Join(parts, " — ")
+}
+
+func renderSourceInventoryObservationAttributes(attrs []types.SourceInventoryObservationAttribute) string {
+	if len(attrs) == 0 {
+		return ""
+	}
+	const max = 4
+	var parts []string
+	for _, attr := range attrs {
+		if len(parts) >= max {
+			break
+		}
+		name := strings.TrimSpace(attr.Name)
+		if name == "" {
+			continue
+		}
+		loc := strings.TrimSpace(attr.File)
+		if loc != "" && attr.Line > 0 {
+			loc = loc + ":" + strconvItoa(attr.Line)
+		}
+		role := strings.TrimSpace(string(attr.Role))
+		if role == "" {
+			role = "candidate"
+		}
+		item := role + " `" + name + "`"
+		if loc != "" {
+			item += " @ " + loc
+		}
+		if attr.Ambiguity != "" {
+			item += " ambiguity=" + attr.Ambiguity
+		}
+		parts = append(parts, item)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	suffix := ""
+	if len(attrs) > len(parts) {
+		suffix = fmt.Sprintf(" (+%d more)", len(attrs)-len(parts))
+	}
+	return "attributes: " + strings.Join(parts, "; ") + suffix
+}
+
 func buildSourceInventoryAdvisory(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) types.SourceInventoryAdvisory {
+	return buildSourceInventoryAdvisoryWithQuery(ctx, facts, types.SourceInventoryLensQuery{}, false, nil)
+}
+
+func buildSourceInventoryAdvisoryForLens(ctx *types.BusContext, query types.SourceInventoryLensQuery, advisoryOnly bool, provenance []string) types.SourceInventoryAdvisory {
+	return buildSourceInventoryAdvisoryWithQuery(ctx, nil, query, advisoryOnly, provenance)
+}
+
+func buildSourceInventoryAdvisoryWithQuery(ctx *types.BusContext, facts []types.AnswerAggregateFact, query types.SourceInventoryLensQuery, forceAdvisoryOnly bool, extraProvenance []string) types.SourceInventoryAdvisory {
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
 		return types.SourceInventoryAdvisory{}
 	}
@@ -220,10 +433,24 @@ func buildSourceInventoryAdvisory(ctx *types.BusContext, facts []types.AnswerAgg
 		return types.SourceInventoryAdvisory{}
 	}
 	profile, advisoryOnly, provenance := sourceInventoryAdvisoryProfile(ctx, graph)
+	if forceAdvisoryOnly {
+		advisoryOnly = true
+	}
+	provenance = sourceInventoryAdvisoryAppendProvenance(provenance, extraProvenance...)
+	if roles := sourceInventoryLensQueryRoles(query); len(roles) > 0 {
+		profile = sourceInventoryProfileWithLensRoles(profile, roles)
+		advisoryOnly = true
+		provenance = sourceInventoryAdvisoryAppendProvenance(provenance, "repo_lens:roles")
+	}
 	if !profile.Active() {
 		return types.SourceInventoryAdvisory{}
 	}
 	scopes := sourceInventoryScopes(ctx, graph, facts)
+	if lensScopes := sourceInventoryLensQueryScopes(ctx, graph, query); len(lensScopes) > 0 {
+		scopes = lensScopes
+		advisoryOnly = true
+		provenance = sourceInventoryAdvisoryAppendProvenance(provenance, "repo_lens:scopes")
+	}
 	if len(scopes) == 0 {
 		return types.SourceInventoryAdvisory{}
 	}
@@ -231,11 +458,7 @@ func buildSourceInventoryAdvisory(ctx *types.BusContext, facts []types.AnswerAgg
 	if len(sets) == 0 {
 		return types.SourceInventoryAdvisory{}
 	}
-	roles := make([]types.AnswerCandidateRole, 0, len(sets))
-	for role := range sets {
-		roles = append(roles, role)
-	}
-	sort.Slice(roles, func(i, j int) bool { return string(roles[i]) < string(roles[j]) })
+	roles := sourceInventoryRoleOrder(profile, sets)
 	advisory := types.SourceInventoryAdvisory{
 		Active:       true,
 		AdvisoryOnly: advisoryOnly,
@@ -290,6 +513,124 @@ func buildSourceInventoryAdvisory(ctx *types.BusContext, facts []types.AnswerAgg
 		return types.SourceInventoryAdvisory{}
 	}
 	return advisory
+}
+
+func sourceInventoryLensQueryRoles(query types.SourceInventoryLensQuery) []types.AnswerCandidateRole {
+	seen := map[types.AnswerCandidateRole]bool{}
+	var roles []types.AnswerCandidateRole
+	for _, raw := range query.Roles {
+		role, ok := types.NormalizeAnswerCandidateRole(string(raw))
+		if !ok || role == types.AnswerCandidateRoleUnknown || seen[role] {
+			continue
+		}
+		switch role {
+		case types.AnswerCandidateRoleFunction,
+			types.AnswerCandidateRoleMethod,
+			types.AnswerCandidateRoleType,
+			types.AnswerCandidateRoleConstant,
+			types.AnswerCandidateRoleVariable,
+			types.AnswerCandidateRoleField,
+			types.AnswerCandidateRolePackage,
+			types.AnswerCandidateRoleFile,
+			types.AnswerCandidateRoleConfigFile,
+			types.AnswerCandidateRoleConfigKey,
+			types.AnswerCandidateRoleRoute,
+			types.AnswerCandidateRoleImportPath,
+			types.AnswerCandidateRoleLiteralValue:
+			seen[role] = true
+			roles = append(roles, role)
+		}
+	}
+	return roles
+}
+
+func sourceInventoryProfileWithLensRoles(profile *types.SourceInventoryProfile, roles []types.AnswerCandidateRole) *types.SourceInventoryProfile {
+	if len(roles) == 0 {
+		return profile
+	}
+	if profile == nil {
+		return &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       append([]types.AnswerCandidateRole(nil), roles...),
+			RequestedFields: []types.SourceInventoryRequestedField{
+				types.SourceInventoryFieldName,
+				types.SourceInventoryFieldLocation,
+				types.SourceInventoryFieldSummary,
+			},
+			Confidence: 0.50,
+		}
+	}
+	clone := *profile
+	clone.IsSourceInventory = true
+	clone.TargetRoles = append([]types.AnswerCandidateRole(nil), roles...)
+	clone.RequestedFields = append([]types.SourceInventoryRequestedField(nil), profile.RequestedFields...)
+	if len(clone.RequestedFields) == 0 {
+		clone.RequestedFields = []types.SourceInventoryRequestedField{
+			types.SourceInventoryFieldName,
+			types.SourceInventoryFieldLocation,
+			types.SourceInventoryFieldSummary,
+		}
+	}
+	clone.SourceQuotes = append([]string(nil), profile.SourceQuotes...)
+	if clone.Confidence <= 0 {
+		clone.Confidence = 0.50
+	}
+	return &clone
+}
+
+func sourceInventoryLensQueryScopes(ctx *types.BusContext, graph *repotypes.Graph, query types.SourceInventoryLensQuery) []string {
+	if len(query.Scopes) == 0 {
+		return nil
+	}
+	seen := map[string]bool{}
+	var scopes []string
+	for _, raw := range query.Scopes {
+		scope := sourceInventoryScopeForLensSurface(graph, raw)
+		if scope == "" || seen[scope] {
+			continue
+		}
+		// "." is a repo-lens selector for the active repo root, not an answer
+		// evidence path. Keep the per-file source-scope checks at candidate
+		// construction time so tests/docs/config rows are still filtered by the
+		// typed source scope instead of by this synthetic selector.
+		if scope != "." && ctx != nil && !aggregateEvidenceSourceInRequestedScope(ctx, scope) {
+			continue
+		}
+		seen[scope] = true
+		scopes = append(scopes, scope)
+	}
+	return scopes
+}
+
+func sourceInventoryScopeForLensSurface(graph *repotypes.Graph, raw string) string {
+	surface := strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+	if surface == "." || surface == "./" || surface == "/" {
+		if graph != nil && len(graph.Files) > 0 {
+			return "."
+		}
+	}
+	return sourceInventoryScopeForSurface(graph, raw)
+}
+
+func sourceInventoryRoleOrder(profile *types.SourceInventoryProfile, sets map[types.AnswerCandidateRole]sourceInventoryCandidateSet) []types.AnswerCandidateRole {
+	seen := map[types.AnswerCandidateRole]bool{}
+	var roles []types.AnswerCandidateRole
+	if profile != nil {
+		for _, role := range profile.PrincipalTargetRoles() {
+			if _, ok := sets[role]; ok && !seen[role] {
+				seen[role] = true
+				roles = append(roles, role)
+			}
+		}
+	}
+	var rest []types.AnswerCandidateRole
+	for role := range sets {
+		if !seen[role] {
+			rest = append(rest, role)
+		}
+	}
+	sort.Slice(rest, func(i, j int) bool { return string(rest[i]) < string(rest[j]) })
+	return append(roles, rest...)
 }
 
 func sourceInventoryAdvisoryProfile(ctx *types.BusContext, graph *repotypes.Graph) (*types.SourceInventoryProfile, bool, []string) {
@@ -397,6 +738,7 @@ func sourceInventoryAdvisoryPrincipalRolesFromRoleProfile(profile *types.AnswerR
 			types.AnswerCandidateRoleField,
 			types.AnswerCandidateRolePackage,
 			types.AnswerCandidateRoleFile,
+			types.AnswerCandidateRoleConfigFile,
 			types.AnswerCandidateRoleConfigKey,
 			types.AnswerCandidateRoleRoute,
 			types.AnswerCandidateRoleImportPath:
@@ -652,6 +994,8 @@ func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph,
 		switch {
 		case role == types.AnswerCandidateRoleFile:
 			out[role] = sourceInventoryFileCandidates(ctx, graph, scopes, profile)
+		case role == types.AnswerCandidateRoleConfigFile:
+			out[role] = sourceInventoryConfigFileCandidates(ctx, graph, scopes, profile)
 		case role == types.AnswerCandidateRolePackage:
 			out[role] = sourceInventoryPackageCandidates(ctx, graph, scopes, profile)
 		case role == types.AnswerCandidateRoleType &&
@@ -669,13 +1013,13 @@ func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph,
 }
 
 func sourceInventoryFileCandidates(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile) sourceInventoryCandidateSet {
-	set := sourceInventoryCandidateSet{role: types.AnswerCandidateRoleFile, complete: sourceInventoryScopesHaveIndexedSourceFiles(graph, scopes)}
+	set := sourceInventoryCandidateSet{role: types.AnswerCandidateRoleFile, complete: sourceInventoryScopesHaveInventoryFiles(graph, scopes)}
 	if graph == nil {
 		return set
 	}
 	seen := map[string]bool{}
 	for _, fi := range sourceInventoryScopedGraphFiles(graph, scopes, "") {
-		if fi == nil || fi.IsSpecial || strings.TrimSpace(fi.RelPath) == "" || strings.TrimSpace(fi.Language) == "" {
+		if fi == nil || strings.TrimSpace(fi.RelPath) == "" || (strings.TrimSpace(fi.Language) == "" && !fi.IsSpecial) {
 			continue
 		}
 		file := strings.Trim(strings.TrimSpace(strings.ReplaceAll(fi.RelPath, `\`, `/`)), "/")
@@ -698,8 +1042,38 @@ func sourceInventoryFileCandidates(ctx *types.BusContext, graph *repotypes.Graph
 	return set
 }
 
+func sourceInventoryConfigFileCandidates(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile) sourceInventoryCandidateSet {
+	set := sourceInventoryCandidateSet{role: types.AnswerCandidateRoleConfigFile, complete: sourceInventoryScopesHaveInventoryFiles(graph, scopes)}
+	if graph == nil {
+		return set
+	}
+	seen := map[string]bool{}
+	for _, fi := range sourceInventoryScopedGraphFiles(graph, scopes, "") {
+		if fi == nil || !fi.IsSpecial || strings.TrimSpace(fi.RelPath) == "" {
+			continue
+		}
+		file := strings.Trim(strings.TrimSpace(strings.ReplaceAll(fi.RelPath, `\`, `/`)), "/")
+		if file == "" || seen[file] || !aggregateEvidenceSourceInRequestedScope(ctx, file) {
+			continue
+		}
+		seen[file] = true
+		set.candidates = append(set.candidates, sourceInventoryCandidate{
+			member:     file,
+			key:        file,
+			supportRef: file,
+			note:       sourceInventoryConfigFileCandidateNote(fi),
+			role:       types.AnswerCandidateRoleConfigFile,
+			exported:   true,
+			file:       file,
+			language:   strings.TrimSpace(fi.Language),
+		})
+	}
+	sourceInventorySortCandidates(set.candidates)
+	return set
+}
+
 func sourceInventoryPackageCandidates(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile) sourceInventoryCandidateSet {
-	set := sourceInventoryCandidateSet{role: types.AnswerCandidateRolePackage, complete: sourceInventoryScopesHaveIndexedSourceFiles(graph, scopes)}
+	set := sourceInventoryCandidateSet{role: types.AnswerCandidateRolePackage, complete: sourceInventoryScopesHaveInventoryFiles(graph, scopes)}
 	if graph == nil {
 		return set
 	}
@@ -812,11 +1186,13 @@ func sourceInventoryCallableAttributeRole(sym *repotypes.Symbol) (types.AnswerCa
 	if sym == nil {
 		return types.AnswerCandidateRoleUnknown, false
 	}
-	switch strings.ToLower(strings.TrimSpace(sym.Kind)) {
-	case "function", "foreign-func", "operator", "ui-entry", "builder", "rpc":
-		return types.AnswerCandidateRoleFunction, true
-	case "method", "ctor":
-		return types.AnswerCandidateRoleMethod, true
+	role, ok := aggregateAnswerCandidateRoleForSymbol(sym)
+	if !ok {
+		return types.AnswerCandidateRoleUnknown, false
+	}
+	switch role {
+	case types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleMethod:
+		return role, true
 	default:
 		return types.AnswerCandidateRoleUnknown, false
 	}
@@ -897,6 +1273,13 @@ func sourceInventoryFileCandidateNote(fi *repotypes.FileInfo) string {
 		return ""
 	}
 	parts := make([]string, 0, 3)
+	if fi.IsSpecial {
+		stype := strings.TrimSpace(fi.SpecialType)
+		if stype == "" {
+			stype = "special"
+		}
+		parts = append(parts, "special_type="+stype)
+	}
 	if language := strings.TrimSpace(fi.Language); language != "" {
 		parts = append(parts, "language="+language)
 	}
@@ -906,8 +1289,22 @@ func sourceInventoryFileCandidateNote(fi *repotypes.FileInfo) string {
 	return strings.Join(parts, ", ")
 }
 
+func sourceInventoryConfigFileCandidateNote(fi *repotypes.FileInfo) string {
+	if fi == nil {
+		return ""
+	}
+	parts := []string{"configuration/manifest file"}
+	if stype := strings.TrimSpace(fi.SpecialType); stype != "" {
+		parts = append(parts, "special_type="+stype)
+	}
+	if language := strings.TrimSpace(fi.Language); language != "" {
+		parts = append(parts, "language="+language)
+	}
+	return strings.Join(parts, ", ")
+}
+
 func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile, role types.AnswerCandidateRole) sourceInventoryCandidateSet {
-	set := sourceInventoryCandidateSet{role: role, complete: sourceInventoryScopesHaveIndexedSourceFiles(graph, scopes)}
+	set := sourceInventoryCandidateSet{role: role, complete: sourceInventoryScopesHaveInventoryFiles(graph, scopes)}
 	if graph == nil {
 		return set
 	}
@@ -1322,6 +1719,22 @@ func sourceInventoryScopesHaveIndexedSourceFiles(graph *repotypes.Graph, scopes 
 			continue
 		}
 		if strings.TrimSpace(fi.Language) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func sourceInventoryScopesHaveInventoryFiles(graph *repotypes.Graph, scopes []string) bool {
+	files := sourceInventoryScopedGraphFiles(graph, scopes, "")
+	if len(files) == 0 {
+		return false
+	}
+	for _, fi := range files {
+		if fi == nil {
+			continue
+		}
+		if strings.TrimSpace(fi.Language) != "" || fi.IsSpecial {
 			return true
 		}
 	}

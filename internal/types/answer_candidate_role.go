@@ -26,6 +26,7 @@ const (
 	AnswerCandidateRoleFixture        AnswerCandidateRole = "fixture"
 	AnswerCandidateRoleHelper         AnswerCandidateRole = "helper"
 	AnswerCandidateRoleToolName       AnswerCandidateRole = "tool_name"
+	AnswerCandidateRoleConfigFile     AnswerCandidateRole = "config_file"
 	AnswerCandidateRoleConfigKey      AnswerCandidateRole = "config_key"
 	AnswerCandidateRoleRoute          AnswerCandidateRole = "route"
 	AnswerCandidateRoleImportPath     AnswerCandidateRole = "import_path"
@@ -55,6 +56,7 @@ func AllAnswerCandidateRoles() []AnswerCandidateRole {
 		AnswerCandidateRoleFixture,
 		AnswerCandidateRoleHelper,
 		AnswerCandidateRoleToolName,
+		AnswerCandidateRoleConfigFile,
 		AnswerCandidateRoleConfigKey,
 		AnswerCandidateRoleRoute,
 		AnswerCandidateRoleImportPath,
@@ -108,6 +110,8 @@ func normalizeAnswerCandidateRoleAlias(raw string) string {
 		return string(AnswerCandidateRolePackage)
 	case "filepath", "file_path", "path":
 		return string(AnswerCandidateRoleFile)
+	case "manifest", "manifest_file", "config", "configuration", "configuration_file", "build_config", "ci_config":
+		return string(AnswerCandidateRoleConfigFile)
 	case "import", "import_spec":
 		return string(AnswerCandidateRoleImportPath)
 	case "literal", "value":

@@ -96,6 +96,9 @@ func ClassifySourcePathRole(relPath string) SourcePathRole {
 	if (strings.Contains(lower, "/internal/skill/") || strings.HasPrefix(lower, "internal/skill/")) && strings.Contains(base, "contract") {
 		return SourcePathRolePromptSupport
 	}
+	if LooksLikeConfigFilePath(normalized) {
+		return SourcePathRoleProduction
+	}
 	switch {
 	case strings.HasPrefix(base, "readme."),
 		strings.HasPrefix(base, "changelog."),

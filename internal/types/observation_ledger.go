@@ -229,15 +229,16 @@ func firstObservationRecordIndexForOrigin(records []ObservationRecord, selected 
 // ledger compiler. The compiler is intentionally side-effect free and must not
 // inspect raw user prose or model free text to classify facts.
 type ObservationLedgerInput struct {
-	EvidenceItems  []EvidenceItem
-	AggregateFacts []AnswerAggregateFact
-	ToolResults    []ToolResult
-	LogBundle      *LogBundle
-	PerfBundle     *PerfBundle
-	MCPResponses   []MCPResponse
-	RequestModel   *RequestModel
-	AnswerContract *AnswerContract
-	RowSetWriter   ObservationRowSetWriter
+	EvidenceItems              []EvidenceItem
+	AggregateFacts             []AnswerAggregateFact
+	SourceInventoryObservation SourceInventoryObservation
+	ToolResults                []ToolResult
+	LogBundle                  *LogBundle
+	PerfBundle                 *PerfBundle
+	MCPResponses               []MCPResponse
+	RequestModel               *RequestModel
+	AnswerContract             *AnswerContract
+	RowSetWriter               ObservationRowSetWriter
 }
 
 // ObservationRowSetWriter stores a large, already-structured row set and
@@ -274,6 +275,7 @@ func CompileObservationLedger(input ObservationLedgerInput) ObservationLedger {
 	}
 	compileEvidenceItemObservations(input.EvidenceItems, add)
 	compileAggregateFactObservations(input.AggregateFacts, input.RequestModel, input.RowSetWriter, add)
+	compileSourceInventoryObservationObservations(input.SourceInventoryObservation, input.RowSetWriter, add)
 	compileToolResultObservations(input.ToolResults, add)
 	compileLogBundleObservations(input.LogBundle, add)
 	compilePerfBundleObservations(input.PerfBundle, add)
@@ -777,6 +779,232 @@ func observationRowSetSupportRefAt(fact AnswerAggregateFact, idx int, member str
 		}
 	}
 	return ""
+}
+
+func compileSourceInventoryObservationObservations(observation SourceInventoryObservation, rowSetWriter ObservationRowSetWriter, add func(ObservationRecord)) {
+	if !observation.IsActive() {
+		return
+	}
+	for setIdx, set := range observation.Sets {
+		if len(set.Members) == 0 {
+			continue
+		}
+		count := len(set.Members)
+		sourceRef := ObservationSourceRef{
+			Kind:      ObservationSourceCurrentSource,
+			Path:      firstNonEmptyString(firstSourceInventoryObservationScope(observation), firstSourceInventoryObservationMemberPath(set.Members)),
+			RowSetRef: observationRowSetRefForSourceInventoryObservation(rowSetWriter, setIdx, set),
+		}
+		add(ObservationRecord{
+			ID:              fmt.Sprintf("source_inventory:set:%d", setIdx),
+			Origin:          AnswerEvidenceOriginCurrentSource,
+			Producer:        firstNonEmptyString(strings.Join(observation.Provenance, ","), "source_inventory_observation"),
+			Role:            AnswerAggregateRoleSupportingCoverage,
+			GroundingPolicy: ClaimGroundingRepairable,
+			SourceRef:       sourceRef,
+			EvidenceKind:    EvidenceDirect,
+			AnchorKind:      AnchorTextReference,
+			EvidenceScope:   ScopeFile,
+			GroundingStatus: GroundingRecovered,
+			ClaimKey:        "source_inventory:" + string(set.Role),
+			Subject:         string(set.Role),
+			Predicate:       "source_inventory_count",
+			ResultCount:     &count,
+			Summary:         fmt.Sprintf("source-inventory %s count=%d complete=%t", SourceInventoryAdvisoryRoleLabel(set.Role), count, set.Complete),
+			SupportRefs:     sourceInventoryObservationSupportRefs(set.Members),
+			Scope:           strings.Join(observation.Scopes, ","),
+			Confidence:      0.9,
+		})
+		for memberIdx, member := range set.Members {
+			if strings.TrimSpace(member.Name) == "" {
+				continue
+			}
+			record := sourceInventoryObservationMemberRecord(setIdx, memberIdx, member)
+			add(record)
+			for attrIdx, attr := range member.Attributes {
+				if strings.TrimSpace(attr.Name) == "" {
+					continue
+				}
+				add(sourceInventoryObservationAttributeRecord(setIdx, memberIdx, attrIdx, member, attr))
+			}
+		}
+	}
+}
+
+func sourceInventoryObservationMemberRecord(setIdx, memberIdx int, member SourceInventoryObservationMember) ObservationRecord {
+	scope := ScopeFile
+	anchor := AnchorTextReference
+	span := ObservationSpan{}
+	if member.Line > 0 {
+		scope = ScopeLine
+		anchor = sourceInventoryObservationAnchorForRole(member.Role)
+		span.LineStart = member.Line
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("source_inventory:%d:%d", setIdx, memberIdx),
+		Origin:          AnswerEvidenceOriginCurrentSource,
+		Producer:        "source_inventory_observation",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingRepairable,
+		SourceRef: ObservationSourceRef{
+			Kind: ObservationSourceCurrentSource,
+			Path: strings.TrimSpace(member.File),
+		},
+		Span:            span,
+		EvidenceKind:    EvidenceDirect,
+		AnchorKind:      anchor,
+		EvidenceScope:   scope,
+		GroundingStatus: sourceInventoryObservationGrounding(member.CoverageState),
+		ClaimKey:        firstNonEmptyString(member.Key, member.Name),
+		Subject:         strings.TrimSpace(member.Name),
+		Predicate:       "source_inventory_member",
+		Summary:         strings.TrimSpace(member.Note),
+		SupportRefs:     sourceInventoryObservationSingleSupportRef(member.SupportRef),
+		Scope:           strings.TrimSpace(member.File),
+		Confidence:      0.9,
+	}
+}
+
+func sourceInventoryObservationAttributeRecord(setIdx, memberIdx, attrIdx int, member SourceInventoryObservationMember, attr SourceInventoryObservationAttribute) ObservationRecord {
+	scope := ScopeFile
+	anchor := AnchorTextReference
+	span := ObservationSpan{}
+	if attr.Line > 0 {
+		scope = ScopeLine
+		anchor = sourceInventoryObservationAnchorForRole(attr.Role)
+		span.LineStart = attr.Line
+	}
+	notes := []string{}
+	if strings.TrimSpace(attr.Ambiguity) != "" {
+		notes = append(notes, "ambiguity="+strings.TrimSpace(attr.Ambiguity))
+	}
+	if strings.TrimSpace(attr.Reason) != "" {
+		notes = append(notes, strings.TrimSpace(attr.Reason))
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("source_inventory:%d:%d:attr:%d", setIdx, memberIdx, attrIdx),
+		Origin:          AnswerEvidenceOriginCurrentSource,
+		Producer:        "source_inventory_observation",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingRepairable,
+		SourceRef: ObservationSourceRef{
+			Kind: ObservationSourceCurrentSource,
+			Path: strings.TrimSpace(attr.File),
+		},
+		Span:            span,
+		EvidenceKind:    EvidenceDirect,
+		AnchorKind:      anchor,
+		EvidenceScope:   scope,
+		GroundingStatus: sourceInventoryObservationGrounding(attr.CoverageState),
+		ClaimKey:        firstNonEmptyString(attr.Key, attr.Name),
+		Subject:         strings.TrimSpace(member.Name),
+		Predicate:       "source_inventory_attribute",
+		Object:          strings.TrimSpace(attr.Name),
+		Summary:         strings.TrimSpace(attr.Note),
+		RichNotes:       notes,
+		SupportRefs:     sourceInventoryObservationSingleSupportRef(attr.SupportRef),
+		Scope:           strings.TrimSpace(member.File),
+		Confidence:      0.85,
+	}
+}
+
+func sourceInventoryObservationSingleSupportRef(ref string) []string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return nil
+	}
+	return []string{ref}
+}
+
+func sourceInventoryObservationGrounding(state SourceInventoryCoverageState) GroundingStatus {
+	switch state {
+	case SourceInventoryCoverageObserved, SourceInventoryCoverageAmbiguous:
+		return GroundingRecovered
+	default:
+		return GroundingUngrounded
+	}
+}
+
+func sourceInventoryObservationAnchorForRole(role AnswerCandidateRole) AnchorKind {
+	switch role {
+	case AnswerCandidateRoleFunction,
+		AnswerCandidateRoleMethod,
+		AnswerCandidateRoleType,
+		AnswerCandidateRoleConstant,
+		AnswerCandidateRoleVariable,
+		AnswerCandidateRoleField,
+		AnswerCandidateRolePackage,
+		AnswerCandidateRoleConfigKey,
+		AnswerCandidateRoleRoute,
+		AnswerCandidateRoleImportPath,
+		AnswerCandidateRoleLiteralValue:
+		return AnchorDefinition
+	default:
+		return AnchorTextReference
+	}
+}
+
+func firstSourceInventoryObservationScope(observation SourceInventoryObservation) string {
+	for _, scope := range observation.Scopes {
+		if strings.TrimSpace(scope) != "" {
+			return strings.TrimSpace(scope)
+		}
+	}
+	return ""
+}
+
+func firstSourceInventoryObservationMemberPath(members []SourceInventoryObservationMember) string {
+	for _, member := range members {
+		if strings.TrimSpace(member.File) != "" {
+			return strings.TrimSpace(member.File)
+		}
+	}
+	return ""
+}
+
+func sourceInventoryObservationSupportRefs(members []SourceInventoryObservationMember) []string {
+	out := make([]string, 0, len(members))
+	for _, member := range members {
+		if ref := strings.TrimSpace(member.SupportRef); ref != "" {
+			out = appendUniqueObservationString(out, ref)
+		}
+	}
+	return out
+}
+
+func observationRowSetRefForSourceInventoryObservation(writer ObservationRowSetWriter, setIndex int, set SourceInventoryObservationSet) string {
+	if writer == nil || len(set.Members) < observationRowSetMinRows {
+		return ""
+	}
+	content := observationRowSetJSONLForSourceInventoryObservation(set)
+	if strings.TrimSpace(content) == "" {
+		return ""
+	}
+	name := fmt.Sprintf("source-inventory-%03d-%s-row-set.jsonl", setIndex, set.Role)
+	return strings.TrimSpace(writer(name, content))
+}
+
+func observationRowSetJSONLForSourceInventoryObservation(set SourceInventoryObservationSet) string {
+	var b strings.Builder
+	for i, member := range set.Members {
+		line := observationRowSetLine{
+			Index:      i,
+			Member:     strings.TrimSpace(member.Name),
+			SupportRef: strings.TrimSpace(member.SupportRef),
+			Note:       strings.Join(strings.Fields(strings.TrimSpace(member.Note)), " "),
+			Role:       string(set.Role),
+		}
+		if line.Member == "" && line.SupportRef == "" && line.Note == "" {
+			continue
+		}
+		raw, err := json.Marshal(line)
+		if err != nil {
+			continue
+		}
+		b.Write(raw)
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 func compileToolResultObservations(results []ToolResult, add func(ObservationRecord)) {

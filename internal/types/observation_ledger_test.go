@@ -224,6 +224,64 @@ func TestCompileObservationLedger_CategoricalAggregateIsNotCount(t *testing.T) {
 	}
 }
 
+func TestCompileObservationLedger_SourceInventoryObservation(t *testing.T) {
+	rowSets := map[string]string{}
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		SourceInventoryObservation: SourceInventoryObservation{
+			Active:     true,
+			Complete:   true,
+			Scopes:     []string{"src"},
+			Provenance: []string{"repo_lens:tool_query", "repomap_graph"},
+			Sets: []SourceInventoryObservationSet{{
+				Role:     AnswerCandidateRoleFunction,
+				Complete: true,
+				Count:    999,
+				Members: []SourceInventoryObservationMember{{
+					Name:          "Run",
+					Key:           "Run",
+					SupportRef:    "Run: src/run.py:7",
+					Role:          AnswerCandidateRoleFunction,
+					File:          "src/run.py",
+					Line:          7,
+					Language:      "python",
+					CoverageState: SourceInventoryCoverageObserved,
+					Attributes: []SourceInventoryObservationAttribute{{
+						Name:          "build",
+						Key:           "build",
+						SupportRef:    "build: src/run.py:11",
+						Role:          AnswerCandidateRoleFunction,
+						File:          "src/run.py",
+						Line:          11,
+						CoverageState: SourceInventoryCoverageAmbiguous,
+						Ambiguity:     "one_of_many_candidate_attributes",
+					}},
+				}},
+			}},
+		},
+		RowSetWriter: func(name, content string) string {
+			rowSets[name] = content
+			return "rows://" + name
+		},
+	})
+	set := findObservationRecord(t, ledger, "source_inventory:set:0")
+	if set.ResultCount == nil || *set.ResultCount != 1 {
+		t.Fatalf("source inventory count must normalize to len(members), got %+v", set)
+	}
+	member := findObservationRecord(t, ledger, "source_inventory:0:0")
+	if member.SourceRef.Path != "src/run.py" || member.Span.LineStart != 7 ||
+		member.AnchorKind != AnchorDefinition || member.GroundingPolicy != ClaimGroundingRepairable {
+		t.Fatalf("member observation should preserve exact mechanical location: %+v", member)
+	}
+	attr := findObservationRecord(t, ledger, "source_inventory:0:0:attr:0")
+	if attr.Object != "build" || len(attr.RichNotes) == 0 ||
+		!strings.Contains(strings.Join(attr.RichNotes, " "), "one_of_many_candidate_attributes") {
+		t.Fatalf("attribute ambiguity should be preserved: %+v", attr)
+	}
+	if len(rowSets) != 0 {
+		t.Fatalf("single-row source inventory should not create row set refs: %+v", rowSets)
+	}
+}
+
 func TestCompileObservationLedger_AggregateRichNotesPreferMemberNotes(t *testing.T) {
 	ledger := CompileObservationLedger(ObservationLedgerInput{
 		AggregateFacts: []AnswerAggregateFact{{
@@ -1363,6 +1421,20 @@ func TestObservationLedgerInputFromContexts_PrefersAcceptedTurnAToolResults(t *t
 			LineStart: 3,
 			Summary:   "accepted evidence",
 		}},
+		SourceInventoryObservation: SourceInventoryObservation{
+			Active: true,
+			Sets: []SourceInventoryObservationSet{{
+				Role:  AnswerCandidateRoleFile,
+				Count: 1,
+				Members: []SourceInventoryObservationMember{{
+					Name:       "a.go",
+					Key:        "a.go",
+					SupportRef: "a.go",
+					Role:       AnswerCandidateRoleFile,
+					File:       "a.go",
+				}},
+			}},
+		},
 	})
 	mut.SetInvestigationAggregateFacts([]AnswerAggregateFact{{
 		Kind:  AnswerAggregateScalar,
@@ -1386,10 +1458,14 @@ func TestObservationLedgerInputFromContexts_PrefersAcceptedTurnAToolResults(t *t
 	if len(input.ToolResults) != 1 || input.ToolResults[0].ToolName != "git_log" {
 		t.Fatalf("bus input should prefer accepted Turn A tool results over full bus history: %+v", input.ToolResults)
 	}
+	if !input.SourceInventoryObservation.IsActive() {
+		t.Fatalf("bus input should carry source inventory observation: %+v", input.SourceInventoryObservation)
+	}
 	ledger := CompileObservationLedger(input)
 	assertObservationRecord(t, ledger, "tool:0#vcs_metadata", AnswerEvidenceOriginVCSMetadata, ObservationSourceVCSMetadata)
 	assertObservationRecord(t, ledger, "aggregate:0#vcs_metadata", AnswerEvidenceOriginVCSMetadata, ObservationSourceVCSMetadata)
 	assertObservationRecord(t, ledger, "evidence:turn-a", AnswerEvidenceOriginCurrentSource, ObservationSourceCurrentSource)
+	assertObservationRecord(t, ledger, "source_inventory:0:0", AnswerEvidenceOriginCurrentSource, ObservationSourceCurrentSource)
 }
 
 func TestObservationLedgerInputFromAgentContext_CarriesMCPAndRuntimeBundles(t *testing.T) {

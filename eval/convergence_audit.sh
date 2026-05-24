@@ -26,6 +26,8 @@ eval/cases/qf_architecture.case
 eval/cases/qf_diagram_pipeline.case
 eval/cases/qf_type_relation_loop_controller.case
 eval/cases/s5b.case
+eval/cases/harmony/arkts_repomap.case
+eval/cases/harmony/cangjie_repomap.case
 eval/cases/u7k.case
 eval/cases/read_combo_git_two_diffs_current_code.case
 eval/cases/read_combo_log_current_source_explanation.case
@@ -111,8 +113,8 @@ wait
   echo
   echo "This report is advisory. It helps decide whether a typed runtime fix is justified; it must not be interpreted as permission to override a model answer that is fully supported by evidence."
   echo
-  echo "| case | verdict | ana_it | exp_it | exp_disp | midloop | sibling_skip | origin_block | fin_it | fin_reject | fin_rewrite | sem | flags |"
-  echo "|------|---------|-------:|-------:|---------:|--------:|-------------:|-------------:|-------:|-----------:|------------:|----:|-------|"
+  echo "| case | verdict | read | repo_map | list_files | source_lens | ana_it | exp_it | exp_disp | midloop | sibling_skip | origin_block | fin_it | fin_reject | fin_rewrite | sem | flags |"
+  echo "|------|---------|-----:|---------:|-----------:|------------:|-------:|-------:|---------:|--------:|-------------:|-------------:|-------:|-----------:|------------:|----:|-------|"
 
   total=0
   flagged=0
@@ -129,6 +131,10 @@ wait
     verdict_file="$dir/run-1.verdict"
     verdict="$(head -1 "$verdict_file" 2>/dev/null | awk '{print $1}')"
     verdict="${verdict:-UNKNOWN}"
+    read_calls="$(metric_number "$metrics" tool_read_file)"
+    repo_map_calls="$(metric_number "$metrics" tool_repo_map)"
+    list_files_calls="$(metric_number "$metrics" tool_list_files)"
+    source_lens="$(metric_number "$metrics" source_inventory_lens)"
     ana="$(metric_number "$metrics" analyzer_iters)"
     exp="$(metric_number "$metrics" explorer_iters)"
     exp_disp="$(metric_number "$metrics" explorer_dispatches)"
@@ -149,6 +155,9 @@ wait
     if [[ "$exp_disp" -gt 1 || "$exp" -gt 25 ]]; then
       flags="${flags} explorer_long"
     fi
+    if [[ "$read_calls" -gt 30 || "$repo_map_calls" -gt 8 || "$list_files_calls" -gt 12 ]]; then
+      flags="${flags} wide_search"
+    fi
     if [[ "$sem" -gt 0 ]]; then
       flags="${flags} semantic"
     fi
@@ -161,14 +170,15 @@ wait
       flagged=$((flagged + 1))
     fi
     total=$((total + 1))
-    printf '| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
-      "$case_id" "$verdict" "$ana" "$exp" "$exp_disp" "$midloop" "$sibling" \
-      "$origin_block" "$fin" "$fin_reject" "$fin_rewrite" "$sem" "$flags"
+    printf '| %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n' \
+      "$case_id" "$verdict" "$read_calls" "$repo_map_calls" "$list_files_calls" "$source_lens" \
+      "$ana" "$exp" "$exp_disp" "$midloop" "$sibling" "$origin_block" \
+      "$fin" "$fin_reject" "$fin_rewrite" "$sem" "$flags"
   done
   echo
   echo "**flagged: $flagged / $total**"
   echo
-  echo "Flag meanings: \`finalizer\` = finalizer took multiple turns or had document/patch rejects/rewrite renders; \`explorer_long\` = multiple explorer dispatches or very high explorer iterations; \`lane_wait\` = typed mixed-origin closure correctly waited for missing lanes; \`semantic\` = semantic reviewer emitted concerns."
+  echo "Flag meanings: \`finalizer\` = finalizer took multiple turns or had document/patch rejects/rewrite renders; \`explorer_long\` = multiple explorer dispatches or very high explorer iterations; \`wide_search\` = high read_file/repo_map/list_files cost; \`lane_wait\` = typed mixed-origin closure correctly waited for missing lanes; \`semantic\` = semantic reviewer emitted concerns."
 } >"$SUMMARY"
 
 echo "summary written: $SUMMARY" >&2

@@ -555,7 +555,9 @@ func answerDocumentSymbolMatchesExcludedRole(sym *repotypes.Symbol, roles map[ty
 
 func answerDocumentSymbolKindIsType(kind string) bool {
 	switch kind {
-	case "type", "interface", "class", "struct", "enum", "trait":
+	case "type", "interface", "class", "struct", "enum", "trait",
+		"message", "service", "component", "object", "companion-object",
+		"data-class", "sealed-class", "annotation", "protocol", "actor", "extend":
 		return true
 	default:
 		return false

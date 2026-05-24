@@ -62,6 +62,234 @@ func TestResolveRepoMapRootScopedRejectsSymlinkEscape(t *testing.T) {
 	}
 }
 
+func TestRepoMapSourceInventoryViewModelDrivenQuery(t *testing.T) {
+	repo := t.TempDir()
+	mut := types.NewMutableState("source inventory")
+	graph := &Graph{
+		Root:       repo,
+		Files:      []*FileInfo{},
+		FileIndex:  map[string]*FileInfo{},
+		SymbolDefs: map[string][]*Symbol{},
+	}
+	addFile := func(fi *FileInfo) {
+		graph.Files = append(graph.Files, fi)
+		graph.FileIndex[fi.RelPath] = fi
+		for i := range fi.Symbols {
+			sym := &fi.Symbols[i]
+			if sym.File == "" {
+				sym.File = fi.RelPath
+			}
+			graph.SymbolDefs[sym.Name] = append(graph.SymbolDefs[sym.Name], sym)
+		}
+	}
+	addFile(&FileInfo{
+		RelPath:  "src/alpha/a.py",
+		Language: LangPython,
+		Package:  "alpha",
+		Symbols: []Symbol{{
+			Name:     "run_alpha",
+			Kind:     "function",
+			File:     "src/alpha/a.py",
+			Line:     7,
+			Exported: true,
+		}},
+	})
+	addFile(&FileInfo{
+		RelPath:  "src/beta/B.java",
+		Language: LangJava,
+		Package:  "com.example.beta",
+		Symbols: []Symbol{{
+			Name:     "RunBeta",
+			Kind:     "function",
+			File:     "src/beta/B.java",
+			Line:     11,
+			Exported: true,
+		}},
+	})
+	mut.SetSearchGraph(graph)
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.9,
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"scope": "src",
+		"roles": ["function", "package"],
+		"include_attributes": true,
+		"include_counts": true
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
+	}
+	for _, want := range []string{
+		"Repo Lens: Source Inventory",
+		"count=2",
+		"`run_alpha` @ src/alpha/a.py:7",
+		"package/directory/module scope",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("source_inventory summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+	obs := mut.SourceInventoryObservation()
+	if !obs.IsActive() || len(obs.Sets) != 2 || obs.Sets[0].Role != types.AnswerCandidateRoleFunction {
+		t.Fatalf("model-driven source inventory observation not stored in role order: %+v", obs)
+	}
+}
+
+func TestRepoMapSourceInventoryViewSameRepoCrossLanguage(t *testing.T) {
+	repo := t.TempDir()
+	mut := types.NewMutableState("source inventory same-repo xlang")
+	graph := BuildGraph(repo, []*FileInfo{
+		{
+			RelPath:  "src/ui/Index.ets",
+			Language: LangArkTS,
+			Package:  "ui",
+			Symbols: []Symbol{
+				{Name: "Index", Kind: "component", File: "src/ui/Index.ets", Line: 6, Exported: true},
+				{Name: "build", Kind: "ui-entry", File: "src/ui/Index.ets", Line: 24, Parent: "Index", Exported: true},
+			},
+		},
+		{
+			RelPath:  "src/proto/user.proto",
+			Language: LangProto,
+			Package:  "user.v1",
+			Symbols: []Symbol{
+				{Name: "UserService", Kind: "service", File: "src/proto/user.proto", Line: 8, Exported: true},
+				{Name: "GetUser", Kind: "rpc", File: "src/proto/user.proto", Line: 11, Parent: "UserService", Exported: true},
+			},
+		},
+		{
+			RelPath:  "src/cj/main.cj",
+			Language: LangCangjie,
+			Package:  "cj",
+			Symbols: []Symbol{{
+				Name: "operator +", Kind: "operator", File: "src/cj/main.cj", Line: 5, Exported: true,
+			}},
+		},
+	})
+	mut.SetSearchGraph(graph)
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.9,
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"scope": "src",
+		"roles": ["function", "type"],
+		"include_counts": true
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
+	}
+	for _, want := range []string{
+		"count=3",
+		"`build`",
+		"@ src/ui/Index.ets:24",
+		"language=arkts",
+		"`GetUser`",
+		"@ src/proto/user.proto:11",
+		"language=proto",
+		"`operator +`",
+		"@ src/cj/main.cj:5",
+		"language=cangjie",
+		"`Index`",
+		"@ src/ui/Index.ets:6",
+		"`UserService`",
+		"@ src/proto/user.proto:8",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("same-repo cross-language source inventory missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
+func TestRepoMapSourceInventoryViewConfigFilesAreNavigationRows(t *testing.T) {
+	repo := t.TempDir()
+	mut := types.NewMutableState("source inventory config files")
+	graph := BuildGraph(repo, []*FileInfo{
+		{
+			RelPath:     "package.json",
+			IsSpecial:   true,
+			SpecialType: "build_config",
+		},
+		{
+			RelPath:     "src/AndroidManifest.xml",
+			IsSpecial:   true,
+			SpecialType: "build_config",
+		},
+		{
+			RelPath:  "src/main.ts",
+			Language: LangTypeScript,
+			Package:  "app",
+			Symbols: []Symbol{{
+				Name: "main", Kind: "function", File: "src/main.ts", Line: 3, Exported: true,
+			}},
+		},
+	})
+	mut.SetSearchGraph(graph)
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.9,
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"scopes": [".", "src"],
+		"roles": ["config_file", "file"],
+		"include_counts": true
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
+	}
+	for _, want := range []string{
+		"configuration/manifest file",
+		"`package.json`",
+		"`src/AndroidManifest.xml`",
+		"special_type=build_config",
+		"`src/main.ts`",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("config source_inventory missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "config_key") {
+		t.Fatalf("config file inventory must not pretend config keys were extracted:\n%s", res.Summary)
+	}
+}
+
 func TestResolveRepoMapRootScopedAllowsChildren(t *testing.T) {
 	repo := t.TempDir()
 
@@ -171,6 +399,193 @@ func TestRepoMapExecuteMultiRepoHonorsEachExplicitSubRepoPath(t *testing.T) {
 	}
 }
 
+func TestRepoMapSourceInventoryViewMultiRepoHonorsActiveSubRepoScope(t *testing.T) {
+	parent := t.TempDir()
+	baseRoot := filepath.Join(parent, "frameworks", "base")
+	resschedRoot := filepath.Join(parent, "hm_z", "foundation", "resourceschedule", "ressched")
+	if err := os.MkdirAll(baseRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(resschedRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	mg := newSourceInventoryTestMultiGraph(t, parent, baseRoot, resschedRoot)
+	mut := types.NewMutableState("source inventory multirepo")
+	ctx := &types.BusContext{
+		RepoRoot:   parent,
+		MultiGraph: mg,
+		Mutable:    mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.9,
+			},
+		}},
+	}
+
+	base, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": "frameworks/base",
+		"view": "source_inventory",
+		"scope": "core",
+		"roles": ["function", "method", "type"],
+		"include_counts": true
+	}`))
+	if err != nil {
+		t.Fatalf("base source_inventory returned error: %v", err)
+	}
+	if !base.Success {
+		t.Fatalf("base source_inventory failed: %+v", base)
+	}
+	for _, want := range []string{
+		"`StartActivity`",
+		"@ core/Foo.java:17",
+		"`ActivityManager`",
+		"@ core/Foo.java:8",
+		"language=java",
+	} {
+		if !strings.Contains(base.Summary, want) {
+			t.Fatalf("base source_inventory missing %q:\n%s", want, base.Summary)
+		}
+	}
+	if strings.Contains(base.Summary, "RunSchedule") || strings.Contains(base.Summary, "Scheduler.cpp") {
+		t.Fatalf("base source_inventory leaked ressched rows:\n%s", base.Summary)
+	}
+
+	ressched, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": "hm_z/foundation/resourceschedule/ressched",
+		"view": "source_inventory",
+		"scope": "services",
+		"roles": ["function", "method", "type"],
+		"include_counts": true
+	}`))
+	if err != nil {
+		t.Fatalf("ressched source_inventory returned error: %v", err)
+	}
+	if !ressched.Success {
+		t.Fatalf("ressched source_inventory failed: %+v", ressched)
+	}
+	for _, want := range []string{
+		"`RunSchedule`",
+		"@ services/Scheduler.cpp:42",
+		"`Scheduler`",
+		"@ services/Scheduler.cpp:9",
+		"language=cpp",
+	} {
+		if !strings.Contains(ressched.Summary, want) {
+			t.Fatalf("ressched source_inventory missing %q:\n%s", want, ressched.Summary)
+		}
+	}
+	if strings.Contains(ressched.Summary, "StartActivity") || strings.Contains(ressched.Summary, "Foo.java") {
+		t.Fatalf("ressched source_inventory leaked base rows:\n%s", ressched.Summary)
+	}
+}
+
+func TestRepoMapSourceInventoryViewMultiRepoConfigFilesStayScoped(t *testing.T) {
+	parent := t.TempDir()
+	baseRoot := filepath.Join(parent, "frameworks", "base")
+	resschedRoot := filepath.Join(parent, "hm_z", "foundation", "resourceschedule", "ressched")
+	if err := os.MkdirAll(baseRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(resschedRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := &types.BusContext{
+		RepoRoot:   parent,
+		MultiGraph: newSourceInventoryTestMultiGraph(t, parent, baseRoot, resschedRoot),
+		Mutable:    types.NewMutableState("source inventory multirepo config"),
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.9,
+			},
+		}},
+	}
+
+	base, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": "frameworks/base",
+		"view": "source_inventory",
+		"scope": ".",
+		"roles": ["config_file"],
+		"include_counts": true
+	}`))
+	if err != nil {
+		t.Fatalf("base config source_inventory returned error: %v", err)
+	}
+	if !base.Success {
+		t.Fatalf("base config source_inventory failed: %+v", base)
+	}
+	if !strings.Contains(base.Summary, "`AndroidManifest.xml`") ||
+		strings.Contains(base.Summary, "CMakeLists.txt") {
+		t.Fatalf("base config source_inventory should stay in base subrepo:\n%s", base.Summary)
+	}
+
+	ressched, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": "hm_z/foundation/resourceschedule/ressched",
+		"view": "source_inventory",
+		"scope": ".",
+		"roles": ["config_file"],
+		"include_counts": true
+	}`))
+	if err != nil {
+		t.Fatalf("ressched config source_inventory returned error: %v", err)
+	}
+	if !ressched.Success {
+		t.Fatalf("ressched config source_inventory failed: %+v", ressched)
+	}
+	if !strings.Contains(ressched.Summary, "`CMakeLists.txt`") ||
+		strings.Contains(ressched.Summary, "AndroidManifest.xml") {
+		t.Fatalf("ressched config source_inventory should stay in ressched subrepo:\n%s", ressched.Summary)
+	}
+}
+
+func TestRepoMapSourceInventoryViewMultiRepoRejectsInactiveSubRepo(t *testing.T) {
+	parent := t.TempDir()
+	baseRoot := filepath.Join(parent, "frameworks", "base")
+	resschedRoot := filepath.Join(parent, "hm_z", "foundation", "resourceschedule", "ressched")
+	if err := os.MkdirAll(baseRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(resschedRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := &types.BusContext{
+		RepoRoot:        parent,
+		MultiGraph:      newSourceInventoryTestMultiGraph(t, parent, baseRoot, resschedRoot),
+		Mutable:         types.NewMutableState("source inventory multirepo inactive"),
+		PendingSubRepos: []string{"hm_z/foundation/resourceschedule/ressched"},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.9,
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": "hm_z/foundation/resourceschedule/ressched",
+		"view": "source_inventory",
+		"scope": "services",
+		"roles": ["function"]
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("inactive subrepo source_inventory must be refused, got: %+v", res)
+	}
+	if !strings.Contains(res.Summary, "currently outside the active") ||
+		!strings.Contains(res.Summary, "hm_z/foundation/resourceschedule/ressched") {
+		t.Fatalf("inactive refusal should be active-set prose, got: %q", res.Summary)
+	}
+	if obs := ctx.Mutable.SourceInventoryObservation(); obs.IsActive() {
+		t.Fatalf("inactive source_inventory refusal must not publish observations: %+v", obs)
+	}
+}
+
 func TestGraphFromAgentContextOrLoadMultiRepoHonorsExplicitSubRepoRoot(t *testing.T) {
 	parent := t.TempDir()
 	baseRoot := filepath.Join(parent, "frameworks", "base")
@@ -254,6 +669,76 @@ func newTestMultiGraph(t *testing.T, parent, baseRoot, resschedRoot string) *mul
 					Language: "cpp",
 					Size:     1,
 				}}), nil
+			default:
+				t.Fatalf("unexpected graph root %q", root)
+				return nil, nil
+			}
+		},
+		Cap: 2,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return mg
+}
+
+func newSourceInventoryTestMultiGraph(t *testing.T, parent, baseRoot, resschedRoot string) *multigraph.MultiGraph {
+	t.Helper()
+	topo := &topology.RepoTopology{
+		ParentRoot: parent,
+		Repos: []topology.SubRepo{
+			{
+				Slug:      "base-10eb2a5e",
+				RootAbs:   baseRoot,
+				RootRel:   "frameworks/base",
+				FileCount: 41530,
+			},
+			{
+				Slug:      "ressched-c088d3ed",
+				RootAbs:   resschedRoot,
+				RootRel:   "hm_z/foundation/resourceschedule/ressched",
+				FileCount: 259,
+			},
+		},
+	}
+	mg, err := multigraph.New(multigraph.Config{
+		Topology: topo,
+		Build: func(root, query string) (*Graph, error) {
+			switch {
+			case sameRepoMapRoot(root, baseRoot):
+				return BuildGraph(root, []*FileInfo{
+					{
+						RelPath:  "core/Foo.java",
+						Language: LangJava,
+						Package:  "com.android.server",
+						Symbols: []Symbol{
+							{Name: "ActivityManager", Kind: "class", File: "core/Foo.java", Line: 8, Exported: true},
+							{Name: "StartActivity", Kind: "method", File: "core/Foo.java", Line: 17, Parent: "ActivityManager", Exported: true},
+						},
+					},
+					{
+						RelPath:     "AndroidManifest.xml",
+						IsSpecial:   true,
+						SpecialType: "build_config",
+					},
+				}), nil
+			case sameRepoMapRoot(root, resschedRoot):
+				return BuildGraph(root, []*FileInfo{
+					{
+						RelPath:  "services/Scheduler.cpp",
+						Language: LangCpp,
+						Package:  "ressched",
+						Symbols: []Symbol{
+							{Name: "Scheduler", Kind: "class", File: "services/Scheduler.cpp", Line: 9, Exported: true},
+							{Name: "RunSchedule", Kind: "function", File: "services/Scheduler.cpp", Line: 42, Exported: true},
+						},
+					},
+					{
+						RelPath:     "CMakeLists.txt",
+						IsSpecial:   true,
+						SpecialType: "build_config",
+					},
+				}), nil
 			default:
 				t.Fatalf("unexpected graph root %q", root)
 				return nil, nil

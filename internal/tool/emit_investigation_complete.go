@@ -2703,6 +2703,7 @@ type aggregateMemberSupportIndex struct {
 	answerSyms                      map[string]types.AnswerSymbol
 	toolLinesByLocation             map[string][]string
 	sourceInventoryLabelsByLocation map[string][]string
+	sourceInventoryLabelsBySupport  map[string][]string
 	readFileLines                   []aggregateToolLine
 }
 
@@ -2722,6 +2723,7 @@ func buildAggregateMemberSupportIndexWithEvidence(ctx *types.BusContext, evidenc
 		answerSyms:                      map[string]types.AnswerSymbol{},
 		toolLinesByLocation:             map[string][]string{},
 		sourceInventoryLabelsByLocation: map[string][]string{},
+		sourceInventoryLabelsBySupport:  map[string][]string{},
 		readFileLines:                   nil,
 	}
 	if ctx == nil || ctx.Mutable == nil {
@@ -2778,7 +2780,11 @@ func buildAggregateMemberSupportIndexWithEvidence(ctx *types.BusContext, evidenc
 }
 
 func appendSourceInventorySupportLocations(ctx *types.BusContext, idx *aggregateMemberSupportIndex) {
-	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil || idx == nil {
+	if ctx == nil || ctx.Mutable == nil || idx == nil {
+		return
+	}
+	appendSourceInventoryObservationSupportLocations(ctx.Mutable.SourceInventoryObservation(), idx)
+	if ctx.AnalysisIR == nil {
 		return
 	}
 	profile := ctx.AnalysisIR.RequestModel.SourceInventoryProfile
@@ -2798,15 +2804,53 @@ func appendSourceInventorySupportLocations(ctx *types.BusContext, idx *aggregate
 			continue
 		}
 		for _, candidate := range set.candidates {
-			loc := aggregateSupportLocationKey(candidate.file, candidate.line)
-			if loc == "" || strings.TrimSpace(candidate.member) == "" {
+			if strings.TrimSpace(candidate.member) == "" {
 				continue
 			}
-			idx.sourceInventoryLabelsByLocation[loc] = append(idx.sourceInventoryLabelsByLocation[loc], candidate.member)
+			appendSourceInventorySupportIndexRow(idx, candidate.member, candidate.key, candidate.supportRef, candidate.file, candidate.line)
+			for _, attr := range candidate.attributes {
+				appendSourceInventorySupportIndexRow(idx, attr.member, attr.key, attr.supportRef, attr.file, attr.line)
+			}
 		}
 	}
 	for loc, labels := range idx.sourceInventoryLabelsByLocation {
 		idx.sourceInventoryLabelsByLocation[loc] = dedupStringsPreserveOrder(labels)
+	}
+	for ref, labels := range idx.sourceInventoryLabelsBySupport {
+		idx.sourceInventoryLabelsBySupport[ref] = dedupStringsPreserveOrder(labels)
+	}
+}
+
+func appendSourceInventoryObservationSupportLocations(observation types.SourceInventoryObservation, idx *aggregateMemberSupportIndex) {
+	if !observation.IsActive() || idx == nil {
+		return
+	}
+	for _, set := range observation.Sets {
+		if !set.Complete {
+			continue
+		}
+		for _, member := range set.Members {
+			appendSourceInventorySupportIndexRow(idx, member.Name, member.Key, member.SupportRef, member.File, member.Line)
+			for _, attr := range member.Attributes {
+				appendSourceInventorySupportIndexRow(idx, attr.Name, attr.Key, attr.SupportRef, attr.File, attr.Line)
+			}
+		}
+	}
+}
+
+func appendSourceInventorySupportIndexRow(idx *aggregateMemberSupportIndex, name, key, supportRef, file string, line int) {
+	if idx == nil {
+		return
+	}
+	labels := aggregateSupportLabels(name, []string{key})
+	if len(labels) == 0 {
+		return
+	}
+	if loc := aggregateSupportLocationKey(file, line); loc != "" {
+		idx.sourceInventoryLabelsByLocation[loc] = append(idx.sourceInventoryLabelsByLocation[loc], labels...)
+	}
+	if ref := strings.TrimSpace(supportRef); ref != "" {
+		idx.sourceInventoryLabelsBySupport[ref] = append(idx.sourceInventoryLabelsBySupport[ref], labels...)
 	}
 }
 
@@ -3137,6 +3181,9 @@ func aggregateMemberSetMemberUsable(fact types.AnswerAggregateFact, member strin
 		if ref == "" {
 			continue
 		}
+		if aggregateSourceInventorySupportRefMatchesLabels(ref, labels, support.sourceInventoryLabelsBySupport) {
+			return true
+		}
 		if ev, ok := support.byID[ref]; ok && aggregateEvidenceMatchesAnyLabel(ev, labels) {
 			return true
 		}
@@ -3177,6 +3224,18 @@ func aggregateSourceInventoryLocationMatchesLabels(location string, labels []str
 		return false
 	}
 	for _, label := range byLocation[location] {
+		if aggregateSupportLabelMatchesMember(label, labels) {
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateSourceInventorySupportRefMatchesLabels(ref string, labels []string, bySupport map[string][]string) bool {
+	if strings.TrimSpace(ref) == "" || len(labels) == 0 {
+		return false
+	}
+	for _, label := range bySupport[strings.TrimSpace(ref)] {
 		if aggregateSupportLabelMatchesMember(label, labels) {
 			return true
 		}

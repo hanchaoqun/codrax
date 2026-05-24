@@ -97,6 +97,9 @@ func TestClassifySourcePathRole(t *testing.T) {
 		{"internal/skill/analysis_contract.go", SourcePathRolePromptSupport},
 		{"internal/config/runtime.go", SourcePathRoleProduction},
 		{"codrax.yaml.example", SourcePathRoleProduction},
+		{"CMakeLists.txt", SourcePathRoleProduction},
+		{"Makefile", SourcePathRoleProduction},
+		{"docs/CMakeLists.txt", SourcePathRoleDocumentation},
 	}
 	for _, tc := range cases {
 		if got := ClassifySourcePathRole(tc.path); got != tc.want {

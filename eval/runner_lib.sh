@@ -154,6 +154,16 @@ eval_count_midloop_injects() {
   eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=midloop_inject' "$file"
 }
 
+eval_count_tool_calls() {
+  local file="$1"
+  local tool="$2"
+  if [[ -z "$file" || ! -f "$file" || -z "$tool" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern "DEBUG \\[diag [^]]+\\][^:]*phase=toolcall [^:]*tool=${tool}( |$)" "$file"
+}
+
 eval_count_agent_iterations() {
   local file="$1"
   local agent="$2"

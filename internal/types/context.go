@@ -125,6 +125,7 @@ type MutableState struct {
 	emittedAnswerSymbolDeclaredCount int
 	emittedHypothesisVerdicts        []HypothesisVerdict
 	sourceInventoryAdvisory          SourceInventoryAdvisory
+	sourceInventoryObservation       SourceInventoryObservation
 	sourceInventoryAdvisoryHinted    bool
 	turnAArtifacts                   *TurnAArtifacts
 	exploreForkTurnABaseNotesLen     int
@@ -824,6 +825,12 @@ type TurnAArtifacts struct {
 	// broad searches, while preserving the model's final answer decision.
 	SourceInventoryAdvisory SourceInventoryAdvisory
 
+	// SourceInventoryObservation is the auditable repo-lens companion to
+	// SourceInventoryAdvisory. It preserves count/list/support-ref invariants
+	// for mechanical source-inventory facts without turning navigation rows
+	// into model-authored answer text.
+	SourceInventoryObservation SourceInventoryObservation
+
 	// RuntimeObservationOnlyCompletion marks the narrow case where Turn
 	// A legitimately completed from a structured external log / trace
 	// artifact without any current-repo read/search evidence. It is set
@@ -964,6 +971,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 	out.emittedAnswerSymbolDeclaredCount = m.emittedAnswerSymbolDeclaredCount
 	out.emittedHypothesisVerdicts = append([]HypothesisVerdict(nil), m.emittedHypothesisVerdicts...)
 	out.sourceInventoryAdvisory = CloneSourceInventoryAdvisory(m.sourceInventoryAdvisory)
+	out.sourceInventoryObservation = CloneSourceInventoryObservation(m.sourceInventoryObservation)
 	if m.turnAArtifacts != nil {
 		out.turnAArtifacts = cloneTurnAArtifactsPtr(m.turnAArtifacts)
 		out.exploreForkTurnABaseNotesLen = len(out.turnAArtifacts.InvestigationNotes)
@@ -1010,6 +1018,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	investigationResultKind := fork.investigationResultKind
 	investigationAggregateFacts := cloneAnswerAggregateFacts(fork.investigationAggregateFacts)
 	sourceInventoryAdvisory := CloneSourceInventoryAdvisory(fork.sourceInventoryAdvisory)
+	sourceInventoryObservation := CloneSourceInventoryObservation(fork.sourceInventoryObservation)
 	retainedAbsenceJustification := fork.retainedAbsenceJustification
 	retainedInvestigationResultKind := fork.retainedInvestigationResultKind
 	retainedInvestigationCompleteReason := fork.retainedInvestigationCompleteReason
@@ -1066,6 +1075,9 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	}
 	if sourceInventoryAdvisory.IsActive() {
 		m.sourceInventoryAdvisory = MergeSourceInventoryAdvisory(m.sourceInventoryAdvisory, sourceInventoryAdvisory)
+	}
+	if sourceInventoryObservation.IsActive() {
+		m.sourceInventoryObservation = MergeSourceInventoryObservation(m.sourceInventoryObservation, sourceInventoryObservation)
 	}
 	if len(exactContextRequiredFiles) > 0 {
 		m.exactContextRequiredFiles = exactContextRequiredFiles
@@ -2896,6 +2908,7 @@ func (m *MutableState) SetSourceInventoryAdvisory(a SourceInventoryAdvisory) {
 	defer m.mu.Unlock()
 	priorActive := m.sourceInventoryAdvisory.IsActive()
 	m.sourceInventoryAdvisory = CloneSourceInventoryAdvisory(a)
+	m.sourceInventoryObservation = SourceInventoryObservationFromAdvisory(m.sourceInventoryAdvisory)
 	if !m.sourceInventoryAdvisory.IsActive() || !priorActive {
 		m.sourceInventoryAdvisoryHinted = false
 	}
@@ -2912,6 +2925,30 @@ func (m *MutableState) SourceInventoryAdvisory() SourceInventoryAdvisory {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return CloneSourceInventoryAdvisory(m.sourceInventoryAdvisory)
+}
+
+// SetSourceInventoryObservation stores the auditable source-inventory lens
+// companion. Callers that already have a SourceInventoryAdvisory should usually
+// use SetSourceInventoryAdvisory so both carriers stay in lockstep.
+func (m *MutableState) SetSourceInventoryObservation(o SourceInventoryObservation) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sourceInventoryObservation = CloneSourceInventoryObservation(o)
+	m.bumpAnswerSurfaceRevisionLocked()
+}
+
+// SourceInventoryObservation returns a defensive copy of the current auditable
+// source-inventory lens artifact.
+func (m *MutableState) SourceInventoryObservation() SourceInventoryObservation {
+	if m == nil {
+		return SourceInventoryObservation{}
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return CloneSourceInventoryObservation(m.sourceInventoryObservation)
 }
 
 // ClaimSourceInventoryAdvisoryHint records that the compact advisory checklist
@@ -2941,6 +2978,7 @@ func (m *MutableState) ClearSourceInventoryAdvisory() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sourceInventoryAdvisory = SourceInventoryAdvisory{}
+	m.sourceInventoryObservation = SourceInventoryObservation{}
 	m.sourceInventoryAdvisoryHinted = false
 	m.bumpAnswerSurfaceRevisionLocked()
 }
@@ -2982,6 +3020,10 @@ func (m *MutableState) SetTurnAArtifacts(a TurnAArtifacts) {
 		snap.AcceptedAggregateFacts = cloneAnswerAggregateFacts(a.AcceptedAggregateFacts)
 	}
 	snap.SourceInventoryAdvisory = CloneSourceInventoryAdvisory(a.SourceInventoryAdvisory)
+	snap.SourceInventoryObservation = CloneSourceInventoryObservation(a.SourceInventoryObservation)
+	if !snap.SourceInventoryObservation.IsActive() && snap.SourceInventoryAdvisory.IsActive() {
+		snap.SourceInventoryObservation = SourceInventoryObservationFromAdvisory(snap.SourceInventoryAdvisory)
+	}
 	m.turnAArtifacts = &snap
 	// Snapshot changed → invalidate the memoised label-support pool.
 	m.cachedLabelSupport = nil
@@ -3024,6 +3066,10 @@ func (m *MutableState) TurnAArtifacts() *TurnAArtifacts {
 		out.AcceptedAggregateFacts = cloneAnswerAggregateFacts(m.turnAArtifacts.AcceptedAggregateFacts)
 	}
 	out.SourceInventoryAdvisory = CloneSourceInventoryAdvisory(m.turnAArtifacts.SourceInventoryAdvisory)
+	out.SourceInventoryObservation = CloneSourceInventoryObservation(m.turnAArtifacts.SourceInventoryObservation)
+	if !out.SourceInventoryObservation.IsActive() && out.SourceInventoryAdvisory.IsActive() {
+		out.SourceInventoryObservation = SourceInventoryObservationFromAdvisory(out.SourceInventoryAdvisory)
+	}
 	return &out
 }
 
@@ -3043,6 +3089,7 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.exploreForkTurnABaseToolLen = 0
 	m.exploreForkTurnABaseFlowLen = 0
 	m.sourceInventoryAdvisory = SourceInventoryAdvisory{}
+	m.sourceInventoryObservation = SourceInventoryObservation{}
 	m.cachedLabelSupport = nil
 	m.cachedLabelSupportSource = nil
 }
@@ -3060,6 +3107,10 @@ func cloneTurnAArtifactsPtr(in *TurnAArtifacts) *TurnAArtifacts {
 	out.FlowFindings = cloneFlowFindingDigests(in.FlowFindings)
 	out.AcceptedAggregateFacts = cloneAnswerAggregateFacts(in.AcceptedAggregateFacts)
 	out.SourceInventoryAdvisory = CloneSourceInventoryAdvisory(in.SourceInventoryAdvisory)
+	out.SourceInventoryObservation = CloneSourceInventoryObservation(in.SourceInventoryObservation)
+	if !out.SourceInventoryObservation.IsActive() && out.SourceInventoryAdvisory.IsActive() {
+		out.SourceInventoryObservation = SourceInventoryObservationFromAdvisory(out.SourceInventoryAdvisory)
+	}
 	return &out
 }
 
@@ -3105,6 +3156,10 @@ func mergeTurnAArtifactsForMutable(prior *TurnAArtifacts, current TurnAArtifacts
 		merged.AcceptedAggregateFacts = cloneAnswerAggregateFacts(current.AcceptedAggregateFacts)
 	}
 	merged.SourceInventoryAdvisory = MergeSourceInventoryAdvisory(prior.SourceInventoryAdvisory, current.SourceInventoryAdvisory)
+	merged.SourceInventoryObservation = MergeSourceInventoryObservation(prior.SourceInventoryObservation, current.SourceInventoryObservation)
+	if !merged.SourceInventoryObservation.IsActive() && merged.SourceInventoryAdvisory.IsActive() {
+		merged.SourceInventoryObservation = SourceInventoryObservationFromAdvisory(merged.SourceInventoryAdvisory)
+	}
 	merged.RuntimeObservationOnlyCompletion = prior.RuntimeObservationOnlyCompletion || current.RuntimeObservationOnlyCompletion
 	merged.EvidenceItems = mergeEvidenceByStableID(prior.EvidenceItems, current.EvidenceItems)
 	flowBase := clampMergeSliceBase(base.FlowLen, len(current.FlowFindings))

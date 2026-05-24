@@ -1233,6 +1233,9 @@ func LooksLikeConfigFilePath(source string) bool {
 		return false
 	}
 	base := filepath.Base(source)
+	if isConfigLikeBaseName(base) {
+		return true
+	}
 	parts := strings.Split(base, ".")
 	for _, part := range parts[1:] {
 		if isConfigLikeExtension(part) {
@@ -1272,6 +1275,22 @@ func LooksLikeWrappedConfigFilePath(source string) bool {
 		}
 	}
 	return false
+}
+
+func isConfigLikeBaseName(base string) bool {
+	switch strings.ToLower(strings.TrimSpace(base)) {
+	case "cmakelists.txt",
+		"makefile",
+		"dockerfile",
+		"jenkinsfile",
+		"meson.build",
+		"build",
+		"workspace",
+		"module.bazel":
+		return true
+	default:
+		return false
+	}
 }
 
 func isConfigLikeExtension(part string) bool {

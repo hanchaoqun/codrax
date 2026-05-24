@@ -1403,6 +1403,244 @@ func TestPublishSourceInventoryAdvisoryFromToolObservation_PreActiveStillHintsOn
 	}
 }
 
+func TestPublishSourceInventoryObservationFromLens_ModelDrivenRolesAndScopes(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{
+			RelPath:  "src/alpha/a.py",
+			Language: "python",
+			Package:  "alpha",
+			Symbols: []repotypes.Symbol{{
+				Name:     "run_alpha",
+				Kind:     "function",
+				File:     "src/alpha/a.py",
+				Line:     7,
+				Exported: true,
+			}},
+		},
+		{
+			RelPath:  "src/beta/B.java",
+			Language: "java",
+			Package:  "com.example.beta",
+			Symbols: []repotypes.Symbol{{
+				Name:     "RunBeta",
+				Kind:     "function",
+				File:     "src/beta/B.java",
+				Line:     11,
+				Exported: true,
+			}},
+		},
+	})
+	ctx := sourceInventoryTestContext("", graph, "", nil)
+
+	obs := PublishSourceInventoryObservationFromLens(ctx, types.SourceInventoryLensQuery{
+		Scopes:            []string{"src"},
+		Roles:             []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction, types.AnswerCandidateRolePackage},
+		IncludeAttributes: true,
+		IncludeCounts:     true,
+	})
+	if !obs.IsActive() || len(obs.Sets) != 2 {
+		t.Fatalf("observation = %+v, want two active sets", obs)
+	}
+	if obs.Sets[0].Role != types.AnswerCandidateRoleFunction ||
+		obs.Sets[1].Role != types.AnswerCandidateRolePackage {
+		t.Fatalf("role order should preserve model query order, got %+v", obs.Sets)
+	}
+	if obs.Sets[0].Count != 2 || len(obs.Sets[0].Members) != 2 {
+		t.Fatalf("function count/list invariant broken: %+v", obs.Sets[0])
+	}
+	if stored := ctx.Mutable.SourceInventoryObservation(); !stored.IsActive() || stored.Sets[0].Count != 2 {
+		t.Fatalf("observation not stored on mutable: %+v", stored)
+	}
+	rendered := RenderSourceInventoryObservationView(obs, types.SourceInventoryLensQuery{
+		IncludeAttributes: true,
+		IncludeCounts:     true,
+	})
+	for _, want := range []string{
+		"Repo Lens: Source Inventory",
+		"count=2",
+		"`run_alpha` @ src/alpha/a.py:7",
+		"support_ref=`run_alpha: src/alpha/a.py:7`",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered lens missing %q:\n%s", want, rendered)
+		}
+	}
+	paged := RenderSourceInventoryObservationView(obs, types.SourceInventoryLensQuery{
+		IncludeCounts: true,
+		TopN:          1,
+		Cursor:        "1",
+	})
+	if !strings.Contains(paged, "page_offset: 1") ||
+		!strings.Contains(paged, "`RunBeta`") ||
+		!strings.Contains(paged, "@ src/beta/B.java:11") ||
+		!strings.Contains(paged, "next_cursor=2") ||
+		strings.Contains(paged, "`run_alpha` @ src/alpha/a.py:7") {
+		t.Fatalf("paged lens should preserve cursor semantics without dropping structured state:\n%s", paged)
+	}
+}
+
+func TestPublishSourceInventoryObservationFromLens_UsesCrossLanguageRepoMapKinds(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{
+			RelPath:  "src/ui/Index.ets",
+			Language: "arkts",
+			Package:  "ui",
+			Symbols: []repotypes.Symbol{
+				{Name: "Index", Kind: "component", File: "src/ui/Index.ets", Line: 6, Exported: true},
+				{Name: "build", Kind: "ui-entry", File: "src/ui/Index.ets", Line: 24, Parent: "Index", Exported: true},
+				{Name: "message", Kind: "state-field", File: "src/ui/Index.ets", Line: 9, Parent: "Index", Exported: true},
+			},
+		},
+		{
+			RelPath:  "src/proto/user.proto",
+			Language: "proto",
+			Package:  "user.v1",
+			Symbols: []repotypes.Symbol{
+				{Name: "UserService", Kind: "service", File: "src/proto/user.proto", Line: 8, Exported: true},
+				{Name: "GetUser", Kind: "rpc", File: "src/proto/user.proto", Line: 11, Parent: "UserService", Exported: true},
+			},
+		},
+		{
+			RelPath:  "src/cj/math.cj",
+			Language: "cangjie",
+			Package:  "cj",
+			Symbols: []repotypes.Symbol{
+				{Name: "operator +", Kind: "operator", File: "src/cj/math.cj", Line: 17, Exported: true},
+			},
+		},
+		{
+			RelPath:  "src/swift/Loader.swift",
+			Language: "swift",
+			Package:  "swiftpkg",
+			Symbols: []repotypes.Symbol{
+				{Name: "Loader", Kind: "actor", File: "src/swift/Loader.swift", Line: 4, Exported: true},
+				{Name: "init", Kind: "ctor", File: "src/swift/Loader.swift", Line: 7, Parent: "Loader", Exported: true},
+			},
+		},
+		{
+			RelPath:  "src/kotlin/Singleton.kt",
+			Language: "kotlin",
+			Package:  "kt",
+			Symbols: []repotypes.Symbol{
+				{Name: "Singleton", Kind: "object", File: "src/kotlin/Singleton.kt", Line: 5, Exported: true},
+				{Name: "java.util.List", Kind: "import", File: "src/kotlin/Singleton.kt", Line: 2, Exported: true},
+			},
+		},
+		{
+			RelPath:     "src/config/app.yaml",
+			IsSpecial:   true,
+			SpecialType: "build_config",
+			Symbols: []repotypes.Symbol{
+				{Name: "feature.enabled", Kind: "config_key", File: "src/config/app.yaml", Line: 3, Exported: true},
+			},
+		},
+	})
+	ctx := sourceInventoryTestContext("", graph, "", nil)
+
+	obs := PublishSourceInventoryObservationFromLens(ctx, types.SourceInventoryLensQuery{
+		Scopes: []string{"src"},
+		Roles: []types.AnswerCandidateRole{
+			types.AnswerCandidateRoleFunction,
+			types.AnswerCandidateRoleMethod,
+			types.AnswerCandidateRoleType,
+			types.AnswerCandidateRoleField,
+			types.AnswerCandidateRoleConfigFile,
+			types.AnswerCandidateRoleConfigKey,
+			types.AnswerCandidateRoleImportPath,
+		},
+		IncludeCounts: true,
+	})
+	if !obs.IsActive() || len(obs.Sets) != 7 {
+		t.Fatalf("observation = %+v, want seven role sets", obs)
+	}
+	gotByRole := map[types.AnswerCandidateRole][]string{}
+	for _, set := range obs.Sets {
+		if set.Count != len(set.Members) {
+			t.Fatalf("count/list invariant broken for role %s: %+v", set.Role, set)
+		}
+		for _, member := range set.Members {
+			gotByRole[set.Role] = append(gotByRole[set.Role], member.Name)
+		}
+	}
+	for role, wantMembers := range map[types.AnswerCandidateRole][]string{
+		types.AnswerCandidateRoleFunction:   {"GetUser", "build", "operator +"},
+		types.AnswerCandidateRoleMethod:     {"init"},
+		types.AnswerCandidateRoleType:       {"Index", "Loader", "Singleton", "UserService"},
+		types.AnswerCandidateRoleField:      {"message"},
+		types.AnswerCandidateRoleConfigFile: {"src/config/app.yaml"},
+		types.AnswerCandidateRoleConfigKey:  {"feature.enabled"},
+		types.AnswerCandidateRoleImportPath: {"java.util.List"},
+	} {
+		for _, want := range wantMembers {
+			if !containsString(gotByRole[role], want) {
+				t.Fatalf("role %s missing %q; got=%#v observation=%+v", role, want, gotByRole[role], obs)
+			}
+		}
+	}
+}
+
+func TestAggregateMemberSetMemberUsableWithSourceInventoryObservationSupportRef(t *testing.T) {
+	mut := types.NewMutableState("source inventory")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:   true,
+		Complete: true,
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRolePackage,
+			Complete: true,
+			Count:    1,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:       "alpha",
+				Key:        "src/alpha",
+				SupportRef: "src/alpha",
+				Role:       types.AnswerCandidateRolePackage,
+				File:       "src/alpha",
+			}},
+		}, {
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    1,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:       "run_alpha",
+				Key:        "run_alpha",
+				SupportRef: "run_alpha: src/alpha/a.py:7",
+				Role:       types.AnswerCandidateRoleFunction,
+				File:       "src/alpha/a.py",
+				Line:       7,
+			}},
+		}},
+	})
+	ctx := &types.BusContext{Mutable: mut}
+	support := buildAggregateMemberSupportIndex(ctx)
+
+	for _, tc := range []struct {
+		name string
+		fact types.AnswerAggregateFact
+	}{
+		{
+			name: "path-backed package row",
+			fact: types.AnswerAggregateFact{
+				Kind:        types.AnswerAggregateMemberSet,
+				Members:     []string{"alpha"},
+				SupportRefs: []string{"src/alpha"},
+			},
+		},
+		{
+			name: "line-backed symbol row",
+			fact: types.AnswerAggregateFact{
+				Kind:        types.AnswerAggregateMemberSet,
+				Members:     []string{"run_alpha"},
+				SupportRefs: []string{"run_alpha: src/alpha/a.py:7"},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if !aggregateMemberSetMemberUsable(tc.fact, tc.fact.Members[0], support) {
+				t.Fatalf("member should be usable via source-inventory observation support ref: %+v", tc.fact)
+			}
+		})
+	}
+}
+
 func aggregateReconcileTestContext() *types.BusContext {
 	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{}}
 	add := func(name, kind string, line int, exported bool) {

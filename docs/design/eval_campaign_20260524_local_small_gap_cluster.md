@@ -1257,19 +1257,204 @@ Proposed schema:
 
 Task list:
 
-- [ ] Promote `SourceInventoryAdvisory` rows into a reusable
+- [x] Promote `SourceInventoryAdvisory` rows into a reusable
   `SourceInventoryObservation` artifact with count/member/support-ref fields.
-- [ ] Register the artifact in `MutableState` / `TurnAArtifacts` so it survives
+- [x] Register the artifact in `MutableState` / `TurnAArtifacts` so it survives
   explorer retries and extractor/finalizer handoff.
-- [ ] Teach `emit_investigation_complete` member-set validation to accept
+- [x] Teach `emit_investigation_complete` member-set validation to accept
   observation-backed rows for mechanical source-inventory facts, while still
   requiring model evidence or explicit ambiguity for semantic choices.
-- [ ] Render the observation compactly in explorer and extractor prompts,
+- [x] Render the observation compactly in explorer and extractor prompts,
   preserving model order and showing ambiguity/next-read rows without forcing
   final-answer text.
-- [ ] Add cross-language tests using Go, Python, Java, TypeScript/ArkTS, Proto,
+- [x] Add cross-language tests using Go, Python, Java, TypeScript/ArkTS, Proto,
   Kotlin/Cangjie-style symbols to ensure the lens consumes repo-map symbols,
   not language-specific heuristics.
 - [ ] Add an eval guard for `s5b` that tracks not only PASS/FAIL but also
   `read_file`, `explorer_iters`, and `explorer_dispatches`, so future changes
   cannot silently regress to high-cost enumeration.
+
+### P0 Implementation Design - Repo Lens / Source Inventory View
+
+Current code anchors:
+
+- `internal/tool/repomap/types` already owns the cross-language graph contract:
+  `Graph`, `FileInfo`, `Symbol`, `RankIndex`, `LineFeatures`, and the
+  authoritative `SupportedReadLanguages()` matrix. The new lens must consume
+  those typed fields directly and must not introduce language-specific scanners
+  outside the existing repo-map parser/index layer.
+- `internal/tool/source_inventory_reconcile.go` already builds
+  `SourceInventoryAdvisory` from typed lanes:
+  `SourceInventoryProfile`, `AnswerRoleProfile`, bounded source enumeration
+  traits, and resolved source scopes. This is the single source of truth for
+  candidate construction; the lens should project this carrier into a stronger
+  observation shape instead of rebuilding candidates from scratch.
+- `internal/types/observation_ledger.go` already provides the shared fact bus
+  for current source, VCS, runtime artifacts, command output, web/MCP/connector
+  data, and row-set refs. Source inventory should join this ledger as another
+  structured observation input, not as ad-hoc prompt markdown.
+- `internal/agent/explorer.go` and `internal/agent/extractor.go` already render
+  compact source-inventory advisory hints. The new view should reuse that UX
+  surface while making the stronger `count == len(members)` and
+  `support_ref` contract explicit.
+
+Non-negotiable semantics:
+
+- Activation is typed-only. The lens may activate from
+  `source_inventory_profile`, `answer_role_profile`, typed bounded source
+  enumeration traits, and graph-resolved scope entities. It must never parse
+  raw user prose or model free text to decide that a question is an inventory.
+- Model order wins. If the model supplied typed target roles or scopes, preserve
+  that order. Graph sort/rank is only a deterministic tie-break inside an
+  otherwise model-declared lane.
+- Mechanical observations and semantic choices are separated. The system may
+  observe "directory `x` is inside scope", "symbol `Foo` exists at
+  `a/b.py:17`", and "there are N listed members". It must not decide that
+  `Foo` is the user's requested entrypoint, owner, or causal mechanism unless
+  that role is already typed/unambiguous and later validated.
+- Repo-map navigation must not become hidden final-answer authorship. Any
+  system-added correction, count normalization, or ambiguity note must remain
+  visibly system-authored and localized; normal model-authored evidence and
+  answer text remain the primary output.
+- Fallbacks must be loss-preserving. If a set is too large, write a row-set ref
+  and a visible compact summary; do not silently truncate the underlying
+  member list. If a row is ambiguous, carry the ambiguity and next-read hint
+  rather than dropping it or picking a winner.
+
+Artifact schema:
+
+- `SourceInventoryObservation`
+  - `active`, `advisory_only`, `complete`
+  - `scopes`, `provenance`, `lens`
+  - `sets []SourceInventoryObservationSet`
+- `SourceInventoryObservationSet`
+  - `role`, `complete`, `count`
+  - `members []SourceInventoryObservationMember`
+  - invariant: `count == len(members)` after normalization
+- `SourceInventoryObservationMember`
+  - `name`, `key`, `support_ref`, `note`
+  - `role`, `file`, `line`, `language`, `exported`
+  - `coverage_state`: `observed`, `ambiguous`, `needs_read`, `no_index`
+  - `attributes []SourceInventoryObservationAttribute`
+- `SourceInventoryObservationAttribute`
+  - same location/role fields as a member
+  - `ambiguity` and `reason` fields for "one of several plausible callables"
+
+Ledger projection:
+
+- Member rows with an exact `file:line` become `current_source` observation
+  records with `GroundingPolicy=repairable`, `EvidenceScope=line`, and
+  `ClaimKey=name`. These are eligible as mechanical support refs but are not
+  automatically rendered as final answer claims.
+- Directory/file/package rows without exact line spans become path-scoped
+  `current_source` observations with `GroundingPolicy=soft`; they can support
+  bounded member-set/count checks but cannot satisfy line-citation-only gates.
+- Large sets should use the existing row-set writer pattern from
+  `ObservationLedgerInput.RowSetWriter` so the prompt can stay compact while
+  downstream checks still have the full list.
+
+View/tool strategy:
+
+- P0 does not add a new model-facing tool. It strengthens the existing
+  `SourceInventoryAdvisory` lifecycle into a typed observation artifact and
+  renders it where advisory hints already appear. This avoids adding schema
+  burden while immediately reducing repeated broad enumeration.
+- P1 adds model-driven querying via `repo_map(view="source_inventory")`. This is
+  important for commercial use because the model must be able to ask for the
+  scope and role slice it wants instead of being locked to the analyzer's first
+  guess. The view remains a thin projection over the same observation builder,
+  not a second implementation.
+- The active query parameters should stay small and typed:
+  `path`/scope, `query` as an optional ranking hint, `roles` as a list of
+  `AnswerCandidateRole` values, `include_attributes`, `include_counts`,
+  `top_n`, and later `cursor` for large row sets. When `roles` is omitted, the
+  view uses the current typed request roles. When `path` is omitted, it uses the
+  already-resolved request scopes. No raw prose classifier is added.
+- Tool output must label itself as "repo lens / source-inventory observation
+  checklist", carry `count == len(members)`, preserve model-specified role/scope
+  order, expose ambiguity and bounded next-read suggestions, and keep the
+  existing `repo_map` warning that semantic facts still require source evidence.
+
+Batch plan:
+
+- [x] P0-A: add `SourceInventoryObservation` types, clone/merge/count-normalize
+  helpers, `MutableState`/`TurnAArtifacts` preservation, and unit tests. This
+  is behavior-neutral except for storing a stronger artifact.
+- [x] P0-B: project `SourceInventoryAdvisory` into `SourceInventoryObservation` at
+  the same publication points (`pre_explore_typed_request`, `repo_map`,
+  `list_files`, accepted completion), then render compact count/support rows in
+  explorer/extractor prompts.
+- [x] P0-C1: compile source-inventory observations into `ObservationLedger`
+  with count/member/support-ref rows and exact file:line spans when available.
+- [x] P0-C2: add validation support for mechanical member-set/count coverage.
+  This must only accept rows that exactly match the observation name/support-ref
+  and must not auto-pick semantic attributes.
+- [x] P1-A: add optional `repo_map(view="source_inventory")` as a thin view over the
+  same artifact, with tests proving it respects supported languages and scoped
+  path safety.
+- [x] P1-B: add cursor/offset paging for very large model-driven source
+  inventory views. Tool results may render a bounded page while the structured
+  observation in run state and the ledger row-set ref preserve the full member
+  list.
+- [x] P2: add eval/cost guardrails for broad inventory samples (`s5b` and at least
+  one non-Go repo-map-supported language fixture) measuring final answer
+  quality plus `read_file`, `repo_map/list_files`, `explorer_iters`, and
+  redispatch count.
+
+Implementation notes:
+
+- 2026-05-24: landed P0-A/P0-B/P0-C1/P1-A. `repo_map` now accepts
+  `view="source_inventory"` with typed `scope`/`scopes`, `roles`,
+  `include_attributes`, `include_counts`, and `top_n` parameters. The view is
+  model-driven and advisory-only; it stores the same observation in mutable run
+  state and renders a compact checklist with count invariants.
+- 2026-05-24: landed P0-C2. `emit_investigation_complete` member-set support
+  validation now accepts source-inventory observation rows only when the model's
+  emitted `support_refs` exactly match the observation support ref and the
+  member label matches the observed row. This supports path-only package rows
+  and exact file:line symbol rows without letting the system auto-pick semantic
+  attributes.
+- 2026-05-24: landed P1-B and cross-language role coverage hardening.
+  `repo_map(view="source_inventory")` now accepts `cursor`/`offset` for paged
+  checklist output; the underlying `SourceInventoryObservation` remains full
+  fidelity. Symbol-kind projection was widened over the existing repomap parser
+  kinds (`rpc`, `ui-entry`, `builder`, `operator`, `foreign-func`, `ctor`,
+  ArkTS state fields, Proto service/message, Swift actor/protocol, Kotlin
+  object/data/sealed/annotation, import symbols, etc.) so direct role queries
+  and package attributes share one language-neutral mapping.
+- 2026-05-24: multi-repo and configuration-file handling are guarded in the
+  same source-inventory lens path. The view runs after the existing active-set
+  hard gate, so a model can query only an active sub-repo path and cannot use
+  the lens to scan a parent workspace or inactive sibling. Explicit `scope="."`
+  is treated as "the active repo root" rather than an answer evidence path, and
+  every returned row still passes per-file source-scope checks. Config files
+  are first-class navigation rows via `config_file`; ordinary `file` rows also
+  include repomap `IsSpecial` files. `config_key` remains conservative: it is
+  returned only when the repomap graph already exposes a structured symbol row,
+  never by guessing YAML/TOML/XML semantics from file names.
+- 2026-05-24: path-role classification now treats common project descriptors
+  (`CMakeLists.txt`, `Makefile`, `Dockerfile`, `Jenkinsfile`, `meson.build`,
+  plus extension-based config files) as production config surfaces unless a
+  higher-priority structural directory role such as `tests/`, `fixtures/`,
+  `examples/`, or `docs/` applies. This prevents build manifests from being
+  filtered as documentation merely because their basename ends in `.txt`.
+- 2026-05-24: eval guardrails now count control-plane tool calls with
+  `eval_count_tool_calls`, exposing `tool_repo_map`, `tool_list_files`, and
+  `source_inventory_lens` metrics without being polluted by model prose. The
+  convergence audit includes `s5b` plus non-Go Harmony ArkTS and Cangjie cases
+  and flags wide-search regressions when read/list/repo-map calls exceed the
+  configured thresholds.
+- Tests added/updated:
+  `TestSourceInventoryObservation*`,
+  `TestCompileObservationLedger_SourceInventoryObservation`,
+  `TestPublishSourceInventoryObservationFromLens_ModelDrivenRolesAndScopes`,
+  `TestPublishSourceInventoryObservationFromLens_UsesCrossLanguageRepoMapKinds`,
+  `TestAggregateMemberSetMemberUsableWithSourceInventoryObservationSupportRef`,
+  `TestRepoMapSourceInventoryViewModelDrivenQuery`,
+  `TestRepoMapSourceInventoryViewSameRepoCrossLanguage`,
+  `TestRepoMapSourceInventoryViewConfigFilesAreNavigationRows`,
+  `TestRepoMapSourceInventoryViewMultiRepoHonorsActiveSubRepoScope`,
+  `TestRepoMapSourceInventoryViewMultiRepoConfigFilesStayScoped`,
+  `TestRepoMapSourceInventoryViewMultiRepoRejectsInactiveSubRepo`,
+  control-plane eval counter tests, and prompt rendering tests for
+  source-inventory count invariants.

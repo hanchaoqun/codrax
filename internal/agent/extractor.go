@@ -669,10 +669,17 @@ func renderExtractorValidationBoundaryNotes(ta *types.TurnAArtifacts) string {
 }
 
 func renderExtractorSourceInventoryAdvisory(ta *types.TurnAArtifacts) string {
-	if ta == nil || !ta.SourceInventoryAdvisory.IsActive() {
+	if ta == nil {
 		return ""
 	}
 	advisory := ta.SourceInventoryAdvisory
+	observation := ta.SourceInventoryObservation
+	if !observation.IsActive() && advisory.IsActive() {
+		observation = types.SourceInventoryObservationFromAdvisory(advisory)
+	}
+	if !advisory.IsActive() && !observation.IsActive() {
+		return ""
+	}
 	var b strings.Builder
 	b.WriteString("### Source inventory advisory candidates\n\n")
 	b.WriteString("- The system compiled these candidates from typed request lanes, requested scopes, and the repo-map graph. They are structured context, not final answer text and not citations by themselves.\n")
@@ -686,6 +693,23 @@ func renderExtractorSourceInventoryAdvisory(ta *types.TurnAArtifacts) string {
 	}
 	if len(advisory.Provenance) > 0 {
 		fmt.Fprintf(&b, "- provenance: `%s`\n", strings.Join(advisory.Provenance, "`, `"))
+	}
+	if observation.IsActive() {
+		b.WriteString("- repo-lens observation invariants: ")
+		var parts []string
+		for _, set := range observation.Sets {
+			if len(set.Members) == 0 {
+				continue
+			}
+			parts = append(parts, fmt.Sprintf("%s count=%d len(members)=%d complete=%t",
+				types.SourceInventoryAdvisoryRoleLabel(set.Role), set.Count, len(set.Members), set.Complete))
+		}
+		if len(parts) > 0 {
+			b.WriteString(strings.Join(parts, "; "))
+			b.WriteByte('\n')
+		} else {
+			b.WriteString("none\n")
+		}
 	}
 	total := 0
 	for _, set := range advisory.Sets {

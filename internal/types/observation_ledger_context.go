@@ -11,13 +11,14 @@ func ObservationLedgerInputFromAgentContext(ctx *AgentContext, evidenceLimit int
 		return ObservationLedgerInput{}
 	}
 	var (
-		requestModel   *RequestModel
-		answerContract *AnswerContract
-		logBundle      *LogBundle
-		perfBundle     *PerfBundle
-		aggregateFacts []AnswerAggregateFact
-		toolResults    []ToolResult
-		evidenceItems  []EvidenceItem
+		requestModel    *RequestModel
+		answerContract  *AnswerContract
+		logBundle       *LogBundle
+		perfBundle      *PerfBundle
+		aggregateFacts  []AnswerAggregateFact
+		toolResults     []ToolResult
+		evidenceItems   []EvidenceItem
+		sourceInventory SourceInventoryObservation
 	)
 	if ctx.AnalysisIR != nil {
 		requestModel = &ctx.AnalysisIR.RequestModel
@@ -28,6 +29,7 @@ func ObservationLedgerInputFromAgentContext(ctx *AgentContext, evidenceLimit int
 	evidenceItems = appendObservationLedgerEvidence(evidenceItems, evidenceLimit, ctx.EvidenceItems...)
 	if ctx.Mutable != nil {
 		aggregateFacts = ctx.Mutable.StableInvestigationAggregateFacts()
+		sourceInventory = ctx.Mutable.SourceInventoryObservation()
 		if logBundle == nil {
 			logBundle = ctx.Mutable.LogTriage()
 		}
@@ -37,20 +39,22 @@ func ObservationLedgerInputFromAgentContext(ctx *AgentContext, evidenceLimit int
 		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
 			evidenceItems = appendObservationLedgerEvidence(evidenceItems, evidenceLimit, ta.EvidenceItems...)
 			toolResults = append([]ToolResult(nil), ta.ToolResults...)
+			sourceInventory = MergeSourceInventoryObservation(sourceInventory, ta.SourceInventoryObservation)
 		}
 		if len(evidenceItems) < normalizedObservationLedgerEvidenceLimit(evidenceLimit) || evidenceLimit <= 0 {
 			evidenceItems = appendObservationLedgerEvidence(evidenceItems, evidenceLimit, ctx.Mutable.EmittedEvidence()...)
 		}
 	}
 	return ObservationLedgerInput{
-		EvidenceItems:  evidenceItems,
-		AggregateFacts: aggregateFacts,
-		ToolResults:    toolResults,
-		LogBundle:      logBundle,
-		PerfBundle:     perfBundle,
-		MCPResponses:   append([]MCPResponse(nil), ctx.MCPResponses...),
-		RequestModel:   requestModel,
-		AnswerContract: answerContract,
+		EvidenceItems:              evidenceItems,
+		AggregateFacts:             aggregateFacts,
+		SourceInventoryObservation: sourceInventory,
+		ToolResults:                toolResults,
+		LogBundle:                  logBundle,
+		PerfBundle:                 perfBundle,
+		MCPResponses:               append([]MCPResponse(nil), ctx.MCPResponses...),
+		RequestModel:               requestModel,
+		AnswerContract:             answerContract,
 	}
 }
 
@@ -63,13 +67,14 @@ func ObservationLedgerInputFromBusContext(bus *BusContext, evidenceLimit int) Ob
 		return ObservationLedgerInput{}
 	}
 	var (
-		requestModel   *RequestModel
-		answerContract *AnswerContract
-		logBundle      *LogBundle
-		perfBundle     *PerfBundle
-		aggregateFacts []AnswerAggregateFact
-		toolResults    []ToolResult
-		evidenceItems  []EvidenceItem
+		requestModel    *RequestModel
+		answerContract  *AnswerContract
+		logBundle       *LogBundle
+		perfBundle      *PerfBundle
+		aggregateFacts  []AnswerAggregateFact
+		toolResults     []ToolResult
+		evidenceItems   []EvidenceItem
+		sourceInventory SourceInventoryObservation
 	)
 	if bus.AnalysisIR != nil {
 		requestModel = &bus.AnalysisIR.RequestModel
@@ -81,6 +86,7 @@ func ObservationLedgerInputFromBusContext(bus *BusContext, evidenceLimit int) Ob
 	toolResults = append([]ToolResult(nil), bus.ToolResults...)
 	if bus.Mutable != nil {
 		aggregateFacts = bus.Mutable.StableInvestigationAggregateFacts()
+		sourceInventory = bus.Mutable.SourceInventoryObservation()
 		if logBundle == nil {
 			logBundle = bus.Mutable.LogTriage()
 		}
@@ -92,17 +98,19 @@ func ObservationLedgerInputFromBusContext(bus *BusContext, evidenceLimit int) Ob
 			if len(ta.ToolResults) > 0 {
 				toolResults = append([]ToolResult(nil), ta.ToolResults...)
 			}
+			sourceInventory = MergeSourceInventoryObservation(sourceInventory, ta.SourceInventoryObservation)
 		}
 	}
 	return ObservationLedgerInput{
-		EvidenceItems:  evidenceItems,
-		AggregateFacts: aggregateFacts,
-		ToolResults:    toolResults,
-		LogBundle:      logBundle,
-		PerfBundle:     perfBundle,
-		MCPResponses:   append([]MCPResponse(nil), bus.MCPResponses...),
-		RequestModel:   requestModel,
-		AnswerContract: answerContract,
+		EvidenceItems:              evidenceItems,
+		AggregateFacts:             aggregateFacts,
+		SourceInventoryObservation: sourceInventory,
+		ToolResults:                toolResults,
+		LogBundle:                  logBundle,
+		PerfBundle:                 perfBundle,
+		MCPResponses:               append([]MCPResponse(nil), bus.MCPResponses...),
+		RequestModel:               requestModel,
+		AnswerContract:             answerContract,
 	}
 }
 

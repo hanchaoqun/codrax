@@ -651,18 +651,33 @@ func aggregateAnswerCandidateRoleForSymbol(sym *repotypes.Symbol) (types.AnswerC
 		return types.AnswerCandidateRoleUnknown, false
 	}
 	switch kind := strings.ToLower(strings.TrimSpace(sym.Kind)); {
-	case kind == "function":
+	case kind == "function" ||
+		kind == "foreign-func" ||
+		kind == "operator" ||
+		kind == "builder" ||
+		kind == "styles" ||
+		kind == "ui-entry" ||
+		kind == "rpc":
 		return types.AnswerCandidateRoleFunction, true
-	case kind == "method":
+	case kind == "method" || kind == "ctor":
 		return types.AnswerCandidateRoleMethod, true
 	case kind == "const" || kind == "constant":
 		return types.AnswerCandidateRoleConstant, true
 	case kind == "var" || kind == "variable":
 		return types.AnswerCandidateRoleVariable, true
-	case kind == "field" || kind == "property":
+	case kind == "field" ||
+		kind == "property" ||
+		strings.HasSuffix(kind, "-field") ||
+		kind == "watch-binding":
 		return types.AnswerCandidateRoleField, true
 	case kind == "package" || kind == "module" || kind == "namespace":
 		return types.AnswerCandidateRolePackage, true
+	case kind == "config_file" || kind == "build_config" || kind == "manifest":
+		return types.AnswerCandidateRoleConfigFile, true
+	case kind == "config_key":
+		return types.AnswerCandidateRoleConfigKey, true
+	case kind == "import":
+		return types.AnswerCandidateRoleImportPath, true
 	case answerDocumentSymbolKindIsType(kind):
 		return types.AnswerCandidateRoleType, true
 	default:

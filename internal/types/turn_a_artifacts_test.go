@@ -53,6 +53,25 @@ func TestTurnAArtifacts_RoundtripPreservesAllFields(t *testing.T) {
 				}},
 			}},
 		},
+		SourceInventoryObservation: SourceInventoryObservation{
+			Active:       true,
+			AdvisoryOnly: true,
+			Complete:     true,
+			Scopes:       []string{"src"},
+			Provenance:   []string{"repomap_graph"},
+			Lens:         []string{"members", "count"},
+			Sets: []SourceInventoryObservationSet{{
+				Role:     AnswerCandidateRoleFunction,
+				Complete: true,
+				Count:    1,
+				Members: []SourceInventoryObservationMember{{
+					Name:     "Run",
+					File:     "src/run.py",
+					Line:     7,
+					Language: "python",
+				}},
+			}},
+		},
 		RuntimeObservationOnlyCompletion: true,
 		TerminalEvidenceCount:            3,
 	}
@@ -89,6 +108,12 @@ func TestTurnAArtifacts_RoundtripPreservesAllFields(t *testing.T) {
 		len(got.SourceInventoryAdvisory.Sets) != 1 ||
 		got.SourceInventoryAdvisory.Sets[0].Candidates[0].Language != "python" {
 		t.Errorf("SourceInventoryAdvisory not preserved: %+v", got.SourceInventoryAdvisory)
+	}
+	if !got.SourceInventoryObservation.IsActive() ||
+		len(got.SourceInventoryObservation.Sets) != 1 ||
+		got.SourceInventoryObservation.Sets[0].Count != 1 ||
+		got.SourceInventoryObservation.Sets[0].Members[0].Language != "python" {
+		t.Errorf("SourceInventoryObservation not preserved: %+v", got.SourceInventoryObservation)
 	}
 	if !got.RuntimeObservationOnlyCompletion {
 		t.Error("RuntimeObservationOnlyCompletion not preserved")
@@ -163,6 +188,19 @@ func TestTurnAArtifacts_DefensiveCopyOnRead(t *testing.T) {
 				}},
 			}},
 		},
+		SourceInventoryObservation: SourceInventoryObservation{
+			Active: true,
+			Scopes: []string{"src"},
+			Sets: []SourceInventoryObservationSet{{
+				Role:  AnswerCandidateRoleFunction,
+				Count: 1,
+				Members: []SourceInventoryObservationMember{{
+					Name: "Run",
+					File: "src/run.py",
+					Line: 7,
+				}},
+			}},
+		},
 	})
 	first := m.TurnAArtifacts()
 	first.ReadFiles[0] = "MUTATED.go"
@@ -171,6 +209,8 @@ func TestTurnAArtifacts_DefensiveCopyOnRead(t *testing.T) {
 	first.AcceptedAggregateFacts[0].Members[0] = "mutated.go:1"
 	first.SourceInventoryAdvisory.Scopes[0] = "mutated"
 	first.SourceInventoryAdvisory.Sets[0].Candidates[0].Member = "Mutated"
+	first.SourceInventoryObservation.Scopes[0] = "mutated"
+	first.SourceInventoryObservation.Sets[0].Members[0].Name = "Mutated"
 
 	second := m.TurnAArtifacts()
 	if second.ReadFiles[0] != "a.go" {
@@ -188,6 +228,10 @@ func TestTurnAArtifacts_DefensiveCopyOnRead(t *testing.T) {
 	if second.SourceInventoryAdvisory.Scopes[0] != "src" ||
 		second.SourceInventoryAdvisory.Sets[0].Candidates[0].Member != "Run" {
 		t.Errorf("source-inventory advisory mutation leaked back: %+v", second.SourceInventoryAdvisory)
+	}
+	if second.SourceInventoryObservation.Scopes[0] != "src" ||
+		second.SourceInventoryObservation.Sets[0].Members[0].Name != "Run" {
+		t.Errorf("source-inventory observation mutation leaked back: %+v", second.SourceInventoryObservation)
 	}
 }
 

@@ -1396,7 +1396,8 @@ func renderExplorerSourceInventoryAdvisory(ctx *types.AgentContext) string {
 	b.WriteString("- If the checklist matches what you need, verify/read unresolved candidates and carry the model-authored conclusion through emit_evidence / aggregate_facts.\n")
 	b.WriteString("- If it does not match, keep your own investigation boundary and explain the gap in the structured closure instead of silently widening the answer.\n\n")
 	b.WriteString(renderExtractorSourceInventoryAdvisory(&types.TurnAArtifacts{
-		SourceInventoryAdvisory: advisory,
+		SourceInventoryAdvisory:    advisory,
+		SourceInventoryObservation: ctx.Mutable.SourceInventoryObservation(),
 	}))
 	return b.String()
 }

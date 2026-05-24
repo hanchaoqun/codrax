@@ -187,6 +187,8 @@ func TestExplorer_BuildInitialInstruction_RendersSourceInventoryAdvisory(t *test
 	for _, want := range []string{
 		"Structured Source Inventory Progress",
 		"advisory context only",
+		"repo-lens observation invariants",
+		"count=1 len(members)=1",
 		"`Run`",
 		"src/run.py:7",
 	} {
@@ -222,6 +224,7 @@ func TestRenderExtractorSourceInventoryAdvisory_RendersCandidateAttributes(t *te
 	})
 	for _, want := range []string{
 		"package/directory/module scope candidates",
+		"count=1 len(members)=1",
 		"related_candidate_attributes",
 		"function `run_alpha` @ src/alpha/a.py:7",
 	} {

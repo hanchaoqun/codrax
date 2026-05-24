@@ -29,12 +29,19 @@ type RepoMapV2 struct {
 }
 
 type repoMapParams struct {
-	Path       string `json:"path"`
-	View       string `json:"view,omitempty"`        // overview, file_map, task_map, call_path, edit_impact, semantic_subgraph
-	Query      string `json:"query,omitempty"`       // for task_map
-	TargetFile string `json:"target_file,omitempty"` // for edit_impact
-	EntryPoint string `json:"entry_point,omitempty"` // for call_path
-	TopN       int    `json:"top_n,omitempty"`       // max items
+	Path              string                       `json:"path"`
+	View              string                       `json:"view,omitempty"`        // overview, file_map, task_map, call_path, edit_impact, semantic_subgraph, source_inventory
+	Query             string                       `json:"query,omitempty"`       // for task_map / source_inventory ranking hint
+	TargetFile        string                       `json:"target_file,omitempty"` // for edit_impact
+	EntryPoint        string                       `json:"entry_point,omitempty"` // for call_path
+	Scope             string                       `json:"scope,omitempty"`       // for source_inventory
+	Scopes            []string                     `json:"scopes,omitempty"`      // for source_inventory
+	Roles             []ctypes.AnswerCandidateRole `json:"roles,omitempty"`       // for source_inventory
+	IncludeAttributes *bool                        `json:"include_attributes,omitempty"`
+	IncludeCounts     *bool                        `json:"include_counts,omitempty"`
+	TopN              int                          `json:"top_n,omitempty"` // max items
+	Offset            int                          `json:"offset,omitempty"`
+	Cursor            string                       `json:"cursor,omitempty"`
 }
 
 func (t *RepoMapV2) Name() string { return "repo_map" }
@@ -45,7 +52,8 @@ func (t *RepoMapV2) Description() string {
 		"Supports views: overview (module summary), file_map (symbols per file), " +
 		"task_map (relevant subgraph for a query), call_path (dependency chain from entry point), " +
 		"edit_impact (what changes to a file would affect), " +
-		"semantic_subgraph (topological summary: linear chains, hub files, articulation-point bridges)."
+		"semantic_subgraph (topological summary: linear chains, hub files, articulation-point bridges), " +
+		"source_inventory (typed repo lens for scoped members/symbols/attributes/counts)."
 }
 
 func (t *RepoMapV2) Parameters() json.RawMessage {
@@ -58,7 +66,7 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
     },
     "view": {
       "type": "string",
-      "enum": ["overview", "file_map", "task_map", "call_path", "edit_impact", "semantic_subgraph"],
+      "enum": ["overview", "file_map", "task_map", "call_path", "edit_impact", "semantic_subgraph", "source_inventory"],
       "description": "Type of map to generate (default: overview)"
     },
     "query": {
@@ -73,9 +81,42 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
       "type": "string",
       "description": "File path for call_path view (defaults to main/index file)"
     },
+    "scope": {
+      "type": "string",
+      "description": "For source_inventory view: one repo-relative scope to inventory while keeping path as the repository root"
+    },
+    "scopes": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "For source_inventory view: repo-relative scopes to inventory, preserving model-provided order"
+    },
+    "roles": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["function", "method", "type", "constant", "variable", "field", "package", "file", "config_file", "config_key", "route", "import_path", "literal_value"]
+      },
+      "description": "For source_inventory view: candidate roles to list. Omit to use the current typed request roles."
+    },
+    "include_attributes": {
+      "type": "boolean",
+      "description": "For source_inventory view: include bounded row-local symbol/callable attributes (default true)"
+    },
+    "include_counts": {
+      "type": "boolean",
+      "description": "For source_inventory view: include machine-checkable count == len(members) summaries (default true)"
+    },
     "top_n": {
       "type": "integer",
       "description": "Maximum number of files/items to include (default varies by view)"
+    },
+    "offset": {
+      "type": "integer",
+      "description": "For source_inventory view: zero-based row offset for paging large checklist outputs"
+    },
+    "cursor": {
+      "type": "string",
+      "description": "For source_inventory view: cursor returned by a previous source_inventory result; currently a numeric row offset"
     }
   },
   "required": ["path"]
@@ -212,6 +253,49 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 			ToolName:  t.Name(),
 			Success:   false,
 			Summary:   fmt.Sprintf("scan failed: %v", err),
+			Timestamp: time.Now(),
+		}, nil
+	}
+
+	if p.View == "source_inventory" {
+		if ctx != nil && ctx.Mutable != nil && graph != nil {
+			ctx.Mutable.SetSearchGraph(graph)
+		}
+		includeAttributes := true
+		if p.IncludeAttributes != nil {
+			includeAttributes = *p.IncludeAttributes
+		}
+		includeCounts := true
+		if p.IncludeCounts != nil {
+			includeCounts = *p.IncludeCounts
+		}
+		scopes := append([]string(nil), p.Scopes...)
+		if strings.TrimSpace(p.Scope) != "" {
+			scopes = append([]string{strings.TrimSpace(p.Scope)}, scopes...)
+		}
+		observation := tool.PublishSourceInventoryObservationFromLens(ctx, ctypes.SourceInventoryLensQuery{
+			Scopes:            scopes,
+			Roles:             append([]ctypes.AnswerCandidateRole(nil), p.Roles...),
+			IncludeAttributes: includeAttributes,
+			IncludeCounts:     includeCounts,
+			TopN:              p.TopN,
+			Offset:            p.Offset,
+			Cursor:            p.Cursor,
+			Query:             p.Query,
+		})
+		output := tool.RenderSourceInventoryObservationView(observation, ctypes.SourceInventoryLensQuery{
+			IncludeAttributes: includeAttributes,
+			IncludeCounts:     includeCounts,
+			TopN:              p.TopN,
+			Offset:            p.Offset,
+			Cursor:            p.Cursor,
+		})
+		summary, ref := tool.StoreBlob(ctx, t.Name(), output)
+		return ctypes.ToolResult{
+			ToolName:  t.Name(),
+			Success:   true,
+			Summary:   summary,
+			RawRef:    ref,
 			Timestamp: time.Now(),
 		}, nil
 	}

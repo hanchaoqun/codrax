@@ -69,6 +69,8 @@ func SourceInventoryAdvisoryRoleLabel(role AnswerCandidateRole) string {
 	switch role {
 	case AnswerCandidateRolePackage:
 		return "package/directory/module scope"
+	case AnswerCandidateRoleConfigFile:
+		return "configuration/manifest file"
 	case AnswerCandidateRoleUnknown:
 		return "candidate"
 	default:
