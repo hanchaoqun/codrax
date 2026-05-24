@@ -82,6 +82,11 @@ const (
 	TypedRelationReferences TypedRelationKind = "references"
 	TypedRelationImports    TypedRelationKind = "imports"
 	TypedRelationExports    TypedRelationKind = "exports"
+	// TypedRelationConfigures links a configuration key/value surface to the
+	// code site that reads, validates, or applies it. It is evidence-driven and
+	// prompt-first: the initial provider exposes accepted structured evidence as
+	// context, not as a system-authored answer or hard coverage gate.
+	TypedRelationConfigures TypedRelationKind = "configures"
 	// TypedRelationSourceAnchor links an exact external observation
 	// (VCS/log/trace/command/MCP/web/connector/etc.) to an exact
 	// current-checkout source anchor through the shared relation contract.
@@ -225,6 +230,10 @@ func TypedRelationKindsForRequest(rm RequestModel, purpose TypedRelationPurpose)
 		add(TypedRelationCalledBy)
 	case AxisRegister:
 		add(TypedRelationRegisters)
+	case AxisConfigure:
+		if purpose == TypedRelationPurposePromptHint {
+			add(TypedRelationConfigures)
+		}
 	}
 
 	switch NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
@@ -232,6 +241,10 @@ func TypedRelationKindsForRequest(rm RequestModel, purpose TypedRelationPurpose)
 		add(TypedRelationCalledBy)
 	case ReqRegistration:
 		add(TypedRelationRegisters)
+	case ReqConfigMapping:
+		if purpose == TypedRelationPurposePromptHint {
+			add(TypedRelationConfigures)
+		}
 	}
 
 	if HasInterfaceTypedRelationDiagramShape(rm) {
@@ -523,6 +536,8 @@ func TypedRelationAnchorKind(relation TypedRelationKind) AnchorKind {
 		return AnchorCall
 	case TypedRelationRegisters:
 		return AnchorAssignment
+	case TypedRelationConfigures:
+		return AnchorStringLiteral
 	case TypedRelationImports:
 		return AnchorImport
 	case TypedRelationSourceAnchor:
@@ -546,6 +561,7 @@ func AllTypedRelations() []TypedRelationKind {
 		TypedRelationReferences,
 		TypedRelationImports,
 		TypedRelationExports,
+		TypedRelationConfigures,
 		TypedRelationSourceAnchor,
 	}
 }

@@ -96,6 +96,15 @@ func TestBuildTypedRelationQuery_SelectsKindsFromTypedFields(t *testing.T) {
 	rm.PredicateAxis = AxisRegister
 	q = BuildTypedRelationQuery(rm, TypedRelationPurposePromptHint, 0)
 	assertTypedRelationKinds(t, q.Kinds, TypedRelationRegisters)
+
+	rm.PredicateAxis = AxisConfigure
+	q = BuildTypedRelationQuery(rm, TypedRelationPurposePromptHint, 0)
+	assertTypedRelationKinds(t, q.Kinds, TypedRelationConfigures)
+
+	q = BuildTypedRelationQuery(rm, TypedRelationPurposeCoverageGate, 0)
+	if len(q.Kinds) != 0 {
+		t.Fatalf("configure relation is prompt guidance until an exact hard-gate contract exists, got %+v", q.Kinds)
+	}
 }
 
 func TestBuildTypedRelationQuery_SelectsCallRelationFromRequirementKind(t *testing.T) {
@@ -108,6 +117,24 @@ func TestBuildTypedRelationQuery_SelectsCallRelationFromRequirementKind(t *testi
 	q := BuildTypedRelationQuery(rm, TypedRelationPurposePromptHint, 0)
 	assertTypedRelationKinds(t, q.Kinds, TypedRelationCalledBy)
 	assertStringSlice(t, q.Sources, []string{"appendTypedRelationKinds"})
+}
+
+func TestBuildTypedRelationQuery_SelectsConfigRelationFromRequirementKindPromptOnly(t *testing.T) {
+	rm := RequestModel{
+		AnalyzerHints: AnalyzerHints{
+			Kind:            string(ReqConfigMapping),
+			PrimaryEntities: []string{"providers_config"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
+	}
+	q := BuildTypedRelationQuery(rm, TypedRelationPurposePromptHint, 0)
+	assertTypedRelationKinds(t, q.Kinds, TypedRelationConfigures)
+	assertStringSlice(t, q.Sources, []string{"providers_config"})
+
+	q = BuildTypedRelationQuery(rm, TypedRelationPurposeCoverageGate, 0)
+	if len(q.Kinds) != 0 {
+		t.Fatalf("config mapping relation must not activate hard coverage from request shape alone, got %+v", q.Kinds)
+	}
 }
 
 func TestBuildTypedRelationQuery_InterfaceDiagramSelectsImplementAndExtends(t *testing.T) {

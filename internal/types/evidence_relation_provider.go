@@ -18,23 +18,19 @@ type EvidenceRelationCandidateSource struct {
 }
 
 func (s EvidenceRelationCandidateSource) TypedRelationCandidates(q TypedRelationQuery) []TypedRelationCandidate {
-	if !q.AllowsKind(TypedRelationRegisters) || len(s.Items) == 0 || len(q.Sources) == 0 {
+	if (!q.AllowsKind(TypedRelationRegisters) && !q.AllowsKind(TypedRelationConfigures)) ||
+		len(s.Items) == 0 || len(q.Sources) == 0 {
 		return nil
 	}
 	var out []TypedRelationCandidate
 	seen := map[string]bool{}
 	for _, item := range s.Items {
-		if !evidenceRelationRegistrationItemUsable(item, q.Purpose) {
-			continue
-		}
 		for _, source := range q.Sources {
-			for _, candidate := range evidenceRegistrationCandidatesForSource(item, source, q.Purpose) {
-				key := evidenceRelationCandidateKey(candidate)
-				if key == "" || seen[key] {
-					continue
-				}
-				seen[key] = true
-				out = append(out, candidate)
+			if q.AllowsKind(TypedRelationRegisters) && evidenceRelationRegistrationItemUsable(item, q.Purpose) {
+				out = appendEvidenceRelationCandidates(out, seen, evidenceRegistrationCandidatesForSource(item, source, q.Purpose)...)
+			}
+			if q.AllowsKind(TypedRelationConfigures) && evidenceRelationConfigItemUsable(item, q.Purpose) {
+				out = appendEvidenceRelationCandidates(out, seen, evidenceConfigCandidatesForSource(item, source, q.Purpose)...)
 			}
 		}
 	}
@@ -59,8 +55,48 @@ func (s EvidenceRelationCandidateSource) TypedRelationCandidates(q TypedRelation
 	return out
 }
 
+func appendEvidenceRelationCandidates(dst []TypedRelationCandidate, seen map[string]bool, candidates ...TypedRelationCandidate) []TypedRelationCandidate {
+	for _, candidate := range candidates {
+		key := evidenceRelationCandidateKey(candidate)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		dst = append(dst, candidate)
+	}
+	return dst
+}
+
 func evidenceRelationRegistrationItemUsable(item EvidenceItem, purpose TypedRelationPurpose) bool {
 	if item.Kind != EvidenceRegistration {
+		return false
+	}
+	if strings.TrimSpace(item.Source) == "" || item.LineStart <= 0 {
+		return false
+	}
+	if item.GroundingStatus == GroundingUngrounded {
+		return false
+	}
+	switch item.ContextRole {
+	case EvidenceContextRoleIllustrativeOnly, EvidenceContextRoleRelatedContext:
+		return false
+	}
+	if purpose != TypedRelationPurposeCoverageGate {
+		return true
+	}
+	if !item.IsCitable() {
+		return false
+	}
+	if item.ContextRole == EvidenceContextRoleDefining {
+		return true
+	}
+	return item.Salience == SalienceLoadBearing || item.Salience == SalienceExhaustListed
+}
+
+func evidenceRelationConfigItemUsable(item EvidenceItem, purpose TypedRelationPurpose) bool {
+	switch item.Kind {
+	case EvidenceDirect, EvidenceMechanism, EvidenceRelationship, EvidenceConcrete:
+	default:
 		return false
 	}
 	if strings.TrimSpace(item.Source) == "" || item.LineStart <= 0 {
@@ -104,6 +140,28 @@ func evidenceRegistrationCandidatesForSource(item EvidenceItem, rawSource string
 	return out
 }
 
+func evidenceConfigCandidatesForSource(item EvidenceItem, rawSource string, purpose TypedRelationPurpose) []TypedRelationCandidate {
+	source := strings.TrimSpace(rawSource)
+	if source == "" {
+		return nil
+	}
+	configSurfaces := append([]string{item.Object, item.AnchorSymbol}, item.SurfaceTerms...)
+	var out []TypedRelationCandidate
+	if evidenceRelationSurfaceMatches(source, configSurfaces...) {
+		if member := evidenceConfigMember(item, item.Subject, "config_site"); member.Name != "" &&
+			!evidenceRelationSurfaceMatches(member.Name, source) {
+			out = append(out, evidenceConfigCandidate(item, source, "config_key", member, purpose))
+		}
+	}
+	if evidenceRelationSurfaceMatches(source, item.Subject, item.OwnerSymbol) {
+		if member := evidenceConfigMember(item, item.Object, "config_key"); member.Name != "" &&
+			!evidenceRelationSurfaceMatches(member.Name, source) {
+			out = append(out, evidenceConfigCandidate(item, source, "config_site", member, purpose))
+		}
+	}
+	return out
+}
+
 func evidenceRegistrationCandidate(item EvidenceItem, sourceName, sourceKind string, member TypedRelationMember, purpose TypedRelationPurpose) TypedRelationCandidate {
 	precision := TypedRelationPrecisionExactEvidence
 	if purpose == TypedRelationPurposePromptHint && item.GroundingStatus == GroundingRecovered {
@@ -121,8 +179,49 @@ func evidenceRegistrationCandidate(item EvidenceItem, sourceName, sourceKind str
 	}
 }
 
+func evidenceConfigCandidate(item EvidenceItem, sourceName, sourceKind string, member TypedRelationMember, purpose TypedRelationPurpose) TypedRelationCandidate {
+	precision := TypedRelationPrecisionExactEvidence
+	if purpose == TypedRelationPurposePromptHint && item.GroundingStatus == GroundingRecovered {
+		precision = TypedRelationPrecisionNameOnly
+	}
+	return TypedRelationCandidate{
+		Relation:   TypedRelationConfigures,
+		SourceName: strings.TrimSpace(sourceName),
+		SourceKind: sourceKind,
+		SourceFile: cleanEvidenceRelationPath(item.Source),
+		SourceLine: item.LineStart,
+		Member:     member,
+		Carrier:    TypedRelationCarrierEvidence,
+		Precision:  precision,
+	}
+}
+
 func evidenceRegistrationMember(item EvidenceItem, preferred, fallbackKind string) TypedRelationMember {
 	name := strings.TrimSpace(preferred)
+	if name == "" {
+		name = strings.TrimSpace(item.AnchorSymbol)
+	}
+	if name == "" {
+		return TypedRelationMember{}
+	}
+	kind := strings.TrimSpace(string(item.AnchorKind))
+	if kind == "" {
+		kind = fallbackKind
+	}
+	return TypedRelationMember{
+		Name:     name,
+		File:     cleanEvidenceRelationPath(item.Source),
+		Line:     item.LineStart,
+		Kind:     kind,
+		Distance: 1,
+	}
+}
+
+func evidenceConfigMember(item EvidenceItem, preferred, fallbackKind string) TypedRelationMember {
+	name := strings.TrimSpace(preferred)
+	if name == "" {
+		name = strings.TrimSpace(item.OwnerSymbol)
+	}
 	if name == "" {
 		name = strings.TrimSpace(item.AnchorSymbol)
 	}
@@ -163,6 +262,9 @@ func evidenceRelationSurfaceCandidates(raw string) []string {
 		return nil
 	}
 	out := []string{raw}
+	if trimmed := strings.Trim(raw, "`'\""); trimmed != "" && trimmed != raw {
+		out = append(out, trimmed)
+	}
 	if tail := NormalizedSurfaceSymbolTail(raw); tail != "" && tail != raw {
 		out = append(out, tail)
 	}
@@ -179,6 +281,7 @@ func evidenceRelationStableKey(raw string) string {
 	if raw == "" {
 		return ""
 	}
+	raw = strings.Trim(raw, "`'\"")
 	if tail := NormalizedSurfaceSymbolTail(raw); tail != "" {
 		raw = tail
 	}

@@ -260,7 +260,7 @@ system may provide soft guidance only.
 | overrides/conformance | language extractors and `Relation.Kind=inheritance` derivatives | Soft first | Need extractor audit before hard-gate. |
 | registration/binding | LLM evidence, `AnchorAssignment`, relation labels | Evidence-driven first | Different languages/frameworks express this differently; graph-only carrier is not stable enough yet. |
 | scoped-to / package exports | `FileInfo.Package`, `SymbolsInFile`, exported flag | Prompt hint / source-inventory boundary | Must not revive old source-inventory rewrite bugs; append-only support only unless user asks inventory. |
-| route/config/event observer | framework-specific evidence and external observation anchors | Evidence-driven | Add typed relation only when upstream emits exact structured evidence. |
+| route/config/event observer | framework-specific evidence and external observation anchors | Evidence-driven | Config-key relation prompt hints are enabled only from accepted structured evidence; route/observer remain pending exact typed carriers. |
 | external observation -> source anchor | observation ledger, runtime artifact evidence, source evidence | Hard-gate eligible after exact artifact anchor + source anchor | Covers logs, traces, VCS, command output, MCP/web/connector artifacts. |
 
 ## 6. Data Flow
@@ -1057,6 +1057,50 @@ Implemented contract:
 This does not create a new evidence mechanism, does not scan user/model prose,
 and does not authorize system supplements to replace a model-authored answer.
 
+### R9b. Evidence-driven config-key relation prompt carrier
+
+Status: **Done — 2026-05-24**
+
+This slice closes the safest route/config part of the T13 backlog without
+adding framework keyword tables or a hard gate. The supported relation is:
+
+- source = analyzer/request-scoped config key or config site;
+- member = accepted structured evidence row's opposite endpoint;
+- relation = `configures`;
+- carrier = `typed_evidence`;
+- precision = exact evidence for grounded rows, name-only for recovered prompt
+  rows.
+
+Design constraints:
+
+1. Selection is typed-only. `BuildTypedRelationQuery` selects `configures` only
+   for `predicate_axis=configure` or `question_kind=config_mapping`, and only
+   for `prompt_hint` purpose. Coverage-gate selection remains disabled until a
+   separate hard-gate contract proves exact same-member evidence across
+   languages.
+2. The provider reuses `EvidenceRelationCandidateSource`; no new evidence stack
+   or language-specific scanner was added.
+3. The provider consumes accepted `EvidenceItem` fields (`subject`, `object`,
+   `anchor_symbol`, `surface_terms`, `source`, `line_start`,
+   `grounding_status`) and never inspects raw user prose or model free-form
+   answer text.
+4. The slice is language-neutral. It works for any language or config format
+   whose explorer/deterministic producer can emit a grounded structured
+   evidence row. It does not assume Go syntax, Java annotations, HTTP
+   frameworks, YAML keys, or route decorators.
+5. System behavior is advisory only: it gives downstream agents a structured
+   config relation context, but does not replace model prose/tables and does
+   not authorize a missing-member hard reject.
+
+Remaining route/config work:
+
+- route -> handler should use the same provider boundary once the upstream
+  producer emits an exact route evidence row or source fact;
+- observer/subscriber should stay evidence-driven like registration until a
+  language-neutral graph carrier exists;
+- any future hard-gate mode needs its own exact-carrier + grounded same-member
+  evidence tests before activation.
+
 R9 follow-up relation family activation:
 
 These are the next provider-mapping tasks. They must extend the same
@@ -1068,11 +1112,12 @@ raw-text selectors.
 |---|---|---|---|
 | `called-by` / call graph | function/method source resolves to canonical symbol ID; receiver disambiguated when present | Done in R5 through `ResolveCallTarget`; duplicate method-name tests pin name-only fallback | Hard only for exact symbol ID + grounded same-member evidence; name-only callers remain prompt-only. |
 | `imports` / `exports` | file, package, module, or import path resolves through repomap import graph | Done in R3 through `ImportGraph` / `ReverseImports`; exact-file and package/directory-soft tests cover all supported read languages | Hard only for exact file/import-path rows inside requested scope; unresolved imports become uncertainty/negative evidence. |
-| `registers` / event observer / binding | model/tool emits exact registration evidence or graph extractor emits exact binding relation | Keep evidence-driven first; add provider rows only when source and member both have exact anchors | No framework keyword tables; hard only after exact evidence + grounded same-member evidence. |
+| `registers` / event observer / binding | model/tool emits exact registration evidence or graph extractor emits exact binding relation | Registration evidence provider is done; observer stays evidence-driven until exact producer exists | No framework keyword tables; hard only after exact evidence + grounded same-member evidence. |
 | `extends` / inheritance | source type resolves as class/interface/trait/protocol and relation endpoint uniquely resolves to that symbol | Done in R4 through `Relation.Kind=inheritance`; ambiguous same-name targets stay `NameOnly` prompt context | Hard only for exact rows with grounded evidence. |
 | overrides / conformance-specific rows | language extractor emits an exact override/conformance edge or evidence carrier with source/member anchors | Pending; do not infer from naming conventions or prose | Soft until exact provider and grounded same-member tests exist. |
 | references / type usage | endpoint resolves to exact symbol ID and typed `ChangeImpactProfile` asks for affected/use sites | Done for prompt hints through exact graph references; remaining work is rank/budget eval before any hard selector is considered | Soft by default; hard only for future explicit bounded member_set with exact evidence. |
 | external observation -> source anchor | log/trace/VCS/command/MCP/web/connector artifact span plus current-source anchor | Reuse external evidence/artifact ledger and blob/page readers to create exact observation relation rows | Hard only when both artifact anchor and current-source anchor are exact; otherwise append localized uncertainty. |
+| config key -> read/apply site | model/tool emits exact config-mapping evidence row with source/member anchors | Done for prompt hints through `EvidenceRelationCandidateSource` and `configures`; route/config hard gates remain disabled | No raw-prose matching; no system-authored answer replacement. |
 
 This backlog is intentionally relation-family agnostic: adding a family means
 supplying typed facts and provider tests, not teaching downstream stages a new
