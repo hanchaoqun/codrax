@@ -59,6 +59,12 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 			supplementRows = set.Rows
 			supplementMode = principalEnumerationSupplementVerifiedFields
 		}
+		if len(supplementRows) == 0 {
+			if noteRows := principalEnumerationRowsNeedingNoteSupplement(doc, set); len(noteRows) > 0 {
+				supplementRows = noteRows
+				supplementMode = principalEnumerationSupplementVerifiedNotes
+			}
+		}
 		supplementRows = principalEnumerationRenderableSupplementRows(supplementRows)
 		if len(supplementRows) > 0 {
 			doc.Blocks = append(doc.Blocks, buildPrincipalEnumerationRowsBlock(doc, set, supplementRows, zh, supplementMode))
@@ -76,6 +82,7 @@ type principalEnumerationSupplementMode int
 const (
 	principalEnumerationSupplementMissing principalEnumerationSupplementMode = iota
 	principalEnumerationSupplementVerifiedFields
+	principalEnumerationSupplementVerifiedNotes
 )
 
 func principalEnumerationSystemSupplementSuppressed(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
@@ -639,6 +646,138 @@ func principalEnumerationNeedsVerifiedFieldSupplement(doc *types.AnswerDocumentV
 	return false
 }
 
+func principalEnumerationRowsNeedingNoteSupplement(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet) []types.EnumerationDisplayRow {
+	if doc == nil || len(set.Rows) == 0 {
+		return nil
+	}
+	visible := preEmitVisibleAnswerSurface(doc)
+	var out []types.EnumerationDisplayRow
+	for _, row := range set.Rows {
+		if strings.TrimSpace(row.Note) == "" || !principalEnumerationDocumentCoversRow(doc, row) {
+			continue
+		}
+		if principalEnumerationNoteVisibleInSurface(visible, row.Note) {
+			continue
+		}
+		if principalEnumerationRowHasAuthoredDescription(doc, row) {
+			continue
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+func principalEnumerationNoteVisibleInSurface(surface, note string) bool {
+	surfaceKey := principalEnumerationNoteCoverageKey(surface)
+	noteKey := principalEnumerationNoteCoverageKey(note)
+	if surfaceKey == "" || noteKey == "" {
+		return false
+	}
+	return strings.Contains(surfaceKey, noteKey)
+}
+
+func principalEnumerationNoteCoverageKey(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	raw = strings.Trim(raw, "`*_")
+	return strings.ToLower(strings.Join(strings.Fields(raw), " "))
+}
+
+func principalEnumerationRowHasAuthoredDescription(doc *types.AnswerDocumentV2, row types.EnumerationDisplayRow) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if !principalEnumerationBlockCanCarryRows(block) {
+			continue
+		}
+		if text := strings.TrimSpace(block.Text); text != "" {
+			for _, cells := range principalEnumerationMarkdownTableRows(text) {
+				if principalEnumerationMarkdownRowCoversRow(cells, row) &&
+					principalEnumerationMarkdownRowHasAuthoredDescription(cells, row) {
+					return true
+				}
+			}
+		}
+		for _, item := range block.Items {
+			if principalEnumerationStructuredItemCoversRow(item, doc, row) &&
+				principalEnumerationStructuredItemHasAuthoredDescription(item, row) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func principalEnumerationMarkdownRowHasAuthoredDescription(cells []string, row types.EnumerationDisplayRow) bool {
+	for _, cell := range cells {
+		if principalEnumerationCellIsAuthoredDescription(cell, row) {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationStructuredItemHasAuthoredDescription(item types.AnswerBlockItem, row types.EnumerationDisplayRow) bool {
+	if principalEnumerationCellIsAuthoredDescription(item.Text, row) {
+		return true
+	}
+	for _, cell := range item.Cells {
+		if principalEnumerationCellIsAuthoredDescription(cell, row) {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationCellIsAuthoredDescription(raw string, row types.EnumerationDisplayRow) bool {
+	cell := principalEnumerationCleanCellText(raw)
+	if cell == "" {
+		return false
+	}
+	for _, candidate := range principalEnumerationRowSurfaceCandidates(row) {
+		if principalEnumerationNoteCoverageKey(cell) == principalEnumerationNoteCoverageKey(candidate) {
+			return false
+		}
+	}
+	if category := strings.TrimSpace(row.Category); category != "" &&
+		principalEnumerationNoteCoverageKey(cell) == principalEnumerationNoteCoverageKey(category) {
+		return false
+	}
+	if row.Location != "" && principalEnumerationCandidateLocationCompatible(cell, row) &&
+		len(aggregateToolLocationPattern.FindAllString(cell, -1)) > 0 {
+		withoutLocations := strings.TrimSpace(aggregateToolLocationPattern.ReplaceAllString(cell, ""))
+		if withoutLocations == "" {
+			return false
+		}
+	}
+	return principalEnumerationDescriptionCellLooksMeaningful(cell)
+}
+
+func principalEnumerationCleanCellText(raw string) string {
+	raw = strings.TrimSpace(raw)
+	raw = strings.Trim(raw, "`*_")
+	raw = strings.ReplaceAll(raw, "<br>", " ")
+	raw = strings.ReplaceAll(raw, "<br/>", " ")
+	raw = strings.ReplaceAll(raw, "<br />", " ")
+	return strings.Join(strings.Fields(raw), " ")
+}
+
+func principalEnumerationDescriptionCellLooksMeaningful(cell string) bool {
+	if cell == "" {
+		return false
+	}
+	meaningful := 0
+	for _, r := range cell {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) || unicode.Is(unicode.Han, r) {
+			meaningful++
+		}
+	}
+	return meaningful >= 2
+}
+
 func principalEnumerationHasIncompatibleStructuredTableAttempt(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet) bool {
 	if doc == nil || len(set.Rows) == 0 {
 		return false
@@ -798,6 +937,12 @@ func principalEnumerationRowsBlockTitle(set types.EnumerationDisplaySet, rows []
 			return fmt.Sprintf("系统按已验证证据补充可校验字段：%s（%d）", label, len(rows))
 		}
 		return fmt.Sprintf("System-verified field supplement: %s (%d)", label, len(rows))
+	}
+	if mode == principalEnumerationSupplementVerifiedNotes {
+		if zh {
+			return fmt.Sprintf("系统按已验证证据补充说明：%s（%d）", label, len(rows))
+		}
+		return fmt.Sprintf("System-verified note supplement: %s (%d)", label, len(rows))
 	}
 	if zh {
 		return fmt.Sprintf("系统按已验证证据补充成员：%s（%d）", label, len(rows))

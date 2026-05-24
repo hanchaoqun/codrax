@@ -1540,6 +1540,176 @@ func TestNormalizePrincipalEnumerationRowBlocks_PreservesAuthoredRichRowNotes(t 
 	if strings.Contains(visible, "KindSymbolPresent常量定义") || strings.Contains(visible, "KindNoCallSites常量定义") {
 		t.Fatalf("weak evidence summaries should not overwrite richer same-row finalizer text:\n%s", visible)
 	}
+	if strings.Contains(visible, "系统按已验证证据补充说明") {
+		t.Fatalf("authored row descriptions should not receive a system note supplement:\n%s", visible)
+	}
+}
+
+func TestNormalizePrincipalEnumerationRowBlocks_AppendsVerifiedNoteSupplementForDryRows(t *testing.T) {
+	mu := types.NewMutableState("列出 Kind 常量")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("kind_symbol_present", "KindSymbolPresent", "internal/analysis/criterion/grammar.go", 29, "符号存在性判定，用于确认目标符号是否出现在证据或答案集合中。"),
+		enumEvidence("kind_no_call_sites", "KindNoCallSites", "internal/analysis/criterion/grammar.go", 30, "调用点缺失判定，用于确认目标符号没有被调用。"),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "Kind 常量",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"KindSymbolPresent", "KindNoCallSites"},
+		SupportRefs: []string{
+			"KindSymbolPresent @ internal/analysis/criterion/grammar.go:29",
+			"KindNoCallSites @ internal/analysis/criterion/grammar.go:30",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	originalTable := strings.Join([]string{
+		"| 符号名称 | 定义位置 |",
+		"|---|---|",
+		"| KindSymbolPresent | grammar.go:29 |",
+		"| KindNoCallSites | grammar.go:30 |",
+	}, "\n")
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:    "dry_kinds",
+		Kind:  types.BlockTable,
+		Title: "Kind 常量",
+		Text:  originalTable,
+	}}}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatal("expected append-only verified note supplement for dry rows")
+	}
+	authored := answerDocumentTestBlockByID(t, doc, "dry_kinds")
+	if authored.Text != originalTable {
+		t.Fatalf("model-authored markdown table must not be rewritten:\n%s", authored.Text)
+	}
+	var supplement *types.AnswerBlock
+	for i := range doc.Blocks {
+		if strings.Contains(doc.Blocks[i].Title, "系统按已验证证据补充说明：Kind 常量") {
+			supplement = &doc.Blocks[i]
+			break
+		}
+	}
+	if supplement == nil {
+		t.Fatalf("expected localized note supplement, got %+v", doc.Blocks)
+	}
+	visible := types.AnswerBlockVisibleSurface(*supplement)
+	for _, want := range []string{"符号存在性判定", "调用点缺失判定"} {
+		if !strings.Contains(visible, want) {
+			t.Fatalf("supplement lost verified note %q:\n%s", want, visible)
+		}
+	}
+}
+
+func TestNormalizePrincipalEnumerationRowBlocks_DoesNotDuplicateVisibleVerifiedNotes(t *testing.T) {
+	mu := types.NewMutableState("列出 Kind 常量")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("kind_symbol_present", "KindSymbolPresent", "internal/analysis/criterion/grammar.go", 29, "符号存在性判定，用于确认目标符号是否出现在证据或答案集合中。"),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "Kind 常量",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"KindSymbolPresent"},
+		SupportRefs: []string{"KindSymbolPresent @ internal/analysis/criterion/grammar.go:29"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{
+		{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "KindSymbolPresent 是符号存在性判定，用于确认目标符号是否出现在证据或答案集合中。",
+		},
+		{
+			ID:    "dry_kinds",
+			Kind:  types.BlockTable,
+			Title: "Kind 常量",
+			Text: strings.Join([]string{
+				"| 符号名称 | 定义位置 |",
+				"|---|---|",
+				"| KindSymbolPresent | grammar.go:29 |",
+			}, "\n"),
+		},
+	}}
+
+	normalizePrincipalEnumerationRowBlocks(doc, ctx)
+	joined := answerDocumentTestVisibleSurface(doc)
+	if strings.Contains(joined, "系统按已验证证据补充说明") {
+		t.Fatalf("already visible verified note should not be duplicated:\n%s", joined)
+	}
+}
+
+func TestNormalizePrincipalEnumerationRowBlocks_NoteSupplementSupportsExternalOrigins(t *testing.T) {
+	mu := types.NewMutableState("最近一次合入是什么特性")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "最近提交",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"bfc2054", "677035e"},
+		MemberNotes: []string{
+			"bfc2054 引入 typed relation selector，影响 caller/import relation 的提示与覆盖检查。",
+			"677035e 接入 called-by relation provider，稳定调用者枚举答案。",
+		},
+		Dimensions: []types.AnswerAggregateDimension{
+			{Name: "origin", Value: string(types.AnswerEvidenceOriginVCSMetadata)},
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:    "commits",
+		Kind:  types.BlockTable,
+		Title: "最近提交",
+		Text: strings.Join([]string{
+			"| 提交 |",
+			"|---|",
+			"| bfc2054 |",
+			"| 677035e |",
+		}, "\n"),
+	}}}
+
+	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
+		t.Fatal("expected origin-specific note supplement")
+	}
+	joined := answerDocumentTestVisibleSurface(doc)
+	if !strings.Contains(joined, "系统按已验证证据补充说明：最近提交") ||
+		!strings.Contains(joined, "typed relation selector") {
+		t.Fatalf("external-origin note supplement missing rich note:\n%s", joined)
+	}
+	if strings.Contains(joined, "internal/") {
+		t.Fatalf("VCS-origin note supplement must not invent current-source citations:\n%s", joined)
+	}
 }
 
 func TestNormalizePrincipalEnumerationRowBlocks_CorrectsCoarseStructuredItemCitationRef(t *testing.T) {
@@ -2078,4 +2248,15 @@ func answerDocumentTestBlockByID(t *testing.T, doc *types.AnswerDocumentV2, id s
 	}
 	t.Fatalf("block %q not found in %+v", id, doc.Blocks)
 	return types.AnswerBlock{}
+}
+
+func answerDocumentTestVisibleSurface(doc *types.AnswerDocumentV2) string {
+	if doc == nil {
+		return ""
+	}
+	parts := make([]string, 0, len(doc.Blocks))
+	for _, block := range doc.Blocks {
+		parts = append(parts, types.AnswerBlockVisibleSurface(block))
+	}
+	return strings.Join(parts, "\n")
 }

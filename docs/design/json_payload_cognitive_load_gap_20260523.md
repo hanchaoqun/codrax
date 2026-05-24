@@ -1145,6 +1145,29 @@ untouched.
       keyword detection, preview routing, non-Mermaid code fences, and the
       existing terminal renderer subset.
 
+- Batch 48 — analyzer complex-object payload burden. Status: proposed.
+  - New observation from focused R8 replay
+    `eval/results/r8-rich-notes-20260524-103156/read_combo_criterion_rich_functions-20260524-103159`:
+    finalizer stayed one round and preserved rich row descriptions, but analyzer
+    needed eight rounds because complex optional fields such as `sub_topics` and
+    `source_inventory_profile` were emitted as malformed/string-wrapped objects
+    before the model fell back to a smaller `emit_analysis` payload.
+  - Root hypothesis: the analyzer tool schema exposes many optional nested
+    objects in the same call as the mandatory route classification. Existing
+    shared `StructuredPayloadCompat` handles common carrier repairs after a
+    tool call arrives, but it does not reduce the model's cognitive load while
+    choosing which optional profiles are necessary.
+  - Design direction: keep the shared schema-aware repair layer as the only JSON
+    compatibility boundary; do not create analyzer-local JSON fixers. Prefer
+    typed analyzer prompt simplification, smaller optional profile examples, and
+    lossless repair metadata for the specific optional-field paths that still
+    fail. Any fallback must preserve the analyzer's core classification and
+    must not infer user intent from raw prose keyword scans.
+  - Validation target: source-inventory/function-enumeration replay should not
+    need to drop `source_inventory_profile` just to satisfy JSON shape, and
+    successful classification should arrive without multiple schema-only
+    retries.
+
 ## Scope
 
 This document clusters recurring failures where the model is forced to produce,

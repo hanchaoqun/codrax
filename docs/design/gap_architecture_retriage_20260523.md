@@ -186,7 +186,7 @@ violating the user's requested evidence mix.
 | T11 | In progress | Make explorer completion monotonic: accepted parallel closures own principal state, non-winning partial siblings cannot pollute aggregate facts or repair debt, and post-completion support reads become enrichment unless a typed load-bearing facet is still missing. B1-B3 are done; hybrid origin/facet partition and focused eval replay remain. | `docs/design/explorer_convergence_monotonicity_20260524.md`, `internal/orchestrator/explore_parallel_dispatch.go`, `internal/orchestrator/orchestrator.go`, `internal/types/evidence_closure.go` | parallel convergence unit tests + focused qf/s5b/u7k evals |
 | T12 | In progress | Generalize typed relation facts beyond enumeration-only paths while preventing source-inventory repair from rewriting relation member sets. Interface/trait/protocol → implementer relations are foundational repomap facts and must surface for diagrams, mechanism explanations, comparisons, counts, and enumerations when analyzer emits a typed relation axis such as `predicate_axis=implement`. | `internal/context/typed_relations.go`, `internal/types/request_traits.go`, `internal/agent/explorer.go`, `internal/tool/source_inventory_reconcile.go`, `eval/cases/qf_type_relation_loop_controller.case` | typed relation unit tests across repomap languages + focused qf replay |
 | T13 | In progress | Relation coverage should become a common typed contract, not an `implements`-only special case. Extend the same "typed relation member + grounded evidence + source scope + model-authored member_set" safety rule to inheritance/subclass, override/conformance, caller/callee, registration/binding, import/dependency, package/export membership, config key→read site, route→handler, event→observer/subscriber, and external observation→source-anchor relations as their precise graph/evidence carriers become available. R1/R2 are done: common typed relation candidate/query/provider types exist, MultiGraph exposes generic candidates for exact implementer rows, and the existing implementer pre-complete gate now runs through the generic coverage helper. Remaining work starts with import/dependency provider R3. Detailed contract and task list are tracked in `docs/design/typed_relation_coverage_contract_20260524.md`. | `internal/types` relation provider boundary, `internal/context` probe/render, existing repomap graph relations, evidence origins | per-relation unit tests, at least one non-Go fixture for each graph-backed relation |
-| T14 | Proposed | Rich row notes can still be rendered dry when the finalizer chooses a Markdown table and puts per-member descriptions only in the summary paragraph. Do not rewrite or delete model tables; add a localized, append-only "已验证说明补充" block only when principal rows have notes and the visible principal member table/list omits row-level descriptions. | answer document display supplement, principal enumeration row compiler | table/list tests proving model-authored content is preserved and supplement is independent |
+| T14 | Done | Rich row notes can still be rendered dry when the finalizer chooses a Markdown table and puts per-member descriptions only in the summary paragraph. Implemented a localized, append-only verified-note supplement that never rewrites or deletes model tables and fires only when typed principal rows are visible but row-level descriptions are missing. | answer document display supplement, principal enumeration row compiler, `docs/design/typed_relation_coverage_contract_20260524.md` R8 | table/list tests proving model-authored content is preserved and supplement is independent; focused R8 eval passed with `finalizer_iters=1` |
 
 ## Implementation Notes For Future Batches
 
@@ -299,8 +299,20 @@ violating the user's requested evidence mix.
       descriptions in the summary paragraph while the Markdown table stayed
       dry (`实现类型 / 文件位置 / Observe 方法行号`). This is not evidence loss
       — the prompt contained rich notes and the final answer summary used
-      them — but the table-level presentation is weaker than desired. T14 tracks
-      an append-only localized supplement instead of system replacement.
+      them — but the table-level presentation is weaker than desired. T14 now
+      implements an append-only localized supplement instead of system
+      replacement.
+    - 2026-05-24 T14 complete: added a third principal-enumeration supplement
+      mode for verified notes. It preserves model-authored tables/lists/prose,
+      appends `系统按已验证证据补充说明：...` / `System-verified note
+      supplement: ...` only when visible principal rows are dry, avoids
+      duplicating notes already visible elsewhere, and supports non-current
+      origins such as VCS rows without inventing current-source citations.
+      Validation: `go test ./internal/tool ./internal/types ./internal/agent
+      ./internal/orchestrator` and focused eval
+      `eval/results/r8-rich-notes-20260524-103156/read_combo_criterion_rich_functions-20260524-103159`
+      passed; finalizer stayed one round and preserved rich Chinese row
+      descriptions.
   - Relation classes that need the same contract after `implements`:
     inheritance/subclass, override/conformance, caller/callee, registration or
     binding table, import/dependency, package/export membership, config key to

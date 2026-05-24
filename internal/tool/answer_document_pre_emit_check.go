@@ -3381,7 +3381,9 @@ func preEmitSystemEnumerationRowSupplementBlock(block types.AnswerBlock) bool {
 	title := strings.TrimSpace(block.Title)
 	return preEmitSystemMissingMemberSupplementBlock(block) ||
 		strings.HasPrefix(title, "系统按已验证证据补充可校验字段：") ||
-		strings.HasPrefix(title, "System-verified field supplement:")
+		strings.HasPrefix(title, "System-verified field supplement:") ||
+		strings.HasPrefix(title, "系统按已验证证据补充说明：") ||
+		strings.HasPrefix(title, "System-verified note supplement:")
 }
 
 func preEmitBlockBindsToAggregateCount(block types.AnswerBlock, surface string, fact types.AnswerAggregateFact, memberBindingMin int) bool {

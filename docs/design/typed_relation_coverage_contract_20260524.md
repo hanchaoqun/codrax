@@ -649,13 +649,95 @@ Status: **Pending**
 
 ### R8. Prompt and finalizer ledger alignment
 
-Status: **Pending**
+Status: **Done — 2026-05-24**
 
-- Keep typed relation hints as a single unified structured-evidence appendix.
-- Do not create duplicate per-relation sections.
-- Ensure rich `summary` / `note` from model evidence beats dry graph hints for
-  duplicate tuples.
-- Preserve localized append-only supplement wording.
+This batch is about preserving rich exploration summaries without letting the
+system rewrite, replace, or compress model-authored answers. Current code
+already has the right primitives:
+
+- `types.CompileEnumerationDisplaySets` merges accepted `aggregate_facts`,
+  grounded evidence, same-anchor summaries, step-backbone details, and
+  `member_notes` into deterministic principal rows.
+- `types.ProjectObservationPromptRecords` is the shared compact projection for
+  finalizer and semantic reviewer observation ledgers.
+- `normalizePrincipalEnumerationRowBlocks` and related pre-emit helpers are
+  append-only presentation repair paths; they do not author the model's main
+  answer.
+
+The remaining gap is narrower and should stay inside these existing contracts:
+the finalizer can produce a model-authored table/list that names every principal
+member and cites the right rows, but omits per-row explanations even though the
+accepted principal row contract has rich notes. Asking the model to rewrite for
+that omission is too expensive, and replacing its table risks answer collapse.
+The safe behavior is a localized, clearly separated supplement that appends only
+the missing verified notes.
+
+R8 detailed design:
+
+1. **No new ledger.** Reuse `EnumerationDisplaySet` / `EnumerationDisplayRow`
+   as the principal row ledger and `ObservationPromptRecord` as the observation
+   ledger. Do not add another summary carrier.
+2. **Model output remains primary.** If the model table/list already has any
+   row-level description for a member, keep it. A richer model phrase wins over
+   deterministic evidence notes, even when the exact text differs.
+3. **Append-only note supplement.** If a row is visibly present but has no
+   row-level description, and the compiled row has a non-empty note not already
+   visible elsewhere in the answer, append an independent block:
+   - Chinese: `系统按已验证证据补充说明：...`
+   - English: `System-verified note supplement: ...`
+   The block uses the same deterministic row table renderer and is clearly a
+   system supplement, not a replacement for the model table.
+4. **Conservative trigger.** The supplement may look at the final answer's
+   visible row surfaces only to avoid duplicate supplements. It must not parse
+   raw user prose, model thoughts, or prompt text, and it must not hard-reject
+   the answer.
+5. **Origin-neutral.** The same path must work for current-source, VCS/diff,
+   runtime/log/trace, command, cross-repo index, external document, web, MCP,
+   and connector-backed principal rows. It must not turn external observations
+   into current-source citations.
+6. **No system table replacement.** Incompatible model tables may still receive
+   a separate verified-field supplement. The new note supplement must not
+   delete, rewrite, or normalize a model-authored markdown table.
+
+R8 task list:
+
+- [x] Audit finalizer / reviewer / pre-emit row-note paths and confirm existing
+  shared ledgers can carry the data.
+- [x] Add localized append-only note-supplement mode to the existing principal
+  enumeration presentation compiler.
+- [x] Add tests proving dry model rows get a supplement, authored rich rows do
+  not, visible prose does not duplicate notes, and non-current-source origins
+  retain origin-specific support.
+- [x] Run focused unit tests and at least one focused eval that previously
+  produced dry tables.
+- [x] Update this document with implementation results and push the batch.
+
+R8 implementation results:
+
+- `normalizePrincipalEnumerationRowBlocks` now has a third supplement mode:
+  localized, append-only verified-note supplements. The model-authored
+  table/list/prose remains primary and byte-preserved; the supplement is emitted
+  only when a principal row is already visible, has a compiled verified note,
+  lacks a row-level authored description, and that note is not already visible
+  elsewhere in the answer.
+- The trigger consumes only the structured final answer surface and compiled
+  principal rows. It does not infer user intent from raw request text, model
+  thoughts, or exploratory prose, and it does not hard-reject the finalizer.
+- The supplement is origin-neutral. A VCS/diff/log/trace/command/MCP/web-style
+  row can receive the same verified-note supplement without being converted
+  into a current-source `file:line` citation.
+- Guardrails cover four cases: dry rows get a supplement, rich model-authored
+  rows do not, notes already visible in prose are not duplicated, and
+  non-current-source rows keep their origin-specific support.
+- Focused validation:
+  `go test ./internal/tool ./internal/types ./internal/agent ./internal/orchestrator`
+  passed, and focused eval
+  `eval/results/r8-rich-notes-20260524-103156/read_combo_criterion_rich_functions-20260524-103159`
+  passed with `finalizer_iters=1`, `semantic_quality_concerns=0`, and rich
+  Chinese row descriptions preserved in the model table. The replay still
+  showed `analyzer_iters=8` from complex `emit_analysis` JSON/object payload
+  burden; that is recorded under the JSON payload cognitive-load gap and is not
+  part of this presentation compiler fix.
 
 ### R9. Central relation-kind selection
 
