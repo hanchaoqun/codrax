@@ -857,7 +857,79 @@ func subTopicEntityResolvedForCoherence(surface string, rm types.RequestModel, r
 	if subTopicEntityMentionedByCurrentRequest(trimmed, rm) {
 		return true
 	}
+	if sourceInventoryDecoratedEntityResolvedForCoherence(trimmed, rm) {
+		return true
+	}
 	return typedEnumerationMemberSurfaceForCoherence(trimmed, rm)
+}
+
+func sourceInventoryDecoratedEntityResolvedForCoherence(surface string, rm types.RequestModel) bool {
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	scopeAliases := coherenceScopeAliasSet(rm)
+	if len(scopeAliases) == 0 {
+		return false
+	}
+	parts := coherenceDecoratedEntityParts(surface)
+	if len(parts) < 2 {
+		return false
+	}
+	for i := 1; i < len(parts); i++ {
+		member := strings.Join(parts[:i], " ")
+		if !scopeAliases[member] {
+			continue
+		}
+		if coherenceEntitySuffixNamesCandidateRole(strings.Join(parts[i:], " ")) {
+			return true
+		}
+	}
+	return false
+}
+
+func coherenceScopeAliasSet(rm types.RequestModel) map[string]bool {
+	out := map[string]bool{}
+	add := func(raw string) {
+		for _, alias := range coherenceIdentityAliases(raw) {
+			joined := strings.Join(coherenceDecoratedEntityParts(alias), " ")
+			if joined != "" {
+				out[joined] = true
+			}
+		}
+	}
+	for _, scope := range sourceInventoryCoherenceScopes(rm) {
+		add(scope)
+	}
+	for _, entity := range rm.AnalyzerHints.PrimaryEntities {
+		add(entity)
+	}
+	for _, entity := range rm.AnalyzerHints.Entities {
+		add(entity)
+	}
+	for _, scope := range rm.AnalyzerHints.PrimaryScopes {
+		add(scope)
+	}
+	return out
+}
+
+func coherenceDecoratedEntityParts(surface string) []string {
+	normalized := strings.ToLower(normalizeCoherencePathSurface(surface))
+	replacer := strings.NewReplacer("-", " ", "_", " ", ".", " ")
+	normalized = replacer.Replace(normalized)
+	return strings.Fields(normalized)
+}
+
+func coherenceEntitySuffixNamesCandidateRole(suffix string) bool {
+	parts := coherenceDecoratedEntityParts(suffix)
+	for start := 0; start < len(parts); start++ {
+		for end := start + 1; end <= len(parts); end++ {
+			role, ok := types.NormalizeAnswerCandidateRole(strings.Join(parts[start:end], " "))
+			if ok && role != types.AnswerCandidateRoleUnknown && role != types.AnswerCandidateRoleOther {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func subTopicEntityMentionedByCurrentRequest(surface string, rm types.RequestModel) bool {

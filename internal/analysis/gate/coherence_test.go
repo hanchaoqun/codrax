@@ -478,6 +478,66 @@ func TestSubtopicCoherence_R1_5_SourceInventoryFileAsymmetryIsAdvisory(t *testin
 	}
 }
 
+func TestSubtopicCoherence_R1_5_SourceInventoryDecoratedRoleSuffixResolves(t *testing.T) {
+	resolver := &fakeSymbolResolver{
+		byRepoSurface: map[string][]normalizer.SymbolHit{
+			"internal/analysis/aggregator": {{Canonical: "internal/analysis/aggregator", Domain: "analysis"}},
+		},
+	}
+	rm := types.RequestModel{
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{
+				"internal/analysis/aggregator",
+				"internal/analysis/gate",
+			},
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRolePackage},
+			Confidence:        0.95,
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "directory members", Entities: []string{"internal/analysis/aggregator"}},
+			{Summary: "entry attributes", Entities: []string{"gate entry function"}},
+		},
+	}
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	if !check.Passed {
+		t.Fatalf("source-inventory member + typed role suffix should satisfy R1.5; got %+v", check)
+	}
+}
+
+func TestSubtopicCoherence_R1_5_SourceInventoryDecoratedRoleSuffixIsScoped(t *testing.T) {
+	resolver := &fakeSymbolResolver{
+		byRepoSurface: map[string][]normalizer.SymbolHit{
+			"internal/analysis/aggregator": {{Canonical: "internal/analysis/aggregator", Domain: "analysis"}},
+		},
+	}
+	rm := types.RequestModel{
+		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{
+				"internal/analysis/aggregator",
+				"internal/analysis/gate",
+			},
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRolePackage},
+			Confidence:        0.95,
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "directory members", Entities: []string{"internal/analysis/aggregator"}},
+			{Summary: "invented entry attributes", Entities: []string{"scheduler entry function"}},
+		},
+	}
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), resolver)
+	if check.Passed {
+		t.Fatalf("decorated role suffix must not bless members outside the source-inventory scope aliases; got %+v", check)
+	}
+}
+
 func TestSubtopicCoherence_R1_5_MarkerInventoryFileAsymmetryIsAdvisory(t *testing.T) {
 	resolver := &fakeSymbolResolver{
 		byFile: map[string][]normalizer.SymbolHit{

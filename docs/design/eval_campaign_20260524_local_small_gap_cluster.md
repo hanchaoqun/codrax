@@ -2436,3 +2436,34 @@ B2-N analyzer broad child-list pre-scan gap, 2026-05-25 CST:
 - This remains cross-language: entries are treated as repo-relative path
   surfaces only. No Go parser, extension, package naming convention, user
   keyword, or model-prose rule participates in the control flow.
+- Partial eval observation:
+  - `eval/results/b2n-analyzer-child-list/s5b-20260525-012859` was started
+    from the B2-N build and interrupted after B2-O was diagnosed.
+  - The analyzer path changed as intended: `repo_map internal/analysis` ->
+    `list_files internal/analysis` -> `emit_analysis`; it did not spend another
+    analyzer round listing each child directory.
+  - The first `emit_analysis` then hit the B2-O decorated-entity coherence gap
+    below, so this run is retained as a partial diagnostic rather than a final
+    post-fix eval.
+
+B2-O source-inventory decorated entity coherence gap, 2026-05-25 CST:
+
+- The B2-N eval showed the child-list loop was fixed in analyze: the first
+  attempt used `repo_map internal/analysis`, `list_files internal/analysis`,
+  then `emit_analysis`. The remaining analyzer failure was a different
+  coherence false positive: sub-topic entities such as `gate entry function`
+  combine a verified source-inventory member alias (`gate`) with a typed role
+  suffix (`function`). R1.5 treated the whole decorated surface as an invented
+  unresolved symbol.
+- Fix:
+  - only when `source_inventory_profile` is active, split structured sub-topic
+    entity surfaces into `member alias + role suffix`;
+  - the member alias must match existing source-inventory primary scope/entity
+    aliases such as `internal/analysis/gate` -> `gate`;
+  - the suffix must contain a normalized `AnswerCandidateRole` such as
+    function, method, type, config_key, route, etc.;
+  - the result is used only to avoid a coherence hard-fail. It is not evidence,
+    not an answer member, and not a parser/language decision.
+- Guard:
+  - unrelated decorated surfaces like `scheduler entry function` still fail
+    when `scheduler` is not a source-inventory scope alias.
