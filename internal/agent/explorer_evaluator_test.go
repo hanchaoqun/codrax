@@ -234,6 +234,106 @@ func TestRenderExtractorSourceInventoryAdvisory_RendersCandidateAttributes(t *te
 	}
 }
 
+func TestExplorerSourceInventoryPrompt_RendersObservationOnlyRows(t *testing.T) {
+	mut := types.NewMutableState("list mixed-language entrypoints")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"src"},
+		Provenance:   []string{"repo_lens:tool_query"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    1,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "run_alpha",
+				Key:           "run_alpha",
+				SupportRef:    "run_alpha: src/alpha/a.py:7",
+				Role:          types.AnswerCandidateRoleFunction,
+				File:          "src/alpha/a.py",
+				Line:          7,
+				Language:      "python",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	ctx := &types.AgentContext{
+		Objective: "list mixed-language entrypoints",
+		Mutable:   mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+
+	prompt := (&explorerEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Structured Source Inventory Progress",
+		"repo-lens observation invariants",
+		"role `function`",
+		"count=1 len(members)=1",
+		"`run_alpha`",
+		"src/alpha/a.py:7",
+		"coverage_state=observed",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("observation-only prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestRenderExtractorSourceInventoryAdvisory_RendersObservationOnlyRows(t *testing.T) {
+	out := renderExtractorSourceInventoryAdvisory(&types.TurnAArtifacts{
+		SourceInventoryObservation: types.SourceInventoryObservation{
+			Active:       true,
+			AdvisoryOnly: true,
+			Complete:     true,
+			Scopes:       []string{"routes"},
+			Provenance:   []string{"repo_lens:tool_query"},
+			Sets: []types.SourceInventoryObservationSet{{
+				Role:     types.AnswerCandidateRoleRoute,
+				Complete: true,
+				Count:    1,
+				Members: []types.SourceInventoryObservationMember{{
+					Name:          "GET /v1/users",
+					Key:           "GET /v1/users",
+					SupportRef:    "GET /v1/users: routes/users.ts:42",
+					Role:          types.AnswerCandidateRoleRoute,
+					File:          "routes/users.ts",
+					Line:          42,
+					Language:      "typescript",
+					CoverageState: types.SourceInventoryCoverageObserved,
+					Attributes: []types.SourceInventoryObservationAttribute{{
+						Name:          "handleUsers",
+						SupportRef:    "handleUsers: routes/users.ts:43",
+						Role:          types.AnswerCandidateRoleFunction,
+						File:          "routes/users.ts",
+						Line:          43,
+						Language:      "typescript",
+						CoverageState: types.SourceInventoryCoverageObserved,
+					}},
+				}},
+			}},
+		},
+	})
+	for _, want := range []string{
+		"repo-lens observation invariants",
+		"role `route`",
+		"observation rows",
+		"`GET /v1/users`",
+		"routes/users.ts:42",
+		"related_candidate_attributes",
+		"function `handleUsers` @ routes/users.ts:43",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("observation-only advisory missing %q:\n%s", want, out)
+		}
+	}
+}
+
 // -----------------------------------------------------------------------------
 // ParseOutput quality-floor branches
 // -----------------------------------------------------------------------------

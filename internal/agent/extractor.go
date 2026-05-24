@@ -683,16 +683,24 @@ func renderExtractorSourceInventoryAdvisory(ta *types.TurnAArtifacts) string {
 	var b strings.Builder
 	b.WriteString("### Source inventory advisory candidates\n\n")
 	b.WriteString("- The system compiled these candidates from typed request lanes, requested scopes, and the repo-map graph. They are structured context, not final answer text and not citations by themselves.\n")
-	if advisory.AdvisoryOnly {
+	if advisory.AdvisoryOnly || (!advisory.IsActive() && observation.AdvisoryOnly) {
 		b.WriteString("- `advisory_only=true`: use these rows only when they match the answer shape you are emitting; disclose ambiguity instead of treating the set as mandatory.\n")
 	} else {
 		b.WriteString("- The active `source_inventory_profile` made this inventory shape high-confidence; preserve matching rows when the accepted aggregate facts or evidence support them.\n")
 	}
-	if len(advisory.Scopes) > 0 {
-		fmt.Fprintf(&b, "- scopes: `%s`\n", strings.Join(advisory.Scopes, "`, `"))
+	scopes := advisory.Scopes
+	if len(scopes) == 0 {
+		scopes = observation.Scopes
 	}
-	if len(advisory.Provenance) > 0 {
-		fmt.Fprintf(&b, "- provenance: `%s`\n", strings.Join(advisory.Provenance, "`, `"))
+	if len(scopes) > 0 {
+		fmt.Fprintf(&b, "- scopes: `%s`\n", strings.Join(scopes, "`, `"))
+	}
+	provenance := advisory.Provenance
+	if len(provenance) == 0 {
+		provenance = observation.Provenance
+	}
+	if len(provenance) > 0 {
+		fmt.Fprintf(&b, "- provenance: `%s`\n", strings.Join(provenance, "`, `"))
 	}
 	if observation.IsActive() {
 		b.WriteString("- repo-lens observation invariants: ")
@@ -711,34 +719,71 @@ func renderExtractorSourceInventoryAdvisory(ta *types.TurnAArtifacts) string {
 			b.WriteString("none\n")
 		}
 	}
-	total := 0
-	for _, set := range advisory.Sets {
-		total += len(set.Candidates)
-	}
-	emitted := 0
-	for _, set := range advisory.Sets {
-		if len(set.Candidates) == 0 || emitted >= extractorMaxSourceInventoryAdvisoryRows {
-			continue
-		}
-		fmt.Fprintf(&b, "- role `%s` %s candidates (complete=%t):\n",
-			set.Role, types.SourceInventoryAdvisoryRoleLabel(set.Role), set.Complete)
-		for _, candidate := range set.Candidates {
-			if emitted >= extractorMaxSourceInventoryAdvisoryRows {
-				break
-			}
-			line := renderExtractorSourceInventoryAdvisoryCandidate(candidate)
-			if line == "" {
-				continue
-			}
-			fmt.Fprintf(&b, "  - %s\n", line)
-			emitted++
-		}
-	}
+	total, emitted := renderExtractorSourceInventoryAdvisoryRows(&b, advisory, observation)
 	if total > emitted {
 		fmt.Fprintf(&b, "- showing %d of %d candidate(s); keep the accepted aggregate facts/evidence as the authority if a hidden row matters.\n", emitted, total)
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func renderExtractorSourceInventoryAdvisoryRows(b *strings.Builder, advisory types.SourceInventoryAdvisory, observation types.SourceInventoryObservation) (int, int) {
+	if b == nil {
+		return 0, 0
+	}
+	if advisory.IsActive() {
+		total := 0
+		for _, set := range advisory.Sets {
+			total += len(set.Candidates)
+		}
+		emitted := 0
+		for _, set := range advisory.Sets {
+			if len(set.Candidates) == 0 || emitted >= extractorMaxSourceInventoryAdvisoryRows {
+				continue
+			}
+			fmt.Fprintf(b, "- role `%s` %s candidates (complete=%t):\n",
+				set.Role, types.SourceInventoryAdvisoryRoleLabel(set.Role), set.Complete)
+			for _, candidate := range set.Candidates {
+				if emitted >= extractorMaxSourceInventoryAdvisoryRows {
+					break
+				}
+				line := renderExtractorSourceInventoryAdvisoryCandidate(candidate)
+				if line == "" {
+					continue
+				}
+				fmt.Fprintf(b, "  - %s\n", line)
+				emitted++
+			}
+		}
+		return total, emitted
+	}
+	if !observation.IsActive() {
+		return 0, 0
+	}
+	total := 0
+	for _, set := range observation.Sets {
+		total += len(set.Members)
+	}
+	emitted := 0
+	for _, set := range observation.Sets {
+		if len(set.Members) == 0 || emitted >= extractorMaxSourceInventoryAdvisoryRows {
+			continue
+		}
+		fmt.Fprintf(b, "- role `%s` %s observation rows (count=%d complete=%t):\n",
+			set.Role, types.SourceInventoryAdvisoryRoleLabel(set.Role), set.Count, set.Complete)
+		for _, member := range set.Members {
+			if emitted >= extractorMaxSourceInventoryAdvisoryRows {
+				break
+			}
+			line := renderExtractorSourceInventoryObservationMember(member)
+			if line == "" {
+				continue
+			}
+			fmt.Fprintf(b, "  - %s\n", line)
+			emitted++
+		}
+	}
+	return total, emitted
 }
 
 func renderExtractorSourceInventoryAdvisoryCandidate(candidate types.SourceInventoryAdvisoryCandidate) string {
@@ -760,6 +805,38 @@ func renderExtractorSourceInventoryAdvisoryCandidate(candidate types.SourceInven
 		parts = append(parts, "note: "+note)
 	}
 	if attrs := renderExtractorSourceInventoryAdvisoryAttributes(candidate.Attributes); attrs != "" {
+		parts = append(parts, attrs)
+	}
+	return strings.Join(parts, " — ")
+}
+
+func renderExtractorSourceInventoryObservationMember(member types.SourceInventoryObservationMember) string {
+	name := strings.TrimSpace(member.Name)
+	if name == "" {
+		return ""
+	}
+	parts := []string{fmt.Sprintf("`%s`", name)}
+	if member.File != "" && member.Line > 0 {
+		parts = append(parts, fmt.Sprintf("@ %s:%d", member.File, member.Line))
+	} else if member.File != "" {
+		parts = append(parts, "@ "+member.File)
+	}
+	if member.Language != "" {
+		parts = append(parts, "language="+member.Language)
+	}
+	if member.Role != "" {
+		parts = append(parts, "role="+string(member.Role))
+	}
+	if member.CoverageState != "" {
+		parts = append(parts, "coverage_state="+string(member.CoverageState))
+	}
+	if member.SupportRef != "" {
+		parts = append(parts, "support_ref=`"+member.SupportRef+"`")
+	}
+	if note := truncateExtractorPromptText(member.Note, 180); note != "" {
+		parts = append(parts, "note: "+note)
+	}
+	if attrs := renderExtractorSourceInventoryObservationAttributes(member.Attributes); attrs != "" {
 		parts = append(parts, attrs)
 	}
 	return strings.Join(parts, " — ")
@@ -792,6 +869,50 @@ func renderExtractorSourceInventoryAdvisoryAttributes(attrs []types.SourceInvent
 		} else {
 			parts = append(parts, fmt.Sprintf("%s `%s`", role, member))
 		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	suffix := ""
+	if len(attrs) > len(parts) {
+		suffix = fmt.Sprintf(" (+%d more)", len(attrs)-len(parts))
+	}
+	return "related_candidate_attributes: " + strings.Join(parts, "; ") + suffix
+}
+
+func renderExtractorSourceInventoryObservationAttributes(attrs []types.SourceInventoryObservationAttribute) string {
+	if len(attrs) == 0 {
+		return ""
+	}
+	const max = 4
+	var parts []string
+	for _, attr := range attrs {
+		if len(parts) >= max {
+			break
+		}
+		name := strings.TrimSpace(attr.Name)
+		if name == "" {
+			continue
+		}
+		loc := strings.TrimSpace(attr.File)
+		if loc != "" && attr.Line > 0 {
+			loc = fmt.Sprintf("%s:%d", loc, attr.Line)
+		}
+		role := strings.TrimSpace(string(attr.Role))
+		if role == "" {
+			role = "candidate"
+		}
+		detail := fmt.Sprintf("%s `%s`", role, name)
+		if loc != "" {
+			detail += " @ " + loc
+		}
+		if attr.CoverageState != "" {
+			detail += " [" + string(attr.CoverageState) + "]"
+		}
+		if attr.Ambiguity != "" {
+			detail += " ambiguity=" + attr.Ambiguity
+		}
+		parts = append(parts, detail)
 	}
 	if len(parts) == 0 {
 		return ""

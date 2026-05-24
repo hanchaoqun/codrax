@@ -1217,6 +1217,110 @@ func TestEmitInvestigationComplete_PreCompleteCheck_TypedPrincipalLaneRequiresMe
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_SourceInventoryChecklistGuidesMissingMemberSet(t *testing.T) {
+	mut := types.NewMutableState("列出 internal/analysis/ 下所有子包的目录名，以及每个子包的单一入口函数")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"internal/analysis"},
+		Provenance:   []string{"repo_lens:tool_query"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Count:    2,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "Aggregate",
+				Key:           "Aggregate",
+				SupportRef:    "Aggregate: internal/analysis/aggregator/aggregator.go:132",
+				Role:          types.AnswerCandidateRoleFunction,
+				File:          "internal/analysis/aggregator/aggregator.go",
+				Line:          132,
+				Language:      "go",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}, {
+				Name:          "AnalyzeSubject",
+				Key:           "AnalyzeSubject",
+				SupportRef:    "AnalyzeSubject: internal/analysis/subject/subject.go:41",
+				Role:          types.AnswerCandidateRoleFunction,
+				File:          "internal/analysis/subject/subject.go",
+				Line:          41,
+				Language:      "go",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[internal/analysis/aggregator/aggregator.go: showing lines 128-134 of 210 total]",
+			"   132│ func Aggregate(closure *types.EvidenceClosure) []FieldHeat {",
+		}, "\n"),
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:     string(types.ReqEnumeration),
+					Entities: []string{"aggregator", "subject"},
+				},
+				CompletenessObligation: &types.CompletenessObligation{
+					Required:    true,
+					SourceQuote: "所有子包",
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "the package names were listed in prior tool output",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	for _, want := range []string{
+		"exhaustive member-set handoff is missing",
+		"Active source-inventory verification checklist",
+		"not a system-authored member_set",
+		"after your own verification",
+		"count=2 len(members)=2",
+		"verified_source_window `Aggregate`",
+		"candidate_needs_verification `AnalyzeSubject`",
+		"support_ref=`AnalyzeSubject: internal/analysis/subject/subject.go:41`",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("source-inventory repair summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+	repairs := mut.EvidenceClosure().PendingRepairs()
+	if len(repairs) == 0 {
+		t.Fatal("expected missing member_set repair directive")
+	}
+	last := repairs[len(repairs)-1]
+	if !containsString(last.Files, "internal/analysis/subject/subject.go") {
+		t.Fatalf("repair directive should include source-inventory candidate files, got %+v", last.Files)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("investigation must remain open until member_set is emitted")
+	}
+	if facts := mut.StableInvestigationAggregateFacts(); len(facts) != 0 {
+		t.Fatalf("system must not synthesize member_set facts from source-inventory checklist, got %+v", facts)
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_RelationMemberWithoutTypedSupportBlocks(t *testing.T) {
 	mut := types.NewMutableState("列出 internal/analysis/ 下所有子包的目录名，以及每个子包的单一入口函数")
 	mut.AppendEvidence([]types.EvidenceItem{{

@@ -2026,12 +2026,83 @@ evidence.
 
 Tasks:
 
-- [ ] B2-K1: inspect existing `SourceInventoryObservation` persistence and
+- [x] B2-K1: inspect existing `SourceInventoryObservation` persistence and
   Turn-A handoff paths; reuse them rather than introducing a parallel carrier.
-- [ ] B2-K2: add a source-inventory verification checklist view that separates
+- [x] B2-K2: add a source-inventory verification checklist view that separates
   candidate rows from verified evidence rows and keeps `count == len(rows)`.
-- [ ] B2-K3: teach the explorer close/retry path to point at missing checklist
+- [x] B2-K3: teach the explorer close/retry path to point at missing checklist
   rows when a member_set handoff is incomplete.
-- [ ] B2-K4: add tests covering function/package, route/config, multi-language,
+- [x] B2-K4: add tests covering function/package, route/config, multi-language,
   and active-set scoped checklists.
 - [ ] B2-K5: rerun `s5b` plus one mechanism and one config/route case.
+
+B2-K implementation design, 2026-05-25 CST:
+
+- Reuse existing carriers:
+  - `MutableState.SourceInventoryObservation()` is already populated by
+    `SetSourceInventoryAdvisory` and by model-driven
+    `repo_map(view="source_inventory")` calls.
+  - Turn-A snapshot and `ObservationLedgerInput*` already merge the observation,
+    so no new handoff type is required.
+  - `buildAggregateMemberSupportIndex` already accepts source-inventory support
+    refs for later `aggregate_facts.member_set` validation. This remains a
+    validation aid, not final evidence.
+- Current gap:
+  - explorer prompt rendering requires an active `SourceInventoryAdvisory`; an
+    observation-only artifact can be present but invisible.
+  - extractor prompt rendering derives visible rows from `advisory.Sets`; when
+    only `SourceInventoryObservation` exists it shows invariants but not the
+    actual rows.
+  - the exhaustive enumeration close/retry downgrade still says "reread or emit
+    a member_set" generically, even when a bounded source-inventory observation
+    already contains the candidate checklist and suggested verification files.
+- Implementation contract:
+  - render observation-only rows from `SourceInventoryObservation` directly,
+    preserving `count == len(members)`, role, language, support_ref, file:line,
+    coverage_state, and bounded row-local attributes;
+  - classify rows for repair hints as `verified_source_window` only when the
+    current evidence/tool history has a matching read/grounded file:line, and as
+    `candidate_needs_verification` otherwise. Repo-map rows alone are not
+    promoted to final evidence;
+  - when `emit_investigation_complete` is rejected for missing exhaustive
+    `member_set`, attach a bounded source-inventory verification checklist and
+    candidate files to the existing repair directive. The model still decides
+    whether these rows match the user-intended principal set;
+  - do not read raw user text or model prose; use only typed observation rows,
+    support refs, evidence items, and tool-history source windows.
+- Safety:
+  - no automatic final-answer/member_set synthesis;
+  - no hard whitelist for reads;
+  - no language-specific path heuristics;
+  - active-set, symlink, parent-escape, and multi-repo boundaries remain in the
+    existing repo_map/read_file/list_files/grep gates.
+
+B2-K implementation note, 2026-05-25 CST:
+
+- `publishSourceInventoryAdvisory` now preserves an active model-driven
+  `SourceInventoryObservation` when the current completion pass has no fresh
+  request-derived advisory. This prevents `emit_investigation_complete` from
+  accidentally erasing the exact repo-lens checklist it should use for repair
+  guidance.
+- Explorer and extractor prompt rendering now handle observation-only artifacts.
+  The rendered rows include role, file:line, language, support_ref,
+  coverage_state, row-local attributes, and `count == len(members)` invariants.
+- The exhaustive member-set pre-complete downgrade now includes a bounded
+  source-inventory verification checklist:
+  - `verified_source_window` means the row has a matching emitted evidence item
+    or read/grep source window at the same file:line;
+  - `candidate_needs_verification` means the row is still only repo-map
+    navigation context and must be verified or explicitly supported before the
+    model cites it;
+  - `ambiguous_candidate` preserves graph ambiguity for the model to resolve or
+    disclose.
+- Existing repair directives receive bounded candidate files from the
+  source-inventory observation, but only as read suggestions. They are not a hard
+  whitelist and they do not change tool success/failure semantics.
+- Tests added/updated:
+  - observation-only explorer and extractor rendering;
+  - exhaustive close rejection with one verified source row and one unverified
+    source-inventory row;
+  - existing source_inventory lens tests continue to cover cross-language
+    functions/methods/types/config keys/imports and multi-repo active-scope
+    isolation.

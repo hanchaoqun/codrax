@@ -1386,7 +1386,8 @@ func renderExplorerSourceInventoryAdvisory(ctx *types.AgentContext) string {
 		return ""
 	}
 	advisory := ctx.Mutable.SourceInventoryAdvisory()
-	if !advisory.IsActive() {
+	observation := ctx.Mutable.SourceInventoryObservation()
+	if !advisory.IsActive() && !observation.IsActive() {
 		return ""
 	}
 	var b strings.Builder
@@ -1397,7 +1398,7 @@ func renderExplorerSourceInventoryAdvisory(ctx *types.AgentContext) string {
 	b.WriteString("- If it does not match, keep your own investigation boundary and explain the gap in the structured closure instead of silently widening the answer.\n\n")
 	b.WriteString(renderExtractorSourceInventoryAdvisory(&types.TurnAArtifacts{
 		SourceInventoryAdvisory:    advisory,
-		SourceInventoryObservation: ctx.Mutable.SourceInventoryObservation(),
+		SourceInventoryObservation: observation,
 	}))
 	return b.String()
 }

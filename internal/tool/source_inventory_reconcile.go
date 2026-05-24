@@ -104,6 +104,13 @@ func publishSourceInventoryAdvisory(ctx *types.BusContext, facts []types.AnswerA
 		ctx.Mutable.SetSourceInventoryAdvisory(advisory)
 		return
 	}
+	// A model-driven repo lens can publish SourceInventoryObservation without the
+	// current aggregate-fact pass producing a fresh request-derived advisory. Keep
+	// that typed checklist alive for close/retry handoff; fresh run boundaries
+	// still clear both carriers through MutableState.ClearSourceInventoryAdvisory.
+	if ctx.Mutable.SourceInventoryObservation().IsActive() {
+		return
+	}
 	ctx.Mutable.ClearSourceInventoryAdvisory()
 }
 

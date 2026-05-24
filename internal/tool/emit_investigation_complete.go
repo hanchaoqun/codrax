@@ -2553,9 +2553,13 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 		}
 	}
 	if closure != nil {
+		files := completionMaterializationReadFiles(closure)
+		if checklistFiles := sourceInventoryMemberSetRepairFiles(ctx, 12); len(checklistFiles) > 0 {
+			files = dedupStringsPreserveOrder(append(files, checklistFiles...))
+		}
 		closure.AddRepair(types.RepairDirective{
 			Kind:      types.RepairEmitEvidence,
-			Files:     completionMaterializationReadFiles(closure),
+			Files:     files,
 			Keywords:  dedupStringsPreserveOrder(append(append([]string{}, rm.AnalyzerHints.ExactTargets...), append(rm.AnalyzerHints.PrimaryEntities, rm.AnalyzerHints.Entities...)...)),
 			Rationale: "exhaustive enumeration needs a typed member_set handoff or a completed answer-symbol slate so finalization does not reconstruct the list from prose",
 			Origin:    "pre_complete.exhaustive_member_set",
@@ -2570,8 +2574,200 @@ func exhaustiveEnumerationMemberSetDowngrade(ctx *types.BusContext, closure *typ
 	if len(countGaps) > 0 {
 		fmt.Fprintf(&b, "Some principal grouped/bucket count facts declare answer categories without handing off their members: %s. Under an exhaustive enumeration request, every positive principal grouped/bucket count must either carry its exact `members[]` or be represented by a matching principal `member_set`.\n\n", strings.Join(countGaps, "; "))
 	}
+	if checklist := sourceInventoryMemberSetRepairChecklist(ctx, 16); checklist != "" {
+		b.WriteString(checklist)
+		b.WriteString("\n\n")
+	}
 	b.WriteString("Either emit the completed `emit_answer_symbol` slate, or include `aggregate_facts` with kind=`member_set`, value equal to the exact member count, and `members` containing every principal answer member copied from your verified search/read/command results. For code symbols, paths, routes, config keys, macros, spans, and source-location members, each member must be backed by typed evidence already emitted through `emit_evidence`, or by member-specific `support_refs` such as `Member @ path/file.ext:123` that point to the same grounded evidence line. Exclude related-context/helper candidates from the principal member_set. If your broad candidate search count is different from the verified member_set count, also emit companion total_count/excluded_count aggregate facts with dimensions that name the candidate stage and exclusion basis. Then re-call `emit_investigation_complete`.")
 	return b.String()
+}
+
+func sourceInventoryMemberSetRepairChecklist(ctx *types.BusContext, maxRows int) string {
+	if ctx == nil || ctx.Mutable == nil || maxRows <= 0 {
+		return ""
+	}
+	observation := ctx.Mutable.SourceInventoryObservation()
+	if !observation.IsActive() {
+		return ""
+	}
+	support := buildAggregateMemberSupportIndex(ctx)
+	var b strings.Builder
+	b.WriteString("Active source-inventory verification checklist (advisory only): repo-lens rows below preserve mechanical count/list shape, but they are not final evidence, not a system-authored member_set, and do not decide the user's intended answer set. If, after your own verification, these rows exactly match the principal list you intend to close, re-emit them yourself in `aggregate_facts.member_set`; rows marked `candidate_needs_verification` should be verified/read or accompanied by valid member-specific support_refs before citing.\n")
+	emitted := 0
+	total := 0
+	for _, set := range observation.Sets {
+		total += len(set.Members)
+	}
+	for _, set := range observation.Sets {
+		if len(set.Members) == 0 || emitted >= maxRows {
+			continue
+		}
+		fmt.Fprintf(&b, "- role `%s` %s: count=%d len(members)=%d complete=%t\n",
+			set.Role, types.SourceInventoryAdvisoryRoleLabel(set.Role), set.Count, len(set.Members), set.Complete)
+		for _, member := range set.Members {
+			if emitted >= maxRows {
+				break
+			}
+			line := sourceInventoryMemberSetRepairRow(member, support)
+			if line == "" {
+				continue
+			}
+			fmt.Fprintf(&b, "  - %s\n", line)
+			emitted++
+		}
+	}
+	if total > emitted {
+		fmt.Fprintf(&b, "- showing %d of %d source-inventory rows; narrow or page `repo_map(view=\"source_inventory\")` for hidden rows instead of widening blindly.", emitted, total)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func sourceInventoryMemberSetRepairRow(member types.SourceInventoryObservationMember, support aggregateMemberSupportIndex) string {
+	name := strings.TrimSpace(member.Name)
+	if name == "" {
+		return ""
+	}
+	state := "candidate_needs_verification"
+	if sourceInventoryObservationMemberHasVerifiedSource(member, support) {
+		state = "verified_source_window"
+	}
+	if member.CoverageState == types.SourceInventoryCoverageAmbiguous {
+		state = "ambiguous_candidate"
+	}
+	parts := []string{fmt.Sprintf("%s `%s`", state, name)}
+	if member.File != "" && member.Line > 0 {
+		parts = append(parts, fmt.Sprintf("@ %s:%d", member.File, member.Line))
+	} else if member.File != "" {
+		parts = append(parts, "@ "+member.File)
+	}
+	if member.Language != "" {
+		parts = append(parts, "language="+member.Language)
+	}
+	if member.Role != "" {
+		parts = append(parts, "role="+string(member.Role))
+	}
+	if member.SupportRef != "" {
+		parts = append(parts, "support_ref=`"+member.SupportRef+"`")
+	}
+	if attrs := sourceInventoryMemberSetRepairAttributes(member.Attributes, support); attrs != "" {
+		parts = append(parts, attrs)
+	}
+	return strings.Join(parts, " — ")
+}
+
+func sourceInventoryMemberSetRepairAttributes(attrs []types.SourceInventoryObservationAttribute, support aggregateMemberSupportIndex) string {
+	if len(attrs) == 0 {
+		return ""
+	}
+	const max = 3
+	var parts []string
+	for _, attr := range attrs {
+		if len(parts) >= max {
+			break
+		}
+		name := strings.TrimSpace(attr.Name)
+		if name == "" {
+			continue
+		}
+		state := "candidate"
+		if sourceInventoryObservationAttributeHasVerifiedSource(attr, support) {
+			state = "verified"
+		}
+		if attr.CoverageState == types.SourceInventoryCoverageAmbiguous {
+			state = "ambiguous"
+		}
+		role := strings.TrimSpace(string(attr.Role))
+		if role == "" {
+			role = "attribute"
+		}
+		loc := strings.TrimSpace(attr.File)
+		if loc != "" && attr.Line > 0 {
+			loc = fmt.Sprintf("%s:%d", loc, attr.Line)
+		}
+		item := fmt.Sprintf("%s %s `%s`", state, role, name)
+		if loc != "" {
+			item += " @ " + loc
+		}
+		parts = append(parts, item)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	if len(attrs) > len(parts) {
+		parts = append(parts, fmt.Sprintf("+%d", len(attrs)-len(parts)))
+	}
+	return "attributes: " + strings.Join(parts, "; ")
+}
+
+func sourceInventoryObservationMemberHasVerifiedSource(member types.SourceInventoryObservationMember, support aggregateMemberSupportIndex) bool {
+	if sourceInventoryObservationLocationHasVerifiedSource(member.File, member.Line, support) {
+		return true
+	}
+	if _, loc, ok := aggregateMemberSupportRefParts(member.SupportRef); ok && sourceInventoryObservationSupportLocationVerified(loc, support) {
+		return true
+	}
+	return aggregateMemberCoveredByEvidenceLabels(aggregateSupportLabels(member.Name, []string{member.Key}), support.byLabel)
+}
+
+func sourceInventoryObservationAttributeHasVerifiedSource(attr types.SourceInventoryObservationAttribute, support aggregateMemberSupportIndex) bool {
+	if sourceInventoryObservationLocationHasVerifiedSource(attr.File, attr.Line, support) {
+		return true
+	}
+	if _, loc, ok := aggregateMemberSupportRefParts(attr.SupportRef); ok && sourceInventoryObservationSupportLocationVerified(loc, support) {
+		return true
+	}
+	return aggregateMemberCoveredByEvidenceLabels(aggregateSupportLabels(attr.Name, []string{attr.Key}), support.byLabel)
+}
+
+func sourceInventoryObservationLocationHasVerifiedSource(file string, line int, support aggregateMemberSupportIndex) bool {
+	loc := aggregateSupportLocationKey(file, line)
+	if loc == "" {
+		return false
+	}
+	return sourceInventoryObservationSupportLocationVerified(loc, support)
+}
+
+func sourceInventoryObservationSupportLocationVerified(loc string, support aggregateMemberSupportIndex) bool {
+	loc = strings.TrimSpace(loc)
+	if loc == "" {
+		return false
+	}
+	return len(support.byLocation[loc]) > 0 || len(support.toolLinesByLocation[loc]) > 0
+}
+
+func sourceInventoryMemberSetRepairFiles(ctx *types.BusContext, maxFiles int) []string {
+	if ctx == nil || ctx.Mutable == nil || maxFiles <= 0 {
+		return nil
+	}
+	observation := ctx.Mutable.SourceInventoryObservation()
+	if !observation.IsActive() {
+		return nil
+	}
+	seen := map[string]bool{}
+	var files []string
+	add := func(file string) {
+		file = strings.Trim(strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`)), "/")
+		if file == "" || seen[file] || !types.IsCodeOrConfigPathExtension(filepath.Ext(file)) {
+			return
+		}
+		seen[file] = true
+		files = append(files, file)
+	}
+	for _, set := range observation.Sets {
+		for _, member := range set.Members {
+			if len(files) >= maxFiles {
+				return files
+			}
+			add(member.File)
+			for _, attr := range member.Attributes {
+				if len(files) >= maxFiles {
+					return files
+				}
+				add(attr.File)
+			}
+		}
+	}
+	return files
 }
 
 func aggregateFactsContainMemberSet(facts []types.AnswerAggregateFact) bool {
