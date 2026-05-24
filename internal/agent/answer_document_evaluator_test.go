@@ -4043,6 +4043,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedAnswerD
 		"当前关键代码",
 		"作用和影响",
 		"展示契约，不是新的证据来源",
+		"每个主体下面都应尽量显式保留这些维度标签",
 		"不要为了套表格而删除、替换或压扁更丰富的说明",
 	} {
 		if !strings.Contains(prompt, want) {

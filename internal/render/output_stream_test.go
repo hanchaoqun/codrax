@@ -673,6 +673,18 @@ func TestFormatAnalysisToolResultSummaryZh(t *testing.T) {
 		"keywords": ["explorer", "SubExplorer", "sub_agent", "sequence", "流程图", "机制", "调用流程"],
 		"answer_subject": {"kind": "function_name", "entity_axes": ["SubAgent -> mechanism"]},
 		"diagram_hint": {"kind": "sequence"},
+		"requested_answer_dimensions": {
+			"is_dimensioned_answer": true,
+			"dimensions": [
+				{"index": 2, "label": "当前关键代码", "role": "current_key_code", "required": true},
+				{"index": 1, "label": "diff 线索", "role": "diff_clue", "required": true}
+			]
+		},
+		"current_source_explanation_profile": {
+			"is_current_source_explanation_requested": true,
+			"modes": ["compare_with_current_source"],
+			"target_terms": ["SubExplorer"]
+		},
 		"required_files": [{"path": "internal/agent/sub_explorer.go"}]
 	}`
 	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_analysis", params, "", "zh"))
@@ -682,6 +694,8 @@ func TestFormatAnalysisToolResultSummaryZh(t *testing.T) {
 		"答案主体 function_name",
 		"实体 6 个：SubExplorer, NewSubExplorer, RegisterDefaultSubAgents, buildToolSchemas, propose_sub_agents, +1",
 		"关键词 7 个：explorer, SubExplorer, sub_agent, sequence, 流程图, 机制, +1",
+		"答案维度 2 个：diff 线索, 当前关键代码",
+		"源码关联 2 个：compare_with_current_source, SubExplorer",
 		"图 sequence",
 		"建议文件 1 个：internal/agent/sub_explorer.go",
 	} {

@@ -148,8 +148,8 @@ cannot be parsed for hard control flow.
 | B1 | Done | Make parallel result merge winner-aware: when early convergence fires, merge only the winning completed fork; skip non-winning siblings and log why. Preserve existing full merge when early convergence is disabled. | `internal/orchestrator/explore_parallel_dispatch.go`, tests | `go test ./internal/orchestrator -run 'TestDispatchExploreWindowsParallel|TestParallelExploreAllowsEarlyConvergence'` |
 | B2 | Done | Add regression tests proving non-winning partial forks cannot import aggregate facts, StageOutput, or pending repair debt after a winning closure; explicit enumeration/bucket/diagram/mixed-origin waits still merge siblings. | orchestrator/type tests | targeted unit tests |
 | B3 | Done | Tighten accepted-closure auto-complete around support-only post-completion debt. Added typed helpers that keep unknown/exact pending reads blocking, while advisory repairs and known breadth/support pending reads no longer reopen exploration after an accepted closure. | `internal/orchestrator/orchestrator.go`, `internal/types/repair.go`, `internal/orchestrator/accepted_closure_monotonicity_test.go` | `go test ./internal/orchestrator -run 'TestShouldAutoCompleteExploreWindowFromAcceptedClosure|TestDispatchExploreWindowsParallel|TestParallelExploreAllowsEarlyConvergence'`; `go test ./internal/types -run 'Test.*Repair|Test.*PendingRead|TestMergeExploreFork_AcceptedCompletionClearsSiblingRepairs'` |
-| B4 | Pending | Add origin/facet partition follow-up for hybrid external+current-source questions. First design the typed lane ownership contract; then implement if code already has enough metadata. | orchestrator dispatch hints, answer intent contract, observation ledger | mixed VCS/log/trace/command evals |
-| B5 | Pending | Rerun focused evals and refresh gap docs with before/after metrics: `qf_architecture`, `qf_diagram_pipeline`, `qf_type_relation_loop_controller`, `s5b`, `u7k`, and one small mechanism case. | eval results + gap docs | compare explorer_iters/read_file/midloop/finalizer_iters |
+| B4 | Done | Add origin/facet partition follow-up for hybrid external+current-source questions. First design the typed lane ownership contract; then implement if code already has enough metadata. | orchestrator dispatch hints, answer intent contract, observation ledger | mixed VCS/log/trace/command evals |
+| B5 | In progress | Rerun focused evals and refresh gap docs with before/after metrics: `qf_architecture`, `qf_diagram_pipeline`, `qf_type_relation_loop_controller`, `s5b`, `u7k`, and one small mechanism case. | eval results + gap docs | compare explorer_iters/read_file/midloop/finalizer_iters |
 
 ## Safety Checklist
 
@@ -182,3 +182,90 @@ cannot be parsed for hard control flow.
   such as `phase1_unread` and `chain_promotion.concrete_values_tracer*`, plus
   advisory repairs, no longer turn a valid accepted closure into another
   explorer round.
+- 2026-05-24 B4 design after remote sync:
+  - The latest remote change `384b287c` front-loads call-chain principal-span
+    repairs. That solves a same-lane closure repair problem and should be
+    reused as-is; it does not solve mixed-origin lane ownership.
+  - Code audit found enough existing metadata for the first B4 slice:
+    `CompileAnswerIntentContract` declares requested evidence origins,
+    `ObservationLedgerInputFromBusContext` projects accepted current-source,
+    VCS/diff, runtime/log/trace, command, MCP/web/connector-style records, and
+    `shouldAutoCompleteExploreWindowFromAcceptedClosure` is the exact chokepoint
+    where a prior accepted closure can skip later explore windows.
+  - Gap: parallel dispatch already disables early cancellation for mixed
+    current-source + non-source mechanism/trace/diagram/diagnostic/change-impact
+    shapes, but serial or later-window auto-complete does not currently verify
+    that the accepted closure actually contains each requested origin lane. A
+    VCS/log/trace/command lane can therefore close first and skip the
+    current-source sibling, or vice versa.
+  - B4 typed lane ownership contract:
+    - Required lanes come only from `AnswerIntentContract.Origins`, never raw
+      user/model prose.
+    - Coverage comes only from `ObservationLedger` records compiled from
+      accepted evidence, aggregate facts, tool results, log/trace bundles, and
+      MCP responses.
+    - The first slice is origin-level, not output/facet-level. It blocks
+      auto-complete only when the request is a typed mixed-origin sibling-handoff
+      shape and at least one requested origin has no accepted ledger record.
+      It does not add a hard rejection, does not rewrite answers, and does not
+      create a new evidence carrier.
+    - Output/facet partitioning remains a follow-up: once origin lanes are
+      proven present, later work can map requested outputs/facets to each lane
+      using the same `AnswerIntentContract` and claim-binding helpers. Do not
+      infer facets from prose.
+  - B4 task list:
+    - [x] Add an orchestrator helper that returns missing requested origins for
+      accepted-closure auto-complete by comparing `AnswerIntentContract` with
+      `ObservationLedger`.
+    - [x] Wire the helper into
+      `shouldAutoCompleteExploreWindowFromAcceptedClosure` so missing mixed
+      lanes dispatch the next window instead of being skipped.
+    - [x] Add regression tests for mixed VCS/current-source and
+      runtime/current-source auto-complete blocking, plus scalar/history and
+      observation-only non-regressions.
+    - [x] Run focused unit tests.
+    - [ ] Continue B5 evals.
+- 2026-05-24 B4 implementation:
+  - `shouldAutoCompleteExploreWindowFromAcceptedClosure` now checks typed
+    mixed-origin lane presence before treating an accepted closure as enough to
+    skip later explore windows.
+  - The check uses only `CompileAnswerIntentContract` and
+    `ObservationLedgerInputFromBusContext` / `CompileObservationLedger`; it
+    never scans the user request or model prose. Current-source coverage must
+    have a current-checkout file span. VCS/log/trace/command/MCP-style lanes
+    must carry a typed origin-specific observation record.
+  - Regression coverage:
+    - mixed VCS metadata/diff + current-source mechanism blocks until both
+      lanes are present;
+    - runtime artifact + current-source explanation blocks until current-source
+      evidence is present;
+    - observation-only runtime artifacts and scalar history lookups continue to
+      auto-complete without opening source lanes.
+  - Validation:
+    - `go test ./internal/orchestrator -run 'TestAcceptedClosureAutoComplete|TestParallelExploreAllowsEarlyConvergence|TestDispatchExploreWindowsParallel_MixedOrigin'`
+    - `go test ./internal/orchestrator ./internal/types`
+- 2026-05-24 B5 first eval:
+  - `read_combo_git_two_diffs_current_code-20260524-113636` ran to completion:
+    `exit_code=0`, `analyzer_iters=3`, `explorer_iters=9`,
+    `extractor_iters=1`, `finalizer_iters=1`, `midloop_inject=4`,
+    no finalizer rewrite/reject.
+  - The answer preserved both VCS and current-source content, but failed the
+    case regex because the model did not visibly keep the requested labels
+    `diff 线索 / 当前关键代码 / 作用 / 影响` under each commit. This is not a
+    B4 early-convergence failure; it is a soft presentation-dimension prompt
+    weakness. The finalizer prompt has been strengthened to ask for explicit
+    per-subject dimension labels without adding a hard gate or system-generated
+    table. Continue B5 with log/trace/command mixed cases after this commit.
+  - Re-verification after the prompt-only dimension-label fix:
+    `read_combo_git_two_diffs_current_code-20260524-114950` passed with
+    `analyzer_iters=2`, `explorer_iters=8`, `extractor_iters=1`,
+    `finalizer_iters=1`, `midloop_inject=3`, `tool_read_file=4`, and no
+    finalizer reject/rewrite. The final answer visibly preserved the requested
+    labels as `diff 线索与当前关键代码` and `作用与影响` under each commit while
+    still keeping VCS diff evidence and current-source evidence in the same
+    answer. This validates the B4 mixed-origin auto-complete guard for the
+    VCS/current-source lane without introducing a deterministic supplement.
+  - UX follow-up in the same batch: analysis-stage `emit_analysis` summaries
+    now render typed requested answer dimensions and current-source explanation
+    profile details in the REPL status output. This is presentation-only and
+    does not feed model context or gates.

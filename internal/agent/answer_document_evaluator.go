@@ -3806,11 +3806,13 @@ func renderAnswerDocRequestedAnswerDimensions(ctx *types.AgentContext) string {
 	if lang == "zh" {
 		b.WriteString("## 用户要求的答案维度\n\n")
 		b.WriteString("- 当前问题显式要求最终答案保留下面这些可见维度。请把它们自然地呈现为小标题、表格列、列表标签或紧凑段落标签。\n")
+		b.WriteString("- 如果答案按多个主体逐项展开（例如逐提交、逐日志事件、逐 trace span、逐组件、逐文件），每个主体下面都应尽量显式保留这些维度标签；某一维没有证据时，在该主体下说明边界，不要补编。\n")
 		b.WriteString("- 这些维度是展示契约，不是新的证据来源；不要为没有证据支撑的维度编造内容，证据不足时在边界说明中说清楚。\n")
 		b.WriteString("- 保留模型已经写好的内容；不要为了套表格而删除、替换或压扁更丰富的说明。\n\n")
 	} else {
 		b.WriteString("## User-Requested Answer Dimensions\n\n")
 		b.WriteString("- The current request explicitly asks the final answer to preserve the visible dimensions below. Render them naturally as headings, table columns, list labels, or compact paragraph labels.\n")
+		b.WriteString("- When the answer is organized by multiple subjects (for example per commit, log event, trace span, component, or file), preserve these dimension labels under each subject where possible; if a dimension lacks evidence, state that boundary under that subject instead of inventing content.\n")
 		b.WriteString("- These dimensions are presentation guidance, not new evidence origins. Do not invent unsupported content; disclose missing evidence in a boundary note or caveat.\n")
 		b.WriteString("- Preserve model-authored content; do not delete, replace, or flatten richer explanation just to fit a table.\n\n")
 	}

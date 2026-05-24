@@ -363,6 +363,137 @@ func TestParallelExploreAllowsEarlyConvergence_HistoryCurrentCodeMechanism(t *te
 	}
 }
 
+func TestAcceptedClosureAutoCompleteBlocksUntilMixedHistoryCurrentSourceOriginsPresent(t *testing.T) {
+	mut := types.NewMutableState("mixed history plus current source")
+	mut.SetInvestigationComplete("history lane finished first")
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Scenario: types.ScenarioArchitectureExplain,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		}},
+		ToolResults: []types.ToolResult{{
+			ToolName: "exec_command",
+			Success:  true,
+			Summary:  "[git_show: evidence_origin=vcs_metadata diff_origin=vcs_diff repo=. commit=abc123]\ncommit abc123 changed retry behavior",
+		}},
+	}}
+
+	if o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+		t.Fatal("accepted closure must not skip remaining mixed-origin windows when current-source lane is still missing")
+	}
+
+	o.busCtx.EvidenceItems = []types.EvidenceItem{{
+		ID:              "current-source",
+		Source:          "internal/orchestrator/orchestrator.go",
+		LineStart:       42,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "shouldAutoCompleteExploreWindowFromAcceptedClosure",
+		Scope:           types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded,
+		Summary:         "current implementation anchor",
+	}}
+	if !o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+		t.Fatal("accepted closure may auto-complete after all typed mixed-origin lanes have accepted observations")
+	}
+}
+
+func TestAcceptedClosureAutoCompleteBlocksUntilRuntimeCurrentSourceOriginsPresent(t *testing.T) {
+	mut := types.NewMutableState("runtime plus current source")
+	mut.SetInvestigationComplete("runtime artifact lane finished first")
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Scenario: types.ScenarioArchitectureExplain,
+			LogTriage: &types.LogBundle{Observations: []types.LogObservation{{
+				Kind:      types.LogObservationRetryCycle,
+				Subject:   "retry status",
+				Summary:   "runtime log shows a retry loop",
+				LineStart: 7,
+			}}},
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+				SourceQuotes:                        []string{"结合当前代码"},
+				Confidence:                          0.9,
+			},
+		}},
+	}}
+
+	if o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+		t.Fatal("runtime+current-source request must not auto-complete before current-source evidence is accepted")
+	}
+
+	o.busCtx.EvidenceItems = []types.EvidenceItem{{
+		ID:              "retry-code",
+		Source:          "internal/llm/openai.go",
+		LineStart:       88,
+		AnchorKind:      types.AnchorCondition,
+		AnchorSymbol:    "firstByteTimeout",
+		Scope:           types.ScopeLine,
+		GroundingStatus: types.GroundingGrounded,
+		Summary:         "current retry condition",
+	}}
+	if !o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+		t.Fatal("runtime+current-source request may auto-complete after runtime and current-source lanes are both present")
+	}
+}
+
+func TestAcceptedClosureAutoCompleteObservationOnlyRuntimeDoesNotBlock(t *testing.T) {
+	mut := types.NewMutableState("runtime artifact only")
+	mut.SetInvestigationComplete("runtime artifact answered locally")
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentRootCause,
+			Scenario: types.ScenarioRootCause,
+			Predicates: types.SemanticPredicates{
+				IsDiagnosticQuestion: true,
+			},
+			LogTriage: &types.LogBundle{Observations: []types.LogObservation{{
+				Kind:      types.LogObservationContractViolation,
+				Severity:  types.LogObservationFailure,
+				Subject:   "validator retry",
+				Summary:   "the log itself identifies the failed validator",
+				LineStart: 12,
+			}}},
+		}},
+	}}
+
+	if !o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+		t.Fatal("observation-only runtime artifact should not be forced to open a current-source lane")
+	}
+}
+
+func TestAcceptedClosureAutoCompleteHistoryScalarDoesNotBlockOnCurrentSource(t *testing.T) {
+	mut := types.NewMutableState("history scalar")
+	mut.SetInvestigationComplete("scalar commit id found")
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentReturnValue,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+				IsScalarAnswer:  true,
+			},
+		}},
+		ToolResults: []types.ToolResult{{
+			ToolName: "exec_command",
+			Success:  true,
+			Summary:  "[git_log: evidence_origin=vcs_metadata repo=. ref=HEAD count=1]\nabc123 latest commit",
+		}},
+	}}
+
+	if !o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+		t.Fatal("scalar history lookup should not be widened into a current-source sibling obligation")
+	}
+}
+
 func TestDispatchExploreWindowsParallel_MixedOriginMechanismWaitsForSourceSibling(t *testing.T) {
 	var slowStarted sync.Once
 	slowStartedCh := make(chan struct{})

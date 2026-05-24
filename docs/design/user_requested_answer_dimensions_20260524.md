@@ -222,3 +222,32 @@ soft supplement input.
   - Decision: no accepted-path supplement is needed for this batch. The
     correct fix was upstream lane routing, not renderer-side table or prose
     supplementation.
+
+- 2026-05-24 follow-up during explorer-convergence B5:
+  - `read_combo_git_two_diffs_current_code-20260524-113636` completed without
+    finalizer retry (`finalizer_iters=1`) and contained both VCS and
+    current-source evidence, but the visible answer did not preserve the labels
+    `diff 线索 / 当前关键代码 / 作用 / 影响` under each commit, causing the
+    eval regex to fail.
+  - Root cause: the prompt section correctly listed requested dimensions, but
+    did not explicitly say that a per-subject answer (per commit/log event/trace
+    span/component/file) should repeat those labels under each subject. The
+    model naturally wrote a rich prose/list answer instead of preserving the
+    user-facing labels.
+  - Fix: strengthened the finalizer prompt only. It now asks models to preserve
+    requested dimension labels per subject where possible, and to state a
+    boundary under that subject when a dimension lacks evidence. This remains
+    soft presentation guidance: no hard gate, no deterministic table
+    replacement, and no system-side rewrite of model-authored content.
+  - Re-run after the prompt-only fix:
+    `read_combo_git_two_diffs_current_code-20260524-114950` passed. It kept
+    `finalizer_iters=1` with no reject/rewrite, reduced the run to
+    `analyzer_iters=2`, `explorer_iters=8`, `midloop_inject=3`, and rendered the
+    requested per-commit labels as `diff 线索与当前关键代码` and `作用与影响`.
+    This confirms the fix is upstream presentation guidance rather than a
+    renderer supplement or a hard contract.
+  - REPL UX follow-up: the analysis result summary now shows typed requested
+    dimensions and current-source explanation profile signals, for example
+    `答案维度 2 个：diff 线索, 当前关键代码` and `源码关联 2 个：...`. This helps users
+    see that the analyzer captured the dimension contract without changing
+    downstream model prompts or validators.

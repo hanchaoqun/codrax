@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -638,6 +639,20 @@ type analysisSummaryPayload struct {
 	DiagramHint *struct {
 		Kind string `json:"kind"`
 	} `json:"diagram_hint"`
+	RequestedAnswerDimensions *struct {
+		IsDimensionedAnswer bool `json:"is_dimensioned_answer"`
+		Dimensions          []struct {
+			Label    string `json:"label"`
+			Role     string `json:"role"`
+			Required bool   `json:"required"`
+			Index    int    `json:"index"`
+		} `json:"dimensions"`
+	} `json:"requested_answer_dimensions"`
+	CurrentSourceExplanationProfile *struct {
+		IsCurrentSourceExplanationRequested bool     `json:"is_current_source_explanation_requested"`
+		Modes                               []string `json:"modes"`
+		TargetTerms                         []string `json:"target_terms"`
+	} `json:"current_source_explanation_profile"`
 	ExactTargets  []string `json:"exact_targets"`
 	RequiredFiles []struct {
 		Path string `json:"path"`
@@ -680,6 +695,12 @@ func formatAnalysisToolResultSummary(paramsJSON, resultSummary, lang string) str
 	if len(p.SubTopics) > 0 {
 		lines = append(lines, truncByDisplayWidth(statusReasoningBody.Sprint("    "+subTopicPhrase(p.SubTopics, zh)), evidenceSummaryMaxCols))
 	}
+	if dims := requestedAnswerDimensionSummaryValues(p); len(dims) > 0 {
+		lines = append(lines, truncByDisplayWidth(statusReasoningBody.Sprint("    "+limitedListPhrase("answer dimensions", "答案维度", dims, 5, zh)), evidenceSummaryMaxCols))
+	}
+	if modes := currentSourceExplanationSummaryValues(p); len(modes) > 0 {
+		lines = append(lines, truncByDisplayWidth(statusReasoningBody.Sprint("    "+limitedListPhrase("current-source link", "源码关联", modes, 4, zh)), evidenceSummaryMaxCols))
+	}
 	if p.DiagramHint != nil && p.DiagramHint.Kind != "" {
 		lines = append(lines, truncByDisplayWidth(statusReasoningBody.Sprint("    "+labelValue("diagram", "图", p.DiagramHint.Kind, zh)), evidenceSummaryMaxCols))
 	}
@@ -698,6 +719,61 @@ func formatAnalysisToolResultSummary(paramsJSON, resultSummary, lang string) str
 		}
 	}
 	return strings.Join(lines, "\n") + "\n"
+}
+
+func requestedAnswerDimensionSummaryValues(p analysisSummaryPayload) []string {
+	profile := p.RequestedAnswerDimensions
+	if profile == nil || !profile.IsDimensionedAnswer || len(profile.Dimensions) == 0 {
+		return nil
+	}
+	dims := append([]struct {
+		Label    string `json:"label"`
+		Role     string `json:"role"`
+		Required bool   `json:"required"`
+		Index    int    `json:"index"`
+	}(nil), profile.Dimensions...)
+	sort.SliceStable(dims, func(i, j int) bool {
+		if dims[i].Index == dims[j].Index {
+			return i < j
+		}
+		if dims[i].Index <= 0 {
+			return false
+		}
+		if dims[j].Index <= 0 {
+			return true
+		}
+		return dims[i].Index < dims[j].Index
+	})
+	out := make([]string, 0, len(dims))
+	for _, dim := range dims {
+		label := sanitizeEvidenceSummaryText(dim.Label)
+		if label == "" {
+			label = sanitizeEvidenceSummaryText(dim.Role)
+		}
+		if label != "" {
+			out = append(out, label)
+		}
+	}
+	return out
+}
+
+func currentSourceExplanationSummaryValues(p analysisSummaryPayload) []string {
+	profile := p.CurrentSourceExplanationProfile
+	if profile == nil || !profile.IsCurrentSourceExplanationRequested {
+		return nil
+	}
+	out := make([]string, 0, len(profile.Modes)+len(profile.TargetTerms))
+	for _, mode := range profile.Modes {
+		if mode = sanitizeEvidenceSummaryText(mode); mode != "" {
+			out = append(out, mode)
+		}
+	}
+	for _, term := range profile.TargetTerms {
+		if term = sanitizeEvidenceSummaryText(term); term != "" {
+			out = append(out, term)
+		}
+	}
+	return out
 }
 
 func analysisSummaryFromResult(summary string) analysisSummaryPayload {

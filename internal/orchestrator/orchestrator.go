@@ -6238,6 +6238,11 @@ func (o *Orchestrator) shouldAutoCompleteExploreWindowFromAcceptedClosure(pendin
 	if len(pendingValidationTargets) > 0 || strings.TrimSpace(pendingViolation) != "" || strings.TrimSpace(pendingStageRetry) != "" {
 		return false
 	}
+	if missing := o.acceptedClosureMissingRequiredOriginsForAutoComplete(); len(missing) > 0 {
+		logging.Info("[orchestrator] accepted investigation closure cannot auto-complete mixed-origin explore window; missing_origin_lanes=%s",
+			formatAnswerEvidenceOriginsForLog(missing))
+		return false
+	}
 	closure := mut.EvidenceClosure()
 	if closure == nil {
 		return true
@@ -6253,6 +6258,90 @@ func (o *Orchestrator) shouldAutoCompleteExploreWindowFromAcceptedClosure(pendin
 		}
 	}
 	return true
+}
+
+func (o *Orchestrator) acceptedClosureMissingRequiredOriginsForAutoComplete() []types.AnswerEvidenceOrigin {
+	if o == nil || o.busCtx == nil || o.busCtx.AnalysisIR == nil {
+		return nil
+	}
+	rm := o.busCtx.AnalysisIR.RequestModel
+	contract := &o.busCtx.AnalysisIR.AnswerContract
+	if !parallelExploreMixedOriginNeedsSiblingHandoffs(rm, contract) {
+		return nil
+	}
+	intentContract := types.CompileAnswerIntentContract(rm, contract)
+	required := requiredMixedOriginAutoCompleteLanes(intentContract)
+	if len(required) == 0 {
+		return nil
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(o.busCtx, 128))
+	return missingObservationOrigins(required, ledger)
+}
+
+func requiredMixedOriginAutoCompleteLanes(contract types.AnswerIntentContract) []types.AnswerEvidenceOrigin {
+	hasCurrent := false
+	hasNonSource := false
+	for _, origin := range contract.Origins {
+		switch {
+		case origin == types.AnswerEvidenceOriginCurrentSource:
+			hasCurrent = true
+		case origin != types.AnswerEvidenceOriginUnknown && types.AnswerEvidenceOriginCarriesOriginSpecificSupport(origin):
+			hasNonSource = true
+		}
+	}
+	if !hasCurrent || !hasNonSource {
+		return nil
+	}
+	var out []types.AnswerEvidenceOrigin
+	for _, origin := range contract.Origins {
+		if origin == types.AnswerEvidenceOriginCurrentSource || types.AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
+			out = append(out, origin)
+		}
+	}
+	return out
+}
+
+func missingObservationOrigins(required []types.AnswerEvidenceOrigin, ledger types.ObservationLedger) []types.AnswerEvidenceOrigin {
+	if len(required) == 0 {
+		return nil
+	}
+	present := make(map[types.AnswerEvidenceOrigin]bool, len(required))
+	for _, record := range ledger.Records {
+		switch record.Origin {
+		case types.AnswerEvidenceOriginUnknown:
+			continue
+		case types.AnswerEvidenceOriginCurrentSource:
+			if types.ObservationRecordHasCurrentSourceLineSpan(record) {
+				present[record.Origin] = true
+			}
+		default:
+			if types.AnswerEvidenceOriginCarriesOriginSpecificSupport(record.Origin) {
+				present[record.Origin] = true
+			}
+		}
+	}
+	var missing []types.AnswerEvidenceOrigin
+	for _, origin := range required {
+		if origin == types.AnswerEvidenceOriginUnknown || present[origin] {
+			continue
+		}
+		missing = append(missing, origin)
+	}
+	return missing
+}
+
+func formatAnswerEvidenceOriginsForLog(origins []types.AnswerEvidenceOrigin) string {
+	if len(origins) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(origins))
+	for _, origin := range origins {
+		if origin == types.AnswerEvidenceOriginUnknown {
+			continue
+		}
+		parts = append(parts, string(origin))
+	}
+	return strings.Join(parts, ",")
 }
 
 func (o *Orchestrator) effectiveInvestigationCompletePolicy() string {
