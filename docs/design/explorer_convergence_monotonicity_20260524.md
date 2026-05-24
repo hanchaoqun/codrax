@@ -149,7 +149,8 @@ cannot be parsed for hard control flow.
 | B2 | Done | Add regression tests proving non-winning partial forks cannot import aggregate facts, StageOutput, or pending repair debt after a winning closure; explicit enumeration/bucket/diagram/mixed-origin waits still merge siblings. | orchestrator/type tests | targeted unit tests |
 | B3 | Done | Tighten accepted-closure auto-complete around support-only post-completion debt. Added typed helpers that keep unknown/exact pending reads blocking, while advisory repairs and known breadth/support pending reads no longer reopen exploration after an accepted closure. | `internal/orchestrator/orchestrator.go`, `internal/types/repair.go`, `internal/orchestrator/accepted_closure_monotonicity_test.go` | `go test ./internal/orchestrator -run 'TestShouldAutoCompleteExploreWindowFromAcceptedClosure|TestDispatchExploreWindowsParallel|TestParallelExploreAllowsEarlyConvergence'`; `go test ./internal/types -run 'Test.*Repair|Test.*PendingRead|TestMergeExploreFork_AcceptedCompletionClearsSiblingRepairs'` |
 | B4 | Done | Add origin/facet partition follow-up for hybrid external+current-source questions. First design the typed lane ownership contract; then implement if code already has enough metadata. | orchestrator dispatch hints, answer intent contract, observation ledger | mixed VCS/log/trace/command evals |
-| B5 | In progress | Rerun focused evals and refresh gap docs with before/after metrics: `qf_architecture`, `qf_diagram_pipeline`, `qf_type_relation_loop_controller`, `s5b`, `u7k`, and one small mechanism case. | eval results + gap docs | compare explorer_iters/read_file/midloop/finalizer_iters |
+| B5 | In progress | Rerun focused evals and refresh gap docs with before/after metrics: `qf_architecture`, `qf_diagram_pipeline`, `qf_type_relation_loop_controller`, `s5b`, `u7k`, mixed log/trace/command/current-source cases, and one small mechanism case. | eval results + gap docs | compare explorer_iters/read_file/midloop/finalizer_iters plus convergence-specific counters |
+| B6 | Pending | If B5 data proves a deterministic system shortcoming, design the smallest typed fix. Hard blocks may only use precise typed state; otherwise prefer prompt guidance, localized boundary disclosure, or telemetry. | orchestrator/context/types as needed | focused regression for the proven gap |
 
 ## Safety Checklist
 
@@ -269,3 +270,39 @@ cannot be parsed for hard control flow.
     now render typed requested answer dimensions and current-source explanation
     profile details in the REPL status output. This is presentation-only and
     does not feed model context or gates.
+- 2026-05-24 B5 convergence audit design:
+  - Do not add new hard gates before collecting focused convergence data. A
+    model with full evidence may choose a valid answer structure that differs
+    from a preferred system layout; the audit must classify that as presentation
+    or model-choice evidence, not as a system override opportunity.
+  - Add convergence-specific eval metrics:
+    - non-winning parallel sibling skips after an accepted closure;
+    - accepted-closure mixed-origin lane blocks;
+    - finalizer document/patch rejects and rewrite renders;
+    - analyzer/explorer/finalizer dispatch and iteration counts already
+      emitted by `eval/run.sh`.
+  - Add a focused audit runner that reuses `eval/run.sh` and
+    `eval/runner_lib.sh` instead of creating another eval stack. The runner
+    emits a markdown summary and is advisory-only. It may flag suspicious
+    cases, but flags do not fail the product path and do not become gates.
+  - Default focused case list:
+    `qf_architecture`, `qf_diagram_pipeline`,
+    `qf_type_relation_loop_controller`, `s5b`, `u7k`,
+    `read_combo_git_two_diffs_current_code`,
+    `read_combo_log_current_source_explanation`,
+    `read_combo_trace_current_source_explanation`,
+    `read_combo_command_current_source_explanation`.
+  - B5 implementation tasks:
+    - [x] Extend `eval/run.sh` metrics with convergence-specific counters.
+    - [x] Add `eval/convergence_audit.sh` with `PARALLEL=2` default and a
+      markdown summary.
+    - [x] Smoke-test the runner on a narrow case set.
+    - [ ] Run the focused batch, inspect flagged logs, and update this document
+      with model-vs-system classification.
+  - Smoke validation:
+    `CASES="eval/cases/read_combo_command_current_source_explanation.case"
+    PARALLEL=1 RUNS=1 TIMEOUT=1200 bash eval/convergence_audit.sh` passed.
+    The run reported `finalizer_iters=1`, `finalizer_rejects=0`,
+    `finalizer_rewrites=0`, `explorer_dispatches=1`, `midloop_inject=4`, and
+    no advisory flags. This verifies the audit runner and new metrics without
+    starting the full focused batch.

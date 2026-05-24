@@ -153,7 +153,10 @@ count_pattern() {
     echo 0
     return
   fi
-  n=$(LC_ALL=C grep -a -c "$pat" "$file" 2>/dev/null) || n=0
+  # Treat metric patterns as ERE. Several existing counters use alternation
+  # and character classes; ERE keeps the run summary aligned with the
+  # parallel-sweep helper in eval/runner_lib.sh.
+  n=$(LC_ALL=C grep -aE -c "$pat" "$file" 2>/dev/null) || n=0
   echo "${n:-0}"
 }
 
@@ -323,6 +326,10 @@ write_metrics() {
     echo "dataflow_intent_lookup=$(count_pattern 'dataflowIntent=lookup' "$log")"
     echo "dataflow_intent_propagate=$(count_pattern 'dataflowIntent=propagate' "$log")"
     echo "midloop_inject=$(count_pattern 'MIDLOOP inject' "$log")"
+    echo "parallel_sibling_skips=$(count_pattern 'skipping non-winning parallel explore sibling' "$log")"
+    echo "mixed_origin_autocomplete_blocks=$(count_pattern 'accepted investigation closure cannot auto-complete mixed-origin explore window' "$log")"
+    echo "finalizer_rejects=$(count_pattern 'TOOLRESULT emit_answer_document.*ok=false|TOOLRESULT emit_answer_document_patch ok=false|成文校验未通过|does not yet meet the structural contract' "$log")"
+    echo "finalizer_rewrites=$(count_pattern '答案待完善|正在重写答案|检测到 .*前后不一致' "$log")"
     echo "answer_chain_lines=$(count_pattern 'answer_chain' "$log")"
     # B6-F5 (post-shape consolidated audit, 2026-05-04): per-agent
     # LLM-turn counters. Each ReAct iteration logs exactly one
@@ -744,7 +751,7 @@ SUMMARY="$OUTDIR/summary.md"
   # 2026-05-04): write_metrics writes them to run-N.metrics.txt;
   # aggregate them into the summary table so they show up next to
   # the legacy 12 mechanism counters with median.
-  metric_keys="tool_read_file concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns strict_decode_remap_events"
+  metric_keys="tool_read_file concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject parallel_sibling_skips mixed_origin_autocomplete_blocks finalizer_rejects finalizer_rewrites answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns strict_decode_remap_events"
   for key in $metric_keys; do
     row="| $key |"
     vals=()
