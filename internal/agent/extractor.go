@@ -52,14 +52,15 @@ import (
 // Extractor prompt display caps. Named constants so the limits are
 // grep-visible and changeable in one place.
 const (
-	extractorMaxNotes           = 6    // max investigation note entries shown in prompt
-	extractorMaxNoteChars       = 1200 // max chars per note before truncation
-	extractorMaxEvidence        = 24   // max ranked evidence items shown
-	extractorMinValueFacts      = 12   // minimum value-bearing evidence facts shown when present
-	extractorDefaultValueFacts  = 16   // default value-bearing evidence facts shown
-	extractorMaxValueFacts      = 32   // hard cap for value-bearing evidence facts shown
-	extractorMaxEvidenceSummary = 200  // max summary chars per evidence item
-	extractorMaxFlowFindings    = 10   // max dataflow findings shown
+	extractorMaxNotes                       = 6    // max investigation note entries shown in prompt
+	extractorMaxNoteChars                   = 1200 // max chars per note before truncation
+	extractorMaxEvidence                    = 24   // max ranked evidence items shown
+	extractorMinValueFacts                  = 12   // minimum value-bearing evidence facts shown when present
+	extractorDefaultValueFacts              = 16   // default value-bearing evidence facts shown
+	extractorMaxValueFacts                  = 32   // hard cap for value-bearing evidence facts shown
+	extractorMaxEvidenceSummary             = 200  // max summary chars per evidence item
+	extractorMaxFlowFindings                = 10   // max dataflow findings shown
+	extractorMaxSourceInventoryAdvisoryRows = 40
 	// Display-only cap for analyzer soft guidance names. The exact
 	// unique count remains visible; the list is capped because analyzer
 	// MustInclude can contain broad search candidates, while accepted
@@ -158,6 +159,9 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		}
 		if boundary := renderExtractorValidationBoundaryNotes(ta); boundary != "" {
 			b.WriteString(boundary)
+		}
+		if advisory := renderExtractorSourceInventoryAdvisory(ta); advisory != "" {
+			b.WriteString(advisory)
 		}
 
 		// Investigation notes: up to 6 entries, trimmed for prompt length
@@ -662,6 +666,75 @@ func renderExtractorValidationBoundaryNotes(ta *types.TurnAArtifacts) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func renderExtractorSourceInventoryAdvisory(ta *types.TurnAArtifacts) string {
+	if ta == nil || !ta.SourceInventoryAdvisory.IsActive() {
+		return ""
+	}
+	advisory := ta.SourceInventoryAdvisory
+	var b strings.Builder
+	b.WriteString("### Source inventory advisory candidates\n\n")
+	b.WriteString("- The system compiled these candidates from typed request lanes, requested scopes, and the repo-map graph. They are structured context, not final answer text and not citations by themselves.\n")
+	if advisory.AdvisoryOnly {
+		b.WriteString("- `advisory_only=true`: use these rows only when they match the answer shape you are emitting; disclose ambiguity instead of treating the set as mandatory.\n")
+	} else {
+		b.WriteString("- The active `source_inventory_profile` made this inventory shape high-confidence; preserve matching rows when the accepted aggregate facts or evidence support them.\n")
+	}
+	if len(advisory.Scopes) > 0 {
+		fmt.Fprintf(&b, "- scopes: `%s`\n", strings.Join(advisory.Scopes, "`, `"))
+	}
+	if len(advisory.Provenance) > 0 {
+		fmt.Fprintf(&b, "- provenance: `%s`\n", strings.Join(advisory.Provenance, "`, `"))
+	}
+	total := 0
+	for _, set := range advisory.Sets {
+		total += len(set.Candidates)
+	}
+	emitted := 0
+	for _, set := range advisory.Sets {
+		if len(set.Candidates) == 0 || emitted >= extractorMaxSourceInventoryAdvisoryRows {
+			continue
+		}
+		fmt.Fprintf(&b, "- role `%s` candidates (complete=%t):\n", set.Role, set.Complete)
+		for _, candidate := range set.Candidates {
+			if emitted >= extractorMaxSourceInventoryAdvisoryRows {
+				break
+			}
+			line := renderExtractorSourceInventoryAdvisoryCandidate(candidate)
+			if line == "" {
+				continue
+			}
+			fmt.Fprintf(&b, "  - %s\n", line)
+			emitted++
+		}
+	}
+	if total > emitted {
+		fmt.Fprintf(&b, "- showing %d of %d candidate(s); keep the accepted aggregate facts/evidence as the authority if a hidden row matters.\n", emitted, total)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func renderExtractorSourceInventoryAdvisoryCandidate(candidate types.SourceInventoryAdvisoryCandidate) string {
+	member := strings.TrimSpace(candidate.Member)
+	if member == "" {
+		return ""
+	}
+	parts := []string{fmt.Sprintf("`%s`", member)}
+	if candidate.File != "" && candidate.Line > 0 {
+		parts = append(parts, fmt.Sprintf("@ %s:%d", candidate.File, candidate.Line))
+	}
+	if candidate.Language != "" {
+		parts = append(parts, "language="+candidate.Language)
+	}
+	if candidate.SupportRef != "" {
+		parts = append(parts, "support_ref=`"+candidate.SupportRef+"`")
+	}
+	if note := truncateExtractorPromptText(candidate.Note, 180); note != "" {
+		parts = append(parts, "note: "+note)
+	}
+	return strings.Join(parts, " — ")
 }
 
 type extractorValueFact struct {

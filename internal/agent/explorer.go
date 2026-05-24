@@ -10359,13 +10359,14 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		stopParseSection = startExplorerParseSectionWatchdog(ctx, "turn_a_handoff")
 		handoffEvidence := buildTurnAHandoffEvidence(ctx, questionKind, rankedEvidence, answerChains)
 		snapshot := types.TurnAArtifacts{
-			UserQuestion:           e.userQuestion,
-			InvestigationNotes:     e.investigationNotes,
-			ReadFiles:              readFilesList,
-			ToolResults:            toolResults,
-			AcceptedClosureReason:  strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason()),
-			AcceptedResultKind:     strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()),
-			AcceptedAggregateFacts: ctx.Mutable.StableInvestigationAggregateFacts(),
+			UserQuestion:            e.userQuestion,
+			InvestigationNotes:      e.investigationNotes,
+			ReadFiles:               readFilesList,
+			ToolResults:             toolResults,
+			AcceptedClosureReason:   strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason()),
+			AcceptedResultKind:      strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()),
+			AcceptedAggregateFacts:  ctx.Mutable.StableInvestigationAggregateFacts(),
+			SourceInventoryAdvisory: ctx.Mutable.SourceInventoryAdvisory(),
 			RuntimeObservationOnlyCompletion: observationOnlyRuntimeArtifactForExplorer(ctx) &&
 				strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason()) != "" &&
 				strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()) != "",

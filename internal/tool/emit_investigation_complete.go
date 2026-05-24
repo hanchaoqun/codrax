@@ -670,6 +670,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		effectiveAggregateFacts, notes = dropUnsupportedDecoratedMemberSets(ctx, effectiveAggregateFacts, "optional aggregate handoff", true)
 		aggregateFactNormalizationNotes = append(aggregateFactNormalizationNotes, notes...)
 	}
+	publishSourceInventoryAdvisory(ctx, effectiveAggregateFacts, evidenceSnapshot)
 
 	// Reject the emit when a member_set carries members led by a code
 	// identifier but never publishes per-member grounding. Without

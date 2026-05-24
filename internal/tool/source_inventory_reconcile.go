@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -32,6 +33,175 @@ type sourceInventoryCandidateSet struct {
 	role       types.AnswerCandidateRole
 	candidates []sourceInventoryCandidate
 	complete   bool
+}
+
+func publishSourceInventoryAdvisory(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) {
+	if ctx == nil || ctx.Mutable == nil {
+		return
+	}
+	advisory := buildSourceInventoryAdvisory(ctx, facts, evidence)
+	if advisory.IsActive() {
+		ctx.Mutable.SetSourceInventoryAdvisory(advisory)
+		return
+	}
+	ctx.Mutable.ClearSourceInventoryAdvisory()
+}
+
+func buildSourceInventoryAdvisory(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) types.SourceInventoryAdvisory {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return types.SourceInventoryAdvisory{}
+	}
+	graph, _ := ctx.Mutable.SearchGraph().(*repotypes.Graph)
+	if graph == nil {
+		return types.SourceInventoryAdvisory{}
+	}
+	profile, advisoryOnly, provenance := sourceInventoryAdvisoryProfile(ctx)
+	if !profile.Active() {
+		return types.SourceInventoryAdvisory{}
+	}
+	scopes := sourceInventoryScopes(ctx, graph, facts)
+	if len(scopes) == 0 {
+		return types.SourceInventoryAdvisory{}
+	}
+	sets := sourceInventoryCandidateSets(ctx, graph, scopes, profile)
+	if len(sets) == 0 {
+		return types.SourceInventoryAdvisory{}
+	}
+	roles := make([]types.AnswerCandidateRole, 0, len(sets))
+	for role := range sets {
+		roles = append(roles, role)
+	}
+	sort.Slice(roles, func(i, j int) bool { return string(roles[i]) < string(roles[j]) })
+	advisory := types.SourceInventoryAdvisory{
+		Active:       true,
+		AdvisoryOnly: advisoryOnly,
+		Complete:     true,
+		Scopes:       append([]string(nil), scopes...),
+		Provenance:   sourceInventoryAdvisoryProvenance(ctx, provenance),
+	}
+	for _, role := range roles {
+		set := sets[role]
+		if len(set.candidates) == 0 {
+			continue
+		}
+		if !set.complete {
+			advisory.Complete = false
+		}
+		advisorySet := types.SourceInventoryAdvisorySet{
+			Role:       set.role,
+			Complete:   set.complete,
+			Candidates: make([]types.SourceInventoryAdvisoryCandidate, 0, len(set.candidates)),
+		}
+		for _, candidate := range set.candidates {
+			advisorySet.Candidates = append(advisorySet.Candidates, types.SourceInventoryAdvisoryCandidate{
+				Member:     candidate.member,
+				Key:        candidate.key,
+				SupportRef: candidate.supportRef,
+				Note:       sourceInventoryCandidateNote(candidate),
+				Role:       candidate.role,
+				Exported:   candidate.exported,
+				File:       candidate.file,
+				Line:       candidate.line,
+				Language:   candidate.language,
+			})
+		}
+		advisory.Sets = append(advisory.Sets, advisorySet)
+	}
+	if len(advisory.Sets) == 0 {
+		return types.SourceInventoryAdvisory{}
+	}
+	return advisory
+}
+
+func sourceInventoryAdvisoryProfile(ctx *types.BusContext) (*types.SourceInventoryProfile, bool, []string) {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil, false, nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if profile := rm.SourceInventoryProfile; profile != nil && profile.Active() {
+		clone := *profile
+		clone.TargetRoles = append([]types.AnswerCandidateRole(nil), profile.TargetRoles...)
+		clone.RequestedFields = append([]types.SourceInventoryRequestedField(nil), profile.RequestedFields...)
+		clone.SourceQuotes = append([]string(nil), profile.SourceQuotes...)
+		if profile.Confidence < 0.70 {
+			return &clone, true, []string{"source_inventory_profile:low_confidence"}
+		}
+		return &clone, false, []string{"source_inventory_profile"}
+	}
+	if rm.AnswerRoleProfile == nil || !rm.AnswerRoleProfile.Active() {
+		return nil, false, nil
+	}
+	var provenance []string
+	switch {
+	case types.HasAttributeBearingEnumeration(rm):
+		provenance = append(provenance, "request_traits:attribute_bearing_enumeration")
+	case types.RequiresExhaustiveEnumerationMemberSetHandoff(rm):
+		provenance = append(provenance, "request_traits:exhaustive_member_set")
+	default:
+		return nil, false, nil
+	}
+	roles := sourceInventoryAdvisoryPrincipalRolesFromRoleProfile(rm.AnswerRoleProfile)
+	if len(roles) == 0 {
+		return nil, false, nil
+	}
+	provenance = append(provenance, "answer_role_profile")
+	return &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       roles,
+		RequestedFields: []types.SourceInventoryRequestedField{
+			types.SourceInventoryFieldName,
+			types.SourceInventoryFieldLocation,
+			types.SourceInventoryFieldSummary,
+		},
+		Confidence: 0.50,
+	}, true, provenance
+}
+
+func sourceInventoryAdvisoryPrincipalRolesFromRoleProfile(profile *types.AnswerRoleProfile) []types.AnswerCandidateRole {
+	if profile == nil || !profile.Active() {
+		return nil
+	}
+	seen := map[types.AnswerCandidateRole]bool{}
+	var roles []types.AnswerCandidateRole
+	for _, role := range profile.RequiredCandidateRoles {
+		if role == types.AnswerCandidateRoleUnknown || seen[role] {
+			continue
+		}
+		switch role {
+		case types.AnswerCandidateRoleFunction,
+			types.AnswerCandidateRoleMethod,
+			types.AnswerCandidateRoleType,
+			types.AnswerCandidateRoleConstant,
+			types.AnswerCandidateRoleVariable,
+			types.AnswerCandidateRoleField,
+			types.AnswerCandidateRolePackage,
+			types.AnswerCandidateRoleFile,
+			types.AnswerCandidateRoleConfigKey,
+			types.AnswerCandidateRoleRoute,
+			types.AnswerCandidateRoleImportPath:
+			seen[role] = true
+			roles = append(roles, role)
+		}
+	}
+	return roles
+}
+
+func sourceInventoryAdvisoryProvenance(ctx *types.BusContext, base []string) []string {
+	out := append([]string(nil), base...)
+	out = append(out, "repomap_graph")
+	if sourceInventoryAdvisoryHasListFilesScope(ctx) {
+		out = append(out, "tool:list_files")
+	}
+	return out
+}
+
+func sourceInventoryAdvisoryHasListFilesScope(ctx *types.BusContext) bool {
+	for _, result := range aggregateSupportToolResults(ctx) {
+		if result.Success && result.ToolName == "list_files" && sourceInventoryListFilesScope(result.Summary) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func reconcileCompletionAggregateFactsWithSourceInventory(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) []types.AnswerAggregateFact {
@@ -132,7 +302,7 @@ func sourceInventoryShouldReplaceMemberSet(profile *types.SourceInventoryProfile
 	}
 	if len(profile.TargetRoles) == 1 {
 		switch role {
-		case types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleMethod, types.AnswerCandidateRoleType, types.AnswerCandidateRoleConstant:
+		case types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleMethod, types.AnswerCandidateRoleType, types.AnswerCandidateRoleConstant, types.AnswerCandidateRoleFile:
 			return true
 		default:
 			return false
@@ -247,6 +417,8 @@ func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph,
 	out := map[types.AnswerCandidateRole]sourceInventoryCandidateSet{}
 	for _, role := range profile.PrincipalTargetRoles() {
 		switch {
+		case role == types.AnswerCandidateRoleFile:
+			out[role] = sourceInventoryFileCandidates(ctx, graph, scopes, profile)
 		case role == types.AnswerCandidateRoleType &&
 			profile.TypeUnderlying == types.SourceInventoryTypeUnderlyingString &&
 			profile.RequiresConstSet:
@@ -259,6 +431,50 @@ func sourceInventoryCandidateSets(ctx *types.BusContext, graph *repotypes.Graph,
 		}
 	}
 	return out
+}
+
+func sourceInventoryFileCandidates(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile) sourceInventoryCandidateSet {
+	set := sourceInventoryCandidateSet{role: types.AnswerCandidateRoleFile, complete: sourceInventoryScopesHaveIndexedSourceFiles(graph, scopes)}
+	if graph == nil {
+		return set
+	}
+	seen := map[string]bool{}
+	for _, fi := range sourceInventoryScopedGraphFiles(graph, scopes, "") {
+		if fi == nil || fi.IsSpecial || strings.TrimSpace(fi.RelPath) == "" || strings.TrimSpace(fi.Language) == "" {
+			continue
+		}
+		file := strings.Trim(strings.TrimSpace(strings.ReplaceAll(fi.RelPath, `\`, `/`)), "/")
+		if file == "" || seen[file] || !aggregateEvidenceSourceInRequestedScope(ctx, file) {
+			continue
+		}
+		seen[file] = true
+		set.candidates = append(set.candidates, sourceInventoryCandidate{
+			member:     file,
+			key:        file,
+			supportRef: file,
+			note:       sourceInventoryFileCandidateNote(fi),
+			role:       types.AnswerCandidateRoleFile,
+			exported:   true,
+			file:       file,
+			language:   strings.TrimSpace(fi.Language),
+		})
+	}
+	sourceInventorySortCandidates(set.candidates)
+	return set
+}
+
+func sourceInventoryFileCandidateNote(fi *repotypes.FileInfo) string {
+	if fi == nil {
+		return ""
+	}
+	parts := make([]string, 0, 3)
+	if language := strings.TrimSpace(fi.Language); language != "" {
+		parts = append(parts, "language="+language)
+	}
+	if len(fi.Symbols) > 0 {
+		parts = append(parts, fmt.Sprintf("symbols=%d", len(fi.Symbols)))
+	}
+	return strings.Join(parts, ", ")
 }
 
 func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile, role types.AnswerCandidateRole) sourceInventoryCandidateSet {

@@ -706,3 +706,74 @@ Remaining P0 work:
 - [ ] Add convergence evals where the analyzer omits
   `source_inventory_profile`, ensuring the system still exposes bounded
   verified candidates as advisory context without overriding the LLM.
+
+## Implementation Design - P0 Batch 2
+
+Batch 2 closes the "shared advisory candidate artifact" gap without adding a
+new prompt-only heuristic lane.
+
+Code anchors reviewed before implementation:
+
+- `internal/types/context.go` owns `MutableState`, `TurnAArtifacts`, fork/merge,
+  and defensive-copy semantics. This is the existing cross-stage contract and
+  is the right place to carry a source-inventory artifact.
+- `internal/tool/source_inventory_reconcile.go` already builds graph-backed
+  source-inventory candidate sets from `SourceInventoryProfile`,
+  `AnswerVisibilityProfile`, repomap graph symbols, requested scopes, and
+  successful tool observations such as `list_files`.
+- `internal/types/request_traits.go` already exposes typed-only shapes such as
+  `HasAttributeBearingEnumeration` and
+  `RequiresExhaustiveEnumerationMemberSetHandoff`. These are safe activation
+  inputs because they do not scan localized user text or model prose.
+- `internal/types/answer_candidate_role.go` already normalizes roles and defines
+  `AnswerRoleProfile`, the typed positive role-binding lane.
+- `internal/agent/explorer.go` already snapshots Turn A handoff after accepted
+  exploration, and `internal/agent/extractor.go` already renders accepted
+  closure/aggregate facts from that snapshot.
+
+Design:
+
+- Add `SourceInventoryAdvisory` as a typed, language-neutral data carrier. It
+  stores scopes, candidate sets by `AnswerCandidateRole`, candidates with
+  member/support/location/language/note/exported fields, completeness, and
+  provenance.
+- Build the artifact by reusing `sourceInventoryCandidateSets`,
+  `sourceInventoryScopes`, and repomap graph data. No new scanner, regex
+  parser, or language-specific inventory code is introduced.
+- Activation stays typed-only:
+  - Authoritative-compatible mode: active `SourceInventoryProfile` with
+    confidence above the existing reconciliation threshold.
+  - Advisory-only profile mode: active `SourceInventoryProfile` below that
+    threshold still publishes graph candidates, but cannot reconcile/replace
+    aggregate facts.
+  - Advisory-only mode: no source-inventory profile, but typed request shape
+    says attribute-bearing or exhaustive enumeration, and typed
+    `AnswerRoleProfile` names the requested role. This exposes candidates to
+    downstream agents without rewriting aggregate facts.
+  - No typed role/profile means no artifact, even if `list_files` or keyword
+    search found many files.
+- The artifact is not an answer and does not replace model conclusions. It is
+  structured context/provenance for downstream stages. Only the existing
+  high-confidence `SourceInventoryProfile` path may continue to reconcile
+  accepted aggregate member sets.
+- Store the artifact on `MutableState` and copy it into `TurnAArtifacts` so
+  downstream stages can consume one shared candidate set instead of each lane
+  repeating wide searches. Batch 2 renders it to extractor as advisory context;
+  finalizer continues to consume accepted aggregate/display rows unless later
+  eval data shows a direct finalizer advisory is needed.
+- Render a compact extractor advisory section only when the artifact is active.
+  The wording is deliberately advisory and model-respecting: use the candidates
+  when they match the answer shape; disclose ambiguity; do not treat this as a
+  citation by itself. This is scoped dynamic context, not a global prompt rule.
+
+Batch 2 task list:
+
+- [x] Add `SourceInventoryAdvisory` types and clone helpers.
+- [x] Add `MutableState` setters/getters plus defensive-copy tests.
+- [x] Add `TurnAArtifacts.SourceInventoryAdvisory` copy/merge support.
+- [x] Add tool-side builder that reuses existing source-inventory candidate
+  code and publishes the artifact during `emit_investigation_complete`
+  validation.
+- [x] Render a compact extractor advisory handoff from Turn A.
+- [x] Add tests for active profile, typed advisory-only fallback,
+  no-typed-role silence, and cross-language candidate preservation.

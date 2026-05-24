@@ -124,6 +124,7 @@ type MutableState struct {
 	// drift.
 	emittedAnswerSymbolDeclaredCount int
 	emittedHypothesisVerdicts        []HypothesisVerdict
+	sourceInventoryAdvisory          SourceInventoryAdvisory
 	turnAArtifacts                   *TurnAArtifacts
 	exploreForkTurnABaseNotesLen     int
 	exploreForkTurnABaseBoundaryLen  int
@@ -815,6 +816,13 @@ type TurnAArtifacts struct {
 	// re-parse prose closure text.
 	AcceptedAggregateFacts []AnswerAggregateFact
 
+	// SourceInventoryAdvisory is the system-compiled, graph-backed
+	// candidate set for typed source inventory or attribute-bearing
+	// enumeration shapes. It is advisory context, not answer text and not
+	// a citation by itself. Downstream stages may use it to avoid repeated
+	// broad searches, while preserving the model's final answer decision.
+	SourceInventoryAdvisory SourceInventoryAdvisory
+
 	// RuntimeObservationOnlyCompletion marks the narrow case where Turn
 	// A legitimately completed from a structured external log / trace
 	// artifact without any current-repo read/search evidence. It is set
@@ -954,6 +962,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 	out.emittedAnswerSymbolCompleteness = m.emittedAnswerSymbolCompleteness
 	out.emittedAnswerSymbolDeclaredCount = m.emittedAnswerSymbolDeclaredCount
 	out.emittedHypothesisVerdicts = append([]HypothesisVerdict(nil), m.emittedHypothesisVerdicts...)
+	out.sourceInventoryAdvisory = CloneSourceInventoryAdvisory(m.sourceInventoryAdvisory)
 	if m.turnAArtifacts != nil {
 		out.turnAArtifacts = cloneTurnAArtifactsPtr(m.turnAArtifacts)
 		out.exploreForkTurnABaseNotesLen = len(out.turnAArtifacts.InvestigationNotes)
@@ -999,6 +1008,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	absenceJustification := fork.absenceJustification
 	investigationResultKind := fork.investigationResultKind
 	investigationAggregateFacts := cloneAnswerAggregateFacts(fork.investigationAggregateFacts)
+	sourceInventoryAdvisory := CloneSourceInventoryAdvisory(fork.sourceInventoryAdvisory)
 	retainedAbsenceJustification := fork.retainedAbsenceJustification
 	retainedInvestigationResultKind := fork.retainedInvestigationResultKind
 	retainedInvestigationCompleteReason := fork.retainedInvestigationCompleteReason
@@ -1052,6 +1062,9 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	}
 	if len(retainedInvestigationAggregateFacts) > 0 {
 		m.retainedInvestigationAggregateFacts = MergeAnswerAggregateFacts(m.retainedInvestigationAggregateFacts, retainedInvestigationAggregateFacts)
+	}
+	if sourceInventoryAdvisory.IsActive() {
+		m.sourceInventoryAdvisory = MergeSourceInventoryAdvisory(m.sourceInventoryAdvisory, sourceInventoryAdvisory)
 	}
 	if len(exactContextRequiredFiles) > 0 {
 		m.exactContextRequiredFiles = exactContextRequiredFiles
@@ -2870,6 +2883,44 @@ func (m *MutableState) ResetPlanStageProbeReports() {
 	m.planStageProbeReports = nil
 }
 
+// SetSourceInventoryAdvisory stores the current graph-backed source inventory
+// candidate artifact. The artifact is advisory context: it is not answer text
+// and downstream validators still require normal grounded evidence, aggregate
+// facts, or citations for visible claims.
+func (m *MutableState) SetSourceInventoryAdvisory(a SourceInventoryAdvisory) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sourceInventoryAdvisory = CloneSourceInventoryAdvisory(a)
+	m.bumpAnswerSurfaceRevisionLocked()
+}
+
+// SourceInventoryAdvisory returns a defensive copy of the current advisory
+// candidate artifact. A zero-value artifact means no typed, bounded source
+// inventory carrier is available for this run.
+func (m *MutableState) SourceInventoryAdvisory() SourceInventoryAdvisory {
+	if m == nil {
+		return SourceInventoryAdvisory{}
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return CloneSourceInventoryAdvisory(m.sourceInventoryAdvisory)
+}
+
+// ClearSourceInventoryAdvisory clears the current advisory artifact so stale
+// inventory candidates cannot leak across a fresh explore/extract cycle.
+func (m *MutableState) ClearSourceInventoryAdvisory() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sourceInventoryAdvisory = SourceInventoryAdvisory{}
+	m.bumpAnswerSurfaceRevisionLocked()
+}
+
 // SetTurnAArtifacts stores the P2.1 handoff snapshot from the
 // explorer (Turn A) for the extractor (Turn B) to consume. Called
 // from the explorer's ParseOutput at end-of-stage when
@@ -2906,6 +2957,7 @@ func (m *MutableState) SetTurnAArtifacts(a TurnAArtifacts) {
 	if a.AcceptedAggregateFacts != nil {
 		snap.AcceptedAggregateFacts = cloneAnswerAggregateFacts(a.AcceptedAggregateFacts)
 	}
+	snap.SourceInventoryAdvisory = CloneSourceInventoryAdvisory(a.SourceInventoryAdvisory)
 	m.turnAArtifacts = &snap
 	// Snapshot changed → invalidate the memoised label-support pool.
 	m.cachedLabelSupport = nil
@@ -2947,6 +2999,7 @@ func (m *MutableState) TurnAArtifacts() *TurnAArtifacts {
 	if m.turnAArtifacts.AcceptedAggregateFacts != nil {
 		out.AcceptedAggregateFacts = cloneAnswerAggregateFacts(m.turnAArtifacts.AcceptedAggregateFacts)
 	}
+	out.SourceInventoryAdvisory = CloneSourceInventoryAdvisory(m.turnAArtifacts.SourceInventoryAdvisory)
 	return &out
 }
 
@@ -2965,6 +3018,7 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.exploreForkTurnABaseBoundaryLen = 0
 	m.exploreForkTurnABaseToolLen = 0
 	m.exploreForkTurnABaseFlowLen = 0
+	m.sourceInventoryAdvisory = SourceInventoryAdvisory{}
 	m.cachedLabelSupport = nil
 	m.cachedLabelSupportSource = nil
 }
@@ -2981,6 +3035,7 @@ func cloneTurnAArtifactsPtr(in *TurnAArtifacts) *TurnAArtifacts {
 	out.EvidenceItems = append([]EvidenceItem(nil), in.EvidenceItems...)
 	out.FlowFindings = cloneFlowFindingDigests(in.FlowFindings)
 	out.AcceptedAggregateFacts = cloneAnswerAggregateFacts(in.AcceptedAggregateFacts)
+	out.SourceInventoryAdvisory = CloneSourceInventoryAdvisory(in.SourceInventoryAdvisory)
 	return &out
 }
 
@@ -3024,6 +3079,7 @@ func mergeTurnAArtifactsForMutable(prior *TurnAArtifacts, current TurnAArtifacts
 	if len(current.AcceptedAggregateFacts) > 0 {
 		merged.AcceptedAggregateFacts = cloneAnswerAggregateFacts(current.AcceptedAggregateFacts)
 	}
+	merged.SourceInventoryAdvisory = MergeSourceInventoryAdvisory(prior.SourceInventoryAdvisory, current.SourceInventoryAdvisory)
 	merged.RuntimeObservationOnlyCompletion = prior.RuntimeObservationOnlyCompletion || current.RuntimeObservationOnlyCompletion
 	merged.EvidenceItems = mergeEvidenceByStableID(prior.EvidenceItems, current.EvidenceItems)
 	flowBase := clampMergeSliceBase(base.FlowLen, len(current.FlowFindings))

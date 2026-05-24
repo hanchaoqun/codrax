@@ -815,6 +815,166 @@ func TestReconcileCompletionAggregateFactsWithSourceInventory_PreservesExplorerN
 	}
 }
 
+func TestBuildSourceInventoryAdvisory_ActiveProfileUsesGraphCandidates(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{RelPath: "src/a.py", Language: "python", Symbols: []repotypes.Symbol{{
+			Name:     "Eval",
+			Kind:     "function",
+			File:     "src/a.py",
+			Line:     10,
+			Exported: true,
+			Doc:      "Evaluate one item.",
+		}}},
+		{RelPath: "src/B.java", Language: "java", Symbols: []repotypes.Symbol{{
+			Name:     "Run",
+			Kind:     "function",
+			File:     "src/B.java",
+			Line:     20,
+			Exported: true,
+			Doc:      "/** Run executes the Java entrypoint. */",
+		}}},
+		{RelPath: "src/private.ts", Language: "typescript", Symbols: []repotypes.Symbol{{
+			Name:     "render",
+			Kind:     "function",
+			File:     "src/private.ts",
+			Line:     30,
+			Exported: false,
+		}}},
+	})
+	ctx := sourceInventoryTestContext("", graph, "src", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+		Confidence:        0.95,
+	})
+
+	advisory := buildSourceInventoryAdvisory(ctx, nil, nil)
+	if !advisory.IsActive() || advisory.AdvisoryOnly {
+		t.Fatalf("advisory = %+v, want active authoritative-compatible", advisory)
+	}
+	if len(advisory.Sets) != 1 || advisory.Sets[0].Role != types.AnswerCandidateRoleFunction {
+		t.Fatalf("sets = %+v, want one function set", advisory.Sets)
+	}
+	got := advisoryMemberNames(advisory.Sets[0].Candidates)
+	want := []string{"Run", "Eval"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("members = %#v, want %#v", got, want)
+	}
+	if containsString(got, "render") {
+		t.Fatalf("private TypeScript helper leaked into public advisory: %#v", got)
+	}
+}
+
+func TestBuildSourceInventoryAdvisory_TypedRoleFallbackIsAdvisoryOnly(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{RelPath: "src/a.py", Language: "python", Symbols: []repotypes.Symbol{{
+			Name:     "Eval",
+			Kind:     "function",
+			File:     "src/a.py",
+			Line:     10,
+			Exported: true,
+		}}},
+		{RelPath: "src/B.java", Language: "java", Symbols: []repotypes.Symbol{{
+			Name:     "Run",
+			Kind:     "function",
+			File:     "src/B.java",
+			Line:     20,
+			Exported: true,
+		}}},
+	})
+	ctx := sourceInventoryTestContext("", graph, "src", nil)
+	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisDefine
+	ctx.AnalysisIR.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all functions",
+	}
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"src", "src/a.py"}
+	ctx.AnalysisIR.RequestModel.AnswerRoleProfile = &types.AnswerRoleProfile{
+		IsRoleBindingRequested: true,
+		RequiredCandidateRoles: []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+	}
+
+	advisory := buildSourceInventoryAdvisory(ctx, nil, nil)
+	if !advisory.IsActive() || !advisory.AdvisoryOnly {
+		t.Fatalf("advisory = %+v, want active advisory-only", advisory)
+	}
+	if !containsString(advisory.Provenance, "answer_role_profile") {
+		t.Fatalf("provenance = %#v, want answer_role_profile", advisory.Provenance)
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "functions",
+		Value:   "1",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Eval"},
+	}}
+	got := reconcileCompletionAggregateFactsWithSourceInventory(ctx, facts, nil)
+	if !reflect.DeepEqual(got, facts) {
+		t.Fatalf("advisory-only fallback must not rewrite aggregate facts;\ngot  %#v\nwant %#v", got, facts)
+	}
+}
+
+func TestBuildSourceInventoryAdvisory_NoTypedRoleStaysSilent(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{{
+		RelPath:  "src/a.py",
+		Language: "python",
+		Symbols: []repotypes.Symbol{{
+			Name:     "Eval",
+			Kind:     "function",
+			File:     "src/a.py",
+			Line:     10,
+			Exported: true,
+		}},
+	}})
+	ctx := sourceInventoryTestContext("", graph, "src", nil)
+	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisDefine
+	ctx.AnalysisIR.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all functions",
+	}
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{"src", "src/a.py"}
+
+	if advisory := buildSourceInventoryAdvisory(ctx, nil, nil); advisory.IsActive() {
+		t.Fatalf("advisory without typed role/profile should stay silent: %+v", advisory)
+	}
+}
+
+func TestBuildSourceInventoryAdvisory_FileRoleUsesGraphFiles(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{RelPath: "src/a.py", Language: "python", Symbols: []repotypes.Symbol{{
+			Name:     "Eval",
+			Kind:     "function",
+			File:     "src/a.py",
+			Line:     10,
+			Exported: true,
+		}}},
+		{RelPath: "src/B.java", Language: "java", Symbols: []repotypes.Symbol{{
+			Name:     "Run",
+			Kind:     "function",
+			File:     "src/B.java",
+			Line:     20,
+			Exported: true,
+		}}},
+		{RelPath: "README.md", Language: "", IsSpecial: true},
+	})
+	ctx := sourceInventoryTestContext("", graph, "src", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFile},
+		RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+		Confidence:        0.95,
+	})
+
+	advisory := buildSourceInventoryAdvisory(ctx, nil, nil)
+	if !advisory.IsActive() || len(advisory.Sets) != 1 {
+		t.Fatalf("advisory = %+v, want one file-role set", advisory)
+	}
+	got := advisoryMemberNames(advisory.Sets[0].Candidates)
+	want := []string{"src/B.java", "src/a.py"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("file candidates = %#v, want %#v", got, want)
+	}
+}
+
 func aggregateReconcileTestContext() *types.BusContext {
 	graph := &repotypes.Graph{SymbolDefs: map[string][]*repotypes.Symbol{}}
 	add := func(name, kind string, line int, exported bool) {
@@ -924,6 +1084,14 @@ func containsString(items []string, want string) bool {
 		}
 	}
 	return false
+}
+
+func advisoryMemberNames(candidates []types.SourceInventoryAdvisoryCandidate) []string {
+	out := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		out = append(out, candidate.Member)
+	}
+	return out
 }
 
 func aggregateReconcileStageAgentContext() *types.BusContext {
