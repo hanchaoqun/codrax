@@ -2144,3 +2144,34 @@ B2-K implementation note, 2026-05-25 CST:
   - existing source_inventory lens tests continue to cover cross-language
     functions/methods/types/config keys/imports and multi-repo active-scope
     isolation.
+
+B2-K post-pull audit note, 2026-05-25 CST:
+
+- Remote update `cd6c54c9` closes the largest B2-J9 regression before this
+  batch continues: analyze now rejects `repo_map(view="source_inventory")`
+  row expansion and source-inventory discovery hints are suppressed in analyze.
+  The typed request shape should be captured through `emit_analysis`; row
+  expansion and verification belong to explore.
+- The source-inventory path surface is normalized before hint rendering:
+  active-set aliases are resolved, absolute in-repo paths are rendered
+  repo-relative, parent escapes are refused, and repo-root containment is
+  rechecked before result paths become scoped branch suggestions.
+- Clarified member-set boundary:
+  - the system can guarantee mechanical invariants for repo-lens observations:
+    row provenance, normalized repo/scope boundary, role/language/file/line
+    shape, `count == len(members)`, and whether a row has a matching
+    read/grep/evidence source window;
+  - the system cannot guarantee that a repo-lens row is the user's intended
+    final principal member. It must not synthesize `aggregate_facts.member_set`
+    or present the checklist as final evidence;
+  - therefore the repair hint explicitly says the checklist is not a
+    system-authored member_set and asks the model to re-emit the member_set
+    only after its own verification. This preserves user/model intent while
+    still reducing redundant rediscovery.
+- Focused `s5b` run started from the pre-pull B2-K build was interrupted for
+  the remote update and produced a useful fail sample:
+  `eval/results/b2k-source-inventory/s5b-20260525-004339`.
+  It saw source-inventory lens hints but still used older `exec_command` /
+  `list_files` / `read_file` patterns and exited early with missing
+  `normalizer`, `compiler`, `criterion`, `gate`, `subject`, `sourcemix`, and
+  `stopcond`. Re-run after `cd6c54c9` is still required.
