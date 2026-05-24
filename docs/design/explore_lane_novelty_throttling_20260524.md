@@ -104,7 +104,7 @@ lanes.
 | T20.2 Add support-only lane budget cap after existing multi-subtopic scaling. | Done | `go test ./internal/orchestrator -run TestApplyExploreLaneHandoffIterationCap` |
 | T20.3 Document next accepted-delta novelty ledger work. | Done | Gap doc update |
 | T20.4 Focused eval rerun on `u7k` and mixed runtime/source cases. | In progress | `u7k-20260524-191826`; rebuilt `u7k-20260524-200712` / `u7k-20260524-201412` showed good answers and no finalizer churn; remaining mixed runtime/source breadth pending |
-| T20.5 Add same-lane accepted-delta novelty advisory/telemetry. | In progress | unit tests done; focused `u7k`, log/source, trace/source, VCS/current reruns pending |
+| T20.5 Add same-lane accepted-delta novelty advisory/telemetry. | In progress | unit tests done, including lane-scoped VCS/current-source protection; focused `u7k`, log/source, trace/source, VCS/current reruns pending |
 | T20.6 Make read-without-emit hints origin-aware so VCS/log/trace/command observations are not forced into file:line `emit_evidence`. | Done | agent unit tests; rebuilt mixed VCS/current eval prompt audit proved origin-aware hint was injected and finalizer stayed one turn |
 | T20.7 Surface per-worker lane labels in durable parallel scrollback. | Done | `go test ./internal/render ./internal/orchestrator -run 'TestRenderer_ParallelExplorerScrollbackShows|TestDispatchExploreWindowsParallel_ScopesLanePlanPerEvidenceWindow|TestScopeExploreLanePlansForWindows_DemotesExactDuplicateLane|TestApplyExploreLaneHandoffIterationCap'` |
 
@@ -150,6 +150,32 @@ eliminate long exploration in `u7k`; that stays under T20.5. A separate
 `condition` + `line_range` evidence-repair strictness issue was observed during
 the same replay and is tracked as future evidence-repair hardening, not as a
 T20.6 prompt conflict.
+
+## Slice 4 Lane-Scoped Novelty Ledger
+
+Status: Done for the code-level guard; focused eval replay still pending.
+
+The first same-lane ledger was global inside an explorer dispatch. That was safe
+for ordinary single-origin runs, but mixed-origin questions exposed a subtle
+failure mode: accepted VCS/log/command facts could make later current-source
+navigation look like "no novelty" even though the worker had moved to a
+different evidence lane. That would be a soft hint rather than a hard gate, but
+it is still a system nudge based on the wrong lane and therefore violates the
+same architectural red line.
+
+The ledger now scopes accepted-delta accounting by typed evidence origin:
+
+- current-source navigation counts only current-source accepted deltas;
+- VCS history/diff navigation counts only VCS accepted deltas;
+- command navigation counts command-measurement deltas unless the tool summary
+  carries a structured `evidence_origin=` tag such as `vcs_metadata`;
+- repo-map/list-files navigation can count current-source and cross-repo-index
+  deltas;
+- observation ledger records keep their own origin.
+
+This is still advisory only. If no origin can be derived from structured tool
+metadata, the old all-lane behavior is preserved rather than guessing from
+prose.
 
 ## Slice 3 UX Validation
 

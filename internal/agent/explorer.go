@@ -265,6 +265,11 @@ type explorerEvaluator struct {
 	// it from prose.
 	analysisIR *types.AnalysisIR
 
+	// exploreLanePlan caches the typed evidence-origin lane ownership plan for
+	// this dispatch. Same-lane novelty checks use it only to scope advisory
+	// prompts to the lane currently being navigated; it is not an answer gate.
+	exploreLanePlan types.ExploreLanePlan
+
 	// kindConfidence caches RequestModel.KindConfidence at
 	// BuildInitialInstruction. Schema-v4 downstream guard: gates
 	// aggressive narrowing such as tightenDeclarativeFrontier so a
@@ -380,6 +385,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.scenario = ""
 		e.answerSubject = types.AnswerSubject{}
 		e.predicateAxis = types.AxisUnknown
+		e.exploreLanePlan = types.ExploreLanePlan{}
 		e.kindConfidence = 0
 		e.requiredFiles = nil
 		e.exactAnchorFiles = nil
@@ -414,6 +420,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.scenario = ""
 	}
 	e.analysisIR = ctx.AnalysisIR
+	e.exploreLanePlan = ctx.ExploreLanePlan
 	e.mutable = ctx.Mutable
 	e.multiGraphHandle = ctx.MultiGraph
 	e.pendingSubRepos = append(e.pendingSubRepos[:0], ctx.PendingSubRepos...)
@@ -7407,7 +7414,8 @@ func (e *explorerEvaluator) postSameLaneLowNoveltySignal(obs LoopObservation) Lo
 	if len(obs.CurrentToolResults) == 0 {
 		return LoopSignal{}
 	}
-	newKeys, totalKeys := e.recordAcceptedTypedDeltaKeys(obs)
+	relevantOrigins := e.sameLaneNoveltyOrigins(obs.CurrentToolResults)
+	newKeys, totalKeys := e.recordAcceptedTypedDeltaKeys(obs, relevantOrigins)
 	if newKeys > 0 {
 		e.midLoopNoNoveltyNavigationStreak = 0
 		return LoopSignal{}
@@ -7436,14 +7444,14 @@ func (e *explorerEvaluator) postSameLaneLowNoveltySignal(obs LoopObservation) Lo
 	}
 }
 
-func (e *explorerEvaluator) recordAcceptedTypedDeltaKeys(obs LoopObservation) (newKeys int, totalKeys int) {
+func (e *explorerEvaluator) recordAcceptedTypedDeltaKeys(obs LoopObservation, origins map[types.AnswerEvidenceOrigin]bool) (newKeys int, totalKeys int) {
 	if e == nil {
 		return 0, 0
 	}
 	if e.midLoopNoveltySeen == nil {
 		e.midLoopNoveltySeen = make(map[string]bool)
 	}
-	keys := e.acceptedTypedDeltaKeys(obs)
+	keys := e.acceptedTypedDeltaKeys(obs, origins)
 	for _, key := range keys {
 		key = strings.TrimSpace(key)
 		if key == "" {
@@ -7459,15 +7467,25 @@ func (e *explorerEvaluator) recordAcceptedTypedDeltaKeys(obs LoopObservation) (n
 	return newKeys, totalKeys
 }
 
-func (e *explorerEvaluator) acceptedTypedDeltaKeys(obs LoopObservation) []string {
+func (e *explorerEvaluator) acceptedTypedDeltaKeys(obs LoopObservation, origins map[types.AnswerEvidenceOrigin]bool) []string {
 	var keys []string
 	for _, item := range e.structuredEvidence {
+		if !explorerAnyOriginAllowed(origins, explorerEvidenceDeltaOrigins(item)...) {
+			continue
+		}
 		if key := explorerEvidenceDeltaKey(item); key != "" {
 			keys = append(keys, key)
 		}
 	}
 	if e.mutable != nil {
 		for _, fact := range e.mutable.StableInvestigationAggregateFacts() {
+			var rm *types.RequestModel
+			if e.analysisIR != nil {
+				rm = &e.analysisIR.RequestModel
+			}
+			if !explorerAnyOriginAllowed(origins, types.AnswerAggregateFactEvidenceOrigins(fact, rm)...) {
+				continue
+			}
 			if key := explorerAggregateFactDeltaKey(fact); key != "" {
 				keys = append(keys, key)
 			}
@@ -7490,11 +7508,135 @@ func (e *explorerEvaluator) acceptedTypedDeltaKeys(obs LoopObservation) []string
 	}
 	ledger := types.CompileObservationLedger(input)
 	for _, record := range ledger.Records {
+		if !explorerAnyOriginAllowed(origins, record.Origin) {
+			continue
+		}
 		if key := explorerObservationDeltaKey(record); key != "" {
 			keys = append(keys, key)
 		}
 	}
 	return keys
+}
+
+func (e *explorerEvaluator) sameLaneNoveltyOrigins(results []types.ToolResult) map[types.AnswerEvidenceOrigin]bool {
+	origins := explorerNavigationOrigins(results)
+	if len(origins) == 0 || e == nil || e.exploreLanePlan.Empty() {
+		return origins
+	}
+	planned := map[types.AnswerEvidenceOrigin]bool{}
+	for _, lane := range e.exploreLanePlan.Lanes {
+		if lane.Origin == types.AnswerEvidenceOriginUnknown {
+			continue
+		}
+		planned[lane.Origin] = true
+	}
+	if len(planned) == 0 {
+		return origins
+	}
+	out := map[types.AnswerEvidenceOrigin]bool{}
+	for origin := range origins {
+		if planned[origin] {
+			out[origin] = true
+		}
+	}
+	if len(out) == 0 {
+		return origins
+	}
+	return out
+}
+
+func explorerNavigationOrigins(results []types.ToolResult) map[types.AnswerEvidenceOrigin]bool {
+	out := map[types.AnswerEvidenceOrigin]bool{}
+	add := func(origin types.AnswerEvidenceOrigin) {
+		if origin == types.AnswerEvidenceOriginUnknown || !origin.IsValid() {
+			return
+		}
+		out[origin] = true
+	}
+	for _, result := range results {
+		if !result.Success {
+			continue
+		}
+		switch strings.TrimSpace(result.ToolName) {
+		case "read_file", "grep":
+			add(types.AnswerEvidenceOriginCurrentSource)
+		case "list_files", "repo_map":
+			add(types.AnswerEvidenceOriginCurrentSource)
+			add(types.AnswerEvidenceOriginCrossRepoIndex)
+		case "git_diff":
+			add(types.AnswerEvidenceOriginVCSDiff)
+		case "git_show":
+			add(types.AnswerEvidenceOriginVCSMetadata)
+			add(types.AnswerEvidenceOriginVCSDiff)
+		case "git_log", "git_history_search":
+			add(types.AnswerEvidenceOriginVCSMetadata)
+		case "exec_command":
+			add(types.AnswerEvidenceOriginCommandMeasurement)
+		}
+		for _, origin := range explorerStructuredOriginsFromToolSummary(result.Summary) {
+			add(origin)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func explorerStructuredOriginsFromToolSummary(summary string) []types.AnswerEvidenceOrigin {
+	if strings.TrimSpace(summary) == "" {
+		return nil
+	}
+	var out []types.AnswerEvidenceOrigin
+	seen := map[types.AnswerEvidenceOrigin]bool{}
+	addToken := func(token string) {
+		origin := types.AnswerEvidenceOriginFromStructuredToken(token)
+		if origin == types.AnswerEvidenceOriginUnknown || !origin.IsValid() || seen[origin] {
+			return
+		}
+		seen[origin] = true
+		out = append(out, origin)
+	}
+	for _, marker := range []string{"evidence_origin=", "origin=", "diff_origin="} {
+		search := summary
+		for {
+			idx := strings.Index(search, marker)
+			if idx < 0 {
+				break
+			}
+			rest := search[idx+len(marker):]
+			token := strings.Trim(rest, "`\"' ")
+			if cut := strings.IndexAny(token, " \t\n\r,];)"); cut >= 0 {
+				token = token[:cut]
+			}
+			addToken(token)
+			search = rest
+		}
+	}
+	return out
+}
+
+func explorerEvidenceDeltaOrigins(item types.EvidenceItem) []types.AnswerEvidenceOrigin {
+	switch item.Origin {
+	case types.ClaimOriginLog, types.ClaimOriginPerf:
+		return []types.AnswerEvidenceOrigin{types.AnswerEvidenceOriginRuntimeArtifact}
+	case types.ClaimOriginCrossSource:
+		return []types.AnswerEvidenceOrigin{types.AnswerEvidenceOriginCurrentSource, types.AnswerEvidenceOriginRuntimeArtifact}
+	default:
+		return []types.AnswerEvidenceOrigin{types.AnswerEvidenceOriginCurrentSource}
+	}
+}
+
+func explorerAnyOriginAllowed(filter map[types.AnswerEvidenceOrigin]bool, origins ...types.AnswerEvidenceOrigin) bool {
+	if len(filter) == 0 {
+		return true
+	}
+	for _, origin := range origins {
+		if filter[origin] {
+			return true
+		}
+	}
+	return false
 }
 
 func explorerEvidenceDeltaKey(item types.EvidenceItem) string {

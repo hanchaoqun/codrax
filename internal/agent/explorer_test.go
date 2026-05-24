@@ -8473,6 +8473,48 @@ func TestPostSameLaneLowNoveltySignal_CountsGitObservationAsTypedDelta(t *testin
 	}
 }
 
+func TestPostSameLaneLowNoveltySignal_DoesNotUseVCSFactsToThrottleCurrentSourceLane(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:      1,
+		heuristics: types.ExploreHeuristics{MidLoopMinIteration: 2},
+		exploreLanePlan: types.ExploreLanePlan{Lanes: []types.ExploreLane{
+			{Origin: types.AnswerEvidenceOriginVCSMetadata, Label: "历史"},
+			{Origin: types.AnswerEvidenceOriginCurrentSource, Label: "当前源码"},
+		}},
+	}
+	git := types.ToolResult{
+		ToolName: "git_log",
+		Success:  true,
+		Summary:  "[git_log: evidence_origin=vcs_metadata count=1]\ncommit abc123 preserve external observations",
+	}
+	_ = eval.postSameLaneLowNoveltySignal(LoopObservation{
+		Phase:              PhaseMidLoop,
+		Iteration:          3,
+		AllToolResults:     []types.ToolResult{git},
+		CurrentToolResults: []types.ToolResult{git},
+	})
+	if len(eval.midLoopNoveltySeen) == 0 {
+		t.Fatal("VCS observation should seed the novelty ledger")
+	}
+	read1 := types.ToolResult{ToolName: "read_file", Success: true, Summary: "[internal/agent/explorer.go:1-20]"}
+	read2 := types.ToolResult{ToolName: "grep", Success: true, Summary: "internal/agent/explorer.go:10: explorerEvaluator"}
+	_ = eval.postSameLaneLowNoveltySignal(LoopObservation{
+		Phase:              PhaseMidLoop,
+		Iteration:          4,
+		AllToolResults:     []types.ToolResult{git, read1},
+		CurrentToolResults: []types.ToolResult{read1},
+	})
+	sig := eval.postSameLaneLowNoveltySignal(LoopObservation{
+		Phase:              PhaseMidLoop,
+		Iteration:          5,
+		AllToolResults:     []types.ToolResult{git, read1, read2},
+		CurrentToolResults: []types.ToolResult{read2},
+	})
+	if sig.HintRequested {
+		t.Fatalf("VCS typed facts must not throttle a separate current-source lane: %+v", sig)
+	}
+}
+
 func TestPostSameLaneLowNoveltySignal_DoesNotFireWithoutAcceptedTypedFacts(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:      1,
