@@ -1,7 +1,7 @@
 # Unified Observation Ledger Contract
 
 **Date**: 2026-05-21
-**Status**: design + phased implementation plan
+**Status**: design + phased implementation; code-level origin contract is in place, future-producer executable eval remains pending
 **Owner**: read-mode evidence/answer architecture
 
 ## 1. Problem Statement
@@ -43,9 +43,9 @@ The desired contract is a single internal observation ledger that indexes accept
 | Deterministic command measurements | `exec_command` count proof | typed banner + deterministic aggregate enrichment | `internal/tool/builtin.go`, `internal/tool/emit_investigation_complete.go` | Working for counts; arbitrary command facts need an observation adapter. |
 | Runtime logs | `emit_log_triage` | `LogBundle.Errors`, `LogBundle.Observations` | `internal/tool/emit_log_triage.go`, `internal/types/log_bundle.go` | Good for observation-only logs with artifact-local lines. |
 | Perf / HiTrace / atrace | `emit_perf_trace` | `PerfBundle.Frames/Janks/Stalls/Startup/Observations` | `internal/tool/emit_perf_trace.go`, `internal/types/perf_bundle.go` | Partially connected; complex perf ownership/facet gaps remain. |
-| Repo-map / index | `repo_map` | raw `ToolResult`; optional aggregate dims | `internal/tool/repomap/*`, `internal/tool/builtin.go` | Partial; no first-class index observation adapter. |
-| MCP | registry/tool scaffolding | `MCPResponse`, `RelevantMCPNotes` | `internal/mcp/*`, `internal/context/builder.go` | Not evidence-grade yet. No origin enum, no resource span, no ledger adapter. |
-| Web / connector resources | none | none | not implemented | Future gap. Needs external resource origins before any tool is introduced. |
+| Repo-map / index | `repo_map`; typed aggregate dims when a producer/model records a bounded index fact | `ToolResult` support + `AnswerAggregateFact` dimensions | `internal/tool/repomap/*`, `internal/tool/builtin.go`, `internal/types/observation_ledger.go` | Ledger shape exists (`cross_repo_index` source refs, repo/path/payload); direct producer enrichment and executable eval breadth remain future work. |
+| MCP | registry/tool scaffolding plus `MCPResponse` | `MCPResponse`, `RelevantMCPNotes`, typed aggregate dims | `internal/mcp/*`, `internal/context/builder.go`, `internal/types/observation_ledger.go` | Evidence-grade origin exists (`mcp_resource`) with resource URI / server / JSON pointer / raw ref projection; future producers should populate typed fields rather than adding bespoke prompt lanes. |
+| Web / connector resources | future producer families | typed aggregate dims / future connector response adapters | `internal/types/observation_ledger.go`, `internal/types/observation_prompt_projection.go` | Source/span shape exists for `web_page`, `external_document`, and `connector_resource`; executable producer plumbing remains future work. |
 
 ### 3.2 Stage Handoff
 
@@ -76,9 +76,9 @@ Relevant code:
 
 The logical contract exists, but the physical view is spread across `EvidenceItem`, `AnswerAggregateFact`, `ToolResult`, `LogBundle`, `PerfBundle`, `MCPResponse`, and raw prompt sections. This makes every downstream consumer choose its own interpretation.
 
-### G2. External Origins Are Missing
+### G2. External Origins Were Missing; Producer Plumbing Is The Remaining Risk
 
-`AnswerEvidenceOrigin` currently has no `web_page`, `mcp_resource`, `external_document`, or `connector_resource`. Reusing `runtime_artifact` for these would be convenient but wrong: runtime artifacts are observed execution traces/logs, not general external documents.
+`AnswerEvidenceOrigin` and `ObservationSourceRef` now include `web_page`, `mcp_resource`, `external_document`, and `connector_resource`, with tests proving they do not become current-source citations. The remaining risk is future producer plumbing: a new connector/web tool must populate these typed fields instead of inventing another raw prompt section.
 
 ### G3. Span References Are Not Unified
 
@@ -92,13 +92,13 @@ Git history and command narratives can be answer-grade, but if the model forgets
 
 `AnswerAggregateDimension` is capped at 8 dimensions. That is enough for simple `origin + target + scope + result_count + searched_at`, but future web/MCP negatives may also need `source_ref`, `span_ref`, `method`, `resource_kind`, and `query_language`.
 
-### G6. MCP Is Currently Context, Not Evidence
+### G6. MCP Is Evidence-Capable, But Most Real Producers Are Still Future Work
 
-`MCPResponse` can be rendered as a note, but it does not compile into claim bindings or origin-specific support. MCP tools/resources should be able to contribute evidence without pretending to be repo files.
+`MCPResponse` now compiles into the Observation Ledger as `mcp_resource` support, and aggregate facts can carry exact MCP resource coordinates. This is evidence-capable without pretending to be repo files. Real future MCP producers still need to populate `resource_uri`, `json_pointer`, `payload_ref`, and `row_set_ref` consistently.
 
-### G7. Repo-Map / Cross-Repo Index Facts Are Under-Structured
+### G7. Repo-Map / Cross-Repo Index Facts Need Producer Enrichment
 
-Repo-map output often answers architecture/scope questions. Today it is mostly raw output or optional aggregate dimensions. It needs a first-class `cross_repo_index` observation adapter.
+Repo-map output often answers architecture/scope questions. The ledger already supports `cross_repo_index` source refs and prompt projection, but direct `repo_map` producer enrichment is still limited. Until a producer emits bounded typed dims, raw repo-map output remains support context.
 
 ### G8. Prompt Duplication And Conflict Risk
 
@@ -343,13 +343,14 @@ flowchart TD
 ### Batch 4 — MCP / Web Future-Proofing
 
 - [x] Compile `MCPResponse` into support-only ledger records when MCP is present.
-- [ ] Define future `web_page` record shape and span policy before any web-read tool lands.
-- [ ] Define a shared external-resource paging contract: producers store large
+- [x] Define future `web_page`, `external_document`, and `connector_resource`
+  record shape and span policy before any web-read/connector tool lands.
+- [x] Define a shared external-resource paging contract: producers store large
   MCP/web/connector payloads in blob-backed resources, ledger records carry
   `RawRef` / resource URI plus artifact-local spans, and paging never becomes a
   current-source citation.
-- [ ] Add eval skeletons for MCP JSON field, MCP absent field, web paragraph fact, and web absent term.
-- [ ] Ensure external resource observations never import `internal/tool/ground` or enter repo citations.
+- [x] Add eval skeletons for MCP JSON field, MCP absent field, web paragraph fact, and web absent term.
+- [x] Ensure external resource observations never import `internal/tool/ground` or enter repo citations.
 
 ### Batch 4B — External Artifact Paging And Anchor Readiness
 

@@ -436,6 +436,30 @@ func TestRenderAnswerDocObservationLedger_NamesAllExternalObservationFamilies(t 
 		},
 		{
 			Kind:  types.AnswerAggregateScalar,
+			Label: "external design paragraph",
+			Value: "requires gateway fallback",
+			Role:  types.AnswerAggregateRoleSupportingCoverage,
+			Dimensions: []types.AnswerAggregateDimension{
+				{Name: "origin", Value: string(types.AnswerEvidenceOriginExternalDocument)},
+				{Name: "resource_uri", Value: "drive://doc/123"},
+				{Name: "page_ref", Value: "page=2"},
+				{Name: "paragraph", Value: "7"},
+			},
+		},
+		{
+			Kind:  types.AnswerAggregateScalar,
+			Label: "MCP schema row",
+			Value: "field present",
+			Role:  types.AnswerAggregateRoleSupportingCoverage,
+			Dimensions: []types.AnswerAggregateDimension{
+				{Name: "origin", Value: string(types.AnswerEvidenceOriginMCPResource)},
+				{Name: "server", Value: "docs"},
+				{Name: "resource_uri", Value: "mcp://docs/spec"},
+				{Name: "json_pointer", Value: "/items/0/title"},
+			},
+		},
+		{
+			Kind:  types.AnswerAggregateScalar,
 			Label: "connector issue",
 			Value: "JIRA-7",
 			Role:  types.AnswerAggregateRoleSupportingCoverage,
@@ -462,7 +486,11 @@ func TestRenderAnswerDocObservationLedger_NamesAllExternalObservationFamilies(t 
 		"connector resources",
 		"`aggregate:0#cross_repo_index`",
 		"`aggregate:1#web_page`",
-		"`aggregate:2#connector_resource`",
+		"`aggregate:2#external_document`",
+		"`aggregate:3#mcp_resource`",
+		"`aggregate:4#connector_resource`",
+		"resource_uri=drive://doc/123",
+		"json \"/items/0/title\"",
 		"non-`current_source` observations",
 	} {
 		if !strings.Contains(got, want) {
