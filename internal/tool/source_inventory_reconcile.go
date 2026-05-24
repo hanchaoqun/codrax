@@ -44,6 +44,14 @@ type sourceInventoryPackageBucket struct {
 	packages  map[string]int
 }
 
+type sourceInventoryObservationScopeGroup struct {
+	Scope      string
+	order      int
+	Candidates []types.SourceInventoryObservationMember
+	RoleCounts map[types.AnswerCandidateRole]int
+	Languages  map[string]int
+}
+
 func publishSourceInventoryAdvisory(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) {
 	if ctx == nil || ctx.Mutable == nil {
 		return
@@ -239,9 +247,13 @@ func RenderSourceInventoryObservationView(observation types.SourceInventoryObser
 	if !observation.IsActive() {
 		return "Repo Lens: no source-inventory observation is available for the requested typed scope/role slice. Try a narrower `scope` or provide `roles` that match repo-map candidate roles."
 	}
+	groupedView := renderSourceInventoryGroupedObservationView(observation, query)
 	topN := query.TopN
 	if topN <= 0 {
 		topN = 60
+	}
+	if groupedView != "" && query.TopN <= 0 {
+		topN = 24
 	}
 	offset := sourceInventoryLensQueryOffset(query)
 	includeCounts := query.IncludeCounts
@@ -276,6 +288,10 @@ func RenderSourceInventoryObservationView(observation types.SourceInventoryObser
 		fmt.Fprintf(&b, "- page_offset: %d\n", offset)
 	}
 	b.WriteByte('\n')
+	if groupedView != "" {
+		b.WriteString(groupedView)
+		b.WriteString("\n\n")
+	}
 	emitted := 0
 	visited := 0
 	total := 0
@@ -333,6 +349,357 @@ func RenderSourceInventoryObservationView(observation types.SourceInventoryObser
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func renderSourceInventoryGroupedObservationView(observation types.SourceInventoryObservation, query types.SourceInventoryLensQuery) string {
+	if !observation.IsActive() || sourceInventoryLensQueryOffset(query) > 0 {
+		return ""
+	}
+	groups := sourceInventoryObservationScopeGroups(observation, query)
+	if len(groups) < 2 {
+		return ""
+	}
+	const (
+		maxGroups          = 48
+		maxCandidatesInRow = 5
+	)
+	var b strings.Builder
+	b.WriteString("## Scope-grouped Candidate View (advisory)\n\n")
+	b.WriteString("Use this navigation view to choose what to verify next. It groups the same structured rows by scope; it does not assert final answer membership or entry-point identity.\n\n")
+	b.WriteString("If the downstream task needs one candidate per scope, treat groups with `candidate_count` other than 1 as ambiguous and verify the listed files before selecting or excluding a candidate.\n\n")
+	renderedGroups := 0
+	for _, group := range groups {
+		if renderedGroups >= maxGroups {
+			break
+		}
+		if len(group.Candidates) == 0 {
+			continue
+		}
+		renderedGroups++
+		fmt.Fprintf(&b, "- `%s` — candidate_count=%d", group.Scope, len(group.Candidates))
+		if roles := renderSourceInventoryRoleCounts(group.RoleCounts); roles != "" {
+			fmt.Fprintf(&b, " roles=%s", roles)
+		}
+		if languages := renderSourceInventoryLanguageCounts(group.Languages); languages != "" {
+			fmt.Fprintf(&b, " languages=%s", languages)
+		}
+		b.WriteString(" — top_candidates: ")
+		parts := make([]string, 0, maxCandidatesInRow)
+		for _, candidate := range group.Candidates {
+			if len(parts) >= maxCandidatesInRow {
+				break
+			}
+			if part := renderSourceInventoryGroupedCandidate(candidate); part != "" {
+				parts = append(parts, part)
+			}
+		}
+		if len(parts) == 0 {
+			b.WriteString("(none)")
+		} else {
+			b.WriteString(strings.Join(parts, "; "))
+		}
+		if len(group.Candidates) > len(parts) {
+			fmt.Fprintf(&b, " (+%d more)", len(group.Candidates)-len(parts))
+		}
+		b.WriteByte('\n')
+	}
+	if len(groups) > renderedGroups {
+		fmt.Fprintf(&b, "\nshowing %d of %d scope groups; the structured observation stored in run state preserves all grouped rows.\n", renderedGroups, len(groups))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func sourceInventoryObservationScopeGroups(observation types.SourceInventoryObservation, query types.SourceInventoryLensQuery) []sourceInventoryObservationScopeGroup {
+	groupScopes := sourceInventoryGroupScopesFromQuery(query, observation)
+	groupOrder := map[string]int{}
+	for i, scope := range groupScopes {
+		groupOrder[scope] = i
+	}
+	groupsByScope := map[string]*sourceInventoryObservationScopeGroup{}
+	addCandidate := func(member types.SourceInventoryObservationMember) {
+		if strings.TrimSpace(member.Name) == "" || !sourceInventoryObservationMemberGroupable(member) {
+			return
+		}
+		scope := sourceInventoryObservationMemberGroupScope(member, groupScopes, observation.Scopes)
+		if scope == "" {
+			return
+		}
+		group := groupsByScope[scope]
+		if group == nil {
+			order := len(groupOrder) + len(groupsByScope)
+			if explicit, ok := groupOrder[scope]; ok {
+				order = explicit
+			}
+			group = &sourceInventoryObservationScopeGroup{
+				Scope:      scope,
+				order:      order,
+				RoleCounts: map[types.AnswerCandidateRole]int{},
+				Languages:  map[string]int{},
+			}
+			groupsByScope[scope] = group
+		}
+		group.Candidates = append(group.Candidates, member)
+		group.RoleCounts[member.Role]++
+		if lang := strings.TrimSpace(member.Language); lang != "" {
+			group.Languages[lang]++
+		}
+		for _, attr := range member.Attributes {
+			if lang := strings.TrimSpace(attr.Language); lang != "" {
+				group.Languages[lang]++
+			}
+			if attr.Role != types.AnswerCandidateRoleUnknown {
+				group.RoleCounts[attr.Role]++
+			}
+		}
+	}
+	for _, set := range observation.Sets {
+		for _, member := range set.Members {
+			addCandidate(member)
+		}
+	}
+	groups := make([]sourceInventoryObservationScopeGroup, 0, len(groupsByScope))
+	for _, group := range groupsByScope {
+		sourceInventorySortObservationGroupCandidates(group.Candidates)
+		groups = append(groups, *group)
+	}
+	sort.SliceStable(groups, func(i, j int) bool {
+		if groups[i].order != groups[j].order {
+			return groups[i].order < groups[j].order
+		}
+		return groups[i].Scope < groups[j].Scope
+	})
+	return groups
+}
+
+func sourceInventoryObservationMemberGroupable(member types.SourceInventoryObservationMember) bool {
+	switch member.Role {
+	case types.AnswerCandidateRoleFunction,
+		types.AnswerCandidateRoleMethod,
+		types.AnswerCandidateRoleType,
+		types.AnswerCandidateRoleConstant,
+		types.AnswerCandidateRoleVariable,
+		types.AnswerCandidateRoleField,
+		types.AnswerCandidateRolePackage,
+		types.AnswerCandidateRoleFile,
+		types.AnswerCandidateRoleConfigFile,
+		types.AnswerCandidateRoleConfigKey,
+		types.AnswerCandidateRoleRoute,
+		types.AnswerCandidateRoleImportPath,
+		types.AnswerCandidateRoleLiteralValue:
+		return true
+	default:
+		return len(member.Attributes) > 0
+	}
+}
+
+func sourceInventoryGroupScopesFromQuery(query types.SourceInventoryLensQuery, observation types.SourceInventoryObservation) []string {
+	seen := map[string]bool{}
+	var scopes []string
+	add := func(raw string) {
+		scope := strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+		if scope == "" {
+			return
+		}
+		if scope == "." || scope == "./" || scope == "/" {
+			scope = "."
+		} else {
+			scope = normalizeSourceInventoryScopeSurface(scope)
+		}
+		if scope == "" {
+			scope = "."
+		}
+		if seen[scope] {
+			return
+		}
+		seen[scope] = true
+		scopes = append(scopes, scope)
+	}
+	for _, scope := range query.Scopes {
+		add(scope)
+	}
+	if len(scopes) == 0 {
+		for _, scope := range observation.Scopes {
+			add(scope)
+		}
+	}
+	return scopes
+}
+
+func sourceInventoryObservationMemberGroupScope(member types.SourceInventoryObservationMember, groupScopes []string, observationScopes []string) string {
+	file := sourceInventoryObservationMemberFile(member)
+	if len(groupScopes) > 1 {
+		if scope := sourceInventoryBestMatchingScope(file, groupScopes); scope != "" {
+			return scope
+		}
+	}
+	baseScopes := groupScopes
+	if len(baseScopes) == 0 {
+		baseScopes = observationScopes
+	}
+	base := "."
+	if len(baseScopes) == 1 {
+		base = strings.Trim(strings.TrimSpace(strings.ReplaceAll(baseScopes[0], `\`, `/`)), "/")
+		if base == "" {
+			base = "."
+		}
+	}
+	if file == "" {
+		if base != "." {
+			return base
+		}
+		return strings.TrimSpace(member.Name)
+	}
+	return sourceInventoryChildScopeForFile(file, base)
+}
+
+func sourceInventoryObservationMemberFile(member types.SourceInventoryObservationMember) string {
+	file := strings.Trim(strings.TrimSpace(strings.ReplaceAll(member.File, `\`, `/`)), "/")
+	if file != "" {
+		return file
+	}
+	ref := strings.TrimSpace(member.SupportRef)
+	if ref == "" {
+		return ""
+	}
+	if _, loc, ok := aggregateMemberSupportRefParts(ref); ok {
+		file, _ := aggregateLocationParts(loc)
+		return strings.Trim(strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`)), "/")
+	}
+	return ""
+}
+
+func sourceInventoryBestMatchingScope(file string, scopes []string) string {
+	file = strings.Trim(strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`)), "/")
+	best := ""
+	for _, raw := range scopes {
+		scope := strings.Trim(strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`)), "/")
+		if scope == "" || scope == "." {
+			if best == "" {
+				best = "."
+			}
+			continue
+		}
+		if file == scope || strings.HasPrefix(file, scope+"/") {
+			if len(scope) > len(best) {
+				best = scope
+			}
+		}
+	}
+	return best
+}
+
+func sourceInventoryChildScopeForFile(file, base string) string {
+	file = strings.Trim(strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`)), "/")
+	base = strings.Trim(strings.TrimSpace(strings.ReplaceAll(base, `\`, `/`)), "/")
+	if file == "" {
+		return ""
+	}
+	if base == "" || base == "." {
+		parts := strings.Split(file, "/")
+		if len(parts) <= 1 {
+			return file
+		}
+		return parts[0]
+	}
+	if file == base {
+		return base
+	}
+	if strings.HasPrefix(file, base+"/") {
+		rest := strings.TrimPrefix(file, base+"/")
+		parts := strings.Split(rest, "/")
+		if len(parts) == 0 || parts[0] == "" {
+			return base
+		}
+		return strings.Trim(base+"/"+parts[0], "/")
+	}
+	return path.Dir(file)
+}
+
+func sourceInventorySortObservationGroupCandidates(candidates []types.SourceInventoryObservationMember) {
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].Exported != candidates[j].Exported {
+			return candidates[i].Exported
+		}
+		if candidates[i].Role != candidates[j].Role {
+			return string(candidates[i].Role) < string(candidates[j].Role)
+		}
+		if candidates[i].File != candidates[j].File {
+			return candidates[i].File < candidates[j].File
+		}
+		if candidates[i].Line != candidates[j].Line {
+			if candidates[i].Line == 0 {
+				return false
+			}
+			if candidates[j].Line == 0 {
+				return true
+			}
+			return candidates[i].Line < candidates[j].Line
+		}
+		return candidates[i].Name < candidates[j].Name
+	})
+}
+
+func renderSourceInventoryGroupedCandidate(member types.SourceInventoryObservationMember) string {
+	name := strings.TrimSpace(member.Name)
+	if name == "" {
+		return ""
+	}
+	role := strings.TrimSpace(string(member.Role))
+	if role == "" {
+		role = "candidate"
+	}
+	item := role + " `" + name + "`"
+	loc := sourceInventoryObservationMemberFile(member)
+	if loc != "" && member.Line > 0 {
+		loc = loc + ":" + strconvItoa(member.Line)
+	}
+	if loc != "" {
+		item += " @ " + loc
+	}
+	if len(member.Attributes) > 0 {
+		if attrs := renderSourceInventoryObservationAttributes(member.Attributes); attrs != "" {
+			item += " {" + attrs + "}"
+		}
+	}
+	return item
+}
+
+func renderSourceInventoryRoleCounts(counts map[types.AnswerCandidateRole]int) string {
+	if len(counts) == 0 {
+		return ""
+	}
+	var keys []types.AnswerCandidateRole
+	for role, count := range counts {
+		if role == types.AnswerCandidateRoleUnknown || count <= 0 {
+			continue
+		}
+		keys = append(keys, role)
+	}
+	sort.Slice(keys, func(i, j int) bool { return string(keys[i]) < string(keys[j]) })
+	parts := make([]string, 0, len(keys))
+	for _, role := range keys {
+		parts = append(parts, fmt.Sprintf("%s:%d", role, counts[role]))
+	}
+	return strings.Join(parts, ",")
+}
+
+func renderSourceInventoryLanguageCounts(counts map[string]int) string {
+	if len(counts) == 0 {
+		return ""
+	}
+	var keys []string
+	for lang, count := range counts {
+		if strings.TrimSpace(lang) == "" || count <= 0 {
+			continue
+		}
+		keys = append(keys, lang)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, lang := range keys {
+		parts = append(parts, fmt.Sprintf("%s:%d", lang, counts[lang]))
+	}
+	return strings.Join(parts, ",")
 }
 
 func sourceInventoryLensQueryOffset(query types.SourceInventoryLensQuery) int {
@@ -1407,15 +1774,32 @@ func sourceInventoryGraphCandidates(ctx *types.BusContext, graph *repotypes.Grap
 		if !sourceInventorySymbolMatchesVisibility(sym, ctx.AnalysisIR.RequestModel.AnswerVisibilityProfile) {
 			continue
 		}
-		key := aggregateMemberKey(sym.Name)
-		if key == "" || seen[key] {
+		candidate := sourceInventoryCandidateForSymbol(sym, role, graph)
+		key := sourceInventoryCandidateDedupeKey(candidate)
+		if candidate.key == "" || key == "" || seen[key] {
 			continue
 		}
 		seen[key] = true
-		set.candidates = append(set.candidates, sourceInventoryCandidateForSymbol(sym, role, graph))
+		set.candidates = append(set.candidates, candidate)
 	}
 	sourceInventorySortCandidates(set.candidates)
 	return set
+}
+
+func sourceInventoryCandidateDedupeKey(candidate sourceInventoryCandidate) string {
+	key := strings.TrimSpace(candidate.key)
+	if key == "" {
+		key = aggregateMemberKey(candidate.member)
+	}
+	if key == "" {
+		return ""
+	}
+	return strings.Join([]string{
+		string(candidate.role),
+		key,
+		strings.TrimSpace(candidate.file),
+		strconvItoa(candidate.line),
+	}, "\x00")
 }
 
 func sourceInventoryGoStringEnumCandidates(ctx *types.BusContext, graph *repotypes.Graph, scopes []string, profile *types.SourceInventoryProfile) sourceInventoryCandidateSet {

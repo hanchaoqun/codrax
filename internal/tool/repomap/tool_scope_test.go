@@ -222,6 +222,157 @@ func TestRepoMapSourceInventoryViewAttributeRolesAttachFileLocalCandidates(t *te
 	}
 }
 
+func TestRepoMapSourceInventoryViewGroupsBroadSymbolRolesByScope(t *testing.T) {
+	repo := t.TempDir()
+	mut := types.NewMutableState("source inventory grouped symbols")
+	graph := BuildGraph(repo, []*FileInfo{{
+		RelPath:  "src/alpha/a.py",
+		Language: LangPython,
+		Package:  "alpha",
+		Symbols: []Symbol{{
+			Name:     "run",
+			Kind:     "function",
+			File:     "src/alpha/a.py",
+			Line:     7,
+			Exported: true,
+		}, {
+			Name:     "helper",
+			Kind:     "function",
+			File:     "src/alpha/a.py",
+			Line:     20,
+			Exported: false,
+		}},
+	}, {
+		RelPath:  "src/beta/b.py",
+		Language: LangPython,
+		Package:  "beta",
+		Symbols: []Symbol{{
+			Name:     "run",
+			Kind:     "function",
+			File:     "src/beta/b.py",
+			Line:     9,
+			Exported: true,
+		}},
+	}})
+	mut.SetSearchGraph(graph)
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.9,
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"scopes": ["src/beta", "src/alpha"],
+		"roles": ["function"],
+		"include_counts": true
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
+	}
+	for _, want := range []string{
+		"## Scope-grouped Candidate View (advisory)",
+		"`src/beta` — candidate_count=1 roles=function:1 languages=python:1",
+		"function `run` @ src/beta/b.py:9",
+		"`src/alpha` — candidate_count=2 roles=function:2 languages=python:2",
+		"function `run` @ src/alpha/a.py:7",
+		"function `helper` @ src/alpha/a.py:20",
+		"count=3 complete=true",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("grouped source_inventory missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if beta := strings.Index(res.Summary, "`src/beta`"); beta < 0 {
+		t.Fatalf("grouped source_inventory missing beta group:\n%s", res.Summary)
+	} else if alpha := strings.Index(res.Summary, "`src/alpha`"); alpha < 0 || alpha < beta {
+		t.Fatalf("grouped source_inventory did not preserve model-provided scope order:\n%s", res.Summary)
+	}
+	obs := mut.SourceInventoryObservation()
+	if !obs.IsActive() || len(obs.Sets) != 1 || obs.Sets[0].Count != 3 {
+		t.Fatalf("source inventory should preserve duplicate names at distinct locations: %+v", obs)
+	}
+}
+
+func TestRepoMapSourceInventoryViewGroupsBroadSingleScopeByChild(t *testing.T) {
+	repo := t.TempDir()
+	mut := types.NewMutableState("source inventory grouped child scopes")
+	graph := BuildGraph(repo, []*FileInfo{{
+		RelPath:  "src/alpha/a.ts",
+		Language: LangTypeScript,
+		Package:  "alpha",
+		Symbols: []Symbol{{
+			Name:     "AlphaController",
+			Kind:     "class",
+			File:     "src/alpha/a.ts",
+			Line:     3,
+			Exported: true,
+		}, {
+			Name:     "handleAlpha",
+			Kind:     "function",
+			File:     "src/alpha/a.ts",
+			Line:     12,
+			Exported: true,
+		}},
+	}, {
+		RelPath:  "src/beta/b.ts",
+		Language: LangTypeScript,
+		Package:  "beta",
+		Symbols: []Symbol{{
+			Name:     "handleBeta",
+			Kind:     "function",
+			File:     "src/beta/b.ts",
+			Line:     6,
+			Exported: true,
+		}},
+	}})
+	mut.SetSearchGraph(graph)
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.9,
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"scope": "src",
+		"roles": ["function", "type"],
+		"include_counts": true
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
+	}
+	for _, want := range []string{
+		"`src/alpha` — candidate_count=2 roles=function:1,type:1 languages=typescript:2",
+		"type `AlphaController` @ src/alpha/a.ts:3",
+		"function `handleAlpha` @ src/alpha/a.ts:12",
+		"`src/beta` — candidate_count=1 roles=function:1 languages=typescript:1",
+		"function `handleBeta` @ src/beta/b.ts:6",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("single-scope grouped source_inventory missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
 func TestRepoMapSourceInventoryViewSameRepoCrossLanguage(t *testing.T) {
 	repo := t.TempDir()
 	mut := types.NewMutableState("source inventory same-repo xlang")
@@ -361,6 +512,80 @@ func TestRepoMapSourceInventoryViewConfigFilesAreNavigationRows(t *testing.T) {
 	}
 	if strings.Contains(res.Summary, "config_key") {
 		t.Fatalf("config file inventory must not pretend config keys were extracted:\n%s", res.Summary)
+	}
+}
+
+func TestRepoMapSourceInventoryViewGroupsConfigKeysAndRoutes(t *testing.T) {
+	repo := t.TempDir()
+	mut := types.NewMutableState("source inventory config key route groups")
+	graph := BuildGraph(repo, []*FileInfo{
+		{
+			RelPath:     "config/app.yaml",
+			Language:    "yaml",
+			IsSpecial:   true,
+			SpecialType: "app_config",
+			Symbols: []Symbol{{
+				Name:     "feature.enabled",
+				Kind:     "config_key",
+				File:     "config/app.yaml",
+				Line:     4,
+				Exported: true,
+			}, {
+				Name:     "feature.timeout",
+				Kind:     "config_key",
+				File:     "config/app.yaml",
+				Line:     5,
+				Exported: true,
+			}},
+		},
+		{
+			RelPath:  "src/routes.ts",
+			Language: LangTypeScript,
+			Package:  "routes",
+			Symbols: []Symbol{{
+				Name:     "GET /healthz",
+				Kind:     "route",
+				File:     "src/routes.ts",
+				Line:     11,
+				Exported: true,
+			}},
+		},
+	})
+	mut.SetSearchGraph(graph)
+	ctx := &types.BusContext{
+		RepoRoot: repo,
+		Mutable:  mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			SourceScopeProfile: &types.SourceScopeProfile{
+				RequestedScope: types.SourceScopeProduction,
+				Confidence:     0.9,
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{
+		"path": ".",
+		"view": "source_inventory",
+		"scopes": ["config", "src"],
+		"roles": ["config_key", "route"],
+		"include_counts": true
+	}`))
+	if err != nil {
+		t.Fatalf("repo_map source_inventory returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
+	}
+	for _, want := range []string{
+		"`config` — candidate_count=2 roles=config_key:2 languages=yaml:2",
+		"config_key `feature.enabled` @ config/app.yaml:4",
+		"config_key `feature.timeout` @ config/app.yaml:5",
+		"`src` — candidate_count=1 roles=route:1 languages=typescript:1",
+		"route `GET /healthz` @ src/routes.ts:11",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("config/route grouped source_inventory missing %q:\n%s", want, res.Summary)
+		}
 	}
 }
 

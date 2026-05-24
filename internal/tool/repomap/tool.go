@@ -55,7 +55,8 @@ func (t *RepoMapV2) Description() string {
 		"edit_impact (what changes to a file would affect), " +
 		"semantic_subgraph (topological summary: linear chains, hub files, articulation-point bridges), " +
 		"source_inventory (typed repo lens for scoped members/symbols/attributes/counts). " +
-		"For broad scoped inventories, prefer source_inventory with roles and optional attribute_roles so the tool returns a compact checklist instead of forcing many read_file calls."
+		"For broad scoped inventories, prefer source_inventory with roles and optional attribute_roles so the tool returns a compact checklist instead of forcing many read_file calls. " +
+		"When multiple scopes or broad symbol roles are requested, source_inventory also renders a scope-grouped advisory view to help choose the next files to verify."
 }
 
 func (t *RepoMapV2) Parameters() json.RawMessage {

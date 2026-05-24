@@ -676,6 +676,8 @@ func aggregateAnswerCandidateRoleForSymbol(sym *repotypes.Symbol) (types.AnswerC
 		return types.AnswerCandidateRoleConfigFile, true
 	case kind == "config_key":
 		return types.AnswerCandidateRoleConfigKey, true
+	case kind == "route" || kind == "handler_route" || kind == "handler-route":
+		return types.AnswerCandidateRoleRoute, true
 	case kind == "import":
 		return types.AnswerCandidateRoleImportPath, true
 	case answerDocumentSymbolKindIsType(kind):

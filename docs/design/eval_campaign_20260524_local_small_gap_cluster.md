@@ -1577,3 +1577,96 @@ Implementation notes for B2:
   `TestGraphFromBusContextOrLoadSingleRepoHonorsSubdirRoot`,
   control-plane eval counter tests, and prompt rendering tests for
   source-inventory count invariants.
+
+Follow-up finding from B2 eval, 2026-05-24 22:59 CST:
+
+- The scoped graph projection and run-level cache worked: `repo_map` for
+  `internal/analysis` projected from the in-memory full graph and reused the
+  scoped projection on the next call. The remaining failure mode shifted to the
+  shape of the source-inventory output. The model called
+  `repo_map(view="source_inventory", roles=["function"], attribute_roles=["function"])`
+  over many scopes. The tool returned a mechanically correct flat set with
+  hundreds of functions, but the first visible shape did not guide the model
+  toward "one scope -> candidate entries -> verify the right file". The model
+  therefore fell back to whole-file reads. This is not an enumeration-only
+  issue; the same broad flat-list problem affects mechanism questions,
+  architecture/component explanations, entry/handler/route discovery, config
+  exploration, mixed-language trees, and multi-repo scoped work.
+
+Design B2-G: source-inventory grouped navigation projection.
+
+- Keep the existing `SourceInventoryObservation` as the complete, auditable
+  carrier. Do not replace or truncate it. `count == len(members)` remains the
+  machine-checkable invariant and downstream validators still require normal
+  grounded evidence before user-visible claims.
+- Add a render-time, advisory-only grouping layer for `repo_map` source
+  inventory results. It is triggered only from structured tool parameters and
+  structured rows: active source-inventory observation, broad/multi-scope
+  candidate set, symbol/config/route/function/type-like roles or explicit
+  `attribute_roles`, and first page rendering. It must not inspect the user's
+  raw question or the model's prose.
+- Group candidates by the model-provided `scopes[]` order when present. If the
+  model provides one broad scope, derive child groups from repo-relative file
+  paths under that scope. This preserves model-driven search order and avoids a
+  system-authored intent decision.
+- Render each group as navigation, not answer text:
+  scope, candidate_count, role/language distribution, and a bounded list of
+  top candidate rows with file:line. Labels must say "advisory" / "verify next"
+  and must not say "entry point is".
+- Preserve the original flat member rows with pagination. When grouped rows are
+  rendered and the model did not request a custom `top_n`, reduce the flat
+  preview to a smaller page so the grouped view is visible first without
+  deleting the full structured set.
+- Generality requirements:
+  - mechanism/call-chain: use grouped function/method/type candidates to choose
+    which files to read next;
+  - architecture/component: group package/file/type candidates by component
+    boundary before evidence collection;
+  - entry/handler/route: show per-scope candidate handlers/routes, explicitly
+    ambiguous when multiple candidates exist;
+  - config: group config files and config keys by directory/file without
+    assuming a language;
+  - multi-language and same-repo cross-language: use repomap language/kind
+    metadata, not Go-specific naming;
+  - multi-repo: grouping happens only after active-set scoped repo-map gates,
+    so inactive sibling repositories cannot leak rows.
+
+Tasks:
+
+- [x] B2-G1: implement a render-time grouped source-inventory projection that
+  groups broad candidate rows by structured `scopes[]` or derived child scope.
+- [x] B2-G2: render grouped rows before the flat list with explicit
+  advisory-only wording, role/language counts, and bounded top candidates.
+- [x] B2-G3: keep original flat rows paged and intact in run state; reduce only
+  default first-page preview when grouped rows are present.
+- [x] B2-G4: add tests for multi-scope symbol roles, broad single-scope child
+  grouping, cross-language roles, and config/config-key grouping.
+- [ ] B2-G5: rerun focused `s5b` eval and compare `read_file` count,
+  `source_inventory` usage, finalizer entry, and answer completeness.
+
+Implementation notes for B2-G:
+
+- Added a render-time `Scope-grouped Candidate View (advisory)` to
+  `repo_map(view="source_inventory")`. It uses only typed tool parameters and
+  structured observation rows. It preserves model-provided `scopes[]` order; for
+  a single broad scope it derives child scopes from repo-relative file paths.
+- The grouped view is intentionally generic. It applies to functions, methods,
+  types, constants, variables, fields, packages, files, config files,
+  config keys, routes, import paths, and literal values. It is useful for
+  enumeration, mechanism/call-chain navigation, architecture/component mapping,
+  handler/route discovery, config inspection, and mixed-language scoped
+  exploration.
+- The first page now shows grouped rows before the flat list and reduces only
+  the default flat preview when grouping is active. The full structured
+  observation remains in run state and cursor paging still exposes flat rows.
+- Fixed a related information-loss bug: source-inventory symbol candidate
+  construction no longer deduplicates by symbol name alone. It now keeps
+  same-named functions/types/routes/config keys at distinct file:line locations.
+- Added route symbol kind normalization (`route`, `handler_route`,
+  `handler-route`) so route inventories can use the same typed role path as
+  config keys and callables.
+- The pre-B2-G eval (`s5b`, local small model) reached finalizer with
+  `source_lens=1`, `read_file=9`, `repo_map=4`, and no finalizer rejects, but
+  failed semantic review because the model flattened ambiguous entry candidates
+  and treated unresolved rows inconsistently. This is the direct validation
+  target for the B2-G rerun.
