@@ -4113,6 +4113,47 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeGrounding
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeClosureReasonWithoutTurnAArtifacts(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Type: "RuntimeError", Frames: []types.LogFrame{{
+			Func: "synthetic_frame",
+		}}}},
+	})
+	mut.SetEvidenceFloorWaiver(&types.EvidenceFloorWaiver{
+		Reason:    types.EvidenceFloorWaiverNoRepoIntersection,
+		Rationale: "synthetic frames represent a different deployed build",
+	})
+	mut.RetainEvidenceFloorWaiver()
+	mut.SetInvestigationComplete("artifact line 12 shows RuntimeError; current checkout was not part of this observation-only answer")
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario:  types.ScenarioRootCause,
+				Intent:    types.IntentRootCause,
+				LogTriage: mut.LogTriage(),
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"model-authored closure reason omitted from this authority section",
+		"Accepted runtime closure reason (advisory only",
+		"artifact line 12 shows RuntimeError",
+		"possible upstream investigation direction",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "model-authored closure reason: artifact line 12") {
+		t.Fatalf("runtime observation-only closure reason must remain advisory narrative, not authority text:\n%s", prompt)
+	}
+}
+
 func TestAnswerDocumentEvaluator_MixedRuntimeCurrentSourceDoesNotRenderObservationOnly(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetLogTriage(&types.LogBundle{

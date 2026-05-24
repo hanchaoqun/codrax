@@ -3948,12 +3948,19 @@ func renderAnswerDocInvestigationNarrativeHandoff(ctx *types.AgentContext) strin
 		return ""
 	}
 	ta := ctx.Mutable.TurnAArtifacts()
-	if ta == nil {
-		return ""
+	var raw []string
+	if ta != nil {
+		raw = append([]string(nil), ta.InvestigationNotes...)
 	}
-	raw := append([]string(nil), ta.InvestigationNotes...)
 	if runtimeObservationOnlyForAnswerDoc(ctx) {
-		if reason := strings.TrimSpace(ta.AcceptedClosureReason); reason != "" {
+		reason := ""
+		if ta != nil {
+			reason = strings.TrimSpace(ta.AcceptedClosureReason)
+		}
+		if reason == "" {
+			reason = strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason())
+		}
+		if reason != "" {
 			raw = append(raw, "Accepted runtime closure reason (advisory only; direct artifact facts remain authoritative): "+reason)
 		}
 	}

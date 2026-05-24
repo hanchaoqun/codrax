@@ -238,6 +238,21 @@ pipeline technically "passes."
 | T20 | In progress | Add lane novelty / completed-lane throttling. Detailed design now lives in `docs/design/explore_lane_novelty_throttling_20260524.md`. First implementation slice caps exact duplicate support/verification handoff lanes to a small verification budget. Focused `u7k-20260524-191826` proved this slice is safe but insufficient for same-lane deepening (`explorer_dispatches=0`, `explorer_iters=66`, `midloop_inject=19`). The second slice now adds same-lane accepted typed-delta advisory: after accepted evidence/aggregate/observation facts exist, repeated source/VCS/command navigation with no new typed delta receives a soft "emit or close" nudge. This remains soft scheduling only. | `docs/design/explore_lane_novelty_throttling_20260524.md`, `internal/agent/explorer.go`, `internal/orchestrator/explore_parallel_dispatch.go`, `internal/types/explore_lane_plan.go`, observation ledger deltas, eval telemetry | agent/orchestrator unit tests; focused `u7k`, log/source, trace/source, mixed VCS/current reruns with lower `explorer_iters` and no finalizer churn |
 | T21 | Done | Mixed-origin read-without-emit prompt conflict: initial prompts correctly declare VCS/diff/log/trace/command/repo-index/external observations as first-class non-file:line evidence, but generic mid-loop read-without-emit wording still said any fact not passed through `emit_evidence` is invisible. `u7k-20260524-194928` showed the model re-anchoring commit clues to design-document title lines. The fix makes read-without-emit hints and tool-surface restriction origin-aware: current-source claims still require `emit_evidence`; origin-specific observations are preserved through `reason` / `aggregate_facts`, and navigation is not narrowed to source emit-only in mixed lanes. Rebuilt `u7k-20260524-200712` / `u7k-20260524-201412` produced good answers with one-turn finalizers; the remaining failure was a brittle eval expectation and the case was updated instead of rerunning. | `internal/agent/explorer.go`, observation origin contract, mixed VCS/current eval | agent unit tests; focused mixed VCS/current prompt audit; `u7k.case` expectation corrected |
 
+### 2026-05-24 T11 Rich Summary Handoff Addendum
+
+- Closure prose remains advisory and cannot override typed evidence, support
+  refs, current-source citations, or accepted aggregate facts.
+- Runtime/log/trace observation-only answers intentionally omit the model
+  closure reason from the authority section, because artifact observations are
+  not caller-side provenance or current-source proof.
+- A fallback now preserves that same accepted closure reason as advisory
+  narrative even when a Turn A snapshot is unavailable, so log/trace answers do
+  not silently lose the only tool-call-internal synthesis. The fallback does
+  not create citations, does not change validators, and does not promote the
+  reason above typed observation ledgers.
+- Guard test:
+  `TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeClosureReasonWithoutTurnAArtifacts`.
+
 ## Implementation Notes For Future Batches
 
 - Do not turn `emit_evidence` into a catch-all. It remains current checkout
