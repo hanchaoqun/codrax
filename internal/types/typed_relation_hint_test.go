@@ -227,6 +227,50 @@ func TestBuildTypedRelationQuery_CurrentSourceCountDoesNotSelectSourceAnchor(t *
 	}
 }
 
+func TestBuildTypedRelationQuery_ChangeImpactSelectsReferencesPromptOnly(t *testing.T) {
+	rm := RequestModel{
+		ChangeImpactProfile: &ChangeImpactProfile{
+			IsChangeImpact:  true,
+			Target:          "RuntimeConfig",
+			RequestedOutput: ImpactOutputSites,
+			AffectedSiteKinds: []ImpactAffectedSiteKind{
+				ImpactSiteRead,
+				ImpactSiteValidation,
+			},
+		},
+		AnalyzerHints: AnalyzerHints{PrimaryEntities: []string{"RuntimeConfig"}},
+	}
+	q := BuildTypedRelationQuery(rm, TypedRelationPurposePromptHint, 25)
+	assertTypedRelationKinds(t, q.Kinds, TypedRelationReferences)
+	assertStringSlice(t, q.Sources, []string{"RuntimeConfig"})
+
+	q = BuildTypedRelationQuery(rm, TypedRelationPurposeCoverageGate, 25)
+	for _, kind := range q.Kinds {
+		if kind == TypedRelationReferences {
+			t.Fatalf("change-impact reference relation is prompt guidance only, not a coverage-gate selector: %+v", q.Kinds)
+		}
+	}
+}
+
+func TestBuildTypedRelationQuery_ChangeImpactWithoutTargetDoesNotSelectReferences(t *testing.T) {
+	rm := RequestModel{
+		ChangeImpactProfile: &ChangeImpactProfile{
+			IsChangeImpact:  true,
+			RequestedOutput: ImpactOutputSites,
+			AffectedSiteKinds: []ImpactAffectedSiteKind{
+				ImpactSiteRead,
+			},
+		},
+		AnalyzerHints: AnalyzerHints{PrimaryEntities: []string{"RuntimeConfig"}},
+	}
+	q := BuildTypedRelationQuery(rm, TypedRelationPurposePromptHint, 25)
+	for _, kind := range q.Kinds {
+		if kind == TypedRelationReferences {
+			t.Fatalf("change-impact references need an analyzer-emitted exact target, got %+v", q.Kinds)
+		}
+	}
+}
+
 func TestBuildTypedRelationQuery_DoesNotSelectFromRawProseOrEntityAxes(t *testing.T) {
 	rm := RequestModel{
 		RawRequest: "list everything that implements Looper and imports net/http",

@@ -53,8 +53,12 @@ Target relation families:
   - `HasTypedRelationMemberSetShape`
   - `RequiresRelationMemberSetHandoff`
 - These helpers already use typed analyzer fields, not keyword matching.
-- Current gap: relation shape is mostly reduced to `AxisImplement` or generic
-  `IsRelationalLookup`. Other relation axes do not yet have a common kind list.
+- The central selector is now `BuildTypedRelationQuery(rm, purpose, limit)`.
+  It consumes typed request/profile fields and exact evidence/source facts, not
+  raw user prose or model free-form prose.
+- Current gap: the selector has common kind routing for the shipped families,
+  but route/config/override-style relations still need exact typed carriers
+  before they can be activated.
 
 ### Prompt/context relation hints
 
@@ -69,8 +73,13 @@ Target relation families:
 - `internal/context/builder.go`
   - `renderTypedRelationAppendix`
   - `evidenceLineForTypedMember`
-- Current gap: the file already documents a future probe table, but only
-  `implements` is implemented.
+- Current state: `ProbeTypedRelations` consumes the central query/provider
+  boundary. Implementer, import/export, caller/callee, inheritance,
+  registration evidence, external-observation source anchors, and
+  change-impact reference/type-usage prompt hints all use the shared typed
+  relation path.
+- Current gap: route/config/override-specific carriers are still pending exact
+  source facts and eval coverage.
 
 ### Repomap graph carriers
 
@@ -102,9 +111,11 @@ Target relation families:
   - `TypedRelationImplementerSource`
 - `internal/tool/repomap/multigraph/multigraph.go`
   - `ImplementerMembersOf`
-- Current gap: only implementers have a cycle-free interface. Other relation
-  families need the same boundary so `internal/tool` does not import concrete
-  multigraph code and create cycles.
+- Current state: graph-backed typed relation providers now flow through a
+  cycle-free `TypedRelationCandidateSource` boundary, including multi-repo path
+  prefixing for exact graph candidates.
+- Current gap: future route/config/override providers must plug into the same
+  boundary instead of adding per-family gates.
 
 ### Exploration pre-complete guard
 
@@ -245,7 +256,7 @@ system may provide soft guidance only.
 | import/dependency | `FileInfo.Imports`, `ImportGraph`, `ReverseImports`, transitive deps | Hard-gate eligible for exact file paths | Works across resolver-supported languages; unresolved imports are negative/uncertain evidence, not hard coverage. |
 | inheritance/subclass | `Relation.Kind=inheritance`, symbols parent/receiver | Hard-gate eligible only when target resolves to a unique symbol ID and same-member evidence is grounded | Extractor output is language-neutral; ambiguous same-name targets remain prompt-only. |
 | caller/callee | `CallersOfID`, `ResolveCallTarget`, `Relation.Kind=call` | Hard-gate eligible only with canonical target ID | `CallersOf(name)` remains legacy/name-only and must be soft. |
-| references/type usage | `Relation.Kind=reference/type_usage`, `RankIndex.RefCountByID` | Soft first | Often high volume and noisy; use as ranking/hints unless exact endpoint evidence exists. |
+| references/type usage | `Relation.Kind=reference/type_usage`, `RankIndex.RefCountByID` | Prompt hint for typed change-impact requests | Exact endpoint rows can guide the model when the analyzer emitted a concrete change target; ambiguous/name-only rows remain prompt-only and no hard coverage selector is enabled yet. |
 | overrides/conformance | language extractors and `Relation.Kind=inheritance` derivatives | Soft first | Need extractor audit before hard-gate. |
 | registration/binding | LLM evidence, `AnchorAssignment`, relation labels | Evidence-driven first | Different languages/frameworks express this differently; graph-only carrier is not stable enough yet. |
 | scoped-to / package exports | `FileInfo.Package`, `SymbolsInFile`, exported flag | Prompt hint / source-inventory boundary | Must not revive old source-inventory rewrite bugs; append-only support only unless user asks inventory. |
@@ -708,12 +719,14 @@ R5 residual note:
 
 ### R6. Registration/binding and event observer evidence carrier
 
-Status: **Pending**
+Status: **Done — 2026-05-24**
 
-- Start evidence-driven: only exact LLM/tool-emitted evidence enters hard
-  coverage.
+- Start evidence-driven: only exact accepted `EvidenceKind=registration`
+  evidence enters relation context.
 - Share the same relation member parser and support-ref matching.
 - Avoid framework-specific keyword tables.
+- Keep graph/framework registration extractors as future provider work unless
+  they can emit exact source/member anchors.
 
 ### R7. External observation relation carrier
 
@@ -1018,6 +1031,32 @@ R9 implementation results:
   emitted a broad diagram hint plus entity, but not an interface answer subject;
   resolved graph source facts now close that gap without using raw prose.
 
+### R9a. Change-impact reference/type-usage prompt provider
+
+Status: **Done — 2026-05-24**
+
+The reference/type-usage slice is deliberately prompt-only. It supports typed
+change-impact questions such as "what use sites are affected by this change"
+without turning high-volume reference edges into a new hard gate.
+
+Implemented contract:
+
+1. `BuildTypedRelationQuery` adds `references` only for
+   `TypedRelationPurposePromptHint` when `ChangeImpactProfile` is active and
+   carries an explicit target.
+2. The provider consumes repomap `Relation.Kind=reference/type_usage` rows.
+   Exact `ToEP.ID` or uniquely resolved target names produce exact candidates;
+   ambiguous same-name rows are retained only as prompt guidance and are
+   filtered from coverage-gate mode.
+3. `MultiGraph` delegates `references` through the same graph-backed relation
+   adapter and prefixes child-repo paths before returning candidates.
+4. Tests cover exact rows, ambiguous name-only prompt rows, multi-repo
+   prefixing, context probing, and `SupportedReadLanguages()` to avoid a
+   Go-only implementation.
+
+This does not create a new evidence mechanism, does not scan user/model prose,
+and does not authorize system supplements to replace a model-authored answer.
+
 R9 follow-up relation family activation:
 
 These are the next provider-mapping tasks. They must extend the same
@@ -1032,7 +1071,7 @@ raw-text selectors.
 | `registers` / event observer / binding | model/tool emits exact registration evidence or graph extractor emits exact binding relation | Keep evidence-driven first; add provider rows only when source and member both have exact anchors | No framework keyword tables; hard only after exact evidence + grounded same-member evidence. |
 | `extends` / inheritance | source type resolves as class/interface/trait/protocol and relation endpoint uniquely resolves to that symbol | Done in R4 through `Relation.Kind=inheritance`; ambiguous same-name targets stay `NameOnly` prompt context | Hard only for exact rows with grounded evidence. |
 | overrides / conformance-specific rows | language extractor emits an exact override/conformance edge or evidence carrier with source/member anchors | Pending; do not infer from naming conventions or prose | Soft until exact provider and grounded same-member tests exist. |
-| references / type usage | endpoint resolves to exact symbol ID and requested question asks for reference membership | Provider can expose capped prompt hints from exact graph references; high-volume rows need rank/budget policy | Soft by default; hard only for explicit bounded member_set with exact evidence. |
+| references / type usage | endpoint resolves to exact symbol ID and typed `ChangeImpactProfile` asks for affected/use sites | Done for prompt hints through exact graph references; remaining work is rank/budget eval before any hard selector is considered | Soft by default; hard only for future explicit bounded member_set with exact evidence. |
 | external observation -> source anchor | log/trace/VCS/command/MCP/web/connector artifact span plus current-source anchor | Reuse external evidence/artifact ledger and blob/page readers to create exact observation relation rows | Hard only when both artifact anchor and current-source anchor are exact; otherwise append localized uncertainty. |
 
 This backlog is intentionally relation-family agnostic: adding a family means

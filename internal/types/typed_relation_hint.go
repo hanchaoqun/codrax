@@ -257,8 +257,35 @@ func TypedRelationKindsForRequest(rm RequestModel, purpose TypedRelationPurpose)
 	if requestNeedsExternalObservationSourceAnchorRelation(rm) {
 		add(TypedRelationSourceAnchor)
 	}
+	if purpose == TypedRelationPurposePromptHint && changeImpactRequestsReferenceRelation(rm) {
+		add(TypedRelationReferences)
+	}
 
 	return out
+}
+
+func changeImpactRequestsReferenceRelation(rm RequestModel) bool {
+	profile := rm.ChangeImpactProfile
+	if profile == nil || !profile.Active() || strings.TrimSpace(profile.Target) == "" {
+		return false
+	}
+	if profile.RequestedBroadAffectedSites() {
+		return true
+	}
+	for _, kind := range profile.AffectedSiteKinds {
+		switch kind {
+		case ImpactSiteRead,
+			ImpactSiteCall,
+			ImpactSiteImport,
+			ImpactSiteConstruction,
+			ImpactSiteValidation,
+			ImpactSiteSerialization,
+			ImpactSiteConfig,
+			ImpactSiteBuild:
+			return true
+		}
+	}
+	return false
 }
 
 func requestNeedsExternalObservationSourceAnchorRelation(rm RequestModel) bool {

@@ -997,6 +997,71 @@ func TestMultiGraph_TypedRelationCandidatesCalledByPrefixed(t *testing.T) {
 	}
 }
 
+func TestMultiGraph_TypedRelationCandidatesReferencesPrefixed(t *testing.T) {
+	build := func(_, _ string) (*rmtypes.Graph, error) {
+		targetFile := &rmtypes.FileInfo{
+			RelPath:  "config/runtime.go",
+			Language: rmtypes.LangGo,
+			Package:  "main",
+			Symbols:  []rmtypes.Symbol{{Name: "RuntimeConfig", Kind: "struct", File: "config/runtime.go", Line: 7}},
+		}
+		readerFile := &rmtypes.FileInfo{
+			RelPath:  "cmd/main.go",
+			Language: rmtypes.LangGo,
+			Package:  "main",
+			Symbols:  []rmtypes.Symbol{{Name: "load", Kind: "function", File: "cmd/main.go", Line: 20, EndLine: 30}},
+		}
+		for _, fi := range []*rmtypes.FileInfo{targetFile, readerFile} {
+			for i := range fi.Symbols {
+				fi.Symbols[i].ID = rmtypes.DeriveSymbolID(fi, &fi.Symbols[i])
+			}
+		}
+		readerFile.Relations = []rmtypes.Relation{{
+			Kind: "type_usage",
+			From: "cmd/main.go:load",
+			To:   "RuntimeConfig",
+			File: "cmd/main.go",
+			Line: 24,
+			ToEP: rmtypes.RelationEndpoint{ID: targetFile.Symbols[0].ID, Name: "RuntimeConfig", File: "cmd/main.go", Line: 24},
+		}}
+		return &rmtypes.Graph{
+			Files:     []*rmtypes.FileInfo{targetFile, readerFile},
+			FileIndex: map[string]*rmtypes.FileInfo{targetFile.RelPath: targetFile, readerFile.RelPath: readerFile},
+			SymbolDefs: map[string][]*rmtypes.Symbol{
+				"RuntimeConfig": {&targetFile.Symbols[0]},
+				"load":          {&readerFile.Symbols[0]},
+			},
+			SymbolByID: map[rmtypes.SymbolID]*rmtypes.Symbol{
+				targetFile.Symbols[0].ID: &targetFile.Symbols[0],
+				readerFile.Symbols[0].ID: &readerFile.Symbols[0],
+			},
+			ImportGraph:    map[string][]string{},
+			ReverseImports: map[string][]string{},
+		}, nil
+	}
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "repo-a", RootAbs: "/parent/repo-a", RootRel: "repo-a"},
+	})
+	mg, _ := New(Config{Topology: topo, Build: build, Cap: 3})
+	mg.EnsureLoaded("repo-a")
+
+	rows := mg.TypedRelationCandidates(types.TypedRelationQuery{
+		Kinds:   []types.TypedRelationKind{types.TypedRelationReferences},
+		Sources: []string{"RuntimeConfig"},
+		Purpose: types.TypedRelationPurposeCoverageGate,
+	})
+	if len(rows) != 1 {
+		t.Fatalf("references candidates = %+v, want one", rows)
+	}
+	if rows[0].SourceFile != "repo-a/config/runtime.go" ||
+		rows[0].Member.File != "repo-a/cmd/main.go" ||
+		rows[0].Member.Name != "load" ||
+		rows[0].Carrier != types.TypedRelationCarrierMultiGraph ||
+		rows[0].Precision != types.TypedRelationPrecisionExactSymbolID {
+		t.Fatalf("reference candidate should be path-from-parent prefixed: %+v", rows[0])
+	}
+}
+
 func TestMultiGraph_TypedRelationCandidatesExtendsPrefixed(t *testing.T) {
 	build := func(_, _ string) (*rmtypes.Graph, error) {
 		baseFile := &rmtypes.FileInfo{

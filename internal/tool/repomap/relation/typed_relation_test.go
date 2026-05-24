@@ -195,6 +195,91 @@ func TestTypedRelationCandidates_CalledByIsLanguageNeutral(t *testing.T) {
 	}
 }
 
+func TestTypedRelationCandidates_ReferencesExactSymbol(t *testing.T) {
+	rows := TypedRelationCandidates(referenceGraphFixture(rmtypes.LangGo), types.TypedRelationQuery{
+		Kinds:   []types.TypedRelationKind{types.TypedRelationReferences},
+		Sources: []string{"RuntimeConfig"},
+		Purpose: types.TypedRelationPurposeCoverageGate,
+	})
+	if len(rows) != 2 {
+		t.Fatalf("reference candidates = %+v, want two", rows)
+	}
+	if rows[0].Relation != types.TypedRelationReferences ||
+		rows[0].SourceName != "RuntimeConfig" ||
+		rows[0].SourceKind != "struct" ||
+		rows[0].SourceFile != "config/runtime.go" ||
+		rows[0].Member.File != "cmd/main.go" ||
+		rows[0].Member.Name != "load" ||
+		rows[0].Precision != types.TypedRelationPrecisionExactSymbolID {
+		t.Fatalf("unexpected first reference candidate: %+v", rows[0])
+	}
+	if rows[1].Member.File != "internal/validate.go" ||
+		rows[1].Member.Name != "validate" {
+		t.Fatalf("unexpected second reference candidate: %+v", rows[1])
+	}
+}
+
+func TestTypedRelationCandidates_ReferencesAmbiguousNameIsPromptOnly(t *testing.T) {
+	g := referenceGraphFixture(rmtypes.LangGo)
+	otherFile := &rmtypes.FileInfo{
+		RelPath:  "other/config.go",
+		Language: rmtypes.LangGo,
+		Package:  "other",
+		Symbols:  []rmtypes.Symbol{{Name: "RuntimeConfig", Kind: "struct", File: "other/config.go", Line: 4}},
+	}
+	otherFile.Symbols[0].ID = rmtypes.DeriveSymbolID(otherFile, &otherFile.Symbols[0])
+	g.Files = append(g.Files, otherFile)
+	g.FileIndex[otherFile.RelPath] = otherFile
+	g.SymbolDefs["RuntimeConfig"] = append(g.SymbolDefs["RuntimeConfig"], &otherFile.Symbols[0])
+	g.SymbolByID[otherFile.Symbols[0].ID] = &otherFile.Symbols[0]
+	for _, fi := range g.Files {
+		for i := range fi.Relations {
+			fi.Relations[i].ToEP.ID = ""
+		}
+	}
+
+	promptRows := TypedRelationCandidates(g, types.TypedRelationQuery{
+		Kinds:   []types.TypedRelationKind{types.TypedRelationReferences},
+		Sources: []string{"RuntimeConfig"},
+		Purpose: types.TypedRelationPurposePromptHint,
+	})
+	if len(promptRows) != 2 {
+		t.Fatalf("ambiguous prompt reference candidates = %+v, want two soft rows", promptRows)
+	}
+	for _, row := range promptRows {
+		if row.Precision != types.TypedRelationPrecisionNameOnly {
+			t.Fatalf("ambiguous reference prompt row must be name-only, got %+v", row)
+		}
+	}
+
+	coverageRows := TypedRelationCandidates(g, types.TypedRelationQuery{
+		Kinds:   []types.TypedRelationKind{types.TypedRelationReferences},
+		Sources: []string{"RuntimeConfig"},
+		Purpose: types.TypedRelationPurposeCoverageGate,
+	})
+	if len(coverageRows) != 0 {
+		t.Fatalf("ambiguous reference rows must not feed coverage gate, got %+v", coverageRows)
+	}
+}
+
+func TestTypedRelationCandidates_ReferencesAreLanguageNeutral(t *testing.T) {
+	for _, lang := range rmtypes.SupportedReadLanguages() {
+		t.Run(lang, func(t *testing.T) {
+			rows := TypedRelationCandidates(referenceGraphFixture(lang), types.TypedRelationQuery{
+				Kinds:   []types.TypedRelationKind{types.TypedRelationReferences},
+				Sources: []string{"RuntimeConfig"},
+				Purpose: types.TypedRelationPurposeCoverageGate,
+			})
+			if len(rows) != 2 {
+				t.Fatalf("language %s reference rows = %+v, want two", lang, rows)
+			}
+			if rows[0].Precision != types.TypedRelationPrecisionExactSymbolID || rows[0].Member.Line <= 0 {
+				t.Fatalf("language %s reference row lost exact semantics: %+v", lang, rows[0])
+			}
+		})
+	}
+}
+
 func TestTypedRelationCandidates_ExtendsExactBase(t *testing.T) {
 	rows := TypedRelationCandidates(inheritanceGraphFixture(rmtypes.LangGo), types.TypedRelationQuery{
 		Kinds:   []types.TypedRelationKind{types.TypedRelationExtends},
@@ -426,6 +511,69 @@ func receiverCallGraphFixture(lang string) *rmtypes.Graph {
 		SymbolDefs:     symbolDefs,
 		SymbolByID:     symbolByID,
 		MethodIndex:    methodIndex,
+		ImportGraph:    map[string][]string{},
+		ReverseImports: map[string][]string{},
+	}
+}
+
+func referenceGraphFixture(lang string) *rmtypes.Graph {
+	targetFile := &rmtypes.FileInfo{
+		RelPath:  "config/runtime.go",
+		Language: lang,
+		Package:  "main",
+		Symbols:  []rmtypes.Symbol{{Name: "RuntimeConfig", Kind: "struct", File: "config/runtime.go", Line: 7}},
+	}
+	readerFile := &rmtypes.FileInfo{
+		RelPath:  "cmd/main.go",
+		Language: lang,
+		Package:  "main",
+		Symbols:  []rmtypes.Symbol{{Name: "load", Kind: "function", File: "cmd/main.go", Line: 20, EndLine: 30}},
+	}
+	validatorFile := &rmtypes.FileInfo{
+		RelPath:  "internal/validate.go",
+		Language: lang,
+		Package:  "main",
+		Symbols:  []rmtypes.Symbol{{Name: "validate", Kind: "function", File: "internal/validate.go", Line: 11, EndLine: 18}},
+	}
+	for _, fi := range []*rmtypes.FileInfo{targetFile, readerFile, validatorFile} {
+		for i := range fi.Symbols {
+			fi.Symbols[i].ID = rmtypes.DeriveSymbolID(fi, &fi.Symbols[i])
+		}
+	}
+	targetID := targetFile.Symbols[0].ID
+	readerFile.Relations = []rmtypes.Relation{{
+		Kind: "type_usage",
+		From: "cmd/main.go:load",
+		To:   "RuntimeConfig",
+		File: "cmd/main.go",
+		Line: 24,
+		ToEP: rmtypes.RelationEndpoint{ID: targetID, Name: "RuntimeConfig", File: "cmd/main.go", Line: 24},
+	}}
+	validatorFile.Relations = []rmtypes.Relation{{
+		Kind: "reference",
+		From: "internal/validate.go:validate",
+		To:   "RuntimeConfig",
+		File: "internal/validate.go",
+		Line: 13,
+		ToEP: rmtypes.RelationEndpoint{ID: targetID, Name: "RuntimeConfig", File: "internal/validate.go", Line: 13},
+	}}
+	return &rmtypes.Graph{
+		Files: []*rmtypes.FileInfo{targetFile, readerFile, validatorFile},
+		FileIndex: map[string]*rmtypes.FileInfo{
+			targetFile.RelPath:    targetFile,
+			readerFile.RelPath:    readerFile,
+			validatorFile.RelPath: validatorFile,
+		},
+		SymbolDefs: map[string][]*rmtypes.Symbol{
+			"RuntimeConfig": {&targetFile.Symbols[0]},
+			"load":          {&readerFile.Symbols[0]},
+			"validate":      {&validatorFile.Symbols[0]},
+		},
+		SymbolByID: map[rmtypes.SymbolID]*rmtypes.Symbol{
+			targetFile.Symbols[0].ID:    &targetFile.Symbols[0],
+			readerFile.Symbols[0].ID:    &readerFile.Symbols[0],
+			validatorFile.Symbols[0].ID: &validatorFile.Symbols[0],
+		},
 		ImportGraph:    map[string][]string{},
 		ReverseImports: map[string][]string{},
 	}

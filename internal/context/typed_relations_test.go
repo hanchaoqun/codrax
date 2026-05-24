@@ -389,6 +389,50 @@ func TestProbeTypedRelations_UsesCentralQueryForGenericRelationKinds(t *testing.
 	}
 }
 
+func TestProbeTypedRelations_ChangeImpactUsesReferenceRelationHint(t *testing.T) {
+	provider := fakeTypedRelationCandidateSource{rows: []types.TypedRelationCandidate{
+		{
+			Relation:   types.TypedRelationReferences,
+			SourceName: "RuntimeConfig",
+			SourceKind: "struct",
+			Member:     types.TypedRelationMember{Name: "load", File: "cmd/main.go", Line: 24, Kind: "function"},
+			Carrier:    types.TypedRelationCarrierGraph,
+			Precision:  types.TypedRelationPrecisionExactSymbolID,
+		},
+		{
+			Relation:   types.TypedRelationCalledBy,
+			SourceName: "RuntimeConfig",
+			SourceKind: "function",
+			Member:     types.TypedRelationMember{Name: "call", File: "cmd/call.go", Line: 12, Kind: "function"},
+			Carrier:    types.TypedRelationCarrierGraph,
+			Precision:  types.TypedRelationPrecisionExactSymbolID,
+		},
+	}}
+	rm := &types.RequestModel{
+		ChangeImpactProfile: &types.ChangeImpactProfile{
+			IsChangeImpact:  true,
+			Target:          "RuntimeConfig",
+			RequestedOutput: types.ImpactOutputSites,
+			AffectedSiteKinds: []types.ImpactAffectedSiteKind{
+				types.ImpactSiteRead,
+			},
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"RuntimeConfig"},
+		},
+	}
+	hints := ProbeTypedRelations(provider, rm)
+	if len(hints) != 1 {
+		t.Fatalf("expected references relation hint from central change-impact query; got %d", len(hints))
+	}
+	if hints[0].Relation != types.TypedRelationReferences || hints[0].SourceName != "RuntimeConfig" {
+		t.Fatalf("unexpected relation hint: %+v", hints[0])
+	}
+	if got := len(hints[0].Members); got != 1 || hints[0].Members[0].Name != "load" {
+		t.Fatalf("unexpected reference members: %+v", hints[0].Members)
+	}
+}
+
 func TestProbeTypedRelations_UsesObservationLedgerSourceAnchors(t *testing.T) {
 	provider := types.ObservationRelationCandidateSource{Ledger: types.ObservationLedger{Records: []types.ObservationRecord{
 		{

@@ -3,6 +3,7 @@ package relation
 import (
 	"path"
 	"sort"
+	"strconv"
 	"strings"
 
 	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
@@ -33,6 +34,9 @@ func TypedRelationCandidates(g *rmtypes.Graph, q types.TypedRelationQuery) []typ
 	}
 	if q.AllowsKind(types.TypedRelationCalledBy) {
 		out = append(out, calledByCandidates(g, q)...)
+	}
+	if q.AllowsKind(types.TypedRelationReferences) {
+		out = append(out, referenceCandidates(g, q)...)
 	}
 	if len(out) == 0 {
 		return nil
@@ -251,6 +255,70 @@ func calledByCandidates(g *rmtypes.Graph, q types.TypedRelationQuery) []types.Ty
 	return out
 }
 
+func referenceCandidates(g *rmtypes.Graph, q types.TypedRelationQuery) []types.TypedRelationCandidate {
+	var out []types.TypedRelationCandidate
+	seen := map[string]bool{}
+	for _, source := range q.Sources {
+		for _, ref := range relationSourceSymbolRefs(g, source, q.Purpose) {
+			if q.Purpose == types.TypedRelationPurposeCoverageGate && !ref.precision.CoverageGateEligible() {
+				continue
+			}
+			for _, fi := range g.Files {
+				if fi == nil {
+					continue
+				}
+				file := cleanRelationPath(fi.RelPath)
+				if file == "" {
+					continue
+				}
+				for _, rel := range fi.Relations {
+					if rel.Kind != "reference" && rel.Kind != "type_usage" {
+						continue
+					}
+					targetPrecision, ok := relationReferenceTargetPrecision(g, rel, ref.symbol)
+					if !ok {
+						continue
+					}
+					precision := relationCandidatePrecision(ref.precision, targetPrecision)
+					if q.Purpose == types.TypedRelationPurposeCoverageGate && !precision.CoverageGateEligible() {
+						continue
+					}
+					line := rel.Line
+					if line <= 0 {
+						line = rel.ToEP.Line
+					}
+					member := referenceRelationMember(fi, file, rel.Kind, line)
+					if strings.TrimSpace(member.Name) == "" {
+						continue
+					}
+					refKey := string(ref.id)
+					if !precision.CoverageGateEligible() {
+						refKey = "name-only"
+					}
+					key := strings.ToLower(ref.display) + "|references|" +
+						strings.ToLower(member.Name) + "|" + member.File + "|" +
+						strings.TrimSpace(rel.Kind) + "|" + refKey + "|" + intKey(member.Line)
+					if seen[key] {
+						continue
+					}
+					seen[key] = true
+					out = append(out, types.TypedRelationCandidate{
+						Relation:   types.TypedRelationReferences,
+						SourceName: ref.display,
+						SourceKind: strings.TrimSpace(ref.symbol.Kind),
+						SourceFile: cleanRelationPath(ref.symbol.File),
+						SourceLine: ref.symbol.Line,
+						Member:     member,
+						Carrier:    types.TypedRelationCarrierGraph,
+						Precision:  precision,
+					})
+				}
+			}
+		}
+	}
+	return out
+}
+
 type relationSourceFileRef struct {
 	display   string
 	file      string
@@ -408,6 +476,34 @@ func relationCallTargetsSymbol(g *rmtypes.Graph, fi *rmtypes.FileInfo, rel rmtyp
 }
 
 func relationInheritanceTargetPrecision(g *rmtypes.Graph, rel rmtypes.Relation, target *rmtypes.Symbol) (types.TypedRelationPrecision, bool) {
+	if g == nil || target == nil || target.ID == "" {
+		return "", false
+	}
+	if rel.ToEP.ID != "" {
+		if rel.ToEP.ID == target.ID {
+			return types.TypedRelationPrecisionExactSymbolID, true
+		}
+		return "", false
+	}
+	for _, name := range relationEndpointNameVariants(rel.ToEP.Name, rel.To) {
+		if relationNameResolvesUniquelyToSymbol(g, name, target) {
+			return types.TypedRelationPrecisionExactSymbolID, true
+		}
+	}
+	for _, name := range relationEndpointNameVariants(rel.ToEP.Name, rel.To) {
+		if relationSymbolSurfaceMatches(target, name) || strings.EqualFold(strings.TrimSpace(target.Name), name) {
+			return types.TypedRelationPrecisionNameOnly, true
+		}
+		for _, candidate := range relationNameVariants(name) {
+			if relationSymbolSurfaceMatches(target, candidate) || strings.EqualFold(strings.TrimSpace(target.Name), candidate) {
+				return types.TypedRelationPrecisionNameOnly, true
+			}
+		}
+	}
+	return "", false
+}
+
+func relationReferenceTargetPrecision(g *rmtypes.Graph, rel rmtypes.Relation, target *rmtypes.Symbol) (types.TypedRelationPrecision, bool) {
 	if g == nil || target == nil || target.ID == "" {
 		return "", false
 	}
@@ -600,6 +696,32 @@ func callerRelationMember(fi *rmtypes.FileInfo, file string, line int) types.Typ
 		Kind:     kind,
 		Distance: 1,
 	}
+}
+
+func referenceRelationMember(fi *rmtypes.FileInfo, file, relKind string, line int) types.TypedRelationMember {
+	enclosing := enclosingCallerSymbol(fi, line)
+	name := file
+	kind := strings.TrimSpace(relKind)
+	if kind == "" {
+		kind = "reference"
+	}
+	if enclosing != nil && strings.TrimSpace(enclosing.Name) != "" {
+		name = relationDisplayNameForSymbol(enclosing)
+		if strings.TrimSpace(enclosing.Kind) != "" {
+			kind = strings.TrimSpace(enclosing.Kind)
+		}
+	}
+	return types.TypedRelationMember{
+		Name:     name,
+		File:     file,
+		Line:     line,
+		Kind:     kind,
+		Distance: 1,
+	}
+}
+
+func intKey(v int) string {
+	return strconv.Itoa(v)
 }
 
 func enclosingCallerSymbol(fi *rmtypes.FileInfo, line int) *rmtypes.Symbol {

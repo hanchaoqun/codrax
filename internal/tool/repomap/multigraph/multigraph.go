@@ -939,6 +939,9 @@ func graphBackedRelationKinds(q types.TypedRelationQuery) []types.TypedRelationK
 	if q.AllowsKind(types.TypedRelationCalledBy) {
 		out = append(out, types.TypedRelationCalledBy)
 	}
+	if q.AllowsKind(types.TypedRelationReferences) {
+		out = append(out, types.TypedRelationReferences)
+	}
 	if q.AllowsKind(types.TypedRelationExtends) {
 		out = append(out, types.TypedRelationExtends)
 	}
