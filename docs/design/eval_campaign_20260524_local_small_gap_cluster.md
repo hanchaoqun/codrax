@@ -1454,6 +1454,15 @@ Implementation notes:
   `scope/scopes` are absent; explicit model scopes still win. The regression
   test `TestRepoMapSourceInventoryViewPathDefaultsToScope` pins that subdir
   path queries do not leak sibling package members.
+- 2026-05-24 scoped rerun exposed the sibling root cause for non-lens views:
+  in single-repo MultiGraph posture, `GraphFromBusContextOrLoad` always returned
+  `mg.Single()` before considering the requested repo-map path, so
+  `repo_map(path="internal/analysis", view="file_map")` still rendered the
+  whole repository. The fix keeps byte-equivalent `mg.Single()` reuse for repo
+  root requests, but routes subdirectory requests through the scoped graph
+  loader. This is a general repo-map path contract fix, not a question-specific
+  special case; it reduces analyzer/explorer context noise before the model ever
+  reaches the source-inventory lens.
 - Tests added/updated:
   `TestSourceInventoryObservation*`,
   `TestCompileObservationLedger_SourceInventoryObservation`,
@@ -1467,5 +1476,6 @@ Implementation notes:
   `TestRepoMapSourceInventoryViewMultiRepoHonorsActiveSubRepoScope`,
   `TestRepoMapSourceInventoryViewMultiRepoConfigFilesStayScoped`,
   `TestRepoMapSourceInventoryViewMultiRepoRejectsInactiveSubRepo`,
+  `TestGraphFromBusContextOrLoadSingleRepoHonorsSubdirRoot`,
   control-plane eval counter tests, and prompt rendering tests for
   source-inventory count invariants.

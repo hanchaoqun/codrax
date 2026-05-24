@@ -675,6 +675,65 @@ func TestGraphFromAgentContextOrLoadMultiRepoHonorsExplicitSubRepoRoot(t *testin
 	}
 }
 
+func TestGraphFromBusContextOrLoadSingleRepoHonorsSubdirRoot(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "src", "alpha"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "src", "beta"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "src", "alpha", "alpha.go"), []byte("package alpha\nfunc RunAlpha() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "src", "beta", "beta.go"), []byte("package beta\nfunc RunBeta() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	topo := &topology.RepoTopology{
+		ParentRoot: repo,
+		Repos: []topology.SubRepo{{
+			Slug:      "single-00000000",
+			RootAbs:   repo,
+			RootRel:   ".",
+			FileCount: 2,
+		}},
+	}
+	mg, err := multigraph.New(multigraph.Config{
+		Topology: topo,
+		Build: func(root, query string) (*Graph, error) {
+			return BuildGraph(root, []*FileInfo{
+				{RelPath: "src/alpha/alpha.go", Language: LangGo},
+				{RelPath: "src/beta/beta.go", Language: LangGo},
+			}), nil
+		},
+		Cap: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	graph, err := GraphFromBusContextOrLoad(
+		&types.BusContext{RepoRoot: repo, MultiGraph: mg},
+		filepath.Join(repo, "src", "alpha"),
+		"",
+	)
+	if err != nil {
+		t.Fatalf("GraphFromBusContextOrLoad returned error: %v", err)
+	}
+	if graph == nil {
+		t.Fatal("GraphFromBusContextOrLoad returned nil graph")
+	}
+	if !sameRepoMapRoot(graph.Root, filepath.Join(repo, "src", "alpha")) {
+		t.Fatalf("subdir root was ignored; graph.Root=%q", graph.Root)
+	}
+	if _, ok := graph.FileIndex["alpha.go"]; !ok {
+		t.Fatalf("subdir graph missing alpha.go: keys=%v", graph.FileIndex)
+	}
+	if _, ok := graph.FileIndex["src/beta/beta.go"]; ok {
+		t.Fatalf("single-repo subdir graph leaked beta file: keys=%v", graph.FileIndex)
+	}
+}
+
 func TestBuildOrLoadGraphWithinRejectsBeforeScanner(t *testing.T) {
 	parent := t.TempDir()
 	repo := filepath.Join(parent, "repo")
