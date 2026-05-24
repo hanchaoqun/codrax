@@ -87,6 +87,11 @@ const (
 	// prompt-first: the initial provider exposes accepted structured evidence as
 	// context, not as a system-authored answer or hard coverage gate.
 	TypedRelationConfigures TypedRelationKind = "configures"
+	// TypedRelationRoutesTo links a route/path/event endpoint literal to the
+	// handler or registration site that serves it. Like configures, the initial
+	// carrier is evidence-driven and prompt-only until exact hard-gate semantics
+	// are proven across languages/frameworks.
+	TypedRelationRoutesTo TypedRelationKind = "routes-to"
 	// TypedRelationSourceAnchor links an exact external observation
 	// (VCS/log/trace/command/MCP/web/connector/etc.) to an exact
 	// current-checkout source anchor through the shared relation contract.
@@ -267,6 +272,9 @@ func TypedRelationKindsForRequest(rm RequestModel, purpose TypedRelationPurpose)
 	if sourceInventoryRequestsImportPath(rm) {
 		add(TypedRelationImports, TypedRelationExports)
 	}
+	if purpose == TypedRelationPurposePromptHint && requestNeedsRouteRelation(rm) {
+		add(TypedRelationRoutesTo)
+	}
 	if requestNeedsExternalObservationSourceAnchorRelation(rm) {
 		add(TypedRelationSourceAnchor)
 	}
@@ -410,6 +418,21 @@ func sourceInventoryRequestsImportPath(rm RequestModel) bool {
 	return false
 }
 
+func requestNeedsRouteRelation(rm RequestModel) bool {
+	if rm.AnswerSubject.Kind == SubjectHandlerRoute {
+		return true
+	}
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	for _, role := range rm.SourceInventoryProfile.PrincipalTargetRoles() {
+		if role == AnswerCandidateRoleRoute {
+			return true
+		}
+	}
+	return false
+}
+
 func dedupTypedRelationStrings(values []string) []string {
 	if len(values) == 0 {
 		return nil
@@ -536,7 +559,7 @@ func TypedRelationAnchorKind(relation TypedRelationKind) AnchorKind {
 		return AnchorCall
 	case TypedRelationRegisters:
 		return AnchorAssignment
-	case TypedRelationConfigures:
+	case TypedRelationConfigures, TypedRelationRoutesTo:
 		return AnchorStringLiteral
 	case TypedRelationImports:
 		return AnchorImport
@@ -562,6 +585,7 @@ func AllTypedRelations() []TypedRelationKind {
 		TypedRelationImports,
 		TypedRelationExports,
 		TypedRelationConfigures,
+		TypedRelationRoutesTo,
 		TypedRelationSourceAnchor,
 	}
 }

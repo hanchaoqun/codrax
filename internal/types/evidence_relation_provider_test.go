@@ -197,3 +197,57 @@ func TestEvidenceRelationCandidateSource_ConfigPromptOnlyDoesNotLeakToOtherRelat
 		t.Fatalf("config evidence must not leak into registration relation queries: %+v", rows)
 	}
 }
+
+func TestEvidenceRelationCandidateSource_RouteToHandler(t *testing.T) {
+	rows := (EvidenceRelationCandidateSource{Items: []EvidenceItem{{
+		Kind:            EvidenceRegistration,
+		Subject:         "ListUsersHandler",
+		Object:          "GET /api/users",
+		Source:          "server/routes.ts",
+		LineStart:       31,
+		AnchorKind:      AnchorStringLiteral,
+		AnchorSymbol:    "/api/users",
+		SurfaceTerms:    []string{"GET /api/users", "`/api/users`"},
+		GroundingStatus: GroundingGrounded,
+		GroundingTier:   TierLineText,
+	}}}).TypedRelationCandidates(TypedRelationQuery{
+		Kinds:      []TypedRelationKind{TypedRelationRoutesTo},
+		Sources:    []string{"GET /api/users"},
+		Purpose:    TypedRelationPurposePromptHint,
+		MaxMembers: 10,
+	})
+	if len(rows) != 1 {
+		t.Fatalf("rows = %+v, want one route relation row", rows)
+	}
+	row := rows[0]
+	if row.Relation != TypedRelationRoutesTo || row.SourceKind != "route" || row.SourceName != "GET /api/users" {
+		t.Fatalf("unexpected route relation header: %+v", row)
+	}
+	if row.Member.Name != "ListUsersHandler" || row.Member.File != "server/routes.ts" || row.Member.Line != 31 {
+		t.Fatalf("unexpected route relation member: %+v", row.Member)
+	}
+	if row.Carrier != TypedRelationCarrierEvidence || row.Precision != TypedRelationPrecisionExactEvidence {
+		t.Fatalf("unexpected route relation carrier: carrier=%s precision=%s", row.Carrier, row.Precision)
+	}
+}
+
+func TestEvidenceRelationCandidateSource_RoutePromptOnlyDoesNotLeakToConfigRelation(t *testing.T) {
+	item := EvidenceItem{
+		Kind:            EvidenceRegistration,
+		Subject:         "ListUsersHandler",
+		Object:          "GET /api/users",
+		Source:          "server/routes.ts",
+		LineStart:       31,
+		AnchorKind:      AnchorStringLiteral,
+		AnchorSymbol:    "/api/users",
+		GroundingStatus: GroundingGrounded,
+	}
+	rows := (EvidenceRelationCandidateSource{Items: []EvidenceItem{item}}).TypedRelationCandidates(TypedRelationQuery{
+		Kinds:   []TypedRelationKind{TypedRelationConfigures},
+		Sources: []string{"GET /api/users"},
+		Purpose: TypedRelationPurposePromptHint,
+	})
+	if len(rows) != 0 {
+		t.Fatalf("route evidence must not leak into config relation queries: %+v", rows)
+	}
+}

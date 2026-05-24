@@ -214,6 +214,31 @@ func TestBuildTypedRelationQuery_ImportPathProfileSelectsImportExport(t *testing
 	assertStringSlice(t, q.Sources, []string{"internal/agent"})
 }
 
+func TestBuildTypedRelationQuery_RouteRelationPromptOnly(t *testing.T) {
+	rm := RequestModel{
+		AnswerSubject: AnswerSubject{Kind: SubjectHandlerRoute},
+		AnalyzerHints: AnalyzerHints{PrimaryEntities: []string{"/api/users"}},
+	}
+	q := BuildTypedRelationQuery(rm, TypedRelationPurposePromptHint, 25)
+	assertTypedRelationKinds(t, q.Kinds, TypedRelationRoutesTo)
+	assertStringSlice(t, q.Sources, []string{"/api/users"})
+
+	q = BuildTypedRelationQuery(rm, TypedRelationPurposeCoverageGate, 25)
+	if len(q.Kinds) != 0 {
+		t.Fatalf("route relation must not activate hard coverage from request shape alone, got %+v", q.Kinds)
+	}
+
+	rm = RequestModel{
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleRoute},
+		},
+		AnalyzerHints: AnalyzerHints{PrimaryEntities: []string{"routes.go"}},
+	}
+	q = BuildTypedRelationQuery(rm, TypedRelationPurposePromptHint, 25)
+	assertTypedRelationKinds(t, q.Kinds, TypedRelationRoutesTo)
+}
+
 func TestBuildTypedRelationQuery_MixedExternalCurrentSourceSelectsSourceAnchor(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentExplain,

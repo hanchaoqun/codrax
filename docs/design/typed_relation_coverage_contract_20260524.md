@@ -260,7 +260,7 @@ system may provide soft guidance only.
 | overrides/conformance | language extractors and `Relation.Kind=inheritance` derivatives | Soft first | Need extractor audit before hard-gate. |
 | registration/binding | LLM evidence, `AnchorAssignment`, relation labels | Evidence-driven first | Different languages/frameworks express this differently; graph-only carrier is not stable enough yet. |
 | scoped-to / package exports | `FileInfo.Package`, `SymbolsInFile`, exported flag | Prompt hint / source-inventory boundary | Must not revive old source-inventory rewrite bugs; append-only support only unless user asks inventory. |
-| route/config/event observer | framework-specific evidence and external observation anchors | Evidence-driven | Config-key relation prompt hints are enabled only from accepted structured evidence; route/observer remain pending exact typed carriers. |
+| route/config/event observer | framework-specific evidence and external observation anchors | Evidence-driven | Config-key and route-handler prompt hints are enabled only from accepted structured evidence; observer remains pending exact typed carriers. |
 | external observation -> source anchor | observation ledger, runtime artifact evidence, source evidence | Hard-gate eligible after exact artifact anchor + source anchor | Covers logs, traces, VCS, command output, MCP/web/connector artifacts. |
 
 ## 6. Data Flow
@@ -1062,7 +1062,7 @@ and does not authorize system supplements to replace a model-authored answer.
 Status: **Done — 2026-05-24**
 
 This slice closes the safest route/config part of the T13 backlog without
-adding framework keyword tables or a hard gate. The supported relation is:
+adding framework keyword tables or a hard gate. The first supported relation is:
 
 - source = analyzer/request-scoped config key or config site;
 - member = accepted structured evidence row's opposite endpoint;
@@ -1092,10 +1092,15 @@ Design constraints:
    config relation context, but does not replace model prose/tables and does
    not authorize a missing-member hard reject.
 
+Implementation update:
+
+- The same evidence-driven carrier also supports `routes-to` prompt hints for
+  route -> handler rows when the analyzer emits `answer_subject=handler_route`
+  or a source-inventory route role. It uses the same accepted evidence fields
+  and remains prompt-only.
+
 Remaining route/config work:
 
-- route -> handler should use the same provider boundary once the upstream
-  producer emits an exact route evidence row or source fact;
 - observer/subscriber should stay evidence-driven like registration until a
   language-neutral graph carrier exists;
 - any future hard-gate mode needs its own exact-carrier + grounded same-member
@@ -1118,6 +1123,7 @@ raw-text selectors.
 | references / type usage | endpoint resolves to exact symbol ID and typed `ChangeImpactProfile` asks for affected/use sites | Done for prompt hints through exact graph references; remaining work is rank/budget eval before any hard selector is considered | Soft by default; hard only for future explicit bounded member_set with exact evidence. |
 | external observation -> source anchor | log/trace/VCS/command/MCP/web/connector artifact span plus current-source anchor | Reuse external evidence/artifact ledger and blob/page readers to create exact observation relation rows | Hard only when both artifact anchor and current-source anchor are exact; otherwise append localized uncertainty. |
 | config key -> read/apply site | model/tool emits exact config-mapping evidence row with source/member anchors | Done for prompt hints through `EvidenceRelationCandidateSource` and `configures`; route/config hard gates remain disabled | No raw-prose matching; no system-authored answer replacement. |
+| route -> handler | analyzer emits route typed subject/source-inventory role and model/tool emits exact route evidence row | Done for prompt hints through `EvidenceRelationCandidateSource` and `routes-to`; hard gates remain disabled | No framework route keyword tables; handler rows are advisory context only. |
 
 This backlog is intentionally relation-family agnostic: adding a family means
 supplying typed facts and provider tests, not teaching downstream stages a new

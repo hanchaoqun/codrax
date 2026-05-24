@@ -605,6 +605,43 @@ func TestTypedRelationCarriersFromBusIncludesConfigEvidenceCarrier(t *testing.T)
 	}
 }
 
+func TestTypedRelationCarriersFromBusIncludesRouteEvidenceCarrier(t *testing.T) {
+	bus := &types.BusContext{
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "route",
+			Kind:            types.EvidenceRegistration,
+			Subject:         "ListUsersHandler",
+			Object:          "GET /api/users",
+			Source:          "server/routes.ts",
+			LineStart:       31,
+			AnchorKind:      types.AnchorStringLiteral,
+			AnchorSymbol:    "/api/users",
+			SurfaceTerms:    []string{"GET /api/users"},
+			GroundingStatus: types.GroundingGrounded,
+			Scope:           types.ScopeLine,
+		}},
+	}
+	rm := &types.RequestModel{
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectHandlerRoute},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"GET /api/users"},
+		},
+	}
+	var hints []types.TypedRelationHint
+	for _, carrier := range typedRelationCarriersFromBus(bus) {
+		hints = appendTypedRelationHints(hints, ProbeTypedRelations(carrier, rm)...)
+	}
+	if len(hints) != 1 {
+		t.Fatalf("expected one evidence-backed route relation hint, got %+v", hints)
+	}
+	if hints[0].Relation != types.TypedRelationRoutesTo ||
+		hints[0].Provenance != types.TypedRelationProvenanceTypedEvidence ||
+		hints[0].Members[0].Name != "ListUsersHandler" ||
+		hints[0].Members[0].File != "server/routes.ts" {
+		t.Fatalf("unexpected evidence-backed route relation hint: %+v", hints[0])
+	}
+}
+
 func TestProbeTypedRelations_ImportPathProfileUsesGraphImportEdges(t *testing.T) {
 	root := &repotypes.FileInfo{RelPath: "cmd/root.go", Language: repotypes.LangGo}
 	dep := &repotypes.FileInfo{RelPath: "internal/tool/tool.go", Language: repotypes.LangGo}

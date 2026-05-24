@@ -18,7 +18,7 @@ type EvidenceRelationCandidateSource struct {
 }
 
 func (s EvidenceRelationCandidateSource) TypedRelationCandidates(q TypedRelationQuery) []TypedRelationCandidate {
-	if (!q.AllowsKind(TypedRelationRegisters) && !q.AllowsKind(TypedRelationConfigures)) ||
+	if (!q.AllowsKind(TypedRelationRegisters) && !q.AllowsKind(TypedRelationConfigures) && !q.AllowsKind(TypedRelationRoutesTo)) ||
 		len(s.Items) == 0 || len(q.Sources) == 0 {
 		return nil
 	}
@@ -31,6 +31,9 @@ func (s EvidenceRelationCandidateSource) TypedRelationCandidates(q TypedRelation
 			}
 			if q.AllowsKind(TypedRelationConfigures) && evidenceRelationConfigItemUsable(item, q.Purpose) {
 				out = appendEvidenceRelationCandidates(out, seen, evidenceConfigCandidatesForSource(item, source, q.Purpose)...)
+			}
+			if q.AllowsKind(TypedRelationRoutesTo) && evidenceRelationRouteItemUsable(item, q.Purpose) {
+				out = appendEvidenceRelationCandidates(out, seen, evidenceRouteCandidatesForSource(item, source, q.Purpose)...)
 			}
 		}
 	}
@@ -121,6 +124,34 @@ func evidenceRelationConfigItemUsable(item EvidenceItem, purpose TypedRelationPu
 	return item.Salience == SalienceLoadBearing || item.Salience == SalienceExhaustListed
 }
 
+func evidenceRelationRouteItemUsable(item EvidenceItem, purpose TypedRelationPurpose) bool {
+	switch item.Kind {
+	case EvidenceDirect, EvidenceMechanism, EvidenceRelationship, EvidenceRegistration:
+	default:
+		return false
+	}
+	if strings.TrimSpace(item.Source) == "" || item.LineStart <= 0 {
+		return false
+	}
+	if item.GroundingStatus == GroundingUngrounded {
+		return false
+	}
+	switch item.ContextRole {
+	case EvidenceContextRoleIllustrativeOnly, EvidenceContextRoleRelatedContext:
+		return false
+	}
+	if purpose != TypedRelationPurposeCoverageGate {
+		return true
+	}
+	if !item.IsCitable() {
+		return false
+	}
+	if item.ContextRole == EvidenceContextRoleDefining {
+		return true
+	}
+	return item.Salience == SalienceLoadBearing || item.Salience == SalienceExhaustListed
+}
+
 func evidenceRegistrationCandidatesForSource(item EvidenceItem, rawSource string, purpose TypedRelationPurpose) []TypedRelationCandidate {
 	source := strings.TrimSpace(rawSource)
 	if source == "" {
@@ -162,6 +193,28 @@ func evidenceConfigCandidatesForSource(item EvidenceItem, rawSource string, purp
 	return out
 }
 
+func evidenceRouteCandidatesForSource(item EvidenceItem, rawSource string, purpose TypedRelationPurpose) []TypedRelationCandidate {
+	source := strings.TrimSpace(rawSource)
+	if source == "" {
+		return nil
+	}
+	routeSurfaces := append([]string{item.Object, item.AnchorSymbol}, item.SurfaceTerms...)
+	var out []TypedRelationCandidate
+	if evidenceRelationSurfaceMatches(source, routeSurfaces...) {
+		if member := evidenceRouteMember(item, item.Subject, "route_handler"); member.Name != "" &&
+			!evidenceRelationSurfaceMatches(member.Name, source) {
+			out = append(out, evidenceRouteCandidate(item, source, "route", member, purpose))
+		}
+	}
+	if evidenceRelationSurfaceMatches(source, item.Subject, item.OwnerSymbol) {
+		if member := evidenceRouteMember(item, item.Object, "route"); member.Name != "" &&
+			!evidenceRelationSurfaceMatches(member.Name, source) {
+			out = append(out, evidenceRouteCandidate(item, source, "route_handler", member, purpose))
+		}
+	}
+	return out
+}
+
 func evidenceRegistrationCandidate(item EvidenceItem, sourceName, sourceKind string, member TypedRelationMember, purpose TypedRelationPurpose) TypedRelationCandidate {
 	precision := TypedRelationPrecisionExactEvidence
 	if purpose == TypedRelationPurposePromptHint && item.GroundingStatus == GroundingRecovered {
@@ -196,6 +249,23 @@ func evidenceConfigCandidate(item EvidenceItem, sourceName, sourceKind string, m
 	}
 }
 
+func evidenceRouteCandidate(item EvidenceItem, sourceName, sourceKind string, member TypedRelationMember, purpose TypedRelationPurpose) TypedRelationCandidate {
+	precision := TypedRelationPrecisionExactEvidence
+	if purpose == TypedRelationPurposePromptHint && item.GroundingStatus == GroundingRecovered {
+		precision = TypedRelationPrecisionNameOnly
+	}
+	return TypedRelationCandidate{
+		Relation:   TypedRelationRoutesTo,
+		SourceName: strings.TrimSpace(sourceName),
+		SourceKind: sourceKind,
+		SourceFile: cleanEvidenceRelationPath(item.Source),
+		SourceLine: item.LineStart,
+		Member:     member,
+		Carrier:    TypedRelationCarrierEvidence,
+		Precision:  precision,
+	}
+}
+
 func evidenceRegistrationMember(item EvidenceItem, preferred, fallbackKind string) TypedRelationMember {
 	name := strings.TrimSpace(preferred)
 	if name == "" {
@@ -218,6 +288,30 @@ func evidenceRegistrationMember(item EvidenceItem, preferred, fallbackKind strin
 }
 
 func evidenceConfigMember(item EvidenceItem, preferred, fallbackKind string) TypedRelationMember {
+	name := strings.TrimSpace(preferred)
+	if name == "" {
+		name = strings.TrimSpace(item.OwnerSymbol)
+	}
+	if name == "" {
+		name = strings.TrimSpace(item.AnchorSymbol)
+	}
+	if name == "" {
+		return TypedRelationMember{}
+	}
+	kind := strings.TrimSpace(string(item.AnchorKind))
+	if kind == "" {
+		kind = fallbackKind
+	}
+	return TypedRelationMember{
+		Name:     name,
+		File:     cleanEvidenceRelationPath(item.Source),
+		Line:     item.LineStart,
+		Kind:     kind,
+		Distance: 1,
+	}
+}
+
+func evidenceRouteMember(item EvidenceItem, preferred, fallbackKind string) TypedRelationMember {
 	name := strings.TrimSpace(preferred)
 	if name == "" {
 		name = strings.TrimSpace(item.OwnerSymbol)
