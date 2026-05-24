@@ -174,10 +174,60 @@ func PrioritizeObservationRecords(records []ObservationRecord, rm *RequestModel,
 	sort.SliceStable(out, func(i, j int) bool {
 		return observationRecordRank(out[i], intent) < observationRecordRank(out[j], intent)
 	})
+	out = budgetSourceInventoryObservationRecords(out, limit)
 	if len(out) > limit {
 		out = budgetObservationRecordsByOrigin(out, intent, limit)
 	}
 	return out
+}
+
+func budgetSourceInventoryObservationRecords(sorted []ObservationRecord, limit int) []ObservationRecord {
+	if limit <= 0 || len(sorted) <= limit {
+		return sorted
+	}
+	sourceInventoryTotal := 0
+	nonSourceInventoryTotal := 0
+	for _, record := range sorted {
+		if observationRecordIsSourceInventory(record) {
+			sourceInventoryTotal++
+		} else {
+			nonSourceInventoryTotal++
+		}
+	}
+	if sourceInventoryTotal == 0 || nonSourceInventoryTotal == 0 {
+		return sorted
+	}
+	budget := sourceInventoryObservationPromptBudget(limit)
+	if sourceInventoryTotal <= budget {
+		return sorted
+	}
+	out := make([]ObservationRecord, 0, len(sorted)-sourceInventoryTotal+budget)
+	keptSourceInventory := 0
+	for _, record := range sorted {
+		if !observationRecordIsSourceInventory(record) {
+			out = append(out, record)
+			continue
+		}
+		if keptSourceInventory >= budget {
+			continue
+		}
+		keptSourceInventory++
+		out = append(out, record)
+	}
+	return out
+}
+
+func sourceInventoryObservationPromptBudget(limit int) int {
+	switch {
+	case limit <= 4:
+		return 1
+	case limit <= 8:
+		return 2
+	case limit <= 14:
+		return 4
+	default:
+		return 6
+	}
 }
 
 func budgetObservationRecordsByOrigin(sorted []ObservationRecord, intent *AnswerIntentContract, limit int) []ObservationRecord {
@@ -575,7 +625,27 @@ func observationRecordRank(record ObservationRecord, intent *AnswerIntentContrac
 	if strings.TrimSpace(record.RawExcerpt) != "" || len(record.RichNotes) > 0 {
 		rank -= 5
 	}
+	if observationRecordIsSourceInventorySet(record) {
+		rank -= 180
+	} else if observationRecordIsSourceInventoryAttribute(record) {
+		rank += 30
+	}
 	return rank
+}
+
+func observationRecordIsSourceInventory(record ObservationRecord) bool {
+	return strings.HasPrefix(strings.TrimSpace(record.ID), "source_inventory:") ||
+		strings.Contains(strings.ToLower(strings.TrimSpace(record.Producer)), "source_inventory")
+}
+
+func observationRecordIsSourceInventorySet(record ObservationRecord) bool {
+	id := strings.TrimSpace(record.ID)
+	return strings.HasPrefix(id, "source_inventory:set:")
+}
+
+func observationRecordIsSourceInventoryAttribute(record ObservationRecord) bool {
+	id := strings.TrimSpace(record.ID)
+	return strings.Contains(id, ":attr:")
 }
 
 func compileEvidenceItemObservations(items []EvidenceItem, add func(ObservationRecord)) {

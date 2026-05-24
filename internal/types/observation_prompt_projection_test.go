@@ -80,6 +80,92 @@ func TestProjectObservationPromptRecords_MixedOriginRankingAndBudget(t *testing.
 	}
 }
 
+func TestProjectObservationPromptRecords_SourceInventoryDoesNotCrowdMixedOrigins(t *testing.T) {
+	records := []ObservationRecord{
+		{
+			ID:     "evidence:current-entry",
+			Origin: AnswerEvidenceOriginCurrentSource,
+			Role:   AnswerAggregateRolePrincipalAnswer,
+			SourceRef: ObservationSourceRef{
+				Kind: ObservationSourceCurrentSource,
+				Path: "internal/scheduler.go",
+			},
+			Span:            ObservationSpan{LineStart: 42},
+			AnchorKind:      AnchorDefinition,
+			EvidenceScope:   ScopeLine,
+			GroundingStatus: GroundingGrounded,
+			Summary:         "current scheduler entrypoint explains the diff impact",
+		},
+		{
+			ID:      "tool:0#vcs_diff",
+			Origin:  AnswerEvidenceOriginVCSDiff,
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Summary: "diff hunk shows scheduler hook was added",
+		},
+		{
+			ID:      "aggregate:command",
+			Origin:  AnswerEvidenceOriginCommandMeasurement,
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Summary: "command output counted changed files",
+		},
+		{
+			ID:     "source_inventory:set:0",
+			Origin: AnswerEvidenceOriginCurrentSource,
+			Role:   AnswerAggregateRoleSupportingCoverage,
+			SourceRef: ObservationSourceRef{
+				Kind:      ObservationSourceCurrentSource,
+				Path:      "internal",
+				RowSetRef: "blob://rows/source-inventory.jsonl",
+			},
+			Summary: "source-inventory function count=12 complete=true",
+		},
+	}
+	for i := 0; i < 12; i++ {
+		records = append(records, ObservationRecord{
+			ID:     fmt.Sprintf("source_inventory:0:%d", i),
+			Origin: AnswerEvidenceOriginCurrentSource,
+			Role:   AnswerAggregateRoleSupportingCoverage,
+			SourceRef: ObservationSourceRef{
+				Kind: ObservationSourceCurrentSource,
+				Path: fmt.Sprintf("internal/pkg%d/file.go", i),
+			},
+			Span:            ObservationSpan{LineStart: i + 10},
+			AnchorKind:      AnchorDefinition,
+			EvidenceScope:   ScopeLine,
+			GroundingStatus: GroundingRecovered,
+			Summary:         fmt.Sprintf("mechanical source inventory row %d", i),
+		})
+	}
+
+	rm := RequestModel{
+		Intent: IntentExplain,
+		Predicates: SemanticPredicates{
+			IsHistoryLookup: true,
+		},
+		ChangeImpactProfile: &ChangeImpactProfile{IsChangeImpact: true},
+	}
+	got := ProjectObservationPromptRecords(records, &rm, nil, DefaultObservationPromptProjectionOptions(5))
+	byID := map[string]ObservationPromptRecord{}
+	sourceInventorySeen := 0
+	for _, record := range got {
+		byID[record.ID] = record
+		if strings.HasPrefix(record.ID, "source_inventory:") {
+			sourceInventorySeen++
+		}
+	}
+	for _, want := range []string{"evidence:current-entry", "tool:0#vcs_diff", "aggregate:command", "source_inventory:set:0"} {
+		if _, ok := byID[want]; !ok {
+			t.Fatalf("mixed-origin projection lost %s; got %+v", want, got)
+		}
+	}
+	if sourceInventorySeen > 2 {
+		t.Fatalf("source-inventory advisory rows crowded the mixed-origin budget: got %d records in %+v", sourceInventorySeen, got)
+	}
+	if !strings.Contains(byID["source_inventory:set:0"].Source, "row_set_ref=blob://rows/source-inventory.jsonl") {
+		t.Fatalf("source-inventory set record should preserve the row-set pointer: %+v", byID["source_inventory:set:0"])
+	}
+}
+
 func TestProjectObservationPromptRecords_SuppressesCurrentSourceExcerptOnly(t *testing.T) {
 	records := []ObservationRecord{
 		{

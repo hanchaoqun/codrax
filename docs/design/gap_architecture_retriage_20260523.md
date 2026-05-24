@@ -239,6 +239,26 @@ pipeline technically "passes."
 | T20 | In progress | Add lane novelty / completed-lane throttling. Detailed design now lives in `docs/design/explore_lane_novelty_throttling_20260524.md`. First implementation slice caps exact duplicate support/verification handoff lanes to a small verification budget. Focused `u7k-20260524-191826` proved this slice is safe but insufficient for same-lane deepening (`explorer_dispatches=0`, `explorer_iters=66`, `midloop_inject=19`). The second slice adds same-lane accepted typed-delta advisory: after accepted evidence/aggregate/observation facts exist, repeated source/VCS/command navigation with no new typed delta receives a soft "emit or close" nudge. The latest guard scopes the no-novelty streak by typed origin and suppresses hints when same-origin multi-unit lanes cannot be mapped precisely, so VCS/current-source or same-origin buckets cannot contaminate each other. This remains soft scheduling only. | `docs/design/explore_lane_novelty_throttling_20260524.md`, `internal/agent/explorer.go`, `internal/orchestrator/explore_parallel_dispatch.go`, `internal/types/explore_lane_plan.go`, observation ledger deltas, eval telemetry | agent/orchestrator unit tests; focused `u7k`, log/source, trace/source, mixed VCS/current reruns with lower `explorer_iters` and no finalizer churn |
 | T21 | Done | Mixed-origin read-without-emit prompt conflict: initial prompts correctly declare VCS/diff/log/trace/command/repo-index/external observations as first-class non-file:line evidence, but generic mid-loop read-without-emit wording still said any fact not passed through `emit_evidence` is invisible. `u7k-20260524-194928` showed the model re-anchoring commit clues to design-document title lines. The fix makes read-without-emit hints and tool-surface restriction origin-aware: current-source claims still require `emit_evidence`; origin-specific observations are preserved through `reason` / `aggregate_facts`, and navigation is not narrowed to source emit-only in mixed lanes. Rebuilt `u7k-20260524-200712` / `u7k-20260524-201412` produced good answers with one-turn finalizers; the remaining failure was a brittle eval expectation and the case was updated instead of rerunning. | `internal/agent/explorer.go`, observation origin contract, mixed VCS/current eval | agent unit tests; focused mixed VCS/current prompt audit; `u7k.case` expectation corrected |
 
+### 2026-05-24 Remote Update Task Review
+
+- Remote commit `c20c4fcb` added the repo-lens `source_inventory` tool view
+  and the auditable `SourceInventoryObservation` carrier. This is aligned with
+  the unified evidence/answer contract: repo-map inventories now enter the same
+  ObservationLedger path instead of creating another evidence stack.
+- Red-line risk found during review: a repo-lens inventory can produce many
+  current-source supporting rows. In mixed questions such as VCS+current source,
+  log+current source, trace+current source, or command+current source, those
+  mechanical rows must not crowd out the actual answer-bearing external
+  observation or load-bearing source evidence.
+- Batch decision: keep source inventory advisory and model-visible, but budget
+  it at the shared ObservationLedger prompt-projection layer. The source
+  inventory set/count row and its `row_set_ref` are preferred over flooding the
+  prompt with many member/attribute rows. Pure source-inventory questions keep
+  the normal prompt limit because there is no competing origin to protect.
+- This is a prompt-budget and evidence-ranking change only. It does not rewrite
+  model-authored final answers, does not add system补表, and does not infer
+  intent from user/model prose.
+
 ### 2026-05-24 T11 Rich Summary Handoff Addendum
 
 - Closure prose remains advisory and cannot override typed evidence, support
