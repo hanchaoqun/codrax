@@ -2765,6 +2765,39 @@ Follow-up observation during B2-T1 verification, 2026-05-25 CST:
   hints, but future wording should keep the "not an exhaustive inventory"
   boundary obvious when an exact source-inventory universe is also active.
 
+Stabilization matrix added after repeated s5b probes:
+
+- The repeated fixes were not answer-content fitting. They exposed two generic
+  repo-lens contract holes:
+  - scoped-root aliases: a model can express the same bounded scope as
+    `path="pkg"`, `scope="."`, `scope="pkg"`, or `scope="pkg/child"`. In a
+    projected/scoped repo-map graph, these must normalize to the graph-local
+    root/child instead of being treated as extra sibling scopes;
+  - carrier isolation: exact candidate universes are internal audit carriers
+    for close/finalizer coverage checks. They must not be merged into the
+    visible `repo_map(view="source_inventory")` result for a later, narrower
+    role query, otherwise the model sees a broad union and mistakes navigation
+    rows for the current answer set.
+- These are cross-language/multi-repo/config-shape issues, not Go or
+  `internal/analysis` issues. The code-level guardrail is now a test matrix:
+  - path-only, dot, path-identical, child-relative, child-full, and duplicate
+    scope aliases;
+  - mixed direct children across directories, config/manifest files, and
+    ordinary source files;
+  - consecutive source-inventory lens calls with different roles must render
+    only the current query role set;
+  - exact direct-child observations remain stored for coverage checks but do
+    not appear in the visible lens rows unless the current query itself asks
+    for that role;
+  - advisory graph rows without exact member-level provenance never become a
+    blocking candidate-universe contract.
+- Commercial boundary:
+  - hard blocks remain allowed only for exact provenance + typed exhaustive
+    enumeration + strong alignment with model-authored principal member data +
+    no model-authored exclusion/disclosure;
+  - all broader repo-map graph/source-inventory rows stay advisory, so the
+    system does not replace user/model intent or auto-fill answers.
+
 Hard-gate audit after B2-T1, 2026-05-25 CST:
 
 - Existing hard gates are not all equivalent. The safe class is "preserve

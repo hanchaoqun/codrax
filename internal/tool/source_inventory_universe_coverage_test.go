@@ -107,6 +107,43 @@ func TestSourceInventoryObservationFromLensDirectChildren_ExactUniverseForExplic
 	}
 }
 
+func TestSourceInventoryObservationFromLensDirectChildren_MixedLanguageAndConfigRoles(t *testing.T) {
+	root := t.TempDir()
+	for _, dir := range []string{"app/routes", "app/components"} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(dir)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, file := range []string{
+		"app/package.json",
+		"app/config.toml",
+		"app/main.ts",
+		"app/view.ets",
+	} {
+		if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(file)), []byte("x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx := &types.BusContext{RepoRoot: root, Mutable: types.NewMutableState("source inventory")}
+	obs := sourceInventoryObservationFromLensDirectChildren(ctx, types.SourceInventoryLensQuery{
+		Path: "app",
+		Roles: []types.AnswerCandidateRole{
+			types.AnswerCandidateRolePackage,
+			types.AnswerCandidateRoleFile,
+			types.AnswerCandidateRoleConfigFile,
+		},
+	})
+	counts := map[types.AnswerCandidateRole]int{}
+	for _, set := range obs.Sets {
+		counts[set.Role] = set.Count
+	}
+	if counts[types.AnswerCandidateRolePackage] != 2 ||
+		counts[types.AnswerCandidateRoleConfigFile] != 2 ||
+		counts[types.AnswerCandidateRoleFile] != 2 {
+		t.Fatalf("mixed direct children should classify by structural role, not language/case: counts=%+v obs=%+v", counts, obs)
+	}
+}
+
 func TestSourceInventoryLensQueryScopes_PathRelativeScopedRoot(t *testing.T) {
 	graph := testGraphWithFiles([]*repotypes.FileInfo{
 		{RelPath: "aggregator/aggregator.go", Language: "go", Package: "aggregator"},
@@ -133,6 +170,40 @@ func TestSourceInventoryLensQueryScopes_PathRelativeScopedRoot(t *testing.T) {
 	})
 	if !obs.IsActive() || len(obs.Sets) != 1 || obs.Sets[0].Count != 2 {
 		t.Fatalf("path-identical scope should not duplicate root and child scopes: %+v", obs)
+	}
+}
+
+func TestSourceInventoryLensQueryScopes_PathRelativeAliasMatrix(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{RelPath: "aggregator/aggregator.go", Language: "go", Package: "aggregator"},
+		{RelPath: "subject/taxonomy.go", Language: "go", Package: "subject"},
+	})
+	ctx := sourceInventoryTestContext("", graph, "internal/analysis", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRolePackage},
+		Confidence:        0.95,
+	})
+	for _, tc := range []struct {
+		name   string
+		path   string
+		scopes []string
+		want   []string
+	}{
+		{name: "path only scoped root", path: "internal/analysis", want: []string{"."}},
+		{name: "explicit dot", path: "internal/analysis", scopes: []string{"."}, want: []string{"."}},
+		{name: "path identical", path: "internal/analysis", scopes: []string{"internal/analysis"}, want: []string{"."}},
+		{name: "child relative", path: "internal/analysis", scopes: []string{"aggregator"}, want: []string{"aggregator"}},
+		{name: "child full", path: "internal/analysis", scopes: []string{"internal/analysis/aggregator"}, want: []string{"aggregator"}},
+		{name: "duplicate aliases", path: "internal/analysis", scopes: []string{"aggregator", "internal/analysis/aggregator"}, want: []string{"aggregator"}},
+	} {
+		got := sourceInventoryLensQueryScopes(ctx, graph, types.SourceInventoryLensQuery{
+			Path:   tc.path,
+			Scopes: tc.scopes,
+			Roles:  []types.AnswerCandidateRole{types.AnswerCandidateRolePackage},
+		})
+		if !sameStringSlice(got, tc.want) {
+			t.Fatalf("%s: scopes=%+v want=%+v", tc.name, got, tc.want)
+		}
 	}
 }
 
@@ -199,6 +270,35 @@ func TestPublishSourceInventoryObservationFromLens_RenderExcludesPriorExactUnive
 	}
 }
 
+func TestPublishSourceInventoryObservationFromLens_RenderIsCurrentQueryOnly(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{
+			RelPath:  "aggregator/aggregator.go",
+			Language: "go",
+			Package:  "aggregator",
+			Symbols: []repotypes.Symbol{
+				{Name: "Aggregator", Kind: "type", File: "aggregator/aggregator.go", Line: 10, Exported: true},
+				{Name: "Aggregate", Kind: "function", File: "aggregator/aggregator.go", Line: 20, Exported: true},
+			},
+		},
+	})
+	ctx := sourceInventoryTestContext("", graph, "internal/analysis", nil)
+	first := PublishSourceInventoryObservationFromLens(ctx, types.SourceInventoryLensQuery{
+		Path:  "internal/analysis",
+		Roles: []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+	})
+	if !first.IsActive() || len(first.Sets) != 1 || first.Sets[0].Role != types.AnswerCandidateRoleFunction {
+		t.Fatalf("first function lens unexpected: %+v", first)
+	}
+	second := PublishSourceInventoryObservationFromLens(ctx, types.SourceInventoryLensQuery{
+		Path:  "internal/analysis",
+		Roles: []types.AnswerCandidateRole{types.AnswerCandidateRoleType},
+	})
+	if !second.IsActive() || len(second.Sets) != 1 || second.Sets[0].Role != types.AnswerCandidateRoleType {
+		t.Fatalf("visible lens should not accumulate prior role sets: %+v", second)
+	}
+}
+
 func TestSourceInventoryCandidateUniverseCoverageGap_BlocksHighAlignmentOnly(t *testing.T) {
 	ctx := sourceInventoryUniverseTestContext([]string{"alpha", "beta", "gamma"})
 	gap := SourceInventoryCandidateUniverseCoverageGap(ctx, []types.AnswerAggregateFact{{
@@ -223,6 +323,34 @@ func TestSourceInventoryCandidateUniverseCoverageGap_BlocksHighAlignmentOnly(t *
 	}
 }
 
+func TestSourceInventoryCandidateUniverseCoverageGap_IgnoresAdvisoryRowsWithoutExactProvenance(t *testing.T) {
+	mut := types.NewMutableState("source inventory")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"src"},
+		Provenance:   []string{"repomap_graph"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRolePackage,
+			Complete: true,
+			Count:    3,
+			Members: []types.SourceInventoryObservationMember{
+				{Name: "alpha", Key: "src/alpha", Role: types.AnswerCandidateRolePackage},
+				{Name: "beta", Key: "src/beta", Role: types.AnswerCandidateRolePackage},
+				{Name: "gamma", Key: "src/gamma", Role: types.AnswerCandidateRolePackage},
+			},
+		}},
+	})
+	gap := SourceInventoryCandidateUniverseCoverageGap(&types.BusContext{Mutable: mut}, []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Members: []string{"alpha", "beta"},
+	}})
+	if gap.IsActive() {
+		t.Fatalf("advisory graph rows without exact provenance must not hard-block: %+v", gap)
+	}
+}
+
 func TestSourceInventoryCandidateUniverseCoverageGap_ExplicitExclusionSatisfiesUniverse(t *testing.T) {
 	ctx := sourceInventoryUniverseTestContext([]string{"alpha", "beta", "gamma"})
 	gap := SourceInventoryCandidateUniverseCoverageGap(ctx, []types.AnswerAggregateFact{{
@@ -235,6 +363,18 @@ func TestSourceInventoryCandidateUniverseCoverageGap_ExplicitExclusionSatisfiesU
 	if gap.IsActive() {
 		t.Fatalf("explicit excluded member should satisfy exact universe contract, got %+v", gap)
 	}
+}
+
+func sameStringSlice(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func sourceInventoryUniverseTestContext(names []string) *types.BusContext {
