@@ -42,10 +42,11 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 			missingBySet[set.ID] = missingRows
 		}
 	}
-	if normalizePrincipalEnumerationSummary(doc, ctx, sets) {
+	singleSet := len(sets) == 1
+	modelAuthoredCarrierExists := principalEnumerationAnyModelAuthoredCarrierExists(doc, sets, singleSet)
+	if normalizePrincipalEnumerationSummary(doc, ctx, sets, !modelAuthoredCarrierExists) {
 		changed++
 	}
-	singleSet := len(sets) == 1
 	for _, set := range sets {
 		if len(set.Rows) == 0 {
 			continue
@@ -194,7 +195,7 @@ func principalEnumerationCitationFileMatches(cit types.Citation, row types.Enume
 	)
 }
 
-func normalizePrincipalEnumerationSummary(doc *types.AnswerDocumentV2, ctx *types.BusContext, sets []types.EnumerationDisplaySet) bool {
+func normalizePrincipalEnumerationSummary(doc *types.AnswerDocumentV2, ctx *types.BusContext, sets []types.EnumerationDisplaySet, allowSystemText bool) bool {
 	if doc == nil || len(sets) == 0 {
 		return false
 	}
@@ -207,7 +208,7 @@ func normalizePrincipalEnumerationSummary(doc *types.AnswerDocumentV2, ctx *type
 			continue
 		}
 		changed := false
-		if strings.TrimSpace(doc.Blocks[i].Text) == "" {
+		if allowSystemText && strings.TrimSpace(doc.Blocks[i].Text) == "" {
 			doc.Blocks[i].Text = text
 			changed = true
 		}
@@ -227,6 +228,9 @@ func normalizePrincipalEnumerationSummary(doc *types.AnswerDocumentV2, ctx *type
 		}
 		return changed
 	}
+	if !allowSystemText {
+		return false
+	}
 	doc.Blocks = append([]types.AnswerBlock{{
 		ID:          uniqueAnswerBlockID(doc, "principal_enum_summary"),
 		Kind:        types.BlockSummary,
@@ -239,6 +243,15 @@ func normalizePrincipalEnumerationSummary(doc *types.AnswerDocumentV2, ctx *type
 		}},
 	}}, doc.Blocks...)
 	return true
+}
+
+func principalEnumerationAnyModelAuthoredCarrierExists(doc *types.AnswerDocumentV2, sets []types.EnumerationDisplaySet, singleSet bool) bool {
+	for _, set := range sets {
+		if principalEnumerationModelAuthoredCarrierExists(doc, set, singleSet) {
+			return true
+		}
+	}
+	return false
 }
 
 func principalEnumerationSummaryText(ctx *types.BusContext, sets []types.EnumerationDisplaySet) string {

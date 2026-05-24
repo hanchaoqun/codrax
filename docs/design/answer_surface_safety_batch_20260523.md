@@ -2,7 +2,7 @@
 
 Date: 2026-05-23
 
-Status: design tracked; implementation pending.
+Status: core implementation in progress; append-only supplement red lines are now covered by focused unit tests, with broader eval replay still tracked under the gap ledger.
 
 This document tracks the next high-ROI batch after the principal-ledger and
 origin-specific member-list work. The focus is deliberately narrow but
@@ -187,11 +187,11 @@ Contract:
 | --- | --- | --- | --- | --- |
 | T0 | Done in this doc | Record design, red lines, existing components, and implementation plan. | `docs/design/answer_surface_safety_batch_20260523.md` | Doc review |
 | T1 | Done | Add a central supplement-policy helper around principal enumeration supplements. It should localize origin-aware labels, suppress all-empty/dry supplements, and keep model-authored tables untouched. | `internal/tool/answer_document_principal_enum_compile.go`, related tests | `go test ./internal/tool -run 'TestNormalizePrincipalEnumerationRowBlocks|TestPrincipalEnumerationPrimaryColumnLabel'` |
-| T2 | Partially done | Add regression tests for VCS/history, runtime artifact, command, MCP/web/connector-like rows so non-code supplements use origin-aware labels or are suppressed when dry. | `internal/tool/*_test.go`, `internal/render/*_test.go` | VCS missing-row supplement plus all current origin labels covered; broader eval replay remains under T5. |
+| T2 | Done | Add regression tests for VCS/history, runtime artifact, command, MCP/web/connector-like rows so non-code supplements use origin-aware labels or are suppressed when dry. | `internal/tool/*_test.go`, `internal/render/*_test.go` | VCS/history, runtime artifact, command, external resource, and every declared origin family are covered by focused supplement/projection tests; broader scenario eval remains under T5. |
 | T3 | Done | Introduce a shared reviewer visible-surface helper and route self-consistency / semantic-quality inputs through it. | `internal/orchestrator/contract_check.go`, `semantic_quality_reviewer.go`, self-consistency tests | `go test ./internal/orchestrator -run 'TestBuildReviewerAnswerSurface|TestRenderConsistencyReviewBodyV2|TestRunSemanticQualityReviewWithOutcome|TestRenderSemanticQualityUserMessage'` |
 | T4 | Partially done | Add telemetry/tests proving reviewer sees system supplements, model Markdown tables, diagrams, attachments, and external observations exactly as the final panel does. | `internal/orchestrator/*reviewer*_test.go`, `internal/render/answerdoc_test.go` | Shared surface test covers supplements, diagrams, and attachments; external observations already covered by semantic reviewer tests. Targeted eval replay remains under T5. |
-| T5 | Partially done | Run targeted evals for principal-ledger/history, source-inventory, multi-repo compare, log/trace artifact, and mixed external+code analysis. | `eval/results/...` | `u7l` and `logtri_artifact_line_anchor` replayed with no finalizer retry; broader mixed/multi-repo tranche remains for the next batch. |
-| T6 | Partially done | Refresh gap docs with confirmed residuals and decide next architecture batch. | `docs/design/eval_20260520_full_sweep_gap_tracking.md`, related design docs | VCS path/date literal fidelity residual recorded as `E20260520-G153`. |
+| T5 | Partially done | Run targeted evals for principal-ledger/history, source-inventory, multi-repo compare, log/trace artifact, and mixed external+code analysis. | `eval/results/...` | `u7l`, `logtri_artifact_line_anchor`, and mixed VCS/current-source replays passed without finalizer reject; broader multi-repo / MCP-web-connector tranche remains for the next batch. |
+| T6 | Done | Refresh gap docs with confirmed residuals and decide next architecture batch. | `docs/design/eval_20260520_full_sweep_gap_tracking.md`, related design docs | VCS path/date literal fidelity residual recorded as `E20260520-G153`; later exact-detail batches closed the original residual and moved remaining risk to external-observation eval breadth. |
 | T7 | Done | Add exact external-detail preservation for VCS tool outputs, starting with `git_log stat=true` exact changed paths and prompt guidance that forbids expanding abbreviated stat paths. | `internal/tool/builtin.go`, `internal/types/observation_ledger.go`, finalizer prompt tests | `go test ./internal/...`; `u7l-20260523-223616` PASS with `finalizer_iters=1`, no rejects, exact path `answer_surface_safety_batch_20260523.md` preserved. |
 | T8 | Done | Generalize exact-detail projection tests for non-VCS origins so logs/traces/commands/MCP/connectors keep artifact-local coordinates and resource IDs as origin-local evidence. | `internal/types/observation_prompt_projection_test.go` | `go test ./internal/types -run 'TestProjectObservationPromptRecords'`; `go test ./internal/...` |
 
@@ -269,3 +269,12 @@ Contract:
   server/resource/JSON pointer, and connector resource/row identity. This locks
   the architecture principle that these are origin-local observations, not
   current-source citations, and it is language-agnostic.
+- 2026-05-24: Supplement red-line audit tightened the remaining unmarked system
+  summary path. `normalizePrincipalEnumerationRowBlocks` no longer synthesizes a
+  leading deterministic principal-enumeration summary when the model already
+  supplied a visible principal table or list carrier. Existing model-authored
+  Markdown tables, structured tables, and lists remain the only visible blocks in
+  that case; deterministic supplements still require separate localized
+  `系统按已验证证据补充...` / `System-verified ... supplement` blocks when they are
+  truly needed. Focused tests now fail if system structural preference leaks into
+  an authored answer surface.

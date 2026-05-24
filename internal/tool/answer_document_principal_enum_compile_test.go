@@ -85,6 +85,76 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForPartial
 	}
 }
 
+func TestNormalizePrincipalEnumerationRowBlocks_RedlineDoesNotSynthesizeSummaryForAuthoredCarriers(t *testing.T) {
+	mu := types.NewMutableState("列出公开函数")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("eval", "Eval", "internal/analysis/criterion/eval.go", 15, "Eval 对单个 Criterion 求值并返回 Result。"),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "公开函数",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"Eval"},
+		SupportRefs: []string{"Eval @ internal/analysis/criterion/eval.go:15"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	cases := []struct {
+		name   string
+		blocks []types.AnswerBlock
+	}{
+		{
+			name: "markdown_table",
+			blocks: []types.AnswerBlock{{
+				ID:    "model_table",
+				Kind:  types.BlockTable,
+				Title: "模型给出的公开函数表",
+				Text:  "| 函数 | 说明 |\n|---|---|\n| Eval | 对单个 Criterion 求值。 |",
+			}},
+		},
+		{
+			name: "structured_list",
+			blocks: []types.AnswerBlock{{
+				ID:    "model_list",
+				Kind:  types.BlockOrderedList,
+				Title: "模型给出的公开函数列表",
+				Items: []types.AnswerBlockItem{{
+					ID:    "eval",
+					Label: "Eval",
+					Text:  "对单个 Criterion 求值并返回 Result。",
+				}},
+			}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc := &types.AnswerDocumentV2{Blocks: append([]types.AnswerBlock(nil), tc.blocks...)}
+			normalizePrincipalEnumerationRowBlocks(doc, ctx)
+			if len(doc.Blocks) != 1 {
+				t.Fatalf("model-authored carrier must remain the only visible block; got %+v", doc.Blocks)
+			}
+			visible := answerDocumentTestVisibleSurface(doc)
+			if strings.Contains(visible, "本轮按已验收的结构化调查清单列出") ||
+				strings.Contains(visible, "系统按已验证证据补充") {
+				t.Fatalf("system structural preference leaked into authored answer surface:\n%s", visible)
+			}
+			if !strings.Contains(visible, "Eval") || !strings.Contains(visible, "Criterion") {
+				t.Fatalf("model-authored content should be preserved:\n%s", visible)
+			}
+		})
+	}
+}
+
 func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForCorruptMarkdownSourceInventoryTable(t *testing.T) {
 	mu := types.NewMutableState("列出公开字符串枚举类型")
 	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
@@ -203,8 +273,8 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsSupplementForIncompatible
 	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
 		t.Fatal("expected separated deterministic supplement for incompatible structured table")
 	}
-	if len(doc.Blocks) != 2 {
-		t.Fatalf("expected summary and preserved model table only; got %+v", doc.Blocks)
+	if len(doc.Blocks) != 1 {
+		t.Fatalf("authored structured table should not receive a synthetic system summary or competing table; got %+v", doc.Blocks)
 	}
 	model := answerDocumentTestBlockByID(t, doc, "model_structured_table")
 	if len(model.Items) != 1 || len(model.Items[0].Cells) != 0 ||
@@ -260,8 +330,8 @@ func TestNormalizePrincipalEnumerationRowBlocks_UsesEnglishFieldSupplementForInc
 		len(model.Items[0].Cells) != 0 {
 		t.Fatalf("model-authored structured table must remain untouched: %+v", model)
 	}
-	if len(doc.Blocks) != 2 {
-		t.Fatalf("expected summary and preserved model table only, got %+v", doc.Blocks)
+	if len(doc.Blocks) != 1 {
+		t.Fatalf("authored structured table should not receive a synthetic system summary or competing table; got %+v", doc.Blocks)
 	}
 	if visible := answerDocumentTestVisibleSurface(doc); strings.Contains(visible, "System-verified") {
 		t.Fatalf("English model table must suppress system supplement:\n%s", visible)
@@ -322,11 +392,11 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsMissingRowsForCorruptComp
 	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
 		t.Fatal("expected deterministic missing-row supplement for corrupt complete table")
 	}
-	if len(doc.Blocks) != 2 {
-		t.Fatalf("expected summary and preserved model table only; got %+v", doc.Blocks)
+	if len(doc.Blocks) != 1 {
+		t.Fatalf("authored markdown table should not receive a synthetic system summary or competing table; got %+v", doc.Blocks)
 	}
-	if !strings.Contains(types.AnswerBlockVisibleSurface(doc.Blocks[1]), "GammaKindTypo") {
-		t.Fatalf("model-authored table should remain visibly separate, got %+v", doc.Blocks[1])
+	if !strings.Contains(types.AnswerBlockVisibleSurface(doc.Blocks[0]), "GammaKindTypo") {
+		t.Fatalf("model-authored table should remain visibly separate, got %+v", doc.Blocks[0])
 	}
 	if visible := answerDocumentTestVisibleSurface(doc); strings.Contains(visible, "系统按已验证证据补充") {
 		t.Fatalf("corrupt but authored table must not be overwritten by system补表:\n%s", visible)
@@ -1300,8 +1370,8 @@ func TestNormalizePrincipalEnumerationRowBlocks_UsesEnglishSupplementTitle(t *te
 	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
 		t.Fatal("expected deterministic principal enumeration normalization")
 	}
-	if len(doc.Blocks) != 2 {
-		t.Fatalf("expected summary and authored table without English supplement, got %+v", doc.Blocks)
+	if len(doc.Blocks) != 1 {
+		t.Fatalf("authored English table should not receive a synthetic system summary or supplement, got %+v", doc.Blocks)
 	}
 	if visible := answerDocumentTestVisibleSurface(doc); strings.Contains(visible, "System-verified") {
 		t.Fatalf("authored English table must suppress system supplement:\n%s", visible)
@@ -2077,7 +2147,7 @@ func TestNormalizePrincipalEnumerationRowBlocks_PreservesAuthoredNotesFromCatego
 	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
 		t.Fatal("expected deterministic principal enumeration normalization")
 	}
-	visible := types.AnswerBlockVisibleSurface(doc.Blocks[1])
+	visible := types.AnswerBlockVisibleSurface(answerDocumentTestBlockByID(t, doc, "all_symbols"))
 	if !strings.Contains(visible, "read-mode：检查符号是否存在") || !strings.Contains(visible, "read-mode：检查符号无调用点") {
 		t.Fatalf("categorized markdown row notes should be preserved:\n%s", visible)
 	}
