@@ -2,9 +2,11 @@
 
 Date: 2026-05-24
 
-Status: Batch design started. This document tracks the T16 telemetry fix and
-the T11/B6 typed explore-lane ownership work. It intentionally excludes local
-small-model-only gaps unless the same root cause also affects remote models.
+Status: L1 telemetry hardening, L2/L3/L4/L5 typed lane ownership surfaces, and
+L6 focused eval rerun are implemented. This document tracks
+the T16 telemetry fix and the T11/B6 typed explore-lane ownership work. It
+intentionally excludes local small-model-only gaps unless the same root cause
+also affects remote models.
 
 ## Why This Batch Exists
 
@@ -144,11 +146,11 @@ drive soft logs or future telemetry.
 | --- | --- | --- | --- | --- |
 | L0 | Done | Remote update checked and fast-forwarded. New source-inventory repair is acknowledged as existing infrastructure, not duplicated. | git / docs | `git merge --ff-only origin/main` |
 | L1 | Done | Harden eval finalizer counters and telemetry parser so content cannot fake finalizer rejects/retries. | `eval/runner_lib.sh`, `eval/run.sh`, `eval/parallel_all.sh`, `eval/parallel_priority.sh`, `eval/telemetry` | `bash eval/runner_lib_test.sh`; `go test ./eval/telemetry`; old failed mixed-VCS log now recomputes `finalizer_rejects=0`, `finalizer_rewrites=0`; case regex now matches existing answer surface |
-| L2 | Pending | Add typed `ExploreLanePlan` / `ExploreLane` derived from existing request/intent/presentation/origin contracts. | `internal/types`, tests | unit tests for VCS+source, log+source, trace+source, command+source, user buckets, shared architecture |
-| L3 | Pending | Thread lane hints through `BusContext` / `AgentContext` / prompt builder without replacing `ExploreDispatchKey`. | `internal/types/context.go`, `internal/context/builder.go`, explorer prompt | prompt/context tests |
-| L4 | Pending | Add scheduler exact-overlap handling. Exact typed duplicate ownership becomes support/verification/delay; no raw-text similarity. | `internal/orchestrator/dag_node_dispatch.go`, `internal/orchestrator/explore_parallel_dispatch.go` | parallel dispatch unit tests |
-| L5 | Pending | Add UX lane labels to parallel dispatch events and dock/status rendering. | `internal/render/event.go`, `internal/render/parallel_activity.go`, `internal/render/status_messages.go`, renderer tests | dock/output stream tests in zh/en |
-| L6 | Pending | Rerun focused convergence evals and update gap docs with before/after metrics. | eval results + docs | 9-case convergence audit; compare `explorer_iters`, `midloop_inject`, false finalizer counters |
+| L2 | Done | Add typed `ExploreLanePlan` / `ExploreLane` derived from existing request/intent/presentation/origin contracts. | `internal/types`, tests | `go test ./internal/types -run 'TestCompileExploreLanePlan|TestCompileInvestigationPlan'` |
+| L3 | Done | Thread lane hints through `BusContext` / `AgentContext` / prompt builder without replacing `ExploreDispatchKey`. | `internal/types/context.go`, `internal/context/builder.go`, explorer prompt | `go test ./internal/context -run 'TestBuildPromptContext_EvidenceOriginBoundary|TestBuildPromptContext_ExploreLanePlan'` |
+| L4 | Done | Add scheduler exact-overlap handling. Each parallel worker receives only its typed lane subset when the evidence-window index can be mapped precisely; exact duplicate lane ownership is demoted to support handoff. No raw-text similarity is used. | `internal/orchestrator/explore_parallel_dispatch.go` | `go test ./internal/orchestrator -run 'TestDispatchExploreWindowsParallel_ScopesLanePlanPerEvidenceWindow|TestScopeExploreLanePlansForWindows_DemotesExactDuplicateLane|TestDispatchExploreWindowsParallel_CancelsSiblingAfterConvergence|TestRunTaskGraph_ParallelDispatch'` |
+| L5 | Done | Add UX lane labels to parallel dispatch events and dock/status rendering. | `internal/render/event.go`, `internal/render/parallel_activity.go`, `internal/render/status_messages.go`, renderer tests | `go test ./internal/render -run 'TestRenderer_ActiveExploreParallelAnchorsDockBeforeExtract|TestRenderer_ExtractStageClearsStaleParallelExploreTelemetry|TestComposeDockRow1_Parallel'` |
+| L6 | Done | Rerun focused convergence evals and update gap docs with before/after metrics and every model-visible complaint that points to a system contract issue. | eval results + docs | 9-case convergence audit; compare `explorer_iters`, `midloop_inject`, false finalizer counters, extractor complaints, system supplement surface |
 
 ### L1 Implementation Notes
 
@@ -166,6 +168,31 @@ drive soft logs or future telemetry.
   `diff`. The case still requires VCS/current-source/impact dimensions; this
   only removes casing brittleness.
 
+### L2/L3/L5 Implementation Notes
+
+- `types.CompileExploreLanePlan` now derives a typed, side-effect-free
+  ownership view from existing contracts. It covers mixed VCS/current-source,
+  command measurement/current-source, user buckets, and ordinary single-origin
+  architecture questions without inspecting raw user prose or model free text.
+- `BusContext` and `AgentContext` carry the plan as `json:"-"` runtime
+  metadata. This keeps it out of model-visible structured answer payloads while
+  allowing the prompt builder and renderer to consume it.
+- `formatEvidenceOriginBoundaryHint` now renders lane ownership for exploration
+  even when all lanes are current-source user buckets. Mixed-origin evidence
+  boundary warnings still render only when non-current-source origins are
+  actually present.
+- Parallel dispatch events carry compact lane labels. The dock localizes those
+  labels, for example `证据通道：历史差异、当前源码`, and explicitly avoids showing
+  internal node ids or raw enum names to the user.
+- The plan remains soft guidance: it scopes exploration and UX but does not
+  validate answers, rewrite model content, or mark a lane complete.
+- Parallel dispatch now scopes `AgentContext.ExploreLanePlan` per evidence
+  window when the compiler-produced `_tN` suffix maps exactly to
+  `subtopic-(N+1)`. If mapping is unavailable, workers see the full plan rather
+  than losing context. Exact duplicate ownership is downgraded to
+  `handoff=support` for later workers; this is prompt/scheduling guidance only,
+  not a blocker.
+
 ## Guardrails
 
 - Do not let lane ownership drop model-authored rich summaries. Non-owner
@@ -177,3 +204,64 @@ drive soft logs or future telemetry.
   or answer wording.
 - Do not system-rewrite model tables. Any system addition must be append-only,
   localized, and clearly marked.
+
+## L6 Focused Eval Rerun — 2026-05-24
+
+Command:
+
+```bash
+PARALLEL=2 RUNS=1 TIMEOUT=1500 bash eval/convergence_audit.sh
+```
+
+Result summary:
+
+| Case | Verdict | Analyzer | Explorer | Extractor | Finalizer | Finding |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `qf_architecture` | PASS | 4 | 14 | 1 | 1 | Clean finalizer. Moderate explorer repairs only. |
+| `qf_diagram_pipeline` | PASS | 5 | 10 | 1 | 1 | Parallel dispatch stayed stable; no finalizer reject. |
+| `qf_type_relation_loop_controller` | PASS | 4 | 5 | 1 | 1 | Typed relation prompt path remains good after lane ownership. |
+| `s5b` | PASS* | 4 | 26 | 1 | 1 | Surface is not acceptable despite PASS: a system supplement expanded the answer into a 72-row member block and mixed package-entry facts with unrelated exported functions. |
+| `u7k` | PASS | 5 | 119 | 1 | 1 | Worst convergence cost. Typed lane hints did not solve same-topic repeated deepening in a single broad history/current-source lane. |
+| `read_combo_git_two_diffs_current_code` | PASS* | 3 | 8 | 7 | 1 | Finalizer clean, but extractor suffered VCS citation / `emit_answer_symbol` pressure. Model explicitly complained that commit/diff evidence is not repo `file:line`. |
+| `read_combo_log_current_source_explanation` | PASS | 2 | 61 | 1 | 1 | Log+source answer converged; explorer still over-investigates mixed runtime/source lanes. |
+| `read_combo_trace_current_source_explanation` | PASS | 4 | 38 | 1 | 1 | Trace+source answer converged; repair cost remains visible. |
+| `read_combo_command_current_source_explanation` | PASS* | 4 | 15 | 3 | 1 | Final answer good, but extractor soft-stop incorrectly asked for `emit_answer_symbol` on a scalar command-measurement + mechanism question. |
+
+`PASS*` means the scripted case did not fail, but the log revealed a product
+contract gap that must be treated as a system issue.
+
+### Post-L6 Root Causes
+
+- Lane ownership is now visible to prompt and UX, and finalizer stays stable:
+  all 9 cases had `finalizer_iters=1`, `finalizer_rejects=0`, and
+  `finalizer_rewrites=0`.
+- Lane ownership does not yet provide a per-lane novelty/completion ledger.
+  `u7k`, log+source, and trace+source can still keep digging the same broad
+  theme after sufficient evidence is present.
+- External observations are first-class in the observation ledger, but the
+  extractor/hypothesis contract still treats VCS commit/diff facts as if they
+  must become repo `file:line` citations. This is not a model problem; it is a
+  missing typed VCS artifact citation path.
+- The extractor no-tool recovery path can still emit stale `list_of_symbols`
+  guidance for scalar / command-measurement / mechanism questions. This
+  pressures the model into artificial `emit_answer_symbol` rows.
+- System supplement compilers remain high-risk. The `s5b` output shows a
+  system-authored block that overwhelmed the model answer and broadened the
+  user's requested package-entry set into unrelated exported functions.
+
+### Next Batch Candidates
+
+1. Add an extraction passthrough / typed verdict-support channel for external
+   observations: VCS commit/diff/log entries, command measurements, runtime
+   artifacts, MCP/web/connector rows, and cross-repo index facts must not be
+   forced into repo `file:line` citations or answer-symbol slates.
+2. Make extractor missing-tool hints output-shape-aware. If typed state says
+   scalar, value, VCS comparison, command measurement, runtime artifact, or
+   already-accepted aggregate passthrough, the soft-stop hint must not ask for
+   `emit_answer_symbol`.
+3. Add a strict system-supplement safety audit for source-inventory and
+   enumeration supplements: append-only is not enough; the supplement must
+   stay within the user-requested entity type and must never replace a better
+   model-authored table/prose.
+4. Add lane novelty / completed-lane throttling as soft scheduling telemetry,
+   not a model-answer gate.

@@ -2253,11 +2253,12 @@ func TestBuildPromptContext_EvidenceOriginBoundary_MixedOriginLanePlan(t *testin
 		AnswerContract: types.AnswerContract{CitationReq: types.CitationReq{Required: false}},
 	}
 	ac := &types.AgentContext{
-		AgentName:  types.AgentExplorer,
-		Stage:      types.StageExplore,
-		Objective:  "根据最近一次合入解释当前实现",
-		Mutable:    types.NewMutableState("根据最近一次合入解释当前实现"),
-		AnalysisIR: ir,
+		AgentName:       types.AgentExplorer,
+		Stage:           types.StageExplore,
+		Objective:       "根据最近一次合入解释当前实现",
+		Mutable:         types.NewMutableState("根据最近一次合入解释当前实现"),
+		AnalysisIR:      ir,
+		ExploreLanePlan: types.CompileExploreLanePlan(ir.RequestModel, &ir.AnswerContract, types.AnswerPresentationContract{}),
 	}
 	pc := BuildPromptContext(ac, &skill.Config{Name: "explorer-skill"})
 	sec := findSectionTitle(pc, SectionEvidenceOrigin)
@@ -2269,6 +2270,7 @@ func TestBuildPromptContext_EvidenceOriginBoundary_MixedOriginLanePlan(t *testin
 		"preserve its typed origin",
 		"present-checkout implementation claims",
 		"keep both summaries",
+		"Typed explore lane ownership plan",
 	} {
 		if !strings.Contains(sec.Content, want) {
 			t.Fatalf("mixed-origin section missing %q:\n%s", want, sec.Content)
@@ -2276,6 +2278,46 @@ func TestBuildPromptContext_EvidenceOriginBoundary_MixedOriginLanePlan(t *testin
 	}
 	if !strings.Contains(sec.Content, "current_source") || !strings.Contains(sec.Content, "vcs_metadata") {
 		t.Fatalf("mixed-origin section should show both evidence lanes:\n%s", sec.Content)
+	}
+}
+
+func TestBuildPromptContext_ExploreLanePlan_RendersForCurrentSourceBuckets(t *testing.T) {
+	ir := &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			Buckets: []types.QuestionBucket{
+				{Label: "explorer", Index: 1},
+				{Label: "subagent", Index: 2},
+			},
+		},
+		AnswerContract: types.AnswerContract{CitationReq: types.CitationReq{Required: true}},
+	}
+	ac := &types.AgentContext{
+		AgentName:       types.AgentExplorer,
+		Stage:           types.StageExplore,
+		Objective:       "分别解释 explorer 和 subagent",
+		Mutable:         types.NewMutableState("分别解释 explorer 和 subagent"),
+		AnalysisIR:      ir,
+		ExploreLanePlan: types.CompileExploreLanePlan(ir.RequestModel, &ir.AnswerContract, types.AnswerPresentationContract{}),
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "explorer-skill"})
+	sec := findSectionTitle(pc, SectionEvidenceOrigin)
+	if sec == nil {
+		t.Fatal("current-source bucketed request should render explore lane ownership guidance")
+	}
+	for _, want := range []string{
+		"Typed explore lane ownership plan",
+		"unit=explorer",
+		"unit=subagent",
+		"current_source",
+		"soft guidance, not a validator gate",
+	} {
+		if !strings.Contains(sec.Content, want) {
+			t.Fatalf("bucket lane section missing %q:\n%s", want, sec.Content)
+		}
+	}
+	if strings.Contains(sec.Content, "Non-current-source facts") || strings.Contains(sec.Content, "VCS history") {
+		t.Fatalf("pure current-source lane ownership must not inject mixed-origin warnings:\n%s", sec.Content)
 	}
 }
 

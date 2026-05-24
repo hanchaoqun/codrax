@@ -6461,6 +6461,8 @@ func (o *Orchestrator) emitAnalysisReady() {
 	}
 	nodes := o.busCtx.AnalysisIR.TaskGraph.Nodes
 	investigationPlan := types.CompileInvestigationPlan(o.busCtx.AnalysisIR.RequestModel, &o.busCtx.AnalysisIR.AnswerContract)
+	presentationContract := types.CompileAnswerPresentationContract(o.busCtx.AnalysisIR, nil)
+	o.busCtx.ExploreLanePlan = types.CompileExploreLanePlan(o.busCtx.AnalysisIR.RequestModel, &o.busCtx.AnalysisIR.AnswerContract, presentationContract)
 	out := make([]render.TaskNodeInfo, 0, len(nodes))
 	for _, n := range nodes {
 		if n.IsCounterfactual {

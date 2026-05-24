@@ -871,14 +871,15 @@ func TestRenderer_ExtractStageClearsStaleParallelExploreTelemetry(t *testing.T) 
 	})
 	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(10 * time.Millisecond), NodeID: "n1_evidence_t0"})
 	emit(Event{
-		Kind:            EventParallelDispatchStart,
-		Timestamp:       t0.Add(20 * time.Millisecond),
-		Stage:           "explore",
-		Agent:           "explorer",
-		ParallelGroupID: "g",
-		ParallelTotal:   2,
-		Parallelism:     2,
-		ParallelUnitIDs: []string{"n1_evidence_t0", "n1_evidence_t1"},
+		Kind:               EventParallelDispatchStart,
+		Timestamp:          t0.Add(20 * time.Millisecond),
+		Stage:              "explore",
+		Agent:              "explorer",
+		ParallelGroupID:    "g",
+		ParallelTotal:      2,
+		Parallelism:        2,
+		ParallelUnitIDs:    []string{"n1_evidence_t0", "n1_evidence_t1"},
+		ParallelLaneLabels: []string{"vcs_diff", "current_source", "command_measurement", "mcp"},
 	})
 	emit(Event{Kind: EventTaskNodeEnd, Timestamp: t0.Add(30 * time.Millisecond), NodeID: "n1_evidence_t0"})
 	emit(Event{Kind: EventStageStart, Timestamp: t0.Add(40 * time.Millisecond), Stage: "extract", Agent: "extractor"})
@@ -890,7 +891,8 @@ func TestRenderer_ExtractStageClearsStaleParallelExploreTelemetry(t *testing.T) 
 	row1 := stripAnsiEscapes(rows[0])
 	row2 := stripAnsiEscapes(rows[1])
 	if strings.Contains(row1, "并行") || strings.Contains(row2, "并行") ||
-		strings.Contains(row2, "调查单元") || strings.Contains(row2, "关注点") {
+		strings.Contains(row2, "调查单元") || strings.Contains(row2, "关注点") ||
+		strings.Contains(row2, "证据通道") {
 		t.Fatalf("stale parallel/focus telemetry must not leak into extract rows; row1=%q row2=%q", row1, row2)
 	}
 	if !strings.Contains(row2, "3/4") || !strings.Contains(row2, "正在提炼关键发现") {
@@ -913,14 +915,15 @@ func TestRenderer_ActiveExploreParallelAnchorsDockBeforeExtract(t *testing.T) {
 	})
 	emit(Event{Kind: EventTaskNodeStart, Timestamp: t0.Add(10 * time.Millisecond), NodeID: "n1_evidence_t0"})
 	emit(Event{
-		Kind:            EventParallelDispatchStart,
-		Timestamp:       t0.Add(20 * time.Millisecond),
-		Stage:           "explore",
-		Agent:           "explorer",
-		ParallelGroupID: "g",
-		ParallelTotal:   2,
-		Parallelism:     2,
-		ParallelUnitIDs: []string{"n1_evidence_t0", "n1_evidence_t1"},
+		Kind:               EventParallelDispatchStart,
+		Timestamp:          t0.Add(20 * time.Millisecond),
+		Stage:              "explore",
+		Agent:              "explorer",
+		ParallelGroupID:    "g",
+		ParallelTotal:      2,
+		Parallelism:        2,
+		ParallelUnitIDs:    []string{"n1_evidence_t0", "n1_evidence_t1"},
+		ParallelLaneLabels: []string{"vcs_diff", "current_source", "command_measurement", "mcp"},
 	})
 	emit(Event{Kind: EventTaskNodeEnd, Timestamp: t0.Add(30 * time.Millisecond), NodeID: "n1_evidence_t0"})
 
@@ -930,12 +933,13 @@ func TestRenderer_ActiveExploreParallelAnchorsDockBeforeExtract(t *testing.T) {
 	if !strings.Contains(row1, "并行") {
 		t.Fatalf("active parallel dispatch must own row1 until the dispatch ends; got %q", row1)
 	}
-	for _, want := range []string{"2/4", "正在探索代码并收集证据", "并行 2 路", "2 个调查单元"} {
+	for _, want := range []string{"2/4", "正在探索代码并收集证据", "并行 2 路", "2 个调查单元", "证据通道：历史"} {
 		if !strings.Contains(row2, want) {
 			t.Fatalf("active parallel explore row missing %q: %q", want, row2)
 		}
 	}
-	if strings.Contains(row2, "3/4") || strings.Contains(row2, "提炼关键发现") {
+	if strings.Contains(row2, "3/4") || strings.Contains(row2, "提炼关键发现") ||
+		strings.Contains(row2, "current_source") || strings.Contains(row2, "vcs_diff") {
 		t.Fatalf("active parallel explore must not be presented as extract; got %q", row2)
 	}
 }

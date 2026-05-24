@@ -653,6 +653,98 @@ func parallelFocusTotalPhrase(total int, lang string) string {
 	return fmt.Sprintf("%d investigation units", total)
 }
 
+func parallelLaneLabelsPhrase(labels []string, lang string) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	const maxVisible = 3
+	total := len(labels)
+	visibleCap := total
+	if visibleCap > maxVisible {
+		visibleCap = maxVisible
+	}
+	visible := make([]string, 0, visibleCap)
+	for i, label := range labels {
+		if i >= maxVisible {
+			break
+		}
+		visible = append(visible, localizeParallelLaneLabel(label, lang))
+	}
+	if len(visible) == 0 {
+		return ""
+	}
+	if isZh(lang) {
+		text := strings.Join(visible, "、")
+		if total > maxVisible {
+			return fmt.Sprintf("证据通道：%s等 %d 类", text, total)
+		}
+		return "证据通道：" + text
+	}
+	text := strings.Join(visible, ", ")
+	if total > maxVisible {
+		return fmt.Sprintf("evidence lanes: %s, +%d", text, total-maxVisible)
+	}
+	return "evidence lanes: " + text
+}
+
+func localizeParallelLaneLabel(label string, lang string) string {
+	key := strings.ToLower(strings.TrimSpace(label))
+	if isZh(lang) {
+		switch key {
+		case "current_source":
+			return "当前源码"
+		case "vcs_history", "vcs_metadata":
+			return "历史记录"
+		case "vcs_diff":
+			return "历史差异"
+		case "runtime_artifact":
+			return "日志/Trace"
+		case "command_measurement":
+			return "命令结果"
+		case "negative_search":
+			return "未命中搜索"
+		case "cross_repo_index":
+			return "跨仓索引"
+		case "external_document":
+			return "外部文档"
+		case "web":
+			return "网页"
+		case "mcp":
+			return "MCP"
+		case "connector":
+			return "连接器"
+		}
+	}
+	switch key {
+	case "current_source":
+		return "current source"
+	case "vcs_history", "vcs_metadata":
+		return "VCS history"
+	case "vcs_diff":
+		return "VCS diff"
+	case "runtime_artifact":
+		return "log/trace"
+	case "command_measurement":
+		return "command output"
+	case "negative_search":
+		return "negative search"
+	case "cross_repo_index":
+		return "cross-repo index"
+	case "external_document":
+		return "external document"
+	case "web":
+		return "web"
+	case "mcp":
+		return "MCP"
+	case "connector":
+		return "connector"
+	}
+	if label = strings.TrimSpace(label); label != "" {
+		return label
+	}
+	return key
+}
+
 // topicOverflowPhrase covers the >5 topics case: first 5 are shown
 // individually, the rest collapse into a single line.
 func topicOverflowPhrase(extra int, lang string) string {

@@ -2316,6 +2316,10 @@ func aggregateFactOutsideRequestedSourceInventoryScope(fact AnswerAggregateFact,
 	if !answerAggregateFactCarriesCompleteMemberSet(fact) {
 		return false
 	}
+	if (RequiresExhaustiveEnumerationMemberSetHandoff(*rm) || RequiresRelationMemberSetHandoff(*rm)) &&
+		AnswerAggregateFactRoleForRequest(fact, rm).IsPrincipal() {
+		return false
+	}
 	scopes := aggregateRequestedSourceInventoryScopes(rm)
 	if len(scopes) == 0 {
 		return false

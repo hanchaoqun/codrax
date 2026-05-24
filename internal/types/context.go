@@ -4510,6 +4510,11 @@ type BusContext struct {
 	// prompt text or node ids.
 	ExploreDispatchKind TaskNodeType `json:"-"`
 
+	// ExploreLanePlan is a derived typed view over evidence-origin lanes for
+	// the current request. It is scheduling/render guidance only: it must not
+	// decide the answer and must not replace model-authored summaries.
+	ExploreLanePlan ExploreLanePlan `json:"-"`
+
 	// AnalysisIR is the Analyzer v3 structured output. Set once by the
 	// analyze stage via StageOutput.AnalysisIR → applyStageOutput and
 	// never rewritten thereafter — the analyzer is the sole writer.
@@ -4722,6 +4727,10 @@ type AgentContext struct {
 	// ExploreDispatchKind mirrors BusContext.ExploreDispatchKind for
 	// render-only activity labels. It must not drive evaluator behavior.
 	ExploreDispatchKind TaskNodeType `json:"-"`
+
+	// ExploreLanePlan mirrors BusContext.ExploreLanePlan for prompt and
+	// render-only scoped exploration guidance.
+	ExploreLanePlan ExploreLanePlan `json:"-"`
 
 	// ParallelGroupID is render-only telemetry for orchestrator-owned
 	// bounded fan-out. When set, BaseAgent mirrors it onto LLM/tool

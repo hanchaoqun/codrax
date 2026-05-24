@@ -150,7 +150,10 @@ cannot be parsed for hard control flow.
 | B3 | Done | Tighten accepted-closure auto-complete around support-only post-completion debt. Added typed helpers that keep unknown/exact pending reads blocking, while advisory repairs and known breadth/support pending reads no longer reopen exploration after an accepted closure. | `internal/orchestrator/orchestrator.go`, `internal/types/repair.go`, `internal/orchestrator/accepted_closure_monotonicity_test.go` | `go test ./internal/orchestrator -run 'TestShouldAutoCompleteExploreWindowFromAcceptedClosure|TestDispatchExploreWindowsParallel|TestParallelExploreAllowsEarlyConvergence'`; `go test ./internal/types -run 'Test.*Repair|Test.*PendingRead|TestMergeExploreFork_AcceptedCompletionClearsSiblingRepairs'` |
 | B4 | Done | Add origin/facet partition follow-up for hybrid external+current-source questions. First design the typed lane ownership contract; then implement if code already has enough metadata. | orchestrator dispatch hints, answer intent contract, observation ledger | mixed VCS/log/trace/command evals |
 | B5 | Done | Rerun focused evals and refresh gap docs with before/after metrics: `qf_architecture`, `qf_diagram_pipeline`, `qf_type_relation_loop_controller`, `s5b`, `u7k`, mixed log/trace/command/current-source cases, and one small mechanism case. | eval results + gap docs | compare explorer_iters/read_file/midloop/finalizer_iters plus convergence-specific counters |
-| B6 | Pending | Add a typed explore-lane ownership planner so parallel explorers do not all chase the same evidence lane. This is a pre-dispatch focus contract, not an answer override: hard decisions may only use typed unit/origin/facet state; model-authored conclusions remain authoritative when evidence is complete. | orchestrator/context/types as needed | focused unit tests + `u7k`, `read_combo_git_two_diffs_current_code`, log/trace/command mixed evals |
+| B6 | Done | Add a typed explore-lane ownership planner so parallel explorers do not all chase the same evidence lane. The typed plan, prompt guidance, REPL lane-label UX, exact duplicate lane support handoff, and focused eval rerun are complete. This is a pre-dispatch focus contract, not an answer override: hard decisions may only use typed unit/origin/facet state; model-authored conclusions remain authoritative when evidence is complete. | `internal/types/explore_lane_plan.go`, `internal/context/builder.go`, `internal/render/status_messages.go`, `internal/orchestrator/explore_parallel_dispatch.go`, `docs/design/explore_lane_ownership_20260524.md` | unit tests + 9-case focused eval |
+| B7 | Planned | External-observation extraction closure: VCS commit/diff facts, command measurements, runtime artifacts, logs/traces, MCP/web/connector/cross-repo rows need typed citation/passthrough support in extractor and hypothesis verdicts. They must not be forced through repo `file:line` citation or `emit_answer_symbol` unless the user asked for code symbols. | extractor controller, `emit_hypothesis_verdict`, observation ledger source refs, prompt sections | VCS diff + current-source eval, command measurement eval, log/trace current-source eval |
+| B8 | Planned | System supplement safety hardening: deterministic supplements must remain append-only, localized, and within the user-requested entity type. The `s5b` PASS exposed an unacceptable 72-row system supplement that broadened a package-entry question into unrelated exported functions. | answer document supplement compilers, source-inventory display sets, final answer renderer tests | source-inventory / package-entry eval + supplement regression tests |
+| B9 | Planned | Lane novelty / completed-lane throttling: after B6, same broad lanes can still over-investigate (`u7k=119` explorer iterations). Add typed novelty accounting and soft scheduling guidance; do not gate or rewrite answers from noisy novelty scores. | orchestrator lane scheduler, observation ledger deltas, telemetry | `u7k`, log/source, trace/source convergence metrics |
 
 ### B5 Audit Plan — 2026-05-24 second pass
 
@@ -519,28 +522,136 @@ Risks and guardrails:
 
 B6 task list:
 
-- [ ] Code audit: identify every place that currently builds parallel explore
+- [x] Code audit: identify every place that currently builds parallel explore
       windows or hints (`splitExploreWindowForDispatch`,
       `dispatchExploreWindowsParallel`, `runExploreAgentOnFork`,
       `BuildAgentContext`, investigation-plan projection).
-- [ ] Add a `types.ExploreLanePlan` / `ExploreLane` derived view that reuses
+- [x] Add a `types.ExploreLanePlan` / `ExploreLane` derived view that reuses
       `InvestigationPlan`, `AnswerIntentContract`, `AnswerPresentationContract`,
       and `ObservationLedger`; do not create a duplicate evidence carrier.
-- [ ] Thread lane hints into `AgentContext` and explorer prompts as scoped
+- [x] Thread lane hints into `AgentContext` and explorer prompts as scoped
       guidance. The prompt must say the lane is an ownership focus, not an
       answer constraint.
-- [ ] Add scheduler-side overlap handling: exact typed lane-key conflicts are
+- [x] Thread compact localized evidence-channel labels through parallel
+      dispatch events and the REPL dock. This is UX-only and hides internal
+      node ids / raw enum names from the user.
+- [x] Add scheduler-side overlap handling: exact typed lane-key conflicts are
       support/verification/delay candidates; no raw text similarity.
-- [ ] Add tests:
-      - VCS diff + current-source mechanism creates two distinct owners;
-      - log/trace + current-source keeps runtime and source owners separate;
-      - command measurement + source keeps count and mechanism lanes separate;
-      - user buckets remain separate principal owners;
-      - ordinary architecture explanation with shared context is unchanged;
-      - non-owner accepted evidence can still merge as support.
-- [ ] Re-run focused evals: `u7k`,
+- [x] Add first-wave tests:
+      VCS diff + current-source, command measurement + current-source, user
+      buckets, ordinary shared architecture unchanged, prompt rendering, and
+      REPL dock localization.
+- [x] Add scheduler/exact-overlap tests:
+      per-window scoped lane plans and exact duplicate lane support handoff.
+- [x] Add eval-backed coverage for log/trace + current-source owners and
+      non-owner accepted evidence merging as support.
+- [x] Re-run focused evals: `u7k`,
       `read_combo_git_two_diffs_current_code`,
       `read_combo_log_current_source_explanation`,
       `read_combo_trace_current_source_explanation`,
       `read_combo_command_current_source_explanation`, plus one user-bucket
       multi-question case.
+
+### B6 Focused Eval Rerun — 2026-05-24
+
+Command:
+
+```bash
+PARALLEL=2 RUNS=1 TIMEOUT=1500 bash eval/convergence_audit.sh
+```
+
+All 9 cases reached a one-turn finalizer in the real transcript, so B6 did not
+reintroduce finalizer churn. One metrics row still reports false
+`finalizer_rejects` / `finalizer_rewrites` because the question itself asks
+about commits that changed finalizer telemetry code and the source/answer text
+contains those counter names. Treat that as a telemetry isolation gap, not a
+real answer-generation retry.
+
+The audit still exposed system gaps that are not acceptable as "model
+mistakes":
+
+| Case | Verdict | Key metrics | Finding | Next batch |
+| --- | ---: | --- | --- | --- |
+| `qf_architecture` | PASS | `ana=4 exp=14 ext=1 fin=1 midloop=7` | Stable answer; moderate explorer repair cost only. | Telemetry only. |
+| `qf_diagram_pipeline` | PASS | `ana=5 exp=10 ext=1 fin=1 midloop=5` | Parallel prompt/UX path stayed stable. | None. |
+| `qf_type_relation_loop_controller` | PASS | `ana=4 exp=5 ext=1 fin=1 midloop=3` | Typed relation coverage remains good. | Continue relation-provider expansion separately. |
+| `s5b` | PASS* | `ana=4 exp=26 ext=1 fin=1 midloop=14` | Script passed, but final answer contained a system-authored 72-row supplement that broadened "sub-package entry functions" into unrelated exported functions. | B8 supplement safety. |
+| `u7k` | PASS | `ana=5 exp=119 ext=1 fin=1 midloop=50` | Lane ownership did not prevent same broad history/current-source lane from repeated deepening. | B9 lane novelty/throttling. |
+| `read_combo_git_two_diffs_current_code` | PASS* | `ana=3 exp=8 ext=7 fin=1 midloop=3` | Model explicitly complained that VCS commit/diff evidence cannot be cited as repo `file:line`; extractor also pressured `emit_answer_symbol` on a VCS comparison. | B7 external extraction closure. |
+| `read_combo_log_current_source_explanation` | PASS | `ana=2 exp=61 ext=1 fin=1 midloop=25` | Correct final answer, but runtime/source exploration is still costly. | B9 after B7. |
+| `read_combo_trace_current_source_explanation` | PASS | `ana=4 exp=38 ext=1 fin=1 midloop=14` | Correct final answer; repair cost remains. | B9 after B7. |
+| `read_combo_command_current_source_explanation` | PASS* | `ana=4 exp=15 ext=3 fin=1 midloop=4` | Extractor soft-stop wrongly asked for `emit_answer_symbol` on a scalar command-measurement + mechanism question. | B7 output-shape-aware extraction closure. |
+
+`PASS*` means the scripted verdict passed, but the visible answer or model
+transcript proves a product contract gap. These rows must not be dismissed just
+because the finalizer accepted the answer.
+
+Model-visible complaints are diagnostic evidence. The VCS case complaint is
+especially important: the model correctly identified that the evidence origin
+was `vcs_metadata` / `vcs_diff`, while the current extraction protocol still
+described verdict support in repo `file:line` terms. The correct architectural
+fix is a typed external-observation verdict/passthrough channel, shared by VCS,
+logs, traces, command results, MCP, web, connector, cross-repo index, and
+future external documents.
+
+### Post-B7 Focused Rerun — 2026-05-24
+
+After the external-observation verdict / extractor soft-stop batch, focused
+reruns show:
+
+| Case | Verdict | Metrics | Interpretation |
+| --- | ---: | --- | --- |
+| `read_combo_command_current_source_explanation` | PASS | `ana=3 exp=10 ext=1 fin=1 midloop=5 finalizer_rejects=0` | Command/current-source shape no longer pressures `emit_answer_symbol`; finalizer stays clean. |
+| `read_combo_git_two_diffs_current_code` | PASS* | `ana=3 exp=14 ext=1 fin=1 midloop=6 metrics-finalizer-rejects=10` | Real finalizer is clean; metric is false-positive content pollution from finalizer telemetry source/answer text. Fix belongs to telemetry control-line isolation. |
+| `s5b` | PASS* | `ana=4 exp=17 ext=1 fin=1 midloop=8` | Explorer cost improved, but answer still contains system supplement blocks that compete with model-authored content. Fix belongs to supplement safety fence v2. |
+
+Updated priority after this rerun:
+
+1. **B8 / T18 supplement safety fence v2**: highest product risk because it can
+   visibly replace or overwhelm a good model answer. This directly enforces the
+   red line that system structure preference must never overpower model/user
+   intent.
+2. **T16 telemetry control-line isolation**: important because false eval
+   metrics send engineering work toward phantom finalizer failures.
+3. **B9 / T20 lane novelty throttling**: highest performance ROI after the
+   answer-surface red lines are closed. It should reduce repeated same-lane
+   exploration in `u7k`, log/source, and trace/source without changing answer
+   semantics.
+
+### T18/T21 Red-Line Follow-Up — 2026-05-24
+
+Focused `s5b-20260524-181246` showed two distinct issues:
+
+| Symptom | Root Cause | Status |
+| --- | --- | --- |
+| Model-authored rich ordered list was followed by a duplicate system supplement. | The supplement coverage detector only matched single-cell/table text and missed relation identities split across columns or structured `label`/`text` fields. Same-file line drift also caused false misses. | Fixed with model-surface coverage that recognizes relation parts across table cells and structured label/text items, while still requiring same-file compatibility. |
+| Explorer repeatedly complained that it emitted `role="principal_answer"` but the system reported `role="supporting_coverage"`. | `required_files` transport cap leaked into source-inventory semantic scope. Files beyond the cap were treated as outside scope, so a complete principal member set was demoted before the exhaustive handoff gate inspected it. | Fixed by making exhaustive/relation principal handoff facts immune to source-inventory transport truncation. Prompt/pre-read caps remain budget controls only. |
+
+This is a hard red-line lesson: **budget caps are not semantic contracts**. They
+can affect prompt size and eager reads, but they cannot be used to invalidate a
+grounded model-authored principal answer set.
+
+Supplement safety lesson: **row grammar recognition is not an authority
+contract**. Enumeration final answers can be rendered in many legitimate model
+formats. After a complete principal member set has reached finalizer, any
+model-authored principal table/list carrier is treated as the answer surface for
+that set; deterministic missing-row/field/note supplement tables are suppressed.
+When the system cannot prove absence, it must prefer no supplement over a
+competing system-authored table.
+
+Validation added:
+
+- `go test ./internal/types -run TestPrincipalAggregateMemberSetFactRefsForRequest_ExhaustiveHandoffSurvivesTruncatedSourceInventoryScopes`
+- `go test ./internal/tool -run TestEmitInvestigationComplete_PreCompleteCheck_ExhaustiveHandoffNotDemotedByRequiredFileCap`
+- relation supplement coverage tests for table cross-column and structured
+  label/text surfaces.
+- authored-carrier suppression tests for partial/corrupt/incompatible tables,
+  dry note tables, external-origin tables, and the legacy aggregate carrier.
+
+Next verification:
+
+- Rebuild `./codrax` before eval, because eval snapshots the binary.
+- Rerun `s5b` and check both:
+  - no `role="supporting_coverage" is not principal_answer` complaint;
+  - no duplicate `系统按已验证证据补充缺失成员` block when the model already
+    displays the relation rows.

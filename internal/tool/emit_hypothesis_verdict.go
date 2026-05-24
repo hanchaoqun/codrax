@@ -38,11 +38,13 @@ import (
 // and optional for inconclusive (the whole point of inconclusive is
 // "we looked but couldn't find a definitive cite"). External-only
 // runtime artifact frames are not current-repo citations: Execute
-// accepts a typed frame citation when it exactly matches the attached
-// log / trace bundle, moves it into the rationale as an artifact
-// location, and leaves Citation empty so downstream renderers do not
-// mistake it for repo proof. The cite shape is the same file:line[-end]
-// used by runContractCheck — structural, no extension list.
+// accepts typed origin-specific citations when the accepted observation
+// ledger proves that origin is present, moves them into the rationale
+// as external evidence context, and leaves Citation empty so downstream
+// renderers do not mistake them for repo proof. Runtime log / trace
+// frame cites still require exact artifact-frame or artifact-local line
+// matches. Current-source cites keep the same file:line[-end] shape used
+// by runContractCheck — structural, no extension list.
 //
 // Like the other emit_* tools: ReadOnly + NonEvidenceTool. Mutating
 // BusContext is not a filesystem write, and the verdict carries
@@ -88,7 +90,11 @@ func (t *EmitHypothesisVerdict) Description() string {
 		"the form 'path:line' or 'path:line-end'. For observation-only external log / trace questions, " +
 		"a citation that exactly matches an attached runtime frame or an artifact-local gutter line " +
 		"(for example 'log:3', 'trace:5-6', or 'runtime_artifact:1-5') is accepted as artifact " +
-		"context and is not published as a repo citation. Inconclusive verdicts may omit the citation."
+		"context and is not published as a repo citation. For accepted external observation origins " +
+		"(VCS metadata/diff, command measurements, cross-repo index, external documents, web, MCP, " +
+		"connectors), an origin-specific citation such as 'git_log: commit abc123', 'git_diff: HEAD~1', " +
+		"'exec_command: <tool result>', 'mcp_resource: <uri>', or 'web_page: <url>' is accepted only " +
+		"when that typed origin exists in the accepted observation ledger. Inconclusive verdicts may omit the citation."
 }
 
 func (t *EmitHypothesisVerdict) Parameters() json.RawMessage {
@@ -102,9 +108,9 @@ func (t *EmitHypothesisVerdict) Parameters() json.RawMessage {
         "type": "object",
         "properties": {
           "hypothesis_id": {"type": "string", "description": "Hypothesis ID listed in the Hypotheses section of the prompt. Required. Unknown IDs are diagnosed."},
-          "status":        {"type": "string", "enum": ["confirmed", "rejected", "inconclusive"], "description": "Verdict. Current-repo confirmed/rejected verdicts require a citation; observation-only runtime-frame or artifact-local line citations are accepted as artifact context; inconclusive may omit it."},
+          "status":        {"type": "string", "enum": ["confirmed", "rejected", "inconclusive"], "description": "Verdict. Current-repo confirmed/rejected verdicts require a citation; observation-only runtime-frame, artifact-local line citations, or typed origin-specific external observation refs are accepted as external context when the ledger proves that origin; inconclusive may omit it."},
           "rationale":     {"type": "string", "description": "Rationale for the verdict — explain the mechanism or invariant that produced the status. Reference load-bearing identifiers with inline ` + "`" + `code` + "`" + `. Strongly recommended."},
-          "citation":      {"type": "string", "description": "Concrete current-repo code anchor in the form 'path:line' or 'path:line-end'. For observation-only external log / trace questions, this may instead be an exact attached runtime frame or artifact-local gutter location such as 'log:3', 'trace:5-6', or 'runtime_artifact:1-5'; the tool preserves it as artifact context rather than repo proof. Required for current-repo confirmed/rejected unless evidence_id names an already accepted grounded evidence item."},
+          "citation":      {"type": "string", "description": "Concrete current-repo code anchor in the form 'path:line' or 'path:line-end'. For external observation evidence, this may instead be an exact runtime artifact line/frame or a typed origin-specific ref such as 'git_log: commit abc123', 'git_diff: HEAD~1', 'exec_command: <tool result>', 'mcp_resource: <uri>', or 'web_page: <url>'; the tool preserves accepted external refs as context rather than repo proof. Required for current-repo confirmed/rejected unless evidence_id names an already accepted grounded evidence item."},
           "evidence_id":   {"type": "string", "description": "Optional local-model compatibility shortcut: id of an already accepted grounded evidence item. The tool resolves it to citation automatically; do not invent ids."}
         },
         "required": ["hypothesis_id", "status"]
@@ -318,6 +324,14 @@ func normalizeHypothesisVerdictArtifactCitations(ctx *types.BusContext, items []
 			normalized++
 			continue
 		}
+		if externalCitation, ok := hypothesisVerdictOriginSpecificCitation(ctx, citation); ok {
+			items[i].ArtifactCitationAccepted = true
+			items[i].ArtifactCitation = externalCitation
+			items[i].Citation = ""
+			items[i].Rationale = appendHypothesisOriginSpecificCitationNote(ctx, items[i].Rationale, externalCitation)
+			normalized++
+			continue
+		}
 		cit, err := parseEmitHypothesisCitation(extractHypothesisArtifactCitationCandidate(citation))
 		if err != nil {
 			continue
@@ -333,6 +347,119 @@ func normalizeHypothesisVerdictArtifactCitations(ctx *types.BusContext, items []
 		normalized++
 	}
 	return normalized
+}
+
+func hypothesisVerdictOriginSpecificCitation(ctx *types.BusContext, raw string) (string, bool) {
+	ref := cleanHypothesisOriginSpecificCitation(raw)
+	if ref == "" {
+		return "", false
+	}
+	origin, genericCarrier := hypothesisVerdictOriginSpecificCitationOrigin(ref)
+	if genericCarrier {
+		if !hypothesisVerdictHasAnyOriginSpecificSupport(ctx) {
+			return "", false
+		}
+		return ref, true
+	}
+	if origin == types.AnswerEvidenceOriginUnknown ||
+		!types.AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) ||
+		!hypothesisVerdictHasOriginSpecificSupport(ctx, origin) {
+		return "", false
+	}
+	return ref, true
+}
+
+func cleanHypothesisOriginSpecificCitation(raw string) string {
+	ref := strings.TrimSpace(raw)
+	ref = strings.Trim(ref, "`\"' \t\r\n")
+	if strings.HasPrefix(ref, "[") && strings.Contains(ref, "]") {
+		body := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(ref, "["), "]"))
+		if strings.Contains(body, ":") {
+			ref = body
+		}
+	}
+	return strings.TrimSpace(ref)
+}
+
+func hypothesisVerdictOriginSpecificCitationOrigin(ref string) (types.AnswerEvidenceOrigin, bool) {
+	prefix := ref
+	if before, _, ok := strings.Cut(ref, ":"); ok {
+		prefix = before
+	} else if fields := strings.Fields(ref); len(fields) > 0 {
+		prefix = fields[0]
+	}
+	token := strings.ToLower(strings.TrimSpace(prefix))
+	token = strings.ReplaceAll(token, "-", "_")
+	switch token {
+	case "exec_command", "command", "tool_result", "external_observation":
+		return types.AnswerEvidenceOriginUnknown, true
+	}
+	origin := types.AnswerEvidenceOriginFromStructuredToken(token)
+	if origin == types.AnswerEvidenceOriginRuntimeArtifact {
+		return types.AnswerEvidenceOriginUnknown, false
+	}
+	return origin, false
+}
+
+func hypothesisVerdictHasOriginSpecificSupport(ctx *types.BusContext, origin types.AnswerEvidenceOrigin) bool {
+	if ctx == nil || origin == types.AnswerEvidenceOriginUnknown ||
+		!types.AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
+		return false
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, 64))
+	for _, record := range ledger.Records {
+		if record.Origin == origin {
+			return true
+		}
+	}
+	if ctx.AnalysisIR != nil && ctx.Mutable != nil {
+		rm := &ctx.AnalysisIR.RequestModel
+		for _, fact := range ctx.Mutable.StableInvestigationAggregateFacts() {
+			for _, factOrigin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
+				if factOrigin == origin {
+					return true
+				}
+			}
+		}
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			for _, fact := range ta.AcceptedAggregateFacts {
+				for _, factOrigin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
+					if factOrigin == origin {
+						return true
+					}
+				}
+			}
+		}
+	}
+	return false
+}
+
+func hypothesisVerdictHasAnyOriginSpecificSupport(ctx *types.BusContext) bool {
+	if ctx == nil {
+		return false
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(ctx, 64))
+	for _, record := range ledger.Records {
+		if types.AnswerEvidenceOriginCarriesOriginSpecificSupport(record.Origin) {
+			return true
+		}
+	}
+	if ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return false
+	}
+	rm := &ctx.AnalysisIR.RequestModel
+	allFacts := append([]types.AnswerAggregateFact(nil), ctx.Mutable.StableInvestigationAggregateFacts()...)
+	if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+		allFacts = append(allFacts, ta.AcceptedAggregateFacts...)
+	}
+	for _, fact := range allFacts {
+		for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
+			if types.AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func hypothesisVerdictRationaleOnlyArtifactCitation(ctx *types.BusContext, rationale string) (string, bool) {
@@ -667,6 +794,22 @@ func appendHypothesisArtifactCitationNote(ctx *types.BusContext, rationale, arti
 	note := "External runtime frame: " + artifactCitation
 	if hypothesisVerdictPrefersChinese(ctx) {
 		note = "外部运行时帧：" + artifactCitation
+	}
+	if rationale == "" {
+		return note
+	}
+	return rationale + "\n" + note
+}
+
+func appendHypothesisOriginSpecificCitationNote(ctx *types.BusContext, rationale, ref string) string {
+	rationale = strings.TrimSpace(rationale)
+	ref = strings.TrimSpace(ref)
+	if ref == "" || strings.Contains(rationale, ref) {
+		return rationale
+	}
+	note := "Origin-specific evidence anchor: " + ref
+	if hypothesisVerdictPrefersChinese(ctx) {
+		note = "外部证据锚点：" + ref
 	}
 	if rationale == "" {
 		return note

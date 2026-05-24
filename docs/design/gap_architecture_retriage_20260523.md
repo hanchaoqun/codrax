@@ -139,6 +139,49 @@ source hit can suppress a legitimate current-code explanation lane. The failure
 mode is subtle because the artifact-only answer may look plausible while still
 violating the user's requested evidence mix.
 
+### R7. Extractor Still Leaks Current-Source Citation Pressure Onto External Evidence
+
+2026-05-24 focused convergence replay exposed an accident-class redline
+failure: in mixed VCS/current-source and command/current-source cases the model
+correctly complained that commit/diff/command observations are not repository
+`file:line` facts, but `emit_hypothesis_verdict` and extractor no-tool recovery
+still pushed the model toward repo citations or `emit_answer_symbol`.
+
+This is not a single VCS bug. The same shape applies to git metadata, git diff
+hunks, runtime logs/traces, bare command measurements, cross-repo index facts,
+external documents, web pages, MCP resources, and connector responses. These
+origins are already represented by `AnswerEvidenceOrigin` and
+`ObservationLedger`; extractor and verdict tools must consume those typed
+origins instead of inventing per-origin exceptions.
+
+Redline: a non-current-source observation can be principal evidence, but it
+must never be forced through current-source citation or symbol-slate channels.
+When the model supplies an origin-specific reference such as `git_log: ...`,
+`git_diff: ...`, `exec_command: ...`, `mcp_resource: ...`, or `web_page: ...`,
+the tool may accept it only if the typed ledger/aggregate contract proves that
+origin is present. Otherwise it remains a normal validation error.
+
+### R8. System Supplements Can Still Overpower Model/User Intent
+
+2026-05-24 replay also exposed another repeated redline failure: deterministic
+supplement/materialization paths can append large system-authored tables that
+look more authoritative than the model's answer, broaden the requested entity
+set, or turn a scoped answer into a generic inventory. This is the same family
+as prior `系统按已验证证据补充成员...` regressions.
+
+Highest-level rule: **the system must never use its own structural preference
+to override user intent or model-authored useful content.** Deterministic
+supplements are allowed only as append-only, localized, independently labeled
+repair notes when the missing fact is precise, typed, and non-overlapping.
+They must not replace a model table, delete prose, broaden the requested
+scope, or materialize a larger row set than the accepted model-authored
+aggregate. If the system is unsure, it must prefer no supplement plus an
+honest boundary/advisory over a competing table.
+
+Risk if ignored: every new row compiler or aggregate repair path can recreate
+the same accident under a different label, making the answer worse while the
+pipeline technically "passes."
+
 ## Priority Order
 
 1. **Batch A — external observation contract hardening.**
@@ -183,12 +226,16 @@ violating the user's requested evidence mix.
 | T8 | Done | Deepen answer-document JSON recovery for JSON-encoded `blocks[]` / native-array confusion so light model syntax slips do not cause visible finalizer reject loops. | answer-document tool param compat / recovery | focused finalizer recovery unit tests |
 | T9 | Done | Prompt-only runtime mixed-lane guidance is not sufficient. Add a typed `current_source_explanation_profile` that reuses existing `AnswerIntentContract`, runtime observation-only routing, and `ObservationLedger` instead of creating a duplicate evidence stack. | `docs/design/current_source_explanation_profile_20260524.md`, analyzer schema / request traits / finalizer prompt | typed unit tests + regression evals for log+code, trace+code, VCS+code, command+code |
 | T10 | Done | Preserve explicit user-requested answer dimensions (for example `diff 线索 / 当前关键代码 / 作用 / 影响`) through analyzer → surface plan → finalizer prompt without hard gates or system table replacement. Typed contract, finalizer prompt, runtime/current-source lane routing, and VCS/log/trace eval coverage are complete. | `docs/design/user_requested_answer_dimensions_20260524.md`, analyzer schema, `AnswerPresentationContract`, `RequestModel.HasRuntimeArtifactCurrentVerificationAnchor`, finalizer prompt, `eval/cases/read_combo_*_dimensions.case` | typed unit tests + focused mixed evidence evals |
-| T11 | In progress | Make explorer completion monotonic and lane-owned: accepted parallel closures own principal state, non-winning partial siblings cannot pollute aggregate facts or repair debt, post-completion support reads become enrichment unless a typed load-bearing facet is missing, and the next batch adds typed explore-lane ownership so multiple workers do not all deep-dive the same broad topic. B1-B5 are done; B6 is the next high-ROI systemic fix and remains typed-only, advisory-first, and non-answer-overriding. | `docs/design/explorer_convergence_monotonicity_20260524.md`, `internal/orchestrator/explore_parallel_dispatch.go`, `internal/orchestrator/orchestrator.go`, `internal/types/evidence_closure.go`, `eval/run.sh`, `eval/convergence_audit.sh` | convergence audit summary + parallel convergence unit tests + focused qf/s5b/u7k/mixed-origin evals |
+| T11 | In progress | Make explorer completion monotonic and lane-owned: accepted parallel closures own principal state, non-winning partial siblings cannot pollute aggregate facts or repair debt, post-completion support reads become enrichment unless a typed load-bearing facet is missing, and typed explore-lane ownership now reaches BusContext/AgentContext, explorer prompt guidance, per-window scoped lane plans, exact duplicate support handoff, and REPL parallel-lane UX. Remaining B6 work is focused eval rerun and gap-doc refresh. | `docs/design/explorer_convergence_monotonicity_20260524.md`, `docs/design/explore_lane_ownership_20260524.md`, `internal/types/explore_lane_plan.go`, `internal/context/builder.go`, `internal/render/status_messages.go`, `internal/orchestrator/explore_parallel_dispatch.go` | typed lane unit tests + prompt tests + render tests + orchestrator scoped-lane tests + pending focused qf/s5b/u7k/mixed-origin evals |
 | T12 | In progress | Generalize typed relation facts beyond enumeration-only paths while preventing source-inventory repair from rewriting relation member sets. Interface/trait/protocol → implementer relations are foundational repomap facts and must surface for diagrams, mechanism explanations, comparisons, counts, and enumerations when analyzer emits a typed relation axis such as `predicate_axis=implement`. | `internal/context/typed_relations.go`, `internal/types/request_traits.go`, `internal/agent/explorer.go`, `internal/tool/source_inventory_reconcile.go`, `eval/cases/qf_type_relation_loop_controller.case` | typed relation unit tests across repomap languages + focused qf replay |
 | T13 | In progress | Relation coverage should become a common typed contract, not an `implements`-only special case. Extend the same "typed relation member + grounded evidence + source scope + model-authored member_set" safety rule to inheritance/subclass, override/conformance, caller/callee, registration/binding, import/dependency, package/export membership, config key→read site, route→handler, event/observer/subscriber, and external observation→source-anchor relations as their precise graph/evidence carriers become available. R1/R2/R3/R5/R7/R8/R9 are done; remaining high-ROI work is to connect the same selector to registration/event observer and route/config relation carriers when exact graph/evidence providers exist. Detailed contract and task list are tracked in `docs/design/typed_relation_coverage_contract_20260524.md`. | `internal/types` relation provider boundary, `internal/context` probe/render, existing repomap graph relations, observation ledger origins | per-relation unit tests, mixed external/current-source evals |
 | T14 | Done | Rich row notes can still be rendered dry when the finalizer chooses a Markdown table and puts per-member descriptions only in the summary paragraph. Implemented a localized, append-only verified-note supplement that never rewrites or deletes model tables and fires only when typed principal rows are visible but row-level descriptions are missing. | answer document display supplement, principal enumeration row compiler, `docs/design/typed_relation_coverage_contract_20260524.md` R8 | table/list tests proving model-authored content is preserved and supplement is independent; focused R8 eval passed with `finalizer_iters=1` |
 | T15 | Done | Multi-question requests need a unified investigation-unit contract. `SubTopics[]` is analyzer work decomposition, `Buckets[]` is user answer partition, and REPL "关注点" wording is ambiguous. Added derived `InvestigationPlan`, projected it to `EventAnalysisReady`, localized REPL/status summaries to "调查单元/用户分区", and added focused eval coverage. Runtime scheduling changes remain deliberately deferred to a separate eval-backed design so this batch does not replace model/user intent with system grouping. | `docs/design/multi_question_investigation_units_20260524.md`, `internal/types/investigation_plan.go`, render EventAnalysisReady projection, `eval/cases/read_combo_loose_multi_question_units.case`, `eval/cases/read_combo_log_current_source_bucketed_units.case` | `go test ./...`; focused evals passed with finalizer 1 round / no finalizer rejects |
-| T16 | In progress | Harden eval/convergence telemetry so answer/source/evidence content cannot be counted as system retries. The focused audit red row `read_combo_git_two_diffs_current_code` was a false finalizer-retry signal caused by whole-log grep of words that were themselves part of the user's source/eval target. Control counters are now scoped to render/diag control lines; remaining closure is focused rerun. | `eval/run.sh`, `eval/runner_lib.sh`, `eval/parallel_all.sh`, `eval/parallel_priority.sh`, `eval/telemetry`, eval case expectation helpers | `bash eval/runner_lib_test.sh`; `go test ./eval/telemetry`; rerun the 9-case convergence audit |
+| T16 | In progress | Harden eval/convergence telemetry so answer/source/evidence content cannot be counted as system retries. The focused audit row `read_combo_git_two_diffs_current_code` is still a false finalizer-retry signal in the latest metrics: the user asks about commits that changed finalizer telemetry code, so source/answer text contains `finalizerRejects`, `finalizer_rewrites`, and Chinese retry terms. The real transcript shows `finalizer_iters=1` and no render-side reject. Next fix must make every metric path consume only structured control events, not answer/source payload text. | `eval/run.sh`, `eval/runner_lib.sh`, `eval/parallel_all.sh`, `eval/parallel_priority.sh`, `eval/telemetry`, eval case expectation helpers | Add regression with source/answer content quoting finalizer counters; recompute latest mixed-VCS metrics to `finalizer_rejects=0`, `finalizer_rewrites=0` |
+| T17 | In progress | Close the external-observation extraction gap. `emit_hypothesis_verdict` must accept origin-specific references from VCS/diff/command/runtime/cross-repo/external-doc/web/MCP/connector only when those typed origins are present in the accepted ledger/aggregate contract, and must keep them out of current-source citation fields. Extractor no-tool recovery must not push `emit_answer_symbol` for narrative/value/comparison questions already carried by origin-specific evidence. First implementation covers VCS/diff/command normalization and output-shape-aware extractor soft-stop; remaining work is broader origin regression coverage and focused rerun after telemetry is fixed. | `internal/tool/emit_hypothesis_verdict.go`, `internal/agent/extractor.go`, `internal/types/observation_ledger.go` | verdict normalization tests for VCS/diff/command; extractor soft-stop tests for mixed external/current-source answers; focused mixed-origin evals |
+| T18 | P0 | Add supplement safety fence v2. System-generated member/table supplements must be append-only, localized, non-overlapping, and bounded by the accepted typed member set. They must never broaden a source inventory, replace a model table, or render a larger/competing row set than the accepted aggregate fact. Latest `s5b` proves this is still open: the model authored a complete package-entry table, while the system appended `系统按已验证证据补充缺失成员` / `系统按已验证证据补充说明` blocks that changed the perceived answer shape. This is a red-line issue: system structure preference must not overpower model/user intent. | `internal/tool/answer_document_principal_enum_compile.go`, `internal/tool/answer_document_pre_emit_check.go`, display supplement tests | regression tests with scoped source inventory, cross-repo comparison, mechanism/config/scalar cases; ban competing system tables when model content covers the answer |
+| T19 | Planned | Add "system structural preference must not overpower model/user intent" redline tests across extractor/finalizer/display. Tests should fail if a deterministic compiler removes model prose/table cells, rewrites a model table wholesale, or forces a current-source citation for origin-specific evidence. | `internal/tool`, `internal/agent`, `internal/render`, eval guards | unit tests + focused eval assertions for no unwanted `系统按已验证证据补充成员` in covered answers |
+| T20 | Planned | Add lane novelty / completed-lane throttling. Typed lane ownership prevents exact duplicate ownership, but `u7k`, log+source, and trace+source still show repeated deepening inside the same broad lane. Novelty must be computed from accepted typed evidence / aggregate / observation deltas only; low novelty can trigger soft scheduling deprioritization or concise handoff prompts, never hard answer rejection. | `internal/orchestrator/explore_parallel_dispatch.go`, `internal/types/explore_lane_plan.go`, observation ledger deltas, eval telemetry | focused `u7k`, log/source, trace/source, mixed VCS/current reruns with lower `explorer_iters` and no finalizer churn |
 
 ## Implementation Notes For Future Batches
 
@@ -197,6 +244,44 @@ violating the user's requested evidence mix.
 - Do not parse raw user/model prose for hard decisions. Visible-coverage checks
   may inspect the already rendered answer surface to decide whether a typed row
   is visibly covered, but not to infer user intent or evidence origin.
+
+## T18 Supplement Safety Fence v2 Design
+
+Root cause from the latest `s5b` replay:
+
+- The model-authored table represented the requested member identity across
+  multiple columns (`package` column + `entry function` column + `location`
+  column). The deterministic coverage checker looked for a whole member label
+  inside a single cell, so `counterfactual -> Expand` was treated as missing
+  even though the row was visible as `counterfactual | Expand | ...`.
+- The verified-note supplement fired even when the current typed request only
+  asked for `name` and `location`. That turned useful evidence summaries into
+  a second system-authored explanation table and made the answer look like the
+  system had rewritten the model's presentation.
+
+T18 first implementation batch:
+
+1. **Cross-column visible coverage.** For Markdown/model tables, row coverage
+   must evaluate the joined data row as well as individual cells. A member can
+   be rendered as separate columns such as `type | method`, `package | entry`,
+   `route | handler`, `commit | changed path`, or any other language-specific
+   pair. This consumes only the visible answer surface and typed row identity;
+   it does not infer intent from prose.
+2. **Typed-note supplement permission.** Verified note supplements may appear
+   only when structured request metadata asks for explanatory content, for
+   example `source_inventory_profile.requested_fields` includes `summary` or
+   `requested_answer_dimensions` includes `function_or_purpose`,
+   `comparison_axis`, or `impact`. If the typed request only asks for names,
+   locations, counts, or values, the system must preserve the model answer and
+   skip note supplements.
+3. **No broad table replacement.** Missing-row supplements remain allowed only
+   for rows that are truly absent after cross-column coverage. They must stay
+   separate and bounded to the absent rows. Future batches will add stronger
+   size/ratio guards if evals show large competing supplement tables.
+
+This design applies across all repomap languages because it works on typed row
+identity, evidence origins, and rendered table structure rather than Go-specific
+syntax.
 - A non-current observation can be principal answer evidence. It just cannot
   create current-source citation pressure.
 - If a model table is good but mechanically incomplete, the system may add a
@@ -282,6 +367,17 @@ violating the user's requested evidence mix.
     same-lane evidence-repair hints, and finally reduce generic caveat /
     supplement noise. The failed mixed VCS/current-source case must not be used
     as evidence of finalizer retry: actual finalizer accepted in one turn.
+  - T11 B6 partial implementation:
+    `types.CompileExploreLanePlan` derives typed lanes from
+    `InvestigationPlan`, `AnswerIntentContract`, and
+    `AnswerPresentationContract`; `BusContext` / `AgentContext` thread the
+    plan to the explorer prompt; parallel dispatch scopes each worker to its
+    exact compiler-produced `_tN -> subtopic-(N+1)` lane where available; exact
+    duplicate ownership becomes `handoff=support`; and the dock now localizes
+    evidence-channel labels such as `证据通道：历史差异、当前源码`. This is soft
+    exploration guidance only. It does not rewrite answers, validate final
+    output, or parse raw user/model prose. Remaining work is the focused
+    convergence rerun.
 - 2026-05-24 T12 started:
   - Focused `qf_type_relation_loop_controller` replay passed but was
     semantically incomplete: the answer surfaced the main read-pipeline
@@ -631,3 +727,67 @@ violating the user's requested evidence mix.
     system table.
   - Added tests covering normalization, `emit_analysis` persistence, semantic
     view projection, and finalizer prompt rendering.
+
+- 2026-05-24 T18/T21 red-line incident closed:
+  - Focused eval `s5b-20260524-181246` exposed a contract violation: the model
+    repeatedly emitted `aggregate_facts[].role="principal_answer"` for the
+    complete `internal/analysis` package-entry member set, but the system
+    reported `role="supporting_coverage" is not principal_answer` and kept the
+    explorer open. The model correctly complained that the system was
+    overwriting its role.
+  - Root cause: `required_files` has a prompt/pre-read budget cap. The analyzer
+    emitted 25 high-confidence file hints; only the capped subset survived into
+    the source-inventory scope list. `NormalizeAggregateFactRolesForRequest`
+    then treated members supported by files beyond that capped transport list
+    as "outside requested source inventory scope" and demoted a model-authored
+    principal member set. This let a budget cap become a semantic hard gate.
+  - Architectural rule added: transport / prompt / pre-read caps may constrain
+    what is injected into a model prompt, but must never define the legal answer
+    scope for a complete, grounded principal handoff. Precise, accepted,
+    model-authored `principal_answer` member sets for exhaustive or relation
+    handoff contracts outrank source-inventory transport truncation.
+  - Code fix: `aggregateFactOutsideRequestedSourceInventoryScope` now refuses to
+    demote a grounded principal member set when the typed request requires
+    exhaustive or relation member-set handoff. The older source-inventory
+    out-of-scope demotion still applies to ordinary inventory candidates that
+    are not the principal handoff.
+  - Guard tests:
+    - `TestPrincipalAggregateMemberSetFactRefsForRequest_ExhaustiveHandoffSurvivesTruncatedSourceInventoryScopes`
+      pins the type-level contract.
+    - `TestEmitInvestigationComplete_PreCompleteCheck_ExhaustiveHandoffNotDemotedByRequiredFileCap`
+      pins the actual explorer closure/pre-complete path.
+    - Existing out-of-scope source-inventory and typed-relation tests continue
+      to pass, preserving the intended boundary.
+  - Residual: rerun `s5b` with the rebuilt binary to confirm the transcript no
+    longer contains the role-demotion complaint and to measure remaining
+    explorer cost. The separate supplement-safety fix is unit-tested for
+    cross-column and structured label/text relation coverage.
+
+- 2026-05-24 T18 supplement safety fence v2 tightened:
+  - Architectural correction: enumeration answers are model-authored surfaces,
+    not deterministic table-rendering exercises. Models can express a completed
+    member set as Markdown table, structured table, ordered list, bullet list,
+    multi-column relation table, grouped prose, or a localized hybrid. The
+    system cannot enumerate every possible surface grammar without repeatedly
+    creating case-by-case bugs.
+  - New rule: once exploration has accepted a complete principal `member_set`
+    and finalizer has received that context, a model-authored principal
+    table/list carrier in the final document suppresses deterministic
+    missing-row, field, and note supplements for that set. If the system cannot
+    confidently parse every row, it must prefer **no supplement** over a
+    competing system table. This intentionally allows a rare model omission to
+    remain rather than letting system structure preference overpower user/model
+    intent.
+  - The rule is structural, not prose-keyword based. It looks only at accepted
+    principal aggregate facts, typed enumeration facets/surface roles, and
+    answer block kinds. It does not infer user intent from raw request text or
+    model散文.
+  - Code fix: both deterministic row compiler and legacy aggregate-member-set
+    carrier now share this conservative suppressor. The older row-by-row
+    supplement behavior remains only for answers with no model-authored
+    principal carrier at all.
+  - Guard tests updated: partial/corrupt/incompatible authored tables, dry
+    authored tables, external-origin tables, and cross-column relation tables
+    now assert that no `系统按已验证证据补充...` / `System-verified...`
+    competing table is appended. Existing no-carrier supplement tests still
+    protect the low-priority fallback path.

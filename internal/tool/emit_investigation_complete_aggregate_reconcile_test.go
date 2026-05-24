@@ -323,6 +323,66 @@ const (
 	}
 }
 
+func TestReconcileCompletionAggregateFactsWithSourceInventory_DoesNotBroadenFunctionEntrySet(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{
+			RelPath:  "internal/analysis/aggregator/aggregator.go",
+			Language: "go",
+			Symbols: []repotypes.Symbol{
+				{Name: "New", Kind: "function", File: "internal/analysis/aggregator/aggregator.go", Line: 112, Exported: true},
+				{Name: "Aggregate", Kind: "function", File: "internal/analysis/aggregator/aggregator.go", Line: 132, Exported: true},
+			},
+		},
+		{
+			RelPath:  "internal/analysis/priority/score.go",
+			Language: "go",
+			Symbols: []repotypes.Symbol{
+				{Name: "Score", Kind: "function", File: "internal/analysis/priority/score.go", Line: 34, Exported: true},
+				{Name: "Raw", Kind: "function", File: "internal/analysis/priority/score.go", Line: 54, Exported: true},
+			},
+		},
+	})
+	ctx := sourceInventoryTestContext("", graph, "internal/analysis", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		RequestedFields: []types.SourceInventoryRequestedField{
+			types.SourceInventoryFieldName,
+			types.SourceInventoryFieldLocation,
+			types.SourceInventoryFieldSummary,
+		},
+		Confidence: 0.95,
+	})
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "internal/analysis 子包及入口函数",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"aggregator.New (internal/analysis/aggregator/aggregator.go:112)",
+			"priority.Score (internal/analysis/priority/score.go:34)",
+		},
+		SupportRefs: []string{
+			"New: internal/analysis/aggregator/aggregator.go:112",
+			"Score: internal/analysis/priority/score.go:34",
+		},
+	}}
+
+	got := reconcileCompletionAggregateFactsWithSourceInventory(ctx, facts, nil)
+	if len(got) != 1 {
+		t.Fatalf("facts len = %d, want 1", len(got))
+	}
+	if !reflect.DeepEqual(got[0].Members, facts[0].Members) {
+		t.Fatalf("generic function source inventory must not broaden a model-authored role/member relation set:\n got=%#v\nwant=%#v", got[0].Members, facts[0].Members)
+	}
+	for _, banned := range []string{"Aggregate", "Raw", "system:source_inventory"} {
+		if strings.Contains(strings.Join(got[0].Members, "\n"), banned) ||
+			strings.Contains(strings.Join(got[0].SupportRefs, "\n"), banned) ||
+			strings.Contains(got[0].Provenance, banned) {
+			t.Fatalf("function inventory broadened principal entry set with %q: %+v", banned, got[0])
+		}
+	}
+}
+
 func TestReconcileCompletionAggregateFactsWithSourceInventory_FileScopeDoesNotBroadenToDirectory(t *testing.T) {
 	repo := t.TempDir()
 	evidenceSource := `package types
@@ -477,12 +537,15 @@ func TestReconcileCompletionAggregateFactsWithSourceInventory_ListFilesScope(t *
 	}}
 
 	got := reconcileCompletionAggregateFactsWithSourceInventory(ctx, facts, nil)
-	want := []string{"Run", "handle"}
+	want := []string{"handle"}
 	if !reflect.DeepEqual(got[0].Members, want) {
-		t.Fatalf("members = %#v, want cross-language functions from list_files scope %#v", got[0].Members, want)
+		t.Fatalf("members = %#v, want model-authored function set preserved %#v", got[0].Members, want)
 	}
 	if containsString(got[0].Members, "Eval") {
 		t.Fatalf("out-of-scope function leaked into source inventory: %#v", got[0].Members)
+	}
+	if containsString(got[0].Members, "Run") {
+		t.Fatalf("system source-inventory must not broaden entry-function requests into every scoped function: %#v", got[0].Members)
 	}
 }
 
@@ -621,7 +684,7 @@ const (
 	}
 }
 
-func TestReconcileCompletionAggregateFactsWithSourceInventory_GraphBackedPublicFunctions(t *testing.T) {
+func TestReconcileCompletionAggregateFactsWithSourceInventory_DoesNotRewriteGraphBackedPublicFunctions(t *testing.T) {
 	graph := testGraphWithFiles([]*repotypes.FileInfo{{
 		RelPath:  "internal/analysis/criterion/eval.go",
 		Language: "go",
@@ -648,9 +711,12 @@ func TestReconcileCompletionAggregateFactsWithSourceInventory_GraphBackedPublicF
 	}}
 
 	got := reconcileCompletionAggregateFactsWithSourceInventory(ctx, facts, nil)
-	want := []string{"Eval", "EvalAll", "SetExternalArtifactFloor"}
+	want := []string{"Eval", "EvalAll"}
 	if !reflect.DeepEqual(got[0].Members, want) {
 		t.Fatalf("members = %#v, want %#v", got[0].Members, want)
+	}
+	if containsString(got[0].Members, "SetExternalArtifactFloor") {
+		t.Fatalf("system source-inventory must not broaden model-authored function sets: %#v", got[0].Members)
 	}
 	for _, banned := range []string{"parseComparison", "registered"} {
 		if containsString(got[0].Members, banned) {
@@ -725,16 +791,16 @@ func TestReconcileCompletionAggregateFactsWithSourceInventory_MixedLanguageGraph
 	}}
 
 	got := reconcileCompletionAggregateFactsWithSourceInventory(ctx, facts, nil)
-	want := []string{"Run", "Eval"}
+	want := []string{"Eval"}
 	if !reflect.DeepEqual(got[0].Members, want) {
-		t.Fatalf("mixed-language graph-backed scope should reconcile across repomap languages;\ngot  %#v\nwant %#v", got[0].Members, want)
+		t.Fatalf("mixed-language function candidates should stay support-only and not rewrite the model set;\ngot  %#v\nwant %#v", got[0].Members, want)
 	}
 	if containsString(got[0].Members, "render") {
 		t.Fatalf("non-exported TypeScript function leaked into public inventory: %#v", got[0].Members)
 	}
 }
 
-func TestReconcileCompletionAggregateFactsWithSourceInventory_PreservesExplorerNotesWhenReplacing(t *testing.T) {
+func TestReconcileCompletionAggregateFactsWithSourceInventory_PreservesExplorerFunctionNotesWithoutReplacing(t *testing.T) {
 	graph := testGraphWithFiles([]*repotypes.FileInfo{
 		{RelPath: "src/a.go", Language: "go", Symbols: []repotypes.Symbol{{
 			Name:     "Eval",
@@ -789,29 +855,22 @@ func TestReconcileCompletionAggregateFactsWithSourceInventory_PreservesExplorerN
 	}}
 
 	got := reconcileCompletionAggregateFactsWithSourceInventory(ctx, facts, nil)
-	wantMembers := []string{"Run", "Eval"}
+	wantMembers := []string{"Eval", "render"}
 	if !reflect.DeepEqual(got[0].Members, wantMembers) {
 		t.Fatalf("members = %#v, want %#v", got[0].Members, wantMembers)
 	}
 	if len(got[0].MemberNotes) != 2 {
-		t.Fatalf("member notes = %#v, want one note per retained member", got[0].MemberNotes)
+		t.Fatalf("member notes should remain model-authored, got %#v", got[0].MemberNotes)
 	}
-	if !strings.Contains(got[0].MemberNotes[0], "Java entrypoint") {
-		t.Fatalf("new graph-backed member should keep graph doc note, got %#v", got[0].MemberNotes)
+	if !strings.Contains(got[0].MemberNotes[0], "单个 Criterion") ||
+		!strings.Contains(got[0].MemberNotes[1], "误收集") {
+		t.Fatalf("system must not replace function notes with graph docs: %#v", got[0].MemberNotes)
 	}
-	if !strings.Contains(got[0].MemberNotes[1], "单个 Criterion") ||
-		!strings.Contains(got[0].MemberNotes[1], "evaluates one Criterion") {
-		t.Fatalf("same-member explorer note should merge with graph doc instead of being overwritten: %#v", got[0].MemberNotes)
+	if !reflect.DeepEqual(got[0].SupportRefs, facts[0].SupportRefs) {
+		t.Fatalf("support refs should remain model-authored for function sets, got %#v", got[0].SupportRefs)
 	}
-	if strings.Contains(strings.Join(got[0].MemberNotes, "\n"), "误收集") {
-		t.Fatalf("dropped private/out-of-scope member notes must not attach to retained members: %#v", got[0].MemberNotes)
-	}
-	if !reflect.DeepEqual(got[0].SupportRefs, []string{"Run: src/B.java:20", "Eval: src/a.go:10"}) {
-		t.Fatalf("support refs should remain graph-authoritative after replacement, got %#v", got[0].SupportRefs)
-	}
-	if !strings.Contains(got[0].Provenance, "emit_investigation_complete.aggregate_facts") ||
-		!strings.Contains(got[0].Provenance, "system:source_inventory") {
-		t.Fatalf("source-inventory rewrite must leave provenance marker, got %q", got[0].Provenance)
+	if got[0].Provenance != facts[0].Provenance {
+		t.Fatalf("function source-inventory must not add rewrite provenance, got %q", got[0].Provenance)
 	}
 }
 

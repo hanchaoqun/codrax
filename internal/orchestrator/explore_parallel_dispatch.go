@@ -43,15 +43,18 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 	for i, w := range windows {
 		unitIDs[i] = exploreDispatchKeyForWindow(w)
 	}
+	laneLabels := o.busCtx.ExploreLanePlan.Labels()
+	lanePlans := scopeExploreLanePlansForWindows(o.busCtx.ExploreLanePlan, windows)
 	o.emit(render.Event{
-		Kind:            render.EventParallelDispatchStart,
-		Timestamp:       time.Now(),
-		Stage:           types.StageExplore,
-		Agent:           types.AgentExplorer,
-		ParallelGroupID: groupID,
-		ParallelTotal:   len(windows),
-		Parallelism:     parallelism,
-		ParallelUnitIDs: unitIDs,
+		Kind:               render.EventParallelDispatchStart,
+		Timestamp:          time.Now(),
+		Stage:              types.StageExplore,
+		Agent:              types.AgentExplorer,
+		ParallelGroupID:    groupID,
+		ParallelTotal:      len(windows),
+		Parallelism:        parallelism,
+		ParallelUnitIDs:    unitIDs,
+		ParallelLaneLabels: laneLabels,
 	})
 	defer o.emit(render.Event{
 		Kind:            render.EventParallelDispatchEnd,
@@ -91,6 +94,10 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 				}
 				fork := o.busCtx.Mutable.ForkForExploreDispatch()
 				unitID := unitIDs[i]
+				var lanePlan types.ExploreLanePlan
+				if i < len(lanePlans) {
+					lanePlan = lanePlans[i]
+				}
 				o.emit(render.Event{
 					Kind:            render.EventParallelDispatchUnitStart,
 					Timestamp:       time.Now(),
@@ -101,7 +108,7 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 					ParallelTotal:   len(windows),
 					Parallelism:     parallelism,
 				})
-				out, err := o.runExploreAgentOnFork(runCtx, fork, hint, unitID, groupID, exploreDispatchKindForWindow(windows[i]))
+				out, err := o.runExploreAgentOnFork(runCtx, fork, hint, unitID, groupID, exploreDispatchKindForWindow(windows[i]), lanePlan)
 				unitErr := ""
 				if err != nil {
 					unitErr = err.Error()
@@ -211,6 +218,7 @@ func (o *Orchestrator) runExploreAgentOnFork(
 	dispatchKey string,
 	parallelGroupID string,
 	dispatchKind types.TaskNodeType,
+	lanePlan types.ExploreLanePlan,
 ) (*agent.StageOutput, error) {
 	stage := types.StageExplore
 	if err := o.checkCanceled(string(stage), 0); err != nil {
@@ -238,6 +246,9 @@ func (o *Orchestrator) runExploreAgentOnFork(
 	workerBus.PipelineStage = stage
 	workerBus.ExploreDispatchKey = dispatchKey
 	workerBus.ExploreDispatchKind = dispatchKind
+	if !lanePlan.Empty() {
+		workerBus.ExploreLanePlan = lanePlan
+	}
 	workerBus.TaskState.Stage = stage
 	workerBus.TaskState.RetryHint = hint
 	workerBus.TaskState.LastError = ""
@@ -265,6 +276,100 @@ func (o *Orchestrator) runExploreAgentOnFork(
 		output = merged
 	}
 	return output, nil
+}
+
+func scopeExploreLanePlansForWindows(plan types.ExploreLanePlan, windows [][]*types.TaskNode) []types.ExploreLanePlan {
+	out := make([]types.ExploreLanePlan, len(windows))
+	if plan.Empty() {
+		return out
+	}
+	seenPrincipal := map[string]struct{}{}
+	for i, window := range windows {
+		scoped := scopeExploreLanePlanForWindow(plan, window)
+		for j := range scoped.Lanes {
+			key := scoped.Lanes[j].OwnershipKey()
+			if key == "" {
+				continue
+			}
+			if _, exists := seenPrincipal[key]; exists {
+				scoped.Lanes[j].Role = types.ExploreLaneRoleSupport
+				scoped.Lanes[j].HandoffPolicy = types.ExploreLaneHandoffSupport
+				continue
+			}
+			seenPrincipal[key] = struct{}{}
+		}
+		out[i] = scoped
+	}
+	return out
+}
+
+func scopeExploreLanePlanForWindow(plan types.ExploreLanePlan, window []*types.TaskNode) types.ExploreLanePlan {
+	if plan.Empty() || len(window) == 0 {
+		return cloneExploreLanePlan(plan)
+	}
+	unitIDs := exploreLaneUnitIDsForWindow(window)
+	if len(unitIDs) == 0 {
+		return cloneExploreLanePlan(plan)
+	}
+	filtered := make([]types.ExploreLane, 0, len(plan.Lanes))
+	for _, lane := range plan.Lanes {
+		if unitIDs[strings.TrimSpace(lane.InvestigationUnitID)] {
+			filtered = append(filtered, cloneExploreLane(lane))
+		}
+	}
+	if len(filtered) == 0 {
+		return cloneExploreLanePlan(plan)
+	}
+	return types.ExploreLanePlan{Lanes: filtered}
+}
+
+func cloneExploreLanePlan(plan types.ExploreLanePlan) types.ExploreLanePlan {
+	if plan.Empty() {
+		return types.ExploreLanePlan{}
+	}
+	out := make([]types.ExploreLane, 0, len(plan.Lanes))
+	for _, lane := range plan.Lanes {
+		out = append(out, cloneExploreLane(lane))
+	}
+	return types.ExploreLanePlan{Lanes: out}
+}
+
+func cloneExploreLane(lane types.ExploreLane) types.ExploreLane {
+	lane.FacetIDs = append([]string(nil), lane.FacetIDs...)
+	lane.DimensionLabels = append([]string(nil), lane.DimensionLabels...)
+	return lane
+}
+
+func exploreLaneUnitIDsForWindow(window []*types.TaskNode) map[string]bool {
+	out := map[string]bool{}
+	for _, n := range window {
+		if n == nil {
+			continue
+		}
+		if id, ok := exploreLaneUnitIDFromEvidenceNodeID(n.ID); ok {
+			out[id] = true
+		}
+	}
+	return out
+}
+
+func exploreLaneUnitIDFromEvidenceNodeID(id string) (string, bool) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "", false
+	}
+	idx := strings.LastIndex(id, "_t")
+	if idx < 0 || idx+2 >= len(id) {
+		return "", false
+	}
+	n := 0
+	for _, r := range id[idx+2:] {
+		if r < '0' || r > '9' {
+			return "", false
+		}
+		n = n*10 + int(r-'0')
+	}
+	return fmt.Sprintf("subtopic-%d", n+1), true
 }
 
 func exploreParallelResultConverged(res exploreParallelResult) bool {

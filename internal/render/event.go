@@ -425,6 +425,10 @@ type Event struct {
 	ParallelTotal   int
 	Parallelism     int
 	ParallelUnitIDs []string
+	// ParallelLaneLabels are compact typed evidence-lane labels for the
+	// current dispatch wave. They are render-only UX metadata; orchestration
+	// must not infer scheduling authority from renderer state.
+	ParallelLaneLabels []string
 
 	// DispatchKind is optional render-only metadata for a focused
 	// scheduler dispatch that runs through a broader pipeline stage. For

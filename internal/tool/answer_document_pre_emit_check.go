@@ -1654,7 +1654,8 @@ func normalizeAggregateMemberSetCarriers(doc *types.AnswerDocumentV2, ctx *types
 		if preEmitAggregateMemberSetIsScalarCountSupport(ctx, fact) ||
 			len(fact.Members) == 0 ||
 			preEmitAnswerDocumentCoversAggregateMemberSetFact(doc, ctx, fact, visibleSurface) ||
-			preEmitAnswerDocumentCoversEnumerationDisplayRows(doc, rows) {
+			preEmitAnswerDocumentCoversEnumerationDisplayRows(doc, rows) ||
+			preEmitAnswerDocumentHasAuthoredEnumerationCarrier(doc, rows) {
 			continue
 		}
 		if len(fact.Members) == 1 && preEmitPrincipalStructuredBlockClaimsAggregateCategory(doc, fact) {
@@ -1716,7 +1717,7 @@ func preEmitAnswerDocumentCoversEnumerationDisplayRows(doc *types.AnswerDocument
 	for _, row := range rows {
 		covered := false
 		for _, block := range doc.Blocks {
-			if !preEmitSystemEnumerationRowSupplementBlock(block) {
+			if !principalEnumerationBlockCanCarryRows(block) {
 				continue
 			}
 			if principalEnumerationBlockCoversRow(block, doc, row) {
@@ -1729,6 +1730,31 @@ func preEmitAnswerDocumentCoversEnumerationDisplayRows(doc *types.AnswerDocument
 		}
 	}
 	return true
+}
+
+func preEmitAnswerDocumentHasAuthoredEnumerationCarrier(doc *types.AnswerDocumentV2, rows []types.EnumerationDisplayRow) bool {
+	if doc == nil || len(rows) == 0 {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if preEmitSystemEnumerationRowSupplementBlock(block) || !principalEnumerationBlockCanCarryRows(block) {
+			continue
+		}
+		surface := strings.TrimSpace(types.AnswerBlockVisibleSurface(block))
+		if surface == "" && len(block.Items) == 0 {
+			continue
+		}
+		if principalEnumerationBlockHasEnumerationFacet(block) || block.SurfaceRole == types.SurfacePrincipal {
+			return true
+		}
+		for _, row := range rows {
+			if principalEnumerationBlockCoversRow(block, doc, row) ||
+				principalEnumerationVisibleSurfaceCoversRow(surface, row) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func preEmitAnswerDocumentCoversAggregateMemberSetFact(doc *types.AnswerDocumentV2, ctx *types.BusContext, fact types.AnswerAggregateFact, surface string) bool {

@@ -397,6 +397,71 @@ func relationMemberSetGraph(t *testing.T, impls ...relationMemberSetGraphSymbol)
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_ExhaustiveHandoffNotDemotedByRequiredFileCap(t *testing.T) {
+	mut := types.NewMutableState("列出 internal/analysis 下所有子包入口函数")
+	mut.AppendEvidence([]types.EvidenceItem{
+		relationMemberSetEvidence("Entry", "internal/analysis/alpha/entry.go", 10),
+		relationMemberSetEvidence("Entry", "internal/analysis/beta/entry.go", 10),
+		relationMemberSetEvidence("Entry", "internal/analysis/gamma/entry.go", 10),
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+				Predicates: types.SemanticPredicates{
+					IsCategoryEnumeration: true,
+				},
+				AnalyzerHints: types.AnalyzerHints{
+					Entities: []string{"alpha", "beta", "gamma"},
+					RequiredFileHints: []types.RequiredFileHint{
+						{Path: "internal/analysis/alpha/entry.go", Confidence: 0.95},
+						{Path: "internal/analysis/beta/entry.go", Confidence: 0.95},
+					},
+				},
+				SourceInventoryProfile: &types.SourceInventoryProfile{
+					IsSourceInventory: true,
+					TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRolePackage},
+					Confidence:        0.95,
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: false},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "三个子包入口函数已经逐项落地。",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":    "member_set",
+			"label":   "internal/analysis 子包入口函数全集",
+			"value":   "3",
+			"role":    "principal_answer",
+			"members": []string{"alpha → Entry", "beta → Entry", "gamma → Entry"},
+			"support_refs": []string{
+				"Entry: internal/analysis/alpha/entry.go:10",
+				"Entry: internal/analysis/beta/entry.go:10",
+				"Entry: internal/analysis/gamma/entry.go:10",
+			},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "role=\"supporting_coverage\" is not principal_answer") ||
+		strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("source-inventory required-file cap leaked into exhaustive handoff gate: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("investigation should complete when principal member_set is grounded")
+	}
+}
+
 func relationMemberSetEvidence(name, file string, line int) types.EvidenceItem {
 	return types.EvidenceItem{
 		Kind:            types.EvidenceDirect,

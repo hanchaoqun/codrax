@@ -110,6 +110,25 @@ func AnswerEvidenceOriginsAreOriginSpecificOnly(origins []AnswerEvidenceOrigin) 
 	return hasOriginSpecific
 }
 
+// AnswerEvidenceOriginFromStructuredToken converts a typed producer/origin
+// token into an evidence origin. It is the public, single-origin companion to
+// the aggregate-fact projection helpers above. Callers should use this for
+// tool parameter compatibility and prompt/schema repair; it must not be fed
+// raw user prose to infer intent.
+func AnswerEvidenceOriginFromStructuredToken(raw string) AnswerEvidenceOrigin {
+	var out []AnswerEvidenceOrigin
+	answerEvidenceOriginFromStructuredToken(raw, func(origin AnswerEvidenceOrigin) {
+		if origin == AnswerEvidenceOriginUnknown || !origin.IsValid() || len(out) > 0 {
+			return
+		}
+		out = append(out, origin)
+	})
+	if len(out) == 0 {
+		return AnswerEvidenceOriginUnknown
+	}
+	return out[0]
+}
+
 func answerEvidenceOriginFromStructuredToken(raw string, add func(AnswerEvidenceOrigin)) {
 	token := strings.ToLower(strings.TrimSpace(raw))
 	if idx := strings.Index(token, "["); idx > 0 && strings.HasSuffix(token, "]") {
@@ -120,7 +139,7 @@ func answerEvidenceOriginFromStructuredToken(raw string, add func(AnswerEvidence
 		return
 	case "current_source", "current_repo", "repo_source", "source_file", "file_line":
 		add(AnswerEvidenceOriginCurrentSource)
-	case "vcs_metadata", "git_metadata", "git_history", "git_history_search", "git_log", "git_show", "exec_command_git_history", "vcs_history_count":
+	case "vcs_metadata", "git_metadata", "git_history", "git_history_search", "git_log", "git_show", "commit", "git_commit", "exec_command_git_history", "vcs_history_count":
 		add(AnswerEvidenceOriginVCSMetadata)
 	case "vcs_diff", "git_diff", "diff_hunk":
 		add(AnswerEvidenceOriginVCSDiff)

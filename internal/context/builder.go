@@ -32,6 +32,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		TraceID:               bus.TraceID,
 		ExploreDispatchKey:    bus.ExploreDispatchKey,
 		ExploreDispatchKind:   bus.ExploreDispatchKind,
+		ExploreLanePlan:       bus.ExploreLanePlan,
 		Objective:             objective,
 		PresentationDirective: presentationDirective,
 		MissingPiece:          bus.TaskState.Missing,
@@ -4433,18 +4434,29 @@ func formatEvidenceOriginBoundaryHint(ac *types.AgentContext) string {
 		return ""
 	}
 	contract := types.CompileAnswerIntentContract(ac.AnalysisIR.RequestModel, &ac.AnalysisIR.AnswerContract)
-	if !answerIntentContractHasNonSourceOrigin(contract) {
+	hasNonSourceOrigin := answerIntentContractHasNonSourceOrigin(contract)
+	hasExploreLanePlan := ac.Stage == types.StageExplore && !ac.ExploreLanePlan.Empty()
+	if !hasNonSourceOrigin && !hasExploreLanePlan {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("Evidence origins are separate from answer shape. Do not collapse the answer to a scalar, list, or table just because one origin supplies a literal value.\n")
-	fmt.Fprintf(&b, "- Active evidence origins: %s.\n", renderEvidenceOriginList(contract.Origins))
-	if len(contract.RequestedOutputs) > 0 {
-		fmt.Fprintf(&b, "- Requested answer shapes to preserve: %s.\n", renderRequestedOutputList(contract.RequestedOutputs))
+	if hasNonSourceOrigin {
+		b.WriteString("Evidence origins are separate from answer shape. Do not collapse the answer to a scalar, list, or table just because one origin supplies a literal value.\n")
+		fmt.Fprintf(&b, "- Active evidence origins: %s.\n", renderEvidenceOriginList(contract.Origins))
+		if len(contract.RequestedOutputs) > 0 {
+			fmt.Fprintf(&b, "- Requested answer shapes to preserve: %s.\n", renderRequestedOutputList(contract.RequestedOutputs))
+		}
+		b.WriteString("- `current_source` facts may use `emit_evidence` and file:line citations after the source line was read and grounded.\n")
+		b.WriteString("- Non-current-source facts are first-class evidence in their own lane. Do not convert VCS history, diff hunks, attached logs/traces, command measurements, negative searches, or repo-index facts into fake current-source `emit_evidence` rows.\n")
+		b.WriteString("- Keep lanes separate when a question mixes origins: VCS diff/log/trace facts prove what happened historically or externally; current-source claims still need current-source evidence.\n")
 	}
-	b.WriteString("- `current_source` facts may use `emit_evidence` and file:line citations after the source line was read and grounded.\n")
-	b.WriteString("- Non-current-source facts are first-class evidence in their own lane. Do not convert VCS history, diff hunks, attached logs/traces, command measurements, negative searches, or repo-index facts into fake current-source `emit_evidence` rows.\n")
-	b.WriteString("- Keep lanes separate when a question mixes origins: VCS diff/log/trace facts prove what happened historically or externally; current-source claims still need current-source evidence.\n")
+	if hasExploreLanePlan {
+		fmt.Fprintf(&b, "- Typed explore lane ownership plan (soft guidance, not a validator gate): %s.\n", renderExploreLanePlanList(ac.ExploreLanePlan))
+		b.WriteString("- First complete the evidence/facet/dimension lane assigned to this dispatch; only widen after emitting assigned evidence or explaining a typed handoff need. If the plan marks `handoff=support` or `handoff=verify`, enrich or verify the owner lane instead of repeating the same producer/search.\n")
+	}
+	if !hasNonSourceOrigin {
+		return b.String()
+	}
 	if answerIntentContractHasMixedCurrentAndNonSourceOrigin(contract) {
 		b.WriteString("- Mixed-origin lane plan: first collect each non-current-source observation with its producer tool and preserve its typed origin in `reason` / `aggregate_facts`; then read current-source anchors only for present-checkout implementation claims. If both lanes discuss the same target, keep both summaries instead of converting one lane into the other's citation or repeating the same search.\n")
 	}
@@ -4513,6 +4525,45 @@ func renderRequestedOutputList(outputs []types.AnswerRequestedOutput) string {
 		return "summary"
 	}
 	return strings.Join(parts, ", ")
+}
+
+func renderExploreLanePlanList(plan types.ExploreLanePlan) string {
+	if plan.Empty() {
+		return "none"
+	}
+	const maxLanes = 8
+	parts := make([]string, 0, len(plan.Lanes))
+	for i, lane := range plan.Lanes {
+		if i >= maxLanes {
+			parts = append(parts, fmt.Sprintf("+%d more", len(plan.Lanes)-maxLanes))
+			break
+		}
+		label := strings.TrimSpace(lane.Label)
+		if label == "" {
+			label = string(lane.Origin)
+		}
+		if label == "" {
+			label = "lane"
+		}
+		var meta []string
+		if unit := strings.TrimSpace(lane.InvestigationUnitLabel); unit != "" {
+			meta = append(meta, "unit="+unit)
+		} else if unit := strings.TrimSpace(lane.InvestigationUnitID); unit != "" {
+			meta = append(meta, "unit="+unit)
+		}
+		if len(lane.DimensionLabels) > 0 {
+			meta = append(meta, "dimensions="+strings.Join(lane.DimensionLabels, "/"))
+		}
+		if lane.HandoffPolicy != "" {
+			meta = append(meta, "handoff="+string(lane.HandoffPolicy))
+		}
+		if len(meta) > 0 {
+			parts = append(parts, fmt.Sprintf("`%s` (%s)", label, strings.Join(meta, ", ")))
+		} else {
+			parts = append(parts, fmt.Sprintf("`%s`", label))
+		}
+	}
+	return strings.Join(parts, "; ")
 }
 
 func formatBulletList(items []string) string {

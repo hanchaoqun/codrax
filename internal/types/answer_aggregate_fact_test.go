@@ -935,6 +935,70 @@ func TestPrincipalAggregateMemberSetFactRefsForRequest_SourceInventoryDemotesOut
 	}
 }
 
+func TestPrincipalAggregateMemberSetFactRefsForRequest_ExhaustiveHandoffSurvivesTruncatedSourceInventoryScopes(t *testing.T) {
+	entities := []string{
+		"aggregator", "amplifier", "axis", "binder", "budget",
+		"compiler", "contract", "counterfactual", "criterion", "dataflow",
+		"declarative", "findings_validator", "gate", "hdp", "hint",
+		"logtriage", "normalizer", "patcher", "perftriage", "prescan",
+		"priority", "risk", "sourcemix", "stopcond", "subject",
+	}
+	required := make([]RequiredFileHint, 0, 20)
+	for _, entity := range entities[:20] {
+		required = append(required, RequiredFileHint{
+			Path:       "internal/analysis/" + entity + "/entry.go",
+			Confidence: 0.95,
+		})
+	}
+	supportRefs := make([]string, 0, len(entities))
+	members := make([]string, 0, len(entities))
+	for _, entity := range entities {
+		member := entity + " → Entry"
+		file := "internal/analysis/" + entity + "/entry.go"
+		members = append(members, member)
+		supportRefs = append(supportRefs, "Entry: "+file+":10")
+	}
+	facts := []AnswerAggregateFact{{
+		Kind:        AnswerAggregateMemberSet,
+		Label:       "internal/analysis 子包入口函数全集",
+		Value:       "25",
+		Role:        AnswerAggregateRolePrincipalAnswer,
+		Members:     members,
+		SupportRefs: supportRefs,
+	}}
+	rm := RequestModel{
+		Intent: IntentEnumerate,
+		Predicates: SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: AnalyzerHints{
+			Entities:          entities,
+			RequiredFileHints: required,
+			PrimaryEntities:   entities[:1],
+			MentionedEntities: entities[:1],
+		},
+		SourceInventoryProfile: &SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []AnswerCandidateRole{AnswerCandidateRolePackage},
+		},
+	}
+
+	if !RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
+		t.Fatal("fixture must exercise the exhaustive member-set handoff contract")
+	}
+	got := PrincipalAggregateMemberSetFactRefsForRequest(facts, &rm)
+	if len(got) != 1 || got[0].Index != 0 {
+		t.Fatalf("principal handoff was hidden by truncated source-inventory scopes: %+v", got)
+	}
+	normalized := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if role := AnswerAggregateFactRoleForRequest(normalized[0], &rm); role != AnswerAggregateRolePrincipalAnswer {
+		t.Fatalf("exhaustive principal member_set was demoted to %q: %+v", role, normalized[0])
+	}
+	if strings.Contains(normalized[0].Provenance, "outside_requested_source_inventory_scope") {
+		t.Fatalf("source-inventory truncation leaked as hard demotion provenance: %+v", normalized[0])
+	}
+}
+
 func TestPrincipalAggregateMemberSetFactRefsForRequest_TypedRelationIgnoresSourceInventoryScope(t *testing.T) {
 	facts := []AnswerAggregateFact{{
 		Kind:  AnswerAggregateMemberSet,

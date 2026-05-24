@@ -244,6 +244,9 @@ func reconcileCompletionAggregateFactsWithSourceInventory(ctx *types.BusContext,
 		if !ok || len(set.candidates) == 0 || !set.complete {
 			continue
 		}
+		if !sourceInventoryMayRewriteMemberSet(profile, role) {
+			continue
+		}
 		if !sourceInventoryShouldReplaceMemberSet(profile, role) {
 			oldLen := len(out[i].Members)
 			if sourceInventoryAppendMissingCandidates(&out[i], set.candidates) {
@@ -291,6 +294,23 @@ func sourceInventoryFactRole(ctx *types.BusContext, fact types.AnswerAggregateFa
 	return p.role, true
 }
 
+func sourceInventoryMayRewriteMemberSet(profile *types.SourceInventoryProfile, role types.AnswerCandidateRole) bool {
+	if profile == nil {
+		return false
+	}
+	// The only source-inventory rewrite that is precise enough to alter the
+	// model-authored member set is the language-structural "public string enum
+	// type backed by const set" shape. Generic function/method/type inventories
+	// can be useful evidence, but automatically replacing or appending their
+	// full graph candidate set can broaden requests such as "one entry function
+	// per package" into "all functions in scope". That violates the model/user
+	// intent boundary, so those candidates stay as support unless the model
+	// itself emits them.
+	return role == types.AnswerCandidateRoleType &&
+		profile.TypeUnderlying == types.SourceInventoryTypeUnderlyingString &&
+		profile.RequiresConstSet
+}
+
 func sourceInventoryShouldReplaceMemberSet(profile *types.SourceInventoryProfile, role types.AnswerCandidateRole) bool {
 	if profile == nil {
 		return false
@@ -299,14 +319,6 @@ func sourceInventoryShouldReplaceMemberSet(profile *types.SourceInventoryProfile
 		profile.TypeUnderlying == types.SourceInventoryTypeUnderlyingString &&
 		profile.RequiresConstSet {
 		return true
-	}
-	if len(profile.TargetRoles) == 1 {
-		switch role {
-		case types.AnswerCandidateRoleFunction, types.AnswerCandidateRoleMethod, types.AnswerCandidateRoleType, types.AnswerCandidateRoleConstant, types.AnswerCandidateRoleFile:
-			return true
-		default:
-			return false
-		}
 	}
 	return false
 }

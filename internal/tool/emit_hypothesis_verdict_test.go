@@ -378,6 +378,108 @@ func TestEmitHypothesisVerdict_NormalizesArtifactLocalTraceLineCitation(t *testi
 	}
 }
 
+func TestEmitHypothesisVerdict_NormalizesVCSOriginSpecificCitation(t *testing.T) {
+	tool := &EmitHypothesisVerdict{}
+	mut := types.NewMutableState("latest commit")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{{
+			ToolName: "git_log",
+			Success:  true,
+			Summary:  "[git_log: evidence_origin=vcs_metadata count=1]\ne645a3f1 fix: scope convergence finalizer telemetry",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			Version: types.AnalysisIRVersion,
+			RequestModel: types.RequestModel{
+				Language: "zh",
+				Intent:   types.IntentExplain,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup: true,
+				},
+			},
+		},
+	}
+	params := json.RawMessage(`{"items":[{"hypothesis_id":"h1","status":"confirmed","rationale":"最近一次合入来自 git_log 结果","citation":"git_log: commit e645a3f1"}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("typed VCS citation should be accepted as origin-specific context, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedHypothesisVerdicts()
+	if len(got) != 1 {
+		t.Fatalf("want 1 verdict, got %d", len(got))
+	}
+	if got[0].Citation != "" {
+		t.Fatalf("VCS ref must not leak into repo citation field, got %q", got[0].Citation)
+	}
+	if !strings.Contains(got[0].Rationale, "外部证据锚点：git_log: commit e645a3f1") {
+		t.Fatalf("rationale should preserve VCS source ref, got %q", got[0].Rationale)
+	}
+}
+
+func TestEmitHypothesisVerdict_NormalizesCommandOriginSpecificCitation(t *testing.T) {
+	tool := &EmitHypothesisVerdict{}
+	mut := types.NewMutableState("line count")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{{
+			ToolName: "exec_command",
+			Success:  true,
+			Summary:  "[exec_command: $ find internal/tool -name '*.go' | wc -l]\n[exec_command: evidence_origin=command_measurement]\n70693 total",
+		}},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			Version: types.AnalysisIRVersion,
+			RequestModel: types.RequestModel{
+				Language: "zh",
+				Intent:   types.IntentReturnValue,
+				Predicates: types.SemanticPredicates{
+					IsCountQuestion: true,
+				},
+			},
+		},
+	}
+	params := json.RawMessage(`{"items":[{"hypothesis_id":"h1","status":"confirmed","rationale":"计数来自 exec_command 输出","citation":"exec_command: line-count result"}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("typed command citation should be accepted as origin-specific context, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedHypothesisVerdicts()
+	if len(got) != 1 || got[0].Citation != "" {
+		t.Fatalf("command ref must be preserved as external context, got %+v", got)
+	}
+	if !strings.Contains(got[0].Rationale, "外部证据锚点：exec_command: line-count result") {
+		t.Fatalf("rationale should preserve command source ref, got %q", got[0].Rationale)
+	}
+}
+
+func TestEmitHypothesisVerdict_DoesNotNormalizeUnknownExternalOriginCitation(t *testing.T) {
+	tool := &EmitHypothesisVerdict{}
+	ctx := newVerdictCtx()
+	params := json.RawMessage(`{"items":[{"hypothesis_id":"h1","status":"confirmed","rationale":"pretend git result","citation":"git_log: commit e645a3f1"}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatal("origin-specific citation without typed ledger support must not be accepted")
+	}
+	if !strings.Contains(res.Summary, "does not look like 'path:line'") {
+		t.Fatalf("expected ordinary malformed-citation failure, got %q", res.Summary)
+	}
+}
+
 func TestEmitHypothesisVerdict_DoesNotNormalizeRepoCitationWithoutExternalArtifact(t *testing.T) {
 	tool := &EmitHypothesisVerdict{}
 	ctx := newVerdictCtx()

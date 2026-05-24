@@ -37,6 +37,14 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForPartial
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent:   types.IntentEnumerate,
 			Language: "zh",
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Label: "说明",
+					Role:  types.RequestedAnswerDimensionFunctionOrPurpose,
+					Index: 1,
+				}},
+			},
 			Predicates: types.SemanticPredicates{
 				IsCategoryEnumeration: true,
 			},
@@ -62,31 +70,18 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForPartial
 	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
 		t.Fatal("expected deterministic principal enumeration normalization")
 	}
-	if len(doc.Blocks) != 3 {
-		t.Fatalf("normalizer should preserve the authored table and append only missing rows: %+v", doc.Blocks)
+	if len(doc.Blocks) != 2 {
+		t.Fatalf("normalizer should preserve the authored table without appending a competing system table: %+v", doc.Blocks)
 	}
 	if doc.Blocks[0].Text != "公开函数（func）共 3 个：Eval、EvalAll、SetExternalArtifactFloor。" {
-		t.Fatalf("model-authored summary should be preserved; missing members belong in a supplement block: %q", doc.Blocks[0].Text)
+		t.Fatalf("model-authored summary should be preserved: %q", doc.Blocks[0].Text)
 	}
 	table := doc.Blocks[1]
 	if table.Text == "" || table.Kind != types.BlockTable || len(table.Items) != 0 {
 		t.Fatalf("authored markdown table should be preserved, got: %+v", table)
 	}
-	supplement := doc.Blocks[2]
-	if supplement.Text != "" || supplement.Kind != types.BlockTable || len(supplement.Items) != 2 {
-		t.Fatalf("expected missing rows to be appended as a supplemental table: %+v", supplement)
-	}
-	if !strings.Contains(supplement.Title, "补充") {
-		t.Fatalf("supplemental table title should mark local repair, got %q", supplement.Title)
-	}
-	joined := types.AnswerBlockVisibleSurface(supplement)
-	for _, want := range []string{"IsRegistered", "RegisteredKinds", "deterministic 输出"} {
-		if !strings.Contains(joined, want) {
-			t.Fatalf("supplemental table missing rich member surface %q:\n%s", want, joined)
-		}
-	}
-	if len(doc.Citations) != 2 {
-		t.Fatalf("expected one citation per missing principal row, got %+v", doc.Citations)
+	if joined := answerDocumentTestVisibleSurface(doc); strings.Contains(joined, "系统按已验证证据补充") {
+		t.Fatalf("authored enum carrier must suppress system补表 even when rows are incomplete:\n%s", joined)
 	}
 }
 
@@ -151,8 +146,8 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForCorrupt
 	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
 		t.Fatal("expected source-inventory missing-row supplement")
 	}
-	if len(doc.Blocks) != 3 {
-		t.Fatalf("near-complete source inventory table should preserve model output and append only missing rows: %+v", doc.Blocks)
+	if len(doc.Blocks) != 2 {
+		t.Fatalf("near-complete source inventory table should preserve model output without competing system rows: %+v", doc.Blocks)
 	}
 	modelTable := answerDocumentTestBlockByID(t, doc, "enum_table")
 	if strings.TrimSpace(modelTable.Text) == "" || len(modelTable.Items) != 0 {
@@ -164,23 +159,8 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsOnlyMissingRowsForCorrupt
 			t.Fatalf("model table should be preserved with authored content %q:\n%s", want, modelVisible)
 		}
 	}
-	systemTable := doc.Blocks[2]
-	if !strings.Contains(systemTable.Title, "系统按已验证证据补充缺失成员") {
-		t.Fatalf("system supplement should be a missing-row supplement, got title %q", systemTable.Title)
-	}
-	if strings.TrimSpace(systemTable.Text) != "" || len(systemTable.Items) != 2 {
-		t.Fatalf("expected only missing structured table rows, got %+v", systemTable)
-	}
-	visible := types.AnswerBlockVisibleSurface(systemTable)
-	for _, want := range []string{"QuestionFamily", "AnswerRequestedOutput", "broad answer family", "visible answer surface"} {
-		if !strings.Contains(visible, want) {
-			t.Fatalf("system verified table missing %q:\n%s", want, visible)
-		}
-	}
-	for _, banned := range []string{"Intent", "AnswerAnswerRequestedOutput", "重复行，应被结构化清理", "系统按已验证证据给出的完整成员表"} {
-		if strings.Contains(visible, banned) {
-			t.Fatalf("system supplement should not copy already-visible or invalid model rows %q:\n%s", banned, visible)
-		}
+	if visible := answerDocumentTestVisibleSurface(doc); strings.Contains(visible, "系统按已验证证据补充") {
+		t.Fatalf("model-authored source-inventory table must suppress system补表:\n%s", visible)
 	}
 }
 
@@ -223,23 +203,16 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsSupplementForIncompatible
 	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
 		t.Fatal("expected separated deterministic supplement for incompatible structured table")
 	}
-	if len(doc.Blocks) != 3 {
-		t.Fatalf("expected summary, preserved model table, and supplement; got %+v", doc.Blocks)
+	if len(doc.Blocks) != 2 {
+		t.Fatalf("expected summary and preserved model table only; got %+v", doc.Blocks)
 	}
 	model := answerDocumentTestBlockByID(t, doc, "model_structured_table")
 	if len(model.Items) != 1 || len(model.Items[0].Cells) != 0 ||
 		len(model.Columns) != 4 || model.Columns[0] != "类别" {
 		t.Fatalf("model-authored structured table must remain untouched: %+v", model)
 	}
-	supplement := doc.Blocks[2]
-	if !strings.Contains(supplement.Title, "系统按已验证证据补充可校验字段") {
-		t.Fatalf("system supplement should be clearly labeled, got %q", supplement.Title)
-	}
-	visible := types.AnswerBlockVisibleSurface(supplement)
-	for _, want := range []string{"Eval", "internal/analysis/criterion/eval.go:15", "单个 Criterion"} {
-		if !strings.Contains(visible, want) {
-			t.Fatalf("supplement missing %q:\n%s", want, visible)
-		}
+	if visible := answerDocumentTestVisibleSurface(doc); strings.Contains(visible, "系统按已验证证据补充") {
+		t.Fatalf("incompatible model table must not trigger a competing system table:\n%s", visible)
 	}
 }
 
@@ -287,18 +260,11 @@ func TestNormalizePrincipalEnumerationRowBlocks_UsesEnglishFieldSupplementForInc
 		len(model.Items[0].Cells) != 0 {
 		t.Fatalf("model-authored structured table must remain untouched: %+v", model)
 	}
-	supplement := doc.Blocks[len(doc.Blocks)-1]
-	if !strings.Contains(supplement.Title, "System-verified field supplement") {
-		t.Fatalf("supplement title should mark a localized field supplement, got %q", supplement.Title)
+	if len(doc.Blocks) != 2 {
+		t.Fatalf("expected summary and preserved model table only, got %+v", doc.Blocks)
 	}
-	if strings.Contains(supplement.Title, "complete member table") {
-		t.Fatalf("supplement title must not present itself as a replacement table: %q", supplement.Title)
-	}
-	visible := types.AnswerBlockVisibleSurface(supplement)
-	for _, want := range []string{"Eval", "internal/analysis/criterion/eval.go:15", "returns Result"} {
-		if !strings.Contains(visible, want) {
-			t.Fatalf("English field supplement missing %q:\n%s", want, visible)
-		}
+	if visible := answerDocumentTestVisibleSurface(doc); strings.Contains(visible, "System-verified") {
+		t.Fatalf("English model table must suppress system supplement:\n%s", visible)
 	}
 }
 
@@ -327,6 +293,14 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsMissingRowsForCorruptComp
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent:   types.IntentEnumerate,
 			Language: "zh",
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Label: "说明",
+					Role:  types.RequestedAnswerDimensionFunctionOrPurpose,
+					Index: 1,
+				}},
+			},
 			Predicates: types.SemanticPredicates{
 				IsCategoryEnumeration: true,
 			},
@@ -348,29 +322,14 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsMissingRowsForCorruptComp
 	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
 		t.Fatal("expected deterministic missing-row supplement for corrupt complete table")
 	}
-	if len(doc.Blocks) != 3 {
-		t.Fatalf("expected summary, preserved model table, and missing-row system table; got %+v", doc.Blocks)
+	if len(doc.Blocks) != 2 {
+		t.Fatalf("expected summary and preserved model table only; got %+v", doc.Blocks)
 	}
 	if !strings.Contains(types.AnswerBlockVisibleSurface(doc.Blocks[1]), "GammaKindTypo") {
 		t.Fatalf("model-authored table should remain visibly separate, got %+v", doc.Blocks[1])
 	}
-	system := doc.Blocks[2]
-	if !strings.Contains(system.Title, "系统按已验证证据补充缺失成员") {
-		t.Fatalf("missing-row supplement should be clearly labeled, got %q", system.Title)
-	}
-	if len(system.Items) != 2 {
-		t.Fatalf("supplement should carry only rows missing from the model table, got %+v", system.Items)
-	}
-	visible := types.AnswerBlockVisibleSurface(system)
-	for _, want := range []string{"BetaKind", "GammaKind", "第二类枚举", "第三类枚举"} {
-		if !strings.Contains(visible, want) {
-			t.Fatalf("full verified table missing %q:\n%s", want, visible)
-		}
-	}
-	for _, banned := range []string{"AlphaKind", "GammaKindTypo", "系统按已验证证据给出的完整成员表"} {
-		if strings.Contains(visible, banned) {
-			t.Fatalf("supplement should not republish already-visible or invalid model rows %q:\n%s", banned, visible)
-		}
+	if visible := answerDocumentTestVisibleSurface(doc); strings.Contains(visible, "系统按已验证证据补充") {
+		t.Fatalf("corrupt but authored table must not be overwritten by system补表:\n%s", visible)
 	}
 }
 
@@ -735,6 +694,14 @@ func TestNormalizePrincipalEnumerationRowBlocks_DoesNotDuplicateShortVCSHashes(t
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent:   types.IntentExplain,
 			Language: "zh",
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Label: "特性",
+					Role:  types.RequestedAnswerDimensionFunctionOrPurpose,
+					Index: 1,
+				}},
+			},
 			Predicates: types.SemanticPredicates{
 				IsHistoryLookup: true,
 			},
@@ -1333,11 +1300,11 @@ func TestNormalizePrincipalEnumerationRowBlocks_UsesEnglishSupplementTitle(t *te
 	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
 		t.Fatal("expected deterministic principal enumeration normalization")
 	}
-	if len(doc.Blocks) != 3 {
-		t.Fatalf("expected summary, authored table, and English supplement, got %+v", doc.Blocks)
+	if len(doc.Blocks) != 2 {
+		t.Fatalf("expected summary and authored table without English supplement, got %+v", doc.Blocks)
 	}
-	if !strings.Contains(doc.Blocks[2].Title, "System-verified missing member supplement") {
-		t.Fatalf("supplement title should follow answer language, got %q", doc.Blocks[2].Title)
+	if visible := answerDocumentTestVisibleSurface(doc); strings.Contains(visible, "System-verified") {
+		t.Fatalf("authored English table must suppress system supplement:\n%s", visible)
 	}
 }
 
@@ -1568,6 +1535,14 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsVerifiedNoteSupplementFor
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent:   types.IntentEnumerate,
 			Language: "zh",
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Label: "说明",
+					Role:  types.RequestedAnswerDimensionFunctionOrPurpose,
+					Index: 1,
+				}},
+			},
 			Predicates: types.SemanticPredicates{
 				IsCategoryEnumeration: true,
 			},
@@ -1593,21 +1568,260 @@ func TestNormalizePrincipalEnumerationRowBlocks_AppendsVerifiedNoteSupplementFor
 	if authored.Text != originalTable {
 		t.Fatalf("model-authored markdown table must not be rewritten:\n%s", authored.Text)
 	}
-	var supplement *types.AnswerBlock
-	for i := range doc.Blocks {
-		if strings.Contains(doc.Blocks[i].Title, "系统按已验证证据补充说明：Kind 常量") {
-			supplement = &doc.Blocks[i]
-			break
+	if visible := answerDocumentTestVisibleSurface(doc); strings.Contains(visible, "系统按已验证证据补充说明：Kind 常量") {
+		t.Fatalf("authored dry table must suppress note补表; notes remain available in evidence context:\n%s", visible)
+	}
+}
+
+func TestNormalizePrincipalEnumerationRowBlocks_SkipsVerifiedNoteSupplementWhenSummaryNotRequested(t *testing.T) {
+	mu := types.NewMutableState("列出 Kind 常量")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("kind_symbol_present", "KindSymbolPresent", "internal/analysis/criterion/grammar.go", 29, "符号存在性判定，用于确认目标符号是否出现在证据或答案集合中。"),
+		enumEvidence("kind_no_call_sites", "KindNoCallSites", "internal/analysis/criterion/grammar.go", 30, "调用点缺失判定，用于确认目标符号没有被调用。"),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "Kind 常量",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"KindSymbolPresent", "KindNoCallSites"},
+		SupportRefs: []string{
+			"KindSymbolPresent @ internal/analysis/criterion/grammar.go:29",
+			"KindNoCallSites @ internal/analysis/criterion/grammar.go:30",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:    "dry_kinds",
+		Kind:  types.BlockTable,
+		Title: "Kind 常量",
+		Text: strings.Join([]string{
+			"| 符号名称 | 定义位置 |",
+			"|---|---|",
+			"| KindSymbolPresent | grammar.go:29 |",
+			"| KindNoCallSites | grammar.go:30 |",
+		}, "\n"),
+	}}}
+
+	normalizePrincipalEnumerationRowBlocks(doc, ctx)
+	joined := answerDocumentTestVisibleSurface(doc)
+	if strings.Contains(joined, "系统按已验证证据补充说明") {
+		t.Fatalf("system note supplement must not appear when typed request only asks for names/locations:\n%s", joined)
+	}
+	for _, want := range []string{"KindSymbolPresent", "KindNoCallSites"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("model-authored dry row %q should be preserved:\n%s", want, joined)
 		}
 	}
-	if supplement == nil {
-		t.Fatalf("expected localized note supplement, got %+v", doc.Blocks)
+}
+
+func TestNormalizePrincipalEnumerationRowBlocks_SkipsStaleSourceInventoryNoteSupplementForTypedRelation(t *testing.T) {
+	mu := types.NewMutableState("列出 internal/analysis 下所有子包目录名和单一入口函数")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("aggregator_aggregate", "Aggregate", "internal/analysis/aggregator/aggregator.go", 132, "入口函数：接收 EvidenceClosure 并返回排序后的 FieldHeat。"),
+		enumEvidence("amplifier_amplify", "Amplify", "internal/analysis/amplifier/amplifier.go", 100, "入口函数：按注册顺序执行 preCompileRules。"),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "internal/analysis 子包入口函数",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"aggregator → Aggregate", "amplifier → Amplify"},
+		SupportRefs: []string{
+			"Aggregate @ internal/analysis/aggregator/aggregator.go:132",
+			"Amplify @ internal/analysis/amplifier/amplifier.go:100",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	mu.SetRequestModel(types.RequestModel{
+		Intent:        types.IntentEnumerate,
+		Language:      "zh",
+		PredicateAxis: types.AxisReturn,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+			IsRelationalLookup:    true,
+		},
+	})
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentEnumerate,
+			Language:      "zh",
+			PredicateAxis: types.AxisReturn,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+				IsRelationalLookup:    true,
+			},
+			SourceInventoryProfile: &types.SourceInventoryProfile{
+				IsSourceInventory: true,
+				TargetRoles: []types.AnswerCandidateRole{
+					types.AnswerCandidateRoleFunction,
+					types.AnswerCandidateRolePackage,
+				},
+				RequestedFields: []types.SourceInventoryRequestedField{
+					types.SourceInventoryFieldName,
+					types.SourceInventoryFieldLocation,
+					types.SourceInventoryFieldSummary,
+				},
+			},
+		}},
 	}
-	visible := types.AnswerBlockVisibleSurface(*supplement)
-	for _, want := range []string{"符号存在性判定", "调用点缺失判定"} {
-		if !strings.Contains(visible, want) {
-			t.Fatalf("supplement lost verified note %q:\n%s", want, visible)
-		}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:    "entrypoints",
+		Kind:  types.BlockTable,
+		Title: "internal/analysis 子包入口函数",
+		Text: strings.Join([]string{
+			"| 子包 | 入口函数 | 文件位置 |",
+			"|---|---|---|",
+			"| aggregator | Aggregate | internal/analysis/aggregator/aggregator.go:132 |",
+			"| amplifier | Amplify | internal/analysis/amplifier/amplifier.go:100 |",
+		}, "\n"),
+	}}}
+
+	normalizePrincipalEnumerationRowBlocks(doc, ctx)
+	joined := answerDocumentTestVisibleSurface(doc)
+	if strings.Contains(joined, "系统按已验证证据补充说明") {
+		t.Fatalf("stale source_inventory_profile ignored for a typed relation must not re-enable system note supplements:\n%s", joined)
+	}
+}
+
+func TestNormalizePrincipalEnumerationRowBlocks_CrossColumnMemberCoveragePreventsMissingSupplement(t *testing.T) {
+	mu := types.NewMutableState("列出 internal/analysis 子包和入口函数")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("counterfactual_expand", "Expand", "internal/analysis/counterfactual/expander.go", 59, "Expand 是 counterfactual 子包入口函数。"),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "子包目录名与单一入口函数",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"counterfactual → Expand"},
+		SupportRefs: []string{"counterfactual → Expand @ internal/analysis/counterfactual/expander.go:59"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:    "entry_table",
+		Kind:  types.BlockTable,
+		Title: "子包入口",
+		Text: strings.Join([]string{
+			"| 子包目录 | 入口函数 | 文件位置 |",
+			"|---|---|---|",
+			"| counterfactual | Expand | internal/analysis/counterfactual/expander.go:61 |",
+		}, "\n"),
+	}}}
+
+	normalizePrincipalEnumerationRowBlocks(doc, ctx)
+	joined := answerDocumentTestVisibleSurface(doc)
+	if strings.Contains(joined, "系统按已验证证据补充缺失成员") {
+		t.Fatalf("member identity split across table columns should count as visible coverage, not trigger a system table:\n%s", joined)
+	}
+	if !strings.Contains(joined, "counterfactual") || !strings.Contains(joined, "Expand") {
+		t.Fatalf("model-authored cross-column row should remain visible:\n%s", joined)
+	}
+}
+
+func TestNormalizePrincipalEnumerationRowBlocks_CrossColumnMemberRequiresSameFile(t *testing.T) {
+	mu := types.NewMutableState("列出 internal/analysis 子包和入口函数")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("counterfactual_expand", "Expand", "internal/analysis/counterfactual/expander.go", 59, "Expand 是 counterfactual 子包入口函数。"),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "子包目录名与单一入口函数",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"counterfactual → Expand"},
+		SupportRefs: []string{"counterfactual → Expand @ internal/analysis/counterfactual/expander.go:59"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:    "entry_table",
+		Kind:  types.BlockTable,
+		Title: "子包入口",
+		Text: strings.Join([]string{
+			"| 子包目录 | 入口函数 | 文件位置 |",
+			"|---|---|---|",
+			"| counterfactual | Expand | internal/analysis/other/expander.go:59 |",
+		}, "\n"),
+	}}}
+
+	normalizePrincipalEnumerationRowBlocks(doc, ctx)
+	joined := answerDocumentTestVisibleSurface(doc)
+	if strings.Contains(joined, "系统按已验证证据补充缺失成员") {
+		t.Fatalf("different-file mismatch must not trigger a competing system补表 once model supplied a carrier:\n%s", joined)
+	}
+}
+
+func TestNormalizePrincipalEnumerationRowBlocks_StructuredItemRelationFieldsPreventMissingSupplement(t *testing.T) {
+	mu := types.NewMutableState("列出 internal/analysis 子包和入口函数")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("aggregator_aggregate", "Aggregate", "internal/analysis/aggregator/aggregator.go", 129, "Aggregate walks the ledger on closure and returns FieldHeat entries sorted by WeightedScore descending."),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "internal/analysis 子包入口函数全集",
+		Value:       "1",
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Members:     []string{"aggregator.Aggregate"},
+		SupportRefs: []string{"aggregator.Aggregate @ internal/analysis/aggregator/aggregator.go:129"},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:          "entry_list",
+		Kind:        types.BlockOrderedList,
+		Title:       "internal/analysis 子包入口函数",
+		SurfaceRole: types.SurfacePrincipal,
+		Items: []types.AnswerBlockItem{{
+			ID:    "aggregator",
+			Label: "aggregator",
+			Text:  "主入口函数 Aggregate，对 EvidenceClosure 执行聚合并返回按 WeightedScore 降序排列的 FieldHeat 列表。 (`internal/analysis/aggregator/aggregator.go:132`)",
+		}},
+	}}}
+
+	normalizePrincipalEnumerationRowBlocks(doc, ctx)
+	joined := answerDocumentTestVisibleSurface(doc)
+	if strings.Contains(joined, "系统按已验证证据补充缺失成员") {
+		t.Fatalf("relation identity split across structured label/text should count as visible coverage:\n%s", joined)
 	}
 }
 
@@ -1682,6 +1896,14 @@ func TestNormalizePrincipalEnumerationRowBlocks_NoteSupplementSupportsExternalOr
 		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
 			Intent:   types.IntentExplain,
 			Language: "zh",
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Label: "特性",
+					Role:  types.RequestedAnswerDimensionFunctionOrPurpose,
+					Index: 1,
+				}},
+			},
 			Predicates: types.SemanticPredicates{
 				IsHistoryLookup: true,
 			},
@@ -1699,13 +1921,11 @@ func TestNormalizePrincipalEnumerationRowBlocks_NoteSupplementSupportsExternalOr
 		}, "\n"),
 	}}}
 
-	if fixed := normalizePrincipalEnumerationRowBlocks(doc, ctx); fixed == 0 {
-		t.Fatal("expected origin-specific note supplement")
-	}
+	normalizePrincipalEnumerationRowBlocks(doc, ctx)
 	joined := answerDocumentTestVisibleSurface(doc)
-	if !strings.Contains(joined, "系统按已验证证据补充说明：最近提交") ||
-		!strings.Contains(joined, "typed relation selector") {
-		t.Fatalf("external-origin note supplement missing rich note:\n%s", joined)
+	if strings.Contains(joined, "系统按已验证证据补充说明：最近提交") ||
+		strings.Contains(joined, "typed relation selector") {
+		t.Fatalf("authored external-origin table must suppress note补表:\n%s", joined)
 	}
 	if strings.Contains(joined, "internal/") {
 		t.Fatalf("VCS-origin note supplement must not invent current-source citations:\n%s", joined)
@@ -2165,6 +2385,54 @@ func TestNormalizeAggregateMemberSetCarriers_VisibleProseCoveragePreventsDuplica
 	}
 	if len(doc.Blocks) != 1 {
 		t.Fatalf("system duplicate carrier appended despite visible coverage: %+v", doc.Blocks)
+	}
+}
+
+func TestNormalizeAggregateMemberSetCarriers_CrossColumnModelTablePreventsDuplicateCarrier(t *testing.T) {
+	mu := types.NewMutableState("列出 internal/analysis 子包入口")
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "internal/analysis 子包入口函数",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"logtriage: ValidateBundle", "normalizer: Normalize"},
+		SupportRefs: []string{
+			"ValidateBundle @ internal/analysis/logtriage/validate.go:149",
+			"Normalize @ internal/analysis/normalizer/normalizer.go:72",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+			CompletenessObligation: &types.CompletenessObligation{Required: true, SourceQuote: "所有子包"},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{Blocks: []types.AnswerBlock{{
+		ID:          "model_table",
+		Kind:        types.BlockTable,
+		Title:       "子包入口函数",
+		SurfaceRole: types.SurfacePrincipal,
+		FacetIDs:    []string{string(types.FacetEnumerationItem)},
+		Text: strings.Join([]string{
+			"| 子包目录 | 入口函数 | 文件位置 |",
+			"|---|---|---|",
+			"| logtriage | ValidateBundle | internal/analysis/logtriage/validate.go:149 |",
+			"| normalizer | Normalize | internal/analysis/normalizer/normalizer.go:72 |",
+		}, "\n"),
+	}}}
+
+	if fixed := normalizeAggregateMemberSetCarriers(doc, ctx); fixed != 0 {
+		t.Fatalf("model table already covers aggregate rows across columns; system carrier must not duplicate it, fixed=%d doc=%+v", fixed, doc.Blocks)
+	}
+	joined := answerDocumentTestVisibleSurface(doc)
+	if strings.Contains(joined, "系统按已验证证据补充成员") {
+		t.Fatalf("duplicate aggregate carrier leaked after cross-column coverage:\n%s", joined)
 	}
 }
 

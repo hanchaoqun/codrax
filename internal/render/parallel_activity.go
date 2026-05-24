@@ -12,6 +12,7 @@ type parallelActivity struct {
 	agent       types.AgentName
 	total       int
 	parallelism int
+	laneLabels  []string
 	order       []string
 	units       map[string]*parallelActivityUnit
 }
@@ -38,6 +39,7 @@ type parallelActivitySnapshot struct {
 	retrying    int
 	streamTail  string
 	toolDetail  string
+	laneLabels  []string
 }
 
 func newParallelActivity(ev Event) *parallelActivity {
@@ -47,6 +49,7 @@ func newParallelActivity(ev Event) *parallelActivity {
 		agent:       ev.Agent,
 		total:       ev.ParallelTotal,
 		parallelism: ev.Parallelism,
+		laneLabels:  cleanParallelLaneLabels(ev.ParallelLaneLabels),
 		units:       make(map[string]*parallelActivityUnit),
 	}
 	for _, id := range ev.ParallelUnitIDs {
@@ -182,6 +185,7 @@ func (p *parallelActivity) snapshot() *parallelActivitySnapshot {
 		stage:       p.stage,
 		total:       p.total,
 		parallelism: p.parallelism,
+		laneLabels:  cleanParallelLaneLabels(p.laneLabels),
 	}
 	if s.total <= 0 {
 		s.total = len(p.order)
@@ -220,6 +224,27 @@ func (p *parallelActivity) snapshot() *parallelActivitySnapshot {
 		s.parallelism = s.activeUnits
 	}
 	return s
+}
+
+func cleanParallelLaneLabels(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(in))
+	for _, label := range in {
+		label = strings.TrimSpace(label)
+		if label == "" {
+			continue
+		}
+		key := strings.ToLower(label)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, label)
+	}
+	return out
 }
 
 func parallelSnapshotAppliesToStageKey(p *parallelActivitySnapshot, stageKey string) bool {

@@ -63,6 +63,82 @@ func TestDispatchExploreWindowsParallel_CancelsSiblingAfterConvergence(t *testin
 	}
 }
 
+func TestDispatchExploreWindowsParallel_ScopesLanePlanPerEvidenceWindow(t *testing.T) {
+	seen := map[string][]string{}
+	var mu sync.Mutex
+
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			var units []string
+			for _, lane := range ctx.ExploreLanePlan.Lanes {
+				units = append(units, lane.InvestigationUnitID)
+			}
+			mu.Lock()
+			seen[ctx.ExploreDispatchKey] = append([]string(nil), units...)
+			mu.Unlock()
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingNone,
+				SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+			}, nil
+		},
+	})
+	o := New(types.PipelineSettings{MaxParallelism: 2}, ar, sr, sar)
+	o.busCtx = &types.BusContext{
+		Mutable: types.NewMutableState("parallel lane ownership"),
+		Signals: types.ExecutionSignals{},
+		ExploreLanePlan: types.ExploreLanePlan{Lanes: []types.ExploreLane{
+			{ID: "lane-a", Label: "current_source", Origin: types.AnswerEvidenceOriginCurrentSource, InvestigationUnitID: "subtopic-1"},
+			{ID: "lane-b", Label: "current_source", Origin: types.AnswerEvidenceOriginCurrentSource, InvestigationUnitID: "subtopic-2"},
+		}},
+	}
+
+	_, err := o.dispatchExploreWindowsParallel([][]*types.TaskNode{
+		{{ID: "n1_evidence_t0", Type: types.NodeEvidence}},
+		{{ID: "n1_evidence_t1", Type: types.NodeEvidence}},
+	}, nil, 2)
+	if err != nil {
+		t.Fatalf("dispatchExploreWindowsParallel: %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if got := seen["n1_evidence_t0"]; len(got) != 1 || got[0] != "subtopic-1" {
+		t.Fatalf("first window should see only subtopic-1 lane, got %#v (all=%#v)", got, seen)
+	}
+	if got := seen["n1_evidence_t1"]; len(got) != 1 || got[0] != "subtopic-2" {
+		t.Fatalf("second window should see only subtopic-2 lane, got %#v (all=%#v)", got, seen)
+	}
+}
+
+func TestScopeExploreLanePlansForWindows_DemotesExactDuplicateLane(t *testing.T) {
+	plan := types.ExploreLanePlan{Lanes: []types.ExploreLane{{
+		ID:                  "lane-request",
+		Label:               "current_source",
+		Origin:              types.AnswerEvidenceOriginCurrentSource,
+		InvestigationUnitID: "request",
+		Role:                types.ExploreLaneRolePrincipal,
+		HandoffPolicy:       types.ExploreLaneHandoffOwn,
+	}}}
+	got := scopeExploreLanePlansForWindows(plan, [][]*types.TaskNode{
+		{{ID: "evidence_a", Type: types.NodeEvidence}},
+		{{ID: "evidence_b", Type: types.NodeEvidence}},
+	})
+	if len(got) != 2 {
+		t.Fatalf("plans=%d want 2", len(got))
+	}
+	if len(got[0].Lanes) != 1 || got[0].Lanes[0].HandoffPolicy != types.ExploreLaneHandoffOwn ||
+		got[0].Lanes[0].Role != types.ExploreLaneRolePrincipal {
+		t.Fatalf("first exact lane should remain principal owner: %+v", got[0].Lanes)
+	}
+	if len(got[1].Lanes) != 1 || got[1].Lanes[0].HandoffPolicy != types.ExploreLaneHandoffSupport ||
+		got[1].Lanes[0].Role != types.ExploreLaneRoleSupport {
+		t.Fatalf("second exact duplicate should become support handoff: %+v", got[1].Lanes)
+	}
+	if plan.Lanes[0].HandoffPolicy != types.ExploreLaneHandoffOwn || plan.Lanes[0].Role != types.ExploreLaneRolePrincipal {
+		t.Fatalf("scoping must not mutate source plan: %+v", plan.Lanes)
+	}
+}
+
 func TestDispatchExploreWindowsParallel_SkipsNonWinningPartialSiblingAfterConvergence(t *testing.T) {
 	partialDoneCh := make(chan struct{})
 

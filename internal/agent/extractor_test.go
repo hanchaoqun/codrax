@@ -1683,6 +1683,66 @@ func TestExtractor_BuildPrompt_PureHistoryEnumerationSkipsAnswerSymbol(t *testin
 	}
 }
 
+func TestExtractor_BuildPrompt_MixedVCSDiffCurrentSourceEnumerationUsesOriginLedger(t *testing.T) {
+	mu := types.NewMutableState("compare diffs and current code")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{{
+			ToolName: "git_diff",
+			Success:  true,
+			Summary:  "[git_diff: evidence_origin=vcs_diff ref=HEAD~2..HEAD]\ndiff --git a/internal/agent/extractor.go b/internal/agent/extractor.go",
+		}},
+		ReadFiles: []string{"internal/agent/extractor.go"},
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "两个 diff 涉及的当前源码线索",
+		Value: "2",
+		Role:  types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{
+			"git_diff: e645a3f1 touches internal/agent/extractor.go",
+			"git_diff: c3b2a9d0 touches internal/tool/emit_hypothesis_verdict.go",
+		},
+		Dimensions: []types.AnswerAggregateDimension{{Name: "evidence_origin", Value: string(types.AnswerEvidenceOriginVCSDiff)}},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		Objective: "对比最近两次 diff，并结合当前源码分析作用和影响",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentEnumerate,
+				Scenario: types.ScenarioArchitectureExplain,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup:       true,
+					IsCategoryEnumeration: true,
+				},
+				CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+					IsCurrentSourceExplanationRequested: true,
+					SourceQuotes:                        []string{"结合当前源码"},
+					Confidence:                          0.9,
+				},
+			},
+		},
+	}
+
+	if !viewNeedsEnumerationSlate(ctx) {
+		t.Fatal("fixture must remain enumeration-shaped")
+	}
+	if !originSpecificAnswerRendersWithoutAnswerSymbols(ctx) {
+		t.Fatal("typed VCS diff ledger should be enough for extractor handoff")
+	}
+	if needsAnswerSymbols(ctx) {
+		t.Fatal("mixed VCS/current-source explanation must not force repo answer_symbol rows for diff refs")
+	}
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if contains(prompt, "list_of_symbols question") || contains(prompt, "Cardinality guidance") {
+		t.Fatalf("mixed VCS/current-source prompt must not pressure symbol slate:\n%s", prompt)
+	}
+	if !contains(prompt, "does NOT require `emit_answer_symbol`") {
+		t.Fatalf("prompt should explicitly disable symbol slate for origin-specific principal rows:\n%s", prompt)
+	}
+}
+
 func TestExtractor_BuildPrompt_SourceInventoryAggregateSkipsAnswerSymbol(t *testing.T) {
 	mu := types.NewMutableState("list public string enum types")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{

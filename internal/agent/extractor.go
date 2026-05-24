@@ -2593,6 +2593,9 @@ func needsAnswerSymbols(ctx *types.AgentContext) bool {
 	if pureVCSMetadataAnswerRendersWithoutAnswerSymbols(ctx) {
 		return false
 	}
+	if originSpecificAnswerRendersWithoutAnswerSymbols(ctx) {
+		return false
+	}
 	if sourceInventoryPrincipalAggregateRendersWithoutAnswerSymbols(ctx) {
 		return false
 	}
@@ -2607,6 +2610,107 @@ func needsAnswerSymbols(ctx *types.AgentContext) bool {
 	}
 	if viewNeedsEnumerationSlate(ctx) {
 		return !enumerationPrincipalEvidenceRendersWithoutAnswerSymbols(ctx)
+	}
+	return false
+}
+
+func originSpecificAnswerRendersWithoutAnswerSymbols(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || viewNeedsBoundedPrincipalList(ctx) {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if originSpecificPrincipalAggregateRendersWithoutAnswerSymbols(ctx, &rm) {
+		return true
+	}
+	if !originSpecificNarrativeOrValueAnswer(ctx, rm) {
+		return false
+	}
+	return agentContextHasOriginSpecificSupport(ctx)
+}
+
+func originSpecificPrincipalAggregateRendersWithoutAnswerSymbols(ctx *types.AgentContext, rm *types.RequestModel) bool {
+	if ctx == nil || ctx.Mutable == nil || rm == nil {
+		return false
+	}
+	facts := ctx.Mutable.StableInvestigationAggregateFacts()
+	if len(facts) == 0 {
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			facts = ta.AcceptedAggregateFacts
+		}
+	}
+	if len(facts) == 0 {
+		return false
+	}
+	facts = types.NormalizeAggregateFactRolesForRequest(facts, rm)
+	for _, fact := range facts {
+		if fact.Kind != types.AnswerAggregateMemberSet ||
+			len(fact.Members) == 0 ||
+			types.AnswerAggregateFactRoleForRequest(fact, rm) != types.AnswerAggregateRolePrincipalAnswer ||
+			types.AggregateMemberSetIsScalarCountSupport(rm, fact) {
+			continue
+		}
+		for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
+			if types.AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func originSpecificNarrativeOrValueAnswer(ctx *types.AgentContext, rm types.RequestModel) bool {
+	contract := types.CompileAnswerIntentContract(rm, &ctx.AnalysisIR.AnswerContract)
+	hasOriginSpecific := false
+	for _, origin := range contract.Origins {
+		if types.AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
+			hasOriginSpecific = true
+			break
+		}
+	}
+	if !hasOriginSpecific {
+		return false
+	}
+	for _, output := range []types.AnswerRequestedOutput{
+		types.AnswerRequestedOutputScalar,
+		types.AnswerRequestedOutputKeyValue,
+		types.AnswerRequestedOutputCount,
+		types.AnswerRequestedOutputComparison,
+		types.AnswerRequestedOutputMechanism,
+		types.AnswerRequestedOutputTrace,
+		types.AnswerRequestedOutputDiagnostic,
+		types.AnswerRequestedOutputChangeImpact,
+	} {
+		if contract.HasOutput(output) {
+			return true
+		}
+	}
+	return false
+}
+
+func agentContextHasOriginSpecificSupport(ctx *types.AgentContext) bool {
+	if ctx == nil {
+		return false
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromAgentContext(ctx, 64))
+	for _, record := range ledger.Records {
+		if types.AnswerEvidenceOriginCarriesOriginSpecificSupport(record.Origin) {
+			return true
+		}
+	}
+	if ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return false
+	}
+	rm := &ctx.AnalysisIR.RequestModel
+	allFacts := append([]types.AnswerAggregateFact(nil), ctx.Mutable.StableInvestigationAggregateFacts()...)
+	if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+		allFacts = append(allFacts, ta.AcceptedAggregateFacts...)
+	}
+	for _, fact := range allFacts {
+		for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
+			if types.AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
+				return true
+			}
+		}
 	}
 	return false
 }

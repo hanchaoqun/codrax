@@ -45,6 +45,7 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 	if normalizePrincipalEnumerationSummary(doc, ctx, sets) {
 		changed++
 	}
+	singleSet := len(sets) == 1
 	for _, set := range sets {
 		if len(set.Rows) == 0 {
 			continue
@@ -52,17 +53,22 @@ func normalizePrincipalEnumerationRowBlocks(doc *types.AnswerDocumentV2, ctx *ty
 		if annotated := annotatePrincipalEnumerationCoveredBlocks(doc, set); annotated > 0 {
 			changed += annotated
 		}
+		authoredCarrier := principalEnumerationModelAuthoredCarrierExists(doc, set, singleSet)
 		missingRows := missingBySet[set.ID]
 		supplementRows := missingRows
 		supplementMode := principalEnumerationSupplementMissing
-		if principalEnumerationNeedsVerifiedFieldSupplement(doc, set) {
+		if authoredCarrier {
+			supplementRows = nil
+		} else if principalEnumerationNeedsVerifiedFieldSupplement(doc, set) {
 			supplementRows = set.Rows
 			supplementMode = principalEnumerationSupplementVerifiedFields
 		}
 		if len(supplementRows) == 0 {
-			if noteRows := principalEnumerationRowsNeedingNoteSupplement(doc, set); len(noteRows) > 0 {
-				supplementRows = noteRows
-				supplementMode = principalEnumerationSupplementVerifiedNotes
+			if !authoredCarrier {
+				if noteRows := principalEnumerationRowsNeedingNoteSupplement(doc, ctx, set); len(noteRows) > 0 {
+					supplementRows = noteRows
+					supplementMode = principalEnumerationSupplementVerifiedNotes
+				}
 			}
 		}
 		supplementRows = principalEnumerationRenderableSupplementRows(supplementRows)
@@ -345,6 +351,51 @@ func principalEnumerationDocumentCoversRow(doc *types.AnswerDocumentV2, row type
 	return false
 }
 
+func principalEnumerationModelAuthoredCarrierExists(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet, singleSet bool) bool {
+	if doc == nil || len(set.Rows) == 0 {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if preEmitSystemEnumerationRowSupplementBlock(block) || !principalEnumerationBlockCanCarryRows(block) {
+			continue
+		}
+		surface := strings.TrimSpace(types.AnswerBlockVisibleSurface(block))
+		if surface == "" && len(block.Items) == 0 {
+			continue
+		}
+		if principalEnumerationBlockHasEnumerationFacet(block) {
+			return true
+		}
+		if principalEnumerationBlockSetScore(block, set) > 0 {
+			return true
+		}
+		if principalEnumerationBlockCoversAnyRow(block, doc, set) {
+			return true
+		}
+		if singleSet && block.SurfaceRole == types.SurfacePrincipal {
+			return true
+		}
+		if singleSet && surface != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationBlockHasEnumerationFacet(block types.AnswerBlock) bool {
+	for _, facet := range block.FacetIDs {
+		if strings.TrimSpace(facet) == string(types.FacetEnumerationItem) {
+			return true
+		}
+	}
+	for _, claim := range block.ClaimUses {
+		if strings.TrimSpace(claim.FacetID) == string(types.FacetEnumerationItem) {
+			return true
+		}
+	}
+	return false
+}
+
 func principalEnumerationRowCoveredByAnyVisibleText(doc *types.AnswerDocumentV2, row types.EnumerationDisplayRow) bool {
 	if doc == nil {
 		return false
@@ -474,10 +525,86 @@ func principalEnumerationBlockCoversRow(block types.AnswerBlock, doc *types.Answ
 }
 
 func principalEnumerationMarkdownRowCoversRow(cells []string, row types.EnumerationDisplayRow) bool {
-	if len(cells) == 0 || !principalEnumerationAnySurfaceMatchesRow(cells, row) {
+	if len(cells) == 0 {
 		return false
 	}
-	return principalEnumerationCandidateLocationCompatible(strings.Join(cells, " "), row)
+	joined := strings.Join(cells, " ")
+	surfaces := append(append([]string{}, cells...), joined)
+	relationPartsCovered := principalEnumerationRelationPartsCoveredByCells(cells, row)
+	if !principalEnumerationAnySurfaceMatchesRow(surfaces, row) && !relationPartsCovered {
+		return false
+	}
+	if principalEnumerationCandidateLocationCompatible(joined, row) {
+		return true
+	}
+	return relationPartsCovered && principalEnumerationMarkdownRowFileCompatible(joined, row)
+}
+
+func principalEnumerationRelationPartsCoveredByCells(cells []string, row types.EnumerationDisplayRow) bool {
+	if len(cells) == 0 {
+		return false
+	}
+	for _, candidate := range principalEnumerationRelationSurfaceCandidates(row) {
+		left, right, ok := types.AnswerAggregateMemberRelationParts(candidate)
+		if !ok {
+			continue
+		}
+		if principalEnumerationRelationPartCoveredByCells(left, cells) &&
+			principalEnumerationRelationPartCoveredByCells(right, cells) {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationRelationSurfaceCandidates(row types.EnumerationDisplayRow) []string {
+	raw := principalEnumerationRowSurfaceCandidates(row)
+	for _, candidate := range append([]string{row.DisplayLabel, row.Member}, raw...) {
+		raw = append(raw, types.AnswerAggregateMemberDisplayCandidates(candidate)...)
+	}
+	return dedupPreEmitStringCandidates(raw)
+}
+
+func principalEnumerationRelationPartCoveredByCells(part string, cells []string) bool {
+	part = strings.TrimSpace(part)
+	if part == "" {
+		return false
+	}
+	for _, cell := range cells {
+		cell = strings.TrimSpace(cell)
+		if cell == "" {
+			continue
+		}
+		if principalEnumerationCoveragePartAppears(part, cell) {
+			return true
+		}
+	}
+	return false
+}
+
+func principalEnumerationMarkdownRowFileCompatible(surface string, row types.EnumerationDisplayRow) bool {
+	if strings.TrimSpace(row.Source) == "" {
+		return true
+	}
+	locations := aggregateToolLocationPattern.FindAllString(surface, -1)
+	if len(locations) == 0 {
+		return true
+	}
+	rowFile := principalEnumerationLocationFileKey(row.Source)
+	if rowFile == "" {
+		return false
+	}
+	for _, loc := range locations {
+		candidate := principalEnumerationLocationFileKey(loc)
+		if candidate == "" {
+			continue
+		}
+		if principalEnumerationLocationKeyMatches(candidate, rowFile) ||
+			principalEnumerationLocationKeyMatches(rowFile, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func principalEnumerationStructuredItemCoversRow(item types.AnswerBlockItem, doc *types.AnswerDocumentV2, row types.EnumerationDisplayRow) bool {
@@ -485,10 +612,15 @@ func principalEnumerationStructuredItemCoversRow(item types.AnswerBlockItem, doc
 		return true
 	}
 	surface := types.AnswerBlockItemVisibleSurface(item)
-	if !principalEnumerationAnySurfaceMatchesRow([]string{surface, item.Label}, row) {
+	surfaces := []string{surface, item.Label}
+	relationPartsCovered := principalEnumerationRelationPartsCoveredByCells(surfaces, row)
+	if !principalEnumerationAnySurfaceMatchesRow(surfaces, row) && !relationPartsCovered {
 		return false
 	}
 	if principalEnumerationCandidateLocationCompatible(surface, row) {
+		return true
+	}
+	if relationPartsCovered && principalEnumerationMarkdownRowFileCompatible(surface, row) {
 		return true
 	}
 	return principalEnumerationItemCitationCompatible(item, doc, row) ||
@@ -646,8 +778,11 @@ func principalEnumerationNeedsVerifiedFieldSupplement(doc *types.AnswerDocumentV
 	return false
 }
 
-func principalEnumerationRowsNeedingNoteSupplement(doc *types.AnswerDocumentV2, set types.EnumerationDisplaySet) []types.EnumerationDisplayRow {
+func principalEnumerationRowsNeedingNoteSupplement(doc *types.AnswerDocumentV2, ctx *types.BusContext, set types.EnumerationDisplaySet) []types.EnumerationDisplayRow {
 	if doc == nil || len(set.Rows) == 0 {
+		return nil
+	}
+	if !principalEnumerationVerifiedNoteSupplementAllowed(ctx) {
 		return nil
 	}
 	visible := preEmitVisibleAnswerSurface(doc)
@@ -665,6 +800,45 @@ func principalEnumerationRowsNeedingNoteSupplement(doc *types.AnswerDocumentV2, 
 		out = append(out, row)
 	}
 	return out
+}
+
+func principalEnumerationVerifiedNoteSupplementAllowed(ctx *types.BusContext) bool {
+	rm := principalEnumerationEffectiveRequestModel(ctx)
+	if rm == nil {
+		return false
+	}
+	if rm.SourceInventoryProfile != nil &&
+		rm.SourceInventoryProfile.Active() &&
+		rm.SourceInventoryProfile.RequestsField(types.SourceInventoryFieldSummary) &&
+		!types.HasTypedRelationMemberSetShape(*rm) {
+		return true
+	}
+	if rm.RequestedAnswerDimensions != nil && rm.RequestedAnswerDimensions.Active() {
+		for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
+			switch dim.Role {
+			case types.RequestedAnswerDimensionFunctionOrPurpose,
+				types.RequestedAnswerDimensionImpact,
+				types.RequestedAnswerDimensionComparisonAxis:
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func principalEnumerationEffectiveRequestModel(ctx *types.BusContext) *types.RequestModel {
+	if ctx == nil {
+		return nil
+	}
+	if ctx.Mutable != nil {
+		if rm := ctx.Mutable.RequestModel(); rm != nil {
+			return rm
+		}
+	}
+	if ctx.AnalysisIR != nil {
+		return &ctx.AnalysisIR.RequestModel
+	}
+	return nil
 }
 
 func principalEnumerationNoteVisibleInSurface(surface, note string) bool {
@@ -1555,6 +1729,20 @@ func principalEnumerationLocationKey(raw string) string {
 		raw = strings.TrimPrefix(raw, "./")
 	}
 	return raw
+}
+
+func principalEnumerationLocationFileKey(raw string) string {
+	key := principalEnumerationLocationKey(raw)
+	if key == "" {
+		return ""
+	}
+	if surface, ok := types.ParseAnswerSourceLocationSurface(key); ok {
+		return principalEnumerationLocationKey(surface.File)
+	}
+	if idx := strings.LastIndex(key, ":"); idx > 0 && idx < len(key)-1 {
+		return key[:idx]
+	}
+	return key
 }
 
 func principalEnumerationPrimaryRowKey(row types.EnumerationDisplayRow) string {
