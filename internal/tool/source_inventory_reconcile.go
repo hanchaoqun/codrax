@@ -2470,20 +2470,20 @@ func sourceInventoryLensQueryScopes(ctx *types.BusContext, graph *repotypes.Grap
 }
 
 func sourceInventoryScopeForLensSurfaceWithPath(graph *repotypes.Graph, queryPath, raw string) string {
-	scope := sourceInventoryScopeForLensSurface(graph, raw)
-	if scope != "" {
-		return scope
-	}
 	base, okBase := sourceInventoryLensSafeRelativePath(queryPath)
 	candidate, okCandidate := sourceInventoryLensSafeRelativePath(raw)
-	if !okBase || !okCandidate || base == "" || base == "." || candidate == "" {
-		return ""
+	if okBase && okCandidate && base != "" && base != "." && candidate != "" {
+		switch {
+		case candidate == base:
+			return sourceInventoryScopeForLensSurface(graph, ".")
+		case strings.HasPrefix(candidate, base+"/"):
+			if scope := sourceInventoryScopeForLensSurface(graph, strings.TrimPrefix(candidate, base+"/")); scope != "" {
+				return scope
+			}
+		}
 	}
-	switch {
-	case candidate == base:
-		return sourceInventoryScopeForLensSurface(graph, ".")
-	case strings.HasPrefix(candidate, base+"/"):
-		return sourceInventoryScopeForLensSurface(graph, strings.TrimPrefix(candidate, base+"/"))
+	if scope := sourceInventoryScopeForLensSurface(graph, raw); scope != "" {
+		return scope
 	}
 	return ""
 }
