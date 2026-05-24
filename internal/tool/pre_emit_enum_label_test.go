@@ -1211,6 +1211,42 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_AppendsUniqueEvidenceCan
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsDirectoryMemberToScopedCitation(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:       "packages",
+			Kind:     types.BlockOrderedList,
+			FacetIDs: []string{string(types.FacetEnumerationItem)},
+			ClaimUses: []types.RenderedClaimUse{{
+				ClaimForm: types.ClaimDefinitionFact,
+				FacetID:   string(types.FacetEnumerationItem),
+			}},
+			Items: []types.AnswerBlockItem{{
+				ID:          "amplifier",
+				Label:       "amplifier",
+				Text:        "Entry function is `Amplify`.",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{
+			{File: "internal/analysis/budget/budget.go", Line: 62},
+			{File: "internal/analysis/amplifier/amplifier.go", Line: 100},
+		},
+	}
+	ctx := &types.BusContext{Mutable: types.NewMutableState("list package entry functions")}
+
+	fixed := normalizeItemCitationRefsByUniqueLabelCitation(doc, nil, ctx)
+	if fixed != 1 {
+		t.Fatalf("expected one directory-member citation repair, got %d", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("citation_ref = %d, want scoped amplifier citation", got)
+	}
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("scoped directory citation should satisfy alignment, got %v", hints)
+	}
+}
+
 func TestNormalizeItemCitationRefsByUniqueLabelCitation_PrefersExactDefinitionOverAlignedSupport(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{

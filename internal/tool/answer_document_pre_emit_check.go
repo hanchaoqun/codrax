@@ -985,6 +985,9 @@ func preCheckItemCitationAlignmentWithContext(doc *types.AnswerDocumentV2, view 
 			if types.AnswerLocationLabelMatchesCitation(label, cit) {
 				continue
 			}
+			if preEmitEnumerationDirectoryLabelCitationScoped(b, label, cit) {
+				continue
+			}
 			if preEmitCitationEnclosingFunctionSupportsLabel(label, cit) {
 				continue
 			}
@@ -1123,10 +1126,16 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 				continue
 			}
 			match := preEmitUniqueCitationIndex(doc.Citations, item.CitationRef, func(cit types.Citation) bool {
+				if preEmitEnumerationDirectoryLabelCitationScoped(*block, label, cit) {
+					return true
+				}
 				return preEmitItemCitationStrictlyAlignedWithContext(pctx, label, text, cit)
 			})
 			if match < 0 {
 				match = preEmitUniqueCitationIndex(doc.Citations, item.CitationRef, func(cit types.Citation) bool {
+					if preEmitEnumerationDirectoryLabelCitationScoped(*block, label, cit) {
+						return true
+					}
 					return preEmitItemCitationAlignedWithContext(pctx, label, text, cit)
 				})
 			}

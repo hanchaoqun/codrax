@@ -188,6 +188,8 @@ func TestExplorer_BuildInitialInstruction_RendersSourceInventoryAdvisory(t *test
 		"Structured Source Inventory Progress",
 		"advisory context only",
 		"repo-lens observation invariants",
+		"Cascaded Repo Lens Guide",
+		`"view": "source_inventory"`,
 		"count=1 len(members)=1",
 		"`Run`",
 		"src/run.py:7",
@@ -224,6 +226,8 @@ func TestRenderExtractorSourceInventoryAdvisory_RendersCandidateAttributes(t *te
 	})
 	for _, want := range []string{
 		"package/directory/module scope candidates",
+		"Cascaded Repo Lens Guide",
+		"languages=python:2",
 		"count=1 len(members)=1",
 		"related_candidate_attributes",
 		"function `run_alpha` @ src/alpha/a.py:7",
@@ -273,6 +277,7 @@ func TestExplorerSourceInventoryPrompt_RendersObservationOnlyRows(t *testing.T) 
 	for _, want := range []string{
 		"Structured Source Inventory Progress",
 		"repo-lens observation invariants",
+		"Cascaded Repo Lens Guide",
 		"role `function`",
 		"count=1 len(members)=1",
 		"`run_alpha`",
@@ -321,6 +326,8 @@ func TestRenderExtractorSourceInventoryAdvisory_RendersObservationOnlyRows(t *te
 	})
 	for _, want := range []string{
 		"repo-lens observation invariants",
+		"Cascaded Repo Lens Guide",
+		"languages=typescript:2",
 		"role `route`",
 		"observation rows",
 		"`GET /v1/users`",

@@ -160,7 +160,7 @@ func checkSubtopicCoherence(ir *types.AnalysisIR, resolver normalizer.SymbolReso
 		subTokens := flattenSubTopicEntitiesAndScopes(rm.SubTopics)
 		primaryTokens := unionStringLists(rm.AnalyzerHints.PrimaryEntities, rm.AnalyzerHints.PrimaryScopes)
 		if len(subTokens) > 0 && len(primaryTokens) > 0 {
-			if !anyOverlap(subTokens, primaryTokens) {
+			if !anyCoherenceIdentityOverlap(subTokens, primaryTokens) {
 				msg := fmt.Sprintf(
 					"R1.3 entity_orphan: sub-topic entities %s share no element with primary entities %s",
 					formatStringList(subTokens), formatStringList(primaryTokens))
@@ -601,7 +601,7 @@ func sourceInventorySubtopicsWithinPrimaryScope(rm types.RequestModel) bool {
 				continue
 			}
 			seen = true
-			if !coherencePathWithinAnyScope(entity, scopes) {
+			if !coherencePathWithinAnyScope(entity, scopes) && !coherenceSurfaceMatchesAnyScopeAlias(entity, scopes) {
 				return false
 			}
 		}
@@ -611,7 +611,7 @@ func sourceInventorySubtopicsWithinPrimaryScope(rm types.RequestModel) bool {
 				continue
 			}
 			seen = true
-			if !coherencePathWithinAnyScope(scope, scopes) {
+			if !coherencePathWithinAnyScope(scope, scopes) && !coherenceSurfaceMatchesAnyScopeAlias(scope, scopes) {
 				return false
 			}
 		}
@@ -670,6 +670,30 @@ func coherencePathWithinAnyScope(surface string, scopes []string) bool {
 		}
 		if surface == scope || strings.HasPrefix(surface, scope+"/") {
 			return true
+		}
+	}
+	return false
+}
+
+func coherenceSurfaceMatchesAnyScopeAlias(surface string, scopes []string) bool {
+	if strings.TrimSpace(surface) == "" || len(scopes) == 0 {
+		return false
+	}
+	surfaceAliases := coherenceIdentityAliases(surface)
+	if len(surfaceAliases) == 0 {
+		return false
+	}
+	surfaceSet := make(map[string]bool, len(surfaceAliases))
+	for _, alias := range surfaceAliases {
+		if alias != "" {
+			surfaceSet[alias] = true
+		}
+	}
+	for _, scope := range scopes {
+		for _, alias := range coherenceIdentityAliases(scope) {
+			if surfaceSet[alias] {
+				return true
+			}
 		}
 	}
 	return false
@@ -1141,6 +1165,70 @@ func anyOverlap(a, b []string) bool {
 		}
 	}
 	return false
+}
+
+// anyCoherenceIdentityOverlap extends exact set overlap with structural
+// repo-scope aliases. It intentionally uses only typed IR surfaces already
+// emitted by the analyzer: repo-relative paths, package/module paths, file
+// names, and their final path segments. This lets source-inventory shapes such
+// as "internal/analysis/gate" and "gate" satisfy the coherence gate without
+// teaching the system any user-question keywords or answer-specific cases.
+func anyCoherenceIdentityOverlap(a, b []string) bool {
+	if anyOverlap(a, b) {
+		return true
+	}
+	if len(a) == 0 || len(b) == 0 {
+		return false
+	}
+	bset := make(map[string]bool, len(b)*3)
+	for _, s := range b {
+		for _, alias := range coherenceIdentityAliases(s) {
+			if alias != "" {
+				bset[alias] = true
+			}
+		}
+	}
+	for _, s := range a {
+		for _, alias := range coherenceIdentityAliases(s) {
+			if bset[alias] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func coherenceIdentityAliases(raw string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, 4)
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			return
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	trimmed := strings.TrimSpace(raw)
+	trimmed = strings.Trim(trimmed, "`'\" ")
+	add(trimmed)
+	normalized := normalizeCoherencePathSurface(raw)
+	add(normalized)
+	if !coherenceLooksLikePathScope(normalized) {
+		return out
+	}
+	parts := strings.Split(normalized, "/")
+	base := strings.TrimSpace(parts[len(parts)-1])
+	if len(base) >= 2 {
+		add(base)
+	}
+	if dot := strings.LastIndex(base, "."); dot > 0 {
+		stem := strings.TrimSpace(base[:dot])
+		if len(stem) >= 2 {
+			add(stem)
+		}
+	}
+	return out
 }
 
 // isScalarSubjectKind groups the AnswerSubjectKind values whose

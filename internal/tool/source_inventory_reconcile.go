@@ -783,6 +783,15 @@ func renderSourceInventoryAdvisoryToolHintAttributes(attrs []types.SourceInvento
 	return "related callables: " + strings.Join(parts, ", ")
 }
 
+// RenderSourceInventoryCascadeGuideView exposes the same low-noise repo-lens
+// navigation guide used by repo_map(view="source_inventory") tool results.
+// It is intentionally advisory-only: callers may render it in prompts to help
+// models choose narrower follow-up repo_map calls, but it must not be treated
+// as evidence or as an answer-membership authority.
+func RenderSourceInventoryCascadeGuideView(observation types.SourceInventoryObservation, query types.SourceInventoryLensQuery, maxGroups int) string {
+	return renderSourceInventoryCascadeGuideView(observation, query, maxGroups)
+}
+
 func renderSourceInventoryCascadeGuideView(observation types.SourceInventoryObservation, query types.SourceInventoryLensQuery, maxGroups int) string {
 	if !observation.IsActive() || sourceInventoryLensQueryOffset(query) > 0 || maxGroups <= 0 {
 		return ""
@@ -1995,6 +2004,7 @@ func buildSourceInventoryAdvisoryWithQuery(ctx *types.BusContext, facts []types.
 		advisoryOnly = true
 		provenance = sourceInventoryAdvisoryAppendProvenance(provenance, "repo_lens:scopes")
 	}
+	scopes = sourceInventoryDedupeScopeAliases(scopes)
 	if len(scopes) == 0 {
 		return types.SourceInventoryAdvisory{}
 	}
@@ -2151,7 +2161,49 @@ func sourceInventoryLensQueryScopes(ctx *types.BusContext, graph *repotypes.Grap
 		seen[scope] = true
 		scopes = append(scopes, scope)
 	}
-	return scopes
+	return sourceInventoryDedupeScopeAliases(scopes)
+}
+
+func sourceInventoryDedupeScopeAliases(scopes []string) []string {
+	if len(scopes) <= 1 {
+		return scopes
+	}
+	normalized := make([]string, 0, len(scopes))
+	seen := map[string]bool{}
+	for _, raw := range scopes {
+		scope := normalizeSourceInventoryScopeSurface(raw)
+		if scope == "" {
+			continue
+		}
+		if !seen[scope] {
+			seen[scope] = true
+			normalized = append(normalized, scope)
+		}
+	}
+	if len(normalized) <= 1 {
+		return normalized
+	}
+	hasLongAlias := map[string]bool{}
+	for _, scope := range normalized {
+		if !strings.Contains(scope, "/") {
+			continue
+		}
+		base := path.Base(scope)
+		if base != "." && base != "/" && base != "" {
+			hasLongAlias[base] = true
+		}
+	}
+	out := make([]string, 0, len(normalized))
+	for _, scope := range normalized {
+		if !strings.Contains(scope, "/") && hasLongAlias[scope] {
+			continue
+		}
+		out = append(out, scope)
+	}
+	if len(out) == 0 {
+		return normalized
+	}
+	return out
 }
 
 func sourceInventoryScopeForLensSurface(graph *repotypes.Graph, raw string) string {

@@ -44,6 +44,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -719,12 +720,31 @@ func renderExtractorSourceInventoryAdvisory(ta *types.TurnAArtifacts) string {
 			b.WriteString("none\n")
 		}
 	}
+	if guide := renderExtractorSourceInventoryCascadeGuide(observation, scopes); guide != "" {
+		b.WriteString("\n")
+		b.WriteString(guide)
+		b.WriteString("\n\n")
+	}
 	total, emitted := renderExtractorSourceInventoryAdvisoryRows(&b, advisory, observation)
 	if total > emitted {
 		fmt.Fprintf(&b, "- showing %d of %d candidate(s); keep the accepted aggregate facts/evidence as the authority if a hidden row matters.\n", emitted, total)
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func renderExtractorSourceInventoryCascadeGuide(observation types.SourceInventoryObservation, scopes []string) string {
+	if !observation.IsActive() {
+		return ""
+	}
+	query := types.SourceInventoryLensQuery{
+		Path:              ".",
+		Scopes:            append([]string(nil), scopes...),
+		IncludeAttributes: true,
+		IncludeCounts:     true,
+		TopN:              extractorMaxSourceInventoryAdvisoryRows,
+	}
+	return tool.RenderSourceInventoryCascadeGuideView(observation, query, 8)
 }
 
 func renderExtractorSourceInventoryAdvisoryRows(b *strings.Builder, advisory types.SourceInventoryAdvisory, observation types.SourceInventoryObservation) (int, int) {

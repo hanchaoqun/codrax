@@ -323,6 +323,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	// enforces — when the prompt and the tool description disagree
 	// on emit shape, the tool description is authoritative.
 	b.WriteString("> Note — structural emit-time constraints are listed under PRE-EMIT CONSTRAINTS in the answer-document tool's description. This prompt focuses on rationale + workflow + per-dispatch data. When in doubt about emit shape, the tool description is authoritative.\n\n")
+	if langContract := renderAnswerDocResponseLanguageContract(ctx, e.language); langContract != "" {
+		b.WriteString(langContract)
+	}
 
 	// R14 (post_shape_residual_audit.md, 2026-05-04): render
 	// typed retry-state surface BEFORE any other dynamic content
@@ -1126,20 +1129,95 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, view *types.Ans
 	return b.String()
 }
 
-// extractAnswerDocLang reads the language from AgentContext.Language,
-// which is set by BuildAgentContext from BusContext.Language (the
-// -lang CLI flag). Falls back to "en" when empty/off/none.
+// extractAnswerDocLang resolves the renderer locale for system-authored
+// answer-document additions. Concrete project configuration wins; analyzer
+// language is only a fallback for call paths that did not carry the configured
+// language through AgentContext.
 func extractAnswerDocLang(ctx *types.AgentContext) string {
+	lang, _ := resolveAnswerDocLang(ctx)
+	return lang
+}
+
+type answerDocLangSource string
+
+const (
+	answerDocLangSourceDefault          answerDocLangSource = "default"
+	answerDocLangSourceDisabled         answerDocLangSource = "disabled"
+	answerDocLangSourceConfigured       answerDocLangSource = "configured"
+	answerDocLangSourceAnalysisContract answerDocLangSource = "analysis_contract"
+	answerDocLangSourceAnalysisRequest  answerDocLangSource = "analysis_request"
+)
+
+func resolveAnswerDocLang(ctx *types.AgentContext) (string, answerDocLangSource) {
 	if ctx == nil {
-		return "en"
+		return "en", answerDocLangSourceDefault
 	}
-	switch ctx.Language {
-	case "zh", "zh-CN", "zh-cn", "cn", "chinese":
+	if lang := normalizeAnswerDocConcreteLang(ctx.Language); lang != "" {
+		return lang, answerDocLangSourceConfigured
+	}
+	if answerDocLangDisabled(ctx.Language) {
+		return "en", answerDocLangSourceDisabled
+	}
+	if ctx.AnalysisIR != nil {
+		if lang := normalizeAnswerDocConcreteLang(ctx.AnalysisIR.AnswerContract.Language); lang != "" {
+			return lang, answerDocLangSourceAnalysisContract
+		}
+		if lang := normalizeAnswerDocConcreteLang(ctx.AnalysisIR.RequestModel.Language); lang != "" {
+			return lang, answerDocLangSourceAnalysisRequest
+		}
+	}
+	return "en", answerDocLangSourceDefault
+}
+
+func normalizeAnswerDocConcreteLang(lang string) string {
+	switch strings.ToLower(strings.TrimSpace(lang)) {
+	case "zh", "zh-cn", "cn", "chinese", "简体中文":
 		return "zh"
-	case "", "off", "none":
+	case "en", "en-us", "english":
 		return "en"
 	}
-	return "en"
+	return ""
+}
+
+func answerDocLangDisabled(lang string) bool {
+	switch strings.ToLower(strings.TrimSpace(lang)) {
+	case "off", "none":
+		return true
+	}
+	return false
+}
+
+func renderAnswerDocResponseLanguageContract(ctx *types.AgentContext, lang string) string {
+	resolved, source := resolveAnswerDocLang(ctx)
+	if lang == "" {
+		lang = resolved
+	}
+	if source == answerDocLangSourceDisabled {
+		return ""
+	}
+	if lang != "zh" && lang != "en" {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## Response Language\n\n")
+	switch lang {
+	case "zh":
+		if source == answerDocLangSourceConfigured {
+			b.WriteString("- Project configuration locks the answer language to Simplified Chinese. Write every natural-language answer field in Chinese: summary prose, list explanations, table captions, caveats, and diagram captions.\n")
+		} else {
+			b.WriteString("- The structured analyzer language for this request is Chinese. Write every natural-language answer field in Simplified Chinese: summary prose, list explanations, table captions, caveats, and diagram captions.\n")
+		}
+		b.WriteString("- Keep source identifiers, file paths, API names, type names, function names, quoted source text, and citation paths in their original form.\n\n")
+	case "en":
+		if source == answerDocLangSourceConfigured {
+			b.WriteString("- Project configuration locks the answer language to English. Write every natural-language answer field in English: summary prose, list explanations, table captions, caveats, and diagram captions.\n")
+		} else {
+			b.WriteString("- The structured analyzer language for this request is English. Write every natural-language answer field in English: summary prose, list explanations, table captions, caveats, and diagram captions.\n")
+		}
+		b.WriteString("- Keep source identifiers, file paths, API names, type names, function names, quoted source text, and citation paths in their original form.\n\n")
+	}
+	return b.String()
 }
 
 func answerSurfacePlan(ctx *types.AgentContext) *types.AnswerSurfacePlan {

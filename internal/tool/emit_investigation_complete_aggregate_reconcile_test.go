@@ -924,6 +924,56 @@ func TestBuildSourceInventoryAdvisory_ActiveProfileUsesGraphCandidates(t *testin
 	}
 }
 
+func TestBuildSourceInventoryAdvisory_DedupesBasenameScopeAliases(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{RelPath: "internal/analysis/gate/gate.go", Language: "go", Package: "gate", Symbols: []repotypes.Symbol{{
+			Name:     "Run",
+			Kind:     "function",
+			File:     "internal/analysis/gate/gate.go",
+			Line:     127,
+			Exported: true,
+		}}},
+		{RelPath: "internal/analysis/axis/matrix.go", Language: "go", Package: "axis", Symbols: []repotypes.Symbol{{
+			Name:     "Affinity",
+			Kind:     "function",
+			File:     "internal/analysis/axis/matrix.go",
+			Line:     30,
+			Exported: true,
+		}}},
+	})
+	ctx := sourceInventoryTestContext("", graph, "", &types.SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRolePackage},
+		RequestedFields:   []types.SourceInventoryRequestedField{types.SourceInventoryFieldName, types.SourceInventoryFieldLocation},
+		Confidence:        0.95,
+	})
+	ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities = []string{
+		"internal/analysis/gate",
+		"internal/analysis/axis",
+		"gate",
+		"axis",
+	}
+
+	advisory := buildSourceInventoryAdvisory(ctx, nil, nil)
+	if !advisory.IsActive() {
+		t.Fatalf("advisory inactive: %+v", advisory)
+	}
+	if got, want := advisory.Scopes, []string{"internal/analysis/axis", "internal/analysis/gate"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("scopes = %#v, want canonical full scopes %#v", got, want)
+	}
+	if len(advisory.Sets) != 1 {
+		t.Fatalf("sets = %+v, want one package set", advisory.Sets)
+	}
+	gotMembers := advisoryMemberNames(advisory.Sets[0].Candidates)
+	wantMembers := []string{"axis", "gate"}
+	if !reflect.DeepEqual(gotMembers, wantMembers) {
+		t.Fatalf("members = %#v, want %#v", gotMembers, wantMembers)
+	}
+	if got := len(advisory.Sets[0].Candidates); got != 2 {
+		t.Fatalf("candidate count = %d, want no basename duplicates", got)
+	}
+}
+
 func TestBuildSourceInventoryAdvisory_TypedRoleFallbackIsAdvisoryOnly(t *testing.T) {
 	graph := testGraphWithFiles([]*repotypes.FileInfo{
 		{RelPath: "src/a.py", Language: "python", Symbols: []repotypes.Symbol{{

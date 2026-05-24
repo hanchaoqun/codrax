@@ -4327,8 +4327,10 @@ func TestAnswerDocumentEvaluator_LogSourceDriftHonorsRuntimeDisposition(t *testi
 	}
 }
 
-// TestAnswerDocumentEvaluator_LanguageCapture reads language from
-// AgentContext.Language (set by BuildAgentContext from -lang flag).
+// TestAnswerDocumentEvaluator_LanguageCapture keeps the hard language
+// priority model pinned: project/CLI config wins, analyzer-emitted
+// language is only a fallback when the agent context did not carry a
+// concrete configured language.
 func TestAnswerDocumentEvaluator_LanguageCapture(t *testing.T) {
 	ctx := &types.AgentContext{Language: "zh"}
 	e := &answerDocumentEvaluator{}
@@ -4349,6 +4351,54 @@ func TestAnswerDocumentEvaluator_LanguageCapture(t *testing.T) {
 	e3.BuildInitialInstruction(ctx3, nil)
 	if e3.language != "en" {
 		t.Errorf("default language = %q, want en", e3.language)
+	}
+
+	ctx4 := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{Language: "zh"},
+			RequestModel:   types.RequestModel{Language: "zh"},
+		},
+	}
+	e4 := &answerDocumentEvaluator{}
+	prompt4 := e4.BuildInitialInstruction(ctx4, nil)
+	if e4.language != "zh" {
+		t.Errorf("analysis fallback language = %q, want zh", e4.language)
+	}
+	if !strings.Contains(prompt4, "structured analyzer language") ||
+		!strings.Contains(prompt4, "Simplified Chinese") {
+		t.Errorf("analysis fallback language contract missing:\n%s", prompt4)
+	}
+
+	ctx5 := &types.AgentContext{
+		Language: "en",
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{Language: "zh"},
+			RequestModel:   types.RequestModel{Language: "zh"},
+		},
+	}
+	e5 := &answerDocumentEvaluator{}
+	prompt5 := e5.BuildInitialInstruction(ctx5, nil)
+	if e5.language != "en" {
+		t.Errorf("configured language should win: got %q, want en", e5.language)
+	}
+	if !strings.Contains(prompt5, "Project configuration locks the answer language to English") {
+		t.Errorf("configured language contract missing:\n%s", prompt5)
+	}
+
+	ctx6 := &types.AgentContext{
+		Language: "off",
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{Language: "zh"},
+			RequestModel:   types.RequestModel{Language: "zh"},
+		},
+	}
+	e6 := &answerDocumentEvaluator{}
+	prompt6 := e6.BuildInitialInstruction(ctx6, nil)
+	if e6.language != "en" {
+		t.Errorf("disabled language should fall back renderer to en: got %q", e6.language)
+	}
+	if strings.Contains(prompt6, "## Response Language") {
+		t.Errorf("lang=off must not inject response-language contract:\n%s", prompt6)
 	}
 }
 

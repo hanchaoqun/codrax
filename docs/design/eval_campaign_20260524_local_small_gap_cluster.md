@@ -2184,3 +2184,223 @@ B2-K post-pull audit note, 2026-05-25 CST:
   rewrote those rows. B2-J9 is therefore closed for the analyze-boundary and
   directory-citation regression. Remaining B2-K/T20 work is broader lane
   ownership and verification-checklist convergence, not this regression.
+- A separate post-pull local run on the pre-B2-L patch stack still produced a
+  broader failure sample below. It is retained because it exposed systemic gaps
+  outside the closed B2-J9 regression: source-inventory scope aliasing,
+  finalizer row/citation safety, language-following, and cascade-guidance
+  prominence.
+
+B2-K live eval findings, 2026-05-25 00:51 CST:
+
+- Run: `EVAL_RESULTS_ROOT=eval/results/b2k-postpull CODRAX_BIN=./codrax
+  bash eval/run.sh eval/cases/s5b.case 1`, result directory
+  `eval/results/b2k-postpull/s5b-20260525-005119`.
+- Final verdict: `FAIL missing:gate`.
+- Trace metrics: `tool_read_file=24`, `tool_repo_map=4`, `tool_list_files=9`,
+  `source_inventory_lens=9`, `midloop_inject=8`, `analyzer_iters=5`,
+  `explorer_iters=20`, `finalizer_rejects=0`, `finalizer_rewrites=0`,
+  `semantic_quality_dispatches=1`.
+- Confirmed improvement: analyze no longer accepts deep
+  `repo_map(view="source_inventory")` expansion. The model used `file_map` /
+  `list_files`, then explore used `repo_map(view="source_inventory")`.
+- New P0/P1 gaps observed:
+  - `subtopic_coherence` falsely rejected a successful `emit_analysis` because
+    primary entities were path-shaped (`internal/analysis/aggregator`) while
+    subtopic entities were basename/symbol-shaped (`aggregator`, `New`,
+    `Aggregate`, etc.). This is a typed normalization gap, not a model
+    hallucination. Path/package entities and their basenames should be compared
+    through canonical identity aliases for coherence gates.
+  - The analyzer still spent a full pre-scan round on seven parallel
+    `list_files` calls under child directories after `list_files
+    internal/analysis` had already established the 25 child scopes. This is not
+    source-inventory-specific; broad directory enumeration needs an
+    evidence-lite stop once path existence and child-scope shape are known.
+  - After analyze degraded, recovery explore still used the source-inventory
+    lens but quickly fell back to grep/read_file. The lens guidance is visible
+    and usable, but the recovery path loses typed profile authority and makes
+    old broad-search habits more likely.
+  - Source-inventory handoff duplicated scoped rows: the final extractor digest
+    carried both `internal/analysis/aggregator` and basename `aggregator`
+    scopes, reporting package scope `count=50` for a 25-directory target and
+    showing `40 of 544` candidates. This is a canonical scope merge problem,
+    not an answer-shape decision. The handoff must dedupe aliases while
+    preserving provenance and ambiguity.
+  - `emit_evidence` near-miss: the model tried to record package/directory
+    role summaries as `scope=file` with positive `line_start`; validation first
+    rejected `scope=file must have line_start=0`, then rejected file rows for
+    missing config-style `file_role_label`. This is a generic schema ergonomics
+    issue: package/module role summaries should have a clearer accepted carrier
+    or a repair that points to `scope=line` for function entries and to a
+    package/directory role carrier for package summaries. Do not solve this by
+    matching the s5b answer text.
+  - After a failed `emit_evidence(items=[...])`, the local model next emitted
+    `{}` for `emit_evidence`. The recovery hint should preserve enough
+    structured shape from the failed call to make “fix and re-emit the same
+    batch” easier, rather than forcing the model to reconstruct JSON from
+    memory.
+  - Path-miss help worked but came late: the model guessed
+    `internal/analysis/prescan/scan.go`, `internal/analysis/priority/priority.go`,
+    and `internal/analysis/axis/axis.go`; read failures included same-scope
+    candidate files and the model recovered for two of them. The repo-lens
+    "known candidate files" guidance should be visible before the wrong
+    `read_file`, not only after a miss.
+  - Finalizer accepted a string-wrapped `blocks` document and repaired several
+    `citation_ref` carriers, which is the desired compatibility behavior.
+    However the same accepted draft still contained visible citation mismatches
+    (`amplifier` cited `budget`, `declarative` cited `amplifier`, `patcher`
+    cited `stopcond`, `subject` cited `declarative`) and omitted `gate`.
+    The answer contract recorded one inconsistency but did not rewrite. This is
+    an end-to-end contract gap: soft advisory acceptance must not allow a
+    visibly wrong evidence binding to ship for an enumeration row.
+  - The final prior slate mixed directory labels and entry-function labels
+    (`Compute`, `Compile`, `Check`, etc.), so downstream rendered an uneven
+    principal set. Enumeration handoff needs a stable row identity of
+    `directory/package member -> selected entry symbol` instead of letting the
+    entry function replace the requested member label.
+- Candidate fix order after the run finishes:
+  1. P0: canonical path/basename entity aliasing for analyzer coherence gates,
+     covered by cross-language path/package/module tests.
+  2. P0: source-inventory canonical scope dedupe and row identity preservation
+     (`requested member label` separate from `candidate entry symbol`), covered
+     by multi-language and multi-repo alias tests.
+  3. P0: finalizer enumeration citation safety: if a row label is the requested
+     member and the cited line is only the entry symbol, require a row-local
+     support relation or render both fields without pretending the line defines
+     the directory label. Do not auto-synthesize the answer set; only validate
+     visible bindings.
+  4. P0: analyzer broad-child-list stop/fence after a parent directory listing
+     establishes enough source-inventory shape; keep it typed and advisory,
+     with no raw keyword control-flow.
+  5. P1: `emit_evidence` package/module role-summary near-miss repair or
+     normalization, shared across languages and config/route/file inventories.
+  6. P1: failed-tool-call repair memory for empty retry payloads, reusing the
+     existing text-tool-call recovery and repair-directive carriers.
+
+B2-L batch 1 implementation note, 2026-05-25 CST:
+
+- Implemented P0 analyzer coherence aliasing:
+  - R1.3 now compares typed analyzer entities through structural repo-scope
+    aliases in addition to exact strings. A path/package/module surface such as
+    `internal/analysis/gate` and its basename `gate` are treated as the same
+    coherence identity for the analyzer gate.
+  - The aliasing is deliberately structural and language-neutral: repo-relative
+    paths, package/module paths, file names, and final path segments only. It
+    does not read user-question keywords or model prose.
+  - Added regression tests proving that source-inventory basename anchors pass
+    while unrelated basenames still fail.
+- Implemented P0 source-inventory scope alias dedupe:
+  - source-inventory advisory construction now canonicalizes scope lists after
+    typed-request and model-driven lens scope resolution.
+  - If a full scope and its basename alias both appear, the basename alias is
+    dropped and the full repo-relative scope is preserved. This prevents
+    package/member rows from doubling (`count=50` for 25 directories) while
+    keeping provenance and the model's advisory-only choice surface intact.
+  - Added regression coverage for package/directory inventories with mixed
+    full-path and basename scopes.
+- Verified:
+  - `go test ./internal/analysis/gate`
+  - `go test ./internal/tool -run 'TestBuildSourceInventoryAdvisory|TestPublishSourceInventory|TestAggregateMemberSetMemberUsableWithSourceInventory|TestSourceInventory'`
+  - `go test ./internal/agent -run 'Test.*Analyzer|Test.*SourceInventory'`
+  - `make build`
+- Remaining P0 after this batch:
+  - finalizer enumeration row/citation safety so soft advisory acceptance cannot
+    ship visibly wrong bindings;
+  - analyzer broad-child-list stop/fence after a parent directory listing has
+    established enough typed source-inventory shape.
+
+B2-L language-following gap, 2026-05-25 CST:
+
+- Same `s5b` run exposed a separate UX/quality regression: the user request was
+  Chinese, but the final answer body started in English ("Following the
+  directory structure..."). Only the system-added caveat localized to Chinese.
+- This is not a model capability assumption; earlier REPL behavior generally
+  followed the user's language. The likely failure is a lost language contract
+  between analyzer/explorer evidence (mostly English structural text) and
+  finalizer answer-document rendering.
+- Required investigation:
+  - locate the current language-detection / response-locale carriers;
+  - verify whether they are present in `AnalysisIR`, finalizer prompt assembly,
+    answer-document validator, reviewer, fallback/raw-output renderer, markdown
+    output, and HTTP preview;
+  - fix at the typed contract layer if missing. Do not infer control flow from
+    raw user keywords beyond an existing locale/language detector, and do not
+    rewrite semantic content. The system may add localized repair guidance or
+    require the finalizer to re-emit in the detected response language.
+- Candidate acceptance criterion:
+  - for Chinese REPL questions, principal final answer prose and system-added
+    notices/caveats are Chinese unless the user explicitly asks for another
+    language or the answer is a code/API identifier;
+  - source quotes, identifiers, file paths, symbols, and citations remain
+    verbatim.
+
+B2-L language-following implementation, 2026-05-25 CST:
+
+- Root cause confirmed in code: finalizer renderer locale was captured only from
+  `AgentContext.Language`; the analyzer's structured `emit_analysis.language`
+  was not a fallback for call paths that failed to carry the configured
+  language into finalizer context. The huge answer-document prompt also did not
+  restate the response-language contract near the finalizer's dynamic data, so
+  local models could follow evidence/prose language instead of the configured
+  answer language.
+- Fix:
+  - concrete project/CLI language remains highest priority (`zh`, `en`, etc.);
+  - `off` / `none` remains a hard disable and does not get overridden by the
+    analyzer;
+  - when no concrete configured language reaches finalizer, structured
+    `AnalysisIR.AnswerContract.Language` then `AnalysisIR.RequestModel.Language`
+    provide a fallback renderer locale;
+  - finalizer now emits a small `Response Language` dynamic section near the
+    top of its prompt, explicitly preserving identifiers/file paths/source
+    quotes verbatim.
+- This is a typed language-carrier fix, not a user-intent classifier: it does
+  not inspect raw model prose and does not use question keywords for workflow
+  routing.
+
+B2-L finalizer citation safety implementation, 2026-05-25 CST:
+
+- Root cause confirmed from `s5b` logs: answer-document pre-emit already knew
+  many `ordered_list` rows had invalid `citation_ref` bindings, but the generic
+  citation violation is soft-by-default. Before that soft advisory, deterministic
+  repair missed a safe class: package/directory member labels whose correct
+  support citation was already present in the same document citation pool.
+- Fix:
+  - for typed enumeration rows (`facet_id=enumeration_item`), a member label
+    such as `amplifier` may align to a citation inside
+    `.../amplifier/...` even when the cited line names the entry function
+    rather than the directory itself;
+  - the same scoped-directory alignment now participates in citation-ref
+    rebind, not just in "current citation already OK" checks;
+  - this is still advisory-only with respect to answer semantics: it never
+    creates a member, never chooses an entry function, and never reads the user
+    question or model prose. It only repairs an already-emitted row to an
+    already-emitted citation whose path structurally matches the row label.
+- Added regression coverage for a wrong `budget` citation being rebound to an
+  already-present `internal/analysis/amplifier/...` citation for the
+  `amplifier` package row.
+
+B2-M source-inventory cascade prompt gap, 2026-05-25 CST:
+
+- Root cause from the broad search eval cluster: `repo_map(view="source_inventory")`
+  already renders a good "summary first, cascade next" lens, and the discovery
+  hint can point models toward that tool. However, the explorer/extractor
+  handoff prompt still rendered source-inventory context mostly as flat rows.
+  Local models therefore saw real candidates but still tended to continue broad
+  `list_files` / `grep` / large `read_file` loops instead of narrowing with
+  another structured repo lens call.
+- Fix:
+  - exported the existing cascade guide renderer instead of creating a second
+    prompt-only implementation;
+  - explorer and extractor now place the same advisory `Cascaded Repo Lens
+    Guide` immediately after count/list invariants and before flat candidate
+    rows;
+  - the guide is language-neutral and role-neutral: it uses structured
+    source-inventory rows (`scope`, `role`, `attribute_role`, `file`, `line`,
+    `language`, `support_ref`) and never reads user keywords or model prose;
+  - the guide remains navigation-only. It suggests narrower `repo_map` calls
+    and reminds the model to verify with `read_file` / `grep` before citing.
+- Acceptance criteria:
+  - supports directories/packages/modules, functions, methods, types,
+    routes, config keys, config files, and mixed-language scopes;
+  - supports multi-repo active-set boundaries through the existing normalized
+    source-inventory observation;
+  - does not turn suggested files into a whitelist or final answer membership.

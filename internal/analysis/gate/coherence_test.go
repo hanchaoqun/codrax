@@ -231,6 +231,66 @@ func TestSubtopicCoherence_R1_3_SourceInventoryFileSubtopicsAreAdvisory(t *testi
 	}
 }
 
+func TestSubtopicCoherence_R1_3_SourceInventoryBasenameAliasesSatisfyPrimaryScopes(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{
+				"internal/analysis/aggregator",
+				"internal/analysis/gate",
+			},
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRolePackage},
+			Confidence:        0.95,
+		},
+		SubTopics: []types.SubTopic{
+			{
+				Summary:  "directory members plus candidate entry attributes",
+				Entities: []string{"aggregator", "gate", "New", "Run"},
+			},
+		},
+	}
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), nil)
+	if !check.Passed {
+		t.Fatalf("path-shaped primary entities and basename subtopic anchors must satisfy R1.3; got %+v", check)
+	}
+	if strings.Contains(check.Detail, "R1.3 entity_orphan") {
+		t.Fatalf("basename aliases should avoid the orphan diagnostic; got %q", check.Detail)
+	}
+}
+
+func TestSubtopicCoherence_R1_3_SourceInventoryBasenameAliasIsStructuralNotArbitrary(t *testing.T) {
+	rm := types.RequestModel{
+		Intent: types.IntentEnumerate,
+		Predicates: types.SemanticPredicates{
+			IsCategoryEnumeration: true,
+		},
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{
+				"internal/analysis/aggregator",
+				"internal/analysis/gate",
+			},
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRolePackage},
+			Confidence:        0.95,
+		},
+		SubTopics: []types.SubTopic{
+			{Summary: "unrelated member", Entities: []string{"scheduler"}},
+		},
+	}
+	check := checkSubtopicCoherence(coherenceFixtureIR(rm), nil)
+	if check.Passed {
+		t.Fatalf("unrelated basename must still fail R1.3; got %+v", check)
+	}
+}
+
 func TestSubtopicCoherence_R1_3_SourceInventoryOutsideScopeStillFails(t *testing.T) {
 	rm := types.RequestModel{
 		Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
