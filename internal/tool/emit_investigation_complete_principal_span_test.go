@@ -239,6 +239,96 @@ func TestPrincipalSpanWaiver_BypassesGate(t *testing.T) {
 	})
 }
 
+func TestQueueProactiveCallChainClosureRepairs_QueuesPrincipalSpanBeforeCompletion(t *testing.T) {
+	mut := types.NewMutableState("trace foo to bar")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			ID:         "source",
+			Kind:       types.EvidenceDirect,
+			AnchorKind: types.AnchorCall,
+			Subject:    "foo",
+			Object:     "handoff",
+			Source:     "x.go",
+			LineStart:  10,
+		},
+		{
+			ID:         "sink",
+			Kind:       types.EvidenceDirect,
+			AnchorKind: types.AnchorCall,
+			Subject:    "handoff",
+			Object:     "bar",
+			Source:     "x.go",
+			LineStart:  300,
+		},
+	})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "trace foo to bar",
+				Intent:     types.IntentTrace,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:              string(types.ReqCallChain),
+					MentionedEntities: []string{"foo", "bar"},
+				},
+			},
+		},
+	}
+
+	if !QueueProactiveCallChainClosureRepairs(ctx) {
+		t.Fatal("expected proactive call-chain span repair to queue")
+	}
+	repairs := mut.EvidenceClosure().ActiveRepairs()
+	if len(repairs) == 0 || repairs[0].Kind != types.RepairReadFile {
+		t.Fatalf("active repairs = %+v, want read_file repair", repairs)
+	}
+	if len(repairs[0].Files) != 1 || repairs[0].Files[0] != "x.go" {
+		t.Fatalf("repair files = %+v, want x.go", repairs[0].Files)
+	}
+	if len(repairs[0].LineRanges) != 1 || repairs[0].LineRanges[0].Start <= 10 || repairs[0].LineRanges[0].End >= 300 {
+		t.Fatalf("repair line ranges = %+v, want interior source→sink span", repairs[0].LineRanges)
+	}
+	pending := mut.EvidenceClosure().PendingReads()
+	if len(pending) != 1 || len(pending[0].LineRanges) != 1 {
+		t.Fatalf("pending read should carry the surgical range too, got %+v", pending)
+	}
+}
+
+func TestQueueProactiveCallChainClosureRepairs_AlreadyReadSpanQueuesEmitEvidence(t *testing.T) {
+	mut := types.NewMutableState("trace foo to bar")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{ID: "source", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, Subject: "foo", Object: "handoff", Source: "x.go", LineStart: 10},
+		{ID: "sink", Kind: types.EvidenceDirect, AnchorKind: types.AnchorCall, Subject: "handoff", Object: "bar", Source: "x.go", LineStart: 300},
+	})
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{"x.go": true})
+	closure.SetReadRanges(map[string][]types.LineRange{"x.go": {{Start: 1, End: 300}}})
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest: "trace foo to bar",
+				Intent:     types.IntentTrace,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:              string(types.ReqCallChain),
+					MentionedEntities: []string{"foo", "bar"},
+				},
+			},
+		},
+	}
+
+	if !QueueProactiveCallChainClosureRepairs(ctx) {
+		t.Fatal("expected proactive already-read call-chain span repair to queue")
+	}
+	repairs := closure.ActiveRepairs()
+	if len(repairs) != 1 || repairs[0].Kind != types.RepairEmitEvidence {
+		t.Fatalf("active repairs = %+v, want emit_evidence repair", repairs)
+	}
+	if len(closure.PendingReads()) != 0 {
+		t.Fatalf("already-read span should not queue pending reads, got %+v", closure.PendingReads())
+	}
+}
+
 func TestCallChainQualifiedIntermediateDowngrade_RequiresTypedHandoffForReadQualifiedCalls(t *testing.T) {
 	mut := types.NewMutableState("trace buildAnalysisIR to gate.Run")
 	mut.AppendEvidence([]types.EvidenceItem{

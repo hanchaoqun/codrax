@@ -5726,8 +5726,30 @@ func callChainPrincipalSpanDowngrade(ctx *types.BusContext, closure *types.Evide
 }
 
 func callChainPrincipalSpanDowngradeWithEvidence(ctx *types.BusContext, closure *types.EvidenceClosure, evidence []types.EvidenceItem) string {
-	if ctx == nil || ctx.Mutable == nil || closure == nil || ctx.AnalysisIR == nil {
+	repair, demand, alreadyRead, ok := callChainPrincipalSpanRepairWithEvidence(ctx, closure, evidence)
+	if !ok {
 		return ""
+	}
+	closure.AddRepair(repair)
+
+	var b strings.Builder
+	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — call-chain principal span is not closure-complete.\n\n")
+	lineRange := repair.LineRanges[0]
+	fmt.Fprintf(&b, "The structured evidence proves the source endpoint `%s` at %s:%d and the sink endpoint `%s` at %s:%d, but the principal support lane would jump from line %d to the sink without any model-emitted intermediate evidence in %s:%d-%d.\n\n",
+		demand.startHint, demand.source, demand.startLine,
+		demand.endHint, demand.source, demand.endLine,
+		demand.lastInterior, demand.source, lineRange.Start, lineRange.End)
+	if alreadyRead {
+		b.WriteString("That range is already in read coverage, so do NOT widen scope yet. Re-emit grounded `emit_evidence` items for the intermediate call / handoff / boundary facts from the already-read span, then retry `emit_investigation_complete`.")
+	} else {
+		b.WriteString("Read that source span, then emit grounded `emit_evidence` items for the intermediate call / handoff / boundary facts before retrying `emit_investigation_complete`.")
+	}
+	return b.String()
+}
+
+func callChainPrincipalSpanRepairWithEvidence(ctx *types.BusContext, closure *types.EvidenceClosure, evidence []types.EvidenceItem) (types.RepairDirective, callChainPrincipalSpanDemand, bool, bool) {
+	if ctx == nil || ctx.Mutable == nil || closure == nil || ctx.AnalysisIR == nil {
+		return types.RepairDirective{}, callChainPrincipalSpanDemand{}, false, false
 	}
 	// §1.6 typed escape: the model can declare via principal_span_waiver
 	// that the source→sink intermediate-evidence requirement does not
@@ -5739,26 +5761,26 @@ func callChainPrincipalSpanDowngradeWithEvidence(ctx *types.BusContext, closure 
 	// intermediate evidence; the audit log line records the reason for
 	// post-hoc review.
 	if waiver := ctx.Mutable.PrincipalSpanWaiver(); waiver.IsActive() {
-		return ""
+		return types.RepairDirective{}, callChainPrincipalSpanDemand{}, false, false
 	}
 	rm := ctx.AnalysisIR.RequestModel
 	if rm.Intent != types.IntentTrace && types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) != types.ReqCallChain {
-		return ""
+		return types.RepairDirective{}, callChainPrincipalSpanDemand{}, false, false
 	}
 	if types.IsProjectOrientationQuestion(rm) {
-		return ""
+		return types.RepairDirective{}, callChainPrincipalSpanDemand{}, false, false
 	}
 	startHint, endHint, ok := callChainPrincipalEndpointHints(rm)
 	if !ok {
-		return ""
+		return types.RepairDirective{}, callChainPrincipalSpanDemand{}, false, false
 	}
 	demand, ok := callChainPrincipalSpanDemandForEvidence(evidence, startHint, endHint)
 	if !ok {
-		return ""
+		return types.RepairDirective{}, callChainPrincipalSpanDemand{}, false, false
 	}
 	lineRange := types.LineRange{Start: demand.demandStart, End: demand.demandEnd}
 	if lineRange.End < lineRange.Start {
-		return ""
+		return types.RepairDirective{}, callChainPrincipalSpanDemand{}, false, false
 	}
 	alreadyRead := callChainDemandRangeFullyRead(closure, demand.source, lineRange)
 	rationale := fmt.Sprintf(
@@ -5773,27 +5795,42 @@ func callChainPrincipalSpanDowngradeWithEvidence(ctx *types.BusContext, closure 
 			demand.source, lineRange.Start, lineRange.End, demand.startHint, demand.endHint,
 		)
 	}
-	closure.AddRepair(types.RepairDirective{
+	return types.RepairDirective{
 		Kind:       repairKind,
 		Files:      []string{demand.source},
 		Rationale:  rationale,
 		Origin:     "pre_complete.call_chain_principal_span",
 		LineRanges: []types.LineRange{lineRange},
 		Stage:      string(types.StageExplore),
-	})
+	}, demand, alreadyRead, true
+}
 
-	var b strings.Builder
-	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — call-chain principal span is not closure-complete.\n\n")
-	fmt.Fprintf(&b, "The structured evidence proves the source endpoint `%s` at %s:%d and the sink endpoint `%s` at %s:%d, but the principal support lane would jump from line %d to the sink without any model-emitted intermediate evidence in %s:%d-%d.\n\n",
-		demand.startHint, demand.source, demand.startLine,
-		demand.endHint, demand.source, demand.endLine,
-		demand.lastInterior, demand.source, lineRange.Start, lineRange.End)
-	if alreadyRead {
-		b.WriteString("That range is already in read coverage, so do NOT widen scope yet. Re-emit grounded `emit_evidence` items for the intermediate call / handoff / boundary facts from the already-read span, then retry `emit_investigation_complete`.")
-	} else {
-		b.WriteString("Read that source span, then emit grounded `emit_evidence` items for the intermediate call / handoff / boundary facts before retrying `emit_investigation_complete`.")
+// QueueProactiveCallChainClosureRepairs exposes the call-chain principal-span
+// closure target before the model attempts emit_investigation_complete. It
+// reuses the exact typed oracle that the completion boundary already enforces:
+// trace/call-chain RequestModel traits, analyzer endpoint hints, structured
+// EvidenceItem rows, read coverage, and principal_span_waiver. The function
+// queues only repair directives; it never materializes evidence or rewrites the
+// model's answer.
+func QueueProactiveCallChainClosureRepairs(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return false
 	}
-	return b.String()
+	closure := ctx.Mutable.EvidenceClosure()
+	if closure == nil {
+		return false
+	}
+	refreshClosureReadSnapshot(ctx, closure)
+	evidence := ctx.Mutable.EmittedEvidence()
+	if callChainAggregateMemberSetCompletesPrincipalBoundary(ctx, effectiveCompletionAggregateFacts(ctx, nil), evidence) {
+		return false
+	}
+	repair, _, _, ok := callChainPrincipalSpanRepairWithEvidence(ctx, closure, evidence)
+	if !ok {
+		return false
+	}
+	closure.AddRepair(repair)
+	return true
 }
 
 type callChainPrincipalSpanContext struct {

@@ -5936,7 +5936,11 @@ func renderCompactClosureRepairSection(repair types.RepairDirective) string {
 			if strings.TrimSpace(file) == "" {
 				continue
 			}
-			fmt.Fprintf(&b, "- `%s`\n", file)
+			if ranges := renderRepairLineRangeList(repair.LineRanges, 2); ranges != "" && len(files) == 1 {
+				fmt.Fprintf(&b, "- `%s` %s\n", file, ranges)
+			} else {
+				fmt.Fprintf(&b, "- `%s`\n", file)
+			}
 		}
 		if len(files) > limit {
 			fmt.Fprintf(&b, "- ... and %d more blocking source(s)\n", len(files)-limit)
@@ -5989,6 +5993,37 @@ func renderCompactClosureRepairSection(repair types.RepairDirective) string {
 		b.WriteString("No new navigation branch is changing the answer; close out with the current grounded evidence.\n")
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func renderRepairLineRangeList(ranges []types.LineRange, max int) string {
+	if len(ranges) == 0 {
+		return ""
+	}
+	if max <= 0 || max > len(ranges) {
+		max = len(ranges)
+	}
+	var parts []string
+	for _, r := range ranges[:max] {
+		if r.Start <= 0 || r.End < r.Start {
+			continue
+		}
+		if r.Start == r.End {
+			parts = append(parts, fmt.Sprintf("line %d", r.Start))
+		} else {
+			parts = append(parts, fmt.Sprintf("lines %d-%d", r.Start, r.End))
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	suffix := ""
+	if len(ranges) > max {
+		suffix = fmt.Sprintf(" (+%d more range)", len(ranges)-max)
+		if len(ranges)-max > 1 {
+			suffix = fmt.Sprintf(" (+%d more ranges)", len(ranges)-max)
+		}
+	}
+	return "(" + strings.Join(parts, ", ") + suffix + ")"
 }
 
 func renderClosureRepairHint(repairs []types.RepairDirective) string {
@@ -6107,6 +6142,38 @@ func (e *explorerEvaluator) postClosureRepairSignal(obs LoopObservation) LoopSig
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        "explorer.mid-loop.closure-repair",
+		Hint:           renderClosureRepairHint(repairs),
+		Progress:       true,
+		BypassThrottle: true,
+		BypassBudget:   true,
+	}
+}
+
+func (e *explorerEvaluator) postProactiveClosureTargetSignal(obs LoopObservation) LoopSignal {
+	if e == nil || e.midLoopClosureRepairSent || e.investigationComplete || e.mutable == nil || e.analysisIR == nil {
+		return LoopSignal{}
+	}
+	if obs.LastToolResult == nil || obs.LastToolResult.ToolName != "emit_evidence" || !obs.LastToolResult.Success {
+		return LoopSignal{}
+	}
+	ctx := &types.BusContext{
+		RepoRoot:   e.repoRoot,
+		Mutable:    e.mutable,
+		AnalysisIR: e.analysisIR,
+		MultiGraph: e.multiGraphHandle,
+	}
+	if !tool.QueueProactiveCallChainClosureRepairs(ctx) {
+		return LoopSignal{}
+	}
+	repairs := closureRepairDirectives(e.mutable)
+	if len(repairs) == 0 {
+		return LoopSignal{}
+	}
+	e.midLoopClosureRepairSent = true
+	e.midLoopClosureRepairResultsLen = len(obs.AllToolResults)
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        "explorer.mid-loop.proactive-closure-target",
 		Hint:           renderClosureRepairHint(repairs),
 		Progress:       true,
 		BypassThrottle: true,
@@ -8267,6 +8334,9 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		return sig
 	}
 	if sig := e.postAuthoritativeTier1CompletionSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postProactiveClosureTargetSignal(obs); sig.HintRequested {
 		return sig
 	}
 	// Completion-ready is a typed close signal. It must beat generic

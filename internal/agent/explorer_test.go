@@ -4989,6 +4989,56 @@ func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *test
 		}
 	})
 
+	t.Run("proactive closure target surfaces before completion attempt", func(t *testing.T) {
+		mut := types.NewMutableState("trace foo to bar")
+		mut.AppendEvidence([]types.EvidenceItem{
+			{
+				ID:         "source",
+				Kind:       types.EvidenceDirect,
+				AnchorKind: types.AnchorCall,
+				Subject:    "foo",
+				Object:     "handoff",
+				Source:     "x.go",
+				LineStart:  10,
+			},
+			{
+				ID:         "sink",
+				Kind:       types.EvidenceDirect,
+				AnchorKind: types.AnchorCall,
+				Subject:    "handoff",
+				Object:     "bar",
+				Source:     "x.go",
+				LineStart:  300,
+			},
+		})
+		eval := &explorerEvaluator{
+			phase:      1,
+			mutable:    mut,
+			analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{RawRequest: "trace foo to bar", Intent: types.IntentTrace, AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain), MentionedEntities: []string{"foo", "bar"}}}},
+		}
+		results := []types.ToolResult{{
+			ToolName: "emit_evidence",
+			Success:  true,
+			Summary:  "emit_evidence accepted 2 item(s)",
+		}}
+
+		sig := eval.postProactiveClosureTargetSignal(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      5,
+			LastToolResult: &results[0],
+			AllToolResults: results,
+		})
+		if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.proactive-closure-target" {
+			t.Fatalf("expected proactive closure target hint, got %+v", sig)
+		}
+		if !strings.Contains(sig.Hint, "Forced Read List") || !strings.Contains(sig.Hint, "x.go") || !strings.Contains(sig.Hint, "lines ") {
+			t.Fatalf("proactive hint should expose the surgical read target and range, got: %s", sig.Hint)
+		}
+		if !eval.midLoopClosureRepairSent {
+			t.Fatal("proactive target should reuse closure repair state so generic navigation stays blocked until progress")
+		}
+	})
+
 	t.Run("non-downgrade success stops the loop as before", func(t *testing.T) {
 		eval := &explorerEvaluator{phase: 1}
 		completeResult := types.ToolResult{

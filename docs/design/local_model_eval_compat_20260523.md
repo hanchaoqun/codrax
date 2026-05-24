@@ -2470,3 +2470,123 @@ high-ROI failures are all explore-side convergence issues:
   is the same as the rest of this document: do not infer user intent from raw
   user/model prose, do not change model conclusions, and only auto-repair
   structure/citations/facts that are already grounded by typed source evidence.
+
+## 2026-05-24 Batch 26 - Proactive Typed Closure Targets
+
+Status: implemented and validated.
+
+### Problem statement
+
+Batch 25 made bounded sequence/call-chain answers correct, but not yet cheap.
+The `qf_sequence_analyzer_gate` rerun passed only after the model first called
+`emit_investigation_complete`, got downgraded by the call-chain principal span
+gate, read `internal/agent/analyzer.go:2084-2266`, emitted the missing
+intermediate evidence, and then completed. That is structurally correct, but it
+turns a predictable typed obligation into a late retry.
+
+The user-facing symptom is extra exploration after the model already has the
+source endpoint, sink endpoint, and enough adjacent evidence to know where the
+gap is. On small local models this is especially expensive because the repair
+round can trigger additional generic navigation before the model focuses on the
+queued span.
+
+### Root cause
+
+- The typed closure oracle already exists in
+  `internal/tool/emit_investigation_complete.go`:
+  `callChainPrincipalSpanDowngradeWithEvidence` derives a source→sink demand
+  from `RequestModel` endpoint hints and structured `EvidenceItem` rows.
+- That oracle currently runs only at the `emit_investigation_complete`
+  boundary. Therefore the first time the model sees the exact missing span is
+  after it has attempted to close.
+- Explorer already has a structured mid-loop repair channel
+  (`postClosureRepairSignal`, `renderClosureRepairHint`,
+  `EvidenceClosure.AddRepair`) and a closure-only guard that prevents generic
+  navigation after a repair is queued. The missing piece is to feed the same
+  oracle into that channel before completion.
+
+### Design
+
+1. Factor the principal-span repair calculation
+   - Extract the repair construction from
+     `callChainPrincipalSpanDowngradeWithEvidence` into a shared helper that
+     returns a `RepairDirective`, the computed span demand, and whether the
+     demanded range is already read.
+   - Keep all existing typed guards: trace/call-chain only, no project
+     orientation, no raw user/model prose matching, honor
+     `principal_span_waiver`, require analyzer endpoint hints, require
+     structured evidence source/sink rows.
+   - The downgrade path must continue to render the same message and queue the
+     same repair as before.
+
+2. Add a proactive queue API in the tool layer
+   - Export a small helper that refreshes read coverage and queues the same
+     active `RepairDirective` when the principal-span gate would fire.
+   - Return only a boolean / structured repair state; do not produce answer
+     text and do not mutate model conclusions.
+   - Do not run generic forced-read gates here. This batch is only the precise
+     source→sink span obligation so it cannot expand scope.
+
+3. Consume it in explorer mid-loop
+   - After successful `emit_evidence` and before generic completion-ready
+     hints, ask the tool helper whether a typed closure repair is already
+     inevitable.
+   - If yes, reuse the existing `renderClosureRepairHint` path and set the same
+     `midLoopClosureRepairSent` state. Existing closure-only navigation guard
+     then prevents widening until the repair is handled.
+   - This is a prompt/hint only, not answer rewriting. The model still decides
+     which evidence items to emit from the already-read or requested span.
+
+4. Preserve surgical line ranges in active read repairs
+   - `RepairDirective.LineRanges` already exists and `AddRepair` bridges it to
+     `PendingRead`, but `ActiveRepairs()` currently compacts pending reads back
+     to file-only repairs.
+   - Preserve line ranges in active repair views when a pending read carries a
+     surgical range. This lets proactive hints say which span matters instead
+     of forcing the model to rediscover it from the later downgrade text.
+
+### Commercial safety boundaries
+
+- No prompt-template rewrite and no user-question keyword control flow.
+- The proactive path uses the same typed oracle that already blocks completion;
+  it only moves the signal earlier.
+- No automatic evidence synthesis. The system queues read/materialization
+  targets but the model must still emit grounded evidence.
+- Language-neutral: the principal-span oracle operates on `EvidenceItem`
+  fields, source paths, and line ranges. It does not inspect Go ASTs or assume
+  Go syntax.
+- All existing waiver and external-boundary escapes remain authoritative.
+
+### Batch 26 task list
+
+- [x] Audit existing completion-span, closure repair, and evidence closure code.
+- [x] Record this design and task list.
+- [x] Factor principal-span repair construction into a shared helper.
+- [x] Add proactive queue API in `internal/tool`.
+- [x] Add explorer mid-loop proactive closure-target signal.
+- [x] Preserve surgical line ranges in active read repair rendering.
+- [x] Add focused unit tests for tool queueing, explorer signal priority, and
+      line-range preservation.
+- [x] Run focused tests, `go test ./internal/agent ./internal/tool
+      ./internal/types`, `make build`, and a small eval rerun if time permits.
+- [x] Commit and push Batch 26.
+
+### Batch 26 verification
+
+- Focused tests passed:
+  - `go test ./internal/tool -run 'TestQueueProactiveCallChainClosureRepairs|TestPrincipalSpanWaiver|TestCallChainQualifiedIntermediateDowngrade|TestPreCompleteCallChain'`
+  - `go test ./internal/agent -run 'TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive'`
+  - `go test ./internal/types -run 'TestRepairDirectiveBridge_PropagatesLineRanges'`
+- Broader safety checks passed:
+  - `go test ./internal/agent ./internal/tool ./internal/types`
+  - `make build`
+- Local-model eval passed:
+  - `EVAL_RESULTS_ROOT=.codrax/eval-batch26 bash eval/run.sh eval/cases/qf_sequence_analyzer_gate.case 1`
+  - Result: `PASS` (`.codrax/eval-batch26/qf_sequence_analyzer_gate-20260524-110519/summary.md`)
+  - Metrics: analyzer 1 iter / explorer 20 iters / extractor 1 iter /
+    finalizer 1 iter; finalizer accepted the first `emit_answer_document`.
+  - The eval did not need the new proactive principal-span repair because the
+    exploration had already collected dense structured intermediate coverage.
+    The completion path logged `call-chain qualified intermediates kept
+    advisory`, which confirms the proactive path did not over-fire or override
+    the model's evidence order.

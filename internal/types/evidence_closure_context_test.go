@@ -312,6 +312,17 @@ func TestRepairDirectiveBridge_PropagatesLineRanges(t *testing.T) {
 	if got[0].LineRanges[1] != (LineRange{Start: 100, End: 120}) {
 		t.Errorf("LineRanges[1] = %+v, want {100, 120}", got[0].LineRanges[1])
 	}
+	repairs := c.ActiveRepairs()
+	if len(repairs) != 1 {
+		t.Fatalf("ActiveRepairs length = %d, want 1", len(repairs))
+	}
+	if len(repairs[0].LineRanges) != 2 {
+		t.Fatalf("ActiveRepairs must preserve surgical line ranges; got %+v", repairs[0])
+	}
+	if repairs[0].LineRanges[0] != (LineRange{Start: 50, End: 80}) ||
+		repairs[0].LineRanges[1] != (LineRange{Start: 100, End: 120}) {
+		t.Fatalf("ActiveRepairs line ranges = %+v, want original surgical ranges", repairs[0].LineRanges)
+	}
 }
 
 // TestRepairDirectiveBridge_NilLineRangesNoOp: bridging a

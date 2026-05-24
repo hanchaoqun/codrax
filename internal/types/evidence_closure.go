@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"hash/fnv"
 	"sort"
 	"strings"
@@ -1249,9 +1250,11 @@ func (c *EvidenceClosure) activeReadRepairsLocked() []RepairDirective {
 	type groupKey struct {
 		rationale string
 		origin    string
+		ranges    string
 	}
 	var order []groupKey
 	filesByGroup := make(map[groupKey][]string)
+	rangesByGroup := make(map[groupKey][]LineRange)
 	seenFile := make(map[string]bool, len(c.pendingReads))
 	for _, pending := range c.pendingReads {
 		file := c.canonicalize(pending.File)
@@ -1259,11 +1262,15 @@ func (c *EvidenceClosure) activeReadRepairsLocked() []RepairDirective {
 			continue
 		}
 		seenFile[file] = true
-		key := groupKey{rationale: pending.Rationale, origin: pending.Origin}
+		ranges := cloneLineRanges(pending.LineRanges)
+		key := groupKey{rationale: pending.Rationale, origin: pending.Origin, ranges: lineRangesStableKey(ranges)}
 		if _, ok := filesByGroup[key]; !ok {
 			order = append(order, key)
 		}
 		filesByGroup[key] = append(filesByGroup[key], file)
+		if len(ranges) > 0 {
+			rangesByGroup[key] = ranges
+		}
 	}
 	if len(order) == 0 {
 		return nil
@@ -1275,13 +1282,28 @@ func (c *EvidenceClosure) activeReadRepairsLocked() []RepairDirective {
 			continue
 		}
 		out = append(out, RepairDirective{
-			Kind:      RepairReadFile,
-			Files:     append([]string(nil), files...),
-			Rationale: key.rationale,
-			Origin:    key.origin,
+			Kind:       RepairReadFile,
+			Files:      append([]string(nil), files...),
+			Rationale:  key.rationale,
+			Origin:     key.origin,
+			LineRanges: cloneLineRanges(rangesByGroup[key]),
 		})
 	}
 	return out
+}
+
+func lineRangesStableKey(ranges []LineRange) string {
+	if len(ranges) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, r := range ranges {
+		if i > 0 {
+			b.WriteByte(';')
+		}
+		fmt.Fprintf(&b, "%d-%d", r.Start, r.End)
+	}
+	return b.String()
 }
 
 // ActiveRepairs returns the live repair surface the next retry
