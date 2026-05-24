@@ -472,6 +472,7 @@ func (o *Orchestrator) applyExploreIterationScaling(agentCtx *types.AgentContext
 	}
 	nSub := len(o.busCtx.AnalysisIR.RequestModel.SubTopics)
 	if nSub <= 1 {
+		applyExploreLaneHandoffIterationCap(agentCtx)
 		return
 	}
 	agentCfg := o.settings.Agent
@@ -487,6 +488,32 @@ func (o *Orchestrator) applyExploreIterationScaling(agentCtx *types.AgentContext
 	}
 	if adjusted > base {
 		agentCtx.MaxIterOverride = adjusted
+	}
+	applyExploreLaneHandoffIterationCap(agentCtx)
+}
+
+func applyExploreLaneHandoffIterationCap(agentCtx *types.AgentContext) {
+	if agentCtx == nil || agentCtx.ExploreLanePlan.Empty() {
+		return
+	}
+	hasPrincipalOwner := false
+	hasHandoffOnlyLane := false
+	for _, lane := range agentCtx.ExploreLanePlan.Lanes {
+		if lane.HandoffPolicy == types.ExploreLaneHandoffOwn || lane.Role == types.ExploreLaneRolePrincipal {
+			hasPrincipalOwner = true
+			break
+		}
+		switch lane.HandoffPolicy {
+		case types.ExploreLaneHandoffSupport, types.ExploreLaneHandoffVerify, types.ExploreLaneHandoffDelay:
+			hasHandoffOnlyLane = true
+		}
+	}
+	if hasPrincipalOwner || !hasHandoffOnlyLane {
+		return
+	}
+	const supportHandoffIterCap = 8
+	if agentCtx.MaxIterOverride <= 0 || agentCtx.MaxIterOverride > supportHandoffIterCap {
+		agentCtx.MaxIterOverride = supportHandoffIterCap
 	}
 }
 

@@ -139,6 +139,43 @@ func TestScopeExploreLanePlansForWindows_DemotesExactDuplicateLane(t *testing.T)
 	}
 }
 
+func TestApplyExploreLaneHandoffIterationCap_SupportOnlyLane(t *testing.T) {
+	ctx := &types.AgentContext{
+		MaxIterOverride: 30,
+		ExploreLanePlan: types.ExploreLanePlan{Lanes: []types.ExploreLane{{
+			ID:            "lane-support",
+			Label:         "current_source",
+			Origin:        types.AnswerEvidenceOriginCurrentSource,
+			Role:          types.ExploreLaneRoleSupport,
+			HandoffPolicy: types.ExploreLaneHandoffSupport,
+		}}},
+	}
+	applyExploreLaneHandoffIterationCap(ctx)
+	if ctx.MaxIterOverride != 8 {
+		t.Fatalf("support-only duplicate lane should be capped to 8 iterations, got %d", ctx.MaxIterOverride)
+	}
+
+	ctx.MaxIterOverride = 5
+	applyExploreLaneHandoffIterationCap(ctx)
+	if ctx.MaxIterOverride != 5 {
+		t.Fatalf("handoff cap must not raise an already tighter limit, got %d", ctx.MaxIterOverride)
+	}
+
+	ctx = &types.AgentContext{
+		ExploreLanePlan: types.ExploreLanePlan{Lanes: []types.ExploreLane{{
+			ID:            "lane-owner",
+			Label:         "current_source",
+			Origin:        types.AnswerEvidenceOriginCurrentSource,
+			Role:          types.ExploreLaneRolePrincipal,
+			HandoffPolicy: types.ExploreLaneHandoffOwn,
+		}}},
+	}
+	applyExploreLaneHandoffIterationCap(ctx)
+	if ctx.MaxIterOverride != 0 {
+		t.Fatalf("principal owner lane must keep normal explorer budget, got %d", ctx.MaxIterOverride)
+	}
+}
+
 func TestDispatchExploreWindowsParallel_SkipsNonWinningPartialSiblingAfterConvergence(t *testing.T) {
 	partialDoneCh := make(chan struct{})
 
