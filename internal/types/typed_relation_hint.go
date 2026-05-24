@@ -470,6 +470,12 @@ const (
 	// linked to a current-source anchor. These are prompt hints, not
 	// current-source citations and not system-authored final answers.
 	TypedRelationProvenanceTypedObservation TypedRelationProvenance = "typed_observation"
+
+	// TypedRelationProvenanceTypedEvidence marks rows projected from accepted
+	// structured EvidenceItems. These rows are not graph guesses; they preserve
+	// model/tool-authored evidence semantics while giving relation consumers a
+	// uniform carrier.
+	TypedRelationProvenanceTypedEvidence TypedRelationProvenance = "typed_evidence"
 )
 
 // TypedRelationAnchorKind maps a relation tag to the AnchorKind that

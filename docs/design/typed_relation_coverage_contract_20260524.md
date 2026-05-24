@@ -266,6 +266,55 @@ flowchart TD
   H --> I["answer panel"]
 ```
 
+## R6 Evidence-Driven Registration / Binding Carrier
+
+Status: Done for the first implementation slice.
+
+Registration, binding, and observer/subscriber relations are intentionally not
+derived from framework-specific keyword tables. Different repositories express
+these relations through Java service registration, Go maps, C/C++ callback
+tables, ArkTS decorators, Python plugin registries, configuration bindings, and
+external runtime artifacts. A graph-only or string-pattern-only carrier would
+recreate the historical bug class where system structure preferences overpower
+the model's grounded investigation.
+
+The first commercial-safe slice is therefore evidence-driven:
+
+1. Only accepted structured `EvidenceItem` rows may produce
+   `TypedRelationRegisters` candidates.
+2. The prompt-hint lane may use grounded or recovered
+   `EvidenceKind=registration` rows as relation context.
+3. The coverage-gate lane is stricter: the row must be citable and must carry
+   explicit principal intent (`salience=load_bearing|exhaust_listed`) or a
+   validated `context_role=defining`. Supporting/context rows stay guidance
+   only.
+4. Direction is derived from typed fields, not prose:
+   `subject registers object` can answer either "what registers object" or
+   "what does subject register" when the query source exactly matches the
+   corresponding typed endpoint.
+5. System-generated relation candidates remain prompt/context hints or
+   pre-complete diagnostics. They must never replace model-authored prose,
+   tables, diagrams, or final answer blocks.
+
+This slice is language-neutral because it consumes only the shared
+`emit_evidence` schema and grounding status, not parser-specific syntax.
+Future route/config/observer providers should reuse the same
+`EvidenceRelationCandidateSource` and add typed enum fields only after those
+fields exist in the schema.
+
+Implementation notes:
+
+- `internal/types.EvidenceRelationCandidateSource` adapts accepted
+  `EvidenceItem` rows into `TypedRelationRegisters` candidates.
+- `internal/context.typedRelationCarriersFromBus` now includes the evidence
+  carrier alongside MultiGraph, ObservationLedger, and legacy SearchGraph.
+- `emit_investigation_complete` coverage uses the same provider but receives
+  only citable principal/defining registration rows, so supporting evidence is
+  never promoted into a forced missing member.
+- Tests cover both relation directions (`target -> registrar` and
+  `registrar -> target`), ungrounded/non-registration filtering, bus prompt
+  projection, and pre-complete coverage behavior.
+
 The same provider feeds prompt hints and coverage checking, but the purpose flag
 changes behavior:
 

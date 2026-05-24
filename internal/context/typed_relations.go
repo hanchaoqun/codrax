@@ -46,6 +46,9 @@ func typedRelationCarriersFromBus(bus *types.BusContext) []any {
 	if ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, 64)); !ledger.Empty() {
 		add(types.ObservationRelationCandidateSource{Ledger: ledger})
 	}
+	if items := typedRelationEvidenceItemsFromBus(bus); len(items) > 0 {
+		add(types.EvidenceRelationCandidateSource{Items: items})
+	}
 	if bus.Mutable != nil {
 		if graph := bus.Mutable.SearchGraph(); graph != nil {
 			add(graph)
@@ -53,6 +56,32 @@ func typedRelationCarriersFromBus(bus *types.BusContext) []any {
 	}
 	if !multiGraphAdded {
 		add(bus.MultiGraph)
+	}
+	return out
+}
+
+func typedRelationEvidenceItemsFromBus(bus *types.BusContext) []types.EvidenceItem {
+	if bus == nil {
+		return nil
+	}
+	var out []types.EvidenceItem
+	seen := map[string]bool{}
+	add := func(items []types.EvidenceItem) {
+		for _, item := range items {
+			key := types.StableEvidenceID(item)
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, item)
+		}
+	}
+	add(bus.EvidenceItems)
+	if bus.Mutable != nil {
+		add(bus.Mutable.EmittedEvidence())
+		if ta := bus.Mutable.TurnAArtifacts(); ta != nil {
+			add(ta.EvidenceItems)
+		}
 	}
 	return out
 }
@@ -355,6 +384,8 @@ func typedRelationCandidateProvenance(row types.TypedRelationCandidate) types.Ty
 	switch row.Carrier {
 	case types.TypedRelationCarrierExternalObservation:
 		return types.TypedRelationProvenanceTypedObservation
+	case types.TypedRelationCarrierEvidence:
+		return types.TypedRelationProvenanceTypedEvidence
 	default:
 		return types.TypedRelationProvenanceTypedGraph
 	}

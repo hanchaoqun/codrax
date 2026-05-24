@@ -485,6 +485,42 @@ func TestTypedRelationCarriersFromBusIncludesObservationLedgerSourceAnchors(t *t
 	}
 }
 
+func TestTypedRelationCarriersFromBusIncludesRegistrationEvidenceCarrier(t *testing.T) {
+	bus := &types.BusContext{
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "reg",
+			Kind:            types.EvidenceRegistration,
+			Subject:         "RegisterFeature",
+			Object:          "FeatureA",
+			Source:          "internal/registry.go",
+			LineStart:       42,
+			AnchorKind:      types.AnchorAssignment,
+			AnchorSymbol:    "FeatureA",
+			GroundingStatus: types.GroundingGrounded,
+			Scope:           types.ScopeLine,
+		}},
+	}
+	rm := &types.RequestModel{
+		PredicateAxis: types.AxisRegister,
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"FeatureA"},
+		},
+	}
+	var hints []types.TypedRelationHint
+	for _, carrier := range typedRelationCarriersFromBus(bus) {
+		hints = appendTypedRelationHints(hints, ProbeTypedRelations(carrier, rm)...)
+	}
+	if len(hints) != 1 {
+		t.Fatalf("expected one evidence-backed registration hint, got %+v", hints)
+	}
+	if hints[0].Relation != types.TypedRelationRegisters ||
+		hints[0].Provenance != types.TypedRelationProvenanceTypedEvidence ||
+		hints[0].Members[0].Name != "RegisterFeature" ||
+		hints[0].Members[0].File != "internal/registry.go" {
+		t.Fatalf("unexpected evidence-backed registration hint: %+v", hints[0])
+	}
+}
+
 func TestProbeTypedRelations_ImportPathProfileUsesGraphImportEdges(t *testing.T) {
 	root := &repotypes.FileInfo{RelPath: "cmd/root.go", Language: repotypes.LangGo}
 	dep := &repotypes.FileInfo{RelPath: "internal/tool/tool.go", Language: repotypes.LangGo}

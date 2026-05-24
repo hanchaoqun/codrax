@@ -2204,6 +2204,9 @@ func relationCandidatesForRequest(ctx *types.BusContext, rm types.RequestModel) 
 	if out := relationFilterCoverageCandidates(rmrelation.TypedRelationCandidates(graph, query), rm); len(out) > 0 {
 		return out
 	}
+	if out := relationFilterCoverageCandidates((types.EvidenceRelationCandidateSource{Items: relationEvidenceItemsForCoverage(ctx)}).TypedRelationCandidates(query), rm); len(out) > 0 {
+		return out
+	}
 	if query.AllowsKind(types.TypedRelationImplements) {
 		if provider, ok := ctx.MultiGraph.(types.TypedRelationImplementerSource); ok && provider != nil {
 			if out := relationTypedImplementersFromProvider(provider, query.Sources, rm); len(out) > 0 {
@@ -2215,6 +2218,32 @@ func relationCandidatesForRequest(ctx *types.BusContext, rm types.RequestModel) 
 		}
 	}
 	return nil
+}
+
+func relationEvidenceItemsForCoverage(ctx *types.BusContext) []types.EvidenceItem {
+	if ctx == nil {
+		return nil
+	}
+	var out []types.EvidenceItem
+	seen := map[string]bool{}
+	add := func(items []types.EvidenceItem) {
+		for _, item := range items {
+			key := types.StableEvidenceID(item)
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, item)
+		}
+	}
+	add(ctx.EvidenceItems)
+	if ctx.Mutable != nil {
+		add(ctx.Mutable.EmittedEvidence())
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			add(ta.EvidenceItems)
+		}
+	}
+	return out
 }
 
 func relationTypedImplementersFromProvider(provider types.TypedRelationImplementerSource, candidates []string, rm types.RequestModel) []types.TypedRelationCandidate {

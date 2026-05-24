@@ -1544,6 +1544,86 @@ func TestEmitInvestigationComplete_CallChainAcceptsLatePrincipalEvidence(t *test
 	}
 }
 
+func TestRelationMemberSetCoverageGaps_UsesEvidenceDrivenRegistrationCarrier(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceRegistration,
+		Subject:         "RegisterFeature",
+		Object:          "FeatureA",
+		Source:          "internal/registry.go",
+		LineStart:       42,
+		AnchorKind:      types.AnchorAssignment,
+		AnchorSymbol:    "FeatureA",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+		Scope:           types.ScopeLine,
+		Salience:        types.SalienceExhaustListed,
+	}})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentEnumerate,
+			PredicateAxis: types.AxisRegister,
+			Predicates: types.SemanticPredicates{
+				IsRelationalLookup:    true,
+				IsCategoryEnumeration: true,
+			},
+			AnalyzerHints: types.AnalyzerHints{Entities: []string{"FeatureA"}},
+		}},
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "FeatureA registrations",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"OtherRegistrar"},
+	}}
+	gaps := relationMemberSetCoverageGaps(bus, facts)
+	if len(gaps) != 1 {
+		t.Fatalf("gaps = %+v, want one omitted registration member", gaps)
+	}
+	if gaps[0].Relation != types.TypedRelationRegisters || gaps[0].Name != "RegisterFeature" || gaps[0].File != "internal/registry.go" {
+		t.Fatalf("unexpected gap: %+v", gaps[0])
+	}
+}
+
+func TestRelationMemberSetCoverageGaps_DoesNotForceSupportingRegistrationEvidence(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceRegistration,
+		Subject:         "RegisterFeature",
+		Object:          "FeatureA",
+		Source:          "internal/registry.go",
+		LineStart:       42,
+		AnchorKind:      types.AnchorAssignment,
+		AnchorSymbol:    "FeatureA",
+		GroundingStatus: types.GroundingGrounded,
+		GroundingTier:   types.TierLineText,
+		Scope:           types.ScopeLine,
+		Salience:        types.SalienceSupporting,
+	}})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentEnumerate,
+			PredicateAxis: types.AxisRegister,
+			Predicates: types.SemanticPredicates{
+				IsRelationalLookup:    true,
+				IsCategoryEnumeration: true,
+			},
+			AnalyzerHints: types.AnalyzerHints{Entities: []string{"FeatureA"}},
+		}},
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "FeatureA registrations",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"OtherRegistrar"},
+	}}
+	if gaps := relationMemberSetCoverageGaps(bus, facts); len(gaps) != 0 {
+		t.Fatalf("supporting evidence must not force a missing relation member: %+v", gaps)
+	}
+}
+
 func TestEmitInvestigationComplete_CallChainRejectsLargeTailGapAfterLateEvidence(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.AppendEvidence([]types.EvidenceItem{
