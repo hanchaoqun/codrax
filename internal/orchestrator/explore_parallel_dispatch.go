@@ -17,11 +17,12 @@ import (
 )
 
 type exploreParallelResult struct {
-	index  int
-	window []*types.TaskNode
-	output *agent.StageOutput
-	fork   *types.MutableState
-	err    error
+	index    int
+	window   []*types.TaskNode
+	lanePlan types.ExploreLanePlan
+	output   *agent.StageOutput
+	fork     *types.MutableState
+	err      error
 }
 
 func (o *Orchestrator) dispatchExploreWindowsParallel(
@@ -128,11 +129,12 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 					Error:           unitErr,
 				})
 				resultCh <- exploreParallelResult{
-					index:  i,
-					window: windows[i],
-					output: out,
-					fork:   fork,
-					err:    err,
+					index:    i,
+					window:   windows[i],
+					lanePlan: lanePlan,
+					output:   out,
+					fork:     fork,
+					err:      err,
 				}
 			}
 		}()
@@ -155,6 +157,9 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 	results := make([]exploreParallelResult, 0, len(windows))
 	earlyConverged := false
 	winningConvergedIndex := -1
+	collectiveConverged := false
+	collectiveConvergedIndexes := map[int]bool{}
+	handoffTracker := newExploreParallelHandoffTracker(lanePlans)
 	for res := range resultCh {
 		if allowEarlyConvergence && exploreParallelResultConverged(res) {
 			if !earlyConverged {
@@ -162,6 +167,14 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 			}
 			earlyConverged = true
 			cancel()
+		} else if !allowEarlyConvergence && handoffTracker.active() && exploreParallelResultConverged(res) {
+			if handoffTracker.mark(res.index, res.lanePlan) {
+				collectiveConverged = true
+				for _, idx := range handoffTracker.convergedIndexes() {
+					collectiveConvergedIndexes[idx] = true
+				}
+				cancel()
+			}
 		}
 		results = append(results, res)
 	}
@@ -186,6 +199,18 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 				exploreDispatchKeyForWindow(res.window), unitIDs[winningConvergedIndex])
 			continue
 		}
+		if collectiveConverged && !collectiveConvergedIndexes[res.index] {
+			if res.err != nil {
+				if errors.Is(res.err, context.Canceled) {
+					continue
+				}
+				logging.Warning("[orchestrator] parallel explore sibling ended after typed-lane convergence: %v", res.err)
+				continue
+			}
+			logging.Info("[orchestrator] skipping non-required parallel explore sibling after typed-lane convergence key=%s",
+				exploreDispatchKeyForWindow(res.window))
+			continue
+		}
 		if res.fork != nil {
 			o.busCtx.Mutable.MergeExploreFork(res.fork)
 		}
@@ -203,6 +228,10 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 		}
 	}
 	if earlyConverged && merged.SignalUpdates != nil {
+		merged.SignalUpdates.HasEnoughFacts = true
+		merged.MissingPiece = types.MissingNone
+	}
+	if collectiveConverged && merged.SignalUpdates != nil {
 		merged.SignalUpdates.HasEnoughFacts = true
 		merged.MissingPiece = types.MissingNone
 	}
@@ -371,6 +400,87 @@ func exploreLaneUnitIDFromEvidenceNodeID(id string) (string, bool) {
 		n = n*10 + int(r-'0')
 	}
 	return fmt.Sprintf("subtopic-%d", n+1), true
+}
+
+type exploreParallelHandoffTracker struct {
+	required map[string]struct{}
+	covered  map[string]struct{}
+	indexes  map[int]struct{}
+}
+
+func newExploreParallelHandoffTracker(plans []types.ExploreLanePlan) *exploreParallelHandoffTracker {
+	required := map[string]struct{}{}
+	for _, plan := range plans {
+		for _, key := range exploreParallelRequiredLaneKeys(plan) {
+			required[key] = struct{}{}
+		}
+	}
+	if len(required) == 0 {
+		return &exploreParallelHandoffTracker{}
+	}
+	return &exploreParallelHandoffTracker{
+		required: required,
+		covered:  map[string]struct{}{},
+		indexes:  map[int]struct{}{},
+	}
+}
+
+func (t *exploreParallelHandoffTracker) active() bool {
+	return t != nil && len(t.required) > 0
+}
+
+func (t *exploreParallelHandoffTracker) mark(index int, plan types.ExploreLanePlan) bool {
+	if !t.active() {
+		return false
+	}
+	var matched bool
+	for _, key := range exploreParallelRequiredLaneKeys(plan) {
+		if _, ok := t.required[key]; !ok {
+			continue
+		}
+		t.covered[key] = struct{}{}
+		matched = true
+	}
+	if matched {
+		t.indexes[index] = struct{}{}
+	}
+	return len(t.covered) >= len(t.required)
+}
+
+func (t *exploreParallelHandoffTracker) convergedIndexes() []int {
+	if t == nil || len(t.indexes) == 0 {
+		return nil
+	}
+	out := make([]int, 0, len(t.indexes))
+	for idx := range t.indexes {
+		out = append(out, idx)
+	}
+	sort.Ints(out)
+	return out
+}
+
+func exploreParallelRequiredLaneKeys(plan types.ExploreLanePlan) []string {
+	if plan.Empty() {
+		return nil
+	}
+	out := make([]string, 0, len(plan.Lanes))
+	seen := map[string]struct{}{}
+	for _, lane := range plan.Lanes {
+		if lane.HandoffPolicy != types.ExploreLaneHandoffOwn && lane.Role != types.ExploreLaneRolePrincipal {
+			continue
+		}
+		key := strings.TrimSpace(lane.OwnershipKey())
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, key)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func exploreParallelResultConverged(res exploreParallelResult) bool {

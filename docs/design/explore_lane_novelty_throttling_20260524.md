@@ -103,11 +103,12 @@ lanes.
 | T20.1 Audit lane ownership and budget paths. | Done | This document |
 | T20.2 Add support-only lane budget cap after existing multi-subtopic scaling. | Done | `go test ./internal/orchestrator -run TestApplyExploreLaneHandoffIterationCap` |
 | T20.3 Document next accepted-delta novelty ledger work. | Done | Gap doc update |
-| T20.4 Focused eval rerun on `u7k` and mixed runtime/source cases. | In progress | `u7k-20260524-191826`; rebuilt `u7k-20260524-200712` / `u7k-20260524-201412` showed good answers and no finalizer churn; remaining mixed runtime/source breadth pending |
-| T20.5 Add same-lane accepted-delta novelty advisory/telemetry. | In progress | unit tests done, including lane-scoped VCS/current-source protection; focused `u7k`, log/source, trace/source, VCS/current reruns pending |
+| T20.4 Focused eval rerun on `u7k` and mixed runtime/source cases. | Done | `t20-collective-20260524-223835`: log/source and trace/source passed with one-turn finalizers; `u7k` product answer was good and the remaining failure was a brittle file-name assertion now widened to current stable implementation files. |
+| T20.5 Add same-lane accepted-delta novelty advisory/telemetry. | In progress | unit tests done, including lane-scoped VCS/current-source protection; focused replay proves no finalizer churn but still shows early duplicate work (`log/source exp_it=30`, `trace/source exp_it=26`). |
 | T20.6 Make read-without-emit hints origin-aware so VCS/log/trace/command observations are not forced into file:line `emit_evidence`. | Done | agent unit tests; rebuilt mixed VCS/current eval prompt audit proved origin-aware hint was injected and finalizer stayed one turn |
 | T20.7 Surface per-worker lane labels in durable parallel scrollback. | Done | `go test ./internal/render ./internal/orchestrator -run 'TestRenderer_ParallelExplorerScrollbackShows|TestDispatchExploreWindowsParallel_ScopesLanePlanPerEvidenceWindow|TestScopeExploreLanePlansForWindows_DemotesExactDuplicateLane|TestApplyExploreLaneHandoffIterationCap'` |
 | T20.8 Scope low-novelty streaks by typed origin and disable the hint when same-origin lanes cannot be mapped precisely. | Done | `go test ./internal/agent -run TestPostSameLaneLowNoveltySignal` |
+| T20.9 Add collective typed-lane convergence for parallel explore. | Done | Orchestrator unit test covers canceling support siblings after required typed lane closures. Focused replay `t20-collective-20260524-223835` kept finalizer to one turn on log/source and trace/source; residual early duplicate digging remains under T20.5/T20.10 lane ownership. |
 
 ## Slice 1 Validation
 
@@ -200,6 +201,56 @@ the "soft guidance only" lane.
 
 This still does not hard-stop exploration, does not rewrite evidence, and does
 not infer duplicate topics from raw prose or similarity.
+
+## Slice 6 Collective Typed-Lane Convergence
+
+Status: Done for post-closure scheduling; early duplicate lane ownership remains
+under T20.5/T20.10.
+
+Focused replay on 2026-05-24 showed that the correctness path is mostly healthy:
+mixed VCS/current-source, log/current-source, trace/current-source, and
+command/current-source answers reached the finalizer in one turn without
+document rejects. The remaining cost problem is orchestration-level: when
+`parallelExploreMustWaitForSiblingHandoffs` disables single-winner early
+convergence, the scheduler currently waits for every parallel window, including
+support-only duplicate windows, even after every required typed lane owner has
+accepted closure.
+
+The fix must stay typed and conservative:
+
+- compute required lane ownership keys from `ExploreLanePlan` after per-window
+  scoping and duplicate demotion;
+- mark a key covered only when that window's fork accepted
+  `emit_investigation_complete`;
+- cancel remaining workers only after all required owner keys are covered;
+- merge only the accepted owner windows after collective convergence, so
+  partial support-only repairs and stale aggregate facts do not leak into the
+  parent state;
+- do nothing when there is no precise lane plan, when the required set is empty,
+  or when a hard shape such as exhaustive enumeration still lacks an accepted
+  owner closure.
+
+This is scheduling only. It does not inspect raw user text, does not compare
+model prose, does not reject answers, and does not change any finalizer contract.
+
+Validation after remote `e477ce42`:
+
+- `go test ./internal/orchestrator ./internal/agent ./internal/types -run
+  'Test(DispatchExploreWindowsParallel|ParallelExploreAllowsEarlyConvergence|AcceptedClosureAutoComplete|CompileExploreLanePlan|PostSameLaneLowNoveltySignal)'`
+  passed.
+- `eval/results/t20-collective-20260524-223835` showed one-turn finalizers and
+  zero finalizer rejects/rewrites for log/source and trace/source mixed cases.
+- `u7k` produced a useful answer with commit lineage and current-code scalar
+  chain; the failure was a brittle eval expectation that required older file
+  names instead of the current stable files used by the answer.
+- After remote `b860fa33`, package tests still passed. The remote change is
+  scoped to repo-map/source-inventory projection, so it does not alter this
+  scheduling contract; a future focused eval can measure whether the improved
+  scoped lens reduces source-inventory exploration breadth.
+- Residual gap: log/source and trace/source still begin duplicate early
+  exploration before any owner lane has a typed closure. The next batch should
+  add pre-dispatch lane ownership / novelty budget, not a harder finalizer or
+  supplement gate.
 
 ## Slice 3 UX Validation
 

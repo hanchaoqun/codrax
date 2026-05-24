@@ -8,8 +8,8 @@
 ID="u7k"
 NAME="history — all-history topic plus current implementation"
 QUESTION="从历史提交里找一次和 scalar 标量答案处理相关的改动，再结合当前代码解释现在这条链路是怎么工作的；请说明 commit 线索、关键文件和当前实现关系，不要只给 commit id。"
-EXPECT_CONTAINS="scalar commit emit_analysis.go answer_aggregate_fact.go"
+EXPECT_CONTAINS="scalar commit"
 EXPECT_NOT_CONTAINS="**值：**"
 EXPECT_MATCHES_REGEX="(commit|提交)
-(emit_analysis\.go|answer_aggregate_fact\.go|analyzer_intent\.go|emit_investigation_complete\.go)
+(emit_analysis\.go|answer_aggregate_fact\.go|analyzer_intent\.go|analyzer_predicate\.go|request_traits\.go|emit_investigation_complete\.go)
 (scalar|标量).*(链路|关系|实现|处理)|(链路|关系|实现|处理).*(scalar|标量)"

@@ -672,6 +672,100 @@ func TestDispatchExploreWindowsParallel_MixedOriginMechanismWaitsForSourceSiblin
 	}
 }
 
+func TestDispatchExploreWindowsParallel_CollectiveLaneConvergenceCancelsSupportSibling(t *testing.T) {
+	var supportStarted sync.Once
+	supportStartedCh := make(chan struct{})
+	vcsDoneCh := make(chan struct{})
+	var supportCanceled int32
+
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			switch ctx.ExploreDispatchKey {
+			case "n1_evidence_t0":
+				<-supportStartedCh
+				ctx.Mutable.SetInvestigationComplete("VCS lane accepted commit evidence")
+				close(vcsDoneCh)
+				return &agent.StageOutput{
+					MissingPiece:  types.MissingNone,
+					StageReport:   "vcs owner report",
+					SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				}, nil
+			case "n1_evidence_t1":
+				<-vcsDoneCh
+				ctx.Mutable.SetInvestigationComplete("current-source lane accepted implementation evidence")
+				return &agent.StageOutput{
+					MissingPiece:  types.MissingNone,
+					StageReport:   "source owner report",
+					SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				}, nil
+			case "n1_evidence_t2":
+				supportStarted.Do(func() { close(supportStartedCh) })
+				<-ctx.Context().Done()
+				atomic.StoreInt32(&supportCanceled, 1)
+				return nil, ctx.Context().Err()
+			default:
+				t.Fatalf("unexpected dispatch key %q", ctx.ExploreDispatchKey)
+				return nil, nil
+			}
+		},
+	})
+	o := New(types.PipelineSettings{MaxParallelism: 3}, ar, sr, sar)
+	o.busCtx = &types.BusContext{
+		PipelineStage: types.StageAnalyze,
+		ActiveAgent:   types.AgentAnalyzer,
+		Mutable:       types.NewMutableState("collective lane convergence"),
+		Signals:       types.ExecutionSignals{},
+		ExploreLanePlan: types.ExploreLanePlan{Lanes: []types.ExploreLane{
+			{
+				ID:                  "vcs-lane",
+				Label:               "vcs_history",
+				Origin:              types.AnswerEvidenceOriginVCSMetadata,
+				InvestigationUnitID: "subtopic-1",
+				Role:                types.ExploreLaneRolePrincipal,
+				HandoffPolicy:       types.ExploreLaneHandoffOwn,
+			},
+			{
+				ID:                  "source-lane",
+				Label:               "current_source",
+				Origin:              types.AnswerEvidenceOriginCurrentSource,
+				InvestigationUnitID: "subtopic-2",
+				Role:                types.ExploreLaneRolePrincipal,
+				HandoffPolicy:       types.ExploreLaneHandoffOwn,
+			},
+		}},
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentExplain,
+			Scenario: types.ScenarioArchitectureExplain,
+			Predicates: types.SemanticPredicates{
+				IsHistoryLookup: true,
+			},
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		}},
+	}
+
+	out, err := o.dispatchExploreWindowsParallel([][]*types.TaskNode{
+		{{ID: "n1_evidence_t0", Type: types.NodeEvidence}},
+		{{ID: "n1_evidence_t1", Type: types.NodeEvidence}},
+		{{ID: "n1_evidence_t2", Type: types.NodeEvidence}},
+	}, nil, 3)
+	if err != nil {
+		t.Fatalf("collective typed-lane convergence should absorb canceled support sibling: %v", err)
+	}
+	if out == nil || out.SignalUpdates == nil || !out.SignalUpdates.HasEnoughFacts {
+		t.Fatalf("merged output should preserve enough-facts after collective convergence, got %+v", out)
+	}
+	if atomic.LoadInt32(&supportCanceled) != 1 {
+		t.Fatal("support-only sibling was not canceled after all required typed lanes converged")
+	}
+	if len(o.busCtx.StageReports) != 2 {
+		t.Fatalf("stage reports = %+v, want only the two required owner reports", o.busCtx.StageReports)
+	}
+	got := []string{o.busCtx.StageReports[0].Findings, o.busCtx.StageReports[1].Findings}
+	if strings.Join(got, "|") != "vcs owner report|source owner report" {
+		t.Fatalf("stage reports = %+v, want owner reports only", got)
+	}
+}
+
 func TestParallelExploreAllowsEarlyConvergence_HistoryCrossComponentMechanismWaits(t *testing.T) {
 	o := &Orchestrator{busCtx: &types.BusContext{
 		AnalysisIR: &types.AnalysisIR{
