@@ -2404,3 +2404,35 @@ B2-M source-inventory cascade prompt gap, 2026-05-25 CST:
   - supports multi-repo active-set boundaries through the existing normalized
     source-inventory observation;
   - does not turn suggested files into a whitelist or final answer membership.
+
+B2-N analyzer broad child-list pre-scan gap, 2026-05-25 CST:
+
+- Root cause: analyzer prescan-ready detection only recognized
+  `grep(files_only=true)` summaries. A successful `list_files` parent-scope
+  directory listing could already show the bounded child-scope shape, but the
+  analyzer still exposed `repo_map` / `grep` / `list_files` in the next round.
+  Local models then spent another round listing child directories one by one,
+  even though analyze only needed routing/classification hints and explore
+  should own line-level evidence and full source-inventory expansion.
+- Commercial-grade contract:
+  - use only structured tool result shape: tool name, success flag,
+    `list_files` banner fields, and repo-relative result paths;
+  - never inspect user-question keywords or model prose;
+  - never synthesize `emit_analysis` or final answer members from a directory
+    listing;
+  - close only the analyzer pre-scan surface. The model still emits the real
+    `emit_analysis` payload, and explore remains responsible for verification.
+- Implementation:
+  - classify scoped `list_files` results as analyzer-ready when the path is
+    non-root, non-escaping, and the visible output contains child entries under
+    the same scope;
+  - treat larger child-scope listings as strong ready and switch immediately to
+    emit-only even when the global prescan budget is larger for multi-topic
+    questions;
+  - keep small scoped listings as soft ready so the existing budget policy can
+    decide whether to allow one more lightweight check;
+  - added tests for path-shaped directories with spaces, root and parent-escape
+    guards, soft small-scope listings, and the emit-only schema transition.
+- This remains cross-language: entries are treated as repo-relative path
+  surfaces only. No Go parser, extension, package naming convention, user
+  keyword, or model-prose rule participates in the control flow.

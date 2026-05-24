@@ -821,6 +821,83 @@ func TestAnalyzer_PrescanReady_LargerBudgetDoesNotCloseOnFirstScopedProbe(t *tes
 	}
 }
 
+func TestAnalyzer_PrescanReady_ListFilesChildScopeListingForcesEmitOnly(t *testing.T) {
+	restoreAnalysisLimits(t)
+	tool.SetAnalysisLimits(tool.AnalysisLimits{MaxPrescanRounds: 4})
+
+	mu := types.NewMutableState("mixed source inventory")
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mu}
+	e := &analyzerEvaluator{}
+	e.BuildInitialInstruction(ctx, nil)
+
+	result := types.ToolResult{
+		ToolName: "list_files",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[list_files: path=src modules recursive=false]",
+			"src modules/api",
+			"src modules/config",
+			"src modules/routes",
+			"src modules/runtime",
+			"src modules/web",
+		}, "\n"),
+	}
+	sig := e.Observe(ctx, LoopObservation{
+		Phase:          PhaseMidLoop,
+		LastToolResult: &result,
+		AllToolResults: []types.ToolResult{result},
+	})
+	if !sig.HintRequested || sig.HintKey != "analyzer.prescan-ready.emit-only" {
+		t.Fatalf("child-scope list_files should force emit-only, got %+v", sig)
+	}
+	if !mu.PrescanReady() {
+		t.Fatal("child-scope list_files should mark analyzer prescan ready")
+	}
+	if !strings.Contains(sig.Hint, "source-inventory rows") {
+		t.Fatalf("hint should preserve analyze/explore boundary, got %q", sig.Hint)
+	}
+	gotSchemas := e.FilterToolSchemas(ctx, []llm.ToolSchema{
+		{Name: "emit_analysis"},
+		{Name: "repo_map"},
+		{Name: "grep"},
+		{Name: "list_files"},
+	})
+	if len(gotSchemas) != 1 || gotSchemas[0].Name != "emit_analysis" {
+		t.Fatalf("list_files-ready analyzer should expose only emit_analysis, got %+v", gotSchemas)
+	}
+	sigs := mu.AnalyzerDecisions()
+	if len(sigs) != 1 || !strings.Contains(sigs[0].Reason, "directory listing") {
+		t.Fatalf("expected directory-listing analyzer decision, got %+v", sigs)
+	}
+}
+
+func TestAnalyzer_PrescanReady_SmallListFilesRemainsSoftUnderLargerBudget(t *testing.T) {
+	restoreAnalysisLimits(t)
+	tool.SetAnalysisLimits(tool.AnalysisLimits{MaxPrescanRounds: 4})
+
+	mu := types.NewMutableState("small scoped listing")
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mu}
+	e := &analyzerEvaluator{}
+	e.BuildInitialInstruction(ctx, nil)
+
+	result := types.ToolResult{
+		ToolName: "list_files",
+		Success:  true,
+		Summary:  "[list_files: path=src/api recursive=false]\nsrc/api/routes.ts\nsrc/api/config.yaml\n",
+	}
+	sig := e.Observe(ctx, LoopObservation{
+		Phase:          PhaseMidLoop,
+		LastToolResult: &result,
+		AllToolResults: []types.ToolResult{result},
+	})
+	if sig.HintKey != "analyzer.path-scoped-prescan-ready" {
+		t.Fatalf("small scoped list_files should remain soft-ready under larger budget, got %+v", sig)
+	}
+	if mu.PrescanReady() {
+		t.Fatal("small scoped list_files should not close larger-budget prescan")
+	}
+}
+
 func TestAnalyzer_PrescanResultSupportsClassificationStop_GuardsBroadOrLineGreps(t *testing.T) {
 	tests := []struct {
 		name string
@@ -883,6 +960,35 @@ func TestAnalyzer_PrescanResultSupportsClassificationStop_GuardsBroadOrLineGreps
 			res: types.ToolResult{
 				ToolName: "repo_map", Success: true,
 				Summary: "internal/agent/analyzer.go",
+			},
+		},
+		{
+			name: "scoped list files with child entries",
+			res: types.ToolResult{
+				ToolName: "list_files", Success: true,
+				Summary: "[list_files: path=src services recursive=false]\nsrc services/api\nsrc services/config\n",
+			},
+			want: true,
+		},
+		{
+			name: "root list files ignored",
+			res: types.ToolResult{
+				ToolName: "list_files", Success: true,
+				Summary: "[list_files: path=. recursive=false]\ncmd\ninternal\npkg\n",
+			},
+		},
+		{
+			name: "parent escape list files ignored",
+			res: types.ToolResult{
+				ToolName: "list_files", Success: true,
+				Summary: "[list_files: path=../outside recursive=false]\n../outside/a\n../outside/b\n",
+			},
+		},
+		{
+			name: "failed list files ignored",
+			res: types.ToolResult{
+				ToolName: "list_files", Success: false,
+				Summary: "[list_files: path=src recursive=false]\nsrc/a\n",
 			},
 		},
 	}

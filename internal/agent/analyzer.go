@@ -1076,14 +1076,15 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	if max <= 0 {
 		return LoopSignal{}
 	}
-	if analyzerPrescanResultSupportsClassificationStop(*obs.LastToolResult) {
-		if analyzerShouldClosePrescanAfterReady(e.prescanRounds, max) {
+	readiness := analyzerPrescanResultReadiness(*obs.LastToolResult)
+	if readiness.ready {
+		if readiness.closeNow || analyzerShouldClosePrescanAfterReady(e.prescanRounds, max) {
 			if ctx != nil && ctx.Mutable != nil {
 				ctx.Mutable.MarkPrescanReady()
 				ctx.Mutable.AppendAnalyzerDecision(types.AnalyzerDecisionSignal{
 					Kind:   "prescan_ready",
 					Stage:  string(types.StageAnalyze),
-					Reason: "path-scoped files-only pre-scan established enough classification signal",
+					Reason: readiness.reason,
 					Detail: obs.LastToolResult.ToolName,
 				})
 			}
@@ -1092,14 +1093,14 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 				HintRequested: true,
 				Progress:      true,
 				HintKey:       "analyzer.prescan-ready.emit-only",
-				Hint:          "This path-scoped files-only pre-scan has enough location/existence signal for analyze. Do not run more repo_map, grep, list_files, read_file, or other tools in analyze. The next response must call emit_analysis exactly once with the best classification and routing hints you already have; explore will gather line-level evidence.",
+				Hint:          "This path-scoped pre-scan has enough location/existence signal for analyze. Do not run more repo_map, grep, list_files, read_file, or other tools in analyze. The next response must call emit_analysis exactly once with the best classification and routing hints you already have; explore will gather line-level evidence and source-inventory rows.",
 			}
 		}
 		return LoopSignal{
 			HintRequested: true,
 			Progress:      true,
 			HintKey:       "analyzer.path-scoped-prescan-ready",
-			Hint:          "This path-scoped files-only pre-scan has already established location/existence for classification. Do not try to gather line-level proof in analyze. If the request is an explicit file/package/import/literal/source-inventory question, call emit_analysis next with the structured scope and let explore read exact lines and members.",
+			Hint:          "This path-scoped pre-scan has already established location/existence for classification. Do not try to gather line-level proof or enumerate child scopes in analyze. If the request is an explicit file/package/import/literal/source-inventory question, call emit_analysis next with the structured scope and let explore read exact lines and members.",
 		}
 	}
 	// Last-legal-round warning: the LLM just consumed the final
@@ -1172,7 +1173,38 @@ func analyzerShouldClosePrescanAfterReady(rounds, max int) bool {
 	return rounds >= max-1
 }
 
+type analyzerPrescanReadiness struct {
+	ready    bool
+	closeNow bool
+	reason   string
+}
+
 func analyzerPrescanResultSupportsClassificationStop(result types.ToolResult) bool {
+	return analyzerPrescanResultReadiness(result).ready
+}
+
+func analyzerPrescanResultReadiness(result types.ToolResult) analyzerPrescanReadiness {
+	switch result.ToolName {
+	case "grep":
+		if analyzerGrepPrescanReady(result) {
+			return analyzerPrescanReadiness{
+				ready:  true,
+				reason: "path-scoped files-only grep established enough classification signal",
+			}
+		}
+	case "list_files":
+		if childCount, ok := analyzerListFilesPrescanChildCount(result); ok {
+			return analyzerPrescanReadiness{
+				ready:    true,
+				closeNow: childCount >= analyzerListFilesStrongReadyChildCount,
+				reason:   "path-scoped directory listing established enough classification signal",
+			}
+		}
+	}
+	return analyzerPrescanReadiness{}
+}
+
+func analyzerGrepPrescanReady(result types.ToolResult) bool {
 	if result.ToolName != "grep" || !result.Success {
 		return false
 	}
@@ -1182,14 +1214,73 @@ func analyzerPrescanResultSupportsClassificationStop(result types.ToolResult) bo
 		!strings.Contains(summary, "files_only=true") {
 		return false
 	}
-	path := analyzerBannerValue(summary, "grep params", "path")
-	if path == "" || path == "." || path == "/" {
+	return analyzerPrescanPathScoped(analyzerBannerValue(summary, "grep params", "path"))
+}
+
+const analyzerListFilesStrongReadyChildCount = 4
+
+func analyzerListFilesPrescanChildCount(result types.ToolResult) (int, bool) {
+	if result.ToolName != "list_files" || !result.Success {
+		return 0, false
+	}
+	pathSurface := analyzerBannerValue(result.Summary, "list_files", "path")
+	if !analyzerPrescanPathScoped(pathSurface) {
+		return 0, false
+	}
+	scope := analyzerNormalizePrescanPathSurface(pathSurface)
+	seen := map[string]bool{}
+	for _, rawLine := range strings.Split(result.Summary, "\n") {
+		line := analyzerNormalizePrescanPathSurface(rawLine)
+		if line == "" || strings.HasPrefix(line, "[") || line == scope {
+			continue
+		}
+		if !analyzerListFilesEntryWithinScope(line, scope) {
+			continue
+		}
+		seen[line] = true
+	}
+	if len(seen) == 0 {
+		return 0, false
+	}
+	return len(seen), true
+}
+
+func analyzerPrescanPathScoped(pathSurface string) bool {
+	pathSurface = analyzerNormalizePrescanPathSurface(pathSurface)
+	if pathSurface == "" || pathSurface == "." || pathSurface == "/" {
 		return false
 	}
-	if strings.Contains(path, "\n") || strings.Contains(path, "..") {
+	if strings.Contains(pathSurface, "\n") || strings.Contains(pathSurface, "..") {
+		return false
+	}
+	if strings.HasPrefix(pathSurface, "/") || strings.HasPrefix(pathSurface, "//") {
+		return false
+	}
+	if len(pathSurface) >= 2 && pathSurface[1] == ':' {
 		return false
 	}
 	return true
+}
+
+func analyzerListFilesEntryWithinScope(entry, scope string) bool {
+	entry = analyzerNormalizePrescanPathSurface(entry)
+	scope = analyzerNormalizePrescanPathSurface(scope)
+	if entry == "" || scope == "" || entry == scope {
+		return false
+	}
+	return strings.HasPrefix(entry, scope+"/")
+}
+
+func analyzerNormalizePrescanPathSurface(raw string) string {
+	s := strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+	for strings.HasPrefix(s, "./") {
+		s = strings.TrimPrefix(s, "./")
+	}
+	s = strings.TrimRight(s, "/")
+	if s == "" {
+		return ""
+	}
+	return s
 }
 
 func analyzerBannerValue(summary, bannerName, key string) string {
