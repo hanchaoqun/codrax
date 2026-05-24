@@ -4164,3 +4164,31 @@ func TestPreEmitDisplaySurfaceAppears_NineNineOhNineForensicReplay(t *testing.T)
 			preEmitNormalizeForMixedCJK(surface))
 	}
 }
+
+func TestPreEmitSystemEnumerationRowSupplementBlock_RecognizesAllSystemSupplementTitles(t *testing.T) {
+	systemTitles := []string{
+		"系统按已验证证据补充缺失成员：公开函数（2）",
+		"System-verified missing member supplement: exported functions (2)",
+		"系统按已验证证据补充成员：公开函数（2）",
+		"System-verified member supplement: exported functions (2)",
+		"系统按已验证证据补充可校验字段：公开函数（2）",
+		"System-verified field supplement: exported functions (2)",
+		"系统按已验证证据补充说明：公开函数（2）",
+		"System-verified note supplement: exported functions (2)",
+	}
+	for _, title := range systemTitles {
+		if !preEmitSystemEnumerationRowSupplementBlock(types.AnswerBlock{Title: title}) {
+			t.Fatalf("system supplement title was not recognized: %q", title)
+		}
+	}
+	modelTitles := []string{
+		"模型给出的公开函数表",
+		"Exported functions",
+		"系统设计说明：公开函数",
+	}
+	for _, title := range modelTitles {
+		if preEmitSystemEnumerationRowSupplementBlock(types.AnswerBlock{Title: title}) {
+			t.Fatalf("model-authored title must not be classified as system supplement: %q", title)
+		}
+	}
+}

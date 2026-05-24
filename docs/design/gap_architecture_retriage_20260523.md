@@ -258,6 +258,11 @@ pipeline technically "passes."
 - This is a prompt-budget and evidence-ranking change only. It does not rewrite
   model-authored final answers, does not add system补表, and does not infer
   intent from user/model prose.
+- Follow-up red-line cleanup: legacy aggregate-member-set carrier titles
+  (`系统按已验证证据补充成员：...` / `System-verified member supplement: ...`)
+  are now recognized by the shared system-supplement predicate. This prevents
+  older system-generated blocks from being mistaken for model-authored
+  principal carriers by later pre-emit/display checks.
 
 ### 2026-05-24 T11 Rich Summary Handoff Addendum
 
