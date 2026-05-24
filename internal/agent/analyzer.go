@@ -52,12 +52,14 @@ type analyzerEvaluator struct {
 	// terminalEmitOnlyInstructionIssued records that this analyze
 	// dispatch has already told the model to stop pre-scanning and
 	// emit the full emit_analysis payload. A later rejected
-	// repo_map/grep/list_files call after this point is no longer
-	// useful corrective signal; it should end the current attempt so
-	// runAnalyzePhase can retry with the existing terminal-forcing
-	// path. This is deliberately per-dispatch state, reset by
-	// BuildInitialInstruction.
+	// repo_map/grep/list_files call after this point gets a bounded
+	// number of emit-only correction turns before the attempt fails
+	// loud. This keeps the runtime boundary firm while accommodating
+	// providers that hallucinate unavailable tool calls after the schema
+	// has already narrowed to emit_analysis. This is deliberately
+	// per-dispatch state, reset by BuildInitialInstruction.
 	terminalEmitOnlyInstructionIssued bool
+	terminalEmitOnlyRejectedTurns     int
 
 	// prescanBudgetOverride, when > 0, replaces
 	// tool.CurrentAnalysisLimits().MaxPrescanRounds for this dispatch.
@@ -75,6 +77,7 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	_ = sk
 	e.prescanRounds = 0
 	e.terminalEmitOnlyInstructionIssued = false
+	e.terminalEmitOnlyRejectedTurns = 0
 	e.prescanBudgetOverride = 0
 	if ctx != nil && ctx.EmitStageRetryAttempt > 0 {
 		e.terminalEmitOnlyInstructionIssued = true
@@ -996,6 +999,7 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	if obs.LastToolResult == nil {
 		return LoopSignal{}
 	}
+	limits := tool.CurrentAnalysisLimits()
 	// emit_analysis is the analyzer's terminal action — once it fires
 	// successfully, there is nothing left for the ReAct loop to do.
 	// Stop immediately instead of burning one extra LLM round.
@@ -1019,9 +1023,21 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 				return LoopSignal{}
 			}
 			if e.terminalEmitOnlyInstructionIssued {
+				limit := limits.EmitOnlyCorrectionRetries
+				if limit < 0 {
+					limit = 0
+				}
+				if e.terminalEmitOnlyRejectedTurns >= limit {
+					return LoopSignal{
+						StopRequested: true,
+						StopReason:    "terminal emit-only prescan rejected after correction budget exhausted",
+					}
+				}
+				e.terminalEmitOnlyRejectedTurns++
 				return LoopSignal{
-					StopRequested: true,
-					StopReason:    "terminal emit-only prescan rejected after prior emit_analysis instruction",
+					HintRequested: true,
+					HintKey:       "analyzer.emit-only.after-terminal-reject",
+					Hint:          analyzerTerminalEmitOnlyHint(),
 				}
 			}
 			e.terminalEmitOnlyInstructionIssued = true
@@ -1071,7 +1087,7 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 
 	max := e.prescanBudgetOverride
 	if max <= 0 {
-		max = tool.CurrentAnalysisLimits().MaxPrescanRounds
+		max = limits.MaxPrescanRounds
 	}
 	if max <= 0 {
 		return LoopSignal{}

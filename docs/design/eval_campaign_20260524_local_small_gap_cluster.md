@@ -2591,3 +2591,86 @@ B2-R citation-floor repair should prefer structured read targets, 2026-05-25 CST
   Python, TS, Java, YAML, route/config, or mixed-language files. The system does
   not infer the final member set; it only converts model-provided/file-index
   anchors into the next verification read.
+
+B2-S analyzer terminal emit-only correction budget, 2026-05-25 CST:
+
+- Post B2-R focused eval failed before exploration: analyzer successfully ran a
+  scoped `list_files internal/analysis`, marked the pre-scan as ready, then the
+  local model hallucinated unavailable `repo_map` / `grep` calls after the tool
+  schema had narrowed to `emit_analysis`. The runtime correctly rejected those
+  calls, but `analyzerEvaluator.Observe` immediately stopped the current
+  analyze attempt because a terminal emit-only hint had already been issued.
+  Three analyze attempts repeated this pattern and the pipeline degraded into an
+  empty recovery IR, so extractor/finalizer never received investigation data.
+- Root cause:
+  - B2-P made analyze-stage pre-scan boundaries stateful and stricter, but the
+    correction loop was too brittle for providers that emit one or more stale
+    tool calls after a schema narrowing;
+  - the failure is purely control-flow. The tool boundary itself is correct and
+    must remain firm: analyze cannot execute `repo_map` / `grep` / `list_files`
+    once terminal emit-only mode is active.
+- Fix contract:
+  - keep rejecting unavailable prescan tools in terminal emit-only mode;
+  - do not synthesize `emit_analysis` and do not infer the request semantics;
+  - give a bounded number of extra correction turns that expose only
+    `emit_analysis`, because analyze is critical and failure prevents the rest
+    of the pipeline from doing useful work;
+  - after the correction budget is exhausted, fail loud as before to avoid an
+    infinite loop.
+- Runtime/config contract:
+  - reuse the existing `AnalysisLimits` path instead of adding a provider-level
+    special case;
+  - export `analysis_emit_only_correction_retries` in `codrax.yaml.example`,
+    default 3, 0 = fail immediately after terminal stale-tool rejection;
+  - keep provider/model config (`providers.yaml`) scoped to model connectivity
+    and text-tool-call recovery, not analyzer control-flow budgets.
+- This is model- and language-neutral. It reacts only to structured tool repair
+  codes and stage state, not to user keywords or model prose.
+
+B2-T enumeration completeness handoff must dominate close-ready, 2026-05-25 CST:
+
+- Verification run:
+  - command: `EVAL_RESULTS_ROOT=eval/results/b2s-analyzer-emit-correction CODRAX_BIN=./codrax bash eval/run.sh eval/cases/s5b.case 1`;
+  - result dir: `eval/results/b2s-analyzer-emit-correction/s5b-20260525-020710`;
+  - verdict: FAIL `missing:subject no_regex_match:(subject.*Score|Score.*subject)`.
+- Good news from the run:
+  - analyzer no longer degraded early; a single analyze dispatch reached
+    `emit_analysis` after 4 iterations;
+  - `analysis_limits` startup log showed
+    `emit_only_correction_retries=3`, proving the new yaml-backed runtime knob
+    is active;
+  - explorer used the cascaded `source_inventory` path (`source_inventory_lens=14`)
+    and scoped graph projection reused the active in-memory graph.
+- New root-cause cluster:
+  - `list_files internal/analysis` observed 25 direct directories, including
+    `subject`, but the close payload claimed `value="24"` and omitted
+    `subject (Score)`;
+  - the model had only read/grounded 4 source files when
+    `explorer.mid-loop.completion-ready` fired, because current evidence
+    requirements were satisfied for the local branch even though the exhaustive
+    enumeration candidate set was not covered;
+  - the rejected first `emit_investigation_complete` correctly demanded
+    `support_refs` for decorated members, but this is downstream shape repair;
+    it did not catch the stronger upstream completeness mismatch against the
+    already-observed source-inventory/list-files candidate universe;
+  - finalizer rendered the 24-member aggregate slate, and the eval failed on
+    the missing `subject` row.
+- Contract gap:
+  - for exhaustive enumeration answers, known structured candidate universes
+    from `list_files` / source_inventory count rows must suppress or qualify
+    close-ready until the model either covers every candidate, explicitly
+    excludes candidates with a reason, or marks the result as a lower bound /
+    incomplete set;
+  - the system must not invent the missing member or force a final answer
+    rewrite. It should surface a structured completion obligation upstream:
+    "candidate universe has N, current member_set has M, missing candidates are
+    advisory verification targets";
+  - source_inventory remains navigation, not final evidence. The guard should
+    compare structured counts/members and ask the model to verify or disclose,
+    not auto-fill answers.
+- Generality:
+  - this is not Go-specific. The same failure can happen for packages,
+    directories, modules, routes, config files/keys, classes/types, handlers,
+    tests, cross-repo active-set members, or external artifact sections;
+  - the guard should operate over structured candidate universes and typed
+    roles/provenance, not user-question keywords or model prose.

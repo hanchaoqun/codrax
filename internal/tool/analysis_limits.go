@@ -84,19 +84,26 @@ type AnalysisLimits struct {
 	//     is narrowed to emit_analysis only by the analyzer's dynamic
 	//     tool-schema filter. If a provider still returns a pre-scan tool
 	//     call, the execution gate returns a structured repair result and
-	//     the loop gets one emit-only correction turn; a genuinely
+	//     the loop gets the emit-only correction budget; a genuinely
 	//     executed over-budget pre-scan still force-stops with a
 	//     descriptive StopReason.
 	//   - N == 0: the runtime gate is DISABLED. Observe returns an
 	//     empty signal regardless of how many pre-scan rounds fired.
 	//     This is the escape hatch for tuning or debugging.
 	//
-	// Default is 2, matching the skill prompt's "1-2 rounds" language
-	// literally. Mixed batches where `emit_analysis` and a pre-scan
+	// Default is 3. Mixed batches where `emit_analysis` and a pre-scan
 	// tool run in the same iteration are not counted as pre-scan
 	// rounds — the "last tool" is emit_analysis, which is the
 	// desired end state.
 	MaxPrescanRounds int
+
+	// EmitOnlyCorrectionRetries caps the extra analyzer correction
+	// turns after the dispatch has narrowed to emit_analysis-only but
+	// the provider still returns stale pre-scan tool calls. Those tool
+	// calls remain rejected; this budget only decides how many times
+	// Observe will ask the model to emit_analysis again before failing
+	// loud. 0 disables the grace turns.
+	EmitOnlyCorrectionRetries int
 
 	// WarnBelowKeywordHitRatio is the soft floor for the analyzer's
 	// runtime quality probe: when fewer than this fraction (0.0-1.0)
@@ -352,6 +359,7 @@ func DefaultAnalysisLimits() AnalysisLimits {
 		// that previously exhausted, no extra call on cases that
 		// finished in ≤2 rounds.
 		MaxPrescanRounds:                    3,
+		EmitOnlyCorrectionRetries:           3,
 		WarnBelowKeywordHitRatio:            0,
 		WarnBelowEntityHitRatio:             0,
 		ClassificationGrepEnabled:           true,

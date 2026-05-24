@@ -742,11 +742,21 @@
 # analysis_reject_multiple_emit: false
 
 # analysis_max_prescan_rounds — pre-scan rounds (repo_map / grep /
-#   list_files) before the analyzer is force-stopped. Default 2. 0 disables
+#   list_files) before the analyzer is force-stopped. Default 3. 0 disables
 #   the gate.
 #   analyzer 被强制停止前的预扫轮数(repo_map / grep / list_files)。
-#   默认 2。0 关闭该门。
-# analysis_max_prescan_rounds: 2
+#   默认 3。0 关闭该门。
+# analysis_max_prescan_rounds: 3
+
+# analysis_emit_only_correction_retries — extra correction turns after the
+#   analyzer has narrowed to emit_analysis-only but a provider still returns
+#   stale repo_map / grep / list_files calls. The stale tool calls are still
+#   rejected; this only gives the model more chances to emit_analysis before
+#   the analyze attempt fails loud. Default 3. 0 disables these grace turns.
+#   analyzer 已收窄到只允许 emit_analysis 后,如果模型仍返回过期的
+#   repo_map / grep / list_files 调用,额外给几次纠偏机会。过期工具仍会
+#   被拒绝;该配置只控制失败前再提醒几次 emit_analysis。默认 3。0 关闭。
+# analysis_emit_only_correction_retries: 3
 
 # analysis_warn_below_keyword_hit_ratio / analysis_warn_below_entity_hit_ratio
 #   — soft floors on the fraction of emitted keywords / entities actually

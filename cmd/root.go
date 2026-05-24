@@ -2017,6 +2017,9 @@ func initApp(cmd *cobra.Command, args []string) error {
 		if rs.AnalysisMaxPrescanRounds != nil {
 			analysisLimits.MaxPrescanRounds = *rs.AnalysisMaxPrescanRounds
 		}
+		if rs.AnalysisEmitOnlyCorrectionRetries != nil {
+			analysisLimits.EmitOnlyCorrectionRetries = *rs.AnalysisEmitOnlyCorrectionRetries
+		}
 		// CLI override wins last (precedence: code default → yaml →
 		// CLI). 0 means "not set" (cobra default), so we honor only
 		// positive values to avoid a zero flag silently disabling the
@@ -2729,8 +2732,8 @@ func initApp(cmd *cobra.Command, args []string) error {
 	logging.Info("blob_limits: max_inline_bytes=%d preview_head_bytes=%d preview_tail_bytes=%d",
 		tool.MaxInlineBytes, tool.PreviewHeadBytesValue(), tool.PreviewTailBytesValue())
 	al := tool.CurrentAnalysisLimits()
-	logging.Info("analysis_limits: warn_below_keywords=%d reject_below_keywords=%d generic_entity_blocklist=%d reject_multiple_emit=%t max_prescan_rounds=%d warn_kw_hit_ratio=%.2f warn_ent_hit_ratio=%.2f",
-		al.WarnBelowKeywords, al.RejectBelowKeywords, len(al.GenericEntityBlocklist), al.RejectMultipleEmit, al.MaxPrescanRounds,
+	logging.Info("analysis_limits: warn_below_keywords=%d reject_below_keywords=%d generic_entity_blocklist=%d reject_multiple_emit=%t max_prescan_rounds=%d emit_only_correction_retries=%d warn_kw_hit_ratio=%.2f warn_ent_hit_ratio=%.2f",
+		al.WarnBelowKeywords, al.RejectBelowKeywords, len(al.GenericEntityBlocklist), al.RejectMultipleEmit, al.MaxPrescanRounds, al.EmitOnlyCorrectionRetries,
 		al.WarnBelowKeywordHitRatio, al.WarnBelowEntityHitRatio)
 
 	providersCfg, err := config.LoadProviders(flagProviders)

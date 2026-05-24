@@ -1199,7 +1199,7 @@ func TestAnalyzer_Observe_BudgetRejectedPrescanGetsEmitOnlyHint(t *testing.T) {
 		AllToolResults: []types.ToolResult{result},
 	})
 	if sig.StopRequested {
-		t.Fatalf("budget-rejected prescan should get one emit-only correction before stage retry, got stop=%q", sig.StopReason)
+		t.Fatalf("budget-rejected prescan should get an emit-only correction before stage retry, got stop=%q", sig.StopReason)
 	}
 	if !sig.HintRequested || !strings.Contains(sig.Hint, "emit_analysis") {
 		t.Fatalf("expected emit_analysis hint, got %+v", sig)
@@ -1209,7 +1209,50 @@ func TestAnalyzer_Observe_BudgetRejectedPrescanGetsEmitOnlyHint(t *testing.T) {
 	}
 }
 
-func TestAnalyzer_Observe_BudgetRejectedAfterMustEmitStopsAttempt(t *testing.T) {
+func TestAnalyzer_Observe_BudgetRejectedAfterMustEmitGetsBoundedCorrectionTurns(t *testing.T) {
+	restoreAnalysisLimits(t)
+	const limit = 2
+	tool.SetAnalysisLimits(tool.AnalysisLimits{EmitOnlyCorrectionRetries: limit})
+
+	e := &analyzerEvaluator{terminalEmitOnlyInstructionIssued: true}
+	result := types.ToolResult{
+		ToolName: "list_files",
+		Success:  false,
+		Summary:  "pre-scan budget already reached",
+		Repair:   &types.ToolRepair{Code: analyzerPrescanBudgetReachedCode},
+	}
+	sig := e.Observe(&types.AgentContext{Stage: types.StageAnalyze}, LoopObservation{
+		Phase:              PhaseMidLoop,
+		LastToolResult:     &result,
+		AllToolResults:     []types.ToolResult{result},
+		CurrentToolResults: []types.ToolResult{result},
+	})
+	for i := 0; i < limit; i++ {
+		if sig.StopRequested {
+			t.Fatalf("terminal pre-scan rejection %d should get a correction turn, got %+v", i+1, sig)
+		}
+		if !sig.HintRequested || !strings.Contains(sig.Hint, "emit_analysis") {
+			t.Fatalf("expected emit-only correction hint on rejection %d, got %+v", i+1, sig)
+		}
+		sig = e.Observe(&types.AgentContext{Stage: types.StageAnalyze}, LoopObservation{
+			Phase:              PhaseMidLoop,
+			LastToolResult:     &result,
+			AllToolResults:     []types.ToolResult{result},
+			CurrentToolResults: []types.ToolResult{result},
+		})
+	}
+	if !sig.StopRequested {
+		t.Fatalf("terminal pre-scan rejection after correction budget should stop current attempt, got %+v", sig)
+	}
+	if !strings.Contains(sig.StopReason, "correction budget exhausted") {
+		t.Fatalf("StopReason = %q, want correction budget context", sig.StopReason)
+	}
+}
+
+func TestAnalyzer_Observe_EmitOnlyCorrectionRetriesZeroStopsImmediately(t *testing.T) {
+	restoreAnalysisLimits(t)
+	tool.SetAnalysisLimits(tool.AnalysisLimits{EmitOnlyCorrectionRetries: 0})
+
 	e := &analyzerEvaluator{terminalEmitOnlyInstructionIssued: true}
 	result := types.ToolResult{
 		ToolName: "list_files",
@@ -1224,13 +1267,10 @@ func TestAnalyzer_Observe_BudgetRejectedAfterMustEmitStopsAttempt(t *testing.T) 
 		CurrentToolResults: []types.ToolResult{result},
 	})
 	if !sig.StopRequested {
-		t.Fatalf("terminal pre-scan rejection after prior must-emit hint should stop current attempt, got %+v", sig)
+		t.Fatalf("zero correction retry budget should stop immediately, got %+v", sig)
 	}
-	if sig.HintRequested {
-		t.Fatalf("terminal pre-scan rejection after prior must-emit hint should not inject another hint, got %+v", sig)
-	}
-	if !strings.Contains(sig.StopReason, "terminal emit-only") {
-		t.Fatalf("StopReason = %q, want terminal emit-only context", sig.StopReason)
+	if !strings.Contains(sig.StopReason, "correction budget exhausted") {
+		t.Fatalf("StopReason = %q, want correction budget context", sig.StopReason)
 	}
 }
 
@@ -1259,6 +1299,10 @@ func TestAnalyzer_Observe_TerminalRejectedBatchWithEmitAnalysisAttemptDoesNotSto
 }
 
 func TestAnalyzer_Observe_RetryTerminalRejectedPrescanStopsAttempt(t *testing.T) {
+	restoreAnalysisLimits(t)
+	const limit = 2
+	tool.SetAnalysisLimits(tool.AnalysisLimits{EmitOnlyCorrectionRetries: limit})
+
 	e := &analyzerEvaluator{}
 	ctx := &types.AgentContext{Stage: types.StageAnalyze, EmitStageRetryAttempt: 1}
 	e.BuildInitialInstruction(ctx, nil)
@@ -1274,8 +1318,22 @@ func TestAnalyzer_Observe_RetryTerminalRejectedPrescanStopsAttempt(t *testing.T)
 		AllToolResults:     []types.ToolResult{result},
 		CurrentToolResults: []types.ToolResult{result},
 	})
+	for i := 0; i < limit; i++ {
+		if sig.StopRequested {
+			t.Fatalf("retry terminal pre-scan rejection %d should get a correction turn, got %+v", i+1, sig)
+		}
+		if !sig.HintRequested || !strings.Contains(sig.Hint, "emit_analysis") {
+			t.Fatalf("expected retry correction hint on rejection %d, got %+v", i+1, sig)
+		}
+		sig = e.Observe(ctx, LoopObservation{
+			Phase:              PhaseMidLoop,
+			LastToolResult:     &result,
+			AllToolResults:     []types.ToolResult{result},
+			CurrentToolResults: []types.ToolResult{result},
+		})
+	}
 	if !sig.StopRequested {
-		t.Fatalf("retry terminal pre-scan rejection should stop current attempt, got %+v", sig)
+		t.Fatalf("retry terminal pre-scan rejection after correction budget should stop current attempt, got %+v", sig)
 	}
 }
 

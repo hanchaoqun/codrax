@@ -3463,7 +3463,7 @@ func (m *MutableState) CachedLabelSupportTokens(build func([]EvidenceItem) map[s
 // separator. Called by `analyzerEvaluator.Observe` once per
 // successful pre-scan tool result (repo_map / grep files_only=true
 // / list_files). The blob is bounded in practice by the analyzer's
-// pre-scan budget (`AnalysisLimits.MaxPrescanRounds`, default 2) ×
+// pre-scan budget (`AnalysisLimits.MaxPrescanRounds`, default 3) ×
 // the per-result blob size, so no explicit size cap is enforced
 // here — callers rely on the runtime gate to stop the dispatch
 // before this grows unbounded.

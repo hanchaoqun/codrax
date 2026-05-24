@@ -1493,14 +1493,15 @@ func TestSetAnalysisLimits_RoundTrip(t *testing.T) {
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 
 	custom := AnalysisLimits{
-		WarnBelowKeywords:      5,
-		RejectBelowKeywords:    2,
-		GenericEntityBlocklist: []string{"foo", "bar"},
+		WarnBelowKeywords:         5,
+		RejectBelowKeywords:       2,
+		EmitOnlyCorrectionRetries: 4,
+		GenericEntityBlocklist:    []string{"foo", "bar"},
 	}
 	SetAnalysisLimits(custom)
 
 	got := CurrentAnalysisLimits()
-	if got.WarnBelowKeywords != 5 || got.RejectBelowKeywords != 2 {
+	if got.WarnBelowKeywords != 5 || got.RejectBelowKeywords != 2 || got.EmitOnlyCorrectionRetries != 4 {
 		t.Errorf("limits not installed: %+v", got)
 	}
 	if len(got.GenericEntityBlocklist) != 2 {

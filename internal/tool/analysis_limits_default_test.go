@@ -14,6 +14,13 @@ func TestDefaultAnalysisLimits_MaxPrescanRoundsDefault(t *testing.T) {
 	}
 }
 
+func TestDefaultAnalysisLimits_EmitOnlyCorrectionRetriesDefault(t *testing.T) {
+	got := DefaultAnalysisLimits().EmitOnlyCorrectionRetries
+	if got != 3 {
+		t.Errorf("DefaultAnalysisLimits().EmitOnlyCorrectionRetries = %d, want 3", got)
+	}
+}
+
 func TestDefaultAnalysisLimits_OtherFloorsUnchanged(t *testing.T) {
 	// Tripwire: if anybody bumps WarnBelowKeywords or other defaults
 	// without updating the design doc, this test guards. These are
@@ -26,6 +33,7 @@ func TestDefaultAnalysisLimits_OtherFloorsUnchanged(t *testing.T) {
 	}{
 		{"WarnBelowKeywords", defaults.WarnBelowKeywords, 8},
 		{"RejectBelowKeywords", defaults.RejectBelowKeywords, 0},
+		{"EmitOnlyCorrectionRetries", defaults.EmitOnlyCorrectionRetries, 3},
 		{"GhostAnchorExpandSearchThreshold", defaults.GhostAnchorExpandSearchThreshold, 3},
 		{"Phase1UnreadTopK", defaults.Phase1UnreadTopK, 5},
 		{"Phase1UnreadMinUnread", defaults.Phase1UnreadMinUnread, 2},
