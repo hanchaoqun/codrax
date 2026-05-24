@@ -1692,6 +1692,18 @@ Design B2-H: verified candidate file manifest and path-miss guidance.
   `support_ref`. This is a verified candidate file manifest, not an answer
   slate. It should say "read these first when verifying this scope" rather than
   "these are the only valid files".
+- Render the manifest for every repo-lens source-inventory shape, not just
+  enumeration:
+  - enumeration: scope -> verified files -> candidate members, preserving
+    `count == len(members)` as the mechanical completeness invariant;
+  - mechanism / call-chain: function/method/type files become the first
+    verification windows before widening to callers/callees;
+  - architecture / component: package/file/type rows provide real component
+    boundaries and the files that describe them;
+  - route / handler / config: route and config-key rows point to their owning
+    manifest/source files without assuming a programming language;
+  - external / artifact-assisted questions: repo-lens files remain repo-only
+    navigation and must not replace log/trace/web/MCP evidence lanes.
 - Preserve model intent and order: when the model supplies `scopes[]`, render
   files in that order; when a single broad scope is supplied, derive child
   scopes from repo-relative paths. Do not read raw user text or model prose.
@@ -1703,6 +1715,9 @@ Design B2-H: verified candidate file manifest and path-miss guidance.
 - Attach bounded ambiguity: if a scope has multiple candidate files or multiple
   candidate symbols in one file, render counts and a small sample. Ambiguity is
   for the model to verify or disclose; the system must not pick the winner.
+- Keep the section small and stable: cap groups, files per group, and candidate
+  labels per file; rely on the stored `SourceInventoryObservation` for the full
+  set. The manifest is a UX/navigation projection, not a new source of truth.
 - Add a soft `read_file` path-miss hint using the same stored observation:
   when a requested path is missing and there are known source-inventory
   candidate files in the same structured scope, append a concise suggestion.
@@ -1716,11 +1731,99 @@ Design B2-H: verified candidate file manifest and path-miss guidance.
 
 Tasks:
 
-- [ ] B2-H1: render a bounded verified candidate file manifest from
+- [x] B2-H1: render a bounded verified candidate file manifest from
   source-inventory grouped rows without truncating the underlying observation.
-- [ ] B2-H2: add same-scope path-miss suggestions to `read_file` using the
+- [x] B2-H2: add same-scope path-miss suggestions to `read_file` using the
   stored source-inventory observation, preserving failure semantics.
-- [ ] B2-H3: add tests across functions/methods/types, route/config rows,
+- [x] B2-H3: add tests across functions/methods/types, route/config rows,
   same-repo mixed language, and multi-repo active-scope isolation.
 - [ ] B2-H4: rerun focused `s5b` eval and compare `read_file` count,
   guessed-path misses, `source_inventory` usage, and final answer completeness.
+
+Implementation notes for B2-H:
+
+- Added the candidate-file projection to
+  `RenderSourceInventoryObservationView`. It is derived from the same stored
+  `SourceInventoryObservation` rows and row-local attributes used by the
+  grouped view, so the full observation remains the single source of truth.
+- Initially reused the same projection in the compact source-inventory advisory
+  hint, because a model may follow the pre-explore checklist without explicitly
+  calling `repo_map(view="source_inventory")` again. B2-I supersedes this
+  ordering: compact hints now lead with a cascade guide and no longer put the
+  file manifest first.
+- The manifest groups by model-provided scopes first, or derived child scopes
+  for a single broad scope. Each row shows verified candidate files, role and
+  language counts, and a bounded candidate label sample. It stays advisory and
+  explicitly says it is not a hard whitelist or final-answer evidence.
+- The first B2-H implementation rendered the manifest before grouped candidate
+  rows. Follow-up eval observation showed that this can over-emphasize file
+  names and drown the more important self-service navigation shape. B2-I changes
+  the primary UI contract to summary-first cascaded navigation while keeping the
+  file manifest as bounded samples and path-miss recovery.
+- `read_file` now appends a same-scope path-miss suggestion only when the active
+  source-inventory observation contains verified candidate files under that
+  exact structured scope. The tool result remains `Success=false`; sibling
+  scopes and outside-repo paths do not receive suggestions.
+- Tests cover source-inventory render output for function/method/type-like
+  rows, config keys, routes, cross-language rows, and `read_file` same-scope
+  path misses without sibling leakage. Existing multi-repo source-inventory
+  active-set tests continue to guard inactive-repo isolation.
+
+Design B2-I: summary-first cascaded source-inventory navigation.
+
+- Problem: a prominent "Suggested files" block is safe as an advisory manifest,
+  but it still encourages the model to jump straight to files. In broad source
+  inventory, mechanism tracing, architecture, route/config, mixed-language, and
+  multi-repo questions, that can drown the model's own intent-driven choice of
+  which branch to expand. The first source-inventory call should teach the
+  model how to ask the next narrower question, not pre-feed a large file list.
+- New contract:
+  - first render a compact, machine-checkable summary:
+    `member_rows`, `scope_groups`, `candidate_files`, `candidate_items`,
+    `ambiguous_groups`, role counts, attribute-role counts, language counts;
+  - then render concrete follow-up `repo_map(view="source_inventory")` call
+    shapes for narrowing one scope, paging the current checklist, and verifying
+    after a narrower lens result;
+  - then render bounded "suggested cascade expansions" per structured scope:
+    scope, file/candidate counts, role/language distributions, and the next
+    repo_map call to expand that scope;
+  - only after the cascade guide and grouped view, render a small
+    `Candidate File Samples to Verify` appendix. This preserves useful
+    path/file breadcrumbs without letting file lists dominate the first screen.
+- The guide is deliberately model-driven and advisory-only:
+  - it uses only structured `repo_map` parameters (`path`, `scope(s)`,
+    `roles`, `attribute_roles`, cursor/top_n) and structured observation rows;
+  - it does not inspect raw user text or model prose;
+  - it respects model-provided scope order and role order;
+  - when role fields are omitted, it derives follow-up call roles from the
+    already structured observation sets, not from keywords;
+  - it never marks candidates as final answer members and never blocks reading
+    other files.
+- Generality:
+  - enumeration: model expands the scopes it cares about and checks count/list
+    invariants without reading every file;
+  - mechanism/call-chain: model narrows to likely function/method/type scopes,
+    then verifies with read/grep before citing;
+  - architecture/component: model expands component scopes by package/file/type
+    boundaries;
+  - route/handler/config: model expands route/config-key owning scopes without
+    language-specific filename guesses;
+  - mixed-language and multi-repo: all rows come from repomap roles, languages,
+    active-set boundaries, and source-inventory observations.
+
+Tasks:
+
+- [x] B2-I1: add `Cascaded Repo Lens Guide (advisory)` before grouped rows in
+  `RenderSourceInventoryObservationView`.
+- [x] B2-I2: remove the file manifest from compact advisory hints and replace
+  it with the same summary-first cascade guide.
+- [x] B2-I3: keep candidate files as a bounded `Candidate File Samples to
+  Verify` appendix after grouped rows, plus the existing `read_file` path-miss
+  recovery hint.
+- [x] B2-I4: carry the structured repo_map `path` into
+  `SourceInventoryLensQuery` so suggested follow-up calls can reuse the same
+  repo/scope boundary without guessing.
+- [x] B2-I5: update tests to guard cascade-before-grouped-before-file-samples
+  ordering and compact-hint behavior.
+- [ ] B2-I6: rerun focused eval and compare whether the model performs narrower
+  source-inventory expansions before broad reads.

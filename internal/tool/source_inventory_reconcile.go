@@ -52,6 +52,28 @@ type sourceInventoryObservationScopeGroup struct {
 	Languages  map[string]int
 }
 
+type sourceInventorySuggestedFileGroup struct {
+	Scope          string
+	order          int
+	Files          []sourceInventorySuggestedFile
+	candidateCount int
+}
+
+type sourceInventorySuggestedFile struct {
+	File       string
+	order      int
+	RoleCounts map[types.AnswerCandidateRole]int
+	Languages  map[string]int
+	Candidates []sourceInventorySuggestedFileCandidate
+	seen       map[string]bool
+}
+
+type sourceInventorySuggestedFileCandidate struct {
+	Name string
+	Role types.AnswerCandidateRole
+	Line int
+}
+
 func publishSourceInventoryAdvisory(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) {
 	if ctx == nil || ctx.Mutable == nil {
 		return
@@ -169,6 +191,15 @@ func renderSourceInventoryAdvisoryToolHint(advisory types.SourceInventoryAdvisor
 	}
 	b.WriteString("- reuse this checklist to avoid re-listing the same scope; verify/read unresolved rows before emitting evidence or aggregate_facts.\n")
 	b.WriteString("- for a compact scoped member/attribute checklist, call repo_map with view=\"source_inventory\", roles=[...], and optional attribute_roles=[...] instead of reading every candidate file.\n")
+	if cascadeView := renderSourceInventoryCascadeGuideView(
+		types.SourceInventoryObservationFromAdvisory(advisory),
+		types.SourceInventoryLensQuery{Scopes: append([]string(nil), advisory.Scopes...), IncludeAttributes: true, IncludeCounts: true},
+		8,
+	); cascadeView != "" {
+		b.WriteByte('\n')
+		b.WriteString(cascadeView)
+		b.WriteString("\n\n")
+	}
 	emitted := 0
 	total := 0
 	for _, set := range advisory.Sets {
@@ -240,6 +271,234 @@ func renderSourceInventoryAdvisoryToolHintAttributes(attrs []types.SourceInvento
 	return "related callables: " + strings.Join(parts, ", ")
 }
 
+func renderSourceInventoryCascadeGuideView(observation types.SourceInventoryObservation, query types.SourceInventoryLensQuery, maxGroups int) string {
+	if !observation.IsActive() || sourceInventoryLensQueryOffset(query) > 0 || maxGroups <= 0 {
+		return ""
+	}
+	groups := sourceInventorySuggestedFileGroups(observation, query)
+	totalMembers := 0
+	roleCounts := map[types.AnswerCandidateRole]int{}
+	languageCounts := map[string]int{}
+	attrRoleCounts := map[types.AnswerCandidateRole]int{}
+	for _, set := range observation.Sets {
+		totalMembers += len(set.Members)
+		if set.Role != types.AnswerCandidateRoleUnknown && len(set.Members) > 0 {
+			roleCounts[set.Role] += len(set.Members)
+		}
+		for _, member := range set.Members {
+			if lang := strings.TrimSpace(member.Language); lang != "" {
+				languageCounts[lang]++
+			}
+			for _, attr := range member.Attributes {
+				if attr.Role != types.AnswerCandidateRoleUnknown {
+					attrRoleCounts[attr.Role]++
+				}
+				if lang := strings.TrimSpace(attr.Language); lang != "" {
+					languageCounts[lang]++
+				}
+			}
+		}
+	}
+	totalFiles := 0
+	totalCandidateItems := 0
+	ambiguousGroups := 0
+	for _, group := range groups {
+		totalFiles += len(group.Files)
+		totalCandidateItems += group.candidateCount
+		if len(group.Files) != 1 || group.candidateCount != 1 {
+			ambiguousGroups++
+		}
+	}
+
+	roles := sourceInventoryLensQueryRoles(query)
+	if len(roles) == 0 {
+		roles = sourceInventoryObservationRoles(observation)
+	}
+	attributeRoles := sourceInventoryLensQueryAttributeRoles(query)
+	if len(attributeRoles) == 0 {
+		attributeRoles = sourceInventoryObservationAttributeRoles(observation)
+	}
+	var b strings.Builder
+	b.WriteString("## Cascaded Repo Lens Guide (advisory)\n\n")
+	b.WriteString("Use this first as a navigation summary. It helps you choose the next narrower `repo_map(view=\"source_inventory\")` call; it is not evidence and does not decide the final answer.\n\n")
+	fmt.Fprintf(&b, "- summary: member_rows=%d", totalMembers)
+	if len(groups) > 0 {
+		fmt.Fprintf(&b, " scope_groups=%d candidate_files=%d candidate_items=%d ambiguous_groups=%d",
+			len(groups), totalFiles, totalCandidateItems, ambiguousGroups)
+	}
+	if rolesText := renderSourceInventoryRoleCounts(roleCounts); rolesText != "" {
+		fmt.Fprintf(&b, " roles=%s", rolesText)
+	}
+	if attrRolesText := renderSourceInventoryRoleCounts(attrRoleCounts); attrRolesText != "" {
+		fmt.Fprintf(&b, " attribute_roles=%s", attrRolesText)
+	}
+	if languages := renderSourceInventoryLanguageCounts(languageCounts); languages != "" {
+		fmt.Fprintf(&b, " languages=%s", languages)
+	}
+	b.WriteByte('\n')
+	if len(groups) > 0 {
+		fmt.Fprintf(&b, "- expand a scope before reading many files: `%s`\n",
+			sourceInventoryCascadeRepoMapCall(sourceInventoryLensQueryPath(query), "<scope>", nil, roles, attributeRoles, 24, ""))
+	}
+	if totalMembers > 0 {
+		fmt.Fprintf(&b, "- page the current checklist instead of widening blindly: `%s`\n",
+			sourceInventoryCascadeRepoMapCall(sourceInventoryLensQueryPath(query), "", sourceInventoryGroupScopesFromQuery(query, observation), roles, attributeRoles, 24, "<next_cursor>"))
+	}
+	b.WriteString("- after you choose a candidate from a narrower lens, verify with `read_file` or `grep` before citing it as evidence.\n")
+	if len(groups) == 0 {
+		return strings.TrimSpace(b.String())
+	}
+	b.WriteString("\nSuggested cascade expansions (model chooses which ones match the user's intent):\n")
+	rendered := 0
+	for _, group := range groups {
+		if rendered >= maxGroups {
+			break
+		}
+		if len(group.Files) == 0 && group.candidateCount == 0 {
+			continue
+		}
+		rendered++
+		fmt.Fprintf(&b, "- `%s` — files=%d candidates=%d",
+			group.Scope, len(group.Files), group.candidateCount)
+		if rolesText := renderSourceInventoryFileGroupRoleCounts(group); rolesText != "" {
+			fmt.Fprintf(&b, " roles=%s", rolesText)
+		}
+		if languages := renderSourceInventoryFileGroupLanguageCounts(group); languages != "" {
+			fmt.Fprintf(&b, " languages=%s", languages)
+		}
+		fmt.Fprintf(&b, " — next `%s`\n",
+			sourceInventoryCascadeRepoMapCall(sourceInventoryLensQueryPath(query), group.Scope, nil, roles, attributeRoles, 24, ""))
+	}
+	if len(groups) > rendered {
+		fmt.Fprintf(&b, "\nshowing %d of %d expandable scope groups; use `cursor`/narrower `scope` to continue without reading every file.\n", rendered, len(groups))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func sourceInventoryObservationRoles(observation types.SourceInventoryObservation) []types.AnswerCandidateRole {
+	seen := map[types.AnswerCandidateRole]bool{}
+	var roles []types.AnswerCandidateRole
+	for _, set := range observation.Sets {
+		if set.Role == types.AnswerCandidateRoleUnknown || seen[set.Role] || len(set.Members) == 0 {
+			continue
+		}
+		seen[set.Role] = true
+		roles = append(roles, set.Role)
+	}
+	return roles
+}
+
+func sourceInventoryObservationAttributeRoles(observation types.SourceInventoryObservation) []types.AnswerCandidateRole {
+	seen := map[types.AnswerCandidateRole]bool{}
+	var roles []types.AnswerCandidateRole
+	for _, set := range observation.Sets {
+		for _, member := range set.Members {
+			for _, attr := range member.Attributes {
+				if attr.Role == types.AnswerCandidateRoleUnknown || seen[attr.Role] {
+					continue
+				}
+				seen[attr.Role] = true
+				roles = append(roles, attr.Role)
+			}
+		}
+	}
+	return roles
+}
+
+func sourceInventoryLensQueryPath(query types.SourceInventoryLensQuery) string {
+	p := strings.TrimSpace(strings.ReplaceAll(query.Path, `\`, `/`))
+	if p == "" {
+		return "<same repo path>"
+	}
+	return p
+}
+
+func sourceInventoryCascadeRepoMapCall(toolPath, scope string, scopes []string, roles, attributeRoles []types.AnswerCandidateRole, topN int, cursor string) string {
+	parts := []string{
+		`"path": ` + strconv.Quote(toolPath),
+		`"view": "source_inventory"`,
+	}
+	scope = strings.TrimSpace(scope)
+	if scope != "" {
+		parts = append(parts, `"scope": `+strconv.Quote(scope))
+	} else if scopesText := sourceInventoryStringJSONArray(scopes); scopesText != "" {
+		parts = append(parts, `"scopes": `+scopesText)
+	}
+	if rolesText := sourceInventoryRoleJSONArray(roles); rolesText != "" {
+		parts = append(parts, `"roles": `+rolesText)
+	}
+	if attrRolesText := sourceInventoryRoleJSONArray(attributeRoles); attrRolesText != "" {
+		parts = append(parts, `"attribute_roles": `+attrRolesText)
+	}
+	parts = append(parts, `"include_counts": true`, `"include_attributes": true`)
+	if topN > 0 {
+		parts = append(parts, `"top_n": `+strconvItoa(topN))
+	}
+	if cursor = strings.TrimSpace(cursor); cursor != "" {
+		parts = append(parts, `"cursor": `+strconv.Quote(cursor))
+	}
+	return "repo_map {" + strings.Join(parts, ", ") + "}"
+}
+
+func sourceInventoryStringJSONArray(items []string) string {
+	if len(items) == 0 {
+		return ""
+	}
+	seen := map[string]bool{}
+	var parts []string
+	for _, item := range items {
+		item = strings.TrimSpace(strings.ReplaceAll(item, `\`, `/`))
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		parts = append(parts, strconv.Quote(item))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+func sourceInventoryRoleJSONArray(roles []types.AnswerCandidateRole) string {
+	if len(roles) == 0 {
+		return ""
+	}
+	seen := map[types.AnswerCandidateRole]bool{}
+	var parts []string
+	for _, role := range roles {
+		if role == types.AnswerCandidateRoleUnknown || seen[role] {
+			continue
+		}
+		seen[role] = true
+		parts = append(parts, strconv.Quote(string(role)))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+func renderSourceInventoryFileGroupRoleCounts(group sourceInventorySuggestedFileGroup) string {
+	counts := map[types.AnswerCandidateRole]int{}
+	for _, file := range group.Files {
+		for role, count := range file.RoleCounts {
+			counts[role] += count
+		}
+	}
+	return renderSourceInventoryRoleCounts(counts)
+}
+
+func renderSourceInventoryFileGroupLanguageCounts(group sourceInventorySuggestedFileGroup) string {
+	counts := map[string]int{}
+	for _, file := range group.Files {
+		for language, count := range file.Languages {
+			counts[language] += count
+		}
+	}
+	return renderSourceInventoryLanguageCounts(counts)
+}
+
 // RenderSourceInventoryObservationView renders a compact model-facing repo lens
 // view. The underlying observation remains structured in MutableState; this
 // markdown is only a readable checklist for the current tool result.
@@ -247,7 +506,9 @@ func RenderSourceInventoryObservationView(observation types.SourceInventoryObser
 	if !observation.IsActive() {
 		return "Repo Lens: no source-inventory observation is available for the requested typed scope/role slice. Try a narrower `scope` or provide `roles` that match repo-map candidate roles."
 	}
+	cascadeView := renderSourceInventoryCascadeGuideView(observation, query, 16)
 	groupedView := renderSourceInventoryGroupedObservationView(observation, query)
+	suggestedFilesView := renderSourceInventoryCandidateFileSamplesView(observation, query)
 	topN := query.TopN
 	if topN <= 0 {
 		topN = 60
@@ -288,8 +549,16 @@ func RenderSourceInventoryObservationView(observation types.SourceInventoryObser
 		fmt.Fprintf(&b, "- page_offset: %d\n", offset)
 	}
 	b.WriteByte('\n')
+	if cascadeView != "" {
+		b.WriteString(cascadeView)
+		b.WriteString("\n\n")
+	}
 	if groupedView != "" {
 		b.WriteString(groupedView)
+		b.WriteString("\n\n")
+	}
+	if suggestedFilesView != "" {
+		b.WriteString(suggestedFilesView)
 		b.WriteString("\n\n")
 	}
 	emitted := 0
@@ -349,6 +618,378 @@ func RenderSourceInventoryObservationView(observation types.SourceInventoryObser
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func renderSourceInventoryCandidateFileSamplesView(observation types.SourceInventoryObservation, query types.SourceInventoryLensQuery) string {
+	return renderSourceInventoryCandidateFileSamplesViewWithLimits(observation, query, 16, 3, 3)
+}
+
+func renderSourceInventoryCandidateFileSamplesViewWithLimits(observation types.SourceInventoryObservation, query types.SourceInventoryLensQuery, maxGroups, maxFilesPerGroup, maxItemsPerFile int) string {
+	if !observation.IsActive() || sourceInventoryLensQueryOffset(query) > 0 {
+		return ""
+	}
+	if maxGroups <= 0 || maxFilesPerGroup <= 0 || maxItemsPerFile <= 0 {
+		return ""
+	}
+	groups := sourceInventorySuggestedFileGroups(observation, query)
+	if len(groups) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Candidate File Samples to Verify (advisory)\n\n")
+	b.WriteString("These are bounded examples from the same structured rows, useful after choosing a scope from the cascade guide. They are not a hard whitelist and not final answer evidence.\n\n")
+	renderedGroups := 0
+	for _, group := range groups {
+		if renderedGroups >= maxGroups {
+			break
+		}
+		if len(group.Files) == 0 {
+			continue
+		}
+		renderedGroups++
+		fmt.Fprintf(&b, "- `%s` — file_count=%d candidate_count=%d — files: ",
+			group.Scope, len(group.Files), group.candidateCount)
+		parts := make([]string, 0, minInt(len(group.Files), maxFilesPerGroup))
+		for _, file := range group.Files {
+			if len(parts) >= maxFilesPerGroup {
+				break
+			}
+			if part := renderSourceInventorySuggestedFile(file, maxItemsPerFile); part != "" {
+				parts = append(parts, part)
+			}
+		}
+		if len(parts) == 0 {
+			b.WriteString("(none)")
+		} else {
+			b.WriteString(strings.Join(parts, "; "))
+		}
+		if len(group.Files) > len(parts) {
+			fmt.Fprintf(&b, " (+%d more files)", len(group.Files)-len(parts))
+		}
+		b.WriteByte('\n')
+	}
+	if len(groups) > renderedGroups {
+		fmt.Fprintf(&b, "\nshowing %d of %d file groups; the structured observation stored in run state preserves all candidate files.\n", renderedGroups, len(groups))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func renderSourceInventorySuggestedFile(file sourceInventorySuggestedFile, maxItems int) string {
+	if strings.TrimSpace(file.File) == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("`")
+	b.WriteString(file.File)
+	b.WriteString("`")
+	var meta []string
+	if languages := renderSourceInventoryLanguageCounts(file.Languages); languages != "" {
+		meta = append(meta, "languages="+languages)
+	}
+	if roles := renderSourceInventoryRoleCounts(file.RoleCounts); roles != "" {
+		meta = append(meta, "roles="+roles)
+	}
+	candidates := renderSourceInventorySuggestedFileCandidates(file.Candidates, maxItems)
+	if candidates != "" {
+		meta = append(meta, "candidates: "+candidates)
+	}
+	if len(meta) > 0 {
+		b.WriteString(" (")
+		b.WriteString(strings.Join(meta, "; "))
+		b.WriteString(")")
+	}
+	return b.String()
+}
+
+func renderSourceInventorySuggestedFileCandidates(candidates []sourceInventorySuggestedFileCandidate, maxItems int) string {
+	if len(candidates) == 0 || maxItems <= 0 {
+		return ""
+	}
+	var parts []string
+	for _, candidate := range candidates {
+		if len(parts) >= maxItems {
+			break
+		}
+		name := strings.TrimSpace(candidate.Name)
+		if name == "" {
+			continue
+		}
+		role := strings.TrimSpace(string(candidate.Role))
+		if role == "" {
+			role = "candidate"
+		}
+		item := role + " `" + name + "`"
+		if candidate.Line > 0 {
+			item += "@" + strconvItoa(candidate.Line)
+		}
+		parts = append(parts, item)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	if len(candidates) > len(parts) {
+		parts = append(parts, fmt.Sprintf("+%d", len(candidates)-len(parts)))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func sourceInventorySuggestedFileGroups(observation types.SourceInventoryObservation, query types.SourceInventoryLensQuery) []sourceInventorySuggestedFileGroup {
+	if !observation.IsActive() {
+		return nil
+	}
+	groupScopes := sourceInventoryGroupScopesFromQuery(query, observation)
+	groupOrder := map[string]int{}
+	for i, scope := range groupScopes {
+		groupOrder[scope] = i
+	}
+	groupsByScope := map[string]*sourceInventorySuggestedFileGroup{}
+	filesByScope := map[string]map[string]*sourceInventorySuggestedFile{}
+	add := func(scope, file, language string, role types.AnswerCandidateRole, name string, line int) {
+		file = strings.Trim(strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`)), "/")
+		if file == "" {
+			return
+		}
+		scope = strings.Trim(strings.TrimSpace(strings.ReplaceAll(scope, `\`, `/`)), "/")
+		if scope == "" {
+			scope = "."
+		}
+		group := groupsByScope[scope]
+		if group == nil {
+			order := len(groupOrder) + len(groupsByScope)
+			if explicit, ok := groupOrder[scope]; ok {
+				order = explicit
+			}
+			group = &sourceInventorySuggestedFileGroup{Scope: scope, order: order}
+			groupsByScope[scope] = group
+			filesByScope[scope] = map[string]*sourceInventorySuggestedFile{}
+		}
+		files := filesByScope[scope]
+		item := files[file]
+		if item == nil {
+			item = &sourceInventorySuggestedFile{
+				File:       file,
+				order:      len(files),
+				RoleCounts: map[types.AnswerCandidateRole]int{},
+				Languages:  map[string]int{},
+				seen:       map[string]bool{},
+			}
+			files[file] = item
+			group.Files = append(group.Files, *item)
+		}
+		key := sourceInventorySuggestedCandidateKey(role, name, line)
+		if key == "" || item.seen[key] {
+			return
+		}
+		item.seen[key] = true
+		item.Candidates = append(item.Candidates, sourceInventorySuggestedFileCandidate{Name: name, Role: role, Line: line})
+		if role != types.AnswerCandidateRoleUnknown {
+			item.RoleCounts[role]++
+		}
+		if language = strings.TrimSpace(language); language != "" {
+			item.Languages[language]++
+		}
+		group.candidateCount++
+		group.Files[item.order] = *item
+	}
+	addMember := func(member types.SourceInventoryObservationMember) {
+		file := sourceInventoryObservationMemberFile(member)
+		if file != "" {
+			scope := sourceInventorySuggestedFileScope(file, groupScopes, observation.Scopes)
+			add(scope, file, member.Language, member.Role, member.Name, member.Line)
+		}
+		for _, attr := range member.Attributes {
+			attrFile := strings.Trim(strings.TrimSpace(strings.ReplaceAll(attr.File, `\`, `/`)), "/")
+			if attrFile == "" {
+				continue
+			}
+			scope := sourceInventorySuggestedFileScope(attrFile, groupScopes, observation.Scopes)
+			add(scope, attrFile, attr.Language, attr.Role, attr.Name, attr.Line)
+		}
+	}
+	for _, set := range observation.Sets {
+		for _, member := range set.Members {
+			addMember(member)
+		}
+	}
+	groups := make([]sourceInventorySuggestedFileGroup, 0, len(groupsByScope))
+	for _, group := range groupsByScope {
+		sort.SliceStable(group.Files, func(i, j int) bool {
+			if group.Files[i].order != group.Files[j].order {
+				return group.Files[i].order < group.Files[j].order
+			}
+			return group.Files[i].File < group.Files[j].File
+		})
+		groups = append(groups, *group)
+	}
+	sort.SliceStable(groups, func(i, j int) bool {
+		if groups[i].order != groups[j].order {
+			return groups[i].order < groups[j].order
+		}
+		return groups[i].Scope < groups[j].Scope
+	})
+	return groups
+}
+
+func sourceInventorySuggestedCandidateKey(role types.AnswerCandidateRole, name string, line int) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	return string(role) + "\x00" + name + "\x00" + strconvItoa(line)
+}
+
+func sourceInventorySuggestedFileScope(file string, groupScopes []string, observationScopes []string) string {
+	file = strings.Trim(strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`)), "/")
+	if file == "" {
+		return ""
+	}
+	if len(groupScopes) > 1 {
+		if scope := sourceInventoryBestMatchingScope(file, groupScopes); scope != "" {
+			return scope
+		}
+	}
+	baseScopes := groupScopes
+	if len(baseScopes) == 0 {
+		baseScopes = observationScopes
+	}
+	base := "."
+	if len(baseScopes) == 1 {
+		base = strings.Trim(strings.TrimSpace(strings.ReplaceAll(baseScopes[0], `\`, `/`)), "/")
+		if base == "" {
+			base = "."
+		}
+	}
+	return sourceInventoryChildScopeForFile(file, base)
+}
+
+func sourceInventoryReadFilePathMissHint(ctx *types.BusContext, requested string) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	observation := ctx.Mutable.SourceInventoryObservation()
+	if !observation.IsActive() {
+		return ""
+	}
+	requestedRel, ok := sourceInventoryReadFileRequestedRel(ctx, requested)
+	if !ok || requestedRel == "" {
+		return ""
+	}
+	requestedDir := path.Dir(requestedRel)
+	if requestedDir == "." && strings.Contains(requestedRel, "/") {
+		requestedDir = path.Dir(strings.Trim(requestedRel, "/"))
+	}
+	groups := sourceInventorySuggestedFileGroups(observation, types.SourceInventoryLensQuery{})
+	if len(groups) == 0 {
+		return ""
+	}
+	files := sourceInventorySuggestedFilesForRequestedScope(groups, requestedDir, requestedRel)
+	if len(files) == 0 {
+		return ""
+	}
+	const (
+		maxFiles = 5
+		maxItems = 3
+	)
+	if len(files) > maxFiles {
+		files = files[:maxFiles]
+	}
+	parts := make([]string, 0, len(files))
+	for _, file := range files {
+		if part := renderSourceInventorySuggestedFile(file, maxItems); part != "" {
+			parts = append(parts, part)
+		}
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	scope := requestedDir
+	if scope == "." || scope == "" {
+		scope = "repo root"
+	} else {
+		scope = "`" + scope + "`"
+	}
+	return fmt.Sprintf("\n\nSource-inventory hint (advisory): the requested path is missing. Known candidate files in the same scope %s: %s. These are repo-map navigation suggestions, not a whitelist; read the relevant file before citing.", scope, strings.Join(parts, "; "))
+}
+
+func sourceInventoryReadFileRequestedRel(ctx *types.BusContext, requested string) (string, bool) {
+	raw := strings.TrimSpace(strings.ReplaceAll(requested, `\`, `/`))
+	if raw == "" {
+		return "", false
+	}
+	if normalized, ok := normalizeWindowsPOSIXPath(raw); ok {
+		raw = filepath.ToSlash(normalized)
+	}
+	if toolPathIsAbs(raw) {
+		if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+			return "", false
+		}
+		root := filepath.Clean(ctx.RepoRoot)
+		abs := filepath.Clean(raw)
+		rel, err := filepath.Rel(root, abs)
+		if err != nil {
+			return "", false
+		}
+		rel = filepath.ToSlash(filepath.Clean(rel))
+		if rel == "." || rel == ".." || strings.HasPrefix(rel, "../") {
+			return "", false
+		}
+		return rel, true
+	}
+	cleaned := path.Clean(raw)
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", false
+	}
+	if ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
+		parts := strings.Split(cleaned, "/")
+		repoLabel := filepath.Base(filepath.Clean(ctx.RepoRoot))
+		if len(parts) > 1 && repoLabel != "" && parts[0] == repoLabel {
+			cleaned = strings.Join(parts[1:], "/")
+		}
+	}
+	if cleaned == "" || cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", false
+	}
+	return strings.Trim(cleaned, "/"), true
+}
+
+func sourceInventorySuggestedFilesForRequestedScope(groups []sourceInventorySuggestedFileGroup, requestedDir, requestedRel string) []sourceInventorySuggestedFile {
+	requestedDir = strings.Trim(strings.TrimSpace(strings.ReplaceAll(requestedDir, `\`, `/`)), "/")
+	if requestedDir == "" {
+		requestedDir = "."
+	}
+	requestedRel = strings.Trim(strings.TrimSpace(strings.ReplaceAll(requestedRel, `\`, `/`)), "/")
+	var files []sourceInventorySuggestedFile
+	seen := map[string]bool{}
+	addFile := func(file sourceInventorySuggestedFile) {
+		if file.File == "" || file.File == requestedRel || seen[file.File] {
+			return
+		}
+		seen[file.File] = true
+		files = append(files, file)
+	}
+	for _, group := range groups {
+		scope := strings.Trim(strings.TrimSpace(strings.ReplaceAll(group.Scope, `\`, `/`)), "/")
+		if scope == "" {
+			scope = "."
+		}
+		if scope != requestedDir {
+			continue
+		}
+		for _, file := range group.Files {
+			addFile(file)
+		}
+	}
+	if len(files) > 0 {
+		return files
+	}
+	for _, group := range groups {
+		for _, file := range group.Files {
+			if path.Dir(file.File) == requestedDir {
+				addFile(file)
+			}
+		}
+	}
+	return files
 }
 
 func renderSourceInventoryGroupedObservationView(observation types.SourceInventoryObservation, query types.SourceInventoryLensQuery) string {

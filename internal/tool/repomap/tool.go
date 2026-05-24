@@ -282,6 +282,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		}
 		scopes := sourceInventoryScopesForRepoMapParams(p, repoRoot, graph)
 		observation := tool.PublishSourceInventoryObservationFromLens(ctx, ctypes.SourceInventoryLensQuery{
+			Path:              p.Path,
 			Scopes:            scopes,
 			Roles:             append([]ctypes.AnswerCandidateRole(nil), p.Roles...),
 			AttributeRoles:    append([]ctypes.AnswerCandidateRole(nil), p.AttributeRoles...),
@@ -293,6 +294,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 			Query:             p.Query,
 		})
 		output := tool.RenderSourceInventoryObservationView(observation, ctypes.SourceInventoryLensQuery{
+			Path:              p.Path,
 			Scopes:            scopes,
 			Roles:             append([]ctypes.AnswerCandidateRole(nil), p.Roles...),
 			AttributeRoles:    append([]ctypes.AnswerCandidateRole(nil), p.AttributeRoles...),

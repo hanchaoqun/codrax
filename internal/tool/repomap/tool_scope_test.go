@@ -280,12 +280,20 @@ func TestRepoMapSourceInventoryViewGroupsBroadSymbolRolesByScope(t *testing.T) {
 		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
 	}
 	for _, want := range []string{
+		"## Cascaded Repo Lens Guide (advisory)",
+		"scope_groups=2 candidate_files=2 candidate_items=3 ambiguous_groups=1",
+		"`src/beta` — files=1 candidates=1 roles=function:1 languages=python:1 — next `repo_map {\"path\": \".\", \"view\": \"source_inventory\", \"scope\": \"src/beta\"",
 		"## Scope-grouped Candidate View (advisory)",
 		"`src/beta` — candidate_count=1 roles=function:1 languages=python:1",
 		"function `run` @ src/beta/b.py:9",
 		"`src/alpha` — candidate_count=2 roles=function:2 languages=python:2",
 		"function `run` @ src/alpha/a.py:7",
 		"function `helper` @ src/alpha/a.py:20",
+		"## Candidate File Samples to Verify (advisory)",
+		"`src/beta` — file_count=1 candidate_count=1 — files: `src/beta/b.py`",
+		"candidates: function `run`@9",
+		"`src/alpha` — file_count=1 candidate_count=2 — files: `src/alpha/a.py`",
+		"candidates: function `run`@7, function `helper`@20",
 		"count=3 complete=true",
 	} {
 		if !strings.Contains(res.Summary, want) {
@@ -296,6 +304,15 @@ func TestRepoMapSourceInventoryViewGroupsBroadSymbolRolesByScope(t *testing.T) {
 		t.Fatalf("grouped source_inventory missing beta group:\n%s", res.Summary)
 	} else if alpha := strings.Index(res.Summary, "`src/alpha`"); alpha < 0 || alpha < beta {
 		t.Fatalf("grouped source_inventory did not preserve model-provided scope order:\n%s", res.Summary)
+	}
+	cascade := strings.Index(res.Summary, "## Cascaded Repo Lens Guide (advisory)")
+	grouped := strings.Index(res.Summary, "## Scope-grouped Candidate View (advisory)")
+	files := strings.Index(res.Summary, "## Candidate File Samples to Verify (advisory)")
+	if cascade < 0 || grouped < 0 || files < 0 {
+		t.Fatalf("source_inventory missing progressive navigation sections:\n%s", res.Summary)
+	}
+	if !(cascade < grouped && grouped < files) {
+		t.Fatalf("source_inventory should render cascade guide, then grouped rows, then file samples:\n%s", res.Summary)
 	}
 	obs := mut.SourceInventoryObservation()
 	if !obs.IsActive() || len(obs.Sets) != 1 || obs.Sets[0].Count != 3 {
@@ -577,11 +594,18 @@ func TestRepoMapSourceInventoryViewGroupsConfigKeysAndRoutes(t *testing.T) {
 		t.Fatalf("repo_map source_inventory should succeed: %+v", res)
 	}
 	for _, want := range []string{
+		"## Cascaded Repo Lens Guide (advisory)",
+		"scope_groups=2 candidate_files=2 candidate_items=3 ambiguous_groups=1",
 		"`config` — candidate_count=2 roles=config_key:2 languages=yaml:2",
 		"config_key `feature.enabled` @ config/app.yaml:4",
 		"config_key `feature.timeout` @ config/app.yaml:5",
 		"`src` — candidate_count=1 roles=route:1 languages=typescript:1",
 		"route `GET /healthz` @ src/routes.ts:11",
+		"## Candidate File Samples to Verify (advisory)",
+		"`config` — file_count=1 candidate_count=2 — files: `config/app.yaml`",
+		"candidates: config_key `feature.enabled`@4, config_key `feature.timeout`@5",
+		"`src` — file_count=1 candidate_count=1 — files: `src/routes.ts`",
+		"candidates: route `GET /healthz`@11",
 	} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("config/route grouped source_inventory missing %q:\n%s", want, res.Summary)

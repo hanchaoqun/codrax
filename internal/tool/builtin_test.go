@@ -339,6 +339,69 @@ func TestReadFile(t *testing.T) {
 	})
 }
 
+func TestReadFilePathMissIncludesSourceInventorySameScopeHint(t *testing.T) {
+	repo := t.TempDir()
+	mut := types.NewMutableState("read file source inventory miss")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active: true,
+		Scopes: []string{"src"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRoleFunction,
+			Complete: true,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:     "run_alpha",
+				Role:     types.AnswerCandidateRoleFunction,
+				File:     "src/alpha/run.py",
+				Line:     7,
+				Language: "python",
+			}, {
+				Name:     "run_beta",
+				Role:     types.AnswerCandidateRoleFunction,
+				File:     "src/beta/run.py",
+				Line:     9,
+				Language: "python",
+			}},
+		}},
+	})
+	ctx := &types.BusContext{RepoRoot: repo, Mutable: mut}
+
+	params, _ := json.Marshal(readFileParams{Path: "src/alpha/alpha.py"})
+	result, err := (&ReadFile{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("expected missing path failure, got success: %+v", result)
+	}
+	for _, want := range []string{
+		"read failed:",
+		"Source-inventory hint (advisory)",
+		"same scope `src/alpha`",
+		"`src/alpha/run.py`",
+		"function `run_alpha`@7",
+		"not a whitelist",
+	} {
+		if !strings.Contains(result.Summary, want) {
+			t.Fatalf("path-miss hint missing %q:\n%s", want, result.Summary)
+		}
+	}
+	if strings.Contains(result.Summary, "run_beta") {
+		t.Fatalf("path-miss hint leaked sibling scope candidate:\n%s", result.Summary)
+	}
+
+	params, _ = json.Marshal(readFileParams{Path: "src/gamma/missing.py"})
+	result, err = (&ReadFile{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Success {
+		t.Fatalf("expected missing path failure, got success: %+v", result)
+	}
+	if strings.Contains(result.Summary, "Source-inventory hint") {
+		t.Fatalf("unmatched scope should not emit source-inventory suggestions:\n%s", result.Summary)
+	}
+}
+
 func min(a, b int) int {
 	if a < b {
 		return a

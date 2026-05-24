@@ -35,6 +35,7 @@ type SourceInventoryObservation struct {
 // It is intentionally small and typed so callers can drive exploration without
 // adding prose classifiers or bespoke inventory modes.
 type SourceInventoryLensQuery struct {
+	Path              string                `json:"path,omitempty"`
 	Scopes            []string              `json:"scopes,omitempty"`
 	Roles             []AnswerCandidateRole `json:"roles,omitempty"`
 	AttributeRoles    []AnswerCandidateRole `json:"attribute_roles,omitempty"`

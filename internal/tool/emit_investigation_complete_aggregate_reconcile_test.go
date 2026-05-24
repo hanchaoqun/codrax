@@ -1333,6 +1333,21 @@ func TestPublishSourceInventoryAdvisoryFromToolObservation_FirstActivationReturn
 		!strings.Contains(hint, "run_alpha@src/alpha/a.py:7") {
 		t.Fatalf("hint did not expose compact advisory: %q", hint)
 	}
+	for _, want := range []string{
+		"## Cascaded Repo Lens Guide (advisory)",
+		"scope_groups=1 candidate_files=1 candidate_items=1 ambiguous_groups=0",
+		"`src/alpha` — files=1 candidates=1 roles=function:1 languages=python:1",
+		"repo_map {\"path\": \"<same repo path>\", \"view\": \"source_inventory\", \"scope\": \"src/alpha\"",
+	} {
+		if !strings.Contains(hint, want) {
+			t.Fatalf("hint missing cascaded repo lens guide %q:\n%s", want, hint)
+		}
+	}
+	if guide := strings.Index(hint, "## Cascaded Repo Lens Guide (advisory)"); guide < 0 {
+		t.Fatalf("hint missing cascaded repo lens guide:\n%s", hint)
+	} else if rows := strings.Index(hint, "- function candidates:"); rows < 0 || rows < guide {
+		t.Fatalf("hint should surface cascade guide before compact candidate rows:\n%s", hint)
+	}
 	if second := PublishSourceInventoryAdvisoryFromToolObservation(ctx, types.ToolResult{
 		ToolName: "list_files",
 		Success:  true,

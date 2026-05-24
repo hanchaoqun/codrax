@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -1963,7 +1964,11 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	}
 	data, err := os.ReadFile(fsPath)
 	if err != nil {
-		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("read failed: %v", err), Timestamp: time.Now()}, nil
+		hint := ""
+		if errors.Is(err, fs.ErrNotExist) {
+			hint = sourceInventoryReadFilePathMissHint(ctx, p.Path)
+		}
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("read failed: %v%s", err, hint), Timestamp: time.Now()}, nil
 	}
 
 	content := string(data)
