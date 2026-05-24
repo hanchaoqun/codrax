@@ -557,12 +557,20 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	primaryEntity := extractPrimaryEntity(ctx)
 	exactResolutionContract := answerExactResolutionContract(ctx)
 	pendingExactTargets := pendingExactResolutionTargets(ctx, exactResolutionContract)
+	if oracleSource, ok := ctx.MultiGraph.(interface {
+		Oracle() types.SymbolOracle
+	}); ok && oracleSource != nil {
+		ground.SetCrossRepoOracle(oracleSource.Oracle())
+	} else {
+		ground.SetCrossRepoOracle(nil)
+	}
+	gc := ground.BuildContext(ctx)
 	for i, in := range p.Items {
 		if reason, ok := emitEvidenceHistoryMetadataSoftSkipReason(ctx, in, i); ok {
 			softSkippedItems = append(softSkippedItems, reason)
 			continue
 		}
-		ev, perr := buildEmitEvidenceItemWithSwap(&in, i, workDir, &autoSwapped, &compatRepairs)
+		ev, perr := buildEmitEvidenceItemWithSwap(&in, i, workDir, gc, &autoSwapped, &compatRepairs)
 		if perr != nil {
 			if reason, ok := emitEvidenceToolValueSoftSkipReason(ctx, in, i, perr); ok {
 				softSkippedItems = append(softSkippedItems, reason)
@@ -639,14 +647,6 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// inline interface so internal/tool/ground stays free of the
 	// repomap/multigraph import cycle that tool/ground →
 	// repomap/multigraph → repomap/topology → tool would form).
-	if oracleSource, ok := ctx.MultiGraph.(interface {
-		Oracle() types.SymbolOracle
-	}); ok && oracleSource != nil {
-		ground.SetCrossRepoOracle(oracleSource.Oracle())
-	} else {
-		ground.SetCrossRepoOracle(nil)
-	}
-	gc := ground.BuildContext(ctx)
 	diagramRequiredFiles := exactResolutionDiagramRequiredFiles(ctx, exactResolutionContract)
 	reports := make([]ground.Report, len(built))
 	surfaceTermDrops := make([]string, 0)
@@ -936,7 +936,7 @@ var emitEvidenceMisplacedHints = []MisplacedFieldHint{
 // delegating. Records the item index into autoSwapped so the caller
 // can surface a "double-check the range" warning. All other
 // validation errors flow through buildEmitEvidenceItem unchanged.
-func buildEmitEvidenceItemWithSwap(in *emitEvidenceItem, index int, workDir string, autoSwapped *[]int, compatRepairs *[]string) (types.EvidenceItem, error) {
+func buildEmitEvidenceItemWithSwap(in *emitEvidenceItem, index int, workDir string, gc *ground.Context, autoSwapped *[]int, compatRepairs *[]string) (types.EvidenceItem, error) {
 	if in.LineStart.Int() > 0 && in.LineEnd.Int() > 0 && in.LineEnd.Int() < in.LineStart.Int() {
 		// Obvious transposition typo — repair rather than reject.
 		swappedStart, swappedEnd := in.LineEnd, in.LineStart
@@ -944,6 +944,8 @@ func buildEmitEvidenceItemWithSwap(in *emitEvidenceItem, index int, workDir stri
 		*autoSwapped = append(*autoSwapped, index)
 	}
 	repairEmitEvidenceItemShape(in, index, compatRepairs)
+	repairMissingEmitEvidenceSource(in, index, gc, compatRepairs)
+	repairMissingEmitEvidenceAnchorSymbol(in, index, gc, compatRepairs)
 	return buildEmitEvidenceItem(*in, index, workDir)
 }
 
@@ -1130,6 +1132,226 @@ func repairEmitEvidenceItemShape(in *emitEvidenceItem, index int, compatRepairs 
 					index, oldScope, in.LineStart.Int(), in.Scope))
 		}
 	}
+}
+
+func repairMissingEmitEvidenceSource(in *emitEvidenceItem, index int, gc *ground.Context, compatRepairs *[]string) {
+	if in == nil ||
+		strings.TrimSpace(in.Source) != "" ||
+		in.LineStart.Int() <= 0 ||
+		strings.TrimSpace(in.AnchorSymbol) == "" ||
+		gc == nil {
+		return
+	}
+	var candidates []string
+	for source := range gc.LineIndex {
+		if _, ok := ground.VerifyLineAnchor(gc, source, in.LineStart.Int(), in.AnchorSymbol, 0); ok {
+			candidates = append(candidates, source)
+		}
+	}
+	if source := uniqueString(candidates); source != "" {
+		in.Source = source
+		if compatRepairs != nil {
+			*compatRepairs = append(*compatRepairs,
+				fmt.Sprintf("items[%d].source was missing; inferred %q from exact read_file line %d and anchor_symbol=%q",
+					index, source, in.LineStart.Int(), strings.TrimSpace(in.AnchorSymbol)))
+		}
+	}
+}
+
+func repairMissingEmitEvidenceAnchorSymbol(in *emitEvidenceItem, index int, gc *ground.Context, compatRepairs *[]string) {
+	if in == nil ||
+		strings.TrimSpace(in.AnchorSymbol) != "" ||
+		strings.TrimSpace(in.AnchorKind) == "" ||
+		!emitEvidenceItemHasLineCoordinateShape(*in) {
+		return
+	}
+	anchorKind, ok := findAnchorKind(strings.ToLower(strings.TrimSpace(in.AnchorKind)))
+	if !ok {
+		return
+	}
+	if candidate, source := inferEmitEvidenceAnchorSymbol(*in, anchorKind, gc); candidate != "" {
+		in.AnchorSymbol = candidate
+		if compatRepairs != nil {
+			*compatRepairs = append(*compatRepairs,
+				fmt.Sprintf("items[%d].anchor_symbol was missing; inferred %q from %s at %s:%d",
+					index, candidate, source, strings.TrimSpace(in.Source), in.LineStart.Int()))
+		}
+	}
+}
+
+func inferEmitEvidenceAnchorSymbol(in emitEvidenceItem, anchorKind types.AnchorKind, gc *ground.Context) (string, string) {
+	if candidate := uniqueString(emitEvidenceAnchorCandidatesFromGraph(in, anchorKind, gc)); candidate != "" {
+		return candidate, "repomap exact-line metadata"
+	}
+	if candidate := uniqueString(emitEvidenceAnchorCandidatesFromTypedFields(in, gc)); candidate != "" {
+		return candidate, "typed fields corroborated by the read line"
+	}
+	return "", ""
+}
+
+func emitEvidenceAnchorCandidatesFromGraph(in emitEvidenceItem, anchorKind types.AnchorKind, gc *ground.Context) []string {
+	if gc == nil || gc.Graph == nil {
+		return nil
+	}
+	fi := emitEvidenceGraphFileInfo(gc, in.Source)
+	if fi == nil {
+		return nil
+	}
+	line := in.LineStart.Int()
+	if line <= 0 {
+		return nil
+	}
+	var out []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	switch anchorKind {
+	case types.AnchorDefinition:
+		for _, sym := range fi.Symbols {
+			if sym.Line == line {
+				add(sym.Name)
+			}
+		}
+	case types.AnchorCall:
+		for _, rel := range fi.Relations {
+			if rel.Line != line || rel.Kind != "call" {
+				continue
+			}
+			if rel.ToEP.Name != "" {
+				add(rel.ToEP.Name)
+			} else {
+				add(rel.To)
+			}
+		}
+	case types.AnchorImport:
+		for _, imp := range fi.Imports {
+			if imp.Line != line {
+				continue
+			}
+			add(imp.Alias)
+			add(imp.Path)
+		}
+	}
+	return out
+}
+
+func emitEvidenceGraphFileInfo(gc *ground.Context, source string) *repomap.FileInfo {
+	if gc == nil || gc.Graph == nil {
+		return nil
+	}
+	candidates := []string{
+		strings.TrimSpace(source),
+		filepath.ToSlash(strings.TrimSpace(source)),
+		strings.TrimPrefix(filepath.ToSlash(strings.TrimSpace(source)), "./"),
+	}
+	if gc.ActiveSetPath != nil {
+		if mapped := gc.ActiveSetPath(source); strings.TrimSpace(mapped) != "" {
+			candidates = append(candidates, mapped)
+		}
+	}
+	seen := map[string]bool{}
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || seen[candidate] {
+			continue
+		}
+		seen[candidate] = true
+		if fi := gc.Graph.FileIndex[candidate]; fi != nil {
+			return fi
+		}
+	}
+	return nil
+}
+
+func emitEvidenceAnchorCandidatesFromTypedFields(in emitEvidenceItem, gc *ground.Context) []string {
+	if gc == nil || !ground.HasLineInIndex(gc, in.Source, in.LineStart.Int()) {
+		return nil
+	}
+	var fields []string
+	fields = append(fields,
+		in.Object,
+		in.Subject,
+		in.Condition,
+		in.Snippet,
+	)
+	fields = append(fields, in.SurfaceTerms...)
+	fields = append(fields, in.Summary)
+	var out []string
+	for _, field := range fields {
+		for _, token := range emitEvidenceIdentifierCandidates(field) {
+			if _, ok := ground.VerifyLineAnchor(gc, in.Source, in.LineStart.Int(), token, 0); ok {
+				out = append(out, token)
+			}
+		}
+	}
+	return out
+}
+
+func emitEvidenceIdentifierCandidates(text string) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	matches := emitEvidenceIdentifierCandidateRe.FindAllString(text, -1)
+	out := make([]string, 0, len(matches))
+	for _, match := range matches {
+		match = strings.Trim(match, ".")
+		if !emitEvidenceLooksLikeAnchorCandidate(match) {
+			continue
+		}
+		out = append(out, match)
+	}
+	return out
+}
+
+var emitEvidenceIdentifierCandidateRe = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]*(?:[.:][A-Za-z_][A-Za-z0-9_]*)*`)
+
+func emitEvidenceLooksLikeAnchorCandidate(s string) bool {
+	if len(s) < 2 {
+		return false
+	}
+	lower := strings.ToLower(s)
+	switch lower {
+	case "the", "and", "for", "with", "from", "into", "that", "this", "then", "than",
+		"true", "false", "nil", "null", "none", "line", "lines", "file", "files",
+		"function", "method", "type", "struct", "class", "interface", "returns", "return",
+		"calls", "call", "source", "scope", "summary", "direct", "mechanism", "relationship":
+		return false
+	}
+	hasUpper, hasDigit, hasUnderscore, hasQualifier := false, false, false, false
+	for _, r := range s {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			hasUpper = true
+		case r >= '0' && r <= '9':
+			hasDigit = true
+		case r == '_':
+			hasUnderscore = true
+		case r == '.' || r == ':':
+			hasQualifier = true
+		}
+	}
+	return hasUpper || hasDigit || hasUnderscore || hasQualifier
+}
+
+func uniqueString(in []string) string {
+	seen := map[string]bool{}
+	unique := ""
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		if unique != "" {
+			return ""
+		}
+		unique = s
+	}
+	return unique
 }
 
 func repairMisplacedScopeSemanticValue(in *emitEvidenceItem, index int, compatRepairs *[]string) {

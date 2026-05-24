@@ -1163,38 +1163,6 @@ func RenderFlowFindingSequenceDiagramFence(findings []FlowFindingDigest) string 
 	return ""
 }
 
-func RenderAnswerChainDiagramFence(chains []AnswerChain) string {
-	nodes := make([]string, 0, len(chains))
-	for _, chain := range chains {
-		label := firstNonEmptySurfaceString(
-			chain.Item.DisplayLocation(true),
-			strings.TrimSpace(chain.Item.Source),
-			strings.TrimSpace(chain.Item.Subject),
-			strings.TrimSpace(chain.Item.AnchorSymbol),
-		)
-		if label != "" {
-			nodes = append(nodes, label)
-		}
-	}
-	return RenderLinearDiagramFence(nodes, 5)
-}
-
-const answerChainSequenceDiagramNodeLimit = 8
-
-func RenderAnswerChainSequenceDiagramFence(chains []AnswerChain) string {
-	nodes := make([]string, 0, len(chains))
-	for _, chain := range chains {
-		label := firstNonEmptySurfaceString(
-			chain.Item.DisplayLocation(true),
-			strings.TrimSpace(chain.Item.Source),
-			strings.TrimSpace(chain.Item.Subject),
-			strings.TrimSpace(chain.Item.AnchorSymbol),
-		)
-		nodes = append(nodes, label)
-	}
-	return RenderSequenceDiagramFence(nodes, answerChainSequenceDiagramNodeLimit)
-}
-
 // RenderSequenceDiagramFence emits a Mermaid sequenceDiagram from a
 // grounded ordered node list. It mirrors RenderLinearDiagramFence's
 // de-duplication and limit semantics, but keeps the requested
@@ -1632,9 +1600,6 @@ func CompileDiagramSurfaceFence(
 				return kind, fence
 			}
 		case DiagramSequence:
-			if fence := RenderAnswerChainSequenceDiagramFence(answerChains); fence != "" {
-				return kind, fence
-			}
 			if fence := RenderLogAnchorSequenceDiagramFence(logObserved); fence != "" {
 				return kind, fence
 			}
@@ -1667,9 +1632,6 @@ func CompileDiagramSurfaceFence(
 				return kind, fence
 			}
 		case DiagramArchitecture:
-			if fence := RenderAnswerChainDiagramFence(answerChains); fence != "" {
-				return kind, fence
-			}
 			if fence := RenderEvidenceArchitectureDiagramFence(evidence); fence != "" {
 				return kind, fence
 			}

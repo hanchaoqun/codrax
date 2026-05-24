@@ -7057,7 +7057,7 @@ func TestObserveMidLoop_PostPrimaryReadRealignsToAuthoritativeLogFunction(t *tes
 	}
 }
 
-func TestObserveMidLoop_CompletionReadySuppressesGenericHints(t *testing.T) {
+func TestObserveMidLoop_CompletionReadyNavigationConsumesVerificationGrace(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                      1,
 		searchResult:               &keywordSearchResult{Graph: &repomap.Graph{}},
@@ -7078,7 +7078,28 @@ func TestObserveMidLoop_CompletionReadySuppressesGenericHints(t *testing.T) {
 		AllToolResults: results,
 	})
 	if sig.HintRequested {
-		t.Fatalf("generic expansion hints should stay silent after completion-ready until escalation, got %+v", sig)
+		if !strings.HasPrefix(sig.HintKey, "explorer.mid-loop.completion-ready-closure-only.") {
+			t.Fatalf("HintKey = %q, want completion-ready-closure-only prefix", sig.HintKey)
+		}
+	} else {
+		t.Fatalf("post-ready navigation-only batch should consume verification grace, got %+v", sig)
+	}
+	if !eval.midLoopCompletionReadyEscalated {
+		t.Fatal("navigation-only verification grace should latch completion-ready escalation")
+	}
+	if !strings.Contains(sig.Hint, "verification turn") || !strings.Contains(sig.Hint, "emit_investigation_complete") {
+		t.Fatalf("hint should explain the verification grace and steer back to closure, got: %s", sig.Hint)
+	}
+	ctx := &types.AgentContext{Stage: types.StageExplore}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "emit_evidence,emit_investigation_complete" {
+		t.Fatalf("consumed verification grace should narrow next tool surface, got %v", gotNames)
 	}
 }
 
@@ -7108,6 +7129,33 @@ func TestObserveMidLoop_CompletionReadyEscalation(t *testing.T) {
 	}
 	if sig.HintKey != "explorer.mid-loop.completion-ready-escalated" {
 		t.Fatalf("HintKey = %q, want explorer.mid-loop.completion-ready-escalated", sig.HintKey)
+	}
+}
+
+func TestObserveMidLoop_CompletionReadyStructuredProgressDoesNotConsumeVerificationGrace(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                      1,
+		searchResult:               &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopCompletionReadySent: true,
+		midLoopCompletionReadyIter: 3,
+		midLoopLastResultsLen:      1,
+	}
+	results := []types.ToolResult{
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/analyzer.go: showing lines 441-500 of 1723 total]\n..."},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item"},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      4,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if sig.HintRequested && strings.Contains(sig.HintKey, "completion-ready") {
+		t.Fatalf("structured evidence progress should not consume verification grace, got %+v", sig)
+	}
+	if eval.midLoopCompletionReadyEscalated {
+		t.Fatal("structured evidence progress must not latch closing-lane escalation")
 	}
 }
 

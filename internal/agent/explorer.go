@@ -5687,13 +5687,15 @@ var completionReadyClosingToolNames = map[string]bool{
 // still removing broad navigation tools. Once the target windows are covered,
 // the same repair lane narrows to emit-only to prevent adjacent-window loops.
 // Completion-ready escalation is another narrow lane: the first
-// completion-ready hint is advisory, but after the existing escalation
-// latch fires, navigation tools are removed and only structured progress
-// tools remain. Exact `read_file` checks still belong to the separate
-// evidence-repair lane where a typed repair target exists. This is intentionally
-// state-driven, not text-driven: it does not inspect the user's question
-// or the model's prose, and it leaves the normal tool surface unchanged
-// until a loop observer has already raised a structured backlog signal.
+// completion-ready hint is advisory, but once escalation latches, navigation
+// tools are removed and only structured progress tools remain. Escalation can
+// latch either after the ordinary repeated-drift timer or immediately after one
+// post-ready navigation-only verification batch; exact `read_file` checks still
+// belong to the separate evidence-repair lane where a typed repair target
+// exists. This is intentionally state-driven, not text-driven: it does not
+// inspect the user's question or the model's prose, and it leaves the normal
+// tool surface unchanged until a loop observer has already raised a structured
+// close/retry signal.
 //
 // The filter is fail-open. If the current skill/schema set does not
 // include an actionable materialization tool, the original schemas are
@@ -7202,7 +7204,11 @@ func (e *explorerEvaluator) postCompletionReadyClosureOnlySignal(obs LoopObserva
 	if successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, completionProgressToolNames) > 0 {
 		return LoopSignal{}
 	}
-	fastTrack := !e.midLoopCompletionReadyEscalated && e.driftBoundedCompletionReadyMode()
+	verifyGraceUsed := !e.midLoopCompletionReadyEscalated &&
+		e.midLoopCompletionReadyIter > 0 &&
+		obs.Iteration > e.midLoopCompletionReadyIter
+	driftFastTrack := !e.midLoopCompletionReadyEscalated && e.driftBoundedCompletionReadyMode()
+	fastTrack := verifyGraceUsed || driftFastTrack
 	if !e.midLoopCompletionReadyEscalated && !fastTrack {
 		return LoopSignal{}
 	}
@@ -7210,11 +7216,13 @@ func (e *explorerEvaluator) postCompletionReadyClosureOnlySignal(obs LoopObserva
 		e.midLoopCompletionReadyEscalated = true
 	}
 	hint := "MID-LOOP CHECK: completion-ready has already been established and escalated. The current batch still spent effort on navigation tools. Do NOT keep calling `read_file`, `grep`, `repo_map`, `list_files`, or `exec_command` unless this batch surfaced one concrete contradiction that would change the final answer. From here, either emit exactly one repair batch for that contradiction or call `emit_investigation_complete(reason, confidence, result_kind)` now."
-	if fastTrack {
+	if driftFastTrack {
 		hint = "MID-LOOP CHECK: completion-ready is already established for the grounded current branch, and this batch reopened navigation anyway. Do NOT keep tracing upstream-provenance or older-build-only branches from here. Either emit exactly one repair batch for a concrete contradiction from the lines you already opened, or call `emit_investigation_complete(reason, confidence, result_kind)` now."
 		if reason := e.driftBoundedCompletionHintReason(); reason != "" {
 			hint += " Reuse this bounded `reason` surface (or a weaker one): " + reason
 		}
+	} else if verifyGraceUsed {
+		hint = "MID-LOOP CHECK: completion-ready was already established, and this batch spent the allowed verification turn on navigation without emitting new structured evidence. Treat that verification branch as consumed. Do NOT keep calling `read_file`, `grep`, `repo_map`, `list_files`, or `exec_command` from here. Either emit exactly one evidence batch for a concrete contradiction found in the lines you just opened, or call `emit_investigation_complete(reason, confidence, result_kind)` now."
 	}
 	return LoopSignal{
 		HintRequested:  true,

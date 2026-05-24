@@ -15,8 +15,8 @@ import "github.com/pterm/pterm"
 //	  ▶ statusToolGlyph         — tool-dispatch marker only
 //	  ▶ statusReasoningBody     — model thinking body
 //	  ▶ statusTopicLabel        — "关注点 1：" / "Focus 1:"
-//	  ▶ statusDetail            — tool-call / live status detail
 //	  ▶ statusTopicText         — focus-area body text
+//	  ▶ statusDetail            — tool-call / live status detail
 //	  ▶ statusSecondary         — "识别到 N 个关注点" / "N focus areas"
 //	  ▶ statusFatal             — fatal error text body
 //	  ▶ statusRecoverable       — recoverable error text body
@@ -77,11 +77,11 @@ var (
 	statusDetail         = pterm.NewStyle(pterm.FgGray)
 	statusSecondary      = pterm.NewStyle(pterm.FgGray)
 	statusTopicLabel     = pterm.NewStyle(pterm.FgLightBlue)
-	// Topic body lives below the spotlighted parent line; dim it
-	// to a regular grey so the topic_label "关注点 N：" carries
-	// the eye and the body is supporting context rather than
-	// competing with prose answers further down.
-	statusTopicText = pterm.NewStyle(pterm.FgGray)
+	// Topic body must remain readable in the REPL's focus-area list.
+	// Use the same quiet-white family as reasoning text: brighter
+	// than tool-call detail gray, but still below active stage labels
+	// and final answer prose.
+	statusTopicText = pterm.NewStyle(pterm.FgWhite, pterm.Fuzzy)
 	statusMeta      = pterm.NewStyle(pterm.FgDarkGray)
 	statusSpinner   = pterm.NewStyle(pterm.FgGray)
 	// statusStream paints the rolling 20-30 char streaming tail at

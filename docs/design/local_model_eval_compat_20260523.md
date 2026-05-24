@@ -2590,3 +2590,290 @@ queued span.
     The completion path logged `call-chain qualified intermediates kept
     advisory`, which confirms the proactive path did not over-fire or override
     the model's evidence order.
+
+## 2026-05-24 Batch 27 - Completion-Ready Verification Grace
+
+Status: in progress.
+
+### Problem statement
+
+Batch 26 passed the `qf_sequence_analyzer_gate` eval with no finalizer retry,
+but still showed avoidable exploration width: after the explorer emitted
+enough structured evidence, `postCompletionReadySignal` correctly told the
+model to close, yet the model spent two more navigation-only rounds before the
+existing escalation narrowed the tool surface.
+
+This is not a correctness failure. It is a cost / latency / UX failure that
+hits local small models harder because one extra "let me verify one more
+thing" often becomes multiple reads.
+
+### Root cause
+
+- `postCompletionReadySignal` records that typed readiness is enough, but it is
+  deliberately advisory on its first fire.
+- `restrictedToolSurface()` narrows to `emit_evidence` /
+  `emit_investigation_complete` only when
+  `midLoopCompletionReadyEscalated=true`.
+- `postCompletionReadyEscalationSignal` currently waits until
+  `obs.Iteration >= midLoopCompletionReadyIter + 2`, so a model can spend two
+  navigation-only batches after readiness before the closing lane activates.
+- `postCompletionReadyClosureOnlySignal` already detects navigation after
+  readiness, but for non-drift questions it refuses to act until escalation is
+  already set.
+
+### Design
+
+1. Preserve the first completion-ready hint as advisory
+   - Do not narrow tools immediately when readiness first fires.
+   - The model keeps one real opportunity to verify a concrete unresolved
+     branch with normal navigation tools.
+
+2. Treat the first navigation-only batch after readiness as the verification
+   grace being consumed
+   - If `midLoopCompletionReadySent` is true and a later batch contains
+     navigation tools but no completion-progress tool (`emit_evidence` or
+     `emit_investigation_complete`), fire the existing closure-only redirect
+     immediately.
+   - Latch `midLoopCompletionReadyEscalated=true` in that same branch so the
+     next LLM turn uses the existing closing-only schema filter.
+   - If the batch includes `emit_evidence`, it is structured progress, not
+     drift; do not escalate solely because the model also navigated.
+
+3. Reuse the existing closing lane and runtime boundary
+   - Keep `completionReadyClosingToolNames` as the only allowed tool set after
+     escalation.
+   - Keep evidence-repair lanes higher priority so exact typed repair targets
+     can still allow `read_file` where the system has a specific range to
+     repair.
+   - Keep drift-bounded root-cause fast-track behavior intact.
+
+4. Commercial safety boundaries
+   - No prompt-template rewrite.
+   - No raw user-question or model-prose keyword matching.
+   - No change to readiness computation or answer content.
+   - The model still controls whether the verification batch emits new
+     evidence; the system only prevents repeated generic navigation after that
+     batch made no structured progress.
+   - Language-neutral: the gate only observes tool categories and structured
+     progress events, not language syntax.
+
+### Interleaved eval finding - missing `emit_evidence.anchor_symbol`
+
+The first Batch 27 eval run was started before the later compatibility fix was
+compiled. It surfaced a higher-upstream small-model gap: the explorer emitted
+line-shaped `emit_evidence` items with `anchor_kind` and exact `source` /
+`line_start`, but omitted `anchor_symbol`. The existing tool rejected the whole
+zero-survivor batch, so the model had to rediscover and re-emit the same facts
+with the missing field.
+
+The rerun then surfaced the sibling shape error: all items carried exact
+`line_start`, `anchor_kind`, and `anchor_symbol`, but omitted `source`.
+Rejecting that whole batch also forces needless rediscovery even though the
+already-read gutter can sometimes identify the source file uniquely.
+
+This is safe to repair in the tool layer when the missing value can be inferred
+from already-grounded structure:
+
+- Prefer repomap exact-line metadata, which is language-neutral across every
+  supported read language:
+  - `anchor_kind=definition`: a unique symbol declared at that exact line.
+  - `anchor_kind=call`: a unique call relation at that exact line.
+  - `anchor_kind=import`: a unique import alias/path at that exact line.
+- Repair missing `source` only when exactly one already-read file contains the
+  exact `line_start` and verifies the provided `anchor_symbol` on that exact
+  line.
+- Fall back to typed item fields only when a single identifier candidate is
+  visible on the exact read-file line. This is structural payload repair, not
+  user-intent or model-prose flow control.
+- If the line has multiple plausible anchors, do not guess; keep the original
+  validator rejection so the model receives precise feedback.
+- Always disclose the repair in the tool summary through the existing
+  compatibility-repair channel.
+
+Boundaries:
+
+- No prompt rewrite.
+- No answer-content rewrite.
+- No keyword matching on user questions.
+- No intent or flow decision based on model prose.
+- No language-specific AST fork; the primary source is repomap's normalized
+  symbols/relations/imports, with exact read-line corroboration for fallback.
+
+### Interleaved eval finding - malformed `emit_analysis.diagram_hint`
+
+The Batch 27c rerun surfaced a sibling analyzer-side JSON-shape issue before
+exploration: the local model first emitted `diagram_hint` as a tagged string
+(`"<parameter=kind>\ncall_dag"`), then as an array (`["call_dag"]`), and only
+passed after re-emitting the canonical object shape (`{"kind":"call_dag"}`).
+
+This field is presentation metadata, not answer content. It is safe to repair
+in the existing tool-param compatibility layer when the malformed value
+contains exactly one canonical `types.DiagramKind` token:
+
+- string / tagged-string containing a canonical kind -> `{"kind":"..."}`.
+- string / tagged-string separator variants such as `call-dag` -> `call_dag`
+  when they map to exactly one canonical kind.
+- array containing one unique canonical kind -> `{"kind":"..."}`.
+- already-canonical object stays unchanged.
+- multiple conflicting kinds or unknown aliases stay rejected; the repair never
+  silently takes the first diagram kind from an ambiguous field.
+
+This preserves the model's suggestion; the system does not infer a different
+diagram type from the user question or model prose.
+
+### Interleaved eval finding - transient stream failure erased accepted evidence
+
+The Batch 27c sequence eval exposed a more serious system-level loss path. The
+explorer accepted a rich `emit_evidence` batch for the requested call chain
+including the intermediate `buildAnalysisIR` calls. Immediately afterward the
+local model service stalled mid-stream during closure. The orchestrator retried
+and eventually entered extractor/finalizer with "No transcript available" /
+"investigation structurally empty", so the final answer incorrectly claimed
+the code was unavailable even though accepted structured evidence existed
+minutes earlier.
+
+Root cause:
+
+- `BaseAgent.Execute` already had a mid-loop salvage hook for transient LLM
+  errors. It invoked evaluator `ParseOutput` for side effects, but discarded
+  the returned `StageOutput`.
+- `dispatchStage` returned `(output, err)` on agent execution failure, but did
+  not call `applyStageOutput(output)` on the non-nil error path. That meant
+  salvaged `EvidenceItems`, `FlowFindings`, `ToolResults`, `StageReport`, and
+  repair directives could be lost even when the evaluator successfully
+  reconstructed them from accepted tool results.
+- The downstream extractor's R4 gate correctly fails loud when both
+  `TurnAArtifacts` and merged `EvidenceItems` are empty. The bug was upstream:
+  accepted evidence was not durably merged before the transient error
+  propagated.
+
+Design:
+
+- `salvagePartialDispatch` now returns the parsed `StageOutput` in addition to
+  preserving its existing side effects on `ctx.Mutable`.
+- The LLM error path in `BaseAgent.Execute` attaches accumulated
+  `ToolResults` / `MCPResponses`, sets a stable error message, and returns the
+  salvaged output with the original error.
+- `dispatchStage` now applies any non-nil partial `StageOutput` before
+  returning the error. This reuses the normal `applyStageOutput` merge and
+  dedupe rules; it does not create a parallel evidence bus.
+- The same contract applies to parallel explore dispatches. When a forked
+  worker returns a partial output and an error, the parent merges the fork and
+  applies the partial output before returning the error. A converged winning
+  fork is also merged before retry/error propagation, while non-winning
+  siblings after accepted convergence remain skipped to avoid contaminating
+  the principal closure.
+- Retry / failure semantics remain unchanged: the original error still
+  propagates, stage-end events still carry the error, and retry policy still
+  decides whether to redispatch. The only change is that already-accepted
+  structured information is no longer discarded.
+
+Safety boundaries:
+
+- No prompt change.
+- No answer synthesis from partial model prose.
+- No keyword matching on user question or model output.
+- No bypass of validators: only information already accepted by tools or
+  reconstructed by existing evaluator `ParseOutput` enters the normal
+  `applyStageOutput` path.
+- Generic across stages: applies to analyze / explore / extract / finalize /
+  write agents whenever an agent returns a non-nil partial output together
+  with a transient or terminal execution error.
+- Generic across serial and parallel explore: fork-local `TurnAArtifacts`,
+  emitted evidence, closure markers, and partial `StageOutput` use the existing
+  `MergeExploreFork` + `applyStageOutput` path rather than a bespoke recovery
+  channel.
+
+### Interleaved eval finding - stale `AnswerChains` diagram seed contamination
+
+The Batch 27d sequence eval passed, but the finalizer prompt contained a
+misleading `First-Pass Diagram Reference` built from `AnswerChains` entries for
+`internal/agent/ir_accessor.go`. The current user asked for the
+`buildAnalysisIR -> gate.Run` path; the prompt also contained a correct typed
+`Current grounded call chain` support lane with the analyzer evidence, and the
+validator eventually forced the model to add the right Mermaid sequence diagram
+via patch. This was still a system-quality issue because the first-pass diagram
+seed diluted the user's requested path and caused a missing-diagram retry.
+
+Root cause:
+
+- `AnswerChains` is still a useful typed envelope for state shape checks,
+  exact-resolution evidence pools, reports, and historical handoff data.
+- The finalizer diagram seed path treated strict `AnswerChains` as the highest
+  priority diagram carrier. That predates typed answer-support lanes and can
+  surface stale / nearby / background chains even when the current support lane
+  already contains the exact user-requested path.
+- The old path existed in two places:
+  - `types.CompileDiagramSurfaceFence` used `AnswerChains` before evidence for
+    sequence / architecture seeds.
+  - `answer_document_evaluator` rendered `Answer Chains` diagram sections and
+    retry seeds directly from `ctx.AnswerChains`.
+  - The exact-resolution diagram seed also scored `ctx.AnswerChains` directly,
+    so a background exact-context chain could still leak into diagram guidance
+    after the visible `Answer Chains` section was removed.
+
+Design:
+
+- Keep the `AnswerChains` data structure for its non-diagram responsibilities.
+- Remove `AnswerChains` as a diagram support / seed authority. Diagram support
+  now comes from logs, flow findings, typed evidence edges/nodes, config-trace
+  anchors, and typed answer-support lanes.
+- Retry / first-pass diagram seeds prefer `AnswerSupportPlan` lanes whose
+  `AllowedBlocks` include `diagram`; this is the same structural contract the
+  validator uses, so prompt guidance and validation no longer diverge.
+  `AnswerSurfacePlan.CompiledDiagramFence` remains only a fallback when no
+  diagram-capable support lane exists, because it can be compiled from a wider
+  evidence pool.
+- Exact-resolution seed collection now uses emitted / current evidence, not
+  direct `AnswerChains`, so exact-target context stays grounded in the same
+  current dispatch evidence surface.
+- Fallback evidence diagram rendering remains generic and language-neutral:
+  call edges come from `ClaimFormOf(item)==call_edge`, definitions from typed
+  anchors, and file/line labels from grounded evidence. No user-question
+  keyword matching and no repo-specific answer fitting.
+
+Regression guard:
+
+- `SupportedDiagramKindsForAnswer` has a test proving `AnswerChains` alone no
+  longer enable diagram support.
+- Finalizer prompt tests assert that no `### Answer Chains` diagram seed is
+  rendered and that legacy chain-only data does not leak through diagram or
+  exact-resolution seed sections.
+- Retry seed tests assert that explicit sequence repairs prefer support-lane
+  entries over generic flow noise.
+- The old `RenderAnswerChain*DiagramFence`,
+  `renderAnswerDocDiagramChainSeed`, and `buildRetryAnswerChain*Seed`
+  functions were removed so future call sites cannot accidentally reuse them.
+
+### Batch 27 task list
+
+- [x] Audit existing completion-ready signal, escalation, closure-only redirect,
+      and tool-schema filtering code.
+- [x] Record this design and task list.
+- [x] Add verification-grace branch to `postCompletionReadyClosureOnlySignal`.
+- [x] Update comments around `FilterToolSchemas` / closing lane semantics.
+- [x] Add focused tests for generic completion-ready navigation fast-track,
+      schema narrowing after the fast-track, and no escalation when structured
+      progress occurs.
+- [x] Interleaved REPL-only UX hotfix: make analysis focus-list item text more
+      readable by using the dedicated topic text style instead of low-contrast
+      tool-detail gray. This is limited to the REPL render layer and does not
+      change CLI semantics or pipeline decisions.
+- [x] Add conservative `emit_evidence.anchor_symbol` compatibility repair using
+      exact-line repomap/read-line structure, with ambiguity left rejected.
+- [x] Add conservative `emit_evidence.source` compatibility repair using exact
+      read-file line + anchor verification, with ambiguity left rejected.
+- [x] Add `emit_analysis.diagram_hint` shape repair in the existing
+      compatibility layer for string/tagged-string/array forms containing one
+      canonical diagram kind.
+- [x] Preserve salvaged partial `StageOutput` on transient LLM failures and
+      merge it through the existing orchestrator `applyStageOutput` path before
+      propagating the original error.
+- [x] Preserve fork-local partial output on parallel explore worker errors by
+      merging the fork and applying its `StageOutput` before returning the
+      original error.
+- [x] Remove legacy `AnswerChains` diagram seeds and guard against
+      reintroducing them with semantic tests.
+- [ ] Run focused tests, `go test ./internal/agent`, broader module tests,
+      `make build`, and rerun the sequence eval.
+- [ ] Commit and push Batch 27.

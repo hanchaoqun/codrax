@@ -7244,6 +7244,18 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 
 	output, err := ag.Execute(agentCtx, sk)
 	if err != nil {
+		// Preserve any structured side effects the agent managed to
+		// salvage before the transient failure surfaced. BaseAgent
+		// returns a non-nil StageOutput on stream stalls / first-byte
+		// timeouts after tool progress; dropping it here erases accepted
+		// evidence, Turn-A handoff data, tool results, and repair
+		// directives, causing downstream stages to see a structurally
+		// empty investigation even though the tool layer had already
+		// accepted facts. The error still propagates so retry policy and
+		// user-facing notices keep their existing semantics.
+		if output != nil {
+			o.applyStageOutput(output)
+		}
 		o.emit(render.Event{
 			Kind:      render.EventStageEnd,
 			Timestamp: time.Now(),

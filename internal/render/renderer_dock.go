@@ -1674,9 +1674,9 @@ func formatSubTopicsBlock(lang string, taskNodes []TaskNodeInfo) string {
 			continue
 		}
 		b.WriteString("    ")
-		b.WriteString(statusObjective.Sprint(mark))
+		b.WriteString(statusTopicLabel.Sprint(mark))
 		b.WriteString(" ")
-		b.WriteString(statusDetail.Sprint(obj))
+		b.WriteString(statusTopicText.Sprint(obj))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n")

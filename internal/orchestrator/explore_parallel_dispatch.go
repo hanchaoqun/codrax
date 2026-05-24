@@ -163,6 +163,7 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 		MissingPiece:  types.MissingNone,
 		SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
 	}
+	var firstErr error
 	for i := range results {
 		res := results[i]
 		if earlyConverged && winningConvergedIndex >= 0 && res.index != winningConvergedIndex {
@@ -177,28 +178,28 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 				exploreDispatchKeyForWindow(res.window), unitIDs[winningConvergedIndex])
 			continue
 		}
+		if res.fork != nil {
+			o.busCtx.Mutable.MergeExploreFork(res.fork)
+		}
+		if res.output != nil {
+			o.applyStageOutput(res.output)
+			mergeExploreParallelOutput(merged, res.output)
+		}
 		if res.err != nil {
 			if earlyConverged && errors.Is(res.err, context.Canceled) {
 				continue
 			}
-			if earlyConverged {
-				logging.Warning("[orchestrator] parallel explore sibling ended after convergence: %v", res.err)
-				continue
+			if firstErr == nil {
+				firstErr = res.err
 			}
-			return merged, res.err
 		}
-		if res.fork != nil {
-			o.busCtx.Mutable.MergeExploreFork(res.fork)
-		}
-		if res.output == nil {
-			continue
-		}
-		o.applyStageOutput(res.output)
-		mergeExploreParallelOutput(merged, res.output)
 	}
 	if earlyConverged && merged.SignalUpdates != nil {
 		merged.SignalUpdates.HasEnoughFacts = true
 		merged.MissingPiece = types.MissingNone
+	}
+	if firstErr != nil {
+		return merged, firstErr
 	}
 	return merged, nil
 }

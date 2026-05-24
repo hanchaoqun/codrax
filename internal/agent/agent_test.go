@@ -782,6 +782,7 @@ type stubEvaluator struct {
 	parseCalls   int
 	panicMessage string
 	messages     []llm.Message
+	output       *StageOutput
 }
 
 func (s *stubEvaluator) BuildInitialInstruction(_ *types.AgentContext, _ *skill.Config) string {
@@ -796,6 +797,9 @@ func (s *stubEvaluator) ParseOutput(
 	if s.panicMessage != "" {
 		panic(s.panicMessage)
 	}
+	if s.output != nil {
+		return s.output, nil
+	}
 	return &StageOutput{}, nil
 }
 func (s *stubEvaluator) DetermineMissingPiece(_ *types.AgentContext, _ *StageOutput) types.MissingPiece {
@@ -808,6 +812,27 @@ func TestSalvagePartialDispatch_RunsParseOutput(t *testing.T) {
 	b.salvagePartialDispatch(nil, nil, nil, nil, 3, errFake("upstream 429"))
 	if eval.parseCalls != 1 {
 		t.Errorf("ParseOutput should have been invoked once, got %d", eval.parseCalls)
+	}
+}
+
+func TestSalvagePartialDispatch_ReturnsParsedOutput(t *testing.T) {
+	want := &StageOutput{
+		StageReport: "partial stage report",
+		EvidenceItems: []types.EvidenceItem{{
+			Kind:      types.EvidenceMechanism,
+			Subject:   "buildAnalysisIR",
+			Source:    "internal/agent/analyzer.go",
+			LineStart: 1505,
+		}},
+	}
+	eval := &stubEvaluator{output: want}
+	b := &BaseAgent{name: types.AgentExplorer, deps: &Dependencies{}, eval: eval}
+	got := b.salvagePartialDispatch(nil, nil, nil, nil, 3, errFake("upstream 429"))
+	if got == nil {
+		t.Fatal("salvage should return the parsed StageOutput")
+	}
+	if got.StageReport != want.StageReport || len(got.EvidenceItems) != 1 {
+		t.Fatalf("salvage output lost parsed fields: %+v", got)
 	}
 }
 

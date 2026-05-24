@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -735,5 +736,135 @@ func TestDispatchExploreWindowsParallel_PropagatesErrorWithoutConvergence(t *tes
 		{{ID: "b"}},
 	}, nil, 2); err == nil {
 		t.Fatal("non-converged parallel dispatch should still propagate worker errors")
+	}
+}
+
+func TestDispatchExploreWindowsParallel_PreservesPartialOutputOnErrorWithoutConvergence(t *testing.T) {
+	streamErr := errors.New("stream stalled")
+	ev := types.EvidenceItem{
+		ID:           "partial-buildAnalysisIR",
+		Kind:         types.EvidenceDirect,
+		Subject:      "buildAnalysisIR",
+		Source:       "internal/agent/analyzer.go",
+		LineStart:    1505,
+		Scope:        types.ScopeLine,
+		AnchorKind:   types.AnchorDefinition,
+		AnchorSymbol: "buildAnalysisIR",
+	}
+	tr := types.ToolResult{ToolName: "emit_evidence", Success: true, Summary: "accepted evidence"}
+
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			switch ctx.ExploreDispatchKey {
+			case "partial":
+				ctx.Mutable.AppendEvidence([]types.EvidenceItem{ev})
+				ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+					UserQuestion:       "q",
+					ToolResults:        []types.ToolResult{tr},
+					EvidenceItems:      []types.EvidenceItem{ev},
+					InvestigationNotes: []string{"accepted before stream error"},
+				})
+				return &agent.StageOutput{
+					EvidenceItems: []types.EvidenceItem{ev},
+					ToolResults:   []types.ToolResult{tr},
+				}, streamErr
+			case "ok":
+				return &agent.StageOutput{
+					MissingPiece:  types.MissingNone,
+					SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				}, nil
+			default:
+				t.Fatalf("unexpected dispatch key %q", ctx.ExploreDispatchKey)
+				return nil, nil
+			}
+		},
+	})
+	o := New(types.PipelineSettings{MaxParallelism: 2}, ar, sr, sar)
+	o.busCtx = &types.BusContext{
+		Mutable: types.NewMutableState("parallel partial preservation"),
+		Signals: types.ExecutionSignals{},
+	}
+
+	out, err := o.dispatchExploreWindowsParallel([][]*types.TaskNode{
+		{{ID: "partial"}},
+		{{ID: "ok"}},
+	}, nil, 2)
+	if err == nil {
+		t.Fatal("non-converged parallel dispatch should still return the worker error")
+	}
+	if out == nil {
+		t.Fatal("partial StageOutput should be returned with the error")
+	}
+	if len(o.busCtx.EvidenceItems) != 1 || o.busCtx.EvidenceItems[0].ID != ev.ID {
+		t.Fatalf("bus evidence = %+v, want preserved partial evidence", o.busCtx.EvidenceItems)
+	}
+	if len(o.busCtx.ToolResults) != 1 || o.busCtx.ToolResults[0].ToolName != "emit_evidence" {
+		t.Fatalf("tool results = %+v, want preserved partial tool result", o.busCtx.ToolResults)
+	}
+	if emitted := o.busCtx.Mutable.EmittedEvidence(); len(emitted) != 1 || emitted[0].ID != ev.ID {
+		t.Fatalf("mutable emitted evidence = %+v, want fork side-effect preserved", emitted)
+	}
+	if ta := o.busCtx.Mutable.TurnAArtifacts(); ta == nil || len(ta.EvidenceItems) != 1 || ta.EvidenceItems[0].ID != ev.ID {
+		t.Fatalf("TurnAArtifacts = %+v, want fork handoff preserved", ta)
+	}
+}
+
+func TestDispatchExploreWindowsParallel_PreservesConvergedPartialOutputOnError(t *testing.T) {
+	streamErr := errors.New("post-completion stream stalled")
+	doneStarted := make(chan struct{})
+	ev := types.EvidenceItem{
+		ID:           "converged-buildAnalysisIR",
+		Kind:         types.EvidenceDirect,
+		Subject:      "buildAnalysisIR",
+		Source:       "internal/agent/analyzer.go",
+		LineStart:    1505,
+		Scope:        types.ScopeLine,
+		AnchorKind:   types.AnchorDefinition,
+		AnchorSymbol: "buildAnalysisIR",
+	}
+
+	ar, sr, sar := buildRegistries(map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			switch ctx.ExploreDispatchKey {
+			case "done":
+				close(doneStarted)
+				ctx.Mutable.AppendEvidence([]types.EvidenceItem{ev})
+				ctx.Mutable.SetInvestigationComplete("closure accepted before stream error")
+				return &agent.StageOutput{
+					EvidenceItems: []types.EvidenceItem{ev},
+					MissingPiece:  types.MissingNone,
+					SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				}, streamErr
+			case "slow":
+				<-doneStarted
+				<-ctx.Context().Done()
+				return nil, ctx.Context().Err()
+			default:
+				t.Fatalf("unexpected dispatch key %q", ctx.ExploreDispatchKey)
+				return nil, nil
+			}
+		},
+	})
+	o := New(types.PipelineSettings{MaxParallelism: 2}, ar, sr, sar)
+	o.busCtx = &types.BusContext{
+		Mutable: types.NewMutableState("parallel converged partial preservation"),
+		Signals: types.ExecutionSignals{},
+	}
+
+	out, err := o.dispatchExploreWindowsParallel([][]*types.TaskNode{
+		{{ID: "done"}},
+		{{ID: "slow"}},
+	}, nil, 2)
+	if err == nil {
+		t.Fatal("winning branch transport error should still propagate for retry policy")
+	}
+	if out == nil || out.MissingPiece != types.MissingNone {
+		t.Fatalf("output = %+v, want preserved converged output", out)
+	}
+	if len(o.busCtx.EvidenceItems) != 1 || o.busCtx.EvidenceItems[0].ID != ev.ID {
+		t.Fatalf("bus evidence = %+v, want converged partial evidence preserved", o.busCtx.EvidenceItems)
+	}
+	if !o.busCtx.Mutable.IsInvestigationComplete() {
+		t.Fatal("fork completion marker should be merged even when the winning branch returns an error")
 	}
 }

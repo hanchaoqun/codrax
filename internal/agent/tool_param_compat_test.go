@@ -278,6 +278,93 @@ func TestNormalizeToolCallParams_UnwrapsEmitAnalysisStringEnumArtifacts(t *testi
 	}
 }
 
+func TestNormalizeToolCallParams_NormalizesEmitAnalysisDiagramHintShapes(t *testing.T) {
+	base := &BaseAgent{
+		name: types.AgentAnalyzer,
+		deps: &Dependencies{
+			ToolParamCompatByAgent: map[types.AgentName]types.ToolParamCompatConfig{
+				types.AgentAnalyzer: {Mode: types.ToolParamCompatRepair},
+			},
+		},
+	}
+	calls := []llm.ToolCall{
+		{
+			ID:   "call_1",
+			Name: "emit_analysis",
+			Params: json.RawMessage(`{
+			  "intent":"trace",
+			  "scenario":"architecture_explain",
+			  "complexity":"moderate",
+			  "keywords":["buildAnalysisIR"],
+			  "entities":["buildAnalysisIR"],
+			  "question_kind":"call_chain",
+			  "intent_confidence":0.9,
+			  "complexity_confidence":0.8,
+			  "kind_confidence":0.8,
+			  "predicates":{"is_scalar_answer":false},
+			  "diagram_hint":["call_dag"]
+			}`),
+		},
+		{
+			ID:   "call_2",
+			Name: "emit_analysis",
+			Params: json.RawMessage(`{
+			  "intent":"trace",
+			  "scenario":"architecture_explain",
+			  "complexity":"moderate",
+			  "keywords":["buildAnalysisIR"],
+			  "entities":["buildAnalysisIR"],
+			  "question_kind":"call_chain",
+			  "intent_confidence":0.9,
+			  "complexity_confidence":0.8,
+			  "kind_confidence":0.8,
+			  "predicates":{"is_scalar_answer":false},
+			  "diagram_hint":"<parameter=kind>\nsequence"
+			}`),
+		},
+		{
+			ID:   "call_3",
+			Name: "emit_analysis",
+			Params: json.RawMessage(`{
+			  "intent":"trace",
+			  "scenario":"architecture_explain",
+			  "complexity":"moderate",
+			  "keywords":["buildAnalysisIR"],
+			  "entities":["buildAnalysisIR"],
+			  "question_kind":"call_chain",
+			  "intent_confidence":0.9,
+			  "complexity_confidence":0.8,
+			  "kind_confidence":0.8,
+			  "predicates":{"is_scalar_answer":false},
+			  "diagram_hint":"kind: call-dag"
+			}`),
+		},
+	}
+	schemas := []llm.ToolSchema{{Name: "emit_analysis", Parameters: analysisEnumCompatTestSchema()}}
+
+	got := base.normalizeToolCallParams(calls, schemas)
+	for i, call := range got {
+		var decoded struct {
+			DiagramHint struct {
+				Kind string `json:"kind"`
+			} `json:"diagram_hint"`
+		}
+		if err := json.Unmarshal(call.Params, &decoded); err != nil {
+			t.Fatalf("call %d repaired params invalid JSON: %v\n%s", i, err, call.Params)
+		}
+		want := []string{"call_dag", "sequence", "call_dag"}[i]
+		if decoded.DiagramHint.Kind != want {
+			t.Fatalf("call %d diagram_hint.kind=%q want %q\nraw=%s", i, decoded.DiagramHint.Kind, want, call.Params)
+		}
+	}
+}
+
+func TestDiagramKindFromStringRejectsConflictingKinds(t *testing.T) {
+	if _, ok := diagramKindFromString("sequence or call_dag"); ok {
+		t.Fatal("conflicting diagram kinds must not be normalized by taking the first match")
+	}
+}
+
 func TestNormalizeAnalyzerPrescanGrepCompat_RepairModeSetsFilesOnly(t *testing.T) {
 	base := &BaseAgent{
 		name: types.AgentAnalyzer,

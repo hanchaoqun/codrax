@@ -125,6 +125,140 @@ func TestEmitEvidence_MovesSingleTopLevelSalienceIntoOnlyItem(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_InfersMissingAnchorSymbolFromExactLineGraph(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "a.go", 10, "result := pkg.Run(ctx)")
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"a.go": {
+				RelPath: "a.go",
+				Relations: []repomap.Relation{
+					{Kind: "call", File: "a.go", Line: 10, To: "Run", ToEP: repomap.RelationEndpoint{Name: "Run"}},
+				},
+			},
+		},
+	})
+	params := json.RawMessage(`{"items":[{
+		"kind":"mechanism",
+		"source":"a.go",
+		"line_start":10,
+		"summary":"pkg.Run dispatches the request",
+		"anchor_kind":"call"
+	}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected missing anchor_symbol to be recovered, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 emitted item, got %d", len(got))
+	}
+	if got[0].AnchorSymbol != "Run" {
+		t.Fatalf("AnchorSymbol = %q, want Run", got[0].AnchorSymbol)
+	}
+	if !strings.Contains(res.Summary, "anchor_symbol was missing") {
+		t.Fatalf("summary should disclose compatibility repair, got: %s", res.Summary)
+	}
+}
+
+func TestEmitEvidence_DoesNotInferMissingAnchorSymbolFromAmbiguousLineGraph(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "a.go", 10, "return left.Run() + right.Stop()")
+	ctx.Mutable.SetSearchGraph(&repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"a.go": {
+				RelPath: "a.go",
+				Relations: []repomap.Relation{
+					{Kind: "call", File: "a.go", Line: 10, To: "Run", ToEP: repomap.RelationEndpoint{Name: "Run"}},
+					{Kind: "call", File: "a.go", Line: 10, To: "Stop", ToEP: repomap.RelationEndpoint{Name: "Stop"}},
+				},
+			},
+		},
+	})
+	params := json.RawMessage(`{"items":[{
+		"kind":"mechanism",
+		"source":"a.go",
+		"line_start":10,
+		"summary":"the line calls multiple helpers",
+		"anchor_kind":"call"
+	}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("ambiguous missing anchor_symbol should remain rejected, got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "anchor_symbol is required") {
+		t.Fatalf("expected original anchor_symbol guidance, got: %s", res.Summary)
+	}
+}
+
+func TestEmitEvidence_InfersMissingSourceFromExactReadLineAnchor(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	seedReadFileHistory(ctx, "a.go", 10, "result := pkg.Run(ctx)")
+	params := json.RawMessage(`{"items":[{
+		"kind":"mechanism",
+		"line_start":10,
+		"summary":"pkg.Run dispatches the request",
+		"anchor_kind":"call",
+		"anchor_symbol":"Run"
+	}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected missing source to be recovered, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 emitted item, got %d", len(got))
+	}
+	if got[0].Source != "a.go" {
+		t.Fatalf("Source = %q, want a.go", got[0].Source)
+	}
+	if !strings.Contains(res.Summary, "source was missing") {
+		t.Fatalf("summary should disclose source repair, got: %s", res.Summary)
+	}
+}
+
+func TestEmitEvidence_DoesNotInferMissingSourceFromAmbiguousReadLineAnchor(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 10-10 of 10]\n  10│ result := pkg.Run(ctx)\n"},
+		{ToolName: "read_file", Success: true, Summary: "[b.go: showing lines 10-10 of 10]\n  10│ value := other.Run(ctx)\n"},
+	}})
+	params := json.RawMessage(`{"items":[{
+		"kind":"mechanism",
+		"line_start":10,
+		"summary":"Run dispatches the request",
+		"anchor_kind":"call",
+		"anchor_symbol":"Run"
+	}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("ambiguous missing source should remain rejected, got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "source is required") {
+		t.Fatalf("expected original source guidance, got: %s", res.Summary)
+	}
+}
+
 func TestEmitEvidence_MultiItemTopLevelSalienceGetsPreciseHint(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

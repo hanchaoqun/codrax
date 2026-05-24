@@ -1479,11 +1479,19 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			// results / TurnA artifacts for the retry. Using partial
 			// prose here would turn a transport failure into a
 			// system-filled answer path.
-			b.salvagePartialDispatch(ctx, messages, allToolResults, allMCPResponses, i, err)
-			return &StageOutput{
-				Error:        fmt.Sprintf("LLM call failed: %v", err),
-				MissingPiece: ctx.MissingPiece,
-			}, err
+			output := b.salvagePartialDispatch(ctx, messages, allToolResults, allMCPResponses, i, err)
+			if output == nil {
+				output = &StageOutput{}
+			}
+			if output.Error == "" {
+				output.Error = fmt.Sprintf("LLM call failed: %v", err)
+			}
+			output.ToolResults = allToolResults
+			output.MCPResponses = allMCPResponses
+			if output.MissingPiece == "" {
+				output.MissingPiece = ctx.MissingPiece
+			}
+			return output, err
 		}
 
 		resp.ToolCalls = b.normalizeToolCallParams(resp.ToolCalls, effectiveTools)
@@ -2067,12 +2075,13 @@ func validateObservationOnlyRuntimeToolCall(ctx *types.AgentContext, tc llm.Tool
 	}
 }
 
-// salvagePartialDispatch runs the evaluator's ParseOutput for its
-// side-effects only, so a mid-loop LLM failure does not erase work
-// the dispatch already accumulated on shared ctx.Mutable. The
-// returned StageOutput is discarded — the caller still surfaces the
-// LLM error. A panic inside ParseOutput on incomplete data is
-// recovered and logged so the original error path remains reliable.
+// salvagePartialDispatch runs the evaluator's ParseOutput so a
+// mid-loop LLM failure does not erase work the dispatch already
+// accumulated in tool results or shared ctx.Mutable. The returned
+// StageOutput is handed back to the orchestrator for normal merging,
+// while the caller still surfaces the original LLM error. A panic
+// inside ParseOutput on incomplete data is recovered and logged so
+// the original error path remains reliable.
 func (b *BaseAgent) salvagePartialDispatch(
 	ctx *types.AgentContext,
 	messages []llm.Message,
@@ -2080,16 +2089,22 @@ func (b *BaseAgent) salvagePartialDispatch(
 	mcpResponses []types.MCPResponse,
 	iter int,
 	llmErr error,
-) {
+) (output *StageOutput) {
 	defer func() {
 		if r := recover(); r != nil {
 			logging.Warning("[agent/%s] ParseOutput panic during mid-loop salvage at iter=%d (ignored): %v",
 				b.name, iter, r)
+			output = nil
 		}
 	}()
 	logging.Warning("[agent/%s] LLM call failed at iter=%d (%v) — salvaging accumulated artifacts via ParseOutput",
 		b.name, iter, llmErr)
-	_, _ = b.eval.ParseOutput(ctx, messages, toolResults, mcpResponses)
+	output, err := b.eval.ParseOutput(ctx, messages, toolResults, mcpResponses)
+	if err != nil {
+		logging.Warning("[agent/%s] ParseOutput returned error during mid-loop salvage at iter=%d (ignored): %v",
+			b.name, iter, err)
+	}
+	return output
 }
 
 // buildToolSchemas assembles the tool-schema slice handed to the LLM
@@ -2288,6 +2303,12 @@ func normalizeEmitAnalysisLocalModelParams(raw json.RawMessage) (json.RawMessage
 		obj[field] = value
 		repaired = append(repaired, "$."+field+" missing->default_false_profile via emit_analysis_required_profile_default")
 	}
+	if current, exists := obj["diagram_hint"]; exists && string(bytesTrimSpace(current)) != "null" {
+		if normalized, ok := normalizeEmitAnalysisDiagramHintCompat(current); ok {
+			obj["diagram_hint"] = normalized
+			repaired = append(repaired, "$.diagram_hint shape->object via emit_analysis_diagram_hint_shape")
+		}
+	}
 	if len(repaired) == 0 {
 		return raw, nil, false
 	}
@@ -2296,6 +2317,115 @@ func normalizeEmitAnalysisLocalModelParams(raw json.RawMessage) (json.RawMessage
 		return raw, nil, false
 	}
 	return patched, repaired, true
+}
+
+func normalizeEmitAnalysisDiagramHintCompat(raw json.RawMessage) (json.RawMessage, bool) {
+	trimmed := bytesTrimSpace(raw)
+	if len(trimmed) == 0 {
+		return nil, false
+	}
+	if trimmed[0] == '{' {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(trimmed, &obj); err != nil {
+			return nil, false
+		}
+		if kindRaw, ok := obj["kind"]; ok {
+			if kind, ok := diagramKindFromRaw(kindRaw); ok {
+				patched, err := json.Marshal(map[string]string{"kind": string(kind)})
+				return patched, err == nil && string(patched) != string(trimmed)
+			}
+		}
+		return nil, false
+	}
+	if trimmed[0] == '[' {
+		var arr []json.RawMessage
+		if err := json.Unmarshal(trimmed, &arr); err != nil {
+			return nil, false
+		}
+		if kind, ok := uniqueDiagramKindFromRawValues(arr); ok {
+			patched, err := json.Marshal(map[string]string{"kind": string(kind)})
+			return patched, err == nil
+		}
+		return nil, false
+	}
+	if trimmed[0] == '"' {
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err != nil {
+			return nil, false
+		}
+		if kind, ok := diagramKindFromString(s); ok {
+			patched, err := json.Marshal(map[string]string{"kind": string(kind)})
+			return patched, err == nil
+		}
+		return nil, false
+	}
+	return nil, false
+}
+
+func uniqueDiagramKindFromRawValues(values []json.RawMessage) (types.DiagramKind, bool) {
+	var out types.DiagramKind
+	for _, value := range values {
+		kind, ok := diagramKindFromRaw(value)
+		if !ok || kind == types.DiagramNone {
+			continue
+		}
+		if out != types.DiagramNone && out != kind {
+			return types.DiagramNone, false
+		}
+		out = kind
+	}
+	return out, out != types.DiagramNone
+}
+
+func diagramKindFromRaw(raw json.RawMessage) (types.DiagramKind, bool) {
+	trimmed := bytesTrimSpace(raw)
+	if len(trimmed) == 0 {
+		return types.DiagramNone, false
+	}
+	if trimmed[0] == '"' {
+		var s string
+		if err := json.Unmarshal(trimmed, &s); err != nil {
+			return types.DiagramNone, false
+		}
+		return diagramKindFromString(s)
+	}
+	if trimmed[0] == '{' {
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(trimmed, &obj); err != nil {
+			return types.DiagramNone, false
+		}
+		if kindRaw, ok := obj["kind"]; ok {
+			return diagramKindFromRaw(kindRaw)
+		}
+		return types.DiagramNone, false
+	}
+	return diagramKindFromString(string(trimmed))
+}
+
+func diagramKindFromString(s string) (types.DiagramKind, bool) {
+	var out types.DiagramKind
+	for _, token := range strings.FieldsFunc(s, func(r rune) bool {
+		return !(r == '_' || r == '-' || r == ':' || r == '.' ||
+			(r >= '0' && r <= '9') ||
+			(r >= 'A' && r <= 'Z') ||
+			(r >= 'a' && r <= 'z'))
+	}) {
+		token = strings.Trim(strings.ToLower(token), "`\"' ")
+		if token == "" {
+			continue
+		}
+		token = strings.ReplaceAll(token, "-", "_")
+		token = strings.ReplaceAll(token, ":", "_")
+		token = strings.ReplaceAll(token, ".", "_")
+		kind := types.DiagramKind(token)
+		if kind != types.DiagramNone && kind.IsValid() {
+			if out != types.DiagramNone && out != kind {
+				return types.DiagramNone, false
+			}
+			out = kind
+		}
+	}
+	return out, out != types.DiagramNone
 }
 
 func bytesTrimSpace(raw json.RawMessage) []byte {

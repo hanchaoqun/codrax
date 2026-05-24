@@ -2667,7 +2667,6 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 		"`internal/b.go`",
 		"### Log Triage",
 		"### Flow Findings",
-		"### Answer Chains",
 		"## First-Pass Diagram Reference",
 		"Supporting anchor locations belong OUTSIDE the fence",
 		// Log seed is now Mermaid (was bare-fence ASCII "innermost
@@ -3135,9 +3134,12 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersCapabilitySurfac
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
 	}
+	if strings.Contains(prompt, "### Answer Chains") {
+		t.Fatalf("diagram prompt should not expose legacy AnswerChains as a diagram seed:\n%s", prompt)
+	}
 }
 
-func TestAnswerDocumentEvaluator_BuildInitialInstruction_NeutralizesExactResolutionChainSeed(t *testing.T) {
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_DiagramSeedsIgnoreLegacyAnswerChains(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
@@ -3173,15 +3175,20 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_NeutralizesExactResolut
 		}},
 	}
 
-	seed := renderAnswerDocDiagramChainSeed(ctx)
-	if strings.Contains(seed, "do NOT repair this item") {
-		t.Fatalf("Answer Chains seed leaked operational repair prose:\n%s", seed)
+	seed := renderAnswerDocDiagramSupportSeed(ctx)
+	if seed != "" {
+		t.Fatalf("support seed should not be derived from legacy AnswerChains alone:\n%s", seed)
 	}
-	if strings.Contains(seed, "explore_mid_loop_hint_budget") {
-		t.Fatalf("Answer Chains seed leaked repeated exact target prose:\n%s", seed)
+	ctx.AnalysisIR.AnswerContract.Diagram = &types.DiagramContract{
+		Required:       true,
+		PreferredKinds: []types.DiagramKind{types.DiagramArchitecture},
 	}
-	if !strings.Contains(seed, "DefaultExploreHeuristics explains nearby precedence baseline") {
-		t.Fatalf("Answer Chains seed lost structural nearby-context claim:\n%s", seed)
+	seeds := renderAnswerDocDiagramSeeds(ctx, ctx.AnalysisIR.AnswerContract.Diagram)
+	if strings.Contains(seeds, "### Answer Chains") {
+		t.Fatalf("diagram prompt should not render legacy AnswerChains seed:\n%s", seeds)
+	}
+	if strings.Contains(seeds, "do NOT repair this item") {
+		t.Fatalf("diagram seed leaked operational repair prose from legacy AnswerChains:\n%s", seeds)
 	}
 }
 
@@ -4707,9 +4714,13 @@ func TestRenderRetryDiagramSeedFence_UsesFlowFindingSeedForFlow(t *testing.T) {
 	}
 }
 
-func TestRenderRetryDiagramSeedFenceForRepair_SequencePrefersAnswerChainsOverFlowNoise(t *testing.T) {
+func TestRenderRetryDiagramSeedFenceForRepair_SequencePrefersSupportLaneOverFlowNoise(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentTrace,
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+			},
 			AnswerContract: types.AnswerContract{
 				Diagram: &types.DiagramContract{
 					Required:       true,
@@ -4724,15 +4735,15 @@ func TestRenderRetryDiagramSeedFenceForRepair_SequencePrefersAnswerChainsOverFlo
 				`"Evidence Gaps" prompt scaffold`,
 			},
 		}},
-		AnswerChains: []types.AnswerChain{
-			{StrictOK: true, Item: types.EvidenceItem{Subject: "ClientRequest.Start", Source: "internal/a.go", LineStart: 10, GroundingStatus: types.GroundingGrounded}},
-			{StrictOK: true, Item: types.EvidenceItem{Subject: "Coordinator.Dispatch", Source: "internal/b.go", LineStart: 20, GroundingStatus: types.GroundingGrounded}},
-			{StrictOK: true, Item: types.EvidenceItem{Subject: "WorkerRuntime.Run", Source: "internal/c.go", LineStart: 30, GroundingStatus: types.GroundingGrounded}},
-			{StrictOK: true, Item: types.EvidenceItem{Subject: "LeafWorker.Execute", Source: "internal/d.go", LineStart: 40, GroundingStatus: types.GroundingGrounded}},
+		EvidenceItems: []types.EvidenceItem{
+			{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "ClientRequest.Start", Object: "Coordinator.Dispatch", Source: "internal/a.go", LineStart: 10, GroundingStatus: types.GroundingGrounded},
+			{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "Coordinator.Dispatch", Object: "WorkerRuntime.Run", Source: "internal/b.go", LineStart: 20, GroundingStatus: types.GroundingGrounded},
+			{Kind: types.EvidenceRelationship, AnchorKind: types.AnchorCall, Subject: "WorkerRuntime.Run", Object: "LeafWorker.Execute", Source: "internal/c.go", LineStart: 30, GroundingStatus: types.GroundingGrounded},
 		},
 	}
 
 	got := renderRetryDiagramSeedFenceForRepair(ctx, &types.ToolRepair{})
+	firstPass := renderRetryDiagramSeedFenceForRepair(ctx, nil)
 	for _, want := range []string{
 		"```mermaid",
 		"sequenceDiagram",
@@ -4744,9 +4755,15 @@ func TestRenderRetryDiagramSeedFenceForRepair_SequencePrefersAnswerChainsOverFlo
 		if !strings.Contains(got, want) {
 			t.Fatalf("sequence retry seed missing %q:\n%s", want, got)
 		}
+		if !strings.Contains(firstPass, want) {
+			t.Fatalf("first-pass sequence seed missing %q:\n%s", want, firstPass)
+		}
 	}
 	if strings.Contains(got, "Evidence Gaps") || strings.Contains(got, "Cross-References") {
-		t.Fatalf("sequence retry seed should not let generic flow-finding prose shadow answer-chain nodes:\n%s", got)
+		t.Fatalf("sequence retry seed should not let generic flow-finding prose shadow support-lane nodes:\n%s", got)
+	}
+	if strings.Contains(firstPass, "Evidence Gaps") || strings.Contains(firstPass, "Cross-References") {
+		t.Fatalf("first-pass sequence seed should not let generic flow-finding prose shadow support-lane nodes:\n%s", firstPass)
 	}
 }
 
@@ -4781,7 +4798,7 @@ func TestRenderRetryDiagramSeedFenceForRepair_SequenceFallbackKeepsSequenceSynta
 	}
 }
 
-func TestRenderRetryDiagramSeedFence_UsesAnswerChainSeedForArchitecture(t *testing.T) {
+func TestRenderRetryDiagramSeedFence_UsesEvidenceSeedForArchitecture(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			AnswerContract: types.AnswerContract{
@@ -4791,17 +4808,17 @@ func TestRenderRetryDiagramSeedFence_UsesAnswerChainSeedForArchitecture(t *testi
 				},
 			},
 		},
-		AnswerChains: []types.AnswerChain{
-			{StrictOK: true, Item: types.EvidenceItem{Source: "internal/a.go", LineStart: 10, GroundingStatus: types.GroundingGrounded}},
-			{StrictOK: true, Item: types.EvidenceItem{Source: "internal/b.go", LineStart: 20, GroundingStatus: types.GroundingGrounded}},
+		EvidenceItems: []types.EvidenceItem{
+			{Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "Alpha", Source: "internal/a.go", LineStart: 10, GroundingStatus: types.GroundingGrounded},
+			{Kind: types.EvidenceDirect, AnchorKind: types.AnchorDefinition, AnchorSymbol: "Beta", Source: "internal/b.go", LineStart: 20, GroundingStatus: types.GroundingGrounded},
 		},
 	}
 	got := renderRetryDiagramSeedFence(ctx)
 	for _, want := range []string{
 		"```mermaid",
 		"flowchart",
-		"internal/a.go:10",
-		"internal/b.go:20",
+		"Alpha",
+		"Beta",
 		"-->",
 	} {
 		if !strings.Contains(got, want) {

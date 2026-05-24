@@ -33,14 +33,25 @@ func TestEffectiveDiagramContract_DropsSoftPreferenceWithoutSupport(t *testing.T
 	}
 }
 
-func TestSupportedDiagramKindsForAnswer_AnswerChainsSupportSequencePreference(t *testing.T) {
+func TestSupportedDiagramKindsForAnswer_AnswerChainsDoNotDriveDiagramSupport(t *testing.T) {
 	chains := []AnswerChain{
 		{Item: EvidenceItem{Source: "internal/agent/analyzer.go", LineStart: 10, AnchorKind: AnchorDefinition, AnchorSymbol: "Analyze"}},
 		{Item: EvidenceItem{Source: "internal/agent/explorer.go", LineStart: 20, AnchorKind: AnchorDefinition, AnchorSymbol: "Explore"}},
 	}
 	supported := SupportedDiagramKindsForAnswer(ScenarioArchitectureExplain, false, nil, nil, nil, nil, chains, nil)
+	if len(supported) != 0 {
+		t.Fatalf("answer chains alone must not drive diagram support, got %v", supported)
+	}
+}
+
+func TestSupportedDiagramKindsForAnswer_EvidenceSupportsSequencePreference(t *testing.T) {
+	evidence := []EvidenceItem{
+		{Kind: EvidenceRelationship, Source: "internal/agent/analyzer.go", LineStart: 10, AnchorKind: AnchorCall, Subject: "Analyze", Object: "Explore"},
+		{Kind: EvidenceRelationship, Source: "internal/agent/explorer.go", LineStart: 20, AnchorKind: AnchorCall, Subject: "Explore", Object: "Finalize"},
+	}
+	supported := SupportedDiagramKindsForAnswer(ScenarioArchitectureExplain, false, nil, nil, nil, nil, nil, evidence)
 	if !diagramKindSliceContains(supported, DiagramArchitecture) || !diagramKindSliceContains(supported, DiagramSequence) {
-		t.Fatalf("answer chains supported kinds=%v, want architecture and sequence", supported)
+		t.Fatalf("evidence supported kinds=%v, want architecture and sequence", supported)
 	}
 	dc := EffectiveDiagramContract(&DiagramContract{
 		Required:       true,
@@ -50,7 +61,7 @@ func TestSupportedDiagramKindsForAnswer_AnswerChainsSupportSequencePreference(t 
 	if dc == nil || len(dc.PreferredKinds) == 0 || dc.PreferredKinds[0] != DiagramSequence {
 		t.Fatalf("effective diagram contract=%+v, want sequence preference preserved", dc)
 	}
-	kind, fence := CompileDiagramSurfaceFence(dc, ScenarioArchitectureExplain, nil, nil, nil, nil, chains, nil, nil)
+	kind, fence := CompileDiagramSurfaceFence(dc, ScenarioArchitectureExplain, nil, nil, nil, nil, nil, evidence, nil)
 	if kind != DiagramSequence {
 		t.Fatalf("compiled diagram kind=%s, want sequence", kind)
 	}

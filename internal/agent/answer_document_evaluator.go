@@ -2858,7 +2858,7 @@ func renderAnswerDocDiagramSeeds(ctx *types.AgentContext, dc *types.DiagramContr
 	appendSection("Config Trace Precedence", renderAnswerDocDiagramConfigTraceSeed(ctx))
 	appendSection("Log Triage", renderAnswerDocDiagramLogSeed(ctx.LogTriage))
 	appendSection("Flow Findings", renderAnswerDocDiagramFlowSeed(ctx.FlowFindings))
-	appendSection("Answer Chains", renderAnswerDocDiagramChainSeed(ctx))
+	appendSection("Principal Support Path", renderAnswerDocDiagramSupportSeed(ctx))
 	appendSection("Exact Resolution Anchors", renderAnswerDocDiagramExactResolutionSeed(ctx))
 
 	if !wrote {
@@ -2953,10 +2953,12 @@ func collectAnswerDocDiagramFileLabels(ctx *types.AgentContext) []string {
 	for _, anchor := range collectConfigTraceDiagramAnchors(ctx) {
 		appendLabel(anchor.Source)
 	}
-	for _, chain := range strictDiagramAnswerChains(ctx.AnswerChains) {
-		if types.DiagramEvidenceEligible(chain.Item) {
-			appendLabel(chain.Item.Source)
+	for _, entry := range collectDiagramSupportEntries(ctx, 0) {
+		source := strings.TrimSpace(entry.Source)
+		if source == "" {
+			source, _ = supportLaneScopeParseLocation(entry.Location)
 		}
+		appendLabel(source)
 	}
 	for _, ev := range ctx.EvidenceItems {
 		if ev.DiagramRole == "" {
@@ -3077,47 +3079,86 @@ func renderAnswerDocDiagramFlowSeed(findings []types.FlowFindingDigest) string {
 	return strings.TrimSpace(b.String())
 }
 
-func renderAnswerDocDiagramChainSeed(ctx *types.AgentContext) string {
+func renderAnswerDocDiagramSupportSeed(ctx *types.AgentContext) string {
 	if ctx == nil {
 		return ""
 	}
-	chains := strictDiagramAnswerChains(ctx.AnswerChains)
-	if len(chains) == 0 {
+	entries := collectDiagramSupportEntries(ctx, 12)
+	if len(entries) == 0 {
 		return ""
 	}
-	contract := answerDocExactResolutionContract(ctx)
 	var b strings.Builder
-	limit := len(chains)
-	if limit > 3 {
-		limit = 3
-	}
-	for i := 0; i < limit; i++ {
-		ev := chains[i].Item
-		display := types.EvidencePreferredSurfaceText(ev, contract, false)
-		if ev.Source != "" {
-			if ev.LineStart > 0 {
-				display += fmt.Sprintf(" (%s:%d)", ev.Source, ev.LineStart)
-			} else {
-				display += fmt.Sprintf(" (%s)", ev.Source)
-			}
+	b.WriteString("Use these typed support-lane entries as the principal diagram floor. They come from the same answer-support lanes used by validation, so they should outrank background answer-chain artifacts:\n")
+	for _, entry := range entries {
+		display := diagramSupportEntrySurface(entry)
+		if display == "" {
+			continue
+		}
+		if loc := strings.TrimSpace(entry.Location); loc != "" {
+			fmt.Fprintf(&b, "- %s (`%s`)\n", display, loc)
+			continue
 		}
 		fmt.Fprintf(&b, "- %s\n", display)
 	}
 	return strings.TrimSpace(b.String())
 }
 
-func strictDiagramAnswerChains(chains []types.AnswerChain) []types.AnswerChain {
-	if len(chains) == 0 {
+func collectDiagramSupportEntries(ctx *types.AgentContext, limit int) []types.AnswerSupportEntry {
+	if ctx == nil {
 		return nil
 	}
-	out := make([]types.AnswerChain, 0, len(chains))
-	for _, chain := range chains {
-		if !chain.StrictOK {
+	plan := answerSupportPlan(ctx)
+	if plan == nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []types.AnswerSupportEntry
+	for _, lane := range plan.Lanes {
+		if !answerSupportLaneAllowsDiagram(lane) {
 			continue
 		}
-		out = append(out, chain)
+		for _, entry := range lane.Entries {
+			display := diagramSupportEntrySurface(entry)
+			if display == "" {
+				continue
+			}
+			key := strings.ToLower(display) + "\x00" + strings.ToLower(strings.TrimSpace(entry.Location))
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, entry)
+			if limit > 0 && len(out) >= limit {
+				return out
+			}
+		}
 	}
 	return out
+}
+
+func answerSupportLaneAllowsDiagram(lane types.AnswerSupportLane) bool {
+	for _, kind := range lane.AllowedBlocks {
+		if strings.TrimSpace(kind) == string(types.BlockDiagram) {
+			return true
+		}
+	}
+	return false
+}
+
+func diagramSupportEntrySurface(entry types.AnswerSupportEntry) string {
+	if entry.AnchorKind == types.AnchorCall {
+		if subject := strings.TrimSpace(entry.Subject); subject != "" {
+			if object := strings.TrimSpace(entry.Object); object != "" {
+				return subject + " -> " + object
+			}
+		}
+	}
+	return firstNonEmptyString(
+		strings.TrimSpace(entry.AnchorSymbol),
+		strings.TrimSpace(entry.Subject),
+		strings.TrimSpace(entry.Object),
+		strings.TrimSpace(entry.Text),
+	)
 }
 
 func renderAnswerDocDiagramExactResolutionSeed(ctx *types.AgentContext) string {
@@ -6164,8 +6205,10 @@ func collectExactResolutionSeeds(ctx *types.AgentContext, contract *types.ExactR
 		}
 		candidates = append(candidates, candidate{ev: ev, score: score})
 	}
-	for _, chain := range ctx.AnswerChains {
-		appendCandidate(chain.Item, 6)
+	if ctx.Mutable != nil {
+		for _, ev := range ctx.Mutable.EmittedEvidence() {
+			appendCandidate(ev, 4)
+		}
 	}
 	for _, ev := range ctx.EvidenceItems {
 		appendCandidate(ev, 0)
@@ -7660,6 +7703,11 @@ func renderRetryDiagramSeedFenceForRepair(ctx *types.AgentContext, repair *types
 				return seed.Fence
 			}
 		}
+		for _, kind := range retryDiagramKinds(ctx) {
+			if seed := buildRetrySupportLaneSeed(ctx, kind); strings.TrimSpace(seed.Fence) != "" {
+				return seed.Fence
+			}
+		}
 		if plan := answerSurfacePlan(ctx); plan != nil {
 			if fence := strings.TrimSpace(plan.CompiledDiagramFence); fence != "" {
 				return fence
@@ -7739,25 +7787,22 @@ func renderRetryDiagramSeedFenceForKind(ctx *types.AgentContext, kind types.Diag
 			seeds = appendRetryDiagramSeed(seeds, buildRetryConfigTraceDiagramSeed(ctx))
 			break
 		}
+		seeds = appendRetryDiagramSeed(seeds, buildRetrySupportLaneSeed(ctx, kind))
 		seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
-		// Architecture chains often add useful upstream context to
-		// a flow seed (entry-point components → handlers).
-		seeds = appendRetryDiagramSeed(seeds, buildRetryAnswerChainSeed(strictDiagramAnswerChains(ctx.AnswerChains)))
 	case types.DiagramSequence:
-		// For explicit sequence diagrams, the typed answer-chain lane
-		// is the principal ordered surface. Prefer it over generic
-		// flow findings so the seed does not start with unrelated
-		// branch/condition artifacts and force the model to untangle
-		// the diagram shape during finalization.
-		seeds = appendRetryDiagramSeed(seeds, buildRetryAnswerChainSequenceSeed(strictDiagramAnswerChains(ctx.AnswerChains)))
+		// For explicit sequence diagrams, the support lane is the
+		// principal ordered surface. Prefer it over generic flow
+		// findings so stale background chains cannot shadow the
+		// currently validated call path.
+		seeds = appendRetryDiagramSeed(seeds, buildRetrySupportLaneSeed(ctx, kind))
 		seeds = appendRetryDiagramSeed(seeds, buildRetryLogDiagramSeed(ctx.LogTriage))
 		seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
 	case types.DiagramCallDAG:
 		seeds = appendRetryDiagramSeed(seeds, buildRetryLogDiagramSeed(ctx.LogTriage))
-		seeds = appendRetryDiagramSeed(seeds, buildRetryAnswerChainSeed(strictDiagramAnswerChains(ctx.AnswerChains)))
+		seeds = appendRetryDiagramSeed(seeds, buildRetrySupportLaneSeed(ctx, kind))
 		seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
 	case types.DiagramArchitecture:
-		seeds = appendRetryDiagramSeed(seeds, buildRetryAnswerChainSeed(strictDiagramAnswerChains(ctx.AnswerChains)))
+		seeds = appendRetryDiagramSeed(seeds, buildRetrySupportLaneSeed(ctx, kind))
 		seeds = appendRetryDiagramSeed(seeds, buildRetryFlowFindingSeed(ctx.FlowFindings))
 	}
 	// Filter then merge. mergeRetrySeedNodes preserves the order of
@@ -7920,67 +7965,115 @@ func retryFlowFindingNodes(ff types.FlowFindingDigest) []string {
 	return dedupeRetryDiagramNodes(nodes, retryDiagramSeedNodeCap)
 }
 
-func buildRetryAnswerChainSeed(chains []types.AnswerChain) retryDiagramSeed {
-	nodes := make([]string, 0, len(chains))
-	keys := make([]string, 0, len(chains)*2)
-	for _, chain := range chains {
-		item := chain.Item
-		label := firstNonEmptyString(
-			item.DisplayLocation(true),
-			strings.TrimSpace(item.Source),
-			strings.TrimSpace(item.Subject),
-			strings.TrimSpace(item.AnchorSymbol),
-		)
-		if label == "" {
-			continue
-		}
-		nodes = append(nodes, label)
-		keys = append(keys, retryDiagramSeedMatchKeys(label)...)
-	}
-	nodes = dedupeRetryDiagramNodes(nodes, retryDiagramSeedNodeCap)
-	if len(nodes) < 2 {
+// buildRetrySupportLaneSeed is the diagram retry authority for finalizer
+// prompts. Do not fall back to ctx.AnswerChains here: support lanes are the
+// validator-aligned current answer surface, while AnswerChains can contain
+// historical or nearby background envelopes that should not become diagram
+// nodes.
+func buildRetrySupportLaneSeed(ctx *types.AgentContext, kind types.DiagramKind) retryDiagramSeed {
+	entries := collectDiagramSupportEntries(ctx, retryDiagramSeedNodeCap)
+	if len(entries) == 0 {
 		return retryDiagramSeed{}
 	}
-	return retryDiagramSeed{
-		Fence:     buildRetryDiagramFence(nodes),
-		MatchKeys: dedupeRetryDiagramNodes(keys, 0),
-	}
-}
-
-func buildRetryAnswerChainSequenceSeed(chains []types.AnswerChain) retryDiagramSeed {
-	labels := make([]string, 0, len(chains))
-	keys := make([]string, 0, len(chains)*3)
-	for _, chain := range chains {
-		item := chain.Item
-		label := firstNonEmptyString(
-			strings.TrimSpace(item.Subject),
-			strings.TrimSpace(item.AnchorSymbol),
-			strings.TrimSpace(item.Object),
-			item.DisplayLocation(true),
-			strings.TrimSpace(item.Source),
-		)
-		if label == "" {
-			continue
+	items := make([]types.EvidenceItem, 0, len(entries))
+	labels := make([]string, 0, len(entries)*2)
+	keys := make([]string, 0, len(entries)*4)
+	for _, entry := range entries {
+		item := evidenceItemFromSupportEntry(entry)
+		if types.DiagramEvidenceEligible(item) {
+			items = append(items, item)
 		}
-		labels = append(labels, label)
-		keys = append(keys, retryDiagramSeedMatchKeys(label)...)
-		if location := item.DisplayLocation(true); location != "" {
-			keys = append(keys, retryDiagramSeedMatchKeys(location)...)
+		for _, label := range diagramSupportEntryLabels(entry) {
+			labels = append(labels, label)
+			keys = append(keys, retryDiagramSeedMatchKeys(label)...)
+		}
+		if loc := strings.TrimSpace(entry.Location); loc != "" {
+			keys = append(keys, retryDiagramSeedMatchKeys(loc)...)
 		}
 	}
 	labels = dedupeRetryDiagramNodes(labels, retryDiagramSeedNodeCap)
-	if len(labels) < 2 {
-		return retryDiagramSeed{}
+	keys = dedupeRetryDiagramNodes(keys, 0)
+
+	var fence string
+	switch kind {
+	case types.DiagramSequence:
+		fence = types.RenderEvidenceSequenceDiagramFence(items)
+		if fence == "" {
+			fence = types.RenderSequenceDiagramFence(labels, retryDiagramSeedNodeCap)
+		}
+	case types.DiagramCallDAG:
+		fence = types.RenderEvidenceCallDiagramFence(items)
+		if fence == "" {
+			fence = types.RenderLinearDiagramFence(labels, retryDiagramSeedNodeCap)
+		}
+	case types.DiagramArchitecture:
+		fence = types.RenderEvidenceArchitectureDiagramFence(items)
+		if fence == "" {
+			fence = types.RenderLinearDiagramFence(labels, retryDiagramSeedNodeCap)
+		}
+	case types.DiagramFlow:
+		fence = types.RenderEvidenceCallDiagramFence(items)
+		if fence == "" {
+			fence = types.RenderLinearDiagramFence(labels, retryDiagramSeedNodeCap)
+		}
 	}
-	fence := types.RenderSequenceDiagramFence(labels, retryDiagramSeedNodeCap)
-	if strings.TrimSpace(fence) == "" {
+	if strings.TrimSpace(fence) == "" || len(keys) == 0 {
 		return retryDiagramSeed{}
 	}
 	return retryDiagramSeed{
 		Fence:         strings.TrimSpace(fence),
-		MatchKeys:     dedupeRetryDiagramNodes(keys, 0),
+		MatchKeys:     keys,
 		PreserveFence: true,
 	}
+}
+
+func evidenceItemFromSupportEntry(entry types.AnswerSupportEntry) types.EvidenceItem {
+	source := strings.TrimSpace(strings.ReplaceAll(entry.Source, `\`, `/`))
+	line := entry.LineStart
+	lineEnd := entry.LineEnd
+	if source == "" || line <= 0 {
+		if parsedSource, parsedLine := supportLaneScopeParseLocation(entry.Location); parsedSource != "" {
+			source = parsedSource
+			if line <= 0 {
+				line = parsedLine
+			}
+		}
+	}
+	kind := types.EvidenceDirect
+	switch entry.AnchorKind {
+	case types.AnchorCall, types.AnchorImport:
+		kind = types.EvidenceRelationship
+	case types.AnchorCondition:
+		kind = types.EvidenceConditional
+	}
+	return types.EvidenceItem{
+		ID:              strings.TrimSpace(entry.EvidenceID),
+		Kind:            kind,
+		Source:          source,
+		LineStart:       line,
+		LineEnd:         lineEnd,
+		AnchorKind:      entry.AnchorKind,
+		AnchorSymbol:    strings.TrimSpace(entry.AnchorSymbol),
+		OwnerSymbol:     strings.TrimSpace(entry.OwnerSymbol),
+		Subject:         strings.TrimSpace(entry.Subject),
+		Object:          strings.TrimSpace(entry.Object),
+		SurfaceTerms:    append([]string(nil), entry.SurfaceTerms...),
+		GroundingStatus: types.GroundingGrounded,
+	}
+}
+
+func diagramSupportEntryLabels(entry types.AnswerSupportEntry) []string {
+	if entry.AnchorKind == types.AnchorCall {
+		subject := strings.TrimSpace(entry.Subject)
+		object := strings.TrimSpace(entry.Object)
+		if subject != "" && object != "" && subject != object {
+			return []string{subject, object}
+		}
+	}
+	if label := diagramSupportEntrySurface(entry); label != "" {
+		return []string{label}
+	}
+	return nil
 }
 
 func buildRetryCitationSeedFence(repair *types.ToolRepair, filter retryDiagramSeedFilter) string {

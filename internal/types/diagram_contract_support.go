@@ -175,7 +175,7 @@ func requiredKindFirst(required DiagramKind, preferred []DiagramKind, supported 
 // SupportedDiagramKindsForAnswer derives which diagram kinds the
 // current grounded evidence surface can support without inventing
 // structure. This is deliberately structural rather than lexical:
-// it reads validated logs, flow findings, answer chains, and
+// it reads validated logs, flow findings, typed evidence edges, and
 // validated config-trace diagram roles instead of matching
 // repo-specific keywords.
 func SupportedDiagramKindsForAnswer(
@@ -207,7 +207,11 @@ func SupportedDiagramKindsForAnswer(
 	if flowDiagramSupported(flowFindings) {
 		add(DiagramFlow)
 	}
-	if architectureDiagramSupported(answerChains, evidence) {
+	// Deliberately do not treat AnswerChains as diagram support. They are
+	// still useful for state/reporting surfaces, but final diagrams must be
+	// grounded in the current typed evidence/support lanes so stale nearby
+	// chains cannot shadow the user's requested path.
+	if architectureDiagramSupported(evidence) {
 		add(DiagramArchitecture)
 		add(DiagramSequence)
 	}
@@ -280,12 +284,7 @@ func flowDiagramSupported(findings []FlowFindingDigest) bool {
 	return false
 }
 
-func architectureDiagramSupported(chains []AnswerChain, evidence []EvidenceItem) bool {
-	for _, chain := range chains {
-		if DiagramEvidenceEligible(chain.Item) {
-			return true
-		}
-	}
+func architectureDiagramSupported(evidence []EvidenceItem) bool {
 	return len(EvidenceDiagramNodes(evidence, 2)) >= 2 || len(evidenceDiagramEdges(evidence, 1, ClaimCallEdge, ClaimImportEdge)) > 0
 }
 
