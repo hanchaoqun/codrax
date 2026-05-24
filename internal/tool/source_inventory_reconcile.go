@@ -325,7 +325,11 @@ func PublishSourceInventoryObservationFromLens(ctx *types.BusContext, query type
 	} else {
 		ctx.Mutable.SetSourceInventoryAdvisory(advisory)
 	}
-	renderObservation := ctx.Mutable.SourceInventoryObservation()
+	// Render only the current lens query. Exact/direct-child observations are
+	// kept in MutableState for coverage checks, but mixing them back into the
+	// visible repo_map result makes a narrow lens look like a broad union and
+	// can mislead the model into treating navigation hints as the answer set.
+	renderObservation := types.SourceInventoryObservationFromAdvisory(advisory)
 	if exact := sourceInventoryObservationFromLensDirectChildren(ctx, query); exact.IsActive() {
 		current := ctx.Mutable.SourceInventoryObservation()
 		if current.IsActive() {
@@ -2447,6 +2451,9 @@ func sourceInventoryProfileWithLensRoles(profile *types.SourceInventoryProfile, 
 
 func sourceInventoryLensQueryScopes(ctx *types.BusContext, graph *repotypes.Graph, query types.SourceInventoryLensQuery) []string {
 	if len(query.Scopes) == 0 {
+		if scope := sourceInventoryScopeForLensSurfaceWithPath(graph, query.Path, query.Path); scope != "" {
+			return []string{scope}
+		}
 		return nil
 	}
 	seen := map[string]bool{}

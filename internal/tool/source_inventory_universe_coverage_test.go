@@ -136,6 +136,69 @@ func TestSourceInventoryLensQueryScopes_PathRelativeScopedRoot(t *testing.T) {
 	}
 }
 
+func TestPublishSourceInventoryObservationFromLens_RenderExcludesPriorExactUniverse(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{
+			RelPath:  "aggregator/aggregator.go",
+			Language: "go",
+			Package:  "aggregator",
+			Symbols: []repotypes.Symbol{{
+				Name:     "Aggregate",
+				Kind:     "function",
+				File:     "aggregator/aggregator.go",
+				Line:     132,
+				Exported: true,
+			}},
+		},
+		{
+			RelPath:  "subject/taxonomy.go",
+			Language: "go",
+			Package:  "subject",
+			Symbols: []repotypes.Symbol{{
+				Name:     "Score",
+				Kind:     "function",
+				File:     "subject/taxonomy.go",
+				Line:     41,
+				Exported: true,
+			}},
+		},
+	})
+	ctx := sourceInventoryTestContext("", graph, "internal/analysis", nil)
+	ctx.Mutable.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"internal/analysis"},
+		Provenance:   []string{sourceInventoryExactUniverseProvenanceListFilesDirect},
+		Lens:         []string{"direct_children", "count"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRolePackage,
+			Complete: true,
+			Count:    2,
+			Members: []types.SourceInventoryObservationMember{
+				{Name: "aggregator", Key: "internal/analysis/aggregator", File: "internal/analysis/aggregator", Role: types.AnswerCandidateRolePackage, Provenance: []string{sourceInventoryExactUniverseProvenanceListFilesDirect}},
+				{Name: "subject", Key: "internal/analysis/subject", File: "internal/analysis/subject", Role: types.AnswerCandidateRolePackage, Provenance: []string{sourceInventoryExactUniverseProvenanceListFilesDirect}},
+			},
+		}},
+	})
+
+	renderObs := PublishSourceInventoryObservationFromLens(ctx, types.SourceInventoryLensQuery{
+		Path:          "internal/analysis",
+		Roles:         []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		IncludeCounts: true,
+	})
+	if !renderObs.IsActive() || len(renderObs.Sets) != 1 || renderObs.Sets[0].Role != types.AnswerCandidateRoleFunction {
+		t.Fatalf("visible lens should render only current query roles, got %+v", renderObs)
+	}
+	if renderObs.Sets[0].Count != 2 {
+		t.Fatalf("visible function lens should not include prior package universe: %+v", renderObs.Sets[0])
+	}
+	stored := ctx.Mutable.SourceInventoryObservation()
+	if !stored.IsActive() || len(sourceInventoryExactUniverseSets(stored)) == 0 {
+		t.Fatalf("prior exact universe should remain stored for coverage checks: %+v", stored)
+	}
+}
+
 func TestSourceInventoryCandidateUniverseCoverageGap_BlocksHighAlignmentOnly(t *testing.T) {
 	ctx := sourceInventoryUniverseTestContext([]string{"alpha", "beta", "gamma"})
 	gap := SourceInventoryCandidateUniverseCoverageGap(ctx, []types.AnswerAggregateFact{{
