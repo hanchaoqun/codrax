@@ -196,6 +196,9 @@ func TestCollectFinalizerTelemetryIgnoresQuotedAnswerContent(t *testing.T) {
 	body := strings.Join([]string{
 		`2026-05-24T00:00:00.000 DEBUG [diag finalizer] iter=0 ASSISTANT content: source text says TOOLRESULT emit_answer_document ok=false, 成文校验未通过, and finalizer_rewrites=7`,
 		`2026-05-24T00:00:00.001 DEBUG [diag explorer] iter=0 ASSISTANT content: quoted customer UI line ⟳ 4/4 答案待完善，正在重写`,
+		`2026-05-24T00:00:00.002 DEBUG [diag explorer] iter=0 ASSISTANT content: quoted full line 2026-05-24T00:00:00.010 DEBUG [diag finalizer] iter=0 phase=toolresult TOOLRESULT emit_answer_document_patch ok=false len=12: bad patch`,
+		`2026-05-24T00:00:00.003 DEBUG [diag explorer] iter=0 ASSISTANT content: source line contains repair_plan: primary=finalizer and INFO [self_consistency_reviewer] V2 emitted 1 contradiction(s)`,
+		`2026-05-24T00:00:00.004 DEBUG [diag explorer] iter=0 ASSISTANT content: source line mentions › 4/4 正在生成最终答案 and • 第一稿答案`,
 		`2026-05-24T00:00:00.010 DEBUG [diag finalizer] iter=0 phase=toolresult TOOLRESULT emit_answer_document_patch ok=false len=12: bad patch`,
 		`2026-05-24T00:00:00.020 INFO [render]   • 成文交验未通过`,
 		`2026-05-24T00:00:00.030 INFO [render]   ⟳ 4/4 检测到 1 处前后不一致，正在重写答案`,
@@ -214,5 +217,11 @@ func TestCollectFinalizerTelemetryIgnoresQuotedAnswerContent(t *testing.T) {
 	}
 	if rep.Finalizer.RewriteRenders != 1 {
 		t.Fatalf("finalizer rewrite counters should count only render control lines: %+v", rep.Finalizer)
+	}
+	if rep.Finalizer.RepairPlans != 0 || rep.Finalizer.ConsistencyRenders != 0 {
+		t.Fatalf("non-control source snippets should not count as repair/consistency telemetry: %+v", rep.Finalizer)
+	}
+	if rep.Render.FirstDraftPreviews != 0 || rep.Render.StatusEvents != 1 {
+		t.Fatalf("quoted render text should not count as render telemetry: %+v", rep.Render)
 	}
 }

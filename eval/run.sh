@@ -329,7 +329,7 @@ write_metrics() {
     echo "t11_gate_run=$(count_pattern 'T1.1 gate.*running' "$log")"
     echo "dataflow_intent_lookup=$(count_pattern 'dataflowIntent=lookup' "$log")"
     echo "dataflow_intent_propagate=$(count_pattern 'dataflowIntent=propagate' "$log")"
-    echo "midloop_inject=$(count_pattern 'MIDLOOP inject' "$log")"
+    echo "midloop_inject=$(eval_count_midloop_injects "$log")"
     echo "parallel_sibling_skips=$(count_pattern 'skipping non-winning parallel explore sibling' "$log")"
     echo "mixed_origin_autocomplete_blocks=$(count_pattern 'accepted investigation closure cannot auto-complete mixed-origin explore window' "$log")"
     echo "finalizer_rejects=$(eval_count_finalizer_rejects "$log")"
@@ -340,10 +340,10 @@ write_metrics() {
     # "[diag <agent>] iter=N ASSISTANT content_len=…" line, so
     # counting that suffix gives the actual model-turn count
     # uncontaminated by INIT msg / TOOLRESULT / MIDLOOP siblings.
-    echo "analyzer_iters=$(count_pattern 'diag analyzer.*ASSISTANT content_len=' "$log")"
-    echo "explorer_iters=$(count_pattern 'diag explorer.*ASSISTANT content_len=' "$log")"
-    echo "extractor_iters=$(count_pattern 'diag extractor.*ASSISTANT content_len=' "$log")"
-    echo "finalizer_iters=$(count_pattern 'diag finalizer.*ASSISTANT content_len=' "$log")"
+    echo "analyzer_iters=$(eval_count_agent_iterations "$log" analyzer)"
+    echo "explorer_iters=$(eval_count_agent_iterations "$log" explorer)"
+    echo "extractor_iters=$(eval_count_agent_iterations "$log" extractor)"
+    echo "finalizer_iters=$(eval_count_agent_iterations "$log" finalizer)"
     # R12 (post-shape 残留 audit, 2026-05-04): per-agent dispatch
     # counters distinct from per-iteration "ASSISTANT content_len="
     # lines. Operators previously misread `explorer_iters=40` as a
@@ -351,10 +351,10 @@ write_metrics() {
     # each. The orchestrator emits exactly one `[diag <agent>]
     # DISPATCH stage=… attempt=…` line per dispatch, so iter median
     # per dispatch = explorer_iters / explorer_dispatches.
-    echo "analyzer_dispatches=$(count_pattern 'diag analyzer.*DISPATCH stage=' "$log")"
-    echo "explorer_dispatches=$(count_pattern 'diag explorer.*DISPATCH stage=' "$log")"
-    echo "extractor_dispatches=$(count_pattern 'diag extractor.*DISPATCH stage=' "$log")"
-    echo "finalizer_dispatches=$(count_pattern 'diag finalizer.*DISPATCH stage=' "$log")"
+    echo "analyzer_dispatches=$(eval_count_agent_dispatches "$log" analyzer)"
+    echo "explorer_dispatches=$(eval_count_agent_dispatches "$log" explorer)"
+    echo "extractor_dispatches=$(eval_count_agent_dispatches "$log" extractor)"
+    echo "finalizer_dispatches=$(eval_count_agent_dispatches "$log" finalizer)"
     # G1 (post_v2_runtime_gap_remediation, 2026-05-04) repair-plan +
     # repair-exec telemetry. The orchestrator's retry-decision site
     # emits one repair_plan= line + one repair_exec= line per failed
@@ -376,8 +376,8 @@ write_metrics() {
     # quality reviewer dispatch + verdict telemetry.
     #   semantic_quality_dispatches  — reviewer dispatched this run
     #   semantic_quality_concerns    — reviewer-emitted concern count
-    echo "semantic_quality_dispatches=$(count_pattern 'semantic_quality_reviewer.*verdict' "$log")"
-    echo "semantic_quality_concerns=$(count_pattern 'semantic_quality_reviewer.*emitted [1-9]' "$log")"
+    echo "semantic_quality_dispatches=$(eval_count_semantic_quality_dispatches "$log")"
+    echo "semantic_quality_concerns=$(eval_count_semantic_quality_concerns "$log")"
     # G7 trigger-data observability (post_v2_runtime_gap_remediation,
     # 2026-05-04). strict_decode_remap fires when an LLM emit hits a
     # known misplaced-field pattern. Counts the per-Run frequency so

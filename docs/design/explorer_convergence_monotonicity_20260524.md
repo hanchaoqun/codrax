@@ -611,8 +611,10 @@ Updated priority after this rerun:
    visibly replace or overwhelm a good model answer. This directly enforces the
    red line that system structure preference must never overpower model/user
    intent.
-2. **T16 telemetry control-line isolation**: important because false eval
-   metrics send engineering work toward phantom finalizer failures.
+2. **T16 telemetry control-line isolation**: completed after this audit. The
+   focused mixed-VCS replay now reports `finalizer_reject=0` and
+   `finalizer_rewrite=0` even though the answer/source text discusses
+   finalizer telemetry terms.
 3. **B9 / T20 lane novelty throttling**: highest performance ROI after the
    answer-surface red lines are closed. It should reduce repeated same-lane
    exploration in `u7k`, log/source, and trace/source without changing answer

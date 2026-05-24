@@ -134,9 +134,9 @@ run_one() {
   finalizer=$(eval_metric_field "$metrics" finalizer_dispatches)
   repair=$(eval_metric_field "$metrics" repair_plan_lines)
   rejects=$(eval_count_finalizer_rejects "$log")
-  patches=$(eval_count_pattern 'emit_answer_document_patch params=' "$log")
-  sem=$(eval_count_pattern 'semantic_quality_reviewer.*emitted [1-9]|semantic_quality_reviewer.*verdict sufficient=false' "$log")
-  self=$(eval_count_pattern 'self_consistency_reviewer.*emitted|self_consistency_reviewer.*consistent=false|self_contradiction' "$log")
+  patches=$(eval_count_answer_document_patch_calls "$log")
+  sem=$(eval_count_semantic_quality_concerns "$log")
+  self=$(eval_count_self_consistency_concerns "$log")
   printf "| %d | %s | %s | %s | %ds | %s | %s | %s | %s | %s | %s | %s | %s | %s |\n" \
     "$idx" "$case_id" "$verdict" "$reason" "$elapsed" \
     "$analyzer" "$explorer" "$extractor" "$finalizer" "$repair" "$rejects" "$patches" "$sem" "$self" >>"$SUMMARY"

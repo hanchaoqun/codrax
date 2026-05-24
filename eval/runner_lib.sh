@@ -102,6 +102,15 @@ eval_count_pattern() {
   echo "${n:-0}"
 }
 
+eval_count_control_pattern() {
+  local pattern="$1"
+  local file="$2"
+  # Control-plane metrics must not match source snippets, model answers, or
+  # customer-log payloads. Codrax debug logs are timestamped; requiring that
+  # prefix keeps quoted control-looking text out of retry/rewrite counters.
+  eval_count_pattern "^20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^ ]* ${pattern}" "$file"
+}
+
 eval_count_finalizer_rejects() {
   local file="$1"
   if [[ -z "$file" || ! -f "$file" ]]; then
@@ -112,8 +121,8 @@ eval_count_finalizer_rejects() {
   # Count control-plane events only. Whole-log grep of these strings is unsafe:
   # source snippets and model answers may discuss `finalizer_rejects` or quote
   # customer logs that contain "成文校验未通过".
-  tool=$(eval_count_pattern 'DEBUG \[diag finalizer\].*phase=toolresult TOOLRESULT emit_answer_document(_patch)? ok=false' "$file")
-  render=$(eval_count_pattern 'INFO \[render\].*成文[校交]验未通过' "$file")
+  tool=$(eval_count_control_pattern 'DEBUG \[diag finalizer\][^:]*phase=toolresult TOOLRESULT emit_answer_document(_patch)? ok=false' "$file")
+  render=$(eval_count_control_pattern 'INFO \[render\][[:space:]]+•[[:space:]]+成文[校交]验未通过' "$file")
   n=$((tool + render))
   echo "$n"
 }
@@ -124,7 +133,76 @@ eval_count_finalizer_rewrites() {
     echo 0
     return
   fi
-  eval_count_pattern 'INFO \[render\].*⟳ 4/4 .*(答案待完善|正在重写答案|检测到 .*前后不一致)' "$file"
+  eval_count_control_pattern 'INFO \[render\][[:space:]]+⟳ 4/4 .*(答案待完善|正在重写答案|检测到 .*前后不一致)' "$file"
+}
+
+eval_count_answer_document_patch_calls() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern 'DEBUG \[diag finalizer\][^:]*phase=toolcall [^:]*tool=emit_answer_document_patch( |$)' "$file"
+}
+
+eval_count_midloop_injects() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=midloop_inject' "$file"
+}
+
+eval_count_agent_iterations() {
+  local file="$1"
+  local agent="$2"
+  if [[ -z "$file" || ! -f "$file" || -z "$agent" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern "DEBUG \\[diag ${agent}\\][^:]*ASSISTANT content_len=" "$file"
+}
+
+eval_count_agent_dispatches() {
+  local file="$1"
+  local agent="$2"
+  if [[ -z "$file" || ! -f "$file" || -z "$agent" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern "DEBUG \\[diag ${agent}\\][^:]*DISPATCH stage=" "$file"
+}
+
+eval_count_semantic_quality_dispatches() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern 'INFO \[semantic_quality_reviewer\].*verdict' "$file"
+}
+
+eval_count_semantic_quality_concerns() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern 'INFO \[semantic_quality_reviewer\].*(emitted [1-9]|verdict sufficient=false)' "$file"
+}
+
+eval_count_self_consistency_concerns() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  local reviewer orchestrator n
+  reviewer=$(eval_count_control_pattern 'INFO \[self_consistency_reviewer\].*(emitted|consistent=false)' "$file")
+  orchestrator=$(eval_count_control_pattern 'DEBUG \[orchestrator\].*self_contradiction' "$file")
+  n=$((reviewer + orchestrator))
+  echo "$n"
 }
 
 eval_running_jobs() {

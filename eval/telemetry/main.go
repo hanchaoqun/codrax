@@ -307,23 +307,23 @@ func (c *collector) observeLine(line string, fm *fileMetrics) {
 	if strings.Contains(line, "[richness]") {
 		c.observeRichness(line)
 	}
-	if strings.Contains(line, "[diag explorer]") {
+	if isControlComponentLine(line, "DEBUG", "diag explorer") {
 		c.observeExplorerLine(line, fm)
 	}
 	c.observeRenderLine(line, fm)
-	if strings.Contains(line, "TOOLRESULT emit_analysis ok=false") ||
-		strings.Contains(line, "emit_analysis rejected:") ||
-		strings.Contains(line, "analyzer quality gate rejected") {
+	if (isControlComponentLine(line, "DEBUG", "diag analyzer") && strings.Contains(line, "TOOLRESULT emit_analysis ok=false")) ||
+		(isControlComponentLine(line, "DEBUG", "diag analyzer") && strings.Contains(line, "emit_analysis rejected:")) ||
+		(isControlComponentLine(line, "WARN", "orchestrator") && strings.Contains(line, "analyzer quality gate rejected")) {
 		c.report.Analyzer.ToolRejects++
 		fm.analyzerRejects++
 		if reason := analyzerRejectReason(line); reason != "" {
 			c.report.Analyzer.RejectReasons[reason]++
 		}
 	}
-	if strings.Contains(line, "quality gate HARD failure") {
+	if isControlComponentLine(line, "ERROR", "analyzer-v3") && strings.Contains(line, "quality gate HARD failure") {
 		c.report.Analyzer.HardGateFailures++
 	}
-	if strings.Contains(line, "⟳ 1/4") || strings.Contains(line, "重新理解问题") {
+	if isRenderInfoLine(line) && (strings.Contains(line, "⟳ 1/4") || strings.Contains(line, "重新理解问题")) {
 		c.report.Analyzer.RetryRenders++
 		fm.analyzerRetries++
 	}
@@ -347,14 +347,15 @@ func (c *collector) observeLine(line string, fm *fileMetrics) {
 		c.report.Finalizer.RewriteRenders++
 		fm.finalizerRewrites++
 	}
-	if strings.Contains(line, "检查答案是否前后一致") || strings.Contains(line, "self_consistency_reviewer") {
+	if (isRenderInfoLine(line) && strings.Contains(line, "检查答案是否前后一致")) ||
+		isControlComponentLine(line, "INFO", "self_consistency_reviewer") {
 		c.report.Finalizer.ConsistencyRenders++
 	}
-	if strings.Contains(line, "repair_plan:") {
+	if isControlComponentLine(line, "INFO", "orchestrator") && strings.Contains(line, "repair_plan:") {
 		c.observeRepairPlan(line)
 		fm.repairPlans++
 	}
-	if strings.Contains(line, "answer_contract_check") && strings.Contains(line, "violations=") {
+	if isDiagFinalizerLine(line) && strings.Contains(line, "answer_contract_check") && strings.Contains(line, "violations=") {
 		c.observeContractCheck(line, fm)
 	}
 	if strings.Contains(line, "sanitized invalid tool-call arguments") {
@@ -462,11 +463,15 @@ func (c *collector) observeRichness(line string) {
 }
 
 func (c *collector) observeRenderLine(line string, fm *fileMetrics) {
-	if strings.Contains(line, "第一稿答案") || strings.Contains(line, "First draft answer") {
+	if !isRenderInfoLine(line) {
+		return
+	}
+	payload := strings.TrimSpace(renderPayload(line))
+	if strings.HasPrefix(payload, "• 第一稿答案") || strings.HasPrefix(payload, "• First draft answer") {
 		c.report.Render.FirstDraftPreviews++
 		fm.firstDraftPreviews++
 	}
-	if stage := parseRenderStage(line); stage > 0 {
+	if stage := parseRenderStage(payload); stage > 0 {
 		c.report.Render.StatusEvents++
 		c.report.Render.StageCounts[strconv.Itoa(stage)]++
 		if fm.lastRenderStage > 0 && stage < fm.lastRenderStage {
@@ -637,6 +642,9 @@ func parseTokenValue(s, key string) string {
 }
 
 func parseRenderStage(line string) int {
+	if !looksLikeRenderStatusPayload(line) {
+		return 0
+	}
 	m := renderStageRe.FindStringSubmatch(line)
 	if len(m) != 2 {
 		return 0
@@ -646,6 +654,16 @@ func parseRenderStage(line string) int {
 		return 0
 	}
 	return n
+}
+
+func looksLikeRenderStatusPayload(line string) bool {
+	s := strings.TrimSpace(line)
+	for _, prefix := range []string{"⟳", "›", "✓", "▪", "·", "◆", "⠇", "⠏", "⠸", "⠹", "⠧", "⠼"} {
+		if strings.HasPrefix(s, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func isTurnBoundary(line string) bool {
@@ -682,9 +700,9 @@ func compactReason(s string) string {
 
 func isLLMErrorLine(line string) bool {
 	if strings.Contains(line, "模型响应出错") {
-		return true
+		return isRenderInfoLine(line)
 	}
-	if !strings.Contains(line, "[llm]") {
+	if !isLLMControlLine(line) {
 		return false
 	}
 	lower := strings.ToLower(line)
@@ -711,7 +729,7 @@ func isTimeoutLine(line string) bool {
 }
 
 func isDiagFinalizerLine(line string) bool {
-	return strings.Contains(line, "[diag finalizer]")
+	return isControlComponentLine(line, "DEBUG", "diag finalizer")
 }
 
 func isDiagFinalizerToolResultLine(line string) bool {
@@ -719,24 +737,77 @@ func isDiagFinalizerToolResultLine(line string) bool {
 }
 
 func isRenderInfoLine(line string) bool {
-	return strings.Contains(line, "INFO [render]")
+	return isControlComponentLine(line, "INFO", "render")
+}
+
+func renderPayload(line string) string {
+	body := controlLineBody(line)
+	prefix := "INFO [render]"
+	if !strings.HasPrefix(body, prefix) {
+		return ""
+	}
+	return strings.TrimSpace(strings.TrimPrefix(body, prefix))
+}
+
+func isTimestampedCodraxLine(line string) bool {
+	return len(line) >= len("2006-01-02T") &&
+		line[0] == '2' &&
+		line[1] == '0' &&
+		line[4] == '-' &&
+		line[7] == '-' &&
+		line[10] == 'T'
+}
+
+func controlLineBody(line string) string {
+	if !isTimestampedCodraxLine(line) {
+		return ""
+	}
+	idx := strings.IndexByte(line, ' ')
+	if idx < 0 || idx+1 >= len(line) {
+		return ""
+	}
+	return line[idx+1:]
+}
+
+func isControlComponentLine(line, level, component string) bool {
+	body := controlLineBody(line)
+	if body == "" {
+		return false
+	}
+	return strings.HasPrefix(body, level+" ["+component+"]")
+}
+
+func isLLMControlLine(line string) bool {
+	body := controlLineBody(line)
+	if body == "" {
+		return false
+	}
+	return strings.HasPrefix(body, "DEBUG [llm]") ||
+		strings.HasPrefix(body, "INFO [llm]") ||
+		strings.HasPrefix(body, "WARN [llm]") ||
+		strings.HasPrefix(body, "ERROR [llm]")
 }
 
 func isFinalizerRejectRenderLine(line string) bool {
 	if !isRenderInfoLine(line) {
 		return false
 	}
-	return strings.Contains(line, "成文校验未通过") ||
-		strings.Contains(line, "成文交验未通过")
+	payload := strings.TrimSpace(renderPayload(line))
+	return strings.HasPrefix(payload, "• 成文校验未通过") ||
+		strings.HasPrefix(payload, "• 成文交验未通过")
 }
 
 func isFinalizerRewriteRenderLine(line string) bool {
-	if !isRenderInfoLine(line) || !strings.Contains(line, "⟳ 4/4") {
+	if !isRenderInfoLine(line) {
 		return false
 	}
-	return strings.Contains(line, "答案待完善") ||
-		strings.Contains(line, "正在重写答案") ||
-		(strings.Contains(line, "检测到 ") && strings.Contains(line, "前后不一致"))
+	payload := strings.TrimSpace(renderPayload(line))
+	if !strings.HasPrefix(payload, "⟳ 4/4") {
+		return false
+	}
+	return strings.Contains(payload, "答案待完善") ||
+		strings.Contains(payload, "正在重写答案") ||
+		(strings.Contains(payload, "检测到 ") && strings.Contains(payload, "前后不一致"))
 }
 
 func writeMarkdown(w io.Writer, rep report, top int) {
