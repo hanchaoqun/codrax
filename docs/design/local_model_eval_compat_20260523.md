@@ -2322,3 +2322,151 @@ Task backlog:
       answer shape instead of generic evidence-kind quotas.
 - [ ] Re-run the three cases above after the next explore-readiness batch and
       compare analyzer/explorer/finalizer iteration counts, not only PASS/FAIL.
+
+## 2026-05-24 Batch 25 - Typed Explore Width And Path Boundary
+
+Status: implemented and validated.
+
+### Problem statement
+
+Batch 24 moved the main local-model cost out of analyze. The remaining
+high-ROI failures are all explore-side convergence issues:
+
+- Bounded sequence / call-chain / mechanism questions can collect grounded
+  relationship, mechanism, condition, or call anchors but still see readiness
+  messages framed around `direct/registration` counts.
+- `intent-window-mismatch` can push a model toward broad file/module overview
+  reads even when the typed request is a bounded path or single-mechanism
+  explanation. This is not user-intent preserving: the user asked for a
+  mechanism/path, not an overall file survey.
+- Local models often copy the visible repository label into tool paths
+  (`codrax-small/internal/...`, sometimes an old adjacent label). Today that
+  becomes a failed or broader search instead of a harmless in-root rewrite when
+  the target is unambiguous.
+
+### Root cause
+
+- `completionReadinessWithCoverage` still reports and thresholds a legacy
+  `DirectCount`/`MinDirectCount` pair. It already has the better primitive:
+  `groundedRequirementCarrierCount()` backed by
+  `types.EvidenceStructurallyMatchesRequirement` and
+  `types.RequirementToEvidenceKinds`, but the visible readiness summary and
+  some closure decisions still make the generic direct/registration count look
+  authoritative.
+- `typedStructuralOverviewRequiresWideRead` treats every
+  `QFArchitecture`/`ScenarioArchitectureExplain` request as wide-read worthy
+  after excluding trace lanes. That is too broad for single-topic mechanism
+  explanations where `ScenarioArchitectureExplain` is merely the analyzer's
+  broad scenario label.
+- `resolveToolPath` and `resolveRepoScopedToolDir` already centralize repo-root
+  anchoring and escape protection. They do not yet normalize a leading repo
+  label when the remaining suffix exists under the active root.
+
+### Design
+
+1. Typed readiness carrier lane
+   - Keep `DirectCount` for strict enumeration only.
+   - Add an explicit `RequirementCarrierCount` / `MinRequirementCarrierCount`
+     pair to readiness telemetry.
+   - For non-enumeration typed requirements, use carrier evidence that
+     structurally matches the request kind. Reuse
+     `EvidenceStructurallyMatchesRequirement`; do not introduce another
+     evidence-kind table.
+   - The completion hint should say "typed evidence carriers" for bounded
+     mechanism/path questions, not "direct/registration evidence items".
+
+2. Overview-width gate narrowing
+   - The gate may fire only for typed project orientation or true architecture
+     narrative explanations.
+   - It must stay off for single-topic mechanism explanations and bounded
+     structural traces, even when the analyzer's broad scenario is
+     `architecture_explain`.
+   - The rule remains typed-only: `RequestModel`, `QuestionFamily`,
+     `DiagramHint`, `SubTopics`, predicates, and structural obligations. No raw
+     user text or model prose matching.
+
+3. Safe repo-label path normalization
+   - Implement once inside the existing tool path helpers.
+   - Only strip a leading path segment when it equals the active repo root
+     basename and the stripped suffix resolves inside `RepoRoot`.
+   - Prefer the existing path when it already exists; rewrite only when the
+     labeled path does not exist and the stripped path does. This avoids
+     breaking repositories that genuinely contain a top-level directory whose
+     name equals the repo label.
+   - Keep absolute paths, `..` escape rejection, and repo-scoped directory
+     guards intact.
+
+4. Telemetry and regression guard
+   - Add debug/info logs for repo-label rewrites so eval can count them without
+     changing user-facing output.
+   - Add unit tests for typed readiness, overview gate suppression, normal
+     architecture overview firing, repo-label rewrite, and real top-level
+     directory non-rewrite.
+
+### Commercial safety boundaries
+
+- No prompt changes.
+- No keyword matching on user questions or model prose.
+- No system rewrite of model conclusions.
+- No Go-specific syntax assumptions; evidence kind, anchor kind, typed
+  RequestModel traits, and repo-root path math are language-neutral across all
+  repo-map supported languages and external observation sources.
+- Tool path normalization only changes paths that can be proved to map back to
+  the active repository. Ambiguous or escaping paths continue through existing
+  rejection behavior.
+
+### Batch 25 task list
+
+- [x] Audit current readiness, overview-width, repair, and tool-path code.
+- [x] Record this typed design and task list.
+- [x] Add typed readiness carrier counters and hint wording.
+- [x] Narrow `typedStructuralOverviewRequiresWideRead`.
+- [x] Add safe repo-label path normalization in the existing tool helpers.
+- [x] Add focused unit tests.
+- [x] Run focused tests, `make build`, and a small eval rerun.
+- [x] Commit and push Batch 25.
+
+### Verification
+
+- Focused tests:
+  - `go test ./internal/agent -run 'TestExplorerReadiness_(BoundedTraceSuppressesEnumerationCoverageFloors|MultiSubtopicCallChainTraceSuppressesEnumerationCoverage|SequenceTraceSuppressesEnumerationAndOverviewHints|SingleMechanismExplainSuppressesOverviewHints|ArchitectureNarrativeStillRequiresWideRead|TypedCarrierCountSatisfiesBoundedTrace)|TestMidLoopCheck_IntentWindow'`
+  - `go test ./internal/tool -run 'TestResolveToolPath_(RootsRelativeAtRepoRoot|StripsActiveRepoLabelPrefixWhenUnambiguous|DoesNotStripRealTopLevelRepoLabelDirectory)|TestReadFile_ResolvesAgainstRepoRoot|TestListFiles_ResolvesAgainstRepoRoot'`
+  - `go test ./internal/tool -run 'TestPreEmitBlockCoverageMissingIsHardAtToolBoundary|TestEmitAnswerDocumentPatch_PreEmitSoftHintsStayAdvisory|TestEmitAnswerDocumentV2_PreEmitSoftHintsDoNotReject|TestPreCheckRequiredBlocks|TestNormalizeViewCompatibleAnswerDocument_DoesNotInventShapeBearingFacetID'`
+  - `go test ./internal/agent ./internal/tool ./internal/types`
+  - `make build`
+- Eval rerun:
+  - First rerun:
+    `.codrax/eval-batch25/qf_sequence_analyzer_gate-20260524-103356`.
+    Result: FAIL only because the final answer omitted the required Mermaid
+    diagram. The run still showed the intended search-width improvement:
+    `analyzer_iters=1`, `explorer_iters=19`, `explorer_dispatches=1`,
+    `midloop_inject=4`, `finalizer_iters=1`, and no semantic quality concerns
+    other than missing diagram.
+  - The failure exposed a structurally safe finalizer compatibility gap:
+    missing required `diagram` blocks were still treated as a soft pre-emit
+    advisory while other missing block kinds remained soft for migration. The
+    fix makes only `blocks[].kind=diagram` a hard same-turn repair when the
+    typed answer contract requires a diagram.
+  - Second rerun:
+    `.codrax/eval-batch25/qf_sequence_analyzer_gate-20260524-104407`.
+    Result: PASS. The first finalizer draft omitted the diagram, the new hard
+    gate rejected only that missing block, and the patch-only path added a
+    Mermaid `sequenceDiagram` without reopening exploration.
+
+### Remaining gap / next high-ROI target
+
+- Batch 25 fixed the hard correctness gap, but the second eval still paid too
+  much exploration cost: `explorer_dispatches=2`, `explorer_iters=36`,
+  `midloop_inject=14`, `tool_read_file=14`.
+- The deep cause is not JSON recovery. The first exploration collected the
+  endpoint and several intermediate facts, but the closure validator downgraded
+  `emit_investigation_complete` because it wanted model-emitted intermediate
+  evidence for a specific source span (`internal/agent/analyzer.go:2084-2266`).
+  The model then re-entered navigation, read already-related windows, and only
+  later emitted the missing closure facts.
+- Next batch should front-load closure obligations as typed evidence targets
+  before completion, or deterministically synthesize safe closure repair
+  requests from already-known source spans without widening scope. The invariant
+  is the same as the rest of this document: do not infer user intent from raw
+  user/model prose, do not change model conclusions, and only auto-repair
+  structure/citations/facts that are already grounded by typed source evidence.

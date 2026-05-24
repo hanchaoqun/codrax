@@ -17,6 +17,7 @@ import (
 	"unicode"
 
 	promptctx "github.com/hanchaoqun/codrax/internal/context"
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/textfmt"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -76,7 +77,10 @@ func sanitizeForBanner(s string) string {
 //   - p absolute → return as-is. The LLM occasionally pastes a path
 //     it saw in earlier output (already absolute); re-rooting it would
 //     produce a nonsense `RepoRoot/abs/path/...`.
-//   - p relative → join under ctx.RepoRoot.
+//   - p relative → join under ctx.RepoRoot. If the model prepends the active
+//     repo directory name (for example `my-repo/internal/foo.go`), strip that
+//     prefix only when the original path is missing and the stripped suffix
+//     exists inside ctx.RepoRoot.
 func resolveToolPath(ctx *types.BusContext, p string) string {
 	if ctx == nil || ctx.RepoRoot == "" {
 		return normalizeToolAbsolutePath(p)
@@ -89,6 +93,9 @@ func resolveToolPath(ctx *types.BusContext, p string) string {
 	}
 	if toolPathIsAbs(p) {
 		return p
+	}
+	if rewritten, ok := stripActiveRepoLabelPrefix(ctx, p); ok {
+		return filepath.Join(ctx.RepoRoot, rewritten)
 	}
 	return filepath.Join(ctx.RepoRoot, p)
 }
@@ -117,7 +124,59 @@ func resolveRepoScopedToolDir(ctx *types.BusContext, p string) (string, string) 
 	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
 		return "", fmt.Sprintf("invalid params: path %q escapes repository root %q; use a repo-relative path", p, root)
 	}
+	if rewritten, ok := stripActiveRepoLabelPrefix(ctx, raw); ok {
+		return filepath.Join(root, rewritten), ""
+	}
 	return filepath.Join(root, raw), ""
+}
+
+func stripActiveRepoLabelPrefix(ctx *types.BusContext, raw string) (string, bool) {
+	if ctx == nil {
+		return "", false
+	}
+	root := strings.TrimSpace(ctx.RepoRoot)
+	if root == "" {
+		return "", false
+	}
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "." {
+		return "", false
+	}
+	if normalized, ok := normalizeWindowsPOSIXPath(raw); ok {
+		raw = normalized
+	}
+	if toolPathIsAbs(raw) {
+		return "", false
+	}
+	cleaned := filepath.ToSlash(filepath.Clean(raw))
+	if cleaned == "." || cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", false
+	}
+	parts := strings.Split(cleaned, "/")
+	if len(parts) < 2 {
+		return "", false
+	}
+	repoLabel := filepath.Base(filepath.Clean(root))
+	if repoLabel == "" || repoLabel == "." || parts[0] != repoLabel {
+		return "", false
+	}
+	original := filepath.Join(root, cleaned)
+	if fileExists(original) {
+		return "", false
+	}
+	stripped := strings.Join(parts[1:], "/")
+	if stripped == "" || stripped == "." || stripped == ".." || strings.HasPrefix(stripped, "../") {
+		return "", false
+	}
+	candidate := filepath.Join(root, stripped)
+	if _, ok := repoRelativePathWithinRoot(root, candidate); !ok {
+		return "", false
+	}
+	if !fileExists(candidate) {
+		return "", false
+	}
+	logging.Debug("[tool] normalized repo-label path prefix raw=%q rewritten=%q repo_label=%q", raw, stripped, repoLabel)
+	return stripped, true
 }
 
 func normalizeToolAbsolutePath(p string) string {

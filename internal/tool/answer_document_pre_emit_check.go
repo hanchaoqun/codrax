@@ -243,10 +243,26 @@ func preEmitHintHardByDefault(hint emitFixHint) bool {
 	if hint.Kind == "" {
 		return true
 	}
+	if hint.Kind == types.ViolBlockCoverageMissing && preEmitMissingBlockRequiresSameTurnRetry(hint) {
+		// The central registry keeps this violation soft for post-emit V2
+		// migration telemetry, where retry planning may choose caveat/materialize
+		// fallbacks. Pre-emit is different: the model is still inside the same
+		// tool call and the Required Answer Blocks contract can carry explicit
+		// visual obligations. Letting a missing diagram block ship loses a
+		// user-requested surface even though the correction is local.
+		return true
+	}
 	if spec, ok := types.ViolKindSpecFor(hint.Kind); ok {
 		return !spec.SoftByDefault
 	}
 	return types.ViolationProfileFor(hint.Kind, false).RetryEligible
+}
+
+func preEmitMissingBlockRequiresSameTurnRetry(hint emitFixHint) bool {
+	field := strings.ToLower(strings.TrimSpace(hint.Field))
+	shape := strings.ToLower(strings.TrimSpace(hint.ExpectedShape))
+	return strings.Contains(field, "blocks[].kind=diagram") ||
+		strings.Contains(shape, "kind=diagram")
 }
 
 func logSoftPreEmitAdvisory(toolName, label string, hints []emitFixHint) {

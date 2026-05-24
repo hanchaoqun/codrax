@@ -2483,6 +2483,57 @@ func TestResolveToolPath_RootsRelativeAtRepoRoot(t *testing.T) {
 	})
 }
 
+func TestResolveToolPath_StripsActiveRepoLabelPrefixWhenUnambiguous(t *testing.T) {
+	parent := t.TempDir()
+	repoRoot := filepath.Join(parent, "codrax-small")
+	if err := os.MkdirAll(filepath.Join(repoRoot, "internal"), 0o755); err != nil {
+		t.Fatalf("setup repo: %v", err)
+	}
+	target := filepath.Join(repoRoot, "internal", "foo.go")
+	if err := os.WriteFile(target, []byte("package internal\n"), 0o644); err != nil {
+		t.Fatalf("setup file: %v", err)
+	}
+
+	ctx := &types.BusContext{RepoRoot: repoRoot}
+	got := resolveToolPath(ctx, "codrax-small/internal/foo.go")
+	if got != target {
+		t.Fatalf("repo-label path should rewrite to in-root target, got %q want %q", got, target)
+	}
+
+	dir, msg := resolveRepoScopedToolDir(ctx, "codrax-small/internal")
+	if msg != "" {
+		t.Fatalf("repo-scoped rewrite should not reject: %s", msg)
+	}
+	if want := filepath.Join(repoRoot, "internal"); dir != want {
+		t.Fatalf("repo-scoped dir = %q, want %q", dir, want)
+	}
+}
+
+func TestResolveToolPath_DoesNotStripRealTopLevelRepoLabelDirectory(t *testing.T) {
+	parent := t.TempDir()
+	repoRoot := filepath.Join(parent, "codrax-small")
+	realNested := filepath.Join(repoRoot, "codrax-small", "internal")
+	if err := os.MkdirAll(realNested, 0o755); err != nil {
+		t.Fatalf("setup nested dir: %v", err)
+	}
+	nestedFile := filepath.Join(realNested, "foo.go")
+	if err := os.WriteFile(nestedFile, []byte("package nested\n"), 0o644); err != nil {
+		t.Fatalf("setup nested file: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(repoRoot, "internal"), 0o755); err != nil {
+		t.Fatalf("setup internal dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, "internal", "foo.go"), []byte("package internal\n"), 0o644); err != nil {
+		t.Fatalf("setup internal file: %v", err)
+	}
+
+	ctx := &types.BusContext{RepoRoot: repoRoot}
+	got := resolveToolPath(ctx, "codrax-small/internal/foo.go")
+	if got != nestedFile {
+		t.Fatalf("real top-level repo-label directory must win over rewrite, got %q want %q", got, nestedFile)
+	}
+}
+
 // TestReadFile_ResolvesAgainstRepoRoot confirms that a foreign-repo
 // scenario (codrax CWD ≠ --repo) opens the right file. Without the
 // fix, read_file(path="hello.txt") would try to open hello.txt in the

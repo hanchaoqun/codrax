@@ -6159,6 +6159,8 @@ type explorerCompletionReadiness struct {
 	ReadCount                int
 	DirectCount              int
 	MinDirectCount           int
+	RequirementCarrierCount  int
+	MinRequirementCarrier    int
 	ScopeReadCount           int
 	ScopeTotalCount          int
 	DiscoveredCount          int
@@ -6251,10 +6253,7 @@ func (e *explorerEvaluator) typedStructuralOverviewRequiresWideRead() bool {
 	if types.IsProjectOrientationQuestion(rm) {
 		return true
 	}
-	if types.ResolveQuestionFamily(rm) == types.QFArchitecture {
-		return true
-	}
-	return rm.Scenario == types.ScenarioArchitectureExplain
+	return types.IsArchitectureNarrativeExplanation(rm)
 }
 
 func (e *explorerEvaluator) groundedRequirementCarrierCount() int {
@@ -6287,6 +6286,40 @@ func (e *explorerEvaluator) groundedRequirementCarrierCount() int {
 		}
 	}
 	return count
+}
+
+func (e *explorerEvaluator) minRequirementCarrierCount() int {
+	if e == nil || e.analysisIR == nil {
+		return 2
+	}
+	rm := e.analysisIR.RequestModel
+	if e.boundedStructuralTraceRequest() || typedTracePathRequestModel(rm) {
+		return 1
+	}
+	switch types.ResolveQuestionFamily(rm) {
+	case types.QFRoleLookup:
+		return 1
+	}
+	switch types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case types.ReqReturnValue, types.ReqHistory, types.ReqConfigMapping:
+		return 1
+	}
+	return 2
+}
+
+func (e *explorerEvaluator) hasTypedRequirementReadinessLane() bool {
+	if e == nil || e.analysisIR == nil {
+		return false
+	}
+	rm := e.analysisIR.RequestModel
+	if types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) != types.ReqUnknown {
+		return true
+	}
+	switch types.ResolveQuestionFamily(rm) {
+	case types.QFCallChain, types.QFRoleLookup, types.QFRootCauseTrace, types.QFGeneric, types.QFArchitecture:
+		return true
+	}
+	return false
 }
 
 func (e *explorerEvaluator) filterRequirementEntitiesForShape(entities []string) []string {
@@ -6371,10 +6404,11 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 	minDirect := 2
 	evidenceQuality := directCount >= minDirect
 	groundedCarrierCount := e.groundedRequirementCarrierCount()
+	minRequirementCarrier := e.minRequirementCarrierCount()
 	narrativeCarrier := e.narrativeClosureCarrierReady()
 	if !e.strictEnumerationReadinessFloor() &&
 		(hasGroundedTerminalEvidence(e.structuredEvidence) ||
-			groundedCarrierCount >= minDirect ||
+			groundedCarrierCount >= minRequirementCarrier ||
 			narrativeCarrier ||
 			len(e.flowFindings) > 0) {
 		evidenceQuality = true
@@ -6482,6 +6516,8 @@ func (e *explorerEvaluator) completionReadinessWithCoverage(toolResults []types.
 		ReadCount:                len(readSet),
 		DirectCount:              directCount,
 		MinDirectCount:           minDirect,
+		RequirementCarrierCount:  groundedCarrierCount,
+		MinRequirementCarrier:    minRequirementCarrier,
 		ScopeReadCount:           scopeReadCount,
 		ScopeTotalCount:          len(scope),
 		DiscoveredCount:          len(discovered),
@@ -6615,7 +6651,13 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 		b.WriteString("- authoritative log frames already carry grounded call/mechanism anchors on the current branch\n")
 	} else {
 		fmt.Fprintf(&b, "- evidence-bearing tool sources: %d\n", readiness.ToolSources)
-		fmt.Fprintf(&b, "- direct/registration evidence items: %d\n", readiness.DirectCount)
+		if !e.strictEnumerationReadinessFloor() && e.hasTypedRequirementReadinessLane() {
+			fmt.Fprintf(&b, "- typed evidence carriers: %d / %d\n",
+				readiness.RequirementCarrierCount, readiness.MinRequirementCarrier)
+		} else {
+			fmt.Fprintf(&b, "- direct/registration evidence items: %d / %d\n",
+				readiness.DirectCount, readiness.MinDirectCount)
+		}
 		if readiness.ScopeTotalCount > 0 {
 			fmt.Fprintf(&b, "- scoped file coverage: %d / %d\n", readiness.ScopeReadCount, readiness.ScopeTotalCount)
 		} else {
@@ -10201,7 +10243,11 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			out.RetryHint = "Previous attempt used fewer than 2 distinct evidence tool types. Use both grep and read_file."
 		} else if !readiness.EvidenceQuality {
 			hintKey = "explorer.retry.evidence-quality"
-			out.RetryHint = fmt.Sprintf("Previous attempt collected %d [DIRECT]/[REGISTRATION] evidence entries, but this answer shape needs ≥%d. Read more files and extract structured evidence with [DIRECT], [REGISTRATION], [CONDITIONAL] tags.", readiness.DirectCount, readiness.MinDirectCount)
+			if !e.strictEnumerationReadinessFloor() && e.hasTypedRequirementReadinessLane() {
+				out.RetryHint = fmt.Sprintf("Previous attempt collected %d typed evidence carriers, but this answer shape needs ≥%d. Reuse already-read source when possible and emit grounded evidence whose kind/anchor matches the typed request, such as relationship, mechanism, condition, call, direct, registration, or concrete-value evidence as appropriate.", readiness.RequirementCarrierCount, readiness.MinRequirementCarrier)
+			} else {
+				out.RetryHint = fmt.Sprintf("Previous attempt collected %d [DIRECT]/[REGISTRATION] evidence entries, but this answer shape needs ≥%d. Read more files and extract structured evidence with [DIRECT], [REGISTRATION], [CONDITIONAL] tags.", readiness.DirectCount, readiness.MinDirectCount)
+			}
 		} else if !readiness.ExplanationAnchorReady {
 			hintKey = "explorer.retry.explanation-anchor"
 			out.RetryHint = fmt.Sprintf("Previous attempt covered %d of %d required explanation anchors. Read the missing topic anchors and emit grounded evidence for each before completing.", readiness.ExplanationAnchorCovered, readiness.ExplanationAnchorTotal)

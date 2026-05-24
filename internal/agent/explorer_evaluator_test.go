@@ -670,6 +670,79 @@ func TestExplorerReadiness_SequenceTraceSuppressesEnumerationAndOverviewHints(t 
 	}
 }
 
+func TestExplorerReadiness_SingleMechanismExplainSuppressesOverviewHints(t *testing.T) {
+	eval := &explorerEvaluator{
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentExplain,
+			Scenario:   types.ScenarioArchitectureExplain,
+			Complexity: types.ComplexityModerate,
+			Predicates: types.SemanticPredicates{
+				IsCrossComponent: true,
+			},
+			AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+		}},
+	}
+
+	if !types.IsSingleTopicMechanismExplanation(eval.analysisIR.RequestModel) {
+		t.Fatal("fixture should be a typed single-topic mechanism explanation")
+	}
+	if eval.typedStructuralOverviewRequiresWideRead() {
+		t.Fatal("single-topic mechanism explanation must not be upgraded into whole-file overview coverage")
+	}
+}
+
+func TestExplorerReadiness_ArchitectureNarrativeStillRequiresWideRead(t *testing.T) {
+	eval := &explorerEvaluator{
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentExplain,
+			Scenario:   types.ScenarioArchitectureExplain,
+			Complexity: types.ComplexityComplex,
+			Predicates: types.SemanticPredicates{
+				IsCrossComponent: true,
+			},
+			SubTopics: []types.SubTopic{
+				{Summary: "入口层", Entities: []string{"router"}},
+				{Summary: "执行层", Entities: []string{"runtime"}},
+			},
+		}},
+	}
+
+	if !eval.typedStructuralOverviewRequiresWideRead() {
+		t.Fatal("true architecture narrative should still request wider structural coverage")
+	}
+}
+
+func TestExplorerReadiness_TypedCarrierCountSatisfiesBoundedTrace(t *testing.T) {
+	ctx := parseOutputCtx(string(types.ReqCallChain), "")
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentTrace
+	ctx.AnalysisIR.RequestModel.PredicateAxis = types.AxisCall
+	eval := &explorerEvaluator{
+		analysisIR: ctx.AnalysisIR,
+		structuredEvidence: []types.EvidenceItem{{
+			Kind:            types.EvidenceRelationship,
+			AnchorKind:      types.AnchorCall,
+			Predicate:       "calls",
+			Subject:         "caller",
+			Object:          "callee",
+			Source:          "a.go",
+			LineStart:       12,
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+
+	readiness := eval.completionReadinessWithCoverage(nil, 2, false, false,
+		[]string{"a.go", "b.go", "c.go", "d.go"},
+		map[string]bool{"a.go": true},
+	)
+	if readiness.RequirementCarrierCount != 1 || readiness.MinRequirementCarrier != 1 {
+		t.Fatalf("typed carrier readiness = %d/%d, want 1/1: %+v",
+			readiness.RequirementCarrierCount, readiness.MinRequirementCarrier, readiness)
+	}
+	if !readiness.EvidenceQuality || !readiness.HasEnough {
+		t.Fatalf("bounded trace should be ready with one grounded typed carrier and two tool sources, got %+v", readiness)
+	}
+}
+
 // -----------------------------------------------------------------------------
 // DetermineMissingPiece
 // -----------------------------------------------------------------------------

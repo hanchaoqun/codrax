@@ -2502,6 +2502,19 @@ func TestPreCheckRequiredBlocks_MinCount(t *testing.T) {
 	}
 }
 
+func TestPreEmitBlockCoverageMissingIsHardAtToolBoundary(t *testing.T) {
+	hints := []emitFixHint{{
+		Field:         "blocks[].kind=diagram",
+		ExpectedShape: "emit at least 1 block(s) of kind=diagram",
+		Reason:        "explicit diagram request",
+		Kind:          types.ViolBlockCoverageMissing,
+	}}
+	hard, advisory := splitPreEmitHintsByGate(hints)
+	if len(hard) != 1 || len(advisory) != 0 {
+		t.Fatalf("missing required block must be hard pre-emit, hard=%+v advisory=%+v", hard, advisory)
+	}
+}
+
 // TestPreCheckRequiredBlocks_MaxCount — required block kind over-emitted.
 func TestPreCheckRequiredBlocks_MaxCount(t *testing.T) {
 	view := &types.AnswerSemanticView{
