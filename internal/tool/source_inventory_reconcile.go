@@ -2171,6 +2171,14 @@ func sourceInventoryDedupeScopeAliases(scopes []string) []string {
 	normalized := make([]string, 0, len(scopes))
 	seen := map[string]bool{}
 	for _, raw := range scopes {
+		rawScope := strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+		if rawScope == "." || rawScope == "./" || rawScope == "/" {
+			if !seen["."] {
+				seen["."] = true
+				normalized = append(normalized, ".")
+			}
+			continue
+		}
 		scope := normalizeSourceInventoryScopeSurface(raw)
 		if scope == "" {
 			continue

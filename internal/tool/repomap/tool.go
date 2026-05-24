@@ -47,14 +47,14 @@ type repoMapParams struct {
 
 func (t *RepoMapV2) Name() string { return "repo_map" }
 func (t *RepoMapV2) Description() string {
-	return "Navigation index for the repository — shows which files, packages, and symbols exist and where they are. " +
+	return "Navigation index for the repository — shows which files, directories/modules/packages, symbols, routes, and config surfaces exist and where they are. " +
 		"Use this ONLY to decide where to look next; it is NOT a source of evidence. " +
 		"After consulting the map, you MUST read or grep the actual files to obtain facts. " +
 		"Supports views: overview (module summary), file_map (symbols per file), " +
 		"task_map (relevant subgraph for a query), call_path (dependency chain from entry point), " +
 		"edit_impact (what changes to a file would affect), " +
 		"semantic_subgraph (topological summary: linear chains, hub files, articulation-point bridges), " +
-		"source_inventory (typed repo lens for scoped members/symbols/attributes/counts). " +
+		"source_inventory (typed repo lens for scoped members/symbols/routes/config attributes/counts). " +
 		"For broad scoped inventories, prefer source_inventory with roles and optional attribute_roles so the tool returns a compact checklist instead of forcing many read_file calls. " +
 		"When multiple scopes or broad symbol roles are requested, source_inventory also renders a scope-grouped advisory view to help choose the next files to verify."
 }
@@ -107,7 +107,7 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
         "type": "string",
         "enum": ["function", "method", "type", "constant", "variable", "field", "package", "file", "config_file", "config_key", "route", "import_path", "literal_value"]
       },
-      "description": "For source_inventory view: row-local candidate roles to attach under each listed member, e.g. functions/methods under a package or file. Advisory only; verify with read_file before citing."
+      "description": "For source_inventory view: row-local candidate roles to attach under each listed member, e.g. functions/methods/types/routes/config keys under a directory/module/package/file. Advisory only; verify with read_file before citing."
     },
     "include_attributes": {
       "type": "boolean",

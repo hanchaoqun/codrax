@@ -2467,3 +2467,64 @@ B2-O source-inventory decorated entity coherence gap, 2026-05-25 CST:
 - Guard:
   - unrelated decorated surfaces like `scheduler entry function` still fail
     when `scheduler` is not a source-inventory scope alias.
+
+B2-P same-batch analyzer pre-scan fan-out gap, 2026-05-25 CST:
+
+- Post B2-O eval `eval/results/b2o-postfix/s5b-20260525-013651` exposed a
+  deeper analyzer loophole: the first analyze attempt emitted
+  `list_files internal/analysis` and 25 child `list_files` calls in the same
+  assistant response. B2-N only closed the pre-scan surface after the tool batch
+  completed, so it protected the next round but could not prevent same-batch
+  redundant fan-out.
+- Root cause:
+  - read-only batches are normally parallelized for latency;
+  - analyzer pre-scan readiness was observed only by `analyzerEvaluator.Observe`
+    after the whole batch;
+  - therefore later calls in the same batch did not see `Mutable.PrescanReady`
+    and bypassed the existing terminal emit-only boundary.
+- Commercial-grade fix:
+  - analyze-stage tool batches now execute sequentially even when every tool is
+    read-only, because the analyzer pre-scan boundary is intentionally
+    stateful;
+  - after each successful lightweight pre-scan result, the runtime reuses the
+    existing `analyzerPrescanResultReadiness` logic and marks prescan ready
+    immediately when the result is a strong close signal;
+  - subsequent pre-scan calls in the same assistant response are rejected by the
+    existing `validateAnalyzerToolBoundary` terminal emit-only path, while
+    `emit_analysis` remains available.
+- Contract:
+  - no user-question keyword matching;
+  - no model-prose inspection;
+  - no synthetic `emit_analysis` payload;
+  - no semantic answer/member inference from directory listings;
+  - non-analyze stages keep read-only parallel execution.
+- Additional navigation wording audit:
+  - the log line "根据 `repo_map` 的概述，我可以看到每个包导出的函数" was model
+    prose, not a fixed system decision;
+  - repo_map overview does expose language-neutral public/exported symbol
+    counts, which can be useful but may lead small models to over-assume
+    exported-only semantics;
+  - the repo_map tool description was widened from files/packages/symbols to
+    directories/modules/packages/symbols/routes/config surfaces, and
+    `attribute_roles` examples now mention functions, methods, types, routes,
+    and config keys under directory/module/package/file scopes. This keeps the
+    lens general and avoids teaching a Go/package-only mental model.
+
+B2-P config/root scope regression caught during verification:
+
+- While running the B2-P test batch, existing config-file coverage exposed a
+  related source-inventory scope bug: explicit lens scopes `[".", "src"]`
+  were normalized through `normalizeSourceInventoryScopeSurface`, which turns
+  `"."` into empty. The dedupe pass then silently dropped the repo-root scope,
+  so root-level configuration files such as `package.json` disappeared when a
+  sibling scope like `src` was also present.
+- Fix:
+  - preserve `"."` as a first-class repo-root lens selector inside
+    `sourceInventoryDedupeScopeAliases`;
+  - keep the existing candidate-time source-scope filters, so root scope does
+    not bypass production/test/config policy;
+  - reuse the existing `TestRepoMapSourceInventoryViewConfigFilesAreNavigationRows`
+    test to lock root config + nested source files together.
+- This is not s5b-specific: it protects config, route, file, package/module,
+  and mixed-language repo-lens calls where the model asks for multiple scopes
+  including the repo root.

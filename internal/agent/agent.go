@@ -1742,7 +1742,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		// DispatchToolResults from a prior read_file in the same batch.
 		var lastToolResultPtr *types.ToolResult
 		toolResultsStart := len(allToolResults)
-		if canParallelizeToolBatch(resp.ToolCalls) && len(resp.ToolCalls) > 1 {
+		if canExecuteToolBatchInParallel(ctx, resp.ToolCalls) && len(resp.ToolCalls) > 1 {
 			// ── PARALLEL PATH ──
 			type toolExecResult struct {
 				result  *types.ToolResult
@@ -1861,6 +1861,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					logging.Debug("[diag %s] iter=%d phase=toolresult TOOLRESULT %s ok=%v len=%d:\n%s\n---",
 						b.name, i, result.ToolName, result.Success, len(result.Summary),
 						truncForLog(result.Summary, 2000))
+					applyAnalyzerSameBatchPrescanBoundary(ctx, result)
 				}
 				if mcpResp != nil {
 					toolOK = mcpResp.Success
@@ -2829,6 +2830,44 @@ func canParallelizeToolBatch(calls []llm.ToolCall) bool {
 		}
 	}
 	return true
+}
+
+func canExecuteToolBatchInParallel(ctx *types.AgentContext, calls []llm.ToolCall) bool {
+	if ctx != nil && ctx.Stage == types.StageAnalyze {
+		// Analyze-stage pre-scan is intentionally stateful: once one
+		// lightweight location check establishes enough classification signal,
+		// the remaining calls in the same assistant batch must see the
+		// terminal emit-only boundary. Running these calls concurrently would
+		// bypass that guard and let a single response fan out into many
+		// redundant list_files / repo_map / grep calls.
+		return false
+	}
+	return canParallelizeToolBatch(calls)
+}
+
+func applyAnalyzerSameBatchPrescanBoundary(ctx *types.AgentContext, result *types.ToolResult) {
+	if ctx == nil || ctx.Stage != types.StageAnalyze || ctx.Mutable == nil || result == nil {
+		return
+	}
+	readiness := analyzerPrescanResultReadiness(*result)
+	if !readiness.ready {
+		return
+	}
+	closeNow := readiness.closeNow
+	if limit := ctx.Mutable.PrescanRoundLimit(); limit > 0 && limit <= 2 {
+		closeNow = true
+	}
+	if !closeNow || ctx.Mutable.PrescanReady() {
+		return
+	}
+	ctx.Mutable.MarkPrescanReady()
+	ctx.Mutable.AppendAnalyzerDecision(types.AnalyzerDecisionSignal{
+		Kind:   "prescan_ready",
+		Stage:  string(types.StageAnalyze),
+		Reason: readiness.reason,
+		Detail: result.ToolName + " (same-batch)",
+	})
+	logging.Debug("[analyzer] same-batch prescan boundary closed after %s: %s", result.ToolName, readiness.reason)
 }
 
 // validateAnalyzerPrescanToolCall is the runtime hard-enforcement

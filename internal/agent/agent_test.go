@@ -609,6 +609,73 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 	})
 }
 
+func TestAnalyzerSameBatchPrescanBoundary(t *testing.T) {
+	t.Run("analyze prescan batches execute sequentially", func(t *testing.T) {
+		ctx := &types.AgentContext{Stage: types.StageAnalyze}
+		calls := []llm.ToolCall{
+			{Name: "list_files", Params: json.RawMessage(`{"path":"internal/analysis"}`)},
+			{Name: "list_files", Params: json.RawMessage(`{"path":"internal/analysis/gate"}`)},
+		}
+		if canExecuteToolBatchInParallel(ctx, calls) {
+			t.Fatal("analyze-stage prescan batch must not run in parallel")
+		}
+		if !canExecuteToolBatchInParallel(&types.AgentContext{Stage: types.StageExplore}, calls) {
+			t.Fatal("non-analyze read-only batches should keep parallel execution")
+		}
+	})
+
+	t.Run("strong directory listing closes same batch", func(t *testing.T) {
+		mu := types.NewMutableState("mixed source inventory")
+		mu.SetPrescanRoundLimit(4)
+		ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mu}
+		result := &types.ToolResult{
+			ToolName: "list_files",
+			Success:  true,
+			Summary: strings.Join([]string{
+				"[list_files: path=internal/analysis recursive=false]",
+				"internal/analysis/aggregator",
+				"internal/analysis/amplifier",
+				"internal/analysis/binder",
+				"internal/analysis/gate",
+			}, "\n"),
+		}
+
+		applyAnalyzerSameBatchPrescanBoundary(ctx, result)
+		if !mu.PrescanReady() {
+			t.Fatal("strong same-batch list_files result should close analyzer prescan")
+		}
+		got := validateAnalyzerToolBoundary(ctx, llm.ToolCall{
+			Name:   "list_files",
+			Params: json.RawMessage(`{"path":"internal/analysis/gate"}`),
+		})
+		if got == nil || got.Success {
+			t.Fatalf("subsequent same-batch prescan call should be rejected, got %+v", got)
+		}
+		if got.Repair == nil || got.Repair.Code != analyzerPrescanTerminalEmitModeCode {
+			t.Fatalf("repair code = %+v, want %q", got.Repair, analyzerPrescanTerminalEmitModeCode)
+		}
+		if rejected := validateAnalyzerToolBoundary(ctx, llm.ToolCall{Name: "emit_analysis", Params: json.RawMessage(`{}`)}); rejected != nil {
+			t.Fatalf("emit_analysis must remain available after same-batch close, got %+v", rejected)
+		}
+	})
+
+	t.Run("default budget closes after scoped grep", func(t *testing.T) {
+		mu := types.NewMutableState("scoped import lookup")
+		mu.SetPrescanRoundLimit(2)
+		ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mu}
+		result := &types.ToolResult{
+			ToolName: "grep",
+			Success:  true,
+			Summary:  "[grep: 1 matching files]\n[grep params: pattern=import path=internal/tool files_only=true]\ninternal/tool/emit_analysis.go\n",
+		}
+
+		applyAnalyzerSameBatchPrescanBoundary(ctx, result)
+		if !mu.PrescanReady() {
+			t.Fatal("default-budget scoped grep should close same-batch analyzer prescan")
+		}
+	})
+}
+
 func TestValidateObservationOnlyRuntimeToolCall(t *testing.T) {
 	analyzeCtx := &types.AgentContext{
 		Stage: types.StageAnalyze,

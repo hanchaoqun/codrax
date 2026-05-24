@@ -1080,13 +1080,16 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	if readiness.ready {
 		if readiness.closeNow || analyzerShouldClosePrescanAfterReady(e.prescanRounds, max) {
 			if ctx != nil && ctx.Mutable != nil {
+				alreadyReady := ctx.Mutable.PrescanReady()
 				ctx.Mutable.MarkPrescanReady()
-				ctx.Mutable.AppendAnalyzerDecision(types.AnalyzerDecisionSignal{
-					Kind:   "prescan_ready",
-					Stage:  string(types.StageAnalyze),
-					Reason: readiness.reason,
-					Detail: obs.LastToolResult.ToolName,
-				})
+				if !alreadyReady {
+					ctx.Mutable.AppendAnalyzerDecision(types.AnalyzerDecisionSignal{
+						Kind:   "prescan_ready",
+						Stage:  string(types.StageAnalyze),
+						Reason: readiness.reason,
+						Detail: obs.LastToolResult.ToolName,
+					})
+				}
 			}
 			e.terminalEmitOnlyInstructionIssued = true
 			return LoopSignal{
