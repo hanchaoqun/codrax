@@ -1707,23 +1707,31 @@ func preCompleteContractCheckWithEvidence(ctx *types.BusContext, justification s
 		}
 		return ""
 	}
-	// CGEC B1c: evidence short of MinCitations AND AnalysisIR.RequestModel
-	// has keywords the LLM has been trying. The common root cause is
-	// the keywords find too few files — tell the LLM to broaden the
-	// grep coverage (stems / synonyms) before re-calling
-	// emit_investigation_complete.
-	var kws []string
-	if ir.RequestModel.AnalyzerHints.Keywords != nil {
-		kws = append(kws, ir.RequestModel.AnalyzerHints.Keywords...)
-	}
-	if eligible+1 < min && len(kws) > 0 {
-		closure.AddRepair(types.RepairDirective{
-			Kind:      types.RepairExpandSearch,
-			Keywords:  kws,
-			Rationale: fmt.Sprintf("evidence buffer has only %d of %d required cite-eligible items — broaden grep coverage with stems / conceptual synonyms of the keywords above", eligible, min),
-			Origin:    "pre_complete.citation_floor_low",
-		})
-		logging.Info("[CGEC] B1c expand_search: origin=pre_complete.citation_floor_low eligible=%d min=%d keywords=%d", eligible, min, len(kws))
+	// CGEC B1c: evidence short of MinCitations. Historically this
+	// always rendered an expand-search repair from analyzer keywords,
+	// which is still a useful fallback when no structural target exists.
+	// Prefer precise structured targets first: when the model already
+	// handed off aggregate_facts.support_refs or repo-lens candidate
+	// files, reading those files is lower-noise than widening grep.
+	if eligible+1 < min {
+		if repair, ok := citationFloorStructuredReadRepair(ctx, aggregateFacts, min-eligible); ok {
+			closure.AddRepair(repair)
+			logging.Info("[CGEC] B1c read_support_refs: origin=%s eligible=%d min=%d files=%d", repair.Origin, eligible, min, len(repair.Files))
+		} else {
+			var kws []string
+			if ir.RequestModel.AnalyzerHints.Keywords != nil {
+				kws = append(kws, ir.RequestModel.AnalyzerHints.Keywords...)
+			}
+			if len(kws) > 0 {
+				closure.AddRepair(types.RepairDirective{
+					Kind:      types.RepairExpandSearch,
+					Keywords:  kws,
+					Rationale: fmt.Sprintf("evidence buffer has only %d of %d required cite-eligible items and no structured file:line repair targets — broaden grep coverage with stems / conceptual synonyms of the keywords above", eligible, min),
+					Origin:    "pre_complete.citation_floor_low",
+				})
+				logging.Info("[CGEC] B1c expand_search: origin=pre_complete.citation_floor_low eligible=%d min=%d keywords=%d", eligible, min, len(kws))
+			}
+		}
 	}
 	var b strings.Builder
 	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — pre-complete citation preflight failed.\n\n")
@@ -4587,6 +4595,230 @@ func completionMaterializationReadFiles(closure *types.EvidenceClosure) []string
 		files = files[:6]
 	}
 	return files
+}
+
+func citationFloorStructuredReadRepair(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact, needed int) (types.RepairDirective, bool) {
+	files := citationFloorStructuredReadFiles(ctx, aggregateFacts, needed)
+	if len(files) == 0 {
+		return types.RepairDirective{}, false
+	}
+	return types.RepairDirective{
+		Kind:      types.RepairReadFile,
+		Files:     files,
+		Rationale: "citation floor is low, but the current structured handoff already names candidate file:line support refs; read these exact source files before broadening search",
+		Origin:    "pre_complete.citation_floor_support_refs",
+		Stage:     string(types.StageExplore),
+	}, true
+}
+
+func citationFloorStructuredReadFiles(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact, needed int) []string {
+	limit := needed
+	if limit < 1 {
+		limit = 1
+	}
+	if limit < 2 {
+		limit = 2
+	}
+	if limit > types.RequiredFileHintCoverageMax {
+		limit = types.RequiredFileHintCoverageMax
+	}
+	seen := map[string]bool{}
+	var out []string
+	add := func(raw string) {
+		if len(out) >= limit {
+			return
+		}
+		for _, candidate := range citationFloorSupportRefFileCandidates(ctx, raw) {
+			file, ok := citationFloorResolveRepoFile(ctx, candidate)
+			if !ok || seen[file] {
+				continue
+			}
+			seen[file] = true
+			out = append(out, file)
+			return
+		}
+	}
+	for _, raw := range citationFloorAggregateSupportRefFiles(aggregateFacts) {
+		add(raw)
+	}
+	if len(out) >= limit {
+		return out
+	}
+	for _, raw := range citationFloorSourceInventoryCandidateFiles(ctx) {
+		add(raw)
+	}
+	return out
+}
+
+func citationFloorAggregateSupportRefFiles(aggregateFacts []types.AnswerAggregateFact) []string {
+	var principal []string
+	var fallback []string
+	for _, fact := range aggregateFacts {
+		if len(fact.SupportRefs) == 0 {
+			continue
+		}
+		target := &fallback
+		if fact.Role == types.AnswerAggregateRolePrincipalAnswer {
+			target = &principal
+		}
+		for _, ref := range fact.SupportRefs {
+			file, _, ok := citationFloorSupportRefLocation(ref)
+			if !ok {
+				continue
+			}
+			*target = append(*target, file)
+		}
+	}
+	return dedupStringsPreserveOrder(append(principal, fallback...))
+}
+
+func citationFloorSupportRefLocation(raw string) (string, int, bool) {
+	_, loc, ok := aggregateMemberSupportRefParts(raw)
+	if !ok {
+		loc = aggregateSupportLocationFromSurface(raw)
+	}
+	if loc == "" {
+		return "", 0, false
+	}
+	return parseAggregateSupportLocationKey(loc)
+}
+
+func citationFloorSourceInventoryCandidateFiles(ctx *types.BusContext) []string {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	observation := ctx.Mutable.SourceInventoryObservation()
+	if !observation.IsActive() {
+		return nil
+	}
+	var files []string
+	for _, set := range observation.Sets {
+		if !set.Complete {
+			continue
+		}
+		for _, member := range set.Members {
+			if file := strings.TrimSpace(member.File); file != "" {
+				files = append(files, file)
+			}
+			for _, attr := range member.Attributes {
+				if file := strings.TrimSpace(attr.File); file != "" {
+					files = append(files, file)
+				}
+			}
+		}
+	}
+	return dedupStringsPreserveOrder(files)
+}
+
+func citationFloorSupportRefFileCandidates(ctx *types.BusContext, file string) []string {
+	file = strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`))
+	if file == "" {
+		return nil
+	}
+	candidates := []string{file}
+	for _, scope := range citationFloorStructuredScopePrefixes(ctx) {
+		if scope == "" || strings.HasPrefix(file, scope+"/") {
+			continue
+		}
+		candidates = append(candidates, path.Join(scope, file))
+	}
+	return dedupStringsPreserveOrder(candidates)
+}
+
+func citationFloorStructuredScopePrefixes(ctx *types.BusContext) []string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	var prefixes []string
+	add := func(raw string) {
+		if dir, ok := citationFloorResolveRepoDir(ctx, raw); ok {
+			prefixes = append(prefixes, dir)
+		}
+	}
+	hints := ctx.AnalysisIR.RequestModel.AnalyzerHints
+	for _, group := range [][]string{
+		hints.ExactTargets,
+		hints.MentionedEntities,
+		hints.PrimaryEntities,
+		hints.Entities,
+	} {
+		for _, raw := range group {
+			add(raw)
+		}
+	}
+	if ctx.Mutable != nil {
+		for _, result := range aggregateSupportToolResults(ctx) {
+			if !result.Success || result.ToolName != "list_files" {
+				continue
+			}
+			add(sourceInventoryListFilesScope(result.Summary))
+		}
+		observation := ctx.Mutable.SourceInventoryObservation()
+		if observation.IsActive() {
+			for _, scope := range observation.Scopes {
+				add(scope)
+			}
+		}
+	}
+	return dedupStringsPreserveOrder(prefixes)
+}
+
+func citationFloorResolveRepoDir(ctx *types.BusContext, raw string) (string, bool) {
+	canon := citationFloorCanonicalRepoPath(ctx, raw)
+	if canon == "" {
+		return "", false
+	}
+	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+		return canon, true
+	}
+	info, err := os.Stat(filepath.Join(ctx.RepoRoot, filepath.FromSlash(canon)))
+	if err != nil {
+		return "", false
+	}
+	if info.IsDir() {
+		return canon, true
+	}
+	dir := path.Dir(canon)
+	if dir == "." || dir == "/" {
+		return "", false
+	}
+	return dir, true
+}
+
+func citationFloorResolveRepoFile(ctx *types.BusContext, raw string) (string, bool) {
+	canon := citationFloorCanonicalRepoPath(ctx, raw)
+	if canon == "" {
+		return "", false
+	}
+	qualified, ok := types.QualifyForcedReadSeedPath(ctx, canon)
+	if !ok {
+		return "", false
+	}
+	canon = citationFloorCanonicalRepoPath(ctx, qualified)
+	if canon == "" {
+		return "", false
+	}
+	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+		return canon, true
+	}
+	info, err := os.Stat(filepath.Join(ctx.RepoRoot, filepath.FromSlash(canon)))
+	if err != nil || info.IsDir() {
+		return "", false
+	}
+	return canon, true
+}
+
+func citationFloorCanonicalRepoPath(ctx *types.BusContext, raw string) string {
+	repoRoot := ""
+	if ctx != nil {
+		repoRoot = ctx.RepoRoot
+	}
+	canon := types.CanonicalRequiredFileHintPath(raw, repoRoot)
+	canon = strings.Trim(strings.ReplaceAll(canon, `\`, `/`), "/")
+	if canon == "" || canon == ".." || strings.HasPrefix(canon, "../") || path.IsAbs(canon) {
+		return ""
+	}
+	return canon
 }
 
 func enrichCompletionAggregateFactsWithDeterministicCount(ctx *types.BusContext, facts []types.AnswerAggregateFact) []types.AnswerAggregateFact {

@@ -2528,3 +2528,66 @@ B2-P config/root scope regression caught during verification:
 - This is not s5b-specific: it protects config, route, file, package/module,
   and mixed-language repo-lens calls where the model asks for multiple scopes
   including the repo root.
+
+B2-Q explorer entry-attribute search fallback gap, 2026-05-25 CST:
+
+- Post B2-P eval `eval/results/b2p-samebatch/s5b-20260525-014621` confirmed the
+  analyzer same-batch fan-out fix: analyze no longer runs `list_files x25`; it
+  used `repo_map x2`, one scoped `list_files`, then `emit_analysis`.
+- New downstream gap: once in explore, the model still reverted from the Repo
+  Lens path to language-specific grep patterns such as `func New` and
+  `func init`, then exhausted the grep sourcemix budget. This is not caused by
+  prompt keyword matching; it reflects a missing structured carrier for
+  "member -> candidate entry-like attribute" priority.
+- Generalized root cause hypothesis:
+  - source_inventory can list functions/methods/types/config/routes, but the
+    currently rendered rows do not make "candidate attribute ordering under a
+    member" strong enough for models to choose a small verification set;
+  - broad entry-like tasks therefore fall back to model-learned language
+    heuristics (`New`, `init`, exported Go functions) instead of using the
+    language-neutral graph candidate rows already available;
+  - when the model chooses grep, sourcemix protects the run but the user sees
+    wasted retries and lower answer completeness.
+- Design constraints for the follow-up fix:
+  - no user-question keyword routing and no model-prose inspection;
+  - do not infer the final entry point automatically;
+  - use only structured source_inventory roles/attributes, graph location,
+    visibility, doc/note, and model-provided role order;
+  - support non-Go languages, config/route inventories, multi-repo active-set
+    boundaries, and same-repo mixed-language scopes;
+  - present the result as advisory ordering/checklist, never final evidence.
+
+B2-R citation-floor repair should prefer structured read targets, 2026-05-25 CST:
+
+- Same B2-P eval exposed a lower-level repair inversion after the model finally
+  used `repo_map(view="source_inventory")`: the accepted
+  `emit_investigation_complete.aggregate_facts.member_set.support_refs` named
+  concrete candidate files such as `aggregator/aggregator.go:112`, but the
+  pre-complete citation-floor gate still emitted `RepairExpandSearch` with
+  analyzer keyword stems. The next hint told the model to broaden grep even
+  though the current structured handoff already identified exact file:line
+  anchors that merely needed verification reads.
+- Historical source:
+  - `RepairExpandSearch` was wired in commit `62e9728e4` as CGEC B1c, before
+    source-inventory observations and member-specific `support_refs` became the
+    main handoff lane. The old root cause was "keywords found too few files",
+    so keyword broadening was useful when no structural targets existed.
+- Updated contract:
+  - keep `RepairExpandSearch` for true no-target cases, unverified-path
+    rediscovery, phase-0 zero-hit search, field/value syntax-family expansion,
+    and stall advisories;
+  - for `pre_complete.citation_floor_low`, first try to derive bounded
+    `RepairReadFile` targets from current aggregate `support_refs` and
+    source-inventory observation rows;
+  - resolve support-ref files against typed request scopes such as
+    `AnalyzerHints.ExactTargets` and `list_files` scopes, so scoped references
+    like `aggregator/aggregator.go:112` become
+    `internal/analysis/aggregator/aggregator.go`;
+  - preserve active-set / repo-root safety and cap the read set with the
+    existing required-file coverage bound;
+  - only fall back to keyword stems when no verified source file target can be
+    resolved.
+- This is language-neutral and not s5b-specific: support refs may point at Go,
+  Python, TS, Java, YAML, route/config, or mixed-language files. The system does
+  not infer the final member set; it only converts model-provided/file-index
+  anchors into the next verification read.

@@ -2458,6 +2458,111 @@ func TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorBlocks(t *testi
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorPrefersStructuredSupportRefs(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeTestFile(t, repoRoot, "internal/analysis/aggregator/aggregator.go", "package aggregator\nfunc New() {}\n")
+	writeTestFile(t, repoRoot, "internal/analysis/gate/gate.go", "package gate\nfunc Run() {}\n")
+	mut := types.NewMutableState("test")
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: repoRoot,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					ExactTargets: []string{"internal/analysis"},
+					Keywords:     []string{"entry function"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: true, MinCitations: 2},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "repo lens found the candidate rows",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":         "member_set",
+			"label":        "subpackage entry functions",
+			"value":        "2",
+			"role":         "principal_answer",
+			"members":      []string{"New", "Run"},
+			"support_refs": []string{"aggregator/aggregator.go:2", "gate/gate.go:2"},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("expected citation floor downgrade, got: %s", res.Summary)
+	}
+	repairs := mut.EvidenceClosure().PendingRepairs()
+	if len(repairs) == 0 {
+		t.Fatalf("expected structured read repair")
+	}
+	var readRepair types.RepairDirective
+	for _, repair := range repairs {
+		if repair.Origin == "pre_complete.citation_floor_support_refs" {
+			readRepair = repair
+		}
+		if repair.Origin == "pre_complete.citation_floor_low" {
+			t.Fatalf("structured support_refs must suppress generic expand search, got %+v", repair)
+		}
+	}
+	if readRepair.Kind != types.RepairReadFile {
+		t.Fatalf("expected RepairReadFile from support refs, got %+v", repairs)
+	}
+	want := []string{"internal/analysis/aggregator/aggregator.go", "internal/analysis/gate/gate.go"}
+	if strings.Join(readRepair.Files, ",") != strings.Join(want, ",") {
+		t.Fatalf("read repair files = %+v, want %+v", readRepair.Files, want)
+	}
+	pending := mut.EvidenceClosure().PendingReads()
+	if len(pending) != 2 {
+		t.Fatalf("RepairReadFile should bridge to pending reads, got %+v", pending)
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorFallsBackToExpandSearchWithoutStructuredTargets(t *testing.T) {
+	mut := types.NewMutableState("test")
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Keywords: []string{"orchestrator", "dispatch"}},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: true, MinCitations: 2},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "thinks done",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("expected citation floor downgrade, got: %s", res.Summary)
+	}
+	repairs := mut.EvidenceClosure().PendingRepairs()
+	if len(repairs) == 0 || repairs[len(repairs)-1].Kind != types.RepairExpandSearch {
+		t.Fatalf("expected fallback expand-search repair, got %+v", repairs)
+	}
+	if repairs[len(repairs)-1].Origin != "pre_complete.citation_floor_low" {
+		t.Fatalf("fallback origin = %q, want pre_complete.citation_floor_low", repairs[len(repairs)-1].Origin)
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorCapsToSingletonMemberSet(t *testing.T) {
 	mut := types.NewMutableState("test")
 	closure := mut.EvidenceClosure()
