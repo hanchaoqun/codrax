@@ -158,23 +158,26 @@ type explorerEvaluator struct {
 	// orientation finalize nudge. Without this latch the nudge would
 	// re-render every iteration after the threshold fires, drowning
 	// the LLM in repeated "you have enough" reminders.
-	midLoopOrientationFinalizeSent  bool
-	midLoopNoEmitPushSent           bool // one-shot: current evidence-materialization backlog window already received its read-without-emit nudge
-	midLoopNoEmitEscalated          bool // one-shot: stronger "emit evidence now" escalation after the current backlog window's nudge was ignored
-	midLoopNoEmitEndpointSent       bool // one-shot: bounded trace backlog could not be narrowed because the terminal endpoint is not covered yet
-	midLoopExecRedirectSent         bool // one-shot: redirected shell-style browsing back to built-in grep/read_file before recording the current backlog window
-	midLoopExplanationAnchorSent    bool // one-shot: multi-topic explanation still lacks one grounded anchor per sub-topic
-	midLoopCompletionReadySent      bool // one-shot: generic "you already have enough grounded evidence; close now" hint already pushed this dispatch
-	midLoopCompletionReadyEscalated bool // one-shot: stronger close-now escalation after the completion-ready hint was ignored
-	midLoopCompletionReadyIter      int  // iteration where completion-ready first fired
-	midLoopNoEmitPushIter           int  // iteration where the current backlog window's read-without-emit nudge fired
-	midLoopNoEmitPushResultsLen     int  // allResults length when the current backlog window's read-without-emit nudge fired
-	midLoopEmitBacklogBaseLen       int  // allResults length immediately after the last successful emit_evidence that closed the prior backlog window
-	primaryReadSeen                 bool // df3-drift: whether any primary-entity file has entered readSet this dispatch
-	primaryReadIter                 int  // df3-drift: iter at which a primary-entity file first entered readSet
-	notesLenAtPrimaryRead           int  // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
-	investigationComplete           bool // set when emit_investigation_complete tool was observed in MidLoop
-	mergedEmittedEvidenceLen        int  // number of Mutable.EmittedEvidence rows already folded into structuredEvidence this dispatch
+	midLoopOrientationFinalizeSent   bool
+	midLoopNoEmitPushSent            bool // one-shot: current evidence-materialization backlog window already received its read-without-emit nudge
+	midLoopNoEmitEscalated           bool // one-shot: stronger "emit evidence now" escalation after the current backlog window's nudge was ignored
+	midLoopNoEmitEndpointSent        bool // one-shot: bounded trace backlog could not be narrowed because the terminal endpoint is not covered yet
+	midLoopExecRedirectSent          bool // one-shot: redirected shell-style browsing back to built-in grep/read_file before recording the current backlog window
+	midLoopExplanationAnchorSent     bool // one-shot: multi-topic explanation still lacks one grounded anchor per sub-topic
+	midLoopCompletionReadySent       bool // one-shot: generic "you already have enough grounded evidence; close now" hint already pushed this dispatch
+	midLoopCompletionReadyEscalated  bool // one-shot: stronger close-now escalation after the completion-ready hint was ignored
+	midLoopCompletionReadyIter       int  // iteration where completion-ready first fired
+	midLoopNoveltySeen               map[string]bool
+	midLoopNoNoveltyNavigationStreak int
+	midLoopLowNoveltyHintSent        bool
+	midLoopNoEmitPushIter            int  // iteration where the current backlog window's read-without-emit nudge fired
+	midLoopNoEmitPushResultsLen      int  // allResults length when the current backlog window's read-without-emit nudge fired
+	midLoopEmitBacklogBaseLen        int  // allResults length immediately after the last successful emit_evidence that closed the prior backlog window
+	primaryReadSeen                  bool // df3-drift: whether any primary-entity file has entered readSet this dispatch
+	primaryReadIter                  int  // df3-drift: iter at which a primary-entity file first entered readSet
+	notesLenAtPrimaryRead            int  // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
+	investigationComplete            bool // set when emit_investigation_complete tool was observed in MidLoop
+	mergedEmittedEvidenceLen         int  // number of Mutable.EmittedEvidence rows already folded into structuredEvidence this dispatch
 
 	// answerSubject is the AnswerSubject classification copied from
 	// the analyzer's IR at BuildInitialInstruction time. The chain
@@ -364,6 +367,9 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopCompletionReadySent = false
 		e.midLoopCompletionReadyEscalated = false
 		e.midLoopCompletionReadyIter = 0
+		e.midLoopNoveltySeen = nil
+		e.midLoopNoNoveltyNavigationStreak = 0
+		e.midLoopLowNoveltyHintSent = false
 		e.midLoopNoEmitPushIter = 0
 		e.midLoopNoEmitPushResultsLen = 0
 		e.midLoopEmitBacklogBaseLen = 0
@@ -501,6 +507,9 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopCompletionReadySent = false
 	e.midLoopCompletionReadyEscalated = false
 	e.midLoopCompletionReadyIter = 0
+	e.midLoopNoveltySeen = nil
+	e.midLoopNoNoveltyNavigationStreak = 0
+	e.midLoopLowNoveltyHintSent = false
 	e.midLoopNoEmitPushIter = 0
 	e.midLoopNoEmitPushResultsLen = 0
 	e.midLoopEmitBacklogBaseLen = 0
@@ -4905,12 +4914,10 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 	return LoopSignal{
 		HintRequested: true,
 		HintKey:       e.readWithoutEmitHintKey(),
-		Hint: fmt.Sprintf(
-			"MID-LOOP CHECK: you have read %d file(s) %s but %s. "+
-				"Facts left only in your prose notes are NOT recorded — anything that is not passed through `emit_evidence(items=[...])` is invisible to the rest of the pipeline (concrete value, definition, call-site, or condition). "+
-				"Pick the strongest anchors you have identified in the files you just read and emit them in ONE batch now. Line numbers MUST come verbatim from the `read_file` gutter (copy the leading `N| ` prefix). "+
-				"After the batch succeeds, continue investigating or call `emit_investigation_complete(reason, confidence, result_kind)`.%s%s",
-			reads, scope, recording, e.authoritativeLogDriftReminder(obs.AllToolResults), e.authoritativeLogBackboneFirstEmitReminder(obs.AllToolResults)),
+		Hint: e.renderReadWithoutEmitHint(
+			"MID-LOOP CHECK: you have read %d file(s) %s but %s. ",
+			reads, scope, recording,
+		) + e.authoritativeLogDriftReminder(obs.AllToolResults) + e.authoritativeLogBackboneFirstEmitReminder(obs.AllToolResults),
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
@@ -4942,16 +4949,44 @@ func (e *explorerEvaluator) postReadWithoutEmitSoftStopSignal(obs LoopObservatio
 	return LoopSignal{
 		HintRequested: true,
 		HintKey:       fmt.Sprintf("%s.%d", e.emitBacklogWindowHintKey("explorer.soft-stop.read-without-emit"), obs.Iteration),
-		Hint: fmt.Sprintf(
-			"You have read %d file(s) %s but there is still %s. "+
-				"Do not answer in prose and do not broaden the search yet. "+
-				"Convert the strongest facts from the lines already read into ONE `emit_evidence(items=[...])` tool call now, using exact line numbers from the `read_file` gutter. "+
-				"After that call succeeds, either continue with a genuinely unresolved branch or call `emit_investigation_complete(reason, confidence, result_kind)`.",
-			reads, scope, recording),
+		Hint: e.renderReadWithoutEmitHint(
+			"You have read %d file(s) %s but there is still %s. Do not answer in prose and do not broaden the search yet. ",
+			reads, scope, recording,
+		),
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+func (e *explorerEvaluator) renderReadWithoutEmitHint(prefixFormat string, reads int, scope, recording string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, prefixFormat, reads, scope, recording)
+	if e.originSpecificObservationLaneActive() {
+		b.WriteString("Current-checkout source claims left only in prose notes are not recorded as citeable evidence. ")
+		b.WriteString("For the files you just read, emit `emit_evidence(items=[...])` only for real current-source anchors that the final answer must cite, using exact line numbers from the `read_file` gutter. ")
+		b.WriteString("Non-current-source observations are first-class evidence in their own lane: VCS history/diff, logs/traces, command output, negative searches, repo-index facts, external documents, web pages, MCP resources, and connector data must be preserved through `emit_investigation_complete.reason` plus `aggregate_facts` when a count, list, scalar, absence, grouping, or commit set must survive. ")
+		b.WriteString("Do not re-anchor those origin-specific observations to source/doc lines that merely mention the same topic. ")
+		b.WriteString("After the source evidence batch succeeds, or if no current-source claim needs a file:line citation, call `emit_investigation_complete(reason, confidence, result_kind)` with the origin-specific findings preserved there.")
+		return b.String()
+	}
+	b.WriteString("Facts left only in your prose notes are NOT recorded — anything that is not passed through `emit_evidence(items=[...])` is invisible to the rest of the pipeline (concrete value, definition, call-site, or condition). ")
+	b.WriteString("Pick the strongest anchors you have identified in the files you just read and emit them in ONE batch now. Line numbers MUST come verbatim from the `read_file` gutter (copy the leading `N| ` prefix). ")
+	b.WriteString("After the batch succeeds, continue investigating or call `emit_investigation_complete(reason, confidence, result_kind)`.")
+	return b.String()
+}
+
+func (e *explorerEvaluator) originSpecificObservationLaneActive() bool {
+	if e == nil || e.analysisIR == nil {
+		return false
+	}
+	contract := types.CompileAnswerIntentContract(e.analysisIR.RequestModel, &e.analysisIR.AnswerContract)
+	for _, origin := range contract.Origins {
+		if types.AnswerEvidenceOriginCarriesOriginSpecificSupport(origin) {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *explorerEvaluator) readWithoutEmitHintKey() string {
@@ -4970,6 +5005,9 @@ func (e *explorerEvaluator) postExecRedirectBeforeEmitSignal(obs LoopObservation
 		return LoopSignal{}
 	}
 	if e.midLoopExecRedirectSent || !e.midLoopNoEmitPushSent || e.midLoopNoEmitPushResultsLen == 0 {
+		return LoopSignal{}
+	}
+	if e.originSpecificObservationLaneActive() {
 		return LoopSignal{}
 	}
 	if !e.awaitingStructuredEvidenceMaterialization(obs.AllToolResults) {
@@ -5033,15 +5071,25 @@ func (e *explorerEvaluator) postReadWithoutEmitEscalationSignal(obs LoopObservat
 	return LoopSignal{
 		HintRequested: true,
 		HintKey:       e.emitBacklogWindowHintKey("explorer.mid-loop.read-without-emit-escalated"),
-		Hint: "MID-LOOP CHECK: the earlier `emit_evidence` nudge was ignored and you still have an unrecorded evidence backlog " + backlogScope + ". " +
-			"Stop expanding with more navigation for the moment. Use the grounded lines you have already read to emit ONE batch of `emit_evidence(items=[...])` now. " +
-			"After that batch succeeds, either continue on any truly unresolved branch or call `emit_investigation_complete(reason, confidence, result_kind)` if the evidence already answers the question." +
+		Hint: e.renderReadWithoutEmitEscalationHint(backlogScope) +
 			e.authoritativeLogDriftReminder(obs.AllToolResults) +
 			e.authoritativeLogBackboneFirstEmitReminder(obs.AllToolResults),
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+func (e *explorerEvaluator) renderReadWithoutEmitEscalationHint(backlogScope string) string {
+	if e.originSpecificObservationLaneActive() {
+		return "MID-LOOP CHECK: the earlier current-source evidence nudge was not resolved and the investigation includes origin-specific observations. " +
+			"Do not force VCS history/diff, logs/traces, command output, negative searches, repo-index facts, external documents, web pages, MCP resources, or connector data into `emit_evidence`. " +
+			"If the lines already read contain a real current-checkout source claim that the answer must cite, emit one `emit_evidence(items=[...])` batch for those line anchors now. " +
+			"If the remaining load-bearing facts are origin-specific observations, close with `emit_investigation_complete(reason, confidence, result_kind)` and carry them in `reason` / `aggregate_facts` instead of re-anchoring them to source or doc lines."
+	}
+	return "MID-LOOP CHECK: the earlier `emit_evidence` nudge was ignored and you still have an unrecorded evidence backlog " + backlogScope + ". " +
+		"Stop expanding with more navigation for the moment. Use the grounded lines you have already read to emit ONE batch of `emit_evidence(items=[...])` now. " +
+		"After that batch succeeds, either continue on any truly unresolved branch or call `emit_investigation_complete(reason, confidence, result_kind)` if the evidence already answers the question."
 }
 
 func renderBoundedTraceEndpointBacklogHint(missing []string) string {
@@ -5286,6 +5334,17 @@ func (e *explorerEvaluator) postReadWithoutEmitClosureOnlySignal(obs LoopObserva
 	}
 	if successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, completionProgressToolNames) > 0 {
 		return LoopSignal{}
+	}
+	if e.originSpecificObservationLaneActive() {
+		return LoopSignal{
+			HintRequested: true,
+			HintKey:       fmt.Sprintf("explorer.mid-loop.read-without-emit-closure-only.%d", obs.Iteration),
+			Hint: "MID-LOOP CHECK: this mixed-origin investigation still has an unresolved current-source evidence nudge, but origin-specific facts must not be forced into file:line evidence. " +
+				"If the current batch found a real current-checkout source claim, emit that source evidence now; otherwise stop navigating and close with `emit_investigation_complete(reason, confidence, result_kind)`, preserving VCS/log/trace/command/external findings in `reason` / `aggregate_facts`.",
+			Progress:       true,
+			BypassThrottle: true,
+			BypassBudget:   true,
+		}
 	}
 	return LoopSignal{
 		HintRequested:  true,
@@ -5802,6 +5861,9 @@ func (e *explorerEvaluator) restrictedToolSurface() map[string]bool {
 		return evidenceRepairToolNames
 	}
 	if e.midLoopNoEmitPushSent && e.midLoopNoEmitEscalated {
+		if e.originSpecificObservationLaneActive() {
+			return nil
+		}
 		return completionProgressToolNames
 	}
 	return nil
@@ -7335,6 +7397,229 @@ func (e *explorerEvaluator) postCompletionReadyClosureOnlySignal(obs LoopObserva
 	}
 }
 
+func (e *explorerEvaluator) postSameLaneLowNoveltySignal(obs LoopObservation) LoopSignal {
+	if e == nil || e.investigationComplete || e.midLoopLowNoveltyHintSent {
+		return LoopSignal{}
+	}
+	if obs.Iteration < e.heuristics.MidLoopMinIteration+1 {
+		return LoopSignal{}
+	}
+	if len(obs.CurrentToolResults) == 0 {
+		return LoopSignal{}
+	}
+	newKeys, totalKeys := e.recordAcceptedTypedDeltaKeys(obs)
+	if newKeys > 0 {
+		e.midLoopNoNoveltyNavigationStreak = 0
+		return LoopSignal{}
+	}
+	if totalKeys == 0 {
+		return LoopSignal{}
+	}
+	if successfulToolCountInBatch(obs.CurrentToolResults, completionProgressToolNames) > 0 {
+		e.midLoopNoNoveltyNavigationStreak = 0
+		return LoopSignal{}
+	}
+	if successfulToolCountInBatch(obs.CurrentToolResults, explorerNoveltyNavigationToolNames) == 0 {
+		return LoopSignal{}
+	}
+	e.midLoopNoNoveltyNavigationStreak++
+	if e.midLoopNoNoveltyNavigationStreak < 2 {
+		return LoopSignal{}
+	}
+	e.midLoopLowNoveltyHintSent = true
+	hint := "MID-LOOP CHECK: this lane already has accepted structured facts, and recent navigation did not add new typed evidence, aggregate facts, or external observation records. Do not keep widening the same lane by default. If the opened lines/output reveal one concrete answer-changing fact, emit that structured fact now; otherwise close with `emit_investigation_complete(reason, confidence, result_kind)` and preserve the important boundary in `reason`. Do not discard previously emitted summaries."
+	return LoopSignal{
+		HintRequested: true,
+		HintKey:       "explorer.mid-loop.same-lane-low-novelty",
+		Hint:          hint,
+		Progress:      false,
+	}
+}
+
+func (e *explorerEvaluator) recordAcceptedTypedDeltaKeys(obs LoopObservation) (newKeys int, totalKeys int) {
+	if e == nil {
+		return 0, 0
+	}
+	if e.midLoopNoveltySeen == nil {
+		e.midLoopNoveltySeen = make(map[string]bool)
+	}
+	keys := e.acceptedTypedDeltaKeys(obs)
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		totalKeys++
+		if e.midLoopNoveltySeen[key] {
+			continue
+		}
+		e.midLoopNoveltySeen[key] = true
+		newKeys++
+	}
+	return newKeys, totalKeys
+}
+
+func (e *explorerEvaluator) acceptedTypedDeltaKeys(obs LoopObservation) []string {
+	var keys []string
+	for _, item := range e.structuredEvidence {
+		if key := explorerEvidenceDeltaKey(item); key != "" {
+			keys = append(keys, key)
+		}
+	}
+	if e.mutable != nil {
+		for _, fact := range e.mutable.StableInvestigationAggregateFacts() {
+			if key := explorerAggregateFactDeltaKey(fact); key != "" {
+				keys = append(keys, key)
+			}
+		}
+	}
+	input := types.ObservationLedgerInput{
+		EvidenceItems:  e.structuredEvidence,
+		ToolResults:    obs.AllToolResults,
+		LogBundle:      e.logTriage,
+		PerfBundle:     e.perfTrace,
+		MCPResponses:   nil,
+		AggregateFacts: nil,
+	}
+	if e.analysisIR != nil {
+		input.RequestModel = &e.analysisIR.RequestModel
+		input.AnswerContract = &e.analysisIR.AnswerContract
+	}
+	if e.mutable != nil {
+		input.AggregateFacts = e.mutable.StableInvestigationAggregateFacts()
+	}
+	ledger := types.CompileObservationLedger(input)
+	for _, record := range ledger.Records {
+		if key := explorerObservationDeltaKey(record); key != "" {
+			keys = append(keys, key)
+		}
+	}
+	return keys
+}
+
+func explorerEvidenceDeltaKey(item types.EvidenceItem) string {
+	id := strings.TrimSpace(string(item.ID))
+	if id == "" {
+		id = types.StableEvidenceID(item)
+	}
+	if id == "" {
+		return ""
+	}
+	return "evidence:" + id
+}
+
+func explorerAggregateFactDeltaKey(fact types.AnswerAggregateFact) string {
+	id := strings.TrimSpace(types.AnswerAggregateFactIdentity(fact))
+	if id == "" {
+		return ""
+	}
+	return "aggregate:" + id
+}
+
+func explorerObservationDeltaKey(record types.ObservationRecord) string {
+	parts := []string{
+		string(record.Origin),
+		record.Producer,
+		string(record.Role),
+		string(record.GroundingPolicy),
+		string(record.ProvenanceLane),
+		explorerObservationSourceRefKey(record.SourceRef),
+		explorerObservationSpanKey(record.Span),
+		string(record.EvidenceKind),
+		string(record.AnchorKind),
+		string(record.EvidenceScope),
+		record.ClaimKey,
+		record.Subject,
+		record.Predicate,
+		record.Object,
+		record.Value,
+		record.Unit,
+		strconv.FormatBool(record.Negative),
+		record.Scope,
+		record.Summary,
+		strings.Join(record.RichNotes, "\x1e"),
+	}
+	if record.ResultCount != nil {
+		parts = append(parts, strconv.Itoa(*record.ResultCount))
+	}
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	key := strings.Join(parts, "\x1f")
+	if strings.Trim(key, "\x1f ") == "" {
+		return ""
+	}
+	return "observation:" + key
+}
+
+func explorerObservationSourceRefKey(ref types.ObservationSourceRef) string {
+	return strings.Join([]string{
+		string(ref.Kind),
+		ref.Repo,
+		ref.Path,
+		ref.Commit,
+		ref.Range,
+		ref.Pathspec,
+		ref.Command,
+		ref.ToolCallID,
+		ref.RawRef,
+		ref.PayloadRef,
+		ref.RowSetRef,
+		ref.PageRef,
+		ref.ArtifactID,
+		ref.ArtifactKind,
+		ref.URL,
+		ref.FetchedAt,
+		ref.Server,
+		ref.ResourceURI,
+		ref.MIMEType,
+		ref.Connector,
+	}, "\x1e")
+}
+
+func explorerObservationSpanKey(span types.ObservationSpan) string {
+	return strings.Join([]string{
+		strconv.Itoa(span.LineStart),
+		strconv.Itoa(span.LineEnd),
+		strconv.Itoa(span.OldLine),
+		strconv.Itoa(span.NewLine),
+		span.HunkHeader,
+		strconv.Itoa(span.Paragraph),
+		span.Selector,
+		span.JSONPointer,
+		strconv.Itoa(span.Row),
+		strconv.Itoa(span.TextStart),
+		strconv.Itoa(span.TextEnd),
+		strconv.FormatFloat(span.StartTsMs, 'f', -1, 64),
+		strconv.FormatFloat(span.EndTsMs, 'f', -1, 64),
+	}, "\x1e")
+}
+
+func successfulToolCountInBatch(results []types.ToolResult, names map[string]bool) int {
+	if len(results) == 0 || len(names) == 0 {
+		return 0
+	}
+	count := 0
+	for _, result := range results {
+		if toolResultCountsAsProgress(result, names) {
+			count++
+		}
+	}
+	return count
+}
+
+var explorerNoveltyNavigationToolNames = map[string]bool{
+	"read_file":          true,
+	"grep":               true,
+	"list_files":         true,
+	"repo_map":           true,
+	"exec_command":       true,
+	"git_diff":           true,
+	"git_show":           true,
+	"git_log":            true,
+	"git_history_search": true,
+}
+
 func (e *explorerEvaluator) driftBoundedCompletionReadyMode() bool {
 	if e == nil {
 		return false
@@ -8461,6 +8746,9 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		return sig
 	}
 	if sig := e.postCompletionReadyClosureOnlySignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postSameLaneLowNoveltySignal(obs); sig.HintRequested {
 		return sig
 	}
 	// Immediate post-anchor push: the most common drift after the

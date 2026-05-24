@@ -153,7 +153,7 @@ cannot be parsed for hard control flow.
 | B6 | Done | Add a typed explore-lane ownership planner so parallel explorers do not all chase the same evidence lane. The typed plan, prompt guidance, REPL lane-label UX, exact duplicate lane support handoff, and focused eval rerun are complete. This is a pre-dispatch focus contract, not an answer override: hard decisions may only use typed unit/origin/facet state; model-authored conclusions remain authoritative when evidence is complete. | `internal/types/explore_lane_plan.go`, `internal/context/builder.go`, `internal/render/status_messages.go`, `internal/orchestrator/explore_parallel_dispatch.go`, `docs/design/explore_lane_ownership_20260524.md` | unit tests + 9-case focused eval |
 | B7 | Planned | External-observation extraction closure: VCS commit/diff facts, command measurements, runtime artifacts, logs/traces, MCP/web/connector/cross-repo rows need typed citation/passthrough support in extractor and hypothesis verdicts. They must not be forced through repo `file:line` citation or `emit_answer_symbol` unless the user asked for code symbols. | extractor controller, `emit_hypothesis_verdict`, observation ledger source refs, prompt sections | VCS diff + current-source eval, command measurement eval, log/trace current-source eval |
 | B8 | Planned | System supplement safety hardening: deterministic supplements must remain append-only, localized, and within the user-requested entity type. The `s5b` PASS exposed an unacceptable 72-row system supplement that broadened a package-entry question into unrelated exported functions. | answer document supplement compilers, source-inventory display sets, final answer renderer tests | source-inventory / package-entry eval + supplement regression tests |
-| B9 | Planned | Lane novelty / completed-lane throttling: after B6, same broad lanes can still over-investigate (`u7k=119` explorer iterations). Add typed novelty accounting and soft scheduling guidance; do not gate or rewrite answers from noisy novelty scores. | orchestrator lane scheduler, observation ledger deltas, telemetry | `u7k`, log/source, trace/source convergence metrics |
+| B9 | In progress | Lane novelty / completed-lane throttling: after B6, same broad lanes can still over-investigate (`u7k=119` explorer iterations). Exact duplicate handoff caps are implemented and pushed; same-lane low-novelty advisory now uses accepted evidence/aggregate/ObservationLedger deltas. Prompt audit also found and patched an origin-specific conflict where generic read-without-emit hints forced VCS/log/trace/command facts toward source `emit_evidence`; mixed-origin hints now keep those lanes in `reason` / `aggregate_facts`. Do not gate or rewrite answers from noisy novelty scores. | orchestrator lane scheduler, explorer mid-loop, observation ledger deltas, telemetry | `u7k`, log/source, trace/source convergence metrics |
 
 ### B5 Audit Plan — 2026-05-24 second pass
 
@@ -657,3 +657,37 @@ Next verification:
   - no `role="supporting_coverage" is not principal_answer` complaint;
   - no duplicate `系统按已验证证据补充缺失成员` block when the model already
     displays the relation rows.
+
+### B9 Mixed-Origin Prompt Validation — 2026-05-24
+
+Focused `u7k` replay found a prompt-contract conflict rather than a model
+failure:
+
+- The initial explorer prompt already said VCS/diff/log/trace/command and other
+  external observations must not be converted into fake current-source
+  `file:line` evidence.
+- The generic read-without-emit mid-loop hint still said facts not passed
+  through `emit_evidence` are invisible. In a mixed VCS/current-source lane,
+  that wording pushed the model to re-anchor commit clues to design-document
+  title lines.
+
+The B9/T21 fix makes read-without-emit hints origin-aware:
+
+- current-checkout source claims still require real `emit_evidence` anchors;
+- VCS/diff/log/trace/command/repo-index/external-document/web/MCP/connector
+  observations are preserved through `emit_investigation_complete.reason` and
+  `aggregate_facts`;
+- mixed-origin lanes are not narrowed to source-only tool surfaces while this
+  hint is active.
+
+Rebuilt `u7k-20260524-200712` and `u7k-20260524-201412` both produced useful
+answers with commit clues and current implementation files. The finalizer
+accepted in one turn. The remaining eval failure was the case expecting a
+particular surface word/line shape, so the case expectation was updated to
+assert semantic coverage (`commit`, `scalar`, and the current implementation
+files) rather than rerunning a good answer.
+
+Remaining B9 risk: the same-lane low-novelty advisory is safe but not yet
+sufficient to fully shrink long exploration in broad mixed lanes. Keep future
+work advisory-only and typed-delta based; do not introduce a hard stop from
+novelty scores.

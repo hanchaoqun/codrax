@@ -3796,6 +3796,34 @@ func TestExplorer_RuntimeBoundary_ReadWithoutEmitRejectsNavigation(t *testing.T)
 	}
 }
 
+func TestExplorer_RuntimeBoundary_OriginSpecificReadWithoutEmitDoesNotRestrictNavigation(t *testing.T) {
+	eval := &explorerEvaluator{
+		midLoopNoEmitPushSent:  true,
+		midLoopNoEmitEscalated: true,
+		analysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				Predicates: types.SemanticPredicates{
+					IsHistoryLookup: true,
+				},
+				CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+					IsCurrentSourceExplanationRequested: true,
+					Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationCompareWithCurrent},
+					SourceQuotes:                        []string{"current implementation"},
+				},
+			},
+		},
+	}
+	ctx := &types.AgentContext{Stage: types.StageExplore}
+
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "git_history_search", Params: json.RawMessage(`{"contains":"scalar"}`)}); got != nil {
+		t.Fatalf("origin-specific lanes must not restrict VCS/command navigation to source emit-only, got %+v", got)
+	}
+	if got := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "grep", Params: json.RawMessage(`{"pattern":"scalar"}`)}); got != nil {
+		t.Fatalf("mixed-origin lanes may still need current-source navigation after origin handoff, got %+v", got)
+	}
+}
+
 func TestExplorer_ReadWithoutEmitEscalationKeepsPathEndpointReadable(t *testing.T) {
 	eval := boundedTraceEndpointEval()
 	eval.midLoopNoEmitPushSent = true
@@ -5152,6 +5180,53 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 		})
 		if again.HintRequested && again.HintKey == "explorer.mid-loop.read-without-emit" {
 			t.Fatalf("read-without-emit nudge must be one-shot, fired again: %+v", again)
+		}
+	})
+
+	t.Run("origin-specific lanes do not force VCS or command facts into file-line evidence", func(t *testing.T) {
+		eval := &explorerEvaluator{
+			phase:        1,
+			searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+			analysisIR: &types.AnalysisIR{
+				RequestModel: types.RequestModel{
+					Intent: types.IntentExplain,
+					Predicates: types.SemanticPredicates{
+						IsHistoryLookup: true,
+					},
+					CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+						IsCurrentSourceExplanationRequested: true,
+						Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+						SourceQuotes:                        []string{"current code"},
+					},
+				},
+			},
+		}
+		results := []types.ToolResult{
+			{ToolName: "git_history_search", Success: true, Summary: "[git_history_search: evidence_origin=vcs_metadata]\ncommit abc123 scalar handling"},
+			newReadResult("internal/tool/emit_analysis.go"),
+			newReadResult("internal/types/request_traits.go"),
+		}
+
+		sig := eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      2,
+			LastToolResult: &results[len(results)-1],
+			AllToolResults: results,
+		})
+		if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.read-without-emit" {
+			t.Fatalf("expected origin-aware read-without-emit nudge, got %+v", sig)
+		}
+		for _, want := range []string{
+			"Non-current-source observations are first-class evidence",
+			"`emit_investigation_complete.reason` plus `aggregate_facts`",
+			"Do not re-anchor those origin-specific observations",
+		} {
+			if !strings.Contains(sig.Hint, want) {
+				t.Fatalf("origin-aware hint missing %q:\n%s", want, sig.Hint)
+			}
+		}
+		if strings.Contains(sig.Hint, "anything that is not passed through `emit_evidence(items=[...])` is invisible") {
+			t.Fatalf("origin-aware hint must not use source-only absolute wording:\n%s", sig.Hint)
 		}
 	})
 
@@ -8311,6 +8386,114 @@ func TestObserveMidLoop_ExactAbsenceReadsSameFamilyContextBeforeClose(t *testing
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("hint should surface %q, got: %s", want, sig.Hint)
 		}
+	}
+}
+
+func TestPostSameLaneLowNoveltySignal_NudgesAfterRepeatedNavigationWithoutTypedDelta(t *testing.T) {
+	item := types.EvidenceItem{
+		Kind:            types.EvidenceDirect,
+		Scope:           types.ScopeLine,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "runTaskGraph",
+		Source:          "internal/orchestrator/orchestrator.go",
+		LineStart:       120,
+		Summary:         "runTaskGraph defines the legacy read scheduler boundary",
+		GroundingStatus: types.GroundingGrounded,
+	}
+	item.ID = types.StableEvidenceID(item)
+	eval := &explorerEvaluator{
+		phase:              1,
+		heuristics:         types.ExploreHeuristics{MidLoopMinIteration: 2},
+		structuredEvidence: []types.EvidenceItem{item},
+		midLoopNoveltySeen: map[string]bool{
+			explorerEvidenceDeltaKey(item): true,
+		},
+	}
+	first := types.ToolResult{ToolName: "read_file", Success: true, Summary: "[internal/orchestrator/orchestrator.go: showing lines 120-140 of 900]"}
+	sig := eval.postSameLaneLowNoveltySignal(LoopObservation{
+		Phase:              PhaseMidLoop,
+		Iteration:          3,
+		AllToolResults:     []types.ToolResult{first},
+		CurrentToolResults: []types.ToolResult{first},
+	})
+	if sig.HintRequested {
+		t.Fatalf("first no-novelty navigation round should only start the streak, got %+v", sig)
+	}
+	second := types.ToolResult{ToolName: "grep", Success: true, Summary: "internal/orchestrator/orchestrator.go:120: runTaskGraph"}
+	sig = eval.postSameLaneLowNoveltySignal(LoopObservation{
+		Phase:              PhaseMidLoop,
+		Iteration:          4,
+		AllToolResults:     []types.ToolResult{first, second},
+		CurrentToolResults: []types.ToolResult{second},
+	})
+	if sig.HintRequested {
+		t.Fatalf("first post-ledger navigation round should only start the streak, got %+v", sig)
+	}
+	third := types.ToolResult{ToolName: "read_file", Success: true, Summary: "[internal/orchestrator/orchestrator.go:141-160]"}
+	sig = eval.postSameLaneLowNoveltySignal(LoopObservation{
+		Phase:              PhaseMidLoop,
+		Iteration:          5,
+		AllToolResults:     []types.ToolResult{first, second, third},
+		CurrentToolResults: []types.ToolResult{third},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("second post-ledger no-novelty navigation round should nudge toward emit/close, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.same-lane-low-novelty" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.same-lane-low-novelty", sig.HintKey)
+	}
+	for _, want := range []string{"accepted structured facts", "emit_investigation_complete", "Do not discard previously emitted summaries"} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("hint missing %q:\n%s", want, sig.Hint)
+		}
+	}
+}
+
+func TestPostSameLaneLowNoveltySignal_CountsGitObservationAsTypedDelta(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:      1,
+		heuristics: types.ExploreHeuristics{MidLoopMinIteration: 2},
+	}
+	git := types.ToolResult{
+		ToolName: "git_log",
+		Success:  true,
+		Summary:  "[git_log: evidence_origin=vcs_metadata count=1]\ncommit abc123 preserve external observations",
+	}
+	sig := eval.postSameLaneLowNoveltySignal(LoopObservation{
+		Phase:              PhaseMidLoop,
+		Iteration:          3,
+		AllToolResults:     []types.ToolResult{git},
+		CurrentToolResults: []types.ToolResult{git},
+	})
+	if sig.HintRequested {
+		t.Fatalf("first git observation is a typed delta, not low novelty: %+v", sig)
+	}
+	if len(eval.midLoopNoveltySeen) == 0 {
+		t.Fatal("typed VCS observation should seed the novelty ledger")
+	}
+}
+
+func TestPostSameLaneLowNoveltySignal_DoesNotFireWithoutAcceptedTypedFacts(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:      1,
+		heuristics: types.ExploreHeuristics{MidLoopMinIteration: 2},
+	}
+	first := types.ToolResult{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 1-20 of 200]"}
+	second := types.ToolResult{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 21-40 of 200]"}
+	_ = eval.postSameLaneLowNoveltySignal(LoopObservation{
+		Phase:              PhaseMidLoop,
+		Iteration:          3,
+		AllToolResults:     []types.ToolResult{first},
+		CurrentToolResults: []types.ToolResult{first},
+	})
+	sig := eval.postSameLaneLowNoveltySignal(LoopObservation{
+		Phase:              PhaseMidLoop,
+		Iteration:          4,
+		AllToolResults:     []types.ToolResult{first, second},
+		CurrentToolResults: []types.ToolResult{second},
+	})
+	if sig.HintRequested {
+		t.Fatalf("without accepted typed facts, low-novelty must not guess closure readiness: %+v", sig)
 	}
 }
 
