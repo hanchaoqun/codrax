@@ -573,6 +573,55 @@ func TestRenderer_ParallelExplorerScrollbackShowsLaneOrdinal(t *testing.T) {
 	}
 }
 
+func TestRenderer_ParallelExplorerScrollbackShowsUnitLaneLabel(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+
+	emit := r.Emitter()
+	now := time.Now()
+	emit(Event{
+		Kind:            EventParallelDispatchStart,
+		Agent:           types.AgentExplorer,
+		Stage:           types.StageExplore,
+		ParallelGroupID: "g",
+		ParallelTotal:   2,
+		Parallelism:     2,
+		ParallelUnitIDs: []string{"u0", "u1"},
+		Timestamp:       now,
+	})
+	emit(Event{
+		Kind:               EventParallelDispatchUnitStart,
+		Agent:              types.AgentExplorer,
+		Stage:              types.StageExplore,
+		ParallelGroupID:    "g",
+		ParallelUnitID:     "u1",
+		ParallelLaneLabels: []string{"vcs_diff", "current_source"},
+		Timestamp:          now.Add(time.Millisecond),
+	})
+	emit(Event{
+		Kind:            EventAgentToolCallBatch,
+		Agent:           types.AgentExplorer,
+		Stage:           types.StageExplore,
+		Iteration:       4,
+		ToolName:        "git_diff",
+		ToolNames:       []string{"git_diff"},
+		ToolCallCount:   1,
+		ParallelGroupID: "g",
+		ParallelUnitID:  "u1",
+		Timestamp:       now.Add(2 * time.Millisecond),
+	})
+
+	out := stripAnsiEscapes(buf.String())
+	want := "⇢ 探索 · 第 2 路（历史差异、当前源码） · 第 5 轮 调用工具 git_diff"
+	if !strings.Contains(out, want) {
+		t.Fatalf("parallel explorer scrollback missing unit lane label %q; got %q", want, out)
+	}
+	if strings.Contains(out, "vcs_diff") || strings.Contains(out, "current_source") {
+		t.Fatalf("scrollback should localize lane labels instead of raw enum names: %q", out)
+	}
+}
+
 func TestRenderer_SerialReconcileExploreScrollbackShowsAggregateLabel(t *testing.T) {
 	var buf bytes.Buffer
 	r := New(&buf, false)

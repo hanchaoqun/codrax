@@ -99,14 +99,15 @@ func (o *Orchestrator) dispatchExploreWindowsParallel(
 					lanePlan = lanePlans[i]
 				}
 				o.emit(render.Event{
-					Kind:            render.EventParallelDispatchUnitStart,
-					Timestamp:       time.Now(),
-					Stage:           types.StageExplore,
-					Agent:           types.AgentExplorer,
-					ParallelGroupID: groupID,
-					ParallelUnitID:  unitID,
-					ParallelTotal:   len(windows),
-					Parallelism:     parallelism,
+					Kind:               render.EventParallelDispatchUnitStart,
+					Timestamp:          time.Now(),
+					Stage:              types.StageExplore,
+					Agent:              types.AgentExplorer,
+					ParallelGroupID:    groupID,
+					ParallelUnitID:     unitID,
+					ParallelTotal:      len(windows),
+					Parallelism:        parallelism,
+					ParallelLaneLabels: lanePlan.Labels(),
 				})
 				out, err := o.runExploreAgentOnFork(runCtx, fork, hint, unitID, groupID, exploreDispatchKindForWindow(windows[i]), lanePlan)
 				unitErr := ""

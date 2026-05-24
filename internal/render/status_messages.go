@@ -687,6 +687,40 @@ func parallelLaneLabelsPhrase(labels []string, lang string) string {
 	return "evidence lanes: " + text
 }
 
+func parallelLaneLabelsInlinePhrase(labels []string, lang string) string {
+	if len(labels) == 0 {
+		return ""
+	}
+	const maxVisible = 2
+	total := len(labels)
+	visibleCap := total
+	if visibleCap > maxVisible {
+		visibleCap = maxVisible
+	}
+	visible := make([]string, 0, visibleCap)
+	for i, label := range labels {
+		if i >= maxVisible {
+			break
+		}
+		visible = append(visible, localizeParallelLaneLabel(label, lang))
+	}
+	if len(visible) == 0 {
+		return ""
+	}
+	if isZh(lang) {
+		text := strings.Join(visible, "、")
+		if total > maxVisible {
+			return fmt.Sprintf("%s等 %d 类", text, total)
+		}
+		return text
+	}
+	text := strings.Join(visible, ", ")
+	if total > maxVisible {
+		return fmt.Sprintf("%s, +%d", text, total-maxVisible)
+	}
+	return text
+}
+
 func localizeParallelLaneLabel(label string, lang string) string {
 	key := strings.ToLower(strings.TrimSpace(label))
 	if isZh(lang) {

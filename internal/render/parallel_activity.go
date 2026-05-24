@@ -18,12 +18,13 @@ type parallelActivity struct {
 }
 
 type parallelActivityUnit struct {
-	active bool
-	done   bool
-	kind   activityKind
-	tail   string
-	detail string
-	err    string
+	active     bool
+	done       bool
+	kind       activityKind
+	tail       string
+	detail     string
+	err        string
+	laneLabels []string
 }
 
 type parallelActivitySnapshot struct {
@@ -119,6 +120,9 @@ func (p *parallelActivity) startUnit(ev Event) {
 	u.tail = ""
 	u.detail = ""
 	u.err = ""
+	if labels := cleanParallelLaneLabels(ev.ParallelLaneLabels); len(labels) > 0 {
+		u.laneLabels = labels
+	}
 }
 
 func (p *parallelActivity) endUnit(ev Event) {
@@ -135,6 +139,21 @@ func (p *parallelActivity) endUnit(ev Event) {
 	u.tail = ""
 	u.detail = ""
 	u.err = ev.Error
+}
+
+func (p *parallelActivity) unitLaneLabels(id string) []string {
+	if p == nil {
+		return nil
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	u := p.units[id]
+	if u == nil {
+		return nil
+	}
+	return cleanParallelLaneLabels(u.laneLabels)
 }
 
 func (p *parallelActivity) setUnitActivity(ev Event, kind activityKind, detail, tail string) bool {

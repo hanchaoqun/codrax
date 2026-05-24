@@ -149,7 +149,7 @@ drive soft logs or future telemetry.
 | L2 | Done | Add typed `ExploreLanePlan` / `ExploreLane` derived from existing request/intent/presentation/origin contracts. | `internal/types`, tests | `go test ./internal/types -run 'TestCompileExploreLanePlan|TestCompileInvestigationPlan'` |
 | L3 | Done | Thread lane hints through `BusContext` / `AgentContext` / prompt builder without replacing `ExploreDispatchKey`. | `internal/types/context.go`, `internal/context/builder.go`, explorer prompt | `go test ./internal/context -run 'TestBuildPromptContext_EvidenceOriginBoundary|TestBuildPromptContext_ExploreLanePlan'` |
 | L4 | Done | Add scheduler exact-overlap handling. Each parallel worker receives only its typed lane subset when the evidence-window index can be mapped precisely; exact duplicate lane ownership is demoted to support handoff. No raw-text similarity is used. | `internal/orchestrator/explore_parallel_dispatch.go` | `go test ./internal/orchestrator -run 'TestDispatchExploreWindowsParallel_ScopesLanePlanPerEvidenceWindow|TestScopeExploreLanePlansForWindows_DemotesExactDuplicateLane|TestDispatchExploreWindowsParallel_CancelsSiblingAfterConvergence|TestRunTaskGraph_ParallelDispatch'` |
-| L5 | Done | Add UX lane labels to parallel dispatch events and dock/status rendering. | `internal/render/event.go`, `internal/render/parallel_activity.go`, `internal/render/status_messages.go`, renderer tests | `go test ./internal/render -run 'TestRenderer_ActiveExploreParallelAnchorsDockBeforeExtract|TestRenderer_ExtractStageClearsStaleParallelExploreTelemetry|TestComposeDockRow1_Parallel'` |
+| L5 | Done | Add UX lane labels to parallel dispatch events, dock/status rendering, and per-worker durable scrollback labels. | `internal/render/event.go`, `internal/render/parallel_activity.go`, `internal/render/status_messages.go`, renderer tests | `go test ./internal/render -run 'TestRenderer_ActiveExploreParallelAnchorsDockBeforeExtract|TestRenderer_ExtractStageClearsStaleParallelExploreTelemetry|TestComposeDockRow1_Parallel|TestRenderer_ParallelExplorerScrollbackShows'` |
 | L6 | Done | Rerun focused convergence evals and update gap docs with before/after metrics and every model-visible complaint that points to a system contract issue. | eval results + docs | 9-case convergence audit; compare `explorer_iters`, `midloop_inject`, false finalizer counters, extractor complaints, system supplement surface |
 
 ### L1 Implementation Notes
@@ -184,6 +184,10 @@ drive soft logs or future telemetry.
 - Parallel dispatch events carry compact lane labels. The dock localizes those
   labels, for example `证据通道：历史差异、当前源码`, and explicitly avoids showing
   internal node ids or raw enum names to the user.
+- Each parallel unit start also carries its scoped lane labels. Durable
+  reasoning/tool scrollback keeps the familiar ordinal while showing the unit's
+  localized focus, for example `探索 · 第 2 路（历史差异、当前源码） · 第 5 轮`.
+  Units with no exact lane labels keep the previous `第 N 路` surface.
 - The plan remains soft guidance: it scopes exploration and UX but does not
   validate answers, rewrite model content, or mark a lane complete.
 - Parallel dispatch now scopes `AgentContext.ExploreLanePlan` per evidence

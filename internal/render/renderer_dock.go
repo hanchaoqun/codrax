@@ -2334,8 +2334,15 @@ func (r *Renderer) parallelUnitTraceLabelLocked(ev Event) string {
 	if !ok || ordinal <= 0 {
 		return ""
 	}
+	lane := parallelLaneLabelsInlinePhrase(r.parallel.unitLaneLabels(ev.ParallelUnitID), r.lang)
 	if isZh(r.lang) {
+		if lane != "" {
+			return fmt.Sprintf("第 %d 路（%s）", ordinal, lane)
+		}
 		return fmt.Sprintf("第 %d 路", ordinal)
+	}
+	if lane != "" {
+		return fmt.Sprintf("Lane %d (%s)", ordinal, lane)
 	}
 	return fmt.Sprintf("Lane %d", ordinal)
 }

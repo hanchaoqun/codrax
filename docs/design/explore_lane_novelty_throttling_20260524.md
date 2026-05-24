@@ -106,6 +106,7 @@ lanes.
 | T20.4 Focused eval rerun on `u7k` and mixed runtime/source cases. | In progress | `u7k-20260524-191826`; rebuilt `u7k-20260524-200712` / `u7k-20260524-201412` showed good answers and no finalizer churn; remaining mixed runtime/source breadth pending |
 | T20.5 Add same-lane accepted-delta novelty advisory/telemetry. | In progress | unit tests done; focused `u7k`, log/source, trace/source, VCS/current reruns pending |
 | T20.6 Make read-without-emit hints origin-aware so VCS/log/trace/command observations are not forced into file:line `emit_evidence`. | Done | agent unit tests; rebuilt mixed VCS/current eval prompt audit proved origin-aware hint was injected and finalizer stayed one turn |
+| T20.7 Surface per-worker lane labels in durable parallel scrollback. | Done | `go test ./internal/render ./internal/orchestrator -run 'TestRenderer_ParallelExplorerScrollbackShows|TestDispatchExploreWindowsParallel_ScopesLanePlanPerEvidenceWindow|TestScopeExploreLanePlansForWindows_DemotesExactDuplicateLane|TestApplyExploreLaneHandoffIterationCap'` |
 
 ## Slice 1 Validation
 
@@ -149,3 +150,17 @@ eliminate long exploration in `u7k`; that stays under T20.5. A separate
 `condition` + `line_range` evidence-repair strictness issue was observed during
 the same replay and is tracked as future evidence-repair hardening, not as a
 T20.6 prompt conflict.
+
+## Slice 3 UX Validation
+
+Parallel explorer scrollback now keeps the existing ordinal shape while adding
+localized per-worker lane labels when the scheduler has an exact lane plan. For
+example, a mixed VCS/current-source worker renders as:
+
+`探索 · 第 2 路（历史差异、当前源码） · 第 5 轮`
+
+This is render-only telemetry. It is populated from `ExploreLanePlan.Labels()`
+on `EventParallelDispatchUnitStart`, stored in the renderer's parallel activity
+state, and never fed back into scheduling, gates, prompts, or answer content.
+If a worker has no scoped lane labels, the old `第 N 路` surface remains
+unchanged.
