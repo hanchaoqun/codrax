@@ -4922,13 +4922,17 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 		scope = "since your last successful `emit_evidence`"
 		recording = "have not recorded any new structured evidence yet"
 	}
+	hint := e.renderReadWithoutEmitHint(
+		"MID-LOOP CHECK: you have read %d file(s) %s but %s. ",
+		reads, scope, recording,
+	) + e.authoritativeLogDriftReminder(obs.AllToolResults) + e.authoritativeLogBackboneFirstEmitReminder(obs.AllToolResults)
+	if lensHint := explorerSourceInventoryDiscoveryAfterEvidenceHint(obs.AllToolResults); lensHint != "" {
+		hint += lensHint
+	}
 	return LoopSignal{
-		HintRequested: true,
-		HintKey:       e.readWithoutEmitHintKey(),
-		Hint: e.renderReadWithoutEmitHint(
-			"MID-LOOP CHECK: you have read %d file(s) %s but %s. ",
-			reads, scope, recording,
-		) + e.authoritativeLogDriftReminder(obs.AllToolResults) + e.authoritativeLogBackboneFirstEmitReminder(obs.AllToolResults),
+		HintRequested:  true,
+		HintKey:        e.readWithoutEmitHintKey(),
+		Hint:           hint,
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
@@ -5357,14 +5361,26 @@ func (e *explorerEvaluator) postReadWithoutEmitClosureOnlySignal(obs LoopObserva
 			BypassBudget:   true,
 		}
 	}
+	hint := "MID-LOOP CHECK: an earlier hint already established that your next useful step is to materialize structured evidence. The current batch still spent effort on navigation tools without recording the current backlog. Do NOT keep expanding with `read_file`, `grep`, `repo_map`, `list_files`, or `exec_command` until you first emit ONE grounded `emit_evidence(items=[...])` batch from the lines you already have." + e.authoritativeLogDriftReminder(obs.AllToolResults)
+	if lensHint := explorerSourceInventoryDiscoveryAfterEvidenceHint(obs.AllToolResults); lensHint != "" {
+		hint += lensHint
+	}
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        fmt.Sprintf("explorer.mid-loop.read-without-emit-closure-only.%d", obs.Iteration),
-		Hint:           "MID-LOOP CHECK: an earlier hint already established that your next useful step is to materialize structured evidence. The current batch still spent effort on navigation tools without recording the current backlog. Do NOT keep expanding with `read_file`, `grep`, `repo_map`, `list_files`, or `exec_command` until you first emit ONE grounded `emit_evidence(items=[...])` batch from the lines you already have." + e.authoritativeLogDriftReminder(obs.AllToolResults),
+		Hint:           hint,
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
+}
+
+func explorerSourceInventoryDiscoveryAfterEvidenceHint(results []types.ToolResult) string {
+	hint := tool.SourceInventoryDiscoveryHintFromToolHistory(results)
+	if strings.TrimSpace(hint) == "" {
+		return ""
+	}
+	return "\n\nAfter recording the already-read evidence, use this if you still need to narrow a broad repo branch without reading many files:\n" + hint
 }
 
 func (e *explorerEvaluator) authoritativeLogDriftReminder(allResults []types.ToolResult) string {

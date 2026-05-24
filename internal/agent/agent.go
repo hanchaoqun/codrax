@@ -2703,6 +2703,9 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 			if hint := tool.PublishSourceInventoryAdvisoryFromToolObservation(busCtx, result); hint != "" {
 				result.Summary = strings.TrimRight(result.Summary, "\n") + "\n\n" + hint
 			}
+			if hint := tool.SourceInventoryDiscoveryHintFromToolObservation(busCtx, result, tc.Params); hint != "" {
+				result.Summary = strings.TrimRight(result.Summary, "\n") + "\n\n" + hint
+			}
 			// Refund budget for read_file calls that failed because
 			// the LLM picked a path that doesn't exist (or named a
 			// directory). The LLM is still triangulating the repo

@@ -1890,17 +1890,36 @@ Design B2-J: structure-triggered Repo Lens discovery hints.
 
 Tasks:
 
-- [ ] B2-J1: add a reusable structured "broad navigation observation" detector
+- [x] B2-J1: add a reusable structured "broad navigation observation" detector
   that consumes tool name, params, success status, and result shape.
-- [ ] B2-J2: attach a bounded source-inventory discovery hint after broad
+- [x] B2-J2: attach a bounded source-inventory discovery hint after broad
   `repo_map(file_map|overview)`, `list_files`, and `grep(files_only=true)`
   results when the detector fires.
-- [ ] B2-J3: integrate with existing mid-loop read-without-emit hints so the
+- [x] B2-J3: integrate with existing mid-loop read-without-emit hints so the
   second escalation can suggest source-inventory narrowing before more broad
   reads, while still prioritizing `emit_evidence` when evidence has already
   been read.
-- [ ] B2-J4: add tests proving no raw user/model-prose keyword dependency,
+- [x] B2-J4: add tests proving no raw user/model-prose keyword dependency,
   dedupe across repeated tool calls, active-set safety, and non-Go route/config
   coverage.
 - [ ] B2-J5: rerun `s5b` plus one mechanism and one config/route case to verify
   the hint is generic and not enumeration-only.
+
+B2-J implementation note, 2026-05-24 CST:
+
+- Discovery hints now attach after successful broad `repo_map` non-inventory
+  views, `list_files`, and `grep(files_only=true)` results. The trigger uses
+  only structured tool parameters plus result shape (candidate file count /
+  child scope groups); it never reads the raw user question or model prose.
+- The hint is intentionally small: a scope-summary source-inventory call, up to
+  four branch-expansion calls, and a reminder that repo lens output is
+  navigation only and must be verified with source reads before citation.
+- Path handling follows tool-layer semantics: banner paths already normalized by
+  active-set gates are preferred, repo_map paths are re-run through the active
+  multi-repo gate when present, parent escapes are refused, and absolute paths
+  are accepted only when they normalize under `BusContext.RepoRoot` and can be
+  rendered repo-relative. This prevents the hint from propagating unverified or
+  parent-wide paths.
+- Mid-loop read-without-emit recovery can surface the same discovery hint only
+  after telling the model to first emit already-read evidence, avoiding a
+  system-driven detour that would discard gathered evidence.

@@ -127,6 +127,7 @@ type MutableState struct {
 	sourceInventoryAdvisory          SourceInventoryAdvisory
 	sourceInventoryObservation       SourceInventoryObservation
 	sourceInventoryAdvisoryHinted    bool
+	sourceInventoryDiscoveryHinted   map[string]bool
 	turnAArtifacts                   *TurnAArtifacts
 	exploreForkTurnABaseNotesLen     int
 	exploreForkTurnABaseBoundaryLen  int
@@ -978,6 +979,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 	out.emittedHypothesisVerdicts = append([]HypothesisVerdict(nil), m.emittedHypothesisVerdicts...)
 	out.sourceInventoryAdvisory = CloneSourceInventoryAdvisory(m.sourceInventoryAdvisory)
 	out.sourceInventoryObservation = CloneSourceInventoryObservation(m.sourceInventoryObservation)
+	out.sourceInventoryDiscoveryHinted = cloneStringBoolMap(m.sourceInventoryDiscoveryHinted)
 	if m.turnAArtifacts != nil {
 		out.turnAArtifacts = cloneTurnAArtifactsPtr(m.turnAArtifacts)
 		out.exploreForkTurnABaseNotesLen = len(out.turnAArtifacts.InvestigationNotes)
@@ -1025,6 +1027,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	investigationAggregateFacts := cloneAnswerAggregateFacts(fork.investigationAggregateFacts)
 	sourceInventoryAdvisory := CloneSourceInventoryAdvisory(fork.sourceInventoryAdvisory)
 	sourceInventoryObservation := CloneSourceInventoryObservation(fork.sourceInventoryObservation)
+	sourceInventoryDiscoveryHinted := cloneStringBoolMap(fork.sourceInventoryDiscoveryHinted)
 	retainedAbsenceJustification := fork.retainedAbsenceJustification
 	retainedInvestigationResultKind := fork.retainedInvestigationResultKind
 	retainedInvestigationCompleteReason := fork.retainedInvestigationCompleteReason
@@ -1084,6 +1087,14 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 	}
 	if sourceInventoryObservation.IsActive() {
 		m.sourceInventoryObservation = MergeSourceInventoryObservation(m.sourceInventoryObservation, sourceInventoryObservation)
+	}
+	if len(sourceInventoryDiscoveryHinted) > 0 {
+		if m.sourceInventoryDiscoveryHinted == nil {
+			m.sourceInventoryDiscoveryHinted = map[string]bool{}
+		}
+		for key := range sourceInventoryDiscoveryHinted {
+			m.sourceInventoryDiscoveryHinted[key] = true
+		}
 	}
 	if len(exactContextRequiredFiles) > 0 {
 		m.exactContextRequiredFiles = exactContextRequiredFiles
@@ -3012,6 +3023,31 @@ func (m *MutableState) ClaimSourceInventoryAdvisoryHint() bool {
 	return true
 }
 
+// ClaimSourceInventoryDiscoveryHint records that a broad-navigation discovery
+// hint has already been surfaced for a structured tool/scope key. It is
+// intentionally independent from ClaimSourceInventoryAdvisoryHint: discovery
+// hints help the model find the repo-lens entrypoint, while advisory hints
+// render an already-active source-inventory artifact.
+func (m *MutableState) ClaimSourceInventoryDiscoveryHint(key string) bool {
+	if m == nil {
+		return false
+	}
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.sourceInventoryDiscoveryHinted == nil {
+		m.sourceInventoryDiscoveryHinted = map[string]bool{}
+	}
+	if m.sourceInventoryDiscoveryHinted[key] {
+		return false
+	}
+	m.sourceInventoryDiscoveryHinted[key] = true
+	return true
+}
+
 // ClearSourceInventoryAdvisory clears the current advisory artifact so stale
 // inventory candidates cannot leak across a fresh explore/extract cycle.
 func (m *MutableState) ClearSourceInventoryAdvisory() {
@@ -3379,6 +3415,17 @@ func mergeStringsForMutable(a, b []string) []string {
 		}
 		seen[s] = true
 		out = append(out, s)
+	}
+	return out
+}
+
+func cloneStringBoolMap(in map[string]bool) map[string]bool {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(in))
+	for key, value := range in {
+		out[key] = value
 	}
 	return out
 }

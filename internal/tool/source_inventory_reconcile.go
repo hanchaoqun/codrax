@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -72,6 +73,26 @@ type sourceInventorySuggestedFileCandidate struct {
 	Name string
 	Role types.AnswerCandidateRole
 	Line int
+}
+
+type sourceInventoryDiscoveryParams struct {
+	Path           string                      `json:"path,omitempty"`
+	View           string                      `json:"view,omitempty"`
+	Scope          string                      `json:"scope,omitempty"`
+	Scopes         []string                    `json:"scopes,omitempty"`
+	Roles          []types.AnswerCandidateRole `json:"roles,omitempty"`
+	AttributeRoles []types.AnswerCandidateRole `json:"attribute_roles,omitempty"`
+	FilesOnly      bool                        `json:"files_only,omitempty"`
+}
+
+type sourceInventoryDiscoveryObservation struct {
+	ToolName    string
+	Path        string
+	View        string
+	Files       int
+	ScopeGroups []string
+	Roles       []types.AnswerCandidateRole
+	AttrRoles   []types.AnswerCandidateRole
 }
 
 func publishSourceInventoryAdvisory(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) {
@@ -157,6 +178,488 @@ func sourceInventoryObservationTool(name string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// SourceInventoryDiscoveryHintFromToolObservation renders a small advisory
+// entrypoint hint when a broad navigation tool result suggests that a typed
+// source-inventory lens would be cheaper than more ad-hoc listing/reading. It
+// uses only structured tool parameters plus the tool result shape; it never
+// inspects the user's raw question or the model's prose.
+func SourceInventoryDiscoveryHintFromToolObservation(ctx *types.BusContext, result types.ToolResult, params json.RawMessage) string {
+	obs, ok := sourceInventoryDiscoveryObservationFromTool(ctx, result, params)
+	if !ok {
+		return ""
+	}
+	if ctx != nil && ctx.Mutable != nil {
+		if ctx.Mutable.SourceInventoryAdvisory().IsActive() || ctx.Mutable.SourceInventoryObservation().IsActive() {
+			return ""
+		}
+		if !ctx.Mutable.ClaimSourceInventoryDiscoveryHint(sourceInventoryDiscoveryKey(obs)) {
+			return ""
+		}
+	}
+	return renderSourceInventoryDiscoveryHint(obs)
+}
+
+// SourceInventoryDiscoveryHintFromToolHistory is a fallback for mid-loop
+// recovery hints where the original tool-call params are no longer available.
+// It parses only structured banners/tool-result rows and returns one bounded
+// suggestion for the latest broad list/grep result.
+func SourceInventoryDiscoveryHintFromToolHistory(results []types.ToolResult) string {
+	for i := len(results) - 1; i >= 0; i-- {
+		obs, ok := sourceInventoryDiscoveryObservationFromHistory(results[i])
+		if !ok {
+			continue
+		}
+		return renderSourceInventoryDiscoveryHint(obs)
+	}
+	return ""
+}
+
+func sourceInventoryDiscoveryObservationFromTool(ctx *types.BusContext, result types.ToolResult, params json.RawMessage) (sourceInventoryDiscoveryObservation, bool) {
+	if !result.Success {
+		return sourceInventoryDiscoveryObservation{}, false
+	}
+	toolName := types.CanonicalToolName(result.ToolName)
+	if toolName != "repo_map" && toolName != "list_files" && toolName != "grep" {
+		return sourceInventoryDiscoveryObservation{}, false
+	}
+	var p sourceInventoryDiscoveryParams
+	if len(params) > 0 {
+		_ = json.Unmarshal(params, &p)
+	}
+	roles := sourceInventoryNormalizeLensRoles(p.Roles)
+	attrRoles := sourceInventoryNormalizeLensRoles(p.AttributeRoles)
+	var obs sourceInventoryDiscoveryObservation
+	switch toolName {
+	case "repo_map":
+		pathSurface, pathOK := sourceInventoryDiscoveryNormalizeToolPath(ctx, toolName, p.Path, result.Summary, "")
+		if !pathOK {
+			return sourceInventoryDiscoveryObservation{}, false
+		}
+		view := strings.TrimSpace(p.View)
+		if view == "" {
+			view = "overview"
+		}
+		if view == "source_inventory" {
+			return sourceInventoryDiscoveryObservation{}, false
+		}
+		files, scopes := sourceInventoryDiscoveryRepoMapShape(ctx, result.Summary, pathSurface)
+		obs = sourceInventoryDiscoveryObservation{
+			ToolName:    toolName,
+			Path:        pathSurface,
+			View:        view,
+			Files:       files,
+			ScopeGroups: scopes,
+			Roles:       roles,
+			AttrRoles:   attrRoles,
+		}
+	case "list_files":
+		pathSurface, pathOK := sourceInventoryDiscoveryNormalizeToolPath(ctx, toolName, p.Path, result.Summary, "list_files")
+		if !pathOK {
+			return sourceInventoryDiscoveryObservation{}, false
+		}
+		files, scopes := sourceInventoryDiscoveryListFilesShape(ctx, result.Summary, pathSurface)
+		obs = sourceInventoryDiscoveryObservation{
+			ToolName:    toolName,
+			Path:        pathSurface,
+			Files:       files,
+			ScopeGroups: scopes,
+			Roles:       roles,
+			AttrRoles:   attrRoles,
+		}
+	case "grep":
+		if !p.FilesOnly {
+			return sourceInventoryDiscoveryObservation{}, false
+		}
+		pathSurface, pathOK := sourceInventoryDiscoveryNormalizeToolPath(ctx, toolName, p.Path, result.Summary, "grep params")
+		if !pathOK {
+			return sourceInventoryDiscoveryObservation{}, false
+		}
+		files, scopes := sourceInventoryDiscoveryGrepFilesShape(ctx, result.Summary, pathSurface)
+		obs = sourceInventoryDiscoveryObservation{
+			ToolName:    toolName,
+			Path:        pathSurface,
+			Files:       files,
+			ScopeGroups: scopes,
+			Roles:       roles,
+			AttrRoles:   attrRoles,
+		}
+	}
+	if !sourceInventoryDiscoveryObservationBroad(obs) {
+		return sourceInventoryDiscoveryObservation{}, false
+	}
+	return obs, true
+}
+
+func sourceInventoryDiscoveryObservationFromHistory(result types.ToolResult) (sourceInventoryDiscoveryObservation, bool) {
+	if !result.Success {
+		return sourceInventoryDiscoveryObservation{}, false
+	}
+	toolName := types.CanonicalToolName(result.ToolName)
+	switch toolName {
+	case "list_files":
+		pathSurface := sourceInventoryDiscoveryPathFromBanner(result.Summary, "list_files")
+		if pathSurface == "" {
+			pathSurface = "."
+		}
+		files, scopes := sourceInventoryDiscoveryListFilesShape(nil, result.Summary, pathSurface)
+		obs := sourceInventoryDiscoveryObservation{ToolName: toolName, Path: pathSurface, Files: files, ScopeGroups: scopes}
+		if sourceInventoryDiscoveryObservationBroad(obs) {
+			return obs, true
+		}
+	case "grep":
+		if !strings.Contains(result.Summary, "files_only=true") {
+			return sourceInventoryDiscoveryObservation{}, false
+		}
+		pathSurface := sourceInventoryDiscoveryPathFromBanner(result.Summary, "grep params")
+		if pathSurface == "" {
+			pathSurface = "."
+		}
+		files, scopes := sourceInventoryDiscoveryGrepFilesShape(nil, result.Summary, pathSurface)
+		obs := sourceInventoryDiscoveryObservation{ToolName: toolName, Path: pathSurface, Files: files, ScopeGroups: scopes}
+		if sourceInventoryDiscoveryObservationBroad(obs) {
+			return obs, true
+		}
+	}
+	return sourceInventoryDiscoveryObservation{}, false
+}
+
+func sourceInventoryDiscoverySafePath(raw string) string {
+	p := strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+	if p == "" {
+		return ""
+	}
+	if toolPathIsAbs(p) {
+		return ""
+	}
+	p = path.Clean(p)
+	if p == "." {
+		return "."
+	}
+	if p == ".." || strings.HasPrefix(p, "../") {
+		return ""
+	}
+	return strings.Trim(p, "/")
+}
+
+func sourceInventoryDiscoverySafeToolPath(raw string) (string, bool) {
+	if strings.TrimSpace(raw) == "" {
+		return ".", true
+	}
+	p := sourceInventoryDiscoverySafePath(raw)
+	if p == "" {
+		return "", false
+	}
+	return p, true
+}
+
+func sourceInventoryDiscoveryNormalizeToolPath(ctx *types.BusContext, toolName, raw, summary, bannerName string) (string, bool) {
+	if bannerName != "" {
+		if bannerPath := sourceInventoryDiscoveryPathFromBanner(summary, bannerName); bannerPath != "" {
+			raw = bannerPath
+		}
+	}
+	if strings.TrimSpace(raw) == "" {
+		raw = "."
+	}
+	if ctx != nil {
+		if gater, ok := ctx.MultiGraph.(types.MultiRepoActiveSetGater); ok && gater != nil {
+			gate := gater.ResolveActiveSetPath(ctx, toolName, raw, nil)
+			if !gate.Allowed {
+				return "", false
+			}
+			if strings.TrimSpace(gate.ResolvedPath) != "" {
+				raw = gate.ResolvedPath
+			}
+		}
+	}
+	if toolPathIsAbs(raw) {
+		if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+			return "", false
+		}
+		if rel, ok := repoRelativePathWithinRoot(ctx.RepoRoot, raw); ok {
+			if rel == "" {
+				return ".", true
+			}
+			return sourceInventoryDiscoverySafeToolPath(rel)
+		}
+		return "", false
+	}
+	pathSurface, ok := sourceInventoryDiscoverySafeToolPath(raw)
+	if !ok {
+		return "", false
+	}
+	if ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
+		fsPath := resolveToolPath(ctx, pathSurface)
+		rel, within := repoRelativePathWithinRoot(ctx.RepoRoot, fsPath)
+		if !within {
+			return "", false
+		}
+		if rel == "" {
+			return ".", true
+		}
+		return sourceInventoryDiscoverySafeToolPath(rel)
+	}
+	return pathSurface, true
+}
+
+func sourceInventoryDiscoveryPathFromBanner(summary, bannerName string) string {
+	prefix := "[" + bannerName + ":"
+	for _, line := range strings.Split(summary, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, "]") {
+			continue
+		}
+		body := strings.TrimSuffix(strings.TrimPrefix(line, prefix), "]")
+		for _, field := range strings.Fields(body) {
+			key, value, ok := strings.Cut(field, "=")
+			if ok && key == "path" {
+				return sourceInventoryDiscoverySafePath(value)
+			}
+		}
+	}
+	return ""
+}
+
+func sourceInventoryDiscoveryRepoMapShape(ctx *types.BusContext, summary, basePath string) (int, []string) {
+	seenFiles := map[string]bool{}
+	seenScopes := map[string]bool{}
+	var scopes []string
+	for _, line := range strings.Split(summary, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "## ") {
+			continue
+		}
+		header := strings.TrimSpace(strings.TrimPrefix(line, "## "))
+		if header == "" || strings.HasPrefix(header, "Scope-grouped") || strings.HasPrefix(header, "Cascaded") {
+			continue
+		}
+		file := sourceInventoryDiscoverySafeResultPath(ctx, strings.Trim(strings.Fields(header)[0], "`"))
+		if file == "" || seenFiles[file] {
+			continue
+		}
+		seenFiles[file] = true
+		if scope := sourceInventoryDiscoveryChildScope(file, basePath); scope != "" && !seenScopes[scope] {
+			seenScopes[scope] = true
+			scopes = append(scopes, scope)
+		}
+	}
+	return len(seenFiles), scopes
+}
+
+func sourceInventoryDiscoveryListFilesShape(ctx *types.BusContext, summary, basePath string) (int, []string) {
+	seenFiles := map[string]bool{}
+	seenScopes := map[string]bool{}
+	var scopes []string
+	for _, line := range sourceInventoryDiscoveryResultLines(summary) {
+		if strings.HasPrefix(line, "[list_files:") {
+			continue
+		}
+		file := sourceInventoryDiscoverySafeResultPath(ctx, line)
+		if file == "" || seenFiles[file] {
+			continue
+		}
+		seenFiles[file] = true
+		if scope := sourceInventoryDiscoveryChildScope(file, basePath); scope != "" && !seenScopes[scope] {
+			seenScopes[scope] = true
+			scopes = append(scopes, scope)
+		}
+	}
+	return len(seenFiles), scopes
+}
+
+func sourceInventoryDiscoveryGrepFilesShape(ctx *types.BusContext, summary, basePath string) (int, []string) {
+	seenFiles := map[string]bool{}
+	seenScopes := map[string]bool{}
+	var scopes []string
+	for _, line := range sourceInventoryDiscoveryResultLines(summary) {
+		if strings.HasPrefix(line, "[") || strings.HasPrefix(line, "grep params") {
+			continue
+		}
+		file := sourceInventoryDiscoverySafeResultPath(ctx, line)
+		if file == "" || seenFiles[file] {
+			continue
+		}
+		seenFiles[file] = true
+		if scope := sourceInventoryDiscoveryChildScope(file, basePath); scope != "" && !seenScopes[scope] {
+			seenScopes[scope] = true
+			scopes = append(scopes, scope)
+		}
+	}
+	return len(seenFiles), scopes
+}
+
+func sourceInventoryDiscoveryResultLines(summary string) []string {
+	var lines []string
+	for _, line := range strings.Split(summary, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "Repo Lens discovery hint") {
+			break
+		}
+		if line == "" || strings.HasPrefix(line, "...[") || strings.HasPrefix(line, "[[truncated") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+func sourceInventoryDiscoverySafeResultPath(ctx *types.BusContext, raw string) string {
+	p := strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`))
+	if p == "" || strings.Contains(p, "\x00") || strings.HasPrefix(p, "[") {
+		return ""
+	}
+	if idx := strings.Index(p, ":"); idx > 1 {
+		before := p[:idx]
+		after := p[idx+1:]
+		if _, err := strconv.Atoi(strings.TrimSpace(strings.SplitN(after, ":", 2)[0])); err == nil {
+			p = before
+		}
+	}
+	p = strings.Trim(p, "`")
+	if toolPathIsAbs(p) {
+		if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+			return ""
+		}
+		rel, ok := repoRelativePathWithinRoot(ctx.RepoRoot, p)
+		if !ok {
+			return ""
+		}
+		if rel == "" {
+			return "."
+		}
+		safe, ok := sourceInventoryDiscoverySafeToolPath(rel)
+		if !ok {
+			return ""
+		}
+		return safe
+	}
+	safe, ok := sourceInventoryDiscoverySafeToolPath(p)
+	if !ok || safe == "." {
+		return ""
+	}
+	if ctx != nil && strings.TrimSpace(ctx.RepoRoot) != "" {
+		fsPath := resolveToolPath(ctx, safe)
+		rel, within := repoRelativePathWithinRoot(ctx.RepoRoot, fsPath)
+		if !within || rel == "" {
+			return ""
+		}
+		safe, ok = sourceInventoryDiscoverySafeToolPath(rel)
+		if !ok || safe == "." {
+			return ""
+		}
+	}
+	return safe
+}
+
+func sourceInventoryDiscoveryChildScope(file, basePath string) string {
+	file = strings.Trim(strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`)), "/")
+	base := strings.Trim(strings.TrimSpace(strings.ReplaceAll(basePath, `\`, `/`)), "/")
+	if file == "" {
+		return ""
+	}
+	if base != "" && base != "." && strings.HasPrefix(file, base+"/") {
+		file = strings.TrimPrefix(file, base+"/")
+	}
+	if file == "" || file == "." {
+		return "."
+	}
+	parts := strings.Split(file, "/")
+	if len(parts) == 0 || strings.TrimSpace(parts[0]) == "" {
+		return ""
+	}
+	return parts[0]
+}
+
+func sourceInventoryDiscoveryObservationBroad(obs sourceInventoryDiscoveryObservation) bool {
+	if len(obs.ScopeGroups) >= 4 {
+		return true
+	}
+	if obs.Files >= 8 {
+		return true
+	}
+	return false
+}
+
+func sourceInventoryDiscoveryKey(obs sourceInventoryDiscoveryObservation) string {
+	pathSurface := obs.Path
+	if pathSurface == "" {
+		pathSurface = "."
+	}
+	return strings.Join([]string{
+		types.CanonicalToolName(obs.ToolName),
+		pathSurface,
+		obs.View,
+		strings.Join(obs.ScopeGroups, ","),
+	}, "\x00")
+}
+
+func renderSourceInventoryDiscoveryHint(obs sourceInventoryDiscoveryObservation) string {
+	pathSurface := obs.Path
+	if pathSurface == "" {
+		pathSurface = "."
+	}
+	attrRoles := sourceInventoryDiscoveryAttributeRoles(obs)
+	scopeRoles := []types.AnswerCandidateRole{types.AnswerCandidateRolePackage, types.AnswerCandidateRoleFile}
+	expandRoles := sourceInventoryDiscoveryExpandRoles(obs, attrRoles)
+	var b strings.Builder
+	b.WriteString("Repo Lens discovery hint (advisory): this navigation result is broad")
+	if len(obs.ScopeGroups) > 0 || obs.Files > 0 {
+		fmt.Fprintf(&b, " (scope_groups=%d candidate_files=%d)", len(obs.ScopeGroups), obs.Files)
+	}
+	b.WriteString(". To inspect it incrementally, consider `repo_map(view=\"source_inventory\")` before reading many files. This is navigation only, not final-answer evidence.\n")
+	fmt.Fprintf(&b, "- scope summary: `%s`\n",
+		sourceInventoryCascadeRepoMapCall(pathSurface, "", nil, scopeRoles, attrRoles, 24, ""))
+	if len(obs.ScopeGroups) > 0 {
+		b.WriteString("- expand only the branch that matches the user's intent:\n")
+		maxScopes := minInt(len(obs.ScopeGroups), 4)
+		for i := 0; i < maxScopes; i++ {
+			scope := obs.ScopeGroups[i]
+			fmt.Fprintf(&b, "  - `%s`: `%s`\n", scope,
+				sourceInventoryCascadeRepoMapCall(pathSurface, scope, nil, expandRoles, attrRoles, 24, ""))
+		}
+		if len(obs.ScopeGroups) > maxScopes {
+			fmt.Fprintf(&b, "  - +%d more scope groups hidden here; use the same call shape with the chosen scope.\n", len(obs.ScopeGroups)-maxScopes)
+		}
+	} else {
+		fmt.Fprintf(&b, "- expand a chosen scope: `%s`\n",
+			sourceInventoryCascadeRepoMapCall(pathSurface, "<scope>", nil, expandRoles, attrRoles, 24, ""))
+	}
+	b.WriteString("- Adjust `roles` / `attribute_roles` to the structured role you need; verify chosen rows with `read_file` or `grep` before citing.")
+	return strings.TrimSpace(b.String())
+}
+
+func sourceInventoryDiscoveryAttributeRoles(obs sourceInventoryDiscoveryObservation) []types.AnswerCandidateRole {
+	if roles := sourceInventoryNormalizeLensRoles(obs.AttrRoles); len(roles) > 0 {
+		return roles
+	}
+	if roles := sourceInventoryNormalizeLensRoles(obs.Roles); len(roles) > 0 {
+		return roles
+	}
+	return []types.AnswerCandidateRole{
+		types.AnswerCandidateRoleFunction,
+		types.AnswerCandidateRoleMethod,
+		types.AnswerCandidateRoleType,
+		types.AnswerCandidateRoleConfigKey,
+		types.AnswerCandidateRoleRoute,
+	}
+}
+
+func sourceInventoryDiscoveryExpandRoles(obs sourceInventoryDiscoveryObservation, attrRoles []types.AnswerCandidateRole) []types.AnswerCandidateRole {
+	if roles := sourceInventoryNormalizeLensRoles(obs.Roles); len(roles) > 0 {
+		return roles
+	}
+	if len(attrRoles) > 0 {
+		return attrRoles
+	}
+	return []types.AnswerCandidateRole{
+		types.AnswerCandidateRoleFunction,
+		types.AnswerCandidateRoleMethod,
+		types.AnswerCandidateRoleType,
+		types.AnswerCandidateRoleConfigKey,
+		types.AnswerCandidateRoleRoute,
 	}
 }
 
