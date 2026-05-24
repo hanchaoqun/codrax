@@ -532,6 +532,12 @@ func normalizeAnswerDocumentForPreEmit(toolName string, doc *types.AnswerDocumen
 	if pctx == nil {
 		pctx = newPreEmitCheckContext(ctx)
 	}
+	if fixed := normalizeDiagramDefinitionLabelsByEvidence(doc, pctx); fixed > 0 {
+		logging.Warning("[%s] repaired %d diagram definition label(s) by evidence-defined source", toolName, fixed)
+	}
+	if fixed := normalizeDiagramEdgeAnchorMetadata(doc); fixed > 0 {
+		logging.Warning("[%s] normalized %d diagram edge anchor metadata value(s)", toolName, fixed)
+	}
 	if fixed := normalizeRequiredMechanismAnchorCarriersWithContext(doc, view, ctx, pctx); fixed > 0 {
 		logging.Warning("[%s] repaired %d required mechanism anchor carrier(s)", toolName, fixed)
 	}

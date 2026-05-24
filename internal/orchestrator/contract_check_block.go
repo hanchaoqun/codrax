@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/contract"
+	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -771,43 +772,21 @@ type mermaidEdge struct {
 // silently skipped — the goal is best-effort coverage of the common
 // edge syntaxes, not an exhaustive Mermaid parser.
 func parseMermaidEdges(body string) []mermaidEdge {
-	var edges []mermaidEdge
-	for _, raw := range strings.Split(body, "\n") {
-		line := strings.TrimSpace(raw)
-		if line == "" || strings.HasPrefix(line, "%%") || strings.HasPrefix(line, "classDef") || strings.HasPrefix(line, "click") {
-			continue
-		}
-		// SequenceDiagram (and noteOver) lines carry a trailing
-		// `: message` payload that is prose, not a node identifier.
-		// Capture it as the edge's label BEFORE stripping so the
-		// relation-aware validator can read the message verbatim.
-		var seqLabel string
-		if idx := strings.Index(line, ":"); idx > 0 {
-			seqLabel = strings.TrimSpace(line[idx+1:])
-			line = strings.TrimSpace(line[:idx])
-		}
-		from, to, label, operator, ok := splitMermaidEdgeLine(line)
-		if !ok {
-			continue
-		}
-		if label == "" {
-			label = seqLabel
-		}
-		var fromLabel, toLabel, fromShape, toShape string
-		from, fromLabel, fromShape = parseMermaidNodeTokenWithShape(from)
-		to, toLabel, toShape = parseMermaidNodeTokenWithShape(to)
-		if from == "" || to == "" {
-			continue
-		}
+	parsed := mermaidcompat.ParseEdges(body)
+	if len(parsed) == 0 {
+		return nil
+	}
+	edges := make([]mermaidEdge, 0, len(parsed))
+	for _, e := range parsed {
 		edges = append(edges, mermaidEdge{
-			from:      from,
-			to:        to,
-			label:     label,
-			operator:  operator,
-			fromLabel: fromLabel,
-			toLabel:   toLabel,
-			fromShape: fromShape,
-			toShape:   toShape,
+			from:      e.From,
+			to:        e.To,
+			label:     e.Label,
+			operator:  e.Operator,
+			fromLabel: e.FromLabel,
+			toLabel:   e.ToLabel,
+			fromShape: e.FromShape,
+			toShape:   e.ToShape,
 		})
 	}
 	return edges
@@ -824,65 +803,7 @@ func parseMermaidEdges(body string) []mermaidEdge {
 //	-.->|...|  --|text|-->  -- text -->
 //	---  ->>  -->>
 func splitMermaidEdgeLine(line string) (string, string, string, string, bool) {
-	// Capture the FIRST `|inline label|` block before stripping —
-	// Mermaid flowchart's `A -->|cond| B` puts the relation marker
-	// between pipes. Subsequent `|...|` groups (rare) are stripped
-	// without capture; first wins.
-	var pipeLabel string
-	for {
-		i := strings.Index(line, "|")
-		if i < 0 {
-			break
-		}
-		j := strings.Index(line[i+1:], "|")
-		if j < 0 {
-			break
-		}
-		if pipeLabel == "" {
-			pipeLabel = strings.TrimSpace(line[i+1 : i+1+j])
-		}
-		line = line[:i] + " " + line[i+1+j+1:]
-	}
-	// Operator candidates ordered longest-first.
-	operators := []string{
-		"-->>", "-.->", "-->", "==>", "->>", "---", "==", "->",
-	}
-	for _, op := range operators {
-		idx := strings.Index(line, op)
-		if idx < 0 {
-			continue
-		}
-		from := strings.TrimSpace(line[:idx])
-		to := strings.TrimSpace(line[idx+len(op):])
-		// `---` matches inside identifiers like `a---b`; require
-		// the from / to halves to look like identifier / label.
-		if from == "" || to == "" {
-			continue
-		}
-		// Drop trailing punctuation that follows the to token (";",
-		// ",", trailing class binding `:::cls`).
-		to = strings.SplitN(to, ";", 2)[0]
-		to = strings.SplitN(to, ":::", 2)[0]
-		to = strings.TrimSpace(to)
-		// `-- text -->` shape: after stripping the `|...|` block we
-		// may be left with `A   B` separated by inner text — the
-		// arrow we found could be the inner `--`. Heuristic: if both
-		// sides still contain an arrow, pick the rightmost one.
-		if strings.Contains(to, "-->") || strings.Contains(to, "==>") || strings.Contains(to, "->>") {
-			// recurse on the rightmost portion; preserve any
-			// pipe-label captured in the outer call (the recursion
-			// only re-parses the trailing `to` segment).
-			f2, t2, innerLabel, innerOp, ok := splitMermaidEdgeLine(to)
-			if ok {
-				if innerLabel != "" {
-					return f2, t2, innerLabel, innerOp, true
-				}
-				return f2, t2, pipeLabel, innerOp, true
-			}
-		}
-		return from, to, pipeLabel, op, true
-	}
-	return "", "", "", "", false
+	return mermaidcompat.SplitEdgeLine(line)
 }
 
 // stripMermaidNodeShape collapses a node declaration with a shape
@@ -899,72 +820,21 @@ func splitMermaidEdgeLine(line string) (string, string, string, string, bool) {
 // parseMermaidNodeToken when a caller also needs the user-visible label
 // inside the wrapper.
 func stripMermaidNodeShape(tok string) string {
-	id, _ := parseMermaidNodeToken(tok)
-	return id
+	return mermaidcompat.StripNodeShape(tok)
 }
 
 func parseMermaidNodeToken(tok string) (id, label string) {
-	id, label, _ = parseMermaidNodeTokenWithShape(tok)
-	return id, label
+	return mermaidcompat.ParseNodeToken(tok)
 }
 
-const mermaidNodeShapeDecision = "decision"
+const mermaidNodeShapeDecision = mermaidcompat.NodeShapeDecision
 
 func parseMermaidNodeTokenWithShape(tok string) (id, label, shape string) {
-	t := strings.TrimSpace(tok)
-	if t == "" {
-		return "", "", ""
-	}
-	// Strip optional class binding suffix `:::clsName`
-	if i := strings.Index(t, ":::"); i > 0 {
-		t = strings.TrimSpace(t[:i])
-	}
-	// Find the first shape opener and cut at it: [, (, {, >
-	cutAt := -1
-	for i, r := range t {
-		if r == '[' || r == '(' || r == '{' || r == '>' {
-			cutAt = i
-			break
-		}
-	}
-	if cutAt > 0 {
-		if t[cutAt] == '{' {
-			shape = mermaidNodeShapeDecision
-		}
-		label = strings.TrimSpace(extractMermaidNodeLabel(t, cutAt))
-		t = strings.TrimSpace(t[:cutAt])
-	}
-	// Drop leading `&` cosmetic prefix
-	t = strings.TrimPrefix(t, "&")
-	return t, label, shape
+	return mermaidcompat.ParseNodeTokenWithShape(tok)
 }
 
 func extractMermaidNodeLabel(tok string, openerAt int) string {
-	if openerAt < 0 || openerAt >= len(tok) {
-		return ""
-	}
-	open := tok[openerAt]
-	close := byte(0)
-	switch open {
-	case '[':
-		close = ']'
-	case '(':
-		close = ')'
-	case '{':
-		close = '}'
-	case '>':
-		close = ']'
-	default:
-		return ""
-	}
-	rest := tok[openerAt+1:]
-	end := strings.LastIndexByte(rest, close)
-	if end < 0 {
-		return ""
-	}
-	label := strings.TrimSpace(rest[:end])
-	label = strings.Trim(label, `"'`)
-	return strings.TrimSpace(label)
+	return mermaidcompat.ExtractNodeLabel(tok, openerAt)
 }
 
 // buildDiagramSupportTokens collects every textual anchor in the
@@ -1090,39 +960,7 @@ type mermaidNodeDecl struct {
 }
 
 func mermaidSequenceParticipantDeclarations(line string) []mermaidNodeDecl {
-	trimmed := strings.TrimSpace(line)
-	if trimmed == "" {
-		return nil
-	}
-	rest := ""
-	switch {
-	case strings.HasPrefix(trimmed, "participant "):
-		rest = strings.TrimSpace(strings.TrimPrefix(trimmed, "participant "))
-	case strings.HasPrefix(trimmed, "actor "):
-		rest = strings.TrimSpace(strings.TrimPrefix(trimmed, "actor "))
-	default:
-		return nil
-	}
-	if rest == "" {
-		return nil
-	}
-	if idx := strings.Index(rest, " as "); idx > 0 {
-		ident := strings.TrimSpace(rest[:idx])
-		label := strings.TrimSpace(rest[idx+4:])
-		if ident == "" && label == "" {
-			return nil
-		}
-		return []mermaidNodeDecl{{ident: ident, label: label}}
-	}
-	fields := strings.Fields(rest)
-	if len(fields) == 0 {
-		return nil
-	}
-	ident := strings.TrimSpace(fields[0])
-	if ident == "" {
-		return nil
-	}
-	return []mermaidNodeDecl{{ident: ident, label: ident}}
+	return convertMermaidNodeDecls(mermaidcompat.SequenceParticipantDeclarations(line))
 }
 
 // mermaidNodeDeclarationsAll walks `line` and returns every node
@@ -1143,67 +981,16 @@ func mermaidSequenceParticipantDeclarations(line string) []mermaidNodeDecl {
 // previous whitespace or arrow-edge boundary; the label is the inner
 // text between opener and matching close.
 func mermaidNodeDeclarationsAll(line string) []mermaidNodeDecl {
-	openers := []struct{ open, close string }{
-		{"[\"", "\"]"},
-		{"((", "))"},
-		{"{{", "}}"},
-		{"(\"", "\")"},
-		{"[", "]"},
-		{"(", ")"},
-		{"{", "}"},
-		{">", "]"},
+	return convertMermaidNodeDecls(mermaidcompat.NodeDeclarationsAll(line))
+}
+
+func convertMermaidNodeDecls(in []mermaidcompat.NodeDecl) []mermaidNodeDecl {
+	if len(in) == 0 {
+		return nil
 	}
-	var out []mermaidNodeDecl
-	cursor := 0
-	for cursor < len(line) {
-		// Find the next-earliest opener at or after `cursor`.
-		bestPos := -1
-		var bestOpener struct{ open, close string }
-		for _, op := range openers {
-			pos := strings.Index(line[cursor:], op.open)
-			if pos < 0 {
-				continue
-			}
-			absPos := cursor + pos
-			if bestPos < 0 || absPos < bestPos {
-				bestPos = absPos
-				bestOpener = op
-			}
-		}
-		if bestPos < 0 {
-			break
-		}
-		// Walk backwards from bestPos to find the identifier.
-		identStart := bestPos
-		for identStart > cursor {
-			r := line[identStart-1]
-			if r == ' ' || r == '\t' || r == '>' || r == ']' || r == ')' || r == '}' || r == '|' {
-				break
-			}
-			identStart--
-		}
-		ident := strings.TrimSpace(line[identStart:bestPos])
-		// Identifier sanity check: arrow-operator characters can
-		// never start an identifier. Walk past the opener WITHOUT
-		// claiming any close — otherwise the `>` opener (which
-		// shares its `]` close with `[`) would swallow the rest of
-		// the line on `B --> C[Label]` shapes.
-		if ident == "" || strings.ContainsAny(ident, "-=>") {
-			cursor = bestPos + len(bestOpener.open)
-			continue
-		}
-		// Locate matching close.
-		labelStart := bestPos + len(bestOpener.open)
-		closeRel := strings.Index(line[labelStart:], bestOpener.close)
-		if closeRel < 0 {
-			cursor = bestPos + len(bestOpener.open)
-			continue
-		}
-		labelEnd := labelStart + closeRel
-		label := strings.TrimSpace(line[labelStart:labelEnd])
-		label = strings.Trim(label, "\"'")
-		out = append(out, mermaidNodeDecl{ident: ident, label: label})
-		cursor = labelEnd + len(bestOpener.close)
+	out := make([]mermaidNodeDecl, 0, len(in))
+	for _, decl := range in {
+		out = append(out, mermaidNodeDecl{ident: decl.Ident, label: decl.Label})
 	}
 	return out
 }
