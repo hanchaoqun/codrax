@@ -822,6 +822,7 @@ func JSONRepairCandidates(s string) []string {
 	passes := []jsonRepairPass{
 		{fn: RemoveTrailingCommasBeforeJSONClosers},
 		{fn: NormalizeControlCharsInJSONStrings},
+		{fn: TrimTransportCloseTagsAfterJSONValue},
 		{fn: RepairMissingTrailingJSONClosers},
 		{fn: RepairUnescapedQuotesInJSONStringLiterals},
 	}
@@ -920,6 +921,70 @@ func decodeJSONStringAsDepth(s string, want string, depth int) (any, string, boo
 		return decoded, "json_string_" + want + "_syntax", true
 	}
 	return nil, "", false
+}
+
+// TrimTransportCloseTagsAfterJSONValue repairs a deterministic tool-call
+// transport artifact where a complete JSON object/array is followed by a
+// wrapper close tag inside a string-wrapped schema field, for example
+// `[{...}]</parameter>`. The JSON prefix must already be complete and the
+// suffix must contain only known wrapper close tags, so this never guesses
+// missing payload content.
+func TrimTransportCloseTagsAfterJSONValue(s string) (string, bool) {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" || (!strings.HasPrefix(trimmed, "{") && !strings.HasPrefix(trimmed, "[")) {
+		return s, false
+	}
+	dec := json.NewDecoder(strings.NewReader(trimmed))
+	dec.UseNumber()
+	var value any
+	if err := dec.Decode(&value); err != nil {
+		return s, false
+	}
+	offset := dec.InputOffset()
+	if offset <= 0 || offset >= int64(len(trimmed)) {
+		return s, false
+	}
+	suffix := strings.TrimSpace(trimmed[offset:])
+	if !isTransportCloseTagSuffix(suffix) {
+		return s, false
+	}
+	prefix := strings.TrimSpace(trimmed[:offset])
+	if prefix == "" {
+		return s, false
+	}
+	return prefix, true
+}
+
+func isTransportCloseTagSuffix(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	for s != "" {
+		s = strings.TrimSpace(s)
+		if !strings.HasPrefix(s, "</") {
+			return false
+		}
+		end := strings.IndexByte(s, '>')
+		if end < len("</x") {
+			return false
+		}
+		name := strings.TrimSpace(s[len("</"):end])
+		if !isKnownTransportCloseTag(name) {
+			return false
+		}
+		s = strings.TrimSpace(s[end+1:])
+	}
+	return true
+}
+
+func isKnownTransportCloseTag(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "parameter", "parameters", "argument", "arguments", "tool_call", "tool-call", "function_call", "function-call":
+		return true
+	default:
+		return false
+	}
 }
 
 // RemoveTrailingCommasBeforeJSONClosers repairs a deterministic local-model

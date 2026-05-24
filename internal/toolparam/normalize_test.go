@@ -303,6 +303,92 @@ func TestJSONRepairCandidatesRepairsParentCloseBeforeChild(t *testing.T) {
 	}
 }
 
+func TestJSONRepairCandidatesTrimsTransportCloseTagAfterBalancedValue(t *testing.T) {
+	input := `[{"summary":"核心流程","entities":["EvalAll"]}]</parameter>`
+
+	var decoded []struct {
+		Summary  string   `json:"summary"`
+		Entities []string `json:"entities"`
+	}
+	var parsed bool
+	for _, candidate := range JSONRepairCandidates(input) {
+		if err := json.Unmarshal([]byte(candidate), &decoded); err == nil {
+			parsed = true
+			break
+		}
+	}
+	if !parsed {
+		t.Fatalf("expected a parseable candidate for transport-suffixed JSON: %q", input)
+	}
+	if len(decoded) != 1 || decoded[0].Summary != "核心流程" || len(decoded[0].Entities) != 1 || decoded[0].Entities[0] != "EvalAll" {
+		t.Fatalf("unexpected decoded value after repair: %+v", decoded)
+	}
+}
+
+func TestNormalizeRepairsStringWrappedArrayAndObjectWithTransportCloseTag(t *testing.T) {
+	schema := json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"sub_topics":{
+				"type":"array",
+				"items":{
+					"type":"object",
+					"properties":{
+						"summary":{"type":"string"},
+						"entities":{"type":"array","items":{"type":"string"}}
+					}
+				}
+			},
+			"source_inventory_profile":{
+				"type":"object",
+				"properties":{
+					"is_source_inventory":{"type":"boolean"},
+					"requested_fields":{"type":"array","items":{"type":"string"}},
+					"confidence":{"type":"number"}
+				}
+			}
+		}
+	}`)
+	raw := json.RawMessage(`{
+		"sub_topics":"[{\"summary\":\"公开函数\",\"entities\":[\"EvalAll\"]}]</parameter>",
+		"source_inventory_profile":"{\"is_source_inventory\":true,\"requested_fields\":[\"name\",\"location\",\"summary\"],\"confidence\":1.0}</parameter>"
+	}`)
+
+	got, report := Normalize(raw, schema, types.DefaultToolParamCompatConfig())
+	if !report.Changed() {
+		t.Fatal("expected transport-suffixed string-wrapper repairs")
+	}
+	if !hasRepair(report, "$.sub_topics", "json_string_array_syntax") {
+		t.Fatalf("expected sub_topics transport suffix repair, got %+v", report)
+	}
+	if !hasRepair(report, "$.source_inventory_profile", "json_string_object_syntax") {
+		t.Fatalf("expected source_inventory_profile transport suffix repair, got %+v", report)
+	}
+	var decoded struct {
+		SubTopics []struct {
+			Summary  string   `json:"summary"`
+			Entities []string `json:"entities"`
+		} `json:"sub_topics"`
+		SourceInventoryProfile struct {
+			IsSourceInventory bool     `json:"is_source_inventory"`
+			RequestedFields   []string `json:"requested_fields"`
+			Confidence        float64  `json:"confidence"`
+		} `json:"source_inventory_profile"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if len(decoded.SubTopics) != 1 || decoded.SubTopics[0].Summary != "公开函数" ||
+		len(decoded.SubTopics[0].Entities) != 1 || decoded.SubTopics[0].Entities[0] != "EvalAll" {
+		t.Fatalf("sub_topics not decoded correctly: %+v", decoded.SubTopics)
+	}
+	if !decoded.SourceInventoryProfile.IsSourceInventory ||
+		len(decoded.SourceInventoryProfile.RequestedFields) != 3 ||
+		decoded.SourceInventoryProfile.Confidence != 1.0 {
+		t.Fatalf("source_inventory_profile not decoded correctly: %+v", decoded.SourceInventoryProfile)
+	}
+}
+
 func TestRepairMissingTrailingJSONClosersRejectsUnterminatedStrings(t *testing.T) {
 	if repaired, ok := RepairMissingTrailingJSONClosers(`{"text":"unterminated}`); ok {
 		t.Fatalf("unterminated string must not be repaired, got %q", repaired)

@@ -1145,7 +1145,7 @@ untouched.
       keyword detection, preview routing, non-Mermaid code fences, and the
       existing terminal renderer subset.
 
-- Batch 48 — analyzer complex-object payload burden. Status: proposed.
+- Batch 48 — analyzer complex-object payload burden. Status: completed.
   - New observation from focused R8 replay
     `eval/results/r8-rich-notes-20260524-103156/read_combo_criterion_rich_functions-20260524-103159`:
     finalizer stayed one round and preserved rich row descriptions, but analyzer
@@ -1167,6 +1167,69 @@ untouched.
     need to drop `source_inventory_profile` just to satisfy JSON shape, and
     successful classification should arrive without multiple schema-only
     retries.
+  - Code audit before implementation:
+    - `emit_analysis` already routes through
+      `applyStructuredPayloadCompatWithLegacyStringFieldRepair`, which delegates
+      to the shared `internal/toolparam.Normalize` schema-aware repair layer.
+      Existing tests already cover string-wrapped `sub_topics`; do not add an
+      analyzer-local JSON fixer.
+    - The focused R8 log shows the remaining bad carrier shape exactly:
+      `sub_topics` and `source_inventory_profile` were valid JSON array/object
+      prefixes inside strings, but the string ended with a transport wrapper
+      close marker (`</parameter>`). The shared string-wrapper repair did not
+      trim that structural suffix, so `emit_analysis` rejected and the model
+      eventually deleted the optional profile.
+    - The tool schema currently still teaches optional nested fields in two
+      places: `BuildAnalysisSkill` text and `emit_analysis.Parameters()`. The
+      first implementation slice should fix the deterministic transport-suffix
+      syntax gap at `internal/toolparam`; a second slice may simplify analyzer
+      optional-profile wording only if focused replays still show avoidable
+      schema-only retries.
+  - Task list:
+    - [x] Audit analyzer schema, prompt, shared compat, and the focused failure
+      log to confirm the missing behavior is shared structural repair rather
+      than an analyzer-specific semantic rule.
+    - [x] Add a shared `toolparam` JSON-repair candidate that trims known
+      transport close tags after a fully balanced JSON object/array value inside
+      a string-wrapped schema field. This must only run when the suffix is
+      wrapper syntax such as `</parameter>` and must not guess missing JSON.
+    - [x] Add `emit_analysis` regression coverage where both `sub_topics` and
+      `source_inventory_profile` arrive as string-wrapped JSON with
+      `</parameter>` suffixes and still persist into `RequestModel`.
+    - [x] Re-run the focused R8 source-inventory eval and compare
+      `analyzer_iters` / schema-only rejects.
+    - [x] If analyzer still loops after structural repair, reduce optional
+      profile prompt burden without changing hard gates or adding prose-derived
+      intent inference. Result: not needed for this replay; no remaining
+      schema-only analyzer reject was observed.
+  - Delivered changes:
+    - Shared `internal/toolparam` repair now trims known transport close tags
+      after a complete JSON object/array prefix inside string-wrapped schema
+      fields. This stays in the existing compatibility layer and benefits any
+      tool field whose schema expects arrays/objects; no analyzer-local JSON
+      fixer was introduced.
+    - `emit_analysis` now has regression coverage for transport-suffixed
+      `sub_topics` and `source_inventory_profile`, preserving the typed
+      source-inventory profile instead of forcing the model to delete it after
+      a syntax-only retry.
+    - A second focused retry cause was identified in the same area: the model
+      sometimes copied pre-scan discovered files into `exact_targets` while the
+      current user text only named the containing package/path. For scoped
+      source-inventory/category-enumeration questions, if every invalid
+      `exact_targets[]` item already appears in `required_files[]`, the system
+      now drops only `exact_targets` with a warning and preserves
+      `required_files[]`. The existing hard rejection remains for unrelated
+      non-verbatim exact-target misuse.
+  - Validation:
+    - Directed tests:
+      `go test ./internal/toolparam ./internal/tool -run 'TestJSONRepairCandidatesTrimsTransportCloseTagAfterBalancedValue|TestNormalizeRepairsStringWrappedArrayAndObjectWithTransportCloseTag|TestEmitAnalysis_Execute_StringWrappedComplexProfilesWithTransportCloseTag|TestEmitAnalysis_Execute_StringWrappedSubTopics|TestEmitAnalysis_Execute_DropsRequiredFileExactTargetsForSourceInventory|TestEmitAnalysis_Execute_RejectsInvalidExactTargets'`.
+    - Focused eval:
+      `eval/results/b48-analyzer-json2-20260524-105105/read_combo_criterion_rich_functions-20260524-105110`
+      passed with `analyzer_iters=2`, `finalizer_iters=1`,
+      `semantic_quality_concerns=0`, and no `emit_analysis ok=false` /
+      `invalid params` / hard-reject entry. This improves the previous
+      eight-round analyzer replay without weakening the typed classification
+      contract.
 
 ## Scope
 

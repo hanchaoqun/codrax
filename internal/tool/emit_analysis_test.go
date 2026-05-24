@@ -1631,6 +1631,56 @@ func TestEmitAnalysis_Execute_StringWrappedSubTopics(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_StringWrappedComplexProfilesWithTransportCloseTag(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := withV4Required(`{
+		"intent": "enumerate",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["EvalAll", "UnknownKind", "criterion", "公开函数"],
+		"entities": ["EvalAll", "UnknownKind", "internal/analysis/criterion"],
+		"question_kind": "enumeration",
+		"language": "zh",
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"sub_topics": "[{\"summary\":\"枚举公开函数\",\"entities\":[\"EvalAll\",\"UnknownKind\"]}]</parameter>",
+		"source_inventory_profile": "{\"is_source_inventory\":true,\"target_roles\":[\"function\"],\"requested_fields\":[\"name\",\"location\",\"summary\"],\"source_quotes\":[\"只列公开函数\"],\"confidence\":1.0}</parameter>"
+	}`)
+
+	res, mu := runEmitAnalysisPayload(t, "internal/analysis/criterion 只列公开函数，每个函数给出文件:行和中文职责说明", payload)
+	if !res.Success {
+		t.Fatalf("transport-suffixed complex profiles should be repaired, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel should persist after repaired emit_analysis")
+	}
+	if len(rm.SubTopics) != 1 || rm.SubTopics[0].Summary != "枚举公开函数" {
+		t.Fatalf("sub_topics not persisted after repair: %+v", rm.SubTopics)
+	}
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.IsSourceInventory {
+		t.Fatalf("source_inventory_profile not persisted after repair: %+v", rm.SourceInventoryProfile)
+	}
+	if len(rm.SourceInventoryProfile.TargetRoles) != 1 ||
+		rm.SourceInventoryProfile.TargetRoles[0] != types.AnswerCandidateRoleFunction {
+		t.Fatalf("target_roles not decoded after repair: %+v", rm.SourceInventoryProfile.TargetRoles)
+	}
+	if !rm.SourceInventoryProfile.RequestsField(types.SourceInventoryFieldSummary) {
+		t.Fatalf("requested_fields lost summary after repair: %+v", rm.SourceInventoryProfile.RequestedFields)
+	}
+}
+
 func TestEmitAnalysis_Execute_PersistsEnumerationBoundary(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
@@ -4105,6 +4155,66 @@ func TestEmitAnalysis_Execute_RejectsInvalidExactTargets(t *testing.T) {
 	}
 	if !strings.Contains(res.Summary, "exact_targets") {
 		t.Fatalf("reject summary should mention exact_targets, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_Execute_DropsRequiredFileExactTargetsForSourceInventory(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("internal/analysis/criterion 只列公开函数，每个函数给出文件:行和中文职责说明")
+	tool := &EmitAnalysis{}
+	payload := withV4Required(`{
+		"intent": "enumerate",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["criterion", "公开函数", "EvalAll"],
+		"entities": ["internal/analysis/criterion", "EvalAll"],
+		"question_kind": "enumeration",
+		"language": "zh",
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"exact_targets": ["internal/analysis/criterion/eval.go", "internal/analysis/criterion/grammar.go"],
+		"required_files": [
+			{"path":"internal/analysis/criterion/eval.go","confidence":0.95},
+			{"path":"internal/analysis/criterion/grammar.go","confidence":0.9}
+		],
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["function"],
+			"requested_fields": ["name", "location", "summary"],
+			"source_quotes": ["只列公开函数"],
+			"confidence": 0.95
+		}
+	}`)
+
+	res, err := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("required-file exact_targets should be dropped, not rejected: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "dropped exact_targets") {
+		t.Fatalf("summary should disclose dropped exact_targets, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel should persist")
+	}
+	if len(rm.AnalyzerHints.ExactTargets) != 0 {
+		t.Fatalf("non-verbatim file exact_targets should be dropped: %+v", rm.AnalyzerHints.ExactTargets)
+	}
+	if len(rm.AnalyzerHints.RequiredFileHints) != 2 {
+		t.Fatalf("required file hints should be preserved: %+v", rm.AnalyzerHints.RequiredFileHints)
 	}
 }
 

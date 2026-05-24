@@ -1203,7 +1203,11 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	if bucketsWarn != "" {
 		val.Warnings = append(val.Warnings, bucketsWarn)
 	}
-	exactTargets, exactTargetErr := validateExactTargets(raw, p.ExactTargets)
+	exactTargets, exactTargetErr, exactTargetWarn := validateExactTargets(raw, p.ExactTargets, p.RequiredFiles, predicates, p.SourceInventoryProfile)
+	if exactTargetWarn != "" {
+		logging.Warning("[emit_analysis] %s", exactTargetWarn)
+		val.Warnings = append(val.Warnings, exactTargetWarn)
+	}
 	if exactTargetErr != "" {
 		if !artifactOnlyRuntime {
 			return types.ToolResult{
@@ -2656,16 +2660,20 @@ func fieldValueQuoteBoundary(s string, idx int) bool {
 	return !(r == '_' || r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z')
 }
 
-func validateExactTargets(raw string, in []string) ([]string, string) {
+func validateExactTargets(raw string, in []string, requiredFiles []emitRequiredFileParam, predicates types.SemanticPredicates, sourceInventory *emitSourceInventoryProfileParam) ([]string, string, string) {
 	if len(in) == 0 {
-		return nil, ""
+		return nil, "", ""
 	}
 	validated := types.MentionedEntitiesFromRawRequest(raw, in)
 	if len(validated) == len(in) {
-		return validated, ""
+		return validated, "", ""
 	}
 	if len(validated) == 0 {
-		return nil, "exact_targets were provided, but none are explicitly present in the current request text; omit the field when unsure"
+		if exactTargetsAreRequiredFileHints(in, requiredFiles) &&
+			(predicates.IsCategoryEnumeration || sourceInventoryRequested(sourceInventory)) {
+			return nil, "", "dropped exact_targets that were not current-request verbatim but already appeared in required_files for a scoped inventory/enumeration"
+		}
+		return nil, "exact_targets were provided, but none are explicitly present in the current request text; omit the field when unsure", ""
 	}
 	var invalid []string
 	seen := make(map[string]bool, len(validated))
@@ -2683,7 +2691,36 @@ func validateExactTargets(raw string, in []string) ([]string, string) {
 	return nil, fmt.Sprintf(
 		"exact_targets must be copied verbatim from the current request text; these item(s) were not validated: %s",
 		strings.Join(invalid, ", "),
-	)
+	), ""
+}
+
+func exactTargetsAreRequiredFileHints(targets []string, requiredFiles []emitRequiredFileParam) bool {
+	if len(targets) == 0 || len(requiredFiles) == 0 {
+		return false
+	}
+	required := make(map[string]struct{}, len(requiredFiles))
+	for _, file := range requiredFiles {
+		if canon := canonicalRequiredFilePath(file.Path); canon != "" {
+			required[strings.ToLower(canon)] = struct{}{}
+		}
+	}
+	if len(required) == 0 {
+		return false
+	}
+	for _, target := range targets {
+		canon := canonicalRequiredFilePath(target)
+		if canon == "" {
+			return false
+		}
+		if _, ok := required[strings.ToLower(canon)]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func sourceInventoryRequested(p *emitSourceInventoryProfileParam) bool {
+	return p != nil && p.IsSourceInventory != nil && *p.IsSourceInventory
 }
 
 func emitAnalysisObservationOnlyRuntimeArtifact(ctx *types.BusContext) bool {
