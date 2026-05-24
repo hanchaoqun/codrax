@@ -11,6 +11,7 @@ package tool
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -460,6 +461,109 @@ func TestEmitHypothesisVerdict_NormalizesCommandOriginSpecificCitation(t *testin
 	}
 	if !strings.Contains(got[0].Rationale, "外部证据锚点：exec_command: line-count result") {
 		t.Fatalf("rationale should preserve command source ref, got %q", got[0].Rationale)
+	}
+}
+
+func TestEmitHypothesisVerdict_NormalizesOriginSpecificCitationsAcrossLedgerOrigins(t *testing.T) {
+	tool := &EmitHypothesisVerdict{}
+	tests := []struct {
+		name     string
+		origin   types.AnswerEvidenceOrigin
+		citation string
+		dims     []types.AnswerAggregateDimension
+	}{
+		{
+			name:     "cross repo index",
+			origin:   types.AnswerEvidenceOriginCrossRepoIndex,
+			citation: "repo_map: frameworks/base overview",
+			dims: []types.AnswerAggregateDimension{
+				{Name: "origin", Value: string(types.AnswerEvidenceOriginCrossRepoIndex)},
+				{Name: "repo", Value: "frameworks/base"},
+				{Name: "view", Value: "overview"},
+			},
+		},
+		{
+			name:     "external document",
+			origin:   types.AnswerEvidenceOriginExternalDocument,
+			citation: "external_document: drive://doc/123#p2",
+			dims: []types.AnswerAggregateDimension{
+				{Name: "origin", Value: string(types.AnswerEvidenceOriginExternalDocument)},
+				{Name: "resource_uri", Value: "drive://doc/123"},
+				{Name: "paragraph", Value: "2"},
+			},
+		},
+		{
+			name:     "web page",
+			origin:   types.AnswerEvidenceOriginWebPage,
+			citation: "web_page: https://example.test/spec#api",
+			dims: []types.AnswerAggregateDimension{
+				{Name: "origin", Value: string(types.AnswerEvidenceOriginWebPage)},
+				{Name: "url", Value: "https://example.test/spec"},
+				{Name: "selector", Value: "#api"},
+			},
+		},
+		{
+			name:     "mcp resource",
+			origin:   types.AnswerEvidenceOriginMCPResource,
+			citation: "mcp_resource: mcp://docs/spec#/items/0/title",
+			dims: []types.AnswerAggregateDimension{
+				{Name: "origin", Value: string(types.AnswerEvidenceOriginMCPResource)},
+				{Name: "server", Value: "docs"},
+				{Name: "resource_uri", Value: "mcp://docs/spec"},
+				{Name: "json_pointer", Value: "/items/0/title"},
+			},
+		},
+		{
+			name:     "connector resource",
+			origin:   types.AnswerEvidenceOriginConnectorResource,
+			citation: "connector_resource: jira://ISSUE-7 row 2",
+			dims: []types.AnswerAggregateDimension{
+				{Name: "origin", Value: string(types.AnswerEvidenceOriginConnectorResource)},
+				{Name: "connector", Value: "jira"},
+				{Name: "resource_uri", Value: "jira://ISSUE-7"},
+				{Name: "row", Value: "2"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mut := types.NewMutableState(tt.name)
+			mut.SetTurnAArtifacts(types.TurnAArtifacts{
+				AcceptedAggregateFacts: []types.AnswerAggregateFact{{
+					Kind:       types.AnswerAggregateScalar,
+					Label:      tt.name,
+					Value:      "supported externally",
+					Role:       types.AnswerAggregateRolePrincipalAnswer,
+					Dimensions: tt.dims,
+				}},
+			})
+			ctx := &types.BusContext{
+				Mutable: mut,
+				AnalysisIR: &types.AnalysisIR{
+					Version: types.AnalysisIRVersion,
+					RequestModel: types.RequestModel{
+						Language: "zh",
+						Intent:   types.IntentExplain,
+					},
+				},
+			}
+			params := json.RawMessage(fmt.Sprintf(`{"items":[{"hypothesis_id":"h1","status":"confirmed","rationale":"结论由 %s 支撑","citation":%q}]}`, tt.origin, tt.citation))
+
+			res, err := tool.Execute(ctx, params)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !res.Success {
+				t.Fatalf("%s citation should be accepted as origin-specific context, got: %s", tt.origin, res.Summary)
+			}
+			got := ctx.Mutable.EmittedHypothesisVerdicts()
+			if len(got) != 1 || got[0].Citation != "" {
+				t.Fatalf("%s ref must not leak into repo citation field, got %+v", tt.origin, got)
+			}
+			if !strings.Contains(got[0].Rationale, "外部证据锚点："+tt.citation) {
+				t.Fatalf("rationale should preserve %s source ref, got %q", tt.origin, got[0].Rationale)
+			}
+		})
 	}
 }
 

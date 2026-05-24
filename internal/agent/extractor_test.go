@@ -1743,6 +1743,58 @@ func TestExtractor_BuildPrompt_MixedVCSDiffCurrentSourceEnumerationUsesOriginLed
 	}
 }
 
+func TestExtractor_BuildPrompt_ExternalLedgerNarrativeSkipsAnchorSkeleton(t *testing.T) {
+	mu := types.NewMutableState("external resource narrative")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		AcceptedAggregateFacts: []types.AnswerAggregateFact{{
+			Kind:  types.AnswerAggregateScalar,
+			Label: "MCP contract conclusion",
+			Value: "resource documents the contract",
+			Role:  types.AnswerAggregateRolePrincipalAnswer,
+			MemberNotes: []string{
+				"MCP resource already carries the answer-grade narrative.",
+			},
+			Dimensions: []types.AnswerAggregateDimension{
+				{Name: "origin", Value: string(types.AnswerEvidenceOriginMCPResource)},
+				{Name: "server", Value: "docs"},
+				{Name: "resource_uri", Value: "mcp://docs/spec"},
+				{Name: "json_pointer", Value: "/items/0/title"},
+			},
+		}},
+	})
+	ctx := &types.AgentContext{
+		Objective: "根据 MCP 资源解释两个模块的关系",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				SubTopics: []types.SubTopic{
+					{Summary: "模块 A"},
+					{Summary: "模块 B"},
+				},
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	if !requiresMultiTopicAnchorSkeleton(ctx) {
+		t.Fatal("fixture must exercise the generic multi-topic anchor-skeleton path")
+	}
+	if !originSpecificAnswerRendersWithoutAnswerSymbols(ctx) {
+		t.Fatal("accepted origin-specific ledger support should render without a repo answer-symbol slate")
+	}
+	if needsAnswerSymbols(ctx) {
+		t.Fatal("external MCP ledger narrative must not force current-source answer symbols")
+	}
+	prompt := (&extractorEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "does NOT require `emit_answer_symbol`") {
+		t.Fatalf("prompt should explicitly disable answer-symbol slate for external ledger narrative:\n%s", prompt)
+	}
+	if contains(prompt, "For each, call emit_answer_symbol") {
+		t.Fatalf("prompt must not ask for repo anchors when external ledger already carries the answer:\n%s", prompt)
+	}
+}
+
 func TestExtractor_BuildPrompt_SourceInventoryAggregateSkipsAnswerSymbol(t *testing.T) {
 	mu := types.NewMutableState("list public string enum types")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{

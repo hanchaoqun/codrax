@@ -334,7 +334,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 	if isMultiTopicExplanation(ctx) {
 		st := ctx.AnalysisIR.RequestModel.SubTopics
 		plan := extractorAnswerSurfacePlan(ctx)
-		if requiresMultiTopicAnchorSkeleton(ctx) {
+		if needsAnswerSymbols(ctx) && requiresMultiTopicAnchorSkeleton(ctx) {
 			b.WriteString("## Anchor skeleton (one per sub-topic)\n\n")
 			fmt.Fprintf(&b, "The analyzer identified %d independently-answerable sub-topic(s). ", len(st))
 			b.WriteString("For each, call emit_answer_symbol with ONE anchor symbol — the load-bearing ")
@@ -2708,6 +2708,9 @@ func originSpecificNarrativeOrValueAnswer(ctx *types.AgentContext, rm types.Requ
 			hasOriginSpecific = true
 			break
 		}
+	}
+	if !hasOriginSpecific && agentContextHasOriginSpecificSupport(ctx) {
+		hasOriginSpecific = true
 	}
 	if !hasOriginSpecific {
 		return false
