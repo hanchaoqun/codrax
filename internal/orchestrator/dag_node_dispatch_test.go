@@ -314,6 +314,69 @@ func TestExploreWindowDispatchGroups_OrdinaryMultiTopicStillSplits(t *testing.T)
 	}
 }
 
+func TestExploreWindowDispatchGroups_RuntimeCurrentSharedContextStaysUnified(t *testing.T) {
+	t0 := &types.TaskNode{ID: "n1_evidence_t0", Type: types.NodeEvidence}
+	t1 := &types.TaskNode{ID: "n1_evidence_t1", Type: types.NodeEvidence}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			LogTriage: &types.LogBundle{
+				Observations: []types.LogObservation{{
+					Kind:       types.LogObservationRetryCycle,
+					Subject:    "finalizer timeout",
+					Summary:    "finalizer timed out before first byte",
+					Diagnostic: true,
+					Confidence: 0.9,
+				}},
+			},
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				SourceQuotes: []string{
+					"finalizer timeout",
+				},
+				Modes: []types.CurrentSourceExplanationMode{
+					types.CurrentSourceExplanationExplainCurrentMechanism,
+				},
+				Confidence: 0.9,
+			},
+			SubTopics: []types.SubTopic{
+				{Summary: "运行时现象", Entities: []string{"timeout"}},
+				{Summary: "当前源码机制", Entities: []string{"finalizer"}},
+			},
+		},
+	}}
+
+	groups := exploreWindowDispatchGroups(ctx, []*types.TaskNode{t0, t1})
+	if len(groups) != 1 {
+		t.Fatalf("runtime artifact + current-source shared context should stay unified; got %d groups", len(groups))
+	}
+	if len(groups[0]) != 2 || groups[0][0] != t0 || groups[0][1] != t1 {
+		t.Fatalf("unified dispatch should preserve evidence order, got %+v", groups[0])
+	}
+}
+
+func TestExploreWindowDispatchGroups_UserBucketsStillSplitDespiteSharedSignals(t *testing.T) {
+	t0 := &types.TaskNode{ID: "n1_evidence_t0", Type: types.NodeEvidence}
+	t1 := &types.TaskNode{ID: "n1_evidence_t1", Type: types.NodeEvidence}
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+			Predicates: types.SemanticPredicates{
+				IsCrossComponent: true,
+			},
+			Buckets: []types.QuestionBucket{
+				{Label: "codrax", Index: 1},
+				{Label: "opencode", Index: 2},
+			},
+		},
+	}}
+
+	groups := exploreWindowDispatchGroups(ctx, []*types.TaskNode{t0, t1})
+	if len(groups) != 2 {
+		t.Fatalf("explicit user buckets must remain separately dispatchable, got %d groups", len(groups))
+	}
+}
+
 // TestShouldDispatchExploreNodesIndividually_NilEntrySkipped pins the
 // defensive nil-entry check (the window slice is built by the
 // scheduler and SHOULD have no nil entries, but a future bug in

@@ -239,9 +239,27 @@ func exploreWindowDispatchGroups(ctx *types.BusContext, window []*types.TaskNode
 	if len(window) == 0 {
 		return nil
 	}
-	if shouldDispatchExploreNodesIndividually(window) && !shouldKeepSourceInventoryExploreWindowUnified(ctx, window) {
+	if shouldDispatchExploreNodesIndividually(window) &&
+		!shouldKeepSourceInventoryExploreWindowUnified(ctx, window) &&
+		!shouldKeepCoupledExploreWindowUnified(ctx, window) {
 		return splitExploreWindowForDispatch(window)
 	}
 	cp := append([]*types.TaskNode(nil), window...)
 	return [][]*types.TaskNode{cp}
+}
+
+func shouldKeepCoupledExploreWindowUnified(ctx *types.BusContext, window []*types.TaskNode) bool {
+	if exploreEvidenceNodeCount(window) < 2 || ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	plan := types.CompileInvestigationPlan(ctx.AnalysisIR.RequestModel, &ctx.AnalysisIR.AnswerContract)
+	if plan.HasUserBuckets {
+		return false
+	}
+	switch plan.Coupling {
+	case types.InvestigationCouplingSharedContext, types.InvestigationCouplingSequential:
+		return true
+	default:
+		return false
+	}
 }

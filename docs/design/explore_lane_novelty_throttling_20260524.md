@@ -109,6 +109,7 @@ lanes.
 | T20.7 Surface per-worker lane labels in durable parallel scrollback. | Done | `go test ./internal/render ./internal/orchestrator -run 'TestRenderer_ParallelExplorerScrollbackShows|TestDispatchExploreWindowsParallel_ScopesLanePlanPerEvidenceWindow|TestScopeExploreLanePlansForWindows_DemotesExactDuplicateLane|TestApplyExploreLaneHandoffIterationCap'` |
 | T20.8 Scope low-novelty streaks by typed origin and disable the hint when same-origin lanes cannot be mapped precisely. | Done | `go test ./internal/agent -run TestPostSameLaneLowNoveltySignal` |
 | T20.9 Add collective typed-lane convergence for parallel explore. | Done | Orchestrator unit test covers canceling support siblings after required typed lane closures. Focused replay `t20-collective-20260524-223835` kept finalizer to one turn on log/source and trace/source; residual early duplicate digging remains under T20.5/T20.10 lane ownership. |
+| T20.10 Keep tightly-coupled analyzer units in one dispatch window. | Done | Reuses `InvestigationCoupling` and `exploreWindowDispatchGroups`; tests cover runtime+current shared context, independent split, and user-bucket split. |
 
 ## Slice 1 Validation
 
@@ -243,14 +244,63 @@ Validation after remote `e477ce42`:
 - `u7k` produced a useful answer with commit lineage and current-code scalar
   chain; the failure was a brittle eval expectation that required older file
   names instead of the current stable files used by the answer.
-- After remote `b860fa33`, package tests still passed. The remote change is
-  scoped to repo-map/source-inventory projection, so it does not alter this
-  scheduling contract; a future focused eval can measure whether the improved
-  scoped lens reduces source-inventory exploration breadth.
+- After remote `81ac9726`, package tests still passed. The remote change is
+  scoped to repo-map/source-inventory projection and grouped lens output, so it
+  does not alter this scheduling contract; a future focused eval can measure
+  whether the improved scoped lens reduces source-inventory exploration breadth.
 - Residual gap: log/source and trace/source still begin duplicate early
   exploration before any owner lane has a typed closure. The next batch should
   add pre-dispatch lane ownership / novelty budget, not a harder finalizer or
   supplement gate.
+
+## Slice 7 Coupling-Aware Pre-Dispatch Ownership
+
+Status: Done for typed shared/sequential unification. Focused eval confirms the
+change reduces early duplicate exploration on runtime+current-source cases.
+
+The remaining `t20-collective-20260524-223835` cost is early duplication: before
+any worker can close a typed lane, log/trace + current-source questions may
+launch several analyzer sub-topic windows that all grep/read the same small set
+of performance/log parsing files. This is not a finalizer or validation problem.
+
+Design:
+
+- reuse the existing `InvestigationCoupling` typed field; do not infer coupling
+  from raw user text or model prose;
+- classify external runtime artifact + current-source verification as
+  `shared_context`, because the runtime observation and current source
+  explanation are two facets of the same answer, not independent user buckets;
+- keep analyzer-decomposition windows with `shared_context` or `sequential`
+  coupling unified in `exploreWindowDispatchGroups`;
+- preserve splitting for explicit user buckets / comparative partitions and for
+  independent sub-topics, so loose multi-question requests still benefit from
+  parallel exploration;
+- this is scheduling-only. It does not mark evidence complete, does not decide
+  the final answer, and does not drop accepted rich summaries.
+
+Validation:
+
+- unit tests for runtime+current-source shared coupling and unified dispatch:
+  `TestCompileInvestigationPlan_RuntimeArtifactCurrentVerificationIsSharedContext`
+  and
+  `TestExploreWindowDispatchGroups_RuntimeCurrentSharedContextStaysUnified`;
+- regression tests proving ordinary independent sub-topics still split and user
+  buckets remain distinct:
+  `TestExploreWindowDispatchGroups_OrdinaryMultiTopicStillSplits` and
+  `TestExploreWindowDispatchGroups_UserBucketsStillSplitDespiteSharedSignals`.
+- focused replay `eval/results/t20-coupled-20260524-230105`:
+  - `read_combo_log_current_source_explanation`: PASS, finalizer one turn,
+    `finalizer_rejects=0`, `finalizer_rewrites=0`, `explorer_iters=9`.
+    Previous collective replay was `explorer_iters=30`, so this removes the
+    early duplicate fan-out without changing answer validation.
+  - `read_combo_trace_current_source_explanation`: PASS, finalizer one turn,
+    `finalizer_rejects=0`, `finalizer_rewrites=0`, `explorer_iters=7`.
+    Previous collective replay was `explorer_iters=26`.
+  - Both cases used one explorer dispatch group (`explorer_dispatches=1`),
+    proving the shared-context pre-dispatch grouping is active. The log case
+    still has one non-blocking semantic reviewer concern about deeper call-chain
+    explanation; track that as a T11/T17 answer-quality follow-up, not as a
+    scheduling or finalizer-gate regression.
 
 ## Slice 3 UX Validation
 

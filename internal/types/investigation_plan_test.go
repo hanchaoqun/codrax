@@ -95,6 +95,43 @@ func TestCompileInvestigationPlan_SequentialTraceAndOriginContract(t *testing.T)
 	}
 }
 
+func TestCompileInvestigationPlan_RuntimeArtifactCurrentVerificationIsSharedContext(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentExplain,
+		LogTriage: &LogBundle{
+			Observations: []LogObservation{{
+				Kind:       LogObservationRetryCycle,
+				Subject:    "finalizer timeout",
+				Summary:    "finalizer timed out before first byte",
+				Diagnostic: true,
+				Confidence: 0.9,
+			}},
+		},
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			SourceQuotes: []string{
+				"finalizer timeout",
+			},
+			Modes: []CurrentSourceExplanationMode{
+				CurrentSourceExplanationExplainCurrentMechanism,
+			},
+			Confidence: 0.9,
+		},
+		SubTopics: []SubTopic{
+			{Summary: "运行时现象", Entities: []string{"timeout"}},
+			{Summary: "当前代码边界", Entities: []string{"finalizer"}},
+		},
+	}
+	got := CompileInvestigationPlan(rm, nil)
+	if got.Coupling != InvestigationCouplingSharedContext {
+		t.Fatalf("coupling=%q want shared_context for runtime artifact + current source verification", got.Coupling)
+	}
+	if len(got.Units) != 2 || got.Units[0].Coupling != InvestigationCouplingSharedContext ||
+		got.Units[1].Coupling != InvestigationCouplingSharedContext {
+		t.Fatalf("subtopic units should inherit shared_context coupling: %+v", got.Units)
+	}
+}
+
 func containsAnswerEvidenceOrigin(in []AnswerEvidenceOrigin, want AnswerEvidenceOrigin) bool {
 	for _, got := range in {
 		if got == want {

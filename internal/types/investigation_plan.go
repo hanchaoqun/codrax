@@ -145,6 +145,8 @@ func inferInvestigationCoupling(rm RequestModel) InvestigationCoupling {
 		return InvestigationCouplingSequential
 	case len(rm.QuestionStructure().Buckets) >= 2:
 		return InvestigationCouplingComparative
+	case rm.HasRuntimeArtifactCurrentVerificationAnchor():
+		return InvestigationCouplingSharedContext
 	case rm.Predicates.IsCrossComponent:
 		return InvestigationCouplingSharedContext
 	default:

@@ -236,7 +236,7 @@ pipeline technically "passes."
 | T17 | In progress | Close the external-observation extraction gap. `emit_hypothesis_verdict` accepts origin-specific references from VCS/diff/command/runtime/cross-repo/external-doc/web/MCP/connector only when those typed origins are present in the accepted ledger/aggregate contract, and keeps them out of current-source citation fields. Extractor no-tool recovery avoids `emit_answer_symbol` for narrative/value/comparison questions already carried by origin-specific evidence. The second implementation slice extends verdict regression coverage to cross-repo index, external documents, web, MCP, and connector origins, fixes a prompt contradiction where an external-ledger narrative disabled `emit_answer_symbol` but still rendered a hard "Anchor skeleton" instruction, and updates the finalizer Observation Ledger prompt to render actual records for cross-repo, external-doc, web, MCP, and connector families instead of checking only static policy text. Remaining work is broader focused eval replay once future web/MCP/connector producer plumbing exists. | `internal/tool/emit_hypothesis_verdict.go`, `internal/agent/extractor.go`, `internal/agent/answer_document_evaluator.go`, `internal/types/observation_ledger.go` | verdict normalization tests for VCS/diff/command/cross-repo/external-doc/web/MCP/connector; extractor soft-stop tests for external-ledger narratives; finalizer prompt tests for cross-repo/web/connector/MCP actual records; focused mixed-origin evals |
 | T18 | In progress | Add supplement safety fence v2. System-generated member/table supplements must be append-only, localized, non-overlapping, and bounded by the accepted typed member set. They must never broaden a source inventory, replace a model table, render a larger/competing row set than the accepted aggregate fact, or synthesize an unmarked system summary in front of a model-authored principal carrier. Current implementation suppresses competing enum/member supplements when model-authored carriers exist, limits verified-note supplements to typed requests that asked for explanatory dimensions, suppresses duplicate negative-observation supplements when the model already emitted a structured absent resolution with the relevant typed scope/target visible, and now keeps model-authored table/list carriers as the only visible blocks instead of prepending `principal_enum_summary`. Remaining work is focused eval replay and any display/reviewer gap found there. | `internal/tool/answer_document_principal_enum_compile.go`, `internal/tool/answer_document_pre_emit_check.go`, display supplement tests | regression tests with scoped source inventory, cross-repo comparison, mechanism/config/scalar cases; ban competing system tables and unmarked system summaries when model content covers the answer |
 | T19 | In progress | Add "system structural preference must not overpower model/user intent" redline tests across extractor/finalizer/display. Tests now fail if the principal-enumeration compiler rewrites model prose/table cells, synthesizes an unmarked summary before authored carriers, forces a current-source citation for origin-specific evidence, or appends a duplicate supplement after the model already expressed the accepted typed fact structurally. Remaining work is extractor/display assertions and focused eval assertions for no unwanted `系统按已验证证据补充成员` in covered answers. | `internal/tool`, `internal/agent`, `internal/render`, eval guards | unit tests + focused eval assertions for no unwanted system supplements or unmarked system summaries in covered answers |
-| T20 | In progress | Add lane novelty / completed-lane throttling. Detailed design now lives in `docs/design/explore_lane_novelty_throttling_20260524.md`. First implementation slice caps exact duplicate support/verification handoff lanes to a small verification budget. Focused `u7k-20260524-191826` proved this slice is safe but insufficient for same-lane deepening (`explorer_dispatches=0`, `explorer_iters=66`, `midloop_inject=19`). The second slice adds same-lane accepted typed-delta advisory: after accepted evidence/aggregate/observation facts exist, repeated source/VCS/command navigation with no new typed delta receives a soft "emit or close" nudge. The latest guard scopes the no-novelty streak by typed origin and suppresses hints when same-origin multi-unit lanes cannot be mapped precisely, so VCS/current-source or same-origin buckets cannot contaminate each other. The newest orchestrator slice adds collective typed-lane convergence: when all required typed owner lanes have accepted closure, remaining support siblings are canceled and no partial support state is merged. Focused `t20-collective-20260524-223835` kept mixed log/source and trace/source finalizers to one turn with zero rejects/rewrites. Residual work is pre-dispatch lane ownership / novelty budgeting because duplicate workers can still start before any owner closure exists. This remains soft scheduling only. | `docs/design/explore_lane_novelty_throttling_20260524.md`, `internal/agent/explorer.go`, `internal/orchestrator/explore_parallel_dispatch.go`, `internal/types/explore_lane_plan.go`, observation ledger deltas, eval telemetry | agent/orchestrator unit tests; focused `u7k`, log/source, trace/source, mixed VCS/current reruns with no finalizer churn; next target is lower early duplicate `explorer_iters` |
+| T20 | In progress | Add lane novelty / completed-lane throttling. Detailed design now lives in `docs/design/explore_lane_novelty_throttling_20260524.md`. First implementation slice caps exact duplicate support/verification handoff lanes to a small verification budget. Focused `u7k-20260524-191826` proved this slice is safe but insufficient for same-lane deepening (`explorer_dispatches=0`, `explorer_iters=66`, `midloop_inject=19`). The second slice adds same-lane accepted typed-delta advisory: after accepted evidence/aggregate/observation facts exist, repeated source/VCS/command navigation with no new typed delta receives a soft "emit or close" nudge. The latest guard scopes the no-novelty streak by typed origin and suppresses hints when same-origin multi-unit lanes cannot be mapped precisely, so VCS/current-source or same-origin buckets cannot contaminate each other. The newest orchestrator slices add collective typed-lane convergence and coupling-aware pre-dispatch grouping: required owner closures cancel remaining support siblings, and external runtime artifact + current-source verification sub-topics stay in one shared-context dispatch instead of launching duplicate early grep/read loops. Focused `t20-coupled-20260524-230105` kept mixed log/source and trace/source finalizers to one turn with zero rejects/rewrites and reduced `explorer_iters` from 30→9 and 26→7 versus the prior collective replay. Remaining work is not harder scheduling; track the residual log semantic reviewer concern under T11/T17 answer quality, and continue broader external-observation / relation-provider evals. This remains soft scheduling only. | `docs/design/explore_lane_novelty_throttling_20260524.md`, `internal/agent/explorer.go`, `internal/orchestrator/explore_parallel_dispatch.go`, `internal/orchestrator/dag_node_dispatch.go`, `internal/types/explore_lane_plan.go`, `internal/types/investigation_plan.go`, observation ledger deltas, eval telemetry | agent/orchestrator unit tests; focused `u7k`, log/source, trace/source, mixed VCS/current reruns with no finalizer churn; next target is T17/T13 breadth plus T11 answer-quality validation |
 | T21 | Done | Mixed-origin read-without-emit prompt conflict: initial prompts correctly declare VCS/diff/log/trace/command/repo-index/external observations as first-class non-file:line evidence, but generic mid-loop read-without-emit wording still said any fact not passed through `emit_evidence` is invisible. `u7k-20260524-194928` showed the model re-anchoring commit clues to design-document title lines. The fix makes read-without-emit hints and tool-surface restriction origin-aware: current-source claims still require `emit_evidence`; origin-specific observations are preserved through `reason` / `aggregate_facts`, and navigation is not narrowed to source emit-only in mixed lanes. Rebuilt `u7k-20260524-200712` / `u7k-20260524-201412` produced good answers with one-turn finalizers; the remaining failure was a brittle eval expectation and the case was updated instead of rerunning. | `internal/agent/explorer.go`, observation origin contract, mixed VCS/current eval | agent unit tests; focused mixed VCS/current prompt audit; `u7k.case` expectation corrected |
 
 ### 2026-05-24 Remote Update Task Review
@@ -263,11 +263,12 @@ pipeline technically "passes."
   are now recognized by the shared system-supplement predicate. This prevents
   older system-generated blocks from being mistaken for model-authored
   principal carriers by later pre-emit/display checks.
-- Latest remote refresh through `b860fa33` adds scoped repo-map projection for
-  source-inventory lens calls. Review result: it supports the same advisory
-  carrier direction and does not change the T20 task order. The task list stays:
-  finish T20 lane ownership / early-duplicate control first, then continue T17
-  broader external-observation producer eval and T13 relation-provider coverage.
+- Latest remote refresh through `81ac9726` adds scoped/grouped repo-map
+  projection for source-inventory lens calls. Review result: it supports the
+  same advisory carrier direction and does not change the T20 task order. The
+  task list stays: finish T20 lane ownership / early-duplicate control first,
+  then continue T17 broader external-observation producer eval and T13
+  relation-provider coverage.
 
 ### 2026-05-24 T20/T17 Focused Replay After Remote Update
 
@@ -325,12 +326,43 @@ owner lane has accepted typed closure. The next batch should add typed
 pre-dispatch lane ownership / novelty budgeting and UX-visible lane purpose,
 without changing finalizer gates or using raw prose/text matching.
 
-After pulling `b860fa33`, the focused eval was not rerun because the remote
-change is scoped to repo-map/source-inventory projection and the current batch
-touches only parallel explore scheduling. Post-pull package tests for
+After pulling `81ac9726`, the remote change was reviewed as scoped to
+repo-map/source-inventory projection and grouped lens output. It does not change
+the parallel explore scheduling contract. Post-pull package tests for
 orchestrator, agent, types, tool, and repomap scoped source-inventory tests
-passed, so the remaining risk is tracked as future focused eval coverage rather
-than a blocker for this scheduling slice.
+passed before the T20.10 focused replay.
+
+### 2026-05-24 T20 Coupling-Aware Dispatch Slice
+
+Implementation follows the existing typed plan instead of adding a new
+classifier:
+
+- `CompileInvestigationPlan` now treats external runtime artifact + current
+  source verification as `shared_context`. The log/trace observation and the
+  current-source mechanism explanation are two facets of one answer, so running
+  every analyzer sub-topic as a separate explorer worker produced duplicate
+  early scans.
+- `exploreWindowDispatchGroups` keeps `shared_context` and `sequential`
+  analyzer-decomposition evidence siblings unified, but still splits ordinary
+  independent sub-topics and explicit user buckets/comparative partitions.
+- This is scheduling-only. It does not change evidence authority, does not
+  decide the answer, and does not use raw user/model prose.
+
+Validation:
+
+- `go test ./internal/types -run 'TestCompileInvestigationPlan|TestCompileExploreLanePlan'`
+- `go test ./internal/orchestrator -run 'TestExploreWindowDispatchGroups|TestDispatchExploreWindowsParallel|TestParallelExploreAllowsEarlyConvergence'`
+- Focused replay `eval/results/t20-coupled-20260524-230105`:
+  - `read_combo_log_current_source_explanation`: PASS, finalizer one turn,
+    `finalizer_rejects=0`, `finalizer_rewrites=0`, `explorer_dispatches=1`,
+    `explorer_iters=9` (down from 30 in `t20-collective-20260524-223835`).
+  - `read_combo_trace_current_source_explanation`: PASS, finalizer one turn,
+    `finalizer_rejects=0`, `finalizer_rewrites=0`, `explorer_dispatches=1`,
+    `explorer_iters=7` (down from 26).
+  - Residual: the log case emitted one non-blocking semantic reviewer concern
+    about not tracing the runtime-log event to a full current-source call chain.
+    This is an answer-depth / observation-ledger quality follow-up, not a
+    scheduling regression.
 
 ### 2026-05-24 T11 Rich Summary Handoff Addendum
 
