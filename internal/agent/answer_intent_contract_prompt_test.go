@@ -409,6 +409,68 @@ func TestRenderAnswerDocObservationLedger_RendersMCPResourceWithoutRepoCitationP
 	}
 }
 
+func TestRenderAnswerDocObservationLedger_NamesAllExternalObservationFamilies(t *testing.T) {
+	mut := types.NewMutableState("external observations")
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{
+		{
+			Kind:  types.AnswerAggregateScalar,
+			Label: "cross repo hit",
+			Value: "tools/worker",
+			Role:  types.AnswerAggregateRolePrincipalAnswer,
+			Dimensions: []types.AnswerAggregateDimension{
+				{Name: "origin", Value: string(types.AnswerEvidenceOriginCrossRepoIndex)},
+				{Name: "repo", Value: "tools"},
+				{Name: "path", Value: "tools/worker.py"},
+			},
+		},
+		{
+			Kind:  types.AnswerAggregateScalar,
+			Label: "web contract",
+			Value: "documented",
+			Role:  types.AnswerAggregateRoleSupportingCoverage,
+			Dimensions: []types.AnswerAggregateDimension{
+				{Name: "origin", Value: string(types.AnswerEvidenceOriginWebPage)},
+				{Name: "url", Value: "https://example.test/spec"},
+				{Name: "selector", Value: "#contract"},
+			},
+		},
+		{
+			Kind:  types.AnswerAggregateScalar,
+			Label: "connector issue",
+			Value: "JIRA-7",
+			Role:  types.AnswerAggregateRoleSupportingCoverage,
+			Dimensions: []types.AnswerAggregateDimension{
+				{Name: "origin", Value: string(types.AnswerEvidenceOriginConnectorResource)},
+				{Name: "connector", Value: "jira"},
+				{Name: "resource_uri", Value: "jira://JIRA-7"},
+			},
+		},
+	})
+	mut.SetInvestigationComplete("done")
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentExplain},
+		},
+	}
+	got := renderAnswerDocObservationLedger(ctx)
+	for _, want := range []string{
+		"cross-repo index rows",
+		"external documents",
+		"web pages",
+		"MCP resources",
+		"connector resources",
+		"`aggregate:0#cross_repo_index`",
+		"`aggregate:1#web_page`",
+		"`aggregate:2#connector_resource`",
+		"non-`current_source` observations",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("observation ledger prompt missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderAnswerDocObservationLedger_RendersTypedPayloadRefs(t *testing.T) {
 	mut := types.NewMutableState("基于命令输出分析")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
