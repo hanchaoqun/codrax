@@ -1827,3 +1827,80 @@ Tasks:
   ordering and compact-hint behavior.
 - [ ] B2-I6: rerun focused eval and compare whether the model performs narrower
   source-inventory expansions before broad reads.
+
+B2-I eval observation, 2026-05-24 23:49 CST:
+
+- Focused `s5b` was intentionally stopped after enough signal to avoid wasting
+  local eval time. The run did not reach final answer.
+- The new cascade renderer was not exercised, because the model never called
+  `repo_map(view="source_inventory")`.
+- Instead, the analyzer/explorer repeated the older broad-search pattern:
+  `repo_map(view=file_map)` → many `list_files` / `grep` calls → batches of
+  `read_file`. By explorer round 8, tool history had already pruned and the
+  run had read many large files while still missing structured evidence emits.
+- The model also attempted shell loops for directory/function extraction. The
+  read-mode shell safety gate correctly refused command substitution, but the
+  recovery path fell back to even more broad grep/read_file work.
+- Root cause: B2-I fixed the shape once `source_inventory` is used, but not the
+  discovery path that gets the model to use it. The current tool description
+  and generic exhaustive-enumeration guidance still make `file_map`,
+  `list_files`, `grep`, and shell feel like the obvious first tools.
+
+Design B2-J: structure-triggered Repo Lens discovery hints.
+
+- Goal: make the source-inventory lens discoverable during broad navigation
+  without changing user intent, without inspecting user/model prose, and without
+  forcing a different control flow.
+- Trigger only from structured runtime facts:
+  - a successful `repo_map`, `list_files`, or `grep(files_only=true)` result is
+    scoped to a repo-relative directory/package/module;
+  - the result exposes multiple child scopes, many candidate files, or repeated
+    navigation over the same scope;
+  - the active typed request / advisory already has source-inventory-shaped
+    roles, or the model's current tool parameters ask for broad symbol/file
+    discovery;
+  - the model is consuming read_file budget without emitting evidence.
+- Do not trigger from raw current-request keywords or model prose. Chinese and
+  English phrases such as "所有", "entry point", "handler", "目录" are not control
+  signals here; only parsed tool/result structure is.
+- Hint shape:
+  - append a short advisory to the next tool result or mid-loop hint:
+    "This result is broad. To inspect it incrementally, consider
+    `repo_map(path=<same path>, view=\"source_inventory\", scope=<child>,
+    roles=[...], attribute_roles=[...])`."
+  - include only a summary plus 2-5 model-selectable next calls; no big file
+    table in the hint.
+  - keep wording advisory: "consider" / "if this matches the user's intent";
+    never "must" unless the existing phase budget already requires stopping
+    and emitting the current stage tool.
+- Generality:
+  - works for enumeration, mechanism/call-chain, architecture/component,
+    route/handler, config, import/literal inventories, mixed-language trees,
+    and multi-repo scoped work;
+  - roles come from structured `AnswerCandidateRole`, graph symbol kinds,
+    config/route metadata, or already active typed profiles;
+  - path/scope comes from repo-map/list-files/grep tool parameters and active
+    scope boundaries, not guessed names.
+- Safety:
+  - source-inventory remains an advisory navigation index, not final evidence;
+  - `read_file` / `grep` remain available and model-chosen;
+  - hints are bounded and per-scope deduped to avoid prompt spam;
+  - active-set and parent-escape checks continue to run before any suggested
+    path can be used by `repo_map`.
+
+Tasks:
+
+- [ ] B2-J1: add a reusable structured "broad navigation observation" detector
+  that consumes tool name, params, success status, and result shape.
+- [ ] B2-J2: attach a bounded source-inventory discovery hint after broad
+  `repo_map(file_map|overview)`, `list_files`, and `grep(files_only=true)`
+  results when the detector fires.
+- [ ] B2-J3: integrate with existing mid-loop read-without-emit hints so the
+  second escalation can suggest source-inventory narrowing before more broad
+  reads, while still prioritizing `emit_evidence` when evidence has already
+  been read.
+- [ ] B2-J4: add tests proving no raw user/model-prose keyword dependency,
+  dedupe across repeated tool calls, active-set safety, and non-Go route/config
+  coverage.
+- [ ] B2-J5: rerun `s5b` plus one mechanism and one config/route case to verify
+  the hint is generic and not enumeration-only.
