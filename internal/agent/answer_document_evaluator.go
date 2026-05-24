@@ -3892,10 +3892,12 @@ func renderAnswerDocCurrentSourceExplanationProfile(ctx *types.AgentContext) str
 	if lang == "zh" {
 		b.WriteString("## 当前源码解释请求\n\n")
 		b.WriteString("- 当前问题要求把外部/非源码观察与当前 checkout 的源码证据结合起来说明。请同时使用外部观察 lane 和 current-source lane；不要把外部观察伪装成源码 `file:line`，也不要因为外部观察存在就省略当前源码解释。\n")
+		b.WriteString("- 如果已读的当前源码证据里有精确符号、函数、配置键、错误类型或字面量锚点，请把这些锚点自然写进正文解释；不要只把它们留在文末引用列表。若外部观察无法追到完整当前源码调用链，请明确边界，但仍解释已由源码证明的相邻机制。\n")
 		b.WriteString("- 这是证据 lane 指引，不是系统补表许可；保留模型已经写好的丰富说明，证据不足时用边界说明而不是编造。\n\n")
 	} else {
 		b.WriteString("## Current-Source Explanation Request\n\n")
 		b.WriteString("- The current request asks the answer to combine external/non-source observations with current-checkout source evidence. Use both the external observation lane and the current-source lane; do not pretend external observations are source `file:line` proof, and do not omit current-source explanation just because an external observation exists.\n")
+		b.WriteString("- When already-read current-source evidence provides exact symbols, functions, config keys, error types, or literal anchors, weave those anchors into the visible explanation instead of leaving them only in the bibliography. If the external observation cannot be traced to a complete current-source call chain, state that boundary while still explaining the adjacent mechanism proven by source evidence.\n")
 		b.WriteString("- This is evidence-lane guidance, not permission for system table replacement. Preserve model-authored explanation; disclose unsupported parts in a boundary note instead of inventing facts.\n\n")
 	}
 	if len(profile.Modes) > 0 {

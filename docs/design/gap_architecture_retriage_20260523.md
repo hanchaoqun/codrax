@@ -379,6 +379,29 @@ Validation:
 - Guard test:
   `TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeClosureReasonWithoutTurnAArtifacts`.
 
+### 2026-05-24 T17/T11 Mixed Runtime Current-Source Answer-Depth Guard
+
+The T20.10 focused replay left one non-blocking semantic reviewer concern in
+`read_combo_log_current_source_explanation`: the final answer was factually
+useful and one-turn, but it kept some exact current-source anchors only in the
+reference list and disclosed that the runtime log was not traced to a complete
+current-source call chain. This is not a reason to reopen exploration or force a
+rewrite. It is an answer-depth guidance gap:
+
+- external/runtime observations remain origin-specific evidence and must not be
+  converted into fake repo citations;
+- when current-source evidence has already been read, finalizer should weave the
+  exact symbols / functions / config keys / error types / literals into the
+  visible explanation instead of leaving them only in bibliography-style
+  citations;
+- if the external observation cannot be traced to a full current-source call
+  chain, the answer should state that boundary while still explaining the
+  adjacent mechanism proven by source evidence.
+
+Implementation is prompt-only and localized in the current-source explanation
+profile. It does not add a hard gate, does not modify model-authored blocks, and
+does not permit system supplements.
+
 ## Implementation Notes For Future Batches
 
 - Do not turn `emit_evidence` into a catch-all. It remains current checkout

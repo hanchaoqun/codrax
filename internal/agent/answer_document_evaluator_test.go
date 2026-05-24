@@ -4220,6 +4220,8 @@ func TestAnswerDocumentEvaluator_CurrentSourceExplanationProfileRendersMixedGuid
 		"`explain_current_mechanism`",
 		"当前源码解释",
 		"调度链路",
+		"精确符号、函数、配置键、错误类型或字面量锚点",
+		"无法追到完整当前源码调用链",
 		"Current repository citations may still be used",
 	} {
 		if !strings.Contains(prompt, want) {
