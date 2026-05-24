@@ -1641,7 +1641,7 @@ Tasks:
   default first-page preview when grouped rows are present.
 - [x] B2-G4: add tests for multi-scope symbol roles, broad single-scope child
   grouping, cross-language roles, and config/config-key grouping.
-- [ ] B2-G5: rerun focused `s5b` eval and compare `read_file` count,
+- [x] B2-G5: rerun focused `s5b` eval and compare `read_file` count,
   `source_inventory` usage, finalizer entry, and answer completeness.
 
 Implementation notes for B2-G:
@@ -1670,3 +1670,57 @@ Implementation notes for B2-G:
   failed semantic review because the model flattened ambiguous entry candidates
   and treated unresolved rows inconsistently. This is the direct validation
   target for the B2-G rerun.
+- The B2-G rerun with `Qwen3.5-9B-OptiQ-4bit` confirmed that the grouped view is
+  visible to the model and remains model-driven (`source_lens=2`, grouped rows
+  rendered from the model's structured `roles` / `attribute_roles` / `scopes`
+  request). It still failed the focused semantic verdict: the model produced a
+  partial entry-function inventory and missed packages such as `normalizer`,
+  `criterion`, `subject`, `sourcemix`, and `stopcond`; `read_file` increased to
+  17. The failure path shows the next bottleneck is not JSON recovery or
+  finalizer retry: after seeing grouped candidates, the model still guessed
+  conventional files such as `<scope>/<scope>.go` and then repaired by grepping
+  broadly. This is a generic navigation-shape gap.
+
+Design B2-H: verified candidate file manifest and path-miss guidance.
+
+- Keep the grouped source-inventory view advisory-only. Do not convert it into a
+  hard read whitelist and do not block arbitrary `read_file` calls. The model
+  remains free to inspect files outside the manifest when it has a reason.
+- Add a visually prominent "Suggested files to verify" section derived only
+  from structured source-inventory rows and their row-local attributes:
+  `scope`, `role`, `attribute_role`, `file`, `line`, `language`, and
+  `support_ref`. This is a verified candidate file manifest, not an answer
+  slate. It should say "read these first when verifying this scope" rather than
+  "these are the only valid files".
+- Preserve model intent and order: when the model supplies `scopes[]`, render
+  files in that order; when a single broad scope is supplied, derive child
+  scopes from repo-relative paths. Do not read raw user text or model prose.
+- Make it language-neutral and multi-repo safe: files come from repomap rows
+  after active-set, symlink, and parent-escape boundaries. The manifest must
+  include Go, Java, JavaScript/TypeScript, Python, Rust, C/C++, Swift, Ruby,
+  config files, routes, imports, and literals through existing
+  `AnswerCandidateRole` metadata rather than filename heuristics.
+- Attach bounded ambiguity: if a scope has multiple candidate files or multiple
+  candidate symbols in one file, render counts and a small sample. Ambiguity is
+  for the model to verify or disclose; the system must not pick the winner.
+- Add a soft `read_file` path-miss hint using the same stored observation:
+  when a requested path is missing and there are known source-inventory
+  candidate files in the same structured scope, append a concise suggestion.
+  This is recovery guidance only; it must not mark the attempted path forbidden
+  and must not fire outside the active repository scope.
+- Tests should guard the contract:
+  candidate manifests render for function/method/type, route/config, and
+  cross-language rows; model-supplied scope order is preserved; no suggestions
+  are emitted for sibling/inactive repo paths; path-miss suggestions are bounded
+  and do not change tool success/failure semantics.
+
+Tasks:
+
+- [ ] B2-H1: render a bounded verified candidate file manifest from
+  source-inventory grouped rows without truncating the underlying observation.
+- [ ] B2-H2: add same-scope path-miss suggestions to `read_file` using the
+  stored source-inventory observation, preserving failure semantics.
+- [ ] B2-H3: add tests across functions/methods/types, route/config rows,
+  same-repo mixed language, and multi-repo active-scope isolation.
+- [ ] B2-H4: rerun focused `s5b` eval and compare `read_file` count,
+  guessed-path misses, `source_inventory` usage, and final answer completeness.
