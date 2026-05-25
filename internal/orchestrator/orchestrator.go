@@ -6113,11 +6113,20 @@ func (o *Orchestrator) shouldAutoCompleteReadyReconcileNode(n *types.TaskNode, e
 	if n == nil || n.Type != types.NodeReconcile {
 		return false
 	}
-	if !env.Signals.HasEnoughFacts && (o.busCtx == nil || !o.busCtx.Signals.HasEnoughFacts) {
+	acceptedClosureEnough := o.acceptedClosureCanSatisfyReconcileEnoughFacts()
+	if !acceptedClosureEnough && !env.Signals.HasEnoughFacts && (o.busCtx == nil || !o.busCtx.Signals.HasEnoughFacts) {
 		return false
 	}
 	if len(n.SuccessCriteria) > 0 {
-		ok, _ := criterion.EvalAll(n.SuccessCriteria, env)
+		evalEnv := env
+		if acceptedClosureEnough {
+			evalEnv.Signals.HasEnoughFacts = true
+			evalEnv.InvestigationComplete = true
+			if o.busCtx != nil && o.busCtx.Mutable != nil {
+				evalEnv.AggregateFacts = o.busCtx.Mutable.StableInvestigationAggregateFacts()
+			}
+		}
+		ok, _ := criterion.EvalAll(n.SuccessCriteria, evalEnv)
 		if !ok {
 			return false
 		}
@@ -6126,6 +6135,54 @@ func (o *Orchestrator) shouldAutoCompleteReadyReconcileNode(n *types.TaskNode, e
 		return false
 	}
 	return !o.hasBlockingReconcileRepair()
+}
+
+func (o *Orchestrator) acceptedClosureCanSatisfyReconcileEnoughFacts() bool {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return false
+	}
+	if !o.hasReconcileEvidenceContext() {
+		return false
+	}
+	policy := o.effectiveInvestigationCompletePolicy()
+	if policy != types.ICPolicySoft && policy != types.ICPolicyOverride {
+		return false
+	}
+	mut := o.busCtx.Mutable
+	if !mut.IsInvestigationComplete() && strings.TrimSpace(mut.StableInvestigationCompleteReason()) == "" {
+		return false
+	}
+	if policy == types.ICPolicyOverride {
+		return true
+	}
+	if missing := o.acceptedClosureMissingRequiredOriginsForAutoComplete(); len(missing) > 0 {
+		logging.Info("[orchestrator] accepted investigation closure cannot auto-complete reconcile node; missing_origin_lanes=%s",
+			formatAnswerEvidenceOriginsForLog(missing))
+		return false
+	}
+	closure := mut.EvidenceClosure()
+	if closure == nil {
+		return true
+	}
+	for _, repair := range closure.PendingRepairs() {
+		if o.repairBlocksAcceptedClosure(repair) {
+			return false
+		}
+	}
+	for _, pending := range closure.PendingReads() {
+		if pendingReadBlocksAcceptedReconcileClosure(pending) {
+			return false
+		}
+	}
+	return true
+}
+
+func pendingReadBlocksAcceptedReconcileClosure(p types.PendingRead) bool {
+	origin := strings.TrimSpace(p.Origin)
+	if strings.HasPrefix(origin, "chain_promotion.") {
+		return false
+	}
+	return types.PendingReadBlocksAcceptedClosure(p)
 }
 
 func (o *Orchestrator) recordAcceptedClosureValidationBoundaries(window []*types.TaskNode, env criterion.Env, source string) {

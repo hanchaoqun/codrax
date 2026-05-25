@@ -98,6 +98,28 @@ structured carrier exists. The section must say:
    value. This is structurally recoverable for count facts because the safe
    repair is to omit the partial members and preserve the model-authored count.
    It is NOT safe for `member_set`, where `members[]` is the exact answer set.
+4. A later reconcile-only scheduler window can reopen exploration even after a
+   successful `emit_investigation_complete` with grounded evidence and
+   model-authored `member_set`. In the 2026-05-25 focused relation eval, the
+   first accepted closure carried 8 production members, then reconcile
+   dispatched a second explorer because `has_enough_facts` was false; the
+   second explorer produced a narrower 7-member set and overwrote the stronger
+   handoff. This is not a LoopController-specific issue: any exact relation,
+   inventory, route/config, class hierarchy, multi-repo, or external-artifact
+   investigation can be harmed if a post-closure advisory reconcile step is
+   allowed to replace an accepted structured closure.
+5. Some providers serialize a text tool call as a keyed payload wrapper such as
+   `{ "emit_analysis_payload": { ...schema fields... } }`. This is a generic
+   transport shape, not an answer-specific issue. If the key is derived from a
+   currently exposed tool name plus a neutral suffix (`payload`, `params`,
+   `arguments`, `input`, etc.), the recovery layer can safely map it back to
+   that tool and let the normal schema validator decide whether the payload is
+   valid.
+6. Some providers also serialize the arguments object itself as the whole
+   assistant message, e.g. `{ "entities": [...], "intent": ... }` during the
+   analysis lane. Existing schema-aware normalization only runs after the
+   content has been classified as a tool call, so the missing piece is transport
+   classification, not another JSON repairer.
 
 ### Generalized Design
 
@@ -131,6 +153,43 @@ structured carrier exists. The section must say:
     keeps using its existing partial-exclusion normalizer;
   - disclose the normalization in tool summaries so the model and user can see
     that the count was kept while partial samples were not promoted to facts.
+- Treat an accepted, structured investigation closure as enough for a
+  reconcile-only scheduler node, but only inside strict machine-checkable
+  boundaries:
+  - the investigation-complete policy is `soft` or `override`;
+  - `MutableState` has a current or retained accepted closure;
+  - existing evidence context exists (`EvidenceItem`, flow finding, answer
+    chain/symbol, accepted aggregate fact, or accepted closure artifact);
+  - mixed-origin required lanes, pending validation targets, stage retries,
+    load-bearing pending reads, and blocking repairs are all absent;
+  - relation-chain enrichment pending reads (`chain_promotion.*`) are advisory
+    for reconcile-only auto-complete after accepted closure, because they are
+    downstream navigation/synthesis leads rather than proof that the accepted
+    closure is false. Primary-anchor, required-file, multi-path, and other
+    pre-complete load-bearing origins still block;
+  - success criteria are still evaluated, but `has_enough_facts` may be
+    satisfied by the accepted closure for this reconcile auto-complete decision
+    only.
+  This does not synthesize facts, does not inspect raw user/model prose, and
+  does not skip real blockers. It only prevents a reconcile-only advisory window
+  from replacing a model-authored structured closure that already passed the
+  tool gate.
+- Extend text tool-call recovery for keyed payload wrappers:
+  - generate aliases from exposed tool names only, e.g.
+    `emit_analysis_payload`, `emit_analysis_params`, `analysis_payload`;
+  - preserve exact tool-name precedence if a real tool with that exact name is
+    ever exposed;
+  - recover only complete JSON objects and then run the existing schema pruning
+    and tool validation path. Invalid payloads still fail normally.
+- Extend bare-argument recovery for whole-message structural emit payloads:
+  - only when `recover_text_tool_calls` is enabled and no real protocol tool
+    call was returned;
+  - only for complete JSON objects that uniquely match a schema-rich `emit_*`
+    tool by the existing schema scorer;
+  - keep ordinary tools such as `grep` and `read_file` explicit in auto mode,
+    so user-requested JSON prose is not swallowed as a guessed tool call;
+  - after classification, reuse the existing schema pruning, key aliasing, and
+    tool validator path.
 
 ### Follow-up Task List
 
@@ -143,4 +202,16 @@ structured carrier exists. The section must say:
 - [x] Normalize partial members on count aggregate facts without touching exact
       `member_set` payloads.
 - [x] Run focused tool/agent tests.
-- [ ] Re-run the focused relation evals after implementation.
+- [x] Re-run the focused relation evals after implementation.
+- [x] Auto-complete reconcile-only scheduler nodes from accepted structured
+      closure when all blockers are absent.
+- [x] Add DAG regression coverage proving accepted closure without an explicit
+      `HasEnoughFacts` signal does not reopen exploration.
+- [x] Add a monotonicity regression proving chain-promotion enrichment debt is
+      advisory for reconcile-only closure but load-bearing anchor debt still
+      blocks.
+- [x] Recover tool-name keyed payload wrappers such as
+      `emit_analysis_payload` without adding prompt-specific logic.
+- [x] Recover whole-message bare argument objects for uniquely matched
+      structural `emit_*` tools in compatibility mode, reusing the existing
+      schema-aware path.

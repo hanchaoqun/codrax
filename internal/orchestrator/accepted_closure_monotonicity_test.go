@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -152,5 +153,42 @@ func TestAcceptedClosure_SourceInventorySubjectRebindDoesNotReopenReconcile(t *t
 	}
 	if o.acceptedSourceInventoryClosureSuppressesReconcileFactRetry([]*types.TaskNode{{ID: "n_evidence", Type: types.NodeEvidence}}) {
 		t.Fatal("non-reconcile windows must not inherit the reconcile retry suppression")
+	}
+}
+
+func TestAcceptedClosure_ReconcileIgnoresChainPromotionPendingReadOnly(t *testing.T) {
+	mut := types.NewMutableState("accepted closure with advisory chain debt")
+	mut.SetInvestigationComplete("accepted closure already covers the answer")
+	mut.EvidenceClosure().AddPendingRead(types.PendingRead{
+		File:      "extra.go",
+		Origin:    "chain_promotion.bridge_literal",
+		Rationale: "advisory relation-chain enrichment after accepted closure",
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable:       mut,
+		EvidenceItems: []types.EvidenceItem{{ID: "ev", Source: "src.go", LineStart: 1}},
+	}}
+	reconcile := &types.TaskNode{
+		ID:              "n_reconcile",
+		Type:            types.NodeReconcile,
+		EntryConditions: []types.Criterion{{Kind: types.CritHasEnoughFacts}},
+	}
+	if !o.shouldAutoCompleteReadyReconcileNode(reconcile, criterion.Env{}) {
+		t.Fatal("reconcile-only node should treat chain-promotion debt as advisory after accepted closure")
+	}
+	if o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+		t.Fatal("normal explore auto-complete must keep the stricter pending-read boundary")
+	}
+
+	blocking := types.NewMutableState("accepted closure with load-bearing anchor debt")
+	blocking.SetInvestigationComplete("accepted closure already covers the answer")
+	blocking.EvidenceClosure().AddPendingRead(types.PendingRead{
+		File:      "anchor.go",
+		Origin:    "pre_complete.primary_anchor",
+		Rationale: "primary anchor remains unread",
+	})
+	o.busCtx.Mutable = blocking
+	if o.shouldAutoCompleteReadyReconcileNode(reconcile, criterion.Env{}) {
+		t.Fatal("load-bearing primary-anchor debt must still block reconcile auto-complete")
 	}
 }

@@ -22,8 +22,10 @@ import (
 //   - always accepts only complete JSON / tool_call envelopes for known
 //     tools; compatibility mode may repair a missing trailing closer or
 //     a single-quoted JSON argument string after normal JSON decode fails;
-//   - only in required-tool stages, also accepts wrapper prose around
-//     fenced, tagged, or balanced JSON-object envelopes.
+//   - in required-tool stages, also accepts wrapper prose around fenced,
+//     tagged, or balanced JSON-object envelopes;
+//   - for whole-message JSON objects, may infer bare arguments only when a
+//     unique schema match points at a structural emit_* tool.
 //
 // It never reads prose-looking content or invents missing schema
 // fields. For recovered text-only calls, it may prune schema-unknown
@@ -279,6 +281,10 @@ func parseTextToolCallJSON(content string, allowed map[string]bool, schemaInfos 
 			if call, bareOK := parseBareTextToolCallArgs(raw, schemaInfos, forcedName); bareOK {
 				return []ToolCall{call}, true
 			}
+		} else {
+			if call, bareOK := parseBareStructuralEmitTextToolCallArgs(raw, schemaInfos); bareOK {
+				return []ToolCall{call}, true
+			}
 		}
 		return nil, false
 	}
@@ -452,6 +458,25 @@ func textToolChoiceForcedName(choice string) string {
 }
 
 func parseBareTextToolCallArgs(raw any, infos []textToolSchemaInfo, forcedName string) (ToolCall, bool) {
+	return parseBareTextToolCallArgsWithPolicy(raw, infos, forcedName, func(textToolSchemaInfo, int) bool {
+		return true
+	})
+}
+
+func parseBareStructuralEmitTextToolCallArgs(raw any, infos []textToolSchemaInfo) (ToolCall, bool) {
+	return parseBareTextToolCallArgsWithPolicy(raw, infos, "", func(info textToolSchemaInfo, score int) bool {
+		if !strings.HasPrefix(info.name, "emit_") {
+			return false
+		}
+		// Auto-mode bare-argument recovery is intentionally limited to
+		// schema-rich structural emit tools. Simple one-field tools like
+		// grep/read_file remain explicit-only so user-requested JSON prose is
+		// not swallowed as an accidental tool call.
+		return len(info.required) >= 2 || score >= 16
+	})
+}
+
+func parseBareTextToolCallArgsWithPolicy(raw any, infos []textToolSchemaInfo, forcedName string, accept func(textToolSchemaInfo, int) bool) (ToolCall, bool) {
 	m, ok := raw.(map[string]any)
 	if !ok || len(m) == 0 || hasTextToolCallEnvelopeKey(m) {
 		return ToolCall{}, false
@@ -460,6 +485,9 @@ func parseBareTextToolCallArgs(raw any, infos []textToolSchemaInfo, forcedName s
 		for _, info := range infos {
 			if info.name != forcedName {
 				continue
+			}
+			if accept != nil && !accept(info, 0) {
+				return ToolCall{}, false
 			}
 			args := any(m)
 			if wrappedArgs, ok := singleFieldTextToolArgs(m); ok {
@@ -484,6 +512,9 @@ func parseBareTextToolCallArgs(raw any, infos []textToolSchemaInfo, forcedName s
 	var matched []bareTextToolArgMatch
 	for _, info := range infos {
 		if score, ok := scoreBareTextToolCallArgs(m, info); ok {
+			if accept != nil && !accept(info, score) {
+				continue
+			}
 			matched = append(matched, bareTextToolArgMatch{info: info, score: score})
 		}
 	}
@@ -1748,11 +1779,13 @@ func textToolKeyAliases(name string) []textToolKeyAliasCandidate {
 		return nil
 	}
 	out := []textToolKeyAliasCandidate{{key: name, exact: true}}
+	out = append(out, suffixedTextToolKeyAliases(name)...)
 	if plural := pluralTextToolAlias(name); plural != "" && plural != name {
 		out = append(out, textToolKeyAliasCandidate{key: plural, exact: false})
 	}
 	if base, ok := strings.CutPrefix(name, "emit_"); ok && base != "" {
 		out = append(out, textToolKeyAliasCandidate{key: base, exact: false})
+		out = append(out, suffixedTextToolKeyAliases(base)...)
 		if plural := pluralTextToolAlias(base); plural != "" && plural != base {
 			out = append(out,
 				textToolKeyAliasCandidate{key: plural, exact: false},
@@ -1761,6 +1794,19 @@ func textToolKeyAliases(name string) []textToolKeyAliasCandidate {
 		}
 	}
 	return uniqueTextToolKeyAliases(out)
+}
+
+func suffixedTextToolKeyAliases(key string) []textToolKeyAliasCandidate {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return nil
+	}
+	suffixes := []string{"payload", "params", "parameters", "arguments", "args", "input"}
+	out := make([]textToolKeyAliasCandidate, 0, len(suffixes))
+	for _, suffix := range suffixes {
+		out = append(out, textToolKeyAliasCandidate{key: key + "_" + suffix, exact: false})
+	}
+	return out
 }
 
 func uniqueTextToolKeyAliases(in []textToolKeyAliasCandidate) []textToolKeyAliasCandidate {

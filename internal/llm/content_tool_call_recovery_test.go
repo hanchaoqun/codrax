@@ -430,6 +430,58 @@ func TestRecoverTextToolCalls_RequiredModeBareArgsUniqueSchema(t *testing.T) {
 	}
 }
 
+func TestRecoverTextToolCalls_AutoModeBareArgsUniqueStructuralEmitSchema(t *testing.T) {
+	content := `{
+		"intent":"return_value",
+		"scenario":"generic",
+		"complexity":"simple",
+		"keywords":["LoopController"],
+		"entities":["LoopController"],
+		"question_kind":"registration",
+		"intent_confidence":0.6,
+		"complexity_confidence":0.5,
+		"predicates":{"is_scalar_answer":false},
+		"diagnostic_profile":{"is_diagnostic":false},
+		"answer_role_profile":{"is_role_binding_requested":false},
+		"error_granularity_profile":{"is_granularity_question":false}
+	}`
+	tools := []ToolSchema{
+		{
+			Name:       "grep",
+			Parameters: json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string"}},"required":["pattern"]}`),
+		},
+		{
+			Name: "emit_analysis",
+			Parameters: json.RawMessage(`{
+				"type":"object",
+				"properties":{
+					"intent":{"type":"string"},
+					"scenario":{"type":"string"},
+					"complexity":{"type":"string"},
+					"keywords":{"type":"array"},
+					"entities":{"type":"array"},
+					"question_kind":{"type":"string"},
+					"intent_confidence":{"type":"number"},
+					"complexity_confidence":{"type":"number"},
+					"predicates":{"type":"object"},
+					"diagnostic_profile":{"type":"object"},
+					"answer_role_profile":{"type":"object"},
+					"error_granularity_profile":{"type":"object"}
+				},
+				"required":["intent","scenario","complexity","keywords","entities","question_kind","predicates"]
+			}`),
+		},
+	}
+
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "auto"})
+	if got.StopReason != "tool_use" || len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "emit_analysis" {
+		t.Fatalf("expected auto-mode bare structural emit recovery, got stop=%q content=%q calls=%+v", got.StopReason, got.Content, got.ToolCalls)
+	}
+	if got.Content != "" {
+		t.Fatalf("recovered content should be cleared, got %q", got.Content)
+	}
+}
+
 func TestRecoverTextToolCalls_BareArgsUsesNestedItemSchemaToDisambiguate(t *testing.T) {
 	content := `{
 		"items": [{
@@ -674,6 +726,49 @@ func TestRecoverTextToolCalls_ToolNameKeyedMapAliases(t *testing.T) {
 	}
 	if got.ToolCalls[0].Name != "emit_answer_symbol" || got.ToolCalls[1].Name != "emit_hypothesis_verdict" {
 		t.Fatalf("aliases should canonicalize to tool names, got %+v", got.ToolCalls)
+	}
+}
+
+func TestRecoverTextToolCalls_ToolNameKeyedMapPayloadAlias(t *testing.T) {
+	content := `{
+		"emit_analysis_payload": {
+			"intent": "explain",
+			"question_kind": "mechanism",
+			"keywords": ["LoopController"],
+			"entities": ["LoopController"]
+		}
+	}`
+	tools := []ToolSchema{{
+		Name: "emit_analysis",
+		Parameters: json.RawMessage(`{
+			"type":"object",
+			"properties":{
+				"intent":{"type":"string"},
+				"question_kind":{"type":"string"},
+				"keywords":{"type":"array"},
+				"entities":{"type":"array"}
+			},
+			"required":["intent","question_kind"]
+		}`),
+	}}
+
+	got := recoverTextToolCalls(Response{Content: content}, tools, ChatOptions{ToolChoice: "required"})
+	if got.StopReason != "tool_use" || got.Content != "" {
+		t.Fatalf("expected recovered tool_use response, got stop=%q content=%q calls=%+v", got.StopReason, got.Content, got.ToolCalls)
+	}
+	if len(got.ToolCalls) != 1 || got.ToolCalls[0].Name != "emit_analysis" {
+		t.Fatalf("expected emit_analysis recovery, got %+v", got.ToolCalls)
+	}
+	var params struct {
+		Intent       string   `json:"intent"`
+		QuestionKind string   `json:"question_kind"`
+		Entities     []string `json:"entities"`
+	}
+	if err := json.Unmarshal(got.ToolCalls[0].Params, &params); err != nil {
+		t.Fatalf("params json: %v", err)
+	}
+	if params.Intent != "explain" || params.QuestionKind != "mechanism" || len(params.Entities) != 1 || params.Entities[0] != "LoopController" {
+		t.Fatalf("params = %+v", params)
 	}
 }
 
