@@ -826,6 +826,164 @@ func TestRunTaskGraph_RetryableExploreErrorAfterAcceptedClosureDoesNotReexplore(
 	}
 }
 
+func TestRunTaskGraph_RetryableAnalyzeErrorAfterUsableIRDoesNotReanalyze(t *testing.T) {
+	var analyzerCalls, explorerCalls, finalizeCalls int
+
+	ir := dagIR(types.AnswerContract{
+		Language: "en",
+	})
+	ir.TaskGraph.ExecutionPolicy.RetryBudget = 0
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			analyzerCalls++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingFacts,
+				AnalysisIR:   ir,
+			}, context.DeadlineExceeded
+		},
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingFacts,
+				EvidenceItems: []types.EvidenceItem{{ID: "ev-after-analyze-timeout", Source: "src.go", LineStart: 1}},
+			}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "Answer after preserved analysis.",
+			}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+	o.SetTransientRetryBudget(1)
+
+	busCtx, err := o.Run("explain X", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Fatalf("LastError = %q, want empty", busCtx.TaskState.LastError)
+	}
+	if analyzerCalls != 1 {
+		t.Fatalf("analyzer calls = %d, want 1", analyzerCalls)
+	}
+	if explorerCalls != 1 || finalizeCalls != 1 {
+		t.Fatalf("explorer/finalizer calls = %d/%d, want 1/1", explorerCalls, finalizeCalls)
+	}
+}
+
+func TestRunTaskGraph_RetryableExtractErrorAfterTurnBSlateDoesNotReextract(t *testing.T) {
+	var extractorCalls, finalizeCalls int
+
+	ir := dagIR(types.AnswerContract{
+		Language: "en",
+	})
+	ir.TaskGraph.ExecutionPolicy.RetryBudget = 0
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingFacts,
+				EvidenceItems: []types.EvidenceItem{{ID: "ev-before-extract-timeout", Source: "src.go", LineStart: 1}},
+			}, nil
+		},
+		types.AgentExtractor: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			extractorCalls++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				AnswerSymbols: []types.AnswerSymbol{{
+					Name: "Foo",
+					File: "src.go",
+					Line: 1,
+					Kind: types.KindFunction,
+				}},
+				AnswerSymbolCompleteness: types.CompletenessLowerBound,
+			}, context.DeadlineExceeded
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			if len(ctx.AnswerSymbols) != 1 || ctx.AnswerSymbols[0].Name != "Foo" {
+				t.Fatalf("finalizer did not receive preserved Turn-B slate: %+v", ctx.AnswerSymbols)
+			}
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "Answer after preserved extraction.",
+			}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+	o.SetTransientRetryBudget(1)
+
+	busCtx, err := o.Run("explain X", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Fatalf("LastError = %q, want empty", busCtx.TaskState.LastError)
+	}
+	if extractorCalls != 1 {
+		t.Fatalf("extractor calls = %d, want 1", extractorCalls)
+	}
+	if finalizeCalls != 1 {
+		t.Fatalf("finalize calls = %d, want 1", finalizeCalls)
+	}
+}
+
+func TestRunTaskGraph_RetryableFinalizeErrorAfterUsableAnswerDoesNotRewrite(t *testing.T) {
+	var finalizeCalls int
+
+	ir := dagIR(types.AnswerContract{
+		Language: "en",
+	})
+	ir.TaskGraph.ExecutionPolicy.RetryBudget = 0
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingFacts,
+				EvidenceItems: []types.EvidenceItem{{ID: "ev-before-finalize-timeout", Source: "src.go", LineStart: 1}},
+			}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "Usable structured answer before timeout.",
+			}, context.DeadlineExceeded
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+	o.SetTransientRetryBudget(1)
+
+	busCtx, err := o.Run("explain X", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Fatalf("LastError = %q, want empty", busCtx.TaskState.LastError)
+	}
+	if finalizeCalls != 1 {
+		t.Fatalf("finalize calls = %d, want 1", finalizeCalls)
+	}
+	if got := busCtx.Mutable.Result(); !strings.Contains(got, "Usable structured answer") {
+		t.Fatalf("final answer not preserved: %q", got)
+	}
+}
+
 func TestRunTaskGraph_RetryableFinalizeErrorRequeuesFinalize(t *testing.T) {
 	var explorerCalls, finalizeCalls int
 

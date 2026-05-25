@@ -332,6 +332,13 @@ func softProceedWithCollectedEvidenceMessage(lang string) string {
 	return "› Keeping collected evidence — preparing the answer"
 }
 
+func softProceedWithExtractedFindingsMessage(lang string) string {
+	if preferZhMessage(lang) {
+		return "› 已保留提炼结果，继续成文"
+	}
+	return "› Keeping extracted findings — composing the answer"
+}
+
 // softAnswerCheckRetryMessage renders the user-visible line for
 // the post-finalize answer contract backtrack: the finalizer
 // produced a draft that did not pass the quality checks, and the

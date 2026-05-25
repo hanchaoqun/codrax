@@ -2273,6 +2273,13 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 		// attempt=0.
 		o.emitStageRetryAttempt = attempt
 		out, err := o.dispatchStage(types.StageAnalyze)
+		if err != nil && o.busCtx.Mode == types.ModeRead && llm.IsStreamLevelRetryable(err) &&
+			out != nil && out.Error == "" && out.AnalysisIR != nil {
+			used++
+			o.busCtx.AnalysisIR = out.AnalysisIR
+			logging.Warning("[orchestrator] analyze transient dispatch error after usable IR; preserving analyzed request and continuing: %v", err)
+			return used, nil
+		}
 		if err != nil && o.busCtx.Mode == types.ModeRead && llm.IsStreamLevelRetryable(err) {
 			if transientUsed < o.transientRetryBudget {
 				transientUsed++
@@ -4752,6 +4759,11 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			o.busCtx.TaskState.Stage = types.StageExtract
 			for {
 				if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
+					if o.completeExtractAfterTransientProgress(exErr) {
+						stepsUsed++
+						preFinalizeExtractCompleted = true
+						break
+					}
 					if o.retryReadStandaloneDispatchError(state, types.StageExtract, exErr) {
 						continue
 					}
@@ -4819,6 +4831,12 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			Reasoning:  softFinalizingMessage(o.busCtx.Language),
 		})
 		out, err = o.dispatchStage(types.StageFinalize)
+		if err != nil {
+			if o.canUseFinalizerOutputAfterTransientProgress(out, err) {
+				logging.Warning("[orchestrator] finalize transient dispatch error after usable answer document; preserving structured answer and continuing checks: %v", err)
+				err = nil
+			}
+		}
 		if err != nil {
 			logging.Error("[orchestrator] DAG finalize failed: %v", err)
 			// Live preview cleanup: dispatch error path treats the
@@ -5631,6 +5649,11 @@ contractFailureBreak:
 				o.busCtx.TaskState.Stage = types.StageExtract
 				for {
 					if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
+						if o.completeExtractAfterTransientProgress(exErr) {
+							stepsUsed++
+							preFinalizeExtractCompleted = true
+							break
+						}
 						if o.retryReadStandaloneDispatchError(state, types.StageExtract, exErr) {
 							continue
 						}
@@ -6403,6 +6426,36 @@ func (o *Orchestrator) hasReusableTurnBSlateForFinalize() bool {
 		return true
 	}
 	return false
+}
+
+func (o *Orchestrator) completeExtractAfterTransientProgress(err error) bool {
+	if o == nil || o.busCtx == nil || !llm.IsStreamLevelRetryable(err) {
+		return false
+	}
+	if !o.hasReusableTurnBSlateForFinalize() {
+		return false
+	}
+	o.busCtx.TaskState.LastError = ""
+	o.drainHypothesisVerdicts()
+	logging.Warning("[orchestrator] suppressing extract transient retry after reusable Turn-B slate; proceeding with collected findings: %v", err)
+	o.emit(render.Event{
+		Kind:       render.EventOrchestratorNotice,
+		Timestamp:  time.Now(),
+		Agent:      "orchestrator",
+		NoticeKind: render.NoticeFinalizing,
+		Reasoning:  softProceedWithExtractedFindingsMessage(o.busCtx.Language),
+	})
+	return true
+}
+
+func (o *Orchestrator) canUseFinalizerOutputAfterTransientProgress(output *agent.StageOutput, err error) bool {
+	if o == nil || !llm.IsStreamLevelRetryable(err) || output == nil {
+		return false
+	}
+	if output.AnswerDegraded || output.SkipAnswerChecks {
+		return false
+	}
+	return strings.TrimSpace(output.FinalAnswer) != ""
 }
 
 func (o *Orchestrator) reusableTurnBSlateSummary() string {

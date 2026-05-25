@@ -838,20 +838,30 @@ High-priority follow-up:
 2026-05-25 update:
 
 - Deep root cause confirmed in `retryReadStageDispatchError`: read-mode
-  stream/first-byte failures requeued the whole explore window without first
+  stream-level failures requeued the whole explore window without first
   checking whether the explorer had already passed the typed
-  `emit_investigation_complete` closure contract.
-- Commercial boundary implemented: if a transient explore dispatch fails after
-  accepted closure and the same accepted-closure auto-complete predicate allows
-  progression, the scheduler marks the current explore window done, preserves
-  collected evidence, runs the normal auto-verdict drain, and continues to
-  extraction/finalization. No user-question keyword matching, no model-prose
+  `emit_investigation_complete` closure contract. The same class exists across
+  dispatch stages whenever an LLM call fails after a structured tool result has
+  already landed.
+- Commercial boundary implemented for every read-stage dispatch handoff:
+  analyzer preserves a usable `AnalysisIR`, explorer preserves accepted
+  closure/evidence, extractor preserves reusable Turn-B symbols/verdicts, and
+  finalizer preserves a non-degraded structured answer document before any
+  retry is attempted. No user-question keyword matching, no model-prose
   parsing, and no deterministic answer supplementation are involved.
 - No-progress transport failures still use the existing transient retry budget
   and requeue path. This preserves the intended recovery behavior for genuine
   network/model blips before the model produced durable structured progress.
-- Guarded by `TestRunTaskGraph_RetryableExploreErrorRequeuesWindow` and
-  `TestRunTaskGraph_RetryableExploreErrorAfterAcceptedClosureDoesNotReexplore`.
+- The stream-level family covered here is `io.EOF`, `io.ErrUnexpectedEOF`,
+  `ErrStreamStalled`, `ErrStreamFirstByteTimeout`, `context.DeadlineExceeded`,
+  and `net/url` transport errors. HTTP 429/5xx remain excluded because adapter
+  L1 already owns that retry budget; malformed tool JSON and validator rejects
+  are tool/content feedback, not dispatch failures.
+- Guarded by `TestRunTaskGraph_RetryableAnalyzeErrorAfterUsableIRDoesNotReanalyze`,
+  `TestRunTaskGraph_RetryableExploreErrorRequeuesWindow`,
+  `TestRunTaskGraph_RetryableExploreErrorAfterAcceptedClosureDoesNotReexplore`,
+  `TestRunTaskGraph_RetryableExtractErrorAfterTurnBSlateDoesNotReextract`,
+  and `TestRunTaskGraph_RetryableFinalizeErrorAfterUsableAnswerDoesNotRewrite`.
 
 ### P0 Design - Pre-completion Source Inventory Progress
 
