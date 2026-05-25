@@ -58,7 +58,6 @@ func TestNormalizeAnswerAggregateFacts_RejectsInvalid(t *testing.T) {
 		{name: "label", in: []AnswerAggregateFact{{Kind: AnswerAggregateTotalCount, Value: "1"}}},
 		{name: "value", in: []AnswerAggregateFact{{Kind: AnswerAggregateTotalCount, Label: "x"}}},
 		{name: "count value unit drift", in: []AnswerAggregateFact{{Kind: AnswerAggregateTotalCount, Label: "x", Value: "3 files"}}},
-		{name: "member cardinality", in: []AnswerAggregateFact{{Kind: AnswerAggregateBucketCount, Label: "runtime bucket", Value: "3", Members: []string{"a.go:1", "b.go:2"}}}},
 		{name: "member set requires members", in: []AnswerAggregateFact{{Kind: AnswerAggregateMemberSet, Label: "enum types", Value: "2"}}},
 		{name: "member set noninteger value", in: []AnswerAggregateFact{{Kind: AnswerAggregateMemberSet, Label: "enum types", Value: "two", Members: []string{"Intent"}}}},
 	}
@@ -68,6 +67,50 @@ func TestNormalizeAnswerAggregateFacts_RejectsInvalid(t *testing.T) {
 				t.Fatalf("expected validation error")
 			}
 		})
+	}
+}
+
+func TestNormalizeAnswerAggregateFacts_DropsPartialCountMembers(t *testing.T) {
+	out, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:        AnswerAggregateTotalCount,
+		Label:       "test implementations",
+		Value:       "4",
+		Unit:        "types",
+		Members:     []string{"A", "B", "C"},
+		MemberNotes: []string{"a", "b", "c"},
+	}})
+	if err != nil {
+		t.Fatalf("partial count members should be omitted instead of rejected: %v", err)
+	}
+	if len(out) != 1 {
+		t.Fatalf("len(out) = %d, want 1", len(out))
+	}
+	if got := out[0].Value; got != "4" {
+		t.Fatalf("value = %q, want preserved count", got)
+	}
+	if len(out[0].Members) != 0 || len(out[0].MemberNotes) != 0 {
+		t.Fatalf("partial members/member_notes should be omitted, got members=%v notes=%v", out[0].Members, out[0].MemberNotes)
+	}
+	if !strings.Contains(out[0].Provenance, "partial_count_members_omitted") {
+		t.Fatalf("provenance should record structural normalization, got %q", out[0].Provenance)
+	}
+}
+
+func TestNormalizeAnswerAggregateFacts_DoesNotDropMemberSetMembers(t *testing.T) {
+	out, err := NormalizeAnswerAggregateFacts([]AnswerAggregateFact{{
+		Kind:    AnswerAggregateMemberSet,
+		Label:   "principal implementations",
+		Value:   "4",
+		Members: []string{"A", "B", "C"},
+	}})
+	if err != nil {
+		t.Fatalf("member_set value should use existing len(members) canonicalization: %v", err)
+	}
+	if len(out) != 1 || len(out[0].Members) != 3 {
+		t.Fatalf("member_set members must be preserved, got %+v", out)
+	}
+	if out[0].Value != "3" {
+		t.Fatalf("member_set value = %q, want canonical len(members)", out[0].Value)
 	}
 }
 

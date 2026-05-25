@@ -140,6 +140,44 @@ func TestEmitInvestigationComplete_AcceptsStructuredAggregateFacts(t *testing.T)
 	}
 }
 
+func TestEmitInvestigationComplete_DropsPartialCountMembers(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{
+		"reason":"count fact has exact scalar value; listed members were only examples",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"total_count",
+				"label":"test-file LoopController implementations",
+				"value":"4",
+				"unit":"types",
+				"members":["protocolSoftStopEvaluator","isolatedPromptEvaluator","protocolSoftStopAcceptEvaluator"]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("partial count members should be structurally normalized, got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "partial members omitted") {
+		t.Fatalf("summary should disclose partial member omission, got: %s", res.Summary)
+	}
+	got := mut.StableInvestigationAggregateFacts()
+	if len(got) != 1 || got[0].Kind != types.AnswerAggregateTotalCount || got[0].Value != "4" {
+		t.Fatalf("count fact not preserved: %+v", got)
+	}
+	if len(got[0].Members) != 0 {
+		t.Fatalf("partial members should not be stored as exact count members: %+v", got[0].Members)
+	}
+}
+
 func TestEmitInvestigationComplete_AcceptsNegativeSearchAggregateFact(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}

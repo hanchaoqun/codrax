@@ -717,6 +717,13 @@ func aggregateFactValueCanonicalizationNotes(raw, normalized []types.AnswerAggre
 		rawFact := raw[i]
 		fact := normalized[i]
 		if rawFact.Kind != types.AnswerAggregateMemberSet || fact.Kind != types.AnswerAggregateMemberSet {
+			if completionAggregateFactIsCountKind(rawFact.Kind) &&
+				rawFact.Kind == fact.Kind &&
+				len(rawFact.Members) > 0 &&
+				len(fact.Members) == 0 {
+				notes = append(notes, fmt.Sprintf("%s[%d].partial members omitted (value=%s len(members)=%d)",
+					rawFact.Kind, i, strings.TrimSpace(rawFact.Value), len(rawFact.Members)))
+			}
 			continue
 		}
 		rawValue := strings.TrimSpace(rawFact.Value)
@@ -733,6 +740,18 @@ func aggregateFactValueCanonicalizationNotes(raw, normalized []types.AnswerAggre
 		notes = append(notes, fmt.Sprintf("member_set[%d].value %s->%s from members", i, rawValue, fact.Value))
 	}
 	return notes
+}
+
+func completionAggregateFactIsCountKind(kind types.AnswerAggregateKind) bool {
+	switch kind {
+	case types.AnswerAggregateTotalCount,
+		types.AnswerAggregateUniqueCount,
+		types.AnswerAggregateGroupedCount,
+		types.AnswerAggregateBucketCount:
+		return true
+	default:
+		return false
+	}
 }
 
 func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {

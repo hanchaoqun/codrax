@@ -93,6 +93,11 @@ structured carrier exists. The section must say:
    first soft-stop is already close-ready, generic partial-function-read nudges
    should not override the model's decision to close unless there is a typed,
    load-bearing blocker.
+3. Count aggregate facts can carry a valid scalar `value` while the model
+   accidentally includes sample `members[]` whose length does not equal the
+   value. This is structurally recoverable for count facts because the safe
+   repair is to omit the partial members and preserve the model-authored count.
+   It is NOT safe for `member_set`, where `members[]` is the exact answer set.
 
 ### Generalized Design
 
@@ -117,6 +122,15 @@ structured carrier exists. The section must say:
     partial-read prompts. The model may close with
     `emit_investigation_complete`; deterministic validators still protect
     truly missing structured handoff.
+- Normalize partial count members at the shared aggregate-fact boundary:
+  - for `total_count`, `unique_count`, `grouped_count`, and `bucket_count`, when
+    `value` is numeric and `members[]` is present but incomplete, drop
+    `members[]`/`member_notes[]`, preserve `value`, and record provenance;
+  - do not apply this count-member repair to `member_set`; exact answer members
+    stay on the existing `member_set` canonicalization path. `excluded_count`
+    keeps using its existing partial-exclusion normalizer;
+  - disclose the normalization in tool summaries so the model and user can see
+    that the count was kept while partial samples were not promoted to facts.
 
 ### Follow-up Task List
 
@@ -126,5 +140,7 @@ structured carrier exists. The section must say:
 - [x] Suppress exact-absence same-family nudges after positive defining proof.
 - [x] Suppress first-soft-stop partial-read prompts when the branch is already
       close-ready.
+- [x] Normalize partial members on count aggregate facts without touching exact
+      `member_set` payloads.
 - [x] Run focused tool/agent tests.
 - [ ] Re-run the focused relation evals after implementation.

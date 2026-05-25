@@ -203,6 +203,7 @@ func NormalizeAnswerAggregateFacts(in []AnswerAggregateFact) ([]AnswerAggregateF
 		return nil, nil
 	}
 	out = DropPartialAggregateExcludedLists(out)
+	out = DropPartialAggregateCountMemberLists(out)
 	if err := validateAggregateCountCardinality(out); err != nil {
 		return nil, err
 	}
@@ -212,6 +213,46 @@ func NormalizeAnswerAggregateFacts(in []AnswerAggregateFact) ([]AnswerAggregateF
 	out = PruneAggregateMemberSetsByStructuredExclusions(out)
 	out = reconcilePrincipalAggregateMemberSetSupersets(out)
 	return out, nil
+}
+
+// DropPartialAggregateCountMemberLists keeps count facts as scalar aggregates
+// when the model supplied examples or a partial member list. Count facts are
+// not exact member-set carriers; if their members are complete, len(members)
+// must equal value. When they are not complete, preserving the numeric value and
+// omitting the partial members is safer than forcing another model rewrite or
+// pretending the sample is the full set. Exact principal sets must use
+// member_set, which this helper intentionally does not touch.
+func DropPartialAggregateCountMemberLists(facts []AnswerAggregateFact) []AnswerAggregateFact {
+	if len(facts) == 0 {
+		return cloneAnswerAggregateFacts(facts)
+	}
+	out := cloneAnswerAggregateFacts(facts)
+	changed := false
+	for i := range out {
+		switch out[i].Kind {
+		case AnswerAggregateTotalCount, AnswerAggregateUniqueCount, AnswerAggregateGroupedCount, AnswerAggregateBucketCount:
+		default:
+			continue
+		}
+		if len(out[i].Members) == 0 {
+			continue
+		}
+		want, ok, err := parseAggregateCountValue(out[i])
+		if err != nil || !ok || want == len(out[i].Members) || want > maxAnswerAggregateMembers {
+			continue
+		}
+		out[i].Members = nil
+		out[i].MemberNotes = nil
+		out[i].Provenance = appendAggregateFactProvenance(
+			out[i].Provenance,
+			"normalized:partial_count_members_omitted",
+		)
+		changed = true
+	}
+	if !changed {
+		return cloneAnswerAggregateFacts(facts)
+	}
+	return out
 }
 
 // DropPartialAggregateExcludedLists keeps excluded_count as a count fact when
