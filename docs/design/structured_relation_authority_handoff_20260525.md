@@ -75,6 +75,123 @@ The provider accepts surfaces such as `StageExplore`, `explore`,
 `AgentExplorer ("explorer")`, but only from structured fields. It does not
 trigger on ordinary prose.
 
+## Relation Provider Catalog
+
+This audit separates "navigation relation" from "authority relation." A
+navigation relation may help the model decide where to look. An authority
+relation may block completion only when it has exact provenance and a local
+repair path.
+
+| Relation family | Current carrier | Languages / scope | Current use | Authority status |
+|---|---|---|---|---|
+| built-in stage -> agent -> skill | `types.AllStageBindings()` plus `internal/types/stage_binding.go` | codrax runtime topology only | pre-complete authority handoff, then finalizer supplement after evidence lands | Authority-eligible because exact machine table exists |
+| implements / extends | repo_map graph through `TypedRelationCandidateSource` | repo_map supported languages with type graph edges | prompt hint and typed coverage checks | Not a pre-complete authority provider yet; hard checks still require exact carrier + model-authored member_set + grounded evidence |
+| called-by / references | repo_map graph relation candidates | repo_map supported call/reference graph languages | prompt hint and change-impact navigation | Navigation-first; do not block completion without an exact request-scope contract |
+| imports / exports | repo_map import graph | all languages where repo_map extracts imports | source inventory / dependency navigation | Navigation-first; import inventory may have its own exact universe coverage, not this provider |
+| registers | accepted `EvidenceRegistration` rows | language-neutral evidence | typed prompt hint from evidence | Evidence itself is the authority; no extra pre-complete provider needed |
+| configures | accepted config/key evidence rows | config files plus source languages | prompt hint for config trace / mapping | Prompt-only until a per-framework canonical config authority exists |
+| routes-to | accepted route/handler evidence rows | route frameworks and source languages | prompt hint for route/handler lookup | Prompt-only until route registry authority can be proven per framework |
+| source-anchor | observation ledger | logs, traces, git, command output, external docs, MCP/connectors | links external observations to current-source anchors | Prompt/navigation only; external observation is not a current-source citation by itself |
+| directory/package/module membership | source_inventory / repo_map lens | multi-repo, cross-language | candidate universe and checklist guidance | Can support exact universe coverage when scope/count/member_set are machine-verifiable, but not relation-authority blocking |
+
+Guardrail: adding a row to `TypedRelationKind` or source_inventory does not make
+it authority-eligible. To become a blocking authority provider, a relation must
+also define:
+
+- exact source of truth;
+- exact trigger carriers;
+- minimum signal threshold;
+- read/materialize repair path;
+- unit tests for no-trigger cases;
+- an explicit statement that prompt hints remain advisory.
+
+## Non-Goals
+
+- Do not convert all typed relation hints into completion blockers.
+- Do not use the stage-agent provider for customer repository architecture.
+- Do not infer route/config/service relations from naming conventions alone.
+- Do not turn source_inventory suggestions into a read whitelist.
+- Do not append system-authored answer members when the model did not emit or
+  ground the relation.
+
+## Model-Guided Relation Follow-Up
+
+Customer repositories contain arbitrary business relations that no static
+system table can enumerate: feature flag -> experiment arm, task -> worker,
+message topic -> subscriber, state -> transition, protobuf field -> handler,
+database table -> DAO, and many others. Trying to hard-code these would violate
+the user-intent redline and would always be incomplete.
+
+The durable strategy is:
+
+1. **System covers common relation carriers.** Keep a small set of common,
+   language-neutral carriers: typed graph relations, import/export edges,
+   evidence-backed registration/config/route rows, source_inventory membership,
+   and external-observation source anchors.
+2. **Model chooses the semantic relation.** The model decides which candidate
+   relation matters for the user's question. The system must not infer this
+   from raw keywords or free-form model prose.
+3. **System turns the chosen direction into next-action guidance.** When the
+   model emits structured evidence, aggregate facts, or a tool call that reveals
+   a relation direction, the system may provide an advisory dossier:
+   - candidates already seen;
+   - source/provenance and precision;
+   - known ambiguity;
+   - whether the set is complete, partial, or unknown;
+   - suggested next tool calls to narrow scope or verify a candidate.
+4. **No authority, no blocking.** If the relation cannot be exhaustively proven
+   by a provider, the dossier is advisory. It may ask the model to verify,
+   caveat, or continue narrowing, but it must not fabricate a member set or
+   block completion as if the system knew the complete answer.
+
+This preserves model agency while still lowering model cognitive load: the
+system exposes structured navigation and verification affordances, but the
+model decides how those affordances apply to the user's actual intent.
+
+### Follow-Up Dossier Task
+
+- [x] Reuse existing `TypedRelationHint` / source_inventory rendering where it
+      already carries candidates, precision, provenance, and counts.
+- [x] Keep the first implementation as prompt/context guidance, not a new
+      completion gate. The existing prompt pool can carry partial/unknown
+      relation candidates without introducing a parallel dossier format.
+- [x] Trigger relation guidance only from structured carriers:
+      tool calls/results, source_inventory observations, typed relation hints,
+      evidence rows, or aggregate facts.
+- [x] Never trigger it from raw user text or assistant prose.
+- [x] Add tests proving that unsupported relation shapes do not become hard
+      completion blockers.
+- [x] Add prompt-context tests proving typed relation candidates are advisory
+      and are not described as authoritative citation grounding.
+- [ ] Add a separate lightweight dossier only if future eval data shows the
+      unified evidence pool cannot express partial/unknown relation coverage
+      without noise.
+
+## Prompt / Context Contract
+
+Structured relation guidance enters the model through the existing unified
+knowledge pool and source_inventory lens. The model must be able to use these
+rows to decide its own next actions, but the system must not make the relation
+semantic choice for it.
+
+The prompt contract is:
+
+- `llm_evidence` rows are model/tool-authored observations and may ground
+  claims through the normal citation path.
+- `typed_graph`, `typed_observation`, and other `typed_*` rows are navigation
+  candidates unless the model verifies them through normal evidence/citation
+  flow.
+- Typed rows may suggest likely members, files, or relation edges, but they are
+  not a user-visible answer and not a reason to rewrite the model's answer by
+  themselves.
+- A relation provider may become a hard authority only after it documents an
+  exact source of truth, minimum trigger signal, and local repair path.
+
+This keeps common relation carriers useful across mechanism, architecture,
+enumeration, route/config, cross-language, multi-repo, and external-artifact
+questions while still letting the model choose the relation that matters for
+the user's intent.
+
 ## Task List
 
 - [x] Document the root cause and provider boundary.
@@ -91,7 +208,7 @@ trigger on ordinary prose.
       - grounded authority evidence allows completion;
       - single-side or unsupported relation member sets do not trigger.
 - [x] Re-run focused unit tests.
-- [ ] Re-run the failing eval.
+- [x] Re-run the focused failing eval.
 
 ## Expected Effect
 

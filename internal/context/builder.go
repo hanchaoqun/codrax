@@ -1437,14 +1437,16 @@ func exactResolutionScenarioForRender(ac *types.AgentContext) types.Scenario {
 
 // knowledgePoolPreamble returns the LLM-facing description that
 // prefixes the unified Knowledge & Evidence Pool section (B6-T1
-// rename). Two short sentences in LLM-natural language; no
-// internal Go terminology (R4 red line). Future typed-channel
-// additions only need to add a Provenance value; this preamble
-// does not need to enumerate them by name.
+// rename). Keep this language intentionally careful: LLM-emitted
+// evidence rows are grounded observations, while typed relation rows
+// are navigation/verification candidates unless they are later
+// confirmed by normal evidence/citation flow. Future typed-channel
+// additions only need to add a Provenance value; this preamble does
+// not need to enumerate them by name.
 func knowledgePoolPreamble() string {
 	return "The pool below unifies evidence the investigation collected (provenance=llm_evidence) " +
-		"with structurally-derived candidates from the project's typed graph (provenance=typed_graph). " +
-		"Both lanes are authoritative grounding for citations; treat them as one source of truth and pick whichever rows your answer needs.\n\n"
+		"with structurally-derived relation candidates from repository indexes or observations. " +
+		"Treat llm_evidence rows as grounded evidence; treat typed_* rows as advisory candidates to verify with normal source/observation citations before making them user-visible claims.\n\n"
 }
 
 func typedSupportKnowledgePoolPreamble() string {
@@ -1598,7 +1600,7 @@ func selectEvidenceItemsForRender(items []types.EvidenceItem, limit int) []types
 	return out
 }
 
-// renderTypedRelationAppendix produces the typed_graph-tagged rows
+// renderTypedRelationAppendix produces typed relation candidate rows
 // for the Structured Evidence section. Empty when no hints OR every
 // hint member is already covered by an LLM-emitted EvidenceItem.
 //
@@ -1645,11 +1647,11 @@ func renderTypedRelationAppendix(hints []types.TypedRelationHint, llmItems []typ
 	return strings.TrimRight(out.String(), "\n")
 }
 
-// evidenceLineForTypedMember renders one typed_graph-provenance row
-// in the same shape (subject — predicate — object — file:line) that
-// llm_evidence rows use. The "[typed_graph]" Provenance tag at the
-// end is the only structural difference, so the LLM sees a uniform
-// table where Provenance is metadata, not a section divider.
+// evidenceLineForTypedMember renders one typed-relation candidate row
+// in the same compact shape (subject — predicate — object — file:line)
+// that llm_evidence rows use. The provenance tag is load-bearing:
+// typed_* rows are navigation candidates, not model-authored evidence
+// and not system-authored final answers.
 func evidenceLineForTypedMember(h types.TypedRelationHint, m types.TypedRelationMember, ak types.AnchorKind) string {
 	var b strings.Builder
 	b.WriteString("[")

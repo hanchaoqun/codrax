@@ -11,10 +11,10 @@ import "strings"
 // implementation, inheritance, callers, scope membership, override,
 // reference, registration), grep-based explorer investigation can
 // silently miss members (truncation, blank-identifier params,
-// cross-file dispatch). The typed graph (repomap) DOES have the
-// complete relation; we surface that via this hint so the LLM has
-// the full set as a structured input — but the LLM remains the SOLE
-// author of doc.Symbols / Summary etc. Per the
+// cross-file dispatch). The typed graph (repomap) can often provide
+// a better structured candidate surface than ad-hoc grep; we surface
+// that via this hint so the LLM has a verifiable checklist — but the
+// LLM remains the SOLE author of doc.Symbols / Summary etc. Per the
 // feedback_no_system_backfill_to_user_panel red line, this struct
 // flows into the agent's prompt context, NEVER into AnswerDocument.
 //
@@ -42,9 +42,9 @@ type TypedRelationHint struct {
 	// "function" / "package" / etc.). Read from typed Symbol.Kind.
 	SourceKind string `json:"source_kind"`
 
-	// Members is the deterministic set of relation members. Order is
-	// stable (alphabetic by Member.Name). Capped at the probe site to
-	// prevent prompt bloat on huge relations.
+	// Members is the deterministic candidate set returned by the
+	// carrier. Order is stable (alphabetic by Member.Name). Capped at
+	// the probe site to prevent prompt bloat on huge relations.
 	Members []TypedRelationMember `json:"members"`
 
 	// Provenance names the system carrier family used to derive this hint.

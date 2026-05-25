@@ -823,6 +823,20 @@ func TestAppendTypedRelationHintsDedupsAcrossCarriers(t *testing.T) {
 
 // ── render-time merge tests (renderTypedRelationAppendix) ───────────
 
+func TestKnowledgePoolPreamble_TypedRelationRowsAreAdvisory(t *testing.T) {
+	out := knowledgePoolPreamble()
+	if !strings.Contains(out, "llm_evidence rows as grounded evidence") {
+		t.Fatalf("preamble should preserve model-authored evidence as the grounded lane, got %q", out)
+	}
+	if !strings.Contains(out, "typed_* rows as advisory candidates") {
+		t.Fatalf("preamble should mark typed relation rows advisory, got %q", out)
+	}
+	if strings.Contains(out, "Both lanes are authoritative") ||
+		strings.Contains(out, "one source of truth") {
+		t.Fatalf("preamble must not present typed relation candidates as authority, got %q", out)
+	}
+}
+
 func TestRenderTypedRelationAppendix_AllNewRowsRendered(t *testing.T) {
 	hints := []types.TypedRelationHint{{
 		Relation:   "implements",

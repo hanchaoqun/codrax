@@ -235,6 +235,35 @@ func TestEmitInvestigationComplete_PreCompleteCheck_StructuredRelationAuthorityI
 	}
 }
 
+func TestStructuredRelationAuthorityDemands_IgnoresRelationsWithoutAuthorityProvider(t *testing.T) {
+	repo := t.TempDir()
+	writePrecompleteStageBindingAuthorityFixture(t, repo)
+	bus := &types.BusContext{RepoRoot: repo, Mutable: types.NewMutableState("generic relation")}
+	facts := []types.AnswerAggregateFact{
+		{
+			Kind:  types.AnswerAggregateMemberSet,
+			Role:  types.AnswerAggregateRoleSupportingCoverage,
+			Label: "route handler relations",
+			Members: []string{
+				`GET /api/users → ListUsersHandler`,
+				`POST /api/users → CreateUserHandler`,
+			},
+		},
+		{
+			Kind:  types.AnswerAggregateMemberSet,
+			Role:  types.AnswerAggregateRoleSupportingCoverage,
+			Label: "config readers",
+			Members: []string{
+				`providers_config → LoadRuntimeConfig`,
+				`auth.token → ReadTokenConfig`,
+			},
+		},
+	}
+	if got := structuredRelationAuthorityDemands(bus, facts, nil); len(got) != 0 {
+		t.Fatalf("generic typed relations without an exact authority provider must not block completion: %+v", got)
+	}
+}
+
 func precompleteArchitectureExplainIR() *types.AnalysisIR {
 	return &types.AnalysisIR{
 		RequestModel: types.RequestModel{
