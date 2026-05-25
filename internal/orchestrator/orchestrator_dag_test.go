@@ -772,6 +772,60 @@ func TestRunTaskGraph_RetryableExploreErrorRequeuesWindow(t *testing.T) {
 	}
 }
 
+func TestRunTaskGraph_RetryableExploreErrorAfterAcceptedClosureDoesNotReexplore(t *testing.T) {
+	var explorerCalls, finalizeCalls int
+
+	ir := dagIR(types.AnswerContract{
+		Language: "en",
+	})
+	ir.TaskGraph.ExecutionPolicy.RetryBudget = 0
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+				ID:           "ev-accepted-before-timeout",
+				Source:       "src.go",
+				LineStart:    1,
+				Scope:        types.ScopeLine,
+				AnchorSymbol: "Accepted",
+			}})
+			ctx.Mutable.SetInvestigationComplete("accepted closure before stream failure")
+			return nil, context.DeadlineExceeded
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "Answer from accepted evidence.",
+			}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+	o.SetTransientRetryBudget(1)
+
+	busCtx, err := o.Run("explain X", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Fatalf("LastError = %q, want empty", busCtx.TaskState.LastError)
+	}
+	if explorerCalls != 1 {
+		t.Fatalf("explorer calls = %d, want 1", explorerCalls)
+	}
+	if finalizeCalls != 1 {
+		t.Fatalf("finalize calls = %d, want 1", finalizeCalls)
+	}
+	if got := busCtx.Mutable.Result(); !strings.Contains(got, "accepted evidence") {
+		t.Fatalf("final answer not recorded from accepted evidence: %q", got)
+	}
+}
+
 func TestRunTaskGraph_RetryableFinalizeErrorRequeuesFinalize(t *testing.T) {
 	var explorerCalls, finalizeCalls int
 

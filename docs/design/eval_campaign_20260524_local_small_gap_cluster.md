@@ -824,7 +824,7 @@ Root-cause hypothesis to validate in code:
 
 High-priority follow-up:
 
-- [ ] Locate the DAG explore transient retry and fork merge paths that discard
+- [x] Locate the DAG explore transient retry and fork merge paths that discard
   or underuse inventory-progress state.
 - [ ] Promote source-inventory advisory construction earlier, from successful
   structured tool observations such as `list_files`/`repo_map`, not only after
@@ -834,6 +834,24 @@ High-priority follow-up:
 - [ ] Preserve model authority: the artifact must remain advisory and typed;
   it can guide tool choice / missing-member coverage, but must not decide the
   user's answer or hard rewrite model prose.
+
+2026-05-25 update:
+
+- Deep root cause confirmed in `retryReadStageDispatchError`: read-mode
+  stream/first-byte failures requeued the whole explore window without first
+  checking whether the explorer had already passed the typed
+  `emit_investigation_complete` closure contract.
+- Commercial boundary implemented: if a transient explore dispatch fails after
+  accepted closure and the same accepted-closure auto-complete predicate allows
+  progression, the scheduler marks the current explore window done, preserves
+  collected evidence, runs the normal auto-verdict drain, and continues to
+  extraction/finalization. No user-question keyword matching, no model-prose
+  parsing, and no deterministic answer supplementation are involved.
+- No-progress transport failures still use the existing transient retry budget
+  and requeue path. This preserves the intended recovery behavior for genuine
+  network/model blips before the model produced durable structured progress.
+- Guarded by `TestRunTaskGraph_RetryableExploreErrorRequeuesWindow` and
+  `TestRunTaskGraph_RetryableExploreErrorAfterAcceptedClosureDoesNotReexplore`.
 
 ### P0 Design - Pre-completion Source Inventory Progress
 

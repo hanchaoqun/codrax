@@ -48,6 +48,10 @@ func (o *Orchestrator) retryReadStageDispatchError(
 		return false
 	}
 
+	if stage == types.StageExplore && o.completeExploreWindowAfterTransientProgress(state, window, err) {
+		return true
+	}
+
 	// Transient retry uses its own dedicated budget so stream stalls
 	// don't drain the content-retry budget.
 	if state.transientRetryUsed >= o.transientRetryBudget {
@@ -105,6 +109,44 @@ func (o *Orchestrator) retryReadStageDispatchError(
 		Agent:      "orchestrator",
 		NoticeKind: render.NoticeRetry,
 		Reasoning:  softTransportRetryHintForStage(o.busCtx.Language, stage),
+	})
+	return true
+}
+
+// completeExploreWindowAfterTransientProgress handles the narrow but
+// important case where the explorer already passed the typed completion
+// contract, then the transport failed before dispatchStage could return
+// cleanly. Retrying the whole explore window in that state throws away
+// durable progress and can make the model redo a long investigation from
+// round 1. We only take this path when the same accepted-closure predicate
+// used by the normal post-dispatch scheduler path says it is safe to move
+// forward; otherwise the ordinary transient retry remains in charge.
+func (o *Orchestrator) completeExploreWindowAfterTransientProgress(
+	state *graphState,
+	window []*types.TaskNode,
+	err error,
+) bool {
+	if o == nil || state == nil || o.busCtx == nil || o.busCtx.Mutable == nil || len(window) == 0 {
+		return false
+	}
+	if !o.shouldAutoCompleteExploreWindowFromAcceptedClosure(nil, "", "") {
+		return false
+	}
+	o.busCtx.Signals.HasEnoughFacts = true
+	o.busCtx.TaskState.LastError = ""
+	for _, n := range window {
+		state.markDone(n.ID)
+		o.emitNodeEnd(n.ID, true, "")
+	}
+	o.runAutoVerdicts()
+	o.drainHypothesisVerdicts()
+	logging.Warning("[orchestrator] suppressing explore transient retry after accepted investigation closure; proceeding with collected evidence: %v", err)
+	o.emit(render.Event{
+		Kind:       render.EventOrchestratorNotice,
+		Timestamp:  time.Now(),
+		Agent:      "orchestrator",
+		NoticeKind: render.NoticeInvestigationReady,
+		Reasoning:  softProceedWithCollectedEvidenceMessage(o.busCtx.Language),
 	})
 	return true
 }
