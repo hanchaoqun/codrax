@@ -158,6 +158,11 @@ func normalizeValue(value any, schema json.RawMessage, path string, cfg types.To
 					return arr, []Repair{repair(path, "delimited_string_array", valueKind(value), "array")}
 				}
 			}
+			if arrayItemsAllowOnlyString(node) {
+				if arr, ok := singletonStringArray(s); ok {
+					return arr, []Repair{repair(path, "singleton_string_array", valueKind(value), "array")}
+				}
+			}
 		}
 		if arr, ok := value.([]any); ok {
 			return normalizeArray(arr, node, path, cfg)
@@ -1451,6 +1456,20 @@ func splitStringArray(s string) ([]any, bool) {
 		return nil, false
 	}
 	return out, true
+}
+
+func singletonStringArray(s string) ([]any, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" || strings.HasPrefix(s, "{") || strings.HasPrefix(s, "[") {
+		return nil, false
+	}
+	for _, r := range s {
+		switch r {
+		case ',', '，', ';', '；', '\n', '\r', '\t':
+			return nil, false
+		}
+	}
+	return []any{s}, true
 }
 
 func parseJSONStringInteger(s string) (int64, bool) {

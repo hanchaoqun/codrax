@@ -2418,44 +2418,58 @@ func (b *BaseAgent) normalizeToolCallParams(calls []llm.ToolCall, schemas []llm.
 
 	var out []llm.ToolCall
 	for i, call := range calls {
-		current := call.Params
-		var changed bool
-		var summaries []string
-		schema, ok := byName[call.Name]
-		if ok {
-			normalized, report := toolparam.Normalize(call.Params, schema, cfg)
-			if report.Changed() {
-				if mode == types.ToolParamCompatAudit {
-					logging.Info("[tool_param_compat] agent=%s tool=%s audit repairable: %s",
-						b.name, call.Name, report.Summary(6))
-					continue
-				}
-				current = normalized
-				changed = true
-				summaries = append(summaries, report.Summary(6))
-			}
-		}
-		if mode == types.ToolParamCompatRepair {
-			if patched, notes, ok := normalizeKnownLocalModelToolParams(call.Name, current); ok {
-				current = patched
-				changed = true
-				summaries = append(summaries, strings.Join(notes, "; "))
-			}
-		}
+		schema := byName[call.Name]
+		normalized, changed := b.normalizeOneToolCallParams(call, schema, cfg)
 		if !changed {
 			continue
 		}
 		if out == nil {
 			out = append([]llm.ToolCall(nil), calls...)
 		}
-		out[i].Params = current
-		logging.Warning("[tool_param_compat] agent=%s tool=%s params normalized: %s",
-			b.name, call.Name, strings.Join(summaries, "; "))
+		out[i] = normalized
 	}
 	if out == nil {
 		return calls
 	}
 	return out
+}
+
+func (b *BaseAgent) normalizeOneToolCallParams(call llm.ToolCall, schema json.RawMessage, cfg types.ToolParamCompatConfig) (llm.ToolCall, bool) {
+	mode := cfg.NormalizedMode()
+	if mode != types.ToolParamCompatAudit && mode != types.ToolParamCompatRepair {
+		return call, false
+	}
+	current := call.Params
+	var changed bool
+	var summaries []string
+	if len(schema) > 0 {
+		normalized, report := toolparam.Normalize(call.Params, schema, cfg)
+		if report.Changed() {
+			if mode == types.ToolParamCompatAudit {
+				logging.Info("[tool_param_compat] agent=%s tool=%s audit repairable: %s",
+					b.name, call.Name, report.Summary(6))
+				return call, false
+			}
+			current = normalized
+			changed = true
+			summaries = append(summaries, report.Summary(6))
+		}
+	}
+	if mode == types.ToolParamCompatRepair {
+		if patched, notes, ok := normalizeKnownLocalModelToolParams(call.Name, current); ok {
+			current = patched
+			changed = true
+			summaries = append(summaries, strings.Join(notes, "; "))
+		}
+	}
+	if !changed {
+		return call, false
+	}
+	out := call
+	out.Params = current
+	logging.Warning("[tool_param_compat] agent=%s tool=%s params normalized: %s",
+		b.name, call.Name, strings.Join(summaries, "; "))
+	return out, true
 }
 
 func repairToolCallParamSyntax(calls []llm.ToolCall) []llm.ToolCall {
@@ -2663,6 +2677,22 @@ func (b *BaseAgent) toolParamCompatConfig() types.ToolParamCompatConfig {
 	return types.ToolParamCompatConfig{}
 }
 
+func (b *BaseAgent) normalizeToolCallParamsFromRegistry(tc llm.ToolCall) (llm.ToolCall, bool) {
+	if b == nil || b.deps == nil || b.deps.Tools == nil {
+		return tc, false
+	}
+	cfg := b.toolParamCompatConfig()
+	mode := cfg.NormalizedMode()
+	if mode != types.ToolParamCompatAudit && mode != types.ToolParamCompatRepair {
+		return tc, false
+	}
+	tl, err := b.deps.Tools.Get(tc.Name)
+	if err != nil || tl == nil {
+		return tc, false
+	}
+	return b.normalizeOneToolCallParams(tc, tl.Parameters(), cfg)
+}
+
 func (b *BaseAgent) normalizeAnalyzerPrescanGrepCompat(ctx *types.AgentContext, tc llm.ToolCall) (llm.ToolCall, bool) {
 	if ctx == nil || ctx.Stage != types.StageAnalyze || tc.Name != "grep" {
 		return tc, false
@@ -2818,6 +2848,9 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 	}
 	if !toolCallParamsValidForHistory(tc.Params) {
 		return malformedToolParamsResult(tc), nil
+	}
+	if normalized, ok := b.normalizeToolCallParamsFromRegistry(tc); ok {
+		tc = normalized
 	}
 	if normalized, ok := b.normalizeAnalyzerPrescanGrepCompat(ctx, tc); ok {
 		tc = normalized
@@ -3185,7 +3218,7 @@ func analyzerToolNotAllowedGuidance() string {
 }
 
 func analyzerSourceInventoryBoundaryGuidance() string {
-	return "repo_map(view=\"source_inventory\") is a row-expansion lens, so it is not available in this classification step. If you only need structural orientation now, use repo_map with view=\"overview\", view=\"task_map\", or view=\"file_map\". If you need a scoped member inventory, call emit_analysis now and encode it in source_inventory_profile: set is_source_inventory=true, target_roles=[...], requested_fields/source_quotes/scopes when known, plus unresolved candidates you already identified. Later evidence gathering will expand and verify the rows."
+	return "repo_map(view=\"source_inventory\") is a row-expansion lens, so it is not available in this classification step. If you only need structural orientation now, use repo_map with view=\"overview\", view=\"task_map\", or view=\"file_map\". If you need a scoped member inventory, call emit_analysis now and encode it in source_inventory_profile: set is_source_inventory=true, target_roles=[...], requested_fields/source_quotes/scopes when known, plus unresolved candidates you already identified. If the request is about structural edges, preserve the relation target in predicate_axis / answer_subject / required_files; later evidence gathering can use repo_map(view=\"relation_map\", sources=[...], scopes=[...], relation_kinds=[...]) and verify rows."
 }
 
 func isAnalyzerStageAllowedTool(name string) bool {

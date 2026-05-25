@@ -930,8 +930,10 @@ func renderSourceInventoryDiscoveryHint(obs sourceInventoryDiscoveryObservation)
 	b.WriteString(". To inspect it incrementally, consider `repo_map(view=\"source_inventory\")` before reading many files. This is navigation only, not final-answer evidence.\n")
 	fmt.Fprintf(&b, "- broad member/attribute checklist: `%s`\n",
 		sourceInventoryCascadeRepoMapCall(pathSurface, "", nil, expandRoles, attrRoles, 24, ""))
-	fmt.Fprintf(&b, "- structural relation lens: `%s` when the next step is to inspect calls/imports/inheritance/references around model-chosen sources or scopes.\n",
-		sourceInventoryDiscoveryRelationMapCall(pathSurface, ""))
+	fmt.Fprintf(&b, "- structural relation lens by chosen source: `%s` when the next step is to inspect calls/imports/inheritance/references around a selected symbol or file.\n",
+		sourceInventoryDiscoveryRelationMapCall(pathSurface, "", "<symbol-or-file>"))
+	fmt.Fprintf(&b, "- structural relation lens by scope: `%s` when the next step is to inspect edges inside a chosen directory/module.\n",
+		sourceInventoryDiscoveryRelationMapCall(pathSurface, "<scope>", ""))
 	if len(obs.ScopeGroups) > 0 {
 		b.WriteString("- expand only the branch that matches the user's intent:\n")
 		maxScopes := minInt(len(obs.ScopeGroups), 4)
@@ -951,7 +953,7 @@ func renderSourceInventoryDiscoveryHint(obs sourceInventoryDiscoveryObservation)
 	return strings.TrimSpace(b.String())
 }
 
-func sourceInventoryDiscoveryRelationMapCall(pathSurface, scope string) string {
+func sourceInventoryDiscoveryRelationMapCall(pathSurface, scope, source string) string {
 	if strings.TrimSpace(pathSurface) == "" {
 		pathSurface = "."
 	}
@@ -961,10 +963,11 @@ func sourceInventoryDiscoveryRelationMapCall(pathSurface, scope string) string {
 		`"relation_kinds": ["call", "import", "inheritance", "reference"]`,
 		`"top_n": 24`,
 	}
+	if strings.TrimSpace(source) != "" {
+		fields = append(fields, `"sources": [`+strconv.Quote(source)+`]`)
+	}
 	if strings.TrimSpace(scope) != "" {
 		fields = append(fields, `"scope": `+strconv.Quote(scope))
-	} else {
-		fields = append(fields, `"scope": "<scope>"`)
 	}
 	return "repo_map {" + strings.Join(fields, ", ") + "}"
 }

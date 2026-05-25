@@ -85,7 +85,7 @@ func subExplorerSkill(req *types.SubAgentRequest) *skill.Config {
 		Name: "sub_explore",
 		Goal: fmt.Sprintf("Explore files in scope [%s] and discover facts", strings.Join(scope, ", ")),
 		Workflow: []string{
-			"Use repo_map as a navigation index for the scoped directories; prefer source_inventory when you need a bounded member or attribute checklist",
+			"Use repo_map as a navigation index for the scoped directories; prefer source_inventory when you need a bounded member or attribute checklist, and relation_map when you need calls/imports/inheritance/reference edges around chosen sources or scopes",
 			"Use list_files or grep(files_only=true) when repo_map does not expose the directory shape you need",
 			"Read key files to verify the facts suggested by navigation tools",
 			"Identify types, functions, interfaces, and dependencies",
@@ -238,9 +238,10 @@ func (e *subExplorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, 
 	b.WriteString("**Strategy** (adapt to what you find):\n")
 	b.WriteString("1. Use `repo_map` as a scoped navigation index, not as evidence. Start with `view=\"overview\"`, `view=\"task_map\"`, or `view=\"file_map\"` for orientation.\n")
 	b.WriteString("2. When the task needs a scoped inventory or member-to-attribute checklist, call `repo_map` with `view=\"source_inventory\"`, model-chosen `roles`, optional `attribute_roles`, and the current scope. Prefer a cascade: broad summary first, then a narrower source_inventory call for the scope you choose.\n")
-	b.WriteString("3. Use `list_files` or `grep(files_only=true)` when you need a real directory listing or a token-anchored candidate set that repo_map did not provide.\n")
-	b.WriteString("4. Verify selected navigation rows with `read_file` or targeted `grep(context_lines=3)` before treating them as facts.\n")
-	b.WriteString("5. Read the most relevant files and extract structured evidence.\n\n")
+	b.WriteString("3. When the task needs structural edges, call `repo_map` with `view=\"relation_map\"`; pass `sources` for selected symbols/files, `scope`/`scopes` for directory/module boundaries, and `relation_kinds` for call/import/inheritance/implements/reference/type_usage when known.\n")
+	b.WriteString("4. Use `list_files` or `grep(files_only=true)` when you need a real directory listing or a token-anchored candidate set that repo_map did not provide.\n")
+	b.WriteString("5. Verify selected navigation rows with `read_file` or targeted `grep(context_lines=3)` before treating them as facts.\n")
+	b.WriteString("6. Read the most relevant files and extract structured evidence.\n\n")
 
 	b.WriteString("**Evidence format** (examples — adapt the tags and structure to what you find):\n\n")
 	b.WriteString("```\n")

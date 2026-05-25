@@ -617,7 +617,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	b.WriteString("## Breadth Scan\n\n")
 	b.WriteString("Your goal is to map a bounded candidate set for the user's question, not every broadly related file. ")
 	b.WriteString("Do NOT read files in full yet. Use lightweight tools:\n")
-	b.WriteString("- repo_map (task_map view) to get an overview of relevant files\n")
+	b.WriteString("- repo_map (task_map/file_map for orientation; source_inventory for scoped member/attribute checklists; relation_map for calls/imports/inheritance/reference edges around chosen sources/scopes)\n")
 	b.WriteString("- grep with files_only=true to find WHICH FILES contain key terms (just filenames, not lines). Use `file_type` when the language is obvious; do not use --include so you discover all relevant file types\n")
 	b.WriteString("- list_files to understand directory structure\n\n")
 	b.WriteString(renderExplorerRepoMapNavigationPrimer())
@@ -1391,6 +1391,7 @@ func renderExplorerRepoMapNavigationPrimer() string {
 		"When the task needs a bounded source inventory or a member-to-attribute checklist, call `repo_map` with `view=\"source_inventory\"` and model-chosen `roles`, optional `attribute_roles`, and `scope`/`scopes`.\n" +
 		"- The source-inventory lens returns counts, grouped scopes, languages, candidate files, and candidate symbols/routes/config keys across supported languages; use it to choose what to verify next.\n" +
 		"- Prefer a cascade: broad `source_inventory` summary first, then a narrower follow-up with the chosen `scope`, `roles`, `attribute_roles`, `top_n`, and `cursor`/`offset` if the result is paged.\n" +
+		"- When the task needs structural edges, use `view=\"relation_map\"`: pass `sources` after you choose concrete symbols/files, pass `scope`/`scopes` for directory/module boundaries, and narrow `relation_kinds` to call/import/inheritance/implements/reference/type_usage when known.\n" +
 		"- Treat every lens row as advisory until you verify the selected file or symbol with `read_file` or targeted `grep`; do not cite repo_map rows as source facts.\n" +
 		"- Use repo-relative existing directories for `path`. If a path is uncertain, call `list_files` on the nearest known parent or `repo_map(path=\".\")` before guessing.\n\n"
 }
@@ -9839,7 +9840,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 					gate.WriteString("- You haven't used grep yet. Search for key terms from the question with files_only=true.\n")
 				}
 				if !structuralDone {
-					gate.WriteString("- Use repo_map (task_map view) to see structurally relevant files.\n")
+					gate.WriteString("- Use repo_map (task_map/file_map for orientation; source_inventory or relation_map when the needed shape is a scoped inventory or relation lens) to see structurally relevant files.\n")
 				}
 				if totalDiscovered < minDisc {
 					fmt.Fprintf(&gate, "- You only discovered %d files. Use broader search patterns to find at least %d.\n", totalDiscovered, minDisc)

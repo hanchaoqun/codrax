@@ -100,6 +100,25 @@ func TestNormalize_DoesNotWrapObjectForStringArray(t *testing.T) {
 	}
 }
 
+func TestNormalize_WrapsSingletonStringArrayLosslessly(t *testing.T) {
+	schema := json.RawMessage(`{"type":"object","properties":{"keywords":{"type":"array","items":{"type":"string"}}}}`)
+	raw := json.RawMessage(`{"keywords":"agent"}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if !hasRepair(report, "$.keywords", "singleton_string_array") {
+		t.Fatalf("expected singleton string array repair, got %+v", report)
+	}
+	var decoded struct {
+		Keywords []string `json:"keywords"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if strings.Join(decoded.Keywords, "|") != "agent" {
+		t.Fatalf("keywords not wrapped losslessly: %+v", decoded.Keywords)
+	}
+}
+
 func TestNormalize_StringScalarsWithStructuralNumericPrefix(t *testing.T) {
 	schema := json.RawMessage(`{
 	  "type":"object",

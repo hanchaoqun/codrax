@@ -166,10 +166,10 @@ type ToolParamCompatConfig struct {
 	// when the provider tree omits tool_param_compat entirely.
 	Mode string `yaml:"mode"`
 
-	// SplitStringArrays controls the conservative string -> []string rule for
-	// array-of-string fields. It is deliberately opt-in because a delimited
-	// prose string is less lossless than scalar type parsing or JSON-string
-	// unwrapping.
+	// SplitStringArrays controls delimited string -> []string splitting for
+	// array-of-string fields. It is deliberately opt-in because splitting a
+	// prose string is less lossless than scalar type parsing, JSON-string
+	// unwrapping, or wrapping a single scalar string as one array item.
 	SplitStringArrays *bool `yaml:"split_string_arrays"`
 }
 

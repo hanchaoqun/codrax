@@ -555,6 +555,9 @@ func TestAnalysisSkill_WorkflowGuidesRepoMapWithoutSourceInventoryExpansion(t *t
 	for _, want := range []string{
 		"repo_map",
 		"overview/task_map/file_map",
+		`repo_map(view="relation_map")`,
+		"sources=[...]",
+		"relation_kinds=[...]",
 		`repo_map(view="source_inventory")`,
 		"source_inventory_profile",
 		"call `emit_analysis`",

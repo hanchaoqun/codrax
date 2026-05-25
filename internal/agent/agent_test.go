@@ -678,7 +678,7 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 		if got.Repair == nil || got.Repair.Code != analyzerSourceInventoryAnalyzeBoundaryCode {
 			t.Fatalf("repair code = %+v, want %q", got.Repair, analyzerSourceInventoryAnalyzeBoundaryCode)
 		}
-		for _, want := range []string{"not available in this classification step", "source_inventory_profile", `view="overview"`, `view="task_map"`, `view="file_map"`} {
+		for _, want := range []string{"not available in this classification step", "source_inventory_profile", `view="overview"`, `view="task_map"`, `view="file_map"`, `view="relation_map"`, "relation_kinds"} {
 			if !strings.Contains(got.Summary, want) {
 				t.Fatalf("summary should give positive source_inventory guidance; missing %q in %q", want, got.Summary)
 			}

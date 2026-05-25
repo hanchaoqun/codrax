@@ -51,6 +51,9 @@ func TestSourceInventoryDiscoveryHintFromListFilesBroadResultDedupe(t *testing.T
 		`"roles": ["function", "method", "type", "config_key", "route"]`,
 		`"scope": "aggregator"`,
 		`"attribute_roles": ["function", "method", "type", "config_key", "route"]`,
+		`"view": "relation_map"`,
+		`"sources": ["<symbol-or-file>"]`,
+		`"relation_kinds": ["call", "import", "inheritance", "reference"]`,
 		"navigation only, not final-answer evidence",
 	} {
 		if !strings.Contains(hint, want) {

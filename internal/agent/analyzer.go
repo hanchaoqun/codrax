@@ -557,8 +557,8 @@ func buildAnalyzerRepoOverview(ctx *types.AgentContext, objective string) (strin
 		header = fmt.Sprintf("## Repository overview (pre-computed for entities: %s)\n\n"+
 			"The following task_map shows files and symbols matching the entities from the user's question. "+
 			"Use this to inform your entity/keyword choices and pre-scan targets. "+
-			"If one more lightweight check is needed, use repo_map overview/task_map/file_map, grep(files_only=true), or list_files. "+
-			"Do not call repo_map(view=\"source_inventory\") here; encode inventory-shaped requests in source_inventory_profile and call emit_analysis.\n\n",
+			"If one more lightweight check is needed, use repo_map overview/task_map/file_map, grep(files_only=true), or list_files; use repo_map(view=\"relation_map\") only for a narrow already-named source/scope relation orientation, not proof. "+
+			"Do not call repo_map(view=\"source_inventory\") here; encode inventory-shaped requests in source_inventory_profile and relation-shaped requests in predicate_axis/answer_subject/required_files, then call emit_analysis.\n\n",
 			strings.Join(entities, ", "))
 	} else {
 		// No entities extracted — fall back to general overview.
@@ -567,8 +567,8 @@ func buildAnalyzerRepoOverview(ctx *types.AgentContext, objective string) (strin
 		header = "## Repository overview (pre-computed, no tool call needed)\n\n" +
 			"The following overview shows the repository structure. " +
 			"Use this to orient your entity/keyword choices and pre-scan targets. " +
-			"If one more lightweight check is needed, use repo_map overview/task_map/file_map, grep(files_only=true), or list_files. " +
-			"Do not call repo_map(view=\"source_inventory\") here; encode inventory-shaped requests in source_inventory_profile and call emit_analysis.\n\n"
+			"If one more lightweight check is needed, use repo_map overview/task_map/file_map, grep(files_only=true), or list_files; use repo_map(view=\"relation_map\") only for a narrow already-named source/scope relation orientation, not proof. " +
+			"Do not call repo_map(view=\"source_inventory\") here; encode inventory-shaped requests in source_inventory_profile and relation-shaped requests in predicate_axis/answer_subject/required_files, then call emit_analysis.\n\n"
 	}
 
 	if output == "" {

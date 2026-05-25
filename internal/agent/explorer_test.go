@@ -863,7 +863,7 @@ func TestBuildInitialInstructionRetry(t *testing.T) {
 	if !strings.Contains(prompt1, "Breadth Scan") {
 		t.Error("first call should contain 'Breadth Scan'")
 	}
-	for _, want := range []string{"Repo Map Navigation", `view="source_inventory"`, "attribute_roles", "not as evidence"} {
+	for _, want := range []string{"Repo Map Navigation", `view="source_inventory"`, "attribute_roles", `view="relation_map"`, "relation_kinds", "not as evidence"} {
 		if !strings.Contains(prompt1, want) {
 			t.Fatalf("breadth scan should teach cascaded repo_map navigation; missing %q:\n%s", want, prompt1)
 		}

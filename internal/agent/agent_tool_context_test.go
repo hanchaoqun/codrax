@@ -27,6 +27,30 @@ func (t *captureBusContextTool) Execute(ctx *types.BusContext, _ json.RawMessage
 	return types.ToolResult{ToolName: t.Name(), Success: true}, nil
 }
 
+type captureParamsTool struct {
+	toolpkg.ReadOnly
+	toolpkg.NonEvidenceTool
+	got json.RawMessage
+}
+
+func (t *captureParamsTool) Name() string        { return "capture_params" }
+func (t *captureParamsTool) Description() string { return "captures normalized params for tests" }
+func (t *captureParamsTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{
+		"type":"object",
+		"properties":{
+			"sources":{"type":"array","items":{"type":"string"}},
+			"top_n":{"type":"integer"},
+			"include_counts":{"type":"boolean"}
+		}
+	}`)
+}
+
+func (t *captureParamsTool) Execute(_ *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
+	t.got = append(t.got[:0], params...)
+	return types.ToolResult{ToolName: t.Name(), Success: true}, nil
+}
+
 func TestExecuteTool_PropagatesStageAndAttachmentsToBusContext(t *testing.T) {
 	reg := toolpkg.NewRegistry()
 	capture := &captureBusContextTool{}
@@ -63,6 +87,38 @@ func TestExecuteTool_PropagatesStageAndAttachmentsToBusContext(t *testing.T) {
 	}
 	if capture.got.AttachedHitrace != ctx.AttachedHitrace {
 		t.Fatalf("AttachedHitrace = %q, want %q", capture.got.AttachedHitrace, ctx.AttachedHitrace)
+	}
+}
+
+func TestExecuteTool_AppliesSchemaAwareParamCompatFromRegistry(t *testing.T) {
+	reg := toolpkg.NewRegistry()
+	capture := &captureParamsTool{}
+	reg.Register(capture)
+
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{
+		Tools: reg,
+		ToolParamCompatByAgent: map[types.AgentName]types.ToolParamCompatConfig{
+			types.AgentExplorer: {Mode: types.ToolParamCompatRepair},
+		},
+	}, nil)
+	res, _ := base.executeTool(&types.AgentContext{Stage: types.StageExplore}, llm.ToolCall{
+		ID:     "compat-json",
+		Name:   capture.Name(),
+		Params: json.RawMessage(`{"sources":"Explorer","topN":"3","includeCounts":"true"}`),
+	})
+	if res == nil || !res.Success {
+		t.Fatalf("executeTool failed: %+v", res)
+	}
+	var decoded struct {
+		Sources       []string `json:"sources"`
+		TopN          int      `json:"top_n"`
+		IncludeCounts bool     `json:"include_counts"`
+	}
+	if err := json.Unmarshal(capture.got, &decoded); err != nil {
+		t.Fatalf("tool received invalid normalized params: %v\n%s", err, capture.got)
+	}
+	if strings.Join(decoded.Sources, "|") != "Explorer" || decoded.TopN != 3 || !decoded.IncludeCounts {
+		t.Fatalf("unexpected normalized params: %+v raw=%s", decoded, capture.got)
 	}
 }
 

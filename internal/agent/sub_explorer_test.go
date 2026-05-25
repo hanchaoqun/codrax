@@ -45,8 +45,11 @@ func TestSubExplorerSkillExposesRepoMapNavigationOnly(t *testing.T) {
 			t.Fatalf("sub_explorer ToolSuggestions must not expose %q: %v", forbidden, sk.ToolSuggestions)
 		}
 	}
-	if !strings.Contains(strings.Join(sk.Workflow, "\n"), `source_inventory`) {
-		t.Fatalf("sub_explorer workflow should teach repo_map source_inventory navigation: %v", sk.Workflow)
+	workflow := strings.Join(sk.Workflow, "\n")
+	for _, want := range []string{`source_inventory`, `relation_map`} {
+		if !strings.Contains(workflow, want) {
+			t.Fatalf("sub_explorer workflow should teach repo_map %s navigation: %v", want, sk.Workflow)
+		}
 	}
 }
 
@@ -100,6 +103,8 @@ func TestSubExplorerInitialInstructionTeachesRepoMapWithoutUnavailableTools(t *t
 	for _, want := range []string{
 		"`repo_map` as a scoped navigation index",
 		`view="source_inventory"`,
+		`view="relation_map"`,
+		"relation_kinds",
 		"Verify selected navigation rows with `read_file` or targeted `grep",
 		"advisory navigation",
 	} {

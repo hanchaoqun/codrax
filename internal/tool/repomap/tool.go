@@ -60,7 +60,8 @@ func (t *RepoMapV2) Description() string {
 		"relation_map (advisory structural edges around model-chosen sources/scopes: calls, imports, inheritance, implements, references), " +
 		"source_inventory (typed repo lens for scoped members/symbols/routes/config attributes/counts). " +
 		"For broad scoped inventories, prefer source_inventory with roles and optional attribute_roles so the tool returns a compact checklist instead of forcing many read_file calls. " +
-		"When multiple scopes or broad symbol roles are requested, source_inventory also renders a scope-grouped advisory view to help choose the next files to verify."
+		"When multiple scopes or broad symbol roles are requested, source_inventory also renders a scope-grouped advisory view to help choose the next files to verify. " +
+		"For relation questions, call relation_map with sources when you already chose a symbol/file, or scopes when you want structural edges inside directories/modules; narrow relation_kinds when you know the edge family."
 }
 
 func (t *RepoMapV2) Parameters() json.RawMessage {
@@ -100,7 +101,7 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
     "sources": {
       "type": "array",
       "items": {"type": "string"},
-      "description": "For relation_map view: model-chosen source symbols, files, or scopes to inspect. Omit with query to let relation_map list matching source candidates."
+      "description": "For relation_map view: model-chosen source symbols, files, or scopes to inspect. Use this after a source_inventory/task_map/file_map result surfaces a concrete source. Omit with query to let relation_map list matching source candidates."
     },
     "relation_kinds": {
       "type": "array",
@@ -934,6 +935,10 @@ func ToolDescription(view, query string) string {
 	switch view {
 	case "task_map":
 		return fmt.Sprintf("Generating task map for %q", query)
+	case "source_inventory":
+		return "Preparing source inventory lens"
+	case "relation_map":
+		return "Preparing relation map lens"
 	case "edit_impact":
 		return "Analyzing edit impact"
 	case "call_path":
