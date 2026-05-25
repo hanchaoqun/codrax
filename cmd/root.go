@@ -2740,7 +2740,10 @@ func initApp(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load providers config: %w", err)
 	}
-	app.defaultLLM = createDefaultAdapter(providersCfg)
+	app.defaultLLM, err = createDefaultAdapter(providersCfg, flagProviders)
+	if err != nil {
+		return err
+	}
 	// Surface the resolved context-window value at INFO level so
 	// operators can sanity-check their providers.yaml declaration
 	// against the actual adapter, and notice when context_window was
@@ -3522,15 +3525,44 @@ func anchorPath(anchor, p string) string {
 	return filepath.Clean(filepath.Join(anchor, p))
 }
 
-func createDefaultAdapter(cfg *types.ProvidersConfig) llm.Adapter {
+func createDefaultAdapter(cfg *types.ProvidersConfig, providersPath string) (llm.Adapter, error) {
 	resolved := config.ResolveProvider(cfg, "")
 	adapter, err := llm.NewFromConfig(resolved)
 	if err != nil {
 		logging.Error("[llm] default adapter: %v", err)
-		fmt.Fprintf(os.Stderr, "  · %v\n", err)
-		return &placeholderAdapter{}
+		return nil, providerConfigError(providersPath, err)
 	}
-	return adapter
+	return adapter, nil
+}
+
+func providerConfigError(providersPath string, cause error) error {
+	path := strings.TrimSpace(providersPath)
+	if path == "" {
+		path = defaultProvidersConfig
+	}
+	absPath := path
+	if abs, err := filepath.Abs(path); err == nil {
+		absPath = abs
+	}
+	status := "found"
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			status = "not found"
+		} else {
+			status = err.Error()
+		}
+	}
+	return fmt.Errorf(
+		"LLM provider is not configured, so Codrax cannot start the REPL or run a CLI request.\n"+
+			"没有可用的模型 provider 配置，Codrax 已停止本次运行，避免使用占位模型产生误导结果。\n\n"+
+			"Provider config: %s (%s)\n"+
+			"Reason: %v\n\n"+
+			"How to fix:\n"+
+			"  - Put a valid providers.yaml next to the codrax binary, or pass --providers /path/to/providers.yaml.\n"+
+			"  - Configure llm.default.provider, api_key, model, and base_url.\n"+
+			"  - For environment-only setup, export LLM_PROVIDER, OPENAI_API_KEY, OPENAI_MODEL, and OPENAI_BASE_URL.",
+		absPath, status, cause,
+	)
 }
 
 func resolveToolParamCompatByAgent(cfg *types.ProvidersConfig) (map[types.AgentName]types.ToolParamCompatConfig, error) {

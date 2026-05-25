@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
@@ -27,6 +28,28 @@ func TestNormalizeCompatArgs_RewritesLegacySingleDashLongFlags(t *testing.T) {
 		t.Fatalf("normalizeCompatArgs mismatch:\n  got:  %#v\n  want: %#v", got, want)
 	}
 }
+
+func TestProviderConfigErrorIsActionable(t *testing.T) {
+	err := providerConfigError("/tmp/does-not-exist/providers.yaml", assertErr("providers.yaml: llm.default.provider is required"))
+	msg := err.Error()
+	for _, want := range []string{
+		"LLM provider is not configured",
+		"没有可用的模型 provider 配置",
+		"/tmp/does-not-exist/providers.yaml",
+		"not found",
+		"llm.default.provider is required",
+		"--providers /path/to/providers.yaml",
+		"LLM_PROVIDER",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("provider config error missing %q:\n%s", want, msg)
+		}
+	}
+}
+
+type assertErr string
+
+func (e assertErr) Error() string { return string(e) }
 
 func TestNormalizeCompatArgs_LeavesShortFlagsAndPositionalsUntouched(t *testing.T) {
 	in := []string{"-r", "task", "--request", "task2", "positional", "-x"}
