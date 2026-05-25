@@ -3165,3 +3165,70 @@ B2-Y finalizer no-tool recovery follow-up, evidence repair hygiene, 2026-05-25 C
     as source-backed absence / negative-search structure, not as a non-repo
     aggregate origin. The latest focused eval self-corrected this and passed,
     but it remains a useful future compatibility target if it recurs.
+
+B2-Z random-serial eval follow-up and hard-gate boundary, 2026-05-25 CST:
+
+- Eval batch:
+  - result directory:
+    `eval/results/random-serial-10-20260525-151839-provider-fixed`;
+  - result summary: 9 PASS / 1 FAIL;
+  - only failure: `read_combo_pipeline_sequence_table`.
+- Deep root cause:
+  - the model did answer the pipeline sequence, but final rendering diluted the
+    verified stage/agent relation. The visible answer kept a generic
+    `analyze -> explore -> extract -> finalize` loop, while the diagram body
+    reused `Analyzer` inside the loop and omitted the concrete `explorer` and
+    `extractor` actors required by the task;
+  - the repository already contains a canonical typed relation in
+    `internal/types/stage_binding.go`:
+    `StageAnalyze -> AgentAnalyzer`,
+    `StageExplore -> AgentExplorer`,
+    `StageExtract -> AgentExtractor`,
+    `StageFinalize -> AgentFinalizer`;
+  - `answer_document_evaluator.go` renders requested answer dimensions as
+    guidance, but there is no structural preservation lane for
+    evidence-backed relations such as "stage -> agent -> output carrier".
+    This lets the finalizer compress relation-rich evidence into a thinner
+    prose/table answer.
+- P0 batch plan:
+  - add an evidence-backed relation surface for stage/actor bindings. It must
+    be advisory-first and append clearly marked system-supplemented context
+    only when the relation is already grounded in typed evidence or current
+    repository source. It must not inspect user prose keywords or model prose
+    to decide intent;
+  - split exact targets into primary answer subjects vs context/background
+    paths. Only primary structured targets may drive hard
+    exact-resolution/absence gates. Background files should remain required
+    reading hints or caveat context;
+  - make close-ready and retry hints prefer scoped exact candidate universes
+    over broad discovered-file pools. When a scoped universe exists, broad
+    coverage hints must not ask the model to read unrelated files;
+  - limit post-close-ready repair to one surgical grounding/line-validation
+    turn unless a principal-blocking structured contract is still unresolved.
+- P1 batch plan:
+  - continue unifying finalizer JSON-as-prose recovery with the existing
+    `RecoverAnswerDocumentV2FromText` and tool-layer JSON repair paths, without
+    pretending a recovered draft was a successful tool call;
+  - move work out of the semantic reviewer when the same issue can be enforced
+    by structure, citation alignment, or candidate-universe contracts.
+- P2 observability and regression plan:
+  - metrics:
+    `close_ready_ignored_count`,
+    `broad_hint_after_scoped_universe`,
+    `exact_target_context_demoted`,
+    `finalizer_no_tool_recovered`,
+    `stage_binding_surface_materialized`;
+  - eval coverage:
+    pipeline stage/agent sequence table with `explorer` and `extractor`,
+    background-file exact-target demotion, scoped multi-language/config/route
+    source-inventory enumeration, finalizer JSON-as-prose plus Mermaid, and
+    close-ready long-tail repair.
+- Hard-gate boundary:
+  - hard rejection is allowed only when all four are true:
+    (1) the primary user intent comes from structured IR, not keyword matching;
+    (2) the candidate universe or citation target is machine-verifiable;
+    (3) the model output conflicts with that verified fact on the same axis;
+    (4) the system can provide a local, precise correction path.
+  - otherwise the system must use advisory hints, caveats, reviewer notes, or
+    preserved model text. It must not substitute system intent for user intent
+    or force a rewrite merely because a heuristic is uncomfortable.
