@@ -1205,7 +1205,23 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	if bucketsWarn != "" {
 		val.Warnings = append(val.Warnings, bucketsWarn)
 	}
-	exactTargets, exactTargetErr, exactTargetWarn := validateExactTargets(raw, p.ExactTargets, p.RequiredFiles, predicates, p.SourceInventoryProfile)
+	answerSubject := parseAnswerSubject(p.AnswerSubject)
+	if normalized, warning := normalizeRuntimeArtifactRoleLocateAnswerSubject(ctx, artifactOnlyRuntime, predicates, answerSubject); warning != "" {
+		answerSubject = normalized
+		val.Warnings = append(val.Warnings, warning)
+	}
+	if normalized, warning := normalizeTypedRoleLocateAnswerSubject(kind, axis, predicates, answerSubject); warning != "" {
+		answerSubject = normalized
+		val.Warnings = append(val.Warnings, warning)
+	}
+	if normalized, warning := normalizeMissingAnswerSubjectForNonScalarExplain(axis, intent, predicates, entities, p.SubTopics, answerSubject); warning != "" {
+		answerSubject = normalized
+		val.Warnings = append(val.Warnings, warning)
+	}
+	if warning := normalizeSourceInventoryRequestedFieldsForAnswerSubject(sourceInventoryProfile, answerSubject); warning != "" {
+		val.Warnings = append(val.Warnings, warning)
+	}
+	exactTargets, exactTargetErr, exactTargetWarn := validateExactTargets(raw, p.ExactTargets, p.RequiredFiles, predicates, p.SourceInventoryProfile, answerSubject, entities)
 	if exactTargetWarn != "" {
 		logging.Warning("[emit_analysis] %s", exactTargetWarn)
 		val.Warnings = append(val.Warnings, exactTargetWarn)
@@ -1228,22 +1244,6 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		val.Warnings = append(val.Warnings, warning)
 	}
 	mentionedEntities := types.MentionedEntitiesFromRawRequest(raw, entities)
-	answerSubject := parseAnswerSubject(p.AnswerSubject)
-	if normalized, warning := normalizeRuntimeArtifactRoleLocateAnswerSubject(ctx, artifactOnlyRuntime, predicates, answerSubject); warning != "" {
-		answerSubject = normalized
-		val.Warnings = append(val.Warnings, warning)
-	}
-	if normalized, warning := normalizeTypedRoleLocateAnswerSubject(kind, axis, predicates, answerSubject); warning != "" {
-		answerSubject = normalized
-		val.Warnings = append(val.Warnings, warning)
-	}
-	if normalized, warning := normalizeMissingAnswerSubjectForNonScalarExplain(axis, intent, predicates, entities, p.SubTopics, answerSubject); warning != "" {
-		answerSubject = normalized
-		val.Warnings = append(val.Warnings, warning)
-	}
-	if warning := normalizeSourceInventoryRequestedFieldsForAnswerSubject(sourceInventoryProfile, answerSubject); warning != "" {
-		val.Warnings = append(val.Warnings, warning)
-	}
 	// Self-consistency: after typed, deterministic normalizers have
 	// absorbed safe drift, reject only contradictions that still need
 	// the LLM to reconcile its own classification.
@@ -2662,12 +2662,15 @@ func fieldValueQuoteBoundary(s string, idx int) bool {
 	return !(r == '_' || r >= '0' && r <= '9' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z')
 }
 
-func validateExactTargets(raw string, in []string, requiredFiles []emitRequiredFileParam, predicates types.SemanticPredicates, sourceInventory *emitSourceInventoryProfileParam) ([]string, string, string) {
+func validateExactTargets(raw string, in []string, requiredFiles []emitRequiredFileParam, predicates types.SemanticPredicates, sourceInventory *emitSourceInventoryProfileParam, answerSubject types.AnswerSubject, entities []string) ([]string, string, string) {
 	if len(in) == 0 {
 		return nil, "", ""
 	}
 	validated := types.MentionedEntitiesFromRawRequest(raw, in)
 	if len(validated) == len(in) {
+		if filtered, warning := demoteRequiredFileContextExactTargets(raw, validated, requiredFiles, answerSubject, entities); warning != "" {
+			return filtered, "", warning
+		}
 		return validated, "", ""
 	}
 	if len(validated) == 0 {
@@ -2694,6 +2697,87 @@ func validateExactTargets(raw string, in []string, requiredFiles []emitRequiredF
 		"exact_targets must be copied verbatim from the current request text; these item(s) were not validated: %s",
 		strings.Join(invalid, ", "),
 	), ""
+}
+
+func demoteRequiredFileContextExactTargets(raw string, exactTargets []string, requiredFiles []emitRequiredFileParam, answerSubject types.AnswerSubject, entities []string) ([]string, string) {
+	if len(exactTargets) == 0 || len(requiredFiles) == 0 {
+		return exactTargets, ""
+	}
+	if !exactTargetHasNonFileFocus(raw, answerSubject, entities) {
+		return exactTargets, ""
+	}
+	required := make(map[string]struct{}, len(requiredFiles))
+	for _, file := range requiredFiles {
+		canon := canonicalRequiredFilePath(file.Path)
+		if canon == "" || !emitAnalysisLooksLikeFilePath(canon) {
+			continue
+		}
+		required[strings.ToLower(canon)] = struct{}{}
+	}
+	if len(required) == 0 {
+		return exactTargets, ""
+	}
+	out := make([]string, 0, len(exactTargets))
+	demoted := 0
+	for _, target := range exactTargets {
+		canon := canonicalRequiredFilePath(target)
+		if canon != "" && emitAnalysisLooksLikeFilePath(canon) {
+			if _, ok := required[strings.ToLower(canon)]; ok {
+				demoted++
+				continue
+			}
+		}
+		out = append(out, target)
+	}
+	if demoted == 0 {
+		return exactTargets, ""
+	}
+	return out, "demoted exact_targets that duplicate required_files context paths; those files remain navigation hints, not primary exact-resolution targets"
+}
+
+func exactTargetHasNonFileFocus(raw string, answerSubject types.AnswerSubject, entities []string) bool {
+	switch answerSubject.Kind {
+	case types.SubjectUnknown, types.SubjectFilePath:
+	default:
+		return true
+	}
+	for _, entity := range types.MentionedEntitiesFromRawRequest(raw, entities) {
+		if strings.TrimSpace(entity) == "" {
+			continue
+		}
+		if !emitAnalysisLooksLikeFilePath(entity) {
+			return true
+		}
+	}
+	return false
+}
+
+func emitAnalysisLooksLikeFilePath(raw string) bool {
+	raw = strings.TrimSpace(strings.Trim(raw, "`\"' "))
+	if raw == "" {
+		return false
+	}
+	if strings.ContainsAny(raw, `/\`) {
+		return true
+	}
+	lower := strings.ToLower(raw)
+	for _, ext := range []string{
+		".go", ".java", ".kt", ".kts", ".scala", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp",
+		".rs", ".py", ".rb", ".php", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs",
+		".swift", ".m", ".mm", ".cs", ".fs", ".fsx", ".erl", ".ex", ".exs", ".clj",
+		".yaml", ".yml", ".json", ".jsonc", ".toml", ".ini", ".xml", ".proto", ".graphql",
+		".gradle", ".properties", ".cfg", ".conf", ".env", ".md", ".rst", ".txt", ".sh",
+		".bash", ".zsh", ".fish", ".sql", ".html", ".css", ".scss", ".less",
+	} {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	switch lower {
+	case "makefile", "dockerfile", "gemfile", "rakefile", "buildfile", "podfile":
+		return true
+	}
+	return false
 }
 
 func exactTargetsAreRequiredFileHints(targets []string, requiredFiles []emitRequiredFileParam) bool {

@@ -4219,6 +4219,104 @@ func TestEmitAnalysis_Execute_DropsRequiredFileExactTargetsForSourceInventory(t 
 	}
 }
 
+func TestEmitAnalysis_Execute_DemotesRequiredFileExactTargetWhenNonFileSubjectExists(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("根据 CLAUDE.md，OAuthCredentials 的格式是怎样的？")
+	tool := &EmitAnalysis{}
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["CLAUDE.md", "OAuthCredentials", "格式"],
+		"entities": ["CLAUDE.md", "OAuthCredentials"],
+		"question_kind": "mechanism",
+		"language": "zh",
+		"answer_subject": {"kind":"type_name","confidence":0.9},
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"exact_targets": ["CLAUDE.md"],
+		"required_files": [
+			{"path":"CLAUDE.md","confidence":0.95,"rationale":"上下文说明文件"}
+		]
+	}`)
+	res, err := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("context file exact target should demote, not reject: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "demoted exact_targets") {
+		t.Fatalf("summary should disclose exact-target demotion, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel should persist")
+	}
+	if len(rm.AnalyzerHints.ExactTargets) != 0 {
+		t.Fatalf("context file exact target should be demoted: %+v", rm.AnalyzerHints.ExactTargets)
+	}
+	if len(rm.AnalyzerHints.RequiredFileHints) != 1 || rm.AnalyzerHints.RequiredFileHints[0].Path != "CLAUDE.md" {
+		t.Fatalf("required file context should remain preserved: %+v", rm.AnalyzerHints.RequiredFileHints)
+	}
+}
+
+func TestEmitAnalysis_Execute_KeepsRequiredFileExactTargetForFileSubject(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("CLAUDE.md 这个文件是否存在？")
+	tool := &EmitAnalysis{}
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "simple",
+		"keywords": ["CLAUDE.md", "文件", "存在"],
+		"entities": ["CLAUDE.md"],
+		"question_kind": "direct_lookup",
+		"language": "zh",
+		"answer_subject": {"kind":"file_path","confidence":0.9},
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"exact_targets": ["CLAUDE.md"],
+		"required_files": [
+			{"path":"CLAUDE.md","confidence":0.95,"rationale":"用户询问的文件"}
+		]
+	}`)
+	res, err := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("file-subject exact target should remain valid: %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel should persist")
+	}
+	if got := rm.AnalyzerHints.ExactTargets; len(got) != 1 || got[0] != "CLAUDE.md" {
+		t.Fatalf("file-subject exact target should be preserved, got %+v", got)
+	}
+}
+
 func TestEmitAnalysis_Execute_DropsInvalidExactTargetsForRuntimeArtifact(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

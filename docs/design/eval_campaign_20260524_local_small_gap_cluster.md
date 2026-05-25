@@ -3242,3 +3242,14 @@ B2-Z random-serial eval follow-up and hard-gate boundary, 2026-05-25 CST:
     or model prose for control-flow decisions, and skips silently when the
     source file or any binding line cannot be verified;
   - regression tests cover both activation and the no-evidence no-noise path.
+- Batch 2 implementation:
+  - `emit_analysis` now demotes path-shaped `exact_targets` that duplicate
+    `required_files` when the structured answer subject or validated entities
+    show a non-file primary focus. The file stays as a required navigation
+    hint, but no longer creates a hard exact-resolution / absence target;
+  - pure file-subject questions keep their file exact target, so existence or
+    file-specific lookups do not lose quality;
+  - the rule is schema-based (`exact_targets`, `required_files`,
+    `answer_subject`, `entities`) and language-agnostic. It does not inspect
+    model prose or use user-question keyword control flow;
+  - regression tests cover both demotion and preservation paths.
