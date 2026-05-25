@@ -507,3 +507,83 @@ func TestSemanticSubgraphView(t *testing.T) {
 		t.Errorf("expected `cut` as a bridge, got:\n%s", md)
 	}
 }
+
+func TestGenerateViewDataRelationMapAdvisory(t *testing.T) {
+	files := []*types.FileInfo{
+		{
+			RelPath:  "internal/pipeline/analyzer.go",
+			Language: types.LangGo,
+			Package:  "pipeline",
+			Symbols: []types.Symbol{
+				{Name: "Run", Kind: "function", File: "internal/pipeline/analyzer.go", Line: 10, Exported: true},
+			},
+			Relations: []types.Relation{{
+				Kind: "call",
+				To:   "Process",
+				File: "internal/pipeline/analyzer.go",
+				Line: 12,
+				ToEP: types.RelationEndpoint{Name: "Process"},
+			}},
+		},
+		{
+			RelPath:  "internal/pipeline/process.go",
+			Language: types.LangGo,
+			Package:  "pipeline",
+			Symbols: []types.Symbol{
+				{Name: "Process", Kind: "function", File: "internal/pipeline/process.go", Line: 5, Exported: true},
+			},
+		},
+		{
+			RelPath:  "java/app/Child.java",
+			Language: types.LangJava,
+			Package:  "app",
+			Symbols: []types.Symbol{
+				{Name: "Child", Kind: "class", File: "java/app/Child.java", Line: 3, Exported: true},
+			},
+			Relations: []types.Relation{{
+				Kind: "inheritance",
+				To:   "Base",
+				File: "java/app/Child.java",
+				Line: 3,
+				ToEP: types.RelationEndpoint{Name: "Base", File: "java/app/Base.java", Line: 2},
+			}},
+		},
+		{
+			RelPath:  "java/app/Base.java",
+			Language: types.LangJava,
+			Package:  "app",
+			Symbols: []types.Symbol{
+				{Name: "Base", Kind: "class", File: "java/app/Base.java", Line: 2, Exported: true},
+			},
+		},
+	}
+	g := index.BuildGraph(t.TempDir(), files)
+
+	d := GenerateViewData(g, "relation_map", types.ViewParams{
+		Query:         "Run Child",
+		Scopes:        []string{"internal", "java"},
+		RelationKinds: []string{"call", "inheritance"},
+		TopN:          10,
+	})
+	if d == nil {
+		t.Fatal("GenerateViewData(relation_map) returned nil")
+	}
+	md := RenderMarkdown(d)
+	for _, want := range []string{
+		"# Repo Lens: Relation Map",
+		"Advisory structural navigation only",
+		"source_candidates=3 relation_rows=2",
+		"`Run` — kind=function — @ internal/pipeline/analyzer.go:10",
+		"call `Run @ internal/pipeline/analyzer.go:10` → Process @ internal/pipeline/process.go:5 — observed @ internal/pipeline/analyzer.go:12",
+		"inheritance `Child @ java/app/Child.java:3` → Base @ java/app/Base.java:2 — observed @ java/app/Child.java:3",
+		"## Suggested Verification Files",
+		"`internal/pipeline/analyzer.go`",
+		"`internal/pipeline/process.go`",
+		"`java/app/Child.java`",
+		"`java/app/Base.java`",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("relation_map missing %q:\n%s", want, md)
+		}
+	}
+}

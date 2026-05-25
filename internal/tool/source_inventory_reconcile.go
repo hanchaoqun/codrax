@@ -930,6 +930,8 @@ func renderSourceInventoryDiscoveryHint(obs sourceInventoryDiscoveryObservation)
 	b.WriteString(". To inspect it incrementally, consider `repo_map(view=\"source_inventory\")` before reading many files. This is navigation only, not final-answer evidence.\n")
 	fmt.Fprintf(&b, "- broad member/attribute checklist: `%s`\n",
 		sourceInventoryCascadeRepoMapCall(pathSurface, "", nil, expandRoles, attrRoles, 24, ""))
+	fmt.Fprintf(&b, "- structural relation lens: `%s` when the next step is to inspect calls/imports/inheritance/references around model-chosen sources or scopes.\n",
+		sourceInventoryDiscoveryRelationMapCall(pathSurface, ""))
 	if len(obs.ScopeGroups) > 0 {
 		b.WriteString("- expand only the branch that matches the user's intent:\n")
 		maxScopes := minInt(len(obs.ScopeGroups), 4)
@@ -947,6 +949,24 @@ func renderSourceInventoryDiscoveryHint(obs sourceInventoryDiscoveryObservation)
 	}
 	b.WriteString("- Adjust `roles` / `attribute_roles` to the structured role you need; verify chosen rows with `read_file` or `grep` before citing.")
 	return strings.TrimSpace(b.String())
+}
+
+func sourceInventoryDiscoveryRelationMapCall(pathSurface, scope string) string {
+	if strings.TrimSpace(pathSurface) == "" {
+		pathSurface = "."
+	}
+	fields := []string{
+		`"path": ` + strconv.Quote(pathSurface),
+		`"view": "relation_map"`,
+		`"relation_kinds": ["call", "import", "inheritance", "reference"]`,
+		`"top_n": 24`,
+	}
+	if strings.TrimSpace(scope) != "" {
+		fields = append(fields, `"scope": `+strconv.Quote(scope))
+	} else {
+		fields = append(fields, `"scope": "<scope>"`)
+	}
+	return "repo_map {" + strings.Join(fields, ", ") + "}"
 }
 
 func sourceInventoryDiscoveryAttributeRoles(obs sourceInventoryDiscoveryObservation) []types.AnswerCandidateRole {

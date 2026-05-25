@@ -265,6 +265,24 @@ Design:
 - If a relation family is not recognized, fall back to source-inventory style
   candidates and explicit uncertainty, not hard rejection.
 
+Implementation status:
+
+- [x] Added `repo_map(view="relation_map")` as a model-driven advisory lens.
+      Parameters are structural (`sources`, `scope`/`scopes`,
+      `relation_kinds`, `query`, `top_n`) and do not read user prose or model
+      narrative for control flow.
+- [x] The view currently exposes graph-backed call, import, inheritance,
+      implements, reference, and type-usage rows across the languages already
+      parsed by repo_map. It also lists concrete verification files so the model
+      can choose focused `read_file` / `grep` follow-up.
+- [x] Broad navigation discovery hints now offer two generic next paths:
+      `source_inventory` for member/attribute checklists and `relation_map` for
+      structural edge inspection. Both are advisory-only and require source
+      verification before citation.
+- [ ] Future extension: feed accepted typed evidence / external observations
+      into a unified relation lens once those carriers have a low-noise query
+      shape. Keep graph-only rows advisory until exact evidence exists.
+
 ### Batch 3: Read-Window Materialization
 
 Problem: when a model reads several large windows before emitting evidence, the

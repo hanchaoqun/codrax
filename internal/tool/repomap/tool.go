@@ -31,13 +31,15 @@ type RepoMapV2 struct {
 
 type repoMapParams struct {
 	Path              string                       `json:"path"`
-	View              string                       `json:"view,omitempty"`        // overview, file_map, task_map, call_path, edit_impact, semantic_subgraph, source_inventory
-	Query             string                       `json:"query,omitempty"`       // for task_map / source_inventory ranking hint
+	View              string                       `json:"view,omitempty"`        // overview, file_map, task_map, call_path, edit_impact, semantic_subgraph, relation_map, source_inventory
+	Query             string                       `json:"query,omitempty"`       // for task_map / relation_map / source_inventory ranking hint
 	TargetFile        string                       `json:"target_file,omitempty"` // for edit_impact
 	EntryPoint        string                       `json:"entry_point,omitempty"` // for call_path
 	Scope             string                       `json:"scope,omitempty"`       // for source_inventory
 	Scopes            []string                     `json:"scopes,omitempty"`      // for source_inventory
-	Roles             []ctypes.AnswerCandidateRole `json:"roles,omitempty"`       // for source_inventory
+	Sources           []string                     `json:"sources,omitempty"`     // for relation_map
+	RelationKinds     []string                     `json:"relation_kinds,omitempty"`
+	Roles             []ctypes.AnswerCandidateRole `json:"roles,omitempty"` // for source_inventory
 	AttributeRoles    []ctypes.AnswerCandidateRole `json:"attribute_roles,omitempty"`
 	IncludeAttributes *bool                        `json:"include_attributes,omitempty"`
 	IncludeCounts     *bool                        `json:"include_counts,omitempty"`
@@ -55,6 +57,7 @@ func (t *RepoMapV2) Description() string {
 		"task_map (relevant subgraph for a query), call_path (dependency chain from entry point), " +
 		"edit_impact (what changes to a file would affect), " +
 		"semantic_subgraph (topological summary: linear chains, hub files, articulation-point bridges), " +
+		"relation_map (advisory structural edges around model-chosen sources/scopes: calls, imports, inheritance, implements, references), " +
 		"source_inventory (typed repo lens for scoped members/symbols/routes/config attributes/counts). " +
 		"For broad scoped inventories, prefer source_inventory with roles and optional attribute_roles so the tool returns a compact checklist instead of forcing many read_file calls. " +
 		"When multiple scopes or broad symbol roles are requested, source_inventory also renders a scope-grouped advisory view to help choose the next files to verify."
@@ -70,12 +73,12 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
     },
     "view": {
       "type": "string",
-      "enum": ["overview", "file_map", "task_map", "call_path", "edit_impact", "semantic_subgraph", "source_inventory"],
-      "description": "Type of map to generate (default: overview). Use source_inventory for scoped member inventories and member→attribute candidate checklists."
+      "enum": ["overview", "file_map", "task_map", "call_path", "edit_impact", "semantic_subgraph", "relation_map", "source_inventory"],
+      "description": "Type of map to generate (default: overview). Use source_inventory for scoped member inventories and member→attribute candidate checklists. Use relation_map for advisory structural edges around selected sources/scopes."
     },
     "query": {
       "type": "string",
-      "description": "Search query for task_map view — matches against file names, symbol names, and docstrings"
+      "description": "Search query for task_map / relation_map source discovery — matches against file names, symbol names, and docstrings"
     },
     "target_file": {
       "type": "string",
@@ -87,12 +90,25 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
     },
     "scope": {
       "type": "string",
-      "description": "For source_inventory view: one repo-relative scope to inventory while keeping path as the repository root"
+      "description": "For source_inventory / relation_map views: one repo-relative scope to inspect while keeping path as the repository root"
     },
     "scopes": {
       "type": "array",
       "items": {"type": "string"},
-      "description": "For source_inventory view: repo-relative scopes to inventory, preserving model-provided order"
+      "description": "For source_inventory / relation_map views: repo-relative scopes to inspect, preserving model-provided order"
+    },
+    "sources": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "For relation_map view: model-chosen source symbols, files, or scopes to inspect. Omit with query to let relation_map list matching source candidates."
+    },
+    "relation_kinds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["call", "calls", "called_by", "called-by", "import", "imports", "imported_by", "imported-by", "inheritance", "extends", "implements", "reference", "references", "type_usage"]
+      },
+      "description": "For relation_map view: structural relation families to show. Omit for a compact mix of calls, imports, inheritance/implements, and references."
     },
     "roles": {
       "type": "array",
@@ -325,10 +341,13 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 
 	// Generate the requested view
 	viewParams := ViewParams{
-		Query:      p.Query,
-		TargetFile: p.TargetFile,
-		EntryPoint: p.EntryPoint,
-		TopN:       p.TopN,
+		Query:         p.Query,
+		TargetFile:    p.TargetFile,
+		EntryPoint:    p.EntryPoint,
+		Sources:       append([]string(nil), p.Sources...),
+		Scopes:        repoMapRelationScopes(p),
+		RelationKinds: append([]string(nil), p.RelationKinds...),
+		TopN:          p.TopN,
 	}
 	output := render.GenerateView(graph, p.View, viewParams)
 
@@ -340,6 +359,14 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func repoMapRelationScopes(p repoMapParams) []string {
+	scopes := append([]string(nil), p.Scopes...)
+	if strings.TrimSpace(p.Scope) != "" {
+		scopes = append([]string{strings.TrimSpace(p.Scope)}, scopes...)
+	}
+	return scopes
 }
 
 func sourceInventoryScopesForRepoMapParams(p repoMapParams, resolvedRoot string, graph *Graph) []string {

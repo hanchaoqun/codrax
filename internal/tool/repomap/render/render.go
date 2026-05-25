@@ -2,6 +2,7 @@ package render
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/retrieve"
@@ -151,6 +152,8 @@ func GenerateViewData(g *types.Graph, viewType string, params types.ViewParams) 
 		return buildEditImpactData(g, params)
 	case "semantic_subgraph":
 		return buildSemanticSubgraphData(g, params)
+	case "relation_map":
+		return buildRelationMapData(g, params)
 	}
 	return nil
 }
@@ -240,6 +243,618 @@ func backtick(items []string) []string {
 	out := make([]string, len(items))
 	for i, s := range items {
 		out[i] = "`" + s + "`"
+	}
+	return out
+}
+
+type relationMapSource struct {
+	Name string
+	File string
+	Line int
+	Kind string
+}
+
+type relationMapRow struct {
+	Kind         string
+	Source       string
+	SourceFile   string
+	SourceLine   int
+	Target       string
+	TargetFile   string
+	TargetLine   int
+	ObservedFile string
+	ObservedLine int
+}
+
+// buildRelationMapData renders a model-driven structural relation lens.
+//
+// The view is navigation only. It reads graph/index structure (calls, imports,
+// inheritance, implements, references/type-usage) so a model can choose the
+// next small verification window instead of reading broad files. It does not
+// decide user intent and it is not citation evidence.
+func buildRelationMapData(g *types.Graph, params types.ViewParams) *ViewData {
+	topN := params.TopN
+	if topN <= 0 {
+		topN = 40
+	}
+	kinds := normalizeRelationMapKinds(params.RelationKinds)
+	scopes := normalizeRelationMapScopes(params.Scopes)
+	sources := relationMapSources(g, params, scopes, topN)
+	rows := relationMapRows(g, sources, scopes, kinds, topN)
+
+	d := &ViewData{
+		Type:  "relation_map",
+		Title: "Repo Lens: Relation Map",
+		Intro: "Advisory structural navigation only. Use these rows to choose focused `read_file` / `grep` verification; do not cite this map as final-answer evidence.",
+	}
+
+	summary := ViewSection{Heading: "Summary"}
+	summaryParts := []string{
+		fmt.Sprintf("source_candidates=%d", len(sources)),
+		fmt.Sprintf("relation_rows=%d", len(rows)),
+	}
+	if len(scopes) > 0 {
+		summaryParts = append(summaryParts, "scopes="+strings.Join(scopes, ","))
+	}
+	if len(kinds) > 0 {
+		summaryParts = append(summaryParts, "relation_kinds="+strings.Join(kinds, ","))
+	}
+	if strings.TrimSpace(params.Query) != "" {
+		summaryParts = append(summaryParts, "query="+params.Query)
+	}
+	summary.Items = append(summary.Items, ViewItem{Text: strings.Join(summaryParts, " ")})
+	d.Sections = append(d.Sections, summary)
+
+	sourceSection := ViewSection{Heading: "Source Candidates (advisory)"}
+	if len(sources) == 0 {
+		sourceSection.Intro = "No source candidates matched the supplied sources/query/scope. Try a narrower `sources` entry, add a `query`, or use `source_inventory` to locate symbols first."
+	} else {
+		for _, source := range sources {
+			sourceSection.Items = append(sourceSection.Items, ViewItem{
+				Text: relationMapSourceText(source),
+				File: source.File,
+				Kind: source.Kind,
+			})
+		}
+	}
+	d.Sections = append(d.Sections, sourceSection)
+
+	rowSection := ViewSection{Heading: "Relation Rows (advisory)"}
+	if len(rows) == 0 {
+		rowSection.Intro = "No graph-backed relation rows matched the current lens. This is not proof of absence; verify with source reads when absence matters."
+	} else {
+		for _, row := range rows {
+			rowSection.Items = append(rowSection.Items, ViewItem{
+				Text: relationMapRowText(row),
+				File: row.ObservedFile,
+				Kind: row.Kind,
+			})
+		}
+	}
+	d.Sections = append(d.Sections, rowSection)
+
+	verify := relationMapVerificationFiles(rows, topN)
+	verifySection := ViewSection{Heading: "Suggested Verification Files"}
+	if len(verify) == 0 {
+		verifySection.Intro = "No concrete files were selected by this relation lens."
+	} else {
+		for _, file := range verify {
+			verifySection.Items = append(verifySection.Items, ViewItem{
+				Text: fmt.Sprintf("`%s`", file),
+				File: file,
+				Kind: "file",
+			})
+		}
+	}
+	d.Sections = append(d.Sections, verifySection)
+	return d
+}
+
+func normalizeRelationMapKinds(raw []string) []string {
+	if len(raw) == 0 {
+		return []string{"call", "import", "inheritance", "implements", "reference", "type_usage"}
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, item := range raw {
+		item = strings.ToLower(strings.TrimSpace(strings.ReplaceAll(item, "_", "-")))
+		switch item {
+		case "calls", "called-by", "calledby":
+			item = "call"
+		case "imports", "imported-by", "importedby":
+			item = "import"
+		case "extends":
+			item = "inheritance"
+		case "references":
+			item = "reference"
+		}
+		if item == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	return out
+}
+
+func normalizeRelationMapScopes(raw []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, item := range raw {
+		item = strings.Trim(strings.TrimSpace(strings.ReplaceAll(item, `\`, `/`)), "/")
+		if item == "" || item == "." || item == "/" {
+			item = "."
+		}
+		if seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	return out
+}
+
+func relationMapSources(g *types.Graph, params types.ViewParams, scopes []string, topN int) []relationMapSource {
+	if g == nil {
+		return nil
+	}
+	var out []relationMapSource
+	seen := map[string]bool{}
+	add := func(source relationMapSource) {
+		if strings.TrimSpace(source.Name) == "" && strings.TrimSpace(source.File) == "" {
+			return
+		}
+		if source.File != "" && !relationMapFileInScopes(source.File, scopes) {
+			return
+		}
+		key := source.Kind + "\x00" + source.Name + "\x00" + source.File + "\x00" + fmt.Sprintf("%d", source.Line)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, source)
+	}
+	for _, raw := range params.Sources {
+		raw = strings.Trim(strings.TrimSpace(strings.ReplaceAll(raw, `\`, `/`)), "`")
+		if raw == "" {
+			continue
+		}
+		if fi := g.FileIndex[raw]; fi != nil {
+			add(relationMapSource{Name: raw, File: raw, Kind: "file"})
+			continue
+		}
+		if relationMapLooksPathOrScope(raw) {
+			for _, fi := range relationMapFilesInScope(g, raw) {
+				add(relationMapSource{Name: fi.RelPath, File: fi.RelPath, Kind: "file"})
+			}
+			continue
+		}
+		for _, sym := range g.SymbolDefs[raw] {
+			if sym == nil {
+				continue
+			}
+			add(relationMapSource{Name: sym.Name, File: sym.File, Line: sym.Line, Kind: sym.Kind})
+		}
+	}
+	if len(out) == 0 && strings.TrimSpace(params.Query) != "" {
+		tokens := retrieve.TokenizeQuery(params.Query)
+		for _, fi := range g.Files {
+			if fi == nil || !relationMapFileInScopes(fi.RelPath, scopes) {
+				continue
+			}
+			if relationMapTextMatchesTokens(fi.RelPath+" "+fi.Package, tokens) {
+				add(relationMapSource{Name: fi.RelPath, File: fi.RelPath, Kind: "file"})
+			}
+			for i := range fi.Symbols {
+				sym := &fi.Symbols[i]
+				if relationMapTextMatchesTokens(sym.Name+" "+sym.Kind+" "+sym.Doc, tokens) {
+					add(relationMapSource{Name: sym.Name, File: sym.File, Line: sym.Line, Kind: sym.Kind})
+				}
+			}
+		}
+	}
+	if len(out) == 0 {
+		for _, fi := range relationMapTopRelationFiles(g, scopes, topN) {
+			add(relationMapSource{Name: fi.RelPath, File: fi.RelPath, Kind: "file"})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].File != out[j].File {
+			return out[i].File < out[j].File
+		}
+		if out[i].Line != out[j].Line {
+			return out[i].Line < out[j].Line
+		}
+		return out[i].Name < out[j].Name
+	})
+	if topN > 0 && len(out) > topN {
+		out = out[:topN]
+	}
+	return out
+}
+
+func relationMapRows(g *types.Graph, sources []relationMapSource, scopes, kinds []string, topN int) []relationMapRow {
+	if g == nil {
+		return nil
+	}
+	allowed := map[string]bool{}
+	for _, kind := range kinds {
+		allowed[kind] = true
+	}
+	sourceIndex := relationMapSourceIndex(sources)
+	noSources := len(sourceIndex.names) == 0 && len(sourceIndex.files) == 0
+	var out []relationMapRow
+	seen := map[string]bool{}
+	add := func(row relationMapRow) {
+		if !relationMapKindAllowed(row.Kind, allowed) {
+			return
+		}
+		if row.ObservedFile != "" && !relationMapFileInScopes(row.ObservedFile, scopes) {
+			return
+		}
+		if !noSources && !relationMapRowTouchesSource(row, sourceIndex) {
+			return
+		}
+		key := strings.Join([]string{row.Kind, row.Source, row.SourceFile, fmt.Sprintf("%d", row.SourceLine), row.Target, row.TargetFile, fmt.Sprintf("%d", row.TargetLine), row.ObservedFile, fmt.Sprintf("%d", row.ObservedLine)}, "\x00")
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, row)
+	}
+	for _, fi := range g.Files {
+		if fi == nil || !relationMapFileInScopes(fi.RelPath, scopes) {
+			continue
+		}
+		for _, target := range g.ImportGraph[fi.RelPath] {
+			add(relationMapRow{
+				Kind:         "import",
+				Source:       fi.RelPath,
+				SourceFile:   fi.RelPath,
+				Target:       target,
+				TargetFile:   target,
+				ObservedFile: fi.RelPath,
+			})
+		}
+		for _, rel := range fi.Relations {
+			switch rel.Kind {
+			case "call":
+				src := relationMapEnclosingSymbol(fi, rel.Line)
+				target := relationMapCallTarget(g, fi, rel)
+				add(relationMapRow{
+					Kind:         "call",
+					Source:       relationMapSourceName(src, fi.RelPath),
+					SourceFile:   relationMapSourceFile(src, fi.RelPath),
+					SourceLine:   relationMapSourceLine(src),
+					Target:       target.Name,
+					TargetFile:   target.File,
+					TargetLine:   target.Line,
+					ObservedFile: rel.File,
+					ObservedLine: rel.Line,
+				})
+			case "inheritance", "embedding", "reference", "type_usage":
+				src := relationMapEnclosingSymbol(fi, rel.Line)
+				add(relationMapRow{
+					Kind:         rel.Kind,
+					Source:       relationMapSourceName(src, fi.RelPath),
+					SourceFile:   relationMapSourceFile(src, fi.RelPath),
+					SourceLine:   relationMapSourceLine(src),
+					Target:       relationMapRelationTargetName(rel),
+					TargetFile:   rel.ToEP.File,
+					TargetLine:   rel.ToEP.Line,
+					ObservedFile: rel.File,
+					ObservedLine: rel.Line,
+				})
+			}
+		}
+		for i := range fi.Symbols {
+			sym := &fi.Symbols[i]
+			for _, ifaceID := range sym.Implements {
+				iface := g.SymbolByID[ifaceID]
+				if iface == nil {
+					continue
+				}
+				add(relationMapRow{
+					Kind:         "implements",
+					Source:       sym.Name,
+					SourceFile:   sym.File,
+					SourceLine:   sym.Line,
+					Target:       iface.Name,
+					TargetFile:   iface.File,
+					TargetLine:   iface.Line,
+					ObservedFile: sym.File,
+					ObservedLine: sym.Line,
+				})
+			}
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].ObservedFile != out[j].ObservedFile {
+			return out[i].ObservedFile < out[j].ObservedFile
+		}
+		if out[i].ObservedLine != out[j].ObservedLine {
+			return out[i].ObservedLine < out[j].ObservedLine
+		}
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return relationMapRowText(out[i]) < relationMapRowText(out[j])
+	})
+	if topN > 0 && len(out) > topN {
+		out = out[:topN]
+	}
+	return out
+}
+
+type relationMapIndex struct {
+	names map[string]bool
+	files map[string]bool
+}
+
+func relationMapSourceIndex(sources []relationMapSource) relationMapIndex {
+	idx := relationMapIndex{names: map[string]bool{}, files: map[string]bool{}}
+	for _, source := range sources {
+		if name := strings.ToLower(strings.TrimSpace(source.Name)); name != "" {
+			idx.names[name] = true
+		}
+		if file := strings.TrimSpace(source.File); file != "" {
+			idx.files[file] = true
+		}
+	}
+	return idx
+}
+
+func relationMapRowTouchesSource(row relationMapRow, idx relationMapIndex) bool {
+	for _, name := range []string{row.Source, row.Target} {
+		if idx.names[strings.ToLower(strings.TrimSpace(name))] {
+			return true
+		}
+	}
+	for _, file := range []string{row.SourceFile, row.TargetFile, row.ObservedFile} {
+		if idx.files[strings.TrimSpace(file)] {
+			return true
+		}
+	}
+	return false
+}
+
+func relationMapKindAllowed(kind string, allowed map[string]bool) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	kind = strings.ToLower(strings.TrimSpace(kind))
+	switch kind {
+	case "embedding":
+		return allowed["embedding"] || allowed["inheritance"]
+	case "type_usage":
+		return allowed["type_usage"] || allowed["reference"]
+	default:
+		return allowed[kind]
+	}
+}
+
+func relationMapLooksPathOrScope(raw string) bool {
+	return strings.Contains(raw, "/")
+}
+
+func relationMapFilesInScope(g *types.Graph, scope string) []*types.FileInfo {
+	var out []*types.FileInfo
+	scope = strings.Trim(strings.TrimSpace(strings.ReplaceAll(scope, `\`, `/`)), "/")
+	for _, fi := range g.Files {
+		if fi != nil && relationMapFileInScopes(fi.RelPath, []string{scope}) {
+			out = append(out, fi)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].RelPath < out[j].RelPath })
+	return out
+}
+
+func relationMapFileInScopes(file string, scopes []string) bool {
+	file = strings.Trim(strings.TrimSpace(strings.ReplaceAll(file, `\`, `/`)), "/")
+	if len(scopes) == 0 {
+		return true
+	}
+	for _, scope := range scopes {
+		scope = strings.Trim(strings.TrimSpace(strings.ReplaceAll(scope, `\`, `/`)), "/")
+		if scope == "" || scope == "." {
+			return true
+		}
+		if file == scope || strings.HasPrefix(file, scope+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func relationMapTextMatchesTokens(text string, tokens []retrieve.QueryToken) bool {
+	text = strings.ToLower(text)
+	for _, token := range tokens {
+		if token.Text != "" && strings.Contains(text, token.Text) {
+			return true
+		}
+	}
+	return false
+}
+
+func relationMapTopRelationFiles(g *types.Graph, scopes []string, topN int) []*types.FileInfo {
+	type scored struct {
+		fi    *types.FileInfo
+		score int
+	}
+	var scoredFiles []scored
+	for _, fi := range g.Files {
+		if fi == nil || !relationMapFileInScopes(fi.RelPath, scopes) {
+			continue
+		}
+		score := len(fi.Relations) + len(g.ImportGraph[fi.RelPath]) + len(g.ReverseImports[fi.RelPath])
+		if score <= 0 {
+			continue
+		}
+		scoredFiles = append(scoredFiles, scored{fi: fi, score: score})
+	}
+	sort.SliceStable(scoredFiles, func(i, j int) bool {
+		if scoredFiles[i].score != scoredFiles[j].score {
+			return scoredFiles[i].score > scoredFiles[j].score
+		}
+		return scoredFiles[i].fi.RelPath < scoredFiles[j].fi.RelPath
+	})
+	if topN > 0 && len(scoredFiles) > topN {
+		scoredFiles = scoredFiles[:topN]
+	}
+	out := make([]*types.FileInfo, 0, len(scoredFiles))
+	for _, item := range scoredFiles {
+		out = append(out, item.fi)
+	}
+	return out
+}
+
+func relationMapEnclosingSymbol(fi *types.FileInfo, line int) *types.Symbol {
+	if fi == nil || line <= 0 {
+		return nil
+	}
+	var best *types.Symbol
+	for i := range fi.Symbols {
+		sym := &fi.Symbols[i]
+		if sym.Line <= 0 || sym.Line > line {
+			continue
+		}
+		if best == nil || sym.Line >= best.Line {
+			best = sym
+		}
+	}
+	return best
+}
+
+func relationMapCallTarget(g *types.Graph, fi *types.FileInfo, rel types.Relation) relationMapSource {
+	if g != nil {
+		if sym := g.ResolveCallTarget(fi, rel); sym != nil {
+			return relationMapSource{Name: sym.Name, File: sym.File, Line: sym.Line, Kind: sym.Kind}
+		}
+	}
+	return relationMapSource{
+		Name: relationMapRelationTargetName(rel),
+		File: rel.ToEP.File,
+		Line: rel.ToEP.Line,
+		Kind: "symbol",
+	}
+}
+
+func relationMapRelationTargetName(rel types.Relation) string {
+	if rel.ToEP.Name != "" {
+		if rel.ToEP.Receiver != "" {
+			return rel.ToEP.Receiver + "." + rel.ToEP.Name
+		}
+		return rel.ToEP.Name
+	}
+	if rel.To != "" {
+		return rel.To
+	}
+	return "(unresolved)"
+}
+
+func relationMapSourceName(sym *types.Symbol, fallback string) string {
+	if sym == nil || strings.TrimSpace(sym.Name) == "" {
+		return fallback
+	}
+	if sym.Parent != "" {
+		return sym.Parent + "." + sym.Name
+	}
+	if sym.Receiver != "" {
+		return sym.Receiver + "." + sym.Name
+	}
+	return sym.Name
+}
+
+func relationMapSourceFile(sym *types.Symbol, fallback string) string {
+	if sym == nil || strings.TrimSpace(sym.File) == "" {
+		return fallback
+	}
+	return sym.File
+}
+
+func relationMapSourceLine(sym *types.Symbol) int {
+	if sym == nil {
+		return 0
+	}
+	return sym.Line
+}
+
+func relationMapSourceText(source relationMapSource) string {
+	name := strings.TrimSpace(source.Name)
+	if name == "" {
+		name = source.File
+	}
+	parts := []string{"`" + name + "`"}
+	if source.Kind != "" {
+		parts = append(parts, "kind="+source.Kind)
+	}
+	if source.File != "" {
+		loc := source.File
+		if source.Line > 0 {
+			loc += fmt.Sprintf(":%d", source.Line)
+		}
+		parts = append(parts, "@ "+loc)
+	}
+	return strings.Join(parts, " — ")
+}
+
+func relationMapRowText(row relationMapRow) string {
+	source := relationMapEndpointText(row.Source, row.SourceFile, row.SourceLine)
+	target := relationMapEndpointText(row.Target, row.TargetFile, row.TargetLine)
+	observed := strings.TrimSpace(row.ObservedFile)
+	if observed != "" && row.ObservedLine > 0 {
+		observed += fmt.Sprintf(":%d", row.ObservedLine)
+	}
+	if observed == "" {
+		observed = row.SourceFile
+	}
+	if observed != "" {
+		return fmt.Sprintf("%s `%s` → %s — observed @ %s", row.Kind, source, target, observed)
+	}
+	return fmt.Sprintf("%s `%s` → %s", row.Kind, source, target)
+}
+
+func relationMapEndpointText(name, file string, line int) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = strings.TrimSpace(file)
+	}
+	text := name
+	if file != "" {
+		loc := file
+		if line > 0 {
+			loc += fmt.Sprintf(":%d", line)
+		}
+		if text == "" || text == file {
+			text = loc
+		} else {
+			text += " @ " + loc
+		}
+	}
+	if text == "" {
+		return "(unknown)"
+	}
+	return text
+}
+
+func relationMapVerificationFiles(rows []relationMapRow, topN int) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(file string) {
+		file = strings.TrimSpace(file)
+		if file == "" || seen[file] {
+			return
+		}
+		seen[file] = true
+		out = append(out, file)
+	}
+	for _, row := range rows {
+		add(row.ObservedFile)
+		add(row.SourceFile)
+		add(row.TargetFile)
+	}
+	if topN > 0 && len(out) > topN {
+		out = out[:topN]
 	}
 	return out
 }
