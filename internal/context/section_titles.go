@@ -63,6 +63,7 @@ const (
 	SectionAnswerSymbolsAuth     = "Extracted Answer Symbols (authoritative)"
 	SectionAnswerSymbolsFloor    = "Answer Symbols (lower-bound floor, may extend with cited evidence)"
 	SectionEvidencePool          = "Knowledge & Evidence Pool"
+	SectionRelationDossier       = "Relation Dossier (advisory)"
 	SectionUnverifiedLeads       = "Unverified Leads (not for citation)"
 	SectionDataflowFindings      = "Dataflow Findings"
 	SectionHypothesisVerdicts    = "Hypothesis Verdicts"
@@ -112,6 +113,7 @@ var canonicalUserSectionOrder = []string{
 	SectionAnswerSymbolsAuth,
 	SectionAnswerSymbolsFloor,
 	SectionEvidencePool,
+	SectionRelationDossier,
 	SectionUnverifiedLeads,
 	SectionDataflowFindings,
 	SectionHypothesisVerdicts,

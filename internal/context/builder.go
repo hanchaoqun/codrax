@@ -987,6 +987,13 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		})
 	}
 
+	if dossier := formatRelationDossier(ac); dossier != "" {
+		pc.UserSections = append(pc.UserSections, types.PromptSection{
+			Title:   SectionRelationDossier,
+			Content: dossier,
+		})
+	}
+
 	// Unverified Leads — items the explorer emit_evidence-grounded as
 	// ungrounded. Rendered in every skill by default (design pick #4
 	// of the 2026-04-17 redesign) so the finalizer sees the leads but
@@ -1687,6 +1694,374 @@ func evidenceLineForTypedMember(h types.TypedRelationHint, m types.TypedRelation
 		b.WriteString(m.Kind)
 	}
 	return b.String()
+}
+
+const (
+	relationDossierMaxTypedHints       = 6
+	relationDossierMaxTypedMembers     = 4
+	relationDossierMaxEvidenceItems    = 6
+	relationDossierMaxAggregateFacts   = 4
+	relationDossierMaxAggregateMembers = 5
+	relationDossierTextLimit           = 180
+)
+
+func formatRelationDossier(ac *types.AgentContext) string {
+	if ac == nil {
+		return ""
+	}
+	var sections []string
+	if typed := formatRelationDossierTypedHints(ac.TypedRelationHints); typed != "" {
+		sections = append(sections, "Index candidates:\n"+typed)
+	}
+	if inventory := formatRelationDossierSourceInventory(relationDossierSourceInventory(ac)); inventory != "" {
+		sections = append(sections, "Source inventory observations:\n"+inventory)
+	}
+	if evidence := formatRelationDossierEvidence(ac.EvidenceItems); evidence != "" {
+		sections = append(sections, "Model/tool observations:\n"+evidence)
+	}
+	if aggregate := formatRelationDossierAggregateFacts(relationDossierAggregateFacts(ac)); aggregate != "" {
+		sections = append(sections, "Model-authored relation sets:\n"+aggregate)
+	}
+	if len(sections) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("- Advisory only: use these relation directions to decide what to verify next; do not treat candidate rows as final answer members or completion authority.\n")
+	b.WriteString("- Verified evidence rows may be cited through the normal citation path. Partial or unknown relation sets should be narrowed, verified, or caveated by the model.\n\n")
+	b.WriteString(strings.Join(sections, "\n\n"))
+	return strings.TrimSpace(b.String())
+}
+
+func formatRelationDossierTypedHints(hints []types.TypedRelationHint) string {
+	if len(hints) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	written := 0
+	for _, hint := range hints {
+		if written >= relationDossierMaxTypedHints {
+			break
+		}
+		source := relationDossierCleanText(hint.SourceName)
+		if source == "" || len(hint.Members) == 0 {
+			continue
+		}
+		provenance := hint.Provenance
+		if provenance == "" {
+			provenance = types.TypedRelationProvenanceTypedGraph
+		}
+		fmt.Fprintf(&b, "- candidate [%s] %s -> %d member(s), provenance=%s",
+			hint.Relation, relationDossierClip(source), len(hint.Members), provenance)
+		if hint.SourceKind != "" {
+			fmt.Fprintf(&b, ", source_kind=%s", relationDossierClip(hint.SourceKind))
+		}
+		if examples := relationDossierTypedMemberExamples(hint.Members, relationDossierMaxTypedMembers); examples != "" {
+			b.WriteString("; examples: ")
+			b.WriteString(examples)
+		}
+		b.WriteByte('\n')
+		written++
+	}
+	if written == 0 {
+		return ""
+	}
+	if len(hints) > written {
+		fmt.Fprintf(&b, "- ... %d additional relation candidate group(s) omitted for prompt size.\n", len(hints)-written)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func formatRelationDossierEvidence(items []types.EvidenceItem) string {
+	if len(items) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	written := 0
+	seen := map[string]bool{}
+	for _, item := range items {
+		if written >= relationDossierMaxEvidenceItems {
+			break
+		}
+		subject := relationDossierCleanText(item.Subject)
+		object := relationDossierCleanText(item.Object)
+		if subject == "" || object == "" {
+			continue
+		}
+		key := strings.ToLower(subject) + "\x00" + strings.ToLower(object) + "\x00" + strings.ToLower(string(item.AnchorKind)) + "\x00" + strings.ToLower(item.Source)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		relation := relationDossierEvidenceRelation(item)
+		status := "lead"
+		if item.IsCitable() {
+			status = "verified"
+		}
+		fmt.Fprintf(&b, "- %s %s -> %s", status, relationDossierClip(subject), relationDossierClip(object))
+		if relation != "" {
+			fmt.Fprintf(&b, " relation=%s", relationDossierClip(relation))
+		}
+		if loc := item.DisplayLocation(false); loc != "" {
+			fmt.Fprintf(&b, " @ %s", loc)
+		}
+		if item.AnchorSymbol != "" {
+			fmt.Fprintf(&b, " anchor=%s", relationDossierClip(item.AnchorSymbol))
+		}
+		b.WriteByte('\n')
+		written++
+	}
+	if written == 0 {
+		return ""
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func formatRelationDossierSourceInventory(observation types.SourceInventoryObservation) string {
+	if !observation.IsActive() {
+		return ""
+	}
+	var b strings.Builder
+	written := 0
+	const maxSets = 4
+	for _, set := range observation.Sets {
+		if written >= maxSets {
+			break
+		}
+		if len(set.Members) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "- role=%s complete=%t count=%d", set.Role, set.Complete, set.Count)
+		if len(observation.Scopes) > 0 {
+			fmt.Fprintf(&b, " scopes=%s", relationDossierClip(strings.Join(observation.Scopes, ",")))
+		}
+		if examples := relationDossierSourceInventoryMemberExamples(set.Members, relationDossierMaxAggregateMembers); examples != "" {
+			b.WriteString("; examples: ")
+			b.WriteString(examples)
+		}
+		b.WriteByte('\n')
+		written++
+	}
+	if written == 0 {
+		return ""
+	}
+	if len(observation.Sets) > written {
+		fmt.Fprintf(&b, "- ... %d additional source-inventory set(s) omitted for prompt size.\n", len(observation.Sets)-written)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func formatRelationDossierAggregateFacts(facts []types.AnswerAggregateFact) string {
+	if len(facts) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	written := 0
+	for _, fact := range facts {
+		if written >= relationDossierMaxAggregateFacts {
+			break
+		}
+		if !types.AnswerAggregateFactHasRelationMembers(fact) {
+			continue
+		}
+		label := relationDossierCleanText(fact.Label)
+		if label == "" {
+			label = "relation member_set"
+		}
+		role := types.AnswerAggregateFactRoleForRequest(fact, nil)
+		fmt.Fprintf(&b, "- member_set %q role=%s members=%d", relationDossierClip(label), role, len(fact.Members))
+		if fact.Value != "" {
+			fmt.Fprintf(&b, " value=%s", relationDossierClip(fact.Value))
+		}
+		if len(fact.SupportRefs) > 0 {
+			fmt.Fprintf(&b, " support_refs=%d", len(fact.SupportRefs))
+		} else {
+			b.WriteString(" support_refs=0")
+		}
+		if examples := relationDossierAggregateMemberExamples(fact.Members, relationDossierMaxAggregateMembers); examples != "" {
+			b.WriteString("; examples: ")
+			b.WriteString(examples)
+		}
+		b.WriteByte('\n')
+		written++
+	}
+	if written == 0 {
+		return ""
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func relationDossierSourceInventory(ac *types.AgentContext) types.SourceInventoryObservation {
+	if ac == nil || ac.Mutable == nil {
+		return types.SourceInventoryObservation{}
+	}
+	return ac.Mutable.SourceInventoryObservation()
+}
+
+func relationDossierAggregateFacts(ac *types.AgentContext) []types.AnswerAggregateFact {
+	if ac == nil || ac.Mutable == nil {
+		return nil
+	}
+	facts := ac.Mutable.StableInvestigationAggregateFacts()
+	if ta := ac.Mutable.TurnAArtifacts(); ta != nil && len(ta.AcceptedAggregateFacts) > 0 {
+		facts = types.MergeAnswerAggregateFacts(facts, ta.AcceptedAggregateFacts)
+	}
+	return facts
+}
+
+func relationDossierSourceInventoryMemberExamples(members []types.SourceInventoryObservationMember, limit int) string {
+	if len(members) == 0 || limit <= 0 {
+		return ""
+	}
+	var examples []string
+	for _, member := range members {
+		if len(examples) >= limit {
+			break
+		}
+		name := relationDossierCleanText(member.Name)
+		if name == "" {
+			continue
+		}
+		item := relationDossierClip(name)
+		if loc := relationDossierSourceInventoryLocation(member.File, member.Line); loc != "" {
+			item += " (" + relationDossierClip(loc) + ")"
+		}
+		if member.Language != "" {
+			item += " lang=" + relationDossierClip(member.Language)
+		}
+		if member.CoverageState != "" {
+			item += " state=" + relationDossierClip(string(member.CoverageState))
+		}
+		if attrs := relationDossierSourceInventoryAttributeExamples(member.Attributes, 2); attrs != "" {
+			item += " attrs=[" + attrs + "]"
+		}
+		examples = append(examples, item)
+	}
+	if len(examples) == 0 {
+		return ""
+	}
+	if len(members) > len(examples) {
+		examples = append(examples, fmt.Sprintf("+%d more", len(members)-len(examples)))
+	}
+	return strings.Join(examples, "; ")
+}
+
+func relationDossierSourceInventoryAttributeExamples(attrs []types.SourceInventoryObservationAttribute, limit int) string {
+	if len(attrs) == 0 || limit <= 0 {
+		return ""
+	}
+	var examples []string
+	for _, attr := range attrs {
+		if len(examples) >= limit {
+			break
+		}
+		name := relationDossierCleanText(attr.Name)
+		if name == "" {
+			continue
+		}
+		item := relationDossierClip(name)
+		if attr.Role != "" {
+			item += ":" + relationDossierClip(string(attr.Role))
+		}
+		if loc := relationDossierSourceInventoryLocation(attr.File, attr.Line); loc != "" {
+			item += "@" + relationDossierClip(loc)
+		}
+		examples = append(examples, item)
+	}
+	if len(examples) == 0 {
+		return ""
+	}
+	if len(attrs) > len(examples) {
+		examples = append(examples, fmt.Sprintf("+%d more", len(attrs)-len(examples)))
+	}
+	return strings.Join(examples, ", ")
+}
+
+func relationDossierSourceInventoryLocation(file string, line int) string {
+	file = relationDossierCleanText(file)
+	if file == "" {
+		return ""
+	}
+	if line > 0 {
+		return fmt.Sprintf("%s:%d", file, line)
+	}
+	return file
+}
+
+func relationDossierTypedMemberExamples(members []types.TypedRelationMember, limit int) string {
+	if len(members) == 0 || limit <= 0 {
+		return ""
+	}
+	var examples []string
+	for _, member := range members {
+		if len(examples) >= limit {
+			break
+		}
+		name := relationDossierCleanText(member.Name)
+		if name == "" {
+			continue
+		}
+		item := relationDossierClip(name)
+		if member.File != "" {
+			loc := member.File
+			if member.Line > 0 {
+				loc = fmt.Sprintf("%s:%d", member.File, member.Line)
+			}
+			item += " (" + relationDossierClip(loc) + ")"
+		}
+		examples = append(examples, item)
+	}
+	if len(examples) == 0 {
+		return ""
+	}
+	if len(members) > len(examples) {
+		examples = append(examples, fmt.Sprintf("+%d more", len(members)-len(examples)))
+	}
+	return strings.Join(examples, "; ")
+}
+
+func relationDossierAggregateMemberExamples(members []string, limit int) string {
+	if len(members) == 0 || limit <= 0 {
+		return ""
+	}
+	var examples []string
+	for _, member := range members {
+		if len(examples) >= limit {
+			break
+		}
+		left, right, ok := types.AnswerAggregateMemberRelationParts(member)
+		if !ok {
+			continue
+		}
+		examples = append(examples, relationDossierClip(left)+" -> "+relationDossierClip(right))
+	}
+	if len(examples) == 0 {
+		return ""
+	}
+	if len(members) > len(examples) {
+		examples = append(examples, fmt.Sprintf("+%d more", len(members)-len(examples)))
+	}
+	return strings.Join(examples, "; ")
+}
+
+func relationDossierEvidenceRelation(item types.EvidenceItem) string {
+	if predicate := relationDossierCleanText(item.Predicate); predicate != "" {
+		return predicate
+	}
+	if item.AnchorKind != "" {
+		return string(item.AnchorKind)
+	}
+	if item.Kind != "" {
+		return string(item.Kind)
+	}
+	return ""
+}
+
+func relationDossierCleanText(value string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(value)), " ")
+}
+
+func relationDossierClip(value string) string {
+	return truncateForPrompt(relationDossierCleanText(value), relationDossierTextLimit)
 }
 
 // typedRelationDedupKey is the canonical (Subject, Object, AnchorKind)

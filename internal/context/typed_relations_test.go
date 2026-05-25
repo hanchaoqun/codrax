@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/skill"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -834,6 +835,115 @@ func TestKnowledgePoolPreamble_TypedRelationRowsAreAdvisory(t *testing.T) {
 	if strings.Contains(out, "Both lanes are authoritative") ||
 		strings.Contains(out, "one source of truth") {
 		t.Fatalf("preamble must not present typed relation candidates as authority, got %q", out)
+	}
+}
+
+func TestRelationDossier_DoesNotRenderFromRawObjectiveOnly(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		Objective: "Find topic -> subscriber relationships.",
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "explore-skill"})
+	if sec := findSectionTitle(pc, SectionRelationDossier); sec != nil {
+		t.Fatalf("relation dossier must not be inferred from raw objective text alone:\n%s", sec.Content)
+	}
+}
+
+func TestRelationDossier_TypedHintsAreAdvisory(t *testing.T) {
+	out := formatRelationDossier(&types.AgentContext{
+		TypedRelationHints: []types.TypedRelationHint{{
+			Relation:   types.TypedRelationImplements,
+			SourceName: "PaymentPort",
+			SourceKind: "interface",
+			Provenance: types.TypedRelationProvenanceTypedGraph,
+			Members: []types.TypedRelationMember{
+				{Name: "StripePort", File: "payments/stripe.ts", Line: 42, Kind: "class"},
+				{Name: "MockPort", File: "payments/mock.ts", Line: 11, Kind: "class"},
+			},
+		}},
+	})
+	for _, want := range []string{
+		"Advisory only",
+		"Index candidates:",
+		"candidate [implements] PaymentPort -> 2 member(s)",
+		"provenance=typed_graph",
+		"StripePort (payments/stripe.ts:42)",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("relation dossier missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "authoritative") {
+		t.Fatalf("relation dossier must not present typed hints as authority:\n%s", out)
+	}
+}
+
+func TestRelationDossier_CarriesModelEvidenceAndAggregateRelations(t *testing.T) {
+	mut := types.NewMutableState("relation handoff")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"services/payments"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRolePackage,
+			Complete: true,
+			Count:    1,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "services/payments",
+				Role:          types.AnswerCandidateRolePackage,
+				File:          "services/payments/index.ts",
+				Line:          1,
+				Language:      "typescript",
+				CoverageState: types.SourceInventoryCoverageObserved,
+				Attributes: []types.SourceInventoryObservationAttribute{{
+					Name: "createPayment",
+					Role: types.AnswerCandidateRoleFunction,
+					File: "services/payments/index.ts",
+					Line: 42,
+				}},
+			}},
+		}},
+	})
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Role:        types.AnswerAggregateRolePrincipalAnswer,
+		Label:       "topic subscribers",
+		Value:       "2",
+		Members:     []string{"topicA -> HandlerA", "topicB -> HandlerB"},
+		SupportRefs: []string{"HandlerA @ src/topic.ts:10"},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+
+	out := formatRelationDossier(&types.AgentContext{
+		Mutable: mut,
+		EvidenceItems: []types.EvidenceItem{{
+			Kind:            types.EvidenceRelationship,
+			Subject:         "topicA",
+			Predicate:       "subscribes-to",
+			Object:          "HandlerA",
+			Source:          "src/topic.ts",
+			LineStart:       10,
+			Scope:           types.ScopeLine,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "subscribe",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	})
+	for _, want := range []string{
+		"Source inventory observations:",
+		"role=package complete=true count=1 scopes=services/payments",
+		"services/payments (services/payments/index.ts:1) lang=typescript state=observed attrs=[createPayment:function@services/payments/index.ts:42]",
+		"Model/tool observations:",
+		"verified topicA -> HandlerA relation=subscribes-to @ src/topic.ts:10",
+		"Model-authored relation sets:",
+		"member_set \"topic subscribers\" role=principal_answer members=2 value=2 support_refs=1",
+		"topicA -> HandlerA",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("relation dossier missing %q:\n%s", want, out)
+		}
 	}
 }
 
