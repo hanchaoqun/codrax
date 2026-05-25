@@ -28,13 +28,15 @@ func projectedGraphFromAgentContext(ctx *types.AgentContext, parentRoot, scopeRo
 		}
 	}
 	if g, ok := ctx.SearchGraph.(*Graph); ok {
-		projected, err := projectGraphToRoot(g, parentRoot, scopeRoot, query)
-		if err != nil {
-			return nil, false, err
-		}
-		if projected != nil {
-			logging.Info("repo_map: projected scoped graph from agent in-memory graph (%d files)", projected.Metadata.FileCount)
-			return projected, true, nil
+		for _, parent := range projectionParentCandidates(g.Root, parentRoot, scopeRoot) {
+			projected, err := projectGraphToRoot(g, parent, scopeRoot, query)
+			if err != nil {
+				return nil, false, err
+			}
+			if projected != nil {
+				logging.Info("repo_map: projected scoped graph from agent in-memory graph (%d files)", projected.Metadata.FileCount)
+				return projected, true, nil
+			}
 		}
 	}
 	return nil, false, nil
@@ -44,29 +46,60 @@ func projectedGraphFromMutable(mut *types.MutableState, parentRoot, scopeRoot, q
 	if mut == nil {
 		return nil, false, nil
 	}
-	key := scopedGraphProjectionCacheKey(parentRoot, scopeRoot, query)
-	if key == "" {
-		return nil, false, nil
-	}
-	if cached, ok := mut.ScopedSearchGraph(key).(*Graph); ok && cached != nil {
-		clone := cloneGraphForRanking(cached)
-		logging.Info("repo_map: reused scoped in-memory graph (%d files)", clone.Metadata.FileCount)
-		return clone, true, nil
-	}
 	base, ok := mut.SearchGraph().(*Graph)
 	if !ok || base == nil {
 		return nil, false, nil
 	}
-	projected, err := projectGraphToRoot(base, parentRoot, scopeRoot, query)
-	if err != nil {
-		return nil, false, err
+	parents := projectionParentCandidates(base.Root, parentRoot, scopeRoot)
+	for _, parent := range parents {
+		key := scopedGraphProjectionCacheKey(parent, scopeRoot, query)
+		if key == "" {
+			continue
+		}
+		if cached, ok := mut.ScopedSearchGraph(key).(*Graph); ok && cached != nil {
+			clone := cloneGraphForRanking(cached)
+			logging.Info("repo_map: reused scoped in-memory graph (%d files)", clone.Metadata.FileCount)
+			return clone, true, nil
+		}
 	}
-	if projected == nil {
-		return nil, false, nil
+	for _, parent := range parents {
+		projected, err := projectGraphToRoot(base, parent, scopeRoot, query)
+		if err != nil {
+			return nil, false, err
+		}
+		if projected == nil {
+			continue
+		}
+		if key := scopedGraphProjectionCacheKey(parent, scopeRoot, query); key != "" {
+			mut.SetScopedSearchGraph(key, projected)
+		}
+		logging.Info("repo_map: projected scoped graph from in-memory graph (%d files)", projected.Metadata.FileCount)
+		return cloneGraphForRanking(projected), true, nil
 	}
-	mut.SetScopedSearchGraph(key, projected)
-	logging.Info("repo_map: projected scoped graph from in-memory graph (%d files)", projected.Metadata.FileCount)
-	return cloneGraphForRanking(projected), true, nil
+	return nil, false, nil
+}
+
+func projectionParentCandidates(baseRoot, parentRoot, scopeRoot string) []string {
+	var out []string
+	add := func(root string) {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			return
+		}
+		for _, existing := range out {
+			if sameRepoMapRoot(existing, root) {
+				return
+			}
+		}
+		out = append(out, root)
+	}
+	add(parentRoot)
+	if baseRoot != "" {
+		if _, ok := repoMapRelPathWithinRoot(baseRoot, scopeRoot); ok {
+			add(baseRoot)
+		}
+	}
+	return out
 }
 
 func scopedGraphProjectionCacheKey(parentRoot, scopeRoot, query string) string {

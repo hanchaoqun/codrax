@@ -36,6 +36,14 @@ import (
 //     close unterminated strings or incomplete key/value positions
 //     such as `{"path":`.
 //
+//  4. Leading delimiter garbage — a streaming/tool-call aggregator may
+//     carry over one or more closing delimiters from the previous tool
+//     call and produce `}{"path":"..."}`. The repair strips only
+//     whitespace plus `}` / `]` / `,` before the first JSON opener and
+//     then requires the remaining bytes to parse as exactly one JSON
+//     value. It refuses arbitrary text prefixes and double-object
+//     payloads.
+//
 // The repair is bounded: it only removes trailing/pre-terminator
 // garbage or appends deterministic JSON delimiters. The function
 // re-parses the repaired bytes via json.Unmarshal before returning,
@@ -54,6 +62,10 @@ func repairToolParamsJSON(raw json.RawMessage) (json.RawMessage, bool) {
 	if err := json.Unmarshal(raw, &probe); err == nil {
 		return raw, false
 	}
+	// Pattern 0: strip safe leading delimiter garbage.
+	if repaired, ok := tryTrimLeadingGarbage(raw); ok {
+		return repaired, true
+	}
 	// Pattern 1: decode the first complete value via streaming
 	// decoder; if it succeeds and only safe trailing chars remain,
 	// trim them.
@@ -69,6 +81,38 @@ func repairToolParamsJSON(raw json.RawMessage) (json.RawMessage, bool) {
 		return repaired, true
 	}
 	return raw, false
+}
+
+func tryTrimLeadingGarbage(raw json.RawMessage) (json.RawMessage, bool) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return raw, false
+	}
+	if trimmed[0] == '{' || trimmed[0] == '[' {
+		return raw, false
+	}
+	firstOpener := -1
+	for i, b := range trimmed {
+		switch b {
+		case ' ', '\t', '\n', '\r', '\v', '\f', '}', ']', ',':
+			continue
+		case '{', '[':
+			firstOpener = i
+			goto found
+		default:
+			return raw, false
+		}
+	}
+found:
+	if firstOpener <= 0 {
+		return raw, false
+	}
+	repaired := trimmed[firstOpener:]
+	var verify interface{}
+	if err := json.Unmarshal(repaired, &verify); err != nil {
+		return raw, false
+	}
+	return append(json.RawMessage(nil), repaired...), true
 }
 
 func toolParamsMalformedJSONKind(raw json.RawMessage, errText string) string {

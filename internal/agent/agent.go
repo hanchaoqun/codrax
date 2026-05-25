@@ -2214,7 +2214,11 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 }
 
 func (b *BaseAgent) normalizeToolCallParams(calls []llm.ToolCall, schemas []llm.ToolSchema) []llm.ToolCall {
-	if len(calls) == 0 || len(schemas) == 0 || b == nil || b.deps == nil {
+	if len(calls) == 0 {
+		return calls
+	}
+	calls = repairToolCallParamSyntax(calls)
+	if len(schemas) == 0 || b == nil || b.deps == nil {
 		return calls
 	}
 	cfg := b.toolParamCompatConfig()
@@ -2270,6 +2274,25 @@ func (b *BaseAgent) normalizeToolCallParams(calls []llm.ToolCall, schemas []llm.
 		out[i].Params = current
 		logging.Warning("[tool_param_compat] agent=%s tool=%s params normalized: %s",
 			b.name, call.Name, strings.Join(summaries, "; "))
+	}
+	if out == nil {
+		return calls
+	}
+	return out
+}
+
+func repairToolCallParamSyntax(calls []llm.ToolCall) []llm.ToolCall {
+	var out []llm.ToolCall
+	for i, call := range calls {
+		repaired, ok := repairToolParamsJSON(call.Params)
+		if !ok {
+			continue
+		}
+		if out == nil {
+			out = append([]llm.ToolCall(nil), calls...)
+		}
+		out[i].Params = repaired
+		logging.Warning("[agent] tool %q params auto-repaired (LLM-corrupted JSON: structural repair)", call.Name)
 	}
 	if out == nil {
 		return calls

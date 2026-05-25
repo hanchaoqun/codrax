@@ -3016,3 +3016,41 @@ B2-V repo-map prompt/internal-mechanism leakage audit, 2026-05-25 CST:
     model-facing explorer / emit_evidence hint surfaces;
   - added a tool-schema hygiene test covering registered built-in and emit tools
     so descriptions/parameters cannot reintroduce the same internal phrases.
+
+B2-W repo_map scoped projection / malformed tool-argument repair, 2026-05-25 CST:
+
+- Customer-observed gaps:
+  - `repo_map(path="CodeAgent/packages/cli/src", view="task_map")` rebuilt or
+    loaded a subdirectory index even though an earlier analyzer overview had
+    already warmed the `CodeAgent` graph;
+  - local-model tool calls sometimes arrived as `}{"path":"..."}` or truncated
+    `{"files_only":true,...` argument bytes. The generic repair covered trailing
+    garbage and missing closing delimiters, but not safe leading delimiter
+    carry-over, so `grep` / `repo_map` were rejected before execution.
+- Root cause:
+  - scoped projection assumed `Mutable.SearchGraph().Root == ctx.RepoRoot`.
+    That is false in multi-repo / active-set posture: the warmed graph may be a
+    sub-repo root (`CodeAgent`) while `ctx.RepoRoot` is the parent workspace.
+    The requested path can still be a child of the warmed graph and should be
+    projected from it instead of scanning the child directory again;
+  - structural JSON repair ran during execution, but not before assistant
+    history sanitization. Also, leading delimiter carry-over was intentionally
+    treated as invalid before this batch.
+- Fix contract:
+  - scoped projection now tries both the supplied parent root and the cached
+    graph's own root, but only when the requested scope is provably inside that
+    graph root. The projection cache key uses the actual parent root that
+    produced the projection, so sibling sub-repos cannot collide;
+  - tool-call argument syntax repair now strips only safe leading delimiter
+    garbage (`}`, `]`, `,`, whitespace) before a JSON object/array and then
+    requires the remainder to parse as exactly one JSON value. It still refuses
+    arbitrary text prefixes and double-object payloads;
+  - structural repair runs before logging/history sanitization, so repaired
+    tool calls remain visible as their real arguments instead of being replaced
+    with `{}` in the next model turn.
+- Guardrails added:
+  - agent tests cover leading-delimiter repair, double-object refusal, and
+    pre-history repair preservation for `repo_map`;
+  - repo_map tests cover projecting a subdirectory from a warmed sub-repo graph
+    while the session root is the parent workspace. This is cross-language and
+    not tied to Go: the regression fixture uses TypeScript paths/symbols.

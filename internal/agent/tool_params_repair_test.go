@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/llm"
 )
 
 // TestRepairToolParamsJSON_S5aProductionRegression pins the exact
@@ -175,11 +177,30 @@ func TestRepairToolParamsJSON_DanglingColonStillInvalid(t *testing.T) {
 	}
 }
 
-func TestRepairToolParamsJSON_LeadingCloserStillInvalid(t *testing.T) {
+func TestRepairToolParamsJSON_LeadingCloserBeforeObject(t *testing.T) {
+	raw := json.RawMessage(`}{"files_only":true,"path":"CodeAgent","pattern":"nonInteractiveAuth|NonInteractiveAuth"}`)
+	repaired, ok := repairToolParamsJSON(raw)
+	if !ok {
+		t.Fatalf("leading closer before a complete object should be repaired")
+	}
+	var probe struct {
+		FilesOnly bool   `json:"files_only"`
+		Path      string `json:"path"`
+		Pattern   string `json:"pattern"`
+	}
+	if err := json.Unmarshal(repaired, &probe); err != nil {
+		t.Fatalf("repaired payload must parse: %v\n%s", err, repaired)
+	}
+	if !probe.FilesOnly || probe.Path != "CodeAgent" || probe.Pattern == "" {
+		t.Fatalf("repaired payload changed fields: %+v", probe)
+	}
+}
+
+func TestRepairToolParamsJSON_LoneLeadingCloserStillInvalid(t *testing.T) {
 	raw := json.RawMessage(`}`)
 	repaired, ok := repairToolParamsJSON(raw)
 	if ok {
-		t.Fatalf("leading closer should not be repaired; got %s", repaired)
+		t.Fatalf("lone leading closer should not be repaired; got %s", repaired)
 	}
 }
 
@@ -193,6 +214,29 @@ func TestRepairToolParamsJSON_DoubleObjectBails(t *testing.T) {
 	repaired, ok := repairToolParamsJSON(raw)
 	if ok {
 		t.Errorf("trailing non-garbage value should NOT trigger repair; got %s", repaired)
+	}
+}
+
+func TestRepairToolParamsJSON_LeadingCloserDoubleObjectBails(t *testing.T) {
+	raw := json.RawMessage(`}{"a":1}{"b":2}`)
+	repaired, ok := repairToolParamsJSON(raw)
+	if ok {
+		t.Fatalf("leading garbage repair must not discard a second object; got %s", repaired)
+	}
+}
+
+func TestRepairToolCallParamSyntaxRunsBeforeHistorySanitization(t *testing.T) {
+	calls := []llm.ToolCall{{
+		ID:     "call-1",
+		Name:   "repo_map",
+		Params: json.RawMessage(`}{"path":"CodeAgent","query":"validateNonInteractiveAuth W3 token","view":"task_map"}`),
+	}}
+	repaired := repairToolCallParamSyntax(calls)
+	if len(repaired) != 1 || !json.Valid(repaired[0].Params) {
+		t.Fatalf("tool-call syntax repair should produce valid params before history sanitization: %+v", repaired)
+	}
+	if string(sanitizeToolCallsForHistory(repaired)[0].Params) == `{}` {
+		t.Fatalf("history sanitizer should preserve repaired params, got %s", repaired[0].Params)
 	}
 }
 

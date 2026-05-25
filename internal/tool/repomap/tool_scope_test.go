@@ -1249,6 +1249,65 @@ func TestGraphFromBusContextOrLoadProjectsSubdirFromMutableGraph(t *testing.T) {
 	}
 }
 
+func TestGraphFromBusContextOrLoadProjectsSubdirFromMutableSubRepoGraph(t *testing.T) {
+	parent := t.TempDir()
+	subRepoRoot := filepath.Join(parent, "CodeAgent")
+	scopeRoot := filepath.Join(subRepoRoot, "packages", "cli", "src")
+	if err := os.MkdirAll(scopeRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	base := BuildGraph(subRepoRoot, []*FileInfo{{
+		RelPath:  "packages/cli/src/auth.ts",
+		Language: LangTypeScript,
+		Package:  "cli",
+		Symbols: []Symbol{{
+			Name:     "validateNonInteractiveAuth",
+			Kind:     "function",
+			File:     "packages/cli/src/auth.ts",
+			Line:     12,
+			Exported: true,
+		}},
+	}, {
+		RelPath:  "packages/server/src/server.ts",
+		Language: LangTypeScript,
+		Package:  "server",
+		Symbols: []Symbol{{
+			Name:     "startServer",
+			Kind:     "function",
+			File:     "packages/server/src/server.ts",
+			Line:     7,
+			Exported: true,
+		}},
+	}})
+	mut := types.NewMutableState("subrepo scoped projection")
+	mut.SetSearchGraph(base)
+	ctx := &types.BusContext{RepoRoot: parent, Mutable: mut}
+
+	graph, err := GraphFromBusContextOrLoad(ctx, scopeRoot, "validateNonInteractiveAuth W3 token")
+	if err != nil {
+		t.Fatalf("GraphFromBusContextOrLoad returned error: %v", err)
+	}
+	if graph == nil {
+		t.Fatal("GraphFromBusContextOrLoad returned nil graph")
+	}
+	if !sameRepoMapRoot(graph.Root, scopeRoot) {
+		t.Fatalf("projected graph root = %q, want %q", graph.Root, scopeRoot)
+	}
+	if _, ok := graph.FileIndex["auth.ts"]; !ok {
+		t.Fatalf("projected graph missing rebased auth.ts: keys=%v", graph.FileIndex)
+	}
+	if _, ok := graph.FileIndex["packages/server/src/server.ts"]; ok {
+		t.Fatalf("projected graph leaked sibling package: keys=%v", graph.FileIndex)
+	}
+	if _, ok := graph.SymbolDefs["validateNonInteractiveAuth"]; !ok {
+		t.Fatalf("projected graph missing function symbol: %+v", graph.SymbolDefs)
+	}
+	key := scopedGraphProjectionCacheKey(subRepoRoot, scopeRoot, "validateNonInteractiveAuth W3 token")
+	if cached, ok := mut.ScopedSearchGraph(key).(*Graph); !ok || cached == nil {
+		t.Fatalf("subrepo-root projection was not cached under base graph root")
+	}
+}
+
 func TestBuildOrLoadGraphWithinRejectsBeforeScanner(t *testing.T) {
 	parent := t.TempDir()
 	repo := filepath.Join(parent, "repo")
