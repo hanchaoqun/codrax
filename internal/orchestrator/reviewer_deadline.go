@@ -24,13 +24,30 @@ const (
 // assembly cost for under 10s of wall is wasted work.
 const reviewerMinBudget = 10 * time.Second
 
+type reviewerRequestTimeoutProvider interface {
+	ReviewerRequestTimeout() time.Duration
+}
+
+func reviewerRequestTimeoutEnvelope(reviewer any) time.Duration {
+	if reviewer == nil {
+		return 0
+	}
+	provider, ok := reviewer.(reviewerRequestTimeoutProvider)
+	if !ok {
+		return 0
+	}
+	return provider.ReviewerRequestTimeout()
+}
+
 // runReviewerWithDeadline wraps fn so it sees a context bounded by
-// fraction*remaining_wall_budget. If the parent context has no
-// deadline OR fraction <= 0, fn runs against parent unchanged
-// (legacy behaviour). On deadline timeout, the reviewer's output is
-// dropped and a Warning is logged; the dispatch continues without
-// the reviewer's violations. This preserves shipping the answer
-// when reviewer slowness would otherwise burn the wall budget.
+// fraction*remaining_wall_budget. If the parent context has no deadline,
+// callers may provide fallbackEnvelope (normally the reviewer's adapter
+// RequestTimeout) so read-mode Runs without an overall wall deadline still
+// bound advisory reviewer cost. If fraction <= 0, or no deadline/envelope is
+// available, fn runs against parent unchanged (legacy behaviour). On deadline
+// timeout, the reviewer's output is dropped and a Warning is logged; the
+// dispatch continues without the reviewer's violations. This preserves shipping
+// the answer when reviewer slowness would otherwise burn the wall budget.
 //
 // Red line: this only enforces an upper bound on reviewer wall
 // cost. It does not synthesize violations, does not infer answer
@@ -40,6 +57,7 @@ func runReviewerWithDeadline(
 	parent context.Context,
 	slot reviewerSlot,
 	fraction float64,
+	fallbackEnvelope time.Duration,
 	fn func(context.Context) []types.Violation,
 ) []types.Violation {
 	if parent == nil {
@@ -51,14 +69,17 @@ func runReviewerWithDeadline(
 	if fraction <= 0 {
 		return fn(parent)
 	}
-	deadline, ok := parent.Deadline()
-	if !ok {
+	remaining := time.Duration(0)
+	if deadline, ok := parent.Deadline(); ok {
+		remaining = time.Until(deadline)
+		if remaining <= 0 {
+			logging.Warning("[reviewer-deadline] slot=%s wall budget already exhausted, skipping dispatch", slot)
+			return nil
+		}
+	} else if fallbackEnvelope > 0 {
+		remaining = fallbackEnvelope
+	} else {
 		return fn(parent)
-	}
-	remaining := time.Until(deadline)
-	if remaining <= 0 {
-		logging.Warning("[reviewer-deadline] slot=%s wall budget already exhausted, skipping dispatch", slot)
-		return nil
 	}
 	budget := time.Duration(float64(remaining) * fraction)
 	if budget < reviewerMinBudget {

@@ -492,12 +492,14 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 			}
 			runSCFn := func() {
 				scViolations = runReviewerWithDeadline(parent, reviewerSlotSelfConsistency, fraction,
+					reviewerRequestTimeoutEnvelope(o.selfConsistencyReviewer),
 					func(context.Context) []types.Violation {
 						return o.runSelfConsistencyReviewV2WithStartNotice(scDocV2, mut, !coalescedStartNotice)
 					})
 			}
 			runSQFn := func() {
 				sqViolations = runReviewerWithDeadline(parent, reviewerSlotSemanticQuality, fraction,
+					reviewerRequestTimeoutEnvelope(o.semanticQualityReviewer),
 					func(context.Context) []types.Violation {
 						var outcome semanticQualityReviewOutcome
 						var violations []types.Violation

@@ -8,9 +8,9 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func TestRunReviewerWithDeadline_NoDeadlinePassesThrough(t *testing.T) {
+func TestRunReviewerWithDeadline_NoDeadlineAndNoEnvelopePassesThrough(t *testing.T) {
 	called := false
-	out := runReviewerWithDeadline(context.Background(), reviewerSlotSelfConsistency, 0.4,
+	out := runReviewerWithDeadline(context.Background(), reviewerSlotSelfConsistency, 0.4, 0,
 		func(ctx context.Context) []types.Violation {
 			called = true
 			if _, ok := ctx.Deadline(); ok {
@@ -26,11 +26,29 @@ func TestRunReviewerWithDeadline_NoDeadlinePassesThrough(t *testing.T) {
 	}
 }
 
+func TestRunReviewerWithDeadline_NoDeadlineUsesFallbackEnvelope(t *testing.T) {
+	out := runReviewerWithDeadline(context.Background(), reviewerSlotSelfConsistency, 0.5, 30*time.Second,
+		func(ctx context.Context) []types.Violation {
+			deadline, ok := ctx.Deadline()
+			if !ok {
+				t.Fatalf("expected fallback envelope to install a deadline")
+			}
+			remaining := time.Until(deadline)
+			if remaining <= 0 || remaining > 16*time.Second {
+				t.Fatalf("deadline remaining=%s, want about 15s", remaining)
+			}
+			return []types.Violation{{Kind: types.ViolSelfContradiction}}
+		})
+	if len(out) != 1 || out[0].Kind != types.ViolSelfContradiction {
+		t.Fatalf("expected reviewer output to pass through, got %+v", out)
+	}
+}
+
 func TestRunReviewerWithDeadline_ZeroFractionDisablesGuard(t *testing.T) {
 	parent, cancel := context.WithDeadline(context.Background(), time.Now().Add(100*time.Millisecond))
 	defer cancel()
 	called := false
-	runReviewerWithDeadline(parent, reviewerSlotSelfConsistency, 0,
+	runReviewerWithDeadline(parent, reviewerSlotSelfConsistency, 0, 30*time.Second,
 		func(ctx context.Context) []types.Violation {
 			called = true
 			if d, _ := ctx.Deadline(); !d.Equal(time.Time{}) {
@@ -48,7 +66,7 @@ func TestRunReviewerWithDeadline_ZeroFractionDisablesGuard(t *testing.T) {
 func TestRunReviewerWithDeadline_TimeoutDowngradesToAdvisory(t *testing.T) {
 	parent, cancel := context.WithDeadline(context.Background(), time.Now().Add(200*time.Millisecond))
 	defer cancel()
-	out := runReviewerWithDeadline(parent, reviewerSlotSelfConsistency, 0.5,
+	out := runReviewerWithDeadline(parent, reviewerSlotSelfConsistency, 0.5, 0,
 		func(ctx context.Context) []types.Violation {
 			// Simulate a slow reviewer that misses the deadline.
 			select {
@@ -67,7 +85,7 @@ func TestRunReviewerWithDeadline_WithinBudgetReturnsViolations(t *testing.T) {
 	// Budget = 60s * 0.4 = 24s > reviewerMinBudget (10s), so dispatch proceeds.
 	parent, cancel := context.WithDeadline(context.Background(), time.Now().Add(60*time.Second))
 	defer cancel()
-	out := runReviewerWithDeadline(parent, reviewerSlotSemanticQuality, 0.4,
+	out := runReviewerWithDeadline(parent, reviewerSlotSemanticQuality, 0.4, 0,
 		func(ctx context.Context) []types.Violation {
 			return []types.Violation{
 				{Kind: types.ViolAnswerSemanticUnderfilled},
@@ -82,7 +100,7 @@ func TestRunReviewerWithDeadline_BudgetBelowFloorSkips(t *testing.T) {
 	parent, cancel := context.WithDeadline(context.Background(), time.Now().Add(500*time.Millisecond))
 	defer cancel()
 	called := false
-	out := runReviewerWithDeadline(parent, reviewerSlotSelfConsistency, 0.4,
+	out := runReviewerWithDeadline(parent, reviewerSlotSelfConsistency, 0.4, 0,
 		func(ctx context.Context) []types.Violation {
 			called = true
 			return nil

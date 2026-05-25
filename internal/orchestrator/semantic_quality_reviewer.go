@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -404,6 +405,13 @@ type llmSemanticQualityReviewer struct {
 // NewSemanticQualityReviewer builds the default reviewer.
 func NewSemanticQualityReviewer(adapter llm.Adapter) SemanticQualityReviewer {
 	return &llmSemanticQualityReviewer{adapter: adapter}
+}
+
+func (r *llmSemanticQualityReviewer) ReviewerRequestTimeout() time.Duration {
+	if r == nil || r.adapter == nil {
+		return 0
+	}
+	return r.adapter.RequestTimeout()
 }
 
 // Review dispatches one structured-emit Chat call.

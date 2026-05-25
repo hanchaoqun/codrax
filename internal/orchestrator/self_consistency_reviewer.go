@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -300,6 +301,13 @@ type llmSelfConsistencyReviewer struct {
 // don't want consistency review).
 func NewSelfConsistencyReviewer(adapter llm.Adapter) SelfConsistencyReviewer {
 	return &llmSelfConsistencyReviewer{adapter: adapter}
+}
+
+func (r *llmSelfConsistencyReviewer) ReviewerRequestTimeout() time.Duration {
+	if r == nil || r.adapter == nil {
+		return 0
+	}
+	return r.adapter.RequestTimeout()
 }
 
 // Review dispatches one structured-emit Chat call. Failure paths
