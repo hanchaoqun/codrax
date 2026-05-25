@@ -102,6 +102,87 @@ eval_count_pattern() {
   echo "${n:-0}"
 }
 
+eval_max_context_tokens_estimate() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  LC_ALL=C awk '
+    {
+      if ($0 !~ /^20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^ ]+ DEBUG \[diag [^]]+\][^:]*phase=llm_request/) {
+        next
+      }
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^context_tokens_est=[0-9]+$/) {
+          split($i, a, "=")
+          if (a[2] + 0 > max) {
+            max = a[2] + 0
+          }
+        }
+      }
+    }
+    END { print max + 0 }
+  ' "$file"
+}
+
+eval_max_context_window_tokens() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  LC_ALL=C awk '
+    {
+      if ($0 !~ /^20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^ ]+ DEBUG \[diag [^]]+\][^:]*phase=llm_request/) {
+        next
+      }
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^context_window=[0-9]+$/) {
+          split($i, a, "=")
+          if (a[2] + 0 > max) {
+            max = a[2] + 0
+          }
+        }
+      }
+    }
+    END { print max + 0 }
+  ' "$file"
+}
+
+eval_max_context_window_pct() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  LC_ALL=C awk '
+    {
+      if ($0 !~ /^20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^ ]+ DEBUG \[diag [^]]+\][^:]*phase=llm_request/) {
+        next
+      }
+      tok = 0
+      win = 0
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^context_tokens_est=[0-9]+$/) {
+          split($i, a, "=")
+          tok = a[2] + 0
+        } else if ($i ~ /^context_window=[0-9]+$/) {
+          split($i, b, "=")
+          win = b[2] + 0
+        }
+      }
+      if (tok > 0 && win > 0) {
+        pct = int((tok * 100 / win) + 0.5)
+        if (pct > max) {
+          max = pct
+        }
+      }
+    }
+    END { print max + 0 }
+  ' "$file"
+}
+
 eval_count_control_pattern() {
   local pattern="$1"
   local file="$2"

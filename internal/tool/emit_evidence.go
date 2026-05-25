@@ -865,11 +865,11 @@ func repairEmitEvidenceKnownCompatFields(raw json.RawMessage) (json.RawMessage, 
 	}
 	var paths []string
 	for i := range items {
-		if _, ok := items[i]["field"]; !ok {
-			continue
+		if _, ok := items[i]["field"]; ok {
+			delete(items[i], "field")
+			paths = append(paths, fmt.Sprintf("items[%d].field", i))
 		}
-		delete(items[i], "field")
-		paths = append(paths, fmt.Sprintf("items[%d].field", i))
+		paths = append(paths, repairEmitEvidenceItemConstraintSidecars(items[i], i)...)
 	}
 	if len(items) == 1 {
 		for _, field := range emitEvidenceItemOnlyCompatFields {
@@ -903,6 +903,55 @@ func repairEmitEvidenceKnownCompatFields(raw json.RawMessage) (json.RawMessage, 
 		return raw, nil, false
 	}
 	return patched, paths, true
+}
+
+func repairEmitEvidenceItemConstraintSidecars(item map[string]json.RawMessage, index int) []string {
+	if item == nil {
+		return nil
+	}
+	var paths []string
+	for _, wrapper := range emitEvidenceConstraintSidecarFields {
+		raw, ok := item[wrapper]
+		if !ok {
+			continue
+		}
+		var sidecar map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &sidecar); err != nil {
+			continue
+		}
+		promoted := 0
+		for _, field := range emitEvidenceConstraintSidecarPromotableFields {
+			value, ok := sidecar[field]
+			if !ok {
+				continue
+			}
+			if _, exists := item[field]; exists {
+				continue
+			}
+			item[field] = value
+			promoted++
+			paths = append(paths, fmt.Sprintf("items[%d].%s.%s->items[%d].%s", index, wrapper, field, index, field))
+		}
+		delete(item, wrapper)
+		if promoted == 0 {
+			paths = append(paths, fmt.Sprintf("items[%d].%s ignored", index, wrapper))
+		}
+	}
+	return paths
+}
+
+var emitEvidenceConstraintSidecarFields = []string{
+	"field_constraints",
+	"fieldConstraints",
+}
+
+var emitEvidenceConstraintSidecarPromotableFields = []string{
+	"scope",
+	"source",
+	"line_start",
+	"line_end",
+	"anchor_kind",
+	"anchor_symbol",
 }
 
 func repairEmitEvidenceLoadBearingSummaryString(item map[string]json.RawMessage) bool {
@@ -3215,7 +3264,7 @@ func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, report
 	}
 	batch := evidenceGroundingTally(items)
 	cumulative := evidenceGroundingTally(allEvidence)
-	currentTargets := emitEvidenceRepairTargets(items, reports)
+	currentTargets := emitEvidenceRepairTargets(ctx, items, reports)
 	audit, auditOnly := cumulativeEmitEvidenceRepairAuditTally(allEvidence)
 	fmt.Fprintf(&b, "\nCurrent batch: %d grounded / %d recovered / %d ungrounded.\n",
 		batch.grounded, batch.recovered, batch.ungrounded)
@@ -3360,7 +3409,7 @@ func evidenceRepairShouldDrop(it types.EvidenceItem) bool {
 }
 
 func buildEmitEvidenceRepair(ctx *types.BusContext, items []types.EvidenceItem, reports []ground.Report) *types.ToolRepair {
-	targets := emitEvidenceRepairTargets(items, reports)
+	targets := emitEvidenceRepairTargets(ctx, items, reports)
 	hasNonGrounded := false
 	for _, item := range items {
 		if item.GroundingStatus == types.GroundingRecovered || item.GroundingStatus == types.GroundingUngrounded {
@@ -3393,7 +3442,7 @@ type groundedRepairCarrier struct {
 	tails map[string]bool
 }
 
-func emitEvidenceRepairTargets(items []types.EvidenceItem, reports []ground.Report) []types.ToolRepairTarget {
+func emitEvidenceRepairTargets(ctx *types.BusContext, items []types.EvidenceItem, reports []ground.Report) []types.ToolRepairTarget {
 	type bucket struct {
 		order []int
 		seen  map[int]bool
@@ -3404,9 +3453,9 @@ func emitEvidenceRepairTargets(items []types.EvidenceItem, reports []ground.Repo
 		if it.Source == "" || it.LineStart <= 0 || it.GroundingStatus != types.GroundingGrounded {
 			continue
 		}
-		file := canonicalEmitPath(it.Source)
-		if file == "" {
-			file = it.Source
+		file, ok := canonicalEmitRepairTargetPath(ctx, it.Source)
+		if !ok {
+			continue
 		}
 		tails := make(map[string]bool)
 		for _, tail := range types.EvidenceSurfaceSymbolTails(it) {
@@ -3429,9 +3478,9 @@ func emitEvidenceRepairTargets(items []types.EvidenceItem, reports []ground.Repo
 		if evidenceRepairShouldDrop(it) {
 			continue
 		}
-		file := canonicalEmitPath(it.Source)
-		if file == "" {
-			file = it.Source
+		file, ok := canonicalEmitRepairTargetPath(ctx, it.Source)
+		if !ok {
+			continue
 		}
 		lines := emitEvidenceRepairCandidateLines(it, i, reports)
 		covered := false
@@ -3478,6 +3527,35 @@ func emitEvidenceRepairTargets(items []types.EvidenceItem, reports []ground.Repo
 		})
 	}
 	return out
+}
+
+func canonicalEmitRepairTargetPath(ctx *types.BusContext, source string) (string, bool) {
+	file := canonicalEmitPath(source)
+	if file == "" || !emitLooksLikePath(file) {
+		return "", false
+	}
+	if path.IsAbs(file) {
+		if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+			return "", false
+		}
+		repoRoot, err := filepath.Abs(ctx.RepoRoot)
+		if err != nil {
+			return "", false
+		}
+		absSource, err := filepath.Abs(filepath.FromSlash(file))
+		if err != nil {
+			return "", false
+		}
+		rel, err := filepath.Rel(repoRoot, absSource)
+		if err != nil || rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." || filepath.IsAbs(rel) {
+			return "", false
+		}
+		file = canonicalEmitPath(rel)
+	}
+	if file == "." || file == ".." || strings.HasPrefix(file, "../") || strings.HasPrefix(file, "/") {
+		return "", false
+	}
+	return file, true
 }
 
 func emitEvidenceRepairCandidateLines(item types.EvidenceItem, idx int, reports []ground.Report) []int {

@@ -1173,6 +1173,42 @@ func TestEmitEvidence_IgnoresLegacyFieldCompatButRejectsOtherUnknowns(t *testing
 		t.Fatalf("legacy items[].field should be ignored before strict decode, got: %s", res.Summary)
 	}
 
+	ctx = newEmitCtx()
+	seedReadFileHistory(ctx, "internal/example/file.go", 10,
+		"package example",
+		"type Target struct{}",
+	)
+	params = json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "Target", "source": "internal/example/file.go", "line_start": 11, "summary": "Target is defined here", "anchor_kind": "definition", "anchor_symbol": "Target", "field_constraints": {"scope": "line"}}
+        ]
+    }`)
+	res, err = tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("items[].field_constraints sidecar should be ignored before strict decode, got: %s", res.Summary)
+	}
+
+	ctx = newEmitCtx()
+	seedReadFileHistory(ctx, "internal/example/file.go", 10,
+		"package example",
+		"type Target struct{}",
+	)
+	params = json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "Target", "source": "internal/example/file.go", "line_start": 11, "summary": "Target is defined here", "anchor_kind": "definition", "anchor_symbol": "Target", "fieldConstraints": {"line_end": 11}}
+        ]
+    }`)
+	res, err = tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("items[].fieldConstraints sidecar should promote known fields before strict decode, got: %s", res.Summary)
+	}
+
 	params = json.RawMessage(`{"items":[{"kind":"direct","source":"x.go","note":"hi"}]}`)
 	res, _ = tool.Execute(newEmitCtx(), params)
 	if res.Success || !strings.Contains(res.Summary, "unknown field") {
@@ -2073,7 +2109,7 @@ func TestEmitEvidenceRepairTargets_RecoveredLineDriftKeepsClaimedAndAdjustedLine
 		Subject:         "applyStageOutput",
 	}}
 	reports := []ground.Report{{OriginalLine: 7314, AdjustedLine: 7216}}
-	targets := emitEvidenceRepairTargets(items, reports)
+	targets := emitEvidenceRepairTargets(nil, items, reports)
 	if len(targets) != 1 {
 		t.Fatalf("expected one repair target, got %+v", targets)
 	}
@@ -2129,8 +2165,42 @@ func TestEmitEvidenceRepairTargets_DropsRecoveredItemCoveredByGroundedSibling(t 
 		{},
 		{AdjustedLine: 860},
 	}
-	if got := emitEvidenceRepairTargets(items, reports); len(got) != 0 {
+	if got := emitEvidenceRepairTargets(nil, items, reports); len(got) != 0 {
 		t.Fatalf("recovered item already covered by a grounded sibling should not queue repair targets, got %+v", got)
+	}
+}
+
+func TestEmitEvidenceRepairTargets_DropsExternalArtifactSources(t *testing.T) {
+	items := []types.EvidenceItem{{
+		Source:          "/dev/stdin",
+		LineStart:       2,
+		GroundingStatus: types.GroundingUngrounded,
+		AnchorSymbol:    "LLMStreamTimeoutError",
+		Subject:         "runtime log",
+	}}
+	reports := []ground.Report{{AdjustedLine: 2}}
+	if got := emitEvidenceRepairTargets(nil, items, reports); len(got) != 0 {
+		t.Fatalf("external artifact source must not become read_file repair target: %+v", got)
+	}
+}
+
+func TestEmitEvidenceRepairTargets_RelativizesRepoAbsoluteSources(t *testing.T) {
+	ctx := newEmitCtx()
+	ctx.RepoRoot = "/repo"
+	items := []types.EvidenceItem{{
+		Source:          "/repo/internal/tool/emit_evidence.go",
+		LineStart:       10,
+		GroundingStatus: types.GroundingUngrounded,
+		AnchorSymbol:    "EmitEvidence",
+		Subject:         "EmitEvidence",
+	}}
+	reports := []ground.Report{{AdjustedLine: 10}}
+	got := emitEvidenceRepairTargets(ctx, items, reports)
+	if len(got) != 1 {
+		t.Fatalf("expected one repo-local repair target, got %+v", got)
+	}
+	if got[0].File != "internal/tool/emit_evidence.go" {
+		t.Fatalf("absolute repo source should be relativized, got %q", got[0].File)
 	}
 }
 

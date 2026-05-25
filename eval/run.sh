@@ -323,6 +323,10 @@ write_metrics() {
     echo "tool_repo_map=$(eval_count_tool_calls "$log" repo_map)"
     echo "tool_list_files=$(eval_count_tool_calls "$log" list_files)"
     echo "source_inventory_lens=$(count_pattern 'Repo Lens: Source Inventory|view=\"source_inventory\"|view=source_inventory' "$log")"
+    echo "tool_history_prunes=$(eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=prune TOOL HISTORY PRUNED' "$log")"
+    echo "max_context_tokens_est=$(eval_max_context_tokens_estimate "$log")"
+    echo "max_context_window=$(eval_max_context_window_tokens "$log")"
+    echo "max_context_window_pct=$(eval_max_context_window_pct "$log")"
     echo "concrete_values=$(count_pattern 'concrete values' "$log")"
     echo "synthesis_runs=$(count_pattern 'SYNTHESIS prompt' "$log")"
     echo "function_boundary_push=$(count_pattern 'CRITICAL.*Incomplete' "$log")"
@@ -758,7 +762,7 @@ SUMMARY="$OUTDIR/summary.md"
   # 2026-05-04): write_metrics writes them to run-N.metrics.txt;
   # aggregate them into the summary table so they show up next to
   # the legacy 12 mechanism counters with median.
-  metric_keys="tool_read_file tool_repo_map tool_list_files source_inventory_lens concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject parallel_sibling_skips mixed_origin_autocomplete_blocks finalizer_rejects finalizer_rewrites answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns strict_decode_remap_events"
+  metric_keys="tool_read_file tool_repo_map tool_list_files source_inventory_lens tool_history_prunes max_context_tokens_est max_context_window max_context_window_pct concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject parallel_sibling_skips mixed_origin_autocomplete_blocks finalizer_rejects finalizer_rewrites answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns strict_decode_remap_events"
   for key in $metric_keys; do
     row="| $key |"
     vals=()
