@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -5833,6 +5835,106 @@ func TestAnswerDocumentEvaluator_ParseOutput_RecoversPreservedNoToolDraftAfterIs
 	doc := ctx.Mutable.AnswerDocumentV2()
 	if doc == nil || len(doc.Blocks) != 2 || len(doc.Citations) != 2 {
 		t.Fatalf("lossless preserved draft should be restored to Mutable, doc=%+v", doc)
+	}
+}
+
+func TestAnswerDocumentEvaluator_ParseOutput_AppendsVerifiedStageBindingSupplement(t *testing.T) {
+	repo := t.TempDir()
+	writeStageBindingFixture(t, repo)
+	mu := types.NewMutableState("")
+	mu.AppendEvidence([]types.EvidenceItem{{
+		ID:           "stage-binding",
+		Kind:         types.EvidenceRelationship,
+		Subject:      "StageBinding",
+		Predicate:    "maps stage to agent",
+		Object:       "AgentExplorer",
+		Source:       "internal/types/stage_binding.go",
+		LineStart:    18,
+		Scope:        types.ScopeLine,
+		AnchorKind:   types.AnchorDefinition,
+		AnchorSymbol: "builtinStageBindings",
+	}})
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "模型成文只概述了 pipeline，会在最后一公里补充已核验的阶段绑定。",
+		}},
+	})
+	ctx := &types.AgentContext{RepoRoot: repo, Mutable: mu}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	for _, want := range []string{
+		"系统补充：阶段绑定核对",
+		"`StageExplore` (`explore`)",
+		"`AgentExplorer` (`explorer`)",
+		"`StageExtract` (`extract`)",
+		"`AgentExtractor` (`extractor`)",
+		"internal/types/stage_binding.go:",
+	} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("final answer missing %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendStageBindingWithoutGroundedSource(t *testing.T) {
+	repo := t.TempDir()
+	writeStageBindingFixture(t, repo)
+	mu := types.NewMutableState("")
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "没有引用或落地 stage binding 源码时，不追加系统关系核对表。",
+		}},
+	})
+	ctx := &types.AgentContext{RepoRoot: repo, Mutable: mu}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if strings.Contains(out.FinalAnswer, "系统补充：阶段绑定核对") {
+		t.Fatalf("supplement should be gated by grounded/cited source:\n%s", out.FinalAnswer)
+	}
+}
+
+func writeStageBindingFixture(t *testing.T, repo string) {
+	t.Helper()
+	dir := filepath.Join(repo, "internal", "types")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir stage binding fixture: %v", err)
+	}
+	content := strings.Join([]string{
+		"package types",
+		"",
+		"type StageBinding struct {",
+		"\tStage string",
+		"\tAgent string",
+		"\tSkill string",
+		"\tTerminal bool",
+		"}",
+		"",
+		"var builtinStageBindings = []StageBinding{",
+		"\t{Stage: StageLogTriage, Agent: AgentLogTriager, Skill: \"log-triage-skill\"},",
+		"\t{Stage: StagePerfTriage, Agent: AgentPerfTriager, Skill: \"perf-triage-skill\"},",
+		"\t{Stage: StageAnalyze, Agent: AgentAnalyzer, Skill: \"analysis-skill\"},",
+		"\t{Stage: StageExplore, Agent: AgentExplorer, Skill: \"explore-skill\"},",
+		"\t{Stage: StageExtract, Agent: AgentExtractor, Skill: \"extract-skill\"},",
+		"\t{Stage: StageFinalize, Agent: AgentFinalizer, Skill: \"answer-document-skill\", Terminal: true},",
+		"}",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(dir, "stage_binding.go"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write stage binding fixture: %v", err)
 	}
 }
 

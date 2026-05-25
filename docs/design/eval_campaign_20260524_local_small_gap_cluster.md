@@ -3232,3 +3232,13 @@ B2-Z random-serial eval follow-up and hard-gate boundary, 2026-05-25 CST:
   - otherwise the system must use advisory hints, caveats, reviewer notes, or
     preserved model text. It must not substitute system intent for user intent
     or force a rewrite merely because a heuristic is uncomfortable.
+- Batch 1 implementation:
+  - final-answer rendering now has a last-mile, source-verified stage-binding
+    supplement. It activates only when the run already cited or grounded
+    `internal/types/stage_binding.go`, then reads the current repo source and
+    verifies all four read-mode bindings before appending a clearly marked
+    system supplement;
+  - it does not reject or rewrite the model answer, does not inspect user prose
+    or model prose for control-flow decisions, and skips silently when the
+    source file or any binding line cannot be verified;
+  - regression tests cover both activation and the no-evidence no-noise path.

@@ -23,6 +23,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -8411,7 +8413,7 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 		if ctx != nil && ctx.Mutable != nil {
 			attachments = append(attachments, ctx.Mutable.AnswerDisplayAttachments()...)
 		}
-		prose := strings.TrimSpace(render.RenderAnswerDocumentWithAttachments(doc, attachments, e.language))
+		prose := strings.TrimSpace(e.renderAnswerDocumentWithLastMileSupplements(ctx, doc, attachments))
 		if prose != "" {
 			raw := strings.TrimSpace(lastContent)
 			if raw != "" {
@@ -8680,7 +8682,7 @@ func (e *answerDocumentEvaluator) parseRecoveredContentAnswerDocument(
 		attachments = appendAnswerDisplayAttachmentsUnique(attachments, retryStateDiagramDisplayAttachments(ctx)...)
 		attachments = append(attachments, ctx.Mutable.AnswerDisplayAttachments()...)
 	}
-	prose := render.RenderAnswerDocumentWithAttachments(doc, attachments, e.language)
+	prose := e.renderAnswerDocumentWithLastMileSupplements(ctx, doc, attachments)
 	if strings.TrimSpace(prose) == "" {
 		return out, false
 	}
@@ -8928,10 +8930,129 @@ func (e *answerDocumentEvaluator) parseOutputV2(ctx *types.AgentContext, docV2 *
 	if ctx != nil && ctx.Mutable != nil {
 		attachments = ctx.Mutable.AnswerDisplayAttachments()
 	}
-	prose := render.RenderAnswerDocumentWithAttachments(docV2, attachments, e.language)
+	prose := e.renderAnswerDocumentWithLastMileSupplements(ctx, docV2, attachments)
 	out.Data = marshalStageData(answerDocumentStageData{
 		FinalAnswer: prose,
 	})
 	out.FinalAnswer = prose
 	return out, nil
+}
+
+func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ctx *types.AgentContext, doc *types.AnswerDocumentV2, attachments []types.AnswerDisplayAttachment) string {
+	prose := render.RenderAnswerDocumentWithAttachments(doc, attachments, e.language)
+	if supplement := renderVerifiedStageBindingSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
+		if strings.TrimSpace(prose) == "" {
+			return strings.TrimSpace(supplement)
+		}
+		return strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
+	}
+	return prose
+}
+
+type verifiedStageBindingRow struct {
+	StageIdent string
+	StageValue string
+	AgentIdent string
+	AgentValue string
+	Skill      string
+	File       string
+	Line       int
+}
+
+func renderVerifiedStageBindingSupplement(ctx *types.AgentContext, doc *types.AnswerDocumentV2, lang string) string {
+	rows := verifiedReadModeStageBindingRows(ctx, doc)
+	if len(rows) == 0 {
+		return ""
+	}
+	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
+	var b strings.Builder
+	if zh {
+		b.WriteString("---\n\n")
+		b.WriteString("> **系统补充：阶段绑定核对**\n>\n")
+		b.WriteString("> 下表来自本次已引用或已落地源码中的阶段绑定关系，用于避免最终成文压缩时丢失执行主体；它不替代上方模型答案。\n\n")
+		b.WriteString("| 阶段 | Agent | 技能 | 源码 |\n|---|---|---|---|\n")
+	} else {
+		b.WriteString("---\n\n")
+		b.WriteString("> **System supplement: verified stage bindings**\n>\n")
+		b.WriteString("> The table below is derived from source lines already cited or grounded in this run. It preserves actor bindings that can be lost during answer compression and does not replace the model-authored answer above.\n\n")
+		b.WriteString("| Stage | Agent | Skill | Source |\n|---|---|---|---|\n")
+	}
+	for _, row := range rows {
+		fmt.Fprintf(&b, "| `%s` (`%s`) | `%s` (`%s`) | `%s` | `%s:%d` |\n",
+			row.StageIdent, row.StageValue, row.AgentIdent, row.AgentValue, row.Skill, row.File, row.Line)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func verifiedReadModeStageBindingRows(ctx *types.AgentContext, doc *types.AnswerDocumentV2) []verifiedStageBindingRow {
+	if !answerDocumentHasStageBindingSource(ctx, doc) {
+		return nil
+	}
+	root := ""
+	if ctx != nil {
+		root = strings.TrimSpace(ctx.RepoRoot)
+	}
+	if root == "" {
+		return nil
+	}
+	sourceRel := "internal/types/stage_binding.go"
+	sourcePath := filepath.Join(root, filepath.FromSlash(sourceRel))
+	data, err := os.ReadFile(sourcePath)
+	if err != nil {
+		return nil
+	}
+	lines := strings.Split(string(data), "\n")
+	wanted := []verifiedStageBindingRow{
+		{StageIdent: "StageAnalyze", StageValue: string(types.StageAnalyze), AgentIdent: "AgentAnalyzer", AgentValue: string(types.AgentAnalyzer), Skill: "analysis-skill", File: sourceRel},
+		{StageIdent: "StageExplore", StageValue: string(types.StageExplore), AgentIdent: "AgentExplorer", AgentValue: string(types.AgentExplorer), Skill: "explore-skill", File: sourceRel},
+		{StageIdent: "StageExtract", StageValue: string(types.StageExtract), AgentIdent: "AgentExtractor", AgentValue: string(types.AgentExtractor), Skill: "extract-skill", File: sourceRel},
+		{StageIdent: "StageFinalize", StageValue: string(types.StageFinalize), AgentIdent: "AgentFinalizer", AgentValue: string(types.AgentFinalizer), Skill: "answer-document-skill", File: sourceRel},
+	}
+	rows := make([]verifiedStageBindingRow, 0, len(wanted))
+	for _, want := range wanted {
+		line := verifiedStageBindingLine(lines, want)
+		if line <= 0 {
+			return nil
+		}
+		want.Line = line
+		rows = append(rows, want)
+	}
+	return rows
+}
+
+func verifiedStageBindingLine(lines []string, want verifiedStageBindingRow) int {
+	for i, line := range lines {
+		if strings.Contains(line, want.StageIdent) &&
+			strings.Contains(line, want.AgentIdent) &&
+			strings.Contains(line, want.Skill) {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+func answerDocumentHasStageBindingSource(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
+	const sourceRel = "internal/types/stage_binding.go"
+	if doc != nil {
+		for _, cit := range doc.Citations {
+			if normalizedStageBindingSourcePath(cit.File) == sourceRel {
+				return true
+			}
+		}
+	}
+	for _, item := range answerDocumentAuthorityEvidencePool(ctx) {
+		if normalizedStageBindingSourcePath(item.Source) == sourceRel && item.LineStart > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizedStageBindingSourcePath(path string) string {
+	path = strings.TrimSpace(strings.ReplaceAll(path, "\\", "/"))
+	path = strings.TrimPrefix(path, "./")
+	for strings.Contains(path, "//") {
+		path = strings.ReplaceAll(path, "//", "/")
+	}
+	return path
 }
