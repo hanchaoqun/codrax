@@ -16,6 +16,7 @@ func NormalizeSourceForMarkdown(body string) string {
 	body = NormalizeSequenceStops(body)
 	body = NormalizeFlowchartSubgraphTitles(body)
 	body = NormalizeFlowchartUnsafeNodeIDs(body)
+	body = NormalizeFlowchartNodeLabels(body)
 	body = NormalizeFlowchartPipeLabels(body)
 	return body
 }
@@ -139,6 +140,31 @@ func NormalizeFlowchartUnsafeNodeIDs(body string) string {
 	changed := false
 	for i, line := range lines {
 		rewritten, ok := normalizeFlowchartUnsafeNodeIDsInLine(line, aliases)
+		if ok {
+			lines[i] = rewritten
+			changed = true
+		}
+	}
+	if !changed {
+		return body
+	}
+	return strings.Join(lines, "\n")
+}
+
+// NormalizeFlowchartNodeLabels quotes unquoted flowchart node-shape labels
+// that contain characters Mermaid.js tokenizes as shape delimiters. For
+// example, `A[preStages\n(Conditional)]` fails because the `(` starts a new
+// shape token inside an unquoted label. Mermaid's portable form is
+// `A["preStages\n(Conditional)"]`, which preserves the visible label and
+// parses in browser and third-party renderers.
+func NormalizeFlowchartNodeLabels(body string) string {
+	if !isFlowchartOrGraph(body) || !strings.ContainsAny(body, "([{>") {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	changed := false
+	for i, line := range lines {
+		rewritten, ok := normalizeFlowchartNodeLabelsInLine(line)
 		if ok {
 			lines[i] = rewritten
 			changed = true
@@ -383,6 +409,140 @@ func flowchartNodeIDNeedsAlias(id string) bool {
 func escapeFlowchartNodeLabel(label string) string {
 	label = strings.ReplaceAll(label, `"`, "&quot;")
 	return label
+}
+
+type flowchartShapeSpan struct {
+	open       string
+	close      string
+	labelStart int
+	labelEnd   int
+	end        int
+}
+
+func normalizeFlowchartNodeLabelsInLine(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "%%") ||
+		flowchartLineIsHeader(trimmed) || trimmed == "end" ||
+		strings.HasPrefix(trimmed, "classDef ") || strings.HasPrefix(trimmed, "linkStyle ") ||
+		flowchartLineStartsWithAny(trimmed, "click ", "style ", "class ") {
+		return line, false
+	}
+	var b strings.Builder
+	changed := false
+	for i := 0; i < len(line); {
+		if op := flowchartArrowAt(line, i); op != "" {
+			b.WriteString(op)
+			i += len(op)
+			continue
+		}
+		if line[i] == '|' {
+			if end := findUnescapedPipe(line, i+1); end > i {
+				b.WriteString(line[i : end+1])
+				i = end + 1
+				continue
+			}
+		}
+		span, ok := flowchartLabelShapeSpanAt(line, i)
+		if !ok {
+			b.WriteByte(line[i])
+			i++
+			continue
+		}
+		label := line[span.labelStart:span.labelEnd]
+		normalized, labelChanged := normalizeFlowchartNodeLabel(label)
+		if !labelChanged {
+			b.WriteString(line[i : span.end+1])
+			i = span.end + 1
+			continue
+		}
+		b.WriteString(span.open)
+		b.WriteString(normalized)
+		b.WriteString(span.close)
+		changed = true
+		i = span.end + 1
+	}
+	if !changed {
+		return line, false
+	}
+	return b.String(), true
+}
+
+func flowchartLabelShapeSpanAt(s string, i int) (flowchartShapeSpan, bool) {
+	if i < 0 || i >= len(s) {
+		return flowchartShapeSpan{}, false
+	}
+	for _, pair := range []struct {
+		open  string
+		close string
+	}{
+		{open: "[(", close: ")]"},
+		{open: "[[", close: "]]"},
+		{open: "((", close: "))"},
+		{open: "{{", close: "}}"},
+		{open: "[", close: "]"},
+		{open: "(", close: ")"},
+		{open: "{", close: "}"},
+		{open: ">", close: "]"},
+	} {
+		if !strings.HasPrefix(s[i:], pair.open) {
+			continue
+		}
+		closeStart := findFlowchartShapeClose(s, i+len(pair.open), pair.close)
+		if closeStart < 0 {
+			return flowchartShapeSpan{}, false
+		}
+		return flowchartShapeSpan{
+			open:       pair.open,
+			close:      pair.close,
+			labelStart: i + len(pair.open),
+			labelEnd:   closeStart,
+			end:        closeStart + len(pair.close) - 1,
+		}, true
+	}
+	return flowchartShapeSpan{}, false
+}
+
+func findFlowchartShapeClose(s string, start int, close string) int {
+	quote := byte(0)
+	escaped := false
+	for i := start; i <= len(s)-len(close); i++ {
+		ch := s[i]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		if ch == '"' || ch == '\'' {
+			quote = ch
+			continue
+		}
+		if strings.HasPrefix(s[i:], close) {
+			return i
+		}
+	}
+	return -1
+}
+
+func normalizeFlowchartNodeLabel(label string) (string, bool) {
+	trimmed := strings.TrimSpace(label)
+	if trimmed == "" || mermaidPipeLabelAlreadyQuoted(trimmed) || !mermaidPipeLabelNeedsQuotes(trimmed) {
+		return label, false
+	}
+	prefixLen := len(label) - len(strings.TrimLeftFunc(label, unicode.IsSpace))
+	suffixLen := len(label) - len(strings.TrimRightFunc(label, unicode.IsSpace))
+	prefix := label[:prefixLen]
+	suffix := label[len(label)-suffixLen:]
+	inner := escapeFlowchartNodeLabel(strings.TrimSpace(label))
+	return prefix + `"` + inner + `"` + suffix, true
 }
 
 func normalizeFlowchartPipeLabelsInLine(line string) (string, bool) {

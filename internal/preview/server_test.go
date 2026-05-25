@@ -194,6 +194,28 @@ func TestRenderMarkdownHTMLNormalizesFlowchartEdgeLabelForBrowserMermaid(t *test
 	}
 }
 
+func TestRenderMarkdownHTMLNormalizesFlowchartNodeLabelForBrowserMermaid(t *testing.T) {
+	body := []byte(strings.Join([]string{
+		"```mermaid",
+		"flowchart TD",
+		`    subgraph Pipeline["pipelineTopology + preStages"]`,
+		`        PS[preStages: LogTriage, PerfTriage\n(Conditional)]`,
+		`        PT[pipelineTopology: Analyze → Explore → Extract → Finalize]`,
+		"    end",
+		"```",
+	}, "\n"))
+	got, err := RenderMarkdownHTML(body)
+	if err != nil {
+		t.Fatalf("RenderMarkdownHTML: %v", err)
+	}
+	if !strings.Contains(got, `PS[&#34;preStages: LogTriage, PerfTriage\n(Conditional)&#34;]`) {
+		t.Fatalf("browser Mermaid source was not normalized for parser-sensitive node label:\n%s", got)
+	}
+	if !strings.Contains(got, `PT[pipelineTopology: Analyze → Explore → Extract → Finalize]`) {
+		t.Fatalf("safe node label should be preserved:\n%s", got)
+	}
+}
+
 func TestRenderMarkdownHTMLNormalizesPathLikeFlowchartNodeIDs(t *testing.T) {
 	body := []byte(strings.Join([]string{
 		"```mermaid",

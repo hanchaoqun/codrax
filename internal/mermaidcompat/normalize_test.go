@@ -91,6 +91,37 @@ func TestNormalizeFlowchartPipeLabels_LeavesSafeAndAlreadyQuotedLabelsAlone(t *t
 	}
 }
 
+func TestNormalizeFlowchartNodeLabels_QuotesParserSensitiveUnquotedLabels(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    SB1["StageLogTriage → AgentLogTriager"]`,
+		`    StageBindings -->|绑定| SB1`,
+		`    PS[preStages: LogTriage, PerfTriage\n(Conditional)]`,
+		`    PT[pipelineTopology: Analyze → Explore → Extract → Finalize]`,
+		`    A1["AgentAnalyzer\n(analysis-skill)"]`,
+		`    D{branch (verified)}`,
+		`    C[(Database (cache))]`,
+		`    S[[subroutine (portable)]]`,
+		`    H{{hexagon (portable)}}`,
+	}, "\n")
+	got := NormalizeFlowchartNodeLabels(in)
+	for _, want := range []string{
+		`SB1["StageLogTriage → AgentLogTriager"]`,
+		`StageBindings -->|绑定| SB1`,
+		`PS["preStages: LogTriage, PerfTriage\n(Conditional)"]`,
+		`PT[pipelineTopology: Analyze → Explore → Extract → Finalize]`,
+		`A1["AgentAnalyzer\n(analysis-skill)"]`,
+		`D{"branch (verified)"}`,
+		`C[("Database (cache)")]`,
+		`S[["subroutine (portable)"]]`,
+		`H{{"hexagon (portable)"}}`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("node label normalization missing %q in:\n%s", want, got)
+		}
+	}
+}
+
 func TestNormalizeFlowchartUnsafeNodeIDs_AliasesPathLikeEndpoints(t *testing.T) {
 	in := strings.Join([]string{
 		"flowchart TD",
@@ -152,16 +183,20 @@ func TestNormalizeFlowchartUnsafeNodeIDs_DoesNotTreatGraphPrefixNodeAsHeader(t *
 func TestNormalizeSourceForMarkdown_NormalizesFlowchartSubgraphAndEdgeLabels(t *testing.T) {
 	in := strings.Join([]string{
 		"flowchart TD",
-		"  subgraph Explorer System",
+		"  subgraph Explorer System (Read Mode)",
 		"    ../A.md -->|ok (verified)| B",
+		`    B[preStages: LogTriage, PerfTriage\n(Conditional)]`,
 		"  end",
 	}, "\n")
 	got := NormalizeSourceForMarkdown(in)
-	if !strings.Contains(got, "subgraph Explorer_System_2 [Explorer System]") {
+	if !strings.Contains(got, `subgraph Explorer_System_Read_Mode_2 ["Explorer System (Read Mode)"]`) {
 		t.Fatalf("bare subgraph title was not normalized:\n%s", got)
 	}
 	if !strings.Contains(got, `codraxNode1["../A.md"] -->|"ok (verified)"| B`) {
 		t.Fatalf("parser-sensitive edge label was not normalized:\n%s", got)
+	}
+	if !strings.Contains(got, `B["preStages: LogTriage, PerfTriage\n(Conditional)"]`) {
+		t.Fatalf("parser-sensitive node label was not normalized:\n%s", got)
 	}
 }
 

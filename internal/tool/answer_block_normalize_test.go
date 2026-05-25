@@ -380,6 +380,29 @@ func TestNormalizeEmitAnswerBlock_NormalizesSequenceParticipantMessagePrefix(t *
 	}
 }
 
+func TestNormalizeEmitAnswerBlock_NormalizesFlowchartNodeLabel(t *testing.T) {
+	got, err := NormalizeEmitAnswerBlock(emitAnswerBlockV2{
+		ID:   "b1",
+		Kind: string(types.BlockDiagram),
+		Diagram: &emitAnswerDiagramV2{
+			Kind: string(types.DiagramFlow),
+			Body: strings.Join([]string{
+				"flowchart TD",
+				`    PS[preStages: LogTriage, PerfTriage\n(Conditional)]`,
+			}, "\n"),
+		},
+	}, "blocks[0]")
+	if err != nil {
+		t.Fatalf("normalize failed: %v", err)
+	}
+	if got.Diagram == nil {
+		t.Fatal("diagram missing")
+	}
+	if !strings.Contains(got.Diagram.Body, `PS["preStages: LogTriage, PerfTriage\n(Conditional)"]`) {
+		t.Fatalf("parser-sensitive flowchart node label was not normalized:\n%s", got.Diagram.Body)
+	}
+}
+
 // TestNormalizeEmitAnswerBlock_AllFieldsPropagate uses reflection to
 // verify every field on emitAnswerBlockV2 surfaces as a non-zero
 // value on the resulting types.AnswerBlock when populated from a
