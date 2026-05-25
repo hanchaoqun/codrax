@@ -160,7 +160,19 @@ func GraphFromBusContextOrLoad(ctx *types.BusContext, repoRoot, query string) (*
 		}
 	}
 	if ctx != nil && ctx.Mutable != nil {
+		if g, ok := reusableSearchGraph(repoRoot, ctx.SearchGraph, query); ok {
+			return g, nil
+		}
 		if g, ok := reusableSearchGraph(repoRoot, ctx.Mutable.SearchGraph(), query); ok {
+			return g, nil
+		}
+		if ctx.RepoRoot != "" {
+			if g, ok, err := projectedGraphFromBusContext(ctx, ctx.RepoRoot, repoRoot, query); ok || err != nil {
+				return g, err
+			}
+		}
+	} else if ctx != nil {
+		if g, ok := reusableSearchGraph(repoRoot, ctx.SearchGraph, query); ok {
 			return g, nil
 		}
 		if ctx.RepoRoot != "" {

@@ -189,10 +189,10 @@ Eval:
 
 ## Task Checklist
 
-- [ ] P0-A: preserve read-only `SearchGraph` through `ToolBusContext`.
-- [ ] P0-B: reuse `BusContext.SearchGraph` in `repo_map`.
-- [ ] P0-C: expose `repo_map` to `sub_explorer`.
-- [ ] P0-D: update sub-explorer prompt and schema tests.
+- [x] P0-A: preserve read-only `SearchGraph` through `ToolBusContext`.
+- [x] P0-B: reuse `BusContext.SearchGraph` in `repo_map`.
+- [x] P0-C: expose `repo_map` to `sub_explorer`.
+- [x] P0-D: update sub-explorer prompt and schema tests.
 - [ ] P1-A: persist long advisory artifacts through existing blob helpers.
 - [ ] P1-B: add advisory preview/ref tests.
 - [ ] P2-A: normalize and validate sub-task scopes.

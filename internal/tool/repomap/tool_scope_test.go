@@ -1249,6 +1249,57 @@ func TestGraphFromBusContextOrLoadProjectsSubdirFromMutableGraph(t *testing.T) {
 	}
 }
 
+func TestGraphFromBusContextOrLoadProjectsSubdirFromReadOnlySearchGraph(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "src", "alpha"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "src", "beta"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	base := BuildGraph(repo, []*FileInfo{{
+		RelPath:  "src/alpha/alpha.go",
+		Language: LangGo,
+		Package:  "alpha",
+		Symbols: []Symbol{{
+			Name:     "RunAlpha",
+			Kind:     "function",
+			File:     "src/alpha/alpha.go",
+			Line:     3,
+			Exported: true,
+		}},
+	}, {
+		RelPath:  "src/beta/beta.go",
+		Language: LangGo,
+		Package:  "beta",
+		Symbols: []Symbol{{
+			Name:     "RunBeta",
+			Kind:     "function",
+			File:     "src/beta/beta.go",
+			Line:     3,
+			Exported: true,
+		}},
+	}})
+	ctx := &types.BusContext{RepoRoot: repo, SearchGraph: base}
+
+	graph, err := GraphFromBusContextOrLoad(ctx, filepath.Join(repo, "src", "alpha"), "RunAlpha")
+	if err != nil {
+		t.Fatalf("GraphFromBusContextOrLoad returned error: %v", err)
+	}
+	if graph == nil {
+		t.Fatal("GraphFromBusContextOrLoad returned nil graph")
+	}
+	if !sameRepoMapRoot(graph.Root, filepath.Join(repo, "src", "alpha")) {
+		t.Fatalf("projected graph root = %q", graph.Root)
+	}
+	if _, ok := graph.FileIndex["alpha.go"]; !ok {
+		t.Fatalf("projected graph missing rebased alpha.go: keys=%v", graph.FileIndex)
+	}
+	if _, ok := graph.FileIndex["src/beta/beta.go"]; ok {
+		t.Fatalf("projected graph leaked sibling package: keys=%v", graph.FileIndex)
+	}
+}
+
 func TestGraphFromBusContextOrLoadProjectsSubdirFromMutableSubRepoGraph(t *testing.T) {
 	parent := t.TempDir()
 	subRepoRoot := filepath.Join(parent, "CodeAgent")

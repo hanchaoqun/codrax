@@ -4925,6 +4925,13 @@ type BusContext struct {
 	// surfaces nil when the field is unset / non-multigraph.
 	MultiGraph any `json:"-"`
 
+	// SearchGraph is an optional read-only repo_map graph handle for
+	// tool dispatches that deliberately do not receive Mutable. The main
+	// explorer normally shares the graph through Mutable.SearchGraph();
+	// sub-agent tool calls use this field so navigation tools can reuse
+	// the parent graph without gaining write access to MutableState.
+	SearchGraph any `json:"-"`
+
 	// SubRepos is a snapshot of the multi-repo topology — same
 	// content as MultiGraph.Topology().Repos but copied here so
 	// non-MultiGraph-aware consumers (REPL renderer, telemetry) can

@@ -91,6 +91,35 @@ func TestBusContextProjection_AllTypedSignalsPropagated_SubAgentContext(t *testi
 	}
 }
 
+func TestToolBusContextPreservesReadOnlySearchGraph(t *testing.T) {
+	graph := struct{ marker string }{"repo-map-graph"}
+	ac := &AgentContext{SearchGraph: graph}
+
+	bc := ToolBusContext(ac, AgentName("sub_explorer"))
+	if bc == nil {
+		t.Fatal("ToolBusContext returned nil")
+	}
+	if got, ok := bc.SearchGraph.(struct{ marker string }); !ok || got.marker != graph.marker {
+		t.Fatalf("SearchGraph not preserved through tool bus context: %#v", bc.SearchGraph)
+	}
+}
+
+func TestSubAgentContextPreservesReadOnlySearchGraphWithoutMutable(t *testing.T) {
+	graph := struct{ marker string }{"repo-map-graph"}
+	bc := &BusContext{SearchGraph: graph}
+
+	ac := SubAgentContext(bc, &SubAgentRequest{SubAgent: "explorer"})
+	if ac == nil {
+		t.Fatal("SubAgentContext returned nil")
+	}
+	if ac.Mutable != nil {
+		t.Fatal("SubAgentContext must not propagate Mutable")
+	}
+	if got, ok := ac.SearchGraph.(struct{ marker string }); !ok || got.marker != graph.marker {
+		t.Fatalf("SearchGraph not preserved through sub-agent context: %#v", ac.SearchGraph)
+	}
+}
+
 // setNonZeroFieldOnAgentContext sets the named field on an
 // AgentContext to a non-zero sentinel value. Returns false when the
 // field name is unrecognised. The sentinel values match the fields'

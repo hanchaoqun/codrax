@@ -43,19 +43,7 @@ func (s *SubExplorer) Run(req *types.SubAgentRequest) (*types.SubAgentResult, er
 	base := NewBaseAgent("sub_explorer", deps, eval)
 
 	// Build a scan-oriented skill
-	sk := &skill.Config{
-		Name: "sub_explore",
-		Goal: fmt.Sprintf("Explore files in scope [%s] and discover facts", strings.Join(req.Scope, ", ")),
-		Workflow: []string{
-			"List files in the scoped directories",
-			"Read key files to understand structure",
-			"Identify types, functions, interfaces, and dependencies",
-			"Report discovered facts",
-		},
-		ToolSuggestions: []string{"read_file", "list_files", "grep"},
-		OutputFormat:    "List of discovered facts as JSON",
-		Prohibitions:    []string{"Do not modify any files", "Do not explore outside the given scope"},
-	}
+	sk := subExplorerSkill(req)
 
 	// Isolated write: Execute returns StageOutput without touching BusContext
 	output, err := base.Execute(agentCtx, sk)
@@ -84,6 +72,27 @@ func (s *SubExplorer) Run(req *types.SubAgentRequest) (*types.SubAgentResult, er
 		MCPResps: output.MCPResponses,
 		Signals:  output.SignalUpdates,
 	}, nil
+}
+
+func subExplorerSkill(req *types.SubAgentRequest) *skill.Config {
+	var scope []string
+	if req != nil {
+		scope = req.Scope
+	}
+	return &skill.Config{
+		Name: "sub_explore",
+		Goal: fmt.Sprintf("Explore files in scope [%s] and discover facts", strings.Join(scope, ", ")),
+		Workflow: []string{
+			"Use repo_map as a navigation index for the scoped directories; prefer source_inventory when you need a bounded member or attribute checklist",
+			"Use list_files or grep(files_only=true) when repo_map does not expose the directory shape you need",
+			"Read key files to verify the facts suggested by navigation tools",
+			"Identify types, functions, interfaces, and dependencies",
+			"Report discovered facts",
+		},
+		ToolSuggestions: []string{"repo_map", "read_file", "list_files", "grep"},
+		OutputFormat:    "List of discovered facts as JSON",
+		Prohibitions:    []string{"Do not modify any files", "Do not explore outside the given scope"},
+	}
 }
 
 const (
@@ -206,10 +215,11 @@ func (e *subExplorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, 
 	}
 
 	b.WriteString("**Strategy** (adapt to what you find):\n")
-	b.WriteString("1. List files in scope to understand what's available\n")
-	b.WriteString("2. Grep for key terms related to the objective — use `files_only=true` for discovery, line-level grep with `context_lines=3` for targeted search\n")
-	b.WriteString("3. Read the most relevant files and extract structured evidence\n")
-	b.WriteString("4. Use `grep` + `read_file` together: grep to locate patterns efficiently, read_file for full context when needed\n\n")
+	b.WriteString("1. Use `repo_map` as a scoped navigation index, not as evidence. Start with `view=\"overview\"`, `view=\"task_map\"`, or `view=\"file_map\"` for orientation.\n")
+	b.WriteString("2. When the task needs a scoped inventory or member-to-attribute checklist, call `repo_map` with `view=\"source_inventory\"`, model-chosen `roles`, optional `attribute_roles`, and the current scope. Prefer a cascade: broad summary first, then a narrower source_inventory call for the scope you choose.\n")
+	b.WriteString("3. Use `list_files` or `grep(files_only=true)` when you need a real directory listing or a token-anchored candidate set that repo_map did not provide.\n")
+	b.WriteString("4. Verify selected navigation rows with `read_file` or targeted `grep(context_lines=3)` before treating them as facts.\n")
+	b.WriteString("5. Read the most relevant files and extract structured evidence.\n\n")
 
 	b.WriteString("**Evidence format** (examples — adapt the tags and structure to what you find):\n\n")
 	b.WriteString("```\n")
@@ -224,6 +234,7 @@ func (e *subExplorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, 
 	b.WriteString("**Rules:**\n")
 	b.WriteString("- **Line numbers must come from the gutter.** Every `read_file` result shows each line with its absolute line number in the left gutter (format `   123│ code...`). When you write `line N`, `N` MUST be the exact gutter number — do not estimate, do not interpolate. If you are not certain, leave the `line N` part off.\n")
 	b.WriteString("- Extract EVERY fact that might be relevant — err on over-collecting\n")
+	b.WriteString("- `repo_map` rows are advisory navigation only. Do not cite them as source facts unless you also verify the file/symbol with `read_file` or targeted `grep`.\n")
 	b.WriteString("- For short methods (getName, isEnabled, etc.): ALWAYS record the exact return value as [DIRECT]\n")
 	b.WriteString("- For [REGISTRATION]: note EXACT concrete values, not summaries\n")
 	b.WriteString("- Stay within scope — do not read files outside the specified directories\n")

@@ -18,6 +18,36 @@ func TestSubExplorerFactoryDoesNotStoreSharedBaseAgent(t *testing.T) {
 	}
 }
 
+func TestSubExplorerSkillExposesRepoMapNavigationOnly(t *testing.T) {
+	sk := subExplorerSkill(&types.SubAgentRequest{
+		Scope: []string{"src/service"},
+	})
+	got := map[string]bool{}
+	for _, name := range sk.ToolSuggestions {
+		got[name] = true
+	}
+	for _, want := range []string{"repo_map", "read_file", "list_files", "grep"} {
+		if !got[want] {
+			t.Fatalf("sub_explorer ToolSuggestions missing %q: %v", want, sk.ToolSuggestions)
+		}
+	}
+	for _, forbidden := range []string{
+		"emit_evidence",
+		"emit_investigation_complete",
+		"emit_analysis",
+		"emit_answer_document",
+		"exec_command",
+		"propose_sub_agents",
+	} {
+		if got[forbidden] {
+			t.Fatalf("sub_explorer ToolSuggestions must not expose %q: %v", forbidden, sk.ToolSuggestions)
+		}
+	}
+	if !strings.Contains(strings.Join(sk.Workflow, "\n"), `source_inventory`) {
+		t.Fatalf("sub_explorer workflow should teach repo_map source_inventory navigation: %v", sk.Workflow)
+	}
+}
+
 // TestSubExplorer_CrossRunResetOnObjectiveChange locks the F2-style
 // evaluator reset behavior for callers that exercise the evaluator directly. See
 // memory/project_followups_from_repl_audit.md item #1 and
@@ -56,6 +86,29 @@ func TestSubExplorer_CrossRunResetOnObjectiveChange(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "trace config loader") {
 		t.Errorf("prompt missing new objective: %q", prompt)
+	}
+}
+
+func TestSubExplorerInitialInstructionTeachesRepoMapWithoutUnavailableTools(t *testing.T) {
+	eval := &subExplorerEvaluator{}
+	prompt := eval.BuildInitialInstruction(&types.AgentContext{
+		Objective:   "inventory service routes",
+		Constraints: []string{"src/service"},
+	}, nil)
+	for _, want := range []string{
+		"`repo_map` as a scoped navigation index",
+		`view="source_inventory"`,
+		"Verify selected navigation rows with `read_file` or targeted `grep",
+		"advisory navigation",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("sub_explorer prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{"emit_evidence", "emit_investigation_complete", "exec_command", "propose_sub_agents"} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("sub_explorer prompt mentions unavailable tool %q:\n%s", forbidden, prompt)
+		}
 	}
 }
 

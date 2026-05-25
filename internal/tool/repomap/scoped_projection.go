@@ -12,10 +12,27 @@ import (
 )
 
 func projectedGraphFromBusContext(ctx *types.BusContext, parentRoot, scopeRoot, query string) (*Graph, bool, error) {
-	if ctx == nil || ctx.Mutable == nil {
+	if ctx == nil {
 		return nil, false, nil
 	}
-	return projectedGraphFromMutable(ctx.Mutable, parentRoot, scopeRoot, query)
+	if ctx.Mutable != nil {
+		if g, ok, err := projectedGraphFromMutable(ctx.Mutable, parentRoot, scopeRoot, query); ok || err != nil {
+			return g, ok, err
+		}
+	}
+	if g, ok := ctx.SearchGraph.(*Graph); ok {
+		for _, parent := range projectionParentCandidates(g.Root, parentRoot, scopeRoot) {
+			projected, err := projectGraphToRoot(g, parent, scopeRoot, query)
+			if err != nil {
+				return nil, false, err
+			}
+			if projected != nil {
+				logging.Info("repo_map: projected scoped graph from bus in-memory graph (%d files)", projected.Metadata.FileCount)
+				return cloneGraphForRanking(projected), true, nil
+			}
+		}
+	}
+	return nil, false, nil
 }
 
 func projectedGraphFromAgentContext(ctx *types.AgentContext, parentRoot, scopeRoot, query string) (*Graph, bool, error) {

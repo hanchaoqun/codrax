@@ -127,6 +127,7 @@ func ToolBusContext(ctx *AgentContext, activeName AgentName) *BusContext {
 		// TestBusContextProjection_AllTypedSignalsPropagated pins the
 		// contract.
 		MultiGraph:                    ctx.MultiGraph,
+		SearchGraph:                   ctx.SearchGraph,
 		SubRepos:                      ctx.SubRepos,
 		ActiveSubRepo:                 ctx.ActiveSubRepo,
 		PendingSubRepos:               ctx.PendingSubRepos,
@@ -190,6 +191,7 @@ func SubAgentContext(bus *BusContext, req *SubAgentRequest) *AgentContext {
 		// must appear here. Adding a new typed signal to BusContext
 		// (and its AgentContext mirror) requires updating this block.
 		MultiGraph:                    bus.MultiGraph,
+		SearchGraph:                   bus.SearchGraph,
 		SubRepos:                      append([]SubRepoSnapshot(nil), bus.SubRepos...),
 		ActiveSubRepo:                 bus.ActiveSubRepo,
 		PendingSubRepos:               append([]string(nil), bus.PendingSubRepos...),
