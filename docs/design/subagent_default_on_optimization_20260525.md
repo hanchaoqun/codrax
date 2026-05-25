@@ -198,7 +198,7 @@ Eval:
 - [x] P2-A: normalize and validate sub-task scopes.
 - [x] P2-B: add dedupe/overlap governance and tests.
 - [x] P3-A: add sub-agent observability counters.
-- [ ] P3-B: run targeted tests and eval samples.
+- [x] P3-B: run targeted tests and eval samples; record independent follow-up gaps.
 
 ## P3 Validation Notes
 
