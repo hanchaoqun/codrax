@@ -224,6 +224,23 @@ func TestRenderV2_BlockScalarZH(t *testing.T) {
 	}
 }
 
+func TestRenderV2_UntitledScalarInMixedDocumentDoesNotInventValueLabel(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{ID: "summary", Kind: types.BlockSummary, Text: "命令统计得到 42，并结合源码解释如下。"},
+			{ID: "v1", Kind: types.BlockScalar, Text: "42"},
+			{ID: "detail", Kind: types.BlockSection, Text: "该数值来自确定性命令输出。"},
+		},
+	}
+	out := RenderAnswerDocument(doc, "zh")
+	if strings.Contains(out, "值：") || strings.Contains(out, "Value:") {
+		t.Fatalf("mixed untitled scalar should not get a synthetic generic label:\n%s", out)
+	}
+	if !strings.Contains(out, "`42`") {
+		t.Fatalf("scalar literal should remain visible:\n%s", out)
+	}
+}
+
 func TestRenderV2_BlockScalarTitleBecomesVisibleLabel(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{

@@ -97,6 +97,26 @@ func TestValidate_PlainEnglishWordInBackticks_Skipped(t *testing.T) {
 	}
 }
 
+func TestValidate_StructuredProtocolVocabularySkipped(t *testing.T) {
+	graph := &repomap.Graph{SymbolDefs: map[string][]*repomap.Symbol{}}
+	in := "Use `exec_command`, `list_files`, `emit_analysis`, `command_measurement`, and `return_value` as protocol vocabulary, but verify `realMissingSymbol`."
+	got := Validate(in, "", graph)
+	for _, skipped := range []string{"`exec_command`", "`list_files`", "`emit_analysis`", "`command_measurement`", "`return_value`"} {
+		if !strings.Contains(got.Annotated, skipped) {
+			t.Fatalf("protocol token %s should remain untouched:\n%s", skipped, got.Annotated)
+		}
+		if strings.Contains(got.Annotated, "~~"+skipped+"~~") {
+			t.Fatalf("protocol token %s should not be marked unverified:\n%s", skipped, got.Annotated)
+		}
+	}
+	if !strings.Contains(got.Annotated, "~~`realMissingSymbol`~~") {
+		t.Fatalf("real missing symbol should still be annotated:\n%s", got.Annotated)
+	}
+	if len(got.Unverified) != 1 || got.Unverified[0].Token != "realMissingSymbol" {
+		t.Fatalf("unexpected unverified findings: %+v", got.Unverified)
+	}
+}
+
 // TestValidate_BugRegression: the original analyzer hallucination
 // from the bug trace gets caught.
 func TestValidate_BugRegression(t *testing.T) {

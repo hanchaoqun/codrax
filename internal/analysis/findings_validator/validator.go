@@ -106,6 +106,9 @@ func Validate(text, repoRoot string, graph *repomap.Graph) Result {
 			if !looksLikeCodeIdentifier(ident) {
 				return match
 			}
+			if isStructuredProtocolVocabulary(ident) {
+				return match
+			}
 			if _, ok := graph.SymbolDefs[ident]; ok {
 				return match // hit
 			}
@@ -123,6 +126,67 @@ func Validate(text, repoRoot string, graph *repomap.Graph) Result {
 	}
 
 	return Result{Annotated: annotated, Unverified: unverified}
+}
+
+func isStructuredProtocolVocabulary(ident string) bool {
+	token := strings.ToLower(strings.TrimSpace(ident))
+	if token == "" {
+		return false
+	}
+	if types.AnswerEvidenceOriginFromStructuredToken(token) != types.AnswerEvidenceOriginUnknown {
+		return true
+	}
+	if _, ok := findingsValidatorProtocolVocabulary[token]; ok {
+		return true
+	}
+	return false
+}
+
+var findingsValidatorProtocolVocabulary = map[string]struct{}{
+	"emit_analysis":               {},
+	"emit_answer_document":        {},
+	"emit_answer_document_patch":  {},
+	"emit_answer_symbol":          {},
+	"emit_evidence":               {},
+	"emit_hypothesis_verdict":     {},
+	"emit_investigation_complete": {},
+	"exec_command":                {},
+	"git_diff":                    {},
+	"git_history_search":          {},
+	"git_log":                     {},
+	"git_show":                    {},
+	"grep":                        {},
+	"list_files":                  {},
+	"list_memory":                 {},
+	"read_file":                   {},
+	"recall_memory":               {},
+	"repo_map":                    {},
+	"answer_document":             {},
+	"answer_document_patch":       {},
+	"answer_count":                {},
+	"answer_axis":                 {},
+	"aggregate_facts":             {},
+	"citation_ref":                {},
+	"citations":                   {},
+	"claim_uses":                  {},
+	"command_measurement":         {},
+	"context_lines":               {},
+	"current_source":              {},
+	"evidence_origin":             {},
+	"exact_resolution":            {},
+	"files_only":                  {},
+	"first_byte_timeout":          {},
+	"is_count_question":           {},
+	"is_scalar_answer":            {},
+	"measurement_origin":          {},
+	"requested_answer_dimensions": {},
+	"result_kind":                 {},
+	"return_value":                {},
+	"source_inventory":            {},
+	"source_inventory_profile":    {},
+	"support_refs":                {},
+	"tool_choice":                 {},
+	"tool_result":                 {},
 }
 
 // annotateMiss formats the strikethrough + warning tag.

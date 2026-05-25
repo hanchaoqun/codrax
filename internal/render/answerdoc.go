@@ -266,6 +266,20 @@ func renderV2BlockScalar(b *strings.Builder, blk types.AnswerBlock, doc *types.A
 		return
 	}
 	label := renderUserSurfaceText(blk.Title)
+	cite := blockTopCitation(blk, doc)
+	if label == "" && answerDocumentHasVisibleNonScalarBlock(doc) {
+		// In mixed explanatory answers, an untitled scalar is usually a
+		// supporting value that the model already names in surrounding prose.
+		// Rendering a synthetic "Value/值" heading makes system-authored
+		// wording look like part of the answer contract. Keep the literal
+		// visible without inventing a label.
+		fmt.Fprintf(b, "`%s`", literal)
+		if cite != "" {
+			fmt.Fprintf(b, " (%s)", cite)
+		}
+		b.WriteString("\n\n")
+		return
+	}
 	if label == "" {
 		label = "Value"
 		if lang == answerDocLangZH {
@@ -277,11 +291,28 @@ func renderV2BlockScalar(b *strings.Builder, blk types.AnswerBlock, doc *types.A
 		sep = "："
 	}
 	fmt.Fprintf(b, "**%s%s** `%s`", label, sep, literal)
-	cite := blockTopCitation(blk, doc)
 	if cite != "" {
 		fmt.Fprintf(b, " (%s)", cite)
 	}
 	b.WriteString("\n\n")
+}
+
+func answerDocumentHasVisibleNonScalarBlock(doc *types.AnswerDocumentV2) bool {
+	if doc == nil {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if block.Kind == types.BlockScalar {
+			continue
+		}
+		if strings.TrimSpace(block.Title) != "" ||
+			strings.TrimSpace(block.Text) != "" ||
+			len(block.Items) > 0 ||
+			block.Diagram != nil {
+			return true
+		}
+	}
+	return false
 }
 
 func renderV2BlockDecision(b *strings.Builder, blk types.AnswerBlock, doc *types.AnswerDocumentV2, lang answerDocLang) {

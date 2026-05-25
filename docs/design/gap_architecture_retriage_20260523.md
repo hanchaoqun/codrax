@@ -1047,3 +1047,55 @@ syntax.
     output should become a verification checklist, and lane ownership must
     suppress conflicting sibling principal member sets before finalizer sees
     them. This is a soft/convergence contract, not a hard semantic override.
+
+- 2026-05-26 random10 command-measurement follow-up:
+  - Eval slice `eval/results/random10-20260526-004245` ended `9 PASS / 1
+    FAIL`. The sole failure was `read_combo_command_current_source_explanation`.
+    The run had `tool_repo_map=0`, `source_inventory_lens=0`,
+    `tool_read_file=25`, `tool_history_prunes=7`, `midloop_inject=9`, and
+    `max_context_tokens_est=75323`.
+  - Direct failure surface: the final answer was recovered from a preserved
+    no-tool `answer_document` JSON draft and rendered an untitled scalar block
+    as the generic localized label `**值：** \`140\``. This label was authored
+    by the renderer, not the model, and is unstable in mixed explanation
+    answers where the model already explained what the number means.
+  - Deeper measurement gap: the deterministic command result was `140`, but
+    one earlier `emit_investigation_complete.aggregate_facts` attempt carried
+    `13`. Existing deterministic-count enrichment only appends a system fact
+    when no count aggregate exists; it does not reconcile a single
+    model-authored principal count fact that conflicts with an unambiguous
+    command measurement. That lets an incorrect scalar pass through if a later
+    retry does not correct it.
+  - Analyzer-noise gap: free-form analyzer prose that mentions tool/protocol
+    names such as `exec_command`, `list_files`, `emit_analysis`,
+    `command_measurement`, or `return_value` can be flagged as "unverified repo
+    symbols". These are structured tool/origin vocabulary, not repository
+    symbol obligations, and should not push later stages into verifying them as
+    code symbols.
+  - Repo-map observation: the failure did not call `repo_map`; each eval run
+    still prewarmed the repo map from cache and performed in-memory graph/rank
+    work, but there was no evidence that a model `repo_map` tool call rebuilt a
+    child index. For this shape, low `repo_map` use is mostly correct: the user
+    asked for a syntactic shell count plus current-source explanation, so
+    `exec_command` is the count authority and read/grep are the proof surface.
+    `repo_map` remains navigation-only for locating mechanism files.
+
+  Generalized task list:
+  - [x] T21-A mixed-answer scalar rendering: render untitled scalar blocks in
+    mixed documents without inventing a generic "Value/值" label. Preserve the
+    existing title-based scalar rendering and the single-block scalar fallback.
+    This is display-only; it must not rewrite answer facts.
+  - [x] T21-B deterministic measurement reconciliation: when the current
+    request is a count question and exactly one principal scalar/count
+    aggregate conflicts with one unambiguous deterministic command measurement,
+    reconcile that aggregate to the command value and record a normalization
+    note. Do not reconcile multi-count, grouped, bucketed, history, or
+    ambiguous measurement surfaces.
+  - [x] T21-C analyzer vocabulary filter: exclude active tool names,
+    emit-tool names, evidence-origin tokens, and analysis enum/protocol tokens
+    from findings-validator repo-symbol obligations. This must be structural
+    vocabulary filtering, not user-question or model-prose intent matching.
+  - [x] T21-D repo-map low-trigger analysis: document and, if needed, add
+    low-noise discovery guidance based on structured tool observations. Do not
+    force `repo_map` for syntactic counts or runtime-artifact counts where a
+    deterministic command/log/trace tool is the authority.

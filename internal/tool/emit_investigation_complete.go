@@ -597,7 +597,11 @@ func normalizeCompletionAggregateFacts(
 ) ([]types.AnswerAggregateFact, []string, error) {
 	raw = normalizeCompletionNegativeObservationFacts(ctx, raw)
 	normalized, err := types.NormalizeAnswerAggregateFacts(raw)
-	if err == nil || len(raw) == 0 || !completionAggregateFactsAreOptional(ctx, resultKind) {
+	if err == nil {
+		normalized, notes := reconcileCompletionAggregateFactsWithDeterministicCount(ctx, normalized)
+		return normalized, notes, nil
+	}
+	if len(raw) == 0 || !completionAggregateFactsAreOptional(ctx, resultKind) {
 		return normalized, nil, err
 	}
 	out := make([]types.AnswerAggregateFact, 0, len(raw))
@@ -619,8 +623,159 @@ func normalizeCompletionAggregateFacts(
 		notes = append(notes, fmt.Sprintf("ignored optional aggregate_facts payload after merge validation error: %v", mergeErr))
 		return nil, notes, nil
 	}
+	var reconcileNotes []string
+	merged, reconcileNotes = reconcileCompletionAggregateFactsWithDeterministicCount(ctx, merged)
+	notes = append(notes, reconcileNotes...)
 	notes = append(notes, fmt.Sprintf("kept %d/%d optional aggregate_facts after dropping invalid entries", len(merged), len(raw)))
 	return merged, notes, nil
+}
+
+func reconcileCompletionAggregateFactsWithDeterministicCount(
+	ctx *types.BusContext,
+	facts []types.AnswerAggregateFact,
+) ([]types.AnswerAggregateFact, []string) {
+	if len(facts) == 0 || ctx == nil || ctx.AnalysisIR == nil {
+		return facts, nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !rm.Predicates.IsCountQuestion || rm.Predicates.IsHistoryLookup {
+		return facts, nil
+	}
+	measured, ok := deterministicCountToolResultValue(ctx)
+	if !ok {
+		return facts, nil
+	}
+	type candidate struct {
+		index int
+		value int
+	}
+	var candidates []candidate
+	for i, fact := range facts {
+		value, ok := deterministicCountAggregateFactNumericValue(fact)
+		if !ok {
+			continue
+		}
+		if !deterministicCountAggregateFactCanReconcile(fact) {
+			continue
+		}
+		candidates = append(candidates, candidate{index: i, value: value})
+	}
+	if len(candidates) != 1 {
+		return facts, nil
+	}
+	c := candidates[0]
+	if c.value == measured {
+		return facts, nil
+	}
+	out := cloneCompletionAggregateFacts(facts)
+	fact := &out[c.index]
+	old := fact.Value
+	fact.Value = strconv.Itoa(measured)
+	fact.Dimensions = ensureDeterministicCountAggregateDimensions(fact.Dimensions)
+	if strings.TrimSpace(fact.Provenance) == "" {
+		fact.Provenance = "system_deterministic_count_reconcile"
+	}
+	label := strings.TrimSpace(fact.Label)
+	if label == "" {
+		label = fmt.Sprintf("aggregate_facts[%d]", c.index)
+	}
+	return out, []string{fmt.Sprintf("%s.value %s->%d from deterministic command measurement", label, old, measured)}
+}
+
+func deterministicCountAggregateFactNumericValue(fact types.AnswerAggregateFact) (int, bool) {
+	switch fact.Kind {
+	case types.AnswerAggregateTotalCount, types.AnswerAggregateUniqueCount, types.AnswerAggregateScalar:
+	default:
+		return 0, false
+	}
+	value := strings.TrimSpace(fact.Value)
+	if value == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n < 0 {
+		return 0, false
+	}
+	return n, true
+}
+
+func deterministicCountAggregateFactCanReconcile(fact types.AnswerAggregateFact) bool {
+	role := types.NormalizeAnswerAggregateRole(fact.Role)
+	if role != types.AnswerAggregateRoleUnknown && role != types.AnswerAggregateRolePrincipalAnswer {
+		return false
+	}
+	if len(fact.Members) > 0 || len(fact.Excluded) > 0 {
+		return false
+	}
+	if !deterministicCountAggregateFactHasCommandMeasurementSurface(fact) {
+		return false
+	}
+	origins := types.AnswerAggregateFactEvidenceOrigins(fact, &types.RequestModel{
+		Predicates: types.SemanticPredicates{IsCountQuestion: true, IsScalarAnswer: true},
+	})
+	if len(origins) == 0 {
+		return true
+	}
+	for _, origin := range origins {
+		switch origin {
+		case types.AnswerEvidenceOriginCommandMeasurement, types.AnswerEvidenceOriginCurrentSource:
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func deterministicCountAggregateFactHasCommandMeasurementSurface(fact types.AnswerAggregateFact) bool {
+	if types.AnswerEvidenceOriginFromStructuredToken(fact.Provenance) == types.AnswerEvidenceOriginCommandMeasurement {
+		return true
+	}
+	for _, dim := range fact.Dimensions {
+		name := strings.ToLower(strings.TrimSpace(dim.Name))
+		value := strings.ToLower(strings.TrimSpace(dim.Value))
+		if name == "" && value == "" {
+			continue
+		}
+		if types.AnswerEvidenceOriginFromStructuredToken(value) == types.AnswerEvidenceOriginCommandMeasurement {
+			return true
+		}
+		switch name {
+		case "origin", "evidence_origin", "measurement_origin":
+			if types.AnswerEvidenceOriginFromStructuredToken(value) == types.AnswerEvidenceOriginCommandMeasurement {
+				return true
+			}
+		case "proof_source", "tool", "tool_name", "producer", "source", "command", "command_tool":
+			if value == "exec_command" || strings.Contains(value, "exec_command") ||
+				strings.Contains(value, "wc -l") || strings.Contains(value, "grep -c") ||
+				strings.Contains(value, "rg --count") || strings.Contains(value, "find ") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func ensureDeterministicCountAggregateDimensions(in []types.AnswerAggregateDimension) []types.AnswerAggregateDimension {
+	out := append([]types.AnswerAggregateDimension(nil), in...)
+	has := func(name string) bool {
+		for _, dim := range out {
+			if strings.EqualFold(strings.TrimSpace(dim.Name), name) {
+				return true
+			}
+		}
+		return false
+	}
+	if !has("origin") && !has("evidence_origin") {
+		out = append(out, types.AnswerAggregateDimension{Name: "origin", Value: string(types.AnswerEvidenceOriginCommandMeasurement)})
+	}
+	if !has("proof_source") {
+		out = append(out, types.AnswerAggregateDimension{Name: "proof_source", Value: "exec_command"})
+	}
+	if !has("answer_axis") {
+		out = append(out, types.AnswerAggregateDimension{Name: "answer_axis", Value: "count"})
+	}
+	return out
 }
 
 func normalizeCompletionNegativeObservationFacts(ctx *types.BusContext, raw []types.AnswerAggregateFact) []types.AnswerAggregateFact {

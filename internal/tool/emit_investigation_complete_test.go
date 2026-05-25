@@ -4556,6 +4556,95 @@ func TestAppendDeterministicCountAggregateFactTagsUnifiedOrigin(t *testing.T) {
 	}
 }
 
+func TestEmitInvestigationComplete_ReconcilesSinglePrincipalCountWithCommandMeasurement(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "exec_command",
+		Success:  true,
+		Summary:  "[exec_command: $ find internal/tool -name \"*.go\" ! -name \"*_test.go\" | wc -l]\n[exec_command: evidence_origin=command_measurement measurement=count]\n     140\n",
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Predicates: types.SemanticPredicates{IsCountQuestion: true, IsScalarAnswer: true},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"count collected from a command",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"total_count",
+			"label":"non-test source files",
+			"value":"13",
+			"role":"principal_answer",
+			"dimensions":[
+				{"name":"scope","value":"internal/tool"},
+				{"name":"tool","value":"find internal/tool -name \"*.go\" ! -name \"*_test.go\" | wc -l"}
+			]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected corrected completion to succeed: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "13->140") {
+		t.Fatalf("normalization note should disclose command reconciliation, got: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 {
+		t.Fatalf("stable aggregate facts = %+v", facts)
+	}
+	if facts[0].Value != "140" {
+		t.Fatalf("aggregate value = %q, want 140", facts[0].Value)
+	}
+	assertAggregateDimension(t, facts[0], "origin", string(types.AnswerEvidenceOriginCommandMeasurement))
+	assertAggregateDimension(t, facts[0], "answer_axis", "count")
+}
+
+func TestEmitInvestigationComplete_DoesNotReconcileAmbiguousGroupedCounts(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "exec_command",
+		Success:  true,
+		Summary:  "[exec_command: $ find . -name '*.go' | wc -l]\n[exec_command: evidence_origin=command_measurement measurement=count]\n10\n",
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Predicates: types.SemanticPredicates{IsCountQuestion: true, IsScalarAnswer: true},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"group buckets are separate from the shell total",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"grouped_count",
+			"label":"category A",
+			"value":"4",
+			"role":"principal_answer",
+			"dimensions":[{"name":"group","value":"A"}]
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected grouped count completion to succeed: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 || facts[0].Value != "4" {
+		t.Fatalf("grouped count should not be rewritten by shell total, got %+v", facts)
+	}
+}
+
 func TestDeterministicHistoryCountExecCommandUsesVCSOrigin(t *testing.T) {
 	summary := "[exec_command: $ git -C . log --format=%H -20 -- internal/orchestrator | awk 'END { print \"answer_count=3\" }']\nanswer_count=3\n"
 	if !deterministicHistoryCountCommand(summary) {
