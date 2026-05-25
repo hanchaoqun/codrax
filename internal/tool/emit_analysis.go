@@ -3,6 +3,8 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -1294,7 +1296,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			ExactTargets:      exactTargets,
 			ExactContextTerms: exactContextTerms,
 			ExactContextRoles: exactContextRoles,
-			RequiredFileHints: validateAndBuildRequiredFileHints(p.RequiredFiles, &val),
+			RequiredFileHints: validateAndBuildRequiredFileHintsWithContext(ctx, p.RequiredFiles, &val),
 			IrrelevantFiles:   validateAndBuildIrrelevantFiles(p.IrrelevantFiles, &val),
 			Kind:              kind,
 		},
@@ -3177,6 +3179,11 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	if len(h.ExactContextRoles) > 0 {
 		fmt.Fprintf(&b, " exact_roles=%d", len(h.ExactContextRoles))
 	}
+	if len(h.RequiredFileHints) > 0 {
+		if encoded := encodeRequiredFileHintSummaryPaths(h.RequiredFileHints); encoded != "" {
+			fmt.Fprintf(&b, " required_files=%s", encoded)
+		}
+	}
 	if rm.PredicateAxis != types.AxisUnknown {
 		fmt.Fprintf(&b, " axis=%s", rm.PredicateAxis)
 	}
@@ -3271,6 +3278,30 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 
 	return b.String()
+}
+
+func encodeRequiredFileHintSummaryPaths(hints []types.RequiredFileHint) string {
+	if len(hints) == 0 {
+		return ""
+	}
+	paths := make([]string, 0, len(hints))
+	seen := make(map[string]bool, len(hints))
+	for _, hint := range hints {
+		path := strings.TrimSpace(hint.Path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		paths = append(paths, path)
+	}
+	if len(paths) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(paths)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 // collectNormalizationDeltas returns one "field raw→canonical" entry
@@ -3476,13 +3507,12 @@ func nonEmptyStrings(xs []string) []string {
 	return out
 }
 
-// validateAndBuildRequiredFileHints converts the LLM-emitted
-// required_files array into the typed []types.RequiredFileHint
-// slice the IR consumes. Validation is per-item, fail-soft: invalid
-// entries are dropped silently with a warning appended to the
-// validation result; the rest pass through. This keeps the
-// emit_analysis call from failing hard on a single malformed entry
-// while still surfacing the issue to the operator.
+// validateAndBuildRequiredFileHints converts the LLM-emitted required_files
+// array into the typed []types.RequiredFileHint slice the IR consumes.
+// Validation is per-item, fail-soft: invalid entries are dropped with a warning
+// appended to the validation result; the rest pass through. This keeps the
+// emit_analysis call from failing hard on a single malformed entry while still
+// surfacing the issue to the operator.
 //
 // Per-entry rules:
 //   - path must be non-empty after TrimSpace + ToSlash + TrimPrefix("./");
@@ -3496,25 +3526,42 @@ func nonEmptyStrings(xs []string) []string {
 //     at the consumer, not here — preserves "I'm unsure" signal)
 //   - hard cap: at most requiredFileHintsMax entries; excess is dropped
 //
-// Cross-language: paths are POSIX-canonicalised (Windows backslash
-// converted to forward slash) so the same hint set works regardless
-// of the model's path-style preference.
+// Cross-language: paths are POSIX-canonicalised (Windows backslash converted to
+// forward slash) and, when a BusContext is available, resolved through the same
+// active-set/file-existence gate used by read_file seeds. That lets analyzer
+// suggestions survive harmless prefix mistakes such as omitting the active
+// sub-repo label, while unresolvable suggestions stay advisory and are dropped
+// before they can send the explorer to a nonexistent file.
 func validateAndBuildRequiredFileHints(in []emitRequiredFileParam, val *analysisValidationResult) []types.RequiredFileHint {
+	return validateAndBuildRequiredFileHintsWithContext(nil, in, val)
+}
+
+func validateAndBuildRequiredFileHintsWithContext(ctx *types.BusContext, in []emitRequiredFileParam, val *analysisValidationResult) []types.RequiredFileHint {
 	if len(in) == 0 {
 		return nil
 	}
 	out := make([]types.RequiredFileHint, 0, len(in))
 	dropped := 0
 	clamped := 0
+	normalized := 0
+	unresolved := 0
 	for _, e := range in {
 		if len(out) >= requiredFileHintsMax {
 			dropped++
 			continue
 		}
-		canon := canonicalRequiredFilePath(e.Path)
+		canon, changed, ok := resolveRequiredFileHintPath(ctx, e.Path)
+		if !ok {
+			dropped++
+			unresolved++
+			continue
+		}
 		if canon == "" {
 			dropped++
 			continue
+		}
+		if changed {
+			normalized++
 		}
 		conf := e.Confidence
 		if conf != conf { // NaN
@@ -3542,14 +3589,78 @@ func validateAndBuildRequiredFileHints(in []emitRequiredFileParam, val *analysis
 	if val != nil {
 		if dropped > 0 {
 			val.Warnings = append(val.Warnings,
-				fmt.Sprintf("required_files: %d entries dropped (empty path / NaN confidence / over cap of %d)", dropped, requiredFileHintsMax))
+				fmt.Sprintf("required_files: %d entries dropped (empty path / unresolved path / NaN confidence / over cap of %d)", dropped, requiredFileHintsMax))
 		}
 		if clamped > 0 {
 			val.Warnings = append(val.Warnings,
 				fmt.Sprintf("required_files: %d entries had confidence clamped into [0,1]", clamped))
 		}
+		if normalized > 0 {
+			val.Warnings = append(val.Warnings,
+				fmt.Sprintf("required_files: %d path(s) normalized to active repo-relative form", normalized))
+		}
+		if unresolved > 0 {
+			val.Warnings = append(val.Warnings,
+				fmt.Sprintf("required_files: %d path(s) dropped because they did not resolve to an existing active file", unresolved))
+		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
+}
+
+func resolveRequiredFileHintPath(ctx *types.BusContext, raw string) (string, bool, bool) {
+	repoRoot := ""
+	if ctx != nil {
+		repoRoot = ctx.RepoRoot
+	}
+	canon := canonicalRequiredFilePathForRepo(raw, repoRoot)
+	if canon == "" {
+		return "", false, true
+	}
+	changed := canon != strings.TrimSpace(raw)
+	if ctx == nil {
+		return canon, changed, true
+	}
+	if stripped, ok := stripActiveRepoLabelPrefix(ctx, canon); ok {
+		canon = canonicalRequiredFilePathForRepo(stripped, repoRoot)
+		changed = true
+	}
+	qualified, ok := types.QualifyForcedReadSeedPath(ctx, canon)
+	if !ok {
+		return "", changed, false
+	}
+	qualified = canonicalRequiredFilePathForRepo(qualified, repoRoot)
+	if qualified == "" {
+		return "", changed, true
+	}
+	if qualified != canon {
+		changed = true
+	}
+	rel, ok := requiredFileHintExistingRepoFile(ctx, qualified)
+	if !ok {
+		return "", changed, false
+	}
+	if rel != qualified {
+		changed = true
+	}
+	return rel, changed, true
+}
+
+func requiredFileHintExistingRepoFile(ctx *types.BusContext, path string) (string, bool) {
+	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+		return path, true
+	}
+	rel, ok := repoRelativePathWithinRoot(ctx.RepoRoot, path)
+	if !ok || rel == "" || rel == "." {
+		return "", false
+	}
+	info, err := os.Stat(filepath.Join(ctx.RepoRoot, filepath.FromSlash(rel)))
+	if err != nil || info.IsDir() {
+		return "", false
+	}
+	return rel, true
 }
 
 // canonicalRequiredFilePath normalises an LLM-emitted file path to
@@ -3557,12 +3668,11 @@ func validateAndBuildRequiredFileHints(in []emitRequiredFileParam, val *analysis
 // rules as canonicalExplorerPath: backslash → forward slash, trim
 // "./" prefix, trim whitespace.
 func canonicalRequiredFilePath(p string) string {
-	p = strings.TrimSpace(p)
-	if p == "" {
-		return ""
-	}
-	p = strings.ReplaceAll(p, "\\", "/")
-	p = strings.TrimPrefix(p, "./")
+	return canonicalRequiredFilePathForRepo(p, "")
+}
+
+func canonicalRequiredFilePathForRepo(p, repoRoot string) string {
+	p = types.CanonicalRequiredFileHintPath(p, repoRoot)
 	if p == "" || p == "." {
 		return ""
 	}

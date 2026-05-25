@@ -3054,3 +3054,37 @@ B2-W repo_map scoped projection / malformed tool-argument repair, 2026-05-25 CST
   - repo_map tests cover projecting a subdirectory from a warmed sub-repo graph
     while the session root is the parent workspace. This is cross-language and
     not tied to Go: the regression fixture uses TypeScript paths/symbols.
+
+B2-X analyzer required_files path normalization, 2026-05-25 CST:
+
+- Customer-observed gap:
+  - analyzer emitted `required_files` such as
+    `packages/core/src/mcp/token-storage/types.ts` while the active workspace
+    path was `CodeAgent/packages/core/src/mcp/token-storage/types.ts`;
+  - explorer trusted the stale suggestion, tried `read_file` on the missing
+    path, then had to recover with `grep`, wasting a turn and making the
+    navigation trace look unreliable.
+- Root cause:
+  - `emit_analysis.required_files` only performed string canonicalization
+    (trim, slash normalization, `./` removal). It did not use the active-set
+    path resolver or a file-existence check at the analyzer boundary;
+  - REPL analysis summaries rendered the raw tool arguments, so even if a
+    later consumer could repair a path, the visible "suggested files" list
+    still showed the model's stale path.
+- Fix contract:
+  - required-file hints are now resolved through the shared active-set seed
+    path gate when a `BusContext` is available. A unique active sub-repo match
+    may auto-prefix the hint; a redundant current-repo label may be stripped;
+    unresolvable or directory paths are dropped as advisory misses instead of
+    causing a hard analyzer retry;
+  - the accepted `emit_analysis` summary carries normalized required-file
+    paths, and REPL rendering prefers those normalized paths over raw argument
+    bytes. This keeps the user-visible navigation list aligned with what the
+    system persisted;
+  - the behavior is path/schema based only. It does not inspect user keywords
+    or model prose, and it is language-agnostic across TypeScript, Java, Go,
+    Python, config files, and multi-repo layouts.
+- Guardrails added:
+  - unit tests cover active-set auto-prefix, redundant repo-label stripping,
+    unresolvable path drop, full `emit_analysis` persistence/summary behavior,
+    and REPL summary rendering of normalized required files.

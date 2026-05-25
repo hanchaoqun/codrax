@@ -7,10 +7,33 @@
 package tool
 
 import (
+	"encoding/json"
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+type requiredFileHintResolveTestGater struct {
+	aliases map[string]string
+}
+
+func (g requiredFileHintResolveTestGater) ResolveActiveSetPath(ctx *types.BusContext, _, llmPath string, fileExists func(string) bool) types.ActiveSetGateResult {
+	if dst, ok := g.aliases[llmPath]; ok {
+		if fileExists != nil && (ctx == nil || !fileExists(filepath.Join(ctx.RepoRoot, filepath.FromSlash(dst)))) {
+			return types.ActiveSetGateResult{Allowed: false, RefusalProse: "not found"}
+		}
+		return types.ActiveSetGateResult{Allowed: true, ResolvedPath: dst, AutoPrefixed: true}
+	}
+	return types.ActiveSetGateResult{Allowed: true, ResolvedPath: llmPath}
+}
+
+func (g requiredFileHintResolveTestGater) ResolveActiveSetCommand(_ *types.BusContext, _, _ string) types.ActiveSetGateResult {
+	return types.ActiveSetGateResult{Allowed: true}
+}
 
 func TestValidateAndBuildRequiredFileHints_NilInput_NilOutput(t *testing.T) {
 	got := validateAndBuildRequiredFileHints(nil, nil)
@@ -57,6 +80,123 @@ func TestValidateAndBuildRequiredFileHints_DotSlashPrefixStripped(t *testing.T) 
 	got := validateAndBuildRequiredFileHints(in, nil)
 	if len(got) != 1 || got[0].Path != "internal/foo.go" {
 		t.Errorf("./prefix should be stripped; got %+v", got)
+	}
+}
+
+func TestValidateAndBuildRequiredFileHints_ActiveSetAutoPrefixesExistingFile(t *testing.T) {
+	root := t.TempDir()
+	rel := "CodeAgent/packages/core/src/mcp/token-storage/types.ts"
+	if err := os.MkdirAll(filepath.Join(root, filepath.Dir(rel)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, rel), []byte("export type OAuthCredentials = {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{
+		RepoRoot: root,
+		MultiGraph: requiredFileHintResolveTestGater{aliases: map[string]string{
+			"packages/core/src/mcp/token-storage/types.ts": rel,
+		}},
+	}
+	val := &analysisValidationResult{}
+	got := validateAndBuildRequiredFileHintsWithContext(ctx, []emitRequiredFileParam{{
+		Path:       "packages/core/src/mcp/token-storage/types.ts",
+		Confidence: 0.9,
+		Rationale:  "direct credential type definition",
+	}}, val)
+	if len(got) != 1 {
+		t.Fatalf("got %d hints, want 1; warnings=%v", len(got), val.Warnings)
+	}
+	if got[0].Path != rel {
+		t.Fatalf("hint path = %q, want %q", got[0].Path, rel)
+	}
+	if !containsAny(val.Warnings, "normalized") {
+		t.Fatalf("expected normalization warning, got %v", val.Warnings)
+	}
+}
+
+func TestValidateAndBuildRequiredFileHints_StripsRedundantRepoLabelInSingleRepo(t *testing.T) {
+	parent := t.TempDir()
+	repoRoot := filepath.Join(parent, "CodeAgent")
+	rel := "packages/core/src/mcp/token-storage/types.ts"
+	if err := os.MkdirAll(filepath.Join(repoRoot, filepath.Dir(rel)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repoRoot, rel), []byte("export type OAuthCredentials = {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: repoRoot}
+	got := validateAndBuildRequiredFileHintsWithContext(ctx, []emitRequiredFileParam{{
+		Path:       "CodeAgent/" + rel,
+		Confidence: 0.9,
+	}}, nil)
+	if len(got) != 1 || got[0].Path != rel {
+		t.Fatalf("redundant repo label should be stripped to %q, got %+v", rel, got)
+	}
+}
+
+func TestValidateAndBuildRequiredFileHints_DropsUnresolvableContextPath(t *testing.T) {
+	root := t.TempDir()
+	val := &analysisValidationResult{}
+	got := validateAndBuildRequiredFileHintsWithContext(&types.BusContext{RepoRoot: root}, []emitRequiredFileParam{{
+		Path:       "missing/file.ts",
+		Confidence: 0.9,
+	}}, val)
+	if got != nil {
+		t.Fatalf("missing context path should be dropped, got %+v", got)
+	}
+	if !containsAny(val.Warnings, "existing active file") {
+		t.Fatalf("expected unresolved-path warning, got %v", val.Warnings)
+	}
+}
+
+func TestEmitAnalysisExecute_NormalizesRequiredFilesBeforePersistAndSummary(t *testing.T) {
+	root := t.TempDir()
+	rel := "CodeAgent/packages/core/src/mcp/token-storage/types.ts"
+	if err := os.MkdirAll(filepath.Join(root, filepath.Dir(rel)), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, rel), []byte("export type OAuthCredentials = {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mu := types.NewMutableState("OAuthCredentials 的格式是怎样的？")
+	ctx := &types.BusContext{
+		RepoRoot: root,
+		Mutable:  mu,
+		MultiGraph: requiredFileHintResolveTestGater{aliases: map[string]string{
+			"packages/core/src/mcp/token-storage/types.ts": rel,
+		}},
+	}
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["OAuthCredentials", "credential", "decrypt"],
+		"entities": ["OAuthCredentials"],
+		"question_kind": "mechanism",
+		"required_files": [
+			{"path": "packages/core/src/mcp/token-storage/types.ts", "confidence": 0.9}
+		]
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(ctx, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("emit_analysis should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || len(rm.AnalyzerHints.RequiredFileHints) != 1 {
+		t.Fatalf("required file hint not persisted: rm=%+v", rm)
+	}
+	if got := rm.AnalyzerHints.RequiredFileHints[0].Path; got != rel {
+		t.Fatalf("persisted required file = %q, want %q", got, rel)
+	}
+	if !strings.Contains(res.Summary, `required_files=["`+rel+`"]`) {
+		t.Fatalf("summary should expose normalized required_files, got %q", res.Summary)
+	}
+	if strings.Contains(res.Summary, `required_files=["packages/core`) {
+		t.Fatalf("summary should not expose stale unprefixed required_files, got %q", res.Summary)
 	}
 }
 

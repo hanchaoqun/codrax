@@ -764,6 +764,26 @@ func TestFormatAnalysisToolResultSummaryZh(t *testing.T) {
 	}
 }
 
+func TestFormatAnalysisToolResultSummaryUsesNormalizedRequiredFiles(t *testing.T) {
+	params := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"question_kind": "mechanism",
+		"entities": ["OAuthCredentials"],
+		"keywords": ["OAuthCredentials"],
+		"required_files": [{"path": "packages/core/src/mcp/token-storage/types.ts"}]
+	}`
+	summary := `analysis emitted: intent=explain scenario=architecture_explain complexity=moderate kw=1 ent=1 kind=mechanism required_files=["CodeAgent/packages/core/src/mcp/token-storage/types.ts"] | warn: required_files: 1 path(s) normalized to active repo-relative form`
+	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_analysis", params, summary, "zh"))
+	if !strings.Contains(got, "建议文件 1 个：CodeAgent/packages/core/src/mcp/token-storage/types.ts") {
+		t.Fatalf("analysis summary should render normalized required_files; got:\n%s", got)
+	}
+	if strings.Contains(got, "建议文件 1 个：packages/core/src/mcp/token-storage/types.ts") {
+		t.Fatalf("analysis summary should not render stale raw required_files; got:\n%s", got)
+	}
+}
+
 func TestFormatAnswerDocumentToolResultSummaryRejectedZh(t *testing.T) {
 	summary := "The answer document does not yet meet the structural contract for this question.\n\n" +
 		"  1. Field: `blocks[].items[].label`\n" +

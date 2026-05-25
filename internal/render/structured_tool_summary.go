@@ -669,6 +669,19 @@ func formatAnalysisToolResultSummary(paramsJSON, resultSummary, lang string) str
 	if strings.TrimSpace(paramsJSON) == "" || json.Unmarshal([]byte(paramsJSON), &p) != nil {
 		p = analysisSummaryFromResult(resultSummary)
 	}
+	if paths := analysisRequiredFilesFromResult(resultSummary); len(paths) > 0 {
+		p.RequiredFiles = make([]struct {
+			Path string `json:"path"`
+		}, 0, len(paths))
+		for _, path := range paths {
+			if strings.TrimSpace(path) == "" {
+				continue
+			}
+			p.RequiredFiles = append(p.RequiredFiles, struct {
+				Path string `json:"path"`
+			}{Path: path})
+		}
+	}
 	if p.Intent == "" && p.Scenario == "" && p.Complexity == "" && p.QuestionKind == "" && len(p.Entities) == 0 && len(p.Keywords) == 0 {
 		return ""
 	}
@@ -810,6 +823,33 @@ func analysisSummaryFromResult(summary string) analysisSummaryPayload {
 		}
 	}
 	return p
+}
+
+func analysisRequiredFilesFromResult(summary string) []string {
+	idx := strings.Index(summary, "required_files=")
+	if idx < 0 {
+		return nil
+	}
+	raw := strings.TrimSpace(summary[idx+len("required_files="):])
+	if raw == "" {
+		return nil
+	}
+	dec := json.NewDecoder(strings.NewReader(raw))
+	var paths []string
+	if err := dec.Decode(&paths); err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(paths))
+	seen := make(map[string]bool, len(paths))
+	for _, path := range paths {
+		path = sanitizeEvidenceSummaryText(path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	return out
 }
 
 func analysisHeader(zh bool) string {
