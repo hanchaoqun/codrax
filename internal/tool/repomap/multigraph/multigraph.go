@@ -916,6 +916,9 @@ func (m *MultiGraph) graphBackedRelationCandidates(q types.TypedRelationQuery) [
 			local.Kinds = kinds
 			for _, row := range rmrelation.TypedRelationCandidates(g, local) {
 				out = append(out, prefixTypedRelationCandidate(sr, row))
+				if q.MaxMembers > 0 && len(out) >= q.MaxMembers {
+					return out
+				}
 			}
 			continue
 		}
@@ -928,6 +931,9 @@ func (m *MultiGraph) graphBackedRelationCandidates(q types.TypedRelationQuery) [
 			local.Kinds = kinds
 			for _, row := range rmrelation.TypedRelationCandidates(g, local) {
 				out = append(out, prefixTypedRelationCandidate(subMap[slug], row))
+				if q.MaxMembers > 0 && len(out) >= q.MaxMembers {
+					return out
+				}
 			}
 		}
 	}

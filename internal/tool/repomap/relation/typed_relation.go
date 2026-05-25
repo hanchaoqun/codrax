@@ -100,6 +100,9 @@ func extendsCandidates(g *rmtypes.Graph, q types.TypedRelationQuery) []types.Typ
 						Carrier:    types.TypedRelationCarrierGraph,
 						Precision:  precision,
 					})
+					if typedRelationCandidateLimitReached(out, q) {
+						return out
+					}
 				}
 			}
 		}
@@ -198,6 +201,9 @@ func importEdgeCandidates(g *rmtypes.Graph, q types.TypedRelationQuery, kind typ
 					Carrier:   types.TypedRelationCarrierGraph,
 					Precision: ref.precision,
 				})
+				if typedRelationCandidateLimitReached(out, q) {
+					return out
+				}
 			}
 		}
 	}
@@ -248,6 +254,9 @@ func calledByCandidates(g *rmtypes.Graph, q types.TypedRelationQuery) []types.Ty
 						Carrier:    types.TypedRelationCarrierGraph,
 						Precision:  ref.precision,
 					})
+					if typedRelationCandidateLimitReached(out, q) {
+						return out
+					}
 				}
 			}
 		}
@@ -312,11 +321,18 @@ func referenceCandidates(g *rmtypes.Graph, q types.TypedRelationQuery) []types.T
 						Carrier:    types.TypedRelationCarrierGraph,
 						Precision:  precision,
 					})
+					if typedRelationCandidateLimitReached(out, q) {
+						return out
+					}
 				}
 			}
 		}
 	}
 	return out
+}
+
+func typedRelationCandidateLimitReached(rows []types.TypedRelationCandidate, q types.TypedRelationQuery) bool {
+	return q.MaxMembers > 0 && len(rows) >= q.MaxMembers
 }
 
 type relationSourceFileRef struct {

@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/logtriage"
 	"github.com/hanchaoqun/codrax/internal/authority"
@@ -146,12 +147,25 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		// per the feedback_no_system_backfill_to_user_panel red line
 		// the hint never reaches user-facing fields.
 		if bus.AnalysisIR != nil {
+			sectionStart := time.Now()
 			rm := requestModelWithImportRelationRequiredFiles(bus.AnalysisIR.RequestModel, bus.AnalysisIR.EvidencePlan.RequiredFiles)
-			for _, carrier := range typedRelationCarriersFromBus(bus) {
+			carriers := typedRelationCarriersFromBus(bus)
+			logging.Debug("[context] build_agent_context section=typed_relation_probe stage=%s agent=%s start carriers=%d", stage, agentName, len(carriers))
+			hintCount := 0
+			for idx, carrier := range carriers {
+				if buildAgentContextCanceled(bus) {
+					logging.Warning("[context] build_agent_context section=typed_relation_probe stage=%s agent=%s canceled carrier_index=%d elapsed=%s", stage, agentName, idx, time.Since(sectionStart).Round(time.Millisecond))
+					break
+				}
+				carrierStart := time.Now()
+				beforeHints := len(ac.TypedRelationHints)
 				if hints := ProbeTypedRelations(carrier, &rm); len(hints) > 0 {
 					ac.TypedRelationHints = appendTypedRelationHints(ac.TypedRelationHints, hints...)
+					hintCount += len(ac.TypedRelationHints) - beforeHints
 				}
+				logBuildAgentContextSubsection(stage, agentName, "typed_relation_probe.carrier", carrierStart, "index=%d carrier=%T added_hints=%d", idx, carrier, len(ac.TypedRelationHints)-beforeHints)
 			}
+			logBuildAgentContextSubsection(stage, agentName, "typed_relation_probe", sectionStart, "carriers=%d hints=%d", len(carriers), hintCount)
 		}
 
 		// Collect tool summaries
@@ -324,6 +338,31 @@ func skillToolSet(sk *skill.Config) map[string]bool {
 // alternative evidence channel via its BuildInitialInstruction digest.
 func isExtractorSkill(sk *skill.Config) bool {
 	return sk != nil && sk.Name == "extract-skill"
+}
+
+func buildAgentContextCanceled(bus *types.BusContext) bool {
+	if bus == nil || bus.Ctx == nil {
+		return false
+	}
+	select {
+	case <-bus.Ctx.Done():
+		return true
+	default:
+		return false
+	}
+}
+
+func logBuildAgentContextSubsection(stage types.PipelineStage, agent types.AgentName, section string, start time.Time, format string, args ...any) {
+	elapsed := time.Since(start).Round(time.Millisecond)
+	detail := strings.TrimSpace(fmt.Sprintf(format, args...))
+	if detail != "" {
+		detail = " " + detail
+	}
+	if elapsed >= 2*time.Second {
+		logging.Warning("[context] build_agent_context section=%s stage=%s agent=%s done elapsed=%s%s", section, stage, agent, elapsed, detail)
+		return
+	}
+	logging.Debug("[context] build_agent_context section=%s stage=%s agent=%s done elapsed=%s%s", section, stage, agent, elapsed, detail)
 }
 
 // canonicalSystemSectionOrder and canonicalUserSectionOrder live in

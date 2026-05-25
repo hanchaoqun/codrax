@@ -3,8 +3,10 @@ package context
 import (
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	rmrelation "github.com/hanchaoqun/codrax/internal/tool/repomap/relation"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -130,6 +132,11 @@ func analyzerGraphFromBus(bus *types.BusContext) any {
 // realistic enumeration cases observed in eval.
 const typedRelationProbeMaxMembers = 50
 
+// typedRelationProbeMaxExpensiveSources caps prompt-only graph-backed probes
+// whose providers may walk full relation lists. Coverage gates do not use this
+// path; they keep their exact evidence contract.
+const typedRelationProbeMaxExpensiveSources = 6
+
 // ProbeTypedRelations is the entry point that builds the
 // TypedRelationHint slice for an AgentContext. Returns nil when:
 //   - graph is nil (no repomap available — analyzer-only paths)
@@ -168,13 +175,33 @@ func ProbeTypedRelations(graph any, rm *types.RequestModel) []types.TypedRelatio
 	if graph == nil {
 		return nil
 	}
-	if hints := probeTypedRelationCandidateSource(graph, query); len(hints) > 0 {
+	var hints []types.TypedRelationHint
+	if cheap := typedRelationPromptCheapKinds(query.Kinds); len(cheap) > 0 {
+		cheapQuery := query
+		cheapQuery.Kinds = cheap
+		hints = appendTypedRelationHints(hints, probeTypedRelationCandidateSource(graph, cheapQuery)...)
+	}
+	if expensive := typedRelationPromptExpensiveKinds(query.Kinds); len(expensive) > 0 {
+		narrowSources := typedRelationPromptNarrowSources(query.Sources, resolvedSources)
+		if len(narrowSources) > typedRelationProbeMaxExpensiveSources {
+			logging.Debug("[context] typed relation prompt hint capped expensive sources carrier=%T sources=%d cap=%d kinds=%v", graph, len(narrowSources), typedRelationProbeMaxExpensiveSources, expensive)
+			narrowSources = narrowSources[:typedRelationProbeMaxExpensiveSources]
+		}
+		if len(narrowSources) == 0 {
+			logging.Debug("[context] typed relation prompt hint skipped expensive graph-backed kinds carrier=%T sources=%d kinds=%v reason=no-single-exact-source", graph, len(query.Sources), expensive)
+		} else {
+			expensiveQuery := query
+			expensiveQuery.Kinds = expensive
+			expensiveQuery.Sources = narrowSources
+			hints = appendTypedRelationHints(hints, probeTypedRelationCandidateSource(graph, expensiveQuery)...)
+		}
+	}
+	if len(hints) > 0 {
 		return hints
 	}
 	if !query.AllowsKind(types.TypedRelationImplements) {
 		return nil
 	}
-	var hints []types.TypedRelationHint
 	seenSource := make(map[string]bool)
 	for _, name := range query.Sources {
 		if seenSource[name] {
@@ -187,6 +214,94 @@ func ProbeTypedRelations(graph any, rm *types.RequestModel) []types.TypedRelatio
 		}
 	}
 	return hints
+}
+
+func typedRelationPromptExpensiveKinds(kinds []types.TypedRelationKind) []types.TypedRelationKind {
+	var out []types.TypedRelationKind
+	for _, kind := range kinds {
+		if typedRelationPromptKindIsExpensive(kind) {
+			out = appendTypedRelationKindIfMissing(out, kind)
+		}
+	}
+	return out
+}
+
+func typedRelationPromptCheapKinds(kinds []types.TypedRelationKind) []types.TypedRelationKind {
+	var out []types.TypedRelationKind
+	for _, kind := range kinds {
+		if kind == "" || typedRelationPromptKindIsExpensive(kind) {
+			continue
+		}
+		out = appendTypedRelationKindIfMissing(out, kind)
+	}
+	return out
+}
+
+func typedRelationPromptKindIsExpensive(kind types.TypedRelationKind) bool {
+	switch kind {
+	case types.TypedRelationCalledBy,
+		types.TypedRelationReferences,
+		types.TypedRelationExtends:
+		return true
+	default:
+		return false
+	}
+}
+
+func appendTypedRelationKindIfMissing(dst []types.TypedRelationKind, kind types.TypedRelationKind) []types.TypedRelationKind {
+	if kind == "" {
+		return dst
+	}
+	for _, existing := range dst {
+		if existing == kind {
+			return dst
+		}
+	}
+	return append(dst, kind)
+}
+
+func typedRelationPromptNarrowSources(sources []string, facts []types.TypedRelationSourceFact) []string {
+	if len(sources) == 0 || len(facts) == 0 {
+		return nil
+	}
+	countBySource := make(map[string]int, len(sources))
+	for _, source := range sources {
+		source = strings.TrimSpace(source)
+		if source == "" {
+			continue
+		}
+		key := strings.ToLower(source)
+		seenFacts := map[string]bool{}
+		for _, fact := range facts {
+			if !fact.Precision.CoverageGateEligible() || !strings.EqualFold(fact.Name, source) {
+				continue
+			}
+			factKey := strings.ToLower(fact.Name) + "|" +
+				strings.ToLower(fact.Kind) + "|" +
+				strings.TrimSpace(fact.File) + "|" +
+				intString(fact.Line)
+			if seenFacts[factKey] {
+				continue
+			}
+			seenFacts[factKey] = true
+			countBySource[key]++
+		}
+	}
+	var out []string
+	for _, source := range sources {
+		source = strings.TrimSpace(source)
+		if source == "" {
+			continue
+		}
+		if countBySource[strings.ToLower(source)] == 1 {
+			out = append(out, source)
+		}
+	}
+	return out
+}
+
+func intString(n int) string {
+	return strconv.Itoa(n)
 }
 
 func typedRelationSourceFacts(graph any, sources []string) []types.TypedRelationSourceFact {

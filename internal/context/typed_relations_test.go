@@ -279,6 +279,20 @@ func (f fakeTypedRelationCandidateSource) TypedRelationCandidates(q types.TypedR
 	return out
 }
 
+type countingTypedRelationCandidateSource struct {
+	fakeTypedRelationCandidateSource
+	candidateCalls int
+}
+
+func (f *countingTypedRelationCandidateSource) TypedRelationSourceFacts(sources []string) []types.TypedRelationSourceFact {
+	return f.fakeTypedRelationCandidateSource.TypedRelationSourceFacts(sources)
+}
+
+func (f *countingTypedRelationCandidateSource) TypedRelationCandidates(q types.TypedRelationQuery) []types.TypedRelationCandidate {
+	f.candidateCalls++
+	return f.fakeTypedRelationCandidateSource.TypedRelationCandidates(q)
+}
+
 func TestProbeTypedRelations_InterfaceDiagramUsesResolvedProviderSourceFacts(t *testing.T) {
 	provider := fakeTypedRelationCandidateSource{
 		facts: []types.TypedRelationSourceFact{{
@@ -353,8 +367,15 @@ func TestProbeTypedRelations_UsesGenericCandidateSourceWhenGraphIsOpaque(t *test
 }
 
 func TestProbeTypedRelations_UsesCentralQueryForGenericRelationKinds(t *testing.T) {
-	provider := fakeTypedRelationCandidateSource{rows: []types.TypedRelationCandidate{
-		{
+	provider := fakeTypedRelationCandidateSource{
+		facts: []types.TypedRelationSourceFact{{
+			Name:      "Run",
+			Kind:      "function",
+			File:      "cmd/run.go",
+			Line:      12,
+			Precision: types.TypedRelationPrecisionExactSymbolID,
+		}},
+		rows: []types.TypedRelationCandidate{{
 			Relation:   types.TypedRelationCalledBy,
 			SourceName: "Run",
 			SourceKind: "function",
@@ -362,15 +383,15 @@ func TestProbeTypedRelations_UsesCentralQueryForGenericRelationKinds(t *testing.
 			Carrier:    types.TypedRelationCarrierGraph,
 			Precision:  types.TypedRelationPrecisionExactSymbolID,
 		},
-		{
-			Relation:   types.TypedRelationImplements,
-			SourceName: "Run",
-			SourceKind: "interface",
-			Member:     types.TypedRelationMember{Name: "runner", File: "runner.go", Line: 7, Kind: "struct"},
-			Carrier:    types.TypedRelationCarrierGraph,
-			Precision:  types.TypedRelationPrecisionExactSymbolID,
-		},
-	}}
+			{
+				Relation:   types.TypedRelationImplements,
+				SourceName: "Run",
+				SourceKind: "interface",
+				Member:     types.TypedRelationMember{Name: "runner", File: "runner.go", Line: 7, Kind: "struct"},
+				Carrier:    types.TypedRelationCarrierGraph,
+				Precision:  types.TypedRelationPrecisionExactSymbolID,
+			},
+		}}
 	rm := &types.RequestModel{
 		PredicateAxis: types.AxisCall,
 		AnalyzerHints: types.AnalyzerHints{
@@ -389,9 +410,45 @@ func TestProbeTypedRelations_UsesCentralQueryForGenericRelationKinds(t *testing.
 	}
 }
 
+func TestProbeTypedRelations_AmbiguousExpensivePromptHintSkipsProvider(t *testing.T) {
+	provider := &countingTypedRelationCandidateSource{fakeTypedRelationCandidateSource: fakeTypedRelationCandidateSource{
+		facts: []types.TypedRelationSourceFact{
+			{Name: "Run", Kind: "function", File: "cmd/run.go", Line: 12, Precision: types.TypedRelationPrecisionExactSymbolID},
+			{Name: "Run", Kind: "method", File: "pkg/runner.go", Line: 33, Precision: types.TypedRelationPrecisionExactSymbolID},
+		},
+		rows: []types.TypedRelationCandidate{{
+			Relation:   types.TypedRelationCalledBy,
+			SourceName: "Run",
+			SourceKind: "function",
+			Member:     types.TypedRelationMember{Name: "main", File: "cmd/root.go", Line: 42, Kind: "function"},
+			Carrier:    types.TypedRelationCarrierGraph,
+			Precision:  types.TypedRelationPrecisionExactSymbolID,
+		}},
+	}}
+	rm := &types.RequestModel{
+		PredicateAxis: types.AxisCall,
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"Run"},
+		},
+	}
+	if hints := ProbeTypedRelations(provider, rm); len(hints) != 0 {
+		t.Fatalf("ambiguous expensive prompt source should skip advisory hint, got %+v", hints)
+	}
+	if provider.candidateCalls != 0 {
+		t.Fatalf("ambiguous expensive prompt source must not call candidate provider; calls=%d", provider.candidateCalls)
+	}
+}
+
 func TestProbeTypedRelations_ChangeImpactUsesReferenceRelationHint(t *testing.T) {
-	provider := fakeTypedRelationCandidateSource{rows: []types.TypedRelationCandidate{
-		{
+	provider := fakeTypedRelationCandidateSource{
+		facts: []types.TypedRelationSourceFact{{
+			Name:      "RuntimeConfig",
+			Kind:      "struct",
+			File:      "internal/config/runtime.go",
+			Line:      7,
+			Precision: types.TypedRelationPrecisionExactSymbolID,
+		}},
+		rows: []types.TypedRelationCandidate{{
 			Relation:   types.TypedRelationReferences,
 			SourceName: "RuntimeConfig",
 			SourceKind: "struct",
@@ -399,15 +456,15 @@ func TestProbeTypedRelations_ChangeImpactUsesReferenceRelationHint(t *testing.T)
 			Carrier:    types.TypedRelationCarrierGraph,
 			Precision:  types.TypedRelationPrecisionExactSymbolID,
 		},
-		{
-			Relation:   types.TypedRelationCalledBy,
-			SourceName: "RuntimeConfig",
-			SourceKind: "function",
-			Member:     types.TypedRelationMember{Name: "call", File: "cmd/call.go", Line: 12, Kind: "function"},
-			Carrier:    types.TypedRelationCarrierGraph,
-			Precision:  types.TypedRelationPrecisionExactSymbolID,
-		},
-	}}
+			{
+				Relation:   types.TypedRelationCalledBy,
+				SourceName: "RuntimeConfig",
+				SourceKind: "function",
+				Member:     types.TypedRelationMember{Name: "call", File: "cmd/call.go", Line: 12, Kind: "function"},
+				Carrier:    types.TypedRelationCarrierGraph,
+				Precision:  types.TypedRelationPrecisionExactSymbolID,
+			},
+		}}
 	rm := &types.RequestModel{
 		ChangeImpactProfile: &types.ChangeImpactProfile{
 			IsChangeImpact:  true,
