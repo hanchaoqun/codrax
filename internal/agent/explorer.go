@@ -6017,14 +6017,7 @@ func (e *explorerEvaluator) evidenceRepairReadQuota(targets []evidenceRepairTarg
 	if e == nil || !e.midLoopCompletionReadySent || len(targets) == 0 {
 		return quota
 	}
-	closeReadyQuota := len(targets)
-	if closeReadyQuota < 1 {
-		closeReadyQuota = 1
-	}
-	if quota > closeReadyQuota {
-		return closeReadyQuota
-	}
-	return quota
+	return 1
 }
 
 func evidenceRepairReadQuota(targets []evidenceRepairTarget) int {
@@ -9213,7 +9206,8 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 			}
 		}
 		scope := typedScope
-		if len(scope) == 0 {
+		candidateUniverseGap := e.sourceInventoryCandidateUniverseCoverageGap()
+		if len(scope) == 0 && !candidateUniverseGap.IsActive() {
 			scope = e.coverageScopeFiles(discovered, readSet, strings.Join(e.investigationNotes, "\n"))
 		}
 		if len(scope) > 0 {
@@ -11028,6 +11022,9 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		} else if !readiness.ExplanationAnchorReady {
 			hintKey = "explorer.retry.explanation-anchor"
 			out.RetryHint = fmt.Sprintf("Previous attempt covered %d of %d required explanation anchors. Read the missing topic anchors and emit grounded evidence for each before completing.", readiness.ExplanationAnchorCovered, readiness.ExplanationAnchorTotal)
+		} else if gap := e.sourceInventoryCandidateUniverseCoverageGap(); gap.IsActive() {
+			hintKey = "explorer.retry.scoped-candidate-universe"
+			out.RetryHint = fmt.Sprintf("Previous attempt has an exact source-inventory candidate universe: %s. Reuse that scoped checklist instead of broad discovered-file coverage; verify missing or intentionally excluded candidates, then close with a structured aggregate_facts.member_set.", gap.Summary(12))
 		} else {
 			hintKey = "explorer.retry.file-coverage"
 			out.RetryHint = fmt.Sprintf("Previous attempt read only %d of %d discovered relevant files (%.0f%% coverage, %d relevant). Read more of the discovered files.", readiness.ScopeReadCount, max(readiness.ScopeTotalCount, readiness.DiscoveredCount), readiness.Coverage*100, readiness.RelevantRead)

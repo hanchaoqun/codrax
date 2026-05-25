@@ -3739,6 +3739,21 @@ func TestExplorer_FilterToolSchemas_EvidenceRepairCoveredTargetsBecomeEmitOnly(t
 	}
 }
 
+func TestExplorer_EvidenceRepairReadQuota_CloseReadyAllowsOneBranch(t *testing.T) {
+	targets := []evidenceRepairTarget{
+		{file: "a.go", lines: []int{10}},
+		{file: "b.go", lines: []int{20}},
+		{file: "c.go", lines: []int{30}},
+	}
+	if got := (&explorerEvaluator{}).evidenceRepairReadQuota(targets); got <= 1 {
+		t.Fatalf("ordinary repair should keep multi-target read budget, got %d", got)
+	}
+	eval := &explorerEvaluator{midLoopCompletionReadySent: true}
+	if got := eval.evidenceRepairReadQuota(targets); got != 1 {
+		t.Fatalf("close-ready repair should allow only one evidence-changing branch, got %d", got)
+	}
+}
+
 func TestExplorer_FilterToolSchemas_CloseReadyEvidenceRepairUsesOneSurgicalRead(t *testing.T) {
 	eval := &explorerEvaluator{
 		midLoopEvidenceRepairSent:       true,
@@ -6184,6 +6199,78 @@ func TestObserveMidLoop_CompletionReadySuppressedByExactCandidateUniverse(t *tes
 	}
 	if eval.midLoopCompletionReadySent {
 		t.Fatal("generic completion-ready latch must remain unset while exact candidate universe is pending")
+	}
+}
+
+func TestObserveMidLoop_ExactCandidateUniverseSuppressesBroadEnumerationHint(t *testing.T) {
+	mut := types.NewMutableState("list all source scopes")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"src"},
+		Provenance:   []string{"tool:list_files:direct"},
+		Lens:         []string{"direct_children", "count"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRolePackage,
+			Complete: true,
+			Count:    3,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:       "alpha",
+				Key:        "src/alpha",
+				File:       "src/alpha",
+				Role:       types.AnswerCandidateRolePackage,
+				Provenance: []string{"tool:list_files:direct"},
+			}, {
+				Name:       "beta",
+				Key:        "src/beta",
+				File:       "src/beta",
+				Role:       types.AnswerCandidateRolePackage,
+				Provenance: []string{"tool:list_files:direct"},
+			}, {
+				Name:       "gamma",
+				Key:        "src/gamma",
+				File:       "src/gamma",
+				Role:       types.AnswerCandidateRolePackage,
+				Provenance: []string{"tool:list_files:direct"},
+			}},
+		}},
+	})
+	eval := &explorerEvaluator{
+		phase:              1,
+		isEnumerationQuery: true,
+		heuristics: types.ExploreHeuristics{
+			MidLoopMinIteration:    2,
+			MidLoopEnumCoverage:    0.9,
+			EnumMidLoopUnreadFloor: 1,
+		},
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		mutable:      mut,
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+			AnalyzerHints: types.AnalyzerHints{
+				Kind: string(types.ReqEnumeration),
+			},
+			CompletenessObligation: &types.CompletenessObligation{
+				Required:    true,
+				SourceQuote: "all source scopes",
+			},
+		}},
+	}
+	results := []types.ToolResult{
+		{ToolName: "list_files", Success: true, Summary: "[list_files: path=src recursive=true]\nsrc/alpha/a.go\nsrc/beta/b.go\nsrc/gamma/c.go\nsrc/delta/d.go\nsrc/epsilon/e.go\n"},
+		{ToolName: "read_file", Success: true, Summary: "[src/alpha/a.go: showing lines 1-20 of 20]\nalpha\n"},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item"},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      3,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if sig.HintKey == "explorer.mid-loop.enumeration" || strings.Contains(sig.Hint, "discovered relevant files") {
+		t.Fatalf("exact source-inventory universe should suppress broad discovered-file enumeration hints, got %+v", sig)
 	}
 }
 

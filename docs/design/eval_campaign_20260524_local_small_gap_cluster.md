@@ -3253,3 +3253,16 @@ B2-Z random-serial eval follow-up and hard-gate boundary, 2026-05-25 CST:
     `answer_subject`, `entities`) and language-agnostic. It does not inspect
     model prose or use user-question keyword control flow;
   - regression tests cover both demotion and preservation paths.
+- Batch 3 implementation:
+  - broad discovered-file enumeration hints now stand down when an exact
+    source-inventory candidate universe is active. In that state the scoped
+    universe remains the navigation checklist; unrelated broad file counts
+    cannot override it;
+  - retry hints also prefer the scoped candidate-universe summary over broad
+    discovered-file coverage when such a universe exists;
+  - close-ready evidence repair now grants only one targeted read branch before
+    narrowing to emit-only. This preserves a model's chance to verify a real
+    contradiction while preventing post-close-ready repair from reopening broad
+    exploration;
+  - regression tests cover broad-hint suppression and the close-ready repair
+    quota.
