@@ -572,6 +572,67 @@ func TestEmitInvestigationComplete_RepairsStringEncodedAggregateFactsWithMisplac
 	}
 }
 
+func TestEmitInvestigationComplete_RepairsReasonSuffixMisplacedTopLevelFields(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	paramsBytes, err := json.Marshal(map[string]any{
+		"reason": `LoopController implementations are fully enumerated.
+confidence: high, result_kind: resolved, aggregate_facts: [
+  {"kind":"member_set","label":"production LoopController implementations","value":"2","role":"principal_answer","members":["analyzerEvaluator","explorerEvaluator"]}
+]`,
+	})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+
+	res, err := tool.Execute(bus, paramsBytes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("reason-suffix payload should be recovered: %s", res.Summary)
+	}
+	if got := mut.InvestigationResultKind(); got != "resolved" {
+		t.Fatalf("result_kind = %q, want recovered resolved", got)
+	}
+	if got := mut.InvestigationCompleteReason(); got != "LoopController implementations are fully enumerated." {
+		t.Fatalf("reason = %q, want clean conclusion", got)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 || facts[0].Kind != types.AnswerAggregateMemberSet || len(facts[0].Members) != 2 {
+		t.Fatalf("aggregate facts not recovered from reason suffix: %+v", facts)
+	}
+}
+
+func TestEmitInvestigationComplete_DoesNotPromoteOrdinaryReasonConfidenceProse(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	paramsBytes, err := json.Marshal(map[string]any{
+		"reason": "confidence: high appears here as ordinary rationale text, not a misplaced tool payload.",
+	})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+
+	res, err := tool.Execute(bus, paramsBytes)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("single schema-looking word in prose must not be promoted into a completion")
+	}
+	if !strings.Contains(res.Summary, "confidence") {
+		t.Fatalf("rejection should still ask for the missing confidence field, got: %s", res.Summary)
+	}
+	if got := strings.TrimSpace(mut.InvestigationCompleteReason()); got != "" {
+		t.Fatalf("ordinary prose must not mark investigation complete, got reason %q", got)
+	}
+}
+
 func TestEmitInvestigationComplete_PromotesMisplacedAbsenceTailForAbsenceResult(t *testing.T) {
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{Mutable: mut}

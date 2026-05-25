@@ -4396,6 +4396,64 @@ func TestExplorerSoftStop_FirstStop_HardBranch_PartialReadFires(t *testing.T) {
 	}
 }
 
+func TestExplorerSoftStop_FirstStop_CloseReadySuppressesPartialRead(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		userQuestion: "how does Execute work",
+		searchResult: &keywordSearchResult{
+			Graph: &repomap.Graph{
+				FileIndex: map[string]*repomap.FileInfo{
+					"agent.go": {
+						Symbols: []repomap.Symbol{
+							{Name: "Execute", Kind: "method", Receiver: "BaseAgent", Line: 100, EndLine: 400, File: "agent.go"},
+						},
+					},
+				},
+			},
+		},
+		structuredEvidence: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceRegistration,
+				Source:          "agent.go",
+				LineStart:       120,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "Execute",
+				Subject:         "BaseAgent.Execute",
+				Predicate:       "calls",
+				Object:          "runLoop",
+				GroundingStatus: types.GroundingGrounded,
+				GroundingTier:   types.TierLineText,
+			},
+			{
+				Kind:            types.EvidenceRegistration,
+				Source:          "agent.go",
+				LineStart:       180,
+				AnchorKind:      types.AnchorDefinition,
+				AnchorSymbol:    "Execute",
+				Subject:         "BaseAgent.Execute",
+				Predicate:       "calls",
+				Object:          "handleToolResults",
+				GroundingStatus: types.GroundingGrounded,
+				GroundingTier:   types.TierLineText,
+			},
+		},
+	}
+	history := []types.ToolResult{
+		{ToolName: "read_file", Success: true,
+			Summary: "[agent.go: showing lines 100-200 of 500 total]\ncode..."},
+		{ToolName: "emit_evidence", Success: true,
+			Summary: "emit_evidence accepted 2 item(s)"},
+	}
+
+	sig := softStopWithContinuations(eval, "BaseAgent.Execute is ready to summarize.", 4, 0, history)
+	if sig.HintKey == "explorer.phase1.partial-read" {
+		t.Fatalf("close-ready first soft-stop must not be pulled back into partial-read expansion: %+v", sig)
+	}
+	if !sig.HintRequested || sig.HintKey != "explorer.completion-tool-reminder" {
+		t.Fatalf("close-ready first soft-stop should ask for explicit completion, got %+v", sig)
+	}
+}
+
 // TestExplorerSoftStop_FirstStop_SoftBranch_PrescannedSuppressed is
 // the DIRECT iter=5 regression check: the preScannedUnread branch
 // would have fired on the 2026-04-15 user trace and injected a
@@ -6000,6 +6058,43 @@ func TestObserveMidLoop_ExactAbsenceClosureHint(t *testing.T) {
 	}
 	if !strings.Contains(sig.Hint, "absence_justification") || !strings.Contains(sig.Hint, "related context only") {
 		t.Fatalf("hint should drive absence closure, got: %s", sig.Hint)
+	}
+}
+
+func TestPostExactAbsenceClosureSignal_SuppressedByDefiningExactTargetProof(t *testing.T) {
+	eval := &explorerEvaluator{
+		heuristics: types.ExploreHeuristics{MidLoopMinIteration: 2},
+		exactResolution: &types.ExactResolutionContract{
+			TargetKind:   types.SubjectInterface,
+			TargetLabel:  "interface",
+			Targets:      []string{"LoopController"},
+			AllowAbsence: true,
+		},
+		structuredEvidence: []types.EvidenceItem{{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/loop_controller.go",
+			LineStart:       12,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "LoopController",
+			Subject:         "LoopController",
+			Predicate:       "defines",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		}},
+	}
+	results := []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/loop_controller.go: showing lines 1-40 of 120]"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/explorer.go: showing lines 1-40 of 120]"},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item(s)"},
+	}
+
+	sig := eval.postExactAbsenceClosureSignal(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      3,
+		AllToolResults: results,
+	})
+	if sig.HintRequested {
+		t.Fatalf("positive defining proof must suppress absence-oriented hints, got %+v", sig)
 	}
 }
 

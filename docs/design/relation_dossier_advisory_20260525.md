@@ -76,3 +76,55 @@ structured carrier exists. The section must say:
 - [x] Add tests proving model-authored relation evidence/aggregate facts flow
       into downstream context.
 - [x] Run focused and package tests.
+
+## Eval Follow-up: Completion Payload Salvage And Close-Ready Restraint
+
+2026-05-25 focused evals showed two generic gaps that are not specific to
+`LoopController` or this repository:
+
+1. Some models put sibling tool fields at the end of a text field, e.g.
+   `reason="... confidence: high, result_kind: resolved, aggregate_facts: [...]"`.
+   The payload is structurally recoverable because the misplaced fragments are
+   exact schema fields, but the existing recovery only handled the inverse shape
+   where `aggregate_facts` was a string with sibling fields appended.
+2. Close-ready and exact-absence nudges can still out-rank the model's
+   structured relation evidence. Once a positive exact target is already backed
+   by defining evidence, absence-oriented same-family prompts are noise. Once a
+   first soft-stop is already close-ready, generic partial-function-read nudges
+   should not override the model's decision to close unless there is a typed,
+   load-bearing blocker.
+
+### Generalized Design
+
+- Extend `emit_investigation_complete` payload compatibility at the tool
+  boundary, not in prompts:
+  - inspect only schema field names (`confidence`, `result_kind`,
+    `aggregate_facts`, `absence_justification`) inside the `reason` suffix;
+  - require at least two recoverable sibling fields before treating the suffix
+    as a misplaced tool payload;
+  - parse successfully before mutating anything;
+  - use recovered values only when the top-level field is missing or invalid;
+  - trim the recovered field suffix from `reason` so the preserved conclusion
+    stays user-visible and does not carry JSON noise.
+- Keep this repair structural-only:
+  - no answer members are invented;
+  - no user question keywords or assistant prose semantics are parsed;
+  - invalid or ambiguous fragments fall through to existing validators.
+- Restrain explorer close-ready behavior:
+  - suppress exact-absence hints when grounded defining proof for the exact
+    target already exists;
+  - on a first voluntary soft-stop that is already close-ready, skip generic
+    partial-read prompts. The model may close with
+    `emit_investigation_complete`; deterministic validators still protect
+    truly missing structured handoff.
+
+### Follow-up Task List
+
+- [x] Add reason-suffix schema-field recovery for `emit_investigation_complete`.
+- [x] Add no-false-positive tests proving ordinary `confidence:` prose is not
+      promoted.
+- [x] Suppress exact-absence same-family nudges after positive defining proof.
+- [x] Suppress first-soft-stop partial-read prompts when the branch is already
+      close-ready.
+- [x] Run focused tool/agent tests.
+- [ ] Re-run the focused relation evals after implementation.

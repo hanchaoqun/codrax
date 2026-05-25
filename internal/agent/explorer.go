@@ -5586,6 +5586,9 @@ func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) L
 	if len(targets) == 0 || obs.Iteration < e.heuristics.MidLoopMinIteration {
 		return LoopSignal{}
 	}
+	if types.ExactResolutionHasDefiningTargetProof(e.exactResolution, e.structuredEvidence) {
+		return LoopSignal{}
+	}
 	reads, emits := 0, 0
 	for _, r := range obs.AllToolResults {
 		if !r.Success {
@@ -9836,6 +9839,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	scope := e.coverageScopeFiles(discovered, readSet, notesJoined)
 	scopeReadCount, scopeCoverage, scopeUnread := coverageSnapshot(scope, readSet)
 	unread := append([]string(nil), scopeUnread...)
+	closeReadySoftStop := firstSoftStop && e.firstSoftStopLooksCloseReady(history, discovered, readSet)
 
 	// Function-boundary read guidance: when the LLM reads part of a
 	// function but stops before the end, inject exact read ranges.
@@ -9851,7 +9855,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	// matching functions get their hint suppressed so the LLM's
 	// attention budget is spent on reading NEW relevant files
 	// instead of finishing irrelevant large functions.
-	if e.searchResult != nil && e.searchResult.Graph != nil {
+	if e.searchResult != nil && e.searchResult.Graph != nil && !closeReadySoftStop {
 		partialHints := e.filterPartialReadsForCurrentContext(detectPartiallyReadSymbols(history, e.searchResult.Graph))
 		if len(partialHints) > 0 {
 			progress = true // keep the loop alive via LoopSignal.Progress
@@ -9981,7 +9985,6 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	}
 	truncated, grepped := detectTruncatedUngrepped(history)
 	var newTruncated []truncatedFileInfo
-	closeReadySoftStop := firstSoftStop && e.firstSoftStopLooksCloseReady(history, discovered, readSet)
 	for _, tf := range truncated {
 		if !closeReadySoftStop && !e.grepRedirectedFiles[tf.path] {
 			newTruncated = append(newTruncated, tf)

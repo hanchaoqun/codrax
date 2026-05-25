@@ -262,17 +262,28 @@ func (p *emitInvestigationCompleteParams) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	var reasonMisplaced map[string]json.RawMessage
+	if cleanReason, fields, ok := extractMisplacedCompletionFieldsFromReason(raw.Reason); ok {
+		raw.Reason = cleanReason
+		reasonMisplaced = fields
+		if len(strings.TrimSpace(string(raw.AggregateFacts))) == 0 {
+			if recoveredFacts := fields["aggregate_facts"]; len(recoveredFacts) > 0 {
+				raw.AggregateFacts = recoveredFacts
+			}
+		}
+	}
 	facts, misplaced, err := decodeAggregateFactsPayload(raw.AggregateFacts)
 	if err != nil {
 		return err
 	}
+	misplaced = mergeMisplacedCompletionFields(misplaced, reasonMisplaced)
 	if raw.Reason == "" {
 		raw.Reason = decodeMisplacedStringField(misplaced, "reason")
 	}
-	if raw.Confidence == "" {
+	if !completionConfidenceValid(raw.Confidence) {
 		raw.Confidence = decodeMisplacedStringField(misplaced, "confidence")
 	}
-	if raw.ResultKind == "" {
+	if !completionResultKindValid(raw.ResultKind) {
 		raw.ResultKind = decodeMisplacedStringField(misplaced, "result_kind")
 	}
 	if raw.AbsenceJustification == "" && strings.EqualFold(strings.TrimSpace(raw.ResultKind), "absence") {
@@ -325,6 +336,144 @@ func decodeAggregateFactsPayload(raw json.RawMessage) ([]types.AnswerAggregateFa
 		return nil, nil, err
 	}
 	return facts, misplaced, nil
+}
+
+var completionReasonFieldStartRe = regexp.MustCompile(`(?m)(?:^|[\n,;]\s*)("?(confidence|result_kind|aggregate_facts|absence_justification)"?\s*[:=])`)
+var completionReasonBareKeyRe = regexp.MustCompile(`(?m)(^|[,\{\s])"?(confidence|result_kind|aggregate_facts|absence_justification)"?\s*[:=]`)
+var completionReasonBareConfidenceRe = regexp.MustCompile(`(?i)("confidence"\s*:\s*)(high|medium)\b`)
+var completionReasonBareResultKindRe = regexp.MustCompile(`(?i)("result_kind"\s*:\s*)(resolved|absence)\b`)
+
+func extractMisplacedCompletionFieldsFromReason(reason string) (string, map[string]json.RawMessage, bool) {
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		return "", nil, false
+	}
+	matches := completionReasonFieldStartRe.FindAllStringSubmatchIndex(reason, -1)
+	for _, match := range matches {
+		if len(match) < 6 || match[2] < 0 {
+			continue
+		}
+		start := match[2]
+		tail := strings.TrimSpace(reason[start:])
+		fields, ok := decodeMisplacedCompletionReasonTail(tail)
+		if !ok || !misplacedCompletionReasonFieldsAreSufficient(fields) {
+			continue
+		}
+		clean := strings.TrimRight(strings.TrimSpace(reason[:start]), " \t\r\n,;")
+		return clean, fields, true
+	}
+	return "", nil, false
+}
+
+func decodeMisplacedCompletionReasonTail(tail string) (map[string]json.RawMessage, bool) {
+	tail = strings.TrimSpace(tail)
+	if tail == "" {
+		return nil, false
+	}
+	var candidates []string
+	add := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		for _, existing := range candidates {
+			if existing == s {
+				return
+			}
+		}
+		candidates = append(candidates, s)
+	}
+	add(tail)
+	for _, candidate := range misplacedObjectTailCandidates(tail) {
+		add(candidate)
+	}
+	for _, candidate := range candidates {
+		normalized := normalizeMisplacedCompletionReasonTail(candidate)
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal([]byte("{"+normalized+"}"), &fields); err == nil {
+			return fields, true
+		}
+	}
+	return nil, false
+}
+
+func normalizeMisplacedCompletionReasonTail(tail string) string {
+	tail = strings.TrimSpace(tail)
+	tail = completionReasonBareKeyRe.ReplaceAllString(tail, `${1}"${2}":`)
+	tail = completionReasonBareConfidenceRe.ReplaceAllString(tail, `${1}"${2}"`)
+	tail = completionReasonBareResultKindRe.ReplaceAllString(tail, `${1}"${2}"`)
+	if repaired, changed := toolparam.RemoveTrailingCommasBeforeJSONClosers(tail); changed {
+		tail = repaired
+	}
+	return strings.TrimSpace(tail)
+}
+
+func misplacedCompletionReasonFieldsAreSufficient(fields map[string]json.RawMessage) bool {
+	if len(fields) == 0 {
+		return false
+	}
+	score := 0
+	if raw := fields["confidence"]; len(raw) > 0 {
+		var s string
+		if err := json.Unmarshal(raw, &s); err == nil && completionConfidenceValid(s) {
+			score++
+		}
+	}
+	if raw := fields["result_kind"]; len(raw) > 0 {
+		var s string
+		if err := json.Unmarshal(raw, &s); err == nil && completionResultKindValid(s) {
+			score++
+		}
+	}
+	if raw := fields["aggregate_facts"]; len(raw) > 0 {
+		if _, _, err := decodeAggregateFactsPayload(raw); err == nil {
+			score++
+		}
+	}
+	if raw := fields["absence_justification"]; len(raw) > 0 {
+		var s string
+		if err := json.Unmarshal(raw, &s); err == nil && strings.TrimSpace(s) != "" {
+			score++
+		}
+	}
+	return score >= 2
+}
+
+func completionConfidenceValid(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "high", "medium":
+		return true
+	default:
+		return false
+	}
+}
+
+func completionResultKindValid(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "resolved", "absence":
+		return true
+	default:
+		return false
+	}
+}
+
+func mergeMisplacedCompletionFields(base, extra map[string]json.RawMessage) map[string]json.RawMessage {
+	if len(extra) == 0 {
+		return base
+	}
+	if base == nil {
+		base = make(map[string]json.RawMessage, len(extra))
+	}
+	for key, raw := range extra {
+		if len(raw) == 0 {
+			continue
+		}
+		if _, exists := base[key]; exists {
+			continue
+		}
+		base[key] = raw
+	}
+	return base
 }
 
 func splitLeadingJSONArrayWithMisplacedObjectTail(s string) ([]byte, map[string]json.RawMessage, bool) {
