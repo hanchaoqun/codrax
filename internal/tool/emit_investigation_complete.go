@@ -661,6 +661,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		}, nil
 	}
 	effectiveAggregateFacts := effectiveCompletionAggregateFactsForValidation(ctx, aggregateFacts, evidenceSnapshot)
+	structuredRelationAuthorityFacts := cloneCompletionAggregateFacts(effectiveAggregateFacts)
 	if resultKind == "absence" {
 		var notes []string
 		effectiveAggregateFacts, notes = dropUnsupportedDecoratedMemberSets(ctx, effectiveAggregateFacts, "absence handoff", false)
@@ -1144,7 +1145,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// (Success=true so the LLM sees the explanation but does NOT
 	// flip investigationComplete). The explorer's ShouldStop sees
 	// the flag still false and continues the loop.
-	if downgrade := preCompleteContractCheckWithEvidence(ctx, justification, evidenceSnapshot, effectiveAggregateFacts); downgrade != "" {
+	if downgrade := preCompleteContractCheckWithEvidence(ctx, justification, evidenceSnapshot, effectiveAggregateFacts, structuredRelationAuthorityFacts); downgrade != "" {
 		if ctx != nil && ctx.Mutable != nil {
 			closure := ctx.Mutable.EvidenceClosure()
 			closure.BumpPreCompleteDowngrades(1)
@@ -1375,6 +1376,10 @@ func preCompleteContractCheckWithEvidence(ctx *types.BusContext, justification s
 		aggregateFacts = aggregateFactsOpt[0]
 	}
 	aggregateFacts = effectiveCompletionAggregateFactsForValidation(ctx, aggregateFacts, evidence)
+	structuredRelationAuthorityFacts := aggregateFacts
+	if len(aggregateFactsOpt) > 1 {
+		structuredRelationAuthorityFacts = effectiveCompletionAggregateFactsForValidation(ctx, aggregateFactsOpt[1], evidence)
+	}
 	// Honor agent_investigation_complete_policy=override. The DAG
 	// scheduler will skip all criteria when this policy is set, so
 	// running the pre-complete gates would contradict operator
@@ -1417,6 +1422,9 @@ func preCompleteContractCheckWithEvidence(ctx *types.BusContext, justification s
 			raisePrimaryAnchorPendingRead(ctx, closure)
 			raisePhase1UnreadPendingReads(ctx, closure)
 			applyMultiPathAnchorChecksWithEvidence(ctx, closure, evidence)
+		}
+		if downgrade := structuredRelationAuthorityPreCompleteDowngrade(ctx, closure, structuredRelationAuthorityFacts, evidence); downgrade != "" {
+			return downgrade
 		}
 	}
 	if label, ok := repoGroundingBypassLabel(ctx); ok {
