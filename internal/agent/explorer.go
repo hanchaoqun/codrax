@@ -6009,7 +6009,22 @@ func (e *explorerEvaluator) evidenceRepairShouldBeEmitOnly(results []types.ToolR
 		return true
 	}
 	readAttempts := successfulToolCountSince(results, e.midLoopEvidenceRepairResultsLen, map[string]bool{"read_file": true})
-	return readAttempts >= evidenceRepairReadQuota(targets)
+	return readAttempts >= e.evidenceRepairReadQuota(targets)
+}
+
+func (e *explorerEvaluator) evidenceRepairReadQuota(targets []evidenceRepairTarget) int {
+	quota := evidenceRepairReadQuota(targets)
+	if e == nil || !e.midLoopCompletionReadySent || len(targets) == 0 {
+		return quota
+	}
+	closeReadyQuota := len(targets)
+	if closeReadyQuota < 1 {
+		closeReadyQuota = 1
+	}
+	if quota > closeReadyQuota {
+		return closeReadyQuota
+	}
+	return quota
 }
 
 func evidenceRepairReadQuota(targets []evidenceRepairTarget) int {

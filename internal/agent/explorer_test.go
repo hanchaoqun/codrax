@@ -3739,6 +3739,47 @@ func TestExplorer_FilterToolSchemas_EvidenceRepairCoveredTargetsBecomeEmitOnly(t
 	}
 }
 
+func TestExplorer_FilterToolSchemas_CloseReadyEvidenceRepairUsesOneSurgicalRead(t *testing.T) {
+	eval := &explorerEvaluator{
+		midLoopEvidenceRepairSent:       true,
+		midLoopEvidenceRepairResultsLen: 1,
+		midLoopCompletionReadySent:      true,
+	}
+	results := []types.ToolResult{
+		{
+			ToolName: "emit_evidence",
+			Success:  true,
+			Summary:  "emit_evidence accepted 1 item(s)",
+			Repair: &types.ToolRepair{
+				Code: "evidence_line_text_repair",
+				Targets: []types.ToolRepairTarget{{
+					File:   "internal/agent/analyzer.go",
+					Lines:  []int{651},
+					Action: string(types.RepairReadFile),
+				}},
+			},
+		},
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[internal/agent/analyzer.go: showing lines 620-630 of 2003 total]\n620| func unrelated() {}",
+		},
+	}
+	eval.syncEvidenceRepairState(results)
+
+	ctx := &types.AgentContext{Stage: types.StageExplore}
+	schemas := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+	got := eval.FilterToolSchemas(ctx, schemas)
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "emit_evidence,emit_investigation_complete" {
+		t.Fatalf("close-ready repair should switch to emit/close after one surgical read, got %v", gotNames)
+	}
+}
+
 func TestExplorer_FilterToolSchemas_CompletionReadyAdvisoryUnchanged(t *testing.T) {
 	eval := &explorerEvaluator{
 		midLoopCompletionReadySent: true,
