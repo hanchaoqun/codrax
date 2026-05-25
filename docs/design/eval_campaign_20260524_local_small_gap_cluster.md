@@ -3290,3 +3290,55 @@ B2-Z random-serial eval follow-up and hard-gate boundary, 2026-05-25 CST:
     separate performance gap, not evidence that the dimension-preservation
     change failed, and should be handled by the agent-context assembly budget /
     cache workstream rather than by adding answer-specific logic.
+
+## 2026-05-25 build_agent_context typed-relation prompt-hint stall
+
+Root cause:
+
+- The stopped focused rerun showed the explorer dispatch stuck in local
+  `build_agent_context` for more than three minutes before any explorer model
+  request was sent.
+- The slow path is advisory prompt-hint construction, not evidence validation
+  and not LLM/network latency:
+  `BuildAgentContext` copies `AnalysisIR`, then probes typed-relation carriers
+  to populate `AgentContext.TypedRelationHints`.
+- For a request classified as a broad `call_chain`, the central typed selector
+  can choose `called-by`. With broad sources such as lifecycle words, stage
+  labels, or common function names, graph-backed prompt hints can fan out across
+  all sub-repo graphs, source matches, files, and relations.
+- This is safe semantically because prompt hints are advisory-only, but unsafe
+  operationally because the work currently runs synchronously before the next
+  LLM request and has no narrow-source guard or section-level diagnostic.
+
+Commercial-grade boundary:
+
+- Do not change prompts or infer from raw user/model prose.
+- Do not disable coverage gates or exact relation checks that already operate
+  on machine-verifiable, grounded evidence.
+- Do not turn skipped hints into answer facts, caveats, or user-visible
+  failures. A skipped prompt hint only means the model receives less navigation
+  assistance for that relation family.
+- Expensive graph-backed prompt relations (`called-by`, `references`,
+  `extends`) may run only for narrow, exact symbol sources. Name-only or
+  multi-match sources stay model-driven: the explorer can still use repo_map,
+  grep, read_file, source_inventory, and explicit evidence tools to verify the
+  path it chooses.
+
+Task list:
+
+1. Add section-level diagnostics inside `BuildAgentContext`, especially around
+   typed-relation prompt-hint probing, so future stalls identify the exact local
+   section instead of only the outer `build_agent_context` phase.
+2. Add a narrow-source gate for prompt-hint relation probes:
+   - keep cheap/exact families such as implementers, imports/exports, route or
+     config evidence hints unchanged;
+   - filter expensive graph-backed prompt families to sources that resolve to
+     exactly one coverage-eligible source fact;
+   - cap expensive prompt-hint source count per dispatch.
+3. Add tests proving:
+   - ambiguous `called-by` prompt hints skip without calling an expensive
+     candidate provider;
+   - exact `called-by` prompt hints still work;
+   - implementer and cross-language relation hints still work;
+   - coverage-gate provider behavior is not changed by this prompt-hint guard.
+4. Re-run focused typed-relation/context tests, then the focused pipeline eval.

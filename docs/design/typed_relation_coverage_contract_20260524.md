@@ -1157,3 +1157,50 @@ Start with R1 + R2 only. They lower architecture risk without expanding
 behavioral surface. After implementers are migrated to the common helper and
 tests prove parity, add imports/dependencies as R3 because that carrier is exact
 file-to-file data and broadly useful across languages.
+
+## 10. Prompt-Hint Runtime Budget Addendum
+
+Status: **In progress**
+
+The typed-relation lane serves two different consumers:
+
+- prompt hints, which are navigation assistance for the next model turn; and
+- coverage gates, which may participate in hard checks only after exact,
+  grounded, same-member evidence exists.
+
+The runtime budget rules below apply only to prompt hints. They do not weaken
+coverage gates.
+
+Design:
+
+1. `BuildAgentContext` should expose section-level diagnostics for local
+   context assembly. Prompt-hint construction must never be an opaque
+   multi-minute block before a model request.
+2. Expensive graph-backed prompt families (`called-by`, `references`,
+   `extends`) require narrow source facts:
+   - the source must resolve to exactly one coverage-eligible graph/provider
+     source fact;
+   - if the source is name-only, unresolved, or multi-match, the prompt hint is
+     skipped;
+   - the model remains free to investigate that relation with tools.
+3. Cheap/indexed or evidence-backed families keep their current behavior:
+   - `implements` can use exact implementer indexes;
+   - `imports`/`exports` use file/package/import graph rows;
+   - `registers`, `configures`, `routes-to`, and `source-anchor` use accepted
+     evidence/observation carriers.
+4. Expensive prompt-hint sources are capped per carrier. When the cap is hit,
+   the system skips the remaining advisory hints instead of delaying or
+   failing the stage.
+5. Skipping a prompt hint is intentionally silent at the answer contract level:
+   no hard reject, no system-authored answer replacement, no prompt rewrite,
+   and no user-intent reinterpretation.
+
+Regression expectations:
+
+- Ambiguous `called-by` prompt hints must not call an expensive provider.
+- Exact `called-by` prompt hints must still surface relation rows.
+- Implementer hints must remain language-neutral across every repomap read
+  language.
+- The coverage-gate provider APIs and tests must continue to accept exact rows;
+  the guard belongs at the prompt-hint probe boundary, not in the low-level
+  graph adapter.
