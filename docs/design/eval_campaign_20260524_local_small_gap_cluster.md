@@ -3342,3 +3342,32 @@ Task list:
    - implementer and cross-language relation hints still work;
    - coverage-gate provider behavior is not changed by this prompt-hint guard.
 4. Re-run focused typed-relation/context tests, then the focused pipeline eval.
+
+Implementation and validation:
+
+- Commit `af2c100f` adds:
+  - section-level `build_agent_context` diagnostics around typed-relation
+    prompt-hint carrier probes;
+  - cancellation checks between carrier probes;
+  - a prompt-hint-only narrow-source guard for expensive graph-backed relation
+    families (`called-by`, `references`, `extends`);
+  - per-provider `MaxMembers` early exits for graph-backed relation row
+    collection.
+- Tests passed:
+  - `go test ./internal/context -run 'TestProbeTypedRelations|TestBuildAgentContext'`;
+  - `go test ./internal/tool/repomap/relation ./internal/tool/repomap/multigraph`;
+  - `go test ./internal/context ./internal/tool/repomap/relation ./internal/tool/repomap/multigraph ./internal/types`.
+- Focused eval validation:
+  - result directory:
+    `eval/results/read_combo_pipeline_sequence_table-20260525-171528`;
+  - `build_agent_context` no longer stalls. Explore preflight completed in
+    `2ms`; extract in `3ms`; finalize in `13ms`.
+  - The eval still failed on visible answer quality (`missing:explorer`,
+    `missing:extractor`). This is not the typed-relation stall. It is the
+    existing stage-binding visibility gap: the model grounded stage enum rows
+    (`StageExplore`, `StageExtract`) but did not read/ground
+    `internal/types/stage_binding.go`, so the existing source-verified
+    stage-binding supplement correctly stayed silent instead of system-filling
+    agent names without an accepted stage-binding source. This residual belongs
+    to the stage-binding evidence acquisition workstream, not to the
+    `build_agent_context` performance fix.

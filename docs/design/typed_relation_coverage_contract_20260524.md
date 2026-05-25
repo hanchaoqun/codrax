@@ -1160,7 +1160,7 @@ file-to-file data and broadly useful across languages.
 
 ## 10. Prompt-Hint Runtime Budget Addendum
 
-Status: **In progress**
+Status: **Done for prompt-hint runtime guard**
 
 The typed-relation lane serves two different consumers:
 
@@ -1204,3 +1204,18 @@ Regression expectations:
 - The coverage-gate provider APIs and tests must continue to accept exact rows;
   the guard belongs at the prompt-hint probe boundary, not in the low-level
   graph adapter.
+
+Implementation notes:
+
+- The guard is implemented at `internal/context.ProbeTypedRelations`, the
+  prompt-hint boundary. Low-level graph adapters still expose exact rows for
+  coverage-gate callers.
+- Expensive prompt families are split from cheap/evidence-backed families.
+  `called-by`, `references`, and `extends` run only for sources that resolve to
+  exactly one coverage-eligible source fact for that carrier.
+- `internal/tool/repomap/relation.TypedRelationCandidates` and
+  `internal/tool/repomap/multigraph.MultiGraph` now honor `MaxMembers` during
+  graph-backed row collection instead of computing an oversized prompt-hint row
+  set and truncating only afterward.
+- `BuildAgentContext` logs carrier-level prompt-hint timings, so future local
+  context stalls identify the actual section and carrier.
