@@ -601,7 +601,8 @@ func TestTurnPolicyDispatch_LocalTransformWritesMarkdownAndPreview(t *testing.T)
 	}
 	body := string(data)
 	if !strings.Contains(body, "# 问题\n\n换成时序图\n") ||
-		!strings.Contains(body, "# 回答\n\n```mermaid sequenceDiagram") {
+		!strings.Contains(body, "# 回答\n\n```mermaid\nsequenceDiagram\n") ||
+		!strings.Contains(body, "Explorer->>Runtime: propose") {
 		t.Fatalf("local dump body missing request/answer:\n%s", body)
 	}
 	recent := store.Recent()

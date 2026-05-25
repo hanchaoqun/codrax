@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 )
 
 // Ext is the suffix used for both the prune glob and new files.
@@ -99,6 +100,7 @@ func BuildBody(a Args) string {
 	if ans == "" {
 		ans = "(empty)"
 	}
+	ans = mermaidcompat.NormalizeMarkdownMermaidFences(ans)
 	b.WriteString(ans)
 	b.WriteString("\n")
 	return b.String()

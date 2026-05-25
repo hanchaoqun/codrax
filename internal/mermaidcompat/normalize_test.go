@@ -200,6 +200,48 @@ func TestNormalizeSourceForMarkdown_NormalizesFlowchartSubgraphAndEdgeLabels(t *
 	}
 }
 
+func TestNormalizeMarkdownMermaidFences_NormalizesPersistedMarkdownSource(t *testing.T) {
+	in := strings.Join([]string{
+		"before",
+		"```mermaid",
+		"flowchart TD",
+		`    ../A.md -->|success (measurement==true)| B[preStages\n(Conditional)]`,
+		"```",
+		"after",
+	}, "\n")
+	got := NormalizeMarkdownMermaidFences(in)
+	for _, want := range []string{
+		"```mermaid",
+		`codraxNode1["../A.md"] -->|"success (measurement==true)"| B["preStages\n(Conditional)"]`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("persisted markdown Mermaid normalization missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "../A.md -->|success (measurement==true)|") {
+		t.Fatalf("unsafe raw Mermaid source survived:\n%s", got)
+	}
+}
+
+func TestNormalizeMarkdownMermaidFences_ConvertsDirectInfoDirective(t *testing.T) {
+	in := strings.Join([]string{
+		"```flowchart TD",
+		"A --> B",
+		"```",
+	}, "\n")
+	got := NormalizeMarkdownMermaidFences(in)
+	if !strings.Contains(got, "```mermaid\nflowchart TD\nA --> B\n```") {
+		t.Fatalf("direct Mermaid info directive not converted:\n%s", got)
+	}
+}
+
+func TestNormalizeMarkdownMermaidFences_LeavesNonMermaidCodeAlone(t *testing.T) {
+	in := "```go\nfunc main() {}\n```"
+	if got := NormalizeMarkdownMermaidFences(in); got != in {
+		t.Fatalf("non-Mermaid fence changed:\n%s", got)
+	}
+}
+
 func TestMermaidKeywordRegistryCoversPreviewAndTerminalForms(t *testing.T) {
 	if got := FirstKeywordIn("flowchart TD"); got != "flowchart" {
 		t.Fatalf("flowchart keyword = %q", got)
