@@ -3116,3 +3116,52 @@ B2-X analyzer required_files path normalization, 2026-05-25 CST:
   - unit tests cover active-set auto-prefix, redundant repo-label stripping,
     unresolvable path drop, full `emit_analysis` persistence/summary behavior,
     and REPL summary rendering of normalized required files.
+
+B2-Y finalizer no-tool recovery follow-up, evidence repair hygiene, 2026-05-25 CST:
+
+- Eval batch signal:
+  - `read_combo_log_current_source_explanation` previously failed because the
+    finalizer's first rich `{blocks,citations,...}` draft was plain assistant
+    text, then an isolated fallback dropped that draft from the final
+    `ParseOutput` candidate set;
+  - after preserving finalizer no-tool answer-document drafts, the focused case
+    passes. The run also exposed two non-fatal long-tail costs: an
+    `emit_evidence.items[].field_constraints` sidecar caused a strict-decode
+    reject, and external artifact source `/dev/stdin` briefly appeared in an
+    evidence repair target list.
+- Root cause:
+  - the answer-document recovery parser already existed, but no-tool draft
+    candidates were not durable across isolated fallback message reset;
+  - `emit_evidence` had compatibility repair for known scalar/key aliases, but
+    not schema-neutral constraint sidecars that local/smaller models often add
+    around otherwise valid fields;
+  - evidence repair target construction treated every non-grounded source as a
+    repo-readable path, even when the item represented an external runtime log
+    lane rather than current checkout source.
+- Fix contract:
+  - finalizer no-tool answer-document-shaped content is stored in a bounded
+    ledger before fallback isolation and recovered through the existing
+    `RecoverAnswerDocumentV2FromText` path. Recovery is rendered as model draft
+    recovery, not a fake successful tool call;
+  - `emit_evidence.items[].field_constraints` / `fieldConstraints` are treated
+    as schema sidecars only. Known fields are promoted only when the canonical
+    field is absent; otherwise the sidecar is ignored. Ordinary unknown fields
+    such as `note` remain fail-loud;
+  - `ToolRepair.Targets` for evidence grounding now include only repo-local,
+    file-shaped paths. Absolute paths are admitted only when provably inside
+    `ctx.RepoRoot` and are normalized to repo-relative paths. External artifact
+    lanes (`/dev/stdin`, command output, runtime logs) stay as evidence context
+    but cannot drive `read_file` repair.
+- Observability added:
+  - eval summaries now include tool-history prune count, max context-token
+    estimate, max context window, and max context-window percentage. The parser
+    runs in byte mode and requires real control-plane log prefixes so quoted
+    customer logs or model prose cannot contaminate metrics.
+- Remaining follow-up:
+  - `emit_investigation_complete.aggregate_facts` stringification is mostly
+    recoverable when the string contains a JSON array, but prose strings still
+    require a model correction;
+  - `negative_observation` over current repo source should usually be expressed
+    as source-backed absence / negative-search structure, not as a non-repo
+    aggregate origin. The latest focused eval self-corrected this and passed,
+    but it remains a useful future compatibility target if it recurs.
