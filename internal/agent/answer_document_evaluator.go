@@ -8942,11 +8942,101 @@ func (e *answerDocumentEvaluator) renderAnswerDocumentWithLastMileSupplements(ct
 	prose := render.RenderAnswerDocumentWithAttachments(doc, attachments, e.language)
 	if supplement := renderVerifiedStageBindingSupplement(ctx, doc, e.language); strings.TrimSpace(supplement) != "" {
 		if strings.TrimSpace(prose) == "" {
+			prose = strings.TrimSpace(supplement)
+		} else {
+			prose = strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
+		}
+	}
+	if supplement := renderRequestedAnswerDimensionSourceQuoteSupplement(ctx, e.language); strings.TrimSpace(supplement) != "" {
+		if strings.TrimSpace(prose) == "" {
 			return strings.TrimSpace(supplement)
 		}
 		return strings.TrimRight(prose, "\n") + "\n\n" + strings.TrimSpace(supplement) + "\n"
 	}
 	return prose
+}
+
+func renderRequestedAnswerDimensionSourceQuoteSupplement(ctx *types.AgentContext, lang string) string {
+	rows := requestedAnswerDimensionSourceQuoteRows(ctx)
+	if len(rows) == 0 {
+		return ""
+	}
+	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
+	var b strings.Builder
+	if zh {
+		b.WriteString("---\n\n")
+		b.WriteString("> **系统补充：输出维度核对**\n>\n")
+		b.WriteString("> 以下条目来自本轮已通过来源校验的用户原话，只用于保留显式展示要求；它不是新的证据，也不替代模型答案。\n>\n")
+		for _, row := range rows {
+			fmt.Fprintf(&b, "> - 第 %d 维：%s；用户原话：%s\n", row.Index, row.Label, row.SourceQuote)
+		}
+		return strings.TrimRight(b.String(), "\n")
+	}
+	b.WriteString("---\n\n")
+	b.WriteString("> **System supplement: requested output dimensions**\n>\n")
+	b.WriteString("> These entries come from source-checked wording in the current request. They preserve explicit presentation requirements only; they are not new evidence and do not replace the model-authored answer.\n>\n")
+	for _, row := range rows {
+		fmt.Fprintf(&b, "> - Dimension %d: %s; request wording: %s\n", row.Index, row.Label, row.SourceQuote)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+type requestedAnswerDimensionSourceQuoteRow struct {
+	Index       int
+	Label       string
+	SourceQuote string
+}
+
+func requestedAnswerDimensionSourceQuoteRows(ctx *types.AgentContext) []requestedAnswerDimensionSourceQuoteRow {
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if view == nil || len(view.Presentation.RequestedDimensions) == 0 {
+		return nil
+	}
+	rows := make([]requestedAnswerDimensionSourceQuoteRow, 0, len(view.Presentation.RequestedDimensions))
+	seen := map[string]bool{}
+	for _, dim := range view.Presentation.RequestedDimensions {
+		label := strings.TrimSpace(dim.Label)
+		quote := strings.TrimSpace(dim.SourceQuote)
+		if label == "" || quote == "" {
+			continue
+		}
+		if strings.EqualFold(normalizedRequestedDimensionText(label), normalizedRequestedDimensionText(quote)) {
+			continue
+		}
+		key := normalizedRequestedDimensionText(label) + "\x00" + normalizedRequestedDimensionText(quote)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		index := dim.Index
+		if index <= 0 {
+			index = len(rows) + 1
+		}
+		rows = append(rows, requestedAnswerDimensionSourceQuoteRow{
+			Index:       index,
+			Label:       label,
+			SourceQuote: quote,
+		})
+	}
+	return rows
+}
+
+func normalizedRequestedDimensionText(s string) string {
+	s = strings.ToLower(strings.TrimSpace(s))
+	var b strings.Builder
+	lastSpace := false
+	for _, r := range s {
+		if r == '\n' || r == '\r' || r == '\t' || r == ' ' {
+			if !lastSpace {
+				b.WriteByte(' ')
+				lastSpace = true
+			}
+			continue
+		}
+		lastSpace = false
+		b.WriteRune(r)
+	}
+	return strings.TrimSpace(b.String())
 }
 
 type verifiedStageBindingRow struct {

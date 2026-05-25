@@ -5907,6 +5907,79 @@ func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendStageBindingWithoutGro
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_AppendsRequestedDimensionSourceQuotes(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "模型答案已经给出图和表，但压缩了用户原话里的展示细节。",
+		}},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{
+					{Index: 1, Label: "时序图", SourceQuote: "必须给一张时序图", Required: true, Role: types.RequestedAnswerDimensionOther},
+					{Index: 2, Label: "阶段状态表", SourceQuote: "再给一张表列出每个阶段的输入、输出和状态载体，例如 甲/乙", Required: true, Role: types.RequestedAnswerDimensionOther},
+				},
+				Confidence: 0.9,
+			},
+		}},
+	}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	for _, want := range []string{
+		"系统补充：输出维度核对",
+		"第 1 维：时序图；用户原话：必须给一张时序图",
+		"第 2 维：阶段状态表；用户原话：再给一张表列出每个阶段的输入、输出和状态载体，例如 甲/乙",
+	} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("final answer missing %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendRequestedDimensionWhenQuoteEqualsLabel(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "模型答案自然覆盖了简短展示维度。",
+		}},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{
+					{Index: 1, Label: "影响", SourceQuote: "影响", Required: true, Role: types.RequestedAnswerDimensionImpact},
+				},
+				Confidence: 0.9,
+			},
+		}},
+	}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if strings.Contains(out.FinalAnswer, "系统补充：输出维度核对") {
+		t.Fatalf("supplement should not repeat dimensions whose source quote equals the label:\n%s", out.FinalAnswer)
+	}
+}
+
 func writeStageBindingFixture(t *testing.T, repo string) {
 	t.Helper()
 	dir := filepath.Join(repo, "internal", "types")

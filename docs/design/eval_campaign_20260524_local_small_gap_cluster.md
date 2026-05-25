@@ -3266,3 +3266,27 @@ B2-Z random-serial eval follow-up and hard-gate boundary, 2026-05-25 CST:
     exploration;
   - regression tests cover broad-hint suppression and the close-ready repair
     quota.
+- Batch 4 design correction:
+  - a focused rerun narrowed the remaining failure to a lost display detail in
+    a requested stage/state-carrier table. A first attempted fix appended a
+    carrier-specific last-mile note; that was rejected as too case-shaped and
+    was reverted before commit;
+  - the generic replacement reuses the existing
+    `requested_answer_dimensions` soft typed lane. That lane already validates
+    each dimension against the current request, preserves model-authored
+    labels/source quotes, and is explicitly presentation-only;
+  - final rendering now appends a compact, localized "requested output
+    dimensions" note only for dimensions whose validated source quote contains
+    extra wording beyond the short label. This preserves explicit display
+    requirements such as diagram type, table axes, comparison axes, log fields,
+    config dimensions, or state-carrier examples without knowing or matching
+    any specific term;
+  - the note is append-only and advisory: it does not hard reject, does not
+    rewrite model content, does not read model prose for control flow, and does
+    not treat requested dimensions as evidence.
+  - validation note: targeted unit tests and related package tests pass. A
+    focused eval rerun was stopped because it spent more than three minutes in
+    local `build_agent_context` before the explorer request was sent. That is a
+    separate performance gap, not evidence that the dimension-preservation
+    change failed, and should be handled by the agent-context assembly budget /
+    cache workstream rather than by adding answer-specific logic.
