@@ -67,6 +67,7 @@ func (s *SubExplorer) Run(req *types.SubAgentRequest) (*types.SubAgentResult, er
 			req,
 			eval.investigationNotes,
 			output.StageReport,
+			agentCtx.WorkDir,
 		),
 		Tools:    output.ToolResults,
 		MCPResps: output.MCPResponses,
@@ -100,7 +101,7 @@ const (
 	subExplorerAdvisoryMaxNoteBytes = 32768
 )
 
-func subExplorerAdvisoryNotes(req *types.SubAgentRequest, notes []string, stageReport string) []string {
+func subExplorerAdvisoryNotes(req *types.SubAgentRequest, notes []string, stageReport, workDir string) []string {
 	candidates := append([]string(nil), notes...)
 	if strings.TrimSpace(stageReport) != "" {
 		candidates = append(candidates, stageReport)
@@ -123,7 +124,7 @@ func subExplorerAdvisoryNotes(req *types.SubAgentRequest, notes []string, stageR
 			continue
 		}
 		seen[note] = struct{}{}
-		out = append(out, formatSubExplorerAdvisoryNote(req, truncateSubExplorerAdvisoryNote(note)))
+		out = append(out, formatSubExplorerAdvisoryNote(req, truncateSubExplorerAdvisoryNote(note, workDir, req)))
 	}
 	return out
 }
@@ -151,10 +152,11 @@ func formatSubExplorerAdvisoryNote(req *types.SubAgentRequest, note string) stri
 	return b.String()
 }
 
-func truncateSubExplorerAdvisoryNote(note string) string {
+func truncateSubExplorerAdvisoryNote(note, workDir string, req *types.SubAgentRequest) string {
 	if len(note) <= subExplorerAdvisoryMaxNoteBytes {
 		return note
 	}
+	ref := tool.StoreBlobArtifact(workDir, "sub_explorer_advisory", subExplorerAdvisoryArtifactName(req), note)
 	cut := subExplorerAdvisoryMaxNoteBytes
 	for cut > 0 && (note[cut]&0xC0) == 0x80 {
 		cut--
@@ -162,7 +164,24 @@ func truncateSubExplorerAdvisoryNote(note string) string {
 	if cut <= 0 {
 		cut = subExplorerAdvisoryMaxNoteBytes
 	}
-	return strings.TrimSpace(note[:cut]) + "\n\n[advisory note truncated]"
+	suffix := "\n\n[advisory note truncated]"
+	if ref != "" {
+		suffix = fmt.Sprintf("\n\n[advisory note truncated; full text saved at %s]", ref)
+	}
+	return strings.TrimSpace(note[:cut]) + suffix
+}
+
+func subExplorerAdvisoryArtifactName(req *types.SubAgentRequest) string {
+	if req == nil {
+		return "sub_explorer_advisory.txt"
+	}
+	for _, value := range []string{req.ID, req.SubAgent} {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value + ".txt"
+		}
+	}
+	return "sub_explorer_advisory.txt"
 }
 
 // subExplorerEvaluator implements Evaluator and LoopController for

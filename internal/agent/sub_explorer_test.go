@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -148,7 +150,7 @@ func TestSubExplorerAdvisoryNotes_BoundsAndLabelsNoToolProse(t *testing.T) {
 		"old note",
 		"rich JSON inventory",
 		long,
-	}, "rich JSON inventory")
+	}, "rich JSON inventory", "")
 
 	if len(got) != 2 {
 		t.Fatalf("notes len=%d, want 2 after recent-window dedupe: %+v", len(got), got)
@@ -163,6 +165,39 @@ func TestSubExplorerAdvisoryNotes_BoundsAndLabelsNoToolProse(t *testing.T) {
 	}
 	if !strings.Contains(got[len(got)-1], "[advisory note truncated]") {
 		t.Fatalf("long advisory note was not explicitly truncated")
+	}
+}
+
+func TestSubExplorerAdvisoryNotes_PersistsLongArtifactWhenWorkDirAvailable(t *testing.T) {
+	req := &types.SubAgentRequest{
+		ID:        "trace-st-1",
+		SubAgent:  "explorer",
+		Objective: "inventory scoped package",
+		Scope:     []string{"pkg/a"},
+	}
+	workDir := t.TempDir()
+	long := "diagram header\n" + strings.Repeat("x", subExplorerAdvisoryMaxNoteBytes+64)
+
+	got := subExplorerAdvisoryNotes(req, []string{long}, "", workDir)
+	if len(got) != 1 {
+		t.Fatalf("notes len=%d, want 1: %+v", len(got), got)
+	}
+	if !strings.Contains(got[0], "full text saved at ") {
+		t.Fatalf("long advisory note should mention persisted artifact:\n%s", got[0])
+	}
+	files, err := os.ReadDir(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 {
+		t.Fatalf("workDir files=%d, want 1", len(files))
+	}
+	data, err := os.ReadFile(filepath.Join(workDir, files[0].Name()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != long {
+		t.Fatal("persisted advisory artifact does not match original note")
 	}
 }
 
