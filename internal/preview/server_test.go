@@ -170,6 +170,50 @@ func TestRenderMarkdownHTMLNormalizesSequenceStop(t *testing.T) {
 	}
 }
 
+func TestRenderMarkdownHTMLNormalizesFlowchartEdgeLabelForBrowserMermaid(t *testing.T) {
+	body := []byte(strings.Join([]string{
+		"```mermaid",
+		"flowchart TD",
+		`    cmd["execCommand.Execute"] --> payload{"execCommandPayloadWithTypedOrigins"}`,
+		`    payload --> store["StoreBlob"]`,
+		`    store --> result["ToolResult (Summary + RawRef)"]`,
+		`    result --> originLine{"execCommandTypedOriginLine"}`,
+		`    originLine --> proof{"DeterministicCountProofInteger"}`,
+		`    proof -->|success (measurement==true)| kv["kvBanner: origin=command_measurement, count"]`,
+		"```",
+	}, "\n"))
+	got, err := RenderMarkdownHTML(body)
+	if err != nil {
+		t.Fatalf("RenderMarkdownHTML: %v", err)
+	}
+	if !strings.Contains(got, `proof --&gt;|&#34;success (measurement==true)&#34;| kv`) {
+		t.Fatalf("browser Mermaid source was not normalized for edge-label parentheses:\n%s", got)
+	}
+	if !strings.Contains(got, `payload{&#34;execCommandPayloadWithTypedOrigins&#34;}`) {
+		t.Fatalf("node shape/label should be preserved:\n%s", got)
+	}
+}
+
+func TestRenderMarkdownHTMLNormalizesPathLikeFlowchartNodeIDs(t *testing.T) {
+	body := []byte(strings.Join([]string{
+		"```mermaid",
+		"flowchart TD",
+		"    ../A.md --> packages/core/src/B.ts",
+		"```",
+	}, "\n"))
+	got, err := RenderMarkdownHTML(body)
+	if err != nil {
+		t.Fatalf("RenderMarkdownHTML: %v", err)
+	}
+	for _, want := range []string{
+		`codraxNode1[&#34;../A.md&#34;] --&gt; codraxNode2[&#34;packages/core/src/B.ts&#34;]`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("path-like node IDs were not normalized for browser Mermaid; missing %q in:\n%s", want, got)
+		}
+	}
+}
+
 func TestRenderMarkdownHTMLPlainFenceWithoutInfo(t *testing.T) {
 	body := []byte("```\nStart -> Execute -> Result\n```\n")
 	got, err := RenderMarkdownHTML(body)

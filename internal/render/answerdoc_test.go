@@ -736,6 +736,64 @@ func TestRenderV2_BlockDiagram_StripsNestedMermaidFence(t *testing.T) {
 	}
 }
 
+func TestRenderV2_BlockDiagramNormalizesPortableMermaidSource(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "d1",
+				Kind: types.BlockDiagram,
+				Diagram: &types.AnswerDiagramBlock{
+					Kind:     types.DiagramFlow,
+					Language: "mermaid",
+					Body: strings.Join([]string{
+						"flowchart TD",
+						"    ../A.md --> proof",
+						`    proof -->|success (measurement==true)| kv["kvBanner: origin=command_measurement, count"]`,
+					}, "\n"),
+				},
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	for _, want := range []string{
+		`codraxNode1["../A.md"] --> proof`,
+		`proof -->|"success (measurement==true)"| kv`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("diagram source was not normalized for portable Mermaid renderers; missing %q in:\n%s", want, out)
+		}
+	}
+}
+
+func TestRenderV2_ProseMermaidFenceNormalizesPortableSource(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{
+			{
+				ID:   "s1",
+				Kind: types.BlockSummary,
+				Text: strings.Join([]string{
+					"Draft diagram:",
+					"",
+					"```mermaid",
+					"flowchart TD",
+					"    ../A.md --> B",
+					"    B -->|ok (verified)| C",
+					"```",
+				}, "\n"),
+			},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	for _, want := range []string{
+		`codraxNode1["../A.md"] --> B`,
+		`B -->|"ok (verified)"| C`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("prose Mermaid fence was not normalized; missing %q in:\n%s", want, out)
+		}
+	}
+}
+
 func TestRenderV2_DedupesExactStructuredDiagramFenceInProse(t *testing.T) {
 	body := "sequenceDiagram\n    User->>Agent: ask\n    Agent-->>User: answer"
 	doc := &types.AnswerDocumentV2{

@@ -6,6 +6,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -1193,7 +1194,7 @@ func normalizeDiagramBodyForRender(body string) string {
 		return ""
 	}
 	if !strings.HasPrefix(body, "```") {
-		return body
+		return mermaidcompat.NormalizeSourceForMarkdown(body)
 	}
 	lines := strings.Split(body, "\n")
 	if len(lines) < 2 {
@@ -1205,7 +1206,7 @@ func normalizeDiagramBodyForRender(body string) string {
 		return body
 	}
 	inner := strings.Join(lines[1:len(lines)-1], "\n")
-	return strings.TrimSpace(inner)
+	return mermaidcompat.NormalizeSourceForMarkdown(strings.TrimSpace(inner))
 }
 
 func diagramBodyDedupKey(body string) string {
@@ -1394,5 +1395,57 @@ func escapePipe(s string) string {
 
 func renderUserSurfaceText(s string) string {
 	s = StripAuthorityArtifactsForRender(s)
+	s = normalizeMermaidFencesForAnswerMarkdown(s)
 	return strings.TrimSpace(s)
+}
+
+func normalizeMermaidFencesForAnswerMarkdown(text string) string {
+	if text == "" || !strings.Contains(text, "```") || !mayContainMermaid(text) {
+		return text
+	}
+	return fencedBlockRe.ReplaceAllStringFunc(text, func(match string) string {
+		nl := strings.Index(match, "\n")
+		if nl < 0 {
+			return match
+		}
+		infoLine := strings.TrimSpace(match[3:nl])
+		bodyEnd := strings.LastIndex(match, "\n```")
+		if bodyEnd <= nl {
+			return match
+		}
+		body := match[nl+1 : bodyEnd]
+		full, ok := answerDocCanonicalMermaidBody(infoLine, body)
+		if !ok {
+			return match
+		}
+		full = strings.TrimSpace(mermaidcompat.NormalizeSourceForMarkdown(full))
+		if full == "" {
+			return match
+		}
+		return "```mermaid\n" + full + "\n```"
+	})
+}
+
+func answerDocCanonicalMermaidBody(info, body string) (string, bool) {
+	if strings.HasPrefix(info, "mermaid") {
+		if directive, _ := mermaidInfoLineDirective(info); directive != "" &&
+			firstMermaidKeywordIn(firstNonEmptyTrimmed(body)) == "" {
+			if strings.TrimSpace(body) == "" {
+				return directive, true
+			}
+			return directive + "\n" + strings.TrimRight(body, "\n"), true
+		}
+		return strings.TrimRight(body, "\n"), true
+	}
+	if kw := firstMermaidKeywordIn(info); kw != "" {
+		_ = kw
+		if strings.TrimSpace(body) == "" {
+			return info, true
+		}
+		return info + "\n" + strings.TrimRight(body, "\n"), true
+	}
+	if (info == "" || strings.EqualFold(info, "text")) && looksLikeMermaidBody(body) {
+		return strings.TrimRight(body, "\n"), true
+	}
+	return "", false
 }

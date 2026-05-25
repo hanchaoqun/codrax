@@ -61,6 +61,110 @@ func TestNormalizeSequenceParticipantMessagePrefixes_LeavesDeclarationsAlone(t *
 	}
 }
 
+func TestNormalizeFlowchartPipeLabels_QuotesParserSensitiveLabels(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    cmd["execCommand.Execute"] --> payload{"execCommandPayloadWithTypedOrigins"}`,
+		`    payload --> store["StoreBlob"]`,
+		`    store --> result["ToolResult (Summary + RawRef)"]`,
+		`    result --> originLine{"execCommandTypedOriginLine"}`,
+		`    originLine --> proof{"DeterministicCountProofInteger"}`,
+		`    proof -->|success (measurement==true)| kv["kvBanner: origin=command_measurement, count"]`,
+	}, "\n")
+	got := NormalizeFlowchartPipeLabels(in)
+	if !strings.Contains(got, `proof -->|"success (measurement==true)"| kv`) {
+		t.Fatalf("edge label with parentheses was not quoted:\n%s", got)
+	}
+	if !strings.Contains(got, `payload{"execCommandPayloadWithTypedOrigins"}`) {
+		t.Fatalf("node shape/label should be preserved:\n%s", got)
+	}
+}
+
+func TestNormalizeFlowchartPipeLabels_LeavesSafeAndAlreadyQuotedLabelsAlone(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    A -->|safe label| B`,
+		`    B -->|"already (quoted)"| C`,
+	}, "\n")
+	if got := NormalizeFlowchartPipeLabels(in); got != in {
+		t.Fatalf("safe labels should be byte-preserved:\n%s", got)
+	}
+}
+
+func TestNormalizeFlowchartUnsafeNodeIDs_AliasesPathLikeEndpoints(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		"    ../A.md --> packages/core/src/B.ts",
+		`    packages/core/src/B.ts --> fileLine["pkg/c.go:12"]`,
+	}, "\n")
+	got := NormalizeFlowchartUnsafeNodeIDs(in)
+	for _, want := range []string{
+		`codraxNode1["../A.md"] --> codraxNode2["packages/core/src/B.ts"]`,
+		`codraxNode2["packages/core/src/B.ts"] --> fileLine["pkg/c.go:12"]`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("path-like endpoint was not safely aliased; missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestNormalizeFlowchartUnsafeNodeIDs_PreservesExistingLabelsAndEdgeLabels(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    ../A.md["Readable A"] -->|success (measurement==true)| ./B.md{"Decision B"}`,
+	}, "\n")
+	got := NormalizeFlowchartUnsafeNodeIDs(in)
+	if !strings.Contains(got, `codraxNode1["Readable A"] -->|success (measurement==true)| codraxNode2{"Decision B"}`) {
+		t.Fatalf("unsafe IDs should alias while existing node/edge labels survive:\n%s", got)
+	}
+}
+
+func TestNormalizeFlowchartUnsafeNodeIDs_RewritesDirectiveRefsWithoutLabels(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		"    ../A.md --> B",
+		"    click ../A.md callback",
+		"    style ../A.md fill:#fff",
+	}, "\n")
+	got := NormalizeFlowchartUnsafeNodeIDs(in)
+	for _, want := range []string{
+		`codraxNode1["../A.md"] --> B`,
+		"click codraxNode1 callback",
+		"style codraxNode1 fill:#fff",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("directive reference did not follow aliased unsafe node; missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestNormalizeFlowchartUnsafeNodeIDs_DoesNotTreatGraphPrefixNodeAsHeader(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		"    graph.node --> B",
+	}, "\n")
+	got := NormalizeFlowchartUnsafeNodeIDs(in)
+	if !strings.Contains(got, `codraxNode1["graph.node"] --> B`) {
+		t.Fatalf("graph-prefixed node ID should still be normalized:\n%s", got)
+	}
+}
+
+func TestNormalizeSourceForMarkdown_NormalizesFlowchartSubgraphAndEdgeLabels(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		"  subgraph Explorer System",
+		"    ../A.md -->|ok (verified)| B",
+		"  end",
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	if !strings.Contains(got, "subgraph Explorer_System_2 [Explorer System]") {
+		t.Fatalf("bare subgraph title was not normalized:\n%s", got)
+	}
+	if !strings.Contains(got, `codraxNode1["../A.md"] -->|"ok (verified)"| B`) {
+		t.Fatalf("parser-sensitive edge label was not normalized:\n%s", got)
+	}
+}
+
 func TestMermaidKeywordRegistryCoversPreviewAndTerminalForms(t *testing.T) {
 	if got := FirstKeywordIn("flowchart TD"); got != "flowchart" {
 		t.Fatalf("flowchart keyword = %q", got)

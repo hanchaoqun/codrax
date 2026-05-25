@@ -178,8 +178,7 @@ func normalizeEmitAnswerDiagram(diag *emitAnswerDiagramV2) {
 		return
 	}
 	diag.Body = stripOuterDiagramFence(diag.Body)
-	diag.Body = mermaidcompat.NormalizeSequenceParticipantMessagePrefixes(diag.Body)
-	diag.Body = mermaidcompat.NormalizeSequenceStops(diag.Body)
+	diag.Body = mermaidcompat.NormalizeSourceForMarkdown(diag.Body)
 	family := types.MermaidBodySyntaxFamily(diag.Body)
 	if family == types.MermaidSyntaxUnknown || family == types.MermaidSyntaxUnsupported {
 		return
