@@ -333,6 +333,17 @@ type LoopObservation struct {
 	// Evaluators must not mutate this slice.
 	CurrentToolResults []types.ToolResult
 
+	// ToolSurfaceKnown is true when AvailableToolNames reflects the exact
+	// tool schemas handed to the LLM for this iteration. Unit tests and legacy
+	// direct calls may leave it false; evaluators should treat that as "unknown"
+	// rather than assuming a tool is unavailable.
+	ToolSurfaceKnown bool
+
+	// AvailableToolNames contains the effective tool names exposed to the LLM
+	// for this iteration after any ToolSchemaFilter has run. It is a read-only
+	// snapshot for schema-aware hints: evaluators must not mutate it.
+	AvailableToolNames map[string]bool
+
 	// IdleStreak is the number of consecutive Observe calls so far
 	// that returned LoopSignal{Progress: false, HintRequested: false}
 	// — i.e. the count of "truly idle" rounds. Owned and incremented
@@ -349,6 +360,13 @@ type LoopObservation struct {
 	// has already accepted in this dispatch, subject to the
 	// MaxMidLoopInjects budget.
 	MidLoopInjectsUsed int
+}
+
+func (obs LoopObservation) ToolAvailable(name string) bool {
+	if !obs.ToolSurfaceKnown {
+		return true
+	}
+	return obs.AvailableToolNames[strings.TrimSpace(name)]
 }
 
 // LoopSignal is the raw detection result a LoopController returns
@@ -1371,6 +1389,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				b.name, i)
 			effectiveTools = nil
 		}
+		effectiveToolNames := toolSchemaNameSet(effectiveTools)
 
 		// Reason — call LLM
 		telemetry := llm.BuildRequestTelemetry(b.deps.LLM, messages, effectiveTools)
@@ -1638,6 +1657,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 						Iteration:          i,
 						Response:           resp,
 						AllToolResults:     allToolResults,
+						ToolSurfaceKnown:   true,
+						AvailableToolNames: effectiveToolNames,
 						IdleStreak:         idle,
 						ContinuationsUsed:  conts,
 						MidLoopInjectsUsed: midLoopInjects,
@@ -1700,6 +1721,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					Iteration:          i,
 					Response:           resp,
 					AllToolResults:     allToolResults,
+					ToolSurfaceKnown:   true,
+					AvailableToolNames: effectiveToolNames,
 					IdleStreak:         idle,
 					ContinuationsUsed:  conts,
 					MidLoopInjectsUsed: midLoopInjects,
@@ -1934,6 +1957,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				LastToolResult:     lastToolResultPtr,
 				AllToolResults:     allToolResults,
 				CurrentToolResults: allToolResults[toolResultsStart:],
+				ToolSurfaceKnown:   true,
+				AvailableToolNames: effectiveToolNames,
 				IdleStreak:         idle,
 				ContinuationsUsed:  conts,
 				MidLoopInjectsUsed: midLoopInjects,
@@ -3073,6 +3098,17 @@ func sortedToolNames(names map[string]bool) []string {
 		}
 	}
 	sort.Strings(out)
+	return out
+}
+
+func toolSchemaNameSet(schemas []llm.ToolSchema) map[string]bool {
+	out := make(map[string]bool, len(schemas))
+	for _, schema := range schemas {
+		name := strings.TrimSpace(schema.Name)
+		if name != "" {
+			out[name] = true
+		}
+	}
 	return out
 }
 

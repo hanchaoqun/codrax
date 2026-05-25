@@ -4693,7 +4693,7 @@ func renderRepairLineList(lines []int, max int) string {
 	return strings.Join(parts, ", ")
 }
 
-func renderEmitEvidenceRepairHint(targets []evidenceRepairTarget) string {
+func renderEmitEvidenceRepairHint(targets []evidenceRepairTarget, canReadFile bool) string {
 	if len(targets) == 0 {
 		return ""
 	}
@@ -4703,7 +4703,13 @@ func renderEmitEvidenceRepairHint(targets []evidenceRepairTarget) string {
 	}
 	var b strings.Builder
 	b.WriteString("Progress check: some evidence you just emitted is only recovered or ungrounded, not line-text grounded yet.\n")
-	b.WriteString("Before reading other files, re-read these exact source locations and re-emit grounded evidence:\n")
+	if canReadFile {
+		b.WriteString("Before reading other files, re-read these exact source locations with `read_file` and re-emit grounded evidence:\n")
+	} else {
+		b.WriteString("The current tool list does not include file-reading tools. Do not retry navigation tools in this turn. Use already-visible line gutters if they are sufficient, re-emit grounded replacement evidence, omit stale recovered rows, or close from accepted evidence.\n")
+		b.WriteString("Use `emit_evidence` for grounded replacements, or `emit_investigation_complete` if the accepted evidence is already enough.\n")
+		b.WriteString("Repair targets from the previous audit:\n")
+	}
 	for _, target := range targets[:maxFiles] {
 		lines := renderRepairLineList(target.lines, 4)
 		if lines == "" {
@@ -4712,7 +4718,9 @@ func renderEmitEvidenceRepairHint(targets []evidenceRepairTarget) string {
 		}
 		fmt.Fprintf(&b, "  - `%s` near lines %s\n", target.file, lines)
 	}
-	b.WriteString("\nDo the repair in the existing anchor file first; only widen scope after those items ground cleanly.")
+	if canReadFile {
+		b.WriteString("\nDo the repair in the existing anchor file first; only widen scope after those items ground cleanly.")
+	}
 	return b.String()
 }
 
@@ -4837,8 +4845,35 @@ func (e *explorerEvaluator) postEmitEvidenceRepairSignal(obs LoopObservation) Lo
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        "explorer.mid-loop.evidence-repair",
-		Hint:           renderEmitEvidenceRepairHint(targets),
+		Hint:           renderEmitEvidenceRepairHint(targets, obs.ToolAvailable("read_file")),
 		Progress:       true,
+		BypassThrottle: true,
+		BypassBudget:   true,
+	}
+}
+
+func (e *explorerEvaluator) postRestrictedToolSurfaceSignal(obs LoopObservation) LoopSignal {
+	if obs.LastToolResult == nil || obs.LastToolResult.Success || obs.LastToolResult.Repair == nil ||
+		obs.LastToolResult.Repair.Code != explorerRestrictedToolSurfaceCode {
+		return LoopSignal{}
+	}
+	allowed := e.restrictedToolSurface()
+	allowedNames := sortedToolNames(allowed)
+	if len(allowedNames) == 0 && obs.ToolSurfaceKnown {
+		allowedNames = sortedToolNames(obs.AvailableToolNames)
+	}
+	allowedText := "the tools currently shown to you"
+	if len(allowedNames) > 0 {
+		allowedText = strings.Join(allowedNames, ", ")
+	}
+	hint := fmt.Sprintf(
+		"Progress check: `%s` is not available in this turn. Available tools now: %s. Do not retry unavailable navigation tools. If already-visible line gutters are enough, call `emit_evidence` with grounded replacement rows; if accepted evidence is enough, call `emit_investigation_complete`. If neither is possible, omit stale recovered rows and preserve the limitation in the completion reason.",
+		obs.LastToolResult.ToolName, allowedText)
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        fmt.Sprintf("explorer.restricted-tool-surface.%s", obs.LastToolResult.ToolName),
+		Hint:           hint,
+		Progress:       false,
 		BypassThrottle: true,
 		BypassBudget:   true,
 	}
@@ -8991,6 +9026,9 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	// re-call the exhausted tool; the budget hint corrects the
 	// misplan in the same iter.
 	if sig := e.postBudgetExhaustedSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postRestrictedToolSurfaceSignal(obs); sig.HintRequested {
 		return sig
 	}
 

@@ -3609,6 +3609,38 @@ func TestMidLoopCheck_EmitEvidenceRepairBypassesIterationFloor(t *testing.T) {
 	}
 }
 
+func TestMidLoopCheck_EmitEvidenceRepairHintRespectsAvailableToolSurface(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+	}
+	history := []types.ToolResult{{
+		ToolName: "emit_evidence",
+		Success:  true,
+		Summary: "emit_evidence accepted 1 item(s)\n\n" +
+			"  [1] direct buildOrLoadGraph @ internal/tool/repomap/tool.go:149 — cache path\n" +
+			"      → recovered (tier=fqname_same_file, you claimed line 148, adjusted to 149)\n",
+	}}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:              PhaseMidLoop,
+		Iteration:          1,
+		LastToolResult:     &history[0],
+		AllToolResults:     history,
+		ToolSurfaceKnown:   true,
+		AvailableToolNames: map[string]bool{"emit_evidence": true, "emit_investigation_complete": true},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("emit_evidence recovery should trigger a repair hint, got %+v", sig)
+	}
+	if strings.Contains(sig.Hint, "re-read") || strings.Contains(sig.Hint, "`read_file`") {
+		t.Fatalf("emit-only repair hint must not ask for unavailable read_file, got: %s", sig.Hint)
+	}
+	if !strings.Contains(sig.Hint, "already-visible line gutters") || !strings.Contains(sig.Hint, "emit_investigation_complete") {
+		t.Fatalf("emit-only repair hint should steer to grounded re-emit or closure, got: %s", sig.Hint)
+	}
+}
+
 func TestParseEmitEvidenceRepairTargets_SkipsDropOnlyMentions(t *testing.T) {
 	summary := "emit_evidence accepted 1 item(s)\n\n" +
 		"  [1] direct explore_mid_loop_hint_budget @ internal/skill/analysis_contract.go:367 - documentation-only mention\n" +
@@ -3972,6 +4004,39 @@ func TestExplorer_RuntimeBoundary_EvidenceRepairCoveredTargetsRejectReadFile(t *
 	}
 	if ok := validateExplorerToolBoundary(ctx, eval, llm.ToolCall{Name: "emit_evidence", Params: json.RawMessage(`{}`)}); ok != nil {
 		t.Fatalf("emit_evidence should remain available, got %+v", ok)
+	}
+}
+
+func TestObserveMidLoop_RestrictedToolSurfaceRedirectsToAvailableTools(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                           1,
+		searchResult:                    &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopEvidenceRepairSent:       true,
+		midLoopEvidenceRepairResultsLen: 1,
+		midLoopEvidenceRepairEmitOnly:   true,
+	}
+	result := types.ToolResult{
+		ToolName: "read_file",
+		Success:  false,
+		Summary:  "tool not available",
+		Repair:   &types.ToolRepair{Code: explorerRestrictedToolSurfaceCode},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:              PhaseMidLoop,
+		Iteration:          3,
+		LastToolResult:     &result,
+		AllToolResults:     []types.ToolResult{result},
+		ToolSurfaceKnown:   true,
+		AvailableToolNames: map[string]bool{"emit_evidence": true, "emit_investigation_complete": true},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("restricted tool result should trigger schema-aware redirect, got %+v", sig)
+	}
+	if !strings.Contains(sig.Hint, "emit_evidence") || !strings.Contains(sig.Hint, "emit_investigation_complete") {
+		t.Fatalf("redirect should list currently available emit tools, got: %s", sig.Hint)
+	}
+	if strings.Contains(sig.Hint, "grep") {
+		t.Fatalf("emit-only redirect must not recommend unavailable grep, got: %s", sig.Hint)
 	}
 }
 
