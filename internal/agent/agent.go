@@ -1173,6 +1173,12 @@ func contextPressureForbiddenPatterns(name types.AgentName) []string {
 // callers use.
 const AllowedTerminalTool hint.AllowedKind = "terminal_tool"
 
+const (
+	toolHistoryPruneCheckpointPrefix      = "[structured evidence checkpoint before tool-history pruning]"
+	toolHistoryPruneCheckpointMaxEvidence = 40
+	toolHistoryPruneCheckpointMaxBytes    = 12 * 1024
+)
+
 func pruneToolHistory(messages []llm.Message, budget int) bool {
 	total := 0
 	cutoff := -1
@@ -1210,6 +1216,96 @@ func pruneToolHistory(messages []llm.Message, budget int) bool {
 		pruned = true
 	}
 	return pruned
+}
+
+func buildToolHistoryPruneCheckpoint(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	evidence := ctx.Mutable.EmittedEvidence()
+	var citable []types.EvidenceItem
+	nonCitable := 0
+	for _, item := range evidence {
+		if item.IsCitable() {
+			citable = append(citable, item)
+		} else {
+			nonCitable++
+		}
+	}
+	aggregateFacts := ctx.Mutable.StableInvestigationAggregateFacts()
+	reason := strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason())
+	resultKind := strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind())
+	if len(citable) == 0 && len(aggregateFacts) == 0 && reason == "" && resultKind == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(toolHistoryPruneCheckpointPrefix)
+	b.WriteString("\nOlder raw tool-result messages may be elided after this point. This checkpoint replays already accepted structured state only; it is not new evidence and not system-written answer text. Continue from it incrementally instead of guessing from pruned raw output.\n")
+	if len(citable) > 0 {
+		fmt.Fprintf(&b, "\nAccepted citable evidence: %d", len(citable))
+		if nonCitable > 0 {
+			fmt.Fprintf(&b, " (%d recovered/ungrounded/non-citable rows intentionally omitted)", nonCitable)
+		}
+		b.WriteString("\n")
+		limit := len(citable)
+		if limit > toolHistoryPruneCheckpointMaxEvidence {
+			limit = toolHistoryPruneCheckpointMaxEvidence
+		}
+		for i, item := range citable[:limit] {
+			loc := strings.TrimSpace(item.DisplayLocation(true))
+			if loc == "" {
+				loc = strings.TrimSpace(item.Source)
+			}
+			label := compactEvidenceCheckpointLabel(item)
+			if loc != "" {
+				fmt.Fprintf(&b, "%d. %s @ %s", i+1, label, loc)
+			} else {
+				fmt.Fprintf(&b, "%d. %s", i+1, label)
+			}
+			if summary := strings.TrimSpace(item.Summary); summary != "" {
+				fmt.Fprintf(&b, " — %s", logging.Truncate(summary, 220))
+			}
+			b.WriteByte('\n')
+		}
+		if omitted := len(citable) - limit; omitted > 0 {
+			fmt.Fprintf(&b, "... %d additional accepted citable evidence rows remain in MutableState for downstream stages.\n", omitted)
+		}
+	} else if nonCitable > 0 {
+		fmt.Fprintf(&b, "\nAccepted citable evidence: 0 (%d recovered/ungrounded/non-citable rows intentionally omitted)\n", nonCitable)
+	}
+	if len(aggregateFacts) > 0 {
+		b.WriteString("\nAccepted aggregate facts:\n")
+		b.WriteString(renderStructuredAggregateFacts(aggregateFacts, 8))
+		if !strings.HasSuffix(b.String(), "\n") {
+			b.WriteByte('\n')
+		}
+	}
+	if reason != "" || resultKind != "" {
+		b.WriteString("\nAccepted investigation closure:\n")
+		if resultKind != "" {
+			fmt.Fprintf(&b, "- result_kind: `%s`\n", resultKind)
+		}
+		if reason != "" {
+			fmt.Fprintf(&b, "- reason: %s\n", logging.Truncate(reason, 700))
+		}
+	}
+	return logging.Truncate(b.String(), toolHistoryPruneCheckpointMaxBytes)
+}
+
+func compactEvidenceCheckpointLabel(item types.EvidenceItem) string {
+	parts := make([]string, 0, 4)
+	if kind := strings.TrimSpace(string(item.Kind)); kind != "" {
+		parts = append(parts, kind)
+	}
+	for _, part := range []string{item.Subject, item.Predicate, item.Object} {
+		if part = strings.TrimSpace(part); part != "" {
+			parts = append(parts, part)
+		}
+	}
+	if len(parts) == 0 {
+		return "evidence"
+	}
+	return strings.Join(parts, " ")
 }
 
 // Execute implements the ReAct (Reason → Act → Observe) loop.
@@ -1277,6 +1373,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 	forceStop := false
 	disableToolsNextTurn := false
 	finalizerNoToolDraftsPreserved := 0
+	pruneCheckpointMessageIndex := -1
+	var pruneCheckpointHash uint64
 	historyContentForNoTool := func(resp llm.Response) string {
 		if recordFinalizerNoToolAnswerDraft(ctx, resp.Content) {
 			logging.Debug("[diag %s] captured finalizer no-tool answer_document-shaped draft len=%d", b.name, len(resp.Content))
@@ -1322,6 +1420,23 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		if pruneToolHistory(messages, toolHistBudget) {
 			logging.Debug("[diag %s] iter=%d phase=prune TOOL HISTORY PRUNED (budget=%d bytes)",
 				b.name, i, toolHistBudget)
+			if checkpoint := buildToolHistoryPruneCheckpoint(ctx); checkpoint != "" {
+				nextHash := hashString(checkpoint)
+				if nextHash != pruneCheckpointHash {
+					checkpointMsg := llm.Message{Role: "user", Content: checkpoint}
+					if pruneCheckpointMessageIndex >= 0 &&
+						pruneCheckpointMessageIndex < len(messages) &&
+						strings.HasPrefix(messages[pruneCheckpointMessageIndex].Content, toolHistoryPruneCheckpointPrefix) {
+						messages[pruneCheckpointMessageIndex] = checkpointMsg
+					} else {
+						messages = append(messages, checkpointMsg)
+						pruneCheckpointMessageIndex = len(messages) - 1
+					}
+					pruneCheckpointHash = nextHash
+					logging.Debug("[diag %s] iter=%d phase=prune checkpoint injected len=%d",
+						b.name, i, len(checkpoint))
+				}
+			}
 		}
 
 		// Context-pressure watchdog. Measure the post-prune prompt

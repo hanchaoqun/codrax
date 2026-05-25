@@ -470,6 +470,72 @@ func TestPruneToolHistoryUnderBudgetNoop(t *testing.T) {
 	}
 }
 
+func TestBuildToolHistoryPruneCheckpointCarriesAcceptedStructuredState(t *testing.T) {
+	mut := types.NewMutableState("question")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "A",
+			Predicate:       "calls",
+			Object:          "B",
+			Source:          "a.go",
+			LineStart:       12,
+			Scope:           types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+			Summary:         "A calls B from the current source line",
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "stale",
+			Source:          "stale.go",
+			LineStart:       99,
+			Scope:           types.ScopeLine,
+			GroundingStatus: types.GroundingRecovered,
+			Summary:         "should stay out of the accepted checkpoint",
+		},
+	})
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "agents",
+		Value:   "1",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"explorer"},
+	}})
+	mut.SetInvestigationResultKind("resolved")
+	mut.SetInvestigationComplete("accepted closure")
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{Stage: types.StageExplore, Mutable: mut}
+
+	got := buildToolHistoryPruneCheckpoint(ctx)
+	if !strings.HasPrefix(got, toolHistoryPruneCheckpointPrefix) {
+		t.Fatalf("checkpoint prefix missing:\n%s", got)
+	}
+	for _, want := range []string{
+		"Accepted citable evidence: 1",
+		"direct A calls B @ a.go:12",
+		"A calls B from the current source line",
+		"recovered/ungrounded/non-citable rows intentionally omitted",
+		"agents",
+		"explorer",
+		"result_kind: `resolved`",
+		"accepted closure",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("checkpoint missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "should stay out of the accepted checkpoint") {
+		t.Fatalf("non-citable recovered evidence leaked into checkpoint:\n%s", got)
+	}
+}
+
+func TestBuildToolHistoryPruneCheckpointEmptyWithoutAcceptedState(t *testing.T) {
+	ctx := &types.AgentContext{Stage: types.StageExplore, Mutable: types.NewMutableState("question")}
+	if got := buildToolHistoryPruneCheckpoint(ctx); got != "" {
+		t.Fatalf("empty mutable state should not emit a checkpoint, got:\n%s", got)
+	}
+}
+
 func TestSanitizeToolCallsForHistory_ReplacesInvalidParamsOnlyInHistory(t *testing.T) {
 	calls := []llm.ToolCall{
 		{ID: "call-good", Name: "read_file", Params: json.RawMessage(`{"path":"a.go"}`)},
