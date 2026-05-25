@@ -98,6 +98,8 @@ func (o *Orchestrator) retryReadStageDispatchError(
 		checkpointHint = o.buildExploreTransientRetryCheckpointHint()
 		if checkpointHint != "" {
 			state.setTransientRetryHint(checkpointHint)
+			logging.Debug("[diag orchestrator] phase=transient_retry_checkpoint stage=%s installed=true len=%d",
+				stage, len(checkpointHint))
 		}
 	}
 

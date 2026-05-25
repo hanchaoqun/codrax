@@ -327,3 +327,21 @@ Design:
   `emit_evidence` and before `emit_investigation_complete`.
 - Verify the next explorer turn receives the continuation checkpoint and does
   not restart broad navigation unless the model chooses a scoped reason.
+
+Implementation status:
+
+- [x] Existing orchestrator-level regression tests cover both safe branches:
+      accepted closure before a transient stream failure advances without
+      re-exploration, and accepted evidence before a stream failure retries with
+      a continuation checkpoint.
+- [x] Added a control-plane diagnostic event when the explore transient retry
+      checkpoint is installed:
+      `phase=transient_retry_checkpoint stage=explore installed=true`.
+- [x] Added eval telemetry for `transient_retry_checkpoints` so real runs can
+      report whether this recovery path fired without matching prompt text or
+      quoted customer logs.
+- [ ] Future infrastructure: add a shared fake streaming provider / transport
+      harness before adding an eval case that injects wire-level stream faults.
+      There is no safe existing eval-provider injection point today; a
+      one-off case-specific fake provider would duplicate provider setup and
+      risk producing brittle results.

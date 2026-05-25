@@ -256,6 +256,19 @@ eval_count_source_inventory_tool_calls() {
   eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=toolcall [^:]*tool=repo_map params=.*"view"[[:space:]]*:[[:space:]]*"source_inventory"' "$file"
 }
 
+eval_count_transient_retry_checkpoints() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  # Counts only the orchestrator control-plane event emitted when a preserved
+  # explore-state checkpoint is installed after a stream-level retry. Prompt
+  # text and quoted customer logs can mention the same phrase and must not
+  # inflate this metric.
+  eval_count_control_pattern 'DEBUG \[diag orchestrator\][^:]*phase=transient_retry_checkpoint [^:]*installed=true' "$file"
+}
+
 eval_sum_answer_contract_violations() {
   local file="$1"
   if [[ -z "$file" || ! -f "$file" ]]; then
