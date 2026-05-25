@@ -2,18 +2,17 @@
 
 ## Background
 
-The focused `read_combo_pipeline_sequence_table` run exposed a generic
-handoff gap rather than a prompt problem. Exploration had model-authored,
-structured aggregate `member_set` facts for the read pipeline stages, agents,
-and state carriers, but the stage/agent member sets lacked `support_refs`.
-The completion tool then dropped those optional decorated member sets before
-finalization. Finalizer produced an otherwise accepted answer, but the visible
-answer compressed away the `explorer` and `extractor` actor bindings.
+Recent eval and customer-style runs exposed a generic handoff gap rather than a
+prompt problem. The model may surface a relation-shaped candidate set upstream
+and then lose detail downstream when the set has no member-level grounding. The
+dangerous fix would be to encode one repository's relation vocabulary into a
+global completion gate. That would let the system replace user/model intent in
+external repositories.
 
-This must not be fixed by matching the eval question or by forcing a finalizer
-rewrite. The safe root fix is to make structured relation authority evidence
-materialize upstream when the model itself has already emitted a relation-shaped
-candidate surface and the system has a machine-known authority source.
+The safe root fix is narrower: define a provider boundary for repositories or
+runtime domains that can prove an exact authority source, while keeping all
+ordinary relation hints advisory. The default product must not ship
+repository-specific authority providers.
 
 ## Redline Boundaries
 
@@ -51,29 +50,10 @@ Provider contract:
    `RepairEmitEvidence`.
 6. If authority evidence already exists, do nothing.
 
-The first concrete provider is codrax's built-in stage-to-agent binding because
-the repository already has an exact authority table `types.AllStageBindings()`
-in `internal/types/stage_binding.go`, and finalizer already has a gated
-supplement that only renders after this source is grounded.
-
-The stage-to-agent relation itself is not claimed to be universal across
-customer repositories. The reusable part is the provider contract above:
-relations may block completion only when an exact authority provider exists.
-The same pattern can later cover route-to-handler, config-key-to-reader,
-service-to-entrypoint, module-to-public-type, and cross-repo interface binding
-when those relations have their own machine-verifiable authority sources.
-
-## Stage-Agent Provider Trigger
-
-Trigger only when structured carriers include both:
-
-- at least two known stage identifiers or values from `types.AllStageBindings`;
-- at least two known agent identifiers or values from `types.AllStageBindings`.
-
-The provider accepts surfaces such as `StageExplore`, `explore`,
-`AgentExplorer`, `explorer`, and decorated members like
-`AgentExplorer ("explorer")`, but only from structured fields. It does not
-trigger on ordinary prose.
+There are intentionally no built-in repository-specific authority providers.
+Relations may block completion only when a future provider explicitly declares
+an exact authority source, trigger carriers, and local repair path. Without such
+a provider, the system must keep the relation as advisory guidance.
 
 ## Relation Provider Catalog
 
@@ -84,7 +64,7 @@ repair path.
 
 | Relation family | Current carrier | Languages / scope | Current use | Authority status |
 |---|---|---|---|---|
-| built-in stage -> agent -> skill | `types.AllStageBindings()` plus `internal/types/stage_binding.go` | codrax runtime topology only | pre-complete authority handoff, then finalizer supplement after evidence lands | Authority-eligible because exact machine table exists |
+| domain authority mapping | explicit future `structuredRelationAuthorityProvider` | repository/domain-specific only after opt-in | none by default | No built-in providers; must define exact source, trigger carriers, repair path, and tests before it may block |
 | implements / extends | repo_map graph through `TypedRelationCandidateSource` | repo_map supported languages with type graph edges | prompt hint and typed coverage checks | Not a pre-complete authority provider yet; hard checks still require exact carrier + model-authored member_set + grounded evidence |
 | called-by / references | repo_map graph relation candidates | repo_map supported call/reference graph languages | prompt hint and change-impact navigation | Navigation-first; do not block completion without an exact request-scope contract |
 | imports / exports | repo_map import graph | all languages where repo_map extracts imports | source inventory / dependency navigation | Navigation-first; import inventory may have its own exact universe coverage, not this provider |
@@ -108,7 +88,7 @@ also define:
 ## Non-Goals
 
 - Do not convert all typed relation hints into completion blockers.
-- Do not use the stage-agent provider for customer repository architecture.
+- Do not ship repository-specific authority mappings as default global logic.
 - Do not infer route/config/service relations from naming conventions alone.
 - Do not turn source_inventory suggestions into a read whitelist.
 - Do not append system-authored answer members when the model did not emit or
@@ -195,25 +175,24 @@ the user's intent.
 ## Task List
 
 - [x] Document the root cause and provider boundary.
-- [x] Add the pre-complete structured relation authority handoff provider.
-- [x] Queue unread authority files through existing `RepairReadFile` and
-      `PendingRead` machinery.
-- [x] Queue already-read-but-unemitted authority files through existing
-      `RepairEmitEvidence` machinery.
+- [x] Add the pre-complete structured relation authority handoff hook.
+- [x] Keep the default provider set empty so external repositories cannot be
+      blocked by product-internal relation vocabulary.
+- [x] Preserve the generic `RepairReadFile` / `RepairEmitEvidence` machinery
+      for future explicit providers.
 - [x] Preserve current optional `member_set` drop behavior when no authority
       provider can prove the relation.
 - [x] Add regression tests for:
-      - unread authority file is requested;
-      - read authority file without emitted evidence asks for `emit_evidence`;
-      - grounded authority evidence allows completion;
-      - single-side or unsupported relation member sets do not trigger.
+      - repository-specific-looking relation sets do not trigger by default;
+      - unsupported relation member sets do not trigger;
+      - typed prompt rows stay advisory, not authoritative citation grounding.
 - [x] Re-run focused unit tests.
 - [x] Re-run the focused failing eval.
 
 ## Expected Effect
 
-The finalizer no longer needs to guess or remember a complex relation from
-weak handoff state. If the model has already surfaced a relation-shaped
-candidate and a machine authority exists, the authority becomes normal evidence
-before completion. If no machine authority exists, the system stays quiet and
+The system no longer treats product-internal relation vocabulary as a global
+truth source. If a future repository/domain has a real machine authority, it can
+opt into this boundary with explicit provider code and tests. Otherwise the
+system stays quiet, surfaces relation candidates as navigation guidance, and
 trusts the model rather than inventing a stricter contract.

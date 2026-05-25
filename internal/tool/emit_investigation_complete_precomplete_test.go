@@ -73,142 +73,24 @@ func TestEmitInvestigationComplete_PreCompleteCheck_NoPendingReads_Allows(t *tes
 	}
 }
 
-func TestEmitInvestigationComplete_PreCompleteCheck_StructuredRelationAuthorityQueuesUnreadSource(t *testing.T) {
+func TestEmitInvestigationComplete_PreCompleteCheck_NoBuiltInRepoSpecificRelationAuthority(t *testing.T) {
 	repo := t.TempDir()
-	writePrecompleteStageBindingAuthorityFixture(t, repo)
-	mut := types.NewMutableState("read-mode stages and agents")
-	bus := &types.BusContext{
-		Mutable:    mut,
-		RepoRoot:   repo,
-		AnalysisIR: precompleteArchitectureExplainIR(),
-	}
+	writeTestFile(t, repo, "internal/types/stage_binding.go", `
+package types
 
-	tool := &EmitInvestigationComplete{}
-	params, _ := json.Marshal(map[string]any{
-		"reason":      "structured relation members are complete",
-		"confidence":  "high",
-		"result_kind": "resolved",
-		"aggregate_facts": []map[string]any{
-			precompleteStageBindingStageMembers(),
-			precompleteStageBindingAgentMembers(),
-		},
-	})
-	res, err := tool.Execute(bus, params)
-	if err != nil {
-		t.Fatalf("Execute returned error: %v", err)
-	}
-	if !strings.Contains(res.Summary, "DOWNGRADED") {
-		t.Fatalf("expected authority downgrade, got: %s", res.Summary)
-	}
-	if !strings.Contains(res.Summary, "internal/types/stage_binding.go") {
-		t.Fatalf("expected authority source in downgrade, got: %s", res.Summary)
-	}
-	if mut.IsInvestigationComplete() {
-		t.Fatal("investigation must remain open until relation authority source is read")
-	}
-	found := false
-	for _, p := range mut.EvidenceClosure().PendingReads() {
-		if p.File == "internal/types/stage_binding.go" && strings.Contains(p.Origin, structuredRelationAuthorityStageBindingOrigin) {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Fatalf("expected stage binding authority pending read, got %+v", mut.EvidenceClosure().PendingReads())
-	}
+type StageBinding struct {
+    Stage string
+    Agent string
 }
 
-func TestEmitInvestigationComplete_PreCompleteCheck_StructuredRelationAuthorityRequiresEvidenceWhenRead(t *testing.T) {
-	repo := t.TempDir()
-	writePrecompleteStageBindingAuthorityFixture(t, repo)
-	mut := types.NewMutableState("read-mode stages and agents")
-	mut.EvidenceClosure().SetReadSet(map[string]bool{
-		"internal/types/stage_binding.go": true,
-	})
-	bus := &types.BusContext{
-		Mutable:    mut,
-		RepoRoot:   repo,
-		AnalysisIR: precompleteArchitectureExplainIR(),
-	}
-
-	tool := &EmitInvestigationComplete{}
-	params, _ := json.Marshal(map[string]any{
-		"reason":      "structured relation members are complete",
-		"confidence":  "high",
-		"result_kind": "resolved",
-		"aggregate_facts": []map[string]any{
-			precompleteStageBindingStageMembers(),
-			precompleteStageBindingAgentMembers(),
-		},
-	})
-	res, err := tool.Execute(bus, params)
-	if err != nil {
-		t.Fatalf("Execute returned error: %v", err)
-	}
-	if !strings.Contains(res.Summary, "structured relation authority evidence is not materialized") {
-		t.Fatalf("expected authority evidence materialization downgrade, got: %s", res.Summary)
-	}
-	if mut.IsInvestigationComplete() {
-		t.Fatal("investigation must remain open until authority evidence is emitted")
-	}
-	repairs := mut.EvidenceClosure().PendingRepairs()
-	if len(repairs) == 0 || repairs[len(repairs)-1].Kind != types.RepairEmitEvidence {
-		t.Fatalf("expected emit-evidence repair, got %+v", repairs)
-	}
+var builtinStageBindings = []StageBinding{
+    {Stage: "analyze", Agent: "analyzer"},
+    {Stage: "explore", Agent: "explorer"},
+    {Stage: "extract", Agent: "extractor"},
+    {Stage: "finalize", Agent: "finalizer"},
 }
-
-func TestEmitInvestigationComplete_PreCompleteCheck_StructuredRelationAuthorityAllowsGroundedSource(t *testing.T) {
-	repo := t.TempDir()
-	writePrecompleteStageBindingAuthorityFixture(t, repo)
+`)
 	mut := types.NewMutableState("read-mode stages and agents")
-	mut.EvidenceClosure().SetReadSet(map[string]bool{
-		"internal/types/stage_binding.go": true,
-	})
-	mut.AppendEvidence([]types.EvidenceItem{{
-		ID:              "stage-binding",
-		Kind:            types.EvidenceRelationship,
-		Subject:         "StageExplore",
-		Predicate:       "binds to agent",
-		Object:          "AgentExplorer",
-		Source:          "internal/types/stage_binding.go",
-		LineStart:       18,
-		Scope:           types.ScopeLine,
-		AnchorKind:      types.AnchorDefinition,
-		AnchorSymbol:    "builtinStageBindings",
-		GroundingStatus: types.GroundingGrounded,
-	}})
-	bus := &types.BusContext{
-		Mutable:    mut,
-		RepoRoot:   repo,
-		AnalysisIR: precompleteArchitectureExplainIR(),
-	}
-
-	tool := &EmitInvestigationComplete{}
-	params, _ := json.Marshal(map[string]any{
-		"reason":      "structured relation members are complete",
-		"confidence":  "high",
-		"result_kind": "resolved",
-		"aggregate_facts": []map[string]any{
-			precompleteStageBindingStageMembers(),
-			precompleteStageBindingAgentMembers(),
-		},
-	})
-	res, err := tool.Execute(bus, params)
-	if err != nil {
-		t.Fatalf("Execute returned error: %v", err)
-	}
-	if strings.Contains(res.Summary, "DOWNGRADED") {
-		t.Fatalf("unexpected downgrade after grounded authority evidence: %s", res.Summary)
-	}
-	if !mut.IsInvestigationComplete() {
-		t.Fatal("investigation should complete after authority evidence is grounded")
-	}
-}
-
-func TestEmitInvestigationComplete_PreCompleteCheck_StructuredRelationAuthorityIgnoresSingleSidedMembers(t *testing.T) {
-	repo := t.TempDir()
-	writePrecompleteStageBindingAuthorityFixture(t, repo)
-	mut := types.NewMutableState("list agents")
 	bus := &types.BusContext{
 		Mutable:  mut,
 		RepoRoot: repo,
@@ -216,28 +98,45 @@ func TestEmitInvestigationComplete_PreCompleteCheck_StructuredRelationAuthorityI
 
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
-		"reason":      "agent list is complete",
+		"reason":      "structured relation members are complete",
 		"confidence":  "high",
 		"result_kind": "resolved",
 		"aggregate_facts": []map[string]any{
-			precompleteBareStageBindingAgentMembers(),
+			{
+				"kind":    "member_set",
+				"role":    "supporting_coverage",
+				"label":   "pipeline phases",
+				"members": []string{`StageAnalyze ("analyze")`, `StageExplore ("explore")`, `StageExtract ("extract")`, `StageFinalize ("finalize")`},
+			},
+			{
+				"kind":    "member_set",
+				"role":    "supporting_coverage",
+				"label":   "phase actors",
+				"members": []string{`AgentAnalyzer ("analyzer")`, `AgentExplorer ("explorer")`, `AgentExtractor ("extractor")`, `AgentFinalizer ("finalizer")`},
+			},
 		},
 	})
 	res, err := tool.Execute(bus, params)
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
 	}
-	if strings.Contains(res.Summary, "DOWNGRADED") || strings.Contains(res.Summary, "stage_binding.go") {
-		t.Fatalf("single-sided members must not trigger relation authority: %s", res.Summary)
+	if strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("repo-specific stage/agent-looking relation must not trigger a built-in authority downgrade: %s", res.Summary)
 	}
-	if !mut.IsInvestigationComplete() {
-		t.Fatal("single-sided optional member set should not block completion")
+	for _, pending := range mut.EvidenceClosure().PendingReads() {
+		if strings.Contains(pending.File, "stage_binding") {
+			t.Fatalf("repo-specific relation-looking member sets must not enqueue authority reads without an explicit provider: %+v", pending)
+		}
+	}
+	for _, repair := range mut.EvidenceClosure().PendingRepairs() {
+		if strings.Contains(repair.Origin, "relation_authority") || strings.Contains(strings.Join(repair.Files, ","), "stage_binding") {
+			t.Fatalf("repo-specific relation-looking member sets must not enqueue authority repairs without an explicit provider: %+v", repair)
+		}
 	}
 }
 
 func TestStructuredRelationAuthorityDemands_IgnoresRelationsWithoutAuthorityProvider(t *testing.T) {
 	repo := t.TempDir()
-	writePrecompleteStageBindingAuthorityFixture(t, repo)
 	bus := &types.BusContext{RepoRoot: repo, Mutable: types.NewMutableState("generic relation")}
 	facts := []types.AnswerAggregateFact{
 		{
@@ -261,70 +160,6 @@ func TestStructuredRelationAuthorityDemands_IgnoresRelationsWithoutAuthorityProv
 	}
 	if got := structuredRelationAuthorityDemands(bus, facts, nil); len(got) != 0 {
 		t.Fatalf("generic typed relations without an exact authority provider must not block completion: %+v", got)
-	}
-}
-
-func precompleteArchitectureExplainIR() *types.AnalysisIR {
-	return &types.AnalysisIR{
-		RequestModel: types.RequestModel{
-			Intent:   types.IntentExplain,
-			Scenario: types.ScenarioArchitectureExplain,
-		},
-	}
-}
-
-func precompleteStageBindingStageMembers() map[string]any {
-	return map[string]any{
-		"kind":    "member_set",
-		"role":    "supporting_coverage",
-		"label":   "read-mode pipeline stages",
-		"members": []string{`StageAnalyze ("analyze")`, `StageExplore ("explore")`, `StageExtract ("extract")`, `StageFinalize ("finalize")`},
-	}
-}
-
-func precompleteStageBindingAgentMembers() map[string]any {
-	return map[string]any{
-		"kind":    "member_set",
-		"role":    "supporting_coverage",
-		"label":   "read-mode agents",
-		"members": []string{`AgentAnalyzer ("analyzer")`, `AgentExplorer ("explorer")`, `AgentExtractor ("extractor")`, `AgentFinalizer ("finalizer")`},
-	}
-}
-
-func precompleteBareStageBindingAgentMembers() map[string]any {
-	return map[string]any{
-		"kind":    "member_set",
-		"role":    "supporting_coverage",
-		"label":   "read-mode agents",
-		"members": []string{"AgentAnalyzer", "AgentExplorer", "AgentExtractor", "AgentFinalizer"},
-	}
-}
-
-func writePrecompleteStageBindingAuthorityFixture(t *testing.T, repo string) {
-	t.Helper()
-	dir := filepath.Join(repo, "internal", "types")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("mkdir stage binding fixture: %v", err)
-	}
-	body := strings.Join([]string{
-		"package types",
-		"",
-		"type StageBinding struct {",
-		"    Stage PipelineStage",
-		"    Agent AgentName",
-		"    Skill string",
-		"}",
-		"",
-		"var builtinStageBindings = []StageBinding{",
-		`    {Stage: StageAnalyze, Agent: AgentAnalyzer, Skill: "analysis-skill"},`,
-		`    {Stage: StageExplore, Agent: AgentExplorer, Skill: "explore-skill"},`,
-		`    {Stage: StageExtract, Agent: AgentExtractor, Skill: "extract-skill"},`,
-		`    {Stage: StageFinalize, Agent: AgentFinalizer, Skill: "answer-document-skill"},`,
-		"}",
-		"",
-	}, "\n")
-	if err := os.WriteFile(filepath.Join(dir, "stage_binding.go"), []byte(body), 0o644); err != nil {
-		t.Fatalf("write stage binding fixture: %v", err)
 	}
 }
 

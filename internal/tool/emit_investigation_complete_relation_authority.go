@@ -9,11 +9,6 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-const (
-	structuredRelationAuthorityStageBindingSource = "internal/types/stage_binding.go"
-	structuredRelationAuthorityStageBindingOrigin = "pre_complete.relation_authority.stage_binding"
-)
-
 type structuredRelationAuthorityDemand struct {
 	Name      string
 	Files     []string
@@ -25,8 +20,6 @@ type structuredRelationAuthorityDemand struct {
 type structuredRelationAuthorityProvider interface {
 	Demand(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) (structuredRelationAuthorityDemand, bool)
 }
-
-type stageBindingRelationAuthorityProvider struct{}
 
 func structuredRelationAuthorityPreCompleteDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) string {
 	if ctx == nil || closure == nil {
@@ -86,9 +79,7 @@ func structuredRelationAuthorityPreCompleteDowngrade(ctx *types.BusContext, clos
 }
 
 func structuredRelationAuthorityDemands(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) []structuredRelationAuthorityDemand {
-	providers := []structuredRelationAuthorityProvider{
-		stageBindingRelationAuthorityProvider{},
-	}
+	providers := structuredRelationAuthorityProviders()
 	var out []structuredRelationAuthorityDemand
 	for _, provider := range providers {
 		if demand, ok := provider.Demand(ctx, facts, evidence); ok {
@@ -98,101 +89,12 @@ func structuredRelationAuthorityDemands(ctx *types.BusContext, facts []types.Ans
 	return out
 }
 
-// Demand implements the built-in codrax stage -> agent authority provider.
-// It is intentionally a provider, not a generic relation rule: customer
-// repository relations must add their own exact authority source before they
-// can block completion through this handoff path.
-func (stageBindingRelationAuthorityProvider) Demand(ctx *types.BusContext, facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) (structuredRelationAuthorityDemand, bool) {
-	const source = structuredRelationAuthorityStageBindingSource
-	if !structuredRelationAuthoritySourceExists(ctx, source) {
-		return structuredRelationAuthorityDemand{}, false
-	}
-	aliases := stageBindingAuthorityAliasIndex()
-	stageHits := map[int]bool{}
-	agentHits := map[int]bool{}
-	for _, surface := range structuredRelationAuthoritySurfaces(facts, evidence) {
-		for _, alias := range structuredRelationAuthoritySurfaceAliases(surface) {
-			key := structuredRelationAuthorityKey(alias)
-			if key == "" {
-				continue
-			}
-			if idx, ok := aliases.stage[key]; ok {
-				stageHits[idx] = true
-			}
-			if idx, ok := aliases.agent[key]; ok {
-				agentHits[idx] = true
-			}
-		}
-	}
-	if len(stageHits) < 2 || len(agentHits) < 2 {
-		return structuredRelationAuthorityDemand{}, false
-	}
-	return structuredRelationAuthorityDemand{
-		Name:      "stage_agent_binding",
-		Files:     []string{source},
-		Subject:   "stage_agent_binding",
-		Rationale: "structured stage/agent relation members require the canonical stage-to-agent binding source before completion",
-		Origin:    structuredRelationAuthorityStageBindingOrigin,
-	}, true
-}
-
-type stageBindingAuthorityAliases struct {
-	stage map[string]int
-	agent map[string]int
-}
-
-func stageBindingAuthorityAliasIndex() stageBindingAuthorityAliases {
-	out := stageBindingAuthorityAliases{
-		stage: map[string]int{},
-		agent: map[string]int{},
-	}
-	for idx, binding := range types.AllStageBindings() {
-		stageAliases := []string{
-			string(binding.Stage),
-			"Stage" + structuredRelationAuthorityExportedName(string(binding.Stage)),
-		}
-		agentAliases := []string{
-			string(binding.Agent),
-			"Agent" + structuredRelationAuthorityExportedName(string(binding.Agent)),
-		}
-		for _, alias := range stageAliases {
-			if key := structuredRelationAuthorityKey(alias); key != "" {
-				out.stage[key] = idx
-			}
-		}
-		for _, alias := range agentAliases {
-			if key := structuredRelationAuthorityKey(alias); key != "" {
-				out.agent[key] = idx
-			}
-		}
-	}
-	return out
-}
-
-func structuredRelationAuthorityExportedName(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return ""
-	}
-	parts := strings.FieldsFunc(value, func(r rune) bool {
-		return r == '_' || r == '-' || r == ' ' || r == '.'
-	})
-	var b strings.Builder
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-		runes := []rune(part)
-		if len(runes) == 0 {
-			continue
-		}
-		b.WriteString(strings.ToUpper(string(runes[0])))
-		if len(runes) > 1 {
-			b.WriteString(string(runes[1:]))
-		}
-	}
-	return b.String()
+// structuredRelationAuthorityProviders intentionally returns no built-in
+// repository-specific providers. This package supplies the handoff framework
+// only; a blocking provider must be added explicitly with its own exact source
+// of truth, trigger carriers, local repair path, and no-trigger tests.
+func structuredRelationAuthorityProviders() []structuredRelationAuthorityProvider {
+	return nil
 }
 
 func structuredRelationAuthoritySurfaces(facts []types.AnswerAggregateFact, evidence []types.EvidenceItem) []string {
