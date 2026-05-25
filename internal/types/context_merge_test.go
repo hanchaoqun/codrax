@@ -1,6 +1,7 @@
 package types
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -81,5 +82,72 @@ func TestMutableStateEmittedEvidenceCompactsSameIDAmendments(t *testing.T) {
 	tail, total := mu.EmittedEvidenceSince(1)
 	if total != 2 || len(tail) != 1 || tail[0].AnchorKind != AnchorDefinition {
 		t.Fatalf("raw delta should still expose correction event, total=%d tail=%+v", total, tail)
+	}
+}
+
+func TestMutableStateAppendEvidenceNormalizesRepoPathsBeforeMerge(t *testing.T) {
+	repoRoot := t.TempDir()
+	rel := "packages/opencode/src/auth.ts"
+	abs := filepath.Join(repoRoot, rel)
+	mu := NewMutableState("修订证据")
+	mu.SetRepoRoot(repoRoot)
+
+	base := EvidenceItem{
+		Kind:            EvidenceDirect,
+		Subject:         "ProviderAuth.api",
+		Predicate:       "defines",
+		Source:          abs,
+		LineStart:       42,
+		LineEnd:         42,
+		AnchorSymbol:    "ProviderAuth",
+		AnchorKind:      AnchorCall,
+		Scope:           ScopeLine,
+		GroundingStatus: GroundingGrounded,
+		Summary:         "absolute path row",
+	}
+	base.ID = StableEvidenceID(base)
+	amended := base
+	amended.Source = "./packages/opencode/src/auth.ts"
+	amended.AnchorKind = AnchorDefinition
+	amended.Summary = "relative path amendment"
+	amended.ID = StableEvidenceID(amended)
+
+	mu.AppendEvidence([]EvidenceItem{base})
+	mu.AppendEvidence([]EvidenceItem{amended})
+
+	full := mu.EmittedEvidence()
+	if len(full) != 1 {
+		t.Fatalf("normalized path amendments should merge to one row, got %d: %+v", len(full), full)
+	}
+	if full[0].Source != rel {
+		t.Fatalf("source = %q, want repo-relative %q", full[0].Source, rel)
+	}
+	if full[0].AnchorKind != AnchorDefinition {
+		t.Fatalf("anchor kind = %q, want amended %q", full[0].AnchorKind, AnchorDefinition)
+	}
+	if !strings.Contains(full[0].Summary, "absolute path row") || !strings.Contains(full[0].Summary, "relative path amendment") {
+		t.Fatalf("summary merge lost content: %q", full[0].Summary)
+	}
+}
+
+func TestEvidenceRevisionKeyCanonicalizesPathShape(t *testing.T) {
+	base := EvidenceItem{
+		Kind:         EvidenceDirect,
+		Subject:      "ProviderAuth.api",
+		Predicate:    "defines",
+		Source:       `.\packages\opencode\src\auth.ts`,
+		LineStart:    42,
+		LineEnd:      42,
+		AnchorSymbol: "ProviderAuth",
+		AnchorKind:   AnchorDefinition,
+		Scope:        ScopeLine,
+	}
+	amended := base
+	amended.Source = "packages/opencode/src/auth.ts"
+	if got, want := EvidenceRevisionKey(base), EvidenceRevisionKey(amended); got != want {
+		t.Fatalf("revision keys differ after source canonicalization:\n got %q\nwant %q", got, want)
+	}
+	if got, want := StableEvidenceID(base), StableEvidenceID(amended); got != want {
+		t.Fatalf("stable ids differ after source canonicalization:\n got %q\nwant %q", got, want)
 	}
 }

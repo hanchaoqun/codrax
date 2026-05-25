@@ -5,6 +5,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/hanchaoqun/codrax/internal/canonpath"
 )
 
 // TaskState captures the current pipeline execution state.
@@ -1738,13 +1740,93 @@ func (m *MutableState) AppendEvidence(items []EvidenceItem) {
 	if m == nil || len(items) == 0 {
 		return
 	}
+	items = normalizeEvidenceItemsForMutableStorage(items, m.RepoRoot())
 	if proj := loadEvidenceProjector(); proj != nil {
 		items = proj(items, m)
+		items = normalizeEvidenceItemsForMutableStorage(items, m.RepoRoot())
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.emittedEvidence = append(m.emittedEvidence, items...)
 	m.bumpAnswerSurfaceRevisionLocked()
+}
+
+func normalizeEvidenceItemsForMutableStorage(items []EvidenceItem, repoRoot string) []EvidenceItem {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]EvidenceItem, len(items))
+	for i := range items {
+		out[i] = cloneEvidenceItemForMutableStorage(items[i])
+		if normalizeEvidenceItemPathsForMutableStorage(&out[i], repoRoot) {
+			id := strings.TrimSpace(out[i].ID)
+			if id == "" || strings.HasPrefix(id, "ev-") {
+				out[i].ID = StableEvidenceID(out[i])
+			}
+		}
+	}
+	return out
+}
+
+func cloneEvidenceItemForMutableStorage(in EvidenceItem) EvidenceItem {
+	out := in
+	if in.CrossfileQuery != nil {
+		clone := *in.CrossfileQuery
+		clone.Files = append([]string(nil), in.CrossfileQuery.Files...)
+		out.CrossfileQuery = &clone
+	}
+	if in.CrossfileAssertion != nil {
+		clone := *in.CrossfileAssertion
+		out.CrossfileAssertion = &clone
+	}
+	if in.NegativeQuery != nil {
+		clone := *in.NegativeQuery
+		out.NegativeQuery = &clone
+	}
+	out.DerivedFrom = append([]string(nil), in.DerivedFrom...)
+	out.SurfaceTerms = append([]string(nil), in.SurfaceTerms...)
+	return out
+}
+
+func normalizeEvidenceItemPathsForMutableStorage(item *EvidenceItem, repoRoot string) bool {
+	if item == nil {
+		return false
+	}
+	changed := false
+	if source, ok := canonicalEvidenceStoragePath(item.Source, repoRoot); ok {
+		item.Source = source
+		changed = true
+	}
+	if item.CrossfileQuery != nil {
+		for i, file := range item.CrossfileQuery.Files {
+			if canon, ok := canonicalEvidenceStoragePath(file, repoRoot); ok {
+				item.CrossfileQuery.Files[i] = canon
+				changed = true
+			}
+		}
+	}
+	if item.NegativeQuery != nil {
+		if file, ok := canonicalEvidenceStoragePath(item.NegativeQuery.File, repoRoot); ok {
+			item.NegativeQuery.File = file
+			changed = true
+		}
+	}
+	return changed
+}
+
+func canonicalEvidenceStoragePath(raw, repoRoot string) (string, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.Contains(raw, "://") || strings.ContainsAny(raw, "\n\r\t") {
+		return raw, false
+	}
+	if !strings.Contains(raw, "/") && !strings.Contains(raw, `\`) && !strings.Contains(raw, ".") {
+		return raw, false
+	}
+	canon := strings.TrimSpace(canonpath.CanonicalRepoRelative(raw, repoRoot))
+	if canon == "" || canon == raw {
+		return raw, false
+	}
+	return canon, true
 }
 
 func (m *MutableState) answerSurfaceRevisionValue() uint64 {

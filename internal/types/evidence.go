@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"hash/fnv"
 	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/canonpath"
 )
 
 // EvidenceKind classifies a structured evidence item produced by either
@@ -903,7 +905,7 @@ func StableEvidenceID(item EvidenceItem) string {
 		item.Predicate,
 		item.Object,
 		item.Condition,
-		item.Source,
+		canonicalEvidenceIdentityPath(item.Source),
 		fmt.Sprintf("%d:%d", item.LineStart, item.LineEnd),
 		// AuthorityCeiling axis (round-4): include Origin + Authority
 		// in the stable hash so two emits of the same anchor with
@@ -922,8 +924,12 @@ func StableEvidenceID(item EvidenceItem) string {
 		parts = append(parts, "file_role="+string(item.FileRoleLabel))
 	case ScopeCrossfile:
 		if item.CrossfileQuery != nil {
+			files := make([]string, 0, len(item.CrossfileQuery.Files))
+			for _, file := range item.CrossfileQuery.Files {
+				files = append(files, canonicalEvidenceIdentityPath(file))
+			}
 			parts = append(parts,
-				"xfiles="+strings.Join(item.CrossfileQuery.Files, ","),
+				"xfiles="+strings.Join(files, ","),
 				"xpat="+item.CrossfileQuery.Pattern,
 				"xctx="+item.CrossfileQuery.Context)
 		}
@@ -935,7 +941,7 @@ func StableEvidenceID(item EvidenceItem) string {
 	case ScopeNegative:
 		if item.NegativeQuery != nil {
 			parts = append(parts,
-				"nfile="+item.NegativeQuery.File,
+				"nfile="+canonicalEvidenceIdentityPath(item.NegativeQuery.File),
 				"npat="+item.NegativeQuery.Pattern,
 				"nsec="+item.NegativeQuery.Section)
 		}
@@ -975,10 +981,34 @@ func EvidenceRevisionKey(item EvidenceItem) string {
 	}
 	return strings.Join([]string{
 		string(scope),
-		strings.TrimSpace(item.Source),
+		canonicalEvidenceIdentityPath(item.Source),
 		fmt.Sprintf("%d:%d", item.LineStart, end),
 		token,
 	}, "\x1f")
+}
+
+func canonicalEvidenceIdentityPath(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	if !evidenceIdentityPathLooksCanonicalizable(raw) {
+		return raw
+	}
+	if canon := strings.TrimSpace(canonpath.CanonicalRepoRelative(raw, "")); canon != "" {
+		return canon
+	}
+	return raw
+}
+
+func evidenceIdentityPathLooksCanonicalizable(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.Contains(raw, "://") || strings.ContainsAny(raw, "\n\r\t") {
+		return false
+	}
+	return strings.Contains(raw, "/") ||
+		strings.Contains(raw, `\`) ||
+		strings.Contains(raw, ".")
 }
 
 // EvidenceStableMergeKey is the normal answer-grade merge key: the semantic
