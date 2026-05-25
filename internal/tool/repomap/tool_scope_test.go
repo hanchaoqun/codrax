@@ -850,6 +850,60 @@ func TestRepoMapExecuteReusesMutableSearchGraph(t *testing.T) {
 	}
 }
 
+func TestRepoMapOverviewSuggestsSourceInventoryOutsideAnalyze(t *testing.T) {
+	repo := t.TempDir()
+	mut := types.NewMutableState("repo map overview hint")
+	mut.SetSearchGraph(BuildGraph(repo, []*FileInfo{{
+		RelPath:  "main.go",
+		Language: LangGo,
+		Size:     12,
+	}}))
+	ctx := &types.BusContext{
+		RepoRoot:      repo,
+		Mutable:       mut,
+		PipelineStage: types.StageExplore,
+		ActiveAgent:   types.AgentExplorer,
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{"path":".","view":"overview"}`))
+	if err != nil {
+		t.Fatalf("Execute returned unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map overview failed: %+v", res)
+	}
+	if !strings.Contains(res.Summary, `view="source_inventory"`) {
+		t.Fatalf("overview should guide later-stage agents toward source_inventory, got:\n%s", res.Summary)
+	}
+}
+
+func TestRepoMapOverviewSuppressesSourceInventoryHintForAnalyzer(t *testing.T) {
+	repo := t.TempDir()
+	mut := types.NewMutableState("repo map analyzer overview")
+	mut.SetSearchGraph(BuildGraph(repo, []*FileInfo{{
+		RelPath:  "main.go",
+		Language: LangGo,
+		Size:     12,
+	}}))
+	ctx := &types.BusContext{
+		RepoRoot:      repo,
+		Mutable:       mut,
+		PipelineStage: types.StageAnalyze,
+		ActiveAgent:   types.AgentAnalyzer,
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{"path":".","view":"overview"}`))
+	if err != nil {
+		t.Fatalf("Execute returned unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map overview failed: %+v", res)
+	}
+	if strings.Contains(res.Summary, `view="source_inventory"`) {
+		t.Fatalf("analyzer overview should stay compact and avoid source_inventory guidance, got:\n%s", res.Summary)
+	}
+}
+
 func TestRepoMapExecuteMultiRepoHonorsEachExplicitSubRepoPath(t *testing.T) {
 	parent := t.TempDir()
 	baseRoot := filepath.Join(parent, "frameworks", "base")

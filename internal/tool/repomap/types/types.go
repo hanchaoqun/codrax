@@ -462,11 +462,12 @@ type UnresolvedImport struct {
 
 // ViewParams controls what a view generator produces.
 type ViewParams struct {
-	Query         string   // search query for task_map / relation_map source discovery
-	TargetFile    string   // file path for edit_impact
-	EntryPoint    string   // symbol or file for call_path
-	Sources       []string // source files/symbols/scopes for relation_map
-	Scopes        []string // repo-relative scopes for relation_map
-	RelationKinds []string // relation families for relation_map
-	TopN          int      // max items to show (0 = default)
+	Query                   string   // search query for task_map / relation_map source discovery
+	TargetFile              string   // file path for edit_impact
+	EntryPoint              string   // symbol or file for call_path
+	Sources                 []string // source files/symbols/scopes for relation_map
+	Scopes                  []string // repo-relative scopes for relation_map
+	RelationKinds           []string // relation families for relation_map
+	TopN                    int      // max items to show (0 = default)
+	ShowSourceInventoryHint bool     // overview-only navigation hint for later-stage agents
 }

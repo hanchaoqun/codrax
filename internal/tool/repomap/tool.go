@@ -342,13 +342,14 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 
 	// Generate the requested view
 	viewParams := ViewParams{
-		Query:         p.Query,
-		TargetFile:    p.TargetFile,
-		EntryPoint:    p.EntryPoint,
-		Sources:       append([]string(nil), p.Sources...),
-		Scopes:        repoMapRelationScopes(p),
-		RelationKinds: append([]string(nil), p.RelationKinds...),
-		TopN:          p.TopN,
+		Query:                   p.Query,
+		TargetFile:              p.TargetFile,
+		EntryPoint:              p.EntryPoint,
+		Sources:                 append([]string(nil), p.Sources...),
+		Scopes:                  repoMapRelationScopes(p),
+		RelationKinds:           append([]string(nil), p.RelationKinds...),
+		TopN:                    p.TopN,
+		ShowSourceInventoryHint: repoMapOverviewSourceInventoryHintEnabled(ctx, p.View),
 	}
 	output := render.GenerateView(graph, p.View, viewParams)
 
@@ -360,6 +361,16 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func repoMapOverviewSourceInventoryHintEnabled(ctx *ctypes.BusContext, view string) bool {
+	if view != "" && view != "overview" {
+		return false
+	}
+	if ctx == nil {
+		return true
+	}
+	return ctx.PipelineStage != ctypes.StageAnalyze && ctx.ActiveAgent != ctypes.AgentAnalyzer
 }
 
 func repoMapRelationScopes(p repoMapParams) []string {
