@@ -90,6 +90,12 @@ type SubAgentResult struct {
 	// Compact dataflow findings emitted by the sub-agent.
 	FlowFindings []FlowFindingDigest `json:"flow_findings,omitempty"`
 
+	// InvestigationNotes are bounded, model-authored advisory notes from
+	// the sub-agent's no-tool prose. They are carried for downstream
+	// synthesis only; they are not citations and do not satisfy evidence
+	// validators by themselves.
+	InvestigationNotes []string `json:"investigation_notes,omitempty"`
+
 	// Tool invocation results
 	Tools []ToolResult `json:"tool_results,omitempty"`
 

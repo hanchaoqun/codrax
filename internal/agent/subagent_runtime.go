@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -207,15 +208,19 @@ func combineErrors(errs []error) error {
 // Merge strategy:
 //   - Facts/Tools/MCP: append (accumulate)
 //   - Signals: OR semantics (any sub-agent sets it → it's set)
+//   - InvestigationNotes: append bounded advisory notes for Turn A handoff
 //   - Output: merged into JSON array
 //   - Errors: concatenated
 type SubAgentReducer struct{}
+
+const maxReducedSubAgentAdvisoryNotes = 12
 
 // Reduce merges all results into one StageOutput for the orchestrator.
 func (r *SubAgentReducer) Reduce(results []*types.SubAgentResult) *StageOutput {
 	merged := &StageOutput{}
 	signals := &types.ExecutionSignals{}
 	var outputs []json.RawMessage
+	var advisoryNotes []string
 
 	for _, res := range results {
 		if res == nil {
@@ -234,6 +239,7 @@ func (r *SubAgentReducer) Reduce(results []*types.SubAgentResult) *StageOutput {
 		merged.NewFacts = append(merged.NewFacts, res.Facts...)
 		merged.EvidenceItems = append(merged.EvidenceItems, res.EvidenceItems...)
 		merged.FlowFindings = append(merged.FlowFindings, res.FlowFindings...)
+		advisoryNotes = appendSubAgentAdvisoryNotes(advisoryNotes, res.InvestigationNotes...)
 		merged.ToolResults = append(merged.ToolResults, res.Tools...)
 		merged.MCPResponses = append(merged.MCPResponses, res.MCPResps...)
 
@@ -249,9 +255,38 @@ func (r *SubAgentReducer) Reduce(results []*types.SubAgentResult) *StageOutput {
 	}
 
 	merged.SignalUpdates = signals
+	merged.InvestigationNotes = advisoryNotes
 	if len(outputs) > 0 {
 		merged.Data, _ = json.Marshal(outputs)
 	}
 
 	return merged
+}
+
+func appendSubAgentAdvisoryNotes(existing []string, incoming ...string) []string {
+	if len(incoming) == 0 {
+		return existing
+	}
+	seen := make(map[string]struct{}, len(existing)+len(incoming))
+	for _, note := range existing {
+		key := strings.TrimSpace(note)
+		if key != "" {
+			seen[key] = struct{}{}
+		}
+	}
+	for _, note := range incoming {
+		note = strings.TrimSpace(note)
+		if note == "" {
+			continue
+		}
+		if _, ok := seen[note]; ok {
+			continue
+		}
+		seen[note] = struct{}{}
+		existing = append(existing, note)
+		if len(existing) >= maxReducedSubAgentAdvisoryNotes {
+			break
+		}
+	}
+	return existing
 }

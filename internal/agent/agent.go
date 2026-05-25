@@ -37,6 +37,12 @@ type StageOutput struct {
 	// Compact dataflow findings discovered during execution.
 	FlowFindings []types.FlowFindingDigest `json:"flow_findings,omitempty"`
 
+	// InvestigationNotes carries bounded model-authored advisory notes that
+	// should survive reducer boundaries. These notes are not citations and
+	// must not satisfy structured evidence gates by themselves; downstream
+	// prompts render them through TurnAArtifacts' existing advisory channel.
+	InvestigationNotes []string `json:"investigation_notes,omitempty"`
+
 	// AnswerChains: deterministic answer-relevance envelopes produced
 	// by identifyAnswerChains. Each element wraps an EvidenceItem
 	// plus the computed Score + StrictOK flag. The finalizer prompt
@@ -1506,8 +1512,15 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		}
 		effectiveToolNames := toolSchemaNameSet(effectiveTools)
 
+		requestMessages := messages
+		if directive := currentTurnToolSurfaceDirective(iterToolSchemas, effectiveTools); directive != "" {
+			requestMessages = append(requestMessages, llm.Message{Role: "user", Content: directive})
+			logging.Debug("[diag %s] iter=%d phase=tool_surface directive injected tools=%s",
+				b.name, i, strings.Join(sortedToolSchemaNames(effectiveTools), ","))
+		}
+
 		// Reason — call LLM
-		telemetry := llm.BuildRequestTelemetry(b.deps.LLM, messages, effectiveTools)
+		telemetry := llm.BuildRequestTelemetry(b.deps.LLM, requestMessages, effectiveTools)
 		logging.Debug("[diag %s] iter=%d phase=llm_request model=%s context_tokens_est=%d context_window=%d messages=%d tools=%d",
 			b.name, i, telemetry.ModelID, telemetry.ContextTokensEstimate, telemetry.ContextWindowTokens, telemetry.MessageCount, telemetry.ToolCount)
 		b.deps.Emit(render.Event{
@@ -1589,7 +1602,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		if disableToolsThisTurn || len(effectiveTools) == 0 {
 			toolChoice = ""
 		}
-		resp, err := b.deps.LLM.Chat(ctx.Context(), messages, effectiveTools, llm.ChatOptions{
+		resp, err := b.deps.LLM.Chat(ctx.Context(), requestMessages, effectiveTools, llm.ChatOptions{
 			ToolChoice:      toolChoice,
 			OnContentDelta:  streamBuf.onDelta,
 			OnToolCallDelta: onToolCallDelta,
@@ -3225,6 +3238,56 @@ func toolSchemaNameSet(schemas []llm.ToolSchema) map[string]bool {
 		}
 	}
 	return out
+}
+
+func sortedToolSchemaNames(schemas []llm.ToolSchema) []string {
+	seen := make(map[string]bool, len(schemas))
+	for _, schema := range schemas {
+		name := strings.TrimSpace(schema.Name)
+		if name != "" {
+			seen[name] = true
+		}
+	}
+	return sortedToolNames(seen)
+}
+
+func currentTurnToolSurfaceDirective(base, effective []llm.ToolSchema) string {
+	if len(base) == 0 || len(effective) == 0 || !toolSurfaceNarrowed(base, effective) {
+		return ""
+	}
+	names := sortedToolSchemaNames(effective)
+	if len(names) == 0 {
+		return ""
+	}
+	quoted := make([]string, 0, len(names))
+	for _, name := range names {
+		quoted = append(quoted, "`"+name+"`")
+	}
+	return fmt.Sprintf(
+		"[current tool surface]\n"+
+			"For this turn, callable tools are: %s.\n"+
+			"The current tool schema is authoritative. Use only these tool names. Continue from the visible transcript and stable checkpoints; earlier workflow text, examples, or previous tool-call history may mention other tools, but they are not callable in this turn. If these tools are insufficient, state the limitation in the appropriate structured emit instead of calling an unlisted tool.",
+		strings.Join(quoted, ", "))
+}
+
+func toolSurfaceNarrowed(base, effective []llm.ToolSchema) bool {
+	baseNames := toolSchemaNameSet(base)
+	effectiveNames := toolSchemaNameSet(effective)
+	if len(baseNames) == 0 || len(effectiveNames) == 0 {
+		return false
+	}
+	if len(effectiveNames) < len(baseNames) {
+		return true
+	}
+	if len(effectiveNames) > len(baseNames) {
+		return false
+	}
+	for name := range baseNames {
+		if !effectiveNames[name] {
+			return true
+		}
+	}
+	return false
 }
 
 // rejectAnalyzerPrescanTool synthesises the failed ToolResult

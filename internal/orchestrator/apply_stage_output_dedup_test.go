@@ -91,6 +91,43 @@ func TestApplyStageOutput_DedupsAnswerChainsOnSelfLoop(t *testing.T) {
 	}
 }
 
+func TestApplyStageOutput_MergesAdvisoryInvestigationNotesIntoTurnA(t *testing.T) {
+	ar, sr, sar := buildRegistries(nil)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.busCtx = &types.BusContext{
+		Mutable:       types.NewMutableState("question"),
+		PipelineStage: types.StageExplore,
+		ActiveAgent:   types.AgentExplorer,
+		TaskState:     types.TaskState{Stage: types.StageExplore},
+	}
+	o.busCtx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		InvestigationNotes: []string{"existing advisory"},
+		ReadFiles:          []string{"a.go"},
+	})
+
+	o.applyStageOutput(&agent.StageOutput{
+		InvestigationNotes: []string{
+			"sub-agent advisory",
+			"sub-agent advisory",
+			"  ",
+		},
+	})
+
+	ta := o.busCtx.Mutable.TurnAArtifacts()
+	if ta == nil {
+		t.Fatal("TurnAArtifacts missing")
+	}
+	if got, want := len(ta.InvestigationNotes), 2; got != want {
+		t.Fatalf("InvestigationNotes len=%d, want %d: %+v", got, want, ta.InvestigationNotes)
+	}
+	if ta.InvestigationNotes[0] != "existing advisory" || ta.InvestigationNotes[1] != "sub-agent advisory" {
+		t.Fatalf("InvestigationNotes not merged in order: %+v", ta.InvestigationNotes)
+	}
+	if got := len(ta.ReadFiles); got != 1 || ta.ReadFiles[0] != "a.go" {
+		t.Fatalf("existing TurnA fields were not preserved: %+v", ta.ReadFiles)
+	}
+}
+
 func TestApplyStageOutput_DedupsAnswerSymbolsOnSelfLoop(t *testing.T) {
 
 	ar, sr, sar := buildRegistries(nil)

@@ -7606,6 +7606,22 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 		})
 	}
 
+	// Preserve reducer-produced advisory investigation notes in the existing
+	// Turn A handoff. These notes are model-authored context only: they are
+	// not citations, do not satisfy evidence gates, and are rendered downstream
+	// through TurnAArtifacts' bounded advisory channel.
+	if len(output.InvestigationNotes) > 0 && o.busCtx.Mutable != nil {
+		artifacts := o.busCtx.Mutable.TurnAArtifacts()
+		if artifacts == nil {
+			artifacts = &types.TurnAArtifacts{}
+		}
+		artifacts.InvestigationNotes = appendUniqueInvestigationNotes(
+			artifacts.InvestigationNotes,
+			output.InvestigationNotes,
+		)
+		o.busCtx.Mutable.SetTurnAArtifacts(*artifacts)
+	}
+
 	// Carry the agent's own retry diagnosis through to the next
 	// dispatch. CGEC B3: only overwrite when the stage produced a
 	// non-empty hint of its own. An empty output.RetryHint leaves
@@ -7673,6 +7689,32 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	if output.Error != "" {
 		o.busCtx.TaskState.LastError = output.Error
 	}
+}
+
+func appendUniqueInvestigationNotes(existing, incoming []string) []string {
+	if len(incoming) == 0 {
+		return existing
+	}
+	seen := make(map[string]struct{}, len(existing)+len(incoming))
+	for _, note := range existing {
+		key := strings.TrimSpace(note)
+		if key != "" {
+			seen[key] = struct{}{}
+		}
+	}
+	out := append([]string(nil), existing...)
+	for _, note := range incoming {
+		note = strings.TrimSpace(note)
+		if note == "" {
+			continue
+		}
+		if _, ok := seen[note]; ok {
+			continue
+		}
+		seen[note] = struct{}{}
+		out = append(out, note)
+	}
+	return out
 }
 
 // BusContext returns the current bus context (for inspection/testing).

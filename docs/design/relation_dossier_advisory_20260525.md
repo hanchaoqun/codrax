@@ -270,6 +270,101 @@ systemic P0 patterns were clear enough to debug from logs/code:
     not as semantic agent work;
   - keep semantic retry budgets separate from provider retry/backoff budgets so
     a provider hang does not look like evidence insufficiency.
+- Add a per-turn tool-surface directive for runtime-narrowed tool sets:
+  - root cause from `u4b`: the effective schema was narrowed to
+    `emit_evidence` / `emit_investigation_complete`, but the prompt transcript
+    still contained older workflow text, previous tool-call history, and
+    source-code comments mentioning navigation tools. Strict providers follow
+    the supplied schema, but compatible/local providers can be pulled by this
+    stale affordance and emit an unavailable tool call;
+  - the directive must be transient request context only, not appended to the
+    durable conversation history, so it cannot become another stale instruction;
+  - it lists only currently callable tool names and never repeats unavailable
+    names, avoiding a new leakage vector;
+  - it is triggered solely by structured tool-schema narrowing
+    (`base_schemas` vs `effective_schemas`), not by user-question or model-prose
+    keywords. This keeps it generic across analyzer terminal mode, explorer
+    repair/materialization mode, extractor/finalizer retries, external
+    artifacts, multi-repo work, and all languages.
+- Add a stable advisory handoff for rich no-tool sub-agent artifacts:
+  - `u4b-20260525-212509` timed out after the parent explorer spawned scoped
+    `sub_explorer` branches. One branch produced a 16k-byte, model-authored
+    JSON/prose inventory of the scoped package and reached `STOP at iter=6
+    (soft)`, but the artifact never reached the durable handoff. The same
+    run then continued through other branches, repeated broad file reads, and
+    hit the external 20 minute eval timeout.
+  - Code path:
+    - `internal/agent/sub_explorer.go`: `Observe` appends no-tool content to
+      `investigationNotes`, but evidence-quality checks count only markdown
+      lines beginning with `- [DIRECT]` or `- [REGISTRATION]`. Rich JSON,
+      tables, prose lists, logs, or diagrams can therefore be user-visible yet
+      structurally invisible.
+    - `subExplorerEvaluator.ParseOutput` returns `Data: {}` and no explicit
+      advisory field. `BaseAgent.Execute` auto-captures the last assistant
+      message as `StageReport`, but `SubExplorer.Run` drops that field when it
+      converts `StageOutput` to `types.SubAgentResult`.
+    - `internal/agent/subagent_runtime.go`: `SubAgentReducer.Reduce` merges
+      facts, tool results, evidence, flow findings, and `Output`, but it has no
+      channel for sub-agent investigation notes or stage reports.
+    - `internal/orchestrator/orchestrator.go`: when a proposal is present,
+      the parent explorer output is replaced with the reduced sub-agent
+      output before `applyStageOutput`. The parent `TurnAArtifacts` snapshot
+      may already exist, but sub-agent prose is not appended to it.
+    - `internal/types/context.go`: `TurnAArtifacts.InvestigationNotes` is the
+      existing advisory handoff accepted by extractor/finalizer. It already
+      states that notes are not citations and is rendered with byte limits in
+      downstream prompts. This is the correct wheel to reuse.
+  - Deep root causes:
+    - The system has two channels for no-tool prose. Main explorer preserves
+      its own `investigationNotes` into `TurnAArtifacts`; sub-agents do not.
+      This asymmetry makes a rich scoped investigation disappear exactly at the
+      reducer boundary.
+    - `sub_explorer` is registered as a singleton, while
+      `SubAgentRuntime.execute` may run several requests in parallel. The
+      evaluator keeps mutable fields (`objective`, `scope`,
+      `investigationNotes`, `structuredEvidence`, `flowFindings`), so parallel
+      branches can race or cross-contaminate even before reducer handoff.
+    - The weak-evidence soft-stop test is format-sensitive. It should not
+      claim a JSON/prose artifact is grounded evidence, but it also should not
+      make the artifact vanish or force indefinite broad reading merely because
+      it did not use the legacy markdown evidence bullet format.
+  - Design:
+    - Treat rich no-tool sub-agent output as advisory artifact, not evidence.
+      It can preserve model-authored scope, inventory, caveats, partial counts,
+      diagrams, and external-artifact observations, but it must not satisfy
+      citable evidence gates, member-set coverage, or citation validators.
+    - Reuse `TurnAArtifacts.InvestigationNotes` as the downstream carrier.
+      Add only the missing reducer/apply-stage plumbing needed for sub-agent
+      notes to join the existing handoff; do not add a second parallel
+      transcript ledger.
+    - Keep prompt volume bounded at render time and at capture time:
+      preserve the artifact text, dedupe exact repeats by stable content
+      identity, cap the number of sub-agent advisory notes per reduce, and rely
+      on existing extractor/finalizer note truncation before prompt insertion.
+    - Promote to structured evidence only through existing machine-verifiable
+      paths (`emit_evidence` or the current markdown parser plus grounding).
+      If parsing fails, keep the original advisory text instead of forcing a
+      rewrite.
+    - Make each `SubExplorer.Run` use a fresh evaluator/base instance so
+      mutable branch state is isolated under parallel execution. This is
+      generic for all sub-agent tasks and all languages; it does not inspect
+      user text or model prose.
+    - Reduce duplicate broad work separately from evidence truth: sub-agent
+      advisory handoff may help downstream agents decide that a rich scoped
+      investigation exists, but it must not close a branch that still has a
+      machine-verifiable principal blocker.
+  - Risk controls:
+    - Hallucination risk: advisory notes are labeled as not citations and not
+      validator facts. Typed evidence and tool outputs remain authoritative.
+    - Prompt-bloat risk: capture and render limits are explicit; exact repeats
+      are deduped.
+    - Concurrency risk: per-run evaluator/base removes shared mutable state
+      from parallel sub-agent execution.
+    - Cross-language and external-artifact risk: no parser assumes Go. File
+      and line promotion still goes through existing multi-language grounding;
+      ungrounded prose stays advisory.
+    - UX risk: user-visible scroll output remains unchanged. The fix only
+      prevents later stages from losing useful model-authored artifacts.
 
 ### Follow-up Task List
 
@@ -295,10 +390,31 @@ systemic P0 patterns were clear enough to debug from logs/code:
 - [x] Recover whole-message bare argument objects for uniquely matched
       structural `emit_*` tools in compatibility mode, reusing the existing
       schema-aware path.
-- [ ] Add pre-prune stable evidence checkpoint so accepted evidence survives
+- [x] Add pre-prune stable evidence checkpoint so accepted evidence survives
       `TOOL HISTORY PRUNED` before the model continues optional exploration.
-- [ ] Make evidence-repair hints schema-aware with respect to currently
+- [x] Make evidence-repair hints schema-aware with respect to currently
       exposed tools; never request `read_file` / `grep` in a repair state that
       does not expose those tools.
-- [ ] Audit and fix LLM stream timeout/cancel observability so configured
+- [x] Audit and fix LLM stream timeout/cancel observability so configured
       first-byte/request/stall timeouts cannot silently exceed their budgets.
+- [x] Add a transient current-turn tool-surface directive when runtime filters
+      narrow the tool schema, so stale prompt/history mentions do not pull
+      compatible providers toward unavailable tools.
+- [x] Land root-cause analysis and design for rich no-tool subagent/explorer
+      prose handoff, including reducer, TurnA, prompt-volume, concurrency, and
+      evidence-promotion risk boundaries.
+- [x] Implement a stable handoff for rich no-tool subagent/explorer
+      prose artifacts. `u4b` timed out after 20 minutes even though both the
+      parent explorer and sub_explorer produced detailed inventories in prose:
+      the content was visible to the user, but it was not promoted to accepted
+      evidence, closure, or a durable advisory artifact. Subsequent soft-stop
+      checks treated the branch as weakly evidenced and continued reading.
+      The fix must preserve the model-authored artifact without pretending it
+      is citable structured evidence, then give reducers/finalizer a safe way
+      to use it as advisory context or fallback display.
+- [x] Make `SubExplorer.Run` instantiate a fresh evaluator/base per request so
+      parallel sub-agent branches cannot share mutable investigation state.
+- [x] Extend `SubAgentResult` / `SubAgentReducer` / `applyStageOutput` to carry
+      bounded advisory investigation notes into `TurnAArtifacts`.
+- [x] Add regression tests for sub-agent advisory handoff, bounded note merge,
+      exact-repeat dedupe, and per-run evaluator isolation.

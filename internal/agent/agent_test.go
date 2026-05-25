@@ -144,6 +144,41 @@ func TestToolDetailForCallStructuredEmitSummaries(t *testing.T) {
 	}
 }
 
+func TestCurrentTurnToolSurfaceDirectiveOnlyNamesCallableTools(t *testing.T) {
+	base := []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+	effective := []llm.ToolSchema{
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	}
+
+	got := currentTurnToolSurfaceDirective(base, effective)
+	if got == "" {
+		t.Fatal("expected directive for narrowed tool surface")
+	}
+	for _, want := range []string{"`emit_evidence`", "`emit_investigation_complete`", "current tool schema is authoritative"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("directive missing %q: %s", want, got)
+		}
+	}
+	for _, unavailable := range []string{"`read_file`", "`grep`"} {
+		if strings.Contains(got, unavailable) {
+			t.Fatalf("directive must not restate unavailable tool %s: %s", unavailable, got)
+		}
+	}
+}
+
+func TestCurrentTurnToolSurfaceDirectiveSkipsUnchangedSurface(t *testing.T) {
+	base := []llm.ToolSchema{{Name: "emit_evidence"}, {Name: "emit_investigation_complete"}}
+	if got := currentTurnToolSurfaceDirective(base, base); got != "" {
+		t.Fatalf("unchanged tool surface should not inject directive, got %q", got)
+	}
+}
+
 // TestContextPressureDirective_AgentSpecific locks the per-agent
 // terminal-tool mapping. Each agent's AllowedSet MUST name ONLY
 // tools it actually has access to — suggesting "emit_change_plan"

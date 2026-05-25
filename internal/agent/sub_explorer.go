@@ -18,14 +18,14 @@ import (
 // SubExplorer is a SubAgent that scans files within a given scope
 // and discovers facts about the codebase.
 type SubExplorer struct {
-	base *BaseAgent
+	deps *Dependencies
 }
 
-// NewSubExplorer creates a SubExplorer backed by a BaseAgent with its own evaluator.
+// NewSubExplorer creates a SubExplorer factory. Each Run builds a fresh
+// BaseAgent/evaluator pair so parallel sub-agent branches cannot share mutable
+// investigation state.
 func NewSubExplorer(deps *Dependencies) *SubExplorer {
-	eval := &subExplorerEvaluator{tools: deps.Tools}
-	base := NewBaseAgent("sub_explorer", deps, eval)
-	return &SubExplorer{base: base}
+	return &SubExplorer{deps: deps}
 }
 
 func (s *SubExplorer) Name() string {
@@ -35,6 +35,12 @@ func (s *SubExplorer) Name() string {
 func (s *SubExplorer) Run(req *types.SubAgentRequest) (*types.SubAgentResult, error) {
 	// Shared read: build read-only AgentContext from shared BusContext
 	agentCtx := ctxbuilder.BuildSubAgentContext(req.ReadView, req)
+	deps := s.deps
+	if deps == nil {
+		deps = &Dependencies{}
+	}
+	eval := &subExplorerEvaluator{tools: deps.Tools}
+	base := NewBaseAgent("sub_explorer", deps, eval)
 
 	// Build a scan-oriented skill
 	sk := &skill.Config{
@@ -52,7 +58,7 @@ func (s *SubExplorer) Run(req *types.SubAgentRequest) (*types.SubAgentResult, er
 	}
 
 	// Isolated write: Execute returns StageOutput without touching BusContext
-	output, err := s.base.Execute(agentCtx, sk)
+	output, err := base.Execute(agentCtx, sk)
 	if err != nil {
 		return &types.SubAgentResult{
 			RequestID: req.ID,
@@ -69,10 +75,85 @@ func (s *SubExplorer) Run(req *types.SubAgentRequest) (*types.SubAgentResult, er
 		Facts:         output.NewFacts,
 		EvidenceItems: output.EvidenceItems,
 		FlowFindings:  output.FlowFindings,
-		Tools:         output.ToolResults,
-		MCPResps:      output.MCPResponses,
-		Signals:       output.SignalUpdates,
+		InvestigationNotes: subExplorerAdvisoryNotes(
+			req,
+			eval.investigationNotes,
+			output.StageReport,
+		),
+		Tools:    output.ToolResults,
+		MCPResps: output.MCPResponses,
+		Signals:  output.SignalUpdates,
 	}, nil
+}
+
+const (
+	subExplorerAdvisoryMaxNotes     = 3
+	subExplorerAdvisoryMaxNoteBytes = 32768
+)
+
+func subExplorerAdvisoryNotes(req *types.SubAgentRequest, notes []string, stageReport string) []string {
+	candidates := append([]string(nil), notes...)
+	if strings.TrimSpace(stageReport) != "" {
+		candidates = append(candidates, stageReport)
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	start := len(candidates) - subExplorerAdvisoryMaxNotes
+	if start < 0 {
+		start = 0
+	}
+	seen := make(map[string]struct{}, len(candidates)-start)
+	out := make([]string, 0, len(candidates)-start)
+	for _, note := range candidates[start:] {
+		note = strings.TrimSpace(note)
+		if note == "" {
+			continue
+		}
+		if _, ok := seen[note]; ok {
+			continue
+		}
+		seen[note] = struct{}{}
+		out = append(out, formatSubExplorerAdvisoryNote(req, truncateSubExplorerAdvisoryNote(note)))
+	}
+	return out
+}
+
+func formatSubExplorerAdvisoryNote(req *types.SubAgentRequest, note string) string {
+	if req == nil {
+		return "Sub-agent advisory result (not a citation):\n\n" + note
+	}
+	var b strings.Builder
+	b.WriteString("Sub-agent advisory result (not a citation):")
+	if req.ID != "" {
+		fmt.Fprintf(&b, " request_id=%s", req.ID)
+	}
+	if req.SubAgent != "" {
+		fmt.Fprintf(&b, " sub_agent=%s", req.SubAgent)
+	}
+	if req.Objective != "" {
+		fmt.Fprintf(&b, " objective=%q", req.Objective)
+	}
+	if len(req.Scope) > 0 {
+		fmt.Fprintf(&b, " scope=%q", strings.Join(req.Scope, ", "))
+	}
+	b.WriteString("\n\n")
+	b.WriteString(note)
+	return b.String()
+}
+
+func truncateSubExplorerAdvisoryNote(note string) string {
+	if len(note) <= subExplorerAdvisoryMaxNoteBytes {
+		return note
+	}
+	cut := subExplorerAdvisoryMaxNoteBytes
+	for cut > 0 && (note[cut]&0xC0) == 0x80 {
+		cut--
+	}
+	if cut <= 0 {
+		cut = subExplorerAdvisoryMaxNoteBytes
+	}
+	return strings.TrimSpace(note[:cut]) + "\n\n[advisory note truncated]"
 }
 
 // subExplorerEvaluator implements Evaluator and LoopController for
