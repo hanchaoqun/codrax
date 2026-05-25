@@ -13,7 +13,7 @@ import (
 // TestPlannerBuildInitialInstruction_ProbeHistorySection verifies
 // that when the planner has run dry-run probes earlier in the Run,
 // their results are rendered into the next dispatch's initial prompt
-// as a "## Plan-stage probe results" section — verbatim, no
+// as a "## Probe results" section — verbatim, no
 // system pre-classification.
 func TestPlannerBuildInitialInstruction_ProbeHistorySection(t *testing.T) {
 	mu := types.NewMutableState("plan probe test")
@@ -29,7 +29,7 @@ func TestPlannerBuildInitialInstruction_ProbeHistorySection(t *testing.T) {
 	ctx := &types.AgentContext{Mutable: mu}
 	got := e.BuildInitialInstruction(ctx, nil)
 
-	if !strings.Contains(got, "## Plan-stage probe results") {
+	if !strings.Contains(got, "## Probe results") {
 		t.Errorf("expected probe history section; got:\n%s", got)
 	}
 	if !strings.Contains(got, "1 passed, 1 failed") {
@@ -53,7 +53,7 @@ func TestPlannerBuildInitialInstruction_NoProbeNoSection(t *testing.T) {
 	e := &plannerEvaluator{}
 	ctx := &types.AgentContext{Mutable: mu}
 	got := e.BuildInitialInstruction(ctx, nil)
-	if strings.Contains(got, "Plan-stage probe results") {
+	if strings.Contains(got, "## Probe results") {
 		t.Errorf("no probe should produce no section; got:\n%s", got)
 	}
 }

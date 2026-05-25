@@ -185,7 +185,7 @@ func (t *RunTests) Parameters() json.RawMessage {
     },
     "dry_run": {
       "type": "boolean",
-      "description": "Plan-stage probe mode. When true AND you are in plan stage, the tool runs against the user's main repo without requiring a worktree, and the result goes into a separate plan-stage probe channel — it does NOT become the verify-stage outcome. Use this to learn what the existing test suite reports BEFORE emitting your plan so you can write a plan that responds to observed behaviour. Outside plan stage the flag is ignored."
+      "description": "Planning probe mode. When true while preparing a change plan, the tool runs against the user's main repo without requiring a worktree, and the result is recorded separately from the final verification result. Use this to learn what the existing test suite reports BEFORE emitting your plan so you can write a plan that responds to observed behaviour. Outside change planning the flag is ignored."
     }
   }
 }`)
@@ -1047,17 +1047,17 @@ func makeResourceExhaustionReport(kind, detail string) *types.ChangeReport {
 // when the failure mode is "tool not installed" rather than "tool ran
 // and reported red". Three signals trigger detection:
 //
-//   1. Exit code 127 — POSIX convention for "command not found" set
-//      by sh / bash when invoking an unknown binary. Both Linux and
-//      macOS shells produce this.
-//   2. Go's os/exec returns exec.ErrNotFound when LookPath fails on
-//      a direct (non-shell-wrapped) invocation. We unwrap runErr's
-//      chain to spot it.
-//   3. Output (stderr captured via combined buffer) contains the
-//      shell-emitted "command not found" / "not found" / "executable
-//      file not found" patterns. Matched defensively against the
-//      runner's primary binary name so a test's literal "X not found"
-//      output doesn't false-positive.
+//  1. Exit code 127 — POSIX convention for "command not found" set
+//     by sh / bash when invoking an unknown binary. Both Linux and
+//     macOS shells produce this.
+//  2. Go's os/exec returns exec.ErrNotFound when LookPath fails on
+//     a direct (non-shell-wrapped) invocation. We unwrap runErr's
+//     chain to spot it.
+//  3. Output (stderr captured via combined buffer) contains the
+//     shell-emitted "command not found" / "not found" / "executable
+//     file not found" patterns. Matched defensively against the
+//     runner's primary binary name so a test's literal "X not found"
+//     output doesn't false-positive.
 //
 // runnerPrimaryBinary maps each runner identifier to its expected
 // CLI binary so we know which substring to anchor detection on. The
@@ -1763,13 +1763,12 @@ func testFileMatcher(runner string) func(path, name string) bool {
 		return func(path, name string) bool {
 			lower := strings.ToLower(name)
 			for _, frag := range []string{".test.", ".spec."} {
-				if strings.Contains(lower, frag) && (
-					strings.HasSuffix(lower, ".js") ||
-						strings.HasSuffix(lower, ".jsx") ||
-						strings.HasSuffix(lower, ".ts") ||
-						strings.HasSuffix(lower, ".tsx") ||
-						strings.HasSuffix(lower, ".mjs") ||
-						strings.HasSuffix(lower, ".cjs")) {
+				if strings.Contains(lower, frag) && (strings.HasSuffix(lower, ".js") ||
+					strings.HasSuffix(lower, ".jsx") ||
+					strings.HasSuffix(lower, ".ts") ||
+					strings.HasSuffix(lower, ".tsx") ||
+					strings.HasSuffix(lower, ".mjs") ||
+					strings.HasSuffix(lower, ".cjs")) {
 					return true
 				}
 			}

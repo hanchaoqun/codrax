@@ -699,7 +699,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		rm := ctx.AnalysisIR.RequestModel
 		if rm.CompletenessObligation.IsActive() {
 			b.WriteString("### Exhaustive-coverage Obligation\n\n")
-			fmt.Fprintf(&b, "The user demands every match (`%s` in the question). Every grep / repo_map / list_files candidate file MUST be either read_file'd OR explicitly excluded by a narrower follow-up grep before you call emit_investigation_complete with result_kind='resolved'. The framework refuses premature completion when scanned candidates remain unread under this obligation. The honest fallback when the investigation legitimately cannot enumerate the full set is result_kind='absence' with absence_justification, OR an emit_investigation_complete that explicitly notes the un-read scope.\n\n",
+			fmt.Fprintf(&b, "The user demands every match (`%s` in the question). Every grep / repo_map / list_files candidate file MUST be either read_file'd OR explicitly excluded by a narrower follow-up grep before you call emit_investigation_complete with result_kind='resolved'. Premature completion is refused when scanned candidates remain unread under this obligation. The honest fallback when the investigation legitimately cannot enumerate the full set is result_kind='absence' with absence_justification, OR an emit_investigation_complete that explicitly notes the un-read scope.\n\n",
 				rm.CompletenessObligation.SourceQuote)
 		}
 		if rm.Predicates.IsCountQuestion || len(rm.Buckets) >= 2 || rm.EnumerationBoundary != nil || (rm.CompletenessObligation != nil && rm.CompletenessObligation.Required) || types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
@@ -707,7 +707,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			b.WriteString("When the answer depends on derived totals, unique-set sizes, per-dimension counts, user-bucket counts, excluded-candidate counts, or an exhaustive principal member list, include `aggregate_facts` in your successful `emit_investigation_complete` call. Do this even when the same numbers or member names also appear in your reason prose.\n")
 			b.WriteString("- Use `member_set` for an exact exhaustive list of principal answer members, `total_count` for the principal hit count, `unique_count` for distinct file/package/module sets, `grouped_count` for syntax/category/language dimensions, `bucket_count` for user-named partitions, and `excluded_count` for comments/tests/docs/unrelated candidates that were deliberately not counted.\n")
 			b.WriteString("- Put concrete members in `members` when they are part of the user's requested answer, such as enum/type names, file:line labels, or distinct file paths. A `member_set` or count fact with `members` is treated as an exact set, so the number of members must match `value`; omit count members rather than provide samples.\n")
-			b.WriteString("- When a `member_set` member is shaped \"<code identifier> (<qualifier>)\" — e.g. `Orchestrator (4-stage pipeline)` — you MUST attach `support_refs` mapping each decorated member to a grounded file:line. The decorator changes the surface text so the framework cannot auto-resolve the member against an evidence anchor named just `Orchestrator`. Two accepted forms: labeled `[\"Orchestrator: codrax/internal/orchestrator/orchestrator.go:42\", \"Gate.Run: codrax/internal/analysis/gate/gate.go:128\"]` (label = the bare leading identifier of each member, no decorator), or positional `[\"codrax/internal/orchestrator/orchestrator.go:42\", \"codrax/internal/analysis/gate/gate.go:128\"]` with one entry per `members[]` in the same order. Bare code-identity members (no decorator) and pure display-prose members keep auto-resolution; only decorated code-shape members trip emit-time rejection when support_refs is empty.\n")
+			b.WriteString("- When a `member_set` member is shaped \"<code identifier> (<qualifier>)\" — e.g. `Orchestrator (4-stage pipeline)` — you MUST attach `support_refs` mapping each decorated member to a grounded file:line. The decorator changes the surface text so automatic resolution cannot match the member against an evidence anchor named just `Orchestrator`. Two accepted forms: labeled `[\"Orchestrator: codrax/internal/orchestrator/orchestrator.go:42\", \"Gate.Run: codrax/internal/analysis/gate/gate.go:128\"]` (label = the bare leading identifier of each member, no decorator), or positional `[\"codrax/internal/orchestrator/orchestrator.go:42\", \"codrax/internal/analysis/gate/gate.go:128\"]` with one entry per `members[]` in the same order. Bare code-identity members (no decorator) and pure display-prose members keep auto-resolution; only decorated code-shape members trip emit-time rejection when support_refs is empty.\n")
 			b.WriteString("- When a count fact's members are source locations spanning multiple files, also emit a companion `unique_count` fact for the distinct file set. Put rejected candidates in `excluded` rather than mixing them into principal members.\n")
 			b.WriteString("- Values must come from your verified command output, grounded evidence, or explicit candidate classification. Do not leave later answer writing to recompute aggregates from prose.\n\n")
 		}
@@ -723,7 +723,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		}
 		if types.ResolveQuestionFamily(rm) == types.QFArchitecture {
 			b.WriteString("### Architecture Role / Output Handoff\n\n")
-			b.WriteString("Architecture answers need both component boundaries and role/output detail. For each stage, layer, module, agent, subsystem, or pipeline component you intend downstream synthesis to describe, emit structured evidence for:\n")
+			b.WriteString("Architecture answers need both component boundaries and role/output detail. For each stage, layer, module, agent, subsystem, or pipeline component you intend the answer to describe, emit structured evidence for:\n")
 			b.WriteString("- the component anchor itself (`definition`, `registration`, `import`, or call/dispatch relation when that is the real boundary);\n")
 			b.WriteString("- the role or responsibility it performs, preferably as `evidence_kind=\"mechanism\"` with grounded subject/object fields and a concise model-authored summary;\n")
 			b.WriteString("- any typed output artifact, plan, IR, report, verdict, state transition, or handoff product it produces/consumes when the source line or doc comment names one.\n")
@@ -744,7 +744,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				target = "the changed target"
 			}
 			b.WriteString("### Change-impact Principal Evidence Handoff\n\n")
-			fmt.Fprintf(&b, "The active change-impact target is `%s`. For every affected production site you intend downstream synthesis to list as a principal file/site/symbol, emit grounded evidence whose structured fields carry the target or owner-qualified member path. Summary prose alone is not a handoff.\n\n", target)
+			fmt.Fprintf(&b, "The active change-impact target is `%s`. For every affected production site you intend the answer to list as a principal file/site/symbol, emit grounded evidence whose structured fields carry the target or owner-qualified member path. Summary prose alone is not a handoff.\n\n", target)
 			b.WriteString("- Put the actual cited source line in `snippet` when the line contains the affected selector/member/config path.\n")
 			b.WriteString("- Use `anchor_kind=\"initializer\"` for struct/object/named-argument/designated/config member initializer lines; use `anchor_kind=\"assignment\"` for direct writes such as `:=` or `=`.\n")
 			b.WriteString("- Preserve the target in `anchor_symbol`, `subject`, `object`, `condition`, or `surface_terms` when that surface is visible on the already-read line. For owner-qualified fields, keep owner + member together rather than emitting only the leaf field name.\n")
@@ -757,7 +757,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				labels = append(labels, fmt.Sprintf("`%s`", bk.Label))
 			}
 			b.WriteString("### User-named Partition\n\n")
-			fmt.Fprintf(&b, "The user split the answer into %d named groups: %s. Investigate each bucket with comparable depth — equal read_file calls per bucket, comparable evidence emission. The downstream answer renderer enforces verbatim use of each label, so investigate to the point you can ground each bucket's items independently.\n\n",
+			fmt.Fprintf(&b, "The user split the answer into %d named groups: %s. Investigate each bucket with comparable depth — equal read_file calls per bucket, comparable evidence emission. The final answer must preserve each label verbatim, so investigate to the point you can ground each bucket's items independently.\n\n",
 				len(rm.Buckets), strings.Join(labels, ", "))
 		}
 	}
@@ -1406,7 +1406,7 @@ func renderExplorerSourceInventoryAdvisory(ctx *types.AgentContext) string {
 	}
 	var b strings.Builder
 	b.WriteString("### Structured Source Inventory Progress\n\n")
-	b.WriteString("The framework has a typed, graph-backed candidate checklist for this source-inventory shape. It is advisory context only: it is not final answer text, not a citation, and not permission to skip grounded evidence.\n")
+	b.WriteString("A typed graph-backed candidate checklist is available for this source-inventory shape. It is advisory context only: it is not final answer text, not a citation, and not permission to skip grounded evidence.\n")
 	b.WriteString("- Use it to avoid re-enumerating the same scope in sibling lanes or transient retries.\n")
 	b.WriteString("- If the checklist matches what you need, verify/read unresolved candidates and carry the model-authored conclusion through emit_evidence / aggregate_facts.\n")
 	b.WriteString("- If it does not match, keep your own investigation boundary and explain the gap in the structured closure instead of silently widening the answer.\n\n")
@@ -4282,12 +4282,12 @@ func renderPartialReadHint(h partialReadHint, smallRemainderThreshold int) strin
 		// read_file offset is 0-based (see internal/tool/builtin.go);
 		// h.readEnd is the 1-based last line read. The next unread
 		// 1-based line is h.readEnd+1 → 0-based offset h.readEnd.
-		return fmt.Sprintf("MID-LOOP CHECK: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered, %d lines remaining). "+
+		return fmt.Sprintf("Progress check: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered, %d lines remaining). "+
 			"If this function is relevant to the question, call read_file with path=%q offset=%d limit=%d to see the rest.\n",
 			h.symbolName, h.file, h.readEnd, h.symStart, h.symEnd, h.coverage*100, unreadLines,
 			h.file, types.LineToReadFileOffset(h.readEnd+1), unreadLines)
 	}
-	return fmt.Sprintf("MID-LOOP CHECK: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered, %d lines remaining). "+
+	return fmt.Sprintf("Progress check: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered, %d lines remaining). "+
 		"If this function is relevant to the question, grep for key identifiers within `%s` (lines %d-%d) to find the important sections, then read those specific ranges.\n",
 		h.symbolName, h.file, h.readEnd, h.symStart, h.symEnd, h.coverage*100, unreadLines,
 		h.file, h.readEnd+1, h.symEnd)
@@ -4702,7 +4702,7 @@ func renderEmitEvidenceRepairHint(targets []evidenceRepairTarget) string {
 		maxFiles = len(targets)
 	}
 	var b strings.Builder
-	b.WriteString("MID-LOOP CHECK: some evidence you just emitted is only recovered or ungrounded, not line-text grounded yet.\n")
+	b.WriteString("Progress check: some evidence you just emitted is only recovered or ungrounded, not line-text grounded yet.\n")
 	b.WriteString("Before reading other files, re-read these exact source locations and re-emit grounded evidence:\n")
 	for _, target := range targets[:maxFiles] {
 		lines := renderRepairLineList(target.lines, 4)
@@ -4725,7 +4725,7 @@ func renderEmitEvidenceRepairClosureOnlyHint(targets []evidenceRepairTarget) str
 		maxFiles = len(targets)
 	}
 	var b strings.Builder
-	b.WriteString("MID-LOOP CHECK: the previous recovered/ungrounded `emit_evidence` rows are still not line-text grounded. Auto-recovered line numbers are audit feedback, not a completed repair for strict citations.\n")
+	b.WriteString("Progress check: the previous recovered/ungrounded `emit_evidence` rows are still not line-text grounded. Auto-recovered line numbers are audit feedback, not a completed repair for strict citations.\n")
 	b.WriteString("Re-emit `emit_evidence` now for these already-read source locations, using the exact gutter line numbers you just saw:\n")
 	for _, target := range targets[:maxFiles] {
 		lines := renderRepairLineList(target.lines, 4)
@@ -4875,7 +4875,7 @@ func (e *explorerEvaluator) postEmitEvidenceRepairClosureOnlySignal(obs LoopObse
 		return LoopSignal{}
 	}
 	targets := e.pendingEvidenceRepairTargets(obs.AllToolResults)
-	hint := "MID-LOOP CHECK: the current dispatch already has a concrete `emit_evidence` repair to do on previously-read anchors. Finish that repair and re-emit grounded evidence before widening scope or opening more files. Do not keep navigating until the repaired `emit_evidence(items=[...])` batch succeeds."
+	hint := "Progress check: the current dispatch already has a concrete `emit_evidence` repair to do on previously-read anchors. Finish that repair and re-emit grounded evidence before widening scope or opening more files. Do not keep navigating until the repaired `emit_evidence(items=[...])` batch succeeds."
 	if len(targets) > 0 {
 		hint = renderEmitEvidenceRepairClosureOnlyHint(targets)
 	}
@@ -4938,7 +4938,7 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 		recording = "have not recorded any new structured evidence yet"
 	}
 	hint := e.renderReadWithoutEmitHint(
-		"MID-LOOP CHECK: you have read %d file(s) %s but %s. ",
+		"Progress check: you have read %d file(s) %s but %s. ",
 		reads, scope, recording,
 	) + e.authoritativeLogDriftReminder(obs.AllToolResults) + e.authoritativeLogBackboneFirstEmitReminder(obs.AllToolResults)
 	if lensHint := explorerSourceInventoryDiscoveryAfterEvidenceHint(obs.AllToolResults); lensHint != "" {
@@ -5000,7 +5000,7 @@ func (e *explorerEvaluator) renderReadWithoutEmitHint(prefixFormat string, reads
 		b.WriteString("After the source evidence batch succeeds, or if no current-source claim needs a file:line citation, call `emit_investigation_complete(reason, confidence, result_kind)` with the origin-specific findings preserved there.")
 		return b.String()
 	}
-	b.WriteString("Facts left only in your prose notes are NOT recorded — anything that is not passed through `emit_evidence(items=[...])` is invisible to the rest of the pipeline (concrete value, definition, call-site, or condition). ")
+	b.WriteString("Facts left only in your prose notes are NOT recorded — anything that is not passed through `emit_evidence(items=[...])` is unavailable to later answer steps (concrete value, definition, call-site, or condition). ")
 	b.WriteString("Pick the strongest anchors you have identified in the files you just read and emit them in ONE batch now. Line numbers MUST come verbatim from the `read_file` gutter (copy the leading `N| ` prefix). ")
 	b.WriteString("After the batch succeeds, continue investigating or call `emit_investigation_complete(reason, confidence, result_kind)`.")
 	return b.String()
@@ -5053,7 +5053,7 @@ func (e *explorerEvaluator) postExecRedirectBeforeEmitSignal(obs LoopObservation
 	return LoopSignal{
 		HintRequested: true,
 		HintKey:       e.emitBacklogWindowHintKey("explorer.mid-loop.exec-redirect-before-emit"),
-		Hint: "MID-LOOP CHECK: you are still browsing with `exec_command` before recording the current structured-evidence backlog. " +
+		Hint: "Progress check: you are still browsing with `exec_command` before recording the current structured-evidence backlog. " +
 			"For repository investigation, switch back to the built-in `grep` / `read_file` tools so paths stay stable across OSes and line gutters remain machine-readable. " +
 			"Use the lines you already read to call `emit_evidence(items=[...])` now; reserve `exec_command` for deterministic computations or checks that the structured tools cannot perform directly.",
 		Progress:       true,
@@ -5112,12 +5112,12 @@ func (e *explorerEvaluator) postReadWithoutEmitEscalationSignal(obs LoopObservat
 
 func (e *explorerEvaluator) renderReadWithoutEmitEscalationHint(backlogScope string) string {
 	if e.originSpecificObservationLaneActive() {
-		return "MID-LOOP CHECK: the earlier current-source evidence nudge was not resolved and the investigation includes origin-specific observations. " +
+		return "Progress check: the earlier current-source evidence nudge was not resolved and the investigation includes origin-specific observations. " +
 			"Do not force VCS history/diff, logs/traces, command output, negative searches, repo-index facts, external documents, web pages, MCP resources, or connector data into `emit_evidence`. " +
 			"If the lines already read contain a real current-checkout source claim that the answer must cite, emit one `emit_evidence(items=[...])` batch for those line anchors now. " +
 			"If the remaining load-bearing facts are origin-specific observations, close with `emit_investigation_complete(reason, confidence, result_kind)` and carry them in `reason` / `aggregate_facts` instead of re-anchoring them to source or doc lines."
 	}
-	return "MID-LOOP CHECK: the earlier `emit_evidence` nudge was ignored and you still have an unrecorded evidence backlog " + backlogScope + ". " +
+	return "Progress check: the earlier `emit_evidence` nudge was ignored and you still have an unrecorded evidence backlog " + backlogScope + ". " +
 		"Stop expanding with more navigation for the moment. Use the grounded lines you have already read to emit ONE batch of `emit_evidence(items=[...])` now. " +
 		"After that batch succeeds, either continue on any truly unresolved branch or call `emit_investigation_complete(reason, confidence, result_kind)` if the evidence already answers the question."
 }
@@ -5128,7 +5128,7 @@ func renderBoundedTraceEndpointBacklogHint(missing []string) string {
 		return ""
 	}
 	display := "`" + strings.Join(missing, "`, `") + "`"
-	return "MID-LOOP CHECK: this dispatch is a bounded path/trace, and the terminal endpoint from the typed analysis is not grounded in the read windows yet: " + display + ". " +
+	return "Progress check: this dispatch is a bounded path/trace, and the terminal endpoint from the typed analysis is not grounded in the read windows yet: " + display + ". " +
 		"Do not switch into broad navigation or whole-function pagination. First emit any current path anchors already visible in the lines you read with `emit_evidence(items=[...])`; then use a targeted `grep` / `read_file` for the missing endpoint or the edge that reaches it. " +
 		"Only call `emit_investigation_complete` after the endpoint/edge is represented by grounded structured evidence."
 }
@@ -5369,14 +5369,14 @@ func (e *explorerEvaluator) postReadWithoutEmitClosureOnlySignal(obs LoopObserva
 		return LoopSignal{
 			HintRequested: true,
 			HintKey:       fmt.Sprintf("explorer.mid-loop.read-without-emit-closure-only.%d", obs.Iteration),
-			Hint: "MID-LOOP CHECK: this mixed-origin investigation still has an unresolved current-source evidence nudge, but origin-specific facts must not be forced into file:line evidence. " +
+			Hint: "Progress check: this mixed-origin investigation still has an unresolved current-source evidence nudge, but origin-specific facts must not be forced into file:line evidence. " +
 				"If the current batch found a real current-checkout source claim, emit that source evidence now; otherwise stop navigating and close with `emit_investigation_complete(reason, confidence, result_kind)`, preserving VCS/log/trace/command/external findings in `reason` / `aggregate_facts`.",
 			Progress:       true,
 			BypassThrottle: true,
 			BypassBudget:   true,
 		}
 	}
-	hint := "MID-LOOP CHECK: an earlier hint already established that your next useful step is to materialize structured evidence. The current batch still spent effort on navigation tools without recording the current backlog. Do NOT keep expanding with `read_file`, `grep`, `repo_map`, `list_files`, or `exec_command` until you first emit ONE grounded `emit_evidence(items=[...])` batch from the lines you already have." + e.authoritativeLogDriftReminder(obs.AllToolResults)
+	hint := "Progress check: an earlier hint already established that your next useful step is to materialize structured evidence. The current batch still spent effort on navigation tools without recording the current backlog. Do NOT keep expanding with `read_file`, `grep`, `repo_map`, `list_files`, or `exec_command` until you first emit ONE grounded `emit_evidence(items=[...])` batch from the lines you already have." + e.authoritativeLogDriftReminder(obs.AllToolResults)
 	if lensHint := explorerSourceInventoryDiscoveryAfterEvidenceHint(obs.AllToolResults); lensHint != "" {
 		hint += lensHint
 	}
@@ -5521,7 +5521,7 @@ func (e *explorerEvaluator) postClosureReadyBacklogSignal(obs LoopObservation) L
 	return LoopSignal{
 		HintRequested: true,
 		HintKey:       fmt.Sprintf("explorer.mid-loop.closure-ready-backlog.%d", obs.Iteration),
-		Hint: "MID-LOOP CHECK: " + state + ", but this batch reopened navigation before finishing the answer. " +
+		Hint: "Progress check: " + state + ", but this batch reopened navigation before finishing the answer. " +
 			"If the new lines you opened truly change the answer, emit exactly ONE grounded `emit_evidence(items=[...])` repair batch from those lines now. " +
 			"Otherwise stop and call `emit_investigation_complete(reason, confidence, result_kind)` immediately. " +
 			"Do NOT keep widening scope or opening more neighboring files from here.",
@@ -5562,7 +5562,7 @@ func (e *explorerEvaluator) postExternalLogRedirectSignal(obs LoopObservation) L
 		return LoopSignal{
 			HintRequested: true,
 			HintKey:       hintKey,
-			Hint: fmt.Sprintf("MID-LOOP CHECK: the attached %s is an external-source runtime artifact (resolved_files=0). ", artifactLabel) +
+			Hint: fmt.Sprintf("Progress check: the attached %s is an external-source runtime artifact (resolved_files=0). ", artifactLabel) +
 				"Runtime frames / spans that do not resolve to repo files cannot go through `emit_evidence`, and reading unrelated repo files just to manufacture citations is wasted work. " +
 				"Keep direct observations separate from inferred upstream causes: artifact bytes prove observed messages/frames/spans, not caller-side value provenance unless the artifact literally says so. " +
 				"If the structured runtime artifact already answers the question, call `emit_investigation_complete` now — the answer can be composed from the log / trace semantics alone. " +
@@ -5608,9 +5608,9 @@ func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) L
 			e.midLoopExactAbsenceContextSent = true
 			var b strings.Builder
 			if roles := types.ConfigTraceMissingRequestedDiagramRoles(e.exactResolution, e.exactContextFiles, e.structuredEvidence); len(roles) > 0 {
-				fmt.Fprintf(&b, "MID-LOOP CHECK: the exact target already looks absent, but the current config-trace answer is still missing grounded precedence coverage for the user-requested role(s) `%s`. Before closing, follow the next structural consumer / merge hop from the precedence layer you already grounded.\n", types.JoinEvidenceDiagramRoles(roles))
+				fmt.Fprintf(&b, "Progress check: the exact target already looks absent, but the current config-trace answer is still missing grounded precedence coverage for the user-requested role(s) `%s`. Before closing, follow the next structural consumer / merge hop from the precedence layer you already grounded.\n", types.JoinEvidenceDiagramRoles(roles))
 			} else {
-				b.WriteString("MID-LOOP CHECK: the exact target already looks absent, but the current config-trace answer is still missing one or more grounded precedence hops. Before closing, follow the next structural consumer / merge hop from the precedence layer you already grounded.\n")
+				b.WriteString("Progress check: the exact target already looks absent, but the current config-trace answer is still missing one or more grounded precedence hops. Before closing, follow the next structural consumer / merge hop from the precedence layer you already grounded.\n")
 			}
 			b.WriteString("The next step is file-local grounding, not another repo-wide search. Use `read_file` directly on one or two of these structurally connected files next, then emit evidence and only after that close with `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`:\n")
 			limit := len(hops)
@@ -5641,12 +5641,12 @@ func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) L
 			var b strings.Builder
 			if e.scenario == types.ScenarioConfigTrace && e.exactResolution != nil && e.exactResolution.TargetKind == types.SubjectConfigKey {
 				if roles := types.ConfigTraceMissingRequestedDiagramRoles(e.exactResolution, e.exactContextFiles, e.structuredEvidence); len(roles) > 0 {
-					fmt.Fprintf(&b, "MID-LOOP CHECK: the exact target already looks absent, but before closing this config-trace answer still needs grounded precedence coverage for the user-requested roles `%s`. Keep reading within the current same-scope lineage until each requested role has its own grounded anchor.\n", types.JoinEvidenceDiagramRoles(roles))
+					fmt.Fprintf(&b, "Progress check: the exact target already looks absent, but before closing this config-trace answer still needs grounded precedence coverage for the user-requested roles `%s`. Keep reading within the current same-scope lineage until each requested role has its own grounded anchor.\n", types.JoinEvidenceDiagramRoles(roles))
 				} else {
-					b.WriteString("MID-LOOP CHECK: the exact target already looks absent, but before closing this config-trace answer still needs enough grounded precedence coverage to explain the nearby lineage honestly. When the same-scope search already spans multiple files, aim for at least two validated precedence roles (for example `default` plus `config` / `runtime` / `override`) before you close.\n")
+					b.WriteString("Progress check: the exact target already looks absent, but before closing this config-trace answer still needs enough grounded precedence coverage to explain the nearby lineage honestly. When the same-scope search already spans multiple files, aim for at least two validated precedence roles (for example `default` plus `config` / `runtime` / `override`) before you close.\n")
 				}
 			} else {
-				b.WriteString("MID-LOOP CHECK: the exact target already looks absent, but before closing you still need one grounded production same-family anchor so the related context stays focused.\n")
+				b.WriteString("Progress check: the exact target already looks absent, but before closing you still need one grounded production same-family anchor so the related context stays focused.\n")
 			}
 			b.WriteString("Read one or two of these repo_map-ranked symbols next, then emit evidence and only after that close with `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`:\n")
 			limit := len(pending)
@@ -5684,7 +5684,7 @@ func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) L
 		HintRequested: true,
 		HintKey:       "explorer.mid-loop.exact-absence-close",
 		Hint: fmt.Sprintf(
-			"MID-LOOP CHECK: the requested exact %s already appears resolved as absent / not found, and you already have grounded same-scope context. "+
+			"Progress check: the requested exact %s already appears resolved as absent / not found, and you already have grounded same-scope context. "+
 				"Do NOT keep expanding nearby knobs / symbols as substitutes. If you do not have explicit alias / parser-mapping proof that names the exact target, close now with `emit_investigation_complete(reason, confidence, result_kind=\"absence\", absence_justification=...)`. "+
 				"Any remaining nearby items must stay labeled as related context only, not equivalents.",
 			label),
@@ -6206,7 +6206,7 @@ func renderClosureRepairHint(repairs []types.RepairDirective) string {
 	}
 	repairs = mergeClosureRepairsForHint(repairs)
 	var b strings.Builder
-	b.WriteString("MID-LOOP CHECK: the last completion attempt already queued structured closure repairs. Finish the blocking repair first instead of returning to generic navigation.\n\n")
+	b.WriteString("Progress check: the last completion attempt already queued structured closure repairs. Finish the blocking repair first instead of returning to generic navigation.\n\n")
 	limit := len(repairs)
 	if limit > 2 {
 		limit = 2
@@ -6367,10 +6367,10 @@ func (e *explorerEvaluator) postClosureRepairClosureOnlySignal(obs LoopObservati
 		return LoopSignal{}
 	}
 	repairs := closureRepairDirectives(e.mutable)
-	message := "MID-LOOP CHECK: the last completion attempt already queued structured closure repairs, and the current batch still spent effort on generic navigation. Do not keep widening scope yet. Finish the queued repair first, then re-emit grounded evidence or retry `emit_investigation_complete(...)`."
+	message := "Progress check: the last completion attempt already queued structured closure repairs, and the current batch still spent effort on generic navigation. Do not keep widening scope yet. Finish the queued repair first, then re-emit grounded evidence or retry `emit_investigation_complete(...)`."
 	for _, repair := range repairs {
 		if repair.Kind == types.RepairEmitEvidence {
-			message = "MID-LOOP CHECK: the last completion attempt already identified an evidence-materialization repair on files you have already read. Do NOT read neighboring files yet. Stay on the queued repair target, emit a corrected grounded evidence batch from that existing anchor, then retry `emit_investigation_complete(...)`."
+			message = "Progress check: the last completion attempt already identified an evidence-materialization repair on files you have already read. Do NOT read neighboring files yet. Stay on the queued repair target, emit a corrected grounded evidence batch from that existing anchor, then retry `emit_investigation_complete(...)`."
 			break
 		}
 	}
@@ -6895,7 +6895,7 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 	e.midLoopCompletionReadySent = true
 	e.midLoopCompletionReadyIter = obs.Iteration
 	var b strings.Builder
-	b.WriteString("MID-LOOP CHECK: the current structured evidence appears close-ready on the current branch. ")
+	b.WriteString("Progress check: the current structured evidence appears close-ready on the current branch. ")
 	b.WriteString("Prefer closing with `emit_investigation_complete(reason, confidence, result_kind)` instead of widening by default. Put the concise conclusion and any important boundary in `reason`. ")
 	b.WriteString("Use `result_kind=\"resolved\"` unless this is a genuine honest-zero / not-found answer.\n")
 	if len(e.ermRequirements) > 0 && readiness.ERMSatisfied {
@@ -6969,7 +6969,7 @@ func (e *explorerEvaluator) postCandidateUniversePendingSignal(gap tool.SourceIn
 	}
 	e.midLoopCandidateUniverseSent = true
 	var b strings.Builder
-	b.WriteString("MID-LOOP CHECK: exact structured navigation has observed a candidate universe that is not yet fully covered or explicitly excluded by your structured `member_set`. ")
+	b.WriteString("Progress check: exact structured navigation has observed a candidate universe that is not yet fully covered or explicitly excluded by your structured `member_set`. ")
 	b.WriteString("Do not treat this as the system deciding the final answer set. Use it as a checklist: verify the missing candidates that are relevant to your answer, put verified principal members in `aggregate_facts.member_set`, and put intentionally ruled-out candidates in `excluded` or a matching `excluded_count` disclosure.\n")
 	fmt.Fprintf(&b, "- candidate universe gap: %s\n", gap.Summary(12))
 	b.WriteString("- if the exact candidate universe is broader than the user's requested answer, preserve that boundary in the structured handoff instead of silently closing with a smaller list.")
@@ -7080,7 +7080,7 @@ func (e *explorerEvaluator) postAuthoritativeTier1CompletionSignal(obs LoopObser
 	e.midLoopAuthoritativeTier1Sent = true
 	var b strings.Builder
 	fmt.Fprintf(&b,
-		"MID-LOOP CHECK: the current authoritative log path is already semantically enough to answer, but `emit_investigation_complete` would still be rejected by the line-text grounding floor (currently %d/%d = %.0f%%, need ≥ %.0f%%). Before closing, convert the load-bearing failure anchors to `read_file`-grounded line_text evidence on the CURRENT branch.\n",
+		"Progress check: the current authoritative log path is already semantically enough to answer, but `emit_investigation_complete` would still be rejected by the line-text grounding floor (currently %d/%d = %.0f%%, need ≥ %.0f%%). Before closing, convert the load-bearing failure anchors to `read_file`-grounded line_text evidence on the CURRENT branch.\n",
 		tier1.Tier1, tier1.Total, float64(tier1.Tier1)*100/float64(tier1.Total), tier1.Floor*100)
 	b.WriteString("Do NOT widen into more neighboring files yet. Re-read the current authoritative sources near the cited lines, then re-emit ONE tighter `emit_evidence(items=[...])` batch that keeps the failure path grounded first. Related context and setup/background anchors can wait until after the principal anchors pass the line-text grounding floor.\n")
 	if len(tier1.Targets) > 0 {
@@ -7387,7 +7387,7 @@ func (e *explorerEvaluator) postExplanationAnchorSignal(obs LoopObservation) Loo
 	}
 	e.midLoopExplanationAnchorSent = true
 	var b strings.Builder
-	b.WriteString("MID-LOOP CHECK: this is a multi-topic explanation answer, and the current evidence still lacks one grounded anchor line per sub-topic. Before closing, make sure each sub-topic has one load-bearing symbol/field/owner line that the next pass can turn into the Key Anchors skeleton.\n")
+	b.WriteString("Progress check: this is a multi-topic explanation answer, and the current evidence still lacks one grounded anchor line per sub-topic. Before closing, make sure each sub-topic has one load-bearing symbol/field/owner line that the next pass can turn into the Key Anchors skeleton.\n")
 	total := len(anchors) + len(missing)
 	if total == 0 {
 		total = len(e.analysisIR.RequestModel.SubTopics)
@@ -7422,9 +7422,9 @@ func (e *explorerEvaluator) postCompletionReadyEscalationSignal(obs LoopObservat
 		return LoopSignal{}
 	}
 	e.midLoopCompletionReadyEscalated = true
-	hint := "MID-LOOP CHECK: an earlier hint marked the structured state as close-ready. Avoid broad adjacent-file widening by default. Either call `emit_investigation_complete(reason, confidence, result_kind)` now, or verify exactly one concrete unresolved branch if that branch could still change the final answer."
+	hint := "Progress check: an earlier hint marked the structured state as close-ready. Avoid broad adjacent-file widening by default. Either call `emit_investigation_complete(reason, confidence, result_kind)` now, or verify exactly one concrete unresolved branch if that branch could still change the final answer."
 	if e.driftBoundedCompletionReadyMode() {
-		hint = "MID-LOOP CHECK: an earlier hint marked the current checkout as close-ready for the grounded failure path. Avoid reopening upstream-caller or older-build-only branches by default. Either call `emit_investigation_complete(reason, confidence, result_kind)` now, or verify exactly one contradiction if it would change the grounded current-branch answer."
+		hint = "Progress check: an earlier hint marked the current checkout as close-ready for the grounded failure path. Avoid reopening upstream-caller or older-build-only branches by default. Either call `emit_investigation_complete(reason, confidence, result_kind)` now, or verify exactly one contradiction if it would change the grounded current-branch answer."
 	}
 	return LoopSignal{
 		HintRequested:  true,
@@ -7458,14 +7458,14 @@ func (e *explorerEvaluator) postCompletionReadyClosureOnlySignal(obs LoopObserva
 	if fastTrack {
 		e.midLoopCompletionReadyEscalated = true
 	}
-	hint := "MID-LOOP CHECK: the structured state was already marked close-ready, and this batch spent effort on navigation without structured progress. Before broadening further, either emit exactly one evidence batch for a concrete contradiction found in the lines you opened, or call `emit_investigation_complete(reason, confidence, result_kind)` now. If you continue reading, keep it to one evidence-changing branch."
+	hint := "Progress check: the structured state was already marked close-ready, and this batch spent effort on navigation without structured progress. Before broadening further, either emit exactly one evidence batch for a concrete contradiction found in the lines you opened, or call `emit_investigation_complete(reason, confidence, result_kind)` now. If you continue reading, keep it to one evidence-changing branch."
 	if driftFastTrack {
-		hint = "MID-LOOP CHECK: the grounded current branch was already marked close-ready, and this batch reopened navigation. Avoid tracing upstream-provenance or older-build-only branches from here unless one concrete contradiction would change the current-branch answer. Either emit exactly one repair batch for such a contradiction from the lines you already opened, or call `emit_investigation_complete(reason, confidence, result_kind)` now."
+		hint = "Progress check: the grounded current branch was already marked close-ready, and this batch reopened navigation. Avoid tracing upstream-provenance or older-build-only branches from here unless one concrete contradiction would change the current-branch answer. Either emit exactly one repair batch for such a contradiction from the lines you already opened, or call `emit_investigation_complete(reason, confidence, result_kind)` now."
 		if reason := e.driftBoundedCompletionHintReason(); reason != "" {
 			hint += " Reuse this bounded `reason` surface (or a weaker one): " + reason
 		}
 	} else if verifyGraceUsed {
-		hint = "MID-LOOP CHECK: the structured state was already marked close-ready, and this batch spent the verification turn on navigation without emitting new structured evidence. Treat that verification branch as consumed unless the opened lines reveal a concrete contradiction. Either emit exactly one evidence batch for that contradiction, or call `emit_investigation_complete(reason, confidence, result_kind)` now."
+		hint = "Progress check: the structured state was already marked close-ready, and this batch spent the verification turn on navigation without emitting new structured evidence. Treat that verification branch as consumed unless the opened lines reveal a concrete contradiction. Either emit exactly one evidence batch for that contradiction, or call `emit_investigation_complete(reason, confidence, result_kind)` now."
 	}
 	return LoopSignal{
 		HintRequested:  true,
@@ -7511,7 +7511,7 @@ func (e *explorerEvaluator) postSameLaneLowNoveltySignal(obs LoopObservation) Lo
 		return LoopSignal{}
 	}
 	e.midLoopLowNoveltyHintSent = true
-	hint := "MID-LOOP CHECK: this lane already has accepted structured facts, and recent navigation did not add new typed evidence, aggregate facts, or external observation records. Do not keep widening the same lane by default. If the opened lines/output reveal one concrete answer-changing fact, emit that structured fact now; otherwise close with `emit_investigation_complete(reason, confidence, result_kind)` and preserve the important boundary in `reason`. Do not discard previously emitted summaries."
+	hint := "Progress check: this lane already has accepted structured facts, and recent navigation did not add new typed evidence, aggregate facts, or external observation records. Do not keep widening the same lane by default. If the opened lines/output reveal one concrete answer-changing fact, emit that structured fact now; otherwise close with `emit_investigation_complete(reason, confidence, result_kind)` and preserve the important boundary in `reason`. Do not discard previously emitted summaries."
 	return LoopSignal{
 		HintRequested: true,
 		HintKey:       "explorer.mid-loop.same-lane-low-novelty",
@@ -8135,7 +8135,7 @@ func (e *explorerEvaluator) postPrimaryReadMidLoopSignal(obs LoopObservation) Lo
 		return LoopSignal{
 			HintRequested: true,
 			HintKey:       "explorer.mid-loop.post-primary-read",
-			Hint: "MID-LOOP CHECK: this is a scalar source-literal lookup and you just reached the primary anchor file. " +
+			Hint: "Progress check: this is a scalar source-literal lookup and you just reached the primary anchor file. " +
 				"Do NOT switch into full function walkthrough mode by default. First emit grounded evidence for the owner / definition line that identifies the requested literal and its source location. " +
 				"Only keep reading if that line still does not determine the answer after the evidence batch.",
 			Progress: true,
@@ -8165,7 +8165,7 @@ func (e *explorerEvaluator) postPrimaryReadMidLoopSignal(obs LoopObservation) Lo
 		return LoopSignal{
 			HintRequested: true,
 			HintKey:       "explorer.mid-loop.post-primary-read",
-			Hint: "MID-LOOP CHECK: you just reached the primary anchor file. Do NOT stop with a prose summary yet. " +
+			Hint: "Progress check: you just reached the primary anchor file. Do NOT stop with a prose summary yet. " +
 				"Keep using tools and finish the most relevant unread code first.\n" +
 				renderPartialReadHint(chosen, e.heuristics.PartialReadLineThreshold) +
 				traceSupplement,
@@ -8174,7 +8174,7 @@ func (e *explorerEvaluator) postPrimaryReadMidLoopSignal(obs LoopObservation) Lo
 	}
 
 	var b strings.Builder
-	b.WriteString("MID-LOOP CHECK: you just reached the primary anchor file. Do NOT stop with a prose summary yet. Continue with tools.\n")
+	b.WriteString("Progress check: you just reached the primary anchor file. Do NOT stop with a prose summary yet. Continue with tools.\n")
 	if obs.LastToolResult != nil && obs.LastToolResult.ToolName == "read_file" {
 		b.WriteString("First, emit grounded evidence from what you just read if you have not done so yet. ")
 	} else {
@@ -8596,7 +8596,7 @@ func (e *explorerEvaluator) authoritativeFrameRealignmentHint(history []types.To
 		}
 	}
 	if partialPreferred != nil {
-		return "MID-LOOP CHECK: the attached runtime log already points to this file, and the authoritative function body is only partially read. " +
+		return "Progress check: the attached runtime log already points to this file, and the authoritative function body is only partially read. " +
 			"Do NOT widen to nearby helpers yet.\n" +
 			renderPartialReadHint(*partialPreferred, e.heuristics.PartialReadLineThreshold)
 	}
@@ -8607,7 +8607,7 @@ func (e *explorerEvaluator) authoritativeFrameRealignmentHint(history []types.To
 		unreadPreferred = unreadPreferred[:3]
 	}
 	var b strings.Builder
-	b.WriteString("MID-LOOP CHECK: the attached runtime log already names concrete function(s) in this file, but the lines you opened do not cover them yet. ")
+	b.WriteString("Progress check: the attached runtime log already names concrete function(s) in this file, but the lines you opened do not cover them yet. ")
 	b.WriteString("Before following nearby helpers, grep/read these authoritative function names in the same file and ground them first:\n")
 	for _, name := range unreadPreferred {
 		fmt.Fprintf(&b, "  - `%s` in `%s`\n", name, anchorFile)
@@ -9103,13 +9103,13 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 			// Small remainder: direct read is cheaper than grep+read.
 			// read_file offset is 0-based; next unread 1-based line is
 			// h.readEnd+1 → 0-based offset h.readEnd.
-			fmt.Fprintf(&b, "MID-LOOP CHECK: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered, %d lines remaining). "+
+			fmt.Fprintf(&b, "Progress check: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered, %d lines remaining). "+
 				"If this function is relevant to the question, call read_file with path=%q offset=%d limit=%d to see the rest.\n",
 				h.symbolName, h.file, h.readEnd, h.symStart, h.symEnd, h.coverage*100, unreadLines,
 				h.file, types.LineToReadFileOffset(h.readEnd+1), unreadLines)
 		} else {
 			// Large remainder: grep-then-read is the Phase 1 strategy.
-			fmt.Fprintf(&b, "MID-LOOP CHECK: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered, %d lines remaining). "+
+			fmt.Fprintf(&b, "Progress check: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered, %d lines remaining). "+
 				"If this function is relevant to the question, grep for key identifiers within `%s` (lines %d-%d) to find the important sections, then read those specific ranges.\n",
 				h.symbolName, h.file, h.readEnd, h.symStart, h.symEnd, h.coverage*100, unreadLines,
 				h.file, h.readEnd+1, h.symEnd)
@@ -9159,7 +9159,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 			b.WriteString("\n")
 		}
 		fmt.Fprintf(&b,
-			"MID-LOOP CHECK: project-orientation question (\"what does this repo do?\"). You have %d grounded evidence item(s) — enough to answer. README + manifest + top-level entry-point cover this answer shape; reading additional sibling files will not improve the answer.\n"+
+			"Progress check: project-orientation question (\"what does this repo do?\"). You have %d grounded evidence item(s) — enough to answer. README + manifest + top-level entry-point cover this answer shape; reading additional sibling files will not improve the answer.\n"+
 				"NEXT ACTION: call `emit_investigation_complete(reason=\"orientation answer ready: project purpose + key modules grounded from README/manifest/entry-point\", confidence=\"high\", result_kind=\"resolved\")` now. Do NOT call any more `read_file` / `grep` / `repo_map` first.\n",
 			len(e.structuredEvidence),
 		)
@@ -9246,7 +9246,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 				if len(typedScope) > 0 {
 					headLabel = "typed-relation"
 				}
-				fmt.Fprintf(&b, "MID-LOOP CHECK: the question asks for an enumeration but you have read only %d of %d %s files (%.0f%%). "+
+				fmt.Fprintf(&b, "Progress check: the question asks for an enumeration but you have read only %d of %d %s files (%.0f%%). "+
 					"Read these next: %s\n",
 					readCount, len(scope), headLabel, coverage*100, strings.Join(unread, ", "))
 				// Session-22 one-shot lock. Without this gate, the
@@ -9306,7 +9306,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 			if b.Len() > 0 {
 				b.WriteString("\n")
 			}
-			b.WriteString("MID-LOOP CHECK: your notes reference exported symbols whose " +
+			b.WriteString("Progress check: your notes reference exported symbols whose " +
 				"definitions live in files you have NOT read yet. Reading the defining " +
 				"file is often the next hop of the call chain. Consider reading:\n")
 			for _, g := range gaps {
@@ -9350,7 +9350,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 			if windowSize > 0 && float64(windowSize)/float64(total) < 0.15 {
 				windowPct := float64(windowSize) * 100 / float64(total)
 				fmt.Fprintf(&b,
-					"MID-LOOP CHECK: the typed request shape requires a structural / overview answer, "+
+					"Progress check: the typed request shape requires a structural / overview answer, "+
 						"but the read_file window covers lines %d-%d of %d total in `%s` "+
 						"(%.1f%% of the file). A narrow window cannot support a conclusion "+
 						"about the file's OVERALL structure. Before ending the investigation, "+
@@ -9428,7 +9428,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 			}
 			if len(missing) >= 3 {
 				fmt.Fprintf(&b,
-					"MID-LOOP CHECK: the keyword ranker scored %d relevant files but %d of "+
+					"Progress check: the keyword ranker scored %d relevant files but %d of "+
 						"the top-%d remain unread: %s. Before declaring the investigation "+
 						"complete, open at least 2-3 of these if they correspond to the "+
 						"question's subject or mechanism — the ranker's top-K is where "+
@@ -9480,7 +9480,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		}
 		if hits >= 2 {
 			b.WriteString(
-				"MID-LOOP CHECK: your emit_evidence batch has been rejected multiple times for including kind=absent items. " +
+				"Progress check: your emit_evidence batch has been rejected multiple times for including kind=absent items. " +
 					"This kind was deprecated from the emit_evidence channel because the tool's validator requires line_start > 0 + anchor_kind + anchor_symbol for every item — a 'searched and found nothing' claim cannot satisfy these. " +
 					"ACTION: re-emit the batch with kind=absent items REMOVED. " +
 					"If the overall answer is 'zero / no X' (whole-answer absence), declare it on emit_investigation_complete with `result_kind=\"absence\"` and `absence_justification` describing what was searched and not found — that field waives the citation floor by contract. " +
@@ -9532,7 +9532,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 			}
 		}
 		if unreadCount >= e.heuristics.ParallelUnreadFloor {
-			b.WriteString("MID-LOOP CHECK: you have been issuing only 1-2 tool calls per round for several iterations. " +
+			b.WriteString("Progress check: you have been issuing only 1-2 tool calls per round for several iterations. " +
 				"Batch independent operations together in a single assistant message (multiple tool_use blocks): " +
 				"multiple `read_file` calls for unrelated files, multiple `grep` calls for different patterns/scopes, " +
 				"or mixed `grep` + `read_file` calls that don't depend on each other. " +

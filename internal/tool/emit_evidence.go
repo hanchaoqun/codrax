@@ -219,7 +219,7 @@ func (t *EmitEvidence) Name() string { return "emit_evidence" }
 
 func (t *EmitEvidence) Description() string {
 	return "Emit one or more structured evidence items as the result of reading a source file. " +
-		"Call this AFTER you have read a file during the depth-investigation stage, with one item per " +
+		"Call this AFTER you have read a file during investigation, with one item per " +
 		"fact you want the synthesis layer to see. The batched 'items' array preserves the " +
 		"existing 'one tool call per file' write pattern; do not call this tool once per item. " +
 		"Do not use this tool for VCS metadata from git_log / git_show / git_diff / exec_command git output; carry those findings in emit_investigation_complete.reason and aggregate_facts unless you also read a real current-repo file line.\n\n" +
@@ -262,7 +262,7 @@ func (t *EmitEvidence) Description() string {
 		"to recommend how the item should be used for exact-target answers. `diagram_role_hint` may be `default`, " +
 		"`config`, `runtime`, or `override` for config-precedence traces (`config` = grounded repo/user config-file layer such as YAML/JSON/TOML/INI/etc.). These are recommendations only: the tool " +
 		"validates them structurally and may downgrade or ignore inconsistent hints.\n\n" +
-		"surface_terms is optional model-authored structured data for exact user-visible labels / aliases copied verbatim from already-read source, log, or trace lines (for example route names, package/module labels, config keys, macro names, trace span names, original file labels, and labels in leading documentation/header comments attached to the cited anchor). The tool rejects any surface term that is not grounded in the read window; downstream synthesis treats accepted terms as preservation guidance when they are relevant to the visible answer.\n\n" +
+		"surface_terms is optional model-authored structured data for exact user-visible labels / aliases copied verbatim from already-read source, log, or trace lines (for example route names, package/module labels, config keys, macro names, trace span names, original file labels, and labels in leading documentation/header comments attached to the cited anchor). The tool rejects any surface term that is not grounded in the read window; answer synthesis treats accepted terms as preservation guidance when they are relevant to the visible answer.\n\n" +
 		"salience is optional structured data for answer participation: load_bearing means the answer cannot honor a visible claim without this row; exhaust_listed means this row is one member of a complete list the user asked for; supporting means an intermediate fact the answer chain uses; context means background the answer does not lean on. Omit it when unsure. This field helps preserve important rows in long investigations but does not replace member_set, answer_symbol, citations, or final answer obligations.\n\n" +
 		"For list/enumeration members such as exported constants, enum values, public functions, fields, routes, or config keys, `summary` should explain the member's role using already-read code (signature, right-hand value, registry mapping, caller/callee relation, or visible comment). Do not use summary only to say that the item is the Nth member of a category; ordinal/count information belongs in aggregate_facts, while evidence summary should carry meaning.\n\n" +
 		"snippet is optional but recommended for conditional / mechanism / registration items: paste " +
@@ -3240,7 +3240,7 @@ func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, report
 		b.WriteString(". This is audit context; next-step repair guidance comes from current item rows above and structured ToolRepair targets only.\n")
 	}
 	if shouldNudgeDiagramRoleHints(ctx, items) {
-		b.WriteString("Config-precedence task detected: when an evidence item represents code defaults, a config-file layer (YAML/JSON/TOML/INI/etc.), a runtime binding layer, or a high-precedence override layer, set `diagram_role_hint` on that item so downstream diagram rendering can reuse validated structure instead of inferring roles from prose.\n")
+		b.WriteString("Config-precedence task detected: when an evidence item represents code defaults, a config-file layer (YAML/JSON/TOML/INI/etc.), a runtime binding layer, or a high-precedence override layer, set `diagram_role_hint` on that item so diagram rendering can reuse validated structure instead of inferring roles from prose.\n")
 	}
 	return b.String()
 }
@@ -4358,8 +4358,8 @@ func buildEmitEvidenceSurfaceTermReview(items []types.EvidenceItem, gc *ground.C
 
 func renderEmitEvidenceSurfaceTermReviewHint(suggestions []surfaceTermReviewSuggestion) string {
 	var b strings.Builder
-	b.WriteString("MID-LOOP CHECK: some accepted evidence is anchored under already-read source/header labels that were not model-authored into `surface_terms`.\n")
-	b.WriteString("If any of these labels are part of the user-visible answer, re-emit the affected evidence now with the listed `surface_terms`; do not rely on downstream synthesis to infer labels from comments or paths.\n")
+	b.WriteString("Progress check: some accepted evidence is anchored under already-read source/header labels that were not model-authored into `surface_terms`.\n")
+	b.WriteString("If any of these labels are part of the user-visible answer, re-emit the affected evidence now with the listed `surface_terms`; do not rely on answer synthesis to infer labels from comments or paths.\n")
 	for _, s := range suggestions {
 		anchor := strings.TrimSpace(s.anchor)
 		if anchor == "" {

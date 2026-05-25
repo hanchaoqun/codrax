@@ -1074,7 +1074,7 @@ func contextPressureFixAndAllowed(name types.AgentName) (string, []hint.Allowed)
 	case types.AgentExtractor:
 		return "Emit `emit_answer_symbol` + `emit_hypothesis_verdict` (per hypothesis) with whatever you have. A `lower_bound` completeness claim is honest under pressure — do NOT claim `complete`.",
 			[]hint.Allowed{
-				{Kind: AllowedTerminalTool, Value: "emit_answer_symbol", Hint: "close the extraction stage (claim lower_bound, not complete)"},
+				{Kind: AllowedTerminalTool, Value: "emit_answer_symbol", Hint: "close this answer-symbol pass (claim lower_bound, not complete)"},
 				{Kind: AllowedTerminalTool, Value: "emit_hypothesis_verdict", Hint: "verdict per hypothesis entry"},
 			}
 	case types.AgentFinalizer:

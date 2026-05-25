@@ -396,7 +396,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		b.WriteString("- Choose the members that answer the bounded set itself, not every adjacent helper, guard, compatibility shim, or side condition that appears nearby in the same owner flow.\n")
 		if ctx != nil && ctx.AnalysisIR != nil && types.HasAttributeBearingEnumeration(ctx.AnalysisIR.RequestModel) {
 			b.WriteString("- This is an attribute-bearing enumeration: each `items[]` entry should be the principal member itself. Put the per-member attribute in `rationale` with its own grounded file:line when available; if the attribute is not grounded for that member, say so in `rationale` instead of dropping the member.\n")
-			b.WriteString("- `complete` means the principal member set is complete. Attribute gaps do not make the member set incomplete; they become caveat/rationale text for downstream rendering.\n")
+			b.WriteString("- `complete` means the principal member set is complete. Attribute gaps do not make the member set incomplete; they become caveat/rationale text for final rendering.\n")
 		}
 		b.WriteString("- If the owner flow contains extra caveat-only items beyond the bounded set, leave them out of the main slate and let downstream prose mention them only as follow-on context.\n")
 		b.WriteString("- Use `complete` only when you can name the full bounded set; otherwise use `lower_bound`.\n\n")
@@ -1612,7 +1612,7 @@ func (e *extractorEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Messag
 	// artifacts); keyEvidenceCount counts the LLM-emittable kinds
 	// that name a mechanism, not prose observations.
 	if e.extractorInvestigationEmpty(ctx) {
-		out.Error = "extractor gate: the investigation stage produced 0 files read and 0 key evidence (direct/registration/mechanism) — investigation is structurally empty"
+		out.Error = "extractor gate: the investigation produced 0 files read and 0 key evidence (direct/registration/mechanism) — investigation is structurally empty"
 		logging.Warning("[extractor] R4 fail-loud: %s", out.Error)
 		return out, nil
 	}

@@ -2977,3 +2977,42 @@ B2-U repo-map prompt and path-feedback hygiene, 2026-05-25 CST:
     cascaded source_inventory guidance;
   - repo_map scope tests assert missing/file paths fail before scan notices and
     do not surface generic "scan failed" noise.
+
+B2-V repo-map prompt/internal-mechanism leakage audit, 2026-05-25 CST:
+
+- Follow-up audit scope:
+  - scanned static skill prompts for analyzer, explorer, extractor, finalizer,
+    log/perf triage, write analysis, and change planning;
+  - scanned dynamic model-facing hints in explorer and emit_evidence where
+    repo-map navigation and evidence repair guidance are injected outside the
+    static skill registry;
+  - scanned model-facing tool descriptions/parameter schemas for the same
+    internal-mechanism terms, because tool schemas are prompt text too.
+- Findings:
+  - `repo_map/source_inventory` teaching is present in analyzer classification
+    and explorer breadth-scan prompts, but surrounding text still used internal
+    terms such as "downstream synthesis", "the framework", "mid-loop
+    observer", "stage tool allowlist", and "Plan-stage probe results";
+  - dynamic explorer hints used the visible prefix `MID-LOOP CHECK`, which is
+    an implementation label rather than an instruction the model can act on;
+  - log/perf segmentation prompts also described later consumers as
+    "downstream per-segment extractor", creating the same leakage pattern
+    outside read-mode code questions.
+- Fix strategy:
+  - keep field/tool names that are part of the actual schema
+    (`source_inventory_profile`, `emit_evidence`, `repo_map`) because models
+    must call them correctly;
+  - replace implementation topology words with neutral, task-facing wording:
+    "answer synthesis", "final rendering", "later evidence handling",
+    "later per-segment extraction", and "Progress check";
+  - preserve all gating and retry semantics; these are prompt/hint hygiene
+    changes only.
+- Guardrails added:
+  - extended `InternalTermsBlocklist` with the high-risk phrases found in this
+    audit, so static skill prompt regressions fail `TestNoInternalTermsInPrompts`;
+  - added an explore-skill regression test that pins cascaded Repo Lens teaching
+    while banning the newly cleaned internal mechanism phrases;
+  - added a runtime-hint source test so `MID-LOOP CHECK:` cannot re-enter the
+    model-facing explorer / emit_evidence hint surfaces;
+  - added a tool-schema hygiene test covering registered built-in and emit tools
+    so descriptions/parameters cannot reintroduce the same internal phrases.

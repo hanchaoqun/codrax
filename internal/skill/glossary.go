@@ -227,6 +227,22 @@ var InternalTermsBlocklist = []string{
 	// itself does/avoids).
 	"downstream stages",
 	"downstream stage",
+	"Everything downstream",
+	"downstream synthesis",
+	"downstream rendering",
+	"downstream parser",
+	"downstream enforcement",
+	"downstream drops",
+	"downstream hop-chain",
+	"rest of the pipeline",
+	"mid-loop observer",
+	"stage's tool allowlist",
+	"perf_triager",
+	"planner stage",
+	"Plan-stage probe results",
+	"verify-stage outcome",
+	"investigation stage",
+	"extraction stage",
 	// G4 (post_v2_runtime_gap_remediation, 2026-05-04) — symmetric
 	// "upstream X" pipeline-shape disclosure. Bare "upstream" has
 	// legitimate uses (upstream library / upstream PR), so block

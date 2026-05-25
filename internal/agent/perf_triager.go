@@ -128,7 +128,7 @@ func (e *perfTriagerEvaluator) Observe(_ *types.AgentContext, obs LoopObservatio
 func (e *perfTriagerEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Message, toolResults []types.ToolResult, _ []types.MCPResponse) (*StageOutput, error) {
 	if ctx == nil || ctx.Mutable == nil {
 		return &StageOutput{
-			Error: "perf_triager requires a writable context; the caller did not provide one",
+			Error: "performance trace triage requires a writable context; the caller did not provide one",
 		}, nil
 	}
 	// Step A success path: emit_perf_segmentation populated
@@ -156,7 +156,7 @@ func (e *perfTriagerEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Mess
 	}
 	if !hasEmitAttempt {
 		return &StageOutput{
-			Error: "perf_triager did not call emit_perf_trace or emit_perf_segmentation within the ReAct loop",
+			Error: "performance trace triage did not call emit_perf_trace or emit_perf_segmentation within the ReAct loop",
 		}, nil
 	}
 	var rejections []string
@@ -170,7 +170,7 @@ func (e *perfTriagerEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Mess
 		rejections = append(rejections, r.Summary)
 	}
 	return &StageOutput{
-		Error: "perf_triager emit rejected: " + strings.Join(rejections, "; "),
+		Error: "performance trace emit rejected: " + strings.Join(rejections, "; "),
 	}, nil
 }
 
@@ -358,7 +358,7 @@ func (a *perfTriager) runTwoStep(ctx *types.AgentContext, _ *skill.Config, reaso
 // kept package-local so each agent has a contained surface.
 func (a *perfTriager) skillByName(name string) (*skill.Config, error) {
 	if a.deps == nil || a.deps.Skills == nil {
-		return nil, fmt.Errorf("perf_triager: no skill registry on deps")
+		return nil, fmt.Errorf("performance trace triage: no skill registry on deps")
 	}
 	return a.deps.Skills.Get(name)
 }

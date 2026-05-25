@@ -5560,7 +5560,7 @@ func preCheckModelSurfaceTerms(doc *types.AnswerDocumentV2, ctx *types.BusContex
 				Field: field,
 				ExpectedShape: "include these model-emitted surface_terms in the cited item label, text, or table cells: " +
 					strings.Join(missing, ", "),
-				Reason: "the investigation explicitly structured these source-visible labels; preserve them when they are relevant to the visible answer instead of relying on downstream synthesis to infer them.",
+				Reason: "the investigation explicitly structured these source-visible labels; preserve them when they are relevant to the visible answer instead of relying on final answer synthesis to infer them.",
 			})
 		}
 	}

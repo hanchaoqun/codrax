@@ -306,7 +306,7 @@ func (e *plannerEvaluator) buildInvestigationSeed(ctx *types.AgentContext) strin
 		fmt.Fprintf(&b, "  - %s\n", f.Path)
 	}
 	if len(sr.Files) > limit {
-		fmt.Fprintf(&b, "  - … (+%d more — call repo_map yourself for the full list)\n", len(sr.Files)-limit)
+		fmt.Fprintf(&b, "  - … (+%d more — call repo_map for the full list)\n", len(sr.Files)-limit)
 	}
 	return b.String()
 }
@@ -373,7 +373,7 @@ func (e *plannerEvaluator) buildProbeHistorySection(ctx *types.AgentContext) str
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("## Plan-stage probe results\n\n")
+	b.WriteString("## Probe results\n\n")
 	b.WriteString("Each entry is a run_tests(dry_run=true) probe you fired earlier in this Run. The probes ran the EXISTING test suite (before any plan was applied) so you can see what passes / fails today.\n\n")
 	for i, r := range probes {
 		if r == nil {

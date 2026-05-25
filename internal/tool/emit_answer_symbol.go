@@ -104,7 +104,7 @@ func (t *EmitAnswerSymbol) Name() string { return "emit_answer_symbol" }
 
 func (t *EmitAnswerSymbol) Description() string {
 	return "Emit one or more answer-symbol items as the structured answer slate for an enumeration / " +
-		"list_of_symbols / call_chain question. Call this during the extraction stage AFTER the " +
+		"list_of_symbols / call_chain question. Call this after the " +
 		"investigation transcript has been read, with one item per terminal symbol the final answer " +
 		"should list. The batched 'items' array preserves the 'one tool call per answer batch' write " +
 		"pattern; do not call this tool once per item. Every item MUST cite name, file (repo-relative " +
@@ -146,7 +146,7 @@ func (t *EmitAnswerSymbol) Parameters() json.RawMessage {
           "line":      {"type": "integer", "description": "First line of the symbol definition, taken EXACTLY from the read_file gutter. Required and must be > 0 — items with line == 0 are rejected."},
           "kind":      {"type": "string", "enum": [%s], "description": "Closed cross-language taxonomy. Canonical kinds cover callables (function/method), type-shape definitions (type/struct/class/interface/trait/enum/protocol), data bindings (const/var/field/property), module scopes (module/package/crate/namespace), metaprogramming (macro/decorator/annotation), and non-symbol terminals (literal). Language shorthand is accepted and normalised (func/fn → function). Use 'literal' when the terminal is a value (string/number/bool returned by a Name()/Type()/Kind() method, a config default, an enum value) rather than a code identifier."},
           "chain":     {"type": "string", "description": "Optional resolution chain text that yielded this symbol (e.g. 'X registers Y which returns Y.Name() = \"foo\"'). Empty when the symbol is a direct read."},
-          "rationale": {"type": "string", "description": "Optional rationale for why this terminal answers the question — what role it plays, not just where it lives. Keep it concrete but natural; downstream rendering presents this as a column alongside the location, so restating file:line is a regression."}
+          "rationale": {"type": "string", "description": "Optional rationale for why this terminal answers the question — what role it plays, not just where it lives. Keep it concrete but natural; final answer rendering presents this as a column alongside the location, so restating file:line is a regression."}
         },
         "required": ["name", "file", "line", "kind"]
       }
@@ -154,7 +154,7 @@ func (t *EmitAnswerSymbol) Parameters() json.RawMessage {
     "completeness": {
       "type": "string",
       "enum": ["complete", "lower_bound", "unknown"],
-      "description": "Set-level authority claim for the slate. REQUIRED. 'complete' = these are ALL the answers (cross-checked against the expected answer count — the larger of: how many items the investigation found, and how many the classification declared required; downgraded to lower_bound on mismatch). 'lower_bound' = these are confirmed present but more may exist (honest default when a partial slate is the best available). 'unknown' = investigated but no definitive verdict (downstream rendering drops the section entirely)."
+      "description": "Set-level authority claim for the slate. REQUIRED. 'complete' = these are ALL the answers (cross-checked against the expected answer count — the larger of: how many items the investigation found, and how many the classification declared required; downgraded to lower_bound on mismatch). 'lower_bound' = these are confirmed present but more may exist (honest default when a partial slate is the best available). 'unknown' = investigated but no definitive verdict (the final answer omits the section)."
     },
     "count": {
       "type": "integer",

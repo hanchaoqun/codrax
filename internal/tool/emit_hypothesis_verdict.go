@@ -81,7 +81,7 @@ func (t *EmitHypothesisVerdict) Name() string { return "emit_hypothesis_verdict"
 
 func (t *EmitHypothesisVerdict) Description() string {
 	return "Emit a verdict for each hypothesis from the prior hypothesis set that the " +
-		"investigation has reached a conclusion on. Call this during the extraction stage AFTER the " +
+		"investigation has reached a conclusion on. Call this after the " +
 		"investigation transcript has been read, with one item per hypothesis you can confidently " +
 		"judge. hypothesis_id MUST match a real ID from the prior hypothesis set; typos are " +
 		"flagged. status is one of: confirmed (transcript supports it), rejected (transcript " +

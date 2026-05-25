@@ -89,6 +89,39 @@ func TestExploreSkillR6_NoInternalGateJargon(t *testing.T) {
 	}
 }
 
+func TestExploreSkill_TeachesCascadedRepoLensNavigation(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("explore-skill")
+	if err != nil {
+		t.Fatalf("Get(explore-skill) returned error: %v", err)
+	}
+	corpus := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
+	for _, want := range []string{
+		`repo_map(view="source_inventory")`,
+		"model-chosen roles",
+		"optional attribute_roles",
+		"cascade into narrower source_inventory calls",
+		"verify selected files/symbols/routes/config keys with read_file or targeted grep before citing",
+		"navigation only",
+	} {
+		if !strings.Contains(corpus, want) {
+			t.Fatalf("explore-skill missing repo lens guidance %q:\n%s", want, corpus)
+		}
+	}
+	for _, forbidden := range []string{
+		"downstream synthesis",
+		"downstream rendering",
+		"the framework has",
+		"stage's tool allowlist",
+		"mid-loop observer",
+	} {
+		if strings.Contains(corpus, forbidden) {
+			t.Fatalf("explore-skill leaked internal mechanism phrase %q:\n%s", forbidden, corpus)
+		}
+	}
+}
+
 func TestFinalizerSkillStepListPrefersDiagramsWhenHelpful(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)
@@ -353,9 +386,9 @@ func TestExtractSkill_DoesNotTeachLegacySymbolsArray(t *testing.T) {
 	for _, want := range []string{
 		"emit_answer_symbol.items[]",
 		"the answer is the terminal that the chain RESOLVES TO",
-		"downstream rendering answers from prose / blocks only",
+		"final rendering answers from prose / blocks only",
 		"explicitly renders an `Anchor skeleton (one per sub-topic)` block",
-		"Analyzer sub_topics alone are guidance, not a hard slate obligation",
+		"Classification sub_topics alone are guidance, not a hard slate obligation",
 		"Requested Set Boundary block declares an explicit count N",
 		"Plain single-topic call-chain / root-cause / mechanism questions WITHOUT case (b) or (c) do NOT use emit_answer_symbol",
 		"does NOT explicitly say `This dispatch does NOT require emit_answer_symbol`",
