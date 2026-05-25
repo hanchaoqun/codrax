@@ -54,6 +54,8 @@ cat >"$tmp/finalizer-control.log" <<'LOG'
 2026-05-24T00:00:00.067 DEBUG [diag explorer] iter=1 phase=prune TOOL HISTORY PRUNED (budget=153600 bytes)
 2026-05-24T00:00:00.068 DEBUG [diag explorer] iter=1 phase=llm_request model=test context_tokens_est=512 context_window=4096 messages=3 tools=2
 2026-05-24T00:00:00.069 DEBUG [diag finalizer] iter=0 phase=llm_request model=test context_tokens_est=2049 context_window=4096 messages=5 tools=1
+2026-05-24T00:00:00.069 DEBUG [diag finalizer] phase=answer_contract_check section=lane_block_kind violations=1 elapsed=1ms
+2026-05-24T00:00:00.069 DEBUG [diag finalizer] phase=answer_contract_check section=member_set_coverage violations=3 elapsed=2ms
 2026-05-24T00:00:00.070 INFO [semantic_quality_reviewer] verdict sufficient=false confidence=0.9
 2026-05-24T00:00:00.080 INFO [semantic_quality_reviewer] emitted 1 concern(s)
 2026-05-24T00:00:00.090 INFO [self_consistency_reviewer] V2 emitted 1 contradiction(s)
@@ -64,11 +66,14 @@ assert_eq "$(eval_count_finalizer_rewrites "$tmp/finalizer-control.log")" "1" "f
 assert_eq "$(eval_count_answer_document_patch_calls "$tmp/finalizer-control.log")" "1" "answer patch control count"
 assert_eq "$(eval_count_midloop_injects "$tmp/finalizer-control.log")" "1" "midloop inject control count"
 assert_eq "$(eval_count_tool_calls "$tmp/finalizer-control.log" repo_map)" "1" "tool-call control count"
+assert_eq "$(eval_count_source_inventory_tool_calls "$tmp/finalizer-control.log")" "1" "source inventory tool-call count"
 assert_eq "$(eval_count_tool_calls "$tmp/finalizer-control.log" read_file)" "1" "read-file tool-call control count"
 assert_eq "$(eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=prune TOOL HISTORY PRUNED' "$tmp/finalizer-control.log")" "1" "tool history prune control count"
 assert_eq "$(eval_max_context_tokens_estimate "$tmp/finalizer-control.log")" "2049" "max context token estimate"
 assert_eq "$(eval_max_context_window_tokens "$tmp/finalizer-control.log")" "4096" "max context window"
 assert_eq "$(eval_max_context_window_pct "$tmp/finalizer-control.log")" "50" "max context window pct"
+assert_eq "$(eval_sum_answer_contract_violations "$tmp/finalizer-control.log")" "4" "answer contract violation sum"
+assert_eq "$(eval_sum_answer_contract_violations_for_section "$tmp/finalizer-control.log" lane_block_kind)" "1" "answer contract section violation sum"
 assert_eq "$(eval_count_agent_iterations "$tmp/finalizer-control.log" explorer)" "1" "agent iteration control count"
 assert_eq "$(eval_count_agent_dispatches "$tmp/finalizer-control.log" explorer)" "1" "agent dispatch control count"
 assert_eq "$(eval_count_semantic_quality_dispatches "$tmp/finalizer-control.log")" "1" "semantic dispatch control count"
@@ -82,20 +87,25 @@ cat >"$tmp/finalizer-content-only.log" <<'LOG'
 2026-05-24T00:00:00.003 DEBUG [diag finalizer] iter=0 ASSISTANT content: quoted 2026-05-24T00:00:00.015 DEBUG [diag finalizer] iter=0 phase=toolcall call[0] tool=emit_answer_document_patch params={}
 2026-05-24T00:00:00.004 DEBUG [diag explorer] iter=0 ASSISTANT content: source says 2026-05-24T00:00:00.050 DEBUG [diag explorer] iter=1 ASSISTANT content_len=5
 2026-05-24T00:00:00.005 DEBUG [diag explorer] iter=0 ASSISTANT content: source says 2026-05-24T00:00:00.060 DEBUG [diag explorer] DISPATCH stage=explore attempt=1
-2026-05-24T00:00:00.005 DEBUG [diag explorer] iter=0 ASSISTANT content: source says 2026-05-24T00:00:00.065 DEBUG [diag explorer] iter=1 phase=toolcall call[0] tool=repo_map params={}
+2026-05-24T00:00:00.005 DEBUG [diag explorer] iter=0 ASSISTANT content: source says 2026-05-24T00:00:00.065 DEBUG [diag explorer] iter=1 phase=toolcall call[0] tool=repo_map params={"view":"source_inventory"}
 2026-05-24T00:00:00.005 DEBUG [diag explorer] iter=0 ASSISTANT content: source says 2026-05-24T00:00:00.067 DEBUG [diag explorer] iter=1 phase=prune TOOL HISTORY PRUNED
 2026-05-24T00:00:00.005 DEBUG [diag explorer] iter=0 ASSISTANT content: source says 2026-05-24T00:00:00.068 DEBUG [diag explorer] iter=1 phase=llm_request model=test context_tokens_est=999 context_window=1000
+2026-05-24T00:00:00.005 DEBUG [diag explorer] iter=0 ASSISTANT content: source says 2026-05-24T00:00:00.069 DEBUG [diag finalizer] phase=answer_contract_check section=lane_block_kind violations=9 elapsed=1ms
 2026-05-24T00:00:00.006 DEBUG [diag explorer] iter=0 ASSISTANT content: source mentions 2026-05-24T00:00:00.070 INFO [semantic_quality_reviewer] verdict sufficient=false confidence=0.9
 2026-05-24T00:00:00.007 DEBUG [diag explorer] iter=0 ASSISTANT content: source mentions 2026-05-24T00:00:00.090 INFO [self_consistency_reviewer] V2 emitted 1 contradiction(s)
+2026-05-24T00:00:00.008 DEBUG [diag explorer] iter=0 ASSISTANT content: Repo Lens: Source Inventory suggests view="source_inventory"
 LOG
 assert_eq "$(eval_count_finalizer_rejects "$tmp/finalizer-content-only.log")" "0" "finalizer reject content contamination"
 assert_eq "$(eval_count_finalizer_rewrites "$tmp/finalizer-content-only.log")" "0" "finalizer rewrite content contamination"
 assert_eq "$(eval_count_answer_document_patch_calls "$tmp/finalizer-content-only.log")" "0" "answer patch content contamination"
 assert_eq "$(eval_count_midloop_injects "$tmp/finalizer-content-only.log")" "0" "midloop inject content contamination"
 assert_eq "$(eval_count_tool_calls "$tmp/finalizer-content-only.log" repo_map)" "0" "tool-call content contamination"
+assert_eq "$(eval_count_source_inventory_tool_calls "$tmp/finalizer-content-only.log")" "0" "source inventory content contamination"
 assert_eq "$(eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=prune TOOL HISTORY PRUNED' "$tmp/finalizer-content-only.log")" "0" "tool history prune content contamination"
 assert_eq "$(eval_max_context_tokens_estimate "$tmp/finalizer-content-only.log")" "0" "max context token estimate content contamination"
 assert_eq "$(eval_max_context_window_pct "$tmp/finalizer-content-only.log")" "0" "max context pct content contamination"
+assert_eq "$(eval_sum_answer_contract_violations "$tmp/finalizer-content-only.log")" "0" "answer contract violation content contamination"
+assert_eq "$(eval_sum_answer_contract_violations_for_section "$tmp/finalizer-content-only.log" lane_block_kind)" "0" "answer contract section content contamination"
 assert_eq "$(eval_count_agent_iterations "$tmp/finalizer-content-only.log" explorer)" "0" "agent iteration content contamination"
 assert_eq "$(eval_count_agent_dispatches "$tmp/finalizer-content-only.log" explorer)" "0" "agent dispatch content contamination"
 assert_eq "$(eval_count_semantic_quality_dispatches "$tmp/finalizer-content-only.log")" "0" "semantic dispatch content contamination"

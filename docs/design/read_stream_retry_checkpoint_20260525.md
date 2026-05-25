@@ -204,3 +204,96 @@ Open tasks after eval:
 - [ ] Separate actual `source_inventory` tool usage from prompt/hint exposure in
       eval telemetry.
 - [ ] Track soft contract violations in eval metrics.
+
+## Generalized Remediation Plan
+
+The remaining gaps are not specific to the pipeline eval or this repository.
+They fall into three reusable classes: telemetry contamination, expensive
+navigation before evidence materialization, and soft structural warnings that
+are invisible to eval summaries.
+
+### Red Lines
+
+- Do not use user-prose keywords or model narrative text to decide control flow.
+- Do not convert advisory navigation into answer facts.
+- Do not hard-reject unless the conflict is machine-checkable against structured
+  evidence, the requested answer axis is clear, and a local repair path exists.
+- Preserve user intent and model-authored conclusions. System-added material
+  must remain visibly supplemental and localized.
+
+### Batch 1: Observability Contracts
+
+Problem: `source_inventory_lens` currently counts prompt text and model-visible
+guidance mentioning `source_inventory`, even when the model never called
+`repo_map(view="source_inventory")`. Soft answer-contract mismatches are also
+logged but not summarized in eval metrics.
+
+Design:
+
+- Count actual Source Inventory adoption only from timestamped control-plane
+  tool-call logs where `tool=repo_map` and the JSON arguments include
+  `view:"source_inventory"`.
+- Keep prompt/hint exposure separate from tool adoption. Do not mix the two in
+  one metric.
+- Sum `answer_contract_check section=... violations=N` control logs into eval
+  metrics, including a section-specific count for `lane_block_kind`.
+- Add shell tests that quote control-looking lines inside model content and
+  verify the metrics stay zero.
+
+### Batch 2: Generic Relation / Lifecycle Navigation
+
+Problem: lifecycle, route/handler, config, dependency, dataflow, state-machine,
+and cross-repo questions often force models to reconstruct relation tables by
+reading many large files. Codrax has repo-map graph data and typed evidence, but
+does not yet expose a low-cost relation/lifecycle navigation surface.
+
+Design:
+
+- Build on existing repo-map / source-inventory / typed-relation concepts
+  instead of creating a parallel evidence system.
+- Treat relation views as advisory navigation only. They can suggest files,
+  symbols, relationship candidates, and ambiguity, but final claims still need
+  `read_file` / `grep` / typed evidence.
+- Let the model drive scope and role expansion through tool parameters. The
+  system may present compact summaries and next-call suggestions, but must not
+  infer a final answer axis from user prose.
+- Cover common relation families generically:
+  lifecycle / stage handoff, route to handler, config key to consumer, type to
+  method, interface to implementation, import/dependency, caller/callee,
+  producer/consumer, state transition, artifact/log section to source symbol,
+  and cross-repo service/module links.
+- If a relation family is not recognized, fall back to source-inventory style
+  candidates and explicit uncertainty, not hard rejection.
+
+### Batch 3: Read-Window Materialization
+
+Problem: when a model reads several large windows before emitting evidence, the
+system may prune raw tool history later. Pre-prune checkpoints protect accepted
+evidence, but large unmaterialized read windows still inflate context and make
+retry prompts fragile.
+
+Design:
+
+- Use structured tool results and current schema only. Do not parse model prose
+  for intent.
+- Earlier advisory checkpoint: after repeated successful reads without evidence,
+  ask for a compact evidence batch or explicit skip reason before more broad
+  navigation.
+- Never force closure. The model may continue investigating, but should do so
+  from materialized evidence rather than raw history.
+- Keep checkpoint compaction conservative: accepted principal evidence,
+  aggregate facts, closure reason, and model-authored summaries must not be
+  silently dropped.
+
+### Batch 4: Deterministic Runtime Regression
+
+Problem: the stream retry fix is covered by unit tests, but runtime eval needs a
+fault-injection provider or harness path to prove retry continuation under real
+orchestrator flow.
+
+Design:
+
+- Add a deterministic eval or harness that fails the stream after accepted
+  `emit_evidence` and before `emit_investigation_complete`.
+- Verify the next explorer turn receives the continuation checkpoint and does
+  not restart broad navigation unless the model chooses a scoped reason.

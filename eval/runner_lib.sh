@@ -245,6 +245,65 @@ eval_count_tool_calls() {
   eval_count_control_pattern "DEBUG \\[diag [^]]+\\][^:]*phase=toolcall [^:]*tool=${tool}( |$)" "$file"
 }
 
+eval_count_source_inventory_tool_calls() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  # Count actual repo_map tool calls only. Prompt text, model answers, and
+  # customer logs can mention source_inventory without the model using it.
+  eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=toolcall [^:]*tool=repo_map params=.*"view"[[:space:]]*:[[:space:]]*"source_inventory"' "$file"
+}
+
+eval_sum_answer_contract_violations() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  LC_ALL=C awk '
+    /^20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^ ]+ DEBUG \[diag finalizer\][^:]*phase=answer_contract_check / {
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^violations=[0-9]+$/) {
+          split($i, a, "=")
+          sum += a[2] + 0
+        }
+      }
+    }
+    END { print sum + 0 }
+  ' "$file"
+}
+
+eval_sum_answer_contract_violations_for_section() {
+  local file="$1"
+  local section="$2"
+  if [[ -z "$file" || ! -f "$file" || -z "$section" ]]; then
+    echo 0
+    return
+  fi
+  LC_ALL=C awk -v section="$section" '
+    /^20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^ ]+ DEBUG \[diag finalizer\][^:]*phase=answer_contract_check / {
+      matched = 0
+      for (i = 1; i <= NF; i++) {
+        if ($i == "section=" section) {
+          matched = 1
+        }
+      }
+      if (!matched) {
+        next
+      }
+      for (i = 1; i <= NF; i++) {
+        if ($i ~ /^violations=[0-9]+$/) {
+          split($i, a, "=")
+          sum += a[2] + 0
+        }
+      }
+    }
+    END { print sum + 0 }
+  ' "$file"
+}
+
 eval_count_agent_iterations() {
   local file="$1"
   local agent="$2"
