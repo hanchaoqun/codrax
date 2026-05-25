@@ -312,6 +312,34 @@ func TestFinalizerNoToolHistoryPreservesOnlyFirstRichDraft(t *testing.T) {
 	}
 }
 
+func TestRecordFinalizerNoToolAnswerDraftOnlyCapturesAnswerDocumentPayload(t *testing.T) {
+	ctx := &types.AgentContext{
+		Stage:   types.StageFinalize,
+		Mutable: types.NewMutableState(""),
+	}
+	if recordFinalizerNoToolAnswerDraft(ctx, "plain finalizer prose") {
+		t.Fatal("plain prose must not be recorded as an answer_document draft")
+	}
+	if got := ctx.Mutable.FinalizerNoToolAnswerDrafts(); len(got) != 0 {
+		t.Fatalf("unexpected draft capture for prose: %+v", got)
+	}
+	payload := `{"blocks":[{"id":"summary","kind":"summary","text":"visible"}]}`
+	if !recordFinalizerNoToolAnswerDraft(ctx, payload) {
+		t.Fatal("answer_document-shaped payload should be recorded")
+	}
+	if recordFinalizerNoToolAnswerDraft(ctx, payload) {
+		t.Fatal("duplicate payload should be deduplicated")
+	}
+	drafts := ctx.Mutable.FinalizerNoToolAnswerDrafts()
+	if len(drafts) != 1 || drafts[0].Content != payload {
+		t.Fatalf("captured drafts = %+v, want one exact payload", drafts)
+	}
+	nonFinalizer := &types.AgentContext{Stage: types.StageExplore, Mutable: types.NewMutableState("")}
+	if recordFinalizerNoToolAnswerDraft(nonFinalizer, payload) {
+		t.Fatal("non-finalizer stages must not capture finalizer drafts")
+	}
+}
+
 // TestContextPressureForbiddenPatterns_PerAgentExtension pins the
 // shared-core + per-agent-extension shape of the Do-NOT list. The
 // shared core applies to every agent; the extensions call out

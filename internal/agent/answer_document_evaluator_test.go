@@ -5774,6 +5774,68 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_RecoversAnswerDocumentJS
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_RecoversPreservedNoToolDraftAfterIsolatedFallback(t *testing.T) {
+	ctx := &types.AgentContext{
+		Mutable: types.NewMutableState(""),
+	}
+	ctx.Mutable.AppendFinalizerNoToolAnswerDraft(`{
+	  "blocks": [
+	    {
+	      "id": "summary",
+	      "kind": "summary",
+	      "surface_role": "principal",
+	      "text": "首轮 JSON 草稿保留了 timeout 与成文校验失败的区别。"
+	    },
+	    {
+	      "id": "details",
+	      "kind": "ordered_list",
+	      "surface_role": "principal",
+	      "items": [
+	        {"id": "i1", "label": "模型响应超时", "text": "由流级错误判定，允许重试。", "citation_ref": 0},
+	        {"id": "i2", "label": "成文校验失败", "text": "属于内容/结构校验，不应按流级超时重试。", "citation_ref": 1}
+	      ]
+	    }
+	  ],
+	  "citations": [
+	    {"file": "internal/llm/retryable_error.go", "line": 117},
+	    {"file": "internal/orchestrator/orchestrator.go", "line": 5714}
+	  ],
+	  "exact_resolution": {"status": "resolved", "anchor": "internal/orchestrator/orchestrator.go:5714", "context_mode": "clear"}
+	}`)
+	messages := []llm.Message{
+		{Role: "user", Content: "isolated fallback prompt"},
+		{Role: "assistant", Content: "降级散文兜底很短，已经丢失关键区分。"},
+	}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, messages, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	if strings.Contains(out.FinalAnswer, "未能生成结构化答案") ||
+		strings.Contains(out.FinalAnswer, "answer_document emission missing") {
+		t.Fatalf("preserved draft recovery should avoid missing-doc fallback:\n%s", out.FinalAnswer)
+	}
+	for _, want := range []string{
+		"timeout 与成文校验失败的区别",
+		"模型响应超时",
+		"成文校验失败",
+		"internal/llm/retryable_error.go:117",
+		"internal/orchestrator/orchestrator.go:5714",
+		"已从模型写在文本中的 answer_document JSON 恢复本答案",
+	} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("final answer missing %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+	if strings.Contains(out.FinalAnswer, "降级散文兜底很短") {
+		t.Fatalf("weaker isolated fallback should not override the preserved structured draft:\n%s", out.FinalAnswer)
+	}
+	doc := ctx.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 || len(doc.Citations) != 2 {
+		t.Fatalf("lossless preserved draft should be restored to Mutable, doc=%+v", doc)
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_RendersRetryStateDraftAndRawContent(t *testing.T) {
 	prevDoc := &types.AnswerDocumentV2{
 		DocumentModel: "v2",

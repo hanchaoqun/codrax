@@ -8395,10 +8395,10 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 			break
 		}
 	}
-	if rec, ok := tool.RecoverAnswerDocumentV2FromText(lastContent); ok && rec.Document != nil {
+	if rec, source, ok := recoverBestAnswerDocumentV2FromNoToolDrafts(ctx, messages); ok && rec.Document != nil {
 		if out, rendered := e.parseRecoveredContentAnswerDocument(ctx, rec, out); rendered {
-			logging.Warning("[finalizer/answer_document] emit_answer_document missing after retries; recovered %s from assistant content (lossless=%v blocks=%d attachments=%d)",
-				rec.Mode, rec.Lossless, len(rec.Document.Blocks), len(rec.Attachments))
+			logging.Warning("[finalizer/answer_document] emit_answer_document missing after retries; recovered %s from %s (lossless=%v blocks=%d attachments=%d)",
+				rec.Mode, source, rec.Lossless, len(rec.Document.Blocks), len(rec.Attachments))
 			return out, nil
 		}
 	}
@@ -8559,6 +8559,90 @@ func recoverRetryStateAnswerDocumentV2(ctx *types.AgentContext) (*types.AnswerDo
 		return doc, true
 	}
 	return nil, false
+}
+
+func recoverBestAnswerDocumentV2FromNoToolDrafts(
+	ctx *types.AgentContext,
+	messages []llm.Message,
+) (tool.AnswerDocumentTextRecovery, string, bool) {
+	type candidate struct {
+		source  string
+		content string
+	}
+	var candidates []candidate
+	seen := map[string]bool{}
+	add := func(source, content string) {
+		content = strings.TrimSpace(content)
+		if content == "" || seen[content] {
+			return
+		}
+		seen[content] = true
+		candidates = append(candidates, candidate{source: source, content: content})
+	}
+	if ctx != nil && ctx.Mutable != nil {
+		for i, draft := range ctx.Mutable.FinalizerNoToolAnswerDrafts() {
+			add(fmt.Sprintf("preserved no-tool answer draft #%d", i+1), draft.Content)
+		}
+	}
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role == "assistant" {
+			add(fmt.Sprintf("assistant message #%d", i+1), messages[i].Content)
+		}
+	}
+	var (
+		best       tool.AnswerDocumentTextRecovery
+		bestSource string
+		bestScore  int
+		ok         bool
+	)
+	for _, c := range candidates {
+		rec, recovered := tool.RecoverAnswerDocumentV2FromText(c.content)
+		if !recovered || rec.Document == nil {
+			continue
+		}
+		score := answerDocumentTextRecoveryScore(rec)
+		if !ok || score > bestScore {
+			best = rec
+			bestSource = c.source
+			bestScore = score
+			ok = true
+		}
+	}
+	return best, bestSource, ok
+}
+
+func answerDocumentTextRecoveryScore(rec tool.AnswerDocumentTextRecovery) int {
+	if rec.Document == nil {
+		return 0
+	}
+	score := 0
+	if rec.Lossless {
+		score += 1_000_000
+	}
+	score += len(rec.Document.Blocks) * 10_000
+	score += len(rec.Document.Citations) * 1_000
+	score += len(rec.Attachments) * 500
+	score += answerDocumentVisibleTextLen(rec.Document) / 10
+	return score
+}
+
+func answerDocumentVisibleTextLen(doc *types.AnswerDocumentV2) int {
+	if doc == nil {
+		return 0
+	}
+	total := 0
+	for _, block := range doc.Blocks {
+		total += len(strings.TrimSpace(block.Title))
+		total += len(strings.TrimSpace(block.Text))
+		for _, item := range block.Items {
+			total += len(strings.TrimSpace(item.Label))
+			total += len(strings.TrimSpace(item.Text))
+		}
+		if block.Diagram != nil {
+			total += len(strings.TrimSpace(block.Diagram.Body))
+		}
+	}
+	return total
 }
 
 func retryStateRecoveredAnswerDocumentCaveat(lang string) string {

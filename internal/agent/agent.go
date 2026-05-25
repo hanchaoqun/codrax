@@ -565,6 +565,27 @@ func contentForNoToolHistoryWithFinalizerDraftBudget(ctx *types.AgentContext, re
 	return contentForNoToolHistory(ctx, resp), finalizerDraftsPreserved
 }
 
+func recordFinalizerNoToolAnswerDraft(ctx *types.AgentContext, content string) bool {
+	if ctx == nil || ctx.Stage != types.StageFinalize || ctx.Mutable == nil {
+		return false
+	}
+	if !looksLikeAnswerDocumentTextPayload(content) {
+		return false
+	}
+	return ctx.Mutable.AppendFinalizerNoToolAnswerDraft(content)
+}
+
+func looksLikeAnswerDocumentTextPayload(content string) bool {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return false
+	}
+	// Schema marker only: this is not intent detection and does not inspect
+	// user text or answer prose. The finalizer recovery parser still decides
+	// whether the captured draft is a valid answer_document payload.
+	return strings.Contains(content, `"blocks"`) || strings.Contains(content, `\"blocks\"`)
+}
+
 func compactNoToolAnswerDraftHistory(ctx *types.AgentContext, resp llm.Response) string {
 	stage := "unknown"
 	if ctx != nil && ctx.Stage != "" {
@@ -1239,6 +1260,9 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 	disableToolsNextTurn := false
 	finalizerNoToolDraftsPreserved := 0
 	historyContentForNoTool := func(resp llm.Response) string {
+		if recordFinalizerNoToolAnswerDraft(ctx, resp.Content) {
+			logging.Debug("[diag %s] captured finalizer no-tool answer_document-shaped draft len=%d", b.name, len(resp.Content))
+		}
 		content, preserved := contentForNoToolHistoryWithFinalizerDraftBudget(ctx, resp, finalizerNoToolDraftsPreserved)
 		finalizerNoToolDraftsPreserved = preserved
 		return content

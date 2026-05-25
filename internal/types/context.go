@@ -206,6 +206,14 @@ type MutableState struct {
 	// contract, citation pool, or validator surface.
 	answerDisplayAttachments []AnswerDisplayAttachment
 
+	// finalizerNoToolAnswerDrafts preserves answer-document-shaped
+	// assistant text that the finalizer produced without using the
+	// tool channel. It is a same-task recovery aid only: normal
+	// emit_answer_document output still owns answerDocumentV2, and
+	// recovered drafts must be parsed/validated by downstream callers
+	// before they become user-visible answer state.
+	finalizerNoToolAnswerDrafts []FinalizerNoToolAnswerDraft
+
 	// lastRejectedAnswerDocumentV2 caches the most recent structurally
 	// decoded answer_document draft that failed a validator gate before it
 	// could be persisted as the accepted AnswerDocumentV2. Local models often
@@ -2014,6 +2022,17 @@ type AnswerDocAttemptShape struct {
 	HasExactResolution bool
 }
 
+// FinalizerNoToolAnswerDraft is a raw assistant response captured when the
+// finalizer wrote an answer_document-shaped payload in text instead of using
+// the tool channel. The content is intentionally raw so recovery can reuse the
+// same parser/normalizer as the ordinary text-recovery path.
+type FinalizerNoToolAnswerDraft struct {
+	Content    string
+	CapturedAt time.Time
+}
+
+const maxFinalizerNoToolAnswerDrafts = 4
+
 // SetLastAnswerDocAttemptShape stores the size profile of the most
 // recent emit ATTEMPT (success or failure) so the next attempt can
 // be compared against it. Nil clears the field.
@@ -2045,6 +2064,63 @@ func (m *MutableState) LastAnswerDocAttemptShape() *AnswerDocAttemptShape {
 	}
 	clone := *m.lastAnswerDocAttemptShape
 	return &clone
+}
+
+// AppendFinalizerNoToolAnswerDraft records one finalizer assistant draft for
+// same-task recovery. It deduplicates exact content and keeps a bounded window
+// that preserves the first draft plus the most recent drafts, because the first
+// rich no-tool answer is often the only complete one after later fallback turns.
+func (m *MutableState) AppendFinalizerNoToolAnswerDraft(content string) bool {
+	if m == nil {
+		return false
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, draft := range m.finalizerNoToolAnswerDrafts {
+		if draft.Content == content {
+			return false
+		}
+	}
+	m.finalizerNoToolAnswerDrafts = append(m.finalizerNoToolAnswerDrafts, FinalizerNoToolAnswerDraft{
+		Content:    content,
+		CapturedAt: time.Now(),
+	})
+	if len(m.finalizerNoToolAnswerDrafts) > maxFinalizerNoToolAnswerDrafts {
+		first := m.finalizerNoToolAnswerDrafts[0]
+		tail := append([]FinalizerNoToolAnswerDraft(nil), m.finalizerNoToolAnswerDrafts[len(m.finalizerNoToolAnswerDrafts)-(maxFinalizerNoToolAnswerDrafts-1):]...)
+		m.finalizerNoToolAnswerDrafts = append([]FinalizerNoToolAnswerDraft{first}, tail...)
+	}
+	return true
+}
+
+// FinalizerNoToolAnswerDrafts returns defensive copies of the same-task
+// no-tool drafts captured for answer_document text recovery.
+func (m *MutableState) FinalizerNoToolAnswerDrafts() []FinalizerNoToolAnswerDraft {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.finalizerNoToolAnswerDrafts) == 0 {
+		return nil
+	}
+	out := make([]FinalizerNoToolAnswerDraft, len(m.finalizerNoToolAnswerDrafts))
+	copy(out, m.finalizerNoToolAnswerDrafts)
+	return out
+}
+
+// ResetFinalizerNoToolAnswerDrafts clears same-task no-tool finalizer drafts.
+func (m *MutableState) ResetFinalizerNoToolAnswerDrafts() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.finalizerNoToolAnswerDrafts = nil
 }
 
 // SetAnswerDocumentV2WithMutation atomically replaces the V2 block-
@@ -2169,6 +2245,7 @@ func (m *MutableState) ResetAnswerDocumentV2() {
 	defer m.mu.Unlock()
 	m.answerDocumentV2 = nil
 	m.answerDisplayAttachments = nil
+	m.finalizerNoToolAnswerDrafts = nil
 	m.lastRejectedAnswerDocumentV2 = nil
 }
 
