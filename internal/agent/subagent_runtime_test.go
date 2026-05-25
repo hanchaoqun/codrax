@@ -95,6 +95,59 @@ func TestNormalizeSubAgentScopesKeepsParentChildOverlapAdvisory(t *testing.T) {
 	}
 }
 
+func TestSubAgentRequestScopeStatsCountsOverlapsWithoutRejecting(t *testing.T) {
+	scopeCount, overlaps := subAgentRequestScopeStats([]*types.SubAgentRequest{
+		{Scope: []string{"src", "src/service"}},
+		{Scope: []string{"pkg/a", "pkg/b"}},
+	})
+	if scopeCount != 4 {
+		t.Fatalf("scopeCount = %d, want 4", scopeCount)
+	}
+	if overlaps != 1 {
+		t.Fatalf("overlaps = %d, want 1", overlaps)
+	}
+}
+
+func TestCollectSubAgentRuntimeStatsCountsToolsAndDuplicates(t *testing.T) {
+	stats := collectSubAgentRuntimeStats([]*types.SubAgentResult{
+		{
+			RequestID:          "r1",
+			SubAgent:           "explorer",
+			Facts:              []types.RepoFact{{Key: "k"}},
+			EvidenceItems:      []types.EvidenceItem{{Subject: "A"}},
+			FlowFindings:       []types.FlowFindingDigest{{ID: "flow-1"}},
+			InvestigationNotes: []string{"rich prose"},
+			Output:             []byte(`{"ok":true}`),
+			Tools: []types.ToolResult{
+				{ToolName: "read_file", Summary: "[a.go:1-10]", Success: true},
+				{ToolName: "grep", Summary: "a.go:3: foo", Success: true},
+				{ToolName: "repo_map", Summary: "source inventory", Success: true},
+			},
+		},
+		{
+			RequestID: "r2",
+			SubAgent:  "explorer",
+			Tools: []types.ToolResult{
+				{ToolName: "read_file", Summary: "[a.go:1-10]", Success: true},
+				{ToolName: "grep", Summary: "a.go:3: foo", Success: false},
+			},
+		},
+		nil,
+	})
+	if stats.Branches != 3 || stats.OK != 2 || stats.Errors != 1 {
+		t.Fatalf("branch status stats = %+v", stats)
+	}
+	if stats.Tools != 5 || stats.SuccessfulTools != 4 || stats.FailedTools != 1 {
+		t.Fatalf("tool stats = %+v", stats)
+	}
+	if stats.DuplicateToolResults != 2 || stats.DuplicateReadFile != 1 || stats.DuplicateGrep != 1 {
+		t.Fatalf("duplicate stats = %+v", stats)
+	}
+	if stats.RepoMapTools != 1 || stats.Facts != 1 || stats.Evidence != 1 || stats.Flow != 1 || stats.AdvisoryNotes != 1 || stats.Outputs != 1 {
+		t.Fatalf("content stats = %+v", stats)
+	}
+}
+
 type fakeActiveSetGater struct {
 	paths map[string]types.ActiveSetGateResult
 }

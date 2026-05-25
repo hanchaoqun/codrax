@@ -223,12 +223,39 @@ func (r *SubAgentRuntime) Run(bus *types.BusContext, proposal *types.SubAgentPro
 	if err != nil {
 		return nil, err
 	}
+	scopeCount, overlapPairs := subAgentRequestScopeStats(requests)
+	logging.Info(
+		"[subagent-runtime] proposal branches=%d parallelism=%d scopes=%d scope_overlap_pairs=%d",
+		len(requests),
+		subAgentEffectiveParallelism(r.maxParallelism, len(requests)),
+		scopeCount,
+		overlapPairs,
+	)
 
 	// 2. Execute parallel
 	results, execErr := r.execute(requests)
 
 	// 3. Reduce
 	merged := r.reducer.Reduce(results)
+	stats := collectSubAgentRuntimeStats(results)
+	logging.Info(
+		"[subagent-runtime] reduced branches=%d ok=%d errors=%d tools=%d success=%d fail=%d duplicate_tool_results=%d duplicate_read_file=%d duplicate_grep=%d repo_map=%d facts=%d evidence=%d flow=%d advisory_notes=%d outputs=%d",
+		stats.Branches,
+		stats.OK,
+		stats.Errors,
+		stats.Tools,
+		stats.SuccessfulTools,
+		stats.FailedTools,
+		stats.DuplicateToolResults,
+		stats.DuplicateReadFile,
+		stats.DuplicateGrep,
+		stats.RepoMapTools,
+		stats.Facts,
+		stats.Evidence,
+		stats.Flow,
+		stats.AdvisoryNotes,
+		stats.Outputs,
+	)
 
 	return merged, execErr
 }
@@ -301,6 +328,105 @@ func combineErrors(errs []error) error {
 		return nil
 	}
 	return fmt.Errorf("subagent errors: %v", msgs)
+}
+
+func subAgentRequestScopeStats(requests []*types.SubAgentRequest) (scopeCount, overlapPairs int) {
+	for _, req := range requests {
+		if req == nil {
+			continue
+		}
+		scopeCount += len(req.Scope)
+		for i := 0; i < len(req.Scope); i++ {
+			for j := i + 1; j < len(req.Scope); j++ {
+				if subAgentScopesOverlap(req.Scope[i], req.Scope[j]) {
+					overlapPairs++
+				}
+			}
+		}
+	}
+	return scopeCount, overlapPairs
+}
+
+type subAgentRuntimeStats struct {
+	Branches             int
+	OK                   int
+	Errors               int
+	Tools                int
+	SuccessfulTools      int
+	FailedTools          int
+	DuplicateToolResults int
+	DuplicateReadFile    int
+	DuplicateGrep        int
+	RepoMapTools         int
+	Facts                int
+	Evidence             int
+	Flow                 int
+	AdvisoryNotes        int
+	Outputs              int
+}
+
+func collectSubAgentRuntimeStats(results []*types.SubAgentResult) subAgentRuntimeStats {
+	var stats subAgentRuntimeStats
+	stats.Branches = len(results)
+	seenTools := make(map[string]struct{})
+	for _, res := range results {
+		if res == nil {
+			stats.Errors++
+			continue
+		}
+		if strings.TrimSpace(res.Error) != "" {
+			stats.Errors++
+		} else {
+			stats.OK++
+		}
+		stats.Facts += len(res.Facts)
+		stats.Evidence += len(res.EvidenceItems)
+		stats.Flow += len(res.FlowFindings)
+		stats.AdvisoryNotes += len(res.InvestigationNotes)
+		if len(res.Output) > 0 {
+			stats.Outputs++
+		}
+		for _, tr := range res.Tools {
+			stats.Tools++
+			if tr.Success {
+				stats.SuccessfulTools++
+			} else {
+				stats.FailedTools++
+			}
+			if tr.ToolName == "repo_map" {
+				stats.RepoMapTools++
+			}
+			key := subAgentToolResultKey(tr)
+			if key == "" {
+				continue
+			}
+			if _, ok := seenTools[key]; ok {
+				stats.DuplicateToolResults++
+				switch tr.ToolName {
+				case "read_file":
+					stats.DuplicateReadFile++
+				case "grep":
+					stats.DuplicateGrep++
+				}
+				continue
+			}
+			seenTools[key] = struct{}{}
+		}
+	}
+	return stats
+}
+
+func subAgentToolResultKey(result types.ToolResult) string {
+	name := strings.TrimSpace(result.ToolName)
+	summary := strings.TrimSpace(result.Summary)
+	if name == "" || summary == "" {
+		return ""
+	}
+	const maxSummaryKeyBytes = 512
+	if len(summary) > maxSummaryKeyBytes {
+		summary = summary[:maxSummaryKeyBytes]
+	}
+	return name + "\x00" + summary
 }
 
 // --- SubAgentReducer ---

@@ -197,5 +197,5 @@ Eval:
 - [x] P1-B: add advisory preview/ref tests.
 - [x] P2-A: normalize and validate sub-task scopes.
 - [x] P2-B: add dedupe/overlap governance and tests.
-- [ ] P3-A: add sub-agent observability counters.
+- [x] P3-A: add sub-agent observability counters.
 - [ ] P3-B: run targeted tests and eval samples.

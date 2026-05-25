@@ -9,6 +9,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/dataflow"
 	ctxbuilder "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
@@ -166,6 +167,7 @@ func truncateSubExplorerAdvisoryNote(note, workDir string, req *types.SubAgentRe
 	}
 	suffix := "\n\n[advisory note truncated]"
 	if ref != "" {
+		logging.Info("[sub_explorer] advisory note persisted bytes=%d inline_bytes=%d ref=%s", len(note), cut, ref)
 		suffix = fmt.Sprintf("\n\n[advisory note truncated; full text saved at %s]", ref)
 	}
 	return strings.TrimSpace(note[:cut]) + suffix
