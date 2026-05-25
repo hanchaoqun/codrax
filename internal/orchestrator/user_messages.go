@@ -282,6 +282,14 @@ func softTransportRetryHintForStage(lang string, stage types.PipelineStage) stri
 	return fmt.Sprintf("⟳ Connection/stream issue; retrying model request (%s)", labelEn)
 }
 
+func softTransportCheckpointRetryHintForStage(lang string, stage types.PipelineStage) string {
+	labelZh, labelEn := transportRetryStageLabel(stage)
+	if preferZhMessage(lang) {
+		return fmt.Sprintf("⟳ 连接/流式响应异常，已保留阶段进展并续跑（%s）", labelZh)
+	}
+	return fmt.Sprintf("⟳ Connection/stream issue; continuing from preserved progress (%s)", labelEn)
+}
+
 func transportRetryStageLabel(stage types.PipelineStage) (zh, en string) {
 	switch stage {
 	case types.StageAnalyze:

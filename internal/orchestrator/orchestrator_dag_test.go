@@ -909,6 +909,75 @@ func TestRunTaskGraph_RetryableExploreErrorAfterAcceptedClosureDoesNotReexplore(
 	}
 }
 
+func TestRunTaskGraph_RetryableExploreErrorAfterEvidenceContinuesFromCheckpoint(t *testing.T) {
+	var explorerCalls, finalizeCalls int
+	var retryHint string
+
+	ir := dagIR(types.AnswerContract{
+		Language: "en",
+	})
+	ir.TaskGraph.ExecutionPolicy.RetryBudget = 0
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			if explorerCalls == 1 {
+				return &agent.StageOutput{
+					MissingPiece: types.MissingFacts,
+					EvidenceItems: []types.EvidenceItem{{
+						ID:        "ev-before-stream-stall",
+						Source:    "src.go",
+						LineStart: 1,
+					}},
+				}, &llm.StreamStalledError{IdleFor: 61 * time.Second, Cause: context.Canceled}
+			}
+			retryHint = ctx.RetryHint
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingFacts,
+				EvidenceItems: []types.EvidenceItem{{ID: "ev-after-checkpoint", Source: "src.go", LineStart: 2}},
+			}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "Answer after checkpoint continuation.",
+			}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+	o.SetTransientRetryBudget(1)
+
+	busCtx, err := o.Run("explain X", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if busCtx.TaskState.LastError != "" {
+		t.Fatalf("LastError = %q, want empty", busCtx.TaskState.LastError)
+	}
+	if explorerCalls != 2 {
+		t.Fatalf("explorer calls = %d, want 2", explorerCalls)
+	}
+	if finalizeCalls != 1 {
+		t.Fatalf("finalize calls = %d, want 1", finalizeCalls)
+	}
+	for _, want := range []string{
+		"transient model stream error interrupted",
+		"structured evidence rows=1",
+		"continuation, not a fresh investigation",
+		"emit_investigation_complete",
+		"DAG-scheduled investigation window",
+	} {
+		if !strings.Contains(retryHint, want) {
+			t.Fatalf("retry hint missing %q:\n%s", want, retryHint)
+		}
+	}
+}
+
 func TestRunTaskGraph_RetryableAnalyzeErrorAfterUsableIRDoesNotReanalyze(t *testing.T) {
 	var analyzerCalls, explorerCalls, finalizeCalls int
 

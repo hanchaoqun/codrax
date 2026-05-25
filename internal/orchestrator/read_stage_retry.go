@@ -1,6 +1,8 @@
 package orchestrator
 
 import (
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -91,6 +93,14 @@ func (o *Orchestrator) retryReadStageDispatchError(
 	}
 	state.rememberTransientSignature(keyID, sig)
 
+	checkpointHint := ""
+	if stage == types.StageExplore {
+		checkpointHint = o.buildExploreTransientRetryCheckpointHint()
+		if checkpointHint != "" {
+			state.setTransientRetryHint(checkpointHint)
+		}
+	}
+
 	switch stage {
 	case types.StageExplore:
 		for _, n := range window {
@@ -108,9 +118,118 @@ func (o *Orchestrator) retryReadStageDispatchError(
 		Timestamp:  time.Now(),
 		Agent:      "orchestrator",
 		NoticeKind: render.NoticeRetry,
-		Reasoning:  softTransportRetryHintForStage(o.busCtx.Language, stage),
+		Reasoning:  o.softTransientRetryNotice(stage, checkpointHint != ""),
 	})
 	return true
+}
+
+type exploreTransientRetryCheckpoint struct {
+	evidenceRows   int
+	flowFindings   int
+	answerChains   int
+	answerSymbols  int
+	aggregateFacts int
+	readFiles      int
+	toolResults    int
+	hasClosure     bool
+}
+
+func (c exploreTransientRetryCheckpoint) hasProgress() bool {
+	return c.evidenceRows > 0 ||
+		c.flowFindings > 0 ||
+		c.answerChains > 0 ||
+		c.answerSymbols > 0 ||
+		c.aggregateFacts > 0 ||
+		c.readFiles > 0 ||
+		c.toolResults > 0 ||
+		c.hasClosure
+}
+
+func (o *Orchestrator) buildExploreTransientRetryCheckpointHint() string {
+	if o == nil || o.busCtx == nil {
+		return ""
+	}
+	c := exploreTransientRetryCheckpoint{
+		evidenceRows:  len(o.busCtx.EvidenceItems),
+		flowFindings:  len(o.busCtx.FlowFindings),
+		answerChains:  len(o.busCtx.AnswerChains),
+		answerSymbols: len(o.busCtx.AnswerSymbols),
+		toolResults:   countSuccessfulToolResults(o.busCtx.ToolResults),
+	}
+	if o.busCtx.Mutable != nil {
+		c.evidenceRows += len(o.busCtx.Mutable.EmittedEvidence())
+		c.toolResults += countSuccessfulToolResults(o.busCtx.Mutable.DispatchToolResults())
+		if artifacts := o.busCtx.Mutable.TurnAArtifacts(); artifacts != nil {
+			c.evidenceRows += len(artifacts.EvidenceItems)
+			c.flowFindings += len(artifacts.FlowFindings)
+			c.aggregateFacts += len(artifacts.AcceptedAggregateFacts)
+			c.readFiles += len(artifacts.ReadFiles)
+			c.toolResults += countSuccessfulToolResults(artifacts.ToolResults)
+			c.hasClosure = strings.TrimSpace(artifacts.AcceptedClosureReason) != "" ||
+				strings.TrimSpace(artifacts.AcceptedResultKind) != ""
+		}
+		if len(o.busCtx.Mutable.StableInvestigationAggregateFacts()) > 0 {
+			c.aggregateFacts += len(o.busCtx.Mutable.StableInvestigationAggregateFacts())
+		}
+		if strings.TrimSpace(o.busCtx.Mutable.StableInvestigationCompleteReason()) != "" ||
+			strings.TrimSpace(o.busCtx.Mutable.StableInvestigationResultKind()) != "" {
+			c.hasClosure = true
+		}
+	}
+	if !c.hasProgress() {
+		return ""
+	}
+	var facts []string
+	if c.evidenceRows > 0 {
+		facts = append(facts, fmt.Sprintf("structured evidence rows=%d", c.evidenceRows))
+	}
+	if c.flowFindings > 0 {
+		facts = append(facts, fmt.Sprintf("flow findings=%d", c.flowFindings))
+	}
+	if c.answerChains > 0 {
+		facts = append(facts, fmt.Sprintf("answer chains=%d", c.answerChains))
+	}
+	if c.answerSymbols > 0 {
+		facts = append(facts, fmt.Sprintf("answer symbols=%d", c.answerSymbols))
+	}
+	if c.aggregateFacts > 0 {
+		facts = append(facts, fmt.Sprintf("aggregate facts=%d", c.aggregateFacts))
+	}
+	if c.readFiles > 0 {
+		facts = append(facts, fmt.Sprintf("read files=%d", c.readFiles))
+	}
+	if c.toolResults > 0 {
+		facts = append(facts, fmt.Sprintf("successful tool results=%d", c.toolResults))
+	}
+	if c.hasClosure {
+		facts = append(facts, "accepted closure state present")
+	}
+	return strings.Join([]string{
+		"A transient model stream error interrupted the previous explore dispatch after durable progress was preserved.",
+		"Checkpoint summary (non-authoritative counts): " + strings.Join(facts, "; ") + ".",
+		"Continue from this checkpoint; this is a continuation, not a fresh investigation. Reuse the accepted evidence and already-read context visible in the transcript. Avoid repeating broad repository-wide navigation or identical broad searches unless the checkpoint clearly lacks the target needed for the active objective.",
+		"If a specific anchor is still missing, do a narrow follow-up read/search for that anchor. If the checkpoint is enough, call emit_investigation_complete. This checkpoint is advisory only: it is not new evidence and it does not decide sufficiency for you.",
+	}, "\n\n")
+}
+
+func countSuccessfulToolResults(results []types.ToolResult) int {
+	n := 0
+	for _, r := range results {
+		if r.Success {
+			n++
+		}
+	}
+	return n
+}
+
+func (o *Orchestrator) softTransientRetryNotice(stage types.PipelineStage, checkpoint bool) string {
+	if o == nil || o.busCtx == nil {
+		return softTransportRetryHintForStage("", stage)
+	}
+	if checkpoint {
+		return softTransportCheckpointRetryHintForStage(o.busCtx.Language, stage)
+	}
+	return softTransportRetryHintForStage(o.busCtx.Language, stage)
 }
 
 // completeExploreWindowAfterTransientProgress handles the narrow but

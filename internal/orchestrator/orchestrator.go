@@ -4316,6 +4316,15 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				}
 				return stepsUsed
 			}
+			if checkpointHint := state.consumeTransientRetryHint(); checkpointHint != "" {
+				if len(parallelWindows) > 0 {
+					for i := range parallelHints {
+						parallelHints[i] = prependRetryHint(checkpointHint, parallelHints[i])
+					}
+				} else {
+					hint = prependRetryHint(checkpointHint, hint)
+				}
+			}
 			pendingViolation = ""
 			pendingStageRetry = ""
 			pendingValidationTargets = nil
@@ -6083,6 +6092,19 @@ func (o *Orchestrator) applyWindowHint(hint string) {
 	}
 	logging.Debug("[orchestrator] window hint applied key=%q len=%d body=%q",
 		hintKey, len(hint), logging.Truncate(hint, logging.HintBodyMax))
+}
+
+func prependRetryHint(prefix, hint string) string {
+	prefix = strings.TrimSpace(prefix)
+	hint = strings.TrimSpace(hint)
+	switch {
+	case prefix == "":
+		return hint
+	case hint == "":
+		return prefix
+	default:
+		return prefix + "\n\n" + hint
+	}
 }
 
 func (o *Orchestrator) autoCompleteReadyReconcileNodes(state *graphState, window []*types.TaskNode, env criterion.Env) []*types.TaskNode {

@@ -74,6 +74,14 @@ type graphState struct {
 	// the next transient retry is allowed regardless of comparison.
 	transientStallSignatures map[string]string
 
+	// transientRetryHint is a one-shot model-facing continuation hint
+	// installed by read-mode stream retries after durable structured
+	// progress. It is consumed by the next window-render pass and
+	// prepended to the ordinary DAG objectives. Keeping it on
+	// graphState avoids overloading BusContext.TaskState.RetryHint,
+	// which applyWindowHint intentionally rewrites on each window.
+	transientRetryHint string
+
 	// transientNoEmitStreak counts consecutive transient stalls per
 	// node where the agent did NOT reach a terminal emit
 	// (emit_change_plan / emit_test_results / emit_answer_document /
@@ -265,6 +273,22 @@ func (s *graphState) recordRetry() { s.retryUsed++ }
 // transientRetryBudgetExhausted against the orchestrator's configured
 // budget BEFORE calling — graphState does not know the cap.
 func (s *graphState) recordTransientRetry() { s.transientRetryUsed++ }
+
+func (s *graphState) setTransientRetryHint(hint string) {
+	if s == nil {
+		return
+	}
+	s.transientRetryHint = strings.TrimSpace(hint)
+}
+
+func (s *graphState) consumeTransientRetryHint() string {
+	if s == nil {
+		return ""
+	}
+	hint := strings.TrimSpace(s.transientRetryHint)
+	s.transientRetryHint = ""
+	return hint
+}
 
 // rememberTransientSignature stores the just-failed attempt's tool-
 // call signature for nodeID so the next transient-retry decision can
