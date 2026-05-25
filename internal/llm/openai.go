@@ -531,6 +531,10 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 	// HTTP-level instead of cooperative.
 	reqCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+	firstByteTimeout := o.streamFirstByteTimeout
+	if firstByteTimeout <= 0 {
+		firstByteTimeout = defaultStreamFirstByteTimeout
+	}
 	req, err := http.NewRequestWithContext(reqCtx, "POST", o.baseURL+"/chat/completions", bytes.NewReader(bodyBytes))
 	if err != nil {
 		return Response{}, fmt.Errorf("create request: %w", err)
@@ -539,18 +543,43 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 	req.Header.Set("Authorization", "Bearer "+o.apiKey)
 	req.Header.Set("Accept", "text/event-stream")
 
+	preHeaderStart := time.Now()
+	var preHeaderFired atomic.Bool
+	preHeaderDone := make(chan struct{})
+	preHeaderTimer := time.AfterFunc(firstByteTimeout, func() {
+		defer close(preHeaderDone)
+		preHeaderFired.Store(true)
+		logging.Warning("[llm/stream] no response headers for %v (firstByteTimeout=%v); aborting", time.Since(preHeaderStart), firstByteTimeout)
+		cancel()
+	})
 	httpResp, err := o.streamHTTPClient.Do(req)
+	if !preHeaderTimer.Stop() {
+		<-preHeaderDone
+	}
 	if err != nil {
 		if cerr := ctx.Err(); cerr != nil {
 			return Response{}, cerr
 		}
+		if preHeaderFired.Load() {
+			return Response{}, &StreamFirstByteTimeoutError{
+				IdleFor: time.Since(preHeaderStart),
+				Cause:   fmt.Errorf("http request before response headers: %w", err),
+			}
+		}
 		if isResponseHeaderTimeout(err) {
 			return Response{}, &StreamFirstByteTimeoutError{
-				IdleFor: o.streamFirstByteTimeout,
+				IdleFor: firstByteTimeout,
 				Cause:   fmt.Errorf("http request: %w", err),
 			}
 		}
 		return Response{}, fmt.Errorf("http request: %w", err)
+	}
+	if preHeaderFired.Load() {
+		_ = httpResp.Body.Close()
+		return Response{}, &StreamFirstByteTimeoutError{
+			IdleFor: time.Since(preHeaderStart),
+			Cause:   context.Canceled,
+		}
 	}
 	defer httpResp.Body.Close()
 
@@ -593,10 +622,6 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 	stallTimeout := o.streamStallTimeout
 	if stallTimeout <= 0 {
 		stallTimeout = defaultStreamStallTimeout
-	}
-	firstByteTimeout := o.streamFirstByteTimeout
-	if firstByteTimeout <= 0 {
-		firstByteTimeout = defaultStreamFirstByteTimeout
 	}
 	// Tick interval is the smaller of the two thresholds / 4 to give
 	// the SHORTER timeout adequate detection resolution. Bounded

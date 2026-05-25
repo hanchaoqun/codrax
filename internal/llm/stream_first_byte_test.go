@@ -134,6 +134,42 @@ func TestDoStreamRequest_FirstByteTimeoutFiresBeforeHeaders(t *testing.T) {
 	}
 }
 
+type blockingPreHeaderRoundTripper struct{}
+
+func (blockingPreHeaderRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
+	<-r.Context().Done()
+	return nil, r.Context().Err()
+}
+
+func TestDoStreamRequest_FirstByteTimeoutCancelsPreHeaderDo(t *testing.T) {
+	adapter := NewOpenAIAdapter("k", "m", "http://example.test", AdapterOptions{
+		Stream:                 true,
+		RequestTimeout:         10 * time.Second,
+		RetryMaxAttempts:       1,
+		StreamFirstByteTimeout: 250 * time.Millisecond,
+		StreamStallTimeout:     5 * time.Second,
+	})
+	// Exercise the adapter-owned pre-header watchdog, not the net/http
+	// transport's ResponseHeaderTimeout. Some OpenAI-compatible providers
+	// and intermediaries can stall before response headers in ways that are
+	// easier to reason about when the request context itself is canceled.
+	adapter.streamHTTPClient = &http.Client{Transport: blockingPreHeaderRoundTripper{}}
+
+	start := time.Now()
+	_, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{})
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatalf("expected pre-header first-byte timeout error; got nil")
+	}
+	if !errors.Is(err, ErrStreamFirstByteTimeout) {
+		t.Fatalf("expected ErrStreamFirstByteTimeout in chain; got %v", err)
+	}
+	if elapsed > time.Second {
+		t.Fatalf("pre-header request context watchdog took %v; expected <1s", elapsed)
+	}
+}
+
 func TestDoStreamRequest_FirstByteTimeoutIgnoresKeepAliveFrames(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
