@@ -904,6 +904,32 @@ func TestRepoMapOverviewSuppressesSourceInventoryHintForAnalyzer(t *testing.T) {
 	}
 }
 
+func TestRepoMapOverviewSourceInventoryHintStageMatrix(t *testing.T) {
+	tests := []struct {
+		name string
+		ctx  *types.BusContext
+		view string
+		want bool
+	}{
+		{name: "direct overview defaults to hint", ctx: nil, view: "overview", want: true},
+		{name: "direct default view defaults to hint", ctx: nil, view: "", want: true},
+		{name: "non overview view never hints", ctx: &types.BusContext{PipelineStage: types.StageExplore, ActiveAgent: types.AgentExplorer}, view: "file_map", want: false},
+		{name: "analyze stage suppresses without agent", ctx: &types.BusContext{PipelineStage: types.StageAnalyze}, view: "overview", want: false},
+		{name: "analyzer agent suppresses without stage", ctx: &types.BusContext{ActiveAgent: types.AgentAnalyzer}, view: "overview", want: false},
+		{name: "explore dispatch hints", ctx: &types.BusContext{PipelineStage: types.StageExplore, ActiveAgent: types.AgentExplorer}, view: "overview", want: true},
+		{name: "extract dispatch hints if tool-visible", ctx: &types.BusContext{PipelineStage: types.StageExtract, ActiveAgent: types.AgentExtractor}, view: "overview", want: true},
+		{name: "finalize dispatch hints if tool-visible", ctx: &types.BusContext{PipelineStage: types.StageFinalize, ActiveAgent: types.AgentFinalizer}, view: "overview", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := repoMapOverviewSourceInventoryHintEnabled(tt.ctx, tt.view); got != tt.want {
+				t.Fatalf("repoMapOverviewSourceInventoryHintEnabled() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRepoMapExecuteMultiRepoHonorsEachExplicitSubRepoPath(t *testing.T) {
 	parent := t.TempDir()
 	baseRoot := filepath.Join(parent, "frameworks", "base")

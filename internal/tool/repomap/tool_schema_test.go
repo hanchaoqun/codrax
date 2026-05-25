@@ -42,6 +42,11 @@ func TestRepoMapSchemaTeachesLensParameters(t *testing.T) {
 			t.Fatalf("repo_map parameters missing field %q", field)
 		}
 	}
+	for _, internalOnly := range []string{"show_source_inventory_hint", "ShowSourceInventoryHint", "source_inventory_hint"} {
+		if _, ok := schema.Properties[internalOnly]; ok || strings.Contains(string(tl.Parameters()), internalOnly) {
+			t.Fatalf("repo_map parameters leaked internal render switch %q:\n%s", internalOnly, tl.Parameters())
+		}
+	}
 	if !containsString(schema.Properties["view"].Enum, "source_inventory") ||
 		!containsString(schema.Properties["view"].Enum, "relation_map") {
 		t.Fatalf("repo_map view enum missing lens views: %+v", schema.Properties["view"].Enum)
