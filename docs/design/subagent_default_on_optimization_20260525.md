@@ -199,3 +199,16 @@ Eval:
 - [x] P2-B: add dedupe/overlap governance and tests.
 - [x] P3-A: add sub-agent observability counters.
 - [ ] P3-B: run targeted tests and eval samples.
+
+## P3 Validation Notes
+
+- 2026-05-25 targeted unit tests and `go test ./...` passed after P3-A.
+- `eval/cases/qf_relation_subagent_registry.case` passed 1/1 with no finalizer
+  rejects and no tool-history pruning.
+- While running `eval/cases/read_combo_pipeline_sequence_table.case`, the logs
+  exposed a generic prompt/tool-surface drift: an evidence-repair hint described
+  the *current* emit-only surface while the next filtered surface allowed a
+  surgical `read_file`. This is not a stage/pipeline-specific issue. The fix is
+  to render repair guidance from the next effective repair surface after the
+  evaluator updates repair state, so model-facing context cannot contradict the
+  tools it will actually see next.

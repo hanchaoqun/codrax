@@ -4842,10 +4842,11 @@ func (e *explorerEvaluator) postEmitEvidenceRepairSignal(obs LoopObservation) Lo
 	}
 	e.midLoopEvidenceRepairSent = true
 	e.midLoopEvidenceRepairResultsLen = len(obs.AllToolResults)
+	e.midLoopEvidenceRepairEmitOnly = e.evidenceRepairShouldBeEmitOnly(obs.AllToolResults)
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        "explorer.mid-loop.evidence-repair",
-		Hint:           renderEmitEvidenceRepairHint(targets, obs.ToolAvailable("read_file")),
+		Hint:           renderEmitEvidenceRepairHint(targets, !e.midLoopEvidenceRepairEmitOnly),
 		Progress:       true,
 		BypassThrottle: true,
 		BypassBudget:   true,

@@ -3604,12 +3604,12 @@ func TestMidLoopCheck_EmitEvidenceRepairBypassesIterationFloor(t *testing.T) {
 	if !strings.Contains(sig.Hint, "internal/tool/repomap/tool.go") || !strings.Contains(sig.Hint, "149") || !strings.Contains(sig.Hint, "158") {
 		t.Fatalf("repair hint should target the recovered anchor lines, got: %s", sig.Hint)
 	}
-	if !strings.Contains(sig.Hint, "re-emit grounded evidence") {
-		t.Fatalf("repair hint should direct the model to re-emit grounded evidence, got: %s", sig.Hint)
+	if !strings.Contains(sig.Hint, "already-visible line gutters") || !strings.Contains(sig.Hint, "emit_investigation_complete") {
+		t.Fatalf("covered repair hint should direct the model to materialize or close without rereading, got: %s", sig.Hint)
 	}
 }
 
-func TestMidLoopCheck_EmitEvidenceRepairHintRespectsAvailableToolSurface(t *testing.T) {
+func TestMidLoopCheck_EmitEvidenceRepairHintMatchesNextRepairToolSurface(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:        1,
 		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
@@ -3633,11 +3633,67 @@ func TestMidLoopCheck_EmitEvidenceRepairHintRespectsAvailableToolSurface(t *test
 	if !sig.HintRequested {
 		t.Fatalf("emit_evidence recovery should trigger a repair hint, got %+v", sig)
 	}
+	if !strings.Contains(sig.Hint, "`read_file`") {
+		t.Fatalf("repair hint should describe the next repair surface with read_file available, got: %s", sig.Hint)
+	}
+	ctx := &types.AgentContext{Stage: types.StageExplore}
+	got := eval.FilterToolSchemas(ctx, []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	})
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "read_file,emit_evidence,emit_investigation_complete" {
+		t.Fatalf("next repair surface should match read_file hint, got %v", gotNames)
+	}
+}
+
+func TestMidLoopCheck_EmitEvidenceRepairHintStaysEmitOnlyWhenTargetsCovered(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+	}
+	history := []types.ToolResult{
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[internal/tool/repomap/tool.go: showing lines 140-160 of 323 total]\n149| func buildOrLoadGraph() {}\n",
+		},
+		{
+			ToolName: "emit_evidence",
+			Success:  true,
+			Summary: "emit_evidence accepted 1 item(s)\n\n" +
+				"  [1] direct buildOrLoadGraph @ internal/tool/repomap/tool.go:149 — cache path\n" +
+				"      → recovered (tier=fqname_same_file, you claimed line 148, adjusted to 149)\n",
+		},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:              PhaseMidLoop,
+		Iteration:          1,
+		LastToolResult:     &history[1],
+		AllToolResults:     history,
+		ToolSurfaceKnown:   true,
+		AvailableToolNames: map[string]bool{"emit_evidence": true, "emit_investigation_complete": true},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("emit_evidence recovery should trigger a repair hint, got %+v", sig)
+	}
 	if strings.Contains(sig.Hint, "re-read") || strings.Contains(sig.Hint, "`read_file`") {
-		t.Fatalf("emit-only repair hint must not ask for unavailable read_file, got: %s", sig.Hint)
+		t.Fatalf("covered repair hint must not ask for read_file, got: %s", sig.Hint)
 	}
 	if !strings.Contains(sig.Hint, "already-visible line gutters") || !strings.Contains(sig.Hint, "emit_investigation_complete") {
 		t.Fatalf("emit-only repair hint should steer to grounded re-emit or closure, got: %s", sig.Hint)
+	}
+	ctx := &types.AgentContext{Stage: types.StageExplore}
+	got := eval.FilterToolSchemas(ctx, []llm.ToolSchema{
+		{Name: "read_file"},
+		{Name: "grep"},
+		{Name: "emit_evidence"},
+		{Name: "emit_investigation_complete"},
+	})
+	if gotNames := explorerSchemaNames(got); strings.Join(gotNames, ",") != "emit_evidence,emit_investigation_complete" {
+		t.Fatalf("covered repair surface should match emit-only hint, got %v", gotNames)
 	}
 }
 
