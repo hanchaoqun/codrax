@@ -212,3 +212,11 @@ Eval:
   to render repair guidance from the next effective repair surface after the
   evaluator updates repair state, so model-facing context cannot contradict the
   tools it will actually see next.
+- The same interrupted eval also reconfirmed a separate long-tail gap outside
+  the sub-agent default-on work: after an upstream LLM stream stall, the read
+  scheduler can restart broad exploration even though the previous attempt had
+  already accepted grounded evidence. This must be handled by the transient
+  retry / evidence-checkpoint workstream, not by weakening sub-agent behavior or
+  adding answer-specific gates. The run was stopped after the diagnostic signal
+  was captured because it used a pre-fix binary and no longer validated this
+  batch.
