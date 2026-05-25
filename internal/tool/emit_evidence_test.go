@@ -453,6 +453,55 @@ func TestEmitEvidence_DuplicateBatchIsNoProgress(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_SameStableIDMetadataCorrectionUpdatesSnapshot(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	first := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "ProviderAuth.api", "predicate": "defines", "source": "packages/opencode/src/auth.ts", "line_start": 42, "summary": "ProviderAuth.api participates in auth transport", "anchor_kind": "call", "anchor_symbol": "ProviderAuth"}
+        ]
+    }`)
+	corrected := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "ProviderAuth.api", "predicate": "defines", "source": "packages/opencode/src/auth.ts", "line_start": 42, "summary": "ProviderAuth.api is the transport-facing definition used by auth.set", "anchor_kind": "definition", "anchor_symbol": "ProviderAuth", "snippet": "class ProviderAuth { api() {} }"}
+        ]
+    }`)
+	if res, err := tool.Execute(ctx, first); err != nil || !res.Success {
+		t.Fatalf("first emit failed: res=%+v err=%v", res, err)
+	}
+	res, err := tool.Execute(ctx, corrected)
+	if err != nil {
+		t.Fatalf("corrected emit: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("corrected emit should succeed, got: %s", res.Summary)
+	}
+	if res.Repair != nil && res.Repair.Code == EmitEvidenceDuplicateNoopCode {
+		t.Fatalf("metadata correction must not be treated as no-progress duplicate: %+v", res.Repair)
+	}
+	if !strings.Contains(res.Summary, "Updated 1 existing evidence item") {
+		raw, total := ctx.Mutable.EmittedEvidenceSince(0)
+		t.Fatalf("correction summary should tell model the row was amended, total=%d raw=%+v got: %s", total, raw, res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("same-ID correction should compact to one answer-grade row, got %d: %+v", len(got), got)
+	}
+	if got[0].AnchorKind != types.AnchorDefinition {
+		t.Fatalf("anchor kind = %q, want %q", got[0].AnchorKind, types.AnchorDefinition)
+	}
+	if !strings.Contains(got[0].Summary, "auth transport") || !strings.Contains(got[0].Summary, "auth.set") {
+		t.Fatalf("correction merge should preserve rich summaries, got %q", got[0].Summary)
+	}
+	if got[0].Snippet != "class ProviderAuth { api() {} }" {
+		t.Fatalf("corrected snippet not merged: %q", got[0].Snippet)
+	}
+	tail, total := ctx.Mutable.EmittedEvidenceSince(1)
+	if total != 2 || len(tail) != 1 || tail[0].AnchorKind != types.AnchorDefinition {
+		t.Fatalf("raw evidence tail should expose correction event, total=%d tail=%+v", total, tail)
+	}
+}
+
 func TestEmitEvidence_CommandScalarWithoutLineIsAdvisoryNoop(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

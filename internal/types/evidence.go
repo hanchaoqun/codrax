@@ -945,6 +945,224 @@ func StableEvidenceID(item EvidenceItem) string {
 	return fmt.Sprintf("ev-%x", h.Sum64())
 }
 
+// EvidenceRevisionKey is a narrower source-anchor key used only to recognize
+// metadata amendments for an already accepted evidence row. It is intentionally
+// not a replacement for StableEvidenceID: semantic identity still controls
+// normal dedupe, while this key lets a retry correct mutable metadata such as
+// anchor_kind when the model points at the same concrete source line and durable
+// token. Empty means the item is not safe to treat as a revision candidate.
+func EvidenceRevisionKey(item EvidenceItem) string {
+	scope := item.Scope
+	if scope == "" {
+		scope = ScopeLine
+	}
+	if !scope.IsLineShaped() || strings.TrimSpace(item.Source) == "" || item.LineStart <= 0 {
+		return ""
+	}
+	end := item.LineEnd
+	if end <= 0 {
+		end = item.LineStart
+	}
+	token := strings.TrimSpace(item.AnchorSymbol)
+	if token == "" {
+		token = strings.TrimSpace(item.Subject)
+	}
+	if token == "" {
+		token = strings.TrimSpace(item.Object)
+	}
+	if token == "" {
+		return ""
+	}
+	return strings.Join([]string{
+		string(scope),
+		strings.TrimSpace(item.Source),
+		fmt.Sprintf("%d:%d", item.LineStart, end),
+		token,
+	}, "\x1f")
+}
+
+// EvidenceStableMergeKey is the normal answer-grade merge key: the semantic
+// StableEvidenceID plus the revision key when a row has a durable source-line
+// token. StableEvidenceID intentionally does not include AnchorSymbol, so this
+// extra suffix prevents under-structured enumeration rows on the same line from
+// collapsing into one item while still letting same-token corrections amend the
+// prior row.
+func EvidenceStableMergeKey(item EvidenceItem) string {
+	id := strings.TrimSpace(item.ID)
+	if id == "" {
+		id = StableEvidenceID(item)
+	}
+	if rev := EvidenceRevisionKey(item); rev != "" {
+		return id + "\x1frev=" + rev
+	}
+	return id
+}
+
+// MergeEvidenceItemByStableID merges two records that have already been
+// established to describe the same stable evidence fact. StableEvidenceID
+// deliberately excludes mutable anchoring metadata such as AnchorKind and
+// AnchorSymbol, so retries can amend a row that was structurally accepted with a
+// wrong source-surface classification. This helper is the single contract for
+// that amendment: semantic identity fields are filled only when missing, while
+// latest non-empty anchor metadata can replace stale metadata. Rich summaries
+// and set-like fields are unioned so corrections do not erase useful model
+// explanation.
+func MergeEvidenceItemByStableID(dst, src EvidenceItem) EvidenceItem {
+	if dst.ID == "" {
+		if src.ID != "" {
+			dst.ID = src.ID
+		} else {
+			dst.ID = StableEvidenceID(dst)
+		}
+	}
+	if src.Kind != "" {
+		dst.Kind = src.Kind
+	}
+	if src.Scope != "" {
+		dst.Scope = src.Scope
+	}
+	if strings.TrimSpace(src.Subject) != "" {
+		dst.Subject = src.Subject
+	}
+	if strings.TrimSpace(src.Predicate) != "" {
+		dst.Predicate = src.Predicate
+	}
+	if strings.TrimSpace(src.Object) != "" {
+		dst.Object = src.Object
+	}
+	if strings.TrimSpace(src.Condition) != "" {
+		dst.Condition = src.Condition
+	}
+	if src.AnchorKind != "" {
+		dst.AnchorKind = src.AnchorKind
+	}
+	if strings.TrimSpace(src.AnchorSymbol) != "" {
+		dst.AnchorSymbol = src.AnchorSymbol
+	}
+	if strings.TrimSpace(src.OwnerSymbol) != "" {
+		dst.OwnerSymbol = src.OwnerSymbol
+	}
+	if strings.TrimSpace(src.Snippet) != "" {
+		dst.Snippet = src.Snippet
+	}
+	dst.Summary = MergeEvidenceSummaries(dst.Summary, src.Summary)
+	if dst.Source == "" {
+		dst.Source = src.Source
+	}
+	if dst.LineStart <= 0 {
+		dst.LineStart = src.LineStart
+	}
+	if dst.LineEnd <= 0 {
+		dst.LineEnd = src.LineEnd
+	}
+	if dst.SectionPath == "" {
+		dst.SectionPath = src.SectionPath
+	}
+	if dst.FileRoleLabel == "" {
+		dst.FileRoleLabel = src.FileRoleLabel
+	}
+	if dst.CrossfileQuery == nil && src.CrossfileQuery != nil {
+		clone := *src.CrossfileQuery
+		clone.Files = append([]string(nil), src.CrossfileQuery.Files...)
+		dst.CrossfileQuery = &clone
+	}
+	if dst.CrossfileAssertion == nil && src.CrossfileAssertion != nil {
+		clone := *src.CrossfileAssertion
+		dst.CrossfileAssertion = &clone
+	}
+	if dst.NegativeQuery == nil && src.NegativeQuery != nil {
+		clone := *src.NegativeQuery
+		dst.NegativeQuery = &clone
+	}
+	if dst.NegativeScope == "" {
+		dst.NegativeScope = src.NegativeScope
+	}
+	if merged := mergeExactResolutionContextRole(dst.ContextRole, src.ContextRole); merged != EvidenceContextRoleUnknown || dst.ContextRole == EvidenceContextRoleUnknown {
+		dst.ContextRole = merged
+	}
+	if src.DiagramRole != EvidenceDiagramRoleUnknown {
+		dst.DiagramRole = src.DiagramRole
+	}
+	if src.RequestedDiagramRole != EvidenceDiagramRoleUnknown {
+		dst.RequestedDiagramRole = src.RequestedDiagramRole
+	}
+	if groundingStatusRank(src.GroundingStatus) >= groundingStatusRank(dst.GroundingStatus) && src.GroundingStatus != "" {
+		dst.GroundingStatus = src.GroundingStatus
+		dst.GroundingTier = src.GroundingTier
+		dst.GroundingNote = src.GroundingNote
+	}
+	if src.Confidence > dst.Confidence {
+		dst.Confidence = src.Confidence
+	}
+	dst.Salience = MergeEvidenceSalience(dst.Salience, src.Salience)
+	if dst.Producer == "" {
+		dst.Producer = src.Producer
+	}
+	if dst.EvidenceRef == "" {
+		dst.EvidenceRef = src.EvidenceRef
+	}
+	dst.SurfaceTerms = MergeEvidenceStringSet(dst.SurfaceTerms, src.SurfaceTerms)
+	dst.DerivedFrom = MergeEvidenceStringSet(dst.DerivedFrom, src.DerivedFrom)
+	if dst.Origin == ClaimOriginUnknown {
+		dst.Origin = src.Origin
+	}
+	if dst.Authority == AuthorityUnknown {
+		dst.Authority = src.Authority
+	}
+	if dst.AuthorityReason == "" {
+		dst.AuthorityReason = src.AuthorityReason
+	}
+	if dst.DriftReason == "" {
+		dst.DriftReason = src.DriftReason
+	}
+	if dst.LogPerfSubKind == "" {
+		dst.LogPerfSubKind = src.LogPerfSubKind
+	}
+	if dst.ID == "" {
+		dst.ID = StableEvidenceID(dst)
+	}
+	return dst
+}
+
+func groundingStatusRank(status GroundingStatus) int {
+	switch status {
+	case GroundingGrounded:
+		return 3
+	case GroundingRecovered:
+		return 2
+	case GroundingUngrounded:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// MergeEvidenceStringSet appends unique, non-empty strings while preserving
+// first-seen order. Evidence surfaces use this for set-like fields so retries
+// can enrich a row without duplicating aliases or provenance markers.
+func MergeEvidenceStringSet(dst, src []string) []string {
+	if len(src) == 0 {
+		if len(dst) == 0 {
+			return nil
+		}
+		out := append([]string(nil), dst...)
+		return out
+	}
+	seen := make(map[string]bool, len(dst)+len(src))
+	out := make([]string, 0, len(dst)+len(src))
+	for _, group := range [][]string{dst, src} {
+		for _, raw := range group {
+			item := strings.TrimSpace(raw)
+			if item == "" || seen[item] {
+				continue
+			}
+			seen[item] = true
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
 // IsCitable reports whether this evidence item carries an anchor
 // downstream stages (extractor, finalizer) can trust as a citation
 // target without re-grounding.
@@ -1204,67 +1422,7 @@ func ExactResolutionSurfaceEvidencePool(emitted, evidence []EvidenceItem, chains
 }
 
 func mergeExactResolutionSurfaceEvidence(dst, src EvidenceItem) EvidenceItem {
-	if dst.Subject == "" {
-		dst.Subject = src.Subject
-	}
-	if dst.Predicate == "" {
-		dst.Predicate = src.Predicate
-	}
-	if dst.Object == "" {
-		dst.Object = src.Object
-	}
-	if dst.Condition == "" {
-		dst.Condition = src.Condition
-	}
-	if dst.AnchorSymbol == "" {
-		dst.AnchorSymbol = src.AnchorSymbol
-	}
-	if dst.OwnerSymbol == "" {
-		dst.OwnerSymbol = src.OwnerSymbol
-	}
-	if dst.AnchorKind == "" {
-		dst.AnchorKind = src.AnchorKind
-	}
-	if dst.Snippet == "" {
-		dst.Snippet = src.Snippet
-	}
-	dst.Summary = MergeEvidenceSummaries(dst.Summary, src.Summary)
-	if dst.Source == "" {
-		dst.Source = src.Source
-	}
-	if dst.LineStart <= 0 {
-		dst.LineStart = src.LineStart
-	}
-	if dst.LineEnd <= 0 {
-		dst.LineEnd = src.LineEnd
-	}
-	if merged := mergeExactResolutionContextRole(dst.ContextRole, src.ContextRole); merged != EvidenceContextRoleUnknown || dst.ContextRole == EvidenceContextRoleUnknown {
-		dst.ContextRole = merged
-	}
-	if dst.DiagramRole == EvidenceDiagramRoleUnknown {
-		dst.DiagramRole = src.DiagramRole
-	}
-	if dst.RequestedDiagramRole == EvidenceDiagramRoleUnknown {
-		dst.RequestedDiagramRole = src.RequestedDiagramRole
-	}
-	if dst.GroundingStatus == "" || dst.GroundingStatus == GroundingUngrounded {
-		if src.GroundingStatus == GroundingGrounded || src.GroundingStatus == GroundingRecovered {
-			dst.GroundingStatus = src.GroundingStatus
-			dst.GroundingTier = src.GroundingTier
-			dst.GroundingNote = src.GroundingNote
-		}
-	}
-	if dst.Confidence < src.Confidence {
-		dst.Confidence = src.Confidence
-	}
-	dst.Salience = MergeEvidenceSalience(dst.Salience, src.Salience)
-	if dst.Producer == "" {
-		dst.Producer = src.Producer
-	}
-	if dst.EvidenceRef == "" {
-		dst.EvidenceRef = src.EvidenceRef
-	}
-	return dst
+	return MergeEvidenceItemByStableID(dst, src)
 }
 
 // MergeEvidenceSummaries preserves all distinct same-anchor summaries without

@@ -162,6 +162,41 @@ func TestMergeEvidenceItemsPreservesDistinctSameAnchorSummaries(t *testing.T) {
 	}
 }
 
+func TestMergeEvidenceItemsAppliesSameIDMetadataAmendment(t *testing.T) {
+	base := types.EvidenceItem{
+		Kind:         types.EvidenceDirect,
+		Subject:      "ProviderAuth.api",
+		Predicate:    "defines",
+		Source:       "packages/opencode/src/auth.ts",
+		LineStart:    42,
+		LineEnd:      42,
+		AnchorSymbol: "ProviderAuth",
+		AnchorKind:   types.AnchorCall,
+		Producer:     "explorer.emit_evidence",
+		Scope:        types.ScopeLine,
+		Summary:      "ProviderAuth.api participates in auth transport",
+	}
+	base.ID = types.StableEvidenceID(base)
+	corrected := base
+	corrected.AnchorKind = types.AnchorDefinition
+	corrected.SurfaceTerms = []string{"ProviderAuth.api"}
+	corrected.Summary = "ProviderAuth.api is the transport-facing definition used by auth.set"
+
+	merged := mergeEvidenceItems([]types.EvidenceItem{base}, []types.EvidenceItem{corrected})
+	if len(merged) != 1 {
+		t.Fatalf("mergeEvidenceItems count = %d, want 1", len(merged))
+	}
+	if merged[0].AnchorKind != types.AnchorDefinition {
+		t.Fatalf("anchor kind = %q, want corrected %q", merged[0].AnchorKind, types.AnchorDefinition)
+	}
+	if !strings.Contains(merged[0].Summary, base.Summary) || !strings.Contains(merged[0].Summary, corrected.Summary) {
+		t.Fatalf("same-ID metadata amendment lost summaries: %q", merged[0].Summary)
+	}
+	if len(merged[0].SurfaceTerms) != 1 || merged[0].SurfaceTerms[0] != "ProviderAuth.api" {
+		t.Fatalf("same-ID metadata amendment lost surface terms: %+v", merged[0].SurfaceTerms)
+	}
+}
+
 func TestEntityHitsBoundsShortGenericEntities(t *testing.T) {
 	cases := []struct {
 		name     string

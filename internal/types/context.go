@@ -1790,7 +1790,10 @@ func loadEvidenceProjector() EvidenceProjector {
 	return evidenceProjector
 }
 
-// EmittedEvidence returns a copy of the LLM-emitted evidence buffer.
+// EmittedEvidence returns a compacted copy of the LLM-emitted evidence buffer.
+// The raw buffer remains append-tailed so EmittedEvidenceSince can report
+// mid-loop correction events, but full snapshots merge same-ID amendments before
+// downstream stages see them.
 func (m *MutableState) EmittedEvidence() []EvidenceItem {
 	if m == nil {
 		return nil
@@ -1802,12 +1805,13 @@ func (m *MutableState) EmittedEvidence() []EvidenceItem {
 	}
 	out := make([]EvidenceItem, len(m.emittedEvidence))
 	copy(out, m.emittedEvidence)
-	return out
+	return mergeEvidenceByStableID(nil, out)
 }
 
-// EmittedEvidenceSince returns a snapshot of evidence appended at or after
-// start plus the current total length. It lets loop observers merge only the
-// new tail without copying the full evidence pool on every pass.
+// EmittedEvidenceSince returns the raw append-tail of evidence events at or
+// after start plus the current raw total length. It intentionally does not
+// compact same-ID amendments: explorer mid-loop observers must see correction
+// events even when the answer-grade EmittedEvidence snapshot collapses them.
 func (m *MutableState) EmittedEvidenceSince(start int) ([]EvidenceItem, int) {
 	if m == nil {
 		return nil, 0
@@ -3364,24 +3368,19 @@ func clampMergeSliceBase(base, n int) int {
 }
 
 func mergeEvidenceByStableID(existing, incoming []EvidenceItem) []EvidenceItem {
-	if len(existing) == 0 {
-		out := append([]EvidenceItem(nil), incoming...)
-		for i := range out {
-			if out[i].ID == "" {
-				out[i].ID = StableEvidenceID(out[i])
-			}
-		}
-		return out
-	}
 	out := append([]EvidenceItem(nil), existing...)
 	seen := make(map[string]int, len(out)+len(incoming))
+	seenRevision := make(map[string]int, len(out)+len(incoming))
 	for i := range out {
 		id := out[i].ID
 		if id == "" {
 			id = StableEvidenceID(out[i])
 			out[i].ID = id
 		}
-		seen[id] = i
+		seen[EvidenceStableMergeKey(out[i])] = i
+		if key := EvidenceRevisionKey(out[i]); key != "" {
+			seenRevision[key] = i
+		}
 	}
 	for _, item := range incoming {
 		id := item.ID
@@ -3389,56 +3388,33 @@ func mergeEvidenceByStableID(existing, incoming []EvidenceItem) []EvidenceItem {
 			id = StableEvidenceID(item)
 			item.ID = id
 		}
-		if idx, ok := seen[id]; ok {
+		mergeKey := EvidenceStableMergeKey(item)
+		if idx, ok := seen[mergeKey]; ok {
 			out[idx] = mergeEvidenceByStableIDItem(out[idx], item)
 			continue
 		}
-		seen[id] = len(out)
+		if key := EvidenceRevisionKey(item); key != "" {
+			if idx, ok := seenRevision[key]; ok {
+				item.ID = out[idx].ID
+				out[idx] = mergeEvidenceByStableIDItem(out[idx], item)
+				continue
+			}
+		}
+		seen[mergeKey] = len(out)
+		if key := EvidenceRevisionKey(item); key != "" {
+			seenRevision[key] = len(out)
+		}
 		out = append(out, item)
 	}
 	return out
 }
 
 func mergeEvidenceByStableIDItem(dst, src EvidenceItem) EvidenceItem {
-	dst.Summary = MergeEvidenceSummaries(dst.Summary, src.Summary)
-	if dst.Source == "" {
-		dst.Source = src.Source
-	}
-	if dst.EvidenceRef == "" {
-		dst.EvidenceRef = src.EvidenceRef
-	}
-	if src.Confidence > dst.Confidence {
-		dst.Confidence = src.Confidence
-	}
-	dst.Salience = MergeEvidenceSalience(dst.Salience, src.Salience)
-	dst.SurfaceTerms = mergeStringSetForMutable(dst.SurfaceTerms, src.SurfaceTerms)
-	dst.DerivedFrom = mergeStringSetForMutable(dst.DerivedFrom, src.DerivedFrom)
-	if dst.Producer == "" {
-		dst.Producer = src.Producer
-	}
-	return dst
+	return MergeEvidenceItemByStableID(dst, src)
 }
 
 func mergeStringSetForMutable(dst, src []string) []string {
-	if len(src) == 0 {
-		return append([]string(nil), dst...)
-	}
-	out := append([]string(nil), dst...)
-	seen := make(map[string]bool, len(out)+len(src))
-	for _, item := range out {
-		if s := strings.TrimSpace(item); s != "" {
-			seen[s] = true
-		}
-	}
-	for _, item := range src {
-		item = strings.TrimSpace(item)
-		if item == "" || seen[item] {
-			continue
-		}
-		seen[item] = true
-		out = append(out, item)
-	}
-	return out
+	return MergeEvidenceStringSet(dst, src)
 }
 
 func mergeFlowFindingsForMutable(existing, incoming []FlowFindingDigest) []FlowFindingDigest {

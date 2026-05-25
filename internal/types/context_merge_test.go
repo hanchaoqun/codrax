@@ -39,3 +39,47 @@ func TestMutableStateMergeExploreForkPreservesDistinctSameAnchorSummaries(t *tes
 		t.Fatalf("parallel fork merge lost same-anchor summaries: %q", ev[0].Summary)
 	}
 }
+
+func TestMutableStateEmittedEvidenceCompactsSameIDAmendments(t *testing.T) {
+	mu := NewMutableState("修订证据")
+	base := EvidenceItem{
+		Kind:            EvidenceDirect,
+		Subject:         "ProviderAuth.api",
+		Predicate:       "defines",
+		Source:          "packages/opencode/src/auth.ts",
+		LineStart:       42,
+		LineEnd:         42,
+		AnchorSymbol:    "ProviderAuth",
+		AnchorKind:      AnchorCall,
+		Scope:           ScopeLine,
+		GroundingStatus: GroundingGrounded,
+		Summary:         "ProviderAuth.api participates in auth transport",
+	}
+	base.ID = StableEvidenceID(base)
+	amended := base
+	amended.AnchorKind = AnchorDefinition
+	amended.SurfaceTerms = []string{"ProviderAuth.api"}
+	amended.Summary = "ProviderAuth.api is the transport-facing definition used by auth.set"
+
+	mu.AppendEvidence([]EvidenceItem{base})
+	mu.AppendEvidence([]EvidenceItem{amended})
+
+	full := mu.EmittedEvidence()
+	if len(full) != 1 {
+		t.Fatalf("full emitted evidence should compact same-ID amendments, got %d: %+v", len(full), full)
+	}
+	if full[0].AnchorKind != AnchorDefinition {
+		t.Fatalf("anchor kind = %q, want corrected %q", full[0].AnchorKind, AnchorDefinition)
+	}
+	if !strings.Contains(full[0].Summary, base.Summary) || !strings.Contains(full[0].Summary, amended.Summary) {
+		t.Fatalf("amendment merge lost summaries: %q", full[0].Summary)
+	}
+	if len(full[0].SurfaceTerms) != 1 || full[0].SurfaceTerms[0] != "ProviderAuth.api" {
+		t.Fatalf("amendment merge lost surface terms: %+v", full[0].SurfaceTerms)
+	}
+
+	tail, total := mu.EmittedEvidenceSince(1)
+	if total != 2 || len(tail) != 1 || tail[0].AnchorKind != AnchorDefinition {
+		t.Fatalf("raw delta should still expose correction event, total=%d tail=%+v", total, tail)
+	}
+}

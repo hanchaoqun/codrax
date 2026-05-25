@@ -54,6 +54,31 @@ func TestMergeEvidenceItemsIfChangedFallsBackOnEnrichment(t *testing.T) {
 	}
 }
 
+func TestMergeEvidenceItemsIfChangedFallsBackOnMetadataAmendment(t *testing.T) {
+	existing := mergeEvidenceItems([]types.EvidenceItem{{
+		Kind:         types.EvidenceDirect,
+		Subject:      "ProviderAuth.api",
+		Predicate:    "defines",
+		Source:       "packages/opencode/src/auth.ts",
+		LineStart:    42,
+		LineEnd:      42,
+		AnchorKind:   types.AnchorCall,
+		AnchorSymbol: "ProviderAuth",
+		Producer:     "explorer.emit_evidence",
+		Scope:        types.ScopeLine,
+	}})
+	incoming := existing[0]
+	incoming.AnchorKind = types.AnchorDefinition
+
+	got, changed := MergeEvidenceItemsIfChanged(existing, []types.EvidenceItem{incoming})
+	if !changed {
+		t.Fatal("expected same-ID anchor metadata amendment to use canonical merge")
+	}
+	if got[0].AnchorKind != types.AnchorDefinition {
+		t.Fatalf("anchor kind = %q, want corrected definition", got[0].AnchorKind)
+	}
+}
+
 func TestMergeEvidenceItemsCarriesExplicitSalience(t *testing.T) {
 	base := types.EvidenceItem{
 		Kind:         types.EvidenceDirect,

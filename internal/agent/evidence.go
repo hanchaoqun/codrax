@@ -294,18 +294,23 @@ func evidenceMergeNoop(existing, incoming []types.EvidenceItem) bool {
 		return false
 	}
 	byID := make(map[string]types.EvidenceItem, len(existing))
+	byRevision := make(map[string]types.EvidenceItem, len(existing))
 	for _, item := range existing {
 		if item.ID == "" {
 			return false
 		}
-		byID[item.ID] = item
+		byID[types.EvidenceStableMergeKey(item)] = item
+		if key := types.EvidenceRevisionKey(item); key != "" {
+			byRevision[key] = item
+		}
 	}
 	for _, item := range incoming {
-		id := item.ID
-		if id == "" {
-			id = types.StableEvidenceID(item)
+		existingItem, ok := byID[types.EvidenceStableMergeKey(item)]
+		if !ok {
+			if key := types.EvidenceRevisionKey(item); key != "" {
+				existingItem, ok = byRevision[key]
+			}
 		}
-		existingItem, ok := byID[id]
 		if !ok || evidenceMergeWouldChange(existingItem, item) {
 			return false
 		}
@@ -318,6 +323,18 @@ func evidenceMergeWouldChange(existing, incoming types.EvidenceItem) bool {
 		return true
 	}
 	if types.MergeEvidenceSummaries(existing.Summary, incoming.Summary) != existing.Summary {
+		return true
+	}
+	if incoming.AnchorKind != "" && incoming.AnchorKind != existing.AnchorKind {
+		return true
+	}
+	if strings.TrimSpace(incoming.AnchorSymbol) != "" && strings.TrimSpace(incoming.AnchorSymbol) != strings.TrimSpace(existing.AnchorSymbol) {
+		return true
+	}
+	if strings.TrimSpace(incoming.OwnerSymbol) != "" && strings.TrimSpace(incoming.OwnerSymbol) != strings.TrimSpace(existing.OwnerSymbol) {
+		return true
+	}
+	if strings.TrimSpace(incoming.Snippet) != "" && strings.TrimSpace(incoming.Snippet) != strings.TrimSpace(existing.Snippet) {
 		return true
 	}
 	if existing.Source == "" && incoming.Source != "" {
@@ -338,24 +355,27 @@ func evidenceMergeWouldChange(existing, incoming types.EvidenceItem) bool {
 
 func mergeEvidenceItems(groups ...[]types.EvidenceItem) []types.EvidenceItem {
 	merged := make(map[string]types.EvidenceItem)
+	revisionToID := make(map[string]string)
+	revisionToMergeKey := make(map[string]string)
 	for _, group := range groups {
 		for _, item := range group {
 			if item.ID == "" {
 				item.ID = types.StableEvidenceID(item)
 			}
-			if existing, ok := merged[item.ID]; ok {
-				existing.Summary = types.MergeEvidenceSummaries(existing.Summary, item.Summary)
-				if existing.Source == "" {
-					existing.Source = item.Source
+			id := item.ID
+			revisionKey := types.EvidenceRevisionKey(item)
+			mergeKey := types.EvidenceStableMergeKey(item)
+			if revisionKey != "" {
+				if existingKey, ok := revisionToMergeKey[revisionKey]; ok && existingKey != "" {
+					mergeKey = existingKey
 				}
-				if existing.EvidenceRef == "" {
-					existing.EvidenceRef = item.EvidenceRef
+				if existingID, ok := revisionToID[revisionKey]; ok && existingID != "" {
+					id = existingID
+					item.ID = existingID
 				}
-				if item.Confidence > existing.Confidence {
-					existing.Confidence = item.Confidence
-				}
-				existing.Salience = types.MergeEvidenceSalience(existing.Salience, item.Salience)
-				existing.SurfaceTerms = mergeStrings(existing.SurfaceTerms, item.SurfaceTerms)
+			}
+			if existing, ok := merged[mergeKey]; ok {
+				existing = types.MergeEvidenceItemByStableID(existing, item)
 				// Merge Producer too: when two producers contribute to the
 				// same item, prefer the question-relevant one (non-dataflow)
 				// so the rank below still treats the merged item as LLM-
@@ -365,12 +385,15 @@ func mergeEvidenceItems(groups ...[]types.EvidenceItem) []types.EvidenceItem {
 				if evidenceSortRank(existing) > evidenceSortRank(item) {
 					existing.Producer = item.Producer
 				}
-				existing.DerivedFrom = mergeStrings(existing.DerivedFrom, item.DerivedFrom)
-				merged[item.ID] = existing
+				merged[mergeKey] = existing
 				continue
 			}
 			item.DerivedFrom = mergeStrings(item.DerivedFrom, nil)
-			merged[item.ID] = item
+			merged[mergeKey] = item
+			if revisionKey != "" {
+				revisionToID[revisionKey] = id
+				revisionToMergeKey[revisionKey] = mergeKey
+			}
 		}
 	}
 	result := make([]types.EvidenceItem, 0, len(merged))

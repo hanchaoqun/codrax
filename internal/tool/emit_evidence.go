@@ -268,6 +268,10 @@ func (t *EmitEvidence) Description() string {
 		"snippet is optional but recommended for conditional / mechanism / registration items: paste " +
 		"1-2 lines of the actual code so the snippet_fuzzy recovery tier can re-anchor if your " +
 		"line_start is off by one.\n\n" +
+		"If a previously accepted evidence item has incorrect metadata (for example anchor_kind, " +
+		"anchor_symbol, owner, snippet, salience, or surface_terms), re-emit the SAME source/line/fact " +
+		"with corrected non-empty fields. The system merges same StableEvidenceID rows as an amendment " +
+		"instead of duplicating answer-grade evidence. Exact same rows remain a no-progress duplicate no-op.\n\n" +
 		"The emit_evidence tool grounds every item synchronously and returns per-item feedback " +
 		"(grounded / recovered / ungrounded) in the same turn, so you can correct line numbers or " +
 		"anchor_symbols on the next call without waiting for a later stage. Unknown evidence_kind / anchor_kind values and " +
@@ -767,6 +771,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	priorEvidence := ctx.Mutable.EmittedEvidence()
 	var duplicateItems []types.EvidenceItem
 	built, reports, duplicateItems = filterNoopDuplicateEmitEvidence(priorEvidence, built, reports)
+	amendedItems := emitEvidenceAmendedItems(priorEvidence, built)
 	if len(built) > 0 {
 		ctx.Mutable.AppendEvidence(built)
 	}
@@ -782,6 +787,10 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	if len(duplicateItems) > 0 && len(built) > 0 {
 		summary = strings.TrimRight(summary, "\n") + "\n\n" +
 			renderEmitEvidenceDuplicateSkipNote(duplicateItems)
+	}
+	if len(amendedItems) > 0 {
+		summary = strings.TrimRight(summary, "\n") + "\n\n" +
+			renderEmitEvidenceAmendmentNote(amendedItems)
 	}
 	if surfaceReview != nil && strings.TrimSpace(surfaceReview.Hint) != "" {
 		summary = strings.TrimRight(summary, "\n") + "\n\n" + surfaceReview.Hint + "\n"
@@ -3004,13 +3013,17 @@ func filterNoopDuplicateEmitEvidence(existing, items []types.EvidenceItem, repor
 		return items, reports, nil
 	}
 	seen := make(map[string]types.EvidenceItem, len(existing)+len(items))
+	seenRevision := make(map[string]types.EvidenceItem, len(existing)+len(items))
 	for _, item := range existing {
 		id := strings.TrimSpace(item.ID)
 		if id == "" {
 			id = types.StableEvidenceID(item)
 			item.ID = id
 		}
-		seen[id] = item
+		seen[types.EvidenceStableMergeKey(item)] = item
+		if key := types.EvidenceRevisionKey(item); key != "" {
+			seenRevision[key] = item
+		}
 	}
 	kept := make([]types.EvidenceItem, 0, len(items))
 	keptReports := make([]ground.Report, 0, len(reports))
@@ -3021,7 +3034,13 @@ func filterNoopDuplicateEmitEvidence(existing, items []types.EvidenceItem, repor
 			id = types.StableEvidenceID(item)
 			item.ID = id
 		}
-		if prior, ok := seen[id]; ok && emitEvidenceNoopDuplicate(prior, item) {
+		prior, ok := seen[types.EvidenceStableMergeKey(item)]
+		if !ok {
+			if key := types.EvidenceRevisionKey(item); key != "" {
+				prior, ok = seenRevision[key]
+			}
+		}
+		if ok && emitEvidenceNoopDuplicate(prior, item) {
 			duplicates = append(duplicates, item)
 			continue
 		}
@@ -3038,9 +3057,45 @@ func filterNoopDuplicateEmitEvidence(existing, items []types.EvidenceItem, repor
 				Note:         item.GroundingNote,
 			})
 		}
-		seen[id] = item
+		seen[types.EvidenceStableMergeKey(item)] = item
+		if key := types.EvidenceRevisionKey(item); key != "" {
+			seenRevision[key] = item
+		}
 	}
 	return kept, keptReports, duplicates
+}
+
+func emitEvidenceAmendedItems(existing, items []types.EvidenceItem) []types.EvidenceItem {
+	if len(existing) == 0 || len(items) == 0 {
+		return nil
+	}
+	seen := make(map[string]types.EvidenceItem, len(existing))
+	seenRevision := make(map[string]types.EvidenceItem, len(existing))
+	for _, item := range existing {
+		id := strings.TrimSpace(item.ID)
+		if id == "" {
+			id = types.StableEvidenceID(item)
+		}
+		if id != "" {
+			seen[types.EvidenceStableMergeKey(item)] = item
+		}
+		if key := types.EvidenceRevisionKey(item); key != "" {
+			seenRevision[key] = item
+		}
+	}
+	var amended []types.EvidenceItem
+	for _, item := range items {
+		prior, ok := seen[types.EvidenceStableMergeKey(item)]
+		if !ok {
+			if key := types.EvidenceRevisionKey(item); key != "" {
+				prior, ok = seenRevision[key]
+			}
+		}
+		if ok && !emitEvidenceNoopDuplicate(prior, item) {
+			amended = append(amended, item)
+		}
+	}
+	return amended
 }
 
 func emitEvidenceNoopDuplicate(existing, incoming types.EvidenceItem) bool {
@@ -3053,7 +3108,11 @@ func emitEvidenceNoopDuplicate(existing, incoming types.EvidenceItem) bool {
 		incomingID = types.StableEvidenceID(incoming)
 	}
 	if existingID == "" || existingID != incomingID {
-		return false
+		existingRevision := types.EvidenceRevisionKey(existing)
+		incomingRevision := types.EvidenceRevisionKey(incoming)
+		if existingRevision == "" || existingRevision != incomingRevision {
+			return false
+		}
 	}
 	if existing.AnchorKind != incoming.AnchorKind ||
 		strings.TrimSpace(existing.AnchorSymbol) != strings.TrimSpace(incoming.AnchorSymbol) ||
@@ -3128,7 +3187,7 @@ func renderEmitEvidenceDuplicateNoopSummary(duplicates, allEvidence []types.Evid
 	cumulative := evidenceGroundingTally(allEvidence)
 	fmt.Fprintf(&b, "\nEvidence buffer (audit, cumulative): %d grounded / %d recovered / %d ungrounded across %d file(s).\n",
 		cumulative.grounded, cumulative.recovered, cumulative.ungrounded, emitEvidenceSourceCount(allEvidence))
-	b.WriteString("No new evidence was recorded. Do not re-emit the same facts; either emit genuinely new or enriched evidence from a different anchor, or call `emit_investigation_complete` if the investigation is ready to close.\n")
+	b.WriteString("No new evidence was recorded. Do not re-emit exact same facts. If a prior row has wrong metadata, re-emit the same source/line/fact with corrected non-empty fields; otherwise emit genuinely new/enriched evidence from a different anchor, or call `emit_investigation_complete` if the investigation is ready to close.\n")
 	return b.String()
 }
 
@@ -3136,7 +3195,18 @@ func renderEmitEvidenceDuplicateSkipNote(duplicates []types.EvidenceItem) string
 	var b strings.Builder
 	fmt.Fprintf(&b, "Skipped %d duplicate item(s) already present in the evidence buffer; they were not recorded again:\n", len(duplicates))
 	b.WriteString(renderDuplicateEvidencePreview(duplicates))
-	b.WriteString("Duplicate rows are audit context only; they do not require a consolidated re-emit.\n")
+	b.WriteString("Exact duplicate rows are audit context only; they do not require a consolidated re-emit. Corrected same-ID rows are accepted as amendments.\n")
+	return b.String()
+}
+
+func renderEmitEvidenceAmendmentNote(items []types.EvidenceItem) string {
+	if len(items) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Updated %d existing evidence item(s) by stable evidence identity; answer-grade snapshots keep one merged row with the latest corrected metadata:\n", len(items))
+	b.WriteString(renderDuplicateEvidencePreview(items))
+	b.WriteString("This is safe for metadata corrections. Exact duplicates remain no-progress no-ops.\n")
 	return b.String()
 }
 
@@ -3171,7 +3241,7 @@ func emitEvidenceDuplicateNoopRepair(count int) *types.ToolRepair {
 	return &types.ToolRepair{
 		Code: EmitEvidenceDuplicateNoopCode,
 		Hint: fmt.Sprintf(
-			"All %d emit_evidence item(s) were duplicates of already-recorded structured evidence. Do not re-emit those rows; emit only genuinely new/enriched evidence or close with emit_investigation_complete.",
+			"All %d emit_evidence item(s) were exact duplicates of already-recorded structured evidence. Do not re-emit exact rows; if metadata is wrong, re-emit the same source/line/fact with corrected non-empty fields, otherwise emit only genuinely new/enriched evidence or close with emit_investigation_complete.",
 			count,
 		),
 		Metadata: map[string]string{
