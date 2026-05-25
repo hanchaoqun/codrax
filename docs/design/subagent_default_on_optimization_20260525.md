@@ -195,7 +195,7 @@ Eval:
 - [x] P0-D: update sub-explorer prompt and schema tests.
 - [x] P1-A: persist long advisory artifacts through existing blob helpers.
 - [x] P1-B: add advisory preview/ref tests.
-- [ ] P2-A: normalize and validate sub-task scopes.
-- [ ] P2-B: add duplicate/overlap telemetry and tests.
+- [x] P2-A: normalize and validate sub-task scopes.
+- [x] P2-B: add dedupe/overlap governance and tests.
 - [ ] P3-A: add sub-agent observability counters.
 - [ ] P3-B: run targeted tests and eval samples.

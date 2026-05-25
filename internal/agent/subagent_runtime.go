@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 
@@ -56,8 +57,15 @@ func (v *SubAgentValidator) Validate(bus *types.BusContext, proposal *types.SubA
 			return nil, fmt.Errorf("sub_task[%d]: %w", i, err)
 		}
 
-		// Scope is required to prevent unbounded operations
-		if len(st.Scope) == 0 {
+		// Scope is required to prevent unbounded operations. Normalize
+		// it before execution so later tools see stable repo-relative
+		// paths and unsafe parent/absolute escapes never reach file
+		// scanners.
+		scope, err := normalizeSubAgentScopes(bus, st.Scope)
+		if err != nil {
+			return nil, fmt.Errorf("sub_task[%d]: %w", i, err)
+		}
+		if len(scope) == 0 {
 			return nil, fmt.Errorf("sub_task[%d]: scope is required", i)
 		}
 
@@ -70,7 +78,7 @@ func (v *SubAgentValidator) Validate(bus *types.BusContext, proposal *types.SubA
 			ID:          fmt.Sprintf("%s-%s", bus.TraceID, st.ID),
 			SubAgent:    st.SubAgent,
 			Objective:   st.Objective,
-			Scope:       st.Scope,
+			Scope:       scope,
 			Constraints: st.Constraints,
 			InputData:   st.InputData,
 			ReadView:    bus, // shared read — same pointer for all
@@ -78,6 +86,99 @@ func (v *SubAgentValidator) Validate(bus *types.BusContext, proposal *types.SubA
 	}
 
 	return requests, nil
+}
+
+func normalizeSubAgentScopes(bus *types.BusContext, rawScopes []string) ([]string, error) {
+	seen := make(map[string]struct{}, len(rawScopes))
+	out := make([]string, 0, len(rawScopes))
+	for _, raw := range rawScopes {
+		normalized, err := normalizeSubAgentScope(bus, raw)
+		if err != nil {
+			return nil, err
+		}
+		if normalized == "" {
+			continue
+		}
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		out = append(out, normalized)
+	}
+	logSubAgentScopeOverlap(out)
+	return out, nil
+}
+
+func normalizeSubAgentScope(bus *types.BusContext, raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", nil
+	}
+	if subAgentScopeHasParentTraversal(trimmed) {
+		return "", fmt.Errorf("scope %q escapes the current repository; use a repo-relative path inside the active scope", raw)
+	}
+
+	if bus != nil {
+		if gater, ok := bus.MultiGraph.(types.MultiRepoActiveSetGater); ok && gater != nil {
+			gate := gater.ResolveActiveSetPath(bus, "propose_sub_agents", trimmed, nil)
+			if !gate.Allowed {
+				return "", fmt.Errorf("scope %q is outside the active repository boundary: %s", raw, gate.RefusalProse)
+			}
+			if strings.TrimSpace(gate.ResolvedPath) != "" {
+				trimmed = strings.TrimSpace(gate.ResolvedPath)
+				if subAgentScopeHasParentTraversal(trimmed) {
+					return "", fmt.Errorf("scope %q resolves outside the current repository; use a repo-relative path inside the active scope", raw)
+				}
+			}
+		}
+	}
+
+	pathForClean := strings.ReplaceAll(trimmed, "\\", string(filepath.Separator))
+	cleaned := filepath.Clean(pathForClean)
+	if cleaned == "" {
+		return "", nil
+	}
+	if filepath.IsAbs(cleaned) {
+		if bus == nil || strings.TrimSpace(bus.RepoRoot) == "" {
+			return "", fmt.Errorf("scope %q is absolute; use a repo-relative path inside the active scope", raw)
+		}
+		rel, err := filepath.Rel(bus.RepoRoot, cleaned)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return "", fmt.Errorf("scope %q escapes the current repository; use a repo-relative path inside the active scope", raw)
+		}
+		cleaned = rel
+	}
+	return filepath.ToSlash(cleaned), nil
+}
+
+func subAgentScopeHasParentTraversal(raw string) bool {
+	for _, part := range strings.FieldsFunc(raw, func(r rune) bool {
+		return r == '/' || r == '\\'
+	}) {
+		if part == ".." {
+			return true
+		}
+	}
+	return false
+}
+
+func logSubAgentScopeOverlap(scopes []string) {
+	for i := 0; i < len(scopes); i++ {
+		for j := i + 1; j < len(scopes); j++ {
+			if subAgentScopesOverlap(scopes[i], scopes[j]) {
+				logging.Warning("[subagent-runtime] overlapping sub-task scopes kept advisory: %q and %q", scopes[i], scopes[j])
+			}
+		}
+	}
+}
+
+func subAgentScopesOverlap(a, b string) bool {
+	a = strings.Trim(filepath.ToSlash(filepath.Clean(a)), "/")
+	b = strings.Trim(filepath.ToSlash(filepath.Clean(b)), "/")
+	if a == "" || b == "" || a == "." || b == "." {
+		return false
+	}
+	return a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/")
 }
 
 // --- SubAgentRuntime ---
