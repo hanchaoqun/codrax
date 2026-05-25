@@ -1067,7 +1067,7 @@ func contextPressureFixAndAllowed(name types.AgentName) (string, []hint.Allowed)
 	switch name {
 	case types.AgentAnalyzer:
 		return "Call `emit_analysis` now with whatever classification you have (best-effort intent / scenario / complexity / keywords / entities / question_kind / predicates). Downstream stages will adapt.",
-			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "emit_analysis", Hint: "close the analyze stage"}}
+			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "emit_analysis", Hint: "close the classification step"}}
 	case types.AgentExplorer:
 		return "Call `emit_investigation_complete` with `confidence=\"medium\"` and a `reason` explaining why the evidence is best-effort.",
 			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "emit_investigation_complete", Hint: "close the exploration stage with existing evidence"}}
@@ -2887,9 +2887,9 @@ func applyAnalyzerSameBatchPrescanBoundary(ctx *types.AgentContext, result *type
 //     Summary so the LLM sees the error in the next iteration's
 //     message stream and can retry correctly.
 //   - `repo_map(view="source_inventory")` is a deep navigation lens,
-//     not a classifier pre-scan. Analyze may use ordinary repo_map
-//     overview/file_map signals, but source-inventory row expansion
-//     belongs to explore after emit_analysis has preserved the typed
+//     not a classifier pre-scan. The classifier may use ordinary
+//     repo_map overview/file_map/task_map signals, but source-inventory
+//     row expansion happens after emit_analysis preserves the typed
 //     request shape.
 //
 // Returns nil when no violation is detected — the caller then
@@ -2912,7 +2912,7 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 	}
 	if ctx.EmitStageRetryAttempt > 0 {
 		return rejectAnalyzerPrescanTool(ctx, tc, analyzerPrescanTerminalEmitModeCode,
-			"analyze retry is already in terminal emit mode; do not call repo_map / grep / list_files again. Call emit_analysis now with the best classification you have.")
+			"classification retry is already in terminal emit mode; do not call repo_map / grep / list_files again. Call emit_analysis now with the best classification you have.")
 	}
 	if ctx.Mutable != nil {
 		limit := ctx.Mutable.PrescanRoundLimit()
@@ -2924,7 +2924,7 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 	}
 	if tc.Name == "repo_map" && analyzerRepoMapSourceInventoryView(tc.Params) {
 		return rejectAnalyzerPrescanTool(ctx, tc, analyzerSourceInventoryAnalyzeBoundaryCode,
-			"repo_map(view=\"source_inventory\") belongs to explore, not analyze. Analyze is classification-only: call emit_analysis now with the best source_inventory_profile / target_roles / scopes you have; explore will expand and verify source-inventory rows.")
+			analyzerSourceInventoryBoundaryGuidance())
 	}
 	if tc.Name != "grep" {
 		return nil
@@ -2944,7 +2944,7 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 		return nil
 	}
 	return rejectAnalyzerPrescanTool(ctx, tc, analyzerGrepFilesOnlyRequiredCode,
-		"grep in analyze stage must use files_only=true; line-level matches are exploration evidence, not classification input. Retry with files_only=true or call emit_analysis with the fields you have.")
+		"grep in this classification step must use files_only=true; line-level matches are evidence-gathering input, not classification input. Retry with files_only=true or call emit_analysis with the fields you have.")
 }
 
 const (
@@ -2971,13 +2971,21 @@ func validateAnalyzerToolBoundary(ctx *types.AgentContext, tc llm.ToolCall) *typ
 	}
 	if analyzerTerminalEmitOnly(ctx) && tc.Name != "emit_analysis" {
 		return rejectAnalyzerTool(ctx, tc, "analyzer_tool_rejected", analyzerPrescanTerminalEmitModeCode,
-			fmt.Sprintf("analyze is already in terminal emit mode; tool %q is not available now; available tools here: emit_analysis. Call emit_analysis with the best classification and routing hints you have.", tc.Name))
+			fmt.Sprintf("classification is already in terminal emit mode; tool %q is not available now; available tools here: emit_analysis. Call emit_analysis with the best classification and routing hints you have.", tc.Name))
 	}
 	if isAnalyzerStageAllowedTool(tc.Name) {
 		return nil
 	}
 	return rejectAnalyzerTool(ctx, tc, "analyzer_tool_rejected", analyzerToolNotAllowedCode,
-		fmt.Sprintf("tool %q is not available in analyze stage. Analyze is classification-only: use repo_map / grep(files_only=true) / list_files for light location checks, or call emit_analysis now. Deep content-reading tools such as read_file belong to explore.", tc.Name))
+		fmt.Sprintf("tool %q is not available in this classification step. %s", tc.Name, analyzerToolNotAllowedGuidance()))
+}
+
+func analyzerToolNotAllowedGuidance() string {
+	return "Use only repo_map overview/task_map/file_map, grep(files_only=true), or list_files for light location checks; otherwise call emit_analysis now. Do not call read_file or other content-reading tools here."
+}
+
+func analyzerSourceInventoryBoundaryGuidance() string {
+	return "repo_map(view=\"source_inventory\") is a row-expansion lens, so it is not available in this classification step. If you only need structural orientation now, use repo_map with view=\"overview\", view=\"task_map\", or view=\"file_map\". If you need a scoped member inventory, call emit_analysis now and encode it in source_inventory_profile: set is_source_inventory=true, target_roles=[...], requested_fields/source_quotes/scopes when known, plus unresolved candidates you already identified. Later evidence gathering will expand and verify the rows."
 }
 
 func isAnalyzerStageAllowedTool(name string) bool {

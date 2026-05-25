@@ -863,6 +863,11 @@ func TestBuildInitialInstructionRetry(t *testing.T) {
 	if !strings.Contains(prompt1, "Breadth Scan") {
 		t.Error("first call should contain 'Breadth Scan'")
 	}
+	for _, want := range []string{"Repo Map Navigation", `view="source_inventory"`, "attribute_roles", "not as evidence"} {
+		if !strings.Contains(prompt1, want) {
+			t.Fatalf("breadth scan should teach cascaded repo_map navigation; missing %q:\n%s", want, prompt1)
+		}
+	}
 
 	// Simulate investigation: add notes. The old test also set
 	// eval.idleStreakInDepth = 5 to simulate a stale counter and

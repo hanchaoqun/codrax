@@ -620,6 +620,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	b.WriteString("- repo_map (task_map view) to get an overview of relevant files\n")
 	b.WriteString("- grep with files_only=true to find WHICH FILES contain key terms (just filenames, not lines). Use `file_type` when the language is obvious; do not use --include so you discover all relevant file types\n")
 	b.WriteString("- list_files to understand directory structure\n\n")
+	b.WriteString(renderExplorerRepoMapNavigationPrimer())
 	b.WriteString("Prefer the built-in repository tools above for discovery. Reserve `exec_command` for deterministic computations or checks that the structured tools cannot perform directly.\n\n")
 	b.WriteString("**Non-English questions:** When the user's question is not in English, search with BOTH the original terms AND their English programming equivalents. Most codebases use English identifiers, so always include the translated English terms alongside the original. Batch both versions as parallel grep calls.\n\n")
 	b.WriteString("**Keyword variants:** Start with exact identifiers and high-confidence translations. Broaden only when those searches return zero or too few useful files:\n")
@@ -1382,6 +1383,16 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	}
 
 	return b.String()
+}
+
+func renderExplorerRepoMapNavigationPrimer() string {
+	return "### Repo Map Navigation\n\n" +
+		"Use `repo_map` as a navigation index, not as evidence. Start with `view=\"overview\"`, `view=\"task_map\"`, or `view=\"file_map\"` when you need a structural map. " +
+		"When the task needs a bounded source inventory or a member-to-attribute checklist, call `repo_map` with `view=\"source_inventory\"` and model-chosen `roles`, optional `attribute_roles`, and `scope`/`scopes`.\n" +
+		"- The source-inventory lens returns counts, grouped scopes, languages, candidate files, and candidate symbols/routes/config keys across supported languages; use it to choose what to verify next.\n" +
+		"- Prefer a cascade: broad `source_inventory` summary first, then a narrower follow-up with the chosen `scope`, `roles`, `attribute_roles`, `top_n`, and `cursor`/`offset` if the result is paged.\n" +
+		"- Treat every lens row as advisory until you verify the selected file or symbol with `read_file` or targeted `grep`; do not cite repo_map rows as source facts.\n" +
+		"- Use repo-relative existing directories for `path`. If a path is uncertain, call `list_files` on the nearest known parent or `repo_map(path=\".\")` before guessing.\n\n"
 }
 
 func renderExplorerSourceInventoryAdvisory(ctx *types.AgentContext) string {

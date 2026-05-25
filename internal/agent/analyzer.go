@@ -233,25 +233,25 @@ func prependEmitRetryDirective(ctx *types.AgentContext, base string) string {
 	if zh {
 		directive = fmt.Sprintf(`## 终止式重试约束 - 第 %d 次重试
 
-上一次尝试没有形成可执行的结构化分析结果。分析阶段必须以一次 `+"`emit_analysis`"+` 工具调用结束。下一次回复必须只包含一个 `+"`emit_analysis`"+` 的 tool_call，并使用你已经判断出的字段。不要输出额外散文，不要调用预扫描工具（repo_map / grep / list_files）。需要的调用形态是：
+上一次尝试没有形成可执行的结构化分析结果。当前分类步骤必须以一次 `+"`emit_analysis`"+` 工具调用结束。下一次回复必须只包含一个 `+"`emit_analysis`"+` 的 tool_call，并使用你已经判断出的字段。不要输出额外散文，不要调用预扫描工具（repo_map / grep / list_files）。需要的调用形态是：
 
 `+"```json"+`
 {"name": "emit_analysis", "arguments": "<json-encoded fields>"}
 `+"```"+`
 
-如果调用其它工具，或只输出散文而没有工具调用，本次分析会失败并退出。
+如果调用其它工具，或只输出散文而没有工具调用，本次分类会失败并退出。
 
 `, ctx.EmitStageRetryAttempt)
 	} else {
 		directive = fmt.Sprintf(`## TERMINAL FORCING — Retry attempt %d
 
-The previous attempt produced text-only output and FAILED. The analyze stage MUST end with a single emit_analysis tool call. Your next response MUST contain exactly one tool_call to emit_analysis with the fields you already have. Do NOT emit additional thinking or prose. Do NOT call any pre-scan tool (repo_map / grep / list_files). The exact wire shape required:
+The previous attempt produced text-only output and FAILED. This classification step MUST end with a single emit_analysis tool call. Your next response MUST contain exactly one tool_call to emit_analysis with the fields you already have. Do NOT emit additional thinking or prose. Do NOT call any pre-scan tool (repo_map / grep / list_files). The exact wire shape required:
 
 `+"```json"+`
 {"name": "emit_analysis", "arguments": "<json-encoded fields>"}
 `+"```"+`
 
-If you call any other tool or produce text without a tool call, this dispatch will fail loud and the analyze stage will exit.
+If you call any other tool or produce text without a tool call, this dispatch will fail loud and the classification step will exit.
 
 `, ctx.EmitStageRetryAttempt)
 	}
@@ -557,7 +557,8 @@ func buildAnalyzerRepoOverview(ctx *types.AgentContext, objective string) (strin
 		header = fmt.Sprintf("## Repository overview (pre-computed for entities: %s)\n\n"+
 			"The following task_map shows files and symbols matching the entities from the user's question. "+
 			"Use this to inform your entity/keyword choices and pre-scan targets. "+
-			"You may still call repo_map, grep, or list_files for additional verification.\n\n",
+			"If one more lightweight check is needed, use repo_map overview/task_map/file_map, grep(files_only=true), or list_files. "+
+			"Do not call repo_map(view=\"source_inventory\") here; encode inventory-shaped requests in source_inventory_profile and call emit_analysis.\n\n",
 			strings.Join(entities, ", "))
 	} else {
 		// No entities extracted — fall back to general overview.
@@ -566,7 +567,8 @@ func buildAnalyzerRepoOverview(ctx *types.AgentContext, objective string) (strin
 		header = "## Repository overview (pre-computed, no tool call needed)\n\n" +
 			"The following overview shows the repository structure. " +
 			"Use this to orient your entity/keyword choices and pre-scan targets. " +
-			"You may still call repo_map, grep, or list_files for additional verification.\n\n"
+			"If one more lightweight check is needed, use repo_map overview/task_map/file_map, grep(files_only=true), or list_files. " +
+			"Do not call repo_map(view=\"source_inventory\") here; encode inventory-shaped requests in source_inventory_profile and call emit_analysis.\n\n"
 	}
 
 	if output == "" {
@@ -1044,10 +1046,10 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 			return LoopSignal{
 				HintRequested: true,
 				HintKey:       "analyzer.emit-only.after-prescan-reject",
-				Hint:          "The pre-scan budget is closed. Do not call repo_map, grep, list_files, read_file, or any other tool. The next response must call emit_analysis exactly once with the best classification you already have; unresolved targets belong in the structured fields for explore to verify.",
+				Hint:          "The pre-scan budget is closed. Do not call repo_map, grep, list_files, read_file, or any other tool. The next response must call emit_analysis exactly once with the best classification you already have; unresolved targets belong in structured fields so later evidence gathering can verify them.",
 			}
 		case analyzerToolNotAllowedCode:
-			hint := "That tool is outside the analyze-stage boundary. Analyze is classification-only: use only repo_map, grep(files_only=true), list_files for light location checks, or call emit_analysis now. Do not call read_file or content-reading tools in analyze."
+			hint := analyzerToolNotAllowedGuidance()
 			if analyzerTerminalEmitOnly(ctx) {
 				hint = analyzerTerminalEmitOnlyHint()
 				e.terminalEmitOnlyInstructionIssued = true
@@ -1061,13 +1063,13 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 			return LoopSignal{
 				HintRequested: true,
 				HintKey:       "analyzer.grep-files-only",
-				Hint:          "The analyze-stage grep call must be a lightweight file-location pre-scan with files_only=true. Do not request line-level grep output or read file contents in analyze. Retry grep with files_only=true only if that location check is still needed; otherwise call emit_analysis now with the best classification and routing hints you already have.",
+				Hint:          "This classification step only allows lightweight file-location grep with files_only=true. Do not request line-level grep output or read file contents here. Retry grep with files_only=true only if that location check is still needed; otherwise call emit_analysis now with the best classification and routing hints you already have.",
 			}
 		case analyzerSourceInventoryAnalyzeBoundaryCode:
 			return LoopSignal{
 				HintRequested: true,
 				HintKey:       "analyzer.source-inventory-boundary",
-				Hint:          "Source-inventory row expansion belongs to explore, after analyze has emitted the typed request shape. Do not call repo_map(view=\"source_inventory\") in analyze. Call emit_analysis now with the source_inventory_profile, target_roles, scopes, and unresolved candidates you already identified; explore will expand and verify the rows.",
+				Hint:          analyzerSourceInventoryBoundaryGuidance(),
 			}
 		}
 	}
@@ -1112,14 +1114,14 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 				HintRequested: true,
 				Progress:      true,
 				HintKey:       "analyzer.prescan-ready.emit-only",
-				Hint:          "This path-scoped pre-scan has enough location/existence signal for analyze. Do not run more repo_map, grep, list_files, read_file, or other tools in analyze. The next response must call emit_analysis exactly once with the best classification and routing hints you already have; explore will gather line-level evidence and source-inventory rows.",
+				Hint:          "This path-scoped pre-scan has enough location/existence signal for classification. Do not run more repo_map, grep, list_files, read_file, or other tools here. The next response must call emit_analysis exactly once with the best classification and routing hints you already have; later evidence gathering will read exact lines and expand source-inventory rows.",
 			}
 		}
 		return LoopSignal{
 			HintRequested: true,
 			Progress:      true,
 			HintKey:       "analyzer.path-scoped-prescan-ready",
-			Hint:          "This path-scoped pre-scan has already established location/existence for classification. Do not try to gather line-level proof or enumerate child scopes in analyze. If the request is an explicit file/package/import/literal/source-inventory question, call emit_analysis next with the structured scope and let explore read exact lines and members.",
+			Hint:          "This path-scoped pre-scan has already established location/existence for classification. Do not try to gather line-level proof or enumerate child scopes here. If the request is an explicit file/package/import/literal/source-inventory question, call emit_analysis next with the structured scope so later evidence gathering can read exact lines and members.",
 		}
 	}
 	// Last-legal-round warning: the LLM just consumed the final
@@ -1137,7 +1139,7 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	if e.prescanRounds == max {
 		const hintKey = "analyzer.must-emit"
 		hint := fmt.Sprintf(
-			"Pre-scan budget reached (%d of %d rounds used). Your NEXT response MUST call emit_analysis with the fields you have — any additional prescan tool call (repo_map / grep / list_files), even batched with emit_analysis, will exhaust the budget and fail the analyze stage. Put unresolved but relevant targets in the structured fields and let explore gather line-level evidence.",
+			"Pre-scan budget reached (%d of %d rounds used). Your NEXT response MUST call emit_analysis with the fields you have — any additional prescan tool call (repo_map / grep / list_files), even batched with emit_analysis, will exhaust the budget and fail the classification step. Put unresolved but relevant targets in the structured fields so later evidence gathering can read line-level evidence.",
 			e.prescanRounds, max)
 		logging.Debug("[analyzer] must-emit hint built key=%q rounds=%d/%d len=%d body=%q",
 			hintKey, e.prescanRounds, max, len(hint), logging.Truncate(hint, logging.HintBodyMax))
@@ -1154,14 +1156,14 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	}
 	reason := fmt.Sprintf(
 		"pre-scan budget exhausted (%d rounds > max %d); "+
-			"analyze stage will fail loud if emit_analysis was not called",
+			"classification step will fail loud if emit_analysis was not called",
 		e.prescanRounds, max)
 	logging.Warning("[analyzer] %s", reason)
 	return LoopSignal{StopRequested: true, StopReason: reason}
 }
 
 func analyzerTerminalEmitOnlyHint() string {
-	return "Analyze is now in terminal emit-only mode. Do not call repo_map, grep, list_files, read_file, or any other tool. The next response must call emit_analysis exactly once with the best classification and routing hints you already have; unresolved targets belong in structured fields for explore to verify."
+	return "Classification is now in terminal emit-only mode. Do not call repo_map, grep, list_files, read_file, or any other tool. The next response must call emit_analysis exactly once with the best classification and routing hints you already have; unresolved targets belong in structured fields for later evidence gathering to verify."
 }
 
 func analyzerToolResultsContainSuccessfulEmitAnalysis(results []types.ToolResult) bool {

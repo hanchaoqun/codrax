@@ -541,10 +541,36 @@ func TestAnalysisSkill_PromptDocumentsExternalRuntimeDirectClassification(t *tes
 		"resolved_files=0",
 		"do NOT run a source-code pre-scan",
 		"diagnostic_profile.current_version_check=false",
-		"let explore verify it",
+		"later evidence gathering can verify",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("analysis-skill prompt must teach direct external-runtime classification; missing %q in:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestAnalysisSkill_WorkflowGuidesRepoMapWithoutSourceInventoryExpansion(t *testing.T) {
+	sk := skill.BuildAnalysisSkill()
+	workflowCorpus := strings.Join(sk.Workflow, "\n")
+	for _, want := range []string{
+		"repo_map",
+		"overview/task_map/file_map",
+		`repo_map(view="source_inventory")`,
+		"source_inventory_profile",
+		"call `emit_analysis`",
+	} {
+		if !strings.Contains(workflowCorpus, want) {
+			t.Fatalf("analysis workflow missing repo-map/source-inventory boundary guidance %q:\n%s", want, workflowCorpus)
+		}
+	}
+	for _, forbidden := range []string{
+		"for each candidate entity",
+		"line-level grep belongs to explore",
+		"explore stage",
+		"in analyze",
+	} {
+		if strings.Contains(workflowCorpus, forbidden) {
+			t.Fatalf("analysis workflow should not carry misleading/internal phrasing %q:\n%s", forbidden, workflowCorpus)
 		}
 	}
 }

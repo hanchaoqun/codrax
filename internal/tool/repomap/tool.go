@@ -3,6 +3,7 @@ package repomap
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
@@ -251,6 +252,14 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 			Timestamp: time.Now(),
 		}, nil
 	}
+	if summary, ok := repoMapPreflightScanRoot(p.Path, repoRoot); !ok {
+		return ctypes.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   summary,
+			Timestamp: time.Now(),
+		}, nil
+	}
 
 	// Build, load, or reuse the graph. The scope check above runs
 	// before cache selection and file discovery, so refused paths never
@@ -489,6 +498,45 @@ func repoMapScopeRefusal(requestedPath string) string {
 			"or a path under the repository root.",
 		display,
 	)
+}
+
+func repoMapPreflightScanRoot(requestedPath, resolvedRoot string) (string, bool) {
+	info, err := os.Stat(resolvedRoot)
+	if err == nil {
+		if info.IsDir() {
+			return "", true
+		}
+		return fmt.Sprintf(
+			"repo_map path %q points to a file, but repo_map indexes directories/repository scopes. Use the containing directory as `path`, or use `read_file` / targeted `grep` for that file.",
+			repoMapDisplayPath(requestedPath),
+		), false
+	}
+	display := repoMapDisplayPath(requestedPath)
+	switch {
+	case os.IsNotExist(err):
+		return fmt.Sprintf(
+			"repo_map path %q was not found. Use a repo-relative directory that exists; if the path is uncertain, call `list_files` on the nearest known parent or `repo_map` with `path=\".\"` for an overview.",
+			display,
+		), false
+	case os.IsPermission(err):
+		return fmt.Sprintf(
+			"repo_map cannot access path %q because of filesystem permissions. Choose an accessible repo-relative directory, or use a narrower file/search tool if you already know the target.",
+			display,
+		), false
+	default:
+		return fmt.Sprintf(
+			"repo_map cannot use path %q before indexing: %v. Choose an existing repo-relative directory, or verify the path with `list_files` first.",
+			display, err,
+		), false
+	}
+}
+
+func repoMapDisplayPath(requestedPath string) string {
+	display := strings.TrimSpace(strings.ReplaceAll(requestedPath, `\`, `/`))
+	if display == "" {
+		return "."
+	}
+	return display
 }
 
 // BuildOrLoadGraph builds or loads a cached repo graph, ranks files

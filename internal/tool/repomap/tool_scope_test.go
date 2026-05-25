@@ -780,6 +780,57 @@ func TestRepoMapExecuteRejectsParentEscapeBeforeScan(t *testing.T) {
 	}
 }
 
+func TestRepoMapExecuteRejectsMissingPathBeforeScan(t *testing.T) {
+	repo := t.TempDir()
+	ctx := &types.BusContext{RepoRoot: repo}
+	var events []types.RepoMapScanEvent
+	SetScanNotifier(func(ev types.RepoMapScanEvent) {
+		events = append(events, ev)
+	})
+	defer SetScanNotifier(nil)
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{"path":"does/not/exist"}`))
+	if err != nil {
+		t.Fatalf("Execute returned unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("expected repo_map to refuse missing path, got success: %+v", res)
+	}
+	if !strings.Contains(res.Summary, "was not found") || strings.Contains(res.Summary, "scan failed") {
+		t.Fatalf("missing-path summary should be gentle and pre-scan, got %q", res.Summary)
+	}
+	if len(events) != 0 {
+		t.Fatalf("missing path must be rejected before scan notifier events, got %+v", events)
+	}
+}
+
+func TestRepoMapExecuteRejectsFilePathBeforeScan(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: repo}
+	var events []types.RepoMapScanEvent
+	SetScanNotifier(func(ev types.RepoMapScanEvent) {
+		events = append(events, ev)
+	})
+	defer SetScanNotifier(nil)
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{"path":"main.go"}`))
+	if err != nil {
+		t.Fatalf("Execute returned unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("expected repo_map to refuse file path, got success: %+v", res)
+	}
+	if !strings.Contains(res.Summary, "points to a file") || strings.Contains(res.Summary, "scan failed") {
+		t.Fatalf("file-path summary should be gentle and pre-scan, got %q", res.Summary)
+	}
+	if len(events) != 0 {
+		t.Fatalf("file path must be rejected before scan notifier events, got %+v", events)
+	}
+}
+
 func TestRepoMapExecuteReusesMutableSearchGraph(t *testing.T) {
 	repo := t.TempDir()
 	mut := types.NewMutableState("repo map reuse")

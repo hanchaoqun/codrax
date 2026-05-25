@@ -2929,3 +2929,51 @@ B2-T2 root-cause refinement, 2026-05-25 CST:
   - when the model has already provided a complete structured closure, later
     summary/finalization stages should prefer explaining/disclosing residual
     uncertainty over forcing another exploration round.
+
+B2-U repo-map prompt and path-feedback hygiene, 2026-05-25 CST:
+
+- New customer-observed gap:
+  - the analyzer Workflow still described "repo_map and grep for each
+    candidate entity", while runtime correctly rejects
+    `repo_map(view="source_inventory")` during classification;
+  - the rejection message used internal phase names and only pushed the model
+    toward `emit_analysis`, without positively explaining which repo_map views
+    are legal in classification and how to preserve a desired inventory request
+    through `source_inventory_profile`;
+  - the explorer Breadth Scan / explore-skill Workflow named repo_map only as a
+    rough task_map/file discovery tool, so models missed the cascaded
+    source-inventory lens that is intended to reduce broad search and repeated
+    reads;
+  - `repo_map(path=<bad path>)` reached the index loader before discovering the
+    path problem, causing REPL scan-progress noise such as "indexing files" and
+    "scan failed" for a model path typo.
+- Root-cause classification:
+  - prompt/tool-boundary surfaces drifted after `source_inventory` became a
+    model-driven lens. The runtime boundary was correct, but the adjacent
+    instruction and error surfaces did not explain the safe replacement path;
+  - path legality and scope legality were separated: scope escape was blocked
+    before scan, but "inside scope yet missing/file path" still reached scan.
+- Contract update:
+  - analyzer may use only lightweight location views:
+    `repo_map(view=overview/task_map/file_map)`, `grep(files_only=true)`, and
+    `list_files`;
+  - analyzer must not expand `source_inventory`; it should encode the user's
+    desired inventory shape in `emit_analysis.source_inventory_profile` so
+    evidence gathering can expand and verify the rows;
+  - explorer receives an explicit Repo Map Navigation primer: source_inventory
+    is a navigation summary/checklist with roles, attribute_roles, scopes,
+    counts, grouped scope rows, paging, languages, routes/config keys, and
+    candidate files across repomap-supported languages, but every selected row
+    still needs read_file/grep verification before evidence/citation;
+  - repo_map preflights model-provided path existence and directory-ness before
+    index/cache/file-scan work. Missing paths and file paths return a gentle
+    tool summary with next-step guidance and emit no scan-notifier events.
+- Guardrails added:
+  - analyzer Workflow regression test prevents the old "for each candidate
+    entity" wording and internal explore/analyze phrasing from returning;
+  - analyzer boundary test asserts source_inventory rejection includes positive
+    legal repo_map view guidance plus `source_inventory_profile`;
+  - explorer initial-instruction test asserts the Breadth Scan contains
+    cascaded source_inventory guidance;
+  - repo_map scope tests assert missing/file paths fail before scan notices and
+    do not surface generic "scan failed" noise.
