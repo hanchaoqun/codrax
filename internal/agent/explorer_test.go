@@ -5423,6 +5423,31 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 		}
 	})
 
+	t.Run("fires after one large read window before prune pressure accumulates", func(t *testing.T) {
+		eval := &explorerEvaluator{
+			phase:        1,
+			searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		}
+		results := []types.ToolResult{{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[large.go: showing lines 1-180 of 300 total]\npackage fixture\n",
+		}}
+
+		sig := eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      1,
+			LastToolResult: &results[0],
+			AllToolResults: results,
+		})
+		if !sig.HintRequested {
+			t.Fatalf("large read window should trigger early materialization nudge, got %+v", sig)
+		}
+		if !strings.Contains(sig.Hint, "largest unrecorded read window is 180 line") {
+			t.Fatalf("large-window hint should mention the structural reason, got: %s", sig.Hint)
+		}
+	})
+
 	t.Run("origin-specific lanes do not force VCS or command facts into file-line evidence", func(t *testing.T) {
 		eval := &explorerEvaluator{
 			phase:        1,

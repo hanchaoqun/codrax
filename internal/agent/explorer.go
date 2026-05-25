@@ -4314,6 +4314,43 @@ type readInterval struct {
 	end   int
 }
 
+type readFileWindowStats struct {
+	reads    int
+	maxLines int
+	maxBytes int
+	large    bool
+}
+
+const (
+	readWithoutEmitLargeWindowLines = 120
+	readWithoutEmitLargeWindowBytes = 12000
+)
+
+func readFileWindowStatsSince(results []types.ToolResult, prevLen int) readFileWindowStats {
+	if prevLen < 0 || prevLen > len(results) {
+		prevLen = 0
+	}
+	var stats readFileWindowStats
+	for _, r := range results[prevLen:] {
+		if !r.Success || r.ToolName != "read_file" {
+			continue
+		}
+		stats.reads++
+		if n := len(r.Summary); n > stats.maxBytes {
+			stats.maxBytes = n
+		}
+		if _, rng, _, ok := ground.ParseReadFileBanner(r.Summary); ok {
+			lines := rng.End - rng.Start + 1
+			if lines > stats.maxLines {
+				stats.maxLines = lines
+			}
+		}
+	}
+	stats.large = stats.maxLines >= readWithoutEmitLargeWindowLines ||
+		stats.maxBytes >= readWithoutEmitLargeWindowBytes
+	return stats
+}
+
 func lineWithinAnySpan(line int, spans []symbolSpan) bool {
 	if line <= 0 || len(spans) == 0 {
 		return false
@@ -4957,11 +4994,12 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 	if e.midLoopNoEmitPushSent {
 		return LoopSignal{}
 	}
-	if obs.Iteration < 2 || !currentBatchHasSuccessfulRead(obs.AllToolResults, e.midLoopLastResultsLen) {
+	stats := readFileWindowStatsSince(obs.AllToolResults, e.midLoopEmitBacklogBaseLen)
+	if (obs.Iteration < 2 && !stats.large) || !currentBatchHasSuccessfulRead(obs.AllToolResults, e.midLoopLastResultsLen) {
 		return LoopSignal{}
 	}
 	reads := successfulToolCountSince(obs.AllToolResults, e.midLoopEmitBacklogBaseLen, map[string]bool{"read_file": true})
-	if reads < 2 || successfulToolCountSince(obs.AllToolResults, e.midLoopEmitBacklogBaseLen, map[string]bool{"emit_evidence": true}) > 0 {
+	if (reads < 2 && !stats.large) || successfulToolCountSince(obs.AllToolResults, e.midLoopEmitBacklogBaseLen, map[string]bool{"emit_evidence": true}) > 0 {
 		return LoopSignal{}
 	}
 	e.midLoopNoEmitPushSent = true
@@ -4973,10 +5011,14 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 		scope = "since your last successful `emit_evidence`"
 		recording = "have not recorded any new structured evidence yet"
 	}
+	largeWindowNote := ""
+	if stats.large {
+		largeWindowNote = fmt.Sprintf("The largest unrecorded read window is %d line(s); materialize the load-bearing facts before that raw window is pruned or buried by later navigation. ", stats.maxLines)
+	}
 	hint := e.renderReadWithoutEmitHint(
 		"Progress check: you have read %d file(s) %s but %s. ",
 		reads, scope, recording,
-	) + e.authoritativeLogDriftReminder(obs.AllToolResults) + e.authoritativeLogBackboneFirstEmitReminder(obs.AllToolResults)
+	) + largeWindowNote + e.authoritativeLogDriftReminder(obs.AllToolResults) + e.authoritativeLogBackboneFirstEmitReminder(obs.AllToolResults)
 	if lensHint := explorerSourceInventoryDiscoveryAfterEvidenceHint(obs.AllToolResults); lensHint != "" {
 		hint += lensHint
 	}

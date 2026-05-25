@@ -303,6 +303,18 @@ Design:
   aggregate facts, closure reason, and model-authored summaries must not be
   silently dropped.
 
+Implementation status:
+
+- [x] Existing two-read `read_file` without `emit_evidence` nudge remains the
+      default materialization guard.
+- [x] Added an earlier large-window guard based only on structured
+      `read_file` banners/result size. A single large unrecorded read window can
+      now prompt the model to emit a compact evidence batch before more broad
+      navigation or later tool-history pruning.
+- [x] The guard is advisory-only. It does not close the investigation, does not
+      infer user intent, and does not restrict tools unless the model ignores
+      the existing escalation path.
+
 ### Batch 4: Deterministic Runtime Regression
 
 Problem: the stream retry fix is covered by unit tests, but runtime eval needs a
