@@ -120,6 +120,64 @@ structured carrier exists. The section must say:
    analysis lane. Existing schema-aware normalization only runs after the
    content has been classified as a tool call, so the missing piece is transport
    classification, not another JSON repairer.
+7. The random10 eval started at `eval/results/random10-20260525-201920`
+   exposed a prune-boundary gap in `u4b`: before `TOOL HISTORY PRUNED`, the
+   explorer had useful accepted evidence, but also a large batch of speculative
+   / recovered / ungrounded evidence rows. The repair prompt then asked the
+   model to re-read exact locations even while the repair-state tool schema
+   sometimes exposed only `emit_evidence` and `emit_investigation_complete`.
+   This creates a loop: unavailable navigation tools are rejected, the model
+   emits larger speculative evidence, history is pruned, and the stable
+   accepted baseline becomes harder for the model to reason from. This is not a
+   "tool call count budget" problem; it is a missing pre-prune evidence
+   checkpoint plus a repair-tool-schema / repair-instruction mismatch.
+8. The same random10 batch exposed a separate transport/timeout observability
+   gap in `read_combo_trace_current_source_explanation`: the analyzer log shows
+   an LLM request with `timeout=4m0s first_byte_timeout=40s`, but the log stayed
+   at `phase=llm_request` for far longer than that without a retry, timeout
+   event, or stage-level progress. This must be investigated separately from
+   semantic convergence: if stream timeout/cancel is not enforced or not logged,
+   users see a stalled stage and the eval runner cannot distinguish provider
+   latency from product logic.
+
+### Random10 Early-Stop Findings (2026-05-25)
+
+The random10 sweep was intentionally stopped after the first few cases once two
+systemic P0 patterns were clear enough to debug from logs/code:
+
+- `u4b` (`reverse dependency — deleting internal/tool/ground`): stalled in the
+  explorer after multiple `TOOL HISTORY PRUNED` events. Logs show repeated
+  unavailable-tool calls in repair state (`grep` / `read_file` rejected while
+  only `emit_evidence` and `emit_investigation_complete` were exposed), then
+  large speculative `emit_evidence(items=35)` payloads with many ungrounded or
+  recovered rows. Code anchors:
+  - `internal/agent/agent.go::pruneToolHistory` prunes old tool messages by
+    byte budget but does not first compact accepted grounded evidence into a
+    stable handoff artifact.
+  - `internal/agent/explorer.go::renderEmitEvidenceRepairHint` asks to
+    "re-read" exact locations, while `explorerEvaluator.FilterToolSchemas`
+    can later expose an emit-only repair surface. That creates a prompt/schema
+    contradiction.
+- `read_combo_trace_current_source_explanation`: runner killed the case after
+  900s. Logs show the analyzer stuck at `phase=llm_request` for much longer
+  than `timeout=4m0s first_byte_timeout=40s`, with no timeout diagnostic before
+  termination. Code anchors:
+  - `internal/llm/openai.go::NewOpenAIAdapter` builds the streaming HTTP client
+    with no outer `http.Client.Timeout`.
+  - `internal/llm/openai.go::doStreamRequest` starts the first-byte/stall
+    watchdog only after `streamHTTPClient.Do(req)` returns response headers.
+    A pre-header / connect / TLS / write / provider-header hang can therefore
+    exceed the logged request/first-byte budgets without the watchdog logging
+    its typed timeout.
+- `qf_type_relation_loop_controller`: manually stopped after the same long
+  `phase=llm_request` symptom recurred. Earlier focused runs passed this case,
+  so this sample is classified as transport timeout/cancel observability rather
+  than semantic correctness.
+- `m1b` passed, but still showed an analyzer-side no-op waste pattern: the model
+  attempted `read_file` during classification, then was forced into terminal
+  `emit_analysis`. This is lower priority than the two P0 issues because it
+  recovered cleanly and did not corrupt evidence, but it is another instance of
+  schema surface and model expectation mismatch.
 
 ### Generalized Design
 
@@ -190,6 +248,28 @@ structured carrier exists. The section must say:
     so user-requested JSON prose is not swallowed as a guessed tool call;
   - after classification, reuse the existing schema pruning, key aliasing, and
     tool validator path.
+- Add a pre-prune evidence checkpoint:
+  - before pruning tool history, freeze accepted grounded evidence, accepted
+    aggregate facts, accepted closure reason, and model-authored investigation
+    notes into the stable handoff ledger;
+  - if the model wants to continue investigating after the checkpoint, later
+    turns must build incrementally on that stable baseline instead of relying
+    on soon-to-be-pruned raw tool history;
+  - repair prompts must mention only actions supported by the currently exposed
+    tool schema. If `read_file` / `grep` are unavailable, the prompt must not
+    ask the model to re-read or widen scope; it should ask for a grounded
+    re-emit from already-visible gutters, omission of stale rows, or closure
+    from accepted evidence;
+  - do not hard-close merely because prune is near. The checkpoint preserves
+    evidence; the decision to continue or close stays with the model and the
+    existing machine-verifiable blockers.
+- Audit LLM stream timeout enforcement:
+  - verify that request timeout, first-byte timeout, and stall timeout all share
+    the same cancel-aware path and always emit a terminal diagnostic event;
+  - when a stream is awaiting the first byte, surface that as transport wait,
+    not as semantic agent work;
+  - keep semantic retry budgets separate from provider retry/backoff budgets so
+    a provider hang does not look like evidence insufficiency.
 
 ### Follow-up Task List
 
@@ -215,3 +295,10 @@ structured carrier exists. The section must say:
 - [x] Recover whole-message bare argument objects for uniquely matched
       structural `emit_*` tools in compatibility mode, reusing the existing
       schema-aware path.
+- [ ] Add pre-prune stable evidence checkpoint so accepted evidence survives
+      `TOOL HISTORY PRUNED` before the model continues optional exploration.
+- [ ] Make evidence-repair hints schema-aware with respect to currently
+      exposed tools; never request `read_file` / `grep` in a repair state that
+      does not expose those tools.
+- [ ] Audit and fix LLM stream timeout/cancel observability so configured
+      first-byte/request/stall timeouts cannot silently exceed their budgets.
