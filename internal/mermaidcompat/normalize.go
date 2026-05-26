@@ -19,6 +19,7 @@ func NormalizeSourceForMarkdown(body string) string {
 	body = NormalizeSequenceStops(body)
 	body = NormalizeFlowchartSubgraphTitles(body)
 	body = NormalizeFlowchartDanglingPunctuation(body)
+	body = NormalizeFlowchartMismatchedShapeClosers(body)
 	body = NormalizeFlowchartUnsafeNodeIDs(body)
 	body = NormalizeFlowchartNodeLabels(body)
 	body = NormalizeFlowchartPipeLabels(body)
@@ -26,6 +27,31 @@ func NormalizeSourceForMarkdown(body string) string {
 		logging.Debug("[mermaidcompat] source repair applied before_bytes=%d after_bytes=%d", len(original), len(body))
 	}
 	return body
+}
+
+// NormalizeFlowchartMismatchedShapeClosers repairs a narrow but common
+// Mermaid slip where the node shape opener is clear but the final closer comes
+// from a sibling shape, e.g. `A{"ok"]` or `B("step"]`. The opener determines
+// the intended shape, so replacing only the mismatched closing delimiter is a
+// syntax-only repair. Running this before unsafe-node aliasing prevents the
+// label inside a malformed shape from being mistaken for a separate node ID.
+func NormalizeFlowchartMismatchedShapeClosers(body string) string {
+	if !isFlowchartOrGraph(body) || !strings.ContainsAny(body, "[({>") {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	changed := false
+	for i, line := range lines {
+		rewritten, ok := normalizeFlowchartMismatchedShapeClosersInLine(line)
+		if ok {
+			lines[i] = rewritten
+			changed = true
+		}
+	}
+	if !changed {
+		return body
+	}
+	return strings.Join(lines, "\n")
 }
 
 // NormalizeSequenceStops repairs a common small-model Mermaid mistake:
@@ -380,6 +406,103 @@ func flowchartNodeTokenDelimiter(ch byte) bool {
 	default:
 		return false
 	}
+}
+
+func normalizeFlowchartMismatchedShapeClosersInLine(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "%%") ||
+		flowchartLineIsHeader(trimmed) || strings.HasPrefix(trimmed, "subgraph ") || trimmed == "end" ||
+		strings.HasPrefix(trimmed, "classDef ") || strings.HasPrefix(trimmed, "linkStyle ") ||
+		flowchartLineStartsWithAny(trimmed, "click ", "style ", "class ") {
+		return line, false
+	}
+	out := []byte(line)
+	changed := false
+	for i := 0; i < len(out); i++ {
+		if op := flowchartArrowAt(string(out), i); op != "" {
+			i += len(op) - 1
+			continue
+		}
+		if out[i] == '|' {
+			if end := findUnescapedPipe(string(out), i+1); end > i {
+				i = end
+				continue
+			}
+		}
+		expected, ok := flowchartSingleShapeClose(out[i])
+		if !ok {
+			continue
+		}
+		if end := flowchartShapeEnd(string(out), i); end > i {
+			i = end
+			continue
+		}
+		mismatch := findFlowchartMismatchedShapeClose(string(out), i+1, expected)
+		if mismatch < 0 {
+			continue
+		}
+		out[mismatch] = expected
+		changed = true
+		i = mismatch
+	}
+	if !changed {
+		return line, false
+	}
+	return string(out), true
+}
+
+func flowchartSingleShapeClose(open byte) (byte, bool) {
+	switch open {
+	case '[':
+		return ']', true
+	case '(':
+		return ')', true
+	case '{':
+		return '}', true
+	case '>':
+		return ']', true
+	default:
+		return 0, false
+	}
+}
+
+func findFlowchartMismatchedShapeClose(s string, start int, expected byte) int {
+	quote := byte(0)
+	escaped := false
+	for i := start; i < len(s); i++ {
+		ch := s[i]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		if ch == '"' || ch == '\'' {
+			quote = ch
+			continue
+		}
+		if flowchartArrowAt(s, i) != "" {
+			return -1
+		}
+		switch ch {
+		case '[', '(', '{', '>':
+			return -1
+		case ']', ')', '}':
+			if ch == expected {
+				return -1
+			}
+			return i
+		}
+	}
+	return -1
 }
 
 func flowchartArrowAt(s string, i int) string {

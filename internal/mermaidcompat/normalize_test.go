@@ -237,6 +237,53 @@ func TestNormalizeSourceForMarkdown_NormalizesFlowchartSubgraphAndEdgeLabels(t *
 	}
 }
 
+func TestNormalizeSourceForMarkdown_RepairsMismatchedDecisionClosersBeforeAliasing(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    F1["xfs_trans_alloc_icreate()"] --> G1{"分配事务")`,
+		`    G1 --> H1{"ENOSPC?"]`,
+		`    H1 -->|是| I1["xfs_flush_inodes(mp)"]`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	for _, bad := range []string{
+		`G1{"分配事务")`,
+		`H1{"ENOSPC?"]`,
+		`G1{codraxNode`,
+		`H1{codraxNode`,
+	} {
+		if strings.Contains(got, bad) {
+			t.Fatalf("mismatched shape closer or aliasing artifact survived %q in:\n%s", bad, got)
+		}
+	}
+	for _, want := range []string{
+		`G1{"分配事务"}`,
+		`H1{"ENOSPC?"}`,
+		`H1 -->|是| I1["xfs_flush_inodes(mp)"]`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("repaired Mermaid source missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestNormalizeMarkdownMermaidFences_RepairsMismatchedDecisionClosers(t *testing.T) {
+	in := strings.Join([]string{
+		"before",
+		"```mermaid",
+		"flowchart TD",
+		`    G1 --> H1{"ENOSPC?"]`,
+		"```",
+		"after",
+	}, "\n")
+	got := NormalizeMarkdownMermaidFences(in)
+	if strings.Contains(got, `H1{"ENOSPC?"]`) || strings.Contains(got, "codraxNode") {
+		t.Fatalf("persisted markdown retained malformed decision node:\n%s", got)
+	}
+	if !strings.Contains(got, `H1{"ENOSPC?"}`) {
+		t.Fatalf("persisted markdown missing repaired decision node:\n%s", got)
+	}
+}
+
 func TestNormalizeMarkdownMermaidFences_NormalizesPersistedMarkdownSource(t *testing.T) {
 	in := strings.Join([]string{
 		"before",
