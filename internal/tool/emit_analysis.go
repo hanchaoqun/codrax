@@ -1146,7 +1146,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	}
 	fieldValueProfile, fieldValueErr := parseFieldValueProfile(raw, p.FieldValueProfile)
 	if fieldValueErr != "" {
-		if !artifactOnlyRuntime {
+		if !shouldDropInvalidOptionalFieldValueProfile(artifactOnlyRuntime, predicates, currentSourceExplanation, p.FieldValueProfile) {
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Success:   false,
@@ -1154,7 +1154,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 				Timestamp: time.Now(),
 			}, nil
 		}
-		warning := "dropped invalid optional field_value_profile for observation-only runtime artifact: " + fieldValueErr
+		warning := invalidOptionalFieldValueProfileWarning(artifactOnlyRuntime, fieldValueErr)
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
@@ -2303,6 +2303,29 @@ func parseFieldValueProfile(raw string, p *emitFieldValueProfileParam) (*types.F
 		Confidence:         *p.Confidence,
 		Rationale:          strings.TrimSpace(p.Rationale),
 	}, ""
+}
+
+func shouldDropInvalidOptionalFieldValueProfile(artifactOnlyRuntime bool, predicates types.SemanticPredicates, currentSource *types.CurrentSourceExplanationProfile, p *emitFieldValueProfileParam) bool {
+	if artifactOnlyRuntime {
+		return true
+	}
+	if p == nil || p.IsFieldValueLookup == nil || !*p.IsFieldValueLookup {
+		return false
+	}
+	if _, _, _, ok := types.ParseFieldValueTarget(p.Target); ok {
+		return false
+	}
+	if predicates.IsScalarAnswer && predicates.IsCountQuestion {
+		return true
+	}
+	return predicates.IsScalarAnswer && currentSource != nil && currentSource.Active()
+}
+
+func invalidOptionalFieldValueProfileWarning(artifactOnlyRuntime bool, err string) string {
+	if artifactOnlyRuntime {
+		return "dropped invalid optional field_value_profile for observation-only runtime artifact: " + err
+	}
+	return "dropped invalid optional field_value_profile for generic scalar/current-source request: " + err
 }
 
 func parseAnswerExclusionPolicy(raw string, p *emitAnswerExclusionPolicyParam) (*types.AnswerExclusionPolicy, string) {

@@ -102,14 +102,16 @@ func TestExploreSkill_TeachesCascadedRepoLensNavigation(t *testing.T) {
 		"model-chosen roles",
 		"optional attribute_roles",
 		"cascade into narrower source_inventory calls",
-		"verify selected files/symbols/routes/config keys with read_file or targeted grep before citing",
-		"navigation only",
+		"verify selected behavior or implementation claims with read_file or targeted grep before citing source text",
+		"verified navigation facts",
+		"not semantic source-code citations",
 	} {
 		if !strings.Contains(corpus, want) {
 			t.Fatalf("explore-skill missing repo lens guidance %q:\n%s", want, corpus)
 		}
 	}
 	for _, forbidden := range []string{
+		"do not treat repo_map output as evidence",
 		"downstream synthesis",
 		"downstream rendering",
 		"the framework has",

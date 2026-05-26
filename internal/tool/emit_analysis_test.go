@@ -3436,6 +3436,74 @@ func TestEmitAnalysis_Execute_DropsInvalidFieldValueProfileForRuntimeArtifact(t 
 	}
 }
 
+func TestEmitAnalysis_Execute_DropsInvalidFieldValueProfileForGenericCountCurrentSource(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("统计 internal/tool 下非测试 Go 文件数量，并解释当前实现如何计算这个值。")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "return_value",
+		"scenario": "generic",
+		"complexity": "simple",
+		"keywords": ["internal/tool", "Go", "文件数量", "当前实现"],
+		"entities": ["internal/tool"],
+		"question_kind": "return_value",
+		"answer_subject": {"kind": "numeric", "confidence": 0.9},
+		"intent_confidence": 0.9,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.8,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_role_locate_lookup": false,
+			"is_count_question": true,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"current_source_explanation_profile": {
+			"is_current_source_explanation_requested": true,
+			"modes": ["explain_current_mechanism"],
+			"source_quotes": ["解释当前实现"],
+			"confidence": 0.82
+		},
+		"field_value_profile": {
+			"is_field_value_lookup": true,
+			"target": "internal/tool non-test Go files",
+			"literal": "count",
+			"literal_kind": "",
+			"source_quote": "统计 internal/tool 下非测试 Go 文件数量",
+			"confidence": 0.72
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("generic count/current-source field_value_profile should be dropped, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.FieldValueProfile != nil {
+		t.Fatalf("invalid generic count field_value_profile should be dropped, got %+v", rm.FieldValueProfile)
+	}
+	if rm.CurrentSourceExplanationProfile == nil || !rm.CurrentSourceExplanationProfile.Active() {
+		t.Fatalf("current_source_explanation_profile should survive: %+v", rm.CurrentSourceExplanationProfile)
+	}
+	if !strings.Contains(res.Summary, "generic scalar/current-source request") {
+		t.Fatalf("expected summary warning to record dropped optional profile, got %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_Execute_PersistsAnswerExclusionPolicy(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

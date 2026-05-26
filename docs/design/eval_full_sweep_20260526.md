@@ -803,3 +803,783 @@ intent or invent a stronger answer than the model gave.
   system may only show a clearly labeled recovered/advisory surface or caveat.
 - Prompt text changes must be generic tool teaching. They must not mention
   project-specific paths, package names, eval IDs, or Codrax-only relationships.
+
+## Live Representative Eval Notes: 2026-05-26 10:04 CST
+
+The representative sweep started after commit `6db40b20` with six cases and
+parallelism 2:
+
+- `read_combo_log_current_source_explanation`
+- `read_combo_trace_current_source_explanation`
+- `read_combo_command_current_source_explanation`
+- `qf_diagram_pipeline`
+- `s5b`
+- `harmony/cangjie_repomap`
+
+The first attempted run was invalid: the temporary `codrax` snapshot was placed
+under the eval result directory, and provider discovery is anchored to the
+binary directory. The run therefore failed in ~2s with "providers.yaml not
+found" and all pipeline metrics at zero. This is an eval-harness hygiene issue,
+not a model/runtime result. The valid rerun keeps the binary snapshot beside the
+repo-root `providers.yaml`.
+
+Live runner status has a separate formatting issue: when completed cases wrote
+their status rows, stdout printed awk syntax errors and `DONE =>` without the
+verdict token. The per-run `run-1.verdict` files and status rows still record
+`PASS`, so this is a monitoring/reporting bug, not an answer failure.
+
+### Observed Gaps While Run Is Still In Progress
+
+1. **Mixed-origin artifact + current-source cases are still the slow path.**
+   Both `read_combo_log_current_source_explanation` and
+   `read_combo_trace_current_source_explanation` hit the representative sweep's
+   1800s per-case timeout. The new default-disabled post-finalize reviewers are
+   not the cost center; the bottleneck remains upstream exploration / evidence
+   closure.
+2. **Origin-specific current-source nudge can still over-repeat.** The trace
+   case repeatedly hit `explorer.mid-loop.read-without-emit` /
+   `read-without-emit-closure-only` while the prompt correctly says logs/traces
+   must not be forced into `emit_evidence`. The hint is schema-aware, but it can
+   still keep a mixed-origin case in a "read or close" loop instead of turning
+   the artifact lane into a stable closure/caveat path sooner.
+3. **Log case shows repeated upstream restarts / DAG-window reopening.**
+   The log case ran log triage, analyzer, and explorer, then later entered a
+   DAG-scheduled investigation window for the same timeout distinction. This
+   suggests the current-source verification nudge can re-open broad exploration
+   even after the runtime log observation is already clear.
+4. **Emit-only repair hint is now aligned with tool surface, but may not be
+   sufficient.** The trace case correctly injected an emit-only repair hint when
+   tools were limited to `emit_evidence` / `emit_investigation_complete`; this
+   fixes the old "tell model to reread while no read tool is exposed" bug. The
+   remaining issue is convergence: after the hint, the model can still continue
+   several turns instead of closing from accepted evidence.
+5. **Transient stream-stall retry still risks broad re-entry.** The trace case
+   hit `stream stalled mid-stream`, logged that durable progress was preserved,
+   and retried with a checkpoint (`structured evidence rows=151`,
+   `read files=9`, `successful tool results=65`). The next explore window was
+   marked as a continuation, but it still restarted at a fresh explorer iter and
+   soon re-entered `read-without-emit` nudges. The remaining gap is not whether
+   artifacts are saved; it is whether the retry lane consumes the checkpoint as
+   a closure-biased state instead of allowing another broad navigation cycle.
+6. **Eval/log tooling must treat run logs as text even when NUL bytes appear.**
+   Local `rg` over the trace run log reported `binary file matches (found "\0"
+   byte around offset ...)`. Any metric extraction or forensic grep that does
+   not force text mode can silently miss later lines. This is separate from the
+   answer pipeline but can hide regressions in future sweeps.
+7. **Reviewer opt-in change appears effective so far.** No
+   `semantic_quality_reviewer` or `self_consistency_reviewer` dispatch has
+   appeared in the active representative run. If the final summary confirms
+   `sem=0` and `self=0`, token savings landed; remaining latency should be
+   attributed to analyzer/explorer/finalizer proper rather than post-finalize
+   reviewers.
+8. **Close-ready after verification is still not a hard convergence boundary.**
+   The log case reached `explorer.mid-loop.completion-ready-closure-only` at
+   explorer iter 10 with ~67k estimated context, but still advanced to another
+   LLM request. The hint correctly says the verification branch is consumed
+   unless a concrete contradiction was found, yet the scheduler still allows
+   another broad turn. The next fix should make this a state-machine transition:
+   after close-ready + one consumed verification branch, only a contradiction
+   evidence batch or `emit_investigation_complete` should be useful; otherwise
+   the system should close with a bounded caveat rather than spend another
+   navigation round.
+9. **Analyzer scalar/source-quote validation may be too source-shaped for
+   command measurements.** In `read_combo_command_current_source_explanation`,
+   `emit_analysis` was rejected with
+   `field_value_profile.source_quote must include both target and literal`.
+   The question asks for a command measurement plus current-source explanation,
+   so an early analyzer field-value profile should distinguish command/runtime
+   literal carriers from source-code quote carriers. This should be solved by
+   origin-aware structured validation, not by loosening every scalar question.
+10. **Repo Lens wording is still inconsistent in at least one explorer prompt
+    lane.** The representative logs still contain the old teaching:
+    `do not treat repo_map output as evidence — it is a cached navigation index`.
+    That conflicts with the newer boundary that repo_map/source_inventory rows
+    are verified navigation / candidate-universe / count facts but not semantic
+    source citations. This inconsistency can scare the model away from using
+    Repo Lens for candidate universes or make it over-read files to re-prove
+    path/count facts. The fix should update the shared explorer workflow
+    snippet, not just tool descriptions.
+11. **Evidence-nudge backlog is not limited to mixed-origin cases.**
+    `qf_diagram_pipeline` repeatedly hit read-without-emit and emit-only
+    evidence nudges even after collecting stage evidence, including an
+    `emit_evidence` schema-normalization success for `surfaceTerms` →
+    `surface_terms`. This suggests the evidence materialization loop can still
+    dominate normal current-source diagram questions, not only artifact/source
+    hybrids.
+12. **Command-measurement mixed-origin runs can prune before closure.**
+    In `read_combo_command_current_source_explanation`, explorer iter 5 reached
+    `context_tokens_est=68335` and triggered `TOOL HISTORY PRUNED` while the
+    active hint still said the current-source evidence nudge was unresolved.
+    This shows the pre-prune checkpoint work needs a closure-oriented consumer:
+    after command/runtime facts and any relevant source facts are already in the
+    stable ledger, pruning should bias the next turn toward incremental close or
+    bounded caveat instead of asking the model to keep reconciling raw history.
+13. **Retry/repair can re-enter the initial broad-search workflow.** During the
+    same representative run, both `qf_diagram_pipeline` and
+    `read_combo_command_current_source_explanation` later logged a fresh
+    explorer `iter=0` prompt that again said to "Search broadly" and produce a
+    3-6 file list. This happened after earlier evidence collection, repair
+    nudges, and/or pruning. That is a state-machine bug class: once a run has a
+    stable evidence ledger or accepted closure candidate, transient retry and
+    repair continuation should render from that checkpoint and should not fall
+    back to the generic initial breadth-scan template unless the prior state is
+    genuinely empty. The later `s5b` run repeated the same pattern after
+    accepted evidence and prune checkpoints: it returned to explorer `iter=0`
+    with a fresh pre-scan ranking for the same question. This confirms the
+    issue is systemic across source-only enumeration, diagram, and mixed-origin
+    cases.
+14. **Presentation-format terms can pollute source discovery.** In
+    `qf_diagram_pipeline`, the pre-scanned file ranking promoted
+    Mermaid-rendering implementation files because the user asked the answer to
+    be a Mermaid diagram. That term describes the requested output format, not
+    necessarily the source behavior being investigated. Analyzer/explorer
+    should keep answer-surface format tokens separate from domain/source
+    retrieval tokens, otherwise diagram/table/JSON/Markdown requests can steer
+    search toward renderer code instead of the requested system mechanism. The
+    cross-language Cangjie case showed the same class: because the answer must
+    report package declarations, the pre-scan promoted many Go files whose only
+    match was the generic token `package`. Output-column labels and requested
+    reporting fields need separate retrieval weighting from actual domain
+    symbols.
+15. **Parallel/restarted lanes can duplicate deterministic measurements.**
+    The command-measurement case later opened multiple current-source/command
+    explorer lanes, and one restarted lane re-ran
+    `find internal/tool -name '*.go' ! -name '*_test.go' | wc -l`, producing the
+    same deterministic count (`140`). Re-running is not semantically wrong, but
+    it is unnecessary once the command result has been typed as
+    `command_measurement`. Deterministic artifact/runtime measurements should be
+    promoted into a stable, lane-shared ledger so later lanes can cite or
+    reconcile against them without re-executing the same shell command unless
+    the model explicitly needs a fresh measurement.
+16. **Emit-only duplicate evidence is not treated as a close signal.** In
+    `qf_diagram_pipeline`, after the tool surface was narrowed to
+    `emit_evidence` / `emit_investigation_complete`, the model emitted a
+    duplicate `PipelineStage` row. The tool correctly reported "No new evidence
+    was recorded", but the scheduler continued into another LLM request instead
+    of steering to close from the existing ledger or asking for only genuinely
+    missing non-duplicate anchors. Duplicate-only emit results should be a
+    convergence signal in emit-only repair mode, not a reason to keep spending
+    full exploration turns.
+17. **Slow PASS cases confirm reviewers are not the cost center.**
+    `qf_diagram_pipeline` passed but took 1528s with
+    `explorer_dispatches=4`, `transient_retry_checkpoints=3`,
+    `midloop_inject=11`, `tool_read_file=17`, and
+    `semantic_quality_dispatches=0`. `read_combo_command_current_source_explanation`
+    passed but took 1547s with `tool_history_prunes=2`, `midloop_inject=10`,
+    `tool_read_file=22`, `finalizer_iters=2`, and
+    `semantic_quality_dispatches=0`. This supports the diagnosis that
+    post-finalize LLM reviewers are no longer burning tokens by default; the
+    remaining representative latency is in exploration convergence, retry
+    restart, evidence materialization, and JSON-as-prose finalizer correction.
+18. **Repo Map invocation alone is not enough; the view must match the task.**
+    In the `s5b` representative run, the model did call `repo_map` on
+    `internal/analysis`, but used the broad `task_map` view and received
+    high-fan-in generic files such as context/render/logging/builtin surfaces.
+    For source-inventory / entry-point enumeration, this is still noisy. The
+    remaining Repo Lens gap is discovery of the right structured view and
+    cascaded refinement path, not merely encouraging any `repo_map` call.
+19. **Cascaded Source Inventory can arrive too late.** The same `s5b` run later
+    reached `repo_map(view="source_inventory")` and produced the expected
+    Cascaded Repo Lens Guide for a scoped package. That is the right interface,
+    but it appeared after many prior messages and immediately preceded a
+    `TOOL HISTORY PRUNED` event at ~62k context. Source-inventory discovery
+    should fire earlier when broad repo_map/list_files/grep produces many
+    scope candidates; otherwise the right lens helps only after the context has
+    already been inflated. The same late-hint pattern appeared in the Cangjie
+    cross-language case: the discovery hint arrived after six files had already
+    been read, confirming this is not Go-specific.
+    Once it did recover, the model expanded only one scope at a time even though
+    the tool supports `scopes[]`. For broad but bounded inventories, the guide
+    should make batched multi-scope expansion visible so 25 packages do not turn
+    into 25 LLM turns.
+20. **Structured support metadata leaks across tool schemas.** In `s5b`, after
+    source-inventory guidance, the model emitted `emit_evidence.items[]` with
+    `support_refs`. The `emit_evidence` schema rejected it as an unknown field.
+    This is a generic schema-alignment gap: fields such as `support_refs` are
+    meaningful in other evidence/answer lanes, so small and large models may
+    naturally carry them into adjacent emit tools. The repair path should either
+    safely strip non-semantic advisory metadata before validation or produce a
+    concise schema-aware correction that does not restart broad exploration.
+    The immediate retry then replaced it with another cross-lane advisory field
+    (`summary_is_scalar`), which was also rejected. This should be handled as a
+    class of harmless metadata fields, not one field at a time.
+    A third retry then omitted `line_start` even though the earlier
+    `support_refs` strings contained parseable `file:line` anchors. When the
+    anchor can be recovered from the same item without changing semantics, the
+    schema-aware repair layer should use that deterministic metadata rather
+    than forcing another model round.
+21. **Broad enumeration coverage can override exact command matches.** In the
+    Cangjie case, the model executed precise grep commands and found the exact
+    files/lines for `public class`, `extend`, and `foreign func`. The next
+    system hint still said "read only 0 of 14 discovered files" and suggested
+    several broad ArkTS corpus files that were not the exact grep hits. This is
+    the same contract risk as earlier member-set issues: when a structured tool
+    result has exact positive matches for the requested axis, broad discovered
+    files must not become a hard or high-priority read requirement.
+22. **Model-authored regex verification is brittle for cross-language modifiers.**
+    The Cangjie run's follow-up grep used `public class|^extend|foreign func`,
+    which confirms some rows but misses modifier forms such as
+    `public sealed class` and `public abstract class`. The model had already
+    discovered `Animal` and `Service` through `read_file`, but the verification
+    command itself under-approximates the language grammar. Cross-language
+    enumerations benefit from repo-map parser roles / source-inventory
+    candidate universes because those can represent language-specific modifier
+    variants without relying on ad hoc regexes written mid-run.
+23. **Positive evidence coverage does not stop adjacent-category drift.** After
+    the Cangjie run had already grounded the requested extend / foreign func /
+    public class rows, it continued into `public interface` because a later
+    broad check surfaced an adjacent declaration category. Adjacent categories
+    can be useful caveats, but they should not extend the principal search
+    axis unless the model explicitly promotes them as relevant to the user's
+    requested buckets.
+
+### Follow-Up Direction
+
+- Treat mixed-origin closure as a first-class state: once artifact observations
+  are typed and the current-source lane has either grounded a relevant mechanism
+  or disclosed absence, repeated read-without-emit nudges should degrade to a
+  closure/caveat instruction rather than reopen broad exploration.
+- Treat close-ready verification as a bounded state, not a reusable hint. One
+  verification branch may refine the answer; repeated no-new-evidence turns
+  should converge to closure or a caveat.
+- Add a metric for repeated mixed-origin evidence nudges:
+  `mixed_origin_nudge_repeats` keyed by stage/run, so future eval summaries can
+  show this bottleneck without manual log reading.
+- Harden eval harness scripts to snapshot binaries beside repo-root config or
+  pass `--providers "$ROOT/providers.yaml"` explicitly, and make log scanning
+  use text mode for NUL-tolerant telemetry.
+- Audit analyzer scalar/value validators for origin-specific carriers
+  (`command_measurement`, runtime log/trace, VCS metadata, external docs).
+  Source-quote requirements should apply only when the structured carrier says
+  the literal is expected from current source text.
+- Replace all remaining "repo_map is not evidence" prompt snippets with the
+  precise two-layer boundary: verified navigation/candidate-universe/count
+  facts are usable as such; semantic source-code behavior still needs
+  read_file/grep/evidence grounding.
+- Add a convergence metric for evidence-nudge loops in ordinary source-only
+  questions, not just mixed-origin cases.
+- Add a prune-before-closure metric that records whether the active hint at
+  prune time was principal-blocking, surgical, or advisory. This should make it
+  visible when pruning is happening because of useful investigation breadth
+  versus because the system kept a non-closing hint alive for too long.
+- Split the explorer breadth-scan template from continuation/retry prompts.
+  Continuation prompts should start from the durable checkpoint and explicitly
+  ask for one of: emit the missing structured rows, close with the accepted
+  ledger, or record a bounded caveat. They should not re-teach broad search as
+  the default next action.
+- Separate answer-format constraints from retrieval intent. Terms such as
+  Mermaid, table, JSON, markdown, or sequence diagram should influence final
+  rendering and diagram-shape guidance, but should not automatically become
+  high-priority source-search keywords unless the question is explicitly about
+  the renderer/parser for that format.
+- Make deterministic measurement facts lane-shared. The first successful typed
+  command/runtime/VCS measurement should be available to later exploration
+  lanes as a verified observation, with re-execution treated as optional
+  verification rather than the default way to recover after retry.
+- In emit-only repair/closure mode, treat duplicate-only `emit_evidence` results
+  as a bounded no-progress state. The next action should be to close from the
+  existing ledger, request a specific missing anchor if one is machine-known, or
+  record a caveat; it should not loop through another broad LLM turn.
+- Make Repo Lens discovery view-specific: broad `task_map` is useful for
+  mechanism orientation, but scoped enumeration/entry-point questions should be
+  nudged toward `source_inventory` / grouped scoped views as advisory
+  navigation. The hint must stay structural (based on tool shape and result
+  cardinality), not keyed to user wording.
+- Trigger cascaded Repo Lens discovery before the first large read/prune risk:
+  when structured tool results show many scopes/candidate files, surface the
+  advisory `source_inventory` expansion path immediately instead of waiting
+  until after multiple read_file rounds.
+- Teach batched `source_inventory` expansion for bounded scope lists. When a
+  prior lens/list_files result already has a finite set of scopes, suggest a
+  single `repo_map(view="source_inventory", scopes=[...])` call for the next
+  manageable page instead of only showing one-scope examples.
+- Audit cross-tool advisory metadata fields (`support_refs`, candidate refs,
+  provenance hints, source-inventory support rows). Where they do not change
+  evidence semantics, make the parser strip or relocate them consistently;
+  where they do change semantics, keep validation fail-loud but make the repair
+  hint tool-schema specific and bounded.
+- Rework enumeration progress hints to prefer exact positive match sets over
+  broad discovered-file universes. If the model already has exact grep/repo-lens
+  hits for the requested axis, broad coverage should be advisory context only,
+  not a "read these next" instruction that can derail the narrowed path.
+- Prefer parser-backed role/candidate views over model-authored regexes for
+  cross-language declarations when the repo-map index supports the language.
+  Regex remains useful as verification, but its result should not silently
+  override already-grounded parser/read evidence when language modifiers or
+  decorators create expected surface variation.
+- Add an "adjacent category" boundary to enumeration closure: once requested
+  buckets have exact grounded rows, new nearby symbol kinds should be recorded
+  as optional caveat/advisory only, not as a reason to keep broad exploration
+  open or mutate the principal answer axis.
+
+### Post-Stop Code-Level Root Cause Breakdown
+
+After the representative run was stopped, the valid result root was
+`eval/results/representative-20260526-100433`. The run produced two timeouts
+(`read_combo_log_current_source_explanation`,
+`read_combo_trace_current_source_explanation`), two slow passes
+(`read_combo_command_current_source_explanation`, `qf_diagram_pipeline`), and
+two intentionally killed in-flight cases (`s5b`, `cangjie_repomap`). The code
+inspection below treats killed cases only as partial telemetry, not verdicts.
+
+1. **Continuation/retry can still re-enter the fresh breadth-scan prompt.**
+   The explorer initial prompt unconditionally teaches "produce a FILE LIST"
+   and "Search broadly" (`internal/agent/explorer.go:1373-1379`). Transient
+   retry requeues the graph node (`internal/orchestrator/read_stage_retry.go:
+   106-113`), and the checkpoint text is advisory only
+   (`internal/orchestrator/read_stage_retry.go:209-214`). The agent loop also
+   resets per-dispatch tool-result buffers at the start of every dispatch
+   (`internal/agent/agent.go:1354-1362`). There is durable evidence handoff, but
+   the prompt mode is still "fresh investigation" unless a later hint wins the
+   wording battle. This explains the observed fresh `iter=0` broad-search
+   restarts in mixed-origin, diagram, and source-inventory cases.
+
+   General fix direction: introduce an explicit continuation prompt mode keyed
+   off durable ledger/checkpoint state. Once any accepted evidence, aggregate
+   fact, closure reason, deterministic measurement, or prune checkpoint exists,
+   retries should start from "close / emit missing structured row / one narrow
+   verification" rather than the generic breadth-scan template. This is a
+   state-machine boundary, not a prompt patch for one question.
+
+2. **Close-ready is implemented as a hint, not a convergence state.**
+   `postCompletionReadySignal` tells the model to prefer
+   `emit_investigation_complete` when readiness passes
+   (`internal/agent/explorer.go:6952-7041`), but later evidence/coverage hints
+   can still reopen work. Duplicate-only `emit_evidence` is correctly marked as
+   no-progress by the tool (`internal/tool/emit_evidence.go:3183-3190`,
+   `3240-3251`) and progress accounting ignores it
+   (`internal/agent/explorer.go:6022-6035`), yet there is no terminal state that
+   says "emit-only repair produced only duplicates; close from the existing
+   ledger or name one exact missing anchor". This drove slow passes where the
+   model kept spending turns after no new evidence was recorded.
+
+   General fix direction: grade repair debt into `principal-blocking`,
+   `surgical-grounding`, and `advisory`. After close-ready, only
+   principal-blocking gaps may reopen the investigation. Surgical grounding gets
+   one local attempt. Duplicate-only/no-progress repair in emit-only mode should
+   converge to closure or a bounded caveat.
+
+3. **Enumeration completeness still falls back to broad discovered-file
+   universes.** Mid-loop and soft-stop enumeration gates compute coverage from
+   grep/list/exec discovered files (`internal/agent/explorer.go:9265-9345`,
+   `9990-10049`, `10366-10406`; path extraction at
+   `internal/agent/explorer.go:15942-16036`). That broad universe is useful as
+   a warning, but it can outrank exact positive matches or source-inventory
+   candidates. The Cangjie partial run demonstrated this: exact grep/read
+   evidence existed for requested buckets, but the system still pushed broad
+   "read discovered files" coverage. The `s5b` partial run exposed another
+   edge: a valid `source_inventory_profile` was dropped when the analyzer also
+   set a relation-shaped predicate (`internal/tool/emit_analysis.go:2150-2158`;
+   the relation predicate comes from `internal/types/request_traits.go:
+   119-136`), so a package->entrypoint inventory fell back to relation-style
+   handling.
+
+   General fix direction: keep relation axes and source-inventory axes
+   orthogonal. A request may ask for members and each member's related
+   attribute; that should not erase the source-inventory candidate universe.
+   Coverage gates should prefer the most specific machine-known universe in
+   this order: exact source-inventory/checklist, exact positive match set,
+   model-authored member_set, then broad discovered files as advisory only.
+   Hard blocking remains allowed only when the universe is exact, scoped, and
+   same-axis with the model's completeness claim.
+
+4. **Repo Lens discovery exists but often fires too late or with the wrong
+   shape.** The broad-result detector can recognize many scope groups from
+   `grep`/`list_files` output (`internal/tool/source_inventory_reconcile.go:
+   792-810`, broadness at `895-903`) and can render a source-inventory advisory
+   (`918-954`). The cascaded guide is also present
+   (`internal/tool/source_inventory_reconcile.go:1176-1229`), and the call
+   renderer already supports `scopes[]` (`1270-1295`). However, the guide tends
+   to appear after large reads or after many one-scope calls. In the partial
+   `s5b` run, the model expanded 25 scopes as 25 parallel one-scope
+   `repo_map(view="source_inventory")` calls even though the tool can batch
+   scopes; in Cangjie it reached the right analysis profile but still first
+   attempted a disallowed analyzer-stage source-inventory call.
+
+   General fix direction: fire discovery immediately after a broad structural
+   tool result, before the next large `read_file` or prune risk. The advisory
+   should default to summary-first and show batched `scopes[]` expansion when a
+   finite scope list is already known. It must remain advisory and based only on
+   tool shape/result cardinality, not user keyword matching.
+
+5. **Repo Map cache reuse is partial; cache hit does not mean cheap view
+   rendering.** On cache hit, `loadFromCache` rebuilds the graph and runs
+   `retrieve.RankGraph` for the query (`internal/tool/repomap/tool.go:
+   682-712`). In-memory reuse still clones and re-ranks the graph for every
+   query (`internal/tool/repomap/multigraph_facade.go:332-340`), and `task_map`
+   rendering computes another query ranking (`internal/tool/repomap/render/
+   render.go:1254-1262`). Scoped projection reuse works
+   (`internal/tool/repomap/scoped_projection.go:62-95`), as seen by
+   `projected scoped graph from in-memory graph`, but full-repo startup still
+   paid 8-12s rank costs even on warm cache.
+
+   General fix direction: add run-level query-ranking memoization keyed by
+   canonical graph identity + query + view-relevant scope. Reuse the ranking in
+   `task_map`/`source_inventory` renderers when the graph was already ranked for
+   the same query. This is a performance optimization only; it must not change
+   graph membership or evidence semantics.
+
+6. **Answer-format/reporting terms still leak into retrieval ranking.**
+   `formatKeywordResults` renders a "TOP PRIORITY" ranking and asks the model to
+   read those files first (`internal/agent/keyword_search.go:1205-1226`). The
+   initial explorer prompt then tells it to search broadly
+   (`internal/agent/explorer.go:1373-1379`). Today the ranker cannot reliably
+   distinguish domain/source terms from presentation terms such as Mermaid,
+   table, package-column labels, or JSON/Markdown output requirements. This
+   caused diagram requests to surface rendering files and Cangjie inventory to
+   over-weight generic `package` surfaces.
+
+   General fix direction: carry token provenance from analysis into search:
+   domain identifiers, structural roles, exact paths/scopes, external-artifact
+   terms, and answer-surface/reporting terms. Retrieval should rank by the
+   first three categories; answer-surface terms should guide final rendering,
+   not source discovery, unless the question is explicitly about the renderer or
+   parser itself.
+
+7. **Mixed-origin artifact/current-source closure is not a first-class
+   lifecycle.** The current-source profile is intentionally soft
+   (`internal/types/current_source_explanation_profile.go:54-67`), but slow
+   mixed-origin cases show that once artifact facts and current-source facts are
+   both present, the system still lacks a stable "enough to answer this
+   mixed-origin contract" state. Prune checkpoints preserve counts
+   (`internal/agent/agent.go:1426-1445`), but the next turn can still be led by
+   raw-history repair hints instead of a compact closure contract.
+
+   General fix direction: create a mixed-origin closure ledger containing
+   artifact observations, deterministic measurements, current-source anchors,
+   unresolved boundaries, and whether each requested mode has at least one
+   model-approved support item. After the ledger is complete or bounded, future
+   hints should ask for closure/caveat, not more broad source work.
+
+8. **Schema-aware compatibility is strong for known structures but narrow for
+   harmless cross-lane metadata.** The strict-decode layer already rewrites
+   unknown-field and string-carrier errors into model-friendly repairs
+   (`internal/tool/strict_decode_repair.go:43-81`,
+   `internal/tool/strict_decode_remap.go:79-108`). It deliberately keeps
+   arbitrary unknown fields fail-loud, and tests pin that behavior
+   (`internal/tool/emit_evidence_test.go:1261-1265`). The partial `s5b` run
+   showed that fields like `support_refs` and `summary_is_scalar` can be
+   harmless advisory metadata copied from adjacent schemas, while line anchors
+   embedded in `support_refs` can sometimes deterministically recover a missing
+   `line_start`.
+
+   General fix direction: keep strict validation for semantic fields, but add a
+   small schema-owned "safe advisory metadata" class per tool. Safe fields may
+   be stripped, relocated, or used to fill deterministic missing anchors only
+   when parsing succeeds and the target value is unambiguous. Anything that
+   changes evidence meaning remains fail-loud.
+
+9. **Finalizer JSON-as-prose recovery works but still costs avoidable model
+   turns.** The agent now captures answer-document-shaped no-tool drafts
+   (`internal/agent/agent.go:1381-1390`), the finalizer can recover preserved
+   drafts (`internal/agent/answer_document_evaluator.go:8481`,
+   `8709-8744`), and text recovery is schema-driven
+   (`internal/tool/answer_document_text_recovery.go:30-51`). The slow command
+   PASS still paid an extra finalizer iteration because recovery is downstream
+   fallback after nudging for the tool call. That is safer than losing content,
+   but it remains latency-heavy for providers that often emit JSON-as-prose.
+
+   General fix direction: when a no-tool draft is losslessly
+   answer-document-shaped and no semantic validator would need model judgment,
+   the finalizer can render recovered content immediately with a localized
+   disclosure instead of spending another LLM round. Non-lossless recovery should
+   keep the existing "preserve visible draft, do not pretend validation
+   succeeded" behavior.
+
+10. **Eval harness/telemetry issues hid some facts during live monitoring.**
+    The custom representative runner's markdown table put `PASS` under the
+    reason column for completed cases, while the per-case `run-1.verdict` files
+    were correct. Several logs contain NUL bytes, so plain `grep`/`rg` without
+    text-mode handling reports "binary file matches" and hides nearby telemetry.
+    This is not product behavior, but it slows root-cause analysis.
+
+    General fix direction: make eval summaries source verdict/reason from the
+    same normalized fields and make log-mining scripts use NUL-tolerant text
+    mode. These fixes should live in the eval harness, not runtime flow.
+
+### Selected Observation Audit Matrix
+
+This matrix cross-checks the live observations from the interrupted run against
+runtime code. It intentionally groups repeated observations by system behavior:
+the goal is to confirm classes of risk, not to fit a single eval case.
+
+1. **Reviewer is not the dominant latency source.**
+   Covers selections 1-4, 6, and 17. Confirmed. The representative command and
+   diagram passes reported `semantic_quality_dispatches=0`, and
+   `codrax.yaml.example` keeps `pipeline_semantic_quality_review_enabled` and
+   `pipeline_self_consistency_review_enabled` off by default. The slow paths
+   still spent most time in explorer iterations, read/evidence nudges, retry, and
+   prune. This confirms the bottleneck is upstream evidence convergence rather
+   than post-finalizer review.
+
+   Follow-up: keep reviewer defaults off unless explicitly configured, and focus
+   optimization on explorer convergence, mixed-origin closure, and finalizer
+   recovery.
+
+2. **The selected "misc issue bundle" is real, but spans several layers.**
+   Covers selection 5. Confirmed and decomposed:
+   - provider harness / valid-provider UX is a setup/runtime issue, not answer
+     semantics;
+   - mixed-origin slow path is a lifecycle issue (`current_source_explanation`
+     plus log/trace/command artifact facts);
+   - repeated current-source nudges come from read-without-emit and coverage
+     hints;
+   - DAG window reopen comes from transient retry requeue plus fresh explorer
+     prompt mode;
+   - emit-only repair still lacks a terminal duplicate/no-progress state;
+   - NUL log bytes affect eval mining and telemetry, not model reasoning;
+   - reviewer-off metrics confirm the above are upstream.
+
+   Follow-up: keep these as separate backlog entries so one fix cannot be
+   mistaken for resolving the entire bundle.
+
+3. **Mid-stream stall checkpoints exist, but continuation can still behave like
+   a fresh investigation.**
+   Covers selections 7-8 and 18. Confirmed. Transient retry can requeue stage
+   nodes (`internal/orchestrator/read_stage_retry.go`), the checkpoint hint is
+   advisory, and explorer's initial prompt still teaches broad file-list search.
+   The agent loop also resets transient tool-result buffers per dispatch, so a
+   retry may be semantically "continuation" in state but "fresh search" in prompt
+   framing.
+
+   Follow-up: add an explicit continuation mode after durable progress,
+   checkpoint, prune, or accepted closure. This mode should ask for closure,
+   one narrow repair, or a caveat; it must not re-enter the broad search
+   workflow unless no durable progress exists.
+
+4. **Close-ready plus one verification branch is not currently terminal.**
+   Covers selections 9-11. Confirmed. `postCompletionReadySignal` and
+   `completion-ready-closure-only` are hints, not convergence states. Later
+   read-without-emit, evidence repair, or coverage hints can still ask for more
+   work after readiness. Duplicate-only evidence is recognized as no progress,
+   but that no-progress status does not yet force closure.
+
+   Follow-up: implement close-ready debt classes. After close-ready, only
+   principal-blocking debt may reopen exploration; surgical grounding gets one
+   local attempt; advisory/duplicate-only debt must become caveat or closure.
+
+5. **`field_value_profile` currently overfits source-field lookup shape and can
+   reject command/runtime scalar cases too early.**
+   Covers selections 12-13. Confirmed. The analysis contract says
+   `field_value_profile` is for named field/member/config literal values, while
+   the validator requires target, literal, source_quote, quote containment, and
+   owner-qualified field/member/config shape. The command measurement case used
+   it for "count internal/tool non-test Go files", causing rejection before the
+   investigation could use the more appropriate command-measurement lane.
+
+   Follow-up: keep `field_value_profile` strict for source-field lookups, but add
+   origin-aware scalar validation/routing so command, trace, log, VCS, and other
+   runtime artifact measurements use their own typed scalar contract instead of
+   being forced through source-field semantics.
+
+6. **Repo Lens wording is internally inconsistent.**
+   Covers selections 14-15 and the user's later hypothesis that the old warning
+   may discourage repo_map use. Confirmed. `internal/skill/defaults.go` still
+   says "do not treat repo_map output as evidence", while the newer explorer
+   primer correctly distinguishes navigation/candidate-universe/count facts from
+   source-code semantic proof. This contradiction can make models avoid the tool
+   or treat its verified candidate counts as unusable.
+
+   Follow-up: centralize a shared Repo Lens teaching snippet. The wording should
+   say: repo_map/source_inventory is verified navigation and candidate-universe
+   evidence, but source-code behavior claims still require read/grep evidence.
+   This is a semantics clarification, not a prompt trick.
+
+7. **Read-without-emit nudge is firing across source-only and mixed-origin
+   cases.**
+   Covers selection 16 and part of 17. Confirmed. The explorer has a dedicated
+   `postReadWithoutEmitSignal`, soft-stop read-without-emit signal, and
+   escalation paths. These are useful when the model is hoarding evidence, but
+   the live run shows the same mechanism can keep nudging after the model has
+   already accumulated enough context or after closure is the safer next action.
+
+   Follow-up: make read-without-emit nudge state-aware. If close-ready,
+   checkpoint, accepted evidence, deterministic measurement, or exact candidate
+   coverage is already present, the nudge must ask for structured closure or a
+   single named missing support item, not generic more reading.
+
+8. **Presentation/output-format terms can pollute source retrieval.**
+   Covers selection 19. Confirmed. The keyword search renderer elevates ranked
+   files as "TOP PRIORITY", but current token handling does not reliably separate
+   domain/source terms from answer-surface terms such as Mermaid, table, diagram,
+   JSON, or Markdown. The diagram case showed ranking pressure toward Mermaid
+   rendering files even when the user wanted a Mermaid-shaped answer about a
+   different source subject.
+
+   Follow-up: add token provenance to analysis/search handoff. Domain symbols,
+   exact paths, scopes, and structural roles should rank source retrieval.
+   Output-surface terms should guide final rendering unless the user is asking
+   about the renderer/parser itself.
+
+9. **Command measurements are reusable facts, but retry/parallel lanes can still
+   re-execute them.**
+   Covers selection 20. Confirmed. The system has typed origins for
+   `command_measurement` and an observation ledger, and the command case
+   successfully measured 140. It also re-ran the same count in a later branch and
+   hit tool-history prune, which shows the measurement was not promoted into a
+   lane-shared closure fact strongly enough.
+
+   Follow-up: promote deterministic command/runtime measurements into the mixed
+   origin closure ledger. Reuse them after retry/prune unless the model or tool
+   output gives a concrete reason to invalidate them.
+
+10. **Repo Lens/source-inventory exists but is not yet early or compact enough
+    for broad searches.**
+    Additional confirmation related to the selected repomap observations.
+    Confirmed. Source-inventory discovery can parse broad `grep`/`list_files`
+    scopes, render a cascaded guide, and accept batched `scopes[]`, but the model
+    still often reaches it after large reads or expands many scopes as one call
+    per scope. In `s5b`, a relation-shaped analysis path also dropped
+    `source_inventory_profile`, which erased a useful candidate universe.
+
+    Follow-up: preserve relation and inventory axes simultaneously, trigger Repo
+    Lens discovery immediately after broad structural results, and prefer batched
+    scoped expansion when finite scopes are already known.
+
+11. **Repomap cache hits can still spend CPU on graph ranking/rendering.**
+    Additional confirmation related to the selected repomap/cache observations.
+    Confirmed. Warm cache still rebuilds/ranks graph views; scoped projection can
+    reuse in-memory graph state, but query ranking and task/source-inventory
+    rendering can repeat. This explains why "cache hit" in the UI does not always
+    mean "near-free" for user-perceived latency.
+
+    Follow-up: add run-level ranking memoization keyed by canonical graph identity,
+    query, view, and scope. This must be performance-only and must not change
+    membership semantics.
+
+12. **Eval/log tooling itself needs hardening to avoid hiding root-cause data.**
+    Covers the NUL/log-mining part of selection 5. Confirmed. Per-case verdicts
+    are reliable, but the custom representative summary misplaced PASS/reason
+    values, and binary/NUL logs can hide surrounding telemetry in default grep
+    modes.
+
+    Follow-up: normalize eval summary fields from the same verdict source and
+    make log mining NUL-tolerant by default.
+
+### Consolidated Backlog From This Representative Run
+
+### Generalized Delivery Plan
+
+This plan turns the audited gaps into implementation batches. The batches are
+ordered to reduce model confusion first, then bound retry/closure loops, then
+optimize latency. Every runtime change must obey the same red lines:
+
+- Do not infer user intent from keyword matching over the user's question or
+  model prose. Use structured request profiles, tool schemas, tool results,
+  accepted evidence, and durable ledgers.
+- Do not make system-authored facts replace model conclusions. System additions
+  are advisory, caveats, or verified navigation facts unless a validator can
+  machine-prove a direct conflict.
+- Hard rejection requires all four conditions: structured user/contract intent,
+  exact machine-verifiable candidate or citation set, model output in direct
+  conflict with that set, and a local repair path. Otherwise prefer warning,
+  caveat, preservation, or bounded continuation.
+- Preserve rich upstream summaries, runtime artifacts, command/VCS results,
+  external documents, web/MCP/connector observations, source-inventory rows, and
+  accepted closure notes through the same observation-ledger path whenever
+  possible. Do not invent parallel evidence stacks.
+
+Batch P0-A — contract wording and analyzer scalar safety:
+
+- Replace the remaining "repo_map is not evidence" wording with the precise
+  Repo Lens boundary: repo_map/source_inventory can prove verified navigation,
+  candidate universes, counts, scopes, languages, and existing files/symbol
+  candidates; semantic source-code behavior still needs read/grep evidence.
+- Keep analyzer field/value lookup strict for real source field/member/config
+  literals, but drop optional invalid `field_value_profile` when the model has
+  clearly used it for a generic scalar/count/current-source bridge rather than a
+  parseable owner-qualified field target. This avoids early analyzer retries
+  without weakening true `Owner.Field = literal` checks.
+- Add prompt and tool tests so future edits cannot reintroduce the wording
+  conflict or over-broaden field-value compatibility.
+
+Batch P0-B — continuation after durable progress:
+
+- Add a continuation-mode render path for transient retry / prune / accepted
+  evidence checkpoints. Once durable progress exists, retries should start from
+  closure, one narrow missing support item, or caveat, not from the fresh breadth
+  scan template.
+- Record metrics for `fresh_breadth_after_checkpoint` and
+  `checkpoint_continuation_rendered`.
+
+Batch P0-C — close-ready and read-without-emit convergence:
+
+- Classify repair/read debt as `principal-blocking`, `surgical-grounding`, or
+  `advisory`.
+- After close-ready, allow only principal-blocking debt to reopen exploration.
+  Surgical debt gets one local attempt; duplicate-only/no-progress repair and
+  advisory debt must converge to closure or caveat.
+- Make read-without-emit hints state-aware: after accepted evidence, exact
+  candidate coverage, deterministic measurement, checkpoint, or close-ready,
+  ask for structured closure / one named missing support item rather than more
+  generic reading.
+
+Batch P0-D — exact candidate universe precedence:
+
+- Preserve relation axes and source-inventory axes together; do not drop
+  `source_inventory_profile` solely because the request also asks for a related
+  attribute.
+- In enumeration/read-hint gates, prefer exact source-inventory/checklist or
+  exact positive match sets over broad discovered files. Broad discovered files
+  remain advisory unless the model claims exact completeness against the same
+  axis and the exact universe is machine-known.
+
+Batch P0-E — mixed-origin closure ledger:
+
+- Promote deterministic command/runtime/VCS measurements and artifact facts into
+  a lane-shared closure ledger.
+- After retry/prune, reuse those facts unless invalidated by a new tool result.
+  Do not re-run deterministic measurements by default.
+
+Batch P1:
+
+- Move Repo Lens discovery before large reads when a broad structural tool
+  result exposes many scopes. Render summary-first guidance plus batched
+  `scopes[]` expansion.
+- Add token provenance to search ranking so answer-surface terms such as
+  Mermaid/table/JSON/Markdown do not outrank domain/source terms.
+- Extend schema-owned safe advisory metadata repair for harmless cross-lane
+  fields while keeping semantic fields strict.
+- Fast-path lossless finalizer JSON-as-prose recovery with localized disclosure.
+- Add run-level repomap ranking memoization keyed by graph identity, query,
+  view, and scope.
+
+Batch P2:
+
+- Harden eval summary/log mining for verdict correctness and NUL-safe scanning.
+- Add dashboards/metrics for the P0/P1 convergence and cache signals.
+
+P0:
+
+- Add continuation prompt mode after durable progress/prune/transient retry so
+  retries cannot fall back to the fresh breadth-scan workflow.
+- Convert close-ready plus duplicate-only emit repair into bounded convergence:
+  close, exact missing-anchor repair, or caveat.
+- Preserve source-inventory and relation axes simultaneously; do not drop
+  `source_inventory_profile` solely because a relation-like attribute is also
+  requested.
+- Prefer exact candidate universes / exact positive match sets over broad
+  discovered-file coverage in enumeration gates.
+- Add mixed-origin closure ledger for log/trace/command/VCS/external artifact
+  plus current-source questions.
+
+P1:
+
+- Move Repo Lens discovery earlier and make batched `scopes[]` expansion
+  prominent for finite scope lists.
+- Add run-level query-ranking memoization for repomap cache hits and in-memory
+  graph reuse.
+- Add token-provenance-aware retrieval ranking so output-format/reporting terms
+  do not pollute source discovery.
+- Extend schema-owned safe advisory metadata repair for harmless cross-lane
+  fields such as support/provenance hints.
+- Fast-path lossless finalizer JSON-as-prose recovery with explicit disclosure.
+
+P2:
+
+- Add metrics for `fresh_breadth_after_checkpoint`,
+  `duplicate_emit_after_close_ready`, `broad_coverage_after_exact_universe`,
+  `repo_lens_discovery_before_first_large_read`, `repomap_rank_cache_hit`, and
+  `mixed_origin_closure_ready`.
+- Harden eval summary/log mining for verdict column correctness and NUL-safe
+  searching.
