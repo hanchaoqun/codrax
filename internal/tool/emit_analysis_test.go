@@ -3740,6 +3740,74 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForTypedRelation(t *testing.T)
 	}
 }
 
+func TestEmitAnalysis_Execute_DropsSourceInventoryForRelationFlow(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("分析 io_uring send recv opcode 到 socket 层的调用链，并给出关键函数和逻辑图。")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "trace",
+		"scenario": "architecture_explain",
+		"complexity": "complex",
+		"keywords": ["io_uring", "send", "recv", "call chain"],
+		"entities": ["IORING_OP_SEND", "IORING_OP_RECV", "io_uring", "socket"],
+		"question_kind": "call_chain",
+		"intent_confidence": 0.94,
+		"complexity_confidence": 0.86,
+		"kind_confidence": 0.92,
+		"predicate_axis": "call",
+		"diagram_hint": {"kind": "call_dag"},
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_role_locate_lookup": false,
+			"is_count_question": false,
+			"is_cross_component": true,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false,
+			"is_diagnostic_question": false
+		},
+		"diagnostic_profile": {
+			"is_diagnostic": false,
+			"current_risk": false,
+			"historical_regression": false,
+			"current_version_check": false,
+			"confidence": 0.1
+		},
+		"source_inventory_profile": {
+			"is_source_inventory": true,
+			"target_roles": ["function"],
+			"requested_fields": ["name", "location", "summary"],
+			"source_quotes": ["关键函数"],
+			"confidence": 0.83,
+			"rationale": "flow answer will mention key functions"
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	if strings.Contains(res.Summary, "source_inventory=") {
+		t.Fatalf("relation-flow summary must not advertise source inventory lane, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+		t.Fatalf("relation-flow request must drop source inventory profile: %+v", rm.SourceInventoryProfile)
+	}
+	if !types.SourceInventoryProfileConflictsWithRelationFlow(types.RequestModel{
+		Intent:                 types.IntentTrace,
+		PredicateAxis:          types.AxisCall,
+		AnalyzerHints:          types.AnalyzerHints{Kind: string(types.ReqCallChain)},
+		SourceInventoryProfile: &types.SourceInventoryProfile{IsSourceInventory: true, TargetRoles: []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction}},
+	}) {
+		t.Fatal("relation-flow typed helper should remain active for the same shape")
+	}
+}
+
 func TestEmitAnalysis_Execute_SourceInventoryConstSetDoesNotImplyValuesField(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

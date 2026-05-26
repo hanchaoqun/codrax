@@ -1323,8 +1323,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		CompletenessObligation:          completenessObligation,
 		Buckets:                         buckets,
 	}
-	if dropSourceInventoryProfileForTypedRelation(&rm) {
-		warning := "source_inventory_profile ignored because predicate_axis / relational predicate declares a typed relation answer; relation member sets must be carried by typed graph/evidence, not source-inventory repair"
+	if droppedSourceInventory, warning := dropSourceInventoryProfileForTypedRelation(&rm); droppedSourceInventory {
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
@@ -2147,15 +2146,19 @@ func normalizeSourceInventoryRequestedFieldsForAnswerSubject(profile *types.Sour
 	return "source_inventory_profile.requested_fields removed values because answer_subject=type_name and requires_const_set is a structural qualifier for the requested type inventory"
 }
 
-func dropSourceInventoryProfileForTypedRelation(rm *types.RequestModel) bool {
+func dropSourceInventoryProfileForTypedRelation(rm *types.RequestModel) (bool, string) {
 	if rm == nil || rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
-		return false
+		return false, ""
 	}
-	if !types.HasTypedRelationMemberSetShape(*rm) {
-		return false
+	if types.HasTypedRelationMemberSetShape(*rm) {
+		rm.SourceInventoryProfile = nil
+		return true, "source_inventory_profile ignored because predicate_axis / relational predicate declares a typed relation answer; relation member sets must be carried by typed graph/evidence, not source-inventory repair"
 	}
-	rm.SourceInventoryProfile = nil
-	return true
+	if types.SourceInventoryProfileConflictsWithRelationFlow(*rm) {
+		rm.SourceInventoryProfile = nil
+		return true, "source_inventory_profile ignored because the typed request is a structural trace / relation-flow answer; source_inventory is for bounded member inventories, while relation-flow navigation should use relation_map plus grounded file reads"
+	}
+	return false, ""
 }
 
 func parseChangeImpactProfile(p *emitChangeImpactProfileParam) (*types.ChangeImpactProfile, string) {

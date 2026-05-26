@@ -135,6 +135,43 @@ func HasTypedRelationMemberSetShape(rm RequestModel) bool {
 		HasInterfaceTypedRelationDiagramShape(rm)
 }
 
+// SourceInventoryProfileConflictsWithRelationFlow reports whether an analyzer
+// emitted source_inventory_profile for a request whose principal answer shape
+// is a structural flow/trace rather than a bounded source member inventory.
+//
+// The helper is deliberately schema-only. It consumes intent, question kind,
+// predicate axis, and semantic predicates; it never scans RawRequest or model
+// prose. This keeps the rule language-neutral across all repomap-supported
+// languages and avoids the historical bug class where a call-chain / dispatch
+// walkthrough was flattened into a dry "all functions" inventory because the
+// user also asked for key files/functions.
+func SourceInventoryProfileConflictsWithRelationFlow(rm RequestModel) bool {
+	if rm.SourceInventoryProfile == nil || !rm.SourceInventoryProfile.Active() {
+		return false
+	}
+	if rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsCountQuestion {
+		return false
+	}
+	if IsSingleTopicStructuralTrace(rm) {
+		return true
+	}
+	kind := NormalizeRequirementKind(rm.AnalyzerHints.Kind)
+	if kind == ReqCallChain {
+		return true
+	}
+	if rm.Intent != IntentTrace {
+		return false
+	}
+	switch rm.PredicateAxis {
+	case AxisCall, AxisCondition, AxisRegister:
+		return true
+	default:
+		return false
+	}
+}
+
 // RequiresExhaustiveEnumerationMemberSetHandoff reports whether a
 // set-valued enumeration answer must be carried downstream as a
 // model-authored aggregate_facts.member_set before later stages are

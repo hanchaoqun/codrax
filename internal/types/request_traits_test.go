@@ -641,6 +641,38 @@ func TestHasTypedRelationMemberSetShape_TypedOnly(t *testing.T) {
 	}
 }
 
+func TestSourceInventoryProfileConflictsWithRelationFlow_TypedBoundary(t *testing.T) {
+	profile := &SourceInventoryProfile{
+		IsSourceInventory: true,
+		TargetRoles:       []AnswerCandidateRole{AnswerCandidateRoleFunction},
+		RequestedFields:   []SourceInventoryRequestedField{SourceInventoryFieldName, SourceInventoryFieldLocation, SourceInventoryFieldSummary},
+	}
+	rm := RequestModel{
+		Intent:                 IntentTrace,
+		PredicateAxis:          AxisCall,
+		AnalyzerHints:          AnalyzerHints{Kind: string(ReqCallChain)},
+		SourceInventoryProfile: profile,
+	}
+	if !SourceInventoryProfileConflictsWithRelationFlow(rm) {
+		t.Fatal("call-chain trace should not carry source inventory as the principal answer shape")
+	}
+
+	rm.Predicates.IsCategoryEnumeration = true
+	if SourceInventoryProfileConflictsWithRelationFlow(rm) {
+		t.Fatal("true category enumeration should preserve source inventory even when relation-like axes are present")
+	}
+	rm.Predicates.IsCategoryEnumeration = false
+	rm.Predicates.IsCountQuestion = true
+	if SourceInventoryProfileConflictsWithRelationFlow(rm) {
+		t.Fatal("true source-inventory count should preserve source inventory")
+	}
+	rm.Predicates.IsCountQuestion = false
+	rm.Predicates.IsRelationalLookup = true
+	if SourceInventoryProfileConflictsWithRelationFlow(rm) {
+		t.Fatal("true relational member lookup should preserve source inventory for later relation handling")
+	}
+}
+
 func TestArchitectureNarrativeExplanation_TypedBoundary(t *testing.T) {
 	rm := RequestModel{
 		Intent:     IntentExplain,
