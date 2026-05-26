@@ -11,6 +11,8 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+const transientRetryObservationLedgerInputLimit = 24
+
 // retryReadStageDispatchError converts transient read-mode stage
 // dispatch errors into a normal scheduler retry instead of forcing the
 // partially-completed pipeline straight into extract/finalize.
@@ -224,7 +226,7 @@ func transientRetryTypedObservationSummary(bus *types.BusContext) string {
 	if bus == nil {
 		return ""
 	}
-	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, 24))
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, transientRetryObservationLedgerInputLimit))
 	if len(ledger.Records) == 0 {
 		return ""
 	}

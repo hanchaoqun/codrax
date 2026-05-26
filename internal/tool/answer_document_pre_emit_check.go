@@ -3293,12 +3293,12 @@ func preCheckSourceInventoryCandidateUniverseCoverage(doc *types.AnswerDocumentV
 	if len(missing) == 0 {
 		return nil
 	}
-	if len(missing) > 12 {
-		missing = append(missing[:12], fmt.Sprintf("... %d more omitted candidate(s)", len(gap.Missing)-12))
+	if len(missing) > SourceInventoryCandidateUniverseSummaryLimit {
+		missing = append(missing[:SourceInventoryCandidateUniverseSummaryLimit], fmt.Sprintf("... %d more omitted candidate(s)", len(gap.Missing)-SourceInventoryCandidateUniverseSummaryLimit))
 	}
 	return []emitFixHint{{
 		Field:         "aggregate_facts.member_set/excluded OR blocks[].kind=caveat",
-		ExpectedShape: "preserve the exact candidate-universe contract before presenting a complete enumeration: " + gap.Summary(12),
+		ExpectedShape: "preserve the exact candidate-universe contract before presenting a complete enumeration: " + gap.Summary(SourceInventoryCandidateUniverseSummaryLimit),
 		Reason:        "structured navigation observed an exact candidate universe, but the accepted investigation handoff did not cover or exclude every observed candidate. The system will not add those candidates to the answer; the model must either include verified principal members, explicitly exclude non-answer candidates, or disclose the remaining scope boundary in a caveat.",
 	}}
 }

@@ -1184,6 +1184,15 @@ const (
 	toolHistoryPruneCheckpointPrefix      = "[structured evidence checkpoint before tool-history pruning]"
 	toolHistoryPruneCheckpointMaxEvidence = 40
 	toolHistoryPruneCheckpointMaxBytes    = 12 * 1024
+
+	toolHistoryPruneCheckpointAggregateFactLimit     = 8
+	toolHistoryObservationCheckpointRecordLimit      = 8
+	toolHistoryObservationCheckpointLedgerInputLimit = 24
+	toolHistoryObservationCheckpointSummaryMaxLen    = 140
+	toolHistoryObservationCheckpointValueMaxLen      = 120
+	toolHistoryObservationCheckpointNoteMaxLen       = 120
+	toolHistoryObservationCheckpointNoteLimit        = 1
+	toolHistoryObservationCheckpointPrincipalNotes   = 2
 )
 
 func pruneToolHistory(messages []llm.Message, budget int) bool {
@@ -1242,7 +1251,7 @@ func buildToolHistoryPruneCheckpoint(ctx *types.AgentContext) string {
 	aggregateFacts := ctx.Mutable.StableInvestigationAggregateFacts()
 	reason := strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason())
 	resultKind := strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind())
-	observationCheckpoint := renderToolHistoryObservationCheckpoint(ctx, 8)
+	observationCheckpoint := renderToolHistoryObservationCheckpoint(ctx, toolHistoryObservationCheckpointRecordLimit)
 	if len(citable) == 0 && len(aggregateFacts) == 0 && reason == "" && resultKind == "" && observationCheckpoint == "" {
 		return ""
 	}
@@ -1283,7 +1292,7 @@ func buildToolHistoryPruneCheckpoint(ctx *types.AgentContext) string {
 	}
 	if len(aggregateFacts) > 0 {
 		b.WriteString("\nAccepted aggregate facts:\n")
-		b.WriteString(renderStructuredAggregateFacts(aggregateFacts, 8))
+		b.WriteString(renderStructuredAggregateFacts(aggregateFacts, toolHistoryPruneCheckpointAggregateFactLimit))
 		if !strings.HasSuffix(b.String(), "\n") {
 			b.WriteByte('\n')
 		}
@@ -1311,7 +1320,7 @@ func renderToolHistoryObservationCheckpoint(ctx *types.AgentContext, limit int) 
 	if ctx == nil {
 		return ""
 	}
-	input := types.ObservationLedgerInputFromAgentContext(ctx, 24)
+	input := types.ObservationLedgerInputFromAgentContext(ctx, toolHistoryObservationCheckpointLedgerInputLimit)
 	ledger := types.CompileObservationLedger(input)
 	if ledger.Empty() {
 		return ""
@@ -1323,9 +1332,9 @@ func renderToolHistoryObservationCheckpoint(ctx *types.AgentContext, limit int) 
 		contract = &ctx.AnalysisIR.AnswerContract
 	}
 	opts := types.DefaultObservationPromptProjectionOptions(limit)
-	opts.SummaryMaxLen = 140
-	opts.NoteLimit = 1
-	opts.PrincipalNoteLimit = 2
+	opts.SummaryMaxLen = toolHistoryObservationCheckpointSummaryMaxLen
+	opts.NoteLimit = toolHistoryObservationCheckpointNoteLimit
+	opts.PrincipalNoteLimit = toolHistoryObservationCheckpointPrincipalNotes
 	records := types.ProjectObservationPromptRecords(ledger.Records, rm, contract, opts)
 	if len(records) == 0 {
 		return ""
@@ -1348,18 +1357,18 @@ func renderToolHistoryObservationCheckpoint(ctx *types.AgentContext, limit int) 
 			fmt.Fprintf(&b, " count=%d", *record.ResultCount)
 		}
 		if record.Value != "" {
-			fmt.Fprintf(&b, " value=%s", logging.Truncate(record.Value, 120))
+			fmt.Fprintf(&b, " value=%s", logging.Truncate(record.Value, toolHistoryObservationCheckpointValueMaxLen))
 		}
 		if record.Claim != "" {
-			fmt.Fprintf(&b, " claim=%s", logging.Truncate(record.Claim, 140))
+			fmt.Fprintf(&b, " claim=%s", logging.Truncate(record.Claim, toolHistoryObservationCheckpointSummaryMaxLen))
 		} else if record.Summary != "" {
-			fmt.Fprintf(&b, " summary=%s", logging.Truncate(record.Summary, 140))
+			fmt.Fprintf(&b, " summary=%s", logging.Truncate(record.Summary, toolHistoryObservationCheckpointSummaryMaxLen))
 		}
 		for _, note := range record.Notes {
 			if strings.TrimSpace(note) == "" {
 				continue
 			}
-			fmt.Fprintf(&b, " note=%s", logging.Truncate(note, 120))
+			fmt.Fprintf(&b, " note=%s", logging.Truncate(note, toolHistoryObservationCheckpointNoteMaxLen))
 			break
 		}
 		b.WriteByte('\n')

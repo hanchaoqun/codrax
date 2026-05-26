@@ -13,6 +13,12 @@ import (
 const (
 	sourceInventoryExactUniverseProvenanceListFilesDirect        = "tool:list_files:direct"
 	sourceInventoryExactUniverseProvenanceRepoLensDirectChildren = "repo_lens:direct_children"
+
+	// SourceInventoryCandidateUniverseSummaryLimit keeps candidate-universe
+	// repair hints useful without turning navigation checklists into long
+	// answer drafts. It is intentionally advisory-display only; coverage
+	// checks still evaluate the full member set.
+	SourceInventoryCandidateUniverseSummaryLimit = 12
 )
 
 type sourceInventoryExactUniverseSet struct {

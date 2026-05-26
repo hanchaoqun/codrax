@@ -7143,7 +7143,7 @@ func renderCandidateUniversePendingHint(gap tool.SourceInventoryCandidateUnivers
 	var b strings.Builder
 	b.WriteString("Progress check: exact structured navigation has observed a candidate universe that is not yet fully covered or explicitly excluded by your structured `member_set`. ")
 	b.WriteString("Do not treat this as the system deciding the final answer set. Use it as a checklist: verify the missing candidates that are relevant to your answer, put verified principal members in `aggregate_facts.member_set`, and put intentionally ruled-out candidates in `excluded` or a matching `excluded_count` disclosure.\n")
-	fmt.Fprintf(&b, "- candidate universe gap: %s\n", gap.Summary(12))
+	fmt.Fprintf(&b, "- candidate universe gap: %s\n", gap.Summary(tool.SourceInventoryCandidateUniverseSummaryLimit))
 	b.WriteString("- if the exact candidate universe is broader than the user's requested answer, preserve that boundary in the structured handoff instead of silently closing with a smaller list.")
 	return b.String()
 }
@@ -11187,7 +11187,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			out.RetryHint = "Previous attempt gathered an exhaustive principal-member enumeration but did not close through a model-authored aggregate_facts.member_set. Reuse the already-read evidence, call emit_investigation_complete(result_kind=\"resolved\"), and include aggregate_facts with kind=\"member_set\", value=len(members), and every principal answer member in members[]. Do not leave the complete set only in thinking, read_file output, or closure prose."
 		} else if gap := candidateUniverseGap; gap.IsActive() {
 			hintKey = "explorer.retry.scoped-candidate-universe"
-			out.RetryHint = fmt.Sprintf("Previous attempt has an exact source-inventory candidate universe: %s. Reuse that scoped checklist instead of broad discovered-file coverage; verify missing or intentionally excluded candidates, then close with a structured aggregate_facts.member_set.", gap.Summary(12))
+			out.RetryHint = fmt.Sprintf("Previous attempt has an exact source-inventory candidate universe: %s. Reuse that scoped checklist instead of broad discovered-file coverage; verify missing or intentionally excluded candidates, then close with a structured aggregate_facts.member_set.", gap.Summary(tool.SourceInventoryCandidateUniverseSummaryLimit))
 		} else if !readiness.ToolDiversity {
 			hintKey = "explorer.retry.tool-diversity"
 			out.RetryHint = "Previous attempt used fewer than 2 distinct evidence tool types. Use both grep and read_file."
