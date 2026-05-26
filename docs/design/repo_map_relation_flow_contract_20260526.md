@@ -64,6 +64,20 @@ If G1 leaks a source-inventory profile, finalizer receives a large
 `source_inventory_handoff` even though the user asked for a flow. This can make
 answers drier and increase contract noise without adding answer value.
 
+### G5: Mermaid source repair corrupted quoted multiline flowchart labels
+
+The follow-up Linux run produced a valid-looking finalizer diagram body with
+quoted labels split across physical lines:
+
+`node["symbol\nfile:line"]`
+
+After JSON decoding that became a real newline inside the quoted label. The
+Mermaid compatibility layer processed flowchart source line-by-line before
+normalizing quoted label newlines, so the label continuation (`file:line"]`)
+was mistaken for a standalone unsafe node identifier and aliased to
+`codraxNode...`. This is a renderer/compatibility bug, not a model-answer
+content bug.
+
 ## Design
 
 ### D1: Typed relation-flow source-inventory suppressor
@@ -129,6 +143,18 @@ End-to-end validation:
   - finalizer remains one-pass;
   - no user-facing answer richness loss.
 
+### D5: Normalize quoted label newlines before line-local flowchart repairs
+
+Add a source-level Mermaid repair that runs before unsafe-node aliasing:
+
+- only for `flowchart` / `graph` bodies;
+- only replaces physical newline bytes while inside a quoted string;
+- preserves the visible label by writing Mermaid's portable `\n` escape;
+- never edits sequence/class/state/etc. diagrams.
+
+This keeps the existing diagram repair pipeline and avoids adding a new
+renderer-specific mechanism.
+
 ## Task List
 
 - [x] T0: Record root cause and design in this document.
@@ -138,10 +164,12 @@ End-to-end validation:
 - [x] T4: Add tests for trace suppression, inventory preservation, and primer
       wording.
 - [x] T5: Run targeted Go tests and full build.
-- [ ] T6: Commit and push batch 1.
-- [ ] T7: Re-run Linux relation-flow scenario and update this document with
+- [x] T6: Commit and push batch 1.
+- [x] T7: Re-run Linux relation-flow scenario and update this document with
       observed behavior.
-- [ ] T8: If repair-turn unavailable-tool attempts remain, implement the
+- [x] T8: Fix Mermaid quoted multiline label corruption exposed by the Linux
+      relation-flow rerun.
+- [ ] T9: If repair-turn unavailable-tool attempts remain, implement the
       restricted-tool teaching follow-up as batch 2.
 
 ## Progress Log
@@ -159,3 +187,9 @@ End-to-end validation:
   `go test ./internal/tool -run 'TestEmitAnalysis_Execute_DropsSourceInventoryFor(RelationFlow|TypedRelation)|TestEmitAnalysis_Execute_PersistsSourceInventoryProfile'`;
   `go test ./internal/agent -run TestExplorer`.
 - 2026-05-26: Full validation passed: `go test ./...` and `make`.
+- 2026-05-26: Linux rerun confirmed the source-inventory profile no longer
+  appears in the analyzer summary/finalizer handoff, and finalizer completed in
+  one round. It exposed G5: Mermaid quoted multiline labels were corrupted by
+  the compatibility repair order. Implemented
+  `NormalizeFlowchartQuotedLabelNewlines` before flowchart line-local repairs
+  and added a regression test. Targeted mermaidcompat tests passed.

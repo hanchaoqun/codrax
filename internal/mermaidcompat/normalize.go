@@ -17,6 +17,7 @@ func NormalizeSourceForMarkdown(body string) string {
 	original := body
 	body = NormalizeSequenceParticipantMessagePrefixes(body)
 	body = NormalizeSequenceStops(body)
+	body = NormalizeFlowchartQuotedLabelNewlines(body)
 	body = NormalizeFlowchartSubgraphTitles(body)
 	body = NormalizeFlowchartDanglingPunctuation(body)
 	body = NormalizeFlowchartMismatchedShapeClosers(body)
@@ -27,6 +28,64 @@ func NormalizeSourceForMarkdown(body string) string {
 		logging.Debug("[mermaidcompat] source repair applied before_bytes=%d after_bytes=%d", len(original), len(body))
 	}
 	return body
+}
+
+// NormalizeFlowchartQuotedLabelNewlines rewrites physical newlines inside
+// quoted flowchart labels to Mermaid's portable "\n" label escape.
+//
+// LLMs often emit readable labels as:
+//
+//	A["name
+//	file:line"] --> B
+//
+// Splitting Mermaid source by physical lines before this repair makes later
+// syntax shims treat "file:line" as a standalone node identifier and can corrupt
+// the diagram with generated aliases. This repair is source-level and
+// meaning-preserving: it only runs for flowchart/graph bodies and only replaces
+// newline bytes while the scanner is inside a quoted string.
+func NormalizeFlowchartQuotedLabelNewlines(body string) string {
+	if !isFlowchartOrGraph(body) || !strings.Contains(body, "\n") || !strings.ContainsAny(body, `"'`) {
+		return body
+	}
+	var b strings.Builder
+	b.Grow(len(body))
+	quote := byte(0)
+	escaped := false
+	changed := false
+	for i := 0; i < len(body); i++ {
+		ch := body[i]
+		if ch == '\n' {
+			if quote != 0 {
+				b.WriteString(`\n`)
+				changed = true
+				continue
+			}
+			b.WriteByte(ch)
+			continue
+		}
+		b.WriteByte(ch)
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		if ch == '"' || ch == '\'' {
+			quote = ch
+		}
+	}
+	if !changed {
+		return body
+	}
+	return b.String()
 }
 
 // NormalizeFlowchartMismatchedShapeClosers repairs a narrow but common

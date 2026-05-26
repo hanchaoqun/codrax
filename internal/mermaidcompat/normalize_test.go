@@ -122,6 +122,28 @@ func TestNormalizeFlowchartNodeLabels_QuotesParserSensitiveUnquotedLabels(t *tes
 	}
 }
 
+func TestNormalizeSourceForMarkdown_FlowchartQuotedLabelNewlinesStayInsideNode(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    io_issue_defs["io_issue_defs[]`,
+		`io_uring/opdef.c:54"] --> io_send["io_send`,
+		`io_uring/net.c:646"]`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	for _, bad := range []string{"codraxNode"} {
+		if strings.Contains(got, bad) {
+			t.Fatalf("quoted multiline labels should not be split into alias nodes; found %q in:\n%s", bad, got)
+		}
+	}
+	for _, want := range []string{
+		`io_issue_defs["io_issue_defs[]\nio_uring/opdef.c:54"] --> io_send["io_send\nio_uring/net.c:646"]`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("quoted label newline repair missing %q in:\n%s", want, got)
+		}
+	}
+}
+
 func TestNormalizeFlowchartUnsafeNodeIDs_AliasesPathLikeEndpoints(t *testing.T) {
 	in := strings.Join([]string{
 		"flowchart TD",
