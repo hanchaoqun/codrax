@@ -278,6 +278,49 @@ eval_count_transient_retry_checkpoints() {
   eval_count_control_pattern 'DEBUG \[diag orchestrator\][^:]*phase=transient_retry_checkpoint [^:]*installed=true' "$file"
 }
 
+eval_count_unavailable_tool_attempts() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  local global restricted
+  global=$(eval_count_control_pattern 'WARN \[agent\] tool "[^"]+" rejected before execution: not in current tool schema' "$file")
+  restricted=$(eval_count_control_pattern 'WARN \[explorer\] tool "[^"]+" rejected: tool "[^"]+" is not available in the current explorer repair state' "$file")
+  echo $((global + restricted))
+}
+
+eval_count_checkpoint_continuation_broad_hint() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern 'DEBUG \[orchestrator\] window hint applied .*Checkpoint summary.*DAG-scheduled investigation window' "$file"
+}
+
+eval_count_closure_only_repeated() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  # Counts the old anti-pattern where closure-only hints carried an
+  # iteration suffix, allowing the same closure instruction to look
+  # like a fresh hint every round. Stable per-window keys should keep
+  # this at zero.
+  eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=midloop_signal .*key="explorer\.mid-loop\.[^"]*closure-only\.[0-9]+"' "$file"
+}
+
+eval_count_mermaid_source_repairs() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern 'DEBUG \[mermaidcompat\] source repair applied' "$file"
+}
+
 eval_sum_answer_contract_violations() {
   local file="$1"
   if [[ -z "$file" || ! -f "$file" ]]; then

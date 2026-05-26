@@ -403,6 +403,10 @@ Write-Host ""
 
 $metricPatterns = [ordered]@{
     tool_read_file            = 'tool=read_file'
+    unavailable_tool_attempts = '\[agent\] tool ".*" rejected before execution: not in current tool schema|\[explorer\] tool ".*" rejected: tool ".*" is not available in the current explorer repair state'
+    checkpoint_continuation_broad_hint = 'window hint applied .*Checkpoint summary.*DAG-scheduled investigation window'
+    closure_only_repeated     = 'phase=midloop_signal .*key="explorer\.mid-loop\.[^"]*closure-only\.[0-9]+"'
+    mermaid_source_repair_applied = '\[mermaidcompat\] source repair applied'
     concrete_values           = 'concrete values'
     synthesis_runs            = 'SYNTHESIS prompt'
     function_boundary_push    = 'CRITICAL.*Incomplete'

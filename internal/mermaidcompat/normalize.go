@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/hanchaoqun/codrax/internal/logging"
 )
 
 // NormalizeSourceForMarkdown repairs Mermaid-spec-adjacent syntax slips that
@@ -12,6 +14,7 @@ import (
 // can use the returned body as the markdown Mermaid source, not just as an
 // internal terminal-rendering shim.
 func NormalizeSourceForMarkdown(body string) string {
+	original := body
 	body = NormalizeSequenceParticipantMessagePrefixes(body)
 	body = NormalizeSequenceStops(body)
 	body = NormalizeFlowchartSubgraphTitles(body)
@@ -19,6 +22,9 @@ func NormalizeSourceForMarkdown(body string) string {
 	body = NormalizeFlowchartUnsafeNodeIDs(body)
 	body = NormalizeFlowchartNodeLabels(body)
 	body = NormalizeFlowchartPipeLabels(body)
+	if body != original {
+		logging.Debug("[mermaidcompat] source repair applied before_bytes=%d after_bytes=%d", len(original), len(body))
+	}
 	return body
 }
 

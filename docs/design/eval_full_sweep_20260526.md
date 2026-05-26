@@ -2027,6 +2027,9 @@ Task list:
   so it does not tell models that verified navigation/count facts are unusable.
   Repo Lens copy now says these rows verify graph/navigation/count/candidate
   facts but are not semantic source citations.
-- [ ] P2-A: Add metrics for `unavailable_tool_attempts`,
+- [x] P2-A: Add metrics for `unavailable_tool_attempts`,
   `checkpoint_continuation_broad_hint`, `closure_only_repeated`,
-  and `mermaid_source_repair_applied`.
+  and `mermaid_source_repair_applied`. The bash eval runner writes all four
+  metrics into `run-N.metrics.txt` and summary tables; the PowerShell runner
+  has matching patterns. Mermaid normalization now emits a debug repair line
+  only when the source text actually changed.
