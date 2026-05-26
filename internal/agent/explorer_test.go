@@ -1878,6 +1878,35 @@ func TestUniqueExactAnchorFile_SuppressedWhenExactTargetPending(t *testing.T) {
 	}
 }
 
+func TestUniqueExactAnchorFile_SuppressedByContradictoryMultiFileHints(t *testing.T) {
+	eval := &explorerEvaluator{
+		exactAnchorFiles: []string{"tools/include/io_uring/mini_liburing.h"},
+		requiredFileHints: []types.RequiredFileHint{
+			{Path: "io_uring/net.c", Confidence: 0.95},
+			{Path: "io_uring/opdef.c", Confidence: 0.95},
+		},
+	}
+	if got, ok := eval.uniqueExactAnchorFile(); ok || got != "" {
+		t.Fatalf("multi-file required hints should suppress unrelated unique exact anchor, got (%q, %v)", got, ok)
+	}
+	if eval.shouldStartFocusedDepth("mechanism") {
+		t.Fatal("contradictory multi-file hints must prevent focused-depth start")
+	}
+}
+
+func TestUniqueExactAnchorFile_PreservesAnchorInsideHighConfidenceHints(t *testing.T) {
+	eval := &explorerEvaluator{
+		exactAnchorFiles: []string{"io_uring/net.c"},
+		requiredFileHints: []types.RequiredFileHint{
+			{Path: "io_uring/net.c", Confidence: 0.95},
+			{Path: "io_uring/opdef.c", Confidence: 0.95},
+		},
+	}
+	if got, ok := eval.uniqueExactAnchorFile(); !ok || got != "io_uring/net.c" {
+		t.Fatalf("exact anchor that is also a high-confidence hint should remain usable, got (%q, %v)", got, ok)
+	}
+}
+
 func TestBuildInitialInstruction_DeclarativeAnchorsStartFocusedDepth(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, "config"), 0o755); err != nil {
@@ -4174,6 +4203,9 @@ func TestObserveMidLoop_EvidenceRepairPrefersStructuredTargets(t *testing.T) {
 	}
 	if !strings.Contains(sig.Hint, "codrax.yaml.example") || !strings.Contains(sig.Hint, "22") {
 		t.Fatalf("structured repair hint should render the explicit target file/line, got: %s", sig.Hint)
+	}
+	if !strings.Contains(sig.Hint, "audit candidates, not authoritative locations") {
+		t.Fatalf("structured repair hint should not present recovered targets as authoritative, got: %s", sig.Hint)
 	}
 }
 

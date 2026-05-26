@@ -71,6 +71,42 @@ Otherwise, ordinary single-repo `path="."` semantics apply.
    C++, Ruby, Swift, Lua, Proto, ArkTS, and Cangjie. No view-selection rule may
    special-case only Go.
 
+8. **Navigation hints can lose priority after the analyzer handoff.**
+   The Linux `io_uring` navigation test showed the analyzer eventually emitted
+   high-confidence `required_files` for `io_uring/net.c`, `io_uring/opdef.c`,
+   `include/uapi/linux/io_uring.h`, and related current-source anchors, but
+   explorer start-up still hard-focused on a single exact keyword hit in
+   `tools/include/io_uring/mini_liburing.h`. Root cause: the existing
+   `AnalyzerHints.RequiredFileHints` lane was validated and pre-read, but the
+   unique exact-anchor shortcut did not consume it as a stronger multi-file
+   signal. This is a priority-contract gap, not a repo_map view issue.
+
+9. **Evidence repair targets were treated as authoritative locations.**
+   In the same test, line recovery suggested `io_uring/notif.h` for symbols
+   whose actual current-source definitions lived in `io_uring/net.c` or
+   likely `include/linux/io_uring_types.h`. The mid-loop repair hint told the
+   model to repair the existing anchor file first, which made a stale
+   recovery look like a mandatory same-file loop. Tool repair targets are audit
+   feedback; if a just-read gutter proves a row stale, the model must be
+   allowed to emit a replacement or omit the row without widening blindly.
+
+10. **Supporting coverage can leak into principal key-file lists.**
+    Finalization correctly completed in one pass, but the answer's key-file
+    section included `io_uring/timeout.c`, which only appeared as
+    supporting/concrete-value context and not as a load-bearing SEND/RECV
+    mechanism file. Root cause: principal-boundary guidance already says
+    support lanes do not create principal members, but it did not explicitly
+    constrain "key files / related files" sections, where support files can
+    look useful. This must remain prompt-side guidance; the system must not
+    rewrite or delete model-authored tables.
+
+11. **Cross-file type-definition follow-up still needs an explicit contract.**
+    When a mechanism answer mentions central structs such as `io_kiocb` or
+    `io_ring_ctx`, the current repair loop may not reopen the correct defining
+    file after a stale recovery is detected. The safe direction is a typed,
+    graph-backed "definition follow-up" advisory that works for every repomap
+    language, not a Linux/Go-specific keyword rule and not a hard gate.
+
 ## Task List
 
 | ID | Status | Task | Validation |
@@ -82,6 +118,11 @@ Otherwise, ordinary single-repo `path="."` semantics apply.
 | RME-T4 | Planned | Add eval coverage for source_inventory broad/narrow, relation_map two-stage, semantic_subgraph, edit_impact, call_path, and active-sub-repo comparison | New eval cases |
 | RME-T5 | Planned | Decide whether cross-sub-repo aggregate relation view is safe; default stays explicit per-active-sub-repo calls | Design update + tests if implemented |
 | RME-T6 | Planned | Revisit relation_map graph coverage only when graph primitives exist for registers/configures/routes-to/source-anchor; otherwise keep evidence/observation carriers | Typed-provider tests |
+| RME-T7 | Done | Let high-confidence multi-file `AnalyzerHints.RequiredFileHints` suppress a contradictory single exact-anchor hard focus, while preserving exact-anchor focus when no stronger multi-file handoff exists | Explorer unit tests + Linux `io_uring` prompt inspection |
+| RME-T8 | Done | Reword evidence-repair summaries and mid-loop hints so recovered/ungrounded targets are audit candidates, not mandatory same-file proof; allow replacement/omit when the just-read gutter proves staleness | Tool + explorer unit tests |
+| RME-T9 | Done | Add prompt-side principal-boundary guidance for "key files / related files" sections so supporting/concrete-value rows do not become principal file lists | Finalizer prompt test / inspection |
+| RME-T10 | Planned | Design graph-backed cross-file definition follow-up for central symbols mentioned in principal answers, across all repomap languages | Design update + eval |
+| RME-T11 | Planned | Add eval coverage for large-repo two-stage repo_map navigation with stale repair and support-lane leakage checks | New eval cases |
 
 ## Red-Line Guardrails
 

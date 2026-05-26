@@ -2198,6 +2198,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersPrincipalBoundar
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"## Principal Answer Boundary",
+		"key-file / related-file / 关键文件 section",
+		"do not promote them into the principal file list",
 		"Resolved prior-context focus:",
 		"not an authorization to add neighboring subjects as answer members",
 		"surface `explore_mid_loop_hint_budget`",

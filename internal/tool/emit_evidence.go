@@ -3328,7 +3328,7 @@ func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, report
 			if evidenceRepairShouldDrop(it) {
 				fmt.Fprintf(&b, "        fix: drop the item; do NOT spend read_file budget repairing this non-defining mention\n")
 			} else {
-				fmt.Fprintf(&b, "        fix: (A) read_file %s near line %d  (B) re-emit with a different anchor_symbol  (C) drop the item if it was speculative\n", it.Source, line)
+				fmt.Fprintf(&b, "        fix: (A) if this line was not just inspected, read_file %s near line %d  (B) if the gutter confirms the same proof, re-emit with a visible anchor_symbol  (C) if the location/symbol is stale or wrong-file, emit a grounded replacement from the correct visible line or drop the item\n", it.Source, line)
 			}
 		}
 	}
@@ -3346,7 +3346,7 @@ func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, report
 			b.WriteString("Current non-grounded rows were recovered, covered by grounded siblings, or marked non-actionable. ")
 		}
 	} else {
-		fmt.Fprintf(&b, "Current actionable repair targets: %s. Repair these current rows or structured ToolRepair targets before widening scope. ",
+		fmt.Fprintf(&b, "Current actionable repair targets: %s. Treat these as audit candidates: repair them when current source confirms the row; if the line proves stale or wrong-file, emit a grounded replacement or omit the row before widening scope. ",
 			renderToolRepairTargetsInline(currentTargets, 3, 4))
 	}
 	b.WriteString("Do not re-emit a full consolidated evidence set just to change the cumulative audit tally.\n")

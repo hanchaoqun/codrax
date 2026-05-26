@@ -1890,7 +1890,44 @@ func (e *explorerEvaluator) uniqueExactAnchorFile() (string, bool) {
 	if len(e.exactAnchorFiles) != 1 {
 		return "", false
 	}
-	return e.exactAnchorFiles[0], true
+	anchor := canonicalExplorerPath(e.exactAnchorFiles[0])
+	if anchor == "" {
+		return "", false
+	}
+	if e.multiFileRequiredHintsOverrideExactAnchor(anchor) {
+		return "", false
+	}
+	return anchor, true
+}
+
+func (e *explorerEvaluator) multiFileRequiredHintsOverrideExactAnchor(anchor string) bool {
+	anchor = canonicalExplorerPath(anchor)
+	if anchor == "" || len(e.requiredFileHints) == 0 {
+		return false
+	}
+	seen := make(map[string]bool, len(e.requiredFileHints))
+	high := 0
+	anchorIsHighHint := false
+	for _, h := range e.requiredFileHints {
+		if h.Confidence < requiredFileHintHighConfidence {
+			continue
+		}
+		canon := canonicalExplorerPath(h.Path)
+		if canon == "" || seen[canon] {
+			continue
+		}
+		seen[canon] = true
+		high++
+		if canon == anchor {
+			anchorIsHighHint = true
+		}
+	}
+	// A single exact keyword hit is a useful focused-depth shortcut.
+	// It must not override a stronger analyzer-authored multi-file
+	// handoff for mechanism/comparison answers when that exact hit is
+	// outside the high-confidence set. This keeps the contract
+	// language-agnostic: both signals are graph-normalized paths.
+	return high >= 2 && !anchorIsHighHint
 }
 
 func (e *explorerEvaluator) primaryEntityFocusRelevant() bool {
@@ -4798,7 +4835,7 @@ func renderEmitEvidenceRepairHint(targets []evidenceRepairTarget, canReadFile bo
 	var b strings.Builder
 	b.WriteString("Progress check: some evidence you just emitted is only recovered or ungrounded, not line-text grounded yet.\n")
 	if canReadFile {
-		b.WriteString("Before reading other files, re-read these exact source locations with `read_file` and re-emit grounded evidence:\n")
+		b.WriteString("Inspect these audit candidate locations with `read_file` before reading unrelated neighboring files, then re-emit grounded evidence only when the visible gutter confirms the same proof:\n")
 	} else {
 		b.WriteString("The current tool list does not include file-reading tools. Do not retry navigation tools in this turn. Use already-visible line gutters if they are sufficient, re-emit grounded replacement evidence, omit stale recovered rows, or close from accepted evidence.\n")
 		b.WriteString("Use `emit_evidence` for grounded replacements, or `emit_investigation_complete` if the accepted evidence is already enough.\n")
@@ -4813,7 +4850,7 @@ func renderEmitEvidenceRepairHint(targets []evidenceRepairTarget, canReadFile bo
 		fmt.Fprintf(&b, "  - `%s` near lines %s\n", target.file, lines)
 	}
 	if canReadFile {
-		b.WriteString("\nDo the repair in the existing anchor file first; only widen scope after those items ground cleanly.")
+		b.WriteString("\nTreat these as audit candidates, not authoritative locations. If the just-read gutter proves a row is stale, wrong-file, or only related context, do not force a same-file repair: emit a grounded replacement from the correct visible source line, omit the stale row, or close from accepted evidence when sufficient. Widen only after you have confirmed, replaced, or omitted the current non-grounded rows.")
 	}
 	return b.String()
 }
@@ -4828,7 +4865,8 @@ func renderEmitEvidenceRepairClosureOnlyHint(targets []evidenceRepairTarget) str
 	}
 	var b strings.Builder
 	b.WriteString("Progress check: the previous recovered/ungrounded `emit_evidence` rows are still not line-text grounded. Auto-recovered line numbers are audit feedback, not a completed repair for strict citations.\n")
-	b.WriteString("Re-emit `emit_evidence` now for these already-read source locations, using the exact gutter line numbers you just saw:\n")
+	b.WriteString("Re-emit `emit_evidence` now only for rows whose already-read gutter lines confirm the same proof. If the gutter shows the row is stale, wrong-file, or merely related context, emit a grounded replacement from a visible correct line, omit the stale row, or close from accepted evidence.\n")
+	b.WriteString("Audit candidates from the previous repair window:\n")
 	for _, target := range targets[:maxFiles] {
 		lines := renderRepairLineList(target.lines, 4)
 		if lines == "" {

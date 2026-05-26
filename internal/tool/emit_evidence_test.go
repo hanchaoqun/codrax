@@ -2358,7 +2358,8 @@ func TestRenderEmitSummary_ListsOnlyCurrentActionableRepairTargets(t *testing.T)
 	summary := renderEmitSummary(nil, current, reports, all)
 	for _, want := range []string{
 		"Current actionable repair targets: internal/agent/analyzer.go near line 100.",
-		"Repair these current rows or structured ToolRepair targets before widening scope.",
+		"Treat these as audit candidates: repair them when current source confirms the row",
+		"if the line proves stale or wrong-file, emit a grounded replacement or omit the row before widening scope.",
 		"Cumulative repair audit: 0 recovered / 2 ungrounded still visible in the buffer.",
 	} {
 		if !strings.Contains(summary, want) {

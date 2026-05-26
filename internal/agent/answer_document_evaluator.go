@@ -5658,6 +5658,7 @@ func renderAnswerDocPrincipalAnswerBoundary(ctx *types.AgentContext, view *types
 	b.WriteString("## Principal Answer Boundary\n\n")
 	b.WriteString("- Principal blocks answer the current request's target and answer shape only. Search hints, related context, prior-turn resolutions, nearby anchors, and runtime observations are guidance unless a block requirement, exact target, support lane, prior slate, or cited line makes them principal.\n")
 	b.WriteString("- Do not let a grounded neighbor replace the user's requested subject. A helper, caller, config peer, trace span, or previous-turn subject may support context, but it becomes a main answer member only when it directly satisfies the requested role / hop / bucket / scalar / verdict.\n")
+	b.WriteString("- When you author a key-file / related-file / 关键文件 section, include only files that are load-bearing for the current request's principal mechanism, relation, set, scalar, or verdict. Files that appear only in supporting_coverage, concrete_values, retry diagnostics, search hints, or a generic citation pool stay as support notes if relevant; do not promote them into the principal file list.\n")
 	if hasRuntimeObservations || hasArtifactProfile {
 		b.WriteString("- Runtime log / trace observations can state what was observed. They do not prove the current checkout's call path, source parameter, branch, or mechanism without a separately cited current-code line.\n")
 	}
