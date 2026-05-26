@@ -1387,12 +1387,12 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 
 func renderExplorerRepoMapNavigationPrimer() string {
 	return "### Repo Map Navigation\n\n" +
-		"Use `repo_map` as a navigation index, not as evidence. Start with `view=\"overview\"`, `view=\"task_map\"`, or `view=\"file_map\"` when you need a structural map. " +
+		"Use `repo_map` as a navigation index that can verify existing scopes, files, candidate symbols/routes/config keys, languages, and counts. Start with `view=\"overview\"`, `view=\"task_map\"`, or `view=\"file_map\"` when you need a structural map. " +
 		"When the task needs a bounded source inventory or a member-to-attribute checklist, call `repo_map` with `view=\"source_inventory\"` and model-chosen `roles`, optional `attribute_roles`, and `scope`/`scopes`.\n" +
 		"- The source-inventory lens returns counts, grouped scopes, languages, candidate files, and candidate symbols/routes/config keys across supported languages; use it to choose what to verify next.\n" +
 		"- Prefer a cascade: broad `source_inventory` summary first, then a narrower follow-up with the chosen `scope`, `roles`, `attribute_roles`, `top_n`, and `cursor`/`offset` if the result is paged.\n" +
 		"- When the task needs structural edges, use `view=\"relation_map\"`: pass `sources` after you choose concrete symbols/files, pass `scope`/`scopes` for directory/module boundaries, and narrow `relation_kinds` to call/import/inheritance/implements/reference/type_usage when known.\n" +
-		"- Treat every lens row as advisory until you verify the selected file or symbol with `read_file` or targeted `grep`; do not cite repo_map rows as source facts.\n" +
+		"- Treat lens rows as verified navigation/candidate-universe facts. Do not use them as semantic code citations; verify selected behavior/implementation claims with `read_file` or targeted `grep` before citing source text.\n" +
 		"- Use repo-relative existing directories for `path`. If a path is uncertain, call `list_files` on the nearest known parent or `repo_map(path=\".\")` before guessing.\n\n"
 }
 
@@ -1407,9 +1407,9 @@ func renderExplorerSourceInventoryAdvisory(ctx *types.AgentContext) string {
 	}
 	var b strings.Builder
 	b.WriteString("### Structured Source Inventory Progress\n\n")
-	b.WriteString("A typed graph-backed candidate checklist is available for this source-inventory shape. It is advisory context only: it is not final answer text, not a citation, and not permission to skip grounded evidence.\n")
+	b.WriteString("A typed graph-backed candidate checklist is available for this source-inventory shape. It carries verified navigation/count/member candidates, but it is not final answer text and not a semantic source citation.\n")
 	b.WriteString("- Use it to avoid re-enumerating the same scope in sibling lanes or transient retries.\n")
-	b.WriteString("- If the checklist matches what you need, verify/read unresolved candidates and carry the model-authored conclusion through emit_evidence / aggregate_facts.\n")
+	b.WriteString("- If the checklist matches what you need, use its counts/members as a candidate universe, verify only the selected or disputed semantic claims, and carry the model-authored conclusion through emit_evidence / aggregate_facts.\n")
 	b.WriteString("- If it does not match, keep your own investigation boundary and explain the gap in the structured closure instead of silently widening the answer.\n\n")
 	b.WriteString(renderExtractorSourceInventoryAdvisory(&types.TurnAArtifacts{
 		SourceInventoryAdvisory:    advisory,

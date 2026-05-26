@@ -3,10 +3,11 @@ package types
 import "strings"
 
 // SourceInventoryAdvisory is a structured, language-neutral candidate carrier
-// for scoped source inventories. It is not an answer and not a citation by
-// itself; downstream agents may use it to avoid repeating broad repository
-// enumeration, while validators continue to require normal grounded evidence
-// or accepted aggregate facts for user-visible claims.
+// for scoped source inventories. It is not an answer and not a semantic source
+// citation by itself; downstream agents may use it to avoid repeating broad
+// repository enumeration and to preserve candidate/count invariants, while
+// validators continue to require normal grounded evidence or accepted aggregate
+// facts for user-visible semantic claims.
 type SourceInventoryAdvisory struct {
 	Active       bool                         `json:"active"`
 	AdvisoryOnly bool                         `json:"advisory_only,omitempty"`

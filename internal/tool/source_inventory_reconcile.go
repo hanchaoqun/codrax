@@ -1029,11 +1029,11 @@ func renderSourceInventoryAdvisoryToolHint(advisory types.SourceInventoryAdvisor
 	}
 	const maxRows = 24
 	var b strings.Builder
-	b.WriteString("Structured source-inventory candidate checklist (advisory only, not final answer text):\n")
+	b.WriteString("Structured source-inventory candidate checklist (verified navigation/count facts, not final answer text):\n")
 	if len(advisory.Scopes) > 0 {
 		fmt.Fprintf(&b, "- scoped to: %s\n", strings.Join(advisory.Scopes, ", "))
 	}
-	b.WriteString("- reuse this checklist to avoid re-listing the same scope; verify/read unresolved rows before emitting evidence or aggregate_facts.\n")
+	b.WriteString("- reuse this checklist to avoid re-listing the same scope; verify/read selected semantic claims before emitting source-cited evidence or aggregate_facts.\n")
 	b.WriteString("- for a compact scoped member/attribute checklist, call repo_map with view=\"source_inventory\", roles=[...], and optional attribute_roles=[...] instead of reading every candidate file.\n")
 	if cascadeView := renderSourceInventoryCascadeGuideView(
 		types.SourceInventoryObservationFromAdvisory(advisory),
@@ -1117,9 +1117,10 @@ func renderSourceInventoryAdvisoryToolHintAttributes(attrs []types.SourceInvento
 
 // RenderSourceInventoryCascadeGuideView exposes the same low-noise repo-lens
 // navigation guide used by repo_map(view="source_inventory") tool results.
-// It is intentionally advisory-only: callers may render it in prompts to help
-// models choose narrower follow-up repo_map calls, but it must not be treated
-// as evidence or as an answer-membership authority.
+// It is intentionally a navigation/candidate-universe guide: callers may render
+// it in prompts to help models choose narrower follow-up repo_map calls and
+// preserve count/member invariants, but it must not be treated as a semantic
+// source citation or as system-written answer text.
 func RenderSourceInventoryCascadeGuideView(observation types.SourceInventoryObservation, query types.SourceInventoryLensQuery, maxGroups int) string {
 	return renderSourceInventoryCascadeGuideView(observation, query, maxGroups)
 }
@@ -1173,7 +1174,7 @@ func renderSourceInventoryCascadeGuideView(observation types.SourceInventoryObse
 	}
 	var b strings.Builder
 	b.WriteString("## Cascaded Repo Lens Guide (advisory)\n\n")
-	b.WriteString("Use this first as a navigation summary. It helps you choose the next narrower `repo_map(view=\"source_inventory\")` call; it is not evidence and does not decide the final answer.\n\n")
+	b.WriteString("Use this first as a navigation summary. It verifies candidate scopes/files/symbols/counts and helps you choose the next narrower `repo_map(view=\"source_inventory\")` call; it does not decide the final answer and is not a semantic source citation.\n\n")
 	fmt.Fprintf(&b, "- summary: member_rows=%d", totalMembers)
 	if len(groups) > 0 {
 		fmt.Fprintf(&b, " scope_groups=%d candidate_files=%d candidate_items=%d ambiguous_groups=%d",
@@ -1197,7 +1198,7 @@ func renderSourceInventoryCascadeGuideView(observation types.SourceInventoryObse
 		fmt.Fprintf(&b, "- page the current checklist instead of widening blindly: `%s`\n",
 			sourceInventoryCascadeRepoMapCall(sourceInventoryLensQueryPath(query), "", sourceInventoryGroupScopesFromQuery(query, observation), roles, attributeRoles, 24, "<next_cursor>"))
 	}
-	b.WriteString("- after you choose a candidate from a narrower lens, verify with `read_file` or `grep` before citing it as evidence.\n")
+	b.WriteString("- after you choose a candidate from a narrower lens, verify with `read_file` or `grep` before citing implementation behavior or exact source text.\n")
 	if len(groups) == 0 {
 		return strings.TrimSpace(b.String())
 	}
@@ -1374,7 +1375,7 @@ func RenderSourceInventoryObservationView(observation types.SourceInventoryObser
 	includeAttributes := query.IncludeAttributes
 	var b strings.Builder
 	b.WriteString("# Repo Lens: Source Inventory\n\n")
-	b.WriteString("This is a repo-map observation checklist for navigation and mechanical member/count checks. It is not final answer text; semantic conclusions still need grounded evidence.\n\n")
+	b.WriteString("This is a repo-map observation checklist for navigation and mechanical member/count checks. It is not final answer text; semantic conclusions still need grounded evidence or explicit model-authored aggregate facts.\n\n")
 	if len(observation.Scopes) > 0 {
 		fmt.Fprintf(&b, "- scopes: `%s`\n", strings.Join(observation.Scopes, "`, `"))
 	}

@@ -18,8 +18,9 @@ const (
 // SourceInventoryObservation is the auditable companion to
 // SourceInventoryAdvisory. It preserves the same candidate rows, while making
 // count/list invariants and row support refs explicit for downstream ledgers and
-// validators. It is still not final-answer text and does not decide semantic
-// roles for the model.
+// validators. It is still not final-answer text, does not decide semantic roles
+// for the model, and does not replace source-text citations for implementation
+// behavior claims.
 type SourceInventoryObservation struct {
 	Active       bool                            `json:"active"`
 	AdvisoryOnly bool                            `json:"advisory_only,omitempty"`

@@ -51,8 +51,8 @@ type repoMapParams struct {
 func (t *RepoMapV2) Name() string { return "repo_map" }
 func (t *RepoMapV2) Description() string {
 	return "Navigation index for the repository — shows which files, directories/modules/packages, symbols, routes, and config surfaces exist and where they are. " +
-		"Use this ONLY to decide where to look next; it is NOT a source of evidence. " +
-		"After consulting the map, you MUST read or grep the actual files to obtain facts. " +
+		"It provides verified navigation and candidate-universe facts such as existing scopes, files, symbols, languages, and counts. " +
+		"It is not a semantic source citation: read or grep the selected files when you need to cite code behavior, implementation details, or exact source text. " +
 		"Supports views: overview (module summary), file_map (symbols per file), " +
 		"task_map (relevant subgraph for a query), call_path (dependency chain from entry point), " +
 		"edit_impact (what changes to a file would affect), " +
@@ -125,7 +125,7 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
         "type": "string",
         "enum": ["function", "method", "type", "constant", "variable", "field", "package", "file", "config_file", "config_key", "route", "import_path", "literal_value"]
       },
-      "description": "For source_inventory view: row-local candidate roles to attach under each listed member, e.g. functions/methods/types/routes/config keys under a directory/module/package/file. Advisory only; verify with read_file before citing."
+      "description": "For source_inventory view: row-local candidate roles to attach under each listed member, e.g. functions/methods/types/routes/config keys under a directory/module/package/file. These are verified candidate-universe rows; verify selected rows with read_file/grep before using them as semantic source citations."
     },
     "include_attributes": {
       "type": "boolean",

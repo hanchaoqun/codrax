@@ -683,11 +683,11 @@ func renderExtractorSourceInventoryAdvisory(ta *types.TurnAArtifacts) string {
 	}
 	var b strings.Builder
 	b.WriteString("### Source inventory advisory candidates\n\n")
-	b.WriteString("- The system compiled these candidates from typed request lanes, requested scopes, and the repo-map graph. They are structured context, not final answer text and not citations by themselves.\n")
+	b.WriteString("- The system compiled these candidates from typed request lanes, requested scopes, and the repo-map graph. They are verified navigation/candidate-universe facts, not final answer text and not semantic source citations by themselves.\n")
 	if advisory.AdvisoryOnly || (!advisory.IsActive() && observation.AdvisoryOnly) {
 		b.WriteString("- `advisory_only=true`: use these rows only when they match the answer shape you are emitting; disclose ambiguity instead of treating the set as mandatory.\n")
 	} else {
-		b.WriteString("- The active `source_inventory_profile` made this inventory shape high-confidence; preserve matching rows when the accepted aggregate facts or evidence support them.\n")
+		b.WriteString("- The active `source_inventory_profile` made this inventory shape high-confidence; preserve matching rows/counts when the accepted aggregate facts or evidence support that same model-selected answer axis.\n")
 	}
 	scopes := advisory.Scopes
 	if len(scopes) == 0 {

@@ -18,7 +18,8 @@ func TestRepoMapSchemaTeachesLensParameters(t *testing.T) {
 		"sources",
 		"scopes",
 		"relation_kinds",
-		"NOT a source of evidence",
+		"verified navigation",
+		"not a semantic source citation",
 	} {
 		if !strings.Contains(desc, want) {
 			t.Fatalf("repo_map description missing %q:\n%s", want, desc)
