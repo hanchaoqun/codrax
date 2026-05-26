@@ -1345,6 +1345,22 @@ func (*protocolSoftStopLLM) MaxOutputTokens() int          { return 4096 }
 func (*protocolSoftStopLLM) RequestTimeout() time.Duration { return 0 }
 func (*protocolSoftStopLLM) RetryMaxAttempts() int         { return 0 }
 
+type richExtractorSoftStopLLM struct {
+	content string
+	calls   int
+}
+
+func (l *richExtractorSoftStopLLM) Chat(_ context.Context, _ []llm.Message, _ []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
+	l.calls++
+	return llm.Response{Content: l.content}, nil
+}
+
+func (*richExtractorSoftStopLLM) ModelID() string               { return "rich-extractor-softstop" }
+func (*richExtractorSoftStopLLM) MaxContextTokens() int         { return 128000 }
+func (*richExtractorSoftStopLLM) MaxOutputTokens() int          { return 4096 }
+func (*richExtractorSoftStopLLM) RequestTimeout() time.Duration { return 0 }
+func (*richExtractorSoftStopLLM) RetryMaxAttempts() int         { return 0 }
+
 type protocolEmptyFirstLLM struct {
 	calls int
 }
@@ -1719,6 +1735,77 @@ func TestProtocolStagesAcceptedNoToolSoftStopDoesNotShowRetryNotice(t *testing.T
 	}
 	if countNoticeKind(events, render.NoticeNoToolCall) != 0 {
 		t.Fatalf("accepted soft-stop must not claim retry, events=%+v", events)
+	}
+}
+
+func TestExtractorAcceptedNoToolSoftStopPreservesVisibleSurfaceDraft(t *testing.T) {
+	content := strings.Join([]string{
+		"### Draft",
+		"",
+		"```mermaid",
+		"flowchart TD",
+		"    A[Analyze] --> B[Explore]",
+		"```",
+		"",
+		"| stage | role |",
+		"| --- | --- |",
+		"| analyze | classify |",
+	}, "\n")
+	llmStub := &richExtractorSoftStopLLM{content: content}
+	eval := &protocolSoftStopAcceptEvaluator{}
+	b := NewBaseAgent(types.AgentExtractor, &Dependencies{
+		LLM:           llmStub,
+		MaxIterations: 2,
+	}, eval)
+	out, err := b.Execute(&types.AgentContext{
+		Stage:   types.StageExtract,
+		Mutable: types.NewMutableState(""),
+	}, &skill.Config{})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if out == nil {
+		t.Fatal("Execute returned nil output")
+	}
+	if llmStub.calls != 1 {
+		t.Fatalf("accepted soft-stop should not request continuation, calls=%d", llmStub.calls)
+	}
+	if !strings.Contains(out.StageReport, "### Draft") ||
+		!strings.Contains(out.StageReport, "```mermaid") ||
+		!strings.Contains(out.StageReport, "| analyze | classify |") {
+		t.Fatalf("extractor visible surface draft was not preserved as StageReport:\n%s", out.StageReport)
+	}
+}
+
+func TestAcceptedNoToolSoftStopKeepsExploreProtocolCompaction(t *testing.T) {
+	content := "```mermaid\nflowchart TD\nA --> B\n```"
+	resp := llm.Response{Content: content}
+	ctx := &types.AgentContext{Stage: types.StageExplore}
+	fallback := "[protocol-only text omitted]"
+
+	if got := contentForAcceptedNoToolSoftStopHistory(ctx, resp, fallback); got != fallback {
+		t.Fatalf("explore no-tool answer draft should stay compacted, got:\n%s", got)
+	}
+}
+
+func TestUnavailableToolResultListsExactCurrentSurface(t *testing.T) {
+	got := unavailableToolResult(
+		&types.AgentContext{Stage: types.StageExplore},
+		llm.ToolCall{Name: "read_file"},
+		map[string]bool{"emit_evidence": true, "emit_investigation_complete": true},
+	)
+	if got == nil || got.Success {
+		t.Fatalf("unavailable tool result should fail, got %+v", got)
+	}
+	for _, want := range []string{"read_file", "available tools now: emit_evidence, emit_investigation_complete"} {
+		if !strings.Contains(got.Summary, want) {
+			t.Fatalf("summary missing %q: %q", want, got.Summary)
+		}
+	}
+	for _, forbidden := range []string{"read/search tools", "git tools"} {
+		if strings.Contains(got.Summary, forbidden) {
+			t.Fatalf("summary must not use broad stage-level surface %q: %q", forbidden, got.Summary)
+		}
 	}
 }
 

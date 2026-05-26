@@ -589,6 +589,22 @@ func contentForNoToolHistoryWithFinalizerDraftBudget(ctx *types.AgentContext, re
 	return contentForNoToolHistory(ctx, resp), finalizerDraftsPreserved
 }
 
+func contentForAcceptedNoToolSoftStopHistory(ctx *types.AgentContext, resp llm.Response, fallback string) string {
+	if ctx == nil || len(resp.ToolCalls) != 0 || strings.TrimSpace(resp.Content) == "" {
+		return fallback
+	}
+	// Extractor is a protocol stage, so no-tool prose is normally compacted
+	// before it can be replayed into another model turn. When the controller
+	// has already accepted the soft stop, however, there is no replay risk: the
+	// content can only become an advisory StageReport for the finalizer's
+	// existing model-surface channel. Preserve only presentation-shaped drafts
+	// (tables/diagrams/organized lists), never plain reasoning prose.
+	if ctx.Stage == types.StageExtract && types.LooksLikeModelAuthoredVisibleSurfaceDraft(resp.Content) {
+		return resp.Content
+	}
+	return fallback
+}
+
 func recordFinalizerNoToolAnswerDraft(ctx *types.AgentContext, content string) bool {
 	if ctx == nil || ctx.Stage != types.StageFinalize || ctx.Mutable == nil {
 		return false
@@ -2215,7 +2231,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			}
 			messages = append(messages, llm.Message{
 				Role:      "assistant",
-				Content:   historyContentForNoTool(resp),
+				Content:   contentForAcceptedNoToolSoftStopHistory(ctx, resp, historyContentForNoTool(resp)),
 				ToolCalls: historyToolCalls,
 			})
 			logging.Debug("[diag %s] STOP at iter=%d (soft)", b.name, i)
@@ -2273,7 +2289,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					var r *types.ToolResult
 					var m *types.MCPResponse
 					if !toolCallAvailableInCurrentSurface(call, effectiveToolNames) {
-						r = unavailableToolResult(ctx, call)
+						r = unavailableToolResult(ctx, call, effectiveToolNames)
 					} else {
 						r, m = b.executeTool(ctx, call)
 					}
@@ -2350,7 +2366,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				var result *types.ToolResult
 				var mcpResp *types.MCPResponse
 				if !toolCallAvailableInCurrentSurface(tc, effectiveToolNames) {
-					result = unavailableToolResult(ctx, tc)
+					result = unavailableToolResult(ctx, tc, effectiveToolNames)
 				} else {
 					result, mcpResp = b.executeTool(ctx, tc)
 				}
@@ -3635,15 +3651,24 @@ func toolCallAvailableInCurrentSurface(call llm.ToolCall, available map[string]b
 	return name != "" && available[name]
 }
 
-func unavailableToolResult(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
+func unavailableToolResult(ctx *types.AgentContext, tc llm.ToolCall, available map[string]bool) *types.ToolResult {
 	name := strings.TrimSpace(tc.Name)
 	if name == "" {
 		name = tc.Name
 	}
 	logging.Warning("[agent] tool %q rejected before execution: not in current tool schema", name)
-	result := unknownToolResult(ctx, tc)
-	if result.Summary == "" {
-		result.Summary = fmt.Sprintf("tool %q is not available in the current tool schema", name)
+	msg := fmt.Sprintf("tool %q is not available in the current tool schema", name)
+	if ctx != nil && ctx.Stage != "" {
+		msg = fmt.Sprintf("tool %q is not available in the current %s turn", name, ctx.Stage)
+	}
+	if allowedNames := sortedToolNames(available); len(allowedNames) > 0 {
+		msg += "; available tools now: " + strings.Join(allowedNames, ", ")
+	}
+	result := &types.ToolResult{
+		ToolName:  name,
+		Summary:   msg,
+		Success:   false,
+		Timestamp: time.Now(),
 	}
 	result.Repair = &types.ToolRepair{
 		Code: unavailableToolSurfaceCode,

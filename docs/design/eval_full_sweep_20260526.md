@@ -2134,3 +2134,43 @@ Follow-up found during P2 targeted validation:
   questions still wait because the typed origin contract requires both origins;
   source-only diagram questions can converge as soon as an accepted closure
   covers the active objective.
+
+## 2026-05-26 targeted replay after source-only diagram convergence
+
+`qf_diagram_pipeline` was replayed again after P1-C. Result:
+`eval/results/qf_diagram_pipeline-20260526-170737`, PASS. The previous
+parallel sibling runaway is gone (`explorer_dispatches=1`,
+`closure_only_repeated=0`, `tool_history_prunes=0`). Two residual gaps remain
+and should be tracked as generalized issues rather than case patches:
+
+- **Unavailable tool attempt after restricted materialization surface.** During
+  the accepted investigation handoff, the model tried `read_file` while the
+  current surface exposed only materialization tools. The execution layer
+  correctly refused it and rendered "尝试不可用工具 read_file"; no unsafe action
+  was executed. This is controlled behavior, but it still costs a round and is
+  a UX signal that restricted-surface hints should be more explicit about the
+  available structured actions.
+
+- **Extractor rich surface draft did not reach finalizer strongly enough.** The
+  extractor produced a rich Mermaid draft in no-tool prose. The REPL showed it,
+  but the accepted no-tool soft-stop path compacted the assistant message before
+  `StageReport` auto-capture. The finalizer therefore saw only the explorer's
+  deterministic report and produced a thinner diagram. Existing finalizer logic
+  already preserves model-authored visible surfaces from prior reports; the gap
+  was upstream candidate-source loss, not a missing JSON repair path.
+
+Implementation tasks:
+
+- [x] P0-D: Preserve accepted extractor no-tool visible surfaces (tables,
+  diagrams, organized lists) as advisory `StageReport` material after the
+  loop controller has accepted soft-stop. Keep explore/analyze protocol
+  compaction unchanged, and do not treat the preserved draft as evidence or a
+  hard gate. The preserved payload is the whole model-authored draft, so
+  explanatory prose around the table/diagram/list survives; pure unstructured
+  no-tool prose remains compacted to avoid competing with typed evidence.
+- [x] P1-D: Improve restricted-surface hints so a model that wants to read more
+  is told which currently available structured emit action should be used, or
+  that it must close/caveat from the frozen snapshot. This must be based on the
+  current tool schema, not on user/model prose. Unavailable-tool results now
+  list the exact current surface instead of the broad stage-level family such
+  as "read/search tools".
