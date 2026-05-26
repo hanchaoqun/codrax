@@ -106,7 +106,7 @@ func TestSubExplorerInitialInstructionTeachesRepoMapWithoutUnavailableTools(t *t
 		`view="relation_map"`,
 		"relation_kinds",
 		"Verify selected navigation rows with `read_file` or targeted `grep",
-		"advisory navigation",
+		"verify candidate scopes/files/symbols/counts",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("sub_explorer prompt missing %q:\n%s", want, prompt)

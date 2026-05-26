@@ -186,7 +186,7 @@ func TestExplorer_BuildInitialInstruction_RendersSourceInventoryAdvisory(t *test
 	prompt := (&explorerEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
 		"Structured Source Inventory Progress",
-		"advisory context only",
+		"verified navigation/candidate-universe facts",
 		"repo-lens observation invariants",
 		"Cascaded Repo Lens Guide",
 		`"view": "source_inventory"`,
@@ -196,6 +196,35 @@ func TestExplorer_BuildInitialInstruction_RendersSourceInventoryAdvisory(t *test
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestExplorer_BuildInitialInstruction_CheckpointContinuationSkipsBreadthScan(t *testing.T) {
+	ctx := &types.AgentContext{
+		Objective: "explain the current implementation from the accepted evidence",
+		RepoRoot:  ".",
+		Mutable:   types.NewMutableState("explain the current implementation from the accepted evidence"),
+		RetryHint: "A transient model stream error interrupted the previous explore dispatch after durable progress was preserved.\n\nCheckpoint summary (non-authoritative counts): structured evidence rows=4; aggregate facts=1.",
+	}
+	prompt := (&explorerEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Checkpoint Continuation",
+		"not a fresh investigation",
+		"call `emit_investigation_complete",
+		"one narrow `grep` / `read_file` / `repo_map` follow-up",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("checkpoint continuation prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	for _, forbidden := range []string{
+		"## Breadth Scan",
+		"produce a FILE LIST",
+		"Search broadly",
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("checkpoint continuation must not render fresh breadth prompt %q:\n%s", forbidden, prompt)
 		}
 	}
 }

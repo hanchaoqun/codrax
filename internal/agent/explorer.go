@@ -546,6 +546,11 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		return e.buildRuntimeObservationOnlyStartInstruction(ctx)
 	}
 
+	if explorerDurableProgressContinuationActive(ctx) {
+		e.phase = 1
+		return e.buildDurableProgressContinuationInstruction(ctx)
+	}
+
 	// Self-loop detection: if we already have investigation notes from
 	// a prior run, this is a retry (explore → explore self-loop). Skip
 	// Phase 0 breadth scan and go directly to Phase 1 depth read with
@@ -1382,6 +1387,40 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		b.WriteString(guide)
 	}
 
+	return b.String()
+}
+
+func explorerDurableProgressContinuationActive(ctx *types.AgentContext) bool {
+	if ctx == nil {
+		return false
+	}
+	hint := strings.TrimSpace(ctx.RetryHint)
+	if hint == "" {
+		return false
+	}
+	return strings.Contains(hint, "A transient model stream error interrupted") ||
+		strings.Contains(hint, toolHistoryPruneCheckpointPrefix)
+}
+
+func (e *explorerEvaluator) buildDurableProgressContinuationInstruction(ctx *types.AgentContext) string {
+	var b strings.Builder
+	b.WriteString("## Checkpoint Continuation\n\n")
+	b.WriteString("This dispatch is continuing after preserved structured progress. Treat the checkpoint / retry directive above as the active baseline. This is not a fresh investigation.\n\n")
+	b.WriteString("Use the accepted evidence, aggregate facts, closure reason, already-read files, and tool-result summaries visible in the transcript. Do not restart with a new breadth scan, do not produce a new FILE LIST, and do not repeat broad repository-wide searches unless the checkpoint clearly lacks one exact anchor needed for the current objective.\n\n")
+	b.WriteString("Next action choices:\n")
+	b.WriteString("- If the checkpoint is already enough, call `emit_investigation_complete(reason, confidence, result_kind)` and preserve the important boundary / count / member-set facts there.\n")
+	b.WriteString("- If exactly one concrete anchor is missing, do one narrow `grep` / `read_file` / `repo_map` follow-up for that anchor, then materialize the result with `emit_evidence` or close.\n")
+	b.WriteString("- If the remaining uncertainty is origin-specific (command output, VCS, log, trace, repo-index, external document, web, MCP, connector), keep it in `reason` / `aggregate_facts` rather than re-anchoring it to unrelated current-source lines.\n")
+	b.WriteString("- If the model-authored answer boundary is smaller than a broad navigation result, state the boundary or caveat; do not silently widen the answer just because adjacent files exist.\n\n")
+	if advisory := renderExplorerSourceInventoryAdvisory(ctx); advisory != "" {
+		b.WriteString(advisory)
+	}
+	if guide := schemaLevelScopeGuide(e); guide != "" {
+		b.WriteString(guide)
+	}
+	if ctx != nil && strings.TrimSpace(ctx.Objective) != "" {
+		b.WriteString("**User question:** " + types.StripConversationPrefix(ctx.Objective))
+	}
 	return b.String()
 }
 
