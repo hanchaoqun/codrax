@@ -357,6 +357,11 @@ type Event struct {
 	ToolCallID string
 	ToolNames  []string
 	ToolDetail string // short arg summary, e.g. file path or command
+	// ToolUnavailable marks model-emitted tool calls that were not in the
+	// stage's exposed tool schema. Renderers should show these as unavailable
+	// attempts, not successful/real tool execution.
+	ToolUnavailable      bool
+	UnavailableToolNames []string
 	// ToolParamsJSON carries raw tool-call parameters for render-only
 	// summaries of selected structured tools. It must never drive
 	// orchestration logic.

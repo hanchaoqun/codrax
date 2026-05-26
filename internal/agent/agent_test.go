@@ -1197,6 +1197,85 @@ func TestBaseAgent_EmitsToolBatchBeforeExecutingMixedContentToolResponse(t *test
 	}
 }
 
+type unavailableToolLLM struct{}
+
+func (unavailableToolLLM) Chat(_ context.Context, _ []llm.Message, _ []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
+	return llm.Response{
+		ToolCalls: []llm.ToolCall{{
+			ID:     "call-unavailable",
+			Name:   "registered_but_hidden",
+			Params: json.RawMessage(`{}`),
+		}},
+	}, nil
+}
+
+func (unavailableToolLLM) ModelID() string               { return "unavailable-tool" }
+func (unavailableToolLLM) MaxContextTokens() int         { return 128000 }
+func (unavailableToolLLM) MaxOutputTokens() int          { return 4096 }
+func (unavailableToolLLM) RequestTimeout() time.Duration { return 0 }
+func (unavailableToolLLM) RetryMaxAttempts() int         { return 0 }
+
+type registeredButHiddenTool struct {
+	tool.ReadOnly
+	tool.NonEvidenceTool
+	called *bool
+}
+
+func (t registeredButHiddenTool) Name() string { return "registered_but_hidden" }
+func (t registeredButHiddenTool) Description() string {
+	return "must not execute unless exposed in current schema"
+}
+func (t registeredButHiddenTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{"type":"object","properties":{}}`)
+}
+func (t registeredButHiddenTool) Execute(_ *types.BusContext, _ json.RawMessage) (types.ToolResult, error) {
+	if t.called != nil {
+		*t.called = true
+	}
+	return types.ToolResult{ToolName: t.Name(), Summary: "executed", Success: true, Timestamp: time.Now()}, nil
+}
+
+func TestBaseAgent_DoesNotExecuteRegisteredToolOutsideCurrentSchema(t *testing.T) {
+	registry := tool.NewRegistry()
+	called := false
+	registry.Register(registeredButHiddenTool{called: &called})
+
+	var events []render.Event
+	b := NewBaseAgent(types.AgentFinalizer, &Dependencies{
+		LLM:           unavailableToolLLM{},
+		Tools:         registry,
+		MaxIterations: 1,
+		Emit: func(ev render.Event) {
+			events = append(events, ev)
+		},
+	}, &stubEvaluator{})
+
+	out, err := b.Execute(&types.AgentContext{
+		Stage:   types.StageFinalize,
+		Mutable: types.NewMutableState(""),
+	}, &skill.Config{ToolSuggestions: []string{"emit_answer_document"}})
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if called {
+		t.Fatal("registered tool outside current schema was executed")
+	}
+	if out == nil || len(out.ToolResults) != 1 || out.ToolResults[0].Success {
+		t.Fatalf("unavailable tool should produce one failed ToolResult, output=%+v", out)
+	}
+	sawUnavailableBatch := false
+	for _, ev := range events {
+		if ev.Kind == render.EventAgentToolCallBatch {
+			sawUnavailableBatch = ev.ToolUnavailable &&
+				len(ev.UnavailableToolNames) == 1 &&
+				ev.UnavailableToolNames[0] == "registered_but_hidden"
+		}
+	}
+	if !sawUnavailableBatch {
+		t.Fatalf("tool batch event did not mark unavailable tool attempt: %+v", events)
+	}
+}
+
 type transientPartialLLM struct{}
 
 func (transientPartialLLM) Chat(_ context.Context, _ []llm.Message, _ []llm.ToolSchema, opts llm.ChatOptions) (llm.Response, error) {

@@ -512,6 +512,34 @@ func TestRenderer_ToolCallBatchUsesConfiguredOutput(t *testing.T) {
 	}
 }
 
+func TestRenderer_UnavailableToolBatchDoesNotSayCallingTool(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+
+	emit := r.Emitter()
+	emit(Event{
+		Kind:                 EventAgentToolCallBatch,
+		Agent:                types.AgentFinalizer,
+		Stage:                types.StageFinalize,
+		Iteration:            1,
+		ToolName:             "grep",
+		ToolNames:            []string{"grep", "grep"},
+		ToolCallCount:        2,
+		ToolUnavailable:      true,
+		UnavailableToolNames: []string{"grep"},
+		Timestamp:            time.Now(),
+	})
+
+	out := stripAnsiEscapes(buf.String())
+	if !strings.Contains(out, "尝试不可用工具 grep") {
+		t.Fatalf("unavailable tool attempt should be explicit; got %q", out)
+	}
+	if strings.Contains(out, "调用工具 grep") || strings.Contains(out, "调用 2 个工具 grep") {
+		t.Fatalf("unavailable tool attempt must not render as real tool execution; got %q", out)
+	}
+}
+
 func TestRenderer_ParallelExplorerScrollbackShowsLaneOrdinal(t *testing.T) {
 	var buf bytes.Buffer
 	r := New(&buf, false)

@@ -1784,19 +1784,22 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		}
 		if len(resp.ToolCalls) > 0 {
 			firstTool := resp.ToolCalls[0]
+			unavailable := unavailableToolCallNames(resp.ToolCalls, effectiveToolNames)
 			b.deps.Emit(render.Event{
-				Kind:            render.EventAgentToolCallBatch,
-				Timestamp:       time.Now(),
-				Agent:           b.name,
-				Stage:           ctx.Stage,
-				Iteration:       i,
-				ToolName:        firstTool.Name,
-				ToolDetail:      toolDetailForCall(firstTool),
-				ToolCallCount:   len(resp.ToolCalls),
-				ToolNames:       toolCallNames(resp.ToolCalls),
-				ParallelGroupID: ctx.ParallelGroupID,
-				ParallelUnitID:  ctx.ExploreDispatchKey,
-				DispatchKind:    string(ctx.ExploreDispatchKind),
+				Kind:                 render.EventAgentToolCallBatch,
+				Timestamp:            time.Now(),
+				Agent:                b.name,
+				Stage:                ctx.Stage,
+				Iteration:            i,
+				ToolName:             firstTool.Name,
+				ToolDetail:           toolDetailForCall(firstTool),
+				ToolCallCount:        len(resp.ToolCalls),
+				ToolNames:            toolCallNames(resp.ToolCalls),
+				ToolUnavailable:      len(unavailable) > 0,
+				UnavailableToolNames: unavailable,
+				ParallelGroupID:      ctx.ParallelGroupID,
+				ParallelUnitID:       ctx.ExploreDispatchKey,
+				DispatchKind:         string(ctx.ExploreDispatchKind),
 			})
 		}
 		for j, tc := range resp.ToolCalls {
@@ -2031,6 +2034,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					ToolName:        tc.Name,
 					ToolCallID:      tc.ID,
 					ToolDetail:      toolDetailForCall(tc),
+					ToolUnavailable: !effectiveToolNames[strings.TrimSpace(tc.Name)],
 					ParallelGroupID: ctx.ParallelGroupID,
 					ParallelUnitID:  ctx.ExploreDispatchKey,
 					DispatchKind:    string(ctx.ExploreDispatchKind),
@@ -2043,7 +2047,13 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				wg.Add(1)
 				go func(i int, call llm.ToolCall) {
 					defer wg.Done()
-					r, m := b.executeTool(ctx, call)
+					var r *types.ToolResult
+					var m *types.MCPResponse
+					if !toolCallAvailableInCurrentSurface(call, effectiveToolNames) {
+						r = unavailableToolResult(ctx, call)
+					} else {
+						r, m = b.executeTool(ctx, call)
+					}
 					execResults[i] = toolExecResult{r, m}
 				}(idx, tc)
 			}
@@ -2087,6 +2097,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					ToolCallID:        tc.ID,
 					ToolDetail:        toolDetailForCall(tc),
 					ToolParamsJSON:    string(tc.Params),
+					ToolUnavailable:   !effectiveToolNames[strings.TrimSpace(tc.Name)],
 					ToolOK:            toolOK,
 					ToolTime:          time.Since(toolStarts[idx]),
 					ToolResultSummary: toolResultSummary(er.result),
@@ -2107,12 +2118,19 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					ToolName:        tc.Name,
 					ToolCallID:      tc.ID,
 					ToolDetail:      toolDetailForCall(tc),
+					ToolUnavailable: !effectiveToolNames[strings.TrimSpace(tc.Name)],
 					ParallelGroupID: ctx.ParallelGroupID,
 					ParallelUnitID:  ctx.ExploreDispatchKey,
 					DispatchKind:    string(ctx.ExploreDispatchKind),
 				})
 
-				result, mcpResp := b.executeTool(ctx, tc)
+				var result *types.ToolResult
+				var mcpResp *types.MCPResponse
+				if !toolCallAvailableInCurrentSurface(tc, effectiveToolNames) {
+					result = unavailableToolResult(ctx, tc)
+				} else {
+					result, mcpResp = b.executeTool(ctx, tc)
+				}
 
 				toolOK := false
 				if result != nil {
@@ -2151,6 +2169,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					ToolCallID:        tc.ID,
 					ToolDetail:        toolDetailForCall(tc),
 					ToolParamsJSON:    string(tc.Params),
+					ToolUnavailable:   !effectiveToolNames[strings.TrimSpace(tc.Name)],
 					ToolOK:            toolOK,
 					ToolTime:          time.Since(toolStart),
 					ToolResultSummary: toolResultSummary(result),
@@ -3322,6 +3341,7 @@ func isAnalyzerStageAllowedTool(name string) bool {
 }
 
 const explorerRestrictedToolSurfaceCode = "explorer_restricted_tool_surface"
+const unavailableToolSurfaceCode = "unavailable_tool_surface"
 
 func validateExplorerToolBoundary(ctx *types.AgentContext, eval Evaluator, tc llm.ToolCall) *types.ToolResult {
 	if ctx == nil || ctx.Stage != types.StageExplore {
@@ -3367,6 +3387,46 @@ func toolSchemaNameSet(schemas []llm.ToolSchema) map[string]bool {
 		}
 	}
 	return out
+}
+
+func unavailableToolCallNames(calls []llm.ToolCall, available map[string]bool) []string {
+	if len(calls) == 0 {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, call := range calls {
+		name := strings.TrimSpace(call.Name)
+		if name == "" || available[name] || seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func toolCallAvailableInCurrentSurface(call llm.ToolCall, available map[string]bool) bool {
+	name := strings.TrimSpace(call.Name)
+	return name != "" && available[name]
+}
+
+func unavailableToolResult(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
+	name := strings.TrimSpace(tc.Name)
+	if name == "" {
+		name = tc.Name
+	}
+	logging.Warning("[agent] tool %q rejected before execution: not in current tool schema", name)
+	result := unknownToolResult(ctx, tc)
+	if result.Summary == "" {
+		result.Summary = fmt.Sprintf("tool %q is not available in the current tool schema", name)
+	}
+	result.Repair = &types.ToolRepair{
+		Code: unavailableToolSurfaceCode,
+		Hint: result.Summary + ". Use only the tools currently shown in this turn; if the needed tool is unavailable, continue with the structured emit/caveat path instead of retrying that tool.",
+	}
+	return result
 }
 
 func sortedToolSchemaNames(schemas []llm.ToolSchema) []string {

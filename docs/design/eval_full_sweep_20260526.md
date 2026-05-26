@@ -1645,3 +1645,377 @@ P2:
   `mixed_origin_closure_ready`.
 - Harden eval summary/log mining for verdict column correctness and NUL-safe
   searching.
+
+## Representative 4-Case Replay Notes — 2026-05-26 14:32 CST
+
+Command:
+
+```bash
+CASES="eval/cases/qf_diagram_pipeline.case eval/cases/read_combo_log_current_source_explanation.case eval/cases/read_combo_command_current_source_explanation.case eval/cases/s5b.case" \
+PARALLEL=2 RUNS=1 TIMEOUT=1800 \
+SUMMARY=eval/convergence_audit_summary_rep4_<timestamp>.md \
+bash eval/convergence_audit.sh
+```
+
+Status at the time of this note:
+
+- The first parallel pair is still running:
+  `qf_diagram_pipeline-20260526-143202` and
+  `read_combo_log_current_source_explanation-20260526-143202`.
+- The observations below are confirmed from debug logs before final verdicts
+  were written. They must be reconciled with final `run-1.metrics.txt` and
+  `run-1.verdict` after the batch finishes.
+
+Confirmed observations so far:
+
+1. **Repo Lens guidance is present but not always behavior-dominant.**
+   `qf_diagram_pipeline` explorer prompt included the updated workflow guidance:
+   repo_map is usually the best first step for mechanism/architecture/call-chain
+   orientation, and source_inventory should be used for scoped inventories.
+   The model still began with `read_file internal/types/config.go`, then used
+   broad grep/read_file to find `topology.go`, `enums.go`, and
+   `stage_binding.go`. This suggests the issue is no longer "Repo Lens teaching
+   absent"; it is priority conflict between the exact-anchor/focused-depth lane
+   and structural navigation guidance.
+
+2. **Presentation/source terms can still pollute exact-anchor selection.**
+   In the Mermaid pipeline diagram case, the focused-depth prompt selected
+   `internal/types/config.go` as the first exact anchor even though the
+   user-visible task is the read-mode pipeline stages. The investigation later
+   reached `internal/types/enums.go` and `internal/types/stage_binding.go`, but
+   starting from `config.go` is a search-priority smell. This should be handled
+   generically by token provenance / answer-format term demotion and by making
+   structural relation/lens candidates compete correctly with exact textual
+   anchors. It must not be fixed by hard-coding pipeline/stage paths.
+
+3. **Read-without-emit nudge remains a major upstream convergence cost.**
+   `qf_diagram_pipeline` hit `explorer.mid-loop.read-without-emit` after reading
+   two files, then `read-without-emit-escalated`; the tool surface was narrowed
+   to `emit_evidence, emit_investigation_complete`. The log/current-source case
+   similarly reached `read-without-emit` after several source reads and later an
+   escalated mixed-origin variant. This confirms the cost center is still
+   upstream evidence handoff, not post-finalize reviewers.
+
+4. **Mid-stream stall can still restart from a fresh-looking depth workflow.**
+   `qf_diagram_pipeline` explorer iter 4 stalled mid-stream after roughly two
+   minutes. The agent salvaged accumulated artifacts via ParseOutput, but the
+   next explorer dispatch restarted with a new focused-depth start and again
+   instructed the model to read `internal/types/config.go`. This is the same
+   class as "stream stall after progress returns to broad/depth start": the
+   checkpoint exists, but continuation state is not sufficiently
+   closure-biased, and stale exact-anchor guidance can reassert itself.
+
+5. **Mixed-origin current-source questions still over-expand before closure.**
+   In `read_combo_log_current_source_explanation`, the analyzer correctly
+   treated the log as context for a current-source mechanism explanation, and
+   `repo_map` was used during analysis. Explorer then read `finalizer.go`,
+   grepped `answerDocumentEvaluator`, read `log_bundle.go`, and continued
+   through large `answer_document_evaluator.go` windows while the log-specific
+   timeout evidence was already present. The mixed-origin nudge correctly says
+   non-current-source facts should be preserved through
+   `emit_investigation_complete.reason` / `aggregate_facts`, but the model still
+   kept widening. This points to a missing "origin-aware closure readiness"
+   state, not a prompt wording-only issue.
+
+6. **Analyzer suggestions can still include unverified/runtime protocol names
+   that steer exploration.**
+   The log/current-source case analysis mentioned entities such as
+   `LLMTimeoutError`, `SignalTimeout`, `SignalValidation`, and
+   `FailureKindTimeout`, and required files such as `internal/types/log_bundle.go`
+   plus orchestrator/finalizer anchors. Some of these may be valid source
+   anchors, while others are artifact/protocol labels or inferred concepts. The
+   system should continue filtering tool/protocol/log labels out of "must verify
+   as repo symbol" lanes unless repo_map/read_file has confirmed them.
+
+7. **Binary/NUL-safe log mining remains important for live diagnosis.**
+   Manual `rg` over the running qf log stopped with a binary/NUL warning after
+   the stream-stall salvage path. Eval metric helpers were recently hardened with
+   binary-safe grep, but future ad-hoc diagnostics and dashboards should also
+   prefer `rg -a` / `grep -a` for `.codrax` and eval logs so stall/prune lines
+   are not hidden during incident analysis.
+
+8. **Continuation after stall can still accumulate a second evidence backlog.**
+   By 14:45, the restarted `qf_diagram_pipeline` explorer window had again read
+   multiple files without structured evidence, triggering another
+   `read-without-emit` nudge with `scope_groups=73` in the Repo Lens discovery
+   hint and an estimated context around 40k tokens. This confirms that the
+   transient retry checkpoint preserves data, but does not yet consume that data
+   as a continuation baseline strongly enough to prevent a second broad/backlog
+   buildup.
+
+9. **Mixed-origin replay can re-enter the same read backlog after apparent
+   progress.**
+   By 14:46, `read_combo_log_current_source_explanation` was again in an
+   explorer window with five files read and no `emit_evidence`, around 49k
+   estimated context. The nudge text correctly mentions origin-specific
+   observations and `emit_investigation_complete.reason` / `aggregate_facts`,
+   but the loop still allows repeated source reads before closure. The missing
+   piece appears to be a scheduler/evaluator state transition that recognizes
+   "runtime artifact lane already preserved + only source anchors remain" and
+   makes the next step either a bounded source-evidence batch or closure, not
+   more open-ended exploration.
+
+10. **Transient retry budget can be spent on repeated fresh explorer windows.**
+    By 14:48, `qf_diagram_pipeline` had hit three explorer mid-stream stalls.
+    Each stall salvaged artifacts and consumed the transient retry path, but the
+    subsequent dispatch still started at explorer `iter=0` with normal
+    focused-depth instructions. This is not a provider-only problem: the
+    transport error is real, but the recovery path should be
+    checkpoint-consuming and closure-biased once durable progress exists. A
+    transient retry should not give stale exact-anchor guidance another full
+    chance to rebuild the same backlog.
+
+11. **Closure-only read-without-emit hints are not terminal enough.**
+    In `read_combo_log_current_source_explanation`, the first explorer window
+    reached `read-without-emit-closure-only` at iterations 9, 10, and 11, then
+    pruned tool history at iteration 12 before a stream stall. This shows that
+    the system can correctly identify "you should close or emit only the current
+    source batch" but still allow repeated ordinary LLM turns. The next design
+    should promote closure-only into a state-machine boundary: one bounded
+    source-evidence batch or `emit_investigation_complete`, then stop/retry with
+    preserved closure state instead of allowing another broad turn.
+
+12. **Tool-history prune can occur after closure-only hints but before stable
+    closure.**
+    The log/current-source case pruned at roughly 67k estimated context after
+    multiple closure-only nudges. This reinforces that prune-before-closure
+    checkpoints must include the runtime artifact lane, accepted source anchors,
+    and the current closure-only repair target as a compact, durable handoff;
+    otherwise a stream retry after prune can reopen the same investigation.
+
+13. **Structure questions can drift into nonexistent naming-pattern hunts.**
+    In the restarted `qf_diagram_pipeline` investigation, the model began
+    searching for `runAnalyzePhase` / `runExplorePhase` /
+    `runExtractPhase` / `runFinalizePhase`-style function signatures after it
+    had already seen `StageBinding` / topology evidence. The repository does
+    not necessarily encode every conceptual stage as a same-named function.
+    This is a cross-repo risk: architecture and sequence questions should let
+    verified relation/topology facts satisfy the skeleton, while targeted
+    function reads remain supporting evidence. The system should not force or
+    incentivize a naming-convention proof when the actual design uses tables,
+    registries, DAG nodes, config, routes, generated metadata, or external
+    topology artifacts.
+
+    Generalization guard: do **not** implement this as a
+    `runXPhase`/pipeline-specific rule. The broader problem is that
+    relationship/architecture questions can be represented by many source
+    shapes: functions, methods, classes, tables, registries, config files,
+    route maps, schema metadata, generated manifests, cross-repo topology, or
+    external artifacts. A safe fix must only use structured evidence already
+    observed by the system (relation rows, topology rows, source-inventory
+    members, repo-map navigation facts, or model-authored aggregate facts) to
+    say "this verified structure is enough to serve as the skeleton; verify
+    selected supporting anchors if needed." It must not block the model from
+    searching for functions when functions are the natural representation, and
+    it must not rewrite the user's intent based on words like stage, pipeline,
+    handler, route, or config.
+
+    Follow-up audit: after this eval finishes, scan current prompts and
+    mid-loop hints for overly shape-specific wording that implies one
+    implementation morphology is required (for example same-named functions,
+    same-named files, one file per conceptual node, Go-specific constructs, or
+    source-only proof for artifact questions) unless the observed repo facts or
+    user-specified scope make that morphology explicit.
+
+14. **Restricted repair state is understandable to the system but still not
+    consistently followed by the model.**
+    At 14:54, `qf_diagram_pipeline` was in an explorer repair state exposing
+    only `emit_evidence` and `emit_investigation_complete`, yet the model called
+    two `read_file` tools. The system correctly rejected both before execution
+    and injected a schema-aware restricted-tool-surface hint. The same turn also
+    showed a positive compatibility signal: `read_file.offset` values emitted as
+    strings were normalized to integers by the shared tool-param compatibility
+    path. The remaining gap is not JSON recovery; it is that repair-state tool
+    availability must become stronger continuation context so the model stops
+    trying unavailable navigation after the first rejection.
+
+    The same pattern appeared in `read_combo_log_current_source_explanation`:
+    a repair state exposed `emit_evidence`, `emit_investigation_complete`, and
+    in one moment `read_file`, but the model called unavailable `grep`. This is
+    therefore not `read_file`-specific. Any fix must be a generic
+    restricted-tool-state contract: the next assistant turn should see the
+    current tool surface as the dominant action space, and previous broad
+    navigation instructions should be de-emphasized or explicitly superseded
+    until the repair state clears.
+
+15. **Unverified analyzer entities can create no-match source hunts.**
+    In the log/current-source case, the model kept searching for
+    `SignalTimeout|SignalValidation` inside `answer_document_evaluator.go` and
+    got no matches. These names originated from analysis/log interpretation and
+    may be useful as artifact labels, but they should not be promoted into
+    source-symbol search obligations until repo navigation/source reads confirm
+    them. This is the same family as protocol/tool/log labels polluting
+    source-symbol lanes.
+
+16. **Successful repair evidence can fall back into ordinary exploration instead
+    of closing.**
+    After the log/current-source case accepted `emit_evidence` batches in the
+    repaired window, the next turn restored the full 14-tool explorer surface
+    and continued ordinary exploration around 45k-47k tokens. This suggests the
+    state machine treats "repair evidence accepted" as generic progress rather
+    than as a closure candidate. A safer generic rule would not force close, but
+    it should bias the next step toward `emit_investigation_complete` when:
+    durable runtime/artifact observations already exist, the repair-state source
+    anchors have just been accepted, and no explicit principal-blocking gap is
+    present. This applies to logs, traces, command output, VCS diffs, external
+    documents, and connector/MCP observations, not only this timeout case.
+
+17. **Customer Mermaid rendering failures still need a broader formatter/repair
+    contract.**
+    A customer reported that diagrams can fail both in the persisted Markdown
+    under `.codrax/output` and in the embedded HTTP preview even though the
+    system already has Mermaid repair logic. One concrete failing shape is a
+    flowchart with a trailing comma after the last edge:
+
+    ```mermaid
+    flowchart TD
+        A["log_triager (log_triage)"] --> B["perf_triager (perf_triage)"]
+        B --> C["analyzer (analyze)"]
+        C --> D["explorer (explore)"]
+        D --> E["extractor (extract)"]
+        E --> F["finalizer (finalize)"]
+        F --> G["write_analyzer (write_analyze)"]
+        G --> H["planner (plan)"]
+        H --> I["coder (apply)"]
+        I --> J["verifier (verify)"],
+    ```
+
+    This must not become another single-case repair. The generic design needs
+    to audit every path that emits Mermaid: final answer rendering, Markdown
+    persistence, preview HTTP rendering, recovered raw drafts, and attachment
+    fallback. The formatter should preserve user/model content, repair only
+    syntax-safe cases such as dangling punctuation / fenced-block extraction /
+    label escaping / newline normalization, and keep a visible recovered/raw
+    fallback when validation still fails. Follow-up implementation should
+    verify the repair against representative Mermaid diagram classes
+    (`flowchart`, `sequenceDiagram`, `classDiagram`, `stateDiagram`, `erDiagram`,
+    `gitGraph`, and mindmap where supported) rather than fitting this trailing
+    comma sample.
+
+Risk framing:
+
+- None of the observations justify hard-rejecting a model answer by themselves.
+  They are convergence and guidance issues. Fixes must preserve user intent and
+  model judgment: prioritize advisory continuation state, better ranking, and
+  durable handoff over system-authored answer replacement.
+- The same patterns apply beyond this repo: diagram/reporting terms vs source
+  terms, current-source + external artifact questions, transient LLM failures
+  after durable progress, and evidence handoff after large reads all occur in
+  customer repositories across languages and artifact types.
+
+Follow-up tasks to reconcile after the run finishes:
+
+- Add final verdict/metrics for all four cases to this section.
+- Confirm whether `qf_diagram_pipeline` eventually passes despite the stall and
+  restarted depth lane; if yes, classify it as a slow-pass convergence gap.
+- Confirm whether `read_combo_log_current_source_explanation` closes with a
+  mixed-origin aggregate handoff or relies on source-only evidence.
+- If the second pair starts, inspect `read_combo_command_current_source_explanation`
+  for duplicate command measurements / tool-history prune, and `s5b` for
+  source_inventory usage vs per-scope file reading.
+
+### Representative Replay Reconciliation — 2026-05-26
+
+Final status for the intentionally stopped 4-case representative replay:
+
+- `qf_diagram_pipeline-20260526-143202`: **FAIL**. Metrics:
+  `tool_read_file=20`, `tool_repo_map=0`, `transient_retry_checkpoints=3`,
+  `tool_history_prunes=0`, `midloop_inject=14`, `explorer_iters=24`,
+  `explorer_dispatches=4`, `finalizer_iters=2`,
+  `max_context_tokens_est=47635`. Verdict missed the four required stage
+  labels and a Mermaid fence. This is not a single pipeline-case bug: it is a
+  compound failure of (a) repeated transport stalls after durable progress,
+  (b) continuation hints that still carry broad/DAG objectives, (c) evidence
+  not being consumed as a closure-biased checkpoint, and (d) finalizer receiving
+  a pure-synthesis tool surface while the model still attempted unavailable
+  navigation tools.
+- `read_combo_log_current_source_explanation-20260526-143202`: **PASS** but
+  slow. Metrics: `tool_read_file=26`, `tool_repo_map=1`,
+  `transient_retry_checkpoints=2`, `tool_history_prunes=1`,
+  `midloop_inject=16`, `explorer_iters=29`, `max_context_tokens_est=67128`.
+  It eventually produced a correct mixed-origin answer, but only after repeated
+  read-without-emit / closure-only / restricted-tool-state nudges. This confirms
+  the same upstream convergence gap exists even when the final answer passes.
+- `read_combo_command_current_source_explanation-20260526-145859`: cancelled by
+  operator after it started as the third case. Partial logs still matter:
+  analyzer began with `list_files` + `grep`, which is consistent with the
+  command-measurement concern that deterministic scalar facts and current-source
+  explanation must remain separate lanes.
+- `s5b-20260526-150021`: cancelled after the scheduler briefly launched it.
+  Partial logs show the intended direction: the model called `repo_map` before
+  `list_files internal/analysis`, so source-inventory discovery is reachable,
+  but the full previous batches already proved that candidate-universe handoff
+  is still not strong enough to prevent over-reading.
+
+Systemic root causes and generalized design:
+
+1. **Checkpoint continuation is advisory, not a state transition.**
+   Current retry hints preserve evidence counts, but the next dispatch can still
+   receive broad DAG objectives and stale focused-depth anchors. General fix:
+   introduce a checkpoint-consuming continuation contract. After a stream stall
+   with durable evidence, the next window should prefer one of three outcomes:
+   close, emit one bounded repair/evidence batch, or perform one named narrow
+   verification. It must not re-enter broad search unless the checkpoint lacks a
+   concrete user-required axis. This is a state-machine change, not a prompt
+   keyword rule.
+
+2. **Relationship/architecture skeletons are not always functions.**
+   The failed diagram run drifted into `runXPhase`-style searches. The generic
+   issue applies to routes, registries, config tables, schema metadata, class
+   maps, generated manifests, cross-repo topology, and external artifacts. Safe
+   design: when structured relation/topology/source-inventory/model-authored
+   aggregate facts already define a skeleton, treat that skeleton as a valid
+   answer plan and ask only for selected supporting anchors. Do not hard-block
+   function searches when functions are natural; do not require them when the
+   repository represents the relation differently.
+
+3. **Restricted tool surfaces are correct but the UI and recovery semantics can
+   still imply execution.**
+   Finalizer had `tools=1`, yet the model emitted `grep`. The system did not
+   truly expose grep, but scrollback rendered "calling grep", and the failed
+   unknown-tool loop consumed finalizer attempts before falling back to a thin
+   raw answer. General fix: surface unavailable tool attempts as unavailable
+   attempts, not as real tool execution; keep them visible for transparency,
+   but route the next step toward structured answer recovery / accepted evidence
+   instead of another identical unavailable-tool turn.
+
+4. **Read-without-emit and repair hints are still repeated permissions.**
+   The logs show closure-only hints firing multiple times, then prune/stall.
+   Generic fix: hints that say "closure-only" or "repair this exact batch" must
+   become consumable state with a one-local-attempt budget. If the model spends
+   that attempt on navigation or duplicate/no-progress emits, the next action
+   should be close with caveat or stable fallback, not another broad/nudge loop.
+
+5. **Mermaid output needs one repair surface shared by REPL, persisted Markdown,
+   and browser preview.**
+   Existing `mermaidcompat.NormalizeSourceForMarkdown` and
+   `NormalizeMarkdownMermaidFences` are the right single entry points. The next
+   implementation should extend those functions only with syntax-safe,
+   meaning-preserving repairs, then test that answer block normalization and
+   output dump both inherit the same behavior. Avoid one-off preview-only
+   rewrites.
+
+Task list:
+
+- [x] P0-A: Extend shared Mermaid normalization for safe dangling punctuation
+  and add regression tests for raw `diagram.body` and persisted Markdown fences.
+- [x] P0-B: Mark unavailable model-emitted tool calls in render events so REPL
+  scrollback says "attempted unavailable tool" instead of "calling tool"; keep
+  execution semantics unchanged and transparent.
+- [x] P0-C: Preserve finalizer recovery after unavailable-tool repeats by
+  avoiding UI/tool-loop language that suggests the model successfully ran
+  navigation in pure synthesis stages. The execution layer now refuses any
+  model-emitted tool outside the current turn's actual schema before registry
+  dispatch, returns a structured `unavailable_tool_surface` repair hint, and
+  renders the scrollback as an unavailable attempt rather than a real tool call.
+- [ ] P1-A: Make checkpoint continuation consume durable progress: after a
+  transient stream stall with accepted evidence, suppress broad/DAG breadth
+  wording unless a concrete unresolved axis remains.
+- [ ] P1-B: Convert closure-only/read-without-emit repair hints into one-shot
+  state transitions with close/caveat fallback after the local attempt is spent.
+- [ ] P1-C: Add prompt/hint audit tests for morphology overfitting: no generic
+  language that implies relations must be same-named functions/files unless
+  the observed structure says so.
+- [ ] P2-A: Add metrics for `unavailable_tool_attempts`,
+  `checkpoint_continuation_broad_hint`, `closure_only_repeated`,
+  and `mermaid_source_repair_applied`.

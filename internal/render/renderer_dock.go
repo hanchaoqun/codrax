@@ -96,8 +96,8 @@ func (r *Renderer) handleEvent(ev Event) {
 		r.commitScrollbackLinesLocked(lines)
 		return
 	case EventAgentToolCallBatch:
-		line := formatToolCallBatchWithParallel(string(ev.Agent), ev.Stage, ev.Iteration, ev.ToolNames,
-			ev.ToolCallCount, ev.ToolName, ev.ToolDetail, r.lang, r.activityTraceUnitLabelLocked(ev))
+		line := formatUnavailableToolCallBatchWithParallel(string(ev.Agent), ev.Stage, ev.Iteration, ev.ToolNames,
+			ev.ToolCallCount, ev.ToolName, ev.ToolDetail, r.lang, r.activityTraceUnitLabelLocked(ev), ev.UnavailableToolNames)
 		if line == "" {
 			return
 		}
@@ -2422,8 +2422,8 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 	case EventAgentReasoning:
 		r.emitNonTTYLines(formatReasoningLinesWithParallel(string(ev.Agent), ev.Stage, ev.Iteration, ev.Reasoning, r.thinkingTruncate, r.lang, r.activityTraceUnitLabelLocked(ev)))
 	case EventAgentToolCallBatch:
-		if line := formatToolCallBatchWithParallel(string(ev.Agent), ev.Stage, ev.Iteration, ev.ToolNames,
-			ev.ToolCallCount, ev.ToolName, ev.ToolDetail, r.lang, r.activityTraceUnitLabelLocked(ev)); line != "" {
+		if line := formatUnavailableToolCallBatchWithParallel(string(ev.Agent), ev.Stage, ev.Iteration, ev.ToolNames,
+			ev.ToolCallCount, ev.ToolName, ev.ToolDetail, r.lang, r.activityTraceUnitLabelLocked(ev), ev.UnavailableToolNames); line != "" {
 			r.emitNonTTYLine(line)
 		}
 	case EventToolCallEnd:

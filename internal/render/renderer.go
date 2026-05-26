@@ -1753,7 +1753,18 @@ func formatToolCallBatch(agent string, stage types.PipelineStage, iteration int,
 }
 
 func formatToolCallBatchWithParallel(agent string, stage types.PipelineStage, iteration int, names []string, count int, firstName, firstDetail, lang string, parallelUnitLabel string) string {
+	return formatToolCallBatchWithAvailability(agent, stage, iteration, names, count, firstName, firstDetail, lang, parallelUnitLabel, nil)
+}
+
+func formatUnavailableToolCallBatchWithParallel(agent string, stage types.PipelineStage, iteration int, names []string, count int, firstName, firstDetail, lang string, parallelUnitLabel string, unavailable []string) string {
+	return formatToolCallBatchWithAvailability(agent, stage, iteration, names, count, firstName, firstDetail, lang, parallelUnitLabel, unavailable)
+}
+
+func formatToolCallBatchWithAvailability(agent string, stage types.PipelineStage, iteration int, names []string, count int, firstName, firstDetail, lang string, parallelUnitLabel string, unavailable []string) string {
 	body := toolCallBatchBody(names, count, firstName, firstDetail, lang)
+	if len(unavailable) > 0 {
+		body = unavailableToolCallBatchBody(unavailable, count, lang)
+	}
 	if body == "" {
 		return ""
 	}
@@ -1958,6 +1969,30 @@ func toolCallBatchBody(names []string, count int, firstName, firstDetail, lang s
 		return fmt.Sprintf("calling %d tools", count)
 	}
 	return fmt.Sprintf("calling %d tools %s", count, list)
+}
+
+func unavailableToolCallBatchBody(unavailable []string, totalCount int, lang string) string {
+	list := compactToolNameList(unavailable, 4)
+	if list == "" {
+		return ""
+	}
+	zh := isZh(lang)
+	if len(unavailable) == 1 {
+		if totalCount > 1 {
+			if zh {
+				return fmt.Sprintf("尝试不可用工具 %s（本轮共 %d 个工具调用）", list, totalCount)
+			}
+			return fmt.Sprintf("attempted unavailable tool %s (%d tool calls this turn)", list, totalCount)
+		}
+		if zh {
+			return "尝试不可用工具 " + list
+		}
+		return "attempted unavailable tool " + list
+	}
+	if zh {
+		return fmt.Sprintf("尝试 %d 个不可用工具 %s", len(unavailable), list)
+	}
+	return fmt.Sprintf("attempted %d unavailable tools %s", len(unavailable), list)
 }
 
 func compactToolNameList(names []string, maxKinds int) string {

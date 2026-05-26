@@ -180,6 +180,43 @@ func TestNormalizeFlowchartUnsafeNodeIDs_DoesNotTreatGraphPrefixNodeAsHeader(t *
 	}
 }
 
+func TestNormalizeFlowchartDanglingPunctuation_RemovesTrailingComma(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    A["log_triager (log_triage)"] --> B["perf_triager (perf_triage)"]`,
+		`    B --> C["analyzer (analyze)"],`,
+		`    C["label, with comma"]`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	if strings.Contains(got, `B --> C["analyzer (analyze)"],`) {
+		t.Fatalf("dangling edge comma survived:\n%s", got)
+	}
+	if !strings.Contains(got, `B --> C["analyzer (analyze)"]`) {
+		t.Fatalf("edge did not survive comma repair:\n%s", got)
+	}
+	if !strings.Contains(got, `C["label, with comma"]`) {
+		t.Fatalf("label comma should be preserved:\n%s", got)
+	}
+}
+
+func TestNormalizeMarkdownMermaidFences_NormalizesDanglingComma(t *testing.T) {
+	in := strings.Join([]string{
+		"before",
+		"```mermaid",
+		"flowchart TD",
+		`    I["coder (apply)"] --> J["verifier (verify)"],`,
+		"```",
+		"after",
+	}, "\n")
+	got := NormalizeMarkdownMermaidFences(in)
+	if strings.Contains(got, `J["verifier (verify)"],`) {
+		t.Fatalf("persisted markdown retained dangling Mermaid comma:\n%s", got)
+	}
+	if !strings.Contains(got, `I["coder (apply)"] --> J["verifier (verify)"]`) {
+		t.Fatalf("persisted markdown lost repaired edge:\n%s", got)
+	}
+}
+
 func TestNormalizeSourceForMarkdown_NormalizesFlowchartSubgraphAndEdgeLabels(t *testing.T) {
 	in := strings.Join([]string{
 		"flowchart TD",

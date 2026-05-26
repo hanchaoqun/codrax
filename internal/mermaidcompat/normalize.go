@@ -15,6 +15,7 @@ func NormalizeSourceForMarkdown(body string) string {
 	body = NormalizeSequenceParticipantMessagePrefixes(body)
 	body = NormalizeSequenceStops(body)
 	body = NormalizeFlowchartSubgraphTitles(body)
+	body = NormalizeFlowchartDanglingPunctuation(body)
 	body = NormalizeFlowchartUnsafeNodeIDs(body)
 	body = NormalizeFlowchartNodeLabels(body)
 	body = NormalizeFlowchartPipeLabels(body)
@@ -119,6 +120,91 @@ func NormalizeFlowchartPipeLabels(body string) string {
 		return body
 	}
 	return strings.Join(lines, "\n")
+}
+
+// NormalizeFlowchartDanglingPunctuation removes punctuation that is clearly
+// outside a flowchart statement. Small/local models sometimes end the final
+// edge with a prose comma:
+//
+//	I --> J["done"],
+//
+// Mermaid.js treats that comma as syntax, while removing it preserves the
+// authored edge and visible labels. The repair is deliberately narrow: it only
+// applies to flowchart/graph bodies, only trims commas at physical line ends,
+// and never edits punctuation inside quoted labels or node shapes.
+func NormalizeFlowchartDanglingPunctuation(body string) string {
+	if !isFlowchartOrGraph(body) || !strings.ContainsAny(body, ",，") {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	changed := false
+	for i, line := range lines {
+		rewritten, ok := normalizeFlowchartDanglingPunctuationLine(line)
+		if ok {
+			lines[i] = rewritten
+			changed = true
+		}
+	}
+	if !changed {
+		return body
+	}
+	return strings.Join(lines, "\n")
+}
+
+func normalizeFlowchartDanglingPunctuationLine(line string) (string, bool) {
+	trimmedRight := strings.TrimRightFunc(line, unicode.IsSpace)
+	if trimmedRight == "" {
+		return line, false
+	}
+	last := lastRune(trimmedRight)
+	if last != ',' && last != '，' {
+		return line, false
+	}
+	core := strings.TrimRightFunc(trimmedRight[:len(trimmedRight)-len(string(last))], unicode.IsSpace)
+	if strings.TrimSpace(core) == "" || !flowchartLineCanCarryDanglingComma(core) {
+		return line, false
+	}
+	suffix := line[len(trimmedRight):]
+	return core + suffix, true
+}
+
+func flowchartLineCanCarryDanglingComma(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "%%") ||
+		flowchartLineIsHeader(trimmed) || trimmed == "end" ||
+		strings.HasPrefix(trimmed, "classDef ") || strings.HasPrefix(trimmed, "linkStyle ") {
+		return false
+	}
+	if flowchartLineStartsWithAny(trimmed, "click ", "style ", "class ") {
+		return true
+	}
+	if strings.Contains(trimmed, "--") || strings.Contains(trimmed, "->") || strings.Contains(trimmed, "==") {
+		return true
+	}
+	// Node declarations without edges can also be produced as list-like prose
+	// lines (`A["x"],`). Accept only when the remaining line has balanced node
+	// shape delimiters so a comma inside a label is not mistaken for syntax.
+	return flowchartLikelyBalancedNodeStatement(trimmed)
+}
+
+func flowchartLikelyBalancedNodeStatement(line string) bool {
+	if !strings.ContainsAny(line, "[({>") {
+		return false
+	}
+	for i := 0; i < len(line); i++ {
+		if span, ok := flowchartLabelShapeSpanAt(line, i); ok && span.end == len(line)-1 {
+			return true
+		}
+	}
+	return false
+}
+
+func lastRune(s string) rune {
+	var last rune
+	for _, r := range s {
+		last = r
+	}
+	return last
 }
 
 // NormalizeFlowchartUnsafeNodeIDs aliases flowchart node identifiers that are
