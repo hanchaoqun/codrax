@@ -79,10 +79,11 @@ const (
 	defaultBlobMaxSessions  = 7
 
 	// Final-answer transcript dump (read-mode only). The orchestrator
-	// writes one .md file per finalised answer to <runtime-anchor>/output/
-	// after Mutable.SetResult commits. outputSubdir is the directory
-	// name; defaultOutputMaxFiles is the retention cap (oldest *.md
-	// pruned by mtime when count exceeds the cap). Operator override
+	// writes one .md file plus one self-contained .html sibling per
+	// finalised answer to <runtime-anchor>/output/ after Mutable.SetResult
+	// commits. outputSubdir is the directory name; defaultOutputMaxFiles is
+	// the retention cap keyed by *.md (matching *.html siblings pruned with
+	// them). Operator override
 	// via codrax.yaml :: output_dump_enabled / output_max_files.
 	outputSubdir          = "output"
 	defaultOutputMaxFiles = 10

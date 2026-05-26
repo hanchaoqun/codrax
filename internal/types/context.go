@@ -99,8 +99,12 @@ type MutableState struct {
 	// .codrax/output. It is deliberately separate from result so prompt
 	// builders and memory do not treat the file hint as answer content.
 	finalAnswerMarkdownPath string
-	requestModel            *RequestModel
-	emittedEvidence         []EvidenceItem
+	// finalAnswerHTMLPath is the system-rendered self-contained HTML sibling
+	// of finalAnswerMarkdownPath. It is presentation metadata only; model
+	// prompts and memory continue to use Result().
+	finalAnswerHTMLPath string
+	requestModel        *RequestModel
+	emittedEvidence     []EvidenceItem
 	// answerSurfaceRevision is bumped by mutators that can affect
 	// BuildAnswerSurfacePlan. BusContext-level answer-plan caches use
 	// it as a cheap freshness boundary so finalizer validators can
@@ -964,6 +968,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		result:                              m.result,
 		resultIsPlain:                       m.resultIsPlain,
 		finalAnswerMarkdownPath:             m.finalAnswerMarkdownPath,
+		finalAnswerHTMLPath:                 m.finalAnswerHTMLPath,
 		searchGraph:                         m.searchGraph,
 		symbolOracle:                        m.symbolOracle,
 		logTriage:                           m.logTriage,
@@ -1618,6 +1623,7 @@ func (m *MutableState) SetResult(s string) {
 	m.result = s
 	m.resultIsPlain = false
 	m.finalAnswerMarkdownPath = ""
+	m.finalAnswerHTMLPath = ""
 }
 
 // SetResultPlain stores a result string AND marks it as plain text
@@ -1644,6 +1650,7 @@ func (m *MutableState) SetResultPlain(s string) {
 	m.result = s
 	m.resultIsPlain = true
 	m.finalAnswerMarkdownPath = ""
+	m.finalAnswerHTMLPath = ""
 }
 
 // ResultIsPlain reports whether the current result was stored via
@@ -1670,6 +1677,20 @@ func (m *MutableState) SetFinalAnswerMarkdownPath(path string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.finalAnswerMarkdownPath = strings.TrimSpace(path)
+	m.finalAnswerHTMLPath = ""
+}
+
+// SetFinalAnswerOutputPaths stores all presentation artifacts for the current
+// answer in one lock acquisition. These paths are not answer content and must
+// not be fed back into prompts.
+func (m *MutableState) SetFinalAnswerOutputPaths(markdownPath, htmlPath string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.finalAnswerMarkdownPath = strings.TrimSpace(markdownPath)
+	m.finalAnswerHTMLPath = strings.TrimSpace(htmlPath)
 }
 
 // FinalAnswerMarkdownPath returns the markdown transcript path for the current
@@ -1681,6 +1702,17 @@ func (m *MutableState) FinalAnswerMarkdownPath() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.finalAnswerMarkdownPath
+}
+
+// FinalAnswerHTMLPath returns the self-contained HTML transcript path for the
+// current final answer, or empty when output dumping was disabled or failed.
+func (m *MutableState) FinalAnswerHTMLPath() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.finalAnswerHTMLPath
 }
 
 // RequestModel returns a pointer to the analyzer-emitted RequestModel,

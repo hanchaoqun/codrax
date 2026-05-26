@@ -10,12 +10,18 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/mermaidcompat"
+	"github.com/hanchaoqun/codrax/internal/preview"
 )
 
 // Ext is the suffix used for both the prune glob and new files.
 // Hard-coded so the prune sweep never touches unrelated content the
 // operator may have placed in the directory.
 const Ext = ".md"
+
+// HTMLExt is the sibling browser-ready artifact written next to every
+// markdown dump. The markdown file remains the authoritative raw output; the
+// HTML is a deterministic system rendering of the same bytes.
+const HTMLExt = ".html"
 
 // Args bundles the inputs Write needs. Every caller supplies the raw
 // user request text and the raw markdown answer body that reached the
@@ -34,18 +40,34 @@ type Args struct {
 	PID        int
 }
 
+// Result reports the best-effort artifacts written for one answer dump. A
+// markdown path can be present while HTML is empty when the secondary render
+// failed; answer delivery must not depend on either artifact.
+type Result struct {
+	MarkdownPath string
+	HTMLPath     string
+}
+
 // Write persists the rendered final answer + the user question to
 // <dir>/<timestamp>-<pid>.md and prunes oldest files past the retention
 // cap. It returns the written path on success. Best-effort: every IO
 // error is logged at WARN and swallowed, because transcript dumping is
 // a UX affordance and must never alter answer delivery.
 func Write(a Args) string {
+	return WriteResult(a).MarkdownPath
+}
+
+// WriteResult persists the markdown dump and a sibling self-contained HTML
+// rendering. Retention is counted by markdown dumps: pruning an old .md removes
+// its .html sibling, and orphaned canonical .html dumps are cleaned on the same
+// sweep.
+func WriteResult(a Args) Result {
 	if a.Dir == "" {
-		return ""
+		return Result{}
 	}
 	if err := os.MkdirAll(a.Dir, 0o755); err != nil {
 		logging.Warning("[output_dump] mkdir %s failed: %v", a.Dir, err)
-		return ""
+		return Result{}
 	}
 	PruneDir(a.Dir, a.Max)
 	name := FileName(a.Now, a.PID)
@@ -53,10 +75,26 @@ func Write(a Args) string {
 	body := BuildBody(a)
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		logging.Warning("[output_dump] write %s failed: %v", path, err)
-		return ""
+		return Result{}
 	}
 	logging.Info("[output_dump] wrote %s (%d bytes)", path, len(body))
-	return path
+	result := Result{MarkdownPath: path}
+	htmlPath := HTMLPathForMarkdown(path)
+	if htmlPath == "" {
+		return result
+	}
+	htmlBody, err := BuildHTML(filepath.Base(path), body)
+	if err != nil {
+		logging.Warning("[output_dump] render html for %s failed: %v", path, err)
+		return result
+	}
+	if err := os.WriteFile(htmlPath, []byte(htmlBody), 0o644); err != nil {
+		logging.Warning("[output_dump] write %s failed: %v", htmlPath, err)
+		return result
+	}
+	logging.Info("[output_dump] wrote %s (%d bytes)", htmlPath, len(htmlBody))
+	result.HTMLPath = htmlPath
+	return result
 }
 
 // FileName returns the canonical filename, matching tool.SessionDirName's
@@ -106,6 +144,26 @@ func BuildBody(a Args) string {
 	return b.String()
 }
 
+// BuildHTML renders the already-composed markdown dump body into a
+// self-contained HTML page. The source markdown remains the canonical output
+// artifact; callers use this only for user-facing browser convenience.
+func BuildHTML(title, markdownBody string) (string, error) {
+	return preview.RenderStandaloneMarkdownHTML(title, []byte(markdownBody))
+}
+
+// HTMLPathForMarkdown returns the sibling HTML path for a markdown dump path.
+func HTMLPathForMarkdown(markdownPath string) string {
+	markdownPath = strings.TrimSpace(markdownPath)
+	if markdownPath == "" {
+		return ""
+	}
+	ext := filepath.Ext(markdownPath)
+	if strings.EqualFold(ext, Ext) {
+		return strings.TrimSuffix(markdownPath, ext) + HTMLExt
+	}
+	return markdownPath + HTMLExt
+}
+
 // HumanBytes formats a byte count for the attachment footnote.
 // Coarse-grained on purpose: the dump line is informational, not a
 // precise measurement.
@@ -122,7 +180,9 @@ func HumanBytes(n int) string {
 
 // PruneDir keeps the most-recent max-1 *.md files under dir (by mtime),
 // reserving one slot for the incoming write. max <= 0 disables pruning.
-// Errors abort the sweep silently; retention is hygiene, not correctness.
+// Matching .html siblings are removed with their .md files, and orphaned
+// canonical .html dumps are cleaned on the same pass so the two artifact types
+// keep the same retention shape.
 func PruneDir(dir string, max int) {
 	if max <= 0 {
 		return
@@ -136,7 +196,9 @@ func PruneDir(dir string, max int) {
 		mod  time.Time
 	}
 	files := make([]entry, 0, len(entries))
+	names := make(map[string]bool, len(entries))
 	for _, e := range entries {
+		names[e.Name()] = true
 		if e.IsDir() || !strings.HasSuffix(e.Name(), Ext) {
 			continue
 		}
@@ -149,6 +211,7 @@ func PruneDir(dir string, max int) {
 			mod:  info.ModTime(),
 		})
 	}
+	pruneOrphanHTMLDumps(dir, entries, names)
 	keepExisting := max - 1
 	if keepExisting < 0 {
 		keepExisting = 0
@@ -166,5 +229,56 @@ func PruneDir(dir string, max int) {
 		if err := os.Remove(files[i].path); err != nil {
 			logging.Warning("[output_dump] prune %s failed: %v", files[i].path, err)
 		}
+		htmlPath := HTMLPathForMarkdown(files[i].path)
+		if htmlPath != "" {
+			if err := os.Remove(htmlPath); err != nil && !os.IsNotExist(err) {
+				logging.Warning("[output_dump] prune %s failed: %v", htmlPath, err)
+			}
+		}
 	}
+}
+
+func pruneOrphanHTMLDumps(dir string, entries []os.DirEntry, names map[string]bool) {
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, HTMLExt) || !isCanonicalDumpName(name, HTMLExt) {
+			continue
+		}
+		mdName := strings.TrimSuffix(name, HTMLExt) + Ext
+		if names[mdName] {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			logging.Warning("[output_dump] prune %s failed: %v", path, err)
+		}
+	}
+}
+
+func isCanonicalDumpName(name, ext string) bool {
+	if !strings.HasSuffix(name, ext) {
+		return false
+	}
+	stem := strings.TrimSuffix(name, ext)
+	if len(stem) < len("20060102-150405.000-1") {
+		return false
+	}
+	if !allDigits(stem[0:8]) || stem[8] != '-' ||
+		!allDigits(stem[9:15]) || stem[15] != '.' ||
+		!allDigits(stem[16:19]) || stem[19] != '-' {
+		return false
+	}
+	return allDigits(stem[20:])
+}
+
+func allDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }

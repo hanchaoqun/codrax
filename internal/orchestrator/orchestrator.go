@@ -7083,7 +7083,7 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 	// Best-effort: the helper logs and swallows every IO error so the
 	// dump never affects the rest of the pipeline.
 	if o.outputDumpDir != "" && strings.TrimSpace(answer) != "" {
-		if path := writeFinalOutputDump(dumpFinalOutputArgs{
+		if result := writeFinalOutputDumpResult(dumpFinalOutputArgs{
 			dir:      o.outputDumpDir,
 			max:      o.outputDumpMax,
 			request:  types.StripConversationPrefix(o.busCtx.Mutable.Objective()),
@@ -7094,8 +7094,8 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 			traceB:   len(o.attachedHitrace),
 			now:      time.Now(),
 			pid:      os.Getpid(),
-		}); path != "" {
-			o.busCtx.Mutable.SetFinalAnswerMarkdownPath(path)
+		}); result.MarkdownPath != "" {
+			o.busCtx.Mutable.SetFinalAnswerOutputPaths(result.MarkdownPath, result.HTMLPath)
 		}
 	}
 

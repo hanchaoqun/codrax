@@ -71,6 +71,7 @@ func TestChitchat_WritesMarkdownAndPreview(t *testing.T) {
 		t.Fatalf("Loop: %v", err)
 	}
 	if !strings.Contains(out.String(), "Raw Markdown saved: ") ||
+		!strings.Contains(out.String(), "Standalone HTML saved: ") ||
 		!strings.Contains(out.String(), "Browser preview: http://127.0.0.1:49152/preview/chat?token=t") {
 		t.Fatalf("chitchat markdown/preview hints missing:\n%s", out.String())
 	}
@@ -90,6 +91,7 @@ func TestChitchat_WritesMarkdownAndPreview(t *testing.T) {
 		t.Fatalf("expected one memory turn, got %d", len(recent))
 	}
 	if strings.Contains(recent[0].Response, "Raw Markdown saved") ||
+		strings.Contains(recent[0].Response, "Standalone HTML saved") ||
 		strings.Contains(recent[0].Response, "Browser preview") {
 		t.Fatalf("markdown hints leaked into chitchat memory: %q", recent[0].Response)
 	}

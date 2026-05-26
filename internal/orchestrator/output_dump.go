@@ -41,6 +41,10 @@ func writeFinalOutputDump(a dumpFinalOutputArgs) string {
 	return outputdump.Write(a.outputDumpArgs())
 }
 
+func writeFinalOutputDumpResult(a dumpFinalOutputArgs) outputdump.Result {
+	return outputdump.WriteResult(a.outputDumpArgs())
+}
+
 func outputDumpFileName(now time.Time, pid int) string {
 	return outputdump.FileName(now, pid)
 }

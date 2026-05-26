@@ -39,6 +39,29 @@ func RenderMarkdownHTML(markdown []byte) (string, error) {
 	return out.String(), nil
 }
 
+// RenderStandaloneMarkdownHTML converts markdown into a single self-contained
+// HTML document. It reuses the same renderer as the live preview server, but
+// inlines the Mermaid browser runtime so the saved file can be opened directly
+// without a local server, CDN, or markdown application.
+func RenderStandaloneMarkdownHTML(title string, markdown []byte) (string, error) {
+	body, err := RenderMarkdownHTML(markdown)
+	if err != nil {
+		return "", err
+	}
+	mermaidJS, err := assets.ReadFile(mermaidAssetPath)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(title) == "" {
+		title = "Codrax Markdown Preview"
+	}
+	return renderHTMLPage(pageArgs{
+		Title:     title,
+		BodyHTML:  body,
+		MermaidJS: string(mermaidJS),
+	}), nil
+}
+
 type fencedCodeRenderer struct{}
 
 func (f fencedCodeRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {

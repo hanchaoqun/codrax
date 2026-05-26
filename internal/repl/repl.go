@@ -1022,8 +1022,8 @@ func (r *REPL) localDispatch(line, display string, policy TurnPolicy, lastAnswer
 	// REPL output. renderRichResponse is the single source of
 	// rendering for both off-pipeline answer surfaces.
 	r.renderBordered(r.renderRichResponse(reply))
-	if path := r.writeLocalMarkdownTranscript(line, reply); path != "" {
-		r.emitMarkdownTranscriptHints(path)
+	if result := r.writeLocalMarkdownTranscript(line, reply); result.MarkdownPath != "" {
+		r.emitMarkdownTranscriptHints(result)
 	}
 	// Persist as KindPipeline. A local-route turn is structurally a
 	// derivative of a previous pipeline answer (transform /
@@ -2063,6 +2063,9 @@ func (r *REPL) dispatch(line, display string) {
 	if hint := finalAnswerMarkdownNotice(busCtx, r.language); hint != "" {
 		r.info(hint)
 	}
+	if hint := finalAnswerHTMLNotice(busCtx, r.language); hint != "" {
+		r.info(hint)
+	}
 	if hint := r.finalAnswerMarkdownPreviewNotice(busCtx); hint != "" {
 		r.info(hint)
 	}
@@ -2076,6 +2079,13 @@ func finalAnswerMarkdownNotice(busCtx *types.BusContext, lang string) string {
 	return markdownTranscriptNotice(busCtx.Mutable.FinalAnswerMarkdownPath(), lang)
 }
 
+func finalAnswerHTMLNotice(busCtx *types.BusContext, lang string) string {
+	if busCtx == nil || busCtx.Mutable == nil {
+		return ""
+	}
+	return htmlTranscriptNotice(busCtx.Mutable.FinalAnswerHTMLPath(), lang)
+}
+
 func (r *REPL) finalAnswerMarkdownPreviewNotice(busCtx *types.BusContext) string {
 	if r == nil || r.markdownPreview == nil || busCtx == nil || busCtx.Mutable == nil {
 		return ""
@@ -2083,11 +2093,11 @@ func (r *REPL) finalAnswerMarkdownPreviewNotice(busCtx *types.BusContext) string
 	return r.markdownPreviewNotice(busCtx.Mutable.FinalAnswerMarkdownPath())
 }
 
-func (r *REPL) writeLocalMarkdownTranscript(request, answer string) string {
+func (r *REPL) writeLocalMarkdownTranscript(request, answer string) outputdump.Result {
 	if r == nil || strings.TrimSpace(answer) == "" || strings.TrimSpace(r.outputDumpDir) == "" {
-		return ""
+		return outputdump.Result{}
 	}
-	return outputdump.Write(outputdump.Args{
+	return outputdump.WriteResult(outputdump.Args{
 		Dir:     r.outputDumpDir,
 		Max:     r.outputDumpMax,
 		Request: strings.TrimSpace(request),
@@ -2097,11 +2107,14 @@ func (r *REPL) writeLocalMarkdownTranscript(request, answer string) string {
 	})
 }
 
-func (r *REPL) emitMarkdownTranscriptHints(path string) {
-	if hint := markdownTranscriptNotice(path, r.language); hint != "" {
+func (r *REPL) emitMarkdownTranscriptHints(result outputdump.Result) {
+	if hint := markdownTranscriptNotice(result.MarkdownPath, r.language); hint != "" {
 		r.info(hint)
 	}
-	if hint := r.markdownPreviewNotice(path); hint != "" {
+	if hint := htmlTranscriptNotice(result.HTMLPath, r.language); hint != "" {
+		r.info(hint)
+	}
+	if hint := r.markdownPreviewNotice(result.MarkdownPath); hint != "" {
 		r.info(hint)
 	}
 }
@@ -2115,6 +2128,17 @@ func markdownTranscriptNotice(path, lang string) string {
 		return "Markdown 原文已保存：" + path
 	}
 	return "Raw Markdown saved: " + path
+}
+
+func htmlTranscriptNotice(path, lang string) string {
+	path = displayFinalAnswerMarkdownPath(path)
+	if path == "" {
+		return ""
+	}
+	if isZh(lang) {
+		return "HTML 单页已保存：" + path
+	}
+	return "Standalone HTML saved: " + path
 }
 
 func (r *REPL) markdownPreviewNotice(path string) string {

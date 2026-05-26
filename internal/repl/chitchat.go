@@ -778,8 +778,8 @@ func (r *REPL) chitchatDispatch(line, display string) {
 	// text. recordTurn persists the raw `response` (NOT the
 	// styled output) so memory transcripts stay plain.
 	r.renderBordered(r.renderRichResponse(response))
-	if path := r.writeLocalMarkdownTranscript(line, response); path != "" {
-		r.emitMarkdownTranscriptHints(path)
+	if result := r.writeLocalMarkdownTranscript(line, response); result.MarkdownPath != "" {
+		r.emitMarkdownTranscriptHints(result)
 	}
 	r.recordTurn(display, line, response, memory.KindChitchat)
 }

@@ -454,12 +454,23 @@ type pageArgs struct {
 	BodyHTML   string
 	RawURL     string
 	MermaidURL string
+	MermaidJS  string
 }
 
 func renderHTMLPage(a pageArgs) string {
 	title := html.EscapeString(a.Title)
 	rawURL := html.EscapeString(a.RawURL)
 	mermaidURL := html.EscapeString(a.MermaidURL)
+	rawLink := `<span>Self-contained HTML</span>`
+	if rawURL != "" {
+		rawLink = `<a href="` + rawURL + `">Raw Markdown</a>`
+	}
+	mermaidLoader := ""
+	if strings.TrimSpace(a.MermaidJS) != "" {
+		mermaidLoader = "<script>\n" + safeInlineScript(a.MermaidJS) + "\n</script>\n"
+	} else if mermaidURL != "" {
+		mermaidLoader = `<script src="` + mermaidURL + `"></script>` + "\n"
+	}
 	return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -493,11 +504,10 @@ blockquote { border-left: 4px solid var(--line); margin-left: 0; padding-left: 1
 </head>
 <body>
 <main>
-<div class="topbar"><span>Codrax Markdown Preview</span><a href="` + rawURL + `">Raw Markdown</a></div>
+<div class="topbar"><span>Codrax Markdown Preview</span>` + rawLink + `</div>
 ` + a.BodyHTML + `
 </main>
-<script src="` + mermaidURL + `"></script>
-<script>
+` + mermaidLoader + `<script>
 function escapeHTML(value) {
   return String(value).replace(/[&<>"']/g, function (ch) {
     return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[ch];
@@ -519,6 +529,14 @@ if (window.mermaid) {
 </script>
 </body>
 </html>`
+}
+
+func safeInlineScript(js string) string {
+	return strings.NewReplacer(
+		"</script", `<\/script`,
+		"</SCRIPT", `<\/SCRIPT`,
+		"</Script", `<\/Script`,
+	).Replace(js)
 }
 
 func randomURLToken(n int) (string, error) {

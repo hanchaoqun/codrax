@@ -71,19 +71,20 @@ type RuntimeSettings struct {
 	// When OutputDumpEnabled is true (the default), the orchestrator
 	// writes a markdown transcript of every finalised read-mode answer
 	// to <CWD>/.codrax/output/<timestamp>-<pid>.md after Mutable.SetResult
-	// commits the final string. The file carries two H1 sections — `# 问题`
-	// holds the original user request (plus footnotes for any --log /
-	// --htrace / --atrace attachments) and `# 回答` holds the rendered
-	// answer body verbatim, identical to what the terminal printed in
-	// one-shot mode. Write-mode plan / apply / verify do NOT dump.
-	// Failed finalize Runs (no V2 carrier landed) are skipped — only
-	// the answer the user actually saw is ever written.
+	// commits the final string, plus a same-name .html sibling rendered by
+	// the system from those markdown bytes. The markdown file carries two H1
+	// sections — `# 问题` holds the original user request (plus footnotes for
+	// any --log / --htrace / --atrace attachments) and `# 回答` holds the
+	// answer body. The HTML file is self-contained, including the same
+	// Mermaid browser runtime used by the preview server. Write-mode plan /
+	// apply / verify do NOT dump. Runs without a final answer are skipped —
+	// only the answer the user actually saw is ever written.
 	//
 	// OutputMaxFiles caps retention. On every dump the orchestrator
-	// scans <output_dir>/*.md by mtime and deletes the oldest
-	// (count - max + 1) files before writing the new one, so the
-	// directory never grows past N. Other files in the dir are not
-	// touched. Default 10. Non-positive resets to default.
+	// scans <output_dir>/*.md by mtime and deletes the oldest (count - max +
+	// 1) files before writing the new one, deleting matching .html siblings
+	// and orphaned canonical .html dumps at the same time. Other files in
+	// the dir are not touched. Default 10. Non-positive resets to default.
 	OutputDumpEnabled *bool `yaml:"output_dump_enabled"`
 	OutputMaxFiles    *int  `yaml:"output_max_files"`
 

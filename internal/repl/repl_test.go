@@ -51,12 +51,15 @@ func (r errorRunner) Run(_, _, _ string) (*types.BusContext, error) {
 	return bc, nil
 }
 
-type markdownPathRunner struct{ path string }
+type markdownPathRunner struct {
+	path     string
+	htmlPath string
+}
 
 func (r markdownPathRunner) Run(_, _, _ string) (*types.BusContext, error) {
 	mut := types.NewMutableState("probe")
 	mut.SetResult("final answer body")
-	mut.SetFinalAnswerMarkdownPath(r.path)
+	mut.SetFinalAnswerOutputPaths(r.path, r.htmlPath)
 	return &types.BusContext{Mutable: mut}, nil
 }
 
@@ -527,7 +530,10 @@ func TestPipelineResponseShowsMarkdownOutputPathWithoutPersistingIt(t *testing.T
 	out := &bytes.Buffer{}
 	preview := &stubMarkdownPreviewer{url: "http://127.0.0.1:49152/preview/abc?token=t"}
 	r := New(Config{
-		Runner:          markdownPathRunner{path: ".codrax/output/20260516-120000.000-42.md"},
+		Runner: markdownPathRunner{
+			path:     ".codrax/output/20260516-120000.000-42.md",
+			htmlPath: ".codrax/output/20260516-120000.000-42.html",
+		},
 		Store:           store,
 		Render:          renderResultFromBus,
 		RepoRoot:        ".",
@@ -548,6 +554,9 @@ func TestPipelineResponseShowsMarkdownOutputPathWithoutPersistingIt(t *testing.T
 	if !strings.Contains(printed, "Raw Markdown saved: .codrax/output/20260516-120000.000-42.md") {
 		t.Fatalf("markdown path hint missing from REPL output:\n%s", printed)
 	}
+	if !strings.Contains(printed, "Standalone HTML saved: .codrax/output/20260516-120000.000-42.html") {
+		t.Fatalf("html path hint missing from REPL output:\n%s", printed)
+	}
 	if !strings.Contains(printed, "Browser preview: http://127.0.0.1:49152/preview/abc?token=t") {
 		t.Fatalf("markdown preview hint missing from REPL output:\n%s", printed)
 	}
@@ -559,6 +568,7 @@ func TestPipelineResponseShowsMarkdownOutputPathWithoutPersistingIt(t *testing.T
 		t.Fatalf("expected one persisted turn, got %d", len(recent))
 	}
 	if strings.Contains(recent[0].Response, "Raw Markdown saved") ||
+		strings.Contains(recent[0].Response, "Standalone HTML saved") ||
 		strings.Contains(recent[0].Response, "Browser preview") ||
 		strings.Contains(recent[0].Response, ".codrax/output") {
 		t.Fatalf("markdown path hint should not be persisted to memory: %q", recent[0].Response)
@@ -567,7 +577,7 @@ func TestPipelineResponseShowsMarkdownOutputPathWithoutPersistingIt(t *testing.T
 
 func TestFinalAnswerMarkdownNoticeLocalizes(t *testing.T) {
 	mut := types.NewMutableState("probe")
-	mut.SetFinalAnswerMarkdownPath(".codrax/output/a.md")
+	mut.SetFinalAnswerOutputPaths(".codrax/output/a.md", ".codrax/output/a.html")
 	bus := &types.BusContext{Mutable: mut}
 
 	if got := finalAnswerMarkdownNotice(bus, "zh"); got != "Markdown 原文已保存：.codrax/output/a.md" {
@@ -575,6 +585,12 @@ func TestFinalAnswerMarkdownNoticeLocalizes(t *testing.T) {
 	}
 	if got := finalAnswerMarkdownNotice(bus, "en"); got != "Raw Markdown saved: .codrax/output/a.md" {
 		t.Fatalf("en notice = %q", got)
+	}
+	if got := finalAnswerHTMLNotice(bus, "zh"); got != "HTML 单页已保存：.codrax/output/a.html" {
+		t.Fatalf("zh html notice = %q", got)
+	}
+	if got := finalAnswerHTMLNotice(bus, "en"); got != "Standalone HTML saved: .codrax/output/a.html" {
+		t.Fatalf("en html notice = %q", got)
 	}
 }
 

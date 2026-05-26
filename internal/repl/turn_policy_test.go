@@ -585,6 +585,7 @@ func TestTurnPolicyDispatch_LocalTransformWritesMarkdownAndPreview(t *testing.T)
 	}
 	printed := out.String()
 	if !strings.Contains(printed, "Raw Markdown saved: ") ||
+		!strings.Contains(printed, "Standalone HTML saved: ") ||
 		!strings.Contains(printed, "Browser preview: http://127.0.0.1:49152/preview/local?token=t") {
 		t.Fatalf("local markdown/preview hints missing:\n%s", printed)
 	}
@@ -610,6 +611,7 @@ func TestTurnPolicyDispatch_LocalTransformWritesMarkdownAndPreview(t *testing.T)
 		t.Fatalf("expected local turn in memory")
 	}
 	if strings.Contains(recent[len(recent)-1].Response, "Raw Markdown saved") ||
+		strings.Contains(recent[len(recent)-1].Response, "Standalone HTML saved") ||
 		strings.Contains(recent[len(recent)-1].Response, "Browser preview") {
 		t.Fatalf("markdown hints leaked into memory: %q", recent[len(recent)-1].Response)
 	}

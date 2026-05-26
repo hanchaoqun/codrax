@@ -1397,12 +1397,12 @@ multi_repo_enabled: false
 <tr>
 <td><code>output_dump_enabled</code></td>
 <td><code>true</code></td>
-<td>每次 read 模式答案落盘到 <code>&lt;CWD&gt;/.codrax/output/&lt;时间戳&gt;-&lt;pid&gt;.md</code>;两段 <code># 问题</code> / <code># 回答</code>,模型原文轻度排版</td>
+<td>每次 read 模式答案落盘到 <code>&lt;CWD&gt;/.codrax/output/&lt;时间戳&gt;-&lt;pid&gt;.md</code>,并生成同名 <code>.html</code> 自包含预览;Markdown 两段 <code># 问题</code> / <code># 回答</code>,模型原文轻度排版</td>
 </tr>
 <tr>
 <td><code>output_max_files</code></td>
 <td>10</td>
-<td>output 目录保留最近 N 份,旧的按 mtime 自动删</td>
+<td>output 目录按 Markdown 保留最近 N 份,旧 <code>.md</code> 及同名 <code>.html</code> 按 mtime 自动删</td>
 </tr>
 <tr>
 <td><code>markdown_preview_server</code></td>
@@ -2164,7 +2164,7 @@ codrax --mode=verify --plan-file=/tmp/plan.json
 <ul>
 <li><strong>stderr</strong>: 进度 / spinner / 调试信息</li>
 <li><strong>stdout</strong>: 最终答案纯文本(mermaid / markdown 都按源码输出,方便重定向到文件 / 转给其他工具)</li>
-<li><strong><code>.codrax/output/&lt;时间戳&gt;-&lt;pid&gt;.md</code></strong>: 每次 read 模式问答的最终答案落盘留底,文件分两段 <code># 问题</code> / <code># 回答</code>,内容是模型原文的轻度排版版本(图表保持源码,不二次渲染)。REPL 多轮对话每轮一份。默认保留最近 10 份,旧的按 mtime 自动删。失败的中间重试不会写盘 — 只留用户实际看到的最后一版。写模式 plan / apply / verify <strong>不生成</strong>这种文件。开关 <code>output_dump_enabled</code>、份数 <code>output_max_files</code> 见 5.2 节。</li>
+<li><strong><code>.codrax/output/&lt;时间戳&gt;-&lt;pid&gt;.md</code> + <code>.html</code></strong>: 每次 read 模式问答的最终答案落盘留底,Markdown 文件分两段 <code># 问题</code> / <code># 回答</code>,内容是模型原文的轻度排版版本;同名 HTML 由系统从 Markdown 派生,自包含 CSS 与 Mermaid 浏览器运行时,可直接用浏览器打开查看图表/表格/代码块。REPL 多轮对话每轮一组。默认按 Markdown 保留最近 10 份,旧 <code>.md</code> 及同名 <code>.html</code> 按 mtime 自动删。失败的中间重试不会写盘 — 只留用户实际看到的最后一版。写模式 plan / apply / verify <strong>不生成</strong>这种文件。开关 <code>output_dump_enabled</code>、份数 <code>output_max_files</code> 见 5.2 节。</li>
 <li><strong>REPL 浏览器预览</strong>: 当 <code>markdown_preview_server: auto|on</code> 且 output dump 成功时,REPL 会在答案下方显示一个带随机 token 的本地 URL。预览服务只服务当前进程登记过的 <code>.md</code> 文件,默认监听 <code>0.0.0.0:0</code>(系统随机端口),可通过 <code>markdown_preview_host</code> / <code>markdown_preview_port</code> 固定。页面内嵌固定版本 Mermaid JS,适合查看终端里容易变形的 Mermaid、表格和长代码块。</li>
 </ul>
 <hr />
