@@ -2064,3 +2064,65 @@ Two targeted serial evals were run after P0/P1/P2 landed:
   repairs may continue, but advisory/recovered-row corrections should not keep
   forcing large raw tool history through repeated prune cycles when enough
   accepted evidence already exists.
+
+## 2026-05-26 repair debt and prune checkpoint design
+
+Targeted replay showed the remaining slow path is upstream evidence convergence,
+not finalizer review. The generalized issue is that accepted structured state
+survives, but repair pressure is still rendered as a flat "do more work" signal.
+That can make a model reopen navigation even when the only remaining debt is a
+recoverable line/anchor cleanup or advisory coverage note.
+
+Design principles:
+
+1. **Classify repair debt from structured state only.** The system must not read
+   the user question or model prose to decide whether a repair blocks. It may use
+   `RepairDirective.Kind`, `RepairDirective.Advisory`, `Origin`,
+   `LineRanges`, `ToolRepair.Metadata`, active pending reads, accepted aggregate
+   facts, and accepted investigation closure state. Unknown or ambiguous debt
+   remains conservative.
+
+2. **Use three generic classes.**
+   - `principal_blocking`: a machine-known missing required source/facet/member
+     that can change the answer surface. This may block closure.
+   - `surgical_grounding`: exact line/anchor repair on already-narrow targets.
+     After close-ready, allow at most one bounded local verification/emit
+     attempt, then convert repeated guidance into advisory/caveat.
+   - `advisory`: optional breadth, stale recovered rows, unrelated subject
+     rebinds after exact source-inventory closure, and telemetry/audit notes.
+     These must not reopen broad exploration.
+
+3. **Checkpoint before pruning must carry repair context, not only facts.**
+   `buildToolHistoryPruneCheckpoint` already replays accepted citable evidence,
+   aggregate facts, closure reason, and typed observation ledger. Extend it with
+   a compact repair-debt snapshot: active blocking repairs, advisory repairs,
+   pending read count, and top target files/ranges. The checkpoint remains an
+   accepted-state replay, not new evidence or system-authored answer text.
+
+4. **Repair hints must be consumable state.** A closure-only or evidence-repair
+   hint is not permission to restart broad search. Once the model spends the
+   bounded local attempt without materializing progress, the system should stop
+   replaying the same instruction and either close with the accepted evidence or
+   disclose the remaining advisory boundary downstream.
+
+5. **Do not downgrade answer quality by hiding evidence.** This work should not
+   drop accepted evidence, aggregate facts, command/log observations, source
+   inventory facts, or model-authored summaries. It only changes how stale or
+   non-principal repair pressure is represented.
+
+Implementation tasks:
+
+- [ ] P0-A: Add a small `RepairDebtClass` helper beside the existing repair
+  queue APIs. Reuse `RepairDirective` and `ToolRepair`; do not create a parallel
+  repair ledger.
+- [ ] P0-B: Extend the prune checkpoint with a compact repair-debt snapshot and
+  tests proving accepted facts plus repair state survive tool-history pruning.
+- [ ] P0-C: Make explorer evidence-repair state respect the debt class after
+  close-ready: principal-blocking can continue, surgical grounding gets one
+  bounded local attempt, advisory cannot trigger broad/nudge loops.
+- [ ] P1-A: Add regression tests for close-ready + repaired/recovered row debt
+  so repeated navigation does not get fresh closure-only hints.
+- [ ] P1-B: Add metrics/logging for repair-debt class at prune and close-ready
+  boundaries so eval can distinguish "real blocker" from "advisory debt".
+- [ ] P2-A: Re-run targeted mixed-origin and diagram evals, then only broaden
+  eval if the structured metrics show no repeated closure-only/prune loop.
