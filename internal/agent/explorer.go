@@ -176,9 +176,12 @@ type explorerEvaluator struct {
 	midLoopNoNoveltyNavigationStreak  int
 	midLoopNoNoveltyStreakByScope     map[string]int
 	midLoopLowNoveltyHintSent         bool
-	midLoopNoEmitPushIter             int  // iteration where the current backlog window's read-without-emit nudge fired
-	midLoopNoEmitPushResultsLen       int  // allResults length when the current backlog window's read-without-emit nudge fired
-	midLoopEmitBacklogBaseLen         int  // allResults length immediately after the last successful emit_evidence that closed the prior backlog window
+	midLoopNoEmitPushIter             int // iteration where the current backlog window's read-without-emit nudge fired
+	midLoopNoEmitPushResultsLen       int // allResults length when the current backlog window's read-without-emit nudge fired
+	midLoopEmitBacklogBaseLen         int // allResults length immediately after the last successful emit_evidence that closed the prior backlog window
+	midLoopPartialReadHinted          map[string]types.RepairDebtClass
+	midLoopPartialReadBacklogKey      string
+	midLoopPartialReadBacklogClass    types.RepairDebtClass
 	primaryReadSeen                   bool // df3-drift: whether any primary-entity file has entered readSet this dispatch
 	primaryReadIter                   int  // df3-drift: iter at which a primary-entity file first entered readSet
 	notesLenAtPrimaryRead             int  // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
@@ -5059,6 +5062,10 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 	if (reads < 2 && !stats.large) || successfulToolCountSince(obs.AllToolResults, e.midLoopEmitBacklogBaseLen, map[string]bool{"emit_evidence": true}) > 0 {
 		return LoopSignal{}
 	}
+	if e.shouldSuppressReadWithoutEmitForAdvisoryPartial(obs.AllToolResults) {
+		logging.Debug("[partial_read] suppressed read_without_emit after advisory partial-read key=%s", e.midLoopPartialReadBacklogKey)
+		return LoopSignal{}
+	}
 	e.midLoopNoEmitPushSent = true
 	e.midLoopNoEmitPushIter = obs.Iteration
 	e.midLoopNoEmitPushResultsLen = len(obs.AllToolResults)
@@ -5098,6 +5105,10 @@ func (e *explorerEvaluator) postReadWithoutEmitSoftStopSignal(obs LoopObservatio
 		return LoopSignal{}
 	}
 	if successfulToolCountSince(obs.AllToolResults, e.midLoopEmitBacklogBaseLen, map[string]bool{"emit_evidence": true}) > 0 {
+		return LoopSignal{}
+	}
+	if e.shouldSuppressReadWithoutEmitForAdvisoryPartial(obs.AllToolResults) {
+		logging.Debug("[partial_read] suppressed soft-stop read_without_emit after advisory partial-read key=%s", e.midLoopPartialReadBacklogKey)
 		return LoopSignal{}
 	}
 	if !e.midLoopNoEmitPushSent {
@@ -5205,6 +5216,10 @@ func (e *explorerEvaluator) postReadWithoutEmitEscalationSignal(obs LoopObservat
 		return LoopSignal{}
 	}
 	if !e.awaitingStructuredEvidenceMaterialization(obs.AllToolResults) {
+		return LoopSignal{}
+	}
+	if e.shouldSuppressReadWithoutEmitForAdvisoryPartial(obs.AllToolResults) {
+		logging.Debug("[partial_read] suppressed read_without_emit escalation after advisory partial-read key=%s", e.midLoopPartialReadBacklogKey)
 		return LoopSignal{}
 	}
 	if obs.Iteration < e.midLoopNoEmitPushIter+2 {
@@ -6111,6 +6126,8 @@ func (e *explorerEvaluator) syncEmitBacklogWindow(results []types.ToolResult) {
 	e.midLoopExecRedirectSent = false
 	e.midLoopNoEmitPushIter = 0
 	e.midLoopNoEmitPushResultsLen = 0
+	e.midLoopPartialReadBacklogKey = ""
+	e.midLoopPartialReadBacklogClass = ""
 }
 
 func (e *explorerEvaluator) awaitingStructuredEvidenceMaterialization(results []types.ToolResult) bool {
@@ -6118,6 +6135,19 @@ func (e *explorerEvaluator) awaitingStructuredEvidenceMaterialization(results []
 		return false
 	}
 	return successfulToolCountSince(results, e.midLoopEmitBacklogBaseLen, completionProgressToolNames) == 0
+}
+
+func (e *explorerEvaluator) shouldSuppressReadWithoutEmitForAdvisoryPartial(results []types.ToolResult) bool {
+	if e == nil || e.midLoopPartialReadBacklogClass != types.RepairDebtAdvisory {
+		return false
+	}
+	if !hasSuccessfulTool(results, "emit_evidence") && len(e.structuredEvidence) == 0 && !e.closureReadyLatched() {
+		return false
+	}
+	readiness := e.completionReadiness(results, -1, false, false)
+	return e.completionReadinessHasAnswerCarrier(readiness, e.scalarRoleLocateClosureReady()) ||
+		len(e.structuredEvidence) > 0 ||
+		e.closureReadyLatched()
 }
 
 func (e *explorerEvaluator) awaitingEvidenceRepair(results []types.ToolResult) bool {
@@ -8368,6 +8398,7 @@ func (e *explorerEvaluator) postPrimaryReadMidLoopSignal(obs LoopObservation) Lo
 	}
 	if partials := detectPartiallyReadSymbols(obs.AllToolResults, e.searchResult.Graph); len(partials) > 0 {
 		partials = e.filterPartialReadsForPostPrimaryWithHistory(partials, obs.AllToolResults)
+		partials = e.filterPartialReadsByDebt(partials, obs.AllToolResults)
 		if len(partials) == 0 {
 			return LoopSignal{}
 		}
@@ -8385,6 +8416,7 @@ func (e *explorerEvaluator) postPrimaryReadMidLoopSignal(obs LoopObservation) Lo
 		if !found {
 			chosen = partials[0]
 		}
+		e.rememberPartialReadHint(chosen, obs.AllToolResults)
 		e.midLoopPostPrimaryInjected = true
 		traceSupplement := e.orderedSameFileTracePartialReadHint()
 		return LoopSignal{
@@ -8747,6 +8779,254 @@ func (e *explorerEvaluator) filterPartialReadsByGroundedEvidence(hints []partial
 		out = append(out, hint)
 	}
 	return out
+}
+
+type partialReadDebt struct {
+	class  types.RepairDebtClass
+	reason string
+}
+
+func (e *explorerEvaluator) filterPartialReadsByDebt(hints []partialReadHint, history []types.ToolResult) []partialReadHint {
+	if len(hints) == 0 {
+		return nil
+	}
+	out := make([]partialReadHint, 0, len(hints))
+	for _, hint := range hints {
+		debt := e.classifyPartialReadDebt(hint, history)
+		if e.shouldSuppressPartialReadHint(hint, debt, history) {
+			logging.Debug("[partial_read] suppressed class=%s reason=%s key=%s", debt.class, debt.reason, partialReadHintKey(hint))
+			continue
+		}
+		out = append(out, hint)
+	}
+	return out
+}
+
+func (e *explorerEvaluator) classifyPartialReadDebt(hint partialReadHint, history []types.ToolResult) partialReadDebt {
+	if e == nil {
+		return partialReadDebt{class: types.RepairDebtAdvisory, reason: "no_evaluator"}
+	}
+	if class, ok := e.partialReadPendingReadDebt(hint); ok {
+		return partialReadDebt{class: class, reason: "pending_read"}
+	}
+	if partialReadHintMatchesAnyEndpoint(hint, e.tracePathMissingTerminalEndpointHints(history)) ||
+		partialReadHintMatchesAnyEndpoint(hint, e.tracePathMissingStructuredTerminalEndpointHints()) {
+		return partialReadDebt{class: types.RepairDebtPrincipalBlocking, reason: "missing_trace_endpoint"}
+	}
+	if e.partialReadMatchesExactTarget(hint) {
+		return partialReadDebt{class: types.RepairDebtPrincipalBlocking, reason: "exact_target"}
+	}
+	if e.partialReadMatchesSourceInventoryGap(hint) {
+		return partialReadDebt{class: types.RepairDebtPrincipalBlocking, reason: "source_inventory_gap"}
+	}
+	if e.partialReadHasUngroundedPrincipalEvidence(hint) {
+		return partialReadDebt{class: types.RepairDebtSurgicalGrounding, reason: "ungrounded_evidence"}
+	}
+	if e.partialReadHasGroundedEvidence(hint) {
+		return partialReadDebt{class: types.RepairDebtAdvisory, reason: "already_grounded"}
+	}
+	if hasSuccessfulTool(history, "emit_evidence") || len(e.structuredEvidence) > 0 {
+		return partialReadDebt{class: types.RepairDebtAdvisory, reason: "post_evidence"}
+	}
+	return partialReadDebt{class: types.RepairDebtSurgicalGrounding, reason: "pre_evidence_span"}
+}
+
+func (e *explorerEvaluator) shouldSuppressPartialReadHint(hint partialReadHint, debt partialReadDebt, history []types.ToolResult) bool {
+	if debt.class == types.RepairDebtPrincipalBlocking {
+		return false
+	}
+	key := partialReadHintKey(hint)
+	if debt.class == types.RepairDebtSurgicalGrounding {
+		if e != nil && e.midLoopPartialReadHinted != nil {
+			if _, seen := e.midLoopPartialReadHinted[key]; seen {
+				return true
+			}
+		}
+		return false
+	}
+	if debt.class == types.RepairDebtAdvisory {
+		return hasSuccessfulTool(history, "emit_evidence") || len(e.structuredEvidence) > 0 || e.closureReadyLatched()
+	}
+	return false
+}
+
+func (e *explorerEvaluator) rememberPartialReadHint(hint partialReadHint, history []types.ToolResult) {
+	if e == nil {
+		return
+	}
+	debt := e.classifyPartialReadDebt(hint, history)
+	key := partialReadHintKey(hint)
+	if e.midLoopPartialReadHinted == nil {
+		e.midLoopPartialReadHinted = make(map[string]types.RepairDebtClass)
+	}
+	e.midLoopPartialReadHinted[key] = debt.class
+	e.midLoopPartialReadBacklogKey = key
+	e.midLoopPartialReadBacklogClass = debt.class
+	logging.Debug("[partial_read] hinted class=%s reason=%s key=%s", debt.class, debt.reason, key)
+}
+
+func partialReadHintKey(h partialReadHint) string {
+	file := canonicalExplorerPath(h.file)
+	return fmt.Sprintf("%s\x00%s\x00%d-%d", file, types.NormalizedSurfaceSymbolTail(h.symbolName), h.symStart, h.symEnd)
+}
+
+func partialReadUnreadRange(h partialReadHint) types.LineRange {
+	start := h.readEnd + 1
+	if start < h.symStart {
+		start = h.symStart
+	}
+	return types.LineRange{Start: start, End: h.symEnd}
+}
+
+func (e *explorerEvaluator) partialReadPendingReadDebt(h partialReadHint) (types.RepairDebtClass, bool) {
+	if e == nil || e.mutable == nil {
+		return "", false
+	}
+	closure := e.mutable.EvidenceClosure()
+	if closure == nil {
+		return "", false
+	}
+	file := canonicalExplorerPath(h.file)
+	unread := partialReadUnreadRange(h)
+	for _, pending := range closure.PendingReads() {
+		if canonicalExplorerPath(pending.File) != file {
+			continue
+		}
+		if len(pending.LineRanges) == 0 {
+			return types.ClassifyPendingReadRepair(pending), true
+		}
+		for _, rng := range pending.LineRanges {
+			if lineRangesOverlap(unread, rng) {
+				return types.ClassifyPendingReadRepair(pending), true
+			}
+		}
+	}
+	return "", false
+}
+
+func lineRangesOverlap(a, b types.LineRange) bool {
+	if a.Start <= 0 || a.End <= 0 || b.Start <= 0 || b.End <= 0 {
+		return false
+	}
+	return a.Start <= b.End && b.Start <= a.End
+}
+
+func (e *explorerEvaluator) partialReadMatchesExactTarget(h partialReadHint) bool {
+	if e == nil {
+		return false
+	}
+	targets := make([]string, 0, 8)
+	if e.exactResolution != nil {
+		targets = append(targets, e.exactResolution.Targets...)
+	}
+	if e.analysisIR != nil {
+		if e.analysisIR.AnswerContract.ExactResolution != nil {
+			targets = append(targets, e.analysisIR.AnswerContract.ExactResolution.Targets...)
+		}
+		rm := e.analysisIR.RequestModel
+		targets = append(targets, rm.AnalyzerHints.ExactTargets...)
+		switch rm.AnswerSubject.Kind {
+		case types.SubjectFunctionName, types.SubjectReturnValue, types.SubjectStructField,
+			types.SubjectHandlerRoute, types.SubjectTypeName, types.SubjectInterface:
+			targets = append(targets, rm.AnalyzerHints.MentionedEntities...)
+			if len(rm.AnalyzerHints.MentionedEntities) == 0 {
+				targets = append(targets, rm.AnalyzerHints.PrimaryEntities...)
+			}
+		}
+	}
+	return partialReadHintMatchesAnySurface(h, targets)
+}
+
+func (e *explorerEvaluator) partialReadMatchesSourceInventoryGap(h partialReadHint) bool {
+	if e == nil {
+		return false
+	}
+	gap := e.sourceInventoryCandidateUniverseCoverageGap()
+	if !gap.Blocking || len(gap.Missing) == 0 {
+		return false
+	}
+	for _, member := range gap.Missing {
+		if partialReadHintMatchesSourceInventoryMember(h, member) {
+			return true
+		}
+	}
+	return false
+}
+
+func partialReadHintMatchesSourceInventoryMember(h partialReadHint, member types.SourceInventoryObservationMember) bool {
+	if partialReadHintMatchesAnySurface(h, []string{member.Name, member.Key}) {
+		return true
+	}
+	file := canonicalExplorerPath(h.file)
+	if file != "" && canonicalExplorerPath(member.File) == file && member.Line > 0 && member.Line >= h.symStart && member.Line <= h.symEnd {
+		return true
+	}
+	for _, attr := range member.Attributes {
+		if partialReadHintMatchesAnySurface(h, []string{attr.Name, attr.Key}) {
+			return true
+		}
+		if file != "" && canonicalExplorerPath(attr.File) == file && attr.Line > 0 && attr.Line >= h.symStart && attr.Line <= h.symEnd {
+			return true
+		}
+	}
+	return false
+}
+
+func partialReadHintMatchesAnySurface(h partialReadHint, surfaces []string) bool {
+	if len(surfaces) == 0 {
+		return false
+	}
+	allowed := make(map[string]bool)
+	for _, surface := range surfaces {
+		for _, tail := range partialReadSurfaceTails(surface) {
+			allowed[tail] = true
+		}
+	}
+	return partialReadHintMatchesTypedTails(h, allowed)
+}
+
+func (e *explorerEvaluator) partialReadHasUngroundedPrincipalEvidence(h partialReadHint) bool {
+	return e.partialReadHasEvidenceMatching(h, func(item types.EvidenceItem) bool {
+		switch item.GroundingStatus {
+		case types.GroundingRecovered, types.GroundingUngrounded:
+			return true
+		default:
+			return false
+		}
+	})
+}
+
+func (e *explorerEvaluator) partialReadHasGroundedEvidence(h partialReadHint) bool {
+	return e.partialReadHasEvidenceMatching(h, func(item types.EvidenceItem) bool {
+		return item.GroundingStatus == types.GroundingGrounded || item.GroundingStatus == ""
+	})
+}
+
+func (e *explorerEvaluator) partialReadHasEvidenceMatching(h partialReadHint, accept func(types.EvidenceItem) bool) bool {
+	if e == nil || len(e.structuredEvidence) == 0 {
+		return false
+	}
+	file := canonicalExplorerPath(h.file)
+	hintTails := make(map[string]bool)
+	for _, tail := range partialReadSurfaceTails(h.symbolName) {
+		hintTails[tail] = true
+	}
+	for _, item := range e.structuredEvidence {
+		if !accept(item) {
+			continue
+		}
+		if canonicalEvidenceSourcePath(item.Source) != file {
+			continue
+		}
+		for _, surface := range []string{item.AnchorSymbol, item.Subject, item.Object, item.OwnerSymbol} {
+			for _, tail := range partialReadSurfaceTails(surface) {
+				if hintTails[tail] {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func (e *explorerEvaluator) authoritativeFrameRealignmentHint(history []types.ToolResult) string {
@@ -9324,7 +9604,10 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	}
 
 	// Check 1: function-boundary coverage.
-	if hints := e.filterPartialReadsForCurrentContext(detectPartiallyReadSymbols(allResults, e.searchResult.Graph)); len(hints) > 0 {
+	if hints := e.filterPartialReadsByDebt(
+		e.filterPartialReadsForCurrentContext(detectPartiallyReadSymbols(allResults, e.searchResult.Graph)),
+		allResults,
+	); len(hints) > 0 {
 		h := hints[0] // worst-coverage offender
 		unreadLines := h.symEnd - h.readEnd
 		if unreadLines <= e.heuristics.PartialReadLineThreshold {
@@ -9342,6 +9625,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 				h.symbolName, h.file, h.readEnd, h.symStart, h.symEnd, h.coverage*100, unreadLines,
 				h.file, h.readEnd+1, h.symEnd)
 		}
+		e.rememberPartialReadHint(h, allResults)
 		hintKey = "explorer.mid-loop.partial-read"
 	}
 
@@ -10082,11 +10366,13 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	// instead of finishing irrelevant large functions.
 	if e.searchResult != nil && e.searchResult.Graph != nil && !closeReadySoftStop {
 		partialHints := e.filterPartialReadsForCurrentContext(detectPartiallyReadSymbols(history, e.searchResult.Graph))
+		partialHints = e.filterPartialReadsByDebt(partialHints, history)
 		if len(partialHints) > 0 {
 			progress = true // keep the loop alive via LoopSignal.Progress
 			var hint strings.Builder
 			hint.WriteString("**Incomplete function reads detected.** If these functions are relevant to the question, finish reading them:\n\n")
 			for _, ph := range partialHints {
+				e.rememberPartialReadHint(ph, history)
 				unreadLines := ph.symEnd - ph.readEnd
 				if unreadLines <= e.heuristics.PartialReadLineThreshold {
 					// read_file offset is 0-based; next unread 1-based

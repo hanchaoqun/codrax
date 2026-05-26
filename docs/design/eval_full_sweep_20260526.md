@@ -2186,3 +2186,86 @@ implementation windows unless the unread tail is machine-linked to a missing
 principal claim. Track as P1-E for the next batch: make partial-read nudges
 repair-debt aware and close-ready aware, using structured evidence coverage and
 explicit missing principal facets rather than broad function-span percentage.
+
+### P1-E design · partial-read / read-without-emit convergence
+
+Root cause:
+
+- `detectPartiallyReadSymbols` is structurally useful, but today its output is
+  still selected primarily from function/method span coverage. That is safe as
+  a navigation observation, not safe as a reason to keep widening after the
+  model has already emitted accepted evidence for the answer surface.
+- `postReadWithoutEmitSignal` then sees the windows opened by the partial-read
+  hint and correctly asks for `emit_evidence`. After a successful evidence
+  batch, the backlog window resets; another advisory partial-read can reopen the
+  same style of branch. The combination creates a loop even though neither
+  component is individually wrong.
+- Existing close-ready and repair-debt code already solves the downstream
+  version of this problem, but partial-read has not yet been represented as
+  debt. It therefore bypasses the same `principal_blocking` /
+  `surgical_grounding` / `advisory` contract used by accepted-closure repair.
+
+Contract:
+
+1. Function-span coverage is never a principal answer requirement by itself.
+   It only becomes blocking when another structured source proves the unread
+   range is tied to the requested answer surface.
+2. Classification must use structured state only: `AnalysisIR`,
+   `AnswerContract`, exact targets, source-inventory candidate universe gaps,
+   accepted evidence, flow findings, pending repair metadata, and repo-map
+   symbol/file/line metadata. Do not inspect the user request text or model
+   prose for control flow.
+3. Unknown / ambiguous partial-read debt is not a hard blocker. It may be shown
+   as advisory navigation while there is no accepted answer carrier, but after
+   accepted evidence or a close-ready signal it must not reopen broad
+   exploration.
+4. Surgical partial-read debt may justify one bounded local verification, keyed
+   by stable `(file, symbol, start, end)` span. Repeated hints on the same span
+   must degrade to advisory unless new structured evidence makes it
+   principal-blocking.
+5. `read-without-emit` must know whether the current read backlog came from
+   advisory partial-read expansion. If the answer carrier is otherwise enough,
+   it should prefer materializing already-visible facts or closing, not escalate
+   into another navigation loop.
+
+Implementation tasks:
+
+- [x] P1-E1: Add a small partial-read debt classifier beside the existing
+  partial-read filters. Prefer reusing `types.RepairDebtClass` and converting
+  exact read obligations into `types.PendingRead`-like facts where possible.
+  The classifier must return `principal_blocking`, `surgical_grounding`, or
+  `advisory` plus a short machine-readable reason for metrics.
+- [x] P1-E2: Apply the classifier in `postPrimaryReadMidLoopSignal`,
+  `observeMidLoop` partial-read selection, and soft-stop phase-1 partial-read
+  hints. Principal-blocking debt may still hint; surgical debt may hint once;
+  advisory debt is suppressed once accepted evidence / an answer carrier exists.
+- [x] P1-E3: Track consumed partial-read spans and the class that opened the
+  current read backlog. Use this to prevent advisory/surgical spans from
+  repeatedly reopening after an evidence batch resets the generic emit backlog.
+- [x] P1-E4: Make `postReadWithoutEmitSignal`,
+  `postReadWithoutEmitEscalationSignal`, and the soft-stop read-without-emit
+  path aware of advisory partial-read backlogs. They should still force evidence
+  materialization for real current-source claims, but suppress navigation
+  escalation when the only new reads are non-principal advisory windows and
+  completion readiness already has an answer carrier.
+- [x] P1-E5: Add regression tests:
+  - source-only diagram/topology evidence should not be dragged into a large
+    helper function tail once stage/topology anchors are grounded;
+  - a real exact-target mechanism/call-chain partial-read remains
+    principal-blocking;
+  - read-without-emit does not escalate after advisory partial-read windows when
+    accepted evidence can already carry the answer;
+  - the logic is language-agnostic by using repo-map symbol metadata rather than
+    Go-specific identifiers.
+- [x] P1-E6: Add metrics/logging for `partial_read_principal_blocking`,
+  `partial_read_surgical`, `partial_read_advisory_suppressed`, and
+  `read_without_emit_suppressed_after_advisory_partial`. These metrics are
+  diagnostic only and must not drive answer semantics.
+
+Red-line guard:
+
+- The system may decline to keep nudging, but it must not delete model evidence,
+  rewrite the user intent, or fabricate a final answer. When partial-read is
+  advisory, the model remains free to continue by choosing its own tools; the
+  framework simply stops treating broad function-tail coverage as a mandatory
+  system repair.

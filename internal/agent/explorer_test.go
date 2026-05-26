@@ -5932,6 +5932,116 @@ func TestFilterPartialReadsForBoundedTraceDoesNotUseSourceFunctionAsMissingSink(
 	}
 }
 
+func TestFilterPartialReadsByDebtSuppressesAdvisoryAfterEvidence(t *testing.T) {
+	eval := &explorerEvaluator{
+		structuredEvidence: []types.EvidenceItem{{
+			Kind:            types.EvidenceRelationship,
+			Source:          "internal/orchestrator/scheduler.go",
+			LineStart:       42,
+			AnchorSymbol:    "pipelineTopology",
+			Subject:         "pipelineTopology",
+			Predicate:       "orders",
+			Object:          "stages",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+	hints := []partialReadHint{{
+		file:       "internal/orchestrator/scheduler.go",
+		symbolName: "runReadSchedulerLoop",
+		symStart:   100,
+		symEnd:     500,
+		readEnd:    160,
+		coverage:   0.15,
+	}}
+	history := []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[internal/orchestrator/scheduler.go: showing lines 100-160 of 900 total]\ncode"},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item(s)"},
+	}
+
+	if got := eval.filterPartialReadsByDebt(hints, history); len(got) != 0 {
+		t.Fatalf("post-evidence advisory partial-read should be suppressed, got %+v", got)
+	}
+}
+
+func TestFilterPartialReadsByDebtKeepsExactTargetPrincipal(t *testing.T) {
+	eval := &explorerEvaluator{
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+			AnalyzerHints: types.AnalyzerHints{ExactTargets: []string{"runReadSchedulerLoop"}},
+		}},
+		structuredEvidence: []types.EvidenceItem{{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/orchestrator/scheduler.go",
+			LineStart:       120,
+			AnchorSymbol:    "runReadSchedulerLoop",
+			Subject:         "runReadSchedulerLoop",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+	hints := []partialReadHint{{
+		file:       "internal/orchestrator/scheduler.go",
+		symbolName: "runReadSchedulerLoop",
+		symStart:   100,
+		symEnd:     500,
+		readEnd:    160,
+		coverage:   0.15,
+	}}
+	history := []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[internal/orchestrator/scheduler.go: showing lines 100-160 of 900 total]\ncode"},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item(s)"},
+	}
+
+	if got := eval.filterPartialReadsByDebt(hints, history); len(got) != 1 {
+		t.Fatalf("exact-target partial-read must remain principal-blocking, got %+v", got)
+	}
+}
+
+func TestFilterPartialReadsByDebtLimitsSurgicalSpanToOneHint(t *testing.T) {
+	eval := &explorerEvaluator{}
+	hints := []partialReadHint{{
+		file:       "src/pipeline.ts",
+		symbolName: "Pipeline.run",
+		symStart:   10,
+		symEnd:     220,
+		readEnd:    80,
+		coverage:   0.33,
+	}}
+	history := []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[src/pipeline.ts: showing lines 10-80 of 300 total]\ncode"},
+	}
+
+	first := eval.filterPartialReadsByDebt(hints, history)
+	if len(first) != 1 {
+		t.Fatalf("pre-evidence surgical partial-read should be allowed once, got %+v", first)
+	}
+	eval.rememberPartialReadHint(first[0], history)
+	if second := eval.filterPartialReadsByDebt(hints, history); len(second) != 0 {
+		t.Fatalf("repeated surgical partial-read span should be suppressed, got %+v", second)
+	}
+}
+
+func TestReadWithoutEmitSuppressesAdvisoryPartialBacklog(t *testing.T) {
+	eval := &explorerEvaluator{
+		midLoopPartialReadBacklogKey:   "src/pipeline.ts\x00run\x0010-220",
+		midLoopPartialReadBacklogClass: types.RepairDebtAdvisory,
+		structuredEvidence: []types.EvidenceItem{{
+			Kind:            types.EvidenceRelationship,
+			Source:          "src/pipeline.ts",
+			LineStart:       20,
+			AnchorSymbol:    "Pipeline.run",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+	history := []types.ToolResult{
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item(s)"},
+		{ToolName: "read_file", Success: true, Summary: "[src/pipeline.ts: showing lines 80-140 of 300 total]\ncode"},
+	}
+
+	if !eval.shouldSuppressReadWithoutEmitForAdvisoryPartial(history) {
+		t.Fatal("advisory partial-read backlog with accepted evidence should not escalate read-without-emit")
+	}
+}
+
 func boundedTraceEndpointEval() *explorerEvaluator {
 	return &explorerEvaluator{
 		phase: 1,
