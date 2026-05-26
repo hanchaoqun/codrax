@@ -1143,6 +1143,81 @@ func TestParseOutput_ExhaustiveEnumerationRequiresMemberSetHandoffBeforeTurnB(t 
 	}
 }
 
+func TestParseOutput_PartialSourceInventoryMemberSetBlocksCompletePromotion(t *testing.T) {
+	eval := phase11Eval("List all source scopes")
+	eval.isEnumerationQuery = true
+	ctx := parseOutputCtx(string(types.ReqEnumeration), "list_of_symbols")
+	ctx.Mutable = types.NewMutableState("List all source scopes")
+	ctx.Mutable.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"src"},
+		Provenance:   []string{"tool:list_files:direct"},
+		Lens:         []string{"direct_children", "count"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRolePackage,
+			Complete: true,
+			Count:    3,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:       "alpha",
+				Key:        "src/alpha",
+				File:       "src/alpha",
+				Role:       types.AnswerCandidateRolePackage,
+				Provenance: []string{"tool:list_files:direct"},
+			}, {
+				Name:       "beta",
+				Key:        "src/beta",
+				File:       "src/beta",
+				Role:       types.AnswerCandidateRolePackage,
+				Provenance: []string{"tool:list_files:direct"},
+			}, {
+				Name:       "gamma",
+				Key:        "src/gamma",
+				File:       "src/gamma",
+				Role:       types.AnswerCandidateRolePackage,
+				Provenance: []string{"tool:list_files:direct"},
+			}},
+		}},
+	})
+	ctx.Mutable.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "source scopes",
+		Value:   "2",
+		Members: []string{"alpha", "beta"},
+	}})
+	ctx.Mutable.SetInvestigationComplete("partial source inventory member set accepted")
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentEnumerate
+	ctx.AnalysisIR.RequestModel.Predicates = types.SemanticPredicates{IsCategoryEnumeration: true}
+	ctx.AnalysisIR.RequestModel.CompletenessObligation = &types.CompletenessObligation{
+		Required:    true,
+		SourceQuote: "all source scopes",
+	}
+	ctx.AnalysisIR.RequestModel.AnalyzerHints = types.AnalyzerHints{
+		Kind: string(types.ReqEnumeration),
+	}
+	eval.analysisIR = ctx.AnalysisIR
+
+	out, err := eval.ParseOutput(ctx, nil, phase11ToolResults(), nil)
+	if err != nil {
+		t.Fatalf("ParseOutput error: %v", err)
+	}
+	if out.SignalUpdates == nil {
+		t.Fatal("SignalUpdates must be populated")
+	}
+	if out.SignalUpdates.HasEnoughFacts {
+		t.Fatal("partial member_set must not be promoted complete while an exact candidate universe gap is blocking")
+	}
+	if !strings.Contains(out.RetryHint, "exact source-inventory candidate universe") ||
+		!strings.Contains(out.RetryHint, "gamma") {
+		t.Fatalf("retry hint should prioritize the scoped candidate universe gap, got %q", out.RetryHint)
+	}
+	if strings.Contains(out.RetryHint, "fewer than 2 distinct evidence tool types") ||
+		strings.Contains(out.RetryHint, "Read more of the discovered files") {
+		t.Fatalf("candidate universe gap should beat generic retry hints, got %q", out.RetryHint)
+	}
+}
+
 func TestParseOutput_RelationEnumerationRequiresMemberSetHandoffBeforeTurnB(t *testing.T) {
 	eval := phase11Eval("Which agents can call sub-agents?")
 	ctx := parseOutputCtx(string(types.ReqRegistration), "list_of_symbols")

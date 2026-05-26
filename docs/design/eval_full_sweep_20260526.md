@@ -1541,6 +1541,16 @@ Batch P0-D — exact candidate universe precedence:
   remain advisory unless the model claims exact completeness against the same
   axis and the exact universe is machine-known.
 
+Delivery status:
+
+- Exact candidate-universe gaps now outrank broad discovered-file coverage in
+  mid-loop, soft-stop, and ParseOutput retry paths. A partial model-authored
+  `member_set` can no longer be promoted complete just because
+  `emit_investigation_complete` was called when the same exact universe still
+  has uncovered or undisclosed members. The repair remains checklist-only: the
+  system asks the model to verify, exclude, or caveat missing members; it does
+  not auto-fill the answer set.
+
 Batch P0-E — mixed-origin closure ledger:
 
 - Promote deterministic command/runtime/VCS measurements and artifact facts into

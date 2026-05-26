@@ -6515,6 +6515,81 @@ func TestObserveMidLoop_ExactCandidateUniverseSuppressesBroadEnumerationHint(t *
 	}
 }
 
+func TestExplorerSoftStop_ExactCandidateUniverseBeatsBroadCoverageHints(t *testing.T) {
+	mut := types.NewMutableState("list all source scopes")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:       true,
+		AdvisoryOnly: true,
+		Complete:     true,
+		Scopes:       []string{"src"},
+		Provenance:   []string{"tool:list_files:direct"},
+		Lens:         []string{"direct_children", "count"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRolePackage,
+			Complete: true,
+			Count:    3,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:       "alpha",
+				Key:        "src/alpha",
+				File:       "src/alpha",
+				Role:       types.AnswerCandidateRolePackage,
+				Provenance: []string{"tool:list_files:direct"},
+			}, {
+				Name:       "beta",
+				Key:        "src/beta",
+				File:       "src/beta",
+				Role:       types.AnswerCandidateRolePackage,
+				Provenance: []string{"tool:list_files:direct"},
+			}, {
+				Name:       "gamma",
+				Key:        "src/gamma",
+				File:       "src/gamma",
+				Role:       types.AnswerCandidateRolePackage,
+				Provenance: []string{"tool:list_files:direct"},
+			}},
+		}},
+	})
+	eval := &explorerEvaluator{
+		phase:              1,
+		userQuestion:       "list all source scopes",
+		isEnumerationQuery: true,
+		mutable:            mut,
+		requiredFiles:      []string{"src/unrelated/runtime.go", "src/unrelated/config.go"},
+		heuristics: types.ExploreHeuristics{
+			SoftStopEnumCoverage: 0.8,
+		},
+		analysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{IsCategoryEnumeration: true},
+			AnalyzerHints: types.AnalyzerHints{
+				Kind: string(types.ReqEnumeration),
+			},
+			CompletenessObligation: &types.CompletenessObligation{
+				Required:    true,
+				SourceQuote: "all source scopes",
+			},
+		}},
+	}
+	history := []types.ToolResult{
+		{ToolName: "list_files", Success: true, Summary: "[list_files: path=src recursive=true]\nsrc/alpha/a.go\nsrc/beta/b.go\nsrc/gamma/c.go\nsrc/unrelated/runtime.go\n"},
+		{ToolName: "read_file", Success: true, Summary: "[src/alpha/a.go: showing lines 1-20 of 20]\nalpha\n"},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 1 item"},
+	}
+
+	sig := softStopWithContinuations(eval, "I think the list is ready.", 4, 1, history)
+	if !sig.HintRequested || sig.HintKey != "explorer.phase1.candidate-universe" {
+		t.Fatalf("exact candidate universe should beat broad coverage hints, got %+v", sig)
+	}
+	if !strings.Contains(sig.Hint, "gamma") || !strings.Contains(sig.Hint, "candidate universe") {
+		t.Fatalf("candidate-universe hint should name missing exact members, got: %s", sig.Hint)
+	}
+	for _, forbidden := range []string{"Analyzer Required Files", "Enumeration completeness check", "discovered relevant files"} {
+		if strings.Contains(sig.Hint, forbidden) {
+			t.Fatalf("candidate-universe gap must not fall through to broad hint %q:\n%s", forbidden, sig.Hint)
+		}
+	}
+}
+
 func TestObserveMidLoop_CompletionReadyWaitsForCallChainTerminalEndpoint(t *testing.T) {
 	eval := boundedTraceEndpointEval()
 	eval.heuristics = types.ExploreHeuristics{MidLoopMinIteration: 2}

@@ -7083,15 +7083,45 @@ func (e *explorerEvaluator) postCompletionReadySignal(obs LoopObservation) LoopS
 }
 
 func (e *explorerEvaluator) sourceInventoryCandidateUniverseCoverageGap() tool.SourceInventoryCandidateUniverseGap {
-	if e == nil || e.mutable == nil || e.analysisIR == nil || !e.needsStructuredMemberSetHandoff(nil) {
+	return e.sourceInventoryCandidateUniverseCoverageGapFor(nil)
+}
+
+func (e *explorerEvaluator) sourceInventoryCandidateUniverseCoverageGapFor(ctx *types.AgentContext) tool.SourceInventoryCandidateUniverseGap {
+	if e == nil {
+		return tool.SourceInventoryCandidateUniverseGap{}
+	}
+	mutable := e.mutable
+	analysisIR := e.analysisIR
+	if ctx != nil {
+		if mutable == nil {
+			mutable = ctx.Mutable
+		}
+		if analysisIR == nil {
+			analysisIR = ctx.AnalysisIR
+		}
+	}
+	if mutable == nil || analysisIR == nil {
+		return tool.SourceInventoryCandidateUniverseGap{}
+	}
+	handoffCtx := ctx
+	if handoffCtx == nil || handoffCtx.Mutable == nil || handoffCtx.AnalysisIR == nil {
+		handoffCtx = &types.AgentContext{
+			RepoRoot:   e.repoRoot,
+			Mutable:    mutable,
+			AnalysisIR: analysisIR,
+			MultiGraph: e.multiGraphHandle,
+			Ctx:        context.Background(),
+		}
+	}
+	if !e.needsStructuredMemberSetHandoff(handoffCtx) {
 		return tool.SourceInventoryCandidateUniverseGap{}
 	}
 	return tool.SourceInventoryCandidateUniverseCoverageGap(&types.BusContext{
 		RepoRoot:   e.repoRoot,
-		Mutable:    e.mutable,
-		AnalysisIR: e.analysisIR,
+		Mutable:    mutable,
+		AnalysisIR: analysisIR,
 		MultiGraph: e.multiGraphHandle,
-	}, e.mutable.StableInvestigationAggregateFacts())
+	}, mutable.StableInvestigationAggregateFacts())
 }
 
 func (e *explorerEvaluator) postCandidateUniversePendingSignal(gap tool.SourceInventoryCandidateUniverseGap) LoopSignal {
@@ -7099,19 +7129,23 @@ func (e *explorerEvaluator) postCandidateUniversePendingSignal(gap tool.SourceIn
 		return LoopSignal{}
 	}
 	e.midLoopCandidateUniverseSent = true
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        "explorer.mid-loop.candidate-universe-pending",
+		Hint:           renderCandidateUniversePendingHint(gap),
+		Progress:       true,
+		BypassThrottle: true,
+		BypassBudget:   true,
+	}
+}
+
+func renderCandidateUniversePendingHint(gap tool.SourceInventoryCandidateUniverseGap) string {
 	var b strings.Builder
 	b.WriteString("Progress check: exact structured navigation has observed a candidate universe that is not yet fully covered or explicitly excluded by your structured `member_set`. ")
 	b.WriteString("Do not treat this as the system deciding the final answer set. Use it as a checklist: verify the missing candidates that are relevant to your answer, put verified principal members in `aggregate_facts.member_set`, and put intentionally ruled-out candidates in `excluded` or a matching `excluded_count` disclosure.\n")
 	fmt.Fprintf(&b, "- candidate universe gap: %s\n", gap.Summary(12))
 	b.WriteString("- if the exact candidate universe is broader than the user's requested answer, preserve that boundary in the structured handoff instead of silently closing with a smaller list.")
-	return LoopSignal{
-		HintRequested:  true,
-		HintKey:        "explorer.mid-loop.candidate-universe-pending",
-		Hint:           b.String(),
-		Progress:       true,
-		BypassThrottle: true,
-		BypassBudget:   true,
-	}
+	return b.String()
 }
 
 func (e *explorerEvaluator) completionReadinessHasAnswerCarrier(readiness explorerCompletionReadiness, scalarLocateReady bool) bool {
@@ -9967,6 +10001,14 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	scopeReadCount, scopeCoverage, scopeUnread := coverageSnapshot(scope, readSet)
 	unread := append([]string(nil), scopeUnread...)
 	closeReadySoftStop := firstSoftStop && e.firstSoftStopLooksCloseReady(history, discovered, readSet)
+	if gap := e.sourceInventoryCandidateUniverseCoverageGap(); gap.Blocking {
+		return LoopSignal{
+			HintRequested: true,
+			HintKey:       "explorer.phase1.candidate-universe",
+			Hint:          renderCandidateUniversePendingHint(gap),
+			Progress:      true,
+		}
+	}
 
 	// Function-boundary read guidance: when the LLM reads part of a
 	// function but stops before the end, inject exact read ranges.
@@ -10857,10 +10899,14 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// When set, it overrides ALL heuristic calculations — the LLM
 	// declared it has enough evidence, and we trust it.
 	missingStructuredMemberSet := e.needsStructuredMemberSetHandoff(ctx) && !acceptedStructuredMemberSetHandoff(ctx)
+	candidateUniverseGap := e.sourceInventoryCandidateUniverseCoverageGapFor(ctx)
 	if missingStructuredMemberSet {
 		readiness.HasEnough = false
 	}
-	if ctx != nil && ctx.Mutable != nil && ctx.Mutable.IsInvestigationComplete() && !readiness.HasEnough && !missingStructuredMemberSet {
+	if candidateUniverseGap.Blocking {
+		readiness.HasEnough = false
+	}
+	if ctx != nil && ctx.Mutable != nil && ctx.Mutable.IsInvestigationComplete() && !readiness.HasEnough && !missingStructuredMemberSet && !candidateUniverseGap.Blocking {
 		logging.Debug("[explorer] HasEnoughFacts promoted by emit_investigation_complete (heuristic was: toolDiv=%v fileCov=%v evQual=%v)",
 			readiness.ToolDiversity, readiness.FileCoverage, readiness.EvidenceQuality)
 		readiness.HasEnough = true
@@ -11139,6 +11185,9 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		if missingStructuredMemberSet {
 			hintKey = "explorer.retry.structured-member-set"
 			out.RetryHint = "Previous attempt gathered an exhaustive principal-member enumeration but did not close through a model-authored aggregate_facts.member_set. Reuse the already-read evidence, call emit_investigation_complete(result_kind=\"resolved\"), and include aggregate_facts with kind=\"member_set\", value=len(members), and every principal answer member in members[]. Do not leave the complete set only in thinking, read_file output, or closure prose."
+		} else if gap := candidateUniverseGap; gap.IsActive() {
+			hintKey = "explorer.retry.scoped-candidate-universe"
+			out.RetryHint = fmt.Sprintf("Previous attempt has an exact source-inventory candidate universe: %s. Reuse that scoped checklist instead of broad discovered-file coverage; verify missing or intentionally excluded candidates, then close with a structured aggregate_facts.member_set.", gap.Summary(12))
 		} else if !readiness.ToolDiversity {
 			hintKey = "explorer.retry.tool-diversity"
 			out.RetryHint = "Previous attempt used fewer than 2 distinct evidence tool types. Use both grep and read_file."
@@ -11152,9 +11201,6 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		} else if !readiness.ExplanationAnchorReady {
 			hintKey = "explorer.retry.explanation-anchor"
 			out.RetryHint = fmt.Sprintf("Previous attempt covered %d of %d required explanation anchors. Read the missing topic anchors and emit grounded evidence for each before completing.", readiness.ExplanationAnchorCovered, readiness.ExplanationAnchorTotal)
-		} else if gap := e.sourceInventoryCandidateUniverseCoverageGap(); gap.IsActive() {
-			hintKey = "explorer.retry.scoped-candidate-universe"
-			out.RetryHint = fmt.Sprintf("Previous attempt has an exact source-inventory candidate universe: %s. Reuse that scoped checklist instead of broad discovered-file coverage; verify missing or intentionally excluded candidates, then close with a structured aggregate_facts.member_set.", gap.Summary(12))
 		} else {
 			hintKey = "explorer.retry.file-coverage"
 			out.RetryHint = fmt.Sprintf("Previous attempt read only %d of %d discovered relevant files (%.0f%% coverage, %d relevant). Read more of the discovered files.", readiness.ScopeReadCount, max(readiness.ScopeTotalCount, readiness.DiscoveredCount), readiness.Coverage*100, readiness.RelevantRead)
