@@ -8428,6 +8428,12 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 	}
 	warning := answerDocumentEmissionMissingWarning(e.language)
 	safeFallback := sanitizePriorDraftForSummary(lastContent)
+	if types.IsPlaceholderLikeModelDraft(safeFallback) {
+		safeFallback = ""
+	}
+	if surfaceFallback := answerDocumentModelSurfaceDraftFallback(ctx, e.language); surfaceFallback != "" && safeFallback == "" {
+		safeFallback = surfaceFallback
+	}
 	if safeFallback == "" {
 		safeFallback = answerDocumentEmptyModelEvidenceFallback(ctx, e.language)
 	}
@@ -8454,6 +8460,59 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 		len(lastContent))
 	markAnswerDocumentDegradedFallback(out, combined, "answer_document_missing")
 	return out, nil
+}
+
+func answerDocumentModelSurfaceDraftFallback(ctx *types.AgentContext, lang string) string {
+	if ctx == nil || len(ctx.PriorReports) == 0 {
+		return ""
+	}
+	var drafts []string
+	seen := map[string]bool{}
+	for _, report := range ctx.PriorReports {
+		content := strings.TrimSpace(report.Findings)
+		content = stripModelSurfaceDraftPromptPreamble(content)
+		content = sanitizePriorDraftForSummary(content)
+		if !types.LooksLikeModelAuthoredVisibleSurfaceDraft(content) {
+			continue
+		}
+		content = types.TrimModelAuthoredVisibleSurfaceDraft(content, types.DefaultModelSurfaceDraftPromptRunes)
+		if content == "" || seen[content] {
+			continue
+		}
+		seen[content] = true
+		drafts = append(drafts, content)
+	}
+	if len(drafts) == 0 {
+		return ""
+	}
+	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
+	var b strings.Builder
+	if zh {
+		b.WriteString("**已保留的模型草稿（最终结构化成文未完成）**\n\n")
+		b.WriteString("下面内容来自前序阶段已写出的表格/图/列表草稿；系统只做可见内容保留，没有把它伪装成已通过结构化校验的答案。\n\n")
+	} else {
+		b.WriteString("**Preserved model draft (final structured rendering did not complete)**\n\n")
+		b.WriteString("The content below comes from an earlier model-authored table/diagram/list draft. The system is preserving the visible surface; it is not pretending that final answer_document validation succeeded.\n\n")
+	}
+	for i, draft := range drafts {
+		if i > 0 {
+			b.WriteString("\n\n---\n\n")
+		}
+		b.WriteString(draft)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func stripModelSurfaceDraftPromptPreamble(content string) string {
+	const prefix = "Model-authored visible surface draft"
+	content = strings.TrimSpace(content)
+	if !strings.HasPrefix(content, prefix) {
+		return content
+	}
+	if idx := strings.Index(content, "\n\n"); idx >= 0 {
+		return strings.TrimSpace(content[idx+2:])
+	}
+	return content
 }
 
 func markAnswerDocumentDegradedFallback(out *StageOutput, finalAnswer, reason string) {
@@ -8855,6 +8914,7 @@ func looksLikeInternalDraftParagraph(p string) bool {
 	lower := strings.ToLower(p)
 	switch {
 	case strings.Contains(lower, "emit_answer_document"),
+		types.IsPlaceholderLikeModelDraft(p),
 		strings.Contains(lower, "citation_ref"),
 		strings.Contains(lower, "tool call"),
 		strings.Contains(lower, "tool-call"),

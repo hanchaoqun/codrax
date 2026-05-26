@@ -778,13 +778,13 @@ intent or invent a stronger answer than the model gave.
 
 ### Task List
 
-- [ ] Batch A: update Repo Lens wording and tests so the tool teaches
+- [x] Batch A: update Repo Lens wording and tests so the tool teaches
   "verified navigation/candidate-universe facts, not semantic citations" rather
   than the over-strong "not evidence" language.
-- [ ] Batch B: add a bounded model-authored surface handoff for extractor /
+- [x] Batch B: add a bounded model-authored surface handoff for extractor /
   explorer reports in typed-support finalization, with prompt and fallback
   guardrails that mark the surface as advisory and model-authored.
-- [ ] Batch C: harden fallback sanitization so placeholder-only finalizer text
+- [x] Batch C: harden fallback sanitization so placeholder-only finalizer text
   is ignored when richer preserved surfaces or evidence exist.
 - [ ] Batch D: strengthen artifact-first finalizer tests for observation-only
   runtime/log/trace answers and mixed artifact/current-source answers.

@@ -2857,7 +2857,43 @@ func TestBuildAgentContext_FinalizerTypedSupportSuppressesCompetingStageReports(
 
 	ac := BuildAgentContext(bus, types.AgentFinalizer, types.StageFinalize)
 	if len(ac.PriorReports) != 0 {
-		t.Fatalf("typed-support finalizer should suppress all prior stage reports, got %d", len(ac.PriorReports))
+		t.Fatalf("typed-support finalizer should suppress plain competing prior stage reports, got %d", len(ac.PriorReports))
+	}
+}
+
+func TestBuildAgentContext_FinalizerTypedSupportKeepsRichModelSurfaceDraft(t *testing.T) {
+	mut := types.NewMutableState("source inventory table")
+	bus := &types.BusContext{
+		PipelineStage: types.StageFinalize,
+		Mutable:       mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+			},
+		},
+		StageReports: []types.StageReport{
+			{Stage: types.StageAnalyze, Agent: types.AgentAnalyzer, Findings: "| noisy | table |\n| --- | --- |\n| analyzer | should drop |"},
+			{Stage: types.StageExtract, Agent: types.AgentExtractor, Findings: "| member | entry |\n| --- | --- |\n| alpha | Run |\n| beta | Execute |"},
+		},
+	}
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Source:          "alpha.go",
+		LineStart:       1,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "Run",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+
+	ac := BuildAgentContext(bus, types.AgentFinalizer, types.StageFinalize)
+	if len(ac.PriorReports) != 1 {
+		t.Fatalf("typed-support finalizer should keep one rich extractor surface, got %+v", ac.PriorReports)
+	}
+	if ac.PriorReports[0].Agent != types.AgentExtractor ||
+		!strings.Contains(ac.PriorReports[0].Findings, "Model-authored visible surface draft") ||
+		!strings.Contains(ac.PriorReports[0].Findings, "| alpha | Run |") ||
+		strings.Contains(ac.PriorReports[0].Findings, "analyzer") {
+		t.Fatalf("unexpected preserved surface report: %+v", ac.PriorReports)
 	}
 }
 

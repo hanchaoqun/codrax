@@ -4207,10 +4207,13 @@ func stageReportsForAgent(reports []types.StageReport, ac *types.AgentContext) [
 	// lead ("the root cause is already clear...") that outruns the
 	// grounded support contract. The finalizer should rebuild its
 	// principal claims from typed support lanes, known facts, and
-	// citations only; StageReports remain useful upstream but must not
-	// survive into the final synthesis prompt.
+	// citations only. One exception is a bounded model-authored visible
+	// surface (table/diagram/organized draft) from exploration/extraction:
+	// it is allowed through as advisory surface-shape context so fallback
+	// paths can preserve rich user-visible material instead of displaying
+	// placeholders. It still does not create facts or hard gates.
 	if ac.AgentName == types.AgentFinalizer && finalizerUsesTypedAnswerSupport(ac) {
-		return nil
+		return modelSurfaceStageReportsForTypedFinalizer(reports, ac)
 	}
 	if ac.AgentName == types.AgentExtractor && ac.Mutable != nil {
 		if ta := ac.Mutable.TurnAArtifacts(); ta != nil && (len(ta.EvidenceItems) > 0 || strings.TrimSpace(ta.AcceptedClosureReason) != "") {
@@ -4235,6 +4238,39 @@ func stageReportsForAgent(reports []types.StageReport, ac *types.AgentContext) [
 		filtered = append(filtered, report)
 	}
 	return dedupeStageReportsForPrompt(filtered, ac)
+}
+
+func modelSurfaceStageReportsForTypedFinalizer(reports []types.StageReport, ac *types.AgentContext) []types.StageReport {
+	if len(reports) == 0 {
+		return nil
+	}
+	filtered := make([]types.StageReport, 0, len(reports))
+	for _, report := range reports {
+		if !stageReportCanCarryModelSurfaceDraft(report) {
+			continue
+		}
+		findings := strings.TrimSpace(stripThinkBlocks(report.Findings))
+		if !types.LooksLikeModelAuthoredVisibleSurfaceDraft(findings) {
+			continue
+		}
+		report.Findings = "Model-authored visible surface draft (advisory only; preserve the table/diagram/list shape only when it is consistent with typed support lanes, citations, and aggregate facts):\n\n" +
+			types.TrimModelAuthoredVisibleSurfaceDraft(findings, types.DefaultModelSurfaceDraftPromptRunes)
+		filtered = append(filtered, report)
+	}
+	return dedupeStageReportsForPrompt(filtered, ac)
+}
+
+func stageReportCanCarryModelSurfaceDraft(report types.StageReport) bool {
+	switch report.Agent {
+	case types.AgentExplorer, types.AgentExtractor, "sub_explorer":
+		return true
+	}
+	switch report.Stage {
+	case types.StageExplore, types.StageExtract:
+		return true
+	default:
+		return false
+	}
 }
 
 func dedupeStageReportsForPrompt(reports []types.StageReport, _ *types.AgentContext) []types.StageReport {

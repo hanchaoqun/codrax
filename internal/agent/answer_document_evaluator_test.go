@@ -5838,6 +5838,35 @@ func TestAnswerDocumentEvaluator_ParseOutput_RecoversPreservedNoToolDraftAfterIs
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_FallsBackToPriorModelSurfaceDraft(t *testing.T) {
+	ctx := &types.AgentContext{
+		Mutable: types.NewMutableState(""),
+		PriorReports: []types.StageReport{{
+			Stage: types.StageExtract,
+			Agent: types.AgentExtractor,
+			Findings: "Model-authored visible surface draft (advisory only):\n\n" +
+				"| 子包 | 入口 |\n| --- | --- |\n| alpha | Run |\n| beta | Execute |",
+		}},
+	}
+	messages := []llm.Message{
+		{Role: "assistant", Content: "{{PLACEHOLDER_REASONING_PLACEHOLDER}}"},
+	}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, messages, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	for _, want := range []string{"未能生成结构化答案", "已保留的模型草稿", "| alpha | Run |", "| beta | Execute |"} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("final answer missing %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+	if strings.Contains(out.FinalAnswer, "PLACEHOLDER_REASONING_PLACEHOLDER") ||
+		strings.Contains(out.FinalAnswer, "Model-authored visible surface draft") {
+		t.Fatalf("fallback leaked placeholder or prompt preamble:\n%s", out.FinalAnswer)
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_AppendsVerifiedStageBindingSupplement(t *testing.T) {
 	repo := t.TempDir()
 	writeStageBindingFixture(t, repo)
