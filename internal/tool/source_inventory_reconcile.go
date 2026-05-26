@@ -927,7 +927,7 @@ func renderSourceInventoryDiscoveryHint(obs sourceInventoryDiscoveryObservation)
 	if len(obs.ScopeGroups) > 0 || obs.Files > 0 {
 		fmt.Fprintf(&b, " (scope_groups=%d candidate_files=%d)", len(obs.ScopeGroups), obs.Files)
 	}
-	b.WriteString(". To inspect it incrementally, consider `repo_map(view=\"source_inventory\")` before reading many files. This is navigation only, not final-answer evidence.\n")
+	b.WriteString(". To inspect it incrementally, consider `repo_map(view=\"source_inventory\")` before reading many files. These are verified navigation/count/candidate-universe facts, not semantic source citations.\n")
 	fmt.Fprintf(&b, "- broad member/attribute checklist: `%s`\n",
 		sourceInventoryCascadeRepoMapCall(pathSurface, "", nil, expandRoles, attrRoles, 24, ""))
 	fmt.Fprintf(&b, "- structural relation lens by chosen source: `%s` when the next step is to inspect calls/imports/inheritance/references around a selected symbol or file.\n",
@@ -1491,7 +1491,7 @@ func renderSourceInventoryCandidateFileSamplesViewWithLimits(observation types.S
 	}
 	var b strings.Builder
 	b.WriteString("## Candidate File Samples to Verify (advisory)\n\n")
-	b.WriteString("These are bounded examples from the same structured rows, useful after choosing a scope from the cascade guide. They are not a hard whitelist and not final answer evidence.\n\n")
+	b.WriteString("These are bounded examples from the same structured rows, useful after choosing a scope from the cascade guide. They are not a hard whitelist, not semantic source citations, and not a final answer slate.\n\n")
 	renderedGroups := 0
 	for _, group := range groups {
 		if renderedGroups >= maxGroups {

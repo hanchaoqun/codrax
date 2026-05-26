@@ -285,7 +285,7 @@ func buildRelationMapData(g *types.Graph, params types.ViewParams) *ViewData {
 	d := &ViewData{
 		Type:  "relation_map",
 		Title: "Repo Lens: Relation Map",
-		Intro: "Advisory structural navigation only. Use these rows to choose focused `read_file` / `grep` verification; do not cite this map as final-answer evidence.",
+		Intro: "Advisory structural navigation only. These rows verify graph/navigation facts; use focused `read_file` / `grep` before citing semantic source text.",
 	}
 
 	summary := ViewSection{Heading: "Summary"}

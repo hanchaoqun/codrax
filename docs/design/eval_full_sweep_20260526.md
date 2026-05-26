@@ -2021,9 +2021,12 @@ Task list:
   a fresh "permission-like" hint with a new iteration key. The model may still
   continue if it finds genuinely new evidence, but the system stops replaying
   the same closure instruction as if it were a new task.
-- [ ] P1-C: Add prompt/hint audit tests for morphology overfitting: no generic
-  language that implies relations must be same-named functions/files unless
-  the observed structure says so.
+- [x] P1-C: Add prompt/hint audit tests for morphology overfitting. Runtime
+  LLM-facing string literals are now scanned for over-strong "same-named
+  function/file" relation assumptions, and Repo Lens boundary text is checked
+  so it does not tell models that verified navigation/count facts are unusable.
+  Repo Lens copy now says these rows verify graph/navigation/count/candidate
+  facts but are not semantic source citations.
 - [ ] P2-A: Add metrics for `unavailable_tool_attempts`,
   `checkpoint_continuation_broad_hint`, `closure_only_repeated`,
   and `mermaid_source_repair_applied`.
