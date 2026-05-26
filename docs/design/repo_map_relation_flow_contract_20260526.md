@@ -169,7 +169,7 @@ renderer-specific mechanism.
       observed behavior.
 - [x] T8: Fix Mermaid quoted multiline label corruption exposed by the Linux
       relation-flow rerun.
-- [ ] T9: If repair-turn unavailable-tool attempts remain, implement the
+- [x] T9: If repair-turn unavailable-tool attempts remain, implement the
       restricted-tool teaching follow-up as batch 2.
 
 ## Progress Log
@@ -193,3 +193,11 @@ renderer-specific mechanism.
   the compatibility repair order. Implemented
   `NormalizeFlowchartQuotedLabelNewlines` before flowchart line-local repairs
   and added a regression test. Targeted mermaidcompat tests passed.
+- 2026-05-26: Post-fix log review confirmed the relation-flow run now calls
+  `repo_map(view="relation_map", sources=["io_uring/net.c",
+  "io_uring/opdef.c"], scope="io_uring")` during explore, and the analyzer
+  source-inventory profile is dropped with a typed warning instead of reaching
+  finalizer handoff. The old repair-turn unavailable `read_file` attempt did
+  not reproduce in the rerun; the current tool error already names the available
+  tool list and next action, so no extra batch is needed until a fresh log shows
+  ambiguity.
