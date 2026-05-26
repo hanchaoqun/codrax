@@ -786,7 +786,7 @@ intent or invent a stronger answer than the model gave.
   guardrails that mark the surface as advisory and model-authored.
 - [x] Batch C: harden fallback sanitization so placeholder-only finalizer text
   is ignored when richer preserved surfaces or evidence exist.
-- [ ] Batch D: strengthen artifact-first finalizer tests for observation-only
+- [x] Batch D: strengthen artifact-first finalizer tests for observation-only
   runtime/log/trace answers and mixed artifact/current-source answers.
 - [ ] Batch E: verify source-inventory/member_set/count handoff with tests that
   use existing `SourceInventoryObservation` and aggregate-fact carriers instead

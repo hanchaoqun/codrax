@@ -4156,6 +4156,42 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeClosureRe
 	}
 }
 
+func TestAnswerDocumentFallbackEvidenceRows_RuntimeObservationOnlySkipsCurrentRepoRows(t *testing.T) {
+	mut := types.NewMutableState("q")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Type: "RuntimeError", Frames: []types.LogFrame{{
+			Func: "external_frame",
+		}}}},
+	})
+	mut.SetEvidenceFloorWaiver(&types.EvidenceFloorWaiver{
+		Reason:    types.EvidenceFloorWaiverNoRepoIntersection,
+		Rationale: "artifact frames are from a different deployed build",
+	})
+	mut.RetainEvidenceFloorWaiver()
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario:  types.ScenarioRootCause,
+				Intent:    types.IntentRootCause,
+				LogTriage: mut.LogTriage(),
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/helper.go",
+			LineStart:       12,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "helper",
+			Summary:         "repo helper that should not become fallback evidence for an external-only artifact",
+			GroundingStatus: types.GroundingGrounded,
+		}},
+	}
+	if rows := answerDocumentFallbackEvidenceRows(ctx, 8, 200); len(rows) != 0 {
+		t.Fatalf("runtime observation-only fallback must not surface current-repo helper rows: %+v", rows)
+	}
+}
+
 func TestAnswerDocumentEvaluator_MixedRuntimeCurrentSourceDoesNotRenderObservationOnly(t *testing.T) {
 	mut := types.NewMutableState("q")
 	mut.SetLogTriage(&types.LogBundle{

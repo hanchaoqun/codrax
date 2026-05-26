@@ -8566,6 +8566,9 @@ func answerDocumentFallbackEvidenceRows(ctx *types.AgentContext, limit, textLimi
 	rows := make([]answerDocumentFallbackEvidenceRow, 0, limit)
 	seen := map[string]bool{}
 	for _, item := range pool {
+		if runtimeObservationOnlyForAnswerDoc(ctx) && answerDocEvidenceIsCurrentRepoOnly(item) {
+			continue
+		}
 		file := strings.TrimSpace(item.Source)
 		if file == "" || item.LineStart <= 0 {
 			continue
