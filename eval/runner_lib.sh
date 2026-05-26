@@ -86,7 +86,7 @@ eval_metric_field() {
   local file="$1"
   local key="$2"
   local v
-  v=$(grep -oE "^${key}=[0-9]+" "$file" 2>/dev/null | head -1 | cut -d= -f2)
+  v=$(grep -a -oE "^${key}=[0-9]+" "$file" 2>/dev/null | head -1 | cut -d= -f2)
   echo "${v:--}"
 }
 

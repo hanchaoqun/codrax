@@ -30,12 +30,14 @@ mkdir -p "$tmp/results/sample-20260511-010000"
 latest="$(eval_latest_result_dir "$tmp/results" sample 20260511-005959)" || fail "latest result dir not found"
 assert_eq "$latest" "$tmp/results/sample-20260511-010000" "fresh result selection"
 
-printf 'analyzer_dispatches=2\nfinalizer_dispatches=5\n' >"$tmp/metrics.txt"
+printf 'analyzer_dispatches=2\nnul_metric=7\000\nfinalizer_dispatches=5\n' >"$tmp/metrics.txt"
 assert_eq "$(eval_metric_field "$tmp/metrics.txt" analyzer_dispatches)" "2" "metric field parse"
+assert_eq "$(eval_metric_field "$tmp/metrics.txt" nul_metric)" "7" "metric field parse with NUL"
 assert_eq "$(eval_metric_field "$tmp/metrics.txt" missing_key)" "-" "missing metric field"
 
-printf 'one\nreject\nreject\n' >"$tmp/log.txt"
+printf 'one\nreject\000\nreject\n' >"$tmp/log.txt"
 assert_eq "$(eval_count_pattern 'reject' "$tmp/log.txt")" "2" "pattern count"
+assert_eq "$(eval_count_pattern 'reject$' "$tmp/log.txt")" "2" "pattern count with NUL line"
 assert_eq "$(eval_count_pattern 'reject' "$tmp/missing.log")" "0" "missing log pattern count"
 
 cat >"$tmp/finalizer-control.log" <<'LOG'

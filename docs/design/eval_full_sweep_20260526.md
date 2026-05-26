@@ -1603,6 +1603,14 @@ Batch P2:
 - Harden eval summary/log mining for verdict correctness and NUL-safe scanning.
 - Add dashboards/metrics for the P0/P1 convergence and cache signals.
 
+Delivery status:
+
+- Eval metric helpers now treat metric/log files as text even when attached
+  traces inject NUL bytes. `eval_metric_field` uses binary-safe grep, and the
+  runner contract test covers both metric extraction and pattern counting with
+  embedded NUL data. This keeps post-run analysis from silently dropping
+  timeout/prune/Repo Lens signals in trace-heavy customer cases.
+
 P0:
 
 - Add continuation prompt mode after durable progress/prune/transient retry so
