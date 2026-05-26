@@ -444,8 +444,11 @@ func newInputModel(prompt string, history []string, isContinue bool, w, foldMinC
 	ti.KeyMap.PrevSuggestion = key.NewBinding(key.WithDisabled())
 	ti.KeyMap.NextSuggestion = key.NewBinding(key.WithDisabled())
 	ti.KeyMap.AcceptSuggestion = key.NewBinding(key.WithDisabled())
-	// Let textinput scroll horizontally if the line exceeds width.
-	promptWidth := utf8.RuneCountInString(prompt) + 1
+	// Let textinput scroll horizontally if the line exceeds width. Width is a
+	// terminal cell budget, not a rune count: sticky focus tags can contain CJK
+	// or emoji, and under-counting them lets the input row overflow before
+	// bubbles/textinput gets a chance to keep the cursor in view.
+	promptWidth := inputPromptDisplayWidth(ti.Prompt)
 	if w > promptWidth+8 {
 		ti.Width = w - promptWidth - 2
 	}
@@ -518,7 +521,7 @@ func (m *inputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.termWidth = msg.Width
-		promptWidth := utf8.RuneCountInString(m.ti.Prompt)
+		promptWidth := inputPromptDisplayWidth(m.ti.Prompt)
 		if msg.Width > promptWidth+8 {
 			m.ti.Width = msg.Width - promptWidth - 2
 		}
@@ -601,6 +604,10 @@ func (m *inputModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.ti, cmd = m.ti.Update(msg)
 	return m, cmd
+}
+
+func inputPromptDisplayWidth(prompt string) int {
+	return lipgloss.Width(prompt)
 }
 
 func (m *inputModel) View() string {
@@ -1055,4 +1062,3 @@ func hasPrintable(s string) bool {
 	}
 	return false
 }
-

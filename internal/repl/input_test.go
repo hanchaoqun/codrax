@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -133,6 +134,25 @@ func TestHandleSlashDispatchMatchesRegistry(t *testing.T) {
 
 func newTestModel() *inputModel {
 	return newInputModel("❯❯", nil, false, 80, 0, nil, "") // 0 → DefaultPasteFoldMinChars
+}
+
+func TestInputModelWidthUsesDisplayColumnsForWidePrompt(t *testing.T) {
+	const termWidth = 40
+	m := newInputModel("[focus:框架] ❯❯", nil, false, termWidth, 0, nil, "")
+	want := termWidth - inputPromptDisplayWidth(m.ti.Prompt) - 2
+	if m.ti.Width != want {
+		t.Fatalf("initial textinput width=%d, want display-column width %d", m.ti.Width, want)
+	}
+	runeBased := termWidth - utf8.RuneCountInString(m.ti.Prompt) - 2
+	if want == runeBased {
+		t.Fatalf("test prompt must distinguish rune count from display width; both=%d", want)
+	}
+
+	m.Update(tea.WindowSizeMsg{Width: 48, Height: 24})
+	want = 48 - inputPromptDisplayWidth(m.ti.Prompt) - 2
+	if m.ti.Width != want {
+		t.Fatalf("resized textinput width=%d, want display-column width %d", m.ti.Width, want)
+	}
 }
 
 // Helper: send a rune-only key (e.g. ASCII char) through Update.
