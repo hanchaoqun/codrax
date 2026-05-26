@@ -46,7 +46,7 @@ func TestSubExplorerSkillExposesRepoMapNavigationOnly(t *testing.T) {
 		}
 	}
 	workflow := strings.Join(sk.Workflow, "\n")
-	for _, want := range []string{`source_inventory`, `relation_map`} {
+	for _, want := range []string{`source_inventory`, `relation_map`, "pass them as query"} {
 		if !strings.Contains(workflow, want) {
 			t.Fatalf("sub_explorer workflow should teach repo_map %s navigation: %v", want, sk.Workflow)
 		}
@@ -102,6 +102,7 @@ func TestSubExplorerInitialInstructionTeachesRepoMapWithoutUnavailableTools(t *t
 	}, nil)
 	for _, want := range []string{
 		"`repo_map` as a scoped navigation index",
+		"pass them as `query` before widening",
 		`view="source_inventory"`,
 		"include_attributes=false",
 		"add `attribute_roles` only after choosing a narrow scope/member",
@@ -117,6 +118,34 @@ func TestSubExplorerInitialInstructionTeachesRepoMapWithoutUnavailableTools(t *t
 	for _, forbidden := range []string{"emit_evidence", "emit_investigation_complete", "exec_command", "propose_sub_agents"} {
 		if strings.Contains(prompt, forbidden) {
 			t.Fatalf("sub_explorer prompt mentions unavailable tool %q:\n%s", forbidden, prompt)
+		}
+	}
+}
+
+func TestSubExplorerInitialInstructionRendersTypedRepoMapPolicy(t *testing.T) {
+	eval := &subExplorerEvaluator{}
+	prompt := eval.BuildInitialInstruction(&types.AgentContext{
+		Objective:   "trace auth.set flow",
+		Constraints: []string{"src/service"},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentTrace,
+				PredicateAxis: types.AxisCall,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:              string(types.ReqCallChain),
+					MentionedEntities: []string{"auth.set"},
+				},
+			},
+		},
+	}, nil)
+	for _, want := range []string{
+		"Typed Repo Map Route Hints",
+		"Reuse typed target terms as `query`",
+		`view="relation_map"`,
+		"not read obligations",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("sub_explorer typed repo_map policy missing %q:\n%s", want, prompt)
 		}
 	}
 }

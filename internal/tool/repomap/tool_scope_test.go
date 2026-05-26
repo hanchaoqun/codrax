@@ -875,6 +875,48 @@ func TestRepoMapOverviewSuggestsSourceInventoryOutsideAnalyze(t *testing.T) {
 	if !strings.Contains(res.Summary, `view="source_inventory"`) {
 		t.Fatalf("overview should guide later-stage agents toward source_inventory, got:\n%s", res.Summary)
 	}
+	for _, want := range []string{`view="task_map"`, "`query`", `view="relation_map"`} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("overview should guide later-stage agents toward typed repo_map routes; missing %q in:\n%s", want, res.Summary)
+		}
+	}
+}
+
+func TestRepoMapOverviewRendersTypedNavigationPolicyOutsideAnalyze(t *testing.T) {
+	repo := t.TempDir()
+	mut := types.NewMutableState("repo map typed overview hint")
+	mut.SetSearchGraph(BuildGraph(repo, []*FileInfo{{
+		RelPath:  "main.go",
+		Language: LangGo,
+		Size:     12,
+	}}))
+	ctx := &types.BusContext{
+		RepoRoot:      repo,
+		Mutable:       mut,
+		PipelineStage: types.StageExplore,
+		ActiveAgent:   types.AgentExplorer,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:              string(types.ReqCallChain),
+				MentionedEntities: []string{"ServeHTTP"},
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{"path":".","view":"overview"}`))
+	if err != nil {
+		t.Fatalf("Execute returned unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map overview failed: %+v", res)
+	}
+	for _, want := range []string{"Repo Map Next-Step Hint", "Reuse typed target terms as `query`", `view="relation_map"`, "not read obligations"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("overview should render typed navigation policy; missing %q in:\n%s", want, res.Summary)
+		}
+	}
 }
 
 func TestRepoMapOverviewSuppressesSourceInventoryHintForAnalyzer(t *testing.T) {
@@ -901,6 +943,9 @@ func TestRepoMapOverviewSuppressesSourceInventoryHintForAnalyzer(t *testing.T) {
 	}
 	if strings.Contains(res.Summary, `view="source_inventory"`) {
 		t.Fatalf("analyzer overview should stay compact and avoid source_inventory guidance, got:\n%s", res.Summary)
+	}
+	if strings.Contains(res.Summary, `view="task_map"`) || strings.Contains(res.Summary, `Repo Map Next-Step Hint`) {
+		t.Fatalf("analyzer overview should stay compact and avoid route guidance, got:\n%s", res.Summary)
 	}
 }
 

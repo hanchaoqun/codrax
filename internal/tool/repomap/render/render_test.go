@@ -255,6 +255,32 @@ func TestGenerateViewDataTaskMap(t *testing.T) {
 	}
 }
 
+func TestGenerateViewDataTaskMapBroadQueryAdvisory(t *testing.T) {
+	g := index.BuildGraph(t.TempDir(), []*types.FileInfo{{
+		RelPath:  "a.go",
+		Language: types.LangGo,
+		Package:  "main",
+		Symbols: []types.Symbol{
+			{Name: "Serve", Kind: "function", Line: 10, Exported: true},
+		},
+	}})
+
+	d := GenerateViewData(g, "task_map", types.ViewParams{TopN: 5})
+	if d == nil {
+		t.Fatal("GenerateViewData(task_map) returned nil")
+	}
+	md := RenderMarkdown(d)
+	for _, want := range []string{
+		"Broad task_map because no `query` was supplied",
+		`view="relation_map"`,
+		"`query`",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("broad task_map should render advisory %q:\n%s", want, md)
+		}
+	}
+}
+
 // TestGenerateViewDataFileMap confirms file_map produces one
 // ViewSection per file with symbols grouped by kind in the
 // canonical order, and that the rendered markdown preserves the

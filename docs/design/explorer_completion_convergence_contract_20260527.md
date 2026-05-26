@@ -2,7 +2,7 @@
 
 ## Status
 
-Batch 5 complete; Batch 6 repo_map-efficiency follow-up remains planned. This document tracks the repo-map navigation convergence gap found in the Linux `io_uring` validation run and the broader forced-read audit required by the red-line rule: only precise, deterministic unread-file obligations may hard-block model completion. Ranker / repo_map / pre-scan / broad graph hints are navigation signals and must remain soft once the model has already established a grounded completion boundary.
+Batch 5 complete; Batch 6 repo_map-efficiency follow-up is in progress. This document tracks the repo-map navigation convergence gap found in the Linux `io_uring` validation run and the broader forced-read audit required by the red-line rule: only precise, deterministic unread-file obligations may hard-block model completion. Ranker / repo_map / pre-scan / broad graph hints are navigation signals and must remain soft once the model has already established a grounded completion boundary.
 
 ## Incident
 
@@ -149,6 +149,43 @@ Residual repo_map efficiency gap from the same run:
 
 These are efficiency / UX gaps, not correctness gates. They should be addressed in the next repo_map-navigation batch by improving analyzer terminal-mode guidance and by encouraging query-bearing `repo_map(task_map/file_map/relation_map)` calls when the model already has named entities. They must remain soft guidance: no hard rejection for choosing grep/list_files when the result is still valid.
 
+## Batch 6 Design: Typed Repo Map Navigation Policy
+
+This batch addresses explorer and sub-explorer repo_map efficiency without changing the model-visible tool contract or reducing tool capability.
+
+Observed gap:
+
+- In the Linux validation run, explorer naturally selected `repo_map(view="task_map")` but called it without `query`, so the result was a broad root map. That is valid, but inefficient on large repos and can push the model toward broad read/grep expansion.
+- Existing teaching mentions `source_inventory` and `relation_map`, but it is still static prose. Different typed question shapes need different navigation routes, and encoding those routes as ad-hoc prompt sentences would repeat the historical bug pattern.
+- The overview tool output only suggests `source_inventory`, which is correct for inventory/count/member questions but incomplete for mechanism/flow questions where `task_map(query=...) -> relation_map(...) -> read_file/grep` is the safer path.
+
+Code audit:
+
+- `internal/types/request_traits.go` already carries source-inventory, typed-relation, history/current-source, mechanism coverage, and architecture-vs-enumeration helpers. This is the right layer to read request shape; downstream agents should not re-scan user prose.
+- `internal/types/typed_relation_hint.go` already centralizes relation-kind selection from `PredicateAxis`, `RequirementKind`, `DiagramHint`, `SourceInventoryProfile`, `ChangeImpactProfile`, and external-observation contracts. Repo-map relation teaching should reuse this selector.
+- `internal/types/explore_lane_plan.go` already materializes mixed-origin lanes such as VCS diff + current source and command measurement + current source. Repo-map current-source advice should respect that lane plan instead of assuming every question is current-source-only.
+- `internal/tool/repomap/tool.go` can see `BusContext.AnalysisIR`, so tool-return hints can be request-aware without exposing internal cache/build details to the model.
+- `internal/agent/explorer.go` and `internal/agent/sub_explorer.go` currently render separate repo-map guidance. That duplication is the main maintenance risk.
+- Multi-repo scope separation already has a typed lane: `AnalyzerHints.PrimaryScopes` captures active sub-repo scope entities separately from code symbols. Repo-map navigation policy must consume that lane so comparison/interface/registration/FFI/network questions can partition by active sub-repo without treating the sub-repo name as a symbol query.
+- External observations already share `AnswerEvidenceOrigin` and `ExploreLanePlan`: VCS metadata/diff, runtime artifacts, command measurements, cross-repo index, external documents, web pages, MCP resources, and connector resources all carry origin-specific support. Repo-map navigation should use them only to decide when current-source follow-up is needed; it must not convert origin-specific evidence into current-checkout file:line obligations.
+
+Contract:
+
+1. Soft guidance only. Broad repo_map calls remain valid and must not be rejected merely for being broad.
+2. Navigation route selection is typed-only. It consumes `RequestModel`, `AnswerContract`, `ExploreLanePlan`, `SourceInventoryProfile`, `TypedRelationQuery`, `PredicateAxis`, `RequirementKind`, `DiagramHint`, `ChangeImpactProfile`, and current-source/external-origin profiles. It must not scan user prose or model prose.
+3. If typed query surfaces exist, prompts and tool-return hints should encourage putting those surfaces in `query` for `task_map` / `file_map` / `relation_map` before widening reads.
+4. Source inventories, structural relations, change impact, scalar/config lookup, current-source verification after external observations, and generic architecture overviews each get their own advisory route from one shared compiler.
+5. Multi-repo instructions stay unchanged: choose one active sub-repo as `path`, and keep `sources`, `scope`, `scopes`, `target_file`, and `entry_point` relative to that selected sub-repo.
+6. No internal implementation detail is exposed to the model. Tool outputs may give next-step usage hints, but not cache/build internals.
+7. External-observation lanes are first-class policy inputs. Mixed VCS/log/trace/command/MCP/web/connector + current-source questions should get current-source narrowing guidance, while origin-specific facts remain origin-specific evidence rather than repo file:line pressure.
+
+Implementation scope:
+
+- Add `RepoMapNavigationPolicy` under `internal/types`, with strategy rows for `task_map`, `file_map`, `source_inventory`, `relation_map`, `edit_impact`, `semantic_subgraph`, and `call_path` where applicable.
+- Explorer and sub-explorer render prompt guidance from this policy, plus a small generic fallback for no-IR contexts.
+- Repo_map overview/task_map broad outputs render a soft next-step hint from this policy when available.
+- Tests: lock route selection, prompt rendering, tool-output hints, analyzer suppression, multi-origin current-source handling, multi-repo active-scope partitioning, and no hard-forced wording.
+
 ## Data Flow
 
 ```text
@@ -186,7 +223,15 @@ repo_map / grep / read_file
 - [x] Batch 5: expose accepted grounded deterministic evidence rows as `evidence_id=...` in the extractor prompt.
 - [x] Batch 5: make `emit_hypothesis_verdict` accept current-repo citations covered by accepted grounded evidence, even when unrelated read_file history exists.
 - [x] Batch 5: add regression tests for evidence_id verdicts that would previously require a redundant read_file.
-- [ ] Batch 6: repo_map navigation efficiency follow-up: analyzer terminal-mode guidance and query-bearing repo_map examples without exposing internal implementation details.
+- [x] Batch 6: document typed repo_map navigation contract and implementation plan.
+- [x] Batch 6: implement `RepoMapNavigationPolicy` compiler without scanning user/model prose.
+- [x] Batch 6: explorer prompt renders typed policy and keeps broad guidance soft.
+- [x] Batch 6: sub-explorer prompt and skill render the same scoped policy/fallback.
+- [x] Batch 6: overview output guides non-analyzer agents through the typed route: source_inventory for inventories, task_map(query)/relation_map for mechanisms, edit_impact for change-impact, current-source narrowing for mixed external+source.
+- [x] Batch 6: task_map broad result renders a soft “rerun with query” advisory instead of silently encouraging root-wide expansion.
+- [x] Batch 6: active sub-repo `PrimaryScopes` enter the partition channel, with model-visible relative-path guidance for multi-repo questions.
+- [x] Batch 6: external observations beyond VCS, including MCP/web/connector lanes, exercise the same current-source follow-up route without creating repo file:line pressure.
+- [x] Batch 6: regression tests cover policy selection, prompt guidance, overview hint, analyzer suppression, and broad task_map advisory.
 - [x] Run focused tests, `go test ./...`, and `make`.
 - [x] Commit and push the batch.
 

@@ -358,6 +358,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		ShowSourceInventoryHint: repoMapOverviewSourceInventoryHintEnabled(ctx, p.View),
 	}
 	output := render.GenerateView(graph, p.View, viewParams)
+	output = prependRepoMapNavigationAdvisory(ctx, p.View, p.Query, output)
 	output = prependRepoMapParameterAdvisory(output, paramAdvisories)
 
 	summary, ref := tool.StoreBlob(ctx, t.Name(), output)
@@ -378,6 +379,36 @@ func repoMapOverviewSourceInventoryHintEnabled(ctx *ctypes.BusContext, view stri
 		return true
 	}
 	return ctx.PipelineStage != ctypes.StageAnalyze && ctx.ActiveAgent != ctypes.AgentAnalyzer
+}
+
+func prependRepoMapNavigationAdvisory(ctx *ctypes.BusContext, view, query, output string) string {
+	if !repoMapNavigationAdvisoryEnabled(ctx, view, query) {
+		return output
+	}
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return output
+	}
+	policy := ctypes.CompileRepoMapNavigationPolicy(
+		ctx.AnalysisIR.RequestModel,
+		&ctx.AnalysisIR.AnswerContract,
+		ctx.ExploreLanePlan,
+	)
+	hint := policy.RenderMarkdownHint("Repo Map Next-Step Hint", "Soft route hints from the structured analysis result. Broad repo_map output is still valid, but these hints are not read obligations; the next call is usually cheaper and clearer when it follows this route.")
+	if strings.TrimSpace(hint) == "" {
+		return output
+	}
+	return hint + output
+}
+
+func repoMapNavigationAdvisoryEnabled(ctx *ctypes.BusContext, view, query string) bool {
+	if ctx == nil || ctx.PipelineStage == ctypes.StageAnalyze || ctx.ActiveAgent == ctypes.AgentAnalyzer {
+		return false
+	}
+	view = strings.TrimSpace(view)
+	if view == "" || view == "overview" {
+		return true
+	}
+	return view == "task_map" && strings.TrimSpace(query) == ""
 }
 
 func normalizeRepoMapLensParamsForSelectedSubRepo(p *repoMapParams, subRepoRootRel string) []string {

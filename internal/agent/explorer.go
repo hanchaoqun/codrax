@@ -640,7 +640,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	b.WriteString("- repo_map (task_map/file_map for orientation; source_inventory for scoped member/attribute checklists; relation_map for calls/imports/inheritance/reference edges around chosen sources/scopes)\n")
 	b.WriteString("- grep with files_only=true to find WHICH FILES contain key terms (just filenames, not lines). Use `file_type` when the language is obvious; do not use --include so you discover all relevant file types\n")
 	b.WriteString("- list_files to understand directory structure\n\n")
-	b.WriteString(renderExplorerRepoMapNavigationPrimer())
+	b.WriteString(renderExplorerRepoMapNavigationPrimer(ctx))
 	b.WriteString("Prefer the built-in repository tools above for discovery. Reserve `exec_command` for deterministic computations or checks that the structured tools cannot perform directly.\n\n")
 	b.WriteString("**Non-English questions:** When the user's question is not in English, search with BOTH the original terms AND their English programming equivalents. Most codebases use English identifiers, so always include the translated English terms alongside the original. Batch both versions as parallel grep calls.\n\n")
 	b.WriteString("**Keyword variants:** Start with exact identifiers and high-confidence translations. Broaden only when those searches return zero or too few useful files:\n")
@@ -1439,17 +1439,21 @@ func (e *explorerEvaluator) buildDurableProgressContinuationInstruction(ctx *typ
 	return b.String()
 }
 
-func renderExplorerRepoMapNavigationPrimer() string {
-	return "### Repo Map Navigation\n\n" +
+func renderExplorerRepoMapNavigationPrimer(ctx *types.AgentContext) string {
+	var b strings.Builder
+	b.WriteString("### Repo Map Navigation\n\n")
+	b.WriteString(
 		"Use `repo_map` as a navigation index that can verify existing scopes, files, candidate symbols/routes/config keys, languages, and counts. Start with `view=\"overview\"`, `view=\"task_map\"`, or `view=\"file_map\"` when you need a structural map. " +
-		"When the task needs a source inventory or member/count checklist, call `repo_map` with `view=\"source_inventory\"`, model-chosen `roles`, `scope`/`scopes`, and `include_attributes=false` for broad passes. Add `attribute_roles` only after narrowing to row-local details you need. Do not use source_inventory as a substitute for a call/import/inheritance/reference flow map.\n" +
-		"- The source-inventory lens returns counts, grouped scopes, languages, candidate files, and candidate symbols/routes/config keys across supported languages; use it to choose what to verify next.\n" +
-		"- Prefer a cascade: broad `source_inventory` member/count summary first, then a narrower follow-up with the chosen `scope`, `roles`, optional `attribute_roles`, `top_n`, and `cursor`/`offset` if the result is paged.\n" +
-		"- When the task needs structural edges, use `view=\"relation_map\"` as the second navigation stage after task_map/file_map orientation: pass `sources` after you choose concrete symbols/files, pass `scope`/`scopes` for directory/module boundaries, and narrow `relation_kinds` to call/import/inheritance/implements/reference/type_usage when known. For call-chain / dispatch / trace answers, prefer this relation_map pass before broad grep/read expansion.\n" +
-		"- Use `view=\"semantic_subgraph\"` for topology questions about hubs/bridges/chains, `view=\"edit_impact\"` for changed-file impact, and `view=\"call_path\"` only when you have a concrete entry point path to trace.\n" +
-		"- If the context or a tool refusal lists multiple active sub-repos, call repo_map separately for each active sub-repo you need: set `path` to that sub-repo path, and then keep `sources`, `scope`, `scopes`, `target_file`, and `entry_point` relative to the selected sub-repo.\n" +
-		"- Treat lens rows as verified navigation/candidate-universe facts. Do not use them as semantic code citations; verify selected behavior/implementation claims with `read_file` or targeted `grep` before citing source text.\n" +
-		"- Use repo-relative existing directories for `path`. If a path is uncertain, call `list_files` on the nearest known parent or `repo_map(path=\".\")` before guessing.\n\n"
+			"When the task needs a source inventory or member/count checklist, call `repo_map` with `view=\"source_inventory\"`, model-chosen `roles`, `scope`/`scopes`, and `include_attributes=false` for broad passes. Add `attribute_roles` only after narrowing to row-local details you need. Do not use source_inventory as a substitute for a call/import/inheritance/reference flow map.\n" +
+			"- The source-inventory lens returns counts, grouped scopes, languages, candidate files, and candidate symbols/routes/config keys across supported languages; use it to choose what to verify next.\n" +
+			"- Prefer a cascade: broad `source_inventory` member/count summary first, then a narrower follow-up with the chosen `scope`, `roles`, optional `attribute_roles`, `top_n`, and `cursor`/`offset` if the result is paged.\n" +
+			"- When the task needs structural edges, use `view=\"relation_map\"` as the second navigation stage after task_map/file_map orientation: pass `sources` after you choose concrete symbols/files, pass `scope`/`scopes` for directory/module boundaries, and narrow `relation_kinds` to call/import/inheritance/implements/reference/type_usage when known. For call-chain / dispatch / trace answers, prefer this relation_map pass before broad grep/read expansion.\n" +
+			"- Use `view=\"semantic_subgraph\"` for topology questions about hubs/bridges/chains, `view=\"edit_impact\"` for changed-file impact, and `view=\"call_path\"` only when you have a concrete entry point path to trace.\n" +
+			"- If the context or a tool refusal lists multiple active sub-repos, call repo_map separately for each active sub-repo you need: set `path` to that sub-repo path, and then keep `sources`, `scope`, `scopes`, `target_file`, and `entry_point` relative to the selected sub-repo.\n" +
+			"- Treat lens rows as verified navigation/candidate-universe facts. Do not use them as semantic code citations; verify selected behavior/implementation claims with `read_file` or targeted `grep` before citing source text.\n" +
+			"- Use repo-relative existing directories for `path`. If a path is uncertain, call `list_files` on the nearest known parent or `repo_map(path=\".\")` before guessing.\n\n")
+	b.WriteString(renderRepoMapTypedNavigationPolicy(ctx))
+	return b.String()
 }
 
 func renderExplorerSourceInventoryAdvisory(ctx *types.AgentContext) string {

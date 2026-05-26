@@ -141,7 +141,9 @@ func GenerateViewData(g *types.Graph, viewType string, params types.ViewParams) 
 		return buildOverviewData(g, params)
 	case "task_map":
 		if params.Query == "" {
-			return buildOverviewData(g, params)
+			d := buildOverviewData(g, params)
+			prependViewIntro(d, broadTaskMapNoQueryAdvisory())
+			return d
 		}
 		return buildTaskMapData(g, params)
 	case "file_map":
@@ -156,6 +158,21 @@ func GenerateViewData(g *types.Graph, viewType string, params types.ViewParams) 
 		return buildRelationMapData(g, params)
 	}
 	return nil
+}
+
+func prependViewIntro(d *ViewData, intro string) {
+	if d == nil || strings.TrimSpace(intro) == "" {
+		return
+	}
+	if strings.TrimSpace(d.Intro) == "" {
+		d.Intro = strings.TrimSpace(intro)
+		return
+	}
+	d.Intro = strings.TrimSpace(intro) + "\n\n" + d.Intro
+}
+
+func broadTaskMapNoQueryAdvisory() string {
+	return "Broad task_map because no `query` was supplied. Treat this as an orientation fallback. If the request already has named symbols, files, modules, operations, routes, config keys, or error identifiers, rerun `repo_map` with those terms in `query`; use `view=\"relation_map\"` after choosing concrete sources for calls/imports/inheritance/implements/reference edges."
 }
 
 // buildSemanticSubgraphData produces the structured form of the
@@ -875,7 +892,7 @@ func buildOverviewData(g *types.Graph, params types.ViewParams) *ViewData {
 		Title: "Repository Overview",
 	}
 	if params.ShowSourceInventoryHint {
-		d.Intro = "Navigation tip: use this overview for architecture/module orientation. For scoped inventories, member lists, counts, or pattern-matching questions, call `repo_map` with `view=\"source_inventory\"` plus `scope`/`scopes` and `roles`; add `attribute_roles` after narrowing to row-local details you need."
+		d.Intro = "Navigation tip: use this overview for architecture/module orientation. For scoped inventories, member lists, counts, or pattern-matching questions, call `repo_map` with `view=\"source_inventory\"` plus `scope`/`scopes` and `roles`; add `attribute_roles` after narrowing to row-local details you need. For mechanism, flow, call-chain, dispatch, or trace questions with named entities, call `repo_map` with `view=\"task_map\"` and a concrete `query`, then use `view=\"relation_map\"` around selected `sources`/`scope` when structural edges matter."
 	}
 
 	// Languages section — sorted by file count, descending.
@@ -1328,10 +1345,18 @@ func buildTaskMapData(g *types.Graph, params types.ViewParams) *ViewData {
 		body.Subsections = append(body.Subsections, fileSection)
 	}
 
+	title := "Task Map"
+	intro := ""
+	if strings.TrimSpace(params.Query) != "" {
+		title += ": " + params.Query
+	} else {
+		intro = broadTaskMapNoQueryAdvisory()
+	}
 	return &ViewData{
 		Type:     "task_map",
-		Title:    "Task Map: " + params.Query,
+		Title:    title,
 		Query:    params.Query,
+		Intro:    intro,
 		Sections: []ViewSection{body},
 	}
 }
