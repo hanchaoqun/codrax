@@ -100,12 +100,14 @@ Otherwise, ordinary single-repo `path="."` semantics apply.
     look useful. This must remain prompt-side guidance; the system must not
     rewrite or delete model-authored tables.
 
-11. **Cross-file type-definition follow-up still needs an explicit contract.**
+11. **Cross-file type-definition follow-up needs evidence-derived inputs.**
     When a mechanism answer mentions central structs such as `io_kiocb` or
     `io_ring_ctx`, the current repair loop may not reopen the correct defining
-    file after a stale recovery is detected. The safe direction is a typed,
-    graph-backed "definition follow-up" advisory that works for every repomap
-    language, not a Linux/Go-specific keyword rule and not a hard gate.
+    file after a stale recovery is detected. The repository already has a
+    graph-backed cross-file symbol reference advisory, so the fix is not a new
+    mechanism: feed non-grounded evidence anchors/summaries into that advisory
+    alongside investigation prose. This keeps the behaviour soft, typed, and
+    language-agnostic.
 
 ## Task List
 
@@ -121,7 +123,7 @@ Otherwise, ordinary single-repo `path="."` semantics apply.
 | RME-T7 | Done | Let high-confidence multi-file `AnalyzerHints.RequiredFileHints` suppress a contradictory single exact-anchor hard focus, while preserving exact-anchor focus when no stronger multi-file handoff exists | Explorer unit tests + Linux `io_uring` prompt inspection |
 | RME-T8 | Done | Reword evidence-repair summaries and mid-loop hints so recovered/ungrounded targets are audit candidates, not mandatory same-file proof; allow replacement/omit when the just-read gutter proves staleness | Tool + explorer unit tests |
 | RME-T9 | Done | Add prompt-side principal-boundary guidance for "key files / related files" sections so supporting/concrete-value rows do not become principal file lists | Finalizer prompt test / inspection |
-| RME-T10 | Planned | Design graph-backed cross-file definition follow-up for central symbols mentioned in principal answers, across all repomap languages | Design update + eval |
+| RME-T10 | Done | Reuse the existing graph-backed cross-file symbol advisory for central symbols mentioned in non-grounded evidence rows, across all repomap languages | `TestDetectCrossFileSymbolGaps/non-grounded evidence text can surface lowercase C-style definitions`, `TestDetectCrossFileSymbolGaps/graph contract is language agnostic` |
 | RME-T11 | Planned | Add eval coverage for large-repo two-stage repo_map navigation with stale repair and support-lane leakage checks | New eval cases |
 
 ## Red-Line Guardrails

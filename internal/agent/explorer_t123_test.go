@@ -690,6 +690,77 @@ func TestDetectCrossFileSymbolGaps(t *testing.T) {
 			t.Fatalf("focus filter should preserve the allowed gap before cap, got %+v", gaps)
 		}
 	})
+
+	t.Run("non-grounded evidence text can surface lowercase C-style definitions", func(t *testing.T) {
+		graph := &repomap.Graph{
+			SymbolDefs: map[string][]*repotypes.Symbol{
+				"io_kiocb": {
+					{Name: "io_kiocb", File: "include/linux/io_uring_types.h"},
+				},
+			},
+		}
+		eval := &explorerEvaluator{
+			investigationNotes: []string{
+				"Read io_uring/net.c and opdef.c.",
+				"SEND/RECV request paths are mostly grounded.",
+			},
+			structuredEvidence: []types.EvidenceItem{{
+				AnchorSymbol:    "io_kiocb",
+				Summary:         "request state embeds io_kiocb context but the recovered line pointed at a notifier helper",
+				GroundingStatus: types.GroundingUngrounded,
+			}},
+		}
+		gaps := detectCrossFileSymbolGaps(eval.crossFileSymbolGapTexts(), graph, map[string]bool{
+			"io_uring/net.c": true,
+		}, 3)
+		if len(gaps) != 1 || gaps[0].File != "include/linux/io_uring_types.h" || gaps[0].Symbol != "io_kiocb" {
+			t.Fatalf("lowercase symbol from non-grounded evidence should produce a definition follow-up, got %+v", gaps)
+		}
+	})
+
+	t.Run("graph contract is language agnostic", func(t *testing.T) {
+		graph := &repomap.Graph{
+			SymbolDefs: map[string][]*repotypes.Symbol{
+				"ProviderAuth": {
+					{Name: "ProviderAuth", File: "packages/opencode/src/auth/provider.ts"},
+				},
+				"submit_recvmsg": {
+					{Name: "submit_recvmsg", File: "io_uring/net.c"},
+				},
+				"request_router": {
+					{Name: "request_router", File: "service/router.py"},
+				},
+				"ResSchedService": {
+					{Name: "ResSchedService", File: "services/resschedservice/src/res_sched_service.cpp"},
+				},
+				"IResourceScheduler": {
+					{Name: "IResourceScheduler", File: "entry/src/main/ets/api/IResourceScheduler.ets"},
+				},
+			},
+		}
+		eval := &explorerEvaluator{
+			structuredEvidence: []types.EvidenceItem{{
+				Summary:         "ProviderAuth submit_recvmsg request_router ResSchedService IResourceScheduler all need definition follow-up",
+				GroundingStatus: types.GroundingRecovered,
+			}},
+		}
+		gaps := detectCrossFileSymbolGaps(eval.crossFileSymbolGapTexts(), graph, nil, 10)
+		got := make(map[string]string, len(gaps))
+		for _, gap := range gaps {
+			got[gap.Symbol] = gap.File
+		}
+		for sym, file := range map[string]string{
+			"ProviderAuth":       "packages/opencode/src/auth/provider.ts",
+			"submit_recvmsg":     "io_uring/net.c",
+			"request_router":     "service/router.py",
+			"ResSchedService":    "services/resschedservice/src/res_sched_service.cpp",
+			"IResourceScheduler": "entry/src/main/ets/api/IResourceScheduler.ets",
+		} {
+			if got[sym] != file {
+				t.Fatalf("symbol %s resolved to %q, want %q; all gaps=%+v", sym, got[sym], file, gaps)
+			}
+		}
+	})
 }
 
 // ── 3-hop chain resolution ─────────────────────────────────────────

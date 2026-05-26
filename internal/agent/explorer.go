@@ -9822,9 +9822,10 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 
 	// Check 4: cross-file symbol reference push (T3b).
 	//
-	// When the LLM has read a file and written analysis notes that
-	// mention exported symbol names, those symbols often refer to
-	// types/methods defined in OTHER files. For a cross-package
+	// When the LLM has read a file and written analysis notes or
+	// non-grounded evidence rows that mention symbol names, those
+	// symbols often refer to types/methods defined in OTHER files. For
+	// a cross-package
 	// mechanism question like "explorer是怎么调用subagent的？" the
 	// LLM reads agent.go, sees `deps.SubAgents.Get` and writes a
 	// note naming `SubAgent`; the type is defined in
@@ -9850,26 +9851,28 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	// co-exist with partial-read hints in the same signal. This
 	// prevents the throttle from eating the hint when partial-read
 	// took an earlier injection slot.
-	if !e.midLoopSymbolRefInjected &&
-		len(e.investigationNotes) >= e.heuristics.MidLoopMinIteration {
-		_, readSet, _ := extractFileCoverage(allResults, e.repoRoot)
-		gaps := detectCrossFileSymbolGapsWithFileFilter(
-			e.investigationNotes, e.searchResult.Graph, readSet, 3, e.activeFocusAllowsFile)
-		if len(gaps) > 0 {
-			if b.Len() > 0 {
+	if !e.midLoopSymbolRefInjected {
+		gapTexts := e.crossFileSymbolGapTexts()
+		if len(gapTexts) >= e.heuristics.MidLoopMinIteration {
+			_, readSet, _ := extractFileCoverage(allResults, e.repoRoot)
+			gaps := detectCrossFileSymbolGapsWithFileFilter(
+				gapTexts, e.searchResult.Graph, readSet, 3, e.activeFocusAllowsFile)
+			if len(gaps) > 0 {
+				if b.Len() > 0 {
+					b.WriteString("\n")
+				}
+				b.WriteString("Progress check: your notes or non-grounded evidence reference symbols whose " +
+					"definitions live in files you have NOT read yet. Reading the defining " +
+					"file is often the next hop of the call chain. Consider reading:\n")
+				for _, g := range gaps {
+					fmt.Fprintf(&b, "  - `%s` (defines `%s`)\n", g.File, g.Symbol)
+				}
 				b.WriteString("\n")
+				e.midLoopSymbolRefInjected = true
+				// Use a unique key so cross-file-ref dedup is independent
+				// of partial-read dedup.
+				hintKey = "explorer.mid-loop.cross-file-ref"
 			}
-			b.WriteString("Progress check: your notes reference exported symbols whose " +
-				"definitions live in files you have NOT read yet. Reading the defining " +
-				"file is often the next hop of the call chain. Consider reading:\n")
-			for _, g := range gaps {
-				fmt.Fprintf(&b, "  - `%s` (defines `%s`)\n", g.File, g.Symbol)
-			}
-			b.WriteString("\n")
-			e.midLoopSymbolRefInjected = true
-			// Use a unique key so cross-file-ref dedup is independent
-			// of partial-read dedup.
-			hintKey = "explorer.mid-loop.cross-file-ref"
 		}
 	}
 
@@ -17090,6 +17093,47 @@ type crossFileSymbolGap struct {
 // Returns nil when graph is nil or no gaps are found.
 func detectCrossFileSymbolGaps(notes []string, graph *repomap.Graph, readSet map[string]bool, max int) []crossFileSymbolGap {
 	return detectCrossFileSymbolGapsWithFileFilter(notes, graph, readSet, max, nil)
+}
+
+func (e *explorerEvaluator) crossFileSymbolGapTexts() []string {
+	if e == nil {
+		return nil
+	}
+	out := make([]string, 0, len(e.investigationNotes)+len(e.structuredEvidence))
+	seen := make(map[string]bool, len(e.investigationNotes)+len(e.structuredEvidence))
+	add := func(text string) {
+		text = normalizeExplorationNote(text)
+		if text == "" || seen[text] {
+			return
+		}
+		seen[text] = true
+		out = append(out, text)
+	}
+	for _, note := range e.investigationNotes {
+		add(note)
+	}
+	for _, ev := range e.structuredEvidence {
+		if ev.GroundingStatus != types.GroundingRecovered && ev.GroundingStatus != types.GroundingUngrounded {
+			continue
+		}
+		var parts []string
+		for _, part := range []string{
+			ev.AnchorSymbol,
+			ev.OwnerSymbol,
+			ev.Subject,
+			ev.Object,
+			ev.Summary,
+			ev.Snippet,
+			ev.GroundingNote,
+		} {
+			part = strings.TrimSpace(part)
+			if part != "" {
+				parts = append(parts, part)
+			}
+		}
+		add(strings.Join(parts, " "))
+	}
+	return out
 }
 
 func detectCrossFileSymbolGapsWithFileFilter(notes []string, graph *repomap.Graph, readSet map[string]bool, max int, allowFile func(string) bool) []crossFileSymbolGap {
