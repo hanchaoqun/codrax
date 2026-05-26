@@ -607,6 +607,42 @@ func TestBuildToolHistoryPruneCheckpointCarriesDispatchCommandMeasurement(t *tes
 	}
 }
 
+func TestBuildToolHistoryPruneCheckpointCarriesRepairDebt(t *testing.T) {
+	mut := types.NewMutableState("repair debt before prune")
+	closure := mut.EvidenceClosure()
+	closure.AddPendingRead(types.PendingRead{
+		File:       "internal/agent/explorer.go",
+		Origin:     "pre_complete.multi_path_anchor",
+		Rationale:  "exact line still needs local verification",
+		LineRanges: []types.LineRange{{Start: 42, End: 42}},
+	})
+	closure.AddRepair(types.RepairDirective{
+		Kind:     types.RepairExpandSearch,
+		Keywords: []string{"optional"},
+		Origin:   "support.telemetry",
+		Advisory: true,
+	})
+	ctx := &types.AgentContext{Stage: types.StageExplore, Mutable: mut}
+
+	got := buildToolHistoryPruneCheckpoint(ctx)
+	if !strings.HasPrefix(got, toolHistoryPruneCheckpointPrefix) {
+		t.Fatalf("checkpoint prefix missing:\n%s", got)
+	}
+	for _, want := range []string{
+		"Active repair debt snapshot",
+		"principal_blocking=0 surgical_grounding=1 advisory=1",
+		"class=`surgical_grounding` pending_read kind=`read_file`",
+		"internal/agent/explorer.go",
+		"line:42",
+		"class=`advisory` repair kind=`expand_search`",
+		"not new evidence",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("checkpoint missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestSanitizeToolCallsForHistory_ReplacesInvalidParamsOnlyInHistory(t *testing.T) {
 	calls := []llm.ToolCall{
 		{ID: "call-good", Name: "read_file", Params: json.RawMessage(`{"path":"a.go"}`)},

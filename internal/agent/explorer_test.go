@@ -5138,6 +5138,22 @@ func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *test
 		}
 	})
 
+	t.Run("completion ready drops advisory closure repair signals", func(t *testing.T) {
+		repairs := []types.RepairDirective{
+			{
+				Kind:     types.RepairExpandSearch,
+				Keywords: []string{"optional"},
+				Origin:   "support.telemetry",
+			},
+		}
+		if got := closureRepairsForSignal(repairs, false); len(got) != 1 {
+			t.Fatalf("pre-close-ready advisory repair should remain visible, got %+v", got)
+		}
+		if got := closureRepairsForSignal(repairs, true); len(got) != 0 {
+			t.Fatalf("close-ready advisory repair must not trigger a closure-repair signal, got %+v", got)
+		}
+	})
+
 	t.Run("hard rejection with structured repair also prioritizes closure repair", func(t *testing.T) {
 		mut := types.NewMutableState("q")
 		mut.EvidenceClosure().AddRepair(types.RepairDirective{

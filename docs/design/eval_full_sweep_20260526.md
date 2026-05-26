@@ -2112,15 +2112,15 @@ Design principles:
 
 Implementation tasks:
 
-- [ ] P0-A: Add a small `RepairDebtClass` helper beside the existing repair
+- [x] P0-A: Add a small `RepairDebtClass` helper beside the existing repair
   queue APIs. Reuse `RepairDirective` and `ToolRepair`; do not create a parallel
   repair ledger.
-- [ ] P0-B: Extend the prune checkpoint with a compact repair-debt snapshot and
+- [x] P0-B: Extend the prune checkpoint with a compact repair-debt snapshot and
   tests proving accepted facts plus repair state survive tool-history pruning.
-- [ ] P0-C: Make explorer evidence-repair state respect the debt class after
+- [x] P0-C: Make explorer evidence-repair state respect the debt class after
   close-ready: principal-blocking can continue, surgical grounding gets one
   bounded local attempt, advisory cannot trigger broad/nudge loops.
-- [ ] P1-A: Add regression tests for close-ready + repaired/recovered row debt
+- [x] P1-A: Add regression tests for close-ready + repaired/recovered row debt
   so repeated navigation does not get fresh closure-only hints.
 - [ ] P1-B: Add metrics/logging for repair-debt class at prune and close-ready
   boundaries so eval can distinguish "real blocker" from "advisory debt".

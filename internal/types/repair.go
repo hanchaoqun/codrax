@@ -91,6 +91,69 @@ func (k RepairKind) IsValid() bool {
 	return false
 }
 
+// RepairDebtClass is a coarse, machine-consumable severity label for repair
+// pressure that survives prompt pruning and retry scheduling. It is derived
+// only from structured repair metadata, never from user text or model prose.
+type RepairDebtClass string
+
+const (
+	// RepairDebtPrincipalBlocking means the system has a structured reason to
+	// believe the missing repair can change the principal answer surface. This
+	// is the only class downstream code should treat as a hard closure blocker.
+	RepairDebtPrincipalBlocking RepairDebtClass = "principal_blocking"
+
+	// RepairDebtSurgicalGrounding means the remaining work is a bounded
+	// line/anchor/evidence-materialization repair. It may justify one local
+	// verification attempt, but should not reopen broad navigation by itself.
+	RepairDebtSurgicalGrounding RepairDebtClass = "surgical_grounding"
+
+	// RepairDebtAdvisory means optional breadth, audit, telemetry, or a
+	// non-blocking boundary note. It must not hard-block an accepted closure.
+	RepairDebtAdvisory RepairDebtClass = "advisory"
+)
+
+// ClassifyRepairDirective assigns a structured repair-debt class. The helper is
+// intentionally conservative for unknown kinds: callers can use it for
+// reporting/checkpoints without weakening existing hard-block behavior.
+func ClassifyRepairDirective(r RepairDirective) RepairDebtClass {
+	if r.Advisory {
+		return RepairDebtAdvisory
+	}
+	switch r.Kind {
+	case RepairExpandSearch, RepairForceCompleteDowngrade:
+		return RepairDebtAdvisory
+	case RepairEmitEvidence:
+		return RepairDebtSurgicalGrounding
+	case RepairReadFile:
+		if len(r.LineRanges) > 0 {
+			return RepairDebtSurgicalGrounding
+		}
+		if !PendingReadBlocksAcceptedClosure(PendingRead{Origin: r.Origin}) {
+			return RepairDebtAdvisory
+		}
+		return RepairDebtPrincipalBlocking
+	case RepairSwapView, RepairRebindSubject:
+		return RepairDebtPrincipalBlocking
+	default:
+		if r.Kind == "" {
+			return RepairDebtAdvisory
+		}
+		return RepairDebtPrincipalBlocking
+	}
+}
+
+// ClassifyPendingReadRepair mirrors ClassifyRepairDirective for the live
+// pending-read queue, which is the authoritative read-file repair surface.
+func ClassifyPendingReadRepair(p PendingRead) RepairDebtClass {
+	if !PendingReadBlocksAcceptedClosure(p) {
+		return RepairDebtAdvisory
+	}
+	if len(p.LineRanges) > 0 {
+		return RepairDebtSurgicalGrounding
+	}
+	return RepairDebtPrincipalBlocking
+}
+
 // PendingReadBlocksAcceptedClosure reports whether a pending read is still a
 // load-bearing reason to reopen exploration after the model has already passed
 // emit_investigation_complete pre-complete gates.

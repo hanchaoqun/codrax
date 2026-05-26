@@ -6246,6 +6246,20 @@ func closureRepairDirectives(mutable *types.MutableState) []types.RepairDirectiv
 	return types.MergeRepairs(out)
 }
 
+func closureRepairsForSignal(repairs []types.RepairDirective, completionReady bool) []types.RepairDirective {
+	if len(repairs) == 0 || !completionReady {
+		return repairs
+	}
+	out := repairs[:0]
+	for _, repair := range repairs {
+		if types.ClassifyRepairDirective(repair) == types.RepairDebtAdvisory {
+			continue
+		}
+		out = append(out, repair)
+	}
+	return out
+}
+
 func renderCompactClosureRepairSection(repair types.RepairDirective) string {
 	var b strings.Builder
 	switch repair.Kind {
@@ -6457,6 +6471,7 @@ func (e *explorerEvaluator) postClosureRepairSignal(obs LoopObservation) LoopSig
 		return LoopSignal{}
 	}
 	repairs := closureRepairDirectives(e.mutable)
+	repairs = closureRepairsForSignal(repairs, e.midLoopCompletionReadySent)
 	if len(repairs) == 0 {
 		return LoopSignal{}
 	}
@@ -6496,6 +6511,7 @@ func (e *explorerEvaluator) postProactiveClosureTargetSignal(obs LoopObservation
 		return LoopSignal{}
 	}
 	repairs := closureRepairDirectives(e.mutable)
+	repairs = closureRepairsForSignal(repairs, e.midLoopCompletionReadySent)
 	if len(repairs) == 0 {
 		return LoopSignal{}
 	}
@@ -6527,6 +6543,12 @@ func (e *explorerEvaluator) postClosureRepairClosureOnlySignal(obs LoopObservati
 		return LoopSignal{}
 	}
 	repairs := closureRepairDirectives(e.mutable)
+	if e.midLoopCompletionReadySent {
+		repairs = closureRepairsForSignal(repairs, true)
+	}
+	if e.midLoopCompletionReadySent && len(repairs) == 0 {
+		return LoopSignal{}
+	}
 	message := "Progress check: the last completion attempt already queued structured closure repairs, and the current batch still spent effort on generic navigation. Do not keep widening scope yet. Finish the queued repair first, then re-emit grounded evidence or retry `emit_investigation_complete(...)`."
 	for _, repair := range repairs {
 		if repair.Kind == types.RepairEmitEvidence {

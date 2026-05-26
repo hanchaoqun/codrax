@@ -1187,6 +1187,7 @@ const (
 
 	toolHistoryPruneCheckpointAggregateFactLimit     = 8
 	toolHistoryObservationCheckpointRecordLimit      = 8
+	toolHistoryRepairDebtCheckpointRecordLimit       = 8
 	toolHistoryObservationCheckpointLedgerInputLimit = 24
 	toolHistoryObservationCheckpointSummaryMaxLen    = 140
 	toolHistoryObservationCheckpointValueMaxLen      = 120
@@ -1252,7 +1253,8 @@ func buildToolHistoryPruneCheckpoint(ctx *types.AgentContext) string {
 	reason := strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason())
 	resultKind := strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind())
 	observationCheckpoint := renderToolHistoryObservationCheckpoint(ctx, toolHistoryObservationCheckpointRecordLimit)
-	if len(citable) == 0 && len(aggregateFacts) == 0 && reason == "" && resultKind == "" && observationCheckpoint == "" {
+	repairDebtCheckpoint := renderToolHistoryRepairDebtCheckpoint(ctx, toolHistoryRepairDebtCheckpointRecordLimit)
+	if len(citable) == 0 && len(aggregateFacts) == 0 && reason == "" && resultKind == "" && observationCheckpoint == "" && repairDebtCheckpoint == "" {
 		return ""
 	}
 	var b strings.Builder
@@ -1304,6 +1306,13 @@ func buildToolHistoryPruneCheckpoint(ctx *types.AgentContext) string {
 			b.WriteByte('\n')
 		}
 	}
+	if repairDebtCheckpoint != "" {
+		b.WriteString("\nActive repair debt snapshot:\n")
+		b.WriteString(repairDebtCheckpoint)
+		if !strings.HasSuffix(repairDebtCheckpoint, "\n") {
+			b.WriteByte('\n')
+		}
+	}
 	if reason != "" || resultKind != "" {
 		b.WriteString("\nAccepted investigation closure:\n")
 		if resultKind != "" {
@@ -1314,6 +1323,214 @@ func buildToolHistoryPruneCheckpoint(ctx *types.AgentContext) string {
 		}
 	}
 	return logging.Truncate(b.String(), toolHistoryPruneCheckpointMaxBytes)
+}
+
+type toolHistoryRepairDebtRow struct {
+	class   types.RepairDebtClass
+	kind    types.RepairKind
+	origin  string
+	target  string
+	pending bool
+}
+
+func renderToolHistoryRepairDebtCheckpoint(ctx *types.AgentContext, limit int) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	if closure == nil {
+		return ""
+	}
+	if limit <= 0 {
+		limit = toolHistoryRepairDebtCheckpointRecordLimit
+	}
+	var rows []toolHistoryRepairDebtRow
+	seen := make(map[string]bool)
+	add := func(row toolHistoryRepairDebtRow) {
+		row.origin = strings.TrimSpace(row.origin)
+		row.target = strings.TrimSpace(row.target)
+		key := fmt.Sprintf("%s\x00%s\x00%s\x00%s\x00%t", row.class, row.kind, row.origin, row.target, row.pending)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		rows = append(rows, row)
+	}
+	for _, pending := range closure.PendingReads() {
+		add(toolHistoryRepairDebtRow{
+			class:   types.ClassifyPendingReadRepair(pending),
+			kind:    types.RepairReadFile,
+			origin:  pending.Origin,
+			target:  renderRepairDebtPendingReadTarget(pending),
+			pending: true,
+		})
+	}
+	for _, repair := range closure.ActiveRepairs() {
+		if repair.Kind == types.RepairReadFile {
+			// PendingReads are the authoritative live read-file debt
+			// surface. ActiveRepairs compiles read-file rows from that
+			// queue, so rendering both would double-count the same debt.
+			continue
+		}
+		add(toolHistoryRepairDebtRow{
+			class:  types.ClassifyRepairDirective(repair),
+			kind:   repair.Kind,
+			origin: repair.Origin,
+			target: renderRepairDebtDirectiveTarget(repair),
+		})
+	}
+	for _, repair := range closure.PendingRepairs() {
+		if !repair.Advisory && types.ClassifyRepairDirective(repair) != types.RepairDebtAdvisory {
+			continue
+		}
+		add(toolHistoryRepairDebtRow{
+			class:  types.ClassifyRepairDirective(repair),
+			kind:   repair.Kind,
+			origin: repair.Origin,
+			target: renderRepairDebtDirectiveTarget(repair),
+		})
+	}
+	if len(rows) == 0 {
+		return ""
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		ci, cj := repairDebtClassRank(rows[i].class), repairDebtClassRank(rows[j].class)
+		if ci != cj {
+			return ci < cj
+		}
+		if rows[i].pending != rows[j].pending {
+			return rows[i].pending
+		}
+		if rows[i].kind != rows[j].kind {
+			return rows[i].kind < rows[j].kind
+		}
+		return rows[i].target < rows[j].target
+	})
+	counts := map[types.RepairDebtClass]int{}
+	for _, row := range rows {
+		counts[row.class]++
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "- principal_blocking=%d surgical_grounding=%d advisory=%d\n",
+		counts[types.RepairDebtPrincipalBlocking],
+		counts[types.RepairDebtSurgicalGrounding],
+		counts[types.RepairDebtAdvisory],
+	)
+	b.WriteString("- These rows replay existing repair pressure only; they are not new evidence. Principal-blocking rows may still need local action. Surgical rows should stay bounded. Advisory rows should not reopen broad search.\n")
+	if limit > len(rows) {
+		limit = len(rows)
+	}
+	for i, row := range rows[:limit] {
+		prefix := "repair"
+		if row.pending {
+			prefix = "pending_read"
+		}
+		fmt.Fprintf(&b, "%d. class=`%s` %s kind=`%s`", i+1, row.class, prefix, row.kind)
+		if row.origin != "" {
+			fmt.Fprintf(&b, " origin=`%s`", logging.Truncate(row.origin, 80))
+		}
+		if row.target != "" {
+			fmt.Fprintf(&b, " target=%s", logging.Truncate(row.target, 180))
+		}
+		b.WriteByte('\n')
+	}
+	if omitted := len(rows) - limit; omitted > 0 {
+		fmt.Fprintf(&b, "... %d additional repair-debt row(s) remain in EvidenceClosure.\n", omitted)
+	}
+	return b.String()
+}
+
+func repairDebtClassRank(class types.RepairDebtClass) int {
+	switch class {
+	case types.RepairDebtPrincipalBlocking:
+		return 0
+	case types.RepairDebtSurgicalGrounding:
+		return 1
+	case types.RepairDebtAdvisory:
+		return 2
+	default:
+		return 3
+	}
+}
+
+func renderRepairDebtPendingReadTarget(p types.PendingRead) string {
+	file := strings.TrimSpace(p.File)
+	if file == "" {
+		return ""
+	}
+	if ranges := renderRepairDebtLineRanges(p.LineRanges, 2); ranges != "" {
+		return fmt.Sprintf("`%s` %s", file, ranges)
+	}
+	return fmt.Sprintf("`%s`", file)
+}
+
+func renderRepairDebtDirectiveTarget(r types.RepairDirective) string {
+	var parts []string
+	if len(r.Files) > 0 {
+		parts = append(parts, "files="+renderRepairDebtStringList(r.Files, 3))
+	}
+	if len(r.LineRanges) > 0 {
+		parts = append(parts, "ranges="+renderRepairDebtLineRanges(r.LineRanges, 2))
+	}
+	if len(r.Keywords) > 0 {
+		parts = append(parts, "keywords="+renderRepairDebtStringList(r.Keywords, 4))
+	}
+	if subject := strings.TrimSpace(r.Subject); subject != "" {
+		parts = append(parts, "subject=`"+subject+"`")
+	}
+	if len(parts) == 0 && strings.TrimSpace(r.Rationale) != "" {
+		parts = append(parts, "rationale="+logging.Truncate(strings.TrimSpace(r.Rationale), 140))
+	}
+	return strings.Join(parts, " ")
+}
+
+func renderRepairDebtStringList(values []string, max int) string {
+	if len(values) == 0 {
+		return "[]"
+	}
+	if max <= 0 || max > len(values) {
+		max = len(values)
+	}
+	parts := make([]string, 0, max+1)
+	for _, value := range values[:max] {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			parts = append(parts, "`"+trimmed+"`")
+		}
+	}
+	if omitted := len(values) - max; omitted > 0 {
+		parts = append(parts, fmt.Sprintf("+%d", omitted))
+	}
+	if len(parts) == 0 {
+		return "[]"
+	}
+	return "[" + strings.Join(parts, ", ") + "]"
+}
+
+func renderRepairDebtLineRanges(ranges []types.LineRange, max int) string {
+	if len(ranges) == 0 {
+		return ""
+	}
+	if max <= 0 || max > len(ranges) {
+		max = len(ranges)
+	}
+	parts := make([]string, 0, max+1)
+	for _, r := range ranges[:max] {
+		if r.Start <= 0 || r.End < r.Start {
+			continue
+		}
+		if r.Start == r.End {
+			parts = append(parts, fmt.Sprintf("line:%d", r.Start))
+		} else {
+			parts = append(parts, fmt.Sprintf("lines:%d-%d", r.Start, r.End))
+		}
+	}
+	if omitted := len(ranges) - max; omitted > 0 {
+		parts = append(parts, fmt.Sprintf("+%d", omitted))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "(" + strings.Join(parts, ",") + ")"
 }
 
 func renderToolHistoryObservationCheckpoint(ctx *types.AgentContext, limit int) string {
