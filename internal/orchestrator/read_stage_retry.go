@@ -218,6 +218,7 @@ func (o *Orchestrator) buildExploreTransientRetryCheckpointHint() string {
 		"A transient model stream error interrupted the previous explore dispatch after durable progress was preserved.",
 		"Checkpoint summary (non-authoritative counts): " + strings.Join(facts, "; ") + ".",
 		"Continue from this checkpoint; this is a continuation, not a fresh investigation. Reuse the accepted evidence and already-read context visible in the transcript. Avoid repeating broad repository-wide navigation or identical broad searches unless the checkpoint clearly lacks the target needed for the active objective.",
+		"Treat any generic DAG/window objectives that follow as remaining-objective context only; they do not reopen broad search once the checkpoint already covers the active objective.",
 		"If a specific anchor is still missing, do a narrow follow-up read/search for that anchor. If the checkpoint is enough, call emit_investigation_complete. This checkpoint is advisory only: it is not new evidence and it does not decide sufficiency for you.",
 	}, "\n\n")
 }

@@ -4265,15 +4265,29 @@ func TestObserveMidLoop_EvidenceRepairClosureOnlySuppressesExpansion(t *testing.
 	if !sig.HintRequested {
 		t.Fatalf("repair closure-only redirect should fire while a grounded repair is still pending, got %+v", sig)
 	}
-	if !strings.HasPrefix(sig.HintKey, "explorer.mid-loop.evidence-repair-closure-only.") {
-		t.Fatalf("HintKey = %q, want evidence-repair-closure-only prefix", sig.HintKey)
+	if sig.HintKey != "explorer.mid-loop.evidence-repair-closure-only" {
+		t.Fatalf("HintKey = %q, want evidence-repair-closure-only", sig.HintKey)
 	}
 	if !strings.Contains(sig.Hint, "Finish that repair") {
 		t.Fatalf("repair closure-only redirect should steer back to the existing repair, got: %s", sig.Hint)
 	}
+	results = append(results, types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary:  "internal/tool/repomap/tool.go:130:func buildOrLoadGraph",
+	})
+	again := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      3,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if again.HintRequested {
+		t.Fatalf("repair closure-only redirect should be one-shot for the pending repair, got %+v", again)
+	}
 }
 
-func TestObserveMidLoop_EvidenceRepairClosureOnlyRepeatsStructuredTargets(t *testing.T) {
+func TestObserveMidLoop_EvidenceRepairClosureOnlyRendersStructuredTargetsOnce(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:        1,
 		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
@@ -4315,14 +4329,28 @@ func TestObserveMidLoop_EvidenceRepairClosureOnlyRepeatsStructuredTargets(t *tes
 	if !second.HintRequested {
 		t.Fatalf("closure-only repair redirect should fire after navigation, got %+v", second)
 	}
-	if !strings.HasPrefix(second.HintKey, "explorer.mid-loop.evidence-repair-closure-only.") {
-		t.Fatalf("HintKey = %q, want evidence-repair-closure-only prefix", second.HintKey)
+	if second.HintKey != "explorer.mid-loop.evidence-repair-closure-only" {
+		t.Fatalf("HintKey = %q, want evidence-repair-closure-only", second.HintKey)
 	}
 	if !strings.Contains(second.Hint, "internal/analysis/amplifier/amplifier.go") || !strings.Contains(second.Hint, "100") {
 		t.Fatalf("closure-only redirect should repeat the structured repair target, got: %s", second.Hint)
 	}
 	if !strings.Contains(second.Hint, "Auto-recovered line numbers are audit feedback") {
 		t.Fatalf("closure-only redirect should explain recovered evidence is not repaired yet, got: %s", second.Hint)
+	}
+	followup = append(followup, types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary:  "internal/analysis/amplifier/amplifier.go:100:func Amplify(...)",
+	})
+	third := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      6,
+		LastToolResult: &followup[len(followup)-1],
+		AllToolResults: followup,
+	})
+	if third.HintRequested {
+		t.Fatalf("closure-only repair target redirect should not repeat for the same repair window, got %+v", third)
 	}
 }
 
@@ -4373,8 +4401,8 @@ func TestObserveMidLoop_EvidenceRepairHintAdvancesBatchBaseline(t *testing.T) {
 	if !second.HintRequested {
 		t.Fatalf("second pass should notice navigation after the repair cue, got %+v", second)
 	}
-	if !strings.HasPrefix(second.HintKey, "explorer.mid-loop.evidence-repair-closure-only.") {
-		t.Fatalf("HintKey = %q, want evidence-repair-closure-only prefix", second.HintKey)
+	if second.HintKey != "explorer.mid-loop.evidence-repair-closure-only" {
+		t.Fatalf("HintKey = %q, want evidence-repair-closure-only", second.HintKey)
 	}
 }
 
@@ -5284,11 +5312,25 @@ func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *test
 		if !sig.HintRequested {
 			t.Fatalf("closure-only redirect should fire while a structured closure repair is still pending, got %+v", sig)
 		}
-		if !strings.HasPrefix(sig.HintKey, "explorer.mid-loop.closure-repair-closure-only.") {
-			t.Fatalf("HintKey = %q, want closure-repair-closure-only prefix", sig.HintKey)
+		if sig.HintKey != "explorer.mid-loop.closure-repair-closure-only" {
+			t.Fatalf("HintKey = %q, want closure-repair-closure-only", sig.HintKey)
 		}
 		if !strings.Contains(sig.Hint, "queued structured closure repairs") {
 			t.Fatalf("closure-only redirect should steer back to the queued repair, got: %s", sig.Hint)
+		}
+		results = append(results, types.ToolResult{
+			ToolName: "grep",
+			Success:  true,
+			Summary:  "internal/agent/explorer.go:123:queued repair",
+		})
+		again := eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      8,
+			LastToolResult: &results[len(results)-1],
+			AllToolResults: results,
+		})
+		if again.HintRequested {
+			t.Fatalf("closure-repair-only redirect should be one-shot for the pending repair, got %+v", again)
 		}
 	})
 
@@ -6026,7 +6068,7 @@ func TestObserveMidLoop_ReadWithoutEmitRefiresForNewBacklogAfterSuccessfulEmit(t
 	}
 }
 
-func TestObserveMidLoop_ReadWithoutEmitClosureOnlyRedirectRepeatsAfterEscalation(t *testing.T) {
+func TestObserveMidLoop_ReadWithoutEmitClosureOnlyRedirectIsOneShotAfterEscalation(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                       1,
 		searchResult:                &keywordSearchResult{Graph: &repomap.Graph{}},
@@ -6055,13 +6097,27 @@ func TestObserveMidLoop_ReadWithoutEmitClosureOnlyRedirectRepeatsAfterEscalation
 		AllToolResults: results,
 	})
 	if !sig.HintRequested {
-		t.Fatalf("closure-only redirect should repeat after escalated no-emit navigation, got %+v", sig)
+		t.Fatalf("closure-only redirect should fire after escalated no-emit navigation, got %+v", sig)
 	}
-	if !strings.HasPrefix(sig.HintKey, "explorer.mid-loop.read-without-emit-closure-only.") {
-		t.Fatalf("HintKey = %q, want read-without-emit-closure-only prefix", sig.HintKey)
+	if sig.HintKey != "explorer.mid-loop.read-without-emit-closure-only" {
+		t.Fatalf("HintKey = %q, want read-without-emit-closure-only", sig.HintKey)
 	}
 	if !strings.Contains(sig.Hint, "emit_evidence") {
 		t.Fatalf("closure-only redirect should steer back to emit_evidence, got: %s", sig.Hint)
+	}
+	results = append(results, types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/agent/explorer.go: showing lines 1-20 of 20]\n...",
+	})
+	again := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      7,
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if again.HintRequested {
+		t.Fatalf("closure-only redirect should be one-shot for the same materialization backlog, got %+v", again)
 	}
 }
 

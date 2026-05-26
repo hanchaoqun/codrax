@@ -138,22 +138,24 @@ type explorerEvaluator struct {
 	// iters route to other tools or to emit. Per-tool keying lets
 	// independent budgets (read_file, grep, repo_map, list_files)
 	// each fire their own one-shot.
-	midLoopBudgetExhaustedSent      map[string]bool
-	midLoopEvidenceRepairSent       bool // one-shot: recovered/ungrounded emit_evidence repair hint already pushed this dispatch
-	midLoopEvidenceRepairResultsLen int  // allResults length when the current emit_evidence repair hint fired
-	midLoopEvidenceRepairEmitOnly   bool // repair target windows are already covered; allow only evidence materialization/closure
-	midLoopSurfaceTermReviewSent    bool // one-shot: model-authored surface_terms review hint already pushed this dispatch
-	midLoopClosureRepairSent        bool // one-shot: structured closure repair from a downgraded completion already pushed this dispatch
-	midLoopClosureRepairResultsLen  int  // allResults length when the current closure repair hint fired
-	midLoopIntentWindowSent         bool // session-22: structural-intent-vs-narrow-window hint already pushed this dispatch
-	midLoopRankerCoverageSent       bool // session-22: ranker-coverage-too-low hint already pushed this dispatch
-	midLoopAbsentRedirectSent       bool // session-22: emit_evidence kind=absent deprecation redirect already pushed this dispatch
-	midLoopExternalArtifactSent     bool // one-shot: external-source runtime artifact redirected this dispatch
-	midLoopExactAbsenceContextSent  bool // one-shot: exact absence still needs one grounded same-family production anchor before closure
-	midLoopExactAbsenceSent         bool // one-shot: exact-resolution absence already looks closure-ready this dispatch
-	midLoopSchemaLevelHintSent      bool // one-shot: schema-level evidence nudge already pushed this Run (config-trace + exact-absent only)
-	midLoopAuthoritativeTier1Sent   bool // one-shot: authoritative log path is semantically enough but would fail Tier-1 floor before completion
-	midLoopEnumInjected             bool // session-22: enumeration-coverage hint already pushed this dispatch (was missing → 68 fires / run observed on goroutine_dump)
+	midLoopBudgetExhaustedSent           map[string]bool
+	midLoopEvidenceRepairSent            bool // one-shot: recovered/ungrounded emit_evidence repair hint already pushed this dispatch
+	midLoopEvidenceRepairResultsLen      int  // allResults length when the current emit_evidence repair hint fired
+	midLoopEvidenceRepairEmitOnly        bool // repair target windows are already covered; allow only evidence materialization/closure
+	midLoopEvidenceRepairClosureOnlySent bool // one-shot: repair-only redirect after the repair hint was ignored
+	midLoopSurfaceTermReviewSent         bool // one-shot: model-authored surface_terms review hint already pushed this dispatch
+	midLoopClosureRepairSent             bool // one-shot: structured closure repair from a downgraded completion already pushed this dispatch
+	midLoopClosureRepairResultsLen       int  // allResults length when the current closure repair hint fired
+	midLoopClosureRepairClosureOnlySent  bool // one-shot: closure-repair-only redirect after the repair hint was ignored
+	midLoopIntentWindowSent              bool // session-22: structural-intent-vs-narrow-window hint already pushed this dispatch
+	midLoopRankerCoverageSent            bool // session-22: ranker-coverage-too-low hint already pushed this dispatch
+	midLoopAbsentRedirectSent            bool // session-22: emit_evidence kind=absent deprecation redirect already pushed this dispatch
+	midLoopExternalArtifactSent          bool // one-shot: external-source runtime artifact redirected this dispatch
+	midLoopExactAbsenceContextSent       bool // one-shot: exact absence still needs one grounded same-family production anchor before closure
+	midLoopExactAbsenceSent              bool // one-shot: exact-resolution absence already looks closure-ready this dispatch
+	midLoopSchemaLevelHintSent           bool // one-shot: schema-level evidence nudge already pushed this Run (config-trace + exact-absent only)
+	midLoopAuthoritativeTier1Sent        bool // one-shot: authoritative log path is semantically enough but would fail Tier-1 floor before completion
+	midLoopEnumInjected                  bool // session-22: enumeration-coverage hint already pushed this dispatch (was missing → 68 fires / run observed on goroutine_dump)
 	// midLoopOrientationFinalizeSent latches the once-per-dispatch
 	// orientation finalize nudge. Without this latch the nudge would
 	// re-render every iteration after the threshold fires, drowning
@@ -161,6 +163,7 @@ type explorerEvaluator struct {
 	midLoopOrientationFinalizeSent    bool
 	midLoopNoEmitPushSent             bool // one-shot: current evidence-materialization backlog window already received its read-without-emit nudge
 	midLoopNoEmitEscalated            bool // one-shot: stronger "emit evidence now" escalation after the current backlog window's nudge was ignored
+	midLoopNoEmitClosureOnlySent      bool // one-shot: materialization-only redirect after the escalation was ignored
 	midLoopNoEmitEndpointSent         bool // one-shot: bounded trace backlog could not be narrowed because the terminal endpoint is not covered yet
 	midLoopExecRedirectSent           bool // one-shot: redirected shell-style browsing back to built-in grep/read_file before recording the current backlog window
 	midLoopExplanationAnchorSent      bool // one-shot: multi-topic explanation still lacks one grounded anchor per sub-topic
@@ -354,9 +357,11 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopBudgetExhaustedSent = nil
 		e.midLoopEvidenceRepairSent = false
 		e.midLoopEvidenceRepairResultsLen = 0
+		e.midLoopEvidenceRepairClosureOnlySent = false
 		e.midLoopSurfaceTermReviewSent = false
 		e.midLoopClosureRepairSent = false
 		e.midLoopClosureRepairResultsLen = 0
+		e.midLoopClosureRepairClosureOnlySent = false
 		e.midLoopIntentWindowSent = false
 		e.midLoopRankerCoverageSent = false
 		e.midLoopAbsentRedirectSent = false
@@ -369,12 +374,14 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopOrientationFinalizeSent = false
 		e.midLoopNoEmitPushSent = false
 		e.midLoopNoEmitEscalated = false
+		e.midLoopNoEmitClosureOnlySent = false
 		e.midLoopNoEmitEndpointSent = false
 		e.midLoopExecRedirectSent = false
 		e.midLoopExplanationAnchorSent = false
 		e.midLoopCompletionReadySent = false
 		e.midLoopCandidateUniverseSent = false
 		e.midLoopCompletionReadyEscalated = false
+		e.midLoopCompletionReadyClosureSent = false
 		e.midLoopCompletionReadyIter = 0
 		e.midLoopNoveltySeen = nil
 		e.midLoopNoNoveltyNavigationStreak = 0
@@ -498,9 +505,11 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopBudgetExhaustedSent = nil
 	e.midLoopEvidenceRepairSent = false
 	e.midLoopEvidenceRepairResultsLen = 0
+	e.midLoopEvidenceRepairClosureOnlySent = false
 	e.midLoopSurfaceTermReviewSent = false
 	e.midLoopClosureRepairSent = false
 	e.midLoopClosureRepairResultsLen = 0
+	e.midLoopClosureRepairClosureOnlySent = false
 	e.midLoopIntentWindowSent = false
 	e.midLoopRankerCoverageSent = false
 	e.midLoopAbsentRedirectSent = false
@@ -513,6 +522,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopOrientationFinalizeSent = false
 	e.midLoopNoEmitPushSent = false
 	e.midLoopNoEmitEscalated = false
+	e.midLoopNoEmitClosureOnlySent = false
 	e.midLoopNoEmitEndpointSent = false
 	e.midLoopExecRedirectSent = false
 	e.midLoopExplanationAnchorSent = false
@@ -4922,6 +4932,7 @@ func (e *explorerEvaluator) postEmitEvidenceRepairSignal(obs LoopObservation) Lo
 	e.midLoopEvidenceRepairSent = true
 	e.midLoopEvidenceRepairResultsLen = len(obs.AllToolResults)
 	e.midLoopEvidenceRepairEmitOnly = e.evidenceRepairShouldBeEmitOnly(obs.AllToolResults)
+	e.midLoopEvidenceRepairClosureOnlySent = false
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        "explorer.mid-loop.evidence-repair",
@@ -4982,6 +4993,9 @@ func (e *explorerEvaluator) postEmitEvidenceRepairClosureOnlySignal(obs LoopObse
 	if !e.awaitingEvidenceRepair(obs.AllToolResults) || e.investigationComplete {
 		return LoopSignal{}
 	}
+	if e.midLoopEvidenceRepairClosureOnlySent {
+		return LoopSignal{}
+	}
 	navCount := successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, navigationToolNames)
 	if navCount == 0 {
 		return LoopSignal{}
@@ -4994,9 +5008,10 @@ func (e *explorerEvaluator) postEmitEvidenceRepairClosureOnlySignal(obs LoopObse
 	if len(targets) > 0 {
 		hint = renderEmitEvidenceRepairClosureOnlyHint(targets)
 	}
+	e.midLoopEvidenceRepairClosureOnlySent = true
 	return LoopSignal{
 		HintRequested:  true,
-		HintKey:        fmt.Sprintf("explorer.mid-loop.evidence-repair-closure-only.%d", obs.Iteration),
+		HintKey:        "explorer.mid-loop.evidence-repair-closure-only",
 		Hint:           hint,
 		Progress:       true,
 		BypassThrottle: true,
@@ -5478,6 +5493,9 @@ func (e *explorerEvaluator) postReadWithoutEmitClosureOnlySignal(obs LoopObserva
 	if !e.midLoopNoEmitEscalated || e.investigationComplete || !e.awaitingStructuredEvidenceMaterialization(obs.AllToolResults) {
 		return LoopSignal{}
 	}
+	if e.midLoopNoEmitClosureOnlySent {
+		return LoopSignal{}
+	}
 	navCount := successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, navigationToolNames)
 	if navCount == 0 {
 		return LoopSignal{}
@@ -5486,9 +5504,10 @@ func (e *explorerEvaluator) postReadWithoutEmitClosureOnlySignal(obs LoopObserva
 		return LoopSignal{}
 	}
 	if e.originSpecificObservationLaneActive() {
+		e.midLoopNoEmitClosureOnlySent = true
 		return LoopSignal{
 			HintRequested: true,
-			HintKey:       fmt.Sprintf("explorer.mid-loop.read-without-emit-closure-only.%d", obs.Iteration),
+			HintKey:       "explorer.mid-loop.read-without-emit-closure-only",
 			Hint: "Progress check: this mixed-origin investigation still has an unresolved current-source evidence nudge, but origin-specific facts must not be forced into file:line evidence. " +
 				"If the current batch found a real current-checkout source claim, emit that source evidence now; otherwise stop navigating and close with `emit_investigation_complete(reason, confidence, result_kind)`, preserving VCS/log/trace/command/external findings in `reason` / `aggregate_facts`.",
 			Progress:       true,
@@ -5500,9 +5519,10 @@ func (e *explorerEvaluator) postReadWithoutEmitClosureOnlySignal(obs LoopObserva
 	if lensHint := explorerSourceInventoryDiscoveryAfterEvidenceHint(obs.AllToolResults); lensHint != "" {
 		hint += lensHint
 	}
+	e.midLoopNoEmitClosureOnlySent = true
 	return LoopSignal{
 		HintRequested:  true,
-		HintKey:        fmt.Sprintf("explorer.mid-loop.read-without-emit-closure-only.%d", obs.Iteration),
+		HintKey:        "explorer.mid-loop.read-without-emit-closure-only",
 		Hint:           hint,
 		Progress:       true,
 		BypassThrottle: true,
@@ -6086,6 +6106,7 @@ func (e *explorerEvaluator) syncEmitBacklogWindow(results []types.ToolResult) {
 	e.midLoopEmitBacklogBaseLen = baseLen
 	e.midLoopNoEmitPushSent = false
 	e.midLoopNoEmitEscalated = false
+	e.midLoopNoEmitClosureOnlySent = false
 	e.midLoopNoEmitEndpointSent = false
 	e.midLoopExecRedirectSent = false
 	e.midLoopNoEmitPushIter = 0
@@ -6109,6 +6130,7 @@ func (e *explorerEvaluator) awaitingEvidenceRepair(results []types.ToolResult) b
 func (e *explorerEvaluator) syncEvidenceRepairState(results []types.ToolResult) {
 	if !e.midLoopEvidenceRepairSent || e.midLoopEvidenceRepairResultsLen == 0 {
 		e.midLoopEvidenceRepairEmitOnly = false
+		e.midLoopEvidenceRepairClosureOnlySent = false
 		return
 	}
 	if successfulToolCountSince(results, e.midLoopEvidenceRepairResultsLen, map[string]bool{"emit_evidence": true}) == 0 {
@@ -6118,6 +6140,7 @@ func (e *explorerEvaluator) syncEvidenceRepairState(results []types.ToolResult) 
 	e.midLoopEvidenceRepairSent = false
 	e.midLoopEvidenceRepairResultsLen = 0
 	e.midLoopEvidenceRepairEmitOnly = false
+	e.midLoopEvidenceRepairClosureOnlySent = false
 }
 
 func (e *explorerEvaluator) evidenceRepairShouldBeEmitOnly(results []types.ToolResult) bool {
@@ -6426,6 +6449,7 @@ func (e *explorerEvaluator) syncClosureRepairState(results []types.ToolResult) {
 	}
 	e.midLoopClosureRepairSent = false
 	e.midLoopClosureRepairResultsLen = 0
+	e.midLoopClosureRepairClosureOnlySent = false
 }
 
 func (e *explorerEvaluator) postClosureRepairSignal(obs LoopObservation) LoopSignal {
@@ -6444,6 +6468,7 @@ func (e *explorerEvaluator) postClosureRepairSignal(obs LoopObservation) LoopSig
 	}
 	e.midLoopClosureRepairSent = true
 	e.midLoopClosureRepairResultsLen = len(obs.AllToolResults)
+	e.midLoopClosureRepairClosureOnlySent = false
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        "explorer.mid-loop.closure-repair",
@@ -6476,6 +6501,7 @@ func (e *explorerEvaluator) postProactiveClosureTargetSignal(obs LoopObservation
 	}
 	e.midLoopClosureRepairSent = true
 	e.midLoopClosureRepairResultsLen = len(obs.AllToolResults)
+	e.midLoopClosureRepairClosureOnlySent = false
 	return LoopSignal{
 		HintRequested:  true,
 		HintKey:        "explorer.mid-loop.proactive-closure-target",
@@ -6488,6 +6514,9 @@ func (e *explorerEvaluator) postProactiveClosureTargetSignal(obs LoopObservation
 
 func (e *explorerEvaluator) postClosureRepairClosureOnlySignal(obs LoopObservation) LoopSignal {
 	if !e.awaitingClosureRepair(obs.AllToolResults) || e.investigationComplete {
+		return LoopSignal{}
+	}
+	if e.midLoopClosureRepairClosureOnlySent {
 		return LoopSignal{}
 	}
 	navCount := successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, navigationToolNames)
@@ -6505,9 +6534,10 @@ func (e *explorerEvaluator) postClosureRepairClosureOnlySignal(obs LoopObservati
 			break
 		}
 	}
+	e.midLoopClosureRepairClosureOnlySent = true
 	return LoopSignal{
 		HintRequested:  true,
-		HintKey:        fmt.Sprintf("explorer.mid-loop.closure-repair-closure-only.%d", obs.Iteration),
+		HintKey:        "explorer.mid-loop.closure-repair-closure-only",
 		Hint:           message,
 		Progress:       true,
 		BypassThrottle: true,

@@ -21,6 +21,7 @@ func TestBuildExploreTransientRetryCheckpointHintIncludesTypedObservationOrigins
 	got := o.buildExploreTransientRetryCheckpointHint()
 	for _, want := range []string{
 		"Checkpoint summary",
+		"remaining-objective context only",
 		"typed observation origins=command_measurement:1",
 		"successful tool results=1",
 	} {

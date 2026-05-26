@@ -2008,11 +2008,19 @@ Task list:
   model-emitted tool outside the current turn's actual schema before registry
   dispatch, returns a structured `unavailable_tool_surface` repair hint, and
   renders the scrollback as an unavailable attempt rather than a real tool call.
-- [ ] P1-A: Make checkpoint continuation consume durable progress: after a
-  transient stream stall with accepted evidence, suppress broad/DAG breadth
-  wording unless a concrete unresolved axis remains.
-- [ ] P1-B: Convert closure-only/read-without-emit repair hints into one-shot
-  state transitions with close/caveat fallback after the local attempt is spent.
+- [x] P1-A: Make checkpoint continuation consume durable progress at the model
+  contract boundary. Transient explore retry hints now explicitly state that
+  later generic DAG/window objectives are remaining-objective context only and
+  must not reopen broad search once the checkpoint covers the active objective.
+  This is intentionally advisory rather than a hard scheduler decision; the
+  next stronger version can suppress broad rendering only when unresolved axes
+  are machine-known.
+- [x] P1-B: Convert closure-only/read-without-emit repair redirects into
+  one-shot consumed states for each pending repair/materialization window.
+  Repeated navigation after the same closure-only redirect no longer receives
+  a fresh "permission-like" hint with a new iteration key. The model may still
+  continue if it finds genuinely new evidence, but the system stops replaying
+  the same closure instruction as if it were a new task.
 - [ ] P1-C: Add prompt/hint audit tests for morphology overfitting: no generic
   language that implies relations must be same-named functions/files unless
   the observed structure says so.
