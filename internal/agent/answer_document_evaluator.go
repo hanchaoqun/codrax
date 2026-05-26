@@ -483,6 +483,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "source_inventory_handoff", func() string {
+		return renderAnswerDocSourceInventoryHandoff(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "accepted_closure", func() string {
 		return renderAnswerDocAcceptedClosure(ctx)
 	}) {
@@ -3820,6 +3825,82 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func renderAnswerDocSourceInventoryHandoff(ctx *types.AgentContext) string {
+	observation := answerDocSourceInventoryObservation(ctx)
+	if !observation.IsActive() {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Repo Lens Candidate Universe Handoff\n\n")
+	b.WriteString("- This section comes from `repo_map(view=\"source_inventory\")` / source-inventory observations. It verifies navigation facts such as scopes, files, candidate members, attributes, languages, support refs, and `count == len(members)`.\n")
+	b.WriteString("- It is not final answer text and not a semantic source citation. Use it to avoid losing the candidate universe or rereading the same scope. Preserve it as the answer slate only when accepted aggregate facts, evidence, or the model's own extraction already selected the same answer axis.\n")
+	b.WriteString("- If accepted principal `aggregate_facts.member_set` rows below match this universe, their members/counts are the model-selected slate. If they do not match or are absent, treat this as advisory navigation and disclose ambiguity instead of auto-filling a table.\n")
+	if len(observation.Scopes) > 0 {
+		fmt.Fprintf(&b, "- scopes: `%s`\n", strings.Join(observation.Scopes, "`, `"))
+	}
+	if len(observation.Provenance) > 0 {
+		fmt.Fprintf(&b, "- provenance: `%s`\n", strings.Join(observation.Provenance, "`, `"))
+	}
+	const maxRows = 24
+	emitted := 0
+	totalRows := 0
+	for _, set := range observation.Sets {
+		totalRows += len(set.Members)
+		if len(set.Members) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "- role `%s` (%s): count=%d len(members)=%d complete=%t\n",
+			set.Role, types.SourceInventoryAdvisoryRoleLabel(set.Role), set.Count, len(set.Members), set.Complete)
+		for _, member := range set.Members {
+			if emitted >= maxRows {
+				continue
+			}
+			name := strings.TrimSpace(member.Name)
+			if name == "" {
+				continue
+			}
+			fmt.Fprintf(&b, "  - member=`%s`", name)
+			if file := strings.TrimSpace(member.File); file != "" {
+				if member.Line > 0 {
+					fmt.Fprintf(&b, " @ `%s:%d`", file, member.Line)
+				} else {
+					fmt.Fprintf(&b, " @ `%s`", file)
+				}
+			}
+			if lang := strings.TrimSpace(member.Language); lang != "" {
+				fmt.Fprintf(&b, ", language=%s", lang)
+			}
+			if state := strings.TrimSpace(string(member.CoverageState)); state != "" {
+				fmt.Fprintf(&b, ", coverage_state=%s", state)
+			}
+			if len(member.Attributes) > 0 {
+				fmt.Fprintf(&b, ", attributes=%d", len(member.Attributes))
+			}
+			b.WriteString("\n")
+			emitted++
+		}
+	}
+	if totalRows > emitted {
+		fmt.Fprintf(&b, "- showing %d of %d member row(s); use the count invariants above, accepted aggregate facts, or a narrower `source_inventory` page rather than widening blindly.\n", emitted, totalRows)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func answerDocSourceInventoryObservation(ctx *types.AgentContext) types.SourceInventoryObservation {
+	if ctx == nil || ctx.Mutable == nil {
+		return types.SourceInventoryObservation{}
+	}
+	observation := ctx.Mutable.SourceInventoryObservation()
+	if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+		observation = types.MergeSourceInventoryObservation(observation, ta.SourceInventoryObservation)
+		if !observation.IsActive() && ta.SourceInventoryAdvisory.IsActive() {
+			observation = types.SourceInventoryObservationFromAdvisory(ta.SourceInventoryAdvisory)
+		}
+	}
+	return observation
 }
 
 func answerDocObservationLedger(ctx *types.AgentContext) types.ObservationLedger {

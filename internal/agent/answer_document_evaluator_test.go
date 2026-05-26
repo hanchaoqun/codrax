@@ -155,6 +155,108 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_ExclusionPolicyHidesCon
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersSourceInventoryHandoff(t *testing.T) {
+	mut := types.NewMutableState("list module entrypoints")
+	mut.SetSourceInventoryObservation(types.SourceInventoryObservation{
+		Active:     true,
+		Complete:   true,
+		Scopes:     []string{"services"},
+		Provenance: []string{"repo_map.source_inventory"},
+		Sets: []types.SourceInventoryObservationSet{{
+			Role:     types.AnswerCandidateRolePackage,
+			Complete: true,
+			Count:    2,
+			Members: []types.SourceInventoryObservationMember{{
+				Name:          "billing",
+				File:          "services/billing/index.ts",
+				Line:          12,
+				Language:      "typescript",
+				CoverageState: types.SourceInventoryCoverageObserved,
+				Attributes: []types.SourceInventoryObservationAttribute{{
+					Name:          "createBillingService",
+					File:          "services/billing/index.ts",
+					Line:          16,
+					Language:      "typescript",
+					CoverageState: types.SourceInventoryCoverageObserved,
+				}},
+			}, {
+				Name:          "identity",
+				File:          "services/identity/main.py",
+				Line:          7,
+				Language:      "python",
+				CoverageState: types.SourceInventoryCoverageObserved,
+			}},
+		}},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Repo Lens Candidate Universe Handoff",
+		"verifies navigation facts",
+		"not final answer text and not a semantic source citation",
+		"model-selected slate",
+		"role `package` (package/directory/module scope): count=2 len(members)=2 complete=true",
+		"member=`billing` @ `services/billing/index.ts:12`, language=typescript, coverage_state=observed, attributes=1",
+		"member=`identity` @ `services/identity/main.py:7`, language=python, coverage_state=observed",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("source-inventory handoff missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersTurnASourceInventoryAdvisoryHandoff(t *testing.T) {
+	mut := types.NewMutableState("explain configuration routes")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		SourceInventoryAdvisory: types.SourceInventoryAdvisory{
+			Active:       true,
+			AdvisoryOnly: true,
+			Complete:     true,
+			Scopes:       []string{"routes"},
+			Provenance:   []string{"repo_lens:tool_query"},
+			Sets: []types.SourceInventoryAdvisorySet{{
+				Role:     types.AnswerCandidateRoleRoute,
+				Complete: true,
+				Candidates: []types.SourceInventoryAdvisoryCandidate{{
+					Member:     "GET /v1/users",
+					SupportRef: "GET /v1/users: routes/users.ts:42",
+					File:       "routes/users.ts",
+					Line:       42,
+					Language:   "typescript",
+				}},
+			}},
+		},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentExplain,
+		}},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Repo Lens Candidate Universe Handoff",
+		"scopes: `routes`",
+		"provenance: `repo_lens:tool_query`",
+		"role `route` (route): count=1 len(members)=1 complete=true",
+		"member=`GET /v1/users` @ `routes/users.ts:42`, language=typescript, coverage_state=observed",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("TurnA source-inventory advisory handoff missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_PrincipalMemberSetSuppressesClosureProse(t *testing.T) {
 	mut := types.NewMutableState("list public symbols")
 	mut.SetInvestigationComplete("complete public set; variables such as defaultExternalArtifactFloor were excluded")

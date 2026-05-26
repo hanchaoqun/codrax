@@ -788,7 +788,7 @@ intent or invent a stronger answer than the model gave.
   is ignored when richer preserved surfaces or evidence exist.
 - [x] Batch D: strengthen artifact-first finalizer tests for observation-only
   runtime/log/trace answers and mixed artifact/current-source answers.
-- [ ] Batch E: verify source-inventory/member_set/count handoff with tests that
+- [x] Batch E: verify source-inventory/member_set/count handoff with tests that
   use existing `SourceInventoryObservation` and aggregate-fact carriers instead
   of a new parallel schema.
 
