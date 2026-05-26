@@ -571,6 +571,34 @@ func TestBuildToolHistoryPruneCheckpointEmptyWithoutAcceptedState(t *testing.T) 
 	}
 }
 
+func TestBuildToolHistoryPruneCheckpointCarriesDispatchCommandMeasurement(t *testing.T) {
+	mut := types.NewMutableState("count files")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "exec_command",
+		Success:  true,
+		Summary: "[exec_command: $ find internal/tool -name '*.go' | wc -l]\n" +
+			"[exec_command: evidence_origin=command_measurement measurement=count]\n" +
+			"140\n",
+		RawRef: "/tmp/codrax/blob/exec_command-measurement.txt",
+	})
+	ctx := &types.AgentContext{Stage: types.StageExplore, Mutable: mut}
+
+	got := buildToolHistoryPruneCheckpoint(ctx)
+	if !strings.HasPrefix(got, toolHistoryPruneCheckpointPrefix) {
+		t.Fatalf("checkpoint prefix missing:\n%s", got)
+	}
+	for _, want := range []string{
+		"Typed observation ledger snapshot",
+		"origin=`command_measurement`",
+		"find internal/tool -name '*.go' | wc -l",
+		"/tmp/codrax/blob/exec_command-measurement.txt",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("checkpoint missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestSanitizeToolCallsForHistory_ReplacesInvalidParamsOnlyInHistory(t *testing.T) {
 	calls := []llm.ToolCall{
 		{ID: "call-good", Name: "read_file", Params: json.RawMessage(`{"path":"a.go"}`)},

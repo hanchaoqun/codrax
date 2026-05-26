@@ -41,6 +41,7 @@ func ObservationLedgerInputFromAgentContext(ctx *AgentContext, evidenceLimit int
 			toolResults = append([]ToolResult(nil), ta.ToolResults...)
 			sourceInventory = MergeSourceInventoryObservation(sourceInventory, ta.SourceInventoryObservation)
 		}
+		toolResults = mergeObservationLedgerToolResults(toolResults, ctx.Mutable.DispatchToolResults())
 		if len(evidenceItems) < normalizedObservationLedgerEvidenceLimit(evidenceLimit) || evidenceLimit <= 0 {
 			evidenceItems = appendObservationLedgerEvidence(evidenceItems, evidenceLimit, ctx.Mutable.EmittedEvidence()...)
 		}
@@ -100,6 +101,7 @@ func ObservationLedgerInputFromBusContext(bus *BusContext, evidenceLimit int) Ob
 			}
 			sourceInventory = MergeSourceInventoryObservation(sourceInventory, ta.SourceInventoryObservation)
 		}
+		toolResults = mergeObservationLedgerToolResults(toolResults, bus.Mutable.DispatchToolResults())
 	}
 	return ObservationLedgerInput{
 		EvidenceItems:              evidenceItems,
@@ -112,6 +114,30 @@ func ObservationLedgerInputFromBusContext(bus *BusContext, evidenceLimit int) Ob
 		RequestModel:               requestModel,
 		AnswerContract:             answerContract,
 	}
+}
+
+func mergeObservationLedgerToolResults(base, extra []ToolResult) []ToolResult {
+	if len(extra) == 0 {
+		return base
+	}
+	out := append([]ToolResult(nil), base...)
+	seen := make(map[string]bool, len(base)+len(extra))
+	for _, r := range out {
+		seen[observationLedgerToolResultKey(r)] = true
+	}
+	for _, r := range extra {
+		key := observationLedgerToolResultKey(r)
+		if key != "" && seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, r)
+	}
+	return out
+}
+
+func observationLedgerToolResultKey(r ToolResult) string {
+	return strings.TrimSpace(r.ToolName) + "\x00" + strings.TrimSpace(r.RawRef) + "\x00" + strings.TrimSpace(r.Summary)
 }
 
 func appendObservationLedgerEvidence(dst []EvidenceItem, limit int, items ...EvidenceItem) []EvidenceItem {

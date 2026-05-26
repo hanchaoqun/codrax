@@ -134,6 +134,7 @@ type exploreTransientRetryCheckpoint struct {
 	readFiles      int
 	toolResults    int
 	hasClosure     bool
+	typedOrigins   string
 }
 
 func (c exploreTransientRetryCheckpoint) hasProgress() bool {
@@ -144,7 +145,8 @@ func (c exploreTransientRetryCheckpoint) hasProgress() bool {
 		c.aggregateFacts > 0 ||
 		c.readFiles > 0 ||
 		c.toolResults > 0 ||
-		c.hasClosure
+		c.hasClosure ||
+		c.typedOrigins != ""
 }
 
 func (o *Orchestrator) buildExploreTransientRetryCheckpointHint() string {
@@ -157,6 +159,7 @@ func (o *Orchestrator) buildExploreTransientRetryCheckpointHint() string {
 		answerChains:  len(o.busCtx.AnswerChains),
 		answerSymbols: len(o.busCtx.AnswerSymbols),
 		toolResults:   countSuccessfulToolResults(o.busCtx.ToolResults),
+		typedOrigins:  transientRetryTypedObservationSummary(o.busCtx),
 	}
 	if o.busCtx.Mutable != nil {
 		c.evidenceRows += len(o.busCtx.Mutable.EmittedEvidence())
@@ -203,6 +206,9 @@ func (o *Orchestrator) buildExploreTransientRetryCheckpointHint() string {
 	if c.toolResults > 0 {
 		facts = append(facts, fmt.Sprintf("successful tool results=%d", c.toolResults))
 	}
+	if c.typedOrigins != "" {
+		facts = append(facts, "typed observation origins="+c.typedOrigins)
+	}
 	if c.hasClosure {
 		facts = append(facts, "accepted closure state present")
 	}
@@ -212,6 +218,33 @@ func (o *Orchestrator) buildExploreTransientRetryCheckpointHint() string {
 		"Continue from this checkpoint; this is a continuation, not a fresh investigation. Reuse the accepted evidence and already-read context visible in the transcript. Avoid repeating broad repository-wide navigation or identical broad searches unless the checkpoint clearly lacks the target needed for the active objective.",
 		"If a specific anchor is still missing, do a narrow follow-up read/search for that anchor. If the checkpoint is enough, call emit_investigation_complete. This checkpoint is advisory only: it is not new evidence and it does not decide sufficiency for you.",
 	}, "\n\n")
+}
+
+func transientRetryTypedObservationSummary(bus *types.BusContext) string {
+	if bus == nil {
+		return ""
+	}
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInputFromBusContext(bus, 24))
+	if len(ledger.Records) == 0 {
+		return ""
+	}
+	counts := make(map[types.AnswerEvidenceOrigin]int)
+	for _, record := range ledger.Records {
+		if !types.AnswerEvidenceOriginCarriesOriginSpecificSupport(record.Origin) {
+			continue
+		}
+		counts[record.Origin]++
+	}
+	if len(counts) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, origin := range types.AllAnswerEvidenceOrigins() {
+		if count := counts[origin]; count > 0 {
+			parts = append(parts, fmt.Sprintf("%s:%d", origin, count))
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 func countSuccessfulToolResults(results []types.ToolResult) int {

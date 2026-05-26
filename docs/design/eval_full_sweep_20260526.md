@@ -1558,6 +1558,18 @@ Batch P0-E — mixed-origin closure ledger:
 - After retry/prune, reuse those facts unless invalidated by a new tool result.
   Do not re-run deterministic measurements by default.
 
+Delivery status:
+
+- Implemented the first durable baseline: ObservationLedger inputs now merge
+  same-dispatch tool results from both agent and bus contexts, so a successful
+  command/runtime/VCS/external observation can be projected before Turn A
+  handoff or ParseOutput. Tool-history prune checkpoints render a compact typed
+  observation snapshot, and transient explore retry checkpoints include
+  origin-specific observation counts. These snapshots are advisory recovery
+  baselines only: they preserve structured tool facts across retry/prune, but
+  they do not decide sufficiency, synthesize answer content, or override model
+  judgment.
+
 Batch P1:
 
 - Move Repo Lens discovery before large reads when a broad structural tool

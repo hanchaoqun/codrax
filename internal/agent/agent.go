@@ -1241,7 +1241,8 @@ func buildToolHistoryPruneCheckpoint(ctx *types.AgentContext) string {
 	aggregateFacts := ctx.Mutable.StableInvestigationAggregateFacts()
 	reason := strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason())
 	resultKind := strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind())
-	if len(citable) == 0 && len(aggregateFacts) == 0 && reason == "" && resultKind == "" {
+	observationCheckpoint := renderToolHistoryObservationCheckpoint(ctx, 8)
+	if len(citable) == 0 && len(aggregateFacts) == 0 && reason == "" && resultKind == "" && observationCheckpoint == "" {
 		return ""
 	}
 	var b strings.Builder
@@ -1286,6 +1287,13 @@ func buildToolHistoryPruneCheckpoint(ctx *types.AgentContext) string {
 			b.WriteByte('\n')
 		}
 	}
+	if observationCheckpoint != "" {
+		b.WriteString("\nTyped observation ledger snapshot:\n")
+		b.WriteString(observationCheckpoint)
+		if !strings.HasSuffix(observationCheckpoint, "\n") {
+			b.WriteByte('\n')
+		}
+	}
 	if reason != "" || resultKind != "" {
 		b.WriteString("\nAccepted investigation closure:\n")
 		if resultKind != "" {
@@ -1296,6 +1304,82 @@ func buildToolHistoryPruneCheckpoint(ctx *types.AgentContext) string {
 		}
 	}
 	return logging.Truncate(b.String(), toolHistoryPruneCheckpointMaxBytes)
+}
+
+func renderToolHistoryObservationCheckpoint(ctx *types.AgentContext, limit int) string {
+	if ctx == nil {
+		return ""
+	}
+	input := types.ObservationLedgerInputFromAgentContext(ctx, 24)
+	ledger := types.CompileObservationLedger(input)
+	if ledger.Empty() {
+		return ""
+	}
+	var rm *types.RequestModel
+	var contract *types.AnswerContract
+	if ctx.AnalysisIR != nil {
+		rm = &ctx.AnalysisIR.RequestModel
+		contract = &ctx.AnalysisIR.AnswerContract
+	}
+	opts := types.DefaultObservationPromptProjectionOptions(limit)
+	opts.SummaryMaxLen = 140
+	opts.NoteLimit = 1
+	opts.PrincipalNoteLimit = 2
+	records := types.ProjectObservationPromptRecords(ledger.Records, rm, contract, opts)
+	if len(records) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	written := 0
+	for _, record := range records {
+		if !toolHistoryCheckpointShouldRenderObservation(record) {
+			continue
+		}
+		written++
+		fmt.Fprintf(&b, "%d. origin=`%s`", written, record.Origin)
+		if record.Source != "" {
+			fmt.Fprintf(&b, " source=%s", record.Source)
+		}
+		if record.Span != "" {
+			fmt.Fprintf(&b, " span=%s", record.Span)
+		}
+		if record.ResultCount != nil {
+			fmt.Fprintf(&b, " count=%d", *record.ResultCount)
+		}
+		if record.Value != "" {
+			fmt.Fprintf(&b, " value=%s", logging.Truncate(record.Value, 120))
+		}
+		if record.Claim != "" {
+			fmt.Fprintf(&b, " claim=%s", logging.Truncate(record.Claim, 140))
+		} else if record.Summary != "" {
+			fmt.Fprintf(&b, " summary=%s", logging.Truncate(record.Summary, 140))
+		}
+		for _, note := range record.Notes {
+			if strings.TrimSpace(note) == "" {
+				continue
+			}
+			fmt.Fprintf(&b, " note=%s", logging.Truncate(note, 120))
+			break
+		}
+		b.WriteByte('\n')
+		if written >= limit {
+			break
+		}
+	}
+	if written == 0 {
+		return ""
+	}
+	return b.String()
+}
+
+func toolHistoryCheckpointShouldRenderObservation(record types.ObservationPromptRecord) bool {
+	if record.Origin == types.AnswerEvidenceOriginUnknown {
+		return false
+	}
+	if record.Origin != types.AnswerEvidenceOriginCurrentSource {
+		return true
+	}
+	return record.ResultCount != nil || strings.TrimSpace(record.Value) != ""
 }
 
 func compactEvidenceCheckpointLabel(item types.EvidenceItem) string {
