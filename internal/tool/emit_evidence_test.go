@@ -749,6 +749,109 @@ func TestEmitEvidence_AcceptsInitializerAnchorKind(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_RegistrationAnchorKindOnMemberInitializersNormalizesAcrossLanguages(t *testing.T) {
+	cases := []struct {
+		name    string
+		path    string
+		line    int
+		text    string
+		subject string
+		object  string
+	}{
+		{
+			name:    "c designated initializer",
+			path:    "kernel/bpf/hashtab.c",
+			line:    2364,
+			text:    "\t.map_update_elem = htab_map_update_elem,",
+			subject: "bpf_map_ops_htab",
+			object:  "htab_map_update_elem",
+		},
+		{
+			name:    "go composite literal field",
+			path:    "internal/router/routes.go",
+			line:    42,
+			text:    "\tUpdateElem: updateElemHandler,",
+			subject: "RouteTable",
+			object:  "updateElemHandler",
+		},
+		{
+			name:    "typescript object member",
+			path:    "packages/app/routes.ts",
+			line:    17,
+			text:    "\tupdateElem: updateElemHandler,",
+			subject: "routes",
+			object:  "updateElemHandler",
+		},
+		{
+			name:    "arkts object member",
+			path:    "entry/src/main/ets/pages/Index.ets",
+			line:    31,
+			text:    "\tupdateElem: updateElemHandler,",
+			subject: "routes",
+			object:  "updateElemHandler",
+		},
+		{
+			name:    "cangjie named member",
+			path:    "src/main.cj",
+			line:    58,
+			text:    "\tupdateElem: updateElemHandler,",
+			subject: "routes",
+			object:  "updateElemHandler",
+		},
+		{
+			name:    "kotlin named argument style",
+			path:    "src/main/kotlin/Routes.kt",
+			line:    76,
+			text:    "\tupdateElem = updateElemHandler,",
+			subject: "RouteSpec",
+			object:  "updateElemHandler",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			tool := &EmitEvidence{}
+			ctx := newEmitCtx()
+			seedReadFileHistory(ctx, tc.path, tc.line, tc.text)
+			params := json.RawMessage(fmt.Sprintf(`{
+				"items": [{
+					"scope": "line",
+					"evidence_kind": "registration",
+					"subject": %q,
+					"predicate": "registers",
+					"object": %q,
+					"source": %q,
+					"line_start": %d,
+					"summary": "member initializer registration",
+					"anchor_kind": "registration",
+					"anchor_symbol": %q
+				}]
+			}`, tc.subject, tc.object, tc.path, tc.line, tc.object))
+			res, err := tool.Execute(ctx, params)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if !res.Success {
+				t.Fatalf("expected success, got: %s", res.Summary)
+			}
+			got := ctx.Mutable.EmittedEvidence()
+			if len(got) != 1 {
+				t.Fatalf("want 1 item, got %d", len(got))
+			}
+			if got[0].AnchorKind != types.AnchorInitializer {
+				t.Fatalf("anchor kind = %s, want initializer; summary:\n%s", got[0].AnchorKind, res.Summary)
+			}
+			if got[0].LineStart != tc.line || got[0].GroundingStatus != types.GroundingGrounded || got[0].GroundingTier != types.TierLineText {
+				t.Fatalf("grounding=%s/%s line=%d, want grounded/%s at %d; summary:\n%s",
+					got[0].GroundingStatus, got[0].GroundingTier, got[0].LineStart, types.TierLineText, tc.line, res.Summary)
+			}
+			if !strings.Contains(got[0].GroundingNote, "semantic registration evidence was treated as an initializer anchor") {
+				t.Fatalf("grounding note should record compatibility repair, got %q", got[0].GroundingNote)
+			}
+		})
+	}
+}
+
 func TestEmitEvidence_AcceptsTextReferenceAnchorKind(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

@@ -20,11 +20,15 @@ const (
 	wRecent     = 2.0
 	wQueryMatch = 4.0
 
-	// queryBoostMultiplier is applied to the entire score of files
-	// that match the query. Without this, utility files with high
-	// structural scores (builtin.go, logger.go) always dominate even
-	// when the query clearly targets specific domain files.
-	queryBoostMultiplier = 3.0
+	// queryStructuralTieBreakWeight caps structural centrality when a
+	// query is present. Query-bearing task maps are navigation surfaces:
+	// exact request-token relevance must be the primary rank signal, while
+	// graph centrality is useful only as a tie-breaker. Multiplying the
+	// whole structural score by a query hit makes high-centrality generic
+	// files with broad words ("map", "array", "handler") outrank precise
+	// request files in large repos.
+	queryStructuralTieBreakWeight = 2.0
+	queryNoMatchStructuralWeight  = 0.25
 )
 
 // Ranking is the per-query rank output. Query-biased scores are request-local:
@@ -80,6 +84,8 @@ func RankGraphScores(g *types.Graph, query string) Ranking {
 	}
 	recentFiles := getRecentlyChanged(g.Root, 50)
 	entrypoints := idx.Entrypoints
+	queryTokens := TokenizeQuery(query)
+	querySalience := queryTokenSalience(g, queryTokens)
 
 	// score each file
 	for _, fi := range g.Files {
@@ -132,19 +138,17 @@ func RankGraphScores(g *types.Graph, query string) Ranking {
 			score *= dampener
 		}
 
-		// query match: additive bonus + multiplicative boost
-		if query != "" {
-			qScore := queryMatchScore(fi, query)
+		// Query match: query relevance is primary, structural centrality is
+		// a bounded tie-breaker. Without this split, a single broad token hit
+		// on a highly connected utility file can dominate a precise
+		// request-local file in large, mixed-language repositories.
+		if len(queryTokens) > 0 {
+			qScore := queryMatchScoreWithTokens(fi, queryTokens, querySalience)
 			if qScore > 0 {
 				queryScores[fi.RelPath] = qScore
-			}
-			score += qScore * wQueryMatch
-			if qScore > 0 {
-				// Multiplicative boost: files matching the query get
-				// their total score amplified. This ensures that a
-				// query-relevant file with moderate structural score
-				// can overtake a query-irrelevant utility file.
-				score *= queryBoostMultiplier
+				score = qScore*wQueryMatch + math.Log1p(math.Max(score, 0))*queryStructuralTieBreakWeight
+			} else {
+				score = math.Log1p(math.Max(score, 0)) * queryNoMatchStructuralWeight
 			}
 		}
 
@@ -299,6 +303,10 @@ func detectEntrypoints(g *types.Graph) map[string]bool {
 // exists.
 func queryMatchScore(fi *types.FileInfo, query string) float64 {
 	tokens := TokenizeQuery(query)
+	return queryMatchScoreWithTokens(fi, tokens, nil)
+}
+
+func queryMatchScoreWithTokens(fi *types.FileInfo, tokens []QueryToken, salience map[string]float64) float64 {
 	if len(tokens) == 0 {
 		return 0.0
 	}
@@ -307,7 +315,7 @@ func queryMatchScore(fi *types.FileInfo, query string) float64 {
 	pathLower := strings.ToLower(fi.RelPath)
 	for _, t := range tokens {
 		if strings.Contains(pathLower, t.Text) {
-			score += 3.0 * t.Weight
+			score += 3.0 * t.Weight * queryTokenSalienceWeight(t, salience)
 		}
 	}
 
@@ -315,14 +323,14 @@ func queryMatchScore(fi *types.FileInfo, query string) float64 {
 		nameLower := strings.ToLower(sym.Name)
 		for _, t := range tokens {
 			if strings.Contains(nameLower, t.Text) {
-				score += 2.0 * t.Weight
+				score += 2.0 * t.Weight * queryTokenSalienceWeight(t, salience)
 			}
 		}
 		if sym.Doc != "" {
 			docLower := strings.ToLower(sym.Doc)
 			for _, t := range tokens {
 				if strings.Contains(docLower, t.Text) {
-					score += 1.0 * t.Weight
+					score += 1.0 * t.Weight * queryTokenSalienceWeight(t, salience)
 				}
 			}
 		}
@@ -333,6 +341,68 @@ func queryMatchScore(fi *types.FileInfo, query string) float64 {
 	}
 
 	return math.Min(score, 20.0)
+}
+
+func queryTokenSalience(g *types.Graph, tokens []QueryToken) map[string]float64 {
+	if g == nil || len(tokens) == 0 || len(g.Files) == 0 {
+		return nil
+	}
+	df := make(map[string]int, len(tokens))
+	for _, fi := range g.Files {
+		seen := make(map[string]bool, len(tokens))
+		pathLower := strings.ToLower(fi.RelPath)
+		for _, t := range tokens {
+			if strings.Contains(pathLower, t.Text) {
+				seen[t.Text] = true
+			}
+		}
+		for _, sym := range fi.Symbols {
+			nameLower := strings.ToLower(sym.Name)
+			docLower := strings.ToLower(sym.Doc)
+			for _, t := range tokens {
+				if seen[t.Text] {
+					continue
+				}
+				if strings.Contains(nameLower, t.Text) || (docLower != "" && strings.Contains(docLower, t.Text)) {
+					seen[t.Text] = true
+				}
+			}
+		}
+		for text := range seen {
+			df[text]++
+		}
+	}
+	n := float64(len(g.Files))
+	out := make(map[string]float64, len(tokens))
+	for _, t := range tokens {
+		if _, ok := out[t.Text]; ok {
+			continue
+		}
+		count := float64(df[t.Text])
+		if count <= 0 {
+			out[t.Text] = 1.0
+			continue
+		}
+		weight := math.Log((n+1.0)/(count+1.0)) + 0.35
+		if weight < 0.35 {
+			weight = 0.35
+		}
+		if weight > 2.5 {
+			weight = 2.5
+		}
+		out[t.Text] = weight
+	}
+	return out
+}
+
+func queryTokenSalienceWeight(t QueryToken, salience map[string]float64) float64 {
+	if len(salience) == 0 {
+		return 1.0
+	}
+	if weight := salience[t.Text]; weight > 0 {
+		return weight
+	}
+	return 1.0
 }
 
 // isTestFile reports whether the RelPath looks like a test / spec

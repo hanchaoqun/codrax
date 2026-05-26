@@ -244,6 +244,54 @@ func TestAppendSoftContractCaveatsToAnswerForBus_MechanismSuppressesGenericCitat
 	}
 }
 
+func TestAppendSoftContractCaveatsToAnswerForBus_CallChainKeepsCitationButSuppressesGenericAcceptance(t *testing.T) {
+	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
+	SetSoftViolationKinds(nil, nil)
+
+	rm := types.RequestModel{
+		RawRequest: "梳理入口函数到实现函数的调用链",
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioArchitectureExplain,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind: string(types.ReqCallChain),
+		},
+		SourceInventoryProfile: &types.SourceInventoryProfile{
+			IsSourceInventory: true,
+			TargetRoles:       []types.AnswerCandidateRole{types.AnswerCandidateRoleField},
+		},
+	}
+	mut := types.NewMutableState(rm.RawRequest)
+	mut.SetRequestModel(rm)
+	ctx := &types.BusContext{Mutable: mut, AnalysisIR: &types.AnalysisIR{RequestModel: rm}}
+
+	out := AppendSoftContractCaveatsToAnswerForBus("正文", []types.Violation{
+		{Kind: types.ViolCitation},
+		{Kind: types.ViolAcceptance},
+		{Kind: types.ViolClaimFormUnsupported},
+		{Kind: types.ViolEnumerationEvidenceUnderspecified},
+		{Kind: types.ViolEnumerationLabelUngrounded},
+		{Kind: types.ViolEnumerationLabelHallucinated},
+		{Kind: types.ViolDiagramEdgeUnsupported},
+		{Kind: types.ViolDiagramRelationLabelOnly},
+		{Kind: types.ViolDiagramEdgeEndpointHallucinated},
+		{Kind: types.ViolFacetUncovered, ClusterKey: types.FacetClusterKey(string(types.FacetBranchGuard), "answer_facet_coverage")},
+	}, "zh", ctx)
+	if !strings.Contains(out, "锚点") {
+		t.Fatalf("call-chain answers should keep concrete citation grounding caveat:\n%s", out)
+	}
+	if strings.Contains(out, "验收检查") {
+		t.Fatalf("soft accept path must not surface generic acceptance caveat:\n%s", out)
+	}
+	if strings.Contains(out, "枚举类") {
+		t.Fatalf("call-chain answers are hop/path surfaces, not principal enumerations:\n%s", out)
+	}
+	for _, banned := range []string{"覆盖度可能不充分", "图示中部分边"} {
+		if strings.Contains(out, banned) {
+			t.Fatalf("accepted call-chain path should suppress non-actionable telemetry caveat %q:\n%s", banned, out)
+		}
+	}
+}
+
 func TestAppendSoftContractCaveatsToAnswerForBus_ScalarKeepsCitationGroundingCaveat(t *testing.T) {
 	t.Cleanup(func() { SetSoftViolationKinds(nil, nil) })
 	SetSoftViolationKinds(nil, nil)

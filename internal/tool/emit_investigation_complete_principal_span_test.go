@@ -329,6 +329,57 @@ func TestQueueProactiveCallChainClosureRepairs_AlreadyReadSpanQueuesEmitEvidence
 	}
 }
 
+func TestPartitionPendingReadsForAcceptedClosure_PrincipalSpanWaiverAdvisesStaleSpanRead(t *testing.T) {
+	mut := types.NewMutableState("trace foo to bar")
+	mut.SetPrincipalSpanWaiver(&types.PrincipalSpanWaiver{
+		Reason:    types.PrincipalSpanWaiverNoIntermediateUserCode,
+		Rationale: "the pointer dispatch has no source-visible intermediate user-code node",
+	})
+	ctx := &types.BusContext{Mutable: mut}
+	pending := []types.PendingRead{
+		{File: "x.go", Origin: "auto_bridge.pre_complete.call_chain_principal_span", LineRanges: []types.LineRange{{Start: 50, End: 80}}},
+		{File: "y.go", Origin: "pre_complete.primary_anchor"},
+	}
+
+	blocking, advisory := partitionPendingReadsForAcceptedClosure(ctx, pending, nil, nil)
+	if len(advisory) != 1 || advisory[0].File != "x.go" {
+		t.Fatalf("principal-span waiver should demote only stale span pending read to advisory, got blocking=%+v advisory=%+v", blocking, advisory)
+	}
+	if len(blocking) != 1 || blocking[0].File != "y.go" {
+		t.Fatalf("unrelated deterministic pending read must keep blocking, got blocking=%+v advisory=%+v", blocking, advisory)
+	}
+}
+
+func TestCallChainPrincipalSpanDemand_IgnoresStaticBindingEndpoint(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{
+			ID:              "impl",
+			Kind:            types.EvidenceDirect,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "HashImpl",
+			Subject:         "HashImpl",
+			Source:          "x.c",
+			LineStart:       100,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			ID:              "reg",
+			Kind:            types.EvidenceRegistration,
+			AnchorKind:      types.AnchorInitializer,
+			AnchorSymbol:    "ops_table",
+			Subject:         "ops_table",
+			Predicate:       "registers",
+			Object:          "HashImpl",
+			Source:          "x.c",
+			LineStart:       300,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	if demand, ok := callChainPrincipalSpanDemandForEvidence(evidence, "HashImpl", "ops_table"); ok {
+		t.Fatalf("static registration binding must not synthesize a source-to-sink span demand: %+v", demand)
+	}
+}
+
 func TestCallChainQualifiedIntermediateDowngrade_RequiresTypedHandoffForReadQualifiedCalls(t *testing.T) {
 	mut := types.NewMutableState("trace buildAnalysisIR to gate.Run")
 	mut.AppendEvidence([]types.EvidenceItem{

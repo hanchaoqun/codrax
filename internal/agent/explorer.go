@@ -642,7 +642,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	b.WriteString("- list_files to understand directory structure\n\n")
 	b.WriteString(renderExplorerRepoMapNavigationPrimer(ctx))
 	b.WriteString("Prefer the built-in repository tools above for discovery. Reserve `exec_command` for deterministic computations or checks that the structured tools cannot perform directly.\n\n")
-	b.WriteString("**Non-English questions:** When the user's question is not in English, search with BOTH the original terms AND their English programming equivalents. Most codebases use English identifiers, so always include the translated English terms alongside the original. Batch both versions as parallel grep calls.\n\n")
+	b.WriteString("**Non-English questions:** When you use text search (`grep`), search with BOTH the original terms AND their English programming equivalents because most codebases use English identifiers. This bilingual grep guidance does not override the typed repo_map route above; for relation / call-flow shapes, start from the typed repo_map `query` terms when a structural map is the cheaper first hop.\n\n")
 	b.WriteString("**Keyword variants:** Start with exact identifiers and high-confidence translations. Broaden only when those searches return zero or too few useful files:\n")
 	b.WriteString("- Word roots and inflections (e.g. send/sending/sent)\n")
 	b.WriteString("- Synonyms (e.g. send → emit, dispatch, publish, write)\n")
@@ -1452,6 +1452,7 @@ func renderExplorerRepoMapNavigationPrimer(ctx *types.AgentContext) string {
 			"- If the context or a tool refusal lists multiple active sub-repos, call repo_map separately for each active sub-repo you need: set `path` to that sub-repo path, and then keep `sources`, `scope`, `scopes`, `target_file`, and `entry_point` relative to the selected sub-repo.\n" +
 			"- Treat lens rows as verified navigation/candidate-universe facts. Do not use them as semantic code citations; verify selected behavior/implementation claims with `read_file` or targeted `grep` before citing source text.\n" +
 			"- Use repo-relative existing directories for `path`. If a path is uncertain, call `list_files` on the nearest known parent or `repo_map(path=\".\")` before guessing.\n\n")
+	b.WriteString(renderExplorerRepoMapTypedFirstHop(ctx))
 	b.WriteString(renderRepoMapTypedNavigationPolicy(ctx))
 	return b.String()
 }

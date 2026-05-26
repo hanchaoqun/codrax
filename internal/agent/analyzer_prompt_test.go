@@ -518,6 +518,21 @@ func TestAnalysisSkill_PromptDocumentsPreScanBudget(t *testing.T) {
 	t.Errorf("analysis-skill prompt must document the pre-scan budget ceiling somewhere (Workflow / OutputFormat / Prohibitions); searched for any of: %v", phrases)
 }
 
+func TestAnalysisSkill_PromptTeachesRepoMapFirstForStructuralLocationPrescan(t *testing.T) {
+	sk := skill.BuildAnalysisSkill()
+	rendered := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")
+	for _, want := range []string{
+		"mechanism, architecture, call-chain",
+		"start with `repo_map` as the navigation pass",
+		"use `grep(files_only=true)` only after repo_map is unavailable, empty/ambiguous",
+		"do not treat relation rows as proof",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("analysis-skill prompt must teach typed repo_map first-hop; missing %q in:\n%s", want, rendered)
+		}
+	}
+}
+
 func TestAnalysisSkill_PromptDocumentsDirectHistoryClassification(t *testing.T) {
 	sk := skill.BuildAnalysisSkill()
 	rendered := strings.Join(append([]string{sk.Goal, sk.OutputFormat}, sk.Workflow...), "\n")

@@ -91,6 +91,69 @@ func TestNormalizeFlowchartPipeLabels_LeavesSafeAndAlreadyQuotedLabelsAlone(t *t
 	}
 }
 
+func TestNormalizeSourceForMarkdown_MergesSplitPipeEdgeLabelsBeforeAliasing(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    bpf_map_update_value -->|calls @ :261|:297| ops_dispatch`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	if strings.Contains(got, "codraxNode") {
+		t.Fatalf("split edge label fragment was aliased as a node:\n%s", got)
+	}
+	if !strings.Contains(got, `bpf_map_update_value -->|"calls @ :261 / :297"| ops_dispatch`) {
+		t.Fatalf("split edge label was not merged into one quoted label:\n%s", got)
+	}
+}
+
+func TestNormalizeSourceForMarkdown_DropsStandaloneHiddenMarkerBeforeAliasing(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    syscall_entry["SYSCALL_DEFINE3(bpf, …)"]`,
+		`    syscall_entry @[hidden]`,
+		`    syscall_entry --> __sys_bpf`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	if strings.Contains(got, "codraxNode") || strings.Contains(got, "@[hidden]") {
+		t.Fatalf("hidden marker leaked after normalization:\n%s", got)
+	}
+	if !strings.Contains(got, `syscall_entry --> __sys_bpf`) {
+		t.Fatalf("edge should be preserved:\n%s", got)
+	}
+}
+
+func TestNormalizeSourceForMarkdown_DropsGeneratedHiddenMarkerLine(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    A["visible"]`,
+		`    A codraxNode1[hidden]`,
+		`    A --> B["hidden label is visible text"]`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	if strings.Contains(got, "codraxNode1[hidden]") {
+		t.Fatalf("generated hidden marker line survived:\n%s", got)
+	}
+	if !strings.Contains(got, `B["hidden label is visible text"]`) {
+		t.Fatalf("legitimate hidden label text should be preserved:\n%s", got)
+	}
+}
+
+func TestNormalizeSourceForMarkdown_DoesNotMergeChainedPipeLabels(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    A -->|first| B -->|second| C`,
+		`    A -->|safe| B["label|with pipe"]`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	for _, want := range []string{
+		`A -->|first| B -->|second| C`,
+		`A -->|safe| B["label|with pipe"]`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("valid flowchart line changed; missing %q in:\n%s", want, got)
+		}
+	}
+}
+
 func TestNormalizeFlowchartNodeLabels_QuotesParserSensitiveUnquotedLabels(t *testing.T) {
 	in := strings.Join([]string{
 		"flowchart TD",

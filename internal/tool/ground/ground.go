@@ -2944,10 +2944,14 @@ func explainAnchorKindShapeMismatch(it *types.EvidenceItem, gc *Context) string 
 
 func explainUngrounded(it *types.EvidenceItem, gc *Context) string {
 	var parts []string
-	if gc == nil || len(gc.LineIndex) == 0 {
+	if observedNavigationLineOnly(it, gc) {
+		parts = append(parts, "source "+it.Source+":"+strconv.Itoa(it.LineStart)+" was visible in navigation/search output but is not present in read_file gutter history; call read_file on that location before emitting line-scope evidence")
+	} else if gc == nil || len(gc.LineIndex) == 0 {
 		parts = append(parts, "no read_file history available in this dispatch")
 	} else if _, ok := gc.LineIndex[it.Source]; !ok {
 		parts = append(parts, "source "+it.Source+" not present in read_file history (call read_file on it first)")
+	} else if it.LineStart > 0 && !HasLineInIndex(gc, it.Source, it.LineStart) {
+		parts = append(parts, "line "+strconv.Itoa(it.LineStart)+" for source "+it.Source+" not present in read_file history (call read_file around that line first)")
 	} else if it.AnchorSymbol != "" {
 		parts = append(parts, "anchor_symbol "+strconv.Quote(it.AnchorSymbol)+" not found as a whole-word token near line "+strconv.Itoa(it.LineStart))
 	} else {
@@ -2959,6 +2963,22 @@ func explainUngrounded(it *types.EvidenceItem, gc *Context) string {
 		}
 	}
 	return strings.Join(parts, "; ")
+}
+
+func observedNavigationLineOnly(it *types.EvidenceItem, gc *Context) bool {
+	if it == nil || gc == nil || it.Source == "" || it.LineStart <= 0 || len(gc.ObservedLineIndex) == 0 {
+		return false
+	}
+	source := canonicalContextPath(gc, it.Source)
+	if HasLineInIndex(gc, source, it.LineStart) {
+		return false
+	}
+	lines, ok := gc.ObservedLineIndex[source]
+	if !ok {
+		return false
+	}
+	_, ok = lines[it.LineStart]
+	return ok
 }
 
 // ── shared helpers (moved from internal/agent/evidence.go) ───────────

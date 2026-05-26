@@ -68,9 +68,8 @@ type MisplacedFieldHint struct {
 //   - `json: cannot unmarshal string into Go struct field
 //     <T>.<field> of type <U>` — caller emitted a JSON-encoded
 //     string where an array / object was expected (streaming
-//     artefact). Rewrite to "<field>[] must be a native JSON
-//     array, not a quoted string. Re-emit as [...], not as
-//     "[...]"".
+//     artefact). Rewrite with the target shape the schema actually
+//     expects, so object carriers are not mis-taught as arrays.
 //   - Otherwise the message is sanitized (R4 — Go internal type
 //     names stripped) and returned as-is.
 //
@@ -100,7 +99,7 @@ func RemapStrictDecodeError(err error, hints []MisplacedFieldHint) error {
 		}
 	}
 	// Step 2: try the cannot-unmarshal-string artefact pattern.
-	if rewritten, matched := remapCannotUnmarshalStringIntoArray(err); matched {
+	if rewritten, matched := remapCannotUnmarshalStringIntoNativeJSON(err); matched {
 		return rewritten
 	}
 	// Step 3: sanitize the error message — strip Go-internal
@@ -134,24 +133,36 @@ func extractUnknownFieldName(err error) string {
 // cannotUnmarshalStringRe matches the Go json error shape
 // `json: cannot unmarshal string into Go struct field <T>.<field>
 // of type <U>`. The capture groups extract the user-visible field
-// name (e.g. `blocks`) so the rewritten message can use it.
+// name (e.g. `blocks`) and the target type shape so the rewritten
+// message can distinguish native arrays from native objects.
 //
 // The pattern matches both top-level fields and nested-struct
-// references. We deliberately do NOT capture the Go type names <T>
-// or <U> — they are R4-banned implementation jargon.
+// references. The raw target type is never surfaced to the LLM; it is
+// used only to choose array-vs-object wording before R4 sanitization.
 var cannotUnmarshalStringRe = regexp.MustCompile(
-	`json: cannot unmarshal string into Go struct field [A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_]*) of type \[?\]?`,
+	`json: cannot unmarshal string into Go struct field [A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_]*) of type ([^\s]+)`,
 )
 
-// remapCannotUnmarshalStringIntoArray detects "blocks-as-string"
-// streaming artefacts (LLM JSON.stringify'd an array before
-// putting it in the tool call) and rewrites the error to give
-// LLM-actionable guidance. Returns (wrapped err, true) on match;
-// (nil, false) otherwise.
-func remapCannotUnmarshalStringIntoArray(err error) (error, bool) {
-	field := extractCannotUnmarshalStringField(err)
-	if field == "" {
+type jsonStringCarrierKind string
+
+const (
+	jsonStringCarrierArray  jsonStringCarrierKind = "array"
+	jsonStringCarrierObject jsonStringCarrierKind = "object"
+)
+
+// remapCannotUnmarshalStringIntoNativeJSON detects streaming artefacts where
+// the LLM JSON.stringify'd a structured value before putting it in the tool
+// call. It uses the decoder's target type only to choose array/object guidance;
+// the Go type name never appears in the LLM-facing message.
+func remapCannotUnmarshalStringIntoNativeJSON(err error) (error, bool) {
+	field, kind := extractCannotUnmarshalStringTarget(err)
+	if field == "" || kind == "" {
 		return nil, false
+	}
+	if kind == jsonStringCarrierObject {
+		return fmt.Errorf(
+			"the %q field must be a native JSON object (e.g. %q), not a JSON-encoded string. The streaming layer wrapped your %q value in quotes — re-emit %q as a native object (no surrounding quotes, no escaped inner quotes)",
+			field, field+`: {...}`, field, field), true
 	}
 	return fmt.Errorf(
 		"the %q field must be a native JSON array of objects (e.g. %q), not a JSON-encoded string. The streaming layer wrapped your %q value in quotes — re-emit %q as a native array (no surrounding quotes, no escaped inner quotes)",
@@ -159,17 +170,33 @@ func remapCannotUnmarshalStringIntoArray(err error) (error, bool) {
 }
 
 func extractCannotUnmarshalStringField(err error) string {
+	field, _ := extractCannotUnmarshalStringTarget(err)
+	return field
+}
+
+func extractCannotUnmarshalStringTarget(err error) (string, jsonStringCarrierKind) {
 	if err == nil {
-		return ""
+		return "", ""
 	}
 	for cur := err; cur != nil; cur = errors.Unwrap(cur) {
 		m := cannotUnmarshalStringRe.FindStringSubmatch(cur.Error())
-		if len(m) != 2 {
+		if len(m) != 3 {
 			continue
 		}
-		return m[1] // e.g. "blocks"
+		field := m[1]
+		targetType := strings.TrimSpace(m[2])
+		switch {
+		case strings.HasPrefix(targetType, "[]"):
+			return field, jsonStringCarrierArray
+		case strings.HasPrefix(targetType, "*") ||
+			strings.HasPrefix(targetType, "map[") ||
+			strings.Contains(targetType, "."):
+			return field, jsonStringCarrierObject
+		default:
+			return "", ""
+		}
 	}
-	return ""
+	return "", ""
 }
 
 // goInternalTypeRe matches Go-internal type tokens that R4 forbids

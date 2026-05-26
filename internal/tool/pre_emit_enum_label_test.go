@@ -851,6 +851,85 @@ func TestPreCheckItemCitationAlignment_DoesNotPresentCurrentCitationAsTarget(t *
 	}
 }
 
+func TestDetachInvalidItemCitationRefsWithoutSafeCandidate_DropsWrongCurrentCitation(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "hops",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "h1",
+				Label:       "sys_bpf (BPF_MAP_UPDATE_ELEM)",
+				Text:        "sys_bpf switch routes the command to map_update_elem.",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "kernel/bpf/syscall.c", Line: 1805}},
+	}
+	mut := types.NewMutableState("trace bpf map update path")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{{
+		Kind:            types.EvidenceRelationship,
+		Source:          "kernel/bpf/syscall.c",
+		LineStart:       1805,
+		Subject:         "map_update_elem",
+		Object:          "bpf_map_update_value",
+		AnchorKind:      types.AnchorCall,
+		GroundingStatus: types.GroundingGrounded,
+	}}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	if fixed := detachInvalidItemCitationRefsWithoutSafeCandidateWithContext(doc, nil, ctx, nil); fixed != 1 {
+		t.Fatalf("expected one invalid citation to be detached, got %d doc=%+v", fixed, doc.Blocks[0].Items[0])
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != -1 {
+		t.Fatalf("invalid current citation should be removed rather than rendered as proof, got %d", got)
+	}
+	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
+		t.Fatalf("detached invalid citation should not leave a citation-alignment advisory, got %v", hints)
+	}
+}
+
+func TestDetachInvalidItemCitationRefsWithoutSafeCandidate_KeepsWhenCandidateExists(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "agents",
+			Kind: types.BlockOrderedList,
+			Items: []types.AnswerBlockItem{{
+				ID:          "a1",
+				Label:       "RegisterDefaultSubAgents",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{File: "internal/agent/sub_explorer.go", Line: 31}},
+	}
+	mut := types.NewMutableState("which agents can call subagents")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{EvidenceItems: []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/sub_explorer.go",
+			LineStart:       31,
+			Subject:         "SubExplorer.Name",
+			AnchorSymbol:    "Name",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/agent/subagent.go",
+			LineStart:       63,
+			Subject:         "RegisterDefaultSubAgents",
+			AnchorSymbol:    "RegisterDefaultSubAgents",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}})
+	ctx := &types.BusContext{Mutable: mut}
+
+	if fixed := detachInvalidItemCitationRefsWithoutSafeCandidateWithContext(doc, nil, ctx, nil); fixed != 0 {
+		t.Fatalf("candidate-backed mismatch should be left for deterministic repair/hint, got fixed=%d", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("citation with a safe candidate should remain available for repair, got %d", got)
+	}
+}
+
 func TestPreCheckItemCitationAlignment_AcceptsProseLabelWithExplicitCodeQualifier(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{
@@ -1772,7 +1851,7 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsQualifiedOwnerMet
 	}
 }
 
-func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsFirstTypedCandidate(t *testing.T) {
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_DoesNotRebindAmbiguousTypedCandidates(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{
 			ID:   "agents",
@@ -1822,14 +1901,11 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_RebindsFirstTypedCandida
 	ctx := &types.BusContext{Mutable: mut}
 
 	fixed := normalizeItemCitationRefsByUniqueLabelCitation(doc, nil, ctx)
-	if fixed != 1 {
-		t.Fatalf("expected one deterministic typed-candidate repair, got %d", fixed)
+	if fixed != 0 {
+		t.Fatalf("ambiguous same-symbol typed candidates must not be auto-rebound, got %d", fixed)
 	}
-	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
-		t.Fatalf("citation_ref = %d, want first matching typed candidate", got)
-	}
-	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
-		t.Fatalf("rebound candidate citation should satisfy alignment, got %v", hints)
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 2 {
+		t.Fatalf("citation_ref = %d, want model-authored ref preserved under ambiguity", got)
 	}
 }
 
@@ -1932,14 +2008,11 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_RepairsMultiCandidateCus
 	})
 	ctx := &types.BusContext{Mutable: mut}
 
-	if fixed := normalizeItemCitationRefsByUniqueLabelCitation(doc, nil, ctx); fixed != 3 {
-		t.Fatalf("expected three deterministic typed-candidate citation repairs, got %d", fixed)
+	if fixed := normalizeItemCitationRefsByUniqueLabelCitation(doc, nil, ctx); fixed != 0 {
+		t.Fatalf("ambiguous customer drift candidates must not be auto-rewritten, got %d", fixed)
 	}
-	if hints := preCheckItemCitationAlignment(doc, nil, ctx); len(hints) != 0 {
-		t.Fatalf("repaired citations should satisfy label/citation alignment, got %+v", hints)
-	}
-	if hints := preCheckEnumerationLabelGrounding(doc, &stubOracle{known: map[string]int{}}, ctx); len(hints) != 0 {
-		t.Fatalf("repaired citations should also satisfy enum-label grounding via cited evidence, got %+v", hints)
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("first citation_ref changed to %d; system must preserve model refs when multiple typed candidates exist", got)
 	}
 }
 

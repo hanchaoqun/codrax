@@ -2,6 +2,15 @@ package types
 
 import "testing"
 
+func TestNormalizeAnswerCandidateRole_FieldAliases(t *testing.T) {
+	for _, raw := range []string{"struct_field", "object_field", "field_member"} {
+		got, ok := NormalizeAnswerCandidateRole(raw)
+		if !ok || got != AnswerCandidateRoleField {
+			t.Fatalf("NormalizeAnswerCandidateRole(%q) = %q, %v; want field", raw, got, ok)
+		}
+	}
+}
+
 func TestSourceInventoryProfile_PrincipalTargetRolesTreatsConstSetAsQualifier(t *testing.T) {
 	profile := &SourceInventoryProfile{
 		IsSourceInventory: true,

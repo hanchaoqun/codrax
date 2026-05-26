@@ -930,6 +930,44 @@ func TestBuildInitialInstructionCompletionHandoff(t *testing.T) {
 	}
 }
 
+func TestBuildInitialInstruction_CallChainTypedRepoMapOutranksGenericGrep(t *testing.T) {
+	eval := &explorerEvaluator{}
+	ctx := &types.AgentContext{
+		Objective: "梳理 eBPF map update_elem 的调用链并输出流程图",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentTrace,
+				PredicateAxis: types.AxisCall,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:              string(types.ReqCallChain),
+					MentionedEntities: []string{"bpf", "update_elem", "bpf_map_ops"},
+					Keywords:          []string{"bpf", "map", "update_elem", "dispatch"},
+				},
+				DiagramHint: &types.DiagramHint{Kind: types.DiagramCallDAG},
+			},
+		},
+		RepoRoot: ".",
+	}
+
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Typed Repo Map First Hop",
+		`repo_map(view="task_map")`,
+		"before falling back to broad grep expansion",
+		`repo_map(view="relation_map")`,
+		"Suggested `query` terms",
+		"When you use text search (`grep`)",
+		"does not override the typed repo_map route above",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("call-chain prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "Batch both versions as parallel grep calls") {
+		t.Fatalf("call-chain prompt must not make translated grep batching stronger than typed repo_map policy:\n%s", prompt)
+	}
+}
+
 func TestBuildInitialInstructionHistoryNarrativeUsesVCSLane(t *testing.T) {
 	eval := &explorerEvaluator{}
 	ctx := &types.AgentContext{

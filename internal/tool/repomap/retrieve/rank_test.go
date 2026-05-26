@@ -73,6 +73,65 @@ func TestRankGraphScores_DoesNotMutateSharedGraphScores(t *testing.T) {
 	}
 }
 
+func TestRankGraphScores_DownweightsBroadQueryTermsInLargeMapQueries(t *testing.T) {
+	graph := &repotypes.Graph{
+		Root: "",
+		Files: []*repotypes.FileInfo{
+			{
+				RelPath:  "kernel/bpf/arraymap.c",
+				Language: repotypes.LangC,
+				Symbols: []repotypes.Symbol{
+					{Name: "array_map_update_elem", Kind: "function", Doc: "Called from syscall or from eBPF program"},
+				},
+			},
+			{
+				RelPath:  "drivers/pinctrl/pinctrl-map.c",
+				Language: repotypes.LangC,
+				Symbols: []repotypes.Symbol{
+					{Name: "pin_map_array_hash_table", Kind: "function", Doc: "map hash array helper"},
+					{Name: "map_array_hash_debug", Kind: "function", Doc: "map hash array helper"},
+				},
+			},
+			{
+				RelPath:  "arch/alpha/kernel/io.c",
+				Language: repotypes.LangC,
+				Symbols: []repotypes.Symbol{
+					{Name: "io_map_hash_array", Kind: "function", Doc: "map array helper"},
+				},
+			},
+		},
+		ReverseImports: map[string][]string{
+			"drivers/pinctrl/pinctrl-map.c": noisyImporters(120),
+			"arch/alpha/kernel/io.c":        noisyImporters(80),
+		},
+		ImportGraph: map[string][]string{},
+	}
+	graph.RankIndex = repotypes.BuildRankIndex(graph)
+
+	ranking := RankGraphScores(graph, "bpf syscall map update_elem dispatch")
+	relevant := ranking.QueryScores["kernel/bpf/arraymap.c"]
+	noisy := ranking.QueryScores["drivers/pinctrl/pinctrl-map.c"]
+	if relevant <= noisy {
+		t.Fatalf("rare target terms should outrank generic map/hash/array noise: relevant=%f noisy=%f scores=%+v",
+			relevant, noisy, ranking.QueryScores)
+	}
+	if ranking.Scores["kernel/bpf/arraymap.c"] <= ranking.Scores["arch/alpha/kernel/io.c"] {
+		t.Fatalf("query ranking should keep eBPF update file ahead of generic architecture helper: %+v", ranking.Scores)
+	}
+	if ranking.Scores["kernel/bpf/arraymap.c"] <= ranking.Scores["drivers/pinctrl/pinctrl-map.c"] {
+		t.Fatalf("query relevance should dominate high structural centrality for broad-token noise: scores=%+v query=%+v",
+			ranking.Scores, ranking.QueryScores)
+	}
+}
+
+func noisyImporters(n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		out[i] = fmt.Sprintf("noise/importer_%03d.c", i)
+	}
+	return out
+}
+
 func TestRankGraph_ConcurrentSameGraphDoesNotCrash(t *testing.T) {
 	graph := testRankingGraph(80)
 	var wg sync.WaitGroup

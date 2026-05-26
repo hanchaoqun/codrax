@@ -335,6 +335,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 			Offset:            p.Offset,
 			Cursor:            p.Cursor,
 		})
+		output = prependRepoMapSourceInventoryFitAdvisory(ctx, p.Query, output)
 		output = prependRepoMapParameterAdvisory(output, paramAdvisories)
 		summary, ref := tool.StoreBlob(ctx, t.Name(), output)
 		return ctypes.ToolResult{
@@ -382,9 +383,6 @@ func repoMapOverviewSourceInventoryHintEnabled(ctx *ctypes.BusContext, view stri
 }
 
 func prependRepoMapNavigationAdvisory(ctx *ctypes.BusContext, view, query, output string) string {
-	if !repoMapNavigationAdvisoryEnabled(ctx, view, query) {
-		return output
-	}
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return output
 	}
@@ -393,6 +391,9 @@ func prependRepoMapNavigationAdvisory(ctx *ctypes.BusContext, view, query, outpu
 		&ctx.AnalysisIR.AnswerContract,
 		ctx.ExploreLanePlan,
 	)
+	if !repoMapNavigationAdvisoryEnabled(ctx, view, query, policy) {
+		return output
+	}
 	hint := policy.RenderMarkdownHint("Repo Map Next-Step Hint", "Soft route hints from the structured analysis result. Broad repo_map output is still valid, but these hints are not read obligations; the next call is usually cheaper and clearer when it follows this route.")
 	if strings.TrimSpace(hint) == "" {
 		return output
@@ -400,7 +401,7 @@ func prependRepoMapNavigationAdvisory(ctx *ctypes.BusContext, view, query, outpu
 	return hint + output
 }
 
-func repoMapNavigationAdvisoryEnabled(ctx *ctypes.BusContext, view, query string) bool {
+func repoMapNavigationAdvisoryEnabled(ctx *ctypes.BusContext, view, query string, policy ctypes.RepoMapNavigationPolicy) bool {
 	if ctx == nil || ctx.PipelineStage == ctypes.StageAnalyze || ctx.ActiveAgent == ctypes.AgentAnalyzer {
 		return false
 	}
@@ -408,7 +409,37 @@ func repoMapNavigationAdvisoryEnabled(ctx *ctypes.BusContext, view, query string
 	if view == "" || view == "overview" {
 		return true
 	}
-	return view == "task_map" && strings.TrimSpace(query) == ""
+	if view != "task_map" {
+		return false
+	}
+	if strings.TrimSpace(query) == "" {
+		return true
+	}
+	return policy.HasRoute(ctypes.RepoMapNavigationRouteRelationMap) ||
+		policy.HasRoute(ctypes.RepoMapNavigationRouteCallPath)
+}
+
+func prependRepoMapSourceInventoryFitAdvisory(ctx *ctypes.BusContext, query, output string) string {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.PipelineStage == ctypes.StageAnalyze || ctx.ActiveAgent == ctypes.AgentAnalyzer {
+		return output
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() {
+		return output
+	}
+	policy := ctypes.CompileRepoMapNavigationPolicy(rm, &ctx.AnalysisIR.AnswerContract, ctx.ExploreLanePlan)
+	if !policy.HasRoute(ctypes.RepoMapNavigationRouteRelationMap) && !policy.HasRoute(ctypes.RepoMapNavigationRouteCallPath) {
+		return output
+	}
+	var b strings.Builder
+	b.WriteString("## Repo Map View Fit Hint\n\n")
+	b.WriteString("`source_inventory` is a member/attribute checklist lens. For this structural relation / call-flow request, treat this result as optional orientation only; if it is sparse or off-target, switch back to `repo_map(view=\"task_map\"")
+	if strings.TrimSpace(query) != "" {
+		b.WriteString(", query=")
+		b.WriteString(fmt.Sprintf("%q", strings.TrimSpace(query)))
+	}
+	b.WriteString(")` and then `repo_map(view=\"relation_map\", sources=[...], scopes=[...])` around selected source files or symbols. This is a navigation hint, not proof and not a read obligation.\n\n")
+	return b.String() + output
 }
 
 func normalizeRepoMapLensParamsForSelectedSubRepo(p *repoMapParams, subRepoRootRel string) []string {

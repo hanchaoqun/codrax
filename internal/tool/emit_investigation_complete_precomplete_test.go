@@ -3939,6 +3939,98 @@ func TestEmitInvestigationComplete_PreCompleteCheck_GroundedNarrativeEvidenceByp
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_CallChainGroundedEvidenceBypassesGenericForcedReads(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	limits := prev
+	limits.Phase1UnreadTopK = 5
+	limits.Phase1UnreadMinUnread = 1
+	SetAnalysisLimits(limits)
+
+	mut := types.NewMutableState("bpf map update call chain")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "kernel/bpf/syscall.c", Score: 90, ExactEntityRank: 3},
+		{Path: "kernel/bpf/hashtab.c", Score: 80, ExactEntityRank: 2},
+		{Path: "kernel/bpf/arraymap.c", Score: 78, ExactEntityRank: 2},
+		{Path: "drivers/platform/surface/surface_aggregator_registry.c", Score: 62, ExactEntityRank: 1},
+		{Path: "arch/arm64/include/asm/topology.h", Score: 60, ExactEntityRank: 1},
+	})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind: types.EvidenceRelationship, Source: "kernel/bpf/syscall.c", LineStart: 6359,
+			AnchorKind: types.AnchorCall, AnchorSymbol: "map_update_elem",
+			Subject: "bpf syscall entry", Predicate: "dispatches", Object: "map_update_elem",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceRelationship, Source: "kernel/bpf/syscall.c", LineStart: 200,
+			AnchorKind: types.AnchorInitializer, AnchorSymbol: "bpf_map_ops",
+			Subject: "bpf_map_ops", Predicate: "selects", Object: "update_elem",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceRelationship, Source: "kernel/bpf/hashtab.c", LineStart: 2364,
+			AnchorKind: types.AnchorInitializer, AnchorSymbol: "map_update_elem",
+			Subject: "hash map ops", Predicate: "calls", Object: "htab_map_update_elem",
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceRelationship, Source: "kernel/bpf/arraymap.c", LineStart: 811,
+			AnchorKind: types.AnchorInitializer, AnchorSymbol: "map_update_elem",
+			Subject: "array map ops", Predicate: "calls", Object: "array_map_update_elem",
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{
+		"kernel/bpf/syscall.c":  true,
+		"kernel/bpf/hashtab.c":  true,
+		"kernel/bpf/arraymap.c": true,
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentTrace,
+				Scenario:      types.ScenarioArchitectureExplain,
+				Complexity:    types.ComplexityComplex,
+				PredicateAxis: types.AxisCall,
+				Predicates:    types.SemanticPredicates{IsCrossComponent: true},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind: string(types.ReqCallChain),
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: true, MinCitations: 3},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "已读并落地 syscall 分发、ops 表和 hash/array map update_elem 实现的主调用链证据；topology 候选只是导航噪音。",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "surface_aggregator_registry") ||
+		strings.Contains(res.Summary, "topology.h") ||
+		strings.Contains(res.Summary, "DOWNGRADED") ||
+		strings.Contains(res.Summary, "Forced Read List") {
+		t.Fatalf("grounded call-chain boundary must not be overruled by generic ranker collateral, got: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("investigation should complete after grounded call-chain evidence establishes the answer boundary")
+	}
+	if pending := closure.PendingReads(); len(pending) != 0 {
+		t.Fatalf("generic pending reads should not be queued after grounded call-chain boundary, got %+v", pending)
+	}
+}
+
 func TestPartitionPendingReadsForAcceptedClosure_KeepsRequiredCurrentSourceBlocking(t *testing.T) {
 	mut := types.NewMutableState("mixed current source")
 	evidence := []types.EvidenceItem{

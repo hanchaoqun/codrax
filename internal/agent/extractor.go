@@ -2546,7 +2546,7 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 			if !r.Success {
 				continue
 			}
-			switch r.ToolName {
+			switch types.CanonicalToolName(r.ToolName) {
 			case "emit_answer_symbol":
 				gotSymbols = true
 			case "emit_hypothesis_verdict":
@@ -2562,6 +2562,24 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 			return LoopSignal{
 				HintRequested: true,
 				HintKey:       fmt.Sprintf("extractor.answer_symbol_materialization.%d", e.retriesUsed),
+				Hint:          hint,
+			}
+		}
+		if !needVerdicts &&
+			extractorHasFailedToolWithoutSuccess(obs.AllToolResults, "emit_hypothesis_verdict") &&
+			!gotVerdicts && e.retriesUsed < e.maxRetries {
+			// Auto-verdicts are a fallback, not a reason to silently
+			// discard a stronger model-authored verdict attempt. If the
+			// model tried to override the fallback and that tool call was
+			// rejected, give it one bounded repair turn even when
+			// hasPendingHypotheses(ctx) is already false.
+			e.retriesUsed++
+			hint := latestExtractorEmitFailureContext(obs.AllToolResults)
+			hint += "Re-emit `emit_hypothesis_verdict` with a concrete citation or evidence_id from the accepted investigation snapshot for confirmed/rejected statuses. If the verdict cannot be anchored from the snapshot, emit status=inconclusive with a clear rationale instead of forcing a confirmed verdict."
+			logging.Info("[extractor] hypothesis-verdict repair retry #%d: %s", e.retriesUsed, hint)
+			return LoopSignal{
+				HintRequested: true,
+				HintKey:       fmt.Sprintf("extractor.hypothesis_verdict_repair.%d", e.retriesUsed),
 				Hint:          hint,
 			}
 		}
@@ -2696,6 +2714,21 @@ func extractorHasSuccessfulAllowedToolResult(results []types.ToolResult) bool {
 		}
 	}
 	return false
+}
+
+func extractorHasFailedToolWithoutSuccess(results []types.ToolResult, name string) bool {
+	name = types.CanonicalToolName(name)
+	failed := false
+	for _, result := range results {
+		if types.CanonicalToolName(result.ToolName) != name {
+			continue
+		}
+		if result.Success {
+			return false
+		}
+		failed = true
+	}
+	return failed
 }
 
 // latestExtractorEmitFailureContext returns a short prefix sentence

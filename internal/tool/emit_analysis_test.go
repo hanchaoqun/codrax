@@ -3777,7 +3777,7 @@ func TestEmitAnalysis_Execute_DropsSourceInventoryForRelationFlow(t *testing.T) 
 		},
 		"source_inventory_profile": {
 			"is_source_inventory": true,
-			"target_roles": ["function"],
+			"target_roles": ["function", "struct_field", "not_a_role"],
 			"requested_fields": ["name", "location", "summary"],
 			"source_quotes": ["关键函数"],
 			"confidence": 0.83,

@@ -7006,14 +7006,15 @@ func genericForcedReadBoundaryCanUseModelPrincipalSet(rm types.RequestModel) boo
 		rm.Predicates.IsDiagnosticQuestion {
 		return false
 	}
-	if rm.Intent != types.IntentExplain {
+	kind := types.NormalizeRequirementKind(rm.AnalyzerHints.Kind)
+	if rm.Intent != types.IntentExplain && !(kind == types.ReqCallChain && rm.Intent == types.IntentTrace) {
 		return false
 	}
 	if types.IsArchitectureNarrativeExplanation(rm) || types.IsSingleTopicMechanismExplanation(rm) {
 		return true
 	}
-	switch types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
-	case types.ReqMechanism, types.ReqConditional, types.ReqRegistration:
+	switch kind {
+	case types.ReqMechanism, types.ReqConditional, types.ReqRegistration, types.ReqCallChain:
 		return rm.Scenario == "" || rm.Scenario == types.ScenarioArchitectureExplain
 	default:
 		return false
@@ -7025,9 +7026,17 @@ func partitionPendingReadsForAcceptedClosure(ctx *types.BusContext, pending []ty
 		return nil, nil
 	}
 	modelBoundary := genericForcedReadBoundarySatisfied(ctx, aggregateFacts, evidence)
+	principalSpanWaived := false
+	if ctx != nil && ctx.Mutable != nil {
+		principalSpanWaived = ctx.Mutable.PrincipalSpanWaiver().IsActive()
+	}
 	blocking := make([]types.PendingRead, 0, len(pending))
 	advisory := make([]types.PendingRead, 0)
 	for _, p := range pending {
+		if principalSpanWaived && types.NormalizePendingReadOrigin(p.Origin) == "pre_complete.call_chain_principal_span" {
+			advisory = append(advisory, p)
+			continue
+		}
 		if modelBoundary && (!types.PendingReadBlocksAcceptedClosure(p) || types.IsGenericForcedReadOrigin(p.Origin)) {
 			advisory = append(advisory, p)
 			continue
@@ -7311,9 +7320,11 @@ func callChainPrincipalSpanDemandForEvidence(evidence []types.EvidenceItem, star
 			}
 			return items[i].LineStart < items[j].LineStart
 		})
+		var startItem types.EvidenceItem
 		startLine := 0
 		for _, item := range items {
 			if callChainEvidenceMatchesEndpoint(item, startHint) {
+				startItem = item
 				startLine = item.LineStart
 				break
 			}
@@ -7321,6 +7332,7 @@ func callChainPrincipalSpanDemandForEvidence(evidence []types.EvidenceItem, star
 		if startLine <= 0 {
 			continue
 		}
+		var endItem types.EvidenceItem
 		endLine := 0
 		for i := len(items) - 1; i >= 0; i-- {
 			item := items[i]
@@ -7328,11 +7340,15 @@ func callChainPrincipalSpanDemandForEvidence(evidence []types.EvidenceItem, star
 				continue
 			}
 			if callChainEvidenceMatchesEndpoint(item, endHint) {
+				endItem = item
 				endLine = item.LineStart
 				break
 			}
 		}
 		if endLine <= startLine {
+			continue
+		}
+		if callChainSpanEndpointPairIsStaticBinding(startItem, endItem) {
 			continue
 		}
 		span := endLine - startLine
@@ -7426,6 +7442,21 @@ func callChainPrincipalTailGapDemand(items []types.EvidenceItem, startLine, endL
 		return gapStart, gapEnd, prev, true
 	}
 	return 0, 0, 0, false
+}
+
+func callChainSpanEndpointPairIsStaticBinding(startItem, endItem types.EvidenceItem) bool {
+	return callChainSpanEndpointIsStaticBinding(startItem) || callChainSpanEndpointIsStaticBinding(endItem)
+}
+
+func callChainSpanEndpointIsStaticBinding(item types.EvidenceItem) bool {
+	if item.Kind == types.EvidenceRegistration {
+		return true
+	}
+	if item.AnchorKind == types.AnchorInitializer || item.AnchorKind == types.AnchorAssignment {
+		return true
+	}
+	pred := strings.ToLower(strings.TrimSpace(item.Predicate))
+	return pred == "registers" || pred == "registered_by" || pred == "implements"
 }
 
 func callChainPrincipalSpanEvidenceEligible(item types.EvidenceItem) bool {

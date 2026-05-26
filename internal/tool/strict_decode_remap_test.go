@@ -153,6 +153,36 @@ func TestRemapStrictDecodeError_CannotUnmarshalStringRewritten(t *testing.T) {
 	}
 }
 
+func TestRemapStrictDecodeError_CannotUnmarshalStringObjectRewritten(t *testing.T) {
+	original := errors.New(
+		`json: cannot unmarshal string into Go struct field emitAnalysisParams.source_inventory_profile of type *tool.emitSourceInventoryProfileParam`)
+	got := RemapStrictDecodeError(original, nil)
+	if got == original {
+		t.Fatal("cannot-unmarshal-string object carrier MUST be rewritten")
+	}
+	msg := got.Error()
+	for _, want := range []string{
+		`"source_inventory_profile" field`,
+		"native JSON object",
+		`source_inventory_profile: {...}`,
+		"not a JSON-encoded string",
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("rewritten object message missing %q; got: %s", want, msg)
+		}
+	}
+	for _, banned := range []string{
+		"emitAnalysisParams",
+		"tool.emitSourceInventoryProfileParam",
+		"native JSON array",
+		"Go struct field",
+	} {
+		if strings.Contains(msg, banned) {
+			t.Errorf("object rewrite leaked or mis-taught %q in message: %s", banned, msg)
+		}
+	}
+}
+
 func TestStrictDecodeToolRepair_MisplacedField(t *testing.T) {
 	original := produceStrictDecodeErr(t, `{"inner":{"form":"x","citation_ref":7}}`)
 	repair := strictDecodeToolRepair(original, []MisplacedFieldHint{{

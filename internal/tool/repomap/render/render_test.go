@@ -208,10 +208,10 @@ func TestGenerateViewDataTaskMap(t *testing.T) {
 	if d.Type != "task_map" || d.Query != "Finalizer AnswerShape" {
 		t.Errorf("header wrong: %+v", d)
 	}
-	if len(d.Sections) != 1 || d.Sections[0].Heading != "Relevant Files" {
-		t.Fatalf("expected one 'Relevant Files' section, got %+v", d.Sections)
+	if len(d.Sections) != 2 || d.Sections[0].Heading != "Navigation Clusters" || d.Sections[1].Heading != "Relevant Files" {
+		t.Fatalf("expected navigation clusters plus 'Relevant Files' sections, got %+v", d.Sections)
 	}
-	subs := d.Sections[0].Subsections
+	subs := d.Sections[1].Subsections
 	if len(subs) == 0 {
 		t.Fatal("expected at least one file subsection")
 	}
@@ -244,6 +244,8 @@ func TestGenerateViewDataTaskMap(t *testing.T) {
 	md := RenderMarkdown(d)
 	for _, want := range []string{
 		"# Task Map: Finalizer AnswerShape",
+		"## Navigation Clusters",
+		`repo_map(view="relation_map"`,
 		"## Relevant Files",
 		"### a.go (score: ",
 		"- `Finalizer` type :5",

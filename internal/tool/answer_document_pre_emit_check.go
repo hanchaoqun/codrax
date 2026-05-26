@@ -1115,6 +1115,13 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 				preEmitEnumerationDirectoryLabelCitationScoped(*block, label, doc.Citations[item.CitationRef]) {
 				continue
 			}
+			if match, ok := preEmitUniqueExplicitSurfaceCitationIndex(doc, pctx, label, text); ok {
+				if item.CitationRef != match {
+					item.CitationRef = match
+					fixed++
+				}
+				continue
+			}
 			if preEmitBlockPrefersExactDefinitionCitation(*block) {
 				if cit, ok := preEmitUniqueExactEndpointDefinitionCitationForLabelWithContext(pctx, label); ok {
 					ref := appendOrReusePreEmitCitation(doc, cit)
@@ -1148,13 +1155,162 @@ func normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc *types.Answer
 				fixed++
 				continue
 			}
-			if cit, ok := preEmitPreferredCandidateCitationForItemWithContext(pctx, label, text); ok {
+			if cit, ok := preEmitUniqueCandidateCitationForItemWithContext(pctx, label, text); ok {
 				item.CitationRef = appendOrReusePreEmitCitation(doc, cit)
 				fixed++
 			}
 		}
 	}
 	return fixed
+}
+
+func detachInvalidItemCitationRefsWithoutSafeCandidateWithContext(doc *types.AnswerDocumentV2, view *types.AnswerSemanticView, ctx *types.BusContext, pctx *preEmitCheckContext) int {
+	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return 0
+	}
+	if pctx == nil {
+		pctx = newPreEmitCheckContext(ctx)
+	}
+	fixed := 0
+	for bi := range doc.Blocks {
+		block := &doc.Blocks[bi]
+		if !preEmitBlockRendersItemSurface(block.Kind) {
+			continue
+		}
+		if preEmitBlockUsesNonSymbolLabelSurface(*block, view) {
+			continue
+		}
+		for ii := range block.Items {
+			item := &block.Items[ii]
+			if item.CitationRef < 0 || item.CitationRef >= len(doc.Citations) {
+				continue
+			}
+			label := strings.TrimSpace(item.Label)
+			if label == "" || !preEmitLabelNeedsCitationAlignment(label) {
+				continue
+			}
+			text := preEmitItemNonLabelSurface(*item)
+			cit := pctx.canonicalCitation(doc.Citations[item.CitationRef])
+			if types.AnswerLocationLabelMatchesCitation(label, cit) ||
+				preEmitEnumerationDirectoryLabelCitationScoped(*block, label, cit) ||
+				preEmitCitationEnclosingFunctionSupportsLabel(label, cit) ||
+				preEmitCitationSupportsAggregateItemWithContext(pctx, label, text, cit) {
+				continue
+			}
+			if surface, ok := types.ParseAnswerSourceLocationSurface(label); ok &&
+				types.AnswerSourceLocationSurfaceMatchesCitation(surface, cit) {
+				continue
+			}
+			evidence, found := pctx.citedEvidenceItems(cit)
+			if found && (preEmitDecoratedItemLabelMatchesAnyEvidenceEndpoint(label, text, evidence) ||
+				preEmitLabelMatchesAnyEvidenceEndpoint(label, evidence)) {
+				continue
+			}
+			if !found {
+				continue
+			}
+			if len(preEmitCandidateCitationLocationsForAggregateItemWithContext(pctx, label, text, 1)) > 0 ||
+				len(preEmitCandidateCitationLocationsForLabelWithContext(pctx, label, 1)) > 0 {
+				continue
+			}
+			item.CitationRef = -1
+			fixed++
+		}
+	}
+	return fixed
+}
+
+func preEmitUniqueExplicitSurfaceCitationIndex(doc *types.AnswerDocumentV2, pctx *preEmitCheckContext, label, text string) (int, bool) {
+	if doc == nil || len(doc.Citations) == 0 {
+		return -1, false
+	}
+	surfaces := preEmitExplicitSourceLocationSurfaces(label, text)
+	if len(surfaces) != 1 {
+		return -1, false
+	}
+	surface := surfaces[0]
+	matches := make([]int, 0, 1)
+	seen := map[string]bool{}
+	for idx, cit := range doc.Citations {
+		if pctx != nil {
+			cit = pctx.canonicalCitation(cit)
+		}
+		if !types.AnswerSourceLocationSurfaceMatchesCitation(surface, cit) {
+			continue
+		}
+		key := preEmitCitationLocationKey(cit)
+		if key == "" {
+			continue
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		matches = append(matches, idx)
+	}
+	if len(matches) != 1 {
+		return -1, false
+	}
+	return matches[0], true
+}
+
+func preEmitExplicitSourceLocationSurfaces(parts ...string) []types.AnswerSourceLocationSurface {
+	seen := map[string]bool{}
+	var out []types.AnswerSourceLocationSurface
+	add := func(surface types.AnswerSourceLocationSurface) {
+		if surface.File == "" || surface.LineStart <= 0 {
+			return
+		}
+		key := strings.ToLower(strings.ReplaceAll(surface.File, `\`, `/`)) + ":" + strconv.Itoa(surface.LineStart)
+		if surface.LineEnd > 0 && surface.LineEnd != surface.LineStart {
+			key += "-" + strconv.Itoa(surface.LineEnd)
+		}
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, surface)
+	}
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if _, loc, ok := types.ParseAnswerSupportRefMemberLocation(part); ok {
+			add(loc)
+		}
+		for _, token := range preEmitSourceLocationSurfaceTokens(part) {
+			if loc, ok := types.ParseAnswerSourceLocationSurface(token); ok {
+				add(loc)
+			}
+		}
+	}
+	return out
+}
+
+func preEmitSourceLocationSurfaceTokens(text string) []string {
+	text = strings.ReplaceAll(text, `\`, `/`)
+	fields := strings.FieldsFunc(text, func(r rune) bool {
+		if r == '/' || r == '.' || r == ':' || r == '_' || r == '-' || r == '+' || r == '@' {
+			return false
+		}
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	out := make([]string, 0, len(fields))
+	seen := map[string]bool{}
+	for _, field := range fields {
+		token := strings.Trim(field, "`'\"()[]{}<>，,。;；")
+		if token == "" || !strings.Contains(token, ":") {
+			continue
+		}
+		key := strings.ToLower(token)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, token)
+	}
+	return out
 }
 
 func preEmitEnumerationDirectoryLabelCitationScoped(block types.AnswerBlock, label string, cit types.Citation) bool {

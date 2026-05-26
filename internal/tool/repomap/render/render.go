@@ -1357,6 +1357,174 @@ func buildTaskMapData(g *types.Graph, params types.ViewParams) *ViewData {
 		Title:    title,
 		Query:    params.Query,
 		Intro:    intro,
-		Sections: []ViewSection{body},
+		Sections: append(taskMapNavigationClusterSections(relevant, ranking.Scores, primary), body),
 	}
+}
+
+type taskMapCluster struct {
+	key     string
+	files   []string
+	symbols []string
+	score   float64
+}
+
+func taskMapNavigationClusterSections(relevant []*types.FileInfo, scores map[string]float64, tokens []retrieve.QueryToken) []ViewSection {
+	if len(relevant) == 0 {
+		return nil
+	}
+	clustersByKey := map[string]*taskMapCluster{}
+	var order []string
+	for _, fi := range relevant {
+		if fi == nil {
+			continue
+		}
+		score := scores[fi.RelPath]
+		if score <= 0 {
+			continue
+		}
+		key := taskMapClusterKey(fi.RelPath)
+		if key == "" {
+			continue
+		}
+		c, ok := clustersByKey[key]
+		if !ok {
+			c = &taskMapCluster{key: key}
+			clustersByKey[key] = c
+			order = append(order, key)
+		}
+		if score > c.score {
+			c.score = score
+		}
+		if len(c.files) < 4 {
+			c.files = append(c.files, fi.RelPath)
+		}
+		for _, sym := range fi.Symbols {
+			if len(c.symbols) >= 5 {
+				break
+			}
+			if !taskMapSymbolMatchesTokens(sym, tokens) {
+				continue
+			}
+			line := fmt.Sprintf("`%s` %s", sym.Name, sym.Kind)
+			if sym.Line > 0 {
+				line += fmt.Sprintf(":%d", sym.Line)
+			}
+			if sym.Doc != "" {
+				line += " — " + sym.Doc
+			}
+			if !taskMapContains(c.symbols, line) {
+				c.symbols = append(c.symbols, line)
+			}
+		}
+	}
+	if len(clustersByKey) == 0 {
+		return nil
+	}
+	clusters := make([]*taskMapCluster, 0, len(clustersByKey))
+	for _, key := range order {
+		clusters = append(clusters, clustersByKey[key])
+	}
+	sort.SliceStable(clusters, func(i, j int) bool {
+		if clusters[i].score != clusters[j].score {
+			return clusters[i].score > clusters[j].score
+		}
+		if len(clusters[i].files) != len(clusters[j].files) {
+			return len(clusters[i].files) > len(clusters[j].files)
+		}
+		return clusters[i].key < clusters[j].key
+	})
+	if len(clusters) > 6 {
+		clusters = clusters[:6]
+	}
+	section := ViewSection{
+		Heading: "Navigation Clusters",
+		Intro:   "Clustered first-pass navigation: use these subsystem/package groups to choose a narrow second hop. Keep the detailed ranked files below for audit and direct reads.",
+	}
+	for _, c := range clusters {
+		files := taskMapBacktickList(c.files, 4)
+		nextScope := strings.TrimSuffix(c.key, "/")
+		text := fmt.Sprintf("`%s` — top files: %s", c.key, files)
+		if len(c.symbols) > 0 {
+			text += "; matched anchors: " + strings.Join(c.symbols, "; ")
+		}
+		text += fmt.Sprintf("; next: try `repo_map(view=\"relation_map\", sources=[%s], scopes=[\"%s\"])` for structural edges, then `read_file` selected source lines for proof.", taskMapQuotedList(c.files, 2), nextScope)
+		section.Items = append(section.Items, ViewItem{
+			Text:  text,
+			File:  c.key,
+			Kind:  "cluster",
+			Score: c.score,
+		})
+	}
+	if len(section.Items) == 0 {
+		return nil
+	}
+	return []ViewSection{section}
+}
+
+func taskMapClusterKey(rel string) string {
+	rel = strings.Trim(strings.ReplaceAll(rel, `\`, `/`), "/")
+	if rel == "" {
+		return ""
+	}
+	parts := strings.Split(rel, "/")
+	if len(parts) == 1 {
+		return "./"
+	}
+	if len(parts) == 2 {
+		return parts[0] + "/"
+	}
+	return parts[0] + "/" + parts[1] + "/"
+}
+
+func taskMapSymbolMatchesTokens(sym types.Symbol, tokens []retrieve.QueryToken) bool {
+	if len(tokens) == 0 {
+		return true
+	}
+	surface := strings.ToLower(strings.Join([]string{sym.Name, sym.Kind, sym.Signature, sym.Doc, sym.Parent, sym.Receiver}, " "))
+	for _, t := range tokens {
+		if t.Text == "" || t.Weight < 1.0 {
+			continue
+		}
+		if strings.Contains(surface, t.Text) {
+			return true
+		}
+	}
+	return false
+}
+
+func taskMapContains(items []string, item string) bool {
+	for _, existing := range items {
+		if existing == item {
+			return true
+		}
+	}
+	return false
+}
+
+func taskMapBacktickList(items []string, limit int) string {
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	parts := make([]string, 0, limit)
+	for _, item := range items[:limit] {
+		parts = append(parts, "`"+item+"`")
+	}
+	if len(items) > limit {
+		parts = append(parts, fmt.Sprintf("+%d more", len(items)-limit))
+	}
+	if len(parts) == 0 {
+		return "(none)"
+	}
+	return strings.Join(parts, ", ")
+}
+
+func taskMapQuotedList(items []string, limit int) string {
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	parts := make([]string, 0, limit)
+	for _, item := range items[:limit] {
+		parts = append(parts, fmt.Sprintf("%q", item))
+	}
+	return strings.Join(parts, ", ")
 }

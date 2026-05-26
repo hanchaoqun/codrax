@@ -2429,6 +2429,44 @@ func TestExtractor_Observe_MidLoop_RelationMemberSetNoOpWaitsForVerdictOnly(t *t
 	}
 }
 
+func TestExtractor_Observe_MidLoop_RejectedVerdictOverrideIsRepairedDespiteAutoVerdict(t *testing.T) {
+	mu := types.NewMutableState("q")
+	mu.AppendEmittedHypothesisVerdicts([]types.HypothesisVerdict{{
+		HypothesisID: "h1",
+		Status:       types.HypInconclusive,
+		Rationale:    "deterministic fallback before extractor",
+	}})
+	ctx := &types.AgentContext{
+		Objective: "q",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			HypothesisSet: []types.Hypothesis{{ID: "h1"}},
+		},
+	}
+	obs := LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		AllToolResults: []types.ToolResult{
+			{
+				ToolName: "emit_hypothesis_verdict",
+				Success:  false,
+				Summary:  "items[0]: status \"confirmed\" requires a citation",
+			},
+		},
+	}
+	e := &extractorEvaluator{maxRetries: 1}
+	sig := e.Observe(ctx, obs)
+	if sig.StopRequested {
+		t.Fatalf("rejected model-authored verdict must not be masked by older auto-verdict, got %+v", sig)
+	}
+	if !sig.HintRequested {
+		t.Fatalf("expected bounded repair hint for rejected verdict override, got %+v", sig)
+	}
+	if !strings.Contains(sig.Hint, "citation") || !strings.Contains(sig.Hint, "inconclusive") {
+		t.Fatalf("repair hint should explain anchored or inconclusive options, got %q", sig.Hint)
+	}
+}
+
 func TestExtractor_Observe_MidLoop_BoundedStepListMissingSymbols_Continues(t *testing.T) {
 	mu := types.NewMutableState("q")
 	ctx := &types.AgentContext{

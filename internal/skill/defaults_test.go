@@ -124,6 +124,29 @@ func TestExploreSkill_TeachesCascadedRepoLensNavigation(t *testing.T) {
 	}
 }
 
+func TestExploreSkill_CoverageBeforeCompletionIsLimitedToStructuralCoverageObligations(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("explore-skill")
+	if err != nil {
+		t.Fatalf("Get(explore-skill) returned error: %v", err)
+	}
+	corpus := allWorkflowBodies(sk)
+	for _, want := range []string{
+		"structural coverage obligation",
+		"exhaustive-coverage demand",
+		"declared item count",
+		"partition into named groups",
+		"Mechanism, architecture, and call-chain explanations do NOT require every navigation candidate to be exhausted",
+		"read and cite the load-bearing files that prove the flow",
+		"collateral candidates as optional navigation hints",
+	} {
+		if !strings.Contains(corpus, want) {
+			t.Fatalf("explore-skill coverage guidance missing %q:\n%s", want, corpus)
+		}
+	}
+}
+
 func TestFinalizerSkillStepListPrefersDiagramsWhenHelpful(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

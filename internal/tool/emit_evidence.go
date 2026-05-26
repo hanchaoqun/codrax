@@ -670,6 +670,12 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 				r.Note = built[i].GroundingNote
 			}
 		}
+		if compatNote := normalizeRegistrationInitializerAnchor(&built[i], gc); compatNote != "" {
+			r = ground.GroundItemScoped(&built[i], gc)
+			if appendGroundingNoteOnce(&built[i], compatNote) {
+				r.Note = built[i].GroundingNote
+			}
+		}
 		normalizeCallEvidenceDirection(&built[i], gc)
 		if stampEvidenceOwnerSymbol(&built[i], gc) {
 			r.Status = built[i].GroundingStatus
@@ -2268,6 +2274,74 @@ func stabilizeStringLiteralIdentifierAnchor(it *types.EvidenceItem, gc *ground.C
 	it.GroundingTier = ""
 	it.GroundingNote = ""
 	return true
+}
+
+func normalizeRegistrationInitializerAnchor(it *types.EvidenceItem, gc *ground.Context) string {
+	if it == nil || gc == nil || it.Scope != types.ScopeLine || it.Kind != types.EvidenceRegistration {
+		return ""
+	}
+	if it.AnchorKind != types.AnchorTextReference && it.AnchorKind != types.AnchorAssignment {
+		return ""
+	}
+	line := evidenceVisibleLineText(gc, it.Source, it.LineStart)
+	if !lineLooksLikeInitializerRegistration(line, *it) {
+		return ""
+	}
+	it.AnchorKind = types.AnchorInitializer
+	it.GroundingStatus = ""
+	it.GroundingTier = ""
+	it.GroundingNote = ""
+	return "semantic registration evidence was treated as an initializer anchor because the already-read source line visibly assigns or initializes the registered member/value"
+}
+
+func evidenceVisibleLineText(gc *ground.Context, source string, line int) string {
+	if gc == nil || line <= 0 || source == "" {
+		return ""
+	}
+	candidates := []string{source}
+	if canonical := ground.CanonicalContextPath(gc, source); canonical != "" && canonical != source {
+		candidates = append(candidates, canonical)
+	}
+	for _, candidate := range candidates {
+		if fileLines := gc.LineIndex[candidate]; len(fileLines) > 0 {
+			if text := strings.TrimSpace(fileLines[line]); text != "" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func lineLooksLikeInitializerRegistration(line string, it types.EvidenceItem) bool {
+	line = strings.TrimSpace(line)
+	if line == "" || !lineHasInitializerAssignmentSyntax(line) {
+		return false
+	}
+	for _, term := range []string{it.AnchorSymbol, it.Object, it.Subject} {
+		term = strings.TrimSpace(term)
+		if term == "" {
+			continue
+		}
+		if strings.Contains(line, term) {
+			return true
+		}
+	}
+	return false
+}
+
+func lineHasInitializerAssignmentSyntax(line string) bool {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return false
+	}
+	if strings.Contains(line, " = ") || strings.Contains(line, "\t=\t") ||
+		strings.Contains(line, "\t= ") || strings.Contains(line, " =\t") {
+		return true
+	}
+	if strings.HasPrefix(line, ".") && strings.Contains(line, "=") {
+		return true
+	}
+	return strings.Contains(line, ":")
 }
 
 func lineLooksIdentifierBindingAtAnchor(gc *ground.Context, source string, line int, anchor string) bool {

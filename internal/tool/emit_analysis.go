@@ -2073,10 +2073,11 @@ func parseSourceInventoryProfile(raw string, p *emitSourceInventoryProfileParam)
 	for i, rawRole := range p.TargetRoles {
 		role, ok := types.NormalizeAnswerCandidateRole(rawRole)
 		if !ok || role == types.AnswerCandidateRoleUnknown {
-			return nil, fmt.Sprintf(
-				"source_inventory_profile.target_roles[%d] %q is invalid; use one of %s",
+			warnings = append(warnings, fmt.Sprintf(
+				"source_inventory_profile.target_roles[%d] %q ignored because it is not one of %s",
 				i, rawRole, strings.Join(answerCandidateRoleValues(), ", "),
-			), nil
+			))
+			continue
 		}
 		if seenRoles[role] {
 			continue

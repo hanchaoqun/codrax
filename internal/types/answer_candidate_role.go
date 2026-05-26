@@ -104,7 +104,7 @@ func normalizeAnswerCandidateRoleAlias(raw string) string {
 		return string(AnswerCandidateRoleConstant)
 	case "var", "local", "parameter", "param":
 		return string(AnswerCandidateRoleVariable)
-	case "property", "prop", "member":
+	case "property", "prop", "member", "struct_field", "object_field", "field_member":
 		return string(AnswerCandidateRoleField)
 	case "module", "namespace":
 		return string(AnswerCandidateRolePackage)

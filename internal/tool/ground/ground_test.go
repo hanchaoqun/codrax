@@ -1079,6 +1079,39 @@ func TestBuildContext_ObservedLineIndexIncludesGrepSourceLines(t *testing.T) {
 	}
 }
 
+func TestGroundItem_UngroundedHintDistinguishesNavigationObservedLine(t *testing.T) {
+	grepResult := types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary: strings.Join([]string{
+			"[grep: 1 matching line]",
+			"kernel/bpf/arraymap.c:811:\t.map_update_elem = array_map_update_elem,",
+		}, "\n"),
+	}
+
+	mut := types.NewMutableState("irrelevant")
+	mut.AppendDispatchToolResult(grepResult)
+	gc := BuildContext(&types.BusContext{Mutable: mut})
+	it := &types.EvidenceItem{
+		Kind:         types.EvidenceDirect,
+		Scope:        types.ScopeLine,
+		Source:       "kernel/bpf/arraymap.c",
+		LineStart:    811,
+		AnchorKind:   types.AnchorInitializer,
+		AnchorSymbol: "array_map_update_elem",
+	}
+
+	GroundItem(it, gc)
+	if it.GroundingStatus != types.GroundingUngrounded {
+		t.Fatalf("grep-observed line must not become strict grounded evidence: status=%q note=%q", it.GroundingStatus, it.GroundingNote)
+	}
+	for _, want := range []string{"navigation/search output", "read_file gutter"} {
+		if !strings.Contains(it.GroundingNote, want) {
+			t.Fatalf("expected tool-history-aware hint %q, got %q", want, it.GroundingNote)
+		}
+	}
+}
+
 func TestBuildContext_ObservedGrepParserPrefersExistingHyphenatedPath(t *testing.T) {
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, "internal", "fixtures"), 0o755); err != nil {
@@ -1608,6 +1641,83 @@ func TestGroundItem_AssignmentAcceptsCrossLanguageMemberInitializers(t *testing.
 			}
 			if it.GroundingTier != types.TierSymbolTable {
 				t.Fatalf("assignment initializer tier=%s, want symbol_table fallback", it.GroundingTier)
+			}
+		})
+	}
+}
+
+func TestGroundItem_Tier1AcceptsPunctuationPrefixedMemberInitializerTokensAcrossLanguages(t *testing.T) {
+	cases := []struct {
+		name   string
+		path   string
+		line   string
+		anchor string
+	}{
+		{
+			name:   "c designated initializer field",
+			path:   "kernel/bpf/arraymap.c",
+			line:   "\t.map_update_elem = array_map_update_elem,",
+			anchor: "map_update_elem",
+		},
+		{
+			name:   "c designated initializer value",
+			path:   "kernel/bpf/arraymap.c",
+			line:   "\t.map_update_elem = array_map_update_elem,",
+			anchor: "array_map_update_elem",
+		},
+		{
+			name:   "go composite literal field",
+			path:   "internal/agent/explorer.go",
+			line:   "\tUpdateElem: arrayMapUpdateElem,",
+			anchor: "UpdateElem",
+		},
+		{
+			name:   "typescript quoted object key",
+			path:   "src/config.ts",
+			line:   "\t\"updateElem\": arrayMapUpdateElem,",
+			anchor: "updateElem",
+		},
+		{
+			name:   "arkts object member",
+			path:   "entry/src/main/ets/pages/Index.ets",
+			line:   "\tupdateElem: arrayMapUpdateElem,",
+			anchor: "updateElem",
+		},
+		{
+			name:   "cangjie named member",
+			path:   "src/main.cj",
+			line:   "\tupdateElem: arrayMapUpdateElem,",
+			anchor: "updateElem",
+		},
+		{
+			name:   "kotlin named argument",
+			path:   "src/Main.kt",
+			line:   "\tupdateElem = arrayMapUpdateElem,",
+			anchor: "updateElem",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			history := []types.ToolResult{
+				buildGutterReadResult(tc.path, 40, []string{tc.line}, 100),
+			}
+			gc := &Context{LineIndex: buildLineIndex(history, "")}
+			it := &types.EvidenceItem{
+				Kind:         types.EvidenceRegistration,
+				Source:       tc.path,
+				LineStart:    40,
+				Scope:        types.ScopeLine,
+				AnchorKind:   types.AnchorInitializer,
+				AnchorSymbol: tc.anchor,
+				Summary:      "member initializer is visible on the cited line",
+			}
+			rep := GroundItem(it, gc)
+			if rep.Status != types.GroundingGrounded {
+				t.Fatalf("initializer token grounding status=%s note=%q, want grounded", rep.Status, rep.Note)
+			}
+			if it.GroundingTier != types.TierLineText {
+				t.Fatalf("initializer token tier=%s, want line_text", it.GroundingTier)
 			}
 		})
 	}

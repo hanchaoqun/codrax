@@ -21,6 +21,8 @@ func NormalizeSourceForMarkdown(body string) string {
 	body = NormalizeFlowchartSubgraphTitles(body)
 	body = NormalizeFlowchartDanglingPunctuation(body)
 	body = NormalizeFlowchartMismatchedShapeClosers(body)
+	body = NormalizeFlowchartSplitPipeLabels(body)
+	body = NormalizeFlowchartHiddenMarkerLines(body)
 	body = NormalizeFlowchartUnsafeNodeIDs(body)
 	body = NormalizeFlowchartNodeLabels(body)
 	body = NormalizeFlowchartPipeLabels(body)
@@ -86,6 +88,67 @@ func NormalizeFlowchartQuotedLabelNewlines(body string) string {
 		return body
 	}
 	return b.String()
+}
+
+// NormalizeFlowchartHiddenMarkerLines removes standalone hidden-layout marker
+// lines that some models emit as if Mermaid supported `node @[hidden]`.
+// Mermaid treats `@` as an unsafe node id; if this runs after unsafe-node
+// aliasing the answer can leak `codraxNodeN[hidden]` into the user-visible
+// diagram. This pass is deliberately narrow: it removes only standalone marker
+// lines and never touches edges or ordinary labels containing "hidden".
+func NormalizeFlowchartHiddenMarkerLines(body string) string {
+	if !isFlowchartOrGraph(body) || !strings.Contains(body, "hidden") {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	out := make([]string, 0, len(lines))
+	changed := false
+	for _, line := range lines {
+		if flowchartLineIsStandaloneHiddenMarker(line) {
+			changed = true
+			continue
+		}
+		out = append(out, line)
+	}
+	if !changed {
+		return body
+	}
+	return strings.Join(out, "\n")
+}
+
+func flowchartLineIsStandaloneHiddenMarker(line string) bool {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return false
+	}
+	fields := strings.Fields(trimmed)
+	if len(fields) != 2 {
+		return false
+	}
+	if !flowchartNodeIDIsSafe(fields[0]) {
+		return false
+	}
+	return flowchartTokenIsHiddenMarker(fields[1])
+}
+
+func flowchartTokenIsHiddenMarker(token string) bool {
+	token = strings.TrimSpace(token)
+	if token == "@[hidden]" || token == "@hidden" {
+		return true
+	}
+	if !strings.HasPrefix(token, "codraxNode") || !strings.HasSuffix(token, "[hidden]") {
+		return false
+	}
+	mid := strings.TrimSuffix(strings.TrimPrefix(token, "codraxNode"), "[hidden]")
+	if mid == "" {
+		return false
+	}
+	for _, r := range mid {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // NormalizeFlowchartMismatchedShapeClosers repairs a narrow but common
@@ -202,6 +265,30 @@ func NormalizeFlowchartPipeLabels(body string) string {
 	changed := false
 	for i, line := range lines {
 		rewritten, ok := normalizeFlowchartPipeLabelsInLine(line)
+		if ok {
+			lines[i] = rewritten
+			changed = true
+		}
+	}
+	if !changed {
+		return body
+	}
+	return strings.Join(lines, "\n")
+}
+
+// NormalizeFlowchartSplitPipeLabels repairs the common LLM Mermaid slip
+// `A -->|label|extra| B`: Mermaid permits one pipe-delimited edge label, so
+// the second fragment is not a node. Merging adjacent fragments before unsafe
+// node aliasing prevents punctuation-only fragments such as `:297` from being
+// converted into synthetic codraxNode endpoints.
+func NormalizeFlowchartSplitPipeLabels(body string) string {
+	if !isFlowchartOrGraph(body) || !strings.Contains(body, "|") {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	changed := false
+	for i, line := range lines {
+		rewritten, ok := normalizeFlowchartSplitPipeLabelsInLine(line)
 		if ok {
 			lines[i] = rewritten
 			changed = true
@@ -410,6 +497,112 @@ func normalizeFlowchartUnsafeNodeIDsInLine(line string, aliases map[string]strin
 		return line, false
 	}
 	return b.String(), true
+}
+
+func normalizeFlowchartSplitPipeLabelsInLine(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "%%") ||
+		flowchartLineIsHeader(trimmed) ||
+		strings.HasPrefix(trimmed, "subgraph ") || trimmed == "end" ||
+		strings.HasPrefix(trimmed, "classDef ") || strings.HasPrefix(trimmed, "linkStyle ") ||
+		flowchartLineStartsWithAny(trimmed, "click ", "style ", "class ") {
+		return line, false
+	}
+	var b strings.Builder
+	changed := false
+	for i := 0; i < len(line); {
+		op := flowchartArrowAt(line, i)
+		if op == "" {
+			b.WriteByte(line[i])
+			i++
+			continue
+		}
+		b.WriteString(op)
+		i += len(op)
+		labelStart := i
+		for labelStart < len(line) && (line[labelStart] == ' ' || line[labelStart] == '\t') {
+			labelStart++
+		}
+		if labelStart >= len(line) || line[labelStart] != '|' {
+			b.WriteString(line[i:labelStart])
+			i = labelStart
+			continue
+		}
+		b.WriteString(line[i:labelStart])
+		firstEnd := findUnescapedPipe(line, labelStart+1)
+		if firstEnd < 0 {
+			b.WriteByte(line[labelStart])
+			i = labelStart + 1
+			continue
+		}
+		parts := []string{line[labelStart+1 : firstEnd]}
+		cursor := firstEnd + 1
+		for {
+			wsStart := cursor
+			for cursor < len(line) && (line[cursor] == ' ' || line[cursor] == '\t') {
+				cursor++
+			}
+			if cursor >= len(line) || flowchartArrowAt(line, cursor) != "" {
+				cursor = wsStart
+				break
+			}
+			nextPipe := findUnescapedPipe(line, cursor)
+			if nextPipe < 0 {
+				cursor = wsStart
+				break
+			}
+			fragment := strings.TrimSpace(line[cursor:nextPipe])
+			if !flowchartSplitPipeLabelFragmentCanMerge(fragment) {
+				cursor = wsStart
+				break
+			}
+			parts = append(parts, line[cursor:nextPipe])
+			cursor = nextPipe + 1
+		}
+		if len(parts) == 1 {
+			b.WriteString(line[labelStart : firstEnd+1])
+			i = firstEnd + 1
+			continue
+		}
+		b.WriteByte('|')
+		b.WriteString(quoteMergedFlowchartPipeLabel(parts))
+		b.WriteByte('|')
+		i = cursor
+		changed = true
+	}
+	if !changed {
+		return line, false
+	}
+	return b.String(), true
+}
+
+func flowchartSplitPipeLabelFragmentCanMerge(fragment string) bool {
+	if fragment == "" {
+		return false
+	}
+	if strings.ContainsAny(fragment, "[]{}()\"'") {
+		return false
+	}
+	for i := 0; i < len(fragment); i++ {
+		if flowchartArrowAt(fragment, i) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+func quoteMergedFlowchartPipeLabel(parts []string) string {
+	merged := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(strings.Trim(part, `"'`))
+		if part == "" {
+			continue
+		}
+		merged = append(merged, part)
+	}
+	label := strings.Join(merged, " / ")
+	label = strings.ReplaceAll(label, `"`, "&quot;")
+	return `"` + label + `"`
 }
 
 func flowchartShapeEnd(s string, i int) int {

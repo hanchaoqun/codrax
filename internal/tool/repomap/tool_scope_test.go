@@ -919,6 +919,90 @@ func TestRepoMapOverviewRendersTypedNavigationPolicyOutsideAnalyze(t *testing.T)
 	}
 }
 
+func TestRepoMapTaskMapWithQueryRendersRelationNextStepForCallChain(t *testing.T) {
+	repo := t.TempDir()
+	mut := types.NewMutableState("repo map typed task_map hint")
+	mut.SetSearchGraph(BuildGraph(repo, []*FileInfo{{
+		RelPath:  "kernel/bpf/syscall.c",
+		Language: LangC,
+		Size:     1200,
+		Symbols: []Symbol{{
+			Name: "bpf_map_update_value",
+			Kind: "function",
+			Line: 250,
+		}},
+	}}))
+	ctx := &types.BusContext{
+		RepoRoot:      repo,
+		Mutable:       mut,
+		PipelineStage: types.StageExplore,
+		ActiveAgent:   types.AgentExplorer,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:              string(types.ReqCallChain),
+				MentionedEntities: []string{"bpf_map_update_value", "map_update_elem"},
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{"path":".","view":"task_map","query":"bpf map update_elem","top_n":5}`))
+	if err != nil {
+		t.Fatalf("Execute returned unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map task_map failed: %+v", res)
+	}
+	for _, want := range []string{"Repo Map Next-Step Hint", `view="relation_map"`, "relation_kinds candidates"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("query-bearing task_map for call-chain should render relation next step; missing %q in:\n%s", want, res.Summary)
+		}
+	}
+}
+
+func TestRepoMapSourceInventoryForCallChainRendersViewFitHint(t *testing.T) {
+	repo := t.TempDir()
+	mut := types.NewMutableState("repo map source inventory fit hint")
+	mut.SetSearchGraph(BuildGraph(repo, []*FileInfo{{
+		RelPath:  "kernel/bpf/syscall.c",
+		Language: LangC,
+		Size:     1200,
+		Symbols: []Symbol{{
+			Name: "bpf_map_update_value",
+			Kind: "function",
+			Line: 250,
+		}},
+	}}))
+	ctx := &types.BusContext{
+		RepoRoot:      repo,
+		Mutable:       mut,
+		PipelineStage: types.StageExplore,
+		ActiveAgent:   types.AgentExplorer,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:        types.IntentTrace,
+			PredicateAxis: types.AxisCall,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:              string(types.ReqCallChain),
+				MentionedEntities: []string{"bpf_map_update_value", "map_update_elem"},
+			},
+		}},
+	}
+
+	res, err := (&RepoMapV2{}).Execute(ctx, json.RawMessage(`{"path":".","view":"source_inventory","query":"bpf map update_elem","roles":["function"],"top_n":5}`))
+	if err != nil {
+		t.Fatalf("Execute returned unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("repo_map source_inventory failed: %+v", res)
+	}
+	for _, want := range []string{"Repo Map View Fit Hint", `view="task_map"`, `view="relation_map"`, "not proof and not a read obligation"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("source_inventory used for call-chain should render fit hint; missing %q in:\n%s", want, res.Summary)
+		}
+	}
+}
+
 func TestRepoMapOverviewSuppressesSourceInventoryHintForAnalyzer(t *testing.T) {
 	repo := t.TempDir()
 	mut := types.NewMutableState("repo map analyzer overview")

@@ -333,6 +333,7 @@ func genericAcceptedPathCaveatIsTelemetry(v types.Violation, rm *types.RequestMo
 	case types.ViolEnumerationLabelUngrounded,
 		types.ViolEnumerationEvidenceUnderspecified,
 		types.ViolEnumerationItemLabelExtractorDrift,
+		types.ViolEnumerationLabelHallucinated,
 		types.ViolPrincipalSupportMemberOmitted,
 		types.ViolExhaustiveMemberSetCoverageDrift:
 		return !principalEnumerationSurfaceRequested(rm, contract)
@@ -343,6 +344,11 @@ func genericAcceptedPathCaveatIsTelemetry(v types.Violation, rm *types.RequestMo
 		return facetUncoveredCaveatIsTelemetry(v, rm, contract)
 	case types.ViolBlockCoverageMissing:
 		return blockCoverageCaveatIsTelemetry(v, rm, contract)
+	case types.ViolDiagramEdgeUnsupported,
+		types.ViolDiagramEdgeLabelMismatch,
+		types.ViolDiagramRelationLabelOnly,
+		types.ViolDiagramEdgeEndpointHallucinated:
+		return typedCallChainAnswerSurface(rm, contract)
 	case types.ViolCitation,
 		types.ViolGhostAnchor,
 		types.ViolChainDemoted,
@@ -353,7 +359,15 @@ func genericAcceptedPathCaveatIsTelemetry(v types.Violation, rm *types.RequestMo
 		types.ViolAcceptance,
 		types.ViolSuccessCriterion,
 		types.ViolClaimFormUnsupported:
-		return !acceptedPathNeedsPreciseGroundingDisclosure(rm, contract)
+		// These legacy acceptance-family violations are useful
+		// operator telemetry and strict-promotion inputs, but their
+		// default caveat text is intentionally generic. On the soft
+		// accept path, emitting "some acceptance checks failed" gives
+		// users no concrete next action and makes an otherwise good
+		// answer look unstable. Specific grounding/coverage caveats
+		// remain handled by the citation, facet, and block branches
+		// above.
+		return true
 	default:
 		return false
 	}
@@ -375,6 +389,12 @@ func facetUncoveredCaveatIsTelemetry(v types.Violation, rm *types.RequestModel, 
 	case types.FacetDiagramSpine:
 		return !contract.HasOutput(types.AnswerRequestedOutputDiagram) &&
 			!contract.HasOutput(types.AnswerRequestedOutputTrace)
+	case types.FacetBranchGuard:
+		kind := types.RequirementKind("")
+		if rm != nil {
+			kind = types.NormalizeRequirementKind(rm.AnalyzerHints.Kind)
+		}
+		return typedCallChainAnswerSurface(rm, contract) && kind != types.ReqConditional
 	case types.FacetComponentRelation:
 		if rm != nil && rm.Predicates.IsRelationalLookup {
 			return false
@@ -452,6 +472,12 @@ func principalEnumerationSurfaceRequested(rm *types.RequestModel, contract types
 	if rm == nil {
 		return contract.HasOutput(types.AnswerRequestedOutputEnumeration)
 	}
+	if typedCallChainAnswerSurface(rm, contract) &&
+		rm.Intent != types.IntentEnumerate &&
+		!rm.Predicates.IsCategoryEnumeration &&
+		!rm.Predicates.IsCountQuestion {
+		return false
+	}
 	if types.RequiresExhaustiveEnumerationMemberSetHandoff(*rm) ||
 		types.RequiresRelationMemberSetHandoff(*rm) {
 		return true
@@ -475,6 +501,16 @@ func principalEnumerationSurfaceRequested(rm *types.RequestModel, contract types
 	return contract.HasOutput(types.AnswerRequestedOutputEnumeration) ||
 		rm.Intent == types.IntentEnumerate ||
 		rm.Predicates.IsCategoryEnumeration
+}
+
+func typedCallChainAnswerSurface(rm *types.RequestModel, contract types.AnswerIntentContract) bool {
+	if rm == nil {
+		return contract.HasOutput(types.AnswerRequestedOutputTrace)
+	}
+	kind := types.NormalizeRequirementKind(rm.AnalyzerHints.Kind)
+	return kind == types.ReqCallChain ||
+		rm.Intent == types.IntentTrace ||
+		contract.HasOutput(types.AnswerRequestedOutputTrace)
 }
 
 func runtimeWaiverObservationOnly(w *types.EvidenceFloorWaiver) bool {

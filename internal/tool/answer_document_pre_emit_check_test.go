@@ -4179,6 +4179,120 @@ func TestNormalizeItemCitationRefsByUniqueLabelCitation_KeepsDirectoryScopedEnum
 	}
 }
 
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_UsesExplicitSurfaceLocationBeforeFuzzyCandidate(t *testing.T) {
+	mu := types.NewMutableState("梳理调用链")
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "include/linux/bpf.h", Line: 83},
+			{File: "kernel/bpf/syscall.c", Line: 1766},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "anchors",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetResolvedLiteralOrSymbol)},
+			Items: []types.AnswerBlockItem{{
+				ID:          "a3",
+				Label:       "map_update_elem",
+				Text:        "BPF_MAP_UPDATE_ELEM 命令处理函数，定义于 kernel/bpf/syscall.c:1766。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 1 {
+		t.Fatalf("fixed=%d, want 1", fixed)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 1 {
+		t.Fatalf("citation_ref=%d, want explicit syscall.c:1766 citation", got)
+	}
+}
+
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_DoesNotRewriteAmbiguousExplicitLocations(t *testing.T) {
+	mu := types.NewMutableState("梳理调用链")
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "kernel/bpf/hashtab.c", Line: 2355},
+			{File: "kernel/bpf/syscall.c", Line: 1766},
+			{File: "include/linux/bpf.h", Line: 107},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "anchors",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetResolvedLiteralOrSymbol)},
+			Items: []types.AnswerBlockItem{{
+				ID:          "a3",
+				Label:       "map_update_elem",
+				Text:        "定义于 kernel/bpf/syscall.c:1766；接口指针在 include/linux/bpf.h:107。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 0 {
+		t.Fatalf("ambiguous explicit locations must not be auto-rewritten, fixed=%d doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("citation_ref changed to %d; ambiguous item should remain model-authored", got)
+	}
+}
+
+func TestNormalizeItemCitationRefsByUniqueLabelCitation_DoesNotUseFuzzyFirstCandidateForAmbiguousCallChain(t *testing.T) {
+	mu := types.NewMutableState("梳理调用链")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "map_update_elem",
+			Source:          "kernel/bpf/syscall.c",
+			LineStart:       1766,
+			Scope:           types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+			Summary:         "map_update_elem handles BPF_MAP_UPDATE_ELEM.",
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "map_update_elem",
+			Source:          "include/linux/bpf.h",
+			LineStart:       107,
+			Scope:           types.ScopeLine,
+			GroundingStatus: types.GroundingGrounded,
+			Summary:         "bpf_map_ops exposes the map_update_elem function pointer.",
+		},
+	})
+	ctx := &types.BusContext{Mutable: mu}
+	doc := &types.AnswerDocumentV2{
+		Citations: []types.Citation{
+			{File: "kernel/bpf/hashtab.c", Line: 2355},
+			{File: "kernel/bpf/syscall.c", Line: 1766},
+			{File: "include/linux/bpf.h", Line: 107},
+		},
+		Blocks: []types.AnswerBlock{{
+			ID:          "anchors",
+			Kind:        types.BlockOrderedList,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetResolvedLiteralOrSymbol)},
+			Items: []types.AnswerBlockItem{{
+				ID:          "a3",
+				Label:       "map_update_elem",
+				Text:        "命令处理和 ops 函数指针都围绕该符号展开。",
+				CitationRef: 0,
+			}},
+		}},
+	}
+
+	if fixed := normalizeItemCitationRefsByUniqueLabelCitationWithContext(doc, nil, ctx, newPreEmitCheckContext(ctx)); fixed != 0 {
+		t.Fatalf("ambiguous endpoint candidates must not fall back to first fuzzy candidate, fixed=%d doc=%+v", fixed, doc)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("citation_ref changed to %d; fuzzy ambiguity should remain model-authored", got)
+	}
+}
+
 // === preEmitDisplaySurfaceAppears typographic normalisation ===
 //
 // docs/design/post_phase2a_forensic_followups.md §2.3 — finalizer
