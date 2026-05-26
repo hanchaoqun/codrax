@@ -315,12 +315,13 @@
 # pipeline_force_finalize_attempts: 3
 
 # pipeline_strict_answer_review_enabled — final-answer strong review.
-#   Default true runs deterministic contract checks, reviewers, and
-#   bounded finalizer rewrites. false returns the first accepted answer
-#   draft immediately (concerns rendered as supplementary notes).
-#   最终答案强校验。默认 true:跑确定性合约检查、reviewer、有界的
-#   finalizer 重写。false 立即返回首个被接受的答案草稿(把问题作为补充
-#   说明渲染)。
+#   Default true runs deterministic contract checks and bounded finalizer
+#   rewrites. The extra LLM reviewers below are opt-in. false returns the
+#   first accepted answer draft immediately (concerns rendered as
+#   supplementary notes).
+#   最终答案强校验。默认 true:跑确定性合约检查和有界的 finalizer 重写。
+#   下面两个额外 LLM reviewer 需要显式打开。false 立即返回首个被接受的
+#   答案草稿(把问题作为补充说明渲染)。
 # pipeline_strict_answer_review_enabled: true
 
 # Absolute ceilings on per-Run multi-topic budget scaling. Non-zero
@@ -393,10 +394,11 @@
 
 # pipeline_self_consistency_review_enabled — gate the post-finalize
 #   self-consistency reviewer: an independent LLM reads summary + body
-#   bullets and reports factual contradictions. Default true.
+#   bullets and reports factual contradictions. Default false; set true
+#   only when the extra token/latency cost is worth the additional signal.
 #   finalize 后的自洽 reviewer 开关:一个独立 LLM 读 summary + 正文要点,
-#   报告事实矛盾。默认 true。
-# pipeline_self_consistency_review_enabled: true
+#   报告事实矛盾。默认 false;只有确认额外 token/延迟成本值得时再打开。
+# pipeline_self_consistency_review_enabled: false
 
 # pipeline_self_consistency_rewrite_on_contradiction — treat a detected
 #   contradiction as STRICT (true: trigger finalizer retry with the
@@ -407,16 +409,19 @@
 # pipeline_self_consistency_rewrite_on_contradiction: true
 
 # pipeline_self_consistency_min_confidence — reviewer self-rated
-#   confidence floor; verdicts below it are silently dropped. Default 0.8.
-#   reviewer 自评置信度下限;低于此的判定被静默丢弃。默认 0.8。
-# pipeline_self_consistency_min_confidence: 0.8
+#   confidence floor; verdicts below it are silently dropped. Default 0.92.
+#   reviewer 自评置信度下限;低于此的判定被静默丢弃。默认 0.92。
+# pipeline_self_consistency_min_confidence: 0.92
 
 # pipeline_semantic_quality_review_enabled — gate the second-layer
 #   reviewer that catches "ships clean but thin" (uncovered promoted
-#   facets, short diagram edges, unsurfaced richness). Default true.
+#   facets, short diagram edges, unsurfaced richness). Default false; set
+#   true only when the extra token/latency cost is worth the additional
+#   signal.
 #   第二层 reviewer 开关,捕捉"过关但单薄"(promoted facet 未覆盖、
-#   图边过少、可呈现的丰富度未呈现)。默认 true。
-# pipeline_semantic_quality_review_enabled: true
+#   图边过少、可呈现的丰富度未呈现)。默认 false;只有确认额外 token/延迟
+#   成本值得时再打开。
+# pipeline_semantic_quality_review_enabled: false
 
 # pipeline_semantic_quality_min_confidence — confidence floor for the
 #   semantic-quality reviewer. Default 0.92. Lower (0.85) widens the

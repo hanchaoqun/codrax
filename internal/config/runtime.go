@@ -486,12 +486,11 @@ type RuntimeSettings struct {
 	// on; turning it off bypasses both producer and classifier.
 	PipelineFacetValidatorsEnabled *bool `yaml:"pipeline_facet_validators_enabled"`
 
-	// PipelineSelfConsistencyReviewEnabled (commit 62, this-phase
-	// default TRUE) gates the post-finalize self-consistency
+	// PipelineSelfConsistencyReviewEnabled gates the post-finalize
 	// reviewer LLM. When true, an independent reviewer reads
 	// doc.Summary + body bullets and reports factual contradictions
-	// between the two paragraphs. Real eval s1a-20260501-083611
-	// motivated this gate. nil = use default (true).
+	// between the two paragraphs. nil = use default (false); set true
+	// to opt into the extra LLM cost.
 	PipelineSelfConsistencyReviewEnabled *bool `yaml:"pipeline_self_consistency_review_enabled"`
 
 	// PipelineSelfConsistencyRewriteOnContradiction (commit 62,
@@ -503,21 +502,18 @@ type RuntimeSettings struct {
 	// reviewer findings are recorded for cross-Run learning.
 	PipelineSelfConsistencyRewriteOnContradiction *bool `yaml:"pipeline_self_consistency_rewrite_on_contradiction"`
 
-	// PipelineSelfConsistencyMinConfidence (commit 62, default 0.8)
+	// PipelineSelfConsistencyMinConfidence (default 0.92)
 	// is the reviewer self-rated confidence floor a verdict must
 	// reach to be acted on. Below the floor, the verdict is silently
-	// dropped (avoid cried-wolf noise). 0/nil = default 0.8.
+	// dropped (avoid cried-wolf noise). 0/nil = default 0.92.
 	PipelineSelfConsistencyMinConfidence *float64 `yaml:"pipeline_self_consistency_min_confidence"`
 
-	// PipelineSemanticQualityReviewEnabled (G5
-	// post_v2_runtime_gap_remediation, 2026-05-04) gates the second-
+	// PipelineSemanticQualityReviewEnabled gates the second-
 	// layer reviewer that catches "answer ships clean but thin" —
 	// promoted facets uncovered, diagram edge minimums short,
 	// richness candidates with available evidence not surfaced.
-	// Independent from the self-consistency reviewer. Default TRUE
-	// (eval signal accrues from day one). Operators set to false
-	// when the cost is too high or false-positive rate exceeds
-	// tolerance. nil = use default (true).
+	// Independent from the self-consistency reviewer. nil = use
+	// default (false); set true to opt into the extra LLM cost.
 	PipelineSemanticQualityReviewEnabled *bool `yaml:"pipeline_semantic_quality_review_enabled"`
 
 	// PipelineSemanticQualityMinConfidence (P4, 2026-05-10, default

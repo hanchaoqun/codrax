@@ -47,6 +47,15 @@ func TestProviderConfigErrorIsActionable(t *testing.T) {
 	}
 }
 
+func TestPostFinalizeLLMReviewersAreOptInByDefault(t *testing.T) {
+	if selfConsistencyEnabled {
+		t.Fatal("self-consistency reviewer must be opt-in by default; deterministic final-answer checks remain covered by pipeline_strict_answer_review_enabled")
+	}
+	if semanticQualityEnabled {
+		t.Fatal("semantic-quality reviewer must be opt-in by default; deterministic final-answer checks remain covered by pipeline_strict_answer_review_enabled")
+	}
+}
+
 type assertErr string
 
 func (e assertErr) Error() string { return string(e) }

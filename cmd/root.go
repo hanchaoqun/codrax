@@ -297,12 +297,12 @@ var richnessSofteningWarn = true
 
 // selfConsistency* (commit 62) carry the pipeline_self_consistency_*
 // family across the merge-block→wiring-block boundary. This-phase
-// defaults: enabled=true, rewrite=true, min_confidence=0.8. Same
+// defaults: enabled=false, rewrite=true, min_confidence=0.92. Same
 // rationale as answerTaxonomy package vars — yaml struct lives
 // in the merge block, reviewer construction lives further down
 // where flagRepo / providersCfg are in scope.
 var (
-	selfConsistencyEnabled = true
+	selfConsistencyEnabled = false
 	selfConsistencyRewrite = true
 	// 2026-05-10 P4 tightening: bumped 0.80 → 0.92. Forensic data
 	// (May-9 sweep, 26 run / 19 case) showed the reviewer at the
@@ -319,12 +319,12 @@ var (
 )
 
 // G5 (post_v2_runtime_gap_remediation, 2026-05-04). Semantic-quality
-// reviewer wire-up state. Default TRUE so eval signal accumulates
-// from day one; operators flip to false in codrax.yaml via
-// pipeline_semantic_quality_review_enabled when the cost is too
-// high or the false-positive rate exceeds tolerance.
+// reviewer wire-up state. Default false: deterministic final-answer
+// checks remain on by default, but the extra post-finalize LLM reviewer
+// is opt-in via pipeline_semantic_quality_review_enabled for operators
+// who want the additional coverage signal despite the token/latency cost.
 var (
-	semanticQualityEnabled    = true
+	semanticQualityEnabled    = false
 	strictAnswerReviewEnabled = true
 	// P4 (2026-05-10): default floor for the G5 reviewer.
 	// orchestrator.SemanticQualityMinConfidenceDefault is 0.92 — keep this
@@ -3210,9 +3210,9 @@ func initApp(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Commit 62: self-consistency reviewer wiring. Default this-
-	// phase: enabled=true, rewrite_on_contradiction=true,
-	// min_confidence=0.8. Provider routed via providers.yaml ::
+	// Commit 62: self-consistency reviewer wiring. Default:
+	// enabled=false, rewrite_on_contradiction=true,
+	// min_confidence=0.92. Provider routed via providers.yaml ::
 	// agents.self_consistency_reviewer (cheap-model recommended;
 	// task is plain prose↔prose comparison). Falls back to
 	// chitchat_classifier or default LLM when absent.
