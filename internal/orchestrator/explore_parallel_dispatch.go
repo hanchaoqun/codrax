@@ -516,9 +516,6 @@ func parallelExploreMustWaitForSiblingHandoffs(rm types.RequestModel, contract *
 		rm.Intent == types.IntentEnumerate {
 		return true
 	}
-	if contract != nil && contract.Diagram != nil && contract.Diagram.Required {
-		return true
-	}
 	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
 		return true
 	}

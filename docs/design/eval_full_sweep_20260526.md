@@ -2126,3 +2126,11 @@ Implementation tasks:
   boundaries so eval can distinguish "real blocker" from "advisory debt".
 - [ ] P2-A: Re-run targeted mixed-origin and diagram evals, then only broaden
   eval if the structured metrics show no repeated closure-only/prune loop.
+
+Follow-up found during P2 targeted validation:
+
+- [x] P1-C: Treat diagram requirements as presentation obligations, not as an
+  unconditional parallel-explore sibling-handoff blocker. Mixed-origin diagram
+  questions still wait because the typed origin contract requires both origins;
+  source-only diagram questions can converge as soon as an accepted closure
+  covers the active objective.

@@ -427,7 +427,30 @@ func TestDispatchExploreWindowsParallel_EnumerationWaitsForSiblingHandoffs(t *te
 	}
 }
 
-func TestParallelExploreAllowsEarlyConvergence_HistoryDiagramStaysMixed(t *testing.T) {
+func TestParallelExploreAllowsEarlyConvergence_DiagramPresentationAloneConverges(t *testing.T) {
+	o := &Orchestrator{busCtx: &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:   types.IntentExplain,
+				Scenario: types.ScenarioGeneric,
+				SubTopics: []types.SubTopic{
+					{Summary: "component A"},
+					{Summary: "component B"},
+				},
+				DiagramHint: &types.DiagramHint{Kind: types.DiagramFlow},
+			},
+			AnswerContract: types.AnswerContract{
+				Diagram: &types.DiagramContract{Required: true, RequiredKind: types.DiagramFlow},
+			},
+		},
+	}}
+
+	if !o.parallelExploreAllowsEarlyConvergence() {
+		t.Fatal("diagram is a presentation requirement, not by itself a sibling-handoff blocker")
+	}
+}
+
+func TestParallelExploreAllowsEarlyConvergence_HistoryDiagramWaitsOnMixedOrigins(t *testing.T) {
 	o := &Orchestrator{busCtx: &types.BusContext{
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
@@ -449,7 +472,7 @@ func TestParallelExploreAllowsEarlyConvergence_HistoryDiagramStaysMixed(t *testi
 	}}
 
 	if o.parallelExploreAllowsEarlyConvergence() {
-		t.Fatal("history + required diagram/current-flow evidence must wait for sibling handoffs")
+		t.Fatal("history-backed diagram still needs VCS + current-source sibling handoffs")
 	}
 }
 
