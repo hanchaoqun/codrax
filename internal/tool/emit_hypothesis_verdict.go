@@ -840,6 +840,9 @@ func validateHypothesisVerdictCitationGrounding(ctx *types.BusContext, gc *groun
 	if h := hypothesisStatementForVerdict(ctx, v.HypothesisID); h != "" {
 		claimText += "\n" + h
 	}
+	if hypothesisVerdictCitationCoveredByGroundedEvidence(ctx, cit, claimText) {
+		return nil
+	}
 	report := ground.GroundClaimCitation(cit, claimText, gc)
 	if !report.Valid {
 		return fmt.Errorf("items[%d]: citation %q is not grounded: %s", index, v.Citation, report.Reason)
@@ -850,6 +853,92 @@ func validateHypothesisVerdictCitationGrounding(ctx *types.BusContext, gc *groun
 	return fmt.Errorf(
 		"items[%d]: citation %q does not corroborate the hypothesis/rationale identifiers near line %d. Use one of these candidate anchors instead: %s",
 		index, v.Citation, cit.Line, ground.FormatClaimCitationCandidates(report.Candidates))
+}
+
+func hypothesisVerdictCitationCoveredByGroundedEvidence(ctx *types.BusContext, cit types.Citation, claimText string) bool {
+	if ctx == nil {
+		return false
+	}
+	file := normalizeHypothesisVerdictEvidencePath(cit.File)
+	if file == "" || cit.Line <= 0 {
+		return false
+	}
+	end := cit.LineEnd
+	if end < cit.Line {
+		end = cit.Line
+	}
+	for _, ev := range preEmitAnswerEvidenceItems(ctx) {
+		if !ev.IsCitable() || strings.TrimSpace(ev.Source) == "" || ev.LineStart <= 0 {
+			continue
+		}
+		if normalizeHypothesisVerdictEvidencePath(ev.Source) != file {
+			continue
+		}
+		evEnd := ev.LineEnd
+		if evEnd < ev.LineStart {
+			evEnd = ev.LineStart
+		}
+		if cit.Line < ev.LineStart || end > evEnd {
+			continue
+		}
+		if hypothesisVerdictEvidenceCorroboratesClaim(ev, claimText) {
+			return true
+		}
+	}
+	return false
+}
+
+func normalizeHypothesisVerdictEvidencePath(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	s = strings.ReplaceAll(s, "\\", "/")
+	for strings.HasPrefix(s, "./") {
+		s = strings.TrimPrefix(s, "./")
+	}
+	return strings.Trim(strings.TrimSpace(s), "`\"' ")
+}
+
+func hypothesisVerdictEvidenceCorroboratesClaim(ev types.EvidenceItem, claimText string) bool {
+	claim := strings.ToLower(claimText)
+	if strings.TrimSpace(claim) == "" {
+		return false
+	}
+	for _, token := range hypothesisVerdictEvidenceClaimTokens(ev) {
+		token = strings.TrimSpace(token)
+		if len(token) < 3 {
+			continue
+		}
+		if strings.Contains(claim, strings.ToLower(token)) {
+			return true
+		}
+	}
+	return false
+}
+
+func hypothesisVerdictEvidenceClaimTokens(ev types.EvidenceItem) []string {
+	var tokens []string
+	add := func(s string) {
+		s = strings.Trim(strings.TrimSpace(s), "`\"' ")
+		if s == "" {
+			return
+		}
+		tokens = append(tokens, s)
+		if idx := strings.LastIndexAny(s, ".:/#"); idx >= 0 && idx+1 < len(s) {
+			tokens = append(tokens, s[idx+1:])
+		}
+	}
+	add(ev.ID)
+	add(types.StableEvidenceID(ev))
+	add(ev.AnchorSymbol)
+	add(ev.Subject)
+	add(ev.Predicate)
+	add(ev.Object)
+	for _, term := range ev.SurfaceTerms {
+		add(term)
+	}
+	return tokens
 }
 
 func parseEmitHypothesisCitation(raw string) (types.Citation, error) {

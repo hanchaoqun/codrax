@@ -137,6 +137,41 @@ func TestEmitHypothesisVerdict_ResolvesEvidenceIDToCitation(t *testing.T) {
 	}
 }
 
+func TestEmitHypothesisVerdict_EvidenceIDBypassesUnrelatedReadHistory(t *testing.T) {
+	tool := &EmitHypothesisVerdict{}
+	ctx := newVerdictCtx()
+	seedReadFileHistory(ctx, "internal/agent/unrelated.go", 10,
+		"func Other() {}")
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		ID:              "ev-socket-send",
+		Kind:            types.EvidenceDirect,
+		Subject:         "sock_sendmsg_nosec",
+		Predicate:       "dispatches",
+		Object:          "inet_sendmsg",
+		Source:          "net/socket.c",
+		LineStart:       785,
+		AnchorKind:      types.AnchorCall,
+		AnchorSymbol:    "sock_sendmsg_nosec",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+
+	params := json.RawMessage(`{"items":[{"hypothesis_id":"h1","status":"confirmed","rationale":"sock_sendmsg_nosec dispatches into the protocol stack","evidence_id":"ev-socket-send"}]}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("grounded evidence_id should not require a redundant read_file of the evidence source, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedHypothesisVerdicts()
+	if len(got) != 1 {
+		t.Fatalf("want 1 verdict, got %d", len(got))
+	}
+	if got[0].Citation != "net/socket.c:785" {
+		t.Fatalf("citation = %q, want resolved evidence citation", got[0].Citation)
+	}
+}
+
 func TestEmitHypothesisVerdict_NormalizesExternalLogFrameCitation(t *testing.T) {
 	tool := &EmitHypothesisVerdict{}
 	logBundle := &types.LogBundle{

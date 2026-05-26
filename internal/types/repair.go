@@ -154,6 +154,37 @@ func ClassifyPendingReadRepair(p PendingRead) RepairDebtClass {
 	return RepairDebtPrincipalBlocking
 }
 
+// NormalizePendingReadOrigin returns the semantic producer tag for a pending
+// read. AddRepair mirrors RepairReadFile directives into PendingRead using an
+// "auto_bridge." prefix; consumers that classify the origin must ignore that
+// transport wrapper or they will treat the same logical demand differently
+// depending on whether it was raised via AddPendingRead or AddRepair.
+func NormalizePendingReadOrigin(origin string) string {
+	origin = strings.TrimSpace(origin)
+	for strings.HasPrefix(origin, "auto_bridge.") {
+		origin = strings.TrimPrefix(origin, "auto_bridge.")
+	}
+	return origin
+}
+
+// IsGenericForcedReadOrigin reports whether a pending read was produced from a
+// navigation / breadth / ranker signal rather than from a deterministic
+// user-requested source obligation or a model-emitted citation. These origins
+// may be useful hints while the explorer is still gathering evidence, but once
+// a typed grounded completion boundary exists they must not hard-block closure.
+func IsGenericForcedReadOrigin(origin string) bool {
+	origin = NormalizePendingReadOrigin(origin)
+	switch origin {
+	case "phase1_unread",
+		"pre_complete.phase1_unread",
+		"pre_complete.primary_anchor",
+		"pre_complete.multi_path_anchor":
+		return true
+	default:
+		return strings.HasPrefix(origin, "chain_promotion.concrete_values_tracer")
+	}
+}
+
 // PendingReadBlocksAcceptedClosure reports whether a pending read is still a
 // load-bearing reason to reopen exploration after the model has already passed
 // emit_investigation_complete pre-complete gates.
@@ -163,11 +194,13 @@ func ClassifyPendingReadRepair(p PendingRead) RepairDebtClass {
 // a typed closure are allowed through. This is structured origin routing, not a
 // parse of user text or model prose.
 func PendingReadBlocksAcceptedClosure(p PendingRead) bool {
-	origin := strings.TrimSpace(p.Origin)
+	origin := NormalizePendingReadOrigin(p.Origin)
 	switch origin {
 	case "":
 		return true
 	case "phase1_unread":
+		return false
+	case "pre_complete.phase1_unread":
 		return false
 	}
 	if strings.HasPrefix(origin, "chain_promotion.concrete_values_tracer") {

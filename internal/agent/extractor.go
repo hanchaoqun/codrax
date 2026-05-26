@@ -185,11 +185,14 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 			}
 		}
 
-		// Files read: authoritative list for citation grounding
+		// Files read: direct citation gutter. Grounded evidence rows
+		// below are also valid anchors through evidence_id; do not turn
+		// graph/grep-grounded evidence into a forced read_file obligation.
 		if len(ta.ReadFiles) > 0 {
-			b.WriteString("### Files the investigation read (authoritative citation source)\n\n")
-			b.WriteString("You MUST cite only these files in emit_* calls. Any other path is a ")
-			b.WriteString("hallucination and will be rejected as ungrounded.\n\n")
+			b.WriteString("### Files the investigation read (direct citation gutter)\n\n")
+			b.WriteString("Direct file:line citations should use these read_file gutter files. ")
+			b.WriteString("Grounded deterministic evidence rows below are also accepted anchors via `evidence_id`; ")
+			b.WriteString("do not mark a verdict inconclusive solely because a grounded evidence row came from repo_map/grep rather than read_file.\n\n")
 			for _, f := range ta.ReadFiles {
 				fmt.Fprintf(&b, "- `%s`\n", f)
 			}
@@ -227,7 +230,15 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 				if ev.GroundingStatus == types.GroundingRecovered {
 					tag = " [recovered — read_file before citing]"
 				}
-				fmt.Fprintf(&b, "- [%s] %s%s%s\n", ev.Kind, summary, cite, tag)
+				id := strings.TrimSpace(ev.ID)
+				if id == "" {
+					id = types.StableEvidenceID(ev)
+				}
+				idText := ""
+				if id != "" && ev.IsCitable() {
+					idText = " evidence_id=" + id
+				}
+				fmt.Fprintf(&b, "- [%s]%s %s%s%s\n", ev.Kind, idText, summary, cite, tag)
 			}
 			b.WriteString("\n")
 		}
@@ -340,7 +351,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 			fmt.Fprintf(&b, "The analyzer identified %d independently-answerable sub-topic(s). ", len(st))
 			b.WriteString("For each, call emit_answer_symbol with ONE anchor symbol — the load-bearing ")
 			b.WriteString("identifier that the multi-paragraph answer summary will hang on. Each ")
-			b.WriteString("anchor needs a concrete file:line from the 'Files the investigation read' list above; ")
+			b.WriteString("anchor needs a concrete grounded file:line from the read gutter or deterministic evidence anchors above; ")
 			b.WriteString("use the rationale field to name the sub-topic the anchor covers.\n\n")
 		} else {
 			b.WriteString("## Optional sub-topic structure\n\n")
@@ -2615,18 +2626,18 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 				quote = boundary.SourceQuote
 			}
 			missingParts = append(missingParts,
-				fmt.Sprintf("call `emit_answer_symbol` with the principal member slate for the bounded set `%s` (%d item(s)); keep the slate within that boundary, cite each item with a concrete file:line from the 'Files the investigation read' list, and leave adjacent caveat-only items out of the main slate", quote, count))
+				fmt.Sprintf("call `emit_answer_symbol` with the principal member slate for the bounded set `%s` (%d item(s)); keep the slate within that boundary, cite each item with a concrete grounded file:line from the read gutter or deterministic evidence anchors, and leave adjacent caveat-only items out of the main slate", quote, count))
 		case viewNeedsEnumerationSlate(ctx):
 			missingParts = append(missingParts,
-				"call `emit_answer_symbol` with the symbols that answer this list_of_symbols question (cite each with a concrete file:line from the 'Files the investigation read' list)")
+				"call `emit_answer_symbol` with the symbols that answer this list_of_symbols question (cite each with a concrete grounded file:line from the read gutter or deterministic evidence anchors)")
 		case isMultiTopicExplanation(ctx):
 			missingParts = append(missingParts,
-				"call `emit_answer_symbol` with ONE anchor symbol per sub-topic — the load-bearing identifier the final answer's prose should hang on. Cite each with a concrete file:line from the 'Files the investigation read' list. Downstream rendering presents these as a Key Anchors skeleton beneath the summary")
+				"call `emit_answer_symbol` with ONE anchor symbol per sub-topic — the load-bearing identifier the final answer's prose should hang on. Cite each with a concrete grounded file:line from the read gutter or deterministic evidence anchors. Downstream rendering presents these as a Key Anchors skeleton beneath the summary")
 		}
 	}
 	if missingVerdicts {
 		missingParts = append(missingParts,
-			"call `emit_hypothesis_verdict` for each hypothesis you can now judge (status + rationale + citation when confirmed/rejected, or inconclusive without citation)")
+			"call `emit_hypothesis_verdict` for each hypothesis you can now judge (status + rationale + current-repo citation or evidence_id when confirmed/rejected, or inconclusive only when neither grounded repo evidence nor an exact external anchor exists)")
 	}
 	logging.Debug("[extractor] soft-stop correction retry #%d: missingSymbols=%t missingVerdicts=%t",
 		e.retriesUsed, missingSymbols, missingVerdicts)

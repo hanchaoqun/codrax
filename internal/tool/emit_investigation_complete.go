@@ -1739,8 +1739,8 @@ func preCompleteContractCheckWithEvidence(ctx *types.BusContext, justification s
 	// README + manifest + entry-point already cover the answer space.
 	if justification == "" {
 		raiseRequiredFileHintPendingReads(ctx, closure, evidence)
-		if narrativePrincipalMemberSetCompletesBoundary(ctx, aggregateFacts, evidence) {
-			logging.Info("[emit_investigation_complete] generic forced-read gates bypassed by grounded principal aggregate member_set")
+		if genericForcedReadBoundarySatisfied(ctx, aggregateFacts, evidence) {
+			logging.Info("[emit_investigation_complete] generic forced-read gates bypassed by grounded model-owned completion boundary")
 		} else {
 			raisePrimaryAnchorPendingRead(ctx, closure)
 			raisePhase1UnreadPendingReads(ctx, closure)
@@ -1829,6 +1829,13 @@ func preCompleteContractCheckWithEvidence(ctx *types.BusContext, justification s
 		logging.Info("[emit_investigation_complete] forced-read pending list bypassed by %s (pending=%d)",
 			label, len(pending))
 		pending = nil
+	}
+	if len(pending) > 0 {
+		blocking, advisory := partitionPendingReadsForAcceptedClosure(ctx, pending, aggregateFacts, evidence)
+		if len(advisory) > 0 {
+			logging.Info("[emit_investigation_complete] %d generic/advisory pending read(s) no longer block model-owned completion boundary", len(advisory))
+		}
+		pending = blocking
 	}
 	if len(pending) > 0 {
 		var scanned, suspicious []types.PendingRead
@@ -6883,6 +6890,160 @@ func narrativePrincipalMemberSetCompletesBoundary(ctx *types.BusContext, aggrega
 		}
 	}
 	return false
+}
+
+func genericForcedReadBoundarySatisfied(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact, evidence []types.EvidenceItem) bool {
+	if narrativePrincipalMemberSetCompletesBoundary(ctx, aggregateFacts, evidence) {
+		return true
+	}
+	if genericForcedReadBoundarySatisfiedByGroundedEvidence(ctx, evidence) {
+		return true
+	}
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || len(aggregateFacts) == 0 {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !genericForcedReadBoundaryCanUseModelPrincipalSet(rm) {
+		return false
+	}
+	support := buildAggregateMemberSupportIndexWithEvidence(ctx, evidence)
+	for _, fact := range aggregateFacts {
+		if fact.Kind != types.AnswerAggregateMemberSet || len(fact.Members) < 2 {
+			continue
+		}
+		if !aggregateFactCanDefineModelOwnedCompletionBoundary(fact) {
+			continue
+		}
+		if aggregateMemberSetAllMembersUsable(fact, support) {
+			return true
+		}
+	}
+	return false
+}
+
+func genericForcedReadBoundarySatisfiedByGroundedEvidence(ctx *types.BusContext, evidence []types.EvidenceItem) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || len(evidence) == 0 {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if !genericForcedReadBoundaryCanUseModelPrincipalSet(rm) {
+		return false
+	}
+	minItems, minFiles := genericForcedReadGroundedBoundaryThresholds(ctx, rm)
+	seenItems := make(map[string]bool)
+	seenFiles := make(map[string]bool)
+	for _, item := range evidence {
+		if !evidenceItemSupportsGenericForcedReadBoundary(item) {
+			continue
+		}
+		source := strings.TrimSpace(strings.ReplaceAll(item.Source, `\`, `/`))
+		if source == "" || item.LineStart <= 0 {
+			continue
+		}
+		key := fmt.Sprintf("%s:%d", source, item.LineStart)
+		if seenItems[key] {
+			continue
+		}
+		seenItems[key] = true
+		seenFiles[source] = true
+	}
+	return len(seenItems) >= minItems && len(seenFiles) >= minFiles
+}
+
+func evidenceItemSupportsGenericForcedReadBoundary(item types.EvidenceItem) bool {
+	if item.ContextRole == types.EvidenceContextRoleIllustrativeOnly {
+		return false
+	}
+	if item.GroundingStatus != types.GroundingGrounded {
+		return false
+	}
+	if strings.TrimSpace(item.Source) == "" || item.LineStart <= 0 {
+		return false
+	}
+	return true
+}
+
+func genericForcedReadGroundedBoundaryThresholds(ctx *types.BusContext, rm types.RequestModel) (minItems int, minFiles int) {
+	minItems = 2
+	minFiles = 1
+	if types.IsArchitectureNarrativeExplanation(rm) ||
+		rm.Predicates.IsCrossComponent ||
+		rm.Complexity == types.ComplexityComplex {
+		minItems = 3
+		minFiles = 2
+	}
+	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.AnswerContract.CitationReq.Required {
+		if want := ctx.AnalysisIR.AnswerContract.CitationReq.MinCitations; want > minItems {
+			minItems = want
+		}
+	}
+	if minItems < 1 {
+		minItems = 1
+	}
+	if minFiles < 1 {
+		minFiles = 1
+	}
+	return minItems, minFiles
+}
+
+func genericForcedReadBoundaryCanUseModelPrincipalSet(rm types.RequestModel) bool {
+	if types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
+		types.RequiresRelationMemberSetHandoff(rm) {
+		return false
+	}
+	if rm.SourceInventoryProfile != nil && rm.SourceInventoryProfile.Active() &&
+		(rm.Intent == types.IntentEnumerate || rm.Predicates.IsCategoryEnumeration || rm.QuestionStructure().HasAnyObligation()) {
+		return false
+	}
+	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsRelationalLookup ||
+		rm.Predicates.IsRoleLocateLookup ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsDiagnosticQuestion {
+		return false
+	}
+	if rm.Intent != types.IntentExplain {
+		return false
+	}
+	if types.IsArchitectureNarrativeExplanation(rm) || types.IsSingleTopicMechanismExplanation(rm) {
+		return true
+	}
+	switch types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case types.ReqMechanism, types.ReqConditional, types.ReqRegistration:
+		return rm.Scenario == "" || rm.Scenario == types.ScenarioArchitectureExplain
+	default:
+		return false
+	}
+}
+
+func partitionPendingReadsForAcceptedClosure(ctx *types.BusContext, pending []types.PendingRead, aggregateFacts []types.AnswerAggregateFact, evidence []types.EvidenceItem) ([]types.PendingRead, []types.PendingRead) {
+	if len(pending) == 0 {
+		return nil, nil
+	}
+	modelBoundary := genericForcedReadBoundarySatisfied(ctx, aggregateFacts, evidence)
+	blocking := make([]types.PendingRead, 0, len(pending))
+	advisory := make([]types.PendingRead, 0)
+	for _, p := range pending {
+		if modelBoundary && (!types.PendingReadBlocksAcceptedClosure(p) || types.IsGenericForcedReadOrigin(p.Origin)) {
+			advisory = append(advisory, p)
+			continue
+		}
+		blocking = append(blocking, p)
+	}
+	return blocking, advisory
+}
+
+func aggregateFactCanDefineModelOwnedCompletionBoundary(fact types.AnswerAggregateFact) bool {
+	if types.NormalizeAnswerAggregateRole(fact.Role) == types.AnswerAggregateRolePrincipalAnswer {
+		return true
+	}
+	prov := strings.ToLower(strings.TrimSpace(fact.Provenance))
+	return strings.Contains(prov, "demoted:mechanism_narrative_support_member_set") ||
+		strings.Contains(prov, "demoted:architecture_narrative_support_member_set")
 }
 
 func aggregateMemberSetAllMembersUsable(fact types.AnswerAggregateFact, support aggregateMemberSupportIndex) bool {

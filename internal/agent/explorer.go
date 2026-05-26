@@ -1099,9 +1099,9 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		// list the LLM can see. Read by the Phase 0 quality gate.
 		e.hasPrescanRepoMap = len(results) > 0
 		// T3a: surface the analyzer's EvidencePlan.RequiredFiles as
-		// a dedicated prompt section. Files appear first in the
-		// instruction text so the LLM sees "start here" guidance
-		// before scanning the longer keyword_search ranking below.
+		// a dedicated prompt section. Non-log entries are navigation
+		// candidates from structural ranking, not hard read obligations;
+		// the wording must not outrank the model's grounded judgement.
 		// Only render when non-empty AND complexity is not simple
 		// (simple questions don't need the multi-file push).
 		if reqFiles := e.requiredFiles; len(reqFiles) > 0 &&
@@ -1134,10 +1134,10 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 						"beyond the log-frame anchors above. Do NOT cite these in the answer's " +
 						"call-chain diagram unless you observed a direct call to or from them.\n\n")
 				} else {
-					b.WriteString("### Analyzer's Required Files\n\n")
+					b.WriteString("### Analyzer Navigation Candidates\n\n")
 					b.WriteString("The analyzer's repo_map query over the question's entities " +
-						"identified these files as structurally relevant. Start your investigation " +
-						"here and trace cross-file references outward:\n\n")
+						"identified these files as possible starting points. Treat them as soft navigation hints: " +
+						"inspect a file only if it is visibly on the user-requested answer path, and skip support/tool/test/helper collateral.\n\n")
 				}
 				for _, p := range rankerFiles {
 					b.WriteString("- `" + p + "`\n")
@@ -1515,9 +1515,10 @@ func schemaLevelScopeGuide(e *explorerEvaluator) string {
 }
 
 // primaryEntityFiles computes the set of file paths that define any
-// ERM requirement entity as a symbol in the repo graph. This is the
-// "primary entity" file set — the files the LLM MUST read_file (not
-// merely grep) to substantively answer the question.
+// ERM requirement entity as a symbol in the repo graph. This is a
+// "primary entity" navigation set: a strong starting hint when the
+// graph resolves the typed entities cleanly, but not a proof that the
+// model must read every file before it can close a grounded answer.
 //
 // Entity-to-file lookup uses exact-name match (case-insensitive) on
 // `Graph.SymbolDefs`. Entities that have no graph symbol (concept
@@ -2449,7 +2450,7 @@ func (e *explorerEvaluator) activeFocusAllowsFile(path string) bool {
 //     rankAnalyzerRequiredFiles (exact-anchor tier + QueryScore
 //     fallthrough).
 //
-// Used by the three "Analyzer's Required Files" prompt blocks (F2.2)
+// Used by the three analyzer-navigation prompt blocks (F2.2)
 // to render the two groups under distinct headers with distinct
 // framing, so the LLM treats log-frame files as must-read anchors
 // and ranker files as opt-in cross-references. Shared logic prevents
@@ -3198,8 +3199,8 @@ func (e *explorerEvaluator) buildFocusedDepthStartInstruction(ctx *types.AgentCo
 			"These repo files resolved from the attached log's stack frames. Read them before any ranker candidates, and base the answer's call-chain diagram on the Log Triage Call chain block, not on the Auxiliary candidates:\n\n",
 			logFiles, 4,
 		)
-		auxTitle := "### Analyzer's Required Files\n\n"
-		auxFraming := "Trace outward from the anchor through these structurally relevant files only as needed:\n\n"
+		auxTitle := "### Analyzer Navigation Candidates\n\n"
+		auxFraming := "Trace outward from the anchor through these candidate files only when the evidence path visibly crosses them:\n\n"
 		if logWritten > 0 {
 			auxTitle = "### Auxiliary candidates (opt-in cross-references)\n\n"
 			auxFraming = "Open these ONLY if the evidence chain visibly crosses file boundaries beyond the log-frame anchors above. Do NOT cite them in the answer's call-chain diagram unless you observed a direct call to or from them:\n\n"
@@ -3246,14 +3247,14 @@ func (e *explorerEvaluator) buildPrimaryEntityDepthStartInstruction(ctx *types.A
 	}
 	var b strings.Builder
 	b.WriteString("## Primary Entity Depth Start\n\n")
-	b.WriteString("The question's entities resolve to a single primary implementation file in the repo graph. ")
-	b.WriteString("Start with that file directly instead of doing a broad second-round sweep.\n\n")
-	fmt.Fprintf(&b, "**Read `%s` first.** This is the receiver-aware primary target for the user question.\n\n", anchor)
+	b.WriteString("The repo graph resolved the question's typed entities to one candidate focus file. ")
+	b.WriteString("Treat this as a navigation shortcut, not as proof that the file is answer-bearing.\n\n")
+	fmt.Fprintf(&b, "**Candidate focus:** `%s`\n\n", anchor)
 	b.WriteString("Workflow:\n")
-	b.WriteString("- Use `read_file` on the primary file immediately. If it is large, first use `grep` WITHIN that file (`files_only=false`) to locate the exact symbol body.\n")
-	b.WriteString("- Extract direct evidence about the named entity before widening the search.\n")
-	b.WriteString("- Expand only to direct neighbors of the primary file, analyzer-required files that stay in the same focus area, or files named by unresolved symbols from your notes.\n")
-	b.WriteString("- Do NOT fall back to the full keyword-search tail until the primary file and its direct neighbors are exhausted.\n\n")
+	b.WriteString("- If the candidate matches the user's requested code path, inspect it first; for a large file, use `grep` WITHIN that file (`files_only=false`) to locate the exact symbol body before reading ranges.\n")
+	b.WriteString("- Emit direct evidence only after verifying the candidate is part of the answer path.\n")
+	b.WriteString("- If the candidate is a support/tool/test/helper surface or otherwise outside the requested path, skip it and use repo_map / focused grep to find the answer-bearing files.\n")
+	b.WriteString("- Expand to direct neighbors, analyzer-required files in the same focus area, or files named by unresolved symbols from your notes only when that evidence path is visible.\n\n")
 	if banner := e.buildPrimaryTargetBanner(); banner != "" {
 		b.WriteString(banner)
 	}
@@ -3315,8 +3316,8 @@ func (e *explorerEvaluator) buildPrimaryEntityDepthStartInstruction(ctx *types.A
 			"These repo files resolved from the attached log's stack frames. Read them before any ranker candidates, and base the answer's call-chain diagram on the Log Triage Call chain block, not on the Auxiliary candidates:\n\n",
 			logFiles, 4,
 		)
-		auxTitle := "### Analyzer's Required Files\n\n"
-		auxFraming := "Trace outward from the primary file through these structurally relevant files only as needed:\n\n"
+		auxTitle := "### Analyzer Navigation Candidates\n\n"
+		auxFraming := "Trace outward from the candidate focus through these files only when the evidence path visibly crosses them:\n\n"
 		if logWritten > 0 {
 			auxTitle = "### Auxiliary candidates (opt-in cross-references)\n\n"
 			auxFraming = "Open these ONLY if the evidence chain visibly crosses file boundaries beyond the log-frame anchors above. Do NOT cite them in the answer's call-chain diagram unless you observed a direct call to or from them:\n\n"
@@ -3329,7 +3330,7 @@ func (e *explorerEvaluator) buildPrimaryEntityDepthStartInstruction(ctx *types.A
 			display = display[:12]
 		}
 		b.WriteString("### Search Terms\n\n")
-		b.WriteString("Use these terms inside the primary file and its direct neighbors before widening scope:\n`")
+		b.WriteString("Use these terms inside the candidate focus and its direct neighbors when they match the requested path; otherwise use them with repo_map or focused grep to find the right path:\n`")
 		b.WriteString(strings.Join(display, "`, `"))
 		b.WriteString("`\n\n")
 	}
@@ -3352,7 +3353,7 @@ func (e *explorerEvaluator) buildPrimaryEntityDepthStartInstruction(ctx *types.A
 	b.WriteString("- `[REGISTRATION] functionName line N: <what is registered, EXACT values>`\n")
 	b.WriteString("- `[CONDITIONAL] functionName line N: <what happens> IF <condition>`\n")
 	b.WriteString("- `[ABSENT] <what was expected but NOT found>`\n\n")
-	b.WriteString("Read the primary file now and collect evidence before expanding.\n")
+	b.WriteString("Use the candidate focus only when it is visibly on the answer path; otherwise navigate with repo_map / focused grep and collect grounded evidence there.\n")
 	return b.String()
 }
 
@@ -3434,8 +3435,8 @@ func (e *explorerEvaluator) buildDeclarativeFocusedStartInstruction(ctx *types.A
 			"These repo files resolved from the attached log's stack frames. Read them before any ranker candidates, and base the answer's call-chain diagram on the Log Triage Call chain block, not on the Auxiliary candidates:\n\n",
 			logFiles, 4,
 		)
-		auxTitle := "### Analyzer's Required Files\n\n"
-		auxFraming := "Trace outward through these structurally relevant neighbors only as needed:\n\n"
+		auxTitle := "### Analyzer Navigation Candidates\n\n"
+		auxFraming := "Trace outward through these candidate neighbors only when the evidence path visibly crosses them:\n\n"
 		if logWritten > 0 {
 			auxTitle = "### Auxiliary candidates (opt-in cross-references)\n\n"
 			auxFraming = "Open these ONLY if the evidence chain visibly crosses file boundaries beyond the log-frame anchors above. Do NOT cite them in the answer's call-chain diagram unless you observed a direct call to or from them:\n\n"
@@ -10460,35 +10461,56 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		}
 	}
 
-	// RequiredFiles coverage (HARD evidence, T3a follow-up): when the
-	// analyzer pre-computed a RequiredFiles list (from repo_map entity
-	// query) and < 50% of those files have been read, push the LLM
-	// to read the unread ones. This is a hard-evidence branch — the
-	// RequiredFiles list is structurally derived from entity matches,
-	// not a heuristic guess — so it fires even on firstSoftStop.
-	// Closes the gap from the 2026-04-18 log where propose_sub_agents.go
-	// was in RequiredFiles and visible in the prompt but never read.
+	// Analyzer navigation candidates: log-frame entries are precise
+	// current-source obligations, but ranker/repo_map entries are soft
+	// navigation hints. Do not override a close-ready model answer with
+	// generic unread candidates.
 	if reqFiles := e.requiredFiles; len(reqFiles) > 0 {
-		var unreadReq []string
-		for _, rf := range reqFiles {
+		logFiles, rankerFiles := e.partitionRequiredFilesByLogTriage(reqFiles)
+		var unreadLog, unreadRanker []string
+		for _, rf := range logFiles {
 			if !readSetContains(readSet, rf) {
-				unreadReq = append(unreadReq, rf)
+				unreadLog = append(unreadLog, rf)
 			}
 		}
-		if len(unreadReq) > 0 && float64(len(unreadReq))/float64(len(reqFiles)) > 0.3 {
+		for _, rf := range rankerFiles {
+			if !readSetContains(readSet, rf) {
+				unreadRanker = append(unreadRanker, rf)
+			}
+		}
+		if len(unreadLog) > 0 {
 			progress = true
 			var hint strings.Builder
-			hint.WriteString("**Analyzer Required Files not yet read.** The analyzer identified these files as structurally relevant to the question, but you haven't read them yet:\n\n")
-			for _, f := range unreadReq {
+			hint.WriteString("**Authoritative log-frame files not yet read.** These files came from validated runtime stack frames and remain load-bearing current-source anchors:\n\n")
+			for _, f := range unreadLog {
 				if len(hint.String()) > 600 {
 					break
 				}
 				hint.WriteString("- `" + f + "`\n")
 			}
-			hint.WriteString("\nRead the most important unread file and extract evidence from it.\n")
+			hint.WriteString("\nRead the most important unread log-frame file and extract evidence from it.\n")
 			return LoopSignal{
 				HintRequested: true,
-				HintKey:       "explorer.phase1.required-files",
+				HintKey:       "explorer.phase1.log-frame-files",
+				Hint:          hint.String(),
+				Progress:      progress,
+			}
+		}
+		if !firstSoftStop && !closeReadySoftStop && len(unreadRanker) > 0 &&
+			float64(len(unreadRanker))/float64(len(rankerFiles)) > 0.3 {
+			progress = true
+			var hint strings.Builder
+			hint.WriteString("**Analyzer navigation candidates not yet inspected.** These files came from repo_map / keyword ranking and are advisory, not proof that the current answer is incomplete:\n\n")
+			for _, f := range unreadRanker {
+				if len(hint.String()) > 600 {
+					break
+				}
+				hint.WriteString("- `" + f + "`\n")
+			}
+			hint.WriteString("\nIf one of these candidates is visibly on the answer path, inspect it and emit evidence. If it is support/tool/test/helper collateral, skip it and either complete the investigation or follow a better scoped repo_map / grep route.\n")
+			return LoopSignal{
+				HintRequested: true,
+				HintKey:       "explorer.phase1.navigation-candidates",
 				Hint:          hint.String(),
 				Progress:      progress,
 			}
@@ -10699,8 +10721,10 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		fmt.Fprintf(&hint, "\nReminder — user question: %s\n\n", e.userQuestion)
 
 		if e.preScannedPushCount >= e.heuristics.MaxPreScannedPushes {
-			// Final forceful push: name the single most important file.
-			fmt.Fprintf(&hint, "STOP ANALYZING. You have NOT read %d critical files. Call read_file on this file RIGHT NOW:\n", len(preScannedUnread))
+			// Final push: name the single strongest candidate, but keep
+			// it advisory because preScannedFiles is keyword/ranker
+			// recall and may contain collateral support files.
+			fmt.Fprintf(&hint, "Navigation candidate still unchecked (%d unread candidate files). If this file is visibly on the answer path, inspect it next:\n", len(preScannedUnread))
 			hint.WriteString("  " + preScannedUnread[0])
 			if syms := e.fileSymbols[preScannedUnread[0]]; len(syms) > 0 {
 				hint.WriteString(" — defines: " + strings.Join(syms, "; "))
@@ -10709,11 +10733,12 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 			if guidance := e.formatReadFileOffsetGuidance(preScannedUnread[0]); guidance != "" {
 				hint.WriteString(guidance)
 			}
-			hint.WriteString("\nDo NOT write any analysis. Your ONLY action should be a read_file tool call.")
+			hint.WriteString("\nIf it is collateral, skip it and call emit_investigation_complete when the accepted evidence already answers the question.")
 		} else if e.preScannedPushCount >= e.heuristics.MaxPreScannedPushes-1 {
-			// Escalated push: more forceful language.
-			hint.WriteString("You keep writing analysis without reading the critical files. STOP and call read_file.\n\n")
-			hint.WriteString("Unread HIGH-PRIORITY files:\n")
+			// Escalated push: still advisory; do not turn ranker
+			// candidates into forced reads.
+			hint.WriteString("You have not inspected these navigation candidates yet. Check one only if it is visibly answer-bearing.\n\n")
+			hint.WriteString("Unread candidate files:\n")
 			for _, f := range preScannedUnread {
 				hint.WriteString("- " + f)
 				if syms := e.fileSymbols[f]; len(syms) > 0 {
@@ -10724,10 +10749,10 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 			if guidance := e.formatReadFileOffsetGuidance(preScannedUnread[0]); guidance != "" {
 				hint.WriteString(guidance)
 			}
-			hint.WriteString("\nCall read_file on the most important one. Do NOT respond with analysis text — use the tool.")
+			hint.WriteString("\nInspect the most answer-bearing candidate, or skip the list if it is collateral and close the investigation with the grounded evidence you already have.")
 		} else {
 			// First push: gentle.
-			hint.WriteString("The following HIGH-PRIORITY files have NOT been read yet:\n")
+			hint.WriteString("The following navigation candidates have NOT been inspected yet:\n")
 			for _, f := range preScannedUnread {
 				hint.WriteString("- " + f)
 				if syms := e.fileSymbols[f]; len(syms) > 0 {
@@ -10739,8 +10764,8 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 			if guidance := e.formatReadFileOffsetGuidance(preScannedUnread[0]); guidance != "" {
 				hint.WriteString(guidance)
 			}
-			hint.WriteString("\nRead the most important unread file and extract ALL evidence entries from it. " +
-				"Remember: collect facts, do not answer the question yet.")
+			hint.WriteString("\nInspect the strongest answer-bearing candidate and extract evidence from it. " +
+				"If the candidates are collateral, skip them and complete the investigation when the existing evidence is sufficient.")
 		}
 		return LoopSignal{
 			HintRequested: true,

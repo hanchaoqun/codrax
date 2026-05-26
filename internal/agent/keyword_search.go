@@ -1208,10 +1208,11 @@ func formatKeywordResults(results []keywordFileScore) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("### Pre-scanned File Ranking (TOP PRIORITY)\n\n")
-	b.WriteString("These are the TOP PRIORITY files to investigate — read them first before exploring other files. ")
+	b.WriteString("### Pre-scanned Navigation Candidates\n\n")
+	b.WriteString("These files were found by keyword / repo_map navigation. Treat them as candidate routes, not read obligations. ")
 	b.WriteString("Ranked by graduated keyword search (exact match → case-insensitive → stem). ")
-	b.WriteString("Higher scores mean more keywords matched at higher precision levels.\n\n")
+	b.WriteString("Higher scores mean more keywords matched at higher precision levels, but support/tool/test/helper hits can still be collateral. ")
+	b.WriteString("Inspect a file only when it visibly matches the user's requested answer path; otherwise use repo_map / focused grep to find a better path.\n\n")
 	b.WriteString("| Score | File | Matched Keywords |\n")
 	b.WriteString("|------:|------|------------------|\n")
 	for _, r := range results {

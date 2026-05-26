@@ -2038,6 +2038,21 @@ func helper() string { return "ok" }
 	if !strings.Contains(prompt, "explorer.go") {
 		t.Fatalf("primary target file missing from focused prompt: %s", prompt)
 	}
+	if !strings.Contains(prompt, "**Candidate focus:** `explorer.go`") {
+		t.Fatalf("primary entity prompt should present the graph match as a candidate, got: %s", prompt)
+	}
+	for _, forbidden := range []string{
+		"Read `explorer.go` first",
+		"Use `read_file` on the primary file immediately",
+		"Read the primary file now",
+		"receiver-aware primary target",
+		"Analyzer's Required Files",
+		"Start your investigation here",
+	} {
+		if strings.Contains(prompt, forbidden) {
+			t.Fatalf("primary entity prompt must not hard-force noisy graph candidates via %q: %s", forbidden, prompt)
+		}
+	}
 	if strings.Contains(prompt, "internal/context/builder.go") {
 		t.Fatalf("primary-focused prompt should drop unrelated required files outside the primary neighborhood: %s", prompt)
 	}

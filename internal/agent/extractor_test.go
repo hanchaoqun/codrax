@@ -571,9 +571,11 @@ func TestExtractor_BuildPrompt_DigestsTurnAArtifacts(t *testing.T) {
 	for _, section := range []string{
 		"Investigation notes",
 		"iter 1: read reg.go",
-		"Files the investigation read",
+		"Files the investigation read (direct citation gutter)",
+		"Grounded deterministic evidence rows below are also accepted anchors via `evidence_id`",
 		"internal/reg.go",
 		"Deterministic evidence the investigation extracted",
+		"evidence_id=ev-",
 		"registration",
 		"Register",
 		"Cardinality guidance",

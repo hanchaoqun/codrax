@@ -2633,9 +2633,10 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 	// only drown the authoritative anchor under noise — the ranker's
 	// exact-anchor tier matches common method names (e.g. ParseOutput
 	// is defined on six evaluators) and promotes unrelated siblings
-	// into "Analyzer's Required Files", which the explorer then reads
-	// and the finalizer hallucinates into the answer's call-chain
-	// diagram. Observed on logtri_go-20260421-112818.
+	// into analyzer navigation candidates, which older explorer prompts
+	// phrased as mandatory reads and could make the finalizer hallucinate
+	// into the answer's call-chain diagram. Observed on
+	// logtri_go-20260421-112818.
 	//
 	// For log-triage bundles with non-crash signals (oom / timeout /
 	// validation / db / network / permission / logic), the resolved
@@ -2743,9 +2744,9 @@ func mergeRequiredFilePathLists(head, tail []string, cap int) []string {
 	return out
 }
 
-// maxAnalyzerRequiredFilesCap surfaces the historical cap=3 ceiling
-// on RequiredFiles (Session-22 fix F1.2). Wrapped as a function so
-// future overrides have one site to flip; production stays at 3.
+// maxAnalyzerRequiredFilesCap surfaces the historical cap=3 ceiling on
+// analyzer navigation candidates (Session-22 fix F1.2). Wrapped as a
+// function so future overrides have one site to flip; production stays at 3.
 func maxAnalyzerRequiredFilesCap() int { return 3 }
 
 // dedupStringList unions any number of input slices into one
@@ -2801,15 +2802,13 @@ func logBundleAuthoritativeFrames(bundle *types.LogBundle) bool {
 // so unit tests can exercise the ranker directly with a mock
 // *repomap.Graph without going through BuildOrLoadGraph.
 func rankAnalyzerRequiredFiles(graph *repomap.Graph, entities []string) []string {
-	// Session-22 fix F1.2 — cap lowered from 10 to 3. The original
-	// ceiling was set when "Required Files" meant a soft hint; it now
-	// feeds the explorer's "Analyzer's Required Files" prompt block
-	// and the Check-6 ranker-coverage gate, both of which treat every
-	// entry as a first-class read target. Ten files was enough to
-	// swamp the prompt with ranker-noise siblings whenever an entity
-	// name (e.g. ParseOutput, defined on six evaluators) matched
-	// multiple exact anchors. Three matches how many candidates an
-	// operator realistically checks in a focused investigation.
+	// Session-22 fix F1.2 — cap lowered from 10 to 3. The historical
+	// name is RequiredFiles, but the ranker half of this list is only
+	// an analyzer navigation candidate set. Ten files was enough to
+	// swamp prompts with ranker-noise siblings whenever an entity name
+	// (e.g. ParseOutput, defined on six evaluators) matched multiple
+	// exact anchors. Three matches how many candidates an operator
+	// realistically checks in a focused investigation.
 	const maxAnalyzerRequiredFiles = 3
 	if graph == nil {
 		return nil
@@ -2859,9 +2858,9 @@ func rankAnalyzerRequiredFiles(graph *repomap.Graph, entities []string) []string
 			return hits[i].score > hits[j].score
 		}
 		// Deterministic tie-break for identical scores so the
-		// prompt text is stable across runs. Important for the
-		// "Analyzer's Required Files" rendering to avoid reshuffle
-		// noise between otherwise-equivalent runs.
+		// prompt text is stable across runs. Important for the analyzer
+		// navigation-candidate rendering to avoid reshuffle noise between
+		// otherwise-equivalent runs.
 		return hits[i].path < hits[j].path
 	})
 	if len(hits) > maxAnalyzerRequiredFiles {

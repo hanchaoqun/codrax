@@ -69,6 +69,33 @@ func TestExpandKeywordsNoAbbrevForUnknown(t *testing.T) {
 	}
 }
 
+func TestFormatKeywordResultsRendersNavigationCandidatesNotForcedReads(t *testing.T) {
+	got := formatKeywordResults([]keywordFileScore{{
+		Path:  "tools/include/io_uring/mini_liburing.h",
+		Score: 28,
+		Hits:  map[string]string{"IORING_OP_SEND": "exact"},
+	}})
+	for _, want := range []string{
+		"Pre-scanned Navigation Candidates",
+		"candidate routes, not read obligations",
+		"support/tool/test/helper hits can still be collateral",
+		"Inspect a file only when it visibly matches",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("formatted keyword results missing %q:\n%s", want, got)
+		}
+	}
+	for _, forbidden := range []string{
+		"TOP PRIORITY",
+		"read them first",
+		"read_file on",
+	} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("formatted keyword results must not force-read ranker candidates via %q:\n%s", forbidden, got)
+		}
+	}
+}
+
 func TestNormalizeSearchPathStripsWindowsRepoRootWithSlashForms(t *testing.T) {
 	repoRoot := `C:\Users\ssccv\codrax`
 	got := normalizeSearchPath("C:/Users/ssccv/codrax/internal/skill/defaults.go", repoRoot)

@@ -3769,6 +3769,230 @@ func TestEmitInvestigationComplete_PreCompleteCheck_PrimaryAnchorUnreadBlocks(t 
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_PrincipalMechanismBoundaryBypassesGenericForcedReads(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	limits := prev
+	limits.Phase1UnreadTopK = 4
+	limits.Phase1UnreadMinUnread = 1
+	SetAnalysisLimits(limits)
+
+	mut := types.NewMutableState("io_uring send recv mechanism")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "io_uring/opdef.c", Score: 80, ExactEntityRank: 1},
+		{Path: "io_uring/net.c", Score: 70, ExactEntityRank: 2},
+		{Path: "io_uring/io_uring.c", Score: 60, ExactEntityRank: 3},
+		{Path: "io_uring/cmd_net.c", Score: 50, ExactEntityRank: 4},
+	})
+	evidence := []types.EvidenceItem{
+		{
+			Kind: types.EvidenceDirect, Source: "io_uring/opdef.c", LineStart: 277,
+			AnchorKind: types.AnchorInitializer, AnchorSymbol: "IORING_OP_SEND",
+			Subject: "IORING_OP_SEND", Object: "io_send", GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceDirect, Source: "io_uring/net.c", LineStart: 646,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "io_send",
+			Subject: "io_send", Object: "sock_sendmsg", GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceDirect, Source: "net/socket.c", LineStart: 810,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "sock_sendmsg",
+			Subject: "sock_sendmsg", Object: "sock_sendmsg_nosec", GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	mut.AppendEvidence(evidence)
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{
+		"io_uring/opdef.c": true,
+		"io_uring/net.c":   true,
+		"net/socket.c":     true,
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentExplain,
+				Scenario:   types.ScenarioArchitectureExplain,
+				Complexity: types.ComplexityComplex,
+				Predicates: types.SemanticPredicates{IsCrossComponent: true},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind: string(types.ReqMechanism),
+				},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "SEND/RECV opcode registration, io_uring execution, and socket calls are all covered by grounded principal evidence",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{
+			{
+				"kind":    "member_set",
+				"label":   "SEND/RECV principal path",
+				"role":    "principal_answer",
+				"value":   "3",
+				"members": []string{"IORING_OP_SEND", "io_send", "sock_sendmsg"},
+				"support_refs": []string{
+					"IORING_OP_SEND: io_uring/opdef.c:277",
+					"io_send: io_uring/net.c:646",
+					"sock_sendmsg: net/socket.c:810",
+				},
+			},
+		},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") || strings.Contains(res.Summary, "Forced Read List") {
+		t.Fatalf("grounded model-owned principal boundary must not be overridden by generic forced-read debt, got: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("investigation should complete once grounded principal mechanism boundary is declared")
+	}
+	if pending := closure.PendingReads(); len(pending) != 0 {
+		t.Fatalf("accepted completion should clear advisory generic pending reads, got %+v", pending)
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_GroundedNarrativeEvidenceBypassesGenericForcedReadsWithoutAggregateFacts(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	limits := prev
+	limits.Phase1UnreadTopK = 4
+	limits.Phase1UnreadMinUnread = 1
+	SetAnalysisLimits(limits)
+
+	mut := types.NewMutableState("io_uring send recv mechanism")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "tools/include/io_uring/mini_liburing.h", Score: 95, ExactEntityRank: 5},
+		{Path: "io_uring/opdef.c", Score: 80, ExactEntityRank: 1},
+		{Path: "io_uring/net.c", Score: 70, ExactEntityRank: 2},
+		{Path: "net/socket.c", Score: 60, ExactEntityRank: 3},
+	})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind: types.EvidenceDirect, Source: "io_uring/opdef.c", LineStart: 277,
+			AnchorKind: types.AnchorInitializer, AnchorSymbol: "IORING_OP_SEND",
+			Subject: "IORING_OP_SEND", Object: "io_send", GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceDirect, Source: "io_uring/net.c", LineStart: 646,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "io_send",
+			Subject: "io_send", Object: "sock_sendmsg", GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceDirect, Source: "net/socket.c", LineStart: 810,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "sock_sendmsg",
+			Subject: "sock_sendmsg", Object: "sock_sendmsg_nosec", GroundingStatus: types.GroundingGrounded,
+		},
+	})
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{
+		"io_uring/opdef.c": true,
+		"io_uring/net.c":   true,
+		"net/socket.c":     true,
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentExplain,
+				Scenario:   types.ScenarioArchitectureExplain,
+				Complexity: types.ComplexityComplex,
+				Predicates: types.SemanticPredicates{IsCrossComponent: true},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind: string(types.ReqMechanism),
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: true, MinCitations: 2},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "已覆盖 opcode 注册、io_uring 执行函数和 socket 层调用，关键内核路径证据已完整落地。",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "mini_liburing") ||
+		strings.Contains(res.Summary, "DOWNGRADED") ||
+		strings.Contains(res.Summary, "Forced Read List") {
+		t.Fatalf("grounded narrative evidence boundary must not be overruled by generic pre-scan anchors, got: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("investigation should complete after grounded narrative evidence establishes the answer boundary")
+	}
+	if pending := closure.PendingReads(); len(pending) != 0 {
+		t.Fatalf("generic pending reads should not be queued after grounded narrative boundary, got %+v", pending)
+	}
+}
+
+func TestPartitionPendingReadsForAcceptedClosure_KeepsRequiredCurrentSourceBlocking(t *testing.T) {
+	mut := types.NewMutableState("mixed current source")
+	evidence := []types.EvidenceItem{
+		{
+			Kind: types.EvidenceDirect, Source: "internal/agent/explorer.go", LineStart: 10,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "Explorer",
+			Subject: "Explorer", GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind: types.EvidenceDirect, Source: "internal/tool/repomap/tool.go", LineStart: 20,
+			AnchorKind: types.AnchorDefinition, AnchorSymbol: "RepoMap",
+			Subject: "RepoMap", GroundingStatus: types.GroundingGrounded,
+		},
+	}
+	mut.AppendEvidence(evidence)
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:     types.IntentExplain,
+				Scenario:   types.ScenarioArchitectureExplain,
+				Complexity: types.ComplexityComplex,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind: string(types.ReqMechanism),
+				},
+			},
+		},
+	}
+	facts := []types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "principal mechanism",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"Explorer", "RepoMap"},
+		SupportRefs: []string{
+			"Explorer: internal/agent/explorer.go:10",
+			"RepoMap: internal/tool/repomap/tool.go:20",
+		},
+	}}
+	pending := []types.PendingRead{
+		{File: "support.go", Origin: "pre_complete.primary_anchor"},
+		{File: "bridged-support.go", Origin: "auto_bridge.pre_complete.primary_anchor"},
+		{File: "required.go", Origin: "required_file_hint_unread"},
+	}
+	blocking, advisory := partitionPendingReadsForAcceptedClosure(bus, pending, facts, evidence)
+	if len(blocking) != 1 || blocking[0].File != "required.go" {
+		t.Fatalf("required current-source file must stay blocking, got blocking=%+v advisory=%+v", blocking, advisory)
+	}
+	if len(advisory) != 2 || advisory[0].File != "support.go" || advisory[1].File != "bridged-support.go" {
+		t.Fatalf("generic primary-anchor debt should become advisory, got blocking=%+v advisory=%+v", blocking, advisory)
+	}
+}
+
 func TestPrimaryAnchorPendingRead_CapabilitySurfaceSkipsToolImplementationAnchor(t *testing.T) {
 	mut := types.NewMutableState("test")
 	mut.SetPhase1Ranking([]types.Phase1RankedFile{
