@@ -6250,12 +6250,16 @@ func closureRepairsForSignal(repairs []types.RepairDirective, completionReady bo
 	if len(repairs) == 0 || !completionReady {
 		return repairs
 	}
+	before := len(repairs)
 	out := repairs[:0]
 	for _, repair := range repairs {
 		if types.ClassifyRepairDirective(repair) == types.RepairDebtAdvisory {
 			continue
 		}
 		out = append(out, repair)
+	}
+	if filtered := before - len(out); filtered > 0 {
+		logging.Debug("[repair_debt] close_ready filtered_advisory=%d remaining=%d", filtered, len(out))
 	}
 	return out
 }

@@ -321,6 +321,46 @@ eval_count_mermaid_source_repairs() {
   eval_count_control_pattern 'DEBUG \[mermaidcompat\] source repair applied' "$file"
 }
 
+eval_count_repair_debt_checkpoints() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern 'DEBUG \[repair_debt\] checkpoint ' "$file"
+}
+
+eval_count_repair_debt_close_ready_filters() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern 'DEBUG \[repair_debt\] close_ready filtered_advisory=' "$file"
+}
+
+eval_max_repair_debt_checkpoint_class() {
+  local file="$1" class="$2"
+  if [[ -z "$file" || ! -f "$file" || -z "$class" ]]; then
+    echo 0
+    return
+  fi
+  LC_ALL=C awk -v cls="$class" '
+    /^20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^ ]+ DEBUG \[repair_debt\] checkpoint / {
+      n = split($0, fields, /[[:space:]]+/)
+      for (i = 1; i <= n; i++) {
+        if (fields[i] ~ ("^" cls "=[0-9]+$")) {
+          split(fields[i], kv, "=")
+          if ((kv[2] + 0) > max) {
+            max = kv[2] + 0
+          }
+        }
+      }
+    }
+    END { print max + 0 }
+  ' "$file"
+}
+
 eval_sum_answer_contract_violations() {
   local file="$1"
   if [[ -z "$file" || ! -f "$file" ]]; then

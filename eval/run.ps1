@@ -407,6 +407,8 @@ $metricPatterns = [ordered]@{
     checkpoint_continuation_broad_hint = 'window hint applied .*Checkpoint summary.*DAG-scheduled investigation window'
     closure_only_repeated     = 'phase=midloop_signal .*key="explorer\.mid-loop\.[^"]*closure-only\.[0-9]+"'
     mermaid_source_repair_applied = '\[mermaidcompat\] source repair applied'
+    repair_debt_checkpoints   = '\[repair_debt\] checkpoint '
+    repair_debt_close_ready_filters = '\[repair_debt\] close_ready filtered_advisory='
     concrete_values           = 'concrete values'
     synthesis_runs            = 'SYNTHESIS prompt'
     function_boundary_push    = 'CRITICAL.*Incomplete'

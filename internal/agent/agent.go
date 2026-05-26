@@ -1410,6 +1410,12 @@ func renderToolHistoryRepairDebtCheckpoint(ctx *types.AgentContext, limit int) s
 	for _, row := range rows {
 		counts[row.class]++
 	}
+	logging.Debug("[repair_debt] checkpoint principal_blocking=%d surgical_grounding=%d advisory=%d rows=%d",
+		counts[types.RepairDebtPrincipalBlocking],
+		counts[types.RepairDebtSurgicalGrounding],
+		counts[types.RepairDebtAdvisory],
+		len(rows),
+	)
 	var b strings.Builder
 	fmt.Fprintf(&b, "- principal_blocking=%d surgical_grounding=%d advisory=%d\n",
 		counts[types.RepairDebtPrincipalBlocking],

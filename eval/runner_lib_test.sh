@@ -62,6 +62,8 @@ cat >"$tmp/finalizer-control.log" <<'LOG'
 2026-05-24T00:00:00.068 WARN [agent] tool "grep" rejected before execution: not in current tool schema
 2026-05-24T00:00:00.068 WARN [explorer] tool "read_file" rejected: tool "read_file" is not available in the current explorer repair state; available tools here: emit_evidence
 2026-05-24T00:00:00.068 DEBUG [mermaidcompat] source repair applied before_bytes=120 after_bytes=119
+2026-05-24T00:00:00.068 DEBUG [repair_debt] checkpoint principal_blocking=2 surgical_grounding=3 advisory=4 rows=9
+2026-05-24T00:00:00.068 DEBUG [repair_debt] close_ready filtered_advisory=1 remaining=2
 2026-05-24T00:00:00.069 DEBUG [diag finalizer] iter=0 phase=llm_request model=test context_tokens_est=2049 context_window=4096 messages=5 tools=1
 2026-05-24T00:00:00.069 DEBUG [diag finalizer] phase=answer_contract_check section=lane_block_kind violations=1 elapsed=1ms
 2026-05-24T00:00:00.069 DEBUG [diag finalizer] phase=answer_contract_check section=member_set_coverage violations=3 elapsed=2ms
@@ -83,6 +85,11 @@ assert_eq "$(eval_count_unavailable_tool_attempts "$tmp/finalizer-control.log")"
 assert_eq "$(eval_count_checkpoint_continuation_broad_hint "$tmp/finalizer-control.log")" "1" "checkpoint broad hint control count"
 assert_eq "$(eval_count_closure_only_repeated "$tmp/finalizer-control.log")" "1" "closure-only repeated control count"
 assert_eq "$(eval_count_mermaid_source_repairs "$tmp/finalizer-control.log")" "1" "mermaid repair control count"
+assert_eq "$(eval_count_repair_debt_checkpoints "$tmp/finalizer-control.log")" "1" "repair debt checkpoint count"
+assert_eq "$(eval_count_repair_debt_close_ready_filters "$tmp/finalizer-control.log")" "1" "repair debt close-ready filter count"
+assert_eq "$(eval_max_repair_debt_checkpoint_class "$tmp/finalizer-control.log" principal_blocking)" "2" "repair debt principal max"
+assert_eq "$(eval_max_repair_debt_checkpoint_class "$tmp/finalizer-control.log" surgical_grounding)" "3" "repair debt surgical max"
+assert_eq "$(eval_max_repair_debt_checkpoint_class "$tmp/finalizer-control.log" advisory)" "4" "repair debt advisory max"
 assert_eq "$(eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=prune TOOL HISTORY PRUNED' "$tmp/finalizer-control.log")" "1" "tool history prune control count"
 assert_eq "$(eval_max_context_tokens_estimate "$tmp/finalizer-control.log")" "2049" "max context token estimate"
 assert_eq "$(eval_max_context_window_tokens "$tmp/finalizer-control.log")" "4096" "max context window"
@@ -110,6 +117,8 @@ cat >"$tmp/finalizer-content-only.log" <<'LOG'
 2026-05-24T00:00:00.005 DEBUG [diag explorer] iter=0 ASSISTANT content: source says 2026-05-24T00:00:00.068 WARN [agent] tool "grep" rejected before execution: not in current tool schema
 2026-05-24T00:00:00.005 DEBUG [diag explorer] iter=0 ASSISTANT content: source says 2026-05-24T00:00:00.068 DEBUG [diag explorer] iter=2 phase=midloop_signal hint=true progress=true key="explorer.mid-loop.read-without-emit-closure-only.2"
 2026-05-24T00:00:00.005 DEBUG [diag explorer] iter=0 ASSISTANT content: source says 2026-05-24T00:00:00.068 DEBUG [mermaidcompat] source repair applied before_bytes=120 after_bytes=119
+2026-05-24T00:00:00.005 DEBUG [diag explorer] iter=0 ASSISTANT content: source says 2026-05-24T00:00:00.068 DEBUG [repair_debt] checkpoint principal_blocking=9 surgical_grounding=9 advisory=9 rows=27
+2026-05-24T00:00:00.005 DEBUG [diag explorer] iter=0 ASSISTANT content: source says 2026-05-24T00:00:00.068 DEBUG [repair_debt] close_ready filtered_advisory=9 remaining=9
 2026-05-24T00:00:00.005 DEBUG [diag explorer] iter=0 ASSISTANT content: source says 2026-05-24T00:00:00.069 DEBUG [diag finalizer] phase=answer_contract_check section=lane_block_kind violations=9 elapsed=1ms
 2026-05-24T00:00:00.006 DEBUG [diag explorer] iter=0 ASSISTANT content: source mentions 2026-05-24T00:00:00.070 INFO [semantic_quality_reviewer] verdict sufficient=false confidence=0.9
 2026-05-24T00:00:00.007 DEBUG [diag explorer] iter=0 ASSISTANT content: source mentions 2026-05-24T00:00:00.090 INFO [self_consistency_reviewer] V2 emitted 1 contradiction(s)
@@ -128,6 +137,9 @@ assert_eq "$(eval_count_unavailable_tool_attempts "$tmp/finalizer-content-only.l
 assert_eq "$(eval_count_checkpoint_continuation_broad_hint "$tmp/finalizer-content-only.log")" "0" "checkpoint broad hint content contamination"
 assert_eq "$(eval_count_closure_only_repeated "$tmp/finalizer-content-only.log")" "0" "closure-only repeated content contamination"
 assert_eq "$(eval_count_mermaid_source_repairs "$tmp/finalizer-content-only.log")" "0" "mermaid repair content contamination"
+assert_eq "$(eval_count_repair_debt_checkpoints "$tmp/finalizer-content-only.log")" "0" "repair debt checkpoint content contamination"
+assert_eq "$(eval_count_repair_debt_close_ready_filters "$tmp/finalizer-content-only.log")" "0" "repair debt close-ready filter content contamination"
+assert_eq "$(eval_max_repair_debt_checkpoint_class "$tmp/finalizer-content-only.log" principal_blocking)" "0" "repair debt principal content contamination"
 assert_eq "$(eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=prune TOOL HISTORY PRUNED' "$tmp/finalizer-content-only.log")" "0" "tool history prune content contamination"
 assert_eq "$(eval_max_context_tokens_estimate "$tmp/finalizer-content-only.log")" "0" "max context token estimate content contamination"
 assert_eq "$(eval_max_context_window_pct "$tmp/finalizer-content-only.log")" "0" "max context pct content contamination"

@@ -2122,7 +2122,7 @@ Implementation tasks:
   bounded local attempt, advisory cannot trigger broad/nudge loops.
 - [x] P1-A: Add regression tests for close-ready + repaired/recovered row debt
   so repeated navigation does not get fresh closure-only hints.
-- [ ] P1-B: Add metrics/logging for repair-debt class at prune and close-ready
+- [x] P1-B: Add metrics/logging for repair-debt class at prune and close-ready
   boundaries so eval can distinguish "real blocker" from "advisory debt".
 - [ ] P2-A: Re-run targeted mixed-origin and diagram evals, then only broaden
   eval if the structured metrics show no repeated closure-only/prune loop.
