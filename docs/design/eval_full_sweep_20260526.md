@@ -2269,3 +2269,18 @@ Red-line guard:
   advisory, the model remains free to continue by choosing its own tools; the
   framework simply stops treating broad function-tail coverage as a mandatory
   system repair.
+
+Validation:
+
+- `eval/results/qf_diagram_pipeline-20260526-181041`: PASS after P1-E. The
+  targeted source-only diagram case no longer entered the partial-function loop
+  (`function_boundary_push=0`, `tool_history_prunes=0`,
+  `closure_only_repeated=0`, `explorer_iters=6`, `tool_read_file=8`). This is
+  the intended improvement over the stopped `174006` run, where
+  `runReadSchedulerLoop` partial-read/read-without-emit expansion was the slow
+  path.
+- Residual but non-blocking observations from the same run: the explorer still
+  needed a normal read-without-emit materialization nudge before closing, and
+  the finalizer first produced a rich prose/Mermaid draft before a tool emit.
+  Both recovered successfully (`finalizer_rejects=0`, `finalizer_rewrites=0`,
+  PASS), so they remain observability items rather than P1-E blockers.
