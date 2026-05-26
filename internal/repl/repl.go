@@ -1558,9 +1558,9 @@ func inputTheme() *huh.Theme {
 }
 
 // readInput reads a (possibly multi-line) request from the user.
-// In interactive mode it delegates to a Bubble Tea session
-// (readInputInteractive) that carries paste-folding, history, and
-// slash-command autocomplete. When driven by an io.Reader (tests,
+// In interactive mode it delegates to a native real-cursor input
+// session (readInputInteractive) that carries paste-folding, history,
+// and slash-command autocomplete. When driven by an io.Reader (tests,
 // pipes) it reads lines via bufio.Scanner unchanged.
 //
 // Returned display/expanded split: expanded is what reaches the
@@ -1584,14 +1584,17 @@ func (r *REPL) readInputPair(prompt string) (string, string, error) {
 	return s, s, err
 }
 
-// readInputInteractive runs the Bubble Tea input session, looping for
+// readInputInteractive runs the interactive input session, looping for
 // trailing-"\" continuation. Each invocation can fold its own pastes
 // into independent placeholder slots.
 func (r *REPL) readInputInteractive(prompt string) (string, string, error) {
 	cur := prompt
 	var expandedParts, displayParts []string
 	for {
-		res, err := r.readInputBubble(cur, len(expandedParts) > 0)
+		res, err := r.readInputNative(cur, len(expandedParts) > 0)
+		if errors.Is(err, errNativeInputUnavailable) {
+			res, err = r.readInputBubble(cur, len(expandedParts) > 0)
+		}
 		if err != nil {
 			return "", "", err
 		}

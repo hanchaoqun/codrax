@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mattn/go-runewidth"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -152,6 +153,38 @@ func TestInputModelWidthUsesDisplayColumnsForWidePrompt(t *testing.T) {
 	want = 48 - inputPromptDisplayWidth(m.ti.Prompt) - 2
 	if m.ti.Width != want {
 		t.Fatalf("resized textinput width=%d, want display-column width %d", m.ti.Width, want)
+	}
+}
+
+func TestNativeInputVisibleWindowUsesCJKDisplayWidth(t *testing.T) {
+	value := []rune("abc你好def")
+	visible, cursorCol := nativeInputVisibleWindow(value, 5, 7)
+	if visible != "…c你好d" {
+		t.Fatalf("visible window=%q, want %q", visible, "…c你好d")
+	}
+	if cursorCol != 6 {
+		t.Fatalf("cursor display column=%d, want 6", cursorCol)
+	}
+}
+
+func TestNativeInputVisibleWindowClipsLongCJKPrefix(t *testing.T) {
+	value := []rune("一二三四五六")
+	visible, cursorCol := nativeInputVisibleWindow(value, len(value), 6)
+	if visible != "…五六" {
+		t.Fatalf("visible window=%q, want ellipsis plus tail", visible)
+	}
+	if cursorCol != 5 {
+		t.Fatalf("cursor display column=%d, want 5", cursorCol)
+	}
+}
+
+func TestNativeClampDisplayWidthUsesDisplayColumns(t *testing.T) {
+	if got := nativeClampDisplayWidth("中文abc", 5); got != "中文…" {
+		t.Fatalf("nativeClampDisplayWidth=%q, want %q", got, "中文…")
+	}
+	clamped := nativeClampDisplayWidth("中文abc", 5)
+	if width := runewidth.StringWidth(clamped); width > 5 {
+		t.Fatalf("clamped string still wider than budget: %q width=%d", clamped, width)
 	}
 }
 

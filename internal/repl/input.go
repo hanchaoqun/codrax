@@ -1,4 +1,10 @@
-// Bubble Tea–driven interactive input for the REPL.
+// Interactive input helpers for the REPL.
+//
+// The production TTY path uses native_input.go so the terminal's real cursor
+// stays at the editing position; this is required for CJK IME candidate windows
+// to follow the cursor. The Bubble Tea model in this file remains as a fallback
+// for environments where raw native input cannot be started, and as the pure
+// logic home for paste folding / history / slash suggestions.
 //
 // Responsibilities beyond what bubbles/textinput gives us out of the box:
 //
