@@ -868,7 +868,7 @@ func buildOverviewData(g *types.Graph, params types.ViewParams) *ViewData {
 		Title: "Repository Overview",
 	}
 	if params.ShowSourceInventoryHint {
-		d.Intro = "Navigation tip: for scoped inventories, member lists, counts, or pattern-matching questions, call `repo_map` with `view=\"source_inventory\"` plus `scope`/`scopes`, `roles`, and optional `attribute_roles`; use this overview only to choose where to inspect next."
+		d.Intro = "Navigation tip: use this overview for architecture/module orientation. For scoped inventories, member lists, counts, or pattern-matching questions, call `repo_map` with `view=\"source_inventory\"` plus `scope`/`scopes` and `roles`; add `attribute_roles` after narrowing to row-local details you need."
 	}
 
 	// Languages section — sorted by file count, descending.

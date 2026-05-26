@@ -1442,9 +1442,9 @@ func (e *explorerEvaluator) buildDurableProgressContinuationInstruction(ctx *typ
 func renderExplorerRepoMapNavigationPrimer() string {
 	return "### Repo Map Navigation\n\n" +
 		"Use `repo_map` as a navigation index that can verify existing scopes, files, candidate symbols/routes/config keys, languages, and counts. Start with `view=\"overview\"`, `view=\"task_map\"`, or `view=\"file_map\"` when you need a structural map. " +
-		"When the task needs a bounded source inventory or a member-to-attribute checklist, call `repo_map` with `view=\"source_inventory\"` and model-chosen `roles`, optional `attribute_roles`, and `scope`/`scopes`.\n" +
+		"When the task needs a source inventory or member/count checklist, call `repo_map` with `view=\"source_inventory\"`, model-chosen `roles`, `scope`/`scopes`, and `include_attributes=false` for broad passes. Add `attribute_roles` only after narrowing to row-local details you need.\n" +
 		"- The source-inventory lens returns counts, grouped scopes, languages, candidate files, and candidate symbols/routes/config keys across supported languages; use it to choose what to verify next.\n" +
-		"- Prefer a cascade: broad `source_inventory` summary first, then a narrower follow-up with the chosen `scope`, `roles`, `attribute_roles`, `top_n`, and `cursor`/`offset` if the result is paged.\n" +
+		"- Prefer a cascade: broad `source_inventory` member/count summary first, then a narrower follow-up with the chosen `scope`, `roles`, optional `attribute_roles`, `top_n`, and `cursor`/`offset` if the result is paged.\n" +
 		"- When the task needs structural edges, use `view=\"relation_map\"`: pass `sources` after you choose concrete symbols/files, pass `scope`/`scopes` for directory/module boundaries, and narrow `relation_kinds` to call/import/inheritance/implements/reference/type_usage when known.\n" +
 		"- Treat lens rows as verified navigation/candidate-universe facts. Do not use them as semantic code citations; verify selected behavior/implementation claims with `read_file` or targeted `grep` before citing source text.\n" +
 		"- Use repo-relative existing directories for `path`. If a path is uncertain, call `list_files` on the nearest known parent or `repo_map(path=\".\")` before guessing.\n\n"

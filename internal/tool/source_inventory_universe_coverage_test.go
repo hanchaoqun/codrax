@@ -3,6 +3,8 @@ package tool
 import (
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
@@ -296,6 +298,105 @@ func TestPublishSourceInventoryObservationFromLens_RenderIsCurrentQueryOnly(t *t
 	})
 	if !second.IsActive() || len(second.Sets) != 1 || second.Sets[0].Role != types.AnswerCandidateRoleType {
 		t.Fatalf("visible lens should not accumulate prior role sets: %+v", second)
+	}
+}
+
+func TestSourceInventoryGraphSymbolIndexDedupeAndFileLookup(t *testing.T) {
+	graph := testGraphWithFiles([]*repotypes.FileInfo{
+		{
+			RelPath:  "kernel/sched/core.c",
+			Language: "c",
+			Symbols: []repotypes.Symbol{
+				{Name: "schedule", Kind: "function", File: "kernel/sched/core.c", Line: 42, Exported: true},
+			},
+		},
+		{
+			RelPath:  "mm/memory.c",
+			Language: "c",
+			Symbols: []repotypes.Symbol{
+				{Name: "handle_mm_fault", Kind: "function", File: "mm/memory.c", Line: 77, Exported: true},
+			},
+		},
+	})
+	graph.SymbolByID = map[repotypes.SymbolID]*repotypes.Symbol{}
+	for _, defs := range graph.SymbolDefs {
+		for _, sym := range defs {
+			graph.SymbolByID[repotypes.SymbolID(sym.File+"::"+sym.Name)] = sym
+		}
+	}
+
+	index := newSourceInventoryGraphSymbolIndex(graph)
+	if index == nil || len(index.all) != 2 {
+		t.Fatalf("index should dedupe SymbolByID and SymbolDefs pointers, got %+v", index)
+	}
+	kernelSyms := index.symbolsForFile("./kernel/sched/core.c")
+	if len(kernelSyms) != 1 || kernelSyms[0].Name != "schedule" {
+		t.Fatalf("file lookup should normalize and return only local symbols, got %+v", kernelSyms)
+	}
+	kernelDirSyms := index.symbolsForDir("kernel/sched")
+	if len(kernelDirSyms) != 1 || kernelDirSyms[0].Name != "schedule" {
+		t.Fatalf("dir lookup should return subtree-local symbols, got %+v", kernelDirSyms)
+	}
+	mmSyms := index.symbolsForFile("kernel/../mm/memory.c")
+	if len(mmSyms) != 0 {
+		t.Fatalf("file lookup should not path-clean traversal aliases into another repo path, got %+v", mmSyms)
+	}
+}
+
+func TestPublishSourceInventoryObservationFromLens_DefersBroadAttributesWithNarrowingHint(t *testing.T) {
+	files := make([]*repotypes.FileInfo, 0, sourceInventoryBroadToolLensAttributeFileThreshold+2)
+	for i := 0; i < sourceInventoryBroadToolLensAttributeFileThreshold+2; i++ {
+		rel := "kernel/file" + strconv.Itoa(i) + ".c"
+		files = append(files, &repotypes.FileInfo{
+			RelPath:  rel,
+			Language: "c",
+			Symbols: []repotypes.Symbol{{
+				Name:     "func_" + strconv.Itoa(i),
+				Kind:     "function",
+				File:     rel,
+				Line:     10,
+				Exported: true,
+			}},
+		})
+	}
+	graph := testGraphWithFiles(files)
+	ctx := sourceInventoryTestContext("", graph, ".", nil)
+
+	obs := PublishSourceInventoryObservationFromLens(ctx, types.SourceInventoryLensQuery{
+		Path:              ".",
+		Scopes:            []string{"kernel"},
+		Roles:             []types.AnswerCandidateRole{types.AnswerCandidateRoleFile},
+		AttributeRoles:    []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		IncludeAttributes: true,
+		IncludeCounts:     true,
+	})
+	if !obs.IsActive() || !sourceInventoryStringSliceContains(obs.Provenance, "repo_lens:attributes_deferred_broad_scope") {
+		t.Fatalf("broad attribute lens should stay active and carry deferred provenance: %+v", obs)
+	}
+	if len(obs.Sets) == 0 || len(obs.Sets[0].Members) == 0 {
+		t.Fatalf("broad deferred lens should still return member/count rows: %+v", obs)
+	}
+	for _, member := range obs.Sets[0].Members {
+		if len(member.Attributes) != 0 {
+			t.Fatalf("broad deferred lens must not expand row-local attributes: %+v", member)
+		}
+	}
+	rendered := RenderSourceInventoryObservationView(obs, types.SourceInventoryLensQuery{
+		Path:              ".",
+		Scopes:            []string{"kernel"},
+		Roles:             []types.AnswerCandidateRole{types.AnswerCandidateRoleFile},
+		AttributeRoles:    []types.AnswerCandidateRole{types.AnswerCandidateRoleFunction},
+		IncludeAttributes: true,
+		IncludeCounts:     true,
+	})
+	for _, want := range []string{
+		"row-local attributes were deferred",
+		"choose a narrower `scope` or selected member",
+		`include_attributes=true`,
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("deferred broad lens render missing %q:\n%s", want, rendered)
+		}
 	}
 }
 

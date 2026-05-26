@@ -20,6 +20,8 @@ func TestRepoMapSchemaTeachesLensParameters(t *testing.T) {
 		"relation_kinds",
 		"verified navigation",
 		"not a semantic source citation",
+		"reserve attribute_roles for narrowed scopes",
+		"top-level architecture",
 	} {
 		if !strings.Contains(desc, want) {
 			t.Fatalf("repo_map description missing %q:\n%s", want, desc)
@@ -57,6 +59,12 @@ func TestRepoMapSchemaTeachesLensParameters(t *testing.T) {
 		t.Fatalf("relation_map parameter teaching incomplete: relation_kinds=%+v sources_desc=%q",
 			schema.Properties["relation_kinds"].Items.Enum,
 			schema.Properties["sources"].Description)
+	}
+	if !strings.Contains(schema.Properties["include_attributes"].Description, "Use false for broad member/count passes") ||
+		!strings.Contains(schema.Properties["attribute_roles"].Description, "Use only for bounded scopes") {
+		t.Fatalf("source_inventory efficiency teaching incomplete: include_attributes=%q attribute_roles=%q",
+			schema.Properties["include_attributes"].Description,
+			schema.Properties["attribute_roles"].Description)
 	}
 }
 

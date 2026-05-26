@@ -103,6 +103,8 @@ func TestSubExplorerInitialInstructionTeachesRepoMapWithoutUnavailableTools(t *t
 	for _, want := range []string{
 		"`repo_map` as a scoped navigation index",
 		`view="source_inventory"`,
+		"include_attributes=false",
+		"add `attribute_roles` only after choosing a narrow scope/member",
 		`view="relation_map"`,
 		"relation_kinds",
 		"Verify selected navigation rows with `read_file` or targeted `grep",

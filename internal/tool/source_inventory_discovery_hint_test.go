@@ -46,10 +46,12 @@ func TestSourceInventoryDiscoveryHintFromListFilesBroadResultDedupe(t *testing.T
 	hint := SourceInventoryDiscoveryHintFromToolObservation(ctx, result, json.RawMessage(`{"path":"internal/analysis"}`))
 	for _, want := range []string{
 		"Repo Lens discovery hint (advisory)",
-		`repo_map {"path": "internal/analysis", "view": "source_inventory"`,
-		"broad member/attribute checklist",
+		"choose one branch before source_inventory expansion",
 		`"roles": ["function", "method", "type", "config_key", "route"]`,
+		`"include_attributes": false`,
 		`"scope": "aggregator"`,
+		"after choosing a narrow scope/member",
+		`"scope": "<chosen-scope>"`,
 		`"attribute_roles": ["function", "method", "type", "config_key", "route"]`,
 		`"view": "relation_map"`,
 		`"sources": ["<symbol-or-file>"]`,
@@ -62,6 +64,9 @@ func TestSourceInventoryDiscoveryHintFromListFilesBroadResultDedupe(t *testing.T
 	}
 	if strings.Contains(hint, `"roles": ["package", "file"]`) || strings.Contains(hint, "scope summary") {
 		t.Fatalf("discovery hint should not lead with package/file summary calls that can be empty before analysis IR:\n%s", hint)
+	}
+	if strings.Contains(hint, `repo_map {"path": "internal/analysis", "view": "source_inventory", "roles"`) {
+		t.Fatalf("discovery hint must not suggest root-wide fine-grained source_inventory expansion when branch scopes exist:\n%s", hint)
 	}
 	if again := SourceInventoryDiscoveryHintFromToolObservation(ctx, result, json.RawMessage(`{"path":"internal/analysis"}`)); again != "" {
 		t.Fatalf("discovery hint should dedupe repeated broad tool result, got:\n%s", again)

@@ -59,7 +59,8 @@ func (t *RepoMapV2) Description() string {
 		"semantic_subgraph (topological summary: linear chains, hub files, articulation-point bridges), " +
 		"relation_map (advisory structural edges around model-chosen sources/scopes: calls, imports, inheritance, implements, references), " +
 		"source_inventory (typed repo lens for scoped members/symbols/routes/config attributes/counts). " +
-		"For broad scoped inventories, prefer source_inventory with roles and optional attribute_roles so the tool returns a compact checklist instead of forcing many read_file calls. " +
+		"Use source_inventory for scoped candidate-universe/member checklists, including broad lists when the question asks for them; reserve attribute_roles for narrowed scopes or selected members because they attach row-local details. " +
+		"For top-level architecture or module overviews, start with overview/file_map/task_map and then inspect selected files. " +
 		"When multiple scopes or broad symbol roles are requested, source_inventory also renders a scope-grouped advisory view to help choose the next files to verify. " +
 		"For relation questions, call relation_map with sources when you already chose a symbol/file, or scopes when you want structural edges inside directories/modules; narrow relation_kinds when you know the edge family."
 }
@@ -75,7 +76,7 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
     "view": {
       "type": "string",
       "enum": ["overview", "file_map", "task_map", "call_path", "edit_impact", "semantic_subgraph", "relation_map", "source_inventory"],
-      "description": "Type of map to generate (default: overview). Use source_inventory for scoped member inventories and member→attribute candidate checklists. Use relation_map for advisory structural edges around selected sources/scopes."
+      "description": "Type of map to generate (default: overview). Use source_inventory for scoped member inventories and member→attribute candidate checklists; broad member lists are supported when the question asks for them, while attribute_roles are best after narrowing. Use relation_map for advisory structural edges around selected sources/scopes."
     },
     "query": {
       "type": "string",
@@ -125,11 +126,11 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
         "type": "string",
         "enum": ["function", "method", "type", "constant", "variable", "field", "package", "file", "config_file", "config_key", "route", "import_path", "literal_value"]
       },
-      "description": "For source_inventory view: row-local candidate roles to attach under each listed member, e.g. functions/methods/types/routes/config keys under a directory/module/package/file. These are verified candidate-universe rows; verify selected rows with read_file/grep before using them as semantic source citations."
+      "description": "For source_inventory view: row-local candidate roles to attach under each listed member, e.g. functions/methods/types/routes/config keys under a directory/module/package/file. Use only for bounded scopes; omit for top-level architecture/module overview. These are verified candidate-universe rows; verify selected rows with read_file/grep before using them as semantic source citations."
     },
     "include_attributes": {
       "type": "boolean",
-      "description": "For source_inventory view: include bounded row-local symbol/callable attributes (default true)"
+      "description": "For source_inventory view: include bounded row-local symbol/callable attributes. Use false for broad member/count passes; use true only after narrowing when attribute_roles or row-local details are needed (default true for compatibility). If a requested attribute expansion is too broad, the tool may return a member/count checklist with a narrowing instruction instead of expanding row-local attributes."
     },
     "include_counts": {
       "type": "boolean",
