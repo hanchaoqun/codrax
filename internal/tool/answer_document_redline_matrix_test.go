@@ -82,6 +82,95 @@ func TestAnswerDocumentRedlineMatrix_FullPreEmitPreservesModelAuthoredTable(t *t
 	}
 }
 
+func TestAnswerDocumentRedlineMatrix_FullPreEmitPreservesModelStructuredTable(t *testing.T) {
+	mu := types.NewMutableState("列出系统 Agent 及职责")
+	mu.AppendEvidence([]types.EvidenceItem{
+		enumEvidence("analyzer", "analyzer", "internal/agent/analyzer.go", 34, "读模式核心分析器。"),
+		enumEvidence("explorer", "explorer", "internal/agent/explorer.go", 68, "读模式代码探索器。"),
+	})
+	mu.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:    types.AnswerAggregateMemberSet,
+		Label:   "Agent 清单",
+		Value:   "2",
+		Role:    types.AnswerAggregateRolePrincipalAnswer,
+		Members: []string{"analyzer", "explorer"},
+		SupportRefs: []string{
+			"analyzer @ internal/agent/analyzer.go:34",
+			"explorer @ internal/agent/explorer.go:68",
+		},
+	}})
+	mu.RetainInvestigationAggregateFacts()
+	ctx := &types.BusContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:   types.IntentEnumerate,
+			Language: "zh",
+			Predicates: types.SemanticPredicates{
+				IsCategoryEnumeration: true,
+			},
+		}},
+	}
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "summary",
+			Kind: types.BlockSummary,
+			Text: "系统 Agent 按读写模式分工。",
+		}, {
+			ID:          "model_agent_table",
+			Kind:        types.BlockTable,
+			SurfaceRole: types.SurfacePrincipal,
+			FacetIDs:    []string{string(types.FacetEnumerationItem)},
+			Columns:     []string{"Agent 标识", "作用/职责 (function_or_purpose)", "关系/协作 (relationship)"},
+			Items: []types.AnswerBlockItem{{
+				ID:          "analyzer",
+				Label:       "analyzer",
+				Text:        "读模式核心分析器。驱动 StageAnalyze 阶段，通过 emit_analysis 工具生成 AnalysisIR。",
+				CitationRef: 0,
+			}, {
+				ID:          "explorer",
+				Label:       "explorer",
+				Text:        "读模式代码探索器。驱动 StageExplore 阶段，维护搜索缓存与多图句柄。",
+				CitationRef: 1,
+			}},
+		}},
+		Citations: []types.Citation{
+			{File: "internal/agent/analyzer.go", Line: 34},
+			{File: "internal/agent/explorer.go", Line: 68},
+		},
+	}
+	view := &types.AnswerSemanticView{}
+	normalizeAnswerDocumentForPreEmit("redline_matrix", doc, view, ctx, newPreEmitCheckContext(ctx))
+
+	table := answerDocumentTestBlockByID(t, doc, "model_agent_table")
+	wantColumns := []string{"Agent 标识", "作用/职责 (function_or_purpose)", "关系/协作 (relationship)"}
+	if len(table.Columns) != len(wantColumns) {
+		t.Fatalf("structured table columns must stay model-authored: %+v", table.Columns)
+	}
+	for i := range wantColumns {
+		if table.Columns[i] != wantColumns[i] {
+			t.Fatalf("structured table columns must stay model-authored: %+v", table.Columns)
+		}
+	}
+	if len(table.Items) != 2 {
+		t.Fatalf("model-authored table rows must not be replaced: %+v", table.Items)
+	}
+	for _, item := range table.Items {
+		if len(item.Cells) != 0 {
+			t.Fatalf("system must not fill model-authored structured table cells: %+v", item)
+		}
+	}
+	if table.Items[0].Text != "读模式核心分析器。驱动 StageAnalyze 阶段，通过 emit_analysis 工具生成 AnalysisIR。" ||
+		table.Items[1].Text != "读模式代码探索器。驱动 StageExplore 阶段，维护搜索缓存与多图句柄。" {
+		t.Fatalf("model-authored rich row text was changed: %+v", table.Items)
+	}
+	visible := answerDocumentTestVisibleSurface(doc)
+	for _, banned := range []string{"系统按已验证证据补充", "[illustrative]", "定义位置 | 说明"} {
+		if strings.Contains(visible, banned) {
+			t.Fatalf("system supplement or rewritten table shape leaked into model-authored table (%q):\n%s", banned, visible)
+		}
+	}
+}
+
 func TestAnswerDocumentRedlineMatrix_FullPreEmitKeepsOriginSpecificAbsenceExternal(t *testing.T) {
 	mu := types.NewMutableState("最近提交里是否还有 Backport Foo")
 	mu.SetInvestigationResultKind("absence")

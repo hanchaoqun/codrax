@@ -6,13 +6,13 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func TestCompileCitationBackedTableRows_FillsEmptyMultiColumnRows(t *testing.T) {
+func TestCompileCitationBackedTableRows_PreservesEmptyMultiColumnRows(t *testing.T) {
 	doc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{{
 			ID:      "kind_consts",
 			Kind:    types.BlockTable,
 			Title:   "Kind 常量",
-			Columns: []string{"类别", "符号名称", "定义位置", "说明"},
+			Columns: []string{"符号名称", "定义位置", "说明"},
 			Items: []types.AnswerBlockItem{
 				{ID: "r1", Label: "KindSymbolPresent", CitationRef: 0},
 				{ID: "r2", Label: "KindNoCallSites", CitationRef: 1},
@@ -24,8 +24,8 @@ func TestCompileCitationBackedTableRows_FillsEmptyMultiColumnRows(t *testing.T) 
 		},
 	}
 
-	if fixed := compileCitationBackedTableRows(doc); fixed != 2 {
-		t.Fatalf("fixed=%d, want 2", fixed)
+	if fixed := compileCitationBackedTableRows(doc); fixed != 0 {
+		t.Fatalf("fixed=%d, want 0", fixed)
 	}
 	table := doc.Blocks[0]
 	if got, want := table.Columns, []string{"符号名称", "定义位置", "说明"}; len(got) != len(want) {
@@ -40,14 +40,96 @@ func TestCompileCitationBackedTableRows_FillsEmptyMultiColumnRows(t *testing.T) 
 	if got := table.Items[0].Label; got != "KindSymbolPresent" {
 		t.Fatalf("label changed: %q", got)
 	}
-	if got := table.Items[0].Cells; len(got) != 2 ||
-		got[0] != "internal/analysis/criterion/grammar.go:29" ||
-		got[1] != "KindSymbolPresent Kind = Kind(types.CritSymbolPresent)" {
-		t.Fatalf("cells not compiled from citation: %#v", got)
+	if got := table.Items[0].Cells; len(got) != 0 {
+		t.Fatalf("system must not fill model-authored table cells: %#v", got)
 	}
 }
 
-func TestCompileEnumerationDisplayTableRows_FillsRowsFromPrincipalEvidence(t *testing.T) {
+func TestCompileCitationBackedTableRows_PreservesCompatibleAuthoredTextRows(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:      "agents",
+			Kind:    types.BlockTable,
+			Title:   "Agent 清单",
+			Columns: []string{"Agent 标识", "定义位置", "说明"},
+			Items: []types.AnswerBlockItem{{
+				ID:          "analyzer",
+				Label:       "analyzer",
+				Text:        "读模式核心分析器，驱动 StageAnalyze 阶段。",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{
+			File: "internal/agent/analyzer.go",
+			Line: 34,
+		}},
+	}
+
+	if fixed := compileCitationBackedTableRows(doc); fixed != 0 {
+		t.Fatalf("fixed=%d, want 0", fixed)
+	}
+	table := doc.Blocks[0]
+	if got, want := table.Columns, []string{"Agent 标识", "定义位置", "说明"}; len(got) != len(want) {
+		t.Fatalf("columns=%v, want %v", got, want)
+	} else {
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("columns=%v, want %v", got, want)
+			}
+		}
+	}
+	item := table.Items[0]
+	if item.Text != "读模式核心分析器，驱动 StageAnalyze 阶段。" {
+		t.Fatalf("model-authored text must remain authoritative: %#v", item)
+	}
+	if got := item.Cells; len(got) != 0 {
+		t.Fatalf("system must not fill compatible-looking model-authored table cells: %#v", got)
+	}
+}
+
+func TestCompileCitationBackedTableRows_RefusesToRewriteModelColumnShapeWithAuthoredText(t *testing.T) {
+	doc := &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:      "agents",
+			Kind:    types.BlockTable,
+			Title:   "Agent 清单",
+			Columns: []string{"Agent 标识", "作用/职责 (function_or_purpose)", "关系/协作 (relationship)"},
+			Items: []types.AnswerBlockItem{{
+				ID:          "analyzer",
+				Label:       "analyzer",
+				Text:        "读模式核心分析器。驱动 StageAnalyze 阶段，通过 emit_analysis 工具生成 AnalysisIR。",
+				CitationRef: 0,
+			}},
+		}},
+		Citations: []types.Citation{{
+			File: "internal/agent/analyzer.go",
+			Line: 34,
+		}},
+	}
+
+	if fixed := compileCitationBackedTableRows(doc); fixed != 0 {
+		t.Fatalf("incompatible model-authored column shape must not be rewritten; fixed=%d doc=%+v", fixed, doc.Blocks[0])
+	}
+	table := doc.Blocks[0]
+	if got, want := table.Columns, []string{"Agent 标识", "作用/职责 (function_or_purpose)", "关系/协作 (relationship)"}; len(got) != len(want) {
+		t.Fatalf("columns should be preserved: %v, want %v", got, want)
+	} else {
+		for i := range want {
+			if got[i] != want[i] {
+				t.Fatalf("columns should be preserved: %v, want %v", got, want)
+			}
+		}
+	}
+	item := table.Items[0]
+	if len(item.Cells) != 0 ||
+		item.Label != "analyzer" ||
+		item.Text != "读模式核心分析器。驱动 StageAnalyze 阶段，通过 emit_analysis 工具生成 AnalysisIR。" ||
+		item.CitationRef != 0 {
+		t.Fatalf("model row surface must remain untouched: %+v", item)
+	}
+}
+
+func TestCompileEnumerationDisplayTableRows_PreservesRowsDespitePrincipalEvidence(t *testing.T) {
 	mut := types.NewMutableState("list public functions")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
 		Kind:        types.AnswerAggregateMemberSet,
@@ -96,8 +178,8 @@ func TestCompileEnumerationDisplayTableRows_FillsRowsFromPrincipalEvidence(t *te
 		}},
 	}
 
-	if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed != 1 {
-		t.Fatalf("fixed=%d, want 1", fixed)
+	if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed != 0 {
+		t.Fatalf("fixed=%d, want 0", fixed)
 	}
 	table := doc.Blocks[0]
 	if got, want := table.Columns, []string{"符号名称", "定义位置", "说明"}; len(got) != len(want) {
@@ -113,18 +195,14 @@ func TestCompileEnumerationDisplayTableRows_FillsRowsFromPrincipalEvidence(t *te
 	if item.Label != "Eval" {
 		t.Fatalf("label changed: %#v", item)
 	}
-	if got := item.Cells; len(got) != 2 ||
-		got[0] != "internal/analysis/criterion/eval.go:15" ||
-		got[1] != "Eval 对单个 Criterion 进行求值并返回 Result。" {
-		t.Fatalf("cells not compiled from deterministic row: %#v", got)
+	if got := item.Cells; len(got) != 0 {
+		t.Fatalf("system must not write deterministic row cells into the model table: %#v", got)
 	}
-	if item.Text != "Eval 对单个 Criterion 进行求值并返回 Result。" {
-		t.Fatalf("item text should preserve rich note for validators/rendering: %#v", item)
+	if item.Text != "" {
+		t.Fatalf("system must not write deterministic row text into the model table: %#v", item)
 	}
-	if item.CitationRef != 0 || len(doc.Citations) != 1 ||
-		doc.Citations[0].File != "internal/analysis/criterion/eval.go" ||
-		doc.Citations[0].Line != 15 {
-		t.Fatalf("citation was not appended/reused: item=%#v citations=%#v", item, doc.Citations)
+	if item.CitationRef != -1 || len(doc.Citations) != 0 {
+		t.Fatalf("system must not rewrite row citations while preserving table content: item=%#v citations=%#v", item, doc.Citations)
 	}
 }
 
@@ -240,17 +318,18 @@ func TestCompileEnumerationDisplayTableRows_PreservesModelItemTextOverDryRowNote
 		}},
 	}
 
-	if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed != 1 {
-		t.Fatalf("fixed=%d, want 1", fixed)
+	if fixed := compileEnumerationDisplayTableRows(doc, ctx); fixed != 0 {
+		t.Fatalf("fixed=%d, want 0", fixed)
 	}
 	item := doc.Blocks[0].Items[0]
 	if item.Text != "Kind = Kind(types.CritExternalArtifactDecoded)，为兼容性保留，已废弃" {
 		t.Fatalf("model-authored item text must remain authoritative: %#v", item)
 	}
-	if got := item.Cells; len(got) != 2 ||
-		got[0] != "internal/analysis/criterion/grammar.go:65" ||
-		got[1] != "Kind = Kind(types.CritExternalArtifactDecoded)，为兼容性保留，已废弃" {
-		t.Fatalf("compiled cells must carry model-authored note, got %#v", got)
+	if got := item.Cells; len(got) != 0 {
+		t.Fatalf("system must not turn model-authored text into table cells: %#v", got)
+	}
+	if item.CitationRef != -1 || len(doc.Citations) != 0 {
+		t.Fatalf("system must not rewrite row citations while preserving table content: item=%#v citations=%#v", item, doc.Citations)
 	}
 }
 
