@@ -437,8 +437,27 @@ func TestRepoMapScanMessagesCarryFileCounts(t *testing.T) {
 	if !strings.Contains(cacheWrite, "正在写入索引缓存") || !strings.Contains(cacheWrite, "源文件已解析 12000/12000") {
 		t.Fatalf("cache-write progress should switch wording after parsing, got %q", cacheWrite)
 	}
+	ev.CurrentFile = "relations.md"
+	ev.BytesWritten = 12 * 1024 * 1024
+	ev.BytesTotal = 120 * 1024 * 1024
+	cacheWriteBytes := repoMapScanMessage("zh", ev)
+	if !strings.Contains(cacheWriteBytes, "relations.md") ||
+		!strings.Contains(cacheWriteBytes, "12.0 MB/120.0 MB") ||
+		!strings.Contains(cacheWriteBytes, "10%") {
+		t.Fatalf("cache-write byte progress should show active sidecar and bytes, got %q", cacheWriteBytes)
+	}
+	ev.Phase = types.RepoMapScanPhaseParse
+	ev.CurrentFile = "drivers/gpu/big_header.h"
+	ev.BytesWritten = 0
+	ev.BytesTotal = 0
+	activeFile := repoMapScanMessage("zh", ev)
+	if !strings.Contains(activeFile, "正在解析 drivers/gpu/big_header.h") ||
+		!strings.Contains(activeFile, "已完成 4000/12000") {
+		t.Fatalf("parse active-file progress should explain long tail work, got %q", activeFile)
+	}
 	ev.Progress = false
 	ev.Phase = ""
+	ev.CurrentFile = ""
 	ev.Finished = true
 	ev.OK = true
 	ev.ElapsedMs = 1234

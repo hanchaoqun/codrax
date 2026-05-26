@@ -55,6 +55,9 @@ type RepoMapScanEvent struct {
 	ParseableFiles int
 	ParsedFiles    int
 	ChangedFiles   int
+	CurrentFile    string
+	BytesWritten   int64
+	BytesTotal     int64
 
 	ElapsedMs int64
 	Error     string

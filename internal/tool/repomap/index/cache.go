@@ -1,11 +1,13 @@
 package index
 
 import (
+	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"hash"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -272,7 +274,7 @@ type FileInfoCacheWriter struct {
 // SaveCache writes the graph index to markdown files and a JSON snapshot
 // of types.FileInfo data (for incremental reload) in the cache directory.
 func SaveCache(dir string, g *types.Graph) error {
-	return saveCache(dir, g, true)
+	return SaveCacheWithProgress(dir, g, nil)
 }
 
 // SaveCacheWithoutFileInfos writes the derived cache sidecars while
@@ -280,16 +282,29 @@ func SaveCache(dir string, g *types.Graph) error {
 // this after streaming FileInfo chunks during parsing, avoiding a second
 // giant fileinfos write at the end of the scan.
 func SaveCacheWithoutFileInfos(dir string, g *types.Graph) error {
-	return saveCache(dir, g, false)
+	return SaveCacheWithoutFileInfosWithProgress(dir, g, nil)
 }
 
-func saveCache(dir string, g *types.Graph, includeFileInfos bool) error {
+// SaveCacheWithProgress is SaveCache plus an optional local progress callback
+// for large derived sidecar writes. The callback is UI telemetry only; cache
+// correctness and model-visible tool contracts do not depend on it.
+func SaveCacheWithProgress(dir string, g *types.Graph, progress func(file string, written, total int64)) error {
+	return saveCache(dir, g, true, progress)
+}
+
+// SaveCacheWithoutFileInfosWithProgress is SaveCacheWithoutFileInfos plus
+// optional sidecar-write progress telemetry.
+func SaveCacheWithoutFileInfosWithProgress(dir string, g *types.Graph, progress func(file string, written, total int64)) error {
+	return saveCache(dir, g, false, progress)
+}
+
+func saveCache(dir string, g *types.Graph, includeFileInfos bool, progress func(file string, written, total int64)) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 
 	// Save file hashes for incremental update
-	if err := saveHashes(dir, g); err != nil {
+	if err := saveHashes(dir, g, progress); err != nil {
 		return err
 	}
 
@@ -302,17 +317,17 @@ func saveCache(dir string, g *types.Graph, includeFileInfos bool) error {
 	}
 
 	// Save symbols (markdown, for grep)
-	if err := saveSymbols(dir, g); err != nil {
+	if err := saveSymbols(dir, g, progress); err != nil {
 		return err
 	}
 
 	// Save relations (markdown, for grep)
-	if err := saveRelations(dir, g); err != nil {
+	if err := saveRelations(dir, g, progress); err != nil {
 		return err
 	}
 
 	// Save metadata
-	return saveMeta(dir, g)
+	return saveMeta(dir, g, progress)
 }
 
 func saveFileInfos(dir, repoRoot string, files []*types.FileInfo) error {
@@ -625,6 +640,52 @@ func writeFileAtomic(path string, data []byte) error {
 	return nil
 }
 
+func writeFileAtomicStream(path string, estimate int64, progress func(file string, written, total int64), write func(io.Writer) error) error {
+	tmp := path + ".tmp-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	cw := &countingWriter{file: filepath.Base(path), sink: f, total: estimate, progress: progress}
+	bw := bufio.NewWriter(cw)
+	writeErr := write(bw)
+	if writeErr == nil {
+		writeErr = bw.Flush()
+	}
+	closeErr := f.Close()
+	if writeErr != nil {
+		_ = os.Remove(tmp)
+		return writeErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(tmp)
+		return closeErr
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+type countingWriter struct {
+	file     string
+	sink     io.Writer
+	n        int64
+	total    int64
+	progress func(file string, written, total int64)
+}
+
+func (w *countingWriter) Write(p []byte) (int, error) {
+	n, err := w.sink.Write(p)
+	w.n += int64(n)
+	if w.progress != nil {
+		w.progress(w.file, w.n, w.total)
+	}
+	return n, err
+}
+
 // gitHeadSHA returns the short SHA of repoRoot's current HEAD or
 // an empty string when the directory isn't a git repo. Purely
 // diagnostic — the rest of the cache validation does not depend
@@ -656,123 +717,203 @@ func hashFile(path string) (string, error) {
 	return contentHash(data), nil
 }
 
-func saveHashes(dir string, g *types.Graph) error {
-	var b strings.Builder
-	b.WriteString("# File Hashes\n\n")
-	for _, fi := range g.Files {
-		b.WriteString(fmt.Sprintf("%s\t%s\t%s\t%d\n", fi.RelPath, fi.Hash, fi.Language, fi.Size))
-	}
-	return os.WriteFile(filepath.Join(dir, cacheHashesFile), []byte(b.String()), 0o644)
+func saveHashes(dir string, g *types.Graph, progress func(file string, written, total int64)) error {
+	return writeFileAtomicStream(filepath.Join(dir, cacheHashesFile), 0, progress, func(w io.Writer) error {
+		if _, err := fmt.Fprint(w, "# File Hashes\n\n"); err != nil {
+			return err
+		}
+		for _, fi := range g.Files {
+			if _, err := fmt.Fprintf(w, "%s\t%s\t%s\t%d\n", fi.RelPath, fi.Hash, fi.Language, fi.Size); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
-func saveSymbols(dir string, g *types.Graph) error {
-	var b strings.Builder
-	b.WriteString("# Symbols Index\n\n")
+func saveSymbols(dir string, g *types.Graph, progress func(file string, written, total int64)) error {
+	return writeFileAtomicStream(filepath.Join(dir, cacheSymbolsFile), estimateSymbolsSidecarBytes(g), progress, func(w io.Writer) error {
+		if _, err := fmt.Fprint(w, "# Symbols Index\n\n"); err != nil {
+			return err
+		}
 
+		for _, fi := range g.Files {
+			if len(fi.Symbols) == 0 {
+				continue
+			}
+			if _, err := fmt.Fprintf(w, "## %s", fi.RelPath); err != nil {
+				return err
+			}
+			if fi.Package != "" {
+				if _, err := fmt.Fprintf(w, " [pkg:%s]", fi.Package); err != nil {
+					return err
+				}
+			}
+			if _, err := fmt.Fprintf(w, " [hash:%s]\n\n", fi.Hash); err != nil {
+				return err
+			}
+
+			for _, sym := range fi.Symbols {
+				exported := ""
+				if sym.Exported {
+					exported = " [exported]"
+				}
+				recv := ""
+				if sym.Receiver != "" {
+					recv = fmt.Sprintf("(%s) ", sym.Receiver)
+				} else if sym.Parent != "" {
+					recv = fmt.Sprintf("%s.", sym.Parent)
+				}
+				sig := ""
+				if sym.Signature != "" {
+					sig = " `" + sym.Signature + "`"
+				}
+				doc := ""
+				if sym.Doc != "" {
+					doc = " — " + sym.Doc
+				}
+				if _, err := fmt.Fprintf(w, "- `%s%s` %s :%d-%d%s%s%s\n",
+					recv, sym.Name, sym.Kind, sym.Line, sym.EndLine, exported, sig, doc); err != nil {
+					return err
+				}
+			}
+			if _, err := fmt.Fprint(w, "\n"); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func saveRelations(dir string, g *types.Graph, progress func(file string, written, total int64)) error {
+	return writeFileAtomicStream(filepath.Join(dir, cacheRelationsFile), estimateRelationsSidecarBytes(g), progress, func(w io.Writer) error {
+		if _, err := fmt.Fprint(w, "# Relations Index\n\n"); err != nil {
+			return err
+		}
+
+		kindOrder := []string{"import", "call", "type_usage", "reference", "inheritance", "embedding"}
+		for _, kind := range kindOrder {
+			headingWritten := false
+			seen := make(map[string]bool)
+			writeRel := func(rel types.Relation) error {
+				key := rel.From + "→" + rel.To
+				if seen[key] {
+					return nil
+				}
+				seen[key] = true
+				if !headingWritten {
+					heading := strings.ReplaceAll(kind, "_", " ")
+					if len(heading) > 0 {
+						heading = strings.ToUpper(heading[:1]) + heading[1:]
+					}
+					if _, err := fmt.Fprintf(w, "## %s\n\n", heading); err != nil {
+						return err
+					}
+					headingWritten = true
+				}
+				_, err := fmt.Fprintf(w, "- %s → %s :%d\n", rel.From, rel.To, rel.Line)
+				return err
+			}
+
+			for _, fi := range g.Files {
+				for _, rel := range fi.Relations {
+					if rel.Kind != kind {
+						continue
+					}
+					if err := writeRel(rel); err != nil {
+						return err
+					}
+				}
+				if kind == "import" {
+					for _, imp := range fi.Imports {
+						if err := writeRel(types.Relation{
+							Kind: "import",
+							From: fi.RelPath,
+							To:   imp.Path,
+							File: fi.RelPath,
+							Line: imp.Line,
+						}); err != nil {
+							return err
+						}
+					}
+				}
+			}
+			if headingWritten {
+				if _, err := fmt.Fprint(w, "\n"); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
+func saveMeta(dir string, g *types.Graph, progress func(file string, written, total int64)) error {
+	return writeFileAtomicStream(filepath.Join(dir, cacheMetaFile), 0, progress, func(w io.Writer) error {
+		if _, err := fmt.Fprint(w, "# Repo Map types.Metadata\n\n"); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(w, "- **Scan time**: %s\n", g.Metadata.ScanTime.Format(time.RFC3339)); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(w, "- **Files**: %d\n", g.Metadata.FileCount); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(w, "- **Symbols**: %d\n", g.Metadata.SymbolCount); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(w, "- **Relations**: %d\n", g.Metadata.RelationCount); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprint(w, "\n## Languages\n\n"); err != nil {
+			return err
+		}
+		for lang, count := range g.Metadata.Languages {
+			if _, err := fmt.Fprintf(w, "- %s: %d\n", lang, count); err != nil {
+				return err
+			}
+		}
+		if len(g.Metadata.SpecialFiles) > 0 {
+			if _, err := fmt.Fprint(w, "\n## Special Files\n\n"); err != nil {
+				return err
+			}
+			for _, f := range g.Metadata.SpecialFiles {
+				if _, err := fmt.Fprintf(w, "- %s\n", f); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
+}
+
+func estimateSymbolsSidecarBytes(g *types.Graph) int64 {
+	if g == nil {
+		return 0
+	}
+	var total int64 = 18 // "# Symbols Index\n\n"
 	for _, fi := range g.Files {
 		if len(fi.Symbols) == 0 {
 			continue
 		}
-		b.WriteString(fmt.Sprintf("## %s", fi.RelPath))
-		if fi.Package != "" {
-			b.WriteString(fmt.Sprintf(" [pkg:%s]", fi.Package))
-		}
-		b.WriteString(fmt.Sprintf(" [hash:%s]\n\n", fi.Hash))
-
+		total += int64(len(fi.RelPath) + len(fi.Package) + len(fi.Hash) + 24)
 		for _, sym := range fi.Symbols {
-			exported := ""
-			if sym.Exported {
-				exported = " [exported]"
-			}
-			recv := ""
-			if sym.Receiver != "" {
-				recv = fmt.Sprintf("(%s) ", sym.Receiver)
-			} else if sym.Parent != "" {
-				recv = fmt.Sprintf("%s.", sym.Parent)
-			}
-			sig := ""
-			if sym.Signature != "" {
-				sig = " `" + sym.Signature + "`"
-			}
-			doc := ""
-			if sym.Doc != "" {
-				doc = " — " + sym.Doc
-			}
-			b.WriteString(fmt.Sprintf("- `%s%s` %s :%d-%d%s%s%s\n",
-				recv, sym.Name, sym.Kind, sym.Line, sym.EndLine, exported, sig, doc))
+			total += int64(len(sym.Name) + len(sym.Kind) + len(sym.Receiver) + len(sym.Parent) + len(sym.Signature) + len(sym.Doc) + 40)
 		}
-		b.WriteString("\n")
+		total++
 	}
-	return os.WriteFile(filepath.Join(dir, cacheSymbolsFile), []byte(b.String()), 0o644)
+	return total
 }
 
-func saveRelations(dir string, g *types.Graph) error {
-	var b strings.Builder
-	b.WriteString("# Relations Index\n\n")
-
-	// Group by kind
-	groups := make(map[string][]types.Relation)
+func estimateRelationsSidecarBytes(g *types.Graph) int64 {
+	if g == nil {
+		return 0
+	}
+	var count int
 	for _, fi := range g.Files {
-		for _, rel := range fi.Relations {
-			groups[rel.Kind] = append(groups[rel.Kind], rel)
-		}
-		// import relations
-		for _, imp := range fi.Imports {
-			groups["import"] = append(groups["import"], types.Relation{
-				Kind: "import",
-				From: fi.RelPath,
-				To:   imp.Path,
-				File: fi.RelPath,
-				Line: imp.Line,
-			})
-		}
+		count += len(fi.Relations) + len(fi.Imports)
 	}
-
-	kindOrder := []string{"import", "call", "type_usage", "reference", "inheritance", "embedding"}
-	for _, kind := range kindOrder {
-		rels, ok := groups[kind]
-		if !ok || len(rels) == 0 {
-			continue
-		}
-		heading := strings.ReplaceAll(kind, "_", " ")
-		if len(heading) > 0 {
-			heading = strings.ToUpper(heading[:1]) + heading[1:]
-		}
-		b.WriteString(fmt.Sprintf("## %s\n\n", heading))
-
-		// deduplicate for display
-		seen := make(map[string]bool)
-		for _, rel := range rels {
-			key := rel.From + "→" + rel.To
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			b.WriteString(fmt.Sprintf("- %s → %s :%d\n", rel.From, rel.To, rel.Line))
-		}
-		b.WriteString("\n")
-	}
-	return os.WriteFile(filepath.Join(dir, cacheRelationsFile), []byte(b.String()), 0o644)
-}
-
-func saveMeta(dir string, g *types.Graph) error {
-	var b strings.Builder
-	b.WriteString("# Repo Map types.Metadata\n\n")
-	b.WriteString(fmt.Sprintf("- **Scan time**: %s\n", g.Metadata.ScanTime.Format(time.RFC3339)))
-	b.WriteString(fmt.Sprintf("- **Files**: %d\n", g.Metadata.FileCount))
-	b.WriteString(fmt.Sprintf("- **Symbols**: %d\n", g.Metadata.SymbolCount))
-	b.WriteString(fmt.Sprintf("- **Relations**: %d\n", g.Metadata.RelationCount))
-	b.WriteString("\n## Languages\n\n")
-	for lang, count := range g.Metadata.Languages {
-		b.WriteString(fmt.Sprintf("- %s: %d\n", lang, count))
-	}
-	if len(g.Metadata.SpecialFiles) > 0 {
-		b.WriteString("\n## Special Files\n\n")
-		for _, f := range g.Metadata.SpecialFiles {
-			b.WriteString(fmt.Sprintf("- %s\n", f))
-		}
-	}
-	return os.WriteFile(filepath.Join(dir, cacheMetaFile), []byte(b.String()), 0o644)
+	return int64(count * 80)
 }
 
 // LoadCachedHashes reads the file hashes from a previous scan.

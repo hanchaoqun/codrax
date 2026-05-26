@@ -785,10 +785,17 @@ func repoMapScanCountsZH(ev types.RepoMapScanEvent, progress bool) string {
 	if ev.Mode == types.RepoMapScanCacheHit {
 		return fmt.Sprintf("缓存命中，%d 个文件", total)
 	}
+	if progress && ev.Phase == types.RepoMapScanPhaseCacheWrite && strings.TrimSpace(ev.CurrentFile) != "" && ev.BytesWritten > 0 {
+		return fmt.Sprintf("正在写入 %s（%s）；源文件已解析 %d/%d（总文件 %d）",
+			ev.CurrentFile, formatByteProgressZH(ev.BytesWritten, ev.BytesTotal), parseable, parseable, total)
+	}
 	if parseable <= 0 {
 		return fmt.Sprintf("%d 个文件", total)
 	}
 	if progress {
+		if ev.Phase == types.RepoMapScanPhaseParse && strings.TrimSpace(ev.CurrentFile) != "" {
+			return fmt.Sprintf("正在解析 %s；已完成 %d/%d 个源文件（总文件 %d）", ev.CurrentFile, ev.ParsedFiles, parseable, total)
+		}
 		if ev.Phase != "" && ev.Phase != types.RepoMapScanPhaseParse {
 			return fmt.Sprintf("源文件已解析 %d/%d（总文件 %d）", parseable, parseable, total)
 		}
@@ -821,10 +828,17 @@ func repoMapScanCountsEN(ev types.RepoMapScanEvent, progress bool) string {
 	if ev.Mode == types.RepoMapScanCacheHit {
 		return fmt.Sprintf("cache hit, %d files", total)
 	}
+	if progress && ev.Phase == types.RepoMapScanPhaseCacheWrite && strings.TrimSpace(ev.CurrentFile) != "" && ev.BytesWritten > 0 {
+		return fmt.Sprintf("writing %s (%s); parsed %d/%d source files (%d files total)",
+			ev.CurrentFile, formatByteProgressEN(ev.BytesWritten, ev.BytesTotal), parseable, parseable, total)
+	}
 	if parseable <= 0 {
 		return fmt.Sprintf("%d files", total)
 	}
 	if progress {
+		if ev.Phase == types.RepoMapScanPhaseParse && strings.TrimSpace(ev.CurrentFile) != "" {
+			return fmt.Sprintf("parsing %s; parsed %d/%d source files (%d files total)", ev.CurrentFile, ev.ParsedFiles, parseable, total)
+		}
 		if ev.Phase != "" && ev.Phase != types.RepoMapScanPhaseParse {
 			return fmt.Sprintf("parsed %d/%d source files (%d files total)", parseable, parseable, total)
 		}
@@ -834,6 +848,37 @@ func repoMapScanCountsEN(ev types.RepoMapScanEvent, progress bool) string {
 		return fmt.Sprintf("%d files, %d changed, %d source files to parse", total, ev.ChangedFiles, parseable)
 	}
 	return fmt.Sprintf("%d files, %d source files to parse", total, parseable)
+}
+
+func formatByteSize(n int64) string {
+	if n < 1024 {
+		return fmt.Sprintf("%d B", n)
+	}
+	units := []string{"KB", "MB", "GB", "TB"}
+	value := float64(n)
+	for _, unit := range units {
+		value /= 1024
+		if value < 1024 {
+			return fmt.Sprintf("%.1f %s", value, unit)
+		}
+	}
+	return fmt.Sprintf("%.1f PB", value/1024)
+}
+
+func formatByteProgressZH(written, total int64) string {
+	if total > 0 && written <= total {
+		pct := float64(written) * 100 / float64(total)
+		return fmt.Sprintf("%s/%s，%.0f%%", formatByteSize(written), formatByteSize(total), pct)
+	}
+	return "已写入 " + formatByteSize(written)
+}
+
+func formatByteProgressEN(written, total int64) string {
+	if total > 0 && written <= total {
+		pct := float64(written) * 100 / float64(total)
+		return fmt.Sprintf("%s/%s, %.0f%%", formatByteSize(written), formatByteSize(total), pct)
+	}
+	return formatByteSize(written) + " written"
 }
 
 func repoMapScanSubject(ev types.RepoMapScanEvent) (string, string) {

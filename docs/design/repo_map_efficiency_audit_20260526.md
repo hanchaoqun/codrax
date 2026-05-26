@@ -109,6 +109,52 @@ Otherwise, ordinary single-repo `path="."` semantics apply.
     alongside investigation prose. This keeps the behaviour soft, typed, and
     language-agnostic.
 
+12. **Large-repo "cache write" stalls were mostly parse-tail stalls.**
+    The Linux `io_uring` run after clearing
+    `~/.codrax/cache/repomap/linux-284507f5` showed a 213.4s first scan. Log
+    timestamps prove the visible tail was not primarily sidecar write:
+    `cache_write` lasted about 1.8s, `build_graph` about 3s, and `rank` about
+    0.2s. The long gap was parse tail: progress reached
+    `63894/63895` at 23:30:13 and only entered graph build at 23:32:04. Linux
+    contains many generated AMD register headers in the 5-24MB range; with
+    FIFO parse scheduling a huge file can land last and make the UI look stuck.
+    Fixes must not skip or downgrade parsing, because that would lose repo_map
+    precision. Safe fixes are: schedule larger source files first, surface the
+    currently parsed large file locally, and keep full parsing semantics. After
+    the cache was fully written, a warm-cache check reached
+    `仓库索引 linux 已就绪：缓存命中，93459 个文件` in 12.1s, confirming that
+    repeated scans should reuse sidecars when the cache directory is complete.
+
+13. **Derived sidecar writes can still add avoidable RSS spikes.**
+    The same Linux cache directory was about 1.5GB:
+    `fileinfos.*.d` 1.3GB, `relations.md` 124MB, `symbols.md` 82MB. FileInfo
+    chunks already stream during parsing, so the remaining write path to watch
+    is derived sidecars. The old writer assembled markdown sidecars in a
+    `strings.Builder`, temporarily duplicating large buffers in memory. This is
+    not the dominant latency in the observed run, but it is a real peak-memory
+    cost on huge repositories. Sidecars should stream through atomic temp files
+    and report byte progress with bounded UI frequency.
+
+14. **Natural-language navigation now proves repo_map is discoverable, but
+    exploration convergence is still a separate gap.** A Linux `io_uring`
+    question that did not mention `repo_map` still led the analyzer to call
+    `repo_map(view="task_map")` before targeted grep/read, which validates the
+    model-visible navigation teaching. The same run later reached 32 exploration
+    rounds because high-ranked/pre-scan files and evidence-repair follow-up
+    continued after the model had already produced a sufficient investigation
+    summary. That is not a repo_map cache/progress bug; it should be tracked in
+    the explorer convergence workstream so navigation facts remain high-priority
+    without becoming hard same-topic loops.
+
+15. **Memory limits should remain soft, not precision-losing.** Large Linux
+    scans can legitimately hold several GB of graph state because repo_map must
+    preserve symbol/relation precision. Codrax already supports a soft
+    `memory_soft_limit_fraction` runtime knob that maps to Go's heap soft
+    target. The repo_map fix should reduce avoidable spikes (streamed sidecars,
+    large-first scheduling, progress visibility) but must not implement a hard
+    RSS cap by dropping parse detail. Operators can lower the soft fraction for
+    huge repositories; a hard process cap belongs to the host/container layer.
+
 ## Task List
 
 | ID | Status | Task | Validation |
@@ -125,6 +171,10 @@ Otherwise, ordinary single-repo `path="."` semantics apply.
 | RME-T9 | Done | Add prompt-side principal-boundary guidance for "key files / related files" sections so supporting/concrete-value rows do not become principal file lists | Finalizer prompt test / inspection |
 | RME-T10 | Done | Reuse the existing graph-backed cross-file symbol advisory for central symbols mentioned in non-grounded evidence rows, across all repomap languages | `TestDetectCrossFileSymbolGaps/non-grounded evidence text can surface lowercase C-style definitions`, `TestDetectCrossFileSymbolGaps/graph contract is language agnostic` |
 | RME-T11 | Planned | Add eval coverage for large-repo two-stage repo_map navigation with stale repair and support-lane leakage checks | New eval cases |
+| RME-T12 | Done | Reduce large-repo first-scan tail confusion without losing precision: parse larger source files first, emit local active-large-file progress, keep full tree-sitter parsing, and log slow parses | `TestParseJobOrderLargeFilesFirst`, active-file progress tests, Linux log timing analysis |
+| RME-T13 | Done | Stream derived cache sidecars atomically and report bounded byte progress (`written/estimated total`) during cache-write phase; throttle same-file permanent progress to roughly 32MiB/5s plus start/end so logs do not spam | `TestSaveCacheWithProgressReportsSidecarBytes`, repo-map scan message byte-progress tests |
+| RME-T14 | Done | Run a large-repo natural-language autonomy validation that does not mention `repo_map`, using Linux `io_uring` as the manual case, to verify the analyzer/explorer select repo_map lenses on their own | `codrax-20260526-235421-000-24909.log`: analyzer called `repo_map(view="task_map")`; follow-up explorer convergence gap recorded above |
+| RME-T15 | Planned | Add portable eval coverage for large-repo-style navigation without depending on local `../linux`, including warm-cache reuse, stale repair, and support-lane leakage checks | Synthetic fixture + existing eval harness |
 
 ## Red-Line Guardrails
 

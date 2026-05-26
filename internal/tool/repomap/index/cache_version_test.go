@@ -127,6 +127,35 @@ func TestLegacyCachePayloadStillLoads(t *testing.T) {
 	}
 }
 
+func TestSaveCacheWithProgressReportsSidecarBytes(t *testing.T) {
+	dir := t.TempDir()
+	graph := BuildGraph(t.TempDir(), []*types.FileInfo{{
+		RelPath:  "a.go",
+		Language: types.LangGo,
+		Hash:     "deadbeef",
+		Symbols: []types.Symbol{
+			{Name: "Alpha", Kind: "function", File: "a.go", Line: 1, EndLine: 3, Doc: strings.Repeat("doc ", 64)},
+		},
+		Relations: []types.Relation{
+			{Kind: "call", From: "a.go", To: "Beta", Line: 2},
+		},
+	}})
+
+	seen := map[string]int64{}
+	if err := SaveCacheWithoutFileInfosWithProgress(dir, graph, func(file string, written, total int64) {
+		if written > 0 {
+			seen[file] = written
+		}
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range []string{cacheHashesFile, cacheSymbolsFile, cacheRelationsFile, cacheMetaFile} {
+		if seen[file] <= 0 {
+			t.Fatalf("expected byte progress for %s, got map %v", file, seen)
+		}
+	}
+}
+
 func readFileInfosManifestForTest(t *testing.T, dir string) cacheFileInfosManifest {
 	t.Helper()
 	raw, err := os.ReadFile(filepath.Join(dir, cacheFileInfosManifestFile))

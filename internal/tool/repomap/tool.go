@@ -860,7 +860,8 @@ func incrementalScan(repoRoot, cacheDir string, entries []FileEntry, changed []s
 	if progress != nil {
 		onProgress = progress.parsed
 	}
-	freshInfos := index.ParseFilesWithProgress(parseable, repoRoot, onProgress)
+	activeFile := repoMapActiveFileReporter(progress)
+	freshInfos, _ := index.ParseFilesWithProgressSinkAndActive(parseable, repoRoot, onProgress, nil, activeFile)
 	for _, e := range unparseable {
 		freshInfos = append(freshInfos, index.BasicFileInfo(e))
 	}
@@ -888,7 +889,9 @@ func incrementalScan(repoRoot, cacheDir string, entries []FileEntry, changed []s
 	progress.setPhase(ctypes.RepoMapScanPhaseRank)
 	retrieve.RankGraph(graph, query)
 	progress.setPhase(ctypes.RepoMapScanPhaseCacheWrite)
-	if err := index.SaveCache(cacheDir, graph); err != nil {
+	if err := index.SaveCacheWithProgress(cacheDir, graph, func(file string, written, total int64) {
+		progress.cacheWriteFile(file, written, total)
+	}); err != nil {
 		logging.Warning("repo_map: cache save failed: %v", err)
 	}
 	return graph, nil
@@ -942,6 +945,7 @@ func fullScan(repoRoot, cacheDir string, entries []FileEntry, query string, prog
 	if progress != nil {
 		onProgress = progress.parsed
 	}
+	activeFile := repoMapActiveFileReporter(progress)
 	var cacheWriter *index.FileInfoCacheWriter
 	var cacheSink func(*FileInfo) error
 	if cacheDir != "" {
@@ -966,7 +970,7 @@ func fullScan(repoRoot, cacheDir string, entries []FileEntry, query string, prog
 		}
 	}
 
-	parsedInfos, parseStreamErr := index.ParseFilesWithProgressAndSink(toParse, repoRoot, onProgress, cacheSink)
+	parsedInfos, parseStreamErr := index.ParseFilesWithProgressSinkAndActive(toParse, repoRoot, onProgress, cacheSink, activeFile)
 	if cacheStreamErr == nil {
 		cacheStreamErr = parseStreamErr
 	}
@@ -1013,17 +1017,29 @@ func fullScan(repoRoot, cacheDir string, entries []FileEntry, query string, prog
 
 	// Save cache (non-blocking — errors are tolerable)
 	progress.setPhase(ctypes.RepoMapScanPhaseCacheWrite)
+	cacheProgress := func(file string, written, total int64) {
+		progress.cacheWriteFile(file, written, total)
+	}
 	var saveErr error
 	if cacheStreamErr == nil && cacheWriter != nil {
-		saveErr = index.SaveCacheWithoutFileInfos(cacheDir, graph)
+		saveErr = index.SaveCacheWithoutFileInfosWithProgress(cacheDir, graph, cacheProgress)
 	} else {
-		saveErr = index.SaveCache(cacheDir, graph)
+		saveErr = index.SaveCacheWithProgress(cacheDir, graph, cacheProgress)
 	}
 	if saveErr != nil {
 		logging.Warning("repo_map: cache save failed: %v", saveErr)
 	}
 
 	return graph, nil
+}
+
+func repoMapActiveFileReporter(progress *repoMapScanProgress) func(index.FileEntry) {
+	if progress == nil {
+		return nil
+	}
+	return func(entry index.FileEntry) {
+		progress.activeFile(entry.RelPath)
+	}
 }
 
 // ToolDescription returns a short summary for status messages.

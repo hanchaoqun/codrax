@@ -46,7 +46,17 @@ type repoMapScanProgress struct {
 	start    time.Time
 	lastEmit time.Time
 	lastDone int
+
+	lastCacheFile    string
+	lastCacheBytes   int64
+	lastCacheEmit    time.Time
+	lastCacheStarted time.Time
 }
+
+const (
+	repoMapCacheWriteEmitBytes = 32 * 1024 * 1024
+	repoMapCacheWriteEmitAfter = 5 * time.Second
+)
 
 func newRepoMapScanProgress(repoRoot string, mode ctypes.RepoMapScanMode, totalFiles, changedFiles int) *repoMapScanProgress {
 	return &repoMapScanProgress{
@@ -93,6 +103,20 @@ func (p *repoMapScanProgress) parsed(done, total int) {
 	notifyRepoMapScan(p.event(true, false, done, true, ""))
 }
 
+func (p *repoMapScanProgress) activeFile(path string) {
+	if p == nil || !p.started || path == "" {
+		return
+	}
+	now := time.Now()
+	if now.Sub(p.lastEmit) < 2*time.Second {
+		return
+	}
+	p.lastEmit = now
+	ev := p.event(true, false, p.lastDone, true, "")
+	ev.CurrentFile = path
+	notifyRepoMapScan(ev)
+}
+
 func (p *repoMapScanProgress) setPhase(phase ctypes.RepoMapScanPhase) {
 	if p == nil || !p.started || phase == "" {
 		return
@@ -103,6 +127,31 @@ func (p *repoMapScanProgress) setPhase(phase ctypes.RepoMapScanPhase) {
 	logging.Info("repo_map: phase %s (%d source files, %d files total, elapsed=%dms)",
 		phase, p.parseableFiles, p.totalFiles, time.Since(p.start).Milliseconds())
 	notifyRepoMapScan(p.event(true, false, p.parseableFiles, true, ""))
+}
+
+func (p *repoMapScanProgress) cacheWriteFile(path string, written, total int64) {
+	if p == nil || !p.started || p.phase != ctypes.RepoMapScanPhaseCacheWrite {
+		return
+	}
+	now := time.Now()
+	final := total > 0 && written >= total
+	if path == p.lastCacheFile && !final &&
+		written-p.lastCacheBytes < repoMapCacheWriteEmitBytes &&
+		now.Sub(p.lastCacheEmit) < repoMapCacheWriteEmitAfter {
+		return
+	}
+	if path != p.lastCacheFile {
+		p.lastCacheStarted = now
+	}
+	p.lastEmit = now
+	p.lastCacheEmit = now
+	p.lastCacheFile = path
+	p.lastCacheBytes = written
+	ev := p.event(true, false, p.parseableFiles, true, "")
+	ev.CurrentFile = path
+	ev.BytesWritten = written
+	ev.BytesTotal = total
+	notifyRepoMapScan(ev)
 }
 
 func (p *repoMapScanProgress) finish(ok bool, err error) {

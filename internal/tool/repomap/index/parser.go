@@ -3,11 +3,18 @@ package index
 import (
 	"context"
 	"os"
+	"sort"
 	"sync"
+	"time"
 
 	sitter "github.com/smacker/go-tree-sitter"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+)
+
+const (
+	treeSitterSlowParseWarnAfter = 10 * time.Second
 )
 
 // ParseFiles parses all entries in parallel and returns types.FileInfo results.
@@ -34,6 +41,14 @@ func ParseFilesWithProgress(entries []FileEntry, repoRoot string, progress func(
 // are collected so callers can keep serving the current in-memory graph
 // and merely degrade cache persistence.
 func ParseFilesWithProgressAndSink(entries []FileEntry, repoRoot string, progress func(done, total int), sink func(*types.FileInfo) error) ([]*types.FileInfo, error) {
+	return ParseFilesWithProgressSinkAndActive(entries, repoRoot, progress, sink, nil)
+}
+
+// ParseFilesWithProgressSinkAndActive is ParseFilesWithProgressAndSink plus a
+// local-only active-file callback. It does not alter parsing semantics: the
+// callback exists solely so UIs can explain long tail work on very large source
+// files instead of appearing stuck at N-1/N.
+func ParseFilesWithProgressSinkAndActive(entries []FileEntry, repoRoot string, progress func(done, total int), sink func(*types.FileInfo) error, active func(FileEntry)) ([]*types.FileInfo, error) {
 	// Bound the worker pool to the scan CPU budget so a full scan of a
 	// huge repository leaves reserved cores free for the host (see
 	// ApplyScanGOMAXPROCS, which caps the whole runtime to match).
@@ -53,14 +68,16 @@ func ParseFilesWithProgressAndSink(entries []FileEntry, repoRoot string, progres
 		go func() {
 			defer wg.Done()
 			for idx := range jobs {
+				stopActive := startActiveFileHeartbeat(entries[idx], active)
 				fi := parseOneFile(entries[idx])
+				stopActive()
 				results <- result{idx: idx, info: fi}
 			}
 		}()
 	}
 
-	for i := range entries {
-		jobs <- i
+	for _, idx := range parseJobOrder(entries) {
+		jobs <- idx
 	}
 	close(jobs)
 
@@ -99,6 +116,51 @@ func ParseFilesWithProgressAndSink(entries []FileEntry, repoRoot string, progres
 	return out, sinkErr
 }
 
+func startActiveFileHeartbeat(entry FileEntry, active func(FileEntry)) func() {
+	if active == nil {
+		return func() {}
+	}
+	if entry.Size >= 1<<20 {
+		active(entry)
+	}
+	done := make(chan struct{})
+	go func() {
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+		ticker := (*time.Ticker)(nil)
+		for {
+			select {
+			case <-timerChan(timer):
+				active(entry)
+				ticker = time.NewTicker(5 * time.Second)
+				timer = nil
+			case <-tickerChan(ticker):
+				active(entry)
+			case <-done:
+				if ticker != nil {
+					ticker.Stop()
+				}
+				return
+			}
+		}
+	}()
+	return func() { close(done) }
+}
+
+func tickerChan(t *time.Ticker) <-chan time.Time {
+	if t == nil {
+		return nil
+	}
+	return t.C
+}
+
+func timerChan(t *time.Timer) <-chan time.Time {
+	if t == nil {
+		return nil
+	}
+	return t.C
+}
+
 // BasicFileInfo returns metadata for files that repomap deliberately
 // indexes but does not parse into symbols. It still records the content
 // hash so cache invalidation does not treat every unsupported file as
@@ -116,6 +178,17 @@ func BasicFileInfo(entry FileEntry) *types.FileInfo {
 		fi.SpecialType = stype
 	}
 	return fi
+}
+
+func parseJobOrder(entries []FileEntry) []int {
+	order := make([]int, len(entries))
+	for i := range entries {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(i, j int) bool {
+		return entries[order[i]].Size > entries[order[j]].Size
+	})
+	return order
 }
 
 func parseOneFile(entry FileEntry) *types.FileInfo {
@@ -192,7 +265,12 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 
 	parser := sitter.NewParser()
 	parser.SetLanguage(lang)
+	start := time.Now()
 	tree, err := parser.ParseCtx(context.Background(), nil, source)
+	elapsed := time.Since(start)
+	if elapsed >= treeSitterSlowParseWarnAfter {
+		logging.Warning("repomap: slow parse %s %s size=%d elapsed=%s", entry.Language, entry.RelPath, entry.Size, elapsed.Round(time.Millisecond))
+	}
 	if err != nil || tree == nil {
 		return fi
 	}
