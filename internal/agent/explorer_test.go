@@ -7779,8 +7779,8 @@ func TestObserveMidLoop_CompletionReadyNavigationConsumesVerificationGrace(t *te
 		AllToolResults: results,
 	})
 	if sig.HintRequested {
-		if !strings.HasPrefix(sig.HintKey, "explorer.mid-loop.completion-ready-closure-only.") {
-			t.Fatalf("HintKey = %q, want completion-ready-closure-only prefix", sig.HintKey)
+		if sig.HintKey != "explorer.mid-loop.completion-ready-closure-only" {
+			t.Fatalf("HintKey = %q, want completion-ready-closure-only", sig.HintKey)
 		}
 	} else {
 		t.Fatalf("post-ready navigation-only batch should consume verification grace, got %+v", sig)
@@ -8152,7 +8152,7 @@ func TestObserveMidLoop_ArchitectureDoesNotHardNudgeOptionalAnchorSkeleton(t *te
 	}
 }
 
-func TestObserveMidLoop_CompletionReadyClosureOnlyRedirectRepeatsAfterEscalation(t *testing.T) {
+func TestObserveMidLoop_CompletionReadyClosureOnlyRedirectIsOneShotAfterEscalation(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                           1,
 		searchResult:                    &keywordSearchResult{Graph: &repomap.Graph{}},
@@ -8182,11 +8182,20 @@ func TestObserveMidLoop_CompletionReadyClosureOnlyRedirectRepeatsAfterEscalation
 	if !sig.HintRequested {
 		t.Fatalf("closure-only redirect should fire after post-ready navigation, got %+v", sig)
 	}
-	if !strings.HasPrefix(sig.HintKey, "explorer.mid-loop.completion-ready-closure-only.") {
-		t.Fatalf("HintKey = %q, want completion-ready-closure-only prefix", sig.HintKey)
+	if sig.HintKey != "explorer.mid-loop.completion-ready-closure-only" {
+		t.Fatalf("HintKey = %q, want completion-ready-closure-only", sig.HintKey)
 	}
 	if !strings.Contains(sig.Hint, "emit_investigation_complete") {
 		t.Fatalf("closure-only redirect should steer back to completion, got: %s", sig.Hint)
+	}
+	again := eval.postCompletionReadyClosureOnlySignal(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      7,
+		LastToolResult: &results[1],
+		AllToolResults: results,
+	})
+	if again.HintRequested {
+		t.Fatalf("closure-only redirect must be one-shot after verification grace is consumed, got %+v", again)
 	}
 }
 
@@ -8254,8 +8263,8 @@ func TestObserveMidLoop_DriftBoundedCompletionReadyClosureOnlyFastTracks(t *test
 	if !sig.HintRequested {
 		t.Fatalf("drift-bounded completion-ready should fast-track closure-only after navigation, got %+v", sig)
 	}
-	if !strings.HasPrefix(sig.HintKey, "explorer.mid-loop.completion-ready-closure-only.") {
-		t.Fatalf("HintKey = %q, want completion-ready-closure-only prefix", sig.HintKey)
+	if sig.HintKey != "explorer.mid-loop.completion-ready-closure-only" {
+		t.Fatalf("HintKey = %q, want completion-ready-closure-only", sig.HintKey)
 	}
 	if !strings.Contains(sig.Hint, "older-build-only branches") {
 		t.Fatalf("fast-track closure-only should explicitly block older-build-only drift, got: %s", sig.Hint)

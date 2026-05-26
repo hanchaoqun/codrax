@@ -1502,6 +1502,14 @@ Batch P0-B — continuation after durable progress:
 - Record metrics for `fresh_breadth_after_checkpoint` and
   `checkpoint_continuation_rendered`.
 
+Delivery status:
+
+- Implemented in `explorer.BuildInitialInstruction`: system-generated
+  transient stream retry / tool-history prune checkpoint directives now render a
+  checkpoint-continuation instruction instead of the fresh breadth-scan
+  workflow. The continuation path is intentionally narrow: close from the
+  accepted evidence, verify one exact missing anchor, or preserve a caveat.
+
 Batch P0-C — close-ready and read-without-emit convergence:
 
 - Classify repair/read debt as `principal-blocking`, `surgical-grounding`, or
@@ -1513,6 +1521,15 @@ Batch P0-C — close-ready and read-without-emit convergence:
   candidate coverage, deterministic measurement, checkpoint, or close-ready,
   ask for structured closure / one named missing support item rather than more
   generic reading.
+
+Delivery status:
+
+- First guard implemented: once completion-ready has fired, a navigation-only
+  verification branch without structured progress can receive exactly one
+  closure-only redirect. The hint uses a stable key and a per-dispatch latch, so
+  later same-shape navigation does not keep injecting fresh "continue verifying"
+  permission. This remains advisory; it does not hard-stop the model or hide
+  any model output.
 
 Batch P0-D — exact candidate universe precedence:
 

@@ -158,28 +158,29 @@ type explorerEvaluator struct {
 	// orientation finalize nudge. Without this latch the nudge would
 	// re-render every iteration after the threshold fires, drowning
 	// the LLM in repeated "you have enough" reminders.
-	midLoopOrientationFinalizeSent   bool
-	midLoopNoEmitPushSent            bool // one-shot: current evidence-materialization backlog window already received its read-without-emit nudge
-	midLoopNoEmitEscalated           bool // one-shot: stronger "emit evidence now" escalation after the current backlog window's nudge was ignored
-	midLoopNoEmitEndpointSent        bool // one-shot: bounded trace backlog could not be narrowed because the terminal endpoint is not covered yet
-	midLoopExecRedirectSent          bool // one-shot: redirected shell-style browsing back to built-in grep/read_file before recording the current backlog window
-	midLoopExplanationAnchorSent     bool // one-shot: multi-topic explanation still lacks one grounded anchor per sub-topic
-	midLoopCompletionReadySent       bool // one-shot: generic "you already have enough grounded evidence; close now" hint already pushed this dispatch
-	midLoopCandidateUniverseSent     bool // one-shot: exact candidate universe is not yet covered/excluded by a structured member_set
-	midLoopCompletionReadyEscalated  bool // one-shot: stronger close-now escalation after the completion-ready hint was ignored
-	midLoopCompletionReadyIter       int  // iteration where completion-ready first fired
-	midLoopNoveltySeen               map[string]bool
-	midLoopNoNoveltyNavigationStreak int
-	midLoopNoNoveltyStreakByScope    map[string]int
-	midLoopLowNoveltyHintSent        bool
-	midLoopNoEmitPushIter            int  // iteration where the current backlog window's read-without-emit nudge fired
-	midLoopNoEmitPushResultsLen      int  // allResults length when the current backlog window's read-without-emit nudge fired
-	midLoopEmitBacklogBaseLen        int  // allResults length immediately after the last successful emit_evidence that closed the prior backlog window
-	primaryReadSeen                  bool // df3-drift: whether any primary-entity file has entered readSet this dispatch
-	primaryReadIter                  int  // df3-drift: iter at which a primary-entity file first entered readSet
-	notesLenAtPrimaryRead            int  // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
-	investigationComplete            bool // set when emit_investigation_complete tool was observed in MidLoop
-	mergedEmittedEvidenceLen         int  // number of Mutable.EmittedEvidence rows already folded into structuredEvidence this dispatch
+	midLoopOrientationFinalizeSent    bool
+	midLoopNoEmitPushSent             bool // one-shot: current evidence-materialization backlog window already received its read-without-emit nudge
+	midLoopNoEmitEscalated            bool // one-shot: stronger "emit evidence now" escalation after the current backlog window's nudge was ignored
+	midLoopNoEmitEndpointSent         bool // one-shot: bounded trace backlog could not be narrowed because the terminal endpoint is not covered yet
+	midLoopExecRedirectSent           bool // one-shot: redirected shell-style browsing back to built-in grep/read_file before recording the current backlog window
+	midLoopExplanationAnchorSent      bool // one-shot: multi-topic explanation still lacks one grounded anchor per sub-topic
+	midLoopCompletionReadySent        bool // one-shot: generic "you already have enough grounded evidence; close now" hint already pushed this dispatch
+	midLoopCandidateUniverseSent      bool // one-shot: exact candidate universe is not yet covered/excluded by a structured member_set
+	midLoopCompletionReadyEscalated   bool // one-shot: stronger close-now escalation after the completion-ready hint was ignored
+	midLoopCompletionReadyClosureSent bool // one-shot: post-ready navigation grace was already consumed without structured progress
+	midLoopCompletionReadyIter        int  // iteration where completion-ready first fired
+	midLoopNoveltySeen                map[string]bool
+	midLoopNoNoveltyNavigationStreak  int
+	midLoopNoNoveltyStreakByScope     map[string]int
+	midLoopLowNoveltyHintSent         bool
+	midLoopNoEmitPushIter             int  // iteration where the current backlog window's read-without-emit nudge fired
+	midLoopNoEmitPushResultsLen       int  // allResults length when the current backlog window's read-without-emit nudge fired
+	midLoopEmitBacklogBaseLen         int  // allResults length immediately after the last successful emit_evidence that closed the prior backlog window
+	primaryReadSeen                   bool // df3-drift: whether any primary-entity file has entered readSet this dispatch
+	primaryReadIter                   int  // df3-drift: iter at which a primary-entity file first entered readSet
+	notesLenAtPrimaryRead             int  // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
+	investigationComplete             bool // set when emit_investigation_complete tool was observed in MidLoop
+	mergedEmittedEvidenceLen          int  // number of Mutable.EmittedEvidence rows already folded into structuredEvidence this dispatch
 
 	// answerSubject is the AnswerSubject classification copied from
 	// the analyzer's IR at BuildInitialInstruction time. The chain
@@ -518,6 +519,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopCompletionReadySent = false
 	e.midLoopCandidateUniverseSent = false
 	e.midLoopCompletionReadyEscalated = false
+	e.midLoopCompletionReadyClosureSent = false
 	e.midLoopCompletionReadyIter = 0
 	e.midLoopNoveltySeen = nil
 	e.midLoopNoNoveltyNavigationStreak = 0
@@ -7569,6 +7571,9 @@ func (e *explorerEvaluator) postCompletionReadyClosureOnlySignal(obs LoopObserva
 	if !e.midLoopCompletionReadySent || e.investigationComplete {
 		return LoopSignal{}
 	}
+	if e.midLoopCompletionReadyClosureSent {
+		return LoopSignal{}
+	}
 	navCount := successfulToolCountSince(obs.AllToolResults, e.midLoopLastResultsLen, navigationToolNames)
 	if navCount == 0 {
 		return LoopSignal{}
@@ -7587,6 +7592,7 @@ func (e *explorerEvaluator) postCompletionReadyClosureOnlySignal(obs LoopObserva
 	if fastTrack {
 		e.midLoopCompletionReadyEscalated = true
 	}
+	e.midLoopCompletionReadyClosureSent = true
 	hint := "Progress check: the structured state was already marked close-ready, and this batch spent effort on navigation without structured progress. Before broadening further, either emit exactly one evidence batch for a concrete contradiction found in the lines you opened, or call `emit_investigation_complete(reason, confidence, result_kind)` now. If you continue reading, keep it to one evidence-changing branch."
 	if driftFastTrack {
 		hint = "Progress check: the grounded current branch was already marked close-ready, and this batch reopened navigation. Avoid tracing upstream-provenance or older-build-only branches from here unless one concrete contradiction would change the current-branch answer. Either emit exactly one repair batch for such a contradiction from the lines you already opened, or call `emit_investigation_complete(reason, confidence, result_kind)` now."
@@ -7598,7 +7604,7 @@ func (e *explorerEvaluator) postCompletionReadyClosureOnlySignal(obs LoopObserva
 	}
 	return LoopSignal{
 		HintRequested:  true,
-		HintKey:        fmt.Sprintf("explorer.mid-loop.completion-ready-closure-only.%d", obs.Iteration),
+		HintKey:        "explorer.mid-loop.completion-ready-closure-only",
 		Hint:           hint,
 		Progress:       true,
 		BypassThrottle: true,
