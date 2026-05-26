@@ -281,6 +281,7 @@ func buildRelationMapData(g *types.Graph, params types.ViewParams) *ViewData {
 	scopes := normalizeRelationMapScopes(params.Scopes)
 	sources := relationMapSources(g, params, scopes, topN)
 	rows := relationMapRows(g, sources, scopes, kinds, topN)
+	broadFallback := len(params.Sources) == 0 && strings.TrimSpace(params.Query) == "" && len(scopes) == 0
 
 	d := &ViewData{
 		Type:  "relation_map",
@@ -302,6 +303,9 @@ func buildRelationMapData(g *types.Graph, params types.ViewParams) *ViewData {
 	if strings.TrimSpace(params.Query) != "" {
 		summaryParts = append(summaryParts, "query="+params.Query)
 	}
+	if broadFallback {
+		summaryParts = append(summaryParts, "mode=broad_fallback")
+	}
 	summary.Items = append(summary.Items, ViewItem{Text: strings.Join(summaryParts, " ")})
 	d.Sections = append(d.Sections, summary)
 
@@ -309,6 +313,9 @@ func buildRelationMapData(g *types.Graph, params types.ViewParams) *ViewData {
 	if len(sources) == 0 {
 		sourceSection.Intro = "No source candidates matched the supplied sources/query/scope. Try a narrower `sources` entry, add a `query`, or use `source_inventory` to locate symbols first."
 	} else {
+		if broadFallback {
+			sourceSection.Intro = "Broad fallback because no `sources`, `query`, or `scope` was supplied. For large repositories, rerun with concrete `sources`, `scope`/`scopes`, or `query` before widening reads."
+		}
 		for _, source := range sources {
 			sourceSection.Items = append(sourceSection.Items, ViewItem{
 				Text: relationMapSourceText(source),

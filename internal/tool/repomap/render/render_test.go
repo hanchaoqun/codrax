@@ -587,3 +587,46 @@ func TestGenerateViewDataRelationMapAdvisory(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateViewDataRelationMapBroadFallbackAdvisesNarrowing(t *testing.T) {
+	files := []*types.FileInfo{
+		{
+			RelPath:  "a.go",
+			Language: types.LangGo,
+			Symbols: []types.Symbol{
+				{Name: "Run", Kind: "function", File: "a.go", Line: 10},
+			},
+			Relations: []types.Relation{{
+				Kind: "call",
+				To:   "Next",
+				File: "a.go",
+				Line: 12,
+				ToEP: types.RelationEndpoint{Name: "Next"},
+			}},
+		},
+		{
+			RelPath:  "b.go",
+			Language: types.LangGo,
+			Symbols: []types.Symbol{
+				{Name: "Next", Kind: "function", File: "b.go", Line: 5},
+			},
+		},
+	}
+	g := index.BuildGraph(t.TempDir(), files)
+
+	d := GenerateViewData(g, "relation_map", types.ViewParams{TopN: 10})
+	if d == nil {
+		t.Fatal("GenerateViewData(relation_map) returned nil")
+	}
+	md := RenderMarkdown(d)
+	for _, want := range []string{
+		"mode=broad_fallback",
+		"Broad fallback because no `sources`, `query`, or `scope` was supplied",
+		"rerun with concrete `sources`, `scope`/`scopes`, or `query`",
+		"call `Run @ a.go:10` → Next @ b.go:5",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("broad fallback relation_map missing %q:\n%s", want, md)
+		}
+	}
+}

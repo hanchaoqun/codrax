@@ -22,6 +22,12 @@ func TestRepoMapSchemaTeachesLensParameters(t *testing.T) {
 		"not a semantic source citation",
 		"reserve attribute_roles for narrowed scopes",
 		"top-level architecture",
+		"semantic_subgraph",
+		"edit_impact",
+		"call_path",
+		"context or a tool refusal lists multiple active sub-repos",
+		"active sub-repo",
+		"relative to that selected sub-repo",
 	} {
 		if !strings.Contains(desc, want) {
 			t.Fatalf("repo_map description missing %q:\n%s", want, desc)
@@ -55,16 +61,85 @@ func TestRepoMapSchemaTeachesLensParameters(t *testing.T) {
 		t.Fatalf("repo_map view enum missing lens views: %+v", schema.Properties["view"].Enum)
 	}
 	if !containsString(schema.Properties["relation_kinds"].Items.Enum, "type_usage") ||
-		!strings.Contains(schema.Properties["sources"].Description, "concrete source") {
+		!strings.Contains(schema.Properties["sources"].Description, "concrete source") ||
+		!strings.Contains(schema.Properties["sources"].Description, "relative to that sub-repo") {
 		t.Fatalf("relation_map parameter teaching incomplete: relation_kinds=%+v sources_desc=%q",
 			schema.Properties["relation_kinds"].Items.Enum,
 			schema.Properties["sources"].Description)
+	}
+	if !strings.Contains(schema.Properties["path"].Description, "active sub-repo") ||
+		!strings.Contains(schema.Properties["target_file"].Description, "do not repeat the sub-repo prefix") ||
+		!strings.Contains(schema.Properties["entry_point"].Description, "do not repeat the sub-repo prefix") {
+		t.Fatalf("multi-repo path teaching incomplete: path=%q target_file=%q entry_point=%q",
+			schema.Properties["path"].Description,
+			schema.Properties["target_file"].Description,
+			schema.Properties["entry_point"].Description)
 	}
 	if !strings.Contains(schema.Properties["include_attributes"].Description, "Use false for broad member/count passes") ||
 		!strings.Contains(schema.Properties["attribute_roles"].Description, "Use only for bounded scopes") {
 		t.Fatalf("source_inventory efficiency teaching incomplete: include_attributes=%q attribute_roles=%q",
 			schema.Properties["include_attributes"].Description,
 			schema.Properties["attribute_roles"].Description)
+	}
+}
+
+func TestRepoMapLensParamsStripSelectedSubRepoPrefix(t *testing.T) {
+	params := repoMapParams{
+		TargetFile: "repo-a/internal/app.go",
+		EntryPoint: "./repo-a/cmd/main.go",
+		Scope:      "repo-a/internal",
+		Scopes:     []string{"repo-a/pkg", "other/pkg", "repo-a"},
+		Sources:    []string{"repo-a/internal/app.go", "Service", "repo-a"},
+	}
+
+	advisories := normalizeRepoMapLensParamsForSelectedSubRepo(&params, "repo-a")
+
+	if params.TargetFile != "internal/app.go" ||
+		params.EntryPoint != "cmd/main.go" ||
+		params.Scope != "internal" {
+		t.Fatalf("single-value prefix strip failed: %+v", params)
+	}
+	if got := strings.Join(params.Scopes, "|"); got != "pkg|other/pkg|." {
+		t.Fatalf("scopes prefix strip failed: %q", got)
+	}
+	if got := strings.Join(params.Sources, "|"); got != "internal/app.go|Service|." {
+		t.Fatalf("sources prefix strip failed: %q", got)
+	}
+	advisory := strings.Join(advisories, "\n")
+	for _, want := range []string{
+		"target_file: `repo-a/internal/app.go` → `internal/app.go`",
+		"entry_point: `./repo-a/cmd/main.go` → `cmd/main.go`",
+		"sources[0]: `repo-a/internal/app.go` → `internal/app.go`",
+	} {
+		if !strings.Contains(advisory, want) {
+			t.Fatalf("normalization advisory missing %q:\n%s", want, advisory)
+		}
+	}
+	if strings.Contains(advisory, "other/pkg") || strings.Contains(advisory, "Service") {
+		t.Fatalf("advisory should not mention untouched parameters:\n%s", advisory)
+	}
+}
+
+func TestRepoMapLensParamsNoAdvisoryWhenAlreadyRelative(t *testing.T) {
+	params := repoMapParams{
+		TargetFile: "internal/app.go",
+		EntryPoint: "cmd/main.go",
+		Scope:      "internal",
+		Scopes:     []string{"pkg"},
+		Sources:    []string{"internal/app.go", "Service"},
+	}
+
+	advisories := normalizeRepoMapLensParamsForSelectedSubRepo(&params, "repo-a")
+
+	if len(advisories) != 0 {
+		t.Fatalf("already-relative params should not produce correction advisory: %+v", advisories)
+	}
+	if params.TargetFile != "internal/app.go" ||
+		params.EntryPoint != "cmd/main.go" ||
+		params.Scope != "internal" ||
+		strings.Join(params.Scopes, "|") != "pkg" ||
+		strings.Join(params.Sources, "|") != "internal/app.go|Service" {
+		t.Fatalf("already-relative params should remain unchanged: %+v", params)
 	}
 }
 

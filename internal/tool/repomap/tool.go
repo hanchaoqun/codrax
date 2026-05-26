@@ -61,8 +61,10 @@ func (t *RepoMapV2) Description() string {
 		"source_inventory (typed repo lens for scoped members/symbols/routes/config attributes/counts). " +
 		"Use source_inventory for scoped candidate-universe/member checklists, including broad lists when the question asks for them; reserve attribute_roles for narrowed scopes or selected members because they attach row-local details. " +
 		"For top-level architecture or module overviews, start with overview/file_map/task_map and then inspect selected files. " +
+		"Use semantic_subgraph for topology questions about hubs/bridges/chains, edit_impact for changed-file impact, and call_path for a concrete entry-point path trace. " +
 		"When multiple scopes or broad symbol roles are requested, source_inventory also renders a scope-grouped advisory view to help choose the next files to verify. " +
-		"For relation questions, call relation_map with sources when you already chose a symbol/file, or scopes when you want structural edges inside directories/modules; narrow relation_kinds when you know the edge family."
+		"For relation questions, call relation_map with sources when you already chose a symbol/file, or scopes when you want structural edges inside directories/modules; narrow relation_kinds when you know the edge family. " +
+		"When the context or a tool refusal lists multiple active sub-repos, pass one active sub-repo path as path, then use scopes/sources relative to that selected sub-repo; compare repos by querying each active sub-repo explicitly."
 }
 
 func (t *RepoMapV2) Parameters() json.RawMessage {
@@ -71,7 +73,7 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
   "properties": {
     "path": {
       "type": "string",
-      "description": "Root path of the repository to analyze"
+      "description": "Root path of the repository to analyze. Normal single-repo run: use \".\" or a repo-relative directory. When the context or a tool refusal lists multiple active sub-repos, use one active sub-repo path/prefix; parent-wide \".\" may be refused to avoid scanning unrelated repositories."
     },
     "view": {
       "type": "string",
@@ -84,25 +86,25 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
     },
     "target_file": {
       "type": "string",
-      "description": "File path (relative to repo root) for edit_impact view"
+      "description": "File path for edit_impact view, relative to the selected path/repository root. If path already names an active sub-repo, do not repeat the sub-repo prefix here."
     },
     "entry_point": {
       "type": "string",
-      "description": "File path for call_path view (defaults to main/index file)"
+      "description": "File path for call_path view (defaults to main/index file), relative to the selected path/repository root. If path already names an active sub-repo, do not repeat the sub-repo prefix here."
     },
     "scope": {
       "type": "string",
-      "description": "For source_inventory / relation_map views: one repo-relative scope to inspect while keeping path as the repository root"
+      "description": "For source_inventory / relation_map views: one scope to inspect relative to the selected path/repository root. If the context lists active sub-repos, set path to the chosen active sub-repo and keep scope relative to that sub-repo."
     },
     "scopes": {
       "type": "array",
       "items": {"type": "string"},
-      "description": "For source_inventory / relation_map views: repo-relative scopes to inspect, preserving model-provided order"
+      "description": "For source_inventory / relation_map views: scopes to inspect relative to the selected path/repository root, preserving model-provided order. If the context lists active sub-repos, set path to the chosen active sub-repo and keep scopes relative to that sub-repo."
     },
     "sources": {
       "type": "array",
       "items": {"type": "string"},
-      "description": "For relation_map view: model-chosen source symbols, files, or scopes to inspect. Use this after a source_inventory/task_map/file_map result surfaces a concrete source. Omit with query to let relation_map list matching source candidates."
+      "description": "For relation_map view: model-chosen source symbols, files, or scopes to inspect. Use this after a source_inventory/task_map/file_map result surfaces a concrete source. Omit with query to let relation_map list matching source candidates. If path already names an active sub-repo, file/scope sources should be relative to that sub-repo."
     },
     "relation_kinds": {
       "type": "array",
@@ -225,6 +227,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 	if ctx != nil && ctx.RepoRoot != "" {
 		allowedRoot = ctx.RepoRoot
 	}
+	var paramAdvisories []string
 	if ctx != nil {
 		if gater, ok := ctx.MultiGraph.(ctypes.MultiRepoActiveSetGater); ok && gater != nil {
 			// repo_map points at directories, not single files —
@@ -243,6 +246,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 			if ctx.RepoRoot != "" && gate.SubRepoRootRel != "" && gate.SubRepoRootRel != "." {
 				allowedRoot = filepath.Join(ctx.RepoRoot, gate.SubRepoRootRel)
 			}
+			paramAdvisories = normalizeRepoMapLensParamsForSelectedSubRepo(&p, gate.SubRepoRootRel)
 		}
 	}
 
@@ -331,6 +335,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 			Offset:            p.Offset,
 			Cursor:            p.Cursor,
 		})
+		output = prependRepoMapParameterAdvisory(output, paramAdvisories)
 		summary, ref := tool.StoreBlob(ctx, t.Name(), output)
 		return ctypes.ToolResult{
 			ToolName:  t.Name(),
@@ -353,6 +358,7 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		ShowSourceInventoryHint: repoMapOverviewSourceInventoryHintEnabled(ctx, p.View),
 	}
 	output := render.GenerateView(graph, p.View, viewParams)
+	output = prependRepoMapParameterAdvisory(output, paramAdvisories)
 
 	summary, ref := tool.StoreBlob(ctx, t.Name(), output)
 	return ctypes.ToolResult{
@@ -372,6 +378,84 @@ func repoMapOverviewSourceInventoryHintEnabled(ctx *ctypes.BusContext, view stri
 		return true
 	}
 	return ctx.PipelineStage != ctypes.StageAnalyze && ctx.ActiveAgent != ctypes.AgentAnalyzer
+}
+
+func normalizeRepoMapLensParamsForSelectedSubRepo(p *repoMapParams, subRepoRootRel string) []string {
+	if p == nil {
+		return nil
+	}
+	var advisories []string
+	strip := func(field, value string) string {
+		stripped := stripSelectedSubRepoPrefix(value, subRepoRootRel)
+		if selectedSubRepoPrefixWasPresent(value, subRepoRootRel) && stripped != strings.TrimPrefix(strings.TrimSpace(strings.ReplaceAll(value, `\`, `/`)), "./") {
+			advisories = append(advisories, fmt.Sprintf("%s: `%s` → `%s`", field, strings.TrimSpace(value), stripped))
+		}
+		return stripped
+	}
+	p.TargetFile = strip("target_file", p.TargetFile)
+	p.EntryPoint = strip("entry_point", p.EntryPoint)
+	p.Scope = strip("scope", p.Scope)
+	for i := range p.Scopes {
+		p.Scopes[i] = strip(fmt.Sprintf("scopes[%d]", i), p.Scopes[i])
+	}
+	for i := range p.Sources {
+		p.Sources[i] = strip(fmt.Sprintf("sources[%d]", i), p.Sources[i])
+	}
+	return advisories
+}
+
+func stripSelectedSubRepoPrefix(value, subRepoRootRel string) string {
+	value = strings.TrimSpace(strings.ReplaceAll(value, `\`, `/`))
+	value = strings.TrimPrefix(value, "./")
+	if value == "" {
+		return value
+	}
+	prefix := strings.Trim(strings.TrimSpace(strings.ReplaceAll(subRepoRootRel, `\`, `/`)), "/")
+	if prefix == "" || prefix == "." {
+		return value
+	}
+	if value == prefix {
+		return "."
+	}
+	if strings.HasPrefix(value, prefix+"/") {
+		return strings.TrimPrefix(value, prefix+"/")
+	}
+	return value
+}
+
+func selectedSubRepoPrefixWasPresent(value, subRepoRootRel string) bool {
+	value = strings.TrimSpace(strings.ReplaceAll(value, `\`, `/`))
+	value = strings.TrimPrefix(value, "./")
+	prefix := strings.Trim(strings.TrimSpace(strings.ReplaceAll(subRepoRootRel, `\`, `/`)), "/")
+	if value == "" || prefix == "" || prefix == "." {
+		return false
+	}
+	return value == prefix || strings.HasPrefix(value, prefix+"/")
+}
+
+func prependRepoMapParameterAdvisory(output string, advisories []string) string {
+	if len(advisories) == 0 {
+		return output
+	}
+	const maxAdvisories = 6
+	var b strings.Builder
+	b.WriteString("## Parameter advisory\n\n")
+	b.WriteString("The call selected an active sub-repo as `path`, so repo_map interpreted the following parameters relative to that selected sub-repo. Next time, keep these parameters relative instead of repeating the sub-repo prefix:\n")
+	limit := len(advisories)
+	if limit > maxAdvisories {
+		limit = maxAdvisories
+	}
+	for i := 0; i < limit; i++ {
+		b.WriteString("- ")
+		b.WriteString(advisories[i])
+		b.WriteString("\n")
+	}
+	if extra := len(advisories) - limit; extra > 0 {
+		fmt.Fprintf(&b, "- ... %d more parameter(s) normalized the same way\n", extra)
+	}
+	b.WriteString("\n")
+	b.WriteString(output)
+	return b.String()
 }
 
 func repoMapRelationScopes(p repoMapParams) []string {
