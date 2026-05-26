@@ -95,7 +95,13 @@ func (p *repoMapScanProgress) parsed(done, total int) {
 		return
 	}
 	now := time.Now()
-	if done-p.lastDone < 1000 && now.Sub(p.lastEmit) < 2*time.Second {
+	minDelta := 1000
+	minInterval := 2 * time.Second
+	if p.phase == ctypes.RepoMapScanPhaseChangeScan {
+		minDelta = 10000
+		minInterval = 5 * time.Second
+	}
+	if done-p.lastDone < minDelta && now.Sub(p.lastEmit) < minInterval {
 		return
 	}
 	p.lastDone = done

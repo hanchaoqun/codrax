@@ -155,6 +155,13 @@ Otherwise, ordinary single-repo `path="."` semantics apply.
     RSS cap by dropping parse detail. Operators can lower the soft fraction for
     huge repositories; a hard process cap belongs to the host/container layer.
 
+16. **Warm-cache validation progress can also become noisy.** A warm-cache
+    Linux check showed the right behaviour functionally (`cache hit` in 12.1s),
+    but non-TTY output emitted one permanent line per 1000 checked files during
+    cache-difference hashing. That is too much for large repos. The same
+    progress contract now uses coarser 10000-file / 5s change-scan progress
+    while preserving immediate start and final cache-hit lines.
+
 ## Task List
 
 | ID | Status | Task | Validation |
@@ -174,7 +181,8 @@ Otherwise, ordinary single-repo `path="."` semantics apply.
 | RME-T12 | Done | Reduce large-repo first-scan tail confusion without losing precision: parse larger source files first, emit local active-large-file progress, keep full tree-sitter parsing, and log slow parses | `TestParseJobOrderLargeFilesFirst`, active-file progress tests, Linux log timing analysis |
 | RME-T13 | Done | Stream derived cache sidecars atomically and report bounded byte progress (`written/estimated total`) during cache-write phase; throttle same-file permanent progress to roughly 32MiB/5s plus start/end so logs do not spam | `TestSaveCacheWithProgressReportsSidecarBytes`, repo-map scan message byte-progress tests |
 | RME-T14 | Done | Run a large-repo natural-language autonomy validation that does not mention `repo_map`, using Linux `io_uring` as the manual case, to verify the analyzer/explorer select repo_map lenses on their own | `codrax-20260526-235421-000-24909.log`: analyzer called `repo_map(view="task_map")`; follow-up explorer convergence gap recorded above |
-| RME-T15 | Planned | Add portable eval coverage for large-repo-style navigation without depending on local `../linux`, including warm-cache reuse, stale repair, and support-lane leakage checks | Synthetic fixture + existing eval harness |
+| RME-T15 | Done | Throttle warm-cache difference-check progress so non-TTY/permanent output stays readable on 90k+ file repos while TTY still shows a live status line | `TestRepoMapScanProgressThrottlesChangeScanEvents` |
+| RME-T16 | Planned | Add portable eval coverage for large-repo-style navigation without depending on local `../linux`, including warm-cache reuse, stale repair, and support-lane leakage checks | Synthetic fixture + existing eval harness |
 
 ## Red-Line Guardrails
 
