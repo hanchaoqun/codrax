@@ -2174,3 +2174,15 @@ Implementation tasks:
   current tool schema, not on user/model prose. Unavailable-tool results now
   list the exact current surface instead of the broad stage-level family such
   as "read/search tools".
+
+Additional observation from the follow-up verification run
+`eval/results/qf_diagram_pipeline-20260526-174006` (stopped manually after the
+signal was clear): the restricted-surface message was fixed, but the run still
+expanded into a long `partial-read` / `read-without-emit` loop around
+`runReadSchedulerLoop`. This is a separate convergence issue: once the model
+has already accepted the core stage topology and emitted grounded stage facts,
+generic partial-function coverage should not keep pulling it into unrelated
+implementation windows unless the unread tail is machine-linked to a missing
+principal claim. Track as P1-E for the next batch: make partial-read nudges
+repair-debt aware and close-ready aware, using structured evidence coverage and
+explicit missing principal facets rather than broad function-span percentage.
