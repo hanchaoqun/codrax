@@ -2033,3 +2033,34 @@ Task list:
   metrics into `run-N.metrics.txt` and summary tables; the PowerShell runner
   has matching patterns. Mermaid normalization now emits a debug repair line
   only when the source text actually changed.
+
+## 2026-05-26 targeted replay after convergence fixes
+
+Two targeted serial evals were run after P0/P1/P2 landed:
+
+- `qf_diagram_pipeline` (`eval/results/qf_diagram_pipeline-20260526-161542`):
+  PASS. The answer preserved the 4 main stages and emitted a Mermaid flowchart.
+  Metrics: `explorer_iters=6`, `finalizer_iters=1`, `finalizer_rejects=0`,
+  `closure_only_repeated=0`, `checkpoint_continuation_broad_hint=0`,
+  `tool_history_prunes=0`. One `unavailable_tool_attempts=1` came from analyzer
+  trying `read_file` during classification; the execution layer refused it and
+  the REPL rendered it as an unavailable attempt, which is the intended P0
+  behavior. Follow-up: analyzer still needed one retry because
+  `answer_role_profile` was string-wrapped; the existing schema-aware repair
+  path recovered, so this is observability rather than a new blocker.
+
+- `read_combo_log_current_source_explanation`
+  (`eval/results/read_combo_log_current_source_explanation-20260526-161849`):
+  PASS. Metrics: `explorer_iters=14`, `tool_read_file=13`,
+  `tool_history_prunes=5`, `closure_only_repeated=0`,
+  `checkpoint_continuation_broad_hint=0`, `unavailable_tool_attempts=0`,
+  `finalizer_rejects=0`. The one-shot closure-only fix worked: the old repeated
+  iteration-suffixed closure-only key did not recur. Residual slow path remains
+  upstream: after the mixed-origin read-without-emit closure-only hint, the run
+  still entered several prune cycles and later an `evidence-repair` lane for
+  line/anchor correction before completion. This is not a finalizer/reviewer
+  problem. Next generalized optimization should focus on evidence-repair debt
+  grading and prune-before-repair checkpoint compaction: principal blocking
+  repairs may continue, but advisory/recovered-row corrections should not keep
+  forcing large raw tool history through repeated prune cycles when enough
+  accepted evidence already exists.
