@@ -3024,6 +3024,8 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 			}
 			tool.PublishSourceInventoryObservationFromToolObservation(busCtx, result)
 			if hint := tool.SourceInventoryDiscoveryHintFromToolObservation(busCtx, result, tc.Params); hint != "" {
+				logging.Debug("[repo_lens] discovery_hint stage=%s agent=%s tool=%s len=%d",
+					ctx.Stage, b.name, types.CanonicalToolName(tc.Name), len(hint))
 				result.Summary = strings.TrimRight(result.Summary, "\n") + "\n\n" + hint
 			}
 			// Refund budget for read_file calls that failed because

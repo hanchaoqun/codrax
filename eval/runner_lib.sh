@@ -256,6 +256,15 @@ eval_count_source_inventory_tool_calls() {
   eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=toolcall [^:]*tool=repo_map params=.*"view"[[:space:]]*:[[:space:]]*"source_inventory"' "$file"
 }
 
+eval_count_repo_lens_discovery_hints() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  eval_count_control_pattern 'DEBUG \[repo_lens\] discovery_hint ' "$file"
+}
+
 eval_count_transient_retry_checkpoints() {
   local file="$1"
   if [[ -z "$file" || ! -f "$file" ]]; then

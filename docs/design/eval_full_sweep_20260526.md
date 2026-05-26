@@ -1592,6 +1592,11 @@ Delivery status:
   the best structured JSON draft first, or display the preserved visible draft
   with a localized degraded-output disclosure. This does not infer answer
   semantics and does not mark the draft as validator-approved.
+- Repo Lens discovery hints now emit an explicit control-plane log metric
+  (`repo_lens_discovery_hints`) whenever the system surfaces an advisory
+  source-inventory/relation-map cascade after a broad navigation result. This
+  lets evals distinguish "no hint emitted", "hint emitted but model ignored it",
+  and "model actually called source_inventory" without scraping prompt prose.
 
 Batch P2:
 
