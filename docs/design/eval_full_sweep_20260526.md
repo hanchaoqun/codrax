@@ -1583,6 +1583,16 @@ Batch P1:
 - Add run-level repomap ranking memoization keyed by graph identity, query,
   view, and scope.
 
+Delivery status:
+
+- Finalizer no-tool preservation now covers both answer-document-shaped JSON
+  payloads and rich visible model drafts (tables, fenced diagrams, box drawings,
+  long structured lists) using the existing structural surface detector. If a
+  later isolated fallback resets message history, ParseOutput can still recover
+  the best structured JSON draft first, or display the preserved visible draft
+  with a localized degraded-output disclosure. This does not infer answer
+  semantics and does not mark the draft as validator-approved.
+
 Batch P2:
 
 - Harden eval summary/log mining for verdict correctness and NUL-safe scanning.

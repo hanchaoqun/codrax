@@ -347,13 +347,13 @@ func TestFinalizerNoToolHistoryPreservesOnlyFirstRichDraft(t *testing.T) {
 	}
 }
 
-func TestRecordFinalizerNoToolAnswerDraftOnlyCapturesAnswerDocumentPayload(t *testing.T) {
+func TestRecordFinalizerNoToolAnswerDraftCapturesRecoverablePayloads(t *testing.T) {
 	ctx := &types.AgentContext{
 		Stage:   types.StageFinalize,
 		Mutable: types.NewMutableState(""),
 	}
 	if recordFinalizerNoToolAnswerDraft(ctx, "plain finalizer prose") {
-		t.Fatal("plain prose must not be recorded as an answer_document draft")
+		t.Fatal("plain prose must not be recorded as a recoverable finalizer draft")
 	}
 	if got := ctx.Mutable.FinalizerNoToolAnswerDrafts(); len(got) != 0 {
 		t.Fatalf("unexpected draft capture for prose: %+v", got)
@@ -368,6 +368,14 @@ func TestRecordFinalizerNoToolAnswerDraftOnlyCapturesAnswerDocumentPayload(t *te
 	drafts := ctx.Mutable.FinalizerNoToolAnswerDrafts()
 	if len(drafts) != 1 || drafts[0].Content != payload {
 		t.Fatalf("captured drafts = %+v, want one exact payload", drafts)
+	}
+	surface := "| 项 | 值 |\n| --- | --- |\n| timeout | stream |\n| validation | content |"
+	if !recordFinalizerNoToolAnswerDraft(ctx, surface) {
+		t.Fatal("model-authored table/diagram/list surface draft should be recorded")
+	}
+	drafts = ctx.Mutable.FinalizerNoToolAnswerDrafts()
+	if len(drafts) != 2 || drafts[1].Content != surface {
+		t.Fatalf("surface draft was not captured exactly: %+v", drafts)
 	}
 	nonFinalizer := &types.AgentContext{Stage: types.StageExplore, Mutable: types.NewMutableState("")}
 	if recordFinalizerNoToolAnswerDraft(nonFinalizer, payload) {

@@ -2109,9 +2109,11 @@ type AnswerDocAttemptShape struct {
 }
 
 // FinalizerNoToolAnswerDraft is a raw assistant response captured when the
-// finalizer wrote an answer_document-shaped payload in text instead of using
-// the tool channel. The content is intentionally raw so recovery can reuse the
-// same parser/normalizer as the ordinary text-recovery path.
+// finalizer wrote either an answer_document-shaped payload or a rich visible
+// table/diagram/list draft in text instead of using the tool channel. The
+// content is intentionally raw so recovery can reuse the same parser/normalizer
+// as the ordinary text-recovery path, with visible-surface fallback as a
+// display-only backup.
 type FinalizerNoToolAnswerDraft struct {
 	Content    string
 	CapturedAt time.Time
@@ -2153,7 +2155,8 @@ func (m *MutableState) LastAnswerDocAttemptShape() *AnswerDocAttemptShape {
 }
 
 // AppendFinalizerNoToolAnswerDraft records one finalizer assistant draft for
-// same-task recovery. It deduplicates exact content and keeps a bounded window
+// same-task recovery. Callers decide whether the draft is structurally worth
+// preserving. This method deduplicates exact content and keeps a bounded window
 // that preserves the first draft plus the most recent drafts, because the first
 // rich no-tool answer is often the only complete one after later fallback turns.
 func (m *MutableState) AppendFinalizerNoToolAnswerDraft(content string) bool {

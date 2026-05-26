@@ -6005,6 +6005,37 @@ func TestAnswerDocumentEvaluator_ParseOutput_FallsBackToPriorModelSurfaceDraft(t
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_FallsBackToPreservedFinalizerSurfaceDraft(t *testing.T) {
+	ctx := &types.AgentContext{
+		Mutable: types.NewMutableState(""),
+	}
+	ctx.Mutable.AppendFinalizerNoToolAnswerDraft("## 已完成的模型草稿\n\n" +
+		"| 阶段 | 区分 |\n| --- | --- |\n| 模型响应超时 | 传输层事件 |\n| 成文校验失败 | 结构化内容事件 |\n\n" +
+		"```mermaid\nflowchart TD\n    A[timeout] --> B[retry]\n```")
+	messages := []llm.Message{
+		{Role: "assistant", Content: "{{PLACEHOLDER_REASONING_PLACEHOLDER}}"},
+	}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, messages, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	for _, want := range []string{
+		"未能生成结构化答案",
+		"已保留的模型草稿",
+		"| 模型响应超时 | 传输层事件 |",
+		"```mermaid",
+		"flowchart TD",
+	} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("final answer missing %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+	if strings.Contains(out.FinalAnswer, "PLACEHOLDER_REASONING_PLACEHOLDER") {
+		t.Fatalf("fallback leaked placeholder:\n%s", out.FinalAnswer)
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_AppendsVerifiedStageBindingSupplement(t *testing.T) {
 	repo := t.TempDir()
 	writeStageBindingFixture(t, repo)

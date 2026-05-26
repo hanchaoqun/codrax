@@ -8544,24 +8544,35 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 }
 
 func answerDocumentModelSurfaceDraftFallback(ctx *types.AgentContext, lang string) string {
-	if ctx == nil || len(ctx.PriorReports) == 0 {
+	if ctx == nil {
 		return ""
 	}
 	var drafts []string
 	seen := map[string]bool{}
-	for _, report := range ctx.PriorReports {
-		content := strings.TrimSpace(report.Findings)
+	addDraft := func(content string) {
+		content = strings.TrimSpace(content)
 		content = stripModelSurfaceDraftPromptPreamble(content)
+		if looksLikeAnswerDocumentTextPayload(content) {
+			return
+		}
 		content = sanitizePriorDraftForSummary(content)
 		if !types.LooksLikeModelAuthoredVisibleSurfaceDraft(content) {
-			continue
+			return
 		}
 		content = types.TrimModelAuthoredVisibleSurfaceDraft(content, types.DefaultModelSurfaceDraftPromptRunes)
 		if content == "" || seen[content] {
-			continue
+			return
 		}
 		seen[content] = true
 		drafts = append(drafts, content)
+	}
+	if ctx.Mutable != nil {
+		for _, draft := range ctx.Mutable.FinalizerNoToolAnswerDrafts() {
+			addDraft(draft.Content)
+		}
+	}
+	for _, report := range ctx.PriorReports {
+		addDraft(report.Findings)
 	}
 	if len(drafts) == 0 {
 		return ""

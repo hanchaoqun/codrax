@@ -593,7 +593,8 @@ func recordFinalizerNoToolAnswerDraft(ctx *types.AgentContext, content string) b
 	if ctx == nil || ctx.Stage != types.StageFinalize || ctx.Mutable == nil {
 		return false
 	}
-	if !looksLikeAnswerDocumentTextPayload(content) {
+	if !looksLikeAnswerDocumentTextPayload(content) &&
+		!types.LooksLikeModelAuthoredVisibleSurfaceDraft(content) {
 		return false
 	}
 	return ctx.Mutable.AppendFinalizerNoToolAnswerDraft(content)
