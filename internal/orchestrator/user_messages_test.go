@@ -489,6 +489,13 @@ func TestRepoMapScanMessagesShowInventoryAndChangePhases(t *testing.T) {
 	if !strings.Contains(got, "正在校验缓存差异") || !strings.Contains(got, "已校验 4000/93459 个文件") {
 		t.Fatalf("change-check phase should report checked file counts, got %q", got)
 	}
+	change.Progress = false
+	change.Started = true
+	change.ParsedFiles = 0
+	got = repoMapScanMessage("zh", change)
+	if !strings.Contains(got, "正在校验缓存差异") || !strings.Contains(got, "已校验 0/93459 个文件") {
+		t.Fatalf("change-check start should report a 0/total count, got %q", got)
+	}
 }
 
 func TestRepoMapScanMessagesShowWaitPhase(t *testing.T) {

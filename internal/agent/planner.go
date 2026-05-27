@@ -279,6 +279,7 @@ func (e *plannerEvaluator) buildInvestigationSeed(ctx *types.AgentContext) strin
 			SourceScope:                sourceScope,
 			SuppressExactEntityAnchors: suppressExactAnchors,
 			MultiGraph:                 ctx.MultiGraph,
+			SearchGraph:                keywordSearchGraphHandle(ctx, ctx.RepoRoot),
 			PendingSubRepos:            ctx.PendingSubRepos,
 		})
 		e.searchResult = sr

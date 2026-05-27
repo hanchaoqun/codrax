@@ -2,6 +2,23 @@
 
 Status: implemented; 2026-05-27 short-term parser liveness follow-up completed.
 
+2026-05-27 same-run cache reuse follow-up: in a weak-host Linux-tree run,
+the analyzer finished a full `repo_map` build and published the graph to
+`Mutable.SearchGraph`, but the explorer's keyword-search prelude then
+entered a second `BuildOrLoadGraph` path and showed another "counting repo
+index files" line. The root cause is not repo_map capability size; it is a
+handoff gap. `keyword_search` passed only `MultiGraph` into `repoMapRank`.
+On single-repo runs with no discovered child repos, `MultiGraph` is nil, so
+the already-built in-memory graph is invisible and cache validation touches
+the 90k-file tree again. This must be fixed by reusing the run-local
+`SearchGraph` before disk/cache work, not by trimming repo_map views.
+
+The same customer trace also shows why cache-difference validation needs
+explicit progress. Even a hot cache still hashes the current file set to
+detect changed bytes; on WSL `/mnt/d` this can be slow. That phase is
+correctness-preserving and must remain, but the UI should say "checking cache
+differences" with `done/total` progress instead of looking stalled.
+
 ## Problem
 
 A repomap full scan of a very large repository (the Linux kernel tree:
@@ -42,6 +59,33 @@ hosts:
 | 6 | Parser worker count was CPU-only. `GOMEMLIMIT` can pressure GC, but too many simultaneous tree-sitter parses still create unnecessary transient heap on low-memory machines. | Derive parser worker count from both `scanCPUBudget()` and the active Go memory limit; cap to roughly one parser worker per 512MiB soft heap budget, never below one. |
 | 7 | A single pathological generated/test source file can keep one tree-sitter parse in C for many minutes. The UI appears stuck on that filename, and cooperative cancellation cannot land until the parse returns. | Add a per-file tree-sitter parse safety valve: default 120s, enabled by default, configurable/disableable. A timed-out file becomes path-only with a logged fallback reason instead of blocking the full scan. |
 | 8 | REPL double Ctrl+C promised force-exit, but the force-exit path ran worktree cleanup synchronously before `os.Exit`. If cleanup or the host filesystem was stalled, "force" could still wait. | Bound cleanup wait to 500ms on the second Ctrl+C, then exit with code 130. Cleanup remains best-effort; force-exit remains forceful. |
+| 9 | Analyzer prewarm graph was not passed into explorer keyword_search in single-repo/no-MultiGraph posture, so a second stage in the same Run repeated inventory/cache validation. | Carry the run-local SearchGraph into keyword_search/repoMapRank and let the existing `GraphFromBusContextOrLoad` reuse path clone+rerank it before disk/cache work. |
+| 10 | Cache-difference validation was correct but easy to misread as a stalled scan on very large trees. | Keep the hash check, surface the existing `change_scan` phase as "checking cache differences" with bounded `checked/total` progress. |
+
+## 2026-05-27 Task List — same-run graph reuse and cache validation progress
+
+- [x] Reproduce and document the customer root cause from logs: analyzer
+  prewarm publishes `Mutable.SearchGraph`; explorer keyword_search loses that
+  handle and starts a second graph load.
+- [x] Thread a read-only `SearchGraph` handle through `keywordSearchOptions`
+  into `repoMapRank`.
+- [x] Reuse the existing `repomap.GraphFromBusContextOrLoad` facade rather
+  than adding a parallel cache path.
+- [x] Add a single-repo/no-MultiGraph regression test proving keyword_search
+  can rank from an in-memory graph when the source file is no longer on disk
+  (which would fail if it scanned).
+- [x] Preserve multi-repo behavior: active MultiGraph aggregation still wins
+  for true multi-repo workspaces, and pending sub-repo filtering is unchanged.
+- [x] Keep cache-difference progress visible and localized as a `change_scan`
+  phase with bounded `checked/total` updates.
+- [x] Run targeted tests and full `make test`.
+- [ ] Commit and push the batch.
+
+Accuracy note: the SearchGraph reuse fix does not reduce answer precision. It
+reuses the complete graph already built earlier in the same Run and reranks a
+clone for the current query. If no matching run-local graph exists, the old
+cache/load/scan path remains intact. Cache-difference progress is UI telemetry
+only and is not read by model prompts or hard gates.
 
 Fixes 1–3 are synergistic: #1 caps RSS, #2 lowers the graph-build
 baseline, #3 shrinks the parse working set on every retry. #4 is

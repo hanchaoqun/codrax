@@ -134,6 +134,14 @@ type keywordSearchOptions struct {
 	// half-step until the raw consumer migration in design §11
 	// completes).
 	MultiGraph any
+	// SearchGraph carries the run-local single-repo graph already
+	// built by an earlier stage in the same pipeline. It is read-only
+	// input for repo_map ranking: the repomap facade clones and reranks
+	// it for the current query. This avoids repeating file inventory /
+	// cache validation in single-repo/no-MultiGraph runs while keeping
+	// the existing BuildOrLoadGraph fallback when no compatible graph
+	// exists.
+	SearchGraph any
 	// PendingSubRepos mirrors BusContext.PendingSubRepos: the RootRel
 	// list of sub-repos the routing fold left inactive for this
 	// question. The multi-repo aggregator in repoMapRank skips these
@@ -145,6 +153,40 @@ type keywordSearchOptions struct {
 	// an evidence_floor_waiver(no_repo_intersection) escape that has
 	// nothing to do with attached runtime artifacts.
 	PendingSubRepos []string
+}
+
+func keywordSearchGraphHandle(ctx *types.AgentContext, repoRoot string) any {
+	if ctx == nil {
+		return nil
+	}
+	if keywordSearchGraphMatchesRoot(ctx.SearchGraph, repoRoot) {
+		return ctx.SearchGraph
+	}
+	if ctx.Mutable != nil {
+		if g := ctx.Mutable.SearchGraph(); keywordSearchGraphMatchesRoot(g, repoRoot) {
+			return g
+		}
+	}
+	if ctx.SearchGraph != nil {
+		return ctx.SearchGraph
+	}
+	if ctx.Mutable != nil {
+		return ctx.Mutable.SearchGraph()
+	}
+	return nil
+}
+
+func keywordSearchGraphMatchesRoot(handle any, repoRoot string) bool {
+	g, ok := handle.(*repomap.Graph)
+	if !ok || g == nil || strings.TrimSpace(g.Root) == "" || strings.TrimSpace(repoRoot) == "" {
+		return false
+	}
+	ga, errA := filepath.Abs(g.Root)
+	ra, errB := filepath.Abs(repoRoot)
+	if errA != nil || errB != nil {
+		return filepath.Clean(g.Root) == filepath.Clean(repoRoot)
+	}
+	return filepath.Clean(ga) == filepath.Clean(ra)
 }
 
 // defaultKeywordSearchMaxFiles is the historical cap preserved for
@@ -307,7 +349,7 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 	}
 
 	// --- Phase 1: repo_map structural ranking ---
-	repoMapScores, graph := repoMapRank(keywords, searchEntities, repoRoot, opts.MultiGraph, opts.PendingSubRepos)
+	repoMapScores, graph := repoMapRank(keywords, searchEntities, repoRoot, opts.MultiGraph, opts.SearchGraph, opts.PendingSubRepos)
 	// exactEntityAnchors wants user-named entities only. When the
 	// exactEntityAnchors wants the strongest provenance lane available.
 	// Prefer deterministic MentionedEntities (verbatim RawRequest
@@ -799,7 +841,7 @@ func exactPathFiles(graph *repomap.Graph, entity string) []string {
 // through ctx.MultiGraph.Oracle() / .LookupSymbol — the carrier is
 // also preserved on keywordSearchResult.MultiGraph for consumers
 // that want it.
-func repoMapRank(keywords []string, entities []string, repoRoot string, mgHandle any, pendingSubRepos []string) (scores map[string]float64, graph *repomap.Graph) {
+func repoMapRank(keywords []string, entities []string, repoRoot string, mgHandle any, searchGraph any, pendingSubRepos []string) (scores map[string]float64, graph *repomap.Graph) {
 	terms := make([]string, 0, len(keywords)+len(entities))
 	seen := make(map[string]bool, len(keywords)+len(entities))
 	for _, term := range append(append([]string(nil), keywords...), entities...) {
@@ -875,7 +917,11 @@ func repoMapRank(keywords []string, entities []string, repoRoot string, mgHandle
 
 	// Single-graph (legacy / single-repo / fallback) path.
 	var err error
-	graph, err = repomap.GraphFromBusContextOrLoad(&types.BusContext{MultiGraph: mgHandle}, repoRoot, query)
+	graph, err = repomap.GraphFromBusContextOrLoad(&types.BusContext{
+		RepoRoot:    repoRoot,
+		MultiGraph:  mgHandle,
+		SearchGraph: searchGraph,
+	}, repoRoot, query)
 	if err != nil {
 		logging.Debug("[keyword_search] repo_map unavailable: %v", err)
 		return nil, nil

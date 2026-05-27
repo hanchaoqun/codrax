@@ -875,6 +875,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				ExactResolution:   exactContract,
 				SourceScope:       sourceScope,
 				MultiGraph:        ctx.MultiGraph,
+				SearchGraph:       keywordSearchGraphHandle(ctx, ctx.RepoRoot),
 				PendingSubRepos:   ctx.PendingSubRepos,
 			})
 			e.searchResult = sr

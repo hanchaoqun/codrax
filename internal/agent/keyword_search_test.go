@@ -309,6 +309,39 @@ func TestGrepFiles_RootOnlyNoiseDoesNotHideNestedProjectDirs(t *testing.T) {
 	}
 }
 
+func TestRepoMapRank_ReusesSearchGraphWithoutSecondFileScan(t *testing.T) {
+	repo := t.TempDir()
+	srcDir := filepath.Join(repo, "src")
+	if err := os.MkdirAll(srcDir, 0o755); err != nil {
+		t.Fatalf("mkdir src: %v", err)
+	}
+	srcPath := filepath.Join(srcDir, "answer.go")
+	if err := os.WriteFile(srcPath, []byte("package src\n\nfunc TargetSymbol() {}\n"), 0o644); err != nil {
+		t.Fatalf("write source: %v", err)
+	}
+	graph := repomap.BuildGraph(repo, []*repomap.FileInfo{{
+		RelPath:  "src/answer.go",
+		Language: "go",
+		Size:     34,
+		Symbols: []repomap.Symbol{{
+			Name: "TargetSymbol",
+			Kind: "function",
+			Line: 3,
+		}},
+	}})
+	if err := os.Remove(srcPath); err != nil {
+		t.Fatalf("remove source to prove no rescan: %v", err)
+	}
+
+	scores, ranked := repoMapRank([]string{"TargetSymbol"}, nil, repo, nil, graph, nil)
+	if ranked == nil {
+		t.Fatal("repoMapRank returned nil graph; expected reuse of in-memory SearchGraph")
+	}
+	if scores["src/answer.go"] <= 0 {
+		t.Fatalf("reused graph did not rank the in-memory symbol, scores=%v", scores)
+	}
+}
+
 // rmTestGraphWithScore mints a tiny Graph with one keyword-scored
 // file so multi-repo aggregation has something to surface.
 func rmTestGraphWithScore(slug, file string, score float64) *rmtypes.Graph {
@@ -369,7 +402,7 @@ func TestRepoMapRank_SkipsPendingSubRepos(t *testing.T) {
 	}
 
 	scores, _ := repoMapRank(
-		[]string{"foo", "bar"}, nil, "/parent", mg,
+		[]string{"foo", "bar"}, nil, "/parent", mg, nil,
 		[]string{"pending-repo"},
 	)
 	if _, ok := scores["active-repo/internal/foo.go"]; !ok {
