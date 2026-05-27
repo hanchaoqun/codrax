@@ -1436,7 +1436,7 @@ multi_repo_enabled: false
 </tbody>
 </table></div>
 <h3 id="大仓内存韧性">大仓内存韧性</h3>
-<p>扫描超大仓库(如 Linux 内核:约 6.4 万个待解析源文件)时,repomap 全量扫描可能让进程内存超出宿主可用 RAM,被系统 OOM 杀掉。下面三个键默认即开,无需配置;低内存机器上扫巨型仓库才需要关注。详见 <code>docs/design/large_repo_memory_resilience.md</code>。</p>
+<p>扫描超大仓库(如 Linux 内核:约 6.4 万个待解析源文件)时,repomap 全量扫描在内存和 CPU 两个维度都会压满小机器:进程内存可能超出宿主 RAM 被 OOM 杀掉,所有核心被占满又可能饿死 sshd 导致远程 SSH 断连。内存相关的键默认即开、无需配置;CPU 那个键(<code>repomap_scan_reserve_cpus</code>)按需开启。详见 <code>docs/design/large_repo_memory_resilience.md</code>。</p>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -1470,6 +1470,16 @@ multi_repo_enabled: false
 <td><code>repomap_scan_reserve_cpus</code></td>
 <td><code>0</code></td>
 <td>设为 <code>&gt;0</code> 时,扫描期间把 <code>GOMAXPROCS</code> 压到 <code>核数 - 该值</code>,让整个 Go 运行时(解析 worker、<strong>GC worker</strong>、图构建/排序)都留出这么多核心给交互进程,避免占满 CPU 饿死 sshd 导致远程 SSH 断连。损失一些扫描吞吐(4 核留 1 ≈ 慢 25%),故默认 <code>0</code> 按需开启;小远程机掉 SSH 时设 <code>1</code></td>
+</tr>
+<tr>
+<td><code>repomap_parse_timeout_enabled</code></td>
+<td><code>true</code></td>
+<td>是否启用单文件 tree-sitter 解析安全阀。默认开启,避免生成型/病态大文件让整仓扫描长期卡住</td>
+</tr>
+<tr>
+<td><code>repomap_parse_timeout_seconds</code></td>
+<td><code>120</code></td>
+<td>单个 tree-sitter 源文件解析的安全阈值。超时文件降级为 path-only 并记录 fallback reason。设 <code>0</code> 或把 <code>repomap_parse_timeout_enabled</code> 设为 <code>false</code> 可关闭该安全阀</td>
 </tr>
 </tbody>
 </table></div>
