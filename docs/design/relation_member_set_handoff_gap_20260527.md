@@ -151,20 +151,20 @@ shape.
 ## Task List
 
 - [x] Record the customer symptom, root cause, redlines, and design.
-- [ ] Audit current analyzer/explorer/finalizer relation handoff paths and
+- [x] Audit current analyzer/explorer/finalizer relation handoff paths and
       identify which existing code can be reused.
-- [ ] Add a bounded advisory relation-surface handoff section for finalizer,
+- [x] Add a bounded advisory relation-surface handoff section for finalizer,
       sourced only from structured relation evidence/carriers.
-- [ ] Preserve/raise relation evidence rows in typed exploration enrichment
+- [x] Preserve/raise relation evidence rows in typed exploration enrichment
       without turning them into principal answer members.
-- [ ] Add regression tests proving:
+- [x] Add regression tests proving:
       - raw objective text alone does not create a relation handoff;
       - structured relation evidence does render an advisory handoff;
       - strict `RequiresRelationMemberSetHandoff` behavior remains unchanged for
         mechanism-only relation explanations;
       - an accepted principal relation `member_set` still wins over advisory
         rows.
-- [ ] Run focused unit tests.
+- [x] Run focused unit tests.
 - [ ] Commit and push each completed batch.
 
 ## Expected Effect

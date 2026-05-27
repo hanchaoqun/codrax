@@ -518,6 +518,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "relation_surface_handoff", func() string {
+		return renderAnswerDocRelationSurfaceHandoff(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "runtime_grounding_disposition", func() string {
 		return renderAnswerDocRuntimeGroundingDisposition(ctx)
 	}) {
@@ -4275,6 +4280,265 @@ func renderAnswerDocPrincipalMemberSetContract(ctx *types.AgentContext) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+const answerDocMaxRelationSurfaceRows = 10
+
+type answerDocRelationSurfaceRow struct {
+	role    string
+	label   string
+	loc     string
+	surface string
+	score   int
+	index   int
+}
+
+func renderAnswerDocRelationSurfaceHandoff(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	rows := selectAnswerDocRelationSurfaceRows(ctx, answerDocMaxRelationSurfaceRows)
+	if len(rows) == 0 {
+		return ""
+	}
+	facts := answerDocStableAggregateFacts(ctx)
+	relationRefs := types.PrincipalRelationMemberSetFactRefsForRequest(facts, &rm)
+	if !answerDocShouldRenderRelationSurfaceHandoff(rm, rows, relationRefs) {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## Relation Role Handoff (Advisory)\n\n")
+	b.WriteString("- The rows below come only from structured exploration carriers: accepted `EvidenceItem` fields and typed relation surfaces. They do not parse raw user text or free-form investigation prose.\n")
+	b.WriteString("- Advisory boundary: these rows can help preserve relation roles during answer-writing, but they are not a system-authored final answer set. Do not invent principal members from them.\n")
+	if len(relationRefs) > 0 {
+		b.WriteString("- A principal relation `member_set` is already present above. That required member set is the answer-member carrier; use these rows only for per-member explanation, boundaries, and citations.\n")
+	} else if types.RequiresRelationMemberSetHandoff(rm) {
+		b.WriteString("- This typed relation request still expects a model-authored `aggregate_facts.member_set`; if none is present, disclose the missing structured handoff instead of substituting dispatcher/helper rows as answer members.\n")
+	} else {
+		b.WriteString("- No hard principal relation `member_set` is active for this dispatch. Keep the direct answer aligned with the user's requested relation, and separate qualifying members from dispatchers, registries, helpers, runtimes, or other supporting roles.\n")
+	}
+	b.WriteString("- If a row conflicts with citations, aggregate facts, source-inventory counts, or required principal members, prefer the typed/structured contract and state the boundary rather than silently dropping a user-requested side.\n\n")
+
+	for _, row := range rows {
+		fmt.Fprintf(&b, "- role=`%s`", row.role)
+		if row.label != "" {
+			fmt.Fprintf(&b, " `%s`", row.label)
+		}
+		if row.loc != "" {
+			fmt.Fprintf(&b, " @ %s", row.loc)
+		}
+		if row.surface != "" {
+			fmt.Fprintf(&b, ": %s", row.surface)
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func answerDocShouldRenderRelationSurfaceHandoff(rm types.RequestModel, rows []answerDocRelationSurfaceRow, relationRefs []types.AnswerAggregateFactRef) bool {
+	if len(rows) == 0 {
+		return false
+	}
+	if len(relationRefs) > 0 ||
+		types.ShouldSurfaceTypedRelationHints(rm) ||
+		types.HasTypedRelationMemberSetShape(rm) ||
+		rm.Predicates.IsRelationalLookup {
+		return true
+	}
+	switch rm.PredicateAxis {
+	case types.AxisCall, types.AxisRegister, types.AxisImplement, types.AxisConfigure:
+		return true
+	}
+	switch types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
+	case types.ReqCallChain, types.ReqRegistration, types.ReqConfigMapping:
+		return true
+	}
+	// When the analyzer missed the relation shape, multiple already-structured
+	// relation rows are still a useful advisory handoff. This remains soft:
+	// it never creates a principal member set or a completion gate.
+	return len(rows) >= 2
+}
+
+func selectAnswerDocRelationSurfaceRows(ctx *types.AgentContext, limit int) []answerDocRelationSurfaceRow {
+	if ctx == nil || limit <= 0 {
+		return nil
+	}
+	evidence := answerDocTypedEnrichmentEvidencePool(ctx, answerDocMaxEnrichmentCandidateFacts)
+	if len(evidence) == 0 {
+		return nil
+	}
+	rows := make([]answerDocRelationSurfaceRow, 0, extractorMinInt(len(evidence), limit))
+	seen := map[string]bool{}
+	for i, item := range evidence {
+		row, ok := answerDocRelationSurfaceRowForEvidence(ctx, item, i)
+		if !ok {
+			continue
+		}
+		key := answerDocRelationSurfaceRowKey(row)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		rows = append(rows, row)
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].score != rows[j].score {
+			return rows[i].score > rows[j].score
+		}
+		return rows[i].index < rows[j].index
+	})
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	return rows
+}
+
+func answerDocRelationSurfaceRowForEvidence(ctx *types.AgentContext, item types.EvidenceItem, index int) (answerDocRelationSurfaceRow, bool) {
+	if !answerDocEvidenceHasStructuredRelationSurface(item) {
+		return answerDocRelationSurfaceRow{}, false
+	}
+	label := answerDocRelationSurfaceLabel(item)
+	if label == "" {
+		return answerDocRelationSurfaceRow{}, false
+	}
+	surface := strings.TrimSpace(types.EvidenceAuthoritativeSurfaceText(item, false))
+	if surface == "" {
+		surface = strings.TrimSpace(item.Summary)
+	}
+	surface = truncateAnswerDocPromptText(surface, answerDocMaxEnrichmentSurfaceBytes)
+	if ctx != nil && ctx.AnalysisIR != nil {
+		surface = types.SanitizeSourceInventoryNoteForRequest(&ctx.AnalysisIR.RequestModel, surface)
+	}
+	return answerDocRelationSurfaceRow{
+		role:    answerDocRelationSurfaceRole(item),
+		label:   label,
+		loc:     item.DisplayLocation(true),
+		surface: surface,
+		score:   answerDocRelationSurfaceScore(item),
+		index:   index,
+	}, true
+}
+
+func answerDocEvidenceHasStructuredRelationSurface(item types.EvidenceItem) bool {
+	if item.GroundingStatus == types.GroundingUngrounded {
+		return false
+	}
+	hasEndpoint := strings.TrimSpace(item.Subject) != "" &&
+		(strings.TrimSpace(item.Object) != "" || strings.TrimSpace(item.AnchorSymbol) != "")
+	switch item.Kind {
+	case types.EvidenceRelationship, types.EvidenceRegistration, types.EvidenceDataflowPath:
+		return hasEndpoint || strings.TrimSpace(item.AnchorSymbol) != ""
+	}
+	if hasEndpoint {
+		switch item.AnchorKind {
+		case types.AnchorCall, types.AnchorImport, types.AnchorCondition:
+			return true
+		}
+		if strings.TrimSpace(item.Predicate) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func answerDocRelationSurfaceLabel(item types.EvidenceItem) string {
+	left := strings.TrimSpace(item.Subject)
+	right := strings.TrimSpace(item.Object)
+	if right == "" {
+		right = strings.TrimSpace(item.AnchorSymbol)
+	}
+	if left != "" && right != "" && !strings.EqualFold(left, right) {
+		return left + " -> " + right
+	}
+	for _, raw := range []string{left, right, item.AnchorSymbol, item.OwnerSymbol} {
+		if trimmed := strings.TrimSpace(raw); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
+}
+
+func answerDocRelationSurfaceRole(item types.EvidenceItem) string {
+	switch item.Kind {
+	case types.EvidenceRegistration:
+		return "registration_or_binding"
+	case types.EvidenceDataflowPath:
+		return "flow_or_handoff"
+	case types.EvidenceRelationship:
+		switch item.AnchorKind {
+		case types.AnchorCall:
+			return "call_or_invocation"
+		case types.AnchorImport:
+			return "import_or_dependency"
+		case types.AnchorCondition:
+			return "guarded_relation"
+		default:
+			return "relationship"
+		}
+	}
+	switch item.AnchorKind {
+	case types.AnchorCall:
+		return "call_or_invocation"
+	case types.AnchorImport:
+		return "import_or_dependency"
+	case types.AnchorCondition:
+		return "guarded_relation"
+	default:
+		return "relationship"
+	}
+}
+
+func answerDocRelationSurfaceScore(item types.EvidenceItem) int {
+	score := 0
+	switch item.Kind {
+	case types.EvidenceRegistration:
+		score += 24
+	case types.EvidenceRelationship:
+		score += 20
+	case types.EvidenceDataflowPath:
+		score += 18
+	default:
+		score += 8
+	}
+	switch item.AnchorKind {
+	case types.AnchorCall, types.AnchorImport, types.AnchorCondition:
+		score += 8
+	}
+	if item.GroundingStatus == types.GroundingGrounded {
+		score += 8
+	} else if item.GroundingStatus == types.GroundingRecovered {
+		score += 3
+	}
+	if item.SalienceLockedForScoring() {
+		score += 10
+	}
+	switch item.ContextRole {
+	case types.EvidenceContextRoleDefining:
+		score += 6
+	case types.EvidenceContextRoleRelatedContext:
+		score -= 4
+	case types.EvidenceContextRoleIllustrativeOnly:
+		score -= 8
+	}
+	if len(item.SurfaceTerms) > 0 {
+		score += 3
+	}
+	return score
+}
+
+func answerDocRelationSurfaceRowKey(row answerDocRelationSurfaceRow) string {
+	key := strings.TrimSpace(row.role) + "|" + strings.TrimSpace(row.label) + "|" + strings.TrimSpace(row.loc)
+	key = strings.ToLower(key)
+	if strings.Trim(key, "|") == "" {
+		return ""
+	}
+	return key
 }
 
 func renderAnswerDocPrincipalMemberSetContractFromEnumerationRows(ctx *types.AgentContext, refs []types.AnswerAggregateFactRef, sets []types.EnumerationDisplaySet) string {
