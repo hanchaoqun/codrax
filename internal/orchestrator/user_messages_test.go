@@ -519,8 +519,9 @@ func TestRepoMapScanMessagesShowInventoryAndChangePhases(t *testing.T) {
 	}
 	got = repoMapScanMessage("zh", cacheLoad)
 	if !strings.Contains(got, "正在读取仓库索引 `linux` 缓存") ||
-		!strings.Contains(got, "已读取 0/93468 条索引记录") {
-		t.Fatalf("cache-load start should show a 0/total record count, got %q", got)
+		!strings.Contains(got, "准备读取 93468 条索引记录") ||
+		strings.Contains(got, "已读取 0/") {
+		t.Fatalf("cache-load start should show preparation, not a misleading 0/total count, got %q", got)
 	}
 	cacheLoad.Started = false
 	cacheLoad.Progress = true
@@ -533,6 +534,14 @@ func TestRepoMapScanMessagesShowInventoryAndChangePhases(t *testing.T) {
 		!strings.Contains(got, "已读取 4096/93468 条索引记录") ||
 		!strings.Contains(got, "缓存分块 4/92") {
 		t.Fatalf("cache-load progress should report record and chunk counts, got %q", got)
+	}
+	cacheLoad.Phase = types.RepoMapScanPhaseBuildGraph
+	cacheLoad.ParseableFiles = 63891
+	got = repoMapScanMessage("zh", cacheLoad)
+	if !strings.Contains(got, "正在构建符号关系图") ||
+		!strings.Contains(got, "缓存已读取，已加载 63891 个源文件") ||
+		strings.Contains(got, "缓存命中，93468 个文件") {
+		t.Fatalf("cache-hit build phase should show loaded source count, got %q", got)
 	}
 
 	viewRender := types.RepoMapScanEvent{

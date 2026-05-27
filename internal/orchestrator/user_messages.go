@@ -815,7 +815,7 @@ func repoMapScanCountsZH(ev types.RepoMapScanEvent, progress bool) string {
 			}
 			return fmt.Sprintf("已读取 %d/%d 条索引记录", loaded, cacheTotal)
 		}
-		return fmt.Sprintf("已读取 0/%d 条索引记录", cacheTotal)
+		return fmt.Sprintf("准备读取 %d 条索引记录", cacheTotal)
 	}
 	if ev.Phase == types.RepoMapScanPhaseViewRender {
 		if progress {
@@ -827,12 +827,18 @@ func repoMapScanCountsZH(ev types.RepoMapScanEvent, progress bool) string {
 		}
 		return fmt.Sprintf("图包含 %d 个文件", total)
 	}
-	if ev.Mode == types.RepoMapScanCacheHit {
-		return fmt.Sprintf("缓存命中，%d 个文件", total)
-	}
 	if progress && ev.Phase == types.RepoMapScanPhaseCacheWrite && strings.TrimSpace(ev.CurrentFile) != "" && ev.BytesWritten > 0 {
 		return fmt.Sprintf("正在写入 %s（%s）；源文件已解析 %d/%d（总文件 %d）",
 			ev.CurrentFile, formatByteProgressZH(ev.BytesWritten, ev.BytesTotal), parseable, parseable, total)
+	}
+	if progress && ev.Mode == types.RepoMapScanCacheHit && ev.Phase != "" {
+		if parseable > 0 {
+			return fmt.Sprintf("缓存已读取，已加载 %d 个源文件（总文件 %d）", parseable, total)
+		}
+		return fmt.Sprintf("缓存已读取，%d 个文件", total)
+	}
+	if ev.Mode == types.RepoMapScanCacheHit {
+		return fmt.Sprintf("缓存命中，%d 个文件", total)
 	}
 	if parseable <= 0 {
 		return fmt.Sprintf("%d 个文件", total)
@@ -891,7 +897,7 @@ func repoMapScanCountsEN(ev types.RepoMapScanEvent, progress bool) string {
 			}
 			return fmt.Sprintf("loaded %d/%d index records", loaded, cacheTotal)
 		}
-		return fmt.Sprintf("loaded 0/%d index records", cacheTotal)
+		return fmt.Sprintf("preparing to load %d index records", cacheTotal)
 	}
 	if ev.Phase == types.RepoMapScanPhaseViewRender {
 		if progress {
@@ -903,12 +909,18 @@ func repoMapScanCountsEN(ev types.RepoMapScanEvent, progress bool) string {
 		}
 		return fmt.Sprintf("%d files in graph", total)
 	}
-	if ev.Mode == types.RepoMapScanCacheHit {
-		return fmt.Sprintf("cache hit, %d files", total)
-	}
 	if progress && ev.Phase == types.RepoMapScanPhaseCacheWrite && strings.TrimSpace(ev.CurrentFile) != "" && ev.BytesWritten > 0 {
 		return fmt.Sprintf("writing %s (%s); parsed %d/%d source files (%d files total)",
 			ev.CurrentFile, formatByteProgressEN(ev.BytesWritten, ev.BytesTotal), parseable, parseable, total)
+	}
+	if progress && ev.Mode == types.RepoMapScanCacheHit && ev.Phase != "" {
+		if parseable > 0 {
+			return fmt.Sprintf("cache loaded, loaded %d source files (%d files total)", parseable, total)
+		}
+		return fmt.Sprintf("cache loaded, %d files", total)
+	}
+	if ev.Mode == types.RepoMapScanCacheHit {
+		return fmt.Sprintf("cache hit, %d files", total)
 	}
 	if parseable <= 0 {
 		return fmt.Sprintf("%d files", total)
