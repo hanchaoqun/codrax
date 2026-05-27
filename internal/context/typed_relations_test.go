@@ -282,10 +282,12 @@ func (f fakeTypedRelationCandidateSource) TypedRelationCandidates(q types.TypedR
 
 type countingTypedRelationCandidateSource struct {
 	fakeTypedRelationCandidateSource
-	candidateCalls int
+	sourceFactCalls int
+	candidateCalls  int
 }
 
 func (f *countingTypedRelationCandidateSource) TypedRelationSourceFacts(sources []string) []types.TypedRelationSourceFact {
+	f.sourceFactCalls++
 	return f.fakeTypedRelationCandidateSource.TypedRelationSourceFacts(sources)
 }
 
@@ -437,6 +439,38 @@ func TestProbeTypedRelations_AmbiguousExpensivePromptHintSkipsProvider(t *testin
 	}
 	if provider.candidateCalls != 0 {
 		t.Fatalf("ambiguous expensive prompt source must not call candidate provider; calls=%d", provider.candidateCalls)
+	}
+}
+
+func TestProbeTypedRelations_AmbiguousExpensivePromptHintSkipsSourceFactProvider(t *testing.T) {
+	provider := &countingTypedRelationCandidateSource{fakeTypedRelationCandidateSource: fakeTypedRelationCandidateSource{
+		facts: []types.TypedRelationSourceFact{
+			{Name: "Run", Kind: "function", File: "cmd/run.go", Line: 12, Precision: types.TypedRelationPrecisionExactSymbolID},
+			{Name: "Stop", Kind: "function", File: "cmd/stop.go", Line: 18, Precision: types.TypedRelationPrecisionExactSymbolID},
+		},
+		rows: []types.TypedRelationCandidate{{
+			Relation:   types.TypedRelationCalledBy,
+			SourceName: "Run",
+			SourceKind: "function",
+			Member:     types.TypedRelationMember{Name: "main", File: "cmd/root.go", Line: 42, Kind: "function"},
+			Carrier:    types.TypedRelationCarrierGraph,
+			Precision:  types.TypedRelationPrecisionExactSymbolID,
+		}},
+	}}
+	rm := &types.RequestModel{
+		PredicateAxis: types.AxisCall,
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"Run", "Stop"},
+		},
+	}
+	if hints := ProbeTypedRelations(provider, rm); len(hints) != 0 {
+		t.Fatalf("broad expensive prompt source should skip advisory hint, got %+v", hints)
+	}
+	if provider.sourceFactCalls != 0 {
+		t.Fatalf("broad expensive prompt source must not call source-fact provider; calls=%d", provider.sourceFactCalls)
+	}
+	if provider.candidateCalls != 0 {
+		t.Fatalf("broad expensive prompt source must not call candidate provider; calls=%d", provider.candidateCalls)
 	}
 }
 

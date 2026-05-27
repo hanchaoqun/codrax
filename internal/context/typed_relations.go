@@ -167,12 +167,17 @@ func ProbeTypedRelations(graph any, rm *types.RequestModel) []types.TypedRelatio
 	if len(sources) == 0 {
 		return nil
 	}
+	if graph == nil {
+		return nil
+	}
+	baseQuery := types.BuildTypedRelationQuery(*rm, types.TypedRelationPurposePromptHint, typedRelationProbeMaxMembers)
+	if typedRelationPromptShouldSkipSourceFactProbe(graph, baseQuery) {
+		logging.Debug("[context] typed relation prompt hint skipped expensive source-fact probe carrier=%T sources=%d kinds=%v reason=broad-expensive-prompt-source", graph, len(baseQuery.Sources), typedRelationPromptExpensiveKinds(baseQuery.Kinds))
+		return nil
+	}
 	resolvedSources := typedRelationSourceFacts(graph, sources)
 	query := types.BuildTypedRelationQueryWithResolvedSources(*rm, types.TypedRelationPurposePromptHint, typedRelationProbeMaxMembers, resolvedSources)
 	if len(query.Kinds) == 0 || len(query.Sources) == 0 {
-		return nil
-	}
-	if graph == nil {
 		return nil
 	}
 	var hints []types.TypedRelationHint
@@ -214,6 +219,21 @@ func ProbeTypedRelations(graph any, rm *types.RequestModel) []types.TypedRelatio
 		}
 	}
 	return hints
+}
+
+func typedRelationPromptShouldSkipSourceFactProbe(graph any, query types.TypedRelationQuery) bool {
+	if graph == nil || len(query.Sources) <= 1 {
+		return false
+	}
+	expensive := typedRelationPromptExpensiveKinds(query.Kinds)
+	if len(expensive) == 0 {
+		return false
+	}
+	if len(typedRelationPromptCheapKinds(query.Kinds)) > 0 {
+		return false
+	}
+	_, hasSourceFactProvider := graph.(types.TypedRelationSourceFactProvider)
+	return hasSourceFactProvider
 }
 
 func typedRelationPromptExpensiveKinds(kinds []types.TypedRelationKind) []types.TypedRelationKind {

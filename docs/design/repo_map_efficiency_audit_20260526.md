@@ -162,6 +162,25 @@ Otherwise, ordinary single-repo `path="."` semantics apply.
     progress contract now uses coarser 10000-file / 5s change-scan progress
     while preserving immediate start and final cache-hit lines.
 
+17. **Typed relation prompt probes can stall "Preparing context" while adding
+    zero hints.** Customer log
+    `../customlogs/codrax-20260527-162832-000-98849.log` shows `build_agent_context`
+    spending about 69s per downstream stage in `typed_relation_probe`. Each run
+    probed graph-backed carriers (`*multigraph.MultiGraph` and legacy
+    `*types.Graph`) for a call/called-by prompt hint, spent about 34s per graph,
+    and produced `added_hints=0`. Observation/evidence carriers already skipped
+    instantly because the request had six broad analyzer entities and no single
+    exact relation source. Root cause: `ProbeTypedRelations` asks graph carriers
+    for source facts before it knows whether an expensive prompt-only relation
+    probe can ever be narrowed. On large graphs that means optional prompt
+    guidance can synchronously scan broad symbols/relations during analyzer →
+    explorer/extractor/finalizer context assembly. This must stay a soft prompt
+    hint: coverage gates and final answer evidence already have their own exact
+    contracts. The safe fix is to preflight the typed query and skip graph-backed
+    expensive prompt probes unless the source lane is narrow/exact enough to
+    produce useful hints; evidence/observation carriers and exact single-source
+    graph probes remain enabled.
+
 ## Task List
 
 | ID | Status | Task | Validation |
@@ -183,6 +202,7 @@ Otherwise, ordinary single-repo `path="."` semantics apply.
 | RME-T14 | Done | Run a large-repo natural-language autonomy validation that does not mention `repo_map`, using Linux `io_uring` as the manual case, to verify the analyzer/explorer select repo_map lenses on their own | `codrax-20260526-235421-000-24909.log`: analyzer called `repo_map(view="task_map")`; follow-up explorer convergence gap recorded above |
 | RME-T15 | Done | Throttle warm-cache difference-check progress so non-TTY/permanent output stays readable on 90k+ file repos while TTY still shows a live status line | `TestRepoMapScanProgressThrottlesChangeScanEvents` |
 | RME-T16 | Planned | Add portable eval coverage for large-repo-style navigation without depending on local `../linux`, including warm-cache reuse, stale repair, and support-lane leakage checks | Synthetic fixture + existing eval harness |
+| RME-T17 | Done | Add a typed relation prompt-probe preflight so graph-backed expensive prompt hints skip before source-fact/relation scans when the source lane is broad/ambiguous; preserve observation/evidence carriers and exact single-source graph hints | `TestProbeTypedRelations_AmbiguousExpensivePromptHintSkipsSourceFactProvider`, `go test ./internal/context ./internal/types ./internal/tool/repomap/relation ./internal/tool/repomap/multigraph` |
 
 ## Red-Line Guardrails
 
