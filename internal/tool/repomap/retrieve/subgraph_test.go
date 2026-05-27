@@ -2,6 +2,7 @@ package retrieve
 
 import (
 	"reflect"
+	"strconv"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
@@ -204,6 +205,17 @@ func TestComputeBridges_DisjointComponents(t *testing.T) {
 	})
 	if got := ComputeBridges(g, 0); len(got) != 0 {
 		t.Errorf("disjoint edges should have no articulations, got %+v", got)
+	}
+}
+
+func TestComputeBridges_ManyIsolatedComponents(t *testing.T) {
+	g := makeGraph(t, nil)
+	for i := 0; i < 1000; i++ {
+		name := "isolated_" + strconv.Itoa(i)
+		g.FileIndex[name] = &types.FileInfo{RelPath: name}
+	}
+	if got := ComputeBridges(g, 0); len(got) != 0 {
+		t.Errorf("isolated components should have no articulations, got %+v", got)
 	}
 }
 

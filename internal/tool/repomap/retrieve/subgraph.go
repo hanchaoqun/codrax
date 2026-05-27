@@ -238,9 +238,9 @@ func ComputeBridges(g *types.Graph, topN int) []Bridge {
 	timer := 0
 
 	type frame struct {
-		u      string
-		idx    int // index into adj[u] for next neighbour to visit
-		child  int // number of spanning-tree children (for root check)
+		u     string
+		idx   int // index into adj[u] for next neighbour to visit
+		child int // number of spanning-tree children (for root check)
 	}
 	stack := make([]*frame, 0, 32)
 
@@ -269,6 +269,14 @@ func ComputeBridges(g *types.Graph, topN int) []Bridge {
 					if parent[p.u] != "" && low[top.u] >= disc[p.u] {
 						isArt[p.u] = true
 					}
+				} else if top.child >= 2 {
+					// Root articulation: a DFS-tree root is an
+					// articulation point iff it has at least two
+					// spanning-tree children. The frame already
+					// counts those children while walking, so do
+					// not rescan the whole parent map per
+					// connected component on large graphs.
+					isArt[top.u] = true
 				}
 				continue
 			}
@@ -288,22 +296,6 @@ func ComputeBridges(g *types.Graph, topN int) []Bridge {
 					low[top.u] = disc[v]
 				}
 			}
-		}
-		// Root articulation: a DFS-tree root is an articulation
-		// point iff it has ≥ 2 spanning-tree children. The child
-		// count is recorded on the frame, but the root was popped
-		// above — recompute from the parent map instead.
-		rootChildren := 0
-		for _, p := range parent {
-			if p == start {
-				rootChildren++
-				if rootChildren >= 2 {
-					break
-				}
-			}
-		}
-		if rootChildren >= 2 {
-			isArt[start] = true
 		}
 	}
 

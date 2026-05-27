@@ -201,6 +201,17 @@ Otherwise, ordinary single-repo `path="."` semantics apply.
     (chains, hubs, bridges). This does not change graph semantics, does not
     force model behavior, and does not expose cache internals to the model.
 
+20. **`semantic_subgraph` bridge detection had an exact but avoidable large
+    graph hotspot.** `ComputeBridges` uses Tarjan articulation-point detection,
+    which is the right exact algorithm for bridges/cut vertices. The previous
+    implementation then re-scanned the whole `parent` map once per connected
+    component to decide whether the DFS root was an articulation point. Large
+    repositories often contain many isolated or tiny import components, so this
+    exact post-check can become much more expensive than the Tarjan walk itself.
+    The safe optimization is to use the root frame's already-maintained child
+    count at pop time. This preserves the exact articulation definition and is
+    language-agnostic because it operates only on the resolved repo_map graph.
+
 ## Task List
 
 | ID | Status | Task | Validation |
@@ -225,6 +236,7 @@ Otherwise, ordinary single-repo `path="."` semantics apply.
 | RME-T17 | Done | Add a typed relation prompt-probe preflight so graph-backed expensive prompt hints skip before source-fact/relation scans when the source lane is broad/ambiguous; preserve observation/evidence carriers and exact single-source graph hints | `TestProbeTypedRelations_AmbiguousExpensivePromptHintSkipsSourceFactProvider`, `go test ./internal/context ./internal/types ./internal/tool/repomap/relation ./internal/tool/repomap/multigraph` |
 | RME-T18 | Done | Add warm-cache load progress for chunked and legacy FileInfo caches so the UI shows `loaded/total` records instead of a static cache-hit line | `TestLoadFileInfosWithProgressReportsChunkedRecords`, repo-map scan message tests |
 | RME-T19 | Done | Surface large repo_map view-generation progress, including semantic_subgraph chains/hubs/bridges milestones, without changing tool output semantics | `TestSemanticSubgraphView`, repo-map view render message/progress tests |
+| RME-T20 | Done | Optimize semantic_subgraph bridge root-articulation detection without changing graph topology semantics | `TestComputeBridges_ManyIsolatedComponents`, existing bridge determinism tests |
 
 ## Red-Line Guardrails
 
