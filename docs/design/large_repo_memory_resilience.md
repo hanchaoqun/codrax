@@ -79,7 +79,7 @@ hosts:
 - [x] Keep cache-difference progress visible and localized as a `change_scan`
   phase with bounded `checked/total` updates.
 - [x] Run targeted tests and full `make test`.
-- [ ] Commit and push the batch.
+- [x] Commit and push the batch (`e8935572`).
 
 Accuracy note: the SearchGraph reuse fix does not reduce answer precision. It
 reuses the complete graph already built earlier in the same Run and reranks a
