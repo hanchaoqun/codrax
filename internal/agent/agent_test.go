@@ -134,6 +134,22 @@ func TestToolDetailForCallStructuredEmitSummaries(t *testing.T) {
 			},
 			want: "blocks=1 citations=1",
 		},
+		{
+			name: "repo map overview shows default view and path",
+			call: llm.ToolCall{
+				Name:   "repo_map",
+				Params: json.RawMessage(`{"path":"."}`),
+			},
+			want: "view=overview path=.",
+		},
+		{
+			name: "repo map relation call shows compact navigation fields",
+			call: llm.ToolCall{
+				Name:   "repo_map",
+				Params: json.RawMessage(`{"path":"kernel/bpf","view":"relation_map","query":"map update elem dispatch","sources":["kernel/bpf/syscall.c","kernel/bpf/hashtab.c"],"relation_kinds":["call","reference"],"top_n":20}`),
+			},
+			want: "view=relation_map path=kernel/bpf query=map update elem dispatch sources=2:kernel/bpf/syscall.c relation_kinds=2:call top_n=20",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -4131,6 +4131,8 @@ func structuredToolDetail(toolName string, params json.RawMessage) string {
 		return toolAnswerDocumentDetail(m)
 	case "emit_analysis":
 		return toolAnalysisDetail(m)
+	case "repo_map":
+		return toolRepoMapDetail(m)
 	default:
 		return ""
 	}
@@ -4176,6 +4178,40 @@ func toolAnalysisDetail(m map[string]json.RawMessage) string {
 	return strings.Join(parts, " ")
 }
 
+func toolRepoMapDetail(m map[string]json.RawMessage) string {
+	var parts []string
+	view := jsonStringField(m, "view")
+	if view == "" {
+		view = "overview"
+	}
+	parts = append(parts, "view="+truncateToolDetailValue(view, 24))
+	if path := jsonStringField(m, "path"); path != "" {
+		parts = append(parts, "path="+truncateToolDetailValue(path, 36))
+	}
+	if query := jsonStringField(m, "query"); query != "" {
+		parts = append(parts, "query="+truncateToolDetailValue(query, 36))
+	}
+	for _, field := range []string{"scope", "target_file", "entry_point"} {
+		if v := jsonStringField(m, field); v != "" {
+			parts = append(parts, field+"="+truncateToolDetailValue(v, 32))
+		}
+	}
+	for _, field := range []string{"scopes", "sources", "relation_kinds", "roles", "attribute_roles"} {
+		if detail := jsonStringArrayDetail(m[field], field, 32); detail != "" {
+			parts = append(parts, detail)
+		}
+	}
+	for _, field := range []string{"top_n", "offset"} {
+		if v, ok := jsonIntField(m, field); ok && v > 0 {
+			parts = append(parts, fmt.Sprintf("%s=%d", field, v))
+		}
+	}
+	if len(parts) > 6 {
+		parts = parts[:6]
+	}
+	return strings.Join(parts, " ")
+}
+
 func jsonArrayLen(raw json.RawMessage) int {
 	if len(raw) == 0 {
 		return 0
@@ -4197,6 +4233,36 @@ func jsonStringField(m map[string]json.RawMessage, key string) string {
 		return ""
 	}
 	return strings.TrimSpace(s)
+}
+
+func jsonIntField(m map[string]json.RawMessage, key string) (int, bool) {
+	raw, ok := m[key]
+	if !ok {
+		return 0, false
+	}
+	var n int
+	if json.Unmarshal(raw, &n) == nil {
+		return n, true
+	}
+	var f float64
+	if json.Unmarshal(raw, &f) != nil {
+		return 0, false
+	}
+	return int(f), true
+}
+
+func jsonStringArrayDetail(raw json.RawMessage, field string, maxFirst int) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var arr []string
+	if json.Unmarshal(raw, &arr) != nil || len(arr) == 0 {
+		return ""
+	}
+	if len(arr) == 1 {
+		return field + "=" + truncateToolDetailValue(arr[0], maxFirst)
+	}
+	return fmt.Sprintf("%s=%d:%s", field, len(arr), truncateToolDetailValue(arr[0], maxFirst))
 }
 
 func firstObjectStringFromArray(raw json.RawMessage, keys ...string) string {

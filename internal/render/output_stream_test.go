@@ -471,6 +471,21 @@ func TestFormatToolCallBatchSummarizesPureToolResponse(t *testing.T) {
 	}
 }
 
+func TestFormatToolCallBatchShowsRepoMapStructuredDetail(t *testing.T) {
+	got := formatToolCallBatch("analyzer", types.StageAnalyze, 0,
+		[]string{"repo_map"},
+		1,
+		"repo_map",
+		"view=task_map path=. query=map update top_n=20",
+		"zh",
+	)
+	plain := stripAnsiEscapes(got)
+	want := "⇢ 分析 · 第 1 轮 调用工具 repo_map view=task_map path=. query=map update top_n=20"
+	if !strings.Contains(plain, want) {
+		t.Fatalf("repo_map tool-call detail missing\nwant contains %q\ngot           %q", want, plain)
+	}
+}
+
 func TestFormatToolCallBatchCompactsRepeatedTools(t *testing.T) {
 	got := formatToolCallBatch("explorer", types.StageExplore, 2,
 		[]string{"read_file", "read_file", "grep", "emit_evidence", "repo_map", "list_files"},
