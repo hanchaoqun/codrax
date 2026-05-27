@@ -328,7 +328,7 @@ func buildRelationMapData(g *types.Graph, params types.ViewParams) *ViewData {
 
 	sourceSection := ViewSection{Heading: "Source Candidates (advisory)"}
 	if len(sources) == 0 {
-		sourceSection.Intro = "No source candidates matched the supplied sources/query/scope. Try a narrower `sources` entry, add a `query`, or use `source_inventory` to locate symbols first."
+		sourceSection.Intro = "No source candidates matched the supplied sources/query/scope. Try a narrower `sources` entry, add a `query`, use `source_inventory` to locate symbols first, or fall back to targeted grep/read_file when the graph lens is sparse."
 	} else {
 		if broadFallback {
 			sourceSection.Intro = "Broad fallback because no `sources`, `query`, or `scope` was supplied. For large repositories, rerun with concrete `sources`, `scope`/`scopes`, or `query` before widening reads."
@@ -345,7 +345,7 @@ func buildRelationMapData(g *types.Graph, params types.ViewParams) *ViewData {
 
 	rowSection := ViewSection{Heading: "Relation Rows (advisory)"}
 	if len(rows) == 0 {
-		rowSection.Intro = "No graph-backed relation rows matched the current lens. This is not proof of absence; verify with source reads when absence matters."
+		rowSection.Intro = "No graph-backed relation rows matched the current lens. This is not proof of absence; fall back to targeted grep/read_file when absence matters, graph coverage is sparse, or the relationship is macro/dynamic/runtime-driven."
 	} else {
 		for _, row := range rows {
 			rowSection.Items = append(rowSection.Items, ViewItem{

@@ -658,3 +658,36 @@ func TestGenerateViewDataRelationMapBroadFallbackAdvisesNarrowing(t *testing.T) 
 		}
 	}
 }
+
+func TestGenerateViewDataRelationMapEmptyRowsAdvisesTargetedFallback(t *testing.T) {
+	files := []*types.FileInfo{
+		{
+			RelPath:  "a.go",
+			Language: types.LangGo,
+			Symbols: []types.Symbol{
+				{Name: "Run", Kind: "function", File: "a.go", Line: 10},
+			},
+		},
+	}
+	g := index.BuildGraph(t.TempDir(), files)
+
+	d := GenerateViewData(g, "relation_map", types.ViewParams{
+		Query:         "Run",
+		RelationKinds: []string{"call"},
+		TopN:          10,
+	})
+	if d == nil {
+		t.Fatal("GenerateViewData(relation_map) returned nil")
+	}
+	md := RenderMarkdown(d)
+	for _, want := range []string{
+		"No graph-backed relation rows matched the current lens",
+		"This is not proof of absence",
+		"targeted grep/read_file",
+		"macro/dynamic/runtime-driven",
+	} {
+		if !strings.Contains(md, want) {
+			t.Fatalf("empty relation_map missing %q:\n%s", want, md)
+		}
+	}
+}

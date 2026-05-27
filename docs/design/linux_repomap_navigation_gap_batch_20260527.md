@@ -470,6 +470,44 @@ Design:
 - Keep handwritten citations for a single exact repo file:line or exact artifact-local
   anchor. Do not add a new verdict mechanism.
 
+### P1. Navigation benefit evaluation should choose between narrow grep and relation_map
+
+Symptom:
+
+- The Linux focused run proved that `repo_map` is now visible to analyzer/explorer, but
+  the model sometimes uses a productive narrow `grep` instead of continuing into
+  `relation_map`.
+- That is not automatically wrong: for some languages, macro-heavy code, generated code,
+  runtime wiring, or sparse relation graphs, grep/read_file can be the cheaper and more
+  reliable route. The system must not force relation_map just because the request shape is
+  structural.
+
+Root cause:
+
+- Current teaching says typed relation/call-flow shapes can use
+  `task_map -> relation_map`, but it does not compare that route with the *current tool
+  result*. A narrow grep with a few exact production lines should naturally lead to
+  `read_file`; a broad/compacted grep with many candidates should suggest a structural
+  narrowing hop if the typed policy already contains relation/call-path routes.
+- This is a navigation-efficiency decision, not an answer contract. It must remain soft
+  guidance and cannot create forced reads, retries, or absence proof.
+
+Design:
+
+- Reuse the existing `RepoMapNavigationPolicy`; do not add prose/keyword matching.
+- When a grep result is narrow, keep the existing advice: read the selected file/range for
+  exact line evidence.
+- When grep is broad enough to trigger the retrieval governor and the typed policy has
+  `relation_map` or `call_path`, add one concise `relation_navigation_hint` with concrete
+  `sources=[...]` from the top production paths and candidate `relation_kinds=[...]` when
+  available.
+- When `relation_map` returns no rows, say this is not proof of absence and suggest
+  targeted grep/read_file fallback for sparse graphs, macro/dynamic/runtime wiring, or
+  missing structural extraction.
+- These hints are language-neutral and multi-repo-safe because they use repo-relative
+  paths already returned by the active tool result and the existing typed policy. They do
+  not score correctness and do not override model judgment.
+
 ## Task List
 
 - [x] T1: Add extractor repair path for rejected `emit_hypothesis_verdict` attempted overrides.
@@ -508,6 +546,10 @@ Design:
 - [x] T34: Make source-inventory target-role parsing alias/skip small role-name mistakes before relation-flow profile dropping, so ignored soft profiles do not force analyzer retries.
 - [x] T35: Extend accepted call-chain caveat filtering to the actual root violation families observed in T33 (`enumeration_label_hallucinated`, diagram relation/endpoint fidelity).
 - [x] T36: Re-run the Linux focused scenario after T34-T35 and record analyzer retries, final caveats, and whether any remaining finalizer JSON-string recovery retry is genuinely unsafe to auto-accept.
+- [x] T37: Record navigation-benefit evaluation gap and design around broad grep versus relation_map.
+- [x] T38: Add broad-grep-only relation navigation hint using the shared typed repo_map policy.
+- [x] T39: Make relation_map empty/no-source guidance explicitly fall back to targeted grep/read_file without treating zero rows as absence proof.
+- [x] T40: Add regression tests for broad grep relation hint, no hint on non-relation broad grep, and relation_map zero-row fallback wording.
 
 ## Progress
 
@@ -553,3 +595,4 @@ Design:
 - 2026-05-27: T34 implemented in the shared candidate-role parser and `emit_analysis`: `struct_field` / object-field aliases normalize to `field`, and unknown source-inventory target roles are skipped with warnings instead of causing a hard analyzer retry. Relation-flow profile dropping still clears the whole `source_inventory_profile` after parsing, so call-chain answers are not flattened into inventories.
 - 2026-05-27: T35 implemented in the soft-caveat filter: typed call-chain / trace answers now suppress generic enumeration-depth caveats for `enumeration_label_hallucinated` and suppress diagram relation/endpoint telemetry when the answer has already been accepted. Concrete citation caveats still surface. Regression coverage now includes an active but ignored source-inventory profile to guard the exact T33 shape.
 - 2026-05-27: T36 focused rerun completed at `/Users/han/opt/codrax/.codrax/logs/linux-3cd4b8d9/codrax-20260527-042551-000-68631.log`; output `/Users/han/opt/codrax/.codrax/output/20260527-043043.849-68631.md`. The analyzer completed without schema retry, finalizer emitted a native `blocks[]` payload on the first attempt, there were no user-visible generic "图示中..." / "枚举类..." system caveats, and no forced reads were raised. One internal `diagram_edges` soft oracle remains as operator telemetry only (`finalize={retries:0, violations:2}` with no user-facing caveat); this is acceptable for this batch because the requested Mermaid diagram rendered and the accepted prose/ordered list carried the principal call path.
+- 2026-05-27: T37-T40 implemented as a soft navigation-benefit evaluator. Broad/compacted grep results now consult the shared typed repo_map policy and, only for relation/call-flow shapes, append a concrete `relation_navigation_hint` with top production `sources` and candidate `relation_kinds`. Narrow grep results keep the existing read_file next step, and non-relation broad grep does not mention relation_map. Empty relation_map results now explicitly say zero rows are not absence proof and recommend targeted grep/read_file fallback for sparse graph, macro/dynamic/runtime wiring, or missing extraction. Regression tests cover relation-shaped broad grep, non-relation broad grep, and empty relation_map fallback wording.

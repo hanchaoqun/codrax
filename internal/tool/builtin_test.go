@@ -1391,6 +1391,60 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
+	t.Run("broad relation-shaped grep suggests relation map without making it mandatory", func(t *testing.T) {
+		ctx := newBusContext()
+		ctx.AnalysisIR = &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentTrace,
+				PredicateAxis: types.AxisCall,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:     string(types.ReqCallChain),
+					Keywords: []string{"update_elem"},
+				},
+			},
+		}
+		var raw strings.Builder
+		for i := 0; i < 100; i++ {
+			fmt.Fprintf(&raw, "src/dispatch/file%03d.go:%d:func target%d() { update_elem() }\n", i%7, i+1, i)
+		}
+
+		got, _, ok := compactBroadGrepOutput(ctx, grepToolParams{Pattern: "update_elem"}, "", "", raw.String(), raw.String())
+		if !ok {
+			t.Fatalf("expected broad grep to compact")
+		}
+		for _, want := range []string{
+			"relation_navigation_hint=",
+			`repo_map(view="relation_map"`,
+			`sources=["src/dispatch/file000.go", "src/dispatch/file001.go", "src/dispatch/file002.go"]`,
+			`relation_kinds=["called-by"]`,
+			"This is only a navigation hint",
+			"not absence proof",
+		} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("broad relation grep missing %q:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("broad non-relation grep does not suggest relation map", func(t *testing.T) {
+		ctx := newBusContext()
+		ctx.AnalysisIR = &types.AnalysisIR{
+			RequestModel: types.RequestModel{Intent: types.IntentReturnValue},
+		}
+		var raw strings.Builder
+		for i := 0; i < 100; i++ {
+			fmt.Fprintf(&raw, "src/config/file%03d.go:%d:return ConfigValue%d\n", i%5, i+1, i)
+		}
+
+		got, _, ok := compactBroadGrepOutput(ctx, grepToolParams{Pattern: "ConfigValue"}, "", "", raw.String(), raw.String())
+		if !ok {
+			t.Fatalf("expected broad grep to compact")
+		}
+		if strings.Contains(got, "relation_navigation_hint=") || strings.Contains(got, `repo_map(view="relation_map"`) {
+			t.Fatalf("non-relation broad grep should not nudge relation_map:\n%s", got)
+		}
+	})
+
 	t.Run("broad result ranks structured relevance before generic production noise", func(t *testing.T) {
 		ctx := newBusContext()
 		ctx.Mutable = types.NewMutableState("relation lookup")

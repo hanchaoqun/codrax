@@ -1263,11 +1263,100 @@ func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countB
 	} else {
 		b.WriteString("next_shape=for exact line evidence, re-run grep with path set to one top production file and context_lines<=3; for discovery use files_only=true.\n")
 	}
+	if hint := grepBroadResultRelationNavigationHint(ctx, params, production); hint != "" {
+		b.WriteString(hint)
+	}
 
 	writeCappedGrepSection(&b, productionHeader, production, prodCap, "no non-auxiliary matches found")
 	writeCappedGrepSection(&b, auxiliaryHeader, auxiliary, grepGovernorAuxiliaryCap, "")
 	writeCappedGrepSection(&b, otherHeader, other, grepGovernorOtherCap, "")
 	return b.String(), rawRef, true
+}
+
+func grepBroadResultRelationNavigationHint(ctx *types.BusContext, params grepToolParams, production []string) string {
+	if ctx == nil || ctx.AnalysisIR == nil || len(production) == 0 {
+		return ""
+	}
+	policy := types.CompileRepoMapNavigationPolicy(ctx.AnalysisIR.RequestModel, &ctx.AnalysisIR.AnswerContract, ctx.ExploreLanePlan)
+	if !policy.HasRoute(types.RepoMapNavigationRouteRelationMap) && !policy.HasRoute(types.RepoMapNavigationRouteCallPath) {
+		return ""
+	}
+	sources := grepProductionSourceCandidates(production, params.FilesOnly, 3)
+	if len(sources) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("relation_navigation_hint=grep result was broad/compacted and this typed request has relation/call-flow shape; consider `repo_map(view=\"relation_map\", sources=[")
+	b.WriteString(quoteStringListForToolHint(sources))
+	b.WriteString("]")
+	if kinds := relationKindCandidatesForToolHint(policy, 4); len(kinds) > 0 {
+		b.WriteString(", relation_kinds=[")
+		b.WriteString(quoteStringListForToolHint(kinds))
+		b.WriteString("]")
+	}
+	b.WriteString(")` before reading many files. This is only a navigation hint: if grep already pinpointed the exact file/range, go straight to `read_file`; if `relation_map` is empty, that is not absence proof and targeted grep/read_file remains valid.\n")
+	return b.String()
+}
+
+func grepProductionSourceCandidates(production []string, filesOnly bool, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	out := make([]string, 0, limit)
+	for _, line := range production {
+		file, ok := grepOutputLinePath(line, filesOnly)
+		if !ok {
+			continue
+		}
+		file = strings.TrimSpace(filepath.ToSlash(file))
+		if file == "" || strings.HasPrefix(file, "[") || seen[file] {
+			continue
+		}
+		seen[file] = true
+		out = append(out, file)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func relationKindCandidatesForToolHint(policy types.RepoMapNavigationPolicy, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []string
+	for _, step := range policy.Steps {
+		if step.Route != types.RepoMapNavigationRouteRelationMap {
+			continue
+		}
+		for _, kind := range step.RelationHint {
+			s := strings.TrimSpace(string(kind))
+			if s == "" || seen[s] {
+				continue
+			}
+			seen[s] = true
+			out = append(out, s)
+			if len(out) >= limit {
+				return out
+			}
+		}
+	}
+	return out
+}
+
+func quoteStringListForToolHint(values []string) string {
+	quoted := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		quoted = append(quoted, fmt.Sprintf("%q", value))
+	}
+	return strings.Join(quoted, ", ")
 }
 
 type grepRelevanceTier int
