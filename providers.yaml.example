@@ -70,6 +70,24 @@ llm:
     #     生效。默认 nil(视为 false,不注入该段)。
     # think_aloud: false
 
+    # --- Provider-native thinking mode  ·  Provider 原生思考模式 --------
+    # EN  Separate from think_aloud. `think_aloud` is only a Codrax
+    #     prompt-side narration hint; it does NOT request provider
+    #     reasoning mode. This field controls provider-specific wire
+    #     JSON when supported. Default `auto`: for official DeepSeek
+    #     API endpoints Codrax sends `thinking: {type: disabled}` because
+    #     DeepSeek defaults thinking to enabled and thinking+tools require
+    #     reasoning_content round-tripping. Other OpenAI-compatible
+    #     providers receive no private thinking field unless explicitly
+    #     configured.
+    # 中文 与 think_aloud 分离。`think_aloud` 只是 Codrax 自己的 prompt
+    #     侧“出声思考”提示,不会请求 provider 原生思考模式。本字段控制
+    #     支持该能力的 provider wire JSON。默认 `auto`: 对官方 DeepSeek
+    #     API endpoint 主动发送 `thinking: {type: disabled}`,因为 DeepSeek
+    #     默认开启 thinking,而 thinking+tools 需要回传 reasoning_content。
+    #     其它 OpenAI-compatible provider 默认不接收这个私有字段。
+    # thinking_mode: auto                  # auto | disabled | enabled | provider_default
+
     # --- Tool-call compatibility  ·  工具调用兼容 ------------------------
     # EN  codrax always runs one strict transport-safety recovery: if
     #     assistant content is exactly a valid JSON tool-call envelope

@@ -230,6 +230,38 @@ func TestResolveProvider_RecoverTextToolCalls_Inheritance(t *testing.T) {
 	}
 }
 
+func TestResolveProvider_ThinkingMode_Inheritance(t *testing.T) {
+	cfg := &types.ProvidersConfig{
+		LLM: types.LLMProvidersConfig{
+			Default: types.LLMProviderConfig{
+				Provider: "openai", APIKey: "k", Model: "deepseek-v4-flash", BaseURL: "https://api.deepseek.com",
+				ThinkingMode: "disabled",
+			},
+			Agents: map[string]types.LLMProviderConfig{
+				"analyzer": {},
+				"finalizer": {
+					ThinkingMode: "provider_default",
+				},
+			},
+		},
+	}
+
+	inherited := ResolveProvider(cfg, "analyzer")
+	if inherited.ThinkingMode != "disabled" {
+		t.Fatalf("analyzer should inherit thinking_mode=disabled, got %q", inherited.ThinkingMode)
+	}
+	overridden := ResolveProvider(cfg, "finalizer")
+	if overridden.ThinkingMode != "provider_default" {
+		t.Fatalf("finalizer explicit thinking_mode should override default, got %q", overridden.ThinkingMode)
+	}
+	bare := ResolveProvider(&types.ProvidersConfig{
+		LLM: types.LLMProvidersConfig{Default: types.LLMProviderConfig{Provider: "openai", APIKey: "k", Model: "x", BaseURL: "u"}},
+	}, "analyzer")
+	if bare.ThinkingMode != "" {
+		t.Fatalf("absent thinking_mode should remain empty so factory/adapter auto policy applies, got %q", bare.ThinkingMode)
+	}
+}
+
 func TestResolveProvider_ToolParamCompat_Inheritance(t *testing.T) {
 	splitDisabled := false
 	cfg := &types.ProvidersConfig{

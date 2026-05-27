@@ -170,6 +170,54 @@ func TestBuildRequest_ToolChoiceWire(t *testing.T) {
 	})
 }
 
+func TestBuildRequest_ProviderThinkingMode(t *testing.T) {
+	msgs := []Message{{Role: "user", Content: "hi"}}
+	schema := []ToolSchema{{Name: "emit_analysis", Parameters: json.RawMessage(`{"type":"object"}`)}}
+
+	t.Run("deepseek auto disables native thinking", func(t *testing.T) {
+		adapter := NewOpenAIAdapter("k", "deepseek-v4-flash", "https://api.deepseek.com", testAdapterOpts(AdapterOptions{}))
+		req := adapter.buildRequest(msgs, schema, ChatOptions{ToolChoice: "required"})
+		b, _ := json.Marshal(req)
+		if !strings.Contains(string(b), `"thinking":{"type":"disabled"}`) {
+			t.Fatalf("DeepSeek auto mode must actively disable provider thinking; got %s", b)
+		}
+		if !strings.Contains(string(b), `"tool_choice":"required"`) {
+			t.Fatalf("disabling provider thinking must not suppress ordinary tool_choice; got %s", b)
+		}
+	})
+
+	t.Run("non deepseek auto omits provider private field", func(t *testing.T) {
+		adapter := NewOpenAIAdapter("k", "gpt-x", "https://example.test/v1", testAdapterOpts(AdapterOptions{}))
+		req := adapter.buildRequest(msgs, schema, ChatOptions{})
+		b, _ := json.Marshal(req)
+		if strings.Contains(string(b), `"thinking"`) {
+			t.Fatalf("unknown OpenAI-compatible providers must not receive DeepSeek-private thinking field by default; got %s", b)
+		}
+	})
+
+	t.Run("explicit provider default omits even for deepseek", func(t *testing.T) {
+		adapter := NewOpenAIAdapter("k", "deepseek-v4-flash", "https://api.deepseek.com/beta", testAdapterOpts(AdapterOptions{
+			ProviderThinkingMode: "provider_default",
+		}))
+		req := adapter.buildRequest(msgs, schema, ChatOptions{})
+		b, _ := json.Marshal(req)
+		if strings.Contains(string(b), `"thinking"`) {
+			t.Fatalf("provider_default must omit provider-native thinking fields; got %s", b)
+		}
+	})
+
+	t.Run("explicit enabled is opt in", func(t *testing.T) {
+		adapter := NewOpenAIAdapter("k", "deepseek-v4-pro", "https://api.deepseek.com", testAdapterOpts(AdapterOptions{
+			ProviderThinkingMode: "enabled",
+		}))
+		req := adapter.buildRequest(msgs, schema, ChatOptions{})
+		b, _ := json.Marshal(req)
+		if !strings.Contains(string(b), `"thinking":{"type":"enabled"}`) {
+			t.Fatalf("explicit enabled must be preserved for operators who opt in; got %s", b)
+		}
+	})
+}
+
 func TestOpenAIAdapter_TextToolCallRecoveryOptIn(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

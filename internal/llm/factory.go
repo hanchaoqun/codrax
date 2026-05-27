@@ -107,6 +107,7 @@ func NewFromConfig(cfg types.LLMProviderConfig) (Adapter, error) {
 	return NewOpenAIAdapter(cfg.APIKey, cfg.Model, cfg.BaseURL, AdapterOptions{
 		Stream:                 stream,
 		RecoverTextToolCalls:   recoverTextToolCalls,
+		ProviderThinkingMode:   cfg.ThinkingMode,
 		ContextWindow:          cfg.ContextWindow,
 		MaxOutputTokens:        maxOutputTokens,
 		RequestTimeout:         requestTimeout,

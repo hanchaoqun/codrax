@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync/atomic"
@@ -89,6 +90,12 @@ type OpenAIAdapter struct {
 	// small OpenAI-compatible models that write tool-call envelopes into
 	// assistant content instead of the protocol tool_calls field.
 	recoverTextToolCalls bool
+	// providerThinkingMode controls provider-native thinking / reasoning
+	// switches. It is independent of Codrax's prompt-side ThinkAloud
+	// setting: ThinkAloud asks the model to narrate before tool calls;
+	// this field controls request JSON such as DeepSeek's
+	// {"thinking":{"type":"disabled"}}.
+	providerThinkingMode string
 	// httpClient is the non-streaming client; honors requestTimeout
 	// as the outer cap on a single round-trip.
 	httpClient *http.Client
@@ -129,6 +136,7 @@ type TLSOptions struct {
 type AdapterOptions struct {
 	Stream               bool
 	RecoverTextToolCalls bool
+	ProviderThinkingMode string
 	ContextWindow        int
 	MaxOutputTokens      int
 	RequestTimeout       time.Duration
@@ -195,6 +203,7 @@ func NewOpenAIAdapter(apiKey, model, baseURL string, opts AdapterOptions) *OpenA
 		streamFirstByteTimeout: firstByteTimeout,
 		stream:                 opts.Stream,
 		recoverTextToolCalls:   opts.RecoverTextToolCalls,
+		providerThinkingMode:   normalizeProviderThinkingMode(opts.ProviderThinkingMode),
 		httpClient:             buildHTTPClient(opts.TLS, baseURL, opts.RequestTimeout),
 		// Streaming client gets NO outer timeout (Duration(0)); the
 		// per-request context + streamStallTimeout watchdog own
@@ -926,11 +935,16 @@ func parseSSEStream(r io.Reader, onDelta func(string), onToolCallDelta func(int,
 
 type openaiRequest struct {
 	Model      string          `json:"model"`
+	Thinking   *openaiThinking `json:"thinking,omitempty"`
 	Messages   []openaiMessage `json:"messages"`
 	Tools      []openaiTool    `json:"tools,omitempty"`
 	ToolChoice json.RawMessage `json:"tool_choice,omitempty"`
 	MaxTokens  int             `json:"max_tokens,omitempty"`
 	Stream     bool            `json:"stream,omitempty"`
+}
+
+type openaiThinking struct {
+	Type string `json:"type"`
 }
 
 type openaiMessage struct {
@@ -1002,6 +1016,9 @@ func (o *OpenAIAdapter) buildRequest(messages []Message, tools []ToolSchema, opt
 		// only when they want to bound generation explicitly.
 		MaxTokens: o.maxOutputTokens,
 	}
+	if thinkingType, ok := o.resolveProviderThinkingType(); ok {
+		req.Thinking = &openaiThinking{Type: thinkingType}
+	}
 
 	// Convert messages
 	for _, m := range messages {
@@ -1065,6 +1082,61 @@ func (o *OpenAIAdapter) buildRequest(messages []Message, tools []ToolSchema, opt
 	}
 
 	return req
+}
+
+const (
+	providerThinkingAuto     = "auto"
+	providerThinkingDisabled = "disabled"
+	providerThinkingEnabled  = "enabled"
+	providerThinkingDefault  = "provider_default"
+)
+
+func normalizeProviderThinkingMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", providerThinkingAuto:
+		return providerThinkingAuto
+	case providerThinkingDisabled, "disable", "off", "false":
+		return providerThinkingDisabled
+	case providerThinkingEnabled, "enable", "on", "true":
+		return providerThinkingEnabled
+	case providerThinkingDefault, "default", "omit", "none":
+		return providerThinkingDefault
+	default:
+		logging.Warning("[llm] unknown provider thinking_mode=%q; omitting provider-native thinking fields", mode)
+		return providerThinkingDefault
+	}
+}
+
+func (o *OpenAIAdapter) resolveProviderThinkingType() (string, bool) {
+	switch o.providerThinkingMode {
+	case providerThinkingDisabled:
+		return providerThinkingDisabled, true
+	case providerThinkingEnabled:
+		return providerThinkingEnabled, true
+	case providerThinkingDefault:
+		return "", false
+	case providerThinkingAuto, "":
+		if isDeepSeekAPIEndpoint(o.baseURL) {
+			return providerThinkingDisabled, true
+		}
+	}
+	return "", false
+}
+
+func isDeepSeekAPIEndpoint(baseURL string) bool {
+	lower := strings.ToLower(strings.TrimSpace(baseURL))
+	if lower == "" {
+		return false
+	}
+	if u, err := url.Parse(lower); err == nil && u.Hostname() != "" {
+		return isDeepSeekHost(u.Hostname())
+	}
+	return isDeepSeekHost(lower)
+}
+
+func isDeepSeekHost(host string) bool {
+	host = strings.TrimPrefix(strings.ToLower(strings.TrimSpace(host)), "www.")
+	return host == "api.deepseek.com" || strings.HasSuffix(host, ".deepseek.com")
 }
 
 func (o *OpenAIAdapter) parseResponse(body []byte) (Response, error) {

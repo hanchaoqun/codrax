@@ -21,6 +21,20 @@ type LLMProviderConfig struct {
 	BaseURL    string `yaml:"base_url"`
 	ThinkAloud *bool  `yaml:"think_aloud"` // nil = inherit from default; true/false = per-agent override
 
+	// ThinkingMode controls provider-native thinking / reasoning mode on
+	// APIs that expose a wire-level switch. It is deliberately separate
+	// from ThinkAloud: ThinkAloud only injects Codrax's prompt-side
+	// narration request, while this field controls provider-specific
+	// request JSON such as DeepSeek's {"thinking":{"type":"disabled"}}.
+	//
+	// Supported values:
+	//   "" / "auto"       — safe default; disable native thinking only for
+	//                       known APIs where omission means enabled.
+	//   "disabled"        — always send a provider-native disable switch.
+	//   "enabled"         — always send a provider-native enable switch.
+	//   "provider_default"— omit provider-native thinking fields.
+	ThinkingMode string `yaml:"thinking_mode"`
+
 	// RecoverTextToolCalls enables a narrow compatibility shim for
 	// OpenAI-compatible providers that receive a tool catalog but
 	// serialize tool-call envelopes into assistant content instead of
