@@ -477,6 +477,18 @@ func TestRepoMapScanMessagesShowInventoryAndChangePhases(t *testing.T) {
 	if !strings.Contains(got, "正在统计仓库索引 `linux` 文件") || strings.Contains(got, "0 个文件") {
 		t.Fatalf("inventory phase should be immediate and not claim zero files, got %q", got)
 	}
+	inventory.Started = false
+	inventory.Progress = true
+	inventory.TotalFiles = 1200
+	inventory.ParseableFiles = 700
+	inventory.ParsedFiles = 1200
+	inventory.CurrentFile = "kernel/bpf/syscall.c"
+	got = repoMapScanMessage("zh", inventory)
+	if !strings.Contains(got, "正在统计文件") ||
+		!strings.Contains(got, "正在检查 kernel/bpf/syscall.c") ||
+		!strings.Contains(got, "已统计 1200 个文件，700 个源文件") {
+		t.Fatalf("inventory progress should report counted files and current file, got %q", got)
+	}
 
 	change := types.RepoMapScanEvent{
 		RepoRoot:    "/work/linux",

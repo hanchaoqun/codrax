@@ -760,7 +760,9 @@ func buildOrLoadGraph(repoRoot, query string) (*Graph, error) {
 	// Scan files
 	inventoryProgress := newRepoMapScanProgress(repoRoot, "", 0, 0)
 	inventoryProgress.startPhase(ctypes.RepoMapScanPhaseFileScan, 0)
-	entries, err := index.ScanFiles(repoRoot)
+	entries, err := index.ScanFilesWithProgress(repoRoot, func(files, parseable int, current string) {
+		inventoryProgress.filesScanned(files, parseable, current)
+	})
 	if err != nil {
 		inventoryProgress.finish(false, err)
 		return nil, fmt.Errorf("file scan: %w", err)
@@ -832,7 +834,9 @@ func loadFromCache(repoRoot, cacheDir string, entries []FileEntry, query string,
 		// Cache corrupt or missing JSON → fall back to full scan
 		if len(entries) == 0 {
 			var err error
-			entries, err = index.ScanFiles(repoRoot)
+			entries, err = index.ScanFilesWithProgress(repoRoot, func(files, parseable int, current string) {
+				progress.filesScanned(files, parseable, current)
+			})
 			if err != nil {
 				return nil, fmt.Errorf("file scan: %w", err)
 			}

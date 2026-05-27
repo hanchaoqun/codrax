@@ -771,6 +771,12 @@ func repoMapScanCountsZH(ev types.RepoMapScanEvent, progress bool) string {
 		return "文件统计中"
 	}
 	if ev.Phase == types.RepoMapScanPhaseFileScan && progress {
+		if strings.TrimSpace(ev.CurrentFile) != "" {
+			if parseable > 0 {
+				return fmt.Sprintf("正在检查 %s；已统计 %d 个文件，%d 个源文件", ev.CurrentFile, total, parseable)
+			}
+			return fmt.Sprintf("正在检查 %s；已统计 %d 个文件", ev.CurrentFile, total)
+		}
 		if parseable > 0 {
 			return fmt.Sprintf("已统计 %d 个文件，%d 个源文件", total, parseable)
 		}
@@ -814,6 +820,12 @@ func repoMapScanCountsEN(ev types.RepoMapScanEvent, progress bool) string {
 		return "counting files"
 	}
 	if ev.Phase == types.RepoMapScanPhaseFileScan && progress {
+		if strings.TrimSpace(ev.CurrentFile) != "" {
+			if parseable > 0 {
+				return fmt.Sprintf("checking %s; counted %d files, %d source files", ev.CurrentFile, total, parseable)
+			}
+			return fmt.Sprintf("checking %s; counted %d files", ev.CurrentFile, total)
+		}
 		if parseable > 0 {
 			return fmt.Sprintf("counted %d files, %d source files", total, parseable)
 		}

@@ -37,6 +37,26 @@ func TestRepoMapScanProgressThrottlesChangeScanEvents(t *testing.T) {
 	}
 }
 
+func TestRepoMapScanProgressReportsFileDiscovery(t *testing.T) {
+	var events []ctypes.RepoMapScanEvent
+	SetScanNotifier(func(ev ctypes.RepoMapScanEvent) {
+		if ev.Progress {
+			events = append(events, ev)
+		}
+	})
+	defer SetScanNotifier(nil)
+
+	progress := newRepoMapScanProgress("/repo", "", 0, 0)
+	progress.startPhase(ctypes.RepoMapScanPhaseFileScan, 0)
+	progress.filesScanned(1000, 600, "src/a.go")
+	if len(events) != 1 {
+		t.Fatalf("file discovery should emit at 1000-file boundary, got %d event(s)", len(events))
+	}
+	if events[0].TotalFiles != 1000 || events[0].ParseableFiles != 600 || events[0].ParsedFiles != 1000 || events[0].CurrentFile != "src/a.go" {
+		t.Fatalf("unexpected file discovery event: %+v", events[0])
+	}
+}
+
 func TestRepoMapScanProgressThrottlesCacheWriteEvents(t *testing.T) {
 	var events []ctypes.RepoMapScanEvent
 	SetScanNotifier(func(ev ctypes.RepoMapScanEvent) {

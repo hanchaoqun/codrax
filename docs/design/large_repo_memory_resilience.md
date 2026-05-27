@@ -19,6 +19,14 @@ detect changed bytes; on WSL `/mnt/d` this can be slow. That phase is
 correctness-preserving and must remain, but the UI should say "checking cache
 differences" with `done/total` progress instead of looking stalled.
 
+Follow-up customer trace after restart showed an even earlier silent region:
+the first line stayed at "counting repo index files" for minutes before any
+file count existed. That is the file discovery phase itself (`git ls-files`
+or filesystem walk), before cache validation can start. A hot cache cannot
+skip this inventory because codrax must know which files exist now before it
+can compare hashes. The correct fix is progress for discovery, not skipping
+discovery or trusting a stale manifest.
+
 ## Problem
 
 A repomap full scan of a very large repository (the Linux kernel tree:
@@ -61,6 +69,7 @@ hosts:
 | 8 | REPL double Ctrl+C promised force-exit, but the force-exit path ran worktree cleanup synchronously before `os.Exit`. If cleanup or the host filesystem was stalled, "force" could still wait. | Bound cleanup wait to 500ms on the second Ctrl+C, then exit with code 130. Cleanup remains best-effort; force-exit remains forceful. |
 | 9 | Analyzer prewarm graph was not passed into explorer keyword_search in single-repo/no-MultiGraph posture, so a second stage in the same Run repeated inventory/cache validation. | Carry the run-local SearchGraph into keyword_search/repoMapRank and let the existing `GraphFromBusContextOrLoad` reuse path clone+rerank it before disk/cache work. |
 | 10 | Cache-difference validation was correct but easy to misread as a stalled scan on very large trees. | Keep the hash check, surface the existing `change_scan` phase as "checking cache differences" with bounded `checked/total` progress. |
+| 11 | File discovery itself had no incremental progress. On slow filesystems, the UI stayed at "counting files" until `ScanFiles` returned. | Add progress callbacks to `ScanFiles`: stream `git ls-files` output when possible, report accepted-file counts during git/stat processing and walk fallback, then keep the final exact count event. |
 
 ## 2026-05-27 Task List — same-run graph reuse and cache validation progress
 
@@ -81,11 +90,25 @@ hosts:
 - [x] Run targeted tests and full `make test`.
 - [x] Commit and push the batch (`e8935572`).
 
+## 2026-05-27 Task List — file-discovery progress
+
+- [x] Diagnose the restart-case gap: cache exists, but first question still
+  spends local time in `RepoMapScanPhaseFileScan` before cache validation.
+- [x] Add a progress-capable scanner API while keeping `ScanFiles` as the
+  compatibility wrapper.
+- [x] Report progress from both `git ls-files` and filesystem-walk fallback.
+- [x] Keep language handling unchanged, including ArkTS/Cangjie post-process
+  red lines.
+- [x] Add tests for scanner progress and user-facing `file_scan` progress
+  wording.
+- [x] Run targeted tests and full `make test`.
+- [x] Commit and push (`c3e1be2f`).
+
 Accuracy note: the SearchGraph reuse fix does not reduce answer precision. It
 reuses the complete graph already built earlier in the same Run and reranks a
 clone for the current query. If no matching run-local graph exists, the old
-cache/load/scan path remains intact. Cache-difference progress is UI telemetry
-only and is not read by model prompts or hard gates.
+cache/load/scan path remains intact. File discovery and cache-difference
+progress are UI telemetry only and are not read by model prompts or hard gates.
 
 Fixes 1–3 are synergistic: #1 caps RSS, #2 lowers the graph-build
 baseline, #3 shrinks the parse working set on every retry. #4 is

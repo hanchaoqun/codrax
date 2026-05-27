@@ -1,6 +1,8 @@
 package index
 
 import (
+	"bufio"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,6 +19,11 @@ type FileEntry struct {
 	Language string
 	Size     int64
 }
+
+// ScanFilesProgress reports accepted file-discovery progress. Total
+// repository file count is not known until discovery finishes, so the
+// callback reports monotonic counted totals rather than a denominator.
+type ScanFilesProgress func(files, parseable int, current string)
 
 // specialFiles maps filenames to their special type.
 var specialFiles = map[string]string{
@@ -68,9 +75,16 @@ var specialFiles = map[string]string{
 //   - L-Cangjie-1: `.cjo` Cangjie compiled artefacts are denied
 //     at discovery time; they never enter the pipeline.
 func ScanFiles(repoRoot string) ([]FileEntry, error) {
-	entries, err := scanGit(repoRoot)
+	return ScanFilesWithProgress(repoRoot, nil)
+}
+
+// ScanFilesWithProgress discovers source files and reports bounded
+// progress while the inventory is still being built. It preserves
+// ScanFiles semantics exactly; progress is telemetry only.
+func ScanFilesWithProgress(repoRoot string, progress ScanFilesProgress) ([]FileEntry, error) {
+	entries, err := scanGit(repoRoot, progress)
 	if err != nil {
-		entries, err = scanWalk(repoRoot)
+		entries, err = scanWalk(repoRoot, progress)
 		if err != nil {
 			return nil, err
 		}
@@ -120,46 +134,30 @@ func applyHarmonyOSPostProcess(repoRoot string, entries []FileEntry) []FileEntry
 	return out
 }
 
-func scanGit(repoRoot string) ([]FileEntry, error) {
+func scanGit(repoRoot string, progress ScanFilesProgress) ([]FileEntry, error) {
 	cmd, cancel := tool.NewGitCommand(nil, "-C", repoRoot, "ls-files", "--cached", "--others", "--exclude-standard")
 	defer cancel()
-	out, err := cmd.Output()
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil, err
 	}
-
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	entries := make([]FileEntry, 0, len(lines))
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if tool.IsWindowsReservedDevicePath(line) {
-			continue
-		}
-		// skip files inside excluded dirs
-		if isExcludedPath(line) {
-			continue
-		}
-		abs := filepath.Join(repoRoot, line)
-		info, err := os.Stat(abs)
-		if err != nil || info.IsDir() {
-			continue
-		}
-		lang := types.DetectLanguage(line)
-		entries = append(entries, FileEntry{
-			RelPath:  line,
-			AbsPath:  abs,
-			Language: lang,
-			Size:     info.Size(),
-		})
+	if err := cmd.Start(); err != nil {
+		return nil, err
 	}
-	return entries, nil
+	lines, scanErr := scanGitLines(stdout)
+	waitErr := cmd.Wait()
+	if scanErr != nil {
+		return nil, scanErr
+	}
+	if waitErr != nil {
+		return nil, waitErr
+	}
+	return entriesFromGitLines(repoRoot, lines, progress), nil
 }
 
-func scanWalk(repoRoot string) ([]FileEntry, error) {
+func scanWalk(repoRoot string, progress ScanFilesProgress) ([]FileEntry, error) {
 	var entries []FileEntry
+	parseable := 0
 	err := filepath.Walk(repoRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
@@ -184,15 +182,72 @@ func scanWalk(repoRoot string) ([]FileEntry, error) {
 			return nil
 		}
 		lang := types.DetectLanguage(rel)
+		if lang != "" {
+			parseable++
+		}
 		entries = append(entries, FileEntry{
 			RelPath:  rel,
 			AbsPath:  path,
 			Language: lang,
 			Size:     info.Size(),
 		})
+		reportScanFilesProgress(progress, len(entries), parseable, rel)
 		return nil
 	})
 	return entries, err
+}
+
+func scanGitLines(stdout io.Reader) ([]string, error) {
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	lines := make([]string, 0, 1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return lines, nil
+}
+
+func entriesFromGitLines(repoRoot string, lines []string, progress ScanFilesProgress) []FileEntry {
+	entries := make([]FileEntry, 0, len(lines))
+	parseable := 0
+	for _, line := range lines {
+		if tool.IsWindowsReservedDevicePath(line) {
+			continue
+		}
+		if isExcludedPath(line) {
+			continue
+		}
+		abs := filepath.Join(repoRoot, line)
+		info, err := os.Stat(abs)
+		if err != nil || info.IsDir() {
+			continue
+		}
+		lang := types.DetectLanguage(line)
+		if lang != "" {
+			parseable++
+		}
+		entries = append(entries, FileEntry{
+			RelPath:  line,
+			AbsPath:  abs,
+			Language: lang,
+			Size:     info.Size(),
+		})
+		reportScanFilesProgress(progress, len(entries), parseable, line)
+	}
+	return entries
+}
+
+func reportScanFilesProgress(progress ScanFilesProgress, files, parseable int, current string) {
+	if progress != nil {
+		progress(files, parseable, current)
+	}
 }
 
 func isExcludedPath(relPath string) bool {

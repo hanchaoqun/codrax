@@ -109,6 +109,29 @@ func (p *repoMapScanProgress) parsed(done, total int) {
 	notifyRepoMapScan(p.event(true, false, done, true, ""))
 }
 
+func (p *repoMapScanProgress) filesScanned(done, parseable int, current string) {
+	if p == nil || !p.started || p.phase != ctypes.RepoMapScanPhaseFileScan {
+		return
+	}
+	if done > p.totalFiles {
+		p.totalFiles = done
+	}
+	if parseable > p.parseableFiles {
+		p.parseableFiles = parseable
+	}
+	now := time.Now()
+	minDelta := 1000
+	minInterval := 2 * time.Second
+	if done-p.lastDone < minDelta && now.Sub(p.lastEmit) < minInterval {
+		return
+	}
+	p.lastDone = done
+	p.lastEmit = now
+	ev := p.event(true, false, done, true, "")
+	ev.CurrentFile = current
+	notifyRepoMapScan(ev)
+}
+
 func (p *repoMapScanProgress) activeFile(path string) {
 	if p == nil || !p.started || path == "" {
 		return
