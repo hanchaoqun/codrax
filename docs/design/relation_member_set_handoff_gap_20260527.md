@@ -165,7 +165,7 @@ shape.
       - an accepted principal relation `member_set` still wins over advisory
         rows.
 - [x] Run focused unit tests.
-- [ ] Commit and push each completed batch.
+- [x] Commit and push each completed batch.
 
 ## Expected Effect
 
