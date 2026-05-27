@@ -753,6 +753,91 @@ func exactEntityAnchors(graph *repomap.Graph, entities []string) map[string]exac
 	if graph == nil || len(entities) == 0 {
 		return nil
 	}
+	type entityTarget struct {
+		raw       string
+		qualified bool
+	}
+	var targets []entityTarget
+	symbolTargets := make(map[string][]string)
+	pathTargets := make(map[string][]string)
+	qualifiedTargets := make(map[string][]string)
+	seenEntity := make(map[string]bool, len(entities))
+	for _, raw := range entities {
+		ent := strings.TrimSpace(raw)
+		if len(ent) < 4 {
+			continue
+		}
+		key := ent
+		if seenEntity[key] {
+			continue
+		}
+		seenEntity[key] = true
+		symbolKey := strings.ToLower(ent)
+		pathKey := strings.ToLower(filepath.ToSlash(ent))
+		target := entityTarget{
+			raw:       ent,
+			qualified: strings.Contains(ent, "."),
+		}
+		targets = append(targets, target)
+		symbolTargets[symbolKey] = append(symbolTargets[symbolKey], ent)
+		pathTargets[pathKey] = append(pathTargets[pathKey], ent)
+		if target.qualified {
+			qualifiedTargets[symbolKey] = append(qualifiedTargets[symbolKey], ent)
+		}
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+
+	symbolMatches := make(map[string][]string)
+	for name, defs := range graph.SymbolDefs {
+		ents := symbolTargets[strings.ToLower(name)]
+		if len(ents) == 0 || len(defs) == 0 {
+			continue
+		}
+		files := uniqueSymbolDefFiles(defs)
+		for _, ent := range ents {
+			symbolMatches[ent] = appendUniqueStrings(symbolMatches[ent], files...)
+		}
+	}
+
+	pathMatches := make(map[string][]string)
+	qualifiedMatches := make(map[string][]string)
+	for rel, fi := range graph.FileIndex {
+		normPath := strings.ToLower(filepath.ToSlash(rel))
+		base := strings.ToLower(filepath.Base(normPath))
+		stem := strings.TrimSuffix(base, filepath.Ext(base))
+		for _, key := range []string{normPath, base, stem} {
+			for _, ent := range pathTargets[key] {
+				pathMatches[ent] = appendUniqueStrings(pathMatches[ent], rel)
+			}
+		}
+		if len(qualifiedTargets) == 0 || fi == nil {
+			continue
+		}
+		for _, sym := range fi.Symbols {
+			qualified := sym.Name
+			switch {
+			case sym.Receiver != "":
+				qualified = sym.Receiver + "." + sym.Name
+			case sym.Parent != "":
+				qualified = sym.Parent + "." + sym.Name
+			}
+			for _, ent := range qualifiedTargets[strings.ToLower(qualified)] {
+				qualifiedMatches[ent] = appendUniqueStrings(qualifiedMatches[ent], rel)
+			}
+		}
+	}
+	for ent := range symbolMatches {
+		sort.Strings(symbolMatches[ent])
+	}
+	for ent := range pathMatches {
+		sort.Strings(pathMatches[ent])
+	}
+	for ent := range qualifiedMatches {
+		sort.Strings(qualifiedMatches[ent])
+	}
+
 	out := make(map[string]exactEntityAnchor)
 	add := func(paths []string, rank int, hit string) {
 		if len(paths) != 1 {
@@ -764,21 +849,52 @@ func exactEntityAnchors(graph *repomap.Graph, entities []string) map[string]exac
 		}
 		out[path] = exactEntityAnchor{Rank: rank, Hit: hit}
 	}
-	for _, ent := range entities {
-		ent = strings.TrimSpace(ent)
-		if len(ent) < 4 {
-			continue
+	for _, target := range targets {
+		if target.qualified {
+			add(qualifiedMatches[target.raw], 3, "qualified_symbol_exact")
 		}
-		if strings.Contains(ent, ".") {
-			add(exactQualifiedSymbolFiles(graph, ent), 3, "qualified_symbol_exact")
-		}
-		add(exactSymbolFiles(graph, ent), 2, "symbol_exact")
-		add(exactPathFiles(graph, ent), 2, "path_exact")
+		add(symbolMatches[target.raw], 2, "symbol_exact")
+		add(pathMatches[target.raw], 2, "path_exact")
 	}
 	if len(out) == 0 {
 		return nil
 	}
 	return out
+}
+
+func uniqueSymbolDefFiles(defs []*repomap.Symbol) []string {
+	if len(defs) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(defs))
+	var files []string
+	for _, def := range defs {
+		if def == nil || def.File == "" || seen[def.File] {
+			continue
+		}
+		seen[def.File] = true
+		files = append(files, def.File)
+	}
+	sort.Strings(files)
+	return files
+}
+
+func appendUniqueStrings(dst []string, values ...string) []string {
+	if len(values) == 0 {
+		return dst
+	}
+	seen := make(map[string]bool, len(dst)+len(values))
+	for _, v := range dst {
+		seen[v] = true
+	}
+	for _, v := range values {
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		dst = append(dst, v)
+	}
+	return dst
 }
 
 func exactQualifiedSymbolFiles(graph *repomap.Graph, entity string) []string {

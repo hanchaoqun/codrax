@@ -231,6 +231,26 @@ Otherwise, ordinary single-repo `path="."` semantics apply.
     skip the expensive grep candidate pre-scan while preserving any unique exact
     anchors and the in-memory graph for downstream tools.
 
+22. **Analyzer `parse_output` can still spend minutes in deterministic
+    post-processing after `emit_analysis` succeeds.** Customer Linux logs showed
+    `phase=parse_output stage=analyze` running for more than two minutes after
+    the model had already emitted analysis. This is not LLM latency and not
+    prompt assembly. The hot paths are soft analyzer metadata: entity
+    provenance, symbol normalization, and RequiredFiles navigation candidates.
+    Root causes:
+    - single-repo provenance created a fresh symbol oracle per entity, causing
+      the flat symbol index to be rebuilt repeatedly on large graphs;
+    - normalizer fallback symbol lookup rescanned `SymbolDefs` for every
+      case/underscore-insensitive miss;
+    - exact-anchor ranking scanned `SymbolDefs` and `FileIndex` once per
+      entity, even though it only produces soft navigation candidates. The safe
+      fix is to reuse one oracle for all entity provenance, cache
+      resolver-local flat symbol indexes, scan exact-anchor candidates once per
+      entity batch, and add analyzer section timing logs so future stalls point
+      to the precise internal section. This is language-agnostic because it
+      operates on repomap's resolved graph structures rather than source syntax,
+      and it does not alter final answer content or hard gate semantics.
+
 ## Task List
 
 | ID | Status | Task | Validation |
@@ -258,6 +278,7 @@ Otherwise, ordinary single-repo `path="."` semantics apply.
 | RME-T20 | Done | Optimize semantic_subgraph bridge root-articulation detection without changing graph topology semantics | `TestComputeBridges_ManyIsolatedComponents`, existing bridge determinism tests |
 | RME-T21 | Done | Skip expensive keyword grep pre-scan when repo_map proves a large query is too broad to provide useful navigation candidates | `TestKeywordSearchBroadRepoMapSkipsGrepPreScan` |
 | RME-T22 | Done | Tighten legacy single-repo typed relation prompt probes so multi-source called-by/references/extends soft hints do not walk the full graph during context assembly; keep exact single-source graph hints | `TestProbeTypedRelations_BroadExpensiveLegacyGraphSkipsCandidateWalk`, `TestProbeTypedRelations_SingleExactLegacyGraphKeepsExpensivePromptHint` |
+| RME-T23 | Done | Reduce analyzer parse_output large-graph stalls by reusing entity-provenance oracle state, caching resolver flat-symbol fallbacks, batching exact-anchor scans, and adding section timing diagnostics | `go test ./internal/agent -run 'TestProjectEntityProvenance|TestRankAnalyzerRequiredFiles|TestLookupSymbol|TestAnalyzerRequiredFiles'` |
 
 ## Red-Line Guardrails
 

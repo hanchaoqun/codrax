@@ -24,11 +24,13 @@ func projectEntityProvenance(ctx *types.AgentContext, rm *types.RequestModel) {
 	if ctx != nil && ctx.Mutable != nil {
 		seenBlob = ctx.Mutable.PrescanSummaryBlob()
 	}
+	oracle := analyzerOracleFromCtx(ctx, entityGraphFromCtx(ctx))
 	rm.AnalyzerHints.EntityProvenance = buildEntityProvenance(
 		ctx,
 		rm.AnalyzerHints.Entities,
 		types.EntityOriginAnalyzerEntity,
 		seenBlob,
+		oracle,
 	)
 	for i := range rm.SubTopics {
 		rm.SubTopics[i].EntityProvenance = buildEntityProvenance(
@@ -36,6 +38,7 @@ func projectEntityProvenance(ctx *types.AgentContext, rm *types.RequestModel) {
 			rm.SubTopics[i].Entities,
 			types.EntityOriginSubTopicEntity,
 			seenBlob,
+			oracle,
 		)
 	}
 	logEntityProvenanceSummary(rm.AnalyzerHints.EntityProvenance)
@@ -46,6 +49,7 @@ func buildEntityProvenance(
 	entities []string,
 	origin types.EntityOrigin,
 	seenBlob string,
+	oracle types.SymbolOracle,
 ) []types.EntityProvenance {
 	if len(entities) == 0 {
 		return nil
@@ -65,7 +69,7 @@ func buildEntityProvenance(
 			continue
 		}
 		seen[key] = true
-		out = append(out, classifyEntityProvenance(ctx, surface, origin, seenBlob))
+		out = append(out, classifyEntityProvenance(ctx, surface, origin, seenBlob, oracle))
 	}
 	if len(out) == 0 {
 		return nil
@@ -78,6 +82,7 @@ func classifyEntityProvenance(
 	surface string,
 	origin types.EntityOrigin,
 	seenBlob string,
+	oracle types.SymbolOracle,
 ) types.EntityProvenance {
 	prov := types.EntityProvenance{
 		Surface:    surface,
@@ -98,7 +103,7 @@ func classifyEntityProvenance(
 		prov.NoiseScore = 0
 		prov.UseForSearch = true
 		prov.UseForShape = true
-	case entitySymbolExists(ctx, surface):
+	case entitySymbolExists(oracle, surface):
 		prov.Resolution = types.EntityResolutionSymbol
 		prov.Resolved = true
 		prov.NoiseScore = 0
@@ -124,8 +129,7 @@ func entityMatchesActiveScope(ctx *types.AgentContext, surface string) bool {
 	return ok
 }
 
-func entitySymbolExists(ctx *types.AgentContext, surface string) bool {
-	oracle := analyzerOracleFromCtx(ctx, entityGraphFromCtx(ctx))
+func entitySymbolExists(oracle types.SymbolOracle, surface string) bool {
 	if oracle == nil {
 		return false
 	}

@@ -36,6 +36,7 @@ package agent
 import (
 	"path"
 	"strings"
+	"sync"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
@@ -57,6 +58,9 @@ const maxSymbolResolverHits = 20
 // Safe for concurrent reads; the underlying Graph is not mutated here.
 type repomapSymbolResolver struct {
 	graph *repomap.Graph
+
+	flatOnce sync.Once
+	flatDefs map[string][]*repomap.Symbol
 }
 
 // newRepomapSymbolResolver returns nil when graph is nil so callers
@@ -88,12 +92,7 @@ func (r *repomapSymbolResolver) LookupSymbol(surface string) []normalizer.Symbol
 		if target == "" {
 			return nil
 		}
-		for name, candidate := range r.graph.SymbolDefs {
-			if normalizer.NormalizeCodeKey(name) == target {
-				defs = candidate
-				break
-			}
-		}
+		defs = r.flatSymbolDefs()[target]
 	}
 	if len(defs) == 0 {
 		return nil
@@ -119,6 +118,24 @@ func (r *repomapSymbolResolver) LookupSymbol(surface string) []normalizer.Symbol
 		}
 	}
 	return hits
+}
+
+func (r *repomapSymbolResolver) flatSymbolDefs() map[string][]*repomap.Symbol {
+	if r == nil || r.graph == nil {
+		return nil
+	}
+	r.flatOnce.Do(func() {
+		out := make(map[string][]*repomap.Symbol, len(r.graph.SymbolDefs))
+		for name, defs := range r.graph.SymbolDefs {
+			key := normalizer.NormalizeCodeKey(name)
+			if key == "" || len(defs) == 0 {
+				continue
+			}
+			out[key] = append(out[key], defs...)
+		}
+		r.flatDefs = out
+	})
+	return r.flatDefs
 }
 
 // LookupFileSurface resolves analyzer-emitted file surfaces against
@@ -774,6 +791,9 @@ type multiRepoSymbolResolver struct {
 	// same family of leak that L1 plugged at the pre-scan ranker
 	// level, here at the analyzer's symbol normalization surface.
 	pendingSubRepos []string
+
+	flatOnce sync.Once
+	flatHits map[string][]multigraph.SymbolHit
 }
 
 // newMultiRepoSymbolResolver returns a multi-graph-backed resolver
@@ -813,33 +833,47 @@ func (r *multiRepoSymbolResolver) LookupSymbol(surface string) []normalizer.Symb
 	if len(hits) == 0 {
 		// Case/underscore-insensitive fallback. NormalizeCodeKey on
 		// each name; pull defs whose canonical form matches the
-		// canonical surface.
+		// canonical surface. The flat index is built once per resolver
+		// instance so analyzer parse_output does not rescan every
+		// active sub-repo's SymbolDefs for each entity/surface.
 		target := normalizer.NormalizeCodeKey(trimmed)
 		if target == "" {
 			return nil
 		}
-		var fb []multigraph.SymbolHit
+		fb := r.flatSymbolHits()[target]
+		if len(fb) == 0 {
+			return nil
+		}
+		if len(fb) > maxSymbolResolverHits {
+			fb = fb[:maxSymbolResolverHits]
+		}
+		hits = fb
+	}
+	return r.adaptHits(hits)
+}
+
+func (r *multiRepoSymbolResolver) flatSymbolHits() map[string][]multigraph.SymbolHit {
+	if r == nil || r.mg == nil {
+		return nil
+	}
+	r.flatOnce.Do(func() {
+		out := make(map[string][]multigraph.SymbolHit)
 		r.mg.IterateSymbolDefs(func(name string, defs []*rmtypes.Symbol, sub *topology.SubRepo) bool {
-			if normalizer.NormalizeCodeKey(name) != target {
+			key := normalizer.NormalizeCodeKey(name)
+			if key == "" || len(defs) == 0 {
 				return true
 			}
 			for _, sym := range defs {
 				if sym == nil {
 					continue
 				}
-				fb = append(fb, multigraph.SymbolHit{Symbol: sym, Sub: sub})
-				if len(fb) >= maxSymbolResolverHits {
-					return false
-				}
+				out[key] = append(out[key], multigraph.SymbolHit{Symbol: sym, Sub: sub})
 			}
 			return true
 		})
-		if len(fb) == 0 {
-			return nil
-		}
-		hits = fb
-	}
-	return r.adaptHits(hits)
+		r.flatHits = out
+	})
+	return r.flatHits
 }
 
 // LookupFileSurface is the multi-repo counterpart to the single-graph

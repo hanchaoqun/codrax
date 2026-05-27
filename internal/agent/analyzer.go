@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/amplifier"
@@ -2090,13 +2091,17 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// legacy single-graph adapter — byte-identical pre-multi-repo.
 	// Design doc: docs/design/multirepo_entity_scope_separation.md §4.2.
 	resolver := analyzerSymbolResolver(ctx, rm)
-	rm.TermGraph = normalizer.Normalize(
-		rm.RawRequest,
-		normalizer.Options{
-			Resolver: resolver,
-			Entities: rm.AnalyzerHints.Entities,
-		},
-	)
+	func() {
+		done := analyzerParseOutputSection("term_normalizer")
+		defer done()
+		rm.TermGraph = normalizer.Normalize(
+			rm.RawRequest,
+			normalizer.Options{
+				Resolver: resolver,
+				Entities: rm.AnalyzerHints.Entities,
+			},
+		)
+	}()
 
 	// Amplifier pre-compile pass — fills LLM-omitted optional typed
 	// slots (Predicates.IsCategoryEnumeration / SubTopics) using purely
@@ -2145,18 +2150,22 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	//
 	// Empty / non-interface-shaped entities short-circuit so the
 	// expansion is a no-op for any case it cannot ground precisely.
-	rm.AnalyzerHints.Entities = expandEntitiesWithImplementers(ctx, rm)
-	rm.AnalyzerHints.PrimaryEntities = promoteSubTopicFileAnchorToPrimary(ctx, rm)
+	func() {
+		done := analyzerParseOutputSection("entity_projection")
+		defer done()
+		rm.AnalyzerHints.Entities = expandEntitiesWithImplementers(ctx, rm)
+		rm.AnalyzerHints.PrimaryEntities = promoteSubTopicFileAnchorToPrimary(ctx, rm)
 
-	// Multi-repo scope projection — typed lane parallel to PrimaryEntities.
-	// COPY semantics: the matched sub-repo names stay in PrimaryEntities
-	// (legacy consumers untouched) AND get an additional typed home in
-	// PrimaryScopes / SubTopic.Scopes. Empty in single-repo / nil-multigraph
-	// posture so this is byte-additive on the JSON wire (omitempty).
-	// Design doc: docs/design/multirepo_entity_scope_separation.md §4.1.
-	rm.AnalyzerHints.PrimaryScopes = projectPrimaryScopes(ctx, rm.AnalyzerHints.PrimaryEntities)
-	projectSubTopicScopes(ctx, rm.SubTopics)
-	projectEntityProvenance(ctx, &rm)
+		// Multi-repo scope projection — typed lane parallel to PrimaryEntities.
+		// COPY semantics: the matched sub-repo names stay in PrimaryEntities
+		// (legacy consumers untouched) AND get an additional typed home in
+		// PrimaryScopes / SubTopic.Scopes. Empty in single-repo / nil-multigraph
+		// posture so this is byte-additive on the JSON wire (omitempty).
+		// Design doc: docs/design/multirepo_entity_scope_separation.md §4.1.
+		rm.AnalyzerHints.PrimaryScopes = projectPrimaryScopes(ctx, rm.AnalyzerHints.PrimaryEntities)
+		projectSubTopicScopes(ctx, rm.SubTopics)
+		projectEntityProvenance(ctx, &rm)
+	}()
 
 	// L0-B (2026-05-05) — Enumeration cardinality structural sanity.
 	// When the analyzer LLM (or amplifier R1 flip) declares the
@@ -2423,7 +2432,11 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// AnalyzerHints.Entities, or a repomap.BuildOrLoadGraph failure
 	// all land on an empty RequiredFiles slice. Downstream consumers
 	// already handle the empty case.
-	ir.EvidencePlan.RequiredFiles = analyzerRequiredFiles(ctx, rm)
+	func() {
+		done := analyzerParseOutputSection("required_files")
+		defer done()
+		ir.EvidencePlan.RequiredFiles = analyzerRequiredFiles(ctx, rm)
+	}()
 	// gate.Run skips read-mode-only quality checks
 	// (hypothesis_coverage / contract_complete) when ctx.Mode is plan
 	// / apply / verify, where the write pipeline carries its own
@@ -2434,7 +2447,11 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	if ctx != nil && ctx.Mode != "" {
 		mode = string(ctx.Mode)
 	}
-	ir.QualityGate = gate.RunWith(ir, gate.GlobalThresholds(), mode, gate.RunOptions{Resolver: resolver})
+	func() {
+		done := analyzerParseOutputSection("quality_gate")
+		defer done()
+		ir.QualityGate = gate.RunWith(ir, gate.GlobalThresholds(), mode, gate.RunOptions{Resolver: resolver})
+	}()
 
 	// Writeback the reconciled RequestModel to Mutable so downstream
 	// agents reading via ctx.Mutable.RequestModel() see the same
@@ -2466,6 +2483,35 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// structural trigger outside the analyzer-authored contract.
 
 	return ir, nil
+}
+
+func analyzerParseOutputSection(section string) func() {
+	section = strings.TrimSpace(section)
+	if section == "" {
+		section = "unknown"
+	}
+	start := time.Now()
+	logging.Debug("[diag analyzer] phase=parse_output section=%s start", section)
+	done := make(chan struct{})
+	go func() {
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-timer.C:
+				logging.Warning("[diag analyzer] phase=parse_output section=%s still running elapsed=%s",
+					section, time.Since(start).Round(time.Second))
+				timer.Reset(10 * time.Second)
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		logging.Debug("[diag analyzer] phase=parse_output section=%s done elapsed=%s",
+			section, time.Since(start).Round(time.Millisecond))
+	}
 }
 
 func shouldMergeLogTriageEntities(bundle *types.LogBundle) bool {
