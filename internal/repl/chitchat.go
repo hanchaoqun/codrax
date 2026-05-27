@@ -376,9 +376,10 @@ func (r *llmChitchatResponder) RespondWithMemory(ctx context.Context, userLine, 
 	// Mismatched tool names also drop through; the model will
 	// notice the missing tool result and answer from priorContext.
 	messages = append(messages, llm.Message{
-		Role:      "assistant",
-		Content:   resp.Content,
-		ToolCalls: resp.ToolCalls,
+		Role:             "assistant",
+		Content:          resp.Content,
+		ReasoningContent: resp.ReasoningContent,
+		ToolCalls:        resp.ToolCalls,
 	})
 	for _, call := range resp.ToolCalls {
 		var toolReply string

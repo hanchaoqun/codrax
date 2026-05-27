@@ -26,7 +26,7 @@ type RequestTelemetry struct {
 func EstimateMessagesBytes(messages []Message) int {
 	total := 0
 	for _, m := range messages {
-		total += len(m.Role) + len(m.Content) + len(m.ToolCallID)
+		total += len(m.Role) + len(m.Content) + len(m.ReasoningContent) + len(m.ToolCallID)
 		for _, tc := range m.ToolCalls {
 			total += len(tc.ID) + len(tc.Name) + len(tc.Params)
 		}

@@ -28,18 +28,20 @@ type TokenUsage struct {
 
 // Message represents a conversation message.
 type Message struct {
-	Role       string     `json:"role"`                   // system, user, assistant, tool
-	Content    string     `json:"content"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // assistant messages carry tool calls
-	ToolCallID string     `json:"tool_call_id,omitempty"` // tool messages reference the call
+	Role             string     `json:"role"`                        // system, user, assistant, tool
+	Content          string     `json:"content"`                     // assistant content must stay non-null for tool-call history
+	ReasoningContent string     `json:"reasoning_content,omitempty"` // provider-native thinking trace, round-tripped only when supplied
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`        // assistant messages carry tool calls
+	ToolCallID       string     `json:"tool_call_id,omitempty"`      // tool messages reference the call
 }
 
 // Response is what the LLM returns.
 type Response struct {
-	Content    string     `json:"content"`
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	StopReason string     `json:"stop_reason"`
-	Usage      TokenUsage `json:"usage"`
+	Content          string     `json:"content"`
+	ReasoningContent string     `json:"reasoning_content,omitempty"` // provider-native thinking trace; not user-visible
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+	StopReason       string     `json:"stop_reason"`
+	Usage            TokenUsage `json:"usage"`
 }
 
 // ChatOptions carries per-call controls that are orthogonal to the

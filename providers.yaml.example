@@ -86,6 +86,17 @@ llm:
     #     API endpoint 主动发送 `thinking: {type: disabled}`,因为 DeepSeek
     #     默认开启 thinking,而 thinking+tools 需要回传 reasoning_content。
     #     其它 OpenAI-compatible provider 默认不接收这个私有字段。
+    #     `enabled` is opt-in for operators who deliberately want provider
+    #     reasoning. On official DeepSeek endpoints Codrax will preserve
+    #     and round-trip `reasoning_content` on tool-call turns and omit
+    #     `tool_choice` while native thinking is enabled, matching DeepSeek's
+    #     tool-call compatibility requirements. Keep `auto` unless you have
+    #     measured that native thinking improves your provider.
+    # 中文 `enabled` 是显式选择:仅当你确实想使用 provider 原生思考时开启。
+    #     对官方 DeepSeek endpoint,Codrax 会在工具调用轮次保留并回传
+    #     `reasoning_content`,且在原生 thinking 开启时不发送 `tool_choice`,
+    #     以满足 DeepSeek 的工具调用兼容要求。除非你验证过原生 thinking
+    #     对当前 provider 有收益,否则保持 `auto`。
     # thinking_mode: auto                  # auto | disabled | enabled | provider_default
 
     # --- Tool-call compatibility  ·  工具调用兼容 ------------------------

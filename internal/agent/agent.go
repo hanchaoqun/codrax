@@ -2091,9 +2091,10 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		// Hard stop from the evaluator (e.g., finalizer always stops at iter=0).
 		if !routeNoToolThroughController && !routeEmptyNoToolThroughController && b.eval.ShouldStop(resp, i) {
 			messages = append(messages, llm.Message{
-				Role:      "assistant",
-				Content:   resp.Content,
-				ToolCalls: historyToolCalls,
+				Role:             "assistant",
+				Content:          resp.Content,
+				ReasoningContent: resp.ReasoningContent,
+				ToolCalls:        historyToolCalls,
 			})
 			logging.Debug("[diag %s] STOP at iter=%d (eval)", b.name, i)
 			break
@@ -2138,9 +2139,10 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 							messages = []llm.Message{{Role: "user", Content: result.Hint}}
 						} else {
 							messages = append(messages, llm.Message{
-								Role:      "assistant",
-								Content:   "",
-								ToolCalls: historyToolCalls,
+								Role:             "assistant",
+								Content:          "",
+								ReasoningContent: resp.ReasoningContent,
+								ToolCalls:        historyToolCalls,
 							})
 							messages = append(messages, llm.Message{
 								Role:    "user",
@@ -2167,8 +2169,9 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				logging.Debug("[diag %s] iter=%d phase=embedded_correction detected embedded tool-call JSON in content — injecting correction", b.name, i)
 				emitRequiredNoToolNotice()
 				messages = append(messages, llm.Message{
-					Role:    "assistant",
-					Content: historyContentForNoTool(resp),
+					Role:             "assistant",
+					Content:          historyContentForNoTool(resp),
+					ReasoningContent: resp.ReasoningContent,
 				})
 				messages = append(messages, llm.Message{
 					Role: "user",
@@ -2209,9 +2212,10 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 						messages = []llm.Message{{Role: "user", Content: result.Hint}}
 					} else {
 						messages = append(messages, llm.Message{
-							Role:      "assistant",
-							Content:   historyContentForNoTool(resp),
-							ToolCalls: historyToolCalls,
+							Role:             "assistant",
+							Content:          historyContentForNoTool(resp),
+							ReasoningContent: resp.ReasoningContent,
+							ToolCalls:        historyToolCalls,
 						})
 						messages = append(messages, llm.Message{
 							Role:    "user",
@@ -2230,9 +2234,10 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				// soft-stop semantics treat "no hint" as accept.
 			}
 			messages = append(messages, llm.Message{
-				Role:      "assistant",
-				Content:   contentForAcceptedNoToolSoftStopHistory(ctx, resp, historyContentForNoTool(resp)),
-				ToolCalls: historyToolCalls,
+				Role:             "assistant",
+				Content:          contentForAcceptedNoToolSoftStopHistory(ctx, resp, historyContentForNoTool(resp)),
+				ReasoningContent: resp.ReasoningContent,
+				ToolCalls:        historyToolCalls,
 			})
 			logging.Debug("[diag %s] STOP at iter=%d (soft)", b.name, i)
 			break
@@ -2240,9 +2245,10 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 		// Record assistant message with tool calls
 		messages = append(messages, llm.Message{
-			Role:      "assistant",
-			Content:   resp.Content,
-			ToolCalls: historyToolCalls,
+			Role:             "assistant",
+			Content:          resp.Content,
+			ReasoningContent: resp.ReasoningContent,
+			ToolCalls:        historyToolCalls,
 		})
 
 		// Act — execute tool calls. When the batch contains only

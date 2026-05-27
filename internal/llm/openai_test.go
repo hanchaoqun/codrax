@@ -216,6 +216,76 @@ func TestBuildRequest_ProviderThinkingMode(t *testing.T) {
 			t.Fatalf("explicit enabled must be preserved for operators who opt in; got %s", b)
 		}
 	})
+
+	t.Run("deepseek native thinking suppresses tool choice but keeps tools", func(t *testing.T) {
+		adapter := NewOpenAIAdapter("k", "deepseek-v4-pro", "https://api.deepseek.com", testAdapterOpts(AdapterOptions{
+			ProviderThinkingMode: "enabled",
+		}))
+		req := adapter.buildRequest(msgs, schema, ChatOptions{ToolChoice: "required"})
+		b, _ := json.Marshal(req)
+		if !strings.Contains(string(b), `"tools"`) {
+			t.Fatalf("DeepSeek native thinking mode must still send tools; got %s", b)
+		}
+		if strings.Contains(string(b), `"tool_choice"`) {
+			t.Fatalf("DeepSeek native thinking mode rejects tool_choice; adapter must omit it, got %s", b)
+		}
+	})
+
+	t.Run("reasoning content round trips only when present", func(t *testing.T) {
+		adapter := NewOpenAIAdapter("k", "deepseek-v4-pro", "https://api.deepseek.com", testAdapterOpts(AdapterOptions{}))
+		req := adapter.buildRequest([]Message{{
+			Role:             "assistant",
+			Content:          "",
+			ReasoningContent: "I need a tool.",
+			ToolCalls: []ToolCall{{
+				ID:     "call_1",
+				Name:   "emit_analysis",
+				Params: json.RawMessage(`{"question_kind":"mechanism"}`),
+			}},
+		}}, schema, ChatOptions{})
+		b, _ := json.Marshal(req)
+		if !strings.Contains(string(b), `"reasoning_content":"I need a tool."`) {
+			t.Fatalf("assistant reasoning_content must round-trip when supplied; got %s", b)
+		}
+	})
+}
+
+func TestOpenAIAdapter_ReasoningContentParse(t *testing.T) {
+	t.Run("non-stream response preserves reasoning content", func(t *testing.T) {
+		body := []byte(`{"choices":[{"message":{"role":"assistant","reasoning_content":"plan","content":"","tool_calls":[{"id":"call_1","type":"function","function":{"name":"grep","arguments":"{\"pattern\":\"x\"}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":2,"completion_tokens":3}}`)
+		adapter := &OpenAIAdapter{model: "m"}
+		resp, err := adapter.parseResponse(body)
+		if err != nil {
+			t.Fatalf("parseResponse: %v", err)
+		}
+		if resp.ReasoningContent != "plan" {
+			t.Fatalf("ReasoningContent = %q, want plan", resp.ReasoningContent)
+		}
+		if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].Name != "grep" {
+			t.Fatalf("tool call not parsed: %+v", resp.ToolCalls)
+		}
+	})
+
+	t.Run("stream response accumulates reasoning content without content delta", func(t *testing.T) {
+		sse := "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"think \"}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"more\"}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"function\":{\"name\":\"emit_analysis\",\"arguments\":\"{}\"}}]}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n"
+		var deltas []string
+		resp, err := parseSSEStream(strings.NewReader(sse), func(d string) { deltas = append(deltas, d) }, nil, nil, nil)
+		if err != nil {
+			t.Fatalf("parseSSEStream: %v", err)
+		}
+		if resp.ReasoningContent != "think more" {
+			t.Fatalf("ReasoningContent = %q, want think more", resp.ReasoningContent)
+		}
+		if len(deltas) != 0 {
+			t.Fatalf("reasoning_content must not be surfaced through content delta, got %+v", deltas)
+		}
+		if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].Name != "emit_analysis" {
+			t.Fatalf("tool call not parsed: %+v", resp.ToolCalls)
+		}
+	})
 }
 
 func TestOpenAIAdapter_TextToolCallRecoveryOptIn(t *testing.T) {

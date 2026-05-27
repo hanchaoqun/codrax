@@ -775,6 +775,7 @@ func parseSSEStream(r io.Reader, onDelta func(string), onToolCallDelta func(int,
 	br.Buffer(make([]byte, 64*1024), 1<<20)
 
 	var contentBuf strings.Builder
+	var reasoningBuf strings.Builder
 	toolCalls := map[int]*openaiToolCall{}
 	toolCallOrder := []int{}
 	finishReason := ""
@@ -797,9 +798,10 @@ func parseSSEStream(r io.Reader, onDelta func(string), onToolCallDelta func(int,
 		var chunk struct {
 			Choices []struct {
 				Delta struct {
-					Content   string                `json:"content"`
-					Role      string                `json:"role"`
-					ToolCalls []openaiToolCallDelta `json:"tool_calls"`
+					Content          string                `json:"content"`
+					ReasoningContent string                `json:"reasoning_content"`
+					Role             string                `json:"role"`
+					ToolCalls        []openaiToolCallDelta `json:"tool_calls"`
 				} `json:"delta"`
 				FinishReason string `json:"finish_reason"`
 			} `json:"choices"`
@@ -817,6 +819,7 @@ func parseSSEStream(r io.Reader, onDelta func(string), onToolCallDelta func(int,
 		for _, ch := range chunk.Choices {
 			if strings.TrimSpace(ch.FinishReason) != "" ||
 				ch.Delta.Content != "" ||
+				ch.Delta.ReasoningContent != "" ||
 				strings.TrimSpace(ch.Delta.Role) != "" ||
 				len(ch.Delta.ToolCalls) > 0 {
 				chunkProgress = true
@@ -849,6 +852,9 @@ func parseSSEStream(r io.Reader, onDelta func(string), onToolCallDelta func(int,
 		}
 
 		for _, ch := range chunk.Choices {
+			if ch.Delta.ReasoningContent != "" {
+				reasoningBuf.WriteString(ch.Delta.ReasoningContent)
+			}
 			if ch.Delta.Content != "" {
 				contentBuf.WriteString(ch.Delta.Content)
 				if onDelta != nil {
@@ -913,8 +919,9 @@ func parseSSEStream(r io.Reader, onDelta func(string), onToolCallDelta func(int,
 	}
 
 	resp := Response{
-		Content:    contentBuf.String(),
-		StopReason: mapFinishReason(finishReason),
+		Content:          contentBuf.String(),
+		ReasoningContent: reasoningBuf.String(),
+		StopReason:       mapFinishReason(finishReason),
 		Usage: TokenUsage{
 			InputTokens:  usage.PromptTokens,
 			OutputTokens: usage.CompletionTokens,
@@ -948,10 +955,11 @@ type openaiThinking struct {
 }
 
 type openaiMessage struct {
-	Role       string           `json:"role"`
-	Content    string           `json:"content"`
-	ToolCalls  []openaiToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string           `json:"tool_call_id,omitempty"`
+	Role             string           `json:"role"`
+	Content          string           `json:"content"`
+	ReasoningContent string           `json:"reasoning_content,omitempty"`
+	ToolCalls        []openaiToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string           `json:"tool_call_id,omitempty"`
 }
 
 type openaiTool struct {
@@ -1023,9 +1031,10 @@ func (o *OpenAIAdapter) buildRequest(messages []Message, tools []ToolSchema, opt
 	// Convert messages
 	for _, m := range messages {
 		om := openaiMessage{
-			Role:       m.Role,
-			Content:    m.Content,
-			ToolCallID: m.ToolCallID,
+			Role:             m.Role,
+			Content:          m.Content,
+			ReasoningContent: m.ReasoningContent,
+			ToolCallID:       m.ToolCallID,
 		}
 		// Convert tool calls on assistant messages
 		for _, tc := range m.ToolCalls {
@@ -1068,7 +1077,7 @@ func (o *OpenAIAdapter) buildRequest(messages []Message, tools []ToolSchema, opt
 	//     for "you MUST call THIS specific tool" — some providers
 	//     (GLM / MiniMax / DeepSeek variants) honor named-function
 	//     more reliably than bare "required".
-	if len(req.Tools) > 0 && opts.ToolChoice != "" && opts.ToolChoice != "auto" {
+	if len(req.Tools) > 0 && opts.ToolChoice != "" && opts.ToolChoice != "auto" && !o.suppressToolChoiceForNativeThinking() {
 		trimmed := strings.TrimSpace(opts.ToolChoice)
 		if strings.HasPrefix(trimmed, "{") {
 			req.ToolChoice = json.RawMessage(trimmed)
@@ -1082,6 +1091,11 @@ func (o *OpenAIAdapter) buildRequest(messages []Message, tools []ToolSchema, opt
 	}
 
 	return req
+}
+
+func (o *OpenAIAdapter) suppressToolChoiceForNativeThinking() bool {
+	thinkingType, ok := o.resolveProviderThinkingType()
+	return ok && thinkingType == providerThinkingEnabled && isDeepSeekAPIEndpoint(o.baseURL)
 }
 
 const (
@@ -1164,8 +1178,9 @@ func (o *OpenAIAdapter) parseResponse(body []byte) (Response, error) {
 
 	choice := oResp.Choices[0]
 	resp := Response{
-		Content:    choice.Message.Content,
-		StopReason: mapFinishReason(choice.FinishReason),
+		Content:          choice.Message.Content,
+		ReasoningContent: choice.Message.ReasoningContent,
+		StopReason:       mapFinishReason(choice.FinishReason),
 		Usage: TokenUsage{
 			InputTokens:  oResp.Usage.PromptTokens,
 			OutputTokens: oResp.Usage.CompletionTokens,
