@@ -42,11 +42,17 @@ type nativeLineInput struct {
 	pasteFoldMinChars int
 	lang              string
 	termWidth         int
-	renderedRows      int
+	renderedFrame     nativeRenderedFrame
 	value             []rune
 	cursor            int
 	showSuggest       bool
 	slashSel          int
+}
+
+type nativeRenderedFrame struct {
+	rows      int
+	cursorRow int
+	cursorCol int
 }
 
 func (r *REPL) readInputNative(prompt string, isContinue bool) (inputResult, error) {
@@ -335,57 +341,117 @@ func (e *nativeLineInput) render() {
 		e.termWidth = w
 	}
 	lines, cursorCol := e.viewLines()
+	frame := nativeFrameForLines(lines, cursorCol, e.termWidth)
 	for i, line := range lines {
 		if i > 0 {
 			fmt.Fprint(e.out, "\r\n")
 		}
 		fmt.Fprint(e.out, line, ansiEraseLineRight)
 	}
-	if len(lines) > 1 {
-		fmt.Fprintf(e.out, "\x1b[%dA", len(lines)-1)
+	if up := frame.rows - 1 - frame.cursorRow; up > 0 {
+		fmt.Fprintf(e.out, "\x1b[%dA", up)
 	}
 	fmt.Fprint(e.out, "\r")
-	if cursorCol > 0 {
-		fmt.Fprintf(e.out, "\x1b[%dC", cursorCol)
+	if frame.cursorCol > 0 {
+		fmt.Fprintf(e.out, "\x1b[%dC", frame.cursorCol)
 	}
-	e.renderedRows = len(lines)
+	e.renderedFrame = frame
 }
 
 func (e *nativeLineInput) clearRendered() {
-	if e.renderedRows <= 0 {
+	frame := e.renderedFrame
+	if frame.rows <= 0 {
 		return
 	}
 	fmt.Fprint(e.out, "\r")
-	if e.renderedRows > 1 {
-		fmt.Fprintf(e.out, "\x1b[%dA", e.renderedRows-1)
+	if frame.cursorRow > 0 {
+		fmt.Fprintf(e.out, "\x1b[%dA", frame.cursorRow)
 	}
-	for i := 0; i < e.renderedRows; i++ {
+	for i := 0; i < frame.rows; i++ {
 		fmt.Fprint(e.out, ansiEraseEntireLine, "\r")
-		if i < e.renderedRows-1 {
+		if i < frame.rows-1 {
 			fmt.Fprint(e.out, "\x1b[1B")
 		}
 	}
-	if e.renderedRows > 1 {
-		fmt.Fprintf(e.out, "\x1b[%dA", e.renderedRows-1)
+	if frame.rows > 1 {
+		fmt.Fprintf(e.out, "\x1b[%dA", frame.rows-1)
 	}
 	fmt.Fprint(e.out, "\r")
-	e.renderedRows = 0
+	e.renderedFrame = nativeRenderedFrame{}
 }
 
 func (e *nativeLineInput) viewLines() ([]string, int) {
 	promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("51")).Bold(true)
 	prompt := promptStyle.Render(e.prompt)
-	inputWidth := e.termWidth - inputPromptDisplayWidth(e.prompt)
+	termWidth := e.termWidth
+	if termWidth <= 0 {
+		termWidth = 80
+	}
+	promptWidth := inputPromptDisplayWidth(e.prompt)
+	inputWidth := termWidth - promptWidth - 1
 	if inputWidth < 8 {
 		inputWidth = 8
 	}
 	visible, cursorOffset := nativeInputVisibleWindow(e.value, e.cursor, inputWidth)
 	firstLine := prompt + visible
-	cursorCol := inputPromptDisplayWidth(e.prompt) + cursorOffset
+	cursorCol := promptWidth + cursorOffset
+	if maxCol := termWidth - 1; maxCol >= 0 && cursorCol > maxCol {
+		cursorCol = maxCol
+	}
 	if e.showSuggest {
 		return append([]string{firstLine}, e.renderSuggestLines()...), cursorCol
 	}
 	return []string{firstLine}, cursorCol
+}
+
+func nativeFrameForLines(lines []string, cursorCol, termWidth int) nativeRenderedFrame {
+	if termWidth <= 0 {
+		termWidth = 80
+	}
+	if len(lines) == 0 {
+		lines = []string{""}
+	}
+	totalRows := 0
+	cursorRow := 0
+	cursorPhysicalCol := 0
+	for i, line := range lines {
+		lineRows := nativeTerminalRows(line, termWidth)
+		if i == 0 {
+			relRow, relCol := nativeCursorCell(cursorCol, termWidth)
+			if relRow >= lineRows {
+				relRow = lineRows - 1
+				relCol = termWidth - 1
+			}
+			cursorRow = totalRows + relRow
+			cursorPhysicalCol = relCol
+		}
+		totalRows += lineRows
+	}
+	if totalRows <= 0 {
+		totalRows = 1
+	}
+	return nativeRenderedFrame{rows: totalRows, cursorRow: cursorRow, cursorCol: cursorPhysicalCol}
+}
+
+func nativeTerminalRows(line string, termWidth int) int {
+	if termWidth <= 0 {
+		termWidth = 1
+	}
+	width := lipgloss.Width(line)
+	if width <= 0 {
+		return 1
+	}
+	return ((width - 1) / termWidth) + 1
+}
+
+func nativeCursorCell(cursorCol, termWidth int) (int, int) {
+	if termWidth <= 0 {
+		termWidth = 1
+	}
+	if cursorCol < 0 {
+		cursorCol = 0
+	}
+	return cursorCol / termWidth, cursorCol % termWidth
 }
 
 func nativeInputVisibleWindow(value []rune, cursor, maxWidth int) (string, int) {
@@ -446,6 +512,10 @@ func (e *nativeLineInput) renderSuggestLines() []string {
 	if len(matches) == 0 {
 		return nil
 	}
+	termWidth := e.termWidth
+	if termWidth <= 0 {
+		termWidth = 80
+	}
 	selStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("51")).Bold(true)
 	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
@@ -461,7 +531,7 @@ func (e *nativeLineInput) renderSuggestLines() []string {
 			nm = selStyle.Render(c.Name)
 		}
 		plainHead := "  " + plainPrefix + c.Name + "  "
-		helpBudget := e.termWidth - runewidth.StringWidth(plainHead)
+		helpBudget := termWidth - runewidth.StringWidth(plainHead) - 1
 		out = append(out, "  "+prefix+nm+"  "+helpStyle.Render(nativeClampDisplayWidth(c.Help(e.lang), helpBudget)))
 	}
 	return out
