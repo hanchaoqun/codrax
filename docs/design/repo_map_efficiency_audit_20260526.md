@@ -179,7 +179,12 @@ Otherwise, ordinary single-repo `path="."` semantics apply.
     contracts. The safe fix is to preflight the typed query and skip graph-backed
     expensive prompt probes unless the source lane is narrow/exact enough to
     produce useful hints; evidence/observation carriers and exact single-source
-    graph probes remain enabled.
+    graph probes remain enabled. Follow-up audit confirmed this is a shared
+    `BuildAgentContext` issue, not an explorer-only issue: downstream stages can
+    all show the same `整理上下文中` mask while prompt-only typed relation probes
+    run. The legacy single-repo graph path is now tightened as well: graph-backed
+    expensive prompt hints are skipped when the typed query has multiple exact
+    source names, while exact single-source hints still work.
 
 18. **Warm-cache cache-load was still an opaque long step.** Customer Linux
     logs after a complete cache showed progress for file counting and
@@ -252,6 +257,7 @@ Otherwise, ordinary single-repo `path="."` semantics apply.
 | RME-T19 | Done | Surface large repo_map view-generation progress, including semantic_subgraph chains/hubs/bridges milestones, without changing tool output semantics | `TestSemanticSubgraphView`, repo-map view render message/progress tests |
 | RME-T20 | Done | Optimize semantic_subgraph bridge root-articulation detection without changing graph topology semantics | `TestComputeBridges_ManyIsolatedComponents`, existing bridge determinism tests |
 | RME-T21 | Done | Skip expensive keyword grep pre-scan when repo_map proves a large query is too broad to provide useful navigation candidates | `TestKeywordSearchBroadRepoMapSkipsGrepPreScan` |
+| RME-T22 | Done | Tighten legacy single-repo typed relation prompt probes so multi-source called-by/references/extends soft hints do not walk the full graph during context assembly; keep exact single-source graph hints | `TestProbeTypedRelations_BroadExpensiveLegacyGraphSkipsCandidateWalk`, `TestProbeTypedRelations_SingleExactLegacyGraphKeepsExpensivePromptHint` |
 
 ## Red-Line Guardrails
 

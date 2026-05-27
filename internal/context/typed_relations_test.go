@@ -474,6 +474,103 @@ func TestProbeTypedRelations_AmbiguousExpensivePromptHintSkipsSourceFactProvider
 	}
 }
 
+func TestProbeTypedRelations_BroadExpensiveLegacyGraphSkipsCandidateWalk(t *testing.T) {
+	runFile := &repotypes.FileInfo{RelPath: "cmd/run.go", Language: repotypes.LangGo}
+	stopFile := &repotypes.FileInfo{RelPath: "cmd/stop.go", Language: repotypes.LangGo}
+	mainFile := &repotypes.FileInfo{RelPath: "cmd/main.go", Language: repotypes.LangGo}
+
+	run := repotypes.Symbol{Name: "Run", Kind: "function", File: runFile.RelPath, Line: 12}
+	run.ID = repotypes.DeriveSymbolID(runFile, &run)
+	runFile.Symbols = []repotypes.Symbol{run}
+	stop := repotypes.Symbol{Name: "Stop", Kind: "function", File: stopFile.RelPath, Line: 18}
+	stop.ID = repotypes.DeriveSymbolID(stopFile, &stop)
+	stopFile.Symbols = []repotypes.Symbol{stop}
+	main := repotypes.Symbol{Name: "main", Kind: "function", File: mainFile.RelPath, Line: 5, EndLine: 30}
+	main.ID = repotypes.DeriveSymbolID(mainFile, &main)
+	mainFile.Symbols = []repotypes.Symbol{main}
+	mainFile.Relations = []repotypes.Relation{{
+		Kind: "call",
+		File: mainFile.RelPath,
+		Line: 22,
+		ToEP: repotypes.RelationEndpoint{
+			ID:   run.ID,
+			Name: "Run",
+			File: runFile.RelPath,
+			Line: run.Line,
+		},
+	}}
+	g := &repotypes.Graph{
+		Files: []*repotypes.FileInfo{runFile, stopFile, mainFile},
+		SymbolDefs: map[string][]*repotypes.Symbol{
+			"Run":  {&runFile.Symbols[0]},
+			"Stop": {&stopFile.Symbols[0]},
+			"main": {&mainFile.Symbols[0]},
+		},
+		SymbolByID: map[repotypes.SymbolID]*repotypes.Symbol{
+			run.ID:  &runFile.Symbols[0],
+			stop.ID: &stopFile.Symbols[0],
+			main.ID: &mainFile.Symbols[0],
+		},
+	}
+	rm := &types.RequestModel{
+		PredicateAxis: types.AxisCall,
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"Run", "Stop"},
+		},
+	}
+	if hints := ProbeTypedRelations(g, rm); len(hints) != 0 {
+		t.Fatalf("broad expensive legacy graph prompt hint must not walk relation graph, got %+v", hints)
+	}
+}
+
+func TestProbeTypedRelations_SingleExactLegacyGraphKeepsExpensivePromptHint(t *testing.T) {
+	runFile := &repotypes.FileInfo{RelPath: "cmd/run.go", Language: repotypes.LangGo}
+	mainFile := &repotypes.FileInfo{RelPath: "cmd/main.go", Language: repotypes.LangGo}
+	run := repotypes.Symbol{Name: "Run", Kind: "function", File: runFile.RelPath, Line: 12}
+	run.ID = repotypes.DeriveSymbolID(runFile, &run)
+	runFile.Symbols = []repotypes.Symbol{run}
+	main := repotypes.Symbol{Name: "main", Kind: "function", File: mainFile.RelPath, Line: 5, EndLine: 30}
+	main.ID = repotypes.DeriveSymbolID(mainFile, &main)
+	mainFile.Symbols = []repotypes.Symbol{main}
+	mainFile.Relations = []repotypes.Relation{{
+		Kind: "call",
+		File: mainFile.RelPath,
+		Line: 22,
+		ToEP: repotypes.RelationEndpoint{
+			ID:   run.ID,
+			Name: "Run",
+			File: runFile.RelPath,
+			Line: run.Line,
+		},
+	}}
+	g := &repotypes.Graph{
+		Files: []*repotypes.FileInfo{runFile, mainFile},
+		SymbolDefs: map[string][]*repotypes.Symbol{
+			"Run":  {&runFile.Symbols[0]},
+			"main": {&mainFile.Symbols[0]},
+		},
+		SymbolByID: map[repotypes.SymbolID]*repotypes.Symbol{
+			run.ID:  &runFile.Symbols[0],
+			main.ID: &mainFile.Symbols[0],
+		},
+	}
+	rm := &types.RequestModel{
+		PredicateAxis: types.AxisCall,
+		AnalyzerHints: types.AnalyzerHints{
+			PrimaryEntities: []string{"Run"},
+		},
+	}
+	hints := ProbeTypedRelations(g, rm)
+	if len(hints) != 1 {
+		t.Fatalf("single exact expensive prompt source should still surface typed relation hint, got %+v", hints)
+	}
+	if hints[0].Relation != types.TypedRelationCalledBy ||
+		len(hints[0].Members) != 1 ||
+		hints[0].Members[0].Name != "main" {
+		t.Fatalf("unexpected single-source called-by hint: %+v", hints)
+	}
+}
+
 func TestProbeTypedRelations_ChangeImpactUsesReferenceRelationHint(t *testing.T) {
 	provider := fakeTypedRelationCandidateSource{
 		facts: []types.TypedRelationSourceFact{{

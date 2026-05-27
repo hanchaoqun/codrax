@@ -194,6 +194,8 @@ func ProbeTypedRelations(graph any, rm *types.RequestModel) []types.TypedRelatio
 		}
 		if len(narrowSources) == 0 {
 			logging.Debug("[context] typed relation prompt hint skipped expensive graph-backed kinds carrier=%T sources=%d kinds=%v reason=no-single-exact-source", graph, len(query.Sources), expensive)
+		} else if len(narrowSources) > 1 {
+			logging.Debug("[context] typed relation prompt hint skipped expensive graph-backed kinds carrier=%T sources=%d exact_sources=%d kinds=%v reason=multiple-exact-sources", graph, len(query.Sources), len(narrowSources), expensive)
 		} else {
 			expensiveQuery := query
 			expensiveQuery.Kinds = expensive
