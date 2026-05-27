@@ -18,6 +18,8 @@
 package repomap
 
 import (
+	"time"
+
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/index"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/render"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/retrieve"
@@ -137,6 +139,9 @@ func SetResumeInterruptedScan(enabled bool) { index.SetResumeInterruptedScan(ena
 // SetScanReserveCPUs sets how many CPU cores repomap scan worker pools
 // leave free for interactive processes. Default (unset) is 0.
 func SetScanReserveCPUs(n int) { index.SetScanReserveCPUs(n) }
+
+// SetTreeSitterParseTimeout caps one tree-sitter parse. Zero disables it.
+func SetTreeSitterParseTimeout(d time.Duration) { index.SetTreeSitterParseTimeout(d) }
 
 // IsSpecialFile reports whether a file path is a recognised project
 // file (go.mod, Cargo.toml, tsconfig.json, ...).

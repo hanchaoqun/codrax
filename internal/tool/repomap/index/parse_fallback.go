@@ -2,15 +2,19 @@ package index
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	sitter "github.com/smacker/go-tree-sitter"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 )
+
+var errTreeSitterParseTimeout = errors.New("tree-sitter parse timed out")
 
 // ParseAttempt is the structured result of a single parse pass.
 // One attempt is produced per (file, tier) combination during the
@@ -66,21 +70,41 @@ func TierDiscount(tier int) float64 {
 // shares the same nil-and-error handling instead of each one
 // re-implementing the dance.
 func parseTreeSitterIfPossible(lang string, source []byte) (*sitter.Node, bool) {
+	root, _, err := parseTreeSitterRoot(lang, source)
+	if err != nil {
+		return nil, false
+	}
+	return root, root != nil
+}
+
+func parseTreeSitterRoot(lang string, source []byte) (*sitter.Node, time.Duration, error) {
 	tsLang := types.GetSitterLanguage(lang)
 	if tsLang == nil {
-		return nil, false
+		return nil, 0, fmt.Errorf("no tree-sitter grammar for %s", lang)
 	}
 	parser := sitter.NewParser()
 	parser.SetLanguage(tsLang)
-	tree, err := parser.ParseCtx(context.Background(), nil, source)
+	ctx := context.Background()
+	var cancel context.CancelFunc
+	timeout := treeSitterParseTimeout
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	start := time.Now()
+	tree, err := parser.ParseCtx(ctx, nil, source)
+	elapsed := time.Since(start)
 	if err != nil || tree == nil {
-		return nil, false
+		if timeout > 0 && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, elapsed, fmt.Errorf("%w after %s", errTreeSitterParseTimeout, timeout)
+		}
+		return nil, elapsed, err
 	}
 	root := tree.RootNode()
 	if root == nil {
-		return nil, false
+		return nil, elapsed, fmt.Errorf("tree-sitter parse produced nil root")
 	}
-	return root, true
+	return root, elapsed, nil
 }
 
 // recordFallback annotates a FileInfo with the tier + reason and
@@ -147,15 +171,15 @@ func SetTierThresholds(warn, alert float64) {
 // reportFallbackRatios is called once per ScanFiles run. It walks
 // the produced FileInfos and emits:
 //
-//   1. ONE INFO summary line listing per-language Tier 1/2/3/4
-//      distribution for every language with >= tierStatsMinFiles
-//      files. Always fires so operators can see the parse-tier
-//      health at a glance, even when nothing exceeds a threshold.
+//  1. ONE INFO summary line listing per-language Tier 1/2/3/4
+//     distribution for every language with >= tierStatsMinFiles
+//     files. Always fires so operators can see the parse-tier
+//     health at a glance, even when nothing exceeds a threshold.
 //
-//   2. ONE WARN line per language whose Tier-2+ ratio exceeds
-//      the alert threshold (fallbackBannerThreshold or
-//      tierAlertRatio default), naming the language + ratio +
-//      remediation hint.
+//  2. ONE WARN line per language whose Tier-2+ ratio exceeds
+//     the alert threshold (fallbackBannerThreshold or
+//     tierAlertRatio default), naming the language + ratio +
+//     remediation hint.
 //
 // Idempotent: callers do not need to gate this on "first time"
 // — it just emits at most one of each per language per call.

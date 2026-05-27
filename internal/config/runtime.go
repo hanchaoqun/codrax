@@ -1066,6 +1066,14 @@ type RuntimeSettings struct {
 	// default (0) applied in cmd/root.go.
 	RepomapScanReserveCPUs *int `yaml:"repomap_scan_reserve_cpus"`
 
+	// RepomapParseTimeoutEnabled / Seconds cap one tree-sitter parse so
+	// a pathological generated source file cannot make the whole scan
+	// appear permanently stuck. nil enabled → true; nil seconds → code
+	// default. enabled=false or seconds=0 disables the safety valve for
+	// operators who prefer completeness over liveness.
+	RepomapParseTimeoutEnabled *bool `yaml:"repomap_parse_timeout_enabled"`
+	RepomapParseTimeoutSeconds *int  `yaml:"repomap_parse_timeout_seconds"`
+
 	// CGEC (Citation-Grounded Evidence Closure) tunables. All
 	// optional; nil → code default in
 	// orchestrator.cgecForcedReadsPerRound /

@@ -1,6 +1,6 @@
 # Large-repo scan resilience
 
-Status: implemented; 2026-05-27 short-term parser peak-memory follow-up completed.
+Status: implemented; 2026-05-27 short-term parser liveness follow-up completed.
 
 ## Problem
 
@@ -40,6 +40,8 @@ hosts:
 |---|-------|----------------|
 | 5 | `ParseFilesWithProgressSinkAndActive` used `len(entries)`-sized job/result buffers. On huge repos this lets parsed `FileInfo` pointers accumulate in channel storage before the collector drains them, increasing peak heap without adding precision. | Use small worker-proportional buffers and run the job feeder concurrently with the collector, so parser workers, sink writes, and progress collection stay streaming. |
 | 6 | Parser worker count was CPU-only. `GOMEMLIMIT` can pressure GC, but too many simultaneous tree-sitter parses still create unnecessary transient heap on low-memory machines. | Derive parser worker count from both `scanCPUBudget()` and the active Go memory limit; cap to roughly one parser worker per 512MiB soft heap budget, never below one. |
+| 7 | A single pathological generated/test source file can keep one tree-sitter parse in C for many minutes. The UI appears stuck on that filename, and cooperative cancellation cannot land until the parse returns. | Add a per-file tree-sitter parse safety valve: default 120s, enabled by default, configurable/disableable. A timed-out file becomes path-only with a logged fallback reason instead of blocking the full scan. |
+| 8 | REPL double Ctrl+C promised force-exit, but the force-exit path ran worktree cleanup synchronously before `os.Exit`. If cleanup or the host filesystem was stalled, "force" could still wait. | Bound cleanup wait to 500ms on the second Ctrl+C, then exit with code 130. Cleanup remains best-effort; force-exit remains forceful. |
 
 Fixes 1–3 are synergistic: #1 caps RSS, #2 lowers the graph-build
 baseline, #3 shrinks the parse working set on every retry. #4 is
@@ -244,6 +246,30 @@ change only alters queueing and worker count.
    the long-term answer is a two-stage/partitioned graph design; the short-term
    cap only reduces transient parse pressure.
 
+## Part 6 — per-file parse liveness safety valve
+
+Tree-sitter parsing is normally fast enough that full-scan latency is dominated
+by the number of source files, not by one file. Large generated/test fixtures
+break that assumption: a single C/C++/JavaScript/etc. source can keep the parser
+inside a native grammar for minutes. While that call is in progress, the parser
+worker cannot report progress, and Ctrl+C can only be observed by the broader
+pipeline after the tool call reaches a cooperative checkpoint.
+
+The short-term commercial fix is a per-file parse timeout:
+
+- `repomap_parse_timeout_enabled` defaults to `true`.
+- `repomap_parse_timeout_seconds` defaults to `120`.
+- `repomap_parse_timeout_enabled: false` or `repomap_parse_timeout_seconds: 0`
+  disables the safety valve.
+
+When a file times out, codrax records a Tier-4/path-only `FileInfo` with
+`FallbackReason="tree-sitter parse timed out after ..."`. That preserves the
+file in the index and cache, avoids pretending the file was fully understood,
+and prevents one generated fixture from blocking the whole repository. This is
+language-neutral because it wraps the shared tree-sitter parse helper used by
+all grammar-backed languages; non-tree-sitter paths such as Cangjie native
+scanning are unaffected.
+
 ## Short-term task list
 
 | ID | Status | Task | Validation |
@@ -254,6 +280,8 @@ change only alters queueing and worker count.
 | LRM-T4 | Done | Stream FileInfo chunks and derived sidecars instead of writing giant end-of-scan JSON/markdown buffers | cache progress tests |
 | LRM-T5 | Done | Bound parser job/result queues and collect concurrently to reduce huge-repo peak heap | parser queue tests |
 | LRM-T6 | Done | Cap parser workers by active Go soft heap limit as well as CPU budget | parser worker budget tests |
+| LRM-T7 | Done | Add default-on configurable per-file tree-sitter parse timeout with path-only fallback | parser timeout tests |
+| LRM-T8 | Done | Make second Ctrl+C force-exit wait only briefly for cleanup before exiting | REPL signal-path code audit |
 
 ## Concurrency safety
 
@@ -308,6 +336,7 @@ that without a lock.
 | Post-parse `FreeOSMemory` reclaim | ✓ | ✓ | ✓ | ✓ |
 | Resumable interrupted scan | ✓ | ✓ | ✓ | ✓ |
 | Scan CPU headroom (`repomap_scan_reserve_cpus`) | ✓ | ✓ | ✓ | ✓ |
+| Per-file parse timeout (`repomap_parse_timeout_*`) | ✓ | ✓ | ✓ | ✓ |
 
 Every capability either works natively or degrades to a logged no-op —
 nothing crashes or fails to build on any platform. The host-RAM

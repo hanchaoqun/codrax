@@ -1190,9 +1190,19 @@ func (r *REPL) installCancelSignalHandler() {
 				if doubleTap {
 					// Second signal within the window — escalate to
 					// clean exit, regardless of in-Run / idle state.
-					// Drive cleanup ourselves since the package
-					// handler is suppressed.
-					worktree.CleanActiveSessions()
+					// Drive cleanup ourselves since the package handler is
+					// suppressed, but do not let cleanup block the advertised
+					// force-exit path. On a swapping host or a stuck worktree
+					// filesystem, the second Ctrl+C must still terminate.
+					done := make(chan struct{})
+					go func() {
+						worktree.CleanActiveSessions()
+						close(done)
+					}()
+					select {
+					case <-done:
+					case <-time.After(500 * time.Millisecond):
+					}
 					fmt.Fprintln(r.out, "  Goodbye!")
 					os.Exit(130)
 				}

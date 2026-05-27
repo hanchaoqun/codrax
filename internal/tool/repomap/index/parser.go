@@ -1,7 +1,7 @@
 package index
 
 import (
-	"context"
+	"errors"
 	"math"
 	"os"
 	"runtime/debug"
@@ -16,10 +16,23 @@ import (
 )
 
 const (
-	treeSitterSlowParseWarnAfter = 10 * time.Second
-	parseWorkerMemoryBudget      = 512 << 20
-	parseBufferPerWorker         = 2
+	treeSitterSlowParseWarnAfter  = 10 * time.Second
+	defaultTreeSitterParseTimeout = 2 * time.Minute
+	parseWorkerMemoryBudget       = 512 << 20
+	parseBufferPerWorker          = 2
 )
+
+var treeSitterParseTimeout = defaultTreeSitterParseTimeout
+
+// SetTreeSitterParseTimeout caps a single tree-sitter parse. Zero disables the
+// safety valve. Called from startup config before scans begin; tests may adjust
+// it with restoreTreeSitterParseTimeout.
+func SetTreeSitterParseTimeout(d time.Duration) {
+	if d < 0 {
+		d = defaultTreeSitterParseTimeout
+	}
+	treeSitterParseTimeout = d
+}
 
 // ParseFiles parses all entries in parallel and returns types.FileInfo results.
 // Unparseable files (unsupported language, read errors) are included with
@@ -315,18 +328,16 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 		return fi
 	}
 
-	parser := sitter.NewParser()
-	parser.SetLanguage(lang)
-	start := time.Now()
-	tree, err := parser.ParseCtx(context.Background(), nil, source)
-	elapsed := time.Since(start)
+	root, elapsed, err := parseTreeSitterRoot(entry.Language, source)
 	if elapsed >= treeSitterSlowParseWarnAfter {
 		logging.Warning("repomap: slow parse %s %s size=%d elapsed=%s", entry.Language, entry.RelPath, entry.Size, elapsed.Round(time.Millisecond))
 	}
-	if err != nil || tree == nil {
+	if err != nil {
+		if errors.Is(err, errTreeSitterParseTimeout) {
+			recordFallback(fi, 1, 4, err.Error())
+		}
 		return fi
 	}
-	root := tree.RootNode()
 	if root == nil {
 		return fi
 	}

@@ -1000,6 +1000,8 @@ agents:
 | `memory_soft_limit_bytes` | `0` | 直接以字节指定软上限;`>0` 时跳过宿主 RAM 检测,低于 512 MiB 抬到该下限。RAM 检测覆盖不到的平台用这个键 |
 | `repomap_resume_interrupted_scan` | `true` | 全量扫描复用上次被中断(如被 OOM 杀掉)的扫描已落盘的 chunk,经内容哈希校验后跳过重解析;重试逐步收敛而非从零重来。覆盖全部 15 种语言 |
 | `repomap_scan_reserve_cpus` | `0` | 设为 `>0` 时,扫描期间把 `GOMAXPROCS` 压到 `核数 - 该值`,让整个 Go 运行时(解析 worker、**GC worker**、图构建/排序)都留出这么多核心给交互进程,避免占满 CPU 饿死 sshd 导致远程 SSH 断连。损失一些扫描吞吐(4 核留 1 ≈ 慢 25%),故默认 `0` 按需开启;小远程机掉 SSH 时设 `1` |
+| `repomap_parse_timeout_enabled` | `true` | 是否启用单文件 tree-sitter 解析安全阀。默认开启,避免生成型/病态大文件让整仓扫描长期卡住 |
+| `repomap_parse_timeout_seconds` | `120` | 单个 tree-sitter 源文件解析的安全阈值。超时文件降级为 path-only 并记录 fallback reason。设 `0` 或把 `repomap_parse_timeout_enabled` 设为 `false` 可关闭该安全阀 |
 
 ### 流水线预算
 

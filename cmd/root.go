@@ -1665,6 +1665,29 @@ func initApp(cmd *cobra.Command, args []string) error {
 	}
 	repomap.SetScanReserveCPUs(scanReserveCPUs)
 	logging.Info("cpu: repomap scan reserves %d core(s) (GOMAXPROCS cap)", scanReserveCPUs)
+	parseTimeoutEnabled := true
+	parseTimeout := 120 * time.Second
+	if rs != nil {
+		if rs.RepomapParseTimeoutEnabled != nil {
+			parseTimeoutEnabled = *rs.RepomapParseTimeoutEnabled
+		}
+		if rs.RepomapParseTimeoutSeconds != nil {
+			if *rs.RepomapParseTimeoutSeconds <= 0 {
+				parseTimeout = 0
+			} else {
+				parseTimeout = time.Duration(*rs.RepomapParseTimeoutSeconds) * time.Second
+			}
+		}
+	}
+	if !parseTimeoutEnabled {
+		parseTimeout = 0
+	}
+	repomap.SetTreeSitterParseTimeout(parseTimeout)
+	if parseTimeout > 0 {
+		logging.Info("repo_map: tree-sitter parse timeout per file is %s", parseTimeout)
+	} else {
+		logging.Info("repo_map: tree-sitter parse timeout per file is disabled")
+	}
 
 	// Multi-repo discovery. Always runs — the §3.3.1 fast path keeps
 	// single-repo cost at ~50µs (one os.Stat for flagRepo/.git, one

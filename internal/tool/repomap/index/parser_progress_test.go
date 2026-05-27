@@ -1,6 +1,7 @@
 package index
 
 import (
+	"errors"
 	"reflect"
 	"runtime/debug"
 	"testing"
@@ -65,6 +66,43 @@ func TestParseWorkerBudgetKeepsAtLeastOneWorker(t *testing.T) {
 	entries := make([]FileEntry, 100)
 	if got := parseWorkerBudget(entries); got != 1 {
 		t.Fatalf("workers = %d, want floor of 1 under tiny soft limit", got)
+	}
+}
+
+func TestTreeSitterParseTimeoutCanBeConfigured(t *testing.T) {
+	prev := treeSitterParseTimeout
+	defer SetTreeSitterParseTimeout(prev)
+	SetTreeSitterParseTimeout(17 * time.Second)
+	if got := treeSitterParseTimeout; got != 17*time.Second {
+		t.Fatalf("treeSitterParseTimeout = %s, want 17s", got)
+	}
+	SetTreeSitterParseTimeout(0)
+	if got := treeSitterParseTimeout; got != 0 {
+		t.Fatalf("treeSitterParseTimeout = %s, want disabled", got)
+	}
+	SetTreeSitterParseTimeout(-1)
+	if got := treeSitterParseTimeout; got != defaultTreeSitterParseTimeout {
+		t.Fatalf("treeSitterParseTimeout = %s, want default %s", got, defaultTreeSitterParseTimeout)
+	}
+}
+
+func TestParseTreeSitterTimeoutReturnsTypedError(t *testing.T) {
+	prev := treeSitterParseTimeout
+	defer SetTreeSitterParseTimeout(prev)
+	SetTreeSitterParseTimeout(1 * time.Nanosecond)
+	// Use enough source text that the deadline is already expired by the time
+	// tree-sitter checks it on ordinary machines. If a very fast parser wins
+	// the race, the safety-valve contract is still covered by the setter test.
+	src := []byte("package p\n")
+	for i := 0; i < 10000; i++ {
+		src = append(src, []byte("func f() {}\n")...)
+	}
+	_, _, err := parseTreeSitterRoot("go", src)
+	if err == nil {
+		t.Skip("tree-sitter completed before the 1ns deadline on this host")
+	}
+	if !errors.Is(err, errTreeSitterParseTimeout) {
+		t.Fatalf("parse error = %v, want errTreeSitterParseTimeout", err)
 	}
 }
 
