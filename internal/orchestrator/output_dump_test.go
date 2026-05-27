@@ -209,6 +209,50 @@ func TestRecordTaskFinalizeWritesOutputDumpForFallbackAnswer(t *testing.T) {
 	}
 }
 
+func TestRecordTaskFinalizeUsesExpandedTranscriptRequest(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "output")
+	folded := "[Pasted text #0 +3 lines +42 chars]"
+	expanded := "请分析下面这段长文本:\n第一行原文\n第二行原文"
+	mut := types.NewMutableState("## Prior conversation\nold\n\n## Current request\n" + folded)
+	o := &Orchestrator{
+		busCtx:        &types.BusContext{Mutable: mut},
+		outputDumpDir: dir,
+		outputDumpMax: 10,
+		emit:          func(render.Event) {},
+	}
+	o.SetOutputTranscriptRequest(expanded)
+
+	o.recordTaskFinalize(&agent.StageOutput{FinalAnswer: "answer body"})
+
+	path := mut.FinalAnswerMarkdownPath()
+	if path == "" {
+		t.Fatal("expected markdown dump path")
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read markdown dump %s: %v", path, err)
+	}
+	if !strings.Contains(string(body), "# 问题\n\n"+expanded) ||
+		!strings.Contains(string(body), "# 回答\n\nanswer body") {
+		t.Fatalf("markdown dump did not use expanded request:\n%s", body)
+	}
+	if strings.Contains(string(body), folded) {
+		t.Fatalf("markdown dump leaked folded paste placeholder:\n%s", body)
+	}
+
+	htmlPath := mut.FinalAnswerHTMLPath()
+	if htmlPath == "" {
+		t.Fatal("expected html dump path")
+	}
+	htmlBody, err := os.ReadFile(htmlPath)
+	if err != nil {
+		t.Fatalf("read html dump %s: %v", htmlPath, err)
+	}
+	if !strings.Contains(string(htmlBody), "第一行原文") || strings.Contains(string(htmlBody), folded) {
+		t.Fatalf("html dump did not reflect expanded request:\n%s", htmlBody)
+	}
+}
+
 func mdNamesIn(t *testing.T, dir string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(dir)

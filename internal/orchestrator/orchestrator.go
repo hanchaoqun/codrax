@@ -65,8 +65,9 @@ type Orchestrator struct {
 	// is false). outputDumpMax bounds retention by file count; the
 	// dump helper prunes the oldest files past this cap before writing
 	// the new one.
-	outputDumpDir string
-	outputDumpMax int
+	outputDumpDir           string
+	outputDumpMax           int
+	outputTranscriptRequest string
 
 	// memoryReader is the read handle into the REPL memory store.
 	// Wired by cmd/root.go via SetMemoryReader after the Store is
@@ -680,6 +681,15 @@ func (o *Orchestrator) SetBlobSessionDir(dir string) {
 func (o *Orchestrator) SetOutputDump(dir string, max int) {
 	o.outputDumpDir = dir
 	o.outputDumpMax = max
+}
+
+// SetOutputTranscriptRequest installs the exact current-turn user
+// request to render in final-answer markdown/html transcripts. REPL
+// uses this to pass the paste-expanded request while keeping memory's
+// folded display text compact. Empty restores the historical fallback
+// that derives the request from Mutable.Objective().
+func (o *Orchestrator) SetOutputTranscriptRequest(request string) {
+	o.outputTranscriptRequest = request
 }
 
 // SetMemoryReader wires the REPL memory store's read handle so each
@@ -7086,7 +7096,7 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 		if result := writeFinalOutputDumpResult(dumpFinalOutputArgs{
 			dir:      o.outputDumpDir,
 			max:      o.outputDumpMax,
-			request:  types.StripConversationPrefix(o.busCtx.Mutable.Objective()),
+			request:  o.outputTranscriptRequestForDump(),
 			answer:   answer,
 			hasLog:   o.attachedLog != "",
 			logBytes: len(o.attachedLog),
@@ -7104,6 +7114,16 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 		Timestamp: time.Now(),
 		Objective: o.busCtx.Mutable.Objective(),
 	})
+}
+
+func (o *Orchestrator) outputTranscriptRequestForDump() string {
+	if o != nil && strings.TrimSpace(o.outputTranscriptRequest) != "" {
+		return o.outputTranscriptRequest
+	}
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return ""
+	}
+	return types.StripConversationPrefix(o.busCtx.Mutable.Objective())
 }
 
 // dispatchStage runs the agent bound to the given stage and returns

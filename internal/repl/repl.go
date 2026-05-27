@@ -106,6 +106,16 @@ type presentationDirectiveSetter interface {
 	SetPresentationDirective(string)
 }
 
+// outputTranscriptRequestSetter is the REPL-only channel for the
+// final-answer markdown/html transcript's "question" section. The
+// pipeline request may include prior-conversation scaffolding, while
+// REPL memory intentionally stores paste-folded display text. The
+// transcript, however, should show the current user request exactly as
+// dispatched after paste-placeholder expansion.
+type outputTranscriptRequestSetter interface {
+	SetOutputTranscriptRequest(string)
+}
+
 // modeSetter is the optional capability the REPL probes on its
 // Runner to propagate the current pipeline Mode before dispatch.
 // Real orchestrators implement SetMode; test stubs that omit it
@@ -1917,6 +1927,14 @@ func (r *REPL) dispatch(line, display string) {
 	// previous turn's diagram/table preference into the next request.
 	if setter, ok := r.runner.(presentationDirectiveSetter); ok {
 		setter.SetPresentationDirective(presentationDirective)
+	}
+	// Persist the expanded current request in output artifacts. Keep
+	// this out-of-band from the model request: `effective` may include
+	// prior-conversation context, while `display` may include folded
+	// paste placeholders for REPL memory compactness.
+	if setter, ok := r.runner.(outputTranscriptRequestSetter); ok {
+		setter.SetOutputTranscriptRequest(line)
+		defer setter.SetOutputTranscriptRequest("")
 	}
 
 	// Propagate sticky attached-log to the runner. Runners without

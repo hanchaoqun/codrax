@@ -63,6 +63,22 @@ func (r markdownPathRunner) Run(_, _, _ string) (*types.BusContext, error) {
 	return &types.BusContext{Mutable: mut}, nil
 }
 
+type outputTranscriptRunner struct {
+	requests           []string
+	transcriptRequests []string
+}
+
+func (r *outputTranscriptRunner) SetOutputTranscriptRequest(s string) {
+	r.transcriptRequests = append(r.transcriptRequests, s)
+}
+
+func (r *outputTranscriptRunner) Run(request, _, _ string) (*types.BusContext, error) {
+	r.requests = append(r.requests, request)
+	mut := types.NewMutableState(request)
+	mut.SetResult("final answer body")
+	return &types.BusContext{Mutable: mut}, nil
+}
+
 type mermaidAnswerRunner struct{}
 
 func (mermaidAnswerRunner) Run(_, _, _ string) (*types.BusContext, error) {
@@ -114,6 +130,56 @@ func newTestREPL(store *memory.Store, in *strings.Reader, out *bytes.Buffer) *RE
 		// helper tests.
 		Language: "en",
 	})
+}
+
+func TestDispatchPropagatesExpandedRequestForOutputTranscript(t *testing.T) {
+	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	runner := &outputTranscriptRunner{}
+	var out bytes.Buffer
+	r := New(Config{
+		Runner:   runner,
+		Store:    store,
+		Render:   renderNothing,
+		RepoRoot: ".",
+		Branch:   "main",
+		In:       strings.NewReader(""),
+		Out:      &out,
+		Language: "en",
+	})
+	expanded := "请分析下面这段长文本:\n第一行原文\n第二行原文"
+	folded := "请分析下面这段长文本:\n[Pasted text #0 +2 lines +20 chars]"
+
+	r.dispatch(expanded, folded)
+
+	if len(runner.transcriptRequests) != 2 {
+		t.Fatalf("SetOutputTranscriptRequest calls = %d, want expanded + clear", len(runner.transcriptRequests))
+	}
+	if got := runner.transcriptRequests[0]; got != expanded {
+		t.Fatalf("transcript request = %q, want expanded %q", got, expanded)
+	}
+	if got := runner.transcriptRequests[1]; got != "" {
+		t.Fatalf("transcript request was not cleared after dispatch: %q", got)
+	}
+	if len(runner.requests) != 1 {
+		t.Fatalf("Run calls = %d, want 1", len(runner.requests))
+	}
+	if strings.Contains(runner.requests[0], folded) || !strings.Contains(runner.requests[0], expanded) {
+		t.Fatalf("pipeline request should contain expanded text only:\n%s", runner.requests[0])
+	}
+	recent := store.Recent()
+	if len(recent) == 0 {
+		t.Fatalf("expected turn in memory")
+	}
+	last := recent[len(recent)-1]
+	if last.Request != folded {
+		t.Fatalf("memory request = %q, want folded display %q", last.Request, folded)
+	}
+	if last.RequestForSummary != expanded {
+		t.Fatalf("memory summary request = %q, want expanded %q", last.RequestForSummary, expanded)
+	}
 }
 
 func TestBorderedLineFragments_WrapsOrdinaryProse(t *testing.T) {
