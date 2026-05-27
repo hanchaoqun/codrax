@@ -367,6 +367,8 @@ Per-agent 模型路由在 `providers.yaml` 配，不同 agent 可指向不同模
 
 **工具兼容边界**：兼容层分成两段，避免把本地小模型的问题污染 prompt，同时让所有模型受益于安全的结构归一化。Adapter 层默认启用一个严格安全档：当 assistant content 本身就是完整 JSON，且 JSON 是显式工具调用 envelope（`name`/`arguments`、`function_call`、`tool_calls`）时，恢复成协议级 `tool_calls`；它不解析散文/代码块、不做裸参数推断、不修缺失大括号，也不按工具名 keyed map 猜调用。`recover_text_tool_calls` 是更宽的兼容档，默认关闭；打开后还可恢复 fenced / embedded envelope、没有工具名的裸参数 JSON 等本地模型常见形态。`auto` 工具选择下只额外恢复“整段内容完全由一个或多个 `<tool_call>...</tool_call>` 块组成、块外只有空白、且每块都能解析为本轮真实 ToolSchema 已知工具”的形态；带散文包装的 embedded 块仍只在 required/forced-tool 场景恢复。所有恢复都必须由本轮真实 `ToolSchema` 在 required / properties / nested items.required 上唯一匹配，不能唯一匹配就保留为文本。`tool_param_compat` 在 `BaseAgent` 的 agent/tool 边界运行，用本轮真实 `ToolSchema` 对协议级 tool-call 参数做确定性类型归一化（如 string integer → integer、JSON-stringified array → array），默认 `repair` 但关闭 delimited string array split。`tool_param_compat` 还支持 `audit` 只打日志不改 payload，或显式 `off`。代码落点见 `docs/design/local_model_tool_param_compat.md`。
 
+**Provider-native thinking 边界**：`think_aloud` 只控制 Codrax prompt 侧的简短进度旁白，不代表 provider 原生 reasoning/thinking API。`thinking_mode` 控制 provider wire JSON，取值 `auto` / `disabled` / `enabled` / `provider_default`。默认 `auto` 只对官方 DeepSeek endpoint 发送 `thinking: {type: disabled}`；其它 OpenAI-compatible provider 不收到私有 thinking 字段。显式 `enabled` 时，官方 DeepSeek endpoint 会在工具调用历史中保留并回传 `reasoning_content`，并在原生 thinking 开启时省略 `tool_choice`，以满足 DeepSeek thinking+tools 的协议约束；该行为必须保持 provider-scoped，不能影响其它供应商。
+
 **ChatOptions 的回调家族**：
 - `OnContentDelta(delta)` — 流式 content chunk
 - `OnToolCallDelta(index, name, argsChunk)` — 流式 tool call 参数 chunk（**被动**观察，不影响 adapter 内部累积，让 finalizer 预览这条流不破坏最终 parse）
@@ -2525,7 +2527,7 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 
 `llm.default` block + `llm.agents.<name>` overrides。Merge order：agent-level → default-level → 环境变量。**Non-zero merge 规则**：agent-level 字段为零值时继承 default-level；非零总是胜出。允许一份 providers.yaml 跨异构模型按字段独立 scale。
 
-`llm.default` 字段：`provider` / `api_key` / `model` / `base_url` / `think_aloud` / `recover_text_tool_calls` / `tool_param_compat` / `stream` / `context_window` / `max_output_tokens` / `max_output_fraction` / `tls_ca_file` / `tls_insecure_skip_verify` / `request_timeout_seconds` / `retry_max_attempts` / `stream_stall_timeout_seconds` / `stream_first_byte_timeout_seconds`。
+`llm.default` 字段：`provider` / `api_key` / `model` / `base_url` / `think_aloud` / `thinking_mode` / `recover_text_tool_calls` / `tool_param_compat` / `stream` / `context_window` / `max_output_tokens` / `max_output_fraction` / `tls_ca_file` / `tls_insecure_skip_verify` / `request_timeout_seconds` / `retry_max_attempts` / `stream_stall_timeout_seconds` / `stream_first_byte_timeout_seconds`。
 
 **Per-agent override**：任一字段都能 per-agent 覆盖。Boolean 字段用 nil-sentinel：nil = 继承，true/false = override。严格显式 envelope 恢复不受 `recover_text_tool_calls` 控制，始终作为 adapter 安全档运行；`recover_text_tool_calls` 只控制更宽的本地模型文本恢复。`tool_param_compat.mode` 接受 `off` / `audit` / `repair`：未配置时 runtime 默认注入 `repair` 且 `split_string_arrays=false`；`off` 不进入 runtime policy map；`audit` 只记录可修复项；`repair` 才会在 tool 执行前改写 schema 可证明的机械类型错误。逗号/换行字符串拆 `[]string` 不是完全等价修复，必须显式 `split_string_arrays: true`。
 

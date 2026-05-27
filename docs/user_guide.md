@@ -100,10 +100,12 @@ llm:
 | 服务 | base_url | 备注 |
 |---|---|---|
 | OpenAI | `https://api.openai.com/v1` | 国内可能需走代理 |
-| DeepSeek | `https://api.deepseek.com/v1` | model 例:`deepseek-chat` |
+| DeepSeek | `https://api.deepseek.com/v1` | model 例:`deepseek-chat`;保持 `thinking_mode: auto` 即可兼容 tools |
 | 阿里云 DashScope | `https://dashscope.aliyuncs.com/compatible-mode/v1` | model 例:`qwen-max` |
 | Ollama 本地 | `http://localhost:11434/v1` | model 是你 `ollama pull` 拉过的名字 |
 | vLLM 本地 | `http://localhost:8000/v1` | api_key 任写;model = `--served-model-name` |
+
+DeepSeek 用户一般不用额外调参:`thinking_mode: auto` 会在官方 DeepSeek endpoint 主动关闭 provider 原生 thinking,避免它和 tools / `tool_choice` 冲突。`think_aloud` 只是 Codrax prompt 侧的“出声思考”提示,不是 API thinking 开关。
 
 ## 1.5 第一个问题
 
@@ -887,7 +889,15 @@ llm:
     stream_stall_timeout_seconds: 120   # SSE 启动后 N 秒无新字节,主动中止
     stream_first_byte_timeout_seconds: 40  # 请求被接受后 N 秒还没首字节(provider 死锁/cold-start),中止
     think_aloud: true                   # 是否要求模型在工具调用旁夹 1-2 句推理摘要
+    thinking_mode: auto                 # provider 原生 thinking:auto|disabled|enabled|provider_default
 ```
+
+`think_aloud` 和 `thinking_mode` 是两件事:
+
+- `think_aloud`:只影响 Codrax 发给模型的 prompt,让模型在工具调用旁输出 1-2 句进度摘要;不会打开任何 provider 原生 reasoning / thinking API。
+- `thinking_mode`:控制 provider wire JSON。默认 `auto`:对官方 DeepSeek endpoint 发送 `thinking: {type: disabled}`,其它 OpenAI-compatible provider 不发送私有 thinking 字段。
+- `disabled`:总是请求关闭 provider 原生 thinking;`provider_default`:完全不发送 thinking 字段,交给 provider 默认行为。
+- `enabled`:仅在你明确要测试 provider 原生 thinking 时使用。对官方 DeepSeek endpoint,Codrax 会保留并回传 `reasoning_content`,并在原生 thinking 开启时不发送 `tool_choice`,以满足 DeepSeek tools 兼容要求。除非已验证收益,生产环境建议保持 `auto`。
 
 ### 5.1.5 本地小模型 tool-call 兼容(可选)
 
@@ -1257,6 +1267,9 @@ CLI 单次模式输出:
 
 **`error: upstream LLM stream stalled with no bytes for Ns`**
 → 上游模型卡住。换 provider 或换模型(thinking model 长 reasoning 段可能正常 120s 无字节;调 `stream_stall_timeout_seconds`)。
+
+**DeepSeek 报 `Thinking mode does not support this tool_choice`**
+→ provider 原生 thinking 与 tools / `tool_choice` 冲突。保持 `thinking_mode: auto`(默认)或显式设 `thinking_mode: disabled`。不要用 `think_aloud: false` 当修复手段;它只控制 Codrax prompt 侧的进度摘要,不是 provider 原生 thinking 开关。只有明确需要 DeepSeek 原生 thinking 且确认模型支持 tools 时,才设置 `thinking_mode: enabled`。
 
 **最终答案空白 / `(no content rendered)`**
 → analyzer 拒绝了请求,或 LLM 返空。看 `<CWD>/.codrax/logs/codrax-*.log` 的 ERROR / WARN。

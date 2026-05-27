@@ -85,7 +85,9 @@ llm:
     #     支持该能力的 provider wire JSON。默认 `auto`: 对官方 DeepSeek
     #     API endpoint 主动发送 `thinking: {type: disabled}`,因为 DeepSeek
     #     默认开启 thinking,而 thinking+tools 需要回传 reasoning_content。
-    #     其它 OpenAI-compatible provider 默认不接收这个私有字段。
+    #     其它 OpenAI-compatible provider 默认不接收这个私有字段。不要用
+    #     `think_aloud: false` 修 provider 原生 thinking/tool_choice 错误;
+    #     `think_aloud` 只控制 prompt 侧进度摘要。
     #     `enabled` is opt-in for operators who deliberately want provider
     #     reasoning. On official DeepSeek endpoints Codrax will preserve
     #     and round-trip `reasoning_content` on tool-call turns and omit

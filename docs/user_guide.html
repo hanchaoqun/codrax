@@ -333,7 +333,7 @@ echo 'export PATH=&quot;$HOME/tools/codrax:$PATH&quot;' &gt;&gt; ~/.zshrc &amp;&
 <tr>
 <td>DeepSeek</td>
 <td><code>https://api.deepseek.com/v1</code></td>
-<td>model 例:<code>deepseek-chat</code></td>
+<td>model 例:<code>deepseek-chat</code>;保持 <code>thinking_mode: auto</code> 即可兼容 tools</td>
 </tr>
 <tr>
 <td>阿里云 DashScope</td>
@@ -352,6 +352,7 @@ echo 'export PATH=&quot;$HOME/tools/codrax:$PATH&quot;' &gt;&gt; ~/.zshrc &amp;&
 </tr>
 </tbody>
 </table></div>
+<p>DeepSeek 用户一般不用额外调参:<code>thinking_mode: auto</code> 会在官方 DeepSeek endpoint 主动关闭 provider 原生 thinking,避免它和 tools / <code>tool_choice</code> 冲突。<code>think_aloud</code> 只是 Codrax prompt 侧的“出声思考”提示,不是 API thinking 开关。</p>
 <h2 id="15-第一个问题">1.5 第一个问题</h2>
 <blockquote>
 <p><strong>codrax 把「你启动它时所在的目录」当作要分析的代码仓库。</strong> 它不会弹窗问你「要分析哪个项目」—— 默认分析的就是当前工作目录(等价 <code>--repo .</code>)。所以使用前请务必先 <code>cd</code> 进你想分析的项目根目录,再运行 <code>codrax</code>;在别的目录启动,它就会去分析那个目录。</p>
@@ -1293,7 +1294,15 @@ multi_repo_enabled: false
     stream_stall_timeout_seconds: 120   # SSE 启动后 N 秒无新字节,主动中止
     stream_first_byte_timeout_seconds: 40  # 请求被接受后 N 秒还没首字节(provider 死锁/cold-start),中止
     think_aloud: true                   # 是否要求模型在工具调用旁夹 1-2 句推理摘要
+    thinking_mode: auto                 # provider 原生 thinking:auto|disabled|enabled|provider_default
 </code></pre>
+<p><code>think_aloud</code> 和 <code>thinking_mode</code> 是两件事:</p>
+<ul>
+<li><code>think_aloud</code>:只影响 Codrax 发给模型的 prompt,让模型在工具调用旁输出 1-2 句进度摘要;不会打开任何 provider 原生 reasoning / thinking API。</li>
+<li><code>thinking_mode</code>:控制 provider wire JSON。默认 <code>auto</code>:对官方 DeepSeek endpoint 发送 <code>thinking: {type: disabled}</code>,其它 OpenAI-compatible provider 不发送私有 thinking 字段。</li>
+<li><code>disabled</code>:总是请求关闭 provider 原生 thinking;<code>provider_default</code>:完全不发送 thinking 字段,交给 provider 默认行为。</li>
+<li><code>enabled</code>:仅在你明确要测试 provider 原生 thinking 时使用。对官方 DeepSeek endpoint,Codrax 会保留并回传 <code>reasoning_content</code>,并在原生 thinking 开启时不发送 <code>tool_choice</code>,以满足 DeepSeek tools 兼容要求。除非已验证收益,生产环境建议保持 <code>auto</code>。</li>
+</ul>
 <h3 id="515-本地小模型-tool-call-兼容可选">5.1.5 本地小模型 tool-call 兼容(可选)</h3>
 <p>对 OpenAI-compatible 本地 / 小模型，先只打开审计模式观察：</p>
 <pre><code class="language-yaml">llm:
@@ -2185,6 +2194,8 @@ codrax --mode=verify --plan-file=/tmp/plan.json
 → 你按了 Ctrl+C,或网络断了。重试。</p>
 <p><strong><code>error: upstream LLM stream stalled with no bytes for Ns</code></strong>
 → 上游模型卡住。换 provider 或换模型(thinking model 长 reasoning 段可能正常 120s 无字节;调 <code>stream_stall_timeout_seconds</code>)。</p>
+<p><strong>DeepSeek 报 <code>Thinking mode does not support this tool_choice</code></strong>
+→ provider 原生 thinking 与 tools / <code>tool_choice</code> 冲突。保持 <code>thinking_mode: auto</code>(默认)或显式设 <code>thinking_mode: disabled</code>。不要用 <code>think_aloud: false</code> 当修复手段;它只控制 Codrax prompt 侧的进度摘要,不是 provider 原生 thinking 开关。只有明确需要 DeepSeek 原生 thinking 且确认模型支持 tools 时,才设置 <code>thinking_mode: enabled</code>。</p>
 <p><strong>最终答案空白 / <code>(no content rendered)</code></strong>
 → analyzer 拒绝了请求,或 LLM 返空。看 <code>&lt;CWD&gt;/.codrax/logs/codrax-*.log</code> 的 ERROR / WARN。</p>
 <p><strong>记忆里有错误回合污染下轮</strong>
