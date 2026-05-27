@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -339,6 +340,28 @@ func TestRepoMapRank_ReusesSearchGraphWithoutSecondFileScan(t *testing.T) {
 	}
 	if scores["src/answer.go"] <= 0 {
 		t.Fatalf("reused graph did not rank the in-memory symbol, scores=%v", scores)
+	}
+}
+
+func TestKeywordSearchBroadRepoMapSkipsGrepPreScan(t *testing.T) {
+	graph := &repomap.Graph{
+		FileIndex: make(map[string]*repomap.FileInfo, 40000),
+	}
+	scores := make(map[string]float64, 25000)
+	for i := 0; i < 40000; i++ {
+		path := fmt.Sprintf("src/file_%05d.go", i)
+		graph.FileIndex[path] = &repomap.FileInfo{RelPath: path, Language: "go"}
+		if i < 25000 {
+			scores[path] = 1
+		}
+	}
+	if !keywordSearchShouldSkipGrepForBroadRepoMap(scores, graph) {
+		t.Fatal("broad repo_map match should skip expensive grep candidate pre-scan")
+	}
+
+	narrow := map[string]float64{"src/file_00001.go": 1}
+	if keywordSearchShouldSkipGrepForBroadRepoMap(narrow, graph) {
+		t.Fatal("narrow repo_map match must still allow grep candidate pre-scan")
 	}
 }
 

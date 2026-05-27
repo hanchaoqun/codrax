@@ -212,6 +212,20 @@ Otherwise, ordinary single-repo `path="."` semantics apply.
     count at pop time. This preserves the exact articulation definition and is
     language-agnostic because it operates only on the resolved repo_map graph.
 
+21. **Explorer context assembly can stall on broad module keywords even after
+    repo_map reuse.** Customer Linux logs showed `keyword_search` reusing the
+    in-memory graph, then reporting `repo_map: 79198 files matched query (of
+    93468 total)` and spending about 75s before producing a single scored
+    candidate. Root cause: the soft keyword pre-scan still launched broad
+    full-text grep/rg JSON matching for generic architecture module terms
+    (`arch`, `kernel`, `drivers`, `fs`, ...). That work only feeds optional
+    prompt navigation candidates; it is not evidence and should not block
+    exploration when repo_map has already proven the query is too broad to be a
+    useful candidate filter. The safe fix is a large-repo broad-match guard:
+    when repo_map query hits more than half the graph and at least 20k files,
+    skip the expensive grep candidate pre-scan while preserving any unique exact
+    anchors and the in-memory graph for downstream tools.
+
 ## Task List
 
 | ID | Status | Task | Validation |
@@ -237,6 +251,7 @@ Otherwise, ordinary single-repo `path="."` semantics apply.
 | RME-T18 | Done | Add warm-cache load progress for chunked and legacy FileInfo caches so the UI shows `loaded/total` records instead of a static cache-hit line | `TestLoadFileInfosWithProgressReportsChunkedRecords`, repo-map scan message tests |
 | RME-T19 | Done | Surface large repo_map view-generation progress, including semantic_subgraph chains/hubs/bridges milestones, without changing tool output semantics | `TestSemanticSubgraphView`, repo-map view render message/progress tests |
 | RME-T20 | Done | Optimize semantic_subgraph bridge root-articulation detection without changing graph topology semantics | `TestComputeBridges_ManyIsolatedComponents`, existing bridge determinism tests |
+| RME-T21 | Done | Skip expensive keyword grep pre-scan when repo_map proves a large query is too broad to provide useful navigation candidates | `TestKeywordSearchBroadRepoMapSkipsGrepPreScan` |
 
 ## Red-Line Guardrails
 

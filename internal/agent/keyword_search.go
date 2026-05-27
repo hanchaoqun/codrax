@@ -358,7 +358,16 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 	exactAnchors := exactEntityAnchorsForKeywordSearchOptions(graph, opts)
 
 	// --- Phase 2: grep IDF-weighted scoring ---
-	grepScores, grepHits := grepIDFSearchForOptions(keywords, repoRoot, opts)
+	var grepScores map[string]float64
+	var grepHits map[string]map[string]string
+	if keywordSearchShouldSkipGrepForBroadRepoMap(repoMapScores, graph) {
+		logging.Debug("[keyword_search] repo_map query too broad (%d/%d files); skipping grep candidate pre-scan",
+			len(repoMapScores), keywordSearchGraphFileCount(graph))
+		grepScores = map[string]float64{}
+		grepHits = map[string]map[string]string{}
+	} else {
+		grepScores, grepHits = grepIDFSearchForOptions(keywords, repoRoot, opts)
+	}
 	// Defense in depth: grepIDFSearchForOptions restricts multi-repo
 	// searches to LRU-active sub-repo roots when the MultiGraph carrier
 	// is available. Keep the pending-sub-repo filter here for callers
@@ -539,6 +548,36 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 	logging.Debug("[keyword_search] %d keywords, %d entities → %d files scored (cap=%d)",
 		len(keywords), len(searchEntities), len(results), maxFiles)
 	return &keywordSearchResult{Files: results, Graph: graph, MultiGraph: opts.MultiGraph}
+}
+
+const (
+	keywordSearchBroadRepoMapMinMatches = 20000
+	keywordSearchBroadRepoMapRatio      = 0.50
+)
+
+func keywordSearchShouldSkipGrepForBroadRepoMap(repoMapScores map[string]float64, graph *repomap.Graph) bool {
+	matches := len(repoMapScores)
+	total := keywordSearchGraphFileCount(graph)
+	if matches < keywordSearchBroadRepoMapMinMatches || total <= 0 {
+		return false
+	}
+	return float64(matches)/float64(total) >= keywordSearchBroadRepoMapRatio
+}
+
+func keywordSearchGraphFileCount(graph *repomap.Graph) int {
+	if graph == nil {
+		return 0
+	}
+	switch {
+	case len(graph.FileIndex) > 0:
+		return len(graph.FileIndex)
+	case len(graph.Scores) > 0:
+		return len(graph.Scores)
+	case len(graph.Files) > 0:
+		return len(graph.Files)
+	default:
+		return 0
+	}
 }
 
 func shouldDeprioritizeAuxiliaryBySourceScope(role types.SourcePathRole, profile *types.SourceScopeProfile) bool {
