@@ -130,6 +130,55 @@ func TestCompileRepoMapNavigationPolicy_PartitionsSubTopicsBucketsAndLanes(t *te
 	}
 }
 
+func TestCompileRepoMapNavigationPolicy_PrefersExactCodeSurfacesForQuery(t *testing.T) {
+	rm := RequestModel{
+		Intent:        IntentTrace,
+		PredicateAxis: AxisCall,
+		AnalyzerHints: AnalyzerHints{
+			Kind:              string(ReqCallChain),
+			ExactTargets:      []string{"SubAgentRegistry"},
+			MentionedEntities: []string{"agent", "SubAgent"},
+			PrimaryEntities:   []string{"dispatcher", "dispatchStage"},
+			Keywords:          []string{"调用", "call", "dispatch", "agent", "subagent", "propose_sub_agents"},
+		},
+		DiagramHint: &DiagramHint{Kind: DiagramFlow},
+	}
+
+	got := CompileRepoMapNavigationPolicy(rm, nil, ExploreLanePlan{})
+	for _, want := range []string{"SubAgentRegistry", "SubAgent", "dispatchStage", "propose_sub_agents"} {
+		if !containsRepoMapPolicyTerm(got.QueryTerms, want) {
+			t.Fatalf("exact code surface %q should be preferred, got %+v", want, got.QueryTerms)
+		}
+	}
+	for _, broad := range []string{"agent", "call", "调用", "dispatch", "dispatcher", "subagent"} {
+		if containsRepoMapPolicyTerm(got.QueryTerms, broad) {
+			t.Fatalf("broad/non-code query term %q should not outrank exact code surfaces, got %+v", broad, got.QueryTerms)
+		}
+	}
+	rendered := got.RenderMarkdownHint("", "")
+	for _, want := range []string{"Prefer concise exact code surfaces as `query`", "Do not paste a natural-language sentence"} {
+		if !containsRepoMapPolicySubstring(rendered, want) {
+			t.Fatalf("rendered hint missing exact-query teaching %q:\n%s", want, rendered)
+		}
+	}
+}
+
+func TestCompileRepoMapNavigationPolicy_FallsBackWhenOnlyBroadTermsExist(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentExplain,
+		AnalyzerHints: AnalyzerHints{
+			Entities: []string{"scheduler"},
+			Keywords: []string{"runtime"},
+		},
+	}
+
+	got := CompileRepoMapNavigationPolicy(rm, nil, ExploreLanePlan{})
+	if !containsRepoMapPolicyTerm(got.QueryTerms, "scheduler") ||
+		!containsRepoMapPolicyTerm(got.QueryTerms, "runtime") {
+		t.Fatalf("policy should keep broad terms as a fallback when no exact code surfaces exist, got %+v", got.QueryTerms)
+	}
+}
+
 func containsRepoMapPolicyTerm(values []string, want string) bool {
 	for _, value := range values {
 		if value == want {

@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"strings"
+	"unicode"
 )
 
 // RepoMapNavigationRoute names a model-visible repo_map navigation route.
@@ -106,14 +107,14 @@ func (p RepoMapNavigationPolicy) RenderMarkdownHint(title, lead string) string {
 	b.WriteString(lead)
 	b.WriteString("\n")
 	if terms := p.QueryTermList(8); len(terms) > 0 {
-		b.WriteString("- Reuse typed target terms as `query` before broad root maps: `")
+		b.WriteString("- Prefer concise exact code surfaces as `query` before broad root maps: identifiers, files/modules/packages, routes, or config keys such as `")
 		b.WriteString(strings.Join(terms, "`, `"))
 		if len(p.QueryTerms) > len(terms) {
 			fmt.Fprintf(&b, "` (+%d more)", len(p.QueryTerms)-len(terms))
 		} else {
 			b.WriteString("`")
 		}
-		b.WriteString(".\n")
+		b.WriteString(". Do not paste a natural-language sentence; omit broad glue words unless no more precise terms are available.\n")
 	}
 	if len(p.Partitions) > 0 {
 		b.WriteString("- When sub-topics, user buckets, or evidence lanes are separate, keep repo_map calls partitioned instead of merging unrelated topics into one broad map:\n")
@@ -356,28 +357,39 @@ func repoMapNavigationNeedsScalarLookup(rm RequestModel) bool {
 }
 
 func repoMapNavigationQueryTerms(rm RequestModel) []string {
-	var out []string
-	addAll := func(values []string) {
-		for _, value := range values {
-			addRepoMapNavigationTerm(&out, value)
+	var preferred []string
+	var fallback []string
+	add := func(value string, trusted bool) {
+		addRepoMapNavigationTerm(&fallback, value)
+		if trusted || repoMapNavigationTermLooksPrecise(value) {
+			addRepoMapNavigationTerm(&preferred, value)
 		}
 	}
-	addAll(rm.AnalyzerHints.ExactTargets)
-	addAll(rm.AnalyzerHints.MentionedEntities)
-	addAll(rm.AnalyzerHints.PrimaryEntities)
-	addAll(rm.AnalyzerHints.Entities)
-	addAll(rm.AnalyzerHints.Keywords)
+	addAll := func(values []string, trusted bool) {
+		for _, value := range values {
+			add(value, trusted)
+		}
+	}
+	addAll(rm.AnalyzerHints.ExactTargets, true)
+	addAll(rm.AnalyzerHints.MentionedEntities, false)
+	addAll(rm.AnalyzerHints.PrimaryEntities, false)
+	addAll(rm.AnalyzerHints.Entities, false)
+	addAll(rm.AnalyzerHints.Keywords, false)
 	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
-		addAll(rm.CurrentSourceExplanationProfile.TargetTerms)
+		addAll(rm.CurrentSourceExplanationProfile.TargetTerms, true)
 	}
 	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
-		addRepoMapNavigationTerm(&out, rm.ChangeImpactProfile.Target)
+		add(rm.ChangeImpactProfile.Target, true)
 	}
 	if rm.FieldValueProfile != nil && rm.FieldValueProfile.Active() {
-		addRepoMapNavigationTerm(&out, rm.FieldValueProfile.Target)
-		addRepoMapNavigationTerm(&out, rm.FieldValueProfile.Owner)
-		addRepoMapNavigationTerm(&out, rm.FieldValueProfile.Field)
-		addRepoMapNavigationTerm(&out, rm.FieldValueProfile.Literal)
+		add(rm.FieldValueProfile.Target, true)
+		add(rm.FieldValueProfile.Owner, true)
+		add(rm.FieldValueProfile.Field, true)
+		add(rm.FieldValueProfile.Literal, true)
+	}
+	out := preferred
+	if len(out) == 0 {
+		out = fallback
 	}
 	if len(out) > 16 {
 		out = out[:16]
@@ -423,11 +435,18 @@ func repoMapNavigationPartitions(rm RequestModel, lanes ExploreLanePlan) []RepoM
 }
 
 func repoMapNavigationTermsFromValues(values []string) []string {
-	var out []string
+	var preferred []string
+	var fallback []string
 	for _, value := range values {
-		addRepoMapNavigationTerm(&out, value)
+		addRepoMapNavigationTerm(&fallback, value)
+		if repoMapNavigationTermLooksPrecise(value) {
+			addRepoMapNavigationTerm(&preferred, value)
+		}
 	}
-	return out
+	if len(preferred) > 0 {
+		return preferred
+	}
+	return fallback
 }
 
 func dedupeRepoMapNavigationPartitions(in []RepoMapNavigationPartition) []RepoMapNavigationPartition {
@@ -464,4 +483,38 @@ func addRepoMapNavigationTerm(out *[]string, raw string) {
 		}
 	}
 	*out = append(*out, raw)
+}
+
+// repoMapNavigationTermLooksPrecise is a soft prompt-shaping helper only. It
+// decides which analyzer-provided terms are worth showing first as repo_map
+// query suggestions; it must not become an evidence gate or proof of relevance.
+func repoMapNavigationTermLooksPrecise(raw string) bool {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || strings.Contains(raw, " ") || strings.Contains(raw, "\t") || strings.Contains(raw, "\n") {
+		return false
+	}
+	if strings.ContainsAny(raw, "_./:\\-#@$[]{}()<>") {
+		return true
+	}
+	hasLower := false
+	hasUpper := false
+	letterCount := 0
+	for _, r := range raw {
+		switch {
+		case unicode.IsDigit(r):
+			return true
+		case unicode.IsLetter(r):
+			letterCount++
+			if unicode.IsLower(r) {
+				hasLower = true
+			}
+			if unicode.IsUpper(r) {
+				hasUpper = true
+			}
+		}
+	}
+	if hasLower && hasUpper {
+		return true
+	}
+	return hasUpper && letterCount >= 2
 }

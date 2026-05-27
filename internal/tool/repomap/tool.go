@@ -82,7 +82,7 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
     },
     "query": {
       "type": "string",
-      "description": "Search query for task_map / relation_map source discovery — matches against file names, symbol names, and docstrings"
+      "description": "Search query for task_map / relation_map source discovery. Use a short whitespace-separated set of exact code surfaces such as identifiers, file/module/package names, routes, or config keys; do not paste a natural-language sentence. The query matches file names, symbol names, and docstrings."
     },
     "target_file": {
       "type": "string",

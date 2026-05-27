@@ -46,7 +46,7 @@ func TestSubExplorerSkillExposesRepoMapNavigationOnly(t *testing.T) {
 		}
 	}
 	workflow := strings.Join(sk.Workflow, "\n")
-	for _, want := range []string{`source_inventory`, `relation_map`, "pass them as query"} {
+	for _, want := range []string{`source_inventory`, `relation_map`, "compact query"} {
 		if !strings.Contains(workflow, want) {
 			t.Fatalf("sub_explorer workflow should teach repo_map %s navigation: %v", want, sk.Workflow)
 		}
@@ -102,7 +102,7 @@ func TestSubExplorerInitialInstructionTeachesRepoMapWithoutUnavailableTools(t *t
 	}, nil)
 	for _, want := range []string{
 		"`repo_map` as a scoped navigation index",
-		"pass them as `query` before widening",
+		"pass a compact `query` before widening",
 		`view="source_inventory"`,
 		"include_attributes=false",
 		"add `attribute_roles` only after choosing a narrow scope/member",
@@ -140,7 +140,7 @@ func TestSubExplorerInitialInstructionRendersTypedRepoMapPolicy(t *testing.T) {
 	}, nil)
 	for _, want := range []string{
 		"Typed Repo Map Route Hints",
-		"Reuse typed target terms as `query`",
+		"Prefer concise exact code surfaces as `query`",
 		`view="relation_map"`,
 		"not read obligations",
 	} {

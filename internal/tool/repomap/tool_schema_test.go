@@ -81,6 +81,10 @@ func TestRepoMapSchemaTeachesLensParameters(t *testing.T) {
 			schema.Properties["include_attributes"].Description,
 			schema.Properties["attribute_roles"].Description)
 	}
+	if !strings.Contains(schema.Properties["query"].Description, "exact code surfaces") ||
+		!strings.Contains(schema.Properties["query"].Description, "do not paste a natural-language sentence") {
+		t.Fatalf("query parameter should teach exact code-surface search, got %q", schema.Properties["query"].Description)
+	}
 }
 
 func TestRepoMapLensParamsStripSelectedSubRepoPrefix(t *testing.T) {

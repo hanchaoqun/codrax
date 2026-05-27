@@ -85,7 +85,7 @@ func subExplorerSkill(req *types.SubAgentRequest) *skill.Config {
 		Name: "sub_explore",
 		Goal: fmt.Sprintf("Explore files in scope [%s] and discover facts", strings.Join(scope, ", ")),
 		Workflow: []string{
-			"Use repo_map as a navigation index for scoped directories; it verifies candidate scopes/files/symbols/counts, while selected behavior claims still need read_file/grep before source citation. When typed target terms are known, pass them as query for task_map/file_map before widening. Prefer source_inventory when you need a bounded member or attribute checklist, and relation_map when you need calls/imports/inheritance/reference edges around chosen sources or scopes",
+			"Use repo_map as a navigation index for scoped directories; it verifies candidate scopes/files/symbols/counts, while selected behavior claims still need read_file/grep before source citation. When typed exact code surfaces are known, pass a compact query to task_map/file_map before widening. Prefer source_inventory when you need a bounded member or attribute checklist, and relation_map when you need calls/imports/inheritance/reference edges around chosen sources or scopes",
 			"Use list_files or grep(files_only=true) when repo_map does not expose the directory shape you need",
 			"Read key files to verify the facts suggested by navigation tools",
 			"Identify types, functions, interfaces, and dependencies",
@@ -236,7 +236,7 @@ func (e *subExplorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, 
 	}
 
 	b.WriteString("**Strategy** (adapt to what you find):\n")
-	b.WriteString("1. Use `repo_map` as a scoped navigation index. It can verify candidate scopes/files/symbols/counts; use `read_file` or targeted `grep` before citing semantic implementation claims. Start with `view=\"overview\"`, `view=\"task_map\"`, or `view=\"file_map\"` for orientation; when typed target terms are known, pass them as `query` before widening.\n")
+	b.WriteString("1. Use `repo_map` as a scoped navigation index. It can verify candidate scopes/files/symbols/counts; use `read_file` or targeted `grep` before citing semantic implementation claims. Start with `view=\"overview\"`, `view=\"task_map\"`, or `view=\"file_map\"` for orientation; when typed exact code surfaces are known, pass a compact `query` before widening.\n")
 	b.WriteString("2. When the task needs a scoped inventory or member/count checklist, call `repo_map` with `view=\"source_inventory\"`, model-chosen `roles`, `include_attributes=false` for broad passes, and the current scope. Prefer a cascade: broad summary first, then a narrower source_inventory call; add `attribute_roles` only after choosing a narrow scope/member that needs row-local details.\n")
 	b.WriteString("3. When the task needs structural edges, call `repo_map` with `view=\"relation_map\"`; pass `sources` for selected symbols/files, `scope`/`scopes` for directory/module boundaries, and `relation_kinds` for call/import/inheritance/implements/reference/type_usage when known.\n")
 	b.WriteString("4. Use `list_files` or `grep(files_only=true)` when you need a real directory listing or a token-anchored candidate set that repo_map did not provide.\n")

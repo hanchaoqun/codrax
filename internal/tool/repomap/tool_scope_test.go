@@ -912,7 +912,7 @@ func TestRepoMapOverviewRendersTypedNavigationPolicyOutsideAnalyze(t *testing.T)
 	if !res.Success {
 		t.Fatalf("repo_map overview failed: %+v", res)
 	}
-	for _, want := range []string{"Repo Map Next-Step Hint", "Reuse typed target terms as `query`", `view="relation_map"`, "not read obligations"} {
+	for _, want := range []string{"Repo Map Next-Step Hint", "Prefer concise exact code surfaces as `query`", `view="relation_map"`, "not read obligations"} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("overview should render typed navigation policy; missing %q in:\n%s", want, res.Summary)
 		}
