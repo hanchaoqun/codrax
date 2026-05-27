@@ -470,4 +470,5 @@ type ViewParams struct {
 	RelationKinds           []string // relation families for relation_map
 	TopN                    int      // max items to show (0 = default)
 	ShowSourceInventoryHint bool     // overview-only navigation hint for later-stage agents
+	ViewProgress            func(step string, done, total int)
 }

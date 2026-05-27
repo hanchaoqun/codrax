@@ -198,6 +198,9 @@ func buildSemanticSubgraphData(g *types.Graph, params types.ViewParams) *ViewDat
 	}
 
 	// Chains.
+	if params.ViewProgress != nil {
+		params.ViewProgress("chains", 1, 3)
+	}
 	chains := retrieve.ComputeChains(g, topN)
 	chainsSection := ViewSection{Heading: "Chains (linear import pipelines)"}
 	if len(chains) == 0 {
@@ -212,6 +215,9 @@ func buildSemanticSubgraphData(g *types.Graph, params types.ViewParams) *ViewDat
 	d.Sections = append(d.Sections, chainsSection)
 
 	// Hubs.
+	if params.ViewProgress != nil {
+		params.ViewProgress("hubs", 2, 3)
+	}
 	hubs := retrieve.ComputeHubs(g, topN)
 	hubsSection := ViewSection{Heading: "Hubs (high-degree files)"}
 	if len(hubs) == 0 {
@@ -227,6 +233,9 @@ func buildSemanticSubgraphData(g *types.Graph, params types.ViewParams) *ViewDat
 	d.Sections = append(d.Sections, hubsSection)
 
 	// Bridges.
+	if params.ViewProgress != nil {
+		params.ViewProgress("bridges", 3, 3)
+	}
 	bridges := retrieve.ComputeBridges(g, topN)
 	bridgesSection := ViewSection{Heading: "Bridges (articulation points)"}
 	if len(bridges) == 0 {

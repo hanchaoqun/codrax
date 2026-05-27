@@ -360,10 +360,14 @@ func saveFileInfos(dir, repoRoot string, files []*types.FileInfo) error {
 //   - the Checksum doesn't match SHA-256 over the Files payload
 //     (on-disk corruption or truncation)
 func LoadFileInfos(dir string) []*types.FileInfo {
-	if files := loadChunkedFileInfos(dir); files != nil {
+	return LoadFileInfosWithProgress(dir, nil)
+}
+
+func LoadFileInfosWithProgress(dir string, progress func(loaded, total, chunksLoaded, chunksTotal int, current string)) []*types.FileInfo {
+	if files := loadChunkedFileInfos(dir, progress); files != nil {
 		return files
 	}
-	return loadLegacyFileInfos(dir)
+	return loadLegacyFileInfos(dir, progress)
 }
 
 func NewFileInfoCacheWriter(dir, repoRoot string) (*FileInfoCacheWriter, error) {
@@ -487,7 +491,7 @@ func (w *FileInfoCacheWriter) flush() error {
 	return nil
 }
 
-func loadChunkedFileInfos(dir string) []*types.FileInfo {
+func loadChunkedFileInfos(dir string, progress func(loaded, total, chunksLoaded, chunksTotal int, current string)) []*types.FileInfo {
 	raw, err := os.ReadFile(filepath.Join(dir, cacheFileInfosManifestFile))
 	if err != nil {
 		return nil
@@ -512,7 +516,7 @@ func loadChunkedFileInfos(dir string) []*types.FileInfo {
 	chunkDir := filepath.Join(dir, manifest.ChunkDir)
 	files := make([]*types.FileInfo, 0, manifest.TotalFiles)
 	overall := sha256.New()
-	for _, chunk := range manifest.Chunks {
+	for i, chunk := range manifest.Chunks {
 		if chunk.File == "" || filepath.Clean(chunk.File) != chunk.File ||
 			filepath.IsAbs(chunk.File) || strings.Contains(chunk.File, string(filepath.Separator)) {
 			return nil
@@ -539,6 +543,9 @@ func loadChunkedFileInfos(dir string) []*types.FileInfo {
 		overall.Write([]byte{0})
 		overall.Write([]byte(chunk.Checksum))
 		overall.Write([]byte{'\n'})
+		if progress != nil {
+			progress(len(files), manifest.TotalFiles, i+1, len(manifest.Chunks), chunk.File)
+		}
 	}
 	if len(files) != manifest.TotalFiles {
 		return nil
@@ -549,7 +556,7 @@ func loadChunkedFileInfos(dir string) []*types.FileInfo {
 	return files
 }
 
-func loadLegacyFileInfos(dir string) []*types.FileInfo {
+func loadLegacyFileInfos(dir string, progress func(loaded, total, chunksLoaded, chunksTotal int, current string)) []*types.FileInfo {
 	data, err := os.ReadFile(filepath.Join(dir, cacheFileInfosFile))
 	if err != nil {
 		return nil
@@ -570,6 +577,9 @@ func loadLegacyFileInfos(dir string) []*types.FileInfo {
 		if payload.Checksum != hex.EncodeToString(sum[:8]) {
 			return nil
 		}
+	}
+	if progress != nil {
+		progress(len(payload.Files), len(payload.Files), 1, 1, cacheFileInfosFile)
 	}
 	return payload.Files
 }

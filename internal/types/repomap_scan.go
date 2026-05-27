@@ -26,6 +26,7 @@ const (
 	RepoMapScanPhaseRank       RepoMapScanPhase = "rank"
 	RepoMapScanPhaseCacheLoad  RepoMapScanPhase = "cache_load"
 	RepoMapScanPhaseCacheWrite RepoMapScanPhase = "cache_write"
+	RepoMapScanPhaseViewRender RepoMapScanPhase = "view_render"
 	RepoMapScanPhaseWait       RepoMapScanPhase = "wait"
 )
 
@@ -51,13 +52,20 @@ type RepoMapScanEvent struct {
 	Finished bool
 	OK       bool
 
-	TotalFiles     int
-	ParseableFiles int
-	ParsedFiles    int
-	ChangedFiles   int
-	CurrentFile    string
-	BytesWritten   int64
-	BytesTotal     int64
+	TotalFiles         int
+	ParseableFiles     int
+	ParsedFiles        int
+	ChangedFiles       int
+	CurrentFile        string
+	BytesWritten       int64
+	BytesTotal         int64
+	CacheRecordsLoaded int
+	CacheRecordsTotal  int
+	CacheChunksLoaded  int
+	CacheChunksTotal   int
+	ViewStep           string
+	ViewStepsDone      int
+	ViewStepsTotal     int
 
 	ElapsedMs int64
 	Error     string

@@ -80,6 +80,50 @@ func TestRepoMapScanProgressThrottlesCacheWriteEvents(t *testing.T) {
 	}
 }
 
+func TestRepoMapScanProgressReportsCacheLoadRecords(t *testing.T) {
+	var events []ctypes.RepoMapScanEvent
+	SetScanNotifier(func(ev ctypes.RepoMapScanEvent) {
+		if ev.Progress && ev.Phase == ctypes.RepoMapScanPhaseCacheLoad {
+			events = append(events, ev)
+		}
+	})
+	defer SetScanNotifier(nil)
+
+	progress := newRepoMapScanProgress("/repo", ctypes.RepoMapScanCacheHit, 93468, 0)
+	progress.startPhase(ctypes.RepoMapScanPhaseCacheLoad, 63891)
+	progress.cacheLoaded(5120, 93468, 5, 92, "chunk-00004.json")
+	if len(events) != 1 {
+		t.Fatalf("cache load progress should emit visible record counts, got %d event(s)", len(events))
+	}
+	got := events[0]
+	if got.CacheRecordsLoaded != 5120 || got.CacheRecordsTotal != 93468 ||
+		got.CacheChunksLoaded != 5 || got.CacheChunksTotal != 92 ||
+		got.CurrentFile != "chunk-00004.json" {
+		t.Fatalf("unexpected cache load event: %+v", got)
+	}
+}
+
+func TestRepoMapScanProgressReportsViewRenderStep(t *testing.T) {
+	var events []ctypes.RepoMapScanEvent
+	SetScanNotifier(func(ev ctypes.RepoMapScanEvent) {
+		if ev.Progress && ev.Phase == ctypes.RepoMapScanPhaseViewRender {
+			events = append(events, ev)
+		}
+	})
+	defer SetScanNotifier(nil)
+
+	progress := newRepoMapScanProgress("/repo", ctypes.RepoMapScanCacheHit, 90000, 0)
+	progress.startPhase(ctypes.RepoMapScanPhaseViewRender, 64000)
+	progress.viewRendered("bridges", 3, 3)
+	if len(events) != 1 {
+		t.Fatalf("view render progress should emit a step event, got %d event(s)", len(events))
+	}
+	got := events[0]
+	if got.ViewStep != "bridges" || got.ViewStepsDone != 3 || got.ViewStepsTotal != 3 {
+		t.Fatalf("unexpected view render event: %+v", got)
+	}
+}
+
 func firstParsed(events []ctypes.RepoMapScanEvent) int {
 	if len(events) == 0 {
 		return 0

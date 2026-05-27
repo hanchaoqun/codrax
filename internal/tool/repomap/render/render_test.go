@@ -2,6 +2,7 @@ package render
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -505,9 +506,17 @@ func TestSemanticSubgraphView(t *testing.T) {
 	add("left", "cut")
 	add("cut", "right")
 
-	d := GenerateViewData(g, "semantic_subgraph", types.ViewParams{})
+	var steps []string
+	d := GenerateViewData(g, "semantic_subgraph", types.ViewParams{
+		ViewProgress: func(step string, done, total int) {
+			steps = append(steps, fmt.Sprintf("%s:%d/%d", step, done, total))
+		},
+	})
 	if d == nil {
 		t.Fatalf("GenerateViewData returned nil")
+	}
+	if got, want := strings.Join(steps, ","), "chains:1/3,hubs:2/3,bridges:3/3"; got != want {
+		t.Fatalf("semantic_subgraph progress = %q, want %q", got, want)
 	}
 	if d.Type != "semantic_subgraph" {
 		t.Errorf("Type = %q, want semantic_subgraph", d.Type)

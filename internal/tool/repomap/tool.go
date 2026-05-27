@@ -358,7 +358,18 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		TopN:                    p.TopN,
 		ShowSourceInventoryHint: repoMapOverviewSourceInventoryHintEnabled(ctx, p.View),
 	}
+	var viewProgress *repoMapScanProgress
+	if repoMapViewProgressEnabled(graph, p.View) {
+		viewProgress = newRepoMapScanProgress(repoRoot, ctypes.RepoMapScanCacheHit, len(graph.FileIndex), 0)
+		viewProgress.startPhase(ctypes.RepoMapScanPhaseViewRender, len(graph.FileIndex))
+		viewParams.ViewProgress = func(step string, done, total int) {
+			viewProgress.viewRendered(step, done, total)
+		}
+	}
 	output := render.GenerateView(graph, p.View, viewParams)
+	if viewProgress != nil {
+		viewProgress.finish(true, nil)
+	}
 	output = prependRepoMapNavigationAdvisory(ctx, p.View, p.Query, output)
 	output = prependRepoMapParameterAdvisory(output, paramAdvisories)
 
@@ -370,6 +381,16 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func repoMapViewProgressEnabled(graph *Graph, view string) bool {
+	if graph == nil {
+		return false
+	}
+	if view == "semantic_subgraph" {
+		return true
+	}
+	return len(graph.FileIndex) >= 50000
 }
 
 func repoMapOverviewSourceInventoryHintEnabled(ctx *ctypes.BusContext, view string) bool {
@@ -829,11 +850,16 @@ func countParseableEntries(entries []FileEntry) int {
 }
 
 func loadFromCache(repoRoot, cacheDir string, entries []FileEntry, query string, progress *repoMapScanProgress) (*Graph, error) {
-	cached := index.LoadFileInfos(cacheDir)
+	cached := index.LoadFileInfosWithProgress(cacheDir, func(loaded, total, chunksLoaded, chunksTotal int, current string) {
+		progress.cacheLoaded(loaded, total, chunksLoaded, chunksTotal, current)
+	})
 	if cached == nil {
 		// Cache corrupt or missing JSON → fall back to full scan
 		if len(entries) == 0 {
 			var err error
+			if progress != nil {
+				progress.startPhase(ctypes.RepoMapScanPhaseFileScan, 0)
+			}
 			entries, err = index.ScanFilesWithProgress(repoRoot, func(files, parseable int, current string) {
 				progress.filesScanned(files, parseable, current)
 			})
@@ -874,7 +900,12 @@ func countParseableFileInfos(files []*FileInfo) int {
 }
 
 func incrementalScan(repoRoot, cacheDir string, entries []FileEntry, changed []string, query string, progress *repoMapScanProgress) (*Graph, error) {
-	cached := index.LoadFileInfos(cacheDir)
+	if progress != nil {
+		progress.startPhase(ctypes.RepoMapScanPhaseCacheLoad, countParseableEntries(entries))
+	}
+	cached := index.LoadFileInfosWithProgress(cacheDir, func(loaded, total, chunksLoaded, chunksTotal int, current string) {
+		progress.cacheLoaded(loaded, total, chunksLoaded, chunksTotal, current)
+	})
 	if cached == nil {
 		if progress != nil {
 			progress.mode = ctypes.RepoMapScanFull

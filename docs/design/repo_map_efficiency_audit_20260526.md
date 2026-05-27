@@ -181,6 +181,26 @@ Otherwise, ordinary single-repo `path="."` semantics apply.
     produce useful hints; evidence/observation carriers and exact single-source
     graph probes remain enabled.
 
+18. **Warm-cache cache-load was still an opaque long step.** Customer Linux
+    logs after a complete cache showed progress for file counting and
+    cache-difference validation, but then the UI sat on
+    `正在读取仓库索引 ... 缓存：缓存命中` for minutes. Root cause:
+    `index.LoadFileInfos` read chunked `fileinfos` sidecars and decoded JSON in
+    a tight loop with no progress callback. This is not a repo_map precision
+    problem and must not be solved by dropping cache detail. The fix is to keep
+    the existing chunked cache format and add record/chunk progress while
+    loading both chunked and legacy cache payloads.
+
+19. **Large in-memory repo_map view generation can look like a tool hang even
+    when graph reuse works.** Customer logs showed `repo_map: reused
+    in-memory graph (93468 files)` within about 0.6s, followed by perceived
+    slowness during `semantic_subgraph`. That means the remaining work is view
+    computation/rendering, not a second scan. The system should surface this as
+    repo_map view generation progress. For `semantic_subgraph`, the safe
+    cross-language milestones are the existing graph-topology sections
+    (chains, hubs, bridges). This does not change graph semantics, does not
+    force model behavior, and does not expose cache internals to the model.
+
 ## Task List
 
 | ID | Status | Task | Validation |
@@ -203,6 +223,8 @@ Otherwise, ordinary single-repo `path="."` semantics apply.
 | RME-T15 | Done | Throttle warm-cache difference-check progress so non-TTY/permanent output stays readable on 90k+ file repos while TTY still shows a live status line | `TestRepoMapScanProgressThrottlesChangeScanEvents` |
 | RME-T16 | Planned | Add portable eval coverage for large-repo-style navigation without depending on local `../linux`, including warm-cache reuse, stale repair, and support-lane leakage checks | Synthetic fixture + existing eval harness |
 | RME-T17 | Done | Add a typed relation prompt-probe preflight so graph-backed expensive prompt hints skip before source-fact/relation scans when the source lane is broad/ambiguous; preserve observation/evidence carriers and exact single-source graph hints | `TestProbeTypedRelations_AmbiguousExpensivePromptHintSkipsSourceFactProvider`, `go test ./internal/context ./internal/types ./internal/tool/repomap/relation ./internal/tool/repomap/multigraph` |
+| RME-T18 | Done | Add warm-cache load progress for chunked and legacy FileInfo caches so the UI shows `loaded/total` records instead of a static cache-hit line | `TestLoadFileInfosWithProgressReportsChunkedRecords`, repo-map scan message tests |
+| RME-T19 | Done | Surface large repo_map view-generation progress, including semantic_subgraph chains/hubs/bridges milestones, without changing tool output semantics | `TestSemanticSubgraphView`, repo-map view render message/progress tests |
 
 ## Red-Line Guardrails
 

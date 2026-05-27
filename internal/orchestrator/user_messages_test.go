@@ -508,6 +508,57 @@ func TestRepoMapScanMessagesShowInventoryAndChangePhases(t *testing.T) {
 	if !strings.Contains(got, "正在校验缓存差异") || !strings.Contains(got, "已校验 0/93459 个文件") {
 		t.Fatalf("change-check start should report a 0/total count, got %q", got)
 	}
+
+	cacheLoad := types.RepoMapScanEvent{
+		RepoRoot:    "/work/linux",
+		Mode:        types.RepoMapScanCacheHit,
+		Phase:       types.RepoMapScanPhaseCacheLoad,
+		Started:     true,
+		TotalFiles:  93468,
+		ParsedFiles: 0,
+	}
+	got = repoMapScanMessage("zh", cacheLoad)
+	if !strings.Contains(got, "正在读取仓库索引 `linux` 缓存") ||
+		!strings.Contains(got, "已读取 0/93468 条索引记录") {
+		t.Fatalf("cache-load start should show a 0/total record count, got %q", got)
+	}
+	cacheLoad.Started = false
+	cacheLoad.Progress = true
+	cacheLoad.CacheRecordsLoaded = 4096
+	cacheLoad.CacheRecordsTotal = 93468
+	cacheLoad.CacheChunksLoaded = 4
+	cacheLoad.CacheChunksTotal = 92
+	got = repoMapScanMessage("zh", cacheLoad)
+	if !strings.Contains(got, "正在读取缓存") ||
+		!strings.Contains(got, "已读取 4096/93468 条索引记录") ||
+		!strings.Contains(got, "缓存分块 4/92") {
+		t.Fatalf("cache-load progress should report record and chunk counts, got %q", got)
+	}
+
+	viewRender := types.RepoMapScanEvent{
+		RepoRoot:       "/work/linux",
+		Phase:          types.RepoMapScanPhaseViewRender,
+		Progress:       true,
+		OK:             true,
+		TotalFiles:     93468,
+		ParseableFiles: 63891,
+		ViewStep:       "bridges",
+		ViewStepsDone:  3,
+		ViewStepsTotal: 3,
+	}
+	got = repoMapScanMessage("zh", viewRender)
+	if !strings.Contains(got, "正在生成 repo_map 视图") ||
+		!strings.Contains(got, "正在生成 bridges") ||
+		!strings.Contains(got, "步骤 3/3") {
+		t.Fatalf("view render progress should show repo_map view work, got %q", got)
+	}
+	viewRender.Progress = false
+	viewRender.Finished = true
+	viewRender.ElapsedMs = 620
+	got = repoMapScanMessage("zh", viewRender)
+	if !strings.Contains(got, "repo_map 视图 `linux` 已生成") {
+		t.Fatalf("view render finish should not say scan ready, got %q", got)
+	}
 }
 
 func TestRepoMapScanMessagesShowWaitPhase(t *testing.T) {

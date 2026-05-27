@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -41,6 +42,49 @@ func TestCacheVersionRoundTrip(t *testing.T) {
 	}
 	if got[0].RelPath != "a.go" || got[0].Symbols[0].Name != "Foo" {
 		t.Errorf("round-trip corrupted: %+v", got[0])
+	}
+}
+
+func TestLoadFileInfosWithProgressReportsChunkedRecords(t *testing.T) {
+	dir := t.TempDir()
+	files := make([]*types.FileInfo, cacheFileInfosChunkSize+1)
+	for i := range files {
+		files[i] = &types.FileInfo{
+			RelPath:  filepath.Join("pkg", "file"+strconv.Itoa(i)+".go"),
+			Language: types.LangGo,
+			Hash:     "deadbeef",
+		}
+	}
+	if err := saveFileInfos(dir, "", files); err != nil {
+		t.Fatalf("saveFileInfos: %v", err)
+	}
+
+	type progressEvent struct {
+		loaded      int
+		total       int
+		chunk       int
+		chunksTotal int
+		current     string
+	}
+	var events []progressEvent
+	got := LoadFileInfosWithProgress(dir, func(loaded, total, chunksLoaded, chunksTotal int, current string) {
+		events = append(events, progressEvent{
+			loaded:      loaded,
+			total:       total,
+			chunk:       chunksLoaded,
+			chunksTotal: chunksTotal,
+			current:     current,
+		})
+	})
+	if len(got) != len(files) {
+		t.Fatalf("LoadFileInfosWithProgress: got %d files, want %d", len(got), len(files))
+	}
+	if len(events) != 2 {
+		t.Fatalf("expected one progress event per chunk, got %d: %+v", len(events), events)
+	}
+	last := events[len(events)-1]
+	if last.loaded != len(files) || last.total != len(files) || last.chunk != 2 || last.chunksTotal != 2 || last.current == "" {
+		t.Fatalf("unexpected final progress event: %+v", last)
 	}
 }
 

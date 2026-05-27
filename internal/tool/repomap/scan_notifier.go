@@ -47,10 +47,17 @@ type repoMapScanProgress struct {
 	lastEmit time.Time
 	lastDone int
 
-	lastCacheFile    string
-	lastCacheBytes   int64
-	lastCacheEmit    time.Time
-	lastCacheStarted time.Time
+	lastCacheFile      string
+	lastCacheBytes     int64
+	lastCacheEmit      time.Time
+	lastCacheStarted   time.Time
+	cacheRecordsLoaded int
+	cacheRecordsTotal  int
+	cacheChunksLoaded  int
+	cacheChunksTotal   int
+	viewStep           string
+	viewStepsDone      int
+	viewStepsTotal     int
 }
 
 const (
@@ -132,6 +139,57 @@ func (p *repoMapScanProgress) filesScanned(done, parseable int, current string) 
 	notifyRepoMapScan(ev)
 }
 
+func (p *repoMapScanProgress) cacheLoaded(recordsLoaded, recordsTotal, chunksLoaded, chunksTotal int, current string) {
+	if p == nil || !p.started || p.phase != ctypes.RepoMapScanPhaseCacheLoad {
+		return
+	}
+	if recordsTotal > 0 {
+		p.totalFiles = recordsTotal
+	}
+	now := time.Now()
+	final := recordsTotal > 0 && recordsLoaded >= recordsTotal
+	minDelta := 5000
+	minInterval := 2 * time.Second
+	if !final && recordsLoaded-p.cacheRecordsLoaded < minDelta && now.Sub(p.lastEmit) < minInterval {
+		return
+	}
+	p.lastDone = recordsLoaded
+	p.lastEmit = now
+	p.cacheRecordsLoaded = recordsLoaded
+	p.cacheRecordsTotal = recordsTotal
+	p.cacheChunksLoaded = chunksLoaded
+	p.cacheChunksTotal = chunksTotal
+	ev := p.event(true, false, recordsLoaded, true, "")
+	ev.CurrentFile = current
+	ev.CacheRecordsLoaded = recordsLoaded
+	ev.CacheRecordsTotal = recordsTotal
+	ev.CacheChunksLoaded = chunksLoaded
+	ev.CacheChunksTotal = chunksTotal
+	notifyRepoMapScan(ev)
+}
+
+func (p *repoMapScanProgress) viewRendered(step string, done, total int) {
+	if p == nil || !p.started || p.phase != ctypes.RepoMapScanPhaseViewRender {
+		return
+	}
+	if done < 0 {
+		done = 0
+	}
+	if total < done {
+		total = done
+	}
+	p.lastDone = done
+	p.lastEmit = time.Now()
+	p.viewStep = step
+	p.viewStepsDone = done
+	p.viewStepsTotal = total
+	ev := p.event(true, false, p.parseableFiles, true, "")
+	ev.ViewStep = step
+	ev.ViewStepsDone = done
+	ev.ViewStepsTotal = total
+	notifyRepoMapScan(ev)
+}
+
 func (p *repoMapScanProgress) activeFile(path string) {
 	if p == nil || !p.started || path == "" {
 		return
@@ -200,18 +258,25 @@ func (p *repoMapScanProgress) event(progress, finished bool, parsed int, ok bool
 		elapsedMs = time.Since(p.start).Milliseconds()
 	}
 	return ctypes.RepoMapScanEvent{
-		RepoRoot:       p.repoRoot,
-		Mode:           p.mode,
-		Phase:          p.phase,
-		Started:        !progress && !finished,
-		Progress:       progress,
-		Finished:       finished,
-		OK:             ok,
-		TotalFiles:     p.totalFiles,
-		ParseableFiles: p.parseableFiles,
-		ParsedFiles:    parsed,
-		ChangedFiles:   p.changedFiles,
-		ElapsedMs:      elapsedMs,
-		Error:          errText,
+		RepoRoot:           p.repoRoot,
+		Mode:               p.mode,
+		Phase:              p.phase,
+		Started:            !progress && !finished,
+		Progress:           progress,
+		Finished:           finished,
+		OK:                 ok,
+		TotalFiles:         p.totalFiles,
+		ParseableFiles:     p.parseableFiles,
+		ParsedFiles:        parsed,
+		ChangedFiles:       p.changedFiles,
+		ElapsedMs:          elapsedMs,
+		Error:              errText,
+		CacheRecordsLoaded: p.cacheRecordsLoaded,
+		CacheRecordsTotal:  p.cacheRecordsTotal,
+		CacheChunksLoaded:  p.cacheChunksLoaded,
+		CacheChunksTotal:   p.cacheChunksTotal,
+		ViewStep:           p.viewStep,
+		ViewStepsDone:      p.viewStepsDone,
+		ViewStepsTotal:     p.viewStepsTotal,
 	}
 }
