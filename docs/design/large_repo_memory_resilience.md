@@ -1,6 +1,6 @@
 # Large-repo scan resilience
 
-Status: implemented.
+Status: implemented; 2026-05-27 short-term parser peak-memory follow-up completed.
 
 ## Problem
 
@@ -31,6 +31,15 @@ Four independent causes, four independent fixes:
 | 2 | The parse phase produces a large volume of transient garbage (file bytes, tree-sitter ASTs) that is never returned to the OS before the graph-build phase allocates on top of it. | Force a GC + `debug.FreeOSMemory()` after the parse phase. |
 | 3 | An interrupted scan installs no manifest, so its already-parsed chunks are unreachable; the next run re-parses everything. | Detect orphan chunk directories and resume from them (hash-verified). |
 | 4 | The parse phase saturates every CPU core, starving interactive processes (sshd) and dropping remote sessions. | Cap `GOMAXPROCS` during a scan so the whole Go runtime leaves cores free for the host. |
+
+2026-05-27 follow-up finding: the earlier fixes keep large scans alive, but
+the parser collector still had two avoidable peak-memory costs on constrained
+hosts:
+
+| # | Cause | Short-term fix |
+|---|-------|----------------|
+| 5 | `ParseFilesWithProgressSinkAndActive` used `len(entries)`-sized job/result buffers. On huge repos this lets parsed `FileInfo` pointers accumulate in channel storage before the collector drains them, increasing peak heap without adding precision. | Use small worker-proportional buffers and run the job feeder concurrently with the collector, so parser workers, sink writes, and progress collection stay streaming. |
+| 6 | Parser worker count was CPU-only. `GOMEMLIMIT` can pressure GC, but too many simultaneous tree-sitter parses still create unnecessary transient heap on low-memory machines. | Derive parser worker count from both `scanCPUBudget()` and the active Go memory limit; cap to roughly one parser worker per 512MiB soft heap budget, never below one. |
 
 Fixes 1–3 are synergistic: #1 caps RSS, #2 lowers the graph-build
 baseline, #3 shrinks the parse working set on every retry. #4 is
@@ -208,6 +217,43 @@ Config knob:
 - `repomap_scan_reserve_cpus` — cores held free for the host during a
   scan (default `0`, i.e. use every core; set `1` on a small remote
   host where a scan starves sshd).
+
+## Part 5 — bounded parser queues and memory-aware workers
+
+Parser scheduling remains language-neutral and precision-preserving: every
+file that was parseable before is still parsed with the same extractor. The
+change only alters queueing and worker count.
+
+1. **Small queues.** Parser job/result channels are bounded to
+   `min(total_files, workers × 2)` instead of `total_files`. The job feeder
+   runs in its own goroutine so the collector can drain results while jobs are
+   still being submitted. This avoids the classic deadlock that would happen if
+   a small result buffer were added while the main goroutine was still trying to
+   enqueue every job before reading results.
+
+2. **Memory-aware worker cap.** `parseWorkerBudget` starts from
+   `scanCPUBudget()` and then reads the active Go memory limit with
+   `debug.SetMemoryLimit(-1)`. When a finite soft heap limit is installed, the
+   parser worker count is capped to approximately one worker per 512MiB. This
+   is intentionally conservative: it reduces simultaneous file bytes,
+   tree-sitter ASTs, and extractor temporaries on small hosts, while high-memory
+   hosts still use their CPU budget.
+
+3. **No hard memory gate.** This is not a correctness gate and does not skip,
+   truncate, or downgrade any language. If the live graph itself exceeds RAM,
+   the long-term answer is a two-stage/partitioned graph design; the short-term
+   cap only reduces transient parse pressure.
+
+## Short-term task list
+
+| ID | Status | Task | Validation |
+|----|--------|------|------------|
+| LRM-T1 | Done | Install soft heap limit from `memory_soft_limit_*` / `GOMEMLIMIT` | `internal/memlimit` tests |
+| LRM-T2 | Done | Resume interrupted full scans from hash-verified FileInfo chunks | `TestResumableFileInfos_*` |
+| LRM-T3 | Done | Parse large files first and surface active-file progress | `TestParseJobOrderLargeFilesFirst`, heartbeat tests |
+| LRM-T4 | Done | Stream FileInfo chunks and derived sidecars instead of writing giant end-of-scan JSON/markdown buffers | cache progress tests |
+| LRM-T5 | Done | Bound parser job/result queues and collect concurrently to reduce huge-repo peak heap | parser queue tests |
+| LRM-T6 | Done | Cap parser workers by active Go soft heap limit as well as CPU budget | parser worker budget tests |
 
 ## Concurrency safety
 

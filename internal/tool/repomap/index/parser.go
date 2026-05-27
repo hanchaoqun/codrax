@@ -2,7 +2,9 @@ package index
 
 import (
 	"context"
+	"math"
 	"os"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
@@ -15,6 +17,8 @@ import (
 
 const (
 	treeSitterSlowParseWarnAfter = 10 * time.Second
+	parseWorkerMemoryBudget      = 512 << 20
+	parseBufferPerWorker         = 2
 )
 
 // ParseFiles parses all entries in parallel and returns types.FileInfo results.
@@ -52,15 +56,22 @@ func ParseFilesWithProgressSinkAndActive(entries []FileEntry, repoRoot string, p
 	// Bound the worker pool to the scan CPU budget so a full scan of a
 	// huge repository leaves reserved cores free for the host (see
 	// ApplyScanGOMAXPROCS, which caps the whole runtime to match).
-	workers := scanCPUBudget()
+	// Also respect the active Go soft heap limit: many simultaneous
+	// tree-sitter parses create transient file-byte/AST pressure, so
+	// low-memory hosts should prefer fewer parser workers over GC churn.
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	workers := parseWorkerBudget(entries)
 
 	type result struct {
 		idx  int
 		info *types.FileInfo
 	}
 
-	jobs := make(chan int, len(entries))
-	results := make(chan result, len(entries))
+	buffer := parseChannelBufferSize(len(entries), workers)
+	jobs := make(chan int, buffer)
+	results := make(chan result, buffer)
 
 	var wg sync.WaitGroup
 	for w := 0; w < workers; w++ {
@@ -76,10 +87,12 @@ func ParseFilesWithProgressSinkAndActive(entries []FileEntry, repoRoot string, p
 		}()
 	}
 
-	for _, idx := range parseJobOrder(entries) {
-		jobs <- idx
-	}
-	close(jobs)
+	go func() {
+		for _, idx := range parseJobOrder(entries) {
+			jobs <- idx
+		}
+		close(jobs)
+	}()
 
 	go func() {
 		wg.Wait()
@@ -114,6 +127,45 @@ func ParseFilesWithProgressSinkAndActive(entries []FileEntry, repoRoot string, p
 		}
 	}
 	return out, sinkErr
+}
+
+func parseWorkerBudget(entries []FileEntry) int {
+	workers := scanCPUBudget()
+	if total := len(entries); total > 0 && workers > total {
+		workers = total
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	limit := debug.SetMemoryLimit(-1)
+	if limit <= 0 || limit == math.MaxInt64 {
+		return workers
+	}
+	memWorkers := int(limit / parseWorkerMemoryBudget)
+	if memWorkers < 1 {
+		memWorkers = 1
+	}
+	if memWorkers < workers {
+		return memWorkers
+	}
+	return workers
+}
+
+func parseChannelBufferSize(total, workers int) int {
+	if total <= 0 {
+		return 0
+	}
+	if workers < 1 {
+		workers = 1
+	}
+	n := workers * parseBufferPerWorker
+	if n < 1 {
+		n = 1
+	}
+	if n > total {
+		n = total
+	}
+	return n
 }
 
 func startActiveFileHeartbeat(entry FileEntry, active func(FileEntry)) func() {

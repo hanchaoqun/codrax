@@ -2,6 +2,7 @@ package index
 
 import (
 	"reflect"
+	"runtime/debug"
 	"testing"
 	"time"
 )
@@ -20,6 +21,50 @@ func TestParseJobOrderLargeFilesFirst(t *testing.T) {
 	want := []string{"huge.c", "medium.py", "small.go"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("parse job order = %v, want %v", got, want)
+	}
+}
+
+func TestParseChannelBufferSizeIsWorkerBounded(t *testing.T) {
+	if got := parseChannelBufferSize(1000, 8); got != 16 {
+		t.Fatalf("buffer = %d, want workers*2", got)
+	}
+	if got := parseChannelBufferSize(3, 8); got != 3 {
+		t.Fatalf("small total buffer = %d, want total", got)
+	}
+	if got := parseChannelBufferSize(10, 0); got != 2 {
+		t.Fatalf("zero-worker buffer = %d, want one worker worth", got)
+	}
+}
+
+func TestParseWorkerBudgetHonorsSoftMemoryLimit(t *testing.T) {
+	prevLimit := debug.SetMemoryLimit(1 << 30)
+	defer debug.SetMemoryLimit(prevLimit)
+	prevBase, prevReserve := baseGOMAXPROCS, scanReserveCPUs
+	defer func() {
+		baseGOMAXPROCS = prevBase
+		scanReserveCPUs = prevReserve
+	}()
+	baseGOMAXPROCS = 16
+	scanReserveCPUs = 0
+	entries := make([]FileEntry, 100)
+	if got := parseWorkerBudget(entries); got != 2 {
+		t.Fatalf("workers = %d, want 2 from 1GiB/512MiB soft limit", got)
+	}
+}
+
+func TestParseWorkerBudgetKeepsAtLeastOneWorker(t *testing.T) {
+	prevLimit := debug.SetMemoryLimit(64 << 20)
+	defer debug.SetMemoryLimit(prevLimit)
+	prevBase, prevReserve := baseGOMAXPROCS, scanReserveCPUs
+	defer func() {
+		baseGOMAXPROCS = prevBase
+		scanReserveCPUs = prevReserve
+	}()
+	baseGOMAXPROCS = 8
+	scanReserveCPUs = 0
+	entries := make([]FileEntry, 100)
+	if got := parseWorkerBudget(entries); got != 1 {
+		t.Fatalf("workers = %d, want floor of 1 under tiny soft limit", got)
 	}
 }
 
