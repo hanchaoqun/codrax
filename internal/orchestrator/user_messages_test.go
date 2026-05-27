@@ -505,8 +505,14 @@ func TestRepoMapScanMessagesShowInventoryAndChangePhases(t *testing.T) {
 	change.Started = true
 	change.ParsedFiles = 0
 	got = repoMapScanMessage("zh", change)
-	if !strings.Contains(got, "正在校验缓存差异") || !strings.Contains(got, "已校验 0/93459 个文件") {
-		t.Fatalf("change-check start should report a 0/total count, got %q", got)
+	if !strings.Contains(got, "正在校验缓存差异") || !strings.Contains(got, "准备校验 93459 个文件") ||
+		strings.Contains(got, "已校验 0/") {
+		t.Fatalf("change-check start should not look like stale zero progress, got %q", got)
+	}
+	got = repoMapScanMessage("en", change)
+	if !strings.Contains(got, "checking cache differences") || !strings.Contains(got, "preparing to check 93459 files") ||
+		strings.Contains(got, "checked 0/") {
+		t.Fatalf("change-check start should not look like stale zero progress in English, got %q", got)
 	}
 
 	cacheLoad := types.RepoMapScanEvent{

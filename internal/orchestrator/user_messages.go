@@ -798,7 +798,7 @@ func repoMapScanCountsZH(ev types.RepoMapScanEvent, progress bool) string {
 		return fmt.Sprintf("已校验 %d/%d 个文件", ev.ParsedFiles, total)
 	}
 	if ev.Phase == types.RepoMapScanPhaseChangeScan {
-		return fmt.Sprintf("已校验 0/%d 个文件", total)
+		return fmt.Sprintf("准备校验 %d 个文件", total)
 	}
 	if ev.Phase == types.RepoMapScanPhaseCacheLoad {
 		loaded := ev.CacheRecordsLoaded
@@ -880,7 +880,7 @@ func repoMapScanCountsEN(ev types.RepoMapScanEvent, progress bool) string {
 		return fmt.Sprintf("checked %d/%d files", ev.ParsedFiles, total)
 	}
 	if ev.Phase == types.RepoMapScanPhaseChangeScan {
-		return fmt.Sprintf("checked 0/%d files", total)
+		return fmt.Sprintf("preparing to check %d files", total)
 	}
 	if ev.Phase == types.RepoMapScanPhaseCacheLoad {
 		loaded := ev.CacheRecordsLoaded
