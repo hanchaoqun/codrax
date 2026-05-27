@@ -90,6 +90,37 @@ func TestRenderAnswerDocRelationSurfaceHandoffPrincipalMemberSetWins(t *testing.
 	}
 }
 
+func TestRenderAnswerDocRelationSurfaceHandoffIncludesStructuredBoundaryRows(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			PredicateAxis: types.AxisCall,
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "boundary-1",
+			Kind:            types.EvidenceMechanism,
+			Source:          "internal/orchestrator.go",
+			LineStart:       12,
+			LineEnd:         12,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "Orchestrator",
+			Subject:         "Orchestrator",
+			Summary:         "Orchestrator is the scheduler boundary for this relation.",
+			GroundingStatus: types.GroundingGrounded,
+			Producer:        "test",
+		}},
+	}
+	got := renderAnswerDocRelationSurfaceHandoff(ctx)
+	for _, want := range []string{
+		"definition_or_boundary",
+		"Orchestrator",
+		"internal/orchestrator.go:12",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("boundary relation handoff missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestRequiresRelationMemberSetHandoffStillSkipsMechanismOnlyRelation(t *testing.T) {
 	rm := types.RequestModel{
 		Intent: types.IntentExplain,

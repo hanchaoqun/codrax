@@ -4348,6 +4348,16 @@ func answerDocShouldRenderRelationSurfaceHandoff(rm types.RequestModel, rows []a
 		rm.Predicates.IsRelationalLookup {
 		return true
 	}
+	if answerDocRelationRequestShape(rm) {
+		return true
+	}
+	// When the analyzer missed the relation shape, multiple already-structured
+	// relation rows are still a useful advisory handoff. This remains soft:
+	// it never creates a principal member set or a completion gate.
+	return len(rows) >= 2
+}
+
+func answerDocRelationRequestShape(rm types.RequestModel) bool {
 	switch rm.PredicateAxis {
 	case types.AxisCall, types.AxisRegister, types.AxisImplement, types.AxisConfigure:
 		return true
@@ -4355,11 +4365,9 @@ func answerDocShouldRenderRelationSurfaceHandoff(rm types.RequestModel, rows []a
 	switch types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) {
 	case types.ReqCallChain, types.ReqRegistration, types.ReqConfigMapping:
 		return true
+	default:
+		return false
 	}
-	// When the analyzer missed the relation shape, multiple already-structured
-	// relation rows are still a useful advisory handoff. This remains soft:
-	// it never creates a principal member set or a completion gate.
-	return len(rows) >= 2
 }
 
 func selectAnswerDocRelationSurfaceRows(ctx *types.AgentContext, limit int) []answerDocRelationSurfaceRow {
@@ -4400,7 +4408,13 @@ func selectAnswerDocRelationSurfaceRows(ctx *types.AgentContext, limit int) []an
 }
 
 func answerDocRelationSurfaceRowForEvidence(ctx *types.AgentContext, item types.EvidenceItem, index int) (answerDocRelationSurfaceRow, bool) {
-	if !answerDocEvidenceHasStructuredRelationSurface(item) {
+	includeBoundary := false
+	if ctx != nil && ctx.AnalysisIR != nil {
+		includeBoundary = answerDocRelationRequestShape(ctx.AnalysisIR.RequestModel) ||
+			types.ShouldSurfaceTypedRelationHints(ctx.AnalysisIR.RequestModel) ||
+			ctx.AnalysisIR.RequestModel.Predicates.IsRelationalLookup
+	}
+	if !answerDocEvidenceHasStructuredRelationSurface(item, includeBoundary) {
 		return answerDocRelationSurfaceRow{}, false
 	}
 	label := answerDocRelationSurfaceLabel(item)
@@ -4425,7 +4439,7 @@ func answerDocRelationSurfaceRowForEvidence(ctx *types.AgentContext, item types.
 	}, true
 }
 
-func answerDocEvidenceHasStructuredRelationSurface(item types.EvidenceItem) bool {
+func answerDocEvidenceHasStructuredRelationSurface(item types.EvidenceItem, includeBoundary bool) bool {
 	if item.GroundingStatus == types.GroundingUngrounded {
 		return false
 	}
@@ -4442,6 +4456,15 @@ func answerDocEvidenceHasStructuredRelationSurface(item types.EvidenceItem) bool
 		}
 		if strings.TrimSpace(item.Predicate) != "" {
 			return true
+		}
+	}
+	if includeBoundary && strings.TrimSpace(item.Subject) != "" {
+		switch item.Kind {
+		case types.EvidenceDirect, types.EvidenceMechanism:
+			return item.AnchorKind == types.AnchorDefinition ||
+				item.ContextRole == types.EvidenceContextRoleDefining ||
+				item.LoadBearingSummary ||
+				item.SalienceLockedForScoring()
 		}
 	}
 	return false
@@ -4470,6 +4493,11 @@ func answerDocRelationSurfaceRole(item types.EvidenceItem) string {
 		return "registration_or_binding"
 	case types.EvidenceDataflowPath:
 		return "flow_or_handoff"
+	case types.EvidenceDirect, types.EvidenceMechanism:
+		if item.AnchorKind == types.AnchorDefinition {
+			return "definition_or_boundary"
+		}
+		return "supporting_role_or_boundary"
 	case types.EvidenceRelationship:
 		switch item.AnchorKind {
 		case types.AnchorCall:
@@ -4503,6 +4531,8 @@ func answerDocRelationSurfaceScore(item types.EvidenceItem) int {
 		score += 20
 	case types.EvidenceDataflowPath:
 		score += 18
+	case types.EvidenceDirect, types.EvidenceMechanism:
+		score += 12
 	default:
 		score += 8
 	}
