@@ -48,10 +48,12 @@ var (
 )
 
 // gutterLineRe matches the per-line gutter emitted by
-// tool.renderWithLineGutter: optional spaces, 1-6 digits, U+2502,
+// tool.renderWithLineGutter: optional spaces, a positive line number,
+// U+2502,
 // single space. The captured groups are the line number and the
-// line text.
-var gutterLineRe = regexp.MustCompile(`^\s*(\d{1,6})│ (.*)$`)
+// line text. Large logs/traces can exceed one million lines, so do
+// not cap this at ordinary source-file widths.
+var gutterLineRe = regexp.MustCompile(`^\s*(\d{1,12})│ (.*)$`)
 
 // identifierTokenRe extracts identifier-shaped tokens of length ≥3.
 var identifierTokenRe = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]{2,}`)
@@ -1321,6 +1323,10 @@ func tier1LineText(it *types.EvidenceItem, gc *Context) bool {
 	if !ok {
 		return false
 	}
+	if runtimeArtifactLineAnchorSource(it.Source) && strings.TrimSpace(it.AnchorSymbol) != "" {
+		_, ok := findRuntimeArtifactAnchorLine(fileLines, it.LineStart, 2, it.AnchorSymbol)
+		return ok
+	}
 	if it.AnchorKind == types.AnchorTextReference {
 		if it.AnchorSymbol != "" {
 			_, ok := findTextReferenceAnchorLine(fileLines, it.LineStart, 2, it.AnchorSymbol)
@@ -1851,6 +1857,70 @@ func findStringLiteralAnchorLine(fileLines map[int]string, center, radius int, a
 		return bestLine, true
 	}
 	return 0, false
+}
+
+func runtimeArtifactLineAnchorSource(source string) bool {
+	source = strings.ToLower(strings.TrimSpace(source))
+	if source == "" {
+		return false
+	}
+	base := source
+	if idx := strings.LastIndexAny(base, `/\`); idx >= 0 {
+		base = base[idx+1:]
+	}
+	switch filepath.Ext(base) {
+	case ".log", ".trace", ".systrace", ".htrace", ".atrace", ".perfetto":
+		return true
+	case ".txt":
+		return strings.Contains(base, "log") || strings.Contains(base, "trace")
+	default:
+		return false
+	}
+}
+
+func findRuntimeArtifactAnchorLine(fileLines map[int]string, center, radius int, anchor string) (int, bool) {
+	anchor = strings.TrimSpace(anchor)
+	if anchor == "" {
+		return 0, false
+	}
+	if text, ok := fileLines[center]; ok && lineContainsRuntimeArtifactAnchor(text, anchor) {
+		return center, true
+	}
+	bestLine, bestDist := 0, radius+1
+	for i := center - radius; i <= center+radius; i++ {
+		if i == center || i <= 0 {
+			continue
+		}
+		text, ok := fileLines[i]
+		if !ok || !lineContainsRuntimeArtifactAnchor(text, anchor) {
+			continue
+		}
+		d := i - center
+		if d < 0 {
+			d = -d
+		}
+		if d < bestDist {
+			bestDist = d
+			bestLine = i
+		}
+	}
+	if bestLine > 0 {
+		return bestLine, true
+	}
+	return 0, false
+}
+
+func lineContainsRuntimeArtifactAnchor(line, anchor string) bool {
+	for _, candidate := range stringLiteralAnchorCandidates(anchor) {
+		if stringLiteralVisibleFragmentMatches(line, candidate) {
+			return true
+		}
+		seg := lastDotSegment(candidate)
+		if lineContainsAnchor(line, candidate, seg, len(tokenSet(candidate)) == 0) {
+			return true
+		}
+	}
+	return false
 }
 
 type sourceStringLiteral struct {

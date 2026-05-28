@@ -76,6 +76,42 @@ func TestGroundItem_Tier1LineText(t *testing.T) {
 	}
 }
 
+func TestGroundItem_Tier1LineTextLargeTraceLineNumber(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("record_trace.systrace", 1056884, []string{
+			"RSUniRenderThre-2096  ( 1716) [000] .... 935.305156: print: E|1716|M0538",
+			"com.tencent.mm-48517 (48517) [010] .... 935.305162: print: B|14973|Choreographer#doFrame 59185",
+			"com.tencent.mm-48517 (48517) [010] .... 935.305210: binder_transaction: dest_proc=10377 code=0x3",
+		}, 1200000),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	frame := &types.EvidenceItem{
+		Kind: types.EvidenceDirect, Source: "record_trace.systrace", LineStart: 1056885,
+		AnchorKind: types.AnchorStringLiteral, AnchorSymbol: "Choreographer#doFrame",
+	}
+
+	GroundItem(frame, gc)
+	if frame.GroundingStatus != types.GroundingGrounded {
+		t.Fatalf("status: %q, note=%q, want grounded for 7-digit read_file gutter line", frame.GroundingStatus, frame.GroundingNote)
+	}
+	if frame.GroundingTier != types.TierLineText {
+		t.Fatalf("tier: %q, want line_text", frame.GroundingTier)
+	}
+	if !strings.Contains(frame.Snippet, "Choreographer#doFrame 59185") {
+		t.Fatalf("snippet not attached from large trace gutter line: %q", frame.Snippet)
+	}
+
+	binder := &types.EvidenceItem{
+		Kind: types.EvidenceRelationship, Source: "record_trace.systrace", LineStart: 1056886,
+		AnchorKind: types.AnchorCall, AnchorSymbol: "binder_transaction",
+		Subject: "com.tencent.mm-48517", Object: "binder",
+	}
+	GroundItem(binder, gc)
+	if binder.GroundingStatus != types.GroundingGrounded {
+		t.Fatalf("trace call-like event status: %q, note=%q, want grounded", binder.GroundingStatus, binder.GroundingNote)
+	}
+}
+
 func TestGroundItem_ConfigSurfaceCommentAllowsLooseCorroboration(t *testing.T) {
 	history := []types.ToolResult{
 		buildGutterReadResult("codrax.yaml.example", 20, []string{
