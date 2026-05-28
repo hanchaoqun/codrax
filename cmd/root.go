@@ -262,8 +262,8 @@ const maxAttachedLogHardCeiling = 1 << 30 // 1 GiB
 // maxAttachedLogBytes is the live cap read by loadAttachedLog +
 // truncateAttachedLog. Initialised to defaultAttachedLogMaxBytes so
 // unit tests that bypass initApp (e.g. call truncateAttachedLog
-// directly) see the historic 1 MB behaviour; initApp mutates it
-// after merging codrax.yaml.
+// directly) see the same out-of-box cap as production; initApp
+// mutates it after merging codrax.yaml.
 var maxAttachedLogBytes = defaultAttachedLogMaxBytes
 
 // failureTaxonomyEnabled / MaxItems / DecayDays carry the

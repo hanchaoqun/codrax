@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestTruncateAttachedLog_DefaultCap confirms the out-of-the-box 1 MB
+// TestTruncateAttachedLog_DefaultCap confirms the out-of-the-box
 // ceiling still fires when the package-level var has not been tweaked.
 // Uses a local save/restore so the test does not leak state across
 // other tests that may swap the cap.
@@ -14,7 +14,7 @@ func TestTruncateAttachedLog_DefaultCap(t *testing.T) {
 	defer func() { maxAttachedLogBytes = prev }()
 	maxAttachedLogBytes = defaultAttachedLogMaxBytes
 
-	// Default cap is 1 MB; feed 1 MB + 1 byte and expect exactly 1 MB out.
+	// Feed default cap + 1 byte and expect exactly the default cap out.
 	input := strings.Repeat("x", defaultAttachedLogMaxBytes+1)
 	got := truncateAttachedLog(input)
 	if len(got) != defaultAttachedLogMaxBytes {

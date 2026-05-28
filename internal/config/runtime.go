@@ -1224,9 +1224,10 @@ type RuntimeSettings struct {
 	//                       stdin uses io.LimitReader(N+1) so the
 	//                       process never buffers more than N+1
 	//                       bytes even for multi-GB pipes. Default:
-	//                       1 MB (1048576). Raising this lets you
-	//                       attach larger logs but multiplies the
-	//                       downstream LLM token cost linearly.
+	//                       50 MiB (52428800). Raising this lets you
+	//                       attach larger logs but increases ingestion
+	//                       memory pressure even though prompt rendering
+	//                       blob-offloads large artifacts.
 	//                       Values ≤ 0 fall back to the default.
 	LogAttachMaxBytes *int `yaml:"log_attach_max_bytes"`
 
