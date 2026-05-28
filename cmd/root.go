@@ -829,17 +829,14 @@ func loadMultiPathSlice(kind string, paths []string, inlineText string, cap int)
 	if len(paths) == 0 {
 		return "", nil
 	}
+	if cap <= 0 {
+		cap = defaultAttachedLogMaxBytes
+	}
 	var b strings.Builder
+	remaining := cap + 1
 	for _, p := range paths {
-		var data []byte
-		var err error
-		if p == "-" {
-			data, err = io.ReadAll(io.LimitReader(os.Stdin, int64(cap)+1))
-		} else {
-			data, err = os.ReadFile(p)
-		}
-		if err != nil {
-			return "", fmt.Errorf("load attached %s %q: %w", kind, p, err)
+		if remaining <= 0 {
+			break
 		}
 		// Header keeps file boundaries visible to the LLM. Single-
 		// path attachments still get a header for symmetry; the
@@ -848,11 +845,44 @@ func loadMultiPathSlice(kind string, paths []string, inlineText string, cap int)
 		// the contract, not just decoration.
 		if b.Len() > 0 {
 			b.WriteByte('\n')
+			remaining--
+			if remaining <= 0 {
+				break
+			}
 		}
-		fmt.Fprintf(&b, "# codrax-source: %s\n", p)
+		header := fmt.Sprintf("# codrax-source: %s\n", p)
+		if len(header) > remaining {
+			b.WriteString(header[:remaining])
+			break
+		}
+		b.WriteString(header)
+		remaining -= len(header)
+		if remaining <= 0 {
+			break
+		}
+		data, err := readAttachedSourceLimited(p, remaining)
+		if err != nil {
+			return "", fmt.Errorf("load attached %s %q: %w", kind, p, err)
+		}
 		b.Write(data)
+		remaining -= len(data)
 	}
 	return b.String(), nil
+}
+
+func readAttachedSourceLimited(path string, limit int) ([]byte, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	if path == "-" {
+		return io.ReadAll(io.LimitReader(os.Stdin, int64(limit)))
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return io.ReadAll(io.LimitReader(f, int64(limit)))
 }
 
 func truncateAttachedLog(s string) string {

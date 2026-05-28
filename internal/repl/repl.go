@@ -4422,20 +4422,29 @@ func (r *REPL) handleLogAppend(path string) {
 		r.errorf("/log append <path> — missing path argument\n")
 		return
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		r.errorf("append log: %v\n", err)
-		return
-	}
 	header := "# codrax-source: " + path + "\n"
 	combined := r.attachedLog
 	if combined != "" {
 		combined += "\n"
 	}
-	combined += header + string(data)
-	if len(combined) > r.attachedLogMaxBytes {
-		r.warn("appended log truncated: %d → %d bytes\n", len(combined), r.attachedLogMaxBytes)
+	combined += header
+	remaining := r.attachedLogMaxBytes - len(combined)
+	if remaining < 0 {
 		combined = combined[:r.attachedLogMaxBytes]
+		r.warn("appended log truncated at %d-byte cap\n", r.attachedLogMaxBytes)
+		r.attachedLog = combined
+		r.attachedLogAutoRouted = false
+		r.success(fmt.Sprintf("appended %s (0 bytes added; total %d bytes)", path, len(r.attachedLog)))
+		return
+	}
+	data, truncated, err := readFileLimited(path, remaining)
+	if err != nil {
+		r.errorf("append log: %v\n", err)
+		return
+	}
+	combined += string(data)
+	if truncated {
+		r.warn("appended log truncated at %d-byte cap\n", r.attachedLogMaxBytes)
 	}
 	r.attachedLog = combined
 	r.attachedLogAutoRouted = false
@@ -4480,23 +4489,26 @@ func (r *REPL) handleHitraceCmd(line string) {
 	case strings.HasPrefix(rest, "append "):
 		r.handleHitraceAppend(strings.TrimSpace(strings.TrimPrefix(rest, "append")))
 	default:
-		data, err := os.ReadFile(rest)
-		if err != nil {
-			r.errorf("load hitrace: %v\n", err)
-			return
-		}
-		if len(data) > r.attachedTraceMaxBytes {
-			r.warn("hitrace truncated: %d → %d bytes\n", len(data), r.attachedTraceMaxBytes)
-			data = data[:r.attachedTraceMaxBytes]
-		}
 		// Single-path load also gets the source header so the LLM
 		// sees a consistent boundary marker shape regardless of
 		// how the trace got attached (single load / append / CLI).
 		header := "# codrax-source: " + rest + "\n"
-		body := header + string(data)
-		if len(body) > r.attachedTraceMaxBytes {
-			body = body[:r.attachedTraceMaxBytes]
+		remaining := r.attachedTraceMaxBytes - len(header)
+		if remaining < 0 {
+			r.warn("hitrace truncated at %d-byte cap\n", r.attachedTraceMaxBytes)
+			r.attachedHitrace = header[:r.attachedTraceMaxBytes]
+			r.success(fmt.Sprintf("attached hitrace loaded: %s (%d bytes)", rest, 0))
+			return
 		}
+		data, truncated, err := readFileLimited(rest, remaining)
+		if err != nil {
+			r.errorf("load hitrace: %v\n", err)
+			return
+		}
+		if truncated {
+			r.warn("hitrace truncated at %d-byte cap\n", r.attachedTraceMaxBytes)
+		}
+		body := header + string(data)
 		r.attachedHitrace = body
 		r.success(fmt.Sprintf("attached hitrace loaded: %s (%d bytes)", rest, len(data)))
 	}
@@ -4510,20 +4522,28 @@ func (r *REPL) handleHitraceAppend(path string) {
 		r.errorf("/htrace append <path> — missing path argument\n")
 		return
 	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		r.errorf("append hitrace: %v\n", err)
-		return
-	}
 	header := "# codrax-source: " + path + "\n"
 	combined := r.attachedHitrace
 	if combined != "" {
 		combined += "\n"
 	}
-	combined += header + string(data)
-	if len(combined) > r.attachedTraceMaxBytes {
-		r.warn("appended hitrace truncated: %d → %d bytes\n", len(combined), r.attachedTraceMaxBytes)
+	combined += header
+	remaining := r.attachedTraceMaxBytes - len(combined)
+	if remaining < 0 {
 		combined = combined[:r.attachedTraceMaxBytes]
+		r.warn("appended hitrace truncated at %d-byte cap\n", r.attachedTraceMaxBytes)
+		r.attachedHitrace = combined
+		r.success(fmt.Sprintf("appended %s (0 bytes added; total %d bytes)", path, len(r.attachedHitrace)))
+		return
+	}
+	data, truncated, err := readFileLimited(path, remaining)
+	if err != nil {
+		r.errorf("append hitrace: %v\n", err)
+		return
+	}
+	combined += string(data)
+	if truncated {
+		r.warn("appended hitrace truncated at %d-byte cap\n", r.attachedTraceMaxBytes)
 	}
 	r.attachedHitrace = combined
 	r.success(fmt.Sprintf("appended %s (%d bytes added; total %d bytes)", path, len(data), len(r.attachedHitrace)))
@@ -4533,18 +4553,36 @@ func (r *REPL) handleHitraceAppend(path string) {
 // Replaces any existing attachment (a `/log append` variant is a
 // future add; users can cat files together themselves for now).
 func (r *REPL) handleLogLoad(path string) {
-	data, err := os.ReadFile(path)
+	data, truncated, err := readFileLimited(path, r.attachedLogMaxBytes)
 	if err != nil {
 		r.errorf("load log: %v\n", err)
 		return
 	}
-	if len(data) > r.attachedLogMaxBytes {
-		r.warn("log truncated: %d → %d bytes\n", len(data), r.attachedLogMaxBytes)
-		data = data[:r.attachedLogMaxBytes]
+	if truncated {
+		r.warn("log truncated at %d-byte cap\n", r.attachedLogMaxBytes)
 	}
 	r.attachedLog = string(data)
 	r.attachedLogAutoRouted = false
 	r.success(fmt.Sprintf("attached log loaded: %s (%d bytes)", path, len(data)))
+}
+
+func readFileLimited(path string, limit int) ([]byte, bool, error) {
+	if limit < 0 {
+		limit = 0
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, false, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if len(data) > limit {
+		return data[:limit], true, nil
+	}
+	return data, false, nil
 }
 
 // handleLogPaste enters a multi-line capture mode. Every subsequent

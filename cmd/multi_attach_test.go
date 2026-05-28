@@ -40,6 +40,30 @@ func TestLoadMultiPathSlice_HeaderedConcat(t *testing.T) {
 	}
 }
 
+func TestLoadMultiPathSlice_FileReadsStayWithinAggregateCap(t *testing.T) {
+	dir := t.TempDir()
+	a := filepath.Join(dir, "a.log")
+	b := filepath.Join(dir, "b.log")
+	if err := os.WriteFile(a, []byte(strings.Repeat("a", 16*1024)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(b, []byte(strings.Repeat("b", 16*1024)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	const capBytes = 4096
+	body, err := loadMultiPathSlice("log", []string{a, b}, "", capBytes)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(body) != capBytes+1 {
+		t.Fatalf("bounded loader should stop at cap+1 sentinel bytes, got %d", len(body))
+	}
+	if len(truncateAttachedToCap(body, capBytes, "log")) != capBytes {
+		t.Fatalf("final truncation should cut bounded body to cap")
+	}
+}
+
 // TestLoadMultiPathSlice_InlineTakesPriority verifies inline-text
 // overrides path slice (matches mutual-exclusion contract).
 func TestLoadMultiPathSlice_InlineTakesPriority(t *testing.T) {

@@ -9,7 +9,7 @@ import (
 )
 
 // TestREPL_AttachedLogCap_Default confirms that a zero-value
-// Config.AttachedLogMaxBytes seeds the REPL with the 1 MB default —
+// Config.AttachedLogMaxBytes seeds the REPL with the 50 MiB default —
 // protects callers (tests, legacy wiring) that never set the field.
 func TestREPL_AttachedLogCap_Default(t *testing.T) {
 	in := strings.NewReader("")
@@ -71,6 +71,31 @@ func TestREPL_HandleLogLoad_HonorsCap(t *testing.T) {
 		t.Fatalf("attached log: len=%d, want %d", len(r.attachedLog), customCap)
 	}
 	if !strings.Contains(out.String(), "log truncated") {
+		t.Errorf("expected truncation warning in output, got: %q", out.String())
+	}
+}
+
+func TestREPL_HandleHitraceLoad_HonorsCapWithSourceHeader(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "big.systrace")
+	payload := strings.Repeat("t", 10*1024)
+	if err := os.WriteFile(path, []byte(payload), 0o600); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	out := &bytes.Buffer{}
+	const customCap = 4096
+	r := New(Config{In: strings.NewReader(""), Out: out, AttachedTraceMaxBytes: customCap})
+
+	r.handleHitraceCmd("/htrace " + path)
+
+	if len(r.attachedHitrace) != customCap {
+		t.Fatalf("attached hitrace: len=%d, want %d", len(r.attachedHitrace), customCap)
+	}
+	if !strings.HasPrefix(r.attachedHitrace, "# codrax-source: "+path+"\n") {
+		t.Fatalf("trace header missing: %q", r.attachedHitrace[:min(len(r.attachedHitrace), 80)])
+	}
+	if !strings.Contains(out.String(), "hitrace truncated") {
 		t.Errorf("expected truncation warning in output, got: %q", out.String())
 	}
 }
