@@ -103,8 +103,15 @@ type MutableState struct {
 	// of finalAnswerMarkdownPath. It is presentation metadata only; model
 	// prompts and memory continue to use Result().
 	finalAnswerHTMLPath string
-	requestModel        *RequestModel
-	emittedEvidence     []EvidenceItem
+	// outputTranscriptRequest is the current Run's exact user request for
+	// final-answer output artifacts. REPL uses it to preserve paste-expanded
+	// text in .codrax/output markdown/html while keeping Mutable.objective free
+	// to carry prior-conversation scaffolding. This is run-scoped state: do not
+	// read a reused Orchestrator's cross-turn setter directly when writing
+	// artifacts.
+	outputTranscriptRequest string
+	requestModel            *RequestModel
+	emittedEvidence         []EvidenceItem
 	// answerSurfaceRevision is bumped by mutators that can affect
 	// BuildAnswerSurfacePlan. BusContext-level answer-plan caches use
 	// it as a cheap freshness boundary so finalizer validators can
@@ -969,6 +976,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		resultIsPlain:                       m.resultIsPlain,
 		finalAnswerMarkdownPath:             m.finalAnswerMarkdownPath,
 		finalAnswerHTMLPath:                 m.finalAnswerHTMLPath,
+		outputTranscriptRequest:             m.outputTranscriptRequest,
 		searchGraph:                         m.searchGraph,
 		symbolOracle:                        m.symbolOracle,
 		logTriage:                           m.logTriage,
@@ -1180,6 +1188,32 @@ func (m *MutableState) SetObjective(s string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.objective = s
+}
+
+// OutputTranscriptRequest returns the exact current-turn request that should
+// be written into user-facing output artifacts. Empty means callers should
+// fall back to Objective()/StripConversationPrefix. This value is presentation
+// metadata and must not be fed into prompts or memory.
+func (m *MutableState) OutputTranscriptRequest() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.outputTranscriptRequest
+}
+
+// SetOutputTranscriptRequest stores the exact current-turn request for
+// markdown/html output artifacts. The orchestrator seeds this once at Run
+// entry from the REPL setter so a reused REPL runner cannot leak an earlier
+// turn's request into a later output file.
+func (m *MutableState) SetOutputTranscriptRequest(s string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.outputTranscriptRequest = strings.TrimSpace(s)
 }
 
 // SearchGraph returns the opaque handle previously stored by

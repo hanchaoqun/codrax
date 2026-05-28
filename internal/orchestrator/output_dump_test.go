@@ -220,7 +220,7 @@ func TestRecordTaskFinalizeUsesExpandedTranscriptRequest(t *testing.T) {
 		outputDumpMax: 10,
 		emit:          func(render.Event) {},
 	}
-	o.SetOutputTranscriptRequest(expanded)
+	mut.SetOutputTranscriptRequest(expanded)
 
 	o.recordTaskFinalize(&agent.StageOutput{FinalAnswer: "answer body"})
 
@@ -250,6 +250,52 @@ func TestRecordTaskFinalizeUsesExpandedTranscriptRequest(t *testing.T) {
 	}
 	if !strings.Contains(string(htmlBody), "第一行原文") || strings.Contains(string(htmlBody), folded) {
 		t.Fatalf("html dump did not reflect expanded request:\n%s", htmlBody)
+	}
+}
+
+func TestRecordTaskFinalizeUsesRunScopedTranscriptOverStaleSetter(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "output")
+	firstTurn := "第一个问题"
+	secondTurn := "第二个问题\n需要展开保留"
+	mut := types.NewMutableState("## Prior conversation\n- You: " + firstTurn + "\n\n## Current request\n[folded second]")
+	mut.SetOutputTranscriptRequest(secondTurn)
+	o := &Orchestrator{
+		busCtx:                  &types.BusContext{Mutable: mut},
+		outputDumpDir:           dir,
+		outputDumpMax:           10,
+		outputTranscriptRequest: firstTurn, // stale cross-REPL-turn setter field
+		emit:                    func(render.Event) {},
+	}
+
+	o.recordTaskFinalize(&agent.StageOutput{FinalAnswer: "second answer"})
+
+	path := mut.FinalAnswerMarkdownPath()
+	if path == "" {
+		t.Fatal("expected markdown dump path")
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read markdown dump %s: %v", path, err)
+	}
+	text := string(body)
+	if !strings.Contains(text, "# 问题\n\n"+secondTurn+"\n") {
+		t.Fatalf("markdown dump did not use current run transcript request:\n%s", text)
+	}
+	if strings.Contains(text, "# 问题\n\n"+firstTurn+"\n") {
+		t.Fatalf("markdown dump leaked stale first-turn request:\n%s", text)
+	}
+
+	htmlPath := mut.FinalAnswerHTMLPath()
+	if htmlPath == "" {
+		t.Fatal("expected html dump path")
+	}
+	htmlBody, err := os.ReadFile(htmlPath)
+	if err != nil {
+		t.Fatalf("read html dump %s: %v", htmlPath, err)
+	}
+	htmlText := string(htmlBody)
+	if !strings.Contains(htmlText, "第二个问题") || strings.Contains(htmlText, "第一个问题") {
+		t.Fatalf("html dump did not use current run transcript request:\n%s", htmlText)
 	}
 }
 

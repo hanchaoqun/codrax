@@ -27,9 +27,12 @@ expanded request or the folded display.
 
 The REPL now passes the expanded current request to the runner through a
 small optional `SetOutputTranscriptRequest` capability. The orchestrator
-uses it only for final-answer Markdown/HTML transcript generation and
-falls back to the historical objective-derived request when the setter is
-not used.
+copies it onto the fresh per-`Run` `MutableState` at run entry, then uses
+that run-scoped copy only for final-answer Markdown/HTML transcript
+generation. The cross-turn setter field is never the primary source at
+finalize time; this prevents a reused REPL orchestrator from leaking the
+first turn's request into later output artifacts. When the setter is not
+used, the dump path falls back to the historical objective-derived request.
 
 This preserves all existing behavior outside the artifact path:
 
@@ -41,3 +44,11 @@ This preserves all existing behavior outside the artifact path:
 - the HTTP preview serves the same Markdown artifact, so it inherits the
   expanded `# 问题` section automatically.
 
+## Regression Guard
+
+Two invariants are now covered by tests:
+
+- a paste-folded current request writes the expanded text into both markdown
+  and standalone HTML artifacts;
+- a stale cross-turn setter value cannot override the current run's
+  `MutableState` transcript request.

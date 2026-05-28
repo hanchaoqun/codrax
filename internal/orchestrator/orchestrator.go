@@ -1611,6 +1611,13 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		// than waiting for a cooperative checkpoint.
 		Ctx: o.cancelToken.Context(),
 	}
+	if transcriptRequest := strings.TrimSpace(o.outputTranscriptRequest); transcriptRequest != "" {
+		// Freeze the REPL-provided expanded request onto this Run's
+		// MutableState. The Orchestrator itself is reused across REPL
+		// turns, so final output artifacts must read this run-scoped
+		// copy rather than the cross-turn setter field at finalize time.
+		o.busCtx.Mutable.SetOutputTranscriptRequest(transcriptRequest)
+	}
 
 	// Multi-repo wiring (Phase 4.2). Both providers are nil in
 	// pre-multi-repo callers (single-shot tests, eval harness without
@@ -7117,11 +7124,14 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 }
 
 func (o *Orchestrator) outputTranscriptRequestForDump() string {
-	if o != nil && strings.TrimSpace(o.outputTranscriptRequest) != "" {
-		return o.outputTranscriptRequest
-	}
 	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		if o != nil && strings.TrimSpace(o.outputTranscriptRequest) != "" {
+			return o.outputTranscriptRequest
+		}
 		return ""
+	}
+	if request := strings.TrimSpace(o.busCtx.Mutable.OutputTranscriptRequest()); request != "" {
+		return request
 	}
 	return types.StripConversationPrefix(o.busCtx.Mutable.Objective())
 }

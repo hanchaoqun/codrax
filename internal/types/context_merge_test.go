@@ -41,6 +41,25 @@ func TestMutableStateMergeExploreForkPreservesDistinctSameAnchorSummaries(t *tes
 	}
 }
 
+func TestMutableStateOutputTranscriptRequestIsRunScopedAndForked(t *testing.T) {
+	mu := NewMutableState("## Prior conversation\nold\n\n## Current request\nfolded")
+	mu.SetOutputTranscriptRequest("当前展开问题\n第一行\n第二行")
+
+	if got := mu.OutputTranscriptRequest(); got != "当前展开问题\n第一行\n第二行" {
+		t.Fatalf("OutputTranscriptRequest = %q", got)
+	}
+
+	fork := mu.ForkForExploreDispatch()
+	if got := fork.OutputTranscriptRequest(); got != mu.OutputTranscriptRequest() {
+		t.Fatalf("fork transcript request = %q, want %q", got, mu.OutputTranscriptRequest())
+	}
+
+	mu.SetOutputTranscriptRequest("  ")
+	if got := mu.OutputTranscriptRequest(); got != "" {
+		t.Fatalf("blank transcript request should clear run-scoped value, got %q", got)
+	}
+}
+
 func TestMutableStateEmittedEvidenceCompactsSameIDAmendments(t *testing.T) {
 	mu := NewMutableState("修订证据")
 	base := EvidenceItem{
