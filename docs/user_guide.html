@@ -663,7 +663,7 @@ codrax --log-text &quot;$(cat panic.txt)&quot; -r &quot;...&quot;
 </tr>
 </tbody>
 </table></div>
-<p>附加日志 size 上限:50 MiB(<code>log_attach_max_bytes</code>),超过自动尾部截断 + 警告。</p>
+<p>附加日志 size 上限:256 MiB(<code>log_attach_max_bytes</code>),超过自动尾部截断 + 警告。</p>
 <p><strong>自动检测</strong>:如果你在普通问题里直接粘贴包含 panic/stack-frame 行的文本,REPL 会<strong>一次性</strong>自动把它转成附加日志(打印一行 <code>auto-attached log: N bytes</code>),只对当前这轮生效,不影响下轮。如果想阻止自动,先 <code>/log clear</code> 把粘性 log 占位即可。</p>
 <p><strong>C/C++ 编译路径前缀</strong>:CI build 出来的 stack frame 路径常是 <code>/build/src/foo.cpp:42</code>,你的 repo 是 <code>~/repo/foo.cpp:42</code>。用 <code>--log-source-prefix /build/src/</code> 让 codrax 把前缀剥掉再去仓库找文件。</p>
 <h2 id="32-附加性能-tracehitrace-atrace-systrace-perfetto">3.2 附加性能 trace(HiTrace / atrace / systrace / perfetto)</h2>
@@ -690,7 +690,7 @@ cat /tmp/atrace.txt | codrax --htrace - -r &quot;...&quot;
   ✓ 已附加 trace
 [git:main][trace]❯❯ 首页冷启动哪里耗时最长?
 </code></pre>
-<p>trace 的 size 上限独立于 log:<code>trace_attach_max_bytes</code>(默认 50 MiB)。</p>
+<p>trace 的 size 上限独立于 log:<code>trace_attach_max_bytes</code>(默认 256 MiB)。</p>
 <blockquote>
 <p><code>--log</code> 和 <code>--htrace</code> 是<strong>两个独立的通道</strong>,可以同时附:一份 panic + 一份 trace 同时给 codrax,两个 pre-stage 各自处理。</p>
 </blockquote>
@@ -1651,12 +1651,12 @@ multi_repo_enabled: false
 <tbody>
 <tr>
 <td><code>log_attach_max_bytes</code></td>
-<td><code>52428800</code>(50 MiB)</td>
+<td><code>268435456</code>(256 MiB)</td>
 <td><code>--log</code> / <code>/log</code> / 自动检测的总字节上限</td>
 </tr>
 <tr>
 <td><code>trace_attach_max_bytes</code></td>
-<td><code>52428800</code>(50 MiB)</td>
+<td><code>268435456</code>(256 MiB)</td>
 <td><code>--htrace</code> / <code>/htrace</code> 的字节上限(独立)</td>
 </tr>
 <tr>

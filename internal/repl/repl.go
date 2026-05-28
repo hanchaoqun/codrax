@@ -283,7 +283,7 @@ type Config struct {
 	// runaway paste cannot balloon the REPL process memory. Mirrors
 	// cmd's maxAttachedLogBytes — both are driven by
 	// codrax.yaml :: log_attach_max_bytes. Zero or negative →
-	// DefaultAttachedLogMaxBytes (50 MB), matching the CLI default.
+	// DefaultAttachedLogMaxBytes (256 MiB), matching the CLI default.
 	AttachedLogMaxBytes int
 
 	// AttachedTraceMaxBytes caps the perf-channel attach surface
@@ -2318,7 +2318,7 @@ func (r *REPL) recordTurn(request, expanded, response string, kind memory.Kind) 
 	}
 }
 
-// DefaultAttachedLogMaxBytes is the out-of-the-box 50 MB cap on
+// DefaultAttachedLogMaxBytes is the out-of-the-box 256 MiB cap on
 // every REPL attach surface (/log + /htrace). Consumed by New when
 // Config.AttachedLogMaxBytes is not set; the cmd layer populates
 // Config from codrax.yaml :: log_attach_max_bytes so both CLI and
@@ -2327,11 +2327,10 @@ func (r *REPL) recordTurn(request, expanded, response string, kind memory.Kind) 
 // DefaultAttachedLogMaxBytes is the REPL-side default cap. Mirrors
 // cmd.defaultAttachedLogMaxBytes — the two constants must agree so
 // a unit test that bypasses initApp sees the same baseline as a
-// real CLI run. Raised from 1 MB → 50 MB in 2026-04 to match real
-// HarmonyOS / Android log + trace volumes (hdc / adb captures
-// commonly exceed 10 MB; the previous 1 MB silently truncated tails
-// where the actual error frames lived).
-const DefaultAttachedLogMaxBytes = 50 * 1024 * 1024 // 50 MB
+// real CLI run. Raised from 50 MiB → 256 MiB in 2026-05 to match
+// systrace / perfetto / large hilog captures while keeping the
+// ingestion hard ceiling in place.
+const DefaultAttachedLogMaxBytes = 256 * 1024 * 1024 // 256 MiB
 
 // handleSlash returns true if the loop should exit.
 func (r *REPL) handleSlash(line string) bool {

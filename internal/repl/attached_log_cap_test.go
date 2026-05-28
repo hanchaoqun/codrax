@@ -9,7 +9,7 @@ import (
 )
 
 // TestREPL_AttachedLogCap_Default confirms that a zero-value
-// Config.AttachedLogMaxBytes seeds the REPL with the 50 MiB default —
+// Config.AttachedLogMaxBytes seeds the REPL with the 256 MiB default —
 // protects callers (tests, legacy wiring) that never set the field.
 func TestREPL_AttachedLogCap_Default(t *testing.T) {
 	in := strings.NewReader("")

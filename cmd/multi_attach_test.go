@@ -113,7 +113,7 @@ func TestTraceCapInheritsLogCap(t *testing.T) {
 	}()
 
 	// Both defaults equal at startup.
-	if defaultAttachedLogMaxBytes != 50*1024*1024 {
+	if defaultAttachedLogMaxBytes != 256*1024*1024 {
 		t.Errorf("log default drifted: %d", defaultAttachedLogMaxBytes)
 	}
 	maxAttachedTraceBytes = 0
@@ -147,10 +147,10 @@ func TestHardCeilingClamp_Constant(t *testing.T) {
 	}
 }
 
-// TestDefaultsAre50MB pins the user-facing 50 MiB default for both
+// TestDefaultsAre256MiB pins the user-facing 256 MiB default for both
 // log and trace channels (trace inherits at startup).
-func TestDefaultsAre50MB(t *testing.T) {
-	want := 50 * 1024 * 1024
+func TestDefaultsAre256MiB(t *testing.T) {
+	want := 256 * 1024 * 1024
 	if defaultAttachedLogMaxBytes != want {
 		t.Errorf("log default: want %d, got %d", want, defaultAttachedLogMaxBytes)
 	}

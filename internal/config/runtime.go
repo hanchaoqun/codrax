@@ -1224,7 +1224,7 @@ type RuntimeSettings struct {
 	//                       stdin uses io.LimitReader(N+1) so the
 	//                       process never buffers more than N+1
 	//                       bytes even for multi-GB pipes. Default:
-	//                       50 MiB (52428800). Raising this lets you
+	//                       256 MiB (268435456). Raising this lets you
 	//                       attach larger logs but increases ingestion
 	//                       memory pressure even though prompt rendering
 	//                       blob-offloads large artifacts.

@@ -336,7 +336,7 @@ REPL 里的等价做法:
 | `/log clear` | 清除附加日志 |
 | `/log`(无参) | 进粘贴模式,贴完用 `/end` 结束(SSH/tmux 吞掉 bracketed paste 时用) |
 
-附加日志 size 上限:50 MiB(`log_attach_max_bytes`),超过自动尾部截断 + 警告。
+附加日志 size 上限:256 MiB(`log_attach_max_bytes`),超过自动尾部截断 + 警告。
 
 **自动检测**:如果你在普通问题里直接粘贴包含 panic/stack-frame 行的文本,REPL 会**一次性**自动把它转成附加日志(打印一行 `auto-attached log: N bytes`),只对当前这轮生效,不影响下轮。如果想阻止自动,先 `/log clear` 把粘性 log 占位即可。
 
@@ -373,7 +373,7 @@ REPL 里 `/htrace` 和 `/atrace` 是同义命令,子命令同 `/log`:
 [git:main][trace]❯❯ 首页冷启动哪里耗时最长?
 ```
 
-trace 的 size 上限独立于 log:`trace_attach_max_bytes`(默认 50 MiB)。
+trace 的 size 上限独立于 log:`trace_attach_max_bytes`(默认 256 MiB)。
 
 > `--log` 和 `--htrace` 是**两个独立的通道**,可以同时附:一份 panic + 一份 trace 同时给 codrax,两个 pre-stage 各自处理。
 
@@ -1046,8 +1046,8 @@ agents:
 
 | 键 | 默认 | 作用 |
 |---|---|---|
-| `log_attach_max_bytes` | `52428800`(50 MiB) | `--log` / `/log` / 自动检测的总字节上限 |
-| `trace_attach_max_bytes` | `52428800`(50 MiB) | `--htrace` / `/htrace` 的字节上限(独立) |
+| `log_attach_max_bytes` | `268435456`(256 MiB) | `--log` / `/log` / 自动检测的总字节上限 |
+| `trace_attach_max_bytes` | `268435456`(256 MiB) | `--htrace` / `/htrace` 的字节上限(独立) |
 | `log_triage_enabled` | `true` | log_triage 预阶段 |
 | `log_triage_two_step_enabled` / `log_triage_two_step_bytes` / `log_triage_two_step_coverage` | `true` / 32 KiB / 0.3 | 大日志的两步 fallback |
 | `log_triage_max_llm_calls` | 12 | 单次 Run log_triage LLM 调用上限 |

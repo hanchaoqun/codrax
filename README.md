@@ -260,7 +260,7 @@ REPL:`/htrace <path>` / `/htrace append <path>` / `/htrace show` / `/htrace clea
 
 单次抽取默认读完全文。当超过两步阈值(`log_triage_two_step_bytes` 默认 32 KB / `perf_triage_two_step_bytes` 默认 64 KB)或单次覆盖率偏低时自动切两步:先让 LLM 按字节范围切片(`emit_log_segmentation` / `emit_perf_segmentation`),再逐段抽取,最后合并结果。LLM 调用次数有硬上限(`log_triage_max_llm_calls` / `perf_triage_max_llm_calls` 默认 12)。多文件附加之间会自动插入 `# codrax-source: <path>` 边界头。
 
-字节上限:`log_attach_max_bytes`(默认 50 MiB)、`trace_attach_max_bytes`(未设时继承 log)。硬顶 1 GiB。
+字节上限:`log_attach_max_bytes`(默认 256 MiB)、`trace_attach_max_bytes`(未设时继承 log)。硬顶 1 GiB。
 
 ### 暂不支持
 

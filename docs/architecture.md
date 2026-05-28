@@ -2568,7 +2568,7 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 | `memory_soft_limit_*` / `repomap_resume_*` / `repomap_scan_reserve_cpus` / `repomap_parse_timeout_*` | 大仓扫描韧性 | `memory_soft_limit_enabled`（true，启动设 GOMEMLIMIT 软上限）/ `memory_soft_limit_fraction`（0.8，宿主 RAM 占比）/ `memory_soft_limit_bytes`（0=自动，>0 直接用，512 MiB 下限）/ `repomap_resume_interrupted_scan`（true，full scan 复用上次被中断扫描已落盘的 chunk，hash 校验）/ `repomap_scan_reserve_cpus`（0,>0 时扫描期间把 GOMAXPROCS 压到 核数-该值,整个运行时含 GC 留出空闲核心防 SSH 断连;默认 0 按需开启）/ `repomap_parse_timeout_enabled`（true）/ `repomap_parse_timeout_seconds`（120，单文件 tree-sitter 解析安全阈值，0 关闭）。环境变量 `GOMEMLIMIT` 优先于内存组。见 `docs/design/large_repo_memory_resilience.md` |
 | `log_triage_*` | 日志分诊 | enabled / source_prefix / min_bytes（50）/ max_retries（1）/ two_step_enabled / two_step_bytes（32K）/ two_step_coverage（0.3）/ max_llm_calls（12） |
 | `perf_triage_*` | 性能分诊 | 同 log_triage 结构（默认 64K threshold） |
-| `log_attach_*` / `trace_attach_*` | 接入侧字节上限 | `log_attach_max_bytes`（50 MiB，硬顶 1 GiB）/ `trace_attach_max_bytes`（未设时继承 log_attach） |
+| `log_attach_*` / `trace_attach_*` | 接入侧字节上限 | `log_attach_max_bytes`（256 MiB，硬顶 1 GiB）/ `trace_attach_max_bytes`（未设时继承 log_attach） |
 | `analyzer_*` / `repomap_*` / `concrete_values_*` / `diagram_identifier_whitelist` | 结构化分析微调 | mention sibling suffixes / mention count floor / max grep / reconcile strict mode / repomap min_parse_tier / tier warn/alert ratio / config layer extensions / runtime/default method prefixes / diagram identifier whitelist |
 | `verify_*` / `worktree_*` | 写模式资源墙 | `verify_mem_limit_mb`（2048）/ `verify_cpu_limit_seconds`（600）/ `worktree_keep_ttl_hours`（168 = 7 天）/ `worktree_keep_max_count`（20） |
 | `repl_*` | REPL UX | `repl_paste_fold_min_chars`（120） |

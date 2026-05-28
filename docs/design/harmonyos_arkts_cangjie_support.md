@@ -800,7 +800,7 @@ flagAttachAtraceText  string
 **两通道独立 cap**：
 
 ```go
-maxAttachedLogBytes   = defaultAttachedLogMaxBytes  // 50 MiB
+maxAttachedLogBytes   = defaultAttachedLogMaxBytes  // 256 MiB
 maxAttachedTraceBytes = defaultAttachedLogMaxBytes  // 默认继承 log
 ```
 
@@ -838,7 +838,7 @@ stdin 读取用 `io.LimitReader(os.Stdin, int64(cap)+1)` 确保进程内存上�
 
 | YAML 键 | 默认 | 作用 |
 |---|---|---|
-| `log_attach_max_bytes` | 52428800 (50 MiB) | 日志通道字节上限 |
+| `log_attach_max_bytes` | 268435456 (256 MiB) | 日志通道字节上限 |
 | `trace_attach_max_bytes` | 0 → 继承 log | 性能 trace 通道字节上限 |
 
 ### Log Triage
