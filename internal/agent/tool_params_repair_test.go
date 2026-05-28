@@ -196,6 +196,32 @@ func TestRepairToolParamsJSON_LeadingCloserBeforeObject(t *testing.T) {
 	}
 }
 
+func TestRepairToolParamsJSON_LeadingCloserBeforeTruncatedObject(t *testing.T) {
+	raw := json.RawMessage(`}{"pattern":"Choreographer","include":"*.java"`)
+	repaired, ok := repairToolParamsJSON(raw)
+	if !ok {
+		t.Fatalf("leading closer plus missing trailing object delimiter should be repaired")
+	}
+	var probe struct {
+		Pattern string `json:"pattern"`
+		Include string `json:"include"`
+	}
+	if err := json.Unmarshal(repaired, &probe); err != nil {
+		t.Fatalf("repaired payload must parse: %v\n%s", err, repaired)
+	}
+	if probe.Pattern != "Choreographer" || probe.Include != "*.java" {
+		t.Fatalf("repaired payload changed fields: %+v", probe)
+	}
+}
+
+func TestRepairToolParamsJSON_LeadingCloserBeforeIncompleteValueStillInvalid(t *testing.T) {
+	raw := json.RawMessage(`}{"pattern":`)
+	repaired, ok := repairToolParamsJSON(raw)
+	if ok {
+		t.Fatalf("leading closer must not make an incomplete value repairable; got %s", repaired)
+	}
+}
+
 func TestRepairToolParamsJSON_LoneLeadingCloserStillInvalid(t *testing.T) {
 	raw := json.RawMessage(`}`)
 	repaired, ok := repairToolParamsJSON(raw)

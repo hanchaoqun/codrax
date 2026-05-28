@@ -41,8 +41,10 @@ import (
 //     call and produce `}{"path":"..."}`. The repair strips only
 //     whitespace plus `}` / `]` / `,` before the first JSON opener and
 //     then requires the remaining bytes to parse as exactly one JSON
-//     value. It refuses arbitrary text prefixes and double-object
-//     payloads.
+//     value. If the remaining value is also missing only trailing
+//     structural closers, it applies the same bounded closer repair
+//     used for pattern 3. It refuses arbitrary text prefixes and
+//     double-object payloads.
 //
 // The repair is bounded: it only removes trailing/pre-terminator
 // garbage or appends deterministic JSON delimiters. The function
@@ -109,10 +111,13 @@ found:
 	}
 	repaired := trimmed[firstOpener:]
 	var verify interface{}
-	if err := json.Unmarshal(repaired, &verify); err != nil {
-		return raw, false
+	if err := json.Unmarshal(repaired, &verify); err == nil {
+		return append(json.RawMessage(nil), repaired...), true
 	}
-	return append(json.RawMessage(nil), repaired...), true
+	if completed, ok := tryCompleteTruncatedJSON(repaired); ok {
+		return completed, true
+	}
+	return raw, false
 }
 
 func toolParamsMalformedJSONKind(raw json.RawMessage, errText string) string {

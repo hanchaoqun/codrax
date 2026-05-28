@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/mcp"
 	toolpkg "github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -51,6 +53,31 @@ func (t *captureParamsTool) Execute(_ *types.BusContext, params json.RawMessage)
 	return types.ToolResult{ToolName: t.Name(), Success: true}, nil
 }
 
+type captureMCPServer struct {
+	got json.RawMessage
+}
+
+func (s *captureMCPServer) Name() string                   { return "capture_mcp" }
+func (s *captureMCPServer) Transport() types.TransportType { return types.TransportStdio }
+func (s *captureMCPServer) ListTools() []mcp.ToolSchema {
+	return []mcp.ToolSchema{{
+		Name:        "capture_mcp_params",
+		Description: "captures normalized MCP params for tests",
+		Parameters:  json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string"},"include":{"type":"string"}}}`),
+	}}
+}
+func (s *captureMCPServer) CallTool(name string, params json.RawMessage) (types.MCPResponse, error) {
+	s.got = append(s.got[:0], params...)
+	return types.MCPResponse{
+		ServerName: s.Name(),
+		Method:     "tools/call",
+		Summary:    "captured " + name,
+		Success:    true,
+		Timestamp:  time.Now(),
+	}, nil
+}
+func (s *captureMCPServer) Close() error { return nil }
+
 func TestExecuteTool_PropagatesStageAndAttachmentsToBusContext(t *testing.T) {
 	reg := toolpkg.NewRegistry()
 	capture := &captureBusContextTool{}
@@ -87,6 +114,61 @@ func TestExecuteTool_PropagatesStageAndAttachmentsToBusContext(t *testing.T) {
 	}
 	if capture.got.AttachedHitrace != ctx.AttachedHitrace {
 		t.Fatalf("AttachedHitrace = %q, want %q", capture.got.AttachedHitrace, ctx.AttachedHitrace)
+	}
+}
+
+func TestExecuteTool_RepairsSharedStructuralJSONBeforeLocalToolExecution(t *testing.T) {
+	reg := toolpkg.NewRegistry()
+	capture := &captureParamsTool{}
+	reg.Register(capture)
+
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{Tools: reg}, nil)
+	res, _ := base.executeTool(&types.AgentContext{Stage: types.StageExplore}, llm.ToolCall{
+		ID:     "combo-corrupt-json",
+		Name:   capture.Name(),
+		Params: json.RawMessage(`}{"sources":["trace.systrace"],"top_n":5`),
+	})
+	if res == nil || !res.Success {
+		t.Fatalf("executeTool should repair deterministic structural JSON before local tool execution: %+v", res)
+	}
+	var decoded struct {
+		Sources []string `json:"sources"`
+		TopN    int      `json:"top_n"`
+	}
+	if err := json.Unmarshal(capture.got, &decoded); err != nil {
+		t.Fatalf("local tool received invalid repaired params: %v\n%s", err, capture.got)
+	}
+	if strings.Join(decoded.Sources, "|") != "trace.systrace" || decoded.TopN != 5 {
+		t.Fatalf("unexpected repaired local params: %+v raw=%s", decoded, capture.got)
+	}
+}
+
+func TestExecuteTool_RepairsSharedStructuralJSONBeforeMCPToolExecution(t *testing.T) {
+	mcpReg := mcp.NewRegistry()
+	capture := &captureMCPServer{}
+	mcpReg.Register(capture)
+
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{MCPServers: mcpReg}, nil)
+	res, mcpResp := base.executeTool(&types.AgentContext{Stage: types.StageExplore}, llm.ToolCall{
+		ID:     "mcp-combo-corrupt-json",
+		Name:   "capture_mcp_params",
+		Params: json.RawMessage(`}{"pattern":"Choreographer","include":"*.java"`),
+	})
+	if res != nil {
+		t.Fatalf("MCP tool should return MCP response, got local result: %+v", res)
+	}
+	if mcpResp == nil || !mcpResp.Success {
+		t.Fatalf("executeTool should repair deterministic structural JSON before MCP tool execution: %+v", mcpResp)
+	}
+	var decoded struct {
+		Pattern string `json:"pattern"`
+		Include string `json:"include"`
+	}
+	if err := json.Unmarshal(capture.got, &decoded); err != nil {
+		t.Fatalf("MCP tool received invalid repaired params: %v\n%s", err, capture.got)
+	}
+	if decoded.Pattern != "Choreographer" || decoded.Include != "*.java" {
+		t.Fatalf("unexpected repaired MCP params: %+v raw=%s", decoded, capture.got)
 	}
 }
 
