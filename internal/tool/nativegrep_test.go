@@ -139,3 +139,56 @@ func TestNativeGrep_Include(t *testing.T) {
 		t.Fatalf("include glob should keep only a.go, got %q", res.Output)
 	}
 }
+
+func TestNativeGrep_ExplicitLargeTraceFileScansPastDefaultCap(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "record_trace_20260526170756@929-448250782.systrace")
+	var b strings.Builder
+	b.WriteString(strings.Repeat("x", nativeGrepMaxFileBytes+1024))
+	b.WriteString("\n")
+	b.WriteString("com.tencent.mm-48517 (48517) [010] .... 935.305162: print: B|14973|Choreographer#doFrame 59185\n")
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		t.Fatalf("write large systrace: %v", err)
+	}
+
+	res, err := NativeGrep(context.Background(), NativeGrepOpts{
+		Pattern:    "Choreographer.*doFrame",
+		Root:       path,
+		IgnoreCase: true,
+	})
+	if err != nil {
+		t.Fatalf("NativeGrep explicit large file: %v", err)
+	}
+	if res.Matches != 1 {
+		t.Fatalf("explicit large file should be scanned fully; matches=%d skipped=%d output=%q", res.Matches, res.SkippedLargeFiles, res.Output)
+	}
+	if res.SkippedLargeFiles != 0 {
+		t.Fatalf("explicit large file must not count as skipped, got %d", res.SkippedLargeFiles)
+	}
+	if !strings.Contains(res.Output, "Choreographer#doFrame 59185") {
+		t.Fatalf("missing systrace event in output:\n%s", res.Output)
+	}
+}
+
+func TestNativeGrep_DirectorySearchStillSkipsLargeFilesByDefault(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "large.log")
+	body := strings.Repeat("x", nativeGrepMaxFileBytes+1024) + "\nNeedleBeyondDefaultCap\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write large log: %v", err)
+	}
+
+	res, err := NativeGrep(context.Background(), NativeGrepOpts{
+		Pattern: "NeedleBeyondDefaultCap",
+		Root:    root,
+	})
+	if err != nil {
+		t.Fatalf("NativeGrep directory large file: %v", err)
+	}
+	if res.Matches != 0 {
+		t.Fatalf("directory search should keep default large-file safety cap; output=%q", res.Output)
+	}
+	if res.SkippedLargeFiles != 1 {
+		t.Fatalf("SkippedLargeFiles = %d, want 1", res.SkippedLargeFiles)
+	}
+}

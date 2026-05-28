@@ -819,6 +819,60 @@ func TestExecCommand_NoMultiGraph_NoGate(t *testing.T) {
 	}
 }
 
+func TestGrepShouldUseNativeBackend(t *testing.T) {
+	tests := []struct {
+		name             string
+		backend          string
+		hasRepoRoot      bool
+		searchPathIsFile bool
+		want             bool
+	}{
+		{
+			name:             "native fallback always uses Go walker",
+			backend:          "native",
+			hasRepoRoot:      true,
+			searchPathIsFile: true,
+			want:             true,
+		},
+		{
+			name:             "system grep handles explicit file targets",
+			backend:          "grep",
+			hasRepoRoot:      true,
+			searchPathIsFile: true,
+			want:             false,
+		},
+		{
+			name:             "system grep directory search keeps native path-aware exclusions",
+			backend:          "grep",
+			hasRepoRoot:      true,
+			searchPathIsFile: false,
+			want:             true,
+		},
+		{
+			name:             "grep without repo root shells out",
+			backend:          "grep",
+			hasRepoRoot:      false,
+			searchPathIsFile: false,
+			want:             false,
+		},
+		{
+			name:             "ripgrep never uses native",
+			backend:          "rg",
+			hasRepoRoot:      true,
+			searchPathIsFile: false,
+			want:             false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := grepShouldUseNativeBackend(tt.backend, tt.hasRepoRoot, tt.searchPathIsFile)
+			if got != tt.want {
+				t.Fatalf("grepShouldUseNativeBackend(%q, %v, %v) = %v, want %v", tt.backend, tt.hasRepoRoot, tt.searchPathIsFile, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGrepTool(t *testing.T) {
 	t.Run("grep for pattern in file", func(t *testing.T) {
 		tmpDir := t.TempDir()

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -25,24 +26,26 @@ type NativeGrepOpts struct {
 	Include      string   // glob filter against basename (filepath.Match syntax, e.g. "*.go")
 	ExcludeDirs  []string // directory names to skip at any depth
 	ShouldSkip   func(path string, d fs.DirEntry) bool
-	MaxFileBytes int // skip files larger than this; 0 = no limit
+	MaxFileBytes int // directory search: 0 = default cap, <0 = no limit; explicit single-file roots default to no limit
 	MaxMatches   int // stop after this many line-level matches across all files; 0 = no cap
 }
 
 // NativeGrepResult carries the rendered output bytes plus a lightweight
 // summary used for logging / banners.
 type NativeGrepResult struct {
-	Output     string // "path:line:content\n…" (or "path\n…" when FilesOnly)
-	Matches    int    // number of lines emitted (FilesOnly: files emitted)
-	Files      int    // distinct files that contributed at least one match
-	Truncated  bool   // MaxMatches hit
-	FilesTried int    // files opened and scanned
+	Output            string // "path:line:content\n…" (or "path\n…" when FilesOnly)
+	Matches           int    // number of lines emitted (FilesOnly: files emitted)
+	Files             int    // distinct files that contributed at least one match
+	Truncated         bool   // MaxMatches hit
+	FilesTried        int    // files opened and scanned
+	SkippedLargeFiles int    // files skipped by MaxFileBytes
 }
 
-// nativeGrepMaxFileBytes caps the per-file read size when the caller
-// does not specify one. 4 MiB matches ripgrep's default binary-skip
-// heuristic well enough that pathological large files (generated
-// code, vendored minified JS, SVG blobs) do not blow memory.
+// nativeGrepMaxFileBytes caps broad directory scans when the caller does not
+// specify a limit. Explicit single-file searches are streamed without this
+// cap, because large user-provided logs / systrace / perfetto artifacts are
+// often exactly the target being searched. 4 MiB keeps broad scans away from
+// pathological generated files, vendored minified JS, and SVG blobs.
 const nativeGrepMaxFileBytes = 4 << 20
 
 // NativeGrep runs a pure-Go regex scan and returns output formatted
@@ -64,14 +67,25 @@ func NativeGrep(ctx context.Context, opts NativeGrepOpts) (NativeGrepResult, err
 		return res, fmt.Errorf("native grep: %v", err)
 	}
 
-	maxBytes := opts.MaxFileBytes
-	if maxBytes <= 0 {
-		maxBytes = nativeGrepMaxFileBytes
-	}
-
 	root := opts.Root
 	if root == "" {
 		root = "."
+	}
+	rootIsFile := false
+	if info, statErr := os.Stat(root); statErr == nil {
+		rootIsFile = !info.IsDir()
+	}
+	maxBytes := opts.MaxFileBytes
+	if maxBytes == 0 {
+		if rootIsFile {
+			// An explicit file target is usually a user-provided runtime
+			// artifact (log/systrace/perfetto/etc.) or a known source file.
+			// Scan it line-by-line instead of silently skipping the tail due
+			// to the broad-directory safety cap.
+			maxBytes = -1
+		} else {
+			maxBytes = nativeGrepMaxFileBytes
+		}
 	}
 
 	var out bytes.Buffer
@@ -137,7 +151,8 @@ func NativeGrep(ctx context.Context, opts NativeGrepOpts) (NativeGrepResult, err
 		if infoErr != nil {
 			return nil
 		}
-		if info.Size() > int64(maxBytes) {
+		if maxBytes > 0 && info.Size() > int64(maxBytes) {
+			res.SkippedLargeFiles++
 			return nil
 		}
 
@@ -159,8 +174,7 @@ func NativeGrep(ctx context.Context, opts NativeGrepOpts) (NativeGrepResult, err
 		res.FilesTried++
 		rel := relPathForDisplay(root, path)
 
-		scanner := bufio.NewScanner(f)
-		scanner.Buffer(make([]byte, 64*1024), 1<<20)
+		reader := bufio.NewReaderSize(f, 64*1024)
 		lineno := 0
 		ctxLines := opts.ContextLines
 		if ctxLines > 20 {
@@ -172,12 +186,19 @@ func NativeGrep(ctx context.Context, opts NativeGrepOpts) (NativeGrepResult, err
 		}
 		pendingAfter := 0
 
-		for scanner.Scan() {
+		for {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
+			raw, readErr := reader.ReadString('\n')
+			if len(raw) == 0 && readErr != nil {
+				if readErr == io.EOF {
+					break
+				}
+				return readErr
+			}
 			lineno++
-			line := scanner.Text()
+			line := strings.TrimRight(raw, "\r\n")
 			if re.MatchString(line) {
 				if ctxLines > 0 && !opts.FilesOnly {
 					startLine := lineno - len(buf)
@@ -207,6 +228,12 @@ func NativeGrep(ctx context.Context, opts NativeGrepOpts) (NativeGrepResult, err
 					buf = buf[1:]
 				}
 				buf = append(buf, line)
+			}
+			if readErr != nil {
+				if readErr == io.EOF {
+					break
+				}
+				return readErr
 			}
 		}
 		return nil

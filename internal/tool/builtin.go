@@ -820,6 +820,23 @@ func (t *GrepTool) Description() string {
 	return "Search file contents by regex pattern. Use this to find where a symbol or string appears. Case handling is smart by default: if the pattern contains no uppercase characters it is matched case-insensitively (so `subagent` finds `SubAgent`, `SUBAGENT`, etc.); if the pattern contains any uppercase character it is matched exactly. Pass ignore_case explicitly to override. Use file_type to filter by language (e.g. \"go\", \"py\", \"js\", \"ts\", \"java\", \"yaml\") — this is preferred over include because it covers all relevant extensions (e.g. type \"ts\" matches both *.ts and *.tsx). Use context_lines to include surrounding lines around each match, which saves a follow-up read_file call. Do NOT use the result to count matches by eye — pipe `grep -c` or `grep ... | wc -l` through exec_command instead, and treat that number as authoritative."
 }
 
+func grepShouldUseNativeBackend(searchBackend string, hasRepoRoot, searchPathIsFile bool) bool {
+	switch searchBackend {
+	case "native":
+		return true
+	case "grep":
+		// Keep the Go walker for broad repo-root/directory searches when
+		// ripgrep is unavailable because it preserves SearchDirFilter's
+		// root-only exclusion semantics. Explicit single-file searches
+		// should use the detected system grep: large runtime artifacts
+		// (systrace/log/trace/perfetto) are often exactly what the user
+		// asked to inspect, and shell grep streams them efficiently.
+		return hasRepoRoot && !searchPathIsFile
+	default:
+		return false
+	}
+}
+
 func (t *GrepTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
@@ -896,6 +913,10 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if searchPath == "" {
 		searchPath = "."
 	}
+	searchPathIsFile := false
+	if info, err := os.Stat(searchPath); err == nil {
+		searchPathIsFile = !info.IsDir()
+	}
 	dirFilter := NewSearchDirFilter(ctx.RepoRoot, searchPath)
 	commandDir := ""
 	commandSearchPath := searchPath
@@ -950,7 +971,8 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// PATH (distroless / scratch containers / stripped CI images).
 	// Output format matches grep -rnH / grep -rl so the same count
 	// banner + params banner wrapper works unchanged below.
-	if UseNativeGrep() || (!UseRipgrep() && ctx != nil && ctx.RepoRoot != "") {
+	searchBackend := SearchCommand()
+	if grepShouldUseNativeBackend(searchBackend, ctx != nil && ctx.RepoRoot != "", searchPathIsFile) {
 		var shouldSkip func(path string, d fs.DirEntry) bool
 		if ctx != nil && ctx.RepoRoot != "" {
 			shouldSkip = func(path string, d fs.DirEntry) bool {
@@ -1018,10 +1040,14 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}, nil
 		}
 		if nres.Matches == 0 {
+			suffix := "no matches found"
+			if nres.SkippedLargeFiles > 0 {
+				suffix = fmt.Sprintf("no matches found in scanned files; skipped %d large file(s) due to the native grep directory-scan safety cap. If the target is a specific large log/trace/source file, re-run grep with path set to that file.", nres.SkippedLargeFiles)
+			}
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Success:   true,
-				Summary:   paramsBanner + "no matches found",
+				Summary:   paramsBanner + suffix,
 				Timestamp: time.Now(),
 			}, nil
 		}
@@ -1040,7 +1066,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}, nil
 	}
 
-	if UseRipgrep() {
+	if searchBackend == "rg" {
 		// ripgrep: ERE-compatible by default, auto-skips binary files,
 		// respects .gitignore (auto-excludes logs/, memory/, etc.).
 		// -H forces filename prefix on every line — required because
