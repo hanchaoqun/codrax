@@ -311,10 +311,16 @@ func transportRetryStageLabel(stage types.PipelineStage) (zh, en string) {
 	}
 }
 
-func softAgentOutputRetryMessage(lang string, stage types.PipelineStage, missing types.MissingPiece) string {
+func softAgentOutputRetryMessage(bus *types.BusContext, lang string, stage types.PipelineStage, missing types.MissingPiece) string {
 	if stage == types.StageExplore && missing == types.MissingFacts {
 		if preferZhMessage(lang) {
+			if exploreRuntimeTraceContinuationLikely(bus, nil) || exploreChainContinuationLikely(bus) {
+				return "⟳ 继续上次调查，沿已定位线索补齐关键链路"
+			}
 			return "⟳ 正在补充关键信息"
+		}
+		if exploreRuntimeTraceContinuationLikely(bus, nil) || exploreChainContinuationLikely(bus) {
+			return "⟳ Continuing the prior investigation from located clues"
 		}
 		return "⟳ Filling in key context"
 	}

@@ -106,11 +106,14 @@ downstream parsers while reducing model confusion.
 | T5 | done | `matching lines` remains in the banner while context output is clarified. |
 | T6 | done | Added regression coverage for literal search, line windows, runtime artifact no-match/broad output, native scanner behavior, and streaming blob writes. |
 | T7 | done | Broad single-file artifact grep now derives a concrete `read_file` / `line_start`-`line_end` window from the first returned match line, and directory-scan large-file skips name capped skipped paths. |
+| T8 | done | Broad single-file text grep now exposes `line_windows=` clusters while preserving the legacy first-match `line_window_hint`. Tracked with `docs/design/explorer_runtime_trace_continuation_20260529.md`. |
+| T9 | done | Runtime/log/trace no-match guidance now explicitly teaches split-field search and observed line-order preservation without changing the model's query. |
 
 ## Validation Plan
 
 - `go test ./internal/tool` — passed 2026-05-29.
 - `go test ./internal/agent ./internal/orchestrator` — passed 2026-05-29; this protects downstream grep banner parsers and stage contracts.
+- `go test ./...` — passed 2026-05-29 after T8/T9.
 - Full `make test` remains the final pre-push validation for this batch.
 
 ## Delivered Scope

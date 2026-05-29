@@ -1415,6 +1415,7 @@ func explorerDurableProgressContinuationActive(ctx *types.AgentContext) bool {
 		return false
 	}
 	return strings.Contains(hint, "A transient model stream error interrupted") ||
+		strings.Contains(hint, "Explorer continuation checkpoint:") ||
 		strings.Contains(hint, toolHistoryPruneCheckpointPrefix)
 }
 

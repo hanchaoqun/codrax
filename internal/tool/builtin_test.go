@@ -1066,6 +1066,8 @@ func TestGrepTool(t *testing.T) {
 		}
 		for _, want := range []string{
 			"no_match_advisory=single runtime/log/trace artifact searched",
+			"split combined patterns",
+			"preserve the observed field order",
 			"fixed_string=true",
 			"line_start/line_end",
 			"regex_compatibility_note=",
@@ -1655,6 +1657,31 @@ func TestGrepTool(t *testing.T) {
 		}
 		if strings.Contains(got, "relation_navigation_hint=") || strings.Contains(got, `repo_map(view="relation_map"`) {
 			t.Fatalf("runtime artifact grep must not suggest repo relation_map:\n%s", got)
+		}
+	})
+
+	t.Run("broad runtime artifact grep emits multiple line windows", func(t *testing.T) {
+		ctx := newBusContext()
+		var raw strings.Builder
+		for _, base := range []int{1000, 5000, 9000} {
+			for i := 0; i < 30; i++ {
+				fmt.Fprintf(&raw, "record_trace.systrace:%d: com.tencent.mm-36379 (36379) [004] .... 2942.%06d: sched_wakeup\n", base+i, base+i)
+			}
+		}
+		got, _, ok := compactBroadGrepOutput(ctx, grepToolParams{
+			Pattern: "com.tencent.mm-36379",
+			Path:    "record_trace.systrace",
+		}, "[grep: 90 matching lines]\n", "[grep params: pattern=com.tencent.mm-36379 path=record_trace.systrace]\n", raw.String(), raw.String())
+		if !ok {
+			t.Fatalf("expected broad grep to compact")
+		}
+		for _, want := range []string{
+			"line_window_hint=first returned match is record_trace.systrace:1000",
+			"line_windows=record_trace.systrace:980-1049(matches=30); record_trace.systrace:4980-5049(matches=30); record_trace.systrace:8980-9049(matches=30)",
+		} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("runtime-artifact broad grep missing %q:\n%s", want, got)
+			}
 		}
 	})
 

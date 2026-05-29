@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/render"
@@ -12,6 +13,8 @@ import (
 )
 
 const transientRetryObservationLedgerInputLimit = 24
+
+const exploreFactRetryCheckpointPrefix = "Explorer continuation checkpoint:"
 
 // retryReadStageDispatchError converts transient read-mode stage
 // dispatch errors into a normal scheduler retry instead of forcing the
@@ -248,6 +251,230 @@ func transientRetryTypedObservationSummary(bus *types.BusContext) string {
 		}
 	}
 	return strings.Join(parts, ", ")
+}
+
+func (o *Orchestrator) buildExploreFactRetryContinuationHint(output *agent.StageOutput) string {
+	if o == nil || o.busCtx == nil {
+		return ""
+	}
+	c := exploreTransientRetryCheckpoint{
+		evidenceRows:  len(o.busCtx.EvidenceItems),
+		flowFindings:  len(o.busCtx.FlowFindings),
+		answerChains:  len(o.busCtx.AnswerChains),
+		answerSymbols: len(o.busCtx.AnswerSymbols),
+		toolResults:   countSuccessfulToolResults(o.busCtx.ToolResults),
+		typedOrigins:  transientRetryTypedObservationSummary(o.busCtx),
+	}
+	if output != nil {
+		c.evidenceRows += len(output.EvidenceItems)
+		c.flowFindings += len(output.FlowFindings)
+		c.answerChains += len(output.AnswerChains)
+		c.answerSymbols += len(output.AnswerSymbols)
+		c.toolResults += countSuccessfulToolResults(output.ToolResults)
+	}
+	var aggregateFacts []types.AnswerAggregateFact
+	var toolResults []types.ToolResult
+	if o.busCtx.Mutable != nil {
+		c.evidenceRows += len(o.busCtx.Mutable.EmittedEvidence())
+		dispatchResults := o.busCtx.Mutable.DispatchToolResults()
+		c.toolResults += countSuccessfulToolResults(dispatchResults)
+		toolResults = append(toolResults, dispatchResults...)
+		if artifacts := o.busCtx.Mutable.TurnAArtifacts(); artifacts != nil {
+			c.evidenceRows += len(artifacts.EvidenceItems)
+			c.flowFindings += len(artifacts.FlowFindings)
+			c.aggregateFacts += len(artifacts.AcceptedAggregateFacts)
+			c.readFiles += len(artifacts.ReadFiles)
+			c.toolResults += countSuccessfulToolResults(artifacts.ToolResults)
+			c.hasClosure = strings.TrimSpace(artifacts.AcceptedClosureReason) != "" ||
+				strings.TrimSpace(artifacts.AcceptedResultKind) != ""
+			aggregateFacts = append(aggregateFacts, artifacts.AcceptedAggregateFacts...)
+			toolResults = append(toolResults, artifacts.ToolResults...)
+		}
+		stableFacts := o.busCtx.Mutable.StableInvestigationAggregateFacts()
+		if len(stableFacts) > 0 {
+			c.aggregateFacts += len(stableFacts)
+			aggregateFacts = append(aggregateFacts, stableFacts...)
+		}
+		if strings.TrimSpace(o.busCtx.Mutable.StableInvestigationCompleteReason()) != "" ||
+			strings.TrimSpace(o.busCtx.Mutable.StableInvestigationResultKind()) != "" {
+			c.hasClosure = true
+		}
+	}
+	toolResults = append(toolResults, o.busCtx.ToolResults...)
+	if output != nil {
+		toolResults = append(toolResults, output.ToolResults...)
+	}
+	if !c.hasProgress() && len(toolResults) == 0 {
+		return ""
+	}
+
+	var facts []string
+	if c.evidenceRows > 0 {
+		facts = append(facts, fmt.Sprintf("structured evidence rows=%d", c.evidenceRows))
+	}
+	if c.flowFindings > 0 {
+		facts = append(facts, fmt.Sprintf("flow findings=%d", c.flowFindings))
+	}
+	if c.answerChains > 0 {
+		facts = append(facts, fmt.Sprintf("answer chains=%d", c.answerChains))
+	}
+	if c.answerSymbols > 0 {
+		facts = append(facts, fmt.Sprintf("answer symbols=%d", c.answerSymbols))
+	}
+	if c.aggregateFacts > 0 {
+		facts = append(facts, fmt.Sprintf("aggregate facts=%d", c.aggregateFacts))
+	}
+	if c.readFiles > 0 {
+		facts = append(facts, fmt.Sprintf("read files=%d", c.readFiles))
+	}
+	if c.toolResults > 0 {
+		facts = append(facts, fmt.Sprintf("successful tool results=%d", c.toolResults))
+	}
+	if c.typedOrigins != "" {
+		facts = append(facts, "typed observation origins="+c.typedOrigins)
+	}
+	if c.hasClosure {
+		facts = append(facts, "accepted closure state present")
+	}
+	if len(facts) == 0 {
+		facts = append(facts, "previous tool results preserved")
+	}
+
+	body := []string{
+		exploreFactRetryCheckpointPrefix,
+		"Previous explore dispatch preserved structured progress but still requested a fact retry. Continue from this checkpoint; this is not a fresh investigation.",
+		"Checkpoint summary (non-authoritative counts): " + strings.Join(facts, "; ") + ".",
+		"Reuse accepted evidence, aggregate facts, closure reason, already-read files, and tool-result summaries visible in the transcript before doing any broad rediscovery. This checkpoint is advisory only: it is not new evidence and it does not decide sufficiency for you.",
+	}
+	if exploreRuntimeTraceContinuationLikely(o.busCtx, toolResults) {
+		body = append(body, "Runtime/log/trace continuation: continue from already discovered line windows, timestamps, thread ids, event names, and current chain frontier. Prefer `read_file` around returned line numbers or `grep` with `line_start`/`line_end`; use `fixed_string=true` for punctuation-heavy literals. For numeric time-window filtering, a deterministic command is acceptable, then ground the selected vicinity with `read_file` before emitting line-scope evidence.")
+	} else if exploreChainContinuationLikely(o.busCtx) {
+		body = append(body, "Chain/sequence continuation: keep the current frontier explicit. If one hop remains unresolved, do a narrow follow-up for that hop instead of restarting from all discovered candidates.")
+	}
+	if agg := aggregateFactContinuationSummary(aggregateFacts, 3); agg != "" {
+		body = append(body, "Preserved aggregate facts: "+agg)
+	}
+	if hints := continuationToolResultHints(toolResults, 8); len(hints) > 0 {
+		body = append(body, "Useful preserved tool-result hints:\n- "+strings.Join(hints, "\n- "))
+	}
+	body = append(body, "If the checkpoint already covers the active objective, call `emit_investigation_complete`. If a concrete anchor is still missing, use one narrow search/read for that anchor, then materialize or close.")
+	return strings.Join(body, "\n\n")
+}
+
+func exploreRuntimeTraceContinuationLikely(bus *types.BusContext, toolResults []types.ToolResult) bool {
+	if bus == nil {
+		return false
+	}
+	if strings.TrimSpace(bus.AttachedLog) != "" || strings.TrimSpace(bus.AttachedHitrace) != "" {
+		return true
+	}
+	if bus.AnalysisIR != nil {
+		rm := bus.AnalysisIR.RequestModel
+		if rm.HasExternalOnlyRuntimeArtifact() || rm.HasObservationOnlyRuntimeArtifact() {
+			return true
+		}
+	}
+	for _, tr := range toolResults {
+		s := strings.ToLower(tr.Summary)
+		if strings.Contains(s, "runtime/log/trace") ||
+			strings.Contains(s, "runtime artifact") ||
+			strings.Contains(s, ".systrace") ||
+			strings.Contains(s, ".htrace") ||
+			strings.Contains(s, ".atrace") ||
+			strings.Contains(s, ".perfetto") ||
+			strings.Contains(s, ".trace") ||
+			strings.Contains(s, ".log") {
+			return true
+		}
+	}
+	return false
+}
+
+func exploreChainContinuationLikely(bus *types.BusContext) bool {
+	if bus == nil || bus.AnalysisIR == nil {
+		return false
+	}
+	rm := bus.AnalysisIR.RequestModel
+	family := types.ResolveQuestionFamily(rm)
+	if family == types.QFRootCauseTrace || family == types.QFCallChain {
+		return true
+	}
+	if rm.DiagramHint != nil {
+		switch rm.DiagramHint.Kind {
+		case types.DiagramSequence, types.DiagramCallDAG:
+			return true
+		}
+	}
+	return false
+}
+
+func aggregateFactContinuationSummary(facts []types.AnswerAggregateFact, maxItems int) string {
+	if maxItems <= 0 || len(facts) == 0 {
+		return ""
+	}
+	out := make([]string, 0, maxItems)
+	seen := map[string]bool{}
+	for _, fact := range facts {
+		label := strings.TrimSpace(fact.Label)
+		value := strings.TrimSpace(fact.Value)
+		if label == "" && value == "" {
+			continue
+		}
+		text := label
+		if value != "" {
+			if text != "" {
+				text += "="
+			}
+			text += value
+		}
+		if text == "" || seen[text] {
+			continue
+		}
+		seen[text] = true
+		out = append(out, logging.Truncate(text, 160))
+		if len(out) >= maxItems {
+			break
+		}
+	}
+	return strings.Join(out, "; ")
+}
+
+func continuationToolResultHints(results []types.ToolResult, maxItems int) []string {
+	if maxItems <= 0 || len(results) == 0 {
+		return nil
+	}
+	prefixes := []string{
+		"line_window_hint=",
+		"line_windows=",
+		"next_shape=",
+		"no_match_advisory=",
+		"line_window_note=",
+		"regex_compatibility_note=",
+	}
+	seen := map[string]bool{}
+	var out []string
+	for i := len(results) - 1; i >= 0 && len(out) < maxItems; i-- {
+		for _, line := range strings.Split(results[i].Summary, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" {
+				continue
+			}
+			for _, prefix := range prefixes {
+				if strings.HasPrefix(trimmed, prefix) {
+					text := logging.Truncate(trimmed, 220)
+					if !seen[text] {
+						seen[text] = true
+						out = append(out, text)
+					}
+					break
+				}
+			}
+			if len(out) >= maxItems {
+				break
+			}
+		}
+	}
+	return out
 }
 
 func countSuccessfulToolResults(results []types.ToolResult) int {

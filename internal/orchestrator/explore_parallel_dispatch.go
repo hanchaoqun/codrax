@@ -579,23 +579,9 @@ func (o *Orchestrator) applyExploreIterationScaling(agentCtx *types.AgentContext
 		return
 	}
 	nSub := len(o.busCtx.AnalysisIR.RequestModel.SubTopics)
-	if nSub <= 1 {
-		applyExploreLaneHandoffIterationCap(agentCtx)
-		return
-	}
-	agentCfg := o.settings.Agent
-	base := agentCfg.MaxIterations
-	extra := nSub * agentCfg.SubTopicExplorerBudgetExtra
-	adjusted := base + extra
-	ceil := agentCfg.ExplorerScaledIterMax
-	if ceil <= 0 {
-		ceil = 35
-	}
-	if adjusted > ceil {
-		adjusted = ceil
-	}
-	if adjusted > base {
-		agentCtx.MaxIterOverride = adjusted
+	if base, adjusted, reason, ok := applyExploreIterationScalingForRequest(agentCtx, o.busCtx.AnalysisIR.RequestModel, o.settings.Agent); ok {
+		logging.Debug("[orchestrator] parallel explorer scaling: reason=%s sub-topics=%d iterations %d → %d",
+			reason, nSub, base, adjusted)
 	}
 	applyExploreLaneHandoffIterationCap(agentCtx)
 }

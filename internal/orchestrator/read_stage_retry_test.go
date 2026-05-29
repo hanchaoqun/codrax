@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -28,5 +29,66 @@ func TestBuildExploreTransientRetryCheckpointHintIncludesTypedObservationOrigins
 		if !strings.Contains(got, want) {
 			t.Fatalf("checkpoint hint missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestBuildExploreFactRetryContinuationHintCarriesRuntimeFrontier(t *testing.T) {
+	mut := types.NewMutableState("trace root cause")
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "grep",
+		Success:  true,
+		Summary: "[grep retrieval governor]\n" +
+			"line_windows=record_trace.systrace:1102600-1102640(matches=4); record_trace.systrace:1139160-1139200(matches=3)\n" +
+			"next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id\n",
+	})
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{"record_trace.systrace"},
+		AcceptedAggregateFacts: []types.AnswerAggregateFact{{
+			Kind:  types.AnswerAggregateScalar,
+			Label: "frontier",
+			Value: "[GT]ColdPool#5-36624",
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentRootCause,
+			Scenario:   types.ScenarioRootCause,
+			Complexity: types.ComplexityComplex,
+		}},
+	}}
+
+	got := o.buildExploreFactRetryContinuationHint(&agent.StageOutput{
+		ToolResults: []types.ToolResult{{
+			ToolName: "grep",
+			Success:  true,
+			Summary:  "line_window_hint=first returned match is record_trace.systrace:1102623; next use read_file\n",
+		}},
+	})
+	for _, want := range []string{
+		exploreFactRetryCheckpointPrefix,
+		"not a fresh investigation",
+		"Runtime/log/trace continuation",
+		"line_windows=record_trace.systrace:1102600-1102640",
+		"line_window_hint=first returned match is record_trace.systrace:1102623",
+		"frontier=[GT]ColdPool#5-36624",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("fact retry checkpoint missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestSoftAgentOutputRetryMessageRuntimeContinuationLocalized(t *testing.T) {
+	bus := &types.BusContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:     types.IntentRootCause,
+			Scenario:   types.ScenarioRootCause,
+			Complexity: types.ComplexityComplex,
+		}},
+	}
+	got := softAgentOutputRetryMessage(bus, "zh", types.StageExplore, types.MissingFacts)
+	if !strings.Contains(got, "继续上次调查") {
+		t.Fatalf("runtime retry UX should indicate continuation, got %q", got)
 	}
 }

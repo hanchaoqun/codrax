@@ -3900,6 +3900,10 @@ func (o *Orchestrator) requeueExploreWindowForFactRetry(state *graphState, windo
 		logging.Warning("[orchestrator] explore requested fact retry but retry budget is exhausted; continuing toward finalize")
 		return false
 	}
+	if checkpoint := o.buildExploreFactRetryContinuationHint(output); strings.TrimSpace(checkpoint) != "" {
+		output.RetryHint = prependRetryHint(checkpoint, output.RetryHint)
+		logging.Debug("[orchestrator] explore fact retry checkpoint installed len=%d", len(checkpoint))
+	}
 	for _, n := range window {
 		if n == nil {
 			continue
@@ -7463,22 +7467,9 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 		agentCfg := o.settings.Agent
 		switch stage {
 		case types.StageExplore:
-			if nSub > 1 {
-				base := agentCfg.MaxIterations
-				extra := nSub * agentCfg.SubTopicExplorerBudgetExtra
-				adjusted := base + extra
-				ceil := agentCfg.ExplorerScaledIterMax
-				if ceil <= 0 {
-					ceil = 35
-				}
-				if adjusted > ceil {
-					adjusted = ceil
-				}
-				if adjusted > base {
-					agentCtx.MaxIterOverride = adjusted
-					logging.Debug("[orchestrator] multi-topic explorer scaling: %d sub-topics, iterations %d → %d",
-						nSub, base, adjusted)
-				}
+			if base, adjusted, reason, ok := applyExploreIterationScalingForRequest(agentCtx, o.busCtx.AnalysisIR.RequestModel, agentCfg); ok {
+				logging.Debug("[orchestrator] explorer scaling: reason=%s sub-topics=%d iterations %d → %d",
+					reason, nSub, base, adjusted)
 			}
 		case types.StagePlan:
 			// Planner soft-cap scaling. The default soft cap (6) is
@@ -7861,7 +7852,7 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 			Timestamp:  time.Now(),
 			Agent:      "orchestrator",
 			NoticeKind: render.NoticeRetry,
-			Reasoning:  softAgentOutputRetryMessage(o.busCtx.Language, o.busCtx.PipelineStage, output.MissingPiece),
+			Reasoning:  softAgentOutputRetryMessage(o.busCtx, o.busCtx.Language, o.busCtx.PipelineStage, output.MissingPiece),
 		})
 	}
 

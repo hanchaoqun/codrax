@@ -1290,7 +1290,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	)
 
 	if grepParamsTargetRuntimeArtifactFile(ctx, p) && !p.FilesOnly {
-		capture, err := runRuntimeArtifactGrepStream(ctx, cmd)
+		capture, err := runRuntimeArtifactGrepStream(ctx, cmd, p.FilesOnly)
 		defer capture.cleanup()
 
 		if searchCtx.Err() == context.DeadlineExceeded {
@@ -1412,7 +1412,17 @@ const (
 	grepGovernorFileProductionCap  = 80
 	grepGovernorAuxiliaryCap       = 24
 	grepGovernorOtherCap           = 16
+	grepLineWindowHintMax          = 4
+	grepLineWindowHalfSpan         = 20
 )
+
+type grepLineWindow struct {
+	Path  string
+	Line  int
+	First int
+	Last  int
+	Count int
+}
 
 func finalizeGrepOutput(ctx *types.BusContext, params grepToolParams, countBanner, paramsBanner, rawOutput string) (summary, ref string) {
 	annotated := annotateGrepOutputByRelevance(ctx, params, rawOutput)
@@ -1481,6 +1491,7 @@ func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countB
 type runtimeArtifactGrepCapture struct {
 	InlineOutput string
 	PreviewLines []string
+	LineWindows  []grepLineWindow
 	TempPath     string
 	Stderr       string
 	Lines        int
@@ -1494,7 +1505,7 @@ func (c runtimeArtifactGrepCapture) cleanup() {
 	}
 }
 
-func runRuntimeArtifactGrepStream(ctx *types.BusContext, cmd *exec.Cmd) (runtimeArtifactGrepCapture, error) {
+func runRuntimeArtifactGrepStream(ctx *types.BusContext, cmd *exec.Cmd, filesOnly bool) (runtimeArtifactGrepCapture, error) {
 	var capture runtimeArtifactGrepCapture
 	capture.FullInMemory = true
 
@@ -1543,6 +1554,9 @@ func runRuntimeArtifactGrepStream(ctx *types.BusContext, cmd *exec.Cmd) (runtime
 			if len(capture.PreviewLines) < grepGovernorLineProductionCap {
 				capture.PreviewLines = append(capture.PreviewLines, strings.TrimRight(line, "\r\n"))
 			}
+			if !filesOnly {
+				capture.LineWindows = appendGrepLineWindow(capture.LineWindows, strings.TrimRight(line, "\r\n"), true, grepLineWindowHintMax)
+			}
 		}
 		if readErr != nil {
 			if readErr == io.EOF {
@@ -1587,8 +1601,12 @@ func compactStreamedRuntimeArtifactGrepOutput(ctx *types.BusContext, params grep
 	} else {
 		b.WriteString("full_raw_saved=unavailable (no workdir configured)\n")
 	}
-	b.WriteString("next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id/event name, then read_file around returned line numbers for evidence. Use fixed_string=true for punctuation-heavy literals, or line_start/line_end when searching a known vicinity.\n")
-	if hint := grepLineWindowHint(capture.PreviewLines, params.FilesOnly); hint != "" {
+	b.WriteString("next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id, then read_file around the returned line numbers for evidence. For numeric time-window filtering, use a deterministic command (grep/awk) and then read_file the selected line range before emitting line-scope evidence.\n")
+	windows := capture.LineWindows
+	if len(windows) == 0 {
+		windows = collectGrepLineWindows(capture.PreviewLines, params.FilesOnly, grepLineWindowHintMax)
+	}
+	if hint := renderGrepLineWindowHints(windows); hint != "" {
 		b.WriteString(hint)
 	}
 	writeCappedGrepSection(&b, "[grep production matches]", capture.PreviewLines, grepGovernorLineProductionCap, "no runtime-artifact matches returned")
@@ -1608,7 +1626,7 @@ func grepNoMatchBody(ctx *types.BusContext, params grepToolParams) string {
 		var b strings.Builder
 		b.WriteString("no matches found\n")
 		b.WriteString(lineWindowNote)
-		b.WriteString("no_match_advisory=single runtime/log/trace artifact searched; this only means the exact pattern matched zero lines. Regex is line-order-sensitive; try one exact literal/timestamp/thread id/event name, or set fixed_string=true for punctuation-heavy text. If you know the vicinity, use line_start/line_end on this file.\n")
+		b.WriteString("no_match_advisory=single runtime/log/trace artifact searched; this only means the exact pattern matched zero lines. Regex is line-order-sensitive: split combined patterns into one exact literal/timestamp/thread id/event name first, inspect one returned line to preserve the observed field order, then recombine only if needed. Use fixed_string=true for punctuation-heavy text. If you know the vicinity, use line_start/line_end on this file. For numeric time ranges, a deterministic command can filter the interval, then read_file should ground the selected lines.\n")
 		if !params.FixedString && grepPatternHasCommonRegexShorthand(params.Pattern) {
 			b.WriteString("regex_compatibility_note=pattern contains \\d/\\s/\\w-style shorthand; codrax normalizes common single-file cases, but a simpler literal or fixed_string=true is safer for artifact discovery.\n")
 		}
@@ -2093,25 +2111,88 @@ func grepSkippedLargeFilePathHint(paths []string, skippedTotal int) string {
 }
 
 func grepLineWindowHint(lines []string, filesOnly bool) string {
+	return renderGrepLineWindowHints(collectGrepLineWindows(lines, filesOnly, grepLineWindowHintMax))
+}
+
+func collectGrepLineWindows(lines []string, filesOnly bool, maxWindows int) []grepLineWindow {
 	if filesOnly {
-		return ""
+		return nil
 	}
-	path, lineNo, ok := firstGrepOutputLineLocation(lines, true)
-	if !ok {
-		path, lineNo, ok = firstGrepOutputLineLocation(lines, false)
+	if maxWindows <= 0 {
+		maxWindows = grepLineWindowHintMax
 	}
+	var windows []grepLineWindow
+	for _, line := range lines {
+		windows = appendGrepLineWindow(windows, line, true, maxWindows)
+	}
+	if len(windows) > 0 {
+		return windows
+	}
+	for _, line := range lines {
+		windows = appendGrepLineWindow(windows, line, false, maxWindows)
+	}
+	return windows
+}
+
+func appendGrepLineWindow(windows []grepLineWindow, line string, requireMatch bool, maxWindows int) []grepLineWindow {
+	path, lineNo, match, ok := parseGrepOutputLineLocation(line)
 	if !ok || lineNo <= 0 || strings.TrimSpace(path) == "" {
-		return ""
+		return windows
 	}
-	start := lineNo - 20
+	if requireMatch && !match {
+		return windows
+	}
+	start := lineNo - grepLineWindowHalfSpan
 	if start < 1 {
 		start = 1
 	}
-	end := lineNo + 20
+	end := lineNo + grepLineWindowHalfSpan
+	for i := range windows {
+		if windows[i].Path != path || start > windows[i].Last+grepLineWindowHalfSpan {
+			continue
+		}
+		if start < windows[i].First {
+			windows[i].First = start
+		}
+		if end > windows[i].Last {
+			windows[i].Last = end
+		}
+		windows[i].Count++
+		return windows
+	}
+	if maxWindows > 0 && len(windows) >= maxWindows {
+		return windows
+	}
+	return append(windows, grepLineWindow{Path: path, Line: lineNo, First: start, Last: end, Count: 1})
+}
+
+func renderGrepLineWindowHints(windows []grepLineWindow) string {
+	if len(windows) == 0 {
+		return ""
+	}
+	first := windows[0]
+	lineNo := first.Line
+	if lineNo <= 0 {
+		lineNo = first.First
+	}
+	start := lineNo - grepLineWindowHalfSpan
+	if start < 1 {
+		start = 1
+	}
+	end := lineNo + grepLineWindowHalfSpan
 	limit := end - start + 1
 	offset := start - 1
-	return fmt.Sprintf("line_window_hint=first returned match is %s:%d; next use `read_file` with path=%q offset=%d limit=%d, or re-run grep on this same file with line_start=%d line_end=%d.\n",
-		path, lineNo, path, offset, limit, start, end)
+	var b strings.Builder
+	fmt.Fprintf(&b, "line_window_hint=first returned match is %s:%d; next use `read_file` with path=%q offset=%d limit=%d, or re-run grep on this same file with line_start=%d line_end=%d.\n",
+		first.Path, lineNo, first.Path, offset, limit, start, end)
+	if len(windows) > 1 {
+		var parts []string
+		for _, w := range windows {
+			parts = append(parts, fmt.Sprintf("%s:%d-%d(matches=%d)", w.Path, w.First, w.Last, w.Count))
+		}
+		fmt.Fprintf(&b, "line_windows=%s\n", strings.Join(parts, "; "))
+	}
+	return b.String()
 }
 
 func firstGrepOutputLineLocation(lines []string, requireMatch bool) (string, int, bool) {
