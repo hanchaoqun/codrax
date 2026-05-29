@@ -208,7 +208,7 @@ func TestRenderMarkdownHTMLNormalizesFlowchartNodeLabelForBrowserMermaid(t *test
 	if err != nil {
 		t.Fatalf("RenderMarkdownHTML: %v", err)
 	}
-	if !strings.Contains(got, `PS[&#34;preStages: LogTriage, PerfTriage\n(Conditional)&#34;]`) {
+	if !strings.Contains(got, `PS[&#34;preStages: LogTriage, PerfTriage&lt;br/&gt;(Conditional)&#34;]`) {
 		t.Fatalf("browser Mermaid source was not normalized for parser-sensitive node label:\n%s", got)
 	}
 	if !strings.Contains(got, `PT[pipelineTopology: Analyze → Explore → Extract → Finalize]`) {

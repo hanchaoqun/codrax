@@ -63,7 +63,7 @@ func NormalizeFlowchartMalformedBracketLabels(body string) string {
 }
 
 // NormalizeFlowchartQuotedLabelNewlines rewrites physical newlines inside
-// quoted flowchart labels to Mermaid's portable "\n" label escape.
+// quoted flowchart labels to Mermaid's browser-stable <br/> label break.
 //
 // LLMs often emit readable labels as:
 //
@@ -88,7 +88,7 @@ func NormalizeFlowchartQuotedLabelNewlines(body string) string {
 		ch := body[i]
 		if ch == '\n' {
 			if quote != 0 {
-				b.WriteString(`\n`)
+				b.WriteString("<br/>")
 				changed = true
 				continue
 			}
@@ -449,7 +449,7 @@ func NormalizeFlowchartUnsafeNodeIDs(body string) string {
 // that contain characters Mermaid.js tokenizes as shape delimiters. For
 // example, `A[preStages\n(Conditional)]` fails because the `(` starts a new
 // shape token inside an unquoted label. Mermaid's portable form is
-// `A["preStages\n(Conditional)"]`, which preserves the visible label and
+// `A["preStages<br/>(Conditional)"]`, which preserves the visible label and
 // parses in browser and third-party renderers.
 func NormalizeFlowchartNodeLabels(body string) string {
 	if !isFlowchartOrGraph(body) || !strings.ContainsAny(body, "([{>") {
@@ -1250,14 +1250,24 @@ func normalizeFlowchartPipeLabel(label string) (string, bool) {
 
 func normalizeFlowchartVisibleLabel(label string, forceQuote bool) (string, bool) {
 	trimmed := strings.TrimSpace(label)
-	if trimmed == "" || flowchartLabelAlreadyQuoted(trimmed) || (!forceQuote && !flowchartLabelNeedsQuotes(trimmed)) {
+	if trimmed == "" {
 		return label, false
 	}
 	prefixLen := len(label) - len(strings.TrimLeftFunc(label, unicode.IsSpace))
 	suffixLen := len(label) - len(strings.TrimRightFunc(label, unicode.IsSpace))
 	prefix := label[:prefixLen]
 	suffix := label[len(label)-suffixLen:]
-	return prefix + quoteFlowchartLabel(strings.TrimSpace(label)) + suffix, true
+	normalized, lineBreakChanged := normalizeFlowchartLabelLineBreaks(trimmed)
+	if flowchartLabelAlreadyQuoted(normalized) {
+		if !lineBreakChanged {
+			return label, false
+		}
+		return prefix + normalized + suffix, true
+	}
+	if !forceQuote && !lineBreakChanged && !flowchartLabelNeedsQuotes(normalized) {
+		return label, false
+	}
+	return prefix + quoteFlowchartLabel(normalized) + suffix, true
 }
 
 func flowchartLabelShapeSource(label, open, close string, forceQuote bool) string {
@@ -1269,7 +1279,64 @@ func flowchartLabelShapeSource(label, open, close string, forceQuote bool) strin
 }
 
 func quoteFlowchartLabel(label string) string {
+	label, _ = normalizeFlowchartLabelLineBreaks(label)
 	return `"` + escapeFlowchartNodeLabel(label) + `"`
+}
+
+func normalizeFlowchartLabelLineBreaks(label string) (string, bool) {
+	original := label
+	label = strings.NewReplacer(
+		"\r\n", "<br/>",
+		"\r", "<br/>",
+		"\n", "<br/>",
+	).Replace(label)
+	if !strings.Contains(label, `\`) {
+		return label, label != original
+	}
+	var b strings.Builder
+	b.Grow(len(label))
+	changed := label != original
+	for i := 0; i < len(label); {
+		if label[i] != '\\' || flowchartBackslashEscaped(label, i) || flowchartBackslashLooksLikeWindowsDrive(label, i) {
+			b.WriteByte(label[i])
+			i++
+			continue
+		}
+		if strings.HasPrefix(label[i:], `\r\n`) {
+			b.WriteString("<br/>")
+			i += len(`\r\n`)
+			changed = true
+			continue
+		}
+		if strings.HasPrefix(label[i:], `\n`) {
+			b.WriteString("<br/>")
+			i += len(`\n`)
+			changed = true
+			continue
+		}
+		b.WriteByte(label[i])
+		i++
+	}
+	if !changed {
+		return original, false
+	}
+	return b.String(), true
+}
+
+func flowchartBackslashEscaped(s string, i int) bool {
+	n := 0
+	for j := i - 1; j >= 0 && s[j] == '\\'; j-- {
+		n++
+	}
+	return n%2 == 1
+}
+
+func flowchartBackslashLooksLikeWindowsDrive(s string, i int) bool {
+	if i < 2 || s[i-1] != ':' {
+		return false
+	}
+	r := rune(s[i-2])
+	return (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z')
 }
 
 func mermaidPipeLabelAlreadyQuoted(label string) bool {

@@ -398,7 +398,7 @@ func TestNormalizeEmitAnswerBlock_NormalizesFlowchartNodeLabel(t *testing.T) {
 	if got.Diagram == nil {
 		t.Fatal("diagram missing")
 	}
-	if !strings.Contains(got.Diagram.Body, `PS["preStages: LogTriage, PerfTriage\n(Conditional)"]`) {
+	if !strings.Contains(got.Diagram.Body, `PS["preStages: LogTriage, PerfTriage<br/>(Conditional)"]`) {
 		t.Fatalf("parser-sensitive flowchart node label was not normalized:\n%s", got.Diagram.Body)
 	}
 }

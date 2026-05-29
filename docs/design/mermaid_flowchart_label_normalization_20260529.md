@@ -85,6 +85,9 @@ flowchart label repair use it:
   - `internal/outputdump`
   - full `make test`
 - [x] T5 Refresh this document with implementation status and pushed commit.
+- [x] T6 Normalize visible flowchart label line breaks to `<br/>` instead of
+  literal `\n`, so browser Mermaid, standalone HTML, and HTTP preview render
+  actual multi-line labels.
 
 ## Progress
 
@@ -107,3 +110,16 @@ flowchart label repair use it:
   - `make test`
 - Implementation pushed in commit `c95a2fbb` (`Unify Mermaid flowchart label
   quoting`).
+
+2026-05-29 follow-up:
+
+- Customer feedback showed some browser/HTML Mermaid labels displayed literal
+  `\n` text instead of an actual line break. The common normalizer now treats
+  both physical newlines inside quoted flowchart labels and model-authored
+  literal `\n` / `\r\n` escapes inside visible labels as display line breaks,
+  emitting `<br/>`.
+- This remains a source-level render compatibility shim only: topology, node
+  ids, edge operators, and request markdown remain untouched.
+- Verification passed:
+  - `go test ./internal/mermaidcompat ./internal/tool ./internal/preview ./internal/outputdump ./internal/render`
+  - `make test`

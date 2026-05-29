@@ -171,9 +171,9 @@ func TestNormalizeFlowchartNodeLabels_QuotesParserSensitiveUnquotedLabels(t *tes
 	for _, want := range []string{
 		`SB1["StageLogTriage → AgentLogTriager"]`,
 		`StageBindings -->|绑定| SB1`,
-		`PS["preStages: LogTriage, PerfTriage\n(Conditional)"]`,
+		`PS["preStages: LogTriage, PerfTriage<br/>(Conditional)"]`,
 		`PT[pipelineTopology: Analyze → Explore → Extract → Finalize]`,
-		`A1["AgentAnalyzer\n(analysis-skill)"]`,
+		`A1["AgentAnalyzer<br/>(analysis-skill)"]`,
 		`D{"branch (verified)"}`,
 		`C[("Database (cache)")]`,
 		`S[["subroutine (portable)"]]`,
@@ -269,11 +269,33 @@ func TestNormalizeSourceForMarkdown_FlowchartQuotedLabelNewlinesStayInsideNode(t
 		}
 	}
 	for _, want := range []string{
-		`io_issue_defs["io_issue_defs[]\nio_uring/opdef.c:54"] --> io_send["io_send\nio_uring/net.c:646"]`,
+		`io_issue_defs["io_issue_defs[]<br/>io_uring/opdef.c:54"] --> io_send["io_send<br/>io_uring/net.c:646"]`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("quoted label newline repair missing %q in:\n%s", want, got)
 		}
+	}
+}
+
+func TestNormalizeSourceForMarkdown_ConvertsLiteralFlowchartLabelNewlineEscapes(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    A["line one\nline two"] --> B[plain\nlabel]`,
+		`    P["C:\new\file.txt"] --> Q["C:\\new\\escaped.txt"]`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	for _, want := range []string{
+		`A["line one<br/>line two"]`,
+		`B["plain<br/>label"]`,
+		`P["C:\new\file.txt"]`,
+		`Q["C:\\new\\escaped.txt"]`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("literal label newline escape was not converted to browser-stable break %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, `line one\n`) || strings.Contains(got, `plain\n`) {
+		t.Fatalf("visible flowchart label newline escape should not leak as literal text:\n%s", got)
 	}
 }
 
@@ -387,7 +409,7 @@ func TestNormalizeSourceForMarkdown_NormalizesFlowchartSubgraphAndEdgeLabels(t *
 	if !strings.Contains(got, `codraxNode1["../A.md"] -->|"ok (verified)"| B`) {
 		t.Fatalf("parser-sensitive edge label was not normalized:\n%s", got)
 	}
-	if !strings.Contains(got, `B["preStages: LogTriage, PerfTriage\n(Conditional)"]`) {
+	if !strings.Contains(got, `B["preStages: LogTriage, PerfTriage<br/>(Conditional)"]`) {
 		t.Fatalf("parser-sensitive node label was not normalized:\n%s", got)
 	}
 }
@@ -451,7 +473,7 @@ func TestNormalizeMarkdownMermaidFences_NormalizesPersistedMarkdownSource(t *tes
 	got := NormalizeMarkdownMermaidFences(in)
 	for _, want := range []string{
 		"```mermaid",
-		`codraxNode1["../A.md"] -->|"success (measurement==true)"| B["preStages\n(Conditional)"]`,
+		`codraxNode1["../A.md"] -->|"success (measurement==true)"| B["preStages<br/>(Conditional)"]`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("persisted markdown Mermaid normalization missing %q in:\n%s", want, got)

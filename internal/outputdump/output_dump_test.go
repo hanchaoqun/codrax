@@ -18,7 +18,7 @@ func TestBuildBodyNormalizesAnswerMermaidFences(t *testing.T) {
 			"```",
 		}, "\n"),
 	})
-	if !strings.Contains(body, `codraxNode1["../A.md"] -->|"success (measurement==true)"| B["preStages\n(Conditional)"]`) {
+	if !strings.Contains(body, `codraxNode1["../A.md"] -->|"success (measurement==true)"| B["preStages<br/>(Conditional)"]`) {
 		t.Fatalf("answer Mermaid fence was not normalized in output dump:\n%s", body)
 	}
 }

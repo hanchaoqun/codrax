@@ -776,7 +776,7 @@ func TestRenderV2_BlockDiagramNormalizesPortableMermaidSource(t *testing.T) {
 	for _, want := range []string{
 		`codraxNode1["../A.md"] --> proof`,
 		`proof -->|"success (measurement==true)"| kv`,
-		`kv --> PS["preStages: LogTriage, PerfTriage\n(Conditional)"]`,
+		`kv --> PS["preStages: LogTriage, PerfTriage<br/>(Conditional)"]`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("diagram source was not normalized for portable Mermaid renderers; missing %q in:\n%s", want, out)
