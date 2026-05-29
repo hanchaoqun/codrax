@@ -631,8 +631,7 @@ func quoteMergedFlowchartPipeLabel(parts []string) string {
 		merged = append(merged, part)
 	}
 	label := strings.Join(merged, " / ")
-	label = strings.ReplaceAll(label, `"`, "&quot;")
-	return `"` + label + `"`
+	return quoteFlowchartLabel(label)
 }
 
 func flowchartShapeEnd(s string, i int) int {
@@ -946,9 +945,7 @@ func normalizeFlowchartMalformedBracketLabelsInLine(line string) (string, bool) 
 				i++
 				continue
 			}
-			b.WriteString(`["`)
-			b.WriteString(escapeFlowchartNodeLabel(label))
-			b.WriteString(`"]`)
+			b.WriteString(flowchartLabelShapeSource(label, "[", "]", true))
 			changed = true
 			i = end + 1
 			continue
@@ -971,9 +968,7 @@ func normalizeFlowchartMalformedBracketLabelsInLine(line string) (string, bool) 
 			i++
 			continue
 		}
-		b.WriteString(`["`)
-		b.WriteString(escapeFlowchartNodeLabel(label))
-		b.WriteString(`"]`)
+		b.WriteString(flowchartLabelShapeSource(label, "[", "]", true))
 		changed = true
 		i = end + 1
 	}
@@ -1182,16 +1177,7 @@ func findFlowchartShapeClose(s string, start int, close string) int {
 }
 
 func normalizeFlowchartNodeLabel(label string) (string, bool) {
-	trimmed := strings.TrimSpace(label)
-	if trimmed == "" || mermaidPipeLabelAlreadyQuoted(trimmed) || !mermaidPipeLabelNeedsQuotes(trimmed) {
-		return label, false
-	}
-	prefixLen := len(label) - len(strings.TrimLeftFunc(label, unicode.IsSpace))
-	suffixLen := len(label) - len(strings.TrimRightFunc(label, unicode.IsSpace))
-	prefix := label[:prefixLen]
-	suffix := label[len(label)-suffixLen:]
-	inner := escapeFlowchartNodeLabel(strings.TrimSpace(label))
-	return prefix + `"` + inner + `"` + suffix, true
+	return normalizeFlowchartVisibleLabel(label, false)
 }
 
 func normalizeFlowchartPipeLabelsInLine(line string) (string, bool) {
@@ -1201,6 +1187,16 @@ func normalizeFlowchartPipeLabelsInLine(line string) (string, bool) {
 	var b strings.Builder
 	changed := false
 	for i := 0; i < len(line); {
+		if op := flowchartArrowAt(line, i); op != "" {
+			b.WriteString(op)
+			i += len(op)
+			continue
+		}
+		if end := flowchartShapeEnd(line, i); end > i {
+			b.WriteString(line[i : end+1])
+			i = end + 1
+			continue
+		}
 		if line[i] != '|' {
 			b.WriteByte(line[i])
 			i++
@@ -1249,20 +1245,38 @@ func findUnescapedPipe(s string, start int) int {
 }
 
 func normalizeFlowchartPipeLabel(label string) (string, bool) {
+	return normalizeFlowchartVisibleLabel(label, false)
+}
+
+func normalizeFlowchartVisibleLabel(label string, forceQuote bool) (string, bool) {
 	trimmed := strings.TrimSpace(label)
-	if trimmed == "" || mermaidPipeLabelAlreadyQuoted(trimmed) || !mermaidPipeLabelNeedsQuotes(trimmed) {
+	if trimmed == "" || flowchartLabelAlreadyQuoted(trimmed) || (!forceQuote && !flowchartLabelNeedsQuotes(trimmed)) {
 		return label, false
 	}
 	prefixLen := len(label) - len(strings.TrimLeftFunc(label, unicode.IsSpace))
 	suffixLen := len(label) - len(strings.TrimRightFunc(label, unicode.IsSpace))
 	prefix := label[:prefixLen]
 	suffix := label[len(label)-suffixLen:]
-	inner := strings.TrimSpace(label)
-	inner = strings.ReplaceAll(inner, `"`, "&quot;")
-	return prefix + `"` + inner + `"` + suffix, true
+	return prefix + quoteFlowchartLabel(strings.TrimSpace(label)) + suffix, true
+}
+
+func flowchartLabelShapeSource(label, open, close string, forceQuote bool) string {
+	normalized, changed := normalizeFlowchartVisibleLabel(label, forceQuote)
+	if !changed {
+		normalized = label
+	}
+	return open + normalized + close
+}
+
+func quoteFlowchartLabel(label string) string {
+	return `"` + escapeFlowchartNodeLabel(label) + `"`
 }
 
 func mermaidPipeLabelAlreadyQuoted(label string) bool {
+	return flowchartLabelAlreadyQuoted(label)
+}
+
+func flowchartLabelAlreadyQuoted(label string) bool {
 	if len(label) < 2 {
 		return false
 	}
@@ -1271,9 +1285,13 @@ func mermaidPipeLabelAlreadyQuoted(label string) bool {
 }
 
 func mermaidPipeLabelNeedsQuotes(label string) bool {
+	return flowchartLabelNeedsQuotes(label)
+}
+
+func flowchartLabelNeedsQuotes(label string) bool {
 	for _, r := range label {
 		switch r {
-		case '(', ')', '[', ']', '{', '}':
+		case '(', ')', '[', ']', '{', '}', '|':
 			return true
 		}
 	}
@@ -1302,7 +1320,7 @@ func NormalizeFlowchartSubgraphTitles(body string) string {
 		if !flowchartSubgraphTitleNeedsRepair(rest) {
 			continue
 		}
-		lines[i] = indent + "subgraph " + flowchartSubgraphID(rest, i) + " [" + rest + "]"
+		lines[i] = indent + "subgraph " + flowchartSubgraphID(rest, i) + " " + flowchartLabelShapeSource(rest, "[", "]", false)
 		changed = true
 	}
 	if !changed {
@@ -1348,10 +1366,30 @@ func isFlowchartOrGraph(body string) bool {
 }
 
 func flowchartSubgraphTitleNeedsRepair(rest string) bool {
-	if rest == "" || strings.ContainsAny(rest, "[]\"") {
+	if rest == "" || flowchartSubgraphAlreadyExplicit(rest) {
 		return false
 	}
-	return len(strings.Fields(rest)) > 1
+	return len(strings.Fields(rest)) > 1 || flowchartLabelNeedsQuotes(rest)
+}
+
+func flowchartSubgraphAlreadyExplicit(rest string) bool {
+	rest = strings.TrimSpace(rest)
+	if rest == "" {
+		return false
+	}
+	open := strings.IndexByte(rest, '[')
+	if open <= 0 {
+		return false
+	}
+	id := strings.TrimSpace(rest[:open])
+	if !flowchartNodeIDIsSafe(id) {
+		return false
+	}
+	if _, ok := flowchartLabelShapeSpanAt(rest, open); !ok {
+		return false
+	}
+	span, _ := flowchartLabelShapeSpanAt(rest, open)
+	return span.end == len(rest)-1 || strings.TrimSpace(rest[span.end+1:]) == ""
 }
 
 func flowchartSubgraphID(title string, lineIndex int) string {

@@ -231,6 +231,30 @@ func TestNormalizeSourceForMarkdown_PreservesValidSubroutineLabels(t *testing.T)
 	}
 }
 
+func TestNormalizeSourceForMarkdown_UsesUnifiedLabelQuotingPolicy(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    subgraph Runtime [GT] Layer`,
+		`      A[stage|slot] -->|ready (queue[0])| B{ok?}`,
+		`      B --> C["already (quoted)"]`,
+		`    end`,
+		`    subgraph AlreadyValid[Already Valid]`,
+		`      X --> Y`,
+		`    end`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	for _, want := range []string{
+		`subgraph Runtime_GT_Layer_2 ["Runtime [GT] Layer"]`,
+		`A["stage|slot"] -->|"ready (queue[0])"| B{ok?}`,
+		`B --> C["already (quoted)"]`,
+		`subgraph AlreadyValid[Already Valid]`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("unified label quoting missing %q in:\n%s", want, got)
+		}
+	}
+}
+
 func TestNormalizeSourceForMarkdown_FlowchartQuotedLabelNewlinesStayInsideNode(t *testing.T) {
 	in := strings.Join([]string{
 		"flowchart TD",
