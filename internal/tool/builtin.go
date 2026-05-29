@@ -817,7 +817,7 @@ type grepToolParams struct {
 
 func (t *GrepTool) Name() string { return "grep" }
 func (t *GrepTool) Description() string {
-	return "Search file contents by regex pattern. Use this to find where a symbol or string appears. Case handling is smart by default: if the pattern contains no uppercase characters it is matched case-insensitively (so `subagent` finds `SubAgent`, `SUBAGENT`, etc.); if the pattern contains any uppercase character it is matched exactly. Pass ignore_case explicitly to override. Use file_type to filter by language (e.g. \"go\", \"py\", \"js\", \"ts\", \"java\", \"yaml\") — this is preferred over include because it covers all relevant extensions (e.g. type \"ts\" matches both *.ts and *.tsx). Use context_lines to include surrounding lines around each match, which saves a follow-up read_file call. Do NOT use the result to count matches by eye — pipe `grep -c` or `grep ... | wc -l` through exec_command instead, and treat that number as authoritative."
+	return "Search file contents by regex pattern. Use this to find where a symbol or string appears. Case handling is smart by default: if the pattern contains no uppercase characters it is matched case-insensitively (so `subagent` finds `SubAgent`, `SUBAGENT`, etc.); if the pattern contains any uppercase character it is matched exactly. Pass ignore_case explicitly to override. Use file_type to filter by language (e.g. \"go\", \"py\", \"js\", \"ts\", \"java\", \"yaml\") — this is preferred over include because it covers all relevant extensions (e.g. type \"ts\" matches both *.ts and *.tsx). Use context_lines to include surrounding lines around each match, which saves a follow-up read_file call. For large log/trace/systrace files, search one exact timestamp, thread id/name, or event literal first; regex is order-sensitive, so if a combined pattern returns no matches, inspect the line format with a simpler literal before combining fields. Do NOT use the result to count matches by eye — pipe `grep -c` or `grep ... | wc -l` through exec_command instead, and treat that number as authoritative."
 }
 
 func grepShouldUseNativeBackend(searchBackend string, hasRepoRoot, searchPathIsFile bool) bool {
@@ -1284,7 +1284,9 @@ func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countB
 	} else {
 		b.WriteString("full_raw_saved=unavailable (no workdir configured)\n")
 	}
-	if params.FilesOnly {
+	if grepParamsTargetRuntimeArtifactFile(ctx, params) {
+		b.WriteString("next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id, then read_file around the returned line numbers for evidence. For numeric time-window filtering, use a deterministic command (grep/awk) and then read_file the selected line range before emitting line-scope evidence.\n")
+	} else if params.FilesOnly {
 		b.WriteString("next_shape=read_file a top production path for exact evidence, or re-run grep with a narrower path/file_type.\n")
 	} else {
 		b.WriteString("next_shape=for exact line evidence, re-run grep with path set to one top production file and context_lines<=3; for discovery use files_only=true.\n")
@@ -1301,6 +1303,9 @@ func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countB
 
 func grepBroadResultRelationNavigationHint(ctx *types.BusContext, params grepToolParams, production []string) string {
 	if ctx == nil || ctx.AnalysisIR == nil || len(production) == 0 {
+		return ""
+	}
+	if grepParamsTargetRuntimeArtifactFile(ctx, params) {
 		return ""
 	}
 	policy := types.CompileRepoMapNavigationPolicy(ctx.AnalysisIR.RequestModel, &ctx.AnalysisIR.AnswerContract, ctx.ExploreLanePlan)
@@ -1322,6 +1327,27 @@ func grepBroadResultRelationNavigationHint(ctx *types.BusContext, params grepToo
 	}
 	b.WriteString(")` before reading many files. This is only a navigation hint: if grep already pinpointed the exact file/range, go straight to `read_file`; if `relation_map` is empty, that is not absence proof and targeted grep/read_file remains valid.\n")
 	return b.String()
+}
+
+func grepParamsTargetRuntimeArtifactFile(ctx *types.BusContext, params grepToolParams) bool {
+	explicit, ok := explicitGrepPath(ctx, params.Path)
+	if !ok || !explicit.isFile {
+		return false
+	}
+	return grepPathLooksLikeRuntimeArtifact(explicit.path)
+}
+
+func grepPathLooksLikeRuntimeArtifact(p string) bool {
+	normalized := strings.ToLower(filepath.ToSlash(strings.TrimSpace(p)))
+	base := path.Base(normalized)
+	switch filepath.Ext(base) {
+	case ".log", ".trace", ".systrace", ".htrace", ".atrace", ".perfetto":
+		return true
+	case ".txt":
+		return strings.Contains(base, "log") || strings.Contains(base, "trace") || strings.Contains(base, "perf")
+	default:
+		return strings.Contains(base, "systrace") || strings.Contains(base, "perfetto")
+	}
 }
 
 func grepProductionSourceCandidates(production []string, filesOnly bool, limit int) []string {

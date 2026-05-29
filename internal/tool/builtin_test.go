@@ -1480,6 +1480,46 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
+	t.Run("broad runtime artifact grep does not suggest repo relation map", func(t *testing.T) {
+		ctx := newBusContext()
+		ctx.AnalysisIR = &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:        types.IntentTrace,
+				PredicateAxis: types.AxisCall,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:     string(types.ReqCallChain),
+					Keywords: []string{"sched_switch"},
+				},
+			},
+		}
+		var raw strings.Builder
+		for i := 0; i < 100; i++ {
+			fmt.Fprintf(&raw, "record_trace.systrace:%d: com.tencent.mm-36379 (36379) [004] .... 2942.%06d: sched_switch: prev_state=S ==> next_comm=main\n", 1000+i, i)
+		}
+		contextLines := 3
+
+		got, _, ok := compactBroadGrepOutput(ctx, grepToolParams{
+			Pattern:      "com.tencent.mm-36379",
+			Path:         "record_trace.systrace",
+			ContextLines: &contextLines,
+		}, "[grep: 100 matching lines]\n", "[grep params: pattern=com.tencent.mm-36379 path=record_trace.systrace context_lines=3]\n", raw.String(), raw.String())
+		if !ok {
+			t.Fatalf("expected broad grep to compact")
+		}
+		for _, want := range []string{
+			"next_shape=single large runtime artifact matched too broadly",
+			"narrow with one exact timestamp/literal/thread id",
+			"read_file around the returned line numbers",
+		} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("runtime-artifact broad grep missing %q:\n%s", want, got)
+			}
+		}
+		if strings.Contains(got, "relation_navigation_hint=") || strings.Contains(got, `repo_map(view="relation_map"`) {
+			t.Fatalf("runtime artifact grep must not suggest repo relation_map:\n%s", got)
+		}
+	})
+
 	t.Run("broad non-relation grep does not suggest relation map", func(t *testing.T) {
 		ctx := newBusContext()
 		ctx.AnalysisIR = &types.AnalysisIR{
