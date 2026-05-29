@@ -185,6 +185,52 @@ func TestNormalizeFlowchartNodeLabels_QuotesParserSensitiveUnquotedLabels(t *tes
 	}
 }
 
+func TestNormalizeSourceForMarkdown_RepairsBracketedTraceNodeLabels(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    A[com.tencent.mm-36379<br/>2942.124416-260.210<br/>135.8ms] -->|wakeup 94μs| B[[GT]codraxNode1>prio=20]`,
+		`    A -->|wakeup 135.8ms| C[[GT]codraxNode2>prio=20]`,
+		`    B -->|wakeup| D[[GT]codraxNode3>prio=10]`,
+		`    C -->|wakeup| E[wc_srvinit_7-37014<br/>prio=22]`,
+		`    D -->|wakeup| F[[GT]codraxNode4>prio=5]`,
+		`    G[阻塞原因: fscache_page_wait_o<br/>I/O等待+锁竞争] -.-> A`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	for _, bad := range []string{
+		`B[[GT]codraxNode1>prio=20]`,
+		`C[[GT]codraxNode2>prio=20]`,
+		`D[[GT]codraxNode3>prio=10]`,
+		`F[[GT]codraxNode4>prio=5]`,
+	} {
+		if strings.Contains(got, bad) {
+			t.Fatalf("malformed bracketed trace node label survived %q in:\n%s", bad, got)
+		}
+	}
+	for _, want := range []string{
+		`B["[GT]codraxNode1>prio=20"]`,
+		`C["[GT]codraxNode2>prio=20"]`,
+		`D["[GT]codraxNode3>prio=10"]`,
+		`F["[GT]codraxNode4>prio=5"]`,
+		`A[com.tencent.mm-36379<br/>2942.124416-260.210<br/>135.8ms] -->|wakeup 94μs| B`,
+		`G[阻塞原因: fscache_page_wait_o<br/>I/O等待+锁竞争] -.-> A`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("repaired trace diagram missing %q in:\n%s", want, got)
+		}
+	}
+}
+
+func TestNormalizeSourceForMarkdown_PreservesValidSubroutineLabels(t *testing.T) {
+	in := strings.Join([]string{
+		"flowchart TD",
+		`    A --> S[[valid subroutine]]`,
+	}, "\n")
+	got := NormalizeSourceForMarkdown(in)
+	if !strings.Contains(got, `S[[valid subroutine]]`) {
+		t.Fatalf("valid subroutine label should remain a subroutine shape:\n%s", got)
+	}
+}
+
 func TestNormalizeSourceForMarkdown_FlowchartQuotedLabelNewlinesStayInsideNode(t *testing.T) {
 	in := strings.Join([]string{
 		"flowchart TD",

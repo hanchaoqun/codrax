@@ -20,6 +20,7 @@ func NormalizeSourceForMarkdown(body string) string {
 	body = NormalizeFlowchartQuotedLabelNewlines(body)
 	body = NormalizeFlowchartSubgraphTitles(body)
 	body = NormalizeFlowchartDanglingPunctuation(body)
+	body = NormalizeFlowchartMalformedBracketLabels(body)
 	body = NormalizeFlowchartMismatchedShapeClosers(body)
 	body = NormalizeFlowchartSplitPipeLabels(body)
 	body = NormalizeFlowchartHiddenMarkerLines(body)
@@ -30,6 +31,35 @@ func NormalizeSourceForMarkdown(body string) string {
 		logging.Debug("[mermaidcompat] source repair applied before_bytes=%d after_bytes=%d", len(original), len(body))
 	}
 	return body
+}
+
+// NormalizeFlowchartMalformedBracketLabels repairs node labels whose visible
+// text itself contains square brackets but was emitted without quotes, e.g.
+//
+//	B[[GT]worker>prio=20]
+//
+// Mermaid reads the leading `[[` as the subroutine shape opener and the `]`
+// in `[GT]` as an early closer, so the remaining text becomes syntax. The
+// repair is intentionally narrow: only flowchart node shapes whose first parsed
+// close is followed by bare label tail before the real final `]` are rewritten,
+// and the visible label is preserved as a quoted rectangle label.
+func NormalizeFlowchartMalformedBracketLabels(body string) string {
+	if !isFlowchartOrGraph(body) || !strings.Contains(body, "[") {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	changed := false
+	for i, line := range lines {
+		rewritten, ok := normalizeFlowchartMalformedBracketLabelsInLine(line)
+		if ok {
+			lines[i] = rewritten
+			changed = true
+		}
+	}
+	if !changed {
+		return body
+	}
+	return strings.Join(lines, "\n")
 }
 
 // NormalizeFlowchartQuotedLabelNewlines rewrites physical newlines inside
@@ -871,6 +901,158 @@ func flowchartNodeIDNeedsAlias(id string) bool {
 		}
 	}
 	return !flowchartNodeIDIsSafe(id)
+}
+
+func normalizeFlowchartMalformedBracketLabelsInLine(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" || strings.HasPrefix(trimmed, "%%") ||
+		flowchartLineIsHeader(trimmed) || trimmed == "end" ||
+		strings.HasPrefix(trimmed, "subgraph ") ||
+		strings.HasPrefix(trimmed, "classDef ") || strings.HasPrefix(trimmed, "linkStyle ") ||
+		flowchartLineStartsWithAny(trimmed, "click ", "style ", "class ") {
+		return line, false
+	}
+	var b strings.Builder
+	changed := false
+	for i := 0; i < len(line); {
+		if op := flowchartArrowAt(line, i); op != "" {
+			b.WriteString(op)
+			i += len(op)
+			continue
+		}
+		if line[i] == '|' {
+			if end := findUnescapedPipe(line, i+1); end > i {
+				b.WriteString(line[i : end+1])
+				i = end + 1
+				continue
+			}
+		}
+		if line[i] != '[' || !flowchartBracketLooksLikeNodeLabelStart(line, i) {
+			b.WriteByte(line[i])
+			i++
+			continue
+		}
+		span, ok := flowchartLabelShapeSpanAt(line, i)
+		if !ok {
+			end := findFlowchartMalformedBracketLabelEnd(line, i+1)
+			if end <= i+1 || !flowchartMalformedBracketLabelTailBoundary(line, end+1) {
+				b.WriteByte(line[i])
+				i++
+				continue
+			}
+			label := strings.TrimSpace(line[i+1 : end])
+			if label == "" {
+				b.WriteByte(line[i])
+				i++
+				continue
+			}
+			b.WriteString(`["`)
+			b.WriteString(escapeFlowchartNodeLabel(label))
+			b.WriteString(`"]`)
+			changed = true
+			i = end + 1
+			continue
+		}
+		tail := span.end + 1
+		if tail >= len(line) || flowchartMalformedBracketLabelTailBoundary(line, tail) {
+			b.WriteByte(line[i])
+			i++
+			continue
+		}
+		end := findFlowchartMalformedBracketLabelEnd(line, tail)
+		if end <= span.end {
+			b.WriteByte(line[i])
+			i++
+			continue
+		}
+		label := strings.TrimSpace(line[i+1 : end])
+		if label == "" {
+			b.WriteByte(line[i])
+			i++
+			continue
+		}
+		b.WriteString(`["`)
+		b.WriteString(escapeFlowchartNodeLabel(label))
+		b.WriteString(`"]`)
+		changed = true
+		i = end + 1
+	}
+	if !changed {
+		return line, false
+	}
+	return b.String(), true
+}
+
+func flowchartBracketLooksLikeNodeLabelStart(line string, pos int) bool {
+	if pos <= 0 || pos >= len(line) || line[pos] != '[' {
+		return false
+	}
+	for i := pos - 1; i >= 0; i-- {
+		ch := line[i]
+		if ch == ' ' || ch == '\t' {
+			continue
+		}
+		return isFlowchartNodeIDByte(ch)
+	}
+	return false
+}
+
+func isFlowchartNodeIDByte(ch byte) bool {
+	return (ch >= 'a' && ch <= 'z') ||
+		(ch >= 'A' && ch <= 'Z') ||
+		(ch >= '0' && ch <= '9') ||
+		ch == '_'
+}
+
+func flowchartMalformedBracketLabelTailBoundary(line string, pos int) bool {
+	if pos >= len(line) {
+		return true
+	}
+	for pos < len(line) {
+		switch line[pos] {
+		case ' ', '\t':
+			pos++
+			continue
+		case '|', ',', ';':
+			return true
+		}
+		return flowchartArrowAt(line, pos) != ""
+	}
+	return true
+}
+
+func findFlowchartMalformedBracketLabelEnd(line string, start int) int {
+	quote := byte(0)
+	escaped := false
+	lastClose := -1
+	for i := start; i < len(line); i++ {
+		ch := line[i]
+		if quote != 0 {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if ch == '\\' {
+				escaped = true
+				continue
+			}
+			if ch == quote {
+				quote = 0
+			}
+			continue
+		}
+		if ch == '"' || ch == '\'' {
+			quote = ch
+			continue
+		}
+		if op := flowchartArrowAt(line, i); op != "" {
+			break
+		}
+		if ch == ']' {
+			lastClose = i
+		}
+	}
+	return lastClose
 }
 
 func escapeFlowchartNodeLabel(label string) string {
