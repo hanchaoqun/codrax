@@ -242,4 +242,7 @@ func TestNativeGrep_DirectorySearchStillSkipsLargeFilesByDefault(t *testing.T) {
 	if res.SkippedLargeFiles != 1 {
 		t.Fatalf("SkippedLargeFiles = %d, want 1", res.SkippedLargeFiles)
 	}
+	if len(res.SkippedLargeFilePaths) != 1 || !strings.HasSuffix(res.SkippedLargeFilePaths[0], "large.log") {
+		t.Fatalf("SkippedLargeFilePaths = %#v, want large.log", res.SkippedLargeFilePaths)
+	}
 }

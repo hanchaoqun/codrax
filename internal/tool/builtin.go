@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -1153,7 +1154,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if nres.Matches == 0 {
 			suffix := grepNoMatchBody(ctx, p)
 			if nres.SkippedLargeFiles > 0 {
-				suffix = fmt.Sprintf("no matches found in scanned files; skipped %d large file(s) due to the native grep directory-scan safety cap. If the target is a specific large log/trace/source file, re-run grep with path set to that file.", nres.SkippedLargeFiles)
+				suffix = fmt.Sprintf("no matches found in scanned files; skipped %d large file(s) due to the native grep directory-scan safety cap.%s If the target is a specific large log/trace/source file, re-run grep with path set to that file.", nres.SkippedLargeFiles, grepSkippedLargeFilePathHint(nres.SkippedLargeFilePaths, nres.SkippedLargeFiles))
 			}
 			return types.ToolResult{
 				ToolName:  t.Name(),
@@ -1459,6 +1460,9 @@ func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countB
 	}
 	if grepParamsTargetRuntimeArtifactFile(ctx, params) {
 		b.WriteString("next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id, then read_file around the returned line numbers for evidence. For numeric time-window filtering, use a deterministic command (grep/awk) and then read_file the selected line range before emitting line-scope evidence.\n")
+		if hint := grepLineWindowHint(production, params.FilesOnly); hint != "" {
+			b.WriteString(hint)
+		}
 	} else if params.FilesOnly {
 		b.WriteString("next_shape=read_file a top production path for exact evidence, or re-run grep with a narrower path/file_type.\n")
 	} else {
@@ -1584,6 +1588,9 @@ func compactStreamedRuntimeArtifactGrepOutput(ctx *types.BusContext, params grep
 		b.WriteString("full_raw_saved=unavailable (no workdir configured)\n")
 	}
 	b.WriteString("next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id/event name, then read_file around returned line numbers for evidence. Use fixed_string=true for punctuation-heavy literals, or line_start/line_end when searching a known vicinity.\n")
+	if hint := grepLineWindowHint(capture.PreviewLines, params.FilesOnly); hint != "" {
+		b.WriteString(hint)
+	}
 	writeCappedGrepSection(&b, "[grep production matches]", capture.PreviewLines, grepGovernorLineProductionCap, "no runtime-artifact matches returned")
 	if omitted := capture.Lines - len(capture.PreviewLines); omitted > 0 {
 		fmt.Fprintf(&b, "... omitted %d output line(s) from inline preview; page the full_raw_saved artifact or narrow the grep.\n", omitted)
@@ -2061,6 +2068,97 @@ func writeCappedGrepSection(b *strings.Builder, header string, lines []string, c
 	if omitted := len(lines) - limit; omitted > 0 {
 		fmt.Fprintf(b, "... omitted %d additional entries from this section; see full_raw_saved above.\n", omitted)
 	}
+}
+
+func grepSkippedLargeFilePathHint(paths []string, skippedTotal int) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	quoted := make([]string, 0, len(paths))
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		quoted = append(quoted, fmt.Sprintf("%q", path))
+	}
+	if len(quoted) == 0 {
+		return ""
+	}
+	suffix := ""
+	if skippedTotal > len(quoted) {
+		suffix = fmt.Sprintf(", ... +%d more", skippedTotal-len(quoted))
+	}
+	return " Skipped large file path(s): " + strings.Join(quoted, ", ") + suffix + "."
+}
+
+func grepLineWindowHint(lines []string, filesOnly bool) string {
+	if filesOnly {
+		return ""
+	}
+	path, lineNo, ok := firstGrepOutputLineLocation(lines, true)
+	if !ok {
+		path, lineNo, ok = firstGrepOutputLineLocation(lines, false)
+	}
+	if !ok || lineNo <= 0 || strings.TrimSpace(path) == "" {
+		return ""
+	}
+	start := lineNo - 20
+	if start < 1 {
+		start = 1
+	}
+	end := lineNo + 20
+	limit := end - start + 1
+	offset := start - 1
+	return fmt.Sprintf("line_window_hint=first returned match is %s:%d; next use `read_file` with path=%q offset=%d limit=%d, or re-run grep on this same file with line_start=%d line_end=%d.\n",
+		path, lineNo, path, offset, limit, start, end)
+}
+
+func firstGrepOutputLineLocation(lines []string, requireMatch bool) (string, int, bool) {
+	for _, line := range lines {
+		path, lineNo, match, ok := parseGrepOutputLineLocation(line)
+		if !ok {
+			continue
+		}
+		if requireMatch && !match {
+			continue
+		}
+		return path, lineNo, true
+	}
+	return "", 0, false
+}
+
+func parseGrepOutputLineLocation(line string) (path string, lineNo int, match bool, ok bool) {
+	line = strings.TrimSpace(line)
+	if line == "" || line == "--" || strings.HasPrefix(line, "[") {
+		return "", 0, false, false
+	}
+	for i, r := range line {
+		if r != ':' && r != '-' {
+			continue
+		}
+		rest := line[i+1:]
+		digitEnd := 0
+		for digitEnd < len(rest) && rest[digitEnd] >= '0' && rest[digitEnd] <= '9' {
+			digitEnd++
+		}
+		if digitEnd == 0 || digitEnd >= len(rest) {
+			continue
+		}
+		if rest[digitEnd] != ':' && rest[digitEnd] != '-' {
+			continue
+		}
+		path = strings.TrimSpace(line[:i])
+		if path == "" {
+			continue
+		}
+		n, err := strconv.Atoi(rest[:digitEnd])
+		if err != nil || n <= 0 {
+			continue
+		}
+		return path, n, r == ':' && rest[digitEnd] == ':', true
+	}
+	return "", 0, false, false
 }
 
 func annotateGrepOutputByRelevance(ctx *types.BusContext, params grepToolParams, output string) string {

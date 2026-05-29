@@ -1079,6 +1079,15 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
+	t.Run("skipped large file hint names capped candidates", func(t *testing.T) {
+		got := grepSkippedLargeFilePathHint([]string{"record_trace.systrace", "large.log"}, 3)
+		for _, want := range []string{`"record_trace.systrace"`, `"large.log"`, "+1 more"} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("skipped-large-file hint missing %q: %q", want, got)
+			}
+		}
+	})
+
 	t.Run("explicit ignore_case false overrides smart-case", func(t *testing.T) {
 		// The LLM can force exact-case matching even on a lowercase
 		// pattern by passing ignore_case=false explicitly.
@@ -1636,6 +1645,9 @@ func TestGrepTool(t *testing.T) {
 			"next_shape=single large runtime artifact matched too broadly",
 			"narrow with one exact timestamp/literal/thread id",
 			"read_file around the returned line numbers",
+			"line_window_hint=first returned match is record_trace.systrace:1000",
+			"path=\"record_trace.systrace\" offset=979 limit=41",
+			"line_start=980 line_end=1020",
 		} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("runtime-artifact broad grep missing %q:\n%s", want, got)
@@ -1676,6 +1688,8 @@ func TestGrepTool(t *testing.T) {
 			"decision=broad_result_compacted mode=line_output",
 			"full_raw_saved=",
 			"next_shape=single large runtime artifact matched too broadly",
+			"line_window_hint=first returned match is",
+			"line_start=1 line_end=21",
 		} {
 			if !strings.Contains(result.Summary, want) {
 				t.Fatalf("broad runtime summary missing %q:\n%s", want, result.Summary)

@@ -105,6 +105,7 @@ downstream parsers while reducing model confusion.
 | T4 | done | Explicit runtime artifact shell grep streams stdout to a temp artifact and keeps only a capped preview in memory. |
 | T5 | done | `matching lines` remains in the banner while context output is clarified. |
 | T6 | done | Added regression coverage for literal search, line windows, runtime artifact no-match/broad output, native scanner behavior, and streaming blob writes. |
+| T7 | done | Broad single-file artifact grep now derives a concrete `read_file` / `line_start`-`line_end` window from the first returned match line, and directory-scan large-file skips name capped skipped paths. |
 
 ## Validation Plan
 
@@ -123,6 +124,9 @@ The implementation is intentionally generic:
   repo-wide code grep still uses the existing relevance-aware ranking path;
 - no new hard gates were introduced. All recovery instructions are advisory tool
   output, not retry or rewrite enforcement.
+- broad artifact results keep the existing line-numbered grep output, but now
+  also spell out the first safe follow-up window so the model does not have to
+  infer `read_file` offsets or `line_start` / `line_end` values from prose.
 
 ## Prompt and Compat Audit
 

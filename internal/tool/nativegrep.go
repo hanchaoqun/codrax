@@ -37,12 +37,13 @@ type NativeGrepOpts struct {
 // NativeGrepResult carries the rendered output bytes plus a lightweight
 // summary used for logging / banners.
 type NativeGrepResult struct {
-	Output            string // "path:line:content\n…" (or "path\n…" when FilesOnly)
-	Matches           int    // number of lines emitted (FilesOnly: files emitted)
-	Files             int    // distinct files that contributed at least one match
-	Truncated         bool   // MaxMatches hit
-	FilesTried        int    // files opened and scanned
-	SkippedLargeFiles int    // files skipped by MaxFileBytes
+	Output                string // "path:line:content\n…" (or "path\n…" when FilesOnly)
+	Matches               int    // number of lines emitted (FilesOnly: files emitted)
+	Files                 int    // distinct files that contributed at least one match
+	Truncated             bool   // MaxMatches hit
+	FilesTried            int    // files opened and scanned
+	SkippedLargeFiles     int    // files skipped by MaxFileBytes
+	SkippedLargeFilePaths []string
 }
 
 // nativeGrepMaxFileBytes caps broad directory scans when the caller does not
@@ -163,8 +164,12 @@ func NativeGrep(ctx context.Context, opts NativeGrepOpts) (NativeGrepResult, err
 		if infoErr != nil {
 			return nil
 		}
+		rel := relPathForDisplayRoot(opts.DisplayRoot, root, path)
 		if maxBytes > 0 && info.Size() > int64(maxBytes) {
 			res.SkippedLargeFiles++
+			if len(res.SkippedLargeFilePaths) < 5 {
+				res.SkippedLargeFilePaths = append(res.SkippedLargeFilePaths, rel)
+			}
 			return nil
 		}
 
@@ -184,7 +189,6 @@ func NativeGrep(ctx context.Context, opts NativeGrepOpts) (NativeGrepResult, err
 		}
 
 		res.FilesTried++
-		rel := relPathForDisplayRoot(opts.DisplayRoot, root, path)
 
 		reader := bufio.NewReaderSize(f, 64*1024)
 		lineno := 0
