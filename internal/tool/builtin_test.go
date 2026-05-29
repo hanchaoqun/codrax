@@ -529,6 +529,58 @@ func TestExecCommand(t *testing.T) {
 			t.Fatalf("normalized command should not reach git's --no-stat error: %q", result.Summary)
 		}
 	})
+
+	t.Run("runtime grep pipeline success without line numbers gets advisory", func(t *testing.T) {
+		tmpFile := filepath.Join(t.TempDir(), "record_trace.systrace")
+		if err := os.WriteFile(tmpFile, []byte("com.tencent.mm-36379 (36379) [004] .... 2942.124416: sched_switch\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		tool := &ExecCommand{}
+		params, _ := json.Marshal(execCommandParams{Command: "grep 'com.tencent.mm-36379' " + strconv.Quote(tmpFile)})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		for _, want := range []string{
+			"exec_command advisory",
+			"has no original line numbers",
+			"grep -n",
+			"read_file around the selected range",
+		} {
+			if !strings.Contains(result.Summary, want) {
+				t.Fatalf("missing exec advisory %q:\n%s", want, result.Summary)
+			}
+		}
+	})
+
+	t.Run("runtime grep pipeline exit one gets no-match advisory", func(t *testing.T) {
+		tmpFile := filepath.Join(t.TempDir(), "record_trace.systrace")
+		if err := os.WriteFile(tmpFile, []byte("2942.124416: sched_switch\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		tool := &ExecCommand{}
+		params, _ := json.Marshal(execCommandParams{Command: "grep 'missing-event' " + strconv.Quote(tmpFile)})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if result.Success {
+			t.Fatalf("grep no-match shell exit should remain unsuccessful, got: %s", result.Summary)
+		}
+		for _, want := range []string{
+			"grep exited 1",
+			"zero matches",
+			"Split combined log/trace patterns",
+			"grep -n",
+		} {
+			if !strings.Contains(result.Summary, want) {
+				t.Fatalf("missing no-match advisory %q:\n%s", want, result.Summary)
+			}
+		}
+	})
 }
 
 func TestExecCommandTypedOrigins(t *testing.T) {
@@ -1070,6 +1122,7 @@ func TestGrepTool(t *testing.T) {
 			"preserve the observed field order",
 			"fixed_string=true",
 			"line_start/line_end",
+			"grep -n",
 			"regex_compatibility_note=",
 		} {
 			if !strings.Contains(result.Summary, want) {
@@ -1647,6 +1700,7 @@ func TestGrepTool(t *testing.T) {
 			"next_shape=single large runtime artifact matched too broadly",
 			"narrow with one exact timestamp/literal/thread id",
 			"read_file around the returned line numbers",
+			"preserves original line numbers",
 			"line_window_hint=first returned match is record_trace.systrace:1000",
 			"path=\"record_trace.systrace\" offset=979 limit=41",
 			"line_start=980 line_end=1020",
@@ -1681,6 +1735,33 @@ func TestGrepTool(t *testing.T) {
 		} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("runtime-artifact broad grep missing %q:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("runtime artifact grep surfaces parameter advisory", func(t *testing.T) {
+		ctx := newBusContext()
+		contextLines := 3
+		var raw strings.Builder
+		for i := 0; i < 100; i++ {
+			fmt.Fprintf(&raw, "record_trace.systrace:%d: com.tencent.mm-36379 (36379) [004] .... 2942.%06d: sched_switch\n", 1000+i, i)
+		}
+		got, _, ok := compactBroadGrepOutput(ctx, grepToolParams{
+			Pattern:      "com.tencent.mm-36379",
+			Path:         "record_trace.systrace",
+			FileType:     "config",
+			ContextLines: &contextLines,
+		}, "[grep: 100 matching lines (including context output lines)]\n", "[grep params: pattern=com.tencent.mm-36379 path=record_trace.systrace file_type=config context_lines=3]\n", raw.String(), raw.String())
+		if !ok {
+			t.Fatalf("expected broad grep to compact")
+		}
+		for _, want := range []string{
+			"artifact_search_advisory=",
+			"file_type/include filters are redundant",
+			"context_lines expands broad artifact searches",
+		} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("runtime-artifact advisory missing %q:\n%s", want, got)
 			}
 		}
 	})

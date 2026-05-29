@@ -414,7 +414,7 @@ type execCommandParams struct {
 
 func (t *ExecCommand) Name() string { return "exec_command" }
 func (t *ExecCommand) Description() string {
-	return "Run a read-only shell command with configurable timeout. In read mode it starts in the repository root, so use repo-relative paths and avoid absolute cd/git -C guesses; large output is saved to a blob that can be paged with read_file."
+	return "Run a read-only shell command with configurable timeout. In read mode it starts in the repository root, so use repo-relative paths and avoid absolute cd/git -C guesses; large output is saved to a blob that can be paged with read_file. For log/trace grep pipelines that will support line evidence, preserve original line numbers (for example grep -n or awk printing NR) so read_file can ground the selected range."
 }
 
 func (t *ExecCommand) Parameters() json.RawMessage {
@@ -539,7 +539,8 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	}
 
 	if err != nil {
-		preview, ref := StoreBlob(ctx, t.Name()+"-fail", output)
+		payload := output + execCommandSearchShapeAdvisory(command, output, err)
+		preview, ref := StoreBlob(ctx, t.Name()+"-fail", payload)
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
@@ -550,6 +551,9 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	}
 
 	payload := execCommandPayloadWithTypedOrigins(banner, command, output)
+	if advisory := execCommandSearchShapeAdvisory(command, output, nil); advisory != "" {
+		payload += advisory
+	}
 	summary, ref := StoreBlob(ctx, t.Name(), payload)
 	return types.ToolResult{
 		ToolName:  t.Name(),
@@ -567,6 +571,82 @@ func execCommandPayloadWithTypedOrigins(banner, command, output string) string {
 		return payload
 	}
 	return banner + originLine + output
+}
+
+func execCommandSearchShapeAdvisory(command, output string, err error) string {
+	if !execCommandLooksLikeGrepPipeline(command) {
+		return ""
+	}
+	if err != nil {
+		if strings.Contains(err.Error(), "exit status 1") {
+			return "[exec_command advisory: grep exited 1, which usually means zero matches rather than a broken command. Split combined log/trace patterns into one literal/timestamp/thread/event first, preserve the observed field order, and rerun with original line numbers such as `grep -n` before using read_file for evidence.]\n"
+		}
+		return ""
+	}
+	if strings.TrimSpace(output) == "" || execCommandLooksLikeCountOnly(command) || !execCommandTargetsRuntimeTextArtifact(command) {
+		return ""
+	}
+	if execCommandOutputHasLineNumbers(output) {
+		return ""
+	}
+	return "[exec_command advisory: this log/trace grep output has no original line numbers. For line-scope evidence, rerun the search with line numbers (for example `grep -n ...` or awk printing NR with the line) and then use read_file around the selected range.]\n"
+}
+
+func execCommandLooksLikeGrepPipeline(command string) bool {
+	for _, segment := range shellCommandSegments(command) {
+		for _, token := range shellWordsForOrigin(segment) {
+			base := path.Base(strings.ToLower(token))
+			if base == "grep" || base == "egrep" || base == "fgrep" || base == "rg" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func execCommandTargetsRuntimeTextArtifact(command string) bool {
+	lower := strings.ToLower(command)
+	for _, suffix := range []string{".systrace", ".htrace", ".atrace", ".perfetto", ".trace", ".log"} {
+		if strings.Contains(lower, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+func execCommandLooksLikeCountOnly(command string) bool {
+	lower := strings.ToLower(command)
+	return strings.Contains(lower, "wc -l") ||
+		strings.Contains(lower, "grep -c") ||
+		strings.Contains(lower, "rg -c") ||
+		strings.Contains(lower, "--count")
+}
+
+func execCommandOutputHasLineNumbers(output string) bool {
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "[") {
+			continue
+		}
+		if strings.HasPrefix(line, "--") {
+			continue
+		}
+		if execCommandOutputLineStartsWithNumber(line) {
+			return true
+		}
+		if _, n, _, ok := parseGrepOutputLineLocation(line); ok && n > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func execCommandOutputLineStartsWithNumber(line string) bool {
+	i := 0
+	for i < len(line) && line[i] >= '0' && line[i] <= '9' {
+		i++
+	}
+	return i > 0 && i < len(line) && line[i] == ':'
 }
 
 func execCommandTypedOriginLine(command, output string) string {
@@ -844,7 +924,7 @@ type grepToolParams struct {
 
 func (t *GrepTool) Name() string { return "grep" }
 func (t *GrepTool) Description() string {
-	return "Search file contents by pattern. Use this to find where a symbol, string, config key, log event, or trace row appears. By default `pattern` is a regex. Case handling is smart by default: if the pattern contains no uppercase characters it is matched case-insensitively (so `subagent` finds `SubAgent`, `SUBAGENT`, etc.); if the pattern contains any uppercase character it is matched exactly. Pass ignore_case explicitly to override. Use fixed_string=true for exact literal text with punctuation (recommended for log/trace event labels, thread names, error strings, config keys, and any text containing []()|#.: that you do not want treated as regex). Use file_type to filter by language (e.g. \"go\", \"py\", \"js\", \"ts\", \"java\", \"yaml\") — this is preferred over include because it covers all relevant extensions (e.g. type \"ts\" matches both *.ts and *.tsx). Use context_lines to include surrounding lines around each match, which saves a follow-up read_file call. Use line_start/line_end only with a single file when you already know a relevant line vicinity. For large log/trace/systrace files, search one exact timestamp, thread id/name, or event literal first; regex is order-sensitive, so if a combined pattern returns no matches, inspect the line format with a simpler literal before combining fields. Do NOT use the result to count matches by eye — pipe `grep -c` or `grep ... | wc -l` through exec_command instead, and treat that number as authoritative."
+	return "Search file contents by pattern. Use this to find where a symbol, string, config key, log event, or trace row appears. By default `pattern` is a regex. Case handling is smart by default: if the pattern contains no uppercase characters it is matched case-insensitively (so `subagent` finds `SubAgent`, `SUBAGENT`, etc.); if the pattern contains any uppercase character it is matched exactly. Pass ignore_case explicitly to override. Use fixed_string=true for exact literal text with punctuation (recommended for log/trace event labels, thread names, error strings, config keys, and any text containing []()|#.: that you do not want treated as regex). Use file_type to filter by language (e.g. \"go\", \"py\", \"js\", \"ts\", \"java\", \"yaml\") — this is preferred over include because it covers all relevant extensions (e.g. type \"ts\" matches both *.ts and *.tsx). Do not set file_type/include when path is already one concrete log/trace artifact. Use context_lines to include surrounding lines around each match, which saves a follow-up read_file call; avoid context_lines on the first broad search of a large log/trace and instead narrow to a timestamp/thread/event, then read_file around returned line numbers. Use line_start/line_end only with a single file when you already know a relevant line vicinity. For large log/trace/systrace files, search one exact timestamp, thread id/name, or event literal first; regex is order-sensitive, so if a combined pattern returns no matches, inspect the line format with a simpler literal before combining fields. Do NOT use the result to count matches by eye — pipe `grep -c` or `grep ... | wc -l` through exec_command instead, and treat that number as authoritative."
 }
 
 func grepShouldUseNativeBackend(searchBackend string, hasRepoRoot, searchPathIsFile bool) bool {
@@ -1469,7 +1549,10 @@ func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countB
 		b.WriteString("full_raw_saved=unavailable (no workdir configured)\n")
 	}
 	if grepParamsTargetRuntimeArtifactFile(ctx, params) {
-		b.WriteString("next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id, then read_file around the returned line numbers for evidence. For numeric time-window filtering, use a deterministic command (grep/awk) and then read_file the selected line range before emitting line-scope evidence.\n")
+		if advisory := grepRuntimeArtifactParamAdvisory(params); advisory != "" {
+			b.WriteString(advisory)
+		}
+		b.WriteString("next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id, then read_file around the returned line numbers for evidence. For numeric time-window filtering, use a deterministic command that preserves original line numbers (for example `grep -n` before awk/head), then read_file the selected line range before emitting line-scope evidence.\n")
 		if hint := grepLineWindowHint(production, params.FilesOnly); hint != "" {
 			b.WriteString(hint)
 		}
@@ -1601,7 +1684,10 @@ func compactStreamedRuntimeArtifactGrepOutput(ctx *types.BusContext, params grep
 	} else {
 		b.WriteString("full_raw_saved=unavailable (no workdir configured)\n")
 	}
-	b.WriteString("next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id, then read_file around the returned line numbers for evidence. For numeric time-window filtering, use a deterministic command (grep/awk) and then read_file the selected line range before emitting line-scope evidence.\n")
+	if advisory := grepRuntimeArtifactParamAdvisory(params); advisory != "" {
+		b.WriteString(advisory)
+	}
+	b.WriteString("next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id, then read_file around the returned line numbers for evidence. For numeric time-window filtering, use a deterministic command that preserves original line numbers (for example `grep -n` before awk/head), then read_file the selected line range before emitting line-scope evidence.\n")
 	windows := capture.LineWindows
 	if len(windows) == 0 {
 		windows = collectGrepLineWindows(capture.PreviewLines, params.FilesOnly, grepLineWindowHintMax)
@@ -1626,7 +1712,10 @@ func grepNoMatchBody(ctx *types.BusContext, params grepToolParams) string {
 		var b strings.Builder
 		b.WriteString("no matches found\n")
 		b.WriteString(lineWindowNote)
-		b.WriteString("no_match_advisory=single runtime/log/trace artifact searched; this only means the exact pattern matched zero lines. Regex is line-order-sensitive: split combined patterns into one exact literal/timestamp/thread id/event name first, inspect one returned line to preserve the observed field order, then recombine only if needed. Use fixed_string=true for punctuation-heavy text. If you know the vicinity, use line_start/line_end on this file. For numeric time ranges, a deterministic command can filter the interval, then read_file should ground the selected lines.\n")
+		if advisory := grepRuntimeArtifactParamAdvisory(params); advisory != "" {
+			b.WriteString(advisory)
+		}
+		b.WriteString("no_match_advisory=single runtime/log/trace artifact searched; this only means the exact pattern matched zero lines. Regex is line-order-sensitive: split combined patterns into one exact literal/timestamp/thread id/event name first, inspect one returned line to preserve the observed field order, then recombine only if needed. Use fixed_string=true for punctuation-heavy text. If you know the vicinity, use line_start/line_end on this file. For numeric time ranges, a deterministic command can filter the interval, but preserve original line numbers (for example `grep -n`) so read_file can ground the selected lines.\n")
 		if !params.FixedString && grepPatternHasCommonRegexShorthand(params.Pattern) {
 			b.WriteString("regex_compatibility_note=pattern contains \\d/\\s/\\w-style shorthand; codrax normalizes common single-file cases, but a simpler literal or fixed_string=true is safer for artifact discovery.\n")
 		}
@@ -1639,6 +1728,23 @@ func grepNoMatchBody(ctx *types.BusContext, params grepToolParams) string {
 		body += "\nregex_compatibility_note=pattern contains \\d/\\s/\\w-style shorthand; regex support varies by backend. Try an explicit character class such as [0-9] or fixed_string=true when searching literal text.\n"
 	}
 	return body
+}
+
+func grepRuntimeArtifactParamAdvisory(params grepToolParams) string {
+	if strings.TrimSpace(params.FileType) == "" && strings.TrimSpace(params.Include) == "" && (params.ContextLines == nil || *params.ContextLines <= 0) {
+		return ""
+	}
+	var notes []string
+	if strings.TrimSpace(params.FileType) != "" || strings.TrimSpace(params.Include) != "" {
+		notes = append(notes, "path is already one concrete runtime/log/trace file; file_type/include filters are redundant and may distract from narrowing by timestamp/thread/event")
+	}
+	if params.ContextLines != nil && *params.ContextLines > 0 && params.LineStart <= 0 && params.LineEnd <= 0 {
+		notes = append(notes, "context_lines expands broad artifact searches; first narrow to a small vicinity, then use read_file for surrounding context")
+	}
+	if len(notes) == 0 {
+		return ""
+	}
+	return "artifact_search_advisory=" + strings.Join(notes, "; ") + ".\n"
 }
 
 func grepBroadResultRelationNavigationHint(ctx *types.BusContext, params grepToolParams, production []string) string {

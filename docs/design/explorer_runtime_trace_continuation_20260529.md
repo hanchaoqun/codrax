@@ -96,3 +96,62 @@ Validation:
 - No automatic semantic parsing of systrace, perfetto, logs, or custom trace formats in this batch.
 - No forced retry, forced read, or hard gate based on grep counts or ranker scores.
 - No truncation of model-authored content or replacement of model-generated conclusions.
+
+## Follow-up: Runtime Text Search Tooling Gaps
+
+Customer log excerpt at 2026-05-29 16:44 exposed a second-order gap after the
+continuation work:
+
+- The model searched an explicit `.systrace` file with `file_type=config` and
+  `context_lines=3`. The search still ran, but those parameters are redundant for
+  a concrete runtime artifact and make broad first-pass scans heavier.
+- The broad grep result correctly emitted `line_window_hint` and `line_windows`,
+  but the first search only matched a thread name, so the windows were from an
+  earlier timestamp. The tool guidance needs to push models toward the narrowest
+  timestamp / thread / event literal first.
+- The model then switched to `exec_command grep ... | grep ... | head`, which is
+  a reasonable deterministic fallback for numeric windows, but it did not include
+  `-n`, so the result could not be directly converted into `read_file` line
+  windows or line-scope evidence.
+- `exec_command` returned `exit status 1` for a grep pipeline with no matches.
+  For grep, that often means "zero matches", not a broken tool. The result should
+  explain this and suggest split-field / line-number-preserving recovery.
+
+### Follow-up Contract
+
+1. Explicit single-file runtime/log/trace grep should emit a soft parameter
+   advisory when `file_type`, `include`, or broad `context_lines` are present.
+   The tool must not silently rewrite the model's query.
+2. Runtime/log/trace grep guidance for deterministic commands must say to
+   preserve original line numbers (`grep -n` or equivalent) before `read_file`
+   grounding.
+3. `exec_command` may append search-shape advisories when a shell grep pipeline
+   targets a large text artifact and either exits 1 or returns output without
+   line numbers. This is advisory only; it must not change the command, success
+   semantics, raw output, or answer sufficiency.
+
+### Follow-up Tasks
+
+- [x] T9. Add runtime/log/trace grep parameter advisory for redundant
+  `file_type`/`include` and expensive broad `context_lines`.
+- [x] T10. Update grep deterministic-command hints to require line-number
+  preservation before evidence grounding.
+- [x] T11. Add `exec_command` grep-pipeline advisories for no-match exit 1 and
+  line-number-free runtime/log/trace output.
+- [x] T12. Add targeted tests for code-safe advisory behavior.
+
+2026-05-29 follow-up delivery:
+
+- Grep runtime artifact broad/no-match output now emits `artifact_search_advisory`
+  for explicit single-file artifact searches that include redundant
+  `file_type`/`include` filters or broad `context_lines`.
+- Grep's deterministic-command guidance now explicitly requires preserving
+  original line numbers, for example with `grep -n`, before `read_file`
+  grounding.
+- `exec_command` appends advisory lines for grep pipelines that target runtime
+  text artifacts and either exit 1 or return output without original line
+  numbers. The command is not rewritten and the success/failure status is not
+  changed.
+- Added targeted tests in `internal/tool/builtin_test.go`; `go test
+  ./internal/tool` passed 2026-05-29.
+- `go test ./...` passed 2026-05-29.
