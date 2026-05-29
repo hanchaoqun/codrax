@@ -84,7 +84,7 @@ flowchart label repair use it:
   - `internal/preview`
   - `internal/outputdump`
   - full `make test`
-- [ ] T5 Refresh this document with implementation status and pushed commit.
+- [x] T5 Refresh this document with implementation status and pushed commit.
 
 ## Progress
 
@@ -105,3 +105,5 @@ flowchart label repair use it:
 - Verification passed:
   - `go test ./internal/mermaidcompat ./internal/preview ./internal/outputdump`
   - `make test`
+- Implementation pushed in commit `c95a2fbb` (`Unify Mermaid flowchart label
+  quoting`).
