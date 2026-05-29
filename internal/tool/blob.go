@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -179,6 +180,68 @@ func StoreBlobArtifact(workDir, toolName, nameHint, output string) string {
 	}
 	path := filepath.Join(workDir, fmt.Sprintf("%s-%s%s", stem, hex.EncodeToString(sum[:4]), ext))
 	if err := os.WriteFile(path, []byte(output), 0o644); err != nil {
+		return ""
+	}
+	return path
+}
+
+// StoreBlobArtifactFromFile writes an auxiliary blob from an already-spooled
+// file without loading the full payload into memory. prefix, when non-empty,
+// is prepended to the stored artifact and included in the content hash.
+func StoreBlobArtifactFromFile(workDir, toolName, nameHint, inputPath, prefix string) string {
+	if strings.TrimSpace(workDir) == "" || strings.TrimSpace(inputPath) == "" {
+		return ""
+	}
+	if err := os.MkdirAll(workDir, 0o755); err != nil {
+		return ""
+	}
+	in, err := os.Open(inputPath)
+	if err != nil {
+		return ""
+	}
+	defer in.Close()
+
+	h := sha256.New()
+	if prefix != "" {
+		_, _ = h.Write([]byte(prefix))
+	}
+	if _, err := io.Copy(h, in); err != nil {
+		return ""
+	}
+	sum := h.Sum(nil)
+
+	rawName := firstNonEmptyBlobName(nameHint, toolName, "artifact")
+	ext := filepath.Ext(rawName)
+	if ext == "" {
+		ext = ".txt"
+	}
+	stem := sanitizeToolName(strings.TrimSuffix(rawName, filepath.Ext(rawName)))
+	if stem == "" {
+		stem = sanitizeToolName(firstNonEmptyBlobName(toolName, "artifact"))
+	}
+	path := filepath.Join(workDir, fmt.Sprintf("%s-%s%s", stem, hex.EncodeToString(sum[:4]), ext))
+
+	if _, err := in.Seek(0, 0); err != nil {
+		return ""
+	}
+	out, err := os.Create(path)
+	if err != nil {
+		return ""
+	}
+	if prefix != "" {
+		if _, err := out.WriteString(prefix); err != nil {
+			_ = out.Close()
+			_ = os.Remove(path)
+			return ""
+		}
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		_ = os.Remove(path)
+		return ""
+	}
+	if err := out.Close(); err != nil {
+		_ = os.Remove(path)
 		return ""
 	}
 	return path

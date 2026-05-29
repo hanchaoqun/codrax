@@ -21,13 +21,17 @@ type NativeGrepOpts struct {
 	Pattern      string // regex source (ERE-compatible subset)
 	Root         string // directory or file to scan
 	IgnoreCase   bool
+	FixedString  bool
 	FilesOnly    bool     // emit one path per matching file, no line content
 	ContextLines int      // lines of context before/after each match (0 = off, max 20)
+	LineStart    int      // 1-based inclusive line window start; 0 means beginning
+	LineEnd      int      // 1-based inclusive line window end; 0 means EOF
 	Include      string   // glob filter against basename (filepath.Match syntax, e.g. "*.go")
 	ExcludeDirs  []string // directory names to skip at any depth
 	ShouldSkip   func(path string, d fs.DirEntry) bool
 	MaxFileBytes int // directory search: 0 = default cap, <0 = no limit; explicit single-file roots default to no limit
 	MaxMatches   int // stop after this many line-level matches across all files; 0 = no cap
+	DisplayRoot  string
 }
 
 // NativeGrepResult carries the rendered output bytes plus a lightweight
@@ -59,12 +63,20 @@ func NativeGrep(ctx context.Context, opts NativeGrepOpts) (NativeGrepResult, err
 	if pattern == "" {
 		return res, fmt.Errorf("native grep: empty pattern")
 	}
-	if opts.IgnoreCase {
-		pattern = "(?i)" + pattern
+	fixedPattern := pattern
+	if opts.IgnoreCase && opts.FixedString {
+		fixedPattern = strings.ToLower(fixedPattern)
 	}
-	re, err := regexp.Compile(pattern)
-	if err != nil {
-		return res, fmt.Errorf("native grep: %v", err)
+	var re *regexp.Regexp
+	if !opts.FixedString {
+		if opts.IgnoreCase {
+			pattern = "(?i)" + pattern
+		}
+		compiled, err := regexp.Compile(pattern)
+		if err != nil {
+			return res, fmt.Errorf("native grep: %v", err)
+		}
+		re = compiled
 	}
 
 	root := opts.Root
@@ -172,7 +184,7 @@ func NativeGrep(ctx context.Context, opts NativeGrepOpts) (NativeGrepResult, err
 		}
 
 		res.FilesTried++
-		rel := relPathForDisplay(root, path)
+		rel := relPathForDisplayRoot(opts.DisplayRoot, root, path)
 
 		reader := bufio.NewReaderSize(f, 64*1024)
 		lineno := 0
@@ -199,7 +211,13 @@ func NativeGrep(ctx context.Context, opts NativeGrepOpts) (NativeGrepResult, err
 			}
 			lineno++
 			line := strings.TrimRight(raw, "\r\n")
-			if re.MatchString(line) {
+			if opts.LineStart > 0 && lineno < opts.LineStart {
+				continue
+			}
+			if opts.LineEnd > 0 && lineno > opts.LineEnd {
+				break
+			}
+			if nativeGrepLineMatches(line, fixedPattern, re, opts.FixedString, opts.IgnoreCase) {
 				if ctxLines > 0 && !opts.FilesOnly {
 					startLine := lineno - len(buf)
 					for i, prev := range buf {
@@ -247,11 +265,30 @@ func NativeGrep(ctx context.Context, opts NativeGrepOpts) (NativeGrepResult, err
 	return res, nil
 }
 
+func nativeGrepLineMatches(line, fixedPattern string, re *regexp.Regexp, fixed, ignoreCase bool) bool {
+	if fixed {
+		if ignoreCase {
+			return strings.Contains(strings.ToLower(line), fixedPattern)
+		}
+		return strings.Contains(line, fixedPattern)
+	}
+	return re != nil && re.MatchString(line)
+}
+
 // relPathForDisplay mirrors how ripgrep / grep -r render paths: when
 // the walk root is a directory we keep the path as-walked (relative
 // to the caller's CWD), otherwise we keep the single-file path as
 // supplied. Unix and Windows separators both survive unchanged.
 func relPathForDisplay(root, path string) string {
+	return relPathForDisplayRoot("", root, path)
+}
+
+func relPathForDisplayRoot(displayRoot, root, path string) string {
+	if strings.TrimSpace(displayRoot) != "" {
+		if rel, err := filepath.Rel(displayRoot, path); err == nil && rel != "." && rel != ".." && !strings.HasPrefix(filepath.ToSlash(rel), "../") {
+			return filepath.ToSlash(rel)
+		}
+	}
 	if root == "." || root == "" {
 		if strings.HasPrefix(path, "./") {
 			return path[2:]

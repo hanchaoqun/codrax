@@ -108,6 +108,57 @@ func TestNativeGrep_IgnoreCase(t *testing.T) {
 	}
 }
 
+func TestNativeGrep_FixedStringTreatsRegexPunctuationLiterally(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "trace.log")
+	body := "[GT]codraxNode1>prio=20\nGTcodraxNode1 prio=20\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write trace: %v", err)
+	}
+
+	res, err := NativeGrep(context.Background(), NativeGrepOpts{
+		Pattern:     "[GT]codraxNode1>prio=20",
+		Root:        path,
+		FixedString: true,
+		DisplayRoot: root,
+	})
+	if err != nil {
+		t.Fatalf("NativeGrep fixed string: %v", err)
+	}
+	if res.Matches != 1 {
+		t.Fatalf("fixed string should match exactly once, got %d output=%q", res.Matches, res.Output)
+	}
+	if !strings.Contains(res.Output, "trace.log:1:[GT]codraxNode1>prio=20") {
+		t.Fatalf("fixed string output should be repo-relative and literal:\n%s", res.Output)
+	}
+}
+
+func TestNativeGrep_LineWindow(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "events.log")
+	body := "needle before\nnoise\nneedle in window\nneedle after\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write events: %v", err)
+	}
+
+	res, err := NativeGrep(context.Background(), NativeGrepOpts{
+		Pattern:     "needle",
+		Root:        path,
+		LineStart:   2,
+		LineEnd:     3,
+		DisplayRoot: root,
+	})
+	if err != nil {
+		t.Fatalf("NativeGrep line window: %v", err)
+	}
+	if res.Matches != 1 || !strings.Contains(res.Output, "events.log:3:needle in window") {
+		t.Fatalf("line window should keep only line 3, matches=%d output=%q", res.Matches, res.Output)
+	}
+	if strings.Contains(res.Output, "before") || strings.Contains(res.Output, "after") {
+		t.Fatalf("line window leaked outside range:\n%s", res.Output)
+	}
+}
+
 func TestNativeGrep_Timeout(t *testing.T) {
 	root := seedCorpus(t)
 	ctx, cancel := context.WithCancel(context.Background())

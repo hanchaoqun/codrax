@@ -953,6 +953,132 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
+	t.Run("fixed string literal handles log punctuation safely", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "trace.log")
+		content := "[GT]codraxNode1>prio=20\nGTcodraxNode1 prio=20\n"
+		if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{
+			Pattern:     "[GT]codraxNode1>prio=20",
+			Path:        tmpFile,
+			FixedString: true,
+		})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "fixed_string=true") {
+			t.Fatalf("params banner should expose fixed_string=true:\n%s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "[GT]codraxNode1>prio=20") {
+			t.Fatalf("expected literal match in output:\n%s", result.Summary)
+		}
+		if strings.Contains(result.Summary, "GTcodraxNode1 prio=20") {
+			t.Fatalf("fixed_string must not treat [] as regex char class:\n%s", result.Summary)
+		}
+	})
+
+	t.Run("single file line window narrows log search", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "events.log")
+		content := "needle before\nnoise\nneedle in window\nneedle after\n"
+		if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{
+			Pattern:   "needle",
+			Path:      tmpFile,
+			LineStart: 2,
+			LineEnd:   3,
+		})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		for _, want := range []string{"line_start=2", "line_end=3", "needle in window"} {
+			if !strings.Contains(result.Summary, want) {
+				t.Fatalf("line-window grep missing %q:\n%s", want, result.Summary)
+			}
+		}
+		if strings.Contains(result.Summary, "before") || strings.Contains(result.Summary, "after") {
+			t.Fatalf("line-window grep leaked outside range:\n%s", result.Summary)
+		}
+	})
+
+	t.Run("context lines banner says output lines include context", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "sample.log")
+		content := "before\nneedle\n after\n"
+		if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		contextLines := 1
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{
+			Pattern:      "needle",
+			Path:         tmpFile,
+			ContextLines: &contextLines,
+		})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "matching lines (including context output lines)") {
+			t.Fatalf("context grep banner should disambiguate output lines:\n%s", result.Summary)
+		}
+	})
+
+	t.Run("runtime artifact no match teaches literal and line-window recovery", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "record_trace.systrace")
+		if err := os.WriteFile(tmpFile, []byte("2942.124002: sched_switch\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		ctx := newBusContext()
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{
+			Pattern: `2942\.\d{3} MissingEvent`,
+			Path:    tmpFile,
+		})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		for _, want := range []string{
+			"no_match_advisory=single runtime/log/trace artifact searched",
+			"fixed_string=true",
+			"line_start/line_end",
+			"regex_compatibility_note=",
+		} {
+			if !strings.Contains(result.Summary, want) {
+				t.Fatalf("runtime no-match hint missing %q:\n%s", want, result.Summary)
+			}
+		}
+		if strings.Contains(result.Summary, "relation_map") {
+			t.Fatalf("runtime artifact no-match should not suggest repo relation_map:\n%s", result.Summary)
+		}
+	})
+
 	t.Run("explicit ignore_case false overrides smart-case", func(t *testing.T) {
 		// The LLM can force exact-case matching even on a lowercase
 		// pattern by passing ignore_case=false explicitly.
@@ -1517,6 +1643,56 @@ func TestGrepTool(t *testing.T) {
 		}
 		if strings.Contains(got, "relation_navigation_hint=") || strings.Contains(got, `repo_map(view="relation_map"`) {
 			t.Fatalf("runtime artifact grep must not suggest repo relation_map:\n%s", got)
+		}
+	})
+
+	t.Run("broad runtime artifact grep preserves full raw output without inline flood", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		tracePath := filepath.Join(tmpDir, "record_trace.systrace")
+		var raw strings.Builder
+		for i := 0; i < 120; i++ {
+			fmt.Fprintf(&raw, "record_trace.systrace:%d: com.tencent.mm-36379 (36379) [004] .... 2942.%06d: sched_switch: prev_state=S ==> next_comm=main\n", 1000+i, i)
+		}
+		if err := os.WriteFile(tracePath, []byte(raw.String()), 0o644); err != nil {
+			t.Fatalf("write trace: %v", err)
+		}
+
+		ctx := newBusContext()
+		ctx.WorkDir = t.TempDir()
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{
+			Pattern: "com.tencent.mm-36379",
+			Path:    tracePath,
+		})
+		result, err := tool.Execute(ctx, params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		for _, want := range []string{
+			"[grep retrieval governor]",
+			"decision=broad_result_compacted mode=line_output",
+			"full_raw_saved=",
+			"next_shape=single large runtime artifact matched too broadly",
+		} {
+			if !strings.Contains(result.Summary, want) {
+				t.Fatalf("broad runtime summary missing %q:\n%s", want, result.Summary)
+			}
+		}
+		if strings.Contains(result.Summary, "2942.000119") {
+			t.Fatalf("late line should not flood inline summary:\n%s", result.Summary)
+		}
+		if result.RawRef == "" {
+			t.Fatalf("expected raw ref for broad runtime artifact grep")
+		}
+		full, err := os.ReadFile(result.RawRef)
+		if err != nil {
+			t.Fatalf("read raw ref: %v", err)
+		}
+		if !strings.Contains(string(full), "2942.000119") {
+			t.Fatalf("raw ref must preserve omitted late lines:\n%s", string(full))
 		}
 	})
 

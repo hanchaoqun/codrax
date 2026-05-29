@@ -1,11 +1,13 @@
 package tool
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -59,6 +61,27 @@ func sanitizeForBanner(s string) string {
 		out = out[:toolBannerMaxValueLen-3] + "..."
 	}
 	return out
+}
+
+func boolBannerValue(v bool) string {
+	if v {
+		return "true"
+	}
+	return ""
+}
+
+func positiveIntBannerValue(v int) string {
+	if v > 0 {
+		return fmt.Sprintf("%d", v)
+	}
+	return ""
+}
+
+func ctxRepoRoot(ctx *types.BusContext) string {
+	if ctx == nil {
+		return ""
+	}
+	return ctx.RepoRoot
 }
 
 // resolveToolPath maps an LLM-supplied path to a real filesystem path
@@ -813,11 +836,14 @@ type grepToolParams struct {
 	ContextLines *int   `json:"context_lines,omitempty"`
 	IgnoreCase   *bool  `json:"ignore_case,omitempty"`
 	FilesOnly    bool   `json:"files_only,omitempty"`
+	FixedString  bool   `json:"fixed_string,omitempty"`
+	LineStart    int    `json:"line_start,omitempty"`
+	LineEnd      int    `json:"line_end,omitempty"`
 }
 
 func (t *GrepTool) Name() string { return "grep" }
 func (t *GrepTool) Description() string {
-	return "Search file contents by regex pattern. Use this to find where a symbol or string appears. Case handling is smart by default: if the pattern contains no uppercase characters it is matched case-insensitively (so `subagent` finds `SubAgent`, `SUBAGENT`, etc.); if the pattern contains any uppercase character it is matched exactly. Pass ignore_case explicitly to override. Use file_type to filter by language (e.g. \"go\", \"py\", \"js\", \"ts\", \"java\", \"yaml\") — this is preferred over include because it covers all relevant extensions (e.g. type \"ts\" matches both *.ts and *.tsx). Use context_lines to include surrounding lines around each match, which saves a follow-up read_file call. For large log/trace/systrace files, search one exact timestamp, thread id/name, or event literal first; regex is order-sensitive, so if a combined pattern returns no matches, inspect the line format with a simpler literal before combining fields. Do NOT use the result to count matches by eye — pipe `grep -c` or `grep ... | wc -l` through exec_command instead, and treat that number as authoritative."
+	return "Search file contents by pattern. Use this to find where a symbol, string, config key, log event, or trace row appears. By default `pattern` is a regex. Case handling is smart by default: if the pattern contains no uppercase characters it is matched case-insensitively (so `subagent` finds `SubAgent`, `SUBAGENT`, etc.); if the pattern contains any uppercase character it is matched exactly. Pass ignore_case explicitly to override. Use fixed_string=true for exact literal text with punctuation (recommended for log/trace event labels, thread names, error strings, config keys, and any text containing []()|#.: that you do not want treated as regex). Use file_type to filter by language (e.g. \"go\", \"py\", \"js\", \"ts\", \"java\", \"yaml\") — this is preferred over include because it covers all relevant extensions (e.g. type \"ts\" matches both *.ts and *.tsx). Use context_lines to include surrounding lines around each match, which saves a follow-up read_file call. Use line_start/line_end only with a single file when you already know a relevant line vicinity. For large log/trace/systrace files, search one exact timestamp, thread id/name, or event literal first; regex is order-sensitive, so if a combined pattern returns no matches, inspect the line format with a simpler literal before combining fields. Do NOT use the result to count matches by eye — pipe `grep -c` or `grep ... | wc -l` through exec_command instead, and treat that number as authoritative."
 }
 
 func grepShouldUseNativeBackend(searchBackend string, hasRepoRoot, searchPathIsFile bool) bool {
@@ -837,6 +863,44 @@ func grepShouldUseNativeBackend(searchBackend string, hasRepoRoot, searchPathIsF
 	}
 }
 
+func grepPatternHasCommonRegexShorthand(pattern string) bool {
+	for i := 0; i < len(pattern); i++ {
+		if pattern[i] != '\\' {
+			continue
+		}
+		runStart := i
+		for i < len(pattern) && pattern[i] == '\\' {
+			i++
+		}
+		if (i-runStart)%2 == 0 || i >= len(pattern) {
+			i--
+			continue
+		}
+		switch pattern[i] {
+		case 'd', 'D', 's', 'S', 'w', 'W':
+			return true
+		}
+	}
+	return false
+}
+
+func grepLineUnit(contextLines int) string {
+	if contextLines > 0 {
+		return "matching lines (including context output lines)"
+	}
+	return "matching lines"
+}
+
+func grepCountBanner(entries int, filesOnly bool, contextLines int) string {
+	unit := "matching lines"
+	if filesOnly {
+		unit = "matching files"
+	} else {
+		unit = grepLineUnit(contextLines)
+	}
+	return fmt.Sprintf("[grep: %d %s]\n", entries, unit)
+}
+
 func (t *GrepTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
@@ -847,7 +911,10 @@ func (t *GrepTool) Parameters() json.RawMessage {
     "file_type":     {"type": "string",  "description": "Language/file type filter: go, py, js, ts, java, kotlin, arkts, cangjie, rust, ruby, c, cpp, yaml, json, toml, markdown, config, etc. Covers all relevant extensions (e.g. ts matches *.ts and *.tsx; kotlin matches *.kt and *.kts; arkts matches *.ets; cangjie matches *.cj). Preferred over include for language filtering."},
     "context_lines": {"type": "integer", "description": "Number of lines to show before and after each match (like grep -C). Use this to see surrounding code without a separate read_file call. Ignored when files_only is true."},
     "ignore_case":   {"type": "boolean", "description": "Case-insensitive match. Omit for smart-case (insensitive iff pattern has no uppercase). Set true/false to force."},
-    "files_only":    {"type": "boolean", "description": "If true, return only file paths that contain matches (like grep -l), not the matching lines. Useful for breadth scans to discover which files are relevant without flooding the output."}
+    "files_only":    {"type": "boolean", "description": "If true, return only file paths that contain matches (like grep -l), not the matching lines. Useful for breadth scans to discover which files are relevant without flooding the output."},
+    "fixed_string":  {"type": "boolean", "description": "Treat pattern as literal text, not regex. Use for exact log/trace/event/config strings with punctuation, or when regex escaping is not needed."},
+    "line_start":    {"type": "integer", "description": "1-based inclusive start line for a single-file search window. Use only after discovering a line vicinity."},
+    "line_end":      {"type": "integer", "description": "1-based inclusive end line for a single-file search window. Use only with path set to one file."}
   },
   "required": ["pattern"]
 }`)
@@ -917,6 +984,36 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if info, err := os.Stat(searchPath); err == nil {
 		searchPathIsFile = !info.IsDir()
 	}
+	lineWindow := p.LineStart > 0 || p.LineEnd > 0
+	if p.LineStart < 0 || p.LineEnd < 0 {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "invalid params: grep line_start/line_end must be positive 1-based line numbers",
+			Timestamp: time.Now(),
+		}, nil
+	}
+	if lineWindow {
+		if !searchPathIsFile {
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   "invalid params: grep line_start/line_end require path to be one explicit file; omit the line window for repository or directory searches",
+				Timestamp: time.Now(),
+			}, nil
+		}
+		if p.LineStart == 0 {
+			p.LineStart = 1
+		}
+		if p.LineEnd > 0 && p.LineEnd < p.LineStart {
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   fmt.Sprintf("invalid params: grep line_end (%d) must be >= line_start (%d)", p.LineEnd, p.LineStart),
+				Timestamp: time.Now(),
+			}, nil
+		}
+	}
 	dirFilter := NewSearchDirFilter(ctx.RepoRoot, searchPath)
 	commandDir := ""
 	commandSearchPath := searchPath
@@ -972,7 +1069,14 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// Output format matches grep -rnH / grep -rl so the same count
 	// banner + params banner wrapper works unchanged below.
 	searchBackend := SearchCommand()
-	if grepShouldUseNativeBackend(searchBackend, ctx != nil && ctx.RepoRoot != "", searchPathIsFile) {
+	useNativeBackend := grepShouldUseNativeBackend(searchBackend, ctx != nil && ctx.RepoRoot != "", searchPathIsFile)
+	if lineWindow {
+		useNativeBackend = true
+	}
+	if searchBackend == "grep" && searchPathIsFile && !p.FixedString && grepPatternHasCommonRegexShorthand(p.Pattern) {
+		useNativeBackend = true
+	}
+	if useNativeBackend {
 		var shouldSkip func(path string, d fs.DirEntry) bool
 		if ctx != nil && ctx.RepoRoot != "" {
 			shouldSkip = func(path string, d fs.DirEntry) bool {
@@ -992,11 +1096,15 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			Pattern:      p.Pattern,
 			Root:         searchPath,
 			IgnoreCase:   caseInsensitive,
+			FixedString:  p.FixedString,
 			FilesOnly:    p.FilesOnly,
 			ContextLines: contextLines,
+			LineStart:    p.LineStart,
+			LineEnd:      p.LineEnd,
 			Include:      include,
 			ExcludeDirs:  dirFilter.AnyLevelPatterns(),
 			ShouldSkip:   shouldSkip,
+			DisplayRoot:  ctxRepoRoot(ctx),
 		})
 		paramsBanner := kvBanner("grep params",
 			"pattern", p.Pattern,
@@ -1021,6 +1129,9 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				}
 				return ""
 			}(),
+			"fixed_string", boolBannerValue(p.FixedString),
+			"line_start", positiveIntBannerValue(p.LineStart),
+			"line_end", positiveIntBannerValue(p.LineEnd),
 			"backend", "native",
 		)
 		if nerr != nil && searchCtx.Err() != context.DeadlineExceeded {
@@ -1040,7 +1151,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			}, nil
 		}
 		if nres.Matches == 0 {
-			suffix := "no matches found"
+			suffix := grepNoMatchBody(ctx, p)
 			if nres.SkippedLargeFiles > 0 {
 				suffix = fmt.Sprintf("no matches found in scanned files; skipped %d large file(s) due to the native grep directory-scan safety cap. If the target is a specific large log/trace/source file, re-run grep with path set to that file.", nres.SkippedLargeFiles)
 			}
@@ -1051,11 +1162,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 				Timestamp: time.Now(),
 			}, nil
 		}
-		unit := "matching lines"
-		if p.FilesOnly {
-			unit = "matching files"
-		}
-		countBanner := fmt.Sprintf("[grep: %d %s]\n", nres.Matches, unit)
+		countBanner := grepCountBanner(nres.Matches, p.FilesOnly, contextLines)
 		summary, ref := finalizeGrepOutput(ctx, p, countBanner, paramsBanner, nres.Output)
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -1078,6 +1185,9 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		args := []string{"-n", "-H"}
 		if p.FilesOnly {
 			args = []string{"-l"}
+		}
+		if p.FixedString {
+			args = append(args, "-F")
 		}
 		if contextLines > 0 {
 			args = append(args, "-C", fmt.Sprintf("%d", contextLines))
@@ -1105,12 +1215,19 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		args = append(args, p.Pattern, commandSearchPath)
 		cmd = exec.CommandContext(searchCtx, SearchExecutable(), args...)
 	} else {
-		// GNU grep fallback: -E for ERE, -I to skip binary files,
+		// GNU grep fallback: -E for ERE unless fixed_string=true, -I to skip binary files,
 		// -H forces filename prefix (see ripgrep comment above for why
 		// single-file paths break extractFileCoverage without it).
 		args := []string{"-rnEIH"}
 		if p.FilesOnly {
 			args = []string{"-rlEI"}
+		}
+		if p.FixedString {
+			if p.FilesOnly {
+				args = []string{"-rlFI"}
+			} else {
+				args = []string{"-rnFIH"}
+			}
 		}
 		if contextLines > 0 {
 			args = append(args, fmt.Sprintf("-C%d", contextLines))
@@ -1140,13 +1257,6 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if commandDir != "" {
 		cmd.Dir = commandDir
 	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
-	output := stdout.String()
-
 	// Params banner — added AFTER the count banner (or at the top
 	// when there is no count banner) so `strings.HasPrefix(Summary,
 	// "[grep:")` and `strings.Contains(Summary, "matching files]")`
@@ -1173,7 +1283,74 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		"context_lines", contextStr,
 		"case_insensitive", caseStr,
 		"files_only", filesOnlyStr,
+		"fixed_string", boolBannerValue(p.FixedString),
+		"line_start", positiveIntBannerValue(p.LineStart),
+		"line_end", positiveIntBannerValue(p.LineEnd),
 	)
+
+	if grepParamsTargetRuntimeArtifactFile(ctx, p) && !p.FilesOnly {
+		capture, err := runRuntimeArtifactGrepStream(ctx, cmd)
+		defer capture.cleanup()
+
+		if searchCtx.Err() == context.DeadlineExceeded {
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   paramsBanner + "grep timed out after 60s — pattern may be too broad or repo too large",
+				Timestamp: time.Now(),
+			}, nil
+		}
+		if err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 1 {
+				return types.ToolResult{
+					ToolName:  t.Name(),
+					Success:   true,
+					Summary:   paramsBanner + grepNoMatchBody(ctx, p),
+					Timestamp: time.Now(),
+				}, nil
+			}
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   paramsBanner + fmt.Sprintf("grep failed: %v: %s", err, capture.Stderr),
+				Timestamp: time.Now(),
+			}, nil
+		}
+		if capture.Lines == 0 {
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   true,
+				Summary:   paramsBanner + grepNoMatchBody(ctx, p),
+				Timestamp: time.Now(),
+			}, nil
+		}
+		countBanner := grepCountBanner(capture.Lines, false, contextLines)
+		if capture.FullInMemory && capture.Lines <= grepGovernorLineEntryThreshold && capture.Bytes <= grepGovernorByteThreshold {
+			summary, ref := finalizeGrepOutput(ctx, p, countBanner, paramsBanner, capture.InlineOutput)
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   true,
+				Summary:   summary,
+				RawRef:    ref,
+				Timestamp: time.Now(),
+			}, nil
+		}
+		summary, ref := compactStreamedRuntimeArtifactGrepOutput(ctx, p, countBanner, paramsBanner, capture)
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   true,
+			Summary:   summary,
+			RawRef:    ref,
+			Timestamp: time.Now(),
+		}, nil
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	output := stdout.String()
 
 	// Timeout produces a context.DeadlineExceeded — surface it clearly.
 	if searchCtx.Err() == context.DeadlineExceeded {
@@ -1191,7 +1368,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Success:   true,
-				Summary:   paramsBanner + "no matches found",
+				Summary:   paramsBanner + grepNoMatchBody(ctx, p),
 				Timestamp: time.Now(),
 			}, nil
 		}
@@ -1214,11 +1391,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	}
 	var countBanner string
 	if lines > 0 {
-		unit := "matching lines"
-		if p.FilesOnly {
-			unit = "matching files"
-		}
-		countBanner = fmt.Sprintf("[grep: %d %s]\n", lines, unit)
+		countBanner = grepCountBanner(lines, p.FilesOnly, contextLines)
 	}
 	summary, ref := finalizeGrepOutput(ctx, p, countBanner, paramsBanner, output)
 	return types.ToolResult{
@@ -1299,6 +1472,148 @@ func compactBroadGrepOutput(ctx *types.BusContext, params grepToolParams, countB
 	writeCappedGrepSection(&b, auxiliaryHeader, auxiliary, grepGovernorAuxiliaryCap, "")
 	writeCappedGrepSection(&b, otherHeader, other, grepGovernorOtherCap, "")
 	return b.String(), rawRef, true
+}
+
+type runtimeArtifactGrepCapture struct {
+	InlineOutput string
+	PreviewLines []string
+	TempPath     string
+	Stderr       string
+	Lines        int
+	Bytes        int
+	FullInMemory bool
+}
+
+func (c runtimeArtifactGrepCapture) cleanup() {
+	if strings.TrimSpace(c.TempPath) != "" {
+		_ = os.Remove(c.TempPath)
+	}
+}
+
+func runRuntimeArtifactGrepStream(ctx *types.BusContext, cmd *exec.Cmd) (runtimeArtifactGrepCapture, error) {
+	var capture runtimeArtifactGrepCapture
+	capture.FullInMemory = true
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return capture, err
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	var temp *os.File
+	if ctx != nil && strings.TrimSpace(ctx.WorkDir) != "" {
+		if err := os.MkdirAll(ctx.WorkDir, 0o755); err == nil {
+			if f, err := os.CreateTemp(ctx.WorkDir, "grep-stream-*.tmp"); err == nil {
+				temp = f
+				capture.TempPath = f.Name()
+			}
+		}
+	}
+
+	if err := cmd.Start(); err != nil {
+		if temp != nil {
+			_ = temp.Close()
+		}
+		capture.Stderr = stderr.String()
+		return capture, err
+	}
+
+	reader := bufio.NewReaderSize(stdout, 64*1024)
+	var inline strings.Builder
+	for {
+		line, readErr := reader.ReadString('\n')
+		if len(line) > 0 {
+			capture.Lines++
+			capture.Bytes += len(line)
+			if temp != nil {
+				_, _ = temp.WriteString(line)
+			}
+			if capture.FullInMemory {
+				if inline.Len()+len(line) <= grepGovernorByteThreshold {
+					inline.WriteString(line)
+				} else {
+					capture.FullInMemory = false
+				}
+			}
+			if len(capture.PreviewLines) < grepGovernorLineProductionCap {
+				capture.PreviewLines = append(capture.PreviewLines, strings.TrimRight(line, "\r\n"))
+			}
+		}
+		if readErr != nil {
+			if readErr == io.EOF {
+				break
+			}
+			waitErr := cmd.Wait()
+			if temp != nil {
+				_ = temp.Close()
+			}
+			capture.Stderr = stderr.String()
+			if waitErr != nil {
+				return capture, waitErr
+			}
+			return capture, readErr
+		}
+	}
+	if temp != nil {
+		_ = temp.Close()
+	}
+	err = cmd.Wait()
+	capture.Stderr = stderr.String()
+	if capture.FullInMemory {
+		capture.InlineOutput = inline.String()
+	}
+	return capture, err
+}
+
+func compactStreamedRuntimeArtifactGrepOutput(ctx *types.BusContext, params grepToolParams, countBanner, paramsBanner string, capture runtimeArtifactGrepCapture) (summary, rawRef string) {
+	if ctx != nil && strings.TrimSpace(ctx.WorkDir) != "" && strings.TrimSpace(capture.TempPath) != "" {
+		rawRef = StoreBlobArtifactFromFile(ctx.WorkDir, "grep", "grep-full.txt", capture.TempPath, countBanner+paramsBanner)
+	}
+
+	var b strings.Builder
+	b.WriteString(countBanner)
+	b.WriteString(paramsBanner)
+	b.WriteString("[grep retrieval governor]\n")
+	fmt.Fprintf(&b, "decision=broad_result_compacted mode=line_output entries=%d production=%d auxiliary=0 other=0\n", capture.Lines, capture.Lines)
+	fmt.Fprintf(&b, "inline_caps production=%d auxiliary=0 other=0\n", grepGovernorLineProductionCap)
+	fmt.Fprintf(&b, "relevance=explicit_file=%d\n", capture.Lines)
+	if rawRef != "" {
+		fmt.Fprintf(&b, "full_raw_saved=%s\n", rawRef)
+	} else {
+		b.WriteString("full_raw_saved=unavailable (no workdir configured)\n")
+	}
+	b.WriteString("next_shape=single large runtime artifact matched too broadly; narrow with one exact timestamp/literal/thread id/event name, then read_file around returned line numbers for evidence. Use fixed_string=true for punctuation-heavy literals, or line_start/line_end when searching a known vicinity.\n")
+	writeCappedGrepSection(&b, "[grep production matches]", capture.PreviewLines, grepGovernorLineProductionCap, "no runtime-artifact matches returned")
+	if omitted := capture.Lines - len(capture.PreviewLines); omitted > 0 {
+		fmt.Fprintf(&b, "... omitted %d output line(s) from inline preview; page the full_raw_saved artifact or narrow the grep.\n", omitted)
+	}
+	return b.String(), rawRef
+}
+
+func grepNoMatchBody(ctx *types.BusContext, params grepToolParams) string {
+	body := "no matches found"
+	lineWindowNote := ""
+	if params.LineStart > 0 || params.LineEnd > 0 {
+		lineWindowNote = "line_window_note=search was limited to the requested line window; omit or widen line_start/line_end if the target may be outside it.\n"
+	}
+	if grepParamsTargetRuntimeArtifactFile(ctx, params) {
+		var b strings.Builder
+		b.WriteString("no matches found\n")
+		b.WriteString(lineWindowNote)
+		b.WriteString("no_match_advisory=single runtime/log/trace artifact searched; this only means the exact pattern matched zero lines. Regex is line-order-sensitive; try one exact literal/timestamp/thread id/event name, or set fixed_string=true for punctuation-heavy text. If you know the vicinity, use line_start/line_end on this file.\n")
+		if !params.FixedString && grepPatternHasCommonRegexShorthand(params.Pattern) {
+			b.WriteString("regex_compatibility_note=pattern contains \\d/\\s/\\w-style shorthand; codrax normalizes common single-file cases, but a simpler literal or fixed_string=true is safer for artifact discovery.\n")
+		}
+		return b.String()
+	}
+	if lineWindowNote != "" {
+		body += "\n" + lineWindowNote
+	}
+	if !params.FixedString && grepPatternHasCommonRegexShorthand(params.Pattern) {
+		body += "\nregex_compatibility_note=pattern contains \\d/\\s/\\w-style shorthand; regex support varies by backend. Try an explicit character class such as [0-9] or fixed_string=true when searching literal text.\n"
+	}
+	return body
 }
 
 func grepBroadResultRelationNavigationHint(ctx *types.BusContext, params grepToolParams, production []string) string {

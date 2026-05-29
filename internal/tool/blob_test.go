@@ -83,3 +83,29 @@ func TestStoreBlobArtifactAlwaysWritesStructuredRef(t *testing.T) {
 		t.Fatalf("artifact body = %q", string(body))
 	}
 }
+
+func TestStoreBlobArtifactFromFileStreamsWithPrefix(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "raw.tmp")
+	if err := os.WriteFile(src, []byte("late raw line\n"), 0o644); err != nil {
+		t.Fatalf("write src: %v", err)
+	}
+
+	ref := StoreBlobArtifactFromFile(dir, "grep", "grep-full.txt", src, "header\n")
+	if ref == "" {
+		t.Fatal("expected artifact ref")
+	}
+	if filepath.Dir(ref) != dir {
+		t.Fatalf("artifact should be stored in work dir, got %s", ref)
+	}
+	if !strings.HasSuffix(ref, ".txt") {
+		t.Fatalf("artifact should preserve txt extension, got %s", ref)
+	}
+	body, err := os.ReadFile(ref)
+	if err != nil {
+		t.Fatalf("read artifact: %v", err)
+	}
+	if string(body) != "header\nlate raw line\n" {
+		t.Fatalf("artifact body = %q", string(body))
+	}
+}
