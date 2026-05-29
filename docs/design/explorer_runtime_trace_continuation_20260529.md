@@ -155,3 +155,83 @@ continuation work:
 - Added targeted tests in `internal/tool/builtin_test.go`; `go test
   ./internal/tool` passed 2026-05-29.
 - `go test ./...` passed 2026-05-29.
+
+## Follow-up: Large Runtime Artifact Search Recovery
+
+Customer log excerpts after the T9-T12 delivery exposed one more model-facing
+ambiguity in the same subsystem. The trace file was present and grep-capable,
+but the model first called `grep(path=".", files_only=true)`. The Go-native
+directory scanner correctly skipped the very large `.systrace` file under its
+broad directory safety cap, returned no matches from the scanned subset, and
+listed the skipped path. The model interpreted that as "the trace file is too
+large to grep" and switched to `read_file(offset=0)`, which is the worst
+navigation shape for a 1.5M-line runtime artifact.
+
+### Root Cause
+
+- The native directory-scan no-match text collapsed two distinct facts into one
+  sentence: "the scanned subset had no matches" and "some large files were not
+  scanned". For runtime/log/trace artifacts, that ambiguity can make a model
+  treat a directory-scan safety skip as a capability failure.
+- The result named skipped paths but did not provide a concrete next tool call
+  shape. The correct recovery is explicit single-file grep on the skipped
+  artifact, not reading the artifact from the beginning.
+- The read-without-emit nudge is origin-aware, but when the just-read file is a
+  runtime/log/trace header or broad initial page it still starts from an
+  evidence-materialization frame. That can distract the model from the better
+  next step: narrow by timestamp/thread/event, then read the returned line
+  window.
+- `exec_command` already reminds models to preserve line numbers. It still lacks
+  a soft warning for broad runtime grep alternation (`A\|B`, `A|B`) that returns
+  early unrelated rows before the intended time window.
+
+### Recovery Contract
+
+1. Directory-scan large-file skips are not absence proof. The tool result must
+   say the scanned subset was searched, skipped candidates were not searched,
+   and explicit single-file grep remains supported.
+2. Runtime/log/trace skipped candidates should include a concrete `next_call`
+   example with `path` set to the skipped artifact, `files_only=false`, and
+   `context_lines=0`. This is guidance only; the model still chooses the
+   pattern.
+3. The system must not silently rerun grep with different parameters, rewrite
+   regexes, or force evidence emission from non-target runtime artifact pages.
+4. Runtime/log/trace `read_file` pages that look like broad/header reads should
+   receive a continuation/search-shape nudge, not an evidence-pressure nudge.
+5. Runtime grep pipelines with broad OR shapes should get a soft advisory to
+   use conjunctive/numeric filtering while preserving original line numbers.
+   This must not affect code/config searches.
+
+### Follow-up Tasks
+
+- [x] T13. Split native grep skipped-large no-match output into
+  `searched_subset_no_matches`, skipped candidates, and explicit single-file
+  recovery guidance.
+- [x] T14. Add concrete runtime/log/trace `next_call` guidance for skipped large
+  candidates, including "do not read_file from offset 0" wording.
+- [x] T15. Make explorer read-without-emit hints runtime-header-aware so broad
+  runtime artifact pages steer back to targeted grep/read windows.
+- [x] T16. Add `exec_command` soft advisory for runtime grep pipelines that use
+  broad OR alternation and return line-numbered output.
+- [x] T17. Add targeted tests covering T13-T16 and run focused plus full Go test
+  suites.
+
+2026-05-29 large-artifact recovery delivery:
+
+- Native grep directory-scan no-match output now separates
+  `searched_subset_no_matches=true` from `skipped_large_candidates=...`; skipped
+  large files are explicitly described as unsearched candidates, not absence
+  proof.
+- Runtime/log/trace skipped candidates now include a concrete
+  `next_call=grep(path=..., pattern="<one exact timestamp/thread/event literal>",
+  files_only=false, context_lines=0)` and explicitly warn not to start with
+  `read_file` from offset 0.
+- Explorer read-without-emit guidance detects runtime/log/trace header / broad
+  first-page reads and steers the model back to targeted single-file grep or
+  line-number-preserving deterministic filters. Mixed code/runtime read batches
+  keep the normal source-evidence materialization nudge.
+- `exec_command` now appends a soft advisory when a runtime/log/trace grep
+  pipeline uses broad OR alternation; the command output and success semantics
+  are not changed.
+- Targeted `internal/tool` and `internal/agent` tests passed 2026-05-29.
+- `go test ./...` passed 2026-05-29.

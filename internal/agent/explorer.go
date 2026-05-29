@@ -4423,6 +4423,14 @@ type readFileWindowStats struct {
 	large    bool
 }
 
+type runtimeArtifactReadWindow struct {
+	path        string
+	start       int
+	end         int
+	total       int
+	broadHeader bool
+}
+
 const (
 	readWithoutEmitLargeWindowLines = 120
 	readWithoutEmitLargeWindowBytes = 12000
@@ -4451,6 +4459,56 @@ func readFileWindowStatsSince(results []types.ToolResult, prevLen int) readFileW
 	stats.large = stats.maxLines >= readWithoutEmitLargeWindowLines ||
 		stats.maxBytes >= readWithoutEmitLargeWindowBytes
 	return stats
+}
+
+func runtimeArtifactReadWindowSince(results []types.ToolResult, prevLen int) (runtimeArtifactReadWindow, bool) {
+	if prevLen < 0 || prevLen > len(results) {
+		prevLen = 0
+	}
+	var fallback runtimeArtifactReadWindow
+	nonRuntimeRead := false
+	for _, r := range results[prevLen:] {
+		if !r.Success || r.ToolName != "read_file" {
+			continue
+		}
+		path, rng, total, ok := ground.ParseReadFileBanner(r.Summary)
+		if !ok || !tool.LooksLikeRuntimeArtifactPath(path) {
+			nonRuntimeRead = true
+			continue
+		}
+		win := runtimeArtifactReadWindow{
+			path:        path,
+			start:       rng.Start,
+			end:         rng.End,
+			total:       total,
+			broadHeader: runtimeArtifactReadLooksLikeBroadHeader(rng, total),
+		}
+		if win.broadHeader {
+			fallback = win
+			continue
+		}
+		if fallback.path == "" {
+			fallback = win
+		}
+	}
+	if nonRuntimeRead {
+		return runtimeArtifactReadWindow{}, false
+	}
+	return fallback, fallback.path != ""
+}
+
+func runtimeArtifactReadLooksLikeBroadHeader(rng types.LineRange, total int) bool {
+	if rng.Start <= 0 || rng.End < rng.Start {
+		return false
+	}
+	lines := rng.End - rng.Start + 1
+	if rng.Start > 1 {
+		return false
+	}
+	if total >= 1000 && lines <= 300 {
+		return true
+	}
+	return total == 0 && lines >= readWithoutEmitLargeWindowLines
 }
 
 func lineWithinAnySpan(line int, spans []symbolSpan) bool {
@@ -5114,6 +5172,19 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 		logging.Debug("[partial_read] suppressed read_without_emit after advisory partial-read key=%s", e.midLoopPartialReadBacklogKey)
 		return LoopSignal{}
 	}
+	if runtimeWindow, ok := runtimeArtifactReadWindowSince(obs.AllToolResults, e.midLoopEmitBacklogBaseLen); ok && runtimeWindow.broadHeader {
+		e.midLoopNoEmitPushSent = true
+		e.midLoopNoEmitPushIter = obs.Iteration
+		e.midLoopNoEmitPushResultsLen = len(obs.AllToolResults)
+		return LoopSignal{
+			HintRequested:  true,
+			HintKey:        e.readWithoutEmitHintKey(),
+			Hint:           renderRuntimeArtifactHeaderReadHint(runtimeWindow),
+			Progress:       true,
+			BypassThrottle: true,
+			BypassBudget:   true,
+		}
+	}
 	e.midLoopNoEmitPushSent = true
 	e.midLoopNoEmitPushIter = obs.Iteration
 	e.midLoopNoEmitPushResultsLen = len(obs.AllToolResults)
@@ -5197,6 +5268,19 @@ func (e *explorerEvaluator) renderReadWithoutEmitHint(prefixFormat string, reads
 	b.WriteString("Facts left only in your prose notes are NOT recorded — anything that is not passed through `emit_evidence(items=[...])` is unavailable to later answer steps (concrete value, definition, call-site, or condition). ")
 	b.WriteString("Pick the strongest anchors you have identified in the files you just read and emit them in ONE batch now. Line numbers MUST come verbatim from the `read_file` gutter (copy the leading `N| ` prefix). ")
 	b.WriteString("After the batch succeeds, continue investigating or call `emit_investigation_complete(reason, confidence, result_kind)`.")
+	return b.String()
+}
+
+func renderRuntimeArtifactHeaderReadHint(win runtimeArtifactReadWindow) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Progress check: you just read `%s` lines %d-%d", win.path, win.start, win.end)
+	if win.total > 0 {
+		fmt.Fprintf(&b, " of %d", win.total)
+	}
+	b.WriteString(", which looks like a broad/header page of a runtime/log/trace artifact rather than target evidence. ")
+	b.WriteString("Do not emit evidence from unrelated header or first-page rows, and do not keep paging from offset 0. ")
+	fmt.Fprintf(&b, "Narrow first with `grep(path=%q, pattern=\"<one exact timestamp/thread/event literal>\", files_only=false, context_lines=0)` or a deterministic `grep -n`/awk filter that preserves original line numbers; then `read_file` around the selected line window. ", win.path)
+	b.WriteString("Preserve runtime findings through `emit_investigation_complete.reason` plus `aggregate_facts`, or use `emit_evidence` only after the target line gutters are visible and load-bearing.")
 	return b.String()
 }
 

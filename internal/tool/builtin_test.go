@@ -581,6 +581,29 @@ func TestExecCommand(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("runtime grep pipeline broad alternation gets search-shape advisory", func(t *testing.T) {
+		command := `grep -n "com.tencent.mm-36379\|2942\." "record_trace.systrace" | head -100`
+		output := "130149:\tcom.tencent.mm-36379 (36379) [007] .... 2939.734658: sched_switch\n"
+		got := execCommandSearchShapeAdvisory(command, output, nil)
+		for _, want := range []string{
+			"broad OR/alternation pattern",
+			"conjunctive filtering or numeric filtering",
+			"preserves original line numbers",
+		} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("missing broad-OR advisory %q:\n%s", want, got)
+			}
+		}
+		if strings.Contains(got, "no original line numbers") {
+			t.Fatalf("line-numbered output should not get no-line-number advisory:\n%s", got)
+		}
+
+		codeCommand := `grep -n "Foo\|Bar" "internal/agent/explorer.go"`
+		if codeGot := execCommandSearchShapeAdvisory(codeCommand, "12: Foo\n", nil); codeGot != "" {
+			t.Fatalf("code grep should not get runtime broad-OR advisory:\n%s", codeGot)
+		}
+	})
 }
 
 func TestExecCommandTypedOrigins(t *testing.T) {
@@ -1139,6 +1162,25 @@ func TestGrepTool(t *testing.T) {
 		for _, want := range []string{`"record_trace.systrace"`, `"large.log"`, "+1 more"} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("skipped-large-file hint missing %q: %q", want, got)
+			}
+		}
+	})
+
+	t.Run("skipped large runtime artifact no match gives explicit single-file recovery", func(t *testing.T) {
+		got := grepSkippedLargeFilesNoMatchBody([]string{"record_trace.systrace", "huge.generated"}, 2)
+		for _, want := range []string{
+			"searched_subset_no_matches=true",
+			"skipped_large_candidates=\"record_trace.systrace\",\"huge.generated\"",
+			"directory_scan_safety_skip=",
+			"not absence proof",
+			"single_file_grep_supported=true",
+			`next_call=grep(path="record_trace.systrace"`,
+			"files_only=false",
+			"context_lines=0",
+			"do not read_file from offset 0",
+		} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("skipped-runtime recovery missing %q:\n%s", want, got)
 			}
 		}
 	})

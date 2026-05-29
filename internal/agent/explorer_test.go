@@ -5591,6 +5591,81 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 		}
 	})
 
+	t.Run("runtime artifact header read steers back to targeted search", func(t *testing.T) {
+		eval := &explorerEvaluator{
+			phase:        1,
+			searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		}
+		results := []types.ToolResult{{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[record_trace.systrace: showing lines 1-200 of 1525954 total]\n# trace header\n",
+		}}
+
+		sig := eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      1,
+			LastToolResult: &results[0],
+			AllToolResults: results,
+		})
+		if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.read-without-emit" {
+			t.Fatalf("expected runtime read search-shape nudge, got %+v", sig)
+		}
+		for _, want := range []string{
+			"broad/header page of a runtime/log/trace artifact",
+			"Do not emit evidence from unrelated header",
+			"do not keep paging from offset 0",
+			`grep(path="record_trace.systrace"`,
+			"`grep -n`/awk filter",
+			"`read_file` around the selected line window",
+			"`emit_investigation_complete.reason` plus `aggregate_facts`",
+		} {
+			if !strings.Contains(sig.Hint, want) {
+				t.Fatalf("runtime read hint missing %q:\n%s", want, sig.Hint)
+			}
+		}
+		for _, forbidden := range []string{
+			"Facts left only in your prose notes are NOT recorded",
+			"Current-checkout source claims left only in prose notes",
+			"largest unrecorded read window",
+		} {
+			if strings.Contains(sig.Hint, forbidden) {
+				t.Fatalf("runtime header read hint should not use source-evidence pressure %q:\n%s", forbidden, sig.Hint)
+			}
+		}
+	})
+
+	t.Run("mixed code reads keep source evidence materialization nudge", func(t *testing.T) {
+		eval := &explorerEvaluator{
+			phase:        1,
+			searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		}
+		results := []types.ToolResult{
+			{
+				ToolName: "read_file",
+				Success:  true,
+				Summary:  "[record_trace.systrace: showing lines 1-200 of 1525954 total]\n# trace header\n",
+			},
+			newReadResult("internal/agent/explorer.go"),
+		}
+
+		sig := eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      2,
+			LastToolResult: &results[len(results)-1],
+			AllToolResults: results,
+		})
+		if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.read-without-emit" {
+			t.Fatalf("expected normal read-without-emit nudge for mixed code reads, got %+v", sig)
+		}
+		if strings.Contains(sig.Hint, "broad/header page of a runtime/log/trace artifact") {
+			t.Fatalf("mixed code/runtime reads should not suppress source-evidence guidance:\n%s", sig.Hint)
+		}
+		if !strings.Contains(sig.Hint, "Facts left only in your prose notes are NOT recorded") {
+			t.Fatalf("mixed code/runtime reads should keep normal source-evidence wording:\n%s", sig.Hint)
+		}
+	})
+
 	t.Run("origin-specific lanes do not force VCS or command facts into file-line evidence", func(t *testing.T) {
 		eval := &explorerEvaluator{
 			phase:        1,

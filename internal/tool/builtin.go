@@ -579,17 +579,27 @@ func execCommandSearchShapeAdvisory(command, output string, err error) string {
 	}
 	if err != nil {
 		if strings.Contains(err.Error(), "exit status 1") {
-			return "[exec_command advisory: grep exited 1, which usually means zero matches rather than a broken command. Split combined log/trace patterns into one literal/timestamp/thread/event first, preserve the observed field order, and rerun with original line numbers such as `grep -n` before using read_file for evidence.]\n"
+			if execCommandTargetsRuntimeTextArtifact(command) {
+				return "[exec_command advisory: grep exited 1, which usually means zero matches rather than a broken command. Split combined log/trace patterns into one literal/timestamp/thread/event first, preserve the observed field order, and rerun with original line numbers such as `grep -n` before using read_file for evidence.]\n"
+			}
+			return "[exec_command advisory: grep exited 1, which usually means zero matches rather than a broken command. Simplify or split the pattern if the absence is surprising; preserve line numbers when the result will support line evidence.]\n"
 		}
 		return ""
 	}
 	if strings.TrimSpace(output) == "" || execCommandLooksLikeCountOnly(command) || !execCommandTargetsRuntimeTextArtifact(command) {
 		return ""
 	}
-	if execCommandOutputHasLineNumbers(output) {
+	var advisories []string
+	if !execCommandOutputHasLineNumbers(output) {
+		advisories = append(advisories, "[exec_command advisory: this log/trace grep output has no original line numbers. For line-scope evidence, rerun the search with line numbers (for example `grep -n ...` or awk printing NR with the line) and then use read_file around the selected range.]")
+	}
+	if execCommandRuntimeGrepUsesBroadAlternation(command) {
+		advisories = append(advisories, "[exec_command advisory: this runtime/log/trace grep uses a broad OR/alternation pattern. For time-window or chain tracing, OR searches can return early unrelated rows; prefer conjunctive filtering or numeric filtering that preserves original line numbers, then read_file the selected line window.]")
+	}
+	if len(advisories) == 0 {
 		return ""
 	}
-	return "[exec_command advisory: this log/trace grep output has no original line numbers. For line-scope evidence, rerun the search with line numbers (for example `grep -n ...` or awk printing NR with the line) and then use read_file around the selected range.]\n"
+	return strings.Join(advisories, "\n") + "\n"
 }
 
 func execCommandLooksLikeGrepPipeline(command string) bool {
@@ -612,6 +622,44 @@ func execCommandTargetsRuntimeTextArtifact(command string) bool {
 		}
 	}
 	return false
+}
+
+func execCommandRuntimeGrepUsesBroadAlternation(command string) bool {
+	if strings.Contains(command, `\|`) {
+		return true
+	}
+	for _, quoted := range shellQuotedSegments(command) {
+		if strings.Contains(quoted, "|") {
+			return true
+		}
+	}
+	return false
+}
+
+func shellQuotedSegments(command string) []string {
+	var out []string
+	for i := 0; i < len(command); i++ {
+		quote := command[i]
+		if quote != '\'' && quote != '"' {
+			continue
+		}
+		start := i + 1
+		escaped := false
+		for j := start; j < len(command); j++ {
+			c := command[j]
+			if quote == '"' && c == '\\' && !escaped {
+				escaped = true
+				continue
+			}
+			if c == quote && !escaped {
+				out = append(out, command[start:j])
+				i = j
+				break
+			}
+			escaped = false
+		}
+	}
+	return out
 }
 
 func execCommandLooksLikeCountOnly(command string) bool {
@@ -924,7 +972,7 @@ type grepToolParams struct {
 
 func (t *GrepTool) Name() string { return "grep" }
 func (t *GrepTool) Description() string {
-	return "Search file contents by pattern. Use this to find where a symbol, string, config key, log event, or trace row appears. By default `pattern` is a regex. Case handling is smart by default: if the pattern contains no uppercase characters it is matched case-insensitively (so `subagent` finds `SubAgent`, `SUBAGENT`, etc.); if the pattern contains any uppercase character it is matched exactly. Pass ignore_case explicitly to override. Use fixed_string=true for exact literal text with punctuation (recommended for log/trace event labels, thread names, error strings, config keys, and any text containing []()|#.: that you do not want treated as regex). Use file_type to filter by language (e.g. \"go\", \"py\", \"js\", \"ts\", \"java\", \"yaml\") — this is preferred over include because it covers all relevant extensions (e.g. type \"ts\" matches both *.ts and *.tsx). Do not set file_type/include when path is already one concrete log/trace artifact. Use context_lines to include surrounding lines around each match, which saves a follow-up read_file call; avoid context_lines on the first broad search of a large log/trace and instead narrow to a timestamp/thread/event, then read_file around returned line numbers. Use line_start/line_end only with a single file when you already know a relevant line vicinity. For large log/trace/systrace files, search one exact timestamp, thread id/name, or event literal first; regex is order-sensitive, so if a combined pattern returns no matches, inspect the line format with a simpler literal before combining fields. Do NOT use the result to count matches by eye — pipe `grep -c` or `grep ... | wc -l` through exec_command instead, and treat that number as authoritative."
+	return "Search file contents by pattern. Use this to find where a symbol, string, config key, log event, or trace row appears. By default `pattern` is a regex. Case handling is smart by default: if the pattern contains no uppercase characters it is matched case-insensitively (so `subagent` finds `SubAgent`, `SUBAGENT`, etc.); if the pattern contains any uppercase character it is matched exactly. Pass ignore_case explicitly to override. Use fixed_string=true for exact literal text with punctuation (recommended for log/trace event labels, thread names, error strings, config keys, and any text containing []()|#.: that you do not want treated as regex). Use file_type to filter by language (e.g. \"go\", \"py\", \"js\", \"ts\", \"java\", \"yaml\") — this is preferred over include because it covers all relevant extensions (e.g. type \"ts\" matches both *.ts and *.tsx). Do not set file_type/include when path is already one concrete log/trace artifact. Use context_lines to include surrounding lines around each match, which saves a follow-up read_file call; avoid context_lines on the first broad search of a large log/trace and instead narrow to a timestamp/thread/event, then read_file around returned line numbers. Use line_start/line_end only with a single file when you already know a relevant line vicinity. Directory scans may skip very large runtime artifacts for safety; if the result lists skipped_large_candidates, set path to that candidate and grep the file explicitly rather than reading from offset 0. For large log/trace/systrace files, search one exact timestamp, thread id/name, or event literal first; regex is order-sensitive, so if a combined pattern returns no matches, inspect the line format with a simpler literal before combining fields. Do NOT use the result to count matches by eye — pipe `grep -c` or `grep ... | wc -l` through exec_command instead, and treat that number as authoritative."
 }
 
 func grepShouldUseNativeBackend(searchBackend string, hasRepoRoot, searchPathIsFile bool) bool {
@@ -1234,7 +1282,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if nres.Matches == 0 {
 			suffix := grepNoMatchBody(ctx, p)
 			if nres.SkippedLargeFiles > 0 {
-				suffix = fmt.Sprintf("no matches found in scanned files; skipped %d large file(s) due to the native grep directory-scan safety cap.%s If the target is a specific large log/trace/source file, re-run grep with path set to that file.", nres.SkippedLargeFiles, grepSkippedLargeFilePathHint(nres.SkippedLargeFilePaths, nres.SkippedLargeFiles))
+				suffix = grepSkippedLargeFilesNoMatchBody(nres.SkippedLargeFilePaths, nres.SkippedLargeFiles)
 			}
 			return types.ToolResult{
 				ToolName:  t.Name(),
@@ -1796,6 +1844,10 @@ func grepPathLooksLikeRuntimeArtifact(p string) bool {
 	}
 }
 
+func LooksLikeRuntimeArtifactPath(p string) bool {
+	return grepPathLooksLikeRuntimeArtifact(p)
+}
+
 func grepProductionSourceCandidates(production []string, filesOnly bool, limit int) []string {
 	if limit <= 0 {
 		return nil
@@ -2214,6 +2266,73 @@ func grepSkippedLargeFilePathHint(paths []string, skippedTotal int) string {
 		suffix = fmt.Sprintf(", ... +%d more", skippedTotal-len(quoted))
 	}
 	return " Skipped large file path(s): " + strings.Join(quoted, ", ") + suffix + "."
+}
+
+func grepSkippedLargeFilesNoMatchBody(paths []string, skippedTotal int) string {
+	var b strings.Builder
+	b.WriteString("no matches found in scanned files\n")
+	fmt.Fprintf(&b, "searched_subset_no_matches=true skipped_large_files=%d\n", skippedTotal)
+	if hint := grepSkippedLargeFilePathHint(paths, skippedTotal); hint != "" {
+		b.WriteString(strings.TrimSpace(hint))
+		b.WriteByte('\n')
+	}
+	if candidates := grepSkippedLargeCandidatesValue(paths, skippedTotal); candidates != "" {
+		b.WriteString("skipped_large_candidates=")
+		b.WriteString(candidates)
+		b.WriteByte('\n')
+	}
+	b.WriteString("directory_scan_safety_skip=the skipped large file candidates were not searched in this directory scan; this is not absence proof and does not mean grep cannot search those files.\n")
+	if nextPath := firstSkippedLargeRuntimeArtifactPath(paths); nextPath != "" {
+		fmt.Fprintf(&b, "single_file_grep_supported=true next_call=grep(path=%q, pattern=\"<one exact timestamp/thread/event literal>\", files_only=false, context_lines=0)\n", nextPath)
+		b.WriteString("runtime_artifact_recovery=do not read_file from offset 0; first run explicit single-file grep on the skipped artifact, then read_file around returned line numbers for evidence.\n")
+	} else if nextPath := firstNonEmptyString(paths); nextPath != "" {
+		fmt.Fprintf(&b, "single_file_grep_supported=true next_call=grep(path=%q, pattern=\"<one exact target literal>\", files_only=false, context_lines=0)\n", nextPath)
+		b.WriteString("large_file_recovery=if a skipped file is the target, re-run grep with path set to that exact file before broadening or paging from the beginning.\n")
+	} else {
+		b.WriteString("large_file_recovery=if the target is a specific large file, re-run grep with path set to that exact file before broadening or paging from the beginning.\n")
+	}
+	return b.String()
+}
+
+func grepSkippedLargeCandidatesValue(paths []string, skippedTotal int) string {
+	if len(paths) == 0 {
+		return ""
+	}
+	quoted := make([]string, 0, len(paths)+1)
+	for _, path := range paths {
+		path = strings.TrimSpace(path)
+		if path == "" {
+			continue
+		}
+		quoted = append(quoted, fmt.Sprintf("%q", path))
+	}
+	if len(quoted) == 0 {
+		return ""
+	}
+	if skippedTotal > len(quoted) {
+		quoted = append(quoted, fmt.Sprintf("+%d_more", skippedTotal-len(quoted)))
+	}
+	return strings.Join(quoted, ",")
+}
+
+func firstSkippedLargeRuntimeArtifactPath(paths []string) string {
+	for _, p := range paths {
+		p = strings.TrimSpace(p)
+		if p != "" && grepPathLooksLikeRuntimeArtifact(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+func firstNonEmptyString(values []string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func grepLineWindowHint(lines []string, filesOnly bool) string {
