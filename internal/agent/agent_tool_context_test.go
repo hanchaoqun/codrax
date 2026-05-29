@@ -2,6 +2,8 @@ package agent
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -201,6 +203,55 @@ func TestExecuteTool_AppliesSchemaAwareParamCompatFromRegistry(t *testing.T) {
 	}
 	if strings.Join(decoded.Sources, "|") != "Explorer" || decoded.TopN != 3 || !decoded.IncludeCounts {
 		t.Fatalf("unexpected normalized params: %+v raw=%s", decoded, capture.got)
+	}
+}
+
+func TestExecuteTool_NormalizesGrepRuntimeParamsFromRegistry(t *testing.T) {
+	root := t.TempDir()
+	tracePath := filepath.Join(root, "trace.systrace")
+	if err := os.WriteFile(tracePath, []byte(strings.Join([]string{
+		"outside [GT]Thread#1",
+		"2942.124416: [GT]Thread#1 wakeup",
+		"outside [GT]Thread#1 again",
+		"",
+	}, "\n")), 0o644); err != nil {
+		t.Fatalf("write trace fixture: %v", err)
+	}
+
+	reg := toolpkg.NewRegistry()
+	reg.Register(&toolpkg.GrepTool{})
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{
+		Tools: reg,
+		ToolParamCompatByAgent: map[types.AgentName]types.ToolParamCompatConfig{
+			types.AgentExplorer: {Mode: types.ToolParamCompatRepair},
+		},
+	}, nil)
+	raw, err := json.Marshal(map[string]any{
+		"pattern":     "[GT]Thread#1",
+		"path":        tracePath,
+		"fixedString": "true",
+		"lineStart":   "2",
+		"lineEnd":     "2",
+	})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+
+	res, _ := base.executeTool(&types.AgentContext{Stage: types.StageExplore}, llm.ToolCall{
+		ID:     "grep-runtime-compat",
+		Name:   "grep",
+		Params: raw,
+	})
+	if res == nil || !res.Success {
+		t.Fatalf("grep should execute after schema-aware repair: %+v", res)
+	}
+	for _, want := range []string{"fixed_string=true", "line_start=2", "line_end=2", "2942.124416"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("grep summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "outside [GT]Thread#1") {
+		t.Fatalf("line window should limit grep to line 2 only:\n%s", res.Summary)
 	}
 }
 

@@ -69,6 +69,32 @@ func TestToolSchemasDoNotExposeInternalMechanismTerms(t *testing.T) {
 	t.Fatalf("tool schema hygiene found %d internal mechanism term(s)", len(hits))
 }
 
+func TestGrepToolPromptDocumentsRuntimeArtifactControls(t *testing.T) {
+	grep := &GrepTool{}
+	description := grep.Description()
+	for _, want := range []string{
+		"fixed_string=true",
+		"line_start/line_end",
+		"large log/trace/systrace",
+		"Do NOT use the result to count matches by eye",
+	} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("grep description missing %q:\n%s", want, description)
+		}
+	}
+	parameters := string(grep.Parameters())
+	for _, want := range []string{
+		`"fixed_string"`,
+		`"line_start"`,
+		`"line_end"`,
+		`"context_lines"`,
+	} {
+		if !strings.Contains(parameters, want) {
+			t.Fatalf("grep parameters missing %q:\n%s", want, parameters)
+		}
+	}
+}
+
 func toolPromptPreview(s string, idx, n int) string {
 	start := idx - 48
 	if start < 0 {

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	toolpkg "github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -95,6 +96,49 @@ func TestNormalizeToolCallParams_RepairsBooleanStringsWhenSchemaAvailable(t *tes
 	}
 	if !decoded.FilesOnly {
 		t.Fatalf("files_only should be normalized true: %s", got[0].Params)
+	}
+}
+
+func TestNormalizeToolCallParams_RepairsGrepRuntimeSearchScalarsFromRealSchema(t *testing.T) {
+	base := &BaseAgent{
+		name: types.AgentExplorer,
+		deps: &Dependencies{
+			ToolParamCompatByAgent: map[types.AgentName]types.ToolParamCompatConfig{
+				types.AgentExplorer: {Mode: types.ToolParamCompatRepair},
+			},
+		},
+	}
+	calls := []llm.ToolCall{{
+		ID:   "call_1",
+		Name: "grep",
+		Params: json.RawMessage(`{
+			"pattern":"[GT]Thread#1",
+			"fixedString":"true",
+			"lineStart":"10",
+			"lineEnd":"12",
+			"contextLines":"2"
+		}`),
+	}}
+	schemas := []llm.ToolSchema{{
+		Name:       "grep",
+		Parameters: (&toolpkg.GrepTool{}).Parameters(),
+	}}
+
+	got := base.normalizeToolCallParams(calls, schemas)
+	if string(got[0].Params) == string(calls[0].Params) {
+		t.Fatalf("expected real grep schema to repair runtime search fields")
+	}
+	var decoded struct {
+		FixedString  bool `json:"fixed_string"`
+		LineStart    int  `json:"line_start"`
+		LineEnd      int  `json:"line_end"`
+		ContextLines int  `json:"context_lines"`
+	}
+	if err := json.Unmarshal(got[0].Params, &decoded); err != nil {
+		t.Fatalf("repaired params are invalid JSON: %v\n%s", err, got[0].Params)
+	}
+	if !decoded.FixedString || decoded.LineStart != 10 || decoded.LineEnd != 12 || decoded.ContextLines != 2 {
+		t.Fatalf("unexpected normalized grep params: %+v raw=%s", decoded, got[0].Params)
 	}
 }
 

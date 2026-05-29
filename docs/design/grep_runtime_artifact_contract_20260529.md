@@ -123,3 +123,21 @@ The implementation is intentionally generic:
   repo-wide code grep still uses the existing relevance-aware ranking path;
 - no new hard gates were introduced. All recovery instructions are advisory tool
   output, not retry or rewrite enforcement.
+
+## Prompt and Compat Audit
+
+2026-05-29 follow-up:
+
+- The grep tool schema/description is the single model-visible source for
+  `fixed_string`, `line_start`, and `line_end`; stage prompts should not carry a
+  second divergent parameter contract.
+- Analyzer prompt remains intentionally narrow: classification-stage grep is
+  still `files_only=true` only. Line-level runtime/text retrieval belongs to
+  explorer and later stages.
+- Explorer deep-read guidance now mirrors the central grep contract in one
+  concise sentence: literals with punctuation should use `fixed_string=true`,
+  and line windows require a known single-file vicinity.
+- JSON/shape compatibility remains centralized in `toolparam.Normalize` plus
+  the shared structural JSON repair path. New grep fields are covered by tests
+  against the real grep schema and by an end-to-end `executeTool` test that
+  repairs camelCase/string scalar arguments before running grep.

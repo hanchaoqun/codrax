@@ -10332,7 +10332,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 			"Good — you have mapped the relevant territory. Now investigate the source files and collect evidence. " +
 			"**Your job is to collect evidence, NOT to answer the question.** Reasoning happens later.\n\n" +
 			"**Tools you should use** (pick the most efficient for each situation):\n" +
-			"- `grep` — locate specific patterns, find line numbers, scan large files efficiently. Prefer grep over full-file reads when you only need specific sections\n" +
+			"- `grep` — locate specific patterns, find line numbers, scan large files efficiently. Prefer grep over full-file reads when you only need specific sections; use `fixed_string=true` for literal log/trace/config text with punctuation, and `line_start`/`line_end` only after you know a single-file vicinity\n" +
 			"- `read_file` — read file contents (use offset/limit for targeted ranges)\n" +
 			"- `grep` + `read_file` combo — for large files (>500 lines), grep to find relevant line numbers first, then read only those ranges\n" +
 			"- `emit_evidence(items=[...])` — after gathering facts from a file, emit ALL evidence in ONE batch. Line numbers MUST come from the `read_file` gutter exactly\n\n" +
