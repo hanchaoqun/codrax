@@ -3,7 +3,11 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -3930,6 +3934,151 @@ func appendFinalizerTransientFailureCaveat(answer, lang string) string {
 	return answer + "\n\n## Note\n\nA later final-answer retry was interrupted by the model response stream, so the system preserved the previous draft for reference; some structural checks may still be incomplete."
 }
 
+func appendRuntimeDispatchAdvisoriesToAnswer(answer string, advisories []string, lang string) string {
+	answer = strings.TrimSpace(answer)
+	if answer == "" || len(advisories) == 0 {
+		return answer
+	}
+	unique := make([]string, 0, len(advisories))
+	seen := map[string]struct{}{}
+	for _, advisory := range advisories {
+		advisory = strings.TrimSpace(advisory)
+		if advisory == "" {
+			continue
+		}
+		if strings.Contains(answer, advisory) {
+			continue
+		}
+		if _, ok := seen[advisory]; ok {
+			continue
+		}
+		seen[advisory] = struct{}{}
+		unique = append(unique, advisory)
+	}
+	if len(unique) == 0 {
+		return answer
+	}
+	if isChineseLang(lang) {
+		var b strings.Builder
+		b.WriteString(answer)
+		b.WriteString("\n\n## 运行提示\n\n")
+		for _, advisory := range unique {
+			b.WriteString("- ")
+			b.WriteString(advisory)
+			b.WriteByte('\n')
+		}
+		return strings.TrimSpace(b.String())
+	}
+	var b strings.Builder
+	b.WriteString(answer)
+	b.WriteString("\n\n## Run Note\n\n")
+	for _, advisory := range unique {
+		b.WriteString("- ")
+		b.WriteString(advisory)
+		b.WriteByte('\n')
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func appendUniqueRuntimeAdvisory(advisories []string, advisory string) []string {
+	advisory = strings.TrimSpace(advisory)
+	if advisory == "" {
+		return advisories
+	}
+	for _, existing := range advisories {
+		if strings.TrimSpace(existing) == advisory {
+			return advisories
+		}
+	}
+	return append(advisories, advisory)
+}
+
+func runtimeDispatchAdvisoryForStage(stage types.PipelineStage, err error, lang string) string {
+	if !isLikelyTransientModelDispatchFailure(err) {
+		return ""
+	}
+	stageName := localizedPipelineStageName(stage, lang)
+	if isChineseLang(lang) {
+		return fmt.Sprintf("本次%s阶段遇到上游模型响应超时、连接中断或服务临时不可用，系统已基于当时已收集到的信息继续生成答案；如果答案缺少证据、链路细节或关键结论，建议重试一次。", stageName)
+	}
+	return fmt.Sprintf("The %s stage hit an upstream model timeout, connection interruption, or temporary service issue. The system continued with the information already collected; if the answer is missing evidence, chain details, or key conclusions, retrying once is recommended.", stageName)
+}
+
+func localizedPipelineStageName(stage types.PipelineStage, lang string) string {
+	if isChineseLang(lang) {
+		switch stage {
+		case types.StageAnalyze:
+			return "分析"
+		case types.StageExplore:
+			return "探索"
+		case types.StageExtract:
+			return "提炼"
+		case types.StageFinalize:
+			return "成文"
+		default:
+			return "处理"
+		}
+	}
+	switch stage {
+	case types.StageAnalyze:
+		return "analysis"
+	case types.StageExplore:
+		return "exploration"
+	case types.StageExtract:
+		return "extraction"
+	case types.StageFinalize:
+		return "final-answer"
+	default:
+		return "processing"
+	}
+}
+
+func isLikelyTransientModelDispatchFailure(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, llm.ErrStreamFirstByteTimeout) ||
+		errors.Is(err, llm.ErrStreamStalled) ||
+		errors.Is(err, context.DeadlineExceeded) ||
+		errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return true
+	}
+	probe := strings.ToLower(err.Error())
+	if strings.Contains(probe, "no usable sse data") ||
+		strings.Contains(probe, "stream first-byte timeout") ||
+		strings.Contains(probe, "first-byte timeout") ||
+		strings.Contains(probe, "stream stalled") ||
+		strings.Contains(probe, "http request before response headers") ||
+		strings.Contains(probe, "connection reset") ||
+		strings.Contains(probe, "connection refused") ||
+		strings.Contains(probe, "deadline exceeded") ||
+		strings.Contains(probe, "i/o timeout") ||
+		strings.Contains(probe, "rate limit") ||
+		strings.Contains(probe, " 429") ||
+		strings.Contains(probe, "status 429") ||
+		strings.Contains(probe, "server 5") ||
+		strings.Contains(probe, "status 5") {
+		return true
+	}
+	if strings.Contains(probe, "all retries exhausted by adapter") &&
+		(strings.Contains(probe, "timeout") ||
+			strings.Contains(probe, "context canceled") ||
+			strings.Contains(probe, "context cancelled") ||
+			strings.Contains(probe, "upstream llm")) {
+		return true
+	}
+	return false
+}
+
 // runReadSchedulerLoop walks the read-mode AnalysisIR.TaskGraph with
 // criterion-aware scheduling. Each round:
 //
@@ -4048,6 +4197,7 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	var firstFinalizeConcerns []types.Violation
 	firstFinalizeRejectedForRewrite := false
 	preFinalizeExtractCompleted := false
+	var runtimeDispatchAdvisories []string
 
 	// lastFallbackFinalizerOnly latches when the previous loop
 	// iteration picked FallbackFinalizerOnly as the fallback target —
@@ -4424,6 +4574,10 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 				if o.retryReadStageDispatchError(state, types.StageExplore, window, nil, dispatchErr) {
 					continue
 				}
+				runtimeDispatchAdvisories = appendUniqueRuntimeAdvisory(
+					runtimeDispatchAdvisories,
+					runtimeDispatchAdvisoryForStage(types.StageExplore, dispatchErr, o.busCtx.Language),
+				)
 				stepsUsed += dispatchStepCount
 				for _, n := range window {
 					state.markFailed(n.ID)
@@ -4795,6 +4949,10 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 					}
 					stepsUsed++
 					logging.Warning("[orchestrator] pre-finalize extract dispatch failed (continuing): %v", exErr)
+					runtimeDispatchAdvisories = appendUniqueRuntimeAdvisory(
+						runtimeDispatchAdvisories,
+						runtimeDispatchAdvisoryForStage(types.StageExtract, exErr, o.busCtx.Language),
+					)
 					// Soft notice so the user sees WHY the next event is
 					// "正在生成最终答案" instead of an extract success
 					// row. Without this the scrollback jumps from
@@ -5654,6 +5812,7 @@ contractFailureBreak:
 			}
 		}
 		if lastFinalize != nil {
+			lastFinalize.FinalAnswer = appendRuntimeDispatchAdvisoriesToAnswer(lastFinalize.FinalAnswer, runtimeDispatchAdvisories, o.busCtx.Language)
 			o.recordTaskFinalize(lastFinalize)
 			o.emitCGECSummary()
 			return stepsUsed
@@ -5685,6 +5844,10 @@ contractFailureBreak:
 						}
 						stepsUsed++
 						logging.Warning("[orchestrator] pre-forced-finalize extract dispatch failed (continuing): %v", exErr)
+						runtimeDispatchAdvisories = appendUniqueRuntimeAdvisory(
+							runtimeDispatchAdvisories,
+							runtimeDispatchAdvisoryForStage(types.StageExtract, exErr, o.busCtx.Language),
+						)
 						// Force-finalize escape path: same transparency requirement
 						// as the normal DAG branch — let the user see that we are
 						// dropping extract results before finalize starts, instead
@@ -5823,6 +5986,9 @@ contractFailureBreak:
 
 	if o.strictAnswerReviewEnabledValue() {
 		o.attachFirstDraftReference(lastFinalize, firstFinalizeDraft, firstFinalizeConcerns, firstFinalizeRejectedForRewrite)
+	}
+	if lastFinalize != nil {
+		lastFinalize.FinalAnswer = appendRuntimeDispatchAdvisoriesToAnswer(lastFinalize.FinalAnswer, runtimeDispatchAdvisories, o.busCtx.Language)
 	}
 	o.recordTaskFinalize(lastFinalize)
 	o.emitCGECSummary()
