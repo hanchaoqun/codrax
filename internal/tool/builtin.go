@@ -414,7 +414,7 @@ type execCommandParams struct {
 
 func (t *ExecCommand) Name() string { return "exec_command" }
 func (t *ExecCommand) Description() string {
-	return "Run a read-only shell command with configurable timeout. In read mode it starts in the repository root, so use repo-relative paths and avoid absolute cd/git -C guesses; large output is saved to a blob that can be paged with read_file. For log/trace grep pipelines that will support line evidence, preserve original line numbers (for example grep -n or awk printing NR) so read_file can ground the selected range."
+	return "Run a read-only shell command with configurable timeout. In read mode it starts in the repository root, so use repo-relative paths and avoid absolute cd/git -C guesses; large output is saved to a blob that can be paged with read_file. For log/trace search/filter pipelines that will support line evidence, preserve original line numbers (for example grep -n or awk printing NR) so read_file can ground the selected range."
 }
 
 func (t *ExecCommand) Parameters() json.RawMessage {
@@ -574,11 +574,12 @@ func execCommandPayloadWithTypedOrigins(banner, command, output string) string {
 }
 
 func execCommandSearchShapeAdvisory(command, output string, err error) string {
-	if !execCommandLooksLikeGrepPipeline(command) {
+	looksLikeGrepPipeline := execCommandLooksLikeGrepPipeline(command)
+	if !looksLikeGrepPipeline && !execCommandLooksLikeRuntimeSearchFilter(command) {
 		return ""
 	}
 	if err != nil {
-		if strings.Contains(err.Error(), "exit status 1") {
+		if looksLikeGrepPipeline && strings.Contains(err.Error(), "exit status 1") {
 			if execCommandTargetsRuntimeTextArtifact(command) {
 				return "[exec_command advisory: grep exited 1, which usually means zero matches rather than a broken command. Split combined log/trace patterns into one literal/timestamp/thread/event first, preserve the observed field order, and rerun with original line numbers such as `grep -n` before using read_file for evidence.]\n"
 			}
@@ -586,20 +587,35 @@ func execCommandSearchShapeAdvisory(command, output string, err error) string {
 		}
 		return ""
 	}
-	if strings.TrimSpace(output) == "" || execCommandLooksLikeCountOnly(command) || !execCommandTargetsRuntimeTextArtifact(command) {
+	if strings.TrimSpace(output) == "" || execCommandLooksLikeCountOnly(command) || execCommandOutputLooksScalarOnly(output) || !execCommandTargetsRuntimeTextArtifact(command) {
 		return ""
 	}
 	var advisories []string
 	if !execCommandOutputHasLineNumbers(output) {
-		advisories = append(advisories, "[exec_command advisory: this log/trace grep output has no original line numbers. For line-scope evidence, rerun the search with line numbers (for example `grep -n ...` or awk printing NR with the line) and then use read_file around the selected range.]")
+		advisories = append(advisories, "[exec_command advisory: this log/trace search/filter output has no original line numbers. For line-scope evidence, rerun the search with line numbers (for example `grep -n ...` or `awk '... { printf \"%d:%s\\n\", NR, $0 }' ...`) and then use read_file around the selected range.]")
 	}
-	if execCommandRuntimeGrepUsesBroadAlternation(command) {
-		advisories = append(advisories, "[exec_command advisory: this runtime/log/trace grep uses a broad OR/alternation pattern. For time-window or chain tracing, OR searches can return early unrelated rows; prefer conjunctive filtering or numeric filtering that preserves original line numbers, then read_file the selected line window.]")
+	if execCommandRuntimeSearchUsesBroadAlternation(command) {
+		advisories = append(advisories, "[exec_command advisory: this runtime/log/trace search uses a broad OR/alternation pattern. For time-window or chain tracing, OR searches can return early unrelated rows; prefer conjunctive filtering or numeric filtering that preserves original line numbers, then read_file the selected line window.]")
 	}
 	if len(advisories) == 0 {
 		return ""
 	}
 	return strings.Join(advisories, "\n") + "\n"
+}
+
+func execCommandLooksLikeRuntimeSearchFilter(command string) bool {
+	for _, segment := range shellCommandSegments(command) {
+		for _, token := range shellWordsForOrigin(segment) {
+			base := path.Base(strings.ToLower(token))
+			switch base {
+			case "grep", "egrep", "fgrep", "rg",
+				"awk", "gawk", "mawk", "nawk",
+				"sed", "perl", "python", "python3", "ruby":
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func execCommandLooksLikeGrepPipeline(command string) bool {
@@ -624,7 +640,7 @@ func execCommandTargetsRuntimeTextArtifact(command string) bool {
 	return false
 }
 
-func execCommandRuntimeGrepUsesBroadAlternation(command string) bool {
+func execCommandRuntimeSearchUsesBroadAlternation(command string) bool {
 	if strings.Contains(command, `\|`) {
 		return true
 	}
@@ -668,6 +684,40 @@ func execCommandLooksLikeCountOnly(command string) bool {
 		strings.Contains(lower, "grep -c") ||
 		strings.Contains(lower, "rg -c") ||
 		strings.Contains(lower, "--count")
+}
+
+func execCommandOutputLooksScalarOnly(output string) bool {
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	nonEmpty := 0
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "[") {
+			continue
+		}
+		nonEmpty++
+		if nonEmpty > 3 || !execCommandOutputLineLooksScalar(line) {
+			return false
+		}
+	}
+	return nonEmpty > 0
+}
+
+func execCommandOutputLineLooksScalar(line string) bool {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return false
+	}
+	for _, r := range line {
+		switch {
+		case r >= '0' && r <= '9':
+			continue
+		case r == '.' || r == '-' || r == '+' || r == ',' || r == '_' || r == ':' || r == '%' || r == ' ' || r == '\t':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func execCommandOutputHasLineNumbers(output string) bool {

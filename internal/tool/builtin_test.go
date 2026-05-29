@@ -604,6 +604,58 @@ func TestExecCommand(t *testing.T) {
 			t.Fatalf("code grep should not get runtime broad-OR advisory:\n%s", codeGot)
 		}
 	})
+
+	t.Run("runtime awk filter without line numbers gets advisory", func(t *testing.T) {
+		command := `awk '/2942\.1244[1-9]|2942\.260[0-1][0-9]/ && /\[GT\]ColdPool#5-36624/' record_trace.systrace`
+		output := "  [GT]ColdPool#5-36624 (36379) [001] .... 2942.256055: sched_switch\n"
+		got := execCommandSearchShapeAdvisory(command, output, nil)
+		for _, want := range []string{
+			"search/filter output has no original line numbers",
+			"awk '... { printf",
+			"read_file around the selected range",
+			"broad OR/alternation pattern",
+		} {
+			if !strings.Contains(got, want) {
+				t.Fatalf("missing awk advisory %q:\n%s", want, got)
+			}
+		}
+	})
+
+	t.Run("runtime awk head and tail filters without line numbers get advisory", func(t *testing.T) {
+		output := "  [GT]ColdPool#5-36624 (36379) [001] .... 2942.256055: sched_switch\n"
+		commands := []string{
+			`awk '/2942\.256/ && /\[GT\]ColdPool#5-36624/' record_trace.systrace | head -100`,
+			`awk '/2942\.256/ && /prev_comm=\[GT\]ColdPool#5 prev_pid=36624/' record_trace.systrace | tail -20`,
+		}
+		for _, command := range commands {
+			got := execCommandSearchShapeAdvisory(command, output, nil)
+			if !strings.Contains(got, "search/filter output has no original line numbers") {
+				t.Fatalf("missing no-line-number advisory for %q:\n%s", command, got)
+			}
+		}
+	})
+
+	t.Run("runtime awk filter with NR line numbers needs no line advisory", func(t *testing.T) {
+		command := `awk '/2942\.256/ { printf "%d:%s\n", NR, $0 }' record_trace.systrace | head -100`
+		output := "1102704:  [GT]ColdPool#5-36624 (36379) [001] .... 2942.256055: sched_switch\n"
+		got := execCommandSearchShapeAdvisory(command, output, nil)
+		if strings.Contains(got, "no original line numbers") {
+			t.Fatalf("line-numbered awk output should not get no-line-number advisory:\n%s", got)
+		}
+	})
+
+	t.Run("runtime scalar awk output and code awk commands do not get search advisory", func(t *testing.T) {
+		scalarCommand := `awk 'END { print NR }' record_trace.systrace`
+		if got := execCommandSearchShapeAdvisory(scalarCommand, "1525954\n", nil); got != "" {
+			t.Fatalf("scalar runtime awk output should not get advisory:\n%s", got)
+		}
+
+		codeCommand := `awk '/func Execute/' internal/tool/builtin.go | head -20`
+		codeOutput := "func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {\n"
+		if got := execCommandSearchShapeAdvisory(codeCommand, codeOutput, nil); got != "" {
+			t.Fatalf("code awk command should not get runtime advisory:\n%s", got)
+		}
+	})
 }
 
 func TestExecCommandTypedOrigins(t *testing.T) {

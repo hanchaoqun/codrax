@@ -235,3 +235,65 @@ navigation shape for a 1.5M-line runtime artifact.
   are not changed.
 - Targeted `internal/tool` and `internal/agent` tests passed 2026-05-29.
 - `go test ./...` passed 2026-05-29.
+
+## Follow-up: Line Numbers for Deterministic Runtime Filters
+
+Customer `../customlogs/grep_err.log` showed a valid next-step switch from
+built-in grep to `exec_command`: the built-in grep result for a large systrace
+time window returned 50k+ rows and correctly suggested deterministic numeric
+filtering. The model then used pure `awk` filters to isolate a thread/time
+window, but the command did not print original line numbers. The resulting rows
+were useful for reasoning, but could not be directly grounded with `read_file`
+or strict line-scope evidence.
+
+### Root Cause
+
+- `exec_command` already has a public advisory layer, but
+  `execCommandSearchShapeAdvisory` only enters that path for grep/rg pipelines.
+  Pure `awk`, `sed`, `perl`, or other text-filter commands targeting
+  runtime/log/trace artifacts bypass the line-number guidance.
+- The built-in grep hint says "preserve original line numbers", but the
+  follow-up command surface does not reinforce that contract once the model
+  switches from grep to a deterministic filter.
+- This is not a grep correctness bug. Built-in grep returned matches and line
+  windows. The gap is an advisory coverage mismatch for deterministic runtime
+  artifact filters.
+
+### Contract
+
+1. Runtime/log/trace deterministic filters may be a valid strategy when regex
+   grep is too broad or numeric interval logic is needed.
+2. The system must not rewrite, reject, or rerun the model's shell command just
+   to add line numbers.
+3. If a runtime/log/trace search/filter command returns non-scalar rows without
+   original line numbers, append a soft advisory showing how to preserve line
+   numbers (`grep -n` or `awk` printing `NR`) before `read_file` grounding.
+4. The advisory must not fire for normal code/config commands or scalar/count
+   commands, so code-analysis workflows keep their current behavior.
+
+### Follow-up Tasks
+
+- [x] T18. Generalize `exec_command` search-shape advisory from grep pipelines
+  to runtime/log/trace search/filter commands.
+- [x] T19. Add no-line-number guidance for pure `awk`/filter commands, including
+  an `awk` `NR` example.
+- [x] T20. Update the model-visible `exec_command` description from
+  "grep pipelines" to "search/filter pipelines".
+- [x] T21. Add regression tests for pure `awk`, `awk | head`, `awk | tail`, and
+  non-runtime code/config commands.
+
+2026-05-29 deterministic-filter delivery:
+
+- `exec_command` search-shape advisory now recognizes runtime/log/trace
+  search/filter commands beyond grep/rg, including `awk`, `sed`, `perl`, and
+  common script interpreters.
+- Runtime/log/trace filter output that contains non-scalar rows without
+  original line numbers receives a soft advisory with both `grep -n` and
+  `awk` `NR` examples. The command is not rewritten and success/failure
+  semantics are unchanged.
+- Existing grep no-match handling remains grep-specific, because grep's
+  `exit status 1` convention does not generalize to every filter tool.
+- Scalar/count-like outputs and normal code/config commands remain quiet, so
+  code analysis and configuration analysis workflows are not polluted.
+- Targeted `go test ./internal/tool` passed 2026-05-29.
+- `go test ./...` passed 2026-05-29.
