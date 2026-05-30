@@ -1,6 +1,16 @@
 # Finalizer Prompt Phase A — Rule Bisection
 
-**Status**: Design (not yet implemented).
+> ⚠️ **SUPERSEDED (2026-05-30 状态核对)**:本设计的根因诊断(注意力稀释 / soft-rule density)
+> 仍然成立,但**具体的"物理删除规则"实施计划已被 `docs/design/finalizer_skill_restructure.md`
+> (P5-B,commit `77fefbc8`+`8618e374`)取代并落地** —— 后者用 applicability-gated 的
+> `WorkflowTierB`(`internal/skill/skill.go` + `defaults.go`)把低频/特化规则按 question shape +
+> retry path 条件渲染,而非删除。**不要再按本文档的删除序列实施**:部分规则现在是 `TierBItem`,
+> 不在主 Workflow slice 里,会与 TierB 机制冲突。**唯一未被 P5-B 覆盖、仍可单独抢救的是 Commit 1
+> 的 hint 增强** —— 给 `ViolEnumerationLabelUngrounded` / `ViolAbsenceScopeExceeded` 加 actionable
+> case(原本走 DEFAULT fallback)。**该部分已于 2026-05-30 在 `internal/analysis/hint/composer.go`
+> 落地**,故本设计现已全部消化完毕。
+
+**Status**: Superseded by `finalizer_skill_restructure.md` (P5-B). 根因有效,删除序列勿用。
 **Target session**: single-session ship, 6-9 commits.
 **Predecessor**: `docs/design/analyzer_amplifier_layer.md`(analyzer-side amplifier 主线 SHIPPED 2026-05-05;finalizer prompt jitter 仍在 — 本设计是后续治理).
 **Successor**: `docs/design/finalizer_phase_c_shape_contract.md`(Phase C — typed EnumerationSubType signal;ship 在 Phase A 完成且真 eval 验证后).

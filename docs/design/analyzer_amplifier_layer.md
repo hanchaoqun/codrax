@@ -1,6 +1,13 @@
 # Analyzer IR Amplifier Layer — 设计文档
 
-状态:Phase 0(待施工)
+状态:✅ **SHIPPED**(Phase 1–4 全部落地;2026-05-30 状态核对确认)
+> R1/R2/R3 三条规则均已实现并接入,包在 `internal/analysis/amplifier/`,接入点
+> `internal/agent/analyzer.go`(pre-compile `Amplify` + post-compile `AmplifyPostCompile`),
+> `trap_fixture_test.go` / `axis_collapse_fixture_test.go` 钉死。提交序列约 `9ae2268`→`f048a07`
+> + 后续 hardening。**唯一未做的增量是 §5-R4 Buckets derivation**(设计明确推迟,见 §7)。
+> 下文 §3+ 保留原始设计推演供参考;实施细节以代码为准(`AmplifyPostCompile` 实际签名为
+> `func(rm types.RequestModel, contract *types.AnswerContract)`,未用 §4.1 占位的 `MustIncludeMutator` 接口)。
+
 代码基线:`origin/main@9977e7d` 或更新(2026-05-05)
 责任范围:为 analyzer LLM emit 后的 RequestModel 补全 LLM 漏填的可选 typed 字段。不替代任何执行层契约。
 
