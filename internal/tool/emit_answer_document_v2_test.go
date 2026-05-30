@@ -83,6 +83,68 @@ func TestEmitAnswerDocumentV2_AcceptsValidV2(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_PrunesScalarItemFragmentsWhenItemObjectsPreserveDisplay(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"blocks": [{
+			"id": "hops",
+			"kind": "ordered_list",
+			"items": [
+				{"id": "h1", "label": "进入睡眠", "text": "com.tencent.mm-36379 通过 sched_switch 进入 S 状态", "citation_ref": 0},
+				"{\t\t]\t}",
+				{"id": "h2", "label": "唤醒调度", "text": "[GT]ColdPool#5 通过 sched_wakeup 唤醒目标线程", "citation_ref": 1},
+				"citation_ref:8"
+			]
+		}],
+		"citations": [
+			{"file": ".codrax/blob/attached_trace.txt", "line": 1102717},
+			{"file": ".codrax/blob/attached_trace.txt", "line": 1139180}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("full emit should prune structural item fragments when item objects preserve display: %s", res.Summary)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 {
+		t.Fatalf("missing emitted doc: %+v", doc)
+	}
+	if got := len(doc.Blocks[0].Items); got != 2 {
+		t.Fatalf("expected two item objects after pruning scalar fragments, got %d (%+v)", got, doc.Blocks[0].Items)
+	}
+	if doc.Blocks[0].Items[0].Text == "" || doc.Blocks[0].Items[1].Text == "" {
+		t.Fatalf("visible item text must be preserved: %+v", doc.Blocks[0].Items)
+	}
+}
+
+func TestEmitAnswerDocumentV2_DoesNotPruneMeaningfulScalarItemTextWithoutCarrier(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"blocks": [{
+			"id": "hops",
+			"kind": "ordered_list",
+			"items": [
+				{"id": "h1", "citation_ref": 0},
+				"this is visible prose that cannot be silently dropped"
+			]
+		}],
+		"citations": [{"file": "trace.txt", "line": 1}]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("meaningful scalar item text without a visible carrier must not be silently pruned")
+	}
+	if bus.Mutable.AnswerDocumentV2() != nil {
+		t.Fatalf("rejected malformed doc must not be persisted: %+v", bus.Mutable.AnswerDocumentV2())
+	}
+}
+
 func TestEmitAnswerDocumentV2_EmptyBlocksRejectsWithStructuredRepair(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

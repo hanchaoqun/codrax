@@ -3138,14 +3138,16 @@ func repairAnswerBlockItemTextAliases(blkObj map[string]json.RawMessage) ([]stri
 // repairAnswerBlockItemScalarFragments handles a narrow local-model
 // corruption mode inside block.items[]:
 //   - a complete item object is JSON-encoded as a string; or
-//   - a display-rich block already has block.text, and the items[]
-//     array contains stray scalar fragments around at least one valid
-//     object.
+//   - a display-rich block already has block.text OR display-rich
+//     item objects, and the items[] array contains stray scalar
+//     fragments around at least one valid object.
 //
-// The first case is lossless. The second case is intentionally gated
-// by non-empty block.text so visible answer content is preserved by
-// the markdown/table prose while invalid scalar fragments are removed
-// from the typed citation sidecar instead of forcing an LLM retry.
+// The first case is lossless. The second case is intentionally gated:
+// visible answer content must already be preserved by block.text or
+// by kept item object(s), and any scalar being discarded must look like
+// structural JSON/citation sidecar noise rather than standalone prose.
+// This accepts local-model stream fragments without letting the system
+// silently delete user-visible answer text.
 func repairAnswerBlockItemScalarFragments(blkObj map[string]json.RawMessage) ([]string, bool) {
 	if len(blkObj) == 0 {
 		return nil, false
@@ -3163,6 +3165,7 @@ func repairAnswerBlockItemScalarFragments(blkObj map[string]json.RawMessage) ([]
 	kept := make([]json.RawMessage, 0, len(rawList))
 	changed := false
 	invalidScalar := false
+	nonIgnorableScalar := false
 	for _, raw := range rawList {
 		trimmedRaw := bytes.TrimSpace(raw)
 		if len(trimmedRaw) == 0 || bytes.Equal(trimmedRaw, []byte("null")) {
@@ -3195,9 +3198,13 @@ func repairAnswerBlockItemScalarFragments(blkObj map[string]json.RawMessage) ([]
 				}
 			}
 			invalidScalar = true
+			if !isIgnorableAnswerItemScalarFragment(inner) {
+				nonIgnorableScalar = true
+			}
 			changed = true
 		default:
 			invalidScalar = true
+			nonIgnorableScalar = true
 			changed = true
 		}
 	}
@@ -3205,10 +3212,74 @@ func repairAnswerBlockItemScalarFragments(blkObj map[string]json.RawMessage) ([]
 		return nil, false
 	}
 	if invalidScalar && !hasVisibleText {
-		return nil, false
+		if nonIgnorableScalar || !answerBlockItemObjectsPreserveVisibleDisplay(kept) {
+			return nil, false
+		}
 	}
 	blkObj["items"] = mustMarshal(kept)
 	return []string{"items[] scalar fragments"}, true
+}
+
+func answerBlockItemObjectsPreserveVisibleDisplay(items []json.RawMessage) bool {
+	for _, raw := range items {
+		var item map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &item); err != nil {
+			continue
+		}
+		if jsonStringFieldNonEmpty(item["text"]) || jsonStringFieldNonEmpty(item["label"]) || jsonStringArrayFieldNonEmpty(item["cells"]) {
+			return true
+		}
+	}
+	return false
+}
+
+func isIgnorableAnswerItemScalarFragment(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return true
+	}
+	if isJSONPunctuationOnlyFragment(s) {
+		return true
+	}
+	normalized := strings.ToLower(s)
+	for _, old := range []string{"\"", "'", "{", "}", "[", "]", ",", " ", "\t", "\r", "\n"} {
+		normalized = strings.ReplaceAll(normalized, old, "")
+	}
+	normalized = strings.TrimSpace(normalized)
+	if strings.HasPrefix(normalized, "citation_ref:") || strings.HasPrefix(normalized, "citation_ref=") {
+		rest := normalized[len("citation_ref:"):]
+		if strings.HasPrefix(normalized, "citation_ref=") {
+			rest = normalized[len("citation_ref="):]
+		}
+		if rest == "" {
+			return true
+		}
+		if rest[0] == '-' || rest[0] == '+' {
+			rest = rest[1:]
+		}
+		if rest == "" {
+			return false
+		}
+		for _, r := range rest {
+			if r < '0' || r > '9' {
+				return false
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func isJSONPunctuationOnlyFragment(s string) bool {
+	for _, r := range s {
+		switch r {
+		case ' ', '\t', '\r', '\n', '{', '}', '[', ']', '(', ')', ',', ':', ';', '"', '\'', '\\':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func jsonStringFieldNonEmpty(raw json.RawMessage) bool {
