@@ -148,6 +148,7 @@ type WindowStats struct {
 	EventCounts        map[EventType]int `json:"event_counts,omitempty"`
 	CPU                []CPUStats        `json:"cpu,omitempty"`
 	TopRunning         []ThreadDuration  `json:"top_running,omitempty"`
+	RunnableTop        []ThreadDuration  `json:"runnable_top,omitempty"`
 	DStateTop          []ThreadDuration  `json:"d_state_top,omitempty"`
 	BlockIssueCount    int               `json:"block_issue_count,omitempty"`
 	BlockCompleteCount int               `json:"block_complete_count,omitempty"`

@@ -20,6 +20,23 @@ const sampleTrace = `
       waker-10   (   10) [000] .... 1.320000: block_rq_issue: 8,0 R 4096 () 123 + 8 [waker]
 `
 
+const resourceTrace = `
+       main-20   (   20) [001] .... 2.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=main next_pid=20 next_prio=53
+       main-20   (   20) [001] .... 2.010000: sched_switch: prev_comm=main prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=worker next_pid=30 next_prio=20
+     worker-30   (   30) [001] .... 2.030000: sched_switch: prev_comm=worker prev_pid=30 prev_prio=20 prev_state=D ==> next_comm=idle/1 next_pid=0 next_prio=120
+      waker-10   (   10) [000] .... 2.040000: sched_blocked_reason: pid=30 caller=fscache_page_wait_on_page_bit
+      waker-10   (   10) [000] .... 2.050000: cpu_idle: state=4294967295 cpu_id=0
+      waker-10   (   10) [000] .... 2.060000: clock_set_rate: pid_freq state=1800000 cpu_id=0
+      waker-10   (   10) [000] .... 2.070000: block_rq_issue: 8,0 R 4096 () 123 + 8 [worker]
+      waker-10   (   10) [000] .... 2.080000: block_rq_complete: 8,0 R () 123 + 8 [0]
+      waker-10   (   10) [000] .... 2.090000: binder_transaction: transaction=7 dest_node=0 dest_proc=40 dest_thread=41 reply=1 flags=0x0 code=0x1
+      waker-10   (   10) [000] .... 2.100000: irq_handler_entry: irq=32 name=kirq
+      waker-10   (   10) [000] .... 2.110000: mm_vmscan_direct_reclaim_begin: order=0 may_writepage=1
+      waker-10   (   10) [000] .... 2.120000: print: B|20|Choreographer#doFrame
+     worker-30   (   30) [001] .... 2.150000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=30 next_prio=20
+       main-20   (   20) [001] .... 2.200000: sched_switch: prev_comm=worker prev_pid=30 prev_prio=20 prev_state=S ==> next_comm=main next_pid=20 next_prio=53
+`
+
 func TestParseLineSchedulerEvents(t *testing.T) {
 	intern := newStringInterner()
 	ev, ok := ParseLine(4, `        app-20   (   20) [001] .... 1.100000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`, intern)
@@ -32,6 +49,85 @@ func TestParseLineSchedulerEvents(t *testing.T) {
 	wake, ok := ParseLine(5, `      waker-10   (   10) [000] .... 1.180000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`, intern)
 	if !ok || wake.Type != EventSchedWakeup || wake.PID != 10 || wake.WakeePID != 20 || wake.TargetCPU != 1 {
 		t.Fatalf("unexpected wake event: %+v ok=%v", wake, ok)
+	}
+}
+
+func TestParseLineSupportedResourceEvents(t *testing.T) {
+	intern := newStringInterner()
+	cases := []struct {
+		name  string
+		line  string
+		want  EventType
+		check func(Event) bool
+	}{
+		{
+			name:  "blocked reason",
+			line:  `      waker-10   (   10) [000] .... 2.040000: sched_blocked_reason: pid=30 caller=fscache_page_wait_on_page_bit`,
+			want:  EventSchedBlockedReason,
+			check: func(ev Event) bool { return ev.WakeePID == 30 && ev.Reason == "fscache_page_wait_on_page_bit" },
+		},
+		{
+			name:  "cpu idle",
+			line:  `      waker-10   (   10) [000] .... 2.050000: cpu_idle: state=4294967295 cpu_id=0`,
+			want:  EventCPUIdle,
+			check: func(ev Event) bool { return ev.CPUForField == 0 },
+		},
+		{
+			name:  "cpu frequency",
+			line:  `      waker-10   (   10) [000] .... 2.060000: clock_set_rate: pid_freq state=1800000 cpu_id=0`,
+			want:  EventCPUFrequency,
+			check: func(ev Event) bool { return ev.Frequency == 1800000 },
+		},
+		{
+			name:  "block issue",
+			line:  `      waker-10   (   10) [000] .... 2.070000: block_rq_issue: 8,0 R 4096 () 123 + 8 [worker]`,
+			want:  EventBlockIssue,
+			check: func(ev Event) bool { return ev.FieldText != "" },
+		},
+		{
+			name:  "block complete",
+			line:  `      waker-10   (   10) [000] .... 2.080000: block_rq_complete: 8,0 R () 123 + 8 [0]`,
+			want:  EventBlockComplete,
+			check: func(ev Event) bool { return ev.FieldText != "" },
+		},
+		{
+			name:  "binder",
+			line:  `      waker-10   (   10) [000] .... 2.090000: binder_transaction: transaction=7 dest_node=0 dest_proc=40 dest_thread=41 reply=1 flags=0x0 code=0x1`,
+			want:  EventBinderTransaction,
+			check: func(ev Event) bool { return ev.PID == 10 },
+		},
+		{
+			name:  "irq",
+			line:  `      waker-10   (   10) [000] .... 2.100000: irq_handler_entry: irq=32 name=kirq`,
+			want:  EventIRQ,
+			check: func(ev Event) bool { return ev.CPU == 0 },
+		},
+		{
+			name:  "trace mark",
+			line:  `      waker-10   (   10) [000] .... 2.120000: print: B|20|Choreographer#doFrame`,
+			want:  EventTraceMark,
+			check: func(ev Event) bool { return ev.SpanAction == "B" && ev.SpanName == "Choreographer#doFrame" },
+		},
+		{
+			name:  "memory",
+			line:  `      waker-10   (   10) [000] .... 2.110000: mm_vmscan_direct_reclaim_begin: order=0 may_writepage=1`,
+			want:  EventMemory,
+			check: func(ev Event) bool { return ev.Type == EventMemory },
+		},
+		{
+			name:  "unknown ftrace row",
+			line:  `      waker-10   (   10) [000] .... 2.130000: vendor_private_event: alpha=1`,
+			want:  EventUnknown,
+			check: func(ev Event) bool { return ev.FieldText == "" },
+		},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ev, ok := ParseLine(i+10, tc.line, intern)
+			if !ok || ev.Type != tc.want || !tc.check(ev) {
+				t.Fatalf("ParseLine() = %+v ok=%v, want type %s", ev, ok, tc.want)
+			}
+		})
 	}
 }
 
@@ -49,6 +145,14 @@ func TestThreadTimelineSplitsSleepAndRunnable(t *testing.T) {
 	}
 }
 
+func TestThreadTimelineClassifiesDState(t *testing.T) {
+	idx := buildTraceIndex(t, "resource.systrace", resourceTrace)
+	tl := ThreadTimeline(idx, Query{PID: 30, TimeStart: 2.02, TimeEnd: 2.16, MinDurationMs: 1})
+	if !timelineHasState(tl, StateDSleep) {
+		t.Fatalf("expected D-state interval, got %+v", tl.Intervals)
+	}
+}
+
 func TestWakeupChainFindsWakerAndRoot(t *testing.T) {
 	idx := buildSampleIndex(t)
 	chain := BuildWakeupChain(idx, Query{PID: 20, TimeStart: 1.10, TimeEnd: 1.22, MaxDepth: 4, MinDurationMs: 1})
@@ -63,6 +167,22 @@ func TestWakeupChainFindsWakerAndRoot(t *testing.T) {
 	}
 }
 
+func TestWakeupChainReportsMissingWakeup(t *testing.T) {
+	idx := buildSampleIndex(t)
+	chain := BuildWakeupChain(idx, Query{PID: 10, TimeStart: 1.05, TimeEnd: 1.17, MaxDepth: 4, MinDurationMs: 1})
+	if len(chain.RootEvidence) == 0 || chain.RootEvidence[0].Type != "missing_wakeup" {
+		t.Fatalf("expected missing wakeup root, got %+v", chain.RootEvidence)
+	}
+}
+
+func TestWakeupChainReportsDStateRoot(t *testing.T) {
+	idx := buildTraceIndex(t, "resource.systrace", resourceTrace)
+	chain := BuildWakeupChain(idx, Query{PID: 30, TimeStart: 2.03, TimeEnd: 2.15, MaxDepth: 4, MinDurationMs: 1})
+	if len(chain.RootEvidence) == 0 || chain.RootEvidence[0].Type != "d_state_or_io_wait" {
+		t.Fatalf("expected D-state root, got %+v", chain.RootEvidence)
+	}
+}
+
 func TestWindowStatsComputesCPUAndResourceCounts(t *testing.T) {
 	idx := buildSampleIndex(t)
 	stats := ComputeWindowStats(idx, Query{TimeStart: 1.0, TimeEnd: 1.35})
@@ -74,11 +194,55 @@ func TestWindowStatsComputesCPUAndResourceCounts(t *testing.T) {
 	}
 }
 
+func TestWindowStatsCountsRuntimeResourcesAndOffCPU(t *testing.T) {
+	idx := buildTraceIndex(t, "resource.systrace", resourceTrace)
+	stats := ComputeWindowStats(idx, Query{TimeStart: 2.0, TimeEnd: 2.2})
+	if stats.BlockIssueCount != 1 || stats.BlockCompleteCount != 1 || stats.BinderCount != 1 || stats.IRQCount != 1 || stats.MemoryEventCount != 1 {
+		t.Fatalf("resource counts not preserved: %+v", stats)
+	}
+	if len(stats.RunnableTop) == 0 || stats.RunnableTop[0].Thread.PID != 20 {
+		t.Fatalf("expected runnable top for main thread: %+v", stats.RunnableTop)
+	}
+	if len(stats.DStateTop) == 0 || stats.DStateTop[0].Thread.PID != 30 {
+		t.Fatalf("expected D-state top for worker thread: %+v", stats.DStateTop)
+	}
+	foundFreq := false
+	for _, cpu := range stats.CPU {
+		if cpu.CPU == 0 && cpu.Frequency == 1800000 {
+			foundFreq = true
+		}
+	}
+	if !foundFreq {
+		t.Fatalf("expected cpu frequency to be summarized: %+v", stats.CPU)
+	}
+}
+
+func TestWindowStatsHonorsLineWindow(t *testing.T) {
+	idx := buildTraceIndex(t, "resource.systrace", resourceTrace)
+	stats := ComputeWindowStats(idx, Query{TimeStart: 2.0, TimeEnd: 2.2, LineStart: 1, LineEnd: 4})
+	if stats.BlockIssueCount != 0 || stats.BinderCount != 0 || stats.IRQCount != 0 || stats.MemoryEventCount != 0 {
+		t.Fatalf("line window should exclude later resource rows: %+v", stats)
+	}
+}
+
 func buildSampleIndex(t *testing.T) *Index {
 	t.Helper()
-	dir := t.TempDir()
-	path := filepath.Join(dir, "sample.systrace")
-	if err := os.WriteFile(path, []byte(sampleTrace), 0o644); err != nil {
+	return buildTraceIndex(t, "sample.systrace", sampleTrace)
+}
+
+func timelineHasState(tl TimelineResult, state ThreadState) bool {
+	for _, it := range tl.Intervals {
+		if it.State == state {
+			return true
+		}
+	}
+	return false
+}
+
+func buildTraceIndex(t *testing.T, name, content string) *Index {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	idx, err := BuildIndex(context.Background(), path)

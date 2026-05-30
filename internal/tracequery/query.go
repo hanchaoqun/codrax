@@ -348,7 +348,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	}
 	byCPU := map[int][]Event{}
 	for _, ev := range idx.Events {
-		if !timeInWindow(ev.Ts, q) {
+		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
 			continue
 		}
 		stats.EventCounts[ev.Type]++
@@ -417,7 +417,95 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	if len(stats.TopRunning) > 8 {
 		stats.TopRunning = stats.TopRunning[:8]
 	}
+	stats.RunnableTop, stats.DStateTop = computeOffCPUStats(idx, q)
 	return stats
+}
+
+type offCPUStart struct {
+	thread ThreadRef
+	state  ThreadState
+	ts     float64
+	line   int
+}
+
+func computeOffCPUStats(idx *Index, q Query) ([]ThreadDuration, []ThreadDuration) {
+	if idx == nil {
+		return nil, nil
+	}
+	open := map[int]offCPUStart{}
+	runnable := map[string]ThreadDuration{}
+	dstate := map[string]ThreadDuration{}
+	addDuration := func(bucket map[string]ThreadDuration, start offCPUStart, endTs float64, endLine int) {
+		startTs := start.ts
+		if q.TimeStart > 0 && startTs < q.TimeStart {
+			startTs = q.TimeStart
+		}
+		if q.TimeEnd > 0 && endTs > q.TimeEnd {
+			endTs = q.TimeEnd
+		}
+		if endTs <= startTs {
+			return
+		}
+		key := fmt.Sprintf("%d/%s", start.thread.PID, start.thread.Comm)
+		td := bucket[key]
+		td.Thread = start.thread
+		td.DurationMs += (endTs - startTs) * 1000
+		if td.LineStart == 0 {
+			td.LineStart = start.line
+		}
+		td.LineEnd = firstPositive(endLine, start.line)
+		bucket[key] = td
+	}
+	for _, ev := range idx.Events {
+		if !eventLineInWindow(ev, q) || ev.Type != EventSchedSwitch {
+			continue
+		}
+		if ev.NextPID > 0 {
+			if start, ok := open[ev.NextPID]; ok {
+				switch start.state {
+				case StateRunnable:
+					addDuration(runnable, start, ev.Ts, ev.Line)
+				case StateDSleep, StateIOWait:
+					addDuration(dstate, start, ev.Ts, ev.Line)
+				}
+				delete(open, ev.NextPID)
+			}
+		}
+		if ev.PrevPID > 0 {
+			state := stateFromPrevState(ev.PrevState)
+			if state == StateRunnable || state == StateDSleep || state == StateIOWait {
+				open[ev.PrevPID] = offCPUStart{
+					thread: ThreadRef{Comm: ev.PrevComm, PID: ev.PrevPID},
+					state:  state,
+					ts:     ev.Ts,
+					line:   ev.Line,
+				}
+			}
+		}
+	}
+	if q.TimeEnd > 0 {
+		for _, start := range open {
+			switch start.state {
+			case StateRunnable:
+				addDuration(runnable, start, q.TimeEnd, 0)
+			case StateDSleep, StateIOWait:
+				addDuration(dstate, start, q.TimeEnd, 0)
+			}
+		}
+	}
+	return topThreadDurations(runnable, 8), topThreadDurations(dstate, 8)
+}
+
+func topThreadDurations(in map[string]ThreadDuration, max int) []ThreadDuration {
+	out := make([]ThreadDuration, 0, len(in))
+	for _, td := range in {
+		out = append(out, td)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].DurationMs > out[j].DurationMs })
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
 }
 
 func upsertCPUBusyIdle(in []CPUStats, cpu int, busy, idle float64) []CPUStats {
@@ -637,6 +725,16 @@ func timeInWindow(ts float64, q Query) bool {
 	return true
 }
 
+func eventLineInWindow(ev Event, q Query) bool {
+	if q.LineStart > 0 && ev.Line < q.LineStart {
+		return false
+	}
+	if q.LineEnd > 0 && ev.Line > q.LineEnd {
+		return false
+	}
+	return true
+}
+
 func eventLines(events []Event) []int {
 	out := make([]int, 0, len(events))
 	for _, ev := range events {
@@ -713,6 +811,32 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 			Confidence: 0.7,
 		})
 		if len(out) >= 8 {
+			break
+		}
+	}
+	for _, td := range stats.RunnableTop {
+		out = append(out, EvidenceFact{
+			Subject:    threadLabel(td.Thread),
+			Predicate:  "runnable_wait",
+			Summary:    fmt.Sprintf("%s spent %.3f ms runnable but not running in the selected window", threadLabel(td.Thread), td.DurationMs),
+			LineStart:  td.LineStart,
+			LineEnd:    td.LineEnd,
+			Confidence: 0.75,
+		})
+		if len(out) >= 12 {
+			break
+		}
+	}
+	for _, td := range stats.DStateTop {
+		out = append(out, EvidenceFact{
+			Subject:    threadLabel(td.Thread),
+			Predicate:  "d_state_or_io_wait",
+			Summary:    fmt.Sprintf("%s spent %.3f ms in D-state or IO-like wait in the selected window", threadLabel(td.Thread), td.DurationMs),
+			LineStart:  td.LineStart,
+			LineEnd:    td.LineEnd,
+			Confidence: 0.8,
+		})
+		if len(out) >= 16 {
 			break
 		}
 	}

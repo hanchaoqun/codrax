@@ -224,6 +224,12 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		for _, td := range result.WindowStats.TopRunning {
 			fmt.Fprintf(&b, "- top_running %s %.3fms lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, td.LineStart, td.LineEnd)
 		}
+		for _, td := range result.WindowStats.RunnableTop {
+			fmt.Fprintf(&b, "- top_runnable %s %.3fms lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, td.LineStart, td.LineEnd)
+		}
+		for _, td := range result.WindowStats.DStateTop {
+			fmt.Fprintf(&b, "- top_d_state %s %.3fms lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, td.LineStart, td.LineEnd)
+		}
 		fmt.Fprintf(&b, "- counts block_issue=%d block_complete=%d binder=%d irq=%d memory=%d\n\n",
 			result.WindowStats.BlockIssueCount, result.WindowStats.BlockCompleteCount, result.WindowStats.BinderCount, result.WindowStats.IRQCount, result.WindowStats.MemoryEventCount)
 	}
