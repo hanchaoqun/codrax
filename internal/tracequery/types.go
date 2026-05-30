@@ -97,6 +97,8 @@ type Index struct {
 type Query struct {
 	View               string
 	Thread             string
+	ThreadInput        string
+	ThreadPIDInferred  bool
 	PID                int
 	TimeStart          float64
 	TimeEnd            float64

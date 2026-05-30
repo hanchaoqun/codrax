@@ -64,6 +64,20 @@ func normalizeQuery(idx *Index, q Query) Query {
 	if q.View == "" {
 		q.View = "event_search"
 	}
+	if strings.TrimSpace(q.ThreadInput) == "" {
+		q.ThreadInput = q.Thread
+	}
+	if sel := parseThreadSelector(q.ThreadInput); strings.TrimSpace(sel.Raw) != "" {
+		if q.PID <= 0 && sel.HasPID {
+			q.PID = sel.PID
+			q.ThreadPIDInferred = true
+		}
+		if sel.Name != "" {
+			q.Thread = sel.Name
+		} else if q.PID > 0 {
+			q.Thread = ""
+		}
+	}
 	if q.MaxDepth <= 0 {
 		q.MaxDepth = 6
 	}
@@ -137,7 +151,7 @@ func eventInQuery(ev Event, q Query, typeSet map[EventType]bool) bool {
 	if q.PID > 0 && !eventMentionsPID(ev, q.PID) {
 		return false
 	}
-	if strings.TrimSpace(q.Thread) != "" && !eventMentionsThread(ev, q.Thread) {
+	if q.PID <= 0 && strings.TrimSpace(q.Thread) != "" && !eventMentionsThread(ev, q.Thread) {
 		return false
 	}
 	return true
@@ -148,12 +162,12 @@ func eventMentionsPID(ev Event, pid int) bool {
 }
 
 func eventMentionsThread(ev Event, thread string) bool {
-	thread = strings.ToLower(strings.TrimSpace(thread))
-	if thread == "" {
+	sel := parseThreadSelector(thread)
+	if sel.HasPID && eventMentionsPID(ev, sel.PID) {
 		return true
 	}
 	for _, v := range []string{ev.Comm, ev.PrevComm, ev.NextComm, ev.WakeeComm, ev.SpanName, ev.SpanValue, ev.Reason, ev.FieldText} {
-		if strings.Contains(strings.ToLower(v), thread) {
+		if threadSelectorMatchesName(sel, v) {
 			return true
 		}
 	}
@@ -342,8 +356,12 @@ func resolveThread(idx *Index, q Query) ThreadRef {
 		}
 		return ThreadRef{Comm: name, PID: q.PID, TGID: tgid}
 	}
-	needle := strings.ToLower(strings.TrimSpace(q.Thread))
-	if needle == "" {
+	sel := parseThreadSelector(firstNonEmpty(q.ThreadInput, q.Thread))
+	if sel.HasPID {
+		q.PID = sel.PID
+		return resolveThread(idx, q)
+	}
+	if strings.TrimSpace(sel.Raw) == "" && strings.TrimSpace(sel.Name) == "" {
 		return ThreadRef{}
 	}
 	for _, ev := range idx.Events {
@@ -352,7 +370,7 @@ func resolveThread(idx *Index, q Query) ThreadRef {
 			pid  int
 			tgid int
 		}{{ev.Comm, ev.PID, ev.TGID}, {ev.PrevComm, ev.PrevPID, 0}, {ev.NextComm, ev.NextPID, 0}, {ev.WakeeComm, ev.WakeePID, 0}} {
-			if candidate.pid > 0 && strings.Contains(strings.ToLower(candidate.comm), needle) {
+			if candidate.pid > 0 && threadSelectorMatchesName(sel, candidate.comm) {
 				return ThreadRef{Comm: candidate.comm, PID: candidate.pid, TGID: candidate.tgid}
 			}
 		}
@@ -1891,6 +1909,19 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 	var out []string
 	if idx != nil && idx.ParsedKnown == 0 {
 		out = append(out, "no known ftrace scheduler/resource events were parsed; the file may need a future parser adapter")
+	}
+	if selector := threadSelectorSummary(firstNonEmpty(q.ThreadInput, q.Thread)); selector != "" {
+		if q.ThreadPIDInferred {
+			out = append(out, "thread selector normalized from model/customer text: "+selector+"; pid-bearing scheduler fields are used for matching")
+		}
+	}
+	if res.View == "event_search" && len(res.Events) == 0 {
+		out = append(out, "matched_events=0 for the selected filters; this is not absence proof if the thread label, time window, event types, or line window are too narrow")
+		if q.PID > 0 {
+			out = append(out, fmt.Sprintf("next_call_hint=try trace_query(view=\"thread_timeline\", pid=%d, time_start=%.6f, time_end=%.6f) or trace_query(view=\"wakeup_chain\", pid=%d, time_start=%.6f, time_end=%.6f)", q.PID, q.TimeStart, q.TimeEnd, q.PID, q.TimeStart, q.TimeEnd))
+		} else if strings.TrimSpace(q.Thread) != "" {
+			out = append(out, fmt.Sprintf("next_call_hint=try trace_query(view=\"event_search\", thread=%q, time_start=%.6f, time_end=%.6f, event_types=[\"sched_switch\",\"sched_wakeup\"]) or use pid if visible in the trace row", q.Thread, q.TimeStart, q.TimeEnd))
+		}
 	}
 	if q.LineStart > 0 || q.LineEnd > 0 {
 		out = append(out, "line-window filtering was used; time-window statistics only cover parsed rows inside that line window")

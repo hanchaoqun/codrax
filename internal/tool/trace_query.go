@@ -40,7 +40,7 @@ type traceQueryParams struct {
 func (t *TraceQuery) Name() string { return "trace_query" }
 
 func (t *TraceQuery) Description() string {
-	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, wakeup chains, binder IPC graphs, same-window resource stats, structured event search, and line-backed evidence packs. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
+	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, wakeup chains, binder IPC graphs, same-window resource stats, structured event search, and line-backed evidence packs. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Thread selectors accept pid plus common ftrace/hitrace labels such as com.tencent.mm-36379, com.tencent.mm 36379, com.tencent.mm [36379], [GT]ColdPool#5-36624, binder:486_1-10803, or pid=36379; pass pid directly when known. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
 }
 
 func (t *TraceQuery) Parameters() json.RawMessage {
@@ -50,7 +50,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
     "source": {"type":"string","enum":["path","attached_trace"],"description":"Use attached_trace for the current --htrace/--atrace blob; use path for an explicit workspace/repo file."},
     "path": {"type":"string","description":"Repo/workspace-relative or absolute trace/log path when source=path."},
     "view": {"type":"string","enum":["event_search","thread_timeline","window_stats","ipc_graph","wakeup_chain","evidence_pack"],"description":"The deterministic trace view to compute. Use ipc_graph for binder transaction send/receive causality."},
-    "thread": {"type":"string","description":"Thread name or substring to resolve when pid is unknown."},
+	    "thread": {"type":"string","description":"Thread name, substring, or ftrace/hitrace task label to resolve when pid is unknown. Accepts forms like \"com.tencent.mm-36379\", \"com.tencent.mm 36379\", \"com.tencent.mm [36379]\", \"[GT]ColdPool#5-36624\", \"binder:486_1-10803\", or \"pid=36379\"; pid is preferred when known."},
     "pid": {"type":"integer","description":"Thread pid to analyze when known."},
     "time_start": {"oneOf":[{"type":"number"},{"type":"string"}],"description":"Trace timestamp window start in seconds. Prefer a JSON number. Also accepts strings such as \"928.081774s\" or \"928.081774 秒\" and normalizes them to seconds; six fractional digits are microsecond precision."},
     "time_end": {"oneOf":[{"type":"number"},{"type":"string"}],"description":"Trace timestamp window end in seconds. Prefer a JSON number. Also accepts strings such as \"928.081774s\" or \"928.081774 秒\" and normalizes them to seconds; six fractional digits are microsecond precision."},
@@ -91,6 +91,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	q := tracequery.Query{
 		View:               p.View,
 		Thread:             p.Thread,
+		ThreadInput:        p.Thread,
 		PID:                p.PID.Int(),
 		TimeStart:          timeStart,
 		TimeEnd:            timeEnd,
@@ -224,11 +225,13 @@ func traceSecondNeedsNormalizationNote(v TraceSecond) bool {
 
 func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel, payloadRef string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace line_start=%s line_end=%s time_start=%s time_end=%s payload_ref=%s]\n",
+	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace thread=%s pid=%s line_start=%s line_end=%s time_start=%s time_end=%s payload_ref=%s]\n",
 		firstNonEmptyTraceString(result.View, p.View, "event_search"),
 		sourceLabel,
 		sanitizeForBanner(result.SourcePath),
 		traceQueryArtifactID(sourceLabel),
+		sanitizeForBanner(p.Thread),
+		positiveIntBannerValue(p.PID.Int()),
 		positiveIntBannerValue(p.LineStart.Int()),
 		positiveIntBannerValue(p.LineEnd.Int()),
 		traceSecondBannerValue(p.TimeStart),
@@ -237,6 +240,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	)
 	fmt.Fprintf(&b, "# Trace Query: %s\n\n", result.View)
 	fmt.Fprintf(&b, "source=%s lines=%d parsed_events=%d timestamp_unit=%s selected_window=%.6f..%.6f seconds\n", result.SourcePath, result.LineCount, result.EventCount, firstNonEmptyTraceString(result.TimeUnit, "seconds"), result.TimeStart, result.TimeEnd)
+	if result.View == "event_search" {
+		fmt.Fprintf(&b, "matched_events=%d\n", len(result.Events))
+	}
 	if result.PrioritySemantics != "" {
 		fmt.Fprintf(&b, "priority_semantics=%s\n", result.PrioritySemantics)
 	}

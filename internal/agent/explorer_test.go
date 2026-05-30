@@ -5666,6 +5666,56 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 		}
 	})
 
+	t.Run("runtime artifact target reads use artifact-only preservation hint", func(t *testing.T) {
+		eval := &explorerEvaluator{
+			phase:        1,
+			searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		}
+		results := []types.ToolResult{
+			{
+				ToolName: "read_file",
+				Success:  true,
+				Summary:  "[record_trace.systrace: showing lines 1102620-1102680 of 1525954 total]\ntrace rows\n",
+			},
+			{
+				ToolName: "read_file",
+				Success:  true,
+				Summary:  "[record_trace.systrace: showing lines 1139180-1139220 of 1525954 total]\ntrace rows\n",
+			},
+		}
+
+		sig := eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      2,
+			LastToolResult: &results[len(results)-1],
+			AllToolResults: results,
+		})
+		if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.read-without-emit" {
+			t.Fatalf("expected runtime-only read hint, got %+v", sig)
+		}
+		for _, want := range []string{
+			"artifact-only read backlog",
+			"not current-source code evidence",
+			"Do not convert trace/log rows into current-source `emit_evidence` citations",
+			"`emit_investigation_complete.reason` plus `aggregate_facts`",
+			"`trace_query`",
+			"If a later step also needs current-code proof",
+		} {
+			if !strings.Contains(sig.Hint, want) {
+				t.Fatalf("runtime-only read hint missing %q:\n%s", want, sig.Hint)
+			}
+		}
+		for _, forbidden := range []string{
+			"Facts left only in your prose notes are NOT recorded",
+			"Current-checkout source claims left only in prose notes",
+			"largest unrecorded read window",
+		} {
+			if strings.Contains(sig.Hint, forbidden) {
+				t.Fatalf("runtime-only read hint should not use source-evidence pressure %q:\n%s", forbidden, sig.Hint)
+			}
+		}
+	})
+
 	t.Run("origin-specific lanes do not force VCS or command facts into file-line evidence", func(t *testing.T) {
 		eval := &explorerEvaluator{
 			phase:        1,

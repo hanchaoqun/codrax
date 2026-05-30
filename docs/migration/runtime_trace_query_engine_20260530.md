@@ -271,11 +271,35 @@ These are model-recovery contract gaps rather than parser coverage gaps:
 
 ### Task checklist
 
-- [ ] T22. Add flexible trace thread selector parsing and pid-first matching.
-- [ ] T23. Add `trace_query` empty-result diagnostics and concrete recovery
+- [x] T22. Add flexible trace thread selector parsing and pid-first matching.
+- [x] T23. Add `trace_query` empty-result diagnostics and concrete recovery
       examples.
-- [ ] T24. Harden grep line-window parsing for hyphenated/numeric path names.
-- [ ] T25. Add `fixed_string=true` + regex-looking-pattern no-match advisory.
-- [ ] T26. Add runtime-only read-without-emit hint while preserving normal
+- [x] T24. Harden grep line-window parsing for hyphenated/numeric path names.
+- [x] T25. Add `fixed_string=true` + regex-looking-pattern no-match advisory.
+- [x] T26. Add runtime-only read-without-emit hint while preserving normal
       behavior for code and mixed trace+code reads.
-- [ ] T27. Add focused tests for T22-T26, then run focused and full Go tests.
+- [x] T27. Add focused tests for T22-T26, then run focused and full Go tests.
+
+2026-05-30 recovery-hardening delivery:
+
+- `trace_query` now accepts pid-bearing thread selectors such as
+  `com.tencent.mm-36379`, `com.tencent.mm 36379`, `com.tencent.mm [36379]`,
+  `com.tencent.mm (36379)`, `pid=36379`, and bare `36379`. The normalized pid
+  is used for matching scheduler role fields, while the remaining name stays as
+  advisory identity context.
+- `event_search` summaries now print `matched_events=N`. Empty event searches
+  include advisory recovery hints, including normalized thread selector details
+  and concrete `thread_timeline` / `wakeup_chain` next-call shapes when a pid is
+  available.
+- Grep line-window parsing now rejects path-continuation fragments such as
+  numeric hyphen groups inside blob directory names before choosing a
+  `path:line:` location.
+- Grep no-match output now warns when `fixed_string=true` is combined with
+  common regex syntax (`.*`, `\d`, `\s`, escaped dots, and similar), without
+  rewriting or rerunning the search.
+- Explorer read-without-emit hints now have a runtime-only branch for pure
+  log/trace artifact reads. Mixed trace+code reads keep the existing
+  current-source evidence materialization wording, preserving code-analysis and
+  trace/source comparison behavior.
+- Focused validation passed: `go test ./internal/tracequery ./internal/tool
+  ./internal/agent`.

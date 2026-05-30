@@ -173,6 +173,91 @@ func TestTraceQueryAcceptsStringifiedScalarAndEventTypeParams(t *testing.T) {
 	}
 }
 
+func TestTraceQueryNormalizesCustomerThreadSelectors(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "customer.systrace")
+	trace := strings.Join([]string{
+		`com.tencent.mm-36379 (36379) [004] .... 2942.124416: sched_switch: prev_comm=com.tencent.mm prev_pid=36379 prev_prio=53 prev_state=S ==> next_comm=[D]#worker next_pid=36625 next_prio=20`,
+		`[GT]ColdPool#5-36624 (36379) [000] .... 2942.260210: sched_wakeup: comm=com.tencent.mm pid=36379 prio=53 target_cpu=004`,
+		`com.tencent.mm-36379 (36379) [004] .... 2942.260220: sched_switch: prev_comm=JSAdBrandSer#4 prev_pid=37145 prev_prio=28 prev_state=R+ ==> next_comm=com.tencent.mm next_pid=36379 next_prio=53`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	for _, thread := range []string{
+		"com.tencent.mm-36379",
+		"com.tencent.mm 36379",
+		"com.tencent.mm [36379]",
+		"com.tencent.mm (36379)",
+		"pid=36379",
+		"36379",
+	} {
+		t.Run(thread, func(t *testing.T) {
+			params, _ := json.Marshal(map[string]any{
+				"source":      "path",
+				"path":        "customer.systrace",
+				"view":        "event_search",
+				"thread":      thread,
+				"time_start":  2942.124416,
+				"time_end":    2942.260210,
+				"event_types": []string{"sched_switch", "sched_wakeup"},
+			})
+			res, err := (&TraceQuery{}).Execute(ctx, params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !res.Success {
+				t.Fatalf("trace_query failed: %s", res.Summary)
+			}
+			for _, want := range []string{
+				"matched_events=",
+				"line=1 ts=2942.124416 type=sched_switch",
+				"line=2 ts=2942.260210 type=sched_wakeup",
+				"pid-bearing scheduler fields are used for matching",
+			} {
+				if !strings.Contains(res.Summary, want) {
+					t.Fatalf("summary missing %q for thread %q:\n%s", want, thread, res.Summary)
+				}
+			}
+		})
+	}
+}
+
+func TestTraceQueryEmptyEventSearchGivesRecoveryHint(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "empty.systrace")
+	trace := `com.tencent.mm-36379 (36379) [004] .... 2942.124416: sched_switch: prev_comm=com.tencent.mm prev_pid=36379 prev_prio=53 prev_state=S ==> next_comm=[D]#worker next_pid=36625 next_prio=20`
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source":      "path",
+		"path":        "empty.systrace",
+		"view":        "event_search",
+		"thread":      "com.tencent.mm [99999]",
+		"time_start":  2942.124416,
+		"time_end":    2942.260210,
+		"event_types": []string{"sched_wakeup"},
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"matched_events=0",
+		"thread selector normalized",
+		"pid=99999",
+		"next_call_hint=try trace_query(view=\"thread_timeline\", pid=99999",
+		"not absence proof",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
 func TestTraceSecondParsesMilliseconds(t *testing.T) {
 	var holder struct {
 		T TraceSecond `json:"t"`

@@ -1833,6 +1833,46 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
+	t.Run("line window parser ignores numeric hyphen path segments", func(t *testing.T) {
+		line := `.codrax/blob/20260530-095935-000-40270/grep-full-afd155fa.txt:130149:  com.tencent.mm-36379 (36379) [004] .... 2942.124416: sched_switch`
+		path, lineNo, match, ok := parseGrepOutputLineLocation(line)
+		if !ok || !match {
+			t.Fatalf("expected grep location, got ok=%v match=%v path=%q line=%d", ok, match, path, lineNo)
+		}
+		if path != ".codrax/blob/20260530-095935-000-40270/grep-full-afd155fa.txt" || lineNo != 130149 {
+			t.Fatalf("wrong parse: path=%q line=%d", path, lineNo)
+		}
+	})
+
+	t.Run("fixed string regex-looking no-match gives recovery note", func(t *testing.T) {
+		dir := t.TempDir()
+		tracePath := filepath.Join(dir, "record_trace.systrace")
+		if err := os.WriteFile(tracePath, []byte("com.tencent.mm-36379 (36379) [004] .... 2942.124416: sched_switch\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ctx := newBusContext()
+		params, _ := json.Marshal(grepToolParams{
+			Pattern:     `com.tencent.mm-36379.*sched_switch`,
+			Path:        tracePath,
+			FixedString: true,
+		})
+		res, err := (&GrepTool{}).Execute(ctx, params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{
+			"no matches found",
+			"fixed_string_regex_note=",
+			"fixed_string=true treats regex syntax as literal text",
+			".*",
+			"fixed_string=false",
+		} {
+			if !strings.Contains(res.Summary, want) {
+				t.Fatalf("fixed-string regex advisory missing %q:\n%s", want, res.Summary)
+			}
+		}
+	})
+
 	t.Run("runtime artifact grep surfaces parameter advisory", func(t *testing.T) {
 		ctx := newBusContext()
 		contextLines := 3

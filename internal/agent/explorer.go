@@ -5185,6 +5185,19 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 			BypassBudget:   true,
 		}
 	}
+	if runtimeWindow, ok := runtimeArtifactReadWindowSince(obs.AllToolResults, e.midLoopEmitBacklogBaseLen); ok {
+		e.midLoopNoEmitPushSent = true
+		e.midLoopNoEmitPushIter = obs.Iteration
+		e.midLoopNoEmitPushResultsLen = len(obs.AllToolResults)
+		return LoopSignal{
+			HintRequested:  true,
+			HintKey:        e.readWithoutEmitHintKey(),
+			Hint:           renderRuntimeArtifactReadOnlyHint(runtimeWindow),
+			Progress:       true,
+			BypassThrottle: true,
+			BypassBudget:   true,
+		}
+	}
 	e.midLoopNoEmitPushSent = true
 	e.midLoopNoEmitPushIter = obs.Iteration
 	e.midLoopNoEmitPushResultsLen = len(obs.AllToolResults)
@@ -5235,6 +5248,16 @@ func (e *explorerEvaluator) postReadWithoutEmitSoftStopSignal(obs LoopObservatio
 		e.midLoopNoEmitPushIter = obs.Iteration
 		e.midLoopNoEmitPushResultsLen = len(obs.AllToolResults)
 	}
+	if runtimeWindow, ok := runtimeArtifactReadWindowSince(obs.AllToolResults, e.midLoopEmitBacklogBaseLen); ok {
+		return LoopSignal{
+			HintRequested:  true,
+			HintKey:        fmt.Sprintf("%s.%d", e.emitBacklogWindowHintKey("explorer.soft-stop.read-without-emit"), obs.Iteration),
+			Hint:           renderRuntimeArtifactReadOnlyHint(runtimeWindow),
+			Progress:       true,
+			BypassThrottle: true,
+			BypassBudget:   true,
+		}
+	}
 	scope := "this dispatch"
 	recording := "no successful `emit_evidence` call"
 	if e.midLoopEmitBacklogBaseLen > 0 {
@@ -5281,6 +5304,19 @@ func renderRuntimeArtifactHeaderReadHint(win runtimeArtifactReadWindow) string {
 	b.WriteString("Do not emit evidence from unrelated header or first-page rows, and do not keep paging from offset 0. ")
 	fmt.Fprintf(&b, "Narrow first with `grep(path=%q, pattern=\"<one exact timestamp/thread/event literal>\", files_only=false, context_lines=0)` or a deterministic `grep -n`/awk filter that preserves original line numbers; then `read_file` around the selected line window. ", win.path)
 	b.WriteString("Preserve runtime findings through `emit_investigation_complete.reason` plus `aggregate_facts`, or use `emit_evidence` only after the target line gutters are visible and load-bearing.")
+	return b.String()
+}
+
+func renderRuntimeArtifactReadOnlyHint(win runtimeArtifactReadWindow) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Progress check: you have read runtime/log/trace artifact rows from `%s` lines %d-%d", win.path, win.start, win.end)
+	if win.total > 0 {
+		fmt.Fprintf(&b, " of %d", win.total)
+	}
+	b.WriteString(". This is an artifact-only read backlog, not current-source code evidence. ")
+	b.WriteString("Do not convert trace/log rows into current-source `emit_evidence` citations. ")
+	b.WriteString("If these rows answer the runtime question, preserve the findings through `emit_investigation_complete.reason` plus `aggregate_facts` with artifact line numbers; if the window is still incomplete, continue with `trace_query` or a targeted `grep`/`read_file` line window on the same artifact. ")
+	b.WriteString("If a later step also needs current-code proof, read that source separately and emit source evidence only for those current-code lines.")
 	return b.String()
 }
 

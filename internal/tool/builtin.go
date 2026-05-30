@@ -1813,6 +1813,9 @@ func grepNoMatchBody(ctx *types.BusContext, params grepToolParams) string {
 		if advisory := grepRuntimeArtifactParamAdvisory(params); advisory != "" {
 			b.WriteString(advisory)
 		}
+		if advisory := grepFixedStringRegexAdvisory(params); advisory != "" {
+			b.WriteString(advisory)
+		}
 		b.WriteString("no_match_advisory=single runtime/log/trace artifact searched; this only means the exact pattern matched zero lines. Regex is line-order-sensitive: split combined patterns into one exact literal/timestamp/thread id/event name first, inspect one returned line to preserve the observed field order, then recombine only if needed. Use fixed_string=true for punctuation-heavy text. If you know the vicinity, use line_start/line_end on this file. For numeric time ranges, a deterministic command can filter the interval, but preserve original line numbers (for example `grep -n`) so read_file can ground the selected lines.\n")
 		if !params.FixedString && grepPatternHasCommonRegexShorthand(params.Pattern) {
 			b.WriteString("regex_compatibility_note=pattern contains \\d/\\s/\\w-style shorthand; codrax normalizes common single-file cases, but a simpler literal or fixed_string=true is safer for artifact discovery.\n")
@@ -1825,7 +1828,37 @@ func grepNoMatchBody(ctx *types.BusContext, params grepToolParams) string {
 	if !params.FixedString && grepPatternHasCommonRegexShorthand(params.Pattern) {
 		body += "\nregex_compatibility_note=pattern contains \\d/\\s/\\w-style shorthand; regex support varies by backend. Try an explicit character class such as [0-9] or fixed_string=true when searching literal text.\n"
 	}
+	if advisory := grepFixedStringRegexAdvisory(params); advisory != "" {
+		body += "\n" + strings.TrimRight(advisory, "\n") + "\n"
+	}
 	return body
+}
+
+func grepFixedStringRegexAdvisory(params grepToolParams) string {
+	if !params.FixedString {
+		return ""
+	}
+	markers := grepFixedStringRegexMarkers(params.Pattern)
+	if len(markers) == 0 {
+		return ""
+	}
+	return "fixed_string_regex_note=fixed_string=true treats regex syntax as literal text; pattern contains " + strings.Join(markers, ", ") + ". If you intended regex matching, re-run with fixed_string=false; if you intended exact text, remove regex escapes/metacharacters from the literal.\n"
+}
+
+func grepFixedStringRegexMarkers(pattern string) []string {
+	checks := []string{`.*`, `.+`, `\d`, `\s`, `\w`, `\b`, `\.`}
+	var out []string
+	for _, marker := range checks {
+		if strings.Contains(pattern, marker) {
+			out = append(out, marker)
+		}
+	}
+	for _, marker := range []string{`[0-9`, `[A-Z`, `[a-z`} {
+		if strings.Contains(pattern, marker) {
+			out = append(out, marker+"]")
+		}
+	}
+	return out
 }
 
 func grepRuntimeArtifactParamAdvisory(params grepToolParams) string {
@@ -2504,6 +2537,9 @@ func parseGrepOutputLineLocation(line string) (path string, lineNo int, match bo
 		if rest[digitEnd] != ':' && rest[digitEnd] != '-' {
 			continue
 		}
+		if grepLineLocationLooksLikePathContinuation(rest[digitEnd+1:]) {
+			continue
+		}
 		path = strings.TrimSpace(line[:i])
 		if path == "" {
 			continue
@@ -2515,6 +2551,20 @@ func parseGrepOutputLineLocation(line string) (path string, lineNo int, match bo
 		return path, n, r == ':' && rest[digitEnd] == ':', true
 	}
 	return "", 0, false, false
+}
+
+func grepLineLocationLooksLikePathContinuation(afterLineSeparator string) bool {
+	token := strings.TrimLeft(afterLineSeparator, " \t")
+	if token == "" {
+		return false
+	}
+	for i, r := range token {
+		if r == ' ' || r == '\t' {
+			token = token[:i]
+			break
+		}
+	}
+	return strings.ContainsAny(token, `/\`)
 }
 
 func annotateGrepOutputByRelevance(ctx *types.BusContext, params grepToolParams, output string) string {
