@@ -436,6 +436,18 @@ func summariseExactFix(violations []types.Violation, ctx Context) string {
 		// surface user-requested missing layers through the typed
 		// document-level field rather than vague prose placeholders.
 		return "Populate document-level `missing_requested_roles[]` exactly from the semantic-view contract for this dispatch. Each entry is `{role:<default|config|runtime|override>, label?:<user-facing bucket name>}`; preserve any surfaced labels (for example `CLI`) and do not replace missing layers with vague prose like `N/A` or `not applicable`."
+	case types.ViolEnumerationLabelUngrounded:
+		// V2 carrier — an ordered_list / bullet_list item carries a
+		// label that appears in NO EvidenceItem (AnchorSymbol / Subject
+		// / Object) for this dispatch — i.e. a fabricated enumeration
+		// entry. Composer keeps the offending labels out of the hint
+		// (noisy); the imperative is to re-ground every item.
+		return "Every enumerated item's `label` must name something present in the evidence pool (a symbol, subject, or object an EvidenceItem actually anchors). Remove or replace any item whose label is not backed by evidence; do NOT invent list entries to round out the count."
+	case types.ViolAbsenceScopeExceeded:
+		// V2 carrier — answer prose claims a broader absence than its
+		// Scope=Negative citation supports (e.g. "not used anywhere" off
+		// a single per-package grep).
+		return "Narrow the absence claim to exactly the scope that was searched: do NOT say \"not used anywhere / nowhere in the codebase\" when the negative citation is a bounded (per-package / per-pattern) grep. Either surface the bounded scope verbatim (e.g. \"no match under internal/foo/\") or widen the search before claiming repo-wide absence."
 	}
 	return "Address the violation(s) listed above and re-emit."
 }
