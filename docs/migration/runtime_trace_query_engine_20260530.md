@@ -189,13 +189,13 @@ grounding, and answer gates are unchanged.
 
 ### Task checklist
 
-- [ ] P0: parse block identity fields and compute IO latency pairs.
-- [ ] P0: compute per-CPU runnable/running pressure and interval frequency
+- [x] P0: parse block identity fields and compute IO latency pairs.
+- [x] P0: compute per-CPU runnable/running pressure and interval frequency
       correlation.
-- [ ] P0: derive safe binder-wait candidates in wakeup-chain results.
-- [ ] P0: update summary/evidence output and focused tests.
-- [ ] P1: build trace span/counter summaries.
-- [ ] P1: cluster IRQ bursts.
-- [ ] P1: classify memory rows.
-- [ ] P1: detect PID/TGID/name drift and surface confidence caveats.
-- [ ] P1: update summary/evidence output and focused tests.
+- [x] P0: derive safe binder-wait candidates in wakeup-chain results.
+- [x] P0: update summary/evidence output and focused tests.
+- [x] P1: build trace span/counter summaries.
+- [x] P1: cluster IRQ bursts.
+- [x] P1: classify memory rows.
+- [x] P1: detect PID/TGID/name drift and surface confidence caveats.
+- [x] P1: update summary/evidence output and focused tests.

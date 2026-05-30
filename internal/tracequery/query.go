@@ -489,6 +489,15 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.IOLatencies = computeIOLatencies(idx, q, 8)
 	stats.Caveats = append(stats.Caveats, ioPairingCaveats(idx, q)...)
 	stats.BlockedReasons = topBlockedReasons(blockedReasons, 8)
+	stats.TraceSpans, stats.TraceCounters = computeTraceMarks(idx, q, 8)
+	stats.IRQBursts = computeIRQBursts(idx, q, 8)
+	stats.MemoryKinds = computeMemoryKinds(idx, q, 8)
+	stats.ThreadDrifts = detectThreadDrifts(idx, q, 8)
+	for _, drift := range stats.ThreadDrifts {
+		if drift.Caveat != "" {
+			stats.Caveats = append(stats.Caveats, drift.Caveat)
+		}
+	}
 	return stats
 }
 
@@ -967,6 +976,267 @@ func blockKey(ev Event) string {
 		return ""
 	}
 	return fmt.Sprintf("%s/%s/%d/%d", ev.BlockDev, ev.BlockOp, ev.BlockSector, ev.BlockLen)
+}
+
+func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []TraceCounterSummary) {
+	if idx == nil {
+		return nil, nil
+	}
+	stacks := map[int][]Event{}
+	var spans []TraceSpanSummary
+	counters := map[string]TraceCounterSummary{}
+	for _, ev := range idx.Events {
+		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) || ev.Type != EventTraceMark {
+			continue
+		}
+		switch ev.SpanAction {
+		case "B":
+			stacks[ev.PID] = append(stacks[ev.PID], ev)
+		case "E":
+			stack := stacks[ev.PID]
+			if len(stack) == 0 {
+				continue
+			}
+			start := stack[len(stack)-1]
+			stacks[ev.PID] = stack[:len(stack)-1]
+			if ev.Ts < start.Ts {
+				continue
+			}
+			spans = append(spans, TraceSpanSummary{
+				Thread:     threadRefFromEvent(start),
+				Name:       start.SpanName,
+				StartTs:    start.Ts,
+				EndTs:      ev.Ts,
+				DurationMs: (ev.Ts - start.Ts) * 1000,
+				StartLine:  start.Line,
+				EndLine:    ev.Line,
+			})
+		case "C":
+			key := fmt.Sprintf("%d/%s/%s", ev.PID, ev.SpanName, ev.SpanValue)
+			counter := counters[key]
+			counter.Thread = threadRefFromEvent(ev)
+			counter.Name = ev.SpanName
+			counter.Value = ev.SpanValue
+			counter.Count++
+			if counter.Line == 0 || ev.Line < counter.Line {
+				counter.Line = ev.Line
+				counter.Ts = ev.Ts
+			}
+			counters[key] = counter
+		}
+	}
+	sort.SliceStable(spans, func(i, j int) bool {
+		if spans[i].DurationMs != spans[j].DurationMs {
+			return spans[i].DurationMs > spans[j].DurationMs
+		}
+		return spans[i].StartLine < spans[j].StartLine
+	})
+	if max > 0 && len(spans) > max {
+		spans = spans[:max]
+	}
+	counterList := make([]TraceCounterSummary, 0, len(counters))
+	for _, c := range counters {
+		counterList = append(counterList, c)
+	}
+	sort.SliceStable(counterList, func(i, j int) bool {
+		if counterList[i].Count != counterList[j].Count {
+			return counterList[i].Count > counterList[j].Count
+		}
+		return counterList[i].Line < counterList[j].Line
+	})
+	if max > 0 && len(counterList) > max {
+		counterList = counterList[:max]
+	}
+	return spans, counterList
+}
+
+func computeIRQBursts(idx *Index, q Query, max int) []IRQBurstSummary {
+	if idx == nil {
+		return nil
+	}
+	const burstGapSeconds = 0.001
+	var bursts []IRQBurstSummary
+	active := map[string]IRQBurstSummary{}
+	flush := func(key string) {
+		burst := active[key]
+		if burst.Count > 0 {
+			burst.DurationMs = (burst.EndTs - burst.StartTs) * 1000
+			bursts = append(bursts, burst)
+		}
+		delete(active, key)
+	}
+	for _, ev := range idx.Events {
+		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
+			continue
+		}
+		if ev.Type != EventIRQ {
+			continue
+		}
+		name := firstNonEmpty(ev.IRQName, ev.Name, "irq")
+		key := fmt.Sprintf("%d/%d/%s", ev.CPU, ev.IRQID, name)
+		for existing, burst := range active {
+			if existing != key && ev.Ts-burst.EndTs > burstGapSeconds {
+				flush(existing)
+			}
+		}
+		burst := active[key]
+		if burst.Count > 0 && ev.Ts-burst.EndTs > burstGapSeconds {
+			flush(key)
+			burst = IRQBurstSummary{}
+		}
+		if burst.Count == 0 {
+			burst = IRQBurstSummary{
+				CPU:       ev.CPU,
+				Name:      name,
+				IRQ:       ev.IRQID,
+				StartTs:   ev.Ts,
+				EndTs:     ev.Ts,
+				LineStart: ev.Line,
+				LineEnd:   ev.Line,
+			}
+		}
+		burst.Count++
+		burst.EndTs = ev.Ts
+		burst.LineEnd = ev.Line
+		active[key] = burst
+	}
+	for key := range active {
+		flush(key)
+	}
+	sort.SliceStable(bursts, func(i, j int) bool {
+		if bursts[i].Count != bursts[j].Count {
+			return bursts[i].Count > bursts[j].Count
+		}
+		if bursts[i].DurationMs != bursts[j].DurationMs {
+			return bursts[i].DurationMs > bursts[j].DurationMs
+		}
+		return bursts[i].LineStart < bursts[j].LineStart
+	})
+	if max > 0 && len(bursts) > max {
+		bursts = bursts[:max]
+	}
+	return bursts
+}
+
+func computeMemoryKinds(idx *Index, q Query, max int) []MemoryKindSummary {
+	if idx == nil {
+		return nil
+	}
+	byKind := map[string]MemoryKindSummary{}
+	for _, ev := range idx.Events {
+		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) || ev.Type != EventMemory {
+			continue
+		}
+		kind := firstNonEmpty(ev.MemoryKind, "memory")
+		item := byKind[kind]
+		item.Kind = kind
+		item.Count++
+		if item.Line == 0 || ev.Line < item.Line {
+			item.Line = ev.Line
+			item.Ts = ev.Ts
+		}
+		byKind[kind] = item
+	}
+	out := make([]MemoryKindSummary, 0, len(byKind))
+	for _, item := range byKind {
+		out = append(out, item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Line < out[j].Line
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
+type threadDriftAcc struct {
+	names     map[string]bool
+	tgids     map[int]bool
+	lineStart int
+	lineEnd   int
+}
+
+func detectThreadDrifts(idx *Index, q Query, max int) []ThreadDriftSummary {
+	if idx == nil {
+		return nil
+	}
+	accs := map[int]*threadDriftAcc{}
+	add := func(pid int, comm string, tgid int, line int) {
+		if pid <= 0 || line <= 0 {
+			return
+		}
+		acc := accs[pid]
+		if acc == nil {
+			acc = &threadDriftAcc{names: map[string]bool{}, tgids: map[int]bool{}, lineStart: line, lineEnd: line}
+			accs[pid] = acc
+		}
+		if strings.TrimSpace(comm) != "" {
+			acc.names[comm] = true
+		}
+		if tgid > 0 {
+			acc.tgids[tgid] = true
+		}
+		if acc.lineStart == 0 || line < acc.lineStart {
+			acc.lineStart = line
+		}
+		if line > acc.lineEnd {
+			acc.lineEnd = line
+		}
+	}
+	for _, ev := range idx.Events {
+		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
+			continue
+		}
+		add(ev.PID, ev.Comm, ev.TGID, ev.Line)
+		add(ev.PrevPID, ev.PrevComm, 0, ev.Line)
+		add(ev.NextPID, ev.NextComm, 0, ev.Line)
+		add(ev.WakeePID, ev.WakeeComm, 0, ev.Line)
+	}
+	var out []ThreadDriftSummary
+	for pid, acc := range accs {
+		names := sortedStringSet(acc.names)
+		tgids := sortedIntSet(acc.tgids)
+		if len(names) <= 1 && len(tgids) <= 1 {
+			continue
+		}
+		out = append(out, ThreadDriftSummary{
+			PID:       pid,
+			Names:     names,
+			TGIDs:     tgids,
+			LineStart: acc.lineStart,
+			LineEnd:   acc.lineEnd,
+			Caveat:    fmt.Sprintf("pid=%d has multiple names/TGIDs in the selected window; treat cross-row thread identity as lower confidence unless line context confirms continuity", pid),
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].LineStart < out[j].LineStart
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
+func sortedStringSet(in map[string]bool) []string {
+	out := make([]string, 0, len(in))
+	for s := range in {
+		out = append(out, s)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func sortedIntSet(in map[int]bool) []int {
+	out := make([]int, 0, len(in))
+	for n := range in {
+		out = append(out, n)
+	}
+	sort.Ints(out)
+	return out
 }
 
 func BuildWakeupChain(idx *Index, q Query) ChainResult {
@@ -1459,6 +1729,53 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 			Confidence: 0.86,
 		})
 		if len(out) >= 24 {
+			break
+		}
+	}
+	for _, span := range stats.TraceSpans {
+		out = append(out, EvidenceFact{
+			Subject:    threadLabel(span.Thread),
+			Predicate:  "trace_span_duration",
+			Object:     span.Name,
+			Summary:    fmt.Sprintf("trace span %q on %s lasted %.3f ms", span.Name, threadLabel(span.Thread), span.DurationMs),
+			LineStart:  span.StartLine,
+			LineEnd:    span.EndLine,
+			StartTs:    span.StartTs,
+			EndTs:      span.EndTs,
+			Confidence: 0.78,
+		})
+		if len(out) >= 28 {
+			break
+		}
+	}
+	for _, burst := range stats.IRQBursts {
+		out = append(out, EvidenceFact{
+			Subject:    fmt.Sprintf("cpu=%d", burst.CPU),
+			Predicate:  "irq_burst",
+			Object:     burst.Name,
+			Summary:    fmt.Sprintf("IRQ burst %s irq=%d on cpu=%d had %d event(s) over %.3f ms", burst.Name, burst.IRQ, burst.CPU, burst.Count, burst.DurationMs),
+			LineStart:  burst.LineStart,
+			LineEnd:    burst.LineEnd,
+			StartTs:    burst.StartTs,
+			EndTs:      burst.EndTs,
+			Confidence: 0.72,
+		})
+		if len(out) >= 32 {
+			break
+		}
+	}
+	for _, mem := range stats.MemoryKinds {
+		out = append(out, EvidenceFact{
+			Subject:    "memory",
+			Predicate:  mem.Kind,
+			Summary:    fmt.Sprintf("memory category %s appeared %d time(s) in the selected window", mem.Kind, mem.Count),
+			LineStart:  mem.Line,
+			LineEnd:    mem.Line,
+			StartTs:    mem.Ts,
+			EndTs:      mem.Ts,
+			Confidence: 0.68,
+		})
+		if len(out) >= 36 {
 			break
 		}
 	}

@@ -258,6 +258,25 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			fmt.Fprintf(&b, "- cpu_pressure cpu=%d runnable_wait=%.3fms running=%.3fms high_prio_running=%.3fms runnable_events=%d\n",
 				pressure.CPU, pressure.RunnableWaitMs, pressure.RunningMs, pressure.HighPriorityRunningMs, pressure.RunnableEvents)
 		}
+		for _, span := range result.WindowStats.TraceSpans {
+			fmt.Fprintf(&b, "- trace_span %s %q duration=%.3fms lines=%d-%d\n",
+				traceThreadLabel(span.Thread), span.Name, span.DurationMs, span.StartLine, span.EndLine)
+		}
+		for _, counter := range result.WindowStats.TraceCounters {
+			fmt.Fprintf(&b, "- trace_counter %s %q value=%s count=%d line=%d\n",
+				traceThreadLabel(counter.Thread), counter.Name, counter.Value, counter.Count, counter.Line)
+		}
+		for _, burst := range result.WindowStats.IRQBursts {
+			fmt.Fprintf(&b, "- irq_burst cpu=%d irq=%d name=%s count=%d duration=%.3fms lines=%d-%d\n",
+				burst.CPU, burst.IRQ, burst.Name, burst.Count, burst.DurationMs, burst.LineStart, burst.LineEnd)
+		}
+		for _, mem := range result.WindowStats.MemoryKinds {
+			fmt.Fprintf(&b, "- memory_kind kind=%s count=%d line=%d\n", mem.Kind, mem.Count, mem.Line)
+		}
+		for _, drift := range result.WindowStats.ThreadDrifts {
+			fmt.Fprintf(&b, "- thread_identity_caveat pid=%d names=%s tgids=%v lines=%d-%d\n",
+				drift.PID, strings.Join(drift.Names, ","), drift.TGIDs, drift.LineStart, drift.LineEnd)
+		}
 		fmt.Fprintf(&b, "- counts block_issue=%d block_remap=%d block_complete=%d binder=%d binder_received=%d irq=%d memory=%d blocked_reason=%d iowait_blocked=%d\n\n",
 			result.WindowStats.BlockIssueCount, result.WindowStats.BlockRemapCount, result.WindowStats.BlockCompleteCount, result.WindowStats.BinderCount, result.WindowStats.BinderReceivedCount, result.WindowStats.IRQCount, result.WindowStats.MemoryEventCount, result.WindowStats.BlockedReasonCount, result.WindowStats.IOWaitBlockedCount)
 	}

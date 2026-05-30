@@ -71,6 +71,18 @@ const harmonyTrace = `
      OS_FFRT_0_0-49634 (48679) [000] .... 928.081903: sched_switch: prev_comm=udk-irq-0 prev_pid=73 prev_prio=301 prev_state=S ==> next_comm=OS_FFRT_0_0 next_pid=49634 next_prio=20
 `
 
+const p1ResourceTrace = `
+       main-20   (   20) [001] .... 4.000000: print: B|20|Choreographer#doFrame
+       main-20   (   20) [001] .... 4.010000: print: C|20|JNI Weak Global Refs|198
+       main-20   (   20) [001] .... 4.015000: irq_handler_entry: irq=32 name=kirq
+       main-20   (   20) [001] .... 4.015400: irq_handler_exit: irq=32 ret=handled
+       main-20   (   20) [001] .... 4.015700: irq_handler_entry: irq=32 name=kirq
+       main-20   (   20) [001] .... 4.016000: mm_filemap_add_to_page_cache: dev 260:84 ino 0x1 page=0 pfn=1 ofs=0
+       main-20   (   20) [001] .... 4.017000: mm_vmscan_direct_reclaim_begin: order=0 may_writepage=1
+       main-20   (   20) [001] .... 4.020000: print: E|20
+      other-20   (   21) [002] .... 4.025000: sched_wakeup: comm=main pid=20 prio=53 target_cpu=001
+`
+
 func TestParseLineSchedulerEvents(t *testing.T) {
 	intern := newStringInterner()
 	ev, ok := ParseLine(4, `        app-20   (   20) [001] .... 1.100000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`, intern)
@@ -401,6 +413,33 @@ func TestWindowStatsComputesCPUFrequencyResidency(t *testing.T) {
 		if item.Frequency == 3744 {
 			t.Fatalf("DDR clock_set_rate leaked into CPU frequency residency: %+v", cpu0.FrequencyResidency)
 		}
+	}
+}
+
+func TestWindowStatsComputesP1ResourceSummaries(t *testing.T) {
+	idx := buildTraceIndex(t, "p1.systrace", p1ResourceTrace)
+	stats := ComputeWindowStats(idx, Query{TimeStart: 4.0, TimeEnd: 4.03})
+	if len(stats.TraceSpans) != 1 || stats.TraceSpans[0].Name != "Choreographer#doFrame" || !near(stats.TraceSpans[0].DurationMs, 20.0, 0.001) {
+		t.Fatalf("expected span duration: %+v", stats.TraceSpans)
+	}
+	if len(stats.TraceCounters) != 1 || stats.TraceCounters[0].Name != "JNI Weak Global Refs" || stats.TraceCounters[0].Value != "198" {
+		t.Fatalf("expected trace counter: %+v", stats.TraceCounters)
+	}
+	if len(stats.IRQBursts) == 0 || stats.IRQBursts[0].IRQ != 32 || stats.IRQBursts[0].Count < 2 {
+		t.Fatalf("expected IRQ burst: %+v", stats.IRQBursts)
+	}
+	if len(stats.MemoryKinds) != 2 {
+		t.Fatalf("expected memory kinds: %+v", stats.MemoryKinds)
+	}
+	kinds := map[string]bool{}
+	for _, item := range stats.MemoryKinds {
+		kinds[item.Kind] = true
+	}
+	if !kinds["page_cache"] || !kinds["reclaim"] {
+		t.Fatalf("expected page_cache and reclaim kinds: %+v", stats.MemoryKinds)
+	}
+	if len(stats.ThreadDrifts) == 0 || stats.ThreadDrifts[0].PID != 20 {
+		t.Fatalf("expected pid/name drift caveat: %+v", stats.ThreadDrifts)
 	}
 }
 
