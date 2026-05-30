@@ -1570,8 +1570,8 @@ func spanForToolResult(banners []map[string]string) ObservationSpan {
 	return ObservationSpan{
 		LineStart: parseFirstBannerInt(banners, "line_start", "start_line"),
 		LineEnd:   parseFirstBannerInt(banners, "line_end", "end_line"),
-		StartTsMs: parseFirstBannerFloat(banners, "start_ts_ms", "time_start_ms"),
-		EndTsMs:   parseFirstBannerFloat(banners, "end_ts_ms", "time_end_ms"),
+		StartTsMs: parseFirstBannerFloat(banners, "start_ts_ms", "time_start_ms", "time_start"),
+		EndTsMs:   parseFirstBannerFloat(banners, "end_ts_ms", "time_end_ms", "time_end"),
 	}
 }
 

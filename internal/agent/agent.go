@@ -4173,6 +4173,8 @@ func structuredToolDetail(toolName string, params json.RawMessage) string {
 		return toolAnalysisDetail(m)
 	case "repo_map":
 		return toolRepoMapDetail(m)
+	case "trace_query":
+		return toolTraceQueryDetail(m)
 	default:
 		return ""
 	}
@@ -4252,6 +4254,41 @@ func toolRepoMapDetail(m map[string]json.RawMessage) string {
 	return strings.Join(parts, " ")
 }
 
+func toolTraceQueryDetail(m map[string]json.RawMessage) string {
+	var parts []string
+	view := jsonStringField(m, "view")
+	if view == "" {
+		view = "event_search"
+	}
+	parts = append(parts, "view="+truncateToolDetailValue(view, 24))
+	if path := jsonStringField(m, "path"); path != "" {
+		parts = append(parts, "path="+truncateToolDetailValue(path, 44))
+	} else if source := jsonStringField(m, "source"); source != "" {
+		parts = append(parts, "source="+truncateToolDetailValue(source, 24))
+	}
+	if thread := jsonStringField(m, "thread"); thread != "" {
+		parts = append(parts, "thread="+truncateToolDetailValue(thread, 32))
+	}
+	if pid, ok := jsonIntField(m, "pid"); ok && pid > 0 {
+		parts = append(parts, fmt.Sprintf("pid=%d", pid))
+	}
+	if start, end := jsonScalarField(m, "time_start"), jsonScalarField(m, "time_end"); start != "" || end != "" {
+		parts = append(parts, "window="+truncateToolDetailValue(start+".."+end, 32))
+	}
+	if start, end := jsonScalarField(m, "line_start"), jsonScalarField(m, "line_end"); start != "" || end != "" {
+		parts = append(parts, "lines="+truncateToolDetailValue(start+".."+end, 24))
+	}
+	for _, field := range []string{"max_depth", "max_branches"} {
+		if v, ok := jsonIntField(m, field); ok && v > 0 {
+			parts = append(parts, fmt.Sprintf("%s=%d", field, v))
+		}
+	}
+	if len(parts) > 7 {
+		parts = parts[:7]
+	}
+	return strings.Join(parts, " ")
+}
+
 func jsonArrayLen(raw json.RawMessage) int {
 	if len(raw) == 0 {
 		return 0
@@ -4289,6 +4326,18 @@ func jsonIntField(m map[string]json.RawMessage, key string) (int, bool) {
 		return 0, false
 	}
 	return int(f), true
+}
+
+func jsonScalarField(m map[string]json.RawMessage, key string) string {
+	raw, ok := m[key]
+	if !ok || len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return strings.TrimSpace(s)
+	}
+	return strings.Trim(strings.TrimSpace(string(raw)), `"`)
 }
 
 func jsonStringArrayDetail(raw json.RawMessage, field string, maxFirst int) string {

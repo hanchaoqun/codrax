@@ -486,6 +486,21 @@ func TestFormatToolCallBatchShowsRepoMapStructuredDetail(t *testing.T) {
 	}
 }
 
+func TestFormatToolCallBatchShowsTraceQueryStructuredDetail(t *testing.T) {
+	got := formatToolCallBatch("explorer", types.StageExplore, 2,
+		[]string{"trace_query"},
+		1,
+		"trace_query",
+		"view=wakeup_chain path=trace.systrace pid=36379 window=2942.124416..2942.260210 max_depth=6",
+		"zh",
+	)
+	plain := stripAnsiEscapes(got)
+	want := "⇢ 探索 · 第 3 轮 调用工具 trace_query view=wakeup_chain path=trace.systrace pid=36379 window=2942.124416..2942.260210 max_depth=6"
+	if !strings.Contains(plain, want) {
+		t.Fatalf("trace_query tool-call detail missing\nwant contains %q\ngot           %q", want, plain)
+	}
+}
+
 func TestFormatToolCallBatchCompactsRepeatedTools(t *testing.T) {
 	got := formatToolCallBatch("explorer", types.StageExplore, 2,
 		[]string{"read_file", "read_file", "grep", "emit_evidence", "repo_map", "list_files"},

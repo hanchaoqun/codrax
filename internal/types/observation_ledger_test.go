@@ -931,6 +931,13 @@ func TestCompileObservationLedger_ProjectsToolBannerCoordinates(t *testing.T) {
 			Summary:  "[exec_command: $ git log --oneline -n 3]\n[exec_command: evidence_origin=vcs_metadata]\nabc123 feature\n",
 			RawRef:   "/tmp/codrax/blob/exec_command-1.txt",
 		},
+		{
+			ToolName: "trace_query",
+			Success:  true,
+			Summary: "[trace_query params: view=wakeup_chain source=path path=record.systrace origin=runtime_artifact artifact_id=trace_query artifact_kind=trace line_start=1102623 line_end=1139184 time_start=2942.124416 time_end=2942.260210 payload_ref=blob://payload/trace-query-result.json]\n" +
+				"# Trace Query: wakeup_chain\n\n- root_evidence=runnable thread=com.tencent.mm-36379 duration=135.794ms lines=1102623-1139184 confidence=0.80\n",
+			RawRef: "/tmp/codrax/blob/trace-query-summary.txt",
+		},
 	}})
 	showMetadata := findObservationRecord(t, ledger, "tool:0#vcs_metadata")
 	if showMetadata.SourceRef.Commit != "abc123" ||
@@ -968,6 +975,20 @@ func TestCompileObservationLedger_ProjectsToolBannerCoordinates(t *testing.T) {
 		exec.SourceRef.RawRef != "/tmp/codrax/blob/exec_command-1.txt" ||
 		exec.SourceRef.PayloadRef != "/tmp/codrax/blob/exec_command-1.txt" {
 		t.Fatalf("exec_command command/raw ref not projected: %+v", exec.SourceRef)
+	}
+	trace := findObservationRecord(t, ledger, "tool:4#runtime_artifact")
+	if trace.SourceRef.Kind != ObservationSourceRuntimeArtifact ||
+		trace.SourceRef.Path != "record.systrace" ||
+		trace.SourceRef.ArtifactID != "trace_query" ||
+		trace.SourceRef.ArtifactKind != "trace" ||
+		trace.SourceRef.PayloadRef != "blob://payload/trace-query-result.json" ||
+		trace.SourceRef.RawRef != "/tmp/codrax/blob/trace-query-summary.txt" ||
+		trace.Span.LineStart != 1102623 ||
+		trace.Span.LineEnd != 1139184 ||
+		trace.Span.StartTsMs != 2942.124416 ||
+		trace.Span.EndTsMs != 2942.260210 ||
+		ObservationRecordHasCurrentSourceLineSpan(trace) {
+		t.Fatalf("trace_query runtime coordinates not projected as external span: %+v", trace)
 	}
 }
 

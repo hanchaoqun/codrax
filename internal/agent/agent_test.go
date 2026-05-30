@@ -150,6 +150,14 @@ func TestToolDetailForCallStructuredEmitSummaries(t *testing.T) {
 			},
 			want: "view=relation_map path=kernel/bpf query=map update elem dispatch sources=2:kernel/bpf/syscall.c relation_kinds=2:call top_n=20",
 		},
+		{
+			name: "trace query shows compact runtime navigation fields",
+			call: llm.ToolCall{
+				Name:   "trace_query",
+				Params: json.RawMessage(`{"path":"trace.systrace","view":"wakeup_chain","pid":36379,"time_start":2942.124416,"time_end":2942.260210,"max_depth":6,"max_branches":8}`),
+			},
+			want: "view=wakeup_chain path=trace.systrace pid=36379 window=2942.124416..2942.260210 max_depth=6 max_branches=8",
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -176,10 +176,11 @@ func parseTraceQueryEventTypes(raw []string) []tracequery.EventType {
 
 func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel, payloadRef string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_kind=trace line_start=%s line_end=%s time_start=%s time_end=%s payload_ref=%s]\n",
+	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace line_start=%s line_end=%s time_start=%s time_end=%s payload_ref=%s]\n",
 		firstNonEmptyTraceString(result.View, p.View, "event_search"),
 		sourceLabel,
 		sanitizeForBanner(result.SourcePath),
+		traceQueryArtifactID(sourceLabel),
 		positiveIntBannerValue(p.LineStart),
 		positiveIntBannerValue(p.LineEnd),
 		floatBannerValue(p.TimeStart),
@@ -248,6 +249,13 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		fmt.Fprintf(&b, "caveat=%s\n", caveat)
 	}
 	return b.String()
+}
+
+func traceQueryArtifactID(sourceLabel string) string {
+	if strings.TrimSpace(sourceLabel) == "attached_trace" {
+		return "attached_trace"
+	}
+	return "trace_query"
 }
 
 func contextFromBus(ctx *types.BusContext) context.Context {
