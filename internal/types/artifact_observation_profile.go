@@ -5,6 +5,24 @@ import (
 	"strings"
 )
 
+// Diagnostic-confidence tier floors for ArtifactObservationProfile.
+// These are deliberately distinct values, not one shared constant:
+// each names how strong a corroborating signal was observed, so the
+// merge logic raises DiagnosticConfidence to the highest tier any
+// evidence justifies. Named here so the tiers are greppable and a
+// re-tune touches one place per tier.
+const (
+	// diagnosticConfidencePredicateOnly: only the typed
+	// is-diagnostic predicate is set, with no artifact signal.
+	diagnosticConfidencePredicateOnly = 0.7
+	// diagnosticConfidenceSignal: a triage Meta.Signal corroborates
+	// the symptom (log/perf signal enum present).
+	diagnosticConfidenceSignal = 0.75
+	// diagnosticConfidenceStrongEvidence: a concrete error type /
+	// message / structured observation is present.
+	diagnosticConfidenceStrongEvidence = 0.85
+)
+
 // ArtifactObservationProfile is the normalized, typed observation lane
 // derived from log / trace triage. It deliberately stores compact facts
 // rather than raw artifact text so hard routing can consume precise
@@ -108,7 +126,7 @@ func BuildArtifactObservationProfileForRequest(rm RequestModel) *ArtifactObserva
 	if rm.DiagnosticProfile.Confidence > profile.DiagnosticConfidence {
 		profile.DiagnosticConfidence = rm.DiagnosticProfile.Confidence
 	} else if profile.DiagnosticConfidence == 0 && rm.Predicates.IsDiagnosticQuestion {
-		profile.DiagnosticConfidence = 0.7
+		profile.DiagnosticConfidence = diagnosticConfidencePredicateOnly
 	}
 	profile.ObservationKinds = dedupeObservationKinds(profile.ObservationKinds)
 	profile.EvidenceSnippets = dedupeStrings(profile.EvidenceSnippets)
@@ -130,8 +148,8 @@ func mergeLogObservationProfile(out *ArtifactObservationProfile, bundle *LogBund
 		}
 		out.ObservationKinds = append(out.ObservationKinds, kind)
 		out.EvidenceSnippets = append(out.EvidenceSnippets, strings.TrimSpace(string(sig)))
-		if out.DiagnosticConfidence < 0.75 {
-			out.DiagnosticConfidence = 0.75
+		if out.DiagnosticConfidence < diagnosticConfidenceSignal {
+			out.DiagnosticConfidence = diagnosticConfidenceSignal
 		}
 	}
 	for _, typ := range LogBundleErrorTypes(bundle) {
@@ -141,8 +159,8 @@ func mergeLogObservationProfile(out *ArtifactObservationProfile, bundle *LogBund
 		}
 		out.ObservationKinds = append(out.ObservationKinds, ObservationKindErrorType)
 		out.EvidenceSnippets = append(out.EvidenceSnippets, name)
-		if out.DiagnosticConfidence < 0.85 {
-			out.DiagnosticConfidence = 0.85
+		if out.DiagnosticConfidence < diagnosticConfidenceStrongEvidence {
+			out.DiagnosticConfidence = diagnosticConfidenceStrongEvidence
 		}
 	}
 	for _, msg := range LogBundleErrorMessages(bundle) {
@@ -155,8 +173,8 @@ func mergeLogObservationProfile(out *ArtifactObservationProfile, bundle *LogBund
 		if out.SymptomSummary == "" {
 			out.SymptomSummary = clampProfileSnippet(text)
 		}
-		if out.DiagnosticConfidence < 0.85 {
-			out.DiagnosticConfidence = 0.85
+		if out.DiagnosticConfidence < diagnosticConfidenceStrongEvidence {
+			out.DiagnosticConfidence = diagnosticConfidenceStrongEvidence
 		}
 	}
 	for _, obs := range bundle.Observations {
@@ -253,8 +271,8 @@ func mergePerfObservationProfile(out *ArtifactObservationProfile, bundle *PerfBu
 			out.SubjectCandidates = append(out.SubjectCandidates, e)
 		}
 	}
-	if bundle.HasStructuredObservations() && out.DiagnosticConfidence < 0.85 {
-		out.DiagnosticConfidence = 0.85
+	if bundle.HasStructuredObservations() && out.DiagnosticConfidence < diagnosticConfidenceStrongEvidence {
+		out.DiagnosticConfidence = diagnosticConfidenceStrongEvidence
 	}
 }
 
