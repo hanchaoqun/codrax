@@ -203,3 +203,79 @@ grounding, and answer gates are unchanged.
 - [x] P1: classify memory rows.
 - [x] P1: detect PID/TGID/name drift and surface confidence caveats.
 - [x] P1: update summary/evidence output and focused tests.
+
+## Follow-up: Runtime Trace Query Recovery Hardening — 2026-05-30
+
+### Gaps observed
+
+Customer `trade_q.log` and `trace_repl.log` exposed recovery gaps after the
+first `trace_query` rollout:
+
+- `trace_query(event_search)` did not match common ftrace/hitrace customer
+  thread labels such as `com.tencent.mm-36379`. The parser normalizes that row
+  to `Comm=com.tencent.mm` and `PID=36379`, while the query path matched the
+  free-form `thread` string only against parsed comm fields. The same issue can
+  appear as `com.tencent.mm 36379`, `com.tencent.mm [36379]`,
+  `com.tencent.mm (36379)`, `pid=36379`, `[GT]ColdPool#5-36624`, or
+  `binder:486_1-10803`.
+- Empty `trace_query` results proved the index parsed successfully, but did not
+  tell the model `matched_events=0`, did not show the normalized thread/pid, and
+  did not give a concrete next view such as `thread_timeline` or
+  `wakeup_chain` with `pid=36379`.
+- Grep line-window parsing treated numeric `-` segments inside blob/path names
+  as the line-number separator, producing invalid `read_file path=...` hints.
+- `fixed_string=true` with regex-looking patterns such as `.*` or `\d` returns
+  true zero matches, but the tool did not explain that fixed-string mode treats
+  those metacharacters literally.
+- Runtime trace `read_file` follow-up hints still used source-evidence wording
+  in pure runtime/log/trace read batches. That is noisy for artifact-only trace
+  analysis, but the normal wording must remain for code reads and mixed
+  trace+code comparison tasks.
+
+### Root cause
+
+These are model-recovery contract gaps rather than parser coverage gaps:
+
+- Thread identity is structured in the trace rows, but model/customer inputs are
+  naturally written as ftrace task labels or pid-bearing prose.
+- Empty result summaries did not expose enough typed diagnostics for the model
+  to repair the next tool call.
+- Grep's line-window parser was too eager: it accepted the first
+  `separator + digits + separator` pattern in the whole output line instead of
+  rejecting path-continuation fragments.
+- Runtime artifact evidence and current-source evidence share the same explorer
+  read-without-emit nudge unless the read is recognized as a broad header page.
+
+### Design
+
+- Normalize thread selectors inside `internal/tracequery`, not in prompts.
+  Extract pid candidates from safe forms (`pid=36379`, `36379`,
+  `name-36379`, `name 36379`, `name [36379]`, `name (36379)`) and preserve the
+  remaining name as an advisory comm fragment. If a pid is available, matching
+  uses pid as the precise selector and does not require the comm string to match
+  every scheduler role row.
+- Add empty-result diagnostics to `trace_query` summaries. They must be
+  advisory only: report `matched_events=0`, the normalized selector, and concrete
+  next-call shapes. They must not silently rewrite or rerun the query.
+- Harden grep line-window extraction so path fragments containing numeric
+  hyphen groups are not mistaken for line numbers. The fix must stay generic for
+  code, config, log, trace, blob, and Windows-style paths.
+- Add a no-match advisory when `fixed_string=true` is combined with common regex
+  syntax. The tool result remains a true no-match; the system only teaches the
+  recovery path.
+- Split runtime-only read hints from mixed/code read hints. If the current read
+  backlog contains only runtime/log/trace artifact reads, steer the model to
+  `trace_query`, targeted grep, line-window `read_file`, and
+  `emit_investigation_complete.reason` / `aggregate_facts`. If any current-code
+  file was also read, keep the existing source-evidence materialization wording.
+
+### Task checklist
+
+- [ ] T22. Add flexible trace thread selector parsing and pid-first matching.
+- [ ] T23. Add `trace_query` empty-result diagnostics and concrete recovery
+      examples.
+- [ ] T24. Harden grep line-window parsing for hyphenated/numeric path names.
+- [ ] T25. Add `fixed_string=true` + regex-looking-pattern no-match advisory.
+- [ ] T26. Add runtime-only read-without-emit hint while preserving normal
+      behavior for code and mixed trace+code reads.
+- [ ] T27. Add focused tests for T22-T26, then run focused and full Go tests.
