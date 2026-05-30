@@ -1,6 +1,10 @@
 package types
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/logging"
+)
 
 type ConversationReferenceSource string
 
@@ -75,6 +79,9 @@ type ResolvedConversationSubject struct {
 
 func (p *ConversationReferenceProfile) SubjectCandidates() []string {
 	if p == nil || !p.RequiresPriorContext {
+		if p != nil && len(p.ResolvedSubjects) > 0 {
+			logging.Debug("[conversation_reference] dropping %d resolved subject(s): requires_prior_context=false", len(p.ResolvedSubjects))
+		}
 		return nil
 	}
 	seen := map[string]bool{}
@@ -93,9 +100,13 @@ func (p *ConversationReferenceProfile) SubjectCandidates() []string {
 
 func (p *ConversationReferenceProfile) ExactTargetSubjects() []ResolvedConversationSubject {
 	if p == nil || !p.RequiresPriorContext {
+		if p != nil && len(p.ResolvedSubjects) > 0 {
+			logging.Debug("[conversation_reference] dropping exact-target projection of %d resolved subject(s): requires_prior_context=false", len(p.ResolvedSubjects))
+		}
 		return nil
 	}
 	if p.Ambiguity != "" && p.Ambiguity != ConversationReferenceAmbiguityNone {
+		logging.Debug("[conversation_reference] dropping exact-target projection of %d resolved subject(s): ambiguity=%q", len(p.ResolvedSubjects), p.Ambiguity)
 		return nil
 	}
 	seen := map[string]bool{}

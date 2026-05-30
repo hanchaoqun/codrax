@@ -28,7 +28,11 @@
 // not parsed for hard logic.
 package types
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/logging"
+)
 
 // EvidenceFloorWaiverReason enumerates the typed reasons a model
 // may declare to escape repo-grounding requirements. Add new values
@@ -205,6 +209,11 @@ func RuntimeGroundingDispositionFromWaiver(
 		return nil
 	}
 	if logBundle == nil && perfBundle == nil {
+		// Audit: an active model-declared waiver still relaxes other
+		// floors (forced-read / citation-floor) but MUST NOT activate
+		// the observation-only citation policy without an artifact —
+		// log the drop so a waiver-without-artifact pattern is visible.
+		logging.Debug("[runtime_grounding] waiver active (reason=%q) but no log/perf bundle attached: disposition projection dropped", w.Reason)
 		return nil
 	}
 	return &RuntimeGroundingDisposition{
