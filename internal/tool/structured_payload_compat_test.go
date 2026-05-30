@@ -79,3 +79,21 @@ func TestStructuredEmitToolsAttachTypedDecodeRepair(t *testing.T) {
 		}
 	}
 }
+
+func TestTraceQueryRoutesThroughCompatAndTypedDecodeRepair(t *testing.T) {
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	raw, err := os.ReadFile(filepath.Join(filepath.Dir(currentFile), "trace_query.go"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(raw)
+	if !strings.Contains(src, "applyStructuredPayloadCompat(") {
+		t.Fatalf("trace_query must route tool payloads through applyStructuredPayloadCompat")
+	}
+	if !strings.Contains(src, "failStrictDecodeWithError(") {
+		t.Fatalf("trace_query must attach typed ToolRepair metadata on JSON decode failures")
+	}
+}

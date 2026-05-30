@@ -20,21 +20,21 @@ type TraceQuery struct {
 }
 
 type traceQueryParams struct {
-	Source             string      `json:"source,omitempty"`
-	Path               string      `json:"path,omitempty"`
-	View               string      `json:"view,omitempty"`
-	Thread             string      `json:"thread,omitempty"`
-	PID                int         `json:"pid,omitempty"`
-	TimeStart          TraceSecond `json:"time_start,omitempty"`
-	TimeEnd            TraceSecond `json:"time_end,omitempty"`
-	LineStart          int         `json:"line_start,omitempty"`
-	LineEnd            int         `json:"line_end,omitempty"`
-	EventTypes         []string    `json:"event_types,omitempty"`
-	MaxDepth           int         `json:"max_depth,omitempty"`
-	MaxBranches        int         `json:"max_branches,omitempty"`
-	MinDurationMs      float64     `json:"min_duration_ms,omitempty"`
-	IncludeWindowStats *bool       `json:"include_window_stats,omitempty"`
-	Limit              int         `json:"limit,omitempty"`
+	Source             string          `json:"source,omitempty"`
+	Path               string          `json:"path,omitempty"`
+	View               string          `json:"view,omitempty"`
+	Thread             string          `json:"thread,omitempty"`
+	PID                FlexInt         `json:"pid,omitempty"`
+	TimeStart          TraceSecond     `json:"time_start,omitempty"`
+	TimeEnd            TraceSecond     `json:"time_end,omitempty"`
+	LineStart          FlexInt         `json:"line_start,omitempty"`
+	LineEnd            FlexInt         `json:"line_end,omitempty"`
+	EventTypes         TraceEventTypes `json:"event_types,omitempty"`
+	MaxDepth           FlexInt         `json:"max_depth,omitempty"`
+	MaxBranches        FlexInt         `json:"max_branches,omitempty"`
+	MinDurationMs      FlexFloat       `json:"min_duration_ms,omitempty"`
+	IncludeWindowStats *FlexBool       `json:"include_window_stats,omitempty"`
+	Limit              FlexInt         `json:"limit,omitempty"`
 }
 
 func (t *TraceQuery) Name() string { return "trace_query" }
@@ -91,17 +91,17 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	q := tracequery.Query{
 		View:               p.View,
 		Thread:             p.Thread,
-		PID:                p.PID,
+		PID:                p.PID.Int(),
 		TimeStart:          timeStart,
 		TimeEnd:            timeEnd,
-		LineStart:          p.LineStart,
-		LineEnd:            p.LineEnd,
-		EventTypes:         parseTraceQueryEventTypes(p.EventTypes),
-		MaxDepth:           p.MaxDepth,
-		MaxBranches:        p.MaxBranches,
-		MinDurationMs:      p.MinDurationMs,
-		Limit:              p.Limit,
-		IncludeWindowStats: p.IncludeWindowStats != nil && *p.IncludeWindowStats,
+		LineStart:          p.LineStart.Int(),
+		LineEnd:            p.LineEnd.Int(),
+		EventTypes:         parseTraceQueryEventTypes(p.EventTypes.Strings()),
+		MaxDepth:           p.MaxDepth.Int(),
+		MaxBranches:        p.MaxBranches.Int(),
+		MinDurationMs:      p.MinDurationMs.Float64(),
+		Limit:              p.Limit.Int(),
+		IncludeWindowStats: p.IncludeWindowStats != nil && p.IncludeWindowStats.Bool(),
 	}
 	if p.IncludeWindowStats == nil && strings.TrimSpace(p.View) == "wakeup_chain" {
 		q.IncludeWindowStats = true
@@ -229,8 +229,8 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		sourceLabel,
 		sanitizeForBanner(result.SourcePath),
 		traceQueryArtifactID(sourceLabel),
-		positiveIntBannerValue(p.LineStart),
-		positiveIntBannerValue(p.LineEnd),
+		positiveIntBannerValue(p.LineStart.Int()),
+		positiveIntBannerValue(p.LineEnd.Int()),
 		traceSecondBannerValue(p.TimeStart),
 		traceSecondBannerValue(p.TimeEnd),
 		sanitizeForBanner(payloadRef),

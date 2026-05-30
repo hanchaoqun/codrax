@@ -124,6 +124,55 @@ func TestTraceQueryAcceptsTimestampStringsAndAppliesTinyTolerance(t *testing.T) 
 	}
 }
 
+func TestTraceQueryAcceptsStringifiedScalarAndEventTypeParams(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "stringy.systrace")
+	trace := strings.Join([]string{
+		`waker-10 (10) [000] .... 1.000000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`app-20 (20) [001] .... 1.010000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		`waker-10 (10) [000] .... 1.050000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`app-20 (20) [001] .... 1.080000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params := json.RawMessage(`{
+		"source": "path",
+		"path": "stringy.systrace",
+		"view": "event_search",
+		"pid": "20",
+		"time_start": "1.00000s",
+		"time_end": "1.08000 秒",
+		"line_start": "1",
+		"line_end": "4",
+		"event_types": "sched_wakeup, sched_switch",
+		"max_depth": "4",
+		"max_branches": "2",
+		"min_duration_ms": "1ms",
+		"include_window_stats": "true",
+		"limit": "2"
+	}`)
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query failed: %s", res.Summary)
+	}
+	for _, want := range []string{
+		"line_start=1",
+		"line_end=4",
+		"line=1 ts=1.000000 type=sched_wakeup",
+		"line=2 ts=1.010000 type=sched_switch",
+		"query_tolerance_seconds",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
 func TestTraceSecondParsesMilliseconds(t *testing.T) {
 	var holder struct {
 		T TraceSecond `json:"t"`
@@ -136,5 +185,22 @@ func TestTraceSecondParsesMilliseconds(t *testing.T) {
 	}
 	if holder.T.QueryToleranceSeconds() <= 0 || holder.T.QueryToleranceSeconds() > 0.0005 {
 		t.Fatalf("unexpected tolerance: %.9f", holder.T.QueryToleranceSeconds())
+	}
+}
+
+func TestFlexTraceQueryDurationParsesUnitsToMilliseconds(t *testing.T) {
+	for raw, want := range map[string]float64{
+		`"1ms"`:   1,
+		`"0.5s"`:  500,
+		`"250us"`: 0.25,
+		`2`:       2,
+	} {
+		var got FlexFloat
+		if err := json.Unmarshal([]byte(raw), &got); err != nil {
+			t.Fatalf("unmarshal %s: %v", raw, err)
+		}
+		if math.Abs(got.Float64()-want) > 0.000000001 {
+			t.Fatalf("%s: got %.9f want %.9f", raw, got.Float64(), want)
+		}
 	}
 }
