@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -87,5 +88,53 @@ func TestTraceQueryIPCGraphSummary(t *testing.T) {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("summary missing %q:\n%s", want, res.Summary)
 		}
+	}
+}
+
+func TestTraceQueryAcceptsTimestampStringsAndAppliesTinyTolerance(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "time.systrace")
+	trace := strings.Join([]string{
+		`app-20 (20) [001] .... 1.010004: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`app-20 (20) [001] .... 1.020000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source":      "path",
+		"path":        "time.systrace",
+		"view":        "event_search",
+		"time_start":  "1.01000s",
+		"time_end":    "1.01000 秒",
+		"event_types": []string{"sched_wakeup"},
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query failed: %s", res.Summary)
+	}
+	for _, want := range []string{"line=1", "time_start=1.010000", "time_end=1.010000", "normalized=1.010000", "query_tolerance_seconds"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
+func TestTraceSecondParsesMilliseconds(t *testing.T) {
+	var holder struct {
+		T TraceSecond `json:"t"`
+	}
+	if err := json.Unmarshal([]byte(`{"t":"1010ms"}`), &holder); err != nil {
+		t.Fatal(err)
+	}
+	if math.Abs(holder.T.Seconds()-1.01) > 0.000000001 {
+		t.Fatalf("expected milliseconds to normalize to seconds, got %.9f", holder.T.Seconds())
+	}
+	if holder.T.QueryToleranceSeconds() <= 0 || holder.T.QueryToleranceSeconds() > 0.0005 {
+		t.Fatalf("unexpected tolerance: %.9f", holder.T.QueryToleranceSeconds())
 	}
 }

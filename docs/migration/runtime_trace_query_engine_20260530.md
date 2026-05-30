@@ -31,6 +31,10 @@ and return compact line-backed facts to the model.
   printed, the fractional part is microsecond precision (`81774us`), not a
   separate millisecond field. Durations derived from intervals may be rendered
   in milliseconds, but input window parameters stay in seconds.
+- Accept customer/model timestamp variants at the `trace_query` boundary:
+  bare numbers, `s`/`秒` suffixes, and explicit `ms`/`毫秒` or `us`/`微秒`
+  units are normalized to seconds. Shortened fractional timestamps receive only
+  a tiny bounded tolerance so near-boundary trace rows are not missed.
 - Preserve HarmonyOS/hitrace priority semantics as metadata: for user-space
   priorities, larger numeric value means higher priority; `1-40` is CFS,
   `41-139` is RT, and values outside that range remain raw/system-kernel

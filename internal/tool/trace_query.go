@@ -20,21 +20,21 @@ type TraceQuery struct {
 }
 
 type traceQueryParams struct {
-	Source             string   `json:"source,omitempty"`
-	Path               string   `json:"path,omitempty"`
-	View               string   `json:"view,omitempty"`
-	Thread             string   `json:"thread,omitempty"`
-	PID                int      `json:"pid,omitempty"`
-	TimeStart          float64  `json:"time_start,omitempty"`
-	TimeEnd            float64  `json:"time_end,omitempty"`
-	LineStart          int      `json:"line_start,omitempty"`
-	LineEnd            int      `json:"line_end,omitempty"`
-	EventTypes         []string `json:"event_types,omitempty"`
-	MaxDepth           int      `json:"max_depth,omitempty"`
-	MaxBranches        int      `json:"max_branches,omitempty"`
-	MinDurationMs      float64  `json:"min_duration_ms,omitempty"`
-	IncludeWindowStats *bool    `json:"include_window_stats,omitempty"`
-	Limit              int      `json:"limit,omitempty"`
+	Source             string      `json:"source,omitempty"`
+	Path               string      `json:"path,omitempty"`
+	View               string      `json:"view,omitempty"`
+	Thread             string      `json:"thread,omitempty"`
+	PID                int         `json:"pid,omitempty"`
+	TimeStart          TraceSecond `json:"time_start,omitempty"`
+	TimeEnd            TraceSecond `json:"time_end,omitempty"`
+	LineStart          int         `json:"line_start,omitempty"`
+	LineEnd            int         `json:"line_end,omitempty"`
+	EventTypes         []string    `json:"event_types,omitempty"`
+	MaxDepth           int         `json:"max_depth,omitempty"`
+	MaxBranches        int         `json:"max_branches,omitempty"`
+	MinDurationMs      float64     `json:"min_duration_ms,omitempty"`
+	IncludeWindowStats *bool       `json:"include_window_stats,omitempty"`
+	Limit              int         `json:"limit,omitempty"`
 }
 
 func (t *TraceQuery) Name() string { return "trace_query" }
@@ -52,8 +52,8 @@ func (t *TraceQuery) Parameters() json.RawMessage {
     "view": {"type":"string","enum":["event_search","thread_timeline","window_stats","ipc_graph","wakeup_chain","evidence_pack"],"description":"The deterministic trace view to compute. Use ipc_graph for binder transaction send/receive causality."},
     "thread": {"type":"string","description":"Thread name or substring to resolve when pid is unknown."},
     "pid": {"type":"integer","description":"Thread pid to analyze when known."},
-    "time_start": {"type":"number","description":"Trace timestamp window start in seconds. Example: 928.081774 = 928s + 0.081774s; six fractional digits are microsecond precision."},
-    "time_end": {"type":"number","description":"Trace timestamp window end in seconds. Example: 928.081774 = 928s + 0.081774s; six fractional digits are microsecond precision."},
+    "time_start": {"oneOf":[{"type":"number"},{"type":"string"}],"description":"Trace timestamp window start in seconds. Prefer a JSON number. Also accepts strings such as \"928.081774s\" or \"928.081774 秒\" and normalizes them to seconds; six fractional digits are microsecond precision."},
+    "time_end": {"oneOf":[{"type":"number"},{"type":"string"}],"description":"Trace timestamp window end in seconds. Prefer a JSON number. Also accepts strings such as \"928.081774s\" or \"928.081774 秒\" and normalizes them to seconds; six fractional digits are microsecond precision."},
     "line_start": {"type":"integer","description":"Optional artifact line window start for bounded search."},
     "line_end": {"type":"integer","description":"Optional artifact line window end for bounded search."},
     "event_types": {"type":"array","items":{"type":"string"},"description":"Optional event filters such as sched_switch, sched_wakeup, sched_blocked_reason, cpu_idle, cpu_frequency, clock_set_rate, block_rq_issue, block_bio_remap, binder_transaction, binder_transaction_received."},
@@ -87,12 +87,13 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 			Timestamp: time.Now(),
 		}, nil
 	}
+	timeStart, timeEnd, timeCaveat := normalizedTraceQueryWindow(p)
 	q := tracequery.Query{
 		View:               p.View,
 		Thread:             p.Thread,
 		PID:                p.PID,
-		TimeStart:          p.TimeStart,
-		TimeEnd:            p.TimeEnd,
+		TimeStart:          timeStart,
+		TimeEnd:            timeEnd,
 		LineStart:          p.LineStart,
 		LineEnd:            p.LineEnd,
 		EventTypes:         parseTraceQueryEventTypes(p.EventTypes),
@@ -106,6 +107,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 		q.IncludeWindowStats = true
 	}
 	result := tracequery.Run(idx, q)
+	if timeCaveat != "" {
+		result.Caveats = append(result.Caveats, timeCaveat)
+	}
 	payload, _ := json.MarshalIndent(result, "", "  ")
 	payloadRef := StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "trace-query-result.json", string(payload))
 	summary := traceQuerySummary(result, p, sourceLabel, payloadRef)
@@ -174,6 +178,50 @@ func parseTraceQueryEventTypes(raw []string) []tracequery.EventType {
 	return out
 }
 
+func normalizedTraceQueryWindow(p traceQueryParams) (float64, float64, string) {
+	start := p.TimeStart.Seconds()
+	end := p.TimeEnd.Seconds()
+	startTol := p.TimeStart.QueryToleranceSeconds()
+	endTol := p.TimeEnd.QueryToleranceSeconds()
+	if p.TimeStart.Set() && startTol > 0 {
+		start -= startTol
+		if start < 0 {
+			start = 0
+		}
+	}
+	if p.TimeEnd.Set() && endTol > 0 {
+		end += endTol
+	}
+	if startTol == 0 && endTol == 0 && !traceSecondNeedsNormalizationNote(p.TimeStart) && !traceSecondNeedsNormalizationNote(p.TimeEnd) {
+		return start, end, ""
+	}
+	var parts []string
+	if p.TimeStart.Set() {
+		parts = append(parts, fmt.Sprintf("time_start=%s normalized=%.6f", sanitizeForBanner(p.TimeStart.Raw()), p.TimeStart.Seconds()))
+	}
+	if p.TimeEnd.Set() {
+		parts = append(parts, fmt.Sprintf("time_end=%s normalized=%.6f", sanitizeForBanner(p.TimeEnd.Raw()), p.TimeEnd.Seconds()))
+	}
+	if startTol > 0 || endTol > 0 {
+		parts = append(parts, fmt.Sprintf("query_tolerance_seconds=start±%.9f/end±%.9f", startTol, endTol))
+	}
+	return start, end, "trace timestamp strings were normalized to seconds; shortened fractional timestamps get a tiny bounded tolerance: " + strings.Join(parts, ", ")
+}
+
+func traceSecondNeedsNormalizationNote(v TraceSecond) bool {
+	if !v.Set() {
+		return false
+	}
+	raw := strings.TrimSpace(v.Raw())
+	if raw == "" {
+		return false
+	}
+	if strings.ContainsAny(raw, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ秒微毫µ") {
+		return true
+	}
+	return false
+}
+
 func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel, payloadRef string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace line_start=%s line_end=%s time_start=%s time_end=%s payload_ref=%s]\n",
@@ -183,8 +231,8 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		traceQueryArtifactID(sourceLabel),
 		positiveIntBannerValue(p.LineStart),
 		positiveIntBannerValue(p.LineEnd),
-		floatBannerValue(p.TimeStart),
-		floatBannerValue(p.TimeEnd),
+		traceSecondBannerValue(p.TimeStart),
+		traceSecondBannerValue(p.TimeEnd),
 		sanitizeForBanner(payloadRef),
 	)
 	fmt.Fprintf(&b, "# Trace Query: %s\n\n", result.View)
@@ -396,6 +444,13 @@ func floatBannerValue(v float64) string {
 		return ""
 	}
 	return fmt.Sprintf("%.6f", v)
+}
+
+func traceSecondBannerValue(v TraceSecond) string {
+	if !v.Set() || v.Seconds() == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%.6f", v.Seconds())
 }
 
 func traceThreadLabel(t tracequery.ThreadRef) string {
