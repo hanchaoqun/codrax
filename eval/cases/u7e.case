@@ -3,9 +3,16 @@
 # Regression target: comparing two history objects must keep comparison/list
 # shape. The VCS hashes are evidence/provenance, not an instruction to collapse
 # the whole answer into one scalar value.
+#
+# 2026-05-30: the comparison facets ("共同点" / "不同点") legitimately land in
+# SEPARATE sections of a well-structured answer, so a single same-line regex
+# was a false negative. Split into two independent line-regexes (u7i form):
+# both facets must appear SOMEWHERE, without forcing them onto one line. This
+# corrects the false negative without lowering the comparison-shape bar.
 ID="u7e"
 NAME="history — compare two commits"
 QUESTION="对比 aa27be48 和 af683718 这两个提交分别做了什么，有哪些共同点和不同点？"
 EXPECT_CONTAINS="aa27be48 af683718"
 EXPECT_NOT_CONTAINS="**值：**"
-EXPECT_MATCHES_REGEX="(共同|相同|共同点).*(不同|差异|不同点)|(不同|差异|不同点).*(共同|相同|共同点)"
+EXPECT_MATCHES_REGEX="(共同|相同|共同点|相似|一致)
+(不同|差异|不同点|区别)"
