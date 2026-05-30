@@ -77,11 +77,14 @@ func (r *kotlinImportResolver) Resolve(_ *types.Graph, _ *types.FileInfo, imp ty
 	if path == "" {
 		return nil
 	}
-	// Wildcard: `import a.b.*`. The extractor strips the `.*` at
-	// record time so the path appears as just `a.b`; but defensively
-	// handle both forms.
-	wildcard := strings.HasSuffix(path, ".*")
-	path = strings.TrimSuffix(path, ".*")
+	// Wildcard: `import a.b.*` resolves to every file in package a.b.
+	// After trimming `.*` the remainder IS the package name — look it
+	// up directly (mirrors javaImportResolver). Do NOT split off a
+	// trailing segment first: that would collapse `a.b.*` to package
+	// `a`, the original defect this branch had.
+	if strings.HasSuffix(path, ".*") {
+		return r.packageIndex[strings.TrimSuffix(path, ".*")]
+	}
 
 	idx := strings.LastIndex(path, ".")
 	if idx < 0 {
@@ -91,10 +94,6 @@ func (r *kotlinImportResolver) Resolve(_ *types.Graph, _ *types.FileInfo, imp ty
 	}
 	pkgPart := path[:idx]
 	sym := path[idx+1:]
-
-	if wildcard {
-		return r.packageIndex[pkgPart]
-	}
 
 	if files := r.declInFile[pkgPart+"."+sym]; len(files) > 0 {
 		return files

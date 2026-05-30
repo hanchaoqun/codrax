@@ -76,6 +76,28 @@ fun helper(s: String): String = s.uppercase()
 	}
 }
 
+// TestExtractKotlin_WildcardImportPreserved pins that a wildcard
+// import keeps its `.*` suffix so kotlinImportResolver can tell a
+// whole-package wildcard apart from a member import of the same
+// dotted text (mirrors the Java extractor). Stripping it would make
+// `import a.b.*` resolve to nothing.
+func TestExtractKotlin_WildcardImportPreserved(t *testing.T) {
+	src := []byte(`package com.example.app
+
+import com.example.util.*
+import android.os.Bundle
+`)
+	root := parseKotlin(t, src)
+	_, _, imps, _ := extractKotlin(root, src, "Main.kt")
+	have := map[string]bool{}
+	for _, i := range imps {
+		have[i.Path] = true
+	}
+	if !have["com.example.util.*"] {
+		t.Errorf("wildcard import path not preserved; have %+v", have)
+	}
+}
+
 // TestExtractKotlin_Visibility verifies the IsExported mapping
 // derived from modifiers (Kotlin default is public).
 func TestExtractKotlin_Visibility(t *testing.T) {

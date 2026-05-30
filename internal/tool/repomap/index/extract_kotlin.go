@@ -418,6 +418,12 @@ func collectKotlinQualifiedName(node *sitter.Node, src []byte) string {
 // collectKotlinImportPath returns the dotted import path from an
 // import_header, dropping `import `, `as alias`, and trailing
 // whitespace. `import a.b.c as d` → `a.b.c`.
+//
+// The `.*` wildcard suffix is intentionally preserved (`a.b.*` stays
+// `a.b.*`), mirroring the Java extractor: kotlinImportResolver needs
+// it to tell a whole-package wildcard apart from a member import of
+// the same dotted text. Stripping it here loses that distinction and
+// makes `import a.b.*` resolve to nothing.
 func collectKotlinImportPath(node *sitter.Node, src []byte) string {
 	text := nodeText(node, src)
 	text = strings.TrimSpace(text)
@@ -426,8 +432,6 @@ func collectKotlinImportPath(node *sitter.Node, src []byte) string {
 	if idx := strings.Index(text, " as "); idx >= 0 {
 		text = text[:idx]
 	}
-	// Strip wildcard suffix: `a.b.*` → `a.b`.
-	text = strings.TrimSuffix(text, ".*")
 	return strings.TrimSpace(text)
 }
 
