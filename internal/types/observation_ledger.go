@@ -1094,6 +1094,7 @@ func compileToolResultObservations(results []ToolResult, add func(ObservationRec
 				Role:            role,
 				GroundingPolicy: AnswerClaimBindingGroundingPolicy(origin, role),
 				SourceRef:       sourceRefForToolResult(origin, result, i, banners, command),
+				Span:            spanForToolResult(banners),
 				ClaimKey:        toolResultClaimKey(result, banners),
 				ResultCount:     toolResultResultCount(result.Summary, banners),
 				Summary:         firstNonBannerLine(result.Summary),
@@ -1550,11 +1551,52 @@ func sourceRefForToolResult(origin AnswerEvidenceOrigin, result ToolResult, inde
 		}
 	case AnswerEvidenceOriginCommandMeasurement:
 		ref.Command = command
+	case AnswerEvidenceOriginRuntimeArtifact:
+		ref.Path = firstBannerValue(banners, "path", "artifact_path")
+		ref.ArtifactID = firstNonEmptyString(firstBannerValue(banners, "artifact_id"), firstBannerValue(banners, "source"), "trace_query")
+		ref.ArtifactKind = firstNonEmptyString(firstBannerValue(banners, "artifact_kind"), "runtime_artifact")
+		ref.PayloadRef = firstNonEmptyString(firstBannerValue(banners, "payload_ref", "blob_ref", "raw_ref"), ref.PayloadRef)
+		ref.RowSetRef = firstBannerValue(banners, "row_set_ref")
+		ref.PageRef = firstBannerValue(banners, "page_ref")
+		ref.RawRef = firstNonEmptyString(firstBannerValue(banners, "raw_ref"), ref.RawRef, ref.PayloadRef, ref.RowSetRef)
 	}
 	if ref.Command == "" && result.ToolName == "exec_command" {
 		ref.Command = command
 	}
 	return ref
+}
+
+func spanForToolResult(banners []map[string]string) ObservationSpan {
+	return ObservationSpan{
+		LineStart: parseFirstBannerInt(banners, "line_start", "start_line"),
+		LineEnd:   parseFirstBannerInt(banners, "line_end", "end_line"),
+		StartTsMs: parseFirstBannerFloat(banners, "start_ts_ms", "time_start_ms"),
+		EndTsMs:   parseFirstBannerFloat(banners, "end_ts_ms", "time_end_ms"),
+	}
+}
+
+func parseFirstBannerInt(banners []map[string]string, keys ...string) int {
+	raw := firstBannerValue(banners, keys...)
+	if raw == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(raw))
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func parseFirstBannerFloat(banners []map[string]string, keys ...string) float64 {
+	raw := firstBannerValue(banners, keys...)
+	if raw == "" {
+		return 0
+	}
+	n, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 func compactGitLogToolResultRange(ref, count, firstParent, mergesOnly, noMerges string) string {

@@ -91,7 +91,7 @@ func subExplorerSkill(req *types.SubAgentRequest) *skill.Config {
 			"Identify types, functions, interfaces, and dependencies",
 			"Report discovered facts",
 		},
-		ToolSuggestions: []string{"repo_map", "read_file", "list_files", "grep"},
+		ToolSuggestions: []string{"repo_map", "read_file", "list_files", "grep", "trace_query"},
 		OutputFormat:    "List of discovered facts as JSON",
 		Prohibitions:    []string{"Do not modify any files", "Do not explore outside the given scope"},
 	}

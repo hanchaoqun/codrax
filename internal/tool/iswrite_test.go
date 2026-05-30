@@ -17,6 +17,7 @@ func TestBuiltinIsWriteClassification(t *testing.T) {
 	}{
 		{"exec_command", &ExecCommand{}, false},
 		{"grep", &GrepTool{}, false},
+		{"trace_query", &TraceQuery{}, false},
 		{"read_file", &ReadFile{}, false},
 		{"list_files", &ListFiles{}, false},
 		{"git_diff", &GitDiff{}, false},
@@ -44,6 +45,7 @@ func TestBuiltinConfidenceClassification(t *testing.T) {
 	}{
 		{"exec_command", &ExecCommand{}, 0.8},
 		{"grep", &GrepTool{}, 0.8},
+		{"trace_query", &TraceQuery{}, 0.8},
 		{"read_file", &ReadFile{}, 0.8},
 		{"list_files", &ListFiles{}, 0.8},
 		{"git_diff", &GitDiff{}, 0.8},

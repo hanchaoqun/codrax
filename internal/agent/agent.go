@@ -2677,6 +2677,9 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 			if observationOnlyRuntimeBlocksTool(ctx, toolName) {
 				continue
 			}
+			if types.CanonicalToolName(toolName) == "trace_query" && !traceQueryToolAvailable(ctx) {
+				continue
+			}
 			if toolName == "emit_answer_document_patch" && !answerDocumentPatchBaseAvailable(ctx, nil) {
 				continue
 			}
@@ -3727,6 +3730,43 @@ func toolSurfaceNarrowed(base, effective []llm.ToolSchema) bool {
 	}
 	for name := range baseNames {
 		if !effectiveNames[name] {
+			return true
+		}
+	}
+	return false
+}
+
+func traceQueryToolAvailable(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.Stage != types.StageExplore {
+		return false
+	}
+	if strings.TrimSpace(ctx.AttachedHitrace) != "" || ctx.PerfTrace != nil {
+		return true
+	}
+	if ctx.Mutable != nil {
+		if perf := ctx.Mutable.PerfTrace(); perf != nil {
+			return true
+		}
+	}
+	if ctx.AnalysisIR != nil {
+		rm := ctx.AnalysisIR.RequestModel
+		if rm.PerfTrace != nil {
+			return true
+		}
+		if requestNamesRuntimeTraceArtifact(rm.RawRequest) {
+			return true
+		}
+	}
+	return requestNamesRuntimeTraceArtifact(ctx.Objective)
+}
+
+func requestNamesRuntimeTraceArtifact(raw string) bool {
+	raw = strings.ToLower(strings.TrimSpace(raw))
+	if raw == "" {
+		return false
+	}
+	for _, ext := range []string{".systrace", ".hitrace", ".atrace", ".ftrace", ".perfetto", ".trace"} {
+		if strings.Contains(raw, ext) {
 			return true
 		}
 	}

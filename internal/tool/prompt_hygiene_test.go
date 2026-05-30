@@ -11,6 +11,7 @@ func TestToolSchemasDoNotExposeInternalMechanismTerms(t *testing.T) {
 	tools := []Tool{
 		&ExecCommand{},
 		&GrepTool{},
+		&TraceQuery{},
 		&ReadFile{},
 		&ListFiles{},
 		&GitDiff{},
