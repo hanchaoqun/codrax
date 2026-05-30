@@ -1,0 +1,35 @@
+# Trace query engine — sched blocked-reason / wakeup chain
+#
+# Coverage target (NEW 2026-05-30): the runtime trace query engine
+# (internal/tracequery/, shipped 05-2x) added structured ftrace
+# scheduler parsing — sched_switch / sched_wakeup / sched_blocked_reason.
+# No existing eval case exercised it; the legacy hitrace_* cases only
+# have B/E mark spans (perf_triager path). This case attaches a trace
+# where a render frame stalls because a worker thread went into
+# uninterruptible (D) sleep on iowait, and the kernel blocked-reason
+# names the exact wait site. Those facts (D-state + iowait + caller)
+# are ONLY recoverable via the engine's structured event parsing, not
+# a naive grep of B/E spans.
+#
+# Ground truth (verbatim from internal/tracequery/tracequery_test.go
+# fixtures): worker pid=30 prev_state=D at 2.030; sched_blocked_reason
+# pid=30 iowait=1 caller=fscache_page_wait_on_page_bit at 2.040; the
+# Choreographer#doFrame on main pid=20 is what stalls. Synthetic.
+ID="trace_query_blocked_reason_chain"
+NAME="trace query — worker blocked-reason (iowait) chain"
+QUESTION="这段 HiTrace 在 Choreographer#doFrame 期间出现卡顿。请基于 trace 给出阻塞链路：哪个线程被阻塞、处于什么调度状态、阻塞的内核原因（是否 iowait 及具体等待点）是什么。不要把 trace 行号当成源码行号。"
+HTRACE='# tracer: nop
+# entries-in-buffer/entries-written: 16/16   #P:4
+#
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+       main-20   (   20) [001] .... 2.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=main next_pid=20 next_prio=53
+       main-20   (   20) [001] .... 2.010000: sched_switch: prev_comm=main prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=worker next_pid=30 next_prio=20
+     worker-30   (   30) [001] .... 2.030000: sched_switch: prev_comm=worker prev_pid=30 prev_prio=20 prev_state=D ==> next_comm=idle/1 next_pid=0 next_prio=120
+      waker-10   (   10) [000] .... 2.040000: sched_blocked_reason: pid=30 iowait=1 caller=fscache_page_wait_on_page_bit
+       main-20   (   20) [001] .... 2.120000: print: B|20|Choreographer#doFrame
+     worker-30   (   30) [001] .... 2.150000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=30 next_prio=20
+       main-20   (   20) [001] .... 2.200000: print: E|20
+'
+EXPECT_CONTAINS="fscache_page_wait_on_page_bit iowait"
+EXPECT_MATCHES_REGEX="(worker|线程 ?30|pid ?30).*(阻塞|blocked|睡眠|不可中断|uninterruptible|D ?状态|等待)
+(iowait|I/?O|磁盘|缓存|fscache).*(fscache_page_wait_on_page_bit|阻塞|等待|wait)|fscache_page_wait_on_page_bit.*(iowait|等待|阻塞)"

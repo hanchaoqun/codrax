@@ -1,0 +1,33 @@
+# Trace query engine — binder IPC peer resolution
+#
+# Coverage target (NEW 2026-05-30): the runtime trace query engine
+# (internal/tracequery/, shipped 05-2x) added binder_transaction /
+# binder_transaction_received parsing and an ipc_graph view. No
+# existing eval case exercised it. This case attaches a trace where a
+# client thread issues a synchronous binder call to a server process
+# and is woken back when the reply lands. The IPC peer (dest process /
+# thread) and the transaction id come ONLY from parsing the binder
+# event fields — a naive grep of B/E mark spans cannot produce them.
+#
+# Ground truth (verbatim from internal/tracequery/tracequery_test.go
+# fixtures): client pid=20 binder_transaction transaction=42
+# dest_proc=100 dest_thread=101 code=0x3 at 3.010; received by
+# binder:100_1-101 at 3.012; client woken at 3.020. Synthetic.
+ID="trace_query_binder_ipc_peer"
+NAME="trace query — binder IPC peer + transaction"
+QUESTION="这段 trace 里 client 线程发起了一次 binder IPC 调用。请说明：目标是哪个进程/线程、binder transaction 编号是多少、调用返回后是谁把 client 重新唤醒的。基于 trace 事件作答，不要把 trace 行号当成源码行号。"
+HTRACE='# tracer: nop
+# entries-in-buffer/entries-written: 16/16   #P:4
+#
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+     client-20   (   20) [001] .... 3.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=client next_pid=20 next_prio=53
+     client-20   (   20) [001] .... 3.010000: binder_transaction: transaction=42 dest_node=0 dest_proc=100 dest_thread=101 reply=1 flags=0x0 code=0x3
+ binder:100_1-101 (  100) [002] .... 3.012000: binder_transaction_received: transaction=42
+     client-20   (   20) [001] .... 3.015000: sched_switch: prev_comm=client prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+ binder:100_1-101 (  100) [002] .... 3.020000: sched_wakeup: comm=client pid=20 prio=53 target_cpu=001
+     client-20   (   20) [001] .... 3.030000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=client next_pid=20 next_prio=53
+'
+EXPECT_CONTAINS="binder"
+EXPECT_MATCHES_REGEX="binder:100|dest_proc[ =:]*100|(目标|target|server|服务).{0,8}(进程|proc|process).{0,8}100|(进程|proc|process).{0,8}100
+(transaction|事务|编号|txn).{0,8}42|binder.{0,40}42
+(binder:100|进程 ?100|server|服务端|dest_proc[ =:]*100).{0,40}(唤醒|wake|wakeup|wakes)|(唤醒|wake|wakeup).{0,40}(client|pid ?20)"
