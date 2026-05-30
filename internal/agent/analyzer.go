@@ -2763,7 +2763,20 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 			lo = append(lo, h.Path)
 		}
 	}
-	merged := mergeRequiredFilePathLists(hi, append([]string(nil), append(ranked, lo...)...), maxAnalyzerRequiredFilesCap())
+	// Config-trace seeder. When the target is a config key, the group's
+	// defining file (struct home + yaml example) is the load-bearing read
+	// even if the exact key has no symbol anchor (phantom keys score 0 in
+	// both the exact-anchor and QueryScore tiers). The seeds are SUPPLEMENTAL
+	// — appended to the tail, never displacing the analyzer's own ranked file
+	// suggestions (which for a config question already tend to include the
+	// defining file). They fill cap slots only when the ranker came up sparse,
+	// the true phantom-key case where the explorer would otherwise fall back
+	// to incidental test-file grep hits. Soft hint either way.
+	tail := append(append([]string(nil), ranked...), lo...)
+	if siblings := configKeyGroupSiblingFiles(ctx, rm); len(siblings) > 0 {
+		tail = append(tail, siblings...)
+	}
+	merged := mergeRequiredFilePathLists(hi, tail, maxAnalyzerRequiredFilesCap())
 	if len(logFiles) == 0 {
 		return merged
 	}
@@ -2806,6 +2819,156 @@ func mergeRequiredFilePathLists(head, tail []string, cap int) []string {
 // analyzer navigation candidates (Session-22 fix F1.2). Wrapped as a
 // function so future overrides have one site to flip; production stays at 3.
 func maxAnalyzerRequiredFilesCap() int { return 3 }
+
+// configKeyGroupSiblingCap bounds how many group-sibling files the
+// config-key seeder may contribute to RequiredFiles. Kept small (2) so a
+// config-trace question still leaves room under maxAnalyzerRequiredFilesCap
+// for the structural ranker's own top hit; the two slots cover the common
+// "struct home + yaml example" pair that defines a config group.
+func configKeyGroupSiblingCap() int { return 2 }
+
+// configKeyTokens splits a config key into its meaningful, lower-cased
+// tokens on the common config-key separators (_ . - and space), dropping
+// connector-length fragments (<3 chars, e.g. "of"/"to"/"per"/"id") that add
+// grep noise without localizing signal. It is deliberately prefix-FREE and
+// convention-FREE: a flat key ("verbose"), a dotted/nested key
+// ("server.idle_timeout"), and an underscore-grouped key all reduce to their
+// tokens, so the seeder makes no assumption that the repo groups keys by a
+// leading segment — directly covering keys whose group is not the first
+// segment, or whose namespace is flat.
+func configKeyTokens(key string) []string {
+	parts := strings.FieldsFunc(key, func(r rune) bool {
+		return r == '_' || r == '.' || r == '-' || r == ' '
+	})
+	var out []string
+	seen := map[string]bool{}
+	for _, p := range parts {
+		p = strings.ToLower(strings.TrimSpace(p))
+		if len(p) < 3 || seen[p] {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out
+}
+
+// configKeyGroupSiblingFiles seeds RequiredFiles with the file(s) where the
+// asked config key's SCHEMA lives, so the config-trace question family ("how
+// is config key X resolved across code-default / yaml / CLI?") resolves the
+// key against the real config structure (defining struct + sibling keys +
+// precedence) instead of incidental test-file grep hits. The need is sharpest
+// for a phantom / not-yet-introduced key: exactEntityAnchors and QueryScore
+// are both empty, so the structural ranker never points the explorer at the
+// schema home and the answer stops at "absent everywhere".
+//
+// Prefix-FREE and repo-agnostic: the key is split into tokens (see
+// configKeyTokens) and ranked with the IDF keyword search, so the schema home
+// surfaces by token co-occurrence — rare tokens dominate, common ones are
+// down-weighted — regardless of whether the repo groups keys by a leading
+// segment, uses dotted/nested keys, or keeps a flat namespace. This also
+// reaches a code-default struct whose yaml tags DROP the group prefix (keyed
+// by the bare sub-key), which a leading-prefix grep would miss but shared
+// sub-key tokens still hit. No target-repo path is hardcoded.
+//
+// Precise typed gate: only config-key targets (reconciled
+// AnswerSubject.Kind == SubjectConfigKey or Scenario == ScenarioConfigTrace;
+// either alone qualifies, the analyzer sets them independently). Soft +
+// supplemental: results append to the navigation-candidate tail, never
+// displacing the analyzer's own ranked suggestions, and the explorer may
+// down-rank them. Bounded by configKeyGroupSiblingCap and a token budget.
+func configKeyGroupSiblingFiles(ctx *types.AgentContext, rm types.RequestModel) []string {
+	if ctx == nil || ctx.RepoRoot == "" {
+		return nil
+	}
+	if rm.AnswerSubject.Kind != types.SubjectConfigKey && rm.Scenario != types.ScenarioConfigTrace {
+		return nil
+	}
+	// ExactTargets first (LLM-emitted, provenance-validated config keys),
+	// then entities as a fallback surface for the asked key.
+	keys := rm.AnalyzerHints.ExactTargets
+	if len(keys) == 0 {
+		keys = rm.AnalyzerHints.Entities
+	}
+	const maxTokens = 8
+	var tokens []string
+	seen := map[string]bool{}
+	for _, k := range keys {
+		for _, t := range configKeyTokens(k) {
+			if seen[t] {
+				continue
+			}
+			seen[t] = true
+			tokens = append(tokens, t)
+			if len(tokens) >= maxTokens {
+				break
+			}
+		}
+		if len(tokens) >= maxTokens {
+			break
+		}
+	}
+	if len(tokens) == 0 {
+		return nil
+	}
+	// Confidence floor by DISTINCT-token co-occurrence. This is the noise
+	// guard for generic-token keys (e.g. "max_size", "enable_debug",
+	// "log_level"), whose tokens are common words: a file matching only one
+	// of them is almost certainly not the schema home, so without the floor
+	// the seeder could surface arbitrary high-frequency files. Only files
+	// co-occurring ≥ floor distinct key tokens survive; the generic-token
+	// case then degrades to "seed nothing" (graceful — the analyzer's own
+	// file suggestions and the explorer's search still run) instead of
+	// injecting noise. Portable: a token-count threshold, not an absolute IDF
+	// score (not comparable across repos, and which here cannot even separate
+	// a 3-token schema home from a 1-token noise file — both can score equal).
+	// A single-token flat key ("verbose") relaxes the floor to 1.
+	//
+	// The per-token file sets are computed directly (grepIDFSearch aggregates
+	// scores and keeps only one keyword in its per-file hit map, so it cannot
+	// report distinct-token coverage). Case-insensitive so a CamelCase field
+	// (GadgetWidgetSize) still matches the lower-cased tokens.
+	floor := 2
+	if len(tokens) < 2 {
+		floor = len(tokens)
+	}
+	counts := map[string]int{}
+	for _, tok := range tokens {
+		for _, p := range grepFiles(tok, ctx.RepoRoot, true) {
+			rel := normalizeSearchPath(p, ctx.RepoRoot)
+			if rel != "" {
+				counts[rel]++
+			}
+		}
+	}
+	type fileCount struct {
+		path string
+		n    int
+	}
+	var ranked []fileCount
+	for p, n := range counts {
+		if n >= floor {
+			ranked = append(ranked, fileCount{path: p, n: n})
+		}
+	}
+	// Most distinct tokens first (the schema home), deterministic path
+	// tie-break for run-stable RequiredFiles.
+	sort.Slice(ranked, func(i, j int) bool {
+		if ranked[i].n != ranked[j].n {
+			return ranked[i].n > ranked[j].n
+		}
+		return ranked[i].path < ranked[j].path
+	})
+	cap := configKeyGroupSiblingCap()
+	out := make([]string, 0, cap)
+	for _, r := range ranked {
+		out = append(out, r.path)
+		if len(out) >= cap {
+			break
+		}
+	}
+	return out
+}
 
 // dedupStringList unions any number of input slices into one
 // order-stable, dedup'd result. Empty / whitespace-only entries are
