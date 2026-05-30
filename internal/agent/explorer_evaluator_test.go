@@ -1185,6 +1185,48 @@ func TestParseOutput_ExhaustiveEnumerationRequiresMemberSetHandoffBeforeTurnB(t 
 	}
 }
 
+func TestParseOutput_SourceOperationSiteRequestRequiresMemberSetHandoff(t *testing.T) {
+	question := "当前代码仓进程切换cgroup分组，其pid和tid是在哪儿写入cgroup分组下面的文件里的，都有哪些写入点？"
+	eval := phase11Eval(question)
+	ctx := parseOutputCtx(string(types.ReqMechanism), "")
+	ctx.Objective = question
+	ctx.Mutable = types.NewMutableState(question)
+	ctx.AnalysisIR.RequestModel.RawRequest = question
+	ctx.AnalysisIR.RequestModel.Intent = types.IntentRootCause
+	ctx.AnalysisIR.RequestModel.AnalyzerHints = types.AnalyzerHints{Kind: string(types.ReqMechanism)}
+	eval.analysisIR = ctx.AnalysisIR
+
+	out, err := eval.ParseOutput(ctx, nil, phase11ToolResults(), nil)
+	if err != nil {
+		t.Fatalf("ParseOutput error: %v", err)
+	}
+	if out.SignalUpdates == nil {
+		t.Fatal("SignalUpdates must be populated")
+	}
+	if out.SignalUpdates.HasEnoughFacts {
+		t.Fatal("source operation-site request must not advance without accepted aggregate_facts.member_set")
+	}
+	if !strings.Contains(out.RetryHint, "aggregate_facts.member_set") {
+		t.Fatalf("retry hint should direct source operation-site member_set handoff, got %q", out.RetryHint)
+	}
+
+	ctx.Mutable.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:        types.AnswerAggregateMemberSet,
+		Label:       "cgroup 写入点",
+		Value:       "2",
+		Members:     []string{"SetPidToCgroup @ awarecpu/aware_cpuctl.c:131", "write call @ awarecpu/aware_cpuctl.c:154"},
+		SupportRefs: []string{"awarecpu/aware_cpuctl.c:131", "awarecpu/aware_cpuctl.c:154"},
+	}})
+	ctx.Mutable.SetInvestigationComplete("source operation sites accepted")
+	out, err = eval.ParseOutput(ctx, nil, phase11ToolResults(), nil)
+	if err != nil {
+		t.Fatalf("ParseOutput with member_set error: %v", err)
+	}
+	if out.SignalUpdates == nil || !out.SignalUpdates.HasEnoughFacts {
+		t.Fatalf("accepted source operation-site member_set should satisfy handoff, got signals=%+v hint=%q", out.SignalUpdates, out.RetryHint)
+	}
+}
+
 func TestParseOutput_PartialSourceInventoryMemberSetBlocksCompletePromotion(t *testing.T) {
 	eval := phase11Eval("List all source scopes")
 	eval.isEnumerationQuery = true

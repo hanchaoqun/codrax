@@ -2614,7 +2614,8 @@ func aggregateSurfaceMatchesMember(surface string, members map[string]bool) bool
 
 func aggregateRequestRequiresPathMemberSetAsPrincipal(rm RequestModel) bool {
 	if RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
-		RequiresRelationMemberSetHandoff(rm) {
+		RequiresRelationMemberSetHandoff(rm) ||
+		RequiresSourceOperationSiteMemberSetHandoff(rm) {
 		return true
 	}
 	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {

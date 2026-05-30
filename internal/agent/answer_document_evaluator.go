@@ -4264,6 +4264,9 @@ func renderAnswerDocPrincipalMemberSetContract(ctx *types.AgentContext) string {
 	} else {
 		b.WriteString("**Every member listed below MUST appear verbatim — including any decorator in parentheses (e.g. `(9 checks)`, `(路径边界)`), arrow (e.g. ` → `), or separator (e.g. `::`, `/`) — in some `blocks[].items[].label`, `blocks[].items[].text`, `blocks[].items[].cells[]`, or `blocks[].text` of the emitted answer document.** ")
 	}
+	if types.RequiresSourceOperationSiteMemberSetHandoff(rm) {
+		b.WriteString("This request's member_set is a source operation-site set: render it as the principal write/call/registration/entry-point list or table before broad mechanism prose. Use member-specific support refs for the operation-site citation; constants, literal target paths, config keys, or registry names are row details and must not replace the citation for the function/call/write site itself. ")
+	}
 	b.WriteString("The pre-emit oracle rejects the call (with field `blocks[].items[].label/text/cells OR blocks[].text`) if any member is missing, paraphrased, abbreviated, or has its decorator stripped. Mirror each string byte-for-byte; do NOT rewrite the wording.\n\n")
 	b.WriteString("Concretely: a member rendered as `gate.Run (9 checks)` is NOT satisfied by `gate.Run` alone, `gate.Run / gate.RunWith`, or `gate.Run 函数`. The full string `gate.Run (9 checks)` must appear together inside one block's label/text/cells/items.\n\n")
 	b.WriteString("Upstream contract for decorator-shape members: for each member rendered as `code_identifier (qualifier)` (e.g. `Orchestrator (4-stage pipeline)`, `assertExternalDirectoryEffect (路径边界)`), the investigator was required to attach `support_refs[i] = file:line` per member on `emit_investigation_complete` — empty `support_refs` on a decorated `member_set` is rejected at that boundary because the decorator changes the surface so the framework cannot auto-resolve the member against an evidence anchor named by the bare leading identifier alone. When the matching support file:line is available on the bus, cite it as the decorated member's `citation_ref` in the answer document so the visible decorator carries a citation back to its evidence source.\n\n")
@@ -4592,6 +4595,9 @@ func renderAnswerDocPrincipalMemberSetContractFromEnumerationRows(ctx *types.Age
 	} else {
 		b.WriteString("The pre-emit oracle checks the same row identities against `blocks[].items[].label/text/cells OR blocks[].text`; do not paraphrase or abbreviate them.\n\n")
 	}
+	if types.RequiresSourceOperationSiteMemberSetHandoff(rm) {
+		b.WriteString("This request's member_set is a source operation-site set: render it as the principal write/call/registration/entry-point list or table before broad mechanism prose. Use member-specific support refs for the operation-site citation; constants, literal target paths, config keys, or registry names are row details and must not replace the citation for the function/call/write site itself.\n\n")
+	}
 	b.WriteString("This section intentionally does not duplicate the full member list. Use the row ids, locations, citation keys, and notes from `Principal Enumeration Rows` as the single rich member/citation contract.\n\n")
 	for _, set := range sets {
 		label := strings.TrimSpace(set.Label)
@@ -4633,6 +4639,9 @@ func renderAnswerDocAggregateFacts(ctx *types.AgentContext) string {
 		if answerDocHasMultiMemberAggregateRef(relationRefs) {
 			b.WriteString("- For multi-member relation sets, render the qualifying members as list/table rows before any broader mechanism narrative.\n")
 		}
+	}
+	if ctx != nil && ctx.AnalysisIR != nil && types.RequiresSourceOperationSiteMemberSetHandoff(ctx.AnalysisIR.RequestModel) {
+		b.WriteString("- Source operation-site contract: the principal `member_set` rows are the requested write/call/registration/entry points. Render them as visible list/table rows, preserve per-member details from `member_notes`, and cite the member's function/call/file:line support ref. Do not borrow a nearby constant/path citation as the main citation for a function or call-site member.\n")
 	}
 	b.WriteString("- When a `members` entry is a source location such as `file.ext:line`, or a member-specific `support_refs` entry maps `Member @ file.ext:line`, `Member | file.ext:line`, or `Member (file.ext:line)`, create or reuse a matching `citations[]` entry and set that item's `citation_ref`. Member labels with no citable source-location handoff should remain uncited rather than borrowing an adjacent citation.\n")
 	b.WriteString("- Do not render internal provenance strings such as `source=emit_investigation_complete.aggregate_facts` in the user-visible answer text. Use provenance only to choose the correct member set and citations.\n")

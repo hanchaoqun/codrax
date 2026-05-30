@@ -727,7 +727,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			fmt.Fprintf(&b, "The user demands every match (`%s` in the question). Every grep / repo_map / list_files candidate file MUST be either read_file'd OR explicitly excluded by a narrower follow-up grep before you call emit_investigation_complete with result_kind='resolved'. Premature completion is refused when scanned candidates remain unread under this obligation. The honest fallback when the investigation legitimately cannot enumerate the full set is result_kind='absence' with absence_justification, OR an emit_investigation_complete that explicitly notes the un-read scope.\n\n",
 				rm.CompletenessObligation.SourceQuote)
 		}
-		if rm.Predicates.IsCountQuestion || len(rm.Buckets) >= 2 || rm.EnumerationBoundary != nil || (rm.CompletenessObligation != nil && rm.CompletenessObligation.Required) || types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) {
+		if rm.Predicates.IsCountQuestion || len(rm.Buckets) >= 2 || rm.EnumerationBoundary != nil || (rm.CompletenessObligation != nil && rm.CompletenessObligation.Required) || types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) || types.RequiresSourceOperationSiteMemberSetHandoff(rm) {
 			b.WriteString("### Structured Aggregate Handoff\n\n")
 			b.WriteString("When the answer depends on derived totals, unique-set sizes, per-dimension counts, user-bucket counts, excluded-candidate counts, or an exhaustive principal member list, include `aggregate_facts` in your successful `emit_investigation_complete` call. Do this even when the same numbers or member names also appear in your reason prose.\n")
 			b.WriteString("- Use `member_set` for an exact exhaustive list of principal answer members, `total_count` for the principal hit count, `unique_count` for distinct file/package/module sets, `grouped_count` for syntax/category/language dimensions, `bucket_count` for user-named partitions, and `excluded_count` for comments/tests/docs/unrelated candidates that were deliberately not counted.\n")
@@ -735,6 +735,14 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			b.WriteString("- When a `member_set` member is shaped \"<code identifier> (<qualifier>)\" — e.g. `Orchestrator (4-stage pipeline)` — you MUST attach `support_refs` mapping each decorated member to a grounded file:line. The decorator changes the surface text so automatic resolution cannot match the member against an evidence anchor named just `Orchestrator`. Two accepted forms: labeled `[\"Orchestrator: codrax/internal/orchestrator/orchestrator.go:42\", \"Gate.Run: codrax/internal/analysis/gate/gate.go:128\"]` (label = the bare leading identifier of each member, no decorator), or positional `[\"codrax/internal/orchestrator/orchestrator.go:42\", \"codrax/internal/analysis/gate/gate.go:128\"]` with one entry per `members[]` in the same order. Bare code-identity members (no decorator) and pure display-prose members keep auto-resolution; only decorated code-shape members trip emit-time rejection when support_refs is empty.\n")
 			b.WriteString("- When a count fact's members are source locations spanning multiple files, also emit a companion `unique_count` fact for the distinct file set. Put rejected candidates in `excluded` rather than mixing them into principal members.\n")
 			b.WriteString("- Values must come from your verified command output, grounded evidence, or explicit candidate classification. Do not leave later answer writing to recompute aggregates from prose.\n\n")
+		}
+		if types.RequiresSourceOperationSiteMemberSetHandoff(rm) {
+			b.WriteString("### Source Operation Site Set Handoff\n\n")
+			b.WriteString("The user asks for a concrete source operation-site set (for example write points, call sites, registration points, or entry points) inside a mechanism/root-cause question. Close only after the principal sites are carried as `emit_investigation_complete.aggregate_facts` with `kind=\"member_set\"`.\n")
+			b.WriteString("- Put each principal operation site in `members` as a stable label such as `SetPidToCgroup @ awarecpu/aware_cpuctl.c:131` or `write call in SetPidToCgroup @ awarecpu/aware_cpuctl.c:154`.\n")
+			b.WriteString("- Attach `support_refs` for each member, preferably one file:line per member in the same order. If the member label includes a function plus a concrete call line, cite the function/call line, not an adjacent constant.\n")
+			b.WriteString("- Put target files, constants, cgroup paths, registry names, config keys, or literal values in `member_notes` or evidence summaries as row details. They are important details, but they must not replace the citation for the operation site itself.\n")
+			b.WriteString("- Keep helper/dispatcher/caller sites separate from the actual low-level operation site when both are part of the requested answer. Mark unrelated constants, tests, docs, or context as supporting evidence rather than principal members.\n\n")
 		}
 		if types.HasAttributeBearingEnumeration(rm) {
 			b.WriteString("### Attribute-bearing Enumeration Discipline\n\n")
@@ -7204,6 +7212,9 @@ func (e *explorerEvaluator) needsStructuredMemberSetHandoff(ctx *types.AgentCont
 	}
 	rm := ir.RequestModel
 	if types.RequiresRelationMemberSetHandoff(rm) {
+		return true
+	}
+	if types.RequiresSourceOperationSiteMemberSetHandoff(rm) {
 		return true
 	}
 	if !types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) {

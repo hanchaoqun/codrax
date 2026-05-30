@@ -1295,6 +1295,50 @@ func TestRenderAnswerDocPrincipalMemberSetContract_RendersMustVerbatimList(t *te
 	}
 }
 
+func TestRenderAnswerDocAggregateFacts_SourceOperationSiteCitationGuidance(t *testing.T) {
+	question := "当前代码仓进程切换cgroup分组，其pid和tid是在哪儿写入cgroup分组下面的文件里的，都有哪些写入点？"
+	mut := types.NewMutableState(question)
+	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
+		Kind:  types.AnswerAggregateMemberSet,
+		Label: "cgroup 写入点",
+		Value: "2",
+		Members: []string{
+			"SetPidToCgroup @ awarecpu/aware_cpuctl.c:131",
+			"SetCgroup dispatch @ awarecpu/aware_cpuctl.c:822",
+		},
+		MemberNotes: []string{
+			"target path: /dev/cpuctl/cgroup.procs",
+			"dispatches to background/root cpuctl write helpers",
+		},
+		SupportRefs: []string{
+			"awarecpu/aware_cpuctl.c:131",
+			"awarecpu/aware_cpuctl.c:822",
+		},
+	}})
+	mut.RetainInvestigationAggregateFacts()
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				RawRequest:    question,
+				Intent:        types.IntentRootCause,
+				AnalyzerHints: types.AnalyzerHints{Kind: string(types.ReqMechanism)},
+			},
+		},
+		Mutable: mut,
+	}
+
+	contract := renderAnswerDocPrincipalMemberSetContract(ctx)
+	if !strings.Contains(contract, "source operation-site set") ||
+		!strings.Contains(contract, "must not replace the citation for the function/call/write site") {
+		t.Fatalf("source operation-site principal contract missing citation guidance:\n%s", contract)
+	}
+	prompt := renderAnswerDocAggregateFacts(ctx)
+	if !strings.Contains(prompt, "Source operation-site contract") ||
+		!strings.Contains(prompt, "Do not borrow a nearby constant/path citation") {
+		t.Fatalf("aggregate fact prompt missing source operation-site citation guidance:\n%s", prompt)
+	}
+}
+
 // TestRenderAnswerDocPrincipalMemberSetContract_EmptyWhenNoPrincipalFacts
 // pins that the section is omitted entirely when no principal member_set
 // is on the bus, so the prompt budget is not consumed by an empty header.

@@ -2228,6 +2228,41 @@ func TestNormalizeAggregateFactRolesForRequest_DemotesMechanismMemberSetAtSource
 	}
 }
 
+func TestPrincipalAggregateMemberSetFactRefsForRequest_SourceOperationSitesRemainPrincipal(t *testing.T) {
+	facts := []AnswerAggregateFact{{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "cgroup 写入点",
+		Value: "3",
+		Members: []string{
+			"SetPidToCgroup @ awarecpu/aware_cpuctl.c:131",
+			"write call in SetPidToCgroup @ awarecpu/aware_cpuctl.c:154",
+			"SetCgroup dispatch @ awarecpu/aware_cpuctl.c:822",
+		},
+		SupportRefs: []string{
+			"awarecpu/aware_cpuctl.c:131",
+			"awarecpu/aware_cpuctl.c:154",
+			"awarecpu/aware_cpuctl.c:822",
+		},
+	}}
+	rm := RequestModel{
+		RawRequest:    "当前代码仓进程切换cgroup分组，其pid和tid是在哪儿写入cgroup分组下面的文件里的，都有哪些写入点？",
+		Intent:        IntentRootCause,
+		AnalyzerHints: AnalyzerHints{Kind: string(ReqMechanism)},
+	}
+
+	got := NormalizeAggregateFactRolesForRequest(facts, &rm)
+	if refs := PrincipalAggregateMemberSetFactRefsForRequest(got, &rm); len(refs) != 1 {
+		t.Fatalf("source operation-site member_set should be visible principal slate, got %+v", refs)
+	}
+
+	narrative := rm
+	narrative.RawRequest = "解释进程切换 cgroup 分组时 pid 和 tid 是如何写入文件的。"
+	got = NormalizeAggregateFactRolesForRequest(facts, &narrative)
+	if refs := PrincipalAggregateMemberSetFactRefsForRequest(got, &narrative); len(refs) != 1 {
+		t.Fatalf("root-cause member_set remains available when model explicitly emits it; got %+v", refs)
+	}
+}
+
 func TestNormalizeAggregateFactRolesForRequest_DemotesArchitectureNarrativeMemberSetAtSource(t *testing.T) {
 	facts := []AnswerAggregateFact{{
 		Kind:       AnswerAggregateMemberSet,

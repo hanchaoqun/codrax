@@ -145,6 +145,27 @@ func TestExploreSkill_TraceQueryFirstPrecedesGenericBreadthScan(t *testing.T) {
 	}
 }
 
+func TestExploreSkill_SourceOperationSiteSetHandoff(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("explore-skill")
+	if err != nil {
+		t.Fatalf("Get(explore-skill) returned error: %v", err)
+	}
+	corpus := allWorkflowBodies(sk)
+	for _, want := range []string{
+		"Source operation-site sets",
+		"all write points",
+		"principal `aggregate_facts.member_set`",
+		"support_refs",
+		"target constants, paths",
+	} {
+		if !strings.Contains(corpus, want) {
+			t.Fatalf("source operation-site handoff guidance missing %q:\n%s", want, corpus)
+		}
+	}
+}
+
 func TestExploreSkill_CoverageBeforeCompletionIsLimitedToStructuralCoverageObligations(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

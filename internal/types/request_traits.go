@@ -255,6 +255,110 @@ func RequiresRelationMemberSetHandoff(rm RequestModel) bool {
 		rm.Predicates.IsCountQuestion
 }
 
+// RequiresSourceOperationSiteMemberSetHandoff reports whether a
+// current-source mechanism/root-cause request asks for a principal set of
+// operation sites such as write points, call sites, registration points, or
+// entry points.
+//
+// Most mechanism questions are narrative: discovered helpers and branches are
+// supporting context, not an answer-member slate. This helper is intentionally
+// narrower. It uses RawRequest only as a precise user-surface provenance check
+// for two independent signals that the analyzer schema does not yet expose:
+// a set boundary ("都有哪些", "list all", "which", ...), and an operation-site
+// surface ("写入点", "call site", "registration point", ...). No repo-map rank,
+// grep count, evidence label, or model prose can activate this trait.
+func RequiresSourceOperationSiteMemberSetHandoff(rm RequestModel) bool {
+	raw := strings.ToLower(strings.TrimSpace(rm.RawRequest))
+	if raw == "" {
+		return false
+	}
+	if rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsHistoryLookup ||
+		rm.Predicates.IsRoleLocateLookup {
+		return false
+	}
+	if rm.Scenario == ScenarioArchitectureExplain &&
+		(rm.Predicates.IsCrossComponent || rm.DiagramHint != nil || len(rm.SubTopics) > 1) {
+		return false
+	}
+	if IsArchitectureNarrativeExplanation(rm) {
+		return false
+	}
+	if !sourceOperationSiteHasSetBoundary(raw) {
+		return false
+	}
+	return sourceOperationSiteHasOperationSurface(raw)
+}
+
+func sourceOperationSiteHasSetBoundary(raw string) bool {
+	for _, needle := range []string{
+		"都有哪些",
+		"有哪些",
+		"哪些地方",
+		"所有",
+		"全部",
+		"列出",
+		"分别",
+		"都在哪",
+		"分别在哪",
+		" all ",
+		" every ",
+		" list ",
+		" which ",
+		"what are",
+		"where are",
+		"enumerate",
+	} {
+		if strings.Contains(raw, needle) {
+			return true
+		}
+	}
+	return strings.HasPrefix(raw, "all ") ||
+		strings.HasPrefix(raw, "every ") ||
+		strings.HasPrefix(raw, "list ") ||
+		strings.HasPrefix(raw, "which ")
+}
+
+func sourceOperationSiteHasOperationSurface(raw string) bool {
+	for _, needle := range []string{
+		"写入点",
+		"写入位置",
+		"写入的地方",
+		"在哪儿写入",
+		"在哪里写入",
+		"在哪写入",
+		"写到",
+		"写入到",
+		"调用点",
+		"调用位置",
+		"调用处",
+		"注册点",
+		"注册位置",
+		"入口点",
+		"入口位置",
+		"落点",
+		"write point",
+		"write site",
+		"write location",
+		"written to",
+		"call site",
+		"call point",
+		"call location",
+		"registration point",
+		"registration site",
+		"registration location",
+		"entry point",
+		"entry site",
+		"insertion point",
+	} {
+		if strings.Contains(raw, needle) {
+			return true
+		}
+	}
+	return false
+}
+
 // CompletenessObligationIsMechanismCoverageOnly reports whether an active
 // completeness obligation should be interpreted as "cover these mechanism
 // facets in the explanation" rather than "emit a closed principal member set".

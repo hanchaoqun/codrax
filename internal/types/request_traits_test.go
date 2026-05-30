@@ -288,6 +288,52 @@ func TestRequiresRelationMemberSetHandoff_TypedOnly(t *testing.T) {
 	}
 }
 
+func TestRequiresSourceOperationSiteMemberSetHandoff_PreciseRawBoundary(t *testing.T) {
+	cgroup := RequestModel{
+		RawRequest: "当前代码仓进程切换cgroup分组，其pid和tid是在哪儿写入cgroup分组下面的文件里的，都有哪些写入点？",
+		Intent:     IntentRootCause,
+		AnalyzerHints: AnalyzerHints{
+			Kind: string(ReqMechanism),
+		},
+	}
+	if !RequiresSourceOperationSiteMemberSetHandoff(cgroup) {
+		t.Fatal("explicit all-write-points mechanism request should require source operation-site member_set handoff")
+	}
+
+	callSites := RequestModel{
+		RawRequest: "List all registration points and call sites for FooDispatcher.",
+		Intent:     IntentExplain,
+		AnalyzerHints: AnalyzerHints{
+			Kind: string(ReqRegistration),
+		},
+	}
+	if !RequiresSourceOperationSiteMemberSetHandoff(callSites) {
+		t.Fatal("explicit English operation-site set should require source operation-site handoff")
+	}
+
+	narrative := cgroup
+	narrative.RawRequest = "解释进程切换 cgroup 分组时 pid 和 tid 是如何写入文件的。"
+	if RequiresSourceOperationSiteMemberSetHandoff(narrative) {
+		t.Fatal("ordinary mechanism narrative without a set boundary must not require member_set handoff")
+	}
+
+	scalar := cgroup
+	scalar.Predicates.IsScalarAnswer = true
+	if RequiresSourceOperationSiteMemberSetHandoff(scalar) {
+		t.Fatal("scalar lookup must not activate operation-site member_set handoff")
+	}
+
+	arch := cgroup
+	arch.RawRequest = "这个系统架构有哪些入口点，画图说明模块关系"
+	arch.Intent = IntentExplain
+	arch.Scenario = ScenarioArchitectureExplain
+	arch.Complexity = ComplexityComplex
+	arch.Predicates.IsCrossComponent = true
+	if RequiresSourceOperationSiteMemberSetHandoff(arch) {
+		t.Fatal("architecture narrative must not be rerouted by generic entry-point wording")
+	}
+}
+
 func TestHistoryLookupPrefersVCSNarrativePrincipal_TypedBoundary(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentExplain,
