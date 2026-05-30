@@ -50,7 +50,7 @@ func TestTraceQueryExplicitPathProducesRuntimeArtifactSummary(t *testing.T) {
 
 func TestTraceQuerySchemaDocumentsViews(t *testing.T) {
 	body := (&TraceQuery{}).Description() + "\n" + string((&TraceQuery{}).Parameters())
-	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "event_search", "attached_trace", "seconds", "larger numeric priority", "1-40=CFS", "block_bio_remap"} {
+	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "event_search", "attached_trace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "block_bio_remap"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("trace_query schema/description missing %q:\n%s", want, body)
 		}

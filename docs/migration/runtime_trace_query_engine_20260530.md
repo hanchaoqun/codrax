@@ -26,8 +26,10 @@ and return compact line-backed facts to the model.
   artifact path.
 - Support attached trace blobs and repo/workspace-relative trace paths.
 - Parse ftrace/systrace/hitrace-style text. Perfetto proto/JSON is deferred.
-- Treat ftrace/systrace/hitrace timestamps as seconds on the trace clock
-  (`928.081774` means seconds). Durations derived from intervals may be rendered
+- Treat ftrace/systrace/hitrace timestamps as seconds end-to-end on the trace
+  clock. `928.081774` means `928s + 0.081774s`; when six fractional digits are
+  printed, the fractional part is microsecond precision (`81774us`), not a
+  separate millisecond field. Durations derived from intervals may be rendered
   in milliseconds, but input window parameters stay in seconds.
 - Preserve HarmonyOS/hitrace priority semantics as metadata: for user-space
   priorities, larger numeric value means higher priority; `1-40` is CFS,

@@ -40,7 +40,7 @@ type traceQueryParams struct {
 func (t *TraceQuery) Name() string { return "trace_query" }
 
 func (t *TraceQuery) Description() string {
-	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, wakeup chains, same-window resource stats, structured event search, and line-backed evidence packs. Trace timestamps are seconds (for example 928.081774 means seconds in the trace clock; only durations are rendered in ms). For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
+	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, wakeup chains, same-window resource stats, structured event search, and line-backed evidence packs. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
 }
 
 func (t *TraceQuery) Parameters() json.RawMessage {
@@ -52,8 +52,8 @@ func (t *TraceQuery) Parameters() json.RawMessage {
     "view": {"type":"string","enum":["event_search","thread_timeline","window_stats","wakeup_chain","evidence_pack"],"description":"The deterministic trace view to compute."},
     "thread": {"type":"string","description":"Thread name or substring to resolve when pid is unknown."},
     "pid": {"type":"integer","description":"Thread pid to analyze when known."},
-    "time_start": {"type":"number","description":"Trace timestamp window start in seconds, e.g. 928.081774 means seconds on the trace clock."},
-    "time_end": {"type":"number","description":"Trace timestamp window end in seconds, e.g. 928.081774 means seconds on the trace clock."},
+    "time_start": {"type":"number","description":"Trace timestamp window start in seconds. Example: 928.081774 = 928s + 0.081774s; six fractional digits are microsecond precision."},
+    "time_end": {"type":"number","description":"Trace timestamp window end in seconds. Example: 928.081774 = 928s + 0.081774s; six fractional digits are microsecond precision."},
     "line_start": {"type":"integer","description":"Optional artifact line window start for bounded search."},
     "line_end": {"type":"integer","description":"Optional artifact line window end for bounded search."},
     "event_types": {"type":"array","items":{"type":"string"},"description":"Optional event filters such as sched_switch, sched_wakeup, cpu_idle, block_rq_issue, block_bio_remap, binder_transaction."},
