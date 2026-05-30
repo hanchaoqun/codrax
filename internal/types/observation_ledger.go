@@ -69,6 +69,8 @@ type ObservationSpan struct {
 	Row         int     `json:"row,omitempty"`
 	TextStart   int     `json:"text_start,omitempty"`
 	TextEnd     int     `json:"text_end,omitempty"`
+	StartTs     float64 `json:"start_ts,omitempty"`
+	EndTs       float64 `json:"end_ts,omitempty"`
 	StartTsMs   float64 `json:"start_ts_ms,omitempty"`
 	EndTsMs     float64 `json:"end_ts_ms,omitempty"`
 }
@@ -1475,6 +1477,8 @@ func observationSpanForAggregateFact(dims map[string]string) ObservationSpan {
 		Row:         firstNonNegativeIntDim(dims, "row"),
 		TextStart:   firstNonNegativeIntDim(dims, "text_start"),
 		TextEnd:     firstNonNegativeIntDim(dims, "text_end"),
+		StartTs:     firstFloatDim(dims, "start_ts", "time_start"),
+		EndTs:       firstFloatDim(dims, "end_ts", "time_end"),
 		StartTsMs:   firstFloatDim(dims, "start_ts_ms", "start_ms"),
 		EndTsMs:     firstFloatDim(dims, "end_ts_ms", "end_ms"),
 		HunkHeader:  strings.TrimSpace(dims["hunk_header"]),
@@ -1570,8 +1574,10 @@ func spanForToolResult(banners []map[string]string) ObservationSpan {
 	return ObservationSpan{
 		LineStart: parseFirstBannerInt(banners, "line_start", "start_line"),
 		LineEnd:   parseFirstBannerInt(banners, "line_end", "end_line"),
-		StartTsMs: parseFirstBannerFloat(banners, "start_ts_ms", "time_start_ms", "time_start"),
-		EndTsMs:   parseFirstBannerFloat(banners, "end_ts_ms", "time_end_ms", "time_end"),
+		StartTs:   parseFirstBannerFloat(banners, "start_ts", "time_start"),
+		EndTs:     parseFirstBannerFloat(banners, "end_ts", "time_end"),
+		StartTsMs: parseFirstBannerFloat(banners, "start_ts_ms", "time_start_ms"),
+		EndTsMs:   parseFirstBannerFloat(banners, "end_ts_ms", "time_end_ms"),
 	}
 }
 

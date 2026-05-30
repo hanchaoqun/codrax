@@ -15,6 +15,7 @@ const (
 	EventCPUIdle            EventType = "cpu_idle"
 	EventCPUFrequency       EventType = "cpu_frequency"
 	EventBlockIssue         EventType = "block_rq_issue"
+	EventBlockRemap         EventType = "block_bio_remap"
 	EventBlockComplete      EventType = "block_rq_complete"
 	EventBinderTransaction  EventType = "binder_transaction"
 	EventIRQ                EventType = "irq"
@@ -32,18 +33,21 @@ type Event struct {
 	PID  int    `json:"pid,omitempty"`
 	TGID int    `json:"tgid,omitempty"`
 
-	PrevComm  string `json:"prev_comm,omitempty"`
-	PrevPID   int    `json:"prev_pid,omitempty"`
-	PrevPrio  int    `json:"prev_prio,omitempty"`
-	PrevState string `json:"prev_state,omitempty"`
-	NextComm  string `json:"next_comm,omitempty"`
-	NextPID   int    `json:"next_pid,omitempty"`
-	NextPrio  int    `json:"next_prio,omitempty"`
+	PrevComm      string `json:"prev_comm,omitempty"`
+	PrevPID       int    `json:"prev_pid,omitempty"`
+	PrevPrio      int    `json:"prev_prio,omitempty"`
+	PrevPrioClass string `json:"prev_prio_class,omitempty"`
+	PrevState     string `json:"prev_state,omitempty"`
+	NextComm      string `json:"next_comm,omitempty"`
+	NextPID       int    `json:"next_pid,omitempty"`
+	NextPrio      int    `json:"next_prio,omitempty"`
+	NextPrioClass string `json:"next_prio_class,omitempty"`
 
-	WakeeComm string `json:"wakee_comm,omitempty"`
-	WakeePID  int    `json:"wakee_pid,omitempty"`
-	WakeePrio int    `json:"wakee_prio,omitempty"`
-	TargetCPU int    `json:"target_cpu,omitempty"`
+	WakeeComm      string `json:"wakee_comm,omitempty"`
+	WakeePID       int    `json:"wakee_pid,omitempty"`
+	WakeePrio      int    `json:"wakee_prio,omitempty"`
+	WakeePrioClass string `json:"wakee_prio_class,omitempty"`
+	TargetCPU      int    `json:"target_cpu,omitempty"`
 
 	State       int    `json:"state,omitempty"`
 	Frequency   int    `json:"frequency,omitempty"`
@@ -82,18 +86,20 @@ type Query struct {
 }
 
 type Result struct {
-	View         string          `json:"view"`
-	SourcePath   string          `json:"source_path"`
-	LineCount    int             `json:"line_count,omitempty"`
-	EventCount   int             `json:"event_count,omitempty"`
-	TimeStart    float64         `json:"time_start,omitempty"`
-	TimeEnd      float64         `json:"time_end,omitempty"`
-	Events       []EventView     `json:"events,omitempty"`
-	Timeline     *TimelineResult `json:"timeline,omitempty"`
-	WindowStats  *WindowStats    `json:"window_stats,omitempty"`
-	WakeupChain  *ChainResult    `json:"wakeup_chain,omitempty"`
-	EvidencePack []EvidenceFact  `json:"evidence_pack,omitempty"`
-	Caveats      []string        `json:"caveats,omitempty"`
+	View              string          `json:"view"`
+	SourcePath        string          `json:"source_path"`
+	TimeUnit          string          `json:"time_unit,omitempty"`
+	PrioritySemantics string          `json:"priority_semantics,omitempty"`
+	LineCount         int             `json:"line_count,omitempty"`
+	EventCount        int             `json:"event_count,omitempty"`
+	TimeStart         float64         `json:"time_start,omitempty"`
+	TimeEnd           float64         `json:"time_end,omitempty"`
+	Events            []EventView     `json:"events,omitempty"`
+	Timeline          *TimelineResult `json:"timeline,omitempty"`
+	WindowStats       *WindowStats    `json:"window_stats,omitempty"`
+	WakeupChain       *ChainResult    `json:"wakeup_chain,omitempty"`
+	EvidencePack      []EvidenceFact  `json:"evidence_pack,omitempty"`
+	Caveats           []string        `json:"caveats,omitempty"`
 }
 
 type EventView struct {
@@ -151,6 +157,7 @@ type WindowStats struct {
 	RunnableTop        []ThreadDuration  `json:"runnable_top,omitempty"`
 	DStateTop          []ThreadDuration  `json:"d_state_top,omitempty"`
 	BlockIssueCount    int               `json:"block_issue_count,omitempty"`
+	BlockRemapCount    int               `json:"block_remap_count,omitempty"`
 	BlockCompleteCount int               `json:"block_complete_count,omitempty"`
 	BinderCount        int               `json:"binder_count,omitempty"`
 	IRQCount           int               `json:"irq_count,omitempty"`
@@ -166,10 +173,12 @@ type CPUStats struct {
 }
 
 type ThreadDuration struct {
-	Thread     ThreadRef `json:"thread"`
-	DurationMs float64   `json:"duration_ms"`
-	LineStart  int       `json:"line_start,omitempty"`
-	LineEnd    int       `json:"line_end,omitempty"`
+	Thread        ThreadRef `json:"thread"`
+	DurationMs    float64   `json:"duration_ms"`
+	LineStart     int       `json:"line_start,omitempty"`
+	LineEnd       int       `json:"line_end,omitempty"`
+	Priority      int       `json:"priority,omitempty"`
+	PriorityClass string    `json:"priority_class,omitempty"`
 }
 
 type ChainResult struct {

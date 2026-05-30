@@ -26,6 +26,13 @@ and return compact line-backed facts to the model.
   artifact path.
 - Support attached trace blobs and repo/workspace-relative trace paths.
 - Parse ftrace/systrace/hitrace-style text. Perfetto proto/JSON is deferred.
+- Treat ftrace/systrace/hitrace timestamps as seconds on the trace clock
+  (`928.081774` means seconds). Durations derived from intervals may be rendered
+  in milliseconds, but input window parameters stay in seconds.
+- Preserve HarmonyOS/hitrace priority semantics as metadata: for user-space
+  priorities, larger numeric value means higher priority; `1-40` is CFS,
+  `41-139` is RT, and values outside that range remain raw/system-kernel
+  priorities.
 - Provide deterministic views:
   - `event_search`
   - `thread_timeline`
@@ -52,7 +59,8 @@ and return compact line-backed facts to the model.
 
 1. Parser and index
    - Stream ftrace-compatible text with line numbers.
-   - Normalize scheduler, CPU, IO, binder, irq, tracing span, and unknown rows.
+   - Normalize scheduler, CPU, IO (`block_rq_*`, `block_bio_remap`), binder,
+     irq, tracing span, memory-ish, and unknown rows.
    - Cache parsed indexes by path, size, mtime, and parser version.
 2. Timeline and stats
    - Build per-thread running / runnable / S sleep / D sleep / IO / unknown
@@ -76,4 +84,3 @@ and return compact line-backed facts to the model.
 6. Tests
    - Unit coverage for parser, timeline, stats, causality, tool schema/output,
      lazy exposure, and ledger projection.
-

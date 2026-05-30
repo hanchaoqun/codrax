@@ -985,8 +985,8 @@ func TestCompileObservationLedger_ProjectsToolBannerCoordinates(t *testing.T) {
 		trace.SourceRef.RawRef != "/tmp/codrax/blob/trace-query-summary.txt" ||
 		trace.Span.LineStart != 1102623 ||
 		trace.Span.LineEnd != 1139184 ||
-		trace.Span.StartTsMs != 2942.124416 ||
-		trace.Span.EndTsMs != 2942.260210 ||
+		trace.Span.StartTs != 2942.124416 ||
+		trace.Span.EndTs != 2942.260210 ||
 		ObservationRecordHasCurrentSourceLineSpan(trace) {
 		t.Fatalf("trace_query runtime coordinates not projected as external span: %+v", trace)
 	}

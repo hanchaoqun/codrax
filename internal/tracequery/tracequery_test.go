@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -35,6 +36,19 @@ const resourceTrace = `
       waker-10   (   10) [000] .... 2.120000: print: B|20|Choreographer#doFrame
      worker-30   (   30) [001] .... 2.150000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=worker next_pid=30 next_prio=20
        main-20   (   20) [001] .... 2.200000: sched_switch: prev_comm=worker prev_pid=30 prev_prio=20 prev_state=S ==> next_comm=main next_pid=20 next_prio=53
+`
+
+const harmonyTrace = `
+     OS_FFRT_0_0-49634 (48679) [000] .... 928.081774: block_rq_issue: 12,48 RS 4096 () 66637712 + 8 [OS_FFRT_0_0]
+     OS_FFRT_0_0-49634 (48679) [000] .... 928.081786: mm_filemap_add_to_page_cache: dev 260:84 ino 0x1 page=0000000000000000 pfn=2477336 ofs=1211162624
+     OS_FFRT_0_0-49634 (48679) [000] .... 928.081795: block_bio_remap: 12,48  66637568 + 8 <- (260,84) 14962432
+     OS_FFRT_0_0-49634 (48679) [000] .... 928.081798: block_rq_issue: 12,48 RS 4096 () 66637568 + 8 [OS_FFRT_0_0]
+     OS_FFRT_0_0-49634 (48679) [000] .... 928.081847: irq_handler_entry: irq=1507 name=kirq
+     OS_FFRT_0_0-49634 (48679) [000] .... 928.081851: sched_wakeup: comm=udk-irq-0 pid=73 prio=301 target_cpu=000
+       udk-irq-0-73    (    2) [000] .... 928.081861: sched_switch: prev_comm=OS_FFRT_0_0 prev_pid=49634 prev_prio=20 prev_state=R+ ==> next_comm=udk-irq-0 next_pid=73 next_prio=301
+       udk-irq-0-73    (    2) [000] .... 928.081873: block_rq_complete: 12,48 RS () 66637712 + 8 [0]
+       udk-irq-0-73    (    2) [000] .... 928.081896: irq_handler_exit: irq=1507 ret=handled
+     OS_FFRT_0_0-49634 (48679) [000] .... 928.081903: sched_switch: prev_comm=udk-irq-0 prev_pid=73 prev_prio=301 prev_state=S ==> next_comm=OS_FFRT_0_0 next_pid=49634 next_prio=20
 `
 
 func TestParseLineSchedulerEvents(t *testing.T) {
@@ -91,6 +105,12 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			check: func(ev Event) bool { return ev.FieldText != "" },
 		},
 		{
+			name:  "block remap",
+			line:  `      waker-10   (   10) [000] .... 2.085000: block_bio_remap: 12,48  66637568 + 8 <- (260,84) 14962432`,
+			want:  EventBlockRemap,
+			check: func(ev Event) bool { return ev.FieldText != "" },
+		},
+		{
 			name:  "binder",
 			line:  `      waker-10   (   10) [000] .... 2.090000: binder_transaction: transaction=7 dest_node=0 dest_proc=40 dest_thread=41 reply=1 flags=0x0 code=0x1`,
 			want:  EventBinderTransaction,
@@ -128,6 +148,36 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 				t.Fatalf("ParseLine() = %+v ok=%v, want type %s", ev, ok, tc.want)
 			}
 		})
+	}
+}
+
+func TestParseHarmonyHitraceSnippetKeepsSecondsAndPrioritySemantics(t *testing.T) {
+	idx := buildTraceIndex(t, "harmony.systrace", harmonyTrace)
+	if idx.FirstTs != 928.081774 {
+		t.Fatalf("timestamp should stay in trace seconds, got %.6f", idx.FirstTs)
+	}
+	stats := ComputeWindowStats(idx, Query{TimeStart: 928.081774, TimeEnd: 928.081903})
+	if stats.BlockIssueCount != 2 || stats.BlockRemapCount != 1 || stats.BlockCompleteCount != 1 || stats.IRQCount != 2 || stats.MemoryEventCount != 1 {
+		t.Fatalf("Harmony resource rows not summarized: %+v", stats)
+	}
+	foundCFS := false
+	foundSystem := false
+	for _, td := range stats.RunnableTop {
+		if td.Thread.PID == 49634 && td.Priority == 20 && td.PriorityClass == "ohos_cfs" {
+			foundCFS = true
+		}
+	}
+	for _, td := range stats.TopRunning {
+		if td.Thread.PID == 73 && td.Priority == 301 && td.PriorityClass == "system_or_kernel" {
+			foundSystem = true
+		}
+	}
+	if !foundCFS || !foundSystem {
+		t.Fatalf("priority classes not preserved: running=%+v runnable=%+v", stats.TopRunning, stats.RunnableTop)
+	}
+	res := Run(idx, Query{View: "window_stats", TimeStart: 928.081774, TimeEnd: 928.081903})
+	if res.TimeUnit != "seconds" || !strings.Contains(res.PrioritySemantics, "1-40=CFS") {
+		t.Fatalf("result should describe trace time unit and Harmony priority semantics: %+v", res)
 	}
 }
 

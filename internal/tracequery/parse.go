@@ -125,14 +125,17 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.PrevComm = intern.intern(kv["prev_comm"])
 		ev.PrevPID = atoi(kv["prev_pid"])
 		ev.PrevPrio = atoi(kv["prev_prio"])
+		ev.PrevPrioClass = classifyOhosUserPriority(ev.PrevPrio)
 		ev.PrevState = intern.intern(kv["prev_state"])
 		ev.NextComm = intern.intern(kv["next_comm"])
 		ev.NextPID = atoi(kv["next_pid"])
 		ev.NextPrio = atoi(kv["next_prio"])
+		ev.NextPrioClass = classifyOhosUserPriority(ev.NextPrio)
 	case EventSchedWakeup, EventSchedWaking:
 		ev.WakeeComm = intern.intern(kv["comm"])
 		ev.WakeePID = atoi(kv["pid"])
 		ev.WakeePrio = atoi(kv["prio"])
+		ev.WakeePrioClass = classifyOhosUserPriority(ev.WakeePrio)
 		ev.TargetCPU = atoi(kv["target_cpu"])
 	case EventSchedBlockedReason:
 		ev.WakeePID = atoi(firstNonEmpty(kv["pid"], kv["caller"]))
@@ -171,6 +174,8 @@ func classifyEventType(raw, fields string) EventType {
 		return EventCPUFrequency
 	case raw == "block_rq_issue":
 		return EventBlockIssue
+	case raw == "block_bio_remap":
+		return EventBlockRemap
 	case raw == "block_rq_complete":
 		return EventBlockComplete
 	case raw == "binder_transaction":
@@ -186,6 +191,19 @@ func classifyEventType(raw, fields string) EventType {
 		return EventMemory
 	default:
 		return EventUnknown
+	}
+}
+
+func classifyOhosUserPriority(prio int) string {
+	switch {
+	case prio >= 1 && prio <= 40:
+		return "ohos_cfs"
+	case prio >= 41 && prio <= 139:
+		return "ohos_rt"
+	case prio > 139:
+		return "system_or_kernel"
+	default:
+		return ""
 	}
 }
 

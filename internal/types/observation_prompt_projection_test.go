@@ -314,10 +314,12 @@ func TestFormatObservationSpan_CoversExternalCoordinates(t *testing.T) {
 		HunkHeader:  "@@ -12 +18 @@",
 		JSONPointer: "/items/0/name",
 		Row:         3,
+		StartTs:     928.081774,
+		EndTs:       928.081903,
 		StartTsMs:   1.25,
 		EndTsMs:     4.5,
 	}, 80)
-	for _, want := range []string{"old_line 12", "new_line 18", "hunk", "row 3", "1.250-4.500ms", `json "/items/0/name"`} {
+	for _, want := range []string{"old_line 12", "new_line 18", "hunk", "row 3", "928.081774-928.081903s", "1.250-4.500ms", `json "/items/0/name"`} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("formatted span missing %q: %s", want, got)
 		}

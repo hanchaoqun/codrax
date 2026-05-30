@@ -180,6 +180,9 @@ func FormatObservationSpan(span ObservationSpan, maxValueLen int) string {
 	if span.Row > 0 {
 		parts = append(parts, fmt.Sprintf("row %d", span.Row))
 	}
+	if span.StartTs != 0 || span.EndTs != 0 {
+		parts = append(parts, fmt.Sprintf("%.6f-%.6fs", span.StartTs, span.EndTs))
+	}
 	if span.StartTsMs != 0 || span.EndTsMs != 0 {
 		parts = append(parts, fmt.Sprintf("%.3f-%.3fms", span.StartTsMs, span.EndTsMs))
 	}

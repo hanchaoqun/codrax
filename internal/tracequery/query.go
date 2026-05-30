@@ -11,12 +11,14 @@ import (
 func Run(idx *Index, q Query) Result {
 	q = normalizeQuery(idx, q)
 	res := Result{
-		View:       q.View,
-		SourcePath: idx.Path,
-		LineCount:  idx.LineCount,
-		EventCount: len(idx.Events),
-		TimeStart:  q.TimeStart,
-		TimeEnd:    q.TimeEnd,
+		View:              q.View,
+		SourcePath:        idx.Path,
+		TimeUnit:          "seconds",
+		PrioritySemantics: "HarmonyOS/hitrace user-space priority: larger numeric value means higher priority; 1-40=CFS, 41-139=RT; values outside that range are reported as system_or_kernel/raw.",
+		LineCount:         idx.LineCount,
+		EventCount:        len(idx.Events),
+		TimeStart:         q.TimeStart,
+		TimeEnd:           q.TimeEnd,
 	}
 	switch q.View {
 	case "thread_timeline":
@@ -357,6 +359,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			byCPU[ev.CPU] = append(byCPU[ev.CPU], ev)
 		case EventBlockIssue:
 			stats.BlockIssueCount++
+		case EventBlockRemap:
+			stats.BlockRemapCount++
 		case EventBlockComplete:
 			stats.BlockCompleteCount++
 		case EventBinderTransaction:
@@ -401,6 +405,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 				td := running[key]
 				td.Thread = ThreadRef{Comm: ev.NextComm, PID: ev.NextPID}
 				td.DurationMs += dur
+				td.Priority = ev.NextPrio
+				td.PriorityClass = ev.NextPrioClass
 				if td.LineStart == 0 {
 					td.LineStart = ev.Line
 				}
@@ -422,10 +428,12 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 }
 
 type offCPUStart struct {
-	thread ThreadRef
-	state  ThreadState
-	ts     float64
-	line   int
+	thread        ThreadRef
+	state         ThreadState
+	ts            float64
+	line          int
+	priority      int
+	priorityClass string
 }
 
 func computeOffCPUStats(idx *Index, q Query) ([]ThreadDuration, []ThreadDuration) {
@@ -450,6 +458,8 @@ func computeOffCPUStats(idx *Index, q Query) ([]ThreadDuration, []ThreadDuration
 		td := bucket[key]
 		td.Thread = start.thread
 		td.DurationMs += (endTs - startTs) * 1000
+		td.Priority = start.priority
+		td.PriorityClass = start.priorityClass
 		if td.LineStart == 0 {
 			td.LineStart = start.line
 		}
@@ -475,10 +485,12 @@ func computeOffCPUStats(idx *Index, q Query) ([]ThreadDuration, []ThreadDuration
 			state := stateFromPrevState(ev.PrevState)
 			if state == StateRunnable || state == StateDSleep || state == StateIOWait {
 				open[ev.PrevPID] = offCPUStart{
-					thread: ThreadRef{Comm: ev.PrevComm, PID: ev.PrevPID},
-					state:  state,
-					ts:     ev.Ts,
-					line:   ev.Line,
+					thread:        ThreadRef{Comm: ev.PrevComm, PID: ev.PrevPID},
+					state:         state,
+					ts:            ev.Ts,
+					line:          ev.Line,
+					priority:      ev.PrevPrio,
+					priorityClass: ev.PrevPrioClass,
 				}
 			}
 		}

@@ -40,7 +40,7 @@ type traceQueryParams struct {
 func (t *TraceQuery) Name() string { return "trace_query" }
 
 func (t *TraceQuery) Description() string {
-	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, wakeup chains, same-window resource stats, structured event search, and line-backed evidence packs. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
+	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, wakeup chains, same-window resource stats, structured event search, and line-backed evidence packs. Trace timestamps are seconds (for example 928.081774 means seconds in the trace clock; only durations are rendered in ms). For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
 }
 
 func (t *TraceQuery) Parameters() json.RawMessage {
@@ -52,11 +52,11 @@ func (t *TraceQuery) Parameters() json.RawMessage {
     "view": {"type":"string","enum":["event_search","thread_timeline","window_stats","wakeup_chain","evidence_pack"],"description":"The deterministic trace view to compute."},
     "thread": {"type":"string","description":"Thread name or substring to resolve when pid is unknown."},
     "pid": {"type":"integer","description":"Thread pid to analyze when known."},
-    "time_start": {"type":"number","description":"Trace timestamp window start, in the trace's native seconds unit."},
-    "time_end": {"type":"number","description":"Trace timestamp window end, in the trace's native seconds unit."},
+    "time_start": {"type":"number","description":"Trace timestamp window start in seconds, e.g. 928.081774 means seconds on the trace clock."},
+    "time_end": {"type":"number","description":"Trace timestamp window end in seconds, e.g. 928.081774 means seconds on the trace clock."},
     "line_start": {"type":"integer","description":"Optional artifact line window start for bounded search."},
     "line_end": {"type":"integer","description":"Optional artifact line window end for bounded search."},
-    "event_types": {"type":"array","items":{"type":"string"},"description":"Optional event filters such as sched_switch, sched_wakeup, cpu_idle, block_rq_issue, binder_transaction."},
+    "event_types": {"type":"array","items":{"type":"string"},"description":"Optional event filters such as sched_switch, sched_wakeup, cpu_idle, block_rq_issue, block_bio_remap, binder_transaction."},
     "max_depth": {"type":"integer","description":"wakeup_chain recursion limit; default 6."},
     "max_branches": {"type":"integer","description":"Maximum branches to report; default 8."},
     "min_duration_ms": {"type":"number","description":"Ignore intervals shorter than this; default 1ms."},
@@ -188,7 +188,11 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		sanitizeForBanner(payloadRef),
 	)
 	fmt.Fprintf(&b, "# Trace Query: %s\n\n", result.View)
-	fmt.Fprintf(&b, "source=%s lines=%d parsed_events=%d selected_window=%.6f..%.6f\n\n", result.SourcePath, result.LineCount, result.EventCount, result.TimeStart, result.TimeEnd)
+	fmt.Fprintf(&b, "source=%s lines=%d parsed_events=%d timestamp_unit=%s selected_window=%.6f..%.6f seconds\n", result.SourcePath, result.LineCount, result.EventCount, firstNonEmptyTraceString(result.TimeUnit, "seconds"), result.TimeStart, result.TimeEnd)
+	if result.PrioritySemantics != "" {
+		fmt.Fprintf(&b, "priority_semantics=%s\n", result.PrioritySemantics)
+	}
+	b.WriteString("\n")
 	if payloadRef != "" {
 		fmt.Fprintf(&b, "payload_ref=%s\n\n", payloadRef)
 	}
@@ -222,16 +226,16 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			fmt.Fprintf(&b, "- cpu=%d busy=%.3fms idle=%.3fms freq=%d\n", cpu.CPU, cpu.BusyMs, cpu.IdleMs, cpu.Frequency)
 		}
 		for _, td := range result.WindowStats.TopRunning {
-			fmt.Fprintf(&b, "- top_running %s %.3fms lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, td.LineStart, td.LineEnd)
+			fmt.Fprintf(&b, "- top_running %s %.3fms %s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), td.LineStart, td.LineEnd)
 		}
 		for _, td := range result.WindowStats.RunnableTop {
-			fmt.Fprintf(&b, "- top_runnable %s %.3fms lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, td.LineStart, td.LineEnd)
+			fmt.Fprintf(&b, "- top_runnable %s %.3fms %s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), td.LineStart, td.LineEnd)
 		}
 		for _, td := range result.WindowStats.DStateTop {
-			fmt.Fprintf(&b, "- top_d_state %s %.3fms lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, td.LineStart, td.LineEnd)
+			fmt.Fprintf(&b, "- top_d_state %s %.3fms %s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), td.LineStart, td.LineEnd)
 		}
-		fmt.Fprintf(&b, "- counts block_issue=%d block_complete=%d binder=%d irq=%d memory=%d\n\n",
-			result.WindowStats.BlockIssueCount, result.WindowStats.BlockCompleteCount, result.WindowStats.BinderCount, result.WindowStats.IRQCount, result.WindowStats.MemoryEventCount)
+		fmt.Fprintf(&b, "- counts block_issue=%d block_remap=%d block_complete=%d binder=%d irq=%d memory=%d\n\n",
+			result.WindowStats.BlockIssueCount, result.WindowStats.BlockRemapCount, result.WindowStats.BlockCompleteCount, result.WindowStats.BinderCount, result.WindowStats.IRQCount, result.WindowStats.MemoryEventCount)
 	}
 	if len(result.Events) > 0 {
 		b.WriteString("## Events\n")
@@ -262,6 +266,16 @@ func traceQueryArtifactID(sourceLabel string) string {
 		return "attached_trace"
 	}
 	return "trace_query"
+}
+
+func tracePriorityDetail(td tracequery.ThreadDuration) string {
+	if td.Priority <= 0 {
+		return ""
+	}
+	if strings.TrimSpace(td.PriorityClass) == "" {
+		return fmt.Sprintf("prio=%d", td.Priority)
+	}
+	return fmt.Sprintf("prio=%d/%s", td.Priority, td.PriorityClass)
 }
 
 func contextFromBus(ctx *types.BusContext) context.Context {
