@@ -136,6 +136,9 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	if observationOnlyRuntimeArtifactForAnalyzer(ctx) {
 		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerRuntimeObservationOnlyShortcut()))
 	}
+	if explicitRuntimeTraceArtifactOnlyRequest(ctx) {
+		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerExplicitRuntimeTracePathShortcut()))
+	}
 
 	// Pre-inject a repo_map task_map view so the analyzer starts its
 	// first iteration with structural context already visible. Without
@@ -162,6 +165,15 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		}
 	}
 	return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, ""))
+}
+
+func renderAnalyzerExplicitRuntimeTracePathShortcut() string {
+	return "## Explicit Runtime Trace Classification Shortcut\n\n" +
+		"The current request names a runtime trace artifact path (for example .systrace / .hitrace / .atrace / .ftrace / .perfetto / .trace) and asks what that artifact shows. " +
+		"Do not run repo pre-scan (`repo_map`, `grep`, or `list_files`) just to classify the trace path, thread label, timestamp, wakeup chain, sleep/runnable/D-state, CPU frequency, IRQ, binder, or IO terms. " +
+		"Classify from the user's wording and call `emit_analysis` now; later exploration can use `trace_query` for deterministic trace evidence. " +
+		"If the current request explicitly asks to compare the artifact with the current checkout/source, verify current implementation, or locate current code, keep the normal current-source lane and use repo pre-scan as needed. " +
+		"Do not collapse a mixed trace + current-code request into artifact-only.\n\n"
 }
 
 func renderAnalyzerRuntimeObservationOnlyShortcut() string {

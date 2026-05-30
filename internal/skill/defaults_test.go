@@ -124,6 +124,27 @@ func TestExploreSkill_TeachesCascadedRepoLensNavigation(t *testing.T) {
 	}
 }
 
+func TestExploreSkill_TraceQueryFirstPrecedesGenericBreadthScan(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+	sk, err := r.Get("explore-skill")
+	if err != nil {
+		t.Fatalf("Get(explore-skill) returned error: %v", err)
+	}
+	if len(sk.Workflow) < 2 {
+		t.Fatalf("explore-skill Workflow too short: %#v", sk.Workflow)
+	}
+	if !strings.Contains(sk.Workflow[0], "RUNTIME TRACE FIRST") ||
+		!strings.Contains(sk.Workflow[0], "start with `trace_query`") ||
+		!strings.Contains(sk.Workflow[0], "mixed trace+source") {
+		t.Fatalf("first workflow item should teach trace_query-first routing:\n%s", sk.Workflow[0])
+	}
+	if !strings.Contains(sk.Workflow[1], "PHASE 1") ||
+		!strings.Contains(sk.Workflow[1], "repo_map") {
+		t.Fatalf("generic source breadth scan should remain after trace routing:\n%s", sk.Workflow[1])
+	}
+}
+
 func TestExploreSkill_CoverageBeforeCompletionIsLimitedToStructuralCoverageObligations(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

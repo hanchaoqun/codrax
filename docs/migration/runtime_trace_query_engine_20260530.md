@@ -303,3 +303,50 @@ These are model-recovery contract gaps rather than parser coverage gaps:
   trace/source comparison behavior.
 - Focused validation passed: `go test ./internal/tracequery ./internal/tool
   ./internal/agent`.
+
+## Follow-up: Explicit Trace Path Routing — 2026-05-30
+
+### Gap observed
+
+In a pure REPL trace question that named
+`record_trace_20260526174055@2907-917050782_cut_2939727458580.systrace`,
+thread `com.tencent.mm-36379`, and a seconds-based sleep window
+`2942.124416..2942.260210`, the analyzer still spent several rounds on
+`repo_map`, `list_files`, and `grep` before classification. The explorer then
+used broad grep for four rounds and only called `trace_query(wakeup_chain)` in
+round 5.
+
+### Root cause
+
+The attached-artifact shortcut covered structured `--log` / `--htrace` /
+`--atrace` inputs with external triage, but an explicit workspace trace path was
+still treated like an ordinary repository file. The explorer skill mentioned
+`trace_query`, but the generic source-code breadth-scan instruction appeared
+before the trace-specific workflow, so models tended to start with repo_map or
+broad grep.
+
+### Design
+
+- Add a conservative prompt-only detector for explicit runtime trace artifact
+  paths. It fires only for trace-like extensions and stands down when the
+  current request explicitly asks for current-source / current-checkout /
+  repository-code verification.
+- For analyzer prompts, classify explicit trace-only requests immediately and
+  avoid repo pre-scan. This is advisory text, not a tool gate.
+- For explorer prompts, start pure explicit trace-path investigations in a
+  trace-query-first depth mode. `trace_query` remains lazy-exposed by the
+  existing tool availability check; grep/read_file/exec remain fallbacks.
+- Keep mixed trace+source questions separate: `trace_query` owns runtime facts,
+  while normal source tools own current-code proof.
+
+### Task checklist
+
+- [x] T28. Add explicit trace-path-only request detector with conservative
+      current-source cue suppression.
+- [x] T29. Add analyzer shortcut for explicit trace-only paths.
+- [x] T30. Add explorer trace-query-first start prompt for explicit trace-only
+      paths.
+- [x] T31. Move trace-query-first skill teaching ahead of generic source-code
+      breadth scan.
+- [x] T32. Add focused tests proving pure trace is accelerated while mixed
+      trace+source still uses the normal source lane.

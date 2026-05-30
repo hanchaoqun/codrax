@@ -229,6 +229,48 @@ func TestExplorer_BuildInitialInstruction_CheckpointContinuationSkipsBreadthScan
 	}
 }
 
+func TestExplorer_BuildInitialInstruction_ExplicitTracePathStartsWithTraceQuery(t *testing.T) {
+	ctx := &types.AgentContext{
+		Objective: `分析 record_trace_20260526174055.systrace 中 com.tencent.mm-36379 在 2942.124416 到 2942.260210 的 sleep 原因`,
+		Stage:     types.StageExplore,
+	}
+
+	eval := &explorerEvaluator{}
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	if eval.phase != 1 {
+		t.Fatalf("explicit trace path should skip generic breadth scan, got phase=%d", eval.phase)
+	}
+	for _, want := range []string{
+		"Explicit Runtime Trace Path Start",
+		"Start with `trace_query`",
+		"Trace timestamps are seconds",
+		"Preserve trace findings as runtime-artifact observations",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("explicit trace start prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "## Breadth Scan") {
+		t.Fatalf("explicit trace path should not render fresh source breadth prompt:\n%s", prompt)
+	}
+}
+
+func TestExplorer_BuildInitialInstruction_ExplicitTraceWithCurrentSourceCueUsesNormalBreadth(t *testing.T) {
+	ctx := &types.AgentContext{
+		Objective: `结合当前源码分析 record_trace_20260526174055.systrace 中 com.tencent.mm-36379 的 sleep 原因`,
+		Stage:     types.StageExplore,
+	}
+
+	eval := &explorerEvaluator{}
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	if strings.Contains(prompt, "Explicit Runtime Trace Path Start") {
+		t.Fatalf("mixed trace+source request must not use runtime-only trace start:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "## Breadth Scan") {
+		t.Fatalf("mixed trace+source request should keep normal source exploration path:\n%s", prompt)
+	}
+}
+
 func TestRenderExtractorSourceInventoryAdvisory_RendersCandidateAttributes(t *testing.T) {
 	out := renderExtractorSourceInventoryAdvisory(&types.TurnAArtifacts{
 		SourceInventoryAdvisory: types.SourceInventoryAdvisory{

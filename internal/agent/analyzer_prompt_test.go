@@ -299,6 +299,48 @@ func TestAnalyzerPrompt_RuntimeObservationOnlyShortcut(t *testing.T) {
 	}
 }
 
+func TestAnalyzerPrompt_ExplicitTracePathShortcutSkipsRepoPrescan(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentAnalyzer,
+		Stage:     types.StageAnalyze,
+		Objective: `这个trace里面 "record_trace_20260526174055.systrace", "com.tencent.mm-36379" 从 2942.124416 到 2942.260210 sleep 的原因`,
+		RepoRoot:  ".",
+	}
+	sk := skill.BuildAnalysisSkill()
+
+	got := (&analyzerEvaluator{}).BuildInitialInstruction(ac, sk)
+	for _, want := range []string{
+		"Explicit Runtime Trace Classification Shortcut",
+		"Do not run repo pre-scan",
+		"later exploration can use `trace_query`",
+		"call `emit_analysis` now",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("explicit trace shortcut missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Repository overview") {
+		t.Fatalf("explicit trace shortcut must not pre-inject repo overview; got:\n%s", got)
+	}
+}
+
+func TestAnalyzerPrompt_ExplicitTracePathWithCurrentSourceCueKeepsSourceLane(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentAnalyzer,
+		Stage:     types.StageAnalyze,
+		Objective: `结合当前源码分析 record_trace_20260526174055.systrace 里的 com.tencent.mm-36379 sleep 原因`,
+	}
+	sk := skill.BuildAnalysisSkill()
+
+	got := (&analyzerEvaluator{}).BuildInitialInstruction(ac, sk)
+	if strings.Contains(got, "Explicit Runtime Trace Classification Shortcut") {
+		t.Fatalf("mixed trace+source request must not take artifact-only shortcut:\n%s", got)
+	}
+	if explicitRuntimeTraceArtifactOnlyRequest(ac) {
+		t.Fatalf("mixed trace+source request should not be classified as explicit-runtime-only")
+	}
+}
+
 // TestAnalyzerPrompt_NoDuplicateSkillTitles is a second-layer
 // boundary guard: IF a future refactor legitimately adds dynamic
 // content to BuildInitialInstruction (the rule is "dynamic content only",

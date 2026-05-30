@@ -631,6 +631,11 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		return b.String()
 	}
 
+	if explicitRuntimeTraceArtifactOnlyRequest(ctx) {
+		e.phase = 1
+		return e.buildExplicitRuntimeTracePathStartInstruction(ctx)
+	}
+
 	e.phase = 0 // start in breadth-scan phase
 
 	var b strings.Builder
@@ -3106,6 +3111,24 @@ func (e *explorerEvaluator) buildCapabilityFocusedStartInstruction(ctx *types.Ag
 	b.WriteString("- `[CONDITIONAL] symbol line N: <what narrower helper subset or validator does>`\n")
 	b.WriteString("- `[ABSENT] <what is not exposed on the stage capability surface>`\n\n")
 	b.WriteString("Read the authority files now and emit evidence before widening.\n")
+	return b.String()
+}
+
+func (e *explorerEvaluator) buildExplicitRuntimeTracePathStartInstruction(ctx *types.AgentContext) string {
+	var b strings.Builder
+	b.WriteString("## Explicit Runtime Trace Path Start\n\n")
+	b.WriteString("The user named a runtime trace artifact path and did not ask for current-source verification. Treat this as a runtime-artifact investigation first, not a source-code breadth scan.\n\n")
+	b.WriteString("Workflow:\n")
+	b.WriteString("- Start with `trace_query` for scheduler/time-window causality: use `view=\"wakeup_chain\"` for sleep/wakeup source chains, `thread_timeline` for one thread's states, `window_stats` for same-window CPU/IO/binder/IRQ/frequency context, and `event_search` for structured row lookup.\n")
+	b.WriteString("- Trace timestamps are seconds end-to-end, so values such as 2942.124416 and 2942.260210 are seconds, not milliseconds; durations from the tool are reported in ms.\n")
+	b.WriteString("- Use targeted `grep`, `read_file`, or deterministic `exec_command` only after `trace_query` narrows the line windows or if `trace_query` reports an unsupported/incomplete format.\n")
+	b.WriteString("- Preserve trace findings as runtime-artifact observations through `emit_investigation_complete.reason` and `aggregate_facts`; use `emit_evidence` only for load-bearing trace line gutters you have actually read, and do not turn trace rows into current-source citations.\n")
+	b.WriteString("- If you later need current-code proof because the question truly asks for it, read source files separately and keep that source evidence in a separate lane.\n\n")
+	if ctx != nil {
+		b.WriteString("**User question:** ")
+		b.WriteString(types.StripConversationPrefix(ctx.Objective))
+		b.WriteString("\n")
+	}
 	return b.String()
 }
 
