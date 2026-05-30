@@ -373,6 +373,17 @@ REPL 里 `/htrace` 和 `/atrace` 是同义命令,子命令同 `/log`:
 [git:main][trace]❯❯ 首页冷启动哪里耗时最长?
 ```
 
+常用提问模板:
+
+```text
+分析 <trace文件> 中 <线程名/pid> 在 <起始时间> 到 <结束时间> 之间的卡顿原因,
+继续追踪 sched_wakeup 唤醒链,并结合 CPU、IO、binder、频点、IRQ、内存事件判断根因。
+```
+
+时间可以自然写。`2942.244845`、`2942.24484`、`2942.24484s`、`2942.24484 秒` 都会按 trace 秒解析;如果明确写 `ms` / `毫秒` 或 `us` / `微秒`,codrax 会换算成秒再分析。小数位少一两位时,系统会加很小的边界容差,避免刚好落在窗口边缘的 trace 行被漏掉。
+
+客户不需要学习内部工具名。描述线程、时间窗口和要追踪的链路即可;codrax 会优先使用确定性的 trace 查询能力,必要时再用 grep / read_file 验证具体行号。
+
 trace 的 size 上限独立于 log:`trace_attach_max_bytes`(默认 256 MiB)。
 
 > `--log` 和 `--htrace` 是**两个独立的通道**,可以同时附:一份 panic + 一份 trace 同时给 codrax,两个 pre-stage 各自处理。

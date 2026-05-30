@@ -690,6 +690,12 @@ cat /tmp/atrace.txt | codrax --htrace - -r &quot;...&quot;
   ✓ 已附加 trace
 [git:main][trace]❯❯ 首页冷启动哪里耗时最长?
 </code></pre>
+<p>常用提问模板:</p>
+<pre><code class="language-text">分析 &lt;trace文件&gt; 中 &lt;线程名/pid&gt; 在 &lt;起始时间&gt; 到 &lt;结束时间&gt; 之间的卡顿原因,
+继续追踪 sched_wakeup 唤醒链,并结合 CPU、IO、binder、频点、IRQ、内存事件判断根因。
+</code></pre>
+<p>时间可以自然写。<code>2942.244845</code>、<code>2942.24484</code>、<code>2942.24484s</code>、<code>2942.24484 秒</code> 都会按 trace 秒解析;如果明确写 <code>ms</code> / <code>毫秒</code> 或 <code>us</code> / <code>微秒</code>,codrax 会换算成秒再分析。小数位少一两位时,系统会加很小的边界容差,避免刚好落在窗口边缘的 trace 行被漏掉。</p>
+<p>客户不需要学习内部工具名。描述线程、时间窗口和要追踪的链路即可;codrax 会优先使用确定性的 trace 查询能力,必要时再用 grep / read_file 验证具体行号。</p>
 <p>trace 的 size 上限独立于 log:<code>trace_attach_max_bytes</code>(默认 256 MiB)。</p>
 <blockquote>
 <p><code>--log</code> 和 <code>--htrace</code> 是<strong>两个独立的通道</strong>,可以同时附:一份 panic + 一份 trace 同时给 codrax,两个 pre-stage 各自处理。</p>
