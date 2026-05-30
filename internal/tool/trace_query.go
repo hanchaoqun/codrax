@@ -56,7 +56,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
     "time_end": {"type":"number","description":"Trace timestamp window end in seconds. Example: 928.081774 = 928s + 0.081774s; six fractional digits are microsecond precision."},
     "line_start": {"type":"integer","description":"Optional artifact line window start for bounded search."},
     "line_end": {"type":"integer","description":"Optional artifact line window end for bounded search."},
-    "event_types": {"type":"array","items":{"type":"string"},"description":"Optional event filters such as sched_switch, sched_wakeup, sched_blocked_reason, cpu_idle, block_rq_issue, block_bio_remap, binder_transaction, binder_transaction_received."},
+    "event_types": {"type":"array","items":{"type":"string"},"description":"Optional event filters such as sched_switch, sched_wakeup, sched_blocked_reason, cpu_idle, cpu_frequency, clock_set_rate, block_rq_issue, block_bio_remap, binder_transaction, binder_transaction_received."},
     "max_depth": {"type":"integer","description":"wakeup_chain recursion limit; default 6."},
     "max_branches": {"type":"integer","description":"Maximum branches to report; default 8."},
     "min_duration_ms": {"type":"number","description":"Ignore intervals shorter than this; default 1ms."},
@@ -232,7 +232,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	if result.WindowStats != nil {
 		b.WriteString("## Window stats\n")
 		for _, cpu := range result.WindowStats.CPU {
-			fmt.Fprintf(&b, "- cpu=%d busy=%.3fms idle=%.3fms freq=%d\n", cpu.CPU, cpu.BusyMs, cpu.IdleMs, cpu.Frequency)
+			fmt.Fprintf(&b, "- cpu=%d busy=%.3fms idle=%.3fms freq=%d%s\n", cpu.CPU, cpu.BusyMs, cpu.IdleMs, cpu.Frequency, traceFrequencyResidencySummary(cpu.FrequencyResidency))
 		}
 		for _, td := range result.WindowStats.TopRunning {
 			fmt.Fprintf(&b, "- top_running %s %.3fms %s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), td.LineStart, td.LineEnd)
@@ -302,6 +302,21 @@ func writeTraceIPCEdges(b *strings.Builder, edges []tracequery.IPCEdge) {
 			fmt.Fprintf(b, "  caveat=%s\n", caveat)
 		}
 	}
+}
+
+func traceFrequencyResidencySummary(items []tracequery.CPUFrequencyResidency) string {
+	if len(items) == 0 {
+		return ""
+	}
+	var parts []string
+	for i, item := range items {
+		if i >= 4 {
+			parts = append(parts, fmt.Sprintf("+%d", len(items)-i))
+			break
+		}
+		parts = append(parts, fmt.Sprintf("%dkHz/%.3fms", item.Frequency, item.DurationMs))
+	}
+	return " freq_residency=" + strings.Join(parts, ",")
 }
 
 func tracePriorityDetail(td tracequery.ThreadDuration) string {

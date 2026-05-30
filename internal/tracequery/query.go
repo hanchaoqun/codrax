@@ -376,8 +376,15 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		EventCounts: map[EventType]int{},
 	}
 	byCPU := map[int][]Event{}
+	freqByCPU := map[int][]Event{}
 	blockedReasons := map[string]BlockedReasonSummary{}
 	for _, ev := range idx.Events {
+		if eventLineInWindow(ev, q) && ev.Type == EventCPUFrequency && ev.Frequency > 0 {
+			if q.TimeEnd == 0 || ev.Ts <= q.TimeEnd {
+				cpu := eventCPUForStats(ev)
+				freqByCPU[cpu] = append(freqByCPU[cpu], ev)
+			}
+		}
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
 			continue
 		}
@@ -416,12 +423,6 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 				br.Ts = ev.Ts
 			}
 			blockedReasons[key] = br
-		case EventCPUFrequency:
-			cpu := ev.CPUForField
-			if cpu == 0 {
-				cpu = ev.CPU
-			}
-			stats.CPU = upsertCPUFreq(stats.CPU, cpu, ev.Frequency)
 		}
 	}
 	running := map[string]ThreadDuration{}
@@ -470,6 +471,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	if len(stats.TopRunning) > 8 {
 		stats.TopRunning = stats.TopRunning[:8]
 	}
+	stats.CPU = applyCPUFrequencyResidency(stats.CPU, freqByCPU, q)
 	stats.RunnableTop, stats.DStateTop = computeOffCPUStats(idx, q)
 	stats.BlockedReasons = topBlockedReasons(blockedReasons, 8)
 	return stats
@@ -626,16 +628,111 @@ func upsertCPUBusyIdle(in []CPUStats, cpu int, busy, idle float64) []CPUStats {
 	return append(in, CPUStats{CPU: cpu, BusyMs: busy, IdleMs: idle})
 }
 
-func upsertCPUFreq(in []CPUStats, cpu, freq int) []CPUStats {
-	for i := range in {
-		if in[i].CPU == cpu {
-			if freq > 0 {
-				in[i].Frequency = freq
+func eventCPUForStats(ev Event) int {
+	if ev.CPUForFieldValid {
+		return ev.CPUForField
+	}
+	return ev.CPU
+}
+
+func applyCPUFrequencyResidency(in []CPUStats, byCPU map[int][]Event, q Query) []CPUStats {
+	for cpu, events := range byCPU {
+		residency, latest := computeCPUFrequencyResidency(events, q)
+		if latest == 0 && len(residency) == 0 {
+			continue
+		}
+		found := false
+		for i := range in {
+			if in[i].CPU == cpu {
+				if latest > 0 {
+					in[i].Frequency = latest
+				}
+				in[i].FrequencyResidency = residency
+				found = true
+				break
 			}
-			return in
+		}
+		if !found {
+			in = append(in, CPUStats{CPU: cpu, Frequency: latest, FrequencyResidency: residency})
 		}
 	}
-	return append(in, CPUStats{CPU: cpu, Frequency: freq})
+	sort.SliceStable(in, func(i, j int) bool { return in[i].CPU < in[j].CPU })
+	return in
+}
+
+func computeCPUFrequencyResidency(events []Event, q Query) ([]CPUFrequencyResidency, int) {
+	if len(events) == 0 {
+		return nil, 0
+	}
+	sort.SliceStable(events, func(i, j int) bool {
+		if events[i].Ts != events[j].Ts {
+			return events[i].Ts < events[j].Ts
+		}
+		return events[i].Line < events[j].Line
+	})
+	collapsed := make([]Event, 0, len(events))
+	for _, ev := range events {
+		if len(collapsed) > 0 && ev.Ts == collapsed[len(collapsed)-1].Ts {
+			collapsed[len(collapsed)-1] = ev
+			continue
+		}
+		collapsed = append(collapsed, ev)
+	}
+	startWindow := q.TimeStart
+	endWindow := q.TimeEnd
+	if endWindow == 0 {
+		endWindow = collapsed[len(collapsed)-1].Ts
+	}
+	var current *Event
+	currentStart := startWindow
+	var out []CPUFrequencyResidency
+	for i := range collapsed {
+		ev := collapsed[i]
+		if ev.Ts < startWindow {
+			copy := ev
+			current = &copy
+			currentStart = startWindow
+			continue
+		}
+		if ev.Ts > endWindow {
+			break
+		}
+		if current != nil {
+			out = appendFrequencyResidency(out, *current, currentStart, ev.Ts, ev.Line)
+		}
+		copy := ev
+		current = &copy
+		currentStart = ev.Ts
+	}
+	if current != nil && endWindow > currentStart {
+		out = appendFrequencyResidency(out, *current, currentStart, endWindow, 0)
+	}
+	latest := 0
+	if current != nil {
+		latest = current.Frequency
+	}
+	return out, latest
+}
+
+func appendFrequencyResidency(in []CPUFrequencyResidency, ev Event, start, end float64, endLine int) []CPUFrequencyResidency {
+	if ev.Frequency <= 0 || end <= start {
+		return in
+	}
+	res := CPUFrequencyResidency{
+		Frequency:  ev.Frequency,
+		DurationMs: (end - start) * 1000,
+		StartTs:    start,
+		EndTs:      end,
+		LineStart:  ev.Line,
+		LineEnd:    firstPositive(endLine, ev.Line),
+	}
+	if len(in) > 0 && in[len(in)-1].Frequency == res.Frequency {
+		in[len(in)-1].DurationMs += res.DurationMs
+		in[len(in)-1].EndTs = res.EndTs
+		in[len(in)-1].LineEnd = res.LineEnd
+		return in
+	}
+	return append(in, res)
 }
 
 func BuildWakeupChain(idx *Index, q Query) ChainResult {

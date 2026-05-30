@@ -73,6 +73,10 @@ and return compact line-backed facts to the model.
      intervals.
    - Compute same-window CPU busy/idle/frequency, IO, binder send/receive,
      irq, blocked-reason, and thread top-N summaries.
+   - Treat `cpu_frequency: state=<kHz> cpu_id=<N>` as a CPU frequency state
+     transition for CPU `N`: the frequency persists until the next frequency
+     transition for that CPU. Same-timestamp events are ordered per CPU and do
+     not create artificial duration for unrelated rows at the same trace time.
 3. Causality solver
    - Build wakeup DAGs from sleeping/off-CPU intervals and wakeup rows.
    - Build binder IPC edges from `binder_transaction` and

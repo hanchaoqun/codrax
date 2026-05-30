@@ -2,7 +2,7 @@ package tracequery
 
 import "time"
 
-const ParserVersion = "tracequery-v2"
+const ParserVersion = "tracequery-v3"
 
 type EventType string
 
@@ -14,6 +14,7 @@ const (
 	EventSchedBlockedReason EventType = "sched_blocked_reason"
 	EventCPUIdle            EventType = "cpu_idle"
 	EventCPUFrequency       EventType = "cpu_frequency"
+	EventClockSetRate       EventType = "clock_set_rate"
 	EventBlockIssue         EventType = "block_rq_issue"
 	EventBlockRemap         EventType = "block_bio_remap"
 	EventBlockComplete      EventType = "block_rq_complete"
@@ -50,14 +51,16 @@ type Event struct {
 	WakeePrioClass string `json:"wakee_prio_class,omitempty"`
 	TargetCPU      int    `json:"target_cpu,omitempty"`
 
-	State       int    `json:"state,omitempty"`
-	Frequency   int    `json:"frequency,omitempty"`
-	CPUForField int    `json:"cpu_for_field,omitempty"`
-	Reason      string `json:"reason,omitempty"`
-	IOWait      int    `json:"io_wait,omitempty"`
-	SpanAction  string `json:"span_action,omitempty"`
-	SpanName    string `json:"span_name,omitempty"`
-	SpanValue   string `json:"span_value,omitempty"`
+	State            int    `json:"state,omitempty"`
+	Frequency        int    `json:"frequency,omitempty"`
+	CPUForField      int    `json:"cpu_for_field,omitempty"`
+	CPUForFieldValid bool   `json:"cpu_for_field_valid,omitempty"`
+	ClockName        string `json:"clock_name,omitempty"`
+	Reason           string `json:"reason,omitempty"`
+	IOWait           int    `json:"io_wait,omitempty"`
+	SpanAction       string `json:"span_action,omitempty"`
+	SpanName         string `json:"span_name,omitempty"`
+	SpanValue        string `json:"span_value,omitempty"`
 
 	BinderTransactionID int    `json:"binder_transaction_id,omitempty"`
 	BinderDestProc      int    `json:"binder_dest_proc,omitempty"`
@@ -191,10 +194,20 @@ type BlockedReasonSummary struct {
 }
 
 type CPUStats struct {
-	CPU       int     `json:"cpu"`
-	BusyMs    float64 `json:"busy_ms,omitempty"`
-	IdleMs    float64 `json:"idle_ms,omitempty"`
-	Frequency int     `json:"frequency,omitempty"`
+	CPU                int                     `json:"cpu"`
+	BusyMs             float64                 `json:"busy_ms,omitempty"`
+	IdleMs             float64                 `json:"idle_ms,omitempty"`
+	Frequency          int                     `json:"frequency,omitempty"`
+	FrequencyResidency []CPUFrequencyResidency `json:"frequency_residency,omitempty"`
+}
+
+type CPUFrequencyResidency struct {
+	Frequency  int     `json:"frequency"`
+	DurationMs float64 `json:"duration_ms"`
+	StartTs    float64 `json:"start_ts,omitempty"`
+	EndTs      float64 `json:"end_ts,omitempty"`
+	LineStart  int     `json:"line_start,omitempty"`
+	LineEnd    int     `json:"line_end,omitempty"`
 }
 
 type ThreadDuration struct {

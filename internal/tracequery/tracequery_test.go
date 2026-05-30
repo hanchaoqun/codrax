@@ -48,6 +48,16 @@ const ipcTrace = `
      client-20   (   20) [001] .... 3.030000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=client next_pid=20 next_prio=53
 `
 
+const frequencyTrace = `
+ arch_disk_io_2-33642 (33566) [001] .... 2940.180000: cpu_frequency: state=1800000 cpu_id=11
+ arch_disk_io_2-33642 (33566) [001] .... 2940.190402: cpu_frequency: state=2228000 cpu_id=11
+ arch_disk_io_2-33642 (33566) [001] .... 2940.190402: clock_set_rate: heca_info state=87047 cpu_id=11
+	com.tencent.mm-36379 (36379) [010] .... 2940.190402: mm_filemap_add_to_page_cache: dev 260:84 ino 0x60ffe page=0000000000000000 pfn=3062260 ofs=0
+ arch_disk_io_2-33642 (33566) [001] .... 2940.190402: clock_set_rate: heca_ddr_freq state=3744 cpu_id=0
+ binder:31963_1-37072 (37047) [001] .... 2941.665123: cpu_frequency: state=1600000 cpu_id=0
+ binder:31963_1-37072 (37047) [001] .... 2941.675123: cpu_frequency: state=1800000 cpu_id=0
+`
+
 const harmonyTrace = `
      OS_FFRT_0_0-49634 (48679) [000] .... 928.081774: block_rq_issue: 12,48 RS 4096 () 66637712 + 8 [OS_FFRT_0_0]
      OS_FFRT_0_0-49634 (48679) [000] .... 928.081786: mm_filemap_add_to_page_cache: dev 260:84 ino 0x1 page=0000000000000000 pfn=2477336 ofs=1211162624
@@ -96,13 +106,25 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			name:  "cpu idle",
 			line:  `      waker-10   (   10) [000] .... 2.050000: cpu_idle: state=4294967295 cpu_id=0`,
 			want:  EventCPUIdle,
-			check: func(ev Event) bool { return ev.CPUForField == 0 },
+			check: func(ev Event) bool { return ev.CPUForField == 0 && ev.CPUForFieldValid },
 		},
 		{
 			name:  "cpu frequency",
 			line:  `      waker-10   (   10) [000] .... 2.060000: clock_set_rate: pid_freq state=1800000 cpu_id=0`,
 			want:  EventCPUFrequency,
-			check: func(ev Event) bool { return ev.Frequency == 1800000 },
+			check: func(ev Event) bool { return ev.Frequency == 1800000 && ev.ClockName == "pid_freq" },
+		},
+		{
+			name:  "cpu_frequency tracepoint",
+			line:  `      waker-10   (   10) [000] .... 2.061000: cpu_frequency: state=1600000 cpu_id=0`,
+			want:  EventCPUFrequency,
+			check: func(ev Event) bool { return ev.Frequency == 1600000 && ev.ClockName == "cpu_frequency" },
+		},
+		{
+			name:  "non CPU clock set rate",
+			line:  `      waker-10   (   10) [000] .... 2.062000: clock_set_rate: heca_ddr_freq state=3744 cpu_id=0`,
+			want:  EventClockSetRate,
+			check: func(ev Event) bool { return ev.Frequency == 3744 && ev.ClockName == "heca_ddr_freq" },
 		},
 		{
 			name:  "block issue",
@@ -321,12 +343,55 @@ func TestWindowStatsCountsRuntimeResourcesAndOffCPU(t *testing.T) {
 	}
 }
 
+func TestWindowStatsComputesCPUFrequencyResidency(t *testing.T) {
+	idx := buildTraceIndex(t, "freq.systrace", frequencyTrace)
+	stats := ComputeWindowStats(idx, Query{TimeStart: 2940.185000, TimeEnd: 2941.680123})
+	cpu11 := findCPUStats(stats, 11)
+	if cpu11 == nil || cpu11.Frequency != 2228000 {
+		t.Fatalf("expected CPU11 latest frequency from cpu_frequency row, got %+v", cpu11)
+	}
+	if len(cpu11.FrequencyResidency) != 2 {
+		t.Fatalf("expected CPU11 residency before and after switch, got %+v", cpu11.FrequencyResidency)
+	}
+	if cpu11.FrequencyResidency[0].Frequency != 1800000 || !near(cpu11.FrequencyResidency[0].DurationMs, 5.402, 0.001) {
+		t.Fatalf("bad pre-window carried residency: %+v", cpu11.FrequencyResidency[0])
+	}
+	if cpu11.FrequencyResidency[1].Frequency != 2228000 || cpu11.FrequencyResidency[1].DurationMs <= 0 {
+		t.Fatalf("bad switched residency: %+v", cpu11.FrequencyResidency[1])
+	}
+	cpu0 := findCPUStats(stats, 0)
+	if cpu0 == nil || cpu0.Frequency != 1800000 || len(cpu0.FrequencyResidency) != 2 {
+		t.Fatalf("expected CPU0 residency from real cpu_frequency rows only, got %+v", cpu0)
+	}
+	for _, item := range cpu0.FrequencyResidency {
+		if item.Frequency == 3744 {
+			t.Fatalf("DDR clock_set_rate leaked into CPU frequency residency: %+v", cpu0.FrequencyResidency)
+		}
+	}
+}
+
 func TestWindowStatsHonorsLineWindow(t *testing.T) {
 	idx := buildTraceIndex(t, "resource.systrace", resourceTrace)
 	stats := ComputeWindowStats(idx, Query{TimeStart: 2.0, TimeEnd: 2.2, LineStart: 1, LineEnd: 4})
 	if stats.BlockIssueCount != 0 || stats.BinderCount != 0 || stats.IRQCount != 0 || stats.MemoryEventCount != 0 {
 		t.Fatalf("line window should exclude later resource rows: %+v", stats)
 	}
+}
+
+func findCPUStats(stats WindowStats, cpu int) *CPUStats {
+	for i := range stats.CPU {
+		if stats.CPU[i].CPU == cpu {
+			return &stats.CPU[i]
+		}
+	}
+	return nil
+}
+
+func near(got, want, delta float64) bool {
+	if got < want {
+		return want-got <= delta
+	}
+	return got-want <= delta
 }
 
 func buildSampleIndex(t *testing.T) *Index {

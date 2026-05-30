@@ -143,10 +143,15 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.Reason = intern.intern(firstNonEmpty(kv["caller"], fields))
 	case EventCPUIdle:
 		ev.State = atoi(kv["state"])
-		ev.CPUForField = atoi(kv["cpu_id"])
+		ev.CPUForField, ev.CPUForFieldValid = atoiMaybe(kv["cpu_id"])
 	case EventCPUFrequency:
 		ev.Frequency = atoi(firstNonEmpty(kv["state"], kv["frequency"], kv["freq"]))
-		ev.CPUForField = atoi(kv["cpu_id"])
+		ev.CPUForField, ev.CPUForFieldValid = atoiMaybe(kv["cpu_id"])
+		ev.ClockName = intern.intern(clockNameForEvent(rawType, fields))
+	case EventClockSetRate:
+		ev.Frequency = atoi(firstNonEmpty(kv["state"], kv["frequency"], kv["freq"]))
+		ev.CPUForField, ev.CPUForFieldValid = atoiMaybe(kv["cpu_id"])
+		ev.ClockName = intern.intern(clockNameForEvent(rawType, fields))
 	case EventTraceMark:
 		ev.SpanAction, ev.SpanName, ev.SpanValue = parseTraceMark(fields)
 		ev.SpanAction = intern.intern(ev.SpanAction)
@@ -181,7 +186,14 @@ func classifyEventType(raw, fields string) EventType {
 		return EventSchedBlockedReason
 	case raw == "cpu_idle":
 		return EventCPUIdle
-	case raw == "clock_set_rate" || raw == "cpu_frequency" || strings.Contains(raw, "freq"):
+	case raw == "cpu_frequency":
+		return EventCPUFrequency
+	case raw == "clock_set_rate":
+		if isCPUFrequencyClock(fields) {
+			return EventCPUFrequency
+		}
+		return EventClockSetRate
+	case strings.Contains(raw, "cpu") && strings.Contains(raw, "freq"):
 		return EventCPUFrequency
 	case raw == "block_rq_issue":
 		return EventBlockIssue
@@ -230,6 +242,32 @@ func parseKV(fields string) map[string]string {
 	return out
 }
 
+func clockNameForEvent(raw, fields string) string {
+	raw = strings.TrimSpace(raw)
+	if raw != "clock_set_rate" {
+		return raw
+	}
+	fields = strings.TrimSpace(fields)
+	if fields == "" {
+		return raw
+	}
+	name := strings.Fields(fields)[0]
+	if strings.Contains(name, "=") {
+		return raw
+	}
+	return name
+}
+
+func isCPUFrequencyClock(fields string) bool {
+	name := strings.ToLower(clockNameForEvent("clock_set_rate", fields))
+	switch name {
+	case "pid_freq", "cpu_freq", "cpu_frequency", "cpufreq", "scaling_cur_freq":
+		return true
+	default:
+		return strings.Contains(name, "cpu") && strings.Contains(name, "freq") && !strings.Contains(name, "ddr")
+	}
+}
+
 func parseTraceMark(fields string) (action, name, value string) {
 	parts := strings.Split(fields, "|")
 	if len(parts) >= 4 && parts[0] == "C" {
@@ -251,6 +289,18 @@ func atoi(raw string) int {
 	}
 	n, _ := strconv.Atoi(raw)
 	return n
+}
+
+func atoiMaybe(raw string) (int, bool) {
+	raw = strings.Trim(strings.TrimSpace(raw), ":,")
+	if raw == "" {
+		return 0, false
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 func firstNonEmpty(values ...string) string {
