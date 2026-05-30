@@ -29,6 +29,10 @@ func Run(idx *Index, q Query) Result {
 		stats := ComputeWindowStats(idx, q)
 		res.WindowStats = &stats
 		res.EvidencePack = evidenceFromStats(stats)
+	case "ipc_graph":
+		ipc := BuildIPCGraph(idx, q)
+		res.IPCGraph = &ipc
+		res.EvidencePack = evidenceFromIPCGraph(ipc)
 	case "wakeup_chain":
 		chain := BuildWakeupChain(idx, q)
 		res.WakeupChain = &chain
@@ -36,13 +40,16 @@ func Run(idx *Index, q Query) Result {
 			stats := ComputeWindowStats(idx, q)
 			res.WindowStats = &stats
 		}
-		res.EvidencePack = evidenceFromChain(chain)
+		res.EvidencePack = append(evidenceFromChain(chain), evidenceFromIPCGraph(IPCGraphResult{Edges: chain.IPCEdges})...)
 	case "evidence_pack":
 		chain := BuildWakeupChain(idx, q)
 		stats := ComputeWindowStats(idx, q)
+		ipc := BuildIPCGraph(idx, q)
 		res.WakeupChain = &chain
 		res.WindowStats = &stats
+		res.IPCGraph = &ipc
 		res.EvidencePack = append(evidenceFromChain(chain), evidenceFromStats(stats)...)
+		res.EvidencePack = append(res.EvidencePack, evidenceFromIPCGraph(ipc)...)
 	default:
 		res.View = "event_search"
 		res.Events = EventSearch(idx, q)
@@ -137,7 +144,7 @@ func eventInQuery(ev Event, q Query, typeSet map[EventType]bool) bool {
 }
 
 func eventMentionsPID(ev Event, pid int) bool {
-	return ev.PID == pid || ev.TGID == pid || ev.PrevPID == pid || ev.NextPID == pid || ev.WakeePID == pid
+	return ev.PID == pid || ev.TGID == pid || ev.PrevPID == pid || ev.NextPID == pid || ev.WakeePID == pid || ev.BinderDestProc == pid || ev.BinderDestThread == pid
 }
 
 func eventMentionsThread(ev Event, thread string) bool {
@@ -647,13 +654,24 @@ func BuildWakeupChain(idx *Index, q Query) ChainResult {
 	if len(branches) == 0 {
 		visited := map[int]bool{}
 		expandChain(idx, q, target, q.TimeStart, q.TimeEnd, 0, visited, &res, "")
+		attachIPCGraphToChain(idx, q, &res)
 		return res
 	}
 	for _, branch := range branches {
 		visited := map[int]bool{}
 		expandChain(idx, q, target, branch.StartTs, branch.EndTs, 0, visited, &res, "")
 	}
+	attachIPCGraphToChain(idx, q, &res)
 	return res
+}
+
+func attachIPCGraphToChain(idx *Index, q Query, res *ChainResult) {
+	if res == nil {
+		return
+	}
+	ipc := BuildIPCGraph(idx, q)
+	res.IPCEdges = ipc.Edges
+	res.Caveats = append(res.Caveats, ipc.Caveats...)
 }
 
 func expandChain(idx *Index, q Query, thread ThreadRef, start, end float64, depth int, visited map[int]bool, res *ChainResult, parentID string) string {
@@ -1018,6 +1036,39 @@ func evidenceFromChain(chain ChainResult) []EvidenceFact {
 	return out
 }
 
+func evidenceFromIPCGraph(ipc IPCGraphResult) []EvidenceFact {
+	var out []EvidenceFact
+	for _, edge := range ipc.Edges {
+		summary := fmt.Sprintf("%s sends binder transaction", threadLabel(edge.Sender))
+		if edge.TransactionID > 0 {
+			summary = fmt.Sprintf("%s transaction=%d", summary, edge.TransactionID)
+		}
+		if edge.Receiver.PID > 0 || edge.Receiver.Comm != "" {
+			summary = fmt.Sprintf("%s to %s", summary, threadLabel(edge.Receiver))
+		} else if edge.DestThread > 0 {
+			summary = fmt.Sprintf("%s to dest_thread=%d", summary, edge.DestThread)
+		}
+		if edge.ReceiveLine > 0 {
+			summary = fmt.Sprintf("%s; receive row matched at line %d", summary, edge.ReceiveLine)
+		}
+		out = append(out, EvidenceFact{
+			Subject:    threadLabel(edge.Sender),
+			Predicate:  "binder_ipc",
+			Object:     threadLabel(edge.Receiver),
+			Summary:    summary,
+			LineStart:  firstPositive(edge.SendLine, edge.ReceiveLine),
+			LineEnd:    firstPositive(edge.ReceiveLine, edge.SendLine),
+			StartTs:    edge.SendTs,
+			EndTs:      firstPositiveFloat(edge.ReceiveTs, edge.SendTs),
+			Confidence: edge.Confidence,
+		})
+		if len(out) >= 16 {
+			break
+		}
+	}
+	return out
+}
+
 func evidenceFromEvents(events []EventView) []EvidenceFact {
 	var out []EvidenceFact
 	for _, ev := range events {
@@ -1060,6 +1111,15 @@ func threadLabel(t ThreadRef) string {
 }
 
 func firstPositive(values ...int) int {
+	for _, v := range values {
+		if v > 0 {
+			return v
+		}
+	}
+	return 0
+}
+
+func firstPositiveFloat(values ...float64) float64 {
 	for _, v := range values {
 		if v > 0 {
 			return v

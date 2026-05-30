@@ -50,9 +50,42 @@ func TestTraceQueryExplicitPathProducesRuntimeArtifactSummary(t *testing.T) {
 
 func TestTraceQuerySchemaDocumentsViews(t *testing.T) {
 	body := (&TraceQuery{}).Description() + "\n" + string((&TraceQuery{}).Parameters())
-	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "event_search", "attached_trace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received"} {
+	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "ipc_graph", "event_search", "attached_trace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("trace_query schema/description missing %q:\n%s", want, body)
+		}
+	}
+}
+
+func TestTraceQueryIPCGraphSummary(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "ipc.systrace")
+	trace := strings.Join([]string{
+		`client-20 (20) [001] .... 3.010000: binder_transaction: transaction=42 dest_proc=100 dest_thread=101 reply=1 flags=0x0 code=0x3`,
+		`binder:100_1-101 (100) [002] .... 3.012000: binder_transaction_received: transaction=42`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source":     "path",
+		"path":       "ipc.systrace",
+		"view":       "ipc_graph",
+		"pid":        20,
+		"time_start": 3.0,
+		"time_end":   3.02,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query failed: %s", res.Summary)
+	}
+	for _, want := range []string{"IPC graph", "transaction=42", "client-20", "binder:100_1-101", "send_line=1", "receive_line=2"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary missing %q:\n%s", want, res.Summary)
 		}
 	}
 }

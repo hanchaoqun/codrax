@@ -40,7 +40,7 @@ type traceQueryParams struct {
 func (t *TraceQuery) Name() string { return "trace_query" }
 
 func (t *TraceQuery) Description() string {
-	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, wakeup chains, same-window resource stats, structured event search, and line-backed evidence packs. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
+	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, wakeup chains, binder IPC graphs, same-window resource stats, structured event search, and line-backed evidence packs. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
 }
 
 func (t *TraceQuery) Parameters() json.RawMessage {
@@ -49,7 +49,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
   "properties": {
     "source": {"type":"string","enum":["path","attached_trace"],"description":"Use attached_trace for the current --htrace/--atrace blob; use path for an explicit workspace/repo file."},
     "path": {"type":"string","description":"Repo/workspace-relative or absolute trace/log path when source=path."},
-    "view": {"type":"string","enum":["event_search","thread_timeline","window_stats","wakeup_chain","evidence_pack"],"description":"The deterministic trace view to compute."},
+    "view": {"type":"string","enum":["event_search","thread_timeline","window_stats","ipc_graph","wakeup_chain","evidence_pack"],"description":"The deterministic trace view to compute. Use ipc_graph for binder transaction send/receive causality."},
     "thread": {"type":"string","description":"Thread name or substring to resolve when pid is unknown."},
     "pid": {"type":"integer","description":"Thread pid to analyze when known."},
     "time_start": {"type":"number","description":"Trace timestamp window start in seconds. Example: 928.081774 = 928s + 0.081774s; six fractional digits are microsecond precision."},
@@ -206,6 +206,15 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			fmt.Fprintf(&b, "- root_evidence=%s thread=%s duration=%.3fms lines=%d-%d confidence=%.2f — %s\n",
 				root.Type, traceThreadLabel(root.Thread), root.DurationMs, root.LineStart, root.LineEnd, root.Confidence, root.Summary)
 		}
+		writeTraceIPCEdges(&b, result.WakeupChain.IPCEdges)
+		b.WriteString("\n")
+	}
+	if result.IPCGraph != nil {
+		b.WriteString("## IPC graph\n")
+		writeTraceIPCEdges(&b, result.IPCGraph.Edges)
+		for _, caveat := range result.IPCGraph.Caveats {
+			fmt.Fprintf(&b, "- ipc_caveat=%s\n", caveat)
+		}
 		b.WriteString("\n")
 	}
 	if result.Timeline != nil {
@@ -269,6 +278,30 @@ func traceQueryArtifactID(sourceLabel string) string {
 		return "attached_trace"
 	}
 	return "trace_query"
+}
+
+func writeTraceIPCEdges(b *strings.Builder, edges []tracequery.IPCEdge) {
+	for i, edge := range edges {
+		if i >= 12 {
+			fmt.Fprintf(b, "... omitted %d IPC edge(s); see payload_ref\n", len(edges)-i)
+			break
+		}
+		fmt.Fprintf(b, "- ipc transaction=%d %s -> %s send_line=%d receive_line=%d latency=%.3fms reply=%d flags=%s code=%s confidence=%.2f\n",
+			edge.TransactionID,
+			traceThreadLabel(edge.Sender),
+			traceThreadLabel(edge.Receiver),
+			edge.SendLine,
+			edge.ReceiveLine,
+			edge.LatencyMs,
+			edge.Reply,
+			edge.Flags,
+			edge.Code,
+			edge.Confidence,
+		)
+		for _, caveat := range edge.Caveats {
+			fmt.Fprintf(b, "  caveat=%s\n", caveat)
+		}
+	}
 }
 
 func tracePriorityDetail(td tracequery.ThreadDuration) string {

@@ -39,6 +39,15 @@ const resourceTrace = `
        main-20   (   20) [001] .... 2.200000: sched_switch: prev_comm=worker prev_pid=30 prev_prio=20 prev_state=S ==> next_comm=main next_pid=20 next_prio=53
 `
 
+const ipcTrace = `
+     client-20   (   20) [001] .... 3.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=client next_pid=20 next_prio=53
+     client-20   (   20) [001] .... 3.010000: binder_transaction: transaction=42 dest_node=0 dest_proc=100 dest_thread=101 reply=1 flags=0x0 code=0x3
+ binder:100_1-101 (  100) [002] .... 3.012000: binder_transaction_received: transaction=42
+     client-20   (   20) [001] .... 3.015000: sched_switch: prev_comm=client prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+ binder:100_1-101 (  100) [002] .... 3.020000: sched_wakeup: comm=client pid=20 prio=53 target_cpu=001
+     client-20   (   20) [001] .... 3.030000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=client next_pid=20 next_prio=53
+`
+
 const harmonyTrace = `
      OS_FFRT_0_0-49634 (48679) [000] .... 928.081774: block_rq_issue: 12,48 RS 4096 () 66637712 + 8 [OS_FFRT_0_0]
      OS_FFRT_0_0-49634 (48679) [000] .... 928.081786: mm_filemap_add_to_page_cache: dev 260:84 ino 0x1 page=0000000000000000 pfn=2477336 ofs=1211162624
@@ -114,16 +123,18 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			check: func(ev Event) bool { return ev.FieldText != "" },
 		},
 		{
-			name:  "binder",
-			line:  `      waker-10   (   10) [000] .... 2.090000: binder_transaction: transaction=7 dest_node=0 dest_proc=40 dest_thread=41 reply=1 flags=0x0 code=0x1`,
-			want:  EventBinderTransaction,
-			check: func(ev Event) bool { return ev.PID == 10 },
+			name: "binder",
+			line: `      waker-10   (   10) [000] .... 2.090000: binder_transaction: transaction=7 dest_node=0 dest_proc=40 dest_thread=41 reply=1 flags=0x0 code=0x1`,
+			want: EventBinderTransaction,
+			check: func(ev Event) bool {
+				return ev.PID == 10 && ev.BinderTransactionID == 7 && ev.BinderDestProc == 40 && ev.BinderDestThread == 41 && ev.BinderReply == 1 && ev.BinderFlags == "0x0" && ev.BinderCode == "0x1"
+			},
 		},
 		{
 			name:  "binder received",
 			line:  `      waker-10   (   10) [000] .... 2.095000: binder_transaction_received: transaction=7`,
 			want:  EventBinderReceived,
-			check: func(ev Event) bool { return ev.FieldText == "transaction=7" },
+			check: func(ev Event) bool { return ev.FieldText == "transaction=7" && ev.BinderTransactionID == 7 },
 		},
 		{
 			name:  "irq",
@@ -231,6 +242,29 @@ func TestWakeupChainFindsWakerAndRoot(t *testing.T) {
 	}
 	if len(chain.RootEvidence) == 0 {
 		t.Fatalf("expected root evidence: %+v", chain)
+	}
+}
+
+func TestIPCGraphMatchesBinderSendAndReceive(t *testing.T) {
+	idx := buildTraceIndex(t, "ipc.systrace", ipcTrace)
+	ipc := BuildIPCGraph(idx, Query{PID: 20, TimeStart: 3.0, TimeEnd: 3.04, Limit: 10})
+	if len(ipc.Edges) != 1 {
+		t.Fatalf("expected one IPC edge, got %+v", ipc)
+	}
+	edge := ipc.Edges[0]
+	if edge.TransactionID != 42 || edge.Sender.PID != 20 || edge.Receiver.PID != 101 || edge.Receiver.TGID != 100 || edge.SendLine == 0 || edge.ReceiveLine == 0 {
+		t.Fatalf("bad IPC edge: %+v", edge)
+	}
+	if edge.Confidence < 0.9 || edge.LatencyMs <= 0 {
+		t.Fatalf("expected matched receive confidence and latency: %+v", edge)
+	}
+}
+
+func TestWakeupChainCarriesRelevantIPCEdges(t *testing.T) {
+	idx := buildTraceIndex(t, "ipc.systrace", ipcTrace)
+	chain := BuildWakeupChain(idx, Query{PID: 20, TimeStart: 3.0, TimeEnd: 3.04, MaxDepth: 4, MinDurationMs: 1})
+	if len(chain.IPCEdges) != 1 || chain.IPCEdges[0].TransactionID != 42 {
+		t.Fatalf("expected wakeup chain to carry target IPC edge, got %+v", chain.IPCEdges)
 	}
 }
 

@@ -39,6 +39,7 @@ and return compact line-backed facts to the model.
   - `event_search`
   - `thread_timeline`
   - `window_stats`
+  - `ipc_graph`
   - `wakeup_chain`
   - `evidence_pack`
 - Preserve line-backed source references in runtime-artifact lanes. Do not turn
@@ -74,6 +75,13 @@ and return compact line-backed facts to the model.
      irq, blocked-reason, and thread top-N summaries.
 3. Causality solver
    - Build wakeup DAGs from sleeping/off-CPU intervals and wakeup rows.
+   - Build binder IPC edges from `binder_transaction` and
+     `binder_transaction_received` rows when transaction ids are visible.
+     Treat these as runtime-artifact causal candidates with line-backed
+     evidence, not source-code call edges.
+   - Let wakeup-chain results carry IPC edges for the selected window so a
+     sleeping thread can be explained by synchronous IPC waits when the trace
+     shows a transaction handoff.
    - Stop on running, runnable, D/IO, missing rows, cycles, max depth/branch, or
      low-duration branches.
 4. Tool integration
@@ -89,3 +97,28 @@ and return compact line-backed facts to the model.
 6. Tests
    - Unit coverage for parser, timeline, stats, causality, tool schema/output,
      lazy exposure, and ledger projection.
+
+## IPC causality V1
+
+Binder IPC rows are deterministic runtime observations. V1 should parse
+transaction ids and endpoint hints, then build bounded IPC graphs:
+
+- `binder_transaction` sender: current row `comm/pid/tgid`.
+- Destination hints: `dest_proc`, `dest_thread`, `reply`, `flags`, and `code`
+  when present.
+- `binder_transaction_received` receiver: current row `comm/pid/tgid`, matched
+  by `transaction`.
+- Confidence is high when send and receive rows share a transaction id; lower
+  when only `dest_thread` / `dest_proc` hints are present.
+- `flags` are carried through as raw metadata. `0x1` is treated as a likely
+  oneway/asynchronous hint, but this remains advisory because vendor traces can
+  vary.
+
+Non-goals for V1:
+
+- Do not infer Java/native source call graphs from binder rows.
+- Do not claim a blocking IPC root cause from a binder send row alone. It must
+  be combined with a thread sleep/runnable/D-state interval or explicit trace
+  evidence.
+- Do not require binder rows for wakeup-chain success; scheduler-only and
+  resource-only traces remain valid.

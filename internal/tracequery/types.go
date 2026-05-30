@@ -2,7 +2,7 @@ package tracequery
 
 import "time"
 
-const ParserVersion = "tracequery-v1"
+const ParserVersion = "tracequery-v2"
 
 type EventType string
 
@@ -58,7 +58,15 @@ type Event struct {
 	SpanAction  string `json:"span_action,omitempty"`
 	SpanName    string `json:"span_name,omitempty"`
 	SpanValue   string `json:"span_value,omitempty"`
-	FieldText   string `json:"field_text,omitempty"`
+
+	BinderTransactionID int    `json:"binder_transaction_id,omitempty"`
+	BinderDestProc      int    `json:"binder_dest_proc,omitempty"`
+	BinderDestThread    int    `json:"binder_dest_thread,omitempty"`
+	BinderReply         int    `json:"binder_reply,omitempty"`
+	BinderFlags         string `json:"binder_flags,omitempty"`
+	BinderCode          string `json:"binder_code,omitempty"`
+
+	FieldText string `json:"field_text,omitempty"`
 }
 
 type Index struct {
@@ -100,6 +108,7 @@ type Result struct {
 	Events            []EventView     `json:"events,omitempty"`
 	Timeline          *TimelineResult `json:"timeline,omitempty"`
 	WindowStats       *WindowStats    `json:"window_stats,omitempty"`
+	IPCGraph          *IPCGraphResult `json:"ipc_graph,omitempty"`
 	WakeupChain       *ChainResult    `json:"wakeup_chain,omitempty"`
 	EvidencePack      []EvidenceFact  `json:"evidence_pack,omitempty"`
 	Caveats           []string        `json:"caveats,omitempty"`
@@ -202,8 +211,34 @@ type ChainResult struct {
 	Window       TimeWindow     `json:"window"`
 	Nodes        []ChainNode    `json:"nodes"`
 	Edges        []WakeupEdge   `json:"edges,omitempty"`
+	IPCEdges     []IPCEdge      `json:"ipc_edges,omitempty"`
 	RootEvidence []RootEvidence `json:"root_evidence,omitempty"`
 	Caveats      []string       `json:"caveats,omitempty"`
+}
+
+type IPCGraphResult struct {
+	Window  TimeWindow `json:"window"`
+	Edges   []IPCEdge  `json:"edges,omitempty"`
+	Caveats []string   `json:"caveats,omitempty"`
+}
+
+type IPCEdge struct {
+	TransactionID int       `json:"transaction_id,omitempty"`
+	Sender        ThreadRef `json:"sender"`
+	Receiver      ThreadRef `json:"receiver,omitempty"`
+	DestProc      int       `json:"dest_proc,omitempty"`
+	DestThread    int       `json:"dest_thread,omitempty"`
+	SendTs        float64   `json:"send_ts,omitempty"`
+	ReceiveTs     float64   `json:"receive_ts,omitempty"`
+	SendLine      int       `json:"send_line,omitempty"`
+	ReceiveLine   int       `json:"receive_line,omitempty"`
+	Reply         int       `json:"reply,omitempty"`
+	Flags         string    `json:"flags,omitempty"`
+	Code          string    `json:"code,omitempty"`
+	Oneway        bool      `json:"oneway,omitempty"`
+	LatencyMs     float64   `json:"latency_ms,omitempty"`
+	Confidence    float64   `json:"confidence,omitempty"`
+	Caveats       []string  `json:"caveats,omitempty"`
 }
 
 type ChainNode struct {

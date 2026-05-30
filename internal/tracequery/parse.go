@@ -152,6 +152,15 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.SpanAction = intern.intern(ev.SpanAction)
 		ev.SpanName = intern.intern(ev.SpanName)
 		ev.SpanValue = intern.intern(ev.SpanValue)
+	case EventBinderTransaction:
+		ev.BinderTransactionID = atoi(kv["transaction"])
+		ev.BinderDestProc = atoi(kv["dest_proc"])
+		ev.BinderDestThread = atoi(kv["dest_thread"])
+		ev.BinderReply = atoi(kv["reply"])
+		ev.BinderFlags = intern.intern(kv["flags"])
+		ev.BinderCode = intern.intern(kv["code"])
+	case EventBinderReceived:
+		ev.BinderTransactionID = atoi(kv["transaction"])
 	}
 	if ev.Type == EventUnknown {
 		ev.FieldText = ""
