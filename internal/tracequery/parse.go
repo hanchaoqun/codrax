@@ -139,7 +139,8 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.TargetCPU = atoi(kv["target_cpu"])
 	case EventSchedBlockedReason:
 		ev.WakeePID = atoi(firstNonEmpty(kv["pid"], kv["caller"]))
-		ev.Reason = intern.intern(firstNonEmpty(kv["caller"], kv["io_wait"], fields))
+		ev.IOWait = atoi(kv["iowait"])
+		ev.Reason = intern.intern(firstNonEmpty(kv["caller"], fields))
 	case EventCPUIdle:
 		ev.State = atoi(kv["state"])
 		ev.CPUForField = atoi(kv["cpu_id"])
@@ -147,9 +148,10 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.Frequency = atoi(firstNonEmpty(kv["state"], kv["frequency"], kv["freq"]))
 		ev.CPUForField = atoi(kv["cpu_id"])
 	case EventTraceMark:
-		ev.SpanAction, ev.SpanName = parseTraceMark(fields)
+		ev.SpanAction, ev.SpanName, ev.SpanValue = parseTraceMark(fields)
 		ev.SpanAction = intern.intern(ev.SpanAction)
 		ev.SpanName = intern.intern(ev.SpanName)
+		ev.SpanValue = intern.intern(ev.SpanValue)
 	}
 	if ev.Type == EventUnknown {
 		ev.FieldText = ""
@@ -180,6 +182,8 @@ func classifyEventType(raw, fields string) EventType {
 		return EventBlockComplete
 	case raw == "binder_transaction":
 		return EventBinderTransaction
+	case raw == "binder_transaction_received":
+		return EventBinderReceived
 	case strings.HasPrefix(raw, "irq_") || strings.Contains(raw, "softirq"):
 		return EventIRQ
 	case raw == "print" || raw == "tracing_mark_write":
@@ -217,15 +221,18 @@ func parseKV(fields string) map[string]string {
 	return out
 }
 
-func parseTraceMark(fields string) (action, name string) {
+func parseTraceMark(fields string) (action, name, value string) {
 	parts := strings.Split(fields, "|")
+	if len(parts) >= 4 && parts[0] == "C" {
+		return parts[0], parts[2], parts[3]
+	}
 	if len(parts) >= 3 {
-		return parts[0], parts[2]
+		return parts[0], parts[2], ""
 	}
 	if len(parts) >= 1 {
-		return parts[0], fields
+		return parts[0], fields, ""
 	}
-	return "", ""
+	return "", "", ""
 }
 
 func atoi(raw string) int {

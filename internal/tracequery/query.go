@@ -145,7 +145,7 @@ func eventMentionsThread(ev Event, thread string) bool {
 	if thread == "" {
 		return true
 	}
-	for _, v := range []string{ev.Comm, ev.PrevComm, ev.NextComm, ev.WakeeComm, ev.SpanName, ev.FieldText} {
+	for _, v := range []string{ev.Comm, ev.PrevComm, ev.NextComm, ev.WakeeComm, ev.SpanName, ev.SpanValue, ev.Reason, ev.FieldText} {
 		if strings.Contains(strings.ToLower(v), thread) {
 			return true
 		}
@@ -211,11 +211,31 @@ func ThreadTimeline(idx *Index, q Query) TimelineResult {
 	if offStart > 0 {
 		res.Intervals = append(res.Intervals, offCPUIntervals(target, offStart, q.TimeEnd, offLine, 0, offState, wake)...)
 	}
+	enrichBlockedReasonIntervals(idx, target, res.Intervals)
 	res.Intervals = clampIntervals(res.Intervals, q)
 	if len(res.Intervals) == 0 {
 		res.Caveats = append(res.Caveats, "no scheduler interval for the target thread was found in the selected window")
 	}
 	return res
+}
+
+func enrichBlockedReasonIntervals(idx *Index, target ThreadRef, intervals []Interval) {
+	for i := range intervals {
+		if intervals[i].State != StateDSleep {
+			continue
+		}
+		reason := findBlockedReasonFor(idx, target, intervals[i].StartTs, intervals[i].EndTs)
+		if reason == nil {
+			continue
+		}
+		if reason.IOWait > 0 {
+			intervals[i].State = StateIOWait
+		}
+		intervals[i].Summary = fmt.Sprintf("%s for %.3f ms; sched_blocked_reason iowait=%d caller=%s", intervals[i].State, intervals[i].DurationMs, reason.IOWait, firstNonEmpty(reason.Reason, reason.FieldText, "unknown"))
+		if intervals[i].EndLine == 0 {
+			intervals[i].EndLine = reason.Line
+		}
+	}
 }
 
 func offCPUIntervals(thread ThreadRef, start, end float64, startLine, endLine int, prevState string, wake *Event) []Interval {
@@ -349,6 +369,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		EventCounts: map[EventType]int{},
 	}
 	byCPU := map[int][]Event{}
+	blockedReasons := map[string]BlockedReasonSummary{}
 	for _, ev := range idx.Events {
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
 			continue
@@ -365,10 +386,29 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			stats.BlockCompleteCount++
 		case EventBinderTransaction:
 			stats.BinderCount++
+		case EventBinderReceived:
+			stats.BinderCount++
+			stats.BinderReceivedCount++
 		case EventIRQ:
 			stats.IRQCount++
 		case EventMemory:
 			stats.MemoryEventCount++
+		case EventSchedBlockedReason:
+			stats.BlockedReasonCount++
+			if ev.IOWait > 0 {
+				stats.IOWaitBlockedCount++
+			}
+			key := fmt.Sprintf("%d/%d/%s", ev.WakeePID, ev.IOWait, ev.Reason)
+			br := blockedReasons[key]
+			br.Thread = resolveBlockedReasonThread(idx, ev)
+			br.IOWait = ev.IOWait
+			br.Reason = ev.Reason
+			br.Count++
+			if br.Line == 0 || ev.Line < br.Line {
+				br.Line = ev.Line
+				br.Ts = ev.Ts
+			}
+			blockedReasons[key] = br
 		case EventCPUFrequency:
 			cpu := ev.CPUForField
 			if cpu == 0 {
@@ -424,6 +464,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		stats.TopRunning = stats.TopRunning[:8]
 	}
 	stats.RunnableTop, stats.DStateTop = computeOffCPUStats(idx, q)
+	stats.BlockedReasons = topBlockedReasons(blockedReasons, 8)
 	return stats
 }
 
@@ -518,6 +559,53 @@ func topThreadDurations(in map[string]ThreadDuration, max int) []ThreadDuration 
 		out = out[:max]
 	}
 	return out
+}
+
+func topBlockedReasons(in map[string]BlockedReasonSummary, max int) []BlockedReasonSummary {
+	out := make([]BlockedReasonSummary, 0, len(in))
+	for _, br := range in {
+		out = append(out, br)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].IOWait != out[j].IOWait {
+			return out[i].IOWait > out[j].IOWait
+		}
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Line < out[j].Line
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
+func resolveBlockedReasonThread(idx *Index, ev Event) ThreadRef {
+	ref := ThreadRef{PID: ev.WakeePID}
+	if idx == nil || ev.WakeePID == 0 {
+		return ref
+	}
+	for _, candidate := range idx.Events {
+		if candidate.PID == ev.WakeePID {
+			ref.Comm = candidate.Comm
+			ref.TGID = candidate.TGID
+			return ref
+		}
+		if candidate.PrevPID == ev.WakeePID {
+			ref.Comm = candidate.PrevComm
+			return ref
+		}
+		if candidate.NextPID == ev.WakeePID {
+			ref.Comm = candidate.NextComm
+			return ref
+		}
+		if candidate.WakeePID == ev.WakeePID {
+			ref.Comm = candidate.WakeeComm
+			return ref
+		}
+	}
+	return ref
 }
 
 func upsertCPUBusyIdle(in []CPUStats, cpu int, busy, idle float64) []CPUStats {
@@ -638,8 +726,21 @@ func expandChain(idx *Index, q Query, thread ThreadRef, start, end float64, dept
 		}
 	case StateRunnable:
 		res.RootEvidence = append(res.RootEvidence, RootEvidence{Type: "runnable_wait", Thread: thread, DurationMs: interesting.DurationMs, LineStart: interesting.StartLine, LineEnd: interesting.EndLine, Summary: "thread was runnable but not running; inspect CPU pressure and priority context", Confidence: 0.8})
-	case StateDSleep:
-		res.RootEvidence = append(res.RootEvidence, RootEvidence{Type: "d_state_or_io_wait", Thread: thread, DurationMs: interesting.DurationMs, LineStart: interesting.StartLine, LineEnd: interesting.EndLine, Summary: "thread slept in D state; IO or uninterruptible wait is a root-cause candidate", Confidence: 0.85})
+	case StateDSleep, StateIOWait:
+		rootType := "d_state_or_io_wait"
+		summary := "thread slept in D state; IO or uninterruptible wait is a root-cause candidate"
+		lineEnd := interesting.EndLine
+		if interesting.State == StateIOWait {
+			rootType = "io_wait"
+		}
+		if reason := findBlockedReasonFor(idx, thread, interesting.StartTs, interesting.EndTs); reason != nil {
+			if reason.IOWait > 0 {
+				rootType = "io_wait"
+			}
+			lineEnd = firstPositive(reason.Line, lineEnd)
+			summary = fmt.Sprintf("thread slept in D state; sched_blocked_reason iowait=%d caller=%s", reason.IOWait, firstNonEmpty(reason.Reason, reason.FieldText, "unknown"))
+		}
+		res.RootEvidence = append(res.RootEvidence, RootEvidence{Type: rootType, Thread: thread, DurationMs: interesting.DurationMs, LineStart: interesting.StartLine, LineEnd: lineEnd, Summary: summary, Confidence: 0.88})
 	case StateRunning:
 		res.RootEvidence = append(res.RootEvidence, RootEvidence{Type: "running", Thread: thread, DurationMs: interesting.DurationMs, LineStart: interesting.StartLine, LineEnd: interesting.EndLine, Summary: "thread was running in the aligned window; its own CPU work is root-cause evidence", Confidence: 0.75})
 	default:
@@ -663,6 +764,8 @@ func interestingIntervals(intervals []Interval, minDurationMs float64, max int) 
 	var best *Interval
 	score := func(s ThreadState) int {
 		switch s {
+		case StateIOWait:
+			return 6
 		case StateDSleep:
 			return 5
 		case StateSSleep:
@@ -721,6 +824,23 @@ func findWakeupFor(idx *Index, thread ThreadRef, start, end float64) *Event {
 			continue
 		}
 		if threadMatches(thread, ev.WakeePID, ev.WakeeComm) {
+			best = ev
+		}
+	}
+	return best
+}
+
+func findBlockedReasonFor(idx *Index, thread ThreadRef, start, end float64) *Event {
+	var best *Event
+	for i := range idx.Events {
+		ev := &idx.Events[i]
+		if ev.Type != EventSchedBlockedReason {
+			continue
+		}
+		if ev.Ts < start || ev.Ts > end {
+			continue
+		}
+		if threadMatches(thread, ev.WakeePID, "") {
 			best = ev
 		}
 	}
@@ -849,6 +969,21 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 			Confidence: 0.8,
 		})
 		if len(out) >= 16 {
+			break
+		}
+	}
+	for _, br := range stats.BlockedReasons {
+		out = append(out, EvidenceFact{
+			Subject:    threadLabel(br.Thread),
+			Predicate:  "blocked_reason",
+			Summary:    fmt.Sprintf("%s sched_blocked_reason iowait=%d caller=%s (count=%d)", threadLabel(br.Thread), br.IOWait, firstNonEmpty(br.Reason, "unknown"), br.Count),
+			LineStart:  br.Line,
+			LineEnd:    br.Line,
+			StartTs:    br.Ts,
+			EndTs:      br.Ts,
+			Confidence: 0.82,
+		})
+		if len(out) >= 20 {
 			break
 		}
 	}

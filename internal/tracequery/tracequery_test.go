@@ -25,12 +25,13 @@ const resourceTrace = `
        main-20   (   20) [001] .... 2.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=main next_pid=20 next_prio=53
        main-20   (   20) [001] .... 2.010000: sched_switch: prev_comm=main prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=worker next_pid=30 next_prio=20
      worker-30   (   30) [001] .... 2.030000: sched_switch: prev_comm=worker prev_pid=30 prev_prio=20 prev_state=D ==> next_comm=idle/1 next_pid=0 next_prio=120
-      waker-10   (   10) [000] .... 2.040000: sched_blocked_reason: pid=30 caller=fscache_page_wait_on_page_bit
+      waker-10   (   10) [000] .... 2.040000: sched_blocked_reason: pid=30 iowait=1 caller=fscache_page_wait_on_page_bit
       waker-10   (   10) [000] .... 2.050000: cpu_idle: state=4294967295 cpu_id=0
       waker-10   (   10) [000] .... 2.060000: clock_set_rate: pid_freq state=1800000 cpu_id=0
       waker-10   (   10) [000] .... 2.070000: block_rq_issue: 8,0 R 4096 () 123 + 8 [worker]
       waker-10   (   10) [000] .... 2.080000: block_rq_complete: 8,0 R () 123 + 8 [0]
       waker-10   (   10) [000] .... 2.090000: binder_transaction: transaction=7 dest_node=0 dest_proc=40 dest_thread=41 reply=1 flags=0x0 code=0x1
+      waker-10   (   10) [000] .... 2.095000: binder_transaction_received: transaction=7
       waker-10   (   10) [000] .... 2.100000: irq_handler_entry: irq=32 name=kirq
       waker-10   (   10) [000] .... 2.110000: mm_vmscan_direct_reclaim_begin: order=0 may_writepage=1
       waker-10   (   10) [000] .... 2.120000: print: B|20|Choreographer#doFrame
@@ -75,10 +76,12 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 		check func(Event) bool
 	}{
 		{
-			name:  "blocked reason",
-			line:  `      waker-10   (   10) [000] .... 2.040000: sched_blocked_reason: pid=30 caller=fscache_page_wait_on_page_bit`,
-			want:  EventSchedBlockedReason,
-			check: func(ev Event) bool { return ev.WakeePID == 30 && ev.Reason == "fscache_page_wait_on_page_bit" },
+			name: "blocked reason",
+			line: `      waker-10   (   10) [000] .... 2.040000: sched_blocked_reason: pid=30 iowait=1 caller=fscache_page_wait_on_page_bit`,
+			want: EventSchedBlockedReason,
+			check: func(ev Event) bool {
+				return ev.WakeePID == 30 && ev.IOWait == 1 && ev.Reason == "fscache_page_wait_on_page_bit"
+			},
 		},
 		{
 			name:  "cpu idle",
@@ -117,6 +120,12 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			check: func(ev Event) bool { return ev.PID == 10 },
 		},
 		{
+			name:  "binder received",
+			line:  `      waker-10   (   10) [000] .... 2.095000: binder_transaction_received: transaction=7`,
+			want:  EventBinderReceived,
+			check: func(ev Event) bool { return ev.FieldText == "transaction=7" },
+		},
+		{
 			name:  "irq",
 			line:  `      waker-10   (   10) [000] .... 2.100000: irq_handler_entry: irq=32 name=kirq`,
 			want:  EventIRQ,
@@ -127,6 +136,14 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			line:  `      waker-10   (   10) [000] .... 2.120000: print: B|20|Choreographer#doFrame`,
 			want:  EventTraceMark,
 			check: func(ev Event) bool { return ev.SpanAction == "B" && ev.SpanName == "Choreographer#doFrame" },
+		},
+		{
+			name: "trace counter",
+			line: `      waker-10   (   10) [000] .... 2.125000: print: C|31963|JNI Weak Global Refs|198`,
+			want: EventTraceMark,
+			check: func(ev Event) bool {
+				return ev.SpanAction == "C" && ev.SpanName == "JNI Weak Global Refs" && ev.SpanValue == "198"
+			},
 		},
 		{
 			name:  "memory",
@@ -198,8 +215,8 @@ func TestThreadTimelineSplitsSleepAndRunnable(t *testing.T) {
 func TestThreadTimelineClassifiesDState(t *testing.T) {
 	idx := buildTraceIndex(t, "resource.systrace", resourceTrace)
 	tl := ThreadTimeline(idx, Query{PID: 30, TimeStart: 2.02, TimeEnd: 2.16, MinDurationMs: 1})
-	if !timelineHasState(tl, StateDSleep) {
-		t.Fatalf("expected D-state interval, got %+v", tl.Intervals)
+	if !timelineHasState(tl, StateIOWait) {
+		t.Fatalf("expected IO-wait interval enriched from sched_blocked_reason, got %+v", tl.Intervals)
 	}
 }
 
@@ -228,7 +245,7 @@ func TestWakeupChainReportsMissingWakeup(t *testing.T) {
 func TestWakeupChainReportsDStateRoot(t *testing.T) {
 	idx := buildTraceIndex(t, "resource.systrace", resourceTrace)
 	chain := BuildWakeupChain(idx, Query{PID: 30, TimeStart: 2.03, TimeEnd: 2.15, MaxDepth: 4, MinDurationMs: 1})
-	if len(chain.RootEvidence) == 0 || chain.RootEvidence[0].Type != "d_state_or_io_wait" {
+	if len(chain.RootEvidence) == 0 || chain.RootEvidence[0].Type != "io_wait" || !strings.Contains(chain.RootEvidence[0].Summary, "fscache_page_wait_on_page_bit") {
 		t.Fatalf("expected D-state root, got %+v", chain.RootEvidence)
 	}
 }
@@ -247,8 +264,11 @@ func TestWindowStatsComputesCPUAndResourceCounts(t *testing.T) {
 func TestWindowStatsCountsRuntimeResourcesAndOffCPU(t *testing.T) {
 	idx := buildTraceIndex(t, "resource.systrace", resourceTrace)
 	stats := ComputeWindowStats(idx, Query{TimeStart: 2.0, TimeEnd: 2.2})
-	if stats.BlockIssueCount != 1 || stats.BlockCompleteCount != 1 || stats.BinderCount != 1 || stats.IRQCount != 1 || stats.MemoryEventCount != 1 {
+	if stats.BlockIssueCount != 1 || stats.BlockCompleteCount != 1 || stats.BinderCount != 2 || stats.BinderReceivedCount != 1 || stats.IRQCount != 1 || stats.MemoryEventCount != 1 || stats.BlockedReasonCount != 1 || stats.IOWaitBlockedCount != 1 {
 		t.Fatalf("resource counts not preserved: %+v", stats)
+	}
+	if len(stats.BlockedReasons) == 0 || stats.BlockedReasons[0].Thread.PID != 30 || stats.BlockedReasons[0].IOWait != 1 || !strings.Contains(stats.BlockedReasons[0].Reason, "fscache") {
+		t.Fatalf("blocked reason not summarized: %+v", stats.BlockedReasons)
 	}
 	if len(stats.RunnableTop) == 0 || stats.RunnableTop[0].Thread.PID != 20 {
 		t.Fatalf("expected runnable top for main thread: %+v", stats.RunnableTop)

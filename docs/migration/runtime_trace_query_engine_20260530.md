@@ -61,14 +61,17 @@ and return compact line-backed facts to the model.
 
 1. Parser and index
    - Stream ftrace-compatible text with line numbers.
-   - Normalize scheduler, CPU, IO (`block_rq_*`, `block_bio_remap`), binder,
-     irq, tracing span, memory-ish, and unknown rows.
+   - Normalize scheduler, CPU, IO (`block_rq_*`, `block_bio_remap`), binder
+     send/receive rows, irq, tracing span/counter, memory-ish, and unknown rows.
+   - Preserve `sched_blocked_reason` details, including `iowait=0/1` and
+     caller text, so D-state evidence can distinguish IO-like waits from other
+     uninterruptible blocking candidates.
    - Cache parsed indexes by path, size, mtime, and parser version.
 2. Timeline and stats
    - Build per-thread running / runnable / S sleep / D sleep / IO / unknown
      intervals.
-   - Compute same-window CPU busy/idle/frequency, IO, binder, irq, and thread
-     top-N summaries.
+   - Compute same-window CPU busy/idle/frequency, IO, binder send/receive,
+     irq, blocked-reason, and thread top-N summaries.
 3. Causality solver
    - Build wakeup DAGs from sleeping/off-CPU intervals and wakeup rows.
    - Stop on running, runnable, D/IO, missing rows, cycles, max depth/branch, or

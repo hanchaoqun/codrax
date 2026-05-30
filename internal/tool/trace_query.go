@@ -56,7 +56,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
     "time_end": {"type":"number","description":"Trace timestamp window end in seconds. Example: 928.081774 = 928s + 0.081774s; six fractional digits are microsecond precision."},
     "line_start": {"type":"integer","description":"Optional artifact line window start for bounded search."},
     "line_end": {"type":"integer","description":"Optional artifact line window end for bounded search."},
-    "event_types": {"type":"array","items":{"type":"string"},"description":"Optional event filters such as sched_switch, sched_wakeup, cpu_idle, block_rq_issue, block_bio_remap, binder_transaction."},
+    "event_types": {"type":"array","items":{"type":"string"},"description":"Optional event filters such as sched_switch, sched_wakeup, sched_blocked_reason, cpu_idle, block_rq_issue, block_bio_remap, binder_transaction, binder_transaction_received."},
     "max_depth": {"type":"integer","description":"wakeup_chain recursion limit; default 6."},
     "max_branches": {"type":"integer","description":"Maximum branches to report; default 8."},
     "min_duration_ms": {"type":"number","description":"Ignore intervals shorter than this; default 1ms."},
@@ -234,8 +234,11 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		for _, td := range result.WindowStats.DStateTop {
 			fmt.Fprintf(&b, "- top_d_state %s %.3fms %s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), td.LineStart, td.LineEnd)
 		}
-		fmt.Fprintf(&b, "- counts block_issue=%d block_remap=%d block_complete=%d binder=%d irq=%d memory=%d\n\n",
-			result.WindowStats.BlockIssueCount, result.WindowStats.BlockRemapCount, result.WindowStats.BlockCompleteCount, result.WindowStats.BinderCount, result.WindowStats.IRQCount, result.WindowStats.MemoryEventCount)
+		for _, br := range result.WindowStats.BlockedReasons {
+			fmt.Fprintf(&b, "- blocked_reason %s iowait=%d count=%d line=%d caller=%s\n", traceThreadLabel(br.Thread), br.IOWait, br.Count, br.Line, br.Reason)
+		}
+		fmt.Fprintf(&b, "- counts block_issue=%d block_remap=%d block_complete=%d binder=%d binder_received=%d irq=%d memory=%d blocked_reason=%d iowait_blocked=%d\n\n",
+			result.WindowStats.BlockIssueCount, result.WindowStats.BlockRemapCount, result.WindowStats.BlockCompleteCount, result.WindowStats.BinderCount, result.WindowStats.BinderReceivedCount, result.WindowStats.IRQCount, result.WindowStats.MemoryEventCount, result.WindowStats.BlockedReasonCount, result.WindowStats.IOWaitBlockedCount)
 	}
 	if len(result.Events) > 0 {
 		b.WriteString("## Events\n")

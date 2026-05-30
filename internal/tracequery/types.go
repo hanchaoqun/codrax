@@ -18,6 +18,7 @@ const (
 	EventBlockRemap         EventType = "block_bio_remap"
 	EventBlockComplete      EventType = "block_rq_complete"
 	EventBinderTransaction  EventType = "binder_transaction"
+	EventBinderReceived     EventType = "binder_transaction_received"
 	EventIRQ                EventType = "irq"
 	EventTraceMark          EventType = "trace_mark"
 	EventMemory             EventType = "memory"
@@ -53,8 +54,10 @@ type Event struct {
 	Frequency   int    `json:"frequency,omitempty"`
 	CPUForField int    `json:"cpu_for_field,omitempty"`
 	Reason      string `json:"reason,omitempty"`
+	IOWait      int    `json:"io_wait,omitempty"`
 	SpanAction  string `json:"span_action,omitempty"`
 	SpanName    string `json:"span_name,omitempty"`
+	SpanValue   string `json:"span_value,omitempty"`
 	FieldText   string `json:"field_text,omitempty"`
 }
 
@@ -150,19 +153,32 @@ type TimeWindow struct {
 }
 
 type WindowStats struct {
-	Window             TimeWindow        `json:"window"`
-	EventCounts        map[EventType]int `json:"event_counts,omitempty"`
-	CPU                []CPUStats        `json:"cpu,omitempty"`
-	TopRunning         []ThreadDuration  `json:"top_running,omitempty"`
-	RunnableTop        []ThreadDuration  `json:"runnable_top,omitempty"`
-	DStateTop          []ThreadDuration  `json:"d_state_top,omitempty"`
-	BlockIssueCount    int               `json:"block_issue_count,omitempty"`
-	BlockRemapCount    int               `json:"block_remap_count,omitempty"`
-	BlockCompleteCount int               `json:"block_complete_count,omitempty"`
-	BinderCount        int               `json:"binder_count,omitempty"`
-	IRQCount           int               `json:"irq_count,omitempty"`
-	MemoryEventCount   int               `json:"memory_event_count,omitempty"`
-	Caveats            []string          `json:"caveats,omitempty"`
+	Window              TimeWindow             `json:"window"`
+	EventCounts         map[EventType]int      `json:"event_counts,omitempty"`
+	CPU                 []CPUStats             `json:"cpu,omitempty"`
+	TopRunning          []ThreadDuration       `json:"top_running,omitempty"`
+	RunnableTop         []ThreadDuration       `json:"runnable_top,omitempty"`
+	DStateTop           []ThreadDuration       `json:"d_state_top,omitempty"`
+	BlockIssueCount     int                    `json:"block_issue_count,omitempty"`
+	BlockRemapCount     int                    `json:"block_remap_count,omitempty"`
+	BlockCompleteCount  int                    `json:"block_complete_count,omitempty"`
+	BinderCount         int                    `json:"binder_count,omitempty"`
+	BinderReceivedCount int                    `json:"binder_received_count,omitempty"`
+	IRQCount            int                    `json:"irq_count,omitempty"`
+	MemoryEventCount    int                    `json:"memory_event_count,omitempty"`
+	BlockedReasonCount  int                    `json:"blocked_reason_count,omitempty"`
+	IOWaitBlockedCount  int                    `json:"io_wait_blocked_count,omitempty"`
+	BlockedReasons      []BlockedReasonSummary `json:"blocked_reasons,omitempty"`
+	Caveats             []string               `json:"caveats,omitempty"`
+}
+
+type BlockedReasonSummary struct {
+	Thread ThreadRef `json:"thread"`
+	IOWait int       `json:"io_wait,omitempty"`
+	Reason string    `json:"reason,omitempty"`
+	Count  int       `json:"count,omitempty"`
+	Line   int       `json:"line,omitempty"`
+	Ts     float64   `json:"ts,omitempty"`
 }
 
 type CPUStats struct {
