@@ -14,8 +14,10 @@ import (
 )
 
 var (
-	ftraceLineRE = regexp.MustCompile(`^\s*(.+)-(\d+)\s+\(\s*(\d+)\)\s+\[(\d+)\]\s+\S+\s+([0-9]+(?:\.[0-9]+)?):\s+([A-Za-z0-9_./:-]+):?\s*(.*)$`)
-	kvRE         = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)=([^ ]+)`)
+	ftraceLineRE   = regexp.MustCompile(`^\s*(.+)-(\d+)\s+\(\s*(\d+)\)\s+\[(\d+)\]\s+\S+\s+([0-9]+(?:\.[0-9]+)?):\s+([A-Za-z0-9_./:-]+):?\s*(.*)$`)
+	kvRE           = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)=([^ ]+)`)
+	blockRequestRE = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(?:(?:\d+)\s+)?\([^)]*\)\s+(\d+)\s+\+\s+(\d+)`)
+	blockRemapRE   = regexp.MustCompile(`^(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-`)
 )
 
 type parseCacheKey struct {
@@ -117,6 +119,7 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		PID:       pid,
 		TGID:      tgid,
 		Type:      classifyEventType(rawType, fields),
+		Name:      intern.intern(rawType),
 		FieldText: intern.intern(clampString(fields, 300)),
 	}
 	kv := parseKV(fields)
@@ -157,6 +160,17 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.SpanAction = intern.intern(ev.SpanAction)
 		ev.SpanName = intern.intern(ev.SpanName)
 		ev.SpanValue = intern.intern(ev.SpanValue)
+	case EventBlockIssue, EventBlockComplete:
+		dev, op, sector, length := parseBlockRequest(fields)
+		ev.BlockDev = intern.intern(dev)
+		ev.BlockOp = intern.intern(op)
+		ev.BlockSector = sector
+		ev.BlockLen = length
+	case EventBlockRemap:
+		dev, sector, length := parseBlockRemap(fields)
+		ev.BlockDev = intern.intern(dev)
+		ev.BlockSector = sector
+		ev.BlockLen = length
 	case EventBinderTransaction:
 		ev.BinderTransactionID = atoi(kv["transaction"])
 		ev.BinderDestProc = atoi(kv["dest_proc"])
@@ -166,11 +180,48 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.BinderCode = intern.intern(kv["code"])
 	case EventBinderReceived:
 		ev.BinderTransactionID = atoi(kv["transaction"])
+	case EventIRQ:
+		ev.IRQID = atoi(kv["irq"])
+		ev.IRQName = intern.intern(kv["name"])
+	case EventMemory:
+		ev.MemoryKind = intern.intern(classifyMemoryKind(rawType, fields))
 	}
 	if ev.Type == EventUnknown {
 		ev.FieldText = ""
 	}
 	return ev, true
+}
+
+func parseBlockRequest(fields string) (dev, op string, sector, length int64) {
+	m := blockRequestRE.FindStringSubmatch(strings.TrimSpace(fields))
+	if len(m) != 5 {
+		return "", "", 0, 0
+	}
+	return m[1], m[2], atoi64(m[3]), atoi64(m[4])
+}
+
+func parseBlockRemap(fields string) (dev string, sector, length int64) {
+	m := blockRemapRE.FindStringSubmatch(strings.TrimSpace(fields))
+	if len(m) != 4 {
+		return "", 0, 0
+	}
+	return m[1], atoi64(m[2]), atoi64(m[3])
+}
+
+func classifyMemoryKind(raw, fields string) string {
+	text := strings.ToLower(strings.TrimSpace(raw + " " + fields))
+	switch {
+	case strings.Contains(text, "reclaim") || strings.Contains(text, "vmscan"):
+		return "reclaim"
+	case strings.Contains(text, "fault"):
+		return "page_fault"
+	case strings.Contains(text, "filemap") || strings.Contains(text, "page_cache"):
+		return "page_cache"
+	case strings.Contains(text, "gc"):
+		return "gc"
+	default:
+		return "memory"
+	}
 }
 
 func classifyEventType(raw, fields string) EventType {
@@ -288,6 +339,15 @@ func atoi(raw string) int {
 		return 0
 	}
 	n, _ := strconv.Atoi(raw)
+	return n
+}
+
+func atoi64(raw string) int64 {
+	raw = strings.Trim(strings.TrimSpace(raw), ":,")
+	if raw == "" {
+		return 0
+	}
+	n, _ := strconv.ParseInt(raw, 10, 64)
 	return n
 }
 

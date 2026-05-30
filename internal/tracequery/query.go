@@ -426,6 +426,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		}
 	}
 	running := map[string]ThreadDuration{}
+	pressure := map[int]*cpuPressureAcc{}
 	for cpu, events := range byCPU {
 		sort.SliceStable(events, func(i, j int) bool { return events[i].Ts < events[j].Ts })
 		var busy, idle float64
@@ -449,10 +450,15 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 				idle += dur
 			} else {
 				busy += dur
-				key := fmt.Sprintf("%d/%s", ev.NextPID, ev.NextComm)
+				freq := frequencyAt(freqByCPU[cpu], start)
+				key := fmt.Sprintf("%d/%s/%d", ev.NextPID, ev.NextComm, cpu)
 				td := running[key]
 				td.Thread = ThreadRef{Comm: ev.NextComm, PID: ev.NextPID}
 				td.DurationMs += dur
+				td.CPU = cpu
+				if freq > 0 {
+					td.Frequency = freq
+				}
 				td.Priority = ev.NextPrio
 				td.PriorityClass = ev.NextPrioClass
 				if td.LineStart == 0 {
@@ -460,6 +466,13 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 				}
 				td.LineEnd = ev.Line
 				running[key] = td
+				acc := cpuPressure(pressure, cpu)
+				acc.runningMs += dur
+				acc.runningEvents++
+				if isHighPriorityForPressure(ev.NextPrio, ev.NextPrioClass) {
+					acc.highPriorityRunningMs += dur
+				}
+				accumulateThreadDuration(acc.running, td.Thread, dur, cpu, freq, ev.Line, ev.NextPrio, ev.NextPrioClass)
 			}
 		}
 		stats.CPU = upsertCPUBusyIdle(stats.CPU, cpu, busy, idle)
@@ -472,9 +485,61 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		stats.TopRunning = stats.TopRunning[:8]
 	}
 	stats.CPU = applyCPUFrequencyResidency(stats.CPU, freqByCPU, q)
-	stats.RunnableTop, stats.DStateTop = computeOffCPUStats(idx, q)
+	stats.RunnableTop, stats.DStateTop, stats.CPUPressure = computeOffCPUStats(idx, q, freqByCPU, pressure)
+	stats.IOLatencies = computeIOLatencies(idx, q, 8)
+	stats.Caveats = append(stats.Caveats, ioPairingCaveats(idx, q)...)
 	stats.BlockedReasons = topBlockedReasons(blockedReasons, 8)
 	return stats
+}
+
+type cpuPressureAcc struct {
+	runnableWaitMs        float64
+	runnableEvents        int
+	runningMs             float64
+	runningEvents         int
+	highPriorityRunningMs float64
+	runnable              map[string]ThreadDuration
+	running               map[string]ThreadDuration
+}
+
+func cpuPressure(in map[int]*cpuPressureAcc, cpu int) *cpuPressureAcc {
+	if acc := in[cpu]; acc != nil {
+		return acc
+	}
+	acc := &cpuPressureAcc{
+		runnable: map[string]ThreadDuration{},
+		running:  map[string]ThreadDuration{},
+	}
+	in[cpu] = acc
+	return acc
+}
+
+func accumulateThreadDuration(bucket map[string]ThreadDuration, thread ThreadRef, dur float64, cpu int, freq int, line int, priority int, priorityClass string) {
+	if dur <= 0 {
+		return
+	}
+	key := fmt.Sprintf("%d/%s/%d", thread.PID, thread.Comm, cpu)
+	td := bucket[key]
+	td.Thread = thread
+	td.DurationMs += dur
+	td.CPU = cpu
+	if freq > 0 {
+		td.Frequency = freq
+	}
+	td.Priority = priority
+	td.PriorityClass = priorityClass
+	if td.LineStart == 0 {
+		td.LineStart = line
+	}
+	td.LineEnd = line
+	bucket[key] = td
+}
+
+func isHighPriorityForPressure(prio int, class string) bool {
+	if class == "ohos_rt" || class == "system_or_kernel" {
+		return true
+	}
+	return prio >= 41
 }
 
 type offCPUStart struct {
@@ -482,13 +547,14 @@ type offCPUStart struct {
 	state         ThreadState
 	ts            float64
 	line          int
+	cpu           int
 	priority      int
 	priorityClass string
 }
 
-func computeOffCPUStats(idx *Index, q Query) ([]ThreadDuration, []ThreadDuration) {
+func computeOffCPUStats(idx *Index, q Query, freqByCPU map[int][]Event, pressure map[int]*cpuPressureAcc) ([]ThreadDuration, []ThreadDuration, []CPUPressureStats) {
 	if idx == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	open := map[int]offCPUStart{}
 	runnable := map[string]ThreadDuration{}
@@ -504,10 +570,16 @@ func computeOffCPUStats(idx *Index, q Query) ([]ThreadDuration, []ThreadDuration
 		if endTs <= startTs {
 			return
 		}
-		key := fmt.Sprintf("%d/%s", start.thread.PID, start.thread.Comm)
+		dur := (endTs - startTs) * 1000
+		freq := frequencyAt(freqByCPU[start.cpu], startTs)
+		key := fmt.Sprintf("%d/%s/%d", start.thread.PID, start.thread.Comm, start.cpu)
 		td := bucket[key]
 		td.Thread = start.thread
-		td.DurationMs += (endTs - startTs) * 1000
+		td.DurationMs += dur
+		td.CPU = start.cpu
+		if freq > 0 {
+			td.Frequency = freq
+		}
 		td.Priority = start.priority
 		td.PriorityClass = start.priorityClass
 		if td.LineStart == 0 {
@@ -515,6 +587,12 @@ func computeOffCPUStats(idx *Index, q Query) ([]ThreadDuration, []ThreadDuration
 		}
 		td.LineEnd = firstPositive(endLine, start.line)
 		bucket[key] = td
+		if start.state == StateRunnable {
+			acc := cpuPressure(pressure, start.cpu)
+			acc.runnableWaitMs += dur
+			acc.runnableEvents++
+			accumulateThreadDuration(acc.runnable, start.thread, dur, start.cpu, freq, firstPositive(endLine, start.line), start.priority, start.priorityClass)
+		}
 	}
 	for _, ev := range idx.Events {
 		if !eventLineInWindow(ev, q) || ev.Type != EventSchedSwitch {
@@ -539,6 +617,7 @@ func computeOffCPUStats(idx *Index, q Query) ([]ThreadDuration, []ThreadDuration
 					state:         state,
 					ts:            ev.Ts,
 					line:          ev.Line,
+					cpu:           ev.CPU,
 					priority:      ev.PrevPrio,
 					priorityClass: ev.PrevPrioClass,
 				}
@@ -555,7 +634,35 @@ func computeOffCPUStats(idx *Index, q Query) ([]ThreadDuration, []ThreadDuration
 			}
 		}
 	}
-	return topThreadDurations(runnable, 8), topThreadDurations(dstate, 8)
+	return topThreadDurations(runnable, 8), topThreadDurations(dstate, 8), buildCPUPressureStats(pressure, 8)
+}
+
+func buildCPUPressureStats(in map[int]*cpuPressureAcc, max int) []CPUPressureStats {
+	out := make([]CPUPressureStats, 0, len(in))
+	for cpu, acc := range in {
+		if acc == nil {
+			continue
+		}
+		out = append(out, CPUPressureStats{
+			CPU:                   cpu,
+			RunnableWaitMs:        acc.runnableWaitMs,
+			RunnableEvents:        acc.runnableEvents,
+			RunningMs:             acc.runningMs,
+			HighPriorityRunningMs: acc.highPriorityRunningMs,
+			TopRunnable:           topThreadDurations(acc.runnable, max),
+			TopRunning:            topThreadDurations(acc.running, max),
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].RunnableWaitMs != out[j].RunnableWaitMs {
+			return out[i].RunnableWaitMs > out[j].RunnableWaitMs
+		}
+		return out[i].CPU < out[j].CPU
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
 }
 
 func topThreadDurations(in map[string]ThreadDuration, max int) []ThreadDuration {
@@ -714,6 +821,28 @@ func computeCPUFrequencyResidency(events []Event, q Query) ([]CPUFrequencyReside
 	return out, latest
 }
 
+func frequencyAt(events []Event, ts float64) int {
+	if len(events) == 0 {
+		return 0
+	}
+	sort.SliceStable(events, func(i, j int) bool {
+		if events[i].Ts != events[j].Ts {
+			return events[i].Ts < events[j].Ts
+		}
+		return events[i].Line < events[j].Line
+	})
+	freq := 0
+	for _, ev := range events {
+		if ev.Ts > ts {
+			break
+		}
+		if ev.Frequency > 0 {
+			freq = ev.Frequency
+		}
+	}
+	return freq
+}
+
 func appendFrequencyResidency(in []CPUFrequencyResidency, ev Event, start, end float64, endLine int) []CPUFrequencyResidency {
 	if ev.Frequency <= 0 || end <= start {
 		return in
@@ -733,6 +862,111 @@ func appendFrequencyResidency(in []CPUFrequencyResidency, ev Event, start, end f
 		return in
 	}
 	return append(in, res)
+}
+
+func computeIOLatencies(idx *Index, q Query, max int) []IOLatencySummary {
+	if idx == nil {
+		return nil
+	}
+	open := map[string][]Event{}
+	var out []IOLatencySummary
+	for _, ev := range idx.Events {
+		if !eventLineInWindow(ev, q) {
+			continue
+		}
+		if q.TimeEnd > 0 && ev.Ts > q.TimeEnd {
+			break
+		}
+		switch ev.Type {
+		case EventBlockIssue:
+			key := blockKey(ev)
+			if key == "" {
+				continue
+			}
+			open[key] = append(open[key], ev)
+		case EventBlockComplete:
+			if q.TimeStart > 0 && ev.Ts < q.TimeStart {
+				continue
+			}
+			key := blockKey(ev)
+			queue := open[key]
+			if key == "" || len(queue) == 0 {
+				continue
+			}
+			issue := queue[0]
+			open[key] = queue[1:]
+			if ev.Ts < issue.Ts {
+				continue
+			}
+			out = append(out, IOLatencySummary{
+				Dev:            ev.BlockDev,
+				Op:             ev.BlockOp,
+				Sector:         ev.BlockSector,
+				Len:            ev.BlockLen,
+				IssueThread:    threadRefFromEvent(issue),
+				CompleteThread: threadRefFromEvent(ev),
+				IssueTs:        issue.Ts,
+				CompleteTs:     ev.Ts,
+				DurationMs:     (ev.Ts - issue.Ts) * 1000,
+				IssueLine:      issue.Line,
+				CompleteLine:   ev.Line,
+			})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].DurationMs != out[j].DurationMs {
+			return out[i].DurationMs > out[j].DurationMs
+		}
+		return out[i].IssueLine < out[j].IssueLine
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
+func ioPairingCaveats(idx *Index, q Query) []string {
+	if idx == nil {
+		return nil
+	}
+	issues := 0
+	completes := 0
+	missingIdentity := 0
+	for _, ev := range idx.Events {
+		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
+			continue
+		}
+		switch ev.Type {
+		case EventBlockIssue:
+			issues++
+			if blockKey(ev) == "" {
+				missingIdentity++
+			}
+		case EventBlockComplete:
+			completes++
+			if blockKey(ev) == "" {
+				missingIdentity++
+			}
+		}
+	}
+	var out []string
+	if issues > 0 && completes == 0 {
+		out = append(out, "block_rq_issue rows were present but no matching block_rq_complete rows appeared in the selected window; IO latency may extend outside the window")
+	}
+	if completes > 0 && issues == 0 {
+		out = append(out, "block_rq_complete rows were present but issue rows were outside the selected window or unavailable; IO latency cannot be paired deterministically")
+	}
+	if missingIdentity > 0 {
+		out = append(out, fmt.Sprintf("%d block IO row(s) lacked parseable device/sector/length identity and were excluded from latency pairing", missingIdentity))
+	}
+	return out
+}
+
+func blockKey(ev Event) string {
+	if ev.BlockDev == "" || ev.BlockSector == 0 || ev.BlockLen == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s/%s/%d/%d", ev.BlockDev, ev.BlockOp, ev.BlockSector, ev.BlockLen)
 }
 
 func BuildWakeupChain(idx *Index, q Query) ChainResult {
@@ -768,7 +1002,117 @@ func attachIPCGraphToChain(idx *Index, q Query, res *ChainResult) {
 	}
 	ipc := BuildIPCGraph(idx, q)
 	res.IPCEdges = ipc.Edges
+	res.BinderWaits = findBinderWaitsForChain(*res, ipc.Edges)
+	for _, wait := range res.BinderWaits {
+		res.RootEvidence = append(res.RootEvidence, RootEvidence{
+			Type:       "binder_wait",
+			Thread:     wait.Thread,
+			DurationMs: wait.DurationMs,
+			LineStart:  firstPositive(wait.SendLine, wait.SleepLine),
+			LineEnd:    firstPositive(wait.WakeupLine, wait.ReceiveLine, wait.SleepLine),
+			Summary:    wait.Summary,
+			Confidence: wait.Confidence,
+		})
+	}
 	res.Caveats = append(res.Caveats, ipc.Caveats...)
+}
+
+func findBinderWaitsForChain(chain ChainResult, edges []IPCEdge) []BinderWaitSummary {
+	if len(chain.Nodes) == 0 || len(edges) == 0 {
+		return nil
+	}
+	var out []BinderWaitSummary
+	seen := map[string]bool{}
+	for _, node := range chain.Nodes {
+		if node.Thread.PID == 0 {
+			continue
+		}
+		if node.Dominant != StateSSleep && node.Dominant != StateDSleep && node.Dominant != StateIOWait {
+			continue
+		}
+		for _, edge := range edges {
+			if edge.Oneway {
+				continue
+			}
+			if edge.Sender.PID != node.Thread.PID {
+				continue
+			}
+			if edge.SendTs <= 0 || edge.SendTs > node.Window.StartTs {
+				continue
+			}
+			if node.Window.StartTs-edge.SendTs > 0.100 {
+				continue
+			}
+			key := fmt.Sprintf("%d/%d/%d", node.Thread.PID, edge.TransactionID, node.EvidenceLine)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			confidence := edge.Confidence
+			if confidence == 0 {
+				confidence = 0.65
+			}
+			if edge.ReceiveLine == 0 {
+				confidence *= 0.85
+			}
+			wait := BinderWaitSummary{
+				Thread:        node.Thread,
+				Peer:          edge.Receiver,
+				TransactionID: edge.TransactionID,
+				SendLine:      edge.SendLine,
+				ReceiveLine:   edge.ReceiveLine,
+				SleepLine:     node.EvidenceLine,
+				SendTs:        edge.SendTs,
+				SleepStartTs:  node.Window.StartTs,
+				DurationMs:    node.DurationMs,
+				Confidence:    confidence,
+			}
+			for _, w := range chain.Edges {
+				if w.Wakee.PID == node.Thread.PID && w.WakeupTs >= node.Window.StartTs && w.WakeupTs <= node.Window.EndTs {
+					wait.WakeupLine = w.WakeupLine
+					wait.WakeupTs = w.WakeupTs
+					break
+				}
+			}
+			peer := tracePeerLabel(wait.Peer, edge)
+			wait.Summary = fmt.Sprintf("%s sent synchronous-looking binder transaction", threadLabel(wait.Thread))
+			if edge.TransactionID > 0 {
+				wait.Summary = fmt.Sprintf("%s transaction=%d", wait.Summary, edge.TransactionID)
+			}
+			if peer != "" {
+				wait.Summary = fmt.Sprintf("%s to %s", wait.Summary, peer)
+			}
+			wait.Summary = fmt.Sprintf("%s before %.3fms %s interval", wait.Summary, node.DurationMs, node.Dominant)
+			if edge.ReceiveLine == 0 {
+				wait.Caveats = append(wait.Caveats, "receiver row was not matched; binder wait is a scheduler-correlated candidate, not standalone proof")
+			}
+			out = append(out, wait)
+			break
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].DurationMs != out[j].DurationMs {
+			return out[i].DurationMs > out[j].DurationMs
+		}
+		return out[i].SendLine < out[j].SendLine
+	})
+	if len(out) > 8 {
+		out = out[:8]
+	}
+	return out
+}
+
+func tracePeerLabel(peer ThreadRef, edge IPCEdge) string {
+	if peer.PID > 0 || peer.Comm != "" {
+		return threadLabel(peer)
+	}
+	if edge.DestThread > 0 {
+		return fmt.Sprintf("dest_thread=%d", edge.DestThread)
+	}
+	if edge.DestProc > 0 {
+		return fmt.Sprintf("dest_proc=%d", edge.DestProc)
+	}
+	return ""
 }
 
 func expandChain(idx *Index, q Query, thread ThreadRef, start, end float64, depth int, visited map[int]bool, res *ChainResult, parentID string) string {
@@ -1065,7 +1409,7 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(td.Thread),
 			Predicate:  "runnable_wait",
-			Summary:    fmt.Sprintf("%s spent %.3f ms runnable but not running in the selected window", threadLabel(td.Thread), td.DurationMs),
+			Summary:    fmt.Sprintf("%s spent %.3f ms runnable but not running in the selected window%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
 			LineStart:  td.LineStart,
 			LineEnd:    td.LineEnd,
 			Confidence: 0.75,
@@ -1078,7 +1422,7 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(td.Thread),
 			Predicate:  "d_state_or_io_wait",
-			Summary:    fmt.Sprintf("%s spent %.3f ms in D-state or IO-like wait in the selected window", threadLabel(td.Thread), td.DurationMs),
+			Summary:    fmt.Sprintf("%s spent %.3f ms in D-state or IO-like wait in the selected window%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
 			LineStart:  td.LineStart,
 			LineEnd:    td.LineEnd,
 			Confidence: 0.8,
@@ -1102,7 +1446,37 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 			break
 		}
 	}
+	for _, io := range stats.IOLatencies {
+		out = append(out, EvidenceFact{
+			Subject:    threadLabel(io.IssueThread),
+			Predicate:  "io_latency",
+			Object:     threadLabel(io.CompleteThread),
+			Summary:    fmt.Sprintf("block IO %s %s sector=%d len=%d took %.3f ms", io.Dev, io.Op, io.Sector, io.Len, io.DurationMs),
+			LineStart:  io.IssueLine,
+			LineEnd:    io.CompleteLine,
+			StartTs:    io.IssueTs,
+			EndTs:      io.CompleteTs,
+			Confidence: 0.86,
+		})
+		if len(out) >= 24 {
+			break
+		}
+	}
 	return out
+}
+
+func durationCPUDetail(td ThreadDuration) string {
+	parts := []string{}
+	if td.CPU >= 0 {
+		parts = append(parts, fmt.Sprintf("cpu=%d", td.CPU))
+	}
+	if td.Frequency > 0 {
+		parts = append(parts, fmt.Sprintf("freq=%dkHz", td.Frequency))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(parts, " ") + ")"
 }
 
 func evidenceFromChain(chain ChainResult) []EvidenceFact {
@@ -1128,6 +1502,19 @@ func evidenceFromChain(chain ChainResult) []EvidenceFact {
 			LineStart:  root.LineStart,
 			LineEnd:    root.LineEnd,
 			Confidence: root.Confidence,
+		})
+	}
+	for _, wait := range chain.BinderWaits {
+		out = append(out, EvidenceFact{
+			Subject:    threadLabel(wait.Thread),
+			Predicate:  "binder_wait",
+			Object:     threadLabel(wait.Peer),
+			Summary:    wait.Summary,
+			LineStart:  firstPositive(wait.SendLine, wait.SleepLine),
+			LineEnd:    firstPositive(wait.WakeupLine, wait.ReceiveLine, wait.SleepLine),
+			StartTs:    wait.SendTs,
+			EndTs:      firstPositiveFloat(wait.WakeupTs, wait.SleepStartTs),
+			Confidence: wait.Confidence,
 		})
 	}
 	return out

@@ -127,22 +127,26 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			check: func(ev Event) bool { return ev.Frequency == 3744 && ev.ClockName == "heca_ddr_freq" },
 		},
 		{
-			name:  "block issue",
-			line:  `      waker-10   (   10) [000] .... 2.070000: block_rq_issue: 8,0 R 4096 () 123 + 8 [worker]`,
-			want:  EventBlockIssue,
-			check: func(ev Event) bool { return ev.FieldText != "" },
+			name: "block issue",
+			line: `      waker-10   (   10) [000] .... 2.070000: block_rq_issue: 8,0 R 4096 () 123 + 8 [worker]`,
+			want: EventBlockIssue,
+			check: func(ev Event) bool {
+				return ev.BlockDev == "8,0" && ev.BlockOp == "R" && ev.BlockSector == 123 && ev.BlockLen == 8
+			},
 		},
 		{
-			name:  "block complete",
-			line:  `      waker-10   (   10) [000] .... 2.080000: block_rq_complete: 8,0 R () 123 + 8 [0]`,
-			want:  EventBlockComplete,
-			check: func(ev Event) bool { return ev.FieldText != "" },
+			name: "block complete",
+			line: `      waker-10   (   10) [000] .... 2.080000: block_rq_complete: 8,0 R () 123 + 8 [0]`,
+			want: EventBlockComplete,
+			check: func(ev Event) bool {
+				return ev.BlockDev == "8,0" && ev.BlockOp == "R" && ev.BlockSector == 123 && ev.BlockLen == 8
+			},
 		},
 		{
 			name:  "block remap",
 			line:  `      waker-10   (   10) [000] .... 2.085000: block_bio_remap: 12,48  66637568 + 8 <- (260,84) 14962432`,
 			want:  EventBlockRemap,
-			check: func(ev Event) bool { return ev.FieldText != "" },
+			check: func(ev Event) bool { return ev.BlockDev == "12,48" && ev.BlockSector == 66637568 && ev.BlockLen == 8 },
 		},
 		{
 			name: "binder",
@@ -162,7 +166,7 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			name:  "irq",
 			line:  `      waker-10   (   10) [000] .... 2.100000: irq_handler_entry: irq=32 name=kirq`,
 			want:  EventIRQ,
-			check: func(ev Event) bool { return ev.CPU == 0 },
+			check: func(ev Event) bool { return ev.CPU == 0 && ev.IRQID == 32 && ev.IRQName == "kirq" },
 		},
 		{
 			name:  "trace mark",
@@ -182,7 +186,7 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			name:  "memory",
 			line:  `      waker-10   (   10) [000] .... 2.110000: mm_vmscan_direct_reclaim_begin: order=0 may_writepage=1`,
 			want:  EventMemory,
-			check: func(ev Event) bool { return ev.Type == EventMemory },
+			check: func(ev Event) bool { return ev.MemoryKind == "reclaim" },
 		},
 		{
 			name:  "unknown ftrace row",
@@ -290,6 +294,27 @@ func TestWakeupChainCarriesRelevantIPCEdges(t *testing.T) {
 	}
 }
 
+func TestWakeupChainReportsBinderWaitCandidate(t *testing.T) {
+	idx := buildTraceIndex(t, "ipc.systrace", ipcTrace)
+	chain := BuildWakeupChain(idx, Query{PID: 20, TimeStart: 3.0, TimeEnd: 3.04, MaxDepth: 4, MinDurationMs: 1})
+	if len(chain.BinderWaits) != 1 {
+		t.Fatalf("expected binder wait candidate, got %+v", chain.BinderWaits)
+	}
+	wait := chain.BinderWaits[0]
+	if wait.TransactionID != 42 || wait.SendLine == 0 || wait.SleepLine == 0 || wait.Confidence <= 0 {
+		t.Fatalf("bad binder wait: %+v", wait)
+	}
+	foundRoot := false
+	for _, root := range chain.RootEvidence {
+		if root.Type == "binder_wait" {
+			foundRoot = true
+		}
+	}
+	if !foundRoot {
+		t.Fatalf("binder wait should be carried as root evidence candidate: %+v", chain.RootEvidence)
+	}
+}
+
 func TestWakeupChainReportsMissingWakeup(t *testing.T) {
 	idx := buildSampleIndex(t)
 	chain := BuildWakeupChain(idx, Query{PID: 10, TimeStart: 1.05, TimeEnd: 1.17, MaxDepth: 4, MinDurationMs: 1})
@@ -329,8 +354,17 @@ func TestWindowStatsCountsRuntimeResourcesAndOffCPU(t *testing.T) {
 	if len(stats.RunnableTop) == 0 || stats.RunnableTop[0].Thread.PID != 20 {
 		t.Fatalf("expected runnable top for main thread: %+v", stats.RunnableTop)
 	}
+	if stats.RunnableTop[0].CPU != 1 {
+		t.Fatalf("expected runnable top to keep CPU context: %+v", stats.RunnableTop[0])
+	}
 	if len(stats.DStateTop) == 0 || stats.DStateTop[0].Thread.PID != 30 {
 		t.Fatalf("expected D-state top for worker thread: %+v", stats.DStateTop)
+	}
+	if len(stats.IOLatencies) != 1 || stats.IOLatencies[0].DurationMs <= 0 || stats.IOLatencies[0].IssueLine == 0 || stats.IOLatencies[0].CompleteLine == 0 {
+		t.Fatalf("expected paired IO latency: %+v", stats.IOLatencies)
+	}
+	if len(stats.CPUPressure) == 0 {
+		t.Fatalf("expected CPU pressure stats: %+v", stats.CPUPressure)
 	}
 	foundFreq := false
 	for _, cpu := range stats.CPU {

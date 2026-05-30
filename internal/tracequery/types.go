@@ -2,7 +2,7 @@ package tracequery
 
 import "time"
 
-const ParserVersion = "tracequery-v3"
+const ParserVersion = "tracequery-v4"
 
 type EventType string
 
@@ -30,6 +30,7 @@ type Event struct {
 	Ts   float64   `json:"ts"`
 	CPU  int       `json:"cpu,omitempty"`
 	Type EventType `json:"type"`
+	Name string    `json:"name,omitempty"`
 
 	Comm string `json:"comm,omitempty"`
 	PID  int    `json:"pid,omitempty"`
@@ -68,6 +69,16 @@ type Event struct {
 	BinderReply         int    `json:"binder_reply,omitempty"`
 	BinderFlags         string `json:"binder_flags,omitempty"`
 	BinderCode          string `json:"binder_code,omitempty"`
+
+	BlockDev    string `json:"block_dev,omitempty"`
+	BlockOp     string `json:"block_op,omitempty"`
+	BlockSector int64  `json:"block_sector,omitempty"`
+	BlockLen    int64  `json:"block_len,omitempty"`
+
+	IRQName string `json:"irq_name,omitempty"`
+	IRQID   int    `json:"irq_id,omitempty"`
+
+	MemoryKind string `json:"memory_kind,omitempty"`
 
 	FieldText string `json:"field_text,omitempty"`
 }
@@ -171,6 +182,8 @@ type WindowStats struct {
 	TopRunning          []ThreadDuration       `json:"top_running,omitempty"`
 	RunnableTop         []ThreadDuration       `json:"runnable_top,omitempty"`
 	DStateTop           []ThreadDuration       `json:"d_state_top,omitempty"`
+	CPUPressure         []CPUPressureStats     `json:"cpu_pressure,omitempty"`
+	IOLatencies         []IOLatencySummary     `json:"io_latencies,omitempty"`
 	BlockIssueCount     int                    `json:"block_issue_count,omitempty"`
 	BlockRemapCount     int                    `json:"block_remap_count,omitempty"`
 	BlockCompleteCount  int                    `json:"block_complete_count,omitempty"`
@@ -181,6 +194,11 @@ type WindowStats struct {
 	BlockedReasonCount  int                    `json:"blocked_reason_count,omitempty"`
 	IOWaitBlockedCount  int                    `json:"io_wait_blocked_count,omitempty"`
 	BlockedReasons      []BlockedReasonSummary `json:"blocked_reasons,omitempty"`
+	TraceSpans          []TraceSpanSummary     `json:"trace_spans,omitempty"`
+	TraceCounters       []TraceCounterSummary  `json:"trace_counters,omitempty"`
+	IRQBursts           []IRQBurstSummary      `json:"irq_bursts,omitempty"`
+	MemoryKinds         []MemoryKindSummary    `json:"memory_kinds,omitempty"`
+	ThreadDrifts        []ThreadDriftSummary   `json:"thread_drifts,omitempty"`
 	Caveats             []string               `json:"caveats,omitempty"`
 }
 
@@ -201,6 +219,16 @@ type CPUStats struct {
 	FrequencyResidency []CPUFrequencyResidency `json:"frequency_residency,omitempty"`
 }
 
+type CPUPressureStats struct {
+	CPU                   int              `json:"cpu"`
+	RunnableWaitMs        float64          `json:"runnable_wait_ms,omitempty"`
+	RunnableEvents        int              `json:"runnable_events,omitempty"`
+	RunningMs             float64          `json:"running_ms,omitempty"`
+	HighPriorityRunningMs float64          `json:"high_priority_running_ms,omitempty"`
+	TopRunnable           []ThreadDuration `json:"top_runnable,omitempty"`
+	TopRunning            []ThreadDuration `json:"top_running,omitempty"`
+}
+
 type CPUFrequencyResidency struct {
 	Frequency  int     `json:"frequency"`
 	DurationMs float64 `json:"duration_ms"`
@@ -213,20 +241,101 @@ type CPUFrequencyResidency struct {
 type ThreadDuration struct {
 	Thread        ThreadRef `json:"thread"`
 	DurationMs    float64   `json:"duration_ms"`
+	CPU           int       `json:"cpu"`
+	Frequency     int       `json:"frequency,omitempty"`
 	LineStart     int       `json:"line_start,omitempty"`
 	LineEnd       int       `json:"line_end,omitempty"`
 	Priority      int       `json:"priority,omitempty"`
 	PriorityClass string    `json:"priority_class,omitempty"`
 }
 
+type IOLatencySummary struct {
+	Dev            string    `json:"dev,omitempty"`
+	Op             string    `json:"op,omitempty"`
+	Sector         int64     `json:"sector,omitempty"`
+	Len            int64     `json:"len,omitempty"`
+	IssueThread    ThreadRef `json:"issue_thread,omitempty"`
+	CompleteThread ThreadRef `json:"complete_thread,omitempty"`
+	IssueTs        float64   `json:"issue_ts,omitempty"`
+	CompleteTs     float64   `json:"complete_ts,omitempty"`
+	DurationMs     float64   `json:"duration_ms,omitempty"`
+	IssueLine      int       `json:"issue_line,omitempty"`
+	CompleteLine   int       `json:"complete_line,omitempty"`
+}
+
+type BinderWaitSummary struct {
+	Thread        ThreadRef `json:"thread"`
+	Peer          ThreadRef `json:"peer,omitempty"`
+	TransactionID int       `json:"transaction_id,omitempty"`
+	SendLine      int       `json:"send_line,omitempty"`
+	ReceiveLine   int       `json:"receive_line,omitempty"`
+	SleepLine     int       `json:"sleep_line,omitempty"`
+	WakeupLine    int       `json:"wakeup_line,omitempty"`
+	SendTs        float64   `json:"send_ts,omitempty"`
+	SleepStartTs  float64   `json:"sleep_start_ts,omitempty"`
+	WakeupTs      float64   `json:"wakeup_ts,omitempty"`
+	DurationMs    float64   `json:"duration_ms,omitempty"`
+	Confidence    float64   `json:"confidence,omitempty"`
+	Summary       string    `json:"summary,omitempty"`
+	Caveats       []string  `json:"caveats,omitempty"`
+}
+
+type TraceSpanSummary struct {
+	Thread     ThreadRef `json:"thread"`
+	Name       string    `json:"name,omitempty"`
+	StartTs    float64   `json:"start_ts,omitempty"`
+	EndTs      float64   `json:"end_ts,omitempty"`
+	DurationMs float64   `json:"duration_ms,omitempty"`
+	StartLine  int       `json:"start_line,omitempty"`
+	EndLine    int       `json:"end_line,omitempty"`
+}
+
+type TraceCounterSummary struct {
+	Thread ThreadRef `json:"thread"`
+	Name   string    `json:"name,omitempty"`
+	Value  string    `json:"value,omitempty"`
+	Count  int       `json:"count,omitempty"`
+	Line   int       `json:"line,omitempty"`
+	Ts     float64   `json:"ts,omitempty"`
+}
+
+type IRQBurstSummary struct {
+	CPU        int     `json:"cpu"`
+	Name       string  `json:"name,omitempty"`
+	IRQ        int     `json:"irq,omitempty"`
+	Count      int     `json:"count,omitempty"`
+	StartTs    float64 `json:"start_ts,omitempty"`
+	EndTs      float64 `json:"end_ts,omitempty"`
+	DurationMs float64 `json:"duration_ms,omitempty"`
+	LineStart  int     `json:"line_start,omitempty"`
+	LineEnd    int     `json:"line_end,omitempty"`
+}
+
+type MemoryKindSummary struct {
+	Kind  string  `json:"kind,omitempty"`
+	Count int     `json:"count,omitempty"`
+	Line  int     `json:"line,omitempty"`
+	Ts    float64 `json:"ts,omitempty"`
+}
+
+type ThreadDriftSummary struct {
+	PID       int      `json:"pid"`
+	Names     []string `json:"names,omitempty"`
+	TGIDs     []int    `json:"tgids,omitempty"`
+	LineStart int      `json:"line_start,omitempty"`
+	LineEnd   int      `json:"line_end,omitempty"`
+	Caveat    string   `json:"caveat,omitempty"`
+}
+
 type ChainResult struct {
-	Target       ThreadRef      `json:"target"`
-	Window       TimeWindow     `json:"window"`
-	Nodes        []ChainNode    `json:"nodes"`
-	Edges        []WakeupEdge   `json:"edges,omitempty"`
-	IPCEdges     []IPCEdge      `json:"ipc_edges,omitempty"`
-	RootEvidence []RootEvidence `json:"root_evidence,omitempty"`
-	Caveats      []string       `json:"caveats,omitempty"`
+	Target       ThreadRef           `json:"target"`
+	Window       TimeWindow          `json:"window"`
+	Nodes        []ChainNode         `json:"nodes"`
+	Edges        []WakeupEdge        `json:"edges,omitempty"`
+	IPCEdges     []IPCEdge           `json:"ipc_edges,omitempty"`
+	BinderWaits  []BinderWaitSummary `json:"binder_waits,omitempty"`
+	RootEvidence []RootEvidence      `json:"root_evidence,omitempty"`
+	Caveats      []string            `json:"caveats,omitempty"`
 }
 
 type IPCGraphResult struct {

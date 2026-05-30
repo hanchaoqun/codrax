@@ -206,6 +206,10 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			fmt.Fprintf(&b, "- root_evidence=%s thread=%s duration=%.3fms lines=%d-%d confidence=%.2f — %s\n",
 				root.Type, traceThreadLabel(root.Thread), root.DurationMs, root.LineStart, root.LineEnd, root.Confidence, root.Summary)
 		}
+		for _, wait := range result.WakeupChain.BinderWaits {
+			fmt.Fprintf(&b, "- binder_wait transaction=%d %s -> %s duration=%.3fms send_line=%d receive_line=%d sleep_line=%d wake_line=%d confidence=%.2f — %s\n",
+				wait.TransactionID, traceThreadLabel(wait.Thread), traceThreadLabel(wait.Peer), wait.DurationMs, wait.SendLine, wait.ReceiveLine, wait.SleepLine, wait.WakeupLine, wait.Confidence, wait.Summary)
+		}
 		writeTraceIPCEdges(&b, result.WakeupChain.IPCEdges)
 		b.WriteString("\n")
 	}
@@ -235,16 +239,24 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			fmt.Fprintf(&b, "- cpu=%d busy=%.3fms idle=%.3fms freq=%d%s\n", cpu.CPU, cpu.BusyMs, cpu.IdleMs, cpu.Frequency, traceFrequencyResidencySummary(cpu.FrequencyResidency))
 		}
 		for _, td := range result.WindowStats.TopRunning {
-			fmt.Fprintf(&b, "- top_running %s %.3fms %s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), td.LineStart, td.LineEnd)
+			fmt.Fprintf(&b, "- top_running %s %.3fms %s%s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd)
 		}
 		for _, td := range result.WindowStats.RunnableTop {
-			fmt.Fprintf(&b, "- top_runnable %s %.3fms %s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), td.LineStart, td.LineEnd)
+			fmt.Fprintf(&b, "- top_runnable %s %.3fms %s%s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd)
 		}
 		for _, td := range result.WindowStats.DStateTop {
-			fmt.Fprintf(&b, "- top_d_state %s %.3fms %s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), td.LineStart, td.LineEnd)
+			fmt.Fprintf(&b, "- top_d_state %s %.3fms %s%s lines=%d-%d\n", traceThreadLabel(td.Thread), td.DurationMs, tracePriorityDetail(td), traceThreadDurationLocation(td), td.LineStart, td.LineEnd)
 		}
 		for _, br := range result.WindowStats.BlockedReasons {
 			fmt.Fprintf(&b, "- blocked_reason %s iowait=%d count=%d line=%d caller=%s\n", traceThreadLabel(br.Thread), br.IOWait, br.Count, br.Line, br.Reason)
+		}
+		for _, io := range result.WindowStats.IOLatencies {
+			fmt.Fprintf(&b, "- io_latency dev=%s op=%s sector=%d len=%d duration=%.3fms issue=%s complete=%s lines=%d-%d\n",
+				io.Dev, io.Op, io.Sector, io.Len, io.DurationMs, traceThreadLabel(io.IssueThread), traceThreadLabel(io.CompleteThread), io.IssueLine, io.CompleteLine)
+		}
+		for _, pressure := range result.WindowStats.CPUPressure {
+			fmt.Fprintf(&b, "- cpu_pressure cpu=%d runnable_wait=%.3fms running=%.3fms high_prio_running=%.3fms runnable_events=%d\n",
+				pressure.CPU, pressure.RunnableWaitMs, pressure.RunningMs, pressure.HighPriorityRunningMs, pressure.RunnableEvents)
 		}
 		fmt.Fprintf(&b, "- counts block_issue=%d block_remap=%d block_complete=%d binder=%d binder_received=%d irq=%d memory=%d blocked_reason=%d iowait_blocked=%d\n\n",
 			result.WindowStats.BlockIssueCount, result.WindowStats.BlockRemapCount, result.WindowStats.BlockCompleteCount, result.WindowStats.BinderCount, result.WindowStats.BinderReceivedCount, result.WindowStats.IRQCount, result.WindowStats.MemoryEventCount, result.WindowStats.BlockedReasonCount, result.WindowStats.IOWaitBlockedCount)
@@ -327,6 +339,14 @@ func tracePriorityDetail(td tracequery.ThreadDuration) string {
 		return fmt.Sprintf("prio=%d", td.Priority)
 	}
 	return fmt.Sprintf("prio=%d/%s", td.Priority, td.PriorityClass)
+}
+
+func traceThreadDurationLocation(td tracequery.ThreadDuration) string {
+	parts := []string{fmt.Sprintf("cpu=%d", td.CPU)}
+	if td.Frequency > 0 {
+		parts = append(parts, fmt.Sprintf("freq=%dkHz", td.Frequency))
+	}
+	return " " + strings.Join(parts, " ")
 }
 
 func contextFromBus(ctx *types.BusContext) context.Context {
