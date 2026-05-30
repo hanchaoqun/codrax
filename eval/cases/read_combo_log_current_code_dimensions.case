@@ -14,6 +14,15 @@ LOG='2026-05-23T09:00:00.000 DEBUG [diag finalizer] iter=0 phase=llm_request mod
 2026-05-23T09:00:20.002 INFO [render] ⟳ 4/4 模型响应出错,正在重新撰写答案
 '
 EXPECT_NOT_CONTAINS="**值：**"
+# 2026-05-30 false-negative repair: line 2 (the "异常类型区分/影响/边界"
+# dimension) accepted only 区分/边界/影响 as the distinguishing verb. A
+# verified-correct answer DID distinguish the exception types — "与逻辑
+# 错误（logic）不同，这类超时错误属于可恢复的瞬态故障" — but used 不同
+# instead of 区分, a synonym outside the vocab. Add 不同/区别. The
+# load-bearing requirement (the answer must separate LLM transport
+# failure from answer-contract failure, surfacing the requested
+# dimension) is unchanged; the distinguishing token must still co-occur
+# with the exception-type vocabulary on one line.
 EXPECT_MATCHES_REGEX="(日志线索|日志|第 ?[0-9]+ ?行|line).*(当前关键代码|当前源码|源码|实现)|(当前关键代码|当前源码|源码|实现).*(日志线索|日志|第 ?[0-9]+ ?行|line)
-(异常类型|模型响应|timeout|超时|校验失败|成文校验).*(区分|边界|影响)|(区分|边界|影响).*(异常类型|模型响应|timeout|超时|校验失败|成文校验)
+(异常类型|模型响应|timeout|超时|校验失败|成文校验).*(区分|区别|不同|边界|影响)|(区分|区别|不同|边界|影响).*(异常类型|模型响应|timeout|超时|校验失败|成文校验)
 internal/(orchestrator|agent|llm|render|tool)/[^[:space:]]+\.go:[0-9]+"

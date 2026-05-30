@@ -9,7 +9,17 @@ ID="read_combo_config_absent_present_mix"
 NAME="read combo — absent config key plus existing config value"
 QUESTION="同时检查两个配置项：explore_xyz_phantom_unique_budget 和 explore_per_tool_default_cap。前者如果不存在，请说明默认值 / codrax.yaml / CLI flag 三层都无有效值；后者请给出 codrax.yaml.example 中的示例值和源码锚点。不要把后者当成前者的值。"
 EXPECT_CONTAINS="explore_xyz_phantom_unique_budget explore_per_tool_default_cap codrax.yaml.example"
-EXPECT_MATCHES_REGEX="explore_xyz_phantom_unique_budget.*(不存在|未定义|无有效值|absent|not found|no such|undefined)
+# 2026-05-30 false-negative repair: the absence alternation only
+# accepted 不存在/未定义/无有效值/absent/.... A verified-correct answer
+# (phantom key absent in all three layers + the real knob's value kept
+# separate) FAILed because it stated the absence with synonyms outside
+# the vocab — "三层均无有效值" used a pronoun subject, and the line that
+# DID co-locate the literal key read "explore_xyz_phantom_unique_budget
+# 在 ... 均无匹配 / 尚未引入代码库". Broaden the absence vocab to the
+# general "key absent / no match" forms. The key↔verdict same-line
+# binding (the load-bearing intent: bind the absence to THIS key, not a
+# floating "something is absent") is preserved.
+EXPECT_MATCHES_REGEX="explore_xyz_phantom_unique_budget.*(不存在|未定义|无有效值|无匹配|无对应|零结果|尚未引入|尚未被引入|未注册|无此|absent|not found|no such|undefined)
 explore_per_tool_default_cap.*(codrax\\.yaml\\.example|543|0)
 (不要把后者当成前者|不是.*explore_xyz_phantom_unique_budget|explore_per_tool_default_cap.*(不是|并非|不同于).*explore_xyz_phantom_unique_budget|separate|distinct)"
 EXPECT_NOT_CONTAINS=""

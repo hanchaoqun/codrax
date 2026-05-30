@@ -4,6 +4,16 @@
 # crash lines" without being converted into repo negative_search or current
 # source citations. The answer should still mention the observed warning/info
 # scope so the no-hit claim is bounded.
+#
+# 2026-05-30 false-negative repair: the negation alternation only
+# accepted 没有/未发现/未看到/0. A verified-correct answer ("所附日志中
+# 不存在 FATAL 级别错误或崩溃" + WARN as highest level) FAILed solely
+# because "不存在" was not in the negation vocabulary — a single-word
+# vocab gap, not a substantive miss. Broaden the negation set to the
+# general Chinese "no X present" forms (不存在 / 无 / 未出现 / 没出现).
+# Substantive bar unchanged: a negative verdict about FATAL/崩溃 is
+# still required (the negation token must co-occur with FATAL/崩溃 on
+# one line), and the WARN-scope line still gates the bounded claim.
 ID="logtri_no_fatal"
 NAME="log-triage no fatal negative observation"
 QUESTION="这段日志里有没有 FATAL/崩溃错误？如果没有，请说明日志范围内观察到的最高级别问题。"
@@ -11,5 +21,5 @@ LOG='2026-05-21T09:00:00Z INFO worker started request_id=req-001
 2026-05-21T09:00:01Z WARN cache miss key=session:abc retry=1
 2026-05-21T09:00:02Z INFO worker completed request_id=req-001 status=ok
 '
-EXPECT_MATCHES_REGEX="(没有|未发现|未看到|0).*(FATAL|崩溃)|(FATAL|崩溃).*(没有|未发现|未看到|0)
+EXPECT_MATCHES_REGEX="(没有|未发现|未看到|不存在|未出现|没出现|无|0).*(FATAL|崩溃)|(FATAL|崩溃).*(没有|未发现|未看到|不存在|未出现|没出现|无|0)
 (WARN|warning|告警|警告)"

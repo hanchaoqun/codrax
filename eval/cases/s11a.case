@@ -32,7 +32,21 @@ QUESTION="Explorer stage 之前的 analyzer stage 里是否允许调用 read_fil
 # Real eval surfaced LLMs naming the schema-side gate (which IS the
 # first line of defense). Both gates are correct answers; requiring
 # exactly one literal was over-strict.
+#
+# 2026-05-30 false-negative repair: the code grew a THIRD valid
+# enforcer the accepted-set did not list. The current runtime
+# tool-surface filter is analyzerEvaluator.FilterToolSchemas
+# (internal/agent/analyzer.go:962) → isAnalyzerStageAllowedTool
+# (agent.go:3587) → isPrescanTool (analyzer.go:1601); this chain
+# physically removes read_file from the analyzer's schema and is the
+# most directly-relevant enforcer. A verified-correct answer naming
+# exactly that chain FAILed only because the regex listed only the
+# older schema/runtime gates. Add the current enforcer names. The
+# substantive bar (negative verdict + a real enforcer identifier,
+# proving the answer reached gate logic rather than復述題目) is
+# unchanged — every accepted alternative is a load-bearing enforcer
+# verified present in the tree.
 EXPECT_CONTAINS="analyze read_file"
 EXPECT_MATCHES_REGEX="(\bno\b|not allowed|forbidden|禁止|不允许|不能)
-(validateAnalyzerPrescanToolCall|AnalysisToolSuggestions|buildToolSchemas|ToolSuggestions)"
+(validateAnalyzerPrescanToolCall|AnalysisToolSuggestions|buildToolSchemas|ToolSuggestions|isAnalyzerStageAllowedTool|isPrescanTool|FilterToolSchemas)"
 EXPECT_NOT_CONTAINS="it.depends sometimes maybe"

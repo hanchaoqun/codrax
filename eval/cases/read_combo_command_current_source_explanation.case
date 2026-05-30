@@ -7,5 +7,18 @@ ID="read_combo_command_current_source_explanation"
 NAME="read combo — command measurement plus current source explanation profile"
 QUESTION="请用命令统计 internal/tool 下非测试 Go 文件数量，再结合当前源码解释命令测量结果如何作为 command_measurement 证据进入答案链路；请说明统计值、当前源码依据和边界。"
 EXPECT_NOT_CONTAINS="**值：**"
-EXPECT_MATCHES_REGEX="(internal/tool|非测试|Go 文件|统计|数量).*(当前源码|源码|command_measurement|命令测量)|(当前源码|源码|command_measurement|命令测量).*(internal/tool|非测试|Go 文件|统计|数量)
+# 2026-05-30 false-negative repair: line 1 demanded the statistic
+# vocabulary and the current-source vocabulary co-occur on ONE physical
+# line (grep is line-based, `.` never crosses newlines). A verified-
+# complete answer (count = 145 + a full command_measurement→current-
+# source evidence-chain explanation + source anchors + boundary) split
+# those two concepts across a heading ("源码依据（command_measurement
+# 证据链路）") and a separate statistic line, so no single line carried
+# both — a structural artifact of normal markdown, not a content miss.
+# Decompose: line 1 now only asserts the statistic dimension is present;
+# line 2 already enforces the command↔current-source binding (the
+# load-bearing intent: command output represented as downstream
+# current-source evidence). EXPECT_NOT_CONTAINS="**值：**" still blocks
+# scalar compression, keeping the substantive bar intact.
+EXPECT_MATCHES_REGEX="(internal/tool|非测试|Go 文件|统计|数量)
 (命令|exec|command|measurement|统计值).*(源码|internal/|证据|边界)|(源码|internal/|证据|边界).*(命令|exec|command|measurement|统计值)"

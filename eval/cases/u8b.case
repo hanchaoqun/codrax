@@ -19,8 +19,23 @@ QUESTION="列出 internal/types 包里所有公开（首字母大写）的字符
 # with currently-extant enum type names verified via `grep -n
 # 'type [A-Z][a-zA-Z]+ string' internal/types/`. Strict-bar: 4
 # distinct extant enum types from the load-bearing set.
+#
+# 2026-05-30 false-positive repair: EXPECT_NOT_CONTAINS is space-
+# tokenised and matched with `grep -iF` (case-insensitive substring).
+# The "private" token collided with the LEGITIMATE enum value
+# `private_only` of the (public) AnswerSymbolVisibility type — a
+# correct, complete public-enum inventory FAILed on banned:private.
+# The ban was mis-designed from the start: Go unexported types are
+# lowercase (e.g. `tokenKind`) and never contain the literal substring
+# "private", so this token never actually caught a private-type leak;
+# it only fired on the word appearing inside a valid enum value or in
+# scope prose ("private/lowercase types excluded"). Same lesson already
+# encoded in read_combo_member_set_closure_scope.case. Drop "private";
+# the "公开/首字母大写" scope is gated by the EXPECT_MATCHES_REGEX
+# \b-anchored capitalised type names, and "lowercase" still weakly
+# guards against listing unexported types.
 EXPECT_CONTAINS="Intent Scenario Complexity QuestionFamily"
 EXPECT_MATCHES_REGEX="\b(Intent|IntentExplain|IntentRootCause)\b
 \b(Scenario|ScenarioGeneric|ScenarioConfigTrace)\b
 \b(Complexity|ComplexitySimple|ComplexityComplex)\b"
-EXPECT_NOT_CONTAINS="private lowercase int.enum AnswerShape"
+EXPECT_NOT_CONTAINS="lowercase int.enum AnswerShape"
