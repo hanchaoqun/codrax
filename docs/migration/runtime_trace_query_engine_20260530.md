@@ -126,3 +126,76 @@ Non-goals for V1:
   evidence.
 - Do not require binder rows for wakeup-chain success; scheduler-only and
   resource-only traces remain valid.
+
+## P0/P1 enhancement batch — 2026-05-30
+
+### Gaps observed
+
+The first V1 trace engine can parse and count scheduler/resource rows, but some
+customer root-cause questions still need stronger deterministic joins:
+
+- IO evidence is counted by `block_rq_issue` / `block_rq_complete`, but not
+  paired into latency intervals. D-state / IO-wait answers therefore lack the
+  exact request duration that made IO suspicious.
+- Runnable evidence is aggregated per thread, but not tied back to same-CPU
+  pressure, competing higher-priority running work, or the CPU frequency seen
+  during the wait.
+- Binder IPC edges are available as graph rows, but the wakeup solver does not
+  yet combine “thread sent binder transaction, then slept” into an explicit
+  `binder_wait` root evidence candidate.
+- CPU frequency residency is computed per CPU, but thread running/runnable
+  summaries do not yet state the frequency active on the involved CPU/interval.
+- Trace `B/E/C` rows are parsed, but span durations and counters are not
+  summarized. This weakens Choreographer / RenderFrame / GC / business span
+  analysis.
+- IRQ rows are counted, but bursts are not clustered by CPU/IRQ name.
+- Memory-ish rows are counted, but not split into page-cache, reclaim, fault,
+  GC, and generic memory categories.
+- Long traces can contain PID reuse or thread-name drift. The current resolver
+  uses PID/name matches, but does not surface confidence caveats when one PID
+  has multiple names or TGIDs in the selected window.
+
+### Root cause
+
+The missing pieces are not parser availability problems; they are join and
+aggregation problems. The engine already has line-backed typed events, selected
+time windows, IPC edges, and window stats. The shortfall is that important rows
+remain independent counters instead of being correlated into bounded,
+explainable evidence objects.
+
+### Design
+
+Keep the same trace-query contract and add bounded summaries:
+
+- Pair block IO by `(device, op, sector, length)` with FIFO matching and report
+  top latencies. Unmatched rows remain caveats, not proof.
+- Build per-CPU pressure from scheduler intervals: busy/idle, runnable wait on
+  that CPU, top runnable threads, top running competitors, and high-priority
+  running time. This is advisory context for runnable roots.
+- Enrich thread duration rows with `cpu`, `frequency`, and line spans so
+  running/runnable/D summaries can explain where the interval occurred.
+- Add `binder_wait` candidates only when a synchronous-looking binder edge is
+  close to a sleep interval for the sender. A binder send row alone must never
+  become a hard root cause.
+- Build trace spans with per-PID stacks for `B/E`, plus counter snapshots for
+  `C`, then report bounded top durations/counters.
+- Cluster IRQ/softirq rows by CPU/name into bursts with first/last lines.
+- Classify memory rows into stable coarse categories while preserving raw text.
+- Detect PID/TGID/name drift inside the selected window and emit caveats.
+
+All additions stay inside `internal/tracequery` and the `trace_query` tool
+summary. Normal code/config analysis, `repo_map`, current-source evidence
+grounding, and answer gates are unchanged.
+
+### Task checklist
+
+- [ ] P0: parse block identity fields and compute IO latency pairs.
+- [ ] P0: compute per-CPU runnable/running pressure and interval frequency
+      correlation.
+- [ ] P0: derive safe binder-wait candidates in wakeup-chain results.
+- [ ] P0: update summary/evidence output and focused tests.
+- [ ] P1: build trace span/counter summaries.
+- [ ] P1: cluster IRQ bursts.
+- [ ] P1: classify memory rows.
+- [ ] P1: detect PID/TGID/name drift and surface confidence caveats.
+- [ ] P1: update summary/evidence output and focused tests.
