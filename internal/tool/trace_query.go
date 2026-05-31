@@ -248,7 +248,7 @@ func traceSecondNeedsNormalizationNote(v TraceSecond) bool {
 
 func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel, payloadRef string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace thread=%s pid=%s line_start=%s line_end=%s time_start=%s time_end=%s span_name=%s trace_flavor=%s trace_flavor_confidence=%.2f payload_ref=%s]\n",
+	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace thread=%s pid=%s line_start=%s line_end=%s time_start=%s time_end=%s span_name=%s interaction_direction=%s trace_flavor=%s trace_flavor_confidence=%.2f payload_ref=%s]\n",
 		firstNonEmptyTraceString(result.View, p.View, "event_search"),
 		sourceLabel,
 		sanitizeForBanner(result.SourcePath),
@@ -260,6 +260,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		traceSecondBannerValue(p.TimeStart),
 		traceSecondBannerValue(p.TimeEnd),
 		sanitizeForBanner(p.SpanName),
+		sanitizeForBanner(p.InteractionDirection),
 		sanitizeForBanner(result.TraceFlavor),
 		result.FlavorConfidence,
 		sanitizeForBanner(payloadRef),

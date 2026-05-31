@@ -529,3 +529,13 @@ Task checklist:
   `东湖`, `OHOS`, `Open Harmony`, `Android`, and `安卓`; these aliases normalize
   into `harmony_hitrace` or `android_atrace` when passed through
   `trace_flavor` / `platform`.
+
+2026-05-31 parameter teaching/compat audit:
+
+- `interaction_direction` is now surfaced in the REPL tool-call detail and
+  the `trace_query` result banner, matching the existing visibility for
+  `span_name`, platform/flavor, thread, pid, and time/line windows.
+- Focused compatibility coverage now verifies model-emitted camelCase
+  aliases such as `spanName`, `interactionDirection`, `timeStart`, and
+  `timeEnd` are repaired through the shared structured tool payload
+  compatibility layer before strict `trace_query` decoding.

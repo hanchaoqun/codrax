@@ -132,6 +132,33 @@ func TestTraceQueryPlatformAliasSurvivesStringWrappedCompat(t *testing.T) {
 	}
 }
 
+func TestTraceQueryNewParamsSurviveStructuredCompatAliases(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "sample.systrace")
+	trace := strings.Join([]string{
+		`waker-10 (10) [000] .... 1.050000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		`app-20 (20) [001] .... 1.100000: print: B|20|Choreographer#doFrame`,
+		`app-20 (20) [001] .... 1.120000: print: E|20`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params := json.RawMessage(`"{\"source\":\"path\",\"path\":\"sample.systrace\",\"view\":\"interaction_stats\",\"pid\":\"20\",\"timeStart\":\"1.0s\",\"timeEnd\":\"1.2s\",\"spanName\":\"Choreographer#doFrame\",\"interactionDirection\":\"incoming\"}"`)
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query should accept compat-repaired camelCase params: %s", res.Summary)
+	}
+	for _, want := range []string{"span_name=Choreographer#doFrame", "interaction_direction=incoming", "wake_to_target=1"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary missing compat-repaired %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
 func TestTraceQuerySchemaDocumentsViews(t *testing.T) {
 	body := (&TraceQuery{}).Description() + "\n" + string((&TraceQuery{}).Parameters())
 	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "ipc_graph", "event_search", "span_window", "root_cause_rank", "interaction_stats", "span_name", "interaction_direction", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "clock_set_rate", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received", "鸿蒙", "东湖", "安卓"} {
