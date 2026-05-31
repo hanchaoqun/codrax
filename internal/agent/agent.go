@@ -2714,7 +2714,8 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config, ctx *types.AgentContext) 
 	// Add MCP tools. Observation-only runtime artifact answers should
 	// close from the structured triage payload; exposing extra tool
 	// surfaces invites look-alike repo / fixture substitution.
-	if b.deps.MCPServers != nil &&
+	if mcpToolsAllowedForAgent(b.name, ctx) &&
+		b.deps.MCPServers != nil &&
 		!observationOnlyRuntimeArtifactForExplorer(ctx) &&
 		!observationOnlyRuntimeArtifactForAnalyzer(ctx) {
 		for _, ts := range b.deps.MCPServers.ListAllTools() {
@@ -3039,7 +3040,7 @@ func (b *BaseAgent) toolParamCompatConfig() types.ToolParamCompatConfig {
 }
 
 func (b *BaseAgent) normalizeToolCallParamsFromRegistry(tc llm.ToolCall) (llm.ToolCall, bool) {
-	if b == nil || b.deps == nil || b.deps.Tools == nil {
+	if b == nil || b.deps == nil {
 		return tc, false
 	}
 	cfg := b.toolParamCompatConfig()
@@ -3047,11 +3048,18 @@ func (b *BaseAgent) normalizeToolCallParamsFromRegistry(tc llm.ToolCall) (llm.To
 	if mode != types.ToolParamCompatAudit && mode != types.ToolParamCompatRepair {
 		return tc, false
 	}
-	tl, err := b.deps.Tools.Get(tc.Name)
-	if err != nil || tl == nil {
-		return tc, false
+	if b.deps.Tools != nil {
+		tl, err := b.deps.Tools.Get(tc.Name)
+		if err == nil && tl != nil {
+			return b.normalizeOneToolCallParams(tc, tl.Parameters(), cfg)
+		}
 	}
-	return b.normalizeOneToolCallParams(tc, tl.Parameters(), cfg)
+	if b.deps.MCPServers != nil {
+		if schema, ok := b.deps.MCPServers.SchemaForNamespaced(tc.Name); ok {
+			return b.normalizeOneToolCallParams(tc, schema, cfg)
+		}
+	}
+	return tc, false
 }
 
 func (b *BaseAgent) normalizeAnalyzerPrescanGrepCompat(ctx *types.AgentContext, tc llm.ToolCall) (llm.ToolCall, bool) {
@@ -3322,23 +3330,33 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 	}
 
 	// Try MCP servers
-	if b.deps.MCPServers != nil {
-		for _, serverName := range b.deps.MCPServers.List() {
-			server, _ := b.deps.MCPServers.Get(serverName)
-			for _, t := range server.ListTools() {
-				if t.Name == tc.Name {
-					resp, err := server.CallTool(tc.Name, tc.Params)
-					if err != nil {
-						logging.Error("mcp %s.%s error: %v", serverName, tc.Name, err)
-					}
-					return nil, &resp
+	if mcpToolsAllowedForAgent(b.name, ctx) && b.deps.MCPServers != nil {
+		if server, rawToolName, ok := b.deps.MCPServers.ResolveNamespaced(tc.Name); ok {
+			resp, err := server.CallTool(rawToolName, tc.Params)
+			if err != nil {
+				logging.Error("mcp %s.%s error: %v", server.Name(), rawToolName, err)
+			}
+			if resp.Summary != "" {
+				busCtx := b.buildToolBusContext(ctx)
+				summary, ref := tool.StoreBlob(busCtx, "mcp-"+server.Name()+"-"+rawToolName, resp.Summary)
+				resp.Summary = summary
+				if ref != "" && resp.PayloadRef == "" {
+					resp.PayloadRef = ref
 				}
 			}
+			return nil, &resp
 		}
 	}
 
 	logging.Warning("tool not found: %s", tc.Name)
 	return unknownToolResult(ctx, tc), nil
+}
+
+func mcpToolsAllowedForAgent(agentName types.AgentName, ctx *types.AgentContext) bool {
+	if agentName == types.AgentExplorer || string(agentName) == "sub_explorer" {
+		return ctx == nil || ctx.Stage == "" || ctx.Stage == types.StageExplore
+	}
+	return false
 }
 
 func unknownToolResult(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {

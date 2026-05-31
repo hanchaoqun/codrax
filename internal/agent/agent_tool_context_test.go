@@ -10,6 +10,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/mcp"
+	"github.com/hanchaoqun/codrax/internal/skill"
 	toolpkg "github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -65,7 +66,7 @@ func (s *captureMCPServer) ListTools() []mcp.ToolSchema {
 	return []mcp.ToolSchema{{
 		Name:        "capture_mcp_params",
 		Description: "captures normalized MCP params for tests",
-		Parameters:  json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string"},"include":{"type":"string"}}}`),
+		Parameters:  json.RawMessage(`{"type":"object","properties":{"pattern":{"type":"string"},"include":{"type":"string"},"top_n":{"type":"integer"}}}`),
 	}}
 }
 func (s *captureMCPServer) CallTool(name string, params json.RawMessage) (types.MCPResponse, error) {
@@ -153,7 +154,7 @@ func TestExecuteTool_RepairsSharedStructuralJSONBeforeMCPToolExecution(t *testin
 	base := NewBaseAgent(types.AgentExplorer, &Dependencies{MCPServers: mcpReg}, nil)
 	res, mcpResp := base.executeTool(&types.AgentContext{Stage: types.StageExplore}, llm.ToolCall{
 		ID:     "mcp-combo-corrupt-json",
-		Name:   "capture_mcp_params",
+		Name:   "capture_mcp__capture_mcp_params",
 		Params: json.RawMessage(`}{"pattern":"Choreographer","include":"*.java"`),
 	})
 	if res != nil {
@@ -172,6 +173,75 @@ func TestExecuteTool_RepairsSharedStructuralJSONBeforeMCPToolExecution(t *testin
 	if decoded.Pattern != "Choreographer" || decoded.Include != "*.java" {
 		t.Fatalf("unexpected repaired MCP params: %+v raw=%s", decoded, capture.got)
 	}
+}
+
+func TestExecuteTool_AppliesSchemaAwareParamCompatToMCPTool(t *testing.T) {
+	mcpReg := mcp.NewRegistry()
+	capture := &captureMCPServer{}
+	mcpReg.Register(capture)
+
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{
+		MCPServers: mcpReg,
+		ToolParamCompatByAgent: map[types.AgentName]types.ToolParamCompatConfig{
+			types.AgentExplorer: {Mode: types.ToolParamCompatRepair},
+		},
+	}, nil)
+	res, mcpResp := base.executeTool(&types.AgentContext{Stage: types.StageExplore}, llm.ToolCall{
+		ID:     "mcp-schema-compat-json",
+		Name:   "capture_mcp__capture_mcp_params",
+		Params: json.RawMessage(`{"pattern":"Choreographer","topN":"3"}`),
+	})
+	if res != nil {
+		t.Fatalf("MCP tool should return MCP response, got local result: %+v", res)
+	}
+	if mcpResp == nil || !mcpResp.Success {
+		t.Fatalf("executeTool should repair schema-compatible MCP params: %+v", mcpResp)
+	}
+	var decoded struct {
+		Pattern string `json:"pattern"`
+		TopN    int    `json:"top_n"`
+	}
+	if err := json.Unmarshal(capture.got, &decoded); err != nil {
+		t.Fatalf("MCP tool received invalid normalized params: %v\n%s", err, capture.got)
+	}
+	if decoded.Pattern != "Choreographer" || decoded.TopN != 3 {
+		t.Fatalf("unexpected normalized MCP params: %+v raw=%s", decoded, capture.got)
+	}
+}
+
+func TestBuildToolSchemas_ExposesMCPOnlyToExplorerFamily(t *testing.T) {
+	mcpReg := mcp.NewRegistry()
+	mcpReg.Register(&captureMCPServer{})
+	sk := &skill.Config{}
+
+	explorer := NewBaseAgent(types.AgentExplorer, &Dependencies{MCPServers: mcpReg}, nil)
+	explorerSchemas := explorer.buildToolSchemas(sk, &types.AgentContext{Stage: types.StageExplore})
+	if !schemaNamesContain(explorerSchemas, "capture_mcp__capture_mcp_params") {
+		t.Fatalf("explorer should see namespaced MCP tool, got %+v", schemaNames(explorerSchemas))
+	}
+
+	extractor := NewBaseAgent(types.AgentExtractor, &Dependencies{MCPServers: mcpReg}, nil)
+	extractorSchemas := extractor.buildToolSchemas(sk, &types.AgentContext{Stage: types.StageExtract})
+	if schemaNamesContain(extractorSchemas, "capture_mcp__capture_mcp_params") {
+		t.Fatalf("extractor must not see MCP tools, got %+v", schemaNames(extractorSchemas))
+	}
+}
+
+func schemaNamesContain(schemas []llm.ToolSchema, name string) bool {
+	for _, schema := range schemas {
+		if schema.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
+func schemaNames(schemas []llm.ToolSchema) []string {
+	out := make([]string, 0, len(schemas))
+	for _, schema := range schemas {
+		out = append(out, schema.Name)
+	}
+	return out
 }
 
 func TestExecuteTool_AppliesSchemaAwareParamCompatFromRegistry(t *testing.T) {

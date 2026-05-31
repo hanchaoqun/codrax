@@ -4758,6 +4758,20 @@ type MCPResponse struct {
 	Timestamp   time.Time `json:"timestamp"`
 }
 
+// MCPServerConfig is the codrax.yaml shape for one external MCP server.
+// V1 supports stdio only; other transports are reserved and fail loudly.
+type MCPServerConfig struct {
+	Name             string            `yaml:"name" json:"name"`
+	Transport        TransportType     `yaml:"transport" json:"transport"`
+	Command          string            `yaml:"command" json:"command"`
+	Args             []string          `yaml:"args" json:"args,omitempty"`
+	Env              map[string]string `yaml:"env" json:"env,omitempty"`
+	InheritEnv       *bool             `yaml:"inherit_env" json:"inherit_env,omitempty"`
+	StartupTimeoutMS *int              `yaml:"startup_timeout_ms" json:"startup_timeout_ms,omitempty"`
+	CallTimeoutMS    *int              `yaml:"call_timeout_ms" json:"call_timeout_ms,omitempty"`
+	MaxResponseBytes *int              `yaml:"max_response_bytes" json:"max_response_bytes,omitempty"`
+}
+
 // ExecutionSignals tracks boolean signals produced by agents. After
 // the 2026-04-14 simplification only HasEnoughFacts remains — the
 // write-pipeline signals (HasPlan, HasPatch, *ReviewPassed,

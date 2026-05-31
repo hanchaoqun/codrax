@@ -113,16 +113,16 @@ implemented surface.
 
 ## Task Checklist
 
-- [ ] Add config structs and defaults.
-- [ ] Implement JSON-RPC request/response types.
-- [ ] Implement stdio process start, initialize, reader goroutine, id demux,
+- [x] Add config structs and defaults.
+- [x] Implement JSON-RPC request/response types.
+- [x] Implement stdio process start, initialize, reader goroutine, id demux,
       pending map, timeout handling, and close.
-- [ ] Implement `tools/list` cache.
-- [ ] Implement `tools/call` result normalization and blob offload.
-- [ ] Add registry namespace helpers and duplicate checks.
-- [ ] Gate MCP tool schema exposure by agent/stage.
-- [ ] Load configured servers in `cmd/root.go`.
-- [ ] Add fake MCP server test fixture.
-- [ ] Add Batch 1 tests and docs.
+- [x] Implement `tools/list` cache.
+- [x] Implement `tools/call` result normalization and blob offload.
+- [x] Add registry namespace helpers and duplicate checks.
+- [x] Gate MCP tool schema exposure by agent/stage.
+- [x] Load configured servers in `cmd/root.go`.
+- [x] Add fake MCP server test fixture.
+- [x] Add Batch 1 tests and docs.
 - [ ] Implement resources/prompts in Batch 2.
 - [ ] Add Batch 2 tests and docs.

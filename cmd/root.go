@@ -371,6 +371,7 @@ var maxAttachedTraceBytes = defaultAttachedLogMaxBytes
 type appContext struct {
 	renderer              *render.Renderer
 	orch                  *orchestrator.Orchestrator
+	mcpRegistry           *mcp.Registry
 	defaultLLM            llm.Adapter
 	memorySummarizerLLM   llm.Adapter // providers.yaml :: agents.memory_summarizer, else defaultLLM
 	reflectorLLM          llm.Adapter // providers.yaml :: agents.reflector, else defaultLLM
@@ -657,6 +658,10 @@ func normalizeCompatArgs(args []string) []string {
 
 // rootRun dispatches to single-shot or REPL mode.
 func rootRun(cmd *cobra.Command, args []string) error {
+	if app.mcpRegistry != nil {
+		defer app.mcpRegistry.Close()
+	}
+
 	// Resolve request: --request flag or positional arg.
 	request := flagRequest
 	if request == "" && len(args) > 0 {
@@ -2904,6 +2909,18 @@ func initApp(cmd *cobra.Command, args []string) error {
 
 	// Initialize registries.
 	mcpRegistry := mcp.NewRegistry()
+	if rs != nil && len(rs.MCPServers) > 0 {
+		maxServers := mcp.DefaultMaxServers
+		if rs.MCPMaxServers != nil && *rs.MCPMaxServers > 0 {
+			maxServers = *rs.MCPMaxServers
+		}
+		if err := mcp.LoadServers(mcpRegistry, rs.MCPServers, maxServers); err != nil {
+			_ = mcpRegistry.Close()
+			return fmt.Errorf("load mcp servers: %w", err)
+		}
+		worktree.RegisterSignalCleanupHook(func() { _ = mcpRegistry.Close() })
+	}
+	app.mcpRegistry = mcpRegistry
 	logging.Info("registered %d MCP servers", len(mcpRegistry.List()))
 
 	skillRegistry := skill.NewRegistry()

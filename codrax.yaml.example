@@ -156,6 +156,38 @@
 # repomap_scan_reserve_cpus: 0
 
 # ---------------------------------------------------------------------------
+# MCP servers  ·  MCP 外部工具
+# ---------------------------------------------------------------------------
+# EN  Optional read-only MCP tool producers. Empty by default; when empty,
+#     MCP changes do not alter prompts, tool schemas, dispatch, or answer
+#     grounding. V1 supports stdio servers. Tools are exposed to explorer
+#     agents as <server>__<tool> and their results enter the runtime/external
+#     observation lane as mcp_resource, not as source-code citations.
+# 中文 可选的只读 MCP 工具生产端。默认空;为空时 MCP 不改变 prompt、工具
+#     schema、调度或答案落地。V1 支持 stdio server。工具只暴露给探索类
+#     agent,名称形如 <server>__<tool>;结果进入 mcp_resource 外部观测通道,
+#     不会伪装成当前源码引用。
+#
+# mcp_max_servers — max configured servers. Default 8.
+#   最大 server 数。默认 8。
+# mcp_max_servers: 8
+#
+# mcp_servers:
+#   - name: docs
+#     transport: stdio
+#     command: /path/to/mcp-server
+#     args: ["--readonly"]
+#     # inherit_env defaults to false so provider/API secrets are not passed
+#     # to external MCP child processes unless the operator opts in.
+#     # inherit_env 默认 false,避免把 provider/API 密钥默认传给外部子进程。
+#     inherit_env: false
+#     env:
+#       MCP_MODE: readonly
+#     startup_timeout_ms: 3000
+#     call_timeout_ms: 10000
+#     max_response_bytes: 4194304
+
+# ---------------------------------------------------------------------------
 # Tool output blobs  ·  工具输出 blob
 # ---------------------------------------------------------------------------
 # EN  Tool results larger than blob_max_inline_bytes are offloaded to a

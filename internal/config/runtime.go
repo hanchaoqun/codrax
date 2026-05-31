@@ -49,6 +49,18 @@ type RuntimeSettings struct {
 	Branch   *string `yaml:"branch"`
 	CacheDir *string `yaml:"cache_dir"`
 
+	// MCP server integration. Empty by default, which keeps read/write
+	// pipeline prompts, tool schemas, dispatch, and observation ledger
+	// behavior identical to a build without MCP producer support.
+	//
+	// V1 supports stdio servers only. Each configured server is started at
+	// process init, initialized through MCP JSON-RPC, and its tools are exposed
+	// under namespaced tool names (<server>__<tool>) only to evidence-collection
+	// agents. inherit_env defaults to false so provider secrets are not passed
+	// to external server processes unless the operator opts in explicitly.
+	MCPServers    []types.MCPServerConfig `yaml:"mcp_servers"`
+	MCPMaxServers *int                    `yaml:"mcp_max_servers"`
+
 	// Tool blob sizing knobs. Flat-prefixed `blob_*` to keep the
 	// namespace obvious without nesting. All four accept any
 	// positive integer; non-positive (or omitted) means "use the

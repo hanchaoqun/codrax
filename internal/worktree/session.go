@@ -428,6 +428,8 @@ var activeSessions sync.Map
 // fire cleanup (harmless but wasteful).
 var signalHandlerInstalled bool
 var signalHandlerMu sync.Mutex
+var signalCleanupHooksMu sync.Mutex
+var signalCleanupHooks []func()
 
 // InstallSignalHandler registers a SIGINT / SIGTERM handler that
 // walks activeSessions, discards every session, then re-raises the
@@ -470,6 +472,7 @@ func InstallSignalHandler() {
 			}
 			logging.Warning("[worktree] received %s, discarding %d active session(s)",
 				sig, activeSessionCount())
+			runSignalCleanupHooks()
 			cleanActiveSessions()
 			signal.Stop(ch)
 			// Terminate after cleanup. Unix can re-raise the original
@@ -486,6 +489,35 @@ func InstallSignalHandler() {
 // signal handler can implement the cancel-current-Run vs. force-exit
 // UX without the worktree handler racing it to os.Exit.
 var signalHandlerSuppressed atomic.Bool
+
+// RegisterSignalCleanupHook installs a process-shutdown cleanup callback for
+// resources that live beside worktrees (for example external helper processes).
+// Hooks run from the same SIGINT/SIGTERM handler before worktree cleanup and
+// should be best-effort/non-blocking.
+func RegisterSignalCleanupHook(fn func()) {
+	if fn == nil {
+		return
+	}
+	signalCleanupHooksMu.Lock()
+	defer signalCleanupHooksMu.Unlock()
+	signalCleanupHooks = append(signalCleanupHooks, fn)
+}
+
+func runSignalCleanupHooks() {
+	signalCleanupHooksMu.Lock()
+	hooks := append([]func(){}, signalCleanupHooks...)
+	signalCleanupHooksMu.Unlock()
+	for _, fn := range hooks {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					logging.Warning("[worktree] signal cleanup hook panic: %v", r)
+				}
+			}()
+			fn()
+		}()
+	}
+}
 
 // SetSignalHandlerSuppressed toggles whether the package-level
 // SIGINT/SIGTERM handler should run cleanup-and-exit when a signal
