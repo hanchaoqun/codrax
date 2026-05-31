@@ -4256,46 +4256,47 @@ func toolRepoMapDetail(m map[string]json.RawMessage) string {
 
 func toolTraceQueryDetail(m map[string]json.RawMessage) string {
 	var parts []string
-	view := jsonStringField(m, "view")
+	view := jsonStringFieldAny(m, "view")
 	if view == "" {
 		view = "event_search"
 	}
 	parts = append(parts, "view="+truncateToolDetailValue(view, 24))
-	if path := jsonStringField(m, "path"); path != "" {
+	if path := jsonStringFieldAny(m, "path"); path != "" {
 		parts = append(parts, "path="+truncateToolDetailValue(path, 44))
-	} else if source := jsonStringField(m, "source"); source != "" {
+	} else if source := jsonStringFieldAny(m, "source"); source != "" {
 		parts = append(parts, "source="+truncateToolDetailValue(source, 24))
 	}
-	if flavor := jsonStringField(m, "trace_flavor"); flavor != "" {
+	if flavor := jsonStringFieldAny(m, "trace_flavor", "traceFlavor"); flavor != "" {
 		parts = append(parts, "trace_flavor="+truncateToolDetailValue(flavor, 24))
-	} else if platform := jsonStringField(m, "platform"); platform != "" {
+	} else if platform := jsonStringFieldAny(m, "platform"); platform != "" {
 		parts = append(parts, "platform="+truncateToolDetailValue(platform, 24))
 	}
-	if thread := jsonStringField(m, "thread"); thread != "" {
+	if thread := jsonStringFieldAny(m, "thread"); thread != "" {
 		parts = append(parts, "thread="+truncateToolDetailValue(thread, 32))
 	}
-	if span := jsonStringField(m, "span_name"); span != "" {
+	if span := jsonStringFieldAny(m, "span_name", "spanName"); span != "" {
 		parts = append(parts, "span="+truncateToolDetailValue(span, 32))
 	}
-	if direction := jsonStringField(m, "interaction_direction"); direction != "" {
+	if direction := jsonStringFieldAny(m, "interaction_direction", "interactionDirection"); direction != "" {
 		parts = append(parts, "direction="+truncateToolDetailValue(direction, 18))
 	}
-	if recipe := jsonStringField(m, "recipe_name"); recipe != "" {
+	if recipe := jsonStringFieldAny(m, "recipe_name", "recipeName"); recipe != "" {
 		parts = append(parts, "recipe="+truncateToolDetailValue(recipe, 18))
 	}
-	if pid, ok := jsonIntField(m, "pid"); ok && pid > 0 {
+	if pid, ok := jsonIntFieldAny(m, "pid"); ok && pid > 0 {
 		parts = append(parts, fmt.Sprintf("pid=%d", pid))
 	}
-	if start, end := jsonScalarField(m, "time_start"), jsonScalarField(m, "time_end"); start != "" || end != "" {
+	if start, end := jsonScalarFieldAny(m, "time_start", "timeStart"), jsonScalarFieldAny(m, "time_end", "timeEnd"); start != "" || end != "" {
 		parts = append(parts, "window="+truncateToolDetailValue(start+".."+end, 32))
 	}
-	if start, end := jsonScalarField(m, "line_start"), jsonScalarField(m, "line_end"); start != "" || end != "" {
+	if start, end := jsonScalarFieldAny(m, "line_start", "lineStart"), jsonScalarFieldAny(m, "line_end", "lineEnd"); start != "" || end != "" {
 		parts = append(parts, "lines="+truncateToolDetailValue(start+".."+end, 24))
 	}
-	for _, field := range []string{"max_depth", "max_branches"} {
-		if v, ok := jsonIntField(m, field); ok && v > 0 {
-			parts = append(parts, fmt.Sprintf("%s=%d", field, v))
-		}
+	if v, ok := jsonIntFieldAny(m, "max_depth", "maxDepth"); ok && v > 0 {
+		parts = append(parts, fmt.Sprintf("max_depth=%d", v))
+	}
+	if v, ok := jsonIntFieldAny(m, "max_branches", "maxBranches"); ok && v > 0 {
+		parts = append(parts, fmt.Sprintf("max_branches=%d", v))
 	}
 	if len(parts) > 10 {
 		parts = parts[:10]
@@ -4326,6 +4327,15 @@ func jsonStringField(m map[string]json.RawMessage, key string) string {
 	return strings.TrimSpace(s)
 }
 
+func jsonStringFieldAny(m map[string]json.RawMessage, keys ...string) string {
+	for _, key := range keys {
+		if s := jsonStringField(m, key); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
 func jsonIntField(m map[string]json.RawMessage, key string) (int, bool) {
 	raw, ok := m[key]
 	if !ok {
@@ -4342,6 +4352,25 @@ func jsonIntField(m map[string]json.RawMessage, key string) (int, bool) {
 	return int(f), true
 }
 
+func jsonIntFieldAny(m map[string]json.RawMessage, keys ...string) (int, bool) {
+	for _, key := range keys {
+		if n, ok := jsonIntField(m, key); ok {
+			return n, true
+		}
+		raw := jsonScalarField(m, key)
+		if raw == "" {
+			continue
+		}
+		if n, err := strconv.Atoi(raw); err == nil {
+			return n, true
+		}
+		if f, err := strconv.ParseFloat(raw, 64); err == nil {
+			return int(f), true
+		}
+	}
+	return 0, false
+}
+
 func jsonScalarField(m map[string]json.RawMessage, key string) string {
 	raw, ok := m[key]
 	if !ok || len(raw) == 0 {
@@ -4352,6 +4381,15 @@ func jsonScalarField(m map[string]json.RawMessage, key string) string {
 		return strings.TrimSpace(s)
 	}
 	return strings.Trim(strings.TrimSpace(string(raw)), `"`)
+}
+
+func jsonScalarFieldAny(m map[string]json.RawMessage, keys ...string) string {
+	for _, key := range keys {
+		if s := jsonScalarField(m, key); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 func jsonStringArrayDetail(raw json.RawMessage, field string, maxFirst int) string {

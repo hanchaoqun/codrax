@@ -144,7 +144,7 @@ func TestTraceQueryNewParamsSurviveStructuredCompatAliases(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
-	params := json.RawMessage(`"{\"source\":\"path\",\"path\":\"sample.systrace\",\"view\":\"interaction_stats\",\"pid\":\"20\",\"timeStart\":\"1.0s\",\"timeEnd\":\"1.2s\",\"spanName\":\"Choreographer#doFrame\",\"interactionDirection\":\"incoming\",\"recipeName\":\"jank\"}"`)
+	params := json.RawMessage(`"{\"source\":\"path\",\"path\":\"sample.systrace\",\"view\":\"interaction_stats\",\"pid\":\"20\",\"timeStart\":\"1.0s\",\"timeEnd\":\"1.2s\",\"spanName\":\"Choreographer#doFrame\",\"interactionDirection\":\"incoming\",\"recipeName\":\"jank\",\"traceFlavor\":\"android_atrace\"}"`)
 	res, err := (&TraceQuery{}).Execute(ctx, params)
 	if err != nil {
 		t.Fatal(err)
@@ -152,7 +152,7 @@ func TestTraceQueryNewParamsSurviveStructuredCompatAliases(t *testing.T) {
 	if !res.Success {
 		t.Fatalf("trace_query should accept compat-repaired camelCase params: %s", res.Summary)
 	}
-	for _, want := range []string{"span_name=Choreographer#doFrame", "interaction_direction=incoming", "recipe_name=jank", "wake_to_target=1"} {
+	for _, want := range []string{"trace_flavor=android_atrace", "span_name=Choreographer#doFrame", "interaction_direction=incoming", "recipe_name=jank", "wake_to_target=1"} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("summary missing compat-repaired %q:\n%s", want, res.Summary)
 		}

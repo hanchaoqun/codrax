@@ -43,6 +43,25 @@ func TestStructuredToolDetailTraceQueryShowsFlavor(t *testing.T) {
 	if !strings.Contains(got, "platform=android_atrace") || !strings.Contains(got, "pid=36379") {
 		t.Fatalf("trace_query detail should surface platform alias and pid: %q", got)
 	}
+
+	got = structuredToolDetail("trace_query", json.RawMessage(`{
+		"view":"recipe",
+		"path":"record.systrace",
+		"traceFlavor":"harmony_hitrace",
+		"thread":"com.tencent.mm-36379",
+		"spanName":"Choreographer#doFrame",
+		"interactionDirection":"incoming",
+		"recipeName":"jank",
+		"pid":"36379",
+		"timeStart":"2942.124416s",
+		"timeEnd":"2942.260210s",
+		"maxDepth":6
+	}`))
+	for _, want := range []string{"view=recipe", "trace_flavor=harmony_hitrace", "span=Choreographer#doFrame", "direction=incoming", "recipe=jank", "pid=36379", "window=2942.124416s..2942.260210s", "max_depth=6"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("trace_query detail should surface camelCase alias %q in %q", want, got)
+		}
+	}
 }
 
 // TestPruneToolHistoryKeepsRecentAndStubsOlder locks the ReAct
