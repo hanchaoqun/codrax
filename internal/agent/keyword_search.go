@@ -1546,6 +1546,197 @@ func grepFiles(pattern, repoRoot string, ignoreCase bool) []string {
 	return filterKeywordSearchPaths(splitLines(stdout.String()), repoRoot, dirFilter)
 }
 
+// grepLiteralFilesByKeywords returns per-keyword file hits for literal text.
+// It is used by soft navigation seeders that need DISTINCT-token coverage:
+// one broad regex search per token is both slower and semantically wrong for
+// user/model surfaces such as config keys that may contain regex punctuation.
+func grepLiteralFilesByKeywords(keywords []string, repoRoot string, ignoreCase bool) map[string][]string {
+	keywords = dedupStringList(keywords)
+	if len(keywords) == 0 || strings.TrimSpace(repoRoot) == "" {
+		return nil
+	}
+	if tool.UseRipgrep() {
+		return rgBatchFixedFiles(keywords, repoRoot, ignoreCase)
+	}
+
+	type result struct {
+		keyword string
+		paths   []string
+	}
+	const maxConcurrentFallbackSearches = 4
+	sem := make(chan struct{}, maxConcurrentFallbackSearches)
+	ch := make(chan result, len(keywords))
+	var wg sync.WaitGroup
+	for _, kw := range keywords {
+		kw := kw
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			sem <- struct{}{}
+			paths := grepLiteralFiles(kw, repoRoot, ignoreCase)
+			<-sem
+			if len(paths) > 0 {
+				ch <- result{keyword: kw, paths: paths}
+			}
+		}()
+	}
+	wg.Wait()
+	close(ch)
+
+	out := make(map[string][]string, len(keywords))
+	for r := range ch {
+		out[r.keyword] = r.paths
+	}
+	return out
+}
+
+func grepLiteralFiles(literal, repoRoot string, ignoreCase bool) []string {
+	literal = strings.TrimSpace(literal)
+	if literal == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	defer cancel()
+	dirFilter := tool.NewSearchDirFilter(repoRoot, repoRoot)
+
+	if tool.UseNativeGrep() {
+		res, err := tool.NativeGrep(ctx, tool.NativeGrepOpts{
+			Pattern:     literal,
+			Root:        repoRoot,
+			IgnoreCase:  ignoreCase,
+			FixedString: true,
+			FilesOnly:   true,
+			ExcludeDirs: dirFilter.AnyLevelPatterns(),
+			ShouldSkip: func(path string, d fs.DirEntry) bool {
+				rel, err := filepath.Rel(repoRoot, path)
+				if err != nil {
+					return false
+				}
+				rel = filepath.Clean(rel)
+				if rel == "." {
+					return false
+				}
+				return dirFilter.ExcludesRepoRelativePath(strings.ReplaceAll(rel, `\`, `/`))
+			},
+		})
+		if err != nil {
+			return nil
+		}
+		return filterKeywordSearchPaths(splitLines(res.Output), repoRoot, dirFilter)
+	}
+
+	var args []string
+	if tool.UseRipgrep() {
+		args = []string{"-F", "-l"}
+		if ignoreCase {
+			args = append(args, "-i")
+		} else {
+			args = append(args, "--case-sensitive")
+		}
+		for _, glob := range dirFilter.RipgrepGlobs() {
+			args = append(args, "--glob", glob)
+		}
+		args = append(args, "-e", literal, repoRoot)
+	} else {
+		args = []string{"-r", "-l", "-F", "-I"}
+		if ignoreCase {
+			args = append(args, "-i")
+		}
+		for _, dir := range dirFilter.AnyLevelPatterns() {
+			args = append(args, "--exclude-dir="+dir)
+		}
+		args = append(args, "-e", literal, repoRoot)
+	}
+
+	cmd := exec.CommandContext(ctx, tool.SearchExecutable(), args...)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return nil
+	}
+	return filterKeywordSearchPaths(splitLines(stdout.String()), repoRoot, dirFilter)
+}
+
+func rgBatchFixedFiles(keywords []string, repoRoot string, ignoreCase bool) map[string][]string {
+	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	defer cancel()
+	dirFilter := tool.NewSearchDirFilter(repoRoot, repoRoot)
+
+	args := []string{"--json", "--fixed-strings"}
+	if ignoreCase {
+		args = append(args, "-i")
+	} else {
+		args = append(args, "--case-sensitive")
+	}
+	for _, glob := range dirFilter.RipgrepGlobs() {
+		args = append(args, "--glob", glob)
+	}
+	for _, kw := range keywords {
+		kw = strings.TrimSpace(kw)
+		if kw != "" {
+			args = append(args, "-e", kw)
+		}
+	}
+	args = append(args, repoRoot)
+
+	cmd := exec.CommandContext(ctx, tool.SearchExecutable(), args...)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return nil
+	}
+
+	kwExact := make(map[string]string, len(keywords))
+	kwLower := make(map[string]string, len(keywords))
+	for _, kw := range keywords {
+		kw = strings.TrimSpace(kw)
+		if kw == "" {
+			continue
+		}
+		if ignoreCase {
+			kwLower[strings.ToLower(kw)] = kw
+		} else {
+			kwExact[kw] = kw
+		}
+	}
+
+	type fileKw struct {
+		file, kw string
+	}
+	seen := make(map[fileKw]bool)
+	result := make(map[string][]string, len(keywords))
+	for _, line := range splitLines(stdout.String()) {
+		if !strings.Contains(line, `"type":"match"`) {
+			continue
+		}
+		filePath, matchTexts := parseRgMatchLine(line)
+		if filePath == "" {
+			continue
+		}
+		if dirFilter.ExcludesRepoRelativePath(normalizeSearchPath(filePath, repoRoot)) {
+			continue
+		}
+		for _, mt := range matchTexts {
+			origKw := ""
+			if ignoreCase {
+				origKw = kwLower[strings.ToLower(mt)]
+			} else {
+				origKw = kwExact[mt]
+			}
+			if origKw == "" {
+				continue
+			}
+			key := fileKw{file: filePath, kw: origKw}
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			result[origKw] = append(result[origKw], filePath)
+		}
+	}
+	return result
+}
+
 // rgBatchFiles runs a single rg --json call with multiple -e patterns
 // and returns per-keyword file lists by parsing which pattern matched
 // in each file. This reduces N keyword searches to 1 process spawn

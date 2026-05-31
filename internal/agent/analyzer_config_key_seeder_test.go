@@ -153,6 +153,105 @@ type WidgetCfg struct {
 	}
 }
 
+// TestConfigKeyGroupSiblingFiles_TreatsRegexPunctuationLiterally pins that
+// config-key tokens are not interpreted as regex. `foo+bar` and
+// `widget(size)` would both match the noisy file under regex semantics
+// (`fooooobar` and `widgetsize`); only the literal schema surface should seed.
+func TestConfigKeyGroupSiblingFiles_TreatsRegexPunctuationLiterally(t *testing.T) {
+	root := t.TempDir()
+	writeRepoFile(t, root, "internal/config/runtime.go", `
+type RuntimeSettings struct {
+	FooBarWidgetSize *int `+"`yaml:\"foo+bar_widget(size)\"`"+`
+}
+`)
+	writeRepoFile(t, root, "internal/noise/regex_like.go", "package noise\n// foooooobar widgetsize\n")
+
+	ctx := &types.AgentContext{RepoRoot: root}
+	rm := types.RequestModel{
+		Scenario: types.ScenarioConfigTrace,
+		AnalyzerHints: types.AnalyzerHints{
+			ExactTargets: []string{"foo+bar_widget(size)"},
+		},
+	}
+
+	got := configKeyGroupSiblingFiles(ctx, rm)
+	foundSchema, foundRegexNoise := false, false
+	for _, p := range got {
+		if p == "internal/config/runtime.go" {
+			foundSchema = true
+		}
+		if p == "internal/noise/regex_like.go" {
+			foundRegexNoise = true
+		}
+	}
+	if !foundSchema {
+		t.Fatalf("literal schema file should be seeded, got %v", got)
+	}
+	if foundRegexNoise {
+		t.Fatalf("regex-shaped noise file must not be seeded by literal key search, got %v", got)
+	}
+}
+
+// TestConfigKeyGroupSiblingFiles_UsesSingleBatchSearch confirms the seeder
+// asks the search layer for all key tokens at once. This protects analyzer
+// latency on large repositories: the helper may choose rg or a bounded
+// fallback internally, but the seeder itself must not loop one full scan per
+// token.
+func TestConfigKeyGroupSiblingFiles_UsesSingleBatchSearch(t *testing.T) {
+	old := configKeyLiteralFileSearch
+	defer func() { configKeyLiteralFileSearch = old }()
+
+	calls := 0
+	var gotTokens []string
+	var gotRepo string
+	var gotIgnoreCase bool
+	configKeyLiteralFileSearch = func(tokens []string, repoRoot string, ignoreCase bool) map[string][]string {
+		calls++
+		gotTokens = append([]string(nil), tokens...)
+		gotRepo = repoRoot
+		gotIgnoreCase = ignoreCase
+		return map[string][]string{
+			"alpha":  {"internal/config/runtime.go"},
+			"widget": {"internal/config/runtime.go"},
+			"size":   {"internal/config/runtime.go", "internal/noise/size.go"},
+		}
+	}
+
+	root := t.TempDir()
+	ctx := &types.AgentContext{RepoRoot: root}
+	rm := types.RequestModel{
+		Scenario: types.ScenarioConfigTrace,
+		AnalyzerHints: types.AnalyzerHints{
+			ExactTargets: []string{"alpha_widget_size"},
+		},
+	}
+
+	got := configKeyGroupSiblingFiles(ctx, rm)
+	if calls != 1 {
+		t.Fatalf("config seeder should call one batch search, got %d calls", calls)
+	}
+	if gotRepo != root || !gotIgnoreCase {
+		t.Fatalf("batch search args = repo %q ignoreCase %v, want repo %q ignoreCase true", gotRepo, gotIgnoreCase, root)
+	}
+	wantTokens := []string{"alpha", "widget", "size"}
+	if len(gotTokens) != len(wantTokens) {
+		t.Fatalf("tokens = %v, want %v", gotTokens, wantTokens)
+	}
+	for i := range wantTokens {
+		if gotTokens[i] != wantTokens[i] {
+			t.Fatalf("tokens = %v, want %v", gotTokens, wantTokens)
+		}
+	}
+	if len(got) == 0 || got[0] != "internal/config/runtime.go" {
+		t.Fatalf("expected runtime schema file first, got %v", got)
+	}
+	for _, p := range got {
+		if p == "internal/noise/size.go" {
+			t.Fatalf("single-token noise should not survive distinct-token floor, got %v", got)
+		}
+	}
+}
+
 // TestConfigKeyGroupSiblingFiles_GateRejectsNonConfig confirms the precise
 // typed gate: a request that is neither AnswerSubject=config_key nor
 // Scenario=config_trace produces no seeds even when an entity happens to be
@@ -162,7 +261,7 @@ func TestConfigKeyGroupSiblingFiles_GateRejectsNonConfig(t *testing.T) {
 	writeRepoFile(t, root, "internal/types/config.go", "// explore_per_tool_default_cap\n")
 	ctx := &types.AgentContext{RepoRoot: root}
 	rm := types.RequestModel{
-		Scenario:     types.ScenarioGeneric,
+		Scenario:      types.ScenarioGeneric,
 		AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
 		AnalyzerHints: types.AnalyzerHints{
 			Entities: []string{"run_analyze_phase"}, // snake_case but NOT a config-key target

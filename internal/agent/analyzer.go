@@ -2827,6 +2827,8 @@ func maxAnalyzerRequiredFilesCap() int { return 3 }
 // "struct home + yaml example" pair that defines a config group.
 func configKeyGroupSiblingCap() int { return 2 }
 
+var configKeyLiteralFileSearch = grepLiteralFilesByKeywords
+
 // configKeyTokens splits a config key into its meaningful, lower-cased
 // tokens on the common config-key separators (_ . - and space), dropping
 // connector-length fragments (<3 chars, e.g. "of"/"to"/"per"/"id") that add
@@ -2924,17 +2926,21 @@ func configKeyGroupSiblingFiles(ctx *types.AgentContext, rm types.RequestModel) 
 	// a 3-token schema home from a 1-token noise file — both can score equal).
 	// A single-token flat key ("verbose") relaxes the floor to 1.
 	//
-	// The per-token file sets are computed directly (grepIDFSearch aggregates
-	// scores and keeps only one keyword in its per-file hit map, so it cannot
-	// report distinct-token coverage). Case-insensitive so a CamelCase field
-	// (GadgetWidgetSize) still matches the lower-cased tokens.
+	// The per-token file sets are computed directly from one literal batch
+	// search (grepIDFSearch aggregates scores and keeps only one keyword in
+	// its per-file hit map, so it cannot report distinct-token coverage).
+	// Case-insensitive so a CamelCase field (GadgetWidgetSize) still matches
+	// the lower-cased tokens. Literal matching is intentional: config-key
+	// text can carry regex punctuation, but the seeder is looking for schema
+	// surfaces, not evaluating a user-authored regex.
 	floor := 2
 	if len(tokens) < 2 {
 		floor = len(tokens)
 	}
 	counts := map[string]int{}
+	filesByToken := configKeyLiteralFileSearch(tokens, ctx.RepoRoot, true)
 	for _, tok := range tokens {
-		for _, p := range grepFiles(tok, ctx.RepoRoot, true) {
+		for _, p := range filesByToken[tok] {
 			rel := normalizeSearchPath(p, ctx.RepoRoot)
 			if rel != "" {
 				counts[rel]++
