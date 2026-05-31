@@ -1,0 +1,17 @@
+# Class probe — exact-resolution-under-condition (budget-scope family)
+#
+# Competing candidates (verified):
+#   - MaxParallelism (internal/types/config.go:92, yaml max_parallelism,
+#     DefaultPipelineMaxParallelism=2): the global cap on how many fan-out
+#     work units (explorer / reviewer / subagent siblings) run CONCURRENTLY.
+#   - PipelineMaxSteps (internal/config/runtime.go:213, yaml
+#     pipeline_max_steps, default 50): the TOTAL number of pipeline steps
+#     a Run may take — a budget over time, not concurrency.
+# The condition "how many run AT THE SAME TIME" selects MaxParallelism;
+# PipelineMaxSteps (the total-work budget) is the salient wrong sibling.
+ID="cond_resolve_concurrency_cap"
+NAME="cond-resolve — cap on concurrent fan-out vs total steps"
+QUESTION="限制【同一时刻最多有多少个并行 fan-out 工作单元（explorer/reviewer/subagent 兄弟节点）同时跑】的是哪个配置项？请把它和限制整个 Run 总步数的预算区分开，给出两个参数名。"
+EXPECT_MATCHES_REGEX="(MaxParallelism|max_parallelism|pipeline_max_parallelism)
+(并发|并行|同(一)?时(刻|候)|concurrent|at.*same.*time|simultaneous|goroutine)"
+EXPECT_NOT_CONTAINS="zzz_unmatched_sentinel_zzz"

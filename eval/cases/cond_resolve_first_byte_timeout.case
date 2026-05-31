@@ -1,0 +1,25 @@
+# Class probe — exact-resolution-under-condition (timeout family)
+#
+# Class: "which symbol/parameter handles condition C" when multiple
+# same-role candidates exist, distinguished only by their guard. This
+# probe (and the cond_resolve_* siblings) generalizes s11b beyond its
+# single instance so the class can be measured, not the case.
+#
+# Competing candidates (internal/llm/openai.go, all verified):
+#   - streamFirstByteTimeout (openai.go:84): no usable SSE data BEFORE
+#     the first assistant chunk — "request accepted but server never
+#     speaks". providers.yaml :: stream_first_byte_timeout_seconds (40s).
+#   - streamStallTimeout (openai.go:76): SSE no-bytes ceiling MID-stream
+#     (after first byte). codrax.yaml :: llm_stream_stall_timeout_seconds.
+#   - requestTimeout (openai.go:65): overall per-call HTTP timeout.
+# The condition "accepted but no first byte" selects streamFirstByteTimeout.
+# A salient-but-wrong pick (streamStallTimeout) is the class failure.
+ID="cond_resolve_first_byte_timeout"
+NAME="cond-resolve — timeout for accepted-but-no-first-byte"
+QUESTION="当 LLM 请求已被服务端接受、但服务端迟迟没有发出第一个可用的 SSE 数据块时，是哪个超时配置/字段负责把这次请求快速判为失败？给出该字段名，并说明它和'流中途停顿'用的超时有何区别。"
+# Two independent anchors (NOT same-line coupled): the correct symbol
+# must surface AND the before-first-byte condition must be addressed.
+# An answer that names only the mid-stream stall timeout fails line 1.
+EXPECT_MATCHES_REGEX="(streamFirstByteTimeout|stream_first_byte_timeout|StreamFirstByteTimeout|ErrStreamFirstByteTimeout)
+(首字节|第一(个|块)|first.?byte|尚未.*(数据|字节)|never.*(speak|first|byte)|接受.*未)"
+EXPECT_NOT_CONTAINS="zzz_unmatched_sentinel_zzz"

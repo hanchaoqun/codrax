@@ -1,0 +1,20 @@
+# Class probe — exact-resolution-under-condition (timeout family, opposite condition)
+#
+# Sibling of cond_resolve_first_byte_timeout with the OPPOSITE condition:
+# the stream already produced output, then goes silent mid-stream. This
+# pair forces the model to distinguish "before first byte" from "after
+# first byte, mid-stream gap" — the exact discrimination the class is about.
+#
+# Competing candidates (internal/llm/openai.go, verified):
+#   - streamStallTimeout (openai.go:76): SSE no-bytes ceiling the watchdog
+#     uses MID-stream (thinking models legitimately pause 60s+).
+#     codrax.yaml :: llm_stream_stall_timeout_seconds, default 120s.
+#   - streamFirstByteTimeout (openai.go:84): BEFORE first chunk (40s).
+#   - requestTimeout (openai.go:65): overall HTTP.
+# The condition "started, then silent mid-stream" selects streamStallTimeout.
+ID="cond_resolve_stall_timeout"
+NAME="cond-resolve — timeout for mid-stream silence after first byte"
+QUESTION="An LLM stream already emitted some assistant output and then goes silent partway through (no further SSE bytes). Which timeout field/parameter aborts that hung stream, and how does it differ from the one used before any byte has arrived?"
+EXPECT_MATCHES_REGEX="(streamStallTimeout|stream_stall_timeout|StreamStallTimeout|ErrStreamStalled|llm_stream_stall_timeout)
+(mid.?stream|stall|partway|after.*(first|byte)|已.*(输出|开始)|中途|流.*(停|中断))"
+EXPECT_NOT_CONTAINS="zzz_unmatched_sentinel_zzz"

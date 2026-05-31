@@ -1,0 +1,18 @@
+# Class probe — exact-resolution-under-condition (retry-layer family)
+#
+# Competing candidates (verified):
+#   - retryMaxAttempts (internal/llm/openai.go:73): caps the 429/5xx retry
+#     loop INSIDE a single Chat call — the innermost provider-level (L1)
+#     retry. LLMProviderConfig.RetryMaxAttempts.
+#   - transientRetryBudget (internal/orchestrator/orchestrator.go:158):
+#     orchestrator-owned, caps CROSS-STAGE transport retries (L4/L5) on
+#     explore / finalize dispatch — a different layer entirely.
+# The condition "the innermost in-request 429/5xx loop within one Chat
+# call" selects retryMaxAttempts; transientRetryBudget is the salient
+# cross-stage sibling that does NOT own this layer.
+ID="cond_resolve_inrequest_retry_attempts"
+NAME="cond-resolve — budget for the in-request 429/5xx retry loop"
+QUESTION="在【单次 Chat 调用内部】对 429/5xx 做重试的那个最内层（provider 级）循环，其次数上限由哪个参数控制？请把它和编排器层跨阶段的传输重试预算区分开，分别给出参数名。"
+EXPECT_MATCHES_REGEX="(retryMaxAttempts|RetryMaxAttempts|retry_max_attempts)
+(单次|in.?request|provider.?级|最内层|429|5xx|Chat 调用|innermost|in-call)"
+EXPECT_NOT_CONTAINS="zzz_unmatched_sentinel_zzz"

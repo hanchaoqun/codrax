@@ -1,0 +1,18 @@
+# Class probe — exact-resolution-under-condition (error-predicate family)
+#
+# Competing candidates (internal/llm/retryable_error.go, verified):
+#   - IsRetryableDispatchError (line 30): broad scheduler-retry predicate;
+#     returns TRUE for a wrapped HTTP 429 / 5xx (*apiError isRetryable).
+#   - IsStreamLevelRetryable (line 143): explicitly returns FALSE on
+#     wrapped HTTP 429 / 5xx ("L1's domain — retrying at L4/L5 would burn
+#     6x wall-clock"); only true for stream/transport-level errors.
+# The condition "a wrapped HTTP 429 / 5xx" selects IsRetryableDispatchError.
+# Picking IsStreamLevelRetryable (the salient sibling) is the class failure.
+ID="cond_resolve_dispatch_retryable_predicate"
+NAME="cond-resolve — predicate that treats 429/5xx as retryable"
+QUESTION="Two predicates classify whether an error is retryable. For a wrapped HTTP 429 / 5xx provider error specifically, which predicate returns true (treats it as retryable) and which one deliberately excludes it? Name both and state which condition each owns."
+# Require the correct symbol AND the 429/5xx condition. Naming both
+# predicates is encouraged (contrast), so the sibling is NOT banned.
+EXPECT_MATCHES_REGEX="IsRetryableDispatchError
+(429|5xx|5[0-9][0-9]|apiError|HTTP.*(status|error)|状态码)"
+EXPECT_NOT_CONTAINS="zzz_unmatched_sentinel_zzz"
