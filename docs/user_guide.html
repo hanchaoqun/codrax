@@ -1016,6 +1016,8 @@ multi_repo_enabled: false
 <hr />
 <h2 id="37-mcp-外部工具">3.7 MCP 外部工具</h2>
 <p>MCP(Model Context Protocol)让 codrax 可以接入你自己提供的<strong>只读外部工具</strong>或<strong>只读资源</strong>:例如内部知识库、告警系统、缺陷平台、监控快照、trace 预分析服务、规范文档检索器等。MCP 结果会进入 <code>mcp_resource</code> 外部观测通道,不会伪装成当前源码的 <code>file:line</code> citation。</p>
+<h3 id="一句话理解-mcp-在-codrax-里的位置">一句话理解 MCP 在 codrax 里的位置</h3>
+<p>MCP 不是“替代源码分析”的入口,而是给探索阶段增加一组<strong>外部只读证据来源</strong>。默认情况下,codrax 会把 MCP 结果和当前仓库源码一起分析;只有当用户明确说“只看 MCP / 不要看源码 / 不要读取仓库”并且 analyzer 产出 typed 排除策略时,才会关闭当前源码探索。</p>
 <h3 id="什么时候用-mcp">什么时候用</h3>
 <div class="table-wrap"><table>
 <thead>
@@ -1039,6 +1041,178 @@ multi_repo_enabled: false
 </tr>
 </tbody>
 </table></div>
+<h3 id="哪些-mcp-内容会进入模型上下文">哪些 MCP 内容会进入模型上下文</h3>
+<p>理解这一点很重要:不是 <code>codrax.yaml</code> 里的所有东西都会进 prompt。模型真正能看到、并用来决定是否调用工具的内容如下。</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>来源</th>
+<th>会不会进入模型上下文</th>
+<th>进入位置</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tools/list[].name</code></td>
+<td>会</td>
+<td>模型工具名,自动变成 <code>&lt;server&gt;__&lt;tool&gt;</code></td>
+<td>让模型知道可以调用哪个外部工具</td>
+</tr>
+<tr>
+<td><code>tools/list[].description</code></td>
+<td>会</td>
+<td>工具描述 / function schema</td>
+<td>告诉模型什么时候该调用、能查什么、不要查什么</td>
+</tr>
+<tr>
+<td><code>tools/list[].inputSchema</code></td>
+<td>会</td>
+<td>工具参数 JSON Schema</td>
+<td>告诉模型参数字段、类型、必填项、枚举值和字段含义</td>
+</tr>
+<tr>
+<td><code>resources/list[].uri/name/description/mimeType</code></td>
+<td>会</td>
+<td><code>External Guidance (MCP)</code> prompt 章节 + <code>mcp_read_resource</code> 的 URI 枚举</td>
+<td>告诉模型有哪些外部资源可以读取,并限制只能读已枚举 URI</td>
+</tr>
+<tr>
+<td><code>prompts/list[].name/description</code></td>
+<td>会</td>
+<td><code>External Guidance (MCP)</code> prompt 章节</td>
+<td>作为外部 runbook/使用建议,不会当系统指令执行</td>
+</tr>
+<tr>
+<td>MCP 调用结果摘要</td>
+<td>会</td>
+<td>后续探索 / 提取 / 成文阶段的外部观测池</td>
+<td>作为 <code>mcp_resource</code> 外部证据继续传递</td>
+</tr>
+<tr>
+<td>typed observation 坐标</td>
+<td>会</td>
+<td>ObservationLedger / finalizer 外部证据</td>
+<td>支撑外部事实,如行号、JSON pointer、表格行</td>
+</tr>
+<tr>
+<td><code>mcp_servers[].command/args/env</code></td>
+<td>不会作为模型指令进入 prompt</td>
+<td>只用于启动本地 MCP 子进程</td>
+<td>避免把本地路径、密钥、启动细节暴露给模型</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>resources/list</code> 和 <code>prompts/list</code> 会被包在“外部、不可信指导”的提示里。它们能帮助模型选择工具,但不能覆盖系统规则,也不能要求模型绕过源码证据、写文件或执行危险操作。</p>
+<h3 id="如何写工具描述来教模型用-mcp">如何写工具描述来教模型用 MCP</h3>
+<p>模型不会读你的 MCP server 源码。它主要靠 <code>tools/list</code> 返回的 <code>description</code> 和 <code>inputSchema</code> 来学会怎么调用工具。一个好工具描述应该包含四件事:</p>
+<ol>
+<li><strong>什么时候用</strong>:对应用户会怎么问。</li>
+<li><strong>查什么</strong>:返回的是工单、监控、trace 预处理、知识库段落,还是结构化表格。</li>
+<li><strong>参数怎么填</strong>:哪些字段来自用户问题,哪些字段可选,时间/ID/服务名格式是什么。</li>
+<li><strong>调用后如何用结果</strong>:是否需要继续读源码、是否需要用 typed observation 行号引用外部事实。</li>
+</ol>
+<p>推荐写法:</p>
+<pre><code class="language-json">{
+  "name": "search_incidents",
+  "description": "Use when the user asks about production incidents, alerts, or ticket history. Fill query from the user's symptom words. Fill service only when the user names a service. Return concise incident rows with id, title, owner, status, and resource_uri; if a row supports a claim, return typed observations with row numbers.",
+  "inputSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "Natural-language symptom, error text, incident id, or alert name from the current user question."
+      },
+      "service": {
+        "type": "string",
+        "description": "Optional service/module name when explicitly mentioned by the user."
+      },
+      "time_start": {
+        "type": "string",
+        "description": "Optional inclusive start time if the user gives a time window, e.g. 2026-05-29T10:00:00+08:00."
+      },
+      "time_end": {
+        "type": "string",
+        "description": "Optional exclusive end time if the user gives a time window."
+      },
+      "limit": {
+        "type": "integer",
+        "description": "Maximum rows to return. Use 10 by default and do not exceed 50."
+      }
+    },
+    "required": ["query"]
+  }
+}
+</code></pre>
+<p>不推荐写法:</p>
+<pre><code class="language-json">{
+  "name": "search",
+  "description": "Search everything.",
+  "inputSchema": {"type": "object"}
+}
+</code></pre>
+<p>这种描述太泛,模型不知道什么时候用,也不知道参数该从哪里来。</p>
+<h3 id="参数怎么动态传给-mcp-工具">参数怎么动态传给 MCP 工具</h3>
+<p>用户一般不需要手写 MCP 工具参数。流程是:</p>
+<ol>
+<li>你在 MCP server 的 <code>inputSchema</code> 里声明字段、类型、必填项和描述。</li>
+<li>用户用自然语言提出问题。</li>
+<li>探索阶段模型根据“当前问题 + 工具描述 + 参数 schema + 已收集证据”生成一次 JSON tool call。</li>
+<li>codrax 按 <code>&lt;server&gt;__&lt;tool&gt;</code> 路由到对应 MCP server,把模型生成的 JSON 原样作为 <code>tools/call.arguments</code> 传给 server。</li>
+<li>server 负责校验参数并返回结果;如果参数缺失或格式不合法,应该返回清晰错误,让模型重试更窄的参数。</li>
+</ol>
+<p>例子:</p>
+<p>用户问:</p>
+<pre><code class="language-text">结合最近 24 小时的支付告警和当前代码,分析 checkout 超时是不是缓存配置导致的。
+</code></pre>
+<p>如果 server 暴露 <code>ops__search_alerts(query, service, since, limit)</code>,模型可能动态调用:</p>
+<pre><code class="language-json">{
+  "query": "checkout timeout cache config",
+  "service": "checkout",
+  "since": "24h",
+  "limit": 10
+}
+</code></pre>
+<p>然后模型会把 MCP 返回的告警作为外部观测,再用 <code>grep</code> / <code>read_file</code> / <code>repo_map</code> 去当前仓库找缓存配置、调用链和证据。默认不是“只看 MCP”;默认是“外部观测 + 源码证据”一起分析。</p>
+<p>给 MCP 工具设计动态参数时,建议:</p>
+<ul>
+<li>用业务字段名,不要用 <code>arg1</code> / <code>data</code> / <code>payload</code>。</li>
+<li>给时间字段写清楚单位和格式,例如“秒”“毫秒”“ISO8601”“Unix ms”。</li>
+<li>对 mode/type/status 使用 <code>enum</code>,减少模型拼错。</li>
+<li>对大查询加 <code>limit</code> / <code>page_token</code> / <code>time_start</code> / <code>time_end</code>,避免一次返回过大。</li>
+<li>如果工具需要路径、URI、工单号、trace id,在字段描述里写“来自用户问题或上一步工具结果”。</li>
+</ul>
+<h3 id="触发原则和探索工作流">触发原则和探索工作流</h3>
+<p>MCP 的调用发生在探索阶段,不是 analyzer 阶段。典型工作流如下:</p>
+<pre><code class="language-text">用户问题
+  ↓
+analyzer: 判断问题类型、实体、是否涉及外部观测;不直接调用 MCP
+  ↓
+explorer: 看到内置源码工具 + MCP 工具 schema + MCP 外部资源清单
+  ↓
+按需调用 MCP:
+  - &lt;server&gt;__&lt;tool&gt;: 查询外部系统
+  - mcp_read_resource(uri=...): 读取 resources/list 已枚举资源
+  ↓
+把 MCP 结果作为 mcp_resource 外部观测保存
+  ↓
+继续用 repo_map / grep / read_file 收集当前源码证据
+  ↓
+extract/finalize: 同时使用 MCP 外部观测和源码 file:line 证据成文
+</code></pre>
+<p>触发原则:</p>
+<ul>
+<li><strong>显式触发</strong>:用户明确说“使用 MCP / 查工单 / 查监控 / 查某个外部资源 / 读取 mcp://...”时,模型更应该优先考虑 MCP。</li>
+<li><strong>隐式触发</strong>:用户没有点名 MCP,但问题明显需要外部事实,且已配置 MCP 工具描述匹配,模型可以调用 MCP。</li>
+<li><strong>源码优先场景</strong>:纯代码结构、函数行为、配置解释等问题,通常不需要 MCP。</li>
+<li><strong>混合场景</strong>:日志、trace、MCP、web、工单等外部观察提到当前代码时,默认要同时做源码探索;除非用户明确禁止源码分析。</li>
+</ul>
+<p>REPL 面板会真实显示 MCP 工具调用。例如:</p>
+<pre><code class="language-text">⇢ 探索 · 第 2 轮 调用工具 ops__search_alerts query=checkout timeout
+• MCP 返回 8 条外部观测，资源 mcp://ops/incidents/checkout，行 3,7
+</code></pre>
+<p>如果同一次探索派发里同一组 typed observation 再次返回,面板会显示“与前次相同”,但不会隐藏工具调用。大输出会显示 <code>blob ...</code> / <code>rows ...</code> 引用,不会把完整 payload 展开到面板。</p>
 <h3 id="mcp-安全边界">安全边界</h3>
 <ul>
 <li>当前实现支持 <strong>stdio server</strong>。server 是本机子进程,通过 stdin/stdout JSON-RPC 通信。</li>
@@ -1068,6 +1242,323 @@ mcp_servers:
     max_response_bytes: 4194304
 </code></pre>
 <p>启动后,如果 server 暴露了 <code>search</code> 工具,模型看到的工具名会是 <code>docs__search</code>。如果 server 暴露了资源,探索阶段还会看到 <code>mcp_read_resource(uri=...)</code>。</p>
+<h3 id="快速上手一个带动态参数和自定义工作流的-demo-mcp">快速上手:一个带动态参数和自定义工作流的 demo MCP</h3>
+<p>下面这个 demo MCP 模拟“告警/工单检索”,同时暴露一个“告警 + 源码联动分析”的工作流资源。用户只用自然语言提问,模型会根据工具描述和 <code>inputSchema</code> 自动提取 <code>query</code>、<code>service</code>、<code>since</code>、<code>limit</code> 等动态参数;如果需要更明确的探索步骤,模型还能读取你提供的 workflow 资源,再和当前 explorer 的 <code>repo_map</code> / <code>grep</code> / <code>read_file</code> 配合。</p>
+<h4 id="第-1-步准备-demo-server">第 1 步:准备 demo server</h4>
+<p>创建 <code>/opt/codrax-demo/mcp_incidents_demo.py</code>:</p>
+<pre><code class="language-python">#!/usr/bin/env python3
+import json
+import sys
+
+INCIDENTS = [
+    {
+        "id": "INC-17",
+        "service": "checkout",
+        "title": "checkout timeout after cache config rollout",
+        "severity": "p1",
+        "status": "open",
+        "line": 7,
+        "summary": "checkout p95 latency rose after cache ttl changed from 30s to 1s",
+    },
+    {
+        "id": "INC-24",
+        "service": "payment",
+        "title": "payment gateway retry storm",
+        "severity": "p2",
+        "status": "mitigated",
+        "line": 12,
+        "summary": "retry storm correlated with upstream 503 spikes",
+    },
+    {
+        "id": "INC-31",
+        "service": "checkout",
+        "title": "checkout cache miss burst",
+        "severity": "p2",
+        "status": "closed",
+        "line": 18,
+        "summary": "cache miss burst caused extra database load during deploy",
+    },
+]
+
+
+WORKFLOW_URI = "mcp://demo-alerts/workflows/alert-code-analysis"
+WORKFLOW_TEXT = """Demo workflow: alert + source-code analysis
+
+Use this workflow when the user asks whether a production alert, incident,
+ticket, or monitoring symptom is related to the current repository.
+
+Recommended explorer flow:
+1. Call demo_alerts__search_alerts first. Fill query from symptom words, service
+   from the service/module named by the user, and since from the user's time
+   window such as 24h.
+2. Treat returned rows as external observations. Do not convert MCP line numbers
+   into source-code citations.
+3. Continue source-code exploration unless the user explicitly forbids it:
+   use repo_map for navigation, grep for config/error names, and read_file for
+   current repository evidence.
+4. Final answers should separate external alert facts from current source
+   evidence and explain whether the source supports or weakens the alert theory.
+"""
+
+WORKFLOW_RESOURCE = {
+    "uri": WORKFLOW_URI,
+    "name": "alert-code-analysis-workflow",
+    "description": (
+        "Read this workflow when the user asks to combine production alerts, "
+        "incidents, tickets, or monitoring symptoms with current source-code analysis."
+    ),
+    "mimeType": "text/plain",
+}
+
+
+TOOL = {
+    "name": "search_alerts",
+    "description": (
+        "Use when the user asks about production alerts, incidents, tickets, "
+        "or recent operational symptoms. Fill query from the user's symptom "
+        "words. Fill service only when the user names a service or module. "
+        "Fill since when the user gives a time range such as '24h'. Return "
+        "line-backed external observations; after using this tool, continue "
+        "source-code exploration unless the user explicitly says not to."
+    ),
+    "inputSchema": {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "Symptom words, error text, or incident id from the current user question.",
+            },
+            "service": {
+                "type": "string",
+                "description": "Optional service/module name from the user question, e.g. checkout or payment.",
+            },
+            "since": {
+                "type": "string",
+                "description": "Optional relative or absolute time window, e.g. 24h or 2026-05-29T10:00:00+08:00.",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Maximum rows to return. Default 5; do not exceed 20.",
+            },
+        },
+        "required": ["query"],
+    },
+}
+
+
+def write(result_id, result):
+    sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": result_id, "result": result}, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+
+
+def write_error(result_id, code, message):
+    sys.stdout.write(json.dumps({"jsonrpc": "2.0", "id": result_id, "error": {"code": code, "message": message}}, ensure_ascii=False) + "\n")
+    sys.stdout.flush()
+
+
+def search_alerts(args):
+    query = str(args.get("query", "")).lower()
+    service = str(args.get("service", "")).lower()
+    limit = int(args.get("limit") or 5)
+    limit = max(1, min(limit, 20))
+
+    rows = []
+    for incident in INCIDENTS:
+        haystack = " ".join([incident["id"], incident["service"], incident["title"], incident["summary"]]).lower()
+        if service and incident["service"].lower() != service:
+            continue
+        if query and not all(part in haystack for part in query.split()):
+            # Demo logic is intentionally simple. Real servers can use search engines.
+            if not any(part in haystack for part in query.split()):
+                continue
+        rows.append(incident)
+        if len(rows) &gt;= limit:
+            break
+
+    envelope = {
+        "version": "codrax.mcp.observation.v1",
+        "summary": f"found {len(rows)} alert row(s) for query={args.get('query')!r}, service={args.get('service')!r}, since={args.get('since')!r}",
+        "resource_uri": "mcp://demo-alerts/incidents",
+        "observations": [
+            {
+                "summary": f"{row['id']} {row['service']} {row['severity']} {row['status']}: {row['summary']}",
+                "line_start": row["line"],
+                "line_end": row["line"],
+                "selector": f"incident_id={row['id']}",
+                "payload_ref": f"mcp://demo-alerts/incidents/{row['id']}",
+            }
+            for row in rows
+        ],
+    }
+    return {
+        "content": [
+            {
+                "type": "text",
+                "mimeType": "application/vnd.codrax.observation+json",
+                "text": json.dumps(envelope, ensure_ascii=False),
+            }
+        ]
+    }
+
+
+for line in sys.stdin:
+    if not line.strip():
+        continue
+    req = json.loads(line)
+    method = req.get("method")
+    req_id = req.get("id")
+    if req_id is None:
+        # JSON-RPC notification, such as notifications/initialized. Do not reply.
+        continue
+
+    if method == "initialize":
+        write(req_id, {"protocolVersion": "2024-11-05", "capabilities": {"tools": {}, "resources": {}}, "serverInfo": {"name": "codrax-demo-alerts", "version": "0.1.0"}})
+    elif method == "tools/list":
+        write(req_id, {"tools": [TOOL]})
+    elif method == "tools/call":
+        params = req.get("params") or {}
+        name = params.get("name")
+        args = params.get("arguments") or {}
+        if name != "search_alerts":
+            write_error(req_id, -32602, f"unknown tool: {name}")
+        elif not args.get("query"):
+            write_error(req_id, -32602, "query is required")
+        else:
+            write(req_id, search_alerts(args))
+    elif method == "resources/list":
+        write(req_id, {"resources": [WORKFLOW_RESOURCE]})
+    elif method == "resources/read":
+        params = req.get("params") or {}
+        if params.get("uri") != WORKFLOW_URI:
+            write_error(req_id, -32602, f"unknown resource: {params.get('uri')}")
+        else:
+            write(req_id, {"contents": [{"uri": WORKFLOW_URI, "mimeType": "text/plain", "text": WORKFLOW_TEXT}]})
+    else:
+        write_error(req_id, -32601, f"unsupported method: {method}")
+</code></pre>
+<p>赋予执行权限:</p>
+<pre><code class="language-bash">chmod +x /opt/codrax-demo/mcp_incidents_demo.py
+</code></pre>
+<p>这个 demo 只用 Python 标准库。真实生产 server 可以换成 Go、Python、Node.js 或公司内部服务适配器。最小工具能力需要响应 <code>initialize</code>、<code>tools/list</code>、<code>tools/call</code>;如果要提供用户自定义工作流,再响应 <code>resources/list</code>、<code>resources/read</code>。</p>
+<h4 id="第-2-步配置-codraxyaml">第 2 步:配置 codrax.yaml</h4>
+<p>在 <code>codrax.yaml</code> 中加入:</p>
+<pre><code class="language-yaml">mcp_max_servers: 8
+
+mcp_servers:
+  - name: demo_alerts
+    transport: stdio
+    command: /opt/codrax-demo/mcp_incidents_demo.py
+    inherit_env: false
+    startup_timeout_ms: 3000
+    call_timeout_ms: 10000
+    max_response_bytes: 1048576
+</code></pre>
+<p>生效后,模型看到的工具名不是 <code>search_alerts</code>,而是带 server 命名空间的 <code>demo_alerts__search_alerts</code>。这样多个 MCP server 都有 <code>search</code> / <code>lookup</code> 工具时也不会冲突。</p>
+<p>同时,这个 demo 会在 <code>resources/list</code> 中暴露 <code>mcp://demo-alerts/workflows/alert-code-analysis</code>。codrax 会把资源名称、描述、URI 放进 MCP 外部指导区,并只允许模型通过 <code>mcp_read_resource</code> 读取这个已枚举 URI。</p>
+<h4 id="第-3-步用自然语言触发动态参数">第 3 步:用自然语言触发动态参数</h4>
+<p>启动 codrax 后,可以这样问:</p>
+<pre><code class="language-text">结合最近 24 小时的 checkout 告警和当前代码,分析 checkout timeout 是否和缓存配置有关。
+</code></pre>
+<p>模型不需要用户手写 JSON。探索阶段会根据问题和 schema 动态生成类似调用:</p>
+<pre><code class="language-json">{
+  "query": "checkout timeout cache",
+  "service": "checkout",
+  "since": "24h",
+  "limit": 5
+}
+</code></pre>
+<p>REPL 面板中会看到类似:</p>
+<pre><code class="language-text">⇢ 探索 · 第 1 轮 调用工具 mcp_read_resource uri=mcp://demo-alerts/workflows/alert-code-analysis
+⇢ 探索 · 第 1 轮 调用工具 demo_alerts__search_alerts query=checkout timeout cache service=checkout
+• MCP 返回 1 条外部观测，资源 mcp://demo-alerts/incidents，行 7
+</code></pre>
+<p>模型不一定每次都读取 workflow;如果工具描述已经足够明确,它可能直接调用 <code>demo_alerts__search_alerts</code>。当用户问题复杂、流程特殊、或者你希望固定公司内的排查顺序时,workflow 资源会更有用。</p>
+<p>随后 codrax 会继续用 <code>repo_map</code> / <code>grep</code> / <code>read_file</code> 探索当前仓库源码。最终答案里,MCP 告警和 workflow 是外部观测/外部建议,源码结论仍需要当前仓库的 <code>file:line</code> 证据支撑。</p>
+<h4 id="第-4-步自定义工作流应该怎么写">第 4 步:自定义工作流应该怎么写</h4>
+<p>workflow 最适合描述“探索顺序”和“证据边界”,不要写成强制系统指令。推荐包含:</p>
+<ol>
+<li><strong>适用条件</strong>:什么类型的问题才使用这个 workflow。</li>
+<li><strong>先调用哪些 MCP 工具</strong>:例如先查告警、工单、监控,再查知识库。</li>
+<li><strong>动态参数映射</strong>:哪些参数来自用户问题,哪些来自上一步结果。</li>
+<li><strong>如何回到源码探索</strong>:明确提醒继续用 <code>repo_map</code> / <code>grep</code> / <code>read_file</code> 找当前仓库证据。</li>
+<li><strong>证据边界</strong>:MCP 行号是外部观测,不能当作源码 citation;源码判断仍要 current repo 的 <code>file:line</code>。</li>
+</ol>
+<p>上面 demo 的 <code>WORKFLOW_TEXT</code> 就是一个最小可用模板。真实环境里可以换成“告警排查流程”“trace 分析流程”“缺陷单回归流程”“内部规范审查流程”等。只要它通过 <code>resources/list</code> 枚举出来,模型就能在探索阶段按需读取。</p>
+<h4 id="第-5-步怎么确认配置真的生效">第 5 步:怎么确认配置真的生效</h4>
+<ul>
+<li>如果探索阶段出现 <code>调用工具 demo_alerts__search_alerts</code>,说明工具已进入 explorer 工具面。</li>
+<li>如果探索阶段出现 <code>调用工具 mcp_read_resource uri=mcp://demo-alerts/workflows/alert-code-analysis</code>,说明 workflow 资源已枚举并可读取。</li>
+<li>如果只想检查 server 是否能启动,先在终端直接运行 <code>/opt/codrax-demo/mcp_incidents_demo.py</code>,再输入一行 JSON-RPC:</li>
+</ul>
+<pre><code class="language-json">{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+</code></pre>
+<p>应该能看到返回的 <code>search_alerts</code> 工具和 <code>inputSchema</code>。</p>
+<p>也可以检查 workflow 资源:</p>
+<pre><code class="language-json">{"jsonrpc":"2.0","id":2,"method":"resources/list","params":{}}
+</code></pre>
+<p>应该能看到 <code>mcp://demo-alerts/workflows/alert-code-analysis</code>。</p>
+<p>常见问题:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>现象</th>
+<th>原因</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>探索阶段没有调用 MCP</td>
+<td>问题是纯源码问题,或工具描述太泛</td>
+<td>在工具 <code>description</code> 里写清楚适用问题;或用户明确问“结合告警/工单/监控”</td>
+</tr>
+<tr>
+<td>模型没读 workflow</td>
+<td>工具描述已经足够完成任务,或 workflow 描述不够具体</td>
+<td>在 resource <code>description</code> 里写清楚“什么时候读这个 workflow”;复杂任务里用户也可以明确说“按告警源码联动 workflow 分析”</td>
+</tr>
+<tr>
+<td>模型传的参数不准</td>
+<td>字段名/描述太抽象</td>
+<td>把 <code>query</code>、<code>service</code>、<code>since</code> 等字段写成业务含义,并给例子</td>
+</tr>
+<tr>
+<td>返回太大</td>
+<td>server 把完整 payload 塞进 <code>text</code></td>
+<td>返回摘要 + <code>payload_ref</code> / <code>row_set_ref</code>,让 codrax 面板保持轻量</td>
+</tr>
+<tr>
+<td>最终答案没引用外部行号</td>
+<td>server 返回普通文本</td>
+<td>使用 <code>codrax.mcp.observation.v1</code> 或 <code>application/vnd.codrax.observation+json</code></td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="mcp-server-返回结果怎么写">MCP server 返回结果怎么写</h3>
+<p>普通 MCP text/resource 结果可以直接返回简短摘要;codrax 会把它作为外部观测。如果结果很大,建议 server 自己返回摘要 + 外部引用,不要把几 MB 原文直接塞进 <code>text</code>。</p>
+<p>codrax 也会保护用户面板和上下文:</p>
+<ul>
+<li>超过内联阈值的 MCP <code>Summary</code> 会写入 <code>.codrax/blob/...</code>,面板只显示 <code>blob ...</code> 引用。</li>
+<li>typed observation 很多时,面板只显示观测条数和少量行号摘要。</li>
+<li><code>payload_ref</code> / <code>row_set_ref</code> / <code>page_ref</code> 会作为外部引用传递给后续阶段。</li>
+</ul>
+<p>推荐返回:</p>
+<pre><code class="language-json">{
+  "version": "codrax.mcp.observation.v1",
+  "summary": "found 12 matching incidents; top 3 are shown, full row set in row_set_ref",
+  "resource_uri": "mcp://ops/incidents/search/abc123",
+  "row_set_ref": "mcp://ops/incidents/search/abc123/rows.jsonl",
+  "payload_ref": "mcp://ops/incidents/search/abc123/full.json",
+  "observations": [
+    {
+      "summary": "INC-17 checkout timeout owned by runtime team",
+      "row": 1,
+      "selector": "incident_id=INC-17"
+    }
+  ]
+}
+</code></pre>
 <h3 id="mcp-typed-line-support">typed line support</h3>
 <p>如果 MCP server 能给出明确坐标,推荐返回显式 typed observation envelope。codrax 只在看到 <code>version: "codrax.mcp.observation.v1"</code> 或 MIME <code>application/vnd.codrax.observation+json</code> 时保留行号;普通文本/普通 JSON 不会被猜测行号。</p>
 <pre><code class="language-json">{
