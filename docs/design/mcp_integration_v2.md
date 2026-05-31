@@ -216,6 +216,8 @@ v1 决策 #4 只管"启动日志不打 env"。但"把 codrax 全部 `os.Environ`
 
 **2026-05-31 落地说明**：当前已实现 `resources/list` / `resources/read` / `prompts/list`。`prompts/list` 只作为 capped 外部 guidance 元数据暴露；`prompts/get` 暂未执行，避免在没有明确 server 场景前引入额外 prompt-injection 面。
 
+**Typed line support**：`tools/call` 与 `resources/read` 结果若包含显式 `codrax.mcp.observation.v1` envelope 或 `application/vnd.codrax.observation+json` MIME，producer 会解析 `line_start` / `line_end` 等 typed 坐标并放入 `MCPResponse.Observations`。普通文本/普通 JSON 不解析坐标；所有 typed 坐标仍走 `mcp_resource` 外部观测 lane，不进入当前源码 citation。
+
 ### 6.1 prompts → External Guidance section
 
 - **接口扩展**（`internal/mcp/mcp.go` 的 `Server`）：`ListPrompts() []PromptSchema` / `GetPrompt(name, args) (PromptResult, error)`（类型同 v1 §7.3）。

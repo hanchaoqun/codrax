@@ -84,10 +84,10 @@ The preferred MIME type is `application/vnd.codrax.observation+json`. A generic
 
 ## Task Checklist
 
-- [ ] Add typed observation type and ledger projection.
-- [ ] Add envelope parser with explicit activation rules.
-- [ ] Wire parser into `tools/call` and `resources/read` decode paths.
-- [ ] Add tests for single observation, batch observations, resource URI
+- [x] Add typed observation type and ledger projection.
+- [x] Add envelope parser with explicit activation rules.
+- [x] Wire parser into `tools/call` and `resources/read` decode paths.
+- [x] Add tests for single observation, batch observations, resource URI
       inheritance, ordinary JSON non-activation, invalid coordinate downgrade,
       and ledger external-origin preservation.
-- [ ] Update MCP docs and sample comments.
+- [x] Update MCP docs and sample comments.

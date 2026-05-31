@@ -2512,6 +2512,8 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 
 资源通道只允许读取 server 已通过 `resources/list` 枚举过的精确 URI：`mcp_read_resource(uri=...)` 不拼接、不解析、不猜 URI。`prompts/list` 和 resource metadata 会作为 "External Guidance (MCP)" 追加给探索类 agent，并明确标注为外部不可信建议；模型必须通过 MCP 工具返回的行/资源-backed 结果再把它当证据使用。
 
+MCP typed line support 是可选协议：server 若返回 `version:"codrax.mcp.observation.v1"` 或 `application/vnd.codrax.observation+json` 的 JSON envelope，Codrax 会把其中 `resource_uri` / `line_start` / `line_end` / `row` / `json_pointer` / `selector` 投影成一条或多条 `mcp_resource` observation。普通文本和普通 JSON 不会被正则猜行号，避免把外部散文误当行证据。
+
 ---
 
 ## 14. 配置

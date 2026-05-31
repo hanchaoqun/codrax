@@ -4740,22 +4740,41 @@ type ToolResult struct {
 
 // MCPResponse records a response from an MCP server.
 type MCPResponse struct {
-	ServerName  string    `json:"server_name"`
-	Method      string    `json:"method"`
-	Summary     string    `json:"summary"`
-	RawRef      string    `json:"raw_ref,omitempty"`
-	PayloadRef  string    `json:"payload_ref,omitempty"`
-	RowSetRef   string    `json:"row_set_ref,omitempty"`
-	PageRef     string    `json:"page_ref,omitempty"`
-	ResourceURI string    `json:"resource_uri,omitempty"`
-	MIMEType    string    `json:"mime_type,omitempty"`
-	JSONPointer string    `json:"json_pointer,omitempty"`
-	Selector    string    `json:"selector,omitempty"`
-	Row         int       `json:"row,omitempty"`
-	LineStart   int       `json:"line_start,omitempty"`
-	LineEnd     int       `json:"line_end,omitempty"`
-	Success     bool      `json:"success"`
-	Timestamp   time.Time `json:"timestamp"`
+	ServerName   string                `json:"server_name"`
+	Method       string                `json:"method"`
+	Summary      string                `json:"summary"`
+	RawRef       string                `json:"raw_ref,omitempty"`
+	PayloadRef   string                `json:"payload_ref,omitempty"`
+	RowSetRef    string                `json:"row_set_ref,omitempty"`
+	PageRef      string                `json:"page_ref,omitempty"`
+	ResourceURI  string                `json:"resource_uri,omitempty"`
+	MIMEType     string                `json:"mime_type,omitempty"`
+	JSONPointer  string                `json:"json_pointer,omitempty"`
+	Selector     string                `json:"selector,omitempty"`
+	Row          int                   `json:"row,omitempty"`
+	LineStart    int                   `json:"line_start,omitempty"`
+	LineEnd      int                   `json:"line_end,omitempty"`
+	Observations []MCPTypedObservation `json:"observations,omitempty"`
+	Success      bool                  `json:"success"`
+	Timestamp    time.Time             `json:"timestamp"`
+}
+
+// MCPTypedObservation is an optional structured coordinate row decoded from an
+// explicit MCP observation envelope. It is always treated as external MCP
+// evidence, never as a current-source citation.
+type MCPTypedObservation struct {
+	Summary     string `json:"summary,omitempty"`
+	RawRef      string `json:"raw_ref,omitempty"`
+	PayloadRef  string `json:"payload_ref,omitempty"`
+	RowSetRef   string `json:"row_set_ref,omitempty"`
+	PageRef     string `json:"page_ref,omitempty"`
+	ResourceURI string `json:"resource_uri,omitempty"`
+	MIMEType    string `json:"mime_type,omitempty"`
+	JSONPointer string `json:"json_pointer,omitempty"`
+	Selector    string `json:"selector,omitempty"`
+	Row         int    `json:"row,omitempty"`
+	LineStart   int    `json:"line_start,omitempty"`
+	LineEnd     int    `json:"line_end,omitempty"`
 }
 
 // MCPServerConfig is the codrax.yaml shape for one external MCP server.

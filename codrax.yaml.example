@@ -167,6 +167,13 @@
 #     schema、调度或答案落地。当前实现支持 stdio server。工具只暴露给探索类
 #     agent,名称形如 <server>__<tool>;结果进入 mcp_resource 外部观测通道,
 #     不会伪装成当前源码引用。
+#     If an MCP server returns explicit codrax.mcp.observation.v1 JSON or
+#     application/vnd.codrax.observation+json, line/row coordinates are
+#     preserved as external MCP observations. Ordinary text/JSON is not
+#     scraped for line numbers.
+#     如果 MCP server 返回显式 codrax.mcp.observation.v1 JSON 或
+#     application/vnd.codrax.observation+json,行号/行范围/行坐标会作为
+#     外部 MCP 观测保留。普通文本/普通 JSON 不会被猜测行号。
 #
 # mcp_max_servers — max configured servers. Default 8.
 #   最大 server 数。默认 8。

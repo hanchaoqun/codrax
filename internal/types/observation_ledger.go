@@ -1381,34 +1381,46 @@ func compileMCPResponseObservations(responses []MCPResponse, add func(Observatio
 		if !response.Success {
 			continue
 		}
-		add(ObservationRecord{
-			ID:              fmt.Sprintf("mcp:%d", i),
-			Origin:          AnswerEvidenceOriginMCPResource,
-			Producer:        firstNonEmptyString(response.Method, "mcp"),
-			Role:            AnswerAggregateRoleSupportingCoverage,
-			GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginMCPResource, AnswerAggregateRoleSupportingCoverage),
-			SourceRef: ObservationSourceRef{
-				Kind:        ObservationSourceMCPResource,
-				Server:      strings.TrimSpace(response.ServerName),
-				RawRef:      strings.TrimSpace(response.RawRef),
-				PayloadRef:  strings.TrimSpace(response.PayloadRef),
-				RowSetRef:   strings.TrimSpace(response.RowSetRef),
-				PageRef:     strings.TrimSpace(response.PageRef),
-				ResourceURI: strings.TrimSpace(response.ResourceURI),
-				MIMEType:    strings.TrimSpace(response.MIMEType),
-			},
-			Span: ObservationSpan{
-				LineStart:   response.LineStart,
-				LineEnd:     response.LineEnd,
-				Selector:    strings.TrimSpace(response.Selector),
-				JSONPointer: strings.TrimSpace(response.JSONPointer),
-				Row:         response.Row,
-			},
-			ClaimKey:   firstNonEmptyString(response.Method, response.ServerName),
-			Summary:    firstLine(strings.TrimSpace(response.Summary)),
-			RawExcerpt: clippedObservationExcerpt(response.Summary),
-			ObservedAt: response.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
-		})
+		if len(response.Observations) == 0 {
+			add(mcpObservationRecordFromResponse(fmt.Sprintf("mcp:%d", i), response, MCPTypedObservation{}))
+			continue
+		}
+		for j, obs := range response.Observations {
+			add(mcpObservationRecordFromResponse(fmt.Sprintf("mcp:%d:%d", i, j), response, obs))
+		}
+	}
+}
+
+func mcpObservationRecordFromResponse(id string, response MCPResponse, obs MCPTypedObservation) ObservationRecord {
+	summary := firstNonEmptyString(obs.Summary, response.Summary)
+	rawExcerpt := firstNonEmptyString(obs.Summary, response.Summary)
+	return ObservationRecord{
+		ID:              id,
+		Origin:          AnswerEvidenceOriginMCPResource,
+		Producer:        firstNonEmptyString(response.Method, "mcp"),
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginMCPResource, AnswerAggregateRoleSupportingCoverage),
+		SourceRef: ObservationSourceRef{
+			Kind:        ObservationSourceMCPResource,
+			Server:      strings.TrimSpace(response.ServerName),
+			RawRef:      strings.TrimSpace(firstNonEmptyString(obs.RawRef, response.RawRef)),
+			PayloadRef:  strings.TrimSpace(firstNonEmptyString(obs.PayloadRef, response.PayloadRef)),
+			RowSetRef:   strings.TrimSpace(firstNonEmptyString(obs.RowSetRef, response.RowSetRef)),
+			PageRef:     strings.TrimSpace(firstNonEmptyString(obs.PageRef, response.PageRef)),
+			ResourceURI: strings.TrimSpace(firstNonEmptyString(obs.ResourceURI, response.ResourceURI)),
+			MIMEType:    strings.TrimSpace(firstNonEmptyString(obs.MIMEType, response.MIMEType)),
+		},
+		Span: ObservationSpan{
+			LineStart:   firstPositiveInt(obs.LineStart, response.LineStart),
+			LineEnd:     firstPositiveInt(obs.LineEnd, response.LineEnd),
+			Selector:    strings.TrimSpace(firstNonEmptyString(obs.Selector, response.Selector)),
+			JSONPointer: strings.TrimSpace(firstNonEmptyString(obs.JSONPointer, response.JSONPointer)),
+			Row:         firstPositiveInt(obs.Row, response.Row),
+		},
+		ClaimKey:   firstNonEmptyString(response.Method, response.ServerName),
+		Summary:    firstLine(strings.TrimSpace(summary)),
+		RawExcerpt: clippedObservationExcerpt(rawExcerpt),
+		ObservedAt: response.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
 	}
 }
 
@@ -1819,6 +1831,15 @@ func firstNonEmptyString(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func firstPositiveInt(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func firstLine(s string) string {

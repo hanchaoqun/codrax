@@ -198,6 +198,69 @@ func TestStdioServerResourcesAndPrompts(t *testing.T) {
 	}
 }
 
+func TestDecodeToolCallResultTypedObservationEnvelope(t *testing.T) {
+	raw := json.RawMessage(`{
+		"content":[{
+			"type":"text",
+			"mimeType":"application/vnd.codrax.observation+json",
+			"text":"{\"summary\":\"trace facts\",\"resource_uri\":\"mcp://trace/run\",\"observations\":[{\"summary\":\"sleep entry\",\"line_start\":\"1102717\"},{\"summary\":\"wakeup\",\"line_start\":1139180,\"line_end\":1139180,\"selector\":\"pid=36379\"}]}"
+		}],
+		"isError":false
+	}`)
+	got := decodeToolCallResult(raw)
+	if got.IsError || got.MIMEType != "application/vnd.codrax.observation+json" {
+		t.Fatalf("unexpected typed result flags: %+v", got)
+	}
+	if !strings.Contains(got.Summary, "trace facts") {
+		t.Fatalf("typed envelope should use compact summary, got %q", got.Summary)
+	}
+	if len(got.Observations) != 2 {
+		t.Fatalf("typed envelope should produce two observations, got %+v", got.Observations)
+	}
+	if got.Observations[0].ResourceURI != "mcp://trace/run" ||
+		got.Observations[0].LineStart != 1102717 ||
+		got.Observations[1].LineStart != 1139180 ||
+		got.Observations[1].Selector != "pid=36379" {
+		t.Fatalf("typed coordinates not preserved: %+v", got.Observations)
+	}
+}
+
+func TestDecodeToolCallResultOrdinaryJSONDoesNotActivateTypedCoordinates(t *testing.T) {
+	raw := json.RawMessage(`{
+		"content":[{
+			"type":"text",
+			"mimeType":"application/json",
+			"text":"{\"summary\":\"not a codrax envelope\",\"line_start\":42}"
+		}],
+		"isError":false
+	}`)
+	got := decodeToolCallResult(raw)
+	if len(got.Observations) != 0 {
+		t.Fatalf("ordinary JSON must not become typed line evidence: %+v", got.Observations)
+	}
+	if !strings.Contains(got.Summary, "line_start") {
+		t.Fatalf("ordinary JSON should remain normal summary text, got %q", got.Summary)
+	}
+}
+
+func TestDecodeResourceReadResultTypedEnvelopeInheritsURIAndSanitizesRange(t *testing.T) {
+	raw := json.RawMessage(`{
+		"contents":[{
+			"uri":"mcp://docs/spec",
+			"mimeType":"application/vnd.codrax.observation+json",
+			"text":"{\"summary\":\"spec row\",\"line_start\":50,\"line_end\":40}"
+		}]
+	}`)
+	got := decodeResourceReadResult(raw, "mcp://docs/fallback")
+	if len(got.Observations) != 1 {
+		t.Fatalf("resource typed envelope should produce one observation: %+v", got)
+	}
+	obs := got.Observations[0]
+	if obs.ResourceURI != "mcp://docs/spec" || obs.LineStart != 50 || obs.LineEnd != 0 {
+		t.Fatalf("resource URI inheritance/range sanitization failed: %+v", obs)
+	}
+}
+
 func TestRegistryExposesNamespacedTools(t *testing.T) {
 	reg := NewRegistry()
 	s := fakeServer(t)

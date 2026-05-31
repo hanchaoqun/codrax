@@ -450,15 +450,16 @@ func (s *StdioServer) ReadResource(uri string) (types.MCPResponse, error) {
 			Timestamp:   time.Now(),
 		}, err
 	}
-	summary, mime := decodeResourceReadResult(raw)
+	decoded := decodeResourceReadResult(raw, uri)
 	return types.MCPResponse{
-		ServerName:  s.name,
-		Method:      "resources/read",
-		Summary:     summary,
-		ResourceURI: uri,
-		MIMEType:    mime,
-		Success:     true,
-		Timestamp:   time.Now(),
+		ServerName:   s.name,
+		Method:       "resources/read",
+		Summary:      decoded.Summary,
+		ResourceURI:  uri,
+		MIMEType:     decoded.MIMEType,
+		Observations: decoded.Observations,
+		Success:      true,
+		Timestamp:    time.Now(),
 	}, nil
 }
 
@@ -479,16 +480,17 @@ func (s *StdioServer) CallTool(name string, params json.RawMessage) (types.MCPRe
 			Timestamp:  time.Now(),
 		}, err
 	}
-	summary, mime, isErr := decodeToolCallResult(raw)
+	decoded := decodeToolCallResult(raw)
 	resp := types.MCPResponse{
-		ServerName: s.name,
-		Method:     "tools/call:" + name,
-		Summary:    summary,
-		MIMEType:   mime,
-		Success:    !isErr,
-		Timestamp:  time.Now(),
+		ServerName:   s.name,
+		Method:       "tools/call:" + name,
+		Summary:      decoded.Summary,
+		MIMEType:     decoded.MIMEType,
+		Observations: decoded.Observations,
+		Success:      !decoded.IsError,
+		Timestamp:    time.Now(),
 	}
-	if isErr {
+	if decoded.IsError {
 		return resp, fmt.Errorf("mcp tool %s returned isError", name)
 	}
 	return resp, nil
@@ -602,7 +604,7 @@ func (s *StdioServer) Close() error {
 	return nil
 }
 
-func decodeToolCallResult(raw json.RawMessage) (summary, mime string, isErr bool) {
+func decodeToolCallResult(raw json.RawMessage) decodedMCPResult {
 	var decoded struct {
 		Content []struct {
 			Type     string          `json:"type"`
@@ -614,32 +616,53 @@ func decodeToolCallResult(raw json.RawMessage) (summary, mime string, isErr bool
 		IsError bool `json:"isError"`
 	}
 	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return string(raw), "", false
+		return decodedMCPResult{Summary: string(raw)}
 	}
 	var parts []string
+	var observations []types.MCPTypedObservation
+	var mime string
 	for _, c := range decoded.Content {
 		if mime == "" {
 			mime = strings.TrimSpace(c.MIMEType)
 		}
+		payload := ""
+		resourceURI := ""
+		effectiveMIME := strings.TrimSpace(c.MIMEType)
 		switch {
 		case c.Text != "":
-			parts = append(parts, c.Text)
+			payload = c.Text
 		case c.Data != "":
-			parts = append(parts, c.Data)
+			payload = c.Data
 		case len(c.Resource) > 0:
-			parts = append(parts, string(c.Resource))
+			resourceURI, effectiveMIME, payload = decodeEmbeddedResourcePayload(c.Resource)
+			if mime == "" {
+				mime = effectiveMIME
+			}
+			if payload == "" {
+				payload = string(c.Resource)
+			}
 		default:
 			b, _ := json.Marshal(c)
-			parts = append(parts, string(b))
+			payload = string(b)
+		}
+		if obs, summary, ok := parseTypedObservationEnvelope(payload, effectiveMIME, resourceURI); ok {
+			observations = append(observations, obs...)
+			if summary != "" {
+				parts = append(parts, summary)
+			}
+			continue
+		}
+		if payload != "" {
+			parts = append(parts, payload)
 		}
 	}
 	if len(parts) == 0 {
-		return string(raw), mime, decoded.IsError
+		return decodedMCPResult{Summary: string(raw), MIMEType: mime, IsError: decoded.IsError, Observations: observations}
 	}
-	return strings.Join(parts, "\n"), mime, decoded.IsError
+	return decodedMCPResult{Summary: strings.Join(parts, "\n"), MIMEType: mime, IsError: decoded.IsError, Observations: observations}
 }
 
-func decodeResourceReadResult(raw json.RawMessage) (summary, mime string) {
+func decodeResourceReadResult(raw json.RawMessage, fallbackResourceURI string) decodedMCPResult {
 	var decoded struct {
 		Contents []struct {
 			URI      string `json:"uri"`
@@ -649,23 +672,54 @@ func decodeResourceReadResult(raw json.RawMessage) (summary, mime string) {
 		} `json:"contents"`
 	}
 	if err := json.Unmarshal(raw, &decoded); err != nil {
-		return string(raw), ""
+		return decodedMCPResult{Summary: string(raw)}
 	}
 	var parts []string
+	var observations []types.MCPTypedObservation
+	var mime string
 	for _, c := range decoded.Contents {
 		if mime == "" {
 			mime = strings.TrimSpace(c.MIMEType)
 		}
+		payload := ""
 		if c.Text != "" {
-			parts = append(parts, c.Text)
+			payload = c.Text
 		} else if c.Blob != "" {
-			parts = append(parts, c.Blob)
+			payload = c.Blob
+		}
+		resourceURI := firstNonEmpty(c.URI, fallbackResourceURI)
+		if obs, summary, ok := parseTypedObservationEnvelope(payload, c.MIMEType, resourceURI); ok {
+			observations = append(observations, obs...)
+			if summary != "" {
+				parts = append(parts, summary)
+			}
+			continue
+		}
+		if payload != "" {
+			parts = append(parts, payload)
 		}
 	}
 	if len(parts) == 0 {
-		return string(raw), mime
+		return decodedMCPResult{Summary: string(raw), MIMEType: mime, Observations: observations}
 	}
-	return strings.Join(parts, "\n"), mime
+	return decodedMCPResult{Summary: strings.Join(parts, "\n"), MIMEType: mime, Observations: observations}
+}
+
+func decodeEmbeddedResourcePayload(raw json.RawMessage) (uri, mime, payload string) {
+	var decoded struct {
+		URI      string `json:"uri"`
+		MIMEType string `json:"mimeType"`
+		Text     string `json:"text"`
+		Blob     string `json:"blob"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return "", "", ""
+	}
+	payload = decoded.Text
+	if payload == "" {
+		payload = decoded.Blob
+	}
+	return strings.TrimSpace(decoded.URI), strings.TrimSpace(decoded.MIMEType), payload
 }
 
 func mustMarshalRaw(v any) json.RawMessage {

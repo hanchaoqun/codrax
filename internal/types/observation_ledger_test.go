@@ -1556,6 +1556,48 @@ func TestCompileObservationLedger_MCPResponseTypedCoordinates(t *testing.T) {
 	}
 }
 
+func TestCompileObservationLedger_MCPResponseTypedObservationRows(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		MCPResponses: []MCPResponse{{
+			ServerName:  "trace",
+			Method:      "tools/call:wakeup_chain",
+			Success:     true,
+			Summary:     "parent summary",
+			PayloadRef:  "blob://payload/full.json",
+			ResourceURI: "mcp://trace/run",
+			MIMEType:    "application/vnd.codrax.observation+json",
+			Observations: []MCPTypedObservation{{
+				Summary:   "sleep entry",
+				LineStart: 1102717,
+			}, {
+				Summary:     "wakeup",
+				ResourceURI: "mcp://trace/override",
+				LineStart:   1139180,
+				LineEnd:     1139180,
+				Selector:    "pid=36379",
+			}},
+		}},
+	})
+	first := findObservationRecord(t, ledger, "mcp:0:0")
+	if first.SourceRef.Kind != ObservationSourceMCPResource ||
+		first.SourceRef.ResourceURI != "mcp://trace/run" ||
+		first.SourceRef.PayloadRef != "blob://payload/full.json" ||
+		first.Span.LineStart != 1102717 ||
+		first.Summary != "sleep entry" {
+		t.Fatalf("first typed MCP row did not inherit parent coordinates: %+v", first)
+	}
+	second := findObservationRecord(t, ledger, "mcp:0:1")
+	if second.SourceRef.ResourceURI != "mcp://trace/override" ||
+		second.Span.LineStart != 1139180 ||
+		second.Span.LineEnd != 1139180 ||
+		second.Span.Selector != "pid=36379" {
+		t.Fatalf("second typed MCP row did not preserve row coordinates: %+v", second)
+	}
+	if ObservationRecordHasCurrentSourceLineSpan(first) || ObservationRecordHasStrongCurrentSourceAnchor(second) {
+		t.Fatalf("typed MCP rows must remain external observations: first=%+v second=%+v", first, second)
+	}
+}
+
 func assertObservationRecord(t *testing.T, ledger ObservationLedger, id string, origin AnswerEvidenceOrigin, source ObservationSourceKind) {
 	t.Helper()
 	record := findObservationRecord(t, ledger, id)
