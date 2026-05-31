@@ -26,17 +26,85 @@ type renderedEvidenceItem struct {
 	Status   string
 }
 
-func formatStructuredToolResultSummary(toolName, paramsJSON, resultSummary, lang string) string {
-	switch strings.TrimSpace(toolName) {
+func formatStructuredToolResultSummary(toolName, paramsJSON, resultSummary, lang string, evidenceTotal int) string {
+	name := strings.TrimSpace(toolName)
+	switch name {
 	case "emit_evidence":
-		return formatEvidenceToolResultSummary(toolName, resultSummary, lang)
+		return formatEvidenceToolResultSummary(toolName, resultSummary, lang, evidenceTotal)
 	case "emit_analysis":
 		return formatAnalysisToolResultSummary(paramsJSON, resultSummary, lang)
 	case "emit_answer_document", "emit_answer_document_patch":
 		return formatAnswerDocumentToolResultSummary(toolName, resultSummary, lang)
 	default:
+		if isMCPToolCallName(name) {
+			return formatMCPToolResultSummary(name, resultSummary, lang)
+		}
 		return ""
 	}
+}
+
+func formatMCPToolResultSummary(toolName, resultSummary, lang string) string {
+	resultSummary = strings.TrimSpace(resultSummary)
+	if resultSummary == "" {
+		return ""
+	}
+	fields := parseSpaceKeyValueFields(resultSummary)
+	obs := fields["observations"]
+	resource := fields["resource"]
+	lines := fields["lines"]
+	payload := fields["payload_ref"]
+	zh := isZh(lang)
+	var body string
+	if obs != "" {
+		if zh {
+			body = fmt.Sprintf("MCP 返回 %s 条外部观测", obs)
+		} else {
+			body = fmt.Sprintf("MCP returned %s external observation(s)", obs)
+		}
+	} else if zh {
+		body = "MCP 调用已返回"
+	} else {
+		body = "MCP call returned"
+	}
+	var parts []string
+	if resource != "" {
+		if zh {
+			parts = append(parts, "资源 "+truncByDisplayWidth(resource, 72))
+		} else {
+			parts = append(parts, "resource "+truncByDisplayWidth(resource, 72))
+		}
+	}
+	if lines != "" {
+		if zh {
+			parts = append(parts, "行 "+lines)
+		} else {
+			parts = append(parts, "lines "+lines)
+		}
+	}
+	if payload != "" {
+		parts = append(parts, "blob "+truncByDisplayWidth(payload, 44))
+	}
+	if len(parts) > 0 {
+		body += "，" + strings.Join(parts, "，")
+	}
+	return "  " + statusObjective.Sprint("•") + " " + statusObjective.Sprint(body) + "\n"
+}
+
+func parseSpaceKeyValueFields(s string) map[string]string {
+	out := make(map[string]string)
+	for _, field := range strings.Fields(s) {
+		k, v, ok := strings.Cut(field, "=")
+		if !ok {
+			continue
+		}
+		k = strings.TrimSpace(k)
+		v = strings.TrimSpace(v)
+		if k == "" || v == "" {
+			continue
+		}
+		out[k] = v
+	}
+	return out
 }
 
 type answerDraftPreviewDoc struct {
@@ -579,7 +647,7 @@ func firstNonEmptyLine(s string) string {
 	return ""
 }
 
-func formatEvidenceToolResultSummary(toolName, summary, lang string) string {
+func formatEvidenceToolResultSummary(toolName, summary, lang string, evidenceTotal int) string {
 	if strings.TrimSpace(toolName) != "emit_evidence" {
 		return ""
 	}
@@ -593,9 +661,17 @@ func formatEvidenceToolResultSummary(toolName, summary, lang string) string {
 	zh := isZh(lang)
 	var lines []string
 	if zh {
-		lines = append(lines, "  "+statusMeta.Sprint("•")+" "+statusMeta.Sprint(fmt.Sprintf("证据 %d 条", count)))
+		label := fmt.Sprintf("证据 %d 条", count)
+		if evidenceTotal > 0 {
+			label += fmt.Sprintf("（累计 %d 条）", evidenceTotal)
+		}
+		lines = append(lines, "  "+statusMeta.Sprint("•")+" "+statusMeta.Sprint(label))
 	} else {
-		lines = append(lines, "  "+statusMeta.Sprint("•")+" "+statusMeta.Sprint(fmt.Sprintf("Evidence: %d item(s)", count)))
+		label := fmt.Sprintf("Evidence: %d item(s)", count)
+		if evidenceTotal > 0 {
+			label += fmt.Sprintf(" (%d total)", evidenceTotal)
+		}
+		lines = append(lines, "  "+statusMeta.Sprint("•")+" "+statusMeta.Sprint(label))
 	}
 	limit := len(items)
 	if limit > evidenceSummaryMaxItems {

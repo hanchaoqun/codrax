@@ -738,7 +738,7 @@ func evalEvidenceCount(expr string, env Env) Result {
 		return Result{
 			Satisfied: true,
 			Detail: fmt.Sprintf(
-				"runtime_artifact_observations=%d; repo evidence_count floor %s %d waived for observation-only artifact",
+				"external_observations=%d; repo evidence_count floor %s %d waived for observation-only artifact",
 				artifactCount, op, threshold),
 		}
 	}
@@ -761,7 +761,14 @@ func evalEvidenceCount(expr string, env Env) Result {
 
 func externalRuntimeEvidenceFloorWaived(env Env) (count int, waived bool) {
 	if env.IR == nil || !env.IR.RequestModel.HasObservationOnlyRuntimeArtifact() {
-		return 0, false
+		if !env.ObservationOnlyCompletion {
+			return 0, false
+		}
+		count = runtimeArtifactObservationCount(env.LogTriage, env.PerfTrace) + mcpResponseObservationCount(env.MCPResponses)
+		if count <= 0 {
+			return 0, false
+		}
+		return count, true
 	}
 	count = runtimeArtifactObservationCount(env.LogTriage, env.PerfTrace)
 	if count <= 0 {
@@ -787,6 +794,23 @@ func runtimeArtifactObservationCount(logBundle *types.LogBundle, perfBundle *typ
 		count += len(perfBundle.Janks)
 		count += len(perfBundle.Stalls)
 		if perfBundle.Startup != nil {
+			count++
+		}
+	}
+	return count
+}
+
+func mcpResponseObservationCount(responses []types.MCPResponse) int {
+	count := 0
+	for _, resp := range responses {
+		if !resp.Success {
+			continue
+		}
+		if len(resp.Observations) > 0 {
+			count += len(resp.Observations)
+			continue
+		}
+		if resp.ResourceURI != "" || resp.LineStart > 0 || resp.Row > 0 || resp.JSONPointer != "" || resp.Selector != "" || resp.PayloadRef != "" || resp.RowSetRef != "" || resp.PageRef != "" {
 			count++
 		}
 	}

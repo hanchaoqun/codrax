@@ -629,7 +629,7 @@ func (r *Renderer) handleEvent(ev Event) {
 				r.commitScrollbackLinesLocked(lines)
 			}
 			if shouldRenderStructuredToolSummary(ev) {
-				if block := formatStructuredToolResultSummary(ev.ToolName, ev.ToolParamsJSON, ev.ToolResultSummary, r.lang); block != "" {
+				if block := formatStructuredToolResultSummary(ev.ToolName, ev.ToolParamsJSON, ev.ToolResultSummary, r.lang, ev.EvidenceTotal); block != "" {
 					r.commitMultilineLocked(block)
 				}
 			}
@@ -2396,24 +2396,30 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 			r.emitNonTTYLine(fmt.Sprintf("❯ %s", ev.Objective))
 		}
 	case EventStageStart:
-		r.emitNonTTYLine(fmt.Sprintf("→ %s", string(ev.Stage)))
+		if r.nonTTYStageOwnedByTaskNode(ev) {
+			break
+		}
+		r.emitNonTTYLine(fmt.Sprintf("→ %s", r.nonTTYStageLabel(string(ev.Stage), stagePhraseRunning)))
 	case EventStageEnd:
+		if r.nonTTYStageOwnedByTaskNode(ev) {
+			break
+		}
 		if ev.Error != "" {
-			r.emitNonTTYLine(fmt.Sprintf("✗ %s · %s", string(ev.Stage), ev.Error))
+			r.emitNonTTYLine(fmt.Sprintf("✗ %s · %s", r.nonTTYStageLabel(string(ev.Stage), stagePhraseFailed), ev.Error))
 		} else {
-			r.emitNonTTYLine(fmt.Sprintf("✓ %s", string(ev.Stage)))
+			r.emitNonTTYLine(fmt.Sprintf("✓ %s", r.nonTTYStageLabel(string(ev.Stage), stagePhraseDone)))
 		}
 	case EventTaskNodeStart:
-		r.emitNonTTYLine(fmt.Sprintf("→ %s · %s", ev.NodeKind, ev.NodeObjective))
+		r.emitNonTTYLine(fmt.Sprintf("→ %s", r.nonTTYTaskNodeLabel(ev, stagePhraseRunning)))
 	case EventTaskNodeEnd:
 		if ev.Error != "" {
-			r.emitNonTTYLine(fmt.Sprintf("✗ %s · %s", ev.NodeKind, ev.Error))
+			r.emitNonTTYLine(fmt.Sprintf("✗ %s · %s", r.nonTTYTaskNodeLabel(ev, stagePhraseFailed), ev.Error))
 		} else {
-			r.emitNonTTYLine(fmt.Sprintf("✓ %s", ev.NodeKind))
+			r.emitNonTTYLine(fmt.Sprintf("✓ %s", r.nonTTYTaskNodeLabel(ev, stagePhraseDone)))
 		}
 	case EventAnalysisReady:
 		if row := r.findFinishedStageRowAt("analyze", ev.Timestamp); row != nil {
-			r.emitNonTTYLine(fmt.Sprintf("✓ %s", row.stage))
+			r.emitNonTTYLine(fmt.Sprintf("✓ %s", r.nonTTYStageLabel(row.stage, stagePhraseDone)))
 		}
 		if block := formatSubTopicsBlock(r.lang, ev.TaskNodes); block != "" {
 			fmt.Fprint(r.outputWriter(), block)
@@ -2431,7 +2437,7 @@ func (r *Renderer) handleEventNonTTY(ev Event) {
 			r.emitNonTTYLines(lines)
 		}
 		if shouldRenderStructuredToolSummary(ev) {
-			if block := formatStructuredToolResultSummary(ev.ToolName, ev.ToolParamsJSON, ev.ToolResultSummary, r.lang); block != "" {
+			if block := formatStructuredToolResultSummary(ev.ToolName, ev.ToolParamsJSON, ev.ToolResultSummary, r.lang, ev.EvidenceTotal); block != "" {
 				fmt.Fprint(r.outputWriter(), stripAnsiEscapes(block))
 				mirrorDockBlockToLog(block)
 			}
@@ -2497,6 +2503,28 @@ func shouldRenderStructuredToolSummary(ev Event) bool {
 	}
 }
 
+func (r *Renderer) nonTTYStageLabel(stage string, state stagePhraseState) string {
+	return stagePhrase(canonicalStageKey(stage), r.lang, state)
+}
+
+func (r *Renderer) nonTTYStageOwnedByTaskNode(ev Event) bool {
+	if !r.analysisReady || ev.Stage == "" {
+		return false
+	}
+	stage := string(ev.Stage)
+	return stage != "analyze" && stage != "extract"
+}
+
+func (r *Renderer) nonTTYTaskNodeLabel(ev Event, state stagePhraseState) string {
+	kind := strings.TrimSpace(ev.NodeKind)
+	if kind == "" && ev.NodeID != "" {
+		if row := r.findNodeRow(ev.NodeID); row != nil {
+			kind = row.nodeKind
+		}
+	}
+	return stagePhrase(canonicalStageKey(kind), r.lang, state)
+}
+
 func (r *Renderer) findFinishedStageRowAt(stage string, ts time.Time) *taskRow {
 	for i := len(r.tasks) - 1; i >= 0; i-- {
 		row := r.tasks[i]
@@ -2520,6 +2548,10 @@ func (r *Renderer) emitNonTTYLine(line string) {
 	if line == "" {
 		return
 	}
+	if line == r.lastCommittedLine {
+		return
+	}
+	r.lastCommittedLine = line
 	fmt.Fprintln(r.outputWriter(), line)
 	mirrorDockLineToLog(line)
 }

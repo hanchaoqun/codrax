@@ -501,6 +501,52 @@ func TestFormatToolCallBatchShowsTraceQueryStructuredDetail(t *testing.T) {
 	}
 }
 
+func TestFormatToolCallBatchShowsMCPToolAsMCP(t *testing.T) {
+	got := formatToolCallBatch("explorer", types.StageExplore, 0,
+		[]string{"fixture__lookup_trace_fact"},
+		1,
+		"fixture__lookup_trace_fact",
+		"target pid=4242 sleep wakeup",
+		"zh",
+	)
+	plain := stripAnsiEscapes(got)
+	want := "⇢ 探索 · 第 1 轮 调用 MCP fixture.lookup_trace_fact target pid=4242 sleep wakeup"
+	if !strings.Contains(plain, want) {
+		t.Fatalf("MCP tool-call detail missing\nwant contains %q\ngot           %q", want, plain)
+	}
+}
+
+func TestFormatToolCallBatchShowsMCPResourceRead(t *testing.T) {
+	got := formatToolCallBatch("explorer", types.StageExplore, 1,
+		[]string{"mcp_read_resource"},
+		1,
+		"mcp_read_resource",
+		"uri=mcp://fixture/trace/sleep-wakeup",
+		"zh",
+	)
+	plain := stripAnsiEscapes(got)
+	want := "⇢ 探索 · 第 2 轮 读取 MCP 资源 mcp://fixture/trace/sleep-wakeup"
+	if !strings.Contains(plain, want) {
+		t.Fatalf("MCP resource-read detail missing\nwant contains %q\ngot           %q", want, plain)
+	}
+}
+
+func TestFormatToolCallBatchCompactsMCPBatch(t *testing.T) {
+	got := formatToolCallBatch("explorer", types.StageExplore, 2,
+		[]string{"mcp_read_resource", "fixture__lookup_trace_fact"},
+		2,
+		"mcp_read_resource",
+		"",
+		"en",
+	)
+	plain := stripAnsiEscapes(got)
+	for _, want := range []string{"calling 2 MCP tools", "mcp_read_resource", "fixture.lookup_trace_fact"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("MCP batch line missing %q; got %q", want, plain)
+		}
+	}
+}
+
 func TestFormatToolCallBatchCompactsRepeatedTools(t *testing.T) {
 	got := formatToolCallBatch("explorer", types.StageExplore, 2,
 		[]string{"read_file", "read_file", "grep", "emit_evidence", "repo_map", "list_files"},
@@ -539,6 +585,119 @@ func TestRenderer_ToolCallBatchUsesConfiguredOutput(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("tool batch event must leave visible output %q; got %q", want, out)
 		}
+	}
+}
+
+func TestRenderer_NonTTYProgressUsesREPLStagePhrases(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+	r.SetLang("zh")
+
+	emit := r.Emitter()
+	now := time.Now()
+	emit(Event{
+		Kind:      EventStageStart,
+		Stage:     types.StageExplore,
+		Timestamp: now,
+	})
+	emit(Event{
+		Kind:          EventTaskNodeStart,
+		NodeKind:      "evidence",
+		NodeObjective: "Collect evidence for each architectural component the user asked about.",
+		Timestamp:     now.Add(time.Millisecond),
+	})
+	emit(Event{
+		Kind:          EventTaskNodeStart,
+		NodeKind:      "evidence",
+		NodeObjective: "Collect evidence for a sibling topic.",
+		Timestamp:     now.Add(1500 * time.Microsecond),
+	})
+	emit(Event{
+		Kind:      EventTaskNodeEnd,
+		NodeKind:  "validate",
+		Timestamp: now.Add(2 * time.Millisecond),
+	})
+
+	out := stripAnsiEscapes(buf.String())
+	for _, want := range []string{"→ 正在深入分析", "→ 正在探索代码并收集证据", "✓ 已交叉验证证据"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("non-TTY progress should use REPL stage phrase %q; got %q", want, out)
+		}
+	}
+	for _, banned := range []string{"→ explore", "Collect evidence", "✓ validate"} {
+		if strings.Contains(out, banned) {
+			t.Fatalf("non-TTY progress leaked internal label/objective %q; got %q", banned, out)
+		}
+	}
+	if got := strings.Count(out, "→ 正在探索代码并收集证据"); got != 1 {
+		t.Fatalf("non-TTY progress should collapse consecutive duplicate node labels, got %d in %q", got, out)
+	}
+}
+
+func TestRenderer_NonTTYSkipsPostAnalysisStageRowsOwnedByTaskNodes(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+	r.SetLang("zh")
+	r.analysisReady = true
+
+	emit := r.Emitter()
+	now := time.Now()
+	emit(Event{
+		Kind:      EventTaskNodeStart,
+		NodeKind:  "finalize",
+		Timestamp: now,
+	})
+	emit(Event{
+		Kind:      EventStageStart,
+		Stage:     types.StageFinalize,
+		Timestamp: now.Add(time.Millisecond),
+	})
+	emit(Event{
+		Kind:      EventTaskNodeEnd,
+		NodeKind:  "finalize",
+		Timestamp: now.Add(2 * time.Millisecond),
+	})
+	emit(Event{
+		Kind:      EventStageEnd,
+		Stage:     types.StageFinalize,
+		Timestamp: now.Add(3 * time.Millisecond),
+	})
+
+	out := stripAnsiEscapes(buf.String())
+	if got := strings.Count(out, "→ 正在撰写最终答案"); got != 1 {
+		t.Fatalf("finalize start should render once from task node, got %d in %q", got, out)
+	}
+	if got := strings.Count(out, "✓ 已撰写最终答案"); got != 1 {
+		t.Fatalf("finalize done should render once from task node, got %d in %q", got, out)
+	}
+}
+
+func TestRenderer_MCPToolEndSurfacesObservationSummary(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+
+	emit := r.Emitter()
+	emit(Event{
+		Kind:              EventToolCallEnd,
+		Agent:             types.AgentExplorer,
+		Stage:             types.StageExplore,
+		ToolName:          "fixture__lookup_trace_fact",
+		ToolOK:            true,
+		ToolResultSummary: "server=fixture method=tools/call resource=mcp://fixture/trace/sleep-wakeup observations=2 lines=7,12",
+		Timestamp:         time.Now(),
+	})
+
+	out := stripAnsiEscapes(buf.String())
+	for _, want := range []string{"MCP 返回 2 条外部观测", "资源 mcp://fixture/trace/sleep-wakeup", "行 7,12"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("MCP result summary missing %q; got %q", want, out)
+		}
+	}
+	if !strings.Contains(out, "行 7,12\n") {
+		t.Fatalf("MCP result summary must end with a newline before the next status row; got %q", out)
 	}
 }
 
@@ -733,9 +892,9 @@ func TestFormatEvidenceToolResultSummaryZh(t *testing.T) {
   [4] direct extra @ internal/agent/sub_explorer.go:374 — 额外证据
       → grounded (tier=line_text)
 `
-	got := stripAnsiEscapes(formatEvidenceToolResultSummary("emit_evidence", summary, "zh"))
+	got := stripAnsiEscapes(formatEvidenceToolResultSummary("emit_evidence", summary, "zh", 7))
 	for _, want := range []string{
-		"• 证据 4 条",
+		"• 证据 4 条（累计 7 条）",
 		"1. 已落地 NewSubExplorer @ internal/agent/sub_explorer.go:26 — 构造 explorer 子代理",
 		"2. 已校正 toolConfidence @ internal/agent/sub_explorer.go:301 — 返回固定置信度 0.8",
 		"3. 未落地 buildScopedSearchGraph @ internal/agent/sub_explorer.go:361",
@@ -758,11 +917,12 @@ func TestRenderer_EmitsEvidenceSummaryOnToolEnd(t *testing.T) {
 		ToolName:          "emit_evidence",
 		ToolOK:            true,
 		ToolResultSummary: "emit_evidence accepted 1 item(s)\n\n  [1] mechanism NewSubExplorer @ internal/agent/sub_explorer.go:26 — 构造 explorer 子代理\n      → grounded (tier=line_text)\n",
+		EvidenceTotal:     3,
 		Timestamp:         time.Now(),
 	})
 
 	out := stripAnsiEscapes(buf.String())
-	for _, want := range []string{"证据 1 条", "NewSubExplorer @ internal/agent/sub_explorer.go:26", "构造 explorer 子代理"} {
+	for _, want := range []string{"证据 1 条（累计 3 条）", "NewSubExplorer @ internal/agent/sub_explorer.go:26", "构造 explorer 子代理"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("tool end should surface evidence summary %q; got %q", want, out)
 		}
@@ -802,7 +962,7 @@ func TestFormatAnalysisToolResultSummaryZh(t *testing.T) {
 		},
 		"required_files": [{"path": "internal/agent/sub_explorer.go"}]
 	}`
-	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_analysis", params, "", "zh"))
+	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_analysis", params, "", "zh", 0))
 	for _, want := range []string{
 		"• 分析结果",
 		"意图 explain · 类型 mechanism · 场景 architecture_explain · 复杂度 moderate · 谓词轴 call",
@@ -833,7 +993,7 @@ func TestFormatAnalysisToolResultSummaryUsesNormalizedRequiredFiles(t *testing.T
 		"required_files": [{"path": "packages/core/src/mcp/token-storage/types.ts"}]
 	}`
 	summary := `analysis emitted: intent=explain scenario=architecture_explain complexity=moderate kw=1 ent=1 kind=mechanism required_files=["CodeAgent/packages/core/src/mcp/token-storage/types.ts"] | warn: required_files: 1 path(s) normalized to active repo-relative form`
-	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_analysis", params, summary, "zh"))
+	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_analysis", params, summary, "zh", 0))
 	if !strings.Contains(got, "建议文件 1 个：CodeAgent/packages/core/src/mcp/token-storage/types.ts") {
 		t.Fatalf("analysis summary should render normalized required_files; got:\n%s", got)
 	}
@@ -849,7 +1009,7 @@ func TestFormatAnswerDocumentToolResultSummaryRejectedZh(t *testing.T) {
 		"     Why: typed mechanism-anchor contract requires exact endpoint anchors.\n" +
 		"  2. Field: `citations[]`\n" +
 		"     Action: need at least 14 entries because citation_ref indexes up to 13\n"
-	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_answer_document", "", summary, "zh"))
+	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_answer_document", "", summary, "zh", 0))
 	for _, want := range []string{
 		"• 成文校验未通过",
 		"1. blocks[].items[].label: structured answer anchor label(s) must preserve: explorer",
@@ -872,7 +1032,7 @@ func TestFormatAnswerDocumentToolResultSummaryRejectedZhWrapsWithoutDroppingActi
 	summary := "The answer document does not yet meet the structural contract for this question.\n\n" +
 		"  1. Field: `blocks[].items[].citation_ref`\n" +
 		"     Action: " + longAction + "\n"
-	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_answer_document", "", summary, "zh"))
+	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_answer_document", "", summary, "zh", 0))
 	if !strings.Contains(got, "candidate_citations=[internal/agent/sub_explorer.go:135, internal/agent/sub_explorer.go:139]") {
 		t.Fatalf("wrapped reject summary must preserve full action; got:\n%s", got)
 	}
@@ -889,7 +1049,7 @@ func TestFormatAnswerDocumentToolResultSummaryRejectedZhWrapsWithoutDroppingActi
 
 func TestFormatAnswerDocumentToolResultSummaryAcceptedZh(t *testing.T) {
 	summary := "emit_answer_document accepted: replace_all blocks=4 citations=7"
-	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_answer_document", "", summary, "zh"))
+	got := stripAnsiEscapes(formatStructuredToolResultSummary("emit_answer_document", "", summary, "zh", 0))
 	for _, want := range []string{
 		"• 答案草稿已写入：4 个区块 · 7 条引用",
 	} {

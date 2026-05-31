@@ -4335,6 +4335,15 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			env.LogTriage = o.busCtx.Mutable.LogTriage()
 			env.PerfTrace = o.busCtx.Mutable.PerfTrace()
 			env.InvestigationComplete = o.busCtx.Mutable.IsInvestigationComplete()
+			if ta := o.busCtx.Mutable.TurnAArtifacts(); ta != nil {
+				env.ObservationOnlyCompletion = ta.RuntimeObservationOnlyCompletion
+				if len(o.busCtx.MCPResponses) == 0 {
+					env.MCPResponses = append([]types.MCPResponse(nil), ta.MCPResponses...)
+				}
+			}
+		}
+		if len(env.MCPResponses) == 0 && len(o.busCtx.MCPResponses) > 0 {
+			env.MCPResponses = append([]types.MCPResponse(nil), o.busCtx.MCPResponses...)
 		}
 		return env
 	}

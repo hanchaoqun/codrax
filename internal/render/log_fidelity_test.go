@@ -72,7 +72,7 @@ func TestLogFidelity_DockCommitsMirrorToInfo(t *testing.T) {
 	for _, want := range []string{
 		"[render]",
 		"demo question",
-		"✓ analyze",
+		"✓ 已理解问题",
 	} {
 		if !strings.Contains(logs, want) {
 			t.Errorf("INFO log missing %q; full log:\n%s", want, logs)
@@ -182,8 +182,8 @@ func TestLogFidelity_NonTTYMirrors(t *testing.T) {
 	for _, want := range []string{
 		"[render]",
 		"ci question",
-		"→ analyze",
-		"✓ analyze",
+		"→ 正在理解问题",
+		"✓ 已理解问题",
 	} {
 		if !strings.Contains(logs, want) {
 			t.Errorf("non-TTY mirror missing %q; log:\n%s", want, logs)

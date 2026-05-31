@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -125,5 +126,57 @@ func TestSingleShot_NoGlamourImport(t *testing.T) {
 			t.Errorf("cmd/root.go imports %q — glamour must stay encapsulated in internal/render so the single-shot path cannot reach it.",
 				path)
 		}
+	}
+}
+
+func TestSingleShot_ProgressStderrResultStdoutContract(t *testing.T) {
+	_, thisFile, _, _ := runtime.Caller(0)
+	target := filepath.Join(filepath.Dir(thisFile), "root.go")
+
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read %s: %v", target, err)
+	}
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, target, data, parser.AllErrors)
+	if err != nil {
+		t.Fatalf("parse %s: %v", target, err)
+	}
+
+	var fn *ast.FuncDecl
+	for _, decl := range file.Decls {
+		fd, ok := decl.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+		if fd.Name.Name == "runSingleShot" {
+			fn = fd
+			break
+		}
+	}
+	if fn == nil {
+		t.Fatal("runSingleShot not found in cmd/root.go")
+	}
+
+	start := fset.Position(fn.Body.Pos()).Offset
+	end := fset.Position(fn.Body.End()).Offset
+	body := string(data[start:end])
+	setStderr := strings.Index(body, "app.renderer.SetOutput(os.Stderr)")
+	runPipeline := strings.Index(body, "app.orch.Run")
+	printResult := strings.Index(body, "fmt.Print(result)")
+	if setStderr < 0 {
+		t.Fatal("runSingleShot must route renderer progress to stderr before running the pipeline")
+	}
+	if runPipeline < 0 {
+		t.Fatal("runSingleShot must call app.orch.Run")
+	}
+	if printResult < 0 {
+		t.Fatal("runSingleShot must print the final raw markdown result to stdout")
+	}
+	if setStderr > runPipeline {
+		t.Fatalf("renderer progress must be routed to stderr before app.orch.Run (SetOutput index=%d Run index=%d)", setStderr, runPipeline)
+	}
+	if strings.Contains(body[:runPipeline], "app.renderer.SetOutput(os.Stdout)") {
+		t.Fatal("runSingleShot must not route process/progress output to stdout before the final markdown body")
 	}
 }

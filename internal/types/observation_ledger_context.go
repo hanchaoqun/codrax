@@ -17,6 +17,7 @@ func ObservationLedgerInputFromAgentContext(ctx *AgentContext, evidenceLimit int
 		perfBundle      *PerfBundle
 		aggregateFacts  []AnswerAggregateFact
 		toolResults     []ToolResult
+		mcpResponses    []MCPResponse
 		evidenceItems   []EvidenceItem
 		sourceInventory SourceInventoryObservation
 	)
@@ -39,6 +40,9 @@ func ObservationLedgerInputFromAgentContext(ctx *AgentContext, evidenceLimit int
 		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
 			evidenceItems = appendObservationLedgerEvidence(evidenceItems, evidenceLimit, ta.EvidenceItems...)
 			toolResults = append([]ToolResult(nil), ta.ToolResults...)
+			if len(ctx.MCPResponses) == 0 {
+				mcpResponses = append([]MCPResponse(nil), ta.MCPResponses...)
+			}
 			sourceInventory = MergeSourceInventoryObservation(sourceInventory, ta.SourceInventoryObservation)
 		}
 		toolResults = mergeObservationLedgerToolResults(toolResults, ctx.Mutable.DispatchToolResults())
@@ -53,7 +57,7 @@ func ObservationLedgerInputFromAgentContext(ctx *AgentContext, evidenceLimit int
 		ToolResults:                toolResults,
 		LogBundle:                  logBundle,
 		PerfBundle:                 perfBundle,
-		MCPResponses:               append([]MCPResponse(nil), ctx.MCPResponses...),
+		MCPResponses:               append(mcpResponses, ctx.MCPResponses...),
 		RequestModel:               requestModel,
 		AnswerContract:             answerContract,
 	}
@@ -74,6 +78,7 @@ func ObservationLedgerInputFromBusContext(bus *BusContext, evidenceLimit int) Ob
 		perfBundle      *PerfBundle
 		aggregateFacts  []AnswerAggregateFact
 		toolResults     []ToolResult
+		mcpResponses    []MCPResponse
 		evidenceItems   []EvidenceItem
 		sourceInventory SourceInventoryObservation
 	)
@@ -85,6 +90,7 @@ func ObservationLedgerInputFromBusContext(bus *BusContext, evidenceLimit int) Ob
 	}
 	evidenceItems = appendObservationLedgerEvidence(evidenceItems, evidenceLimit, bus.EvidenceItems...)
 	toolResults = append([]ToolResult(nil), bus.ToolResults...)
+	mcpResponses = append([]MCPResponse(nil), bus.MCPResponses...)
 	if bus.Mutable != nil {
 		aggregateFacts = bus.Mutable.StableInvestigationAggregateFacts()
 		sourceInventory = bus.Mutable.SourceInventoryObservation()
@@ -99,6 +105,9 @@ func ObservationLedgerInputFromBusContext(bus *BusContext, evidenceLimit int) Ob
 			if len(ta.ToolResults) > 0 {
 				toolResults = append([]ToolResult(nil), ta.ToolResults...)
 			}
+			if len(mcpResponses) == 0 {
+				mcpResponses = append([]MCPResponse(nil), ta.MCPResponses...)
+			}
 			sourceInventory = MergeSourceInventoryObservation(sourceInventory, ta.SourceInventoryObservation)
 		}
 		toolResults = mergeObservationLedgerToolResults(toolResults, bus.Mutable.DispatchToolResults())
@@ -110,7 +119,7 @@ func ObservationLedgerInputFromBusContext(bus *BusContext, evidenceLimit int) Ob
 		ToolResults:                toolResults,
 		LogBundle:                  logBundle,
 		PerfBundle:                 perfBundle,
-		MCPResponses:               append([]MCPResponse(nil), bus.MCPResponses...),
+		MCPResponses:               mcpResponses,
 		RequestModel:               requestModel,
 		AnswerContract:             answerContract,
 	}

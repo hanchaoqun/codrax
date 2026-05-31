@@ -373,6 +373,10 @@ type Event struct {
 	// user-facing summaries. Empty for tools whose result should remain
 	// model-only.
 	ToolResultSummary string
+	// EvidenceTotal carries the current cumulative emitted-evidence count
+	// after an emit_evidence tool call. It is render-only telemetry; zero
+	// means unknown / hide.
+	EvidenceTotal int
 
 	// Sub-agent
 	SubAgentName string

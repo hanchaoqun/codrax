@@ -110,9 +110,49 @@ func TestEval_EvidenceCount_ObservationOnlyRuntimeUsesArtifactFacts(t *testing.T
 	if !r.Satisfied {
 		t.Fatalf("observation-only runtime artifact should waive repo evidence_count, got: %s", r.Detail)
 	}
-	if !strings.Contains(r.Detail, "runtime_artifact_observations=") ||
+	if !strings.Contains(r.Detail, "external_observations=") ||
 		!strings.Contains(r.Detail, "repo evidence_count floor >= 3 waived") {
 		t.Fatalf("detail should explain artifact evidence accounting, got: %s", r.Detail)
+	}
+}
+
+func TestEval_EvidenceCount_MCPObservationOnlyCompletionUsesExternalRows(t *testing.T) {
+	env := Env{
+		ObservationOnlyCompletion: true,
+		MCPResponses: []types.MCPResponse{{
+			ServerName:  "fixture",
+			Method:      "tools/call",
+			ResourceURI: "mcp://fixture/trace/sleep-wakeup",
+			Success:     true,
+			Observations: []types.MCPTypedObservation{
+				{Summary: "sleep", ResourceURI: "mcp://fixture/trace/sleep-wakeup", LineStart: 7},
+				{Summary: "wakeup", ResourceURI: "mcp://fixture/trace/sleep-wakeup", LineStart: 12},
+			},
+		}},
+	}
+	r := Eval(types.Criterion{Kind: string(KindEvidenceCount), Expr: ">=3"}, env)
+	if !r.Satisfied {
+		t.Fatalf("MCP-only typed observations should waive repo evidence_count, got: %s", r.Detail)
+	}
+	if !strings.Contains(r.Detail, "external_observations=2") {
+		t.Fatalf("detail should count MCP typed rows, got: %s", r.Detail)
+	}
+}
+
+func TestEval_EvidenceCount_MCPRowsDoNotWaiveMixedSourceQuestion(t *testing.T) {
+	env := Env{
+		MCPResponses: []types.MCPResponse{{
+			ServerName: "fixture",
+			Method:     "tools/call",
+			Success:    true,
+			Observations: []types.MCPTypedObservation{
+				{Summary: "sleep", ResourceURI: "mcp://fixture/trace/sleep-wakeup", LineStart: 7},
+			},
+		}},
+	}
+	r := Eval(types.Criterion{Kind: string(KindEvidenceCount), Expr: ">=1"}, env)
+	if r.Satisfied {
+		t.Fatalf("MCP rows without observation-only completion must not waive current-source evidence_count, got: %s", r.Detail)
 	}
 }
 

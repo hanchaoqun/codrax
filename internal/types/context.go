@@ -145,6 +145,7 @@ type MutableState struct {
 	exploreForkTurnABaseNotesLen     int
 	exploreForkTurnABaseBoundaryLen  int
 	exploreForkTurnABaseToolLen      int
+	exploreForkTurnABaseMCPLen       int
 	exploreForkTurnABaseFlowLen      int
 	// cachedLabelSupport memoises the dot-qualified selector / anchor /
 	// subject / object support pool drawn from turnAArtifacts.EvidenceItems.
@@ -823,6 +824,12 @@ type TurnAArtifacts struct {
 	// Subject to pruneToolHistory so the slice is bounded.
 	ToolResults []ToolResult
 
+	// MCPResponses is the raw MCP response history from Turn A. These
+	// are external resource observations, never current-source citations.
+	// Keeping them beside ToolResults lets downstream stages reuse typed
+	// line/row coordinates without pushing the model back to grep/read_file.
+	MCPResponses []MCPResponse
+
 	// AcceptedClosureReason is the model-authored rationale from the
 	// successful emit_investigation_complete call. It is carried as
 	// structured exploration context so downstream stages can preserve
@@ -1008,6 +1015,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		out.exploreForkTurnABaseNotesLen = len(out.turnAArtifacts.InvestigationNotes)
 		out.exploreForkTurnABaseBoundaryLen = len(out.turnAArtifacts.ValidationBoundaryNotes)
 		out.exploreForkTurnABaseToolLen = len(out.turnAArtifacts.ToolResults)
+		out.exploreForkTurnABaseMCPLen = len(out.turnAArtifacts.MCPResponses)
 		out.exploreForkTurnABaseFlowLen = len(out.turnAArtifacts.FlowFindings)
 	}
 	out.phase1Ranking = append([]Phase1RankedFile(nil), m.phase1Ranking...)
@@ -1039,6 +1047,7 @@ func (m *MutableState) MergeExploreFork(fork *MutableState) {
 		NotesLen:              fork.exploreForkTurnABaseNotesLen,
 		ValidationBoundaryLen: fork.exploreForkTurnABaseBoundaryLen,
 		ToolLen:               fork.exploreForkTurnABaseToolLen,
+		MCPLen:                fork.exploreForkTurnABaseMCPLen,
 		FlowLen:               fork.exploreForkTurnABaseFlowLen,
 	}
 	phase1 := append([]Phase1RankedFile(nil), fork.phase1Ranking...)
@@ -3325,6 +3334,9 @@ func (m *MutableState) SetTurnAArtifacts(a TurnAArtifacts) {
 	if a.ToolResults != nil {
 		snap.ToolResults = append([]ToolResult(nil), a.ToolResults...)
 	}
+	if a.MCPResponses != nil {
+		snap.MCPResponses = append([]MCPResponse(nil), a.MCPResponses...)
+	}
 	if a.EvidenceItems != nil {
 		snap.EvidenceItems = append([]EvidenceItem(nil), a.EvidenceItems...)
 	}
@@ -3371,6 +3383,9 @@ func (m *MutableState) TurnAArtifacts() *TurnAArtifacts {
 	if m.turnAArtifacts.ToolResults != nil {
 		out.ToolResults = append([]ToolResult(nil), m.turnAArtifacts.ToolResults...)
 	}
+	if m.turnAArtifacts.MCPResponses != nil {
+		out.MCPResponses = append([]MCPResponse(nil), m.turnAArtifacts.MCPResponses...)
+	}
 	if m.turnAArtifacts.EvidenceItems != nil {
 		out.EvidenceItems = append([]EvidenceItem(nil), m.turnAArtifacts.EvidenceItems...)
 	}
@@ -3402,6 +3417,7 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.exploreForkTurnABaseNotesLen = 0
 	m.exploreForkTurnABaseBoundaryLen = 0
 	m.exploreForkTurnABaseToolLen = 0
+	m.exploreForkTurnABaseMCPLen = 0
 	m.exploreForkTurnABaseFlowLen = 0
 	m.sourceInventoryAdvisory = SourceInventoryAdvisory{}
 	m.sourceInventoryObservation = SourceInventoryObservation{}
@@ -3418,6 +3434,7 @@ func cloneTurnAArtifactsPtr(in *TurnAArtifacts) *TurnAArtifacts {
 	out.ValidationBoundaryNotes = append([]string(nil), in.ValidationBoundaryNotes...)
 	out.ReadFiles = append([]string(nil), in.ReadFiles...)
 	out.ToolResults = append([]ToolResult(nil), in.ToolResults...)
+	out.MCPResponses = append([]MCPResponse(nil), in.MCPResponses...)
 	out.EvidenceItems = append([]EvidenceItem(nil), in.EvidenceItems...)
 	out.FlowFindings = cloneFlowFindingDigests(in.FlowFindings)
 	out.AcceptedAggregateFacts = cloneAnswerAggregateFacts(in.AcceptedAggregateFacts)
@@ -3433,6 +3450,7 @@ type turnAArtifactsMergeBase struct {
 	NotesLen              int
 	ValidationBoundaryLen int
 	ToolLen               int
+	MCPLen                int
 	FlowLen               int
 }
 
@@ -3460,6 +3478,10 @@ func mergeTurnAArtifactsForMutable(prior *TurnAArtifacts, current TurnAArtifacts
 	merged.ToolResults = append(
 		append([]ToolResult(nil), prior.ToolResults...),
 		current.ToolResults[clampMergeSliceBase(base.ToolLen, len(current.ToolResults)):]...,
+	)
+	merged.MCPResponses = append(
+		append([]MCPResponse(nil), prior.MCPResponses...),
+		current.MCPResponses[clampMergeSliceBase(base.MCPLen, len(current.MCPResponses)):]...,
 	)
 	if current.AcceptedClosureReason != "" {
 		merged.AcceptedClosureReason = current.AcceptedClosureReason

@@ -1945,30 +1945,139 @@ func toolCallBatchBody(names []string, count int, firstName, firstDetail, lang s
 			return "calling tool"
 		}
 		if firstDetail = strings.TrimSpace(firstDetail); firstDetail != "" {
+			if isMCPReadResourceToolName(firstName) {
+				if zh {
+					return fmt.Sprintf("读取 MCP 资源 %s", trimMCPResourceDetail(firstDetail))
+				}
+				return fmt.Sprintf("reading MCP resource %s", trimMCPResourceDetail(firstDetail))
+			}
+			if isNamespacedMCPToolName(firstName) {
+				if zh {
+					return fmt.Sprintf("调用 MCP %s %s", prettyMCPToolName(firstName), firstDetail)
+				}
+				return fmt.Sprintf("calling MCP %s %s", prettyMCPToolName(firstName), firstDetail)
+			}
 			if zh {
 				return fmt.Sprintf("调用工具 %s %s", firstName, firstDetail)
 			}
 			return fmt.Sprintf("calling tool %s %s", firstName, firstDetail)
+		}
+		if isMCPReadResourceToolName(firstName) {
+			if zh {
+				return "读取 MCP 资源"
+			}
+			return "reading MCP resource"
+		}
+		if isNamespacedMCPToolName(firstName) {
+			if zh {
+				return "调用 MCP " + prettyMCPToolName(firstName)
+			}
+			return "calling MCP " + prettyMCPToolName(firstName)
 		}
 		if zh {
 			return "调用工具 " + firstName
 		}
 		return "calling tool " + firstName
 	}
+	allMCP := allMCPToolNames(names, count, firstName)
 	list := compactToolNameList(names, 4)
+	if allMCP {
+		list = compactToolNameList(prettyMCPToolNames(names), 4)
+	}
 	if list == "" && firstName != "" {
 		list = firstName
+		if allMCP {
+			list = prettyMCPToolName(firstName)
+		}
 	}
 	if zh {
 		if list == "" {
 			return fmt.Sprintf("调用 %d 个工具", count)
+		}
+		if allMCP {
+			return fmt.Sprintf("调用 %d 个 MCP 工具 %s", count, list)
 		}
 		return fmt.Sprintf("调用 %d 个工具 %s", count, list)
 	}
 	if list == "" {
 		return fmt.Sprintf("calling %d tools", count)
 	}
+	if allMCP {
+		return fmt.Sprintf("calling %d MCP tools %s", count, list)
+	}
 	return fmt.Sprintf("calling %d tools %s", count, list)
+}
+
+func isMCPReadResourceToolName(name string) bool {
+	return strings.TrimSpace(name) == "mcp_read_resource"
+}
+
+func isNamespacedMCPToolName(name string) bool {
+	name = strings.TrimSpace(name)
+	if name == "" || isMCPReadResourceToolName(name) {
+		return false
+	}
+	parts := strings.Split(name, "__")
+	return len(parts) == 2 && strings.TrimSpace(parts[0]) != "" && strings.TrimSpace(parts[1]) != ""
+}
+
+func isMCPToolCallName(name string) bool {
+	return isMCPReadResourceToolName(name) || isNamespacedMCPToolName(name)
+}
+
+func prettyMCPToolName(name string) string {
+	name = strings.TrimSpace(name)
+	if isMCPReadResourceToolName(name) {
+		return "mcp_read_resource"
+	}
+	parts := strings.Split(name, "__")
+	if len(parts) != 2 {
+		return name
+	}
+	server := strings.TrimSpace(parts[0])
+	tool := strings.TrimSpace(parts[1])
+	if server == "" || tool == "" {
+		return name
+	}
+	return server + "." + tool
+}
+
+func prettyMCPToolNames(names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		if strings.TrimSpace(name) == "" {
+			continue
+		}
+		out = append(out, prettyMCPToolName(name))
+	}
+	return out
+}
+
+func allMCPToolNames(names []string, count int, firstName string) bool {
+	if count <= 0 {
+		count = len(names)
+	}
+	if count <= 0 {
+		return false
+	}
+	if len(names) == 0 {
+		return isMCPToolCallName(firstName)
+	}
+	for _, name := range names {
+		if !isMCPToolCallName(name) {
+			return false
+		}
+	}
+	return true
+}
+
+func trimMCPResourceDetail(detail string) string {
+	detail = strings.TrimSpace(detail)
+	detail = strings.TrimPrefix(detail, "uri=")
+	return detail
 }
 
 func unavailableToolCallBatchBody(unavailable []string, totalCount int, lang string) string {

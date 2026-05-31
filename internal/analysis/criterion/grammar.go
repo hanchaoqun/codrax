@@ -139,6 +139,16 @@ type Env struct {
 	// emit_investigation_complete. Under the "soft" policy, this
 	// lowers evidence_count thresholds to >=1.
 	InvestigationComplete bool
+	// ObservationOnlyCompletion is true when the explore layer accepted an
+	// external-observation-only investigation closure. In that narrow lane,
+	// external typed observations (runtime artifacts, MCP resources, etc.) are
+	// answer-grade evidence, but they must not be converted into current-source
+	// EvidenceItems just to satisfy repo evidence_count floors.
+	ObservationOnlyCompletion bool
+	// MCPResponses carries accepted MCP tool/resource responses. Criteria only
+	// count them when ObservationOnlyCompletion is true, so mixed MCP+source
+	// questions still require current-source evidence.
+	MCPResponses []types.MCPResponse
 	// WriteClosure is the write-mode ground truth for Kind{PlanReady,
 	// PatchApplies, TestsPass, NoRegression}. Nil in read-only
 	// pipelines (the corresponding evaluators short-circuit to

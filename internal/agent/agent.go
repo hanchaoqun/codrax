@@ -2345,7 +2345,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					ToolUnavailable:   !effectiveToolNames[strings.TrimSpace(tc.Name)],
 					ToolOK:            toolOK,
 					ToolTime:          time.Since(toolStarts[idx]),
-					ToolResultSummary: toolResultSummary(er.result),
+					ToolResultSummary: firstNonEmptyString(toolResultSummary(er.result), mcpToolResultSummary(er.mcpResp)),
+					EvidenceTotal:     emittedEvidenceTotalForTool(ctx, tc.Name, er.result),
 					ParallelGroupID:   ctx.ParallelGroupID,
 					ParallelUnitID:    ctx.ExploreDispatchKey,
 					DispatchKind:      string(ctx.ExploreDispatchKind),
@@ -2417,7 +2418,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					ToolUnavailable:   !effectiveToolNames[strings.TrimSpace(tc.Name)],
 					ToolOK:            toolOK,
 					ToolTime:          time.Since(toolStart),
-					ToolResultSummary: toolResultSummary(result),
+					ToolResultSummary: firstNonEmptyString(toolResultSummary(result), mcpToolResultSummary(mcpResp)),
+					EvidenceTotal:     emittedEvidenceTotalForTool(ctx, tc.Name, result),
 					ParallelGroupID:   ctx.ParallelGroupID,
 					ParallelUnitID:    ctx.ExploreDispatchKey,
 					DispatchKind:      string(ctx.ExploreDispatchKind),
@@ -4327,6 +4329,8 @@ func structuredToolDetail(toolName string, params json.RawMessage) string {
 		return toolRepoMapDetail(m)
 	case "trace_query":
 		return toolTraceQueryDetail(m)
+	case mcpReadResourceToolName:
+		return toolMCPReadResourceDetail(m)
 	default:
 		return ""
 	}
@@ -4454,6 +4458,69 @@ func toolTraceQueryDetail(m map[string]json.RawMessage) string {
 		parts = parts[:10]
 	}
 	return strings.Join(parts, " ")
+}
+
+func toolMCPReadResourceDetail(m map[string]json.RawMessage) string {
+	if uri := jsonStringFieldAny(m, "uri"); uri != "" {
+		return "uri=" + truncateToolDetailValue(uri, 64)
+	}
+	return ""
+}
+
+func mcpToolResultSummary(resp *types.MCPResponse) string {
+	if resp == nil {
+		return ""
+	}
+	var parts []string
+	if resp.ServerName != "" {
+		parts = append(parts, "server="+truncateToolDetailValue(resp.ServerName, 24))
+	}
+	if resp.Method != "" {
+		parts = append(parts, "method="+truncateToolDetailValue(resp.Method, 32))
+	}
+	if resp.ResourceURI != "" {
+		parts = append(parts, "resource="+truncateToolDetailValue(resp.ResourceURI, 80))
+	}
+	if n := len(resp.Observations); n > 0 {
+		parts = append(parts, fmt.Sprintf("observations=%d", n))
+		if lines := mcpObservationLineSummary(resp.Observations); lines != "" {
+			parts = append(parts, "lines="+truncateToolDetailValue(lines, 40))
+		}
+	}
+	if resp.PayloadRef != "" {
+		parts = append(parts, "payload_ref="+truncateToolDetailValue(resp.PayloadRef, 48))
+	}
+	if resp.RowSetRef != "" {
+		parts = append(parts, "rowset_ref="+truncateToolDetailValue(resp.RowSetRef, 48))
+	}
+	if len(parts) == 0 {
+		return strings.TrimSpace(resp.Summary)
+	}
+	return strings.Join(parts, " ")
+}
+
+func mcpObservationLineSummary(observations []types.MCPTypedObservation) string {
+	if len(observations) == 0 {
+		return ""
+	}
+	var lines []string
+	for _, obs := range observations {
+		if obs.LineStart <= 0 {
+			continue
+		}
+		if obs.LineEnd > obs.LineStart {
+			lines = append(lines, fmt.Sprintf("%d-%d", obs.LineStart, obs.LineEnd))
+		} else {
+			lines = append(lines, fmt.Sprintf("%d", obs.LineStart))
+		}
+		if len(lines) >= 6 {
+			break
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(lines, ",")
 }
 
 func jsonArrayLen(raw json.RawMessage) int {
@@ -4597,6 +4664,16 @@ func toolResultSummary(result *types.ToolResult) string {
 		return result.Summary
 	}
 	return ""
+}
+
+func emittedEvidenceTotalForTool(ctx *types.AgentContext, toolName string, result *types.ToolResult) int {
+	if ctx == nil || ctx.Mutable == nil || result == nil || !result.Success {
+		return 0
+	}
+	if strings.TrimSpace(toolName) != "emit_evidence" && strings.TrimSpace(result.ToolName) != "emit_evidence" {
+		return 0
+	}
+	return len(ctx.Mutable.EmittedEvidence())
 }
 
 func toolCallNames(calls []llm.ToolCall) []string {

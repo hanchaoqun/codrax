@@ -32,6 +32,10 @@ import "github.com/hanchaoqun/codrax/internal/types"
 //   - ToolResults: concat. Tool calls are a time-ordered event stream;
 //     a legitimate investigation may grep the same pattern twice across
 //     windows, and dropping one call would misreport the investigation.
+//   - MCPResponses: concat. MCP calls are also an external observation event
+//     stream; preserving them in the frozen handoff keeps typed MCP rows
+//     available across retry windows without reclassifying them as source
+//     citations.
 //   - AcceptedClosureReason / AcceptedResultKind: current when present,
 //     otherwise prior. Later windows may contain the accepted completion
 //     rationale after a repair, but a closure-only retry must not erase a
@@ -57,6 +61,7 @@ func mergeTurnAArtifactsWithPrior(prior *types.TurnAArtifacts, current types.Tur
 	merged.InvestigationNotes = types.PreserveSupersededClosureReasonNote(merged.InvestigationNotes, prior.AcceptedClosureReason, current.AcceptedClosureReason)
 	merged.ReadFiles = mergeStrings(prior.ReadFiles, current.ReadFiles)
 	merged.ToolResults = append(append([]types.ToolResult(nil), prior.ToolResults...), current.ToolResults...)
+	merged.MCPResponses = append(append([]types.MCPResponse(nil), prior.MCPResponses...), current.MCPResponses...)
 	if merged.AcceptedClosureReason == "" {
 		merged.AcceptedClosureReason = prior.AcceptedClosureReason
 	}

@@ -26,6 +26,16 @@ func TestTurnAArtifacts_RoundtripPreservesAllFields(t *testing.T) {
 		ToolResults: []ToolResult{
 			{ToolName: "grep", Summary: "a.go:1", Success: true},
 		},
+		MCPResponses: []MCPResponse{{
+			ServerName:  "fixture",
+			Method:      "tools/call",
+			ResourceURI: "mcp://fixture/trace/sleep-wakeup",
+			Success:     true,
+			Observations: []MCPTypedObservation{{
+				Summary:   "line 7",
+				LineStart: 7,
+			}},
+		}},
 		EvidenceItems: []EvidenceItem{
 			{ID: "ev1", Kind: EvidenceDirect, Source: "a.go", LineStart: 5},
 		},
@@ -94,6 +104,9 @@ func TestTurnAArtifacts_RoundtripPreservesAllFields(t *testing.T) {
 	}
 	if len(got.ToolResults) != 1 || got.ToolResults[0].ToolName != "grep" {
 		t.Errorf("ToolResults not preserved: %+v", got.ToolResults)
+	}
+	if len(got.MCPResponses) != 1 || got.MCPResponses[0].ResourceURI != "mcp://fixture/trace/sleep-wakeup" {
+		t.Errorf("MCPResponses not preserved: %+v", got.MCPResponses)
 	}
 	if len(got.EvidenceItems) != 1 || got.EvidenceItems[0].ID != "ev1" {
 		t.Errorf("EvidenceItems not preserved: %+v", got.EvidenceItems)
@@ -170,6 +183,12 @@ func TestTurnAArtifacts_DefensiveCopyOnRead(t *testing.T) {
 	m.SetTurnAArtifacts(TurnAArtifacts{
 		ReadFiles:               []string{"a.go", "b.go"},
 		ValidationBoundaryNotes: []string{"boundary 1"},
+		MCPResponses: []MCPResponse{{
+			ServerName:  "fixture",
+			Method:      "tools/call",
+			ResourceURI: "mcp://fixture/trace/sleep-wakeup",
+			Success:     true,
+		}},
 		AcceptedAggregateFacts: []AnswerAggregateFact{{
 			Kind:    AnswerAggregateTotalCount,
 			Label:   "matches",
@@ -206,6 +225,7 @@ func TestTurnAArtifacts_DefensiveCopyOnRead(t *testing.T) {
 	first.ReadFiles[0] = "MUTATED.go"
 	first.ReadFiles = append(first.ReadFiles, "c.go")
 	first.ValidationBoundaryNotes[0] = "mutated boundary"
+	first.MCPResponses[0].ResourceURI = "mcp://mutated"
 	first.AcceptedAggregateFacts[0].Members[0] = "mutated.go:1"
 	first.SourceInventoryAdvisory.Scopes[0] = "mutated"
 	first.SourceInventoryAdvisory.Sets[0].Candidates[0].Member = "Mutated"
@@ -221,6 +241,9 @@ func TestTurnAArtifacts_DefensiveCopyOnRead(t *testing.T) {
 	}
 	if second.ValidationBoundaryNotes[0] != "boundary 1" {
 		t.Errorf("boundary-note mutation leaked back: %+v", second.ValidationBoundaryNotes)
+	}
+	if second.MCPResponses[0].ResourceURI != "mcp://fixture/trace/sleep-wakeup" {
+		t.Errorf("mcp response mutation leaked back: %+v", second.MCPResponses)
 	}
 	if second.AcceptedAggregateFacts[0].Members[0] != "a.go:1" {
 		t.Errorf("aggregate fact mutation leaked back: %+v", second.AcceptedAggregateFacts)
@@ -257,6 +280,7 @@ func TestTurnAArtifacts_ExploreForkMergeKeepsSiblingDeltas(t *testing.T) {
 		ValidationBoundaryNotes: []string{"base-boundary"},
 		ReadFiles:               []string{"base.go"},
 		ToolResults:             []ToolResult{{ToolName: "grep", Summary: "base", Success: true}},
+		MCPResponses:            []MCPResponse{{ServerName: "fixture", Summary: "base", Success: true}},
 		FlowFindings:            []FlowFindingDigest{{Path: []string{"base"}, Confidence: 0.5}},
 		TerminalEvidenceCount:   1,
 	})
@@ -269,6 +293,7 @@ func TestTurnAArtifacts_ExploreForkMergeKeepsSiblingDeltas(t *testing.T) {
 	ta1.ValidationBoundaryNotes = append(ta1.ValidationBoundaryNotes, "fork1-boundary")
 	ta1.ReadFiles = append(ta1.ReadFiles, "fork1.go")
 	ta1.ToolResults = append(ta1.ToolResults, ToolResult{ToolName: "read_file", Summary: "fork1", Success: true})
+	ta1.MCPResponses = append(ta1.MCPResponses, MCPResponse{ServerName: "fixture", Summary: "fork1", Success: true})
 	ta1.FlowFindings = append(ta1.FlowFindings, FlowFindingDigest{Path: []string{"fork1"}, Confidence: 0.7})
 	ta1.TerminalEvidenceCount = 2
 	fork1.SetTurnAArtifacts(*ta1)
@@ -278,6 +303,7 @@ func TestTurnAArtifacts_ExploreForkMergeKeepsSiblingDeltas(t *testing.T) {
 	ta2.ValidationBoundaryNotes = append(ta2.ValidationBoundaryNotes, "fork2-boundary")
 	ta2.ReadFiles = append(ta2.ReadFiles, "fork2.go")
 	ta2.ToolResults = append(ta2.ToolResults, ToolResult{ToolName: "read_file", Summary: "fork2", Success: true})
+	ta2.MCPResponses = append(ta2.MCPResponses, MCPResponse{ServerName: "fixture", Summary: "fork2", Success: true})
 	ta2.FlowFindings = append(ta2.FlowFindings, FlowFindingDigest{Path: []string{"fork2"}, Confidence: 0.8})
 	ta2.TerminalEvidenceCount = 3
 	fork2.SetTurnAArtifacts(*ta2)
@@ -297,6 +323,9 @@ func TestTurnAArtifacts_ExploreForkMergeKeepsSiblingDeltas(t *testing.T) {
 	}
 	if len(got.ToolResults) != 3 {
 		t.Fatalf("tool results = %+v, want base + two fork deltas", got.ToolResults)
+	}
+	if len(got.MCPResponses) != 3 {
+		t.Fatalf("mcp responses = %+v, want base + two fork deltas", got.MCPResponses)
 	}
 	if len(got.FlowFindings) != 3 {
 		t.Fatalf("flow findings = %+v, want base + two fork deltas", got.FlowFindings)

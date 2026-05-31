@@ -508,6 +508,66 @@ func TestParseOutput_EvidenceQualityFails(t *testing.T) {
 	}
 }
 
+func TestParseOutput_MCPOnlyTypedObservationsSatisfyExternalQuestion(t *testing.T) {
+	question := "请使用 MCP fixture 工具查询 mcp://fixture/trace/sleep-wakeup 的 line 7 和 line 12，不要把 MCP 行号当成当前源码引用"
+	ctx := parseOutputCtx("", "")
+	ctx.Objective = question
+	ctx.AnalysisIR.RequestModel.RawRequest = question
+	ctx.Mutable = types.NewMutableState(question)
+	eval := &explorerEvaluator{userQuestion: question}
+
+	out, err := eval.ParseOutput(ctx, nil, nil, []types.MCPResponse{{
+		ServerName:  "fixture",
+		Method:      "tools/call",
+		ResourceURI: "mcp://fixture/trace/sleep-wakeup",
+		Success:     true,
+		Observations: []types.MCPTypedObservation{
+			{Summary: "target enters S sleep", ResourceURI: "mcp://fixture/trace/sleep-wakeup", LineStart: 7, LineEnd: 7},
+			{Summary: "helper wakes target", ResourceURI: "mcp://fixture/trace/sleep-wakeup", LineStart: 12, LineEnd: 12},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("ParseOutput error: %v", err)
+	}
+	if out.SignalUpdates == nil || !out.SignalUpdates.HasEnoughFacts {
+		t.Fatalf("MCP typed observations should satisfy MCP-only external question, got output %+v", out.SignalUpdates)
+	}
+	if out.RetryHint != "" {
+		t.Fatalf("MCP-only external question should not request source-tool retry, got %q", out.RetryHint)
+	}
+	ta := ctx.Mutable.TurnAArtifacts()
+	if ta == nil || !ta.RuntimeObservationOnlyCompletion {
+		t.Fatalf("MCP-only external question should mark Turn A as observation-only complete, got %+v", ta)
+	}
+	if ta == nil || len(ta.MCPResponses) != 1 {
+		t.Fatalf("Turn A handoff should preserve MCP responses for scheduler/finalizer, got %+v", ta)
+	}
+}
+
+func TestParseOutput_MCPObservationsDoNotBypassMixedSourceQuestion(t *testing.T) {
+	question := "请使用 MCP fixture 工具查询 mcp://fixture/trace/sleep-wakeup，并结合源码解释实现"
+	ctx := parseOutputCtx("", "")
+	ctx.Objective = question
+	ctx.AnalysisIR.RequestModel.RawRequest = question
+	eval := &explorerEvaluator{userQuestion: question}
+
+	out, err := eval.ParseOutput(ctx, nil, nil, []types.MCPResponse{{
+		ServerName:  "fixture",
+		Method:      "tools/call",
+		ResourceURI: "mcp://fixture/trace/sleep-wakeup",
+		Success:     true,
+		Observations: []types.MCPTypedObservation{
+			{Summary: "target enters S sleep", ResourceURI: "mcp://fixture/trace/sleep-wakeup", LineStart: 7, LineEnd: 7},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("ParseOutput error: %v", err)
+	}
+	if out.SignalUpdates != nil && out.SignalUpdates.HasEnoughFacts {
+		t.Fatal("MCP observations alone must not satisfy a mixed MCP+source question")
+	}
+}
+
 func TestParseOutput_EnumerationEvidenceQualityHintUsesDynamicFloor(t *testing.T) {
 	var evidence []types.EvidenceItem
 	var notes []string

@@ -2940,6 +2940,9 @@ func initApp(cmd *cobra.Command, args []string) error {
 		logging.Info("[render] dock disabled because --log-stdout writes to the same stream")
 	}
 	app.renderer = renderer
+	if strings.TrimSpace(flagRequest) == "" && len(args) == 0 {
+		printMCPRegistryStartupNotice(mcpRegistry, flagLang)
+	}
 
 	toolRegistry := tool.NewRegistry()
 	tool.RegisterDefaults(toolRegistry)
@@ -4080,6 +4083,23 @@ func startTopologyStartupNotice(enabled bool, lang string) func(*topology.RepoTo
 func prefersChineseStartup(lang string) bool {
 	lang = strings.ToLower(strings.TrimSpace(lang))
 	return lang == "" || strings.HasPrefix(lang, "zh")
+}
+
+func printMCPRegistryStartupNotice(reg *mcp.Registry, lang string) {
+	if reg == nil {
+		return
+	}
+	servers := len(reg.List())
+	if servers == 0 {
+		return
+	}
+	tools := len(reg.ListAllTools())
+	resources := len(reg.ListAllResources())
+	if prefersChineseStartup(lang) {
+		fmt.Fprintf(os.Stdout, "· MCP 外部工具已就绪：%d 个 server，%d 个工具，%d 个资源\n", servers, tools, resources)
+		return
+	}
+	fmt.Fprintf(os.Stdout, "· MCP external tools ready: %d server(s), %d tool(s), %d resource(s)\n", servers, tools, resources)
 }
 
 func formatStartupElapsed(d time.Duration) string {
