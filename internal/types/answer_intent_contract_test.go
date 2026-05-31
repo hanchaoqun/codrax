@@ -169,7 +169,7 @@ func TestCompileAnswerIntentContract_CurrentSourceCountUsesMeasurementOrigin(t *
 	)
 }
 
-func TestCompileAnswerIntentContract_ExternalRuntimeArtifactDoesNotRequireCurrentSource(t *testing.T) {
+func TestCompileAnswerIntentContract_ExternalRuntimeArtifactDefaultsToCurrentSource(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentRootCause,
 		Predicates: SemanticPredicates{
@@ -182,15 +182,75 @@ func TestCompileAnswerIntentContract_ExternalRuntimeArtifactDoesNotRequireCurren
 	}
 	got := CompileAnswerIntentContract(rm, nil)
 	assertAnswerIntentContract(t, got,
+		[]AnswerEvidenceOrigin{AnswerEvidenceOriginCurrentSource, AnswerEvidenceOriginRuntimeArtifact},
+		[]AnswerRequestedOutput{AnswerRequestedOutputSummary, AnswerRequestedOutputDiagnostic},
+	)
+}
+
+func TestCompileAnswerIntentContract_ExternalRuntimeArtifactExplicitExcludeSuppressesCurrentSource(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentRootCause,
+		Predicates: SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		DiagnosticProfile: DiagnosticIntentProfile{IsDiagnostic: true},
+		LogTriage: &LogBundle{
+			Errors: []LogError{{Type: "panic"}},
+		},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+			SourceQuotes:      []string{"只分析日志"},
+			Confidence:        0.9,
+		},
+	}
+	got := CompileAnswerIntentContract(rm, nil)
+	assertAnswerIntentContract(t, got,
 		[]AnswerEvidenceOrigin{AnswerEvidenceOriginRuntimeArtifact},
 		[]AnswerRequestedOutput{AnswerRequestedOutputSummary, AnswerRequestedOutputDiagnostic},
 	)
 	if got.HasOrigin(AnswerEvidenceOriginCurrentSource) {
-		t.Fatalf("external-only runtime artifact should not imply current-source origin: %+v", got.Origins)
+		t.Fatalf("anchored external observation exclusion should suppress current-source origin: %+v", got.Origins)
 	}
 }
 
-func TestCompileAnswerIntentContract_ExternalRuntimeArtifactCurrentStatusWithoutAnchorStaysRuntimeOnly(t *testing.T) {
+func TestCompileAnswerIntentContract_TraceArtifactDefaultsToCurrentSource(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentTrace,
+		PerfTrace: &PerfBundle{
+			Janks: []PerfJank{{TriggerSpan: "main thread sleep", DurationMs: 135}},
+		},
+	}
+	got := CompileAnswerIntentContract(rm, nil)
+	assertAnswerIntentContract(t, got,
+		[]AnswerEvidenceOrigin{AnswerEvidenceOriginCurrentSource, AnswerEvidenceOriginRuntimeArtifact},
+		[]AnswerRequestedOutput{AnswerRequestedOutputSummary, AnswerRequestedOutputTrace, AnswerRequestedOutputDiagnostic},
+	)
+}
+
+func TestCompileAnswerIntentContract_MCPResourceDefaultsToCurrentSourceUnlessExcluded(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "读取 mcp://fixture/trace/sleep-wakeup 并回答",
+		Intent:     IntentExplain,
+	}
+	got := CompileAnswerIntentContract(rm, nil)
+	assertAnswerIntentContract(t, got,
+		[]AnswerEvidenceOrigin{AnswerEvidenceOriginCurrentSource, AnswerEvidenceOriginMCPResource},
+		[]AnswerRequestedOutput{AnswerRequestedOutputSummary, AnswerRequestedOutputMechanism},
+	)
+
+	rm.ExternalObservationPolicy = &ExternalObservationPolicy{
+		CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+		SourceQuotes:      []string{"只分析 MCP"},
+		Confidence:        0.9,
+	}
+	got = CompileAnswerIntentContract(rm, nil)
+	assertAnswerIntentContract(t, got,
+		[]AnswerEvidenceOrigin{AnswerEvidenceOriginMCPResource},
+		[]AnswerRequestedOutput{AnswerRequestedOutputSummary, AnswerRequestedOutputMechanism},
+	)
+}
+
+func TestCompileAnswerIntentContract_ExternalRuntimeArtifactCurrentStatusWithoutAnchorStillKeepsSource(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentRootCause,
 		Predicates: SemanticPredicates{
@@ -207,12 +267,9 @@ func TestCompileAnswerIntentContract_ExternalRuntimeArtifactCurrentStatusWithout
 	}
 	got := CompileAnswerIntentContract(rm, nil)
 	assertAnswerIntentContract(t, got,
-		[]AnswerEvidenceOrigin{AnswerEvidenceOriginRuntimeArtifact},
+		[]AnswerEvidenceOrigin{AnswerEvidenceOriginCurrentSource, AnswerEvidenceOriginRuntimeArtifact},
 		[]AnswerRequestedOutput{AnswerRequestedOutputSummary, AnswerRequestedOutputDiagnostic},
 	)
-	if got.HasOrigin(AnswerEvidenceOriginCurrentSource) {
-		t.Fatalf("external-only runtime artifact without a current-source anchor should stay runtime-only: %+v", got.Origins)
-	}
 }
 
 func TestCompileAnswerIntentContract_ExternalRuntimeArtifactCurrentStatusWithExactTargetKeepsCurrentSource(t *testing.T) {

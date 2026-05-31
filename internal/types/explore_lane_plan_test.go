@@ -14,7 +14,8 @@ func TestCompileExploreLanePlan_MixedVCSDiffCurrentSource(t *testing.T) {
 			Modes: []CurrentSourceExplanationMode{
 				CurrentSourceExplanationLocateCurrentCode,
 			},
-			Confidence: 0.9,
+			Confidence:   0.9,
+			SourceQuotes: []string{"结合源码"},
 		},
 	}
 	presentation := AnswerPresentationContract{
@@ -78,7 +79,8 @@ func TestCompileExploreLanePlan_CommandMeasurementAndCurrentSource(t *testing.T)
 			Modes: []CurrentSourceExplanationMode{
 				CurrentSourceExplanationExplainCurrentMechanism,
 			},
-			Confidence: 0.9,
+			Confidence:   0.9,
+			SourceQuotes: []string{"结合源码"},
 		},
 	}
 	got := CompileExploreLanePlan(rm, nil, AnswerPresentationContract{})
@@ -87,6 +89,45 @@ func TestCompileExploreLanePlan_CommandMeasurementAndCurrentSource(t *testing.T)
 	if len(got.Lanes) != 2 {
 		t.Fatalf("lanes=%d want command+source: %+v", len(got.Lanes), got.Lanes)
 	}
+}
+
+func TestCompileExploreLanePlan_MCPResourceCollapsesOnlyMCPLane(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "请使用 MCP fixture 工具查询 mcp://fixture/trace/sleep-wakeup 的 line 7 和 line 12",
+		Intent:     IntentExplain,
+		SubTopics: []SubTopic{
+			{Summary: "line 7"},
+			{Summary: "line 12"},
+		},
+	}
+	got := CompileExploreLanePlan(rm, nil, AnswerPresentationContract{})
+	if current := countExploreLaneOrigin(got, AnswerEvidenceOriginCurrentSource); current != 2 {
+		t.Fatalf("default MCP resource request should keep per-topic source lanes, got current_source=%d lanes=%+v", current, got.Lanes)
+	}
+	if mcp := countExploreLaneOrigin(got, AnswerEvidenceOriginMCPResource); mcp != 1 {
+		t.Fatalf("MCP resource origin should collapse duplicate per-topic reads, got mcp=%d lanes=%+v", mcp, got.Lanes)
+	}
+	if len(got.Lanes) != 3 {
+		t.Fatalf("lanes=%d want 2 source lanes + 1 MCP lane: %+v", len(got.Lanes), got.Lanes)
+	}
+}
+
+func TestCompileExploreLanePlan_MCPAndSourceKeepsBothOrigins(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "请使用 MCP fixture 工具查询 mcp://fixture/trace/sleep-wakeup，并结合源码解释实现",
+		Intent:     IntentExplain,
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes: []CurrentSourceExplanationMode{
+				CurrentSourceExplanationExplainCurrentMechanism,
+			},
+			Confidence:   0.9,
+			SourceQuotes: []string{"结合源码"},
+		},
+	}
+	got := CompileExploreLanePlan(rm, nil, AnswerPresentationContract{})
+	assertExploreLaneOrigin(t, got, AnswerEvidenceOriginMCPResource, "")
+	assertExploreLaneOrigin(t, got, AnswerEvidenceOriginCurrentSource, "")
 }
 
 func assertExploreLaneOrigin(t *testing.T, plan ExploreLanePlan, origin AnswerEvidenceOrigin, wantDim string) {
@@ -104,6 +145,16 @@ func assertExploreLaneOrigin(t *testing.T, plan ExploreLanePlan, origin AnswerEv
 		return
 	}
 	t.Fatalf("missing lane origin %s in %+v", origin, plan.Lanes)
+}
+
+func countExploreLaneOrigin(plan ExploreLanePlan, origin AnswerEvidenceOrigin) int {
+	count := 0
+	for _, lane := range plan.Lanes {
+		if lane.Origin == origin {
+			count++
+		}
+	}
+	return count
 }
 
 func containsExploreLaneTestString(values []string, want string) bool {

@@ -874,6 +874,11 @@ func TestSkipSemanticQualityForObservationOnlyArtifact_SkipsOnlyPureSimpleArtifa
 		DiagnosticProfile: types.DiagnosticIntentProfile{
 			IsDiagnostic: true,
 		},
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+			SourceQuotes:      []string{"只分析日志"},
+			Confidence:        0.9,
+		},
 	})
 	ctx := &types.BusContext{Mutable: mut}
 	pureArtifactDoc := &types.AnswerDocumentV2{
@@ -969,6 +974,11 @@ func TestSkipSemanticQualityForObservationOnlyArtifact_SkipsOnlyPureSimpleArtifa
 		DiagnosticProfile: types.DiagnosticIntentProfile{
 			IsDiagnostic: true,
 		},
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+			SourceQuotes:      []string{"只分析日志"},
+			Confidence:        0.9,
+		},
 	})
 	if !skipLLMAnswerReviewForObservationOnlyArtifact(&types.BusContext{Mutable: complexMut}, pureArtifactDoc, nil) {
 		t.Fatal("complexity alone is not a safe reason to run LLM reviewers on pure observation-only artifacts")
@@ -985,6 +995,11 @@ func TestSkipSemanticQualityForObservationOnlyArtifact_SkipsOnlyPureSimpleArtifa
 		},
 		DiagnosticProfile: types.DiagnosticIntentProfile{
 			IsDiagnostic: true,
+		},
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+			SourceQuotes:      []string{"只分析日志"},
+			Confidence:        0.9,
 		},
 	})
 	if skipLLMAnswerReviewForObservationOnlyArtifact(&types.BusContext{Mutable: diagramMut}, pureArtifactDoc, nil) {

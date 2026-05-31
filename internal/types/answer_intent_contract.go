@@ -1,6 +1,9 @@
 package types
 
-import "sort"
+import (
+	"sort"
+	"strings"
+)
 
 // AnswerEvidenceOrigin names the typed provenance lane a downstream claim may
 // rely on. It is deliberately orthogonal to the visible answer shape: the same
@@ -199,6 +202,9 @@ func CompileAnswerIntentContract(rm RequestModel, contract *AnswerContract) Answ
 		rm.ArtifactObservationProfile != nil {
 		addOrigin(AnswerEvidenceOriginRuntimeArtifact)
 	}
+	if requestModelHasMCPResourceReference(rm) {
+		addOrigin(AnswerEvidenceOriginMCPResource)
+	}
 	if rm.Predicates.IsCountQuestion {
 		addOrigin(AnswerEvidenceOriginCommandMeasurement)
 	}
@@ -304,7 +310,9 @@ func historyRequestNeedsVCSDiffOrigin(rm RequestModel, contract *AnswerContract)
 }
 
 func shouldIncludeCurrentSourceOrigin(rm RequestModel, contract *AnswerContract) bool {
-	if rm.HasObservationOnlyRuntimeArtifact() {
+	if rm.ExternalObservationPolicy != nil &&
+		rm.ExternalObservationPolicy.ExcludesCurrentSource() &&
+		(rm.HasExternalOnlyRuntimeArtifact() || requestModelHasMCPResourceReference(rm)) {
 		return false
 	}
 	if typesContractRequiresCurrentSource(contract) {
@@ -321,6 +329,32 @@ func shouldIncludeCurrentSourceOrigin(rm RequestModel, contract *AnswerContract)
 			(rm.DiagramHint != nil && rm.DiagramHint.Kind != "")
 	}
 	return true
+}
+
+func requestModelHasMCPResourceReference(rm RequestModel) bool {
+	if textHasMCPResourceURI(rm.RawRequest) {
+		return true
+	}
+	for _, term := range rm.TermGraph.Canonical {
+		if textHasMCPResourceURI(term.Surface) {
+			return true
+		}
+	}
+	for _, target := range rm.AnalyzerHints.ExactTargets {
+		if textHasMCPResourceURI(target) {
+			return true
+		}
+	}
+	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
+		if textHasMCPResourceURI(hint.Path) {
+			return true
+		}
+	}
+	return false
+}
+
+func textHasMCPResourceURI(raw string) bool {
+	return strings.Contains(strings.ToLower(strings.TrimSpace(raw)), "mcp://")
 }
 
 func typesContractRequiresCurrentSource(contract *AnswerContract) bool {

@@ -546,6 +546,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	built := make([]types.EvidenceItem, 0, len(p.Items))
 	rejectedItems := make([]string, 0)
 	softSkippedItems := make([]string, 0)
+	externalObservationSkippedItems := make([]string, 0)
 	autoSwapped := make([]int, 0)
 	compatRepairs := make([]string, 0)
 	// Session 11 R4 self-reference filter — pre-compute the
@@ -572,6 +573,10 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	for i, in := range p.Items {
 		if reason, ok := emitEvidenceHistoryMetadataSoftSkipReason(ctx, in, i); ok {
 			softSkippedItems = append(softSkippedItems, reason)
+			continue
+		}
+		if reason, ok := emitEvidenceExternalObservationSoftSkipReason(in, i); ok {
+			externalObservationSkippedItems = append(externalObservationSkippedItems, reason)
 			continue
 		}
 		ev, perr := buildEmitEvidenceItemWithSwap(&in, i, workDir, gc, &autoSwapped, &compatRepairs)
@@ -631,6 +636,15 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 					"repair_status": "advisory",
 				},
 			},
+			Timestamp: now,
+		}, nil
+	}
+	if len(built) == 0 && len(externalObservationSkippedItems) > 0 && len(softSkippedItems) == 0 && len(rejectedItems) == 0 {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   true,
+			Summary:   renderEmitEvidenceExternalObservationSoftSkipSummary(externalObservationSkippedItems),
+			Repair:    emitEvidenceExternalObservationRepair(),
 			Timestamp: now,
 		}, nil
 	}
@@ -806,7 +820,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			"\n\nsurface_terms compatibility: dropped ungrounded optional term(s); evidence items were kept:\n  - " +
 			strings.Join(surfaceTermDrops, "\n  - ") + "\n"
 	}
-	if len(rejectedItems) > 0 || len(softSkippedItems) > 0 || len(autoSwapped) > 0 || len(compatRepairs) > 0 {
+	if len(rejectedItems) > 0 || len(softSkippedItems) > 0 || len(externalObservationSkippedItems) > 0 || len(autoSwapped) > 0 || len(compatRepairs) > 0 {
 		var b strings.Builder
 		b.WriteString(summary)
 		if len(softSkippedItems) > 0 {
@@ -816,6 +830,14 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 				fmt.Fprintf(&b, "  - %s\n", r)
 			}
 			b.WriteString("Carry verified command values through emit_investigation_complete.aggregate_facts when they are the requested principal scalar/count/list. For non-scalar history summaries or diagnostics, carry the VCS finding in emit_investigation_complete.reason and mark commit/count metadata aggregates as supporting_coverage.\n")
+		}
+		if len(externalObservationSkippedItems) > 0 {
+			fmt.Fprintf(&b, "\n%d external observation item(s) were SKIPPED because emit_evidence only records current-source/read_file-backed anchors:\n",
+				len(externalObservationSkippedItems))
+			for _, r := range externalObservationSkippedItems {
+				fmt.Fprintf(&b, "  - %s\n", r)
+			}
+			b.WriteString("MCP resources, connector rows, web pages, and other non-current-source observations must remain in their external observation lane. Carry them through emit_investigation_complete.reason and aggregate_facts instead of inventing read_file grounding.\n")
 		}
 		if len(rejectedItems) > 0 {
 			fmt.Fprintf(&b, "\n%d item(s) were SKIPPED due to validation errors and are NOT in the accepted buffer:\n",
@@ -1194,6 +1216,52 @@ func renderEmitEvidenceCommandScalarSoftSkipSummary(skipped []string) string {
 	}
 	b.WriteString("\nDerived scalar/count, directory measurement, and VCS/history outputs are not source-line evidence. Do not invent a file:line anchor for them. Carry verified scalar/count/list answers through emit_investigation_complete.aggregate_facts when that is the requested principal shape; for non-scalar history summaries or diagnostics, carry the VCS finding in emit_investigation_complete.reason and keep commit/count metadata aggregates as supporting_coverage.\n")
 	return b.String()
+}
+
+func emitEvidenceExternalObservationSoftSkipReason(in emitEvidenceItem, index int) (string, bool) {
+	source := strings.TrimSpace(in.Source)
+	if !emitEvidenceSourceIsExternalObservationURI(source) {
+		return "", false
+	}
+	anchor := strings.TrimSpace(firstNonEmptyString([]string{in.AnchorSymbol, in.Subject, in.Object}))
+	if anchor == "" {
+		anchor = "(no anchor)"
+	}
+	line := in.LineStart.Int()
+	location := source
+	if line > 0 {
+		location = fmt.Sprintf("%s:%d", source, line)
+	}
+	return fmt.Sprintf("items[%d]: %s @ %s is an external observation URI, not a current-source read_file anchor", index, anchor, location), true
+}
+
+func emitEvidenceSourceIsExternalObservationURI(source string) bool {
+	source = strings.ToLower(strings.TrimSpace(source))
+	return strings.HasPrefix(source, "mcp://") || strings.HasPrefix(source, "mcp:/")
+}
+
+func renderEmitEvidenceExternalObservationSoftSkipSummary(skipped []string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "emit_evidence accepted 0 source evidence item(s); skipped %d external observation item(s).\n\n", len(skipped))
+	for _, s := range skipped {
+		fmt.Fprintf(&b, "  - %s\n", s)
+	}
+	b.WriteString("\nMCP resources and other external observations are first-class evidence in the external observation lane, not current-source read_file evidence. Preserve them through emit_investigation_complete.reason plus aggregate_facts; do not retry emit_evidence for these URI rows.\n")
+	return b.String()
+}
+
+func emitEvidenceExternalObservationRepair() *types.ToolRepair {
+	return &types.ToolRepair{
+		Code: "evidence_external_observation_to_closure",
+		Hint: "MCP/resource rows are external observations, not current-source read_file evidence. Carry verified rows through emit_investigation_complete.reason and aggregate_facts.",
+		Fields: []string{
+			"emit_investigation_complete.reason",
+			"emit_investigation_complete.aggregate_facts",
+		},
+		Metadata: map[string]string{
+			"repair_status": "advisory",
+		},
+	}
 }
 
 func repairEmitEvidenceItemShape(in *emitEvidenceItem, index int, compatRepairs *[]string) {

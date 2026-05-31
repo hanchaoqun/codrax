@@ -693,6 +693,11 @@ func TestBuildAnalysisIR_ExternalOnlyRuntimeArtifactStripsAllThreeGates(t *testi
 			IsDiagnostic: true,
 			Confidence:   0.9,
 		},
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+			SourceQuotes:      []string{"只分析日志"},
+			Confidence:        0.9,
+		},
 	})
 	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
 
@@ -767,7 +772,7 @@ func TestBuildAnalysisIR_ResolvedRuntimeArtifactKeepsCitationGates(t *testing.T)
 	}
 }
 
-func TestBuildAnalysisIR_ExternalOnlyCurrentRiskWithoutCurrentVersionStaysObservationOnly(t *testing.T) {
+func TestBuildAnalysisIR_ExternalRuntimeCurrentRiskWithoutCurrentVersionKeepsSourceDefault(t *testing.T) {
 	mut := types.NewMutableState("这是什么错误？")
 	mut.SetLogTriage(&types.LogBundle{
 		Errors: []types.LogError{{
@@ -810,15 +815,15 @@ func TestBuildAnalysisIR_ExternalOnlyCurrentRiskWithoutCurrentVersionStaysObserv
 	if ir.RequestModel.DiagnosticProfile.CurrentRisk {
 		t.Fatal("external-only artifact without typed current-version check must not open current-repo verification")
 	}
-	if !ir.RequestModel.HasObservationOnlyRuntimeArtifact() {
-		t.Fatalf("request should remain observation-only: %+v", ir.RequestModel.DiagnosticProfile)
+	if ir.RequestModel.HasObservationOnlyRuntimeArtifact() {
+		t.Fatalf("external runtime artifact must not be observation-only without typed exclusion: %+v", ir.RequestModel.DiagnosticProfile)
 	}
 	if ir.AnswerContract.CurrentStatusDiagnostic != nil && ir.AnswerContract.CurrentStatusDiagnostic.Required {
 		t.Fatalf("CurrentStatusDiagnostic should not be required: %+v", ir.AnswerContract.CurrentStatusDiagnostic)
 	}
 }
 
-func TestBuildAnalysisIR_LogObservationOnlyLookupStaysObservationOnly(t *testing.T) {
+func TestBuildAnalysisIR_LogObservationLookupKeepsSourceDefault(t *testing.T) {
 	mut := types.NewMutableState("这段日志里 WARN 在附件日志的第几行？FATAL 是否存在？")
 	mut.SetLogTriage(&types.LogBundle{
 		Observations: []types.LogObservation{
@@ -862,16 +867,8 @@ func TestBuildAnalysisIR_LogObservationOnlyLookupStaysObservationOnly(t *testing
 	if err != nil {
 		t.Fatalf("buildAnalysisIR: %v", err)
 	}
-	if !ir.RequestModel.HasObservationOnlyRuntimeArtifact() {
-		t.Fatalf("log observation lookup should be observation-only: %+v", ir.RequestModel)
-	}
-	if ir.AnswerContract.CitationReq.Required {
-		t.Fatal("artifact-local log lookup must not require repo citations")
-	}
-	for _, req := range types.CompileFacetCoverage(ir.RequestModel, nil).Required {
-		if req.Kind == types.FacetCurrentCodePath {
-			t.Fatalf("artifact-local log lookup must not require current_code_path: %+v", req)
-		}
+	if ir.RequestModel.HasObservationOnlyRuntimeArtifact() {
+		t.Fatalf("log observation lookup must not be observation-only without typed exclusion: %+v", ir.RequestModel)
 	}
 }
 
@@ -920,7 +917,7 @@ func TestBuildAnalysisIR_ExternalOnlyCurrentVersionCheckKeepsCurrentStatus(t *te
 	}
 }
 
-func TestBuildAnalysisIR_ExternalOnlySpuriousCurrentVersionCheckStaysObservationOnly(t *testing.T) {
+func TestBuildAnalysisIR_ExternalRuntimeSpuriousCurrentVersionCheckKeepsSourceDefault(t *testing.T) {
 	mut := types.NewMutableState("哪些 goroutine 同时出错？它们的共同问题是什么？")
 	mut.SetLogTriage(&types.LogBundle{
 		Errors: []types.LogError{{
@@ -964,8 +961,8 @@ func TestBuildAnalysisIR_ExternalOnlySpuriousCurrentVersionCheckStaysObservation
 		ir.RequestModel.DiagnosticProfile.HistoricalRegression {
 		t.Fatalf("external-only artifact without current-source anchor should clear current-status flags: %+v", ir.RequestModel.DiagnosticProfile)
 	}
-	if !ir.RequestModel.HasObservationOnlyRuntimeArtifact() {
-		t.Fatalf("runtime artifact should be observation-only: %+v", ir.RequestModel)
+	if ir.RequestModel.HasObservationOnlyRuntimeArtifact() {
+		t.Fatalf("runtime artifact must not be observation-only without typed exclusion: %+v", ir.RequestModel)
 	}
 	if ir.AnswerContract.CurrentStatusDiagnostic != nil && ir.AnswerContract.CurrentStatusDiagnostic.Required {
 		t.Fatalf("CurrentStatusDiagnostic should not be required: %+v", ir.AnswerContract.CurrentStatusDiagnostic)

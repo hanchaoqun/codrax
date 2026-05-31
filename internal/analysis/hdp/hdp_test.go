@@ -380,6 +380,11 @@ func TestPlan_RootCause_ObservationOnlyRuntimeSkipsAlternativeHypothesis(t *test
 	input.LogTriage = &types.LogBundle{
 		Errors: []types.LogError{{Type: "TypeError"}},
 	}
+	input.ExternalObservationPolicy = &types.ExternalObservationPolicy{
+		CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+		SourceQuotes:      []string{"只分析日志"},
+		Confidence:        0.9,
+	}
 	hs := Plan(input)
 	if findByStatement(hs, "alternative root cause") != nil {
 		t.Fatalf("observation-only runtime root-cause should not inject caller-side alternative hypothesis: %+v", hs)

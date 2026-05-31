@@ -229,10 +229,22 @@ func TestExplorer_BuildInitialInstruction_CheckpointContinuationSkipsBreadthScan
 	}
 }
 
-func TestExplorer_BuildInitialInstruction_ExplicitTracePathStartsWithTraceQuery(t *testing.T) {
+func TestExplorer_BuildInitialInstruction_ObservationOnlyTraceStartsWithTraceQuery(t *testing.T) {
 	ctx := &types.AgentContext{
 		Objective: `分析 record_trace_20260526174055.systrace 中 com.tencent.mm-36379 在 2942.124416 到 2942.260210 的 sleep 原因`,
 		Stage:     types.StageExplore,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				PerfTrace: &types.PerfBundle{
+					Frames: []types.PerfFrame{{FrameNo: 1, DurationMs: 33.3, Janky: true}},
+				},
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					SourceQuotes:      []string{"只分析 trace"},
+					Confidence:        0.9,
+				},
+			},
+		},
 	}
 
 	eval := &explorerEvaluator{}
@@ -255,9 +267,9 @@ func TestExplorer_BuildInitialInstruction_ExplicitTracePathStartsWithTraceQuery(
 	}
 }
 
-func TestExplorer_BuildInitialInstruction_ExplicitTraceWithCurrentSourceCueUsesNormalBreadth(t *testing.T) {
+func TestExplorer_BuildInitialInstruction_ExplicitTracePathKeepsNormalBreadthByDefault(t *testing.T) {
 	ctx := &types.AgentContext{
-		Objective: `结合当前源码分析 record_trace_20260526174055.systrace 中 com.tencent.mm-36379 的 sleep 原因`,
+		Objective: `分析 record_trace_20260526174055.systrace 中 com.tencent.mm-36379 的 sleep 原因`,
 		Stage:     types.StageExplore,
 	}
 
@@ -508,8 +520,8 @@ func TestParseOutput_EvidenceQualityFails(t *testing.T) {
 	}
 }
 
-func TestParseOutput_MCPOnlyTypedObservationsSatisfyExternalQuestion(t *testing.T) {
-	question := "请使用 MCP fixture 工具查询 mcp://fixture/trace/sleep-wakeup 的 line 7 和 line 12，不要把 MCP 行号当成当前源码引用"
+func TestParseOutput_MCPObservationsDoNotBypassDefaultSourceQuestion(t *testing.T) {
+	question := "请使用 MCP fixture 工具查询 mcp://fixture/trace/sleep-wakeup 的 line 7 和 line 12"
 	ctx := parseOutputCtx("", "")
 	ctx.Objective = question
 	ctx.AnalysisIR.RequestModel.RawRequest = question
@@ -529,15 +541,12 @@ func TestParseOutput_MCPOnlyTypedObservationsSatisfyExternalQuestion(t *testing.
 	if err != nil {
 		t.Fatalf("ParseOutput error: %v", err)
 	}
-	if out.SignalUpdates == nil || !out.SignalUpdates.HasEnoughFacts {
-		t.Fatalf("MCP typed observations should satisfy MCP-only external question, got output %+v", out.SignalUpdates)
-	}
-	if out.RetryHint != "" {
-		t.Fatalf("MCP-only external question should not request source-tool retry, got %q", out.RetryHint)
+	if out.SignalUpdates != nil && out.SignalUpdates.HasEnoughFacts {
+		t.Fatalf("MCP observations alone must not satisfy the default mixed source+external request, got %+v", out.SignalUpdates)
 	}
 	ta := ctx.Mutable.TurnAArtifacts()
-	if ta == nil || !ta.RuntimeObservationOnlyCompletion {
-		t.Fatalf("MCP-only external question should mark Turn A as observation-only complete, got %+v", ta)
+	if ta == nil || ta.RuntimeObservationOnlyCompletion {
+		t.Fatalf("default MCP resource request must not mark Turn A as observation-only complete, got %+v", ta)
 	}
 	if ta == nil || len(ta.MCPResponses) != 1 {
 		t.Fatalf("Turn A handoff should preserve MCP responses for scheduler/finalizer, got %+v", ta)
@@ -549,6 +558,14 @@ func TestParseOutput_MCPObservationsDoNotBypassMixedSourceQuestion(t *testing.T)
 	ctx := parseOutputCtx("", "")
 	ctx.Objective = question
 	ctx.AnalysisIR.RequestModel.RawRequest = question
+	ctx.AnalysisIR.RequestModel.CurrentSourceExplanationProfile = &types.CurrentSourceExplanationProfile{
+		IsCurrentSourceExplanationRequested: true,
+		Modes: []types.CurrentSourceExplanationMode{
+			types.CurrentSourceExplanationExplainCurrentMechanism,
+		},
+		SourceQuotes: []string{"结合源码"},
+		Confidence:   0.9,
+	}
 	eval := &explorerEvaluator{userQuestion: question}
 
 	out, err := eval.ParseOutput(ctx, nil, nil, []types.MCPResponse{{

@@ -173,6 +173,12 @@ type RequestModel struct {
 	// not permission for deterministic answer replacement.
 	CurrentSourceExplanationProfile *CurrentSourceExplanationProfile `json:"current_source_explanation_profile,omitempty"`
 
+	// ExternalObservationPolicy is the analyzer's typed source-scope decision
+	// for non-current observations. Default / omitted means external
+	// observations are analyzed together with current source. Only an anchored
+	// exclude policy may suppress the current-source lane.
+	ExternalObservationPolicy *ExternalObservationPolicy `json:"external_observation_policy,omitempty"`
+
 	// SubTopics lists independently-answerable sub-topics detected by
 	// the analyzer. When non-empty, the compiler generates one evidence
 	// DAG node per sub-topic. Empty for single-topic questions.

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -972,13 +973,13 @@ func TestValidateObservationOnlyRuntimeToolCall(t *testing.T) {
 	}
 	for _, name := range []string{"grep", "repo_map", "list_files"} {
 		t.Run("analyze allows "+name, func(t *testing.T) {
-			got := validateObservationOnlyRuntimeToolCall(analyzeCtx, llm.ToolCall{Name: name, Params: json.RawMessage(`{"files_only":true}`)})
+			got := validateExternalObservationOnlyToolCall(analyzeCtx, llm.ToolCall{Name: name, Params: json.RawMessage(`{"files_only":true}`)})
 			if got != nil {
 				t.Fatalf("analyzer pre-scan tool %q must not be hard-blocked for mixed runtime+current-source classification, got %+v", name, got)
 			}
 		})
 	}
-	if got := validateObservationOnlyRuntimeToolCall(analyzeCtx, llm.ToolCall{Name: "emit_analysis", Params: json.RawMessage(`{}`)}); got != nil {
+	if got := validateExternalObservationOnlyToolCall(analyzeCtx, llm.ToolCall{Name: "emit_analysis", Params: json.RawMessage(`{}`)}); got != nil {
 		t.Fatalf("emit_analysis must remain available, got %+v", got)
 	}
 
@@ -989,12 +990,17 @@ func TestValidateObservationOnlyRuntimeToolCall(t *testing.T) {
 				LogTriage: &types.LogBundle{
 					Errors: []types.LogError{{Type: "RuntimeError"}},
 				},
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					SourceQuotes:      []string{"只分析日志"},
+					Confidence:        0.9,
+				},
 			},
 		},
 	}
 	for _, name := range []string{"grep", "read_file", "repo_map", "list_files", "exec_command", "emit_evidence", "propose_sub_agents"} {
 		t.Run("blocks "+name, func(t *testing.T) {
-			got := validateObservationOnlyRuntimeToolCall(observationOnlyCtx, llm.ToolCall{Name: name, Params: json.RawMessage(`{}`)})
+			got := validateExternalObservationOnlyToolCall(observationOnlyCtx, llm.ToolCall{Name: name, Params: json.RawMessage(`{}`)})
 			if got == nil {
 				t.Fatalf("tool %q should be blocked for observation-only runtime artifact", name)
 			}
@@ -1007,7 +1013,7 @@ func TestValidateObservationOnlyRuntimeToolCall(t *testing.T) {
 		})
 	}
 
-	if got := validateObservationOnlyRuntimeToolCall(observationOnlyCtx, llm.ToolCall{Name: "emit_investigation_complete", Params: json.RawMessage(`{}`)}); got != nil {
+	if got := validateExternalObservationOnlyToolCall(observationOnlyCtx, llm.ToolCall{Name: "emit_investigation_complete", Params: json.RawMessage(`{}`)}); got != nil {
 		t.Fatalf("emit_investigation_complete must remain available, got %+v", got)
 	}
 
@@ -1027,7 +1033,7 @@ func TestValidateObservationOnlyRuntimeToolCall(t *testing.T) {
 			},
 		},
 	}
-	if got := validateObservationOnlyRuntimeToolCall(currentStatusCtx, llm.ToolCall{Name: "grep", Params: json.RawMessage(`{}`)}); got != nil {
+	if got := validateExternalObservationOnlyToolCall(currentStatusCtx, llm.ToolCall{Name: "grep", Params: json.RawMessage(`{}`)}); got != nil {
 		t.Fatalf("current-status diagnostics must keep repo tools available, got %+v", got)
 	}
 }
@@ -1048,6 +1054,11 @@ func TestBuildToolSchemas_ObservationOnlyRuntimeHidesRepoTools(t *testing.T) {
 			RequestModel: types.RequestModel{
 				LogTriage: &types.LogBundle{
 					Errors: []types.LogError{{Type: "RuntimeError"}},
+				},
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					SourceQuotes:      []string{"只分析日志"},
+					Confidence:        0.9,
 				},
 			},
 		},
@@ -1765,6 +1776,103 @@ func TestToolResultSummarySurfacesAnswerDocumentRejectsOnly(t *testing.T) {
 	}
 	if got := toolResultSummary(success); got != "3 matches" {
 		t.Fatalf("successful tool summary = %q, want %q", got, "3 matches")
+	}
+}
+
+func TestMCPToolResultSummaryDedupesSameTypedObservationRowsInDispatch(t *testing.T) {
+	obs := []types.MCPTypedObservation{
+		{ResourceURI: "mcp://fixture/trace/sleep-wakeup", LineStart: 7, Summary: "target starts running"},
+		{ResourceURI: "mcp://fixture/trace/sleep-wakeup", LineStart: 12, Summary: "helper wakes target"},
+	}
+	seen := map[string]struct{}{}
+
+	readResource := &types.MCPResponse{
+		ServerName:   "fixture",
+		Method:       "resources/read",
+		ResourceURI:  "mcp://fixture/trace/sleep-wakeup",
+		Observations: obs,
+		Success:      true,
+	}
+	first := mcpToolResultSummaryOnce(readResource, seen)
+	for _, want := range []string{"resource=mcp://fixture/trace/sleep-wakeup", "observations=2", "lines=7,12"} {
+		if !strings.Contains(first, want) {
+			t.Fatalf("first MCP summary missing %q in %q", want, first)
+		}
+	}
+
+	lookupSameRows := &types.MCPResponse{
+		ServerName:   "fixture",
+		Method:       "tools/call",
+		Observations: obs,
+		Success:      true,
+	}
+	if got := mcpToolResultSummaryOnce(lookupSameRows, seen); !strings.Contains(got, "repeated=true") || !strings.Contains(got, "observations=2") {
+		t.Fatalf("duplicate typed observation rows should be marked as repeated, got %q", got)
+	}
+
+	lookupOnlySeen := map[string]struct{}{}
+	if got := mcpToolResultSummaryOnce(lookupSameRows, lookupOnlySeen); !strings.Contains(got, "resource=mcp://fixture/trace/sleep-wakeup") {
+		t.Fatalf("standalone typed observation summary should infer resource from rows, got %q", got)
+	}
+
+	differentRows := &types.MCPResponse{
+		ServerName: "fixture",
+		Method:     "tools/call",
+		Observations: []types.MCPTypedObservation{
+			{ResourceURI: "mcp://fixture/trace/sleep-wakeup", LineStart: 20, Summary: "another row"},
+		},
+		Success: true,
+	}
+	if got := mcpToolResultSummaryOnce(differentRows, seen); !strings.Contains(got, "lines=20") {
+		t.Fatalf("distinct typed observation rows should still render, got %q", got)
+	}
+
+	differentSummary := &types.MCPResponse{
+		ServerName: "fixture",
+		Method:     "tools/call",
+		Observations: []types.MCPTypedObservation{
+			{ResourceURI: "mcp://fixture/trace/sleep-wakeup", LineStart: 7, Summary: "changed row content"},
+			{ResourceURI: "mcp://fixture/trace/sleep-wakeup", LineStart: 12, Summary: "helper wakes target"},
+		},
+		Success: true,
+	}
+	if got := mcpToolResultSummaryOnce(differentSummary, seen); strings.Contains(got, "repeated=true") {
+		t.Fatalf("same locator with changed returned content must not be marked repeated, got %q", got)
+	}
+
+	dynamicWithoutStableRows := &types.MCPResponse{
+		ServerName: "fixture",
+		Method:     "tools/call",
+		Observations: []types.MCPTypedObservation{
+			{ResourceURI: "mcp://fixture/dynamic/status", Summary: "current value=42"},
+		},
+		Success: true,
+	}
+	_ = mcpToolResultSummaryOnce(dynamicWithoutStableRows, seen)
+	if got := mcpToolResultSummaryOnce(dynamicWithoutStableRows, seen); strings.Contains(got, "repeated=true") {
+		t.Fatalf("dynamic observation without row/line/selector identity must stay fully visible, got %q", got)
+	}
+
+	largeTypedRows := make([]types.MCPTypedObservation, 0, mcpRepeatKeyMaxRows+1)
+	for i := 0; i < mcpRepeatKeyMaxRows+1; i++ {
+		largeTypedRows = append(largeTypedRows, types.MCPTypedObservation{
+			ResourceURI: "mcp://fixture/large/table",
+			LineStart:   i + 1,
+			Summary:     fmt.Sprintf("row %d", i+1),
+		})
+	}
+	largeResp := &types.MCPResponse{
+		ServerName:   "fixture",
+		Method:       "tools/call",
+		ResourceURI:  "mcp://fixture/large/table",
+		Observations: largeTypedRows,
+		PayloadRef:   "blob://payload/mcp-large.json",
+		RowSetRef:    "blob://rows/mcp-large.jsonl",
+		Success:      true,
+	}
+	_ = mcpToolResultSummaryOnce(largeResp, seen)
+	if got := mcpToolResultSummaryOnce(largeResp, seen); strings.Contains(got, "repeated=true") {
+		t.Fatalf("large MCP responses must not pay repeat-comparison cost or be marked repeated, got %q", got)
 	}
 }
 

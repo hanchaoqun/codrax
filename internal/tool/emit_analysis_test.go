@@ -2455,8 +2455,8 @@ func TestEmitAnalysis_Execute_DefaultsMissingDiagnosticProfile(t *testing.T) {
 	mu := types.NewMutableState("diagnose whether the current failure is still present")
 	tool := &EmitAnalysis{}
 	payload := `{
-		"intent": "root_cause",
-		"scenario": "root_cause",
+		"intent": "explain",
+		"scenario": "architecture_explain",
 		"complexity": "moderate",
 		"keywords": ["a"],
 		"entities": ["Foo"],
@@ -3373,7 +3373,7 @@ func TestEmitAnalysis_Execute_DropsInvalidFieldValueProfileForRuntimeArtifact(t 
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
-	mu := types.NewMutableState("这段 HiTrace 里 GC span 的开始事件在附件 trace 的第几行？有没有超过 50ms 的 GC span？")
+	mu := types.NewMutableState("这段 HiTrace 里 GC span 的开始事件在附件 trace 的第几行？有没有超过 50ms 的 GC span？只分析 trace")
 	mu.SetPerfTrace(&types.PerfBundle{
 		Meta: types.PerfMeta{Source: "hitrace", Signals: []string{"gc-pause"}},
 		Observations: []types.PerfObservation{{
@@ -3414,6 +3414,11 @@ func TestEmitAnalysis_Execute_DropsInvalidFieldValueProfileForRuntimeArtifact(t 
 			"historical_regression": false,
 			"current_version_check": false,
 			"confidence": 0.1
+		},
+		"external_observation_policy": {
+			"current_source_mode": "exclude",
+			"source_quotes": ["只分析 trace"],
+			"confidence": 0.9
 		},
 		"field_value_profile": {
 			"is_field_value_lookup": true,
@@ -3501,6 +3506,125 @@ func TestEmitAnalysis_Execute_DropsInvalidFieldValueProfileForGenericCountCurren
 	}
 	if !strings.Contains(res.Summary, "generic scalar/current-source request") {
 		t.Fatalf("expected summary warning to record dropped optional profile, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_ExternalObservationPolicyExcludeRequiresAnchoredQuote(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	mu := types.NewMutableState("只分析日志，不要读取源码")
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["log", "runtime"],
+		"entities": ["panic"],
+		"question_kind": "mechanism",
+		"external_observation_policy": {
+			"current_source_mode": "exclude",
+			"source_quotes": ["不要读取源码", "not in request"],
+			"confidence": 0.91
+		}
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("policy should be soft-normalized, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.ExternalObservationPolicy == nil || !rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		t.Fatalf("anchored exclude policy should survive: %+v", rm)
+	}
+	if got := rm.ExternalObservationPolicy.SourceQuotes; len(got) != 1 || got[0] != "不要读取源码" {
+		t.Fatalf("source quotes should keep only anchored entries, got %+v", got)
+	}
+	if !strings.Contains(res.Summary, "external_observation_policy=exclude") {
+		t.Fatalf("summary should report policy mode, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "external_observation_policy.source_quotes entry ignored") {
+		t.Fatalf("summary should warn for unanchored quote, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_ExternalObservationPolicyUnanchoredExcludeDefaults(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	mu := types.NewMutableState("分析日志")
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["log", "runtime"],
+		"entities": ["panic"],
+		"question_kind": "mechanism",
+		"external_observation_policy": {
+			"current_source_mode": "exclude",
+			"source_quotes": ["不要读取源码"],
+			"confidence": 0.91
+		}
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("unanchored exclude should become a warning, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || (rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource()) {
+		t.Fatalf("unanchored exclude must not suppress current source: %+v", rm)
+	}
+	if !strings.Contains(res.Summary, "exclude ignored") {
+		t.Fatalf("summary should explain ignored exclusion, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_ExternalObservationPolicyRepairsStringWrappedObject(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	mu := types.NewMutableState("只分析日志，不要读取源码")
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["log", "runtime"],
+		"entities": ["panic"],
+		"question_kind": "mechanism",
+		"external_observation_policy": "{\"current_source_mode\":\"exclude\",\"source_quotes\":[\"不要读取源码\"],\"confidence\":0.91}"
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("string-wrapped external_observation_policy should be repaired, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.ExternalObservationPolicy == nil || !rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		t.Fatalf("repaired exclude policy should survive: %+v", rm)
+	}
+	if got := rm.ExternalObservationPolicy.SourceQuotes; len(got) != 1 || got[0] != "不要读取源码" {
+		t.Fatalf("source quotes should survive repair, got %+v", got)
+	}
+	if !strings.Contains(res.Summary, "external_observation_policy=exclude") {
+		t.Fatalf("summary should report repaired policy mode, got %q", res.Summary)
 	}
 }
 
@@ -4457,7 +4581,7 @@ func TestEmitAnalysis_Execute_DropsInvalidExactTargetsForRuntimeArtifact(t *test
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
-	mu := types.NewMutableState("这段 HiTrace 里 GC span 的开始事件在附件 trace 的第几行？有没有超过 50ms 的 GC span？")
+	mu := types.NewMutableState("这段 HiTrace 里 GC span 的开始事件在附件 trace 的第几行？有没有超过 50ms 的 GC span？只分析 trace")
 	mu.SetPerfTrace(&types.PerfBundle{
 		Meta: types.PerfMeta{Source: "hitrace", Signals: []string{"gc-pause"}},
 		Observations: []types.PerfObservation{{
@@ -4499,6 +4623,11 @@ func TestEmitAnalysis_Execute_DropsInvalidExactTargetsForRuntimeArtifact(t *test
 			"historical_regression": false,
 			"current_version_check": false,
 			"confidence": 0.1
+		},
+		"external_observation_policy": {
+			"current_source_mode": "exclude",
+			"source_quotes": ["只分析 trace"],
+			"confidence": 0.9
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))
@@ -4518,7 +4647,7 @@ func TestEmitAnalysis_Execute_DefaultsRuntimeArtifactRoleLocateSubject(t *testin
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
-	mu := types.NewMutableState("这段日志里 WARN 在附件日志的第几行？")
+	mu := types.NewMutableState("这段日志里 WARN 在附件日志的第几行？只分析日志")
 	mu.SetLogTriage(&types.LogBundle{
 		Meta: types.LogMeta{Lang: "text", Signals: []types.LogSignal{types.SignalValidation}},
 		Observations: []types.LogObservation{{
@@ -4556,6 +4685,11 @@ func TestEmitAnalysis_Execute_DefaultsRuntimeArtifactRoleLocateSubject(t *testin
 			"historical_regression": false,
 			"current_version_check": false,
 			"confidence": 0.1
+		},
+		"external_observation_policy": {
+			"current_source_mode": "exclude",
+			"source_quotes": ["只分析日志"],
+			"confidence": 0.9
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withRequiredAnswerRoleProfile(payload)))

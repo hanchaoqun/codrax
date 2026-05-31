@@ -85,6 +85,7 @@ type emitAnalysisParams struct {
 	ErrorGranularityProfile      *emitErrorGranularityProfileParam      `json:"error_granularity_profile,omitempty"`
 	RequestedAnswerDimensions    *emitRequestedAnswerDimensionsParam    `json:"requested_answer_dimensions,omitempty"`
 	CurrentSourceExplanation     *emitCurrentSourceExplanationParam     `json:"current_source_explanation_profile,omitempty"`
+	ExternalObservationPolicy    *emitExternalObservationPolicyParam    `json:"external_observation_policy,omitempty"`
 	PredicateAxis                string                                 `json:"predicate_axis,omitempty"`
 	DiagramHint                  *emitDiagramHintParam                  `json:"diagram_hint,omitempty"`
 	EnumerationBoundary          *emitEnumerationBoundaryParam          `json:"enumeration_boundary,omitempty"`
@@ -254,6 +255,13 @@ type emitCurrentSourceExplanationParam struct {
 	TargetTerms                         []string `json:"target_terms,omitempty"`
 	Confidence                          *float64 `json:"confidence"`
 	Rationale                           string   `json:"rationale,omitempty"`
+}
+
+type emitExternalObservationPolicyParam struct {
+	CurrentSourceMode string   `json:"current_source_mode,omitempty"`
+	SourceQuotes      []string `json:"source_quotes,omitempty"`
+	Confidence        *float64 `json:"confidence"`
+	Rationale         string   `json:"rationale,omitempty"`
 }
 
 // emitAnswerSubjectParam is the wire shape of the optional
@@ -597,6 +605,17 @@ func buildEmitAnalysisSchema() {
 				},
 				"required": []string{"is_current_source_explanation_requested", "confidence"},
 			},
+			"external_observation_policy": map[string]any{
+				"type":        "object",
+				"description": "Optional typed source-scope policy for external observations such as logs, traces, MCP resources, connector rows, command output, web pages, or external documents. Omit it or set current_source_mode=default/allow unless the CURRENT request explicitly says not to use current checkout/source evidence. Exclusion is a typed policy only; do not infer it merely because an external artifact exists.",
+				"properties": map[string]any{
+					"current_source_mode": map[string]any{"type": "string", "enum": externalObservationCurrentSourceModeValues(), "description": "default/allow means analyze external observations together with current source. exclude means suppress current-source exploration only when the current request explicitly forbids source/current-checkout analysis."},
+					"source_quotes":       map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Verbatim current-request phrase(s) that justify exclude. Required for active exclusion; unanchored quotes are ignored."},
+					"confidence":          map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this source-scope policy in [0,1]."},
+					"rationale":           map[string]any{"type": "string", "description": "Short audit rationale."},
+				},
+				"required": []string{"current_source_mode", "confidence"},
+			},
 			"predicate_axis": map[string]any{
 				"type":        "string",
 				"enum":        skill.AnalysisPredicateAxisValues(),
@@ -820,6 +839,15 @@ func currentSourceExplanationModeValues() []string {
 	return out
 }
 
+func externalObservationCurrentSourceModeValues() []string {
+	values := types.AllExternalObservationCurrentSourceModes()
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, string(v))
+	}
+	return out
+}
+
 // Execute is the runtime quality gate. The JSON schema caught the
 // structural problems (wrong type, unknown enum, missing required
 // field); this method handles everything the schema cannot express:
@@ -863,6 +891,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		"answer_role_profile",
 		"error_granularity_profile",
 		"requested_answer_dimensions",
+		"external_observation_policy",
 		"diagram_hint",
 		"enumeration_boundary",
 		"completeness_obligation",
@@ -877,6 +906,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	if err := json.Unmarshal(params, &p); err != nil {
 		return failStrictDecodeWithError(t.Name(), time.Now(), err, nil)
 	}
+	raw := types.StripConversationPrefix(ctx.Mutable.Objective())
 
 	// Normalize enum fields first so validateAnalysisInput and the
 	// Summary operate on a single canonical view of the classification.
@@ -979,7 +1009,20 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		logging.Warning("[emit_analysis] %s", warning)
 		val.Warnings = append(val.Warnings, warning)
 	}
-	artifactOnlyRuntime := emitAnalysisObservationOnlyRuntimeArtifact(ctx)
+	externalObservationPolicy, externalObservationPolicyErr, externalObservationPolicyWarnings := parseExternalObservationPolicy(raw, p.ExternalObservationPolicy)
+	if externalObservationPolicyErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + externalObservationPolicyErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	for _, warning := range externalObservationPolicyWarnings {
+		logging.Warning("[emit_analysis] %s", warning)
+		val.Warnings = append(val.Warnings, warning)
+	}
+	artifactOnlyRuntime := emitAnalysisObservationOnlyRuntimeArtifact(ctx, externalObservationPolicy)
 	if normalizedIntent, normalizedScenario, warning := normalizeRuntimeArtifactScalarIntent(artifactOnlyRuntime, intent, scenario, kind, predicates); warning != "" {
 		intent = normalizedIntent
 		scenario = normalizedScenario
@@ -1048,7 +1091,6 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// the explorer's retry-directive hints with tokens unrelated to
 	// the current question. In single-shot mode the strip is a
 	// no-op (no marker present).
-	raw := types.StripConversationPrefix(ctx.Mutable.Objective())
 	if types.IsREPLControlInput(raw) {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -1317,6 +1359,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		ErrorGranularityProfile:         errorGranularityProfile,
 		RequestedAnswerDimensions:       requestedAnswerDimensions,
 		CurrentSourceExplanationProfile: currentSourceExplanation,
+		ExternalObservationPolicy:       externalObservationPolicy,
 		PredicateAxis:                   axis,
 		DiagramHint:                     diagramHint,
 		EnumerationBoundary:             enumerationBoundary,
@@ -2610,10 +2653,79 @@ func parseCurrentSourceExplanationProfile(raw string, p *emitCurrentSourceExplan
 	return profile, "", warnings
 }
 
+func parseExternalObservationPolicy(raw string, p *emitExternalObservationPolicyParam) (*types.ExternalObservationPolicy, string, []string) {
+	if p == nil {
+		return nil, "", nil
+	}
+	var warnings []string
+	if p.Confidence == nil {
+		warnings = append(warnings, "external_observation_policy confidence missing; defaulted to 0.5")
+	}
+	confidence := 0.5
+	if p.Confidence != nil {
+		confidence = *p.Confidence
+		if confidence < 0 || confidence > 1 {
+			warnings = append(warnings, fmt.Sprintf("external_observation_policy confidence %.2f out of [0,1]; clamped", confidence))
+		}
+	}
+	if confidence < 0 {
+		confidence = 0
+	} else if confidence > 1 {
+		confidence = 1
+	}
+	mode := types.NormalizeExternalObservationCurrentSourceMode(p.CurrentSourceMode)
+	var quotes []string
+	for _, quote := range p.SourceQuotes {
+		trimmed := strings.TrimSpace(quote)
+		if trimmed == "" {
+			continue
+		}
+		if sourceQuoteAnchoredInCurrentRequest(raw, trimmed) {
+			quotes = append(quotes, trimmed)
+			continue
+		}
+		warnings = append(warnings, "external_observation_policy.source_quotes entry ignored because it is not copied from the current request")
+	}
+	if mode == types.ExternalObservationCurrentSourceExclude && len(quotes) == 0 {
+		warnings = append(warnings, "external_observation_policy exclude ignored because no source_quote survived current-request provenance validation")
+		mode = types.ExternalObservationCurrentSourceDefault
+	}
+	if mode == types.ExternalObservationCurrentSourceDefault && len(quotes) == 0 && strings.TrimSpace(p.Rationale) == "" {
+		return nil, "", warnings
+	}
+	return &types.ExternalObservationPolicy{
+		CurrentSourceMode: mode,
+		SourceQuotes:      dedupeTrimmedStrings(quotes),
+		Confidence:        confidence,
+		Rationale:         strings.TrimSpace(p.Rationale),
+	}, "", warnings
+}
+
 func sourceQuotePresentInCurrentRequest(raw, quote string) bool {
 	raw = strings.TrimSpace(raw)
 	quote = strings.TrimSpace(quote)
 	return raw != "" && quote != "" && strings.Contains(raw, quote)
+}
+
+func dedupeTrimmedStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
 }
 
 func sourceQuoteAnchoredInCurrentRequest(raw, quote string) bool {
@@ -2836,13 +2948,16 @@ func sourceInventoryRequested(p *emitSourceInventoryProfileParam) bool {
 	return p != nil && p.IsSourceInventory != nil && *p.IsSourceInventory
 }
 
-func emitAnalysisObservationOnlyRuntimeArtifact(ctx *types.BusContext) bool {
+func emitAnalysisObservationOnlyRuntimeArtifact(ctx *types.BusContext, policy *types.ExternalObservationPolicy) bool {
 	if ctx == nil {
 		return false
 	}
 	rm := types.RequestModel{}
 	if ctx.AnalysisIR != nil {
 		rm = ctx.AnalysisIR.RequestModel
+	}
+	if policy != nil {
+		rm.ExternalObservationPolicy = policy
 	}
 	if ctx.Mutable != nil {
 		if bundle := ctx.Mutable.LogTriage(); bundle != nil {
@@ -3373,6 +3488,9 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
 		fmt.Fprintf(&b, " current_source_explanation=%d", len(rm.CurrentSourceExplanationProfile.Modes))
+	}
+	if rm.ExternalObservationPolicy != nil {
+		fmt.Fprintf(&b, " external_observation_policy=%s", rm.ExternalObservationPolicy.CurrentSourceMode)
 	}
 
 	// Normalization delta — only fields where raw ≠ canonical get

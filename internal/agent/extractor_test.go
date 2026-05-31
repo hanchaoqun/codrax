@@ -2014,6 +2014,11 @@ func TestExtractor_ParseOutput_SkipsAutoVerdictsForObservationOnlyRuntimeArtifac
 				Intent:    types.IntentRootCause,
 				Scenario:  types.ScenarioRootCause,
 				LogTriage: logBundle,
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					SourceQuotes:      []string{"只分析日志"},
+					Confidence:        0.9,
+				},
 			},
 			HypothesisSet: []types.Hypothesis{{
 				ID:                     "h1",
@@ -2261,6 +2266,11 @@ func TestExtractor_Observe_RuntimeArtifactOnly_DoesNotRequireHypothesisVerdict(t
 			Summary:    "WARN appears on attached log line 3",
 			Confidence: 1,
 		}},
+	}
+	ctx.AnalysisIR.RequestModel.ExternalObservationPolicy = &types.ExternalObservationPolicy{
+		CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+		SourceQuotes:      []string{"只分析日志"},
+		Confidence:        0.9,
 	}
 	e := &extractorEvaluator{}
 	sig := e.Observe(ctx, obs)

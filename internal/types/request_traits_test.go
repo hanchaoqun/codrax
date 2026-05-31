@@ -85,7 +85,7 @@ func TestHasAttributeBearingEnumeration_TypedOnly(t *testing.T) {
 	}
 }
 
-func TestHasObservationOnlyRuntimeArtifact_RequiredFilesOpenCurrentSourceLane(t *testing.T) {
+func TestHasObservationOnlyRuntimeArtifact_DefaultKeepsCurrentSourceLane(t *testing.T) {
 	rm := RequestModel{
 		Intent:   IntentExplain,
 		Scenario: ScenarioArchitectureExplain,
@@ -101,12 +101,21 @@ func TestHasObservationOnlyRuntimeArtifact_RequiredFilesOpenCurrentSourceLane(t 
 		},
 	}
 	if rm.HasObservationOnlyRuntimeArtifact() {
-		t.Fatal("external runtime artifact with typed required files must keep the current-source explanation lane open")
+		t.Fatal("external runtime artifact must not become observation-only by default")
 	}
 
 	rm.AnalyzerHints.RequiredFileHints = nil
+	if rm.HasObservationOnlyRuntimeArtifact() {
+		t.Fatal("external runtime artifact without source anchors still defaults to mixed external/source analysis")
+	}
+
+	rm.ExternalObservationPolicy = &ExternalObservationPolicy{
+		CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+		SourceQuotes:      []string{"只分析日志"},
+		Confidence:        0.9,
+	}
 	if !rm.HasObservationOnlyRuntimeArtifact() {
-		t.Fatal("external runtime artifact without a typed current-source anchor should remain observation-only")
+		t.Fatal("anchored typed source exclusion should mark runtime artifact observation-only")
 	}
 }
 
@@ -133,8 +142,8 @@ func TestHasObservationOnlyRuntimeArtifact_CurrentKeyCodeDimensionOpensCurrentSo
 	}
 
 	rm.RequestedAnswerDimensions.Dimensions[0].Role = RequestedAnswerDimensionImpact
-	if !rm.HasObservationOnlyRuntimeArtifact() {
-		t.Fatal("non-current-source presentation dimensions must not open repo reads for external-only runtime artifacts")
+	if rm.HasObservationOnlyRuntimeArtifact() {
+		t.Fatal("non-current-source presentation dimensions do not suppress default current-source analysis")
 	}
 }
 
@@ -157,8 +166,8 @@ func TestHasObservationOnlyRuntimeArtifact_CurrentSourceExplanationProfileOpensL
 	}
 
 	rm.CurrentSourceExplanationProfile.SourceQuotes = nil
-	if !rm.HasObservationOnlyRuntimeArtifact() {
-		t.Fatal("inactive current-source explanation profile must not open current-source lane")
+	if rm.HasObservationOnlyRuntimeArtifact() {
+		t.Fatal("inactive current-source explanation profile must not suppress default current-source lane")
 	}
 }
 

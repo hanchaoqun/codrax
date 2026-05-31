@@ -284,7 +284,7 @@ func reconcileExternalOnlyRuntimeDiagnosticProfile(rm types.RequestModel) (types
 	rm.DiagnosticProfile.CurrentRisk = false
 	rm.DiagnosticProfile.CurrentVersionCheck = false
 	rm.DiagnosticProfile.HistoricalRegression = false
-	return rm, "external-only runtime artifact has no resolved frame, exact target, or required file for current-checkout verification; keep the request observation-only instead of opening current-repo verification"
+	return rm, "external runtime artifact has no resolved frame, exact target, or required file for current-status verification; clear current-status diagnostic flags, while the default current-source lane remains governed by external_observation_policy"
 }
 
 // reconcileIntent is preserved as a thin sanity check. Count predicates used to

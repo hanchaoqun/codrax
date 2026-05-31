@@ -18,6 +18,7 @@ const (
 )
 
 var emitEvidenceAcceptedRe = regexp.MustCompile(`^emit_evidence accepted ([0-9]+) item`)
+var emitEvidenceExternalObservationSkippedRe = regexp.MustCompile(`^emit_evidence accepted 0 source evidence item\(s\); skipped ([0-9]+) external observation item`)
 
 type renderedEvidenceItem struct {
 	Anchor   string
@@ -53,6 +54,8 @@ func formatMCPToolResultSummary(toolName, resultSummary, lang string) string {
 	resource := fields["resource"]
 	lines := fields["lines"]
 	payload := fields["payload_ref"]
+	rowset := fields["rowset_ref"]
+	repeated := strings.EqualFold(fields["repeated"], "true")
 	zh := isZh(lang)
 	var body string
 	if obs != "" {
@@ -65,6 +68,13 @@ func formatMCPToolResultSummary(toolName, resultSummary, lang string) string {
 		body = "MCP 调用已返回"
 	} else {
 		body = "MCP call returned"
+	}
+	if repeated {
+		if zh {
+			body += "（与前次相同）"
+		} else {
+			body += " (same as previous)"
+		}
 	}
 	var parts []string
 	if resource != "" {
@@ -83,6 +93,9 @@ func formatMCPToolResultSummary(toolName, resultSummary, lang string) string {
 	}
 	if payload != "" {
 		parts = append(parts, "blob "+truncByDisplayWidth(payload, 44))
+	}
+	if rowset != "" {
+		parts = append(parts, "rows "+truncByDisplayWidth(rowset, 44))
 	}
 	if len(parts) > 0 {
 		body += "，" + strings.Join(parts, "，")
@@ -651,6 +664,9 @@ func formatEvidenceToolResultSummary(toolName, summary, lang string, evidenceTot
 	if strings.TrimSpace(toolName) != "emit_evidence" {
 		return ""
 	}
+	if block := formatEvidenceExternalObservationSkipSummary(summary, lang); block != "" {
+		return block
+	}
 	count, items := parseEmitEvidenceSummary(summary)
 	if count == 0 && len(items) == 0 {
 		return ""
@@ -692,6 +708,32 @@ func formatEvidenceToolResultSummary(toolName, summary, lang string, evidenceTot
 		} else {
 			lines = append(lines, statusMeta.Sprint(fmt.Sprintf("    … %d more", more)))
 		}
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+func formatEvidenceExternalObservationSkipSummary(summary, lang string) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return ""
+	}
+	firstLine := summary
+	if idx := strings.Index(firstLine, "\n"); idx >= 0 {
+		firstLine = firstLine[:idx]
+	}
+	m := emitEvidenceExternalObservationSkippedRe.FindStringSubmatch(strings.TrimSpace(firstLine))
+	if m == nil {
+		return ""
+	}
+	count := strings.TrimSpace(m[1])
+	zh := isZh(lang)
+	var lines []string
+	if zh {
+		lines = append(lines, "  "+statusMeta.Sprint("•")+" "+statusMeta.Sprint(fmt.Sprintf("外部观测 %s 条（未作为源码证据记录）", count)))
+		lines = append(lines, statusReasoningBody.Sprint("    来自 MCP/外部 URI；系统未将其当作当前源码引用，需通过调查结论和 aggregate_facts 承接。"))
+	} else {
+		lines = append(lines, "  "+statusMeta.Sprint("•")+" "+statusMeta.Sprint(fmt.Sprintf("%s external observation item(s) were not added to the source-evidence pool", count)))
+		lines = append(lines, statusReasoningBody.Sprint("    These rows came from MCP/external URIs; the system did not treat them as current-source citations, so carry them through investigation findings and aggregate_facts."))
 	}
 	return strings.Join(lines, "\n") + "\n"
 }

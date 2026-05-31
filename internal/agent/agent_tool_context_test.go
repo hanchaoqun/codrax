@@ -238,6 +238,44 @@ func TestBuildToolSchemas_ExposesMCPOnlyToExplorerFamily(t *testing.T) {
 	}
 }
 
+func TestValidateExternalObservationOnlyToolCall_DoesNotBlockMCPResourceSourceTools(t *testing.T) {
+	ctx := &types.AgentContext{
+		Stage: types.StageExplore,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RawRequest: "请使用 MCP fixture 工具查询 mcp://fixture/trace/sleep-wakeup 的 line 7 和 line 12",
+		}},
+	}
+	if got := validateExternalObservationOnlyToolCall(ctx, llm.ToolCall{Name: "read_file", Params: json.RawMessage(`{"path":"internal/tracequery/types.go"}`)}); got != nil {
+		t.Fatalf("MCP resource references must not hard-block current-source tools by default: %+v", got)
+	}
+}
+
+func TestExecuteTool_AllowsRepoToolsForMixedMCPSourceQuestion(t *testing.T) {
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{}, nil)
+	ctx := &types.AgentContext{
+		Stage: types.StageExplore,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RawRequest: "请使用 MCP fixture 工具查询 mcp://fixture/trace/sleep-wakeup，并结合源码解释实现",
+			CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+				IsCurrentSourceExplanationRequested: true,
+				Modes: []types.CurrentSourceExplanationMode{
+					types.CurrentSourceExplanationExplainCurrentMechanism,
+				},
+				Confidence:   0.9,
+				SourceQuotes: []string{"结合源码"},
+			},
+		}},
+	}
+	res, _ := base.executeTool(ctx, llm.ToolCall{
+		ID:     "mixed-read-file",
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"internal/tracequery/types.go"}`),
+	})
+	if res != nil && res.Repair != nil && strings.Contains(res.Repair.Code, "observation_only") {
+		t.Fatalf("MCP+source question must not use observation-only rejection: %+v", res)
+	}
+}
+
 func TestMCPReadResourceToolReturnsMCPResponse(t *testing.T) {
 	mcpReg := mcp.NewRegistry()
 	capture := &captureMCPServer{

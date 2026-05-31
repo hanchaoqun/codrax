@@ -59,6 +59,11 @@ func TestNormalizeRuntimeArtifactCitationRefs_ObservationOnlyDropsCitationPool(t
 				DiagnosticProfile: types.DiagnosticIntentProfile{
 					IsDiagnostic: true,
 				},
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					SourceQuotes:      []string{"只分析日志"},
+					Confidence:        0.9,
+				},
 			},
 		},
 	}
@@ -194,6 +199,11 @@ func TestNormalizeRuntimeArtifactVisibleCitationSentinels_SanitizesOnlyTypedObse
 			LogTriage: mut.LogTriage(),
 			DiagnosticProfile: types.DiagnosticIntentProfile{
 				IsDiagnostic: true,
+			},
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+				SourceQuotes:      []string{"只分析日志"},
+				Confidence:        0.9,
 			},
 		}},
 	}

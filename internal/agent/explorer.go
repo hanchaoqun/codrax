@@ -556,11 +556,6 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	// flag is true.
 	e.investigationComplete = false
 
-	if observationOnlyRuntimeArtifactForExplorer(ctx) {
-		e.phase = 1
-		return e.buildRuntimeObservationOnlyStartInstruction(ctx)
-	}
-
 	if explorerDurableProgressContinuationActive(ctx) {
 		e.phase = 1
 		return e.buildDurableProgressContinuationInstruction(ctx)
@@ -634,6 +629,11 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	if explicitRuntimeTraceArtifactOnlyRequest(ctx) {
 		e.phase = 1
 		return e.buildExplicitRuntimeTracePathStartInstruction(ctx)
+	}
+
+	if observationOnlyRuntimeArtifactForExplorer(ctx) {
+		e.phase = 1
+		return e.buildRuntimeObservationOnlyStartInstruction(ctx)
 	}
 
 	e.phase = 0 // start in breadth-scan phase
@@ -11477,14 +11477,6 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	if candidateUniverseGap.Blocking {
 		readiness.HasEnough = false
 	}
-	mcpTypedObservationCount := countSuccessfulMCPTypedObservations(mcpResponses)
-	mcpObservationOnly := mcpObservationOnlyRequest(ctx)
-	if mcpObservationOnly && mcpTypedObservationCount > 0 && !missingStructuredMemberSet && !candidateUniverseGap.Blocking {
-		if !readiness.HasEnough {
-			logging.Debug("[explorer] HasEnoughFacts promoted by line-backed MCP observations (typed=%d)", mcpTypedObservationCount)
-		}
-		readiness.HasEnough = true
-	}
 	if ctx != nil && ctx.Mutable != nil && ctx.Mutable.IsInvestigationComplete() && !readiness.HasEnough && !missingStructuredMemberSet && !candidateUniverseGap.Blocking {
 		logging.Debug("[explorer] HasEnoughFacts promoted by emit_investigation_complete (heuristic was: toolDiv=%v fileCov=%v evQual=%v)",
 			readiness.ToolDiversity, readiness.FileCoverage, readiness.EvidenceQuality)
@@ -11686,6 +11678,25 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		readFilesList = append(readFilesList, f)
 	}
 	stopParseSection = startExplorerParseSectionWatchdog(ctx, "stage_report")
+	var (
+		requestModel   *types.RequestModel
+		answerContract *types.AnswerContract
+	)
+	if ctx != nil && ctx.AnalysisIR != nil {
+		requestModel = &ctx.AnalysisIR.RequestModel
+		answerContract = &ctx.AnalysisIR.AnswerContract
+	}
+	observationLedger := types.CompileObservationLedger(types.ObservationLedgerInput{
+		MCPResponses:   mcpResponses,
+		RequestModel:   requestModel,
+		AnswerContract: answerContract,
+	})
+	stageObservations := types.PrioritizeObservationRecords(
+		observationLedger.Records,
+		requestModel,
+		answerContract,
+		16,
+	)
 	canonicalReport := renderExplorerStageReport(
 		irQuestionKind(ctx),
 		irQuestionFamily(ctx),
@@ -11696,6 +11707,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		rankedFindings,
 		readFilesList,
 		e.isEnumerationQuery,
+		stageObservations...,
 	)
 	stopParseSection()
 	if err := explorerParseContextErr(ctx, "stage_report"); err != nil {
@@ -11725,7 +11737,6 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		runtimeObservationOnlyCompletion := observationOnlyRuntimeArtifactForExplorer(ctx) &&
 			strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason()) != "" &&
 			strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()) != ""
-		mcpObservationOnlyCompletion := mcpObservationOnly && mcpTypedObservationCount > 0
 		snapshot := types.TurnAArtifacts{
 			UserQuestion:                     e.userQuestion,
 			InvestigationNotes:               e.investigationNotes,
@@ -11736,7 +11747,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			AcceptedResultKind:               strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()),
 			AcceptedAggregateFacts:           ctx.Mutable.StableInvestigationAggregateFacts(),
 			SourceInventoryAdvisory:          ctx.Mutable.SourceInventoryAdvisory(),
-			RuntimeObservationOnlyCompletion: runtimeObservationOnlyCompletion || mcpObservationOnlyCompletion,
+			RuntimeObservationOnlyCompletion: runtimeObservationOnlyCompletion,
 			EvidenceItems:                    handoffEvidence,
 			FlowFindings:                     rankedFindings,
 			TerminalEvidenceCount:            terminalEvidenceCount,
@@ -11770,9 +11781,6 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		} else if gap := candidateUniverseGap; gap.IsActive() {
 			hintKey = "explorer.retry.scoped-candidate-universe"
 			out.RetryHint = fmt.Sprintf("Previous attempt has an exact source-inventory candidate universe: %s. Reuse that scoped checklist instead of broad discovered-file coverage; verify missing or intentionally excluded candidates, then close with a structured aggregate_facts.member_set.", gap.Summary(tool.SourceInventoryCandidateUniverseSummaryLimit))
-		} else if mcpObservationOnly && mcpTypedObservationCount > 0 {
-			hintKey = "explorer.retry.mcp-observation"
-			out.RetryHint = fmt.Sprintf("Previous attempt collected %d line/row-backed MCP observation(s). Treat them as external MCP resource evidence, not current-source citations. If they answer the requested MCP/resource question, close from those observations; do not add grep/read_file solely to satisfy source-tool diversity.", mcpTypedObservationCount)
 		} else if !readiness.ToolDiversity {
 			hintKey = "explorer.retry.tool-diversity"
 			out.RetryHint = "Previous attempt used fewer than 2 distinct evidence tool types. Use both grep and read_file."
@@ -11815,78 +11823,6 @@ func (e *explorerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, outpu
 		return types.MissingNone
 	}
 	return types.MissingFacts
-}
-
-func countSuccessfulMCPTypedObservations(responses []types.MCPResponse) int {
-	total := 0
-	for _, resp := range responses {
-		if !resp.Success {
-			continue
-		}
-		if len(resp.Observations) > 0 {
-			total += len(resp.Observations)
-			continue
-		}
-		if resp.ResourceURI != "" || resp.LineStart > 0 || resp.Row > 0 || resp.JSONPointer != "" || resp.Selector != "" {
-			total++
-		}
-	}
-	return total
-}
-
-func mcpObservationOnlyRequest(ctx *types.AgentContext) bool {
-	raw := runtimeTraceRequestText(ctx)
-	if strings.TrimSpace(raw) == "" {
-		return false
-	}
-	if !requestMentionsMCP(raw) {
-		return false
-	}
-	if requestExplicitlyRejectsCurrentSourceLane(raw) {
-		return true
-	}
-	return !requestMentionsCurrentSourceLane(raw)
-}
-
-func requestMentionsMCP(raw string) bool {
-	raw = strings.ToLower(strings.TrimSpace(raw))
-	if raw == "" {
-		return false
-	}
-	if raw == "mcp" {
-		return true
-	}
-	for _, cue := range []string{"mcp://", " mcp ", "mcp ", " mcp", "mcp资源", "mcp 工具", "mcp tool", "mcp resource"} {
-		if strings.Contains(raw, cue) {
-			return true
-		}
-	}
-	return false
-}
-
-func requestExplicitlyRejectsCurrentSourceLane(raw string) bool {
-	raw = strings.ToLower(strings.TrimSpace(raw))
-	if raw == "" {
-		return false
-	}
-	for _, cue := range []string{
-		"不要把 mcp 行号当成当前源码引用",
-		"不要将 mcp 行号当成当前源码引用",
-		"不要把 mcp 行号当作当前源码引用",
-		"不要将 mcp 行号当作当前源码引用",
-		"不要把 mcp 行号当成源码引用",
-		"不要将 mcp 行号当成源码引用",
-		"mcp 行号不是当前源码",
-		"mcp line numbers are not current source",
-		"do not treat mcp line numbers as current source",
-		"not current-source citations",
-		"not source-code citations",
-	} {
-		if strings.Contains(raw, cue) {
-			return true
-		}
-	}
-	return false
 }
 
 func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, toolResults []types.ToolResult) {

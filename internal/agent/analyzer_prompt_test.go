@@ -263,10 +263,20 @@ func TestAnalyzerPrompt_DynamicContentInjectedViaBuilder(t *testing.T) {
 // spending a round searching the repository for files that cannot
 // exist there.
 func TestAnalyzerPrompt_RuntimeObservationOnlyShortcut(t *testing.T) {
+	mut := types.NewMutableState("分析这个外部 panic 日志说明了什么，只分析日志")
+	mut.SetRequestModel(types.RequestModel{
+		LogTriage: &types.LogBundle{Errors: []types.LogError{{Type: "panic"}}},
+		ExternalObservationPolicy: &types.ExternalObservationPolicy{
+			CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+			SourceQuotes:      []string{"只分析日志"},
+			Confidence:        0.9,
+		},
+	})
 	ac := &types.AgentContext{
 		AgentName: types.AgentAnalyzer,
 		Stage:     types.StageAnalyze,
-		Objective: "分析这个外部 panic 日志说明了什么",
+		Objective: "分析这个外部 panic 日志说明了什么，只分析日志",
+		Mutable:   mut,
 		LogTriage: &types.LogBundle{
 			Errors: []types.LogError{{Type: "panic"}},
 			// ResolvedFiles intentionally empty: external runtime artifact.
@@ -279,7 +289,7 @@ func TestAnalyzerPrompt_RuntimeObservationOnlyShortcut(t *testing.T) {
 		"Runtime Artifact Classification Shortcut",
 		"external to the current checkout",
 		"Do not run repo pre-scan just to classify stack-frame or trace literals",
-		"keep a separate current-source lane",
+		"default mixed external-observation plus current-source lane",
 		"required_files / exact_targets",
 		"mechanism explanations backed by current code",
 		"Do not collapse a mixed artifact + current-code request into observation-only",
@@ -299,7 +309,7 @@ func TestAnalyzerPrompt_RuntimeObservationOnlyShortcut(t *testing.T) {
 	}
 }
 
-func TestAnalyzerPrompt_ExplicitTracePathShortcutSkipsRepoPrescan(t *testing.T) {
+func TestAnalyzerPrompt_ExplicitTracePathDoesNotSuppressSourceByDefault(t *testing.T) {
 	ac := &types.AgentContext{
 		AgentName: types.AgentAnalyzer,
 		Stage:     types.StageAnalyze,
@@ -309,18 +319,9 @@ func TestAnalyzerPrompt_ExplicitTracePathShortcutSkipsRepoPrescan(t *testing.T) 
 	sk := skill.BuildAnalysisSkill()
 
 	got := (&analyzerEvaluator{}).BuildInitialInstruction(ac, sk)
-	for _, want := range []string{
-		"Explicit Runtime Trace Classification Shortcut",
-		"Do not run repo pre-scan",
-		"later exploration can use `trace_query`",
-		"call `emit_analysis` now",
-	} {
-		if !strings.Contains(got, want) {
-			t.Fatalf("explicit trace shortcut missing %q in:\n%s", want, got)
-		}
-	}
-	if strings.Contains(got, "Repository overview") {
-		t.Fatalf("explicit trace shortcut must not pre-inject repo overview; got:\n%s", got)
+	if strings.Contains(got, "Explicit Runtime Trace Classification Shortcut") ||
+		explicitRuntimeTraceArtifactOnlyRequest(ac) {
+		t.Fatalf("explicit trace path must not suppress source analysis without typed exclusion:\n%s", got)
 	}
 }
 
@@ -597,8 +598,9 @@ func TestAnalysisSkill_PromptDocumentsExternalRuntimeDirectClassification(t *tes
 		"external-source log / trace",
 		"resolved_files=0",
 		"do NOT run a source-code pre-scan",
-		"diagnostic_profile.current_version_check=false",
-		"later evidence gathering can verify",
+		"External observations default to mixed external + current-source analysis",
+		"external_observation_policy.current_source_mode=exclude",
+		"keep the default current-source lane available",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("analysis-skill prompt must teach direct external-runtime classification; missing %q in:\n%s", want, rendered)

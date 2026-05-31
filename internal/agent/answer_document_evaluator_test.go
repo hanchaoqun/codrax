@@ -4276,6 +4276,11 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeGrounding
 				Scenario:  types.ScenarioRootCause,
 				Intent:    types.IntentRootCause,
 				LogTriage: mut.LogTriage(),
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					SourceQuotes:      []string{"只分析日志"},
+					Confidence:        0.9,
+				},
 			},
 			AnswerContract: types.AnswerContract{},
 		},
@@ -4321,6 +4326,11 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRuntimeClosureRe
 				Scenario:  types.ScenarioRootCause,
 				Intent:    types.IntentRootCause,
 				LogTriage: mut.LogTriage(),
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					SourceQuotes:      []string{"只分析日志"},
+					Confidence:        0.9,
+				},
 			},
 			AnswerContract: types.AnswerContract{},
 		},
@@ -4361,6 +4371,11 @@ func TestAnswerDocumentFallbackEvidenceRows_RuntimeObservationOnlySkipsCurrentRe
 				Scenario:  types.ScenarioRootCause,
 				Intent:    types.IntentRootCause,
 				LogTriage: mut.LogTriage(),
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					SourceQuotes:      []string{"只分析日志"},
+					Confidence:        0.9,
+				},
 			},
 		},
 		EvidenceItems: []types.EvidenceItem{{
@@ -4473,6 +4488,11 @@ func TestAnswerDocumentEvaluator_RuntimeObservationOnlySuppressesRepoEnrichment(
 				LogTriage: mut.LogTriage(),
 				DiagnosticProfile: types.DiagnosticIntentProfile{
 					IsDiagnostic: true,
+				},
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					SourceQuotes:      []string{"只分析日志"},
+					Confidence:        0.9,
 				},
 			},
 			AnswerContract: types.AnswerContract{},

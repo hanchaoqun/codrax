@@ -169,21 +169,19 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 
 func renderAnalyzerExplicitRuntimeTracePathShortcut() string {
 	return "## Explicit Runtime Trace Classification Shortcut\n\n" +
-		"The current request names a runtime trace artifact path (for example .systrace / .hitrace / .atrace / .ftrace / .perfetto / .trace) and asks what that artifact shows. " +
+		"The current request names a runtime trace artifact path (for example .systrace / .hitrace / .atrace / .ftrace / .perfetto / .trace) and explicitly excludes current checkout/source analysis through the typed external_observation_policy. " +
 		"Do not run repo pre-scan (`repo_map`, `grep`, or `list_files`) just to classify the trace path, thread label, timestamp, wakeup chain, sleep/runnable/D-state, CPU frequency, IRQ, binder, or IO terms. " +
 		"Classify from the user's wording and call `emit_analysis` now; later exploration can use `trace_query` for deterministic trace evidence. " +
-		"If the current request explicitly asks to compare the artifact with the current checkout/source, verify current implementation, or locate current code, keep the normal current-source lane and use repo pre-scan as needed. " +
-		"Do not collapse a mixed trace + current-code request into artifact-only.\n\n"
+		"Without that typed exclusion, the default is mixed runtime-artifact plus current-source analysis. Do not collapse mixed trace + current-code requests into artifact-only.\n\n"
 }
 
 func renderAnalyzerRuntimeObservationOnlyShortcut() string {
 	return "## Runtime Artifact Classification Shortcut\n\n" +
-		"The structured Log/Trace Triage for this dispatch is external to the current checkout (`resolved_files=0`). " +
-		"Do not run repo pre-scan just to classify stack-frame or trace literals from the artifact; classify from the current request plus the structured runtime artifact facts and call `emit_analysis` now when the request only asks what the artifact shows. " +
-		"If the current request explicitly asks to explain, distinguish, trace, or verify the artifact against the current checkout, keep a separate current-source lane: use the normal analyzer pre-scan tools for request terms (files-only grep / repo_map / list_files), then express that requirement through structured required_files / exact_targets when concrete files or targets are found. " +
+		"The structured Log/Trace Triage for this dispatch is external to the current checkout (`resolved_files=0`) and the typed external_observation_policy explicitly excludes current checkout/source analysis. " +
+		"Do not run repo pre-scan just to classify stack-frame or trace literals from the artifact; classify from the current request plus the structured runtime artifact facts and call `emit_analysis` now. " +
+		"Without that typed exclusion, keep the default mixed external-observation plus current-source lane: use the normal analyzer pre-scan tools for request terms (files-only grep / repo_map / list_files), then express useful source leads through structured required_files / exact_targets when concrete files or targets are found. " +
 		"Use diagnostic_profile.current_version_check only for current-status / still-present / fixed-style diagnostics; for mechanism explanations backed by current code, required_files or exact_targets are the current-source anchor and current_version_check can remain false. " +
-		"Do not collapse a mixed artifact + current-code request into observation-only just because resolved_files=0; only the artifact frame literals are external. " +
-		"Keep `diagnostic_profile.current_version_check=false` only when the request asks what the artifact shows and does not request current-checkout verification.\n\n"
+		"Do not collapse a mixed artifact + current-code request into observation-only just because resolved_files=0; only the artifact frame literals are external.\n\n"
 }
 
 // prependAnswerPitfalls renders the read-mode Answer Taxonomy
@@ -2351,11 +2349,10 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// "统计 …") produces a scalar answer from a tool query
 	// (find | wc -l, list_files count, grep count) with no file:line
 	// to cite. A repository-history lookup answers from VCS metadata,
-	// not source lines. An external-only runtime artifact (log/trace
-	// decoded successfully but no frame resolved to this checkout)
-	// is answer-grade as an observation, but its facts must be
-	// rendered through external-observation carriers rather than
-	// by hunting for unrelated current-repo fixtures.
+	// not source lines. A typed observation-only runtime artifact
+	// explicitly excludes current checkout evidence, so its facts must
+	// be rendered through external-observation carriers rather than by
+	// hunting for unrelated current-repo fixtures.
 	//
 	// The isMeasurementScalar signal (computed by
 	// isMeasurementScalarRequest in analyzer_intent.go) is a 0-error
@@ -2382,9 +2379,10 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	//
 	// The measurement-scalar / history-lookup carve-out is signalled
 	// downstream via Predicates.IsScalarAnswer (read by builder.go's
-	// citation-free Raw Tool Outputs gate). External-only runtime
+	// citation-free Raw Tool Outputs gate). Observation-only runtime
 	// artifact disposition is signalled via RequestModel.LogTriage /
-	// PerfTrace and AnswerSurfacePlan.RuntimeGroundingDisposition.
+	// PerfTrace plus ExternalObservationPolicy and
+	// AnswerSurfacePlan.RuntimeGroundingDisposition.
 	// No answer-body synthesis happens here: this only removes
 	// structurally impossible citation floors.
 	if isMeasurementScalar || isHistoryLookup || rm.HasObservationOnlyRuntimeArtifact() {

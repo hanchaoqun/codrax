@@ -1800,6 +1800,11 @@ func TestExplorerObservationOnlyRuntimeSkipsRepoKeywordSearch(t *testing.T) {
 				Intent:    types.IntentRootCause,
 				Scenario:  types.ScenarioRootCause,
 				LogTriage: logBundle,
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					SourceQuotes:      []string{"只分析日志"},
+					Confidence:        0.9,
+				},
 				DiagnosticProfile: types.DiagnosticIntentProfile{
 					IsDiagnostic: true,
 				},

@@ -488,6 +488,11 @@ func TestCompileFacetCoverage_ExternalOnlyRuntimeDoesNotPromoteCurrentCodePath(t
 			}}}},
 			ResolvedFiles: nil,
 		},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+			SourceQuotes:      []string{"只分析日志"},
+			Confidence:        0.9,
+		},
 	}
 	surface := []EvidenceItem{
 		{ID: "repo-helper", Source: "internal/analysis/logtriage/resolver_harmonyos.go", LineStart: 27, AnchorKind: AnchorDefinition},
@@ -531,6 +536,11 @@ func TestCompileFacetCoverage_LogObservationOnlyDoesNotPromoteCurrentCodePath(t 
 				Confidence: 1,
 			}},
 			ResolvedFiles: nil,
+		},
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+			SourceQuotes:      []string{"只分析日志"},
+			Confidence:        0.9,
 		},
 	}
 	plan := CompileFacetCoverage(rm, nil)

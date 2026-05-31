@@ -179,18 +179,9 @@ func observationOnlyRuntimeArtifactForAnalyzer(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.Stage != types.StageAnalyze {
 		return false
 	}
-	if ctx.LogTriage != nil && ctx.LogTriage.IsExternalSource() {
-		return true
-	}
-	if ctx.PerfTrace != nil && ctx.PerfTrace.IsExternalSource() {
-		return true
-	}
 	if ctx.Mutable != nil {
-		if log := ctx.Mutable.LogTriage(); log != nil && log.IsExternalSource() {
-			return true
-		}
-		if perf := ctx.Mutable.PerfTrace(); perf != nil && perf.IsExternalSource() {
-			return true
+		if rm := ctx.Mutable.RequestModel(); rm != nil {
+			return rm.HasObservationOnlyRuntimeArtifact()
 		}
 	}
 	return false

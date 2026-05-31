@@ -130,6 +130,20 @@ func CompileExploreLanePlan(rm RequestModel, answerContract *AnswerContract, pre
 			Coupling: investigation.Coupling,
 		}}
 	}
+	mcpUnits := units
+	if len(units) > 1 {
+		// MCP resource/tool calls are structured external observations. When a
+		// request has multiple sub-topics, current-source lanes may still need
+		// per-topic ownership, but the same MCP resource should not be re-read
+		// once per topic. Collapse only the MCP origin; all other origins keep
+		// their ordinary unit fanout.
+		mcpUnits = []InvestigationUnit{{
+			ID:       "request",
+			Index:    1,
+			Role:     InvestigationRolePrincipal,
+			Coupling: investigation.Coupling,
+		}}
+	}
 	var lanes []ExploreLane
 	for _, unit := range units {
 		unitID := strings.TrimSpace(unit.ID)
@@ -155,7 +169,39 @@ func CompileExploreLanePlan(rm RequestModel, answerContract *AnswerContract, pre
 			lanes = append(lanes, lane)
 		}
 	}
+	if containsExploreLaneOrigin(origins, AnswerEvidenceOriginMCPResource) {
+		var filtered []ExploreLane
+		for _, lane := range lanes {
+			if lane.Origin != AnswerEvidenceOriginMCPResource {
+				filtered = append(filtered, lane)
+			}
+		}
+		lanes = filtered
+		for _, unit := range mcpUnits {
+			lane := ExploreLane{
+				Origin:                 AnswerEvidenceOriginMCPResource,
+				InvestigationUnitID:    strings.TrimSpace(unit.ID),
+				InvestigationUnitLabel: strings.TrimSpace(unit.Label),
+				Label:                  exploreLaneDefaultLabel(AnswerEvidenceOriginMCPResource),
+				DimensionLabels:        cloneStrings(dimByOrigin[AnswerEvidenceOriginMCPResource]),
+				Role:                   ExploreLaneRolePrincipal,
+				Coupling:               coalesceInvestigationCoupling(unit.Coupling, investigation.Coupling),
+				HandoffPolicy:          ExploreLaneHandoffOwn,
+			}
+			lane.ID = stableExploreLaneID(lane, len(lanes)+1)
+			lanes = append(lanes, lane)
+		}
+	}
 	return ExploreLanePlan{Lanes: dedupeExploreLanes(lanes)}
+}
+
+func containsExploreLaneOrigin(origins []AnswerEvidenceOrigin, want AnswerEvidenceOrigin) bool {
+	for _, origin := range origins {
+		if origin == want {
+			return true
+		}
+	}
+	return false
 }
 
 func dimensionsByExploreLaneOrigin(dims []RequestedAnswerDimension) map[AnswerEvidenceOrigin][]string {

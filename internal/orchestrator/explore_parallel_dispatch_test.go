@@ -599,6 +599,11 @@ func TestAcceptedClosureAutoCompleteObservationOnlyRuntimeDoesNotBlock(t *testin
 				Summary:   "the log itself identifies the failed validator",
 				LineStart: 12,
 			}}},
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+				SourceQuotes:      []string{"只分析日志"},
+				Confidence:        0.9,
+			},
 		}},
 	}}
 

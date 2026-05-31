@@ -114,6 +114,11 @@ func TestPreCheckRuntimeObservationRepoContaminationRejectsRepoCitationsOnly(t *
 				DiagnosticProfile: types.DiagnosticIntentProfile{
 					IsDiagnostic: true,
 				},
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					SourceQuotes:      []string{"只分析日志"},
+					Confidence:        0.9,
+				},
 			},
 		},
 	}

@@ -82,6 +82,11 @@ func TestRenderAnswerDocUnifiedIntentContract_RuntimeArtifactAvoidsRepoCitationP
 				LogTriage: &types.LogBundle{
 					Errors: []types.LogError{{Type: "panic"}},
 				},
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					SourceQuotes:      []string{"只分析日志"},
+					Confidence:        0.9,
+				},
 			},
 		},
 	}
@@ -111,6 +116,11 @@ func TestRenderAnswerDocUnifiedIntentContract_PerfTraceAvoidsRepoCitationPressur
 				DiagnosticProfile: types.DiagnosticIntentProfile{IsDiagnostic: true},
 				PerfTrace: &types.PerfBundle{
 					Frames: []types.PerfFrame{{FrameNo: 1, DurationMs: 33.3, Janky: true}},
+				},
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					SourceQuotes:      []string{"只分析 trace"},
+					Confidence:        0.9,
 				},
 			},
 		},

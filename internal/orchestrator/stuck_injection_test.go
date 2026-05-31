@@ -130,6 +130,11 @@ func TestRunAutoVerdicts_SkipsObservationOnlyRuntimeArtifact(t *testing.T) {
 				Intent:    types.IntentRootCause,
 				Scenario:  types.ScenarioRootCause,
 				LogTriage: logBundle,
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					SourceQuotes:      []string{"只分析日志"},
+					Confidence:        0.9,
+				},
 			},
 			HypothesisSet: []types.Hypothesis{{
 				ID:                     "h1",

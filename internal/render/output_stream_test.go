@@ -701,6 +701,67 @@ func TestRenderer_MCPToolEndSurfacesObservationSummary(t *testing.T) {
 	}
 }
 
+func TestRenderer_MCPToolEndKeepsLargePayloadAsReference(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+
+	largePayloadSnippet := strings.Repeat("VERY_LARGE_MCP_PAYLOAD ", 64)
+	r.Emitter()(Event{
+		Kind:              EventToolCallEnd,
+		ToolName:          "fixture__large_table",
+		ToolOK:            true,
+		ToolResultSummary: "server=fixture method=tools/call resource=mcp://fixture/large/table observations=128 payload_ref=/tmp/codrax/blob/mcp-large.txt rowset_ref=/tmp/codrax/blob/mcp-large.jsonl " + largePayloadSnippet,
+		Timestamp:         time.Now(),
+	})
+
+	out := stripAnsiEscapes(buf.String())
+	for _, want := range []string{"MCP 返回 128 条外部观测", "资源 mcp://fixture/large/table", "blob /tmp/codrax/blob/mcp-large.txt", "rows /tmp/codrax/blob/mcp-large.jsonl"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("MCP large-output summary missing %q in %q", want, out)
+		}
+	}
+	if strings.Contains(out, "VERY_LARGE_MCP_PAYLOAD") || strings.Contains(out, "payload_ref=") || strings.Contains(out, "rowset_ref=") {
+		t.Fatalf("MCP large-output summary must keep payload compact and reference-only, got %q", out)
+	}
+}
+
+func TestRenderer_MCPToolEndSurfacesRepeatedObservationSummary(t *testing.T) {
+	var buf bytes.Buffer
+	r := New(&buf, false)
+	r.SetOutput(&buf)
+
+	r.Emitter()(Event{
+		Kind:              EventToolCallEnd,
+		ToolName:          "fixture__lookup",
+		ToolOK:            true,
+		ToolResultSummary: "server=fixture method=tools/call resource=mcp://fixture/trace/sleep-wakeup observations=2 lines=7,12 repeated=true",
+		Timestamp:         time.Now(),
+	})
+
+	out := stripAnsiEscapes(buf.String())
+	for _, want := range []string{"MCP 返回 2 条外部观测（与前次相同）", "资源 mcp://fixture/trace/sleep-wakeup", "行 7,12"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("MCP repeated result summary missing %q in %q", want, out)
+		}
+	}
+}
+
+func TestFormatEvidenceToolResultSummaryExternalObservationSkipZh(t *testing.T) {
+	summary := "emit_evidence accepted 0 source evidence item(s); skipped 2 external observation item(s).\n\n" +
+		"  - items[0]: pid=4242 @ mcp://fixture/trace/sleep-wakeup:7 is an external observation URI, not a current-source read_file anchor\n\n" +
+		"MCP resources and other external observations are first-class evidence in the external observation lane.\n"
+	got := stripAnsiEscapes(formatEvidenceToolResultSummary("emit_evidence", summary, "zh", 0))
+	for _, want := range []string{"外部观测 2 条（未作为源码证据记录）", "未将其当作当前源码引用", "aggregate_facts"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("external observation skip summary missing %q; got %q", want, got)
+		}
+	}
+	if strings.Contains(got, "证据 2 条") || strings.Contains(got, "未落地") {
+		t.Fatalf("external observation skip must not render as ungrounded source evidence; got %q", got)
+	}
+}
+
 func TestRenderer_UnavailableToolBatchDoesNotSayCallingTool(t *testing.T) {
 	var buf bytes.Buffer
 	r := New(&buf, false)

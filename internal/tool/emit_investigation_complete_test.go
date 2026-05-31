@@ -938,6 +938,11 @@ func TestEmitInvestigationComplete_RuntimeNegativeObservationCompat(t *testing.T
 				Summary:    "FATAL is absent",
 				Confidence: 1,
 			}}},
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+				SourceQuotes:      []string{"只分析日志"},
+				Confidence:        0.9,
+			},
 		}},
 	}
 	tool := &EmitInvestigationComplete{}
@@ -1029,6 +1034,11 @@ func TestEmitInvestigationComplete_RuntimeArtifactDropsInvalidOptionalAggregateF
 				Summary:    "FATAL is absent",
 				Confidence: 1,
 			}}},
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+				SourceQuotes:      []string{"只分析日志"},
+				Confidence:        0.9,
+			},
 		}},
 	}
 	tool := &EmitInvestigationComplete{}
@@ -4399,6 +4409,11 @@ func TestEmitInvestigationComplete_AllowsDecoratedRuntimeMemberSetForObservation
 			Intent:    types.IntentRootCause,
 			Scenario:  types.ScenarioRootCause,
 			LogTriage: logBundle,
+			ExternalObservationPolicy: &types.ExternalObservationPolicy{
+				CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+				SourceQuotes:      []string{"只分析日志"},
+				Confidence:        0.9,
+			},
 		}},
 	}
 	tool := &EmitInvestigationComplete{}

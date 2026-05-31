@@ -71,14 +71,18 @@ func renderExplorerStageReport(
 	findings []types.FlowFindingDigest,
 	readFiles []string,
 	isEnumeration bool,
+	observations ...types.ObservationRecord,
 ) string {
 	var b strings.Builder
+
+	externalObservations := externalObservationsForStageReport(observations)
 
 	b.WriteString("## Investigation Summary\n")
 	fmt.Fprintf(&b, "- question_kind: %s\n", emptyAsDash(questionKind))
 	fmt.Fprintf(&b, "- question_family: %s\n", emptyAsDash(questionFamily))
 	fmt.Fprintf(&b, "- enumeration_query: %v\n", isEnumeration)
 	fmt.Fprintf(&b, "- evidence_items: %d\n", len(evidence))
+	fmt.Fprintf(&b, "- external_observations: %d\n", len(externalObservations))
 	fmt.Fprintf(&b, "- answer_chains: %d\n", len(chains))
 	fmt.Fprintf(&b, "- answer_symbols: %d\n", len(symbols))
 	fmt.Fprintf(&b, "- flow_findings: %d\n", len(findings))
@@ -110,6 +114,23 @@ func renderExplorerStageReport(
 		}
 		if len(primaryEvidence) > topN {
 			fmt.Fprintf(&b, "- ... (+%d more in %s section)\n", len(primaryEvidence)-topN, promptctx.SectionEvidencePool)
+		}
+		b.WriteString("\n")
+	}
+
+	if len(externalObservations) > 0 {
+		b.WriteString("## External Observations\n")
+		b.WriteString("These facts came from runtime/MCP/external observation lanes, not current-source citations. " +
+			"`evidence_items: 0` only means no current-source EvidenceItem rows were emitted; it does not erase these external observations.\n\n")
+		const topN = 10
+		for i, record := range externalObservations {
+			if i >= topN {
+				break
+			}
+			b.WriteString("- " + formatObservationLineForReport(record) + "\n")
+		}
+		if len(externalObservations) > topN {
+			fmt.Fprintf(&b, "- ... (+%d more external observations)\n", len(externalObservations)-topN)
 		}
 		b.WriteString("\n")
 	}
@@ -269,6 +290,108 @@ func anchorKindDisplayTag(k types.AnchorKind) string {
 		return "(string literal)"
 	}
 	return ""
+}
+
+func externalObservationsForStageReport(records []types.ObservationRecord) []types.ObservationRecord {
+	if len(records) == 0 {
+		return nil
+	}
+	out := make([]types.ObservationRecord, 0, len(records))
+	for _, record := range records {
+		if record.Origin == types.AnswerEvidenceOriginCurrentSource ||
+			record.SourceRef.Kind == types.ObservationSourceCurrentSource {
+			continue
+		}
+		if strings.TrimSpace(record.Summary) == "" &&
+			strings.TrimSpace(record.RawExcerpt) == "" &&
+			strings.TrimSpace(record.Value) == "" {
+			continue
+		}
+		out = append(out, record)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		li, lj := observationLineKey(out[i]), observationLineKey(out[j])
+		if li != lj {
+			return li < lj
+		}
+		return out[i].ID < out[j].ID
+	})
+	return out
+}
+
+func observationLineKey(record types.ObservationRecord) int {
+	if record.Span.LineStart > 0 {
+		return record.Span.LineStart
+	}
+	if record.Span.Row > 0 {
+		return record.Span.Row
+	}
+	return 1 << 30
+}
+
+func formatObservationLineForReport(record types.ObservationRecord) string {
+	var parts []string
+	origin := strings.TrimSpace(string(record.Origin))
+	if origin == "" {
+		origin = strings.TrimSpace(string(record.SourceRef.Kind))
+	}
+	if origin != "" {
+		parts = append(parts, "["+origin+"]")
+	}
+	if ref := observationReportRef(record); ref != "" {
+		parts = append(parts, ref)
+	}
+	text := strings.TrimSpace(record.Summary)
+	if text == "" {
+		text = strings.TrimSpace(record.RawExcerpt)
+	}
+	if text == "" {
+		text = strings.TrimSpace(record.Value)
+	}
+	if text != "" {
+		parts = append(parts, "— "+singleLine(text))
+	}
+	if record.Confidence > 0 {
+		parts = append(parts, fmt.Sprintf("(confidence %.2f)", record.Confidence))
+	}
+	return strings.Join(parts, " ")
+}
+
+func observationReportRef(record types.ObservationRecord) string {
+	ref := stageReportFirstNonEmptyString(
+		strings.TrimSpace(record.SourceRef.ResourceURI),
+		strings.TrimSpace(record.SourceRef.Path),
+		strings.TrimSpace(record.SourceRef.RawRef),
+		strings.TrimSpace(record.SourceRef.PayloadRef),
+		strings.TrimSpace(record.SourceRef.RowSetRef),
+		strings.TrimSpace(record.SourceRef.ToolCallID),
+	)
+	if ref == "" {
+		return ""
+	}
+	switch {
+	case record.Span.LineStart > 0 && record.Span.LineEnd > record.Span.LineStart:
+		return fmt.Sprintf("%s:%d-%d", ref, record.Span.LineStart, record.Span.LineEnd)
+	case record.Span.LineStart > 0:
+		return fmt.Sprintf("%s:%d", ref, record.Span.LineStart)
+	case record.Span.Row > 0:
+		return fmt.Sprintf("%s row %d", ref, record.Span.Row)
+	default:
+		return ref
+	}
+}
+
+func stageReportFirstNonEmptyString(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func singleLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 func emptyAsDash(s string) string {

@@ -2592,6 +2592,15 @@ func TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorBlocks(t *testi
 		Mutable:  mut,
 		RepoRoot: t.TempDir(),
 		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				LogTriage: mut.LogTriage(),
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					SourceQuotes:      []string{"只分析日志"},
+					Confidence:        0.9,
+				},
+			},
 			AnswerContract: types.AnswerContract{
 				CitationReq: types.CitationReq{
 					Required:     true,
@@ -2790,6 +2799,15 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ExternalSourceLogWaivesCitat
 		Mutable:  mut,
 		RepoRoot: t.TempDir(),
 		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				LogTriage: mut.LogTriage(),
+				ExternalObservationPolicy: &types.ExternalObservationPolicy{
+					CurrentSourceMode: types.ExternalObservationCurrentSourceExclude,
+					SourceQuotes:      []string{"只分析日志"},
+					Confidence:        0.9,
+				},
+			},
 			AnswerContract: types.AnswerContract{
 				CitationReq: types.CitationReq{
 					Required:     true,

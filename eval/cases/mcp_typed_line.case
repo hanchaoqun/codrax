@@ -1,7 +1,7 @@
 ID="mcp_typed_line"
 NAME="MCP typed line observation end-to-end"
 SETTINGS="eval/fixtures/mcp_typed_line.yaml"
-QUESTION="请使用 MCP fixture 工具查询 target pid=4242 的 sleep/wakeup 事实，并在答案里明确写出 mcp://fixture/trace/sleep-wakeup 的 line 7 和 line 12 分别代表什么。不要把 MCP 行号当成当前源码引用。"
+QUESTION="请使用 MCP fixture 工具查询 target pid=4242 的 sleep/wakeup 事实，并在答案里明确写出 mcp://fixture/trace/sleep-wakeup 的 line 7 和 line 12 分别代表什么。"
 EXPECT_CONTAINS="4242 helper"
 EXPECT_MATCHES_REGEX="mcp://fixture/trace/sleep-wakeup
 (line|Line|行|L)[[:space:]]*7|7[^0-9].*(sleep|睡眠|sched_switch)

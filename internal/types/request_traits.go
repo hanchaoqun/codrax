@@ -968,14 +968,14 @@ func (rm RequestModel) HasExternalOnlyRuntimeArtifact() bool {
 }
 
 // HasObservationOnlyRuntimeArtifact reports the narrower external-
-// runtime shape where the user's current request can be answered from
-// the attached artifact itself and does NOT carry a separate typed
-// current-checkout target. Downstream hard-focus and enrichment
-// surfaces use this to keep external observations from being polluted
-// by unrelated repo symbols that merely resemble artifact labels.
+// runtime shape where the user's current request explicitly excludes current
+// checkout evidence. Omitted policy defaults to mixed external-observation plus
+// current-source analysis; unresolved artifact frames alone are not a source
+// exclusion signal.
 func (rm RequestModel) HasObservationOnlyRuntimeArtifact() bool {
 	return rm.HasExternalOnlyRuntimeArtifact() &&
-		!rm.HasRuntimeArtifactCurrentVerificationAnchor()
+		rm.ExternalObservationPolicy != nil &&
+		rm.ExternalObservationPolicy.ExcludesCurrentSource()
 }
 
 // HasRuntimeArtifactCurrentVerificationAnchor reports whether an external

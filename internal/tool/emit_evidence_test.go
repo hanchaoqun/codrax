@@ -97,6 +97,48 @@ func TestEmitEvidence_StructuredPayloadCompatRepairsStringItemsAndKeyAliases(t *
 	}
 }
 
+func TestEmitEvidence_MCPURIStaysExternalObservationNotUngroundedSourceEvidence(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"kind": "direct",
+				"subject": "pid=4242",
+				"source": "mcp://fixture/trace/sleep-wakeup",
+				"line_start": 7,
+				"summary": "worker wakes target",
+				"anchor_kind": "text_reference",
+				"anchor_symbol": "pid=4242"
+			}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("external observation URI should produce an advisory success, got: %s", res.Summary)
+	}
+	if got := ctx.Mutable.EmittedEvidence(); len(got) != 0 {
+		t.Fatalf("MCP URI rows must not enter current-source evidence buffer: %+v", got)
+	}
+	for _, want := range []string{
+		"skipped 1 external observation item",
+		"mcp://fixture/trace/sleep-wakeup:7",
+		"emit_investigation_complete.reason",
+		"aggregate_facts",
+	} {
+		if !strings.Contains(res.Summary, want) && (res.Repair == nil || !strings.Contains(res.Repair.Hint, want)) {
+			t.Fatalf("summary/repair missing %q; summary=%s repair=%+v", want, res.Summary, res.Repair)
+		}
+	}
+	if strings.Contains(res.Summary, "→ ungrounded") || strings.Contains(res.Summary, "Current actionable repair targets") {
+		t.Fatalf("MCP URI rows should not be rendered as ungrounded source evidence:\n%s", res.Summary)
+	}
+}
+
 func TestEmitEvidence_RepairsStringLoadBearingSummary(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

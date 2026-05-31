@@ -94,6 +94,7 @@ func TestRenderExplorerStageReport_EmptyInputs(t *testing.T) {
 		"question_kind: -",
 		"question_family: -",
 		"evidence_items: 0",
+		"external_observations: 0",
 		"answer_chains: 0",
 		"answer_symbols: 0",
 		"flow_findings: 0",
@@ -115,6 +116,38 @@ func TestRenderExplorerStageReport_EmptyInputs(t *testing.T) {
 		if strings.Contains(got, mustNot) {
 			t.Errorf("empty render contains spurious section %q.\noutput:\n%s", mustNot, got)
 		}
+	}
+}
+
+func TestRenderExplorerStageReport_RendersExternalObservationsSeparately(t *testing.T) {
+	ledger := types.CompileObservationLedger(types.ObservationLedgerInput{
+		MCPResponses: []types.MCPResponse{{
+			ServerName:  "fixture",
+			Method:      "tools/call",
+			ResourceURI: "mcp://fixture/trace/sleep-wakeup",
+			Success:     true,
+			Observations: []types.MCPTypedObservation{
+				{ResourceURI: "mcp://fixture/trace/sleep-wakeup", LineStart: 12, Summary: "pid=4242 event=sched_wakeup waker=helper"},
+				{ResourceURI: "mcp://fixture/trace/sleep-wakeup", LineStart: 7, Summary: "pid=4242 event=sched_switch prev_state=S"},
+			},
+		}},
+	})
+
+	got := renderExplorerStageReport("", "", nil, nil, nil, nil, nil, nil, false, ledger.Records...)
+	for _, want := range []string{
+		"evidence_items: 0",
+		"external_observations: 2",
+		"## External Observations",
+		"`evidence_items: 0` only means no current-source EvidenceItem rows were emitted",
+		"[mcp_resource] mcp://fixture/trace/sleep-wakeup:7 — pid=4242 event=sched_switch prev_state=S",
+		"[mcp_resource] mcp://fixture/trace/sleep-wakeup:12 — pid=4242 event=sched_wakeup waker=helper",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("external observation report missing %q.\noutput:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "## Primary Evidence") {
+		t.Fatalf("MCP observations must not be rendered as current-source primary evidence:\n%s", got)
 	}
 }
 

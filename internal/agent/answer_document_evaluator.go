@@ -5578,7 +5578,7 @@ func renderAnswerDocRuntimeGroundingDisposition(ctx *types.AgentContext) string 
 	b.WriteString("- Citation policy: claims whose source is the attached log / trace itself stay in the runtime/artifact provenance lane unless a cited current-repo line literally states the same claim.\n")
 	b.WriteString("- Do not put attached-log / external-trace paths into `citations[]` just to quote artifact text. `citations[]` is for current-repo lines or bounded negative-scope proofs with `negative_pattern`; visible prose should say these facts come from the attached runtime artifact.\n")
 	if runtimeObservationOnlyForAnswerDoc(ctx) {
-		b.WriteString("- This dispatch is observation-only: the current request asks what the runtime artifact shows, not whether the current checkout still has the issue. Leave current-repo files, helper symbols, and citations out of the answer even if an earlier exploration step read them accidentally.\n\n")
+		b.WriteString("- This dispatch is observation-only: the typed request policy explicitly excludes current checkout/source evidence. Leave current-repo files, helper symbols, and citations out of the answer even if an earlier exploration step read them accidentally.\n\n")
 	} else {
 		b.WriteString("- Current repository citations may still be used for explicitly read current-code context, but do not present them as the source of the runtime observation or as proof that the current checkout produced the captured log / trace.\n\n")
 	}

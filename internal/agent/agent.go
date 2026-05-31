@@ -1683,6 +1683,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 	var allToolResults []types.ToolResult
 	var allMCPResponses []types.MCPResponse
+	mcpRenderSeen := map[string]struct{}{}
 
 	// Reset the per-dispatch running tool-result buffer so a fresh
 	// dispatch never inherits the previous one's read_file history.
@@ -2345,7 +2346,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					ToolUnavailable:   !effectiveToolNames[strings.TrimSpace(tc.Name)],
 					ToolOK:            toolOK,
 					ToolTime:          time.Since(toolStarts[idx]),
-					ToolResultSummary: firstNonEmptyString(toolResultSummary(er.result), mcpToolResultSummary(er.mcpResp)),
+					ToolResultSummary: firstNonEmptyString(toolResultSummary(er.result), mcpToolResultSummaryOnce(er.mcpResp, mcpRenderSeen)),
 					EvidenceTotal:     emittedEvidenceTotalForTool(ctx, tc.Name, er.result),
 					ParallelGroupID:   ctx.ParallelGroupID,
 					ParallelUnitID:    ctx.ExploreDispatchKey,
@@ -2418,7 +2419,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					ToolUnavailable:   !effectiveToolNames[strings.TrimSpace(tc.Name)],
 					ToolOK:            toolOK,
 					ToolTime:          time.Since(toolStart),
-					ToolResultSummary: firstNonEmptyString(toolResultSummary(result), mcpToolResultSummary(mcpResp)),
+					ToolResultSummary: firstNonEmptyString(toolResultSummary(result), mcpToolResultSummaryOnce(mcpResp, mcpRenderSeen)),
 					EvidenceTotal:     emittedEvidenceTotalForTool(ctx, tc.Name, result),
 					ParallelGroupID:   ctx.ParallelGroupID,
 					ParallelUnitID:    ctx.ExploreDispatchKey,
@@ -2584,7 +2585,7 @@ func observationOnlyRuntimeBlocksTool(ctx *types.AgentContext, name string) bool
 	return false
 }
 
-func validateObservationOnlyRuntimeToolCall(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
+func validateExternalObservationOnlyToolCall(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
 	if !observationOnlyRuntimeBlocksTool(ctx, tc.Name) {
 		return nil
 	}
@@ -3257,7 +3258,7 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 	if violation := validateExplorerToolBoundary(ctx, b.eval, tc); violation != nil {
 		return violation, nil
 	}
-	if violation := validateObservationOnlyRuntimeToolCall(ctx, tc); violation != nil {
+	if violation := validateExternalObservationOnlyToolCall(ctx, tc); violation != nil {
 		return violation, nil
 	}
 
@@ -4478,8 +4479,8 @@ func mcpToolResultSummary(resp *types.MCPResponse) string {
 	if resp.Method != "" {
 		parts = append(parts, "method="+truncateToolDetailValue(resp.Method, 32))
 	}
-	if resp.ResourceURI != "" {
-		parts = append(parts, "resource="+truncateToolDetailValue(resp.ResourceURI, 80))
+	if resource := mcpResponseDisplayResource(resp); resource != "" {
+		parts = append(parts, "resource="+truncateToolDetailValue(resource, 80))
 	}
 	if n := len(resp.Observations); n > 0 {
 		parts = append(parts, fmt.Sprintf("observations=%d", n))
@@ -4497,6 +4498,102 @@ func mcpToolResultSummary(resp *types.MCPResponse) string {
 		return strings.TrimSpace(resp.Summary)
 	}
 	return strings.Join(parts, " ")
+}
+
+const mcpRepeatKeyMaxRows = 32
+
+func mcpToolResultSummaryOnce(resp *types.MCPResponse, seen map[string]struct{}) string {
+	if resp == nil {
+		return ""
+	}
+	key := mcpObservationRenderKey(resp)
+	if key != "" && seen != nil {
+		if _, ok := seen[key]; ok {
+			summary := mcpToolResultSummary(resp)
+			if summary == "" {
+				return "repeated=true"
+			}
+			return summary + " repeated=true"
+		}
+		seen[key] = struct{}{}
+	}
+	return mcpToolResultSummary(resp)
+}
+
+func mcpResponseDisplayResource(resp *types.MCPResponse) string {
+	if resp == nil {
+		return ""
+	}
+	if resource := strings.TrimSpace(resp.ResourceURI); resource != "" {
+		return resource
+	}
+	var resource string
+	for _, obs := range resp.Observations {
+		current := strings.TrimSpace(obs.ResourceURI)
+		if current == "" {
+			continue
+		}
+		if resource == "" {
+			resource = current
+			continue
+		}
+		if resource != current {
+			return ""
+		}
+	}
+	return resource
+}
+
+func mcpObservationRenderKey(resp *types.MCPResponse) string {
+	if resp == nil || len(resp.Observations) == 0 {
+		return ""
+	}
+	if len(resp.Observations) > mcpRepeatKeyMaxRows {
+		return ""
+	}
+	rows := make([]string, 0, len(resp.Observations))
+	for _, obs := range resp.Observations {
+		ref := firstNonEmptyString(
+			strings.TrimSpace(obs.ResourceURI),
+			strings.TrimSpace(resp.ResourceURI),
+			strings.TrimSpace(obs.RawRef),
+			strings.TrimSpace(resp.RawRef),
+			strings.TrimSpace(obs.PayloadRef),
+			strings.TrimSpace(resp.PayloadRef),
+			strings.TrimSpace(obs.RowSetRef),
+			strings.TrimSpace(resp.RowSetRef),
+			strings.TrimSpace(obs.PageRef),
+			strings.TrimSpace(resp.PageRef),
+		)
+		if ref == "" {
+			return ""
+		}
+		lineStart := mcpFirstPositiveInt(obs.LineStart, resp.LineStart)
+		lineEnd := mcpFirstPositiveInt(obs.LineEnd, resp.LineEnd)
+		row := mcpFirstPositiveInt(obs.Row, resp.Row)
+		selector := strings.TrimSpace(firstNonEmptyString(obs.Selector, resp.Selector))
+		jsonPointer := strings.TrimSpace(firstNonEmptyString(obs.JSONPointer, resp.JSONPointer))
+		summary := strings.TrimSpace(obs.Summary)
+		if lineStart <= 0 && row <= 0 && selector == "" && jsonPointer == "" {
+			return ""
+		}
+		if summary == "" {
+			return ""
+		}
+		rows = append(rows, fmt.Sprintf("%s|l=%d-%d|r=%d|sel=%s|ptr=%s|sum=%s",
+			ref, lineStart, lineEnd, row, selector, jsonPointer, summary))
+	}
+	sort.Strings(rows)
+	return strings.TrimSpace(resp.ServerName) + "|" + strings.Join(rows, "\n")
+}
+
+func mcpFirstPositiveInt(values ...int) int {
+	for _, value := range values {
+		if value > 0 {
+			return value
+		}
+	}
+	return 0
 }
 
 func mcpObservationLineSummary(observations []types.MCPTypedObservation) string {
