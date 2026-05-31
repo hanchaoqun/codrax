@@ -443,3 +443,16 @@ thread counts as high-priority pressure.
   than silently claiming Harmony priority semantics.
 - Focused validation passed:
   `go test ./internal/tracequery ./internal/tool ./internal/agent ./internal/repl ./cmd`.
+
+2026-05-31 trace-flavor audit follow-up:
+
+- Explicit `trace_query.trace_flavor` / `platform` remains authoritative for
+  the current call. When it conflicts with strong content detection, the result
+  now keeps the explicit setting but emits a caveat naming both the explicit
+  flavor and the content-detected flavor so users can audit the assumption.
+- REPL tool-call rendering now surfaces explicit `trace_flavor` / `platform`
+  parameters in the one-line `trace_query` call detail. Auto-detected flavor is
+  still reported in the tool result summary and JSON payload after parsing.
+- `trace_query` continues to enter through the shared structured-parameter
+  compatibility path; focused coverage now includes string-wrapped JSON,
+  string numeric fields, and the `platform` alias.

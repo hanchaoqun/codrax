@@ -110,6 +110,28 @@ func TestTraceQueryExplicitTraceFlavorParamOverridesContent(t *testing.T) {
 	}
 }
 
+func TestTraceQueryPlatformAliasSurvivesStringWrappedCompat(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "sample.systrace")
+	trace := `system_server-1000 (1000) [000] .... 1.000000: sched_wakeup: comm=system_server pid=1000 prio=98 target_cpu=000`
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params := json.RawMessage(`"{\"source\":\"path\",\"path\":\"sample.systrace\",\"view\":\"event_search\",\"platform\":\"android_atrace\",\"time_start\":\"1.0s\",\"time_end\":\"1.1s\",\"limit\":\"3\"}"`)
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query should accept compat-repaired string-wrapped params: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "trace_flavor=android_atrace") ||
+		!strings.Contains(res.Summary, "Android/atrace ftrace priority") {
+		t.Fatalf("platform alias should flow through compat repair and flavor selection:\n%s", res.Summary)
+	}
+}
+
 func TestTraceQuerySchemaDocumentsViews(t *testing.T) {
 	body := (&TraceQuery{}).Description() + "\n" + string((&TraceQuery{}).Parameters())
 	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "ipc_graph", "event_search", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "clock_set_rate", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received"} {

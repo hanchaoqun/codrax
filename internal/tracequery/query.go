@@ -90,7 +90,11 @@ func resolveTraceFlavor(idx *Index, q Query) (TraceFlavor, float64, []string, []
 	signals = append(signals, "flavor_hint_"+string(hint))
 	switch hintSource {
 	case "tool_param":
-		return hint, 1.0, signals, []string{"trace flavor was selected from explicit trace_query parameter"}
+		caveats := []string{"trace flavor was selected from explicit trace_query parameter"}
+		if detected != "" && detected != TraceFlavorGenericFtrace && confidence >= 0.75 && detected != hint {
+			caveats = append(caveats, fmt.Sprintf("explicit trace flavor %s conflicts with content-detected %s (confidence %.2f); using explicit trace_query parameter and preserving detection signals for audit", hint, detected, confidence))
+		}
+		return hint, 1.0, signals, caveats
 	default:
 		if detected == TraceFlavorGenericFtrace || confidence < 0.75 || detected == hint {
 			if confidence < 0.85 {

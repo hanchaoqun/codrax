@@ -4266,6 +4266,11 @@ func toolTraceQueryDetail(m map[string]json.RawMessage) string {
 	} else if source := jsonStringField(m, "source"); source != "" {
 		parts = append(parts, "source="+truncateToolDetailValue(source, 24))
 	}
+	if flavor := jsonStringField(m, "trace_flavor"); flavor != "" {
+		parts = append(parts, "trace_flavor="+truncateToolDetailValue(flavor, 24))
+	} else if platform := jsonStringField(m, "platform"); platform != "" {
+		parts = append(parts, "platform="+truncateToolDetailValue(platform, 24))
+	}
 	if thread := jsonStringField(m, "thread"); thread != "" {
 		parts = append(parts, "thread="+truncateToolDetailValue(thread, 32))
 	}
@@ -4283,8 +4288,8 @@ func toolTraceQueryDetail(m map[string]json.RawMessage) string {
 			parts = append(parts, fmt.Sprintf("%s=%d", field, v))
 		}
 	}
-	if len(parts) > 7 {
-		parts = parts[:7]
+	if len(parts) > 8 {
+		parts = parts[:8]
 	}
 	return strings.Join(parts, " ")
 }

@@ -288,6 +288,10 @@ func TestExplicitTraceFlavorOverrideWins(t *testing.T) {
 	if strings.Contains(res.PrioritySemantics, "1-40=CFS") {
 		t.Fatalf("explicit Android flavor must not render Harmony semantics: %s", res.PrioritySemantics)
 	}
+	if !containsString(res.Caveats, "trace flavor was selected from explicit trace_query parameter") ||
+		!containsSubstring(res.Caveats, "explicit trace flavor android_atrace conflicts with content-detected harmony_hitrace") {
+		t.Fatalf("explicit conflict should be visible in caveats: %+v", res.Caveats)
+	}
 }
 
 func TestThreadTimelineSplitsSleepAndRunnable(t *testing.T) {
@@ -508,6 +512,24 @@ func near(got, want, delta float64) bool {
 		return want-got <= delta
 	}
 	return got-want <= delta
+}
+
+func containsString(items []string, want string) bool {
+	for _, item := range items {
+		if item == want {
+			return true
+		}
+	}
+	return false
+}
+
+func containsSubstring(items []string, want string) bool {
+	for _, item := range items {
+		if strings.Contains(item, want) {
+			return true
+		}
+	}
+	return false
 }
 
 func buildSampleIndex(t *testing.T) *Index {

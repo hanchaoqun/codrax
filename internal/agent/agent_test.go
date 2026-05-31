@@ -15,6 +15,33 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func TestStructuredToolDetailTraceQueryShowsFlavor(t *testing.T) {
+	got := structuredToolDetail("trace_query", json.RawMessage(`{
+		"view":"wakeup_chain",
+		"path":"record.systrace",
+		"trace_flavor":"harmony_hitrace",
+		"thread":"com.tencent.mm-36379",
+		"time_start":2942.124416,
+		"time_end":2942.260210,
+		"max_depth":6
+	}`))
+	for _, want := range []string{"view=wakeup_chain", "path=record.systrace", "trace_flavor=harmony_hitrace", "thread=com.tencent.mm-36379", "window=2942.124416..2942.26021"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("trace_query detail missing %q in %q", want, got)
+		}
+	}
+
+	got = structuredToolDetail("trace_query", json.RawMessage(`{
+		"view":"window_stats",
+		"path":"record.systrace",
+		"platform":"android_atrace",
+		"pid":36379
+	}`))
+	if !strings.Contains(got, "platform=android_atrace") || !strings.Contains(got, "pid=36379") {
+		t.Fatalf("trace_query detail should surface platform alias and pid: %q", got)
+	}
+}
+
 // TestPruneToolHistoryKeepsRecentAndStubsOlder locks the ReAct
 // history-pruning contract that protects long explorer runs from
 // blowing the model's context window. The 2026-04-12 incident: 15
