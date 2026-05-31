@@ -49,6 +49,8 @@ type StdioServer struct {
 	pending   map[int64]chan rpcResponse
 	nextID    atomic.Int64
 	tools     []ToolSchema
+	resources []ResourceSchema
+	prompts   []PromptSchema
 	toolsOnce bool
 }
 
@@ -295,8 +297,12 @@ func (s *StdioServer) Initialize(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	resources := s.fetchResourcesOptional(ctx)
+	prompts := s.fetchPromptsOptional(ctx)
 	s.mu.Lock()
 	s.tools = tools
+	s.resources = resources
+	s.prompts = prompts
 	s.toolsOnce = true
 	s.mu.Unlock()
 	return nil
@@ -342,6 +348,69 @@ func (s *StdioServer) fetchTools(ctx context.Context) ([]ToolSchema, error) {
 	return out, nil
 }
 
+func (s *StdioServer) fetchResourcesOptional(ctx context.Context) []ResourceSchema {
+	raw, err := s.request(ctx, "resources/list", map[string]any{})
+	if err != nil {
+		logging.Debug("[mcp %s] resources/list unavailable: %v", s.name, err)
+		return nil
+	}
+	var decoded struct {
+		Resources []struct {
+			URI         string `json:"uri"`
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			MIMEType    string `json:"mimeType"`
+		} `json:"resources"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		logging.Warning("[mcp %s] resources/list invalid result: %v", s.name, err)
+		return nil
+	}
+	out := make([]ResourceSchema, 0, len(decoded.Resources))
+	seen := map[string]bool{}
+	for _, r := range decoded.Resources {
+		uri := strings.TrimSpace(r.URI)
+		if uri == "" || seen[uri] {
+			continue
+		}
+		seen[uri] = true
+		out = append(out, ResourceSchema{
+			URI:         uri,
+			Name:        strings.TrimSpace(r.Name),
+			Description: strings.TrimSpace(r.Description),
+			MIMEType:    strings.TrimSpace(r.MIMEType),
+		})
+	}
+	return out
+}
+
+func (s *StdioServer) fetchPromptsOptional(ctx context.Context) []PromptSchema {
+	raw, err := s.request(ctx, "prompts/list", map[string]any{})
+	if err != nil {
+		logging.Debug("[mcp %s] prompts/list unavailable: %v", s.name, err)
+		return nil
+	}
+	var decoded struct {
+		Prompts []struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		} `json:"prompts"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		logging.Warning("[mcp %s] prompts/list invalid result: %v", s.name, err)
+		return nil
+	}
+	out := make([]PromptSchema, 0, len(decoded.Prompts))
+	for _, p := range decoded.Prompts {
+		name := strings.TrimSpace(p.Name)
+		if name == "" {
+			continue
+		}
+		out = append(out, PromptSchema{Name: name, Description: strings.TrimSpace(p.Description)})
+	}
+	return out
+}
+
 // Name returns the server name.
 func (s *StdioServer) Name() string { return s.name }
 
@@ -353,6 +422,44 @@ func (s *StdioServer) ListTools() []ToolSchema {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]ToolSchema(nil), s.tools...)
+}
+
+func (s *StdioServer) ListResources() []ResourceSchema {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]ResourceSchema(nil), s.resources...)
+}
+
+func (s *StdioServer) ListPrompts() []PromptSchema {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]PromptSchema(nil), s.prompts...)
+}
+
+func (s *StdioServer) ReadResource(uri string) (types.MCPResponse, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), s.callTimeout)
+	defer cancel()
+	raw, err := s.request(ctx, "resources/read", map[string]any{"uri": uri})
+	if err != nil {
+		return types.MCPResponse{
+			ServerName:  s.name,
+			Method:      "resources/read",
+			ResourceURI: uri,
+			Summary:     err.Error(),
+			Success:     false,
+			Timestamp:   time.Now(),
+		}, err
+	}
+	summary, mime := decodeResourceReadResult(raw)
+	return types.MCPResponse{
+		ServerName:  s.name,
+		Method:      "resources/read",
+		Summary:     summary,
+		ResourceURI: uri,
+		MIMEType:    mime,
+		Success:     true,
+		Timestamp:   time.Now(),
+	}, nil
 }
 
 // CallTool invokes a tool on the MCP server.
@@ -530,6 +637,35 @@ func decodeToolCallResult(raw json.RawMessage) (summary, mime string, isErr bool
 		return string(raw), mime, decoded.IsError
 	}
 	return strings.Join(parts, "\n"), mime, decoded.IsError
+}
+
+func decodeResourceReadResult(raw json.RawMessage) (summary, mime string) {
+	var decoded struct {
+		Contents []struct {
+			URI      string `json:"uri"`
+			MIMEType string `json:"mimeType"`
+			Text     string `json:"text"`
+			Blob     string `json:"blob"`
+		} `json:"contents"`
+	}
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return string(raw), ""
+	}
+	var parts []string
+	for _, c := range decoded.Contents {
+		if mime == "" {
+			mime = strings.TrimSpace(c.MIMEType)
+		}
+		if c.Text != "" {
+			parts = append(parts, c.Text)
+		} else if c.Blob != "" {
+			parts = append(parts, c.Blob)
+		}
+	}
+	if len(parts) == 0 {
+		return string(raw), mime
+	}
+	return strings.Join(parts, "\n"), mime
 }
 
 func mustMarshalRaw(v any) json.RawMessage {

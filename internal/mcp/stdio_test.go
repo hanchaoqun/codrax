@@ -75,6 +75,39 @@ func TestFakeMCPServerHelper(t *testing.T) {
 					"isError": false,
 				},
 			})
+		case "resources/list":
+			_ = encoder.Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      req.ID,
+				"result": map[string]any{
+					"resources": []map[string]string{{
+						"uri":         "mcp://fake/note",
+						"name":        "note",
+						"description": "fake note",
+						"mimeType":    "text/plain",
+					}},
+				},
+			})
+		case "resources/read":
+			_ = encoder.Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      req.ID,
+				"result": map[string]any{
+					"contents": []map[string]string{{
+						"uri":      "mcp://fake/note",
+						"mimeType": "text/plain",
+						"text":     "resource note body",
+					}},
+				},
+			})
+		case "prompts/list":
+			_ = encoder.Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      req.ID,
+				"result": map[string]any{
+					"prompts": []map[string]string{{"name": "runbook", "description": "fake runbook"}},
+				},
+			})
 		}
 	}
 }
@@ -136,6 +169,32 @@ func TestStdioServerLateResponseDoesNotPoisonNextCall(t *testing.T) {
 	}
 	if !strings.Contains(resp.Summary, "called echo_tool") {
 		t.Fatalf("late response poisoned second call: %+v", resp)
+	}
+}
+
+func TestStdioServerResourcesAndPrompts(t *testing.T) {
+	s := fakeServer(t)
+	if err := s.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if err := s.Initialize(nil); err != nil {
+		t.Fatalf("Initialize: %v", err)
+	}
+	resources := s.ListResources()
+	if len(resources) != 1 || resources[0].URI != "mcp://fake/note" {
+		t.Fatalf("unexpected resources: %+v", resources)
+	}
+	prompts := s.ListPrompts()
+	if len(prompts) != 1 || prompts[0].Name != "runbook" {
+		t.Fatalf("unexpected prompts: %+v", prompts)
+	}
+	resp, err := s.ReadResource("mcp://fake/note")
+	if err != nil {
+		t.Fatalf("ReadResource: %v", err)
+	}
+	if !resp.Success || resp.ResourceURI != "mcp://fake/note" || !strings.Contains(resp.Summary, "resource note body") {
+		t.Fatalf("unexpected resource response: %+v", resp)
 	}
 }
 

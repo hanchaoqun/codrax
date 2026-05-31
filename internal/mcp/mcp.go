@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -17,11 +18,28 @@ type ToolSchema struct {
 	Parameters  json.RawMessage `json:"parameters"`
 }
 
+// ResourceSchema describes a resource exposed by an MCP server.
+type ResourceSchema struct {
+	URI         string `json:"uri"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	MIMEType    string `json:"mime_type,omitempty"`
+}
+
+// PromptSchema describes a prompt advertised by an MCP server.
+type PromptSchema struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
 // Server defines the interface for MCP servers.
 type Server interface {
 	Name() string
 	Transport() types.TransportType
 	ListTools() []ToolSchema
+	ListResources() []ResourceSchema
+	ReadResource(uri string) (types.MCPResponse, error)
+	ListPrompts() []PromptSchema
 	CallTool(name string, params json.RawMessage) (types.MCPResponse, error)
 	Close() error
 }
@@ -138,6 +156,71 @@ func (r *Registry) SchemaForNamespaced(name string) (json.RawMessage, bool) {
 	return nil, false
 }
 
+func (r *Registry) ListAllResources() []ResourceSchema {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []ResourceSchema
+	serverNames := make([]string, 0, len(r.servers))
+	for name := range r.servers {
+		serverNames = append(serverNames, name)
+	}
+	sort.Strings(serverNames)
+	for _, serverName := range serverNames {
+		for _, res := range r.servers[serverName].ListResources() {
+			res.Name = firstNonEmpty(res.Name, res.URI)
+			out = append(out, res)
+		}
+	}
+	return out
+}
+
+func (r *Registry) HasResources() bool {
+	return len(r.ListAllResources()) > 0
+}
+
+func (r *Registry) ReadResource(uri string) (types.MCPResponse, error) {
+	uri = strings.TrimSpace(uri)
+	if uri == "" {
+		return types.MCPResponse{Success: false}, fmt.Errorf("mcp resource uri is required")
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, serverName := range r.ListLocked() {
+		s := r.servers[serverName]
+		for _, res := range s.ListResources() {
+			if strings.TrimSpace(res.URI) == uri {
+				return s.ReadResource(uri)
+			}
+		}
+	}
+	return types.MCPResponse{Success: false}, fmt.Errorf("mcp resource uri is not advertised by any server: %s", uri)
+}
+
+func (r *Registry) ListAllPrompts() []PromptSchema {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []PromptSchema
+	for _, serverName := range r.ListLocked() {
+		for _, p := range r.servers[serverName].ListPrompts() {
+			if p.Name == "" {
+				continue
+			}
+			p.Name = serverName + "." + p.Name
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func (r *Registry) ListLocked() []string {
+	names := make([]string, 0, len(r.servers))
+	for name := range r.servers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
 // NamespacedToolName returns the provider-safe tool name shown to the model.
 func NamespacedToolName(serverName, toolName string) string {
 	server := sanitizeNameComponent(serverName)
@@ -191,4 +274,13 @@ func sanitizeNameComponent(s string) string {
 		out = out[:len(out)-1]
 	}
 	return string(out)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }

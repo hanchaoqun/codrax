@@ -124,5 +124,5 @@ implemented surface.
 - [x] Load configured servers in `cmd/root.go`.
 - [x] Add fake MCP server test fixture.
 - [x] Add Batch 1 tests and docs.
-- [ ] Implement resources/prompts in Batch 2.
-- [ ] Add Batch 2 tests and docs.
+- [x] Implement resources/prompts in Batch 2.
+- [x] Add Batch 2 tests and docs.

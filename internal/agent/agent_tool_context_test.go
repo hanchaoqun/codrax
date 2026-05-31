@@ -57,7 +57,9 @@ func (t *captureParamsTool) Execute(_ *types.BusContext, params json.RawMessage)
 }
 
 type captureMCPServer struct {
-	got json.RawMessage
+	got       json.RawMessage
+	resources []mcp.ResourceSchema
+	prompts   []mcp.PromptSchema
 }
 
 func (s *captureMCPServer) Name() string                   { return "capture_mcp" }
@@ -78,6 +80,15 @@ func (s *captureMCPServer) CallTool(name string, params json.RawMessage) (types.
 		Success:    true,
 		Timestamp:  time.Now(),
 	}, nil
+}
+func (s *captureMCPServer) ListResources() []mcp.ResourceSchema {
+	return append([]mcp.ResourceSchema(nil), s.resources...)
+}
+func (s *captureMCPServer) ReadResource(uri string) (types.MCPResponse, error) {
+	return types.MCPResponse{ServerName: s.Name(), Method: "resources/read", ResourceURI: uri, Summary: "resource " + uri, Success: true, Timestamp: time.Now()}, nil
+}
+func (s *captureMCPServer) ListPrompts() []mcp.PromptSchema {
+	return append([]mcp.PromptSchema(nil), s.prompts...)
 }
 func (s *captureMCPServer) Close() error { return nil }
 
@@ -224,6 +235,42 @@ func TestBuildToolSchemas_ExposesMCPOnlyToExplorerFamily(t *testing.T) {
 	extractorSchemas := extractor.buildToolSchemas(sk, &types.AgentContext{Stage: types.StageExtract})
 	if schemaNamesContain(extractorSchemas, "capture_mcp__capture_mcp_params") {
 		t.Fatalf("extractor must not see MCP tools, got %+v", schemaNames(extractorSchemas))
+	}
+}
+
+func TestMCPReadResourceToolReturnsMCPResponse(t *testing.T) {
+	mcpReg := mcp.NewRegistry()
+	capture := &captureMCPServer{
+		resources: []mcp.ResourceSchema{{URI: "mcp://docs/spec", Name: "spec", Description: "test spec"}},
+		prompts:   []mcp.PromptSchema{{Name: "triage", Description: "test prompt"}},
+	}
+	mcpReg.Register(capture)
+
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{MCPServers: mcpReg}, nil)
+	schemas := base.buildToolSchemas(&skill.Config{}, &types.AgentContext{Stage: types.StageExplore})
+	if !schemaNamesContain(schemas, "mcp_read_resource") {
+		t.Fatalf("explorer should see mcp_read_resource when resources exist, got %+v", schemaNames(schemas))
+	}
+	res, mcpResp := base.executeTool(&types.AgentContext{Stage: types.StageExplore}, llm.ToolCall{
+		ID:     "mcp-read-resource",
+		Name:   "mcp_read_resource",
+		Params: json.RawMessage(`{"uri":"mcp://docs/spec"}`),
+	})
+	if res != nil {
+		t.Fatalf("mcp_read_resource should return MCP response, got local result: %+v", res)
+	}
+	if mcpResp == nil || !mcpResp.Success || mcpResp.ResourceURI != "mcp://docs/spec" {
+		t.Fatalf("unexpected MCP resource response: %+v", mcpResp)
+	}
+	messages := base.buildInitialMessages(&types.AgentContext{Stage: types.StageExplore}, &skill.Config{Name: "explore-skill"})
+	var joined strings.Builder
+	for _, msg := range messages {
+		joined.WriteString(msg.Content)
+	}
+	if !strings.Contains(joined.String(), "External Guidance (MCP)") ||
+		!strings.Contains(joined.String(), "mcp://docs/spec") ||
+		!strings.Contains(joined.String(), "capture_mcp.triage") {
+		t.Fatalf("MCP external guidance missing resource/prompt details:\n%s", joined.String())
 	}
 }
 
