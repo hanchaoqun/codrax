@@ -1185,7 +1185,7 @@ agents:
 
 | 键 | 默认 | 作用 |
 |---|---|---|
-| `mcp_max_servers` | 8 | 最大 MCP server 数 |
+| `mcp_max_servers` | 8 | 启动时最多加载多少个 MCP server;这是 server 个数上限,不是并发数或每个 server 的工具数上限 |
 | `mcp_servers` | `[]` | 可选 stdio MCP server 列表。为空时不改变 prompt、工具 schema、调度或答案落地 |
 | `mcp_servers[].name` | 必填 | server 名;模型可见工具名会变成 `<server>__<tool>` |
 | `mcp_servers[].transport` | `stdio` | 当前支持 `stdio`;其它 transport 会 fail-loud |

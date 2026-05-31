@@ -175,8 +175,11 @@
 #     application/vnd.codrax.observation+json,行号/行范围/行坐标会作为
 #     外部 MCP 观测保留。普通文本/普通 JSON 不会被猜测行号。
 #
-# mcp_max_servers — max configured servers. Default 8.
-#   最大 server 数。默认 8。
+# mcp_max_servers — maximum MCP servers loaded at startup. Default 8.
+#   This is a server-count guardrail, not a concurrency limit or a per-server
+#   tool-count limit.
+#   启动时最多加载多少个 MCP server。默认 8。这是 server 个数上限,
+#   不是并发数,也不是每个 server 的工具数上限。
 # mcp_max_servers: 8
 #
 # mcp_servers:
