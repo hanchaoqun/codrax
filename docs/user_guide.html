@@ -1535,6 +1535,253 @@ mcp_servers:
 </tr>
 </tbody>
 </table></div>
+<h3 id="shell-脚本版完整-demo-mcp">Shell 脚本版完整 demo MCP</h3>
+<p>如果你的 MCP 只是把公司已有命令、HTTP 查询脚本、日志检索脚本包装成只读工具,用 shell 写一个 stdio MCP server 也可以。下面是一个完整可运行的版本,功能和上面的 Python demo 类似:</p>
+<ul>
+<li>暴露 <code>search_alerts</code> 工具,支持动态参数 <code>query</code>、<code>service</code>、<code>since</code>、<code>limit</code>。</li>
+<li>暴露 <code>resources/list</code> / <code>resources/read</code>,提供一个用户自定义 workflow。</li>
+<li>返回 <code>codrax.mcp.observation.v1</code> typed observation,让外部行号进入 MCP 外部观测通道。</li>
+</ul>
+<p>依赖:</p>
+<ul>
+<li><code>bash</code></li>
+<li><code>jq</code></li>
+</ul>
+<h4 id="第-1-步准备-shell-mcp-server">第 1 步:准备 shell MCP server</h4>
+<p>创建 <code>/opt/codrax-demo/mcp_alerts_shell.sh</code>:</p>
+<pre><code class="language-bash">#!/usr/bin/env bash
+set -euo pipefail
+
+if ! command -v jq &gt;/dev/null 2&gt;&amp;1; then
+  echo "mcp_alerts_shell.sh requires jq" &gt;&amp;2
+  exit 1
+fi
+
+WORKFLOW_URI="mcp://shell-alerts/workflows/alert-code-analysis"
+WORKFLOW_TEXT=$(cat &lt;&lt;'WORKFLOW_TEXT_EOF'
+Shell workflow: alert + source-code analysis
+
+Use this workflow when the user asks whether a production alert, incident,
+ticket, or monitoring symptom is related to the current repository.
+
+Recommended explorer flow:
+1. Call shell_alerts__search_alerts first. Fill query from symptom words, service
+   from the service/module named by the user, and since from the user time window.
+2. Treat returned rows as external observations, not current source citations.
+3. Continue source-code exploration unless the user explicitly forbids it.
+4. In the final answer, separate external alert facts from current repository
+   file:line evidence.
+WORKFLOW_TEXT_EOF
+)
+
+INCIDENTS=$'INC-17|checkout|checkout timeout after cache config rollout|p1|open|7|checkout p95 latency rose after cache ttl changed from 30s to 1s\nINC-24|payment|payment gateway retry storm|p2|mitigated|12|retry storm correlated with upstream 503 spikes\nINC-31|checkout|checkout cache miss burst|p2|closed|18|cache miss burst caused extra database load during deploy'
+
+reply() {
+  local id_json="$1"
+  local result_json="$2"
+  jq -nc --argjson id "$id_json" --argjson result "$result_json" \
+    '{jsonrpc:"2.0", id:$id, result:$result}'
+}
+
+reply_error() {
+  local id_json="$1"
+  local code="$2"
+  local message="$3"
+  jq -nc --argjson id "$id_json" --argjson code "$code" --arg message "$message" \
+    '{jsonrpc:"2.0", id:$id, error:{code:$code, message:$message}}'
+}
+
+tool_schema() {
+  jq -nc '{
+    tools: [
+      {
+        name: "search_alerts",
+        description: "Use when the user asks about production alerts, incidents, tickets, or recent operational symptoms. Fill query from symptom words. Fill service only when the user names a service or module. Fill since when the user gives a time range such as 24h. Return line-backed external observations; after using this tool, continue source-code exploration unless the user explicitly says not to.",
+        inputSchema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            query: {
+              type: "string",
+              description: "Symptom words, error text, or incident id from the current user question."
+            },
+            service: {
+              type: "string",
+              description: "Optional service/module name from the user question, e.g. checkout or payment."
+            },
+            since: {
+              type: "string",
+              description: "Optional relative or absolute time window, e.g. 24h or 2026-05-29T10:00:00+08:00."
+            },
+            limit: {
+              type: "integer",
+              description: "Maximum rows to return. Default 5; do not exceed 20."
+            }
+          },
+          required: ["query"]
+        }
+      }
+    ]
+  }'
+}
+
+resources_list() {
+  jq -nc --arg uri "$WORKFLOW_URI" '{
+    resources: [
+      {
+        uri: $uri,
+        name: "shell-alert-code-analysis-workflow",
+        description: "Read this workflow when the user asks to combine production alerts, incidents, tickets, or monitoring symptoms with current source-code analysis.",
+        mimeType: "text/plain"
+      }
+    ]
+  }'
+}
+
+search_alerts() {
+  local args_json="$1"
+  local query service since limit query_lc service_lc observations rows summary envelope
+  query="$(jq -r '.query // ""' &lt;&lt;&lt;"$args_json")"
+  service="$(jq -r '.service // ""' &lt;&lt;&lt;"$args_json")"
+  since="$(jq -r '.since // ""' &lt;&lt;&lt;"$args_json")"
+  limit="$(jq -r '.limit // 5' &lt;&lt;&lt;"$args_json")"
+  if ! [[ "$limit" =~ ^[0-9]+$ ]]; then
+    limit=5
+  fi
+  if (( limit &lt; 1 )); then limit=1; fi
+  if (( limit &gt; 20 )); then limit=20; fi
+
+  query_lc="$(tr "[:upper:]" "[:lower:]" &lt;&lt;&lt;"$query")"
+  service_lc="$(tr "[:upper:]" "[:lower:]" &lt;&lt;&lt;"$service")"
+  observations='[]'
+  rows=0
+
+  while IFS='|' read -r id svc title severity status line_no detail; do
+    local svc_lc haystack ok word obs
+    svc_lc="$(tr "[:upper:]" "[:lower:]" &lt;&lt;&lt;"$svc")"
+    if [[ -n "$service_lc" &amp;&amp; "$svc_lc" != "$service_lc" ]]; then
+      continue
+    fi
+    haystack="$(tr "[:upper:]" "[:lower:]" &lt;&lt;&lt;"$id $svc $title $detail")"
+    ok=1
+    for word in $query_lc; do
+      if [[ "$haystack" != *"$word"* ]]; then
+        ok=0
+        break
+      fi
+    done
+    if (( ok == 0 )); then
+      continue
+    fi
+
+    obs="$(jq -nc \
+      --arg summary "$id $svc $severity $status: $detail" \
+      --argjson line "$line_no" \
+      --arg selector "incident_id=$id" \
+      --arg payload_ref "mcp://shell-alerts/incidents/$id" \
+      '{summary:$summary, line_start:$line, line_end:$line, selector:$selector, payload_ref:$payload_ref}')"
+    observations="$(jq -nc --argjson arr "$observations" --argjson obs "$obs" '$arr + [$obs]')"
+    rows=$((rows + 1))
+    if (( rows &gt;= limit )); then
+      break
+    fi
+  done &lt;&lt;&lt;"$INCIDENTS"
+
+  summary="found ${rows} alert row(s) for query='${query}', service='${service}', since='${since}'"
+  envelope="$(jq -nc \
+    --arg summary "$summary" \
+    --arg uri "mcp://shell-alerts/incidents" \
+    --argjson observations "$observations" \
+    '{version:"codrax.mcp.observation.v1", summary:$summary, resource_uri:$uri, observations:$observations}')"
+  jq -nc --arg text "$envelope" '{
+    content: [
+      {
+        type: "text",
+        mimeType: "application/vnd.codrax.observation+json",
+        text: $text
+      }
+    ]
+  }'
+}
+
+while IFS= read -r line; do
+  [[ -z "$line" ]] &amp;&amp; continue
+  id_json="$(jq -c '.id // empty' &lt;&lt;&lt;"$line")"
+  if [[ -z "$id_json" ]]; then
+    # JSON-RPC notification, such as notifications/initialized. Do not reply.
+    continue
+  fi
+  method="$(jq -r '.method // ""' &lt;&lt;&lt;"$line")"
+
+  case "$method" in
+    initialize)
+      reply "$id_json" "$(jq -nc '{protocolVersion:"2024-11-05", capabilities:{tools:{}, resources:{}}, serverInfo:{name:"codrax-shell-alerts", version:"0.1.0"}}')"
+      ;;
+    tools/list)
+      reply "$id_json" "$(tool_schema)"
+      ;;
+    tools/call)
+      name="$(jq -r '.params.name // ""' &lt;&lt;&lt;"$line")"
+      args_json="$(jq -c '.params.arguments // {}' &lt;&lt;&lt;"$line")"
+      if [[ "$name" != "search_alerts" ]]; then
+        reply_error "$id_json" -32602 "unknown tool: $name"
+      elif [[ "$(jq -r '.query // ""' &lt;&lt;&lt;"$args_json")" == "" ]]; then
+        reply_error "$id_json" -32602 "query is required"
+      else
+        reply "$id_json" "$(search_alerts "$args_json")"
+      fi
+      ;;
+    resources/list)
+      reply "$id_json" "$(resources_list)"
+      ;;
+    resources/read)
+      uri="$(jq -r '.params.uri // ""' &lt;&lt;&lt;"$line")"
+      if [[ "$uri" != "$WORKFLOW_URI" ]]; then
+        reply_error "$id_json" -32602 "unknown resource: $uri"
+      else
+        reply "$id_json" "$(jq -nc --arg uri "$WORKFLOW_URI" --arg text "$WORKFLOW_TEXT" '{contents:[{uri:$uri, mimeType:"text/plain", text:$text}]}')"
+      fi
+      ;;
+    *)
+      reply_error "$id_json" -32601 "unsupported method: $method"
+      ;;
+  esac
+done
+</code></pre>
+<p>赋予执行权限:</p>
+<pre><code class="language-bash">chmod +x /opt/codrax-demo/mcp_alerts_shell.sh
+</code></pre>
+<h4 id="第-2-步配置-shell-mcp">第 2 步:配置 shell MCP</h4>
+<p>在 <code>codrax.yaml</code> 中加入:</p>
+<pre><code class="language-yaml">mcp_max_servers: 8
+
+mcp_servers:
+  - name: shell_alerts
+    transport: stdio
+    command: /opt/codrax-demo/mcp_alerts_shell.sh
+    inherit_env: false
+    startup_timeout_ms: 3000
+    call_timeout_ms: 10000
+    max_response_bytes: 1048576
+</code></pre>
+<p>生效后,模型看到的工具名是 <code>shell_alerts__search_alerts</code>,workflow URI 是 <code>mcp://shell-alerts/workflows/alert-code-analysis</code>。</p>
+<h4 id="第-3-步验证-shell-mcp">第 3 步:验证 shell MCP</h4>
+<p>直接运行脚本,输入:</p>
+<pre><code class="language-json">{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+</code></pre>
+<p>应该返回 <code>search_alerts</code> 的描述和 <code>inputSchema</code>。再测试动态参数:</p>
+<pre><code class="language-json">{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"search_alerts","arguments":{"query":"checkout timeout cache","service":"checkout","since":"24h","limit":5}}}
+</code></pre>
+<p>应该返回 <code>application/vnd.codrax.observation+json</code>,其中包含 <code>mcp://shell-alerts/incidents</code> 和行号观测。</p>
+<p>在 codrax 里提问:</p>
+<pre><code class="language-text">结合最近 24 小时的 checkout 告警和当前代码,分析 checkout timeout 是否和缓存配置有关。
+</code></pre>
+<p>REPL 面板可能显示:</p>
+<pre><code class="language-text">⇢ 探索 · 第 1 轮 调用工具 mcp_read_resource uri=mcp://shell-alerts/workflows/alert-code-analysis
+⇢ 探索 · 第 1 轮 调用工具 shell_alerts__search_alerts query=checkout timeout cache service=checkout
+• MCP 返回 1 条外部观测，资源 mcp://shell-alerts/incidents，行 7
+</code></pre>
+<p>shell 版本适合快速把已有命令包装起来。生产环境里,如果工具需要复杂认证、分页、并发、缓存或更严格 JSON 校验,建议改成 Go/Python/Node.js server,但工具描述、动态参数、workflow resource 和 typed observation 的设计方式保持一致。</p>
 <h3 id="mcp-server-返回结果怎么写">MCP server 返回结果怎么写</h3>
 <p>普通 MCP text/resource 结果可以直接返回简短摘要;codrax 会把它作为外部观测。如果结果很大,建议 server 自己返回摘要 + 外部引用,不要把几 MB 原文直接塞进 <code>text</code>。</p>
 <p>codrax 也会保护用户面板和上下文:</p>
