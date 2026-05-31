@@ -1,0 +1,23 @@
+# Trace query external fixture — Android/Perfetto CPU frequency limits
+#
+# Source fixture:
+#   https://github.com/google/perfetto/blob/main/test/trace_processor/diff_tests/parser/sched/cpu_frequency_limits.systrace
+# License: Apache-2.0, Google Perfetto project.
+#
+# Coverage target: real Perfetto cpu_frequency_limits rows. This is an
+# event_search/window_stats smoke case for frequency-limit evidence and same
+# timestamp/same CPU rows.
+ID="trace_query_android_perfetto_cpu_frequency_limits"
+NAME="trace query — Android Perfetto cpu_frequency_limits fixture"
+QUESTION="这是一段 Android/Perfetto systrace 文本。请概括 CPU6 在 0.09s 到 0.13s 的 cpu_frequency_limits 变化，指出 max 限制最低的记录是什么，不要套用 Harmony 优先级语义。"
+HTRACE='       <unknown>-200   (-----) [000] .... 0.090000: cpu_frequency_limits: min=500000 max=2800000 cpu_id=6
+       <unknown>-500   (-----) [000] .... 0.100000: cpu_frequency_limits: min=500000 max=1700000 cpu_id=6
+       <unknown>-80    (-----) [000] .... 0.110000: cpu_frequency_limits: min=1400000 max=2800000 cpu_id=6
+       <unknown>-300   (-----) [000] .... 0.120000: cpu_frequency_limits: min=500000 max=1500000 cpu_id=6
+       <unknown>-300   (-----) [004] .... 0.120000: cpu_frequency_limits: min=600000 max=1400000 cpu_id=4
+       <unknown>-600   (-----) [004] .... 0.130000: cpu_frequency_limits: min=800000 max=2200000 cpu_id=4
+'
+EXPECT_CONTAINS="cpu_frequency_limits 1500000"
+EXPECT_MATCHES_REGEX="CPU ?6|cpu_id=6
+0\\.120000|0\\.12s|0\\.120s
+max[ =:]*1500000|1500000"

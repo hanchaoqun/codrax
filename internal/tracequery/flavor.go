@@ -39,6 +39,9 @@ func newFlavorVote(path string) *flavorVote {
 	if strings.Contains(base, "hitrace") {
 		v.add(TraceFlavorHarmonyHitrace, 2, "path_name_hitrace")
 	}
+	if strings.Contains(base, "bytrace") || strings.Contains(base, "harmony") || strings.Contains(base, "openharmony") || strings.Contains(base, "ohos") {
+		v.add(TraceFlavorHarmonyHitrace, 4, "path_name_harmony")
+	}
 	if strings.Contains(base, "atrace") {
 		v.add(TraceFlavorAndroidAtrace, 2, "path_name_atrace")
 	}
@@ -66,7 +69,7 @@ func (v *flavorVote) observeRawLine(line string) {
 		}
 	case strings.Contains(lower, "harmonyos") || strings.Contains(lower, "openharmony") || strings.Contains(lower, "ohos"):
 		v.add(TraceFlavorHarmonyHitrace, 2, "raw_harmony_marker")
-	case strings.Contains(lower, "android systrace") || strings.Contains(lower, "atrace"):
+	case strings.Contains(lower, "android systrace"):
 		v.add(TraceFlavorAndroidAtrace, 2, "raw_android_marker")
 	}
 }
@@ -92,7 +95,7 @@ func (v *flavorVote) observeEvent(ev Event) {
 		v.add(TraceFlavorAndroidAtrace, 1.5, "event_android_system")
 	}
 	if strings.Contains(text, "binder:") && strings.Contains(text, "_") {
-		v.add(TraceFlavorAndroidAtrace, 0.5, "event_binder_label")
+		v.add(TraceFlavorAndroidAtrace, 0.2, "event_binder_label")
 	}
 }
 

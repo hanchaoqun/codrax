@@ -14,7 +14,7 @@ import (
 )
 
 var (
-	ftraceLineRE   = regexp.MustCompile(`^\s*(.+)-(\d+)\s+\(\s*(\d+)\)\s+\[(\d+)\]\s+\S+\s+([0-9]+(?:\.[0-9]+)?):\s+([A-Za-z0-9_./:-]+):?\s*(.*)$`)
+	ftraceLineRE   = regexp.MustCompile(`^\s*(.+)-(\d+)(?:\s+\(\s*([0-9-]+)\))?\s+\[(\d+)\]\s+\S+\s+([0-9]+(?:\.[0-9]+)?):\s+([A-Za-z0-9_./:-]+):?\s*(.*)$`)
 	kvRE           = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)=([^ ]+)`)
 	blockRequestRE = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(?:(?:\d+)\s+)?\([^)]*\)\s+(\d+)\s+\+\s+(\d+)`)
 	blockRemapRE   = regexp.MustCompile(`^(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-`)

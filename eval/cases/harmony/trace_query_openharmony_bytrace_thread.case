@@ -1,0 +1,54 @@
+# Trace query external fixture — OpenHarmony SmartPerf bytrace thread sample
+#
+# Source fixture:
+#   https://gitee.com/openharmony-sig/smartperf/raw/master/host/trace_streamer/test/resource/ut_bytrace_input_thread.txt
+# License: Apache-2.0, OpenHarmony-SIG SmartPerf project.
+#
+# Coverage target: real OpenHarmony/SmartPerf bytrace text with sched_waking,
+# sched_wakeup, sched_switch, and binder-like thread names. The question explicitly
+# marks the platform as OpenHarmony so flavor/priority semantics should follow
+# user intent.
+ID="trace_query_openharmony_bytrace_thread"
+NAME="trace query — OpenHarmony bytrace wakeup thread fixture"
+QUESTION="这是一段 OpenHarmony/鸿蒙 bytrace 文本。请分析 168758.662877s 到 168758.663329s 窗口内 ACCS0 pid=2716 与 Binder:924_3 pid=1200 的调度/唤醒关系，并说明平台时基是秒、优先级语义按鸿蒙处理。"
+HTRACE='# TRACE:
+# tracer: nop
+#
+# entries-in-buffer/entries-written: 1373949/1373949   #P:4
+#
+#           TASK-PID    TGID   CPU#  ||||       |         |
+           ACCS0-2716  ( 2519) [000] d..5 168758.662877: sched_waking: comm=Binder:924_3 pid=1200 prio=120 target_cpu=001
+           ACCS0-2716  ( 2519) [000] d..6 168758.662898: sched_wakeup: comm=Binder:924_3 pid=1200 prio=120 target_cpu=001
+          <idle>-0     (-----) [001] d..3 168758.663017: sched_switch: prev_comm=swapper/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=Binder:924_3 next_pid=1200 next_prio=120
+          atrace-8528  ( 8528) [003] d..3 168758.663039: sched_switch: prev_comm=atrace prev_pid=8528 prev_prio=120 prev_state=S ==> next_comm=swapper/3 next_pid=0 next_prio=120
+          <idle>-0     (-----) [003] d..3 168758.663092: sched_waking: comm=ksoftirqd/3 pid=29 prio=120 target_cpu=003
+  HeapTaskDaemon-2532  ( 2519) [000] dnh2 168758.663097: sched_wakeup: comm=rcu_preempt pid=7 prio=98 target_cpu=000)
+          <idle>-0     (-----) [003] dn.4 168758.663104: sched_wakeup: comm=ksoftirqd/3 pid=29 prio=120 target_cpu=003
+  HeapTaskDaemon-2532  ( 2519) [000] d..3 168758.663107: sched_switch: prev_comm=HeapTaskDaemon prev_pid=2532 prev_prio=124 prev_state=R ==> next_comm=rcu_preempt next_pid=7 next_prio=98
+     rcu_preempt-7     (    7) [000] d..3 168758.663126: sched_switch: prev_comm=rcu_preempt prev_pid=7 prev_prio=98 prev_state=S ==> next_comm=HeapTaskDaemon next_pid=2532 next_prio=124
+          <idle>-0     (-----) [003] d..3 168758.663126: sched_switch: prev_comm=swapper/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=ksoftirqd/3 next_pid=29 next_prio=120
+     ksoftirqd/3-29    (   29) [003] d..3 168758.663159: sched_switch: prev_comm=ksoftirqd/3 prev_pid=29 prev_prio=120 prev_state=S ==> next_comm=swapper/3 next_pid=0 next_prio=120
+          <idle>-0     (-----) [003] d..4 168758.663181: sched_waking: comm=rcu_preempt pid=7 prio=98 target_cpu=000
+          <idle>-0     (-----) [003] d..3 168758.663190: sched_waking: comm=ksoftirqd/3 pid=29 prio=120 target_cpu=003
+  HeapTaskDaemon-2532  ( 2519) [000] dnh2 168758.663194: sched_wakeup: comm=rcu_preempt pid=7 prio=98 target_cpu=000
+          <idle>-0     (-----) [003] dn.4 168758.663198: sched_wakeup: comm=ksoftirqd/3 pid=29 prio=120 target_cpu=003
+  HeapTaskDaemon-2532  ( 2519) [000] d..3 168758.663199: sched_switch: prev_comm=HeapTaskDaemon prev_pid=2532 prev_prio=124 prev_state=R+ ==> next_comm=rcu_preempt next_pid=7 next_prio=98
+     rcu_preempt-7     (    7) [000] d..3 168758.663209: sched_switch: prev_comm=rcu_preempt prev_pid=7 prev_prio=98 prev_state=S ==> next_comm=HeapTaskDaemon next_pid=2532 next_prio=124
+          <idle>-0     (-----) [003] d..3 168758.663212: sched_switch: prev_comm=swapper/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=ksoftirqd/3 next_pid=29 next_prio=120
+     ksoftirqd/3-29    (   29) [003] d..3 168758.663239: sched_switch: prev_comm=ksoftirqd/3 prev_pid=29 prev_prio=120 prev_state=S ==> next_comm=swapper/3 next_pid=0 next_prio=120
+          <idle>-0     (-----) [003] d..4 168758.663261: sched_waking: comm=rcu_preempt pid=7 prio=98 target_cpu=000
+          <idle>-0     (-----) [003] d..3 168758.663272: sched_waking: comm=ksoftirqd/3 pid=29 prio=120 target_cpu=003
+  HeapTaskDaemon-2532  ( 2519) [000] dnh2 168758.663274: sched_wakeup: comm=rcu_preempt pid=7 prio=98 target_cpu=000
+          <idle>-0     (-----) [003] dn.4 168758.663279: sched_wakeup: comm=ksoftirqd/3 pid=29 prio=120 target_cpu=003
+  HeapTaskDaemon-2532  ( 2519) [000] d..3 168758.663280: sched_switch: prev_comm=HeapTaskDaemon prev_pid=2532 prev_prio=124 prev_state=R ==> next_comm=rcu_preempt next_pid=7 next_prio=98
+     rcu_preempt-7     (    7) [000] d..3 168758.663290: sched_switch: prev_comm=rcu_preempt prev_pid=7 prev_prio=98 prev_state=S ==> next_comm=HeapTaskDaemon next_pid=2532 next_prio=124
+          <idle>-0     (-----) [003] d..3 168758.663294: sched_switch: prev_comm=swapper/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=ksoftirqd/3 next_pid=29 next_prio=120
+           <...>-1200  (-----) [001] d..3 168758.663312: sched_waking: comm=ACCS0 pid=2716 prio=120 target_cpu=000
+     ksoftirqd/3-29    (   29) [003] d..3 168758.663316: sched_switch: prev_comm=ksoftirqd/3 prev_pid=29 prev_prio=120 prev_state=S ==> next_comm=swapper/3 next_pid=0 next_prio=120
+           <...>-1200  (-----) [001] d..4 168758.663324: sched_wakeup: comm=ACCS0 pid=2716 prio=120 target_cpu=000
+  HeapTaskDaemon-2532  ( 2519) [000] d..3 168758.663329: sched_switch: prev_comm=HeapTaskDaemon prev_pid=2532 prev_prio=124 prev_state=R ==> next_comm=ACCS0 next_pid=2716 next_prio=120
+'
+EXPECT_CONTAINS="Binder:924_3 ACCS0"
+EXPECT_MATCHES_REGEX="(秒|seconds|s).*168758|168758.*(秒|seconds|s)
+(Binder:924_3|pid ?1200).*(ACCS0|pid ?2716)|(ACCS0|pid ?2716).*(Binder:924_3|pid ?1200)
+(鸿蒙|Harmony|OpenHarmony|hitrace|bytrace)"

@@ -1,0 +1,42 @@
+# TRACE:
+# tracer: nop
+#
+# entries-in-buffer/entries-written: 1373949/1373949   #P:4
+#
+#                                      _-----=> irqs-off
+#                                     / _----=> need-resched
+#                                    | / _---=> hardirq/softirq
+#                                    || / _--=> preempt-depth
+#                                    ||| /     delay
+#           TASK-PID    TGID   CPU#  ||||    TIMESTAMP  FUNCTION
+#              | |        |      |   ||||       |         |
+           ACCS0-2716  ( 2519) [000] d..5 168758.662877: sched_waking: comm=Binder:924_3 pid=1200 prio=120 target_cpu=001
+           ACCS0-2716  ( 2519) [000] d..6 168758.662898: sched_wakeup: comm=Binder:924_3 pid=1200 prio=120 target_cpu=001
+          <idle>-0     (-----) [001] d..3 168758.663017: sched_switch: prev_comm=swapper/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=Binder:924_3 next_pid=1200 next_prio=120
+          atrace-8528  ( 8528) [003] d..3 168758.663039: sched_switch: prev_comm=atrace prev_pid=8528 prev_prio=120 prev_state=S ==> next_comm=swapper/3 next_pid=0 next_prio=120
+          <idle>-0     (-----) [003] d..3 168758.663092: sched_waking: comm=ksoftirqd/3 pid=29 prio=120 target_cpu=003
+  HeapTaskDaemon-2532  ( 2519) [000] dnh2 168758.663097: sched_wakeup: comm=rcu_preempt pid=7 prio=98 target_cpu=000)
+          <idle>-0     (-----) [003] dn.4 168758.663104: sched_wakeup: comm=ksoftirqd/3 pid=29 prio=120 target_cpu=003
+  HeapTaskDaemon-2532  ( 2519) [000] d..3 168758.663107: sched_switch: prev_comm=HeapTaskDaemon prev_pid=2532 prev_prio=124 prev_state=R ==> next_comm=rcu_preempt next_pid=7 next_prio=98
+     rcu_preempt-7     (    7) [000] d..3 168758.663126: sched_switch: prev_comm=rcu_preempt prev_pid=7 prev_prio=98 prev_state=S ==> next_comm=HeapTaskDaemon next_pid=2532 next_prio=124
+          <idle>-0     (-----) [003] d..3 168758.663126: sched_switch: prev_comm=swapper/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=ksoftirqd/3 next_pid=29 next_prio=120
+     ksoftirqd/3-29    (   29) [003] d..3 168758.663159: sched_switch: prev_comm=ksoftirqd/3 prev_pid=29 prev_prio=120 prev_state=S ==> next_comm=swapper/3 next_pid=0 next_prio=120
+          <idle>-0     (-----) [003] d..4 168758.663181: sched_waking: comm=rcu_preempt pid=7 prio=98 target_cpu=000
+          <idle>-0     (-----) [003] d..3 168758.663190: sched_waking: comm=ksoftirqd/3 pid=29 prio=120 target_cpu=003
+  HeapTaskDaemon-2532  ( 2519) [000] dnh2 168758.663194: sched_wakeup: comm=rcu_preempt pid=7 prio=98 target_cpu=000
+          <idle>-0     (-----) [003] dn.4 168758.663198: sched_wakeup: comm=ksoftirqd/3 pid=29 prio=120 target_cpu=003
+  HeapTaskDaemon-2532  ( 2519) [000] d..3 168758.663199: sched_switch: prev_comm=HeapTaskDaemon prev_pid=2532 prev_prio=124 prev_state=R+ ==> next_comm=rcu_preempt next_pid=7 next_prio=98
+     rcu_preempt-7     (    7) [000] d..3 168758.663209: sched_switch: prev_comm=rcu_preempt prev_pid=7 prev_prio=98 prev_state=S ==> next_comm=HeapTaskDaemon next_pid=2532 next_prio=124
+          <idle>-0     (-----) [003] d..3 168758.663212: sched_switch: prev_comm=swapper/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=ksoftirqd/3 next_pid=29 next_prio=120
+     ksoftirqd/3-29    (   29) [003] d..3 168758.663239: sched_switch: prev_comm=ksoftirqd/3 prev_pid=29 prev_prio=120 prev_state=S ==> next_comm=swapper/3 next_pid=0 next_prio=120
+          <idle>-0     (-----) [003] d..4 168758.663261: sched_waking: comm=rcu_preempt pid=7 prio=98 target_cpu=000
+          <idle>-0     (-----) [003] d..3 168758.663272: sched_waking: comm=ksoftirqd/3 pid=29 prio=120 target_cpu=003
+  HeapTaskDaemon-2532  ( 2519) [000] dnh2 168758.663274: sched_wakeup: comm=rcu_preempt pid=7 prio=98 target_cpu=000
+          <idle>-0     (-----) [003] dn.4 168758.663279: sched_wakeup: comm=ksoftirqd/3 pid=29 prio=120 target_cpu=003
+  HeapTaskDaemon-2532  ( 2519) [000] d..3 168758.663280: sched_switch: prev_comm=HeapTaskDaemon prev_pid=2532 prev_prio=124 prev_state=R ==> next_comm=rcu_preempt next_pid=7 next_prio=98
+     rcu_preempt-7     (    7) [000] d..3 168758.663290: sched_switch: prev_comm=rcu_preempt prev_pid=7 prev_prio=98 prev_state=S ==> next_comm=HeapTaskDaemon next_pid=2532 next_prio=124
+          <idle>-0     (-----) [003] d..3 168758.663294: sched_switch: prev_comm=swapper/3 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=ksoftirqd/3 next_pid=29 next_prio=120
+           <...>-1200  (-----) [001] d..3 168758.663312: sched_waking: comm=ACCS0 pid=2716 prio=120 target_cpu=000
+     ksoftirqd/3-29    (   29) [003] d..3 168758.663316: sched_switch: prev_comm=ksoftirqd/3 prev_pid=29 prev_prio=120 prev_state=S ==> next_comm=swapper/3 next_pid=0 next_prio=120
+           <...>-1200  (-----) [001] d..4 168758.663324: sched_wakeup: comm=ACCS0 pid=2716 prio=120 target_cpu=000
+  HeapTaskDaemon-2532  ( 2519) [000] d..3 168758.663329: sched_switch: prev_comm=HeapTaskDaemon prev_pid=2532 prev_prio=124 prev_state=R ==> next_comm=ACCS0 next_pid=2716 next_prio=120

@@ -117,6 +117,18 @@ func TestParseLineSchedulerEvents(t *testing.T) {
 	}
 }
 
+func TestParseLineAcceptsPerfettoUnknownTGIDAndMissingTGID(t *testing.T) {
+	intern := newStringInterner()
+	ev, ok := ParseLine(1, `          <idle>-0     (-----) [006] ....    10.258854: sched_switch: prev_comm=swapper/6 prev_pid=0 prev_prio=120 prev_state=D ==> next_comm=foo next_pid=269 next_prio=130`, intern)
+	if !ok || ev.Type != EventSchedSwitch || ev.TGID != 0 || ev.NextPID != 269 || ev.CPU != 6 {
+		t.Fatalf("expected Perfetto (-----) TGID row to parse, got %+v ok=%v", ev, ok)
+	}
+	ev, ok = ParseLine(2, `          <idle>-0     [001] d..2  1234.000001: sched_switch: prev_comm=swapper/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=real_name next_pid=19999 next_prio=120`, intern)
+	if !ok || ev.Type != EventSchedSwitch || ev.NextPID != 19999 || ev.CPU != 1 {
+		t.Fatalf("expected no-TGID systrace row to parse, got %+v ok=%v", ev, ok)
+	}
+}
+
 func TestParseLineSupportedResourceEvents(t *testing.T) {
 	intern := newStringInterner()
 	cases := []struct {
@@ -233,6 +245,64 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 				t.Fatalf("ParseLine() = %+v ok=%v, want type %s", ev, ok, tc.want)
 			}
 		})
+	}
+}
+
+func TestExternalPerfettoSchedBlockedFixture(t *testing.T) {
+	idx, err := BuildIndex(context.Background(), filepath.Join("testdata", "android_perfetto_sched_blocked.systrace"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idx.ParsedKnown != 6 {
+		t.Fatalf("expected all public Perfetto rows to parse as known events, parsed=%d events=%d", idx.ParsedKnown, len(idx.Events))
+	}
+	stats := ComputeWindowStats(idx, Query{TimeStart: 20.0, TimeEnd: 21.2})
+	if stats.BlockedReasonCount != 2 || stats.IOWaitBlockedCount != 1 {
+		t.Fatalf("Perfetto blocked reason/iowait rows not summarized: %+v", stats)
+	}
+	tl := ThreadTimeline(idx, Query{PID: 2172, TimeStart: 21.05, TimeEnd: 21.13, MinDurationMs: 1})
+	if !timelineHasState(tl, StateIOWait) {
+		t.Fatalf("expected iowait timeline from public Perfetto fixture, got %+v", tl.Intervals)
+	}
+}
+
+func TestExternalPerfettoCPUFrequencyLimitsFixture(t *testing.T) {
+	idx, err := BuildIndex(context.Background(), filepath.Join("testdata", "android_perfetto_cpu_frequency_limits.systrace"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := Run(idx, Query{View: "event_search", TimeStart: 0.0, TimeEnd: 1.2, EventTypes: []EventType{EventCPUFrequency}, Limit: 20})
+	if len(res.Events) != 12 {
+		t.Fatalf("expected 12 cpu_frequency_limits rows to stay searchable as CPU-frequency events, got %d", len(res.Events))
+	}
+	for _, ev := range res.Events {
+		if ev.Name != "cpu_frequency_limits" || !ev.CPUForFieldValid {
+			t.Fatalf("cpu_frequency_limits row lost name/cpu_id context: %+v", ev.Event)
+		}
+	}
+}
+
+func TestExternalOpenHarmonyBytraceFixture(t *testing.T) {
+	idx, err := BuildIndex(context.Background(), filepath.Join("testdata", "harmony_openharmony_bytrace_thread.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if idx.TraceFlavor != TraceFlavorHarmonyHitrace {
+		t.Fatalf("OpenHarmony bytrace fixture should be flavor-classified as Harmony: flavor=%s signals=%v", idx.TraceFlavor, idx.FlavorSignals)
+	}
+	stats := ComputeWindowStats(idx, Query{TimeStart: 168758.662877, TimeEnd: 168758.663329})
+	if stats.EventCounts[EventSchedWakeup] == 0 || stats.EventCounts[EventSchedWaking] == 0 || len(stats.RunnableTop) == 0 || len(stats.TopRunning) == 0 {
+		t.Fatalf("OpenHarmony fixture should produce wakeup and scheduler summaries: %+v", stats)
+	}
+	events := EventSearch(idx, Query{PID: 2716, TimeStart: 168758.662898, TimeEnd: 168758.663329, EventTypes: []EventType{EventSchedWakeup}, Limit: 10})
+	found := false
+	for _, ev := range events {
+		if ev.PID == 1200 && ev.WakeePID == 2716 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected binder thread wakeup event from public OpenHarmony fixture, got %+v", events)
 	}
 }
 
