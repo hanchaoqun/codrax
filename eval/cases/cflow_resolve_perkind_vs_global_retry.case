@@ -1,0 +1,44 @@
+# Class probe — exact-resolution-under-condition, CONTROL-FLOW-discriminated
+# (sub-class A': discriminator is a branch guard, documented at the GUARD
+#  site but NOT at the symbol definition — the intermediate gradient point
+#  between site-local cond_resolve_* (A) and the cross-file undocumented
+#  s11b (B). Lets us localize where the binding breaks down.)
+#
+# Competing candidates (internal/orchestrator/orchestrator.go finalize
+# contract-repair loop, verified):
+#   - the GLOBAL finalize retry budget: state.retryBudgetExhausted()
+#     (line 5481), backed by ir.TaskGraph.ExecutionPolicy.RetryBudget —
+#     the overall cap on repair retries. The LEXICALLY SALIENT pick.
+#   - the PER-KIND cap: o.settings.RetryBudgetByKind.For(kind, fallback)
+#     (line 5504; yaml `retry_budget_by_kind`; type RetryBudgetByKindSettings
+#     @internal/types/config.go:175/234), gated by retryUsedForKind(kind)
+#     >= cap (line 5505). Stops a SINGLE recurring violation family at the
+#     finalize contract boundary WITHOUT re-requeueing the explore window.
+# The condition "the SAME violation kind keeps recurring (not different
+# problems rotating)" selects the per-kind cap: it fires (when that one
+# kind has consumed its slice) BEFORE the global budget is exhausted.
+# Neither RetryBudgetByKind nor RetryBudget carries a comment binding it
+# to "same kind repeats" at its DEFINITION — the discrimination is in the
+# guard ordering (global checked at 5481, per-kind only if global not yet
+# exhausted at 5503-5505). Naming only the global RetryBudget = class fail.
+ID="cflow_resolve_perkind_vs_global_retry"
+NAME="cflow-resolve — cap that stops one recurring violation kind vs the global retry budget"
+QUESTION="在 finalize（成文）阶段的契约-修复重试循环里有不止一个上限。当【同一种 violation kind 反复出现】（而不是不同问题在轮换）时，是哪个上限会在整体重试预算耗尽【之前】先把这一种反复出现的问题挡在 finalize 契约边界、不再回灌 explore 窗口？请给出这个按-kind 计的上限对应的配置项/字段名，并把它和整体（全局）的重试预算区分开。"
+# Two independent anchors (NOT same-line coupled): anchor 1 = the per-kind
+# cap SYMBOL must surface (precise — real identifiers ONLY); anchor 2 = the
+# "same violation kind recurs" condition descriptor (soft prose ok). The
+# global budget (salient sibling) is NOT banned — the question asks to
+# contrast the two.
+#
+# 2026-05-31 anti-false-positive fix: anchor 1 previously also accepted the
+# PROSE tokens `per.?kind` / `按.?kind`. That is the exact "hard gate built
+# on a noisy prose signal" anti-pattern. The first run NAMED the wrong
+# symbol (global FinalizeRepairHardCapDefault + per-CLASS retryUsedForClass)
+# and CONFIDENTLY RELABELLED it "按-kind 计的上限" — the prose anchor passed
+# it (false positive). RetryBudgetByKind / retryUsedForKind appeared ZERO
+# times in that answer. Anchor 1 now requires the real symbol, so a PASS
+# means the pipeline actually resolved the per-kind cap, not just used the
+# words "per-kind" while pointing at a global cap.
+EXPECT_MATCHES_REGEX="(RetryBudgetByKind|retry_budget_by_kind|RetryBudgetByKindSettings|retryUsedForKind)
+(同一|相同|同种|same).{0,12}(kind|种类|类型|violation|家族|违规)|violation.?(kind|family)|违规.?(种类|类型|家族)|每.?(种|类|kind)|按.?kind"
+EXPECT_NOT_CONTAINS="zzz_unmatched_sentinel_zzz"

@@ -1,0 +1,52 @@
+# Class probe — exact-resolution-under-condition, CONTROL-FLOW-discriminated
+# (sub-class B: discriminator is a branch guard, not a site-local artifact)
+#
+# Purpose: s11b's hardness is that the binding "condition -> governing
+# symbol" lives ONLY in cross-site control flow, with no comment/name at
+# the candidate revealing which condition it owns. The cond_resolve_*
+# probes all turned out to be sub-class A (discriminator written at the
+# candidate: a doc comment / field name / layer). This probe and its
+# cflow_resolve_* sibling test the HARD sub-class so we can tell whether
+# s11b is a systematic gap or a lone outlier.
+#
+# Competing candidates (internal/orchestrator/orchestrator.go, verified):
+#   - MaxRetriesPerStage (the per-stage cap; `max` at line 2272 via
+#     dynamicAnalyzeRetries). The LEXICALLY SALIENT pick: "how does the
+#     analyze retry loop stop" -> "the retry budget runs out".
+#   - the retry-storm detector (newAnalyzeRetryStormDetector @2618,
+#     threshold (maxAttempts+1)/2 = ceil(max/2)). When the SAME non-empty
+#     fingerprint repeats `threshold` CONSECUTIVE times, storm.exhausted()
+#     fires (line 2365: `if storm.exhausted() && attempt < max`) and the
+#     phase early-exits to the degraded path BEFORE the budget is spent.
+# The condition "keeps failing with the IDENTICAL shape" DETERMINISTICALLY
+# selects the storm detector: ceil(max/2) < max, so for a same-shape loop
+# the storm ALWAYS preempts MaxRetriesPerStage. Crucially, MaxRetriesPerStage
+# has NO comment saying "the storm detector preempts me" — the binding is
+# only in the loop's control flow. Naming only MaxRetriesPerStage = the
+# class failure (it is the answer for DIFFERENT-each-time failures, not
+# for the identical-shape case the question asks about).
+#
+# 2026-05-31 first-run result: FAIL, but NOT by the predicted mode. The
+# pipeline did not name MaxRetriesPerStage either — it named the EXPLORE
+# loop's CGEC convergence detector (detectStallAndAct / StallHardHits /
+# cgec_enforcers.go:744), a DIFFERENT same-fingerprint-stall mechanism in
+# the wrong phase, even though newAnalyzeRetryStormDetector appeared 13x in
+# its own exploration transcript. Two structurally-identical "same
+# fingerprint repeats -> terminate early" detectors exist (analyze-phase
+# storm @orchestrator.go:2618 vs explore-phase convergence @cgec_enforcers
+# .go:744); they differ ONLY by which loop they are wired into — a pure
+# control-flow/structural discriminator — and the pipeline picked the wrong
+# one. Caveat: this two-detector ambiguity makes the probe slightly unfair;
+# the cleaner control-flow fails are s11b + perkind_vs_global. The failure
+# mode here (confident wrong-phase sibling) is still diagnostic.
+ID="cflow_resolve_retry_storm_early_exit"
+NAME="cflow-resolve — what stops analyze retries when the SAME failure shape repeats"
+QUESTION="如果 analyze（分析）阶段一而再、再而三地以【完全相同的失败形态（同一 fingerprint，被同一个 gate 拒绝）】失败，这个重试循环在这种'原地打转'的情形下最终是怎么停下来的、由什么决定它的终止？请给出决定终止的机制名称，并说明它的触发条件/阈值与单纯的每阶段重试上限有何不同。"
+# Two independent anchors (NOT same-line coupled): the early-exit
+# mechanism must surface AND the same-shape-repeat / ceil(max/2) condition
+# must be addressed. An answer that names only the per-stage budget
+# (MaxRetriesPerStage) without the early-exit-on-repeat mechanism fails
+# anchor 1. The salient sibling is NOT banned — contrast is encouraged.
+EXPECT_MATCHES_REGEX="(newAnalyzeRetryStormDetector|analyzeRetryStormDetector|retry.?storm|重试风暴|storm)
+(同一|相同|一样|identical|same).{0,16}(fingerprint|指纹|形态|shape|失败|gate)|连续.{0,8}(相同|同样|同一|次)|consecutive|ceil\(|max.?\+.?1|/ ?2|一半|过半|减半|提前.{0,6}(终止|退出|break|降级|degrad)|before.{0,16}(budget|max|exhaust)"
+EXPECT_NOT_CONTAINS="zzz_unmatched_sentinel_zzz"
