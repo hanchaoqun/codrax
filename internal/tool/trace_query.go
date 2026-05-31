@@ -117,7 +117,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 		Limit:                p.Limit.Int(),
 		IncludeWindowStats:   p.IncludeWindowStats != nil && p.IncludeWindowStats.Bool(),
 	}
-	q.TraceFlavorHint, q.TraceFlavorHintSource = traceFlavorHintForQuery(ctx, p, sourceLabel)
+	q.TraceFlavorHint, q.TraceFlavorHintSource = traceFlavorHintForQuery(ctx, p, sourceLabel, path)
 	if p.IncludeWindowStats == nil && strings.TrimSpace(p.View) == "wakeup_chain" {
 		q.IncludeWindowStats = true
 	}
@@ -193,16 +193,62 @@ func parseTraceQueryEventTypes(raw []string) []tracequery.EventType {
 	return out
 }
 
-func traceFlavorHintForQuery(ctx *types.BusContext, p traceQueryParams, sourceLabel string) (tracequery.TraceFlavor, string) {
+func traceFlavorHintForQuery(ctx *types.BusContext, p traceQueryParams, sourceLabel, resolvedPath string) (tracequery.TraceFlavor, string) {
 	if flavor := tracequery.NormalizeTraceFlavor(firstNonEmptyTraceString(p.TraceFlavor, p.Platform)); flavor != "" && flavor != tracequery.TraceFlavorAuto {
 		return flavor, "tool_param"
 	}
-	if strings.TrimSpace(sourceLabel) == "attached_trace" && ctx != nil {
+	if flavor := traceFlavorHintFromUserRequest(ctx); flavor != "" && flavor != tracequery.TraceFlavorAuto {
+		return flavor, "user_request"
+	}
+	if ctx != nil && (strings.TrimSpace(sourceLabel) == "attached_trace" || traceQueryPathIsAttachedTraceBlob(ctx, resolvedPath)) {
 		if flavor := tracequery.NormalizeTraceFlavor(ctx.AttachedHitraceSource); flavor != "" && flavor != tracequery.TraceFlavorAuto {
 			return flavor, "attached_source"
 		}
 	}
 	return tracequery.TraceFlavorAuto, ""
+}
+
+func traceFlavorHintFromUserRequest(ctx *types.BusContext) tracequery.TraceFlavor {
+	if ctx == nil || ctx.Mutable == nil {
+		return tracequery.TraceFlavorAuto
+	}
+	text := strings.ToLower(ctx.Mutable.Objective())
+	harmony := strings.Contains(text, "harmony") ||
+		strings.Contains(text, "openharmony") ||
+		strings.Contains(text, "ohos") ||
+		strings.Contains(text, "hitrace") ||
+		strings.Contains(text, "bytrace") ||
+		strings.Contains(text, "鸿蒙") ||
+		strings.Contains(text, "东湖")
+	android := strings.Contains(text, "android") ||
+		strings.Contains(text, "安卓") ||
+		strings.Contains(text, "atrace")
+	switch {
+	case harmony && !android:
+		return tracequery.TraceFlavorHarmonyHitrace
+	case android && !harmony:
+		return tracequery.TraceFlavorAndroidAtrace
+	default:
+		return tracequery.TraceFlavorAuto
+	}
+}
+
+func traceQueryPathIsAttachedTraceBlob(ctx *types.BusContext, resolvedPath string) bool {
+	if ctx == nil || strings.TrimSpace(resolvedPath) == "" || strings.TrimSpace(ctx.WorkDir) == "" {
+		return false
+	}
+	want := filepath.Clean(filepath.Join(ctx.WorkDir, promptctx.AttachedTraceBlobName))
+	got := filepath.Clean(resolvedPath)
+	if !filepath.IsAbs(got) {
+		got = filepath.Clean(resolveToolPath(ctx, got))
+	}
+	if absWant, err := filepath.Abs(want); err == nil {
+		want = filepath.Clean(absWant)
+	}
+	if absGot, err := filepath.Abs(got); err == nil {
+		got = filepath.Clean(absGot)
+	}
+	return got == want
 }
 
 func normalizedTraceQueryWindow(p traceQueryParams) (float64, float64, string) {
@@ -251,7 +297,7 @@ func traceSecondNeedsNormalizationNote(v TraceSecond) bool {
 
 func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel, payloadRef string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace thread=%s pid=%s line_start=%s line_end=%s time_start=%s time_end=%s span_name=%s interaction_direction=%s recipe_name=%s trace_flavor=%s trace_flavor_confidence=%.2f payload_ref=%s]\n",
+	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace thread=%s pid=%s line_start=%s line_end=%s time_start=%s time_end=%s span_name=%s interaction_direction=%s recipe_name=%s trace_flavor=%s trace_flavor_confidence=%.2f priority_rule=%s payload_ref=%s]\n",
 		firstNonEmptyTraceString(result.View, p.View, "event_search"),
 		sourceLabel,
 		sanitizeForBanner(result.SourcePath),
@@ -267,6 +313,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		sanitizeForBanner(p.RecipeName),
 		sanitizeForBanner(result.TraceFlavor),
 		result.FlavorConfidence,
+		traceQueryPriorityRuleBanner(result.TraceFlavor),
 		sanitizeForBanner(payloadRef),
 	)
 	fmt.Fprintf(&b, "# Trace Query: %s\n\n", result.View)
@@ -451,7 +498,14 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	if len(result.Events) > 0 {
 		b.WriteString("## Events\n")
 		for _, ev := range result.Events {
-			fmt.Fprintf(&b, "- line=%d ts=%.6f type=%s thread=%s raw=%s\n", ev.Line, ev.Ts, ev.Type, traceThreadLabel(tracequery.ThreadRef{Comm: ev.Comm, PID: ev.PID, TGID: ev.TGID}), strings.TrimSpace(ev.Raw))
+			fmt.Fprintf(&b, "- line=%d ts=%.6f type=%s thread=%s%s raw=%s\n",
+				ev.Line,
+				ev.Ts,
+				ev.Type,
+				traceThreadLabel(tracequery.ThreadRef{Comm: ev.Comm, PID: ev.PID, TGID: ev.TGID}),
+				traceEventPriorityDetail(ev),
+				strings.TrimSpace(ev.Raw),
+			)
 		}
 		b.WriteString("\n")
 	}
@@ -477,6 +531,17 @@ func traceQueryArtifactID(sourceLabel string) string {
 		return "attached_trace"
 	}
 	return "trace_query"
+}
+
+func traceQueryPriorityRuleBanner(flavor string) string {
+	switch tracequery.TraceFlavor(strings.TrimSpace(flavor)) {
+	case tracequery.TraceFlavorHarmonyHitrace:
+		return "harmony_larger_numeric_higher_1_40_CFS_41_139_RT"
+	case tracequery.TraceFlavorAndroidAtrace:
+		return "android_raw_scheduler_priority_no_harmony_mapping"
+	default:
+		return "generic_raw_scheduler_priority"
+	}
 }
 
 func writeTraceIPCEdges(b *strings.Builder, edges []tracequery.IPCEdge) {
@@ -526,6 +591,30 @@ func tracePriorityDetail(td tracequery.ThreadDuration) string {
 		return fmt.Sprintf("prio=%d", td.Priority)
 	}
 	return fmt.Sprintf("prio=%d/%s", td.Priority, td.PriorityClass)
+}
+
+func traceEventPriorityDetail(ev tracequery.EventView) string {
+	var parts []string
+	if ev.PrevPrio > 0 {
+		parts = append(parts, traceEventPrioField("prev_prio", ev.PrevPrio, ev.PrevPrioClass))
+	}
+	if ev.NextPrio > 0 {
+		parts = append(parts, traceEventPrioField("next_prio", ev.NextPrio, ev.NextPrioClass))
+	}
+	if ev.WakeePrio > 0 {
+		parts = append(parts, traceEventPrioField("wakee_prio", ev.WakeePrio, ev.WakeePrioClass))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " " + strings.Join(parts, " ")
+}
+
+func traceEventPrioField(name string, prio int, class string) string {
+	if strings.TrimSpace(class) == "" {
+		return fmt.Sprintf("%s=%d", name, prio)
+	}
+	return fmt.Sprintf("%s=%d/%s", name, prio, class)
 }
 
 func traceThreadDurationLocation(td tracequery.ThreadDuration) string {

@@ -4995,8 +4995,8 @@ func TestConcreteValuesCanceledBuildDoesNotPopulateCache(t *testing.T) {
 }
 
 // TestFormatReadFileOffsetGuidance pins the session-8 hint that
-// reminds the LLM read_file supports offset+limit. trace
-// 1776454589211679465 showed 14 read_file calls all with offset=0
+// reminds the LLM read_file supports line_offset+limit. trace
+// 1776454589211679465 showed 14 read_file calls all from the file head
 // — the LLM was re-reading from the start each time even when
 // repo_map pointed at a specific line range. The guidance text
 // names the top-3 symbols with ranges and shows one concrete
@@ -5025,8 +5025,8 @@ func TestFormatReadFileOffsetGuidance(t *testing.T) {
 		t.Fatal("guidance must be non-empty for a file with indexed symbols")
 	}
 	// Header with the key reminder.
-	if !contains(got, "read_file supports offset+limit") {
-		t.Errorf("guidance must remind about offset+limit: %q", got)
+	if !contains(got, "read_file supports line_offset+limit") {
+		t.Errorf("guidance must remind about line_offset+limit: %q", got)
 	}
 	// Top-3 symbols listed with ranges.
 	for _, name := range []string{"Alpha", "Beta", "Gamma"} {
@@ -5038,12 +5038,12 @@ func TestFormatReadFileOffsetGuidance(t *testing.T) {
 		t.Errorf("beyond-top-3 Delta must not leak: %q", got)
 	}
 	// Concrete example covering lines 10-150 (Alpha start → Gamma end).
-	// 2026-05-10 fix: read_file's offset parameter is 0-based but the
+	// 2026-05-10 fix: read_file's line_offset parameter is 0-based but the
 	// "(covers lines …)" gloss reports 1-based lines. So Alpha's
-	// 1-based start line 10 maps to offset=9, limit stays 141 (=
+	// 1-based start line 10 maps to line_offset=9, limit stays 141 (=
 	// 150 - 10 + 1), and the parenthetical still reads "lines 10-150".
-	if !contains(got, "offset=9") {
-		t.Errorf("example must use 0-based offset for first symbol's line (line 10 → offset 9): %q", got)
+	if !contains(got, "line_offset=9") {
+		t.Errorf("example must use 0-based line_offset for first symbol's line (line 10 → line_offset 9): %q", got)
 	}
 	if !contains(got, "limit=141") { // 150 - 10 + 1 = 141
 		t.Errorf("example limit must span Alpha→Gamma: %q", got)
@@ -5614,7 +5614,7 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 		for _, want := range []string{
 			"broad/header page of a runtime/log/trace artifact",
 			"Do not emit evidence from unrelated header",
-			"do not keep paging from offset 0",
+			"do not keep paging from the file head",
 			`grep(path="record_trace.systrace"`,
 			"`grep -n`/awk filter",
 			"`read_file` around the selected line window",

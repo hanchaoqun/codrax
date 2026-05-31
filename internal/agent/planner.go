@@ -301,7 +301,7 @@ func (e *plannerEvaluator) buildInvestigationSeed(ctx *types.AgentContext) strin
 	}
 	var b strings.Builder
 	b.WriteString("## Likely-relevant files\n\n")
-	b.WriteString("Top files ranked by structural importance (repo_map) + keyword match (grep IDF) + entity boost. Use read_file / grep on these before deciding what to change. Use offset/limit on read_file to page through large files; the response will tell you the line range.\n\n")
+	b.WriteString("Top files ranked by structural importance (repo_map) + keyword match (grep IDF) + entity boost. Use read_file / grep on these before deciding what to change. Use line_offset/limit on read_file to page through large files; line_offset is zero-based and line-based, and the response will tell you the line range.\n\n")
 	for i := 0; i < limit; i++ {
 		f := sr.Files[i]
 		fmt.Fprintf(&b, "  - %s\n", f.Path)
@@ -396,7 +396,7 @@ func (e *plannerEvaluator) buildProbeHistorySection(ctx *types.AgentContext) str
 			b.WriteString(r.FailureSummary)
 			b.WriteString("\n")
 			if r.FailureSummaryBlobRef != "" {
-				fmt.Fprintf(&b, "(Full stderr at %s — call read_file with offset/limit to page through.)\n", r.FailureSummaryBlobRef)
+				fmt.Fprintf(&b, "(Full stderr at %s — call read_file with line_offset/limit to page through.)\n", r.FailureSummaryBlobRef)
 			}
 			b.WriteString("\n")
 		}

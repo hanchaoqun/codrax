@@ -3117,8 +3117,8 @@ func formatAttachedLog(raw, workDir string, state attachedRuntimeTriageState) st
 		return preamble +
 			fmt.Sprintf("Total log size: %d bytes. Preview below shows head + tail with artifact-local line gutters; "+
 				"the middle (%d B) is elided. The complete log is saved to `%s` — "+
-				"use `read_file` with offset+limit on that path to paginate through the "+
-				"elided region if you need exact line anchors beyond the preview.\n\n",
+				"use `read_file` with line_offset+limit on that path to paginate through the "+
+				"elided region if you need exact line anchors beyond the preview. line_offset is a zero-based line coordinate, not a byte offset.\n\n",
 				len(raw), preview.elidedBytes, blobPath) +
 			renderAttachedArtifactPreviewBlock(preview, blobPath)
 	}
@@ -3163,8 +3163,8 @@ func formatAttachedTrace(raw, workDir string, state attachedRuntimeTriageState) 
 		return preamble +
 			fmt.Sprintf("Total trace size: %d bytes. Preview below shows head + tail with artifact-local line gutters; "+
 				"the middle (%d B) is elided. The complete trace is saved to `%s` — "+
-				"use `read_file` with offset+limit on that path to paginate through the "+
-				"elided region if you need exact event-line anchors beyond the preview.\n\n",
+				"use `read_file` with line_offset+limit on that path to paginate through the "+
+				"elided region if you need exact event-line anchors beyond the preview. line_offset is a zero-based line coordinate, not a byte offset.\n\n",
 				len(raw), preview.elidedBytes, blobPath) +
 			renderAttachedArtifactPreviewBlock(preview, blobPath)
 	}

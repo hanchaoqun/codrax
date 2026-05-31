@@ -96,6 +96,33 @@ func TestGrepToolPromptDocumentsRuntimeArtifactControls(t *testing.T) {
 	}
 }
 
+func TestReadFilePromptDocumentsLineOffsetCoordinates(t *testing.T) {
+	readFile := &ReadFile{}
+	description := readFile.Description()
+	for _, want := range []string{
+		"line_offset/limit",
+		"line_offset=100 starts at source line 101",
+		"not a byte or character offset",
+	} {
+		if !strings.Contains(description, want) {
+			t.Fatalf("read_file description missing %q:\n%s", want, description)
+		}
+	}
+	parameters := string(readFile.Parameters())
+	for _, want := range []string{
+		`"line_offset"`,
+		"zero-based LINE offset",
+		"not a byte or character offset",
+	} {
+		if !strings.Contains(parameters, want) {
+			t.Fatalf("read_file parameters missing %q:\n%s", want, parameters)
+		}
+	}
+	if strings.Contains(parameters, `"offset"`) {
+		t.Fatalf("read_file model-facing schema must not expose legacy offset:\n%s", parameters)
+	}
+}
+
 func toolPromptPreview(s string, idx, n int) string {
 	start := idx - 48
 	if start < 0 {

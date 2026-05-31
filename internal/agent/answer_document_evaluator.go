@@ -528,6 +528,11 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}) {
 		return b.String()
 	}
+	if !trace.appendSection(&b, "runtime_trace_answer_guidance", func() string {
+		return renderAnswerDocRuntimeTraceAnswerGuidance(ctx)
+	}) {
+		return b.String()
+	}
 	if !trace.appendSection(&b, "current_status_diagnostic", func() string {
 		return renderAnswerDocCurrentStatusDiagnostic(ctx)
 	}) {
@@ -6384,6 +6389,69 @@ func renderAnswerDocExternalObservationSeeds(ctx *types.AgentContext) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func renderAnswerDocRuntimeTraceAnswerGuidance(ctx *types.AgentContext) string {
+	if !answerDocHarmonyTracePrioritySemantics(ctx) && !answerDocRuntimeTraceSchedulerQuestion(ctx) {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Runtime Trace Answer Guidance\n\n")
+	if answerDocHarmonyTracePrioritySemantics(ctx) {
+		b.WriteString("- Harmony trace priority reminder: larger numeric priority means higher priority; 1-40=CFS and 41-139=RT. When the user asks for platform priority semantics, explicitly state both the direction (`数值越大优先级越高`) and the two ranges (`1-40=CFS`, `41-139=RT`). Concrete examples: prio=20 is CFS; prio=41, prio=51, and prio=52 are RT. Recompute every concrete `prio=N` classification before writing it; do not copy CFS/RT labels from earlier prose when the numeric range contradicts the Harmony rule. If an earlier runtime summary conflicts, keep the raw timing/event fact but prefer this platform rule, any `trace_query priority_semantics` line, or system-derived `priority_semantics` perf observation for the priority class.\n")
+	}
+	if answerDocRuntimeTraceSchedulerQuestion(ctx) {
+		b.WriteString("- Runtime trace presentation hint: for scheduler/time-window questions, do not collapse all trace facts into one short sentence. Prefer a compact answer with conclusion, event timeline or bullets, priority/time-unit semantics, and explicit caveats for trace gaps; keep runtime artifact facts separate from current-source citations.\n")
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func answerDocHarmonyTracePrioritySemantics(ctx *types.AgentContext) bool {
+	if ctx == nil {
+		return false
+	}
+	text := strings.ToLower(strings.TrimSpace(ctx.AttachedHitraceSource + " " + ctx.Objective))
+	if strings.Contains(text, "harmony_hitrace") {
+		return true
+	}
+	harmony := strings.Contains(text, "harmony") ||
+		strings.Contains(text, "openharmony") ||
+		strings.Contains(text, "ohos") ||
+		strings.Contains(text, "hitrace") ||
+		strings.Contains(text, "bytrace") ||
+		strings.Contains(text, "鸿蒙") ||
+		strings.Contains(text, "东湖")
+	android := strings.Contains(text, "android") ||
+		strings.Contains(text, "atrace") ||
+		strings.Contains(text, "安卓")
+	return harmony && !android
+}
+
+func answerDocRuntimeTraceSchedulerQuestion(ctx *types.AgentContext) bool {
+	if ctx == nil {
+		return false
+	}
+	text := strings.ToLower(strings.TrimSpace(ctx.AttachedHitraceSource + " " + ctx.Objective))
+	traceLike := strings.Contains(text, "trace") ||
+		strings.Contains(text, "systrace") ||
+		strings.Contains(text, "hitrace") ||
+		strings.Contains(text, "bytrace") ||
+		strings.Contains(text, ".trace") ||
+		strings.Contains(text, "perfetto")
+	if !traceLike {
+		return false
+	}
+	return strings.Contains(text, "sched") ||
+		strings.Contains(text, "wakeup") ||
+		strings.Contains(text, "sleep") ||
+		strings.Contains(text, "runnable") ||
+		strings.Contains(text, "running") ||
+		strings.Contains(text, "priority") ||
+		strings.Contains(text, "调度") ||
+		strings.Contains(text, "唤醒") ||
+		strings.Contains(text, "睡眠") ||
+		strings.Contains(text, "优先级")
 }
 
 func collectRelatedContextCitationCandidates(ctx *types.AgentContext, contract *types.ExactResolutionContract) []relatedContextCitationCandidate {

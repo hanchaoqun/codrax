@@ -129,3 +129,114 @@ func TestEmitPerfTrace_Execute_StructuredPayloadCompatRepairsStringWrappedArrays
 		t.Fatalf("meta signals were not repaired: %+v", bundle.Meta.Signals)
 	}
 }
+
+func TestEmitPerfTrace_Execute_AddsHarmonyPrioritySemanticsObservation(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable:               types.NewMutableState("这是一段 OpenHarmony/鸿蒙 bytrace 文本，分析调度优先级"),
+		AttachedHitraceSource: "harmony_hitrace",
+		AttachedHitrace: strings.Join([]string{
+			"ACCS0-2716 (2519) [000] d..5 168758.662877: sched_waking: comm=Binder:924_3 pid=1200 prio=120 target_cpu=001",
+			"HeapTaskDaemon-2532 (2519) [000] d..3 168758.663107: sched_switch: prev_comm=HeapTaskDaemon prev_pid=2532 prev_prio=124 prev_state=R ==> next_comm=rcu_preempt next_pid=7 next_prio=98",
+		}, "\n"),
+	}
+	params, err := json.Marshal(emitPerfTraceParams{
+		Meta: emitPerfTraceMeta{
+			Source:  "hitrace",
+			Summary: "scheduler sample",
+		},
+		Observations: []emitPerfTraceObservation{{
+			Kind:       "line_anchor",
+			Subject:    "ACCS0 wakes Binder",
+			Summary:    "ACCS0 wakes Binder:924_3 in the sample window",
+			Evidence:   "sched_waking",
+			LineStart:  1,
+			LineEnd:    1,
+			Confidence: 1,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tool := &EmitPerfTrace{}
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("success=false, summary=%s", res.Summary)
+	}
+	bundle := bus.Mutable.PerfTrace()
+	if bundle == nil || len(bundle.Observations) != 3 {
+		t.Fatalf("expected system priority observation plus original observation, got: %+v", bundle)
+	}
+	got := bundle.Observations[0]
+	if got.Kind != "priority_semantics" {
+		t.Fatalf("first observation should be priority semantics, got: %+v", got)
+	}
+	for _, want := range []string{"prio=98/ohos_rt", "prio=120/ohos_rt", "prio=124/ohos_rt"} {
+		if !strings.Contains(got.Summary, want) {
+			t.Fatalf("priority observation missing %q: %q", want, got.Summary)
+		}
+	}
+	if got.LineStart != 1 || got.LineEnd != 2 || got.Confidence != 1 {
+		t.Fatalf("priority observation should carry trace line span/confidence: %+v", got)
+	}
+	if bundle.Observations[1].Kind != "time_semantics" || !strings.Contains(bundle.Observations[1].Summary, "0.230ms") {
+		t.Fatalf("expected system time semantics observation before original observation: %+v", bundle.Observations[1])
+	}
+	if bundle.Observations[2].Subject != "ACCS0 wakes Binder" {
+		t.Fatalf("original observation was not preserved after priority observation: %+v", bundle.Observations)
+	}
+}
+
+func TestEmitPerfTrace_Execute_NormalizesConflictingHarmonyPriorityObservation(t *testing.T) {
+	bus := &types.BusContext{
+		Mutable:               types.NewMutableState("鸿蒙 bytrace 调度优先级分析"),
+		AttachedHitraceSource: "harmony_hitrace",
+		AttachedHitrace: strings.Join([]string{
+			"ACCS0-2716 (2519) [000] d..5 168758.662877: sched_waking: comm=Binder:924_3 pid=1200 prio=120 target_cpu=001",
+			"HeapTaskDaemon-2532 (2519) [000] d..3 168758.663107: sched_switch: prev_comm=HeapTaskDaemon prev_pid=2532 prev_prio=124 prev_state=R ==> next_comm=rcu_preempt next_pid=7 next_prio=98",
+		}, "\n"),
+	}
+	params, err := json.Marshal(emitPerfTraceParams{
+		Meta: emitPerfTraceMeta{Source: "hitrace", Summary: "scheduler sample"},
+		Observations: []emitPerfTraceObservation{{
+			Kind:       "scheduler",
+			Subject:    "Priority semantics: HarmonyOS CFS",
+			Summary:    "ACCS0(prio=120) and Binder:924_3(prio=120) are CFS baseline nice=0 threads.",
+			Evidence:   "prio=120 falls in the CFS range",
+			LineStart:  1,
+			LineEnd:    2,
+			Confidence: 1,
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tool := &EmitPerfTrace{}
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("success=false, summary=%s", res.Summary)
+	}
+	bundle := bus.Mutable.PerfTrace()
+	if bundle == nil || len(bundle.Observations) < 3 {
+		t.Fatalf("perf bundle observations missing: %+v", bundle)
+	}
+	normalized := bundle.Observations[len(bundle.Observations)-1]
+	if normalized.Kind != "priority_semantics_normalized" {
+		t.Fatalf("conflicting priority observation was not normalized: %+v", bundle.Observations)
+	}
+	if strings.Contains(strings.ToLower(normalized.Summary), "nice=0") || strings.Contains(strings.ToLower(normalized.Summary), "cfs baseline") {
+		t.Fatalf("normalized summary retained conflicting prose: %q", normalized.Summary)
+	}
+	for _, want := range []string{"prio=98/ohos_rt", "prio=120/ohos_rt", "prio=124/ohos_rt", "1-40=CFS", "41-139=RT"} {
+		if !strings.Contains(normalized.Summary, want) {
+			t.Fatalf("normalized summary missing %q: %q", want, normalized.Summary)
+		}
+	}
+}

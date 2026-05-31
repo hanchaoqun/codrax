@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	promptctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -78,6 +79,119 @@ func TestTraceQueryAttachedSourceHintControlsPrioritySemantics(t *testing.T) {
 		!strings.Contains(res.Summary, "Android/atrace ftrace priority") ||
 		strings.Contains(res.Summary, "1-40=CFS") {
 		t.Fatalf("attached atrace hint should use Android/raw priority semantics:\n%s", res.Summary)
+	}
+}
+
+func TestTraceQueryAttachedBlobPathInheritsAttachedSourceHint(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, promptctx.AttachedTraceBlobName)
+	trace := strings.Join([]string{
+		`  HeapTaskDaemon-2532  ( 2519) [000] d..3 168758.663107: sched_switch: prev_comm=HeapTaskDaemon prev_pid=2532 prev_prio=124 prev_state=R ==> next_comm=rcu_preempt next_pid=7 next_prio=98`,
+		`     rcu_preempt-7     (    7) [000] d..3 168758.663126: sched_switch: prev_comm=rcu_preempt prev_pid=7 prev_prio=98 prev_state=S ==> next_comm=HeapTaskDaemon next_pid=2532 next_prio=124`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{
+		RepoRoot:              dir,
+		WorkDir:               dir,
+		AttachedHitraceSource: "harmony_hitrace",
+	}
+	params, _ := json.Marshal(map[string]any{
+		"source":     "path",
+		"path":       tracePath,
+		"view":       "window_stats",
+		"time_start": 168758.663,
+		"time_end":   168758.664,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query failed: %s", res.Summary)
+	}
+	for _, want := range []string{"trace_flavor=harmony_hitrace", "larger numeric value means higher priority", "1-40=CFS"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("attached blob path should inherit Harmony hint, missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
+func TestTraceQueryExplicitUserRequestPlatformWinsWhenModelOmitsFlavor(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "sample.systrace")
+	trace := strings.Join([]string{
+		`           ACCS0-2716  ( 2519) [000] d..6 168758.662898: sched_wakeup: comm=Binder:924_3 pid=1200 prio=120 target_cpu=001`,
+		`  HeapTaskDaemon-2532  ( 2519) [000] d..3 168758.663107: sched_switch: prev_comm=HeapTaskDaemon prev_pid=2532 prev_prio=124 prev_state=R ==> next_comm=rcu_preempt next_pid=7 next_prio=98`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{
+		RepoRoot: dir,
+		WorkDir:  dir,
+		Mutable:  types.NewMutableState("这是一段 OpenHarmony/鸿蒙 bytrace 文本，优先级语义按鸿蒙处理"),
+	}
+	params, _ := json.Marshal(map[string]any{
+		"source":     "path",
+		"path":       "sample.systrace",
+		"view":       "window_stats",
+		"time_start": 168758.662,
+		"time_end":   168758.664,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query failed: %s", res.Summary)
+	}
+	for _, want := range []string{"trace_flavor=harmony_hitrace", "larger numeric value means higher priority", "trace flavor was selected from explicit user request"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("explicit user platform should win when model omits flavor, missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
+func TestTraceQueryEventSearchShowsFlavorPriorityClasses(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "sample.systrace")
+	trace := strings.Join([]string{
+		`           ACCS0-2716  ( 2519) [000] d..6 168758.662898: sched_wakeup: comm=Binder:924_3 pid=1200 prio=120 target_cpu=001`,
+		`  HeapTaskDaemon-2532  ( 2519) [000] d..3 168758.663107: sched_switch: prev_comm=HeapTaskDaemon prev_pid=2532 prev_prio=124 prev_state=R ==> next_comm=rcu_preempt next_pid=7 next_prio=98`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{
+		RepoRoot: dir,
+		WorkDir:  dir,
+		Mutable:  types.NewMutableState("这是一段 Harmony/鸿蒙 trace，优先级语义按鸿蒙处理"),
+	}
+	params, _ := json.Marshal(map[string]any{
+		"source":      "path",
+		"path":        "sample.systrace",
+		"view":        "event_search",
+		"time_start":  168758.662,
+		"time_end":    168758.664,
+		"event_types": []string{"sched_wakeup", "sched_switch"},
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query failed: %s", res.Summary)
+	}
+	for _, want := range []string{
+		"wakee_prio=120/ohos_rt",
+		"prev_prio=124/ohos_rt",
+		"next_prio=98/ohos_rt",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("summary missing priority class %q:\n%s", want, res.Summary)
+		}
 	}
 }
 

@@ -130,13 +130,42 @@ func TestReadFile(t *testing.T) {
 		if result.Success {
 			t.Fatalf("expected empty range to fail clearly, got success: %s", result.Summary)
 		}
-		for _, want := range []string{"read_file empty range", "offset=2", "2 total line(s)", "last valid offset is 1"} {
+		for _, want := range []string{"read_file empty range", "line_offset=2", "2 total line(s)", "last valid line_offset is 1", "not a byte"} {
 			if !strings.Contains(result.Summary, want) {
 				t.Fatalf("summary missing %q: %s", want, result.Summary)
 			}
 		}
 		if strings.Contains(result.Summary, "showing lines 3-2") {
 			t.Fatalf("must not render an inverted line window: %s", result.Summary)
+		}
+	})
+
+	t.Run("line_offset aliases targeted line paging", func(t *testing.T) {
+		tmpFile := filepath.Join(t.TempDir(), "test_line_offset.txt")
+		content := "line0\nline1\nline2\nline3\nline4\n"
+		if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &ReadFile{}
+		params := json.RawMessage(fmt.Sprintf(`{"path":%q,"line_offset":2,"limit":2}`, tmpFile))
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		for _, want := range []string{
+			"showing lines 3-4",
+			"read_file coordinates",
+			"line_offset is a zero-based line offset",
+			"     3│ line2",
+			"     4│ line3",
+		} {
+			if !strings.Contains(result.Summary, want) {
+				t.Fatalf("summary missing %q: %s", want, result.Summary)
+			}
 		}
 	})
 
@@ -1229,7 +1258,7 @@ func TestGrepTool(t *testing.T) {
 			`next_call=grep(path="record_trace.systrace"`,
 			"files_only=false",
 			"context_lines=0",
-			"do not read_file from offset 0",
+			"do not start read_file at the file head",
 		} {
 			if !strings.Contains(got, want) {
 				t.Fatalf("skipped-runtime recovery missing %q:\n%s", want, got)
@@ -1796,7 +1825,7 @@ func TestGrepTool(t *testing.T) {
 			"read_file around the returned line numbers",
 			"preserves original line numbers",
 			"line_window_hint=first returned match is record_trace.systrace:1000",
-			"path=\"record_trace.systrace\" offset=979 limit=41",
+			"path=\"record_trace.systrace\" line_offset=979 limit=41",
 			"line_start=980 line_end=1020",
 		} {
 			if !strings.Contains(got, want) {

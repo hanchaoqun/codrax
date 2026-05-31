@@ -4173,6 +4173,44 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExternalObservat
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersHarmonyTracePriorityReminder(t *testing.T) {
+	mut := types.NewMutableState("这是一段 OpenHarmony/鸿蒙 bytrace 文本，分析 sched_wakeup 调度和优先级")
+	mut.SetPerfTrace(&types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace"},
+		Observations: []types.PerfObservation{{
+			Kind:    "scheduler",
+			Subject: "Binder:924_3",
+			Summary: "prio=120 observed in attached trace",
+		}},
+	})
+	ctx := &types.AgentContext{
+		Objective:             "这是一段 OpenHarmony/鸿蒙 bytrace 文本，分析 sched_wakeup 调度和优先级",
+		AttachedHitraceSource: "harmony_hitrace",
+		Mutable:               mut,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioRootCause,
+				Intent:   types.IntentRootCause,
+			},
+			AnswerContract: types.AnswerContract{},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Harmony trace priority reminder",
+		"数值越大优先级越高",
+		"prio=20 is CFS",
+		"prio=41, prio=51, and prio=52 are RT",
+		"Recompute every concrete `prio=N` classification",
+		"Runtime trace presentation hint",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedAnswerDimensions(t *testing.T) {
 	ctx := &types.AgentContext{
 		Language: "zh",

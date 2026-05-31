@@ -1,8 +1,12 @@
 package tool
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -163,6 +167,9 @@ func (t *EmitPerfTrace) Execute(ctx *types.BusContext, params json.RawMessage) (
 	}
 
 	bundle := toPerfBundle(&p)
+	augmentPerfBundleWithTimeSemantics(bundle, ctx)
+	augmentPerfBundleWithPrioritySemantics(bundle, ctx, p.Meta.Source)
+	normalizeHarmonyPriorityClaims(bundle, ctx, p.Meta.Source)
 
 	// P-TypedDenials Phase B (2026-05-08): mirror log_triage's frame
 	// corroborate gate on the perf side. PerfStall has the SAME
@@ -365,6 +372,288 @@ func derivePerfLayer4(b *types.PerfBundle) {
 	}
 	if b.Coverage > 1 {
 		b.Coverage = 1
+	}
+}
+
+var perfTracePrioRE = regexp.MustCompile(`(?:^|[[:space:]])(?:prev_prio|next_prio|prio)=([0-9]+)(?:\b|$)`)
+var perfTracePrioTextRE = regexp.MustCompile(`(?:^|[^A-Za-z0-9_])prio=([0-9]+)(?:\b|$)`)
+var perfTraceTimestampRE = regexp.MustCompile(`\[[0-9]+\]\s+\S+\s+([0-9]+\.[0-9]+):`)
+
+func augmentPerfBundleWithPrioritySemantics(b *types.PerfBundle, ctx *types.BusContext, source string) {
+	if b == nil || ctx == nil || !perfTraceLooksHarmony(ctx, source) {
+		return
+	}
+	classes, firstLine, lastLine := harmonyPriorityClassesFromTrace(ctx.AttachedHitrace)
+	if len(classes) == 0 {
+		return
+	}
+	summary := "Harmony priority semantics: 数值越大优先级越高/larger numeric value is higher; 1-40=CFS, 41-139=RT. Observed classes: " + strings.Join(classes, ", ") + "."
+	obs := types.PerfObservation{
+		Kind:       "priority_semantics",
+		Subject:    "HarmonyOS priority semantics",
+		Summary:    summary,
+		Evidence:   "system-derived from attached trace prio fields",
+		LineStart:  firstLine,
+		LineEnd:    lastLine,
+		Tags:       append([]string{"harmony_priority"}, classes...),
+		Confidence: 1,
+	}
+	prependPerfObservation(b, obs)
+}
+
+func normalizeHarmonyPriorityClaims(b *types.PerfBundle, ctx *types.BusContext, source string) {
+	if b == nil || ctx == nil || !perfTraceLooksHarmony(ctx, source) {
+		return
+	}
+	classes, firstLine, lastLine := harmonyPriorityClassesFromTrace(ctx.AttachedHitrace)
+	if len(classes) == 0 {
+		return
+	}
+	summary := "Harmony priority class normalized from raw prio fields: " + strings.Join(classes, ", ") + ". Rule: 数值越大优先级越高; 1-40=CFS, 41-139=RT."
+	for i := range b.Observations {
+		obs := &b.Observations[i]
+		if obs.Kind == "priority_semantics" || obs.Kind == "time_semantics" {
+			continue
+		}
+		text := strings.Join([]string{obs.Subject, obs.Summary, obs.Evidence, strings.Join(obs.Tags, " ")}, " ")
+		if !harmonyPriorityTextContradicts(text) {
+			continue
+		}
+		obs.Kind = "priority_semantics_normalized"
+		obs.Summary = summary
+		obs.Evidence = "system-normalized conflicting model-authored priority class label; raw event timing remains available in adjacent observations"
+		if obs.LineStart == 0 {
+			obs.LineStart = firstLine
+		}
+		if obs.LineEnd == 0 {
+			obs.LineEnd = lastLine
+		}
+		obs.Tags = append([]string{"harmony_priority_normalized"}, classes...)
+		if obs.Confidence <= 0 || obs.Confidence > 1 {
+			obs.Confidence = 1
+		}
+	}
+}
+
+func augmentPerfBundleWithTimeSemantics(b *types.PerfBundle, ctx *types.BusContext) {
+	if b == nil || ctx == nil {
+		return
+	}
+	first, last, firstLine, lastLine, ok := traceTimestampWindowFromTrace(ctx.AttachedHitrace)
+	if !ok || last < first {
+		return
+	}
+	durationMs := (last - first) * 1000
+	summary := fmt.Sprintf("Trace timestamps are seconds; attached excerpt spans %.6fs..%.6fs = %s.", first, last, formatTraceDuration(durationMs))
+	obs := types.PerfObservation{
+		Kind:       "time_semantics",
+		Subject:    "Trace timestamp unit",
+		Summary:    summary,
+		Evidence:   "system-derived from attached trace timestamp fields",
+		LineStart:  firstLine,
+		LineEnd:    lastLine,
+		StartTsMs:  first * 1000,
+		EndTsMs:    last * 1000,
+		DurationMs: durationMs,
+		Tags:       []string{"trace_time_seconds"},
+		Confidence: 1,
+	}
+	prependPerfObservation(b, obs)
+}
+
+func prependPerfObservation(b *types.PerfBundle, obs types.PerfObservation) {
+	if b == nil {
+		return
+	}
+	b.Observations = append([]types.PerfObservation{obs}, b.Observations...)
+	if len(b.Observations) > 50 {
+		b.Observations = b.Observations[:50]
+	}
+}
+
+func perfTraceLooksHarmony(ctx *types.BusContext, source string) bool {
+	source = strings.ToLower(strings.TrimSpace(source))
+	if source == "hitrace" {
+		return true
+	}
+	var text string
+	if ctx != nil {
+		objective := ""
+		if ctx.Mutable != nil {
+			objective = ctx.Mutable.Objective()
+		}
+		text = strings.ToLower(strings.TrimSpace(ctx.AttachedHitraceSource + " " + objective))
+	}
+	for _, marker := range []string{"harmony", "openharmony", "ohos", "hitrace", "bytrace", "鸿蒙", "东湖"} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func harmonyPriorityClassesFromTrace(trace string) ([]string, int, int) {
+	if strings.TrimSpace(trace) == "" {
+		return nil, 0, 0
+	}
+	seen := map[int]bool{}
+	firstLine, lastLine := 0, 0
+	scanner := newPerfTraceLineScanner(trace)
+	lineNo := 0
+	for scanner.Scan() {
+		lineNo++
+		line := scanner.Text()
+		for _, match := range perfTracePrioRE.FindAllStringSubmatch(line, -1) {
+			if len(match) < 2 {
+				continue
+			}
+			var prio int
+			if _, err := fmt.Sscanf(match[1], "%d", &prio); err != nil || prio <= 0 {
+				continue
+			}
+			seen[prio] = true
+			if firstLine == 0 {
+				firstLine = lineNo
+			}
+			lastLine = lineNo
+		}
+	}
+	if len(seen) == 0 {
+		return nil, 0, 0
+	}
+	prios := make([]int, 0, len(seen))
+	for prio := range seen {
+		prios = append(prios, prio)
+	}
+	sort.Ints(prios)
+	classes := make([]string, 0, min(len(prios), 12))
+	for _, prio := range prios {
+		if len(classes) >= 12 {
+			break
+		}
+		classes = append(classes, fmt.Sprintf("prio=%d/%s", prio, harmonyPriorityClass(prio)))
+	}
+	return classes, firstLine, lastLine
+}
+
+func harmonyPriorityTextContradicts(text string) bool {
+	lower := strings.ToLower(text)
+	if !strings.Contains(lower, "prio=") {
+		return false
+	}
+	for _, match := range perfTracePrioTextRE.FindAllStringSubmatchIndex(lower, -1) {
+		if len(match) < 4 {
+			continue
+		}
+		raw := lower[match[2]:match[3]]
+		prio, err := strconv.Atoi(raw)
+		if err != nil || prio <= 0 {
+			continue
+		}
+		start := max(0, match[0]-96)
+		end := min(len(lower), match[1]+96)
+		window := lower[start:end]
+		switch harmonyPriorityClass(prio) {
+		case "ohos_rt":
+			if containsPriorityClassToken(window, "cfs") || strings.Contains(window, "nice=0") || strings.Contains(window, "基准") {
+				return true
+			}
+		case "ohos_cfs":
+			if containsPriorityClassToken(window, "rt") || strings.Contains(window, "实时") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func containsPriorityClassToken(text, token string) bool {
+	if token == "" {
+		return false
+	}
+	for _, idx := range allStringIndexes(text, token) {
+		beforeOK := idx == 0 || !isASCIIAlphaNum(rune(text[idx-1]))
+		afterIdx := idx + len(token)
+		afterOK := afterIdx >= len(text) || !isASCIIAlphaNum(rune(text[afterIdx]))
+		if beforeOK && afterOK {
+			return true
+		}
+	}
+	return false
+}
+
+func allStringIndexes(text, token string) []int {
+	var out []int
+	offset := 0
+	for {
+		idx := strings.Index(text[offset:], token)
+		if idx < 0 {
+			return out
+		}
+		abs := offset + idx
+		out = append(out, abs)
+		offset = abs + len(token)
+	}
+}
+
+func traceTimestampWindowFromTrace(trace string) (float64, float64, int, int, bool) {
+	if strings.TrimSpace(trace) == "" {
+		return 0, 0, 0, 0, false
+	}
+	var first, last float64
+	firstLine, lastLine := 0, 0
+	scanner := newPerfTraceLineScanner(trace)
+	lineNo := 0
+	for scanner.Scan() {
+		lineNo++
+		match := perfTraceTimestampRE.FindStringSubmatch(scanner.Text())
+		if len(match) < 2 {
+			continue
+		}
+		ts, err := strconv.ParseFloat(match[1], 64)
+		if err != nil {
+			continue
+		}
+		if firstLine == 0 {
+			first = ts
+			firstLine = lineNo
+		}
+		last = ts
+		lastLine = lineNo
+	}
+	if firstLine == 0 {
+		return 0, 0, 0, 0, false
+	}
+	return first, last, firstLine, lastLine, true
+}
+
+func newPerfTraceLineScanner(trace string) *bufio.Scanner {
+	scanner := bufio.NewScanner(strings.NewReader(trace))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	return scanner
+}
+
+func formatTraceDuration(durationMs float64) string {
+	switch {
+	case durationMs < 0:
+		return "unknown duration"
+	case durationMs < 1:
+		return fmt.Sprintf("%.3fms (%.0fus)", durationMs, durationMs*1000)
+	case durationMs < 1000:
+		return fmt.Sprintf("%.3fms", durationMs)
+	default:
+		return fmt.Sprintf("%.3fs", durationMs/1000)
+	}
+}
+
+func harmonyPriorityClass(prio int) string {
+	switch {
+	case prio >= 1 && prio <= 40:
+		return "ohos_cfs"
+	case prio >= 41 && prio <= 139:
+		return "ohos_rt"
+	default:
+		return "system_or_kernel_raw"
 	}
 }
 

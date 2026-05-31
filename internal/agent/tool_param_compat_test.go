@@ -49,6 +49,111 @@ func TestNormalizeToolCallParams_RepairUsesPerAgentConfig(t *testing.T) {
 	}
 }
 
+func TestNormalizeToolCallParams_RepairsLineOffsetString(t *testing.T) {
+	base := &BaseAgent{
+		name: types.AgentExplorer,
+		deps: &Dependencies{
+			ToolParamCompatByAgent: map[types.AgentName]types.ToolParamCompatConfig{
+				types.AgentExplorer: {Mode: types.ToolParamCompatRepair},
+			},
+		},
+	}
+	calls := []llm.ToolCall{{
+		ID:     "call_1",
+		Name:   "read_file",
+		Params: json.RawMessage(`{"path":"internal/types/enums.go","line_offset":"146","limit":"25"}`),
+	}}
+	schemas := []llm.ToolSchema{{
+		Name:       "read_file",
+		Parameters: readFileCompatTestSchema(),
+	}}
+
+	got := base.normalizeToolCallParams(calls, schemas)
+	var decoded struct {
+		LineOffset int `json:"line_offset"`
+		Limit      int `json:"limit"`
+	}
+	if err := json.Unmarshal(got[0].Params, &decoded); err != nil {
+		t.Fatalf("repaired params are invalid JSON: %v", err)
+	}
+	if decoded.LineOffset != 146 || decoded.Limit != 25 {
+		t.Fatalf("line_offset/limit = %d/%d, want 146/25; raw=%s", decoded.LineOffset, decoded.Limit, got[0].Params)
+	}
+}
+
+func TestNormalizeToolCallParams_RepairsTraceQueryRecentScalarsFromRealSchema(t *testing.T) {
+	base := &BaseAgent{
+		name: types.AgentExplorer,
+		deps: &Dependencies{
+			ToolParamCompatByAgent: map[types.AgentName]types.ToolParamCompatConfig{
+				types.AgentExplorer: {Mode: types.ToolParamCompatRepair},
+			},
+		},
+	}
+	calls := []llm.ToolCall{{
+		ID:   "call_1",
+		Name: "trace_query",
+		Params: json.RawMessage(`{
+			"source":"path",
+			"path":"sample.systrace",
+			"view":"wakeup_chain",
+			"thread":"com.tencent.mm-36379",
+			"pid":"36379",
+			"time_start":"2942.124416s",
+			"time_end":"2942.260210s",
+			"line_start":"1102710",
+			"line_end":"1139190",
+			"max_depth":"6",
+			"max_branches":"8",
+			"min_duration_ms":"1",
+			"include_window_stats":"true",
+			"limit":"40",
+			"trace_flavor":"harmony_hitrace",
+			"platform":"harmony_hitrace",
+			"span_name":"Choreographer#doFrame",
+			"interaction_direction":"both",
+			"recipe_name":"sleep_root_cause"
+		}`),
+	}}
+	schemas := []llm.ToolSchema{{
+		Name:       "trace_query",
+		Parameters: (&toolpkg.TraceQuery{}).Parameters(),
+	}}
+
+	got := base.normalizeToolCallParams(calls, schemas)
+	var decoded struct {
+		PID                int     `json:"pid"`
+		TimeStart          string  `json:"time_start"`
+		TimeEnd            string  `json:"time_end"`
+		LineStart          int     `json:"line_start"`
+		LineEnd            int     `json:"line_end"`
+		MaxDepth           int     `json:"max_depth"`
+		MaxBranches        int     `json:"max_branches"`
+		MinDurationMS      float64 `json:"min_duration_ms"`
+		IncludeWindowStats bool    `json:"include_window_stats"`
+		Limit              int     `json:"limit"`
+		TraceFlavor        string  `json:"trace_flavor"`
+		Platform           string  `json:"platform"`
+		SpanName           string  `json:"span_name"`
+		Interaction        string  `json:"interaction_direction"`
+		RecipeName         string  `json:"recipe_name"`
+	}
+	if err := json.Unmarshal(got[0].Params, &decoded); err != nil {
+		t.Fatalf("repaired trace_query params are invalid JSON: %v\n%s", err, got[0].Params)
+	}
+	if decoded.PID != 36379 || decoded.LineStart != 1102710 || decoded.LineEnd != 1139190 ||
+		decoded.MaxDepth != 6 || decoded.MaxBranches != 8 || decoded.MinDurationMS != 1 ||
+		!decoded.IncludeWindowStats || decoded.Limit != 40 {
+		t.Fatalf("trace_query numeric/bool scalar repair failed: %+v\nraw=%s", decoded, got[0].Params)
+	}
+	if decoded.TimeStart != "2942.124416s" || decoded.TimeEnd != "2942.260210s" ||
+		decoded.TraceFlavor != "harmony_hitrace" || decoded.Platform != "harmony_hitrace" ||
+		decoded.SpanName != "Choreographer#doFrame" || decoded.Interaction != "both" ||
+		decoded.RecipeName != "sleep_root_cause" {
+		t.Fatalf("trace_query string fields should survive repair unchanged: %+v\nraw=%s", decoded, got[0].Params)
+	}
+}
+
 func TestNormalizeToolCallParams_AuditDoesNotMutate(t *testing.T) {
 	base := &BaseAgent{
 		name: types.AgentExplorer,
@@ -459,6 +564,7 @@ func readFileCompatTestSchema() json.RawMessage {
 		"type": "object",
 		"properties": {
 			"path": {"type": "string"},
+			"line_offset": {"type": "integer"},
 			"offset": {"type": "integer"},
 			"limit": {"type": "integer"}
 		},

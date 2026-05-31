@@ -138,6 +138,9 @@ func persistMergedAnswerDocument(
 	if fixed := normalizeMergedDiagramPayloadKinds(merged); fixed > 0 {
 		logging.Warning("[%s] repaired %d diagram block discriminator(s) before persist", toolName, fixed)
 	}
+	if materializeRuntimeTraceObservationBlock(merged, ctx) {
+		logging.Info("[%s] materialized runtime trace observation block from structured perf facts", toolName)
+	}
 	if vErr := validateMergedV2Doc(merged); vErr != nil {
 		return failEmit(toolName, now, "%s", vErr.Error())
 	}
@@ -243,6 +246,141 @@ func normalizeMergedDiagramPayloadKinds(doc *types.AnswerDocumentV2) int {
 		}
 	}
 	return fixed
+}
+
+func materializeRuntimeTraceObservationBlock(doc *types.AnswerDocumentV2, ctx *types.BusContext) bool {
+	if doc == nil || ctx == nil || ctx.Mutable == nil {
+		return false
+	}
+	perf := ctx.Mutable.PerfTrace()
+	if perf == nil || !perf.IsExternalSource() {
+		return false
+	}
+	items := runtimeTraceObservationItems(doc, perf)
+	if len(items) == 0 {
+		return false
+	}
+	for _, block := range doc.Blocks {
+		if block.ID == "runtime_trace_facts" {
+			return false
+		}
+	}
+	block := types.AnswerBlock{
+		ID:    "runtime_trace_facts",
+		Kind:  types.BlockBulletList,
+		Title: "Trace 关键事实",
+		Items: items,
+		ClaimUses: []types.RenderedClaimUse{{
+			ClaimForm: types.ClaimExternalObservation,
+		}},
+		FacetIDs: []string{"observed_artifact_fact"},
+	}
+	insertAt := len(doc.Blocks)
+	for i, existing := range doc.Blocks {
+		if existing.Kind == types.BlockCaveat {
+			insertAt = i
+			break
+		}
+	}
+	doc.Blocks = append(doc.Blocks, types.AnswerBlock{})
+	copy(doc.Blocks[insertAt+1:], doc.Blocks[insertAt:])
+	doc.Blocks[insertAt] = block
+	return true
+}
+
+func runtimeTraceObservationItems(doc *types.AnswerDocumentV2, perf *types.PerfBundle) []types.AnswerBlockItem {
+	if doc == nil || perf == nil {
+		return nil
+	}
+	visible := answerDocumentVisibleSurfaceForRuntimeTrace(doc)
+	seen := make(map[string]bool)
+	var out []types.AnswerBlockItem
+	for _, obs := range perf.Observations {
+		label := runtimeTraceObservationLabel(obs)
+		if label == "" {
+			continue
+		}
+		summary := strings.TrimSpace(obs.Summary)
+		if summary == "" {
+			continue
+		}
+		if strings.Contains(visible, summary) || seen[summary] {
+			continue
+		}
+		seen[summary] = true
+		out = append(out, types.AnswerBlockItem{
+			ID:          runtimeTraceObservationItemID(label, len(out)+1),
+			Label:       label,
+			Text:        summary,
+			CitationRef: -1,
+		})
+		if len(out) >= 4 {
+			break
+		}
+	}
+	return out
+}
+
+func runtimeTraceObservationLabel(obs types.PerfObservation) string {
+	switch strings.TrimSpace(obs.Kind) {
+	case "time_semantics":
+		return "时间单位"
+	case "priority_semantics":
+		return "平台优先级语义"
+	case "priority_semantics_normalized":
+		return "优先级归一化"
+	default:
+		return ""
+	}
+}
+
+func runtimeTraceObservationItemID(label string, index int) string {
+	base := strings.ToLower(label)
+	var b strings.Builder
+	for _, r := range base {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+			continue
+		}
+		switch label {
+		case "时间单位":
+			return "trace_time_semantics"
+		case "平台优先级语义":
+			return "trace_priority_semantics"
+		case "优先级归一化":
+			return "trace_priority_normalized"
+		}
+	}
+	if s := strings.TrimSpace(b.String()); s != "" {
+		return "trace_" + s
+	}
+	return fmt.Sprintf("trace_observation_%d", index)
+}
+
+func answerDocumentVisibleSurfaceForRuntimeTrace(doc *types.AnswerDocumentV2) string {
+	if doc == nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, block := range doc.Blocks {
+		appendAnswerDocumentRuntimeSurface(&b, block.Title)
+		appendAnswerDocumentRuntimeSurface(&b, types.AnswerBlockVisibleSurface(block))
+	}
+	for _, caveat := range doc.Caveats {
+		appendAnswerDocumentRuntimeSurface(&b, caveat)
+	}
+	return b.String()
+}
+
+func appendAnswerDocumentRuntimeSurface(b *strings.Builder, s string) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return
+	}
+	if b.Len() > 0 {
+		b.WriteByte('\n')
+	}
+	b.WriteString(s)
 }
 
 // canonicalizeSummaryLeadBlock moves the first renderable summary block in

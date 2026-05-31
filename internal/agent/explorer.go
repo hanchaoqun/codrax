@@ -4416,7 +4416,7 @@ func renderPartialReadHint(h partialReadHint, smallRemainderThreshold int) strin
 		// h.readEnd is the 1-based last line read. The next unread
 		// 1-based line is h.readEnd+1 → 0-based offset h.readEnd.
 		return fmt.Sprintf("Progress check: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered, %d lines remaining). "+
-			"If this function is relevant to the question, call read_file with path=%q offset=%d limit=%d to see the rest.\n",
+			"If this function is relevant to the question, call read_file with path=%q line_offset=%d limit=%d to see the rest.\n",
 			h.symbolName, h.file, h.readEnd, h.symStart, h.symEnd, h.coverage*100, unreadLines,
 			h.file, types.LineToReadFileOffset(h.readEnd+1), unreadLines)
 	}
@@ -5332,7 +5332,7 @@ func renderRuntimeArtifactHeaderReadHint(win runtimeArtifactReadWindow) string {
 		fmt.Fprintf(&b, " of %d", win.total)
 	}
 	b.WriteString(", which looks like a broad/header page of a runtime/log/trace artifact rather than target evidence. ")
-	b.WriteString("Do not emit evidence from unrelated header or first-page rows, and do not keep paging from offset 0. ")
+	b.WriteString("Do not emit evidence from unrelated header or first-page rows, and do not keep paging from the file head. ")
 	fmt.Fprintf(&b, "Narrow first with `grep(path=%q, pattern=\"<one exact timestamp/thread/event literal>\", files_only=false, context_lines=0)` or a deterministic `grep -n`/awk filter that preserves original line numbers; then `read_file` around the selected line window. ", win.path)
 	b.WriteString("Preserve runtime findings through `emit_investigation_complete.reason` plus `aggregate_facts`, or use `emit_evidence` only after the target line gutters are visible and load-bearing.")
 	return b.String()
@@ -9817,7 +9817,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 			// read_file offset is 0-based; next unread 1-based line is
 			// h.readEnd+1 → 0-based offset h.readEnd.
 			fmt.Fprintf(&b, "Progress check: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered, %d lines remaining). "+
-				"If this function is relevant to the question, call read_file with path=%q offset=%d limit=%d to see the rest.\n",
+				"If this function is relevant to the question, call read_file with path=%q line_offset=%d limit=%d to see the rest.\n",
 				h.symbolName, h.file, h.readEnd, h.symStart, h.symEnd, h.coverage*100, unreadLines,
 				h.file, types.LineToReadFileOffset(h.readEnd+1), unreadLines)
 		} else {
@@ -10073,9 +10073,9 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 						"(%.1f%% of the file). A narrow window cannot support a conclusion "+
 						"about the file's OVERALL structure. Before ending the investigation, "+
 						"either (a) call `list_files` on the containing directory plus a single "+
-						"read_file with offset=1 limit=200 to see the top-level imports + type "+
+						"read_file with line_offset=1 limit=200 to see the top-level imports + type "+
 						"declarations, or (b) issue a wider read_file (limit>=300) starting from "+
-						"offset=1 so the structural claim is grounded in actual coverage.\n",
+						"line_offset=1 so the structural claim is grounded in actual coverage.\n",
 					rng.Start, rng.End, total, path, windowPct)
 				e.midLoopIntentWindowSent = true
 				hintKey = "explorer.mid-loop.intent-window-mismatch"
@@ -10257,7 +10257,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 				"For example, if you plan to read files A, B, and C whose contents are independent, call all three `read_file`s at once; " +
 				"if you need to grep for patterns X and Y in different directories, batch both `grep` calls together. " +
 				"Serialize only when one call's output determines the next call's parameters " +
-				"(e.g. grep to find a line number, then read_file at that offset).\n")
+				"(e.g. grep to find a line number, then read_file at the corresponding line_offset).\n")
 			e.midLoopParallelInjected = true
 			hintKey = "explorer.mid-loop.parallelize"
 		}
@@ -10488,7 +10488,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 			"**Your job is to collect evidence, NOT to answer the question.** Reasoning happens later.\n\n" +
 			"**Tools you should use** (pick the most efficient for each situation):\n" +
 			"- `grep` — locate specific patterns, find line numbers, scan large files efficiently. Prefer grep over full-file reads when you only need specific sections; use `fixed_string=true` for literal log/trace/config text with punctuation, and `line_start`/`line_end` only after you know a single-file vicinity\n" +
-			"- `read_file` — read file contents (use offset/limit for targeted ranges)\n" +
+			"- `read_file` — read file contents (use line_offset/limit for targeted line ranges; line_offset is not byte-based)\n" +
 			"- `grep` + `read_file` combo — for large files (>500 lines), grep to find relevant line numbers first, then read only those ranges\n" +
 			"- `emit_evidence(items=[...])` — after gathering facts from a file, emit ALL evidence in ONE batch. Line numbers MUST come from the `read_file` gutter exactly\n\n" +
 			"**Evidence format** (examples — adapt to what you find):\n" +
@@ -10583,7 +10583,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 					// read_file offset is 0-based; next unread 1-based
 					// line is ph.readEnd+1 → 0-based offset ph.readEnd.
 					fmt.Fprintf(&hint, "- `%s` in %s (lines %d-%d): you read up to line %d (%.0f%%, %d lines remaining). "+
-						"Call `read_file` with path=%q offset=%d limit=%d to see the rest\n",
+						"Call `read_file` with path=%q line_offset=%d limit=%d to see the rest\n",
 						ph.symbolName, ph.file, ph.symStart, ph.symEnd,
 						ph.readEnd, ph.coverage*100, unreadLines,
 						ph.file, types.LineToReadFileOffset(ph.readEnd+1), unreadLines)
@@ -11148,7 +11148,7 @@ func evidenceLikeSoftStop(content string) bool {
 }
 
 // formatReadFileOffsetGuidance renders a concise multi-line hint
-// fragment reminding the LLM that read_file supports offset+limit
+// fragment reminding the LLM that read_file supports line_offset+limit
 // and showing, for the given file, the top 3 symbols with their
 // line ranges plus ONE concrete read_file invocation example
 // covering the union. Returns "" when no symbol info is available
@@ -11161,18 +11161,18 @@ func evidenceLikeSoftStop(content string) bool {
 // first 1000 lines of irrelevant code each time, which (a) wasted
 // context budget, (b) often missed the actual symbol (past line
 // 1000), (c) slowed the pipeline enough to hit rate limits. The
-// schema description says "use offset/limit for targeted ranges"
+// schema description says "use line_offset/limit for targeted ranges"
 // but the LLM doesn't parse schema descriptions, only hints it
 // receives inline.
 //
 // Output shape:
 //
-//	→ Tip: read_file supports offset+limit for targeted reads.
+//	→ Tip: read_file supports line_offset+limit for targeted reads.
 //	  Symbols in <path>:
 //	    - NewSubExplorer (lines 25-34)
 //	    - SubExplorer.Run (lines 35-65)
 //	    - subExplorerEvaluator (lines 67-107)
-//	  Example: read_file path=<path> offset=25 limit=83 to cover lines 25-107.
+//	  Example: read_file path=<path> line_offset=24 limit=83 to cover lines 25-107.
 func (e *explorerEvaluator) formatReadFileOffsetGuidance(path string) string {
 	if e.searchResult == nil || e.searchResult.Graph == nil {
 		return ""
@@ -11207,12 +11207,12 @@ func (e *explorerEvaluator) formatReadFileOffsetGuidance(path string) string {
 		topN = len(syms)
 	}
 	var b strings.Builder
-	b.WriteString("  → Tip: read_file supports offset+limit for targeted reads (avoid re-reading from offset=0).\n")
+	b.WriteString("  → Tip: read_file supports line_offset+limit for targeted reads (avoid re-reading from the file head). line_offset is zero-based and line-based, not byte-based.\n")
 	fmt.Fprintf(&b, "    Symbols in %s:\n", path)
 	for i := 0; i < topN; i++ {
 		fmt.Fprintf(&b, "      - %s (lines %d-%d)\n", syms[i].name, syms[i].start, syms[i].end)
 	}
-	// Concrete example spanning the top-N union. read_file offset is
+	// Concrete example spanning the top-N union. read_file line_offset is
 	// 0-based; the symbol's 1-based start line maps to offset
 	// start-1. The "(covers lines …)" gloss stays in 1-based form so
 	// it matches the symbol-line listing above.
@@ -11220,7 +11220,7 @@ func (e *explorerEvaluator) formatReadFileOffsetGuidance(path string) string {
 	coverEnd := syms[topN-1].end
 	offset := types.LineToReadFileOffset(startLine)
 	limit := coverEnd - startLine + 1
-	fmt.Fprintf(&b, "    Example: read_file path=%s offset=%d limit=%d  (covers lines %d-%d).\n",
+	fmt.Fprintf(&b, "    Example: read_file path=%s line_offset=%d limit=%d  (covers lines %d-%d).\n",
 		path, offset, limit, startLine, coverEnd)
 	return b.String()
 }
@@ -17162,7 +17162,7 @@ func preReadRequiredFilesWithObserver(repoRoot string, files []string, maxFiles,
 			// Disclose the total line count so the model does not
 			// mistake a head slice for the whole file and skip a
 			// read_file with offset>0 that it genuinely needs.
-			fmt.Fprintf(&b, " (first %d of %d total lines — issue read_file with offset to see the rest)", maxLines, totalLines)
+			fmt.Fprintf(&b, " (first %d of %d total lines — issue read_file with line_offset to see the rest)", maxLines, totalLines)
 		} else {
 			fmt.Fprintf(&b, " (full file, %d lines)", totalLines)
 		}

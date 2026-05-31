@@ -51,4 +51,7 @@ HTRACE='# TRACE:
 EXPECT_CONTAINS="Binder:924_3 ACCS0"
 EXPECT_MATCHES_REGEX="(秒|seconds|s).*168758|168758.*(秒|seconds|s)
 (Binder:924_3|pid ?1200).*(ACCS0|pid ?2716)|(ACCS0|pid ?2716).*(Binder:924_3|pid ?1200)
-(鸿蒙|Harmony|OpenHarmony|hitrace|bytrace)"
+(鸿蒙|Harmony|OpenHarmony|hitrace|bytrace)
+(数值越大|larger numeric|larger .*higher|higher .*larger)
+(prio=120|120).*(RT|实时|41-139)|(RT|实时|41-139).*(prio=120|120)"
+EXPECT_NOT_CONTAINS="98属于CFS 120属于CFS 124属于CFS prio=98属于CFS prio=120属于CFS prio=124属于CFS CFS带优先权 同层CFS"

@@ -83,6 +83,114 @@ func TestEmitAnswerDocumentV2_AcceptsValidV2(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocumentV2_MaterializesRuntimeTraceStructuredFacts(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.Mutable.SetPerfTrace(&types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace"},
+		Observations: []types.PerfObservation{
+			{
+				Kind:    "priority_semantics",
+				Summary: "Harmony priority semantics: 数值越大优先级越高; 1-40=CFS, 41-139=RT. Observed classes: prio=120/ohos_rt.",
+			},
+			{
+				Kind:    "time_semantics",
+				Summary: "Trace timestamps are seconds; attached excerpt spans 168758.662877s..168758.663329s = 0.452ms (452us).",
+			},
+		},
+	})
+	tool := &EmitAnswerDocument{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"blocks": [
+			{"id": "s1", "kind": "summary", "text": "ACCS0 与 Binder:924_3 呈现同步 IPC handoff。"},
+			{"id": "scope", "kind": "caveat", "text": "仅限该 trace 片段。"}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected V2 emit to succeed; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 3 {
+		t.Fatalf("runtime trace supplement should be inserted before caveat, got %+v", doc)
+	}
+	if doc.Blocks[1].ID != "runtime_trace_facts" || doc.Blocks[1].Kind != types.BlockBulletList {
+		t.Fatalf("missing runtime trace facts block: %+v", doc.Blocks)
+	}
+	visible := types.AnswerBlockVisibleSurface(doc.Blocks[1])
+	if !strings.Contains(visible, "数值越大优先级越高") || !strings.Contains(visible, "prio=120/ohos_rt") {
+		t.Fatalf("priority semantics not materialized: %q", visible)
+	}
+	if !strings.Contains(visible, "timestamps are seconds") {
+		t.Fatalf("time semantics not materialized: %q", visible)
+	}
+}
+
+func TestEmitAnswerDocumentV2_DoesNotMaterializeRuntimeFactsForCodeOnlyDoc(t *testing.T) {
+	bus := newV2TestBusContext()
+	tool := &EmitAnswerDocument{}
+	res, err := tool.Execute(bus, minimalV2EmitJSON())
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected V2 emit to succeed; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 1 {
+		t.Fatalf("code-only doc should not get runtime trace supplement: %+v", doc)
+	}
+}
+
+func TestEmitAnswerDocumentV2_MixedSourceAndTraceKeepsLanesSeparate(t *testing.T) {
+	bus := newV2TestBusContext()
+	bus.Mutable.SetPerfTrace(&types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace"},
+		Observations: []types.PerfObservation{{
+			Kind:    "priority_semantics",
+			Summary: "Harmony priority semantics: 数值越大优先级越高; 1-40=CFS, 41-139=RT. Observed classes: prio=120/ohos_rt.",
+		}},
+	})
+	tool := &EmitAnswerDocument{}
+	res, err := tool.Execute(bus, json.RawMessage(`{
+		"blocks": [{
+			"id": "source_path",
+			"kind": "ordered_list",
+			"surface_role": "principal",
+			"claim_uses": [{"claim_form": "call_edge"}],
+			"items": [{"id": "i1", "label": "source hop", "text": "当前源码调用链", "citation_ref": 0}]
+		}],
+		"citations": [{"file": "internal/example.go", "line": 12}]
+	}`))
+	if err != nil {
+		t.Fatalf("unexpected exec error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected V2 emit to succeed; got %+v", res)
+	}
+	doc := bus.Mutable.AnswerDocumentV2()
+	if doc == nil || len(doc.Blocks) != 2 {
+		t.Fatalf("mixed source+trace doc should append one trace support block: %+v", doc)
+	}
+	if got := doc.Blocks[0].Items[0].CitationRef; got != 0 {
+		t.Fatalf("source citation ref should be preserved, got %d", got)
+	}
+	if len(doc.Citations) != 1 || doc.Citations[0].File != "internal/example.go" {
+		t.Fatalf("source citation pool should be preserved: %+v", doc.Citations)
+	}
+	traceBlock := doc.Blocks[1]
+	if traceBlock.ID != "runtime_trace_facts" || traceBlock.SurfaceRole == types.SurfacePrincipal {
+		t.Fatalf("trace facts must stay support-only external observation lane: %+v", traceBlock)
+	}
+	if len(traceBlock.Items) != 1 || traceBlock.Items[0].CitationRef != -1 {
+		t.Fatalf("trace support block must not create source citations; got %+v", traceBlock.Items)
+	}
+	if len(traceBlock.ClaimUses) != 1 || traceBlock.ClaimUses[0].ClaimForm != types.ClaimExternalObservation {
+		t.Fatalf("trace support block must declare external observation: %+v", traceBlock.ClaimUses)
+	}
+}
+
 func TestEmitAnswerDocumentV2_PrunesScalarItemFragmentsWhenItemObjectsPreserveDisplay(t *testing.T) {
 	bus := newV2TestBusContext()
 	tool := &EmitAnswerDocument{}

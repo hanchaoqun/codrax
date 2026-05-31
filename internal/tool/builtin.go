@@ -1022,7 +1022,7 @@ type grepToolParams struct {
 
 func (t *GrepTool) Name() string { return "grep" }
 func (t *GrepTool) Description() string {
-	return "Search file contents by pattern. Use this to find where a symbol, string, config key, log event, or trace row appears. By default `pattern` is a regex. Case handling is smart by default: if the pattern contains no uppercase characters it is matched case-insensitively (so `subagent` finds `SubAgent`, `SUBAGENT`, etc.); if the pattern contains any uppercase character it is matched exactly. Pass ignore_case explicitly to override. Use fixed_string=true for exact literal text with punctuation (recommended for log/trace event labels, thread names, error strings, config keys, and any text containing []()|#.: that you do not want treated as regex). Use file_type to filter by language (e.g. \"go\", \"py\", \"js\", \"ts\", \"java\", \"yaml\") — this is preferred over include because it covers all relevant extensions (e.g. type \"ts\" matches both *.ts and *.tsx). Do not set file_type/include when path is already one concrete log/trace artifact. Use context_lines to include surrounding lines around each match, which saves a follow-up read_file call; avoid context_lines on the first broad search of a large log/trace and instead narrow to a timestamp/thread/event, then read_file around returned line numbers. Use line_start/line_end only with a single file when you already know a relevant line vicinity. Directory scans may skip very large runtime artifacts for safety; if the result lists skipped_large_candidates, set path to that candidate and grep the file explicitly rather than reading from offset 0. For large log/trace/systrace files, search one exact timestamp, thread id/name, or event literal first; regex is order-sensitive, so if a combined pattern returns no matches, inspect the line format with a simpler literal before combining fields. Do NOT use the result to count matches by eye — pipe `grep -c` or `grep ... | wc -l` through exec_command instead, and treat that number as authoritative."
+	return "Search file contents by pattern. Use this to find where a symbol, string, config key, log event, or trace row appears. By default `pattern` is a regex. Case handling is smart by default: if the pattern contains no uppercase characters it is matched case-insensitively (so `subagent` finds `SubAgent`, `SUBAGENT`, etc.); if the pattern contains any uppercase character it is matched exactly. Pass ignore_case explicitly to override. Use fixed_string=true for exact literal text with punctuation (recommended for log/trace event labels, thread names, error strings, config keys, and any text containing []()|#.: that you do not want treated as regex). Use file_type to filter by language (e.g. \"go\", \"py\", \"js\", \"ts\", \"java\", \"yaml\") — this is preferred over include because it covers all relevant extensions (e.g. type \"ts\" matches both *.ts and *.tsx). Do not set file_type/include when path is already one concrete log/trace artifact. Use context_lines to include surrounding lines around each match, which saves a follow-up read_file call; avoid context_lines on the first broad search of a large log/trace and instead narrow to a timestamp/thread/event, then read_file around returned line numbers. Use line_start/line_end only with a single file when you already know a relevant line vicinity. Directory scans may skip very large runtime artifacts for safety; if the result lists skipped_large_candidates, set path to that candidate and grep the file explicitly rather than reading from the file head. For large log/trace/systrace files, search one exact timestamp, thread id/name, or event literal first; regex is order-sensitive, so if a combined pattern returns no matches, inspect the line format with a simpler literal before combining fields. Do NOT use the result to count matches by eye — pipe `grep -c` or `grep ... | wc -l` through exec_command instead, and treat that number as authoritative."
 }
 
 func grepShouldUseNativeBackend(searchBackend string, hasRepoRoot, searchPathIsFile bool) bool {
@@ -2367,7 +2367,7 @@ func grepSkippedLargeFilesNoMatchBody(paths []string, skippedTotal int) string {
 	b.WriteString("directory_scan_safety_skip=the skipped large file candidates were not searched in this directory scan; this is not absence proof and does not mean grep cannot search those files.\n")
 	if nextPath := firstSkippedLargeRuntimeArtifactPath(paths); nextPath != "" {
 		fmt.Fprintf(&b, "single_file_grep_supported=true next_call=grep(path=%q, pattern=\"<one exact timestamp/thread/event literal>\", files_only=false, context_lines=0)\n", nextPath)
-		b.WriteString("runtime_artifact_recovery=do not read_file from offset 0; first run explicit single-file grep on the skipped artifact, then read_file around returned line numbers for evidence.\n")
+		b.WriteString("runtime_artifact_recovery=do not start read_file at the file head; first run explicit single-file grep on the skipped artifact, then read_file around returned line numbers for evidence.\n")
 	} else if nextPath := firstNonEmptyString(paths); nextPath != "" {
 		fmt.Fprintf(&b, "single_file_grep_supported=true next_call=grep(path=%q, pattern=\"<one exact target literal>\", files_only=false, context_lines=0)\n", nextPath)
 		b.WriteString("large_file_recovery=if a skipped file is the target, re-run grep with path set to that exact file before broadening or paging from the beginning.\n")
@@ -2491,7 +2491,7 @@ func renderGrepLineWindowHints(windows []grepLineWindow) string {
 	limit := end - start + 1
 	offset := start - 1
 	var b strings.Builder
-	fmt.Fprintf(&b, "line_window_hint=first returned match is %s:%d; next use `read_file` with path=%q offset=%d limit=%d, or re-run grep on this same file with line_start=%d line_end=%d.\n",
+	fmt.Fprintf(&b, "line_window_hint=first returned match is %s:%d; next use `read_file` with path=%q line_offset=%d limit=%d, or re-run grep on this same file with line_start=%d line_end=%d.\n",
 		first.Path, lineNo, first.Path, offset, limit, start, end)
 	if len(windows) > 1 {
 		var parts []string
@@ -2758,20 +2758,20 @@ func fileTypeToGlobs(ft string) []string {
 // values that read_file treats as a "training-distribution default"
 // on inline-sized files. When Offset==0 and 0 < Limit <= threshold on
 // a file of bytes <= MaxInlineBytes, read_file ignores the slice and
-// returns the whole file with an override banner. Any non-zero Offset
-// is a strong signal of deliberate paging and is always honored —
+// returns the whole file with an override banner. Any non-zero
+// lineOffset is a strong signal of deliberate paging and is always honored —
 // only the "first read, lazy default limit" shape is suppressed.
 //
-// Rationale: LLMs routinely emit offset=0+limit=20/50/100 from their
-// training distribution, not because they know the file layout. On a
-// 66-line source file, limit=20 silently hides the answer past line
-// 20. A re-read that deliberately wants a slice picks a non-zero
-// offset (see the paging loop around the banner).
+// Rationale: LLMs routinely emit line_offset=0+limit=20/50/100 from
+// their training distribution, not because they know the file layout.
+// On a 66-line source file, limit=20 silently hides the answer past
+// line 20. A re-read that deliberately wants a slice picks a non-zero
+// line_offset (see the paging loop around the banner).
 //
 // Default 100 catches the common lazy values (10/20/50/100) without
 // forcing back the whole file when the LLM picks an odd size like
 // 150 or 200 (almost always a deliberate keyhole read). Set to 0 to
-// disable the override entirely — offset/limit is then honored on
+// disable the override entirely — line_offset/limit is then honored on
 // any file size.
 var ReadFileSmallLimitThreshold = 100
 
@@ -2792,26 +2792,45 @@ type ReadFile struct {
 }
 
 type readFileParams struct {
-	Path   string `json:"path"`
-	Offset int    `json:"offset,omitempty"`
-	Limit  int    `json:"limit,omitempty"`
+	Path       string   `json:"path"`
+	LineOffset *FlexInt `json:"line_offset,omitempty"`
+	Offset     FlexInt  `json:"offset,omitempty"` // legacy backend-only alias for line_offset
+	Limit      FlexInt  `json:"limit,omitempty"`
 }
 
 func (t *ReadFile) Name() string { return "read_file" }
 func (t *ReadFile) Description() string {
-	return "Read file contents. The offset/limit parameters page files too large to inline (>32KB) and can also page inline-sized files — pass any non-zero offset (e.g. offset=100, limit=30) for a deliberate keyhole read and the slice is honored exactly. On files that fit inline, an offset=0 combined with a small limit (default <= 100 lines, configurable via readfile_small_limit_threshold) is treated as a lazy default and expanded to the whole file, because slicing a small file silently hides the answer past the cutoff; the override banner reports this when it fires. The first line of the result is a banner shaped `[path: showing lines X-Y of Z total]` telling you which slice you got; every subsequent line is prefixed with its absolute line number followed by `│`. When citing a file location in your investigation notes, use only numbers taken verbatim from the gutter of a line you actually read — never estimate or interpolate line numbers between two lines you saw."
+	return "Read file contents. Use line_offset/limit to page files too large to inline (>32KB) and to read targeted line windows. line_offset is a zero-based line coordinate, not a byte or character offset: line_offset=100 starts at source line 101. Pass any non-zero line_offset (for example line_offset=100, limit=30) for a deliberate keyhole read and the slice is honored exactly. On files that fit inline, line_offset=0 combined with a small limit (default <= 100 lines, configurable via readfile_small_limit_threshold) is treated as a lazy default and expanded to the whole file, because slicing a small file silently hides the answer past the cutoff; the override banner reports this when it fires. The first line of the result is a banner shaped `[path: showing lines X-Y of Z total]` telling you which slice you got; every subsequent line is prefixed with its absolute 1-based line number followed by `│`. When citing a file location in your investigation notes, use only numbers taken verbatim from the gutter of a line you actually read — never estimate or interpolate line numbers between two lines you saw."
 }
 
 func (t *ReadFile) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
   "properties": {
-    "path":   {"type": "string",  "description": "Path to the file to read"},
-    "offset": {"type": "integer", "description": "Starting line number (0-based, optional)"},
-    "limit":  {"type": "integer", "description": "Maximum number of lines to return (optional)"}
+    "path":        {"type": "string",  "description": "Path to the file to read"},
+    "line_offset": {"type": "integer", "description": "Preferred starting zero-based LINE offset. line_offset=100 starts at source line 101. This is not a byte or character offset."},
+    "limit":       {"type": "integer", "description": "Maximum number of lines to return (optional)"}
   },
   "required": ["path"]
 }`)
+}
+
+func decodeReadFileParams(raw json.RawMessage) (readFileParams, bool, error) {
+	var p readFileParams
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return p, false, err
+	}
+	if p.LineOffset != nil {
+		p.Offset = *p.LineOffset
+		return p, false, nil
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err == nil {
+		if _, ok := probe["offset"]; ok {
+			return p, true, nil
+		}
+	}
+	return p, false, nil
 }
 
 // findFirstDenial returns the first TypedDenial in s whose token
@@ -2863,9 +2882,14 @@ func matchesPath(query, denial string) bool {
 }
 
 func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
-	var p readFileParams
-	if err := json.Unmarshal(params, &p); err != nil {
+	p, usedLegacyOffset, err := decodeReadFileParams(params)
+	if err != nil {
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
+	}
+	lineOffset := p.Offset.Int()
+	limit := p.Limit.Int()
+	if lineOffset < 0 || limit < 0 {
+		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: "invalid params: line_offset and limit must be non-negative line counts; line_offset is zero-based and line-based, not byte-based", Timestamp: time.Now()}, nil
 	}
 
 	// L1 negative-knowledge gate (R3 second-axis enforcement):
@@ -2937,13 +2961,13 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 
 	// Slice vs. full-file policy:
 	//
-	//   - No offset/limit passed → return the whole file.
-	//   - Offset > 0 → deliberate paging. Honor the slice verbatim,
-	//     regardless of file size. Any non-zero offset is a strong
+	//   - No line_offset/limit passed → return the whole file.
+	//   - line_offset > 0 → deliberate paging. Honor the slice verbatim,
+	//     regardless of file size. Any non-zero line_offset is a strong
 	//     signal that the LLM knows what section it wants.
 	//   - Large file (bytes > MaxInlineBytes) → honor the slice, the
 	//     whole file cannot fit inline anyway.
-	//   - Small file with Offset==0 and 0 < Limit <=
+	//   - Small file with line_offset==0 and 0 < Limit <=
 	//     ReadFileSmallLimitThreshold and Limit < totalLines → treat
 	//     as a training-distribution default (limit=20 on a 66-line
 	//     file would silently hide the tail) and expand to the whole
@@ -2957,20 +2981,20 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	sliceStart := 0
 	sliceEnd := totalLines
 	overrode := false
-	if p.Offset > 0 || p.Limit > 0 {
-		isLazyDefault := p.Offset == 0 &&
-			p.Limit > 0 &&
+	if lineOffset > 0 || limit > 0 {
+		isLazyDefault := lineOffset == 0 &&
+			limit > 0 &&
 			ReadFileSmallLimitThreshold > 0 &&
-			p.Limit <= ReadFileSmallLimitThreshold &&
-			p.Limit < totalLines &&
+			limit <= ReadFileSmallLimitThreshold &&
+			limit < totalLines &&
 			len(data) <= MaxInlineBytes
 		if isLazyDefault {
 			overrode = true
 		} else {
-			sliceStart = p.Offset
+			sliceStart = lineOffset
 			sliceEnd = totalLines
-			if p.Limit > 0 && sliceStart+p.Limit < sliceEnd {
-				sliceEnd = sliceStart + p.Limit
+			if limit > 0 && sliceStart+limit < sliceEnd {
+				sliceEnd = sliceStart + limit
 			}
 		}
 	}
@@ -2983,8 +3007,8 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			ToolName: t.Name(),
 			Success:  false,
 			Summary: fmt.Sprintf(
-				"read_file empty range: offset=%d starts after the last readable line of %s (%d total line(s)); offsets are zero-based, so the last valid offset is %d. Retry with offset<=%d, or omit offset to read from the beginning.",
-				p.Offset, p.Path, totalLines, lastOffset, lastOffset),
+				"read_file empty range: line_offset=%d starts after the last readable line of %s (%d total line(s)); line_offset is a zero-based LINE offset, not a byte or character offset, so the last valid line_offset is %d. Retry with line_offset<=%d, or omit line_offset to read from the beginning.",
+				lineOffset, p.Path, totalLines, lastOffset, lastOffset),
 			Timestamp: time.Now(),
 		}, nil
 	}
@@ -3049,10 +3073,15 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// shapes in sync with the string matchers in those functions.
 	var banner string
 	if overrode {
-		banner = fmt.Sprintf("[%s: showing all %d lines (%d bytes); limit=%d expanded to full file (inline-sized; pass offset>0 for explicit paging)]\n",
-			p.Path, totalLines, len(data), p.Limit)
+		banner = fmt.Sprintf("[%s: showing all %d lines (%d bytes); limit=%d expanded to full file (inline-sized; pass line_offset>0 for explicit paging)]\n",
+			p.Path, totalLines, len(data), limit)
 	} else {
 		banner = fmt.Sprintf("[%s: showing lines %d-%d of %d total]\n", p.Path, sliceStart+1, sliceEnd, totalLines)
+	}
+	if usedLegacyOffset {
+		banner += "[read_file notice: legacy offset was accepted and interpreted as zero-based line_offset, not as a byte or character offset]\n"
+	} else if lineOffset > 0 || p.LineOffset != nil {
+		banner += "[read_file coordinates: line_offset is a zero-based line offset, not a byte or character offset; gutter line numbers are 1-based]\n"
 	}
 	content = banner + content
 
