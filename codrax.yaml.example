@@ -160,11 +160,11 @@
 # ---------------------------------------------------------------------------
 # EN  Optional read-only MCP tool producers. Empty by default; when empty,
 #     MCP changes do not alter prompts, tool schemas, dispatch, or answer
-#     grounding. V1 supports stdio servers. Tools are exposed to explorer
+#     grounding. The current implementation supports stdio servers. Tools are exposed to explorer
 #     agents as <server>__<tool> and their results enter the runtime/external
 #     observation lane as mcp_resource, not as source-code citations.
 # 中文 可选的只读 MCP 工具生产端。默认空;为空时 MCP 不改变 prompt、工具
-#     schema、调度或答案落地。V1 支持 stdio server。工具只暴露给探索类
+#     schema、调度或答案落地。当前实现支持 stdio server。工具只暴露给探索类
 #     agent,名称形如 <server>__<tool>;结果进入 mcp_resource 外部观测通道,
 #     不会伪装成当前源码引用。
 #

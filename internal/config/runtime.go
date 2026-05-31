@@ -53,7 +53,7 @@ type RuntimeSettings struct {
 	// pipeline prompts, tool schemas, dispatch, and observation ledger
 	// behavior identical to a build without MCP producer support.
 	//
-	// V1 supports stdio servers only. Each configured server is started at
+	// The current implementation supports stdio servers only. Each configured server is started at
 	// process init, initialized through MCP JSON-RPC, and its tools are exposed
 	// under namespaced tool names (<server>__<tool>) only to evidence-collection
 	// agents. inherit_env defaults to false so provider secrets are not passed

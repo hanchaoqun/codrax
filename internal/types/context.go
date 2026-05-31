@@ -4759,7 +4759,7 @@ type MCPResponse struct {
 }
 
 // MCPServerConfig is the codrax.yaml shape for one external MCP server.
-// V1 supports stdio only; other transports are reserved and fail loudly.
+// The current implementation supports stdio only; other transports are reserved and fail loudly.
 type MCPServerConfig struct {
 	Name             string            `yaml:"name" json:"name"`
 	Transport        TransportType     `yaml:"transport" json:"transport"`

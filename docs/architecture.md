@@ -2506,7 +2506,7 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 
 ### 13.6 internal/mcp — MCP（Model Context Protocol）外置工具桥
 
-可选 MCP server 接入：在 `codrax.yaml :: mcp_servers` 配置，默认空。空配置时 MCP 不改变 prompt、tool schema、dispatch 或 ObservationLedger 行为。V1 只支持 stdio server：进程启动后通过 JSON-RPC `initialize` / `tools/list` / `tools/call` 交互，调用有超时、进程关闭和大输出 blob 保护。
+可选 MCP server 接入：在 `codrax.yaml :: mcp_servers` 配置，默认空。空配置时 MCP 不改变 prompt、tool schema、dispatch 或 ObservationLedger 行为。当前实现支持 stdio server：进程启动后通过 JSON-RPC `initialize` / `tools/list` / `tools/call` 交互，调用有超时、进程关闭和大输出 blob 保护。
 
 工具名对模型命名空间化为 `<server>__<tool>`，只在 explorer / sub-explorer 的 `StageExplore` 暴露；analyzer / extractor / finalizer / write pipeline V1 不直接调用 MCP。MCP 调用结果统一写入 `MCPResponse`，再进入 `ObservationLedger{origin=mcp_resource}`。它是外部观测，不会进入当前源码 citation / ground 池。
 

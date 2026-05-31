@@ -51,7 +51,8 @@ logic:
   - `name`, `transport`, `command`, `args`, `env`, `inherit_env`,
     `startup_timeout_ms`, `call_timeout_ms`, `max_response_bytes`.
   - global `mcp_max_servers`.
-  - default is no servers; transport V1 supports `stdio`.
+  - default is no servers; the current transport implementation supports
+    `stdio`.
 - Add a stdio JSON-RPC client:
   - `initialize` + `notifications/initialized`.
   - one reader goroutine with request-id demux.
