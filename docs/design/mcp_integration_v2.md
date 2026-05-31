@@ -1,6 +1,6 @@
 # MCP 集成 v2 —— 最优方案设计（基于代码深度探索重写）
 
-**状态**：设计审查（取代 `mcp_integration.md` 的 §9 / §15 实现框架；威胁模型 §3、配置预算 §11 仍可复用）。**未开始实现。**
+**状态**：设计审查 + 部分落地（取代 `mcp_integration.md` 的 §9 / §15 实现框架；威胁模型 §3、配置预算 §11 仍可复用）。2026-05-31 已落地 Phase 1 的 stdio producer / `mcp_servers` 加载 / 命名空间 / explorer-family gate，以及 Phase 2 的枚举资源读取和外部 guidance 元数据。后续仍可扩展 plan hook / log_source 特化。
 **修订动机**：v1 写于 953-commit 漂移之前。本次对当前代码做了 file:line 级深度探索，发现 **MCP 的消费侧链路已经全部接通并经测试**，只是因 producer 是 stub 而休眠。最优方案因此从"为 MCP 输出新建三条路径"翻转为"**补完 producer，让已建好的 typed observation lane 自动接管**"。这同时把两条硬约束变成设计的天然结果：
 - **泛化通用**：任何 MCP server 的任何工具输出，统一变成一种 typed 外部观测（`origin = MCPResource`），与 k8s / 日志 / 任何领域解耦。
 - **不影响稳定性**：下游零新增代码路径；所有改动 gate 在"registry 非空"；**无 MCP 配置时行为字节等价于今天**。
@@ -213,6 +213,8 @@ v1 决策 #4 只管"启动日志不打 env"。但"把 codrax 全部 `os.Environ`
 ## 6. Phase 2 — prompts + resources 通道
 
 独立 commit，gate 在 registry 非空，不影响 Phase 1 与无 MCP 路径。
+
+**2026-05-31 落地说明**：当前已实现 `resources/list` / `resources/read` / `prompts/list`。`prompts/list` 只作为 capped 外部 guidance 元数据暴露；`prompts/get` 暂未执行，避免在没有明确 server 场景前引入额外 prompt-injection 面。
 
 ### 6.1 prompts → External Guidance section
 

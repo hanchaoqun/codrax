@@ -77,9 +77,9 @@ safe:
 - Add `resources/list` and `resources/read` support to stdio servers.
 - Add a local pseudo-tool `mcp_read_resource` that accepts only exact URIs
   returned by `resources/list`; Codrax never constructs or resolves URIs.
-- Add `prompts/list` / `prompts/get` support.
-- Render prompt output as capped external guidance, wrapped as untrusted MCP
-  content.
+- Add `prompts/list` support as capped external guidance metadata, wrapped as
+  untrusted MCP content. Executing `prompts/get` is deferred until a concrete
+  server/use case needs prompt bodies instead of advertised runbook names.
 - Keep both channels disabled when no server advertises resources/prompts.
 
 ### Batch 3: Tests and Docs
