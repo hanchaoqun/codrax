@@ -676,12 +676,13 @@ func rootRun(cmd *cobra.Command, args []string) error {
 	// Attach HiTrace / Android systrace separately so the independent
 	// perf_triage pre-stage can consume it without polluting the
 	// log_triage channel.
-	trace, err := loadAttachedTrace()
+	trace, traceSource, err := loadAttachedTrace()
 	if err != nil {
 		return err
 	}
 	if trace != "" {
 		app.orch.SetAttachedHitrace(trace)
+		app.orch.SetAttachedHitraceSource(traceSource)
 		logging.Info("[cmd] attached hitrace: %d bytes", len(trace))
 	}
 	if flagLogSourcePrefix != "" {
@@ -753,38 +754,41 @@ func loadAttachedLog() (string, error) {
 // mutually exclusive when both are non-empty. Multiple --htrace
 // (or --atrace) entries concatenate with `# codrax-source:` headers
 // the same way --log does.
-func loadAttachedTrace() (string, error) {
+func loadAttachedTrace() (string, string, error) {
 	if len(flagAttachHitrace) > 0 && flagAttachHitraceText != "" {
-		return "", fmt.Errorf("--htrace and --htrace-text are mutually exclusive")
+		return "", "", fmt.Errorf("--htrace and --htrace-text are mutually exclusive")
 	}
 	if len(flagAttachAtrace) > 0 && flagAttachAtraceText != "" {
-		return "", fmt.Errorf("--atrace and --atrace-text are mutually exclusive")
+		return "", "", fmt.Errorf("--atrace and --atrace-text are mutually exclusive")
 	}
 	if (len(flagAttachHitrace) > 0 || flagAttachHitraceText != "") &&
 		(len(flagAttachAtrace) > 0 || flagAttachAtraceText != "") {
-		return "", fmt.Errorf("--htrace and --atrace are aliases — set only one")
+		return "", "", fmt.Errorf("--htrace and --atrace are aliases — set only one")
 	}
 	// Promote --atrace* into --htrace* so the rest of the loader only
 	// sees one shape.
 	paths := flagAttachHitrace
 	text := flagAttachHitraceText
+	source := "harmony_hitrace"
 	if len(flagAttachAtrace) > 0 {
 		paths = flagAttachAtrace
+		source = "android_atrace"
 	}
 	if flagAttachAtraceText != "" {
 		text = flagAttachAtraceText
+		source = "android_atrace"
 	}
 	if err := enforceStdinExclusivity(); err != nil {
-		return "", err
+		return "", "", err
 	}
 	body, err := loadMultiPathSlice("trace", paths, text, maxAttachedTraceBytes)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if body == "" {
-		return "", nil
+		return "", "", nil
 	}
-	return truncateAttachedToCap(body, maxAttachedTraceBytes, "trace"), nil
+	return truncateAttachedToCap(body, maxAttachedTraceBytes, "trace"), source, nil
 }
 
 // enforceStdinExclusivity checks that at most one `-` appears across

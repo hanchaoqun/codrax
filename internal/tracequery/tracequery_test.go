@@ -247,6 +247,49 @@ func TestParseHarmonyHitraceSnippetKeepsSecondsAndPrioritySemantics(t *testing.T
 	}
 }
 
+func TestTraceFlavorDetectionAndPrioritySemantics(t *testing.T) {
+	harmony := buildTraceIndex(t, "sample.htrace", harmonyTrace)
+	harmonyRes := Run(harmony, Query{View: "window_stats", TimeStart: 928.081774, TimeEnd: 928.081903})
+	if harmonyRes.TraceFlavor != string(TraceFlavorHarmonyHitrace) || !strings.Contains(harmonyRes.PrioritySemantics, "1-40=CFS") {
+		t.Fatalf("Harmony trace should use Harmony priority semantics: %+v", harmonyRes)
+	}
+
+	android := buildTraceIndex(t, "sample.atrace", strings.Join([]string{
+		` system_server-1000 (1000) [000] .... 1.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=system_server next_pid=1000 next_prio=98`,
+		` SurfaceFlinger-2000 (2000) [001] .... 1.010000: sched_wakeup: comm=system_server pid=1000 prio=98 target_cpu=000`,
+	}, "\n"))
+	androidRes := Run(android, Query{View: "window_stats", TimeStart: 1.0, TimeEnd: 1.02})
+	if androidRes.TraceFlavor != string(TraceFlavorAndroidAtrace) || strings.Contains(androidRes.PrioritySemantics, "1-40=CFS") {
+		t.Fatalf("Android trace should not use Harmony priority semantics: %+v", androidRes)
+	}
+	if len(androidRes.WindowStats.TopRunning) == 0 || androidRes.WindowStats.TopRunning[0].PriorityClass != "android_raw_scheduler_prio" {
+		t.Fatalf("Android priorities should stay raw: %+v", androidRes.WindowStats.TopRunning)
+	}
+
+	generic := buildTraceIndex(t, "sample.systrace", sampleTrace)
+	genericRes := Run(generic, Query{View: "window_stats", TimeStart: 1.0, TimeEnd: 1.3})
+	if genericRes.TraceFlavor != string(TraceFlavorGenericFtrace) || !strings.Contains(genericRes.PrioritySemantics, "raw scheduler priority") {
+		t.Fatalf("ambiguous systrace should fall back to generic semantics: %+v", genericRes)
+	}
+}
+
+func TestExplicitTraceFlavorOverrideWins(t *testing.T) {
+	idx := buildTraceIndex(t, "sample.htrace", harmonyTrace)
+	res := Run(idx, Query{
+		View:                  "window_stats",
+		TimeStart:             928.081774,
+		TimeEnd:               928.081903,
+		TraceFlavorHint:       TraceFlavorAndroidAtrace,
+		TraceFlavorHintSource: "tool_param",
+	})
+	if res.TraceFlavor != string(TraceFlavorAndroidAtrace) || res.FlavorConfidence != 1.0 {
+		t.Fatalf("explicit tool flavor should win: %+v", res)
+	}
+	if strings.Contains(res.PrioritySemantics, "1-40=CFS") {
+		t.Fatalf("explicit Android flavor must not render Harmony semantics: %s", res.PrioritySemantics)
+	}
+}
+
 func TestThreadTimelineSplitsSleepAndRunnable(t *testing.T) {
 	idx := buildSampleIndex(t)
 	tl := ThreadTimeline(idx, Query{PID: 20, TimeStart: 1.09, TimeEnd: 1.24, MinDurationMs: 1})

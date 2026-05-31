@@ -70,6 +70,7 @@ func parseFile(ctx context.Context, path string, size int64, modUnix int64) (*In
 	idx := &Index{Path: path, Size: size, ModTime: time.Unix(0, modUnix)}
 	r := bufio.NewReaderSize(f, 256*1024)
 	intern := newStringInterner()
+	flavor := newFlavorVote(path)
 	for lineNo := 1; ; lineNo++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -77,7 +78,9 @@ func parseFile(ctx context.Context, path string, size int64, modUnix int64) (*In
 		line, err := r.ReadString('\n')
 		if len(line) > 0 {
 			idx.LineCount = lineNo
-			if ev, ok := ParseLine(lineNo, strings.TrimRight(line, "\r\n"), intern); ok {
+			trimmed := strings.TrimRight(line, "\r\n")
+			flavor.observeRawLine(trimmed)
+			if ev, ok := ParseLine(lineNo, trimmed, intern); ok {
 				if idx.FirstTs == 0 || ev.Ts < idx.FirstTs {
 					idx.FirstTs = ev.Ts
 				}
@@ -87,6 +90,7 @@ func parseFile(ctx context.Context, path string, size int64, modUnix int64) (*In
 				if ev.Type != EventUnknown {
 					idx.ParsedKnown++
 				}
+				flavor.observeEvent(ev)
 				idx.Events = append(idx.Events, ev)
 			}
 		}
@@ -97,6 +101,7 @@ func parseFile(ctx context.Context, path string, size int64, modUnix int64) (*In
 			return nil, err
 		}
 	}
+	idx.TraceFlavor, idx.FlavorConfidence, idx.FlavorSignals = flavor.result()
 	return idx, nil
 }
 
@@ -128,17 +133,14 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.PrevComm = intern.intern(kv["prev_comm"])
 		ev.PrevPID = atoi(kv["prev_pid"])
 		ev.PrevPrio = atoi(kv["prev_prio"])
-		ev.PrevPrioClass = classifyOhosUserPriority(ev.PrevPrio)
 		ev.PrevState = intern.intern(kv["prev_state"])
 		ev.NextComm = intern.intern(kv["next_comm"])
 		ev.NextPID = atoi(kv["next_pid"])
 		ev.NextPrio = atoi(kv["next_prio"])
-		ev.NextPrioClass = classifyOhosUserPriority(ev.NextPrio)
 	case EventSchedWakeup, EventSchedWaking:
 		ev.WakeeComm = intern.intern(kv["comm"])
 		ev.WakeePID = atoi(kv["pid"])
 		ev.WakeePrio = atoi(kv["prio"])
-		ev.WakeePrioClass = classifyOhosUserPriority(ev.WakeePrio)
 		ev.TargetCPU = atoi(kv["target_cpu"])
 	case EventSchedBlockedReason:
 		ev.WakeePID = atoi(firstNonEmpty(kv["pid"], kv["caller"]))
@@ -267,19 +269,6 @@ func classifyEventType(raw, fields string) EventType {
 		return EventMemory
 	default:
 		return EventUnknown
-	}
-}
-
-func classifyOhosUserPriority(prio int) string {
-	switch {
-	case prio >= 1 && prio <= 40:
-		return "ohos_cfs"
-	case prio >= 41 && prio <= 139:
-		return "ohos_rt"
-	case prio > 139:
-		return "system_or_kernel"
-	default:
-		return ""
 	}
 }
 

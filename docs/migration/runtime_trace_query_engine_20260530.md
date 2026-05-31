@@ -350,3 +350,96 @@ broad grep.
       breadth scan.
 - [x] T32. Add focused tests proving pure trace is accelerated while mixed
       trace+source still uses the normal source lane.
+
+## Follow-up: Trace Flavor and Priority Semantics — 2026-05-31
+
+### Gap observed
+
+`trace_query` can parse ftrace-compatible HarmonyOS HiTrace, Android atrace,
+and systrace text rows, but the current deterministic engine does not carry a
+platform/flavor dimension. Both supported entry paths lose or underuse flavor:
+
+- Attachment path: `--atrace` and `/atrace` are aliases for the same
+  `AttachedHitrace` payload used by `--htrace` / `/htrace`.
+- Explicit path path: `.systrace`, `.htrace`, `.atrace`, and `.trace` names
+  only control lazy tool exposure; they do not choose parser semantics.
+
+The scheduler row structure is mostly shared, so wakeup-chain and timeline
+parsing still work. Priority interpretation is not shared: HarmonyOS customer
+traces use the documented user-space rule "larger numeric priority is higher;
+1-40=CFS, 41-139=RT", while Android/Linux ftrace priority values must not be
+silently interpreted through that HarmonyOS mapping.
+
+### Root cause
+
+`trace_query` stores only a runtime artifact source (`path` or
+`attached_trace`) and the parsed row index. `Index`, `Query`, and `Result` have
+no trace flavor field. The parser assigns OHOS priority classes directly during
+row parsing, and the query layer always renders HarmonyOS priority semantics.
+CPU-pressure statistics then use those OHOS classes to decide whether a running
+thread counts as high-priority pressure.
+
+### Design
+
+- Add a first-class trace flavor dimension:
+  `auto`, `harmony_hitrace`, `android_atrace`, and `generic_ftrace`.
+- Preserve attachment spelling as a soft hint:
+  `--htrace` / `/htrace` -> Harmony hint, `--atrace` / `/atrace` -> Android
+  hint. The raw text still uses the shared attached-trace channel.
+- Detect explicit path flavor from low-cost, bounded signals:
+  extension/header hints plus content markers such as OHOS/FFRT/Harmony render
+  rows or Android/atrace/system-server rows. `.systrace` remains ambiguous
+  unless content is strong.
+- Resolve effective flavor conservatively:
+  explicit tool `trace_flavor` wins; source spelling hints are advisory; low
+  confidence or conflicting weak signals fall back to `generic_ftrace`.
+- Move priority mapping out of parse-time mutation and into query-time
+  flavor-aware helpers. HarmonyOS gets the documented CFS/RT classes; Android
+  and generic ftrace expose raw scheduler priority with a caveat instead of
+  applying Harmony ranges.
+- Surface `trace_flavor`, confidence, priority semantics, and detection signals
+  in tool output and JSON payload so models and final answers can explain the
+  assumption.
+
+### Red lines
+
+- Do not change `repo_map`, source-code evidence gates, or source citation
+  rules.
+- Do not auto-parse traces for code-only questions; keep the existing lazy
+  runtime-artifact tool exposure.
+- Do not make noisy flavor detection a hard answer gate. Low confidence must
+  degrade to generic semantics and a caveat.
+- Do not reinterpret trace thread names as current-source symbols.
+
+### Task checklist
+
+- [x] T33. Add trace flavor schema, detection, confidence, and priority
+      semantics helpers.
+- [x] T34. Preserve CLI/REPL attached trace spelling as a soft flavor hint and
+      propagate it to tool execution.
+- [x] T35. Apply flavor-aware priority classes in `event_search` and
+      `window_stats`, including CPU-pressure high-priority accounting.
+- [x] T36. Update `trace_query` schema, summaries, skill teaching, and runtime
+      observation payload metadata.
+- [x] T37. Add focused tests for Harmony detection, Android/generic fallback,
+      explicit override, attachment hints, and code-only non-exposure.
+
+2026-05-31 trace-flavor delivery:
+
+- `trace_query` now reports `trace_flavor`, `trace_flavor_confidence`,
+  `trace_flavor_signals`, and flavor-specific `priority_semantics` in both the
+  JSON payload and the compact tool summary.
+- The deterministic parser keeps scheduler priorities raw at parse time and
+  applies priority classes at query time according to the resolved flavor.
+  HarmonyOS/hitrace gets the customer-documented CFS/RT mapping; Android and
+  generic ftrace keep raw scheduler priority and do not contribute
+  Harmony-style high-priority CPU pressure.
+- CLI and REPL attachment spelling is preserved as an advisory hint:
+  `--atrace` / `/atrace` -> Android, `--htrace` / `/htrace` -> Harmony. Stronger
+  content signals can still override weak source hints; explicit
+  `trace_flavor` / `platform` tool parameters win for the current call.
+- Explicit path analysis uses bounded extension/header/content signals. Plain
+  `.systrace` with weak or mixed signals degrades to `generic_ftrace` rather
+  than silently claiming Harmony priority semantics.
+- Focused validation passed:
+  `go test ./internal/tracequery ./internal/tool ./internal/agent ./internal/repl ./cmd`.

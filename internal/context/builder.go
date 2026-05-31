@@ -62,10 +62,11 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		// a tool call mid-dispatch stamps a new denial, subsequent
 		// calls in the loop see it. Kept on bus's pointer so the
 		// orchestrator's owning channel is the single source.
-		TypedDenials:    &bus.TypedDenials,
-		AnalysisIR:      bus.AnalysisIR,
-		AttachedLog:     bus.AttachedLog,
-		AttachedHitrace: bus.AttachedHitrace,
+		TypedDenials:          &bus.TypedDenials,
+		AnalysisIR:            bus.AnalysisIR,
+		AttachedLog:           bus.AttachedLog,
+		AttachedHitrace:       bus.AttachedHitrace,
+		AttachedHitraceSource: bus.AttachedHitraceSource,
 		// Mirror BusContext.Mode onto the agent view so the analyzer
 		// can route mode-conditional behaviour (read-mode quality
 		// gate vs write-mode classifier-only) without reaching back

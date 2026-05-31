@@ -106,20 +106,21 @@ func ToolBusContext(ctx *AgentContext, activeName AgentName) *BusContext {
 		activeName = ctx.AgentName
 	}
 	bc := &BusContext{
-		Mutable:         ctx.Mutable,
-		PipelineStage:   ctx.Stage,
-		ActiveAgent:     activeName,
-		RepoRoot:        ctx.RepoRoot,
-		Branch:          ctx.Branch,
-		Commit:          ctx.Commit,
-		WorkDir:         ctx.WorkDir,
-		MainRepoRoot:    ctx.MainRepoRoot,
-		AnalysisIR:      ctx.AnalysisIR,
-		AttachedLog:     ctx.AttachedLog,
-		AttachedHitrace: ctx.AttachedHitrace,
-		Language:        ctx.Language,
-		Preferences:     ctx.Preferences,
-		Mode:            ctx.Mode,
+		Mutable:               ctx.Mutable,
+		PipelineStage:         ctx.Stage,
+		ActiveAgent:           activeName,
+		RepoRoot:              ctx.RepoRoot,
+		Branch:                ctx.Branch,
+		Commit:                ctx.Commit,
+		WorkDir:               ctx.WorkDir,
+		MainRepoRoot:          ctx.MainRepoRoot,
+		AnalysisIR:            ctx.AnalysisIR,
+		AttachedLog:           ctx.AttachedLog,
+		AttachedHitrace:       ctx.AttachedHitrace,
+		AttachedHitraceSource: ctx.AttachedHitraceSource,
+		Language:              ctx.Language,
+		Preferences:           ctx.Preferences,
+		Mode:                  ctx.Mode,
 
 		// Typed signals — every entry in projectionTypedSignalFields
 		// must appear here. Adding a new typed signal to AgentContext

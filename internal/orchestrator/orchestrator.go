@@ -45,18 +45,19 @@ import (
 // machine. It walks the hardcoded 4-stage topology (see topology.go),
 // manages BusContext, and dispatches agents.
 type Orchestrator struct {
-	settings        types.PipelineSettings
-	agents          *agent.Registry
-	skills          *skill.Registry
-	busCtx          *types.BusContext
-	maxSteps        int
-	subRuntime      *agent.SubAgentRuntime
-	language        string
-	emit            render.EventEmitter
-	thinkAloudMap   map[types.AgentName]bool // per-agent think-aloud override
-	blobSessionDir  string                   // persistent per-process blob dir; empty = tmpdir fallback
-	attachedLog     string                   // runtime log excerpt attached via --log / /log
-	attachedHitrace string                   // HiTrace / atrace excerpt attached via --htrace / /htrace
+	settings              types.PipelineSettings
+	agents                *agent.Registry
+	skills                *skill.Registry
+	busCtx                *types.BusContext
+	maxSteps              int
+	subRuntime            *agent.SubAgentRuntime
+	language              string
+	emit                  render.EventEmitter
+	thinkAloudMap         map[types.AgentName]bool // per-agent think-aloud override
+	blobSessionDir        string                   // persistent per-process blob dir; empty = tmpdir fallback
+	attachedLog           string                   // runtime log excerpt attached via --log / /log
+	attachedHitrace       string                   // HiTrace / atrace excerpt attached via --htrace / /htrace
+	attachedHitraceSource string                   // advisory trace flavor/source hint from --htrace/--atrace spelling
 	// presentationDirective is a per-run typed display requirement
 	// from the REPL turn policy. It is intentionally not concatenated
 	// into the objective string, because the objective feeds status
@@ -853,6 +854,14 @@ func (o *Orchestrator) SetAttachedHitrace(trace string) {
 // AttachedHitrace returns the current attached-trace payload.
 func (o *Orchestrator) AttachedHitrace() string {
 	return o.attachedHitrace
+}
+
+func (o *Orchestrator) SetAttachedHitraceSource(source string) {
+	o.attachedHitraceSource = source
+}
+
+func (o *Orchestrator) AttachedHitraceSource() string {
+	return o.attachedHitraceSource
 }
 
 // SetPresentationDirective installs the current turn's typed display
@@ -1837,6 +1846,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	o.busCtx.Language = o.language
 	o.busCtx.AttachedLog = o.attachedLog
 	o.busCtx.AttachedHitrace = o.attachedHitrace
+	o.busCtx.AttachedHitraceSource = o.attachedHitraceSource
 
 	logging.Info("[orchestrator] starting pipeline: trace=%s", o.busCtx.TraceID)
 

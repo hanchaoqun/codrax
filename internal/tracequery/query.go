@@ -10,11 +10,16 @@ import (
 
 func Run(idx *Index, q Query) Result {
 	q = normalizeQuery(idx, q)
+	flavor, confidence, signals, flavorCaveats := resolveTraceFlavor(idx, q)
+	q.TraceFlavor = flavor
 	res := Result{
 		View:              q.View,
 		SourcePath:        idx.Path,
+		TraceFlavor:       string(flavor),
+		FlavorConfidence:  confidence,
+		FlavorSignals:     signals,
 		TimeUnit:          "seconds",
-		PrioritySemantics: "HarmonyOS/hitrace user-space priority: larger numeric value means higher priority; 1-40=CFS, 41-139=RT; values outside that range are reported as system_or_kernel/raw.",
+		PrioritySemantics: PrioritySemanticsForFlavor(flavor),
 		LineCount:         idx.LineCount,
 		EventCount:        len(idx.Events),
 		TimeStart:         q.TimeStart,
@@ -55,8 +60,46 @@ func Run(idx *Index, q Query) Result {
 		res.Events = EventSearch(idx, q)
 		res.EvidencePack = evidenceFromEvents(res.Events)
 	}
+	res.Caveats = append(res.Caveats, flavorCaveats...)
 	res.Caveats = append(res.Caveats, resultCaveats(idx, q, res)...)
 	return res
+}
+
+func resolveTraceFlavor(idx *Index, q Query) (TraceFlavor, float64, []string, []string) {
+	detected := TraceFlavorGenericFtrace
+	confidence := 0.50
+	var signals []string
+	if idx != nil {
+		if idx.TraceFlavor != "" {
+			detected = idx.TraceFlavor
+		}
+		if idx.FlavorConfidence > 0 {
+			confidence = idx.FlavorConfidence
+		}
+		signals = append(signals, idx.FlavorSignals...)
+	}
+	hint := q.TraceFlavorHint
+	hintSource := q.TraceFlavorHintSource
+	if (hint == "" || hint == TraceFlavorAuto) && q.TraceFlavor != "" && q.TraceFlavor != TraceFlavorAuto && q.TraceFlavor != TraceFlavorGenericFtrace {
+		hint = q.TraceFlavor
+		hintSource = "query"
+	}
+	if hint == "" || hint == TraceFlavorAuto {
+		return detected, confidence, signals, nil
+	}
+	signals = append(signals, "flavor_hint_"+string(hint))
+	switch hintSource {
+	case "tool_param":
+		return hint, 1.0, signals, []string{"trace flavor was selected from explicit trace_query parameter"}
+	default:
+		if detected == TraceFlavorGenericFtrace || confidence < 0.75 || detected == hint {
+			if confidence < 0.85 {
+				confidence = 0.85
+			}
+			return hint, confidence, signals, nil
+		}
+		return detected, confidence, signals, []string{"attached trace source hint conflicted with stronger content signals; using content-detected trace flavor"}
+	}
 }
 
 func normalizeQuery(idx *Index, q Query) Query {
@@ -99,6 +142,21 @@ func normalizeQuery(idx *Index, q Query) Query {
 	if q.View == "wakeup_chain" && !q.IncludeWindowStats {
 		q.IncludeWindowStats = true
 	}
+	if q.TraceFlavor == "" {
+		q.TraceFlavor = TraceFlavorGenericFtrace
+	}
+	return q
+}
+
+func ensureQueryFlavor(idx *Index, q Query) Query {
+	if q.TraceFlavor != "" && q.TraceFlavor != TraceFlavorAuto {
+		return q
+	}
+	if idx != nil && idx.TraceFlavor != "" {
+		q.TraceFlavor = idx.TraceFlavor
+	} else {
+		q.TraceFlavor = TraceFlavorGenericFtrace
+	}
 	return q
 }
 
@@ -106,6 +164,7 @@ func EventSearch(idx *Index, q Query) []EventView {
 	if idx == nil {
 		return nil
 	}
+	q = ensureQueryFlavor(idx, q)
 	typeSet := make(map[EventType]bool, len(q.EventTypes))
 	for _, t := range q.EventTypes {
 		if t != "" {
@@ -125,6 +184,7 @@ func EventSearch(idx *Index, q Query) []EventView {
 	raw := loadRawLines(idx.Path, eventLines(events))
 	out := make([]EventView, 0, len(events))
 	for _, ev := range events {
+		ev = applyPriorityFlavor(ev, q.TraceFlavor)
 		out = append(out, EventView{Event: ev, Raw: raw[ev.Line]})
 	}
 	return out
@@ -175,6 +235,7 @@ func eventMentionsThread(ev Event, thread string) bool {
 }
 
 func ThreadTimeline(idx *Index, q Query) TimelineResult {
+	q = ensureQueryFlavor(idx, q)
 	target := resolveThread(idx, q)
 	res := TimelineResult{
 		Thread: target,
@@ -389,6 +450,7 @@ func threadMatches(ref ThreadRef, pid int, comm string) bool {
 }
 
 func ComputeWindowStats(idx *Index, q Query) WindowStats {
+	q = ensureQueryFlavor(idx, q)
 	stats := WindowStats{
 		Window:      TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
 		EventCounts: map[EventType]int{},
@@ -478,7 +540,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 					td.Frequency = freq
 				}
 				td.Priority = ev.NextPrio
-				td.PriorityClass = ev.NextPrioClass
+				td.PriorityClass = classifyTracePriority(q.TraceFlavor, ev.NextPrio)
 				if td.LineStart == 0 {
 					td.LineStart = ev.Line
 				}
@@ -487,10 +549,10 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 				acc := cpuPressure(pressure, cpu)
 				acc.runningMs += dur
 				acc.runningEvents++
-				if isHighPriorityForPressure(ev.NextPrio, ev.NextPrioClass) {
+				if isHighPriorityForPressure(q.TraceFlavor, ev.NextPrio, td.PriorityClass) {
 					acc.highPriorityRunningMs += dur
 				}
-				accumulateThreadDuration(acc.running, td.Thread, dur, cpu, freq, ev.Line, ev.NextPrio, ev.NextPrioClass)
+				accumulateThreadDuration(acc.running, td.Thread, dur, cpu, freq, ev.Line, ev.NextPrio, td.PriorityClass)
 			}
 		}
 		stats.CPU = upsertCPUBusyIdle(stats.CPU, cpu, busy, idle)
@@ -560,13 +622,6 @@ func accumulateThreadDuration(bucket map[string]ThreadDuration, thread ThreadRef
 	}
 	td.LineEnd = line
 	bucket[key] = td
-}
-
-func isHighPriorityForPressure(prio int, class string) bool {
-	if class == "ohos_rt" || class == "system_or_kernel" {
-		return true
-	}
-	return prio >= 41
 }
 
 type offCPUStart struct {
@@ -646,7 +701,7 @@ func computeOffCPUStats(idx *Index, q Query, freqByCPU map[int][]Event, pressure
 					line:          ev.Line,
 					cpu:           ev.CPU,
 					priority:      ev.PrevPrio,
-					priorityClass: ev.PrevPrioClass,
+					priorityClass: classifyTracePriority(q.TraceFlavor, ev.PrevPrio),
 				}
 			}
 		}

@@ -49,9 +49,70 @@ func TestTraceQueryExplicitPathProducesRuntimeArtifactSummary(t *testing.T) {
 	}
 }
 
+func TestTraceQueryAttachedSourceHintControlsPrioritySemantics(t *testing.T) {
+	dir := t.TempDir()
+	trace := strings.Join([]string{
+		` system_server-1000 (1000) [000] .... 1.000000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=system_server next_pid=1000 next_prio=98`,
+		` SurfaceFlinger-2000 (2000) [001] .... 1.010000: sched_wakeup: comm=system_server pid=1000 prio=98 target_cpu=000`,
+	}, "\n")
+	ctx := &types.BusContext{
+		RepoRoot:              dir,
+		WorkDir:               dir,
+		AttachedHitrace:       trace,
+		AttachedHitraceSource: "android_atrace",
+	}
+	params, _ := json.Marshal(map[string]any{
+		"source":     "attached_trace",
+		"view":       "window_stats",
+		"time_start": 1.0,
+		"time_end":   1.02,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query failed: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "trace_flavor=android_atrace") ||
+		!strings.Contains(res.Summary, "Android/atrace ftrace priority") ||
+		strings.Contains(res.Summary, "1-40=CFS") {
+		t.Fatalf("attached atrace hint should use Android/raw priority semantics:\n%s", res.Summary)
+	}
+}
+
+func TestTraceQueryExplicitTraceFlavorParamOverridesContent(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "sample.htrace")
+	trace := `OS_FFRT_0_0-49634 (48679) [000] .... 928.081851: sched_wakeup: comm=udk-irq-0 pid=73 prio=301 target_cpu=000`
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source":       "path",
+		"path":         "sample.htrace",
+		"view":         "event_search",
+		"trace_flavor": "android_atrace",
+		"time_start":   928.081,
+		"time_end":     928.082,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query failed: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "trace_flavor=android_atrace") ||
+		!strings.Contains(res.Summary, "trace flavor was selected from explicit trace_query parameter") {
+		t.Fatalf("explicit trace_flavor should be reflected in summary:\n%s", res.Summary)
+	}
+}
+
 func TestTraceQuerySchemaDocumentsViews(t *testing.T) {
 	body := (&TraceQuery{}).Description() + "\n" + string((&TraceQuery{}).Parameters())
-	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "ipc_graph", "event_search", "attached_trace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "cpu_frequency", "clock_set_rate", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received"} {
+	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "ipc_graph", "event_search", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "clock_set_rate", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("trace_query schema/description missing %q:\n%s", want, body)
 		}

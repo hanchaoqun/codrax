@@ -84,37 +84,46 @@ type Event struct {
 }
 
 type Index struct {
-	Path        string
-	Size        int64
-	ModTime     time.Time
-	LineCount   int
-	Events      []Event
-	FirstTs     float64
-	LastTs      float64
-	ParsedKnown int
+	Path             string
+	Size             int64
+	ModTime          time.Time
+	LineCount        int
+	Events           []Event
+	FirstTs          float64
+	LastTs           float64
+	ParsedKnown      int
+	TraceFlavor      TraceFlavor
+	FlavorConfidence float64
+	FlavorSignals    []string
 }
 
 type Query struct {
-	View               string
-	Thread             string
-	ThreadInput        string
-	ThreadPIDInferred  bool
-	PID                int
-	TimeStart          float64
-	TimeEnd            float64
-	LineStart          int
-	LineEnd            int
-	EventTypes         []EventType
-	MaxDepth           int
-	MaxBranches        int
-	MinDurationMs      float64
-	IncludeWindowStats bool
-	Limit              int
+	View                  string
+	Thread                string
+	ThreadInput           string
+	ThreadPIDInferred     bool
+	PID                   int
+	TimeStart             float64
+	TimeEnd               float64
+	LineStart             int
+	LineEnd               int
+	EventTypes            []EventType
+	MaxDepth              int
+	MaxBranches           int
+	MinDurationMs         float64
+	IncludeWindowStats    bool
+	Limit                 int
+	TraceFlavor           TraceFlavor
+	TraceFlavorHint       TraceFlavor
+	TraceFlavorHintSource string
 }
 
 type Result struct {
 	View              string          `json:"view"`
 	SourcePath        string          `json:"source_path"`
+	TraceFlavor       string          `json:"trace_flavor,omitempty"`
+	FlavorConfidence  float64         `json:"trace_flavor_confidence,omitempty"`
+	FlavorSignals     []string        `json:"trace_flavor_signals,omitempty"`
 	TimeUnit          string          `json:"time_unit,omitempty"`
 	PrioritySemantics string          `json:"priority_semantics,omitempty"`
 	LineCount         int             `json:"line_count,omitempty"`

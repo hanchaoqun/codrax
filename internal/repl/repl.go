@@ -91,9 +91,17 @@ type attachedHitraceSetter interface {
 	SetAttachedHitrace(string)
 }
 
+type attachedHitraceSourceSetter interface {
+	SetAttachedHitraceSource(string)
+}
+
 // attachedHitraceGetter mirrors attachedLogGetter for the perf channel.
 type attachedHitraceGetter interface {
 	AttachedHitrace() string
+}
+
+type attachedHitraceSourceGetter interface {
+	AttachedHitraceSource() string
 }
 
 // presentationDirectiveSetter is the typed current-turn display
@@ -468,7 +476,9 @@ type REPL struct {
 	// by /htrace (sticky across turns until /htrace clear). Sent to the
 	// orchestrator via attachedHitraceSetter before every dispatch so
 	// the perf_triage pre-stage can pick it up.
-	attachedHitrace string
+	attachedHitrace       string
+	attachedHitraceSource string
+	pendingHitraceSource  string
 
 	// attachedLogAutoRouted marks attachedLog as installed by the
 	// splitPastedLog auto-routing path (pasted log body detected
@@ -721,6 +731,9 @@ func New(cfg Config) *REPL {
 	}
 	if getter, ok := cfg.Runner.(attachedHitraceGetter); ok {
 		r.attachedHitrace = getter.AttachedHitrace()
+	}
+	if getter, ok := cfg.Runner.(attachedHitraceSourceGetter); ok {
+		r.attachedHitraceSource = getter.AttachedHitraceSource()
 	}
 	return r
 }
@@ -1356,9 +1369,12 @@ func (r *REPL) Loop() error {
 			continue
 		}
 		if cmd := types.NormalizeREPLCommandAlias(line); cmd != "" {
+			r.pendingHitraceSource = replTraceSourceHint(line)
 			if quit := r.handleSlash(cmd); quit {
+				r.pendingHitraceSource = ""
 				return nil
 			}
+			r.pendingHitraceSource = ""
 			continue
 		}
 		r.dispatch(line, display)
@@ -1955,6 +1971,9 @@ func (r *REPL) dispatch(line, display string) {
 	// Same propagation for the perf channel.
 	if setter, ok := r.runner.(attachedHitraceSetter); ok {
 		setter.SetAttachedHitrace(r.attachedHitrace)
+	}
+	if setter, ok := r.runner.(attachedHitraceSourceSetter); ok {
+		setter.SetAttachedHitraceSource(r.attachedHitraceSource)
 	}
 
 	// Propagate sticky pipeline mode. Runners without SetMode
@@ -4471,8 +4490,12 @@ func (r *REPL) handleHitraceCmd(line string) {
 			return
 		}
 		r.attachedHitrace = ""
+		r.attachedHitraceSource = ""
 		if setter, ok := r.runner.(attachedHitraceSetter); ok {
 			setter.SetAttachedHitrace("")
+		}
+		if setter, ok := r.runner.(attachedHitraceSourceSetter); ok {
+			setter.SetAttachedHitraceSource("")
 		}
 		r.success(attachedTraceClearedMsg(r.language))
 	case rest == "show":
@@ -4496,6 +4519,7 @@ func (r *REPL) handleHitraceCmd(line string) {
 		if remaining < 0 {
 			r.warn("hitrace truncated at %d-byte cap\n", r.attachedTraceMaxBytes)
 			r.attachedHitrace = header[:r.attachedTraceMaxBytes]
+			r.attachedHitraceSource = mergeTraceSourceHints("", r.currentTraceSourceHint(rest))
 			r.success(fmt.Sprintf("attached hitrace loaded: %s (%d bytes)", rest, 0))
 			return
 		}
@@ -4509,6 +4533,7 @@ func (r *REPL) handleHitraceCmd(line string) {
 		}
 		body := header + string(data)
 		r.attachedHitrace = body
+		r.attachedHitraceSource = mergeTraceSourceHints("", r.currentTraceSourceHint(rest))
 		r.success(fmt.Sprintf("attached hitrace loaded: %s (%d bytes)", rest, len(data)))
 	}
 }
@@ -4532,6 +4557,7 @@ func (r *REPL) handleHitraceAppend(path string) {
 		combined = combined[:r.attachedTraceMaxBytes]
 		r.warn("appended hitrace truncated at %d-byte cap\n", r.attachedTraceMaxBytes)
 		r.attachedHitrace = combined
+		r.attachedHitraceSource = mergeTraceSourceHints(r.attachedHitraceSource, r.currentTraceSourceHint(path))
 		r.success(fmt.Sprintf("appended %s (0 bytes added; total %d bytes)", path, len(r.attachedHitrace)))
 		return
 	}
@@ -4545,7 +4571,55 @@ func (r *REPL) handleHitraceAppend(path string) {
 		r.warn("appended hitrace truncated at %d-byte cap\n", r.attachedTraceMaxBytes)
 	}
 	r.attachedHitrace = combined
+	r.attachedHitraceSource = mergeTraceSourceHints(r.attachedHitraceSource, r.currentTraceSourceHint(path))
 	r.success(fmt.Sprintf("appended %s (%d bytes added; total %d bytes)", path, len(data), len(r.attachedHitrace)))
+}
+
+func (r *REPL) currentTraceSourceHint(path string) string {
+	if strings.TrimSpace(r.pendingHitraceSource) != "" {
+		return r.pendingHitraceSource
+	}
+	return traceSourceHintFromPath(path)
+}
+
+func replTraceSourceHint(line string) string {
+	fields := strings.Fields(strings.TrimSpace(line))
+	if len(fields) == 0 {
+		return ""
+	}
+	cmd := strings.ToLower(fields[0])
+	switch cmd {
+	case "/atrace", "\\atrace":
+		return "android_atrace"
+	case "/htrace", "\\htrace":
+		return "harmony_hitrace"
+	default:
+		return ""
+	}
+}
+
+func traceSourceHintFromPath(path string) string {
+	ext := strings.ToLower(filepath.Ext(strings.TrimSpace(path)))
+	switch ext {
+	case ".htrace":
+		return "harmony_hitrace"
+	case ".atrace":
+		return "android_atrace"
+	default:
+		return ""
+	}
+}
+
+func mergeTraceSourceHints(existing, next string) string {
+	existing = strings.TrimSpace(existing)
+	next = strings.TrimSpace(next)
+	if existing == "" {
+		return next
+	}
+	if next == "" || existing == next {
+		return existing
+	}
+	return "generic_ftrace"
 }
 
 // handleLogLoad reads a log file from disk into the sticky buffer.

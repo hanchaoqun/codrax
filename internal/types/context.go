@@ -4951,6 +4951,13 @@ type BusContext struct {
 	// Run may carry both a panic log and a jank trace.
 	AttachedHitrace string `json:"attached_hitrace,omitempty"`
 
+	// AttachedHitraceSource preserves the user's attachment spelling or
+	// source hint for the perf trace channel. Values are advisory
+	// strings such as "harmony_hitrace", "android_atrace", or
+	// "generic_ftrace"; deterministic trace parsing must still fall
+	// back to content detection when confidence is low.
+	AttachedHitraceSource string `json:"attached_hitrace_source,omitempty"`
+
 	// Mode is the pipeline's execution mode for this Run(). Zero-value
 	// ("" / ModeRead) preserves pre-B0 read-only behavior byte-
 	// identically — the orchestrator's Mode-dispatch switch falls
@@ -5435,6 +5442,11 @@ type AgentContext struct {
 	// field today; other stages rely on the structured PerfTrace
 	// pointer below to avoid flooding prompts with raw ftrace text.
 	AttachedHitrace string `json:"attached_hitrace,omitempty"`
+
+	// AttachedHitraceSource mirrors BusContext.AttachedHitraceSource
+	// for tools that need producer/flavor hints without inspecting
+	// command-line state.
+	AttachedHitraceSource string `json:"attached_hitrace_source,omitempty"`
 
 	// LogTriage mirrors Mutable.LogTriage() into the narrowed agent
 	// view, so consumers that want the structured bundle (analyzer's
