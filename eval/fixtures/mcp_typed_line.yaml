@@ -1,0 +1,10 @@
+mcp_max_servers: 2
+mcp_servers:
+  - name: fixture
+    transport: stdio
+    command: python3
+    args: ["eval/fixtures/mcp/typed_line_server.py"]
+    inherit_env: false
+    startup_timeout_ms: 3000
+    call_timeout_ms: 10000
+    max_response_bytes: 1048576

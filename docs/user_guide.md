@@ -12,6 +12,7 @@
 
 - 第一次用 codrax → 直接看 **第 1 章 5 分钟入门**,跟着抄就能问出第一个答案。
 - 想了解日常用法 → 第 2、3 章覆盖 REPL 模式、附加日志、闲聊、本地转换。
+- 想接外部只读工具 / 知识库 → 看 **3.7 MCP 外部工具**。
 - 想让 codrax 真改代码 → 第 4 章 写模式 `plan → apply → verify`。
 - 想精调或排错 → 第 5–8 章:配置参考、命令参考、排错。
 
@@ -34,6 +35,7 @@
   - [3.4 记忆与会话](#34-记忆与会话)
   - [3.5 一台机器多仓库](#35-一台机器多仓库)
   - [3.6 跨仓 workspace(multi-repo discovery)](#36-跨仓-workspacemulti-repo-discovery)
+  - [3.7 MCP 外部工具](#37-mcp-外部工具)
 - [4. 写模式 — plan → apply → verify](#4-写模式--plan--apply--verify)
   - [4.1 启用](#41-启用)
   - [4.2 完整流程](#42-完整流程)
@@ -642,6 +644,120 @@ multi_repo_enabled: false
 
 ---
 
+## 3.7 MCP 外部工具
+
+MCP(Model Context Protocol)让 codrax 可以接入你自己提供的**只读外部工具**或**只读资源**:例如内部知识库、告警系统、缺陷平台、监控快照、trace 预分析服务、规范文档检索器等。MCP 结果会进入 `mcp_resource` 外部观测通道,不会伪装成当前源码的 `file:line` citation。
+
+### 什么时候用
+
+| 场景 | 推荐方式 |
+|---|---|
+| 问题需要外部事实,例如工单、监控、trace 预处理结果 | 配一个 MCP server,让模型在探索阶段调用 |
+| 外部资源有真实行号/行范围/JSON pointer/表格行 | 使用 typed line support,把坐标作为 MCP 外部观测交给 codrax |
+| 只是在分析源码、配置文件、仓库结构 | 不需要配置 MCP;空配置时工具 schema、prompt、调度都不变 |
+
+### 安全边界
+
+- 当前实现支持 **stdio server**。server 是本机子进程,通过 stdin/stdout JSON-RPC 通信。
+- **显式触发**:用户问题明确要求使用 MCP / 某个 MCP server / 某个外部工具时,探索阶段模型可以直接调用 `<server>__<tool>` 或 `mcp_read_resource`。
+- **隐式触发**:配置 MCP 后,工具会在探索阶段进入模型工具面,模型可根据问题和工具描述自行选择;系统不会在 analyzer 之前或代码问题里硬自动调用 MCP。
+- MCP 工具只暴露给探索类 agent(explorer / sub-explorer)。analyzer、extractor、finalizer、写模式工具面不会看到这些外部工具。
+- 工具名会自动命名空间化为 `<server>__<tool>`,避免和内置工具或其它 server 重名。
+- `inherit_env` 默认建议 `false`,避免把 provider/API key 默认传给外部子进程。需要传环境变量时用 `env:` 白名单。
+- `mcp_read_resource` 只能读取 server 在 `resources/list` 中枚举过的 URI;codrax 不会主动拼 URI。
+- MCP 的 resources/prompts 只作为“外部建议”提示模型,不是系统指令;不要把不可信 MCP 内容当作 prompt 权限。
+- MCP 结果是外部证据,不是当前源码证据。混合问题(“根据 MCP 结论再看源码”)需要同时保留 MCP observation 和源码 `file:line` 两条证据链。
+
+### 配置示例
+
+把下面放进 `codrax.yaml`:
+
+```yaml
+mcp_max_servers: 8
+
+mcp_servers:
+  - name: docs
+    transport: stdio
+    command: /opt/company-mcp/docs-server
+    args: ["--readonly"]
+    inherit_env: false
+    env:
+      MCP_MODE: readonly
+    startup_timeout_ms: 3000
+    call_timeout_ms: 10000
+    max_response_bytes: 4194304
+```
+
+启动后,如果 server 暴露了 `search` 工具,模型看到的工具名会是 `docs__search`。如果 server 暴露了资源,探索阶段还会看到 `mcp_read_resource(uri=...)`。
+
+### typed line support
+
+如果 MCP server 能给出明确坐标,推荐返回显式 typed observation envelope。codrax 只在看到 `version: "codrax.mcp.observation.v1"` 或 MIME `application/vnd.codrax.observation+json` 时保留行号;普通文本/普通 JSON 不会被猜测行号。
+
+工具返回示例:
+
+```json
+{
+  "version": "codrax.mcp.observation.v1",
+  "summary": "trace sleep/wakeup facts",
+  "resource_uri": "mcp://trace/run-42",
+  "mime_type": "text/plain",
+  "observations": [
+    {
+      "summary": "target enters S sleep",
+      "line_start": 1102717,
+      "line_end": 1102717,
+      "selector": "pid=36379 event=sched_switch prev_state=S",
+      "raw_ref": "mcp://trace/run-42#L1102717"
+    },
+    {
+      "summary": "waker wakes target",
+      "line_start": 1139180,
+      "line_end": 1139180,
+      "selector": "pid=36379 event=sched_wakeup",
+      "raw_ref": "mcp://trace/run-42#L1139180"
+    }
+  ]
+}
+```
+
+支持的坐标字段包括:
+
+| 字段 | 含义 |
+|---|---|
+| `resource_uri` | 外部资源 URI,如 `mcp://trace/run-42` |
+| `line_start` / `line_end` | 外部资源的行号或行范围 |
+| `row` | 表格/结果集行号 |
+| `json_pointer` | JSON 文档内坐标 |
+| `selector` | 外部系统自己的选择器,如 DOM selector / trace event selector |
+| `raw_ref` / `payload_ref` / `row_set_ref` / `page_ref` | 外部 payload 或行集引用 |
+
+这些坐标会以 `origin=mcp_resource` 进入答案链路。它们可以支撑外部事实,但不会绕过源码 citation gate。
+
+### 最小 server 协议
+
+一个可用的 stdio MCP server 至少需要响应:
+
+- `initialize`
+- `tools/list`
+- `tools/call`
+
+可选但推荐:
+
+- `resources/list` + `resources/read`:让模型读取明确枚举过的外部资源。
+- `prompts/list`:告诉模型这个 server 适合什么任务。注意这仍只是外部建议。
+
+排错时先看 `.codrax/logs/.../codrax-*.log`:
+
+| 症状 | 常见原因 | 修复 |
+|---|---|---|
+| 启动时报 `load mcp servers` | command 不存在 / server 初始化失败 / JSON-RPC 响应非法 | 手动运行 server,确认 stdin/stdout 每行一条 JSON-RPC |
+| 探索阶段看不到 MCP 工具 | `mcp_servers` 为空、server 没有 `tools/list`、当前不是探索类 agent | 检查 yaml、server 日志和问题是否进入探索阶段 |
+| `mcp_read_resource` 拒绝 URI | URI 没有出现在 `resources/list` | 让 server 先枚举资源;不要让模型凭空拼 URI |
+| 行号没有进入答案 | 返回的是普通文本/普通 JSON | 使用 `codrax.mcp.observation.v1` 或 `application/vnd.codrax.observation+json` |
+
+---
+
 # 4. 写模式 — plan → apply → verify
 
 写模式让 codrax **生成代码改动**(增删改文件),在沙箱 git worktree 里跑测试,只有你显式批准后才合回主仓。**默认关闭**。
@@ -1064,6 +1180,21 @@ agents:
 | `log_triage_max_llm_calls` | 12 | 单次 Run log_triage LLM 调用上限 |
 | `log_triage_source_prefix` | `""` | 等价 `--log-source-prefix`(yaml 持久版) |
 | `perf_triage_enabled` | `true` | perf_triage 预阶段(同上结构) |
+
+### MCP 外部工具
+
+| 键 | 默认 | 作用 |
+|---|---|---|
+| `mcp_max_servers` | 8 | 最大 MCP server 数 |
+| `mcp_servers` | `[]` | 可选 stdio MCP server 列表。为空时不改变 prompt、工具 schema、调度或答案落地 |
+| `mcp_servers[].name` | 必填 | server 名;模型可见工具名会变成 `<server>__<tool>` |
+| `mcp_servers[].transport` | `stdio` | 当前支持 `stdio`;其它 transport 会 fail-loud |
+| `mcp_servers[].command` / `args` | 必填 / `[]` | 启动 MCP 子进程的命令和参数 |
+| `mcp_servers[].inherit_env` | `false` | 是否把当前环境变量传给 MCP 子进程;默认不传密钥 |
+| `mcp_servers[].env` | `{}` | 传给 MCP 子进程的白名单环境变量 |
+| `mcp_servers[].startup_timeout_ms` | 3000 | initialize / tools/list 启动预算 |
+| `mcp_servers[].call_timeout_ms` | 10000 | 单次 tools/call 或 resources/read 调用预算 |
+| `mcp_servers[].max_response_bytes` | 4194304 | 单条 MCP 响应最大字节数;大输出应由 server 自己转成摘要 + 外部 payload ref |
 
 ### 环境诊断与推荐
 

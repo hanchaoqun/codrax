@@ -98,6 +98,10 @@ FOCUS="${FOCUS:-}"
 # fall outside the active set so mr_inactive_path can test the L1
 # refusal + L0 advisory recovery path.
 CAP="${CAP:-}"
+# Optional read-mode settings override for one eval case. This is intentionally
+# single-repo/read-only so normal read cases keep the operator's environment
+# unchanged and write/multirepo fixtures continue to use their dedicated yaml.
+SETTINGS="${SETTINGS:-}"
 
 case "$MODE" in
   "" | read | plan | apply) ;;
@@ -124,9 +128,21 @@ if [[ -n "$MULTIREPO" && -n "$FIXTURE" ]]; then
   echo "case MULTIREPO=$MULTIREPO and FIXTURE=$FIXTURE are mutually exclusive" >&2
   exit 2
 fi
+if [[ -n "$SETTINGS" && -n "$MODE" && "$MODE" != "read" ]]; then
+  echo "case SETTINGS=$SETTINGS is read-mode only and is incompatible with MODE=$MODE" >&2
+  exit 2
+fi
+if [[ -n "$SETTINGS" && -n "$MULTIREPO" ]]; then
+  echo "case SETTINGS=$SETTINGS is incompatible with MULTIREPO=$MULTIREPO; use the multirepo settings fixture instead" >&2
+  exit 2
+fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+if [[ -n "$SETTINGS" && ! -f "$SETTINGS" ]]; then
+  echo "case SETTINGS file not found: $SETTINGS" >&2
+  exit 2
+fi
 
 # Standalone eval runs rebuild so metrics never silently use a stale
 # binary. Parallel sweeps pass CODRAX_BIN as a private snapshot; in
@@ -322,6 +338,8 @@ write_metrics() {
     echo "tool_read_file=$(eval_count_tool_calls "$log" read_file)"
     echo "tool_repo_map=$(eval_count_tool_calls "$log" repo_map)"
     echo "tool_list_files=$(eval_count_tool_calls "$log" list_files)"
+    echo "tool_mcp_read_resource=$(eval_count_tool_calls "$log" mcp_read_resource)"
+    echo "mcp_tool_calls=$(eval_count_control_pattern 'DEBUG \[diag [^]]+\][^:]*phase=toolcall [^:]*tool=[A-Za-z0-9_-]+__[A-Za-z0-9_-]+' "$log")"
     echo "source_inventory_lens=$(eval_count_source_inventory_tool_calls "$log")"
     echo "repo_lens_discovery_hints=$(eval_count_repo_lens_discovery_hints "$log")"
     echo "transient_retry_checkpoints=$(eval_count_transient_retry_checkpoints "$log")"
@@ -570,11 +588,28 @@ run_one() {
         fi
         export CODRAX_SETTINGS="$settings_yaml"
         run_read_step "$i" "$out" "$logdir" "$scratch"
+        rc=$?
         unset CODRAX_SETTINGS
       else
+        local had_settings_env=0
+        local prior_settings_env=""
+        if [[ ${CODRAX_SETTINGS+x} ]]; then
+          had_settings_env=1
+          prior_settings_env="$CODRAX_SETTINGS"
+        fi
+        if [[ -n "$SETTINGS" ]]; then
+          export CODRAX_SETTINGS="$ROOT/$SETTINGS"
+        fi
         run_read_step "$i" "$out" "$logdir"
+        rc=$?
+        if [[ -n "$SETTINGS" ]]; then
+          if [[ $had_settings_env -eq 1 ]]; then
+            export CODRAX_SETTINGS="$prior_settings_env"
+          else
+            unset CODRAX_SETTINGS
+          fi
+        fi
       fi
-      rc=$?
       ;;
   esac
 
@@ -775,7 +810,7 @@ SUMMARY="$OUTDIR/summary.md"
   # 2026-05-04): write_metrics writes them to run-N.metrics.txt;
   # aggregate them into the summary table so they show up next to
   # the legacy 12 mechanism counters with median.
-  metric_keys="tool_read_file tool_repo_map tool_list_files source_inventory_lens repo_lens_discovery_hints transient_retry_checkpoints unavailable_tool_attempts checkpoint_continuation_broad_hint closure_only_repeated mermaid_source_repair_applied repair_debt_checkpoints repair_debt_close_ready_filters repair_debt_principal_blocking_max repair_debt_surgical_grounding_max repair_debt_advisory_max tool_history_prunes max_context_tokens_est max_context_window max_context_window_pct concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject parallel_sibling_skips mixed_origin_autocomplete_blocks finalizer_rejects finalizer_rewrites answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns strict_decode_remap_events"
+  metric_keys="tool_read_file tool_repo_map tool_list_files tool_mcp_read_resource mcp_tool_calls source_inventory_lens repo_lens_discovery_hints transient_retry_checkpoints unavailable_tool_attempts checkpoint_continuation_broad_hint closure_only_repeated mermaid_source_repair_applied repair_debt_checkpoints repair_debt_close_ready_filters repair_debt_principal_blocking_max repair_debt_surgical_grounding_max repair_debt_advisory_max tool_history_prunes max_context_tokens_est max_context_window max_context_window_pct concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject parallel_sibling_skips mixed_origin_autocomplete_blocks finalizer_rejects finalizer_rewrites answer_chain_lines analyzer_iters explorer_iters extractor_iters finalizer_iters analyzer_dispatches explorer_dispatches extractor_dispatches finalizer_dispatches repair_plan_lines repair_exec_lines repair_exec_promote repair_exec_failloud semantic_quality_dispatches semantic_quality_concerns strict_decode_remap_events"
   for key in $metric_keys; do
     row="| $key |"
     vals=()

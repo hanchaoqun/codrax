@@ -238,6 +238,7 @@
         <a href="#34-记忆与会话">3.4 记忆与会话</a>
         <a href="#35-一台机器多仓库">3.5 一台机器多仓库</a>
         <a href="#36-跨仓-workspacemulti-repo-discovery">3.6 跨仓 workspace(multi-repo discovery)</a>
+        <a href="#37-mcp-外部工具">3.7 MCP 外部工具</a>
         <div class="toc-group">4. 写模式 — plan → apply → verify</div>
         <a href="#工作区单一不变量写模式的核心规则">工作区单一不变量(写模式的核心规则)</a>
         <a href="#41-启用">4.1 启用</a>
@@ -273,6 +274,7 @@
 <ul>
 <li>第一次用 codrax → 直接看 <strong>第 1 章 5 分钟入门</strong>,跟着抄就能问出第一个答案。</li>
 <li>想了解日常用法 → 第 2、3 章覆盖 REPL 模式、附加日志、闲聊、本地转换。</li>
+<li>想接外部只读工具 / 知识库 → 看 <strong>3.7 MCP 外部工具</strong>。</li>
 <li>想让 codrax 真改代码 → 第 4 章 写模式 <code>plan → apply → verify</code>。</li>
 <li>想精调或排错 → 第 5–8 章:配置参考、命令参考、排错。</li>
 </ul>
@@ -1012,6 +1014,165 @@ multi_repo_enabled: false
 - ArkTS leak 修复(Phase 0)依然生效(它绕过 MultiGraph 在 <code>IsArkTSProject</code> 内修)</p>
 <p>适用场景:<strong>多仓 + workflow 几乎不跨仓 + 单图行为已熟悉</strong>。但默认 true 已经足够安全(单仓零开销),通常不必关。</p>
 <hr />
+<h2 id="37-mcp-外部工具">3.7 MCP 外部工具</h2>
+<p>MCP(Model Context Protocol)让 codrax 可以接入你自己提供的<strong>只读外部工具</strong>或<strong>只读资源</strong>:例如内部知识库、告警系统、缺陷平台、监控快照、trace 预分析服务、规范文档检索器等。MCP 结果会进入 <code>mcp_resource</code> 外部观测通道,不会伪装成当前源码的 <code>file:line</code> citation。</p>
+<h3 id="什么时候用-mcp">什么时候用</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>推荐方式</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>问题需要外部事实,例如工单、监控、trace 预处理结果</td>
+<td>配一个 MCP server,让模型在探索阶段调用</td>
+</tr>
+<tr>
+<td>外部资源有真实行号/行范围/JSON pointer/表格行</td>
+<td>使用 typed line support,把坐标作为 MCP 外部观测交给 codrax</td>
+</tr>
+<tr>
+<td>只是在分析源码、配置文件、仓库结构</td>
+<td>不需要配置 MCP;空配置时工具 schema、prompt、调度都不变</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="mcp-安全边界">安全边界</h3>
+<ul>
+<li>当前实现支持 <strong>stdio server</strong>。server 是本机子进程,通过 stdin/stdout JSON-RPC 通信。</li>
+<li><strong>显式触发</strong>:用户问题明确要求使用 MCP / 某个 MCP server / 某个外部工具时,探索阶段模型可以直接调用 <code>&lt;server&gt;__&lt;tool&gt;</code> 或 <code>mcp_read_resource</code>。</li>
+<li><strong>隐式触发</strong>:配置 MCP 后,工具会在探索阶段进入模型工具面,模型可根据问题和工具描述自行选择;系统不会在 analyzer 之前或代码问题里硬自动调用 MCP。</li>
+<li>MCP 工具只暴露给探索类 agent(explorer / sub-explorer)。analyzer、extractor、finalizer、写模式工具面不会看到这些外部工具。</li>
+<li>工具名会自动命名空间化为 <code>&lt;server&gt;__&lt;tool&gt;</code>,避免和内置工具或其它 server 重名。</li>
+<li><code>inherit_env</code> 默认建议 <code>false</code>,避免把 provider/API key 默认传给外部子进程。需要传环境变量时用 <code>env:</code> 白名单。</li>
+<li><code>mcp_read_resource</code> 只能读取 server 在 <code>resources/list</code> 中枚举过的 URI;codrax 不会主动拼 URI。</li>
+<li>MCP 的 resources/prompts 只作为“外部建议”提示模型,不是系统指令;不要把不可信 MCP 内容当作 prompt 权限。</li>
+<li>MCP 结果是外部证据,不是当前源码证据。混合问题(“根据 MCP 结论再看源码”)需要同时保留 MCP observation 和源码 <code>file:line</code> 两条证据链。</li>
+</ul>
+<h3 id="mcp-配置示例">配置示例</h3>
+<p>把下面放进 <code>codrax.yaml</code>:</p>
+<pre><code class="language-yaml">mcp_max_servers: 8
+
+mcp_servers:
+  - name: docs
+    transport: stdio
+    command: /opt/company-mcp/docs-server
+    args: ["--readonly"]
+    inherit_env: false
+    env:
+      MCP_MODE: readonly
+    startup_timeout_ms: 3000
+    call_timeout_ms: 10000
+    max_response_bytes: 4194304
+</code></pre>
+<p>启动后,如果 server 暴露了 <code>search</code> 工具,模型看到的工具名会是 <code>docs__search</code>。如果 server 暴露了资源,探索阶段还会看到 <code>mcp_read_resource(uri=...)</code>。</p>
+<h3 id="mcp-typed-line-support">typed line support</h3>
+<p>如果 MCP server 能给出明确坐标,推荐返回显式 typed observation envelope。codrax 只在看到 <code>version: "codrax.mcp.observation.v1"</code> 或 MIME <code>application/vnd.codrax.observation+json</code> 时保留行号;普通文本/普通 JSON 不会被猜测行号。</p>
+<pre><code class="language-json">{
+  "version": "codrax.mcp.observation.v1",
+  "summary": "trace sleep/wakeup facts",
+  "resource_uri": "mcp://trace/run-42",
+  "mime_type": "text/plain",
+  "observations": [
+    {
+      "summary": "target enters S sleep",
+      "line_start": 1102717,
+      "line_end": 1102717,
+      "selector": "pid=36379 event=sched_switch prev_state=S",
+      "raw_ref": "mcp://trace/run-42#L1102717"
+    },
+    {
+      "summary": "waker wakes target",
+      "line_start": 1139180,
+      "line_end": 1139180,
+      "selector": "pid=36379 event=sched_wakeup",
+      "raw_ref": "mcp://trace/run-42#L1139180"
+    }
+  ]
+}
+</code></pre>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>resource_uri</code></td>
+<td>外部资源 URI,如 <code>mcp://trace/run-42</code></td>
+</tr>
+<tr>
+<td><code>line_start</code> / <code>line_end</code></td>
+<td>外部资源的行号或行范围</td>
+</tr>
+<tr>
+<td><code>row</code></td>
+<td>表格/结果集行号</td>
+</tr>
+<tr>
+<td><code>json_pointer</code></td>
+<td>JSON 文档内坐标</td>
+</tr>
+<tr>
+<td><code>selector</code></td>
+<td>外部系统自己的选择器,如 DOM selector / trace event selector</td>
+</tr>
+<tr>
+<td><code>raw_ref</code> / <code>payload_ref</code> / <code>row_set_ref</code> / <code>page_ref</code></td>
+<td>外部 payload 或行集引用</td>
+</tr>
+</tbody>
+</table></div>
+<p>这些坐标会以 <code>origin=mcp_resource</code> 进入答案链路。它们可以支撑外部事实,但不会绕过源码 citation gate。</p>
+<h3 id="最小-server-协议">最小 server 协议</h3>
+<p>一个可用的 stdio MCP server 至少需要响应:</p>
+<ul>
+<li><code>initialize</code></li>
+<li><code>tools/list</code></li>
+<li><code>tools/call</code></li>
+</ul>
+<p>可选但推荐:</p>
+<ul>
+<li><code>resources/list</code> + <code>resources/read</code>:让模型读取明确枚举过的外部资源。</li>
+<li><code>prompts/list</code>:告诉模型这个 server 适合什么任务。注意这仍只是外部建议。</li>
+</ul>
+<p>排错时先看 <code>.codrax/logs/.../codrax-*.log</code>:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>症状</th>
+<th>常见原因</th>
+<th>修复</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>启动时报 <code>load mcp servers</code></td>
+<td>command 不存在 / server 初始化失败 / JSON-RPC 响应非法</td>
+<td>手动运行 server,确认 stdin/stdout 每行一条 JSON-RPC</td>
+</tr>
+<tr>
+<td>探索阶段看不到 MCP 工具</td>
+<td><code>mcp_servers</code> 为空、server 没有 <code>tools/list</code>、当前不是探索类 agent</td>
+<td>检查 yaml、server 日志和问题是否进入探索阶段</td>
+</tr>
+<tr>
+<td><code>mcp_read_resource</code> 拒绝 URI</td>
+<td>URI 没有出现在 <code>resources/list</code></td>
+<td>让 server 先枚举资源;不要让模型凭空拼 URI</td>
+</tr>
+<tr>
+<td>行号没有进入答案</td>
+<td>返回的是普通文本/普通 JSON</td>
+<td>使用 <code>codrax.mcp.observation.v1</code> 或 <code>application/vnd.codrax.observation+json</code></td>
+</tr>
+</tbody>
+</table></div>
+<hr />
 <h1 id="4-写模式-plan-apply-verify">4. 写模式 — plan → apply → verify</h1>
 <p>写模式让 codrax <strong>生成代码改动</strong>(增删改文件),在沙箱 git worktree 里跑测试,只有你显式批准后才合回主仓。<strong>默认关闭</strong>。</p>
 <h3 id="工作区单一不变量写模式的核心规则">工作区单一不变量(写模式的核心规则)</h3>
@@ -1689,6 +1850,68 @@ multi_repo_enabled: false
 <td><code>perf_triage_enabled</code></td>
 <td><code>true</code></td>
 <td>perf_triage 预阶段(同上结构)</td>
+</tr>
+</tbody>
+</table></div>
+<h3 id="mcp-外部工具配置">MCP 外部工具</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>键</th>
+<th>默认</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>mcp_max_servers</code></td>
+<td>8</td>
+<td>最大 MCP server 数</td>
+</tr>
+<tr>
+<td><code>mcp_servers</code></td>
+<td><code>[]</code></td>
+<td>可选 stdio MCP server 列表。为空时不改变 prompt、工具 schema、调度或答案落地</td>
+</tr>
+<tr>
+<td><code>mcp_servers[].name</code></td>
+<td>必填</td>
+<td>server 名;模型可见工具名会变成 <code>&lt;server&gt;__&lt;tool&gt;</code></td>
+</tr>
+<tr>
+<td><code>mcp_servers[].transport</code></td>
+<td><code>stdio</code></td>
+<td>当前支持 <code>stdio</code>;其它 transport 会 fail-loud</td>
+</tr>
+<tr>
+<td><code>mcp_servers[].command</code> / <code>args</code></td>
+<td>必填 / <code>[]</code></td>
+<td>启动 MCP 子进程的命令和参数</td>
+</tr>
+<tr>
+<td><code>mcp_servers[].inherit_env</code></td>
+<td><code>false</code></td>
+<td>是否把当前环境变量传给 MCP 子进程;默认不传密钥</td>
+</tr>
+<tr>
+<td><code>mcp_servers[].env</code></td>
+<td><code>{}</code></td>
+<td>传给 MCP 子进程的白名单环境变量</td>
+</tr>
+<tr>
+<td><code>mcp_servers[].startup_timeout_ms</code></td>
+<td>3000</td>
+<td>initialize / tools/list 启动预算</td>
+</tr>
+<tr>
+<td><code>mcp_servers[].call_timeout_ms</code></td>
+<td>10000</td>
+<td>单次 tools/call 或 resources/read 调用预算</td>
+</tr>
+<tr>
+<td><code>mcp_servers[].max_response_bytes</code></td>
+<td>4194304</td>
+<td>单条 MCP 响应最大字节数;大输出应由 server 自己转成摘要 + 外部 payload ref</td>
 </tr>
 </tbody>
 </table></div>
