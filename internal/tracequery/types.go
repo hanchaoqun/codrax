@@ -110,6 +110,7 @@ type Query struct {
 	EventTypes            []EventType
 	SpanName              string
 	InteractionDirection  string
+	RecipeName            string
 	MaxDepth              int
 	MaxBranches           int
 	MinDurationMs         float64
@@ -135,11 +136,15 @@ type Result struct {
 	Events            []EventView             `json:"events,omitempty"`
 	Timeline          *TimelineResult         `json:"timeline,omitempty"`
 	WindowStats       *WindowStats            `json:"window_stats,omitempty"`
+	SchedulerLatency  *SchedulerLatencyResult `json:"scheduler_latency_stats,omitempty"`
 	IPCGraph          *IPCGraphResult         `json:"ipc_graph,omitempty"`
 	WakeupChain       *ChainResult            `json:"wakeup_chain,omitempty"`
 	SpanWindows       []TraceSpanSummary      `json:"span_windows,omitempty"`
+	FramePipeline     *FramePipelineResult    `json:"frame_pipeline,omitempty"`
+	CriticalBlocking  *CriticalBlockingResult `json:"critical_blocking_calls,omitempty"`
 	RootCauseRank     *RootCauseRankResult    `json:"root_cause_rank,omitempty"`
 	InteractionStats  *InteractionStatsResult `json:"interaction_stats,omitempty"`
+	Recipe            *RecipeResult           `json:"recipe,omitempty"`
 	EvidencePack      []EvidenceFact          `json:"evidence_pack,omitempty"`
 	Caveats           []string                `json:"caveats,omitempty"`
 }
@@ -215,7 +220,57 @@ type WindowStats struct {
 	IRQBursts           []IRQBurstSummary      `json:"irq_bursts,omitempty"`
 	MemoryKinds         []MemoryKindSummary    `json:"memory_kinds,omitempty"`
 	ThreadDrifts        []ThreadDriftSummary   `json:"thread_drifts,omitempty"`
+	ComputeSupply       []ComputeSupplySummary `json:"compute_supply,omitempty"`
 	Caveats             []string               `json:"caveats,omitempty"`
+}
+
+type SchedulerLatencyResult struct {
+	Target  ThreadRef              `json:"target,omitempty"`
+	Window  TimeWindow             `json:"window"`
+	Count   int                    `json:"count,omitempty"`
+	MeanMs  float64                `json:"mean_ms,omitempty"`
+	P50Ms   float64                `json:"p50_ms,omitempty"`
+	P95Ms   float64                `json:"p95_ms,omitempty"`
+	P99Ms   float64                `json:"p99_ms,omitempty"`
+	MaxMs   float64                `json:"max_ms,omitempty"`
+	Items   []SchedulerLatencyItem `json:"items,omitempty"`
+	Caveats []string               `json:"caveats,omitempty"`
+}
+
+type SchedulerLatencyItem struct {
+	Thread                ThreadRef        `json:"thread"`
+	StartTs               float64          `json:"start_ts,omitempty"`
+	EndTs                 float64          `json:"end_ts,omitempty"`
+	DurationMs            float64          `json:"duration_ms,omitempty"`
+	CPU                   int              `json:"cpu"`
+	Frequency             int              `json:"frequency,omitempty"`
+	Priority              int              `json:"priority,omitempty"`
+	PriorityClass         string           `json:"priority_class,omitempty"`
+	StartLine             int              `json:"start_line,omitempty"`
+	EndLine               int              `json:"end_line,omitempty"`
+	SameCPUBusyMs         float64          `json:"same_cpu_busy_ms,omitempty"`
+	SameCPUIdleMs         float64          `json:"same_cpu_idle_ms,omitempty"`
+	OtherCPUIdleMs        float64          `json:"other_cpu_idle_ms,omitempty"`
+	HighPriorityRunningMs float64          `json:"high_priority_running_ms,omitempty"`
+	SameCPUTopRunning     []ThreadDuration `json:"same_cpu_top_running,omitempty"`
+	Summary               string           `json:"summary,omitempty"`
+}
+
+type ComputeSupplySummary struct {
+	Thread                ThreadRef `json:"thread,omitempty"`
+	State                 string    `json:"state,omitempty"`
+	CPU                   int       `json:"cpu"`
+	DurationMs            float64   `json:"duration_ms,omitempty"`
+	Frequency             int       `json:"frequency,omitempty"`
+	CPUBusyMs             float64   `json:"cpu_busy_ms,omitempty"`
+	CPUIdleMs             float64   `json:"cpu_idle_ms,omitempty"`
+	RunnableWaitMs        float64   `json:"runnable_wait_ms,omitempty"`
+	HighPriorityRunningMs float64   `json:"high_priority_running_ms,omitempty"`
+	Verdict               string    `json:"verdict,omitempty"`
+	Confidence            float64   `json:"confidence,omitempty"`
+	LineStart             int       `json:"line_start,omitempty"`
+	LineEnd               int       `json:"line_end,omitempty"`
+	Summary               string    `json:"summary,omitempty"`
 }
 
 type BlockedReasonSummary struct {
@@ -384,6 +439,50 @@ type InteractionSummary struct {
 	FirstLine         int       `json:"first_line,omitempty"`
 	LastLine          int       `json:"last_line,omitempty"`
 	Summary           string    `json:"summary,omitempty"`
+}
+
+type FramePipelineResult struct {
+	Window  TimeWindow          `json:"window"`
+	Items   []FramePhaseSummary `json:"items,omitempty"`
+	Caveats []string            `json:"caveats,omitempty"`
+}
+
+type FramePhaseSummary struct {
+	Thread     ThreadRef `json:"thread,omitempty"`
+	Phase      string    `json:"phase,omitempty"`
+	Name       string    `json:"name,omitempty"`
+	StartTs    float64   `json:"start_ts,omitempty"`
+	EndTs      float64   `json:"end_ts,omitempty"`
+	DurationMs float64   `json:"duration_ms,omitempty"`
+	StartLine  int       `json:"start_line,omitempty"`
+	EndLine    int       `json:"end_line,omitempty"`
+	Summary    string    `json:"summary,omitempty"`
+}
+
+type CriticalBlockingResult struct {
+	Window  TimeWindow                  `json:"window"`
+	Items   []CriticalBlockingCandidate `json:"items,omitempty"`
+	Caveats []string                    `json:"caveats,omitempty"`
+}
+
+type CriticalBlockingCandidate struct {
+	Type       string    `json:"type,omitempty"`
+	Thread     ThreadRef `json:"thread,omitempty"`
+	Peer       ThreadRef `json:"peer,omitempty"`
+	DurationMs float64   `json:"duration_ms,omitempty"`
+	StartTs    float64   `json:"start_ts,omitempty"`
+	EndTs      float64   `json:"end_ts,omitempty"`
+	LineStart  int       `json:"line_start,omitempty"`
+	LineEnd    int       `json:"line_end,omitempty"`
+	Confidence float64   `json:"confidence,omitempty"`
+	Summary    string    `json:"summary,omitempty"`
+}
+
+type RecipeResult struct {
+	Name          string   `json:"name,omitempty"`
+	IncludedViews []string `json:"included_views,omitempty"`
+	Summary       string   `json:"summary,omitempty"`
+	Caveats       []string `json:"caveats,omitempty"`
 }
 
 type ChainResult struct {

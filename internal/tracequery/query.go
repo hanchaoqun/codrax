@@ -46,6 +46,10 @@ func Run(idx *Index, q Query) Result {
 		stats := ComputeWindowStats(idx, q)
 		res.WindowStats = &stats
 		res.EvidencePack = evidenceFromStats(stats)
+	case "scheduler_latency_stats":
+		latency := BuildSchedulerLatencyStats(idx, q)
+		res.SchedulerLatency = &latency
+		res.EvidencePack = evidenceFromSchedulerLatency(latency)
 	case "ipc_graph":
 		ipc := BuildIPCGraph(idx, q)
 		res.IPCGraph = &ipc
@@ -67,21 +71,77 @@ func Run(idx *Index, q Query) Result {
 		stats := ComputeWindowStats(idx, q)
 		res.WindowStats = &stats
 		rank := buildRootCauseRankFrom(q, chain, stats)
+		latency := BuildSchedulerLatencyStats(idx, q)
+		res.SchedulerLatency = &latency
+		rank = enrichRootCauseRankWithScheduler(q, rank, latency, stats)
 		res.RootCauseRank = &rank
 		res.EvidencePack = evidenceFromRootCauseRank(rank)
 	case "interaction_stats":
 		interactions := BuildInteractionStats(idx, q)
 		res.InteractionStats = &interactions
 		res.EvidencePack = evidenceFromInteractionStats(interactions)
+	case "frame_window", "render_pipeline":
+		frame := BuildFramePipeline(idx, q)
+		res.FramePipeline = &frame
+		res.SpanWindows = frameSpans(frame)
+		res.EvidencePack = evidenceFromFramePipeline(frame)
+	case "critical_blocking_calls":
+		blocking := BuildCriticalBlockingCalls(idx, q)
+		res.CriticalBlocking = &blocking
+		res.EvidencePack = evidenceFromCriticalBlocking(blocking)
+	case "recipe":
+		recipe := BuildRecipe(idx, q)
+		res.Recipe = &recipe
+		if recipeHasView(recipe, "window_stats") {
+			stats := ComputeWindowStats(idx, q)
+			res.WindowStats = &stats
+		}
+		if recipeHasView(recipe, "scheduler_latency_stats") {
+			latency := BuildSchedulerLatencyStats(idx, q)
+			res.SchedulerLatency = &latency
+			res.EvidencePack = append(res.EvidencePack, evidenceFromSchedulerLatency(latency)...)
+		}
+		if recipeHasView(recipe, "wakeup_chain") {
+			chain := BuildWakeupChain(idx, q)
+			res.WakeupChain = &chain
+			res.EvidencePack = append(res.EvidencePack, evidenceFromChain(chain)...)
+		}
+		if recipeHasView(recipe, "ipc_graph") {
+			ipc := BuildIPCGraph(idx, q)
+			res.IPCGraph = &ipc
+			res.EvidencePack = append(res.EvidencePack, evidenceFromIPCGraph(ipc)...)
+		}
+		if recipeHasView(recipe, "root_cause_rank") {
+			rank := BuildRootCauseRank(idx, q)
+			res.RootCauseRank = &rank
+			res.EvidencePack = append(res.EvidencePack, evidenceFromRootCauseRank(rank)...)
+		}
+		if recipeHasView(recipe, "critical_blocking_calls") {
+			blocking := BuildCriticalBlockingCalls(idx, q)
+			res.CriticalBlocking = &blocking
+			res.EvidencePack = append(res.EvidencePack, evidenceFromCriticalBlocking(blocking)...)
+		}
+		if recipeHasView(recipe, "frame_window") || recipeHasView(recipe, "render_pipeline") {
+			frame := BuildFramePipeline(idx, q)
+			res.FramePipeline = &frame
+			res.SpanWindows = frameSpans(frame)
+			res.EvidencePack = append(res.EvidencePack, evidenceFromFramePipeline(frame)...)
+		}
 	case "evidence_pack":
 		chain := BuildWakeupChain(idx, q)
 		stats := ComputeWindowStats(idx, q)
 		ipc := BuildIPCGraph(idx, q)
+		latency := BuildSchedulerLatencyStats(idx, q)
+		blocking := BuildCriticalBlockingCalls(idx, q)
 		res.WakeupChain = &chain
 		res.WindowStats = &stats
 		res.IPCGraph = &ipc
+		res.SchedulerLatency = &latency
+		res.CriticalBlocking = &blocking
 		res.EvidencePack = append(evidenceFromChain(chain), evidenceFromStats(stats)...)
 		res.EvidencePack = append(res.EvidencePack, evidenceFromIPCGraph(ipc)...)
+		res.EvidencePack = append(res.EvidencePack, evidenceFromSchedulerLatency(latency)...)
+		res.EvidencePack = append(res.EvidencePack, evidenceFromCriticalBlocking(blocking)...)
 	default:
 		res.View = "event_search"
 		res.Events = EventSearch(idx, q)
@@ -139,6 +199,7 @@ func normalizeQuery(idx *Index, q Query) Query {
 	if q.View == "" {
 		q.View = "event_search"
 	}
+	q.RecipeName = strings.TrimSpace(q.RecipeName)
 	if strings.TrimSpace(q.ThreadInput) == "" {
 		q.ThreadInput = q.Thread
 	}
@@ -610,6 +671,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			stats.Caveats = append(stats.Caveats, drift.Caveat)
 		}
 	}
+	stats.ComputeSupply = computeSupplySummaries(stats, 8)
 	return stats
 }
 
@@ -751,6 +813,200 @@ func computeOffCPUStats(idx *Index, q Query, freqByCPU map[int][]Event, pressure
 	return topThreadDurations(runnable, 8), topThreadDurations(dstate, 8), buildCPUPressureStats(pressure, 8)
 }
 
+func BuildSchedulerLatencyStats(idx *Index, q Query) SchedulerLatencyResult {
+	q = normalizeQuery(idx, q)
+	q = ensureQueryFlavor(idx, q)
+	res := SchedulerLatencyResult{Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}}
+	if idx == nil {
+		res.Caveats = append(res.Caveats, "trace index is empty")
+		return res
+	}
+	var target ThreadRef
+	if q.PID > 0 || q.Thread != "" || q.ThreadInput != "" {
+		target = resolveThread(idx, q)
+		res.Target = target
+	}
+	stats := ComputeWindowStats(idx, q)
+	cpus := map[int]CPUStats{}
+	for _, cpu := range stats.CPU {
+		cpus[cpu.CPU] = cpu
+	}
+	pressure := map[int]CPUPressureStats{}
+	for _, p := range stats.CPUPressure {
+		pressure[p.CPU] = p
+	}
+	freqByCPU := map[int][]Event{}
+	for _, ev := range idx.Events {
+		if eventLineInWindow(ev, q) && ev.Type == EventCPUFrequency && ev.Frequency > 0 {
+			if q.TimeEnd == 0 || ev.Ts <= q.TimeEnd {
+				freqByCPU[eventCPUForStats(ev)] = append(freqByCPU[eventCPUForStats(ev)], ev)
+			}
+		}
+	}
+	type startInfo struct {
+		thread        ThreadRef
+		ts            float64
+		line          int
+		cpu           int
+		priority      int
+		priorityClass string
+	}
+	open := map[int]startInfo{}
+	closeWait := func(pid int, endTs float64, endLine int) {
+		start, ok := open[pid]
+		if !ok {
+			return
+		}
+		delete(open, pid)
+		if target.PID > 0 || target.Comm != "" {
+			if !threadMatches(target, start.thread.PID, start.thread.Comm) {
+				return
+			}
+		}
+		startTs := start.ts
+		if q.TimeStart > 0 && startTs < q.TimeStart {
+			startTs = q.TimeStart
+		}
+		if q.TimeEnd > 0 && endTs > q.TimeEnd {
+			endTs = q.TimeEnd
+		}
+		if endTs <= startTs {
+			return
+		}
+		duration := (endTs - startTs) * 1000
+		if duration < q.MinDurationMs {
+			return
+		}
+		cpu := cpus[start.cpu]
+		p := pressure[start.cpu]
+		otherIdle := 0.0
+		for cpuID, item := range cpus {
+			if cpuID != start.cpu {
+				otherIdle += item.IdleMs
+			}
+		}
+		freq := frequencyAt(freqByCPU[start.cpu], startTs)
+		item := SchedulerLatencyItem{
+			Thread:                start.thread,
+			StartTs:               startTs,
+			EndTs:                 endTs,
+			DurationMs:            duration,
+			CPU:                   start.cpu,
+			Frequency:             freq,
+			Priority:              start.priority,
+			PriorityClass:         start.priorityClass,
+			StartLine:             start.line,
+			EndLine:               firstPositive(endLine, start.line),
+			SameCPUBusyMs:         cpu.BusyMs,
+			SameCPUIdleMs:         cpu.IdleMs,
+			OtherCPUIdleMs:        otherIdle,
+			HighPriorityRunningMs: p.HighPriorityRunningMs,
+			SameCPUTopRunning:     p.TopRunning,
+		}
+		item.Summary = fmt.Sprintf("%s waited runnable for %.3fms on cpu=%d", threadLabel(item.Thread), item.DurationMs, item.CPU)
+		if item.Frequency > 0 {
+			item.Summary = fmt.Sprintf("%s freq=%dkHz", item.Summary, item.Frequency)
+		}
+		if item.HighPriorityRunningMs > 0 {
+			item.Summary = fmt.Sprintf("%s high_prio_running=%.3fms", item.Summary, item.HighPriorityRunningMs)
+		}
+		if item.OtherCPUIdleMs > 0 {
+			item.Summary = fmt.Sprintf("%s other_cpu_idle=%.3fms", item.Summary, item.OtherCPUIdleMs)
+		}
+		res.Items = append(res.Items, item)
+	}
+	for _, ev := range idx.Events {
+		if !eventLineInWindow(ev, q) || ev.Type != EventSchedSwitch {
+			continue
+		}
+		if q.TimeEnd > 0 && ev.Ts > q.TimeEnd {
+			break
+		}
+		if ev.NextPID > 0 {
+			closeWait(ev.NextPID, ev.Ts, ev.Line)
+		}
+		if ev.PrevPID > 0 && stateFromPrevState(ev.PrevState) == StateRunnable {
+			open[ev.PrevPID] = startInfo{
+				thread:        ThreadRef{Comm: ev.PrevComm, PID: ev.PrevPID},
+				ts:            ev.Ts,
+				line:          ev.Line,
+				cpu:           ev.CPU,
+				priority:      ev.PrevPrio,
+				priorityClass: classifyTracePriority(q.TraceFlavor, ev.PrevPrio),
+			}
+		}
+	}
+	if q.TimeEnd > 0 {
+		for pid := range open {
+			closeWait(pid, q.TimeEnd, 0)
+		}
+	}
+	sort.SliceStable(res.Items, func(i, j int) bool {
+		if res.Items[i].DurationMs != res.Items[j].DurationMs {
+			return res.Items[i].DurationMs > res.Items[j].DurationMs
+		}
+		return res.Items[i].StartLine < res.Items[j].StartLine
+	})
+	durations := make([]float64, 0, len(res.Items))
+	for _, item := range res.Items {
+		durations = append(durations, item.DurationMs)
+	}
+	res.Count = len(res.Items)
+	res.MeanMs = meanFloat64(durations)
+	res.P50Ms = percentileFloat64(durations, 0.50)
+	res.P95Ms = percentileFloat64(durations, 0.95)
+	res.P99Ms = percentileFloat64(durations, 0.99)
+	if len(durations) > 0 {
+		res.MaxMs = durations[0]
+	}
+	limit := q.Limit
+	if limit <= 0 || limit > 20 {
+		limit = 20
+	}
+	if len(res.Items) > limit {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("scheduler_latency_stats compacted from %d to %d runnable wait interval(s)", len(res.Items), limit))
+		res.Items = res.Items[:limit]
+	}
+	if res.Count == 0 {
+		res.Caveats = append(res.Caveats, "no runnable wait intervals matched the selected filters")
+	}
+	res.Caveats = append(res.Caveats, stats.Caveats...)
+	return res
+}
+
+func meanFloat64(in []float64) float64 {
+	if len(in) == 0 {
+		return 0
+	}
+	sum := 0.0
+	for _, v := range in {
+		sum += v
+	}
+	return sum / float64(len(in))
+}
+
+func percentileFloat64(in []float64, p float64) float64 {
+	if len(in) == 0 {
+		return 0
+	}
+	cp := append([]float64(nil), in...)
+	sort.Float64s(cp)
+	if p <= 0 {
+		return cp[0]
+	}
+	if p >= 1 {
+		return cp[len(cp)-1]
+	}
+	idx := int(float64(len(cp)-1)*p + 0.999999)
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= len(cp) {
+		idx = len(cp) - 1
+	}
+	return cp[idx]
+}
+
 func buildCPUPressureStats(in map[int]*cpuPressureAcc, max int) []CPUPressureStats {
 	out := make([]CPUPressureStats, 0, len(in))
 	for cpu, acc := range in {
@@ -777,6 +1033,106 @@ func buildCPUPressureStats(in map[int]*cpuPressureAcc, max int) []CPUPressureSta
 		out = out[:max]
 	}
 	return out
+}
+
+func computeSupplySummaries(stats WindowStats, max int) []ComputeSupplySummary {
+	cpus := map[int]CPUStats{}
+	for _, cpu := range stats.CPU {
+		cpus[cpu.CPU] = cpu
+	}
+	pressure := map[int]CPUPressureStats{}
+	for _, item := range stats.CPUPressure {
+		pressure[item.CPU] = item
+	}
+	var out []ComputeSupplySummary
+	add := func(thread ThreadRef, state string, duration float64, cpuID int, frequency int, lineStart, lineEnd int) {
+		if duration <= 0 {
+			return
+		}
+		cpu := cpus[cpuID]
+		p := pressure[cpuID]
+		verdict, conf := computeSupplyVerdict(duration, frequency, cpu, p)
+		summary := fmt.Sprintf("%s %s for %.3fms on cpu=%d", threadLabel(thread), state, duration, cpuID)
+		if frequency > 0 {
+			summary = fmt.Sprintf("%s freq=%dkHz", summary, frequency)
+		}
+		if cpu.BusyMs > 0 || cpu.IdleMs > 0 {
+			summary = fmt.Sprintf("%s busy=%.3fms idle=%.3fms", summary, cpu.BusyMs, cpu.IdleMs)
+		}
+		if p.HighPriorityRunningMs > 0 {
+			summary = fmt.Sprintf("%s high_prio_running=%.3fms", summary, p.HighPriorityRunningMs)
+		}
+		out = append(out, ComputeSupplySummary{
+			Thread:                thread,
+			State:                 state,
+			CPU:                   cpuID,
+			DurationMs:            duration,
+			Frequency:             frequency,
+			CPUBusyMs:             cpu.BusyMs,
+			CPUIdleMs:             cpu.IdleMs,
+			RunnableWaitMs:        p.RunnableWaitMs,
+			HighPriorityRunningMs: p.HighPriorityRunningMs,
+			Verdict:               verdict,
+			Confidence:            conf,
+			LineStart:             lineStart,
+			LineEnd:               lineEnd,
+			Summary:               summary + " verdict=" + verdict,
+		})
+	}
+	for _, td := range stats.RunnableTop {
+		add(td.Thread, "runnable", td.DurationMs, td.CPU, td.Frequency, td.LineStart, td.LineEnd)
+	}
+	for _, td := range stats.TopRunning {
+		add(td.Thread, "running", td.DurationMs, td.CPU, td.Frequency, td.LineStart, td.LineEnd)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Confidence != out[j].Confidence {
+			return out[i].Confidence > out[j].Confidence
+		}
+		if out[i].DurationMs != out[j].DurationMs {
+			return out[i].DurationMs > out[j].DurationMs
+		}
+		return out[i].LineStart < out[j].LineStart
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
+func computeSupplyVerdict(durationMs float64, frequency int, cpu CPUStats, pressure CPUPressureStats) (string, float64) {
+	total := cpu.BusyMs + cpu.IdleMs
+	busyRatio := 0.0
+	if total > 0 {
+		busyRatio = cpu.BusyMs / total
+	}
+	lowFreq := frequency > 0 && frequencyIsLowForCPU(frequency, cpu)
+	cpuPressure := busyRatio >= 0.80 || pressure.HighPriorityRunningMs >= durationMs*0.50
+	switch {
+	case cpuPressure && lowFreq:
+		return "mixed_cpu_pressure_and_low_frequency", 0.78
+	case cpuPressure:
+		return "cpu_pressure", 0.76
+	case lowFreq:
+		return "low_frequency_signal", 0.68
+	case cpu.IdleMs > cpu.BusyMs && durationMs > 0:
+		return "idle_available_check_wakeup_or_affinity", 0.62
+	default:
+		return "insufficient_signal", 0.50
+	}
+}
+
+func frequencyIsLowForCPU(frequency int, cpu CPUStats) bool {
+	maxFreq := 0
+	for _, res := range cpu.FrequencyResidency {
+		if res.Frequency > maxFreq {
+			maxFreq = res.Frequency
+		}
+	}
+	if maxFreq <= 0 || frequency <= 0 || frequency >= maxFreq {
+		return false
+	}
+	return float64(frequency) <= float64(maxFreq)*0.65
 }
 
 func topThreadDurations(in map[string]ThreadDuration, max int) []ThreadDuration {
@@ -1591,7 +1947,9 @@ func BuildRootCauseRank(idx *Index, q Query) RootCauseRankResult {
 		chain = BuildWakeupChain(idx, q)
 	}
 	stats := ComputeWindowStats(idx, q)
-	return buildRootCauseRankFrom(q, chain, stats)
+	rank := buildRootCauseRankFrom(q, chain, stats)
+	latency := BuildSchedulerLatencyStats(idx, q)
+	return enrichRootCauseRankWithScheduler(q, rank, latency, stats)
 }
 
 func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootCauseRankResult {
@@ -1662,6 +2020,60 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 	return res
 }
 
+func enrichRootCauseRankWithScheduler(q Query, rank RootCauseRankResult, latency SchedulerLatencyResult, stats WindowStats) RootCauseRankResult {
+	cpus := map[int]CPUStats{}
+	for _, cpu := range stats.CPU {
+		cpus[cpu.CPU] = cpu
+	}
+	for _, item := range latency.Items {
+		conf := 0.78
+		if item.HighPriorityRunningMs > 0 {
+			conf = 0.84
+		}
+		summary := item.Summary
+		if len(item.SameCPUTopRunning) > 0 {
+			summary = fmt.Sprintf("%s; same_cpu_top_running=%s", summary, threadLabel(item.SameCPUTopRunning[0].Thread))
+		}
+		rank.Items = append(rank.Items, rootCauseItem("scheduler_latency", item.Thread, item.DurationMs, conf, item.StartLine, item.EndLine, "scheduler_latency_stats", summary))
+		if frequencyIsLowForCPU(item.Frequency, cpus[item.CPU]) {
+			rank.Items = append(rank.Items, rootCauseItem("low_frequency", item.Thread, item.DurationMs, 0.70, item.StartLine, item.EndLine, "scheduler_latency_stats", fmt.Sprintf("%s runnable wait began at %dkHz on cpu=%d, below the CPU's observed max frequency in the selected window", threadLabel(item.Thread), item.Frequency, item.CPU)))
+		}
+	}
+	for _, supply := range stats.ComputeSupply {
+		switch supply.Verdict {
+		case "cpu_pressure", "mixed_cpu_pressure_and_low_frequency", "low_frequency_signal":
+			typ := "compute_supply"
+			if strings.Contains(supply.Verdict, "low_frequency") {
+				typ = "low_frequency"
+			}
+			rank.Items = append(rank.Items, rootCauseItem(typ, supply.Thread, supply.DurationMs, supply.Confidence, supply.LineStart, supply.LineEnd, "window_stats.compute_supply", supply.Summary))
+		}
+	}
+	sort.SliceStable(rank.Items, func(i, j int) bool {
+		if rank.Items[i].Score != rank.Items[j].Score {
+			return rank.Items[i].Score > rank.Items[j].Score
+		}
+		if rank.Items[i].ImpactMs != rank.Items[j].ImpactMs {
+			return rank.Items[i].ImpactMs > rank.Items[j].ImpactMs
+		}
+		return rank.Items[i].LineStart < rank.Items[j].LineStart
+	})
+	limit := q.Limit
+	if limit <= 0 || limit > 12 {
+		limit = 12
+	}
+	if len(rank.Items) > limit {
+		rank.Caveats = append(rank.Caveats, fmt.Sprintf("root_cause_rank compacted after scheduler/compute enrichment from %d to %d candidate(s)", len(rank.Items), limit))
+		rank.Items = rank.Items[:limit]
+	}
+	for i := range rank.Items {
+		rank.Items[i].Rank = i + 1
+		rank.Items[i].Tier = rootCauseTier(i)
+	}
+	rank.Caveats = append(rank.Caveats, latency.Caveats...)
+	return rank
+}
+
 func rootCauseItem(typ string, thread ThreadRef, impactMs float64, confidence float64, lineStart, lineEnd int, source, summary string) RootCauseRankItem {
 	if confidence <= 0 {
 		confidence = 0.5
@@ -1683,8 +2095,10 @@ func rootCauseTypeWeight(typ string) float64 {
 	switch typ {
 	case "io_wait", "d_state_or_io_wait", "binder_wait":
 		return 1.25
-	case "runnable_wait", "cpu_pressure":
+	case "runnable_wait", "cpu_pressure", "scheduler_latency":
 		return 1.15
+	case "compute_supply", "low_frequency":
+		return 0.95
 	case "running":
 		return 1.0
 	case "trace_span":
@@ -1816,6 +2230,306 @@ func BuildInteractionStats(idx *Index, q Query) InteractionStatsResult {
 	}
 	res.Caveats = append(res.Caveats, ipc.Caveats...)
 	return res
+}
+
+func BuildFramePipeline(idx *Index, q Query) FramePipelineResult {
+	q = normalizeQuery(idx, q)
+	res := FramePipelineResult{Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}}
+	if idx == nil {
+		res.Caveats = append(res.Caveats, "trace index is empty")
+		return res
+	}
+	spans, caveats := FindSpanWindows(idx, q, q.Limit)
+	for _, span := range spans {
+		if !isFrameLikeSpan(span.Name) && strings.TrimSpace(q.SpanName) == "" {
+			continue
+		}
+		phase := classifyFramePhase(span.Name)
+		res.Items = append(res.Items, FramePhaseSummary{
+			Thread:     span.Thread,
+			Phase:      phase,
+			Name:       span.Name,
+			StartTs:    span.StartTs,
+			EndTs:      span.EndTs,
+			DurationMs: span.DurationMs,
+			StartLine:  span.StartLine,
+			EndLine:    span.EndLine,
+			Summary:    fmt.Sprintf("%s phase %s span %q lasted %.3fms", threadLabel(span.Thread), phase, span.Name, span.DurationMs),
+		})
+	}
+	sort.SliceStable(res.Items, func(i, j int) bool {
+		if res.Items[i].StartTs != res.Items[j].StartTs {
+			return res.Items[i].StartTs < res.Items[j].StartTs
+		}
+		return res.Items[i].StartLine < res.Items[j].StartLine
+	})
+	limit := q.Limit
+	if limit <= 0 || limit > 20 {
+		limit = 20
+	}
+	if len(res.Items) > limit {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("frame pipeline compacted from %d to %d phase span(s)", len(res.Items), limit))
+		res.Items = res.Items[:limit]
+	}
+	if len(res.Items) == 0 {
+		res.Caveats = append(res.Caveats, "no frame/render-like complete B/E trace spans matched the selected filters")
+	}
+	res.Caveats = append(res.Caveats, caveats...)
+	return res
+}
+
+func frameSpans(frame FramePipelineResult) []TraceSpanSummary {
+	out := make([]TraceSpanSummary, 0, len(frame.Items))
+	for _, item := range frame.Items {
+		out = append(out, TraceSpanSummary{
+			Thread:     item.Thread,
+			Name:       item.Name,
+			StartTs:    item.StartTs,
+			EndTs:      item.EndTs,
+			DurationMs: item.DurationMs,
+			StartLine:  item.StartLine,
+			EndLine:    item.EndLine,
+		})
+	}
+	return out
+}
+
+func isFrameLikeSpan(name string) bool {
+	lower := strings.ToLower(name)
+	for _, token := range []string{"frame", "vsync", "choreographer", "render", "draw", "traversal", "measure", "layout", "present", "gpu", "surface", "compose"} {
+		if strings.Contains(lower, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func classifyFramePhase(name string) string {
+	lower := strings.ToLower(name)
+	switch {
+	case strings.Contains(lower, "vsync") || strings.Contains(lower, "choreographer") || strings.Contains(lower, "doframe"):
+		return "frame_schedule"
+	case strings.Contains(lower, "measure") || strings.Contains(lower, "layout") || strings.Contains(lower, "traversal"):
+		return "ui_traversal"
+	case strings.Contains(lower, "render") || strings.Contains(lower, "draw"):
+		return "render"
+	case strings.Contains(lower, "present") || strings.Contains(lower, "surface") || strings.Contains(lower, "compose"):
+		return "composition"
+	case strings.Contains(lower, "gpu"):
+		return "gpu"
+	default:
+		return "frame_related"
+	}
+}
+
+func BuildCriticalBlockingCalls(idx *Index, q Query) CriticalBlockingResult {
+	q = normalizeQuery(idx, q)
+	res := CriticalBlockingResult{Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}}
+	if idx == nil {
+		res.Caveats = append(res.Caveats, "trace index is empty")
+		return res
+	}
+	stats := ComputeWindowStats(idx, q)
+	add := func(item CriticalBlockingCandidate) {
+		if item.DurationMs <= 0 && item.LineStart == 0 {
+			return
+		}
+		if item.Confidence <= 0 {
+			item.Confidence = 0.6
+		}
+		res.Items = append(res.Items, item)
+	}
+	for _, br := range stats.BlockedReasons {
+		add(CriticalBlockingCandidate{
+			Type:       "blocked_reason",
+			Thread:     br.Thread,
+			StartTs:    br.Ts,
+			EndTs:      br.Ts,
+			LineStart:  br.Line,
+			LineEnd:    br.Line,
+			Confidence: 0.82,
+			Summary:    fmt.Sprintf("%s sched_blocked_reason iowait=%d caller=%s count=%d", threadLabel(br.Thread), br.IOWait, firstNonEmpty(br.Reason, "unknown"), br.Count),
+		})
+	}
+	for _, io := range stats.IOLatencies {
+		add(CriticalBlockingCandidate{
+			Type:       "io_latency",
+			Thread:     io.IssueThread,
+			Peer:       io.CompleteThread,
+			DurationMs: io.DurationMs,
+			StartTs:    io.IssueTs,
+			EndTs:      io.CompleteTs,
+			LineStart:  io.IssueLine,
+			LineEnd:    io.CompleteLine,
+			Confidence: 0.86,
+			Summary:    fmt.Sprintf("block IO %s %s sector=%d len=%d took %.3fms", io.Dev, io.Op, io.Sector, io.Len, io.DurationMs),
+		})
+	}
+	if q.PID > 0 || q.Thread != "" || q.ThreadInput != "" {
+		chain := BuildWakeupChain(idx, q)
+		for _, wait := range chain.BinderWaits {
+			add(CriticalBlockingCandidate{
+				Type:       "binder_wait",
+				Thread:     wait.Thread,
+				Peer:       wait.Peer,
+				DurationMs: wait.DurationMs,
+				StartTs:    wait.SendTs,
+				EndTs:      firstPositiveFloat(wait.WakeupTs, wait.SleepStartTs),
+				LineStart:  firstPositive(wait.SendLine, wait.SleepLine),
+				LineEnd:    firstPositive(wait.WakeupLine, wait.ReceiveLine, wait.SleepLine),
+				Confidence: wait.Confidence,
+				Summary:    wait.Summary,
+			})
+		}
+	}
+	for _, td := range stats.DStateTop {
+		add(CriticalBlockingCandidate{
+			Type:       "d_state_or_io_wait",
+			Thread:     td.Thread,
+			DurationMs: td.DurationMs,
+			LineStart:  td.LineStart,
+			LineEnd:    td.LineEnd,
+			Confidence: 0.80,
+			Summary:    fmt.Sprintf("%s spent %.3fms in D-state/IO-like wait%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td)),
+		})
+	}
+	for _, span := range stats.TraceSpans {
+		if !isBlockingLikeText(span.Name) {
+			continue
+		}
+		add(CriticalBlockingCandidate{
+			Type:       "blocking_span",
+			Thread:     span.Thread,
+			DurationMs: span.DurationMs,
+			StartTs:    span.StartTs,
+			EndTs:      span.EndTs,
+			LineStart:  span.StartLine,
+			LineEnd:    span.EndLine,
+			Confidence: 0.72,
+			Summary:    fmt.Sprintf("blocking-like trace span %q lasted %.3fms", span.Name, span.DurationMs),
+		})
+	}
+	for _, mem := range stats.MemoryKinds {
+		if mem.Kind != "reclaim" && mem.Kind != "page_fault" && mem.Kind != "gc" {
+			continue
+		}
+		add(CriticalBlockingCandidate{
+			Type:       "memory_" + mem.Kind,
+			LineStart:  mem.Line,
+			LineEnd:    mem.Line,
+			StartTs:    mem.Ts,
+			EndTs:      mem.Ts,
+			Confidence: 0.62,
+			Summary:    fmt.Sprintf("memory category %s appeared %d time(s) in the selected window", mem.Kind, mem.Count),
+		})
+	}
+	sort.SliceStable(res.Items, func(i, j int) bool {
+		scoreI := res.Items[i].DurationMs * res.Items[i].Confidence
+		scoreJ := res.Items[j].DurationMs * res.Items[j].Confidence
+		if scoreI != scoreJ {
+			return scoreI > scoreJ
+		}
+		if res.Items[i].DurationMs != res.Items[j].DurationMs {
+			return res.Items[i].DurationMs > res.Items[j].DurationMs
+		}
+		return res.Items[i].LineStart < res.Items[j].LineStart
+	})
+	limit := q.Limit
+	if limit <= 0 || limit > 20 {
+		limit = 20
+	}
+	if len(res.Items) > limit {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("critical_blocking_calls compacted from %d to %d candidate(s)", len(res.Items), limit))
+		res.Items = res.Items[:limit]
+	}
+	if len(res.Items) == 0 {
+		res.Caveats = append(res.Caveats, "no critical blocking candidates matched the selected filters")
+	}
+	res.Caveats = append(res.Caveats, stats.Caveats...)
+	return res
+}
+
+func isBlockingLikeText(name string) bool {
+	lower := strings.ToLower(name)
+	for _, token := range []string{"lock", "futex", "wait", "blocked", "binder", "sync", "mutex", "semaphore", "contention", "io"} {
+		if strings.Contains(lower, token) {
+			return true
+		}
+	}
+	return false
+}
+
+func BuildRecipe(idx *Index, q Query) RecipeResult {
+	q = normalizeQuery(idx, q)
+	name := normalizeRecipeName(q.RecipeName, q)
+	res := RecipeResult{Name: name}
+	switch name {
+	case "jank":
+		res.IncludedViews = []string{"frame_window", "scheduler_latency_stats", "window_stats", "root_cause_rank", "critical_blocking_calls"}
+		res.Summary = "jank recipe: derive frame/render spans, scheduler latency, same-window resources, ranked causes, and blocking candidates"
+	case "runnable_delay":
+		res.IncludedViews = []string{"scheduler_latency_stats", "window_stats", "root_cause_rank"}
+		res.Summary = "runnable-delay recipe: quantify runnable waits, CPU pressure, compute supply, and ranked causes"
+	case "binder_wait":
+		res.IncludedViews = []string{"ipc_graph", "wakeup_chain", "critical_blocking_calls", "root_cause_rank"}
+		res.Summary = "binder-wait recipe: combine binder IPC edges with scheduler sleep/wakeup evidence"
+	case "io_wait":
+		res.IncludedViews = []string{"window_stats", "critical_blocking_calls", "root_cause_rank"}
+		res.Summary = "IO-wait recipe: pair block IO latencies, D-state/blocked reasons, and ranked causes"
+	case "cpu_supply":
+		res.IncludedViews = []string{"scheduler_latency_stats", "window_stats", "root_cause_rank"}
+		res.Summary = "CPU-supply recipe: join runnable/running intervals with CPU busy/idle/frequency context"
+	default:
+		res.IncludedViews = []string{"wakeup_chain", "scheduler_latency_stats", "window_stats", "critical_blocking_calls", "root_cause_rank"}
+		res.Summary = "sleep-root-cause recipe: trace wakeup chain, scheduler latency, resource stats, blocking candidates, and ranked causes"
+	}
+	if idx == nil {
+		res.Caveats = append(res.Caveats, "trace index is empty")
+	}
+	return res
+}
+
+func normalizeRecipeName(raw string, q Query) string {
+	name := strings.ToLower(strings.TrimSpace(raw))
+	name = strings.ReplaceAll(name, "-", "_")
+	switch name {
+	case "jank", "frame", "frame_jank", "render", "render_pipeline":
+		return "jank"
+	case "runnable", "runnable_delay", "scheduler_latency", "scheduler_latency_stats":
+		return "runnable_delay"
+	case "binder", "binder_wait", "ipc":
+		return "binder_wait"
+	case "io", "io_wait", "d_state":
+		return "io_wait"
+	case "cpu", "cpu_supply", "frequency", "freq":
+		return "cpu_supply"
+	case "auto", "":
+		if strings.TrimSpace(q.SpanName) != "" && isFrameLikeSpan(q.SpanName) {
+			return "jank"
+		}
+		if len(q.EventTypes) > 0 {
+			for _, typ := range q.EventTypes {
+				if typ == EventBinderTransaction || typ == EventBinderReceived {
+					return "binder_wait"
+				}
+				if typ == EventBlockIssue || typ == EventBlockComplete || typ == EventSchedBlockedReason {
+					return "io_wait"
+				}
+			}
+		}
+		return "sleep_root_cause"
+	default:
+		return name
+	}
+}
+
+func recipeHasView(recipe RecipeResult, view string) bool {
+	for _, item := range recipe.IncludedViews {
+		if item == view {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeInteractionDirection(raw string) string {
@@ -2253,6 +2967,82 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 			break
 		}
 	}
+	for _, supply := range stats.ComputeSupply {
+		out = append(out, EvidenceFact{
+			Subject:    threadLabel(supply.Thread),
+			Predicate:  "compute_supply",
+			Object:     supply.Verdict,
+			Summary:    supply.Summary,
+			LineStart:  supply.LineStart,
+			LineEnd:    supply.LineEnd,
+			Confidence: supply.Confidence,
+		})
+		if len(out) >= 40 {
+			break
+		}
+	}
+	return out
+}
+
+func evidenceFromSchedulerLatency(latency SchedulerLatencyResult) []EvidenceFact {
+	var out []EvidenceFact
+	for _, item := range latency.Items {
+		out = append(out, EvidenceFact{
+			Subject:    threadLabel(item.Thread),
+			Predicate:  "scheduler_latency",
+			Summary:    item.Summary,
+			LineStart:  item.StartLine,
+			LineEnd:    item.EndLine,
+			StartTs:    item.StartTs,
+			EndTs:      item.EndTs,
+			Confidence: 0.78,
+		})
+		if len(out) >= 16 {
+			break
+		}
+	}
+	return out
+}
+
+func evidenceFromFramePipeline(frame FramePipelineResult) []EvidenceFact {
+	var out []EvidenceFact
+	for _, item := range frame.Items {
+		out = append(out, EvidenceFact{
+			Subject:    threadLabel(item.Thread),
+			Predicate:  "frame_phase",
+			Object:     item.Phase,
+			Summary:    item.Summary,
+			LineStart:  item.StartLine,
+			LineEnd:    item.EndLine,
+			StartTs:    item.StartTs,
+			EndTs:      item.EndTs,
+			Confidence: 0.78,
+		})
+		if len(out) >= 16 {
+			break
+		}
+	}
+	return out
+}
+
+func evidenceFromCriticalBlocking(blocking CriticalBlockingResult) []EvidenceFact {
+	var out []EvidenceFact
+	for _, item := range blocking.Items {
+		out = append(out, EvidenceFact{
+			Subject:    threadLabel(item.Thread),
+			Predicate:  item.Type,
+			Object:     threadLabel(item.Peer),
+			Summary:    item.Summary,
+			LineStart:  item.LineStart,
+			LineEnd:    item.LineEnd,
+			StartTs:    item.StartTs,
+			EndTs:      item.EndTs,
+			Confidence: item.Confidence,
+		})
+		if len(out) >= 16 {
+			break
+		}
+	}
 	return out
 }
 
@@ -2442,6 +3232,117 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 	}
 	if q.LineStart > 0 || q.LineEnd > 0 {
 		out = append(out, "line-window filtering was used; time-window statistics only cover parsed rows inside that line window")
+	}
+	out = append(out, traceCompletenessCaveats(idx, q, res)...)
+	return out
+}
+
+func traceCompletenessCaveats(idx *Index, q Query, res Result) []string {
+	if idx == nil {
+		return nil
+	}
+	var out []string
+	if (res.View == "wakeup_chain" || res.View == "root_cause_rank" || res.View == "scheduler_latency_stats" || res.View == "recipe" || res.View == "evidence_pack") && (q.PID > 0 || q.Thread != "" || q.ThreadInput != "") {
+		target := resolveThread(idx, q)
+		if target.PID > 0 || target.Comm != "" {
+			tq := q
+			tq.PID = target.PID
+			tq.Thread = target.Comm
+			tl := ThreadTimeline(idx, tq)
+			for _, it := range tl.Intervals {
+				if it.State != StateSSleep || it.DurationMs < q.MinDurationMs {
+					continue
+				}
+				if findWakeupFor(idx, target, it.StartTs, it.EndTs) == nil {
+					out = append(out, fmt.Sprintf("trace completeness: %s has %.3fms sleep interval lines=%d-%d without matching sched_wakeup/sched_waking in the selected window", threadLabel(target), it.DurationMs, it.StartLine, it.EndLine))
+					break
+				}
+			}
+		}
+	}
+	if q.TimeStart > 0 && (res.WindowStats != nil || res.SchedulerLatency != nil || res.RootCauseRank != nil || res.View == "recipe" || res.View == "evidence_pack") {
+		for _, cpu := range cpusMentionedInResult(res) {
+			if cpu < 0 {
+				continue
+			}
+			if !hasFrequencyAtOrBefore(idx, q, cpu, q.TimeStart) && hasFrequencyAfter(idx, q, cpu, q.TimeStart) {
+				out = append(out, fmt.Sprintf("trace completeness: cpu=%d has cpu_frequency rows after selected start %.6f but no initial frequency at/before the window; low-frequency inference for early intervals is lower confidence", cpu, q.TimeStart))
+			}
+		}
+	}
+	return dedupStrings(out)
+}
+
+func cpusMentionedInResult(res Result) []int {
+	seen := map[int]bool{}
+	add := func(cpu int) {
+		if cpu >= 0 {
+			seen[cpu] = true
+		}
+	}
+	if res.WindowStats != nil {
+		for _, cpu := range res.WindowStats.CPU {
+			add(cpu.CPU)
+		}
+		for _, td := range res.WindowStats.RunnableTop {
+			add(td.CPU)
+		}
+		for _, td := range res.WindowStats.TopRunning {
+			add(td.CPU)
+		}
+		for _, item := range res.WindowStats.ComputeSupply {
+			add(item.CPU)
+		}
+	}
+	if res.SchedulerLatency != nil {
+		for _, item := range res.SchedulerLatency.Items {
+			add(item.CPU)
+		}
+	}
+	out := make([]int, 0, len(seen))
+	for cpu := range seen {
+		out = append(out, cpu)
+	}
+	sort.Ints(out)
+	return out
+}
+
+func hasFrequencyAtOrBefore(idx *Index, q Query, cpu int, ts float64) bool {
+	for _, ev := range idx.Events {
+		if !eventLineInWindow(ev, q) || ev.Type != EventCPUFrequency || ev.Frequency <= 0 || eventCPUForStats(ev) != cpu {
+			continue
+		}
+		if ev.Ts <= ts {
+			return true
+		}
+		if ev.Ts > ts {
+			return false
+		}
+	}
+	return false
+}
+
+func hasFrequencyAfter(idx *Index, q Query, cpu int, ts float64) bool {
+	for _, ev := range idx.Events {
+		if !eventLineInWindow(ev, q) || ev.Type != EventCPUFrequency || ev.Frequency <= 0 || eventCPUForStats(ev) != cpu {
+			continue
+		}
+		if ev.Ts > ts && (q.TimeEnd == 0 || ev.Ts <= q.TimeEnd) {
+			return true
+		}
+	}
+	return false
+}
+
+func dedupStrings(in []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(in))
+	for _, item := range in {
+		if strings.TrimSpace(item) == "" || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
 	}
 	return out
 }

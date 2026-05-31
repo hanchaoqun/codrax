@@ -539,3 +539,95 @@ Task checklist:
   aliases such as `spanName`, `interactionDirection`, `timeStart`, and
   `timeEnd` are repaired through the shared structured tool payload
   compatibility layer before strict `trace_query` decoding.
+
+## Perfetto/Ftrace practice absorption batch — 2026-05-31
+
+### Gaps observed
+
+External trace-analysis practice from Perfetto / Android / ftrace reinforces a
+few product gaps that remain even after the first trace-query batches:
+
+- Runnable latency is present in `window_stats`, but there is no dedicated
+  `scheduler_latency_stats` view that reports per-wait p95/p99/max, target CPU,
+  same-CPU competitors, other-CPU idle time, frequency seen during the wait,
+  and line-backed evidence.
+- CPU frequency and idle residency are computed, but the engine does not yet
+  emit an explicit compute-supply judgement that joins target
+  running/runnable intervals with frequency/idle/CPU pressure.
+- `root_cause_rank` ranks several evidence types, but runnable latency,
+  same-window CPU saturation, low-frequency/limited compute supply, and trace
+  completeness gaps should be surfaced as first-class ranked evidence.
+- Trace completeness caveats are scattered. Missing `sched_wakeup` /
+  `sched_waking`, missing initial `cpu_frequency`, missing block completions,
+  and PID/name drift should be disclosed consistently for root-cause views.
+- Frame and render pipeline triage is still implicit through generic
+  `span_window` / trace spans. Jank-style questions need a format-generic
+  `frame_window` / `render_pipeline` view that works for Harmony HiTrace,
+  Android atrace, and generic ftrace text rows.
+- Blocking rows such as futex/lock/sync/binder/IO are split across trace spans,
+  blocked reasons, binder waits, and IO summaries. Models need one
+  `critical_blocking_calls` view that lists bounded blocking candidates.
+- Models still need to choose many low-level views. A `recipe` layer can return
+  a compact standard evidence pack for common questions without hard-coding
+  platform-specific assumptions.
+
+### Root cause
+
+The current engine already parses scheduler/resource rows and computes many
+building blocks. The remaining gap is product shape: the useful facts are
+available, but not grouped into the diagnostic questions customers naturally
+ask: "was this runnable delay CPU pressure?", "was the CPU supply too low?",
+"which frame/span defines the window?", "what were the top blocking calls?",
+and "give me the standard root-cause pack for this trace window".
+
+### Design
+
+Keep the parser and existing views generic. Add deterministic views and bounded
+summaries:
+
+- `scheduler_latency_stats`: build line-backed runnable wait intervals from
+  `sched_switch`, with p95/p99/max/mean, same-CPU top running competitors,
+  high-priority running time, same-CPU busy/idle, other-CPU idle, and frequency
+  active at the wait start.
+- `window_stats.compute_supply`: summarize running/runnable supply candidates
+  with CPU, frequency, idle, runnable wait, high-priority pressure, and a
+  conservative advisory verdict (`cpu_pressure`, `low_frequency`,
+  `mixed_pressure`, or `insufficient_signal`).
+- `root_cause_rank`: fold scheduler latency and compute-supply summaries into
+  ranked evidence. These remain advisory evidence, not hard gates.
+- Unified completeness caveats: disclose missing wakeup rows for sleep
+  intervals, missing initial frequency before selected windows, unpaired IO
+  rows, and thread identity drift.
+- `frame_window` / `render_pipeline`: reuse trace `B/E` spans and a
+  platform-neutral keyword set (frame, vsync, choreographer, render, draw,
+  traversal, measure, layout, present, gpu, surface) to derive frame/pipeline
+  windows and phase summaries.
+- `critical_blocking_calls`: combine blocked reasons, IO latency, binder waits,
+  lock/futex/sync-like trace spans/counters/raw markers, D-state intervals, and
+  memory/reclaim/GC signals into a bounded candidate list.
+- `recipe`: a thin selector over existing deterministic views. `recipe_name`
+  supports `auto`, `jank`, `sleep_root_cause`, `runnable_delay`,
+  `binder_wait`, `io_wait`, and `cpu_supply`; all outputs still preserve the
+  underlying view payload and line references.
+
+Harmony/鸿蒙/东湖 support is not a special fork: the same views run for all
+flavors, while priority interpretation continues to use the existing
+flavor-aware mapper. Explicit user-provided platform/flavor still wins over
+auto-detection and is surfaced in results.
+
+### Task checklist
+
+- [x] P0: add `scheduler_latency_stats` schema, view, summary, evidence, and
+      tests for runnable wait percentiles and CPU competition.
+- [x] P0: add compute-supply summaries to `window_stats` and root-cause
+      ranking, with Harmony-aware priority semantics and generic caveats.
+- [x] P0: centralize trace completeness caveats for missing wakeups, missing
+      initial CPU frequency, IO pairing gaps, and PID/name drift.
+- [x] P1: add `frame_window` / `render_pipeline` views backed by B/E spans and
+      frame/render keyword heuristics.
+- [x] P1: add `critical_blocking_calls` view for futex/lock/sync/binder/IO/D
+      state/memory blocking candidates.
+- [x] P1: add `recipe` view plus `recipe_name` parameter for standard evidence
+      packs without removing low-level views.
+- [x] P1: update tool schema, explorer prompt teaching, REPL/tool summaries,
+      docs, and JSON compatibility tests for all new parameters.

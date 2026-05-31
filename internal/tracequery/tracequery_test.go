@@ -83,6 +83,25 @@ const p1ResourceTrace = `
       other-20   (   21) [002] .... 4.025000: sched_wakeup: comm=main pid=20 prio=53 target_cpu=001
 `
 
+const schedulerLatencyTrace = `
+        app-20   (   20) [001] .... 5.000000: cpu_frequency: state=1000000 cpu_id=1
+      rival-30   (   30) [001] .... 5.010000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=80
+      rival-30   (   30) [001] .... 5.090000: sched_switch: prev_comm=rival prev_pid=30 prev_prio=80 prev_state=R+ ==> next_comm=app next_pid=20 next_prio=53
+        app-20   (   20) [001] .... 5.100000: cpu_frequency: state=2200000 cpu_id=1
+        app-20   (   20) [001] .... 5.110000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=rival next_pid=30 next_prio=80
+      rival-30   (   30) [001] .... 5.140000: sched_switch: prev_comm=rival prev_pid=30 prev_prio=80 prev_state=S ==> next_comm=app next_pid=20 next_prio=53
+`
+
+const blockingTrace = `
+        app-20   (   20) [001] .... 6.000000: print: B|20|Choreographer#doFrame
+        app-20   (   20) [001] .... 6.010000: print: B|20|Lock contention on InternTable lock
+        app-20   (   20) [001] .... 6.040000: print: E|20
+        app-20   (   20) [001] .... 6.050000: print: E|20
+        app-20   (   20) [001] .... 6.060000: block_rq_issue: 8,0 R 4096 () 333 + 8 [app]
+      irq-irq-9   (    2) [000] .... 6.080000: block_rq_complete: 8,0 R () 333 + 8 [0]
+        app-20   (   20) [001] .... 6.090000: sched_blocked_reason: pid=20 iowait=1 caller=futex_wait_queue
+`
+
 func TestParseLineSchedulerEvents(t *testing.T) {
 	intern := newStringInterner()
 	ev, ok := ParseLine(4, `        app-20   (   20) [001] .... 1.100000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`, intern)
@@ -346,6 +365,73 @@ func TestInteractionStatsCountsBidirectionalWakeups(t *testing.T) {
 	top := res.InteractionStats.Items[0]
 	if top.Peer.PID != 10 || top.WakeupsToTarget != 2 || top.TotalInteractions != 2 {
 		t.Fatalf("expected waker peer to wake target twice, got %+v", top)
+	}
+}
+
+func TestSchedulerLatencyStatsQuantifiesRunnableWaitAndCompetition(t *testing.T) {
+	idx := buildTraceIndex(t, "scheduler.systrace", schedulerLatencyTrace)
+	res := Run(idx, Query{View: "scheduler_latency_stats", PID: 20, TimeStart: 5.0, TimeEnd: 5.15})
+	if res.SchedulerLatency == nil || res.SchedulerLatency.Count != 2 {
+		t.Fatalf("expected two runnable waits, got %+v", res.SchedulerLatency)
+	}
+	if !near(res.SchedulerLatency.MaxMs, 80, 0.001) || !near(res.SchedulerLatency.P95Ms, 80, 0.001) {
+		t.Fatalf("bad latency percentiles: %+v", res.SchedulerLatency)
+	}
+	top := res.SchedulerLatency.Items[0]
+	if top.Thread.PID != 20 || top.CPU != 1 || top.Frequency != 1000000 || len(top.SameCPUTopRunning) == 0 {
+		t.Fatalf("scheduler latency item missing CPU/frequency/competition context: %+v", top)
+	}
+}
+
+func TestWindowStatsComputeSupplyAndRootCauseRankUseSchedulerLatency(t *testing.T) {
+	idx := buildTraceIndex(t, "scheduler.systrace", schedulerLatencyTrace)
+	stats := ComputeWindowStats(idx, Query{PID: 20, TimeStart: 5.0, TimeEnd: 5.15})
+	if len(stats.ComputeSupply) == 0 {
+		t.Fatalf("expected compute supply summaries: %+v", stats)
+	}
+	foundPressure := false
+	for _, supply := range stats.ComputeSupply {
+		if supply.Thread.PID == 20 && strings.Contains(supply.Verdict, "cpu_pressure") {
+			foundPressure = true
+		}
+	}
+	if !foundPressure {
+		t.Fatalf("expected CPU-pressure compute-supply signal: %+v", stats.ComputeSupply)
+	}
+	rank := BuildRootCauseRank(idx, Query{PID: 20, TimeStart: 5.0, TimeEnd: 5.15})
+	foundScheduler := false
+	for _, item := range rank.Items {
+		if item.Type == "scheduler_latency" || item.Type == "low_frequency" || item.Type == "compute_supply" {
+			foundScheduler = true
+		}
+	}
+	if !foundScheduler {
+		t.Fatalf("root cause rank missing scheduler/compute supply evidence: %+v", rank.Items)
+	}
+}
+
+func TestFramePipelineCriticalBlockingAndRecipeViews(t *testing.T) {
+	idx := buildTraceIndex(t, "blocking.systrace", blockingTrace)
+	frame := Run(idx, Query{View: "frame_window", PID: 20, TimeStart: 6.0, TimeEnd: 6.1})
+	if frame.FramePipeline == nil || len(frame.FramePipeline.Items) == 0 || frame.FramePipeline.Items[0].Phase != "frame_schedule" {
+		t.Fatalf("expected frame pipeline item: %+v", frame.FramePipeline)
+	}
+	blocking := Run(idx, Query{View: "critical_blocking_calls", PID: 20, TimeStart: 6.0, TimeEnd: 6.1})
+	if blocking.CriticalBlocking == nil || len(blocking.CriticalBlocking.Items) == 0 {
+		t.Fatalf("expected critical blocking candidates: %+v", blocking.CriticalBlocking)
+	}
+	foundLock := false
+	for _, item := range blocking.CriticalBlocking.Items {
+		if item.Type == "blocking_span" && strings.Contains(item.Summary, "Lock contention") {
+			foundLock = true
+		}
+	}
+	if !foundLock {
+		t.Fatalf("expected lock/futex-like span in critical blocking candidates: %+v", blocking.CriticalBlocking.Items)
+	}
+	recipe := Run(idx, Query{View: "recipe", RecipeName: "jank", PID: 20, TimeStart: 6.0, TimeEnd: 6.1})
+	if recipe.Recipe == nil || !containsString(recipe.Recipe.IncludedViews, "frame_window") || recipe.FramePipeline == nil || recipe.CriticalBlocking == nil {
+		t.Fatalf("jank recipe should include frame and blocking views: %+v", recipe)
 	}
 }
 

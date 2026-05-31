@@ -4280,6 +4280,9 @@ func toolTraceQueryDetail(m map[string]json.RawMessage) string {
 	if direction := jsonStringField(m, "interaction_direction"); direction != "" {
 		parts = append(parts, "direction="+truncateToolDetailValue(direction, 18))
 	}
+	if recipe := jsonStringField(m, "recipe_name"); recipe != "" {
+		parts = append(parts, "recipe="+truncateToolDetailValue(recipe, 18))
+	}
 	if pid, ok := jsonIntField(m, "pid"); ok && pid > 0 {
 		parts = append(parts, fmt.Sprintf("pid=%d", pid))
 	}
@@ -4294,8 +4297,8 @@ func toolTraceQueryDetail(m map[string]json.RawMessage) string {
 			parts = append(parts, fmt.Sprintf("%s=%d", field, v))
 		}
 	}
-	if len(parts) > 9 {
-		parts = parts[:9]
+	if len(parts) > 10 {
+		parts = parts[:10]
 	}
 	return strings.Join(parts, " ")
 }
