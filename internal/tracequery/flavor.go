@@ -150,12 +150,13 @@ func confidenceFromScore(winner, loser float64) float64 {
 func NormalizeTraceFlavor(raw string) TraceFlavor {
 	s := strings.ToLower(strings.TrimSpace(raw))
 	s = strings.ReplaceAll(s, "-", "_")
+	s = strings.ReplaceAll(s, " ", "_")
 	switch s {
 	case "", "auto":
 		return TraceFlavorAuto
-	case "harmony", "harmonyos", "ohos", "hitrace", "harmony_hitrace":
+	case "harmony", "harmonyos", "open_harmony", "openharmony", "ohos", "hitrace", "harmony_hitrace", "鸿蒙", "东湖":
 		return TraceFlavorHarmonyHitrace
-	case "android", "atrace", "android_atrace":
+	case "android", "安卓", "atrace", "android_atrace":
 		return TraceFlavorAndroidAtrace
 	case "generic", "ftrace", "generic_ftrace", "systrace":
 		return TraceFlavorGenericFtrace

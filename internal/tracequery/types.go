@@ -108,6 +108,8 @@ type Query struct {
 	LineStart             int
 	LineEnd               int
 	EventTypes            []EventType
+	SpanName              string
+	InteractionDirection  string
 	MaxDepth              int
 	MaxBranches           int
 	MinDurationMs         float64
@@ -119,24 +121,27 @@ type Query struct {
 }
 
 type Result struct {
-	View              string          `json:"view"`
-	SourcePath        string          `json:"source_path"`
-	TraceFlavor       string          `json:"trace_flavor,omitempty"`
-	FlavorConfidence  float64         `json:"trace_flavor_confidence,omitempty"`
-	FlavorSignals     []string        `json:"trace_flavor_signals,omitempty"`
-	TimeUnit          string          `json:"time_unit,omitempty"`
-	PrioritySemantics string          `json:"priority_semantics,omitempty"`
-	LineCount         int             `json:"line_count,omitempty"`
-	EventCount        int             `json:"event_count,omitempty"`
-	TimeStart         float64         `json:"time_start,omitempty"`
-	TimeEnd           float64         `json:"time_end,omitempty"`
-	Events            []EventView     `json:"events,omitempty"`
-	Timeline          *TimelineResult `json:"timeline,omitempty"`
-	WindowStats       *WindowStats    `json:"window_stats,omitempty"`
-	IPCGraph          *IPCGraphResult `json:"ipc_graph,omitempty"`
-	WakeupChain       *ChainResult    `json:"wakeup_chain,omitempty"`
-	EvidencePack      []EvidenceFact  `json:"evidence_pack,omitempty"`
-	Caveats           []string        `json:"caveats,omitempty"`
+	View              string                  `json:"view"`
+	SourcePath        string                  `json:"source_path"`
+	TraceFlavor       string                  `json:"trace_flavor,omitempty"`
+	FlavorConfidence  float64                 `json:"trace_flavor_confidence,omitempty"`
+	FlavorSignals     []string                `json:"trace_flavor_signals,omitempty"`
+	TimeUnit          string                  `json:"time_unit,omitempty"`
+	PrioritySemantics string                  `json:"priority_semantics,omitempty"`
+	LineCount         int                     `json:"line_count,omitempty"`
+	EventCount        int                     `json:"event_count,omitempty"`
+	TimeStart         float64                 `json:"time_start,omitempty"`
+	TimeEnd           float64                 `json:"time_end,omitempty"`
+	Events            []EventView             `json:"events,omitempty"`
+	Timeline          *TimelineResult         `json:"timeline,omitempty"`
+	WindowStats       *WindowStats            `json:"window_stats,omitempty"`
+	IPCGraph          *IPCGraphResult         `json:"ipc_graph,omitempty"`
+	WakeupChain       *ChainResult            `json:"wakeup_chain,omitempty"`
+	SpanWindows       []TraceSpanSummary      `json:"span_windows,omitempty"`
+	RootCauseRank     *RootCauseRankResult    `json:"root_cause_rank,omitempty"`
+	InteractionStats  *InteractionStatsResult `json:"interaction_stats,omitempty"`
+	EvidencePack      []EvidenceFact          `json:"evidence_pack,omitempty"`
+	Caveats           []string                `json:"caveats,omitempty"`
 }
 
 type EventView struct {
@@ -336,6 +341,49 @@ type ThreadDriftSummary struct {
 	LineStart int      `json:"line_start,omitempty"`
 	LineEnd   int      `json:"line_end,omitempty"`
 	Caveat    string   `json:"caveat,omitempty"`
+}
+
+type RootCauseRankResult struct {
+	Target  ThreadRef           `json:"target,omitempty"`
+	Window  TimeWindow          `json:"window"`
+	Items   []RootCauseRankItem `json:"items,omitempty"`
+	Caveats []string            `json:"caveats,omitempty"`
+}
+
+type RootCauseRankItem struct {
+	Rank       int       `json:"rank"`
+	Tier       string    `json:"tier,omitempty"`
+	Type       string    `json:"type,omitempty"`
+	Thread     ThreadRef `json:"thread,omitempty"`
+	ImpactMs   float64   `json:"impact_ms,omitempty"`
+	Score      float64   `json:"score,omitempty"`
+	Confidence float64   `json:"confidence,omitempty"`
+	LineStart  int       `json:"line_start,omitempty"`
+	LineEnd    int       `json:"line_end,omitempty"`
+	Source     string    `json:"source,omitempty"`
+	Summary    string    `json:"summary,omitempty"`
+}
+
+type InteractionStatsResult struct {
+	Target    ThreadRef            `json:"target,omitempty"`
+	Window    TimeWindow           `json:"window"`
+	Direction string               `json:"direction,omitempty"`
+	Items     []InteractionSummary `json:"items,omitempty"`
+	Caveats   []string             `json:"caveats,omitempty"`
+}
+
+type InteractionSummary struct {
+	Peer              ThreadRef `json:"peer,omitempty"`
+	WakeupsToTarget   int       `json:"wakeups_to_target,omitempty"`
+	WakeupsFromTarget int       `json:"wakeups_from_target,omitempty"`
+	BinderToTarget    int       `json:"binder_to_target,omitempty"`
+	BinderFromTarget  int       `json:"binder_from_target,omitempty"`
+	TotalInteractions int       `json:"total_interactions,omitempty"`
+	FirstTs           float64   `json:"first_ts,omitempty"`
+	LastTs            float64   `json:"last_ts,omitempty"`
+	FirstLine         int       `json:"first_line,omitempty"`
+	LastLine          int       `json:"last_line,omitempty"`
+	Summary           string    `json:"summary,omitempty"`
 }
 
 type ChainResult struct {

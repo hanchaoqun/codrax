@@ -4274,6 +4274,9 @@ func toolTraceQueryDetail(m map[string]json.RawMessage) string {
 	if thread := jsonStringField(m, "thread"); thread != "" {
 		parts = append(parts, "thread="+truncateToolDetailValue(thread, 32))
 	}
+	if span := jsonStringField(m, "span_name"); span != "" {
+		parts = append(parts, "span="+truncateToolDetailValue(span, 32))
+	}
 	if pid, ok := jsonIntField(m, "pid"); ok && pid > 0 {
 		parts = append(parts, fmt.Sprintf("pid=%d", pid))
 	}

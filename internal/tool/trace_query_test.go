@@ -134,7 +134,7 @@ func TestTraceQueryPlatformAliasSurvivesStringWrappedCompat(t *testing.T) {
 
 func TestTraceQuerySchemaDocumentsViews(t *testing.T) {
 	body := (&TraceQuery{}).Description() + "\n" + string((&TraceQuery{}).Parameters())
-	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "ipc_graph", "event_search", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "clock_set_rate", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received"} {
+	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "ipc_graph", "event_search", "span_window", "root_cause_rank", "interaction_stats", "span_name", "interaction_direction", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "clock_set_rate", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received", "鸿蒙", "东湖", "安卓"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("trace_query schema/description missing %q:\n%s", want, body)
 		}

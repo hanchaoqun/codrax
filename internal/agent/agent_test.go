@@ -21,11 +21,12 @@ func TestStructuredToolDetailTraceQueryShowsFlavor(t *testing.T) {
 		"path":"record.systrace",
 		"trace_flavor":"harmony_hitrace",
 		"thread":"com.tencent.mm-36379",
+		"span_name":"Choreographer#doFrame",
 		"time_start":2942.124416,
 		"time_end":2942.260210,
 		"max_depth":6
 	}`))
-	for _, want := range []string{"view=wakeup_chain", "path=record.systrace", "trace_flavor=harmony_hitrace", "thread=com.tencent.mm-36379", "window=2942.124416..2942.26021"} {
+	for _, want := range []string{"view=wakeup_chain", "path=record.systrace", "trace_flavor=harmony_hitrace", "thread=com.tencent.mm-36379", "span=Choreographer#doFrame", "window=2942.124416..2942.26021"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("trace_query detail missing %q in %q", want, got)
 		}

@@ -294,6 +294,61 @@ func TestExplicitTraceFlavorOverrideWins(t *testing.T) {
 	}
 }
 
+func TestTraceFlavorChineseAliases(t *testing.T) {
+	for _, raw := range []string{"鸿蒙", "东湖", "OHOS", "Open Harmony"} {
+		if got := NormalizeTraceFlavor(raw); got != TraceFlavorHarmonyHitrace {
+			t.Fatalf("%q should normalize to harmony_hitrace, got %s", raw, got)
+		}
+	}
+	for _, raw := range []string{"安卓", "Android"} {
+		if got := NormalizeTraceFlavor(raw); got != TraceFlavorAndroidAtrace {
+			t.Fatalf("%q should normalize to android_atrace, got %s", raw, got)
+		}
+	}
+}
+
+func TestSpanWindowFindsUniqueTraceSpan(t *testing.T) {
+	idx := buildTraceIndex(t, "span.systrace", p1ResourceTrace)
+	res := Run(idx, Query{View: "span_window", SpanName: "Choreographer#doFrame", Limit: 4})
+	if len(res.SpanWindows) != 1 {
+		t.Fatalf("expected one span window, got %+v caveats=%+v", res.SpanWindows, res.Caveats)
+	}
+	span := res.SpanWindows[0]
+	if span.StartLine == 0 || span.EndLine == 0 || !near(span.DurationMs, 20.0, 0.001) {
+		t.Fatalf("unexpected span window: %+v", span)
+	}
+	if len(res.EvidencePack) == 0 || res.EvidencePack[0].Predicate != "trace_span_window" {
+		t.Fatalf("span_window should produce evidence facts: %+v", res.EvidencePack)
+	}
+}
+
+func TestRootCauseRankTiersCandidates(t *testing.T) {
+	idx := buildSampleIndex(t)
+	res := Run(idx, Query{View: "root_cause_rank", PID: 20, TimeStart: 1.10, TimeEnd: 1.22, Limit: 5})
+	if res.RootCauseRank == nil || len(res.RootCauseRank.Items) == 0 {
+		t.Fatalf("expected ranked root-cause candidates, got %+v", res.RootCauseRank)
+	}
+	first := res.RootCauseRank.Items[0]
+	if first.Rank != 1 || first.Tier != "primary" || first.ImpactMs <= 0 || first.Score <= 0 {
+		t.Fatalf("bad primary rank item: %+v", first)
+	}
+	if len(res.EvidencePack) == 0 || !strings.HasPrefix(res.EvidencePack[0].Predicate, "root_cause_") {
+		t.Fatalf("root_cause_rank should produce evidence facts: %+v", res.EvidencePack)
+	}
+}
+
+func TestInteractionStatsCountsBidirectionalWakeups(t *testing.T) {
+	idx := buildSampleIndex(t)
+	res := Run(idx, Query{View: "interaction_stats", PID: 20, TimeStart: 1.0, TimeEnd: 1.3})
+	if res.InteractionStats == nil || len(res.InteractionStats.Items) == 0 {
+		t.Fatalf("expected interaction stats, got %+v", res.InteractionStats)
+	}
+	top := res.InteractionStats.Items[0]
+	if top.Peer.PID != 10 || top.WakeupsToTarget != 2 || top.TotalInteractions != 2 {
+		t.Fatalf("expected waker peer to wake target twice, got %+v", top)
+	}
+}
+
 func TestThreadTimelineSplitsSleepAndRunnable(t *testing.T) {
 	idx := buildSampleIndex(t)
 	tl := ThreadTimeline(idx, Query{PID: 20, TimeStart: 1.09, TimeEnd: 1.24, MinDurationMs: 1})

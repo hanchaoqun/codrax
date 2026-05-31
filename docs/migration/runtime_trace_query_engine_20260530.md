@@ -456,3 +456,76 @@ thread counts as high-priority pressure.
 - `trace_query` continues to enter through the shared structured-parameter
   compatibility path; focused coverage now includes string-wrapped JSON,
   string numeric fields, and the `platform` alias.
+
+2026-05-31 root-cause ranking gap and design:
+
+Customer trace questions now regularly ask for more than a raw wakeup chain:
+they name a trace span as the time-window anchor, ask for primary/secondary
+causes, and ask for cross-thread interaction counts. The current engine can
+already compute line-backed timelines, recursive wakeup chains, IPC edges, CPU
+frequency residency, CPU pressure, IO latency, IRQ, memory, and trace spans, but
+three gaps remain:
+
+- Span anchors are only listed under `window_stats.trace_spans`; there is no
+  first-class `span_window` view and no way for `wakeup_chain` /
+  `root_cause_rank` to derive `time_start/time_end` from a unique span name.
+- Root evidence is a flat list. It is line-backed, but it is not
+  deterministically ranked into primary/secondary/tertiary causes using impact
+  duration, confidence, and evidence type.
+- Cross-thread/cross-process interaction counts require manual event searches
+  or IPC graph reads. There is no single `interaction_stats` view that reports
+  bidirectional wakeup and binder interaction Top-N for a target thread.
+
+Design constraints:
+
+- Keep all new capabilities inside `trace_query`; do not affect repo_map,
+  current-source evidence gates, or code-only questions.
+- `span_window` must be line-backed and conservative. If a span name matches
+  multiple windows, return candidates and a caveat; do not silently choose one
+  unless it is unique inside the selected filters.
+- `root_cause_rank` must be advisory evidence, not a final-answer gate. It can
+  rank candidates by deterministic impact score, but final prose still belongs
+  to the model and must cite the emitted trace facts.
+- `interaction_stats` must be format-generic: scheduler wakeup edges and binder
+  IPC edges are normalized trace events, not Harmony-specific logic.
+- If the user explicitly states a platform (`harmony`, `harmonyos`, `鸿蒙`,
+  `东湖`, `ohos`, `android`, `安卓`, etc.) and the model passes it through
+  `trace_flavor` / `platform`, that explicit intent wins for the current call.
+  Content detection is retained only as audit signal/caveat.
+
+Task checklist:
+
+- [x] T38. Add `span_name`, `interaction_direction`, and new result schemas for
+      `span_window`, `root_cause_rank`, and `interaction_stats`.
+- [x] T39. Implement span search/window resolution, including unique-span
+      auto-window derivation for downstream views.
+- [x] T40. Implement deterministic root-cause ranking from wakeup-chain root
+      evidence plus window stats, sorted by impact score and tiered as
+      primary/secondary/tertiary.
+- [x] T41. Implement interaction statistics for bidirectional/incoming/outgoing
+      sched_wakeup and binder IPC interactions.
+- [x] T42. Extend explicit platform aliases for Chinese/customer spellings and
+      update tool descriptions/skills/REPL summaries.
+- [x] T43. Add focused tests for span windows, root-cause ranking,
+      interaction stats, explicit platform aliases, and code-scenario
+      isolation.
+
+2026-05-31 root-cause ranking delivery:
+
+- `trace_query(view="span_window", span_name=...)` now returns line-backed B/E
+  trace span windows. When a downstream trace view receives a unique
+  `span_name` and no explicit time window, the span becomes the selected
+  `time_start/time_end`; multiple matches are returned as candidates with a
+  caveat instead of silently choosing.
+- `trace_query(view="root_cause_rank")` now produces deterministic
+  primary/secondary/tertiary root-cause candidates from wakeup-chain terminal
+  evidence and same-window stats such as CPU pressure, IO latency, D-state,
+  runnable wait, trace spans, and IRQ bursts. Ranking is advisory and uses
+  impact duration, confidence, and evidence-type weights.
+- `trace_query(view="interaction_stats")` now reports Top-N peers interacting
+  with a target thread through `sched_wakeup` / `sched_waking` and binder IPC,
+  with `interaction_direction=both|incoming|outgoing`.
+- Explicit platform aliases now cover customer spellings including `鸿蒙`,
+  `东湖`, `OHOS`, `Open Harmony`, `Android`, and `安卓`; these aliases normalize
+  into `harmony_hitrace` or `android_atrace` when passed through
+  `trace_flavor` / `platform`.

@@ -9,9 +9,12 @@ import (
 )
 
 func Run(idx *Index, q Query) Result {
+	explicitTimeStart := q.TimeStart != 0
+	explicitTimeEnd := q.TimeEnd != 0
 	q = normalizeQuery(idx, q)
 	flavor, confidence, signals, flavorCaveats := resolveTraceFlavor(idx, q)
 	q.TraceFlavor = flavor
+	spanWindows, spanCaveats := resolveSpanWindowsForQuery(idx, &q, explicitTimeStart, explicitTimeEnd)
 	res := Result{
 		View:              q.View,
 		SourcePath:        idx.Path,
@@ -25,7 +28,16 @@ func Run(idx *Index, q Query) Result {
 		TimeStart:         q.TimeStart,
 		TimeEnd:           q.TimeEnd,
 	}
+	if len(spanWindows) > 0 {
+		res.SpanWindows = spanWindows
+	}
 	switch q.View {
+	case "span_window":
+		if len(spanWindows) == 0 {
+			spanWindows, spanCaveats = FindSpanWindows(idx, q, q.Limit)
+			res.SpanWindows = spanWindows
+		}
+		res.EvidencePack = evidenceFromSpans(spanWindows)
 	case "thread_timeline":
 		tl := ThreadTimeline(idx, q)
 		res.Timeline = &tl
@@ -46,6 +58,21 @@ func Run(idx *Index, q Query) Result {
 			res.WindowStats = &stats
 		}
 		res.EvidencePack = append(evidenceFromChain(chain), evidenceFromIPCGraph(IPCGraphResult{Edges: chain.IPCEdges})...)
+	case "root_cause_rank":
+		var chain ChainResult
+		if q.PID > 0 || q.Thread != "" {
+			chain = BuildWakeupChain(idx, q)
+			res.WakeupChain = &chain
+		}
+		stats := ComputeWindowStats(idx, q)
+		res.WindowStats = &stats
+		rank := buildRootCauseRankFrom(q, chain, stats)
+		res.RootCauseRank = &rank
+		res.EvidencePack = evidenceFromRootCauseRank(rank)
+	case "interaction_stats":
+		interactions := BuildInteractionStats(idx, q)
+		res.InteractionStats = &interactions
+		res.EvidencePack = evidenceFromInteractionStats(interactions)
 	case "evidence_pack":
 		chain := BuildWakeupChain(idx, q)
 		stats := ComputeWindowStats(idx, q)
@@ -61,6 +88,7 @@ func Run(idx *Index, q Query) Result {
 		res.EvidencePack = evidenceFromEvents(res.Events)
 	}
 	res.Caveats = append(res.Caveats, flavorCaveats...)
+	res.Caveats = append(res.Caveats, spanCaveats...)
 	res.Caveats = append(res.Caveats, resultCaveats(idx, q, res)...)
 	return res
 }
@@ -1127,6 +1155,113 @@ func computeTraceMarks(idx *Index, q Query, max int) ([]TraceSpanSummary, []Trac
 	return spans, counterList
 }
 
+func resolveSpanWindowsForQuery(idx *Index, q *Query, explicitStart, explicitEnd bool) ([]TraceSpanSummary, []string) {
+	if idx == nil || q == nil || strings.TrimSpace(q.SpanName) == "" {
+		return nil, nil
+	}
+	spans, caveats := FindSpanWindows(idx, *q, q.Limit)
+	if len(spans) == 0 {
+		return nil, append(caveats, fmt.Sprintf("span_name=%q matched no complete B/E trace span in the selected filters", q.SpanName))
+	}
+	if explicitStart && explicitEnd {
+		return spans, caveats
+	}
+	if len(spans) != 1 {
+		return spans, append(caveats, fmt.Sprintf("span_name=%q matched %d span window(s); refine with pid/thread/line_start/line_end/time filters before deriving a root-cause window", q.SpanName, len(spans)))
+	}
+	span := spans[0]
+	if !explicitStart {
+		q.TimeStart = span.StartTs
+	}
+	if !explicitEnd {
+		q.TimeEnd = span.EndTs
+	}
+	return spans, append(caveats, fmt.Sprintf("selected_window derived from unique trace span %q lines=%d-%d", span.Name, span.StartLine, span.EndLine))
+}
+
+func FindSpanWindows(idx *Index, q Query, max int) ([]TraceSpanSummary, []string) {
+	if idx == nil {
+		return nil, []string{"trace index is empty"}
+	}
+	if max <= 0 {
+		max = 8
+	}
+	var target ThreadRef
+	if q.PID > 0 || strings.TrimSpace(q.Thread) != "" || strings.TrimSpace(q.ThreadInput) != "" {
+		target = resolveThread(idx, q)
+	}
+	stacks := map[int][]Event{}
+	var spans []TraceSpanSummary
+	for _, ev := range idx.Events {
+		if ev.Type != EventTraceMark {
+			continue
+		}
+		if !eventLineInWindow(ev, q) {
+			continue
+		}
+		switch ev.SpanAction {
+		case "B":
+			stacks[ev.PID] = append(stacks[ev.PID], ev)
+		case "E":
+			stack := stacks[ev.PID]
+			if len(stack) == 0 {
+				continue
+			}
+			start := stack[len(stack)-1]
+			stacks[ev.PID] = stack[:len(stack)-1]
+			if ev.Ts < start.Ts {
+				continue
+			}
+			span := TraceSpanSummary{
+				Thread:     threadRefFromEvent(start),
+				Name:       start.SpanName,
+				StartTs:    start.Ts,
+				EndTs:      ev.Ts,
+				DurationMs: (ev.Ts - start.Ts) * 1000,
+				StartLine:  start.Line,
+				EndLine:    ev.Line,
+			}
+			if !traceSpanMatchesQuery(span, target, q) {
+				continue
+			}
+			spans = append(spans, span)
+		}
+	}
+	sort.SliceStable(spans, func(i, j int) bool {
+		if spans[i].StartTs != spans[j].StartTs {
+			return spans[i].StartTs < spans[j].StartTs
+		}
+		return spans[i].StartLine < spans[j].StartLine
+	})
+	var caveats []string
+	if len(spans) > max {
+		caveats = append(caveats, fmt.Sprintf("span_window compacted from %d to %d span(s)", len(spans), max))
+		spans = spans[:max]
+	}
+	if len(spans) == 0 {
+		caveats = append(caveats, "no complete trace spans matched the selected filters")
+	}
+	return spans, caveats
+}
+
+func traceSpanMatchesQuery(span TraceSpanSummary, target ThreadRef, q Query) bool {
+	if q.SpanName != "" && !strings.Contains(strings.ToLower(span.Name), strings.ToLower(strings.TrimSpace(q.SpanName))) {
+		return false
+	}
+	if target.PID > 0 || target.Comm != "" {
+		if !threadMatches(target, span.Thread.PID, span.Thread.Comm) {
+			return false
+		}
+	}
+	if q.TimeStart > 0 && span.EndTs < q.TimeStart {
+		return false
+	}
+	if q.TimeEnd > 0 && span.StartTs > q.TimeEnd {
+		return false
+	}
+	return true
+}
+
 func computeIRQBursts(idx *Index, q Query, max int) []IRQBurstSummary {
 	if idx == nil {
 		return nil
@@ -1447,6 +1582,268 @@ func findBinderWaitsForChain(chain ChainResult, edges []IPCEdge) []BinderWaitSum
 		out = out[:8]
 	}
 	return out
+}
+
+func BuildRootCauseRank(idx *Index, q Query) RootCauseRankResult {
+	q = normalizeQuery(idx, q)
+	var chain ChainResult
+	if q.PID > 0 || q.Thread != "" {
+		chain = BuildWakeupChain(idx, q)
+	}
+	stats := ComputeWindowStats(idx, q)
+	return buildRootCauseRankFrom(q, chain, stats)
+}
+
+func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootCauseRankResult {
+	res := RootCauseRankResult{
+		Target: chain.Target,
+		Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
+	}
+	var items []RootCauseRankItem
+	for _, root := range chain.RootEvidence {
+		items = append(items, rootCauseItem(root.Type, root.Thread, root.DurationMs, root.Confidence, root.LineStart, root.LineEnd, "wakeup_chain", root.Summary))
+	}
+	for _, pressure := range stats.CPUPressure {
+		if pressure.RunnableWaitMs <= 0 {
+			continue
+		}
+		conf := 0.72
+		if pressure.HighPriorityRunningMs > 0 {
+			conf = 0.80
+		}
+		summary := fmt.Sprintf("cpu=%d had %.3fms runnable wait and %.3fms running time in the selected window", pressure.CPU, pressure.RunnableWaitMs, pressure.RunningMs)
+		if pressure.HighPriorityRunningMs > 0 {
+			summary = fmt.Sprintf("%s; high-priority running time %.3fms", summary, pressure.HighPriorityRunningMs)
+		}
+		items = append(items, rootCauseItem("cpu_pressure", ThreadRef{}, pressure.RunnableWaitMs, conf, firstThreadLine(pressure.TopRunnable), lastThreadLine(pressure.TopRunning), "window_stats", summary))
+	}
+	for _, io := range stats.IOLatencies {
+		items = append(items, rootCauseItem("io_latency", io.IssueThread, io.DurationMs, 0.86, io.IssueLine, io.CompleteLine, "window_stats", fmt.Sprintf("block IO %s %s sector=%d len=%d took %.3fms", io.Dev, io.Op, io.Sector, io.Len, io.DurationMs)))
+	}
+	for _, span := range stats.TraceSpans {
+		items = append(items, rootCauseItem("trace_span", span.Thread, span.DurationMs, 0.74, span.StartLine, span.EndLine, "window_stats", fmt.Sprintf("trace span %q lasted %.3fms", span.Name, span.DurationMs)))
+	}
+	for _, td := range stats.RunnableTop {
+		items = append(items, rootCauseItem("runnable_wait", td.Thread, td.DurationMs, 0.76, td.LineStart, td.LineEnd, "window_stats", fmt.Sprintf("%s was runnable for %.3fms%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td))))
+	}
+	for _, td := range stats.DStateTop {
+		items = append(items, rootCauseItem("d_state_or_io_wait", td.Thread, td.DurationMs, 0.82, td.LineStart, td.LineEnd, "window_stats", fmt.Sprintf("%s was in D-state/IO-like wait for %.3fms%s", threadLabel(td.Thread), td.DurationMs, durationCPUDetail(td))))
+	}
+	for _, burst := range stats.IRQBursts {
+		items = append(items, rootCauseItem("irq_burst", ThreadRef{}, burst.DurationMs, 0.66, burst.LineStart, burst.LineEnd, "window_stats", fmt.Sprintf("IRQ burst %s irq=%d on cpu=%d had %d event(s) over %.3fms", burst.Name, burst.IRQ, burst.CPU, burst.Count, burst.DurationMs)))
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].Score != items[j].Score {
+			return items[i].Score > items[j].Score
+		}
+		if items[i].ImpactMs != items[j].ImpactMs {
+			return items[i].ImpactMs > items[j].ImpactMs
+		}
+		return items[i].LineStart < items[j].LineStart
+	})
+	limit := q.Limit
+	if limit <= 0 || limit > 12 {
+		limit = 12
+	}
+	if len(items) > limit {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("root_cause_rank compacted from %d to %d candidate(s)", len(items), limit))
+		items = items[:limit]
+	}
+	for i := range items {
+		items[i].Rank = i + 1
+		items[i].Tier = rootCauseTier(i)
+	}
+	if len(items) == 0 {
+		res.Caveats = append(res.Caveats, "no deterministic root-cause candidates were found in the selected window")
+	}
+	res.Items = items
+	res.Caveats = append(res.Caveats, stats.Caveats...)
+	res.Caveats = append(res.Caveats, chain.Caveats...)
+	return res
+}
+
+func rootCauseItem(typ string, thread ThreadRef, impactMs float64, confidence float64, lineStart, lineEnd int, source, summary string) RootCauseRankItem {
+	if confidence <= 0 {
+		confidence = 0.5
+	}
+	return RootCauseRankItem{
+		Type:       typ,
+		Thread:     thread,
+		ImpactMs:   impactMs,
+		Score:      impactMs * confidence * rootCauseTypeWeight(typ),
+		Confidence: confidence,
+		LineStart:  lineStart,
+		LineEnd:    lineEnd,
+		Source:     source,
+		Summary:    summary,
+	}
+}
+
+func rootCauseTypeWeight(typ string) float64 {
+	switch typ {
+	case "io_wait", "d_state_or_io_wait", "binder_wait":
+		return 1.25
+	case "runnable_wait", "cpu_pressure":
+		return 1.15
+	case "running":
+		return 1.0
+	case "trace_span":
+		return 0.9
+	case "irq_burst":
+		return 0.75
+	default:
+		return 0.8
+	}
+}
+
+func rootCauseTier(idx int) string {
+	switch idx {
+	case 0:
+		return "primary"
+	case 1:
+		return "secondary"
+	default:
+		return "tertiary"
+	}
+}
+
+func firstThreadLine(items []ThreadDuration) int {
+	for _, item := range items {
+		if item.LineStart > 0 {
+			return item.LineStart
+		}
+	}
+	return 0
+}
+
+func lastThreadLine(items []ThreadDuration) int {
+	for i := len(items) - 1; i >= 0; i-- {
+		if items[i].LineEnd > 0 {
+			return items[i].LineEnd
+		}
+	}
+	return 0
+}
+
+func BuildInteractionStats(idx *Index, q Query) InteractionStatsResult {
+	q = normalizeQuery(idx, q)
+	target := resolveThread(idx, q)
+	direction := normalizeInteractionDirection(q.InteractionDirection)
+	res := InteractionStatsResult{
+		Target:    target,
+		Window:    TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd},
+		Direction: direction,
+	}
+	if target.PID == 0 && target.Comm == "" {
+		res.Caveats = append(res.Caveats, "target thread not found; provide pid or a thread name visible in the trace")
+		return res
+	}
+	acc := map[string]*InteractionSummary{}
+	add := func(peer ThreadRef, ts float64, line int, kind string) {
+		if peer.PID == 0 && peer.Comm == "" {
+			return
+		}
+		key := fmt.Sprintf("%d/%s", peer.PID, peer.Comm)
+		item := acc[key]
+		if item == nil {
+			item = &InteractionSummary{Peer: peer, FirstTs: ts, LastTs: ts, FirstLine: line, LastLine: line}
+			acc[key] = item
+		}
+		switch kind {
+		case "wake_to_target":
+			item.WakeupsToTarget++
+		case "wake_from_target":
+			item.WakeupsFromTarget++
+		case "binder_to_target":
+			item.BinderToTarget++
+		case "binder_from_target":
+			item.BinderFromTarget++
+		}
+		item.TotalInteractions++
+		if item.FirstTs == 0 || ts < item.FirstTs {
+			item.FirstTs = ts
+			item.FirstLine = line
+		}
+		if ts >= item.LastTs {
+			item.LastTs = ts
+			item.LastLine = line
+		}
+	}
+	for _, ev := range idx.Events {
+		if ev.Type != EventSchedWakeup && ev.Type != EventSchedWaking {
+			continue
+		}
+		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
+			continue
+		}
+		if directionAllowsIncoming(direction) && threadMatches(target, ev.WakeePID, ev.WakeeComm) {
+			add(ThreadRef{Comm: ev.Comm, PID: ev.PID, TGID: ev.TGID}, ev.Ts, ev.Line, "wake_to_target")
+		}
+		if directionAllowsOutgoing(direction) && threadMatches(target, ev.PID, ev.Comm) {
+			add(ThreadRef{Comm: ev.WakeeComm, PID: ev.WakeePID}, ev.Ts, ev.Line, "wake_from_target")
+		}
+	}
+	ipc := BuildIPCGraph(idx, q)
+	for _, edge := range ipc.Edges {
+		if directionAllowsOutgoing(direction) && threadMatches(target, edge.Sender.PID, edge.Sender.Comm) {
+			add(firstNonEmptyThread(edge.Receiver, ThreadRef{PID: edge.DestThread, TGID: edge.DestProc}), edge.SendTs, edge.SendLine, "binder_from_target")
+		}
+		if directionAllowsIncoming(direction) && threadMatches(target, edge.Receiver.PID, edge.Receiver.Comm) {
+			add(edge.Sender, firstPositiveFloat(edge.ReceiveTs, edge.SendTs), firstPositive(edge.ReceiveLine, edge.SendLine), "binder_to_target")
+		}
+	}
+	for _, item := range acc {
+		item.Summary = fmt.Sprintf("%s interacted with target %d time(s): wake_to_target=%d wake_from_target=%d binder_to_target=%d binder_from_target=%d",
+			threadLabel(item.Peer), item.TotalInteractions, item.WakeupsToTarget, item.WakeupsFromTarget, item.BinderToTarget, item.BinderFromTarget)
+		res.Items = append(res.Items, *item)
+	}
+	sort.SliceStable(res.Items, func(i, j int) bool {
+		if res.Items[i].TotalInteractions != res.Items[j].TotalInteractions {
+			return res.Items[i].TotalInteractions > res.Items[j].TotalInteractions
+		}
+		return res.Items[i].FirstLine < res.Items[j].FirstLine
+	})
+	limit := q.Limit
+	if limit <= 0 || limit > 20 {
+		limit = 20
+	}
+	if len(res.Items) > limit {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("interaction_stats compacted from %d to %d peer(s)", len(res.Items), limit))
+		res.Items = res.Items[:limit]
+	}
+	if len(res.Items) == 0 {
+		res.Caveats = append(res.Caveats, "no wakeup or binder interactions with the target were found in the selected window")
+	}
+	res.Caveats = append(res.Caveats, ipc.Caveats...)
+	return res
+}
+
+func normalizeInteractionDirection(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "incoming", "in", "to_target", "to":
+		return "incoming"
+	case "outgoing", "out", "from_target", "from":
+		return "outgoing"
+	default:
+		return "both"
+	}
+}
+
+func directionAllowsIncoming(direction string) bool {
+	return direction == "" || direction == "both" || direction == "incoming"
+}
+
+func directionAllowsOutgoing(direction string) bool {
+	return direction == "" || direction == "both" || direction == "outgoing"
+}
+
+func firstNonEmptyThread(items ...ThreadRef) ThreadRef {
+	for _, item := range items {
+		if item.PID > 0 || item.Comm != "" {
+			return item
+		}
+	}
+	return ThreadRef{}
 }
 
 func tracePeerLabel(peer ThreadRef, edge IPCEdge) string {
@@ -1853,6 +2250,67 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 			Confidence: 0.68,
 		})
 		if len(out) >= 36 {
+			break
+		}
+	}
+	return out
+}
+
+func evidenceFromSpans(spans []TraceSpanSummary) []EvidenceFact {
+	var out []EvidenceFact
+	for _, span := range spans {
+		out = append(out, EvidenceFact{
+			Subject:    threadLabel(span.Thread),
+			Predicate:  "trace_span_window",
+			Object:     span.Name,
+			Summary:    fmt.Sprintf("trace span %q on %s covers %.6f..%.6f seconds and lasts %.3f ms", span.Name, threadLabel(span.Thread), span.StartTs, span.EndTs, span.DurationMs),
+			LineStart:  span.StartLine,
+			LineEnd:    span.EndLine,
+			StartTs:    span.StartTs,
+			EndTs:      span.EndTs,
+			Confidence: 0.9,
+		})
+		if len(out) >= 16 {
+			break
+		}
+	}
+	return out
+}
+
+func evidenceFromRootCauseRank(rank RootCauseRankResult) []EvidenceFact {
+	var out []EvidenceFact
+	for _, item := range rank.Items {
+		out = append(out, EvidenceFact{
+			Subject:    threadLabel(item.Thread),
+			Predicate:  "root_cause_" + item.Tier,
+			Object:     item.Type,
+			Summary:    fmt.Sprintf("%s cause #%d (%s): %s", item.Tier, item.Rank, item.Type, item.Summary),
+			LineStart:  item.LineStart,
+			LineEnd:    item.LineEnd,
+			Confidence: item.Confidence,
+		})
+		if len(out) >= 16 {
+			break
+		}
+	}
+	return out
+}
+
+func evidenceFromInteractionStats(stats InteractionStatsResult) []EvidenceFact {
+	var out []EvidenceFact
+	for _, item := range stats.Items {
+		out = append(out, EvidenceFact{
+			Subject:    threadLabel(stats.Target),
+			Predicate:  "interacts_with",
+			Object:     threadLabel(item.Peer),
+			Summary:    item.Summary,
+			LineStart:  item.FirstLine,
+			LineEnd:    item.LastLine,
+			StartTs:    item.FirstTs,
+			EndTs:      item.LastTs,
+			Confidence: 0.78,
+		})
+		if len(out) >= 16 {
 			break
 		}
 	}

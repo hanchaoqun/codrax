@@ -20,29 +20,31 @@ type TraceQuery struct {
 }
 
 type traceQueryParams struct {
-	Source             string          `json:"source,omitempty"`
-	Path               string          `json:"path,omitempty"`
-	View               string          `json:"view,omitempty"`
-	Thread             string          `json:"thread,omitempty"`
-	PID                FlexInt         `json:"pid,omitempty"`
-	TimeStart          TraceSecond     `json:"time_start,omitempty"`
-	TimeEnd            TraceSecond     `json:"time_end,omitempty"`
-	LineStart          FlexInt         `json:"line_start,omitempty"`
-	LineEnd            FlexInt         `json:"line_end,omitempty"`
-	EventTypes         TraceEventTypes `json:"event_types,omitempty"`
-	MaxDepth           FlexInt         `json:"max_depth,omitempty"`
-	MaxBranches        FlexInt         `json:"max_branches,omitempty"`
-	MinDurationMs      FlexFloat       `json:"min_duration_ms,omitempty"`
-	IncludeWindowStats *FlexBool       `json:"include_window_stats,omitempty"`
-	Limit              FlexInt         `json:"limit,omitempty"`
-	TraceFlavor        string          `json:"trace_flavor,omitempty"`
-	Platform           string          `json:"platform,omitempty"`
+	Source               string          `json:"source,omitempty"`
+	Path                 string          `json:"path,omitempty"`
+	View                 string          `json:"view,omitempty"`
+	Thread               string          `json:"thread,omitempty"`
+	PID                  FlexInt         `json:"pid,omitempty"`
+	TimeStart            TraceSecond     `json:"time_start,omitempty"`
+	TimeEnd              TraceSecond     `json:"time_end,omitempty"`
+	LineStart            FlexInt         `json:"line_start,omitempty"`
+	LineEnd              FlexInt         `json:"line_end,omitempty"`
+	EventTypes           TraceEventTypes `json:"event_types,omitempty"`
+	SpanName             string          `json:"span_name,omitempty"`
+	InteractionDirection string          `json:"interaction_direction,omitempty"`
+	MaxDepth             FlexInt         `json:"max_depth,omitempty"`
+	MaxBranches          FlexInt         `json:"max_branches,omitempty"`
+	MinDurationMs        FlexFloat       `json:"min_duration_ms,omitempty"`
+	IncludeWindowStats   *FlexBool       `json:"include_window_stats,omitempty"`
+	Limit                FlexInt         `json:"limit,omitempty"`
+	TraceFlavor          string          `json:"trace_flavor,omitempty"`
+	Platform             string          `json:"platform,omitempty"`
 }
 
 func (t *TraceQuery) Name() string { return "trace_query" }
 
 func (t *TraceQuery) Description() string {
-	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, wakeup chains, binder IPC graphs, same-window resource stats, structured event search, and line-backed evidence packs. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. Trace flavor is auto-detected as harmony_hitrace, android_atrace, or generic_ftrace; pass trace_flavor when the producer is known. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Android/generic ftrace keeps raw scheduler priority and does not apply Harmony ranges. Thread selectors accept pid plus common ftrace/hitrace labels such as com.tencent.mm-36379, com.tencent.mm 36379, com.tencent.mm [36379], [GT]ColdPool#5-36624, binder:486_1-10803, or pid=36379; pass pid directly when known. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
+	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, trace span windows, ranked root causes, wakeup chains, binder IPC graphs, interaction Top-N, same-window resource stats, structured event search, and line-backed evidence packs. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. Trace flavor is auto-detected as harmony_hitrace, android_atrace, or generic_ftrace; pass trace_flavor/platform when the user names a producer. Explicit user intent such as Harmony/鸿蒙/东湖/OHOS or Android/安卓 wins for the current call and is not auto-corrected, though content signals remain in caveats for audit. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Android/generic ftrace keeps raw scheduler priority and does not apply Harmony ranges. Thread selectors accept pid plus common ftrace/hitrace labels such as com.tencent.mm-36379, com.tencent.mm 36379, com.tencent.mm [36379], [GT]ColdPool#5-36624, binder:486_1-10803, or pid=36379; pass pid directly when known. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
 }
 
 func (t *TraceQuery) Parameters() json.RawMessage {
@@ -52,8 +54,8 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	    "source": {"type":"string","enum":["path","attached_trace"],"description":"Use attached_trace for the current --htrace/--atrace blob; use path for an explicit workspace/repo file."},
 	    "path": {"type":"string","description":"Repo/workspace-relative or absolute trace/log path when source=path."},
 	    "trace_flavor": {"type":"string","enum":["auto","harmony_hitrace","android_atrace","generic_ftrace"],"description":"Optional producer/platform flavor. Defaults to auto detection. Use harmony_hitrace for HarmonyOS HiTrace priority semantics, android_atrace for Android/Linux atrace raw scheduler priorities, and generic_ftrace when uncertain."},
-	    "platform": {"type":"string","description":"Alias for trace_flavor; accepted for model compatibility."},
-	    "view": {"type":"string","enum":["event_search","thread_timeline","window_stats","ipc_graph","wakeup_chain","evidence_pack"],"description":"The deterministic trace view to compute. Use ipc_graph for binder transaction send/receive causality."},
+	    "platform": {"type":"string","description":"Alias for trace_flavor; accepted for model compatibility. If the user explicitly says Harmony/鸿蒙/东湖/OHOS, pass harmony_hitrace; for Android/安卓/atrace, pass android_atrace."},
+	    "view": {"type":"string","enum":["event_search","span_window","thread_timeline","window_stats","ipc_graph","wakeup_chain","root_cause_rank","interaction_stats","evidence_pack"],"description":"The deterministic trace view to compute. Use span_window to turn a unique B/E trace span into a time window, root_cause_rank for primary/secondary/tertiary cause candidates, interaction_stats for target-thread wakeup/binder interaction Top-N, and ipc_graph for binder transaction send/receive causality."},
 	    "thread": {"type":"string","description":"Thread name, substring, or ftrace/hitrace task label to resolve when pid is unknown. Accepts forms like \"com.tencent.mm-36379\", \"com.tencent.mm 36379\", \"com.tencent.mm [36379]\", \"[GT]ColdPool#5-36624\", \"binder:486_1-10803\", or \"pid=36379\"; pid is preferred when known."},
     "pid": {"type":"integer","description":"Thread pid to analyze when known."},
     "time_start": {"oneOf":[{"type":"number"},{"type":"string"}],"description":"Trace timestamp window start in seconds. Prefer a JSON number. Also accepts strings such as \"928.081774s\" or \"928.081774 秒\" and normalizes them to seconds; six fractional digits are microsecond precision."},
@@ -61,6 +63,8 @@ func (t *TraceQuery) Parameters() json.RawMessage {
     "line_start": {"type":"integer","description":"Optional artifact line window start for bounded search."},
     "line_end": {"type":"integer","description":"Optional artifact line window end for bounded search."},
     "event_types": {"type":"array","items":{"type":"string"},"description":"Optional event filters such as sched_switch, sched_wakeup, sched_blocked_reason, cpu_idle, cpu_frequency, clock_set_rate, block_rq_issue, block_bio_remap, binder_transaction, binder_transaction_received."},
+    "span_name": {"type":"string","description":"Optional trace B/E span name substring. For span_window, returns matching span windows. For wakeup_chain/root_cause_rank/evidence_pack without explicit time_start/time_end, a unique matching span derives the selected window."},
+    "interaction_direction": {"type":"string","enum":["both","incoming","outgoing"],"description":"For interaction_stats: both is default; incoming counts peers waking/calling the target, outgoing counts target waking/calling peers."},
     "max_depth": {"type":"integer","description":"wakeup_chain recursion limit; default 6."},
     "max_branches": {"type":"integer","description":"Maximum branches to report; default 8."},
     "min_duration_ms": {"type":"number","description":"Ignore intervals shorter than this; default 1ms."},
@@ -93,20 +97,22 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	}
 	timeStart, timeEnd, timeCaveat := normalizedTraceQueryWindow(p)
 	q := tracequery.Query{
-		View:               p.View,
-		Thread:             p.Thread,
-		ThreadInput:        p.Thread,
-		PID:                p.PID.Int(),
-		TimeStart:          timeStart,
-		TimeEnd:            timeEnd,
-		LineStart:          p.LineStart.Int(),
-		LineEnd:            p.LineEnd.Int(),
-		EventTypes:         parseTraceQueryEventTypes(p.EventTypes.Strings()),
-		MaxDepth:           p.MaxDepth.Int(),
-		MaxBranches:        p.MaxBranches.Int(),
-		MinDurationMs:      p.MinDurationMs.Float64(),
-		Limit:              p.Limit.Int(),
-		IncludeWindowStats: p.IncludeWindowStats != nil && p.IncludeWindowStats.Bool(),
+		View:                 p.View,
+		Thread:               p.Thread,
+		ThreadInput:          p.Thread,
+		PID:                  p.PID.Int(),
+		TimeStart:            timeStart,
+		TimeEnd:              timeEnd,
+		LineStart:            p.LineStart.Int(),
+		LineEnd:              p.LineEnd.Int(),
+		EventTypes:           parseTraceQueryEventTypes(p.EventTypes.Strings()),
+		SpanName:             p.SpanName,
+		InteractionDirection: p.InteractionDirection,
+		MaxDepth:             p.MaxDepth.Int(),
+		MaxBranches:          p.MaxBranches.Int(),
+		MinDurationMs:        p.MinDurationMs.Float64(),
+		Limit:                p.Limit.Int(),
+		IncludeWindowStats:   p.IncludeWindowStats != nil && p.IncludeWindowStats.Bool(),
 	}
 	q.TraceFlavorHint, q.TraceFlavorHintSource = traceFlavorHintForQuery(ctx, p, sourceLabel)
 	if p.IncludeWindowStats == nil && strings.TrimSpace(p.View) == "wakeup_chain" {
@@ -242,7 +248,7 @@ func traceSecondNeedsNormalizationNote(v TraceSecond) bool {
 
 func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel, payloadRef string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace thread=%s pid=%s line_start=%s line_end=%s time_start=%s time_end=%s trace_flavor=%s trace_flavor_confidence=%.2f payload_ref=%s]\n",
+	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace thread=%s pid=%s line_start=%s line_end=%s time_start=%s time_end=%s span_name=%s trace_flavor=%s trace_flavor_confidence=%.2f payload_ref=%s]\n",
 		firstNonEmptyTraceString(result.View, p.View, "event_search"),
 		sourceLabel,
 		sanitizeForBanner(result.SourcePath),
@@ -253,6 +259,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		positiveIntBannerValue(p.LineEnd.Int()),
 		traceSecondBannerValue(p.TimeStart),
 		traceSecondBannerValue(p.TimeEnd),
+		sanitizeForBanner(p.SpanName),
 		sanitizeForBanner(result.TraceFlavor),
 		result.FlavorConfidence,
 		sanitizeForBanner(payloadRef),
@@ -275,6 +282,14 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	if payloadRef != "" {
 		fmt.Fprintf(&b, "payload_ref=%s\n\n", payloadRef)
 	}
+	if len(result.SpanWindows) > 0 {
+		b.WriteString("## Span windows\n")
+		for _, span := range result.SpanWindows {
+			fmt.Fprintf(&b, "- span %s %q %.6f..%.6f duration=%.3fms lines=%d-%d\n",
+				traceThreadLabel(span.Thread), span.Name, span.StartTs, span.EndTs, span.DurationMs, span.StartLine, span.EndLine)
+		}
+		b.WriteString("\n")
+	}
 	if result.WakeupChain != nil {
 		b.WriteString("## Wakeup chain\n")
 		for _, edge := range result.WakeupChain.Edges {
@@ -290,6 +305,28 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 				wait.TransactionID, traceThreadLabel(wait.Thread), traceThreadLabel(wait.Peer), wait.DurationMs, wait.SendLine, wait.ReceiveLine, wait.SleepLine, wait.WakeupLine, wait.Confidence, wait.Summary)
 		}
 		writeTraceIPCEdges(&b, result.WakeupChain.IPCEdges)
+		b.WriteString("\n")
+	}
+	if result.RootCauseRank != nil {
+		b.WriteString("## Root cause rank\n")
+		for _, item := range result.RootCauseRank.Items {
+			fmt.Fprintf(&b, "- rank=%d tier=%s type=%s thread=%s impact=%.3fms score=%.3f confidence=%.2f lines=%d-%d source=%s — %s\n",
+				item.Rank, item.Tier, item.Type, traceThreadLabel(item.Thread), item.ImpactMs, item.Score, item.Confidence, item.LineStart, item.LineEnd, item.Source, item.Summary)
+		}
+		for _, caveat := range result.RootCauseRank.Caveats {
+			fmt.Fprintf(&b, "- root_cause_caveat=%s\n", caveat)
+		}
+		b.WriteString("\n")
+	}
+	if result.InteractionStats != nil {
+		b.WriteString("## Interaction stats\n")
+		for _, item := range result.InteractionStats.Items {
+			fmt.Fprintf(&b, "- peer=%s total=%d wake_to_target=%d wake_from_target=%d binder_to_target=%d binder_from_target=%d lines=%d-%d window=%.6f..%.6f — %s\n",
+				traceThreadLabel(item.Peer), item.TotalInteractions, item.WakeupsToTarget, item.WakeupsFromTarget, item.BinderToTarget, item.BinderFromTarget, item.FirstLine, item.LastLine, item.FirstTs, item.LastTs, item.Summary)
+		}
+		for _, caveat := range result.InteractionStats.Caveats {
+			fmt.Fprintf(&b, "- interaction_caveat=%s\n", caveat)
+		}
 		b.WriteString("\n")
 	}
 	if result.IPCGraph != nil {
