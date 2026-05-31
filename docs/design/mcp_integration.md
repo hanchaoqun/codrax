@@ -1,5 +1,7 @@
 # MCP 集成 + Plan 导出 —— P1+P3 设计文档
 
+> ⚠ **本文档的实现框架（§9 / §15）已被 [`mcp_integration_v2.md`](mcp_integration_v2.md) 取代。** v2 基于对当前代码的 file:line 级深度探索：发现 MCP 消费侧链路（executeTool→ObservationLedger→answer 契约）已全部 wired，仅 producer 是 stub，最优方案因此从"为 MCP 输出新建三路径"翻转为"补完 producer，复用已 wired 的 typed observation lane"。本文档的威胁模型 §3、配置预算 §11、决策记录 §14 仍可参考；§2/§15 的 file:line 已 stale。
+
 **状态**：设计审查。**未开始实现。**
 **目标 PR 范围**：`P1 = MCP 协议完整化（tools + prompts + resources + yaml 加载 + 启动注册 + 资源限制）` + `P3 = plan_output_hook`
 **场景**：客户有内部可观测性工具链（k8s / monitoring / audit ledger），希望 codrax 能**自主**调用它们抓运行时证据参与根因分析，最后把 ChangePlan 导出到 PR 机器人 / 工单 / 审批系统
