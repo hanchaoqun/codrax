@@ -1936,6 +1936,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		if disableToolsThisTurn || len(effectiveTools) == 0 {
 			toolChoice = ""
 		}
+		stopLLMRequestWatchdog := b.startLLMRequestWatchdog(ctx, i, telemetry)
 		resp, err := b.deps.LLM.Chat(ctx.Context(), requestMessages, effectiveTools, llm.ChatOptions{
 			ToolChoice:      toolChoice,
 			OnContentDelta:  streamBuf.onDelta,
@@ -1943,6 +1944,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			OnRetry:         onRetry,
 			OnFallback:      onFallback,
 		})
+		stopLLMRequestWatchdog()
 		streamBuf.flush()
 		// Flush any throttled-out summary preview chunks before the
 		// orchestrator emits its EventLivePreviewClear. Nil-safe so
@@ -3162,8 +3164,10 @@ func (b *BaseAgent) buildInitialMessages(ctx *types.AgentContext, sk *skill.Conf
 }
 
 const (
-	agentPreflightSlowAfter = 5 * time.Second
-	agentPreflightSlowEvery = 10 * time.Second
+	agentPreflightSlowAfter  = 5 * time.Second
+	agentPreflightSlowEvery  = 10 * time.Second
+	agentLLMRequestSlowAfter = 30 * time.Second
+	agentLLMRequestSlowEvery = 30 * time.Second
 )
 
 func (b *BaseAgent) startPreflightWatchdog(ctx *types.AgentContext, phase string) func() {
@@ -3205,6 +3209,40 @@ func (b *BaseAgent) startPreflightWatchdog(ctx *types.AgentContext, phase string
 			close(done)
 			logging.Debug("[diag %s] phase=%s stage=%s done elapsed=%s",
 				agentName, phase, stage, time.Since(start).Round(time.Millisecond))
+		})
+	}
+}
+
+func (b *BaseAgent) startLLMRequestWatchdog(ctx *types.AgentContext, iter int, telemetry llm.RequestTelemetry) func() {
+	agentName := b.name
+	stage := ""
+	if ctx != nil {
+		stage = string(ctx.Stage)
+	}
+	start := time.Now()
+	done := make(chan struct{})
+	var once sync.Once
+	go func() {
+		timer := time.NewTimer(agentLLMRequestSlowAfter)
+		defer timer.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-timer.C:
+				logging.Warning("[diag %s] iter=%d phase=llm_request stage=%s still running elapsed=%s model=%s context_tokens_est=%d context_window=%d messages=%d tools=%d",
+					agentName, iter, stage, time.Since(start).Round(time.Second),
+					telemetry.ModelID, telemetry.ContextTokensEstimate, telemetry.ContextWindowTokens,
+					telemetry.MessageCount, telemetry.ToolCount)
+				timer.Reset(agentLLMRequestSlowEvery)
+			}
+		}
+	}()
+	return func() {
+		once.Do(func() {
+			close(done)
+			logging.Debug("[diag %s] iter=%d phase=llm_request stage=%s done elapsed=%s model=%s",
+				agentName, iter, stage, time.Since(start).Round(time.Millisecond), telemetry.ModelID)
 		})
 	}
 }

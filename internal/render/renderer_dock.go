@@ -1308,7 +1308,13 @@ func repairStageLabel(label, lang string) string {
 		return ""
 	}
 	if isZh(lang) {
+		if label == "正在交叉验证证据" {
+			return "修复中：正在校验证据和答案约束"
+		}
 		return "修复中：" + label
+	}
+	if label == "Cross-validating evidence" {
+		return "Repairing: validating evidence and answer constraints"
 	}
 	return "Repairing: " + label
 }

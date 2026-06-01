@@ -1014,6 +1014,23 @@ func TestRenderer_DockBacktrackKeepsProgressAndNamesRepairStage(t *testing.T) {
 	}
 }
 
+func TestRenderer_DockBacktrackClarifiesValidateRepairStage(t *testing.T) {
+	r := newTestRenderer("zh")
+	r.totalStages = 4
+	emit := r.Emitter()
+	t0 := time.Now()
+	emit(Event{Kind: EventStageStart, Timestamp: t0, Stage: "finalize", Agent: "finalizer"})
+	emit(Event{Kind: EventLocalWorkStart, Timestamp: t0.Add(10 * time.Millisecond), Stage: "validate"})
+
+	row := stripAnsiEscapes(r.composeCurrentDockRows()[1])
+	if !strings.Contains(row, "4/4") || !strings.Contains(row, "修复中：正在校验证据和答案约束") {
+		t.Fatalf("validate repair stage should explain answer/evidence validation, got %q", row)
+	}
+	if strings.Contains(row, "修复中：正在交叉验证证据") {
+		t.Fatalf("validate repair stage should not surface the ambiguous generic label: %q", row)
+	}
+}
+
 func TestRenderer_EventAgentThinkingWithoutCurrentRowShowsRequesting(t *testing.T) {
 	r := newTestRenderer("zh")
 	emit := r.Emitter()
