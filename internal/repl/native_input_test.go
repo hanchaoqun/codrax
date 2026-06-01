@@ -115,3 +115,66 @@ func TestNativeSubmitClearsTransientFrameBeforeEcho(t *testing.T) {
 		t.Fatalf("submit should print the persistent echo after clearing the transient frame: %q", got)
 	}
 }
+
+func TestNativeSlashSuggestShowsHitraceConvertSubcommand(t *testing.T) {
+	e := &nativeLineInput{
+		value: []rune("/htrace "),
+		lang:  "zh",
+	}
+	matches := e.filterSuggestions()
+	if len(matches) == 0 {
+		t.Fatal("expected /htrace subcommand suggestions")
+	}
+	var found bool
+	for _, suggestion := range matches {
+		if suggestion.display == "/htrace convert <binary> [out.systrace]" {
+			found = true
+			if suggestion.insert != "/htrace convert" {
+				t.Fatalf("convert insert=%q, want /htrace convert", suggestion.insert)
+			}
+			if !suggestion.needsArg || !strings.Contains(suggestion.help, "二进制") {
+				t.Fatalf("convert suggestion should carry arg hint + zh help: %+v", suggestion)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("convert subcommand not suggested: %+v", matches)
+	}
+}
+
+func TestNativeSlashSuggestAtraceReusesHtraceSubcommands(t *testing.T) {
+	e := &nativeLineInput{
+		value: []rune("/atrace c"),
+		lang:  "en",
+	}
+	matches := e.filterSuggestions()
+	if len(matches) != 2 {
+		t.Fatalf("expected /atrace c to suggest clear and convert, got %+v", matches)
+	}
+	var displays []string
+	for _, suggestion := range matches {
+		displays = append(displays, suggestion.display)
+	}
+	got := strings.Join(displays, ",")
+	if !strings.Contains(got, "/atrace convert <binary> [out.systrace]") ||
+		!strings.Contains(got, "/atrace clear") {
+		t.Fatalf("unexpected /atrace c suggestions: %s", got)
+	}
+}
+
+func TestNativeAcceptSubcommandWithArgsDoesNotSubmitOnEnter(t *testing.T) {
+	e := &nativeLineInput{
+		value:       []rune("/htrace "),
+		cursor:      len([]rune("/htrace ")),
+		lang:        "zh",
+		showSuggest: true,
+		slashSel:    0,
+	}
+	consumed := e.acceptSuggestion(true)
+	if !consumed {
+		t.Fatal("enter on an argument-taking subcommand should keep editing instead of submitting")
+	}
+	if got := string(e.value); got != "/htrace append " {
+		t.Fatalf("accepted value=%q, want /htrace append ", got)
+	}
+}

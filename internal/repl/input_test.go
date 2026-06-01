@@ -402,6 +402,25 @@ func TestSlashSuggest_AppearsOnSlash_DisappearsOnSpace(t *testing.T) {
 	}
 }
 
+func TestSlashSuggest_HtraceSubcommandsAfterSpace(t *testing.T) {
+	m := newTestModel()
+	for _, r := range "/htrace " {
+		sendRunes(m, r)
+	}
+	if !m.showSuggest {
+		t.Fatal("expected /htrace subcommand suggestions after a trailing space")
+	}
+	var found bool
+	for _, suggestion := range m.filterSuggestions(m.ti.Value()) {
+		if suggestion.display == "/htrace convert <binary> [out.systrace]" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("convert subcommand not suggested for %q", m.ti.Value())
+	}
+}
+
 func TestSubmit_BlocksWhitespaceOnly(t *testing.T) {
 	m := newTestModel()
 	sendRunes(m, ' ', '\t', ' ')

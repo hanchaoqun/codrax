@@ -40,8 +40,9 @@ import (
 
 // slashCommands is the canonical autocomplete surface. Kept in sync
 // with replCommandAliases' target set in internal/types via the
-// TestSlashCommandsMatchCanonicalRegistry drift guard. Shown only
-// when the buffer looks like a bare slash token.
+// TestSlashCommandsMatchCanonicalRegistry drift guard. The input
+// layer shows top-level command suggestions for bare slash tokens
+// and named subcommand suggestions after commands like "/htrace ".
 // slashCommand carries autocomplete + /help metadata for one
 // /command. Help strings are bilingual: HelpEn shows when
 // --lang=en, HelpZh shows for everything else (zh-default
@@ -89,6 +90,86 @@ func (s slashSubcommand) Help(lang string) string {
 	return s.HelpEn
 }
 
+type slashSuggestion struct {
+	display  string
+	insert   string
+	help     string
+	needsArg bool
+	isSub    bool
+}
+
+func slashSuggestionsForValue(value, lang string) []slashSuggestion {
+	if !strings.HasPrefix(value, "/") || strings.ContainsAny(value, "\r\n") {
+		return nil
+	}
+	if idx := strings.IndexAny(value, " \t"); idx >= 0 {
+		return slashSubSuggestions(value, idx, lang)
+	}
+	out := make([]slashSuggestion, 0, len(slashCommands))
+	for _, c := range slashCommands {
+		if strings.HasPrefix(c.Name, value) {
+			out = append(out, slashSuggestion{
+				display:  c.Name,
+				insert:   c.Name,
+				help:     c.Help(lang),
+				needsArg: needsArg(c.Name),
+			})
+		}
+	}
+	return out
+}
+
+func slashSubSuggestions(value string, sep int, lang string) []slashSuggestion {
+	base := value[:sep]
+	rest := strings.TrimLeft(value[sep+1:], " \t")
+	if strings.ContainsAny(rest, " \t") {
+		return nil
+	}
+	cmd, ok := slashCommandByName(base)
+	if !ok {
+		return nil
+	}
+	subs := cmd.Subs
+	if len(subs) == 0 && base == "/atrace" {
+		if htrace, ok := slashCommandByName("/htrace"); ok {
+			subs = htrace.Subs
+		}
+	}
+	out := make([]slashSuggestion, 0, len(subs))
+	for _, sub := range subs {
+		syntax := strings.TrimSpace(sub.Name)
+		fields := strings.Fields(syntax)
+		if len(fields) == 0 {
+			continue
+		}
+		token := fields[0]
+		if strings.HasPrefix(token, "<") || !strings.HasPrefix(token, rest) {
+			continue
+		}
+		out = append(out, slashSuggestion{
+			display:  base + " " + syntax,
+			insert:   base + " " + token,
+			help:     sub.Help(lang),
+			needsArg: slashSubNeedsArg(syntax),
+			isSub:    true,
+		})
+	}
+	return out
+}
+
+func slashCommandByName(name string) (slashCommand, bool) {
+	for _, c := range slashCommands {
+		if c.Name == name {
+			return c, true
+		}
+	}
+	return slashCommand{}, false
+}
+
+func slashSubNeedsArg(syntax string) bool {
+	return strings.Contains(syntax, "<") || strings.Contains(syntax, "[")
+}
+
 // slashCommands is the canonical /help table. Order is significant:
 // helpLines (messages.go) inserts a "── Write-mode commands ──"
 // header before the first entry that isWriteModeCommand classifies
@@ -122,8 +203,8 @@ var slashCommands = []slashCommand{
 	},
 	{
 		Name:   "/htrace",
-		HelpEn: "attach an ftrace-compatible trace (HiTrace / atrace / systrace / perfetto)",
-		HelpZh: "附加 trace(HiTrace / atrace / systrace / perfetto)",
+		HelpEn: "attach or convert an ftrace-compatible trace (HiTrace / atrace / systrace / perfetto)",
+		HelpZh: "附加或转换 trace(HiTrace / atrace / systrace / perfetto)",
 		Subs: []slashSubcommand{
 			{"<path>", "load file as the attached trace", "以指定文件为附加 trace"},
 			{"append <path>", "append <path> to the existing attached trace", "追加 <path> 到已有附加 trace"},
@@ -878,17 +959,7 @@ func (m *inputModel) refreshSuggest() {
 		m.showSuggest = false
 		return
 	}
-	v := m.ti.Value()
-	if !strings.HasPrefix(v, "/") {
-		m.showSuggest = false
-		return
-	}
-	if strings.ContainsAny(v, " \t") {
-		// User has started arguments — no more command-name completion.
-		m.showSuggest = false
-		return
-	}
-	matches := m.filterSuggestions(v)
+	matches := m.filterSuggestions(m.ti.Value())
 	if len(matches) == 0 {
 		m.showSuggest = false
 		return
@@ -899,14 +970,8 @@ func (m *inputModel) refreshSuggest() {
 	}
 }
 
-func (m *inputModel) filterSuggestions(prefix string) []int {
-	var out []int
-	for i, c := range slashCommands {
-		if strings.HasPrefix(c.Name, prefix) {
-			out = append(out, i)
-		}
-	}
-	return out
+func (m *inputModel) filterSuggestions(value string) []slashSuggestion {
+	return slashSuggestionsForValue(value, m.lang)
 }
 
 // handleSuggestKey consumes Up/Down/Tab/Enter/Esc while the panel is
@@ -926,19 +991,27 @@ func (m *inputModel) handleSuggestKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return nil, true
 	case key.Matches(msg, m.keys.SuggestionTake):
 		if len(matches) > 0 && m.slashSel < len(matches) {
-			chosen := slashCommands[matches[m.slashSel]].Name
-			// Tab → accept and keep editing (allow adding args).
-			// Enter → accept and submit on the next Enter (matches what
-			// users expect from /clear, /exit etc. which take no args).
+			chosen := matches[m.slashSel]
+			// Tab accepts and keeps editing. Enter submits commands that
+			// are complete, but keeps editing when the selected subcommand
+			// still needs a positional argument.
 			if msg.Type == tea.KeyEnter {
-				m.ti.SetValue(chosen)
-				m.ti.SetCursor(utf8.RuneCountInString(chosen))
+				next := chosen.insert
+				if chosen.isSub && chosen.needsArg {
+					next += " "
+					m.ti.SetValue(next)
+					m.ti.SetCursor(utf8.RuneCountInString(next))
+					m.showSuggest = false
+					return nil, true
+				}
+				m.ti.SetValue(next)
+				m.ti.SetCursor(utf8.RuneCountInString(next))
 				m.showSuggest = false
 				return m.handleSubmit(), true
 			}
-			next := chosen
-			if needsArg(chosen) {
-				next = chosen + " "
+			next := chosen.insert
+			if chosen.needsArg {
+				next += " "
 			}
 			m.ti.SetValue(next)
 			m.ti.SetCursor(utf8.RuneCountInString(next))
@@ -975,22 +1048,21 @@ func (m *inputModel) renderSuggestPanel() string {
 	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	var b strings.Builder
-	for i, mi := range matches {
-		c := slashCommands[mi]
+	for i, suggestion := range matches {
 		var prefix string
 		var nm string
 		if i == m.slashSel {
 			prefix = selStyle.Render("▸ ")
-			nm = selStyle.Render(c.Name)
+			nm = selStyle.Render(suggestion.display)
 		} else {
 			prefix = "  "
-			nm = nameStyle.Render(c.Name)
+			nm = nameStyle.Render(suggestion.display)
 		}
 		b.WriteString("  ")
 		b.WriteString(prefix)
 		b.WriteString(nm)
 		b.WriteString("  ")
-		b.WriteString(helpStyle.Render(c.Help(m.lang)))
+		b.WriteString(helpStyle.Render(suggestion.help))
 		if i < len(matches)-1 {
 			b.WriteByte('\n')
 		}

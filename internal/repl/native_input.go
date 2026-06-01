@@ -118,7 +118,9 @@ func (e *nativeLineInput) run() (inputResult, error) {
 			e.deleteForward()
 		case '\r', '\n':
 			if e.showSuggest {
-				e.acceptSuggestion(true)
+				if e.acceptSuggestion(true) {
+					break
+				}
 			}
 			res, done := e.submit()
 			if done {
@@ -520,19 +522,18 @@ func (e *nativeLineInput) renderSuggestLines() []string {
 	nameStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("252"))
 	helpStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 	out := make([]string, 0, len(matches))
-	for i, mi := range matches {
-		c := slashCommands[mi]
+	for i, suggestion := range matches {
 		prefix := "  "
 		plainPrefix := "  "
-		nm := nameStyle.Render(c.Name)
+		nm := nameStyle.Render(suggestion.display)
 		if i == e.slashSel {
 			prefix = selStyle.Render("▸ ")
 			plainPrefix = "▸ "
-			nm = selStyle.Render(c.Name)
+			nm = selStyle.Render(suggestion.display)
 		}
-		plainHead := "  " + plainPrefix + c.Name + "  "
+		plainHead := "  " + plainPrefix + suggestion.display + "  "
 		helpBudget := termWidth - runewidth.StringWidth(plainHead) - 1
-		out = append(out, "  "+prefix+nm+"  "+helpStyle.Render(nativeClampDisplayWidth(c.Help(e.lang), helpBudget)))
+		out = append(out, "  "+prefix+nm+"  "+helpStyle.Render(nativeClampDisplayWidth(suggestion.help, helpBudget)))
 	}
 	return out
 }
@@ -705,11 +706,6 @@ func (e *nativeLineInput) refreshSuggest() {
 		e.showSuggest = false
 		return
 	}
-	v := string(e.value)
-	if !strings.HasPrefix(v, "/") || strings.ContainsAny(v, " \t") {
-		e.showSuggest = false
-		return
-	}
 	matches := e.filterSuggestions()
 	e.showSuggest = len(matches) > 0
 	if e.slashSel >= len(matches) {
@@ -717,15 +713,8 @@ func (e *nativeLineInput) refreshSuggest() {
 	}
 }
 
-func (e *nativeLineInput) filterSuggestions() []int {
-	prefix := string(e.value)
-	var out []int
-	for i, c := range slashCommands {
-		if strings.HasPrefix(c.Name, prefix) {
-			out = append(out, i)
-		}
-	}
-	return out
+func (e *nativeLineInput) filterSuggestions() []slashSuggestion {
+	return slashSuggestionsForValue(string(e.value), e.lang)
 }
 
 func (e *nativeLineInput) suggestionUp() {
@@ -744,22 +733,23 @@ func (e *nativeLineInput) suggestionDown() {
 	e.slashSel = (e.slashSel + 1) % len(matches)
 }
 
-func (e *nativeLineInput) acceptSuggestion(submit bool) {
+func (e *nativeLineInput) acceptSuggestion(submit bool) bool {
 	if !e.showSuggest {
-		return
+		return false
 	}
 	matches := e.filterSuggestions()
 	if len(matches) == 0 || e.slashSel >= len(matches) {
-		return
+		return false
 	}
-	chosen := slashCommands[matches[e.slashSel]].Name
-	next := chosen
-	if !submit && needsArg(chosen) {
+	chosen := matches[e.slashSel]
+	next := chosen.insert
+	if (!submit || (submit && chosen.isSub)) && chosen.needsArg {
 		next += " "
 	}
 	e.value = []rune(next)
 	e.cursor = len(e.value)
 	e.showSuggest = false
+	return submit && chosen.isSub && chosen.needsArg
 }
 
 func nativeSpanAt(v string, pos int) (span, bool) {
