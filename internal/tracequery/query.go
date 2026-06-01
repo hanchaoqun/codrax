@@ -11,6 +11,15 @@ import (
 func Run(idx *Index, q Query) Result {
 	explicitTimeStart := q.TimeStart != 0
 	explicitTimeEnd := q.TimeEnd != 0
+	explicitWindowOrSelector := explicitTimeStart ||
+		explicitTimeEnd ||
+		q.LineStart != 0 ||
+		q.LineEnd != 0 ||
+		strings.TrimSpace(q.SpanName) != "" ||
+		q.PID > 0 ||
+		strings.TrimSpace(q.Thread) != "" ||
+		strings.TrimSpace(q.ThreadInput) != "" ||
+		len(q.EventTypes) > 0
 	q = normalizeQuery(idx, q)
 	flavor, confidence, signals, flavorCaveats := resolveTraceFlavor(idx, q)
 	q.TraceFlavor = flavor
@@ -112,6 +121,11 @@ func Run(idx *Index, q Query) Result {
 		res.EvidencePack = evidenceFromCriticalBlocking(blocking)
 	case "recipe":
 		recipe := BuildRecipe(idx, q)
+		if recipeShouldUseDiscoveryOnly(q, recipe, explicitWindowOrSelector) {
+			recipe.IncludedViews = []string{"frame_window", "frame_timeline", "frame_flow"}
+			recipe.Caveats = append(recipe.Caveats, "unbounded jank recipe ran in discovery mode because no time, line, span, pid/thread, or event filters were provided; select a frame/span/window before requesting full root-cause/resource ranking")
+			res.Caveats = append(res.Caveats, "large recipe guard: unbounded jank analysis skips full-trace scheduler/resource/root-cause expansion until the query is narrowed")
+		}
 		res.Recipe = &recipe
 		if recipeHasView(recipe, "window_stats") {
 			stats := ComputeWindowStats(idx, q)
@@ -3411,6 +3425,16 @@ func recipeHasView(recipe RecipeResult, view string) bool {
 		}
 	}
 	return false
+}
+
+func recipeShouldUseDiscoveryOnly(q Query, recipe RecipeResult, explicitWindowOrSelector bool) bool {
+	if recipe.Name != "jank" {
+		return false
+	}
+	if explicitWindowOrSelector {
+		return false
+	}
+	return true
 }
 
 func normalizeInteractionDirection(raw string) string {

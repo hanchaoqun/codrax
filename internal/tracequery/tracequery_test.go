@@ -761,6 +761,16 @@ func TestFramePipelineCriticalBlockingAndRecipeViews(t *testing.T) {
 	if recipe.Recipe == nil || !containsString(recipe.Recipe.IncludedViews, "frame_window") || recipe.FramePipeline == nil || recipe.CriticalBlocking == nil {
 		t.Fatalf("jank recipe should include frame and blocking views: %+v", recipe)
 	}
+	unbounded := Run(idx, Query{View: "recipe", RecipeName: "jank"})
+	if unbounded.Recipe == nil || !containsString(unbounded.Recipe.IncludedViews, "frame_window") {
+		t.Fatalf("unbounded jank recipe should still discover frame views: %+v", unbounded.Recipe)
+	}
+	if unbounded.WindowStats != nil || unbounded.RootCauseRank != nil || unbounded.CriticalBlocking != nil || unbounded.SchedulerLatency != nil {
+		t.Fatalf("unbounded jank recipe should not expand expensive full-trace analysis: %+v", unbounded)
+	}
+	if !containsSubstring(unbounded.Caveats, "large recipe guard") || !containsSubstring(unbounded.Recipe.Caveats, "discovery mode") {
+		t.Fatalf("unbounded jank recipe should explain discovery mode: result=%v recipe=%v", unbounded.Caveats, unbounded.Recipe.Caveats)
+	}
 }
 
 func TestFrameTimelineAndFlowViews(t *testing.T) {

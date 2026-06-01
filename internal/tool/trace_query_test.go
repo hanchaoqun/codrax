@@ -357,6 +357,55 @@ func TestTraceQuerySchemaDocumentsViews(t *testing.T) {
 	}
 }
 
+func TestTraceQueryLargeUnboundedJankRecipeUsesDiscoveryGuard(t *testing.T) {
+	oldThreshold := traceQueryLargeRecipeDiscoveryMinBytes
+	traceQueryLargeRecipeDiscoveryMinBytes = 1
+	defer func() { traceQueryLargeRecipeDiscoveryMinBytes = oldThreshold }()
+
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "large.systrace")
+	var lines []string
+	for i := 0; i < 55; i++ {
+		lines = append(lines, `app-20 (20) [000] .... 8.000000: print: C|20|jank_noise=1|1`)
+	}
+	lines = append(lines,
+		`app-20 (20) [000] .... 9.000000: print: C|20|jank_frames=7|1`,
+		`app-20 (20) [000] .... 9.001000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=worker next_pid=10 next_prio=20`,
+	)
+	trace := strings.Join(lines, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{
+		RepoRoot: dir,
+		WorkDir:  dir,
+		Mutable:  types.NewMutableState(`这个东湖trace, "jank_frames=7" 这一帧，丢帧的原因是什么？`),
+	}
+	params, _ := json.Marshal(map[string]any{
+		"source":       "path",
+		"path":         "large.systrace",
+		"view":         "recipe",
+		"recipe_name":  "jank",
+		"platform":     "donghu",
+		"trace_flavor": "harmony_hitrace",
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query discovery guard failed: %s", res.Summary)
+	}
+	for _, want := range []string{"mode=large_trace_recipe_discovery", "jank_frames=7", "primary=true", "next_call_hint", "line_start=1"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("discovery summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "Root cause rank") || strings.Contains(res.Summary, "Window stats") {
+		t.Fatalf("unbounded large jank discovery should not run heavy views:\n%s", res.Summary)
+	}
+}
+
 func TestTraceQueryIPCGraphSummary(t *testing.T) {
 	dir := t.TempDir()
 	tracePath := filepath.Join(dir, "ipc.systrace")

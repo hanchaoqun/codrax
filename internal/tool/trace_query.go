@@ -1,11 +1,14 @@
 package tool
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -43,10 +46,16 @@ type traceQueryParams struct {
 	Platform             string          `json:"platform,omitempty"`
 }
 
+var (
+	traceQueryLargeRecipeDiscoveryMinBytes int64 = 128 << 20
+	traceQueryObjectiveKVTokenRE                 = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_./:-]*=[^\s,，。；;"'）)]+`)
+	traceQueryTimestampRE                        = regexp.MustCompile(`\s([0-9]+(?:\.[0-9]+)?):\s+`)
+)
+
 func (t *TraceQuery) Name() string { return "trace_query" }
 
 func (t *TraceQuery) Description() string {
-	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, scheduler latency stats, trace span/frame windows, frame timelines/flows, render pipelines, ranked root causes, wakeup chains, binder IPC graphs, critical blocking calls, interaction Top-N, same-window resource stats, recipes, structured event search, and line-backed evidence packs. window_stats/event_search can filter or summarize scheduler, binder transaction/received/lock/alloc/reply rows, CPU idle/frequency/frequency-limit, block IO, IRQ/softirq, storage, filesystem, power, Ability/XPower/HiSystemEvent resource observations, workqueue, DMA fence, memory-like events, and SmartPerf-style eBPF BIO/FileSystem/PageFault resource rows when converted to text key/value fields. For big/middle/small core analysis, pass core_topology like \"small=0-3,middle=4-7,big=8-11\"; if omitted the tool only infers classes from observed CPU frequencies and reports that caveat. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. Trace flavor is auto-detected as harmony_hitrace, android_atrace, or generic_ftrace; pass trace_flavor/platform when the user names a producer. Explicit user intent such as Harmony/鸿蒙/东湖/OHOS or Android/安卓 wins for the current call and is not auto-corrected, though content signals remain in caveats for audit. Auto detection may report platform_candidate=mixed_harmony_base when Harmony-base trace signals coexist with Android-framework process surfaces; this uses Donghu/Harmony scheduler priority semantics, not Android priority semantics. Donghu/东湖 uses Harmony/OpenHarmony trace scheduler semantics with process-isolated Android-framework and Harmony-framework surfaces; priority and timestamp semantics still follow Harmony. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Android/generic ftrace keeps raw scheduler priority and does not apply Harmony ranges. Thread selectors accept pid plus common ftrace/hitrace labels such as com.tencent.mm-36379, com.tencent.mm 36379, com.tencent.mm [36379], [GT]ColdPool#5-36624, binder:486_1-10803, or pid=36379; pass pid directly when known. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
+	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, scheduler latency stats, trace span/frame windows, frame timelines/flows, render pipelines, ranked root causes, wakeup chains, binder IPC graphs, critical blocking calls, interaction Top-N, same-window resource stats, recipes, structured event search, and line-backed evidence packs. window_stats/event_search can filter or summarize scheduler, binder transaction/received/lock/alloc/reply rows, CPU idle/frequency/frequency-limit, block IO, IRQ/softirq, storage, filesystem, power, Ability/XPower/HiSystemEvent resource observations, workqueue, DMA fence, memory-like events, and SmartPerf-style eBPF BIO/FileSystem/PageFault resource rows when converted to text key/value fields. For big/middle/small core analysis, pass core_topology like \"small=0-3,middle=4-7,big=8-11\"; if omitted the tool only infers classes from observed CPU frequencies and reports that caveat. For very large traces, an unbounded jank recipe without time_start/time_end, line_start/line_end, span_name, pid, or thread first returns bounded marker discovery and next-call hints instead of expanding expensive full-trace root-cause/resource views; rerun with the selected frame/span time or line window. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. Trace flavor is auto-detected as harmony_hitrace, android_atrace, or generic_ftrace; pass trace_flavor/platform when the user names a producer. Explicit user intent such as Harmony/鸿蒙/东湖/OHOS or Android/安卓 wins for the current call and is not auto-corrected, though content signals remain in caveats for audit. Auto detection may report platform_candidate=mixed_harmony_base when Harmony-base trace signals coexist with Android-framework process surfaces; this uses Donghu/Harmony scheduler priority semantics, not Android priority semantics. Donghu/东湖 uses Harmony/OpenHarmony trace scheduler semantics with process-isolated Android-framework and Harmony-framework surfaces; priority and timestamp semantics still follow Harmony. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Android/generic ftrace keeps raw scheduler priority and does not apply Harmony ranges. Thread selectors accept pid plus common ftrace/hitrace labels such as com.tencent.mm-36379, com.tencent.mm 36379, com.tencent.mm [36379], [GT]ColdPool#5-36624, binder:486_1-10803, or pid=36379; pass pid directly when known. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
 }
 
 func (t *TraceQuery) Parameters() json.RawMessage {
@@ -89,6 +98,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	path, sourceLabel, reject := resolveTraceQuerySource(ctx, p)
 	if reject != nil {
 		return *reject, nil
+	}
+	if discovery, ok := t.maybeLargeRecipeDiscovery(ctx, p, path, sourceLabel); ok {
+		return discovery, nil
 	}
 	idx, err := tracequery.BuildIndex(contextFromBus(ctx), path)
 	if err != nil {
@@ -297,6 +309,279 @@ func traceQueryPathIsAttachedTraceBlob(ctx *types.BusContext, resolvedPath strin
 		got = filepath.Clean(absGot)
 	}
 	return got == want
+}
+
+type traceQueryRecipeDiscoveryMarker struct {
+	Line    int     `json:"line"`
+	Ts      float64 `json:"ts,omitempty"`
+	Token   string  `json:"token,omitempty"`
+	Primary bool    `json:"primary,omitempty"`
+	Raw     string  `json:"raw,omitempty"`
+}
+
+type traceQueryRecipeDiscoveryToken struct {
+	Text    string
+	Primary bool
+}
+
+func (t *TraceQuery) maybeLargeRecipeDiscovery(ctx *types.BusContext, p traceQueryParams, path, sourceLabel string) (types.ToolResult, bool) {
+	info, err := os.Stat(path)
+	if err != nil || !traceQueryShouldUseLargeRecipeDiscovery(p, info.Size()) {
+		return types.ToolResult{}, false
+	}
+	markers, scannedLines, truncated, scanErr := scanTraceQueryRecipeMarkers(contextFromBus(ctx), path, traceQueryRecipeDiscoveryTokens(ctx, p), 48)
+	if scanErr != nil {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   fmt.Sprintf("trace_query recipe discovery failed for %s: %v", path, scanErr),
+			Timestamp: time.Now(),
+		}, true
+	}
+	payload := map[string]any{
+		"mode":          "large_trace_recipe_discovery",
+		"source_path":   path,
+		"source":        sourceLabel,
+		"recipe_name":   firstNonEmptyTraceString(p.RecipeName, "jank"),
+		"size_bytes":    info.Size(),
+		"scanned_lines": scannedLines,
+		"truncated":     truncated,
+		"markers":       markers,
+	}
+	payloadBytes, _ := json.MarshalIndent(payload, "", "  ")
+	payloadRef := StoreBlobArtifact(ctxWorkDir(ctx), t.Name(), "trace-query-recipe-discovery.json", string(payloadBytes))
+	summary := traceQueryRecipeDiscoverySummary(path, sourceLabel, p, info.Size(), scannedLines, markers, truncated, payloadRef)
+	preview, rawRef := StoreBlob(ctx, t.Name(), summary)
+	if rawRef == "" {
+		rawRef = payloadRef
+	}
+	return types.ToolResult{
+		ToolName:  t.Name(),
+		Success:   true,
+		Summary:   preview,
+		RawRef:    rawRef,
+		Timestamp: time.Now(),
+	}, true
+}
+
+func traceQueryShouldUseLargeRecipeDiscovery(p traceQueryParams, size int64) bool {
+	if size < traceQueryLargeRecipeDiscoveryMinBytes {
+		return false
+	}
+	if strings.TrimSpace(p.View) != "recipe" {
+		return false
+	}
+	recipe := strings.ToLower(strings.TrimSpace(p.RecipeName))
+	recipe = strings.ReplaceAll(recipe, "-", "_")
+	if recipe != "" && recipe != "auto" && recipe != "jank" && recipe != "frame" && recipe != "frame_jank" && recipe != "render" && recipe != "render_pipeline" {
+		return false
+	}
+	return !traceQueryHasExplicitNarrowing(p)
+}
+
+func traceQueryHasExplicitNarrowing(p traceQueryParams) bool {
+	return p.TimeStart.Set() ||
+		p.TimeEnd.Set() ||
+		p.LineStart.Int() > 0 ||
+		p.LineEnd.Int() > 0 ||
+		p.PID.Int() > 0 ||
+		strings.TrimSpace(p.Thread) != "" ||
+		strings.TrimSpace(p.SpanName) != "" ||
+		len(p.EventTypes.Strings()) > 0
+}
+
+func traceQueryRecipeDiscoveryTokens(ctx *types.BusContext, p traceQueryParams) []traceQueryRecipeDiscoveryToken {
+	var tokens []traceQueryRecipeDiscoveryToken
+	add := func(s string, primary bool) {
+		s = strings.TrimSpace(s)
+		if s != "" {
+			tokens = append(tokens, traceQueryRecipeDiscoveryToken{Text: s, Primary: primary})
+		}
+	}
+	for _, token := range traceQueryObjectiveKVTokenRE.FindAllString(traceQueryObjectiveText(ctx), 12) {
+		add(token, true)
+	}
+	add(p.SpanName, true)
+	add("jank_frames", false)
+	add("jank", false)
+	add("FrameTimeline", false)
+	add("ActualTimeline", false)
+	add("ExpectedTimeline", false)
+	add("Choreographer#doFrame", false)
+	add("RenderFrame", false)
+	seen := map[string]bool{}
+	out := make([]traceQueryRecipeDiscoveryToken, 0, len(tokens))
+	for _, token := range tokens {
+		key := strings.ToLower(strings.TrimSpace(token.Text))
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, token)
+	}
+	return out
+}
+
+func traceQueryObjectiveText(ctx *types.BusContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	return ctx.Mutable.Objective()
+}
+
+func scanTraceQueryRecipeMarkers(ctx context.Context, path string, tokens []traceQueryRecipeDiscoveryToken, maxMarkers int) ([]traceQueryRecipeDiscoveryMarker, int, bool, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if maxMarkers <= 0 {
+		maxMarkers = 48
+	}
+	lowerTokens := make([]traceQueryRecipeDiscoveryToken, 0, len(tokens))
+	for _, token := range tokens {
+		token.Text = strings.ToLower(strings.TrimSpace(token.Text))
+		if token.Text != "" {
+			lowerTokens = append(lowerTokens, token)
+		}
+	}
+	if len(lowerTokens) == 0 {
+		lowerTokens = []traceQueryRecipeDiscoveryToken{{Text: "jank"}}
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	defer f.Close()
+	r := bufio.NewReaderSize(f, 256*1024)
+	var markers []traceQueryRecipeDiscoveryMarker
+	truncated := false
+	lineNo := 0
+	for {
+		if err := ctx.Err(); err != nil {
+			return markers, lineNo, truncated, err
+		}
+		line, err := r.ReadString('\n')
+		if len(line) > 0 {
+			lineNo++
+			trimmed := strings.TrimRight(line, "\r\n")
+			if token, primary := firstTraceQueryMarkerToken(trimmed, lowerTokens); token != "" {
+				marker := traceQueryRecipeDiscoveryMarker{
+					Line:    lineNo,
+					Ts:      traceQueryTimestampFromLine(trimmed),
+					Token:   token,
+					Primary: primary,
+					Raw:     truncateForLog(trimmed, 500),
+				}
+				if len(markers) < maxMarkers {
+					markers = append(markers, marker)
+				} else if primary && replaceLastFallbackMarker(markers, marker) {
+					truncated = true
+				} else {
+					truncated = true
+					if primary {
+						break
+					}
+				}
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return markers, lineNo, truncated, err
+		}
+	}
+	return markers, lineNo, truncated, nil
+}
+
+func firstTraceQueryMarkerToken(line string, lowerTokens []traceQueryRecipeDiscoveryToken) (string, bool) {
+	lower := strings.ToLower(line)
+	for _, token := range lowerTokens {
+		if strings.Contains(lower, token.Text) {
+			return token.Text, token.Primary
+		}
+	}
+	return "", false
+}
+
+func replaceLastFallbackMarker(markers []traceQueryRecipeDiscoveryMarker, marker traceQueryRecipeDiscoveryMarker) bool {
+	for i := len(markers) - 1; i >= 0; i-- {
+		if !markers[i].Primary {
+			markers[i] = marker
+			return true
+		}
+	}
+	return false
+}
+
+func traceQueryTimestampFromLine(line string) float64 {
+	m := traceQueryTimestampRE.FindStringSubmatch(line)
+	if len(m) < 2 {
+		return 0
+	}
+	var ts float64
+	_, _ = fmt.Sscanf(m[1], "%f", &ts)
+	return ts
+}
+
+func traceQueryRecipeDiscoverySummary(path, sourceLabel string, p traceQueryParams, size int64, scannedLines int, markers []traceQueryRecipeDiscoveryMarker, truncated bool, payloadRef string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "[trace_query params: view=recipe source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace recipe_name=%s mode=large_trace_recipe_discovery platform=%s trace_flavor=%s payload_ref=%s]\n",
+		sourceLabel,
+		sanitizeForBanner(path),
+		traceQueryArtifactID(sourceLabel),
+		sanitizeForBanner(firstNonEmptyTraceString(p.RecipeName, "jank")),
+		sanitizeForBanner(p.Platform),
+		sanitizeForBanner(p.TraceFlavor),
+		sanitizeForBanner(payloadRef),
+	)
+	b.WriteString("# Trace Query: recipe discovery\n\n")
+	fmt.Fprintf(&b, "source=%s size_bytes=%d scanned_lines=%d matched_markers=%d\n", sanitizeForBanner(path), size, scannedLines, len(markers))
+	if payloadRef != "" {
+		fmt.Fprintf(&b, "payload_ref=%s\n", sanitizeForBanner(payloadRef))
+	}
+	b.WriteString("large_trace_recipe_guard=unbounded jank recipe on a large trace was not expanded into full-trace window_stats/root_cause_rank/scheduler scans. Select a marker below, then rerun trace_query with line_start/line_end or time_start/time_end.\n")
+	if truncated {
+		b.WriteString("discovery_compacted=true; more markers exist in the trace, see payload_ref or refine with span_name/time/line filters.\n")
+	}
+	if len(markers) > 0 {
+		b.WriteString("\n## Candidate jank/frame markers\n")
+		for _, marker := range markers {
+			primary := ""
+			if marker.Primary {
+				primary = " primary=true"
+			}
+			fmt.Fprintf(&b, "- line=%d ts=%.6f token=%s%s raw=%s\n", marker.Line, marker.Ts, sanitizeForBanner(marker.Token), primary, sanitizeForBanner(marker.Raw))
+		}
+		first := firstPrimaryTraceQueryMarker(markers)
+		start := first.Line - 200
+		if start < 1 {
+			start = 1
+		}
+		end := first.Line + 200
+		fmt.Fprintf(&b, "\nnext_call_hint=rerun `trace_query` with view=\"recipe\", recipe_name=\"jank\", path=\"%s\", line_start=%d, line_end=%d; if this marker is a B/E span, alternatively use span_window around the marker then rerun with time_start/time_end.\n", sanitizeForBanner(path), start, end)
+		if first.Ts > 0 {
+			tsStart := first.Ts - 0.250
+			if tsStart < 0 {
+				tsStart = 0
+			}
+			fmt.Fprintf(&b, "time_window_hint=around first marker: time_start=%.6f time_end=%.6f seconds\n", tsStart, first.Ts+0.250)
+		}
+	} else {
+		b.WriteString("\nno_marker_advisory=no jank/frame marker was found by the light discovery tokens. Provide span_name, time_start/time_end, line_start/line_end, pid/thread, or run event_search for a narrower deterministic query before requesting the full recipe.\n")
+	}
+	return b.String()
+}
+
+func firstPrimaryTraceQueryMarker(markers []traceQueryRecipeDiscoveryMarker) traceQueryRecipeDiscoveryMarker {
+	for _, marker := range markers {
+		if marker.Primary {
+			return marker
+		}
+	}
+	if len(markers) == 0 {
+		return traceQueryRecipeDiscoveryMarker{}
+	}
+	return markers[0]
 }
 
 func normalizedTraceQueryWindow(p traceQueryParams) (float64, float64, string) {
