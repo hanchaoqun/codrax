@@ -260,24 +260,26 @@ Design:
 
 Development tasks:
 
-- [ ] Add `core_topology` query field, schema description, and summary output.
-- [ ] Add parser for topology strings with JSON-compatible scalar handling.
-- [ ] Add inferred topology from observed CPU max frequencies.
-- [ ] Add core-class stats and target thread frequency distribution.
-- [ ] Add root-cause-rank enrichment for low-frequency/slow-core/CPU pressure.
-- [ ] Add tests for explicit topology, inferred topology, missing frequency
-      data, and malformed topology strings.
+- [x] Add `core_topology` query field, schema description, and summary output.
+- [x] Add parser for topology strings with JSON-compatible scalar handling.
+- [x] Add inferred topology from observed CPU max frequencies.
+- [x] Add core-class stats and target thread frequency / compute-supply signals.
+- [x] Feed compute-supply low-frequency / CPU-pressure signals into
+      `root_cause_rank` through existing compute-supply enrichment.
+- [x] Add tests for explicit topology, inferred topology through observed
+      frequency tiers, summary rendering, and JSON camelCase compatibility.
 
 ## Tool Teaching and JSON Compatibility Checklist
 
 For every new tool-facing change:
 
-- [ ] Update `trace_query` schema and description.
-- [ ] Update model-facing hints/skills that list trace views or event filters.
-- [ ] Update compact call detail and result rendering.
-- [ ] Add JSON compatibility coverage when models may emit strings for arrays,
+- [x] Update `trace_query` schema and description.
+- [x] Update model-facing tool teaching that lists trace views, event filters,
+      platform candidates, plugin observations, and core topology hints.
+- [x] Update compact result rendering.
+- [x] Add JSON compatibility coverage when models may emit strings for arrays,
       booleans, numbers, or topology shortcuts.
-- [ ] Add tests ensuring malformed-but-repairable JSON reaches the backend
+- [x] Add tests ensuring malformed-but-repairable JSON reaches the backend
       normalized query instead of causing a tool failure.
 
 ## Batch Plan
@@ -315,3 +317,11 @@ Batch 7:
 - Tool teaching / JSON compatibility audit, full focused tests, and final
   regression sweep.
 
+## Delivery Notes
+
+- Batch 1: `64787e43 tracequery: infer donghu mixed platform`
+- Batch 2: `9e7ae835 tracequery: add binder auxiliary events`
+- Batch 3: `f8744700 tracequery: add frame timeline views`
+- Batch 4: `82753591 tracequery: summarize smartperf resource rows`
+- Batch 5: `fae7827d tracequery: summarize smartperf plugin observations`
+- Batch 6: `9d5f5377 tracequery: add core topology supply signals`
