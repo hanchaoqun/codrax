@@ -318,6 +318,9 @@ func shouldIncludeCurrentSourceOrigin(rm RequestModel, contract *AnswerContract)
 	if typesContractRequiresCurrentSource(contract) {
 		return true
 	}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		return false
+	}
 	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
 		return true
 	}

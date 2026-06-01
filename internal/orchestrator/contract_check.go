@@ -3329,7 +3329,7 @@ func skipLLMAnswerReviewForObservationOnlyArtifact(ctx *types.BusContext, doc *t
 		return false
 	}
 	rm := ctx.Mutable.RequestModel()
-	if rm == nil || !rm.HasObservationOnlyRuntimeArtifact() {
+	if rm == nil || !rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
 		return false
 	}
 	if rm.DiagramHint != nil {

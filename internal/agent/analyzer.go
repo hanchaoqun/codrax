@@ -2379,13 +2379,13 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	//
 	// The measurement-scalar / history-lookup carve-out is signalled
 	// downstream via Predicates.IsScalarAnswer (read by builder.go's
-	// citation-free Raw Tool Outputs gate). Observation-only runtime
-	// artifact disposition is signalled via RequestModel.LogTriage /
-	// PerfTrace plus ExternalObservationPolicy and
+	// citation-free Raw Tool Outputs gate). Runtime artifacts whose
+	// current-source lane is not required are signalled via RequestModel
+	// LogTriage / PerfTrace plus CurrentSourceLaneDecision and
 	// AnswerSurfacePlan.RuntimeGroundingDisposition.
 	// No answer-body synthesis happens here: this only removes
 	// structurally impossible citation floors.
-	if isMeasurementScalar || isHistoryLookup || rm.HasObservationOnlyRuntimeArtifact() {
+	if isMeasurementScalar || isHistoryLookup || rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
 		out.AnswerContract.CitationReq.Required = false
 		out.AnswerContract.CitationReq.MinCitations = 0
 		out.AnswerContract.AcceptanceTests = dropCitationCountGE(out.AnswerContract.AcceptanceTests)

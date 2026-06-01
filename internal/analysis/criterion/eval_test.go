@@ -121,6 +121,36 @@ func TestEval_EvidenceCount_ObservationOnlyRuntimeUsesArtifactFacts(t *testing.T
 	}
 }
 
+func TestEval_EvidenceCount_SourceOptionalRuntimeUsesArtifactFacts(t *testing.T) {
+	perfBundle := &types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace", Signals: []string{"jank"}},
+		Observations: []types.PerfObservation{{
+			Kind:       "trace_query",
+			Subject:    "Choreographer#doFrame 1254842",
+			Summary:    "scheduler latency caused the frame miss",
+			LineStart:  1139180,
+			DurationMs: 123,
+		}},
+	}
+	env := Env{
+		IR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioRootCause,
+				PerfTrace: perfBundle,
+			},
+		},
+		PerfTrace: perfBundle,
+	}
+	r := Eval(types.Criterion{Kind: string(KindEvidenceCount), Expr: ">=2"}, env)
+	if !r.Satisfied {
+		t.Fatalf("source-optional runtime artifact should waive repo evidence_count, got: %s", r.Detail)
+	}
+	if !strings.Contains(r.Detail, "external_observations=") {
+		t.Fatalf("detail should explain artifact evidence accounting, got: %s", r.Detail)
+	}
+}
+
 func TestEval_EvidenceCount_MCPObservationOnlyCompletionUsesExternalRows(t *testing.T) {
 	env := Env{
 		ObservationOnlyCompletion: true,

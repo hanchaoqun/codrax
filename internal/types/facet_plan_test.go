@@ -524,6 +524,40 @@ func TestCompileFacetCoverage_ExternalOnlyRuntimeDoesNotPromoteCurrentCodePath(t
 	}
 }
 
+func TestCompileFacetCoverage_RuntimeArtifactOptionalSourceDoesNotRequireCurrentCodePath(t *testing.T) {
+	rm := RequestModel{
+		Intent: IntentRootCause,
+		PerfTrace: &PerfBundle{
+			Janks: []PerfJank{{TriggerSpan: "Choreographer#doFrame", DurationMs: 123}},
+		},
+	}
+	surface := []EvidenceItem{
+		{ID: "repo-helper", Source: "internal/tracequery/query.go", LineStart: 27, AnchorKind: AnchorDefinition},
+	}
+	plan := CompileFacetCoverage(rm, surface)
+	if plan == nil {
+		t.Fatal("plan must be non-nil")
+	}
+	for _, req := range plan.Required {
+		if req.Kind == FacetCurrentCodePath {
+			t.Fatalf("source-optional runtime artifact must not keep current_code_path in Required facets: %+v", req)
+		}
+	}
+	var current *FacetRequirement
+	for i := range plan.Optional {
+		if plan.Optional[i].Kind == FacetCurrentCodePath {
+			current = &plan.Optional[i]
+			break
+		}
+	}
+	if current == nil {
+		t.Fatal("current_code_path should remain optional enrichment for source-optional runtime artifacts")
+	}
+	if len(current.SourceCandidate) != 0 {
+		t.Fatalf("optional source helper rows must not satisfy runtime-artifact repo facets by accident: %+v", current.SourceCandidate)
+	}
+}
+
 func TestCompileFacetCoverage_LogObservationOnlyDoesNotPromoteCurrentCodePath(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentRootCause,

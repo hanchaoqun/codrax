@@ -175,6 +175,13 @@ func observationOnlyRuntimeArtifactForExplorer(ctx *types.AgentContext) bool {
 	return ctx.AnalysisIR.RequestModel.HasObservationOnlyRuntimeArtifact()
 }
 
+func runtimeArtifactWithoutRequiredSourceForExplorer(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	return ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSource()
+}
+
 func observationOnlyRuntimeArtifactForAnalyzer(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.Stage != types.StageAnalyze {
 		return false

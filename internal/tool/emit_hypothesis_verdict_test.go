@@ -375,6 +375,50 @@ func TestEmitHypothesisVerdict_AcceptsRationaleOnlyRuntimeArtifactVerdict(t *tes
 	}
 }
 
+func TestEmitHypothesisVerdict_AcceptsRationaleOnlyRuntimeArtifactVerdictWhenSourceOptional(t *testing.T) {
+	tool := &EmitHypothesisVerdict{}
+	perfBundle := &types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace", Signals: []string{"jank"}},
+		Observations: []types.PerfObservation{{
+			Kind:       "trace_query",
+			Subject:    "Choreographer#doFrame 1254842",
+			Summary:    "trace_query identified scheduler latency as the frame root cause",
+			LineStart:  1139180,
+			DurationMs: 123,
+			Confidence: 0.95,
+		}},
+	}
+	mut := types.NewMutableState("")
+	mut.SetPerfTrace(perfBundle)
+	ctx := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			Version: types.AnalysisIRVersion,
+			RequestModel: types.RequestModel{
+				Language:  "zh",
+				Intent:    types.IntentRootCause,
+				PerfTrace: perfBundle,
+			},
+		},
+	}
+	params := json.RawMessage(`{"items":[{"hypothesis_id":"h1","status":"confirmed","rationale":"trace_query 已定位 Choreographer#doFrame 1254842 的丢帧根因。"}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("source-optional runtime artifact verdict should be accepted, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedHypothesisVerdicts()
+	if len(got) != 1 {
+		t.Fatalf("want 1 verdict, got %d", len(got))
+	}
+	if got[0].Citation != "" {
+		t.Fatalf("runtime artifact rationale must not become repo citation, got %q", got[0].Citation)
+	}
+}
+
 func TestEmitHypothesisVerdict_NormalizesArtifactLocalTraceLineCitation(t *testing.T) {
 	tool := &EmitHypothesisVerdict{}
 	perfBundle := &types.PerfBundle{

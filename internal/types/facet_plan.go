@@ -790,7 +790,7 @@ func CompileFacetCoverage(rm RequestModel, surface []EvidenceItem, sinks ...Rich
 		if family == QFConfigPrecedence && req.Kind == FacetConfigPrecedenceRole {
 			bound = bindConfigPrecedenceRoleCandidates(bound, rm, surface)
 		}
-		if observationOnlyRuntimeSuppressesRepoFacet(rm, bound.Kind) {
+		if runtimeArtifactWithoutRequiredSourceSuppressesRepoFacet(rm, bound.Kind) {
 			bound.SourceCandidate = nil
 		}
 		// Phase 1 fallback: if a HARD requirement has no candidate,
@@ -943,13 +943,12 @@ func familyTemplate(family QuestionFamily, rm RequestModel) []FacetRequirement {
 		nearestRequired := FacetSoftRequired
 		diagramRequired := FacetOptional
 		diagramForms := []ClaimForm{ClaimCallEdge, ClaimGuardCondition}
-		if rm.HasObservationOnlyRuntimeArtifact() {
-			// External-only runtime artifacts are answer-grade for
-			// observed frames / events but cannot prove today's
-			// current-code path. Keep current-code and diagram facets
-			// enrichment-only so helper functions discovered during
-			// the investigation cannot displace the user's artifact
-			// question.
+		if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+			// Runtime artifacts are answer-grade for observed frames /
+			// events when current source is not required. Keep
+			// current-code and diagram facets enrichment-only so helper
+			// functions discovered during optional source exploration
+			// cannot displace the user's artifact question.
 			currentCodeRequired = FacetOptional
 			nearestRequired = FacetOptional
 			diagramForms = []ClaimForm{ClaimExternalObservation}
@@ -1080,8 +1079,8 @@ func uncertaintyBoundaryFacet(required FacetRequiredness) FacetRequirement {
 	}
 }
 
-func observationOnlyRuntimeSuppressesRepoFacet(rm RequestModel, kind AnswerFacetKind) bool {
-	if !rm.HasObservationOnlyRuntimeArtifact() {
+func runtimeArtifactWithoutRequiredSourceSuppressesRepoFacet(rm RequestModel, kind AnswerFacetKind) bool {
+	if !rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
 		return false
 	}
 	switch kind {

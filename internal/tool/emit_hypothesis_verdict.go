@@ -87,7 +87,7 @@ func (t *EmitHypothesisVerdict) Description() string {
 		"flagged. status is one of: confirmed (transcript supports it), rejected (transcript " +
 		"falsifies it), inconclusive (investigated but evidence is insufficient — distinct from " +
 		"'never investigated'). Current-repo confirmed and rejected verdicts require a citation in " +
-		"the form 'path:line' or 'path:line-end'. For observation-only external log / trace questions, " +
+		"the form 'path:line' or 'path:line-end'. For external log / trace questions whose current-source lane is not required, " +
 		"a citation that exactly matches an attached runtime frame or an artifact-local gutter line " +
 		"(for example 'log:3', 'trace:5-6', or 'runtime_artifact:1-5') is accepted as artifact " +
 		"context and is not published as a repo citation. For accepted external observation origins " +
@@ -108,7 +108,7 @@ func (t *EmitHypothesisVerdict) Parameters() json.RawMessage {
         "type": "object",
         "properties": {
           "hypothesis_id": {"type": "string", "description": "Hypothesis ID listed in the Hypotheses section of the prompt. Required. Unknown IDs are diagnosed."},
-          "status":        {"type": "string", "enum": ["confirmed", "rejected", "inconclusive"], "description": "Verdict. Current-repo confirmed/rejected verdicts require a citation; observation-only runtime-frame, artifact-local line citations, or typed origin-specific external observation refs are accepted as external context when the ledger proves that origin; inconclusive may omit it."},
+          "status":        {"type": "string", "enum": ["confirmed", "rejected", "inconclusive"], "description": "Verdict. Current-repo confirmed/rejected verdicts require a citation; runtime-frame/artifact-local line citations are accepted as external context when the current-source lane is not required; typed origin-specific external observation refs are accepted when the ledger proves that origin; inconclusive may omit it."},
           "rationale":     {"type": "string", "description": "Rationale for the verdict — explain the mechanism or invariant that produced the status. Reference load-bearing identifiers with inline ` + "`" + `code` + "`" + `. Strongly recommended."},
           "citation":      {"type": "string", "description": "Concrete current-repo code anchor in the form 'path:line' or 'path:line-end'. For external observation evidence, this may instead be an exact runtime artifact line/frame or a typed origin-specific ref such as 'git_log: commit abc123', 'git_diff: HEAD~1', 'exec_command: <tool result>', 'mcp_resource: <uri>', or 'web_page: <url>'; the tool preserves accepted external refs as context rather than repo proof. Required for current-repo confirmed/rejected unless evidence_id names an already accepted grounded evidence item."},
           "evidence_id":   {"type": "string", "description": "Optional local-model compatibility shortcut: id of an already accepted grounded evidence item. The tool resolves it to citation automatically; do not invent ids."}
@@ -463,7 +463,7 @@ func hypothesisVerdictHasAnyOriginSpecificSupport(ctx *types.BusContext) bool {
 }
 
 func hypothesisVerdictRationaleOnlyArtifactCitation(ctx *types.BusContext, rationale string) (string, bool) {
-	if ctx == nil || ctx.AnalysisIR == nil || !ctx.AnalysisIR.RequestModel.HasObservationOnlyRuntimeArtifact() ||
+	if ctx == nil || ctx.AnalysisIR == nil || !ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSource() ||
 		strings.TrimSpace(rationale) == "" {
 		return "", false
 	}
@@ -489,7 +489,7 @@ func hypothesisVerdictRationaleOnlyArtifactCitation(ctx *types.BusContext, ratio
 }
 
 func hypothesisVerdictLocalArtifactCitation(ctx *types.BusContext, raw string) (string, bool) {
-	if ctx == nil || ctx.AnalysisIR == nil || !ctx.AnalysisIR.RequestModel.HasObservationOnlyRuntimeArtifact() {
+	if ctx == nil || ctx.AnalysisIR == nil || !ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSource() {
 		return "", false
 	}
 	candidates := []string{strings.TrimSpace(raw)}

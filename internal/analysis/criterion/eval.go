@@ -760,7 +760,7 @@ func evalEvidenceCount(expr string, env Env) Result {
 }
 
 func externalRuntimeEvidenceFloorWaived(env Env) (count int, waived bool) {
-	if env.IR == nil || !env.IR.RequestModel.HasObservationOnlyRuntimeArtifact() {
+	if env.IR == nil || !env.IR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSource() {
 		if !env.ObservationOnlyCompletion {
 			return 0, false
 		}

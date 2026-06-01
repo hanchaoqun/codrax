@@ -12,6 +12,32 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+func TestCompletionAggregateFactsAreOptional_SourceOptionalRuntimeDiagnostic(t *testing.T) {
+	ctx := &types.BusContext{AnalysisIR: &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Intent: types.IntentRootCause,
+			Predicates: types.SemanticPredicates{
+				IsDiagnosticQuestion: true,
+			},
+			DiagnosticProfile: types.DiagnosticIntentProfile{IsDiagnostic: true},
+			LogTriage: &types.LogBundle{
+				Errors: []types.LogError{{Type: "jank"}},
+			},
+		},
+	}}
+	if !ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("test setup must be a runtime artifact whose current-source lane is not required")
+	}
+	if !completionAggregateFactsAreOptional(ctx, "resolved") {
+		t.Fatal("source-optional runtime diagnostic aggregate facts should be optional handoff context")
+	}
+
+	ctx.AnalysisIR.RequestModel.Predicates.IsCountQuestion = true
+	if completionAggregateFactsAreOptional(ctx, "resolved") {
+		t.Fatal("typed count obligations must remain strict even for runtime artifacts")
+	}
+}
+
 // TestEmitInvestigationComplete_PreCompleteCheck_PendingReadsBlocks
 // is the CGEC E1 regression. When the closure has queued a
 // PendingRead the tool MUST return a downgrade message AND must NOT

@@ -821,6 +821,9 @@ func TestBuildAnalysisIR_ExternalRuntimeCurrentRiskWithoutCurrentVersionKeepsSou
 	if ir.AnswerContract.CurrentStatusDiagnostic != nil && ir.AnswerContract.CurrentStatusDiagnostic.Required {
 		t.Fatalf("CurrentStatusDiagnostic should not be required: %+v", ir.AnswerContract.CurrentStatusDiagnostic)
 	}
+	if ir.AnswerContract.CitationReq.Required {
+		t.Fatal("source-optional external runtime artifact should not keep a hard current-source citation floor")
+	}
 }
 
 func TestBuildAnalysisIR_LogObservationLookupKeepsSourceDefault(t *testing.T) {

@@ -693,7 +693,7 @@ func completionAggregateFactsCanCompactForRuntime(ctx *types.BusContext) bool {
 		return false
 	}
 	rm := ctx.AnalysisIR.RequestModel
-	return rm.HasExternalOnlyRuntimeArtifact() && !rm.CurrentSourceLaneDecision().RequiresCurrentSource()
+	return rm.HasRuntimeArtifactWithoutRequiredCurrentSource()
 }
 
 func compactCompletionAggregateFactsForRuntime(raw []types.AnswerAggregateFact, limit int) []types.AnswerAggregateFact {
@@ -941,7 +941,6 @@ func completionAggregateFactsAreOptional(ctx *types.BusContext, resultKind strin
 		rm.Predicates.IsCountQuestion ||
 		rm.Predicates.IsCategoryEnumeration ||
 		rm.Predicates.IsRelationalLookup ||
-		rm.Predicates.IsDiagnosticQuestion ||
 		rm.QuestionStructure().HasAnyObligation() ||
 		types.RequiresExhaustiveEnumerationMemberSetHandoff(rm) ||
 		types.RequiresRelationMemberSetHandoff(rm) {
@@ -953,8 +952,12 @@ func completionAggregateFactsAreOptional(ctx *types.BusContext, resultKind strin
 	if rm.FieldValueProfile != nil && rm.FieldValueProfile.Active() {
 		return false
 	}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		return true
+	}
 	return rm.Intent == types.IntentExplain ||
 		rm.Intent == types.IntentTrace ||
+		rm.Predicates.IsDiagnosticQuestion ||
 		rm.Scenario == types.ScenarioArchitectureExplain ||
 		types.IsHistoryBackedCurrentCodeExplanation(rm)
 }
@@ -2445,8 +2448,7 @@ func runtimeArtifactGroundingBypassAllowed(ctx *types.BusContext) bool {
 			rm.PerfTrace = ctx.Mutable.PerfTrace()
 		}
 	}
-	return rm.HasExternalOnlyRuntimeArtifact() &&
-		!rm.CurrentSourceLaneDecision().RequiresCurrentSource()
+	return rm.HasRuntimeArtifactWithoutRequiredCurrentSource()
 }
 
 func historyCountAggregateHandoffDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {
@@ -3604,7 +3606,7 @@ func decoratedAggregateMemberCanRelyOnRuntimeArtifactProvenance(ctx *types.BusCo
 		return false
 	}
 	rm := requestModelForAggregateSupport(ctx)
-	if rm == nil || !rm.HasExternalOnlyRuntimeArtifact() || rm.CurrentSourceLaneDecision().RequiresCurrentSource() {
+	if rm == nil || !rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
 		return false
 	}
 	for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {

@@ -140,10 +140,11 @@ type Env struct {
 	// lowers evidence_count thresholds to >=1.
 	InvestigationComplete bool
 	// ObservationOnlyCompletion is true when the explore layer accepted an
-	// external-observation-only investigation closure. In that narrow lane,
-	// external typed observations (runtime artifacts, MCP resources, etc.) are
-	// answer-grade evidence, but they must not be converted into current-source
-	// EvidenceItems just to satisfy repo evidence_count floors.
+	// external-observation investigation closure without requiring current
+	// source evidence. In that lane, typed external observations (runtime
+	// artifacts, MCP resources, etc.) are answer-grade evidence, but they must
+	// not be converted into current-source EvidenceItems just to satisfy repo
+	// evidence_count floors.
 	ObservationOnlyCompletion bool
 	// MCPResponses carries accepted MCP tool/resource responses. Criteria only
 	// count them when ObservationOnlyCompletion is true, so mixed MCP+source

@@ -11736,7 +11736,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	if ctx != nil && ctx.Mutable != nil {
 		stopParseSection = startExplorerParseSectionWatchdog(ctx, "turn_a_handoff")
 		handoffEvidence := buildTurnAHandoffEvidence(ctx, questionKind, rankedEvidence, answerChains)
-		runtimeObservationOnlyCompletion := observationOnlyRuntimeArtifactForExplorer(ctx) &&
+		runtimeObservationOnlyCompletion := runtimeArtifactWithoutRequiredSourceForExplorer(ctx) &&
 			strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason()) != "" &&
 			strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()) != ""
 		snapshot := types.TurnAArtifacts{

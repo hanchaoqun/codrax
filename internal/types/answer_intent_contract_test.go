@@ -169,7 +169,7 @@ func TestCompileAnswerIntentContract_CurrentSourceCountUsesMeasurementOrigin(t *
 	)
 }
 
-func TestCompileAnswerIntentContract_ExternalRuntimeArtifactDefaultsToCurrentSource(t *testing.T) {
+func TestCompileAnswerIntentContract_ExternalRuntimeArtifactWithoutRequiredSourceUsesRuntimeOrigin(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentRootCause,
 		Predicates: SemanticPredicates{
@@ -182,7 +182,7 @@ func TestCompileAnswerIntentContract_ExternalRuntimeArtifactDefaultsToCurrentSou
 	}
 	got := CompileAnswerIntentContract(rm, nil)
 	assertAnswerIntentContract(t, got,
-		[]AnswerEvidenceOrigin{AnswerEvidenceOriginCurrentSource, AnswerEvidenceOriginRuntimeArtifact},
+		[]AnswerEvidenceOrigin{AnswerEvidenceOriginRuntimeArtifact},
 		[]AnswerRequestedOutput{AnswerRequestedOutputSummary, AnswerRequestedOutputDiagnostic},
 	)
 }
@@ -213,7 +213,7 @@ func TestCompileAnswerIntentContract_ExternalRuntimeArtifactExplicitExcludeSuppr
 	}
 }
 
-func TestCompileAnswerIntentContract_TraceArtifactDefaultsToCurrentSource(t *testing.T) {
+func TestCompileAnswerIntentContract_TraceArtifactWithoutRequiredSourceUsesRuntimeOrigin(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentTrace,
 		PerfTrace: &PerfBundle{
@@ -222,7 +222,7 @@ func TestCompileAnswerIntentContract_TraceArtifactDefaultsToCurrentSource(t *tes
 	}
 	got := CompileAnswerIntentContract(rm, nil)
 	assertAnswerIntentContract(t, got,
-		[]AnswerEvidenceOrigin{AnswerEvidenceOriginCurrentSource, AnswerEvidenceOriginRuntimeArtifact},
+		[]AnswerEvidenceOrigin{AnswerEvidenceOriginRuntimeArtifact},
 		[]AnswerRequestedOutput{AnswerRequestedOutputSummary, AnswerRequestedOutputTrace, AnswerRequestedOutputDiagnostic},
 	)
 }
@@ -250,7 +250,7 @@ func TestCompileAnswerIntentContract_MCPResourceDefaultsToCurrentSourceUnlessExc
 	)
 }
 
-func TestCompileAnswerIntentContract_ExternalRuntimeArtifactCurrentStatusWithoutAnchorStillKeepsSource(t *testing.T) {
+func TestCompileAnswerIntentContract_ExternalRuntimeArtifactCurrentStatusWithoutAnchorSuppressesCurrentSource(t *testing.T) {
 	rm := RequestModel{
 		Intent: IntentRootCause,
 		Predicates: SemanticPredicates{
@@ -267,7 +267,7 @@ func TestCompileAnswerIntentContract_ExternalRuntimeArtifactCurrentStatusWithout
 	}
 	got := CompileAnswerIntentContract(rm, nil)
 	assertAnswerIntentContract(t, got,
-		[]AnswerEvidenceOrigin{AnswerEvidenceOriginCurrentSource, AnswerEvidenceOriginRuntimeArtifact},
+		[]AnswerEvidenceOrigin{AnswerEvidenceOriginRuntimeArtifact},
 		[]AnswerRequestedOutput{AnswerRequestedOutputSummary, AnswerRequestedOutputDiagnostic},
 	)
 }

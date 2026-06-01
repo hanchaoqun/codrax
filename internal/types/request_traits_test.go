@@ -188,6 +188,9 @@ func TestCurrentSourceLaneDecision_RuntimeArtifactDefaultOptional(t *testing.T) 
 	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneAllowedOptional {
 		t.Fatalf("runtime artifact with unresolved trace targets should be source-optional, got %s", got)
 	}
+	if !rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("source-optional runtime artifact should satisfy the no-required-current-source contract")
+	}
 
 	rm.AnalyzerHints.RequiredFileHints = []RequiredFileHint{{
 		Path:       "internal/llm/openai.go",
@@ -195,6 +198,9 @@ func TestCurrentSourceLaneDecision_RuntimeArtifactDefaultOptional(t *testing.T) 
 	}}
 	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
 		t.Fatalf("current-source required_file hint should require source lane, got %s", got)
+	}
+	if rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("current-source required_file hint must clear the no-required-current-source contract")
 	}
 
 	rm.AnalyzerHints.RequiredFileHints = []RequiredFileHint{{
@@ -204,6 +210,9 @@ func TestCurrentSourceLaneDecision_RuntimeArtifactDefaultOptional(t *testing.T) 
 	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneAllowedOptional {
 		t.Fatalf("runtime artifact required_file hint must not require source lane, got %s", got)
 	}
+	if !rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("runtime-artifact-only hint should keep the no-required-current-source contract")
+	}
 
 	rm.ExternalObservationPolicy = &ExternalObservationPolicy{
 		CurrentSourceMode: ExternalObservationCurrentSourceExclude,
@@ -212,6 +221,9 @@ func TestCurrentSourceLaneDecision_RuntimeArtifactDefaultOptional(t *testing.T) 
 	}
 	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneExcluded {
 		t.Fatalf("explicit exclusion should exclude source lane, got %s", got)
+	}
+	if !rm.HasRuntimeArtifactWithoutRequiredCurrentSource() {
+		t.Fatal("explicit source exclusion should also satisfy the no-required-current-source contract")
 	}
 }
 

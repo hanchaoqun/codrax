@@ -928,6 +928,22 @@ func TestSkipSemanticQualityForObservationOnlyArtifact_SkipsOnlyPureSimpleArtifa
 	if !skipLLMAnswerReviewForObservationOnlyArtifact(ctx, pureArtifactDoc, nil) {
 		t.Fatal("shared LLM-review gate should skip the same pure observation-only artifact answer")
 	}
+	defaultPolicyMut := types.NewMutableState("这是什么错误？")
+	defaultPolicyMut.SetRequestModel(types.RequestModel{
+		Intent:     types.IntentRootCause,
+		Scenario:   types.ScenarioRootCause,
+		Complexity: types.ComplexitySimple,
+		LogTriage:  bundle,
+		Predicates: types.SemanticPredicates{
+			IsDiagnosticQuestion: true,
+		},
+		DiagnosticProfile: types.DiagnosticIntentProfile{
+			IsDiagnostic: true,
+		},
+	})
+	if !skipLLMAnswerReviewForObservationOnlyArtifact(&types.BusContext{Mutable: defaultPolicyMut}, pureArtifactDoc, nil) {
+		t.Fatal("source-optional runtime artifact answer without current-source facets should skip LLM reviewers")
+	}
 
 	summaryScalarDoc := &types.AnswerDocumentV2{
 		Blocks: []types.AnswerBlock{

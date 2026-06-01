@@ -978,6 +978,16 @@ func (rm RequestModel) HasObservationOnlyRuntimeArtifact() bool {
 		rm.ExternalObservationPolicy.ExcludesCurrentSource()
 }
 
+// HasRuntimeArtifactWithoutRequiredCurrentSource reports that runtime artifact
+// observations are answer-grade and current-checkout source evidence is not a
+// hard requirement for this request. This is the shared precise signal for
+// suppressing current-source citation/read/review hard gates while preserving the
+// default policy that source exploration remains allowed when useful.
+func (rm RequestModel) HasRuntimeArtifactWithoutRequiredCurrentSource() bool {
+	return rm.HasExternalOnlyRuntimeArtifact() &&
+		!rm.CurrentSourceLaneDecision().RequiresCurrentSource()
+}
+
 // CurrentSourceLaneDecision is the typed, non-prose decision used by hard
 // current-source gates. It separates "source analysis is allowed by default"
 // from "source evidence is required before completion"; external observations
