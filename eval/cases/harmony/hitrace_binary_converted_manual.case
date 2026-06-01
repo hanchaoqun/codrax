@@ -1,0 +1,20 @@
+# Binary HiTrace manual conversion smoke case
+#
+# Coverage target: the manual binary HiTrace converter emits ordinary
+# ftrace/systrace text that the existing perf/trace path can consume without
+# a special binary-analysis mode. Synthetic fixture derived from
+# internal/hitraceconv tests.
+ID="hitrace_binary_converted_manual"
+NAME="Harmony binary HiTrace converted to text systrace"
+QUESTION="这是手动转换后的 Harmony/OpenHarmony hitrace 文本。请说明 2942.124416s 这一行唤醒了哪个线程,并说明 trace 时间单位是秒。"
+HTRACE='# tracer: nop
+#
+# entries-in-buffer/entries-written: 0/0   #P:0
+#
+#           TASK-PID    TGID   CPU#  ||||   TIMESTAMP  FUNCTION
+#              | |        |      |   ||||      |         |
+  com.tencent.mm-36379  (36379) [004] .... 2942.124416: sched_wakeup: comm=com.tencent.mm pid=36379 prio=53 target_cpu=000
+'
+EXPECT_CONTAINS="com.tencent.mm 36379"
+EXPECT_MATCHES_REGEX="2942\\.124416.*(秒|seconds|s)|秒.*2942\\.124416
+(sched_wakeup|唤醒).*(com\\.tencent\\.mm|36379)"

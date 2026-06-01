@@ -1,0 +1,445 @@
+package hitraceconv
+
+import (
+	"encoding/binary"
+	"encoding/hex"
+	"fmt"
+	"strconv"
+	"strings"
+	"unicode"
+)
+
+const systraceHeader = `# tracer: nop
+#
+# entries-in-buffer/entries-written: 0/0   #P:0
+#
+#                              _-----=> irqs-off
+#                             / _----=> need-resched
+#                            | / _---=> hardirq/softirq
+#                            || / _--=> preempt-depth
+#                            ||| /     delay
+#           TASK-PID    TGID   CPU#  ||||   TIMESTAMP  FUNCTION
+#              | |        |      |   ||||      |         |
+`
+
+type decodedEvent struct {
+	format eventFormat
+	fields map[string][]byte
+}
+
+type renderContext struct {
+	cmdlines map[int]string
+	tgids    map[int]int
+}
+
+func renderEventLine(ctx renderContext, tsNS uint64, cpu int, format eventFormat, content []byte) (string, bool) {
+	ev := decodeEvent(format, content)
+	pid := int(intField(ev, "common_pid", false))
+	comm := ctx.cmdlines[pid]
+	if pid == 0 {
+		comm = fmt.Sprintf("tppmgr-idle-%d", cpu)
+	} else if comm == "" {
+		comm = "<...>"
+	}
+	tgidText := "-----"
+	if tgid, ok := ctx.tgids[pid]; ok {
+		tgidText = strconv.Itoa(tgid)
+	}
+	body, known := renderEventBody(ev, content, cpu)
+	name := format.Name
+	if name == "" {
+		name = "unknown_event"
+	}
+	return fmt.Sprintf("%16s-%-6d (%5s) [%03d] .... %s: %s: %s",
+		clampTaskName(comm), pid, tgidText, cpu, formatTimestamp(tsNS), name, body), known
+}
+
+func decodeEvent(format eventFormat, content []byte) decodedEvent {
+	fields := make(map[string][]byte, len(format.Fields))
+	for _, f := range format.Fields {
+		if f.Offset < 0 || f.Size <= 0 || f.Offset+f.Size > len(content) {
+			continue
+		}
+		fields[f.Name] = content[f.Offset : f.Offset+f.Size]
+	}
+	return decodedEvent{format: format, fields: fields}
+}
+
+func renderEventBody(ev decodedEvent, content []byte, cpu int) (string, bool) {
+	switch ev.format.Name {
+	case "sched_switch":
+		if hasField(ev, "prev_comm[16]") {
+			return fmt.Sprintf("prev_comm=%s prev_pid=%d prev_prio=%d prev_state=%s ==> next_comm=%s next_pid=%d next_prio=%d",
+				strField(ev, "prev_comm[16]"),
+				intField(ev, "prev_pid", true),
+				intField(ev, "prev_prio", true),
+				linuxPrevState(uint64(intField(ev, "prev_state", true))),
+				strField(ev, "next_comm[16]"),
+				intField(ev, "next_pid", true),
+				intField(ev, "next_prio", true)), true
+		}
+		if hasAnyField(ev, "pname[16]", "prev_tid", "pprio", "pstate", "nname[16]", "next_tid", "nprio") {
+			return fmt.Sprintf("prev_comm=%s prev_pid=%d prev_prio=%d prev_state=%s ==> next_comm=%s next_pid=%d next_prio=%d",
+				firstNonEmpty(strField(ev, "pname[16]"), idleName(cpu, intField(ev, "prev_tid", true))),
+				intField(ev, "prev_tid", true),
+				intField(ev, "pprio", true),
+				harmonyPrevState(uint64(intField(ev, "pstate", false))),
+				firstNonEmpty(strField(ev, "nname[16]"), idleName(cpu, intField(ev, "next_tid", true))),
+				intField(ev, "next_tid", true),
+				intField(ev, "nprio", true)), true
+		}
+	case "sched_wakeup", "sched_waking":
+		comm := firstNonEmpty(strField(ev, "comm[16]"), strField(ev, "pname[16]"))
+		return fmt.Sprintf("comm=%s pid=%d prio=%d target_cpu=%03d",
+			comm,
+			intField(ev, "pid", true),
+			intField(ev, "prio", true),
+			intField(ev, "target_cpu", true)), true
+	case "sched_blocked_reason":
+		return fmt.Sprintf("pid=%d iowait=%d caller=%s delay=%d",
+			intField(ev, "pid", true),
+			intField(ev, "iowait", false),
+			blockedCaller(ev),
+			intField(ev, "delay", false)>>10), true
+	case "cpu_idle":
+		return renderKV(ev, "state", "cpu_id"), true
+	case "cpu_frequency":
+		return renderKV(ev, "state", "cpu_id"), true
+	case "clock_set_rate":
+		return renderClockSetRate(ev), true
+	case "block_rq_issue", "block_rq_complete":
+		return renderBlockRequest(ev), true
+	case "block_bio_remap":
+		return renderBlockRemap(ev), true
+	case "binder_transaction":
+		return renderKV(ev, "transaction", "dest_node", "dest_proc", "dest_thread", "reply", "flags", "code"), true
+	case "binder_transaction_received":
+		return renderKV(ev, "transaction"), true
+	case "irq_handler_entry":
+		return fmt.Sprintf("irq=%d name=%s", intField(ev, "irq", true), irqName(ev, content)), true
+	case "irq_handler_exit":
+		ret := "unhandled"
+		if intField(ev, "ret", true) != 0 {
+			ret = "handled"
+		}
+		return fmt.Sprintf("irq=%d ret=%s", intField(ev, "irq", true), ret), true
+	case "tracing_mark_write", "print":
+		if payload := firstTracePayload(ev, content); payload != "" {
+			return payload, true
+		}
+	}
+	if len(ev.format.Fields) == 0 {
+		return missingFormatPayload(ev.format.ID, content), false
+	}
+	return genericFields(ev), false
+}
+
+func missingFormatPayload(eventID int, content []byte) string {
+	const maxPayloadBytes = 32
+	limit := len(content)
+	truncated := false
+	if limit > maxPayloadBytes {
+		limit = maxPayloadBytes
+		truncated = true
+	}
+	parts := []string{
+		fmt.Sprintf("event_id=%d", eventID),
+		fmt.Sprintf("payload_len=%d", len(content)),
+	}
+	if limit > 0 {
+		parts = append(parts, "payload_hex="+hex.EncodeToString(content[:limit]))
+	}
+	if truncated {
+		parts = append(parts, "payload_truncated=true")
+	}
+	return strings.Join(parts, " ")
+}
+
+func renderClockSetRate(ev decodedEvent) string {
+	name := firstNonEmpty(strField(ev, "name[16]"), strField(ev, "clk_name[32]"), strField(ev, "clock[32]"))
+	state := intField(ev, "state", false)
+	cpuID := intField(ev, "cpu_id", true)
+	if name != "" {
+		return fmt.Sprintf("%s state=%d cpu_id=%d", name, state, cpuID)
+	}
+	return renderKV(ev, "state", "cpu_id")
+}
+
+func renderBlockRequest(ev decodedEvent) string {
+	dev := firstNonEmpty(strField(ev, "devname[32]"), intFieldString(ev, "dev", false), intFieldString(ev, "dev_t", false))
+	rwbs := firstNonEmpty(strField(ev, "rwbs[8]"), strField(ev, "rwbs[16]"), strField(ev, "cmd[16]"), "RW")
+	sector := intField(ev, "sector", false)
+	nr := firstNonZero(intField(ev, "nr_sector", false), intField(ev, "nr_bytes", false), intField(ev, "bytes", false))
+	comm := firstNonEmpty(strField(ev, "comm[16]"), strField(ev, "cmd[32]"))
+	return fmt.Sprintf("%s %s () %d + %d [%s]", dev, rwbs, sector, nr, comm)
+}
+
+func renderBlockRemap(ev decodedEvent) string {
+	dev := firstNonEmpty(strField(ev, "devname[32]"), intFieldString(ev, "dev", false), intFieldString(ev, "dev_t", false))
+	sector := intField(ev, "sector", false)
+	nr := firstNonZero(intField(ev, "nr_sector", false), intField(ev, "nr_bytes", false), intField(ev, "bytes", false))
+	oldDev := firstNonEmpty(intFieldString(ev, "old_dev", false), intFieldString(ev, "from", false))
+	oldSector := intField(ev, "old_sector", false)
+	return fmt.Sprintf("%s %d + %d <- (%s) %d", dev, sector, nr, oldDev, oldSector)
+}
+
+func renderKV(ev decodedEvent, names ...string) string {
+	var parts []string
+	for _, name := range names {
+		if !hasField(ev, name) {
+			continue
+		}
+		if s := strField(ev, name); s != "" && fieldLooksString(name) {
+			parts = append(parts, fmt.Sprintf("%s=%s", cleanFieldName(name), s))
+		} else {
+			parts = append(parts, fmt.Sprintf("%s=%d", cleanFieldName(name), intField(ev, name, false)))
+		}
+	}
+	if len(parts) == 0 {
+		return genericFields(ev)
+	}
+	return strings.Join(parts, " ")
+}
+
+func genericFields(ev decodedEvent) string {
+	var parts []string
+	for _, f := range ev.format.Fields {
+		if strings.HasPrefix(f.Name, "common_") {
+			continue
+		}
+		name := cleanFieldName(f.Name)
+		if s := strField(ev, f.Name); s != "" && (fieldLooksString(f.Name) || isMostlyPrintable(s)) {
+			parts = append(parts, fmt.Sprintf("%s=%s", name, s))
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s=%d", name, intField(ev, f.Name, f.Signed)))
+	}
+	if len(parts) == 0 {
+		return "raw_event=unparsed"
+	}
+	return strings.Join(parts, " ")
+}
+
+func formatTimestamp(ns uint64) string {
+	us := (ns + 500) / 1000
+	return fmt.Sprintf("%5d.%06d", us/1_000_000, us%1_000_000)
+}
+
+func hasField(ev decodedEvent, name string) bool {
+	_, ok := ev.fields[name]
+	return ok
+}
+
+func hasAnyField(ev decodedEvent, names ...string) bool {
+	for _, name := range names {
+		if hasField(ev, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func strField(ev decodedEvent, name string) string {
+	b := ev.fields[name]
+	if len(b) == 0 {
+		return ""
+	}
+	if i := strings.IndexByte(string(b), 0); i >= 0 {
+		b = b[:i]
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func intField(ev decodedEvent, name string, signedDefault bool) int64 {
+	b := ev.fields[name]
+	if len(b) == 0 {
+		return 0
+	}
+	signed := signedDefault
+	for _, f := range ev.format.Fields {
+		if f.Name == name {
+			signed = f.Signed || signedDefault
+			break
+		}
+	}
+	return intFromBytes(b, signed)
+}
+
+func intFieldString(ev decodedEvent, name string, signed bool) string {
+	if !hasField(ev, name) {
+		return ""
+	}
+	return strconv.FormatInt(intField(ev, name, signed), 10)
+}
+
+func intFromBytes(b []byte, signed bool) int64 {
+	var u uint64
+	switch len(b) {
+	case 1:
+		u = uint64(b[0])
+	case 2:
+		u = uint64(binary.LittleEndian.Uint16(b))
+	case 4:
+		u = uint64(binary.LittleEndian.Uint32(b))
+	default:
+		if len(b) >= 8 {
+			u = binary.LittleEndian.Uint64(b[:8])
+		} else {
+			for i := len(b) - 1; i >= 0; i-- {
+				u = (u << 8) | uint64(b[i])
+			}
+		}
+	}
+	if !signed {
+		return int64(u)
+	}
+	bits := uint(len(b) * 8)
+	if bits == 0 || bits >= 64 {
+		return int64(u)
+	}
+	sign := uint64(1) << (bits - 1)
+	if u&sign == 0 {
+		return int64(u)
+	}
+	mask := ^uint64(0) << bits
+	return int64(u | mask)
+}
+
+func linuxPrevState(v uint64) string {
+	m := map[uint64]string{0x1: "S", 0x2: "D", 0x4: "T", 0x8: "t", 0x10: "X", 0x20: "Z", 0x40: "P", 0x80: "I"}
+	state := m[v&0xff]
+	if state == "" {
+		state = "R"
+	}
+	if v&0x100 != 0 {
+		state += "+"
+	}
+	return state
+}
+
+func harmonyPrevState(v uint64) string {
+	switch v {
+	case 0:
+		return "R"
+	case 1:
+		return "S"
+	case 2:
+		return "D"
+	case 0x10:
+		return "X"
+	case 0x100:
+		return "R+"
+	default:
+		return "?"
+	}
+}
+
+func blockedCaller(ev decodedEvent) string {
+	funcName := strField(ev, "func_name[20]")
+	modName := strField(ev, "mod_name[12]")
+	if funcName != "" {
+		return fmt.Sprintf("%s+0x%x/0x%x[%s]", funcName, intField(ev, "offset", false), intField(ev, "size", false), modName)
+	}
+	if hasField(ev, "caller") {
+		return fmt.Sprintf("0x%x", intField(ev, "caller", false))
+	}
+	return ""
+}
+
+func irqName(ev decodedEvent, content []byte) string {
+	if s := strField(ev, "name[32]"); s != "" {
+		return s
+	}
+	pos := int(intField(ev, "name", false) & 0xffff)
+	if pos >= 0 && pos < len(content) {
+		b := content[pos:]
+		if i := strings.IndexByte(string(b), 0); i >= 0 {
+			b = b[:i]
+		}
+		if s := strings.TrimSpace(string(b)); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func firstTracePayload(ev decodedEvent, content []byte) string {
+	for _, name := range []string{"buf", "buf[256]", "str", "str[256]", "trace[256]"} {
+		if s := strField(ev, name); s != "" {
+			return s
+		}
+	}
+	pos := int(intField(ev, "buf", false) & 0xffff)
+	if pos > 0 && pos < len(content) {
+		b := content[pos:]
+		if i := strings.IndexByte(string(b), 0); i >= 0 {
+			b = b[:i]
+		}
+		return strings.TrimSpace(string(b))
+	}
+	return genericFields(ev)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func firstNonZero(values ...int64) int64 {
+	for _, v := range values {
+		if v != 0 {
+			return v
+		}
+	}
+	return 0
+}
+
+func idleName(cpu int, pid int64) string {
+	if pid == 0 {
+		return fmt.Sprintf("tppmgr-idle-%d", cpu)
+	}
+	return ""
+}
+
+func cleanFieldName(name string) string {
+	if i := strings.IndexByte(name, '['); i >= 0 {
+		return name[:i]
+	}
+	return name
+}
+
+func fieldLooksString(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.Contains(lower, "comm") ||
+		strings.Contains(lower, "name") ||
+		strings.Contains(lower, "buf") ||
+		strings.Contains(lower, "str") ||
+		strings.Contains(lower, "cmd") ||
+		strings.Contains(lower, "rwbs")
+}
+
+func isMostlyPrintable(s string) bool {
+	if s == "" {
+		return false
+	}
+	printable := 0
+	for _, r := range s {
+		if unicode.IsPrint(r) && r != unicode.ReplacementChar {
+			printable++
+		}
+	}
+	return printable*2 >= len([]rune(s))
+}
+
+func clampTaskName(s string) string {
+	s = strings.TrimSpace(s)
+	if len([]rune(s)) <= 32 {
+		return s
+	}
+	r := []rune(s)
+	return string(r[:32])
+}

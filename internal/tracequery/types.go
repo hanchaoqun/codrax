@@ -2,7 +2,7 @@ package tracequery
 
 import "time"
 
-const ParserVersion = "tracequery-v4"
+const ParserVersion = "tracequery-v5"
 
 type EventType string
 

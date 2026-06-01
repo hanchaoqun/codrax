@@ -250,17 +250,21 @@ adb shell atrace -t 10 view gfx app > /tmp/perf.atrace
 # 多 trace 合并(对比多次冷启动)
 ./codrax --request "对比这三次冷启动" --htrace boot1.trace --htrace boot2.trace --htrace boot3.trace
 
+# 二进制 Harmony/OpenHarmony HiTrace 先手动转文本;不会默认 attach
+./codrax trace convert --input capture.htrace.bin
+./codrax --request "分析这段卡顿" --htrace capture.htrace.bin.systrace
+
 # 同时挂 panic 日志 + 性能 trace
 ./codrax --request "卡顿后 crash 的根因" --log /tmp/hilog.txt --htrace /tmp/jank.atrace
 ```
 
-REPL:`/htrace <path>` / `/htrace append <path>` / `/htrace show` / `/htrace clear`(`/atrace ...` 是别名)。
+REPL:`/htrace <path>` / `/htrace convert <binary> [out.systrace]` / `/htrace append <path>` / `/htrace show` / `/htrace clear`(`/atrace ...` 是别名)。二进制转换默认输出 `<binary>.systrace`,若目标已存在会拒绝覆盖,并且不会自动附加到会话。
 
 ### 大日志 / 大 trace
 
 单次抽取默认读完全文。当超过两步阈值(`log_triage_two_step_bytes` 默认 32 KB / `perf_triage_two_step_bytes` 默认 64 KB)或单次覆盖率偏低时自动切两步:先让 LLM 按字节范围切片(`emit_log_segmentation` / `emit_perf_segmentation`),再逐段抽取,最后合并结果。LLM 调用次数有硬上限(`log_triage_max_llm_calls` / `perf_triage_max_llm_calls` 默认 12)。多文件附加之间会自动插入 `# codrax-source: <path>` 边界头。
 
-字节上限:`log_attach_max_bytes`(默认 256 MiB)、`trace_attach_max_bytes`(未设时继承 log)。硬顶 1 GiB。
+字节上限:`log_attach_max_bytes`(默认 512 MiB)、`trace_attach_max_bytes`(未设时继承 log)。硬顶 1 GiB。
 
 ### 暂不支持
 

@@ -188,9 +188,6 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 	case EventMemory:
 		ev.MemoryKind = intern.intern(classifyMemoryKind(rawType, fields))
 	}
-	if ev.Type == EventUnknown {
-		ev.FieldText = ""
-	}
 	return ev, true
 }
 

@@ -231,7 +231,8 @@ var (
 // key is absent and the fallback when the user sets a non-positive
 // value.
 //
-// Rationale for the 256 MiB default (raised from 50 MiB in 2026-05 to
+// Rationale for the 512 MiB default (raised from 50 MiB in 2026-05 and
+// then 256 MiB, then to 512 MiB in 2026-06 to
 // match real systrace / perfetto / large hilog workflows):
 //
 //   - hdc shell hilog typically ships 10-50 MB per crash window
@@ -239,14 +240,14 @@ var (
 //   - adb logcat -d can be 20-100 MB on a busy device
 //   - adb shell atrace -t 10 lands 5-20 MB
 //
-// 256 MiB is still bounded by the 1 GiB hard ceiling; the orchestrator's
+// 512 MiB is still bounded by the 1 GiB hard ceiling; the orchestrator's
 // formatAttachedLog blob-offloads anything > 4 KB so the LLM prompt
 // stays bounded regardless of body size. The cap is about ingestion
 // memory safety and the truncation point; file/stdin attach paths read
 // only up to this budget instead of slurping arbitrary multi-GB inputs.
 // Users with bigger deployment needs can override via codrax.yaml ::
 // log_attach_max_bytes, bounded by maxAttachedLogHardCeiling below.
-const defaultAttachedLogMaxBytes = 256 * 1024 * 1024 // 256 MiB
+const defaultAttachedLogMaxBytes = 512 * 1024 * 1024 // 512 MiB
 
 // maxAttachedLogHardCeiling is the upper bound enforced on the
 // resolved cap. A user who sets log_attach_max_bytes: 9999999999
@@ -1300,8 +1301,9 @@ func runREPL(_ *cobra.Command) error {
 // subsystems. It runs as PersistentPreRunE so it executes before any
 // subcommand, including the implicit root run.
 func initApp(cmd *cobra.Command, args []string) error {
-	// Skip init for version subcommand.
-	if cmd.Name() == "version" {
+	// Skip init for utility subcommands that do not need providers,
+	// repo discovery, memory, or orchestrator state.
+	if cmd.Name() == "version" || cmd.CommandPath() == "codrax trace convert" {
 		return nil
 	}
 

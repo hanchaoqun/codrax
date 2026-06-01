@@ -235,7 +235,7 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			name:  "unknown ftrace row",
 			line:  `      waker-10   (   10) [000] .... 2.130000: vendor_private_event: alpha=1`,
 			want:  EventUnknown,
-			check: func(ev Event) bool { return ev.FieldText == "" },
+			check: func(ev Event) bool { return ev.FieldText == "alpha=1" },
 		},
 	}
 	for i, tc := range cases {
@@ -245,6 +245,39 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 				t.Fatalf("ParseLine() = %+v ok=%v, want type %s", ev, ok, tc.want)
 			}
 		})
+	}
+}
+
+func TestUnknownEventsRetainFieldTextInEventSearch(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "unknown.systrace")
+	body := strings.Join([]string{
+		`      worker-10   (   10) [000] .... 2.130000: vendor_private_event: alpha=1 beta=needle`,
+		`      worker-10   (   10) [000] .... 2.140000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=000`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := BuildIndex(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := Run(idx, Query{
+		View:       "event_search",
+		EventTypes: []EventType{EventUnknown},
+		TimeStart:  2.12,
+		TimeEnd:    2.135,
+		Limit:      4,
+	})
+	if len(res.Events) != 1 {
+		t.Fatalf("expected one unknown event, got %d: %+v", len(res.Events), res.Events)
+	}
+	if got := res.Events[0].FieldText; got != "alpha=1 beta=needle" {
+		t.Fatalf("unknown event field text was not preserved: %q", got)
+	}
+	if !strings.Contains(res.Events[0].Raw, "vendor_private_event") {
+		t.Fatalf("unknown event raw row missing: %+v", res.Events[0])
 	}
 }
 

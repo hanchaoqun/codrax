@@ -1403,17 +1403,17 @@
 
 # log_attach_max_bytes — ceiling on any attached log (--log / --log-text /
 #   /log). Oversize payloads truncate to the first N bytes with a WARN.
-#   Default 268435456 (256 MiB). Hard ceiling 1 GiB. Non-positive = default.
+#   Default 536870912 (512 MiB). Hard ceiling 1 GiB. Non-positive = default.
 #   任意附加日志(--log / --log-text / /log)的上限。超大载荷截断到前 N
-#   字节并打 WARN。默认 268435456(256 MiB)。硬上限 1 GiB。非正值 = 默认值。
-# log_attach_max_bytes: 268435456
+#   字节并打 WARN。默认 536870912(512 MiB)。硬上限 1 GiB。非正值 = 默认值。
+# log_attach_max_bytes: 536870912
 
 # trace_attach_max_bytes — the perf-channel companion, bounding --htrace /
 #   --atrace / /htrace. When unset, inherits log_attach_max_bytes (one
 #   knob configures both channels). Same 1 GiB hard ceiling.
 #   性能通道的对应项,限制 --htrace / --atrace / /htrace。未设时继承
 #   log_attach_max_bytes(一个旋钮配两条通道)。同样 1 GiB 硬上限。
-# trace_attach_max_bytes: 268435456
+# trace_attach_max_bytes: 536870912
 
 # ---------------------------------------------------------------------------
 # Multi-repo workspace (multi_repo_*)  ·  跨仓工作区

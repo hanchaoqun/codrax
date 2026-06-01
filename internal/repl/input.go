@@ -127,6 +127,8 @@ var slashCommands = []slashCommand{
 		Subs: []slashSubcommand{
 			{"<path>", "load file as the attached trace", "以指定文件为附加 trace"},
 			{"append <path>", "append <path> to the existing attached trace", "追加 <path> 到已有附加 trace"},
+			{"convert <binary> [out.systrace]", "convert binary Harmony/OpenHarmony HiTrace to text systrace; does not attach by default",
+				"把二进制 Harmony/OpenHarmony HiTrace 转成文本 systrace;默认不自动附加"},
 			{"show", "print the first 800 bytes of the attached trace", "打印附加 trace 前 800 字节"},
 			{"clear", "drop the attached trace", "清除附加 trace"},
 		},

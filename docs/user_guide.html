@@ -665,7 +665,7 @@ codrax --log-text &quot;$(cat panic.txt)&quot; -r &quot;...&quot;
 </tr>
 </tbody>
 </table></div>
-<p>附加日志 size 上限:256 MiB(<code>log_attach_max_bytes</code>),超过自动尾部截断 + 警告。</p>
+<p>附加日志 size 上限:512 MiB(<code>log_attach_max_bytes</code>),超过自动尾部截断 + 警告。</p>
 <p><strong>自动检测</strong>:如果你在普通问题里直接粘贴包含 panic/stack-frame 行的文本,REPL 会<strong>一次性</strong>自动把它转成附加日志(打印一行 <code>auto-attached log: N bytes</code>),只对当前这轮生效,不影响下轮。如果想阻止自动,先 <code>/log clear</code> 把粘性 log 占位即可。</p>
 <p><strong>C/C++ 编译路径前缀</strong>:CI build 出来的 stack frame 路径常是 <code>/build/src/foo.cpp:42</code>,你的 repo 是 <code>~/repo/foo.cpp:42</code>。用 <code>--log-source-prefix /build/src/</code> 让 codrax 把前缀剥掉再去仓库找文件。</p>
 <h2 id="32-附加性能-tracehitrace-atrace-systrace-perfetto">3.2 附加性能 trace(HiTrace / atrace / systrace / perfetto)</h2>
@@ -681,6 +681,10 @@ codrax --atrace /tmp/atrace.txt -r &quot;ListView 滑动卡顿哪里出问题?&q
 # systrace / perfetto 文本导出
 codrax --htrace /tmp/perfetto.txt -r &quot;...&quot;
 
+# 二进制 HiTrace 需要先手动转换;不会自动附加
+codrax trace convert --input /tmp/capture.htrace.bin
+codrax --htrace /tmp/capture.htrace.bin.systrace -r &quot;分析这段卡顿&quot;
+
 # 多文件比对
 codrax --htrace before.trace --htrace after.trace -r &quot;对比启动耗时差在哪&quot;
 
@@ -692,13 +696,19 @@ cat /tmp/atrace.txt | codrax --htrace - -r &quot;...&quot;
   ✓ 已附加 trace
 [git:main][trace]❯❯ 首页冷启动哪里耗时最长?
 </code></pre>
+<p>二进制 Harmony/OpenHarmony HiTrace 使用 <code>/htrace convert</code> 手动转成文本:</p>
+<pre><code class="language-text">[git:main]❯❯ /htrace convert /tmp/capture.htrace.bin
+  ✓ converted hitrace: /tmp/capture.htrace.bin.systrace (N events)
+  · next: /htrace /tmp/capture.htrace.bin.systrace
+</code></pre>
+<p>如果没有指定输出文件,默认写到 <code>&lt;原文件名&gt;.systrace</code>。如果目标文件已存在,codrax 会拒绝覆盖,提示先删除旧文件或重新指定输出路径。转换命令只生成文本文件,不会默认附加到当前会话;需要继续分析时再显式 <code>/htrace &lt;输出文件&gt;</code>。</p>
 <p>常用提问模板:</p>
 <pre><code class="language-text">分析 &lt;trace文件&gt; 中 &lt;线程名/pid&gt; 在 &lt;起始时间&gt; 到 &lt;结束时间&gt; 之间的卡顿原因,
 继续追踪 sched_wakeup 唤醒链,并结合 CPU、IO、binder、频点、IRQ、内存事件判断根因。
 </code></pre>
 <p>时间可以自然写。<code>2942.244845</code>、<code>2942.24484</code>、<code>2942.24484s</code>、<code>2942.24484 秒</code> 都会按 trace 秒解析;如果明确写 <code>ms</code> / <code>毫秒</code> 或 <code>us</code> / <code>微秒</code>,codrax 会换算成秒再分析。小数位少一两位时,系统会加很小的边界容差,避免刚好落在窗口边缘的 trace 行被漏掉。</p>
 <p>客户不需要学习内部工具名。描述线程、时间窗口和要追踪的链路即可;codrax 会优先使用确定性的 trace 查询能力,必要时再用 grep / read_file 验证具体行号。</p>
-<p>trace 的 size 上限独立于 log:<code>trace_attach_max_bytes</code>(默认 256 MiB)。</p>
+<p>trace 的 size 上限独立于 log:<code>trace_attach_max_bytes</code>(默认 512 MiB)。</p>
 <blockquote>
 <p><code>--log</code> 和 <code>--htrace</code> 是<strong>两个独立的通道</strong>,可以同时附:一份 panic + 一份 trace 同时给 codrax,两个 pre-stage 各自处理。</p>
 </blockquote>
@@ -2556,12 +2566,12 @@ mcp_servers:
 <tbody>
 <tr>
 <td><code>log_attach_max_bytes</code></td>
-<td><code>268435456</code>(256 MiB)</td>
+<td><code>536870912</code>(512 MiB)</td>
 <td><code>--log</code> / <code>/log</code> / 自动检测的总字节上限</td>
 </tr>
 <tr>
 <td><code>trace_attach_max_bytes</code></td>
-<td><code>268435456</code>(256 MiB)</td>
+<td><code>536870912</code>(512 MiB)</td>
 <td><code>--htrace</code> / <code>/htrace</code> 的字节上限(独立)</td>
 </tr>
 <tr>
@@ -2793,6 +2803,10 @@ mcp_servers:
 <tr>
 <td><code>/htrace &lt;path&gt;</code> / <code>/atrace &lt;path&gt;</code></td>
 <td>同 <code>/log</code> 但走 perf 通道</td>
+</tr>
+<tr>
+<td><code>/htrace convert &lt;binary&gt; [out.systrace]</code></td>
+<td>手动把二进制 Harmony/OpenHarmony HiTrace 转成文本 systrace;默认输出 <code>&lt;binary&gt;.systrace</code>,不自动附加</td>
 </tr>
 <tr>
 <td><code>/htrace append</code> / <code>/htrace show</code> / <code>/htrace clear</code></td>

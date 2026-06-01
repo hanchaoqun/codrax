@@ -37,6 +37,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/pterm/pterm"
 
+	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/outputdump"
@@ -291,7 +292,7 @@ type Config struct {
 	// runaway paste cannot balloon the REPL process memory. Mirrors
 	// cmd's maxAttachedLogBytes — both are driven by
 	// codrax.yaml :: log_attach_max_bytes. Zero or negative →
-	// DefaultAttachedLogMaxBytes (256 MiB), matching the CLI default.
+	// DefaultAttachedLogMaxBytes (512 MiB), matching the CLI default.
 	AttachedLogMaxBytes int
 
 	// AttachedTraceMaxBytes caps the perf-channel attach surface
@@ -2337,7 +2338,7 @@ func (r *REPL) recordTurn(request, expanded, response string, kind memory.Kind) 
 	}
 }
 
-// DefaultAttachedLogMaxBytes is the out-of-the-box 256 MiB cap on
+// DefaultAttachedLogMaxBytes is the out-of-the-box 512 MiB cap on
 // every REPL attach surface (/log + /htrace). Consumed by New when
 // Config.AttachedLogMaxBytes is not set; the cmd layer populates
 // Config from codrax.yaml :: log_attach_max_bytes so both CLI and
@@ -2346,10 +2347,11 @@ func (r *REPL) recordTurn(request, expanded, response string, kind memory.Kind) 
 // DefaultAttachedLogMaxBytes is the REPL-side default cap. Mirrors
 // cmd.defaultAttachedLogMaxBytes — the two constants must agree so
 // a unit test that bypasses initApp sees the same baseline as a
-// real CLI run. Raised from 50 MiB → 256 MiB in 2026-05 to match
-// systrace / perfetto / large hilog captures while keeping the
+// real CLI run. Raised from 50 MiB → 256 MiB in 2026-05 and then
+// to 512 MiB in 2026-06 to match systrace / perfetto / large hilog
+// captures while keeping the
 // ingestion hard ceiling in place.
-const DefaultAttachedLogMaxBytes = 256 * 1024 * 1024 // 256 MiB
+const DefaultAttachedLogMaxBytes = 512 * 1024 * 1024 // 512 MiB
 
 // handleSlash returns true if the loop should exit.
 func (r *REPL) handleSlash(line string) bool {
@@ -4472,18 +4474,19 @@ func (r *REPL) handleLogAppend(path string) {
 // handleHitraceCmd is the perf-channel companion to handleLogCmd.
 // Mirrors the surface for HiTrace / Android-systrace attachments:
 //
-//	/htrace <path>          — load file from disk (replaces any prior)
-//	/htrace append <path>   — append additional file with source header
-//	/htrace clear           — clear the current attachment
-//	/htrace show            — print byte count + head of the attachment
-//	/htrace                 — bare invocation prints usage; no paste
+//	/htrace <path>                  — load file from disk (replaces any prior)
+//	/htrace append <path>           — append additional file with source header
+//	/htrace convert <binary> [out]  — convert binary HiTrace to text systrace
+//	/htrace clear                   — clear the current attachment
+//	/htrace show                    — print byte count + head of the attachment
+//	/htrace                         — bare invocation prints usage; no paste
 //	                          mode (traces are usually multi-MB hdc
 //	                          / adb dumps, not hand-typed)
 func (r *REPL) handleHitraceCmd(line string) {
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "/htrace"))
 	switch {
 	case rest == "":
-		r.info("/htrace <path> | append <path> | clear | show — attach a HiTrace / atrace / systrace / perfetto file")
+		r.info("/htrace <path> | append <path> | convert <binary> [out.systrace] | clear | show — attach or convert HiTrace / atrace / systrace / perfetto files")
 	case rest == "clear":
 		if r.attachedHitrace == "" {
 			r.info(noTraceAttached(r.language))
@@ -4510,6 +4513,8 @@ func (r *REPL) handleHitraceCmd(line string) {
 		r.info(fmt.Sprintf("hitrace: %d bytes\n%s", len(r.attachedHitrace), head))
 	case strings.HasPrefix(rest, "append "):
 		r.handleHitraceAppend(strings.TrimSpace(strings.TrimPrefix(rest, "append")))
+	case strings.HasPrefix(rest, "convert "):
+		r.handleHitraceConvert(strings.TrimSpace(strings.TrimPrefix(rest, "convert")))
 	default:
 		// Single-path load also gets the source header so the LLM
 		// sees a consistent boundary marker shape regardless of
@@ -4536,6 +4541,35 @@ func (r *REPL) handleHitraceCmd(line string) {
 		r.attachedHitraceSource = mergeTraceSourceHints("", r.currentTraceSourceHint(rest))
 		r.success(fmt.Sprintf("attached hitrace loaded: %s (%d bytes)", rest, len(data)))
 	}
+}
+
+func (r *REPL) handleHitraceConvert(args string) {
+	fields := strings.Fields(args)
+	if len(fields) == 0 || len(fields) > 2 {
+		r.errorf("/htrace convert <binary-hitrace> [output.systrace]\n")
+		return
+	}
+	input := fields[0]
+	output := ""
+	if len(fields) == 2 {
+		output = fields[1]
+	}
+	result, err := hitraceconv.ConvertFile(context.Background(), hitraceconv.Options{
+		InputPath:  input,
+		OutputPath: output,
+		Flavor:     "harmony_hitrace",
+	})
+	if err != nil {
+		r.errorf("convert hitrace: %v\n", err)
+		return
+	}
+	r.success(fmt.Sprintf("converted hitrace: %s (%d events)", result.OutputPath, result.EventsWritten))
+	if len(result.Caveats) > 0 {
+		for _, caveat := range result.Caveats {
+			r.warn("hitrace convert caveat: %s\n", caveat)
+		}
+	}
+	r.info(fmt.Sprintf("next: /htrace %s", result.OutputPath))
 }
 
 // handleHitraceAppend mirrors handleLogAppend: read a trace file

@@ -338,7 +338,7 @@ REPL 里的等价做法:
 | `/log clear` | 清除附加日志 |
 | `/log`(无参) | 进粘贴模式,贴完用 `/end` 结束(SSH/tmux 吞掉 bracketed paste 时用) |
 
-附加日志 size 上限:256 MiB(`log_attach_max_bytes`),超过自动尾部截断 + 警告。
+附加日志 size 上限:512 MiB(`log_attach_max_bytes`),超过自动尾部截断 + 警告。
 
 **自动检测**:如果你在普通问题里直接粘贴包含 panic/stack-frame 行的文本,REPL 会**一次性**自动把它转成附加日志(打印一行 `auto-attached log: N bytes`),只对当前这轮生效,不影响下轮。如果想阻止自动,先 `/log clear` 把粘性 log 占位即可。
 
@@ -360,6 +360,10 @@ codrax --atrace /tmp/atrace.txt -r "ListView 滑动卡顿哪里出问题?"
 # systrace / perfetto 文本导出
 codrax --htrace /tmp/perfetto.txt -r "..."
 
+# 二进制 HiTrace 需要先手动转换;不会自动附加
+codrax trace convert --input /tmp/capture.htrace.bin
+codrax --htrace /tmp/capture.htrace.bin.systrace -r "分析这段卡顿"
+
 # 多文件比对
 codrax --htrace before.trace --htrace after.trace -r "对比启动耗时差在哪"
 
@@ -375,6 +379,16 @@ REPL 里 `/htrace` 和 `/atrace` 是同义命令,子命令同 `/log`:
 [git:main][trace]❯❯ 首页冷启动哪里耗时最长?
 ```
 
+二进制 Harmony/OpenHarmony HiTrace 使用 `/htrace convert` 手动转成文本:
+
+```text
+[git:main]❯❯ /htrace convert /tmp/capture.htrace.bin
+  ✓ converted hitrace: /tmp/capture.htrace.bin.systrace (N events)
+  · next: /htrace /tmp/capture.htrace.bin.systrace
+```
+
+如果没有指定输出文件,默认写到 `<原文件名>.systrace`。如果目标文件已存在,codrax 会拒绝覆盖,提示先删除旧文件或重新指定输出路径。转换命令只生成文本文件,不会默认附加到当前会话;需要继续分析时再显式 `/htrace <输出文件>`。
+
 常用提问模板:
 
 ```text
@@ -386,7 +400,7 @@ REPL 里 `/htrace` 和 `/atrace` 是同义命令,子命令同 `/log`:
 
 客户不需要学习内部工具名。描述线程、时间窗口和要追踪的链路即可;codrax 会优先使用确定性的 trace 查询能力,必要时再用 grep / read_file 验证具体行号。
 
-trace 的 size 上限独立于 log:`trace_attach_max_bytes`(默认 256 MiB)。
+trace 的 size 上限独立于 log:`trace_attach_max_bytes`(默认 512 MiB)。
 
 > `--log` 和 `--htrace` 是**两个独立的通道**,可以同时附:一份 panic + 一份 trace 同时给 codrax,两个 pre-stage 各自处理。
 
@@ -1935,8 +1949,8 @@ agents:
 
 | 键 | 默认 | 作用 |
 |---|---|---|
-| `log_attach_max_bytes` | `268435456`(256 MiB) | `--log` / `/log` / 自动检测的总字节上限 |
-| `trace_attach_max_bytes` | `268435456`(256 MiB) | `--htrace` / `/htrace` 的字节上限(独立) |
+| `log_attach_max_bytes` | `536870912`(512 MiB) | `--log` / `/log` / 自动检测的总字节上限 |
+| `trace_attach_max_bytes` | `536870912`(512 MiB) | `--htrace` / `/htrace` 的字节上限(独立) |
 | `log_triage_enabled` | `true` | log_triage 预阶段 |
 | `log_triage_two_step_enabled` / `log_triage_two_step_bytes` / `log_triage_two_step_coverage` | `true` / 32 KiB / 0.3 | 大日志的两步 fallback |
 | `log_triage_max_llm_calls` | 12 | 单次 Run log_triage LLM 调用上限 |
@@ -2023,6 +2037,7 @@ REPL 启动后,任何以 `/` 开头的输入是斜杠命令;TAB 自动补全。`
 | `/log show` / `/log clear` | 查看 / 清除 |
 | `/log` | 进粘贴模式,贴完 `/end` |
 | `/htrace <path>` / `/atrace <path>` | 同 `/log` 但走 perf 通道 |
+| `/htrace convert <binary> [out.systrace]` | 手动把二进制 Harmony/OpenHarmony HiTrace 转成文本 systrace;默认输出 `<binary>.systrace`,不自动附加 |
 | `/htrace append` / `/htrace show` / `/htrace clear` | 同 `/log` 子命令 |
 | `/paste` | bracketed paste 被 SSH/tmux 吞掉时的 fallback;贴完 `/end` |
 | `/chat <message>` | 强制走闲聊路径,不读仓库,不调工具 |

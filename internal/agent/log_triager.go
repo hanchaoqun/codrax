@@ -59,7 +59,8 @@ type LogTriageSettings struct {
 	// produces many tiny segments. Default: 12.
 	//
 	// Default raised from 8 → 12 in 2026-04 alongside the
-	// log_attach_max_bytes default bump (1 MB → 50 MB, later 256 MiB).
+	// log_attach_max_bytes default bump (1 MB → 50 MB, later 256 MiB,
+	// later 512 MiB).
 	// Rationale:
 	// the segmenter skill caps emit_log_segmentation at 10 segments,
 	// so a budget of 12 = 1 single-shot + 1 segmentation + 10
