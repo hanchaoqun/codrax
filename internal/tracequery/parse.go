@@ -14,23 +14,43 @@ import (
 )
 
 var (
-	ftraceLineRE   = regexp.MustCompile(`^\s*(.+)-(\d+)(?:\s+\(\s*([0-9-]+)\))?\s+\[(\d+)\]\s+\S+\s+([0-9]+(?:\.[0-9]+)?):\s+([A-Za-z0-9_./:-]+):?\s*(.*)$`)
-	kvRE           = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)=([^ ]+)`)
-	blockRequestRE = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(?:(?:\d+)\s+)?\([^)]*\)\s+(\d+)\s+\+\s+(\d+)`)
-	blockRemapRE   = regexp.MustCompile(`^(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-`)
-	blockErrorRE   = regexp.MustCompile(`\[([^\]]+)\]\s*$`)
+	ftraceLineRE     = regexp.MustCompile(`^\s*(.+)-(\d+)(?:\s+\(\s*([0-9-]+)\))?\s+\[(\d+)\]\s+\S+\s+([0-9]+(?:\.[0-9]+)?):\s+([A-Za-z0-9_./:-]+):?\s*(.*)$`)
+	traceTimestampRE = regexp.MustCompile(`\s([0-9]+(?:\.[0-9]+)?):\s+[A-Za-z0-9_./:-]+:?`)
+	kvRE             = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)=([^ ]+)`)
+	blockRequestRE   = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(?:(?:\d+)\s+)?\([^)]*\)\s+(\d+)\s+\+\s+(\d+)`)
+	blockRemapRE     = regexp.MustCompile(`^(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-`)
+	blockErrorRE     = regexp.MustCompile(`\[([^\]]+)\]\s*$`)
 )
 
 type parseCacheKey struct {
-	path    string
-	size    int64
-	modUnix int64
-	version string
+	path      string
+	size      int64
+	modUnix   int64
+	version   string
+	windowKey string
 }
 
 var indexCache sync.Map
 
+type BuildOptions struct {
+	TimeStart          float64
+	TimeEnd            float64
+	TimeStartSet       bool
+	TimeEndSet         bool
+	TimePaddingBefore  float64
+	TimePaddingAfter   float64
+	LineStart          int
+	LineEnd            int
+	LinePaddingBefore  int
+	LinePaddingAfter   int
+	AllowWindowedParse bool
+}
+
 func BuildIndex(ctx context.Context, path string) (*Index, error) {
+	return BuildIndexWithOptions(ctx, path, BuildOptions{})
+}
+
+func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) (*Index, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -42,18 +62,34 @@ func BuildIndex(ctx context.Context, path string) (*Index, error) {
 	if err != nil {
 		return nil, err
 	}
+	opts = normalizeBuildOptions(opts)
+	windowKey := opts.cacheKey()
+	if opts.windowed() {
+		fullKey := parseCacheKey{
+			path:    path,
+			size:    info.Size(),
+			modUnix: info.ModTime().UnixNano(),
+			version: ParserVersion,
+		}
+		if cached, ok := indexCache.Load(fullKey); ok {
+			if idx, ok := cached.(*Index); ok {
+				return idx, nil
+			}
+		}
+	}
 	key := parseCacheKey{
-		path:    path,
-		size:    info.Size(),
-		modUnix: info.ModTime().UnixNano(),
-		version: ParserVersion,
+		path:      path,
+		size:      info.Size(),
+		modUnix:   info.ModTime().UnixNano(),
+		version:   ParserVersion,
+		windowKey: windowKey,
 	}
 	if cached, ok := indexCache.Load(key); ok {
 		if idx, ok := cached.(*Index); ok {
 			return idx, nil
 		}
 	}
-	idx, err := parseFile(ctx, path, info.Size(), info.ModTime().UnixNano())
+	idx, err := parseFile(ctx, path, info.Size(), info.ModTime().UnixNano(), opts)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +97,40 @@ func BuildIndex(ctx context.Context, path string) (*Index, error) {
 	return idx, nil
 }
 
-func parseFile(ctx context.Context, path string, size int64, modUnix int64) (*Index, error) {
+func normalizeBuildOptions(opts BuildOptions) BuildOptions {
+	if !opts.AllowWindowedParse {
+		return BuildOptions{}
+	}
+	if opts.TimePaddingBefore < 0 {
+		opts.TimePaddingBefore = 0
+	}
+	if opts.TimePaddingAfter < 0 {
+		opts.TimePaddingAfter = 0
+	}
+	if opts.LinePaddingBefore < 0 {
+		opts.LinePaddingBefore = 0
+	}
+	if opts.LinePaddingAfter < 0 {
+		opts.LinePaddingAfter = 0
+	}
+	return opts
+}
+
+func (opts BuildOptions) windowed() bool {
+	return opts.AllowWindowedParse && (opts.TimeStartSet || opts.TimeEndSet || opts.LineStart > 0 || opts.LineEnd > 0)
+}
+
+func (opts BuildOptions) cacheKey() string {
+	if !opts.windowed() {
+		return ""
+	}
+	return fmt.Sprintf("ts=%t:%.9f-%t:%.9f+%.6f/%.6f;ln=%d-%d+%d/%d",
+		opts.TimeStartSet, opts.TimeStart, opts.TimeEndSet, opts.TimeEnd,
+		opts.TimePaddingBefore, opts.TimePaddingAfter,
+		opts.LineStart, opts.LineEnd, opts.LinePaddingBefore, opts.LinePaddingAfter)
+}
+
+func parseFile(ctx context.Context, path string, size int64, modUnix int64, opts BuildOptions) (*Index, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -69,9 +138,17 @@ func parseFile(ctx context.Context, path string, size int64, modUnix int64) (*In
 	defer f.Close()
 
 	idx := &Index{Path: path, Size: size, ModTime: time.Unix(0, modUnix)}
+	if opts.windowed() {
+		idx.Windowed = true
+		idx.IndexTimeStart = paddedTimeStart(opts)
+		idx.IndexTimeEnd = paddedTimeEnd(opts)
+		idx.IndexLineStart = paddedLineStart(opts)
+		idx.IndexLineEnd = paddedLineEnd(opts)
+	}
 	r := bufio.NewReaderSize(f, 256*1024)
 	intern := newStringInterner()
 	flavor := newFlavorVote(path)
+	seenTimeWindow := false
 	for lineNo := 1; ; lineNo++ {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -79,7 +156,39 @@ func parseFile(ctx context.Context, path string, size int64, modUnix int64) (*In
 		line, err := r.ReadString('\n')
 		if len(line) > 0 {
 			idx.LineCount = lineNo
+			idx.ScannedLineCount = lineNo
 			trimmed := strings.TrimRight(line, "\r\n")
+			if idx.Windowed {
+				if idx.IndexLineEnd > 0 && lineNo > idx.IndexLineEnd {
+					break
+				}
+				if idx.IndexLineStart > 0 && lineNo < idx.IndexLineStart {
+					if lineNo <= 200 {
+						flavor.observeRawLine(trimmed)
+					}
+					goto nextLine
+				}
+				if opts.TimeStartSet || opts.TimeEndSet {
+					ts, hasTS := parseLineTimestamp(trimmed)
+					if hasTS {
+						if opts.TimeStartSet && ts < idx.IndexTimeStart {
+							if lineNo <= 200 {
+								flavor.observeRawLine(trimmed)
+							}
+							goto nextLine
+						}
+						if opts.TimeEndSet && ts > idx.IndexTimeEnd {
+							break
+						}
+						seenTimeWindow = true
+					} else if opts.TimeStartSet && !seenTimeWindow {
+						if lineNo <= 200 {
+							flavor.observeRawLine(trimmed)
+						}
+						goto nextLine
+					}
+				}
+			}
 			flavor.observeRawLine(trimmed)
 			if ev, ok := ParseLine(lineNo, trimmed, intern); ok {
 				if idx.FirstTs == 0 || ev.Ts < idx.FirstTs {
@@ -95,6 +204,7 @@ func parseFile(ctx context.Context, path string, size int64, modUnix int64) (*In
 				idx.Events = append(idx.Events, ev)
 			}
 		}
+	nextLine:
 		if err != nil {
 			if err == io.EOF {
 				break
@@ -104,6 +214,54 @@ func parseFile(ctx context.Context, path string, size int64, modUnix int64) (*In
 	}
 	idx.TraceFlavor, idx.FlavorConfidence, idx.FlavorSignals = flavor.result()
 	return idx, nil
+}
+
+func paddedTimeStart(opts BuildOptions) float64 {
+	if !opts.TimeStartSet {
+		return 0
+	}
+	start := opts.TimeStart - opts.TimePaddingBefore
+	if start < 0 {
+		return 0
+	}
+	return start
+}
+
+func paddedTimeEnd(opts BuildOptions) float64 {
+	if !opts.TimeEndSet {
+		return 0
+	}
+	return opts.TimeEnd + opts.TimePaddingAfter
+}
+
+func paddedLineStart(opts BuildOptions) int {
+	if opts.LineStart <= 0 {
+		return 0
+	}
+	start := opts.LineStart - opts.LinePaddingBefore
+	if start < 1 {
+		return 1
+	}
+	return start
+}
+
+func paddedLineEnd(opts BuildOptions) int {
+	if opts.LineEnd <= 0 {
+		return 0
+	}
+	return opts.LineEnd + opts.LinePaddingAfter
+}
+
+func parseLineTimestamp(line string) (float64, bool) {
+	m := traceTimestampRE.FindStringSubmatch(line)
+	if len(m) != 2 {
+		return 0, false
+	}
+	ts, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		return 0, false
+	}
+	return ts, true
 }
 
 func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {

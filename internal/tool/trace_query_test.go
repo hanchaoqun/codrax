@@ -426,6 +426,46 @@ func TestTraceQueryEventSearchPatternEmptyGivesRecoveryHint(t *testing.T) {
 	}
 }
 
+func TestTraceQueryLargeExplicitTimeWindowUsesWindowedIndex(t *testing.T) {
+	oldThreshold := traceQueryWindowedIndexMinBytes
+	traceQueryWindowedIndexMinBytes = 1
+	defer func() { traceQueryWindowedIndexMinBytes = oldThreshold }()
+
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "windowed.systrace")
+	trace := strings.Join([]string{
+		`old-1 (1) [000] .... 1.000000: sched_wakeup: comm=old pid=1 prio=20 target_cpu=000`,
+		`app-20 (20) [001] .... 2.000000: print: B|20|Choreographer#doFrame 1917295`,
+		`app-20 (20) [001] .... 2.050000: print: E|20`,
+		`new-3 (3) [000] .... 3.000000: sched_wakeup: comm=new pid=3 prio=20 target_cpu=000`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source":      "path",
+		"path":        "windowed.systrace",
+		"view":        "recipe",
+		"recipe_name": "jank",
+		"time_start":  2.0,
+		"time_end":    2.1,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"index_windowed=true",
+		"windowed_index_parse=true",
+		"parsed_events=2",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("windowed index summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
 func TestTraceQueryLargeUnboundedJankRecipeUsesDiscoveryGuard(t *testing.T) {
 	oldThreshold := traceQueryLargeRecipeDiscoveryMinBytes
 	traceQueryLargeRecipeDiscoveryMinBytes = 1

@@ -449,6 +449,47 @@ func TestEventSearchPatternMatchesFrameIDsAndFields(t *testing.T) {
 	}
 }
 
+func TestBuildIndexWithOptionsParsesOnlySelectedTimeWindow(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "windowed.systrace")
+	body := strings.Join([]string{
+		`      old-1   (    1) [000] .... 1.000000: sched_wakeup: comm=old pid=1 prio=20 target_cpu=000`,
+		`      app-20  (   20) [001] .... 2.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+		`      app-20  (   20) [001] .... 2.050000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		`      new-3   (    3) [000] .... 3.000000: sched_wakeup: comm=new pid=3 prio=20 target_cpu=000`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := BuildIndexWithOptions(context.Background(), path, BuildOptions{
+		TimeStart:          2.0,
+		TimeEnd:            2.1,
+		TimeStartSet:       true,
+		TimeEndSet:         true,
+		AllowWindowedParse: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !idx.Windowed {
+		t.Fatalf("expected windowed index")
+	}
+	if len(idx.Events) != 2 {
+		t.Fatalf("expected only selected-window events, got %+v", idx.Events)
+	}
+	if idx.Events[0].Line != 2 || idx.Events[1].Line != 3 {
+		t.Fatalf("windowed parse should preserve source line numbers: %+v", idx.Events)
+	}
+	if idx.ScannedLineCount != 4 {
+		t.Fatalf("expected parser to stop at the first row after the selected window, scanned=%d", idx.ScannedLineCount)
+	}
+	res := Run(idx, Query{View: "event_search", TimeStart: 2.0, TimeEnd: 2.1, Limit: 10})
+	if !res.IndexWindowed || !containsSubstring(res.Caveats, "windowed_index_parse=true") {
+		t.Fatalf("windowed result should surface caveat: %+v", res)
+	}
+}
+
 func TestExternalPerfettoSchedBlockedFixture(t *testing.T) {
 	idx, err := BuildIndex(context.Background(), filepath.Join("testdata", "android_perfetto_sched_blocked.systrace"))
 	if err != nil {

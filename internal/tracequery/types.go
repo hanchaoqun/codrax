@@ -2,7 +2,7 @@ package tracequery
 
 import "time"
 
-const ParserVersion = "tracequery-v6"
+const ParserVersion = "tracequery-v7"
 
 type EventType string
 
@@ -137,6 +137,12 @@ type Index struct {
 	Size             int64
 	ModTime          time.Time
 	LineCount        int
+	ScannedLineCount int
+	Windowed         bool
+	IndexTimeStart   float64
+	IndexTimeEnd     float64
+	IndexLineStart   int
+	IndexLineEnd     int
 	Events           []Event
 	FirstTs          float64
 	LastTs           float64
@@ -190,6 +196,12 @@ type Result struct {
 	TimeUnit                    string                  `json:"time_unit,omitempty"`
 	PrioritySemantics           string                  `json:"priority_semantics,omitempty"`
 	LineCount                   int                     `json:"line_count,omitempty"`
+	ScannedLineCount            int                     `json:"scanned_line_count,omitempty"`
+	IndexWindowed               bool                    `json:"index_windowed,omitempty"`
+	IndexTimeStart              float64                 `json:"index_time_start,omitempty"`
+	IndexTimeEnd                float64                 `json:"index_time_end,omitempty"`
+	IndexLineStart              int                     `json:"index_line_start,omitempty"`
+	IndexLineEnd                int                     `json:"index_line_end,omitempty"`
 	EventCount                  int                     `json:"event_count,omitempty"`
 	TimeStart                   float64                 `json:"time_start,omitempty"`
 	TimeEnd                     float64                 `json:"time_end,omitempty"`

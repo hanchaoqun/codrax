@@ -49,6 +49,7 @@ type traceQueryParams struct {
 
 var (
 	traceQueryLargeRecipeDiscoveryMinBytes int64 = 128 << 20
+	traceQueryWindowedIndexMinBytes        int64 = 64 << 20
 	traceQueryObjectiveKVTokenRE                 = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_./:-]*=[^\s,，。；;"'）)]+`)
 	traceQueryTimestampRE                        = regexp.MustCompile(`\s([0-9]+(?:\.[0-9]+)?):\s+`)
 )
@@ -104,7 +105,8 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	if discovery, ok := t.maybeLargeRecipeDiscovery(ctx, p, path, sourceLabel); ok {
 		return discovery, nil
 	}
-	idx, err := tracequery.BuildIndex(contextFromBus(ctx), path)
+	timeStart, timeEnd, timeCaveat := normalizedTraceQueryWindow(p)
+	idx, err := traceQueryBuildIndex(contextFromBus(ctx), path, p, timeStart, timeEnd)
 	if err != nil {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -113,7 +115,6 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 			Timestamp: time.Now(),
 		}, nil
 	}
-	timeStart, timeEnd, timeCaveat := normalizedTraceQueryWindow(p)
 	q := tracequery.Query{
 		View:                 p.View,
 		Thread:               p.Thread,
@@ -158,6 +159,46 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 		RawRef:    rawRef,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func traceQueryBuildIndex(ctx context.Context, path string, p traceQueryParams, timeStart, timeEnd float64) (*tracequery.Index, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Size() < traceQueryWindowedIndexMinBytes || !traceQueryHasExplicitIndexWindow(p) {
+		return tracequery.BuildIndex(ctx, path)
+	}
+	opts := tracequery.BuildOptions{
+		TimeStart:          timeStart,
+		TimeEnd:            timeEnd,
+		TimeStartSet:       p.TimeStart.Set(),
+		TimeEndSet:         p.TimeEnd.Set(),
+		TimePaddingBefore:  traceQueryWindowedIndexTimePadding(p),
+		TimePaddingAfter:   traceQueryWindowedIndexTimePadding(p),
+		LineStart:          p.LineStart.Int(),
+		LineEnd:            p.LineEnd.Int(),
+		LinePaddingBefore:  200,
+		LinePaddingAfter:   200,
+		AllowWindowedParse: true,
+	}
+	return tracequery.BuildIndexWithOptions(ctx, path, opts)
+}
+
+func traceQueryHasExplicitIndexWindow(p traceQueryParams) bool {
+	return p.TimeStart.Set() || p.TimeEnd.Set() || p.LineStart.Int() > 0 || p.LineEnd.Int() > 0
+}
+
+func traceQueryWindowedIndexTimePadding(p traceQueryParams) float64 {
+	view := strings.TrimSpace(p.View)
+	switch view {
+	case "event_search":
+		return 0.050
+	case "thread_timeline", "scheduler_latency_stats":
+		return 0.250
+	default:
+		return 0.500
+	}
 }
 
 func resolveTraceQuerySource(ctx *types.BusContext, p traceQueryParams) (string, string, *types.ToolResult) {
@@ -658,6 +699,9 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	)
 	fmt.Fprintf(&b, "# Trace Query: %s\n\n", result.View)
 	fmt.Fprintf(&b, "source=%s lines=%d parsed_events=%d timestamp_unit=%s selected_window=%.6f..%.6f seconds\n", result.SourcePath, result.LineCount, result.EventCount, firstNonEmptyTraceString(result.TimeUnit, "seconds"), result.TimeStart, result.TimeEnd)
+	if result.IndexWindowed {
+		fmt.Fprintf(&b, "index_windowed=true scanned_lines=%d index_time=%.6f..%.6f index_lines=%d..%d\n", result.ScannedLineCount, result.IndexTimeStart, result.IndexTimeEnd, result.IndexLineStart, result.IndexLineEnd)
+	}
 	if result.TraceFlavor != "" {
 		fmt.Fprintf(&b, "trace_flavor=%s confidence=%.2f\n", result.TraceFlavor, result.FlavorConfidence)
 	}
