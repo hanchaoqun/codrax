@@ -54,6 +54,16 @@ func TestIsRetryableDispatchError(t *testing.T) {
 		}
 	})
 
+	t.Run("stream no-visible-output timeout stays terminal", func(t *testing.T) {
+		err := &StreamNoVisibleOutputTimeoutError{IdleFor: 4 * time.Minute, Cause: context.Canceled}
+		if IsRetryableDispatchError(err) {
+			t.Fatal("hidden-reasoning/no-visible-output timeout should not be multiplied by retry layers")
+		}
+		if IsStreamLevelRetryable(err) {
+			t.Fatal("hidden-reasoning/no-visible-output timeout should not trigger stream-level retries")
+		}
+	})
+
 	t.Run("plain context.Canceled stays terminal", func(t *testing.T) {
 		// User-initiated Ctrl+C must not be classified as retryable —
 		// only the typed stream errors above are.

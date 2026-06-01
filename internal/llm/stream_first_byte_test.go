@@ -41,6 +41,22 @@ func TestStreamFirstByteTimeoutError_NilSafe(t *testing.T) {
 	}
 }
 
+func TestStreamNoVisibleOutputTimeoutError_Sentinel(t *testing.T) {
+	wrapped := &StreamNoVisibleOutputTimeoutError{
+		IdleFor: 2 * time.Minute,
+		Cause:   context.Canceled,
+	}
+	if !errors.Is(wrapped, ErrStreamNoVisibleOutputTimeout) {
+		t.Errorf("errors.Is(wrapped, ErrStreamNoVisibleOutputTimeout) should be true")
+	}
+	if !errors.Is(wrapped, context.Canceled) {
+		t.Errorf("errors.Is(wrapped, context.Canceled) should still match via Unwrap")
+	}
+	if errors.Is(wrapped, ErrStreamFirstByteTimeout) || errors.Is(wrapped, ErrStreamStalled) {
+		t.Errorf("no-visible-output timeout must be distinct from first-byte and stall sentinels")
+	}
+}
+
 // TestDoStreamRequest_FirstByteTimeoutFires covers the watchdog
 // path: server returns 200 OK but never sends a body chunk; the
 // watchdog cancels and Chat returns a typed
@@ -88,6 +104,92 @@ func TestDoStreamRequest_FirstByteTimeoutFires(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no usable SSE data") {
 		t.Errorf("error message should name 'no usable SSE data'; got %q", err.Error())
+	}
+}
+
+func TestDoStreamRequest_HiddenReasoningOnlyHitsVisibleOutputTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		f, _ := w.(http.Flusher)
+		ticker := time.NewTicker(50 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-ticker.C:
+				_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"thinking\"}}]}\n\n"))
+				if f != nil {
+					f.Flush()
+				}
+			}
+		}
+	}))
+	defer server.Close()
+
+	adapter := NewOpenAIAdapter("k", "m", server.URL, AdapterOptions{
+		Stream:                 true,
+		RequestTimeout:         350 * time.Millisecond,
+		RetryMaxAttempts:       1,
+		StreamFirstByteTimeout: time.Second,
+		StreamStallTimeout:     5 * time.Second,
+	})
+
+	start := time.Now()
+	_, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{})
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatalf("expected no-visible-output timeout error; got nil")
+	}
+	if !errors.Is(err, ErrStreamNoVisibleOutputTimeout) {
+		t.Fatalf("expected ErrStreamNoVisibleOutputTimeout in chain; got %v", err)
+	}
+	if errors.Is(err, ErrStreamFirstByteTimeout) || errors.Is(err, ErrStreamStalled) {
+		t.Fatalf("hidden reasoning should trip visible-output timeout, not first-byte/stall: %v", err)
+	}
+	if elapsed > 2*time.Second {
+		t.Errorf("visible-output timeout took %v; expected <2s", elapsed)
+	}
+}
+
+func TestDoStreamRequest_ToolCallProgressAvoidsVisibleOutputTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		f, _ := w.(http.Flusher)
+		chunks := []string{
+			`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"emit_answer_document","arguments":"{\"blocks\":"}}]}}]}` + "\n\n",
+			`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"[]}"}}]}}]}` + "\n\n",
+			`data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}` + "\n\n",
+			"data: [DONE]\n\n",
+		}
+		for _, chunk := range chunks {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(120 * time.Millisecond):
+			}
+			_, _ = w.Write([]byte(chunk))
+			if f != nil {
+				f.Flush()
+			}
+		}
+	}))
+	defer server.Close()
+
+	adapter := NewOpenAIAdapter("k", "m", server.URL, AdapterOptions{
+		Stream:                 true,
+		RequestTimeout:         250 * time.Millisecond,
+		RetryMaxAttempts:       1,
+		StreamFirstByteTimeout: time.Second,
+		StreamStallTimeout:     5 * time.Second,
+	})
+
+	_, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, nil, ChatOptions{})
+	if err != nil {
+		t.Fatalf("tool-call deltas are visible protocol progress and should not timeout: %v", err)
 	}
 }
 

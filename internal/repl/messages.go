@@ -863,6 +863,14 @@ func friendlyRunError(lang string, err error) string {
 		}
 		return fmt.Sprintf("Upstream LLM never sent any response within %s of receiving the request. Likely causes: provider-side deadlock, middlebox interference, or a cold-start hang. Retry, or try a different provider/model.", idle)
 	}
+	var nv *llm.StreamNoVisibleOutputTimeoutError
+	if errors.As(err, &nv) {
+		idle := nv.IdleFor
+		if isZh(lang) {
+			return fmt.Sprintf("上游 LLM 的流式连接仍在活动，但 %s 内没有产生可用于用户答案或工具调用的输出。可能是模型长时间停留在隐藏思考中。已自动中止；请重试，或换一个 provider/model。", idle)
+		}
+		return fmt.Sprintf("Upstream LLM stream stayed active but produced no user-visible answer or tool-call output for %s. It may be stuck in hidden reasoning. Aborted automatically; retry, or try a different provider/model.", idle)
+	}
 	// Streaming-watchdog mid-stream stall: stream started but went
 	// silent for more than streamStallTimeout (default 60s).
 	var ss *llm.StreamStalledError

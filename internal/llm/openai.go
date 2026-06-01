@@ -520,10 +520,15 @@ func (o *OpenAIAdapter) doRequest(ctx context.Context, bodyBytes []byte) (Respon
 func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, onDelta func(string), onToolCallDelta func(int, string, string)) (Response, error) {
 	// Stall-detection scaffold: a request-scoped context lets a
 	// watchdog goroutine cancel the in-flight HTTP body read when
-	// the upstream stops sending bytes for too long. The HTTP
-	// total-timeout (httpClient.Timeout) is the OUTER cap (default
-	// 120 s); the stall timeout is an INNER cap (default 30 s) for
-	// "no progress" specifically.
+	// the upstream stops sending useful stream progress for too
+	// long. The streaming HTTP client intentionally has no global
+	// http.Client.Timeout so legitimate long answers are not killed
+	// while bytes are flowing; instead the watchdog enforces three
+	// product-level caps:
+	//   - no first usable SSE chunk within streamFirstByteTimeout;
+	//   - no SSE progress after the stream starts within streamStallTimeout;
+	//   - no visible assistant/tool output within requestTimeout even
+	//     if hidden reasoning chunks keep the TCP/SSE stream active.
 	//
 	// Bug provenance: eval Batch I+J sgf-parsing — planner LLM
 	// streamed initial reasoning, then upstream went silent for
@@ -623,15 +628,20 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 	// thinking they pressed Ctrl+C when really upstream stalled.
 	var lastReadNano atomic.Int64
 	lastReadNano.Store(time.Now().UnixNano())
+	var lastVisibleNano atomic.Int64
+	lastVisibleNano.Store(time.Now().UnixNano())
 	var firstByteReceived atomic.Bool
 	var watchdogFired atomic.Bool
 	var firstByteFired atomic.Bool
-	var watchdogIdle atomic.Int64 // ns
+	var noVisibleFired atomic.Bool
+	var watchdogIdle atomic.Int64  // ns
+	var noVisibleIdle atomic.Int64 // ns
 	watchDone := make(chan struct{})
 	stallTimeout := o.streamStallTimeout
 	if stallTimeout <= 0 {
 		stallTimeout = defaultStreamStallTimeout
 	}
+	visibleTimeout := o.requestTimeout
 	// Tick interval is the smaller of the two thresholds / 4 to give
 	// the SHORTER timeout adequate detection resolution. Bounded
 	// above by streamStallTickInterval (5s) so long stallTimeouts
@@ -676,11 +686,21 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 						return
 					}
 				}
+				if visibleTimeout > 0 && firstByteReceived.Load() {
+					visibleIdle := time.Since(time.Unix(0, lastVisibleNano.Load()))
+					if visibleIdle > visibleTimeout {
+						logging.Warning("[llm/stream] stream produced no visible assistant/tool output for %v (requestTimeout=%v) while SSE was active; aborting", visibleIdle, visibleTimeout)
+						noVisibleIdle.Store(int64(visibleIdle))
+						noVisibleFired.Store(true)
+						cancel()
+						return
+					}
+				}
 			}
 		}
 	}()
 
-	resp, err := parseSSEStream(httpResp.Body, onDelta, onToolCallDelta, &lastReadNano, &firstByteReceived)
+	resp, err := parseSSEStreamTracked(httpResp.Body, onDelta, onToolCallDelta, &lastReadNano, &firstByteReceived, &lastVisibleNano)
 	cancel()
 	<-watchDone
 	if err != nil {
@@ -700,6 +720,11 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 		} else if firstByteFired.Load() {
 			err = &StreamFirstByteTimeoutError{
 				IdleFor: time.Duration(watchdogIdle.Load()),
+				Cause:   err,
+			}
+		} else if noVisibleFired.Load() {
+			err = &StreamNoVisibleOutputTimeoutError{
+				IdleFor: time.Duration(noVisibleIdle.Load()),
 				Cause:   err,
 			}
 		} else if watchdogFired.Load() {
@@ -768,6 +793,10 @@ const (
 //   - usage typically ships in a dedicated last chunk (stream_options),
 //     but providers vary; we read it when present
 func parseSSEStream(r io.Reader, onDelta func(string), onToolCallDelta func(int, string, string), progress *atomic.Int64, firstByte *atomic.Bool) (Response, error) {
+	return parseSSEStreamTracked(r, onDelta, onToolCallDelta, progress, firstByte, nil)
+}
+
+func parseSSEStreamTracked(r io.Reader, onDelta func(string), onToolCallDelta func(int, string, string), progress *atomic.Int64, firstByte *atomic.Bool, visibleProgress *atomic.Int64) (Response, error) {
 	br := bufio.NewScanner(r)
 	// Single SSE frames can exceed bufio's default 64 KB line cap when
 	// a provider batches many deltas into one frame; raise to 1 MB to
@@ -816,6 +845,7 @@ func parseSSEStream(r io.Reader, onDelta func(string), onToolCallDelta func(int,
 			continue
 		}
 		chunkProgress := chunk.Usage != nil
+		visibleChunkProgress := false
 		for _, ch := range chunk.Choices {
 			if strings.TrimSpace(ch.FinishReason) != "" ||
 				ch.Delta.Content != "" ||
@@ -823,7 +853,11 @@ func parseSSEStream(r io.Reader, onDelta func(string), onToolCallDelta func(int,
 				strings.TrimSpace(ch.Delta.Role) != "" ||
 				len(ch.Delta.ToolCalls) > 0 {
 				chunkProgress = true
-				break
+			}
+			if strings.TrimSpace(ch.FinishReason) != "" ||
+				ch.Delta.Content != "" ||
+				len(ch.Delta.ToolCalls) > 0 {
+				visibleChunkProgress = true
 			}
 		}
 		if !chunkProgress {
@@ -844,6 +878,9 @@ func parseSSEStream(r io.Reader, onDelta func(string), onToolCallDelta func(int,
 		}
 		if !gotAnyChunk && firstByte != nil {
 			firstByte.Store(true)
+		}
+		if visibleChunkProgress && visibleProgress != nil {
+			visibleProgress.Store(time.Now().UnixNano())
 		}
 		gotAnyChunk = true
 

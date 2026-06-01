@@ -119,3 +119,41 @@ func (e *StreamFirstByteTimeoutError) Unwrap() error {
 func (e *StreamFirstByteTimeoutError) Is(target error) bool {
 	return target == ErrStreamFirstByteTimeout
 }
+
+// ErrStreamNoVisibleOutputTimeout is raised when a stream keeps sending
+// provider-native hidden reasoning / keepalive-like progress but never emits
+// user-visible assistant content or protocol tool-call data within the
+// request timeout. Transport-level watchdogs intentionally count hidden
+// reasoning as bytes, but the product must still bound "the user sees
+// 请求模型中 forever" hangs.
+var ErrStreamNoVisibleOutputTimeout = errors.New("llm: upstream stream produced no visible output")
+
+// StreamNoVisibleOutputTimeoutError wraps the read-side cancellation when the
+// visible-output watchdog fires. It is intentionally not part of the in-adapter
+// retry allowlist: retrying a model that spends the whole request budget in
+// hidden reasoning can multiply wall-clock wait without improving recovery.
+type StreamNoVisibleOutputTimeoutError struct {
+	IdleFor time.Duration
+	Cause   error
+}
+
+func (e *StreamNoVisibleOutputTimeoutError) Error() string {
+	if e == nil {
+		return ErrStreamNoVisibleOutputTimeout.Error()
+	}
+	if e.Cause != nil {
+		return fmt.Sprintf("upstream LLM produced no visible assistant/tool output within %s: %v", e.IdleFor, e.Cause)
+	}
+	return fmt.Sprintf("upstream LLM produced no visible assistant/tool output within %s", e.IdleFor)
+}
+
+func (e *StreamNoVisibleOutputTimeoutError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Cause
+}
+
+func (e *StreamNoVisibleOutputTimeoutError) Is(target error) bool {
+	return target == ErrStreamNoVisibleOutputTimeout
+}

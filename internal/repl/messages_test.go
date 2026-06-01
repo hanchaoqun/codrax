@@ -94,6 +94,27 @@ func TestFriendlyRunError_FirstByteTimeoutHasDistinctMessage(t *testing.T) {
 	}
 }
 
+func TestFriendlyRunError_NoVisibleOutputTimeoutHasDistinctMessage(t *testing.T) {
+	nv := &llm.StreamNoVisibleOutputTimeoutError{
+		IdleFor: 4 * time.Minute,
+		Cause:   context.Canceled,
+	}
+	wrapped := fmt.Errorf("LLM call failed: %w", nv)
+
+	enGot := friendlyRunError("en", wrapped)
+	if !strings.Contains(strings.ToLower(enGot), "no user-visible answer") {
+		t.Errorf("en: expected no-visible-output guidance; got %q", enGot)
+	}
+	if strings.Contains(enGot, "Ctrl+C") || strings.Contains(enGot, "stalled with no bytes") {
+		t.Errorf("en: no-visible-output message must not look like cancel/stall; got %q", enGot)
+	}
+
+	zhGot := friendlyRunError("zh", wrapped)
+	if !strings.Contains(zhGot, "流式连接仍在活动") || !strings.Contains(zhGot, "没有产生") {
+		t.Errorf("zh: expected active-stream/no-visible-output guidance; got %q", zhGot)
+	}
+}
+
 // TestFriendlyRunError_FirstByteMatchesBeforeStreamStalled guards
 // the order of branches: a typed StreamFirstByteTimeoutError must
 // take its own branch BEFORE StreamStalledError because the chain
