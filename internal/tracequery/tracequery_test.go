@@ -533,6 +533,32 @@ func TestDonghuPlatformKeepsHarmonySchedulerSemantics(t *testing.T) {
 	}
 }
 
+func TestAutoDonghuMixedHarmonyBaseCandidateKeepsHarmonySchedulerSemantics(t *testing.T) {
+	trace := strings.Join([]string{
+		`  com.tencent.mm-36379 (36379) [004] .... 2942.124416: sched_switch: prev_comm=com.tencent.mm prev_pid=36379 prev_prio=53 prev_state=S ==> next_comm=OS_FFRT_0_0 next_pid=49634 next_prio=20`,
+		`     OS_FFRT_0_0-49634 (48679) [000] .... 2942.130000: sched_wakeup: comm=com.tencent.mm pid=36379 prio=53 target_cpu=004`,
+		`  RSUniRenderThre-2096  ( 1716) [000] .... 2942.131000: print: B|1716|H:RenderFrame|M0538`,
+		"",
+	}, "\n")
+	idx := buildTraceIndex(t, "mixed.systrace", trace)
+	res := Run(idx, Query{View: "window_stats", TimeStart: 2942.12, TimeEnd: 2942.14})
+	if res.Platform != string(TracePlatformDonghu) {
+		t.Fatalf("auto mixed Harmony-base trace should resolve platform=donghu: %+v", res)
+	}
+	if res.PlatformCandidate != "mixed_harmony_base" || res.PlatformCandidateConfidence <= 0 {
+		t.Fatalf("expected mixed_harmony_base platform candidate: %+v", res)
+	}
+	if res.TraceFlavor != string(TraceFlavorHarmonyHitrace) || !strings.Contains(res.PrioritySemantics, "1-40=CFS") {
+		t.Fatalf("mixed Harmony-base trace should keep Harmony priority semantics: %+v", res)
+	}
+	if res.FrameworkMode != "process_isolated_mixed" || len(res.FrameworkSurfaces) < 2 {
+		t.Fatalf("expected process-isolated mixed framework surfaces: mode=%s surfaces=%+v", res.FrameworkMode, res.FrameworkSurfaces)
+	}
+	if !containsSubstring(res.Caveats, "auto platform candidate mixed_harmony_base") {
+		t.Fatalf("auto platform candidate should be visible in caveats: %+v", res.Caveats)
+	}
+}
+
 func TestSpanWindowFindsUniqueTraceSpan(t *testing.T) {
 	idx := buildTraceIndex(t, "span.systrace", p1ResourceTrace)
 	res := Run(idx, Query{View: "span_window", SpanName: "Choreographer#doFrame", Limit: 4})

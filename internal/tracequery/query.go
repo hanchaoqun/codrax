@@ -14,24 +14,35 @@ func Run(idx *Index, q Query) Result {
 	q = normalizeQuery(idx, q)
 	flavor, confidence, signals, flavorCaveats := resolveTraceFlavor(idx, q)
 	q.TraceFlavor = flavor
-	platform := resolveTracePlatform(q, flavor)
+	frameworkSurfaces := detectFrameworkSurfaces(idx, q, TracePlatformAuto, 4)
+	platform, platformCandidate, platformCandidateConfidence, platformCandidateSignals, platformCaveats := resolveTracePlatform(idx, q, flavor, frameworkSurfaces, signals)
+	if platform == TracePlatformDonghu && q.TraceFlavorHintSource == "" && q.TraceFlavorHint != TraceFlavorAndroidAtrace {
+		flavor = TraceFlavorHarmonyHitrace
+		q.TraceFlavor = flavor
+		if confidence < platformCandidateConfidence {
+			confidence = platformCandidateConfidence
+		}
+	}
 	q.TracePlatform = platform
 	spanWindows, spanCaveats := resolveSpanWindowsForQuery(idx, &q, explicitTimeStart, explicitTimeEnd)
 	res := Result{
-		View:              q.View,
-		SourcePath:        idx.Path,
-		TraceFlavor:       string(flavor),
-		Platform:          string(platform),
-		FlavorConfidence:  confidence,
-		FlavorSignals:     signals,
-		FrameworkMode:     FrameworkModeForPlatform(platform),
-		FrameworkSurfaces: detectFrameworkSurfaces(idx, q, platform, 4),
-		TimeUnit:          "seconds",
-		PrioritySemantics: PrioritySemanticsForFlavor(flavor),
-		LineCount:         idx.LineCount,
-		EventCount:        len(idx.Events),
-		TimeStart:         q.TimeStart,
-		TimeEnd:           q.TimeEnd,
+		View:                        q.View,
+		SourcePath:                  idx.Path,
+		TraceFlavor:                 string(flavor),
+		Platform:                    string(platform),
+		PlatformCandidate:           platformCandidate,
+		PlatformCandidateConfidence: platformCandidateConfidence,
+		PlatformCandidateSignals:    platformCandidateSignals,
+		FlavorConfidence:            confidence,
+		FlavorSignals:               signals,
+		FrameworkMode:               FrameworkModeForPlatform(platform),
+		FrameworkSurfaces:           frameworkSurfaces,
+		TimeUnit:                    "seconds",
+		PrioritySemantics:           PrioritySemanticsForFlavor(flavor),
+		LineCount:                   idx.LineCount,
+		EventCount:                  len(idx.Events),
+		TimeStart:                   q.TimeStart,
+		TimeEnd:                     q.TimeEnd,
 	}
 	if len(spanWindows) > 0 {
 		res.SpanWindows = spanWindows
@@ -153,23 +164,94 @@ func Run(idx *Index, q Query) Result {
 		res.EvidencePack = evidenceFromEvents(res.Events)
 	}
 	res.Caveats = append(res.Caveats, flavorCaveats...)
+	res.Caveats = append(res.Caveats, platformCaveats...)
 	res.Caveats = append(res.Caveats, spanCaveats...)
 	res.Caveats = append(res.Caveats, resultCaveats(idx, q, res)...)
 	return res
 }
 
-func resolveTracePlatform(q Query, flavor TraceFlavor) TracePlatform {
+func resolveTracePlatform(idx *Index, q Query, flavor TraceFlavor, surfaces []FrameworkSurface, flavorSignals []string) (TracePlatform, string, float64, []string, []string) {
 	if q.TracePlatformHint != "" && q.TracePlatformHint != TracePlatformAuto {
-		return q.TracePlatformHint
+		return q.TracePlatformHint, "", 0, nil, nil
 	}
 	if q.TracePlatform != "" && q.TracePlatform != TracePlatformAuto {
-		return q.TracePlatform
+		return q.TracePlatform, "", 0, nil, nil
 	}
-	return PlatformForFlavor(flavor)
+	platform := PlatformForFlavor(flavor)
+	if q.TraceFlavorHint == TraceFlavorAndroidAtrace && (q.TraceFlavorHintSource == "tool_param" || q.TraceFlavorHintSource == "user_request") {
+		return platform, "", 0, nil, nil
+	}
+	candidate, confidence, signals := inferPlatformCandidate(idx, q, flavor, platform, surfaces, flavorSignals)
+	var caveats []string
+	if candidate == "mixed_harmony_base" && platform != TracePlatformDonghu {
+		platform = TracePlatformDonghu
+		caveats = append(caveats, "auto platform candidate mixed_harmony_base was selected from Harmony-base signals plus Android/Harmony framework surfaces; using Harmony/OpenHarmony timestamp and priority semantics")
+	}
+	return platform, candidate, confidence, signals, caveats
+}
+
+func inferPlatformCandidate(idx *Index, q Query, flavor TraceFlavor, platform TracePlatform, surfaces []FrameworkSurface, flavorSignals []string) (string, float64, []string) {
+	if idx == nil {
+		return "", 0, nil
+	}
+	signalSet := map[string]bool{}
+	addSignal := func(s string) {
+		if strings.TrimSpace(s) != "" {
+			signalSet[s] = true
+		}
+	}
+	for _, s := range flavorSignals {
+		addSignal(s)
+	}
+	harmonyBase := flavor == TraceFlavorHarmonyHitrace || platform == TracePlatformHarmony || platform == TracePlatformDonghu
+	androidSurface := false
+	harmonySurface := false
+	for _, surface := range surfaces {
+		switch surface.Surface {
+		case "android_framework":
+			if surface.ProcessCount > 0 {
+				androidSurface = true
+				addSignal("surface_android_framework")
+			}
+		case "harmony_framework":
+			if surface.ProcessCount > 0 {
+				harmonySurface = true
+				addSignal("surface_harmony_framework")
+			}
+		}
+		for _, s := range surface.Signals {
+			addSignal(s)
+		}
+	}
+	for _, s := range flavorSignals {
+		if strings.Contains(s, "harmony") || strings.Contains(s, "hitrace") || strings.Contains(s, "ffrt") || strings.Contains(s, "ohos") {
+			harmonyBase = true
+		}
+	}
+	if harmonyBase && androidSurface {
+		confidence := 0.78
+		if harmonySurface {
+			confidence = 0.88
+		}
+		if flavor == TraceFlavorHarmonyHitrace {
+			confidence += 0.04
+		}
+		if confidence > 0.96 {
+			confidence = 0.96
+		}
+		signals := make([]string, 0, len(signalSet)+1)
+		for s := range signalSet {
+			signals = append(signals, s)
+		}
+		signals = append(signals, "platform_candidate_mixed_harmony_base")
+		sort.Strings(signals)
+		return "mixed_harmony_base", confidence, signals
+	}
+	return "", 0, nil
 }
 
 func detectFrameworkSurfaces(idx *Index, q Query, platform TracePlatform, limit int) []FrameworkSurface {
-	if idx == nil || platform == TracePlatformGeneric || limit <= 0 {
+	if idx == nil || limit <= 0 {
 		return nil
 	}
 	type acc struct {
