@@ -2445,7 +2445,8 @@ func runtimeArtifactGroundingBypassAllowed(ctx *types.BusContext) bool {
 			rm.PerfTrace = ctx.Mutable.PerfTrace()
 		}
 	}
-	return rm.HasObservationOnlyRuntimeArtifact()
+	return rm.HasExternalOnlyRuntimeArtifact() &&
+		!rm.CurrentSourceLaneDecision().RequiresCurrentSource()
 }
 
 func historyCountAggregateHandoffDowngrade(ctx *types.BusContext, closure *types.EvidenceClosure, aggregateFacts []types.AnswerAggregateFact) string {

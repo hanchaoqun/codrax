@@ -2835,6 +2835,64 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ExternalSourceLogWaivesCitat
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_ExternalTraceOptionalSourceWaivesCitationFloor(t *testing.T) {
+	perfBundle := &types.PerfBundle{
+		Meta: types.PerfMeta{Source: "hitrace", Signals: []string{"jank"}},
+		Observations: []types.PerfObservation{{
+			Kind:       "trace_query",
+			Subject:    "Choreographer#doFrame 1254842",
+			Summary:    "frame took 123ms with scheduler latency and binder wait",
+			LineStart:  1102717,
+			DurationMs: 123,
+		}},
+	}
+	mut := types.NewMutableState("trace-only runtime artifact")
+	mut.SetPerfTrace(perfBundle)
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				PerfTrace: perfBundle,
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{
+					Required:     true,
+					MinCitations: 2,
+				},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "trace_query returned line-backed runtime observations that answer the frame jank question",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":  "scalar_value",
+			"label": "frame 1254842 duration",
+			"value": "123 ms",
+			"unit":  "duration",
+			"dimensions": []map[string]any{{
+				"name":  "origin",
+				"value": string(types.AnswerEvidenceOriginRuntimeArtifact),
+			}},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("trace-only runtime closure should not be blocked by current-source citation floor, got: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("InvestigationComplete should be set for trace-only runtime closure")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_ExternalSourceCurrentVerificationRequiresHintRead(t *testing.T) {
 	logBundle := &types.LogBundle{
 		Observations: []types.LogObservation{{
