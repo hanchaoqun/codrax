@@ -141,6 +141,48 @@ func TestRenderHarmonySchedSwitchKeepsNextInfoAndCGroup(t *testing.T) {
 	}
 }
 
+func TestRenderDataLocStrings(t *testing.T) {
+	format := eventFormat{
+		ID:   20,
+		Name: "tracing_mark_write",
+		Fields: []eventField{
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Type: "__data_loc char[]", Name: "buf", Offset: 8, Size: 4},
+		},
+	}
+	payload := []byte("B|100|RenderFrame\x00")
+	content := make([]byte, 12+len(payload))
+	binary.LittleEndian.PutUint32(content[4:8], uint32(100))
+	binary.LittleEndian.PutUint32(content[8:12], uint32((len(payload)<<16)|12))
+	copy(content[12:], payload)
+
+	line, known := renderEventLine(renderContext{cmdlines: map[int]string{100: "render"}, tgids: map[int]int{100: 100}}, 2_000_000_000, 1, format, content)
+	if !known || !strings.Contains(line, "tracing_mark_write: B|100|RenderFrame") {
+		t.Fatalf("data_loc trace payload not rendered: known=%v line=%s", known, line)
+	}
+}
+
+func TestGenericDataLocStringIsPreserved(t *testing.T) {
+	format := eventFormat{
+		ID:   21,
+		Name: "vendor_dynamic",
+		Fields: []eventField{
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Type: "__data_loc char[]", Name: "message", Offset: 8, Size: 4},
+		},
+	}
+	payload := []byte("alpha=1 beta=needle\x00")
+	content := make([]byte, 12+len(payload))
+	binary.LittleEndian.PutUint32(content[4:8], uint32(100))
+	binary.LittleEndian.PutUint32(content[8:12], uint32((len(payload)<<16)|12))
+	copy(content[12:], payload)
+
+	line, known := renderEventLine(renderContext{cmdlines: map[int]string{100: "worker"}, tgids: map[int]int{100: 100}}, 2_000_000_000, 1, format, content)
+	if known || !strings.Contains(line, "vendor_dynamic: message=alpha=1 beta=needle") {
+		t.Fatalf("generic data_loc payload not preserved: known=%v line=%s", known, line)
+	}
+}
+
 func syntheticBinaryHitrace(t *testing.T) []byte {
 	t.Helper()
 	var b bytes.Buffer

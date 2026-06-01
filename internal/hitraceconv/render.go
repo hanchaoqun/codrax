@@ -135,7 +135,7 @@ func renderEventBody(ev decodedEvent, content []byte, cpu int) (string, bool) {
 	if len(ev.format.Fields) == 0 {
 		return missingFormatPayload(ev.format.ID, content), false
 	}
-	return genericFields(ev), false
+	return genericFields(ev, content), false
 }
 
 func schedSwitchHarmonyExtras(ev decodedEvent) string {
@@ -211,18 +211,24 @@ func renderKV(ev decodedEvent, names ...string) string {
 		}
 	}
 	if len(parts) == 0 {
-		return genericFields(ev)
+		return genericFields(ev, nil)
 	}
 	return strings.Join(parts, " ")
 }
 
-func genericFields(ev decodedEvent) string {
+func genericFields(ev decodedEvent, content []byte) string {
 	var parts []string
 	for _, f := range ev.format.Fields {
 		if strings.HasPrefix(f.Name, "common_") {
 			continue
 		}
 		name := cleanFieldName(f.Name)
+		if dataLocField(f) {
+			if s := dataLocFieldString(ev, f, content); s != "" {
+				parts = append(parts, fmt.Sprintf("%s=%s", name, s))
+				continue
+			}
+		}
 		if s := strField(ev, f.Name); s != "" && (fieldLooksString(f.Name) || isMostlyPrintable(s)) {
 			parts = append(parts, fmt.Sprintf("%s=%s", name, s))
 			continue
@@ -272,6 +278,85 @@ func strFieldByCleanName(ev decodedEvent, want string) string {
 		}
 	}
 	return ""
+}
+
+func dataLocFieldString(ev decodedEvent, f eventField, content []byte) string {
+	if !dataLocField(f) {
+		return ""
+	}
+	if content == nil {
+		content = eventContent(ev)
+	}
+	if content == nil {
+		return ""
+	}
+	loc := uint32(intField(ev, f.Name, false))
+	off := int(loc & 0xffff)
+	ln := int(loc >> 16)
+	if off < 0 || off >= len(content) || ln <= 0 {
+		return ""
+	}
+	end := off + ln
+	if end > len(content) {
+		end = len(content)
+	}
+	if end <= off {
+		return ""
+	}
+	b := content[off:end]
+	if i := bytesIndexNUL(b); i >= 0 {
+		b = b[:i]
+	}
+	s := strings.TrimSpace(string(b))
+	if s == "" || !isMostlyPrintable(s) {
+		return ""
+	}
+	return clampDynamicString(s, 300)
+}
+
+func dataLocStringByCleanName(ev decodedEvent, content []byte, names ...string) string {
+	for _, want := range names {
+		for _, f := range ev.format.Fields {
+			if cleanFieldName(f.Name) == want {
+				if s := dataLocFieldString(ev, f, content); s != "" {
+					return s
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func dataLocField(f eventField) bool {
+	return strings.Contains(strings.ToLower(f.Type), "__data_loc")
+}
+
+func eventContent(ev decodedEvent) []byte {
+	limit := 0
+	for _, f := range ev.format.Fields {
+		if end := f.Offset + f.Size; end > limit {
+			limit = end
+		}
+	}
+	if limit <= 0 {
+		return nil
+	}
+	content := make([]byte, limit)
+	for _, f := range ev.format.Fields {
+		if b := ev.fields[f.Name]; len(b) > 0 && f.Offset >= 0 && f.Offset+len(b) <= len(content) {
+			copy(content[f.Offset:f.Offset+len(b)], b)
+		}
+	}
+	return content
+}
+
+func bytesIndexNUL(b []byte) int {
+	for i, v := range b {
+		if v == 0 {
+			return i
+		}
+	}
+	return -1
 }
 
 func intField(ev decodedEvent, name string, signedDefault bool) int64 {
@@ -371,6 +456,9 @@ func blockedCaller(ev decodedEvent) string {
 }
 
 func irqName(ev decodedEvent, content []byte) string {
+	if s := dataLocStringByCleanName(ev, content, "name"); s != "" {
+		return s
+	}
 	if s := strField(ev, "name[32]"); s != "" {
 		return s
 	}
@@ -393,6 +481,9 @@ func firstTracePayload(ev decodedEvent, content []byte) string {
 			return s
 		}
 	}
+	if s := dataLocStringByCleanName(ev, content, "buf", "str", "trace"); s != "" {
+		return s
+	}
 	pos := int(intField(ev, "buf", false) & 0xffff)
 	if pos > 0 && pos < len(content) {
 		b := content[pos:]
@@ -401,7 +492,7 @@ func firstTracePayload(ev decodedEvent, content []byte) string {
 		}
 		return strings.TrimSpace(string(b))
 	}
-	return genericFields(ev)
+	return genericFields(ev, content)
 }
 
 func firstNonEmpty(values ...string) string {
@@ -466,4 +557,13 @@ func clampTaskName(s string) string {
 	}
 	r := []rune(s)
 	return string(r[:32])
+}
+
+func clampDynamicString(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if max <= 0 || len([]rune(s)) <= max {
+		return s
+	}
+	r := []rune(s)
+	return string(r[:max])
 }

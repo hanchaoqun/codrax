@@ -213,10 +213,12 @@ Design:
 
 Tasks:
 
-- [ ] Implement generic `__data_loc` field decoder.
-- [ ] Implement bounded hex/array rendering.
+- [x] Implement generic `__data_loc` field decoder for dynamic strings.
+- [x] Keep missing-format payload hex bounded and preserve dynamic-string
+      fallback rows without unbounded inline dumps.
 - [ ] Add symbolic maps for selected stable enums.
-- [ ] Add converter tests for dynamic string and array rows.
+- [x] Add converter tests for dynamic string rows.
+- [ ] Add converter tests for dynamic array rows.
 
 Verification:
 
