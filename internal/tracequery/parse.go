@@ -213,8 +213,23 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		if ev.SubsystemKind == "" {
 			ev.SubsystemKind = ev.MemoryKind
 		}
+		populateResourceFields(&ev, kv, intern)
+	case EventStorage, EventFilesystem:
+		populateResourceFields(&ev, kv, intern)
 	}
 	return ev, true
+}
+
+func populateResourceFields(ev *Event, kv map[string]string, intern *stringInterner) {
+	if ev == nil {
+		return
+	}
+	ev.ResourcePath = intern.intern(firstNonEmpty(kv["path"], kv["file"], kv["filename"], kv["name"]))
+	ev.ResourceOp = intern.intern(firstNonEmpty(kv["op"], kv["operation"], kv["syscall"], kv["type"], kv["rwbs"]))
+	ev.ResourceLatencyMs = parseLatencyMs(kv)
+	ev.ResourceBytes = atoi64(firstNonEmpty(kv["bytes"], kv["size"], kv["len"], kv["length"]))
+	ev.ResourceAddress = intern.intern(firstNonEmpty(kv["addr"], kv["address"], kv["fault_addr"]))
+	ev.ResourceCallstack = intern.intern(clampString(firstNonEmpty(kv["callstack"], kv["backtrace"], kv["stack"]), 160))
 }
 
 func parseBlockRequest(fields string) (dev, op string, sector, length int64) {
@@ -339,6 +354,8 @@ func classifySubsystemKind(raw, fields string, typ EventType) string {
 		return "softirq"
 	case EventStorage:
 		switch {
+		case strings.Contains(text, "bio") && strings.Contains(text, "latency"):
+			return "ebpf_bio"
 		case strings.Contains(text, "ufshcd"):
 			return "storage_ufs"
 		case strings.Contains(text, "mmc"):
@@ -352,6 +369,8 @@ func classifySubsystemKind(raw, fields string, typ EventType) string {
 		}
 	case EventFilesystem:
 		switch {
+		case strings.Contains(text, "file_system") || strings.Contains(text, "filesystem") || strings.Contains(text, "ebpf_file"):
+			return "ebpf_filesystem"
 		case strings.Contains(text, "erofs"):
 			return "fs_erofs"
 		case strings.Contains(text, "ext4"):
@@ -387,13 +406,19 @@ func isStorageEvent(raw string) bool {
 	return strings.HasPrefix(raw, "ufshcd_") ||
 		strings.HasPrefix(raw, "mmc_") ||
 		strings.HasPrefix(raw, "i2c_") ||
-		strings.HasPrefix(raw, "smbus_")
+		strings.HasPrefix(raw, "smbus_") ||
+		(strings.Contains(raw, "bio") && strings.Contains(raw, "latency")) ||
+		strings.HasPrefix(raw, "bio_") ||
+		strings.HasPrefix(raw, "ebpf_bio")
 }
 
 func isFilesystemEvent(raw string) bool {
 	return strings.HasPrefix(raw, "ext4_") ||
 		strings.HasPrefix(raw, "erofs_") ||
 		strings.HasPrefix(raw, "z_erofs_") ||
+		strings.HasPrefix(raw, "filesystem") ||
+		strings.HasPrefix(raw, "file_system") ||
+		strings.HasPrefix(raw, "ebpf_file") ||
 		strings.HasPrefix(raw, "file_check_and_advance_wb_err") ||
 		strings.HasPrefix(raw, "filemap_set_wb_err")
 }
@@ -468,6 +493,42 @@ func atoi64(raw string) int64 {
 	}
 	n, _ := strconv.ParseInt(raw, 10, 64)
 	return n
+}
+
+func parseLatencyMs(kv map[string]string) float64 {
+	if len(kv) == 0 {
+		return 0
+	}
+	for _, key := range []string{"latency_ms", "duration_ms", "dur_ms"} {
+		if v := parseFloat(kv[key]); v > 0 {
+			return v
+		}
+	}
+	for _, key := range []string{"latency_us", "duration_us", "dur_us"} {
+		if v := parseFloat(kv[key]); v > 0 {
+			return v / 1000
+		}
+	}
+	for _, key := range []string{"latency_ns", "duration_ns", "dur_ns"} {
+		if v := parseFloat(kv[key]); v > 0 {
+			return v / 1000000
+		}
+	}
+	for _, key := range []string{"latency", "duration", "dur"} {
+		if v := parseFloat(kv[key]); v > 0 {
+			return v
+		}
+	}
+	return 0
+}
+
+func parseFloat(raw string) float64 {
+	raw = strings.Trim(strings.TrimSpace(raw), ":,")
+	if raw == "" {
+		return 0
+	}
+	v, _ := strconv.ParseFloat(raw, 64)
+	return v
 }
 
 func atoiMaybe(raw string) (int, bool) {

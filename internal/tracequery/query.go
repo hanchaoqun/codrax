@@ -764,6 +764,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	blockedReasons := map[string]BlockedReasonSummary{}
 	freqLimits := map[int]CPUFrequencyLimit{}
 	subsystems := map[string]SubsystemEventSummary{}
+	bioResources := map[string]*RuntimeResourceSummary{}
+	filesystemResources := map[string]*RuntimeResourceSummary{}
+	pageFaultResources := map[string]*RuntimeResourceSummary{}
 	for _, ev := range idx.Events {
 		if eventLineInWindow(ev, q) && ev.Type == EventCPUFrequency && ev.Frequency > 0 {
 			if q.TimeEnd == 0 || ev.Ts <= q.TimeEnd {
@@ -827,6 +830,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			blockedReasons[key] = br
 		}
 		accumulateSubsystemEvent(subsystems, ev)
+		accumulateRuntimeResource(bioResources, filesystemResources, pageFaultResources, ev)
 	}
 	running := map[string]ThreadDuration{}
 	pressure := map[int]*cpuPressureAcc{}
@@ -892,6 +896,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.IOLatencies = computeIOLatencies(idx, q, 8)
 	stats.CPUFrequencyLimits = sortedCPUFrequencyLimits(freqLimits, 8)
 	stats.SubsystemEvents = sortedSubsystemEvents(subsystems, 12)
+	stats.BIOResources = sortedRuntimeResources(bioResources, 8)
+	stats.FilesystemResources = sortedRuntimeResources(filesystemResources, 8)
+	stats.PageFaultResources = sortedRuntimeResources(pageFaultResources, 8)
 	stats.Caveats = append(stats.Caveats, ioPairingCaveats(idx, q)...)
 	stats.BlockedReasons = topBlockedReasons(blockedReasons, 8)
 	stats.TraceSpans, stats.TraceCounters = computeTraceMarks(idx, q, 8)
@@ -2040,6 +2047,90 @@ func sortedSubsystemEvents(in map[string]SubsystemEventSummary, max int) []Subsy
 		out = append(out, item)
 	}
 	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Line < out[j].Line
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
+func accumulateRuntimeResource(bio, filesystem, pageFault map[string]*RuntimeResourceSummary, ev Event) {
+	kind := runtimeResourceKind(ev)
+	if kind == "" {
+		return
+	}
+	target := bio
+	switch kind {
+	case "filesystem":
+		target = filesystem
+	case "page_fault":
+		target = pageFault
+	}
+	op := firstNonEmpty(ev.ResourceOp, ev.BlockOp, ev.MemoryKind, ev.Name)
+	path := firstNonEmpty(ev.ResourcePath, ev.BlockDev, ev.ResourceAddress, "unknown")
+	key := fmt.Sprintf("%s/%s/%s/%d", kind, op, path, ev.PID)
+	item := target[key]
+	if item == nil {
+		item = &RuntimeResourceSummary{
+			Kind:      kind,
+			Operation: op,
+			Path:      path,
+			Thread:    threadRefFromEvent(ev),
+			Line:      ev.Line,
+			Ts:        ev.Ts,
+			Example:   clampString(ev.FieldText, 160),
+			Callstack: ev.ResourceCallstack,
+		}
+		target[key] = item
+	}
+	item.Count++
+	item.TotalLatencyMs += ev.ResourceLatencyMs
+	if ev.ResourceLatencyMs > item.MaxLatencyMs {
+		item.MaxLatencyMs = ev.ResourceLatencyMs
+	}
+	item.Bytes += ev.ResourceBytes
+	if item.Line == 0 || ev.Line < item.Line {
+		item.Line = ev.Line
+		item.Ts = ev.Ts
+	}
+	if item.Example == "" {
+		item.Example = clampString(ev.FieldText, 160)
+	}
+	if item.Callstack == "" {
+		item.Callstack = ev.ResourceCallstack
+	}
+	if item.Address == "" {
+		item.Address = ev.ResourceAddress
+	}
+}
+
+func runtimeResourceKind(ev Event) string {
+	text := strings.ToLower(ev.Name + " " + ev.SubsystemKind + " " + ev.FieldText)
+	switch {
+	case ev.Type == EventStorage && strings.Contains(text, "bio"):
+		return "bio"
+	case ev.Type == EventFilesystem:
+		return "filesystem"
+	case ev.Type == EventMemory && (ev.MemoryKind == "page_fault" || strings.Contains(text, "page_fault") || strings.Contains(text, "fault")):
+		return "page_fault"
+	default:
+		return ""
+	}
+}
+
+func sortedRuntimeResources(in map[string]*RuntimeResourceSummary, max int) []RuntimeResourceSummary {
+	out := make([]RuntimeResourceSummary, 0, len(in))
+	for _, item := range in {
+		out = append(out, *item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].TotalLatencyMs != out[j].TotalLatencyMs {
+			return out[i].TotalLatencyMs > out[j].TotalLatencyMs
+		}
 		if out[i].Count != out[j].Count {
 			return out[i].Count > out[j].Count
 		}

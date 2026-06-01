@@ -123,6 +123,12 @@ const frameFlowTrace = `
          gpu-300   (  300) [002] .... 7.040000: print: E|300
 `
 
+const ebpfResourceTrace = `
+        app-20   (   20) [001] .... 8.000000: bio_latency: op=R path=/data/app/base.db latency_us=2500 bytes=4096 callstack=BioRead>Submit
+        app-20   (   20) [001] .... 8.010000: file_system: syscall=read path=/data/app/base.db duration_ms=3.5 bytes=1024 callstack=ReadFile
+        app-20   (   20) [001] .... 8.020000: page_fault_user: operation=major address=0x1234 duration_us=150 size=4096 callstack=FaultHandler
+`
+
 func TestParseLineSchedulerEvents(t *testing.T) {
 	intern := newStringInterner()
 	ev, ok := ParseLine(4, `        app-20   (   20) [001] .... 1.100000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`, intern)
@@ -263,6 +269,30 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			line:  `      waker-10   (   10) [000] .... 2.105000: softirq_entry: vec=3 action=NET_RX`,
 			want:  EventSoftIRQ,
 			check: func(ev Event) bool { return ev.IRQID == 3 && ev.IRQName == "NET_RX" && ev.SubsystemKind == "softirq" },
+		},
+		{
+			name: "ebpf bio latency",
+			line: `      app-20   (   20) [001] .... 2.106000: bio_latency: op=R path=/data/app/base.db latency_us=2500 bytes=4096 callstack=BioRead>Submit`,
+			want: EventStorage,
+			check: func(ev Event) bool {
+				return ev.SubsystemKind == "ebpf_bio" && ev.ResourcePath == "/data/app/base.db" && ev.ResourceLatencyMs == 2.5 && ev.ResourceBytes == 4096
+			},
+		},
+		{
+			name: "ebpf filesystem",
+			line: `      app-20   (   20) [001] .... 2.107000: file_system: syscall=read path=/data/app/base.db duration_ms=3.5 bytes=1024 callstack=ReadFile`,
+			want: EventFilesystem,
+			check: func(ev Event) bool {
+				return ev.SubsystemKind == "ebpf_filesystem" && ev.ResourceOp == "read" && ev.ResourceLatencyMs == 3.5 && ev.ResourceCallstack == "ReadFile"
+			},
+		},
+		{
+			name: "ebpf page fault",
+			line: `      app-20   (   20) [001] .... 2.108000: page_fault_user: operation=major address=0x1234 duration_us=150 size=4096 callstack=FaultHandler`,
+			want: EventMemory,
+			check: func(ev Event) bool {
+				return ev.MemoryKind == "page_fault" && ev.ResourceOp == "major" && ev.ResourceAddress == "0x1234" && near(ev.ResourceLatencyMs, 0.150, 0.001)
+			},
 		},
 		{
 			name:  "trace mark",
@@ -724,6 +754,20 @@ func TestFrameTimelineAndFlowViews(t *testing.T) {
 	}
 	if len(flow.EvidencePack) == 0 {
 		t.Fatalf("frame flow should produce evidence facts")
+	}
+}
+
+func TestWindowStatsSummarizesSmartPerfEBPFResources(t *testing.T) {
+	idx := buildTraceIndex(t, "ebpf.systrace", ebpfResourceTrace)
+	stats := ComputeWindowStats(idx, Query{TimeStart: 8.0, TimeEnd: 8.03})
+	if len(stats.BIOResources) != 1 || stats.BIOResources[0].Path != "/data/app/base.db" || !near(stats.BIOResources[0].TotalLatencyMs, 2.5, 0.001) {
+		t.Fatalf("expected BIO resource summary: %+v", stats.BIOResources)
+	}
+	if len(stats.FilesystemResources) != 1 || stats.FilesystemResources[0].Operation != "read" || stats.FilesystemResources[0].Bytes != 1024 {
+		t.Fatalf("expected filesystem resource summary: %+v", stats.FilesystemResources)
+	}
+	if len(stats.PageFaultResources) != 1 || stats.PageFaultResources[0].Operation != "major" || stats.PageFaultResources[0].Address != "0x1234" {
+		t.Fatalf("expected page fault resource summary: %+v", stats.PageFaultResources)
 	}
 }
 
