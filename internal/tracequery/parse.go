@@ -18,6 +18,7 @@ var (
 	kvRE           = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_]*)=([^ ]+)`)
 	blockRequestRE = regexp.MustCompile(`^(\S+)\s+(\S+)\s+(?:(?:\d+)\s+)?\([^)]*\)\s+(\d+)\s+\+\s+(\d+)`)
 	blockRemapRE   = regexp.MustCompile(`^(\S+)\s+(\d+)\s+\+\s+(\d+)\s+<-`)
+	blockErrorRE   = regexp.MustCompile(`\[([^\]]+)\]\s*$`)
 )
 
 type parseCacheKey struct {
@@ -127,6 +128,7 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		Name:      intern.intern(rawType),
 		FieldText: intern.intern(clampString(fields, 300)),
 	}
+	ev.SubsystemKind = intern.intern(classifySubsystemKind(rawType, fields, ev.Type))
 	kv := parseKV(fields)
 	switch ev.Type {
 	case EventSchedSwitch:
@@ -155,6 +157,11 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.Frequency = atoi(firstNonEmpty(kv["state"], kv["frequency"], kv["freq"]))
 		ev.CPUForField, ev.CPUForFieldValid = atoiMaybe(kv["cpu_id"])
 		ev.ClockName = intern.intern(clockNameForEvent(rawType, fields))
+	case EventCPUFrequencyLimit:
+		ev.FrequencyMin = atoi(firstNonEmpty(kv["min"], kv["min_freq"]))
+		ev.FrequencyMax = atoi(firstNonEmpty(kv["max"], kv["max_freq"]))
+		ev.CPUForField, ev.CPUForFieldValid = atoiMaybe(kv["cpu_id"])
+		ev.ClockName = intern.intern(rawType)
 	case EventClockSetRate:
 		ev.Frequency = atoi(firstNonEmpty(kv["state"], kv["frequency"], kv["freq"]))
 		ev.CPUForField, ev.CPUForFieldValid = atoiMaybe(kv["cpu_id"])
@@ -170,6 +177,9 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.BlockOp = intern.intern(op)
 		ev.BlockSector = sector
 		ev.BlockLen = length
+		if ev.Type == EventBlockComplete {
+			ev.BlockError = intern.intern(parseBlockError(fields))
+		}
 	case EventBlockRemap:
 		dev, sector, length := parseBlockRemap(fields)
 		ev.BlockDev = intern.intern(dev)
@@ -184,11 +194,14 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.BinderCode = intern.intern(kv["code"])
 	case EventBinderReceived:
 		ev.BinderTransactionID = atoi(kv["transaction"])
-	case EventIRQ:
-		ev.IRQID = atoi(kv["irq"])
-		ev.IRQName = intern.intern(kv["name"])
+	case EventIRQ, EventSoftIRQ:
+		ev.IRQID = atoi(firstNonEmpty(kv["irq"], kv["vec"]))
+		ev.IRQName = intern.intern(firstNonEmpty(kv["name"], strings.TrimSuffix(kv["action"], "]"), kv["vec"]))
 	case EventMemory:
 		ev.MemoryKind = intern.intern(classifyMemoryKind(rawType, fields))
+		if ev.SubsystemKind == "" {
+			ev.SubsystemKind = ev.MemoryKind
+		}
 	}
 	return ev, true
 }
@@ -209,6 +222,14 @@ func parseBlockRemap(fields string) (dev string, sector, length int64) {
 	return m[1], atoi64(m[2]), atoi64(m[3])
 }
 
+func parseBlockError(fields string) string {
+	m := blockErrorRE.FindStringSubmatch(strings.TrimSpace(fields))
+	if len(m) != 2 {
+		return ""
+	}
+	return strings.TrimSpace(m[1])
+}
+
 func classifyMemoryKind(raw, fields string) string {
 	text := strings.ToLower(strings.TrimSpace(raw + " " + fields))
 	switch {
@@ -227,6 +248,7 @@ func classifyMemoryKind(raw, fields string) string {
 
 func classifyEventType(raw, fields string) EventType {
 	raw = strings.TrimSpace(raw)
+	rawLower := strings.ToLower(raw)
 	switch {
 	case raw == "sched_switch":
 		return EventSchedSwitch
@@ -240,12 +262,16 @@ func classifyEventType(raw, fields string) EventType {
 		return EventCPUIdle
 	case raw == "cpu_frequency":
 		return EventCPUFrequency
+	case raw == "cpu_frequency_limits":
+		return EventCPUFrequencyLimit
 	case raw == "clock_set_rate":
 		if isCPUFrequencyClock(fields) {
 			return EventCPUFrequency
 		}
 		return EventClockSetRate
-	case strings.Contains(raw, "cpu") && strings.Contains(raw, "freq"):
+	case strings.Contains(rawLower, "cpu") && strings.Contains(rawLower, "freq") && strings.Contains(rawLower, "limit"):
+		return EventCPUFrequencyLimit
+	case strings.Contains(rawLower, "cpu") && strings.Contains(rawLower, "freq"):
 		return EventCPUFrequency
 	case raw == "block_rq_issue":
 		return EventBlockIssue
@@ -257,18 +283,102 @@ func classifyEventType(raw, fields string) EventType {
 		return EventBinderTransaction
 	case raw == "binder_transaction_received":
 		return EventBinderReceived
-	case strings.HasPrefix(raw, "irq_") || strings.Contains(raw, "softirq"):
+	case strings.Contains(rawLower, "softirq"):
+		return EventSoftIRQ
+	case strings.HasPrefix(raw, "irq_"):
 		return EventIRQ
 	case raw == "print" || raw == "tracing_mark_write":
 		if strings.HasPrefix(fields, "B|") || strings.HasPrefix(fields, "E|") || strings.HasPrefix(fields, "C|") {
 			return EventTraceMark
 		}
 		return EventUnknown
-	case strings.HasPrefix(raw, "mm_") || strings.Contains(raw, "reclaim") || strings.Contains(raw, "fault") || strings.Contains(fields, "GC"):
+	case isStorageEvent(rawLower):
+		return EventStorage
+	case isFilesystemEvent(rawLower):
+		return EventFilesystem
+	case isPowerEvent(rawLower):
+		return EventPower
+	case strings.HasPrefix(rawLower, "workqueue_"):
+		return EventWorkqueue
+	case strings.HasPrefix(rawLower, "dma_fence"):
+		return EventDMAFence
+	case strings.HasPrefix(rawLower, "mm_") || strings.Contains(rawLower, "reclaim") || strings.Contains(rawLower, "fault") || strings.Contains(fields, "GC"):
 		return EventMemory
 	default:
 		return EventUnknown
 	}
+}
+
+func classifySubsystemKind(raw, fields string, typ EventType) string {
+	text := strings.ToLower(strings.TrimSpace(raw + " " + fields))
+	switch typ {
+	case EventCPUFrequencyLimit:
+		return "cpu_frequency_limits"
+	case EventSoftIRQ:
+		return "softirq"
+	case EventStorage:
+		switch {
+		case strings.Contains(text, "ufshcd"):
+			return "storage_ufs"
+		case strings.Contains(text, "mmc"):
+			return "storage_mmc"
+		case strings.Contains(text, "i2c"):
+			return "storage_i2c"
+		case strings.Contains(text, "smbus"):
+			return "storage_smbus"
+		default:
+			return "storage"
+		}
+	case EventFilesystem:
+		switch {
+		case strings.Contains(text, "erofs"):
+			return "fs_erofs"
+		case strings.Contains(text, "ext4"):
+			return "fs_ext4"
+		case strings.Contains(text, "writeback") || strings.Contains(text, "wb_err"):
+			return "writeback"
+		case strings.Contains(text, "filemap") || strings.Contains(text, "page_cache"):
+			return "page_cache"
+		default:
+			return "filesystem"
+		}
+	case EventPower:
+		switch {
+		case strings.Contains(text, "thermal"):
+			return "thermal"
+		case strings.Contains(text, "regulator"):
+			return "regulator"
+		default:
+			return "power"
+		}
+	case EventWorkqueue:
+		return "workqueue"
+	case EventDMAFence:
+		return "dma_fence"
+	case EventMemory:
+		return classifyMemoryKind(raw, fields)
+	default:
+		return ""
+	}
+}
+
+func isStorageEvent(raw string) bool {
+	return strings.HasPrefix(raw, "ufshcd_") ||
+		strings.HasPrefix(raw, "mmc_") ||
+		strings.HasPrefix(raw, "i2c_") ||
+		strings.HasPrefix(raw, "smbus_")
+}
+
+func isFilesystemEvent(raw string) bool {
+	return strings.HasPrefix(raw, "ext4_") ||
+		strings.HasPrefix(raw, "erofs_") ||
+		strings.HasPrefix(raw, "z_erofs_") ||
+		strings.HasPrefix(raw, "file_check_and_advance_wb_err") ||
+		strings.HasPrefix(raw, "filemap_set_wb_err")
+}
+
+func isPowerEvent(raw string) bool {
+	return strings.HasPrefix(raw, "thermal_") || strings.HasPrefix(raw, "regulator_")
 }
 
 func parseKV(fields string) map[string]string {

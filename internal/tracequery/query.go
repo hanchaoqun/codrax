@@ -407,7 +407,7 @@ func eventInQuery(ev Event, q Query, typeSet map[EventType]bool) bool {
 			return false
 		}
 	}
-	if len(typeSet) > 0 && !typeSet[ev.Type] {
+	if len(typeSet) > 0 && !eventTypeMatches(ev.Type, typeSet) {
 		return false
 	}
 	if q.PID > 0 && !eventMentionsPID(ev, q.PID) {
@@ -417,6 +417,16 @@ func eventInQuery(ev Event, q Query, typeSet map[EventType]bool) bool {
 		return false
 	}
 	return true
+}
+
+func eventTypeMatches(typ EventType, typeSet map[EventType]bool) bool {
+	if typeSet[typ] {
+		return true
+	}
+	// Compatibility: older prompts use cpu_frequency to discover both concrete
+	// frequency residency rows and frequency-limit rows. Residency math still
+	// only consumes EventCPUFrequency.
+	return typ == EventCPUFrequencyLimit && typeSet[EventCPUFrequency]
 }
 
 func eventMentionsPID(ev Event, pid int) bool {
@@ -660,6 +670,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	byCPU := map[int][]Event{}
 	freqByCPU := map[int][]Event{}
 	blockedReasons := map[string]BlockedReasonSummary{}
+	freqLimits := map[int]CPUFrequencyLimit{}
+	subsystems := map[string]SubsystemEventSummary{}
 	for _, ev := range idx.Events {
 		if eventLineInWindow(ev, q) && ev.Type == EventCPUFrequency && ev.Frequency > 0 {
 			if q.TimeEnd == 0 || ev.Ts <= q.TimeEnd {
@@ -674,6 +686,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		switch ev.Type {
 		case EventSchedSwitch:
 			byCPU[ev.CPU] = append(byCPU[ev.CPU], ev)
+		case EventCPUFrequencyLimit:
+			accumulateCPUFrequencyLimit(freqLimits, ev)
 		case EventBlockIssue:
 			stats.BlockIssueCount++
 		case EventBlockRemap:
@@ -687,8 +701,20 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			stats.BinderReceivedCount++
 		case EventIRQ:
 			stats.IRQCount++
+		case EventSoftIRQ:
+			stats.SoftIRQCount++
 		case EventMemory:
 			stats.MemoryEventCount++
+		case EventStorage:
+			stats.StorageEventCount++
+		case EventFilesystem:
+			stats.FilesystemEventCount++
+		case EventPower:
+			stats.PowerEventCount++
+		case EventWorkqueue:
+			stats.WorkqueueEventCount++
+		case EventDMAFence:
+			stats.DMAFenceEventCount++
 		case EventSchedBlockedReason:
 			stats.BlockedReasonCount++
 			if ev.IOWait > 0 {
@@ -706,6 +732,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			}
 			blockedReasons[key] = br
 		}
+		accumulateSubsystemEvent(subsystems, ev)
 	}
 	running := map[string]ThreadDuration{}
 	pressure := map[int]*cpuPressureAcc{}
@@ -769,6 +796,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.CPU = applyCPUFrequencyResidency(stats.CPU, freqByCPU, q)
 	stats.RunnableTop, stats.DStateTop, stats.CPUPressure = computeOffCPUStats(idx, q, freqByCPU, pressure)
 	stats.IOLatencies = computeIOLatencies(idx, q, 8)
+	stats.CPUFrequencyLimits = sortedCPUFrequencyLimits(freqLimits, 8)
+	stats.SubsystemEvents = sortedSubsystemEvents(subsystems, 12)
 	stats.Caveats = append(stats.Caveats, ioPairingCaveats(idx, q)...)
 	stats.BlockedReasons = topBlockedReasons(blockedReasons, 8)
 	stats.TraceSpans, stats.TraceCounters = computeTraceMarks(idx, q, 8)
@@ -1830,6 +1859,104 @@ func computeMemoryKinds(idx *Index, q Query, max int) []MemoryKindSummary {
 	return out
 }
 
+func accumulateCPUFrequencyLimit(byCPU map[int]CPUFrequencyLimit, ev Event) {
+	cpu := eventCPUForStats(ev)
+	if cpu < 0 {
+		return
+	}
+	item := byCPU[cpu]
+	item.CPU = cpu
+	item.Count++
+	// Keep the most restrictive max-frequency row for quick capacity diagnosis,
+	// while Count preserves how many limit rows were seen in the window.
+	if item.Line == 0 || (ev.FrequencyMax > 0 && (item.MaxFrequency == 0 || ev.FrequencyMax < item.MaxFrequency)) {
+		item.MinFrequency = ev.FrequencyMin
+		item.MaxFrequency = ev.FrequencyMax
+		item.Line = ev.Line
+		item.Ts = ev.Ts
+	}
+	byCPU[cpu] = item
+}
+
+func sortedCPUFrequencyLimits(in map[int]CPUFrequencyLimit, max int) []CPUFrequencyLimit {
+	out := make([]CPUFrequencyLimit, 0, len(in))
+	for _, item := range in {
+		out = append(out, item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].MaxFrequency != out[j].MaxFrequency {
+			if out[i].MaxFrequency == 0 {
+				return false
+			}
+			if out[j].MaxFrequency == 0 {
+				return true
+			}
+			return out[i].MaxFrequency < out[j].MaxFrequency
+		}
+		return out[i].CPU < out[j].CPU
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
+func accumulateSubsystemEvent(byKind map[string]SubsystemEventSummary, ev Event) {
+	kind := firstNonEmpty(ev.SubsystemKind, subsystemKindForEventType(ev.Type))
+	if kind == "" {
+		return
+	}
+	key := fmt.Sprintf("%s/%s", kind, ev.Type)
+	item := byKind[key]
+	item.Kind = kind
+	item.EventType = ev.Type
+	item.Count++
+	if item.Line == 0 || ev.Line < item.Line {
+		item.Line = ev.Line
+		item.Ts = ev.Ts
+		item.Example = clampString(ev.FieldText, 140)
+	}
+	byKind[key] = item
+}
+
+func subsystemKindForEventType(typ EventType) string {
+	switch typ {
+	case EventCPUFrequencyLimit:
+		return "cpu_frequency_limits"
+	case EventSoftIRQ:
+		return "softirq"
+	case EventStorage:
+		return "storage"
+	case EventFilesystem:
+		return "filesystem"
+	case EventPower:
+		return "power"
+	case EventWorkqueue:
+		return "workqueue"
+	case EventDMAFence:
+		return "dma_fence"
+	default:
+		return ""
+	}
+}
+
+func sortedSubsystemEvents(in map[string]SubsystemEventSummary, max int) []SubsystemEventSummary {
+	out := make([]SubsystemEventSummary, 0, len(in))
+	for _, item := range in {
+		out = append(out, item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Line < out[j].Line
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
 type threadDriftAcc struct {
 	names     map[string]bool
 	tgids     map[int]bool
@@ -2087,6 +2214,16 @@ func buildRootCauseRankFrom(q Query, chain ChainResult, stats WindowStats) RootC
 	for _, io := range stats.IOLatencies {
 		items = append(items, rootCauseItem("io_latency", io.IssueThread, io.DurationMs, 0.86, io.IssueLine, io.CompleteLine, "window_stats", fmt.Sprintf("block IO %s %s sector=%d len=%d took %.3fms", io.Dev, io.Op, io.Sector, io.Len, io.DurationMs)))
 	}
+	windowImpactMs := (q.TimeEnd - q.TimeStart) * 1000
+	if windowImpactMs < 0 {
+		windowImpactMs = 0
+	}
+	for _, limit := range stats.CPUFrequencyLimits {
+		if limit.MaxFrequency <= 0 {
+			continue
+		}
+		items = append(items, rootCauseItem("cpu_frequency_limit", ThreadRef{}, windowImpactMs, 0.58, limit.Line, limit.Line, "window_stats", fmt.Sprintf("cpu=%d had frequency limit min=%dkHz max=%dkHz in the selected window (count=%d)", limit.CPU, limit.MinFrequency, limit.MaxFrequency, limit.Count)))
+	}
 	for _, span := range stats.TraceSpans {
 		items = append(items, rootCauseItem("trace_span", span.Thread, span.DurationMs, 0.74, span.StartLine, span.EndLine, "window_stats", fmt.Sprintf("trace span %q lasted %.3fms", span.Name, span.DurationMs)))
 	}
@@ -2208,6 +2345,8 @@ func rootCauseTypeWeight(typ string) float64 {
 		return 1.15
 	case "compute_supply", "low_frequency":
 		return 0.95
+	case "cpu_frequency_limit":
+		return 0.7
 	case "running":
 		return 1.0
 	case "trace_span":
@@ -3029,6 +3168,21 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 			break
 		}
 	}
+	for _, limit := range stats.CPUFrequencyLimits {
+		out = append(out, EvidenceFact{
+			Subject:    fmt.Sprintf("cpu=%d", limit.CPU),
+			Predicate:  "cpu_frequency_limit",
+			Summary:    fmt.Sprintf("cpu=%d frequency limit min=%dkHz max=%dkHz appeared %d time(s) in the selected window", limit.CPU, limit.MinFrequency, limit.MaxFrequency, limit.Count),
+			LineStart:  limit.Line,
+			LineEnd:    limit.Line,
+			StartTs:    limit.Ts,
+			EndTs:      limit.Ts,
+			Confidence: 0.68,
+		})
+		if len(out) >= 26 {
+			break
+		}
+	}
 	for _, span := range stats.TraceSpans {
 		out = append(out, EvidenceFact{
 			Subject:    threadLabel(span.Thread),
@@ -3073,6 +3227,21 @@ func evidenceFromStats(stats WindowStats) []EvidenceFact {
 			Confidence: 0.68,
 		})
 		if len(out) >= 36 {
+			break
+		}
+	}
+	for _, subsystem := range stats.SubsystemEvents {
+		out = append(out, EvidenceFact{
+			Subject:    subsystem.Kind,
+			Predicate:  string(subsystem.EventType),
+			Summary:    fmt.Sprintf("subsystem category %s (%s) appeared %d time(s) in the selected window", subsystem.Kind, subsystem.EventType, subsystem.Count),
+			LineStart:  subsystem.Line,
+			LineEnd:    subsystem.Line,
+			StartTs:    subsystem.Ts,
+			EndTs:      subsystem.Ts,
+			Confidence: 0.62,
+		})
+		if len(out) >= 38 {
 			break
 		}
 	}

@@ -167,16 +167,18 @@ Design:
 
 Tasks:
 
-- [ ] Add min/max/cpu typed fields for CPU frequency limits.
-- [ ] Normalize block device major/minor and complete error.
-- [ ] Classify UFSHCD/MMC/block storage rows as storage events.
-- [ ] Classify EXT4/EROFS/writeback/filemap rows as filesystem/page-cache
+- [x] Add min/max/cpu typed fields for CPU frequency limits.
+- [x] Normalize block complete error while preserving device/op/sector/len
+      pairing keys.
+- [x] Classify UFSHCD/MMC/I2C/SMBus storage rows as storage events.
+- [x] Classify EXT4/EROFS/writeback rows as filesystem/page-cache
       events.
-- [ ] Classify thermal/regulator rows as power/capacity events.
-- [ ] Classify workqueue and DMA fence rows.
-- [ ] Add softirq event fields.
-- [ ] Add window stats counters and compact top-N summaries.
-- [ ] Add root-cause-rank enrichment where precise fields exist.
+- [x] Classify thermal/regulator rows as power/capacity events.
+- [x] Classify workqueue and DMA fence rows.
+- [x] Add softirq event fields.
+- [x] Add window stats counters and compact subsystem summaries.
+- [x] Add root-cause-rank enrichment where precise CPU-frequency-limit fields
+      exist.
 
 Verification:
 

@@ -63,7 +63,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
     "time_end": {"oneOf":[{"type":"number"},{"type":"string"}],"description":"Trace timestamp window end in seconds. Prefer a JSON number. Also accepts strings such as \"928.081774s\" or \"928.081774 秒\" and normalizes them to seconds; six fractional digits are microsecond precision."},
     "line_start": {"type":"integer","description":"Optional artifact line window start for bounded search."},
     "line_end": {"type":"integer","description":"Optional artifact line window end for bounded search."},
-    "event_types": {"type":"array","items":{"type":"string"},"description":"Optional event filters such as sched_switch, sched_wakeup, sched_blocked_reason, cpu_idle, cpu_frequency, clock_set_rate, block_rq_issue, block_bio_remap, binder_transaction, binder_transaction_received."},
+    "event_types": {"type":"array","items":{"type":"string"},"description":"Optional event filters such as sched_switch, sched_wakeup, sched_blocked_reason, cpu_idle, cpu_frequency, cpu_frequency_limits, clock_set_rate, block_rq_issue, block_bio_remap, binder_transaction, binder_transaction_received, irq, softirq, storage, filesystem, power, workqueue, dma_fence."},
     "span_name": {"type":"string","description":"Optional trace B/E span name substring. For span_window, returns matching span windows. For wakeup_chain/root_cause_rank/evidence_pack without explicit time_start/time_end, a unique matching span derives the selected window."},
     "interaction_direction": {"type":"string","enum":["both","incoming","outgoing"],"description":"For interaction_stats: both is default; incoming counts peers waking/calling the target, outgoing counts target waking/calling peers."},
     "recipe_name": {"type":"string","enum":["auto","sleep_root_cause","jank","runnable_delay","binder_wait","io_wait","cpu_supply"],"description":"For view=recipe: choose a standard deterministic evidence pack. auto picks from span_name/event_types/question-shape hints; recipes remain advisory and line-backed."},
@@ -491,6 +491,10 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			fmt.Fprintf(&b, "- io_latency dev=%s op=%s sector=%d len=%d duration=%.3fms issue=%s complete=%s lines=%d-%d\n",
 				io.Dev, io.Op, io.Sector, io.Len, io.DurationMs, traceThreadLabel(io.IssueThread), traceThreadLabel(io.CompleteThread), io.IssueLine, io.CompleteLine)
 		}
+		for _, limit := range result.WindowStats.CPUFrequencyLimits {
+			fmt.Fprintf(&b, "- cpu_frequency_limit cpu=%d min=%dkHz max=%dkHz count=%d line=%d\n",
+				limit.CPU, limit.MinFrequency, limit.MaxFrequency, limit.Count, limit.Line)
+		}
 		for _, pressure := range result.WindowStats.CPUPressure {
 			fmt.Fprintf(&b, "- cpu_pressure cpu=%d runnable_wait=%.3fms running=%.3fms high_prio_running=%.3fms runnable_events=%d\n",
 				pressure.CPU, pressure.RunnableWaitMs, pressure.RunningMs, pressure.HighPriorityRunningMs, pressure.RunnableEvents)
@@ -510,6 +514,10 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		for _, mem := range result.WindowStats.MemoryKinds {
 			fmt.Fprintf(&b, "- memory_kind kind=%s count=%d line=%d\n", mem.Kind, mem.Count, mem.Line)
 		}
+		for _, subsystem := range result.WindowStats.SubsystemEvents {
+			fmt.Fprintf(&b, "- subsystem kind=%s event_type=%s count=%d line=%d example=%s\n",
+				subsystem.Kind, subsystem.EventType, subsystem.Count, subsystem.Line, sanitizeForBanner(subsystem.Example))
+		}
 		for _, drift := range result.WindowStats.ThreadDrifts {
 			fmt.Fprintf(&b, "- thread_identity_caveat pid=%d names=%s tgids=%v lines=%d-%d\n",
 				drift.PID, strings.Join(drift.Names, ","), drift.TGIDs, drift.LineStart, drift.LineEnd)
@@ -518,8 +526,8 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			fmt.Fprintf(&b, "- compute_supply %s state=%s cpu=%d duration=%.3fms freq=%dkHz busy=%.3fms idle=%.3fms runnable_wait=%.3fms high_prio_running=%.3fms verdict=%s confidence=%.2f lines=%d-%d — %s\n",
 				traceThreadLabel(supply.Thread), supply.State, supply.CPU, supply.DurationMs, supply.Frequency, supply.CPUBusyMs, supply.CPUIdleMs, supply.RunnableWaitMs, supply.HighPriorityRunningMs, supply.Verdict, supply.Confidence, supply.LineStart, supply.LineEnd, supply.Summary)
 		}
-		fmt.Fprintf(&b, "- counts block_issue=%d block_remap=%d block_complete=%d binder=%d binder_received=%d irq=%d memory=%d blocked_reason=%d iowait_blocked=%d\n\n",
-			result.WindowStats.BlockIssueCount, result.WindowStats.BlockRemapCount, result.WindowStats.BlockCompleteCount, result.WindowStats.BinderCount, result.WindowStats.BinderReceivedCount, result.WindowStats.IRQCount, result.WindowStats.MemoryEventCount, result.WindowStats.BlockedReasonCount, result.WindowStats.IOWaitBlockedCount)
+		fmt.Fprintf(&b, "- counts block_issue=%d block_remap=%d block_complete=%d binder=%d binder_received=%d irq=%d softirq=%d memory=%d storage=%d filesystem=%d power=%d workqueue=%d dma_fence=%d blocked_reason=%d iowait_blocked=%d\n\n",
+			result.WindowStats.BlockIssueCount, result.WindowStats.BlockRemapCount, result.WindowStats.BlockCompleteCount, result.WindowStats.BinderCount, result.WindowStats.BinderReceivedCount, result.WindowStats.IRQCount, result.WindowStats.SoftIRQCount, result.WindowStats.MemoryEventCount, result.WindowStats.StorageEventCount, result.WindowStats.FilesystemEventCount, result.WindowStats.PowerEventCount, result.WindowStats.WorkqueueEventCount, result.WindowStats.DMAFenceEventCount, result.WindowStats.BlockedReasonCount, result.WindowStats.IOWaitBlockedCount)
 	}
 	if result.FramePipeline != nil {
 		b.WriteString("## Frame/render pipeline\n")
@@ -554,13 +562,14 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	if len(result.Events) > 0 {
 		b.WriteString("## Events\n")
 		for _, ev := range result.Events {
-			fmt.Fprintf(&b, "- line=%d ts=%.6f type=%s thread=%s%s%s raw=%s\n",
+			fmt.Fprintf(&b, "- line=%d ts=%.6f type=%s thread=%s%s%s%s raw=%s\n",
 				ev.Line,
 				ev.Ts,
 				ev.Type,
 				traceThreadLabel(tracequery.ThreadRef{Comm: ev.Comm, PID: ev.PID, TGID: ev.TGID}),
 				traceEventPriorityDetail(ev),
 				traceEventSchedulerDetail(ev),
+				traceEventResourceDetail(ev),
 				strings.TrimSpace(ev.Raw),
 			)
 		}
@@ -674,6 +683,23 @@ func traceEventSchedulerDetail(ev tracequery.EventView) string {
 	}
 	if ev.CGroup != "" {
 		parts = append(parts, "cgroup="+ev.CGroup)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " " + strings.Join(parts, " ")
+}
+
+func traceEventResourceDetail(ev tracequery.EventView) string {
+	var parts []string
+	if ev.FrequencyMin > 0 || ev.FrequencyMax > 0 {
+		parts = append(parts, fmt.Sprintf("freq_limit=%d..%dkHz", ev.FrequencyMin, ev.FrequencyMax))
+	}
+	if ev.BlockError != "" {
+		parts = append(parts, "block_error="+ev.BlockError)
+	}
+	if ev.SubsystemKind != "" {
+		parts = append(parts, "subsystem="+ev.SubsystemKind)
 	}
 	if len(parts) == 0 {
 		return ""

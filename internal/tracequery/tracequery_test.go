@@ -74,11 +74,18 @@ const harmonyTrace = `
 const p1ResourceTrace = `
        main-20   (   20) [001] .... 4.000000: print: B|20|Choreographer#doFrame
        main-20   (   20) [001] .... 4.010000: print: C|20|JNI Weak Global Refs|198
+       main-20   (   20) [001] .... 4.012000: cpu_frequency_limits: min=500000 max=1500000 cpu_id=1
        main-20   (   20) [001] .... 4.015000: irq_handler_entry: irq=32 name=kirq
        main-20   (   20) [001] .... 4.015400: irq_handler_exit: irq=32 ret=handled
        main-20   (   20) [001] .... 4.015700: irq_handler_entry: irq=32 name=kirq
+       main-20   (   20) [001] .... 4.015800: softirq_entry: vec=3 action=NET_RX
        main-20   (   20) [001] .... 4.016000: mm_filemap_add_to_page_cache: dev 260:84 ino 0x1 page=0 pfn=1 ofs=0
+       main-20   (   20) [001] .... 4.016500: ext4_sync_file_enter: dev 8,0 ino 42 parent 1 datasync 0
+       main-20   (   20) [001] .... 4.016700: ufshcd_command: tag=1 opcode=0x28 doorbell=0x1
        main-20   (   20) [001] .... 4.017000: mm_vmscan_direct_reclaim_begin: order=0 may_writepage=1
+       main-20   (   20) [001] .... 4.018000: thermal_power_allocator: actor=cpu power=300
+       main-20   (   20) [001] .... 4.018500: workqueue_execute_start: work struct=0000000000000000 function=do_work
+       main-20   (   20) [001] .... 4.019000: dma_fence_wait_start: driver=display timeline=present seqno=7
        main-20   (   20) [001] .... 4.020000: print: E|20
       other-20   (   21) [002] .... 4.025000: sched_wakeup: comm=main pid=20 prio=53 target_cpu=001
 `
@@ -162,6 +169,14 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			check: func(ev Event) bool { return ev.Frequency == 1800000 && ev.ClockName == "pid_freq" },
 		},
 		{
+			name: "cpu frequency limit",
+			line: `      waker-10   (   10) [000] .... 2.060500: cpu_frequency_limits: min=500000 max=1500000 cpu_id=6`,
+			want: EventCPUFrequencyLimit,
+			check: func(ev Event) bool {
+				return ev.FrequencyMin == 500000 && ev.FrequencyMax == 1500000 && ev.CPUForField == 6 && ev.SubsystemKind == "cpu_frequency_limits"
+			},
+		},
+		{
 			name:  "cpu_frequency tracepoint",
 			line:  `      waker-10   (   10) [000] .... 2.061000: cpu_frequency: state=1600000 cpu_id=0`,
 			want:  EventCPUFrequency,
@@ -216,6 +231,12 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			check: func(ev Event) bool { return ev.CPU == 0 && ev.IRQID == 32 && ev.IRQName == "kirq" },
 		},
 		{
+			name:  "softirq",
+			line:  `      waker-10   (   10) [000] .... 2.105000: softirq_entry: vec=3 action=NET_RX`,
+			want:  EventSoftIRQ,
+			check: func(ev Event) bool { return ev.IRQID == 3 && ev.IRQName == "NET_RX" && ev.SubsystemKind == "softirq" },
+		},
+		{
 			name:  "trace mark",
 			line:  `      waker-10   (   10) [000] .... 2.120000: print: B|20|Choreographer#doFrame`,
 			want:  EventTraceMark,
@@ -234,6 +255,38 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			line:  `      waker-10   (   10) [000] .... 2.110000: mm_vmscan_direct_reclaim_begin: order=0 may_writepage=1`,
 			want:  EventMemory,
 			check: func(ev Event) bool { return ev.MemoryKind == "reclaim" },
+		},
+		{
+			name: "storage",
+			line: `      waker-10   (   10) [000] .... 2.126000: ufshcd_command: tag=1 opcode=0x28 doorbell=0x1`,
+			want: EventStorage,
+			check: func(ev Event) bool {
+				return ev.SubsystemKind == "storage_ufs" && strings.Contains(ev.FieldText, "opcode=0x28")
+			},
+		},
+		{
+			name:  "filesystem",
+			line:  `      waker-10   (   10) [000] .... 2.127000: ext4_sync_file_enter: dev 8,0 ino 42 parent 1 datasync 0`,
+			want:  EventFilesystem,
+			check: func(ev Event) bool { return ev.SubsystemKind == "fs_ext4" },
+		},
+		{
+			name:  "power",
+			line:  `      waker-10   (   10) [000] .... 2.128000: thermal_power_allocator: actor=cpu power=300`,
+			want:  EventPower,
+			check: func(ev Event) bool { return ev.SubsystemKind == "thermal" },
+		},
+		{
+			name:  "workqueue",
+			line:  `      waker-10   (   10) [000] .... 2.129000: workqueue_execute_start: work struct=0 function=do_work`,
+			want:  EventWorkqueue,
+			check: func(ev Event) bool { return ev.SubsystemKind == "workqueue" },
+		},
+		{
+			name:  "dma fence",
+			line:  `      waker-10   (   10) [000] .... 2.129500: dma_fence_wait_start: driver=display timeline=present seqno=7`,
+			want:  EventDMAFence,
+			check: func(ev Event) bool { return ev.SubsystemKind == "dma_fence" },
 		},
 		{
 			name:  "unknown ftrace row",
@@ -313,9 +366,13 @@ func TestExternalPerfettoCPUFrequencyLimitsFixture(t *testing.T) {
 		t.Fatalf("expected 12 cpu_frequency_limits rows to stay searchable as CPU-frequency events, got %d", len(res.Events))
 	}
 	for _, ev := range res.Events {
-		if ev.Name != "cpu_frequency_limits" || !ev.CPUForFieldValid {
+		if ev.Name != "cpu_frequency_limits" || ev.Type != EventCPUFrequencyLimit || !ev.CPUForFieldValid || ev.FrequencyMax == 0 {
 			t.Fatalf("cpu_frequency_limits row lost name/cpu_id context: %+v", ev.Event)
 		}
+	}
+	stats := ComputeWindowStats(idx, Query{TimeStart: 0.0, TimeEnd: 1.2})
+	if len(stats.CPUFrequencyLimits) == 0 || stats.CPUFrequencyLimits[0].MaxFrequency != 1400000 {
+		t.Fatalf("expected most restrictive frequency limit summary: %+v", stats.CPUFrequencyLimits)
 	}
 }
 
@@ -775,6 +832,21 @@ func TestWindowStatsComputesP1ResourceSummaries(t *testing.T) {
 	}
 	if !kinds["page_cache"] || !kinds["reclaim"] {
 		t.Fatalf("expected page_cache and reclaim kinds: %+v", stats.MemoryKinds)
+	}
+	if len(stats.CPUFrequencyLimits) == 0 || stats.CPUFrequencyLimits[0].MaxFrequency != 1500000 {
+		t.Fatalf("expected cpu frequency limit summary: %+v", stats.CPUFrequencyLimits)
+	}
+	if stats.SoftIRQCount != 1 || stats.StorageEventCount != 1 || stats.FilesystemEventCount != 1 || stats.PowerEventCount != 1 || stats.WorkqueueEventCount != 1 || stats.DMAFenceEventCount != 1 {
+		t.Fatalf("expected subsystem counters, got %+v", stats)
+	}
+	subsystems := map[string]bool{}
+	for _, item := range stats.SubsystemEvents {
+		subsystems[item.Kind] = true
+	}
+	for _, want := range []string{"cpu_frequency_limits", "softirq", "storage_ufs", "fs_ext4", "thermal", "workqueue", "dma_fence"} {
+		if !subsystems[want] {
+			t.Fatalf("missing subsystem %s in %+v", want, stats.SubsystemEvents)
+		}
 	}
 	if len(stats.ThreadDrifts) == 0 || stats.ThreadDrifts[0].PID != 20 {
 		t.Fatalf("expected pid/name drift caveat: %+v", stats.ThreadDrifts)
