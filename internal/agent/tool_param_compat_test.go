@@ -111,6 +111,7 @@ func TestNormalizeToolCallParams_RepairsTraceQueryRecentScalarsFromRealSchema(t 
 			"trace_flavor":"harmony_hitrace",
 			"platform":"donghu",
 			"event_types":"cpu_frequency_limits,softirq,storage",
+			"pattern":"jank_frames=7",
 			"span_name":"Choreographer#doFrame",
 			"interaction_direction":"both",
 			"recipe_name":"sleep_root_cause"
@@ -136,6 +137,7 @@ func TestNormalizeToolCallParams_RepairsTraceQueryRecentScalarsFromRealSchema(t 
 		TraceFlavor        string   `json:"trace_flavor"`
 		Platform           string   `json:"platform"`
 		EventTypes         []string `json:"event_types"`
+		Pattern            string   `json:"pattern"`
 		SpanName           string   `json:"span_name"`
 		Interaction        string   `json:"interaction_direction"`
 		RecipeName         string   `json:"recipe_name"`
@@ -150,7 +152,7 @@ func TestNormalizeToolCallParams_RepairsTraceQueryRecentScalarsFromRealSchema(t 
 	}
 	if decoded.TimeStart != "2942.124416s" || decoded.TimeEnd != "2942.260210s" ||
 		decoded.TraceFlavor != "harmony_hitrace" || decoded.Platform != "donghu" ||
-		decoded.SpanName != "Choreographer#doFrame" || decoded.Interaction != "both" ||
+		decoded.Pattern != "jank_frames=7" || decoded.SpanName != "Choreographer#doFrame" || decoded.Interaction != "both" ||
 		decoded.RecipeName != "sleep_root_cause" {
 		t.Fatalf("trace_query string fields should survive repair unchanged: %+v\nraw=%s", decoded, got[0].Params)
 	}

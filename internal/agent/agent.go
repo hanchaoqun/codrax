@@ -4431,6 +4431,9 @@ func toolTraceQueryDetail(m map[string]json.RawMessage) string {
 	if thread := jsonStringFieldAny(m, "thread"); thread != "" {
 		parts = append(parts, "thread="+truncateToolDetailValue(thread, 32))
 	}
+	if pattern := jsonStringFieldAny(m, "pattern"); pattern != "" {
+		parts = append(parts, "pattern="+truncateToolDetailValue(pattern, 32))
+	}
 	if span := jsonStringFieldAny(m, "span_name", "spanName"); span != "" {
 		parts = append(parts, "span="+truncateToolDetailValue(span, 32))
 	}
@@ -4458,8 +4461,8 @@ func toolTraceQueryDetail(m map[string]json.RawMessage) string {
 	if v, ok := jsonIntFieldAny(m, "max_branches", "maxBranches"); ok && v > 0 {
 		parts = append(parts, fmt.Sprintf("max_branches=%d", v))
 	}
-	if len(parts) > 11 {
-		parts = parts[:11]
+	if len(parts) > 12 {
+		parts = parts[:12]
 	}
 	return strings.Join(parts, " ")
 }

@@ -685,6 +685,22 @@ func TestSpanWindowFindsUniqueTraceSpan(t *testing.T) {
 	}
 }
 
+func TestSpanWindowMultipleMatchesSuggestsPatternNarrowing(t *testing.T) {
+	idx := buildTraceIndex(t, "span_multi.systrace", `
+app-20 (20) [001] .... 1.000000: print: B|20|Choreographer#doFrame 111
+app-20 (20) [001] .... 1.010000: print: E|20
+app-20 (20) [001] .... 2.000000: print: B|20|Choreographer#doFrame 222
+app-20 (20) [001] .... 2.030000: print: E|20
+`)
+	res := Run(idx, Query{View: "span_window", SpanName: "Choreographer#doFrame", Limit: 4})
+	if len(res.SpanWindows) != 2 {
+		t.Fatalf("expected two span windows, got %+v", res.SpanWindows)
+	}
+	if !containsSubstring(res.Caveats, "event_search") || !containsSubstring(res.Caveats, "pattern=\"<frame id or exact label>\"") {
+		t.Fatalf("multiple span caveat should teach event_search pattern narrowing: %+v", res.Caveats)
+	}
+}
+
 func TestRootCauseRankTiersCandidates(t *testing.T) {
 	idx := buildSampleIndex(t)
 	res := Run(idx, Query{View: "root_cause_rank", PID: 20, TimeStart: 1.10, TimeEnd: 1.22, Limit: 5})

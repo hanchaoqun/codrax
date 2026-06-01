@@ -2109,7 +2109,7 @@ func resolveSpanWindowsForQuery(idx *Index, q *Query, explicitStart, explicitEnd
 		return spans, caveats
 	}
 	if len(spans) != 1 {
-		return spans, append(caveats, fmt.Sprintf("span_name=%q matched %d span window(s); refine with pid/thread/line_start/line_end/time filters before deriving a root-cause window", q.SpanName, len(spans)))
+		return spans, append(caveats, fmt.Sprintf("span_name=%q matched %d span window(s); refine with pid/thread/line_start/line_end/time filters before deriving a root-cause window; for a specific frame id or marker, first run trace_query(view=\"event_search\", pattern=\"<frame id or exact label>\", event_types=[\"trace_mark\"]) and then rerun with the selected line/time window", q.SpanName, len(spans)))
 	}
 	span := spans[0]
 	if !explicitStart {
@@ -4306,6 +4306,12 @@ func resultCaveats(idx *Index, q Query, res Result) []string {
 	}
 	if res.View == "event_search" && len(res.Events) == 0 {
 		out = append(out, "matched_events=0 for the selected filters; this is not absence proof if the thread label, time window, event types, or line window are too narrow")
+		if pattern := strings.TrimSpace(q.Pattern); pattern != "" {
+			out = append(out, fmt.Sprintf("pattern_no_match_hint=pattern %q is a literal substring, not a regex; try one shorter exact frame id/span label/marker token, add event_types=[\"trace_mark\"] for B/E/C span rows, or remove over-narrow pid/thread/time filters before falling back to grep/read_file", pattern))
+			if len(q.EventTypes) == 0 {
+				out = append(out, fmt.Sprintf("next_pattern_call_hint=try trace_query(view=\"event_search\", pattern=%q, event_types=[\"trace_mark\"], time_start=%.6f, time_end=%.6f, limit=40) or trace_query(view=\"span_window\", span_name=\"<span label>\", line_start=<line>, line_end=<line>) after selecting a line window", pattern, q.TimeStart, q.TimeEnd))
+			}
+		}
 		if q.PID > 0 {
 			out = append(out, fmt.Sprintf("next_call_hint=try trace_query(view=\"thread_timeline\", pid=%d, time_start=%.6f, time_end=%.6f) or trace_query(view=\"wakeup_chain\", pid=%d, time_start=%.6f, time_end=%.6f)", q.PID, q.TimeStart, q.TimeEnd, q.PID, q.TimeStart, q.TimeEnd))
 		} else if strings.TrimSpace(q.Thread) != "" {

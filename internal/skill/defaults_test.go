@@ -136,6 +136,8 @@ func TestExploreSkill_TraceQueryFirstPrecedesGenericBreadthScan(t *testing.T) {
 	}
 	if !strings.Contains(sk.Workflow[0], "RUNTIME TRACE FIRST") ||
 		!strings.Contains(sk.Workflow[0], "start with `trace_query`") ||
+		!strings.Contains(sk.Workflow[0], "pattern=\"<literal>\"") ||
+		!strings.Contains(sk.Workflow[0], "not a regex") ||
 		!strings.Contains(sk.Workflow[0], "mixed trace+source") {
 		t.Fatalf("first workflow item should teach trace_query-first routing:\n%s", sk.Workflow[0])
 	}

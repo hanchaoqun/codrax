@@ -305,7 +305,7 @@ func TestTraceQueryNewParamsSurviveStructuredCompatAliases(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
-	params := json.RawMessage(`"{\"source\":\"path\",\"path\":\"sample.systrace\",\"view\":\"interaction_stats\",\"pid\":\"20\",\"timeStart\":\"1.0s\",\"timeEnd\":\"1.2s\",\"spanName\":\"Choreographer#doFrame\",\"interactionDirection\":\"incoming\",\"recipeName\":\"jank\",\"traceFlavor\":\"android_atrace\"}"`)
+	params := json.RawMessage(`"{\"source\":\"path\",\"path\":\"sample.systrace\",\"view\":\"interaction_stats\",\"pid\":\"20\",\"timeStart\":\"1.0s\",\"timeEnd\":\"1.2s\",\"pattern\":\"Choreographer\",\"spanName\":\"Choreographer#doFrame\",\"interactionDirection\":\"incoming\",\"recipeName\":\"jank\",\"traceFlavor\":\"android_atrace\"}"`)
 	res, err := (&TraceQuery{}).Execute(ctx, params)
 	if err != nil {
 		t.Fatal(err)
@@ -313,7 +313,7 @@ func TestTraceQueryNewParamsSurviveStructuredCompatAliases(t *testing.T) {
 	if !res.Success {
 		t.Fatalf("trace_query should accept compat-repaired camelCase params: %s", res.Summary)
 	}
-	for _, want := range []string{"trace_flavor=android_atrace", "span_name=Choreographer#doFrame", "interaction_direction=incoming", "recipe_name=jank", "wake_to_target=1"} {
+	for _, want := range []string{"trace_flavor=android_atrace", "pattern=Choreographer", "span_name=Choreographer#doFrame", "interaction_direction=incoming", "recipe_name=jank", "wake_to_target=1"} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("summary missing compat-repaired %q:\n%s", want, res.Summary)
 		}
@@ -350,7 +350,7 @@ func TestTraceQueryCoreTopologySurvivesCompatAndRenders(t *testing.T) {
 
 func TestTraceQuerySchemaDocumentsViews(t *testing.T) {
 	body := (&TraceQuery{}).Description() + "\n" + string((&TraceQuery{}).Parameters())
-	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "scheduler_latency_stats", "critical_blocking_calls", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "recipe", "recipe_name", "ipc_graph", "event_search", "span_window", "root_cause_rank", "interaction_stats", "pattern", "span_name", "interaction_direction", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "cpu_frequency_limits", "clock_set_rate", "core_topology", "small=0-3", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received", "binder_transaction_alloc_buf", "binder_lock", "softirq", "storage", "filesystem", "eBPF BIO", "PageFault", "Ability", "XPower", "HiSystemEvent", "ability_monitor", "xpower", "hi_sysevent", "power", "workqueue", "dma_fence", "鸿蒙", "东湖", "安卓"} {
+	for _, want := range []string{"wakeup_chain", "thread_timeline", "window_stats", "scheduler_latency_stats", "critical_blocking_calls", "frame_window", "render_pipeline", "frame_timeline", "frame_flow", "recipe", "recipe_name", "ipc_graph", "event_search", "span_window", "root_cause_rank", "interaction_stats", "pattern", "not a regex", "span_name", "interaction_direction", "attached_trace", "trace_flavor", "android_atrace", "generic_ftrace", "seconds", "microsecond precision", "81774 us", "larger numeric priority", "1-40=CFS", "raw scheduler priority", "cpu_frequency", "cpu_frequency_limits", "clock_set_rate", "core_topology", "small=0-3", "block_bio_remap", "sched_blocked_reason", "binder_transaction_received", "binder_transaction_alloc_buf", "binder_lock", "softirq", "storage", "filesystem", "eBPF BIO", "PageFault", "Ability", "XPower", "HiSystemEvent", "ability_monitor", "xpower", "hi_sysevent", "power", "workqueue", "dma_fence", "鸿蒙", "东湖", "安卓"} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("trace_query schema/description missing %q:\n%s", want, body)
 		}
@@ -387,6 +387,41 @@ func TestTraceQueryEventSearchPatternFindsFrameID(t *testing.T) {
 	for _, want := range []string{"pattern=1917295", "matched_events=1", "Choreographer#doFrame 1917295"} {
 		if !strings.Contains(res.Summary, want) {
 			t.Fatalf("event_search pattern summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
+func TestTraceQueryEventSearchPatternEmptyGivesRecoveryHint(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "frame_empty.systrace")
+	trace := strings.Join([]string{
+		`app-20 (20) [001] .... 1.100000: print: B|20|Choreographer#doFrame 1917295`,
+		`app-20 (20) [001] .... 1.120000: print: E|20`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source":  "path",
+		"path":    "frame_empty.systrace",
+		"view":    "event_search",
+		"pattern": "1919999",
+		"limit":   5,
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"matched_events=0",
+		"pattern_no_match_hint",
+		"literal substring, not a regex",
+		"next_pattern_call_hint=try trace_query(view=\"event_search\"",
+		"event_types=[\"trace_mark\"]",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("event_search pattern empty summary missing %q:\n%s", want, res.Summary)
 		}
 	}
 }

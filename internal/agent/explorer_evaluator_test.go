@@ -255,6 +255,8 @@ func TestExplorer_BuildInitialInstruction_ObservationOnlyTraceStartsWithTraceQue
 	for _, want := range []string{
 		"Explicit Runtime Trace Path Start",
 		"Start with `trace_query`",
+		"pattern=\"<literal>\"",
+		"not regex",
 		"Trace timestamps are seconds",
 		"Preserve trace findings as runtime-artifact observations",
 	} {
