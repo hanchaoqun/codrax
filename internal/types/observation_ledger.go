@@ -1087,6 +1087,9 @@ func compileToolResultObservations(results []ToolResult, add func(ObservationRec
 		banners := toolResultBanners(result.Summary)
 		command := toolResultCommandLine(result.Summary)
 		origins := toolResultEvidenceOrigins(result)
+		if strings.EqualFold(strings.TrimSpace(result.ToolName), "trace_query") {
+			compileTraceQueryToolResultObservations(i, result, banners, add)
+		}
 		for _, origin := range origins {
 			role := AnswerAggregateRoleSupportingCoverage
 			add(ObservationRecord{
@@ -1105,6 +1108,277 @@ func compileToolResultObservations(results []ToolResult, add func(ObservationRec
 				ObservedAt:      result.Timestamp.Format("2006-01-02T15:04:05Z07:00"),
 			})
 		}
+	}
+}
+
+func compileTraceQueryToolResultObservations(index int, result ToolResult, banners []map[string]string, add func(ObservationRecord)) {
+	ref := sourceRefForToolResult(AnswerEvidenceOriginRuntimeArtifact, result, index, banners, "")
+	observedAt := result.Timestamp.Format("2006-01-02T15:04:05Z07:00")
+	rootCauseOrdinal := 0
+	rootEvidenceOrdinal := 0
+	blockingOrdinal := 0
+	for _, rawLine := range strings.Split(result.Summary, "\n") {
+		line := strings.TrimSpace(rawLine)
+		switch {
+		case strings.HasPrefix(line, "- rank="):
+			rootCauseOrdinal++
+			if record, ok := traceQueryRootCauseRankRecord(index, rootCauseOrdinal, line, ref, observedAt); ok {
+				add(record)
+			}
+		case strings.HasPrefix(line, "- root_evidence="):
+			rootEvidenceOrdinal++
+			if record, ok := traceQueryRootEvidenceRecord(index, rootEvidenceOrdinal, line, ref, observedAt); ok {
+				add(record)
+			}
+		case strings.HasPrefix(line, "- blocking "):
+			blockingOrdinal++
+			if record, ok := traceQueryBlockingRecord(index, blockingOrdinal, line, ref, observedAt); ok {
+				add(record)
+			}
+		}
+	}
+}
+
+func traceQueryRootCauseRankRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
+	fields, summary := traceQuerySummaryLineFields(line, "- ")
+	rank := traceQueryFieldInt(fields, "rank")
+	tier := strings.TrimSpace(fields["tier"])
+	typ := strings.TrimSpace(fields["type"])
+	thread := strings.TrimSpace(fields["thread"])
+	impact := traceQueryFieldMS(fields, "impact")
+	score := traceQueryFieldFloat(fields, "score")
+	conf := traceQueryFieldFloat(fields, "confidence")
+	lineStart, lineEnd := traceQueryFieldLineSpan(fields["lines"])
+	if rank <= 0 {
+		rank = ordinal
+	}
+	if tier == "" {
+		tier = rootCauseTierName(rank)
+	}
+	if typ == "" && summary == "" {
+		return ObservationRecord{}, false
+	}
+	value := ""
+	if impact > 0 {
+		value = fmt.Sprintf("%.3f", impact)
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#trace_query:root_cause_rank:%d", index, rank),
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRolePrincipalAnswer,
+		GroundingPolicy: ClaimGroundingHard,
+		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		SourceRef:       ref,
+		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
+		ClaimKey:        firstNonEmptyString("root_cause_"+tier, typ),
+		Subject:         thread,
+		Predicate:       "root_cause_" + tier,
+		Object:          typ,
+		Value:           value,
+		Unit:            "ms",
+		Summary:         firstNonEmptyString(summary, fmt.Sprintf("%s cause #%d (%s)", tier, rank, typ)),
+		RichNotes:       traceQueryPriorityRichNotes(rank, tier, typ, fields["source"], score, impact),
+		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
+		ObservedAt:      observedAt,
+		Confidence:      conf,
+	}, true
+}
+
+func traceQueryRootEvidenceRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
+	fields, summary := traceQuerySummaryLineFields(line, "- ")
+	typ := strings.TrimSpace(fields["root_evidence"])
+	thread := strings.TrimSpace(fields["thread"])
+	duration := traceQueryFieldMS(fields, "duration")
+	conf := traceQueryFieldFloat(fields, "confidence")
+	lineStart, lineEnd := traceQueryFieldLineSpan(fields["lines"])
+	if typ == "" && summary == "" {
+		return ObservationRecord{}, false
+	}
+	value := ""
+	if duration > 0 {
+		value = fmt.Sprintf("%.3f", duration)
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#trace_query:root_evidence:%d", index, ordinal),
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingHard,
+		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		SourceRef:       ref,
+		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
+		ClaimKey:        "root_evidence:" + typ,
+		Subject:         thread,
+		Predicate:       typ,
+		Value:           value,
+		Unit:            "ms",
+		Summary:         summary,
+		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
+		ObservedAt:      observedAt,
+		Confidence:      conf,
+	}, true
+}
+
+func traceQueryBlockingRecord(index, ordinal int, line string, ref ObservationSourceRef, observedAt string) (ObservationRecord, bool) {
+	fields, summary := traceQuerySummaryLineFields(line, "- blocking ")
+	typ := strings.TrimSpace(fields["type"])
+	thread := strings.TrimSpace(fields["thread"])
+	peer := strings.TrimSpace(fields["peer"])
+	duration := traceQueryFieldMS(fields, "duration")
+	conf := traceQueryFieldFloat(fields, "confidence")
+	lineStart, lineEnd := traceQueryFieldLineSpan(fields["lines"])
+	if typ == "" && summary == "" {
+		return ObservationRecord{}, false
+	}
+	value := ""
+	if duration > 0 {
+		value = fmt.Sprintf("%.3f", duration)
+	}
+	return ObservationRecord{
+		ID:              fmt.Sprintf("tool:%d#trace_query:critical_blocking:%d", index, ordinal),
+		Origin:          AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "trace_query",
+		Role:            AnswerAggregateRoleSupportingCoverage,
+		GroundingPolicy: ClaimGroundingHard,
+		ProvenanceLane:  ObservationProvenanceObservedDirectCause,
+		SourceRef:       ref,
+		Span:            ObservationSpan{LineStart: lineStart, LineEnd: lineEnd},
+		ClaimKey:        "critical_blocking:" + typ,
+		Subject:         thread,
+		Predicate:       "critical_blocking",
+		Object:          firstNonEmptyString(typ, peer),
+		Value:           value,
+		Unit:            "ms",
+		Summary:         summary,
+		SupportRefs:     traceQuerySupportRefs(ref, lineStart, lineEnd),
+		ObservedAt:      observedAt,
+		Confidence:      conf,
+	}, true
+}
+
+func traceQuerySummaryLineFields(line, prefix string) (map[string]string, string) {
+	fields := map[string]string{}
+	body := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), prefix))
+	head, summary, ok := strings.Cut(body, " — ")
+	if !ok {
+		head = body
+	}
+	for _, token := range strings.Fields(head) {
+		key, value, ok := strings.Cut(token, "=")
+		if !ok {
+			continue
+		}
+		fields[strings.ToLower(strings.TrimSpace(key))] = strings.TrimSpace(value)
+	}
+	return fields, strings.TrimSpace(summary)
+}
+
+func traceQueryFieldInt(fields map[string]string, key string) int {
+	raw := strings.TrimSpace(fields[key])
+	if raw == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func traceQueryFieldFloat(fields map[string]string, key string) float64 {
+	raw := strings.TrimSpace(fields[key])
+	if raw == "" {
+		return 0
+	}
+	raw = strings.TrimSuffix(raw, ",")
+	n, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func traceQueryFieldMS(fields map[string]string, key string) float64 {
+	raw := strings.TrimSpace(fields[key])
+	raw = strings.TrimSuffix(raw, "ms")
+	if raw == "" {
+		return 0
+	}
+	n, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func traceQueryFieldLineSpan(raw string) (int, int) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, 0
+	}
+	startRaw, endRaw, ok := strings.Cut(raw, "-")
+	start, err := strconv.Atoi(strings.TrimSpace(startRaw))
+	if err != nil {
+		return 0, 0
+	}
+	if !ok {
+		return start, start
+	}
+	end, err := strconv.Atoi(strings.TrimSpace(endRaw))
+	if err != nil {
+		return start, start
+	}
+	return start, end
+}
+
+func traceQueryPriorityRichNotes(rank int, tier, typ, source string, score, impact float64) []string {
+	var notes []string
+	if rank > 0 {
+		notes = append(notes, fmt.Sprintf("rank=%d", rank))
+	}
+	if tier != "" {
+		notes = append(notes, "tier="+tier)
+	}
+	if typ != "" {
+		notes = append(notes, "type="+typ)
+	}
+	if impact > 0 {
+		notes = append(notes, fmt.Sprintf("impact_ms=%.3f", impact))
+	}
+	if score > 0 {
+		notes = append(notes, fmt.Sprintf("score=%.3f", score))
+	}
+	if source != "" {
+		notes = append(notes, "source="+source)
+	}
+	return notes
+}
+
+func traceQuerySupportRefs(ref ObservationSourceRef, lineStart, lineEnd int) []string {
+	if lineStart <= 0 {
+		return nil
+	}
+	path := firstNonEmptyString(ref.Path, ref.ArtifactID, "runtime_artifact")
+	if lineEnd <= 0 || lineEnd == lineStart {
+		return []string{fmt.Sprintf("%s:%d", path, lineStart)}
+	}
+	return []string{fmt.Sprintf("%s:%d-%d", path, lineStart, lineEnd)}
+}
+
+func rootCauseTierName(rank int) string {
+	switch rank {
+	case 1:
+		return "primary"
+	case 2:
+		return "secondary"
+	case 3:
+		return "tertiary"
+	default:
+		if rank > 0 {
+			return fmt.Sprintf("rank_%d", rank)
+		}
+		return "ranked"
 	}
 }
 

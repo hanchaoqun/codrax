@@ -32,6 +32,15 @@ func TestObservationLedgerExternalOriginsAreValidAndNonSource(t *testing.T) {
 	}
 }
 
+func observationLedgerTestContainsString(values []string, want string) bool {
+	for _, value := range values {
+		if value == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestAnswerEvidenceOriginCarriesOriginSpecificSupport(t *testing.T) {
 	for _, origin := range []AnswerEvidenceOrigin{
 		AnswerEvidenceOriginVCSMetadata,
@@ -193,6 +202,59 @@ func TestCompileObservationLedger_CompilesExistingCarriers(t *testing.T) {
 	}
 	if len(input.EvidenceItems) != 1 || input.EvidenceItems[0].Summary != "source fact" {
 		t.Fatalf("compiler mutated input: %+v", input)
+	}
+}
+
+func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRuntimeRecords(t *testing.T) {
+	ledger := CompileObservationLedger(ObservationLedgerInput{
+		ToolResults: []ToolResult{{
+			ToolName: "trace_query",
+			Success:  true,
+			Summary: strings.Join([]string{
+				"[trace_query params: view=recipe source=attached_trace path=/tmp/a.systrace origin=runtime_artifact artifact_id=attached_trace artifact_kind=trace payload_ref=/tmp/trace-query.json]",
+				"# Trace Query: recipe",
+				"source=/tmp/a.systrace lines=100 parsed_events=20 timestamp_unit=seconds selected_window=1.000000..1.200000 seconds",
+				"## Root cause rank",
+				"- rank=1 tier=primary type=scheduler_latency thread=com.app-42 impact=107.900ms score=86.320 confidence=0.88 lines=110-120 source=scheduler_latency_stats — com.app-42 runnable wait dominated the frame window",
+				"- rank=2 tier=secondary type=cpu_pressure thread= impact=51.500ms score=30.900 confidence=0.74 lines=130-150 source=window_stats — cpu=10 had high runnable pressure",
+				"## Wakeup chain",
+				"- root_evidence=binder_wait thread=binder:1-7 duration=31.800ms lines=90-99 confidence=0.86 — synchronous binder wait delayed the target",
+				"## Critical blocking calls",
+				"- blocking type=monitor thread=binder:1-7 peer=com.app-42 duration=78.700ms lines=160-170 confidence=0.80 — monitor lock contention overlapped the frame",
+			}, "\n"),
+		}},
+	})
+
+	primary := findObservationRecord(t, ledger, "tool:0#trace_query:root_cause_rank:1")
+	if primary.Role != AnswerAggregateRolePrincipalAnswer ||
+		primary.ProvenanceLane != ObservationProvenanceObservedDirectCause ||
+		primary.Predicate != "root_cause_primary" ||
+		primary.Object != "scheduler_latency" ||
+		primary.Value != "107.900" ||
+		primary.Unit != "ms" ||
+		primary.Span.LineStart != 110 ||
+		primary.Span.LineEnd != 120 ||
+		primary.Confidence != 0.88 {
+		t.Fatalf("trace_query primary root cause record lost priority/line metadata: %+v", primary)
+	}
+	if !observationLedgerTestContainsString(primary.RichNotes, "rank=1") ||
+		!observationLedgerTestContainsString(primary.RichNotes, "tier=primary") ||
+		!observationLedgerTestContainsString(primary.RichNotes, "score=86.320") {
+		t.Fatalf("trace_query primary root cause should preserve rank/tier/score notes: %+v", primary.RichNotes)
+	}
+	root := findObservationRecord(t, ledger, "tool:0#trace_query:root_evidence:1")
+	if root.Role != AnswerAggregateRoleSupportingCoverage || root.Predicate != "binder_wait" || root.Span.LineStart != 90 {
+		t.Fatalf("trace_query root evidence should survive as supporting runtime observation: %+v", root)
+	}
+	blocking := findObservationRecord(t, ledger, "tool:0#trace_query:critical_blocking:1")
+	if blocking.Predicate != "critical_blocking" || blocking.Object != "monitor" || blocking.Value != "78.700" {
+		t.Fatalf("trace_query critical blocking should survive as supporting runtime observation: %+v", blocking)
+	}
+
+	rm := RequestModel{PerfTrace: &PerfBundle{Janks: []PerfJank{{TriggerSpan: "frame 7"}}}}
+	promptRecords := ProjectObservationPromptRecords(ledger.Records, &rm, nil, DefaultObservationPromptProjectionOptions(4))
+	if len(promptRecords) == 0 || promptRecords[0].ID != "tool:0#trace_query:root_cause_rank:1" {
+		t.Fatalf("principal root cause rank should be prompt-prioritized, got %+v", promptRecords)
 	}
 }
 
