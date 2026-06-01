@@ -109,7 +109,8 @@ func TestNormalizeToolCallParams_RepairsTraceQueryRecentScalarsFromRealSchema(t 
 			"include_window_stats":"true",
 			"limit":"40",
 			"trace_flavor":"harmony_hitrace",
-				"platform":"donghu",
+			"platform":"donghu",
+			"event_types":"cpu_frequency_limits,softirq,storage",
 			"span_name":"Choreographer#doFrame",
 			"interaction_direction":"both",
 			"recipe_name":"sleep_root_cause"
@@ -122,21 +123,22 @@ func TestNormalizeToolCallParams_RepairsTraceQueryRecentScalarsFromRealSchema(t 
 
 	got := base.normalizeToolCallParams(calls, schemas)
 	var decoded struct {
-		PID                int     `json:"pid"`
-		TimeStart          string  `json:"time_start"`
-		TimeEnd            string  `json:"time_end"`
-		LineStart          int     `json:"line_start"`
-		LineEnd            int     `json:"line_end"`
-		MaxDepth           int     `json:"max_depth"`
-		MaxBranches        int     `json:"max_branches"`
-		MinDurationMS      float64 `json:"min_duration_ms"`
-		IncludeWindowStats bool    `json:"include_window_stats"`
-		Limit              int     `json:"limit"`
-		TraceFlavor        string  `json:"trace_flavor"`
-		Platform           string  `json:"platform"`
-		SpanName           string  `json:"span_name"`
-		Interaction        string  `json:"interaction_direction"`
-		RecipeName         string  `json:"recipe_name"`
+		PID                int      `json:"pid"`
+		TimeStart          string   `json:"time_start"`
+		TimeEnd            string   `json:"time_end"`
+		LineStart          int      `json:"line_start"`
+		LineEnd            int      `json:"line_end"`
+		MaxDepth           int      `json:"max_depth"`
+		MaxBranches        int      `json:"max_branches"`
+		MinDurationMS      float64  `json:"min_duration_ms"`
+		IncludeWindowStats bool     `json:"include_window_stats"`
+		Limit              int      `json:"limit"`
+		TraceFlavor        string   `json:"trace_flavor"`
+		Platform           string   `json:"platform"`
+		EventTypes         []string `json:"event_types"`
+		SpanName           string   `json:"span_name"`
+		Interaction        string   `json:"interaction_direction"`
+		RecipeName         string   `json:"recipe_name"`
 	}
 	if err := json.Unmarshal(got[0].Params, &decoded); err != nil {
 		t.Fatalf("repaired trace_query params are invalid JSON: %v\n%s", err, got[0].Params)
@@ -151,6 +153,10 @@ func TestNormalizeToolCallParams_RepairsTraceQueryRecentScalarsFromRealSchema(t 
 		decoded.SpanName != "Choreographer#doFrame" || decoded.Interaction != "both" ||
 		decoded.RecipeName != "sleep_root_cause" {
 		t.Fatalf("trace_query string fields should survive repair unchanged: %+v\nraw=%s", decoded, got[0].Params)
+	}
+	if len(decoded.EventTypes) != 3 || decoded.EventTypes[0] != "cpu_frequency_limits" ||
+		decoded.EventTypes[1] != "softirq" || decoded.EventTypes[2] != "storage" {
+		t.Fatalf("trace_query event_types string should repair to []string: %+v\nraw=%s", decoded.EventTypes, got[0].Params)
 	}
 }
 

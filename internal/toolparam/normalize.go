@@ -50,10 +50,11 @@ func (r Report) Summary(limit int) string {
 }
 
 type schemaNode struct {
-	Type       any                        `json:"type"`
-	Properties map[string]json.RawMessage `json:"properties"`
-	Items      json.RawMessage            `json:"items"`
-	Enum       []json.RawMessage          `json:"enum"`
+	Type                   any                        `json:"type"`
+	Properties             map[string]json.RawMessage `json:"properties"`
+	Items                  json.RawMessage            `json:"items"`
+	Enum                   []json.RawMessage          `json:"enum"`
+	CodraxSplitStringArray bool                       `json:"x-codrax-split-string-array"`
 }
 
 var envelopeCarrierKeyOrder = []string{
@@ -153,7 +154,7 @@ func normalizeValue(value any, schema json.RawMessage, path string, cfg types.To
 				}
 				return value, repairs
 			}
-			if cfg.SplitStringArraysEnabled() && arrayItemsAllowOnlyString(node) {
+			if (cfg.SplitStringArraysEnabled() || node.CodraxSplitStringArray) && arrayItemsAllowOnlyString(node) {
 				if arr, ok := splitStringArray(s); ok {
 					return arr, []Repair{repair(path, "delimited_string_array", valueKind(value), "array")}
 				}

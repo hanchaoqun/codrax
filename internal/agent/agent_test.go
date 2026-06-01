@@ -25,11 +25,12 @@ func TestStructuredToolDetailTraceQueryShowsFlavor(t *testing.T) {
 		"span_name":"Choreographer#doFrame",
 		"interaction_direction":"incoming",
 		"recipe_name":"jank",
+		"event_types":["sched_switch","sched_wakeup"],
 		"time_start":2942.124416,
 		"time_end":2942.260210,
 		"max_depth":6
 	}`))
-	for _, want := range []string{"view=wakeup_chain", "path=record.systrace", "trace_flavor=harmony_hitrace", "thread=com.tencent.mm-36379", "span=Choreographer#doFrame", "direction=incoming", "recipe=jank", "window=2942.124416..2942.26021"} {
+	for _, want := range []string{"view=wakeup_chain", "path=record.systrace", "trace_flavor=harmony_hitrace", "thread=com.tencent.mm-36379", "span=Choreographer#doFrame", "direction=incoming", "recipe=jank", "event_types=sched_switch,sched_wakeup", "window=2942.124416..2942.26021"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("trace_query detail missing %q in %q", want, got)
 		}
@@ -53,12 +54,13 @@ func TestStructuredToolDetailTraceQueryShowsFlavor(t *testing.T) {
 		"spanName":"Choreographer#doFrame",
 		"interactionDirection":"incoming",
 		"recipeName":"jank",
+		"eventTypes":"cpu_frequency_limits,softirq",
 		"pid":"36379",
 		"timeStart":"2942.124416s",
 		"timeEnd":"2942.260210s",
 		"maxDepth":6
 	}`))
-	for _, want := range []string{"view=recipe", "trace_flavor=harmony_hitrace", "span=Choreographer#doFrame", "direction=incoming", "recipe=jank", "pid=36379", "window=2942.124416s..2942.260210s", "max_depth=6"} {
+	for _, want := range []string{"view=recipe", "trace_flavor=harmony_hitrace", "span=Choreographer#doFrame", "direction=incoming", "recipe=jank", "event_types=cpu_frequency_limits,softirq", "pid=36379", "window=2942.124416s..2942.260210s", "max_depth=6"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("trace_query detail should surface camelCase alias %q in %q", want, got)
 		}

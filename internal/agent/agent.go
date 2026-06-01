@@ -4440,6 +4440,9 @@ func toolTraceQueryDetail(m map[string]json.RawMessage) string {
 	if recipe := jsonStringFieldAny(m, "recipe_name", "recipeName"); recipe != "" {
 		parts = append(parts, "recipe="+truncateToolDetailValue(recipe, 18))
 	}
+	if events := jsonStringListFieldAny(m, "event_types", "eventTypes"); len(events) > 0 {
+		parts = append(parts, "event_types="+truncateToolDetailValue(strings.Join(events, ","), 40))
+	}
 	if pid, ok := jsonIntFieldAny(m, "pid"); ok && pid > 0 {
 		parts = append(parts, fmt.Sprintf("pid=%d", pid))
 	}
@@ -4455,8 +4458,8 @@ func toolTraceQueryDetail(m map[string]json.RawMessage) string {
 	if v, ok := jsonIntFieldAny(m, "max_branches", "maxBranches"); ok && v > 0 {
 		parts = append(parts, fmt.Sprintf("max_branches=%d", v))
 	}
-	if len(parts) > 10 {
-		parts = parts[:10]
+	if len(parts) > 11 {
+		parts = parts[:11]
 	}
 	return strings.Join(parts, " ")
 }
@@ -4650,6 +4653,52 @@ func jsonStringFieldAny(m map[string]json.RawMessage, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+func jsonStringListFieldAny(m map[string]json.RawMessage, keys ...string) []string {
+	for _, key := range keys {
+		raw, ok := m[key]
+		if !ok || len(raw) == 0 {
+			continue
+		}
+		var arr []string
+		if json.Unmarshal(raw, &arr) == nil {
+			out := make([]string, 0, len(arr))
+			for _, item := range arr {
+				if item = strings.TrimSpace(item); item != "" {
+					out = append(out, item)
+				}
+			}
+			if len(out) > 0 {
+				return out
+			}
+		}
+		if s := jsonScalarField(m, key); s != "" {
+			out := splitToolDetailStringList(s)
+			if len(out) > 0 {
+				return out
+			}
+		}
+	}
+	return nil
+}
+
+func splitToolDetailStringList(s string) []string {
+	fields := strings.FieldsFunc(s, func(r rune) bool {
+		switch r {
+		case ',', ';', '|', ' ', '\t', '\n', '\r':
+			return true
+		default:
+			return false
+		}
+	})
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if field = strings.TrimSpace(field); field != "" {
+			out = append(out, field)
+		}
+	}
+	return out
 }
 
 func jsonIntField(m map[string]json.RawMessage, key string) (int, bool) {

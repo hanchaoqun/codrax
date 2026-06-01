@@ -1010,6 +1010,29 @@ func TestNormalize_StringArraySplitRequiresExplicitEnable(t *testing.T) {
 	}
 }
 
+func TestNormalize_StringArraySplitCanBeSchemaScoped(t *testing.T) {
+	schema := json.RawMessage(`{"type":"object","properties":{"event_types":{"type":"array","items":{"type":"string"},"x-codrax-split-string-array":true},"keywords":{"type":"array","items":{"type":"string"}}}}`)
+	raw := json.RawMessage(`{"event_types":"sched_switch,softirq","keywords":"agent,count"}`)
+
+	got, report := Normalize(raw, schema, repairPolicy)
+	if !hasRepair(report, "$.event_types", "delimited_string_array") {
+		t.Fatalf("schema-scoped split should repair event_types only, got %+v", report)
+	}
+	if hasRepair(report, "$.keywords", "delimited_string_array") {
+		t.Fatalf("schema-scoped split must not enable unrelated string arrays: %+v", report)
+	}
+	var decoded struct {
+		EventTypes []string `json:"event_types"`
+		Keywords   string   `json:"keywords"`
+	}
+	if err := json.Unmarshal(got, &decoded); err != nil {
+		t.Fatalf("normalized payload must decode: %v\n%s", err, got)
+	}
+	if strings.Join(decoded.EventTypes, "|") != "sched_switch|softirq" || decoded.Keywords != "agent,count" {
+		t.Fatalf("unexpected scoped split result: %+v\nraw=%s", decoded, got)
+	}
+}
+
 func hasRepair(report Report, path, rule string) bool {
 	for _, repair := range report.Repairs {
 		if repair.Path == path && repair.Rule == rule {
