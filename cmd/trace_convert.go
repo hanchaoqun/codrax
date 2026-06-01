@@ -61,13 +61,13 @@ func traceConvertResultLines(lang string, result hitraceconv.Result) []string {
 		return []string{
 			fmt.Sprintf("已转换二进制 hitrace：%s", result.InputPath),
 			fmt.Sprintf("输出：%s", result.OutputPath),
-			fmt.Sprintf("事件：%d，缺失格式：%d，未知事件：%d", result.EventsWritten, result.MissingFormatCount, result.UnknownEventCount),
+			fmt.Sprintf("事件：%d，跳过缺失格式：%d，仅行头事件：%d", result.EventsWritten, result.MissingFormatCount, result.UnknownEventCount),
 		}
 	}
 	return []string{
 		fmt.Sprintf("converted binary hitrace: %s", result.InputPath),
 		fmt.Sprintf("output: %s", result.OutputPath),
-		fmt.Sprintf("events: %d, missing_formats: %d, unknown_events: %d", result.EventsWritten, result.MissingFormatCount, result.UnknownEventCount),
+		fmt.Sprintf("events: %d, skipped_missing_formats: %d, header_only_events: %d", result.EventsWritten, result.MissingFormatCount, result.UnknownEventCount),
 	}
 }
 

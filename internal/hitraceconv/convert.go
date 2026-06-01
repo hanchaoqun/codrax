@@ -93,10 +93,10 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 		LastTimestampSec:   float64(last) / 1e9,
 	}
 	if missing > 0 {
-		result.Caveats = append(result.Caveats, fmt.Sprintf("%d raw event(s) had no event format and were preserved as unknown rows", missing))
+		result.Caveats = append(result.Caveats, fmt.Sprintf("%d raw event(s) had no event format and were skipped to keep systrace output compatible with official parsers", missing))
 	}
 	if unknown > 0 {
-		result.Caveats = append(result.Caveats, fmt.Sprintf("%d event row(s) used generic field rendering", unknown))
+		result.Caveats = append(result.Caveats, fmt.Sprintf("%d event row(s) lacked an official-compatible renderer and were emitted as header-only rows", unknown))
 	}
 	return result, nil
 }
@@ -227,11 +227,13 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 				format, ok := meta.formats[eventID]
 				if !ok {
 					missing++
-					format = eventFormat{ID: eventID, Name: fmt.Sprintf("unknown_event_%d", eventID)}
+					off = next
+					continue
 				}
 				line, known := renderEventLine(rc, ts, ph.CPU, format, content)
 				if !known {
 					unknown++
+					line = renderEventHeaderLine(rc, ts, ph.CPU, format, content)
 				}
 				if first == 0 || ts < first {
 					first = ts

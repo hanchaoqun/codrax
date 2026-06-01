@@ -34,6 +34,6 @@ func DefaultOutputPath(input string) string {
 }
 
 func (r Result) Summary() string {
-	return fmt.Sprintf("%s -> %s, %d events, %d missing format(s), %d unknown event(s)",
+	return fmt.Sprintf("%s -> %s, %d events, %d skipped missing format(s), %d unsupported renderer row(s)",
 		r.InputPath, r.OutputPath, r.EventsWritten, r.MissingFormatCount, r.UnknownEventCount)
 }

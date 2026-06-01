@@ -17,15 +17,18 @@ func TestTraceConvertResultLinesFollowLanguage(t *testing.T) {
 	}
 
 	zh := strings.Join(traceConvertResultLines("zh", result), "\n")
-	if !strings.Contains(zh, "已转换二进制 hitrace") || !strings.Contains(zh, "缺失格式：2") {
+	if !strings.Contains(zh, "已转换二进制 hitrace") || !strings.Contains(zh, "跳过缺失格式：2") {
 		t.Fatalf("zh result lines not localized enough:\n%s", zh)
+	}
+	if !strings.Contains(zh, "仅行头事件：3") {
+		t.Fatalf("zh result lines should report header-only rows:\n%s", zh)
 	}
 	if strings.Contains(zh, "converted binary hitrace") {
 		t.Fatalf("zh result leaked English:\n%s", zh)
 	}
 
 	en := strings.Join(traceConvertResultLines("en", result), "\n")
-	if !strings.Contains(en, "converted binary hitrace") || !strings.Contains(en, "unknown_events: 3") {
+	if !strings.Contains(en, "converted binary hitrace") || !strings.Contains(en, "header_only_events: 3") {
 		t.Fatalf("en result lines malformed:\n%s", en)
 	}
 	if strings.Contains(en, "已转换") {

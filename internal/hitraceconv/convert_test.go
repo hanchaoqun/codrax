@@ -63,7 +63,7 @@ func TestConvertFileWritesTextSystraceAndRefusesOverwrite(t *testing.T) {
 	}
 }
 
-func TestConvertFilePreservesMissingFormatAsUnknownRow(t *testing.T) {
+func TestConvertFileSkipsMissingFormatRows(t *testing.T) {
 	dir := t.TempDir()
 	input := filepath.Join(dir, "missing-format.htrace")
 	var b bytes.Buffer
@@ -80,7 +80,7 @@ func TestConvertFilePreservesMissingFormatAsUnknownRow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("convert: %v", err)
 	}
-	if result.MissingFormatCount != 1 || result.UnknownEventCount != 1 {
+	if result.EventsWritten != 0 || result.MissingFormatCount != 1 || result.UnknownEventCount != 0 {
 		t.Fatalf("missing/unknown counts: %+v", result)
 	}
 	body, err := os.ReadFile(output)
@@ -88,16 +88,47 @@ func TestConvertFilePreservesMissingFormatAsUnknownRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(body)
-	for _, want := range []string{
-		"unknown_event_99: event_id=99 payload_len=36 payload_hex=6300",
-		"payload_truncated=true",
-	} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("missing-format row missing %q:\n%s", want, text)
-		}
+	if strings.Contains(text, "unknown_event") || strings.Contains(text, "payload_hex") || strings.Contains(text, "raw_event=unparsed") {
+		t.Fatalf("missing-format rows must not be written into official-compatible systrace output:\n%s", text)
 	}
-	if strings.Contains(text, "raw_event=unparsed") {
-		t.Fatalf("missing-format row not preserved:\n%s", string(body))
+	if len(result.Caveats) == 0 || !strings.Contains(result.Caveats[0], "skipped") {
+		t.Fatalf("missing-format skip should be surfaced as caveat: %+v", result.Caveats)
+	}
+}
+
+func TestConvertFileWritesHeaderOnlyRowsWithoutOfficialRenderer(t *testing.T) {
+	dir := t.TempDir()
+	input := filepath.Join(dir, "unsupported-format.htrace")
+	var b bytes.Buffer
+	writeFileHeader(&b, 1)
+	writeSegment(&b, segmentEventsFormat, []byte(syntheticUnsupportedEventFormat()))
+	writeSegment(&b, segmentCmdlines, []byte("36379 com.tencent.mm\n"))
+	writeSegment(&b, segmentRawTrace, syntheticRawPageForEventID(20))
+	if err := os.WriteFile(input, b.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	output := filepath.Join(dir, "out.systrace")
+	result, err := ConvertFile(context.Background(), Options{InputPath: input, OutputPath: output})
+	if err != nil {
+		t.Fatalf("convert: %v", err)
+	}
+	if result.EventsWritten != 1 || result.MissingFormatCount != 0 || result.UnknownEventCount != 1 {
+		t.Fatalf("unsupported row counts: %+v", result)
+	}
+	body, err := os.ReadFile(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	if strings.Contains(text, "vendor_numeric") || strings.Contains(text, "raw_event=unparsed") || strings.Contains(text, "foo=") {
+		t.Fatalf("unsupported known-format rows must be header-only, not generically rendered:\n%s", text)
+	}
+	if !strings.Contains(text, "2942.124416:") {
+		t.Fatalf("unsupported known-format row should preserve official-style header and timestamp:\n%s", text)
+	}
+	if len(result.Caveats) == 0 || !strings.Contains(result.Caveats[0], "header-only") {
+		t.Fatalf("unsupported renderer skip should be surfaced as caveat: %+v", result.Caveats)
 	}
 }
 
@@ -432,6 +463,21 @@ func syntheticEventFormat() string {
 		"\tfield:int prio;\toffset:28;\tsize:4;\tsigned:1;",
 		"\tfield:int target_cpu;\toffset:32;\tsize:4;\tsigned:1;",
 		`print fmt: "comm=%s pid=%d prio=%d target_cpu=%03d"`,
+		"",
+	}, "\n")
+}
+
+func syntheticUnsupportedEventFormat() string {
+	return strings.Join([]string{
+		"name: vendor_numeric",
+		"ID: 20",
+		"format:",
+		"\tfield:unsigned short common_type;\toffset:0;\tsize:2;\tsigned:0;",
+		"\tfield:unsigned char common_flags;\toffset:2;\tsize:1;\tsigned:0;",
+		"\tfield:unsigned char common_preempt_count;\toffset:3;\tsize:1;\tsigned:0;",
+		"\tfield:int common_pid;\toffset:4;\tsize:4;\tsigned:1;",
+		"\tfield:int foo;\toffset:8;\tsize:4;\tsigned:1;",
+		`print fmt: "foo=%d"`,
 		"",
 	}, "\n")
 }

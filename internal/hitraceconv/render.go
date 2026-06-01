@@ -34,6 +34,20 @@ type renderContext struct {
 
 func renderEventLine(ctx renderContext, tsNS uint64, cpu int, format eventFormat, content []byte) (string, bool) {
 	ev := decodeEvent(format, content)
+	prefix := renderEventPrefix(ctx, tsNS, cpu, ev)
+	body, known := renderEventBody(ev, content, cpu)
+	name := format.Name
+	if name == "" {
+		name = "unknown_event"
+	}
+	return prefix + name + ": " + body, known
+}
+
+func renderEventHeaderLine(ctx renderContext, tsNS uint64, cpu int, format eventFormat, content []byte) string {
+	return renderEventPrefix(ctx, tsNS, cpu, decodeEvent(format, content))
+}
+
+func renderEventPrefix(ctx renderContext, tsNS uint64, cpu int, ev decodedEvent) string {
 	pid := int(intField(ev, "common_pid", false))
 	comm := ctx.cmdlines[pid]
 	if pid == 0 {
@@ -45,14 +59,9 @@ func renderEventLine(ctx renderContext, tsNS uint64, cpu int, format eventFormat
 	if tgid, ok := ctx.tgids[pid]; ok {
 		tgidText = strconv.Itoa(tgid)
 	}
-	body, known := renderEventBody(ev, content, cpu)
-	name := format.Name
-	if name == "" {
-		name = "unknown_event"
-	}
 	flags := traceFlagsToStr(intField(ev, "common_flags", false), intField(ev, "common_preempt_count", false))
-	return fmt.Sprintf("%16s-%-6d (%5s) [%03d] %s %s: %s: %s",
-		comm, pid, tgidText, cpu, flags, formatTimestamp(tsNS), name, body), known
+	return fmt.Sprintf("%16s-%-6d (%5s) [%03d] %s %s: ",
+		comm, pid, tgidText, cpu, flags, formatTimestamp(tsNS))
 }
 
 func decodeEvent(format eventFormat, content []byte) decodedEvent {

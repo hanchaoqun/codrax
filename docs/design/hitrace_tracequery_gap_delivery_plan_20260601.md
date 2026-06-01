@@ -17,8 +17,15 @@ Parent audit:
   - larger numeric user priority means higher priority
   - `1..40=CFS`, `41..139=RT`
   - Android framework and Harmony framework may coexist only at process level
-- Do not drop unsupported trace rows. If an event is not typed yet, preserve its
-  event name, line number, timestamp, thread identity, and bounded field text.
+- Do not drop unsupported text trace rows inside `trace_query`. If an event is
+  already present in a text trace but is not typed yet, preserve its event name,
+  line number, timestamp, thread identity, and bounded field text.
+- Binary HiTrace conversion has a stricter output contract: write only
+  official-compatible systrace rows. Missing-format raw events are counted and
+  skipped. Events whose format exists but lacks an official-compatible renderer
+  are emitted as official-style header-only rows, matching the upstream
+  converter's fallback shape. They are not emitted as `unknown_event` or generic
+  fallback rows because those rows can break official systrace viewers.
 - Large data must stay bounded through existing rowset/blob payload patterns.
 
 ## Batch 0: Documentation and Task Ledger
@@ -55,31 +62,32 @@ Current code:
 
 - `internal/tracequery/parse.go` initializes `FieldText` from row text but then
   clears it for `EventUnknown`.
-- `internal/hitraceconv/render.go` emits `raw_event=unparsed` for rows whose
-  event format is absent.
-- `internal/hitraceconv/convert.go` knows the event id and raw content at render
-  time but does not pass enough missing-format context into the renderer.
+- Earlier converter batches emitted `unknown_event_*` / `raw_event=unparsed`
+  fallback rows for binary events that lacked an official-compatible renderer.
+  That preserved bytes in Codrax output, but it diverged from the official
+  OpenHarmony converter and can make generated systrace files fail in official
+  viewers.
 
 Design:
 
-- Preserve `FieldText` for `EventUnknown`.
+- Preserve `FieldText` for `EventUnknown` when parsing existing text systrace.
 - Keep field text bounded by the existing clamp.
-- Add tests showing unknown events retain `field_text` and are searchable by
+- Add tests showing unknown text rows retain `field_text` and are searchable by
   `event_search`.
-- For missing event formats, output:
-  - `event_id=<id>`
-  - `payload_len=<n>`
-  - `payload_hex=<bounded hex prefix>`
-  - optional `payload_truncated=true`
-- Preserve the existing missing-format count and caveat.
+- For binary conversion, skip missing-format rows. For rows whose event format
+  exists but cannot be rendered by the official-compatible renderer set, emit
+  the same header-only fallback shape as the official converter. Keep counts
+  and caveats so operators can audit conversion coverage without polluting the
+  systrace file with nonstandard event bodies.
 
 Tasks:
 
 - [ ] Remove `EventUnknown.FieldText` clearing.
-- [ ] Add bounded hex helper for missing-format rows.
-- [ ] Thread missing event id into render fallback.
+- [x] Skip missing-format binary rows instead of writing `unknown_event_*`.
+- [x] Emit unsupported-renderer binary rows as official-style header-only rows
+      instead of writing generic fields.
 - [ ] Add parser/search tests.
-- [ ] Add converter tests for missing-format payload fallback.
+- [x] Add converter tests proving skipped rows do not appear in systrace output.
 
 Verification:
 
@@ -186,9 +194,9 @@ Verification:
 - Add fixtures for one representative row per family.
 - `internal/hitraceconv/testdata/openharmony_print_fmt_coverage.tsv` records
   the current upstream 86 `PRINT_FMT_*` rows and the Codrax converter/query
-  support lane for each row. Rows marked `generic_typed` or
-  `generic_preserved` are intentionally no-loss but not full semantic
-  renderers.
+  support lane for each row. Rows without an official-compatible converter
+  renderer are emitted as header-only rows during binary conversion rather than
+  emitted as generic fallback text.
 
 ## Batch 4: P1 Dynamic Field Decoding
 
@@ -219,8 +227,8 @@ Design:
 Tasks:
 
 - [x] Implement generic `__data_loc` field decoder for dynamic strings.
-- [x] Keep missing-format payload hex bounded and preserve dynamic-string
-      fallback rows without unbounded inline dumps.
+- [x] Keep dynamic-string official-compatible rows bounded without unbounded
+      inline dumps.
 - [ ] Add symbolic maps for selected stable enums.
 - [x] Add converter tests for dynamic string rows.
 - [ ] Add converter tests for dynamic array rows.
