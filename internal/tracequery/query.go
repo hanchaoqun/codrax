@@ -101,6 +101,11 @@ func Run(idx *Index, q Query) Result {
 		res.FramePipeline = &frame
 		res.SpanWindows = frameSpans(frame)
 		res.EvidencePack = evidenceFromFramePipeline(frame)
+	case "frame_timeline", "frame_flow":
+		timeline := BuildFrameTimeline(idx, q)
+		res.FrameTimeline = &timeline
+		res.SpanWindows = frameTimelineSpans(timeline)
+		res.EvidencePack = evidenceFromFrameTimeline(timeline)
 	case "critical_blocking_calls":
 		blocking := BuildCriticalBlockingCalls(idx, q)
 		res.CriticalBlocking = &blocking
@@ -142,6 +147,11 @@ func Run(idx *Index, q Query) Result {
 			res.FramePipeline = &frame
 			res.SpanWindows = frameSpans(frame)
 			res.EvidencePack = append(res.EvidencePack, evidenceFromFramePipeline(frame)...)
+		}
+		if recipeHasView(recipe, "frame_timeline") || recipeHasView(recipe, "frame_flow") {
+			timeline := BuildFrameTimeline(idx, q)
+			res.FrameTimeline = &timeline
+			res.EvidencePack = append(res.EvidencePack, evidenceFromFrameTimeline(timeline)...)
 		}
 	case "evidence_pack":
 		chain := BuildWakeupChain(idx, q)
@@ -2640,7 +2650,74 @@ func BuildFramePipeline(idx *Index, q Query) FramePipelineResult {
 	return res
 }
 
+func BuildFrameTimeline(idx *Index, q Query) FrameTimelineResult {
+	q = normalizeQuery(idx, q)
+	res := FrameTimelineResult{Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}}
+	frame := BuildFramePipeline(idx, q)
+	for i, phase := range frame.Items {
+		item := FrameTimelineItem{
+			Index:      i + 1,
+			Thread:     phase.Thread,
+			Phase:      phase.Phase,
+			Role:       classifyFrameTimelineRole(phase.Name, phase.Phase),
+			Name:       phase.Name,
+			FrameID:    frameIDFromName(phase.Name),
+			StartTs:    phase.StartTs,
+			EndTs:      phase.EndTs,
+			DurationMs: phase.DurationMs,
+			StartLine:  phase.StartLine,
+			EndLine:    phase.EndLine,
+		}
+		item.Summary = fmt.Sprintf("frame_timeline item #%d role=%s phase=%s %s span %q lasted %.3fms", item.Index, item.Role, item.Phase, threadLabel(item.Thread), item.Name, item.DurationMs)
+		res.Items = append(res.Items, item)
+	}
+	for i := 0; i+1 < len(res.Items); i++ {
+		from := res.Items[i]
+		to := res.Items[i+1]
+		latency := (to.StartTs - from.EndTs) * 1000
+		if latency < 0 {
+			latency = 0
+		}
+		res.Flows = append(res.Flows, FrameFlowEdge{
+			FromIndex: from.Index,
+			ToIndex:   to.Index,
+			From:      from.Thread,
+			To:        to.Thread,
+			FromPhase: from.Phase,
+			ToPhase:   to.Phase,
+			LatencyMs: latency,
+			LineStart: firstPositive(from.EndLine, from.StartLine),
+			LineEnd:   firstPositive(to.StartLine, to.EndLine),
+			Summary:   fmt.Sprintf("frame flow #%d->#%d %s/%s to %s/%s latency=%.3fms", from.Index, to.Index, threadLabel(from.Thread), from.Phase, threadLabel(to.Thread), to.Phase, latency),
+		})
+	}
+	res.Caveats = append(res.Caveats, frame.Caveats...)
+	if len(res.Items) == 0 {
+		res.Caveats = append(res.Caveats, "no frame timeline items were built; need complete B/E frame-like trace spans")
+	}
+	if len(res.Flows) == 0 && len(res.Items) > 1 {
+		res.Caveats = append(res.Caveats, "frame timeline had items but no flow edges were emitted")
+	}
+	return res
+}
+
 func frameSpans(frame FramePipelineResult) []TraceSpanSummary {
+	out := make([]TraceSpanSummary, 0, len(frame.Items))
+	for _, item := range frame.Items {
+		out = append(out, TraceSpanSummary{
+			Thread:     item.Thread,
+			Name:       item.Name,
+			StartTs:    item.StartTs,
+			EndTs:      item.EndTs,
+			DurationMs: item.DurationMs,
+			StartLine:  item.StartLine,
+			EndLine:    item.EndLine,
+		})
+	}
+	return out
+}
+
+func frameTimelineSpans(frame FrameTimelineResult) []TraceSpanSummary {
 	out := make([]TraceSpanSummary, 0, len(frame.Items))
 	for _, item := range frame.Items {
 		out = append(out, TraceSpanSummary{
@@ -2658,7 +2735,7 @@ func frameSpans(frame FramePipelineResult) []TraceSpanSummary {
 
 func isFrameLikeSpan(name string) bool {
 	lower := strings.ToLower(name)
-	for _, token := range []string{"frame", "vsync", "choreographer", "render", "draw", "traversal", "measure", "layout", "present", "gpu", "surface", "compose"} {
+	for _, token := range []string{"frame", "timeline", "expected", "actual", "jank", "deadline", "vsync", "choreographer", "render", "draw", "traversal", "measure", "layout", "present", "gpu", "surface", "compose"} {
 		if strings.Contains(lower, token) {
 			return true
 		}
@@ -2682,6 +2759,43 @@ func classifyFramePhase(name string) string {
 	default:
 		return "frame_related"
 	}
+}
+
+func classifyFrameTimelineRole(name, phase string) string {
+	lower := strings.ToLower(name + " " + phase)
+	switch {
+	case strings.Contains(lower, "expected"):
+		return "expected"
+	case strings.Contains(lower, "actual"):
+		return "actual"
+	case strings.Contains(lower, "jank") || strings.Contains(lower, "miss") || strings.Contains(lower, "deadline"):
+		return "jank"
+	case strings.Contains(lower, "gpu"):
+		return "gpu"
+	case strings.Contains(lower, "render_service") || strings.Contains(lower, "rsuni") || strings.Contains(lower, "rs ") || strings.Contains(lower, "h:render"):
+		return "render_service"
+	case strings.Contains(lower, "choreographer") || strings.Contains(lower, "doframe") || strings.Contains(lower, "traversal") || strings.Contains(lower, "measure") || strings.Contains(lower, "layout"):
+		return "ui"
+	case strings.Contains(lower, "present") || strings.Contains(lower, "surface") || strings.Contains(lower, "compose"):
+		return "composition"
+	default:
+		return firstNonEmpty(phase, "frame")
+	}
+}
+
+func frameIDFromName(name string) string {
+	fields := strings.FieldsFunc(name, func(r rune) bool {
+		return r == ' ' || r == '|' || r == ',' || r == ';' || r == '(' || r == ')' || r == '[' || r == ']'
+	})
+	for _, field := range fields {
+		lower := strings.ToLower(strings.TrimSpace(field))
+		for _, prefix := range []string{"vsyncid=", "vsync=", "frameid=", "frame=", "id="} {
+			if strings.HasPrefix(lower, prefix) && len(field) > len(prefix) {
+				return strings.TrimSpace(field[len(prefix):])
+			}
+		}
+	}
+	return ""
 }
 
 func BuildCriticalBlockingCalls(idx *Index, q Query) CriticalBlockingResult {
@@ -2827,8 +2941,8 @@ func BuildRecipe(idx *Index, q Query) RecipeResult {
 	res := RecipeResult{Name: name}
 	switch name {
 	case "jank":
-		res.IncludedViews = []string{"frame_window", "scheduler_latency_stats", "window_stats", "root_cause_rank", "critical_blocking_calls"}
-		res.Summary = "jank recipe: derive frame/render spans, scheduler latency, same-window resources, ranked causes, and blocking candidates"
+		res.IncludedViews = []string{"frame_window", "frame_timeline", "frame_flow", "scheduler_latency_stats", "window_stats", "root_cause_rank", "critical_blocking_calls"}
+		res.Summary = "jank recipe: derive frame/render spans, frame timeline/flows, scheduler latency, same-window resources, ranked causes, and blocking candidates"
 	case "runnable_delay":
 		res.IncludedViews = []string{"scheduler_latency_stats", "window_stats", "root_cause_rank"}
 		res.Summary = "runnable-delay recipe: quantify runnable waits, CPU pressure, compute supply, and ranked causes"
@@ -3409,6 +3523,41 @@ func evidenceFromFramePipeline(frame FramePipelineResult) []EvidenceFact {
 			StartTs:    item.StartTs,
 			EndTs:      item.EndTs,
 			Confidence: 0.78,
+		})
+		if len(out) >= 16 {
+			break
+		}
+	}
+	return out
+}
+
+func evidenceFromFrameTimeline(frame FrameTimelineResult) []EvidenceFact {
+	var out []EvidenceFact
+	for _, item := range frame.Items {
+		out = append(out, EvidenceFact{
+			Subject:    threadLabel(item.Thread),
+			Predicate:  "frame_timeline_" + item.Role,
+			Object:     item.Phase,
+			Summary:    item.Summary,
+			LineStart:  item.StartLine,
+			LineEnd:    item.EndLine,
+			StartTs:    item.StartTs,
+			EndTs:      item.EndTs,
+			Confidence: 0.78,
+		})
+		if len(out) >= 12 {
+			break
+		}
+	}
+	for _, flow := range frame.Flows {
+		out = append(out, EvidenceFact{
+			Subject:    threadLabel(flow.From),
+			Predicate:  "frame_flow",
+			Object:     threadLabel(flow.To),
+			Summary:    flow.Summary,
+			LineStart:  flow.LineStart,
+			LineEnd:    flow.LineEnd,
+			Confidence: 0.72,
 		})
 		if len(out) >= 16 {
 			break

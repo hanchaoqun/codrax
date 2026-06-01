@@ -112,6 +112,17 @@ const blockingTrace = `
         app-20   (   20) [001] .... 6.090000: sched_blocked_reason: pid=20 iowait=1 caller=futex_wait_queue
 `
 
+const frameFlowTrace = `
+         app-20   (   20) [001] .... 7.000000: print: B|20|Expected Timeline frame=77
+         app-20   (   20) [001] .... 7.004000: print: E|20
+         app-20   (   20) [001] .... 7.005000: print: B|20|Choreographer#doFrame frame=77
+         app-20   (   20) [001] .... 7.016000: print: E|20
+ RSUniRenderThre-2096 (1716) [000] .... 7.017000: print: B|1716|H:RenderFrame frame=77
+ RSUniRenderThre-2096 (1716) [000] .... 7.030000: print: E|1716
+         gpu-300   (  300) [002] .... 7.031000: print: B|300|GPU completion frame=77
+         gpu-300   (  300) [002] .... 7.040000: print: E|300
+`
+
 func TestParseLineSchedulerEvents(t *testing.T) {
 	intern := newStringInterner()
 	ev, ok := ParseLine(4, `        app-20   (   20) [001] .... 1.100000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`, intern)
@@ -682,6 +693,37 @@ func TestFramePipelineCriticalBlockingAndRecipeViews(t *testing.T) {
 	recipe := Run(idx, Query{View: "recipe", RecipeName: "jank", PID: 20, TimeStart: 6.0, TimeEnd: 6.1})
 	if recipe.Recipe == nil || !containsString(recipe.Recipe.IncludedViews, "frame_window") || recipe.FramePipeline == nil || recipe.CriticalBlocking == nil {
 		t.Fatalf("jank recipe should include frame and blocking views: %+v", recipe)
+	}
+}
+
+func TestFrameTimelineAndFlowViews(t *testing.T) {
+	idx := buildTraceIndex(t, "frame_flow.systrace", frameFlowTrace)
+	timeline := Run(idx, Query{View: "frame_timeline", TimeStart: 7.0, TimeEnd: 7.05, Limit: 10})
+	if timeline.FrameTimeline == nil || len(timeline.FrameTimeline.Items) < 3 {
+		t.Fatalf("expected frame timeline items: %+v", timeline.FrameTimeline)
+	}
+	var foundExpected, foundUI, foundRS, foundGPU bool
+	for _, item := range timeline.FrameTimeline.Items {
+		switch item.Role {
+		case "expected":
+			foundExpected = true
+		case "ui":
+			foundUI = true
+		case "render_service":
+			foundRS = true
+		case "gpu":
+			foundGPU = true
+		}
+	}
+	if !foundExpected || !foundUI || !foundRS || !foundGPU {
+		t.Fatalf("missing frame timeline roles expected=%v ui=%v rs=%v gpu=%v items=%+v", foundExpected, foundUI, foundRS, foundGPU, timeline.FrameTimeline.Items)
+	}
+	flow := Run(idx, Query{View: "frame_flow", TimeStart: 7.0, TimeEnd: 7.05, Limit: 10})
+	if flow.FrameTimeline == nil || len(flow.FrameTimeline.Flows) < 2 {
+		t.Fatalf("expected frame flow edges: %+v", flow.FrameTimeline)
+	}
+	if len(flow.EvidencePack) == 0 {
+		t.Fatalf("frame flow should produce evidence facts")
 	}
 }
 

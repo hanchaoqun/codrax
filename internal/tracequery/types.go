@@ -183,6 +183,7 @@ type Result struct {
 	WakeupChain                 *ChainResult            `json:"wakeup_chain,omitempty"`
 	SpanWindows                 []TraceSpanSummary      `json:"span_windows,omitempty"`
 	FramePipeline               *FramePipelineResult    `json:"frame_pipeline,omitempty"`
+	FrameTimeline               *FrameTimelineResult    `json:"frame_timeline,omitempty"`
 	CriticalBlocking            *CriticalBlockingResult `json:"critical_blocking_calls,omitempty"`
 	RootCauseRank               *RootCauseRankResult    `json:"root_cause_rank,omitempty"`
 	InteractionStats            *InteractionStatsResult `json:"interaction_stats,omitempty"`
@@ -521,6 +522,41 @@ type FramePipelineResult struct {
 	Window  TimeWindow          `json:"window"`
 	Items   []FramePhaseSummary `json:"items,omitempty"`
 	Caveats []string            `json:"caveats,omitempty"`
+}
+
+type FrameTimelineResult struct {
+	Window  TimeWindow          `json:"window"`
+	Items   []FrameTimelineItem `json:"items,omitempty"`
+	Flows   []FrameFlowEdge     `json:"flows,omitempty"`
+	Caveats []string            `json:"caveats,omitempty"`
+}
+
+type FrameTimelineItem struct {
+	Index      int       `json:"index"`
+	Thread     ThreadRef `json:"thread,omitempty"`
+	Phase      string    `json:"phase,omitempty"`
+	Role       string    `json:"role,omitempty"`
+	Name       string    `json:"name,omitempty"`
+	FrameID    string    `json:"frame_id,omitempty"`
+	StartTs    float64   `json:"start_ts,omitempty"`
+	EndTs      float64   `json:"end_ts,omitempty"`
+	DurationMs float64   `json:"duration_ms,omitempty"`
+	StartLine  int       `json:"start_line,omitempty"`
+	EndLine    int       `json:"end_line,omitempty"`
+	Summary    string    `json:"summary,omitempty"`
+}
+
+type FrameFlowEdge struct {
+	FromIndex int       `json:"from_index,omitempty"`
+	ToIndex   int       `json:"to_index,omitempty"`
+	From      ThreadRef `json:"from,omitempty"`
+	To        ThreadRef `json:"to,omitempty"`
+	FromPhase string    `json:"from_phase,omitempty"`
+	ToPhase   string    `json:"to_phase,omitempty"`
+	LatencyMs float64   `json:"latency_ms,omitempty"`
+	LineStart int       `json:"line_start,omitempty"`
+	LineEnd   int       `json:"line_end,omitempty"`
+	Summary   string    `json:"summary,omitempty"`
 }
 
 type FramePhaseSummary struct {
