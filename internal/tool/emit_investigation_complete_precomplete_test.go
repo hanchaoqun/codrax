@@ -3497,6 +3497,99 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadBlocks(t *testin
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_RuntimeArtifactSourceOptionalDoesNotForceRead(t *testing.T) {
+	mut := types.NewMutableState("runtime trace")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "record_trace_20260526174055.systrace", Score: 90, ExactEntityRank: 3},
+		{Path: "sys.systrace", Score: 80, ExactEntityRank: 2},
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioRootCause,
+				LogTriage: &types.LogBundle{Errors: []types.LogError{{Type: "runtime trace"}}},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:         "mechanism",
+					ExactTargets: []string{"record_trace_20260526174055.systrace", "Choreographer#doFrame"},
+				},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "trace_query established the runtime sleep/wakeup chain and no current-source anchor was resolved",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]string{{
+			"kind":       "scalar_value",
+			"label":      "sleep duration",
+			"value":      "135",
+			"unit":       "ms",
+			"provenance": "trace_query.wakeup_chain",
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("runtime-only phase1 ranking must not force current-source reads: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("runtime closure should complete when source lane is optional")
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_RequiredSourceSkipsRuntimeArtifactSeed(t *testing.T) {
+	mut := types.NewMutableState("runtime trace plus current code")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "record_trace_20260526174055.systrace", Score: 95, ExactEntityRank: 3},
+		{Path: "internal/agent/explorer.go", Score: 80, ExactEntityRank: 2},
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent:    types.IntentRootCause,
+				Scenario:  types.ScenarioRootCause,
+				LogTriage: &types.LogBundle{Errors: []types.LogError{{Type: "runtime trace"}}},
+				CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+					IsCurrentSourceExplanationRequested: true,
+					Modes:                               []types.CurrentSourceExplanationMode{types.CurrentSourceExplanationExplainCurrentMechanism},
+					SourceQuotes:                        []string{"结合当前代码解释"},
+					Confidence:                          0.9,
+				},
+				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "source explanation still needs implementation evidence",
+		"confidence":  "high",
+		"result_kind": "resolved",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("required source lane should still downgrade until source read: %s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "record_trace_20260526174055.systrace") {
+		t.Fatalf("runtime artifact path must not appear as forced source read: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "internal/agent/explorer.go") {
+		t.Fatalf("current-source seed should still be forced: %s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_HistoryCurrentCodeSkipsGenericForcedReads(t *testing.T) {
 	mut := types.NewMutableState("history-backed current-code explanation")
 	mut.SetPhase1Ranking([]types.Phase1RankedFile{

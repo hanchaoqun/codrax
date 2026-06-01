@@ -49,3 +49,22 @@ func TestHasCodeOrConfigPathSuffix(t *testing.T) {
 		}
 	}
 }
+
+func TestLooksLikeRuntimeArtifactPath(t *testing.T) {
+	for _, s := range []string{
+		"record_trace.systrace",
+		"/tmp/app.log",
+		"trace.HTRACE",
+		"capture.atrace",
+		"sample.perfetto",
+	} {
+		if !LooksLikeRuntimeArtifactPath(s) {
+			t.Errorf("LooksLikeRuntimeArtifactPath(%q) = false; want true", s)
+		}
+	}
+	for _, s := range []string{"", "main.go", "config.yaml", "README.md", "trace.txt"} {
+		if LooksLikeRuntimeArtifactPath(s) {
+			t.Errorf("LooksLikeRuntimeArtifactPath(%q) = true; want false", s)
+		}
+	}
+}

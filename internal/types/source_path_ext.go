@@ -65,6 +65,15 @@ var codeOrConfigSourcePathExtensions = map[string]bool{
 	".md":   true,
 }
 
+var runtimeArtifactPathExtensions = map[string]bool{
+	".log":      true,
+	".trace":    true,
+	".systrace": true,
+	".htrace":   true,
+	".atrace":   true,
+	".perfetto": true,
+}
+
 // IsCodeOrConfigPathExtension reports whether ext (with leading dot,
 // case-insensitive) is a known code source or declarative config file
 // extension. Used by surface-term filters that already separated ext
@@ -85,6 +94,33 @@ func HasCodeOrConfigPathSuffix(s string) bool {
 	}
 	lower := strings.ToLower(s)
 	for ext := range codeOrConfigSourcePathExtensions {
+		if strings.HasSuffix(lower, ext) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsRuntimeArtifactPathExtension reports whether ext is a runtime observation
+// artifact suffix. This helper intentionally lives in internal/types so source
+// lane gates, prompt planners, and tool validators can make the same typed
+// origin distinction without importing tool-layer grep helpers.
+func IsRuntimeArtifactPathExtension(ext string) bool {
+	if ext == "" {
+		return false
+	}
+	return runtimeArtifactPathExtensions[strings.ToLower(ext)]
+}
+
+// LooksLikeRuntimeArtifactPath reports whether s names a log/trace/perfetto
+// runtime artifact. It is path-shape only; it must not be used to infer user
+// intent from prose.
+func LooksLikeRuntimeArtifactPath(s string) bool {
+	if s == "" {
+		return false
+	}
+	lower := strings.ToLower(strings.TrimSpace(s))
+	for ext := range runtimeArtifactPathExtensions {
 		if strings.HasSuffix(lower, ext) {
 			return true
 		}

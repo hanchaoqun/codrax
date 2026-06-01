@@ -978,6 +978,40 @@ func (rm RequestModel) HasObservationOnlyRuntimeArtifact() bool {
 		rm.ExternalObservationPolicy.ExcludesCurrentSource()
 }
 
+// CurrentSourceLaneDecision is the typed, non-prose decision used by hard
+// current-source gates. It separates "source analysis is allowed by default"
+// from "source evidence is required before completion"; external observations
+// can still be explored together with source, but runtime artifacts must not be
+// mistaken for implementation files when no current-source anchor exists.
+type CurrentSourceLaneDecision string
+
+const (
+	CurrentSourceLaneRequired        CurrentSourceLaneDecision = "required"
+	CurrentSourceLaneAllowedOptional CurrentSourceLaneDecision = "allowed_optional"
+	CurrentSourceLaneExcluded        CurrentSourceLaneDecision = "excluded"
+	CurrentSourceLaneSatisfiedAbsent CurrentSourceLaneDecision = "satisfied_absent"
+)
+
+func (d CurrentSourceLaneDecision) RequiresCurrentSource() bool {
+	return d == CurrentSourceLaneRequired
+}
+
+// CurrentSourceLaneDecision returns the precise source-lane posture for hard
+// gates. It consumes only typed analyzer/runtime fields; it does not inspect
+// raw user prose.
+func (rm RequestModel) CurrentSourceLaneDecision() CurrentSourceLaneDecision {
+	if !rm.HasExternalOnlyRuntimeArtifact() {
+		return CurrentSourceLaneRequired
+	}
+	if rm.HasObservationOnlyRuntimeArtifact() {
+		return CurrentSourceLaneExcluded
+	}
+	if rm.HasRuntimeArtifactCurrentVerificationAnchor() {
+		return CurrentSourceLaneRequired
+	}
+	return CurrentSourceLaneAllowedOptional
+}
+
 // HasRuntimeArtifactCurrentVerificationAnchor reports whether an external
 // runtime artifact has a separate, typed current-checkout target strong enough
 // to justify opening the current-source lane. The signal must come from
@@ -996,13 +1030,20 @@ func (rm RequestModel) HasRuntimeArtifactCurrentVerificationAnchor() bool {
 	if rm.PerfTrace != nil && len(rm.PerfTrace.ResolvedFiles) > 0 {
 		return true
 	}
+	if rm.DiagnosticProfile.RequiresCurrentStatusDiagnostic() {
+		for _, target := range rm.AnalyzerHints.ExactTargets {
+			if strings.TrimSpace(target) != "" && !LooksLikeRuntimeArtifactPath(target) {
+				return true
+			}
+		}
+	}
 	for _, target := range rm.AnalyzerHints.ExactTargets {
-		if strings.TrimSpace(target) != "" {
+		if targetLooksLikeCurrentSourceAnchor(target) {
 			return true
 		}
 	}
 	for _, hint := range rm.AnalyzerHints.RequiredFileHints {
-		if strings.TrimSpace(hint.Path) != "" {
+		if targetLooksLikeCurrentSourceAnchor(hint.Path) {
 			return true
 		}
 	}
@@ -1014,6 +1055,14 @@ func (rm RequestModel) HasRuntimeArtifactCurrentVerificationAnchor() bool {
 		}
 	}
 	return false
+}
+
+func targetLooksLikeCurrentSourceAnchor(raw string) bool {
+	s := strings.TrimSpace(raw)
+	if s == "" || LooksLikeRuntimeArtifactPath(s) {
+		return false
+	}
+	return HasCodeOrConfigPathSuffix(s)
 }
 
 func isScalarSourceLiteralSubjectKind(kind AnswerSubjectKind) bool {

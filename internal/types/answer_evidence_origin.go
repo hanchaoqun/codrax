@@ -143,7 +143,7 @@ func answerEvidenceOriginFromStructuredToken(raw string, add func(AnswerEvidence
 		add(AnswerEvidenceOriginVCSMetadata)
 	case "vcs_diff", "git_diff", "diff_hunk":
 		add(AnswerEvidenceOriginVCSDiff)
-	case "runtime_artifact", "artifact_frame", "log_bundle", "perf_trace", "emit_log_triage", "emit_perf_trace":
+	case "runtime_artifact", "artifact_frame", "log_bundle", "perf_trace", "emit_log_triage", "emit_perf_trace", "trace_query":
 		add(AnswerEvidenceOriginRuntimeArtifact)
 	case "command_measurement", "exec_command", "command_count", "line_count", "file_count":
 		add(AnswerEvidenceOriginCommandMeasurement)
@@ -218,6 +218,8 @@ func aggregateFactKindCanCarryCommandMeasurement(kind AnswerAggregateKind) bool 
 func aggregateFactKindCanCarryRuntimeArtifact(kind AnswerAggregateKind) bool {
 	switch kind {
 	case AnswerAggregateScalar,
+		AnswerAggregateTotalCount,
+		AnswerAggregateUniqueCount,
 		AnswerAggregateMemberSet,
 		AnswerAggregateGroupedCount,
 		AnswerAggregateBucketCount,

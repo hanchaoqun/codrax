@@ -4447,6 +4447,43 @@ func TestEmitInvestigationComplete_AllowsDecoratedRuntimeMemberSetForObservation
 	}
 }
 
+func TestEmitInvestigationComplete_AllowsDecoratedRuntimeMemberSetForDefaultMixedRuntime(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:    types.IntentRootCause,
+			Scenario:  types.ScenarioRootCause,
+			LogTriage: &types.LogBundle{Errors: []types.LogError{{Type: "runtime trace"}}},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"runtime trace facts are enough for the observed sleep chain; source analysis remains optional",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[
+			{
+				"kind":"member_set",
+				"label":"runtime blocking candidates",
+				"value":"2",
+				"provenance":"trace_query.wakeup_chain",
+				"members":[
+					"binder_wait (synchronous-looking)",
+					"InternTable lock (owner tid: 32094)"
+				]
+			}
+		]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("default mixed runtime member_set should rely on runtime provenance instead of repo support_refs: %s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationCompleteSchema_DocumentsRuntimeDirectObservationBoundary(t *testing.T) {
 	params := string((&EmitInvestigationComplete{}).Parameters())
 	for _, want := range []string{
@@ -4458,6 +4495,133 @@ func TestEmitInvestigationCompleteSchema_DocumentsRuntimeDirectObservationBounda
 		if !strings.Contains(params, want) {
 			t.Fatalf("emit_investigation_complete schema should teach runtime direct-observation boundary; missing %q in:\n%s", want, params)
 		}
+	}
+}
+
+func TestEmitInvestigationComplete_DecimalTotalCountNormalizesToScalar(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:    types.IntentRootCause,
+			Scenario:  types.ScenarioRootCause,
+			LogTriage: &types.LogBundle{Errors: []types.LogError{{Type: "runtime trace"}}},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"frame duration is a scalar runtime measurement",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"total_count",
+			"label":"frame duration",
+			"value":"119.227",
+			"unit":"ms",
+			"provenance":"trace_query.window_stats"
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("decimal count measurement should be normalized instead of rejected: %s", res.Summary)
+	}
+	facts := mut.StableInvestigationAggregateFacts()
+	if len(facts) != 1 || facts[0].Kind != types.AnswerAggregateScalar || facts[0].Value != "119.227" {
+		t.Fatalf("expected scalar runtime measurement, got %+v", facts)
+	}
+	if !strings.Contains(res.Summary, "scalar_value") {
+		t.Fatalf("summary should disclose scalar normalization: %s", res.Summary)
+	}
+}
+
+func TestEmitInvestigationComplete_DecimalTotalCountStillRejectsCodeCount(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent: types.IntentEnumerate,
+			Predicates: types.SemanticPredicates{
+				IsCountQuestion: true,
+			},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+	params := json.RawMessage(`{
+		"reason":"count answer must remain an integer",
+		"confidence":"high",
+		"result_kind":"resolved",
+		"aggregate_facts":[{
+			"kind":"total_count",
+			"label":"source files",
+			"value":"3.5",
+			"unit":"files",
+			"provenance":"repo_map"
+		}]
+	}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("code count decimal should remain a structural error, got success: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "non-integer") {
+		t.Fatalf("rejection should explain count integer constraint: %s", res.Summary)
+	}
+}
+
+func TestEmitInvestigationComplete_RuntimeAggregateFactsOverLimitCompacts(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Intent:    types.IntentRootCause,
+			Scenario:  types.ScenarioRootCause,
+			LogTriage: &types.LogBundle{Errors: []types.LogError{{Type: "runtime trace"}}},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+	facts := make([]map[string]any, 0, 17)
+	for i := 0; i < 17; i++ {
+		role := "audit_ledger"
+		if i == 0 {
+			role = "principal_answer"
+		}
+		facts = append(facts, map[string]any{
+			"kind":       "scalar_value",
+			"label":      fmt.Sprintf("runtime fact %02d", i),
+			"value":      fmt.Sprintf("%d", i),
+			"unit":       "ms",
+			"role":       role,
+			"provenance": "trace_query.window_stats",
+		})
+	}
+	payload := map[string]any{
+		"reason":          "runtime facts collected",
+		"confidence":      "high",
+		"result_kind":     "resolved",
+		"aggregate_facts": facts,
+	}
+	params, _ := json.Marshal(payload)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("runtime aggregate over-limit should compact instead of forcing retry: %s", res.Summary)
+	}
+	got := mut.StableInvestigationAggregateFacts()
+	if len(got) != 16 {
+		t.Fatalf("expected compacted 16 facts, got %d: %+v", len(got), got)
+	}
+	if got[0].Label != "runtime fact 00" {
+		t.Fatalf("principal fact should be preserved first, got %+v", got[0])
+	}
+	if !strings.Contains(res.Summary, "compacted from 17 to 16") {
+		t.Fatalf("summary should disclose compaction: %s", res.Summary)
 	}
 }
 

@@ -171,6 +171,72 @@ func TestHasObservationOnlyRuntimeArtifact_CurrentSourceExplanationProfileOpensL
 	}
 }
 
+func TestCurrentSourceLaneDecision_RuntimeArtifactDefaultOptional(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioRootCause,
+		LogTriage: &LogBundle{
+			Errors: []LogError{{Type: "timeout"}},
+		},
+		AnalyzerHints: AnalyzerHints{
+			ExactTargets: []string{
+				"record_trace_20260526174055.systrace",
+				"Choreographer#doFrame 989634",
+			},
+		},
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneAllowedOptional {
+		t.Fatalf("runtime artifact with unresolved trace targets should be source-optional, got %s", got)
+	}
+
+	rm.AnalyzerHints.RequiredFileHints = []RequiredFileHint{{
+		Path:       "internal/llm/openai.go",
+		Confidence: 0.9,
+	}}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
+		t.Fatalf("current-source required_file hint should require source lane, got %s", got)
+	}
+
+	rm.AnalyzerHints.RequiredFileHints = []RequiredFileHint{{
+		Path:       "record_trace_20260526174055.systrace",
+		Confidence: 0.9,
+	}}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneAllowedOptional {
+		t.Fatalf("runtime artifact required_file hint must not require source lane, got %s", got)
+	}
+
+	rm.ExternalObservationPolicy = &ExternalObservationPolicy{
+		CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+		SourceQuotes:      []string{"只分析 trace"},
+		Confidence:        0.9,
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneExcluded {
+		t.Fatalf("explicit exclusion should exclude source lane, got %s", got)
+	}
+}
+
+func TestCurrentSourceLaneDecision_CurrentVersionExactTargetRequiresSource(t *testing.T) {
+	rm := RequestModel{
+		Intent:   IntentRootCause,
+		Scenario: ScenarioRootCause,
+		LogTriage: &LogBundle{
+			Errors: []LogError{{Type: "timeout"}},
+		},
+		AnalyzerHints: AnalyzerHints{
+			ExactTargets: []string{"my_app::config::load"},
+		},
+		DiagnosticProfile: DiagnosticIntentProfile{
+			IsDiagnostic:        true,
+			CurrentRisk:         true,
+			CurrentVersionCheck: true,
+			Confidence:          0.95,
+		},
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
+		t.Fatalf("explicit current-version exact target should require source lane, got %s", got)
+	}
+}
+
 func TestHasBoundedCategoryEnumerationMembers_TypedOnly(t *testing.T) {
 	rm := RequestModel{
 		Predicates: SemanticPredicates{IsCategoryEnumeration: true},

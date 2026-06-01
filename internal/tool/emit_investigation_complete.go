@@ -91,7 +91,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 			},
 			"aggregate_facts": {
 				"type": "array",
-				"description": "OPTIONAL but expected for derived scalar/count answers, categorical behavior verdicts, and exhaustive member enumerations. Model-authored structured aggregate facts discovered during investigation: total counts, unique-set counts, per-group counts, per-user-bucket counts, exact member sets, behavior outcomes, and excluded-candidate counts. Use this instead of burying aggregates, verdicts, or complete member lists only in reason prose. Count values must be numeric strings with units kept in unit; behavior_outcome/error_granularity_verdict values are stable category strings. For kind=member_set, value may be omitted when members contains the complete set; if a numeric value drifts from members length, the framework canonicalizes value to len(members) from that same model-authored payload. Values must come from your verified tool output or structured evidence; this handoff is preserved downstream and no value is inferred from raw evidence.",
+				"description": "OPTIONAL but expected for derived scalar/count answers, categorical behavior verdicts, and exhaustive member enumerations. Model-authored structured aggregate facts discovered during investigation: total counts, unique-set counts, per-group counts, per-user-bucket counts, exact member sets, scalar durations/latencies/frequencies, behavior outcomes, and excluded-candidate counts. Use this instead of burying aggregates, verdicts, or complete member lists only in reason prose. Count values must be non-negative integer strings with units kept in unit. Durations such as 119.227 ms, latency, percentage, frequency, and other non-integer measurements must use kind=scalar_value, not total_count. behavior_outcome/error_granularity_verdict values are stable category strings. For kind=member_set, value may be omitted when members contains the complete set; if a numeric value drifts from members length, the framework canonicalizes value to len(members) from that same model-authored payload. Values must come from your verified tool output or structured evidence; this handoff is preserved downstream and no value is inferred from raw evidence.",
 				"items": {
 					"type": "object",
 					"properties": {
@@ -106,7 +106,7 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 						},
 						"value": {
 							"type": "string",
-							"description": "Exact value to preserve. For count kinds use a non-negative integer string such as \"0\", \"3\", or \"12\"; put words like files/locations in unit. For behavior_outcome/error_granularity_verdict use a stable category string such as \"per_item_rejection\", \"whole_batch_failure\", \"partial_success\", \"fail_fast\", or \"collect_errors\". For kind=negative_search or kind=negative_observation, value must be \"0\". For kind=member_set this may be omitted when members is the complete exact set; for grouped_count/bucket_count it may also be omitted when members is the exact group/bucket member set. total_count/unique_count require explicit value because their members can be examples."
+							"description": "Exact value to preserve. For count kinds use a non-negative integer string such as \"0\", \"3\", or \"12\"; put words like files/locations in unit. For durations/latencies/percentages/frequencies and other non-integer measurements, use kind=scalar_value with unit such as ms, s, %, or kHz. For behavior_outcome/error_granularity_verdict use a stable category string such as \"per_item_rejection\", \"whole_batch_failure\", \"partial_success\", \"fail_fast\", or \"collect_errors\". For kind=negative_search or kind=negative_observation, value must be \"0\". For kind=member_set this may be omitted when members is the complete exact set; for grouped_count/bucket_count it may also be omitted when members is the exact group/bucket member set. total_count/unique_count require explicit value because their members can be examples."
 						},
 						"role": {
 							"type": "string",
@@ -596,16 +596,19 @@ func normalizeCompletionAggregateFacts(
 	raw []types.AnswerAggregateFact,
 ) ([]types.AnswerAggregateFact, []string, error) {
 	raw = normalizeCompletionNegativeObservationFacts(ctx, raw)
+	var preNotes []string
+	raw, preNotes = normalizeCompletionAggregateFactCompat(ctx, raw)
 	normalized, err := types.NormalizeAnswerAggregateFacts(raw)
 	if err == nil {
 		normalized, notes := reconcileCompletionAggregateFactsWithDeterministicCount(ctx, normalized)
+		notes = append(preNotes, notes...)
 		return normalized, notes, nil
 	}
 	if len(raw) == 0 || !completionAggregateFactsAreOptional(ctx, resultKind) {
-		return normalized, nil, err
+		return normalized, preNotes, err
 	}
 	out := make([]types.AnswerAggregateFact, 0, len(raw))
-	var notes []string
+	notes := append([]string(nil), preNotes...)
 	for i, fact := range raw {
 		one, oneErr := types.NormalizeAnswerAggregateFacts([]types.AnswerAggregateFact{fact})
 		if oneErr != nil {
@@ -628,6 +631,103 @@ func normalizeCompletionAggregateFacts(
 	notes = append(notes, reconcileNotes...)
 	notes = append(notes, fmt.Sprintf("kept %d/%d optional aggregate_facts after dropping invalid entries", len(merged), len(raw)))
 	return merged, notes, nil
+}
+
+func normalizeCompletionAggregateFactCompat(ctx *types.BusContext, raw []types.AnswerAggregateFact) ([]types.AnswerAggregateFact, []string) {
+	if len(raw) == 0 {
+		return raw, nil
+	}
+	out := append([]types.AnswerAggregateFact(nil), raw...)
+	var notes []string
+	allowDecimalCountScalar := completionAggregateFactsAllowDecimalCountScalar(ctx)
+	for i := range out {
+		fact := &out[i]
+		if !allowDecimalCountScalar || !completionAggregateFactDecimalCountShouldBeScalar(*fact) {
+			continue
+		}
+		oldKind := fact.Kind
+		fact.Kind = types.AnswerAggregateScalar
+		notes = append(notes, fmt.Sprintf("aggregate_facts[%d] kind normalized %s→scalar_value because value=%q is a non-integer measurement; count kinds require integer values", i, oldKind, strings.TrimSpace(fact.Value)))
+	}
+	if len(out) > 16 && completionAggregateFactsCanCompactForRuntime(ctx) {
+		before := len(out)
+		out = compactCompletionAggregateFactsForRuntime(out, 16)
+		notes = append(notes, fmt.Sprintf("aggregate_facts compacted from %d to %d runtime-observation entries; preserve extra audit details in reason if needed", before, len(out)))
+	}
+	return out, notes
+}
+
+func completionAggregateFactsAllowDecimalCountScalar(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.HasExternalOnlyRuntimeArtifact() {
+		return true
+	}
+	return rm.Predicates.IsScalarAnswer || rm.Intent == types.IntentTrace
+}
+
+func completionAggregateFactDecimalCountShouldBeScalar(fact types.AnswerAggregateFact) bool {
+	if !completionAggregateFactIsCountKind(fact.Kind) {
+		return false
+	}
+	if len(fact.Members) > 0 || len(fact.Excluded) > 0 {
+		return false
+	}
+	value := strings.TrimSpace(fact.Value)
+	if value == "" {
+		return false
+	}
+	if _, err := strconv.ParseUint(value, 10, 64); err == nil {
+		return false
+	}
+	if _, err := strconv.ParseFloat(value, 64); err != nil {
+		return false
+	}
+	return true
+}
+
+func completionAggregateFactsCanCompactForRuntime(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	return rm.HasExternalOnlyRuntimeArtifact() && !rm.CurrentSourceLaneDecision().RequiresCurrentSource()
+}
+
+func compactCompletionAggregateFactsForRuntime(raw []types.AnswerAggregateFact, limit int) []types.AnswerAggregateFact {
+	if len(raw) <= limit || limit <= 0 {
+		return raw
+	}
+	out := make([]types.AnswerAggregateFact, 0, limit)
+	addGroup := func(match func(types.AnswerAggregateFact) bool) {
+		for _, fact := range raw {
+			if len(out) >= limit {
+				return
+			}
+			if !match(fact) {
+				continue
+			}
+			out = append(out, fact)
+		}
+	}
+	addGroup(func(f types.AnswerAggregateFact) bool {
+		return types.NormalizeAnswerAggregateRole(f.Role) == types.AnswerAggregateRolePrincipalAnswer
+	})
+	addGroup(func(f types.AnswerAggregateFact) bool {
+		return types.NormalizeAnswerAggregateRole(f.Role) == types.AnswerAggregateRoleSupportingCoverage
+	})
+	addGroup(func(f types.AnswerAggregateFact) bool {
+		return types.NormalizeAnswerAggregateRole(f.Role) == types.AnswerAggregateRoleUnknown
+	})
+	addGroup(func(f types.AnswerAggregateFact) bool {
+		return types.NormalizeAnswerAggregateRole(f.Role) == types.AnswerAggregateRoleAuditLedger
+	})
+	if len(out) == 0 {
+		return raw[:limit]
+	}
+	return out
 }
 
 func reconcileCompletionAggregateFactsWithDeterministicCount(
@@ -3503,7 +3603,7 @@ func decoratedAggregateMemberCanRelyOnRuntimeArtifactProvenance(ctx *types.BusCo
 		return false
 	}
 	rm := requestModelForAggregateSupport(ctx)
-	if rm == nil || !rm.HasObservationOnlyRuntimeArtifact() {
+	if rm == nil || !rm.HasExternalOnlyRuntimeArtifact() || rm.CurrentSourceLaneDecision().RequiresCurrentSource() {
 		return false
 	}
 	for _, origin := range types.AnswerAggregateFactEvidenceOrigins(fact, rm) {
@@ -5784,12 +5884,28 @@ func refreshClosureReadSnapshot(ctx *types.BusContext, closure *types.EvidenceCl
 	ground.RefreshClosureCoverage(ctx, closure)
 }
 
+func currentSourceForcedReadGatesApply(ctx *types.BusContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return true
+	}
+	return ctx.AnalysisIR.RequestModel.CurrentSourceLaneDecision().RequiresCurrentSource()
+}
+
+func forcedReadSeedIsRuntimeArtifact(path string) bool {
+	return types.LooksLikeRuntimeArtifactPath(path)
+}
+
 func raisePrimaryAnchorPendingRead(ctx *types.BusContext, closure *types.EvidenceClosure) {
 	if ctx == nil || ctx.Mutable == nil || closure == nil || ctx.AnalysisIR == nil {
 		return
 	}
 	if historyBackedCurrentCodeSkipsGenericForcedReadGates(ctx) {
 		logging.Info("[CGEC] primary_anchor_unread: skipped for history-backed current-code explanation")
+		return
+	}
+	if !currentSourceForcedReadGatesApply(ctx) {
+		logging.Info("[CGEC] primary_anchor_unread: skipped current-source forced read decision=%s",
+			ctx.AnalysisIR.RequestModel.CurrentSourceLaneDecision())
 		return
 	}
 	if capabilitySurfacePlan(ctx) != nil {
@@ -5809,6 +5925,10 @@ func raisePrimaryAnchorPendingRead(ctx *types.BusContext, closure *types.Evidenc
 	}
 	for _, ranked := range ctx.Mutable.Phase1Ranking() {
 		if ranked.ExactEntityRank <= 0 {
+			continue
+		}
+		if forcedReadSeedIsRuntimeArtifact(ranked.Path) {
+			logging.Info("[CGEC] primary_anchor_unread: skipping runtime artifact seed file=%s", ranked.Path)
 			continue
 		}
 		canon, ok := qualifyForcedReadSeedPath(ctx, ranked.Path)
@@ -6325,6 +6445,11 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 		logging.Info("[CGEC] phase1_unread: skipped for history-backed current-code explanation")
 		return
 	}
+	if !currentSourceForcedReadGatesApply(ctx) {
+		logging.Info("[CGEC] phase1_unread: skipped current-source forced read decision=%s",
+			ctx.AnalysisIR.RequestModel.CurrentSourceLaneDecision())
+		return
+	}
 	// Orientation skip — orientation questions don't carry a
 	// breadth-intent obligation to read the keyword-search top-K.
 	// Same predicate as raisePrimaryAnchorPendingRead +
@@ -6393,6 +6518,10 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 	var unread []unreadRankedFile
 	for i := 0; i < topK; i++ {
 		f := ranking[i]
+		if forcedReadSeedIsRuntimeArtifact(f.Path) {
+			logging.Info("[CGEC] phase1_unread: skipping runtime artifact seed file=%s", f.Path)
+			continue
+		}
 		canon := phase1UnreadCanonPath(f.Path, ctx.RepoRoot)
 		if canon == "" {
 			continue
