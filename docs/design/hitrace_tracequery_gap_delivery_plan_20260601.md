@@ -184,6 +184,11 @@ Verification:
 
 - `go test ./internal/tracequery`
 - Add fixtures for one representative row per family.
+- `internal/hitraceconv/testdata/openharmony_print_fmt_coverage.tsv` records
+  the current upstream 86 `PRINT_FMT_*` rows and the Codrax converter/query
+  support lane for each row. Rows marked `generic_typed` or
+  `generic_preserved` are intentionally no-loss but not full semantic
+  renderers.
 
 ## Batch 4: P1 Dynamic Field Decoding
 
@@ -219,6 +224,8 @@ Tasks:
 - [ ] Add symbolic maps for selected stable enums.
 - [x] Add converter tests for dynamic string rows.
 - [ ] Add converter tests for dynamic array rows.
+- [x] Add an OpenHarmony `PRINT_FMT_*` coverage manifest test so future
+      converter/query support changes cannot silently drop audited rows.
 
 Verification:
 

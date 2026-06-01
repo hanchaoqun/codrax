@@ -183,6 +183,39 @@ func TestGenericDataLocStringIsPreserved(t *testing.T) {
 	}
 }
 
+func TestOpenHarmonyPrintFmtCoverageManifest(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("testdata", "openharmony_print_fmt_coverage.tsv"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
+	if len(lines) != 87 {
+		t.Fatalf("coverage manifest should contain header + 86 OpenHarmony PRINT_FMT rows, got %d", len(lines))
+	}
+	seen := map[string]string{}
+	for _, line := range lines[1:] {
+		parts := strings.Split(line, "\t")
+		if len(parts) != 3 {
+			t.Fatalf("bad manifest row %q", line)
+		}
+		seen[parts[0]] = parts[2]
+		if parts[1] == "" || parts[2] == "" {
+			t.Fatalf("coverage row must declare converter and trace_query support: %q", line)
+		}
+	}
+	for name, lane := range map[string]string{
+		"PRINT_FMT_SCHED_SWITCH_HM_NINFO_CG": "sched_switch",
+		"PRINT_FMT_CPU_FREQUENCY_LIMITS":     "cpu_frequency_limits",
+		"PRINT_FMT_UFSHCD_COMMAND":           "storage",
+		"PRINT_FMT_EROFS_LOOKUP_START":       "filesystem",
+		"PRINT_FMT_TRACING_MARK_WRITE":       "trace_mark",
+	} {
+		if seen[name] != lane {
+			t.Fatalf("coverage manifest lane for %s: got %q want %q", name, seen[name], lane)
+		}
+	}
+}
+
 func syntheticBinaryHitrace(t *testing.T) []byte {
 	t.Helper()
 	var b bytes.Buffer
