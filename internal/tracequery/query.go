@@ -902,7 +902,14 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		stats.TopRunning = stats.TopRunning[:8]
 	}
 	stats.CPU = applyCPUFrequencyResidency(stats.CPU, freqByCPU, q)
+	coreByCPU, topologySource := resolveCoreTopology(stats.CPU, q.CoreTopology)
+	applyCPUCoreClasses(stats.CPU, coreByCPU)
 	stats.RunnableTop, stats.DStateTop, stats.CPUPressure = computeOffCPUStats(idx, q, freqByCPU, pressure)
+	applyThreadCoreClasses(stats.TopRunning, coreByCPU)
+	applyThreadCoreClasses(stats.RunnableTop, coreByCPU)
+	applyThreadCoreClasses(stats.DStateTop, coreByCPU)
+	applyCPUPressureCoreClasses(stats.CPUPressure, coreByCPU)
+	stats.CoreTopology = buildCoreClassStats(stats.CPU, stats.CPUPressure, coreByCPU, topologySource)
 	stats.IOLatencies = computeIOLatencies(idx, q, 8)
 	stats.CPUFrequencyLimits = sortedCPUFrequencyLimits(freqLimits, 8)
 	stats.SubsystemEvents = sortedSubsystemEvents(subsystems, 12)
@@ -1305,6 +1312,9 @@ func computeSupplySummaries(stats WindowStats, max int) []ComputeSupplySummary {
 		p := pressure[cpuID]
 		verdict, conf := computeSupplyVerdict(duration, frequency, cpu, p)
 		summary := fmt.Sprintf("%s %s for %.3fms on cpu=%d", threadLabel(thread), state, duration, cpuID)
+		if cpu.CoreClass != "" {
+			summary = fmt.Sprintf("%s core_class=%s", summary, cpu.CoreClass)
+		}
 		if frequency > 0 {
 			summary = fmt.Sprintf("%s freq=%dkHz", summary, frequency)
 		}
@@ -1318,6 +1328,7 @@ func computeSupplySummaries(stats WindowStats, max int) []ComputeSupplySummary {
 			Thread:                thread,
 			State:                 state,
 			CPU:                   cpuID,
+			CoreClass:             cpu.CoreClass,
 			DurationMs:            duration,
 			Frequency:             frequency,
 			CPUBusyMs:             cpu.BusyMs,
@@ -1487,6 +1498,218 @@ func applyCPUFrequencyResidency(in []CPUStats, byCPU map[int][]Event, q Query) [
 	}
 	sort.SliceStable(in, func(i, j int) bool { return in[i].CPU < in[j].CPU })
 	return in
+}
+
+func resolveCoreTopology(cpus []CPUStats, raw string) (map[int]string, string) {
+	if explicit := parseCoreTopology(raw); len(explicit) > 0 {
+		return explicit, "explicit"
+	}
+	inferred := inferCoreTopologyFromFrequency(cpus)
+	if len(inferred) > 0 {
+		return inferred, "inferred_frequency_tiers"
+	}
+	return map[int]string{}, "unknown"
+}
+
+func parseCoreTopology(raw string) map[int]string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	out := map[int]string{}
+	for _, part := range strings.FieldsFunc(raw, func(r rune) bool { return r == ',' || r == ';' }) {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		k, v, ok := strings.Cut(part, "=")
+		if !ok {
+			k, v, ok = strings.Cut(part, ":")
+		}
+		if !ok {
+			continue
+		}
+		class := normalizeCoreClass(k)
+		if class == "" {
+			continue
+		}
+		for _, cpu := range parseCPURangeList(v) {
+			out[cpu] = class
+		}
+	}
+	return out
+}
+
+func normalizeCoreClass(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "little", "small", "l":
+		return "small"
+	case "middle", "mid", "medium", "m":
+		return "middle"
+	case "big", "large", "prime", "b":
+		return "big"
+	default:
+		return ""
+	}
+}
+
+func parseCPURangeList(raw string) []int {
+	var out []int
+	for _, part := range strings.FieldsFunc(raw, func(r rune) bool { return r == '|' || r == '/' || r == ' ' }) {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if start, end, ok := strings.Cut(part, "-"); ok {
+			a, b := atoi(start), atoi(end)
+			if a > b {
+				a, b = b, a
+			}
+			for cpu := a; cpu <= b; cpu++ {
+				out = append(out, cpu)
+			}
+			continue
+		}
+		out = append(out, atoi(part))
+	}
+	return out
+}
+
+func inferCoreTopologyFromFrequency(cpus []CPUStats) map[int]string {
+	type cpuFreq struct {
+		cpu int
+		max int
+	}
+	var items []cpuFreq
+	for _, cpu := range cpus {
+		maxFreq := cpu.Frequency
+		for _, res := range cpu.FrequencyResidency {
+			if res.Frequency > maxFreq {
+				maxFreq = res.Frequency
+			}
+		}
+		if maxFreq > 0 {
+			items = append(items, cpuFreq{cpu: cpu.CPU, max: maxFreq})
+		}
+	}
+	if len(items) < 2 {
+		return nil
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].max != items[j].max {
+			return items[i].max < items[j].max
+		}
+		return items[i].cpu < items[j].cpu
+	})
+	out := map[int]string{}
+	for i, item := range items {
+		class := "middle"
+		switch {
+		case len(items) == 2 && i == 0:
+			class = "small"
+		case len(items) == 2:
+			class = "big"
+		case i < len(items)/3:
+			class = "small"
+		case i >= (len(items)*2)/3:
+			class = "big"
+		}
+		out[item.cpu] = class
+	}
+	return out
+}
+
+func applyCPUCoreClasses(cpus []CPUStats, byCPU map[int]string) {
+	for i := range cpus {
+		cpus[i].CoreClass = byCPU[cpus[i].CPU]
+	}
+}
+
+func applyThreadCoreClasses(items []ThreadDuration, byCPU map[int]string) {
+	for i := range items {
+		items[i].CoreClass = byCPU[items[i].CPU]
+	}
+}
+
+func applyCPUPressureCoreClasses(items []CPUPressureStats, byCPU map[int]string) {
+	for i := range items {
+		items[i].CoreClass = byCPU[items[i].CPU]
+		applyThreadCoreClasses(items[i].TopRunnable, byCPU)
+		applyThreadCoreClasses(items[i].TopRunning, byCPU)
+	}
+}
+
+func buildCoreClassStats(cpus []CPUStats, pressure []CPUPressureStats, byCPU map[int]string, source string) []CoreClassStats {
+	if len(byCPU) == 0 {
+		return nil
+	}
+	type acc struct {
+		item CoreClassStats
+		seen map[int]bool
+	}
+	byClass := map[string]*acc{}
+	ensure := func(class string) *acc {
+		if class == "" {
+			class = "unknown"
+		}
+		if byClass[class] == nil {
+			byClass[class] = &acc{item: CoreClassStats{Class: class, TopologySource: source}, seen: map[int]bool{}}
+		}
+		return byClass[class]
+	}
+	for _, cpu := range cpus {
+		class := byCPU[cpu.CPU]
+		a := ensure(class)
+		if !a.seen[cpu.CPU] {
+			a.item.CPUs = append(a.item.CPUs, cpu.CPU)
+			a.seen[cpu.CPU] = true
+		}
+		a.item.BusyMs += cpu.BusyMs
+		a.item.IdleMs += cpu.IdleMs
+		if cpu.Frequency > a.item.MaxFrequency {
+			a.item.MaxFrequency = cpu.Frequency
+		}
+		for _, res := range cpu.FrequencyResidency {
+			if res.Frequency > a.item.MaxFrequency {
+				a.item.MaxFrequency = res.Frequency
+			}
+		}
+	}
+	for _, p := range pressure {
+		a := ensure(byCPU[p.CPU])
+		a.item.RunnableWaitMs += p.RunnableWaitMs
+		a.item.HighPriorityRunMs += p.HighPriorityRunningMs
+	}
+	out := make([]CoreClassStats, 0, len(byClass))
+	for _, a := range byClass {
+		sort.Ints(a.item.CPUs)
+		total := a.item.BusyMs + a.item.IdleMs
+		if total > 0 && a.item.BusyMs/total >= 0.80 {
+			a.item.ComputeSupplySignal = "class_cpu_pressure"
+		} else if a.item.MaxFrequency > 0 {
+			a.item.ComputeSupplySignal = "class_frequency_observed"
+		} else {
+			a.item.ComputeSupplySignal = "class_topology_only"
+		}
+		out = append(out, a.item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return coreClassRank(out[i].Class) < coreClassRank(out[j].Class)
+	})
+	return out
+}
+
+func coreClassRank(class string) int {
+	switch class {
+	case "small":
+		return 0
+	case "middle":
+		return 1
+	case "big":
+		return 2
+	default:
+		return 3
+	}
 }
 
 func computeCPUFrequencyResidency(events []Event, q Query) ([]CPUFrequencyResidency, int) {

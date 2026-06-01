@@ -165,6 +165,7 @@ type Query struct {
 	MinDurationMs         float64
 	IncludeWindowStats    bool
 	Limit                 int
+	CoreTopology          string
 	TraceFlavor           TraceFlavor
 	TraceFlavorHint       TraceFlavor
 	TraceFlavorHintSource string
@@ -266,6 +267,7 @@ type WindowStats struct {
 	Window               TimeWindow               `json:"window"`
 	EventCounts          map[EventType]int        `json:"event_counts,omitempty"`
 	CPU                  []CPUStats               `json:"cpu,omitempty"`
+	CoreTopology         []CoreClassStats         `json:"core_topology,omitempty"`
 	TopRunning           []ThreadDuration         `json:"top_running,omitempty"`
 	RunnableTop          []ThreadDuration         `json:"runnable_top,omitempty"`
 	DStateTop            []ThreadDuration         `json:"d_state_top,omitempty"`
@@ -344,6 +346,7 @@ type ComputeSupplySummary struct {
 	Thread                ThreadRef `json:"thread,omitempty"`
 	State                 string    `json:"state,omitempty"`
 	CPU                   int       `json:"cpu"`
+	CoreClass             string    `json:"core_class,omitempty"`
 	DurationMs            float64   `json:"duration_ms,omitempty"`
 	Frequency             int       `json:"frequency,omitempty"`
 	CPUBusyMs             float64   `json:"cpu_busy_ms,omitempty"`
@@ -368,6 +371,7 @@ type BlockedReasonSummary struct {
 
 type CPUStats struct {
 	CPU                int                     `json:"cpu"`
+	CoreClass          string                  `json:"core_class,omitempty"`
 	BusyMs             float64                 `json:"busy_ms,omitempty"`
 	IdleMs             float64                 `json:"idle_ms,omitempty"`
 	Frequency          int                     `json:"frequency,omitempty"`
@@ -376,6 +380,7 @@ type CPUStats struct {
 
 type CPUPressureStats struct {
 	CPU                   int              `json:"cpu"`
+	CoreClass             string           `json:"core_class,omitempty"`
 	RunnableWaitMs        float64          `json:"runnable_wait_ms,omitempty"`
 	RunnableEvents        int              `json:"runnable_events,omitempty"`
 	RunningMs             float64          `json:"running_ms,omitempty"`
@@ -393,10 +398,23 @@ type CPUFrequencyResidency struct {
 	LineEnd    int     `json:"line_end,omitempty"`
 }
 
+type CoreClassStats struct {
+	Class               string  `json:"class,omitempty"`
+	CPUs                []int   `json:"cpus,omitempty"`
+	BusyMs              float64 `json:"busy_ms,omitempty"`
+	IdleMs              float64 `json:"idle_ms,omitempty"`
+	RunnableWaitMs      float64 `json:"runnable_wait_ms,omitempty"`
+	HighPriorityRunMs   float64 `json:"high_priority_running_ms,omitempty"`
+	MaxFrequency        int     `json:"max_frequency,omitempty"`
+	TopologySource      string  `json:"topology_source,omitempty"`
+	ComputeSupplySignal string  `json:"compute_supply_signal,omitempty"`
+}
+
 type ThreadDuration struct {
 	Thread        ThreadRef `json:"thread"`
 	DurationMs    float64   `json:"duration_ms"`
 	CPU           int       `json:"cpu"`
+	CoreClass     string    `json:"core_class,omitempty"`
 	Frequency     int       `json:"frequency,omitempty"`
 	LineStart     int       `json:"line_start,omitempty"`
 	LineEnd       int       `json:"line_end,omitempty"`

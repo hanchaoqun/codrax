@@ -135,6 +135,13 @@ const pluginResourceTrace = `
        hisys-40   (   40) [003] .... 9.020000: hi_sysevent: domain=POWER eventname=THERMAL_REPORT type=STAT value=hot level=MINOR
 `
 
+const coreTopologyTrace = `
+      freq-1   (    1) [000] .... 10.000000: cpu_frequency: state=800000 cpu_id=0
+      freq-1   (    1) [000] .... 10.000000: cpu_frequency: state=2200000 cpu_id=4
+        app-20 (   20) [004] .... 10.010000: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=65535 prev_state=R ==> next_comm=app next_pid=20 next_prio=53
+        app-20 (   20) [004] .... 10.050000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=worker next_pid=30 next_prio=80
+`
+
 func TestParseLineSchedulerEvents(t *testing.T) {
 	intern := newStringInterner()
 	ev, ok := ParseLine(4, `        app-20   (   20) [001] .... 1.100000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`, intern)
@@ -812,6 +819,29 @@ func TestWindowStatsSummarizesSmartPerfPluginResources(t *testing.T) {
 	}
 	if stats.HiSystemEventCount != 1 || len(stats.HiSystemEvents) != 1 || stats.HiSystemEvents[0].Domain != "POWER" || stats.HiSystemEvents[0].EventName != "THERMAL_REPORT" {
 		t.Fatalf("expected HiSystemEvent summary: count=%d items=%+v", stats.HiSystemEventCount, stats.HiSystemEvents)
+	}
+}
+
+func TestWindowStatsCoreTopologyAnnotatesComputeSupply(t *testing.T) {
+	idx := buildTraceIndex(t, "core.systrace", coreTopologyTrace)
+	stats := ComputeWindowStats(idx, Query{TimeStart: 10.0, TimeEnd: 10.06, CoreTopology: "small=0-3,big=4-7"})
+	foundCPU4 := false
+	for _, cpu := range stats.CPU {
+		if cpu.CPU == 4 {
+			foundCPU4 = true
+			if cpu.CoreClass != "big" {
+				t.Fatalf("expected cpu4 big class: %+v", cpu)
+			}
+		}
+	}
+	if !foundCPU4 {
+		t.Fatalf("missing cpu4 stats: %+v", stats.CPU)
+	}
+	if len(stats.CoreTopology) == 0 || stats.CoreTopology[len(stats.CoreTopology)-1].Class != "big" {
+		t.Fatalf("expected core topology class summary: %+v", stats.CoreTopology)
+	}
+	if len(stats.ComputeSupply) == 0 || stats.ComputeSupply[0].CoreClass != "big" {
+		t.Fatalf("expected compute supply to carry core class: %+v", stats.ComputeSupply)
 	}
 }
 
