@@ -33,6 +33,7 @@ type traceQueryParams struct {
 	LineStart            FlexInt         `json:"line_start,omitempty"`
 	LineEnd              FlexInt         `json:"line_end,omitempty"`
 	EventTypes           TraceEventTypes `json:"event_types,omitempty"`
+	Pattern              string          `json:"pattern,omitempty"`
 	SpanName             string          `json:"span_name,omitempty"`
 	InteractionDirection string          `json:"interaction_direction,omitempty"`
 	RecipeName           string          `json:"recipe_name,omitempty"`
@@ -73,7 +74,8 @@ func (t *TraceQuery) Parameters() json.RawMessage {
     "time_end": {"oneOf":[{"type":"number"},{"type":"string"}],"description":"Trace timestamp window end in seconds. Prefer a JSON number. Also accepts strings such as \"928.081774s\" or \"928.081774 秒\" and normalizes them to seconds; six fractional digits are microsecond precision."},
     "line_start": {"type":"integer","description":"Optional artifact line window start for bounded search."},
     "line_end": {"type":"integer","description":"Optional artifact line window end for bounded search."},
-    "event_types": {"type":"array","items":{"type":"string"},"x-codrax-split-string-array":true,"description":"Optional event filters such as sched_switch, sched_wakeup, sched_blocked_reason, cpu_idle, cpu_frequency, cpu_frequency_limits, clock_set_rate, block_rq_issue, block_bio_remap, binder_transaction, binder_transaction_received, binder_transaction_alloc_buf, binder_lock, binder_locked, binder_unlock, binder_reply, irq, softirq, storage, filesystem, power, ability_monitor, xpower, hi_sysevent, workqueue, dma_fence. The JSON repair layer also accepts a comma/semicolon separated string for this field."},
+	    "event_types": {"type":"array","items":{"type":"string"},"x-codrax-split-string-array":true,"description":"Optional event filters such as sched_switch, sched_wakeup, sched_blocked_reason, cpu_idle, cpu_frequency, cpu_frequency_limits, clock_set_rate, block_rq_issue, block_bio_remap, binder_transaction, binder_transaction_received, binder_transaction_alloc_buf, binder_lock, binder_locked, binder_unlock, binder_reply, irq, softirq, storage, filesystem, power, ability_monitor, xpower, hi_sysevent, workqueue, dma_fence. The JSON repair layer also accepts a comma/semicolon separated string for this field."},
+    "pattern": {"type":"string","description":"For event_search, optional case-insensitive literal substring matched against parsed event text, span names, thread labels, scheduler roles, resource fields, and raw-like field text. Use this for frame ids such as \"1917295\" or trace labels such as \"Choreographer#doFrame\"; it is not a regex."},
     "span_name": {"type":"string","description":"Optional trace B/E span name substring. For span_window, returns matching span windows. For wakeup_chain/root_cause_rank/evidence_pack without explicit time_start/time_end, a unique matching span derives the selected window."},
     "interaction_direction": {"type":"string","enum":["both","incoming","outgoing"],"description":"For interaction_stats: both is default; incoming counts peers waking/calling the target, outgoing counts target waking/calling peers."},
     "recipe_name": {"type":"string","enum":["auto","sleep_root_cause","jank","runnable_delay","binder_wait","io_wait","cpu_supply"],"description":"For view=recipe: choose a standard deterministic evidence pack. auto picks from span_name/event_types/question-shape hints; recipes remain advisory and line-backed."},
@@ -122,6 +124,7 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 		LineStart:            p.LineStart.Int(),
 		LineEnd:              p.LineEnd.Int(),
 		EventTypes:           parseTraceQueryEventTypes(p.EventTypes.Strings()),
+		Pattern:              p.Pattern,
 		SpanName:             p.SpanName,
 		InteractionDirection: p.InteractionDirection,
 		RecipeName:           p.RecipeName,
@@ -630,7 +633,7 @@ func traceSecondNeedsNormalizationNote(v TraceSecond) bool {
 
 func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel, payloadRef string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace thread=%s pid=%s line_start=%s line_end=%s time_start=%s time_end=%s span_name=%s interaction_direction=%s recipe_name=%s platform=%s platform_candidate=%s trace_flavor=%s trace_flavor_confidence=%.2f priority_rule=%s payload_ref=%s]\n",
+	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace thread=%s pid=%s line_start=%s line_end=%s time_start=%s time_end=%s pattern=%s span_name=%s interaction_direction=%s recipe_name=%s platform=%s platform_candidate=%s trace_flavor=%s trace_flavor_confidence=%.2f priority_rule=%s payload_ref=%s]\n",
 		firstNonEmptyTraceString(result.View, p.View, "event_search"),
 		sourceLabel,
 		sanitizeForBanner(result.SourcePath),
@@ -641,6 +644,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		positiveIntBannerValue(p.LineEnd.Int()),
 		traceSecondBannerValue(p.TimeStart),
 		traceSecondBannerValue(p.TimeEnd),
+		sanitizeForBanner(p.Pattern),
 		sanitizeForBanner(p.SpanName),
 		sanitizeForBanner(p.InteractionDirection),
 		sanitizeForBanner(p.RecipeName),

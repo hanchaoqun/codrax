@@ -516,6 +516,9 @@ func eventInQuery(ev Event, q Query, typeSet map[EventType]bool) bool {
 	if len(typeSet) > 0 && !eventTypeMatches(ev.Type, typeSet) {
 		return false
 	}
+	if strings.TrimSpace(q.Pattern) != "" && !eventMatchesPattern(ev, q.Pattern) {
+		return false
+	}
 	if q.PID > 0 && !eventMentionsPID(ev, q.PID) {
 		return false
 	}
@@ -523,6 +526,100 @@ func eventInQuery(ev Event, q Query, typeSet map[EventType]bool) bool {
 		return false
 	}
 	return true
+}
+
+func eventMatchesPattern(ev Event, pattern string) bool {
+	needle := strings.ToLower(strings.TrimSpace(pattern))
+	if needle == "" {
+		return true
+	}
+	for _, candidate := range []string{
+		string(ev.Type),
+		ev.Name,
+		ev.FieldText,
+		ev.Comm,
+		ev.PrevComm,
+		ev.NextComm,
+		ev.WakeeComm,
+		ev.PrevState,
+		ev.NextInfo,
+		ev.CGroup,
+		ev.Reason,
+		ev.SpanAction,
+		ev.SpanName,
+		ev.SpanValue,
+		ev.ClockName,
+		ev.BinderFlags,
+		ev.BinderCode,
+		ev.BinderLockTag,
+		ev.BlockDev,
+		ev.BlockOp,
+		ev.BlockError,
+		ev.IRQName,
+		ev.MemoryKind,
+		ev.SubsystemKind,
+		ev.ResourcePath,
+		ev.ResourceOp,
+		ev.ResourceAddress,
+		ev.ResourceCallstack,
+		ev.PluginDomain,
+		ev.PluginEventName,
+		ev.PluginMetric,
+		ev.PluginValue,
+		ev.PluginCategory,
+	} {
+		if strings.Contains(strings.ToLower(candidate), needle) {
+			return true
+		}
+	}
+	for _, value := range []int{
+		ev.Line,
+		ev.CPU,
+		ev.PID,
+		ev.TGID,
+		ev.PrevPID,
+		ev.PrevPrio,
+		ev.NextPID,
+		ev.NextPrio,
+		ev.WakeePID,
+		ev.WakeePrio,
+		ev.TargetCPU,
+		ev.State,
+		ev.Frequency,
+		ev.FrequencyMin,
+		ev.FrequencyMax,
+		ev.CPUForField,
+		ev.IOWait,
+		ev.BinderTransactionID,
+		ev.BinderDestProc,
+		ev.BinderDestThread,
+		ev.BinderReply,
+		ev.BinderDebugID,
+		ev.IRQID,
+	} {
+		if value != 0 && strings.Contains(fmt.Sprintf("%d", value), needle) {
+			return true
+		}
+	}
+	for _, value := range []int64{
+		ev.BinderDataSize,
+		ev.BinderOffsetsSize,
+		ev.BinderExtraSize,
+		ev.BlockSector,
+		ev.BlockLen,
+		ev.ResourceBytes,
+	} {
+		if value != 0 && strings.Contains(fmt.Sprintf("%d", value), needle) {
+			return true
+		}
+	}
+	if ev.ResourceLatencyMs != 0 && strings.Contains(fmt.Sprintf("%.3f", ev.ResourceLatencyMs), needle) {
+		return true
+	}
+	if ev.Ts != 0 && strings.Contains(fmt.Sprintf("%.6f", ev.Ts), needle) {
+		return true
+	}
+	return false
 }
 
 func eventTypeMatches(typ EventType, typeSet map[EventType]bool) bool {

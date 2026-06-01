@@ -157,6 +157,7 @@ type Query struct {
 	LineStart             int
 	LineEnd               int
 	EventTypes            []EventType
+	Pattern               string
 	SpanName              string
 	InteractionDirection  string
 	RecipeName            string

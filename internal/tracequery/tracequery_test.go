@@ -433,6 +433,22 @@ func TestUnknownEventsRetainFieldTextInEventSearch(t *testing.T) {
 	}
 }
 
+func TestEventSearchPatternMatchesFrameIDsAndFields(t *testing.T) {
+	idx := buildTraceIndex(t, "frame_pattern.systrace", `
+      app-20 (20) [000] .... 9.000000: print: B|20|Choreographer#doFrame 1917295
+      app-20 (20) [000] .... 9.001000: print: E|20
+      app-20 (20) [000] .... 9.010000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001
+`)
+	events := EventSearch(idx, Query{Pattern: "1917295", Limit: 10})
+	if len(events) != 1 || !strings.Contains(events[0].SpanName, "1917295") {
+		t.Fatalf("expected frame id pattern to match trace span event: %+v", events)
+	}
+	events = EventSearch(idx, Query{Pattern: "target_cpu=001", Limit: 10})
+	if len(events) != 1 || events[0].Type != EventSchedWakeup {
+		t.Fatalf("expected pattern to match raw field text for scheduler event: %+v", events)
+	}
+}
+
 func TestExternalPerfettoSchedBlockedFixture(t *testing.T) {
 	idx, err := BuildIndex(context.Background(), filepath.Join("testdata", "android_perfetto_sched_blocked.systrace"))
 	if err != nil {
