@@ -1429,6 +1429,48 @@ func attachedTraceClearedMsg(lang string) string {
 	return "Attached hitrace cleared"
 }
 
+func htraceUsage(lang string) string {
+	if isZh(lang) {
+		return "/htrace <path> | append <path> | convert <binary> [out.systrace] | clear | show — 附加或转换 HiTrace / atrace / systrace / perfetto 文件"
+	}
+	return "/htrace <path> | append <path> | convert <binary> [out.systrace] | clear | show — attach or convert HiTrace / atrace / systrace / perfetto files"
+}
+
+func htraceConvertUsage(lang string) string {
+	if isZh(lang) {
+		return "/htrace convert <binary-hitrace> [output.systrace]\n将二进制 Harmony/OpenHarmony HiTrace 手动转换为文本 systrace；不会自动附加。省略输出路径时默认写 <input>.systrace；若文件已存在，请先删除或指定新输出路径。"
+	}
+	return "/htrace convert <binary-hitrace> [output.systrace]\nConvert a binary Harmony/OpenHarmony HiTrace file to text systrace; this does not attach the output automatically. When output is omitted, Codrax writes <input>.systrace; if it already exists, delete it first or choose another output path."
+}
+
+func htraceConvertSuccess(lang, outputPath string, events int) string {
+	if isZh(lang) {
+		return formatN(lang, "已转换 hitrace：%s（%d 个事件）", outputPath, events)
+	}
+	return formatN(lang, "converted hitrace: %s (%d events)", outputPath, events)
+}
+
+func htraceConvertCaveatMsg(lang, caveat string) string {
+	if isZh(lang) {
+		return formatN(lang, "hitrace 转换提示：%s\n", caveat)
+	}
+	return formatN(lang, "hitrace convert caveat: %s\n", caveat)
+}
+
+func htraceConvertFailedMsg(lang string, err error) string {
+	if isZh(lang) {
+		return formatN(lang, "hitrace 转换失败：%v", err)
+	}
+	return formatN(lang, "convert hitrace: %v", err)
+}
+
+func htraceConvertNextMsg(lang, outputPath string) string {
+	if isZh(lang) {
+		return formatN(lang, "下一步：/htrace %s", outputPath)
+	}
+	return formatN(lang, "next: /htrace %s", outputPath)
+}
+
 // pasteCapturePromptLog — /log paste capture mode prompt.
 func pasteCapturePromptLog(lang string) string {
 	if isZh(lang) {

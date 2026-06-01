@@ -43,17 +43,50 @@ are never overwritten; delete the file first or choose another output path.`,
 		if err != nil {
 			return err
 		}
-		fmt.Fprintf(cmd.OutOrStdout(),
-			"converted binary hitrace: %s\noutput: %s\nevents: %d, missing_formats: %d, generic_rows: %d\n",
-			result.InputPath, result.OutputPath, result.EventsWritten, result.MissingFormatCount, result.UnknownEventCount)
+		for _, line := range traceConvertResultLines(flagLang, result) {
+			fmt.Fprintln(cmd.OutOrStdout(), line)
+		}
 		if len(result.Caveats) > 0 {
 			for _, caveat := range result.Caveats {
-				fmt.Fprintf(cmd.OutOrStdout(), "caveat: %s\n", caveat)
+				fmt.Fprintln(cmd.OutOrStdout(), traceConvertCaveatLine(flagLang, caveat))
 			}
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "next: codrax --htrace %q --request <question>\n", result.OutputPath)
+		fmt.Fprintln(cmd.OutOrStdout(), traceConvertNextLine(flagLang, result.OutputPath))
 		return nil
 	},
+}
+
+func traceConvertResultLines(lang string, result hitraceconv.Result) []string {
+	if traceConvertUseZh(lang) {
+		return []string{
+			fmt.Sprintf("已转换二进制 hitrace：%s", result.InputPath),
+			fmt.Sprintf("输出：%s", result.OutputPath),
+			fmt.Sprintf("事件：%d，缺失格式：%d，未知事件：%d", result.EventsWritten, result.MissingFormatCount, result.UnknownEventCount),
+		}
+	}
+	return []string{
+		fmt.Sprintf("converted binary hitrace: %s", result.InputPath),
+		fmt.Sprintf("output: %s", result.OutputPath),
+		fmt.Sprintf("events: %d, missing_formats: %d, unknown_events: %d", result.EventsWritten, result.MissingFormatCount, result.UnknownEventCount),
+	}
+}
+
+func traceConvertCaveatLine(lang, caveat string) string {
+	if traceConvertUseZh(lang) {
+		return fmt.Sprintf("提示：%s", caveat)
+	}
+	return fmt.Sprintf("caveat: %s", caveat)
+}
+
+func traceConvertNextLine(lang, outputPath string) string {
+	if traceConvertUseZh(lang) {
+		return fmt.Sprintf("下一步：codrax --htrace %q --request <问题>", outputPath)
+	}
+	return fmt.Sprintf("next: codrax --htrace %q --request <question>", outputPath)
+}
+
+func traceConvertUseZh(lang string) bool {
+	return !strings.EqualFold(strings.TrimSpace(lang), "en")
 }
 
 func init() {

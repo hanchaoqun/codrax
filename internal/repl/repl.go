@@ -4486,7 +4486,7 @@ func (r *REPL) handleHitraceCmd(line string) {
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "/htrace"))
 	switch {
 	case rest == "":
-		r.info("/htrace <path> | append <path> | convert <binary> [out.systrace] | clear | show — attach or convert HiTrace / atrace / systrace / perfetto files")
+		r.info(htraceUsage(r.language))
 	case rest == "clear":
 		if r.attachedHitrace == "" {
 			r.info(noTraceAttached(r.language))
@@ -4513,7 +4513,7 @@ func (r *REPL) handleHitraceCmd(line string) {
 		r.info(fmt.Sprintf("hitrace: %d bytes\n%s", len(r.attachedHitrace), head))
 	case strings.HasPrefix(rest, "append "):
 		r.handleHitraceAppend(strings.TrimSpace(strings.TrimPrefix(rest, "append")))
-	case strings.HasPrefix(rest, "convert "):
+	case rest == "convert" || strings.HasPrefix(rest, "convert "):
 		r.handleHitraceConvert(strings.TrimSpace(strings.TrimPrefix(rest, "convert")))
 	default:
 		// Single-path load also gets the source header so the LLM
@@ -4545,8 +4545,12 @@ func (r *REPL) handleHitraceCmd(line string) {
 
 func (r *REPL) handleHitraceConvert(args string) {
 	fields := strings.Fields(args)
-	if len(fields) == 0 || len(fields) > 2 {
-		r.errorf("/htrace convert <binary-hitrace> [output.systrace]\n")
+	if len(fields) == 0 || isHelpArg(fields[0]) {
+		r.info(htraceConvertUsage(r.language))
+		return
+	}
+	if len(fields) > 2 {
+		r.errorf("%s\n", htraceConvertUsage(r.language))
 		return
 	}
 	input := fields[0]
@@ -4560,16 +4564,25 @@ func (r *REPL) handleHitraceConvert(args string) {
 		Flavor:     "harmony_hitrace",
 	})
 	if err != nil {
-		r.errorf("convert hitrace: %v\n", err)
+		r.errorf("%s\n", htraceConvertFailedMsg(r.language, err))
 		return
 	}
-	r.success(fmt.Sprintf("converted hitrace: %s (%d events)", result.OutputPath, result.EventsWritten))
+	r.success(htraceConvertSuccess(r.language, result.OutputPath, result.EventsWritten))
 	if len(result.Caveats) > 0 {
 		for _, caveat := range result.Caveats {
-			r.warn("hitrace convert caveat: %s\n", caveat)
+			r.warn("%s", htraceConvertCaveatMsg(r.language, caveat))
 		}
 	}
-	r.info(fmt.Sprintf("next: /htrace %s", result.OutputPath))
+	r.info(htraceConvertNextMsg(r.language, result.OutputPath))
+}
+
+func isHelpArg(arg string) bool {
+	switch strings.ToLower(strings.TrimSpace(arg)) {
+	case "help", "-h", "--help":
+		return true
+	default:
+		return false
+	}
 }
 
 // handleHitraceAppend mirrors handleLogAppend: read a trace file

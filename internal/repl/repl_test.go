@@ -132,6 +132,75 @@ func newTestREPL(store *memory.Store, in *strings.Reader, out *bytes.Buffer) *RE
 	})
 }
 
+func TestHitraceConvertBareShowsLocalizedUsage(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		lang     string
+		want     string
+		mustMiss string
+	}{
+		{
+			name:     "zh",
+			lang:     "zh",
+			want:     "将二进制 Harmony/OpenHarmony HiTrace 手动转换为文本 systrace",
+			mustMiss: "load hitrace",
+		},
+		{
+			name:     "en",
+			lang:     "en",
+			want:     "Convert a binary Harmony/OpenHarmony HiTrace file to text systrace",
+			mustMiss: "load hitrace",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+			if err != nil {
+				t.Fatalf("NewStore: %v", err)
+			}
+			var out bytes.Buffer
+			r := newTestREPL(store, strings.NewReader(""), &out)
+			r.language = tc.lang
+
+			r.handleHitraceCmd("/htrace convert")
+
+			got := out.String()
+			if !strings.Contains(got, tc.want) {
+				t.Fatalf("localized usage missing %q; got:\n%s", tc.want, got)
+			}
+			if strings.Contains(got, tc.mustMiss) {
+				t.Fatalf("bare convert should not be treated as a trace path; got:\n%s", got)
+			}
+		})
+	}
+}
+
+func TestHitraceConvertHelpAliases(t *testing.T) {
+	for _, input := range []string{
+		"/htrace convert help",
+		"/htrace convert --help",
+		"/htrace convert -h",
+	} {
+		t.Run(input, func(t *testing.T) {
+			store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+			if err != nil {
+				t.Fatalf("NewStore: %v", err)
+			}
+			var out bytes.Buffer
+			r := newTestREPL(store, strings.NewReader(""), &out)
+
+			r.handleHitraceCmd(input)
+
+			got := out.String()
+			if !strings.Contains(got, "/htrace convert <binary-hitrace> [output.systrace]") {
+				t.Fatalf("help alias did not print convert usage; got:\n%s", got)
+			}
+			if strings.Contains(got, "load hitrace") || strings.Contains(got, "convert hitrace:") {
+				t.Fatalf("help alias should not execute conversion or load path; got:\n%s", got)
+			}
+		})
+	}
+}
+
 func TestDispatchPropagatesExpandedRequestForOutputTranscript(t *testing.T) {
 	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
