@@ -5045,6 +5045,26 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			}
 		}
 		if err != nil {
+			if fallback := o.finalizerNoVisibleOutputFallback(err); fallback != nil {
+				logging.Warning("[orchestrator] finalize produced no visible output within request timeout; delivering degraded answer from existing Turn-B/evidence slate: %v", err)
+				lastFinalize = fallback
+				o.emit(render.Event{
+					Kind:            render.EventLivePreviewClear,
+					Timestamp:       time.Now(),
+					Stage:           types.StageFinalize,
+					PreviewRejected: false,
+				})
+				o.emit(render.Event{
+					Kind:       render.EventOrchestratorNotice,
+					Timestamp:  time.Now(),
+					Agent:      "orchestrator",
+					NoticeKind: render.NoticeFallbackFailLoud,
+					Reasoning:  softFinalizerProseFallbackMessage(o.busCtx.Language),
+				})
+				state.markDone(fin.ID)
+				o.emitNodeEnd(fin.ID, true, "")
+				break
+			}
 			logging.Error("[orchestrator] DAG finalize failed: %v", err)
 			// Live preview cleanup: dispatch error path treats the
 			// just-streamed draft as rejected. The renderer flashes
@@ -5996,6 +6016,13 @@ contractFailureBreak:
 				}
 			}
 			time.Sleep(backoff)
+		}
+		if err != nil {
+			if fallback := o.finalizerNoVisibleOutputFallback(err); fallback != nil {
+				logging.Warning("[orchestrator] forced finalize produced no visible output; delivering degraded answer from existing Turn-B/evidence slate: %v", err)
+				lastFinalize = fallback
+				err = nil
+			}
 		}
 		if err != nil {
 			logging.Error("[orchestrator] forced finalize failed after %d attempts: %v",

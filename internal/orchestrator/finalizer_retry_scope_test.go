@@ -1,12 +1,14 @@
 package orchestrator
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -195,5 +197,72 @@ func TestRunTaskGraph_ForcedFinalizeReusesTurnBSlateAfterDispatchError(t *testin
 	}
 	if got := bus.Mutable.Result(); !strings.Contains(got, "Source") {
 		t.Fatalf("forced final answer was not recorded: %q", got)
+	}
+}
+
+func TestRunTaskGraph_FinalizerNoVisibleOutputUsesDegradedTurnBSlate(t *testing.T) {
+	ir := dagIR(types.AnswerContract{Language: "zh"})
+	ir.TaskGraph.ExecutionPolicy.RetryBudget = 0
+
+	var extractorCalls, finalizerCalls int
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{
+				MissingPiece: types.MissingFacts,
+				EvidenceItems: []types.EvidenceItem{{
+					ID:              "ev-source",
+					Source:          "src.go",
+					LineStart:       7,
+					Summary:         "Source explains the answer",
+					GroundingStatus: types.GroundingGrounded,
+				}},
+			}, nil
+		},
+		types.AgentExtractor: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			extractorCalls++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				AnswerSymbols: []types.AnswerSymbol{{
+					Name:      "Source",
+					File:      "src.go",
+					Line:      7,
+					Rationale: "typed Turn-B slate survived finalizer transport failure",
+				}},
+				AnswerSymbolCompleteness: types.CompletenessLowerBound,
+			}, nil
+		},
+		types.AgentFinalizer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			finalizerCalls++
+			return nil, &llm.StreamNoVisibleOutputTimeoutError{
+				IdleFor: 4 * time.Minute,
+				Cause:   context.Canceled,
+			}
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+	o.SetForceFinalizeAttempts(3)
+
+	bus, err := o.Run("解释 Source", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if extractorCalls != 1 {
+		t.Fatalf("extractor calls = %d, want 1", extractorCalls)
+	}
+	if finalizerCalls != 1 {
+		t.Fatalf("no-visible-output finalizer fallback must not retry/force-finalize; finalizerCalls=%d", finalizerCalls)
+	}
+	if bus.TaskState.LastError != "" {
+		t.Fatalf("LastError = %q, want empty after degraded fallback", bus.TaskState.LastError)
+	}
+	got := bus.Mutable.Result()
+	for _, want := range []string{"降级答案", "Source", "src.go:7", "最终成文模型"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("degraded fallback answer missing %q:\n%s", want, got)
+		}
 	}
 }
