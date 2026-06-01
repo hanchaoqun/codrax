@@ -45,7 +45,7 @@ type traceQueryParams struct {
 func (t *TraceQuery) Name() string { return "trace_query" }
 
 func (t *TraceQuery) Description() string {
-	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, scheduler latency stats, trace span/frame windows, frame timelines/flows, render pipelines, ranked root causes, wakeup chains, binder IPC graphs, critical blocking calls, interaction Top-N, same-window resource stats, recipes, structured event search, and line-backed evidence packs. window_stats/event_search can filter or summarize scheduler, binder transaction/received/lock/alloc/reply rows, CPU idle/frequency/frequency-limit, block IO, IRQ/softirq, storage, filesystem, power, workqueue, DMA fence, memory-like events, and SmartPerf-style eBPF BIO/FileSystem/PageFault resource rows when converted to text key/value fields. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. Trace flavor is auto-detected as harmony_hitrace, android_atrace, or generic_ftrace; pass trace_flavor/platform when the user names a producer. Explicit user intent such as Harmony/鸿蒙/东湖/OHOS or Android/安卓 wins for the current call and is not auto-corrected, though content signals remain in caveats for audit. Auto detection may report platform_candidate=mixed_harmony_base when Harmony-base trace signals coexist with Android-framework process surfaces; this uses Donghu/Harmony scheduler priority semantics, not Android priority semantics. Donghu/东湖 uses Harmony/OpenHarmony trace scheduler semantics with process-isolated Android-framework and Harmony-framework surfaces; priority and timestamp semantics still follow Harmony. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Android/generic ftrace keeps raw scheduler priority and does not apply Harmony ranges. Thread selectors accept pid plus common ftrace/hitrace labels such as com.tencent.mm-36379, com.tencent.mm 36379, com.tencent.mm [36379], [GT]ColdPool#5-36624, binder:486_1-10803, or pid=36379; pass pid directly when known. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
+	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, scheduler latency stats, trace span/frame windows, frame timelines/flows, render pipelines, ranked root causes, wakeup chains, binder IPC graphs, critical blocking calls, interaction Top-N, same-window resource stats, recipes, structured event search, and line-backed evidence packs. window_stats/event_search can filter or summarize scheduler, binder transaction/received/lock/alloc/reply rows, CPU idle/frequency/frequency-limit, block IO, IRQ/softirq, storage, filesystem, power, Ability/XPower/HiSystemEvent resource observations, workqueue, DMA fence, memory-like events, and SmartPerf-style eBPF BIO/FileSystem/PageFault resource rows when converted to text key/value fields. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. Trace flavor is auto-detected as harmony_hitrace, android_atrace, or generic_ftrace; pass trace_flavor/platform when the user names a producer. Explicit user intent such as Harmony/鸿蒙/东湖/OHOS or Android/安卓 wins for the current call and is not auto-corrected, though content signals remain in caveats for audit. Auto detection may report platform_candidate=mixed_harmony_base when Harmony-base trace signals coexist with Android-framework process surfaces; this uses Donghu/Harmony scheduler priority semantics, not Android priority semantics. Donghu/东湖 uses Harmony/OpenHarmony trace scheduler semantics with process-isolated Android-framework and Harmony-framework surfaces; priority and timestamp semantics still follow Harmony. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Android/generic ftrace keeps raw scheduler priority and does not apply Harmony ranges. Thread selectors accept pid plus common ftrace/hitrace labels such as com.tencent.mm-36379, com.tencent.mm 36379, com.tencent.mm [36379], [GT]ColdPool#5-36624, binder:486_1-10803, or pid=36379; pass pid directly when known. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
 }
 
 func (t *TraceQuery) Parameters() json.RawMessage {
@@ -63,7 +63,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
     "time_end": {"oneOf":[{"type":"number"},{"type":"string"}],"description":"Trace timestamp window end in seconds. Prefer a JSON number. Also accepts strings such as \"928.081774s\" or \"928.081774 秒\" and normalizes them to seconds; six fractional digits are microsecond precision."},
     "line_start": {"type":"integer","description":"Optional artifact line window start for bounded search."},
     "line_end": {"type":"integer","description":"Optional artifact line window end for bounded search."},
-    "event_types": {"type":"array","items":{"type":"string"},"x-codrax-split-string-array":true,"description":"Optional event filters such as sched_switch, sched_wakeup, sched_blocked_reason, cpu_idle, cpu_frequency, cpu_frequency_limits, clock_set_rate, block_rq_issue, block_bio_remap, binder_transaction, binder_transaction_received, binder_transaction_alloc_buf, binder_lock, binder_locked, binder_unlock, binder_reply, irq, softirq, storage, filesystem, power, workqueue, dma_fence. The JSON repair layer also accepts a comma/semicolon separated string for this field."},
+    "event_types": {"type":"array","items":{"type":"string"},"x-codrax-split-string-array":true,"description":"Optional event filters such as sched_switch, sched_wakeup, sched_blocked_reason, cpu_idle, cpu_frequency, cpu_frequency_limits, clock_set_rate, block_rq_issue, block_bio_remap, binder_transaction, binder_transaction_received, binder_transaction_alloc_buf, binder_lock, binder_locked, binder_unlock, binder_reply, irq, softirq, storage, filesystem, power, ability_monitor, xpower, hi_sysevent, workqueue, dma_fence. The JSON repair layer also accepts a comma/semicolon separated string for this field."},
     "span_name": {"type":"string","description":"Optional trace B/E span name substring. For span_window, returns matching span windows. For wakeup_chain/root_cause_rank/evidence_pack without explicit time_start/time_end, a unique matching span derives the selected window."},
     "interaction_direction": {"type":"string","enum":["both","incoming","outgoing"],"description":"For interaction_stats: both is default; incoming counts peers waking/calling the target, outgoing counts target waking/calling peers."},
     "recipe_name": {"type":"string","enum":["auto","sleep_root_cause","jank","runnable_delay","binder_wait","io_wait","cpu_supply"],"description":"For view=recipe: choose a standard deterministic evidence pack. auto picks from span_name/event_types/question-shape hints; recipes remain advisory and line-backed."},
@@ -531,6 +531,15 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		for _, resource := range result.WindowStats.PageFaultResources {
 			writeTraceRuntimeResource(&b, "page_fault", resource)
 		}
+		for _, event := range result.WindowStats.AbilityEvents {
+			writeTracePluginSummary(&b, event)
+		}
+		for _, event := range result.WindowStats.XPowerEvents {
+			writeTracePluginSummary(&b, event)
+		}
+		for _, event := range result.WindowStats.HiSystemEvents {
+			writeTracePluginSummary(&b, event)
+		}
 		for _, subsystem := range result.WindowStats.SubsystemEvents {
 			fmt.Fprintf(&b, "- subsystem kind=%s event_type=%s count=%d line=%d example=%s\n",
 				subsystem.Kind, subsystem.EventType, subsystem.Count, subsystem.Line, sanitizeForBanner(subsystem.Example))
@@ -543,8 +552,8 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 			fmt.Fprintf(&b, "- compute_supply %s state=%s cpu=%d duration=%.3fms freq=%dkHz busy=%.3fms idle=%.3fms runnable_wait=%.3fms high_prio_running=%.3fms verdict=%s confidence=%.2f lines=%d-%d — %s\n",
 				traceThreadLabel(supply.Thread), supply.State, supply.CPU, supply.DurationMs, supply.Frequency, supply.CPUBusyMs, supply.CPUIdleMs, supply.RunnableWaitMs, supply.HighPriorityRunningMs, supply.Verdict, supply.Confidence, supply.LineStart, supply.LineEnd, supply.Summary)
 		}
-		fmt.Fprintf(&b, "- counts block_issue=%d block_remap=%d block_complete=%d binder=%d binder_received=%d binder_aux=%d irq=%d softirq=%d memory=%d storage=%d filesystem=%d power=%d workqueue=%d dma_fence=%d blocked_reason=%d iowait_blocked=%d\n\n",
-			result.WindowStats.BlockIssueCount, result.WindowStats.BlockRemapCount, result.WindowStats.BlockCompleteCount, result.WindowStats.BinderCount, result.WindowStats.BinderReceivedCount, result.WindowStats.BinderAuxCount, result.WindowStats.IRQCount, result.WindowStats.SoftIRQCount, result.WindowStats.MemoryEventCount, result.WindowStats.StorageEventCount, result.WindowStats.FilesystemEventCount, result.WindowStats.PowerEventCount, result.WindowStats.WorkqueueEventCount, result.WindowStats.DMAFenceEventCount, result.WindowStats.BlockedReasonCount, result.WindowStats.IOWaitBlockedCount)
+		fmt.Fprintf(&b, "- counts block_issue=%d block_remap=%d block_complete=%d binder=%d binder_received=%d binder_aux=%d irq=%d softirq=%d memory=%d storage=%d filesystem=%d power=%d ability=%d xpower=%d hi_sysevent=%d workqueue=%d dma_fence=%d blocked_reason=%d iowait_blocked=%d\n\n",
+			result.WindowStats.BlockIssueCount, result.WindowStats.BlockRemapCount, result.WindowStats.BlockCompleteCount, result.WindowStats.BinderCount, result.WindowStats.BinderReceivedCount, result.WindowStats.BinderAuxCount, result.WindowStats.IRQCount, result.WindowStats.SoftIRQCount, result.WindowStats.MemoryEventCount, result.WindowStats.StorageEventCount, result.WindowStats.FilesystemEventCount, result.WindowStats.PowerEventCount, result.WindowStats.AbilityEventCount, result.WindowStats.XPowerEventCount, result.WindowStats.HiSystemEventCount, result.WindowStats.WorkqueueEventCount, result.WindowStats.DMAFenceEventCount, result.WindowStats.BlockedReasonCount, result.WindowStats.IOWaitBlockedCount)
 	}
 	if result.FramePipeline != nil {
 		b.WriteString("## Frame/render pipeline\n")
@@ -705,6 +714,21 @@ func writeTraceRuntimeResource(b *strings.Builder, label string, item tracequery
 	}
 }
 
+func writeTracePluginSummary(b *strings.Builder, item tracequery.TracePluginSummary) {
+	fmt.Fprintf(b, "- plugin_event kind=%s domain=%s event=%s metric=%s value=%s category=%s thread=%s count=%d line=%d example=%s\n",
+		sanitizeForBanner(item.Kind),
+		sanitizeForBanner(item.Domain),
+		sanitizeForBanner(item.EventName),
+		sanitizeForBanner(item.Metric),
+		sanitizeForBanner(item.Value),
+		sanitizeForBanner(item.Category),
+		traceThreadLabel(item.Thread),
+		item.Count,
+		item.Line,
+		sanitizeForBanner(item.Example),
+	)
+}
+
 func traceFrequencyResidencySummary(items []tracequery.CPUFrequencyResidency) string {
 	if len(items) == 0 {
 		return ""
@@ -771,6 +795,12 @@ func traceEventResourceDetail(ev tracequery.EventView) string {
 	}
 	if ev.SubsystemKind != "" {
 		parts = append(parts, "subsystem="+ev.SubsystemKind)
+	}
+	if ev.PluginEventName != "" {
+		parts = append(parts, "plugin_event="+sanitizeForBanner(ev.PluginEventName))
+	}
+	if ev.PluginMetric != "" || ev.PluginValue != "" {
+		parts = append(parts, fmt.Sprintf("metric=%s value=%s", sanitizeForBanner(ev.PluginMetric), sanitizeForBanner(ev.PluginValue)))
 	}
 	if len(parts) == 0 {
 		return ""

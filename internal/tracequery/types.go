@@ -33,6 +33,9 @@ const (
 	EventStorage            EventType = "storage"
 	EventFilesystem         EventType = "filesystem"
 	EventPower              EventType = "power"
+	EventAbilityMonitor     EventType = "ability_monitor"
+	EventXPower             EventType = "xpower"
+	EventHiSystemEvent      EventType = "hi_sysevent"
 	EventWorkqueue          EventType = "workqueue"
 	EventDMAFence           EventType = "dma_fence"
 )
@@ -119,6 +122,12 @@ type Event struct {
 	ResourceBytes     int64   `json:"resource_bytes,omitempty"`
 	ResourceAddress   string  `json:"resource_address,omitempty"`
 	ResourceCallstack string  `json:"resource_callstack,omitempty"`
+
+	PluginDomain    string `json:"plugin_domain,omitempty"`
+	PluginEventName string `json:"plugin_event_name,omitempty"`
+	PluginMetric    string `json:"plugin_metric,omitempty"`
+	PluginValue     string `json:"plugin_value,omitempty"`
+	PluginCategory  string `json:"plugin_category,omitempty"`
 
 	FieldText string `json:"field_text,omitempty"`
 }
@@ -276,6 +285,9 @@ type WindowStats struct {
 	StorageEventCount    int                      `json:"storage_event_count,omitempty"`
 	FilesystemEventCount int                      `json:"filesystem_event_count,omitempty"`
 	PowerEventCount      int                      `json:"power_event_count,omitempty"`
+	AbilityEventCount    int                      `json:"ability_event_count,omitempty"`
+	XPowerEventCount     int                      `json:"xpower_event_count,omitempty"`
+	HiSystemEventCount   int                      `json:"hi_sysevent_event_count,omitempty"`
 	WorkqueueEventCount  int                      `json:"workqueue_event_count,omitempty"`
 	DMAFenceEventCount   int                      `json:"dma_fence_event_count,omitempty"`
 	BlockedReasonCount   int                      `json:"blocked_reason_count,omitempty"`
@@ -288,6 +300,9 @@ type WindowStats struct {
 	BIOResources         []RuntimeResourceSummary `json:"bio_resources,omitempty"`
 	FilesystemResources  []RuntimeResourceSummary `json:"filesystem_resources,omitempty"`
 	PageFaultResources   []RuntimeResourceSummary `json:"page_fault_resources,omitempty"`
+	AbilityEvents        []TracePluginSummary     `json:"ability_events,omitempty"`
+	XPowerEvents         []TracePluginSummary     `json:"xpower_events,omitempty"`
+	HiSystemEvents       []TracePluginSummary     `json:"hi_sysevent_events,omitempty"`
 	ThreadDrifts         []ThreadDriftSummary     `json:"thread_drifts,omitempty"`
 	ComputeSupply        []ComputeSupplySummary   `json:"compute_supply,omitempty"`
 	Caveats              []string                 `json:"caveats,omitempty"`
@@ -490,6 +505,20 @@ type RuntimeResourceSummary struct {
 	Ts             float64   `json:"ts,omitempty"`
 	Example        string    `json:"example,omitempty"`
 	Callstack      string    `json:"callstack,omitempty"`
+}
+
+type TracePluginSummary struct {
+	Kind      string    `json:"kind,omitempty"`
+	Domain    string    `json:"domain,omitempty"`
+	EventName string    `json:"event_name,omitempty"`
+	Metric    string    `json:"metric,omitempty"`
+	Value     string    `json:"value,omitempty"`
+	Category  string    `json:"category,omitempty"`
+	Thread    ThreadRef `json:"thread,omitempty"`
+	Count     int       `json:"count,omitempty"`
+	Line      int       `json:"line,omitempty"`
+	Ts        float64   `json:"ts,omitempty"`
+	Example   string    `json:"example,omitempty"`
 }
 
 type ThreadDriftSummary struct {

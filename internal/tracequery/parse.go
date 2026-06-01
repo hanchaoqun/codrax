@@ -216,6 +216,8 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		populateResourceFields(&ev, kv, intern)
 	case EventStorage, EventFilesystem:
 		populateResourceFields(&ev, kv, intern)
+	case EventAbilityMonitor, EventXPower, EventHiSystemEvent:
+		populatePluginFields(&ev, rawType, kv, intern)
 	}
 	return ev, true
 }
@@ -230,6 +232,17 @@ func populateResourceFields(ev *Event, kv map[string]string, intern *stringInter
 	ev.ResourceBytes = atoi64(firstNonEmpty(kv["bytes"], kv["size"], kv["len"], kv["length"]))
 	ev.ResourceAddress = intern.intern(firstNonEmpty(kv["addr"], kv["address"], kv["fault_addr"]))
 	ev.ResourceCallstack = intern.intern(clampString(firstNonEmpty(kv["callstack"], kv["backtrace"], kv["stack"]), 160))
+}
+
+func populatePluginFields(ev *Event, rawType string, kv map[string]string, intern *stringInterner) {
+	if ev == nil {
+		return
+	}
+	ev.PluginDomain = intern.intern(firstNonEmpty(kv["domain"], kv["module"], kv["bundle"], kv["process"], kv["package"]))
+	ev.PluginEventName = intern.intern(firstNonEmpty(kv["event_name"], kv["eventname"], kv["event"], kv["name"], rawType))
+	ev.PluginMetric = intern.intern(firstNonEmpty(kv["metric"], kv["key"], kv["item"], kv["counter"], kv["component"], kv["type"]))
+	ev.PluginValue = intern.intern(firstNonEmpty(kv["value"], kv["val"], kv["state"], kv["usage"], kv["energy"], kv["count"], kv["duration_ms"], kv["latency_ms"]))
+	ev.PluginCategory = intern.intern(firstNonEmpty(kv["category"], kv["level"], kv["tag"], kv["scene"]))
 }
 
 func parseBlockRequest(fields string) (dev, op string, sector, length int64) {
@@ -334,6 +347,12 @@ func classifyEventType(raw, fields string) EventType {
 		return EventFilesystem
 	case isPowerEvent(rawLower):
 		return EventPower
+	case isAbilityEvent(rawLower, fields):
+		return EventAbilityMonitor
+	case isXPowerEvent(rawLower, fields):
+		return EventXPower
+	case isHiSystemEvent(rawLower, fields):
+		return EventHiSystemEvent
 	case strings.HasPrefix(rawLower, "workqueue_"):
 		return EventWorkqueue
 	case strings.HasPrefix(rawLower, "dma_fence"):
@@ -391,6 +410,12 @@ func classifySubsystemKind(raw, fields string, typ EventType) string {
 		default:
 			return "power"
 		}
+	case EventAbilityMonitor:
+		return "ability_monitor"
+	case EventXPower:
+		return "xpower"
+	case EventHiSystemEvent:
+		return "hi_sysevent"
 	case EventWorkqueue:
 		return "workqueue"
 	case EventDMAFence:
@@ -425,6 +450,26 @@ func isFilesystemEvent(raw string) bool {
 
 func isPowerEvent(raw string) bool {
 	return strings.HasPrefix(raw, "thermal_") || strings.HasPrefix(raw, "regulator_")
+}
+
+func isAbilityEvent(raw, fields string) bool {
+	text := strings.ToLower(raw + " " + fields)
+	return strings.Contains(text, "ability_monitor") ||
+		strings.HasPrefix(raw, "ability_") ||
+		strings.Contains(text, "abilitymanager") ||
+		strings.Contains(text, "ability_manager")
+}
+
+func isXPowerEvent(raw, fields string) bool {
+	text := strings.ToLower(raw + " " + fields)
+	return strings.Contains(text, "xpower")
+}
+
+func isHiSystemEvent(raw, fields string) bool {
+	text := strings.ToLower(raw + " " + fields)
+	return strings.Contains(text, "hisysevent") ||
+		strings.Contains(text, "hi_sysevent") ||
+		strings.Contains(text, "hi_sys_event")
 }
 
 func parseKV(fields string) map[string]string {

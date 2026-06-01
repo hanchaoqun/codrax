@@ -129,6 +129,12 @@ const ebpfResourceTrace = `
         app-20   (   20) [001] .... 8.020000: page_fault_user: operation=major address=0x1234 duration_us=150 size=4096 callstack=FaultHandler
 `
 
+const pluginResourceTrace = `
+        app-20   (   20) [001] .... 9.000000: ability_monitor: domain=AAFWK event_name=AbilityStart metric=latency_ms value=12.5 category=foreground
+     xpower-30   (   30) [002] .... 9.010000: xpower_cpu: component=CPU energy=8.2 usage=73 scene=foreground
+       hisys-40   (   40) [003] .... 9.020000: hi_sysevent: domain=POWER eventname=THERMAL_REPORT type=STAT value=hot level=MINOR
+`
+
 func TestParseLineSchedulerEvents(t *testing.T) {
 	intern := newStringInterner()
 	ev, ok := ParseLine(4, `        app-20   (   20) [001] .... 1.100000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`, intern)
@@ -333,6 +339,30 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			line:  `      waker-10   (   10) [000] .... 2.128000: thermal_power_allocator: actor=cpu power=300`,
 			want:  EventPower,
 			check: func(ev Event) bool { return ev.SubsystemKind == "thermal" },
+		},
+		{
+			name: "ability monitor",
+			line: `      app-20   (   20) [001] .... 2.128100: ability_monitor: domain=AAFWK event_name=AbilityStart metric=latency_ms value=12.5 category=foreground`,
+			want: EventAbilityMonitor,
+			check: func(ev Event) bool {
+				return ev.SubsystemKind == "ability_monitor" && ev.PluginDomain == "AAFWK" && ev.PluginEventName == "AbilityStart" && ev.PluginMetric == "latency_ms" && ev.PluginValue == "12.5"
+			},
+		},
+		{
+			name: "xpower",
+			line: `      app-20   (   20) [001] .... 2.128200: xpower_cpu: component=CPU energy=8.2 usage=73 scene=foreground`,
+			want: EventXPower,
+			check: func(ev Event) bool {
+				return ev.SubsystemKind == "xpower" && ev.PluginMetric == "CPU" && ev.PluginValue == "73" && ev.PluginCategory == "foreground"
+			},
+		},
+		{
+			name: "hisysevent",
+			line: `      app-20   (   20) [001] .... 2.128300: hi_sysevent: domain=POWER eventname=THERMAL_REPORT type=STAT value=hot level=MINOR`,
+			want: EventHiSystemEvent,
+			check: func(ev Event) bool {
+				return ev.SubsystemKind == "hi_sysevent" && ev.PluginDomain == "POWER" && ev.PluginEventName == "THERMAL_REPORT" && ev.PluginMetric == "STAT" && ev.PluginValue == "hot" && ev.PluginCategory == "MINOR"
+			},
 		},
 		{
 			name:  "workqueue",
@@ -768,6 +798,20 @@ func TestWindowStatsSummarizesSmartPerfEBPFResources(t *testing.T) {
 	}
 	if len(stats.PageFaultResources) != 1 || stats.PageFaultResources[0].Operation != "major" || stats.PageFaultResources[0].Address != "0x1234" {
 		t.Fatalf("expected page fault resource summary: %+v", stats.PageFaultResources)
+	}
+}
+
+func TestWindowStatsSummarizesSmartPerfPluginResources(t *testing.T) {
+	idx := buildTraceIndex(t, "plugin.systrace", pluginResourceTrace)
+	stats := ComputeWindowStats(idx, Query{TimeStart: 9.0, TimeEnd: 9.03})
+	if stats.AbilityEventCount != 1 || len(stats.AbilityEvents) != 1 || stats.AbilityEvents[0].Domain != "AAFWK" || stats.AbilityEvents[0].EventName != "AbilityStart" {
+		t.Fatalf("expected ability monitor summary: count=%d items=%+v", stats.AbilityEventCount, stats.AbilityEvents)
+	}
+	if stats.XPowerEventCount != 1 || len(stats.XPowerEvents) != 1 || stats.XPowerEvents[0].Metric != "CPU" || stats.XPowerEvents[0].Value != "73" {
+		t.Fatalf("expected XPower summary: count=%d items=%+v", stats.XPowerEventCount, stats.XPowerEvents)
+	}
+	if stats.HiSystemEventCount != 1 || len(stats.HiSystemEvents) != 1 || stats.HiSystemEvents[0].Domain != "POWER" || stats.HiSystemEvents[0].EventName != "THERMAL_REPORT" {
+		t.Fatalf("expected HiSystemEvent summary: count=%d items=%+v", stats.HiSystemEventCount, stats.HiSystemEvents)
 	}
 }
 

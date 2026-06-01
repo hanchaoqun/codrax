@@ -767,6 +767,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	bioResources := map[string]*RuntimeResourceSummary{}
 	filesystemResources := map[string]*RuntimeResourceSummary{}
 	pageFaultResources := map[string]*RuntimeResourceSummary{}
+	abilityEvents := map[string]*TracePluginSummary{}
+	xpowerEvents := map[string]*TracePluginSummary{}
+	hiSystemEvents := map[string]*TracePluginSummary{}
 	for _, ev := range idx.Events {
 		if eventLineInWindow(ev, q) && ev.Type == EventCPUFrequency && ev.Frequency > 0 {
 			if q.TimeEnd == 0 || ev.Ts <= q.TimeEnd {
@@ -808,6 +811,12 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 			stats.FilesystemEventCount++
 		case EventPower:
 			stats.PowerEventCount++
+		case EventAbilityMonitor:
+			stats.AbilityEventCount++
+		case EventXPower:
+			stats.XPowerEventCount++
+		case EventHiSystemEvent:
+			stats.HiSystemEventCount++
 		case EventWorkqueue:
 			stats.WorkqueueEventCount++
 		case EventDMAFence:
@@ -831,6 +840,7 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		}
 		accumulateSubsystemEvent(subsystems, ev)
 		accumulateRuntimeResource(bioResources, filesystemResources, pageFaultResources, ev)
+		accumulateTracePluginEvent(abilityEvents, xpowerEvents, hiSystemEvents, ev)
 	}
 	running := map[string]ThreadDuration{}
 	pressure := map[int]*cpuPressureAcc{}
@@ -899,6 +909,9 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 	stats.BIOResources = sortedRuntimeResources(bioResources, 8)
 	stats.FilesystemResources = sortedRuntimeResources(filesystemResources, 8)
 	stats.PageFaultResources = sortedRuntimeResources(pageFaultResources, 8)
+	stats.AbilityEvents = sortedTracePluginSummaries(abilityEvents, 8)
+	stats.XPowerEvents = sortedTracePluginSummaries(xpowerEvents, 8)
+	stats.HiSystemEvents = sortedTracePluginSummaries(hiSystemEvents, 8)
 	stats.Caveats = append(stats.Caveats, ioPairingCaveats(idx, q)...)
 	stats.BlockedReasons = topBlockedReasons(blockedReasons, 8)
 	stats.TraceSpans, stats.TraceCounters = computeTraceMarks(idx, q, 8)
@@ -2032,6 +2045,12 @@ func subsystemKindForEventType(typ EventType) string {
 		return "filesystem"
 	case EventPower:
 		return "power"
+	case EventAbilityMonitor:
+		return "ability_monitor"
+	case EventXPower:
+		return "xpower"
+	case EventHiSystemEvent:
+		return "hi_sysevent"
 	case EventWorkqueue:
 		return "workqueue"
 	case EventDMAFence:
@@ -2131,6 +2150,78 @@ func sortedRuntimeResources(in map[string]*RuntimeResourceSummary, max int) []Ru
 		if out[i].TotalLatencyMs != out[j].TotalLatencyMs {
 			return out[i].TotalLatencyMs > out[j].TotalLatencyMs
 		}
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Line < out[j].Line
+	})
+	if max > 0 && len(out) > max {
+		out = out[:max]
+	}
+	return out
+}
+
+func accumulateTracePluginEvent(ability, xpower, hiSystem map[string]*TracePluginSummary, ev Event) {
+	kind := tracePluginKind(ev.Type)
+	if kind == "" {
+		return
+	}
+	target := ability
+	switch kind {
+	case "xpower":
+		target = xpower
+	case "hi_sysevent":
+		target = hiSystem
+	}
+	eventName := firstNonEmpty(ev.PluginEventName, ev.Name)
+	metric := firstNonEmpty(ev.PluginMetric, ev.SubsystemKind, ev.Name)
+	domain := firstNonEmpty(ev.PluginDomain, ev.Comm)
+	key := fmt.Sprintf("%s/%s/%s/%s/%s/%d", kind, domain, eventName, metric, ev.PluginValue, ev.PID)
+	item := target[key]
+	if item == nil {
+		item = &TracePluginSummary{
+			Kind:      kind,
+			Domain:    domain,
+			EventName: eventName,
+			Metric:    metric,
+			Value:     ev.PluginValue,
+			Category:  ev.PluginCategory,
+			Thread:    threadRefFromEvent(ev),
+			Line:      ev.Line,
+			Ts:        ev.Ts,
+			Example:   clampString(ev.FieldText, 160),
+		}
+		target[key] = item
+	}
+	item.Count++
+	if item.Line == 0 || ev.Line < item.Line {
+		item.Line = ev.Line
+		item.Ts = ev.Ts
+	}
+	if item.Example == "" {
+		item.Example = clampString(ev.FieldText, 160)
+	}
+}
+
+func tracePluginKind(typ EventType) string {
+	switch typ {
+	case EventAbilityMonitor:
+		return "ability_monitor"
+	case EventXPower:
+		return "xpower"
+	case EventHiSystemEvent:
+		return "hi_sysevent"
+	default:
+		return ""
+	}
+}
+
+func sortedTracePluginSummaries(in map[string]*TracePluginSummary, max int) []TracePluginSummary {
+	out := make([]TracePluginSummary, 0, len(in))
+	for _, item := range in {
+		out = append(out, *item)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
 		if out[i].Count != out[j].Count {
 			return out[i].Count > out[j].Count
 		}
