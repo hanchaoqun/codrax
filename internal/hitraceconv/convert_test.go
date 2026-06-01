@@ -436,6 +436,44 @@ func TestOfficialSubsystemRenderersMatchOpenHarmonyShapes(t *testing.T) {
 			t.Fatalf("ufshcd command: known=%v body=%q", known, body)
 		}
 	})
+
+	t.Run("rss_stat_has_no_unit_suffix", func(t *testing.T) {
+		format := eventFormat{ID: 63, Name: "rss_stat", Fields: []eventField{
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Name: "mm_id", Offset: 8, Size: 4},
+			{Name: "curr", Offset: 12, Size: 4},
+			{Name: "member", Offset: 16, Size: 4, Signed: true},
+			{Name: "size", Offset: 20, Size: 8, Signed: true},
+		}}
+		content := make([]byte, 28)
+		binary.LittleEndian.PutUint32(content[8:12], 7)
+		binary.LittleEndian.PutUint32(content[12:16], 3)
+		binary.LittleEndian.PutUint32(content[16:20], uint32(2))
+		binary.LittleEndian.PutUint64(content[20:28], uint64(4096))
+		body, known := renderEventBody(decodeEvent(format, content), content, 0)
+		if !known || body != "mm_id=7 curr=3 member=2 size=4096" {
+			t.Fatalf("rss_stat: known=%v body=%q", known, body)
+		}
+	})
+
+	t.Run("data_loc_offset_field_does_not_render_raw_integer_bytes", func(t *testing.T) {
+		const nameOffset = 0x4142
+		format := eventFormat{ID: 64, Name: "clock_set_rate", Fields: []eventField{
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Type: "unsigned int", Name: "name", Offset: 8, Size: 4},
+			{Name: "state", Offset: 12, Size: 4},
+			{Name: "cpu_id", Offset: 16, Size: 4},
+		}}
+		content := make([]byte, nameOffset+len("heca_info\x00"))
+		binary.LittleEndian.PutUint32(content[8:12], nameOffset)
+		binary.LittleEndian.PutUint32(content[12:16], 87047)
+		binary.LittleEndian.PutUint32(content[16:20], 11)
+		copy(content[nameOffset:], []byte("heca_info\x00"))
+		body, known := renderEventBody(decodeEvent(format, content), content, 0)
+		if !known || body != "heca_info state=87047 cpu_id=11" {
+			t.Fatalf("data_loc offset string: known=%v body=%q", known, body)
+		}
+	})
 }
 
 func syntheticBinaryHitrace(t *testing.T) []byte {

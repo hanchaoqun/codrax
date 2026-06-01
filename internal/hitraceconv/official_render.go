@@ -166,7 +166,7 @@ func renderOfficialOpenHarmonyBody(ev decodedEvent, content []byte) (string, boo
 			devByCleanName(ev, "s_dev", ":"), intByCleanName(ev, "i_ino", false), intByCleanName(ev, "old", false),
 			intByCleanName(ev, "new", false)), true
 	case strings.HasPrefix(name, "rss_stat"):
-		return fmt.Sprintf("mm_id=%d curr=%d member=%d size=%dB", intByCleanName(ev, "mm_id", false),
+		return fmt.Sprintf("mm_id=%d curr=%d member=%d size=%d", intByCleanName(ev, "mm_id", false),
 			intByCleanName(ev, "curr", false), intByCleanName(ev, "member", true), intByCleanName(ev, "size", true)), true
 	case strings.HasPrefix(name, "workqueue_execute"):
 		return fmt.Sprintf("work struct 0x%x: function 0x%x", intByCleanName(ev, "work", false), intByCleanName(ev, "function", false)), true
@@ -291,8 +291,13 @@ func stringByCleanName(ev decodedEvent, content []byte, names ...string) string 
 		if s := dataLocStringByCleanName(ev, content, want); s != "" {
 			return s
 		}
-		if s := strFieldByCleanName(ev, want); s != "" {
-			return s
+		if f, _, ok := fieldByCleanName(ev, want); ok {
+			lowerType := strings.ToLower(f.Type)
+			if lowerType == "" || strings.Contains(lowerType, "char") || strings.Contains(lowerType, "string") {
+				if s := strField(ev, f.Name); s != "" {
+					return s
+				}
+			}
 		}
 		if off := intByCleanName(ev, want, false) & 0xffff; off > 0 {
 			if s := stringFromOffset(content, int(off)); s != "" {

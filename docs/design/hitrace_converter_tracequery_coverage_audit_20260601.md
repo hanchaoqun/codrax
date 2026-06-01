@@ -45,12 +45,19 @@ What is aligned for conversion:
   timestamp sorting, and official body strings for scheduler, CPU, block,
   binder, IRQ, trace-mark, storage, filesystem, power, workqueue, thermal, I2C,
   SMBus, MMC, UFSHCD, regulator, DMA fence, RSS, and EROFS/Z_EROFS rows.
+- Field-level rendering is audited against upstream `parse_functions.py`, not
+  only against event names. High-risk format details covered by tests include
+  data-loc string offsets, RSS `size=<n>` without a local-only unit suffix, and
+  official storage/filesystem delimiter shapes.
 - Core scheduler/CPU/IO/binder/IRQ/trace-mark rows used by the main
   `trace_query` causality engine are strongly supported.
 - Unknown rows keep bounded `FieldText` in `trace_query`, so weak/generic rows
   remain searchable instead of disappearing.
-- Missing event formats are preserved with `event_id`, payload length, and
-  bounded payload hex in the converted systrace row.
+- Missing binary event formats are skipped, matching the upstream converter.
+  Events whose format exists but whose body renderer is not available are
+  emitted as official-style header-only rows, also matching the upstream
+  converter fallback shape. Codrax does not write `unknown_event_*`,
+  `payload_hex=...`, or `raw_event=unparsed` rows into converted systrace files.
 
 Important boundary:
 
@@ -75,6 +82,25 @@ This distinction matters commercially. Converted systrace output should remain
 compatible with the official browser/parser expectations for the audited rows,
 while deeper deterministic ranking for every storage/power/filesystem subfield
 can continue to evolve inside `trace_query`.
+
+## Field Rendering Compatibility Notes
+
+The converter deliberately mirrors the upstream Python converter's text shapes:
+
+- Missing `events_format` entries are counted and skipped before rendering.
+- Unsupported `print_fmt` rows are counted and emitted as a line envelope only;
+  no nonstandard generic body is appended.
+- Dynamic string fields such as `__get_str(name)` and `__data_loc_*` are read
+  from their payload offsets. Numeric offset fields are not decoded as raw
+  printable bytes before the offset lookup, which avoids garbage values in
+  fields such as `clock_set_rate` names.
+- `rss_stat` follows the official body exactly: `mm_id=%d curr=%d member=%d
+  size=%d`; Codrax does not append a local-only `B` suffix.
+- Device delimiters follow the official event family:
+  - block rows use `major,minor`
+  - file/page-cache rows use `major:minor`
+  - EROFS rows use the official `dev:(major,minor)` or `dev:major,minor`
+    shapes for each function family.
 
 ## Platform Semantics
 
