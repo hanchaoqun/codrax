@@ -282,6 +282,9 @@ func TestOpenHarmonyPrintFmtCoverageManifest(t *testing.T) {
 		if len(parts) != 3 {
 			t.Fatalf("bad manifest row %q", line)
 		}
+		if parts[1] != "strong" {
+			t.Fatalf("converter support for %s should be strong after official-format parity work, got %q", parts[0], parts[1])
+		}
 		seen[parts[0]] = parts[2]
 		if parts[1] == "" || parts[2] == "" {
 			t.Fatalf("coverage row must declare converter and trace_query support: %q", line)
@@ -298,6 +301,110 @@ func TestOpenHarmonyPrintFmtCoverageManifest(t *testing.T) {
 			t.Fatalf("coverage manifest lane for %s: got %q want %q", name, seen[name], lane)
 		}
 	}
+}
+
+func TestOfficialSystraceLineFormatUsesCommonFlagsAndIdleName(t *testing.T) {
+	format := eventFormat{
+		ID:   50,
+		Name: "irq_handler_exit",
+		Fields: []eventField{
+			{Name: "common_type", Offset: 0, Size: 2},
+			{Name: "common_flags", Offset: 2, Size: 1},
+			{Name: "common_preempt_count", Offset: 3, Size: 1},
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Name: "irq", Offset: 8, Size: 4, Signed: true},
+			{Name: "ret", Offset: 12, Size: 4, Signed: true},
+		},
+	}
+	content := make([]byte, 16)
+	content[2] = 0x0d // irqs-off + need-resched + hardirq
+	content[3] = 2
+	binary.LittleEndian.PutUint32(content[8:12], 7)
+	binary.LittleEndian.PutUint32(content[12:16], 1)
+
+	line, known := renderEventLine(renderContext{}, 1_000_001_000, 3, format, content)
+	for _, want := range []string{"<idle>-0", "(-----)", "[003] dnh2", "1.000001: irq_handler_exit: irq=7 ret=handled"} {
+		if !known || !strings.Contains(line, want) {
+			t.Fatalf("official systrace line missing %q: known=%v line=%s", want, known, line)
+		}
+	}
+}
+
+func TestOfficialSubsystemRenderersMatchOpenHarmonyShapes(t *testing.T) {
+	t.Run("cpu_frequency_limits", func(t *testing.T) {
+		format := eventFormat{ID: 60, Name: "cpu_frequency_limits", Fields: []eventField{
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Name: "min_freq", Offset: 8, Size: 4},
+			{Name: "max_freq", Offset: 12, Size: 4},
+			{Name: "cpu_id", Offset: 16, Size: 4},
+		}}
+		content := make([]byte, 20)
+		binary.LittleEndian.PutUint32(content[8:12], 1000000)
+		binary.LittleEndian.PutUint32(content[12:16], 2200000)
+		binary.LittleEndian.PutUint32(content[16:20], 11)
+		body, known := renderEventBody(decodeEvent(format, content), content, 0)
+		if !known || body != "min=1000000 max=2200000 cpu_id=11" {
+			t.Fatalf("cpu limits: known=%v body=%q", known, body)
+		}
+	})
+
+	t.Run("i2c_write_dynamic_array", func(t *testing.T) {
+		format := eventFormat{ID: 61, Name: "i2c_write", Fields: []eventField{
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Name: "adapter_nr", Offset: 8, Size: 4, Signed: true},
+			{Name: "msg_nr", Offset: 12, Size: 4},
+			{Name: "addr", Offset: 16, Size: 4},
+			{Name: "flags", Offset: 20, Size: 4},
+			{Name: "len", Offset: 24, Size: 4},
+			{Type: "__data_loc u8[]", Name: "__data_loc_buf", Offset: 28, Size: 4},
+		}}
+		content := make([]byte, 34)
+		binary.LittleEndian.PutUint32(content[8:12], 2)
+		binary.LittleEndian.PutUint32(content[12:16], 3)
+		binary.LittleEndian.PutUint32(content[16:20], 0x5a)
+		binary.LittleEndian.PutUint32(content[20:24], 1)
+		binary.LittleEndian.PutUint32(content[24:28], 2)
+		binary.LittleEndian.PutUint32(content[28:32], uint32((2<<16)|32))
+		copy(content[32:34], []byte{0xab, 0xcd})
+		body, known := renderEventBody(decodeEvent(format, content), content, 0)
+		if !known || body != "i2c-2 #3 a=05a f=0001 l=2 ab-cd]" {
+			t.Fatalf("i2c write: known=%v body=%q", known, body)
+		}
+	})
+
+	t.Run("ufshcd_command", func(t *testing.T) {
+		format := eventFormat{ID: 62, Name: "ufshcd_command", Fields: []eventField{
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Type: "__data_loc char[]", Name: "__data_loc_str", Offset: 8, Size: 4},
+			{Type: "__data_loc char[]", Name: "__data_loc_dev_name", Offset: 12, Size: 4},
+			{Name: "tag", Offset: 16, Size: 4},
+			{Name: "doorbell", Offset: 20, Size: 4},
+			{Name: "transfer_len", Offset: 24, Size: 4, Signed: true},
+			{Name: "intr", Offset: 28, Size: 4},
+			{Name: "lba", Offset: 32, Size: 8},
+			{Name: "opcode", Offset: 40, Size: 4},
+			{Name: "group_id", Offset: 44, Size: 4},
+		}}
+		payload1 := []byte("send\x00")
+		payload2 := []byte("ufs0\x00")
+		content := make([]byte, 48+len(payload1)+len(payload2))
+		binary.LittleEndian.PutUint32(content[8:12], uint32((len(payload1)<<16)|48))
+		binary.LittleEndian.PutUint32(content[12:16], uint32((len(payload2)<<16)|(48+len(payload1))))
+		binary.LittleEndian.PutUint32(content[16:20], 4)
+		binary.LittleEndian.PutUint32(content[20:24], 0xff)
+		binary.LittleEndian.PutUint32(content[24:28], 4096)
+		binary.LittleEndian.PutUint32(content[28:32], 1)
+		binary.LittleEndian.PutUint64(content[32:40], 123)
+		binary.LittleEndian.PutUint32(content[40:44], 0x28)
+		binary.LittleEndian.PutUint32(content[44:48], 7)
+		copy(content[48:], payload1)
+		copy(content[48+len(payload1):], payload2)
+		body, known := renderEventBody(decodeEvent(format, content), content, 0)
+		want := "send: ufs0: tag: 4, DB: 0xff, size: 4096, IS: 1, LBA: 123, opcode: 0x28 (READ_10), group_id: 0x7"
+		if !known || body != want {
+			t.Fatalf("ufshcd command: known=%v body=%q", known, body)
+		}
+	})
 }
 
 func syntheticBinaryHitrace(t *testing.T) []byte {

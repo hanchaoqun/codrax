@@ -22,6 +22,7 @@ type traceMetadata struct {
 
 type renderedRow struct {
 	tsNS uint64
+	seq  int
 	line string
 }
 
@@ -58,7 +59,7 @@ func ConvertFile(ctx context.Context, opts Options) (Result, error) {
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		if rows[i].tsNS == rows[j].tsNS {
-			return rows[i].line < rows[j].line
+			return rows[i].seq < rows[j].seq
 		}
 		return rows[i].tsNS < rows[j].tsNS
 	})
@@ -183,6 +184,7 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 	unknown := 0
 	var first uint64
 	var last uint64
+	seq := 0
 	rc := renderContext{cmdlines: meta.cmdlines, tgids: meta.tgids}
 	for _, seg := range meta.segments {
 		if err := ctx.Err(); err != nil {
@@ -237,7 +239,8 @@ func renderRows(ctx context.Context, path string, meta *traceMetadata) ([]render
 				if ts > last {
 					last = ts
 				}
-				rows = append(rows, renderedRow{tsNS: ts, line: line})
+				rows = append(rows, renderedRow{tsNS: ts, seq: seq, line: line})
+				seq++
 				off = next
 			}
 		}

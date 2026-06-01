@@ -11,15 +11,15 @@ import (
 
 const systraceHeader = `# tracer: nop
 #
-# entries-in-buffer/entries-written: 0/0   #P:0
+# entries-in-buffer/entries-written: %lu/%lu   #P:%d
 #
-#                              _-----=> irqs-off
-#                             / _----=> need-resched
-#                            | / _---=> hardirq/softirq
-#                            || / _--=> preempt-depth
-#                            ||| /     delay
-#           TASK-PID    TGID   CPU#  ||||   TIMESTAMP  FUNCTION
-#              | |        |      |   ||||      |         |
+#                                      _-----=> irqs-off
+#                                     / _----=> need-resched
+#                                    | / _---=> hardirq/softirq
+#                                    || / _--=> preempt-depth
+#                                    ||| /     delay
+#           TASK-PID    TGID   CPU#  ||||    TIMESTAMP  FUNCTION
+#              | |        |      |   ||||       |         |
 `
 
 type decodedEvent struct {
@@ -37,7 +37,7 @@ func renderEventLine(ctx renderContext, tsNS uint64, cpu int, format eventFormat
 	pid := int(intField(ev, "common_pid", false))
 	comm := ctx.cmdlines[pid]
 	if pid == 0 {
-		comm = fmt.Sprintf("tppmgr-idle-%d", cpu)
+		comm = "<idle>"
 	} else if comm == "" {
 		comm = "<...>"
 	}
@@ -50,8 +50,9 @@ func renderEventLine(ctx renderContext, tsNS uint64, cpu int, format eventFormat
 	if name == "" {
 		name = "unknown_event"
 	}
-	return fmt.Sprintf("%16s-%-6d (%5s) [%03d] .... %s: %s: %s",
-		clampTaskName(comm), pid, tgidText, cpu, formatTimestamp(tsNS), name, body), known
+	flags := traceFlagsToStr(intField(ev, "common_flags", false), intField(ev, "common_preempt_count", false))
+	return fmt.Sprintf("%16s-%-6d (%5s) [%03d] %s %s: %s: %s",
+		comm, pid, tgidText, cpu, flags, formatTimestamp(tsNS), name, body), known
 }
 
 func decodeEvent(format eventFormat, content []byte) decodedEvent {
@@ -66,6 +67,9 @@ func decodeEvent(format eventFormat, content []byte) decodedEvent {
 }
 
 func renderEventBody(ev decodedEvent, content []byte, cpu int) (string, bool) {
+	if body, ok := renderOfficialOpenHarmonyBody(ev, content); ok {
+		return body, true
+	}
 	switch ev.format.Name {
 	case "sched_switch":
 		if hasField(ev, "prev_comm[16]") {
@@ -339,6 +343,56 @@ func formatTimestamp(ns uint64) string {
 	return fmt.Sprintf("%5d.%06d", us/1_000_000, us%1_000_000)
 }
 
+func traceFlagsToStr(flags int64, preemptCount int64) string {
+	if flags == 0 && preemptCount == 0 {
+		return "...."
+	}
+	var b strings.Builder
+	if flags&0x01 != 0 {
+		b.WriteByte('d')
+	} else if flags&0x02 != 0 {
+		b.WriteByte('X')
+	} else {
+		b.WriteByte('.')
+	}
+	needResched := flags&0x04 != 0
+	preemptResched := flags&0x20 != 0
+	switch {
+	case needResched && preemptResched:
+		b.WriteByte('N')
+	case needResched:
+		b.WriteByte('n')
+	case preemptResched:
+		b.WriteByte('p')
+	default:
+		b.WriteByte('.')
+	}
+	nmi := flags&0x40 != 0
+	hardIRQ := flags&0x08 != 0
+	softIRQ := flags&0x10 != 0
+	switch {
+	case nmi && hardIRQ:
+		b.WriteByte('Z')
+	case nmi:
+		b.WriteByte('z')
+	case hardIRQ && softIRQ:
+		b.WriteByte('H')
+	case hardIRQ:
+		b.WriteByte('h')
+	case softIRQ:
+		b.WriteByte('s')
+	default:
+		b.WriteByte('.')
+	}
+	if preemptCount != 0 {
+		const digits = "0123456789abcdef"
+		b.WriteByte(digits[preemptCount&0x0f])
+	} else {
+		b.WriteByte('.')
+	}
+	return b.String()
+}
+
 func hasField(ev decodedEvent, name string) bool {
 	_, ok := ev.fields[name]
 	return ok
@@ -525,10 +579,28 @@ func intFromBytes(b []byte, signed bool) int64 {
 }
 
 func linuxPrevState(v uint64) string {
-	m := map[uint64]string{0x1: "S", 0x2: "D", 0x4: "T", 0x8: "t", 0x10: "X", 0x20: "Z", 0x40: "P", 0x80: "I"}
-	state := m[v&0xff]
-	if state == "" {
-		state = "R"
+	flags := []struct {
+		bit  uint64
+		name string
+	}{
+		{0x1, "S"},
+		{0x2, "D"},
+		{0x4, "T"},
+		{0x8, "t"},
+		{0x10, "X"},
+		{0x20, "Z"},
+		{0x40, "P"},
+		{0x80, "I"},
+	}
+	var parts []string
+	for _, f := range flags {
+		if v&f.bit != 0 {
+			parts = append(parts, f.name)
+		}
+	}
+	state := "R"
+	if len(parts) > 0 {
+		state = strings.Join(parts, "|")
 	}
 	if v&0x100 != 0 {
 		state += "+"
@@ -631,6 +703,7 @@ func idleName(cpu int, pid int64) string {
 }
 
 func cleanFieldName(name string) string {
+	name = strings.TrimPrefix(name, "__data_loc_")
 	if i := strings.IndexByte(name, '['); i >= 0 {
 		return name[:i]
 	}
