@@ -257,6 +257,8 @@ func TestExplorer_BuildInitialInstruction_ObservationOnlyTraceStartsWithTraceQue
 		"Start with `trace_query`",
 		"pattern=\"<literal>\"",
 		"not regex",
+		"carry that same `time_start`/`time_end`",
+		"thread/pid alone is not a bounded query",
 		"Trace timestamps are seconds",
 		"Preserve trace findings as runtime-artifact observations",
 	} {

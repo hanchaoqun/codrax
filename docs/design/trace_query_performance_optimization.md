@@ -52,8 +52,8 @@
 
 对大 trace 的无缩窄重型视图返回可恢复提示，不直接执行全量计算：
 
-- 视图：`scheduler_latency_stats`、`root_cause_rank`、`window_stats`、`critical_blocking_calls`、`evidence_pack`。
-- 缩窄条件：`time_start/time_end`、`line_start/line_end`、`span_name`、`pattern`、`pid/thread`、`event_types`。
+- 视图：`scheduler_latency_stats`、`root_cause_rank`、`window_stats`、`critical_blocking_calls`、`evidence_pack`、`recipe`。
+- 缩窄条件：`time_start/time_end`、`line_start/line_end`、`span_name`、`pattern`。`pid/thread` 只能选目标，不能约束大 trace 的时间范围，所以不能单独绕过 guard。
 - 返回内容包含 `next_call_hint`，建议先用 `event_search(pattern=...)`、`span_window` 或带时间窗重试。
 
 ### P1.1 复合视图内部复用
@@ -71,16 +71,15 @@
 
 ## 开发任务清单
 
-- [ ] 添加设计文档和任务清单。
-- [ ] `BuildIndexWithOptions` path canonicalize。
-- [ ] `BuildIndexWithOptions` singleflight。
-- [ ] full index 派生 windowed index。
-- [ ] 大 trace 重型视图 guard。
-- [ ] `Run` 内部 view 结果复用。
-- [ ] `BuildSchedulerLatencyStatsFromStats` 或等价复用入口。
-- [ ] trace_query 阶段诊断日志。
-- [ ] 工具描述 / explorer prompt 教学更新。
-- [ ] 单元测试：相对/绝对路径 cache、singleflight 基础、full cache 派生 windowed、guard、recipe 复用行为。
-- [ ] `go test ./internal/tracequery ./internal/tool ./internal/agent`。
-- [ ] `go test ./...`。
-
+- [x] 添加设计文档和任务清单。
+- [x] `BuildIndexWithOptions` path canonicalize。
+- [x] `BuildIndexWithOptions` singleflight。
+- [x] full index 派生 windowed index。
+- [x] 大 trace 重型视图 guard。
+- [x] `Run` 内部 view 结果复用。
+- [x] `BuildSchedulerLatencyStatsFromStats` 或等价复用入口。
+- [x] trace_query 阶段诊断日志。
+- [x] 工具描述 / explorer prompt 教学更新。
+- [x] 单元测试：相对/绝对路径 cache、singleflight 基础、full cache 派生 windowed、guard、schema/prompt 教学覆盖。
+- [x] `go test ./internal/tracequery ./internal/tool ./internal/agent`。
+- [x] `go test ./...`。

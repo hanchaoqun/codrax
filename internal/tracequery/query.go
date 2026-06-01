@@ -62,6 +62,89 @@ func Run(idx *Index, q Query) Result {
 	if len(spanWindows) > 0 {
 		res.SpanWindows = spanWindows
 	}
+	var cachedStats WindowStats
+	var cachedStatsOK bool
+	getStats := func() WindowStats {
+		if !cachedStatsOK {
+			cachedStats = ComputeWindowStats(idx, q)
+			cachedStatsOK = true
+		}
+		return cachedStats
+	}
+	var cachedLatency SchedulerLatencyResult
+	var cachedLatencyOK bool
+	getLatency := func() SchedulerLatencyResult {
+		if !cachedLatencyOK {
+			cachedLatency = buildSchedulerLatencyStatsFromStats(idx, q, getStats())
+			cachedLatencyOK = true
+		}
+		return cachedLatency
+	}
+	var cachedChain ChainResult
+	var cachedChainOK bool
+	getChain := func() ChainResult {
+		if !cachedChainOK {
+			cachedChain = BuildWakeupChain(idx, q)
+			cachedChainOK = true
+		}
+		return cachedChain
+	}
+	var cachedIPC IPCGraphResult
+	var cachedIPCOK bool
+	getIPC := func() IPCGraphResult {
+		if !cachedIPCOK {
+			cachedIPC = BuildIPCGraph(idx, q)
+			cachedIPCOK = true
+		}
+		return cachedIPC
+	}
+	var cachedRootCause RootCauseRankResult
+	var cachedRootCauseOK bool
+	getRootCause := func() RootCauseRankResult {
+		if !cachedRootCauseOK {
+			var chain ChainResult
+			if q.PID > 0 || q.Thread != "" || q.ThreadInput != "" {
+				chain = getChain()
+			}
+			stats := getStats()
+			rank := buildRootCauseRankFrom(q, chain, stats)
+			rank = enrichRootCauseRankWithScheduler(q, rank, getLatency(), stats)
+			cachedRootCause = rank
+			cachedRootCauseOK = true
+		}
+		return cachedRootCause
+	}
+	var cachedBlocking CriticalBlockingResult
+	var cachedBlockingOK bool
+	getBlocking := func() CriticalBlockingResult {
+		if !cachedBlockingOK {
+			var chain *ChainResult
+			if cachedChainOK {
+				chain = &cachedChain
+			}
+			cachedBlocking = buildCriticalBlockingCallsFromStats(idx, q, getStats(), chain)
+			cachedBlockingOK = true
+		}
+		return cachedBlocking
+	}
+	var cachedFrame FramePipelineResult
+	var cachedFrameOK bool
+	getFrame := func() FramePipelineResult {
+		if !cachedFrameOK {
+			cachedFrame = BuildFramePipeline(idx, q)
+			cachedFrameOK = true
+		}
+		return cachedFrame
+	}
+	var cachedFrameTimeline FrameTimelineResult
+	var cachedFrameTimelineOK bool
+	getFrameTimeline := func() FrameTimelineResult {
+		if !cachedFrameTimelineOK {
+			cachedFrameTimeline = buildFrameTimelineFromPipeline(q, getFrame())
+			cachedFrameTimelineOK = true
+		}
+		return cachedFrameTimeline
+	}
 	switch q.View {
 	case "span_window":
 		if len(spanWindows) == 0 {
@@ -74,37 +157,36 @@ func Run(idx *Index, q Query) Result {
 		res.Timeline = &tl
 		res.EvidencePack = evidenceFromTimeline(tl)
 	case "window_stats":
-		stats := ComputeWindowStats(idx, q)
+		stats := getStats()
 		res.WindowStats = &stats
 		res.EvidencePack = evidenceFromStats(stats)
 	case "scheduler_latency_stats":
-		latency := BuildSchedulerLatencyStats(idx, q)
+		latency := getLatency()
 		res.SchedulerLatency = &latency
 		res.EvidencePack = evidenceFromSchedulerLatency(latency)
 	case "ipc_graph":
-		ipc := BuildIPCGraph(idx, q)
+		ipc := getIPC()
 		res.IPCGraph = &ipc
 		res.EvidencePack = evidenceFromIPCGraph(ipc)
 	case "wakeup_chain":
-		chain := BuildWakeupChain(idx, q)
+		chain := getChain()
 		res.WakeupChain = &chain
 		if q.IncludeWindowStats {
-			stats := ComputeWindowStats(idx, q)
+			stats := getStats()
 			res.WindowStats = &stats
 		}
 		res.EvidencePack = append(evidenceFromChain(chain), evidenceFromIPCGraph(IPCGraphResult{Edges: chain.IPCEdges})...)
 	case "root_cause_rank":
-		var chain ChainResult
+		chain := ChainResult{}
 		if q.PID > 0 || q.Thread != "" {
-			chain = BuildWakeupChain(idx, q)
+			chain = getChain()
 			res.WakeupChain = &chain
 		}
-		stats := ComputeWindowStats(idx, q)
+		stats := getStats()
 		res.WindowStats = &stats
-		rank := buildRootCauseRankFrom(q, chain, stats)
-		latency := BuildSchedulerLatencyStats(idx, q)
+		latency := getLatency()
 		res.SchedulerLatency = &latency
-		rank = enrichRootCauseRankWithScheduler(q, rank, latency, stats)
+		rank := getRootCause()
 		res.RootCauseRank = &rank
 		res.EvidencePack = evidenceFromRootCauseRank(rank)
 	case "interaction_stats":
@@ -112,17 +194,17 @@ func Run(idx *Index, q Query) Result {
 		res.InteractionStats = &interactions
 		res.EvidencePack = evidenceFromInteractionStats(interactions)
 	case "frame_window", "render_pipeline":
-		frame := BuildFramePipeline(idx, q)
+		frame := getFrame()
 		res.FramePipeline = &frame
 		res.SpanWindows = frameSpans(frame)
 		res.EvidencePack = evidenceFromFramePipeline(frame)
 	case "frame_timeline", "frame_flow":
-		timeline := BuildFrameTimeline(idx, q)
+		timeline := getFrameTimeline()
 		res.FrameTimeline = &timeline
 		res.SpanWindows = frameTimelineSpans(timeline)
 		res.EvidencePack = evidenceFromFrameTimeline(timeline)
 	case "critical_blocking_calls":
-		blocking := BuildCriticalBlockingCalls(idx, q)
+		blocking := getBlocking()
 		res.CriticalBlocking = &blocking
 		res.EvidencePack = evidenceFromCriticalBlocking(blocking)
 	case "recipe":
@@ -134,51 +216,51 @@ func Run(idx *Index, q Query) Result {
 		}
 		res.Recipe = &recipe
 		if recipeHasView(recipe, "window_stats") {
-			stats := ComputeWindowStats(idx, q)
+			stats := getStats()
 			res.WindowStats = &stats
 		}
 		if recipeHasView(recipe, "scheduler_latency_stats") {
-			latency := BuildSchedulerLatencyStats(idx, q)
+			latency := getLatency()
 			res.SchedulerLatency = &latency
 			res.EvidencePack = append(res.EvidencePack, evidenceFromSchedulerLatency(latency)...)
 		}
 		if recipeHasView(recipe, "wakeup_chain") {
-			chain := BuildWakeupChain(idx, q)
+			chain := getChain()
 			res.WakeupChain = &chain
 			res.EvidencePack = append(res.EvidencePack, evidenceFromChain(chain)...)
 		}
 		if recipeHasView(recipe, "ipc_graph") {
-			ipc := BuildIPCGraph(idx, q)
+			ipc := getIPC()
 			res.IPCGraph = &ipc
 			res.EvidencePack = append(res.EvidencePack, evidenceFromIPCGraph(ipc)...)
 		}
 		if recipeHasView(recipe, "root_cause_rank") {
-			rank := BuildRootCauseRank(idx, q)
+			rank := getRootCause()
 			res.RootCauseRank = &rank
 			res.EvidencePack = append(res.EvidencePack, evidenceFromRootCauseRank(rank)...)
 		}
 		if recipeHasView(recipe, "critical_blocking_calls") {
-			blocking := BuildCriticalBlockingCalls(idx, q)
+			blocking := getBlocking()
 			res.CriticalBlocking = &blocking
 			res.EvidencePack = append(res.EvidencePack, evidenceFromCriticalBlocking(blocking)...)
 		}
 		if recipeHasView(recipe, "frame_window") || recipeHasView(recipe, "render_pipeline") {
-			frame := BuildFramePipeline(idx, q)
+			frame := getFrame()
 			res.FramePipeline = &frame
 			res.SpanWindows = frameSpans(frame)
 			res.EvidencePack = append(res.EvidencePack, evidenceFromFramePipeline(frame)...)
 		}
 		if recipeHasView(recipe, "frame_timeline") || recipeHasView(recipe, "frame_flow") {
-			timeline := BuildFrameTimeline(idx, q)
+			timeline := getFrameTimeline()
 			res.FrameTimeline = &timeline
 			res.EvidencePack = append(res.EvidencePack, evidenceFromFrameTimeline(timeline)...)
 		}
 	case "evidence_pack":
-		chain := BuildWakeupChain(idx, q)
-		stats := ComputeWindowStats(idx, q)
-		ipc := BuildIPCGraph(idx, q)
-		latency := BuildSchedulerLatencyStats(idx, q)
-		blocking := BuildCriticalBlockingCalls(idx, q)
+		chain := getChain()
+		stats := getStats()
+		ipc := getIPC()
+		latency := getLatency()
+		blocking := getBlocking()
 		res.WakeupChain = &chain
 		res.WindowStats = &stats
 		res.IPCGraph = &ipc
@@ -1192,6 +1274,13 @@ func computeOffCPUStats(idx *Index, q Query, freqByCPU map[int][]Event, pressure
 func BuildSchedulerLatencyStats(idx *Index, q Query) SchedulerLatencyResult {
 	q = normalizeQuery(idx, q)
 	q = ensureQueryFlavor(idx, q)
+	stats := ComputeWindowStats(idx, q)
+	return buildSchedulerLatencyStatsFromStats(idx, q, stats)
+}
+
+func buildSchedulerLatencyStatsFromStats(idx *Index, q Query, stats WindowStats) SchedulerLatencyResult {
+	q = normalizeQuery(idx, q)
+	q = ensureQueryFlavor(idx, q)
 	res := SchedulerLatencyResult{Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}}
 	if idx == nil {
 		res.Caveats = append(res.Caveats, "trace index is empty")
@@ -1202,7 +1291,6 @@ func BuildSchedulerLatencyStats(idx *Index, q Query) SchedulerLatencyResult {
 		target = resolveThread(idx, q)
 		res.Target = target
 	}
-	stats := ComputeWindowStats(idx, q)
 	cpus := map[int]CPUStats{}
 	for _, cpu := range stats.CPU {
 		cpus[cpu.CPU] = cpu
@@ -2825,12 +2913,12 @@ func binderAuxCaveatsForWait(wait BinderWaitSummary, aux []BinderEventSummary) [
 func BuildRootCauseRank(idx *Index, q Query) RootCauseRankResult {
 	q = normalizeQuery(idx, q)
 	var chain ChainResult
-	if q.PID > 0 || q.Thread != "" {
+	if q.PID > 0 || q.Thread != "" || q.ThreadInput != "" {
 		chain = BuildWakeupChain(idx, q)
 	}
 	stats := ComputeWindowStats(idx, q)
 	rank := buildRootCauseRankFrom(q, chain, stats)
-	latency := BuildSchedulerLatencyStats(idx, q)
+	latency := buildSchedulerLatencyStatsFromStats(idx, q, stats)
 	return enrichRootCauseRankWithScheduler(q, rank, latency, stats)
 }
 
@@ -3174,8 +3262,16 @@ func BuildFramePipeline(idx *Index, q Query) FramePipelineResult {
 
 func BuildFrameTimeline(idx *Index, q Query) FrameTimelineResult {
 	q = normalizeQuery(idx, q)
-	res := FrameTimelineResult{Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}}
 	frame := BuildFramePipeline(idx, q)
+	return buildFrameTimelineFromPipeline(q, frame)
+}
+
+func buildFrameTimelineFromPipeline(q Query, frame FramePipelineResult) FrameTimelineResult {
+	q = normalizeQuery(nil, q)
+	res := FrameTimelineResult{Window: frame.Window}
+	if res.Window.StartTs == 0 && res.Window.EndTs == 0 {
+		res.Window = TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}
+	}
 	for i, phase := range frame.Items {
 		item := FrameTimelineItem{
 			Index:      i + 1,
@@ -3322,12 +3418,17 @@ func frameIDFromName(name string) string {
 
 func BuildCriticalBlockingCalls(idx *Index, q Query) CriticalBlockingResult {
 	q = normalizeQuery(idx, q)
+	stats := ComputeWindowStats(idx, q)
+	return buildCriticalBlockingCallsFromStats(idx, q, stats, nil)
+}
+
+func buildCriticalBlockingCallsFromStats(idx *Index, q Query, stats WindowStats, cachedChain *ChainResult) CriticalBlockingResult {
+	q = normalizeQuery(idx, q)
 	res := CriticalBlockingResult{Window: TimeWindow{StartTs: q.TimeStart, EndTs: q.TimeEnd}}
 	if idx == nil {
 		res.Caveats = append(res.Caveats, "trace index is empty")
 		return res
 	}
-	stats := ComputeWindowStats(idx, q)
 	add := func(item CriticalBlockingCandidate) {
 		if item.DurationMs <= 0 && item.LineStart == 0 {
 			return
@@ -3364,7 +3465,12 @@ func BuildCriticalBlockingCalls(idx *Index, q Query) CriticalBlockingResult {
 		})
 	}
 	if q.PID > 0 || q.Thread != "" || q.ThreadInput != "" {
-		chain := BuildWakeupChain(idx, q)
+		var chain ChainResult
+		if cachedChain != nil {
+			chain = *cachedChain
+		} else {
+			chain = BuildWakeupChain(idx, q)
+		}
 		for _, wait := range chain.BinderWaits {
 			add(CriticalBlockingCandidate{
 				Type:       "binder_wait",
