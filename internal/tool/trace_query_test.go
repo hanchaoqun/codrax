@@ -466,6 +466,46 @@ func TestTraceQueryLargeExplicitTimeWindowUsesWindowedIndex(t *testing.T) {
 	}
 }
 
+func TestTraceQueryLargeHeavyViewWithoutWindowUsesGuard(t *testing.T) {
+	oldThreshold := traceQueryWindowedIndexMinBytes
+	traceQueryWindowedIndexMinBytes = 1
+	defer func() { traceQueryWindowedIndexMinBytes = oldThreshold }()
+
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "heavy_guard.systrace")
+	trace := strings.Join([]string{
+		`app-20 (20) [001] .... 2.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+		`app-20 (20) [001] .... 2.050000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=worker next_pid=30 next_prio=20`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source": "path",
+		"path":   "heavy_guard.systrace",
+		"view":   "scheduler_latency_stats",
+		"thread": "app",
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"mode=large_trace_heavy_view_guard",
+		"thread or pid alone",
+		"window_carryover_hint",
+		`trace_query(view="event_search"`,
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("heavy view guard summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+	if strings.Contains(res.Summary, "parsed_events=") {
+		t.Fatalf("guard should return before parsing the heavy trace:\n%s", res.Summary)
+	}
+}
+
 func TestTraceQueryLargeUnboundedJankRecipeUsesDiscoveryGuard(t *testing.T) {
 	oldThreshold := traceQueryLargeRecipeDiscoveryMinBytes
 	traceQueryLargeRecipeDiscoveryMinBytes = 1

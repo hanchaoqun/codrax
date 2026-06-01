@@ -105,6 +105,9 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	if discovery, ok := t.maybeLargeRecipeDiscovery(ctx, p, path, sourceLabel); ok {
 		return discovery, nil
 	}
+	if guard, ok := t.maybeLargeTraceHeavyViewGuard(ctx, p, path, sourceLabel); ok {
+		return guard, nil
+	}
 	timeStart, timeEnd, timeCaveat := normalizedTraceQueryWindow(p)
 	idx, err := traceQueryBuildIndex(contextFromBus(ctx), path, p, timeStart, timeEnd)
 	if err != nil {
@@ -199,6 +202,68 @@ func traceQueryWindowedIndexTimePadding(p traceQueryParams) float64 {
 	default:
 		return 0.500
 	}
+}
+
+func (t *TraceQuery) maybeLargeTraceHeavyViewGuard(ctx *types.BusContext, p traceQueryParams, path, sourceLabel string) (types.ToolResult, bool) {
+	info, err := os.Stat(path)
+	if err != nil || info.Size() < traceQueryWindowedIndexMinBytes || !traceQueryIsHeavyView(p.View) || traceQueryHasBoundedTraceScope(p) {
+		return types.ToolResult{}, false
+	}
+	summary := traceQueryHeavyViewGuardSummary(path, sourceLabel, p, info.Size())
+	preview, rawRef := StoreBlob(ctx, t.Name(), summary)
+	return types.ToolResult{
+		ToolName:  t.Name(),
+		Success:   true,
+		Summary:   preview,
+		RawRef:    rawRef,
+		Timestamp: time.Now(),
+	}, true
+}
+
+func traceQueryIsHeavyView(view string) bool {
+	switch strings.TrimSpace(view) {
+	case "scheduler_latency_stats", "root_cause_rank", "window_stats", "critical_blocking_calls", "evidence_pack", "recipe":
+		return true
+	default:
+		return false
+	}
+}
+
+func traceQueryHasBoundedTraceScope(p traceQueryParams) bool {
+	return p.TimeStart.Set() ||
+		p.TimeEnd.Set() ||
+		p.LineStart.Int() > 0 ||
+		p.LineEnd.Int() > 0 ||
+		strings.TrimSpace(p.SpanName) != "" ||
+		strings.TrimSpace(p.Pattern) != ""
+}
+
+func traceQueryHeavyViewGuardSummary(path, sourceLabel string, p traceQueryParams, size int64) string {
+	view := firstNonEmptyTraceString(p.View, "window_stats")
+	var b strings.Builder
+	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace mode=large_trace_heavy_view_guard thread=%s pid=%s pattern=%s span_name=%s platform=%s trace_flavor=%s]\n",
+		sanitizeForBanner(view),
+		sourceLabel,
+		sanitizeForBanner(path),
+		traceQueryArtifactID(sourceLabel),
+		sanitizeForBanner(p.Thread),
+		positiveIntBannerValue(p.PID.Int()),
+		sanitizeForBanner(p.Pattern),
+		sanitizeForBanner(p.SpanName),
+		sanitizeForBanner(p.Platform),
+		sanitizeForBanner(p.TraceFlavor),
+	)
+	b.WriteString("# Trace Query: large trace guard\n\n")
+	fmt.Fprintf(&b, "source=%s size_bytes=%d requested_view=%s\n", sanitizeForBanner(path), size, sanitizeForBanner(view))
+	b.WriteString("guard=heavy trace view was not expanded without a bounded time/line/span/pattern scope. A thread or pid alone can still require scanning millions of scheduler events.\n")
+	b.WriteString("next_call_hint=first narrow the trace with trace_query(view=\"event_search\", pattern=\"<frame id / jank id / exact timestamp / span label>\", event_types=[\"trace_mark\"], limit=40), or trace_query(view=\"span_window\", span_name=\"<span label>\"), then rerun this same view with time_start/time_end or line_start/line_end.\n")
+	if p.PID.Int() > 0 {
+		fmt.Fprintf(&b, "target_hint=after selecting a window, rerun trace_query(view=%q, pid=%d, time_start=<seconds>, time_end=<seconds>).\n", sanitizeForBanner(view), p.PID.Int())
+	} else if strings.TrimSpace(p.Thread) != "" {
+		fmt.Fprintf(&b, "target_hint=after selecting a window, rerun trace_query(view=%q, thread=%q, time_start=<seconds>, time_end=<seconds>).\n", sanitizeForBanner(view), sanitizeForBanner(p.Thread))
+	}
+	b.WriteString("window_carryover_hint=if a previous trace_query result already showed a selected_window, keep that same time_start/time_end on subsequent scheduler/root-cause/resource views.\n")
+	return b.String()
 }
 
 func resolveTraceQuerySource(ctx *types.BusContext, p traceQueryParams) (string, string, *types.ToolResult) {

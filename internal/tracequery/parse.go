@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -31,6 +32,17 @@ type parseCacheKey struct {
 }
 
 var indexCache sync.Map
+
+type indexBuildCall struct {
+	done chan struct{}
+	idx  *Index
+	err  error
+}
+
+var (
+	indexBuildMu sync.Mutex
+	indexBuilds  = map[parseCacheKey]*indexBuildCall{}
+)
 
 type BuildOptions struct {
 	TimeStart          float64
@@ -58,25 +70,13 @@ func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) 
 	if path == "" {
 		return nil, fmt.Errorf("trace path is empty")
 	}
+	path = canonicalTraceIndexPath(path)
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err
 	}
 	opts = normalizeBuildOptions(opts)
 	windowKey := opts.cacheKey()
-	if opts.windowed() {
-		fullKey := parseCacheKey{
-			path:    path,
-			size:    info.Size(),
-			modUnix: info.ModTime().UnixNano(),
-			version: ParserVersion,
-		}
-		if cached, ok := indexCache.Load(fullKey); ok {
-			if idx, ok := cached.(*Index); ok {
-				return idx, nil
-			}
-		}
-	}
 	key := parseCacheKey{
 		path:      path,
 		size:      info.Size(),
@@ -89,12 +89,131 @@ func BuildIndexWithOptions(ctx context.Context, path string, opts BuildOptions) 
 			return idx, nil
 		}
 	}
-	idx, err := parseFile(ctx, path, info.Size(), info.ModTime().UnixNano(), opts)
-	if err != nil {
-		return nil, err
+	if opts.windowed() {
+		fullKey := parseCacheKey{
+			path:    path,
+			size:    info.Size(),
+			modUnix: info.ModTime().UnixNano(),
+			version: ParserVersion,
+		}
+		if cached, ok := indexCache.Load(fullKey); ok {
+			if idx, ok := cached.(*Index); ok {
+				windowed := deriveWindowedIndex(idx, opts)
+				indexCache.Store(key, windowed)
+				return windowed, nil
+			}
+		}
 	}
-	indexCache.Store(key, idx)
-	return idx, nil
+	return buildIndexSingleflight(ctx, key, path, info.Size(), info.ModTime().UnixNano(), opts)
+}
+
+func canonicalTraceIndexPath(path string) string {
+	path = filepath.Clean(path)
+	if abs, err := filepath.Abs(path); err == nil {
+		abs = filepath.Clean(abs)
+		if real, err := filepath.EvalSymlinks(abs); err == nil {
+			return filepath.Clean(real)
+		}
+		return abs
+	}
+	return path
+}
+
+func buildIndexSingleflight(ctx context.Context, key parseCacheKey, path string, size int64, modUnix int64, opts BuildOptions) (*Index, error) {
+	indexBuildMu.Lock()
+	if call := indexBuilds[key]; call != nil {
+		indexBuildMu.Unlock()
+		select {
+		case <-call.done:
+			return call.idx, call.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	call := &indexBuildCall{done: make(chan struct{})}
+	indexBuilds[key] = call
+	indexBuildMu.Unlock()
+
+	call.idx, call.err = parseFile(ctx, path, size, modUnix, opts)
+	if call.err == nil {
+		indexCache.Store(key, call.idx)
+	}
+	indexBuildMu.Lock()
+	delete(indexBuilds, key)
+	close(call.done)
+	indexBuildMu.Unlock()
+	return call.idx, call.err
+}
+
+func deriveWindowedIndex(full *Index, opts BuildOptions) *Index {
+	if full == nil {
+		return nil
+	}
+	out := &Index{
+		Path:             full.Path,
+		Size:             full.Size,
+		ModTime:          full.ModTime,
+		LineCount:        full.LineCount,
+		ScannedLineCount: full.ScannedLineCount,
+		Windowed:         true,
+		IndexTimeStart:   paddedTimeStart(opts),
+		IndexTimeEnd:     paddedTimeEnd(opts),
+		IndexLineStart:   paddedLineStart(opts),
+		IndexLineEnd:     paddedLineEnd(opts),
+		TraceFlavor:      full.TraceFlavor,
+		FlavorConfidence: full.FlavorConfidence,
+		FlavorSignals:    append([]string(nil), full.FlavorSignals...),
+	}
+	firstLine, lastLine := 0, 0
+	for _, ev := range full.Events {
+		if !eventInBuildWindow(ev, out) {
+			continue
+		}
+		if out.FirstTs == 0 || ev.Ts < out.FirstTs {
+			out.FirstTs = ev.Ts
+		}
+		if ev.Ts > out.LastTs {
+			out.LastTs = ev.Ts
+		}
+		if ev.Type != EventUnknown {
+			out.ParsedKnown++
+		}
+		if firstLine == 0 || ev.Line < firstLine {
+			firstLine = ev.Line
+		}
+		if ev.Line > lastLine {
+			lastLine = ev.Line
+		}
+		out.Events = append(out.Events, ev)
+	}
+	if out.IndexLineStart > 0 && out.IndexLineEnd > 0 {
+		out.ScannedLineCount = out.IndexLineEnd - out.IndexLineStart + 1
+	} else if firstLine > 0 && lastLine >= firstLine {
+		out.ScannedLineCount = lastLine - firstLine + 1
+	}
+	if out.ScannedLineCount < 0 {
+		out.ScannedLineCount = 0
+	}
+	return out
+}
+
+func eventInBuildWindow(ev Event, idx *Index) bool {
+	if idx == nil {
+		return true
+	}
+	if idx.IndexLineStart > 0 && ev.Line < idx.IndexLineStart {
+		return false
+	}
+	if idx.IndexLineEnd > 0 && ev.Line > idx.IndexLineEnd {
+		return false
+	}
+	if idx.IndexTimeStart > 0 && ev.Ts < idx.IndexTimeStart {
+		return false
+	}
+	if idx.IndexTimeEnd > 0 && ev.Ts > idx.IndexTimeEnd {
+		return false
+	}
+	return true
 }
 
 func normalizeBuildOptions(opts BuildOptions) BuildOptions {

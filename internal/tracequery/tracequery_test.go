@@ -490,6 +490,81 @@ func TestBuildIndexWithOptionsParsesOnlySelectedTimeWindow(t *testing.T) {
 	}
 }
 
+func TestBuildIndexCanonicalPathReusesCache(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "canonical.systrace")
+	body := strings.Join([]string{
+		`      app-20  (   20) [001] .... 2.000000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	absIdx, err := BuildIndex(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(oldWD) }()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	relIdx, err := BuildIndex(context.Background(), "canonical.systrace")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if absIdx != relIdx {
+		t.Fatalf("absolute and relative path should reuse the same cached index: %p != %p", absIdx, relIdx)
+	}
+	if !filepath.IsAbs(relIdx.Path) {
+		t.Fatalf("cached trace path should be canonical absolute path, got %q", relIdx.Path)
+	}
+}
+
+func TestBuildIndexWithOptionsDerivesWindowFromFullCache(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "derive_window.systrace")
+	body := strings.Join([]string{
+		`      old-1   (    1) [000] .... 1.000000: sched_wakeup: comm=old pid=1 prio=20 target_cpu=000`,
+		`      app-20  (   20) [001] .... 2.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=app next_pid=20 next_prio=53`,
+		`      app-20  (   20) [001] .... 2.050000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120`,
+		`      new-3   (    3) [000] .... 3.000000: sched_wakeup: comm=new pid=3 prio=20 target_cpu=000`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	full, err := BuildIndex(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(full.Events) != 4 {
+		t.Fatalf("expected full index events, got %+v", full.Events)
+	}
+	windowed, err := BuildIndexWithOptions(context.Background(), path, BuildOptions{
+		TimeStart:          2.0,
+		TimeEnd:            2.1,
+		TimeStartSet:       true,
+		TimeEndSet:         true,
+		AllowWindowedParse: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !windowed.Windowed || len(windowed.Events) != 2 {
+		t.Fatalf("expected derived windowed index with two events, got windowed=%v events=%+v", windowed.Windowed, windowed.Events)
+	}
+	if windowed == full {
+		t.Fatalf("windowed query must not return the full index pointer")
+	}
+	if windowed.Events[0].Line != 2 || windowed.Events[1].Line != 3 {
+		t.Fatalf("derived window should preserve source lines: %+v", windowed.Events)
+	}
+}
+
 func TestExternalPerfettoSchedBlockedFixture(t *testing.T) {
 	idx, err := BuildIndex(context.Background(), filepath.Join("testdata", "android_perfetto_sched_blocked.systrace"))
 	if err != nil {
