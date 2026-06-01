@@ -154,6 +154,53 @@ func TestTraceQueryExplicitUserRequestPlatformWinsWhenModelOmitsFlavor(t *testin
 	}
 }
 
+func TestTraceQueryDonghuPlatformKeepsHarmonySemanticsWithAndroidSurface(t *testing.T) {
+	dir := t.TempDir()
+	tracePath := filepath.Join(dir, "donghu.systrace")
+	trace := strings.Join([]string{
+		`com.tencent.mm-36379 (36379) [004] .... 2942.124416: sched_switch: prev_comm=com.tencent.mm prev_pid=36379 prev_prio=53 prev_state=S ==> next_comm=OS_FFRT_0_0 next_pid=49634 next_prio=20 next_info=rtq cg=top-app`,
+		`OS_FFRT_0_0-49634 (48679) [000] .... 2942.130000: sched_wakeup: comm=com.tencent.mm pid=36379 prio=53 target_cpu=004`,
+	}, "\n")
+	if err := os.WriteFile(tracePath, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ctx := &types.BusContext{RepoRoot: dir, WorkDir: dir}
+	params, _ := json.Marshal(map[string]any{
+		"source":     "path",
+		"path":       "donghu.systrace",
+		"view":       "event_search",
+		"platform":   "donghu",
+		"time_start": 2942.12,
+		"time_end":   2942.14,
+		"event_types": []string{
+			"sched_switch",
+			"sched_wakeup",
+		},
+	})
+	res, err := (&TraceQuery{}).Execute(ctx, params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Success {
+		t.Fatalf("trace_query failed: %s", res.Summary)
+	}
+	for _, want := range []string{
+		"platform=donghu",
+		"framework_mode=process_isolated_mixed",
+		"trace_flavor=harmony_hitrace",
+		"larger numeric value means higher priority",
+		"1-40=CFS",
+		"framework_surfaces=android_framework",
+		"harmony_framework",
+		"next_info=rtq",
+		"cgroup=top-app",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("donghu summary missing %q:\n%s", want, res.Summary)
+		}
+	}
+}
+
 func TestTraceQueryEventSearchShowsFlavorPriorityClasses(t *testing.T) {
 	dir := t.TempDir()
 	tracePath := filepath.Join(dir, "sample.systrace")

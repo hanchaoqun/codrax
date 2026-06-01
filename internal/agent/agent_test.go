@@ -38,10 +38,10 @@ func TestStructuredToolDetailTraceQueryShowsFlavor(t *testing.T) {
 	got = structuredToolDetail("trace_query", json.RawMessage(`{
 		"view":"window_stats",
 		"path":"record.systrace",
-		"platform":"android_atrace",
-		"pid":36379
-	}`))
-	if !strings.Contains(got, "platform=android_atrace") || !strings.Contains(got, "pid=36379") {
+			"platform":"donghu",
+			"pid":36379
+		}`))
+	if !strings.Contains(got, "platform=donghu") || !strings.Contains(got, "pid=36379") {
 		t.Fatalf("trace_query detail should surface platform alias and pid: %q", got)
 	}
 

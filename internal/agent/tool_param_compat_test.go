@@ -109,7 +109,7 @@ func TestNormalizeToolCallParams_RepairsTraceQueryRecentScalarsFromRealSchema(t 
 			"include_window_stats":"true",
 			"limit":"40",
 			"trace_flavor":"harmony_hitrace",
-			"platform":"harmony_hitrace",
+				"platform":"donghu",
 			"span_name":"Choreographer#doFrame",
 			"interaction_direction":"both",
 			"recipe_name":"sleep_root_cause"
@@ -147,7 +147,7 @@ func TestNormalizeToolCallParams_RepairsTraceQueryRecentScalarsFromRealSchema(t 
 		t.Fatalf("trace_query numeric/bool scalar repair failed: %+v\nraw=%s", decoded, got[0].Params)
 	}
 	if decoded.TimeStart != "2942.124416s" || decoded.TimeEnd != "2942.260210s" ||
-		decoded.TraceFlavor != "harmony_hitrace" || decoded.Platform != "harmony_hitrace" ||
+		decoded.TraceFlavor != "harmony_hitrace" || decoded.Platform != "donghu" ||
 		decoded.SpanName != "Choreographer#doFrame" || decoded.Interaction != "both" ||
 		decoded.RecipeName != "sleep_root_cause" {
 		t.Fatalf("trace_query string fields should survive repair unchanged: %+v\nraw=%s", decoded, got[0].Params)

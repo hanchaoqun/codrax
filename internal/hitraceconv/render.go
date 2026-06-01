@@ -79,14 +79,18 @@ func renderEventBody(ev decodedEvent, content []byte, cpu int) (string, bool) {
 				intField(ev, "next_prio", true)), true
 		}
 		if hasAnyField(ev, "pname[16]", "prev_tid", "pprio", "pstate", "nname[16]", "next_tid", "nprio") {
-			return fmt.Sprintf("prev_comm=%s prev_pid=%d prev_prio=%d prev_state=%s ==> next_comm=%s next_pid=%d next_prio=%d",
+			body := fmt.Sprintf("prev_comm=%s prev_pid=%d prev_prio=%d prev_state=%s ==> next_comm=%s next_pid=%d next_prio=%d",
 				firstNonEmpty(strField(ev, "pname[16]"), idleName(cpu, intField(ev, "prev_tid", true))),
 				intField(ev, "prev_tid", true),
 				intField(ev, "pprio", true),
 				harmonyPrevState(uint64(intField(ev, "pstate", false))),
 				firstNonEmpty(strField(ev, "nname[16]"), idleName(cpu, intField(ev, "next_tid", true))),
 				intField(ev, "next_tid", true),
-				intField(ev, "nprio", true)), true
+				intField(ev, "nprio", true))
+			if extras := schedSwitchHarmonyExtras(ev); extras != "" {
+				body += " " + extras
+			}
+			return body, true
 		}
 	case "sched_wakeup", "sched_waking":
 		comm := firstNonEmpty(strField(ev, "comm[16]"), strField(ev, "pname[16]"))
@@ -132,6 +136,17 @@ func renderEventBody(ev decodedEvent, content []byte, cpu int) (string, bool) {
 		return missingFormatPayload(ev.format.ID, content), false
 	}
 	return genericFields(ev), false
+}
+
+func schedSwitchHarmonyExtras(ev decodedEvent) string {
+	var parts []string
+	if nextInfo := firstNonEmpty(strFieldByCleanName(ev, "ninfo"), strFieldByCleanName(ev, "next_info")); nextInfo != "" {
+		parts = append(parts, "next_info="+nextInfo)
+	}
+	if cg := firstNonEmpty(strFieldByCleanName(ev, "cg"), strFieldByCleanName(ev, "cgroup")); cg != "" {
+		parts = append(parts, "cg="+cg)
+	}
+	return strings.Join(parts, " ")
 }
 
 func missingFormatPayload(eventID int, content []byte) string {
@@ -248,6 +263,15 @@ func strField(ev decodedEvent, name string) string {
 		b = b[:i]
 	}
 	return strings.TrimSpace(string(b))
+}
+
+func strFieldByCleanName(ev decodedEvent, want string) string {
+	for _, f := range ev.format.Fields {
+		if cleanFieldName(f.Name) == want {
+			return strField(ev, f.Name)
+		}
+	}
+	return ""
 }
 
 func intField(ev decodedEvent, name string, signedDefault bool) int64 {

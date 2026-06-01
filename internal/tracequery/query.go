@@ -14,13 +14,18 @@ func Run(idx *Index, q Query) Result {
 	q = normalizeQuery(idx, q)
 	flavor, confidence, signals, flavorCaveats := resolveTraceFlavor(idx, q)
 	q.TraceFlavor = flavor
+	platform := resolveTracePlatform(q, flavor)
+	q.TracePlatform = platform
 	spanWindows, spanCaveats := resolveSpanWindowsForQuery(idx, &q, explicitTimeStart, explicitTimeEnd)
 	res := Result{
 		View:              q.View,
 		SourcePath:        idx.Path,
 		TraceFlavor:       string(flavor),
+		Platform:          string(platform),
 		FlavorConfidence:  confidence,
 		FlavorSignals:     signals,
+		FrameworkMode:     FrameworkModeForPlatform(platform),
+		FrameworkSurfaces: detectFrameworkSurfaces(idx, q, platform, 4),
 		TimeUnit:          "seconds",
 		PrioritySemantics: PrioritySemanticsForFlavor(flavor),
 		LineCount:         idx.LineCount,
@@ -153,6 +158,102 @@ func Run(idx *Index, q Query) Result {
 	return res
 }
 
+func resolveTracePlatform(q Query, flavor TraceFlavor) TracePlatform {
+	if q.TracePlatformHint != "" && q.TracePlatformHint != TracePlatformAuto {
+		return q.TracePlatformHint
+	}
+	if q.TracePlatform != "" && q.TracePlatform != TracePlatformAuto {
+		return q.TracePlatform
+	}
+	return PlatformForFlavor(flavor)
+}
+
+func detectFrameworkSurfaces(idx *Index, q Query, platform TracePlatform, limit int) []FrameworkSurface {
+	if idx == nil || platform == TracePlatformGeneric || limit <= 0 {
+		return nil
+	}
+	type acc struct {
+		count    int
+		examples []ThreadRef
+		signals  map[string]bool
+		seen     map[string]bool
+	}
+	surfaces := map[string]*acc{}
+	add := func(surface string, ref ThreadRef, signal string) {
+		if surface == "" || ref.PID <= 0 {
+			return
+		}
+		a := surfaces[surface]
+		if a == nil {
+			a = &acc{signals: map[string]bool{}, seen: map[string]bool{}}
+			surfaces[surface] = a
+		}
+		a.count++
+		if signal != "" {
+			a.signals[signal] = true
+		}
+		key := fmt.Sprintf("%d/%s", ref.PID, ref.Comm)
+		if !a.seen[key] && len(a.examples) < limit {
+			a.examples = append(a.examples, ref)
+			a.seen[key] = true
+		}
+	}
+	for _, ev := range idx.Events {
+		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
+			continue
+		}
+		for _, ref := range []ThreadRef{
+			{Comm: ev.Comm, PID: ev.PID, TGID: ev.TGID},
+			{Comm: ev.PrevComm, PID: ev.PrevPID},
+			{Comm: ev.NextComm, PID: ev.NextPID},
+			{Comm: ev.WakeeComm, PID: ev.WakeePID},
+		} {
+			surface, signal := classifyFrameworkSurface(ref.Comm, "")
+			add(surface, ref, signal)
+		}
+	}
+	order := []string{"android_framework", "harmony_framework", "unknown"}
+	out := make([]FrameworkSurface, 0, len(surfaces))
+	for _, surface := range order {
+		a := surfaces[surface]
+		if a == nil {
+			continue
+		}
+		signals := make([]string, 0, len(a.signals))
+		for signal := range a.signals {
+			signals = append(signals, signal)
+		}
+		sort.Strings(signals)
+		out = append(out, FrameworkSurface{
+			Surface:        surface,
+			ProcessCount:   a.count,
+			ExampleThreads: a.examples,
+			Signals:        signals,
+		})
+	}
+	return out
+}
+
+func classifyFrameworkSurface(comm, fields string) (surface, signal string) {
+	text := strings.ToLower(strings.TrimSpace(comm + " " + fields))
+	if text == "" {
+		return "", ""
+	}
+	switch {
+	case strings.Contains(text, "com.") || strings.Contains(text, "choreographer") ||
+		strings.Contains(text, "surfaceflinger") || strings.Contains(text, "system_server") ||
+		strings.Contains(text, "android."):
+		return "android_framework", "android_process_marker"
+	case strings.Contains(text, "os_ffrt") || strings.Contains(text, "ffrt") ||
+		strings.Contains(text, "render_service") || strings.Contains(text, "rsunirender") ||
+		strings.Contains(text, "foundation") || strings.Contains(text, "ohos") ||
+		strings.Contains(text, "h:renderframe"):
+		return "harmony_framework", "harmony_process_marker"
+	default:
+		return "", ""
+	}
+}
+
 func resolveTraceFlavor(idx *Index, q Query) (TraceFlavor, float64, []string, []string) {
 	detected := TraceFlavorGenericFtrace
 	confidence := 0.50
@@ -168,6 +269,10 @@ func resolveTraceFlavor(idx *Index, q Query) (TraceFlavor, float64, []string, []
 	}
 	hint := q.TraceFlavorHint
 	hintSource := q.TraceFlavorHintSource
+	if (hint == "" || hint == TraceFlavorAuto) && q.TracePlatformHint != "" && q.TracePlatformHint != TracePlatformAuto {
+		hint = FlavorForPlatform(q.TracePlatformHint)
+		hintSource = q.TracePlatformSource
+	}
 	if (hint == "" || hint == TraceFlavorAuto) && q.TraceFlavor != "" && q.TraceFlavor != TraceFlavorAuto && q.TraceFlavor != TraceFlavorGenericFtrace {
 		hint = q.TraceFlavor
 		hintSource = "query"

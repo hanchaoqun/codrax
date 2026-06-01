@@ -137,6 +137,8 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.NextComm = intern.intern(kv["next_comm"])
 		ev.NextPID = atoi(kv["next_pid"])
 		ev.NextPrio = atoi(kv["next_prio"])
+		ev.NextInfo = intern.intern(kv["next_info"])
+		ev.CGroup = intern.intern(firstNonEmpty(kv["cg"], kv["cgroup"]))
 	case EventSchedWakeup, EventSchedWaking:
 		ev.WakeeComm = intern.intern(kv["comm"])
 		ev.WakeePID = atoi(kv["pid"])

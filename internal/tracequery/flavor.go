@@ -168,6 +168,67 @@ func NormalizeTraceFlavor(raw string) TraceFlavor {
 	}
 }
 
+func NormalizeTracePlatform(raw string) TracePlatform {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	s = strings.ReplaceAll(s, "-", "_")
+	s = strings.ReplaceAll(s, " ", "_")
+	switch s {
+	case "", "auto":
+		return TracePlatformAuto
+	case "donghu", "东湖":
+		return TracePlatformDonghu
+	case "harmony", "harmonyos", "open_harmony", "openharmony", "ohos", "hitrace", "harmony_hitrace", "鸿蒙":
+		return TracePlatformHarmony
+	case "android", "安卓", "atrace", "android_atrace":
+		return TracePlatformAndroid
+	case "generic", "ftrace", "generic_ftrace", "systrace":
+		return TracePlatformGeneric
+	default:
+		return TracePlatformAuto
+	}
+}
+
+func FlavorForPlatform(platform TracePlatform) TraceFlavor {
+	switch platform {
+	case TracePlatformDonghu, TracePlatformHarmony:
+		return TraceFlavorHarmonyHitrace
+	case TracePlatformAndroid:
+		return TraceFlavorAndroidAtrace
+	case TracePlatformGeneric:
+		return TraceFlavorGenericFtrace
+	default:
+		return TraceFlavorAuto
+	}
+}
+
+func PlatformForFlavor(flavor TraceFlavor) TracePlatform {
+	switch flavor {
+	case TraceFlavorHarmonyHitrace:
+		return TracePlatformHarmony
+	case TraceFlavorAndroidAtrace:
+		return TracePlatformAndroid
+	case TraceFlavorGenericFtrace:
+		return TracePlatformGeneric
+	default:
+		return TracePlatformAuto
+	}
+}
+
+func FrameworkModeForPlatform(platform TracePlatform) string {
+	switch platform {
+	case TracePlatformDonghu:
+		return "process_isolated_mixed"
+	case TracePlatformHarmony:
+		return "harmony_framework"
+	case TracePlatformAndroid:
+		return "android_framework"
+	case TracePlatformGeneric:
+		return "unknown"
+	default:
+		return ""
+	}
+}
+
 func PrioritySemanticsForFlavor(flavor TraceFlavor) string {
 	switch flavor {
 	case TraceFlavorHarmonyHitrace:

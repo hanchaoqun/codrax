@@ -25,6 +25,16 @@ const (
 	EventMemory             EventType = "memory"
 )
 
+type TracePlatform string
+
+const (
+	TracePlatformAuto    TracePlatform = "auto"
+	TracePlatformHarmony TracePlatform = "harmony"
+	TracePlatformAndroid TracePlatform = "android"
+	TracePlatformDonghu  TracePlatform = "donghu"
+	TracePlatformGeneric TracePlatform = "generic"
+)
+
 type Event struct {
 	Line int       `json:"line"`
 	Ts   float64   `json:"ts"`
@@ -45,6 +55,8 @@ type Event struct {
 	NextPID       int    `json:"next_pid,omitempty"`
 	NextPrio      int    `json:"next_prio,omitempty"`
 	NextPrioClass string `json:"next_prio_class,omitempty"`
+	NextInfo      string `json:"next_info,omitempty"`
+	CGroup        string `json:"cgroup,omitempty"`
 
 	WakeeComm      string `json:"wakee_comm,omitempty"`
 	WakeePID       int    `json:"wakee_pid,omitempty"`
@@ -119,14 +131,20 @@ type Query struct {
 	TraceFlavor           TraceFlavor
 	TraceFlavorHint       TraceFlavor
 	TraceFlavorHintSource string
+	TracePlatform         TracePlatform
+	TracePlatformHint     TracePlatform
+	TracePlatformSource   string
 }
 
 type Result struct {
 	View              string                  `json:"view"`
 	SourcePath        string                  `json:"source_path"`
 	TraceFlavor       string                  `json:"trace_flavor,omitempty"`
+	Platform          string                  `json:"platform,omitempty"`
 	FlavorConfidence  float64                 `json:"trace_flavor_confidence,omitempty"`
 	FlavorSignals     []string                `json:"trace_flavor_signals,omitempty"`
+	FrameworkMode     string                  `json:"framework_mode,omitempty"`
+	FrameworkSurfaces []FrameworkSurface      `json:"framework_surfaces,omitempty"`
 	TimeUnit          string                  `json:"time_unit,omitempty"`
 	PrioritySemantics string                  `json:"priority_semantics,omitempty"`
 	LineCount         int                     `json:"line_count,omitempty"`
@@ -147,6 +165,13 @@ type Result struct {
 	Recipe            *RecipeResult           `json:"recipe,omitempty"`
 	EvidencePack      []EvidenceFact          `json:"evidence_pack,omitempty"`
 	Caveats           []string                `json:"caveats,omitempty"`
+}
+
+type FrameworkSurface struct {
+	Surface        string      `json:"surface"`
+	ProcessCount   int         `json:"process_count,omitempty"`
+	ExampleThreads []ThreadRef `json:"example_threads,omitempty"`
+	Signals        []string    `json:"signals,omitempty"`
 }
 
 type EventView struct {

@@ -111,6 +111,10 @@ func TestParseLineSchedulerEvents(t *testing.T) {
 	if ev.Type != EventSchedSwitch || ev.PrevPID != 20 || ev.PrevState != "S" || ev.NextPID != 0 || ev.CPU != 1 {
 		t.Fatalf("unexpected event: %+v", ev)
 	}
+	ev, ok = ParseLine(6, `        app-20   (   20) [001] .... 1.120000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=worker next_pid=30 next_prio=80 next_info=rtq cg=top-app`, intern)
+	if !ok || ev.Type != EventSchedSwitch || ev.NextInfo != "rtq" || ev.CGroup != "top-app" {
+		t.Fatalf("sched_switch variant fields not preserved: %+v ok=%v", ev, ok)
+	}
 	wake, ok := ParseLine(5, `      waker-10   (   10) [000] .... 1.180000: sched_wakeup: comm=app pid=20 prio=53 target_cpu=001`, intern)
 	if !ok || wake.Type != EventSchedWakeup || wake.PID != 10 || wake.WakeePID != 20 || wake.TargetCPU != 1 {
 		t.Fatalf("unexpected wake event: %+v ok=%v", wake, ok)
@@ -426,6 +430,49 @@ func TestTraceFlavorChineseAliases(t *testing.T) {
 		if got := NormalizeTraceFlavor(raw); got != TraceFlavorAndroidAtrace {
 			t.Fatalf("%q should normalize to android_atrace, got %s", raw, got)
 		}
+	}
+}
+
+func TestDonghuPlatformKeepsHarmonySchedulerSemantics(t *testing.T) {
+	if got := NormalizeTracePlatform("东湖"); got != TracePlatformDonghu {
+		t.Fatalf("NormalizeTracePlatform(东湖)=%s, want donghu", got)
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "donghu.systrace")
+	trace := strings.Join([]string{
+		`  com.tencent.mm-36379 (36379) [004] .... 2942.124416: sched_switch: prev_comm=com.tencent.mm prev_pid=36379 prev_prio=53 prev_state=S ==> next_comm=OS_FFRT_0_0 next_pid=49634 next_prio=20 next_info=rtq cg=top-app`,
+		`     OS_FFRT_0_0-49634 (48679) [000] .... 2942.130000: sched_wakeup: comm=com.tencent.mm pid=36379 prio=53 target_cpu=004`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(trace), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := BuildIndex(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := Run(idx, Query{
+		View:              "event_search",
+		TimeStart:         2942.12,
+		TimeEnd:           2942.14,
+		EventTypes:        []EventType{EventSchedSwitch, EventSchedWakeup},
+		TracePlatformHint: TracePlatformDonghu,
+		Limit:             8,
+	})
+	if res.Platform != string(TracePlatformDonghu) || res.TraceFlavor != string(TraceFlavorHarmonyHitrace) {
+		t.Fatalf("donghu should resolve to platform=donghu and flavor=harmony_hitrace: %+v", res)
+	}
+	if !strings.Contains(res.PrioritySemantics, "1-40=CFS") || !strings.Contains(res.PrioritySemantics, "larger numeric value means higher priority") {
+		t.Fatalf("donghu should keep Harmony priority semantics: %s", res.PrioritySemantics)
+	}
+	if res.FrameworkMode != "process_isolated_mixed" {
+		t.Fatalf("donghu framework mode = %q", res.FrameworkMode)
+	}
+	if len(res.FrameworkSurfaces) < 2 {
+		t.Fatalf("expected android and harmony framework surface hints: %+v", res.FrameworkSurfaces)
+	}
+	if len(res.Events) == 0 || res.Events[0].NextInfo != "rtq" || res.Events[0].CGroup != "top-app" {
+		t.Fatalf("sched variant fields missing from event_search: %+v", res.Events)
 	}
 }
 

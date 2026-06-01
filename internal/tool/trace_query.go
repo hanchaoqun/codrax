@@ -45,7 +45,7 @@ type traceQueryParams struct {
 func (t *TraceQuery) Name() string { return "trace_query" }
 
 func (t *TraceQuery) Description() string {
-	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, scheduler latency stats, trace span/frame windows, render pipelines, ranked root causes, wakeup chains, binder IPC graphs, critical blocking calls, interaction Top-N, same-window resource stats, recipes, structured event search, and line-backed evidence packs. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. Trace flavor is auto-detected as harmony_hitrace, android_atrace, or generic_ftrace; pass trace_flavor/platform when the user names a producer. Explicit user intent such as Harmony/鸿蒙/东湖/OHOS or Android/安卓 wins for the current call and is not auto-corrected, though content signals remain in caveats for audit. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Android/generic ftrace keeps raw scheduler priority and does not apply Harmony ranges. Thread selectors accept pid plus common ftrace/hitrace labels such as com.tencent.mm-36379, com.tencent.mm 36379, com.tencent.mm [36379], [GT]ColdPool#5-36624, binder:486_1-10803, or pid=36379; pass pid directly when known. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
+	return "Deterministically queries large runtime trace/log artifacts for scheduler timelines, scheduler latency stats, trace span/frame windows, render pipelines, ranked root causes, wakeup chains, binder IPC graphs, critical blocking calls, interaction Top-N, same-window resource stats, recipes, structured event search, and line-backed evidence packs. Trace timestamps are seconds end-to-end: 928.081774 means 928 seconds + 0.081774 seconds; with six fractional digits, the fractional part is microsecond-precision (81774 us), not a separate millisecond field. Only derived durations are rendered in ms. Trace flavor is auto-detected as harmony_hitrace, android_atrace, or generic_ftrace; pass trace_flavor/platform when the user names a producer. Explicit user intent such as Harmony/鸿蒙/东湖/OHOS or Android/安卓 wins for the current call and is not auto-corrected, though content signals remain in caveats for audit. Donghu/东湖 uses Harmony/OpenHarmony trace scheduler semantics with process-isolated Android-framework and Harmony-framework surfaces; priority and timestamp semantics still follow Harmony. For HarmonyOS/hitrace user-space priority, larger numeric priority means higher priority: 1-40=CFS, 41-139=RT. Android/generic ftrace keeps raw scheduler priority and does not apply Harmony ranges. Thread selectors accept pid plus common ftrace/hitrace labels such as com.tencent.mm-36379, com.tencent.mm 36379, com.tencent.mm [36379], [GT]ColdPool#5-36624, binder:486_1-10803, or pid=36379; pass pid directly when known. Use this before ad-hoc grep/awk for ftrace/systrace/hitrace time-window causality questions; keep grep/read_file as fallback for unsupported formats."
 }
 
 func (t *TraceQuery) Parameters() json.RawMessage {
@@ -55,7 +55,7 @@ func (t *TraceQuery) Parameters() json.RawMessage {
 	    "source": {"type":"string","enum":["path","attached_trace"],"description":"Use attached_trace for the current --htrace/--atrace blob; use path for an explicit workspace/repo file."},
 	    "path": {"type":"string","description":"Repo/workspace-relative or absolute trace/log path when source=path."},
 	    "trace_flavor": {"type":"string","enum":["auto","harmony_hitrace","android_atrace","generic_ftrace"],"description":"Optional producer/platform flavor. Defaults to auto detection. Use harmony_hitrace for HarmonyOS HiTrace priority semantics, android_atrace for Android/Linux atrace raw scheduler priorities, and generic_ftrace when uncertain."},
-	    "platform": {"type":"string","description":"Alias for trace_flavor; accepted for model compatibility. If the user explicitly says Harmony/鸿蒙/东湖/OHOS, pass harmony_hitrace; for Android/安卓/atrace, pass android_atrace."},
+		    "platform": {"type":"string","enum":["auto","donghu","harmony","harmony_hitrace","android","android_atrace","generic","generic_ftrace"],"description":"Optional platform hint. Use donghu when the user says 东湖: scheduler/time/priority semantics follow Harmony/OpenHarmony, while Android-framework and Harmony-framework processes may coexist at process boundaries. harmony/harmony_hitrace selects Harmony semantics; android/android_atrace selects Android raw scheduler priority semantics."},
 	    "view": {"type":"string","enum":["event_search","span_window","frame_window","render_pipeline","thread_timeline","window_stats","scheduler_latency_stats","ipc_graph","wakeup_chain","root_cause_rank","critical_blocking_calls","interaction_stats","recipe","evidence_pack"],"description":"The deterministic trace view to compute. Use span_window to turn a unique B/E trace span into a time window; frame_window/render_pipeline for Choreographer/RenderFrame/VSYNC/draw/present spans; scheduler_latency_stats for runnable wait p95/p99/max and CPU competition; critical_blocking_calls for futex/lock/sync/binder/IO/D-state candidates; root_cause_rank for primary/secondary/tertiary cause candidates; interaction_stats for target-thread wakeup/binder interaction Top-N; recipe for standard evidence packs; and ipc_graph for binder transaction send/receive causality."},
 	    "thread": {"type":"string","description":"Thread name, substring, or ftrace/hitrace task label to resolve when pid is unknown. Accepts forms like \"com.tencent.mm-36379\", \"com.tencent.mm 36379\", \"com.tencent.mm [36379]\", \"[GT]ColdPool#5-36624\", \"binder:486_1-10803\", or \"pid=36379\"; pid is preferred when known."},
     "pid": {"type":"integer","description":"Thread pid to analyze when known."},
@@ -117,7 +117,8 @@ func (t *TraceQuery) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 		Limit:                p.Limit.Int(),
 		IncludeWindowStats:   p.IncludeWindowStats != nil && p.IncludeWindowStats.Bool(),
 	}
-	q.TraceFlavorHint, q.TraceFlavorHintSource = traceFlavorHintForQuery(ctx, p, sourceLabel, path)
+	q.TracePlatformHint, q.TracePlatformSource = tracePlatformHintForQuery(ctx, p, sourceLabel, path)
+	q.TraceFlavorHint, q.TraceFlavorHintSource = traceFlavorHintForQuery(ctx, p, sourceLabel, path, q.TracePlatformHint, q.TracePlatformSource)
 	if p.IncludeWindowStats == nil && strings.TrimSpace(p.View) == "wakeup_chain" {
 		q.IncludeWindowStats = true
 	}
@@ -193,8 +194,13 @@ func parseTraceQueryEventTypes(raw []string) []tracequery.EventType {
 	return out
 }
 
-func traceFlavorHintForQuery(ctx *types.BusContext, p traceQueryParams, sourceLabel, resolvedPath string) (tracequery.TraceFlavor, string) {
-	if flavor := tracequery.NormalizeTraceFlavor(firstNonEmptyTraceString(p.TraceFlavor, p.Platform)); flavor != "" && flavor != tracequery.TraceFlavorAuto {
+func traceFlavorHintForQuery(ctx *types.BusContext, p traceQueryParams, sourceLabel, resolvedPath string, platform tracequery.TracePlatform, platformSource string) (tracequery.TraceFlavor, string) {
+	if platform != "" && platform != tracequery.TracePlatformAuto {
+		if flavor := tracequery.FlavorForPlatform(platform); flavor != "" && flavor != tracequery.TraceFlavorAuto {
+			return flavor, platformSource
+		}
+	}
+	if flavor := tracequery.NormalizeTraceFlavor(p.TraceFlavor); flavor != "" && flavor != tracequery.TraceFlavorAuto {
 		return flavor, "tool_param"
 	}
 	if flavor := traceFlavorHintFromUserRequest(ctx); flavor != "" && flavor != tracequery.TraceFlavorAuto {
@@ -206,6 +212,21 @@ func traceFlavorHintForQuery(ctx *types.BusContext, p traceQueryParams, sourceLa
 		}
 	}
 	return tracequery.TraceFlavorAuto, ""
+}
+
+func tracePlatformHintForQuery(ctx *types.BusContext, p traceQueryParams, sourceLabel, resolvedPath string) (tracequery.TracePlatform, string) {
+	if platform := tracequery.NormalizeTracePlatform(p.Platform); platform != "" && platform != tracequery.TracePlatformAuto {
+		return platform, "tool_param"
+	}
+	if platform := tracePlatformHintFromUserRequest(ctx); platform != "" && platform != tracequery.TracePlatformAuto {
+		return platform, "user_request"
+	}
+	if ctx != nil && (strings.TrimSpace(sourceLabel) == "attached_trace" || traceQueryPathIsAttachedTraceBlob(ctx, resolvedPath)) {
+		if platform := tracequery.NormalizeTracePlatform(ctx.AttachedHitraceSource); platform != "" && platform != tracequery.TracePlatformAuto {
+			return platform, "attached_source"
+		}
+	}
+	return tracequery.TracePlatformAuto, ""
 }
 
 func traceFlavorHintFromUserRequest(ctx *types.BusContext) tracequery.TraceFlavor {
@@ -230,6 +251,30 @@ func traceFlavorHintFromUserRequest(ctx *types.BusContext) tracequery.TraceFlavo
 		return tracequery.TraceFlavorAndroidAtrace
 	default:
 		return tracequery.TraceFlavorAuto
+	}
+}
+
+func tracePlatformHintFromUserRequest(ctx *types.BusContext) tracequery.TracePlatform {
+	if ctx == nil || ctx.Mutable == nil {
+		return tracequery.TracePlatformAuto
+	}
+	text := strings.ToLower(ctx.Mutable.Objective())
+	switch {
+	case strings.Contains(text, "东湖") || strings.Contains(text, "donghu"):
+		return tracequery.TracePlatformDonghu
+	case strings.Contains(text, "harmony") ||
+		strings.Contains(text, "openharmony") ||
+		strings.Contains(text, "ohos") ||
+		strings.Contains(text, "hitrace") ||
+		strings.Contains(text, "bytrace") ||
+		strings.Contains(text, "鸿蒙"):
+		return tracequery.TracePlatformHarmony
+	case strings.Contains(text, "android") ||
+		strings.Contains(text, "安卓") ||
+		strings.Contains(text, "atrace"):
+		return tracequery.TracePlatformAndroid
+	default:
+		return tracequery.TracePlatformAuto
 	}
 }
 
@@ -297,7 +342,7 @@ func traceSecondNeedsNormalizationNote(v TraceSecond) bool {
 
 func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel, payloadRef string) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace thread=%s pid=%s line_start=%s line_end=%s time_start=%s time_end=%s span_name=%s interaction_direction=%s recipe_name=%s trace_flavor=%s trace_flavor_confidence=%.2f priority_rule=%s payload_ref=%s]\n",
+	fmt.Fprintf(&b, "[trace_query params: view=%s source=%s path=%s origin=runtime_artifact artifact_id=%s artifact_kind=trace thread=%s pid=%s line_start=%s line_end=%s time_start=%s time_end=%s span_name=%s interaction_direction=%s recipe_name=%s platform=%s trace_flavor=%s trace_flavor_confidence=%.2f priority_rule=%s payload_ref=%s]\n",
 		firstNonEmptyTraceString(result.View, p.View, "event_search"),
 		sourceLabel,
 		sanitizeForBanner(result.SourcePath),
@@ -311,6 +356,7 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 		sanitizeForBanner(p.SpanName),
 		sanitizeForBanner(p.InteractionDirection),
 		sanitizeForBanner(p.RecipeName),
+		sanitizeForBanner(result.Platform),
 		sanitizeForBanner(result.TraceFlavor),
 		result.FlavorConfidence,
 		traceQueryPriorityRuleBanner(result.TraceFlavor),
@@ -320,6 +366,16 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	fmt.Fprintf(&b, "source=%s lines=%d parsed_events=%d timestamp_unit=%s selected_window=%.6f..%.6f seconds\n", result.SourcePath, result.LineCount, result.EventCount, firstNonEmptyTraceString(result.TimeUnit, "seconds"), result.TimeStart, result.TimeEnd)
 	if result.TraceFlavor != "" {
 		fmt.Fprintf(&b, "trace_flavor=%s confidence=%.2f\n", result.TraceFlavor, result.FlavorConfidence)
+	}
+	if result.Platform != "" {
+		fmt.Fprintf(&b, "platform=%s framework_mode=%s\n", result.Platform, result.FrameworkMode)
+	}
+	if len(result.FrameworkSurfaces) > 0 {
+		var parts []string
+		for _, surface := range result.FrameworkSurfaces {
+			parts = append(parts, fmt.Sprintf("%s:%d", surface.Surface, surface.ProcessCount))
+		}
+		fmt.Fprintf(&b, "framework_surfaces=%s\n", sanitizeForBanner(strings.Join(parts, ",")))
 	}
 	if len(result.FlavorSignals) > 0 {
 		fmt.Fprintf(&b, "trace_flavor_signals=%s\n", sanitizeForBanner(strings.Join(result.FlavorSignals, ",")))
@@ -498,12 +554,13 @@ func traceQuerySummary(result tracequery.Result, p traceQueryParams, sourceLabel
 	if len(result.Events) > 0 {
 		b.WriteString("## Events\n")
 		for _, ev := range result.Events {
-			fmt.Fprintf(&b, "- line=%d ts=%.6f type=%s thread=%s%s raw=%s\n",
+			fmt.Fprintf(&b, "- line=%d ts=%.6f type=%s thread=%s%s%s raw=%s\n",
 				ev.Line,
 				ev.Ts,
 				ev.Type,
 				traceThreadLabel(tracequery.ThreadRef{Comm: ev.Comm, PID: ev.PID, TGID: ev.TGID}),
 				traceEventPriorityDetail(ev),
+				traceEventSchedulerDetail(ev),
 				strings.TrimSpace(ev.Raw),
 			)
 		}
@@ -603,6 +660,20 @@ func traceEventPriorityDetail(ev tracequery.EventView) string {
 	}
 	if ev.WakeePrio > 0 {
 		parts = append(parts, traceEventPrioField("wakee_prio", ev.WakeePrio, ev.WakeePrioClass))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return " " + strings.Join(parts, " ")
+}
+
+func traceEventSchedulerDetail(ev tracequery.EventView) string {
+	var parts []string
+	if ev.NextInfo != "" {
+		parts = append(parts, "next_info="+ev.NextInfo)
+	}
+	if ev.CGroup != "" {
+		parts = append(parts, "cgroup="+ev.CGroup)
 	}
 	if len(parts) == 0 {
 		return ""

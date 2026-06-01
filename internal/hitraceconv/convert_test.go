@@ -101,6 +101,46 @@ func TestConvertFilePreservesMissingFormatAsUnknownRow(t *testing.T) {
 	}
 }
 
+func TestRenderHarmonySchedSwitchKeepsNextInfoAndCGroup(t *testing.T) {
+	format := eventFormat{
+		ID:   10,
+		Name: "sched_switch",
+		Fields: []eventField{
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Name: "pname[16]", Offset: 8, Size: 16},
+			{Name: "prev_tid", Offset: 24, Size: 4, Signed: true},
+			{Name: "pprio", Offset: 28, Size: 4, Signed: true},
+			{Name: "pstate", Offset: 32, Size: 4},
+			{Name: "nname[16]", Offset: 36, Size: 16},
+			{Name: "next_tid", Offset: 52, Size: 4, Signed: true},
+			{Name: "nprio", Offset: 56, Size: 4, Signed: true},
+			{Name: "ninfo[16]", Offset: 60, Size: 16},
+			{Name: "cg[16]", Offset: 76, Size: 16},
+		},
+	}
+	content := make([]byte, 92)
+	binary.LittleEndian.PutUint32(content[4:8], uint32(100))
+	copy(content[8:24], []byte("app"))
+	binary.LittleEndian.PutUint32(content[24:28], uint32(100))
+	binary.LittleEndian.PutUint32(content[28:32], uint32(53))
+	binary.LittleEndian.PutUint32(content[32:36], uint32(1))
+	copy(content[36:52], []byte("worker"))
+	binary.LittleEndian.PutUint32(content[52:56], uint32(200))
+	binary.LittleEndian.PutUint32(content[56:60], uint32(80))
+	copy(content[60:76], []byte("rtq"))
+	copy(content[76:92], []byte("top-app"))
+
+	line, known := renderEventLine(renderContext{cmdlines: map[int]string{100: "app"}, tgids: map[int]int{100: 100}}, 1_234_567_000, 2, format, content)
+	if !known {
+		t.Fatalf("sched_switch should be known: %s", line)
+	}
+	for _, want := range []string{"next_info=rtq", "cg=top-app"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("rendered sched_switch missing %q:\n%s", want, line)
+		}
+	}
+}
+
 func syntheticBinaryHitrace(t *testing.T) []byte {
 	t.Helper()
 	var b bytes.Buffer
