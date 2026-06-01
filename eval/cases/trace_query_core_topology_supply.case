@@ -1,0 +1,19 @@
+# Trace query — core topology and compute supply
+#
+# Coverage target: core_topology should survive model/tool JSON repair and
+# annotate CPU, top-running/runnable, and compute_supply summaries with
+# big/middle/small core classes.
+ID="trace_query_core_topology_supply"
+NAME="trace query — core topology compute supply"
+QUESTION="请优先使用 trace_query 的 window_stats/compute_supply 能力，传入 core_topology=small=0-3,big=4-7。分析 10.0s 到 10.06s 内 app-20 在 CPU4 的运行/让出情况，说明 CPU4 属于哪个 core_class、频点是多少，以及算力供给是否有 CPU pressure 或低频信号。"
+HTRACE='# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+      freq-1   (    1) [000] .... 10.000000: cpu_frequency: state=800000 cpu_id=0
+      freq-1   (    1) [004] .... 10.000000: cpu_frequency: state=2200000 cpu_id=4
+        app-20 (   20) [004] .... 10.010000: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=65535 prev_state=R ==> next_comm=app next_pid=20 next_prio=53
+        app-20 (   20) [004] .... 10.050000: sched_switch: prev_comm=app prev_pid=20 prev_prio=53 prev_state=R+ ==> next_comm=worker next_pid=30 next_prio=80
+'
+EXPECT_CONTAINS="CPU4 big 2200000 app"
+EXPECT_MATCHES_REGEX="(core_class|大小核|大核|big).*(big|大核)|big.*(CPU ?4|cpu=4|CPU4)
+(2200000|2\\.2 ?GHz|2200 ?MHz)
+(compute_supply|算力|供给|CPU pressure|cpu_pressure|低频|low_frequency|insufficient_signal)"

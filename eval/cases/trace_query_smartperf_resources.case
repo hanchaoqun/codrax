@@ -1,0 +1,24 @@
+# Trace query — SmartPerf resource observations
+#
+# Coverage target: SmartPerf-style eBPF BIO/FileSystem/PageFault rows and
+# Ability/XPower/HiSystemEvent plugin observations should appear in
+# window_stats as line-backed runtime resource facts.
+ID="trace_query_smartperf_resources"
+NAME="trace query — SmartPerf eBPF and plugin resources"
+QUESTION="请优先使用 trace_query 的 window_stats 视图统计 8.0s 到 9.03s 的同窗资源画像：BIO/FileSystem/PageFault 资源事件，以及 Ability/XPower/HiSystemEvent 插件观测。请给出 path、latency、bytes、domain/event/metric/value 等关键字段。"
+HTRACE='# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+        app-20   (   20) [001] .... 8.000000: bio_latency: op=R path=/data/app/base.db latency_us=2500 bytes=4096 callstack=BioRead>Submit
+        app-20   (   20) [001] .... 8.010000: file_system: syscall=read path=/data/app/base.db duration_ms=3.5 bytes=1024 callstack=ReadFile
+        app-20   (   20) [001] .... 8.020000: page_fault_user: operation=major address=0x1234 duration_us=150 size=4096 callstack=FaultHandler
+        app-20   (   20) [001] .... 9.000000: ability_monitor: domain=AAFWK event_name=AbilityStart metric=latency_ms value=12.5 category=foreground
+     xpower-30   (   30) [002] .... 9.010000: xpower_cpu: component=CPU energy=8.2 usage=73 scene=foreground
+       hisys-40   (   40) [003] .... 9.020000: hi_sysevent: domain=POWER eventname=THERMAL_REPORT type=STAT value=hot level=MINOR
+'
+EXPECT_CONTAINS="/data/app/base.db AAFWK XPower POWER"
+EXPECT_MATCHES_REGEX="(BIO|bio).*(2\\.5|2500|4096)|(/data/app/base\\.db).*(2\\.5|2500|4096)
+(FileSystem|file_system|filesystem).*(3\\.5|1024)
+(PageFault|page_fault|fault).*(0x1234|major)
+(AbilityStart|AAFWK).*(latency_ms|12\\.5)
+(XPower|xpower).*(CPU|73)
+(HiSystemEvent|hi_sysevent|THERMAL_REPORT).*(POWER|hot|MINOR)"

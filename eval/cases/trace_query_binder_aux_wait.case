@@ -1,0 +1,25 @@
+# Trace query — binder auxiliary events and wait closure
+#
+# Coverage target: binder_transaction_alloc_buf / lock / locked / unlock /
+# reply rows should be preserved as IPC evidence and attached to binder wait
+# reasoning instead of only counting binder_transaction.
+ID="trace_query_binder_aux_wait"
+NAME="trace query — binder aux events + wait detail"
+QUESTION="这段 trace 中 client-20 发起同步 binder 调用后进入 sleep。请分析 binder transaction、alloc_buf、lock/unlock/reply 事件如何支撑这次等待闭环，说明 transaction 编号、目标线程、data_size 和锁名。"
+HTRACE='# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+     client-20   (   20) [001] .... 3.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=client next_pid=20 next_prio=53
+     client-20   (   20) [001] .... 3.010000: binder_transaction: transaction=42 dest_node=0 dest_proc=100 dest_thread=101 reply=1 flags=0x0 code=0x3
+     client-20   (   20) [001] .... 3.010500: binder_transaction_alloc_buf: debug_id=42 data_size=128 offsets_size=16 extra_buffers_size=0
+     client-20   (   20) [001] .... 3.011000: binder_transaction_lock: debug_id=42 tag=binder_inner_lock
+     client-20   (   20) [001] .... 3.011500: binder_transaction_locked: debug_id=42 tag=binder_inner_lock
+ binder:100_1-101 (  100) [002] .... 3.012000: binder_transaction_received: transaction=42
+     client-20   (   20) [001] .... 3.015000: sched_switch: prev_comm=client prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
+ binder:100_1-101 (  100) [002] .... 3.018000: binder_transaction_reply: debug_id=42
+ binder:100_1-101 (  100) [002] .... 3.019000: binder_transaction_unlock: debug_id=42 tag=binder_inner_lock
+ binder:100_1-101 (  100) [002] .... 3.020000: sched_wakeup: comm=client pid=20 prio=53 target_cpu=001
+'
+EXPECT_CONTAINS="binder 42 128 binder_inner_lock"
+EXPECT_MATCHES_REGEX="(binder:100_1|dest_thread[ =:]*101|目标线程.{0,8}101)
+(alloc|alloc_buf|分配).*(128)|128.*(alloc|alloc_buf|data_size)
+(reply|返回|unlock|解锁|binder_inner_lock)"

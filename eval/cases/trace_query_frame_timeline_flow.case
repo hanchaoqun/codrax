@@ -1,0 +1,22 @@
+# Trace query — FrameTimeline / frame_flow
+#
+# Coverage target: frame_timeline and frame_flow views should summarize
+# Expected/Actual/UI/RenderService/GPU phases and cross-thread frame flow.
+ID="trace_query_frame_timeline_flow"
+NAME="trace query — frame timeline and render flow"
+QUESTION="请优先使用 trace_query 的 frame_timeline/frame_flow 视图分析 frame=77 的端到端帧链路：Expected Timeline、Choreographer#doFrame、RenderFrame 和 GPU completion 分别在哪些线程执行，是否形成 UI -> RenderService -> GPU 的跨线程 flow。"
+HTRACE='# tracer: nop
+#           TASK-PID   CPU#    TIMESTAMP  FUNCTION
+         app-20   (   20) [001] .... 7.000000: print: B|20|Expected Timeline frame=77
+         app-20   (   20) [001] .... 7.004000: print: E|20
+         app-20   (   20) [001] .... 7.005000: print: B|20|Choreographer#doFrame frame=77
+         app-20   (   20) [001] .... 7.016000: print: E|20
+ RSUniRenderThre-2096 (1716) [000] .... 7.017000: print: B|1716|H:RenderFrame frame=77
+ RSUniRenderThre-2096 (1716) [000] .... 7.030000: print: E|1716
+         gpu-300   (  300) [002] .... 7.031000: print: B|300|GPU completion frame=77
+         gpu-300   (  300) [002] .... 7.040000: print: E|300
+'
+EXPECT_CONTAINS="77 Choreographer RenderFrame GPU"
+EXPECT_MATCHES_REGEX="(Expected|期望).*(Timeline|时间线)|Expected Timeline
+(UI|app-20|Choreographer).*(RenderService|RSUniRenderThre|RenderFrame).*(GPU|gpu-300)|(GPU|gpu-300).*(RenderService|RSUniRenderThre|RenderFrame).*(UI|app-20|Choreographer)
+(flow|跨线程|链路|端到端)"

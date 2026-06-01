@@ -1,0 +1,22 @@
+# Trace query — Donghu mixed Harmony-base platform candidate
+#
+# Coverage target: platform auto detection should report a Harmony-base
+# Donghu-style mixed surface when Harmony/OHOS signals coexist with Android
+# framework process names. Priority semantics must stay Harmony/OpenHarmony:
+# larger numeric priority is higher; 1-40=CFS and 41-139=RT.
+ID="trace_query_donghu_mixed_platform"
+NAME="trace query — Donghu mixed Harmony-base platform candidate"
+QUESTION="这是一段东湖 trace：鸿蒙系统底座，Android framework 与鸿蒙 framework 进程级隔离混合。请说明 trace_query 识别到的平台候选、时基单位和优先级语义，并指出 com.tencent.mm 与 foundation 两类进程是否同时出现。"
+HTRACE='# TRACE:
+# OpenHarmony / OHOS bytrace, Donghu mixed framework surface
+#           TASK-PID    TGID   CPU#  ||||       |         |
+  foundation-1000 ( 1000) [000] .... 12.000000: sched_wakeup: comm=com.tencent.mm pid=36379 prio=53 target_cpu=004
+com.tencent.mm-36379 (36379) [004] .... 12.010000: sched_switch: prev_comm=idle/4 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=com.tencent.mm next_pid=36379 next_prio=53
+   render_service-1716 (1716) [001] .... 12.012000: sched_wakeup: comm=foundation pid=1000 prio=120 target_cpu=000
+  foundation-1000 ( 1000) [000] .... 12.020000: sched_switch: prev_comm=idle/0 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=foundation next_pid=1000 next_prio=120
+'
+EXPECT_CONTAINS="com.tencent.mm foundation"
+EXPECT_MATCHES_REGEX="(东湖|Donghu|mixed_harmony_base|mixed Harmony|Harmony-base)
+(秒|seconds|s).*(12\\.000000|12\\.0)|(12\\.000000|12\\.0).*(秒|seconds|s)
+(数值越大|larger numeric|larger .*higher|higher .*larger)
+(1-40|CFS).*(41-139|RT|实时)|(41-139|RT|实时).*(1-40|CFS)"
