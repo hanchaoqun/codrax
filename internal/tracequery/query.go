@@ -781,6 +781,8 @@ func ComputeWindowStats(idx *Index, q Query) WindowStats {
 		case EventBinderReceived:
 			stats.BinderCount++
 			stats.BinderReceivedCount++
+		case EventBinderAllocBuf, EventBinderLock, EventBinderLocked, EventBinderUnlock, EventBinderReply:
+			stats.BinderAuxCount++
 		case EventIRQ:
 			stats.IRQCount++
 		case EventSoftIRQ:
@@ -2158,7 +2160,7 @@ func attachIPCGraphToChain(idx *Index, q Query, res *ChainResult) {
 	}
 	ipc := BuildIPCGraph(idx, q)
 	res.IPCEdges = ipc.Edges
-	res.BinderWaits = findBinderWaitsForChain(*res, ipc.Edges)
+	res.BinderWaits = findBinderWaitsForChain(*res, ipc.Edges, ipc.BinderEvents)
 	for _, wait := range res.BinderWaits {
 		res.RootEvidence = append(res.RootEvidence, RootEvidence{
 			Type:       "binder_wait",
@@ -2173,7 +2175,7 @@ func attachIPCGraphToChain(idx *Index, q Query, res *ChainResult) {
 	res.Caveats = append(res.Caveats, ipc.Caveats...)
 }
 
-func findBinderWaitsForChain(chain ChainResult, edges []IPCEdge) []BinderWaitSummary {
+func findBinderWaitsForChain(chain ChainResult, edges []IPCEdge, aux []BinderEventSummary) []BinderWaitSummary {
 	if len(chain.Nodes) == 0 || len(edges) == 0 {
 		return nil
 	}
@@ -2242,6 +2244,7 @@ func findBinderWaitsForChain(chain ChainResult, edges []IPCEdge) []BinderWaitSum
 			if edge.ReceiveLine == 0 {
 				wait.Caveats = append(wait.Caveats, "receiver row was not matched; binder wait is a scheduler-correlated candidate, not standalone proof")
 			}
+			wait.Caveats = append(wait.Caveats, binderAuxCaveatsForWait(wait, aux)...)
 			out = append(out, wait)
 			break
 		}
@@ -2254,6 +2257,35 @@ func findBinderWaitsForChain(chain ChainResult, edges []IPCEdge) []BinderWaitSum
 	})
 	if len(out) > 8 {
 		out = out[:8]
+	}
+	return out
+}
+
+func binderAuxCaveatsForWait(wait BinderWaitSummary, aux []BinderEventSummary) []string {
+	var out []string
+	for _, item := range aux {
+		if item.Thread.PID > 0 && wait.Thread.PID > 0 && item.Thread.PID != wait.Thread.PID {
+			continue
+		}
+		if wait.TransactionID > 0 && item.TransactionID > 0 && item.TransactionID != wait.TransactionID {
+			continue
+		}
+		if item.Ts > 0 && wait.SendTs > 0 {
+			if item.Ts < wait.SendTs-0.010 || (wait.SleepStartTs > 0 && item.Ts > wait.SleepStartTs+0.010) {
+				continue
+			}
+		}
+		switch item.Type {
+		case EventBinderAllocBuf:
+			out = append(out, fmt.Sprintf("binder alloc buffer line %d data_size=%d offsets_size=%d extra_buffers_size=%d", item.Line, item.DataSize, item.OffsetsSize, item.ExtraBuffersSize))
+		case EventBinderLock, EventBinderLocked, EventBinderUnlock:
+			out = append(out, fmt.Sprintf("%s line %d tag=%s", item.Type, item.Line, item.Tag))
+		case EventBinderReply:
+			out = append(out, fmt.Sprintf("binder reply line %d", item.Line))
+		}
+		if len(out) >= 4 {
+			break
+		}
 	}
 	return out
 }
@@ -3547,6 +3579,21 @@ func evidenceFromIPCGraph(ipc IPCGraphResult) []EvidenceFact {
 			StartTs:    edge.SendTs,
 			EndTs:      firstPositiveFloat(edge.ReceiveTs, edge.SendTs),
 			Confidence: edge.Confidence,
+		})
+		if len(out) >= 16 {
+			break
+		}
+	}
+	for _, item := range ipc.BinderEvents {
+		out = append(out, EvidenceFact{
+			Subject:    threadLabel(item.Thread),
+			Predicate:  string(item.Type),
+			Summary:    item.Summary,
+			LineStart:  item.Line,
+			LineEnd:    item.Line,
+			StartTs:    item.Ts,
+			EndTs:      item.Ts,
+			Confidence: 0.78,
 		})
 		if len(out) >= 16 {
 			break

@@ -42,6 +42,9 @@ const resourceTrace = `
 const ipcTrace = `
      client-20   (   20) [001] .... 3.000000: sched_switch: prev_comm=idle/1 prev_pid=0 prev_prio=120 prev_state=R ==> next_comm=client next_pid=20 next_prio=53
      client-20   (   20) [001] .... 3.010000: binder_transaction: transaction=42 dest_node=0 dest_proc=100 dest_thread=101 reply=1 flags=0x0 code=0x3
+     client-20   (   20) [001] .... 3.010500: binder_transaction_alloc_buf: debug_id=42 data_size=128 offsets_size=16 extra_buffers_size=0
+     client-20   (   20) [001] .... 3.011000: binder_transaction_lock: tag=binder_inner_lock
+     client-20   (   20) [001] .... 3.011500: binder_transaction_unlock: tag=binder_inner_lock
  binder:100_1-101 (  100) [002] .... 3.012000: binder_transaction_received: transaction=42
      client-20   (   20) [001] .... 3.015000: sched_switch: prev_comm=client prev_pid=20 prev_prio=53 prev_state=S ==> next_comm=idle/1 next_pid=0 next_prio=120
  binder:100_1-101 (  100) [002] .... 3.020000: sched_wakeup: comm=client pid=20 prio=53 target_cpu=001
@@ -223,6 +226,20 @@ func TestParseLineSupportedResourceEvents(t *testing.T) {
 			line:  `      waker-10   (   10) [000] .... 2.095000: binder_transaction_received: transaction=7`,
 			want:  EventBinderReceived,
 			check: func(ev Event) bool { return ev.FieldText == "transaction=7" && ev.BinderTransactionID == 7 },
+		},
+		{
+			name: "binder alloc buf",
+			line: `      waker-10   (   10) [000] .... 2.096000: binder_transaction_alloc_buf: debug_id=7 data_size=128 offsets_size=16 extra_buffers_size=4`,
+			want: EventBinderAllocBuf,
+			check: func(ev Event) bool {
+				return ev.BinderTransactionID == 7 && ev.BinderDebugID == 7 && ev.BinderDataSize == 128 && ev.BinderOffsetsSize == 16 && ev.BinderExtraSize == 4
+			},
+		},
+		{
+			name:  "binder lock",
+			line:  `      waker-10   (   10) [000] .... 2.097000: binder_transaction_lock: tag=binder_inner_lock`,
+			want:  EventBinderLock,
+			check: func(ev Event) bool { return ev.BinderLockTag == "binder_inner_lock" },
 		},
 		{
 			name:  "irq",
@@ -717,6 +734,12 @@ func TestIPCGraphMatchesBinderSendAndReceive(t *testing.T) {
 	if edge.Confidence < 0.9 || edge.LatencyMs <= 0 {
 		t.Fatalf("expected matched receive confidence and latency: %+v", edge)
 	}
+	if len(ipc.BinderEvents) != 3 {
+		t.Fatalf("expected binder auxiliary rows, got %+v", ipc.BinderEvents)
+	}
+	if !containsSubstring(edge.Caveats, "binder alloc buffer row") {
+		t.Fatalf("edge should carry alloc buffer caveat: %+v", edge.Caveats)
+	}
 }
 
 func TestWakeupChainCarriesRelevantIPCEdges(t *testing.T) {
@@ -736,6 +759,9 @@ func TestWakeupChainReportsBinderWaitCandidate(t *testing.T) {
 	wait := chain.BinderWaits[0]
 	if wait.TransactionID != 42 || wait.SendLine == 0 || wait.SleepLine == 0 || wait.Confidence <= 0 {
 		t.Fatalf("bad binder wait: %+v", wait)
+	}
+	if !containsSubstring(wait.Caveats, "binder alloc buffer") || !containsSubstring(wait.Caveats, "binder_lock") {
+		t.Fatalf("binder wait should carry auxiliary binder caveats: %+v", wait.Caveats)
 	}
 	foundRoot := false
 	for _, root := range chain.RootEvidence {

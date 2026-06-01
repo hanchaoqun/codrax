@@ -21,6 +21,11 @@ const (
 	EventBlockComplete      EventType = "block_rq_complete"
 	EventBinderTransaction  EventType = "binder_transaction"
 	EventBinderReceived     EventType = "binder_transaction_received"
+	EventBinderAllocBuf     EventType = "binder_transaction_alloc_buf"
+	EventBinderLock         EventType = "binder_lock"
+	EventBinderLocked       EventType = "binder_locked"
+	EventBinderUnlock       EventType = "binder_unlock"
+	EventBinderReply        EventType = "binder_reply"
 	EventIRQ                EventType = "irq"
 	EventSoftIRQ            EventType = "softirq"
 	EventTraceMark          EventType = "trace_mark"
@@ -90,6 +95,11 @@ type Event struct {
 	BinderReply         int    `json:"binder_reply,omitempty"`
 	BinderFlags         string `json:"binder_flags,omitempty"`
 	BinderCode          string `json:"binder_code,omitempty"`
+	BinderDebugID       int    `json:"binder_debug_id,omitempty"`
+	BinderDataSize      int64  `json:"binder_data_size,omitempty"`
+	BinderOffsetsSize   int64  `json:"binder_offsets_size,omitempty"`
+	BinderExtraSize     int64  `json:"binder_extra_size,omitempty"`
+	BinderLockTag       string `json:"binder_lock_tag,omitempty"`
 
 	BlockDev    string `json:"block_dev,omitempty"`
 	BlockOp     string `json:"block_op,omitempty"`
@@ -251,6 +261,7 @@ type WindowStats struct {
 	BlockCompleteCount   int                     `json:"block_complete_count,omitempty"`
 	BinderCount          int                     `json:"binder_count,omitempty"`
 	BinderReceivedCount  int                     `json:"binder_received_count,omitempty"`
+	BinderAuxCount       int                     `json:"binder_aux_count,omitempty"`
 	IRQCount             int                     `json:"irq_count,omitempty"`
 	SoftIRQCount         int                     `json:"softirq_count,omitempty"`
 	MemoryEventCount     int                     `json:"memory_event_count,omitempty"`
@@ -562,9 +573,10 @@ type ChainResult struct {
 }
 
 type IPCGraphResult struct {
-	Window  TimeWindow `json:"window"`
-	Edges   []IPCEdge  `json:"edges,omitempty"`
-	Caveats []string   `json:"caveats,omitempty"`
+	Window       TimeWindow           `json:"window"`
+	Edges        []IPCEdge            `json:"edges,omitempty"`
+	BinderEvents []BinderEventSummary `json:"binder_events,omitempty"`
+	Caveats      []string             `json:"caveats,omitempty"`
 }
 
 type IPCEdge struct {
@@ -584,6 +596,20 @@ type IPCEdge struct {
 	LatencyMs     float64   `json:"latency_ms,omitempty"`
 	Confidence    float64   `json:"confidence,omitempty"`
 	Caveats       []string  `json:"caveats,omitempty"`
+}
+
+type BinderEventSummary struct {
+	Type             EventType `json:"type,omitempty"`
+	Thread           ThreadRef `json:"thread,omitempty"`
+	TransactionID    int       `json:"transaction_id,omitempty"`
+	DebugID          int       `json:"debug_id,omitempty"`
+	DataSize         int64     `json:"data_size,omitempty"`
+	OffsetsSize      int64     `json:"offsets_size,omitempty"`
+	ExtraBuffersSize int64     `json:"extra_buffers_size,omitempty"`
+	Tag              string    `json:"tag,omitempty"`
+	Ts               float64   `json:"ts,omitempty"`
+	Line             int       `json:"line,omitempty"`
+	Summary          string    `json:"summary,omitempty"`
 }
 
 type ChainNode struct {

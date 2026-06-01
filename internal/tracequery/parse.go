@@ -193,7 +193,18 @@ func ParseLine(lineNo int, line string, intern *stringInterner) (Event, bool) {
 		ev.BinderFlags = intern.intern(kv["flags"])
 		ev.BinderCode = intern.intern(kv["code"])
 	case EventBinderReceived:
-		ev.BinderTransactionID = atoi(kv["transaction"])
+		ev.BinderTransactionID = atoi(firstNonEmpty(kv["transaction"], kv["debug_id"]))
+		ev.BinderDebugID = atoi(kv["debug_id"])
+	case EventBinderAllocBuf:
+		ev.BinderTransactionID = atoi(firstNonEmpty(kv["transaction"], kv["debug_id"]))
+		ev.BinderDebugID = atoi(kv["debug_id"])
+		ev.BinderDataSize = atoi64(kv["data_size"])
+		ev.BinderOffsetsSize = atoi64(kv["offsets_size"])
+		ev.BinderExtraSize = atoi64(firstNonEmpty(kv["extra_buffers_size"], kv["extra_size"]))
+	case EventBinderLock, EventBinderLocked, EventBinderUnlock, EventBinderReply:
+		ev.BinderTransactionID = atoi(firstNonEmpty(kv["transaction"], kv["debug_id"]))
+		ev.BinderDebugID = atoi(kv["debug_id"])
+		ev.BinderLockTag = intern.intern(firstNonEmpty(kv["tag"], kv["lock"], kv["name"], fields))
 	case EventIRQ, EventSoftIRQ:
 		ev.IRQID = atoi(firstNonEmpty(kv["irq"], kv["vec"]))
 		ev.IRQName = intern.intern(firstNonEmpty(kv["name"], strings.TrimSuffix(kv["action"], "]"), kv["vec"]))
@@ -283,6 +294,16 @@ func classifyEventType(raw, fields string) EventType {
 		return EventBinderTransaction
 	case raw == "binder_transaction_received":
 		return EventBinderReceived
+	case raw == "binder_transaction_alloc_buf" || raw == "binder_alloc_buf":
+		return EventBinderAllocBuf
+	case raw == "binder_transaction_lock" || raw == "binder_lock":
+		return EventBinderLock
+	case raw == "binder_transaction_locked" || raw == "binder_locked":
+		return EventBinderLocked
+	case raw == "binder_transaction_unlock" || raw == "binder_unlock":
+		return EventBinderUnlock
+	case raw == "binder_transaction_reply" || raw == "binder_reply":
+		return EventBinderReply
 	case strings.Contains(rawLower, "softirq"):
 		return EventSoftIRQ
 	case strings.HasPrefix(raw, "irq_"):

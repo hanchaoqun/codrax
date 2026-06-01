@@ -16,15 +16,25 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 	}
 
 	receives := map[int][]Event{}
+	auxByTx := map[int][]BinderEventSummary{}
+	var auxEvents []BinderEventSummary
 	for _, ev := range idx.Events {
-		if ev.Type != EventBinderReceived {
-			continue
-		}
 		if !eventLineInWindow(ev, q) || !timeInWindow(ev.Ts, q) {
 			continue
 		}
-		if ev.BinderTransactionID > 0 {
-			receives[ev.BinderTransactionID] = append(receives[ev.BinderTransactionID], ev)
+		switch {
+		case ev.Type == EventBinderReceived:
+			if ev.BinderTransactionID > 0 {
+				receives[ev.BinderTransactionID] = append(receives[ev.BinderTransactionID], ev)
+			}
+		case isBinderAuxEventType(ev.Type):
+			summary := binderEventSummaryFromEvent(ev)
+			if binderEventMentionsQuery(ev, q) {
+				auxEvents = append(auxEvents, summary)
+			}
+			if ev.BinderTransactionID > 0 {
+				auxByTx[ev.BinderTransactionID] = append(auxByTx[ev.BinderTransactionID], summary)
+			}
 		}
 	}
 	for id := range receives {
@@ -71,6 +81,7 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 		if edge.Oneway {
 			edge.Caveats = append(edge.Caveats, "flags suggest an asynchronous/oneway binder call; do not treat it as blocking without scheduler evidence")
 		}
+		edge.Caveats = append(edge.Caveats, binderAuxCaveatsForEdge(edge, auxByTx)...)
 		if ipcEdgeMentionsQuery(edge, q) {
 			res.Edges = append(res.Edges, edge)
 			if endpointOnly {
@@ -91,17 +102,28 @@ func BuildIPCGraph(idx *Index, q Query) IPCGraphResult {
 		}
 		return res.Edges[i].SendLine < res.Edges[j].SendLine
 	})
+	sort.SliceStable(auxEvents, func(i, j int) bool {
+		if auxEvents[i].Ts != auxEvents[j].Ts {
+			return auxEvents[i].Ts < auxEvents[j].Ts
+		}
+		return auxEvents[i].Line < auxEvents[j].Line
+	})
 	if q.Limit > 0 && len(res.Edges) > q.Limit {
 		res.Caveats = append(res.Caveats, fmt.Sprintf("ipc graph compacted from %d to %d edge(s)", len(res.Edges), q.Limit))
 		res.Edges = res.Edges[:q.Limit]
 	}
+	if q.Limit > 0 && len(auxEvents) > q.Limit {
+		res.Caveats = append(res.Caveats, fmt.Sprintf("binder auxiliary events compacted from %d to %d row(s)", len(auxEvents), q.Limit))
+		auxEvents = auxEvents[:q.Limit]
+	}
+	res.BinderEvents = auxEvents
 	if sendOnly > 0 {
 		res.Caveats = append(res.Caveats, fmt.Sprintf("%d binder transaction row(s) were endpoint-only because matching receive rows were not visible in the selected window", sendOnly))
 	}
 	if unmatchedReceives > 0 {
 		res.Caveats = append(res.Caveats, fmt.Sprintf("%d binder_transaction_received row(s) had no matching send row in the selected window", unmatchedReceives))
 	}
-	if len(res.Edges) == 0 && len(res.Caveats) == 0 {
+	if len(res.Edges) == 0 && len(res.BinderEvents) == 0 && len(res.Caveats) == 0 {
 		res.Caveats = append(res.Caveats, "no binder IPC edges were found in the selected trace window")
 	}
 	return res
@@ -132,6 +154,80 @@ func ipcEdgeFromSend(send Event) IPCEdge {
 		Oneway:        binderFlagsOneway(send.BinderFlags),
 		Confidence:    0.55,
 	}
+}
+
+func isBinderAuxEventType(typ EventType) bool {
+	switch typ {
+	case EventBinderAllocBuf, EventBinderLock, EventBinderLocked, EventBinderUnlock, EventBinderReply:
+		return true
+	default:
+		return false
+	}
+}
+
+func binderEventSummaryFromEvent(ev Event) BinderEventSummary {
+	item := BinderEventSummary{
+		Type:             ev.Type,
+		Thread:           threadRefFromEvent(ev),
+		TransactionID:    ev.BinderTransactionID,
+		DebugID:          ev.BinderDebugID,
+		DataSize:         ev.BinderDataSize,
+		OffsetsSize:      ev.BinderOffsetsSize,
+		ExtraBuffersSize: ev.BinderExtraSize,
+		Tag:              ev.BinderLockTag,
+		Ts:               ev.Ts,
+		Line:             ev.Line,
+	}
+	item.Summary = binderAuxSummary(item)
+	return item
+}
+
+func binderAuxSummary(item BinderEventSummary) string {
+	parts := []string{fmt.Sprintf("%s on %s", item.Type, threadLabel(item.Thread))}
+	if item.TransactionID > 0 {
+		parts = append(parts, fmt.Sprintf("transaction=%d", item.TransactionID))
+	} else if item.DebugID > 0 {
+		parts = append(parts, fmt.Sprintf("debug_id=%d", item.DebugID))
+	}
+	if item.DataSize > 0 || item.OffsetsSize > 0 || item.ExtraBuffersSize > 0 {
+		parts = append(parts, fmt.Sprintf("data=%d offsets=%d extra=%d", item.DataSize, item.OffsetsSize, item.ExtraBuffersSize))
+	}
+	if strings.TrimSpace(item.Tag) != "" {
+		parts = append(parts, "tag="+item.Tag)
+	}
+	return strings.Join(parts, " ")
+}
+
+func binderEventMentionsQuery(ev Event, q Query) bool {
+	if q.PID > 0 {
+		return ev.PID == q.PID || ev.TGID == q.PID
+	}
+	needle := strings.ToLower(strings.TrimSpace(q.Thread))
+	if needle == "" {
+		return true
+	}
+	return strings.Contains(strings.ToLower(ev.Comm), needle) || strings.Contains(strings.ToLower(ev.FieldText), needle)
+}
+
+func binderAuxCaveatsForEdge(edge IPCEdge, auxByTx map[int][]BinderEventSummary) []string {
+	if edge.TransactionID <= 0 {
+		return nil
+	}
+	var out []string
+	for _, aux := range auxByTx[edge.TransactionID] {
+		switch aux.Type {
+		case EventBinderAllocBuf:
+			out = append(out, fmt.Sprintf("binder alloc buffer row at line %d: data_size=%d offsets_size=%d extra_buffers_size=%d", aux.Line, aux.DataSize, aux.OffsetsSize, aux.ExtraBuffersSize))
+		case EventBinderLock, EventBinderLocked, EventBinderUnlock:
+			out = append(out, fmt.Sprintf("%s row at line %d tag=%s", aux.Type, aux.Line, aux.Tag))
+		case EventBinderReply:
+			out = append(out, fmt.Sprintf("binder reply row at line %d", aux.Line))
+		}
+		if len(out) >= 4 {
+			break
+		}
+	}
+	return out
 }
 
 func chooseBinderReceive(send Event, candidates []Event) (Event, bool) {
