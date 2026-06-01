@@ -114,11 +114,11 @@ func TestRenderHarmonySchedSwitchKeepsNextInfoAndCGroup(t *testing.T) {
 			{Name: "nname[16]", Offset: 36, Size: 16},
 			{Name: "next_tid", Offset: 52, Size: 4, Signed: true},
 			{Name: "nprio", Offset: 56, Size: 4, Signed: true},
-			{Name: "ninfo[16]", Offset: 60, Size: 16},
-			{Name: "cg[16]", Offset: 76, Size: 16},
+			{Name: "ninfo[8]", Offset: 60, Size: 8},
+			{Name: "cg[16]", Offset: 68, Size: 16},
 		},
 	}
-	content := make([]byte, 92)
+	content := make([]byte, 84)
 	binary.LittleEndian.PutUint32(content[4:8], uint32(100))
 	copy(content[8:24], []byte("app"))
 	binary.LittleEndian.PutUint32(content[24:28], uint32(100))
@@ -127,17 +127,101 @@ func TestRenderHarmonySchedSwitchKeepsNextInfoAndCGroup(t *testing.T) {
 	copy(content[36:52], []byte("worker"))
 	binary.LittleEndian.PutUint32(content[52:56], uint32(200))
 	binary.LittleEndian.PutUint32(content[56:60], uint32(80))
-	copy(content[60:76], []byte("rtq"))
-	copy(content[76:92], []byte("top-app"))
+	binary.LittleEndian.PutUint32(content[60:64], uint32(0x0000000f))
+	remaining := uint32(5) | uint32(2<<10) | uint32(1<<12) | uint32(3<<13) | uint32(17<<16)
+	binary.LittleEndian.PutUint32(content[64:68], remaining)
+	copy(content[68:84], []byte("top-app"))
 
 	line, known := renderEventLine(renderContext{cmdlines: map[int]string{100: "app"}, tgids: map[int]int{100: 100}}, 1_234_567_000, 2, format, content)
 	if !known {
 		t.Fatalf("sched_switch should be known: %s", line)
 	}
-	for _, want := range []string{"next_info=rtq", "cg=top-app"} {
+	for _, want := range []string{"next_info=f,10,2,1,3", "cg=top-app"} {
 		if !strings.Contains(line, want) {
 			t.Fatalf("rendered sched_switch missing %q:\n%s", want, line)
 		}
+	}
+}
+
+func TestRenderHarmonySchedSwitchNinfoIncludesCGIDWhenNoCGroup(t *testing.T) {
+	format := eventFormat{
+		ID:   11,
+		Name: "sched_switch",
+		Fields: []eventField{
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Name: "pname[16]", Offset: 8, Size: 16},
+			{Name: "prev_tid", Offset: 24, Size: 4, Signed: true},
+			{Name: "pprio", Offset: 28, Size: 4, Signed: true},
+			{Name: "pstate", Offset: 32, Size: 4},
+			{Name: "nname[16]", Offset: 36, Size: 16},
+			{Name: "next_tid", Offset: 52, Size: 4, Signed: true},
+			{Name: "nprio", Offset: 56, Size: 4, Signed: true},
+			{Name: "ninfo[8]", Offset: 60, Size: 8},
+		},
+	}
+	content := make([]byte, 68)
+	binary.LittleEndian.PutUint32(content[4:8], uint32(100))
+	copy(content[8:24], []byte("app"))
+	binary.LittleEndian.PutUint32(content[24:28], uint32(100))
+	binary.LittleEndian.PutUint32(content[28:32], uint32(53))
+	copy(content[36:52], []byte("worker"))
+	binary.LittleEndian.PutUint32(content[52:56], uint32(200))
+	binary.LittleEndian.PutUint32(content[56:60], uint32(80))
+	binary.LittleEndian.PutUint32(content[60:64], uint32(0x0000000f))
+	remaining := uint32(5) | uint32(2<<10) | uint32(1<<12) | uint32(3<<13) | uint32(17<<16)
+	binary.LittleEndian.PutUint32(content[64:68], remaining)
+
+	line, known := renderEventLine(renderContext{cmdlines: map[int]string{100: "app"}, tgids: map[int]int{100: 100}}, 1_234_567_000, 2, format, content)
+	if !known || !strings.Contains(line, "next_info=f,10,2,1,3,17") {
+		t.Fatalf("ninfo with cgid not rendered: known=%v line=%s", known, line)
+	}
+}
+
+func TestRenderMMFilemapPageCacheUsesNumericFields(t *testing.T) {
+	format := eventFormat{
+		ID:   30,
+		Name: "mm_filemap_add_to_page_cache",
+		Fields: []eventField{
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Name: "s_dev", Offset: 8, Size: 8},
+			{Name: "i_ino", Offset: 16, Size: 8},
+			{Name: "index", Offset: 24, Size: 8},
+			{Name: "pfn", Offset: 32, Size: 8},
+			{Name: "pg", Offset: 40, Size: 8},
+		},
+	}
+	content := make([]byte, 48)
+	binary.LittleEndian.PutUint32(content[4:8], uint32(100))
+	binary.LittleEndian.PutUint64(content[8:16], uint64((12<<20)|48))
+	binary.LittleEndian.PutUint64(content[16:24], uint64(0x60ffe))
+	binary.LittleEndian.PutUint64(content[24:32], uint64(42))
+	binary.LittleEndian.PutUint64(content[32:40], uint64(3062260))
+	binary.LittleEndian.PutUint64(content[40:48], uint64(0))
+
+	line, known := renderEventLine(renderContext{cmdlines: map[int]string{100: "worker"}, tgids: map[int]int{100: 100}}, 2_000_000_000, 1, format, content)
+	for _, want := range []string{"dev 12:48", "ino 0x60ffe", "page=0x0", "pfn=3062260", "ofs=172032"} {
+		if !known || !strings.Contains(line, want) {
+			t.Fatalf("mm_filemap page cache missing %q: known=%v line=%s", want, known, line)
+		}
+	}
+}
+
+func TestGenericIntegerFieldsDoNotBecomePrintableStrings(t *testing.T) {
+	format := eventFormat{
+		ID:   31,
+		Name: "vendor_numeric",
+		Fields: []eventField{
+			{Name: "common_pid", Offset: 4, Size: 4, Signed: true},
+			{Name: "pfn", Offset: 8, Size: 4},
+		},
+	}
+	content := make([]byte, 12)
+	binary.LittleEndian.PutUint32(content[4:8], uint32(100))
+	copy(content[8:12], []byte("ABCD"))
+
+	line, known := renderEventLine(renderContext{cmdlines: map[int]string{100: "worker"}, tgids: map[int]int{100: 100}}, 2_000_000_000, 1, format, content)
+	if known || strings.Contains(line, "pfn=ABCD") || !strings.Contains(line, "pfn=1145258561") {
+		t.Fatalf("generic integer field rendered unsafely: known=%v line=%s", known, line)
 	}
 }
 

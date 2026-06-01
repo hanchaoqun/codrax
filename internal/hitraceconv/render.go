@@ -110,11 +110,15 @@ func renderEventBody(ev decodedEvent, content []byte, cpu int) (string, bool) {
 	case "cpu_frequency":
 		return renderKV(ev, "state", "cpu_id"), true
 	case "clock_set_rate":
-		return renderClockSetRate(ev), true
+		return renderClockSetRate(ev, content), true
 	case "block_rq_issue", "block_rq_complete":
-		return renderBlockRequest(ev), true
+		return renderBlockRequest(ev, content), true
 	case "block_bio_remap":
 		return renderBlockRemap(ev), true
+	case "filemap_set_wb_err":
+		return renderFilemapSetWBErr(ev), true
+	case "mm_filemap_add_to_page_cache", "mm_filemap_delete_from_page_cache":
+		return renderMMFilemapPageCache(ev), true
 	case "binder_transaction":
 		return renderKV(ev, "transaction", "dest_node", "dest_proc", "dest_thread", "reply", "flags", "code"), true
 	case "binder_transaction_received":
@@ -140,13 +144,51 @@ func renderEventBody(ev decodedEvent, content []byte, cpu int) (string, bool) {
 
 func schedSwitchHarmonyExtras(ev decodedEvent) string {
 	var parts []string
-	if nextInfo := firstNonEmpty(strFieldByCleanName(ev, "ninfo"), strFieldByCleanName(ev, "next_info")); nextInfo != "" {
+	if nextInfo := harmonySchedInfo(ev); nextInfo != "" {
 		parts = append(parts, "next_info="+nextInfo)
 	}
 	if cg := firstNonEmpty(strFieldByCleanName(ev, "cg"), strFieldByCleanName(ev, "cgroup")); cg != "" {
 		parts = append(parts, "cg="+cg)
 	}
 	return strings.Join(parts, " ")
+}
+
+func harmonySchedInfo(ev decodedEvent) string {
+	_, ninfo, ok := fieldByCleanName(ev, "ninfo")
+	if !ok {
+		if s := strFieldByCleanName(ev, "next_info"); s != "" {
+			return s
+		}
+		return ""
+	}
+	if len(ninfo) < 8 {
+		if s := strings.TrimSpace(strFieldByCleanName(ev, "ninfo")); s != "" && isMostlyPrintable(s) {
+			return s
+		}
+		return ""
+	}
+	affinityRaw := binary.LittleEndian.Uint32(ninfo[:4])
+	affinity := strings.TrimLeft(fmt.Sprintf("%x", affinityRaw), "0")
+	if affinity == "" {
+		affinity = "0"
+	}
+	remaining := binary.LittleEndian.Uint32(ninfo[4:8])
+	load := (remaining & ((1 << 10) - 1)) << 1
+	group := (remaining >> 10) & ((1 << 2) - 1)
+	restricted := (remaining >> 12) & 1
+	expel := (remaining >> 13) & ((1 << 3) - 1)
+	parts := []string{
+		affinity,
+		strconv.FormatUint(uint64(load), 10),
+		strconv.FormatUint(uint64(group), 10),
+		strconv.FormatUint(uint64(restricted), 10),
+		strconv.FormatUint(uint64(expel), 10),
+	}
+	if !hasCleanField(ev, "cg") && !hasCleanField(ev, "cgroup") {
+		cgid := (remaining >> 16) & ((1 << 5) - 1)
+		parts = append(parts, strconv.FormatUint(uint64(cgid), 10))
+	}
+	return strings.Join(parts, ",")
 }
 
 func missingFormatPayload(eventID int, content []byte) string {
@@ -170,8 +212,13 @@ func missingFormatPayload(eventID int, content []byte) string {
 	return strings.Join(parts, " ")
 }
 
-func renderClockSetRate(ev decodedEvent) string {
-	name := firstNonEmpty(strField(ev, "name[16]"), strField(ev, "clk_name[32]"), strField(ev, "clock[32]"))
+func renderClockSetRate(ev decodedEvent, content []byte) string {
+	name := firstNonEmpty(
+		dataLocStringByCleanName(ev, content, "name", "clk_name", "clock"),
+		strField(ev, "name[16]"),
+		strField(ev, "clk_name[32]"),
+		strField(ev, "clock[32]"),
+	)
 	state := intField(ev, "state", false)
 	cpuID := intField(ev, "cpu_id", true)
 	if name != "" {
@@ -180,22 +227,68 @@ func renderClockSetRate(ev decodedEvent) string {
 	return renderKV(ev, "state", "cpu_id")
 }
 
-func renderBlockRequest(ev decodedEvent) string {
-	dev := firstNonEmpty(strField(ev, "devname[32]"), intFieldString(ev, "dev", false), intFieldString(ev, "dev_t", false))
+func renderBlockRequest(ev decodedEvent, content []byte) string {
+	dev := blockDevText(ev, "dev", "dev_t")
 	rwbs := firstNonEmpty(strField(ev, "rwbs[8]"), strField(ev, "rwbs[16]"), strField(ev, "cmd[16]"), "RW")
 	sector := intField(ev, "sector", false)
 	nr := firstNonZero(intField(ev, "nr_sector", false), intField(ev, "nr_bytes", false), intField(ev, "bytes", false))
-	comm := firstNonEmpty(strField(ev, "comm[16]"), strField(ev, "cmd[32]"))
-	return fmt.Sprintf("%s %s () %d + %d [%s]", dev, rwbs, sector, nr, comm)
+	cmd := firstNonEmpty(dataLocStringByCleanName(ev, content, "cmd"), strField(ev, "cmd[16]"), strField(ev, "cmd[32]"))
+	if ev.format.Name == "block_rq_complete" {
+		return fmt.Sprintf("%s %s (%s) %d + %d [%d]", dev, rwbs, cmd, sector, nr, intField(ev, "error", true))
+	}
+	comm := firstNonEmpty(strField(ev, "comm[16]"), strField(ev, "comm[32]"))
+	bytesValue := intField(ev, "bytes", false)
+	return fmt.Sprintf("%s %s %d (%s) %d + %d [%s]", dev, rwbs, bytesValue, cmd, sector, nr, comm)
 }
 
 func renderBlockRemap(ev decodedEvent) string {
-	dev := firstNonEmpty(strField(ev, "devname[32]"), intFieldString(ev, "dev", false), intFieldString(ev, "dev_t", false))
+	dev := blockDevText(ev, "dev", "dev_t")
 	sector := intField(ev, "sector", false)
 	nr := firstNonZero(intField(ev, "nr_sector", false), intField(ev, "nr_bytes", false), intField(ev, "bytes", false))
-	oldDev := firstNonEmpty(intFieldString(ev, "old_dev", false), intFieldString(ev, "from", false))
+	oldDev := blockDevText(ev, "old_dev", "from")
 	oldSector := intField(ev, "old_sector", false)
+	if rwbs := firstNonEmpty(strField(ev, "rwbs[8]"), strField(ev, "rwbs[16]")); rwbs != "" {
+		return fmt.Sprintf("%s %s %d + %d <- (%s) %d", dev, rwbs, sector, nr, oldDev, oldSector)
+	}
 	return fmt.Sprintf("%s %d + %d <- (%s) %d", dev, sector, nr, oldDev, oldSector)
+}
+
+func renderFilemapSetWBErr(ev decodedEvent) string {
+	sDev := firstNonZero(intField(ev, "s_dev", false), intField(ev, "dev", false))
+	return fmt.Sprintf("dev=%s ino=0x%x errseq=0x%x",
+		devMajorMinor(sDev, ":"),
+		firstNonZero(intField(ev, "i_ino", false), intField(ev, "ino", false)),
+		intField(ev, "errseq", false))
+}
+
+func renderMMFilemapPageCache(ev decodedEvent) string {
+	sDev := firstNonZero(intField(ev, "s_dev", false), intField(ev, "dev", false))
+	index := intField(ev, "index", false)
+	return fmt.Sprintf("dev %s ino 0x%x page=0x%x pfn=%d ofs=%d",
+		devMajorMinor(sDev, ":"),
+		firstNonZero(intField(ev, "i_ino", false), intField(ev, "ino", false)),
+		intField(ev, "pg", false),
+		intField(ev, "pfn", false),
+		index<<12)
+}
+
+func blockDevText(ev decodedEvent, names ...string) string {
+	for _, name := range names {
+		if hasField(ev, name) {
+			return devMajorMinor(intField(ev, name, false), ",")
+		}
+	}
+	if s := strField(ev, "devname[32]"); s != "" {
+		return s
+	}
+	return "0,0"
+}
+
+func devMajorMinor(dev int64, sep string) string {
+	if sep == "" {
+		sep = ","
+	}
+	return fmt.Sprintf("%d%s%d", dev>>20, sep, dev&0xfffff)
 }
 
 func renderKV(ev decodedEvent, names ...string) string {
@@ -229,7 +322,7 @@ func genericFields(ev decodedEvent, content []byte) string {
 				continue
 			}
 		}
-		if s := strField(ev, f.Name); s != "" && (fieldLooksString(f.Name) || isMostlyPrintable(s)) {
+		if s := strField(ev, f.Name); s != "" && fieldShouldRenderAsString(f) {
 			parts = append(parts, fmt.Sprintf("%s=%s", name, s))
 			continue
 		}
@@ -272,12 +365,29 @@ func strField(ev decodedEvent, name string) string {
 }
 
 func strFieldByCleanName(ev decodedEvent, want string) string {
-	for _, f := range ev.format.Fields {
-		if cleanFieldName(f.Name) == want {
-			return strField(ev, f.Name)
-		}
+	if f, _, ok := fieldByCleanName(ev, want); ok {
+		return strField(ev, f.Name)
 	}
 	return ""
+}
+
+func fieldByCleanName(ev decodedEvent, want string) (eventField, []byte, bool) {
+	for _, f := range ev.format.Fields {
+		if cleanFieldName(f.Name) != want {
+			continue
+		}
+		b, ok := ev.fields[f.Name]
+		if ok {
+			return f, b, true
+		}
+		return f, nil, false
+	}
+	return eventField{}, nil, false
+}
+
+func hasCleanField(ev decodedEvent, want string) bool {
+	_, _, ok := fieldByCleanName(ev, want)
+	return ok
 }
 
 func dataLocFieldString(ev decodedEvent, f eventField, content []byte) string {
@@ -527,14 +637,25 @@ func cleanFieldName(name string) string {
 	return name
 }
 
+func fieldShouldRenderAsString(f eventField) bool {
+	lowerType := strings.ToLower(f.Type)
+	if strings.Contains(lowerType, "char") || strings.Contains(lowerType, "string") {
+		return true
+	}
+	return fieldLooksString(f.Name)
+}
+
 func fieldLooksString(name string) bool {
-	lower := strings.ToLower(name)
-	return strings.Contains(lower, "comm") ||
-		strings.Contains(lower, "name") ||
-		strings.Contains(lower, "buf") ||
-		strings.Contains(lower, "str") ||
-		strings.Contains(lower, "cmd") ||
-		strings.Contains(lower, "rwbs")
+	switch strings.ToLower(cleanFieldName(name)) {
+	case "comm", "prev_comm", "next_comm", "pname", "nname",
+		"name", "buf", "str", "trace", "cmd", "rwbs",
+		"devname", "dev_name", "clk_name", "clock",
+		"func_name", "mod_name", "cg", "cgroup",
+		"driver", "timeline", "profile_info":
+		return true
+	default:
+		return false
+	}
 }
 
 func isMostlyPrintable(s string) bool {
