@@ -428,6 +428,59 @@ func TestNewFromConfig_UsesFirstModelWhenModelOmitted(t *testing.T) {
 	}
 }
 
+func TestParseModelList_FlexibleShapes(t *testing.T) {
+	cases := []struct {
+		name      string
+		body      string
+		wantNames []string
+		wantDesc  string
+	}{
+		{
+			name:      "array with mixed description types",
+			body:      `[{"name":"first","des":{"zh":"primary"}},{"id":"second","description":123},{"model_name":"third","desc":null}]`,
+			wantNames: []string{"first", "second", "third"},
+			wantDesc:  "",
+		},
+		{
+			name:      "openai data object",
+			body:      `{"data":[{"id":"first","description":"primary"}]}`,
+			wantNames: []string{"first"},
+			wantDesc:  "primary",
+		},
+		{
+			name:      "string array",
+			body:      `["first","second"]`,
+			wantNames: []string{"first", "second"},
+			wantDesc:  "",
+		},
+		{
+			name:      "models object",
+			body:      `{"models":[{"model":"first","des":456}]}`,
+			wantNames: []string{"first"},
+			wantDesc:  "456",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseModelList([]byte(tc.body))
+			if err != nil {
+				t.Fatalf("parseModelList: %v", err)
+			}
+			if len(got) != len(tc.wantNames) {
+				t.Fatalf("models=%+v, want %d", got, len(tc.wantNames))
+			}
+			for i, want := range tc.wantNames {
+				if got[i].Name != want {
+					t.Fatalf("model[%d].Name=%q, want %q; all=%+v", i, got[i].Name, want, got)
+				}
+			}
+			if tc.wantDesc != "" && got[0].Description != tc.wantDesc {
+				t.Fatalf("model[0].Description=%q, want %q", got[0].Description, tc.wantDesc)
+			}
+		})
+	}
+}
+
 func TestMarshalRequest_RequestExtraProtectsReservedFields(t *testing.T) {
 	adapter := &OpenAIAdapter{
 		model: "model-a",

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -187,13 +188,6 @@ type discoveredModel struct {
 	Description string
 }
 
-type rawProviderModel struct {
-	Name string  `json:"name"`
-	ID   string  `json:"id"`
-	Des  *string `json:"des"`
-	Desc *string `json:"description"`
-}
-
 type modelDiscoveryResult struct {
 	Models   []discoveredModel
 	Selected string
@@ -290,38 +284,92 @@ func modelDiscoveryKey(cfg types.LLMProviderConfig, authOpts AuthOptions) string
 }
 
 func parseModelList(body []byte) ([]discoveredModel, error) {
-	var arr []rawProviderModel
-	if err := json.Unmarshal(body, &arr); err == nil {
-		return normalizeDiscoveredModels(arr), nil
-	}
-	var obj struct {
-		Data []rawProviderModel `json:"data"`
-	}
-	if err := json.Unmarshal(body, &obj); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
+	var root any
+	if err := dec.Decode(&root); err != nil {
 		return nil, fmt.Errorf("parse model list response: %w", err)
 	}
-	return normalizeDiscoveredModels(obj.Data), nil
+	candidates, ok := modelListCandidates(root)
+	if !ok {
+		return nil, fmt.Errorf("parse model list response: expected array or object with data/models/items array")
+	}
+	return normalizeDiscoveredModels(candidates), nil
 }
 
-func normalizeDiscoveredModels(raw []rawProviderModel) []discoveredModel {
+func modelListCandidates(root any) ([]any, bool) {
+	switch v := root.(type) {
+	case []any:
+		return v, true
+	case map[string]any:
+		for _, key := range []string{"data", "models", "items"} {
+			if arr, ok := v[key].([]any); ok {
+				return arr, true
+			}
+		}
+	}
+	return nil, false
+}
+
+func normalizeDiscoveredModels(raw []any) []discoveredModel {
 	out := make([]discoveredModel, 0, len(raw))
 	for _, r := range raw {
-		name := strings.TrimSpace(r.Name)
-		if name == "" {
-			name = strings.TrimSpace(r.ID)
-		}
-		desc := ""
-		if r.Des != nil {
-			desc = strings.TrimSpace(*r.Des)
-		}
-		if desc == "" && r.Desc != nil {
-			desc = strings.TrimSpace(*r.Desc)
-		}
+		name, desc := normalizeDiscoveredModel(r)
 		if name != "" {
 			out = append(out, discoveredModel{Name: name, Description: desc})
 		}
 	}
 	return out
+}
+
+func normalizeDiscoveredModel(raw any) (string, string) {
+	switch v := raw.(type) {
+	case string:
+		return strings.TrimSpace(v), ""
+	case map[string]any:
+		name := firstModelField(v, "name", "id", "model", "model_name")
+		desc := firstModelField(v, "des", "description", "desc")
+		return name, desc
+	default:
+		return "", ""
+	}
+}
+
+func firstModelField(m map[string]any, keys ...string) string {
+	for _, key := range keys {
+		if s := scalarToString(m[key]); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+func scalarToString(v any) string {
+	switch x := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return strings.TrimSpace(x)
+	case json.Number:
+		return strings.TrimSpace(x.String())
+	case bool:
+		if x {
+			return "true"
+		}
+		return "false"
+	case float64:
+		return strings.TrimSpace(fmt.Sprintf("%g", x))
+	case float32:
+		return strings.TrimSpace(fmt.Sprintf("%g", x))
+	case int:
+		return strconv.Itoa(x)
+	case int64:
+		return strconv.FormatInt(x, 10)
+	case uint64:
+		return strconv.FormatUint(x, 10)
+	default:
+		return ""
+	}
 }
 
 func printModelSelectionNotice(result modelDiscoveryResult) {
