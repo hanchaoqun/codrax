@@ -548,6 +548,22 @@ func (o *OpenAIAdapter) doRequest(ctx context.Context, bodyBytes []byte) (Respon
 // read-side tap so the renderer can show a streaming preview of the
 // summary field without disturbing the canonical Args parse.
 func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, onDelta func(string), onToolCallDelta func(int, string, string)) (Response, error) {
+	for authAttempt := 0; authAttempt < 2; authAttempt++ {
+		resp, err := o.doStreamRequestOnce(ctx, bodyBytes, onDelta, onToolCallDelta)
+		if err == nil {
+			return resp, nil
+		}
+		var ae *apiError
+		if errors.As(err, &ae) && isAuthStatus(ae.StatusCode) && authAttempt == 0 && o.authenticator != nil {
+			o.authenticator.Invalidate()
+			continue
+		}
+		return resp, err
+	}
+	return Response{}, errors.New("llm stream auth retry exhausted")
+}
+
+func (o *OpenAIAdapter) doStreamRequestOnce(ctx context.Context, bodyBytes []byte, onDelta func(string), onToolCallDelta func(int, string, string)) (Response, error) {
 	// Stall-detection scaffold: a request-scoped context lets a
 	// watchdog goroutine cancel the in-flight HTTP body read when
 	// the upstream stops sending useful stream progress for too
@@ -626,9 +642,6 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 
 	if httpResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(httpResp.Body)
-		if isAuthStatus(httpResp.StatusCode) && o.authenticator != nil {
-			o.authenticator.Invalidate()
-		}
 		return Response{}, newAPIError(httpResp, body)
 	}
 	bodyClosed := make(chan struct{})

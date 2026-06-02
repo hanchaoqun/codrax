@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -222,25 +223,37 @@ func discoverFirstModel(cfg types.LLMProviderConfig, authOpts AuthOptions, reque
 	client := buildHTTPClient(authOpts.TLS, cfg.BaseURL, requestTimeout)
 	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, joinURLPath(cfg.BaseURL, cfg.ModelsPath), nil)
-	if err != nil {
-		return "", fmt.Errorf("create model-list request: %w", err)
+	var body []byte
+	for authAttempt := 0; authAttempt < 2; authAttempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, joinURLPath(cfg.BaseURL, cfg.ModelsPath), nil)
+		if err != nil {
+			return "", fmt.Errorf("create model-list request: %w", err)
+		}
+		if err := authenticator.Apply(ctx, req); err != nil {
+			return "", fmt.Errorf("apply auth for model-list request: %w", err)
+		}
+		applyConfiguredHeaders(req, cfg.Headers)
+		resp, err := client.Do(req)
+		if err != nil {
+			return "", fmt.Errorf("query model list: %w", err)
+		}
+		respBody, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr != nil {
+			return "", fmt.Errorf("read model list: %w", readErr)
+		}
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			body = respBody
+			break
+		}
+		if isAuthStatus(resp.StatusCode) && authAttempt == 0 {
+			authenticator.Invalidate()
+			continue
+		}
+		return "", fmt.Errorf("query model list HTTP %d: %s", resp.StatusCode, trimForLog(respBody, 512))
 	}
-	if err := authenticator.Apply(ctx, req); err != nil {
-		return "", fmt.Errorf("apply auth for model-list request: %w", err)
-	}
-	applyConfiguredHeaders(req, cfg.Headers)
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("query model list: %w", err)
-	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("read model list: %w", err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", fmt.Errorf("query model list HTTP %d: %s", resp.StatusCode, trimForLog(body, 512))
+	if len(bytes.TrimSpace(body)) == 0 {
+		return "", fmt.Errorf("parse model list response: empty body from %s", cfg.ModelsPath)
 	}
 	models, err := parseModelList(body)
 	if err != nil {

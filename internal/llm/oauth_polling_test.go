@@ -245,6 +245,159 @@ func TestOpenAIAdapter_OAuthPollingInvalidatesOn401AndRetriesNonStream(t *testin
 	}
 }
 
+func TestOpenAIAdapter_OAuthPollingInvalidatesOn401AndRetriesStream(t *testing.T) {
+	dir := t.TempDir()
+	cache := filepath.Join(dir, "token.json")
+	var chatCalls atomic.Int32
+	var tokenCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oauth/getToken":
+			tokenCalls.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"fresh-token","expires_in":"259199","token_type":"Bearer","userAccount":"u"}`))
+		case "/chat/completions":
+			call := chatCalls.Add(1)
+			if call == 1 {
+				if got := r.Header.Get("X-Auth-Token"); got != "stale-token" {
+					t.Fatalf("first stream token=%q, want stale-token", got)
+				}
+				http.Error(w, "expired", http.StatusUnauthorized)
+				return
+			}
+			if got := r.Header.Get("X-Auth-Token"); got != "fresh-token" {
+				t.Fatalf("second stream token=%q, want fresh-token", got)
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\n"))
+			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	cfg := types.LLMProviderConfig{
+		Provider:            "openai",
+		Model:               "model-a",
+		BaseURL:             srv.URL,
+		ChatCompletionsPath: "/chat/completions",
+		Stream:              boolPtr(true),
+		Auth: &types.LLMAuthConfig{
+			Mode:                "oauth2_polling",
+			AuthBaseURL:         srv.URL,
+			ClientID:            "client",
+			TokenCacheFile:      cache,
+			AccessTokenHeader:   "X-Auth-Token",
+			PollTimeoutSeconds:  1,
+			PollIntervalSeconds: 1,
+		},
+		RequestTimeoutSeconds:         5,
+		StreamFirstByteTimeoutSeconds: 5,
+		StreamStallTimeoutSeconds:     5,
+	}
+	authOpts := authOptionsFromConfig(cfg, 5*time.Second)
+	auth, err := newOAuthPollingAuthenticator(authOpts)
+	if err != nil {
+		t.Fatalf("newOAuthPollingAuthenticator: %v", err)
+	}
+	if err := auth.saveCache(cachedOAuthToken{
+		AccessToken: "stale-token",
+		IssuedAt:    time.Now(),
+		ExpiresAt:   time.Now().Add(time.Hour),
+		Fingerprint: auth.fingerprint,
+	}); err != nil {
+		t.Fatalf("saveCache: %v", err)
+	}
+	adapter, err := NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewFromConfig: %v", err)
+	}
+	resp, err := adapter.Chat(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil, ChatOptions{})
+	if err != nil {
+		t.Fatalf("Chat stream: %v", err)
+	}
+	if resp.Content != "ok" {
+		t.Fatalf("stream response=%+v", resp)
+	}
+	if chatCalls.Load() != 2 || tokenCalls.Load() != 1 {
+		t.Fatalf("chatCalls=%d tokenCalls=%d, want 2/1", chatCalls.Load(), tokenCalls.Load())
+	}
+}
+
+func TestNewFromConfig_ModelListInvalidatesOAuthTokenOn401(t *testing.T) {
+	dir := t.TempDir()
+	cache := filepath.Join(dir, "token.json")
+	var modelCalls atomic.Int32
+	var tokenCalls atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oauth/getToken":
+			tokenCalls.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"access_token":"fresh-token","expires_in":"259199","token_type":"Bearer","userAccount":"u"}`))
+		case "/models":
+			call := modelCalls.Add(1)
+			if call == 1 {
+				if got := r.Header.Get("X-Auth-Token"); got != "stale-token" {
+					t.Fatalf("first model-list token=%q, want stale-token", got)
+				}
+				http.Error(w, "expired", http.StatusUnauthorized)
+				return
+			}
+			if got := r.Header.Get("X-Auth-Token"); got != "fresh-token" {
+				t.Fatalf("second model-list token=%q, want fresh-token", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"name":"first","des":"primary"}]`))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	cfg := types.LLMProviderConfig{
+		Provider:   "openai",
+		BaseURL:    srv.URL,
+		ModelsPath: "/models",
+		Stream:     boolPtr(false),
+		Auth: &types.LLMAuthConfig{
+			Mode:                "oauth2_polling",
+			AuthBaseURL:         srv.URL,
+			ClientID:            "client",
+			TokenCacheFile:      cache,
+			AccessTokenHeader:   "X-Auth-Token",
+			PollTimeoutSeconds:  1,
+			PollIntervalSeconds: 1,
+		},
+		RequestTimeoutSeconds: 5,
+	}
+	authOpts := authOptionsFromConfig(cfg, 5*time.Second)
+	auth, err := newOAuthPollingAuthenticator(authOpts)
+	if err != nil {
+		t.Fatalf("newOAuthPollingAuthenticator: %v", err)
+	}
+	if err := auth.saveCache(cachedOAuthToken{
+		AccessToken: "stale-token",
+		IssuedAt:    time.Now(),
+		ExpiresAt:   time.Now().Add(time.Hour),
+		Fingerprint: auth.fingerprint,
+	}); err != nil {
+		t.Fatalf("saveCache: %v", err)
+	}
+	adapter, err := NewFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("NewFromConfig: %v", err)
+	}
+	if adapter.ModelID() != "first" {
+		t.Fatalf("model=%q, want first", adapter.ModelID())
+	}
+	if modelCalls.Load() != 2 || tokenCalls.Load() != 1 {
+		t.Fatalf("modelCalls=%d tokenCalls=%d, want 2/1", modelCalls.Load(), tokenCalls.Load())
+	}
+}
+
 func TestNewFromConfig_UsesFirstModelWhenModelOmitted(t *testing.T) {
 	var sawModels atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
