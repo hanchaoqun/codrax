@@ -1684,8 +1684,11 @@ func BuildAnswerSurfacePlan(
 		plan.StableAbsenceJustification = strings.TrimSpace(mutable.StableAbsenceJustification())
 		plan.StableInvestigationReason = strings.TrimSpace(mutable.StableInvestigationCompleteReason())
 		plan.StableAggregateFacts = mutable.StableInvestigationAggregateFacts()
-		if ta := mutable.TurnAArtifacts(); ta != nil && len(ta.ValidationBoundaryNotes) > 0 {
-			plan.StableValidationBoundaryNotes = append([]string(nil), ta.ValidationBoundaryNotes...)
+		if ta := mutable.TurnAArtifacts(); ta != nil {
+			plan.StableAggregateFacts = MergeAnswerAggregateFacts(plan.StableAggregateFacts, ta.AcceptedAggregateFacts)
+			if len(ta.ValidationBoundaryNotes) > 0 {
+				plan.StableValidationBoundaryNotes = append([]string(nil), ta.ValidationBoundaryNotes...)
+			}
 		}
 		plan.ExactContextRequiredFiles = mutable.ExactContextRequiredFiles()
 		if syms, claim := mutable.EmittedAnswerSymbols(); len(syms) > 0 {

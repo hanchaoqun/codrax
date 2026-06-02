@@ -2543,6 +2543,42 @@ func TestBuildAnswerSurfacePlan_DoesNotNarrowAcceptedMemberSetWithIncompleteAnsw
 	}
 }
 
+func TestBuildAnswerSurfacePlan_CarriesTurnAAcceptedAggregateFactsAfterReset(t *testing.T) {
+	mut := NewMutableState("headers")
+	mut.SetTurnAArtifacts(TurnAArtifacts{
+		AcceptedAggregateFacts: []AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "model headers",
+			Value:   "2",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"X-Auth-Token", "app-id"},
+			MemberNotes: []string{
+				"X-Auth-Token comes from loadW3Token",
+				"app-id is fixed to CodeAgent2.0",
+			},
+			SupportRefs: []string{
+				"X-Auth-Token @ api.ts:10",
+				"app-id @ api.ts:12",
+			},
+		}},
+	})
+	// Simulate a retry/window reset after Turn A froze the accepted payload:
+	// downstream answer-surface consumers must still see the aggregate handoff.
+	mut.ResetInvestigationComplete()
+	ir := &AnalysisIR{RequestModel: RequestModel{
+		Intent:     IntentEnumerate,
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+	}}
+	plan := BuildAnswerSurfacePlan(ir, mut, nil, nil, nil, nil)
+	if plan == nil || len(plan.StableAggregateFacts) != 1 {
+		t.Fatalf("TurnA accepted aggregate facts should remain visible in surface plan, got %+v", plan)
+	}
+	got := plan.StableAggregateFacts[0]
+	if got.Label != "model headers" || len(got.Members) != 2 || len(got.MemberNotes) != 2 || len(got.SupportRefs) != 2 {
+		t.Fatalf("surface plan lost accepted aggregate richness: %+v", got)
+	}
+}
+
 func TestBuildAnswerSurfacePlan_DemotesConflictingParallelCountFacts(t *testing.T) {
 	mut := NewMutableState("parallel enumeration facts")
 	mut.SetInvestigationAggregateFacts([]AnswerAggregateFact{

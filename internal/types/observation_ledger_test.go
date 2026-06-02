@@ -1490,6 +1490,51 @@ func TestPrioritizeObservationRecords_ExternalOnlyHistoryDoesNotLetIncidentalSou
 	}
 }
 
+func TestPrioritizeObservationRecords_PrincipalAggregateSurvivesSourceEvidenceBudget(t *testing.T) {
+	records := []ObservationRecord{{
+		ID:      "aggregate:0#current_source",
+		Origin:  AnswerEvidenceOriginCurrentSource,
+		Role:    AnswerAggregateRolePrincipalAnswer,
+		Summary: "headers handed off by exploration",
+		RichNotes: []string{
+			"X-Auth-Token comes from loadW3Token",
+			"app-id is CodeAgent2.0",
+		},
+		SupportRefs: []string{"X-Auth-Token @ api.ts:10"},
+	}}
+	for i := 0; i < 24; i++ {
+		records = append(records, ObservationRecord{
+			ID:     fmt.Sprintf("evidence:current:%d", i),
+			Origin: AnswerEvidenceOriginCurrentSource,
+			Role:   AnswerAggregateRoleSupportingCoverage,
+			SourceRef: ObservationSourceRef{
+				Kind: ObservationSourceCurrentSource,
+				Path: fmt.Sprintf("internal/current_%d.go", i),
+			},
+			Span:            ObservationSpan{LineStart: 10 + i},
+			AnchorKind:      AnchorDefinition,
+			EvidenceScope:   ScopeLine,
+			GroundingStatus: GroundingGrounded,
+			Summary:         "current source detail",
+		})
+	}
+	rm := RequestModel{
+		Intent:     IntentEnumerate,
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+	}
+	got := PrioritizeObservationRecords(records, &rm, nil, 4)
+	foundAggregate := false
+	for _, record := range got {
+		if record.ID == "aggregate:0#current_source" {
+			foundAggregate = true
+			break
+		}
+	}
+	if !foundAggregate {
+		t.Fatalf("principal aggregate handoff should survive a tight source-evidence budget, got %+v", got)
+	}
+}
+
 func TestObservationLedgerInputFromContexts_PrefersAcceptedTurnAToolResults(t *testing.T) {
 	mut := NewMutableState("history")
 	mut.SetTurnAArtifacts(TurnAArtifacts{
@@ -1549,6 +1594,54 @@ func TestObservationLedgerInputFromContexts_PrefersAcceptedTurnAToolResults(t *t
 	assertObservationRecord(t, ledger, "aggregate:0#vcs_metadata", AnswerEvidenceOriginVCSMetadata, ObservationSourceVCSMetadata)
 	assertObservationRecord(t, ledger, "evidence:turn-a", AnswerEvidenceOriginCurrentSource, ObservationSourceCurrentSource)
 	assertObservationRecord(t, ledger, "source_inventory:0:0", AnswerEvidenceOriginCurrentSource, ObservationSourceCurrentSource)
+}
+
+func TestObservationLedgerInputFromContexts_MergesTurnAAcceptedAggregateFacts(t *testing.T) {
+	mut := NewMutableState("headers")
+	mut.SetTurnAArtifacts(TurnAArtifacts{
+		AcceptedAggregateFacts: []AnswerAggregateFact{{
+			Kind:    AnswerAggregateMemberSet,
+			Label:   "model headers",
+			Value:   "2",
+			Role:    AnswerAggregateRolePrincipalAnswer,
+			Members: []string{"X-Auth-Token", "app-id"},
+			MemberNotes: []string{
+				"X-Auth-Token comes from loadW3Token",
+				"app-id is fixed to CodeAgent2.0",
+			},
+			SupportRefs: []string{
+				"X-Auth-Token @ api.ts:10",
+				"app-id @ api.ts:12",
+			},
+		}},
+	})
+	rm := RequestModel{
+		Intent:     IntentEnumerate,
+		Predicates: SemanticPredicates{IsCategoryEnumeration: true},
+	}
+	for name, input := range map[string]ObservationLedgerInput{
+		"agent": ObservationLedgerInputFromAgentContext(&AgentContext{
+			Mutable:    mut,
+			AnalysisIR: &AnalysisIR{RequestModel: rm},
+		}, 64),
+		"bus": ObservationLedgerInputFromBusContext(&BusContext{
+			Mutable:    mut,
+			AnalysisIR: &AnalysisIR{RequestModel: rm},
+		}, 64),
+	} {
+		ledger := CompileObservationLedger(input)
+		record := findObservationRecord(t, ledger, "aggregate:0#current_source")
+		if record.Role != AnswerAggregateRolePrincipalAnswer {
+			t.Fatalf("%s aggregate role = %q, want principal: %+v", name, record.Role, record)
+		}
+		notes := strings.Join(record.RichNotes, "\n")
+		if !strings.Contains(notes, "loadW3Token") || !strings.Contains(notes, "CodeAgent2.0") {
+			t.Fatalf("%s aggregate rich notes lost TurnA member details: %+v", name, record.RichNotes)
+		}
+		if len(record.SupportRefs) != 2 {
+			t.Fatalf("%s aggregate support refs lost: %+v", name, record.SupportRefs)
+		}
+	}
 }
 
 func TestObservationLedgerInputFromAgentContext_CarriesMCPAndRuntimeBundles(t *testing.T) {

@@ -608,6 +608,9 @@ func observationRecordRank(record ObservationRecord, intent *AnswerIntentContrac
 	if NormalizeAnswerAggregateRole(record.Role).IsPrincipal() {
 		rank -= 90
 	}
+	if observationRecordIsPrincipalAggregate(record) {
+		rank -= 120
+	}
 	switch record.Origin {
 	case AnswerEvidenceOriginCurrentSource:
 		rank -= 40
@@ -633,6 +636,11 @@ func observationRecordRank(record ObservationRecord, intent *AnswerIntentContrac
 		rank += 30
 	}
 	return rank
+}
+
+func observationRecordIsPrincipalAggregate(record ObservationRecord) bool {
+	return strings.HasPrefix(strings.TrimSpace(record.ID), "aggregate:") &&
+		NormalizeAnswerAggregateRole(record.Role).IsPrincipal()
 }
 
 func observationRecordIsSourceInventory(record ObservationRecord) bool {
