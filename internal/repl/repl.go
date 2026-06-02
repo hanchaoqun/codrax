@@ -195,6 +195,7 @@ type Config struct {
 	Prompt           string // primary prompt, e.g. ">"
 	PromptCont       string // continuation prompt, e.g. "."
 	Banner           string // printed once at start; empty → default badge
+	HeaderPrinted    bool   // true when cmd already rendered the CODRAX startup header
 	ModelListLine    string // optional model-list summary shown before model config
 	ModelSummaryLine string // optional resolved model summary
 
@@ -454,6 +455,7 @@ type REPL struct {
 	prompt              string
 	promptCont          string
 	bannerText          string
+	headerPrinted       bool
 	modelListLine       string
 	modelSummaryLine    string
 	scanner             *bufio.Scanner // lazy-init for line-oriented mode
@@ -684,6 +686,7 @@ func New(cfg Config) *REPL {
 		prompt:                 cfg.Prompt,
 		promptCont:             cfg.PromptCont,
 		bannerText:             cfg.Banner,
+		headerPrinted:          cfg.HeaderPrinted,
 		modelListLine:          cfg.ModelListLine,
 		modelSummaryLine:       cfg.ModelSummaryLine,
 		pasteFoldMinChars:      cfg.PasteFoldMinChars,
@@ -1393,7 +1396,9 @@ func (r *REPL) banner() {
 		fmt.Fprintln(r.out, r.bannerText)
 		return
 	}
-	PrintStartupHeader(r.out, r.version, r.repoRoot)
+	if !r.headerPrinted {
+		PrintStartupHeader(r.out, r.version, r.repoRoot)
+	}
 	// One-line capability summary so the user sees at startup which
 	// modes are available and which yaml file backs the config. With
 	// write_enabled=false the line names the gate explicitly so the
@@ -1505,6 +1510,19 @@ func PrintOAuthAuthorizationPrompt(out io.Writer, lang, url string) {
 	body := pterm.NewStyle(pterm.FgDarkGray).Sprint(msg)
 	link := pterm.NewStyle(pterm.FgLightBlue).Sprint(strings.TrimSpace(url))
 	fmt.Fprintf(out, "  %s %s\n    %s\n", prefix, body, link)
+}
+
+// PrintOAuthAuthorizationComplete renders the successful end of an OAuth
+// browser authorization flow. It deliberately avoids token/cache details.
+func PrintOAuthAuthorizationComplete(out io.Writer, lang string) {
+	if out == nil {
+		out = os.Stdout
+	}
+	msg := "LLM OAuth 授权已完成，正在继续初始化。"
+	if !isZh(lang) {
+		msg = "LLM OAuth authorization complete; continuing startup."
+	}
+	fmt.Fprintf(out, "  %s %s\n", pterm.FgGreen.Sprint("✓"), pterm.FgDarkGray.Sprint(msg))
 }
 
 // degradedEnvHints returns zero-or-more lines describing environment

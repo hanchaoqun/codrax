@@ -1242,3 +1242,46 @@ func TestPrintOAuthAuthorizationPrompt(t *testing.T) {
 		t.Fatalf("OAuth prompt should use REPL-style prefix: %q", got)
 	}
 }
+
+func TestPrintOAuthAuthorizationComplete(t *testing.T) {
+	var out bytes.Buffer
+	PrintOAuthAuthorizationComplete(&out, "zh")
+	got := out.String()
+	if !strings.Contains(got, "LLM OAuth 授权已完成") {
+		t.Fatalf("zh OAuth complete notice missing localized text: %q", got)
+	}
+	if !strings.Contains(got, "✓") {
+		t.Fatalf("OAuth complete notice should use success marker: %q", got)
+	}
+}
+
+func TestBannerSkipsStartupHeaderWhenAlreadyPrinted(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	var out bytes.Buffer
+	r := New(Config{
+		Runner:           stubRunner{},
+		Store:            store,
+		Render:           renderNothing,
+		RepoRoot:         ".",
+		Branch:           "main",
+		In:               strings.NewReader(""),
+		Out:              &out,
+		Language:         "zh",
+		HeaderPrinted:    true,
+		ModelSummaryLine: "模型: MiniMax-M2.7 · 上下文=200k",
+	})
+
+	r.banner()
+
+	got := out.String()
+	if strings.Contains(got, "CODRAX") {
+		t.Fatalf("banner should not repeat CODRAX header after startup prelude printed it:\n%s", got)
+	}
+	if !strings.Contains(got, "模型: MiniMax-M2.7") || !strings.Contains(got, "模式:") {
+		t.Fatalf("banner should still render status rows after skipped header:\n%s", got)
+	}
+}

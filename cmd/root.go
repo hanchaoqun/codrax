@@ -11,7 +11,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -1230,6 +1229,7 @@ func runREPL(_ *cobra.Command) error {
 		Version:            version,
 		BuildTime:          buildTime,
 		Language:           flagLang,
+		HeaderPrinted:      app.replHeaderPrinted,
 		ModelListLine:      app.replModelListLine,
 		ModelSummaryLine:   app.replModelSummaryLine,
 		MarkdownPreview:    markdownPreview,
@@ -3786,16 +3786,27 @@ func installLLMStartupUXHooks(interactiveStartup bool) {
 	llm.DeferModelSelectionNotices(interactiveStartup)
 	if !interactiveStartup {
 		llm.SetOAuthAuthorizationNoticeHook(nil)
+		llm.SetOAuthAuthorizationCompleteNoticeHook(nil)
 		return
 	}
 	llm.SetOAuthAuthorizationNoticeHook(func(notice llm.OAuthAuthorizationNotice) bool {
-		if !app.replHeaderPrinted {
-			repl.PrintStartupHeader(os.Stdout, version, flagRepo)
-			app.replHeaderPrinted = true
-		}
+		ensureREPLStartupHeaderPrinted()
 		repl.PrintOAuthAuthorizationPrompt(os.Stdout, flagLang, notice.URL)
 		return true
 	})
+	llm.SetOAuthAuthorizationCompleteNoticeHook(func(notice llm.OAuthAuthorizationCompleteNotice) bool {
+		ensureREPLStartupHeaderPrinted()
+		repl.PrintOAuthAuthorizationComplete(os.Stdout, flagLang)
+		return true
+	})
+}
+
+func ensureREPLStartupHeaderPrinted() {
+	if app.replHeaderPrinted {
+		return
+	}
+	repl.PrintStartupHeader(os.Stdout, version, flagRepo)
+	app.replHeaderPrinted = true
 }
 
 func replModelSummaryLine(lang string, adapter llm.Adapter, autoSelected bool) string {
@@ -4201,48 +4212,29 @@ func startTopologyStartupNotice(enabled bool, lang string) func(*topology.RepoTo
 	if !enabled {
 		return func(*topology.RepoTopology, error, time.Duration) {}
 	}
-	done := make(chan struct{})
-	printed := make(chan struct{}, 1)
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		timer := time.NewTimer(2 * time.Second)
-		defer timer.Stop()
-		select {
-		case <-timer.C:
-			if prefersChineseStartup(lang) {
-				fmt.Fprintln(os.Stdout, "· 正在发现工作区子仓拓扑（仅元数据，不构建 repo_map 索引）...")
-			} else {
-				fmt.Fprintln(os.Stdout, "· Discovering workspace sub-repo topology (metadata only; not building repo_map indexes)...")
-			}
-			printed <- struct{}{}
-		case <-done:
-		}
-	}()
+	ensureREPLStartupHeaderPrinted()
+	if prefersChineseStartup(lang) {
+		fmt.Fprintln(os.Stdout, "  · 正在发现工作区子仓拓扑（仅元数据，不构建 repo_map 索引）")
+	} else {
+		fmt.Fprintln(os.Stdout, "  · Discovering workspace sub-repo topology (metadata only; not building repo_map indexes)")
+	}
 	return func(topo *topology.RepoTopology, err error, elapsed time.Duration) {
-		close(done)
-		wg.Wait()
-		select {
-		case <-printed:
-			if err != nil {
-				if prefersChineseStartup(lang) {
-					fmt.Fprintf(os.Stdout, "✗ 工作区子仓拓扑发现失败：%v (%s)\n", err, formatStartupElapsed(elapsed))
-				} else {
-					fmt.Fprintf(os.Stdout, "✗ Workspace topology discovery failed: %v (%s)\n", err, formatStartupElapsed(elapsed))
-				}
-				return
-			}
-			count := 0
-			if topo != nil {
-				count = len(topo.Repos)
-			}
+		if err != nil {
 			if prefersChineseStartup(lang) {
-				fmt.Fprintf(os.Stdout, "✓ 工作区子仓拓扑已就绪：%d 个子仓 (%s)\n", count, formatStartupElapsed(elapsed))
+				fmt.Fprintf(os.Stdout, "  ✗ 工作区子仓拓扑发现失败：%v (%s)\n", err, formatStartupElapsed(elapsed))
 			} else {
-				fmt.Fprintf(os.Stdout, "✓ Workspace topology ready: %d sub-repo(s) (%s)\n", count, formatStartupElapsed(elapsed))
+				fmt.Fprintf(os.Stdout, "  ✗ Workspace topology discovery failed: %v (%s)\n", err, formatStartupElapsed(elapsed))
 			}
-		default:
+			return
+		}
+		count := 0
+		if topo != nil {
+			count = len(topo.Repos)
+		}
+		if prefersChineseStartup(lang) {
+			fmt.Fprintf(os.Stdout, "  ✓ 工作区子仓拓扑已就绪：%d 个子仓 (%s)\n", count, formatStartupElapsed(elapsed))
+		} else {
+			fmt.Fprintf(os.Stdout, "  ✓ Workspace topology ready: %d sub-repo(s) (%s)\n", count, formatStartupElapsed(elapsed))
 		}
 	}
 }

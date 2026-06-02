@@ -74,9 +74,20 @@ type OAuthAuthorizationNotice struct {
 	CacheFile string
 }
 
+// OAuthAuthorizationCompleteNotice is emitted once browser authorization has
+// produced a usable token. It intentionally contains no token material.
+type OAuthAuthorizationCompleteNotice struct {
+	CacheFile string
+}
+
 var oauthAuthorizationNotice = struct {
 	sync.Mutex
 	hook func(OAuthAuthorizationNotice) bool
+}{}
+
+var oauthAuthorizationCompleteNotice = struct {
+	sync.Mutex
+	hook func(OAuthAuthorizationCompleteNotice) bool
 }{}
 
 // SetOAuthAuthorizationNoticeHook installs a process-global UI hook for OAuth
@@ -89,10 +100,28 @@ func SetOAuthAuthorizationNoticeHook(hook func(OAuthAuthorizationNotice) bool) {
 	oauthAuthorizationNotice.hook = hook
 }
 
+// SetOAuthAuthorizationCompleteNoticeHook installs a UI hook for the
+// successful end of an OAuth browser authorization flow.
+func SetOAuthAuthorizationCompleteNoticeHook(hook func(OAuthAuthorizationCompleteNotice) bool) {
+	oauthAuthorizationCompleteNotice.Lock()
+	defer oauthAuthorizationCompleteNotice.Unlock()
+	oauthAuthorizationCompleteNotice.hook = hook
+}
+
 func emitOAuthAuthorizationNotice(notice OAuthAuthorizationNotice) bool {
 	oauthAuthorizationNotice.Lock()
 	hook := oauthAuthorizationNotice.hook
 	oauthAuthorizationNotice.Unlock()
+	if hook != nil && hook(notice) {
+		return true
+	}
+	return false
+}
+
+func emitOAuthAuthorizationCompleteNotice(notice OAuthAuthorizationCompleteNotice) bool {
+	oauthAuthorizationCompleteNotice.Lock()
+	hook := oauthAuthorizationCompleteNotice.hook
+	oauthAuthorizationCompleteNotice.Unlock()
 	if hook != nil && hook(notice) {
 		return true
 	}
@@ -364,7 +393,15 @@ func (a *oauthPollingAuthenticator) authorizeAndPoll(ctx context.Context) (cache
 		attempt++
 		resp, err := a.requestTokenOnce(pollCtx, clientCode, redirectURL)
 		if err == nil && strings.TrimSpace(resp.AccessToken) != "" {
-			return a.cacheFromResponse(resp, time.Now()), nil
+			tok := a.cacheFromResponse(resp, time.Now())
+			if !emitOAuthAuthorizationCompleteNotice(OAuthAuthorizationCompleteNotice{CacheFile: a.cacheFile}) {
+				if preferChineseDisplay() {
+					fmt.Fprintln(os.Stderr, "  ✓ LLM OAuth 授权已完成，正在继续初始化。")
+				} else {
+					fmt.Fprintln(os.Stderr, "  ✓ LLM OAuth authorization complete; continuing startup.")
+				}
+			}
+			return tok, nil
 		}
 		if err != nil {
 			lastErr = err
