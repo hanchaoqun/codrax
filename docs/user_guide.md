@@ -1820,7 +1820,7 @@ llm:
 
 ### 5.1.4 TLS / 自签证书
 
-仅当 `base_url` 是 `https://`:
+TLS 校验只作用于 `https://` 端点；但只要配置了 `tls_ca_file`,Codrax 启动时就会校验该文件是否可读且是有效 PEM。
 
 ```yaml
 llm:
@@ -1828,6 +1828,8 @@ llm:
     tls_ca_file: /etc/pki/corp-bundle.pem    # 公司自签 CA(typical 错误:x509: cert signed by unknown authority)
     # tls_insecure_skip_verify: true         # 核武器:完全跳过证书验证,启动时会打高亮警告
 ```
+
+`tls_ca_file` 可以写绝对路径,也可以写相对路径。相对路径从 codrax 可执行文件所在目录开始计算,不从当前仓库目录或启动命令的工作目录计算。一旦配置,文件必须可读且包含有效 PEM 证书;否则 Codrax 会在 REPL/CLI 启动阶段提示原因并停止,不会静默回退到系统证书池。
 
 ### 5.1.5 sizing / 超时 / 重试(每个字段都可选)
 
@@ -2220,7 +2222,7 @@ CLI 单次模式输出:
 → 5.1 节;4 个字段必填,缺一个就拒启动。
 
 **`x509: certificate signed by unknown authority`**
-→ 公司自签 CA。`tls_ca_file: /path/to/corp-bundle.pem` 写进 `providers.yaml`。
+→ 公司自签 CA。`tls_ca_file: /path/to/corp-bundle.pem` 写进 `providers.yaml`;相对路径从 codrax 可执行文件所在目录开始计算。
 
 **banner 里 `WARN search backend: native Go scanner`**
 → 没装 ripgrep / grep。能跑,只是慢。装 ripgrep:`apt install ripgrep` / `brew install ripgrep` / `winget install BurntSushi.ripgrep.MSVC`。

@@ -191,6 +191,14 @@ type AdapterOptions struct {
 //     retries (= one shot, breaks 429 rotation), so we panic to fail
 //     loud at construction.
 func NewOpenAIAdapter(apiKey, model, baseURL string, opts AdapterOptions) *OpenAIAdapter {
+	adapter, err := NewOpenAIAdapterWithError(apiKey, model, baseURL, opts)
+	if err != nil {
+		panic(err)
+	}
+	return adapter
+}
+
+func NewOpenAIAdapterWithError(apiKey, model, baseURL string, opts AdapterOptions) (*OpenAIAdapter, error) {
 	if opts.RequestTimeout <= 0 {
 		panic("llm: AdapterOptions.RequestTimeout must be positive (factory must apply code default)")
 	}
@@ -207,14 +215,19 @@ func NewOpenAIAdapter(apiKey, model, baseURL string, opts AdapterOptions) *OpenA
 	}
 	authenticator, err := newRequestAuthenticator(apiKey, opts.Auth)
 	if err != nil {
-		// Factory validation should catch this before construction.
-		// Panic keeps tests and future direct callers honest, matching
-		// the existing fail-loud sizing guards above.
-		panic(err)
+		return nil, err
 	}
 	chatPath := strings.TrimSpace(opts.ChatCompletionsPath)
 	if chatPath == "" {
 		chatPath = "/chat/completions"
+	}
+	httpClient, err := buildHTTPClient(opts.TLS, baseURL, opts.RequestTimeout)
+	if err != nil {
+		return nil, err
+	}
+	streamHTTPClient, err := buildStreamHTTPClient(opts.TLS, baseURL, firstByteTimeout)
+	if err != nil {
+		return nil, err
 	}
 	return &OpenAIAdapter{
 		apiKey:                 apiKey,
@@ -234,35 +247,35 @@ func NewOpenAIAdapter(apiKey, model, baseURL string, opts AdapterOptions) *OpenA
 		stream:                 opts.Stream,
 		recoverTextToolCalls:   opts.RecoverTextToolCalls,
 		providerThinkingMode:   normalizeProviderThinkingMode(opts.ProviderThinkingMode),
-		httpClient:             buildHTTPClient(opts.TLS, baseURL, opts.RequestTimeout),
+		httpClient:             httpClient,
 		// Streaming client gets NO outer timeout (Duration(0)); the
 		// per-request context + streamStallTimeout watchdog own
 		// cancellation after response headers arrive. The transport
 		// still caps response-header wait with firstByteTimeout so a
 		// provider that never starts the stream cannot hang before the
 		// watchdog exists.
-		streamHTTPClient: buildStreamHTTPClient(opts.TLS, baseURL, firstByteTimeout),
-	}
+		streamHTTPClient: streamHTTPClient,
+	}, nil
 }
 
 // buildHTTPClient assembles the per-provider http.Client. When the
 // caller supplies TLS overrides, a fresh Transport is attached with
 // the requested TLS config; otherwise the default Transport is used
 // (http.DefaultTransport won't be modified, so concurrent providers
-// don't stomp each other). Errors loading the CA file surface as
-// startup warnings and fall back to the system trust pool, matching
-// the precedent of "never block on a misconfigured optional field."
-func buildHTTPClient(tlsOpts TLSOptions, baseURL string, timeout time.Duration) *http.Client {
+// don't stomp each other). A configured tls_ca_file is fail-loud:
+// missing/unreadable/invalid PEM files return an error so startup
+// stops instead of silently falling back to a different trust model.
+func buildHTTPClient(tlsOpts TLSOptions, baseURL string, timeout time.Duration) (*http.Client, error) {
 	return buildHTTPClientWithTransportOptions(tlsOpts, baseURL, timeout, 0)
 }
 
-func buildStreamHTTPClient(tlsOpts TLSOptions, baseURL string, responseHeaderTimeout time.Duration) *http.Client {
+func buildStreamHTTPClient(tlsOpts TLSOptions, baseURL string, responseHeaderTimeout time.Duration) (*http.Client, error) {
 	return buildHTTPClientWithTransportOptions(tlsOpts, baseURL, 0, responseHeaderTimeout)
 }
 
-func buildHTTPClientWithTransportOptions(tlsOpts TLSOptions, baseURL string, timeout, responseHeaderTimeout time.Duration) *http.Client {
+func buildHTTPClientWithTransportOptions(tlsOpts TLSOptions, baseURL string, timeout, responseHeaderTimeout time.Duration) (*http.Client, error) {
 	if tlsOpts.CAFile == "" && !tlsOpts.InsecureSkipVerify && responseHeaderTimeout <= 0 {
-		return &http.Client{Timeout: timeout}
+		return &http.Client{Timeout: timeout}, nil
 	}
 
 	transport := http.DefaultTransport.(*http.Transport).Clone()
@@ -284,9 +297,9 @@ func buildHTTPClientWithTransportOptions(tlsOpts TLSOptions, baseURL string, tim
 		}
 		pem, readErr := os.ReadFile(tlsOpts.CAFile)
 		if readErr != nil {
-			logging.Warning("[llm/tls] could not read tls_ca_file %q: %v — falling back to system trust pool", tlsOpts.CAFile, readErr)
+			return nil, fmt.Errorf("providers.yaml: tls_ca_file %q is configured but cannot be read: %w", tlsOpts.CAFile, readErr)
 		} else if !pool.AppendCertsFromPEM(pem) {
-			logging.Warning("[llm/tls] tls_ca_file %q contained no valid PEM certificates — falling back to system trust pool", tlsOpts.CAFile)
+			return nil, fmt.Errorf("providers.yaml: tls_ca_file %q is configured but contains no valid PEM certificates", tlsOpts.CAFile)
 		} else {
 			logging.Info("[llm/tls] appended custom CA bundle %q to system trust pool for %s", tlsOpts.CAFile, baseURL)
 			tlsCfg.RootCAs = pool
@@ -307,7 +320,7 @@ func buildHTTPClientWithTransportOptions(tlsOpts TLSOptions, baseURL string, tim
 	return &http.Client{
 		Timeout:   timeout,
 		Transport: transport,
-	}
+	}, nil
 }
 
 func (o *OpenAIAdapter) ModelID() string { return o.model }

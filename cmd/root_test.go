@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -44,6 +45,36 @@ func TestProviderConfigErrorIsActionable(t *testing.T) {
 		if !strings.Contains(msg, want) {
 			t.Fatalf("provider config error missing %q:\n%s", want, msg)
 		}
+	}
+}
+
+func TestAnchorProviderTLSCAFilesUsesExecutableConfigAnchor(t *testing.T) {
+	anchor := filepath.Join(t.TempDir(), "codrax-bin")
+	absoluteCA := filepath.Join(t.TempDir(), "abs-ca.pem")
+	cfg := &types.ProvidersConfig{
+		LLM: types.LLMProvidersConfig{
+			Default: types.LLMProviderConfig{TLSCAFile: "cert.pem"},
+			Agents: map[string]types.LLMProviderConfig{
+				"analyzer":  {TLSCAFile: "certs/analyzer.pem"},
+				"finalizer": {TLSCAFile: absoluteCA},
+				"extractor": {},
+			},
+		},
+	}
+
+	anchorProviderTLSCAFiles(cfg, anchor)
+
+	if got, want := cfg.LLM.Default.TLSCAFile, filepath.Join(anchor, "cert.pem"); got != want {
+		t.Fatalf("default tls_ca_file anchored incorrectly: got %q want %q", got, want)
+	}
+	if got, want := cfg.LLM.Agents["analyzer"].TLSCAFile, filepath.Join(anchor, "certs/analyzer.pem"); got != want {
+		t.Fatalf("agent tls_ca_file anchored incorrectly: got %q want %q", got, want)
+	}
+	if got := cfg.LLM.Agents["finalizer"].TLSCAFile; got != absoluteCA {
+		t.Fatalf("absolute tls_ca_file should pass through: got %q want %q", got, absoluteCA)
+	}
+	if got := cfg.LLM.Agents["extractor"].TLSCAFile; got != "" {
+		t.Fatalf("empty tls_ca_file should remain empty, got %q", got)
 	}
 }
 

@@ -20,6 +20,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // testAdapterOpts builds an AdapterOptions with valid sizing defaults
@@ -371,16 +373,23 @@ func TestOpenAIAdapter_StrictTextToolCallRecoveryAlwaysOn(t *testing.T) {
 //   - tls_ca_file set → client uses a Transport with RootCAs populated
 //     and InsecureSkipVerify still false
 //   - tls_insecure_skip_verify=true → Transport with InsecureSkipVerify=true
+//   - unreadable tls_ca_file → error, no silent trust-pool fallback
 func TestBuildHTTPClient_TLSOptions(t *testing.T) {
 	t.Run("zero_options_uses_stock_client", func(t *testing.T) {
-		c := buildHTTPClient(TLSOptions{}, "https://api.example.com/v1", 120*time.Second)
+		c, err := buildHTTPClient(TLSOptions{}, "https://api.example.com/v1", 120*time.Second)
+		if err != nil {
+			t.Fatalf("buildHTTPClient: %v", err)
+		}
 		if c.Transport != nil {
 			t.Errorf("zero options should leave Transport nil (use DefaultTransport), got %T", c.Transport)
 		}
 	})
 
 	t.Run("insecure_skip_verify_sets_flag", func(t *testing.T) {
-		c := buildHTTPClient(TLSOptions{InsecureSkipVerify: true}, "https://api.example.com/v1", 120*time.Second)
+		c, err := buildHTTPClient(TLSOptions{InsecureSkipVerify: true}, "https://api.example.com/v1", 120*time.Second)
+		if err != nil {
+			t.Fatalf("buildHTTPClient: %v", err)
+		}
 		tr, ok := c.Transport.(*http.Transport)
 		if !ok {
 			t.Fatalf("Transport type = %T, want *http.Transport", c.Transport)
@@ -400,7 +409,10 @@ func TestBuildHTTPClient_TLSOptions(t *testing.T) {
 		if err := os.WriteFile(caPath, pem, 0o600); err != nil {
 			t.Fatalf("write ca.pem: %v", err)
 		}
-		c := buildHTTPClient(TLSOptions{CAFile: caPath}, "https://api.example.com/v1", 120*time.Second)
+		c, err := buildHTTPClient(TLSOptions{CAFile: caPath}, "https://api.example.com/v1", 120*time.Second)
+		if err != nil {
+			t.Fatalf("buildHTTPClient: %v", err)
+		}
 		tr, ok := c.Transport.(*http.Transport)
 		if !ok {
 			t.Fatalf("Transport type = %T, want *http.Transport", c.Transport)
@@ -413,18 +425,13 @@ func TestBuildHTTPClient_TLSOptions(t *testing.T) {
 		}
 	})
 
-	t.Run("bad_ca_file_path_falls_back_gracefully", func(t *testing.T) {
-		// Missing file → log warning, skip RootCAs override.
-		c := buildHTTPClient(TLSOptions{CAFile: "/does/not/exist/ca.pem"}, "https://api.example.com/v1", 120*time.Second)
-		tr, ok := c.Transport.(*http.Transport)
-		if !ok {
-			t.Fatalf("Transport type = %T, want *http.Transport", c.Transport)
+	t.Run("bad_ca_file_path_fails_loud", func(t *testing.T) {
+		_, err := buildHTTPClient(TLSOptions{CAFile: "/does/not/exist/ca.pem"}, "https://api.example.com/v1", 120*time.Second)
+		if err == nil {
+			t.Fatal("missing tls_ca_file should return an error")
 		}
-		if tr.TLSClientConfig == nil {
-			t.Fatalf("TLSClientConfig nil; want empty config after fallback")
-		}
-		if tr.TLSClientConfig.RootCAs != nil {
-			t.Errorf("bad CA file should leave RootCAs nil, got populated pool")
+		if msg := err.Error(); !strings.Contains(msg, "tls_ca_file") || !strings.Contains(msg, "cannot be read") {
+			t.Fatalf("bad tls_ca_file error not actionable: %v", err)
 		}
 	})
 
@@ -436,6 +443,23 @@ func TestBuildHTTPClient_TLSOptions(t *testing.T) {
 			t.Errorf("fresh tls.Config should zero-init InsecureSkipVerify to false")
 		}
 	})
+}
+
+func TestNewFromConfigRejectsUnreadableTLSCAFile(t *testing.T) {
+	missingCA := filepath.Join(t.TempDir(), "missing-ca.pem")
+	_, err := NewFromConfig(types.LLMProviderConfig{
+		Provider:  "openai",
+		APIKey:    "k",
+		Model:     "m",
+		BaseURL:   "https://api.example.com/v1",
+		TLSCAFile: missingCA,
+	})
+	if err == nil {
+		t.Fatal("NewFromConfig should reject unreadable tls_ca_file")
+	}
+	if msg := err.Error(); !strings.Contains(msg, "tls_ca_file") || !strings.Contains(msg, missingCA) || !strings.Contains(msg, "cannot be read") {
+		t.Fatalf("tls_ca_file error not actionable: %v", err)
+	}
 }
 
 // TestParseSSEStream covers the streaming accumulator: content deltas

@@ -183,13 +183,23 @@ llm:
     #   split_string_arrays: false
 
     # --- TLS (HTTPS endpoints only)  ·  TLS(仅 HTTPS) -------------------
-    # EN  These fields have no effect when base_url uses `http://`.
+    # EN  TLS verification itself only applies to HTTPS endpoints.
+    #     When tls_ca_file is configured, codrax still validates that
+    #     file at startup even if base_url currently uses `http://`.
     #     Set tls_ca_file only when the endpoint uses a corporate /
     #     self-signed CA not in the system trust pool (typical symptom:
     #     `x509: certificate signed by unknown authority`).
-    # 中文 base_url 为 `http://` 时这些字段无效。仅当端点使用系统信任库里
+    #     Relative paths are resolved from the codrax executable
+    #     directory, not from the current workspace.
+    #     If configured, the file must be readable and contain valid
+    #     PEM certificates; otherwise codrax stops at startup.
+    # 中文 TLS 校验本身只作用于 HTTPS 端点。只要配置了 tls_ca_file,
+    #     即使 base_url 当前是 `http://`,codrax 启动时也会校验该文件。
+    #     仅当端点使用系统信任库里
     #     没有的企业/自签 CA 时才设 tls_ca_file(典型报错:
     #     `x509: certificate signed by unknown authority`)。
+    #     相对路径从 codrax 可执行文件所在目录开始计算,不从当前仓库目录计算。
+    #     一旦配置,文件必须可读且包含有效 PEM 证书,否则 codrax 启动时停止。
     # tls_ca_file: /etc/pki/ca-trust/extracted/pem/corp-bundle.pem
 
     # EN  tls_insecure_skip_verify: nuclear escape — disables ALL

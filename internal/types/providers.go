@@ -107,7 +107,9 @@ type LLMProviderConfig struct {
 	// TLSCAFile is an optional path to a PEM-encoded CA bundle that gets
 	// appended to the system trust pool. Useful when the endpoint is
 	// signed by a corporate / self-hosted CA the OS does not know
-	// about. Empty = system trust pool only (default).
+	// about. Relative paths in providers.yaml are resolved from the
+	// codrax executable/config anchor directory, not from the workspace
+	// current working directory. Empty = system trust pool only (default).
 	TLSCAFile string `yaml:"tls_ca_file"`
 
 	// TLSInsecureSkipVerify disables TLS certificate validation

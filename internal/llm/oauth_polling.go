@@ -264,9 +264,14 @@ func newOAuthPollingAuthenticator(opts AuthOptions) (*oauthPollingAuthenticator,
 		cacheFile = expandUserPath(cacheFile)
 	}
 
+	client, err := buildHTTPClient(opts.TLS, opts.BaseURL, opts.RequestTimeout)
+	if err != nil {
+		return nil, err
+	}
+
 	return &oauthPollingAuthenticator{
 		opts:        opts,
-		client:      buildHTTPClient(opts.TLS, opts.BaseURL, opts.RequestTimeout),
+		client:      client,
 		cacheFile:   cacheFile,
 		fingerprint: fp,
 	}, nil

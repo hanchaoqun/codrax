@@ -2238,12 +2238,13 @@ mcp_servers:
                    # 设 false:经典单次请求-响应,适合 byte-stable CI 或本地小模型
 </code></pre>
 <h3 id="514-tls-自签证书">5.1.4 TLS / 自签证书</h3>
-<p>仅当 <code>base_url</code> 是 <code>https://</code>:</p>
+<p>TLS 校验只作用于 <code>https://</code> 端点；但只要配置了 <code>tls_ca_file</code>,Codrax 启动时就会校验该文件是否可读且是有效 PEM。</p>
 <pre><code class="language-yaml">llm:
   default:
     tls_ca_file: /etc/pki/corp-bundle.pem    # 公司自签 CA(typical 错误:x509: cert signed by unknown authority)
     # tls_insecure_skip_verify: true         # 核武器:完全跳过证书验证,启动时会打高亮警告
 </code></pre>
+<p><code>tls_ca_file</code> 可以写绝对路径,也可以写相对路径。相对路径从 codrax 可执行文件所在目录开始计算,不从当前仓库目录或启动命令的工作目录计算。一旦配置,文件必须可读且包含有效 PEM 证书;否则 Codrax 会在 REPL/CLI 启动阶段提示原因并停止,不会静默回退到系统证书池。</p>
 <h3 id="515-sizing-超时-重试每个字段都可选">5.1.5 sizing / 超时 / 重试(每个字段都可选)</h3>
 <pre><code class="language-yaml">llm:
   default:
@@ -3219,7 +3220,7 @@ codrax --mode=verify --plan-file=/tmp/plan.json
 <p><strong><code>providers config not found</code></strong> 或 <code>provider/api_key/model/base_url is required</code>
 → 5.1 节;4 个字段必填,缺一个就拒启动。</p>
 <p><strong><code>x509: certificate signed by unknown authority</code></strong>
-→ 公司自签 CA。<code>tls_ca_file: /path/to/corp-bundle.pem</code> 写进 <code>providers.yaml</code>。</p>
+→ 公司自签 CA。<code>tls_ca_file: /path/to/corp-bundle.pem</code> 写进 <code>providers.yaml</code>;相对路径从 codrax 可执行文件所在目录开始计算。</p>
 <p><strong>banner 里 <code>WARN search backend: native Go scanner</code></strong>
 → 没装 ripgrep / grep。能跑,只是慢。装 ripgrep:<code>apt install ripgrep</code> / <code>brew install ripgrep</code> / <code>winget install BurntSushi.ripgrep.MSVC</code>。</p>
 <p><strong><code>WARN git not found on PATH</code></strong>

@@ -2810,6 +2810,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load providers config: %w", err)
 	}
+	anchorProviderTLSCAFiles(providersCfg, configAnchor)
 	llm.SetDisplayLanguage(flagLang)
 	interactiveStartup := strings.TrimSpace(flagRequest) == "" && len(args) == 0
 	installLLMStartupUXHooks(interactiveStartup)
@@ -3619,6 +3620,29 @@ func anchorPath(anchor, p string) string {
 	return filepath.Clean(filepath.Join(anchor, p))
 }
 
+func anchorProviderTLSCAFiles(cfg *types.ProvidersConfig, anchor string) {
+	if cfg == nil {
+		return
+	}
+	anchorProviderTLSCAFile(&cfg.LLM.Default, anchor)
+	for name, provider := range cfg.LLM.Agents {
+		anchorProviderTLSCAFile(&provider, anchor)
+		cfg.LLM.Agents[name] = provider
+	}
+}
+
+func anchorProviderTLSCAFile(provider *types.LLMProviderConfig, anchor string) {
+	if provider == nil {
+		return
+	}
+	caFile := strings.TrimSpace(provider.TLSCAFile)
+	provider.TLSCAFile = caFile
+	if anchor == "" || caFile == "" || filepath.IsAbs(caFile) {
+		return
+	}
+	provider.TLSCAFile = filepath.Clean(filepath.Join(anchor, caFile))
+}
+
 func createDefaultAdapter(cfg *types.ProvidersConfig, providersPath string) (llm.Adapter, error) {
 	resolved := config.ResolveProvider(cfg, "")
 	adapter, err := llm.NewFromConfig(resolved)
@@ -3658,6 +3682,7 @@ func providerConfigError(providersPath string, cause error) error {
 			"  - Put a valid providers.yaml next to the codrax binary, or pass --providers /path/to/providers.yaml.\n"+
 			"  - Static API-key setup: configure llm.default.provider, api_key, model, and base_url.\n"+
 			"  - OAuth setup: configure llm.default.provider, base_url, auth, models_path or model, and any provider-specific headers/request_extra.\n"+
+			"  - If tls_ca_file is set, make sure the file exists, is readable, and contains valid PEM certificates.\n"+
 			"  - For environment-only static setup, export LLM_PROVIDER, OPENAI_API_KEY, OPENAI_MODEL, and OPENAI_BASE_URL.",
 		absPath, status, cause,
 	)

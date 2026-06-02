@@ -121,7 +121,7 @@ func NewFromConfig(cfg types.LLMProviderConfig) (Adapter, error) {
 		model = selected
 	}
 
-	return NewOpenAIAdapter(cfg.APIKey, model, cfg.BaseURL, AdapterOptions{
+	return NewOpenAIAdapterWithError(cfg.APIKey, model, cfg.BaseURL, AdapterOptions{
 		Stream:                 stream,
 		RecoverTextToolCalls:   recoverTextToolCalls,
 		ProviderThinkingMode:   cfg.ThinkingMode,
@@ -140,7 +140,7 @@ func NewFromConfig(cfg types.LLMProviderConfig) (Adapter, error) {
 			CAFile:             cfg.TLSCAFile,
 			InsecureSkipVerify: cfg.TLSInsecureSkipVerify,
 		},
-	}), nil
+	})
 }
 
 func authOptionsFromConfig(cfg types.LLMProviderConfig, requestTimeout time.Duration) AuthOptions {
@@ -258,7 +258,10 @@ func discoverFirstModel(cfg types.LLMProviderConfig, authOpts AuthOptions, reque
 	if err != nil {
 		return "", err
 	}
-	client := buildHTTPClient(authOpts.TLS, cfg.BaseURL, requestTimeout)
+	client, err := buildHTTPClient(authOpts.TLS, cfg.BaseURL, requestTimeout)
+	if err != nil {
+		return "", err
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
 	defer cancel()
 	var body []byte
