@@ -1255,6 +1255,26 @@ func TestPrintOAuthAuthorizationComplete(t *testing.T) {
 	}
 }
 
+func TestPrintTopologyDiscoveryNotices(t *testing.T) {
+	var out bytes.Buffer
+	PrintTopologyDiscoveryStart(&out, "zh")
+	PrintTopologyDiscoveryComplete(&out, "zh", 2, "18ms")
+	PrintTopologyDiscoveryError(&out, "en", assertErr("boom"), "19ms")
+	got := out.String()
+	for _, want := range []string{
+		"正在发现工作区子仓拓扑",
+		"工作区子仓拓扑已就绪：2 个子仓",
+		"Workspace topology discovery failed: boom",
+		"·",
+		"✓",
+		"✗",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("topology notice missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestBannerSkipsStartupHeaderWhenAlreadyPrinted(t *testing.T) {
 	dir := t.TempDir()
 	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
@@ -1285,3 +1305,7 @@ func TestBannerSkipsStartupHeaderWhenAlreadyPrinted(t *testing.T) {
 		t.Fatalf("banner should still render status rows after skipped header:\n%s", got)
 	}
 }
+
+type assertErr string
+
+func (e assertErr) Error() string { return string(e) }

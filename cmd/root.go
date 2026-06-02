@@ -4213,29 +4213,17 @@ func startTopologyStartupNotice(enabled bool, lang string) func(*topology.RepoTo
 		return func(*topology.RepoTopology, error, time.Duration) {}
 	}
 	ensureREPLStartupHeaderPrinted()
-	if prefersChineseStartup(lang) {
-		fmt.Fprintln(os.Stdout, "  · 正在发现工作区子仓拓扑（仅元数据，不构建 repo_map 索引）")
-	} else {
-		fmt.Fprintln(os.Stdout, "  · Discovering workspace sub-repo topology (metadata only; not building repo_map indexes)")
-	}
+	repl.PrintTopologyDiscoveryStart(os.Stdout, lang)
 	return func(topo *topology.RepoTopology, err error, elapsed time.Duration) {
 		if err != nil {
-			if prefersChineseStartup(lang) {
-				fmt.Fprintf(os.Stdout, "  ✗ 工作区子仓拓扑发现失败：%v (%s)\n", err, formatStartupElapsed(elapsed))
-			} else {
-				fmt.Fprintf(os.Stdout, "  ✗ Workspace topology discovery failed: %v (%s)\n", err, formatStartupElapsed(elapsed))
-			}
+			repl.PrintTopologyDiscoveryError(os.Stdout, lang, err, formatStartupElapsed(elapsed))
 			return
 		}
 		count := 0
 		if topo != nil {
 			count = len(topo.Repos)
 		}
-		if prefersChineseStartup(lang) {
-			fmt.Fprintf(os.Stdout, "  ✓ 工作区子仓拓扑已就绪：%d 个子仓 (%s)\n", count, formatStartupElapsed(elapsed))
-		} else {
-			fmt.Fprintf(os.Stdout, "  ✓ Workspace topology ready: %d sub-repo(s) (%s)\n", count, formatStartupElapsed(elapsed))
-		}
+		repl.PrintTopologyDiscoveryComplete(os.Stdout, lang, count, formatStartupElapsed(elapsed))
 	}
 }
 

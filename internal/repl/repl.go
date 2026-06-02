@@ -1525,6 +1525,44 @@ func PrintOAuthAuthorizationComplete(out io.Writer, lang string) {
 	fmt.Fprintf(out, "  %s %s\n", pterm.FgGreen.Sprint("✓"), pterm.FgDarkGray.Sprint(msg))
 }
 
+// PrintTopologyDiscoveryStart renders the startup-only workspace topology
+// discovery status in the same visual dialect as the REPL banner rows.
+func PrintTopologyDiscoveryStart(out io.Writer, lang string) {
+	if out == nil {
+		out = os.Stdout
+	}
+	msg := "正在发现工作区子仓拓扑（仅元数据，不构建 repo_map 索引）"
+	if !isZh(lang) {
+		msg = "Discovering workspace sub-repo topology (metadata only; not building repo_map indexes)"
+	}
+	fmt.Fprintf(out, "  %s %s\n", pterm.FgDarkGray.Sprint("·"), pterm.FgDarkGray.Sprint(msg))
+}
+
+// PrintTopologyDiscoveryComplete renders the successful end of startup
+// topology discovery. elapsed should already be formatted for display.
+func PrintTopologyDiscoveryComplete(out io.Writer, lang string, count int, elapsed string) {
+	if out == nil {
+		out = os.Stdout
+	}
+	msg := fmt.Sprintf("工作区子仓拓扑已就绪：%d 个子仓 (%s)", count, elapsed)
+	if !isZh(lang) {
+		msg = fmt.Sprintf("Workspace topology ready: %d sub-repo(s) (%s)", count, elapsed)
+	}
+	fmt.Fprintf(out, "  %s %s\n", pterm.FgGreen.Sprint("✓"), pterm.FgDarkGray.Sprint(msg))
+}
+
+// PrintTopologyDiscoveryError renders a startup topology discovery failure.
+func PrintTopologyDiscoveryError(out io.Writer, lang string, err error, elapsed string) {
+	if out == nil {
+		out = os.Stdout
+	}
+	msg := fmt.Sprintf("工作区子仓拓扑发现失败：%v (%s)", err, elapsed)
+	if !isZh(lang) {
+		msg = fmt.Sprintf("Workspace topology discovery failed: %v (%s)", err, elapsed)
+	}
+	fmt.Fprintf(out, "  %s %s\n", pterm.FgRed.Sprint("✗"), pterm.FgDarkGray.Sprint(msg))
+}
+
 // degradedEnvHints returns zero-or-more lines describing environment
 // degradations (sub-optimal search backend, missing git) that the
 // operator should notice at startup. Rendered under the memory
