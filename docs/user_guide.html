@@ -365,7 +365,7 @@ codrax                   # ② 再启动;它会索引「当前目录」这个仓
 <p>启动后 codrax 会在当前目录建一个 <code>.codrax/</code> 子目录,存放日志、对话记忆、缓存等运行产物;读模式只读你的源码、从不修改。想分析的不是当前目录时,用 <code>--repo /path/to/repo</code> 显式指定。</p>
 <p>看到这个就是启动成功了(每一行都是真实输出,版本号和路径会按你的环境替换):</p>
 <pre><code>   CODRAX  v0.1.x  git:main  /help · /exit
-   modes: read (write_enabled=false — /mode plan / apply / verify 已禁用) · /home/you/tools/codrax/codrax.yaml
+   Modes: read (write_enabled=false — /mode plan / apply / verify 已禁用) · /home/you/tools/codrax/codrax.yaml
 
 [git:main]❯❯
 </code></pre>
@@ -448,7 +448,7 @@ codrax --repo /path/to/repo --branch dev -r &quot;...&quot;
 <h2 id="22-看懂界面">2.2 看懂界面</h2>
 <p>启动后的屏幕(运行中的写模式 + git 仓库 + 几轮对话场景):</p>
 <pre><code>   CODRAX  v0.1.x  git:main  /help · /exit
-   modes: read · plan · apply · verify (write_enabled=true) · /home/you/.../codrax.yaml
+   Modes: read · plan · apply · verify (write_enabled=true) · /home/you/.../codrax.yaml
 
 ─────────────────────────────────────
 &gt; 这个项目的入口函数在哪里?
@@ -479,7 +479,7 @@ codrax --repo /path/to/repo --branch dev -r &quot;...&quot;
 <td>版本 + 当前 git 分支(非 git 目录不显示 git:)</td>
 </tr>
 <tr>
-<td><code>modes:</code> 行</td>
+<td><code>Modes:</code> 行</td>
 <td>当前可用模式 + 配置文件路径(<code>write_enabled</code> 开/关一目了然)</td>
 </tr>
 <tr>
@@ -820,7 +820,7 @@ cat /tmp/atrace.txt | codrax --htrace - -r &quot;...&quot;
 </ol>
 <p>REPL banner 立即提示:</p>
 <pre><code>   CODRAX  v0.1.X  /help · /exit
-   modes: read · plan · apply · verify (write_enabled=true)
+   Modes: read · plan · apply · verify (write_enabled=true)
    🗂  multi-repo: 5 sub-repos (active cap=3); /repos for list / focus / refresh
 </code></pre>
 <h3 id="repos-命令族"><code>/repos</code> 命令族</h3>

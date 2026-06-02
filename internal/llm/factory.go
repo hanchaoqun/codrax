@@ -188,6 +188,21 @@ type discoveredModel struct {
 	Description string
 }
 
+// ModelListEntry is the user-facing, non-secret subset of a provider's
+// model-list response. It is used only for startup UX; request routing and
+// adapter construction continue to depend on the selected model string.
+type ModelListEntry struct {
+	Name        string
+	Description string
+}
+
+// ModelSelectionNotice records that Codrax selected a model from
+// models_path because providers.yaml did not explicitly set model.
+type ModelSelectionNotice struct {
+	Models   []ModelListEntry
+	Selected string
+}
+
 type modelDiscoveryResult struct {
 	Models   []discoveredModel
 	Selected string
@@ -197,6 +212,35 @@ var modelDiscoveryCache = struct {
 	sync.Mutex
 	entries map[string]modelDiscoveryResult
 }{entries: map[string]modelDiscoveryResult{}}
+
+var modelSelectionNotices = struct {
+	sync.Mutex
+	deferPrint bool
+	notices    []ModelSelectionNotice
+}{}
+
+// DeferModelSelectionNotices controls whether model auto-selection notices are
+// printed immediately (CLI path) or retained for the caller to render inside a
+// richer UI surface (REPL banner). It is process-global because provider
+// construction happens before the REPL object exists.
+func DeferModelSelectionNotices(deferPrint bool) {
+	modelSelectionNotices.Lock()
+	defer modelSelectionNotices.Unlock()
+	modelSelectionNotices.deferPrint = deferPrint
+	if !deferPrint {
+		modelSelectionNotices.notices = nil
+	}
+}
+
+// ConsumeModelSelectionNotices returns and clears deferred model-selection
+// notices. Immediate-print CLI callers normally receive an empty slice.
+func ConsumeModelSelectionNotices() []ModelSelectionNotice {
+	modelSelectionNotices.Lock()
+	defer modelSelectionNotices.Unlock()
+	out := append([]ModelSelectionNotice(nil), modelSelectionNotices.notices...)
+	modelSelectionNotices.notices = nil
+	return out
+}
 
 func discoverFirstModel(cfg types.LLMProviderConfig, authOpts AuthOptions, requestTimeout time.Duration) (string, error) {
 	if strings.TrimSpace(cfg.ModelsPath) == "" {
@@ -267,7 +311,7 @@ func discoverFirstModel(cfg types.LLMProviderConfig, authOpts AuthOptions, reque
 	modelDiscoveryCache.Lock()
 	modelDiscoveryCache.entries[key] = result
 	modelDiscoveryCache.Unlock()
-	printModelSelectionNotice(result)
+	recordModelSelectionNotice(result)
 	return selected, nil
 }
 
@@ -372,8 +416,26 @@ func scalarToString(v any) string {
 	}
 }
 
-func printModelSelectionNotice(result modelDiscoveryResult) {
+func recordModelSelectionNotice(result modelDiscoveryResult) {
 	logging.Info("[llm] model not explicitly configured; selected first listed model %q", result.Selected)
+	notice := ModelSelectionNotice{
+		Models:   make([]ModelListEntry, 0, len(result.Models)),
+		Selected: result.Selected,
+	}
+	for _, m := range result.Models {
+		notice.Models = append(notice.Models, ModelListEntry{Name: m.Name, Description: m.Description})
+	}
+	modelSelectionNotices.Lock()
+	if modelSelectionNotices.deferPrint {
+		modelSelectionNotices.notices = append(modelSelectionNotices.notices, notice)
+		modelSelectionNotices.Unlock()
+		return
+	}
+	modelSelectionNotices.Unlock()
+	printModelSelectionNotice(notice)
+}
+
+func printModelSelectionNotice(result ModelSelectionNotice) {
 	if preferChineseDisplay() {
 		fmt.Fprintln(os.Stderr, "  › 未显式配置 LLM model，已获取模型列表并选择第一个可用模型：")
 		for i, m := range result.Models {

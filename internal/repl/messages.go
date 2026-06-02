@@ -256,15 +256,15 @@ func bannerCapabilityLine(lang string, writeEnabled bool, settingsPath string) s
 	cap := ""
 	if writeEnabled {
 		if zh {
-			cap = "modes: read · plan · apply · verify (write_enabled=true)"
+			cap = "Modes: read · plan · apply · verify (write_enabled=true)"
 		} else {
-			cap = "modes: read · plan · apply · verify (write_enabled=true)"
+			cap = "Modes: read · plan · apply · verify (write_enabled=true)"
 		}
 	} else {
 		if zh {
-			cap = "modes: read (write_enabled=false — /mode plan / apply / verify 已禁用)"
+			cap = "Modes: read (write_enabled=false — /mode plan / apply / verify 已禁用)"
 		} else {
-			cap = "modes: read (write_enabled=false — /mode plan / apply / verify disabled)"
+			cap = "Modes: read (write_enabled=false — /mode plan / apply / verify disabled)"
 		}
 	}
 	if settingsPath != "" {
@@ -946,6 +946,13 @@ func armDockTerminalState(renderer dockTerminalArmer, err error) {
 		return
 	}
 	renderer.MarkRunFatal()
+}
+
+func turnPolicyClassifierFallbackHint(lang string) string {
+	if isZh(lang) {
+		return "自动闲聊路由未稳定返回，已按仓库问题继续分析（fail-safe）。"
+	}
+	return "Auto chat routing did not return a stable decision; continuing with repository analysis (fail-safe)."
 }
 
 // dockTerminalArmer is the narrow surface armDockTerminalState needs

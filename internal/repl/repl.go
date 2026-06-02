@@ -192,9 +192,12 @@ type Config struct {
 	Out      io.Writer
 
 	// UI customization (used by line-oriented mode).
-	Prompt     string // primary prompt, e.g. ">"
-	PromptCont string // continuation prompt, e.g. "."
-	Banner     string // printed once at start; empty → default badge
+	Prompt                string // primary prompt, e.g. ">"
+	PromptCont            string // continuation prompt, e.g. "."
+	Banner                string // printed once at start; empty → default badge
+	HeaderAlreadyRendered bool   // true when cmd/root already rendered the CODRAX startup header
+	ModelSummaryLine      string // optional resolved model summary, rendered below Memory
+	ModelNoticeLines      []string
 
 	// PasteFoldMinChars is the rune-count threshold above which a
 	// single-line paste gets folded into a placeholder. Multi-line
@@ -445,21 +448,24 @@ type REPL struct {
 	// by maybeNudgeWorktreeGC (commit 46) to surface a soft
 	// hint every Nth success when preserved worktrees might
 	// be accumulating on disk. Reset each REPL boot.
-	approveSuccessCount int
-	branch              string
-	in                  io.Reader
-	out                 io.Writer
-	prompt              string
-	promptCont          string
-	bannerText          string
-	scanner             *bufio.Scanner // lazy-init for line-oriented mode
-	pasteFoldMinChars   int            // per-session paste-fold threshold (runes)
-	version             string
-	buildTime           string
-	language            string
-	markdownPreview     MarkdownPreviewer
-	outputDumpDir       string
-	outputDumpMax       int
+	approveSuccessCount   int
+	branch                string
+	in                    io.Reader
+	out                   io.Writer
+	prompt                string
+	promptCont            string
+	bannerText            string
+	headerAlreadyRendered bool
+	modelSummaryLine      string
+	modelNoticeLines      []string
+	scanner               *bufio.Scanner // lazy-init for line-oriented mode
+	pasteFoldMinChars     int            // per-session paste-fold threshold (runes)
+	version               string
+	buildTime             string
+	language              string
+	markdownPreview       MarkdownPreviewer
+	outputDumpDir         string
+	outputDumpMax         int
 
 	// attachedLog holds the runtime log excerpt the user attached.
 	// Lifetime depends on how it got here:
@@ -680,6 +686,9 @@ func New(cfg Config) *REPL {
 		prompt:                 cfg.Prompt,
 		promptCont:             cfg.PromptCont,
 		bannerText:             cfg.Banner,
+		headerAlreadyRendered:  cfg.HeaderAlreadyRendered,
+		modelSummaryLine:       cfg.ModelSummaryLine,
+		modelNoticeLines:       append([]string(nil), cfg.ModelNoticeLines...),
 		pasteFoldMinChars:      cfg.PasteFoldMinChars,
 		version:                cfg.Version,
 		buildTime:              cfg.BuildTime,
@@ -1387,23 +1396,9 @@ func (r *REPL) banner() {
 		fmt.Fprintln(r.out, r.bannerText)
 		return
 	}
-	badge := pterm.NewStyle(pterm.BgBlue, pterm.FgWhite, pterm.Bold).Sprint(" CODRAX ")
-	// Compact banner version: strip the -dirty build-state suffix so a
-	// long-running interactive session isn't dominated by build noise.
-	// The full identifier is still available via /version.
-	shortVer := strings.TrimSuffix(r.version, "-dirty")
-	ver := pterm.FgGray.Sprintf("v%s", shortVer)
-	hint := pterm.FgDarkGray.Sprint("/help · /exit")
-	// Surface git branch up-front so the operator sees which branch
-	// codrax is operating against (and which one /merge will fast-
-	// forward into when --branch is omitted) before they type any
-	// command. Empty when the path isn't a git repo (rare for
-	// codrax usage; possible during /mode plan auto-init scaffold).
-	branchInfo := ""
-	if br := gitBranchProbe(r.repoRoot); br != "" {
-		branchInfo = pterm.FgDarkGray.Sprintf("  git:%s", br)
+	if !r.headerAlreadyRendered {
+		PrintStartupHeader(r.out, r.version, r.repoRoot)
 	}
-	fmt.Fprintf(r.out, "\n  %s %s%s  %s\n", badge, ver, branchInfo, hint)
 	// One-line capability summary so the user sees at startup which
 	// modes are available and which yaml file backs the config. With
 	// write_enabled=false the line names the gate explicitly so the
@@ -1461,10 +1456,44 @@ func (r *REPL) banner() {
 	if summary := r.memorySummaryLine(); summary != "" {
 		fmt.Fprintf(r.out, "  %s\n", summary)
 	}
+	if line := strings.TrimSpace(r.modelSummaryLine); line != "" {
+		fmt.Fprintf(r.out, "  %s\n", pterm.FgDarkGray.Sprint(clampToTermWidth(line, bannerMaxWidth)))
+	}
+	for _, line := range r.modelNoticeLines {
+		if line = strings.TrimSpace(line); line != "" {
+			fmt.Fprintf(r.out, "  %s\n", pterm.FgDarkGray.Sprint(clampToTermWidth(line, bannerMaxWidth)))
+		}
+	}
 	for _, h := range r.degradedEnvHints() {
 		fmt.Fprintf(r.out, "  %s\n", h)
 	}
 	fmt.Fprintln(r.out)
+}
+
+// PrintStartupHeader renders the top CODRAX identity row. cmd/root uses this
+// when OAuth needs to prompt before the REPL object exists, so the browser URL
+// still appears under the same visual header the eventual REPL banner uses.
+func PrintStartupHeader(out io.Writer, version, repoRoot string) {
+	if out == nil {
+		out = os.Stdout
+	}
+	badge := pterm.NewStyle(pterm.BgBlue, pterm.FgWhite, pterm.Bold).Sprint(" CODRAX ")
+	// Compact banner version: strip the -dirty build-state suffix so a
+	// long-running interactive session isn't dominated by build noise.
+	// The full identifier is still available via /version.
+	shortVer := strings.TrimSuffix(version, "-dirty")
+	ver := pterm.FgGray.Sprintf("v%s", shortVer)
+	hint := pterm.FgDarkGray.Sprint("/help · /exit")
+	// Surface git branch up-front so the operator sees which branch
+	// codrax is operating against (and which one /merge will fast-
+	// forward into when --branch is omitted) before they type any
+	// command. Empty when the path isn't a git repo (rare for
+	// codrax usage; possible during /mode plan auto-init scaffold).
+	branchInfo := ""
+	if br := gitBranchProbe(repoRoot); br != "" {
+		branchInfo = pterm.FgDarkGray.Sprintf("  git:%s", br)
+	}
+	fmt.Fprintf(out, "\n  %s %s%s  %s\n", badge, ver, branchInfo, hint)
 }
 
 // degradedEnvHints returns zero-or-more lines describing environment
@@ -1892,7 +1921,11 @@ func (r *REPL) dispatch(line, display string) {
 			policy, err := tpc.ClassifyPolicy(classifierCtx, line, hint, lastAnswer != "")
 			r.endTurn()
 			if err != nil {
-				logging.Warning("[repl/turn_policy] classifier error: %v — falling back to pipeline", err)
+				logging.Warning("[repl/turn_policy] classifier error: %v — trying legacy binary classifier fallback", err)
+				if r.tryLegacyChitchatFallback(line, display, hint, err) {
+					return
+				}
+				r.info(turnPolicyClassifierFallbackHint(r.language))
 			} else {
 				policy = ApplyTurnPolicyGuards(policy, lastAnswer != "", hasAttach)
 				debugLogTurnPolicy(policy)
@@ -2118,6 +2151,26 @@ func (r *REPL) dispatch(line, display string) {
 		r.info(hint)
 	}
 	r.recordTurn(display, line, memResponse, memory.KindPipeline)
+}
+
+func (r *REPL) tryLegacyChitchatFallback(line, display, hint string, cause error) bool {
+	if r.chitchatClassifier == nil {
+		return false
+	}
+	classifierCtx := r.startTurn()
+	isChat, err := r.chitchatClassifier.Classify(classifierCtx, line, hint)
+	r.endTurn()
+	if err != nil {
+		logging.Warning("[repl/chitchat] legacy fallback classifier error after turn-policy failure (%v): %v", cause, err)
+		return false
+	}
+	if isChat {
+		logging.Info("[repl/chitchat] legacy fallback routed turn to chit-chat after turn-policy failure: %s", oneLine(line))
+		r.chitchatDispatch(line, display)
+		return true
+	}
+	logging.Info("[repl/chitchat] legacy fallback classified as repo question after turn-policy failure")
+	return false
 }
 
 func finalAnswerMarkdownNotice(busCtx *types.BusContext, lang string) string {

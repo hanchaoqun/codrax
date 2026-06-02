@@ -5,6 +5,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/render"
@@ -1152,5 +1153,50 @@ func TestHumanByteSize(t *testing.T) {
 		if got := humanByteSize(c.in); got != c.want {
 			t.Errorf("humanByteSize(%d) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+func TestBannerIncludesModelSummaryBelowMemory(t *testing.T) {
+	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	if err := store.Append(memory.Turn{
+		ID:        "turn-1",
+		Request:   "hello",
+		Response:  "hi",
+		Timestamp: time.Now(),
+	}); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	var out bytes.Buffer
+	r := New(Config{
+		Runner:                stubRunner{},
+		Store:                 store,
+		Render:                renderNothing,
+		RepoRoot:              ".",
+		Branch:                "main",
+		In:                    strings.NewReader(""),
+		Out:                   &out,
+		Language:              "en",
+		HeaderAlreadyRendered: true,
+		ModelSummaryLine:      "Model: MiniMax-M2.7 · ctx=200k",
+		ModelNoticeLines:      []string{"Model selection: no explicit model configured; using the first available listed model: MiniMax-M2.7"},
+	})
+
+	r.banner()
+
+	got := out.String()
+	if strings.Contains(got, "CODRAX") {
+		t.Fatalf("header should not be duplicated when HeaderAlreadyRendered=true; got:\n%s", got)
+	}
+	memoryIdx := strings.Index(got, "Memory:")
+	modelIdx := strings.Index(got, "Model: MiniMax-M2.7")
+	noticeIdx := strings.Index(got, "Model selection:")
+	if memoryIdx < 0 || modelIdx < 0 || noticeIdx < 0 {
+		t.Fatalf("banner missing memory/model/notice lines; got:\n%s", got)
+	}
+	if !(memoryIdx < modelIdx && modelIdx < noticeIdx) {
+		t.Fatalf("model lines should render below Memory in order; got:\n%s", got)
 	}
 }

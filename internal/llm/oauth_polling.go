@@ -67,6 +67,38 @@ type AuthOptions struct {
 	TLS            TLSOptions
 }
 
+// OAuthAuthorizationNotice is the non-secret information shown when an OAuth
+// polling provider needs the user to complete browser authorization.
+type OAuthAuthorizationNotice struct {
+	URL       string
+	CacheFile string
+}
+
+var oauthAuthorizationNotice = struct {
+	sync.Mutex
+	hook func(OAuthAuthorizationNotice) bool
+}{}
+
+// SetOAuthAuthorizationNoticeHook installs a process-global UI hook for OAuth
+// authorization prompts. The hook returns true when it rendered the prompt.
+// Passing nil restores the default stderr prompt. This is intentionally a UI
+// hook only; token polling, cache, and request semantics are unchanged.
+func SetOAuthAuthorizationNoticeHook(hook func(OAuthAuthorizationNotice) bool) {
+	oauthAuthorizationNotice.Lock()
+	defer oauthAuthorizationNotice.Unlock()
+	oauthAuthorizationNotice.hook = hook
+}
+
+func emitOAuthAuthorizationNotice(notice OAuthAuthorizationNotice) bool {
+	oauthAuthorizationNotice.Lock()
+	hook := oauthAuthorizationNotice.hook
+	oauthAuthorizationNotice.Unlock()
+	if hook != nil && hook(notice) {
+		return true
+	}
+	return false
+}
+
 type requestAuthenticator interface {
 	Apply(ctx context.Context, req *http.Request) error
 	Invalidate()
@@ -308,10 +340,12 @@ func (a *oauthPollingAuthenticator) authorizeAndPoll(ctx context.Context) (cache
 		return cachedOAuthToken{}, err
 	}
 
-	if preferChineseDisplay() {
-		fmt.Fprintf(os.Stderr, "  › 需要完成 LLM OAuth 授权。请在浏览器打开：\n    %s\n", authURL)
-	} else {
-		fmt.Fprintf(os.Stderr, "  › LLM OAuth authorization required. Open this URL in a browser:\n    %s\n", authURL)
+	if !emitOAuthAuthorizationNotice(OAuthAuthorizationNotice{URL: authURL, CacheFile: a.cacheFile}) {
+		if preferChineseDisplay() {
+			fmt.Fprintf(os.Stderr, "  › 需要完成 LLM OAuth 授权。请在浏览器打开：\n    %s\n", authURL)
+		} else {
+			fmt.Fprintf(os.Stderr, "  › LLM OAuth authorization required. Open this URL in a browser:\n    %s\n", authURL)
+		}
 	}
 	logging.Info("[llm/auth] waiting for OAuth authorization (cache=%s)", a.cacheFile)
 

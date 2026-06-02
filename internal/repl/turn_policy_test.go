@@ -62,6 +62,24 @@ func (s *stubTurnPolicyClassifier) ClassifyPolicy(_ context.Context, line, hint 
 	return s.policy, s.err
 }
 
+type structuredErrorLegacyClassifier struct {
+	policyErr    error
+	legacyIsChat bool
+	legacyErr    error
+	policyCalls  int
+	legacyCalls  int
+}
+
+func (s *structuredErrorLegacyClassifier) Classify(_ context.Context, line, hint string) (bool, error) {
+	s.legacyCalls++
+	return s.legacyIsChat, s.legacyErr
+}
+
+func (s *structuredErrorLegacyClassifier) ClassifyPolicy(_ context.Context, line, hint string, hasPriorAnswer bool) (TurnPolicy, error) {
+	s.policyCalls++
+	return TurnPolicy{}, s.policyErr
+}
+
 // stubLocalResponder records every RespondLocal call separately
 // from Respond so tests can assert on the structured
 // (line, prior, lastAnswer, directive) tuple. Embeds stubResponder
@@ -1017,6 +1035,41 @@ func TestTurnPolicyDispatch_ClassifierErrorFallsThroughToPipeline(t *testing.T) 
 	}
 	if len(responder.localCalls) != 0 {
 		t.Errorf("local responder must not fire on classifier error; calls=%d", len(responder.localCalls))
+	}
+}
+
+func TestTurnPolicyDispatch_StructuredErrorFallsBackToLegacyChitchat(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &structuredErrorLegacyClassifier{
+		policyErr:    errors.New("structured schema timeout"),
+		legacyIsChat: true,
+	}
+	responder := &stubLocalResponder{
+		stubResponder: stubResponder{reply: "hello from fallback"},
+		localReply:    "should-not-use-local-route",
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, responder, "hi there\n/exit\n")
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if classifier.policyCalls != 1 {
+		t.Fatalf("structured classifier calls=%d, want 1", classifier.policyCalls)
+	}
+	if classifier.legacyCalls != 1 {
+		t.Fatalf("legacy fallback classifier calls=%d, want 1", classifier.legacyCalls)
+	}
+	if len(runner.requests) != 0 {
+		t.Errorf("legacy chitchat fallback must not enter pipeline; runner calls=%d", len(runner.requests))
+	}
+	if len(responder.calls) != 1 {
+		t.Fatalf("legacy chitchat responder calls=%d, want 1", len(responder.calls))
+	}
+	if len(responder.localCalls) != 0 {
+		t.Fatalf("legacy fallback should not use structured local route; local calls=%d", len(responder.localCalls))
+	}
+	if !strings.Contains(out.String(), "hello from fallback") {
+		t.Errorf("fallback reply missing in output: %q", out.String())
 	}
 }
 

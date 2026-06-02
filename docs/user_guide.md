@@ -124,7 +124,7 @@ codrax                   # ② 再启动;它会索引「当前目录」这个仓
 
 ```
    CODRAX  v0.1.x  git:main  /help · /exit
-   modes: read (write_enabled=false — /mode plan / apply / verify 已禁用) · /home/you/tools/codrax/codrax.yaml
+   Modes: read (write_enabled=false — /mode plan / apply / verify 已禁用) · /home/you/tools/codrax/codrax.yaml
 
 [git:main]❯❯
 ```
@@ -211,7 +211,7 @@ codrax --repo /path/to/repo --branch dev -r "..."
 
 ```
    CODRAX  v0.1.x  git:main  /help · /exit
-   modes: read · plan · apply · verify (write_enabled=true) · /home/you/.../codrax.yaml
+   Modes: read · plan · apply · verify (write_enabled=true) · /home/you/.../codrax.yaml
 
 ─────────────────────────────────────
 > 这个项目的入口函数在哪里?
@@ -234,7 +234,7 @@ codrax --repo /path/to/repo --branch dev -r "..."
 | 元素 | 含义 |
 |---|---|
 | `CODRAX  v0.1.x  git:main` | 版本 + 当前 git 分支(非 git 目录不显示 git:) |
-| `modes:` 行 | 当前可用模式 + 配置文件路径(`write_enabled` 开/关一目了然) |
+| `Modes:` 行 | 当前可用模式 + 配置文件路径(`write_enabled` 开/关一目了然) |
 | `─────…` 分隔线 | 每轮请求开始前的视觉断点(在你的回显之上) |
 | `>` 开头(青色) | 你刚提交的请求的回显(保留多行 paste 内容) |
 | `[git:main]`、`[mode:plan]`、`[log]`、`[trace]`、`[plan]`、`[mem!]` | sticky 标签,提示当前粘滞状态(写模式 / 附加日志 / 待处理 plan / 记忆压力) |
@@ -484,7 +484,7 @@ REPL banner 立即提示:
 
 ```
    CODRAX  v0.1.X  /help · /exit
-   modes: read · plan · apply · verify (write_enabled=true)
+   Modes: read · plan · apply · verify (write_enabled=true)
    🗂  multi-repo: 5 sub-repos (active cap=3); /repos for list / focus / refresh
 ```
 
