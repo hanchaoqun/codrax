@@ -17,8 +17,8 @@ import "github.com/hanchaoqun/codrax/internal/types"
 //
 // e.investigationNotes and ctx.Mutable.EmittedEvidence() already accumulate
 // cross-window via their respective reset gates; this helper brings
-// ReadFiles / ToolResults / EvidenceItems / FlowFindings / TerminalEvidenceCount
-// to the same semantics.
+// ReadFiles / ToolResults / EvidenceItems / FlowFindings / source-inventory
+// carriers / TerminalEvidenceCount to the same semantics.
 //
 // Per-field rules:
 //
@@ -43,6 +43,10 @@ import "github.com/hanchaoqun/codrax/internal/types"
 //   - AcceptedAggregateFacts: current when present, otherwise prior.
 //     These are structured model-emitted closure facts, so the last
 //     successful completion window owns them.
+//   - SourceInventoryAdvisory / SourceInventoryObservation: merge prior +
+//     current. A later closure-only retry can legitimately produce no fresh
+//     graph inventory, but it must not erase the source-inventory handoff that
+//     extractor/finalizer use to preserve bounded member sets.
 //   - RuntimeObservationOnlyCompletion: logical OR. Once a retry
 //     window has accepted an external artifact-only completion, later
 //     closure-only windows must not erase the fact that no repo reads
@@ -70,6 +74,11 @@ func mergeTurnAArtifactsWithPrior(prior *types.TurnAArtifacts, current types.Tur
 	}
 	if len(merged.AcceptedAggregateFacts) == 0 {
 		merged.AcceptedAggregateFacts = prior.AcceptedAggregateFacts
+	}
+	merged.SourceInventoryAdvisory = types.MergeSourceInventoryAdvisory(prior.SourceInventoryAdvisory, current.SourceInventoryAdvisory)
+	merged.SourceInventoryObservation = types.MergeSourceInventoryObservation(prior.SourceInventoryObservation, current.SourceInventoryObservation)
+	if !merged.SourceInventoryObservation.IsActive() && merged.SourceInventoryAdvisory.IsActive() {
+		merged.SourceInventoryObservation = types.SourceInventoryObservationFromAdvisory(merged.SourceInventoryAdvisory)
 	}
 	merged.RuntimeObservationOnlyCompletion = prior.RuntimeObservationOnlyCompletion || current.RuntimeObservationOnlyCompletion
 	merged.EvidenceItems, _ = MergeEvidenceItemsIfChanged(prior.EvidenceItems, current.EvidenceItems)

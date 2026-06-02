@@ -88,3 +88,33 @@ func TestBuildTurnAHandoffEvidenceKeepsNonSeedNoStrictPathEmpty(t *testing.T) {
 		t.Fatalf("non-seed no-strict path should remain empty, got %d", len(got))
 	}
 }
+
+func TestMergeTurnAArtifactsWithPriorPreservesSourceInventory(t *testing.T) {
+	prior := &types.TurnAArtifacts{
+		SourceInventoryObservation: types.SourceInventoryObservation{
+			Active: true,
+			Sets: []types.SourceInventoryObservationSet{{
+				Role:  types.AnswerCandidateRoleFunction,
+				Count: 1,
+				Members: []types.SourceInventoryObservationMember{{
+					Name:       "loadW3Token",
+					Key:        "api.ts:10",
+					SupportRef: "api.ts:10",
+					File:       "api.ts",
+					Line:       10,
+				}},
+			}},
+		},
+	}
+	current := types.TurnAArtifacts{
+		UserQuestion: "headers",
+		ToolResults:  []types.ToolResult{{ToolName: "grep", Success: true, Summary: "current retry"}},
+	}
+
+	got := mergeTurnAArtifactsWithPrior(prior, current)
+	if !got.SourceInventoryObservation.IsActive() ||
+		len(got.SourceInventoryObservation.Sets) != 1 ||
+		got.SourceInventoryObservation.Sets[0].Members[0].Name != "loadW3Token" {
+		t.Fatalf("source-inventory handoff should survive closure-only retry windows: %+v", got.SourceInventoryObservation)
+	}
+}

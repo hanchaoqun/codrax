@@ -95,6 +95,31 @@ func TestBuildAgentContext_AttachedLogMirrored(t *testing.T) {
 	}
 }
 
+func TestRelationDossierSourceInventoryMergesTurnAHandoff(t *testing.T) {
+	mut := types.NewMutableState("source inventory")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		SourceInventoryObservation: types.SourceInventoryObservation{
+			Active: true,
+			Sets: []types.SourceInventoryObservationSet{{
+				Role:  types.AnswerCandidateRoleFunction,
+				Count: 1,
+				Members: []types.SourceInventoryObservationMember{{
+					Name:       "loadW3Token",
+					Key:        "api.ts:10",
+					SupportRef: "api.ts:10",
+					File:       "api.ts",
+					Line:       10,
+				}},
+			}},
+		},
+	})
+
+	got := relationDossierSourceInventory(&types.AgentContext{Mutable: mut})
+	if !got.IsActive() || len(got.Sets) != 1 || got.Sets[0].Members[0].Name != "loadW3Token" {
+		t.Fatalf("relation dossier should consume TurnA source-inventory handoff: %+v", got)
+	}
+}
+
 // TestBuildAgentContext_AttachedLogEmpty_SafeDefault verifies the
 // negative case — when no log is attached, AgentContext.AttachedLog
 // stays empty and nothing else breaks. The log_triage pre-stage

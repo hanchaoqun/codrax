@@ -1895,7 +1895,14 @@ func relationDossierSourceInventory(ac *types.AgentContext) types.SourceInventor
 	if ac == nil || ac.Mutable == nil {
 		return types.SourceInventoryObservation{}
 	}
-	return ac.Mutable.SourceInventoryObservation()
+	observation := ac.Mutable.SourceInventoryObservation()
+	if ta := ac.Mutable.TurnAArtifacts(); ta != nil {
+		observation = types.MergeSourceInventoryObservation(observation, ta.SourceInventoryObservation)
+		if !observation.IsActive() && ta.SourceInventoryAdvisory.IsActive() {
+			observation = types.SourceInventoryObservationFromAdvisory(ta.SourceInventoryAdvisory)
+		}
+	}
+	return observation
 }
 
 func relationDossierAggregateFacts(ac *types.AgentContext) []types.AnswerAggregateFact {
