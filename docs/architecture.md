@@ -2533,7 +2533,9 @@ MCP typed line support 是可选协议：server 若返回 `version:"codrax.mcp.o
 
 `llm.default` block + `llm.agents.<name>` overrides。Merge order：agent-level → default-level → 环境变量。**Non-zero merge 规则**：agent-level 字段为零值时继承 default-level；非零总是胜出。允许一份 providers.yaml 跨异构模型按字段独立 scale。
 
-`llm.default` 字段：`provider` / `api_key` / `model` / `base_url` / `think_aloud` / `thinking_mode` / `recover_text_tool_calls` / `tool_param_compat` / `stream` / `context_window` / `max_output_tokens` / `max_output_fraction` / `tls_ca_file` / `tls_insecure_skip_verify` / `request_timeout_seconds` / `retry_max_attempts` / `stream_stall_timeout_seconds` / `stream_first_byte_timeout_seconds`。
+`llm.default` 字段：`provider` / `api_key` / `model` / `base_url` / `chat_completions_path` / `models_path` / `auth` / `headers` / `request_extra` / `think_aloud` / `thinking_mode` / `recover_text_tool_calls` / `tool_param_compat` / `stream` / `context_window` / `max_output_tokens` / `max_output_fraction` / `tls_ca_file` / `tls_insecure_skip_verify` / `request_timeout_seconds` / `retry_max_attempts` / `stream_stall_timeout_seconds` / `stream_first_byte_timeout_seconds`。
+
+`auth.mode` 目前支持 `api_key`（默认，沿用 `Authorization: Bearer <api_key>`）和 `oauth2_polling`（公司内 OAuth 授权轮询，token 安全缓存，按 `expires_in` 秒级过期时间复用）。OAuth 模式下 `api_key` 可省略；`model` 显式配置时优先，未配置时必须提供 `models_path`，Codrax 获取模型列表并选择第一个模型，同时在 UI/log 中提示。
 
 **Per-agent override**：任一字段都能 per-agent 覆盖。Boolean 字段用 nil-sentinel：nil = 继承，true/false = override。严格显式 envelope 恢复不受 `recover_text_tool_calls` 控制，始终作为 adapter 安全档运行；`recover_text_tool_calls` 只控制更宽的本地模型文本恢复。`tool_param_compat.mode` 接受 `off` / `audit` / `repair`：未配置时 runtime 默认注入 `repair` 且 `split_string_arrays=false`；`off` 不进入 runtime policy map；`audit` 只记录可修复项；`repair` 才会在 tool 执行前改写 schema 可证明的机械类型错误。逗号/换行字符串拆 `[]string` 不是完全等价修复，必须显式 `split_string_arrays: true`。
 

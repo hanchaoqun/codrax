@@ -3,13 +3,13 @@
 # Copy to providers.yaml next to the binary.  复制为 providers.yaml,放在二进制同目录。
 # =============================================================================
 #
-# EN  All four required fields below MUST be set on the default provider.
-#     codrax refuses to start if any is missing — there is no silent
-#     fallback to a public endpoint or a hard-coded model ID. Per-agent
-#     overrides inherit any field you do not explicitly set.
-# 中文 下面 4 个必填字段必须在 default provider 上配齐。缺任何一个 codrax
-#     都会拒绝启动 —— 不会偷偷回退到公网地址或硬编码模型 ID。按 agent 的
-#     覆盖项会继承你没有显式设置的字段。
+# EN  Static API-key setup needs provider/api_key/model/base_url. OAuth
+#     setup replaces api_key with auth and may omit model when models_path is
+#     configured; codrax then lists models and selects the first one visibly.
+#     There is no silent fallback to a public endpoint or hard-coded model ID.
+# 中文 静态 API key 模式需要 provider/api_key/model/base_url。OAuth 模式用
+#     auth 取代 api_key;如果配置了 models_path,model 可省略,codrax 会展示
+#     模型列表并选择第一个。不会偷偷回退到公网地址或硬编码模型 ID。
 #
 # EN  Two dimensions you can toggle per provider:
 #       1. protocol  — HTTP vs HTTPS is decided purely by the base_url
@@ -33,8 +33,13 @@ llm:
     #     base_url 指向它即可接入。
     provider: openai
 
-    # EN  api_key / model: required, no default assumed.
-    # 中文 api_key / model:必填,无默认值。
+    # EN  api_key / model: required for the ordinary static-key setup,
+    #     no default assumed. For OAuth setup, see the internal OAuth section
+    #     below: api_key is omitted, and model can be omitted only when
+    #     models_path is configured.
+    # 中文 普通静态 key 模式下 api_key / model 必填,无默认值。OAuth 模式见
+    #     下方公司内 OAuth 章节:api_key 省略;只有配置 models_path 时 model
+    #     才可省略。
     api_key: "sk-xxx"
     model: "your-model-id"
 
@@ -43,6 +48,47 @@ llm:
     # 中文 base_url:必填。`https://` → 走 TLS;`http://` → 明文 HTTP。
     #     codrax 按 scheme 自动切换传输层。
     base_url: "https://your-endpoint/v1"
+
+    # --- Provider path / OAuth / request decoration  ·  内部 OAuth 接入 ----
+    # EN  Most OpenAI-compatible providers keep the default
+    #     /chat/completions path and Authorization: Bearer api_key header, so
+    #     you do not need this section. Internal OAuth-backed providers can
+    #     use OAuth polling, custom paths, request headers, and provider-private
+    #     body fields without changing Codrax's tool/SSE parser.
+    # 中文 大多数 OpenAI-compatible provider 使用默认 /chat/completions 路径
+    #     和 Authorization: Bearer api_key 头,不需要本节。公司内 OAuth
+    #     模型网关可配置 OAuth 轮询、自定义路径、请求头和 provider 私有 body
+    #     字段,同时复用 Codrax 已有工具调用/SSE 解析。
+    #
+    # Example / 示例:
+    #
+    # api_key: ""                                      # OAuth mode does not use static api_key
+    # model: ""                                        # optional only when models_path works
+    # base_url: "https://your-model-gateway.example.com/api"
+    # chat_completions_path: /chat/completions
+    # models_path: /models
+    # auth:
+    #   mode: oauth2_polling                           # api_key | oauth2_polling
+    #   auth_base_url: "https://your-sso.example.com/oauth"
+    #   client_id: "your-oauth-client-id"
+    #   scope: "your-scope"
+    #   response_type: code
+    #   scope_resource: "your-scope-resource"
+    #   authorize_path: /oauth2/authorize
+    #   callback_path: /oauth/callback
+    #   token_path: /oauth/getToken
+    #   access_token_header: X-Auth-Token
+    #   access_token_format: "{token}"
+    #   token_cache_file: "~/.codrax/auth/internal-oauth-token.json"
+    #   poll_timeout_seconds: 1800
+    #   poll_interval_seconds: 1
+    #   refresh_before_seconds: 300
+    # headers:
+    #   app-id: "your-app-id"
+    #   x-snap-traceid: "@uuid_v4"                     # fresh UUID per request
+    # request_extra:
+    #   queue: true
+    #   tool_stream: true
 
     # --- Streaming  ·  流式响应 -------------------------------------------
     # EN  Default true (streaming ON): codrax parses SSE, shows a live

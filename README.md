@@ -62,7 +62,7 @@ llm:
 
 每个 agent 槽都支持 `<name>_fallback`,主 provider 失败时自动切到 fallback,适合多区域容灾。
 
-更多模板见 [`providers.yaml.example`](providers.yaml.example)。
+更多模板见 [`providers.yaml.example`](providers.yaml.example)。公司内 OAuth2 模型服务也可以配置 `auth.mode: oauth2_polling`;详见 [用户指南 §5.1](docs/user_guide.md#51-providersyamllllm-凭证)。
 
 ### `providers.yaml` 放在哪
 

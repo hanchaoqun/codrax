@@ -33,6 +33,123 @@ func TestResolveProvider_ContextWindow_DefaultInherits(t *testing.T) {
 	}
 }
 
+func TestResolveProvider_RequestDecoration_Inheritance(t *testing.T) {
+	cfg := &types.ProvidersConfig{
+		LLM: types.LLMProvidersConfig{
+			Default: types.LLMProviderConfig{
+				Provider:            "openai",
+				APIKey:              "k",
+				BaseURL:             "https://example.test/base",
+				ChatCompletionsPath: "/chat/completions",
+				ModelsPath:          "/models",
+				Auth: &types.LLMAuthConfig{
+					Mode:              "oauth2_polling",
+					AuthBaseURL:       "https://auth.example.test",
+					ClientID:          "client",
+					Scope:             "scope-a",
+					TokenPath:         "/oauth/getToken",
+					AccessTokenHeader: "X-Auth-Token",
+				},
+				Headers: map[string]string{
+					"app-id":         "GatewayApp",
+					"x-snap-traceid": "@uuid_v4",
+				},
+				RequestExtra: map[string]any{
+					"queue":       true,
+					"tool_stream": true,
+				},
+			},
+			Agents: map[string]types.LLMProviderConfig{
+				"finalizer": {
+					Model: "strong",
+					Headers: map[string]string{
+						"app-id": "CustomApp",
+					},
+					RequestExtra: map[string]any{
+						"queue": false,
+					},
+				},
+			},
+		},
+	}
+
+	got := ResolveProvider(cfg, "finalizer")
+	if got.ChatCompletionsPath != "/chat/completions" {
+		t.Fatalf("chat_completions_path should inherit, got %q", got.ChatCompletionsPath)
+	}
+	if got.ModelsPath != "/models" {
+		t.Fatalf("models_path should inherit, got %q", got.ModelsPath)
+	}
+	if got.Auth == nil || got.Auth.Mode != "oauth2_polling" || got.Auth.AccessTokenHeader != "X-Auth-Token" {
+		t.Fatalf("auth should inherit as a copied struct, got %+v", got.Auth)
+	}
+	if got.Headers["app-id"] != "CustomApp" {
+		t.Fatalf("agent header should override default app-id, got %+v", got.Headers)
+	}
+	if got.Headers["x-snap-traceid"] != "@uuid_v4" {
+		t.Fatalf("default generated header should survive merge, got %+v", got.Headers)
+	}
+	if got.RequestExtra["queue"] != false {
+		t.Fatalf("agent request_extra should override queue, got %v", got.RequestExtra["queue"])
+	}
+	if got.RequestExtra["tool_stream"] != true {
+		t.Fatalf("default request_extra should survive merge, got %v", got.RequestExtra["tool_stream"])
+	}
+}
+
+func TestLoadProviders_OAuthPolling_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "providers.yaml")
+	content := `llm:
+  default:
+    provider: openai
+    base_url: https://gateway.example.test/api
+    chat_completions_path: /chat/completions
+    models_path: /models
+    auth:
+      mode: oauth2_polling
+      auth_base_url: https://auth.example.test/oauth
+      client_id: com.example.client
+      scope: "scope-a"
+      response_type: code
+      scope_resource: resource-a
+      authorize_path: /oauth2/authorize
+      callback_path: /oauth/callback
+      token_path: /oauth/getToken
+      access_token_header: X-Auth-Token
+      access_token_format: "{token}"
+      poll_timeout_seconds: 1800
+      poll_interval_seconds: 1
+      refresh_before_seconds: 300
+    headers:
+      app-id: GatewayApp
+      x-snap-traceid: "@uuid_v4"
+    request_extra:
+      queue: true
+      tool_stream: true
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("seed yaml: %v", err)
+	}
+	cfg, err := LoadProviders(path)
+	if err != nil {
+		t.Fatalf("LoadProviders: %v", err)
+	}
+	got := cfg.LLM.Default
+	if got.ChatCompletionsPath != "/chat/completions" || got.ModelsPath != "/models" {
+		t.Fatalf("paths did not round-trip: %+v", got)
+	}
+	if got.Auth == nil || got.Auth.Mode != "oauth2_polling" || got.Auth.RefreshBeforeSeconds != 300 {
+		t.Fatalf("auth did not round-trip: %+v", got.Auth)
+	}
+	if got.Headers["x-snap-traceid"] != "@uuid_v4" {
+		t.Fatalf("headers did not round-trip: %+v", got.Headers)
+	}
+	if got.RequestExtra["queue"] != true || got.RequestExtra["tool_stream"] != true {
+		t.Fatalf("request_extra did not round-trip: %+v", got.RequestExtra)
+	}
+}
+
 // TestResolveProvider_ContextWindow_AgentOverride covers the explicit-
 // agent-override case: when an agent points at a smaller (or larger)
 // model, it declares its own context_window and that value wins.

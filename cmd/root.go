@@ -2805,6 +2805,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return fmt.Errorf("failed to load providers config: %w", err)
 	}
+	llm.SetDisplayLanguage(flagLang)
 	app.defaultLLM, err = createDefaultAdapter(providersCfg, flagProviders)
 	if err != nil {
 		return err
@@ -3612,6 +3613,9 @@ func createDefaultAdapter(cfg *types.ProvidersConfig, providersPath string) (llm
 		logging.Error("[llm] default adapter: %v", err)
 		return nil, providerConfigError(providersPath, err)
 	}
+	if strings.TrimSpace(cfg.LLM.Default.Model) == "" && adapter != nil {
+		cfg.LLM.Default.Model = adapter.ModelID()
+	}
 	return adapter, nil
 }
 
@@ -3639,8 +3643,9 @@ func providerConfigError(providersPath string, cause error) error {
 			"Reason: %v\n\n"+
 			"How to fix:\n"+
 			"  - Put a valid providers.yaml next to the codrax binary, or pass --providers /path/to/providers.yaml.\n"+
-			"  - Configure llm.default.provider, api_key, model, and base_url.\n"+
-			"  - For environment-only setup, export LLM_PROVIDER, OPENAI_API_KEY, OPENAI_MODEL, and OPENAI_BASE_URL.",
+			"  - Static API-key setup: configure llm.default.provider, api_key, model, and base_url.\n"+
+			"  - OAuth setup: configure llm.default.provider, base_url, auth, models_path or model, and any provider-specific headers/request_extra.\n"+
+			"  - For environment-only static setup, export LLM_PROVIDER, OPENAI_API_KEY, OPENAI_MODEL, and OPENAI_BASE_URL.",
 		absPath, status, cause,
 	)
 }

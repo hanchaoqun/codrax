@@ -51,6 +51,22 @@ func merge(dst, src *types.LLMProviderConfig) {
 	if src.BaseURL != "" {
 		dst.BaseURL = src.BaseURL
 	}
+	if src.ChatCompletionsPath != "" {
+		dst.ChatCompletionsPath = src.ChatCompletionsPath
+	}
+	if src.ModelsPath != "" {
+		dst.ModelsPath = src.ModelsPath
+	}
+	if src.Auth != nil {
+		copied := *src.Auth
+		dst.Auth = &copied
+	}
+	if src.Headers != nil {
+		dst.Headers = mergeStringMap(dst.Headers, src.Headers)
+	}
+	if src.RequestExtra != nil {
+		dst.RequestExtra = mergeAnyMap(dst.RequestExtra, src.RequestExtra)
+	}
 	if src.ThinkAloud != nil {
 		dst.ThinkAloud = src.ThinkAloud
 	}
@@ -134,4 +150,26 @@ func mergeEnv(cfg *types.LLMProviderConfig) {
 			cfg.BaseURL = v
 		}
 	}
+}
+
+func mergeStringMap(dst, src map[string]string) map[string]string {
+	out := map[string]string{}
+	for k, v := range dst {
+		out[k] = v
+	}
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
+}
+
+func mergeAnyMap(dst, src map[string]any) map[string]any {
+	out := map[string]any{}
+	for k, v := range dst {
+		out[k] = v
+	}
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
 }

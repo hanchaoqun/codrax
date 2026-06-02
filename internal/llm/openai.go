@@ -4,8 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -34,6 +36,12 @@ type OpenAIAdapter struct {
 	apiKey  string
 	model   string
 	baseURL string
+
+	chatCompletionsPath string
+	modelsPath          string
+	authenticator       requestAuthenticator
+	requestHeaders      map[string]string
+	requestExtra        map[string]any
 
 	// maxOutputTokens is the wire-level `max_tokens` field sent on
 	// every chat completion request. Resolved from
@@ -143,6 +151,12 @@ type AdapterOptions struct {
 	RetryMaxAttempts     int
 	TLS                  TLSOptions
 
+	ChatCompletionsPath string
+	ModelsPath          string
+	Auth                AuthOptions
+	RequestHeaders      map[string]string
+	RequestExtra        map[string]any
+
 	// StreamStallTimeout is how long the SSE scanner may go without
 	// receiving a single byte before the watchdog aborts the request.
 	// Zero falls through to the package default
@@ -191,10 +205,26 @@ func NewOpenAIAdapter(apiKey, model, baseURL string, opts AdapterOptions) *OpenA
 	if firstByteTimeout <= 0 {
 		firstByteTimeout = defaultStreamFirstByteTimeout
 	}
+	authenticator, err := newRequestAuthenticator(apiKey, opts.Auth)
+	if err != nil {
+		// Factory validation should catch this before construction.
+		// Panic keeps tests and future direct callers honest, matching
+		// the existing fail-loud sizing guards above.
+		panic(err)
+	}
+	chatPath := strings.TrimSpace(opts.ChatCompletionsPath)
+	if chatPath == "" {
+		chatPath = "/chat/completions"
+	}
 	return &OpenAIAdapter{
 		apiKey:                 apiKey,
 		model:                  model,
 		baseURL:                baseURL,
+		chatCompletionsPath:    chatPath,
+		modelsPath:             opts.ModelsPath,
+		authenticator:          authenticator,
+		requestHeaders:         cloneStringMap(opts.RequestHeaders),
+		requestExtra:           cloneRawMessageMapLLM(opts.RequestExtra),
 		maxOutputTokens:        opts.MaxOutputTokens,
 		contextWindow:          opts.ContextWindow,
 		requestTimeout:         opts.RequestTimeout,
@@ -355,7 +385,7 @@ func (o *OpenAIAdapter) Chat(ctx context.Context, messages []Message, tools []To
 	}
 	reqBody := o.buildRequest(messages, tools, opts)
 
-	bodyBytes, err := json.Marshal(reqBody)
+	bodyBytes, err := o.marshalRequest(reqBody)
 	if err != nil {
 		return Response{}, fmt.Errorf("marshal request: %w", err)
 	}
@@ -482,30 +512,30 @@ func (o *OpenAIAdapter) Chat(ctx context.Context, messages []Message, tools []To
 }
 
 func (o *OpenAIAdapter) doRequest(ctx context.Context, bodyBytes []byte) (Response, error) {
-	req, err := http.NewRequestWithContext(ctx, "POST", o.baseURL+"/chat/completions", bytes.NewReader(bodyBytes))
-	if err != nil {
-		return Response{}, fmt.Errorf("create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+o.apiKey)
-
-	httpResp, err := o.httpClient.Do(req)
-	if err != nil {
-		return Response{}, fmt.Errorf("http request: %w", err)
-	}
-	defer httpResp.Body.Close()
-
-	respBody, err := io.ReadAll(httpResp.Body)
-	if err != nil {
-		return Response{}, fmt.Errorf("read response: %w", err)
-	}
-
-	if httpResp.StatusCode != http.StatusOK {
+	for authAttempt := 0; authAttempt < 2; authAttempt++ {
+		req, err := o.newChatRequest(ctx, bodyBytes, false)
+		if err != nil {
+			return Response{}, err
+		}
+		httpResp, err := o.httpClient.Do(req)
+		if err != nil {
+			return Response{}, fmt.Errorf("http request: %w", err)
+		}
+		respBody, readErr := io.ReadAll(httpResp.Body)
+		_ = httpResp.Body.Close()
+		if readErr != nil {
+			return Response{}, fmt.Errorf("read response: %w", readErr)
+		}
+		if httpResp.StatusCode == http.StatusOK {
+			return o.parseResponse(respBody)
+		}
+		if isAuthStatus(httpResp.StatusCode) && authAttempt == 0 && o.authenticator != nil {
+			o.authenticator.Invalidate()
+			continue
+		}
 		return Response{}, newAPIError(httpResp, respBody)
 	}
-
-	return o.parseResponse(respBody)
+	return Response{}, errors.New("llm auth retry exhausted")
 }
 
 // doStreamRequest POSTs a streaming chat completion and accumulates
@@ -549,13 +579,10 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 	if firstByteTimeout <= 0 {
 		firstByteTimeout = defaultStreamFirstByteTimeout
 	}
-	req, err := http.NewRequestWithContext(reqCtx, "POST", o.baseURL+"/chat/completions", bytes.NewReader(bodyBytes))
+	req, err := o.newChatRequest(reqCtx, bodyBytes, true)
 	if err != nil {
-		return Response{}, fmt.Errorf("create request: %w", err)
+		return Response{}, err
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+o.apiKey)
-	req.Header.Set("Accept", "text/event-stream")
 
 	preHeaderStart := time.Now()
 	var preHeaderFired atomic.Bool
@@ -599,6 +626,9 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 
 	if httpResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(httpResp.Body)
+		if isAuthStatus(httpResp.StatusCode) && o.authenticator != nil {
+			o.authenticator.Invalidate()
+		}
 		return Response{}, newAPIError(httpResp, body)
 	}
 	bodyClosed := make(chan struct{})
@@ -735,6 +765,72 @@ func (o *OpenAIAdapter) doStreamRequest(ctx context.Context, bodyBytes []byte, o
 		}
 	}
 	return resp, err
+}
+
+func (o *OpenAIAdapter) newChatRequest(ctx context.Context, bodyBytes []byte, stream bool) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, "POST", joinURLPath(o.baseURL, o.chatCompletionsPath), bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if stream {
+		req.Header.Set("Accept", "text/event-stream")
+	}
+	if o.authenticator != nil {
+		if err := o.authenticator.Apply(ctx, req); err != nil {
+			return nil, fmt.Errorf("apply llm auth: %w", err)
+		}
+	}
+	o.applyConfiguredHeaders(req)
+	return req, nil
+}
+
+func (o *OpenAIAdapter) applyConfiguredHeaders(req *http.Request) {
+	applyConfiguredHeaders(req, o.requestHeaders)
+}
+
+func applyConfiguredHeaders(req *http.Request, headers map[string]string) {
+	for k, v := range headers {
+		key := strings.TrimSpace(k)
+		if key == "" || isReservedConfiguredHeader(key) {
+			continue
+		}
+		req.Header.Set(key, expandHeaderValue(v))
+	}
+}
+
+func isReservedConfiguredHeader(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "authorization", "x-auth-token", "content-type", "accept":
+		return true
+	default:
+		return false
+	}
+}
+
+func expandHeaderValue(v string) string {
+	switch strings.TrimSpace(v) {
+	case "@uuid_v4":
+		if id, err := uuidV4String(); err == nil {
+			return id
+		}
+	}
+	return v
+}
+
+func uuidV4String() (string, error) {
+	buf := make([]byte, 16)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	buf[6] = (buf[6] & 0x0f) | 0x40
+	buf[8] = (buf[8] & 0x3f) | 0x80
+	s := hex.EncodeToString(buf)
+	return s[0:8] + "-" + s[8:12] + "-" + s[12:16] + "-" + s[16:20] + "-" + s[20:32], nil
+}
+
+func isAuthStatus(status int) bool {
+	return status == http.StatusUnauthorized || status == http.StatusForbidden
 }
 
 func isResponseHeaderTimeout(err error) bool {
@@ -1128,6 +1224,66 @@ func (o *OpenAIAdapter) buildRequest(messages []Message, tools []ToolSchema, opt
 	}
 
 	return req
+}
+
+func (o *OpenAIAdapter) marshalRequest(req openaiRequest) ([]byte, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return nil, err
+	}
+	if len(o.requestExtra) == 0 {
+		return body, nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return nil, err
+	}
+	for k, v := range o.requestExtra {
+		key := strings.TrimSpace(k)
+		if key == "" || requestExtraReservedField(key) {
+			if key != "" {
+				logging.Warning("[llm] ignoring request_extra.%s because it is a reserved chat-completions field", key)
+			}
+			continue
+		}
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return nil, fmt.Errorf("marshal request_extra.%s: %w", key, err)
+		}
+		fields[key] = raw
+	}
+	return json.Marshal(fields)
+}
+
+func requestExtraReservedField(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "model", "messages", "tools", "tool_choice", "stream", "max_tokens", "thinking":
+		return true
+	default:
+		return false
+	}
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+func cloneRawMessageMapLLM(in map[string]any) map[string]any {
+	if in == nil {
+		return nil
+	}
+	out := make(map[string]any, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
 }
 
 func (o *OpenAIAdapter) suppressToolChoiceForNativeThinking() bool {

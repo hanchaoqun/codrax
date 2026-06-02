@@ -21,6 +21,32 @@ type LLMProviderConfig struct {
 	BaseURL    string `yaml:"base_url"`
 	ThinkAloud *bool  `yaml:"think_aloud"` // nil = inherit from default; true/false = per-agent override
 
+	// ChatCompletionsPath is the provider-specific chat-completions
+	// endpoint path appended to BaseURL. Empty keeps the historical
+	// OpenAI-compatible default `/chat/completions`.
+	ChatCompletionsPath string `yaml:"chat_completions_path"`
+
+	// ModelsPath is an optional provider-specific model-list endpoint
+	// appended to BaseURL. When Model is empty, the factory may fetch
+	// this endpoint once and select the first returned model.
+	ModelsPath string `yaml:"models_path"`
+
+	// Auth configures provider-side authentication beyond a static
+	// api_key. It is intentionally provider config, not model-facing
+	// tool JSON, so it does not participate in tool_param_compat.
+	Auth *LLMAuthConfig `yaml:"auth"`
+
+	// Headers are provider-specific request headers injected after
+	// Codrax sets protocol headers and auth. Values may contain a small
+	// set of deterministic macros such as `@uuid_v4`.
+	Headers map[string]string `yaml:"headers"`
+
+	// RequestExtra is a JSON-compatible map merged into the chat
+	// completion body. Reserved protocol fields such as model,
+	// messages, tools, stream, tool_choice, max_tokens, and thinking
+	// are protected from override by the adapter.
+	RequestExtra map[string]any `yaml:"request_extra"`
+
 	// ThinkingMode controls provider-native thinking / reasoning mode on
 	// APIs that expose a wire-level switch. It is deliberately separate
 	// from ThinkAloud: ThinkAloud only injects Codrax's prompt-side
@@ -160,6 +186,34 @@ type LLMProviderConfig struct {
 	// compromising legitimate slow first-byte paths. Zero inherits
 	// the code default.
 	StreamFirstByteTimeoutSeconds int `yaml:"stream_first_byte_timeout_seconds"`
+}
+
+// LLMAuthConfig holds provider authentication settings. The empty /
+// api_key mode preserves the legacy Authorization: Bearer api_key path.
+// oauth2_polling enables a company OAuth polling flow with local token cache.
+type LLMAuthConfig struct {
+	Mode string `yaml:"mode"`
+
+	AuthBaseURL string `yaml:"auth_base_url"`
+	ClientID    string `yaml:"client_id"`
+
+	Scope         string `yaml:"scope"`
+	ResponseType  string `yaml:"response_type"`
+	ScopeResource string `yaml:"scope_resource"`
+
+	AuthorizePath string `yaml:"authorize_path"`
+	CallbackPath  string `yaml:"callback_path"`
+	TokenPath     string `yaml:"token_path"`
+
+	TokenCacheFile string `yaml:"token_cache_file"`
+
+	PollTimeoutSeconds   int `yaml:"poll_timeout_seconds"`
+	PollIntervalSeconds  int `yaml:"poll_interval_seconds"`
+	RefreshBeforeSeconds int `yaml:"refresh_before_seconds"`
+	TokenTTLSeconds      int `yaml:"token_ttl_seconds"`
+
+	AccessTokenHeader string `yaml:"access_token_header"`
+	AccessTokenFormat string `yaml:"access_token_format"`
 }
 
 const (

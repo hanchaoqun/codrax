@@ -1746,7 +1746,7 @@ codrax 用两份 YAML,职责严格不重叠:
 
 ## 5.1 providers.yaml(LLM 凭证)
 
-### 5.1.1 必填的 4 个字段
+### 5.1.1 静态 API Key 的最小配置
 
 ```yaml
 llm:
@@ -1757,9 +1757,59 @@ llm:
     base_url: "https://your-endpoint/v1"  # http:// 或 https:// 都行
 ```
 
-缺任何一个都会**拒启动 + 打印缺哪个字段**,不会偷偷连公网。
+静态 API Key 模式下缺任何一个都会**拒启动 + 打印缺哪个字段**,不会偷偷连公网。
 
-### 5.1.2 流式开关
+### 5.1.2 公司内 OAuth2 模型服务配置
+
+如果公司内模型服务不是固定 `api_key`,而是先通过 OAuth2 获取 `access_token`,可以用 `auth.mode: oauth2_polling`。Codrax 会在首次需要 token 时显示授权 URL,授权成功后把 token 安全缓存到本地,后续启动会复用未过期 token。
+
+```yaml
+llm:
+  default:
+    provider: openai
+    base_url: "https://your-model-gateway.example.com/api"
+
+    # 显式配置 model 最稳定。若不填 model,必须配置 models_path;
+    # Codrax 会展示模型列表并默认选择第一个。
+    # model: "qwen3d6-35b"
+    models_path: /models
+    chat_completions_path: /chat/completions
+
+    auth:
+      mode: oauth2_polling
+      auth_base_url: "https://your-sso.example.com/oauth"
+      client_id: "your-oauth-client-id"
+      scope: "your-scope"
+      response_type: code
+      scope_resource: "your-scope-resource"
+      authorize_path: /oauth2/authorize
+      callback_path: /oauth/callback
+      token_path: /oauth/getToken
+      access_token_header: X-Auth-Token
+      access_token_format: "{token}"
+      token_cache_file: "~/.codrax/auth/internal-oauth-token.json"
+      poll_timeout_seconds: 1800
+      poll_interval_seconds: 1
+      refresh_before_seconds: 300
+
+    headers:
+      app-id: "your-app-id"
+      x-snap-traceid: "@uuid_v4"
+
+    request_extra:
+      queue: true
+      tool_stream: true
+```
+
+行为规则:
+
+- `model` 显式配置时永远优先。
+- 没有 `model` 时,系统只在启动/初始化 provider 时请求一次 `models_path`,展示模型列表并选择第一个非空模型名。
+- `expires_in` 按秒解析,兼容字符串和数字。token 会保存 `issued_at` / `expires_at`,默认过期前 5 分钟重新认证。
+- token 缓存文件权限为 `0600`,目录权限为 `0700`;日志不会打印 `access_token` 或 `refresh_token`。
+- `request_extra` 只能补充 provider 私有字段;不能覆盖 `model`、`messages`、`tools`、`stream`、`tool_choice`、`max_tokens`、`thinking` 等核心协议字段。
+
+### 5.1.3 流式开关
 
 ```yaml
 llm:
@@ -1768,7 +1818,7 @@ llm:
                    # 设 false:经典单次请求-响应,适合 byte-stable CI 或本地小模型
 ```
 
-### 5.1.3 TLS / 自签证书
+### 5.1.4 TLS / 自签证书
 
 仅当 `base_url` 是 `https://`:
 
@@ -1779,7 +1829,7 @@ llm:
     # tls_insecure_skip_verify: true         # 核武器:完全跳过证书验证,启动时会打高亮警告
 ```
 
-### 5.1.4 sizing / 超时 / 重试(每个字段都可选)
+### 5.1.5 sizing / 超时 / 重试(每个字段都可选)
 
 ```yaml
 llm:
@@ -1802,7 +1852,7 @@ llm:
 - `disabled`:总是请求关闭 provider 原生 thinking;`provider_default`:完全不发送 thinking 字段,交给 provider 默认行为。
 - `enabled`:仅在你明确要测试 provider 原生 thinking 时使用。对官方 DeepSeek endpoint,Codrax 会保留并回传 `reasoning_content`,并在原生 thinking 开启时不发送 `tool_choice`,以满足 DeepSeek tools 兼容要求。除非已验证收益,生产环境建议保持 `auto`。
 
-### 5.1.5 本地小模型 tool-call 兼容(可选)
+### 5.1.6 本地小模型 tool-call 兼容(可选)
 
 对 OpenAI-compatible 本地 / 小模型，先只打开审计模式观察：
 
@@ -1817,7 +1867,7 @@ llm:
 
 确认日志里的 `[tool_param_compat] ... audit repairable` 都是机械类型错误后，再对需要的 provider / agent 切到 `repair`。它只按工具 JSON Schema 修确定性问题，例如 `"offset":"146"` → `146`、JSON 字符串里的 array/object 解包、`"a,b"` → `["a","b"]`；不会补缺失字段、猜 path、删 unknown 字段或修 prose。远程大模型不需要打开 `recover_text_tool_calls` 的宽兼容档；系统会默认处理“assistant content 正好是完整显式工具调用 JSON envelope”的安全运输修复。
 
-### 5.1.6 每个 agent 用不同模型(可选)
+### 5.1.7 每个 agent 用不同模型(可选)
 
 每个 agent 都从 `default` 继承缺省值,只覆盖你要变的字段:
 

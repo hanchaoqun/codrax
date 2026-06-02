@@ -1,9 +1,18 @@
 package llm
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/config"
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -28,10 +37,10 @@ const (
 // Fields an operator MUST set (no silent defaults):
 //
 //   - provider   — only "openai" is supported today
-//   - api_key    — no sensible fallback
-//   - model      — silently defaulting to a hard-coded model ID was
-//     dangerous for users on internal / Ollama / Azure deployments
-//     where the hosted model list is completely different
+//   - api_key    — required for the default api_key auth mode; OAuth
+//     provider modes obtain credentials through their auth block
+//   - model      — explicit model wins; if omitted, models_path must
+//     be configured and the first listed model is selected visibly
 //   - base_url   — same reason; defaulting to api.openai.com/v1
 //     silently steered corporate / private deployments onto the
 //     public endpoint
@@ -43,12 +52,6 @@ func NewFromConfig(cfg types.LLMProviderConfig) (Adapter, error) {
 	case "openai":
 	default:
 		return nil, fmt.Errorf("providers.yaml: unknown provider %q (supported: openai)", cfg.Provider)
-	}
-	if cfg.APIKey == "" {
-		return nil, fmt.Errorf("providers.yaml: llm api_key is required (inherit from default or set per-agent)")
-	}
-	if cfg.Model == "" {
-		return nil, fmt.Errorf("providers.yaml: llm model is required — no default model is assumed")
 	}
 	if cfg.BaseURL == "" {
 		return nil, fmt.Errorf("providers.yaml: llm base_url is required — no default endpoint is assumed")
@@ -103,8 +106,20 @@ func NewFromConfig(cfg types.LLMProviderConfig) (Adapter, error) {
 		cfg.StreamFirstByteTimeoutSeconds,
 		defaultStreamFirstByteTimeoutSeconds,
 	)
+	authOpts := authOptionsFromConfig(cfg, requestTimeout)
+	if normalizeAuthMode(authOpts.Mode) == authModeAPIKey && cfg.APIKey == "" {
+		return nil, fmt.Errorf("providers.yaml: llm api_key is required when auth.mode is empty or api_key (inherit from default or set per-agent)")
+	}
+	model := strings.TrimSpace(cfg.Model)
+	if model == "" {
+		selected, err := discoverFirstModel(cfg, authOpts, requestTimeout)
+		if err != nil {
+			return nil, err
+		}
+		model = selected
+	}
 
-	return NewOpenAIAdapter(cfg.APIKey, cfg.Model, cfg.BaseURL, AdapterOptions{
+	return NewOpenAIAdapter(cfg.APIKey, model, cfg.BaseURL, AdapterOptions{
 		Stream:                 stream,
 		RecoverTextToolCalls:   recoverTextToolCalls,
 		ProviderThinkingMode:   cfg.ThinkingMode,
@@ -114,9 +129,215 @@ func NewFromConfig(cfg types.LLMProviderConfig) (Adapter, error) {
 		RetryMaxAttempts:       retryMaxAttempts,
 		StreamStallTimeout:     streamStallTimeout,
 		StreamFirstByteTimeout: streamFirstByteTimeout,
+		ChatCompletionsPath:    cfg.ChatCompletionsPath,
+		ModelsPath:             cfg.ModelsPath,
+		Auth:                   authOpts,
+		RequestHeaders:         cfg.Headers,
+		RequestExtra:           cfg.RequestExtra,
 		TLS: TLSOptions{
 			CAFile:             cfg.TLSCAFile,
 			InsecureSkipVerify: cfg.TLSInsecureSkipVerify,
 		},
 	}), nil
+}
+
+func authOptionsFromConfig(cfg types.LLMProviderConfig, requestTimeout time.Duration) AuthOptions {
+	opts := AuthOptions{
+		Mode:           authModeAPIKey,
+		BaseURL:        cfg.BaseURL,
+		RequestTimeout: requestTimeout,
+		TLS: TLSOptions{
+			CAFile:             cfg.TLSCAFile,
+			InsecureSkipVerify: cfg.TLSInsecureSkipVerify,
+		},
+	}
+	if cfg.Auth == nil {
+		return opts
+	}
+	a := cfg.Auth
+	opts.Mode = a.Mode
+	opts.AuthBaseURL = a.AuthBaseURL
+	opts.ClientID = a.ClientID
+	opts.Scope = a.Scope
+	opts.ResponseType = a.ResponseType
+	opts.ScopeResource = a.ScopeResource
+	opts.AuthorizePath = a.AuthorizePath
+	opts.CallbackPath = a.CallbackPath
+	opts.TokenPath = a.TokenPath
+	opts.TokenCacheFile = a.TokenCacheFile
+	opts.PollTimeout = secondsDuration(a.PollTimeoutSeconds)
+	opts.PollInterval = secondsDuration(a.PollIntervalSeconds)
+	opts.RefreshBefore = secondsDuration(a.RefreshBeforeSeconds)
+	opts.TokenTTL = secondsDuration(a.TokenTTLSeconds)
+	opts.TokenHeader = a.AccessTokenHeader
+	opts.TokenFormat = a.AccessTokenFormat
+	return opts
+}
+
+func secondsDuration(seconds int) time.Duration {
+	if seconds <= 0 {
+		return 0
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+type discoveredModel struct {
+	Name        string
+	Description string
+}
+
+type rawProviderModel struct {
+	Name string  `json:"name"`
+	ID   string  `json:"id"`
+	Des  *string `json:"des"`
+	Desc *string `json:"description"`
+}
+
+type modelDiscoveryResult struct {
+	Models   []discoveredModel
+	Selected string
+}
+
+var modelDiscoveryCache = struct {
+	sync.Mutex
+	entries map[string]modelDiscoveryResult
+}{entries: map[string]modelDiscoveryResult{}}
+
+func discoverFirstModel(cfg types.LLMProviderConfig, authOpts AuthOptions, requestTimeout time.Duration) (string, error) {
+	if strings.TrimSpace(cfg.ModelsPath) == "" {
+		return "", fmt.Errorf("providers.yaml: llm model is required when models_path is not configured")
+	}
+	key := modelDiscoveryKey(cfg, authOpts)
+	modelDiscoveryCache.Lock()
+	if cached, ok := modelDiscoveryCache.entries[key]; ok {
+		modelDiscoveryCache.Unlock()
+		return cached.Selected, nil
+	}
+	modelDiscoveryCache.Unlock()
+
+	authenticator, err := newRequestAuthenticator(cfg.APIKey, authOpts)
+	if err != nil {
+		return "", err
+	}
+	client := buildHTTPClient(authOpts.TLS, cfg.BaseURL, requestTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), requestTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, joinURLPath(cfg.BaseURL, cfg.ModelsPath), nil)
+	if err != nil {
+		return "", fmt.Errorf("create model-list request: %w", err)
+	}
+	if err := authenticator.Apply(ctx, req); err != nil {
+		return "", fmt.Errorf("apply auth for model-list request: %w", err)
+	}
+	applyConfiguredHeaders(req, cfg.Headers)
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("query model list: %w", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read model list: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", fmt.Errorf("query model list HTTP %d: %s", resp.StatusCode, trimForLog(body, 512))
+	}
+	models, err := parseModelList(body)
+	if err != nil {
+		return "", err
+	}
+	selected := ""
+	for _, m := range models {
+		if strings.TrimSpace(m.Name) != "" {
+			selected = strings.TrimSpace(m.Name)
+			break
+		}
+	}
+	if selected == "" {
+		return "", fmt.Errorf("providers.yaml: model list from %s was empty; set llm.default.model explicitly", cfg.ModelsPath)
+	}
+	result := modelDiscoveryResult{Models: models, Selected: selected}
+	modelDiscoveryCache.Lock()
+	modelDiscoveryCache.entries[key] = result
+	modelDiscoveryCache.Unlock()
+	printModelSelectionNotice(result)
+	return selected, nil
+}
+
+func modelDiscoveryKey(cfg types.LLMProviderConfig, authOpts AuthOptions) string {
+	return strings.Join([]string{
+		cfg.BaseURL,
+		cfg.ModelsPath,
+		normalizeAuthMode(authOpts.Mode),
+		authOpts.AuthBaseURL,
+		authOpts.ClientID,
+		authOpts.Scope,
+		authOpts.ScopeResource,
+	}, "\x00")
+}
+
+func parseModelList(body []byte) ([]discoveredModel, error) {
+	var arr []rawProviderModel
+	if err := json.Unmarshal(body, &arr); err == nil {
+		return normalizeDiscoveredModels(arr), nil
+	}
+	var obj struct {
+		Data []rawProviderModel `json:"data"`
+	}
+	if err := json.Unmarshal(body, &obj); err != nil {
+		return nil, fmt.Errorf("parse model list response: %w", err)
+	}
+	return normalizeDiscoveredModels(obj.Data), nil
+}
+
+func normalizeDiscoveredModels(raw []rawProviderModel) []discoveredModel {
+	out := make([]discoveredModel, 0, len(raw))
+	for _, r := range raw {
+		name := strings.TrimSpace(r.Name)
+		if name == "" {
+			name = strings.TrimSpace(r.ID)
+		}
+		desc := ""
+		if r.Des != nil {
+			desc = strings.TrimSpace(*r.Des)
+		}
+		if desc == "" && r.Desc != nil {
+			desc = strings.TrimSpace(*r.Desc)
+		}
+		if name != "" {
+			out = append(out, discoveredModel{Name: name, Description: desc})
+		}
+	}
+	return out
+}
+
+func printModelSelectionNotice(result modelDiscoveryResult) {
+	logging.Info("[llm] model not explicitly configured; selected first listed model %q", result.Selected)
+	if preferChineseDisplay() {
+		fmt.Fprintln(os.Stderr, "  › 未显式配置 LLM model，已获取模型列表并选择第一个可用模型：")
+		for i, m := range result.Models {
+			marker := ""
+			if m.Name == result.Selected {
+				marker = "  ← 已选择"
+			}
+			if m.Description != "" {
+				fmt.Fprintf(os.Stderr, "    %d. %s - %s%s\n", i+1, m.Name, m.Description, marker)
+			} else {
+				fmt.Fprintf(os.Stderr, "    %d. %s%s\n", i+1, m.Name, marker)
+			}
+		}
+		return
+	}
+	fmt.Fprintln(os.Stderr, "  › LLM model was not explicitly configured; fetched model list:")
+	for i, m := range result.Models {
+		marker := ""
+		if m.Name == result.Selected {
+			marker = "  ← selected"
+		}
+		if m.Description != "" {
+			fmt.Fprintf(os.Stderr, "    %d. %s - %s%s\n", i+1, m.Name, m.Description, marker)
+		} else {
+			fmt.Fprintf(os.Stderr, "    %d. %s%s\n", i+1, m.Name, marker)
+		}
+	}
 }
