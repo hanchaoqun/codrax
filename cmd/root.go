@@ -388,8 +388,8 @@ type appContext struct {
 	chitchatResponder     repl.ChitchatResponder
 	chitchatClassifier    repl.ChitchatClassifier
 	replHeaderPrinted     bool
+	replModelListLine     string
 	replModelSummaryLine  string
-	replModelNoticeLines  []string
 	// writeEnabled mirrors codrax.yaml :: write_enabled. Forwarded to
 	// the REPL Config so /mode plan|apply|verify and /approve can be
 	// rejected at the slash-command surface with a clear error pointing
@@ -1219,25 +1219,24 @@ func runREPL(_ *cobra.Command) error {
 		}
 	}
 	r := repl.New(repl.Config{
-		Runner:                app.orch,
-		Store:                 store,
-		Render:                renderFn,
-		Renderer:              app.renderer,
-		RepoRoot:              flagRepo,
-		Branch:                flagBranch,
-		Out:                   os.Stdout,
-		PasteFoldMinChars:     app.replPasteFoldMinChars,
-		Version:               version,
-		BuildTime:             buildTime,
-		Language:              flagLang,
-		HeaderAlreadyRendered: app.replHeaderPrinted,
-		ModelSummaryLine:      app.replModelSummaryLine,
-		ModelNoticeLines:      app.replModelNoticeLines,
-		MarkdownPreview:       markdownPreview,
-		OutputDumpDir:         app.outputDumpDir,
-		OutputDumpMax:         app.outputDumpMax,
-		ChitchatResponder:     app.chitchatResponder,
-		ChitchatClassifier:    app.chitchatClassifier,
+		Runner:             app.orch,
+		Store:              store,
+		Render:             renderFn,
+		Renderer:           app.renderer,
+		RepoRoot:           flagRepo,
+		Branch:             flagBranch,
+		Out:                os.Stdout,
+		PasteFoldMinChars:  app.replPasteFoldMinChars,
+		Version:            version,
+		BuildTime:          buildTime,
+		Language:           flagLang,
+		ModelListLine:      app.replModelListLine,
+		ModelSummaryLine:   app.replModelSummaryLine,
+		MarkdownPreview:    markdownPreview,
+		OutputDumpDir:      app.outputDumpDir,
+		OutputDumpMax:      app.outputDumpMax,
+		ChitchatResponder:  app.chitchatResponder,
+		ChitchatClassifier: app.chitchatClassifier,
 		// Hand the memory adapter to REPL so the chitchat tool-use
 		// loop can call recall_memory without a separate wiring step.
 		// The same adapter is also wired into the orchestrator above,
@@ -2819,8 +2818,10 @@ func initApp(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if interactiveStartup {
-		app.replModelNoticeLines = modelSelectionNoticeLines(flagLang, llm.ConsumeModelSelectionNotices())
-		app.replModelSummaryLine = replModelSummaryLine(flagLang, app.defaultLLM, len(app.replModelNoticeLines) > 0)
+		modelNotices := llm.ConsumeModelSelectionNotices()
+		autoSelected := len(modelNotices) > 0
+		app.replModelListLine = replModelListLine(flagLang, modelNotices)
+		app.replModelSummaryLine = replModelSummaryLine(flagLang, app.defaultLLM, autoSelected)
 	}
 	// Surface the resolved context-window value at INFO level so
 	// operators can sanity-check their providers.yaml declaration
@@ -3767,11 +3768,7 @@ func installLLMStartupUXHooks(interactiveStartup bool) {
 			repl.PrintStartupHeader(os.Stdout, version, flagRepo)
 			app.replHeaderPrinted = true
 		}
-		if isZhLang(flagLang) {
-			fmt.Fprintf(os.Stdout, "  › 需要完成 LLM OAuth 授权。请在浏览器打开：\n    %s\n", notice.URL)
-		} else {
-			fmt.Fprintf(os.Stdout, "  › LLM OAuth authorization required. Open this URL in a browser:\n    %s\n", notice.URL)
-		}
+		repl.PrintOAuthAuthorizationPrompt(os.Stdout, flagLang, notice.URL)
 		return true
 	})
 }
@@ -3790,39 +3787,75 @@ func replModelSummaryLine(lang string, adapter llm.Adapter, autoSelected bool) s
 	selection := ""
 	if autoSelected {
 		if isZhLang(lang) {
-			selection = " · 自动选择"
+			selection = " · 自动选择列表首项"
 		} else {
 			selection = " · auto-selected"
 		}
+	}
+	if isZhLang(lang) {
+		return fmt.Sprintf("模型: %s · 上下文=%s · %s · 超时=%s · 重试=%d%s",
+			model, ctx, localizeOutputCap(lang, out), adapter.RequestTimeout(), adapter.RetryMaxAttempts(), selection)
 	}
 	return fmt.Sprintf("Model: %s · ctx=%s · %s · timeout=%s · retry=%d%s",
 		model, ctx, out, adapter.RequestTimeout(), adapter.RetryMaxAttempts(), selection)
 }
 
-func modelSelectionNoticeLines(lang string, notices []llm.ModelSelectionNotice) []string {
-	var out []string
-	for _, notice := range notices {
-		selected := strings.TrimSpace(notice.Selected)
-		if selected == "" {
+func replModelListLine(lang string, notices []llm.ModelSelectionNotice) string {
+	if len(notices) == 0 {
+		return ""
+	}
+	notice := notices[len(notices)-1]
+	selected := strings.TrimSpace(notice.Selected)
+	if selected == "" || len(notice.Models) == 0 {
+		return ""
+	}
+	const maxInlineModels = 5
+	items := make([]string, 0, minInt(len(notice.Models), maxInlineModels))
+	for i, m := range notice.Models {
+		if i >= maxInlineModels {
+			break
+		}
+		name := strings.TrimSpace(m.Name)
+		if name == "" {
 			continue
 		}
-		desc := ""
-		for _, m := range notice.Models {
-			if strings.TrimSpace(m.Name) == selected {
-				desc = strings.TrimSpace(m.Description)
-				break
+		suffix := ""
+		if name == selected {
+			if isZhLang(lang) {
+				suffix = " ← 已选择"
+			} else {
+				suffix = " ← selected"
 			}
 		}
-		if desc != "" {
-			selected = selected + " - " + desc
-		}
+		items = append(items, fmt.Sprintf("%d. %s%s", i+1, name, suffix))
+	}
+	if len(items) == 0 {
+		return ""
+	}
+	tail := ""
+	if len(notice.Models) > maxInlineModels {
 		if isZhLang(lang) {
-			out = append(out, fmt.Sprintf("Model selection: 未显式配置 model，使用模型列表第 1 个可用模型：%s", selected))
+			tail = fmt.Sprintf("; … 共 %d 个", len(notice.Models))
 		} else {
-			out = append(out, fmt.Sprintf("Model selection: no explicit model configured; using the first available listed model: %s", selected))
+			tail = fmt.Sprintf("; … %d total", len(notice.Models))
 		}
 	}
-	return out
+	if isZhLang(lang) {
+		return "可用模型: " + strings.Join(items, "; ") + tail
+	}
+	return "Available models: " + strings.Join(items, "; ") + tail
+}
+
+func localizeOutputCap(lang, out string) string {
+	if !isZhLang(lang) {
+		return out
+	}
+	switch out {
+	case "output=server-default":
+		return "输出=服务端默认"
+	default:
+		return strings.Replace(out, "output=", "输出=", 1)
+	}
 }
 
 func formatContextWindow(n int) string {
@@ -3837,6 +3870,13 @@ func formatContextWindow(n int) string {
 
 func isZhLang(lang string) bool {
 	return !strings.EqualFold(strings.TrimSpace(lang), "en")
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // clampReflectorTimeout returns the request_timeout_seconds the

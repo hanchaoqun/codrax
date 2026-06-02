@@ -1156,7 +1156,7 @@ func TestHumanByteSize(t *testing.T) {
 	}
 }
 
-func TestBannerIncludesModelSummaryBelowMemory(t *testing.T) {
+func TestBannerIncludesLocalizedModelAndStatusLines(t *testing.T) {
 	store, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
@@ -1169,34 +1169,76 @@ func TestBannerIncludesModelSummaryBelowMemory(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Append: %v", err)
 	}
+
+	for _, tc := range []struct {
+		name      string
+		lang      string
+		listLine  string
+		modelLine string
+		wantOrder []string
+	}{
+		{
+			name:      "en",
+			lang:      "en",
+			listLine:  "Available models: 1. MiniMax-M2.7 ← selected",
+			modelLine: "Model: MiniMax-M2.7 · ctx=200k",
+			wantOrder: []string{"Available models:", "Model:", "Modes:", "Memory:"},
+		},
+		{
+			name:      "zh",
+			lang:      "zh",
+			listLine:  "可用模型: 1. MiniMax-M2.7 ← 已选择",
+			modelLine: "模型: MiniMax-M2.7 · 上下文=200k",
+			wantOrder: []string{"可用模型:", "模型:", "模式:", "记忆:"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var out bytes.Buffer
+			r := New(Config{
+				Runner:           stubRunner{},
+				Store:            store,
+				Render:           renderNothing,
+				RepoRoot:         ".",
+				Branch:           "main",
+				In:               strings.NewReader(""),
+				Out:              &out,
+				Language:         tc.lang,
+				ModelListLine:    tc.listLine,
+				ModelSummaryLine: tc.modelLine,
+			})
+
+			r.banner()
+
+			got := out.String()
+			if !strings.Contains(got, "CODRAX") {
+				t.Fatalf("banner should render the CODRAX header for the REPL status section; got:\n%s", got)
+			}
+			last := -1
+			for _, needle := range tc.wantOrder {
+				idx := strings.Index(got, needle)
+				if idx < 0 {
+					t.Fatalf("banner missing %q; got:\n%s", needle, got)
+				}
+				if idx <= last {
+					t.Fatalf("banner order wrong around %q; got:\n%s", needle, got)
+				}
+				last = idx
+			}
+		})
+	}
+}
+
+func TestPrintOAuthAuthorizationPrompt(t *testing.T) {
 	var out bytes.Buffer
-	r := New(Config{
-		Runner:                stubRunner{},
-		Store:                 store,
-		Render:                renderNothing,
-		RepoRoot:              ".",
-		Branch:                "main",
-		In:                    strings.NewReader(""),
-		Out:                   &out,
-		Language:              "en",
-		HeaderAlreadyRendered: true,
-		ModelSummaryLine:      "Model: MiniMax-M2.7 · ctx=200k",
-		ModelNoticeLines:      []string{"Model selection: no explicit model configured; using the first available listed model: MiniMax-M2.7"},
-	})
-
-	r.banner()
-
+	PrintOAuthAuthorizationPrompt(&out, "zh", "https://auth.example/authorize")
 	got := out.String()
-	if strings.Contains(got, "CODRAX") {
-		t.Fatalf("header should not be duplicated when HeaderAlreadyRendered=true; got:\n%s", got)
+	if !strings.Contains(got, "需要完成 LLM OAuth 授权") {
+		t.Fatalf("zh OAuth prompt missing localized text: %q", got)
 	}
-	memoryIdx := strings.Index(got, "Memory:")
-	modelIdx := strings.Index(got, "Model: MiniMax-M2.7")
-	noticeIdx := strings.Index(got, "Model selection:")
-	if memoryIdx < 0 || modelIdx < 0 || noticeIdx < 0 {
-		t.Fatalf("banner missing memory/model/notice lines; got:\n%s", got)
+	if !strings.Contains(got, "https://auth.example/authorize") {
+		t.Fatalf("OAuth prompt missing URL: %q", got)
 	}
-	if !(memoryIdx < modelIdx && modelIdx < noticeIdx) {
-		t.Fatalf("model lines should render below Memory in order; got:\n%s", got)
+	if !strings.Contains(got, "›") {
+		t.Fatalf("OAuth prompt should use REPL-style prefix: %q", got)
 	}
 }

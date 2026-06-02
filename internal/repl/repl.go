@@ -192,12 +192,11 @@ type Config struct {
 	Out      io.Writer
 
 	// UI customization (used by line-oriented mode).
-	Prompt                string // primary prompt, e.g. ">"
-	PromptCont            string // continuation prompt, e.g. "."
-	Banner                string // printed once at start; empty → default badge
-	HeaderAlreadyRendered bool   // true when cmd/root already rendered the CODRAX startup header
-	ModelSummaryLine      string // optional resolved model summary, rendered below Memory
-	ModelNoticeLines      []string
+	Prompt           string // primary prompt, e.g. ">"
+	PromptCont       string // continuation prompt, e.g. "."
+	Banner           string // printed once at start; empty → default badge
+	ModelListLine    string // optional model-list summary shown before model config
+	ModelSummaryLine string // optional resolved model summary
 
 	// PasteFoldMinChars is the rune-count threshold above which a
 	// single-line paste gets folded into a placeholder. Multi-line
@@ -448,24 +447,23 @@ type REPL struct {
 	// by maybeNudgeWorktreeGC (commit 46) to surface a soft
 	// hint every Nth success when preserved worktrees might
 	// be accumulating on disk. Reset each REPL boot.
-	approveSuccessCount   int
-	branch                string
-	in                    io.Reader
-	out                   io.Writer
-	prompt                string
-	promptCont            string
-	bannerText            string
-	headerAlreadyRendered bool
-	modelSummaryLine      string
-	modelNoticeLines      []string
-	scanner               *bufio.Scanner // lazy-init for line-oriented mode
-	pasteFoldMinChars     int            // per-session paste-fold threshold (runes)
-	version               string
-	buildTime             string
-	language              string
-	markdownPreview       MarkdownPreviewer
-	outputDumpDir         string
-	outputDumpMax         int
+	approveSuccessCount int
+	branch              string
+	in                  io.Reader
+	out                 io.Writer
+	prompt              string
+	promptCont          string
+	bannerText          string
+	modelListLine       string
+	modelSummaryLine    string
+	scanner             *bufio.Scanner // lazy-init for line-oriented mode
+	pasteFoldMinChars   int            // per-session paste-fold threshold (runes)
+	version             string
+	buildTime           string
+	language            string
+	markdownPreview     MarkdownPreviewer
+	outputDumpDir       string
+	outputDumpMax       int
 
 	// attachedLog holds the runtime log excerpt the user attached.
 	// Lifetime depends on how it got here:
@@ -686,9 +684,8 @@ func New(cfg Config) *REPL {
 		prompt:                 cfg.Prompt,
 		promptCont:             cfg.PromptCont,
 		bannerText:             cfg.Banner,
-		headerAlreadyRendered:  cfg.HeaderAlreadyRendered,
+		modelListLine:          cfg.ModelListLine,
 		modelSummaryLine:       cfg.ModelSummaryLine,
-		modelNoticeLines:       append([]string(nil), cfg.ModelNoticeLines...),
 		pasteFoldMinChars:      cfg.PasteFoldMinChars,
 		version:                cfg.Version,
 		buildTime:              cfg.BuildTime,
@@ -1396,9 +1393,7 @@ func (r *REPL) banner() {
 		fmt.Fprintln(r.out, r.bannerText)
 		return
 	}
-	if !r.headerAlreadyRendered {
-		PrintStartupHeader(r.out, r.version, r.repoRoot)
-	}
+	PrintStartupHeader(r.out, r.version, r.repoRoot)
 	// One-line capability summary so the user sees at startup which
 	// modes are available and which yaml file backs the config. With
 	// write_enabled=false the line names the gate explicitly so the
@@ -1411,6 +1406,12 @@ func (r *REPL) banner() {
 	// emit time so wraps are explicit ellipses rather than
 	// terminal wrap chaos.
 	const bannerMaxWidth = 120
+	if line := strings.TrimSpace(r.modelListLine); line != "" {
+		fmt.Fprintf(r.out, "  %s\n", pterm.FgDarkGray.Sprint(clampToTermWidth(line, bannerMaxWidth)))
+	}
+	if line := strings.TrimSpace(r.modelSummaryLine); line != "" {
+		fmt.Fprintf(r.out, "  %s\n", pterm.FgDarkGray.Sprint(clampToTermWidth(line, bannerMaxWidth)))
+	}
 	if cap := bannerCapabilityLine(r.language, r.writeEnabled, r.settingsPath); cap != "" {
 		fmt.Fprintf(r.out, "  %s\n", pterm.FgDarkGray.Sprint(clampToTermWidth(cap, bannerMaxWidth)))
 	}
@@ -1456,14 +1457,6 @@ func (r *REPL) banner() {
 	if summary := r.memorySummaryLine(); summary != "" {
 		fmt.Fprintf(r.out, "  %s\n", summary)
 	}
-	if line := strings.TrimSpace(r.modelSummaryLine); line != "" {
-		fmt.Fprintf(r.out, "  %s\n", pterm.FgDarkGray.Sprint(clampToTermWidth(line, bannerMaxWidth)))
-	}
-	for _, line := range r.modelNoticeLines {
-		if line = strings.TrimSpace(line); line != "" {
-			fmt.Fprintf(r.out, "  %s\n", pterm.FgDarkGray.Sprint(clampToTermWidth(line, bannerMaxWidth)))
-		}
-	}
 	for _, h := range r.degradedEnvHints() {
 		fmt.Fprintf(r.out, "  %s\n", h)
 	}
@@ -1494,6 +1487,24 @@ func PrintStartupHeader(out io.Writer, version, repoRoot string) {
 		branchInfo = pterm.FgDarkGray.Sprintf("  git:%s", br)
 	}
 	fmt.Fprintf(out, "\n  %s %s%s  %s\n", badge, ver, branchInfo, hint)
+}
+
+// PrintOAuthAuthorizationPrompt renders the pre-REPL OAuth browser prompt with
+// the same subdued prefix language as normal REPL info rows. cmd/root calls
+// this before the REPL object exists; keeping the styling here avoids a second
+// UX dialect in the startup path.
+func PrintOAuthAuthorizationPrompt(out io.Writer, lang, url string) {
+	if out == nil {
+		out = os.Stdout
+	}
+	msg := "需要完成 LLM OAuth 授权。请在浏览器打开："
+	if !isZh(lang) {
+		msg = "LLM OAuth authorization required. Open this URL in a browser:"
+	}
+	prefix := pterm.NewStyle(pterm.FgCyan).Sprint("›")
+	body := pterm.NewStyle(pterm.FgDarkGray).Sprint(msg)
+	link := pterm.NewStyle(pterm.FgLightBlue).Sprint(strings.TrimSpace(url))
+	fmt.Fprintf(out, "  %s %s\n    %s\n", prefix, body, link)
 }
 
 // degradedEnvHints returns zero-or-more lines describing environment
@@ -1578,6 +1589,10 @@ func (r *REPL) memorySummaryLine() string {
 	}
 	for _, e := range idx {
 		bytes += len(e.Topic) + len(e.Summary)
+	}
+	if isZh(r.language) {
+		return pterm.FgDarkGray.Sprintf("记忆: %d 条近期 + %d 条压缩, %s",
+			len(recent), len(idx), humanByteSize(bytes))
 	}
 	return pterm.FgDarkGray.Sprintf("Memory: %d recent + %d compacted, %s",
 		len(recent), len(idx), humanByteSize(bytes))

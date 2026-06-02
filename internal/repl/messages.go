@@ -256,13 +256,13 @@ func bannerCapabilityLine(lang string, writeEnabled bool, settingsPath string) s
 	cap := ""
 	if writeEnabled {
 		if zh {
-			cap = "Modes: read · plan · apply · verify (write_enabled=true)"
+			cap = "模式: read · plan · apply · verify (write_enabled=true)"
 		} else {
 			cap = "Modes: read · plan · apply · verify (write_enabled=true)"
 		}
 	} else {
 		if zh {
-			cap = "Modes: read (write_enabled=false — /mode plan / apply / verify 已禁用)"
+			cap = "模式: read (write_enabled=false — /mode plan / apply / verify 已禁用)"
 		} else {
 			cap = "Modes: read (write_enabled=false — /mode plan / apply / verify disabled)"
 		}
