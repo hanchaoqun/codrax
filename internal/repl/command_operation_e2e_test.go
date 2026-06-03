@@ -1490,13 +1490,15 @@ func TestCommandOperationE2E_AutoExecutionShowsProgress(t *testing.T) {
 	printed := out.String()
 	for _, want := range []string{
 		"will run automatically",
-		"Operating: show go version",
 		"Go 版本查询完成",
 		"go version",
 	} {
 		if !strings.Contains(printed, want) {
 			t.Fatalf("auto execution output missing %q:\n%s", want, printed)
 		}
+	}
+	if strings.Contains(printed, "Operating: show go version") {
+		t.Fatalf("step progress should stay in the live status/log lane, not permanent output:\n%s", printed)
 	}
 }
 

@@ -1407,11 +1407,10 @@ func (r *REPL) renderOperationProgress(msg string) {
 	if msg == "" {
 		return
 	}
+	logging.Info("[repl/operation] progress: %s", oneLineClamp(msg, 180))
 	if r.renderer != nil && r.renderer.SpinnerActive() {
 		r.renderer.SetLightRouteActivity(msg)
-		return
 	}
-	r.info(msg)
 }
 
 func operationRunningSummary(lang string) (string, []string) {
