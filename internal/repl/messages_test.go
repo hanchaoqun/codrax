@@ -282,6 +282,20 @@ func TestCommandOperationAutoValidateMarkdownShowsCommands(t *testing.T) {
 	}
 }
 
+func TestCommandOperationProgressShowsStepTimeout(t *testing.T) {
+	step := operation.CommandStep{
+		ID:        "s1",
+		Title:     "查询模型列表",
+		TimeoutMS: 180_000,
+	}
+	if got := commandOperationProgressMsg("zh", step); !strings.Contains(got, "超时 3m0s") {
+		t.Fatalf("zh progress should show step timeout, got %q", got)
+	}
+	if got := commandOperationProgressMsg("en", step); !strings.Contains(got, "timeout 3m0s") {
+		t.Fatalf("en progress should show step timeout, got %q", got)
+	}
+}
+
 func TestCommandOperationResultMarkdownShowsExecutedCommands(t *testing.T) {
 	plan := operation.CommandOperationPlan{
 		ID: "op-result",

@@ -182,6 +182,26 @@ func TestBuildCommandOperationPlanAutoApproveWorksWhenLowRiskOnlyDisabled(t *tes
 	}
 }
 
+func TestBuildCommandOperationPlanPreservesModelTimeout(t *testing.T) {
+	policy := DefaultCommandPolicy()
+	policy.TimeoutMS = 1234
+	plan := BuildCommandOperationPlan(CommandOperationRequest{
+		Text: "show go version",
+		Steps: []CommandStep{{
+			Program:   "go",
+			Args:      []string{"version"},
+			TimeoutMS: 999999,
+		}},
+	}, policy)
+
+	if plan.Status != StatusReady {
+		t.Fatalf("Status=%q", plan.Status)
+	}
+	if got := plan.Steps[0].TimeoutMS; got != 999999 {
+		t.Fatalf("TimeoutMS=%d, want model timeout 999999", got)
+	}
+}
+
 func TestBuildCommandOperationPlanModelConfirmationDoesNotBlockProvenLowRisk(t *testing.T) {
 	plan := BuildCommandOperationPlan(CommandOperationRequest{
 		Text:                 "show go version",

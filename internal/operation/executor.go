@@ -97,7 +97,7 @@ func (e CommandExecutor) executeStep(ctx context.Context, plan CommandOperationP
 	stepCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd, display := buildExecCommand(stepCtx, step)
+	cmd, display := buildExecCommand(step)
 	if cmd == nil {
 		return CommandStepResult{
 			StepID:       step.ID,
@@ -131,7 +131,8 @@ func (e CommandExecutor) executeStep(ctx context.Context, plan CommandOperationP
 	cmd.Stdout = writer
 	cmd.Stderr = writer
 
-	err = cmd.Run()
+	supervised := tool.SupervisedRun(stepCtx, cmd, tool.SupervisedRunOptions{})
+	err = supervised.Err
 	preview := strings.TrimRight(capture.Preview(), "\n")
 	ref := ""
 	if capture.Truncated() {
@@ -143,7 +144,7 @@ func (e CommandExecutor) executeStep(ctx context.Context, plan CommandOperationP
 	if preview == "" {
 		preview = fmt.Sprintf("[operation command completed with no output: %s]", display)
 	}
-	if errors.Is(stepCtx.Err(), context.DeadlineExceeded) {
+	if errors.Is(stepCtx.Err(), context.DeadlineExceeded) || supervised.ExitKind == tool.SupervisedExitTimeout {
 		return CommandStepResult{
 			StepID:        step.ID,
 			Status:        StatusFailed,
@@ -213,15 +214,15 @@ func classifyCommandFailure(err error, output string) string {
 	}
 }
 
-func buildExecCommand(ctx context.Context, step CommandStep) (*exec.Cmd, string) {
+func buildExecCommand(step CommandStep) (*exec.Cmd, string) {
 	if strings.TrimSpace(step.Shell) != "" {
-		cmd := tool.NewShellCommandContext(ctx, step.Shell)
+		cmd := tool.NewShellCommandContext(context.Background(), step.Shell)
 		return cmd, step.Shell
 	}
 	if strings.TrimSpace(step.Program) == "" {
 		return nil, ""
 	}
-	cmd := exec.CommandContext(ctx, step.Program, step.Args...)
+	cmd := exec.Command(step.Program, step.Args...)
 	display := strings.TrimSpace(step.Program + " " + strings.Join(step.Args, " "))
 	return cmd, display
 }

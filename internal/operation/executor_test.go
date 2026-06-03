@@ -293,6 +293,36 @@ func TestCommandExecutorTimeout(t *testing.T) {
 	}
 }
 
+func TestCommandExecutorTimeoutKillsShellDescendants(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell command differs on Windows")
+	}
+	executor := CommandExecutor{Policy: DefaultCommandPolicy(), OutputDir: t.TempDir()}
+	plan := CommandOperationPlan{
+		ID:           "op-timeout-tree",
+		Status:       StatusReady,
+		ApprovalMode: ApprovalAutoLowRisk,
+		WorkDir:      ".",
+		Steps: []CommandStep{{
+			ID:        "step-1",
+			Shell:     "sleep 5 & wait",
+			TimeoutMS: 50,
+		}},
+	}
+
+	start := time.Now()
+	result := executor.Execute(context.Background(), plan)
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("timeout did not kill shell descendant tree promptly: %s", elapsed)
+	}
+	if result.Status != StatusFailed {
+		t.Fatalf("Status=%q result=%+v", result.Status, result)
+	}
+	if !result.StepResults[0].TimedOut || result.StepResults[0].FailureClass != "timeout" {
+		t.Fatalf("timeout classification missing: %+v", result.StepResults[0])
+	}
+}
+
 func TestCommandExecutorVerifiesCreatedDirectory(t *testing.T) {
 	workDir := t.TempDir()
 	executor := CommandExecutor{Policy: DefaultCommandPolicy(), OutputDir: t.TempDir()}
