@@ -2024,6 +2024,12 @@ agents:
 | `mcp_servers[].call_timeout_ms` | 10000 | 单次 tools/call 或 resources/read 调用预算 |
 | `mcp_servers[].max_response_bytes` | 4194304 | 单条 MCP 响应最大字节数;大输出应由 server 自己转成摘要 + 外部 payload ref |
 
+### 电脑操作 / 制品生成路由
+
+| 键 | 默认 | 作用 |
+|---|---|---|
+| `operation_route_enabled` | `true` | REPL 分类器识别 PPT、文档、表格、浏览器/桌面操作、外部 skill workflow 等请求时,进入独立 operation 计划路径。当前默认是只读计划/能力检查;没有显式 operation provider 时不会执行副作用,也不会把请求误转入源码分析流水线 |
+
 ### 环境诊断与推荐
 
 | 键 | 默认 | 作用 |

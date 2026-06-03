@@ -389,6 +389,7 @@ type appContext struct {
 	replHeaderPrinted     bool
 	replModelListLine     string
 	replModelSummaryLine  string
+	operationRouteEnabled bool
 	// writeEnabled mirrors codrax.yaml :: write_enabled. Forwarded to
 	// the REPL Config so /mode plan|apply|verify and /approve can be
 	// rejected at the slash-command surface with a clear error pointing
@@ -1237,6 +1238,7 @@ func runREPL(_ *cobra.Command) error {
 		OutputDumpMax:      app.outputDumpMax,
 		ChitchatResponder:  app.chitchatResponder,
 		ChitchatClassifier: app.chitchatClassifier,
+		OperationEnabled:   app.operationRouteEnabled,
 		// Hand the memory adapter to REPL so the chitchat tool-use
 		// loop can call recall_memory without a separate wiring step.
 		// The same adapter is also wired into the orchestrator above,
@@ -1390,6 +1392,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 	mergedBranch := defaultBranch
 	mergedMaxSteps := defaultMaxSteps
 	mergedProvidersConfig := defaultProvidersConfig
+	app.operationRouteEnabled = true
 
 	// Overlay config file values.
 	var rs *config.RuntimeSettings
@@ -1473,6 +1476,9 @@ func initApp(cmd *cobra.Command, args []string) error {
 		}
 		if rs.ReplPasteFoldMinChars != nil {
 			app.replPasteFoldMinChars = *rs.ReplPasteFoldMinChars
+		}
+		if rs.OperationRouteEnabled != nil {
+			app.operationRouteEnabled = *rs.OperationRouteEnabled
 		}
 	}
 

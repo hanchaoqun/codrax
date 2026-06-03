@@ -856,6 +856,52 @@ func TestTurnPolicyDispatch_OperationRouteUnavailableDoesNotRunPipeline(t *testi
 	}
 }
 
+func TestTurnPolicyDispatch_OperationRoutePlansWithoutSourcePipeline(t *testing.T) {
+	store := newPolicyStore(t)
+
+	classifier := &stubTurnPolicyClassifier{
+		policy: TurnPolicy{
+			Route:                RouteOperation,
+			NeedsOperationAccess: true,
+			NeedsRepoAccess:      true,
+			Operation:            "presentation_generation",
+			OperationKind:        "presentation_generation",
+			Source:               "mixed",
+			RiskLevel:            "low",
+			SideEffects:          []string{"local_file_write"},
+			TargetSurface:        "slides",
+			Confidence:           0.9,
+			Reason:               "user requested slide generation",
+		},
+	}
+	responder := &stubLocalResponder{localReply: "should-not-appear"}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, responder, "基于当前代码生成一份 PPT\n/exit\n")
+	r.operationEnabled = true
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("operation route should not enter source pipeline in plan-only mode; runner requests=%v", runner.requests)
+	}
+	if len(responder.localCalls) != 0 {
+		t.Fatalf("operation route must not use local responder; calls=%d", len(responder.localCalls))
+	}
+	recent := store.Recent()
+	if len(recent) == 0 {
+		t.Fatalf("operation plan should be persisted for follow-ups; recent=%+v", recent)
+	}
+	response := recent[len(recent)-1].Response
+	for _, want := range []string{"operation planning path", "presentation_generation", "Not executed"} {
+		if !strings.Contains(response, want) {
+			t.Fatalf("operation plan memory response missing %q:\n%s\nprinted:\n%s", want, response, out.String())
+		}
+	}
+	if !strings.Contains(out.String(), "presentation_generation") {
+		t.Fatalf("operation plan should be persisted for follow-ups; recent=%+v", recent)
+	}
+}
+
 // TestTurnPolicyDispatch_HybridCarriesDirectiveIntoPipeline is the
 // route=hybrid contract: pipeline runs AND the typed directive
 // reaches the runner so the finalizer can render the requested shape,

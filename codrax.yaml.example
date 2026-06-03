@@ -197,6 +197,13 @@
 #     call_timeout_ms: 10000
 #     max_response_bytes: 4194304
 
+# operation_route_enabled — enable the independent operation/artifact route in
+# REPL turn classification. Default true. This route is plan-only unless an
+# explicit operation provider is configured; it does not send operation requests
+# through the normal source-analysis pipeline and does not execute side effects
+# automatically.
+# operation_route_enabled: true
+
 # ---------------------------------------------------------------------------
 # Tool output blobs  ·  工具输出 blob
 # ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/operation"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -973,6 +974,117 @@ func operationUnavailableMsg(lang string, policy TurnPolicy) string {
 		return formatN(lang, "Detected a computer-operation/artifact-generation request (%s), but the independent operation pipeline is not enabled in this build. Because the request may have side effects, Codrax will not reroute it into source analysis or execute it automatically.", kind)
 	}
 	return formatN(lang, "Detected a computer-operation/artifact-generation request (%s), but the independent operation pipeline is not enabled in this build. Codrax will not reroute it into source analysis or execute it automatically.", kind)
+}
+
+func operationPlanMarkdown(lang string, plan operation.Plan) string {
+	if isZh(lang) {
+		var b strings.Builder
+		b.WriteString("已识别为电脑操作/制品生成请求，当前已进入独立操作管线的计划阶段。\n\n")
+		b.WriteString(fmt.Sprintf("- 类型：`%s`\n", plan.Kind))
+		b.WriteString(fmt.Sprintf("- 目标界面：`%s`\n", plan.TargetSurface))
+		b.WriteString(fmt.Sprintf("- 风险：`%s`\n", plan.RiskLevel))
+		if len(plan.SideEffects) > 0 {
+			b.WriteString(fmt.Sprintf("- 可能副作用：`%s`\n", strings.Join(plan.SideEffects, "`, `")))
+		}
+		if plan.NeedsRepoAccess {
+			b.WriteString("- 需要源码事实：是，但不会误入普通源码分析；后续执行器需要显式接入源码事实收集。\n")
+		}
+		if plan.RequiresConfirmation {
+			b.WriteString("- 需要确认：是\n")
+		}
+		b.WriteString("\n计划步骤：\n")
+		for i, step := range plan.Steps {
+			suffix := ""
+			if step.Blocked {
+				suffix = "（暂停）"
+			}
+			title, detail := localizedOperationStep(lang, step.Title, step.Detail)
+			b.WriteString(fmt.Sprintf("%d. %s%s：%s\n", i+1, title, suffix, detail))
+		}
+		if plan.CanExecute {
+			b.WriteString(fmt.Sprintf("\n可执行 provider：`%s`。\n", plan.Provider))
+		} else {
+			b.WriteString(fmt.Sprintf("\n当前未执行：%s。\n", plan.MissingCapability))
+		}
+		b.WriteString("系统没有把该请求转入源码分析，也没有自动执行任何有副作用的工具。")
+		return strings.TrimSpace(b.String())
+	}
+
+	var b strings.Builder
+	b.WriteString("Codrax recognized this as a computer-operation/artifact-generation request and entered the independent operation planning path.\n\n")
+	b.WriteString(fmt.Sprintf("- Type: `%s`\n", plan.Kind))
+	b.WriteString(fmt.Sprintf("- Target surface: `%s`\n", plan.TargetSurface))
+	b.WriteString(fmt.Sprintf("- Risk: `%s`\n", plan.RiskLevel))
+	if len(plan.SideEffects) > 0 {
+		b.WriteString(fmt.Sprintf("- Possible side effects: `%s`\n", strings.Join(plan.SideEffects, "`, `")))
+	}
+	if plan.NeedsRepoAccess {
+		b.WriteString("- Needs source facts: yes, but Codrax did not reroute the request into ordinary source analysis; a future executor must attach source-fact collection explicitly.\n")
+	}
+	if plan.RequiresConfirmation {
+		b.WriteString("- Requires confirmation: yes\n")
+	}
+	b.WriteString("\nPlanned steps:\n")
+	for i, step := range plan.Steps {
+		suffix := ""
+		if step.Blocked {
+			suffix = " (paused)"
+		}
+		b.WriteString(fmt.Sprintf("%d. %s%s: %s\n", i+1, step.Title, suffix, step.Detail))
+	}
+	if plan.CanExecute {
+		b.WriteString(fmt.Sprintf("\nExecutable provider: `%s`.\n", plan.Provider))
+	} else {
+		b.WriteString(fmt.Sprintf("\nNot executed: %s.\n", plan.MissingCapability))
+	}
+	b.WriteString("Codrax did not reroute this request into source analysis and did not execute side-effecting tools automatically.")
+	return strings.TrimSpace(b.String())
+}
+
+func localizedOperationStep(lang, title, detail string) (string, string) {
+	if !isZh(lang) {
+		return title, detail
+	}
+	switch title {
+	case "gather source facts":
+		title = "收集源码事实"
+		detail = "先在源码证据通道收集仓库事实，再进入制品生成"
+	case "outline deck":
+		title = "规划演示结构"
+		detail = "把请求材料整理为幻灯片章节和讲述结构"
+	case "create slides":
+		title = "生成幻灯片"
+		detail = "生成本地演示文稿制品，并检查渲染版式"
+	case "outline document":
+		title = "规划文档结构"
+		detail = "把请求材料整理为章节和论点"
+	case "create document":
+		title = "生成文档"
+		detail = "生成本地文档制品，并检查页面渲染"
+	case "shape workbook":
+		title = "规划工作簿"
+		detail = "确定工作表、表格、公式和图表"
+	case "create spreadsheet":
+		title = "生成表格"
+		detail = "生成本地工作簿，并检查计算和渲染"
+	case "open browser workflow":
+		title = "打开浏览器流程"
+		detail = "以可见、可取消的步骤操作浏览器界面"
+	case "select external workflow":
+		title = "选择外部工作流"
+		detail = "按 typed capability 选择已配置的外部 skill/MCP 工作流"
+	case "run workflow":
+		title = "执行工作流"
+		detail = "通过 provider 的有界接口执行，并返回制品或外部观测"
+	case "plan operation":
+		title = "规划操作"
+	case "verify result":
+		title = "验证结果"
+		detail = "检查生成制品或界面状态后再报告完成"
+	case "execution paused":
+		title = "执行暂停"
+	}
+	return title, detail
 }
 
 // dockTerminalArmer is the narrow surface armDockTerminalState needs

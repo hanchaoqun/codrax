@@ -40,6 +40,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/memory"
+	"github.com/hanchaoqun/codrax/internal/operation"
 	"github.com/hanchaoqun/codrax/internal/outputdump"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/tool"
@@ -274,6 +275,10 @@ type Config struct {
 	// classification safety: when false, route=operation is refused at the
 	// REPL surface instead of falling into the source-analysis pipeline.
 	OperationEnabled bool
+	// OperationProviders are optional side-effect capable providers for the
+	// operation route. Empty means plan-only: REPL shows the typed operation
+	// plan and stops before execution.
+	OperationProviders []operation.ProviderInfo
 
 	// PlanStore persists B0 write-mode ChangePlans for the REPL
 	// session. Nil disables the /plan slash command family —
@@ -546,7 +551,8 @@ type REPL struct {
 	// route. When false, a structured route=operation is surfaced as a
 	// capability-not-enabled message and never falls through to the repo
 	// analysis pipeline.
-	operationEnabled bool
+	operationEnabled   bool
+	operationProviders []operation.ProviderInfo
 
 	// sessionID identifies this REPL session. Stamped onto every
 	// recorded Turn so memory.BuildContext can session-pin recent
@@ -714,6 +720,7 @@ func New(cfg Config) *REPL {
 		colorMode:              cfg.ColorMode,
 		chitchatClassifier:     cfg.ChitchatClassifier,
 		operationEnabled:       cfg.OperationEnabled,
+		operationProviders:     append([]operation.ProviderInfo(nil), cfg.OperationProviders...),
 		// Session ID embeds nano + pid so two codrax REPLs launched
 		// in the same clock tick (test harness, race) still get
 		// disjoint IDs. Consumed by memory.BuildContext via BuildOpts.
@@ -1126,6 +1133,35 @@ func (r *REPL) operationUnavailableDispatch(line, display string, policy TurnPol
 		oneLineClamp(policy.Reason, 120))
 	msg := operationUnavailableMsg(r.language, policy)
 	r.warn("%s\n", msg)
+	r.recordTurn(display, line, msg, memory.KindPipeline)
+}
+
+// operationDispatch is the independent operation/artifact route. Batch 2 is
+// intentionally plan-only unless a provider is explicitly registered: it gives
+// the user a structured, localized operation preflight without entering the
+// source-analysis pipeline or executing side-effecting tools.
+func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
+	plan := operation.BuildPlan(operation.Request{
+		Text:                 line,
+		Operation:            policy.Operation,
+		OperationKind:        policy.OperationKind,
+		Source:               policy.Source,
+		NeedsRepoAccess:      policy.NeedsRepoAccess,
+		RiskLevel:            policy.RiskLevel,
+		SideEffects:          policy.SideEffects,
+		TargetSurface:        policy.TargetSurface,
+		RequiresConfirmation: policy.RequiresConfirmation,
+	}, r.operationProviders)
+	logging.Info("[repl/operation] planned operation kind=%q target=%q risk=%q needs_repo=%t executable=%t provider=%q missing=%q",
+		oneLineClamp(plan.Kind, 80),
+		oneLineClamp(plan.TargetSurface, 60),
+		oneLineClamp(plan.RiskLevel, 40),
+		plan.NeedsRepoAccess,
+		plan.CanExecute,
+		oneLineClamp(plan.Provider, 80),
+		oneLineClamp(plan.MissingCapability, 160))
+	msg := operationPlanMarkdown(r.language, plan)
+	r.renderBordered(msg)
 	r.recordTurn(display, line, msg, memory.KindPipeline)
 }
 
@@ -2043,11 +2079,7 @@ func (r *REPL) dispatch(line, display string) {
 						r.operationUnavailableDispatch(line, display, policy)
 						return
 					}
-					// Batch 1 only wires the typed route and safe refusal
-					// surface. Until the independent operation pipeline is
-					// installed, keep this path non-side-effecting even when
-					// tests/config explicitly enable the flag.
-					r.operationUnavailableDispatch(line, display, policy)
+					r.operationDispatch(line, display, policy)
 					return
 				case RouteHybrid:
 					// Carry the directive into the effective

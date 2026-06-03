@@ -61,6 +61,12 @@ type RuntimeSettings struct {
 	MCPServers    []types.MCPServerConfig `yaml:"mcp_servers"`
 	MCPMaxServers *int                    `yaml:"mcp_max_servers"`
 
+	// Independent operation/artifact route. When enabled, a typed
+	// computer-operation / artifact-generation turn enters the REPL operation
+	// planner instead of the source-analysis pipeline. The planner is
+	// side-effect-free unless an explicit operation provider is configured.
+	OperationRouteEnabled *bool `yaml:"operation_route_enabled"`
+
 	// Tool blob sizing knobs. Flat-prefixed `blob_*` to keep the
 	// namespace obvious without nesting. All four accept any
 	// positive integer; non-positive (or omitted) means "use the
