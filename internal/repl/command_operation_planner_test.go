@@ -29,6 +29,21 @@ func operationEvaluationResp(payload string) llm.Response {
 	}
 }
 
+func TestCommandOperationModelFacingTextAvoidsInternalCodename(t *testing.T) {
+	text := strings.Join([]string{
+		commandOperationPlanTool.Description,
+		string(commandOperationPlanTool.Parameters),
+		operationEvaluationTool.Description,
+		string(operationEvaluationTool.Parameters),
+		commandOperationPlannerSystemPrompt,
+		operationEvaluationSystemPrompt,
+		commandOperationAnswerSystemPrompt,
+	}, "\n")
+	if strings.Contains(text, "Codrax") {
+		t.Fatalf("model-facing operation text should not use internal product codename:\n%s", text)
+	}
+}
+
 func TestCommandOperationPlannerCompatJSON(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
@@ -633,7 +648,7 @@ func TestCommandOperationReplannerIncludesFailureContext(t *testing.T) {
 		"previous_result plan_id=op-prev status=failed",
 		"Do not include the failed command again",
 		"repair by rewriting that same step as one complete standalone command",
-		"Codrax will not pipe output from another step into it",
+		"The command executor will not pipe output from another step into it",
 		"Rewrite the whole command with a real producer before the operator",
 		"cat /path/to/file",
 		"failure_class=command_not_found",

@@ -236,7 +236,7 @@ func LintCommandOperationPlan(plan CommandOperationPlan) CommandPlanLintResult {
 			out.Issues = append(out.Issues, CommandPlanLintIssue{
 				Code:    PlanLintStdinWithoutInput,
 				StepID:  step.ID,
-				Message: fmt.Sprintf("stdin-consuming shell command has no explicit input source: %s. Each command step executes standalone; Codrax will not pipe output from another step into this command. Rewrite this step as a complete command with a producer, file operand, or redirection.", shell),
+				Message: fmt.Sprintf("stdin-consuming shell command has no explicit input source: %s. Each command step executes standalone; the command executor will not pipe output from another step into this command. Rewrite this step as a complete command with a producer, file operand, or redirection.", shell),
 			})
 		}
 	}
@@ -289,7 +289,7 @@ func BuildCommandOperationPlan(req CommandOperationRequest, policy CommandPolicy
 		plan.ApprovalMode = ""
 		plan.ClarifyingQuestions = []ClarifyingQuestion{{
 			ID:       "command",
-			Question: "What command or target should Codrax operate on?",
+			Question: "What command or target should the local operation use?",
 			Suggestions: []string{
 				"provide the source and destination paths",
 				"provide the package/tool name and desired action",

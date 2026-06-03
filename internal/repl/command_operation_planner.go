@@ -117,7 +117,7 @@ var commandOperationPlanTool = llm.ToolSchema{
     },
     "continue_after": {
       "type": "boolean",
-      "description": "true when this command batch is only a discovery/probe batch and Codrax should feed its results back to the planner for the next batch before writing the final answer. Use for multi-step tasks such as checking whether software is running and then finding version/metadata, reading a tool manual before using it, probing a remote host before acting, or narrowing a large file before the next targeted command."
+      "description": "true when this command batch is only a discovery/probe batch and the operation loop should feed its results back to the planner for the next batch before writing the final answer. Use for multi-step tasks such as checking whether software is running and then finding version/metadata, reading a tool manual before using it, probing a remote host before acting, or narrowing a large file before the next targeted command."
     },
     "questions": {
       "type": "array",
@@ -170,7 +170,7 @@ var operationEvaluationTool = llm.ToolSchema{
     "status": {
       "type": "string",
       "enum": ["complete", "continue_command", "continue_provider", "needs_approval", "needs_clarification", "blocked", "budget_exhausted", "partial_answer_possible"],
-      "description": "What Codrax should do next inside the operation lane."
+      "description": "What the operation loop should do next inside the operation lane."
     },
     "reason": {
       "type": "string",
@@ -196,16 +196,16 @@ var operationEvaluationTool = llm.ToolSchema{
 }`),
 }
 
-const commandOperationPlannerSystemPrompt = `You are Codrax's command-operation planner.
+const commandOperationPlannerSystemPrompt = `You are a command-operation planner for a local command executor.
 
 Your job is to convert the user's request into a typed command plan draft. Do not execute commands.
 
 Hard rules:
 - If the request lacks key details such as source path, destination path, package name, desired version, target directory, or confirmation scope, emit status=needs_clarification with short questions and suggestions. Do not guess.
 - Prefer program+args. Use shell only when a pipeline or shell builtin is necessary; deterministic policy decides auto-run/manual/deny.
-- Every step is executed independently as its own process/shell. Codrax does not concatenate steps, does not pipe stdout from one step into another step, and does not provide implicit stdin. Therefore each step must contain a complete command that can run by itself in work_dir.
-- Prefer iterative discovery over one-shot guessing. Do not emit a giant up-front plan for multi-step goals. For tasks that require observing the environment before choosing the next command, emit only the first bounded observation batch with continue_after=true, then let Codrax feed the real output back for the next batch. Examples: discover running software/service then query version metadata; read an unfamiliar tool's help/manual then invoke it; inspect a remote environment before package commands; narrow a large file before extracting exact facts.
-- Fill goal, known_constraints, missing_observations, success_criteria, next_batch, and why_this_batch when useful. These fields help Codrax decide whether the user goal is complete; they do not replace executable command steps.
+- Every step is executed independently as its own process/shell. The command executor does not concatenate steps, does not pipe stdout from one step into another step, and does not provide implicit stdin. Therefore each step must contain a complete command that can run by itself in work_dir.
+- Prefer iterative discovery over one-shot guessing. Do not emit a giant up-front plan for multi-step goals. For tasks that require observing the environment before choosing the next command, emit only the first bounded observation batch with continue_after=true, then let the operation loop feed the real output back for the next batch. Examples: discover running software/service then query version metadata; read an unfamiliar tool's help/manual then invoke it; inspect a remote environment before package commands; narrow a large file before extracting exact facts.
+- Fill goal, known_constraints, missing_observations, success_criteria, next_batch, and why_this_batch when useful. These fields help the operation loop decide whether the user goal is complete; they do not replace executable command steps.
 - First batches should normally collect the minimum observations needed to choose the next step. Avoid planning later irreversible or speculative steps until earlier command output confirms they are needed.
 - Every stdin-consuming command must have an explicit input source inside the same step: an upstream command in the same shell pipeline, shell redirection, or file operands. Do not emit bare stdin readers such as "grep pattern", "awk script", "sed expr", "cat", "nl", "head", "tail", "wc", "cut", "sort", or "uniq" as the first shell segment with no input. They read empty stdin in non-interactive execution and create false negatives. Bad: "grep -i vpn | grep -v grep"; good: "ps aux | grep -i vpn | grep -v grep" in the same shell string. Bad: "cat"; good: "cat /path/to/file" or "producer | cat" in the same shell string. Bad: "head -50"; good: "some-command | head -50" or "head -50 /path/to/file".
 - A shell command must never start with a control operator such as "|", "||", "&&", or ";". A leading pipe means the producer command is missing. Bad: "| grep -i model"; good: "ps aux | grep -i model" for process searches, or "grep -i model /path/to/file" for file searches.
@@ -241,9 +241,9 @@ Risk hints:
 - Deleting, overwriting, uninstalling, external writes, or network submission is high and requires confirmation.
 `
 
-const operationEvaluationSystemPrompt = `You are Codrax's operation goal evaluator.
+const operationEvaluationSystemPrompt = `You are an operation goal evaluator.
 
-You decide whether the current operation observations satisfy the user's original goal, or whether Codrax should continue with another bounded operation step.
+You decide whether the current operation observations satisfy the user's original goal, or whether the operation loop should continue with another bounded operation step.
 
 Hard rules:
 - Emit only the required tool call. Do not write prose.
@@ -311,7 +311,7 @@ func (p *llmCommandOperationPlanner) ContinueCommandOperation(ctx context.Contex
 	return CommandOperationContinuation{Request: parsed.toRequest(userLine, repoRoot)}, nil
 }
 
-const commandOperationAnswerSystemPrompt = `You are Codrax's operation result writer.
+const commandOperationAnswerSystemPrompt = `You are an operation result writer.
 
 Answer the user's original operation request from the provided execution observations.
 
@@ -553,7 +553,7 @@ func (p *llmCommandOperationPlanner) planCommandOperationDraft(ctx context.Conte
 		b.WriteString("\n## replan_context\n")
 		b.WriteString("The previous approved command plan failed. Produce a revised typed plan using the same schema.\n")
 		b.WriteString("Do not include the failed command again; it already ran. Plan only the corrective next step unless a real retry is required.\n")
-		b.WriteString("If failure_class=invalid_plan and the error says a shell command has no explicit input source, repair by rewriting that same step as one complete standalone command with its own producer, file operand, or redirection. Codrax will not pipe output from another step into it. Examples: use \"ps aux | grep ...\" for process searches; use \"grep pattern /path/to/file\" or \"producer | grep pattern\" for text searches; use \"cat /path/to/file\" or \"producer | cat\" for cat/nl; use \"producer | head -50\" or \"head -50 /path/to/file\" for head/tail/wc/cut/sort/uniq.\n")
+		b.WriteString("If failure_class=invalid_plan and the error says a shell command has no explicit input source, repair by rewriting that same step as one complete standalone command with its own producer, file operand, or redirection. The command executor will not pipe output from another step into it. Examples: use \"ps aux | grep ...\" for process searches; use \"grep pattern /path/to/file\" or \"producer | grep pattern\" for text searches; use \"cat /path/to/file\" or \"producer | cat\" for cat/nl; use \"producer | head -50\" or \"head -50 /path/to/file\" for head/tail/wc/cut/sort/uniq.\n")
 		b.WriteString("If failure_class=invalid_plan and the error says the shell command starts with \"|\", \"||\", \"&&\", or \";\", the command is missing the segment before the operator. Rewrite the whole command with a real producer before the operator; do not keep the leading operator.\n")
 		b.WriteString(renderCommandPlanForPrompt(req.PreviousPlan))
 		b.WriteString("\n")
