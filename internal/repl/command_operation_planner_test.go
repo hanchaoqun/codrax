@@ -236,11 +236,125 @@ func TestCommandOperationPlannerHandlesPayloadRefOnlyHandoff(t *testing.T) {
 	}
 	for _, want := range []string{
 		"payload_ref=/tmp/codrax-operation/big.txt",
-		"If only a payload_ref is available",
+		"If only a payload_ref/artifact_ref is available",
 		"bounded follow-up read/search/summarize",
+		"commands, files, web pages, manuals, logs, traces, MCP/provider payloads, Skill artifacts, help text, or unfamiliar tools",
+		"page, search, summarize, parse, or extract",
+		"long logs before the target section",
+		"extract readable text, headings, links, matching lines, surrounding context, or structured fields",
 	} {
 		if !strings.Contains(combined, want) {
 			t.Fatalf("planner prompt missing %q:\n%s", want, combined)
+		}
+	}
+}
+
+func TestCommandOperationContinuationPromptForTruncatedPayload(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"s1","title":"extract relevant content","program":"python3","args":["-c","print('extract relevant sections')"],"risk_level":"low","side_effects":[]}]}`),
+		},
+	}
+	planner, ok := NewCommandOperationPlanner(adapter).(CommandOperationContinuationPlanner)
+	if !ok {
+		t.Fatal("planner should support command continuation")
+	}
+	_, err := planner.ContinueCommandOperation(context.Background(), "读取大输出里的用户使用手册和相关命令，说明软件怎么使用", "/repo", TurnPolicy{
+		Operation:     "computer_operation",
+		OperationKind: "computer_operation",
+		RiskLevel:     "low",
+	}, operation.CapabilitySnapshot{}, []commandOperationResultRecord{{
+		Plan: operation.CommandOperationPlan{ID: "op-web", Status: operation.StatusExecuted},
+		Result: operation.CommandOperationResult{
+			PlanID: "op-web",
+			Status: operation.StatusExecuted,
+			StepResults: []operation.CommandStepResult{{
+				StepID:        "download",
+				Status:        operation.StatusExecuted,
+				OutputPreview: "command output preview truncated before user manual content\nbanner line\n...[panel preview truncated 12000 chars; see full output ref below]",
+				PayloadRef:    "/tmp/codrax-operation/full-output.txt",
+			}},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("ContinueCommandOperation: %v", err)
+	}
+	if len(adapter.calls) != 1 {
+		t.Fatalf("Chat calls=%d, want 1", len(adapter.calls))
+	}
+	user := ""
+	for i := len(adapter.calls[0].messages) - 1; i >= 0; i-- {
+		if adapter.calls[0].messages[i].Role == "user" {
+			user = adapter.calls[0].messages[i].Content
+			break
+		}
+	}
+	for _, want := range []string{
+		"truncated preview, payload_ref/artifact_ref, or output_kind=large_output_summary is not by itself a reason to finalize as partial",
+		"read/search/page/parse/extract",
+		"extracting the user-relevant text, links, matching lines, surrounding context, or structured fields",
+		"output_kind=large_output_summary",
+		"output_summary=",
+		"operation_materials",
+		"kind=payload_ref",
+		"role=saved_payload",
+		"complete_preview=false",
+		"payload_ref=/tmp/codrax-operation/full-output.txt",
+		"command output preview truncated before user manual content",
+	} {
+		if !strings.Contains(user, want) {
+			t.Fatalf("continuation prompt missing %q:\n%s", want, user)
+		}
+	}
+}
+
+func TestProviderOperationPromptIncludesMaterials(t *testing.T) {
+	got := renderProviderOperationResultsForPrompt([]providerOperationResultRecord{{
+		Plan: operation.Plan{
+			Kind:          "external_skill_workflow",
+			TargetSurface: "slides",
+		},
+		Request: operation.Request{Text: "read manual then build slides"},
+		Result: providerOperationResult{
+			Status:     operation.StatusExecuted,
+			Provider:   "skill:manual_reader",
+			Tool:       "run",
+			Summary:    "manual extracted",
+			PayloadRef: "/tmp/manual.txt",
+			ArtifactRefs: []string{
+				"out/manual-summary.md",
+			},
+			NextActions: []operation.WorkflowNextAction{{
+				Provider:      "skill:ppt_builder",
+				OperationKind: "presentation_generation",
+				TargetSurface: "slides",
+				Request:       "build deck",
+			}},
+			ReturnAction: operation.WorkflowNextAction{
+				Provider:      "skill:manual_reader",
+				OperationKind: "artifact_generation",
+				TargetSurface: "local_file",
+				Request:       "compose final report",
+			},
+			WorkflowState: operation.WorkflowState{WorkflowID: "wf-1", Step: "manual_extracted"},
+		},
+	}})
+	for _, want := range []string{
+		"provider_result[1]",
+		"material_refs=",
+		"operation_materials",
+		"source=provider",
+		"kind=payload_ref",
+		"ref=\"/tmp/manual.txt\"",
+		"kind=artifact_ref",
+		"ref=\"out/manual-summary.md\"",
+		"kind=next_action",
+		"kind=return_action",
+		"kind=workflow_state",
+		"not current-source evidence",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("provider prompt missing %q:\n%s", want, got)
 		}
 	}
 }
@@ -346,6 +460,10 @@ func TestCommandOperationPlannerPromptForbidsNoopFactCommands(t *testing.T) {
 		"Continuation/evaluation status meanings",
 		"budget_exhausted",
 		"partial_answer_possible",
+		"commands, files, web pages, manuals, logs, traces, MCP/provider payloads, Skill artifacts, help text, or unfamiliar tools",
+		"page, search, summarize, parse, or extract",
+		"long logs before the target section",
+		"extract readable text, headings, links, matching lines, surrounding context, or structured fields",
 	} {
 		if !strings.Contains(commandOperationPlannerSystemPrompt, want) {
 			t.Fatalf("planner prompt missing %q:\n%s", want, commandOperationPlannerSystemPrompt)

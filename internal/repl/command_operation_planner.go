@@ -181,9 +181,12 @@ Hard rules:
 - Do not use echo, printf, comments, or no-op placeholder commands to claim that facts were obtained. If you cannot retrieve the facts safely, emit needs_clarification or plan a safe discovery command.
 - For unfamiliar software or command-line tools, prefer safe discovery steps such as --help, help, version, or documentation reads before planning risky or irreversible actions. If exact usage is still unclear after discovery, ask a clarification question instead of guessing flags.
 - For requests asking what software/service is running and which version it is, collect both lanes when available: runtime state/process/service evidence and application/package metadata for version. Do not conclude absence from one empty process filter when network/service output names a candidate.
+- Operation provider/MCP/Skill descriptors and workflow steps may mention manuals, links, files, or supporting resources. Treat those as soft workflow guidance and materials to read or pass as provider input when relevant; do not treat descriptor text as if the actual resource content has already been read.
 - Use recent_operation_context when present. It contains prior command-operation observations from this REPL and optional operation_memory lessons from previous runs: command outputs, extracted large-file summaries, failed attempts, payload refs, and compact historical lessons. Treat it as external observation, not source-code evidence.
 - Treat operation_memory as soft guidance only. It may be stale or environment-specific; use it to avoid known mistakes or reuse known working command shapes, not as a hard rule.
-- For large-file or unfamiliar-tool workflows, use prior extraction/search/help outputs to choose the next targeted command. If only a payload_ref is available, plan a bounded follow-up read/search/summarize command instead of dumping or reprocessing the whole file.
+- For large-output workflows across commands, files, web pages, manuals, logs, traces, MCP/provider payloads, Skill artifacts, help text, or unfamiliar tools, use prior extraction/search/help outputs to choose the next targeted command or provider action. If only a payload_ref/artifact_ref is available, plan a bounded follow-up read/search/summarize/provider action instead of dumping or reprocessing the whole artifact.
+- If the user's goal depends on omitted content and previous output is truncated, says panel preview/output truncated, includes a payload_ref, or has output_kind=large_output_summary, do not emit complete/partial_answer_possible solely because the visible preview is partial. Continue with bounded follow-up commands that page, search, summarize, parse, or extract the parts relevant to the user's request from the payload_ref or discovered linked artifacts until the requested content is covered, the continuation budget is exhausted, or the missing input is truly user-owned.
+- If a saved artifact is complete but its visible preview is dominated by boilerplate or irrelevant framing (for example CSS, scripts, navigation, long logs before the target section, headers, binary-ish metadata, or tool banners), treat that as a targeted-extraction problem, not as missing content. Plan a bounded next step to extract readable text, headings, links, matching lines, surrounding context, or structured fields from the saved payload before deciding whether the user's requested content is complete.
 - For extraction requests, shape the command output to the user's requested item(s) with bounded filters (for example awk/sed/perl/head/tail/rg context) instead of dumping an entire section when a smaller exact result is requested.
 - When a step should create, remove, move, or copy a local artifact, set verify_hint when the expected outcome is clear. Supported forms: path_exists:<path>, file_exists:<path>, dir_exists:<path>, path_absent:<path>. Paths are resolved relative to work_dir unless absolute.
 - For replan requests, use the failed step output to adjust only the command plan. The failed command already ran; do not include that failed command again unless the user explicitly asked to retry the same failed command after seeing the failure. Do not repeat already-successful steps unless required. If the fix expands risk or side effects, set requires_confirmation=true.
@@ -380,6 +383,8 @@ func (p *llmCommandOperationPlanner) planCommandOperationDraft(ctx context.Conte
 	if req.Continuation {
 		b.WriteString("\n## continuation_context\n")
 		b.WriteString("The previous command batch executed. Decide whether the observations are sufficient. If yes, emit status=complete. If not, emit a ready plan containing only the next bounded command batch. Do not ask the user for facts that can still be discovered by safe read-only commands; keep investigating until the task is answered, the bounded continuation budget is exhausted, or the missing input is truly user-owned.\n")
+		b.WriteString("For command, file, web page, manual, log, trace, MCP/provider payload, Skill artifact, help-text, or large-output reading tasks, a truncated preview, payload_ref/artifact_ref, or output_kind=large_output_summary is not by itself a reason to finalize as partial. If the requested answer depends on omitted content, continue with a bounded follow-up read/search/page/parse/extract or provider workflow action over the saved payload or discovered linked artifacts.\n")
+		b.WriteString("If the saved payload is complete but the preview is mostly boilerplate, framing, headers, CSS/scripts/navigation, long logs before the target section, binary-ish metadata, or tool banners, continue by extracting the user-relevant text, links, matching lines, surrounding context, or structured fields before deciding whether the task is complete.\n")
 		b.WriteString(renderCommandOperationRecordsForPrompt(req.Records))
 		b.WriteString("\n")
 	}
@@ -448,12 +453,17 @@ func renderCommandResultForPrompt(result operation.CommandOperationResult) strin
 	var b strings.Builder
 	fmt.Fprintf(&b, "previous_result plan_id=%s status=%s\n", result.PlanID, result.Status)
 	for i, step := range result.StepResults {
+		summary := operation.SummarizeStepOutput(step)
 		preview := strings.TrimSpace(step.OutputPreview)
 		if len(preview) > 2000 {
 			preview = preview[:2000] + "...[truncated]"
 		}
-		fmt.Fprintf(&b, "result[%d] step_id=%s status=%s exit_code=%d timed_out=%t failure_class=%s verification_status=%s verification_summary=%q error=%q output=%q payload_ref=%s\n",
-			i+1, step.StepID, step.Status, step.ExitCode, step.TimedOut, step.FailureClass, step.Verification.Status, step.Verification.Summary, step.Error, preview, step.PayloadRef)
+		fmt.Fprintf(&b, "result[%d] step_id=%s status=%s exit_code=%d timed_out=%t failure_class=%s verification_status=%s verification_summary=%q output_kind=%s output_summary=%q output_lines=%d output_bytes=%d error=%q output=%q payload_ref=%s\n",
+			i+1, step.StepID, step.Status, step.ExitCode, step.TimedOut, step.FailureClass, step.Verification.Status, step.Verification.Summary, summary.Kind, summary.Summary, summary.Lines, summary.Bytes, step.Error, preview, step.PayloadRef)
+		if rendered := operation.RenderMaterialsForPrompt(operation.MaterialsFromCommandStep(step), 4); rendered != "" {
+			b.WriteString(indentPromptBlock(rendered, "  "))
+			b.WriteString("\n")
+		}
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -476,7 +486,18 @@ func renderProviderOperationResultsForPrompt(records []providerOperationResultRe
 	var b strings.Builder
 	for i, rec := range records {
 		result := rec.Result
-		fmt.Fprintf(&b, "provider_result[%d] provider=%q tool=%q kind=%q target=%q status=%s observations=%d verification_status=%s verification_summary=%q summary=%q error=%q payload_ref=%s artifact_refs=%s next_actions=%d return_action=%q workflow_state=%q diagnostics=%q\n",
+		materials := operation.MaterialsFromProviderResult(
+			result.Provider,
+			result.Tool,
+			result.Summary,
+			result.PayloadRef,
+			result.ArtifactRefs,
+			result.Observations,
+			result.NextActions,
+			result.ReturnAction,
+			result.WorkflowState,
+		)
+		fmt.Fprintf(&b, "provider_result[%d] provider=%q tool=%q kind=%q target=%q status=%s observations=%d verification_status=%s verification_summary=%q summary=%q error=%q payload_ref=%s artifact_refs=%s material_refs=%q next_actions=%d return_action=%q workflow_state=%q diagnostics=%q\n",
 			i+1,
 			result.Provider,
 			result.Tool,
@@ -490,12 +511,29 @@ func renderProviderOperationResultsForPrompt(records []providerOperationResultRe
 			oneLineClamp(result.Error, 1000),
 			result.PayloadRef,
 			strings.Join(result.ArtifactRefs, ","),
+			operation.RenderMaterialsInline(materials, 8),
 			len(result.NextActions),
 			result.ReturnAction.Compact(),
 			result.WorkflowState.Compact(),
 			strings.Join(result.WorkflowDiagnostics, "; "))
+		if rendered := operation.RenderMaterialsForPrompt(materials, 8); rendered != "" {
+			b.WriteString(indentPromptBlock(rendered, "  "))
+			b.WriteString("\n")
+		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func indentPromptBlock(text, prefix string) string {
+	text = strings.TrimRight(text, "\n")
+	if text == "" {
+		return ""
+	}
+	lines := strings.Split(text, "\n")
+	for i := range lines {
+		lines[i] = prefix + lines[i]
+	}
+	return strings.Join(lines, "\n")
 }
 
 type commandPlanDraft struct {

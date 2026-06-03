@@ -2239,8 +2239,9 @@ func (r *REPL) renderCommandOperationHandoff() string {
 			cmd := commandOperationStepCommand(planStep)
 			preview := oneLineClamp(step.OutputPreview, 1200)
 			summary := operation.SummarizeStepOutput(step)
-			fmt.Fprintf(&b, "  step id=%s cmd=%q status=%s exit_code=%d timed_out=%t failure_class=%s verification_status=%s verification_kind=%s verification_summary=%q output_kind=%s output_summary=%q error=%q output_preview=%q payload_ref=%s\n",
-				step.StepID, cmd, step.Status, step.ExitCode, step.TimedOut, step.FailureClass, step.Verification.Status, step.Verification.Kind, oneLineClamp(step.Verification.Summary, 220), summary.Kind, oneLineClamp(summary.Summary, 260), oneLineClamp(step.Error, 240), preview, step.PayloadRef)
+			materials := operation.MaterialsFromCommandStep(step)
+			fmt.Fprintf(&b, "  step id=%s cmd=%q status=%s exit_code=%d timed_out=%t failure_class=%s verification_status=%s verification_kind=%s verification_summary=%q output_kind=%s output_summary=%q material_refs=%q error=%q output_preview=%q payload_ref=%s\n",
+				step.StepID, cmd, step.Status, step.ExitCode, step.TimedOut, step.FailureClass, step.Verification.Status, step.Verification.Kind, oneLineClamp(step.Verification.Summary, 220), summary.Kind, oneLineClamp(summary.Summary, 260), operation.RenderMaterialsInline(materials, 4), oneLineClamp(step.Error, 240), preview, step.PayloadRef)
 		}
 	}
 	providerStart := len(r.providerOperationResults) - 2
@@ -2249,7 +2250,18 @@ func (r *REPL) renderCommandOperationHandoff() string {
 	}
 	for i := providerStart; i < len(r.providerOperationResults); i++ {
 		rec := r.providerOperationResults[i]
-		fmt.Fprintf(&b, "provider_operation_result provider=%q tool=%q kind=%q target=%q status=%s observations=%d request=%q summary=%q error=%q payload_ref=%s artifact_refs=%s verification_status=%s verification_summary=%q next_actions=%d return_action=%q workflow_state=%q diagnostics=%q\n",
+		materials := operation.MaterialsFromProviderResult(
+			rec.Result.Provider,
+			rec.Result.Tool,
+			rec.Result.Summary,
+			rec.Result.PayloadRef,
+			rec.Result.ArtifactRefs,
+			rec.Result.Observations,
+			rec.Result.NextActions,
+			rec.Result.ReturnAction,
+			rec.Result.WorkflowState,
+		)
+		fmt.Fprintf(&b, "provider_operation_result provider=%q tool=%q kind=%q target=%q status=%s observations=%d request=%q summary=%q error=%q payload_ref=%s artifact_refs=%s material_refs=%q verification_status=%s verification_summary=%q next_actions=%d return_action=%q workflow_state=%q diagnostics=%q\n",
 			oneLineClamp(rec.Result.Provider, 120),
 			oneLineClamp(rec.Result.Tool, 120),
 			oneLineClamp(firstNonEmptyString(rec.Plan.Kind, rec.Request.OperationKind, rec.Request.Operation), 80),
@@ -2261,6 +2273,7 @@ func (r *REPL) renderCommandOperationHandoff() string {
 			oneLineClamp(rec.Result.Error, 260),
 			rec.Result.PayloadRef,
 			oneLineClamp(strings.Join(rec.Result.ArtifactRefs, ","), 500),
+			operation.RenderMaterialsInline(materials, 8),
 			rec.Result.VerificationStatus,
 			oneLineClamp(rec.Result.VerificationSummary, 220),
 			len(rec.Result.NextActions),

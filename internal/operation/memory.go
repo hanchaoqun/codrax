@@ -192,6 +192,9 @@ func RenderMemoryForPrompt(entries []MemoryEntry) string {
 		if entry.WorkflowState != "" {
 			fmt.Fprintf(&b, " workflow_state=%q", oneLine(entry.WorkflowState, 220))
 		}
+		if materials := RenderMaterialsInline(MaterialsFromMemoryEntry(entry), 6); materials != "" {
+			fmt.Fprintf(&b, " material_refs=%q", oneLine(materials, 360))
+		}
 		if entry.VerifyStatus != "" {
 			fmt.Fprintf(&b, " verify=%s", entry.VerifyStatus)
 			if entry.VerifySummary != "" {
