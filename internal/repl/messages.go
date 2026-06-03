@@ -1054,7 +1054,7 @@ func commandOperationPlanMarkdown(lang string, plan operation.CommandOperationPl
 					b.WriteString(fmt.Sprintf("   建议：%s\n", strings.Join(q.Suggestions, "；")))
 				}
 			}
-			b.WriteString("\n系统不会猜测命令，也不会自动执行。请补充信息后重新发送请求。")
+			b.WriteString("\n系统不会猜测命令，也不会自动执行。直接回复缺失信息即可继续，或用 `/cancel` 取消。")
 			return strings.TrimSpace(b.String())
 		case operation.StatusBlocked:
 			b.WriteString(fmt.Sprintf("操作计划 `%s` 已被策略阻止。\n\n", plan.ID))
@@ -1095,7 +1095,7 @@ func commandOperationPlanMarkdown(lang string, plan operation.CommandOperationPl
 				b.WriteString(fmt.Sprintf("   Suggestions: %s\n", strings.Join(q.Suggestions, "; ")))
 			}
 		}
-		b.WriteString("\nCodrax will not guess the command and did not execute anything. Send the missing details to continue.")
+		b.WriteString("\nCodrax will not guess the command and did not execute anything. Reply with the missing details to continue, or use `/cancel` to cancel.")
 		return strings.TrimSpace(b.String())
 	case operation.StatusBlocked:
 		b.WriteString(fmt.Sprintf("Operation plan `%s` was blocked by policy.\n\n", plan.ID))

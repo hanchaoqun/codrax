@@ -102,6 +102,43 @@ func TestCommandOperationE2E_NeedsClarificationDoesNotEnterSourcePipeline(t *tes
 	}
 }
 
+func TestCommandOperationE2E_ClarificationAnswerResumesPlanning(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("medium")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"needs_clarification","risk_level":"medium","requires_confirmation":true,"questions":[{"id":"paths","question":"Which source and destination paths should be used?","suggestions":["provide the source path","provide the destination path"]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"medium","requires_confirmation":true,"work_dir":".","steps":[{"id":"s1","title":"move file","program":"mv","args":["a.txt","b.txt"],"risk_level":"medium","side_effects":["local_file_write"],"verify_hint":"path_exists:b.txt"}]}`),
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "帮我移动一个文件\n源是 a.txt，目标是 b.txt\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("clarification resume should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("planner calls=%d want 2", len(adapter.calls))
+	}
+	if r.pendingCommandClarification != nil {
+		t.Fatalf("clarification should be cleared after ready plan: %+v", r.pendingCommandClarification)
+	}
+	if r.pendingOperation == nil {
+		t.Fatal("ready resumed plan should be pending approval")
+	}
+	if got := r.pendingOperation.Steps[0].Program; got != "mv" {
+		t.Fatalf("resumed plan program=%q want mv", got)
+	}
+	if !strings.Contains(out.String(), "Operation plan") && !strings.Contains(out.String(), "操作计划") {
+		t.Fatalf("ready operation plan not rendered:\n%s", out.String())
+	}
+}
+
 func TestCommandOperationE2E_AutoLowRiskExecutesWithoutApprove(t *testing.T) {
 	store := newPolicyStore(t)
 	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}

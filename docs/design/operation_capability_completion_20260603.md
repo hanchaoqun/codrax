@@ -266,10 +266,10 @@ operation step:
 
 ### Batch G: Clarification UX
 
-- [ ] Persist pending clarification context.
-- [ ] Let the next user answer resume operation planning.
-- [ ] Add concise REPL rendering for questions/suggestions.
-- [ ] Tests for clarification -> answer -> ready plan.
+- [x] Persist pending clarification context.
+- [x] Let the next user answer resume operation planning.
+- [x] Add concise REPL rendering for questions/suggestions and `/operation show`.
+- [x] Tests for clarification -> answer -> ready plan and `/cancel`.
 
 ### Batch H: E2E Eval
 

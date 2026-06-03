@@ -557,14 +557,15 @@ type REPL struct {
 	// route. When false, a structured route=operation is surfaced as a
 	// capability-not-enabled message and never falls through to the repo
 	// analysis pipeline.
-	operationEnabled   bool
-	operationProviders []operation.ProviderInfo
-	operationPlanner   CommandOperationPlanner
-	operationPolicy    operation.CommandPolicy
-	pendingOperation   *operation.CommandOperationPlan
-	operationHistory   []operation.CommandOperationPlan
-	operationResults   []commandOperationResultRecord
-	operationMemory    *operation.MemoryStore
+	operationEnabled            bool
+	operationProviders          []operation.ProviderInfo
+	operationPlanner            CommandOperationPlanner
+	operationPolicy             operation.CommandPolicy
+	pendingOperation            *operation.CommandOperationPlan
+	pendingCommandClarification *pendingCommandClarification
+	operationHistory            []operation.CommandOperationPlan
+	operationResults            []commandOperationResultRecord
+	operationMemory             *operation.MemoryStore
 
 	// sessionID identifies this REPL session. Stamped onto every
 	// recorded Turn so memory.BuildContext can session-pin recent
@@ -1184,11 +1185,22 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 		}
 		plan := operation.BuildCommandOperationPlan(req, r.operationPolicy)
 		if plan.Status == operation.StatusReady && plan.ApprovalMode == operation.ApprovalAutoLowRisk {
+			r.pendingCommandClarification = nil
 			r.executeCommandOperationPlan(plan, display, line)
 			return
 		}
 		if plan.Status == operation.StatusReady {
 			r.pendingOperation = &plan
+			r.pendingCommandClarification = nil
+		} else if plan.Status == operation.StatusNeedsClarification {
+			r.pendingCommandClarification = &pendingCommandClarification{
+				OriginalLine: line,
+				Display:      display,
+				Policy:       policy,
+				Plan:         plan,
+			}
+		} else {
+			r.pendingCommandClarification = nil
 		}
 		r.operationHistory = append(r.operationHistory, plan)
 		logging.Info("[repl/operation] command plan status=%s risk=%q approval=%q steps=%d request=%q",
@@ -1223,6 +1235,34 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 	r.finishOperationRouteSpinner(operation.StatusReady)
 	r.renderBordered(msg)
 	r.recordTurn(display, line, msg, memory.KindPipeline)
+}
+
+func (r *REPL) resumeCommandOperationClarification(line, display string) {
+	pending := r.pendingCommandClarification
+	if pending == nil {
+		return
+	}
+	r.pendingCommandClarification = nil
+	if r.renderer != nil {
+		r.setRendererTotalStagesForCurrentMode()
+		r.renderer.StartSpinnerWithCancelHint(spinnerCancelHint(r.language))
+	}
+	combined := strings.TrimSpace(pending.OriginalLine)
+	if combined == "" {
+		combined = strings.TrimSpace(pending.Display)
+	}
+	if combined == "" {
+		combined = strings.TrimSpace(line)
+	} else {
+		combined += "\n\nUser supplied missing operation details:\n" + strings.TrimSpace(line)
+	}
+	resumeDisplay := strings.TrimSpace(display)
+	if resumeDisplay == "" {
+		resumeDisplay = strings.TrimSpace(line)
+	}
+	logging.Info("[repl/operation] resuming command clarification plan_id=%s answer=%q",
+		pending.Plan.ID, oneLineClamp(line, 160))
+	r.operationDispatch(combined, resumeDisplay, pending.Policy)
 }
 
 func (r *REPL) finishOperationRouteSpinner(status operation.OperationStatus) {
@@ -1312,6 +1352,10 @@ func (r *REPL) handleOperationCmd(line string) {
 	case "", "show":
 		if r.pendingOperation != nil {
 			r.renderBordered(commandOperationPlanMarkdown(r.language, *r.pendingOperation))
+			return
+		}
+		if r.pendingCommandClarification != nil {
+			r.renderBordered(commandOperationPlanMarkdown(r.language, r.pendingCommandClarification.Plan))
 			return
 		}
 		r.info(operationNoPendingMsg(r.language))
@@ -1444,6 +1488,13 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 type commandOperationResultRecord struct {
 	Plan   operation.CommandOperationPlan
 	Result operation.CommandOperationResult
+}
+
+type pendingCommandClarification struct {
+	OriginalLine string
+	Display      string
+	Policy       TurnPolicy
+	Plan         operation.CommandOperationPlan
 }
 
 func (r *REPL) appendCommandOperationResult(plan operation.CommandOperationPlan, result operation.CommandOperationResult) {
@@ -2440,6 +2491,11 @@ func (r *REPL) dispatch(line, display string) {
 			}
 		}
 	}()
+
+	if r.pendingCommandClarification != nil && r.currentMode == types.ModeRead && r.operationEnabled {
+		r.resumeCommandOperationClarification(line, display)
+		return
+	}
 
 	spinnerStarted := false
 	if r.renderer != nil {
@@ -4854,6 +4910,14 @@ func (r *REPL) handleCancelCmd(line string) {
 		plan.Status = operation.StatusCancelled
 		r.operationHistory = append(r.operationHistory, plan)
 		r.pendingOperation = nil
+		r.info(operationCancelledMsg(r.language, plan.ID))
+		return
+	}
+	if r.pendingCommandClarification != nil {
+		plan := r.pendingCommandClarification.Plan
+		plan.Status = operation.StatusCancelled
+		r.operationHistory = append(r.operationHistory, plan)
+		r.pendingCommandClarification = nil
 		r.info(operationCancelledMsg(r.language, plan.ID))
 		return
 	}

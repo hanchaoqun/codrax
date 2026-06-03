@@ -27,6 +27,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/memory"
@@ -1027,6 +1028,35 @@ func TestRejectPrefersPendingOperationOverWritePlan(t *testing.T) {
 	}
 	if !strings.Contains(printed, "Rejected operation plan `op-test`: no thanks") {
 		t.Fatalf("operation reject message missing:\n%s", printed)
+	}
+}
+
+func TestCancelClearsPendingCommandClarification(t *testing.T) {
+	store := newPolicyStore(t)
+	r, _, out := newTurnPolicyREPL(t, store, nil, nil, "/cancel\n/exit\n")
+	r.pendingCommandClarification = &pendingCommandClarification{
+		OriginalLine: "move a file",
+		Policy:       commandOperationPolicy("medium"),
+		Plan: operation.CommandOperationPlan{
+			ID:        "op-clarify",
+			Status:    operation.StatusNeedsClarification,
+			RiskLevel: "medium",
+			CreatedAt: time.Now().UTC(),
+			ClarifyingQuestions: []operation.ClarifyingQuestion{{
+				ID:       "paths",
+				Question: "Which paths?",
+			}},
+		},
+	}
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if r.pendingCommandClarification != nil {
+		t.Fatalf("pending clarification was not cleared: %+v", r.pendingCommandClarification)
+	}
+	if !strings.Contains(out.String(), "op-clarify") {
+		t.Fatalf("cancel message missing plan id:\n%s", out.String())
 	}
 }
 
