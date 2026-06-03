@@ -33,6 +33,9 @@ type MemoryEntry struct {
 	Args           []string  `json:"args,omitempty"`
 	Outcome        string    `json:"outcome,omitempty"`
 	FailureClass   string    `json:"failure_class,omitempty"`
+	OutputKind     string    `json:"output_kind,omitempty"`
+	OutputLines    int       `json:"output_lines,omitempty"`
+	OutputBytes    int       `json:"output_bytes,omitempty"`
 	Summary        string    `json:"summary,omitempty"`
 	PayloadRefs    []string  `json:"payload_refs,omitempty"`
 	Lessons        []string  `json:"lessons,omitempty"`
@@ -138,6 +141,9 @@ func RenderMemoryForPrompt(entries []MemoryEntry) string {
 		if entry.FailureClass != "" {
 			fmt.Fprintf(&b, " failure_class=%s", entry.FailureClass)
 		}
+		if entry.OutputKind != "" {
+			fmt.Fprintf(&b, " output_kind=%s", entry.OutputKind)
+		}
 		if entry.OS != "" || entry.Arch != "" {
 			fmt.Fprintf(&b, " env=%s/%s", dash(entry.OS), dash(entry.Arch))
 		}
@@ -164,6 +170,7 @@ func BuildMemoryEntries(plan CommandOperationPlan, result CommandOperationResult
 	for _, stepResult := range result.StepResults {
 		step := stepByID[stepResult.StepID]
 		command := commandDisplay(step)
+		outputSummary := SummarizeStepOutput(stepResult)
 		entry := MemoryEntry{
 			CreatedAt:      now,
 			Workspace:      snapshot.RepoRoot,
@@ -175,7 +182,10 @@ func BuildMemoryEntries(plan CommandOperationPlan, result CommandOperationResult
 			Args:           append([]string(nil), step.Args...),
 			Outcome:        string(stepResult.Status),
 			FailureClass:   stepResult.FailureClass,
-			Summary:        summarizeStepResult(stepResult),
+			OutputKind:     outputSummary.Kind,
+			OutputLines:    outputSummary.Lines,
+			OutputBytes:    outputSummary.Bytes,
+			Summary:        outputSummary.Summary,
 			PayloadRefs:    cleanRefs([]string{stepResult.PayloadRef}),
 			Lessons:        lessonsForStepResult(stepResult, command),
 			EnvFingerprint: envFingerprint(snapshot),
@@ -266,6 +276,7 @@ func normalizeMemoryEntry(entry MemoryEntry, now time.Time, ttl time.Duration) M
 	entry.Command = strings.TrimSpace(entry.Command)
 	entry.Outcome = strings.TrimSpace(entry.Outcome)
 	entry.FailureClass = strings.TrimSpace(entry.FailureClass)
+	entry.OutputKind = strings.TrimSpace(entry.OutputKind)
 	entry.Summary = oneLine(entry.Summary, 500)
 	entry.PayloadRefs = cleanRefs(entry.PayloadRefs)
 	entry.Lessons = cleanLessons(entry.Lessons)
@@ -298,14 +309,6 @@ func scoreMemoryEntry(entry MemoryEntry, snapshot CapabilitySnapshot) int {
 		score += 1
 	}
 	return score
-}
-
-func summarizeStepResult(step CommandStepResult) string {
-	preview := strings.TrimSpace(step.OutputPreview)
-	if step.Error != "" {
-		return oneLine(step.Error+" "+preview, 500)
-	}
-	return oneLine(preview, 500)
 }
 
 func lessonsForStepResult(step CommandStepResult, command string) []string {

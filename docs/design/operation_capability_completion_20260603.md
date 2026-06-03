@@ -232,10 +232,11 @@ operation step:
 
 ### Batch C: Large Output / Large File Learning
 
-- [ ] Add deterministic output summary helper for command results.
-- [ ] Store action-oriented summaries in current-run handoff and durable memory.
-- [ ] Add tests for help text, large search output, and payload-ref-only
-      follow-up planning.
+- [x] Add deterministic output summary helper for command results.
+- [x] Store action-oriented summaries in current-run handoff and durable memory.
+- [x] Add tests for help text, search output, failure output, and memory
+      handoff summaries.
+- [ ] Add payload-ref-only follow-up planning tests.
 
 ### Batch D: Policy Completion
 

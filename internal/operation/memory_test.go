@@ -18,6 +18,7 @@ func TestOperationMemoryStoreRoundTripAndPrompt(t *testing.T) {
 		Capability:   "computer_operation",
 		Command:      "demo-tool --help",
 		Outcome:      "executed",
+		OutputKind:   "help_text",
 		Summary:      "Usage: demo-tool --input FILE",
 		PayloadRefs:  []string{"/tmp/help.txt"},
 		Lessons:      []string{"This command completed successfully."},
@@ -38,6 +39,7 @@ func TestOperationMemoryStoreRoundTripAndPrompt(t *testing.T) {
 		"## operation_memory",
 		"Historical command-operation lessons",
 		"demo-tool --help",
+		"output_kind=",
 		"payload_ref=/tmp/help.txt",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -107,6 +109,9 @@ func TestBuildMemoryEntriesSummarizesFailure(t *testing.T) {
 	entry := entries[0]
 	if entry.Command != "missing-tool --version" || entry.FailureClass != "command_not_found" {
 		t.Fatalf("unexpected entry: %+v", entry)
+	}
+	if entry.OutputKind != "error_output" {
+		t.Fatalf("OutputKind=%q want error_output: %+v", entry.OutputKind, entry)
 	}
 	if len(entry.Lessons) == 0 || !strings.Contains(entry.Lessons[0], "not available") {
 		t.Fatalf("missing command-not-found lesson: %+v", entry.Lessons)
