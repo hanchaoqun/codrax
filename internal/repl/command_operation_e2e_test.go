@@ -1,12 +1,14 @@
 package repl
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/operation"
+	"github.com/hanchaoqun/codrax/internal/render"
 )
 
 func commandOperationPolicy(risk string) TurnPolicy {
@@ -79,6 +81,38 @@ func TestCommandOperationE2E_AutoLowRiskExecutesWithoutApprove(t *testing.T) {
 	}
 	if strings.Contains(printed, "awaiting approval") {
 		t.Fatalf("auto low-risk operation should not ask for approval:\n%s", printed)
+	}
+}
+
+func TestCommandOperationE2E_StopsPrearmedRendererSpinner(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"s1","title":"show go version","program":"go","args":["version"],"risk_level":"low","side_effects":[]}]}`)},
+	}
+	r, runner, _ := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	var dock bytes.Buffer
+	r.renderer = render.New(&dock, true)
+	r.renderer.StartSpinner()
+	t.Cleanup(func() {
+		if r.renderer.SpinnerActive() {
+			r.renderer.StopSpinner()
+		}
+	})
+
+	r.operationDispatch("查询 go 版本", "查询 go 版本", commandOperationPolicy("low"))
+
+	if r.renderer.SpinnerActive() {
+		t.Fatal("operation planning must close the pre-armed classifier spinner before rendering the plan")
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("command operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if r.pendingOperation == nil {
+		t.Fatal("manual command plan should remain pending approval")
 	}
 }
 

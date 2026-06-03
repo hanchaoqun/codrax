@@ -1142,6 +1142,7 @@ func (r *REPL) operationUnavailableDispatch(line, display string, policy TurnPol
 		oneLineClamp(policy.RiskLevel, 40),
 		oneLineClamp(strings.Join(policy.SideEffects, ","), 120),
 		oneLineClamp(policy.Reason, 120))
+	r.finishOperationRouteSpinner(operation.StatusBlocked)
 	msg := operationUnavailableMsg(r.language, policy)
 	r.warn("%s\n", msg)
 	r.recordTurn(display, line, msg, memory.KindPipeline)
@@ -1176,6 +1177,7 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 		logging.Info("[repl/operation] command plan status=%s risk=%q approval=%q steps=%d",
 			plan.Status, plan.RiskLevel, plan.ApprovalMode, len(plan.Steps))
 		msg := commandOperationPlanMarkdown(r.language, plan)
+		r.finishOperationRouteSpinner(plan.Status)
 		r.renderBordered(msg)
 		r.recordTurn(display, line, msg, memory.KindPipeline)
 		return
@@ -1201,8 +1203,54 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 		oneLineClamp(plan.Provider, 80),
 		oneLineClamp(plan.MissingCapability, 160))
 	msg := operationPlanMarkdown(r.language, plan)
+	r.finishOperationRouteSpinner(operation.StatusReady)
 	r.renderBordered(msg)
 	r.recordTurn(display, line, msg, memory.KindPipeline)
+}
+
+func (r *REPL) finishOperationRouteSpinner(status operation.OperationStatus) {
+	if r.renderer == nil || !r.renderer.SpinnerActive() {
+		return
+	}
+	label, segs := operationRouteSummary(r.language, status)
+	r.renderer.SetTotalStages(0)
+	r.renderer.SetRouteSummary(label, segs)
+	r.renderer.StopSpinner()
+}
+
+func operationRouteSummary(lang string, status operation.OperationStatus) (string, []string) {
+	if isZh(lang) {
+		switch status {
+		case operation.StatusNeedsClarification:
+			return "操作计划", []string{"需要补充信息", "未读仓库"}
+		case operation.StatusReady:
+			return "操作计划", []string{"等待批准", "未读仓库"}
+		case operation.StatusBlocked:
+			return "操作计划", []string{"策略阻止", "未读仓库"}
+		case operation.StatusExecuted:
+			return "操作执行", []string{"已完成", "未读仓库"}
+		case operation.StatusFailed:
+			return "操作执行", []string{"已失败", "未读仓库"}
+		case operation.StatusCancelled:
+			return "操作执行", []string{"已取消", "未读仓库"}
+		}
+		return "操作计划", []string{"未读仓库"}
+	}
+	switch status {
+	case operation.StatusNeedsClarification:
+		return "operation plan", []string{"needs clarification", "no repo read"}
+	case operation.StatusReady:
+		return "operation plan", []string{"awaiting approval", "no repo read"}
+	case operation.StatusBlocked:
+		return "operation plan", []string{"blocked by policy", "no repo read"}
+	case operation.StatusExecuted:
+		return "operation execution", []string{"completed", "no repo read"}
+	case operation.StatusFailed:
+		return "operation execution", []string{"failed", "no repo read"}
+	case operation.StatusCancelled:
+		return "operation execution", []string{"cancelled", "no repo read"}
+	}
+	return "operation plan", []string{"no repo read"}
 }
 
 func isCommandOperationPolicy(policy TurnPolicy) bool {
@@ -1300,6 +1348,7 @@ func (r *REPL) executeCommandOperationPlan(plan operation.CommandOperationPlan, 
 	plan.Status = result.Status
 	r.operationHistory = append(r.operationHistory, plan)
 	msg := commandOperationResultMarkdown(r.language, plan, result)
+	r.finishOperationRouteSpinner(result.Status)
 	r.renderBordered(msg)
 	r.recordTurn(display, request, msg, memory.KindPipeline)
 }
