@@ -263,6 +263,7 @@ Rules:
 - Use only the provided operation observations. Do not invent source-code evidence.
 - Mention artifact refs, payload refs, verification results, and follow-up actions when they matter.
 - Keep raw logs/large output summarized; the UI will show execution details separately.
+- Do not include execution-detail headings such as "Operation plan ... completed" or "操作计划 ... 已执行完成"; per-round execution details are already shown outside the final report.
 - Match the requested language. If language=zh, every user-visible sentence must be Chinese except command names, file paths, product names, and raw command output snippets.
 `
 
