@@ -1203,6 +1203,9 @@ func providerOperationResultMarkdown(lang string, plan operation.Plan, result pr
 				b.WriteString(fmt.Sprintf("  %d. `%s`\n", i+1, action.Compact()))
 			}
 		}
+		if text := strings.TrimSpace(result.ReturnAction.Compact()); text != "" {
+			b.WriteString(fmt.Sprintf("- 建议回跳动作：`%s`\n", text))
+		}
 		if !result.WorkflowState.IsZero() {
 			b.WriteString(fmt.Sprintf("- 工作流状态：`%s`\n", result.WorkflowState.Compact()))
 		}
@@ -1251,6 +1254,9 @@ func providerOperationResultMarkdown(lang string, plan operation.Plan, result pr
 			}
 			b.WriteString(fmt.Sprintf("  %d. `%s`\n", i+1, action.Compact()))
 		}
+	}
+	if text := strings.TrimSpace(result.ReturnAction.Compact()); text != "" {
+		b.WriteString(fmt.Sprintf("- Suggested return action: `%s`\n", text))
 	}
 	if !result.WorkflowState.IsZero() {
 		b.WriteString(fmt.Sprintf("- Workflow state: `%s`\n", result.WorkflowState.Compact()))

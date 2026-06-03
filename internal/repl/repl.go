@@ -1586,6 +1586,7 @@ func (r *REPL) appendProviderOperationResult(plan operation.Plan, request operat
 			result.ArtifactRefs,
 			result.Observations,
 			result.NextActions,
+			result.ReturnAction,
 			result.WorkflowState,
 			r.commandOperationCapabilitySnapshot(),
 		)
@@ -1620,7 +1621,7 @@ func (r *REPL) renderCommandOperationHandoff() string {
 	}
 	for i := providerStart; i < len(r.providerOperationResults); i++ {
 		rec := r.providerOperationResults[i]
-		fmt.Fprintf(&b, "provider_operation_result provider=%q tool=%q kind=%q target=%q status=%s observations=%d request=%q summary=%q error=%q payload_ref=%s artifact_refs=%s verification_status=%s verification_summary=%q next_actions=%d workflow_state=%q diagnostics=%q\n",
+		fmt.Fprintf(&b, "provider_operation_result provider=%q tool=%q kind=%q target=%q status=%s observations=%d request=%q summary=%q error=%q payload_ref=%s artifact_refs=%s verification_status=%s verification_summary=%q next_actions=%d return_action=%q workflow_state=%q diagnostics=%q\n",
 			oneLineClamp(rec.Result.Provider, 120),
 			oneLineClamp(rec.Result.Tool, 120),
 			oneLineClamp(firstNonEmptyString(rec.Plan.Kind, rec.Request.OperationKind, rec.Request.Operation), 80),
@@ -1635,6 +1636,7 @@ func (r *REPL) renderCommandOperationHandoff() string {
 			rec.Result.VerificationStatus,
 			oneLineClamp(rec.Result.VerificationSummary, 220),
 			len(rec.Result.NextActions),
+			oneLineClamp(rec.Result.ReturnAction.Compact(), 260),
 			oneLineClamp(rec.Result.WorkflowState.Compact(), 260),
 			oneLineClamp(strings.Join(rec.Result.WorkflowDiagnostics, "; "), 360))
 		for j, action := range rec.Result.NextActions {
@@ -5007,6 +5009,7 @@ type providerOperationResult struct {
 	Error               string
 	Observations        int
 	NextActions         []operation.WorkflowNextAction
+	ReturnAction        operation.WorkflowNextAction
 	WorkflowState       operation.WorkflowState
 	WorkflowDiagnostics []string
 }
@@ -5196,6 +5199,7 @@ func (r *REPL) executeLocalOperationSkillProvider(ctx context.Context, pending p
 		result.VerificationSummary = strings.TrimSpace(parsed.VerificationSummary)
 		result.Observations = parsed.Observations
 		result.NextActions = parsed.NextActions
+		result.ReturnAction = parsed.ReturnAction
 		result.WorkflowState = parsed.WorkflowState
 		if parsed.Error != "" {
 			result.Error = parsed.Error
@@ -5420,6 +5424,7 @@ type localOperationSkillJSONResult struct {
 	Observations        int
 	Error               string
 	NextActions         []operation.WorkflowNextAction
+	ReturnAction        operation.WorkflowNextAction
 	WorkflowState       operation.WorkflowState
 }
 
@@ -5442,8 +5447,29 @@ func parseLocalOperationSkillJSONResult(text string) (localOperationSkillJSONRes
 	out.Observations = observationsCountJSON(raw["observations"])
 	out.Error = stringJSON(raw["error"])
 	out.NextActions = workflowNextActionsJSON(raw)
+	out.ReturnAction, _ = workflowReturnActionJSON(raw)
 	out.WorkflowState = workflowStateJSON(raw["workflow_state"])
 	return out, true
+}
+
+func workflowReturnActionJSON(raw map[string]json.RawMessage) (operation.WorkflowNextAction, bool) {
+	if raw == nil {
+		return operation.WorkflowNextAction{}, false
+	}
+	actionRaw := raw["return_action"]
+	if len(actionRaw) == 0 {
+		actionRaw = raw["return_to_action"]
+	}
+	if len(actionRaw) == 0 {
+		actionRaw = raw["callback_action"]
+	}
+	if len(actionRaw) == 0 {
+		actionRaw = raw["return"]
+	}
+	if len(actionRaw) == 0 {
+		return operation.WorkflowNextAction{}, false
+	}
+	return workflowNextActionJSON(actionRaw)
 }
 
 func workflowNextActionsJSON(raw map[string]json.RawMessage) []operation.WorkflowNextAction {

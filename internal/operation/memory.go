@@ -46,6 +46,7 @@ type MemoryEntry struct {
 	PayloadRefs    []string  `json:"payload_refs,omitempty"`
 	ArtifactRefs   []string  `json:"artifact_refs,omitempty"`
 	NextActions    []string  `json:"next_actions,omitempty"`
+	ReturnAction   string    `json:"return_action,omitempty"`
 	WorkflowState  string    `json:"workflow_state,omitempty"`
 	Lessons        []string  `json:"lessons,omitempty"`
 	EnvFingerprint string    `json:"env_fingerprint,omitempty"`
@@ -185,6 +186,9 @@ func RenderMemoryForPrompt(entries []MemoryEntry) string {
 		if len(entry.NextActions) > 0 {
 			fmt.Fprintf(&b, " next_action=%q", oneLine(entry.NextActions[0], 220))
 		}
+		if entry.ReturnAction != "" {
+			fmt.Fprintf(&b, " return_action=%q", oneLine(entry.ReturnAction, 220))
+		}
 		if entry.WorkflowState != "" {
 			fmt.Fprintf(&b, " workflow_state=%q", oneLine(entry.WorkflowState, 220))
 		}
@@ -240,7 +244,7 @@ func BuildMemoryEntries(plan CommandOperationPlan, result CommandOperationResult
 // into a compact lesson. It intentionally stores only the provider/tool name,
 // bounded summaries, and payload refs; provider payloads remain in the blob
 // lane and must not be treated as current-source evidence.
-func BuildProviderMemoryEntry(provider, tool, operationKind, targetSurface string, status OperationStatus, summary, payloadRef, errText string, artifactRefs []string, observations int, nextActions []WorkflowNextAction, workflowState WorkflowState, snapshot CapabilitySnapshot) MemoryEntry {
+func BuildProviderMemoryEntry(provider, tool, operationKind, targetSurface string, status OperationStatus, summary, payloadRef, errText string, artifactRefs []string, observations int, nextActions []WorkflowNextAction, returnAction WorkflowNextAction, workflowState WorkflowState, snapshot CapabilitySnapshot) MemoryEntry {
 	provider = strings.TrimSpace(provider)
 	tool = strings.TrimSpace(tool)
 	operationKind = strings.TrimSpace(operationKind)
@@ -276,6 +280,7 @@ func BuildProviderMemoryEntry(provider, tool, operationKind, targetSurface strin
 		PayloadRefs:    cleanRefs([]string{payloadRef}),
 		ArtifactRefs:   cleanRefs(artifactRefs),
 		NextActions:    compactWorkflowActions(nextActions),
+		ReturnAction:   strings.TrimSpace(returnAction.Compact()),
 		WorkflowState:  workflowState.Compact(),
 		Lessons:        lessons,
 		EnvFingerprint: envFingerprint(snapshot),

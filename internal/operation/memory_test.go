@@ -174,6 +174,12 @@ func TestBuildProviderMemoryEntryFeedsPrompt(t *testing.T) {
 			TargetSurface: "slides",
 			Request:       "verify generated deck",
 		}},
+		WorkflowNextAction{
+			Provider:      "skill:slides",
+			OperationKind: "presentation_generation",
+			TargetSurface: "slides",
+			Request:       "compose final workflow report",
+		},
 		WorkflowState{WorkflowID: "wf-1", Step: "deck_created", ReturnTo: "skill:slides"},
 		CapabilitySnapshot{RepoRoot: "/repo", OS: "linux", Arch: "amd64", Shell: "bash"},
 	)
@@ -197,6 +203,7 @@ func TestBuildProviderMemoryEntryFeedsPrompt(t *testing.T) {
 		"payload_ref=/tmp/codrax/blob/provider-output.txt",
 		"artifact_ref=mcp://artifact/deck",
 		"next_action=\"provider=skill:verifier kind=presentation_generation target=slides request=verify generated deck\"",
+		"return_action=\"provider=skill:slides kind=presentation_generation target=slides request=compose final workflow report\"",
 		"workflow_state=\"workflow_id=wf-1 step=deck_created return_to=skill:slides\"",
 		"not current-source evidence",
 	} {

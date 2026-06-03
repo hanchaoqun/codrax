@@ -25,6 +25,13 @@ func TestParseLocalOperationSkillResultWorkflowAliases(t *testing.T) {
 	    "phase": "manual_extracted",
 	    "return_provider": "skill:manual_reader",
 	    "state": {"source_payload_ref":"notes.md"}
+	  },
+	  "return_to_action": {
+	    "provider": "skill:manual_reader",
+	    "kind": "artifact_generation",
+	    "surface": "local_file",
+	    "prompt": "compose final report",
+	    "args": {"deck_path":"out/deck.pptx"}
 	  }
 	}`
 	parsed, ok := parseLocalOperationSkillJSONResult(payload)
@@ -49,5 +56,11 @@ func TestParseLocalOperationSkillResultWorkflowAliases(t *testing.T) {
 	}
 	if !strings.Contains(parsed.WorkflowState.Compact(), "data_keys=source_payload_ref") {
 		t.Fatalf("workflow state compact missing data keys: %s", parsed.WorkflowState.Compact())
+	}
+	if parsed.ReturnAction.Provider != "skill:manual_reader" || parsed.ReturnAction.OperationKind != "artifact_generation" || parsed.ReturnAction.TargetSurface != "local_file" {
+		t.Fatalf("return action aliases not preserved: %+v", parsed.ReturnAction)
+	}
+	if parsed.ReturnAction.Input["deck_path"] != "out/deck.pptx" {
+		t.Fatalf("return action input not preserved: %+v", parsed.ReturnAction.Input)
 	}
 }
