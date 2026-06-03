@@ -2026,6 +2026,7 @@ agents:
 | `mcp_servers[].operation_provider` | `false` | 可选:显式声明该 MCP server 可作为 operation/artifact provider。只用于 REPL operation 计划器的能力匹配,不会自动调用工具 |
 | `mcp_servers[].operation_kinds` / `operation_surfaces` | `[]` / `[]` | provider 支持的操作类型和目标界面,如 `presentation_generation` + `slides` |
 | `mcp_servers[].operation_side_effects` | `[]` | provider 可能产生的副作用,如 `local_file_write` / `browser_ui` |
+| `mcp_servers[].operation_tool` | 空 | 可选:该 server 中真正执行 operation 的 MCP tool 名。未配置时只显示计划和 provider 能力,不会 `/approve` 执行 |
 | `mcp_servers[].operation_requires_confirmation` | `true` | provider 是否要求显式确认后才能执行。当前计划器会据此停在确认前 |
 
 ### 电脑操作 / 制品生成路由

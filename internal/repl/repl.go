@@ -40,6 +40,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/mcp"
 	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/operation"
 	"github.com/hanchaoqun/codrax/internal/outputdump"
@@ -285,6 +286,9 @@ type Config struct {
 	OperationPlanner CommandOperationPlanner
 	// OperationCommandPolicy controls command-operation approval/execution.
 	OperationCommandPolicy operation.CommandPolicy
+	// MCPServers is used only for explicitly configured operation providers.
+	// Explorer/read-mode MCP exposure continues to live in the agent layer.
+	MCPServers *mcp.Registry
 
 	// PlanStore persists B0 write-mode ChangePlans for the REPL
 	// session. Nil disables the /plan slash command family —
@@ -563,9 +567,11 @@ type REPL struct {
 	operationPolicy             operation.CommandPolicy
 	pendingOperation            *operation.CommandOperationPlan
 	pendingCommandClarification *pendingCommandClarification
+	pendingProviderOperation    *pendingProviderOperation
 	operationHistory            []operation.CommandOperationPlan
 	operationResults            []commandOperationResultRecord
 	operationMemory             *operation.MemoryStore
+	mcpServers                  *mcp.Registry
 
 	// sessionID identifies this REPL session. Stamped onto every
 	// recorded Turn so memory.BuildContext can session-pin recent
@@ -736,6 +742,7 @@ func New(cfg Config) *REPL {
 		operationProviders:     append([]operation.ProviderInfo(nil), cfg.OperationProviders...),
 		operationPlanner:       cfg.OperationPlanner,
 		operationPolicy:        cfg.OperationCommandPolicy,
+		mcpServers:             cfg.MCPServers,
 		// Session ID embeds nano + pid so two codrax REPLs launched
 		// in the same clock tick (test harness, race) still get
 		// disjoint IDs. Consumed by memory.BuildContext via BuildOpts.
@@ -1223,6 +1230,25 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 		TargetSurface:        policy.TargetSurface,
 		RequiresConfirmation: policy.RequiresConfirmation,
 	}, r.operationProviders)
+	if plan.Provider != "" && plan.ProviderTool != "" {
+		r.pendingProviderOperation = &pendingProviderOperation{
+			Plan: plan,
+			Request: operation.Request{
+				Text:                 line,
+				Operation:            policy.Operation,
+				OperationKind:        policy.OperationKind,
+				Source:               policy.Source,
+				NeedsRepoAccess:      policy.NeedsRepoAccess,
+				RiskLevel:            policy.RiskLevel,
+				SideEffects:          policy.SideEffects,
+				TargetSurface:        policy.TargetSurface,
+				RequiresConfirmation: policy.RequiresConfirmation,
+			},
+			Display: display,
+		}
+	} else {
+		r.pendingProviderOperation = nil
+	}
 	logging.Info("[repl/operation] planned operation kind=%q target=%q risk=%q needs_repo=%t executable=%t provider=%q missing=%q",
 		oneLineClamp(plan.Kind, 80),
 		oneLineClamp(plan.TargetSurface, 60),
@@ -1356,6 +1382,10 @@ func (r *REPL) handleOperationCmd(line string) {
 		}
 		if r.pendingCommandClarification != nil {
 			r.renderBordered(commandOperationPlanMarkdown(r.language, r.pendingCommandClarification.Plan))
+			return
+		}
+		if r.pendingProviderOperation != nil {
+			r.renderBordered(operationPlanMarkdown(r.language, r.pendingProviderOperation.Plan))
 			return
 		}
 		r.info(operationNoPendingMsg(r.language))
@@ -1495,6 +1525,12 @@ type pendingCommandClarification struct {
 	Display      string
 	Policy       TurnPolicy
 	Plan         operation.CommandOperationPlan
+}
+
+type pendingProviderOperation struct {
+	Plan    operation.Plan
+	Request operation.Request
+	Display string
 }
 
 func (r *REPL) appendCommandOperationResult(plan operation.CommandOperationPlan, result operation.CommandOperationResult) {
@@ -4020,6 +4056,10 @@ func (r *REPL) handleApproveCmd(line string) {
 		r.handleOperationApproveCmd(line)
 		return
 	}
+	if r.pendingProviderOperation != nil {
+		r.handleProviderOperationApproveCmd(line)
+		return
+	}
 	// Parse all /approve arguments in one pass:
 	//   `/approve` — operate on the most recent pending plan
 	//   `/approve <plan-id>` — explicitly target a plan; useful when
@@ -4876,6 +4916,134 @@ func (r *REPL) handleMergeCmd(line string) {
 	r.runMergeFromRef(planID, recoveryRef, target)
 }
 
+type providerOperationResult struct {
+	Status       operation.OperationStatus
+	Provider     string
+	Tool         string
+	Summary      string
+	PayloadRef   string
+	Error        string
+	Observations int
+}
+
+func (r *REPL) handleProviderOperationApproveCmd(line string) {
+	_ = line
+	pending := r.pendingProviderOperation
+	if pending == nil {
+		r.info(operationNoPendingMsg(r.language))
+		return
+	}
+	r.pendingProviderOperation = nil
+	result := r.executeProviderOperation(context.Background(), *pending)
+	msg := providerOperationResultMarkdown(r.language, pending.Plan, result)
+	r.renderBordered(msg)
+	r.recordTurn(pending.Display, pending.Request.Text, msg, memory.KindPipeline)
+}
+
+func (r *REPL) executeProviderOperation(ctx context.Context, pending pendingProviderOperation) providerOperationResult {
+	plan := pending.Plan
+	result := providerOperationResult{
+		Status:   operation.StatusFailed,
+		Provider: plan.Provider,
+		Tool:     plan.ProviderTool,
+	}
+	serverName := strings.TrimPrefix(strings.TrimSpace(plan.Provider), "mcp:")
+	if serverName == "" || strings.TrimSpace(plan.ProviderTool) == "" {
+		result.Error = "operation provider is missing MCP server or operation_tool"
+		return result
+	}
+	if r.mcpServers == nil {
+		result.Error = "MCP registry is not available for operation provider execution"
+		return result
+	}
+	args := map[string]any{
+		"request":               pending.Request.Text,
+		"operation":             firstNonEmptyString(pending.Request.Operation, pending.Request.OperationKind, plan.Kind),
+		"operation_kind":        plan.Kind,
+		"target_surface":        plan.TargetSurface,
+		"risk_level":            plan.RiskLevel,
+		"side_effects":          plan.SideEffects,
+		"requires_confirmation": plan.RequiresConfirmation,
+		"provider":              plan.Provider,
+	}
+	raw, err := json.Marshal(args)
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	resp, err := r.mcpServers.CallTool(serverName, plan.ProviderTool, raw)
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	result.Observations = len(resp.Observations)
+	result.PayloadRef = firstNonEmptyString(resp.PayloadRef, resp.RawRef, resp.RowSetRef)
+	result.Summary = strings.TrimSpace(resp.Summary)
+	if result.Summary == "" && result.Observations > 0 {
+		result.Summary = fmt.Sprintf("MCP provider returned %d typed observation(s).", result.Observations)
+	}
+	if !resp.Success {
+		result.Error = firstNonEmptyString(resp.Summary, "MCP operation provider returned success=false")
+		return result
+	}
+	result.Status = operation.StatusExecuted
+	if result.Summary != "" && utf8.RuneCountInString(result.Summary) > 4096 {
+		ref, preview := r.storeProviderOperationPayload(plan.Provider, plan.ProviderTool, result.Summary)
+		if ref != "" {
+			result.PayloadRef = firstNonEmptyString(result.PayloadRef, ref)
+			result.Summary = preview
+		}
+	}
+	return result
+}
+
+func (r *REPL) storeProviderOperationPayload(provider, toolName, summary string) (string, string) {
+	dir := filepath.Join(firstNonEmptyString(strings.TrimSpace(r.runtimeAnchor), ".codrax"), "operation")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		logging.Warning("[repl/operation] store provider payload failed: %v", err)
+		return "", summary
+	}
+	name := fmt.Sprintf("provider-%s-%s-%d.txt", sanitizeProviderPayloadToken(provider), sanitizeProviderPayloadToken(toolName), time.Now().UnixNano())
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(summary), 0o644); err != nil {
+		logging.Warning("[repl/operation] write provider payload failed: %v", err)
+		return "", summary
+	}
+	preview := summary
+	if utf8.RuneCountInString(preview) > 4096 {
+		preview = string([]rune(preview)[:4096]) + fmt.Sprintf("\n[operation provider output truncated; full output saved to %s]", path)
+	}
+	return path, preview
+}
+
+func sanitizeProviderPayloadToken(s string) string {
+	var b strings.Builder
+	for _, r := range strings.TrimSpace(s) {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_' {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteByte('-')
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "provider"
+	}
+	if len(out) > 48 {
+		out = out[:48]
+	}
+	return out
+}
+
+func firstNonEmptyString(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
 // handleRejectCmd discards the pending ChangePlan without invoking
 // the runner. Optional reason text trailing /reject is recorded in
 // memory so the conversation's prior-turns block reflects why this
@@ -4919,6 +5087,12 @@ func (r *REPL) handleCancelCmd(line string) {
 		r.operationHistory = append(r.operationHistory, plan)
 		r.pendingCommandClarification = nil
 		r.info(operationCancelledMsg(r.language, plan.ID))
+		return
+	}
+	if r.pendingProviderOperation != nil {
+		plan := r.pendingProviderOperation.Plan
+		r.pendingProviderOperation = nil
+		r.info(operationCancelledMsg(r.language, firstNonEmptyString(plan.Provider, plan.Kind)))
 		return
 	}
 	canceller, ok := r.runner.(runnerCanceller)
@@ -5074,6 +5248,13 @@ func (b *boundedBuffer) Truncated() bool {
 func (r *REPL) handleRejectCmd(line string) {
 	if r.pendingOperation != nil {
 		r.handleOperationRejectCmd(line)
+		return
+	}
+	if r.pendingProviderOperation != nil {
+		plan := r.pendingProviderOperation.Plan
+		r.pendingProviderOperation = nil
+		reason := strings.TrimSpace(strings.TrimPrefix(line, "/reject"))
+		r.info(operationRejectedMsg(r.language, firstNonEmptyString(plan.Provider, plan.Kind), reason))
 		return
 	}
 	if r.planStore == nil {

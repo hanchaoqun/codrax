@@ -203,6 +203,7 @@
 #     # operation_kinds: ["presentation_generation"]
 #     # operation_surfaces: ["slides"]
 #     # operation_side_effects: ["local_file_write"]
+#     # operation_tool: "run_operation"
 #     # operation_requires_confirmation: true
 
 # operation_route_enabled — enable the independent operation/artifact route in

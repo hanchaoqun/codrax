@@ -31,7 +31,7 @@ func TestOperationProvidersFromMCPConfigsRequiresOptInAndRegisteredServer(t *tes
 	yes := true
 	no := false
 	providers := operationProvidersFromMCPConfigs(reg, []types.MCPServerConfig{
-		{Name: "slides", OperationProvider: &yes, OperationKinds: []string{"presentation_generation", "document_generation"}, OperationSurfaces: []string{"slides"}, OperationSideEffects: []string{"local_file_write"}, OperationRequiresConfirmation: &yes},
+		{Name: "slides", OperationProvider: &yes, OperationKinds: []string{"presentation_generation", "document_generation"}, OperationSurfaces: []string{"slides"}, OperationSideEffects: []string{"local_file_write"}, OperationTool: "run_operation", OperationRequiresConfirmation: &yes},
 		{Name: "docs", OperationProvider: &yes, OperationKinds: []string{"document_generation"}}, // not registered
 		{Name: "plain", OperationProvider: &no, OperationKinds: []string{"browser_operation"}},
 	})
@@ -39,7 +39,7 @@ func TestOperationProvidersFromMCPConfigsRequiresOptInAndRegisteredServer(t *tes
 	if len(providers) != 2 {
 		t.Fatalf("providers len=%d, want 2: %+v", len(providers), providers)
 	}
-	if providers[0].Name != "mcp:slides" || providers[0].Kind != "presentation_generation" || !providers[0].RequiresGate {
+	if providers[0].Name != "mcp:slides" || providers[0].Kind != "presentation_generation" || !providers[0].RequiresGate || providers[0].ToolName != "run_operation" {
 		t.Fatalf("first provider mismatch: %+v", providers[0])
 	}
 	if providers[1].Kind != "document_generation" {

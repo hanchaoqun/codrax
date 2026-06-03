@@ -1,6 +1,9 @@
 package operation
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestBuildPlanPresentationNoProviderIsPlanOnly(t *testing.T) {
 	plan := BuildPlan(Request{
@@ -58,6 +61,7 @@ func TestBuildPlanProviderGateBlocksExecution(t *testing.T) {
 		Kind:         "presentation_generation",
 		Surfaces:     []string{"slides"},
 		RequiresGate: true,
+		ToolName:     "run_operation",
 	}})
 
 	if plan.Provider != "mcp:slides" {
@@ -69,7 +73,33 @@ func TestBuildPlanProviderGateBlocksExecution(t *testing.T) {
 	if plan.CanExecute {
 		t.Fatal("provider gate must pause execution")
 	}
+	if plan.ProviderTool != "run_operation" {
+		t.Fatalf("ProviderTool=%q", plan.ProviderTool)
+	}
 	if plan.MissingCapability == "" {
 		t.Fatal("provider gate should explain why execution paused")
+	}
+}
+
+func TestBuildPlanProviderWithoutToolIsPlanOnly(t *testing.T) {
+	plan := BuildPlan(Request{
+		OperationKind: "presentation_generation",
+		RiskLevel:     "low",
+		TargetSurface: "slides",
+	}, []ProviderInfo{{
+		Name:         "mcp:slides",
+		Kind:         "presentation_generation",
+		Surfaces:     []string{"slides"},
+		RequiresGate: false,
+	}})
+
+	if plan.Provider != "mcp:slides" {
+		t.Fatalf("Provider=%q", plan.Provider)
+	}
+	if plan.CanExecute {
+		t.Fatal("provider with no tool must stay plan-only")
+	}
+	if !strings.Contains(plan.MissingCapability, "operation_tool") {
+		t.Fatalf("MissingCapability=%q", plan.MissingCapability)
 	}
 }

@@ -2724,6 +2724,11 @@ mcp_servers:
 <td>provider 可能产生的副作用,如 <code>local_file_write</code> / <code>browser_ui</code></td>
 </tr>
 <tr>
+<td><code>mcp_servers[].operation_tool</code></td>
+<td>空</td>
+<td>可选:该 server 中真正执行 operation 的 MCP tool 名。未配置时只显示计划和 provider 能力,不会 <code>/approve</code> 执行</td>
+</tr>
+<tr>
 <td><code>mcp_servers[].operation_requires_confirmation</code></td>
 <td><code>true</code></td>
 <td>provider 是否要求显式确认后才能执行。当前计划器会据此停在确认前</td>

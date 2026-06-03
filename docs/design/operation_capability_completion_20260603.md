@@ -257,11 +257,12 @@ operation step:
 
 ### Batch F: Provider Execution Bridge
 
-- [ ] Define operation provider execution interface.
-- [ ] Implement MCP operation provider bridge only for explicitly configured
+- [x] Define operation provider execution interface through explicit
+      provider/tool metadata.
+- [x] Implement MCP operation provider bridge only for explicitly configured
       operation providers.
-- [ ] Keep existing read-mode MCP exposure unchanged.
-- [ ] Tests: provider absent, provider manual gate, provider result payload,
+- [x] Keep existing read-mode MCP exposure unchanged.
+- [x] Tests: provider absent, provider manual gate, provider result payload,
       read-mode MCP unchanged.
 
 ### Batch G: Clarification UX

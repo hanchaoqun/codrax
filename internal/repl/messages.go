@@ -1002,7 +1002,9 @@ func operationPlanMarkdown(lang string, plan operation.Plan) string {
 			b.WriteString(fmt.Sprintf("%d. %s%s：%s\n", i+1, title, suffix, detail))
 		}
 		if plan.CanExecute {
-			b.WriteString(fmt.Sprintf("\n已匹配 provider：`%s`。当前仍停在计划阶段，未自动执行。\n", plan.Provider))
+			b.WriteString(fmt.Sprintf("\n已匹配 provider：`%s` / tool `%s`。运行 `/approve` 后才会执行。\n", plan.Provider, plan.ProviderTool))
+		} else if plan.Provider != "" && plan.ProviderTool != "" {
+			b.WriteString(fmt.Sprintf("\n已匹配 provider：`%s` / tool `%s`，但需要确认。运行 `/approve` 执行，或 `/reject <原因>` 拒绝。\n", plan.Provider, plan.ProviderTool))
 		} else {
 			b.WriteString(fmt.Sprintf("\n当前未执行：%s。\n", plan.MissingCapability))
 		}
@@ -1033,7 +1035,9 @@ func operationPlanMarkdown(lang string, plan operation.Plan) string {
 		b.WriteString(fmt.Sprintf("%d. %s%s: %s\n", i+1, step.Title, suffix, step.Detail))
 	}
 	if plan.CanExecute {
-		b.WriteString(fmt.Sprintf("\nMatched provider: `%s`. Codrax is still paused at the planning stage and did not execute automatically.\n", plan.Provider))
+		b.WriteString(fmt.Sprintf("\nMatched provider: `%s` / tool `%s`. Run `/approve` to execute.\n", plan.Provider, plan.ProviderTool))
+	} else if plan.Provider != "" && plan.ProviderTool != "" {
+		b.WriteString(fmt.Sprintf("\nMatched provider: `%s` / tool `%s`, but confirmation is required. Run `/approve` to execute, or `/reject <reason>` to reject.\n", plan.Provider, plan.ProviderTool))
 	} else {
 		b.WriteString(fmt.Sprintf("\nNot executed: %s.\n", plan.MissingCapability))
 	}
@@ -1165,6 +1169,57 @@ func operationExecutorNotReadyMsg(lang, id string) string {
 		return fmt.Sprintf("操作计划 `%s` 已等待执行，但当前批次尚未接入命令执行器；没有执行任何命令。", id)
 	}
 	return fmt.Sprintf("Operation plan `%s` is awaiting execution, but the command executor is not connected in this batch; no command was executed.", id)
+}
+
+func providerOperationResultMarkdown(lang string, plan operation.Plan, result providerOperationResult) string {
+	if isZh(lang) {
+		var b strings.Builder
+		if result.Status == operation.StatusExecuted {
+			b.WriteString(fmt.Sprintf("操作 provider `%s` 已执行完成。\n\n", result.Provider))
+		} else {
+			b.WriteString(fmt.Sprintf("操作 provider `%s` 执行失败。\n\n", result.Provider))
+		}
+		b.WriteString(fmt.Sprintf("- 类型：`%s`\n", plan.Kind))
+		b.WriteString(fmt.Sprintf("- 工具：`%s`\n", result.Tool))
+		if result.Observations > 0 {
+			b.WriteString(fmt.Sprintf("- 外部观测：%d 条\n", result.Observations))
+		}
+		if result.Error != "" {
+			b.WriteString(fmt.Sprintf("- 错误：%s\n", result.Error))
+		}
+		if result.Summary != "" {
+			b.WriteString("\n结果摘要：\n")
+			b.WriteString(indentBlock(commandOperationDisplayPreview(result.Summary, lang), "  "))
+			b.WriteString("\n")
+		}
+		if result.PayloadRef != "" {
+			b.WriteString(fmt.Sprintf("\n完整输出：`%s`", result.PayloadRef))
+		}
+		return strings.TrimSpace(b.String())
+	}
+	var b strings.Builder
+	if result.Status == operation.StatusExecuted {
+		b.WriteString(fmt.Sprintf("Operation provider `%s` completed.\n\n", result.Provider))
+	} else {
+		b.WriteString(fmt.Sprintf("Operation provider `%s` failed.\n\n", result.Provider))
+	}
+	b.WriteString(fmt.Sprintf("- Kind: `%s`\n", plan.Kind))
+	b.WriteString(fmt.Sprintf("- Tool: `%s`\n", result.Tool))
+	if result.Observations > 0 {
+		b.WriteString(fmt.Sprintf("- External observations: %d\n", result.Observations))
+	}
+	if result.Error != "" {
+		b.WriteString(fmt.Sprintf("- Error: %s\n", result.Error))
+	}
+	if result.Summary != "" {
+		b.WriteString("\nResult summary:\n")
+		b.WriteString(indentBlock(commandOperationDisplayPreview(result.Summary, lang), "  "))
+		b.WriteString("\n")
+	}
+	if result.PayloadRef != "" {
+		b.WriteString(fmt.Sprintf("\nFull output: `%s`", result.PayloadRef))
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func operationRejectedMsg(lang, id, reason string) string {

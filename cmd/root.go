@@ -1246,6 +1246,7 @@ func runREPL(_ *cobra.Command) error {
 		OperationProviders:     append([]operation.ProviderInfo(nil), app.operationProviders...),
 		OperationPlanner:       app.operationPlanner,
 		OperationCommandPolicy: app.operationCommandPolicy,
+		MCPServers:             app.mcpRegistry,
 		// Hand the memory adapter to REPL so the chitchat tool-use
 		// loop can call recall_memory without a separate wiring step.
 		// The same adapter is also wired into the orchestrator above,
@@ -4335,6 +4336,7 @@ func operationProvidersFromMCPConfigs(reg *mcp.Registry, cfgs []types.MCPServerC
 				Surfaces:     cleanOperationConfigList(cfg.OperationSurfaces),
 				SideEffects:  cleanOperationConfigList(cfg.OperationSideEffects),
 				RequiresGate: cfg.OperationRequiresConfirmation == nil || *cfg.OperationRequiresConfirmation,
+				ToolName:     strings.TrimSpace(cfg.OperationTool),
 			})
 		}
 	}

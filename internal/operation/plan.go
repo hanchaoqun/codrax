@@ -29,6 +29,7 @@ type ProviderInfo struct {
 	Surfaces     []string
 	SideEffects  []string
 	RequiresGate bool
+	ToolName     string
 }
 
 // Step is one deterministic operation-plan row.
@@ -50,6 +51,7 @@ type Plan struct {
 	RequiresConfirmation bool
 	CanExecute           bool
 	Provider             string
+	ProviderTool         string
 	MissingCapability    string
 	Steps                []Step
 }
@@ -67,10 +69,12 @@ func BuildPlan(req Request, providers []ProviderInfo) Plan {
 	provider := matchProvider(kind, target, providers)
 	providerGate := provider.Name != "" && provider.RequiresGate
 	requiresConfirmation := req.RequiresConfirmation || strings.EqualFold(risk, "high") || providerGate
-	canExecute := provider.Name != "" && !requiresConfirmation
+	canExecute := provider.Name != "" && provider.ToolName != "" && !requiresConfirmation
 	missing := ""
 	if provider.Name == "" {
 		missing = fmt.Sprintf("no configured operation provider for %s on %s", kind, target)
+	} else if provider.ToolName == "" {
+		missing = "operation provider has no configured operation_tool"
 	} else if providerGate {
 		missing = "operation provider requires explicit confirmation before execution"
 	} else if requiresConfirmation {
@@ -104,6 +108,7 @@ func BuildPlan(req Request, providers []ProviderInfo) Plan {
 		RequiresConfirmation: requiresConfirmation,
 		CanExecute:           canExecute,
 		Provider:             provider.Name,
+		ProviderTool:         provider.ToolName,
 		MissingCapability:    missing,
 		Steps:                steps,
 	}

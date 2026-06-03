@@ -4820,6 +4820,7 @@ type MCPServerConfig struct {
 	OperationKinds                []string `yaml:"operation_kinds" json:"operation_kinds,omitempty"`
 	OperationSurfaces             []string `yaml:"operation_surfaces" json:"operation_surfaces,omitempty"`
 	OperationSideEffects          []string `yaml:"operation_side_effects" json:"operation_side_effects,omitempty"`
+	OperationTool                 string   `yaml:"operation_tool" json:"operation_tool,omitempty"`
 	OperationRequiresConfirmation *bool    `yaml:"operation_requires_confirmation" json:"operation_requires_confirmation,omitempty"`
 }
 

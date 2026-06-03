@@ -3,14 +3,38 @@ package repl
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/mcp"
 	"github.com/hanchaoqun/codrax/internal/operation"
 	"github.com/hanchaoqun/codrax/internal/render"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+type operationProviderMCPServer struct {
+	got json.RawMessage
+}
+
+func (s *operationProviderMCPServer) Name() string                   { return "slides" }
+func (s *operationProviderMCPServer) Transport() types.TransportType { return types.TransportStdio }
+func (s *operationProviderMCPServer) ListTools() []mcp.ToolSchema {
+	return []mcp.ToolSchema{{Name: "run_operation"}}
+}
+func (s *operationProviderMCPServer) ListResources() []mcp.ResourceSchema { return nil }
+func (s *operationProviderMCPServer) ReadResource(string) (types.MCPResponse, error) {
+	return types.MCPResponse{}, nil
+}
+func (s *operationProviderMCPServer) ListPrompts() []mcp.PromptSchema { return nil }
+func (s *operationProviderMCPServer) CallTool(name string, params json.RawMessage) (types.MCPResponse, error) {
+	s.got = append([]byte(nil), params...)
+	return types.MCPResponse{ServerName: s.Name(), Method: "tools/call", Summary: "created deck artifact", Success: true, Timestamp: time.Now()}, nil
+}
+func (s *operationProviderMCPServer) Close() error { return nil }
 
 func commandOperationPolicy(risk string) TurnPolicy {
 	return TurnPolicy{
@@ -136,6 +160,58 @@ func TestCommandOperationE2E_ClarificationAnswerResumesPlanning(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "Operation plan") && !strings.Contains(out.String(), "操作计划") {
 		t.Fatalf("ready operation plan not rendered:\n%s", out.String())
+	}
+}
+
+func TestOperationProviderMCPApproveExecutesConfiguredTool(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: true,
+		Operation:            "presentation_generation",
+		OperationKind:        "presentation_generation",
+		Source:               "current_message",
+		RiskLevel:            "low",
+		TargetSurface:        "slides",
+		SideEffects:          []string{"local_file_write"},
+		Confidence:           0.9,
+		Reason:               "user asked for a presentation artifact",
+	}}
+	server := &operationProviderMCPServer{}
+	reg := mcp.NewRegistry()
+	if err := reg.Register(server); err != nil {
+		t.Fatalf("register MCP server: %v", err)
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "生成一份 PPT\n/approve\n/exit\n")
+	r.operationEnabled = true
+	r.mcpServers = reg
+	r.operationProviders = []operation.ProviderInfo{{
+		Name:         "mcp:slides",
+		Kind:         "presentation_generation",
+		Surfaces:     []string{"slides"},
+		SideEffects:  []string{"local_file_write"},
+		RequiresGate: true,
+		ToolName:     "run_operation",
+	}}
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("provider operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(server.got) == 0 {
+		t.Fatal("MCP operation tool was not called")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(server.got, &payload); err != nil {
+		t.Fatalf("operation payload is not JSON: %v\n%s", err, string(server.got))
+	}
+	if payload["operation_kind"] != "presentation_generation" {
+		t.Fatalf("operation_kind=%v payload=%v", payload["operation_kind"], payload)
+	}
+	if !strings.Contains(out.String(), "created deck artifact") {
+		t.Fatalf("provider result not rendered:\n%s", out.String())
 	}
 }
 
