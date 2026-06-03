@@ -276,6 +276,16 @@ var slashCommands = []slashCommand{
 		},
 	},
 	{
+		Name:   "/operation",
+		HelpEn: "show pending command-operation plan, history, or auto-approval status",
+		HelpZh: "查看待处理命令操作计划、历史或自动批准状态",
+		Subs: []slashSubcommand{
+			{"show", "show the pending operation plan (default)", "查看当前待处理 operation plan(默认)"},
+			{"history", "show recent operation plans", "查看最近 operation plan"},
+			{"auto", "show low-risk auto-approval status", "查看低风险自动批准状态"},
+		},
+	},
+	{
 		Name:   "/mermaid",
 		HelpEn: "show mermaid render counters (succeeded / fallback / library-rejected / unsupported kinds / gate-blocked)",
 		HelpZh: "查看 Mermaid 渲染计数(成功/字符替换/库拒绝/不支持图类/闸门拦截)",
@@ -1031,7 +1041,7 @@ func (m *inputModel) handleSuggestKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 // command whose handler reads a non-empty remainder.
 func needsArg(cmd string) bool {
 	switch cmd {
-	case "/log", "/htrace", "/chat", "/mode", "/plan", "/reject", "/verify", "/worktree", "/merge", "/branch", "/env", "/baseline", "/approve", "/phase", "/repos":
+	case "/log", "/htrace", "/chat", "/mode", "/plan", "/reject", "/verify", "/worktree", "/merge", "/branch", "/env", "/baseline", "/approve", "/phase", "/repos", "/operation":
 		return true
 	}
 	return false

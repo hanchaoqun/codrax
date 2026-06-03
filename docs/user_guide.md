@@ -2032,7 +2032,18 @@ agents:
 
 | 键 | 默认 | 作用 |
 |---|---|---|
-| `operation_route_enabled` | `true` | REPL 分类器识别 PPT、文档、表格、浏览器/桌面操作、外部 skill workflow 等请求时,进入独立 operation 计划路径。当前默认是只读计划/能力检查;没有显式 operation provider 时不会执行副作用,也不会把请求误转入源码分析流水线 |
+| `operation_route_enabled` | `true` | REPL 分类器识别 PPT、文档、表格、浏览器/桌面操作、外部 skill workflow、通用命令行操作等请求时,进入独立 operation 路径。它不会把操作请求误转入源码分析流水线 |
+| `operation_command_auto_low_risk` | `false` | 通用命令行操作的低风险自动批准。默认关闭;关闭时即使是 `pwd` / `ls` / `go version` 这类低风险命令也会等 `/approve` |
+| `operation_command_timeout_ms` | `120000` | 单个命令 step 的默认超时 |
+| `operation_command_output_preview_bytes` | `32768` | 命令输出在 REPL/memory 中保留的预览字节数。更大的输出会截断预览,完整输出落到 `.codrax/operation/` |
+
+通用命令行操作的第一版工作流:
+
+1. 用户用自然语言提出需求,例如"查询当前 node 版本"、"创建 reports 目录"、"把 a.log 移到 logs/"。
+2. Codrax 先生成 typed 命令计划,并用策略判断 `ready` / `needs_clarification` / `blocked`。
+3. 信息不足时进入 `needs_clarification`,系统会提问,不会猜命令。
+4. 默认人工批准:计划 ready 后运行 `/approve` 执行,或 `/reject <原因>` 拒绝,`/cancel` 取消。
+5. 只有显式设置 `operation_command_auto_low_risk: true` 时,确定只读查询和无覆盖目录创建才可能自动执行。
 
 ### 环境诊断与推荐
 

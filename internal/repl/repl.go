@@ -279,6 +279,11 @@ type Config struct {
 	// operation route. Empty means plan-only: REPL shows the typed operation
 	// plan and stops before execution.
 	OperationProviders []operation.ProviderInfo
+	// OperationPlanner is an optional LLM-backed command planner for
+	// route=operation + operation_kind=computer_operation.
+	OperationPlanner CommandOperationPlanner
+	// OperationCommandPolicy controls command-operation approval/execution.
+	OperationCommandPolicy operation.CommandPolicy
 
 	// PlanStore persists B0 write-mode ChangePlans for the REPL
 	// session. Nil disables the /plan slash command family —
@@ -553,6 +558,8 @@ type REPL struct {
 	// analysis pipeline.
 	operationEnabled   bool
 	operationProviders []operation.ProviderInfo
+	operationPlanner   CommandOperationPlanner
+	operationPolicy    operation.CommandPolicy
 	pendingOperation   *operation.CommandOperationPlan
 	operationHistory   []operation.CommandOperationPlan
 
@@ -723,6 +730,8 @@ func New(cfg Config) *REPL {
 		chitchatClassifier:     cfg.ChitchatClassifier,
 		operationEnabled:       cfg.OperationEnabled,
 		operationProviders:     append([]operation.ProviderInfo(nil), cfg.OperationProviders...),
+		operationPlanner:       cfg.OperationPlanner,
+		operationPolicy:        cfg.OperationCommandPolicy,
 		// Session ID embeds nano + pid so two codrax REPLs launched
 		// in the same clock tick (test harness, race) still get
 		// disjoint IDs. Consumed by memory.BuildContext via BuildOpts.
@@ -1144,19 +1153,22 @@ func (r *REPL) operationUnavailableDispatch(line, display string, policy TurnPol
 // source-analysis pipeline or executing side-effecting tools.
 func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 	if isCommandOperationPolicy(policy) {
-		plan := operation.BuildCommandOperationPlan(operation.CommandOperationRequest{
-			Text:    line,
-			WorkDir: r.repoRoot,
-			ClarifyingQuestions: []operation.ClarifyingQuestion{{
-				ID:       "command_or_target",
-				Question: "请补充要执行的命令、目标路径或约束条件。",
-				Suggestions: []string{
-					"例如: 查询 node 版本",
-					"例如: 把 ./a.log 移动到 ./logs/",
-					"例如: 在当前目录创建 reports 目录",
-				},
-			}},
-		}, operation.DefaultCommandPolicy())
+		req := fallbackCommandOperationClarification(line, r.repoRoot)
+		if r.operationPlanner != nil {
+			ctx := r.startTurn()
+			planned, err := r.operationPlanner.PlanCommandOperation(ctx, line, r.repoRoot, policy)
+			r.endTurn()
+			if err != nil {
+				logging.Warning("[repl/operation] command planner failed; asking for clarification: %v", err)
+			} else {
+				req = planned
+			}
+		}
+		plan := operation.BuildCommandOperationPlan(req, r.operationPolicy)
+		if plan.Status == operation.StatusReady && plan.ApprovalMode == operation.ApprovalAutoLowRisk {
+			r.executeCommandOperationPlan(plan, display, line)
+			return
+		}
 		if plan.Status == operation.StatusReady {
 			r.pendingOperation = &plan
 		}
@@ -1201,6 +1213,22 @@ func isCommandOperationPolicy(policy TurnPolicy) bool {
 	return kind == "computer_operation"
 }
 
+func fallbackCommandOperationClarification(line, workDir string) operation.CommandOperationRequest {
+	return operation.CommandOperationRequest{
+		Text:    line,
+		WorkDir: workDir,
+		ClarifyingQuestions: []operation.ClarifyingQuestion{{
+			ID:       "command_or_target",
+			Question: "请补充要执行的命令、目标路径或约束条件。",
+			Suggestions: []string{
+				"例如: 查询 node 版本",
+				"例如: 把 ./a.log 移动到 ./logs/",
+				"例如: 在当前目录创建 reports 目录",
+			},
+		}},
+	}
+}
+
 func (r *REPL) handleOperationCmd(line string) {
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "/operation"))
 	switch rest {
@@ -1237,13 +1265,7 @@ func (r *REPL) handleOperationApproveCmd(line string) {
 		r.info(commandOperationPlanMarkdown(r.language, plan))
 		return
 	}
-	// Batch 2 wires approval routing before the executor. Production cannot
-	// naturally reach this branch yet because operationDispatch only creates
-	// clarification plans for command operations. Batch 3 replaces this with
-	// actual execution.
-	msg := operationExecutorNotReadyMsg(r.language, plan.ID)
-	r.warn("%s\n", msg)
-	r.recordTurn("/approve", "/approve", msg, memory.KindPipeline)
+	r.executeCommandOperationPlan(plan, "/approve", "/approve")
 }
 
 func (r *REPL) handleOperationRejectCmd(line string) {
@@ -1259,6 +1281,34 @@ func (r *REPL) handleOperationRejectCmd(line string) {
 		request += " " + reason
 	}
 	r.recordTurn(request, request, msg, memory.KindPipeline)
+}
+
+func (r *REPL) executeCommandOperationPlan(plan operation.CommandOperationPlan, request, display string) {
+	r.pendingOperation = nil
+	r.runInFlight.Store(true)
+	ctx := r.startTurn()
+	defer func() {
+		r.endTurn()
+		r.runInFlight.Store(false)
+	}()
+
+	executor := operation.CommandExecutor{
+		Policy:    r.operationPolicy,
+		OutputDir: r.operationOutputDir(),
+	}
+	result := executor.Execute(ctx, plan)
+	plan.Status = result.Status
+	r.operationHistory = append(r.operationHistory, plan)
+	msg := commandOperationResultMarkdown(r.language, plan, result)
+	r.renderBordered(msg)
+	r.recordTurn(display, request, msg, memory.KindPipeline)
+}
+
+func (r *REPL) operationOutputDir() string {
+	if strings.TrimSpace(r.runtimeAnchor) == "" {
+		return ""
+	}
+	return filepath.Join(r.runtimeAnchor, "operation")
 }
 
 // currentStickyTag returns the per-turn sticky-state marker

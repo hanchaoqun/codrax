@@ -63,9 +63,14 @@ type RuntimeSettings struct {
 
 	// Independent operation/artifact route. When enabled, a typed
 	// computer-operation / artifact-generation turn enters the REPL operation
-	// planner instead of the source-analysis pipeline. The planner is
-	// side-effect-free unless an explicit operation provider is configured.
+	// planner instead of the source-analysis pipeline. Any command execution is
+	// controlled by operation_command_* policy and REPL approval.
 	OperationRouteEnabled *bool `yaml:"operation_route_enabled"`
+	// Command-operation knobs for the independent operation route. These do not
+	// affect read-mode exec_command or write-mode apply/verify.
+	OperationCommandAutoLowRisk        *bool `yaml:"operation_command_auto_low_risk"`
+	OperationCommandTimeoutMS          *int  `yaml:"operation_command_timeout_ms"`
+	OperationCommandOutputPreviewBytes *int  `yaml:"operation_command_output_preview_bytes"`
 
 	// Tool blob sizing knobs. Flat-prefixed `blob_*` to keep the
 	// namespace obvious without nesting. All four accept any

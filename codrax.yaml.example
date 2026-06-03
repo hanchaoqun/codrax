@@ -206,11 +206,16 @@
 #     # operation_requires_confirmation: true
 
 # operation_route_enabled — enable the independent operation/artifact route in
-# REPL turn classification. Default true. This route is plan-only unless an
-# explicit operation provider is configured; it does not send operation requests
-# through the normal source-analysis pipeline and does not execute side effects
-# automatically.
+# REPL turn classification. Default true. This route is separate from source
+# analysis and write-mode code changes.
 # operation_route_enabled: true
+#
+# Command-line operation executor. Natural-language command requests are first
+# converted into a typed plan, then evaluated by deterministic policy. Default
+# approval is manual: Codrax waits for /approve before running commands.
+# operation_command_auto_low_risk: false
+# operation_command_timeout_ms: 120000
+# operation_command_output_preview_bytes: 32768
 
 # ---------------------------------------------------------------------------
 # Tool output blobs  ·  工具输出 blob

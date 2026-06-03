@@ -370,28 +370,30 @@ var maxAttachedTraceBytes = defaultAttachedLogMaxBytes
 
 // appContext holds initialized state shared between subcommands.
 type appContext struct {
-	renderer              *render.Renderer
-	orch                  *orchestrator.Orchestrator
-	mcpRegistry           *mcp.Registry
-	defaultLLM            llm.Adapter
-	memorySummarizerLLM   llm.Adapter // providers.yaml :: agents.memory_summarizer, else defaultLLM
-	reflectorLLM          llm.Adapter // providers.yaml :: agents.reflector, else defaultLLM
-	planCriticLLM         llm.Adapter // providers.yaml :: agents.plan_critic, else defaultLLM
-	acceptanceCheckerLLM  llm.Adapter // providers.yaml :: agents.acceptance_checker, else defaultLLM
-	logger                *logging.Logger
-	memorySettings        types.MemorySettings
-	envRecommendSettings  types.EnvRecommendSettings
-	markdownPreviewConfig preview.Config
-	outputDumpDir         string
-	outputDumpMax         int
-	replPasteFoldMinChars int // 0 → repl.DefaultPasteFoldMinChars
-	chitchatResponder     repl.ChitchatResponder
-	chitchatClassifier    repl.ChitchatClassifier
-	replHeaderPrinted     bool
-	replModelListLine     string
-	replModelSummaryLine  string
-	operationRouteEnabled bool
-	operationProviders    []operation.ProviderInfo
+	renderer               *render.Renderer
+	orch                   *orchestrator.Orchestrator
+	mcpRegistry            *mcp.Registry
+	defaultLLM             llm.Adapter
+	memorySummarizerLLM    llm.Adapter // providers.yaml :: agents.memory_summarizer, else defaultLLM
+	reflectorLLM           llm.Adapter // providers.yaml :: agents.reflector, else defaultLLM
+	planCriticLLM          llm.Adapter // providers.yaml :: agents.plan_critic, else defaultLLM
+	acceptanceCheckerLLM   llm.Adapter // providers.yaml :: agents.acceptance_checker, else defaultLLM
+	logger                 *logging.Logger
+	memorySettings         types.MemorySettings
+	envRecommendSettings   types.EnvRecommendSettings
+	markdownPreviewConfig  preview.Config
+	outputDumpDir          string
+	outputDumpMax          int
+	replPasteFoldMinChars  int // 0 → repl.DefaultPasteFoldMinChars
+	chitchatResponder      repl.ChitchatResponder
+	chitchatClassifier     repl.ChitchatClassifier
+	operationPlanner       repl.CommandOperationPlanner
+	replHeaderPrinted      bool
+	replModelListLine      string
+	replModelSummaryLine   string
+	operationRouteEnabled  bool
+	operationProviders     []operation.ProviderInfo
+	operationCommandPolicy operation.CommandPolicy
 	// writeEnabled mirrors codrax.yaml :: write_enabled. Forwarded to
 	// the REPL Config so /mode plan|apply|verify and /approve can be
 	// rejected at the slash-command surface with a clear error pointing
@@ -1221,27 +1223,29 @@ func runREPL(_ *cobra.Command) error {
 		}
 	}
 	r := repl.New(repl.Config{
-		Runner:             app.orch,
-		Store:              store,
-		Render:             renderFn,
-		Renderer:           app.renderer,
-		RepoRoot:           flagRepo,
-		Branch:             flagBranch,
-		Out:                os.Stdout,
-		PasteFoldMinChars:  app.replPasteFoldMinChars,
-		Version:            version,
-		BuildTime:          buildTime,
-		Language:           flagLang,
-		HeaderPrinted:      app.replHeaderPrinted,
-		ModelListLine:      app.replModelListLine,
-		ModelSummaryLine:   app.replModelSummaryLine,
-		MarkdownPreview:    markdownPreview,
-		OutputDumpDir:      app.outputDumpDir,
-		OutputDumpMax:      app.outputDumpMax,
-		ChitchatResponder:  app.chitchatResponder,
-		ChitchatClassifier: app.chitchatClassifier,
-		OperationEnabled:   app.operationRouteEnabled,
-		OperationProviders: append([]operation.ProviderInfo(nil), app.operationProviders...),
+		Runner:                 app.orch,
+		Store:                  store,
+		Render:                 renderFn,
+		Renderer:               app.renderer,
+		RepoRoot:               flagRepo,
+		Branch:                 flagBranch,
+		Out:                    os.Stdout,
+		PasteFoldMinChars:      app.replPasteFoldMinChars,
+		Version:                version,
+		BuildTime:              buildTime,
+		Language:               flagLang,
+		HeaderPrinted:          app.replHeaderPrinted,
+		ModelListLine:          app.replModelListLine,
+		ModelSummaryLine:       app.replModelSummaryLine,
+		MarkdownPreview:        markdownPreview,
+		OutputDumpDir:          app.outputDumpDir,
+		OutputDumpMax:          app.outputDumpMax,
+		ChitchatResponder:      app.chitchatResponder,
+		ChitchatClassifier:     app.chitchatClassifier,
+		OperationEnabled:       app.operationRouteEnabled,
+		OperationProviders:     append([]operation.ProviderInfo(nil), app.operationProviders...),
+		OperationPlanner:       app.operationPlanner,
+		OperationCommandPolicy: app.operationCommandPolicy,
 		// Hand the memory adapter to REPL so the chitchat tool-use
 		// loop can call recall_memory without a separate wiring step.
 		// The same adapter is also wired into the orchestrator above,
@@ -1396,6 +1400,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 	mergedMaxSteps := defaultMaxSteps
 	mergedProvidersConfig := defaultProvidersConfig
 	app.operationRouteEnabled = true
+	app.operationCommandPolicy = operation.DefaultCommandPolicy()
 
 	// Overlay config file values.
 	var rs *config.RuntimeSettings
@@ -1482,6 +1487,15 @@ func initApp(cmd *cobra.Command, args []string) error {
 		}
 		if rs.OperationRouteEnabled != nil {
 			app.operationRouteEnabled = *rs.OperationRouteEnabled
+		}
+		if rs.OperationCommandAutoLowRisk != nil {
+			app.operationCommandPolicy.AutoLowRisk = *rs.OperationCommandAutoLowRisk
+		}
+		if rs.OperationCommandTimeoutMS != nil && *rs.OperationCommandTimeoutMS > 0 {
+			app.operationCommandPolicy.TimeoutMS = *rs.OperationCommandTimeoutMS
+		}
+		if rs.OperationCommandOutputPreviewBytes != nil && *rs.OperationCommandOutputPreviewBytes > 0 {
+			app.operationCommandPolicy.OutputPreviewBytes = *rs.OperationCommandOutputPreviewBytes
 		}
 	}
 
@@ -3544,6 +3558,21 @@ func initApp(cmd *cobra.Command, args []string) error {
 				withRenderLLMTelemetry(adapter, renderer, types.AgentName("chitchat_classifier"), ""),
 			)
 			logging.Info("[chitchat] auto-classifier: ON (model=%s). Disable with codrax.yaml chitchat_classifier_enabled: false or --chitchat-classifier=false. Route to a cheap model via providers.yaml agents.chitchat_classifier", adapter.ModelID())
+		}
+	}
+
+	if app.operationRouteEnabled {
+		resolved := config.ResolveProvider(providersCfg, "operation_planner")
+		if _, has := providersCfg.LLM.Agents["operation_planner"]; !has {
+			resolved = config.ResolveProvider(providersCfg, "chitchat_classifier")
+		}
+		if adapter, err := llm.NewFromConfig(resolved); err != nil {
+			logging.Warning("[operation] command planner adapter init failed; command operations will ask for clarification: %v", err)
+		} else {
+			app.operationPlanner = repl.NewCommandOperationPlanner(
+				withRenderLLMTelemetry(adapter, renderer, types.AgentName("operation_planner"), ""),
+			)
+			logging.Info("[operation] command planner: ON (model=%s). Route via providers.yaml agents.operation_planner or disable operation_route_enabled.", adapter.ModelID())
 		}
 	}
 

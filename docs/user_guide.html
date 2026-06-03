@@ -2743,10 +2743,33 @@ mcp_servers:
 <tr>
 <td><code>operation_route_enabled</code></td>
 <td><code>true</code></td>
-<td>REPL 分类器识别 PPT、文档、表格、浏览器/桌面操作、外部 skill workflow 等请求时,进入独立 operation 计划路径。当前默认是只读计划/能力检查;没有显式 operation provider 时不会执行副作用,也不会把请求误转入源码分析流水线</td>
+<td>REPL 分类器识别 PPT、文档、表格、浏览器/桌面操作、外部 skill workflow、通用命令行操作等请求时,进入独立 operation 路径。它不会把操作请求误转入源码分析流水线</td>
+</tr>
+<tr>
+<td><code>operation_command_auto_low_risk</code></td>
+<td><code>false</code></td>
+<td>通用命令行操作的低风险自动批准。默认关闭;关闭时即使是 <code>pwd</code> / <code>ls</code> / <code>go version</code> 这类低风险命令也会等 <code>/approve</code></td>
+</tr>
+<tr>
+<td><code>operation_command_timeout_ms</code></td>
+<td><code>120000</code></td>
+<td>单个命令 step 的默认超时</td>
+</tr>
+<tr>
+<td><code>operation_command_output_preview_bytes</code></td>
+<td><code>32768</code></td>
+<td>命令输出在 REPL/memory 中保留的预览字节数。更大的输出会截断预览,完整输出落到 <code>.codrax/operation/</code></td>
 </tr>
 </tbody>
 </table></div>
+<p>通用命令行操作的第一版工作流:</p>
+<ol>
+<li>用户用自然语言提出需求,例如"查询当前 node 版本"、"创建 reports 目录"、"把 a.log 移到 logs/"。</li>
+<li>Codrax 先生成 typed 命令计划,并用策略判断 <code>ready</code> / <code>needs_clarification</code> / <code>blocked</code>。</li>
+<li>信息不足时进入 <code>needs_clarification</code>,系统会提问,不会猜命令。</li>
+<li>默认人工批准:计划 ready 后运行 <code>/approve</code> 执行,或 <code>/reject &lt;原因&gt;</code> 拒绝,<code>/cancel</code> 取消。</li>
+<li>只有显式设置 <code>operation_command_auto_low_risk: true</code> 时,确定只读查询和无覆盖目录创建才可能自动执行。</li>
+</ol>
 <h3 id="环境诊断与推荐">环境诊断与推荐</h3>
 <div class="table-wrap"><table>
 <thead>

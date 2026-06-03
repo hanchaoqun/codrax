@@ -67,6 +67,8 @@ type CommandOperationRequest struct {
 	Text                 string
 	ID                   string
 	WorkDir              string
+	RiskLevel            string
+	BlockReason          string
 	Steps                []CommandStep
 	ClarifyingQuestions  []ClarifyingQuestion
 	RequiresConfirmation bool
@@ -140,7 +142,7 @@ func BuildCommandOperationPlan(req CommandOperationRequest, policy CommandPolicy
 		ID:                  firstNonEmpty(req.ID, defaultOperationID()),
 		RequestText:         strings.TrimSpace(req.Text),
 		Status:              StatusReady,
-		RiskLevel:           "low",
+		RiskLevel:           normalizeRisk(req.RiskLevel),
 		ApprovalMode:        ApprovalManual,
 		WorkDir:             filepath.Clean(workDir),
 		ClarifyingQuestions: cleanClarifyingQuestions(req.ClarifyingQuestions),
@@ -149,6 +151,13 @@ func BuildCommandOperationPlan(req CommandOperationRequest, policy CommandPolicy
 	if len(plan.ClarifyingQuestions) > 0 {
 		plan.Status = StatusNeedsClarification
 		plan.ApprovalMode = ""
+		return plan
+	}
+	if strings.TrimSpace(req.BlockReason) != "" {
+		plan.Status = StatusBlocked
+		plan.RiskLevel = highestRisk(plan.RiskLevel, req.RiskLevel)
+		plan.ApprovalMode = ApprovalDenied
+		plan.BlockReason = strings.TrimSpace(req.BlockReason)
 		return plan
 	}
 	if len(req.Steps) == 0 {

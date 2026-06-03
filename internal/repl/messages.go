@@ -1187,6 +1187,67 @@ func operationCancelledMsg(lang, id string) string {
 	return fmt.Sprintf("Cancelled operation plan `%s`.", id)
 }
 
+func commandOperationResultMarkdown(lang string, plan operation.CommandOperationPlan, result operation.CommandOperationResult) string {
+	if isZh(lang) {
+		var b strings.Builder
+		switch result.Status {
+		case operation.StatusExecuted:
+			b.WriteString(fmt.Sprintf("操作计划 `%s` 已执行完成。\n\n", plan.ID))
+		case operation.StatusCancelled:
+			b.WriteString(fmt.Sprintf("操作计划 `%s` 已取消。\n\n", plan.ID))
+		default:
+			b.WriteString(fmt.Sprintf("操作计划 `%s` 执行失败。\n\n", plan.ID))
+		}
+		for i, step := range result.StepResults {
+			b.WriteString(fmt.Sprintf("%d. step `%s`：%s\n", i+1, step.StepID, step.Status))
+			if step.Error != "" {
+				b.WriteString(fmt.Sprintf("   错误：%s\n", step.Error))
+			}
+			if step.OutputPreview != "" {
+				b.WriteString("   输出：\n")
+				b.WriteString(indentBlock(step.OutputPreview, "   "))
+				b.WriteString("\n")
+			}
+			if step.PayloadRef != "" {
+				b.WriteString(fmt.Sprintf("   完整输出：`%s`\n", step.PayloadRef))
+			}
+		}
+		return strings.TrimSpace(b.String())
+	}
+	var b strings.Builder
+	switch result.Status {
+	case operation.StatusExecuted:
+		b.WriteString(fmt.Sprintf("Operation plan `%s` completed.\n\n", plan.ID))
+	case operation.StatusCancelled:
+		b.WriteString(fmt.Sprintf("Operation plan `%s` was cancelled.\n\n", plan.ID))
+	default:
+		b.WriteString(fmt.Sprintf("Operation plan `%s` failed.\n\n", plan.ID))
+	}
+	for i, step := range result.StepResults {
+		b.WriteString(fmt.Sprintf("%d. step `%s`: %s\n", i+1, step.StepID, step.Status))
+		if step.Error != "" {
+			b.WriteString(fmt.Sprintf("   Error: %s\n", step.Error))
+		}
+		if step.OutputPreview != "" {
+			b.WriteString("   Output:\n")
+			b.WriteString(indentBlock(step.OutputPreview, "   "))
+			b.WriteString("\n")
+		}
+		if step.PayloadRef != "" {
+			b.WriteString(fmt.Sprintf("   Full output: `%s`\n", step.PayloadRef))
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func indentBlock(s, prefix string) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	for i, line := range lines {
+		lines[i] = prefix + line
+	}
+	return strings.Join(lines, "\n")
+}
+
 func localizedOperationStep(lang, title, detail string) (string, string) {
 	if !isZh(lang) {
 		return title, detail

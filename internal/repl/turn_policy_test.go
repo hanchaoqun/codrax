@@ -973,6 +973,49 @@ func TestRejectPrefersPendingOperationOverWritePlan(t *testing.T) {
 	}
 }
 
+func TestCommandOperationPlanApproveExecutesWithoutSourcePipeline(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{
+		policy: TurnPolicy{
+			Route:                RouteOperation,
+			NeedsOperationAccess: true,
+			Operation:            "computer_operation",
+			OperationKind:        "computer_operation",
+			Source:               "current_message",
+			RiskLevel:            "low",
+			TargetSurface:        "desktop",
+			Confidence:           0.9,
+			Reason:               "user asked for command operation",
+		},
+	}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"s1","title":"show go version","program":"go","args":["version"],"risk_level":"low","side_effects":[]}]}`),
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "查询 go 版本\n/approve\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("command operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if r.pendingOperation != nil {
+		t.Fatalf("pending operation should be cleared after approve: %+v", r.pendingOperation)
+	}
+	printed := out.String()
+	if !strings.Contains(printed, "Operation plan") || !strings.Contains(printed, "completed") {
+		t.Fatalf("operation execution result missing:\n%s", printed)
+	}
+	if !strings.Contains(printed, "go version") {
+		t.Fatalf("command output missing:\n%s", printed)
+	}
+}
+
 // TestTurnPolicyDispatch_HybridCarriesDirectiveIntoPipeline is the
 // route=hybrid contract: pipeline runs AND the typed directive
 // reaches the runner so the finalizer can render the requested shape,
