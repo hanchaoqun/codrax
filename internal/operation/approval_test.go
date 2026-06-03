@@ -98,6 +98,35 @@ func TestDecideCommandPlanApprovalMatrix(t *testing.T) {
 			code:   "replan_risk_escalated",
 		},
 		{
+			name:   "replan medium observation remains auto when all steps eligible",
+			policy: commandApprovalPolicy(true, false),
+			plan: CommandOperationPlan{
+				Status:    StatusReady,
+				RiskLevel: "medium",
+				WorkDir:   "/repo",
+				Steps: []CommandStep{
+					{
+						ID:           "api",
+						Program:      "/usr/bin/curl",
+						Args:         []string{"-s", "http://localhost:8000/api/tags"},
+						RiskLevel:    "low",
+						SideEffects:  []string{"network_read"},
+						AutoApproval: StepAutoEligible,
+					},
+					{
+						ID:           "process",
+						Shell:        "ps aux | grep -i omlx | grep -v grep",
+						RiskLevel:    "medium",
+						AutoApproval: StepAutoEligible,
+					},
+				},
+			},
+			opts:   CommandApprovalOptions{Phase: CommandApprovalReplan, PreviousPlan: &lowRiskPrevious},
+			action: CommandApprovalAutoExecute,
+			mode:   ApprovalAutoLowRisk,
+			code:   "all_steps_eligible",
+		},
+		{
 			name:   "continuation auto executes eligible plan",
 			policy: commandApprovalPolicy(true, false),
 			plan:   basePlan,

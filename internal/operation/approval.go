@@ -97,12 +97,13 @@ func DecideCommandPlanApproval(policy CommandPolicy, plan CommandOperationPlan, 
 				Reason:       "revised operation plan changes working directory",
 			}
 		}
-		if commandApprovalRiskRank(plan.RiskLevel) > commandApprovalRiskRank(opts.PreviousPlan.RiskLevel) {
+		if commandApprovalRiskRank(plan.RiskLevel) > commandApprovalRiskRank(opts.PreviousPlan.RiskLevel) &&
+			commandApprovalRiskRank(plan.RiskLevel) >= commandApprovalRiskRank("high") {
 			return CommandApprovalDecision{
 				Action:       CommandApprovalManual,
 				ApprovalMode: ApprovalManual,
 				ReasonCode:   "replan_risk_escalated",
-				Reason:       "revised operation plan raises risk level",
+				Reason:       "revised operation plan raises risk level to high",
 			}
 		}
 		if step := firstManualReplanSideEffectStep(plan); step != "" {

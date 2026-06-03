@@ -1909,6 +1909,48 @@ func TestCommandOperationE2E_FailedApprovedCommandAutoExecutesNetworkReadReplan(
 	}
 }
 
+func TestCommandOperationE2E_MediumObservationReplanDoesNotWaitForApproval(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("medium")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"cli","title":"try oMLX CLI","program":"definitely-missing-codrax-command","args":["--help"],"risk_level":"low","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"medium","requires_confirmation":false,"work_dir":".","goal":"查看oMLX推理引擎进程及可用模型","next_batch":"查询oMLX API获取可用模型列表，同时检查进程详情","steps":[{"id":"api","title":"查询oMLX API可用模型","shell":"printf '{\"models\":[\"mlx-community/Qwen\"]}\\n'","risk_level":"low","side_effects":["network_read"]},{"id":"process","title":"检查oMLX进程详情","shell":"printf 'han 1234 0.0 oMLX server\\n' | grep -i omlx | grep -v grep","risk_level":"medium","side_effects":[]}]}`),
+			{Content: "已自动完成修订查询，发现 oMLX 进程和可用模型。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "查看oMLX推理引擎进程及可用模型\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	r.operationPolicy.AutoApprove = true
+	r.operationPolicy.AutoLowRisk = false
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("command operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if r.pendingOperation != nil {
+		t.Fatalf("medium observation revised plan should auto-execute under global auto-approve, pending=%+v", r.pendingOperation)
+	}
+	printed := out.String()
+	for _, want := range []string{
+		"will continue execution",
+		"mlx-community/Qwen",
+		"oMLX server",
+		"已自动完成修订查询",
+	} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("medium observation replan output missing %q:\n%s", want, printed)
+		}
+	}
+	if strings.Contains(printed, "awaiting approval") || strings.Contains(printed, "等待批准") || strings.Contains(printed, "/approve") {
+		t.Fatalf("medium observation replan should not wait for approval when AutoApprove=true:\n%s", printed)
+	}
+}
+
 func TestCommandOperationE2E_InvalidShellFilterReplansWithNumericStepID(t *testing.T) {
 	store := newPolicyStore(t)
 	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
