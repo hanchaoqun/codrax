@@ -144,6 +144,48 @@ func TestHandleStructurallyEmptyInvestigation_AcceptsRuntimeObservationOnlyCompl
 	}
 }
 
+func TestHandleStructurallyEmptyInvestigation_AcceptsMCPObservationCompletion(t *testing.T) {
+	graph := testReadGraph()
+	state := newGraphState(graph)
+
+	o := &Orchestrator{
+		emit: render.NopEmitter,
+		busCtx: &types.BusContext{
+			Mutable: func() *types.MutableState {
+				mu := types.NewMutableState("explain mcp://fixture/trace/sleep-wakeup line 7 and line 12")
+				mu.SetTurnAArtifacts(types.TurnAArtifacts{
+					UserQuestion: "explain mcp://fixture/trace/sleep-wakeup line 7 and line 12",
+					MCPResponses: []types.MCPResponse{{
+						ServerName:  "fixture",
+						Method:      "resources/read",
+						ResourceURI: "mcp://fixture/trace/sleep-wakeup",
+						Summary:     "typed line observations for pid=4242",
+						LineStart:   7,
+						LineEnd:     12,
+						Success:     true,
+					}},
+					AcceptedAggregateFacts: []types.AnswerAggregateFact{{
+						Kind:  types.AnswerAggregateScalar,
+						Label: "line 12 meaning",
+						Value: "helper wakes target",
+						Dimensions: []types.AnswerAggregateDimension{{
+							Name:  "origin",
+							Value: string(types.AnswerEvidenceOriginMCPResource),
+						}},
+					}},
+				})
+				return mu
+			}(),
+			AnalysisIR: &types.AnalysisIR{TaskGraph: graph},
+		},
+	}
+
+	out, retryMsg, handled := o.handleStructurallyEmptyInvestigation(state, "finalize")
+	if handled {
+		t.Fatalf("MCP observation completion must not be treated as structurally empty: out=%+v retryMsg=%q", out, retryMsg)
+	}
+}
+
 func TestHandleStructurallyEmptyInvestigation_AcceptsVCSMetadataCompletion(t *testing.T) {
 	graph := testReadGraph()
 	state := newGraphState(graph)

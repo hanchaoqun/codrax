@@ -3252,6 +3252,14 @@ func InvestigationStructurallyEmpty(ta *types.TurnAArtifacts, evidence []types.E
 		if ta.RuntimeObservationOnlyCompletion {
 			return false
 		}
+		if len(ta.AcceptedAggregateFacts) > 0 {
+			return false
+		}
+		for _, resp := range ta.MCPResponses {
+			if resp.Success {
+				return false
+			}
+		}
 		if len(ta.ReadFiles) > 0 {
 			return false
 		}

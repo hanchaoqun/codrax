@@ -483,6 +483,43 @@ func TestExtractor_R4Gate_RuntimeObservationOnlyCompletion_BypassesGate(t *testi
 	}
 }
 
+func TestExtractor_R4Gate_MCPObservation_BypassesGate(t *testing.T) {
+	// MCP resources are external observations. A successful MCP response is a
+	// real investigation product even when it intentionally stays outside the
+	// current-source citation lane.
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		UserQuestion: "explain mcp://fixture/trace/sleep-wakeup line 7 and 12",
+		MCPResponses: []types.MCPResponse{{
+			ServerName:  "fixture",
+			Method:      "resources/read",
+			ResourceURI: "mcp://fixture/trace/sleep-wakeup",
+			Summary:     "typed line observations for pid=4242",
+			LineStart:   7,
+			LineEnd:     12,
+			Success:     true,
+		}},
+		AcceptedAggregateFacts: []types.AnswerAggregateFact{{
+			Kind:  types.AnswerAggregateScalar,
+			Label: "line 7 meaning",
+			Value: "target enters S sleep",
+			Dimensions: []types.AnswerAggregateDimension{{
+				Name:  "origin",
+				Value: string(types.AnswerEvidenceOriginMCPResource),
+			}},
+		}},
+	})
+	ctx := &types.AgentContext{
+		Objective: "explain mcp fixture",
+		Mutable:   mu,
+	}
+	e := &extractorEvaluator{}
+	out, _ := e.ParseOutput(ctx, nil, nil, nil)
+	if out.Error != "" {
+		t.Errorf("MCP observation completion must bypass R4, got Error=%q", out.Error)
+	}
+}
+
 func TestExtractor_R4Gate_KeyEvidence_BypassesGate(t *testing.T) {
 	// Zero files read is acceptable when key evidence is present —
 	// the R7/R8 path populates ctx.EvidenceItems from programmatic
