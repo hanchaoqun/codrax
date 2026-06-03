@@ -343,10 +343,46 @@ func TestCommandOperationPlannerPromptForbidsNoopFactCommands(t *testing.T) {
 		"do not ask the user for information that can still be safely discovered",
 		"Unknown facts are a reason to run another safe discovery batch",
 		"Ask the user only for user-owned inputs",
+		"Continuation/evaluation status meanings",
+		"budget_exhausted",
+		"partial_answer_possible",
 	} {
 		if !strings.Contains(commandOperationPlannerSystemPrompt, want) {
 			t.Fatalf("planner prompt missing %q:\n%s", want, commandOperationPlannerSystemPrompt)
 		}
+	}
+}
+
+func TestCommandOperationContinuationTerminalEvaluationStatuses(t *testing.T) {
+	for _, status := range []string{"complete", "budget_exhausted", "partial_answer_possible"} {
+		t.Run(status, func(t *testing.T) {
+			adapter := &scriptedChatAdapter{
+				responses: []llm.Response{
+					commandOperationPlanResp(`{"status":"` + status + `","risk_level":"low","requires_confirmation":false,"block_reason":"enough observations for now"}`),
+				},
+			}
+			planner, ok := NewCommandOperationPlanner(adapter).(CommandOperationContinuationPlanner)
+			if !ok {
+				t.Fatal("planner should support continuation")
+			}
+			next, err := planner.ContinueCommandOperation(context.Background(), "查询系统信息", "/repo", TurnPolicy{
+				Operation:     "computer_operation",
+				OperationKind: "computer_operation",
+				RiskLevel:     "low",
+			}, operation.CapabilitySnapshot{}, []commandOperationResultRecord{{
+				Plan: operation.CommandOperationPlan{ID: "op-1", Status: operation.StatusExecuted},
+				Result: operation.CommandOperationResult{
+					PlanID: "op-1",
+					Status: operation.StatusExecuted,
+				},
+			}})
+			if err != nil {
+				t.Fatalf("ContinueCommandOperation: %v", err)
+			}
+			if !next.Complete || next.Reason != "enough observations for now" {
+				t.Fatalf("next=%+v, want terminal complete with reason", next)
+			}
+		})
 	}
 }
 

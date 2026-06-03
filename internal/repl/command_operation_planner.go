@@ -69,8 +69,8 @@ var commandOperationPlanTool = llm.ToolSchema{
   "properties": {
     "status": {
       "type": "string",
-      "enum": ["ready", "needs_clarification", "blocked", "complete"],
-      "description": "ready when the command steps are concrete; needs_clarification when key details are missing; blocked when the request should not be attempted. complete is only valid for continuation planning after prior command results are already sufficient for the final answer."
+      "enum": ["ready", "continue", "needs_clarification", "blocked", "complete", "budget_exhausted", "partial_answer_possible"],
+      "description": "ready/continue when the command steps are concrete; needs_clarification when user-owned details are missing; blocked when the request should not be attempted. complete, budget_exhausted, and partial_answer_possible are valid for continuation/evaluation after prior command results."
     },
     "risk_level": {
       "type": "string",
@@ -189,6 +189,7 @@ Hard rules:
 - For replan requests, use the failed step output to adjust only the command plan. The failed command already ran; do not include that failed command again unless the user explicitly asked to retry the same failed command after seeing the failure. Do not repeat already-successful steps unless required. If the fix expands risk or side effects, set requires_confirmation=true.
 - For continuation requests, inspect the previous command observations. If they are sufficient to answer the user's task, emit status=complete with a short block_reason/reason. If more commands are needed, emit only the next bounded command batch. Do not repeat already-successful discovery commands unless the next step genuinely needs a refreshed value.
 - In continuation requests, do not ask the user for information that can still be safely discovered by local read-only commands, package/application metadata queries, service/process inspection, file metadata reads, or tool help/version checks. Unknown facts are a reason to run another safe discovery batch, not to stop. Ask the user only for user-owned inputs such as credentials, remote hostnames, destructive scope, destination paths, or business choices that cannot be discovered safely.
+- Continuation/evaluation status meanings: complete = success criteria are satisfied; continue/ready = run the next bounded batch; needs_clarification = only for user-owned missing inputs; blocked = policy/capability prevents safe progress; budget_exhausted = useful progress exists but the bounded loop should stop; partial_answer_possible = enough observations exist for a useful partial report but some requested details remain missing.
 
 Risk hints:
 - Read-only inspection (pwd, ls, which, version, git status/log/show/diff, grep/rg/cat/head/tail) is low risk.
@@ -240,7 +241,8 @@ func (p *llmCommandOperationPlanner) ContinueCommandOperation(ctx context.Contex
 		return CommandOperationContinuation{}, err
 	}
 	status := strings.ToLower(strings.TrimSpace(string(parsed.Status)))
-	if status == "complete" {
+	switch status {
+	case "complete", "budget_exhausted", "partial_answer_possible":
 		return CommandOperationContinuation{Complete: true, Reason: strings.TrimSpace(string(parsed.BlockReason))}, nil
 	}
 	if status == string(operation.StatusNeedsClarification) && !commandPlanDraftHasQuestions(parsed) {
