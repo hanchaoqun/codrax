@@ -279,6 +279,70 @@ func TestOperationFinalReportDoesNotAppendExecutionDetails(t *testing.T) {
 	}
 }
 
+func TestCommandOperationFinalMessageFallbackDoesNotReturnRoundDetails(t *testing.T) {
+	r := &REPL{language: "zh"}
+	records := []commandOperationResultRecord{{
+		Plan: operation.CommandOperationPlan{
+			ID: "op-1",
+			Steps: []operation.CommandStep{{
+				ID:      "s1",
+				Program: "sysctl",
+				Args:    []string{"-n", "hw.memsize"},
+			}},
+		},
+		Result: operation.CommandOperationResult{
+			PlanID: "op-1",
+			Status: operation.StatusExecuted,
+			StepResults: []operation.CommandStepResult{{
+				StepID:        "s1",
+				Status:        operation.StatusExecuted,
+				OutputPreview: "68719476736",
+			}},
+		},
+	}}
+
+	got, thoughts := r.commandOperationFinalMessage(context.Background(), "当前内存多大", records)
+	if len(thoughts) != 0 {
+		t.Fatalf("fallback should not produce thoughts: %+v", thoughts)
+	}
+	for _, banned := range []string{"操作计划", "op-1", "sysctl", "68719476736"} {
+		if strings.Contains(got, banned) {
+			t.Fatalf("fallback final answer leaked round detail %q: %q", banned, got)
+		}
+	}
+	if !strings.Contains(got, "操作已完成") || !strings.Contains(got, "上方过程面板") {
+		t.Fatalf("fallback final answer should be a clean status report, got %q", got)
+	}
+}
+
+func TestProviderOperationFinalMessageFallbackDoesNotReturnRoundDetails(t *testing.T) {
+	r := &REPL{language: "zh"}
+	records := []providerOperationResultRecord{{
+		Plan: operation.Plan{
+			Provider: "demo_skill",
+		},
+		Result: providerOperationResult{
+			Status:     operation.StatusExecuted,
+			Provider:   "demo_skill",
+			Summary:    "provider generated artifact",
+			PayloadRef: "/tmp/operation-output.txt",
+		},
+	}}
+
+	got, thoughts := r.providerOperationFinalMessage(context.Background(), "生成文档", records)
+	if len(thoughts) != 0 {
+		t.Fatalf("fallback should not produce thoughts: %+v", thoughts)
+	}
+	for _, banned := range []string{"操作 provider", "demo_skill", "provider generated artifact", "/tmp/operation-output.txt"} {
+		if strings.Contains(got, banned) {
+			t.Fatalf("provider fallback final answer leaked round detail %q: %q", banned, got)
+		}
+	}
+	if !strings.Contains(got, "操作已完成") || !strings.Contains(got, "上方过程面板") {
+		t.Fatalf("provider fallback final answer should be a clean status report, got %q", got)
+	}
+}
+
 func TestOperationVisibleThinkBlocksAreSuppressedFromPanel(t *testing.T) {
 	var out bytes.Buffer
 	r := &REPL{out: &out, language: "zh"}

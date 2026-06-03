@@ -1373,14 +1373,45 @@ func operationAutoStartSummary(lang string) (string, []string) {
 }
 
 func (r *REPL) startOperationExecutionSpinner() {
-	if r.renderer == nil || r.renderer.SpinnerActive() {
+	if r.renderer == nil {
 		return
 	}
 	label, segs := operationRunningSummary(r.language)
 	r.renderer.SetTotalStages(0)
 	r.renderer.SetRouteSummary(label, segs)
+	if r.renderer.SpinnerActive() {
+		r.renderer.SetLightRouteActivity(label)
+		return
+	}
 	r.renderer.StartSpinnerWithCancelHint(spinnerCancelHint(r.language))
 	r.renderer.SetLightRouteActivity(label)
+}
+
+func (r *REPL) startOperationSynthesisSpinner() {
+	if r.renderer == nil {
+		return
+	}
+	label, segs := operationSynthesisSummary(r.language)
+	r.renderer.SetTotalStages(0)
+	r.renderer.SetRouteSummary(label, segs)
+	if r.renderer.SpinnerActive() {
+		r.renderer.SetLightRouteActivity(label)
+		return
+	}
+	r.renderer.StartSpinnerWithCancelHint(spinnerCancelHint(r.language))
+	r.renderer.SetLightRouteActivity(label)
+}
+
+func (r *REPL) renderOperationProgress(msg string) {
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return
+	}
+	if r.renderer != nil && r.renderer.SpinnerActive() {
+		r.renderer.SetLightRouteActivity(msg)
+		return
+	}
+	r.info(msg)
 }
 
 func operationRunningSummary(lang string) (string, []string) {
@@ -1388,6 +1419,13 @@ func operationRunningSummary(lang string) (string, []string) {
 		return "操作执行", []string{"运行中", "未读仓库"}
 	}
 	return "operation execution", []string{"running", "no repo read"}
+}
+
+func operationSynthesisSummary(lang string) (string, []string) {
+	if isZh(lang) {
+		return "整理结果", []string{"未读仓库"}
+	}
+	return "summarizing result", []string{"no repo read"}
 }
 
 func operationRouteSummary(lang string, status operation.OperationStatus) (string, []string) {
@@ -1672,7 +1710,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 				oneLineClamp(commandOperationStepCommand(step), 220),
 				step.RiskLevel,
 				strings.Join(step.SideEffects, ","))
-			r.info(commandOperationProgressMsg(r.language, step))
+			r.renderOperationProgress(commandOperationProgressMsg(r.language, step))
 		},
 	}
 	logging.Info("[repl/operation] command execute start plan_id=%s steps=%d approval=%q risk=%q replan_attempt=%d request=%q",
@@ -1843,8 +1881,9 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 				}
 			}
 		}
+		r.startOperationSynthesisSpinner()
 		msg, thoughts := r.commandOperationFinalMessage(ctx, request, records)
-		r.finishOperationRouteSpinner(result.Status)
+		r.clearOperationRouteSpinnerForInlineResult()
 		r.emitOperationVisibleThoughts(thoughts)
 		r.renderBordered(msg)
 		r.recordTurn(display, request, msg, memory.KindPipeline)
@@ -1871,35 +1910,36 @@ func (r *REPL) clearOperationRouteSpinnerForInlineResult() {
 func (r *REPL) commandOperationFinalMessage(ctx context.Context, userLine string, records []commandOperationResultRecord) (string, []string) {
 	details := commandOperationRecordsMarkdown(r.language, records)
 	if len(records) == 0 {
-		return details, nil
+		return operationFinalReportFallback(r.language, operation.StatusFailed, 0), nil
 	}
 	last := records[len(records)-1]
+	fallback := operationFinalReportFallback(r.language, last.Result.Status, len(records))
 	if recordsAnswerer, ok := r.operationPlanner.(CommandOperationRecordsAnswerer); ok && recordsAnswerer != nil {
 		answer, err := recordsAnswerer.AnswerCommandOperationRecords(ctx, userLine, records, r.language)
 		if err != nil {
 			logging.Warning("[repl/operation] command result answer synthesis failed: %v", err)
-			return details, nil
+			return fallback, nil
 		}
 		answer = strings.TrimSpace(answer)
 		thoughts, answer := splitVisibleThinkBlocks(answer)
 		if answer == "" {
-			return details, thoughts
+			return fallback, thoughts
 		}
 		return operationFinalReportWithDetails(r.language, answer, details), thoughts
 	}
 	answerer, ok := r.operationPlanner.(CommandOperationAnswerer)
 	if !ok || answerer == nil {
-		return details, nil
+		return fallback, nil
 	}
 	answer, err := answerer.AnswerCommandOperationResult(ctx, userLine, last.Plan, last.Result, r.language)
 	if err != nil {
 		logging.Warning("[repl/operation] command result answer synthesis failed: %v", err)
-		return details, nil
+		return fallback, nil
 	}
 	answer = strings.TrimSpace(answer)
 	thoughts, answer := splitVisibleThinkBlocks(answer)
 	if answer == "" {
-		return details, thoughts
+		return fallback, thoughts
 	}
 	return operationFinalReportWithDetails(r.language, answer, details), thoughts
 }
@@ -5699,6 +5739,7 @@ func (r *REPL) executeProviderOperationFlow(ctx context.Context, first pendingPr
 	if len(records) == 0 {
 		return
 	}
+	r.startOperationSynthesisSpinner()
 	msg, thoughts := r.providerOperationFinalMessage(ctx, first.Request.Text, records)
 	if pending := r.pendingProviderOperation; pending != nil {
 		if strings.TrimSpace(msg) != "" {
@@ -5711,14 +5752,12 @@ func (r *REPL) executeProviderOperationFlow(ctx context.Context, first pendingPr
 		}
 		msg += operationPlanMarkdown(r.language, pending.Plan)
 	}
-	finalStatus := records[len(records)-1].Result.Status
 	if r.pendingProviderOperation != nil {
-		finalStatus = operation.StatusReady
 		r.savePendingOperationState()
 	} else {
 		r.clearPendingOperationState()
 	}
-	r.finishOperationRouteSpinner(finalStatus)
+	r.clearOperationRouteSpinnerForInlineResult()
 	r.emitOperationVisibleThoughts(thoughts)
 	r.renderBordered(msg)
 	r.recordTurn(first.Display, first.Request.Text, msg, memory.KindPipeline)
@@ -5742,26 +5781,31 @@ func (r *REPL) providerOperationFinalMessage(ctx context.Context, userLine strin
 		details.WriteString(providerOperationResultMarkdown(r.language, rec.Plan, rec.Result))
 	}
 	detailText := strings.TrimSpace(details.String())
+	if len(records) == 0 {
+		return operationFinalReportFallback(r.language, operation.StatusFailed, 0), nil
+	}
+	last := records[len(records)-1]
+	fallback := operationFinalReportFallback(r.language, last.Result.Status, len(records))
 	answerer, ok := r.operationPlanner.(ProviderOperationAnswerer)
 	if !ok || answerer == nil {
-		return detailText, nil
+		return fallback, nil
 	}
 	answer, err := answerer.AnswerProviderOperationResult(ctx, userLine, records, r.language)
 	if err != nil {
 		logging.Warning("[repl/operation] provider result answer synthesis failed: %v", err)
-		return detailText, nil
+		return fallback, nil
 	}
 	answer = strings.TrimSpace(answer)
 	thoughts, answer := splitVisibleThinkBlocks(answer)
 	if answer == "" {
-		return detailText, thoughts
+		return fallback, thoughts
 	}
 	return operationFinalReportWithDetails(r.language, answer, detailText), thoughts
 }
 
 func (r *REPL) executeProviderOperation(ctx context.Context, pending pendingProviderOperation) providerOperationResult {
 	plan := pending.Plan
-	r.info(providerOperationProgressMsg(r.language, pending))
+	r.renderOperationProgress(providerOperationProgressMsg(r.language, pending))
 	provider := strings.TrimSpace(plan.Provider)
 	switch {
 	case strings.HasPrefix(provider, "mcp:"):

@@ -1679,6 +1679,47 @@ func operationFinalReportWithDetails(lang, answer, details string) string {
 	return answer
 }
 
+func operationFinalReportFallback(lang string, status operation.OperationStatus, rounds int) string {
+	if isZh(lang) {
+		var b strings.Builder
+		switch status {
+		case operation.StatusExecuted:
+			b.WriteString("操作已完成。")
+		case operation.StatusCancelled:
+			b.WriteString("操作已取消。")
+		case operation.StatusBlocked:
+			b.WriteString("操作已被策略阻止。")
+		case operation.StatusNeedsClarification:
+			b.WriteString("操作需要补充信息后才能继续。")
+		default:
+			b.WriteString("操作未完成。")
+		}
+		if rounds > 0 {
+			b.WriteString(fmt.Sprintf("已完成 %d 轮操作，", rounds))
+		}
+		b.WriteString("每轮执行结果已在上方过程面板展示；最终报告生成未返回可用摘要。")
+		return b.String()
+	}
+	var b strings.Builder
+	switch status {
+	case operation.StatusExecuted:
+		b.WriteString("The operation completed.")
+	case operation.StatusCancelled:
+		b.WriteString("The operation was cancelled.")
+	case operation.StatusBlocked:
+		b.WriteString("The operation was blocked by policy.")
+	case operation.StatusNeedsClarification:
+		b.WriteString("The operation needs clarification before it can continue.")
+	default:
+		b.WriteString("The operation did not complete.")
+	}
+	if rounds > 0 {
+		b.WriteString(fmt.Sprintf(" %d operation round(s) completed.", rounds))
+	}
+	b.WriteString(" Per-round execution results are shown above; final report synthesis did not return a usable summary.")
+	return b.String()
+}
+
 func splitVisibleThinkBlocks(text string) ([]string, string) {
 	rest := text
 	var thoughts []string
