@@ -27,6 +27,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/mcp"
 	"github.com/hanchaoqun/codrax/internal/memlimit"
 	"github.com/hanchaoqun/codrax/internal/memory"
+	"github.com/hanchaoqun/codrax/internal/operation"
 	"github.com/hanchaoqun/codrax/internal/orchestrator"
 	"github.com/hanchaoqun/codrax/internal/preview"
 	"github.com/hanchaoqun/codrax/internal/render"
@@ -390,6 +391,7 @@ type appContext struct {
 	replModelListLine     string
 	replModelSummaryLine  string
 	operationRouteEnabled bool
+	operationProviders    []operation.ProviderInfo
 	// writeEnabled mirrors codrax.yaml :: write_enabled. Forwarded to
 	// the REPL Config so /mode plan|apply|verify and /approve can be
 	// rejected at the slash-command surface with a clear error pointing
@@ -1239,6 +1241,7 @@ func runREPL(_ *cobra.Command) error {
 		ChitchatResponder:  app.chitchatResponder,
 		ChitchatClassifier: app.chitchatClassifier,
 		OperationEnabled:   app.operationRouteEnabled,
+		OperationProviders: append([]operation.ProviderInfo(nil), app.operationProviders...),
 		// Hand the memory adapter to REPL so the chitchat tool-use
 		// loop can call recall_memory without a separate wiring step.
 		// The same adapter is also wired into the orchestrator above,
@@ -2944,6 +2947,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 		worktree.RegisterSignalCleanupHook(func() { _ = mcpRegistry.Close() })
 	}
 	app.mcpRegistry = mcpRegistry
+	app.operationProviders = operationProvidersFromMCPConfigs(mcpRegistry, rsMCPServers(rs))
 	logging.Info("registered %d MCP servers", len(mcpRegistry.List()))
 
 	skillRegistry := skill.NewRegistry()
@@ -4253,6 +4257,61 @@ func printMCPRegistryStartupNotice(reg *mcp.Registry, lang string) {
 		return
 	}
 	fmt.Fprintf(os.Stdout, "· MCP external tools ready: %d server(s), %d tool(s), %d resource(s)\n", servers, tools, resources)
+}
+
+func rsMCPServers(rs *config.RuntimeSettings) []types.MCPServerConfig {
+	if rs == nil {
+		return nil
+	}
+	return rs.MCPServers
+}
+
+func operationProvidersFromMCPConfigs(reg *mcp.Registry, cfgs []types.MCPServerConfig) []operation.ProviderInfo {
+	if reg == nil || len(cfgs) == 0 {
+		return nil
+	}
+	registered := map[string]bool{}
+	for _, name := range reg.List() {
+		registered[name] = true
+	}
+	var out []operation.ProviderInfo
+	for _, cfg := range cfgs {
+		if cfg.OperationProvider == nil || !*cfg.OperationProvider {
+			continue
+		}
+		name := strings.TrimSpace(cfg.Name)
+		if name == "" || !registered[name] {
+			continue
+		}
+		kinds := cleanOperationConfigList(cfg.OperationKinds)
+		if len(kinds) == 0 {
+			kinds = []string{"*"}
+		}
+		for _, kind := range kinds {
+			out = append(out, operation.ProviderInfo{
+				Name:         "mcp:" + name,
+				Kind:         kind,
+				Surfaces:     cleanOperationConfigList(cfg.OperationSurfaces),
+				SideEffects:  cleanOperationConfigList(cfg.OperationSideEffects),
+				RequiresGate: cfg.OperationRequiresConfirmation == nil || *cfg.OperationRequiresConfirmation,
+			})
+		}
+	}
+	return out
+}
+
+func cleanOperationConfigList(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
 }
 
 func formatStartupElapsed(d time.Duration) string {

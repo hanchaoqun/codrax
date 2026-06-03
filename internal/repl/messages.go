@@ -1002,7 +1002,7 @@ func operationPlanMarkdown(lang string, plan operation.Plan) string {
 			b.WriteString(fmt.Sprintf("%d. %s%s：%s\n", i+1, title, suffix, detail))
 		}
 		if plan.CanExecute {
-			b.WriteString(fmt.Sprintf("\n可执行 provider：`%s`。\n", plan.Provider))
+			b.WriteString(fmt.Sprintf("\n已匹配 provider：`%s`。当前仍停在计划阶段，未自动执行。\n", plan.Provider))
 		} else {
 			b.WriteString(fmt.Sprintf("\n当前未执行：%s。\n", plan.MissingCapability))
 		}
@@ -1033,7 +1033,7 @@ func operationPlanMarkdown(lang string, plan operation.Plan) string {
 		b.WriteString(fmt.Sprintf("%d. %s%s: %s\n", i+1, step.Title, suffix, step.Detail))
 	}
 	if plan.CanExecute {
-		b.WriteString(fmt.Sprintf("\nExecutable provider: `%s`.\n", plan.Provider))
+		b.WriteString(fmt.Sprintf("\nMatched provider: `%s`. Codrax is still paused at the planning stage and did not execute automatically.\n", plan.Provider))
 	} else {
 		b.WriteString(fmt.Sprintf("\nNot executed: %s.\n", plan.MissingCapability))
 	}

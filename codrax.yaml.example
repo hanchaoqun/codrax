@@ -196,6 +196,14 @@
 #     startup_timeout_ms: 3000
 #     call_timeout_ms: 10000
 #     max_response_bytes: 4194304
+#     # Optional: advertise this MCP server as an operation/artifact provider.
+#     # This does NOT auto-execute tools. The REPL operation route only uses it
+#     # for plan/capability matching unless an executor is explicitly wired.
+#     # operation_provider: true
+#     # operation_kinds: ["presentation_generation"]
+#     # operation_surfaces: ["slides"]
+#     # operation_side_effects: ["local_file_write"]
+#     # operation_requires_confirmation: true
 
 # operation_route_enabled — enable the independent operation/artifact route in
 # REPL turn classification. Default true. This route is plan-only unless an

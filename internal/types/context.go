@@ -4811,6 +4811,16 @@ type MCPServerConfig struct {
 	StartupTimeoutMS *int              `yaml:"startup_timeout_ms" json:"startup_timeout_ms,omitempty"`
 	CallTimeoutMS    *int              `yaml:"call_timeout_ms" json:"call_timeout_ms,omitempty"`
 	MaxResponseBytes *int              `yaml:"max_response_bytes" json:"max_response_bytes,omitempty"`
+
+	// Optional operation-provider capability metadata. These fields do not
+	// expose the MCP server to the operation route by default; the operator must
+	// opt in with operation_provider=true. They are consumed only by the REPL
+	// operation planner so ordinary explorer MCP behavior stays unchanged.
+	OperationProvider             *bool    `yaml:"operation_provider" json:"operation_provider,omitempty"`
+	OperationKinds                []string `yaml:"operation_kinds" json:"operation_kinds,omitempty"`
+	OperationSurfaces             []string `yaml:"operation_surfaces" json:"operation_surfaces,omitempty"`
+	OperationSideEffects          []string `yaml:"operation_side_effects" json:"operation_side_effects,omitempty"`
+	OperationRequiresConfirmation *bool    `yaml:"operation_requires_confirmation" json:"operation_requires_confirmation,omitempty"`
 }
 
 // ExecutionSignals tracks boolean signals produced by agents. After

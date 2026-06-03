@@ -47,3 +47,29 @@ func TestBuildPlanHighRiskRequiresConfirmation(t *testing.T) {
 		t.Fatalf("Provider=%q", plan.Provider)
 	}
 }
+
+func TestBuildPlanProviderGateBlocksExecution(t *testing.T) {
+	plan := BuildPlan(Request{
+		OperationKind: "presentation_generation",
+		RiskLevel:     "low",
+		TargetSurface: "slides",
+	}, []ProviderInfo{{
+		Name:         "mcp:slides",
+		Kind:         "presentation_generation",
+		Surfaces:     []string{"slides"},
+		RequiresGate: true,
+	}})
+
+	if plan.Provider != "mcp:slides" {
+		t.Fatalf("Provider=%q", plan.Provider)
+	}
+	if !plan.RequiresConfirmation {
+		t.Fatal("provider gate should require confirmation")
+	}
+	if plan.CanExecute {
+		t.Fatal("provider gate must pause execution")
+	}
+	if plan.MissingCapability == "" {
+		t.Fatal("provider gate should explain why execution paused")
+	}
+}

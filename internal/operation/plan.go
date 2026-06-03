@@ -63,13 +63,16 @@ func BuildPlan(req Request, providers []ProviderInfo) Plan {
 	risk := firstNonEmpty(req.RiskLevel, "low")
 	target := firstNonEmpty(req.TargetSurface, defaultSurface(kind))
 	sideEffects := cleanList(req.SideEffects)
-	requiresConfirmation := req.RequiresConfirmation || strings.EqualFold(risk, "high")
 
 	provider := matchProvider(kind, target, providers)
+	providerGate := provider.Name != "" && provider.RequiresGate
+	requiresConfirmation := req.RequiresConfirmation || strings.EqualFold(risk, "high") || providerGate
 	canExecute := provider.Name != "" && !requiresConfirmation
 	missing := ""
 	if provider.Name == "" {
 		missing = fmt.Sprintf("no configured operation provider for %s on %s", kind, target)
+	} else if providerGate {
+		missing = "operation provider requires explicit confirmation before execution"
 	} else if requiresConfirmation {
 		missing = "operation requires explicit confirmation before execution"
 	}

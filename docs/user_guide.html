@@ -2708,6 +2708,26 @@ mcp_servers:
 <td>4194304</td>
 <td>单条 MCP 响应最大字节数;大输出应由 server 自己转成摘要 + 外部 payload ref</td>
 </tr>
+<tr>
+<td><code>mcp_servers[].operation_provider</code></td>
+<td><code>false</code></td>
+<td>可选:显式声明该 MCP server 可作为 operation/artifact provider。只用于 REPL operation 计划器的能力匹配,不会自动调用工具</td>
+</tr>
+<tr>
+<td><code>mcp_servers[].operation_kinds</code> / <code>operation_surfaces</code></td>
+<td><code>[]</code> / <code>[]</code></td>
+<td>provider 支持的操作类型和目标界面,如 <code>presentation_generation</code> + <code>slides</code></td>
+</tr>
+<tr>
+<td><code>mcp_servers[].operation_side_effects</code></td>
+<td><code>[]</code></td>
+<td>provider 可能产生的副作用,如 <code>local_file_write</code> / <code>browser_ui</code></td>
+</tr>
+<tr>
+<td><code>mcp_servers[].operation_requires_confirmation</code></td>
+<td><code>true</code></td>
+<td>provider 是否要求显式确认后才能执行。当前计划器会据此停在确认前</td>
+</tr>
 </tbody>
 </table></div>
 <h3 id="电脑操作-制品生成路由">电脑操作 / 制品生成路由</h3>
