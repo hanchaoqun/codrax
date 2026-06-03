@@ -795,18 +795,7 @@ func cleanPolicyStringList(in []string) []string {
 }
 
 func unmarshalTurnPolicyParams(raw []byte, v any) error {
-	if err := json.Unmarshal(raw, v); err == nil {
-		return nil
-	}
-	repaired, ok := repairTurnPolicyParamsJSON(raw)
-	if !ok {
-		return json.Unmarshal(raw, v)
-	}
-	if err := json.Unmarshal(repaired, v); err != nil {
-		return err
-	}
-	logging.Warning("[repl/turn_policy] emit_turn_policy params auto-repaired (LLM-corrupted JSON: structural repair)")
-	return nil
+	return unmarshalReplStructuredToolParams(turnPolicyTool, raw, v, "turn-policy classifier")
 }
 
 func repairTurnPolicyParamsJSON(raw []byte) ([]byte, bool) {

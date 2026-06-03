@@ -629,6 +629,32 @@ func TestClassifyPolicy_OperationCompatJSON(t *testing.T) {
 	}
 }
 
+func TestClassifyPolicy_CompatJSONSchemaKeyAliases(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			turnPolicyResp(`{"route":"operation","needsRepoAccess":"false","needsOperationAccess":"true","operation":"computer_operation","operationKind":"computer_operation","source":"current_message","confidence":"0.88","reason":"current machine query","riskLevel":"low","sideEffects":"network_read","targetSurface":"desktop","requiresConfirmation":"false"}`),
+		},
+	}
+	c := &llmChitchatClassifier{adapter: adapter}
+
+	policy, err := c.ClassifyPolicy(context.Background(), "当前机器有哪些模型服务", "", false)
+	if err != nil {
+		t.Fatalf("ClassifyPolicy: %v", err)
+	}
+	if policy.Route != RouteOperation || policy.NeedsRepoAccess || !policy.NeedsOperationAccess {
+		t.Fatalf("route/access aliases not decoded: %+v", policy)
+	}
+	if policy.OperationKind != "computer_operation" || policy.RiskLevel != "low" || policy.TargetSurface != "desktop" {
+		t.Fatalf("operation aliases not decoded: %+v", policy)
+	}
+	if policy.RequiresConfirmation {
+		t.Fatalf("requiresConfirmation alias/string bool not decoded: %+v", policy)
+	}
+	if got := strings.Join(policy.SideEffects, ","); got != "network_read" {
+		t.Fatalf("sideEffects alias not decoded: %q", got)
+	}
+}
+
 func TestClassifyPolicy_TeachesUnsafeOperationRoute(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{

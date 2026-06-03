@@ -119,6 +119,38 @@ func TestCommandOperationPlannerCompatJSONFlexibleSteps(t *testing.T) {
 	}
 }
 
+func TestCommandOperationPlannerCompatJSONSchemaKeyAliases(t *testing.T) {
+	parsed, err := unmarshalCommandOperationPlan([]byte(`{
+		"status":"ready",
+		"riskLevel":"low",
+		"requiresConfirmation":"false",
+		"continueAfter":"true",
+		"workDir":".",
+		"knownConstraints":"read only",
+		"steps":"[{\"id\":\"probe\",\"title\":\"probe models\",\"shell\":\"ps aux | grep -i ollama\",\"timeoutMs\":\"30000\",\"riskLevel\":\"low\",\"sideEffects\":\"network_read\"}]"
+	}`))
+	if err != nil {
+		t.Fatalf("unmarshalCommandOperationPlan: %v", err)
+	}
+	req := parsed.toRequest("查询模型推理引擎", "/repo")
+	if req.RiskLevel != "low" || req.RequiresConfirmation || !req.ContinueAfter || req.WorkDir != "." {
+		t.Fatalf("top-level schema alias fields not decoded: %+v", req)
+	}
+	if len(req.KnownConstraints) != 1 || req.KnownConstraints[0] != "read only" {
+		t.Fatalf("known constraints not decoded: %+v", req.KnownConstraints)
+	}
+	if len(req.Steps) != 1 {
+		t.Fatalf("steps=%+v", req.Steps)
+	}
+	step := req.Steps[0]
+	if step.ID != "probe" || step.TimeoutMS != 30000 || step.RiskLevel != "low" || step.Shell != "ps aux | grep -i ollama" {
+		t.Fatalf("nested schema alias fields not decoded: %+v", step)
+	}
+	if len(step.SideEffects) != 1 || step.SideEffects[0] != "network_read" {
+		t.Fatalf("side effects not decoded: %+v", step.SideEffects)
+	}
+}
+
 func TestProviderOperationEvaluatorCompatJSON(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{

@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
-	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/operation"
 )
 
@@ -434,17 +433,9 @@ type operationEvaluationDraft struct {
 
 func unmarshalOperationEvaluation(raw []byte) (operationEvaluationDraft, error) {
 	var parsed operationEvaluationDraft
-	if err := json.Unmarshal(raw, &parsed); err == nil {
-		return parsed, nil
+	if err := unmarshalReplStructuredToolParams(operationEvaluationTool, raw, &parsed, "operation evaluator"); err != nil {
+		return parsed, err
 	}
-	repaired, ok := repairTurnPolicyParamsJSON(raw)
-	if !ok {
-		return parsed, fmt.Errorf("operation evaluator: unmarshal tool params: %w", json.Unmarshal(raw, &parsed))
-	}
-	if err := json.Unmarshal(repaired, &parsed); err != nil {
-		return parsed, fmt.Errorf("operation evaluator: unmarshal repaired tool params: %w", err)
-	}
-	logging.Warning("[repl/operation] emit_operation_evaluation params auto-repaired (LLM-corrupted JSON: structural repair)")
 	return parsed, nil
 }
 
@@ -807,17 +798,9 @@ func (i *flexiblePolicyInt) UnmarshalJSON(raw []byte) error {
 
 func unmarshalCommandOperationPlan(raw []byte) (commandPlanDraft, error) {
 	var parsed commandPlanDraft
-	if err := json.Unmarshal(raw, &parsed); err == nil {
-		return parsed, nil
+	if err := unmarshalReplStructuredToolParams(commandOperationPlanTool, raw, &parsed, "command operation planner"); err != nil {
+		return parsed, err
 	}
-	repaired, ok := repairTurnPolicyParamsJSON(raw)
-	if !ok {
-		return parsed, fmt.Errorf("command operation planner: unmarshal tool params: %w", json.Unmarshal(raw, &parsed))
-	}
-	if err := json.Unmarshal(repaired, &parsed); err != nil {
-		return parsed, fmt.Errorf("command operation planner: unmarshal repaired tool params: %w", err)
-	}
-	logging.Warning("[repl/operation] emit_command_operation_plan params auto-repaired (LLM-corrupted JSON: structural repair)")
 	return parsed, nil
 }
 
