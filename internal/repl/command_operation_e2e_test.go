@@ -1915,7 +1915,7 @@ func TestCommandOperationE2E_InvalidShellFilterReplansWithNumericStepID(t *testi
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
 			commandOperationPlanResp(`{"status":"ready","risk_level":"medium","requires_confirmation":false,"work_dir":".","steps":[{"id":1,"title":"bad process filter","shell":"grep -i vpn | grep -v grep || echo none","risk_level":"medium","side_effects":[]}]}`),
-			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":2,"title":"safe version check","shell":"printf 'vpn-tool 1.0\\n' | grep vpn","risk_level":"low","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":"[{\"id\":2,\"title\":\"safe version check\",\"shell\":\"printf 'vpn-tool 1.0\\\\n' | grep vpn\",\"risk_level\":\"low\",\"side_effects\":[]}]"}`),
 			{Content: "已修复无输入过滤命令，并完成替代查询。", StopReason: "end_turn"},
 		},
 	}
@@ -1935,6 +1935,7 @@ func TestCommandOperationE2E_InvalidShellFilterReplansWithNumericStepID(t *testi
 	}
 	printed := out.String()
 	for _, want := range []string{
+		"Commands to validate",
 		"stdin-consuming shell command",
 		"revised command plan",
 		"will run automatically",

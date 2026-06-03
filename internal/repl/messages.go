@@ -1208,6 +1208,67 @@ func commandOperationAutoExecuteMarkdown(lang string, plan operation.CommandOper
 	return strings.TrimSpace(b.String())
 }
 
+func commandOperationAutoValidateMarkdown(lang string, plan operation.CommandOperationPlan) string {
+	if isZh(lang) {
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("操作计划 `%s` 将先自动校验；校验通过后才会执行。\n\n", plan.ID))
+		b.WriteString(fmt.Sprintf("- 审批：`%s`\n", plan.ApprovalMode))
+		b.WriteString(fmt.Sprintf("- 风险：`%s`\n", plan.RiskLevel))
+		b.WriteString(fmt.Sprintf("- 工作目录：`%s`\n", plan.WorkDir))
+		if strings.TrimSpace(plan.Goal) != "" {
+			b.WriteString(fmt.Sprintf("- 目标：%s\n", plan.Goal))
+		}
+		if strings.TrimSpace(plan.NextBatch) != "" {
+			b.WriteString(fmt.Sprintf("- 本批目的：%s\n", plan.NextBatch))
+		}
+		if plan.ContinueAfter {
+			b.WriteString("- 规划方式：执行后继续规划下一批操作\n")
+		}
+		b.WriteString("\n待校验命令：\n")
+		shown := 0
+		for i, step := range plan.Steps {
+			cmd := commandOperationStepCommand(step)
+			if strings.TrimSpace(cmd) == "" {
+				continue
+			}
+			shown++
+			b.WriteString(fmt.Sprintf("%d. `$ %s`\n", i+1, cmd))
+		}
+		if shown == 0 {
+			b.WriteString("（没有可执行命令；系统不会执行空计划。）\n")
+		}
+		return strings.TrimSpace(b.String())
+	}
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("Operation plan `%s` will be validated automatically before any command runs.\n\n", plan.ID))
+	b.WriteString(fmt.Sprintf("- Approval: `%s`\n", plan.ApprovalMode))
+	b.WriteString(fmt.Sprintf("- Risk: `%s`\n", plan.RiskLevel))
+	b.WriteString(fmt.Sprintf("- Working directory: `%s`\n", plan.WorkDir))
+	if strings.TrimSpace(plan.Goal) != "" {
+		b.WriteString(fmt.Sprintf("- Goal: %s\n", plan.Goal))
+	}
+	if strings.TrimSpace(plan.NextBatch) != "" {
+		b.WriteString(fmt.Sprintf("- This batch: %s\n", plan.NextBatch))
+	}
+	if plan.ContinueAfter {
+		b.WriteString("- Planning: continue after this batch executes\n")
+	}
+	b.WriteString("\nCommands to validate:\n")
+	shown := 0
+	for i, step := range plan.Steps {
+		cmd := commandOperationStepCommand(step)
+		if strings.TrimSpace(cmd) == "" {
+			continue
+		}
+		shown++
+		b.WriteString(fmt.Sprintf("%d. `$ %s`\n", i+1, cmd))
+	}
+	if shown == 0 {
+		b.WriteString("(No executable commands; Codrax will not execute an empty plan.)\n")
+	}
+	return strings.TrimSpace(b.String())
+}
+
 func operationNoPendingMsg(lang string) string {
 	if isZh(lang) {
 		return "当前没有待处理的操作计划。"

@@ -1222,6 +1222,7 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 			r.pendingCommandClarification = nil
 			r.clearPendingOperationState()
 			r.finishOperationAutoStartSpinner()
+			r.renderBordered(commandOperationAutoValidateMarkdown(r.language, plan))
 			r.executeCommandOperationPlan(plan, display, line)
 			return
 		}

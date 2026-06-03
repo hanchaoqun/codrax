@@ -76,6 +76,49 @@ func TestCommandOperationPlannerCompatJSON(t *testing.T) {
 	}
 }
 
+func TestCommandOperationPlannerCompatJSONFlexibleSteps(t *testing.T) {
+	tests := []struct {
+		name      string
+		raw       string
+		wantShell string
+		wantID    string
+	}{
+		{
+			name:      "stringified array",
+			raw:       `{"status":"ready","risk_level":"low","steps":"[{\"id\":\"s1\",\"title\":\"probe\",\"shell\":\"printf 'ok\\n'\",\"risk_level\":\"low\"}]"}`,
+			wantShell: "printf 'ok\n'",
+			wantID:    "s1",
+		},
+		{
+			name:      "single object",
+			raw:       `{"status":"ready","risk_level":"low","steps":{"id":"s2","title":"probe","shell":"printf 'one\\n'","risk_level":"low"}}`,
+			wantShell: "printf 'one\\n'",
+			wantID:    "s2",
+		},
+		{
+			name:      "bare shell string",
+			raw:       `{"status":"ready","risk_level":"medium","steps":"printf 'model engine\\n' | grep model"}`,
+			wantShell: "printf 'model engine\\n' | grep model",
+			wantID:    "step-1",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			parsed, err := unmarshalCommandOperationPlan([]byte(tt.raw))
+			if err != nil {
+				t.Fatalf("unmarshalCommandOperationPlan: %v", err)
+			}
+			req := parsed.toRequest("查询系统信息", "/repo")
+			if len(req.Steps) != 1 {
+				t.Fatalf("steps=%+v, want one", req.Steps)
+			}
+			if req.Steps[0].ID != tt.wantID || req.Steps[0].Shell != tt.wantShell {
+				t.Fatalf("step mismatch: %+v", req.Steps[0])
+			}
+		})
+	}
+}
+
 func TestProviderOperationEvaluatorCompatJSON(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{

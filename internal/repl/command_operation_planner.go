@@ -690,7 +690,7 @@ type commandPlanDraft struct {
 	ContinueAfter        flexiblePolicyBool         `json:"continue_after"`
 	Questions            []commandPlanQuestionDraft `json:"questions"`
 	BlockReason          flexiblePolicyString       `json:"block_reason"`
-	Steps                []commandPlanStepDraft     `json:"steps"`
+	Steps                flexibleCommandPlanSteps   `json:"steps"`
 }
 
 type commandPlanQuestionDraft struct {
@@ -712,6 +712,68 @@ type commandPlanStepDraft struct {
 	SideEffects flexiblePolicyStringList `json:"side_effects"`
 	Reason      flexiblePolicyString     `json:"reason"`
 	VerifyHint  flexiblePolicyString     `json:"verify_hint"`
+}
+
+type flexibleCommandPlanSteps []commandPlanStepDraft
+
+func (s *flexibleCommandPlanSteps) UnmarshalJSON(raw []byte) error {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		*s = nil
+		return nil
+	}
+	var arr []commandPlanStepDraft
+	if err := json.Unmarshal(raw, &arr); err == nil {
+		*s = cleanCommandPlanSteps(arr)
+		return nil
+	}
+	var obj commandPlanStepDraft
+	if err := json.Unmarshal(raw, &obj); err == nil {
+		*s = cleanCommandPlanSteps([]commandPlanStepDraft{obj})
+		return nil
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		text = strings.TrimSpace(text)
+		if text == "" {
+			*s = nil
+			return nil
+		}
+		if strings.HasPrefix(text, "[") {
+			var nested []commandPlanStepDraft
+			if err := json.Unmarshal([]byte(text), &nested); err == nil {
+				*s = cleanCommandPlanSteps(nested)
+				return nil
+			}
+		}
+		if strings.HasPrefix(text, "{") {
+			var nested commandPlanStepDraft
+			if err := json.Unmarshal([]byte(text), &nested); err == nil {
+				*s = cleanCommandPlanSteps([]commandPlanStepDraft{nested})
+				return nil
+			}
+		}
+		*s = []commandPlanStepDraft{{
+			ID:        "step-1",
+			Title:     "command",
+			Shell:     flexiblePolicyString(text),
+			RiskLevel: "medium",
+		}}
+		return nil
+	}
+	return fmt.Errorf("invalid command steps value %s", string(raw))
+}
+
+func cleanCommandPlanSteps(in []commandPlanStepDraft) []commandPlanStepDraft {
+	out := make([]commandPlanStepDraft, 0, len(in))
+	for _, step := range in {
+		if strings.TrimSpace(string(step.ID)) == "" && strings.TrimSpace(string(step.Title)) == "" &&
+			strings.TrimSpace(string(step.Program)) == "" && strings.TrimSpace(string(step.Shell)) == "" {
+			continue
+		}
+		out = append(out, step)
+	}
+	return out
 }
 
 type flexiblePolicyInt int

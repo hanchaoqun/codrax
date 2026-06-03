@@ -258,6 +258,30 @@ func TestCommandOperationAutoExecuteMarkdownShowsCommands(t *testing.T) {
 	}
 }
 
+func TestCommandOperationAutoValidateMarkdownShowsCommands(t *testing.T) {
+	plan := operation.CommandOperationPlan{
+		ID:           "op-validate",
+		ApprovalMode: operation.ApprovalAutoLowRisk,
+		RiskLevel:    "medium",
+		WorkDir:      "/repo",
+		Steps: []operation.CommandStep{{
+			ID:    "s1",
+			Shell: "grep model",
+		}},
+	}
+	got := commandOperationAutoValidateMarkdown("zh", plan)
+	for _, want := range []string{
+		"将先自动校验",
+		"审批：`auto_low_risk`",
+		"待校验命令",
+		"`$ grep model`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("auto validate markdown missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestCommandOperationResultMarkdownShowsExecutedCommands(t *testing.T) {
 	plan := operation.CommandOperationPlan{
 		ID: "op-result",
