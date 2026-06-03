@@ -1311,7 +1311,7 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 		oneLineClamp(plan.Provider, 80),
 		oneLineClamp(plan.MissingCapability, 160))
 	msg := operationPlanMarkdown(r.language, plan)
-	r.finishOperationRouteSpinner(operation.StatusReady)
+	r.finishProviderOperationPlanHeader(plan)
 	r.renderBordered(msg)
 	r.recordTurn(display, line, msg, memory.KindPipeline)
 }
@@ -1361,6 +1361,14 @@ func (r *REPL) finishOperationFinalAnswerHeader() {
 	r.emitOperationLightRouteSummary(label, segs)
 }
 
+func (r *REPL) finishProviderOperationPlanHeader(plan operation.Plan) {
+	if r.renderer == nil {
+		return
+	}
+	label, segs := providerOperationPlanSummary(r.language, plan)
+	r.emitOperationLightRouteSummary(label, segs)
+}
+
 func (r *REPL) emitOperationLightRouteSummary(label string, segs []string) {
 	if r.renderer == nil {
 		return
@@ -1387,6 +1395,38 @@ func operationAutoStartSummary(lang string) (string, []string) {
 		return "操作计划", []string{"自动执行", "未读仓库"}
 	}
 	return "operation plan", []string{"auto-run", "no repo read"}
+}
+
+func providerOperationPlanSummary(lang string, plan operation.Plan) (string, []string) {
+	if isZh(lang) {
+		switch {
+		case plan.CanExecute:
+			return "操作计划", []string{"自动执行", "未读仓库"}
+		case providerOperationPlanAwaitingApproval(plan):
+			return "操作计划", []string{"等待批准", "未读仓库"}
+		case strings.TrimSpace(plan.MissingCapability) != "":
+			return "操作计划", []string{"能力缺失", "未执行", "未读仓库"}
+		default:
+			return "操作计划", []string{"未执行", "未读仓库"}
+		}
+	}
+	switch {
+	case plan.CanExecute:
+		return "operation plan", []string{"auto-run", "no repo read"}
+	case providerOperationPlanAwaitingApproval(plan):
+		return "operation plan", []string{"awaiting approval", "no repo read"}
+	case strings.TrimSpace(plan.MissingCapability) != "":
+		return "operation plan", []string{"capability missing", "not executed", "no repo read"}
+	default:
+		return "operation plan", []string{"not executed", "no repo read"}
+	}
+}
+
+func providerOperationPlanAwaitingApproval(plan operation.Plan) bool {
+	return strings.TrimSpace(plan.Provider) != "" &&
+		strings.TrimSpace(plan.ProviderTool) != "" &&
+		!plan.CanExecute &&
+		plan.RequiresConfirmation
 }
 
 func (r *REPL) startOperationExecutionSpinner() {

@@ -32,6 +32,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/operation"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -1066,6 +1067,7 @@ func TestTurnPolicyDispatch_OperationRoutePlansWithoutSourcePipeline(t *testing.
 	}
 	responder := &stubLocalResponder{localReply: "should-not-appear"}
 	r, runner, out := newTurnPolicyREPL(t, store, classifier, responder, "基于当前代码生成一份 PPT\n/exit\n")
+	r.renderer = render.New(out, true)
 	r.operationEnabled = true
 	if err := r.Loop(); err != nil {
 		t.Fatalf("Loop: %v", err)
@@ -1089,6 +1091,15 @@ func TestTurnPolicyDispatch_OperationRoutePlansWithoutSourcePipeline(t *testing.
 	}
 	if !strings.Contains(out.String(), "presentation_generation") {
 		t.Fatalf("operation plan should be persisted for follow-ups; recent=%+v", recent)
+	}
+	plain := stripANSIOnly(out.String())
+	for _, want := range []string{"operation plan", "capability missing", "not executed"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("operation plan header missing %q:\n%s", want, plain)
+		}
+	}
+	if strings.Contains(plain, "awaiting approval") {
+		t.Fatalf("non-executable provider plan must not look like pending approval:\n%s", plain)
 	}
 }
 
