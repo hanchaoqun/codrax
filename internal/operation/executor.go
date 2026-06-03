@@ -123,6 +123,7 @@ func (e CommandExecutor) executeStep(ctx context.Context, plan CommandOperationP
 			OutputPreview: preview,
 			PayloadRef:    ref,
 			Error:         fmt.Sprintf("command timed out after %s", timeout),
+			TimedOut:      true,
 		}
 	}
 	if errors.Is(stepCtx.Err(), context.Canceled) {

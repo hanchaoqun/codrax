@@ -207,3 +207,94 @@ func TestCommandOperationE2E_PlannerRequestCarriesPolicySignals(t *testing.T) {
 		}
 	}
 }
+
+func TestCommandOperationE2E_FailedApprovedCommandCreatesRevisedPlan(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("medium")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"medium","requires_confirmation":true,"work_dir":".","steps":[{"id":"s1","title":"show missing tool version","program":"definitely-missing-codrax-command","args":["--version"],"risk_level":"medium","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"s1","title":"show go version instead","program":"go","args":["version"],"risk_level":"low","side_effects":[]}]}`),
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "查询工具版本\n/approve\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("command operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("expected initial plan + replan calls, got %d", len(adapter.calls))
+	}
+	if r.pendingOperation == nil {
+		t.Fatal("revised plan should wait for manual approval when auto-low-risk is disabled")
+	}
+	if got := r.pendingOperation.Steps[0].Program; got != "go" {
+		t.Fatalf("revised pending program=%q, want go", got)
+	}
+	printed := out.String()
+	for _, want := range []string{
+		"Operation plan",
+		"failed",
+		"revised command plan",
+		"go version",
+	} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("replan output missing %q:\n%s", want, printed)
+		}
+	}
+}
+
+func TestCommandReplanAutoExecuteEnvelope(t *testing.T) {
+	base := operation.CommandOperationPlan{
+		Status:       operation.StatusFailed,
+		RiskLevel:    "medium",
+		ApprovalMode: operation.ApprovalManual,
+		WorkDir:      "/repo",
+	}
+	okPlan := operation.CommandOperationPlan{
+		Status:       operation.StatusReady,
+		RiskLevel:    "low",
+		ApprovalMode: operation.ApprovalAutoLowRisk,
+		WorkDir:      "/repo",
+		Steps: []operation.CommandStep{{
+			ID:           "s1",
+			Program:      "go",
+			Args:         []string{"version"},
+			RiskLevel:    "low",
+			AutoApproval: operation.StepAutoEligible,
+		}},
+	}
+	if !commandReplanCanAutoExecute(base, okPlan) {
+		t.Fatal("same-dir lower-risk read-only eligible replan should be allowed to auto-continue")
+	}
+	clone := func(plan operation.CommandOperationPlan) operation.CommandOperationPlan {
+		plan.Steps = append([]operation.CommandStep(nil), plan.Steps...)
+		return plan
+	}
+	changedDir := clone(okPlan)
+	changedDir.WorkDir = "/tmp"
+	if commandReplanCanAutoExecute(base, changedDir) {
+		t.Fatal("changed workdir must require manual approval")
+	}
+	withShell := clone(okPlan)
+	withShell.Steps[0].Shell = "go version"
+	if commandReplanCanAutoExecute(base, withShell) {
+		t.Fatal("shell replan must require manual approval")
+	}
+	withSideEffect := clone(okPlan)
+	withSideEffect.Steps[0].SideEffects = []string{"local_file_write"}
+	if commandReplanCanAutoExecute(base, withSideEffect) {
+		t.Fatal("side-effecting replan must require manual approval")
+	}
+	escalated := clone(okPlan)
+	escalated.RiskLevel = "high"
+	if commandReplanCanAutoExecute(base, escalated) {
+		t.Fatal("risk-escalating replan must require manual approval")
+	}
+}

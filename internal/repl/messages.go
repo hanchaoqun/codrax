@@ -1240,6 +1240,37 @@ func commandOperationResultMarkdown(lang string, plan operation.CommandOperation
 	return strings.TrimSpace(b.String())
 }
 
+func commandOperationReplanIntro(lang string, plan operation.CommandOperationPlan) string {
+	if isZh(lang) {
+		switch plan.Status {
+		case operation.StatusReady:
+			if plan.ApprovalMode == operation.ApprovalAutoLowRisk {
+				return "已根据失败输出生成低风险修订计划，并将继续执行。"
+			}
+			return "已根据失败输出生成修订计划，等待批准。"
+		case operation.StatusNeedsClarification:
+			return "已根据失败输出尝试修订计划，但仍缺少关键信息。"
+		case operation.StatusBlocked:
+			return "已根据失败输出尝试修订计划，但新计划被策略阻止。"
+		default:
+			return "已根据失败输出尝试修订计划。"
+		}
+	}
+	switch plan.Status {
+	case operation.StatusReady:
+		if plan.ApprovalMode == operation.ApprovalAutoLowRisk {
+			return "Generated a low-risk revised command plan from the failed output and will continue execution."
+		}
+		return "Generated a revised command plan from the failed output. It is waiting for approval."
+	case operation.StatusNeedsClarification:
+		return "Tried to revise the command plan from the failed output, but key details are still missing."
+	case operation.StatusBlocked:
+		return "Tried to revise the command plan from the failed output, but the new plan is blocked by policy."
+	default:
+		return "Tried to revise the command plan from the failed output."
+	}
+}
+
 func indentBlock(s, prefix string) string {
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	for i, line := range lines {

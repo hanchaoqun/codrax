@@ -23,6 +23,10 @@ type CommandOperationPlannerWithSnapshot interface {
 	PlanCommandOperationWithSnapshot(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, snapshot operation.CapabilitySnapshot) (operation.CommandOperationRequest, error)
 }
 
+type CommandOperationReplanner interface {
+	ReplanCommandOperation(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, snapshot operation.CapabilitySnapshot, previous operation.CommandOperationPlan, result operation.CommandOperationResult) (operation.CommandOperationRequest, error)
+}
+
 type llmCommandOperationPlanner struct {
 	adapter llm.Adapter
 }
@@ -111,6 +115,7 @@ Hard rules:
 - This is not source-code investigation, trace analysis, or write-mode code editing. Only produce command-operation plans.
 - Use capability_snapshot when present. Prefer commands shown as available. If a needed tool is absent, either ask for clarification or plan a safe check/install workflow when the user explicitly asked for installation.
 - Do not invent installed tools that are absent from capability_snapshot unless the user explicitly named a custom command or requested installing it.
+- For replan requests, use the failed step output to adjust only the command plan. Do not repeat already-successful steps unless required. If the fix expands risk or side effects, set requires_confirmation=true.
 
 Risk hints:
 - Read-only inspection (pwd, ls, which, version, git status/log/show/diff, grep/rg/cat/head/tail) is low risk.
@@ -124,6 +129,37 @@ func (p *llmCommandOperationPlanner) PlanCommandOperation(ctx context.Context, u
 }
 
 func (p *llmCommandOperationPlanner) PlanCommandOperationWithSnapshot(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, snapshot operation.CapabilitySnapshot) (operation.CommandOperationRequest, error) {
+	return p.planCommandOperation(ctx, commandOperationPlannerRequest{
+		UserLine: userLine,
+		RepoRoot: repoRoot,
+		Policy:   policy,
+		Snapshot: snapshot,
+	})
+}
+
+func (p *llmCommandOperationPlanner) ReplanCommandOperation(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, snapshot operation.CapabilitySnapshot, previous operation.CommandOperationPlan, result operation.CommandOperationResult) (operation.CommandOperationRequest, error) {
+	return p.planCommandOperation(ctx, commandOperationPlannerRequest{
+		UserLine:     userLine,
+		RepoRoot:     repoRoot,
+		Policy:       policy,
+		Snapshot:     snapshot,
+		PreviousPlan: previous,
+		Result:       result,
+		Replan:       true,
+	})
+}
+
+type commandOperationPlannerRequest struct {
+	UserLine     string
+	RepoRoot     string
+	Policy       TurnPolicy
+	Snapshot     operation.CapabilitySnapshot
+	PreviousPlan operation.CommandOperationPlan
+	Result       operation.CommandOperationResult
+	Replan       bool
+}
+
+func (p *llmCommandOperationPlanner) planCommandOperation(ctx context.Context, req commandOperationPlannerRequest) (operation.CommandOperationRequest, error) {
 	var zero operation.CommandOperationRequest
 	if p == nil || p.adapter == nil {
 		return zero, fmt.Errorf("command operation planner not configured")
@@ -131,19 +167,27 @@ func (p *llmCommandOperationPlanner) PlanCommandOperationWithSnapshot(ctx contex
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	userLine = strings.TrimSpace(userLine)
+	userLine := strings.TrimSpace(req.UserLine)
 	if userLine == "" {
 		return zero, fmt.Errorf("command operation planner: empty user line")
 	}
 	var b strings.Builder
 	b.WriteString("## repo_root\n")
-	b.WriteString(strings.TrimSpace(repoRoot))
+	b.WriteString(strings.TrimSpace(req.RepoRoot))
 	b.WriteString("\n\n## route_policy\n")
 	b.WriteString(fmt.Sprintf("operation=%s operation_kind=%s risk=%s side_effects=%s target=%s requires_confirmation=%t\n",
-		policy.Operation, policy.OperationKind, policy.RiskLevel, strings.Join(policy.SideEffects, ","), policy.TargetSurface, policy.RequiresConfirmation))
-	if rendered := snapshot.RenderForPrompt(); strings.TrimSpace(rendered) != "" {
+		req.Policy.Operation, req.Policy.OperationKind, req.Policy.RiskLevel, strings.Join(req.Policy.SideEffects, ","), req.Policy.TargetSurface, req.Policy.RequiresConfirmation))
+	if rendered := req.Snapshot.RenderForPrompt(); strings.TrimSpace(rendered) != "" {
 		b.WriteString("\n")
 		b.WriteString(rendered)
+		b.WriteString("\n")
+	}
+	if req.Replan {
+		b.WriteString("\n## replan_context\n")
+		b.WriteString("The previous approved command plan failed. Produce a revised typed plan using the same schema.\n")
+		b.WriteString(renderCommandPlanForPrompt(req.PreviousPlan))
+		b.WriteString("\n")
+		b.WriteString(renderCommandResultForPrompt(req.Result))
 		b.WriteString("\n")
 	}
 	b.WriteString("\n## user_request\n")
@@ -171,7 +215,36 @@ func (p *llmCommandOperationPlanner) PlanCommandOperationWithSnapshot(ctx contex
 	if err != nil {
 		return zero, err
 	}
-	return parsed.toRequest(userLine, repoRoot), nil
+	return parsed.toRequest(userLine, req.RepoRoot), nil
+}
+
+func renderCommandPlanForPrompt(plan operation.CommandOperationPlan) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "previous_plan id=%s status=%s risk=%s approval=%s work_dir=%s\n",
+		plan.ID, plan.Status, plan.RiskLevel, plan.ApprovalMode, plan.WorkDir)
+	for i, step := range plan.Steps {
+		cmd := strings.TrimSpace(step.Program + " " + strings.Join(step.Args, " "))
+		if strings.TrimSpace(step.Shell) != "" {
+			cmd = "shell: " + strings.TrimSpace(step.Shell)
+		}
+		fmt.Fprintf(&b, "step[%d] id=%s status_planned title=%q cmd=%q risk=%s side_effects=%s\n",
+			i+1, step.ID, step.Title, cmd, step.RiskLevel, strings.Join(step.SideEffects, ","))
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func renderCommandResultForPrompt(result operation.CommandOperationResult) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "previous_result plan_id=%s status=%s\n", result.PlanID, result.Status)
+	for i, step := range result.StepResults {
+		preview := strings.TrimSpace(step.OutputPreview)
+		if len(preview) > 2000 {
+			preview = preview[:2000] + "...[truncated]"
+		}
+		fmt.Fprintf(&b, "result[%d] step_id=%s status=%s exit_code=%d timed_out=%t error=%q output=%q payload_ref=%s\n",
+			i+1, step.StepID, step.Status, step.ExitCode, step.TimedOut, step.Error, preview, step.PayloadRef)
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 type commandPlanDraft struct {

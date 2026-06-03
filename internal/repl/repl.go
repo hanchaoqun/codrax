@@ -1354,6 +1354,10 @@ func (r *REPL) handleOperationRejectCmd(line string) {
 }
 
 func (r *REPL) executeCommandOperationPlan(plan operation.CommandOperationPlan, request, display string) {
+	r.executeCommandOperationPlanAttempt(plan, request, display, 0)
+}
+
+func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperationPlan, request, display string, replanAttempts int) {
 	r.pendingOperation = nil
 	r.runInFlight.Store(true)
 	ctx := r.startTurn()
@@ -1369,10 +1373,118 @@ func (r *REPL) executeCommandOperationPlan(plan operation.CommandOperationPlan, 
 	result := executor.Execute(ctx, plan)
 	plan.Status = result.Status
 	r.operationHistory = append(r.operationHistory, plan)
+	if r.maybeReplanCommandOperation(ctx, plan, result, request, display, replanAttempts) {
+		return
+	}
 	msg := commandOperationResultMarkdown(r.language, plan, result)
 	r.finishOperationRouteSpinner(result.Status)
 	r.renderBordered(msg)
 	r.recordTurn(display, request, msg, memory.KindPipeline)
+}
+
+func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan operation.CommandOperationPlan, result operation.CommandOperationResult, request, display string, replanAttempts int) bool {
+	if result.Status != operation.StatusFailed || replanAttempts >= 1 || r.operationPlanner == nil {
+		return false
+	}
+	if commandResultTimedOut(result) {
+		return false
+	}
+	replanner, ok := r.operationPlanner.(CommandOperationReplanner)
+	if !ok {
+		return false
+	}
+	snapshot := r.commandOperationCapabilitySnapshot()
+	revisedReq, err := replanner.ReplanCommandOperation(ctx, failedPlan.RequestText, r.repoRoot, commandOperationPolicyFromPlan(failedPlan), snapshot, failedPlan, result)
+	if err != nil {
+		logging.Warning("[repl/operation] command replan failed: %v", err)
+		return false
+	}
+	revisedPlan := operation.BuildCommandOperationPlan(revisedReq, r.operationPolicy)
+	if revisedPlan.Status == operation.StatusReady {
+		if commandReplanCanAutoExecute(failedPlan, revisedPlan) {
+			msg := commandOperationResultMarkdown(r.language, failedPlan, result)
+			msg += "\n\n"
+			msg += commandOperationReplanIntro(r.language, revisedPlan)
+			msg += "\n\n"
+			msg += commandOperationPlanMarkdown(r.language, revisedPlan)
+			r.finishOperationRouteSpinner(revisedPlan.Status)
+			r.renderBordered(msg)
+			r.executeCommandOperationPlanAttempt(revisedPlan, request, display, replanAttempts+1)
+			return true
+		}
+		r.pendingOperation = &revisedPlan
+	}
+	r.operationHistory = append(r.operationHistory, revisedPlan)
+	msg := commandOperationResultMarkdown(r.language, failedPlan, result)
+	msg += "\n\n"
+	msg += commandOperationReplanIntro(r.language, revisedPlan)
+	msg += "\n\n"
+	msg += commandOperationPlanMarkdown(r.language, revisedPlan)
+	r.finishOperationRouteSpinner(revisedPlan.Status)
+	r.renderBordered(msg)
+	r.recordTurn(display, request, msg, memory.KindPipeline)
+	return true
+}
+
+func commandResultTimedOut(result operation.CommandOperationResult) bool {
+	for _, step := range result.StepResults {
+		if step.TimedOut || step.Status == operation.StatusCancelled {
+			return true
+		}
+	}
+	return false
+}
+
+func commandReplanCanAutoExecute(previous, revised operation.CommandOperationPlan) bool {
+	if revised.Status != operation.StatusReady || revised.ApprovalMode != operation.ApprovalAutoLowRisk {
+		return false
+	}
+	if filepath.Clean(strings.TrimSpace(previous.WorkDir)) != filepath.Clean(strings.TrimSpace(revised.WorkDir)) {
+		return false
+	}
+	if commandRiskRank(revised.RiskLevel) > commandRiskRank(previous.RiskLevel) {
+		return false
+	}
+	for _, step := range revised.Steps {
+		if strings.TrimSpace(step.Shell) != "" {
+			return false
+		}
+		if len(step.SideEffects) > 0 {
+			return false
+		}
+		if step.AutoApproval != operation.StepAutoEligible {
+			return false
+		}
+	}
+	return len(revised.Steps) > 0
+}
+
+func commandRiskRank(risk string) int {
+	switch strings.ToLower(strings.TrimSpace(risk)) {
+	case "none":
+		return 0
+	case "low", "":
+		return 1
+	case "medium":
+		return 2
+	case "high":
+		return 3
+	default:
+		return 2
+	}
+}
+
+func commandOperationPolicyFromPlan(plan operation.CommandOperationPlan) TurnPolicy {
+	return TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: true,
+		Operation:            "computer_operation",
+		OperationKind:        "computer_operation",
+		Source:               "current_message",
+		RiskLevel:            plan.RiskLevel,
+		TargetSurface:        "desktop",
+		RequiresConfirmation: plan.ApprovalMode == operation.ApprovalManual,
+	}
 }
 
 func (r *REPL) operationOutputDir() string {

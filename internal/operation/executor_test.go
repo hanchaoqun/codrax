@@ -136,4 +136,7 @@ func TestCommandExecutorTimeout(t *testing.T) {
 	if !strings.Contains(result.StepResults[0].Error, "timed out") {
 		t.Fatalf("timeout error missing: %+v", result.StepResults[0])
 	}
+	if !result.StepResults[0].TimedOut {
+		t.Fatalf("timeout marker missing: %+v", result.StepResults[0])
+	}
 }

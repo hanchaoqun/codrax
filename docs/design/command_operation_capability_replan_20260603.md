@@ -182,15 +182,15 @@ flexible decoding and repair path.
 
 ### Batch 3: Replan Loop
 
-- [ ] Add planner method for failed-plan replanning using the same schema.
-- [ ] Add deterministic prior-approval envelope checks.
-- [ ] Wire REPL execution to attempt at most one replan after failure.
-- [ ] Add tests for low-risk replan, risk-escalating replan requiring approval,
+- [x] Add planner method for failed-plan replanning using the same schema.
+- [x] Add deterministic prior-approval envelope checks.
+- [x] Wire REPL execution to attempt at most one replan after failure.
+- [x] Add tests for low-risk replan, risk-escalating replan requiring approval,
       and cancellation/timeout not replanning.
 
 ### Batch 4: Validation
 
-- [ ] Run `go test ./internal/operation ./internal/repl`.
-- [ ] Run focused command-operation E2E tests.
+- [x] Run `go test ./internal/operation ./internal/repl`.
+- [x] Run focused command-operation E2E tests.
 - [ ] Run a real-model REPL smoke test with a simple command.
 - [ ] Push each batch.

@@ -124,3 +124,69 @@ func TestCommandOperationPlannerIncludesCapabilitySnapshot(t *testing.T) {
 		}
 	}
 }
+
+func TestCommandOperationReplannerIncludesFailureContext(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"needs_clarification","risk_level":"medium","requires_confirmation":true,"questions":[{"id":"tool","question":"Which replacement command should be used?"}]}`),
+		},
+	}
+	replanner, ok := NewCommandOperationPlanner(adapter).(CommandOperationReplanner)
+	if !ok {
+		t.Fatal("planner should support command replanning")
+	}
+	previous := operation.CommandOperationPlan{
+		ID:           "op-prev",
+		Status:       operation.StatusReady,
+		RiskLevel:    "low",
+		ApprovalMode: operation.ApprovalManual,
+		WorkDir:      "/repo",
+		Steps: []operation.CommandStep{{
+			ID:        "s1",
+			Title:     "show missing tool version",
+			Program:   "missing-tool",
+			Args:      []string{"--version"},
+			RiskLevel: "low",
+		}},
+	}
+	result := operation.CommandOperationResult{
+		PlanID: "op-prev",
+		Status: operation.StatusFailed,
+		StepResults: []operation.CommandStepResult{{
+			StepID:        "s1",
+			Status:        operation.StatusFailed,
+			ExitCode:      127,
+			Error:         "executable file not found",
+			OutputPreview: "missing-tool: command not found",
+		}},
+	}
+	_, err := replanner.ReplanCommandOperation(context.Background(), "查询工具版本", "/repo", TurnPolicy{
+		Operation:     "computer_operation",
+		OperationKind: "computer_operation",
+		RiskLevel:     "low",
+	}, operation.CapabilitySnapshot{}, previous, result)
+	if err != nil {
+		t.Fatalf("ReplanCommandOperation: %v", err)
+	}
+	if len(adapter.calls) != 1 {
+		t.Fatalf("Chat calls=%d, want 1", len(adapter.calls))
+	}
+	user := ""
+	for i := len(adapter.calls[0].messages) - 1; i >= 0; i-- {
+		if adapter.calls[0].messages[i].Role == "user" {
+			user = adapter.calls[0].messages[i].Content
+			break
+		}
+	}
+	for _, want := range []string{
+		"## replan_context",
+		"previous_plan id=op-prev",
+		"previous_result plan_id=op-prev status=failed",
+		"executable file not found",
+		"missing-tool: command not found",
+	} {
+		if !strings.Contains(user, want) {
+			t.Fatalf("replan request missing %q:\n%s", want, user)
+		}
+	}
+}
