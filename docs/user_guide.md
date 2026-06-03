@@ -2033,6 +2033,10 @@ agents:
 | `mcp_servers[].operation_lazy_start` | `false` | 可选:仅当 `operation_provider=true` 时生效。设为 true 后启动 REPL 时不拉起该 MCP server,只有用户批准对应 operation 后才启动并调用 |
 | `mcp_servers[].operation_requires_confirmation` | `true` | provider 是否要求显式确认后才能执行。当前计划器会据此停在确认前 |
 
+operation provider 执行完成后,结果会进入独立的 operation handoff 和 operation memory:包括 provider 名、工具名、操作类型、摘要、外部观测数量、payload ref、artifact ref 等。下一次 operation 规划可以参考这些信息继续工作,例如“刚才 PPT provider 生成了哪个文件,下一步如何验证或修改”。这些信息仍是外部操作结果,不会被当成当前源码 citation;代码/trace/log 混合任务仍由 typed 路由决定是否进入源码或 runtime trace 管线。
+
+如果 provider 返回很大的输出,codrax 只在 REPL 面板显示短摘要和少量 ref,完整内容通过 payload/artifact ref 保留。provider 不应该把大文件全文塞进 MCP text;更好的做法是返回摘要 + 明确的文件路径、资源 URI 或 rowset/payload ref。
+
 ### 电脑操作 / 制品生成路由
 
 | 键 | 默认 | 作用 |

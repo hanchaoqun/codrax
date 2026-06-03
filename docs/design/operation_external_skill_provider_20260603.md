@@ -200,22 +200,25 @@ full raw provider output.
 
 ### Batch D: Result Contract and Handoff
 
-- [ ] Expand provider operation result with artifact refs and verification
-      status where available.
-- [ ] Store provider summaries/payload refs in current-run operation handoff.
-- [ ] Add durable operation memory entries for provider successes/failures.
-- [ ] Keep provider output out of source citation lanes.
+- [x] Expand provider operation result with structured artifact refs collected
+      from MCP response refs and typed observations. Verification fields remain
+      empty unless a provider exposes explicit verification data; Codrax does
+      not infer verification from free-form text.
+- [x] Store provider summaries, payload refs, artifact refs, and observation
+      counts in current-run operation handoff.
+- [x] Add durable operation memory entries for provider successes/failures.
+- [x] Keep provider output out of source citation lanes.
 
 ### Batch E: Docs and Eval
 
-- [ ] Update `codrax.yaml.example`.
-- [ ] Update user guide MD/HTML with descriptor, dynamic parameters, lazy
+- [x] Update `codrax.yaml.example`.
+- [x] Update user guide MD/HTML with descriptor, dynamic parameters, lazy
       startup, and approval workflow.
 - [ ] Add focused tests for:
-      - empty config byte-safe behavior;
-      - eager MCP unchanged;
-      - lazy MCP not started until approval;
-      - lazy startup failure surfaces as operation failure;
-      - provider descriptor prompt injection is operation-only;
-      - source/trace/log questions do not consume operation providers.
-- [ ] Run targeted `go test` suites and push each batch.
+      - [x] empty config byte-safe behavior;
+      - [x] eager MCP unchanged;
+      - [x] lazy MCP not started until approval;
+      - [x] lazy startup failure surfaces as operation failure;
+      - [x] provider descriptor prompt injection is operation-only;
+      - [x] source/trace/log questions do not consume operation providers.
+- [x] Run targeted `go test` suites and push each batch.

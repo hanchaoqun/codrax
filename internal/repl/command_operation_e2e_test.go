@@ -93,7 +93,7 @@ func (s *operationProviderMCPServer) ReadResource(string) (types.MCPResponse, er
 func (s *operationProviderMCPServer) ListPrompts() []mcp.PromptSchema { return nil }
 func (s *operationProviderMCPServer) CallTool(name string, params json.RawMessage) (types.MCPResponse, error) {
 	s.got = append([]byte(nil), params...)
-	return types.MCPResponse{ServerName: s.Name(), Method: "tools/call", Summary: "created deck artifact", Success: true, Timestamp: time.Now()}, nil
+	return types.MCPResponse{ServerName: s.Name(), Method: "tools/call", Summary: "created deck artifact", PayloadRef: "/tmp/codrax/deck.pptx", Success: true, Timestamp: time.Now()}, nil
 }
 func (s *operationProviderMCPServer) Close() error { return nil }
 
@@ -274,6 +274,19 @@ func TestOperationProviderMCPApproveExecutesConfiguredTool(t *testing.T) {
 	if !strings.Contains(out.String(), "created deck artifact") {
 		t.Fatalf("provider result not rendered:\n%s", out.String())
 	}
+	handoff := r.renderCommandOperationHandoff()
+	for _, want := range []string{
+		"provider_operation_result",
+		"provider=\"mcp:slides\"",
+		"tool=\"run_operation\"",
+		"kind=\"presentation_generation\"",
+		"created deck artifact",
+		"artifact_refs=/tmp/codrax/deck.pptx",
+	} {
+		if !strings.Contains(handoff, want) {
+			t.Fatalf("provider handoff missing %q:\n%s", want, handoff)
+		}
+	}
 }
 
 func TestOperationProviderMCPLazyApproveStartsConfiguredServer(t *testing.T) {
@@ -295,6 +308,8 @@ func TestOperationProviderMCPLazyApproveStartsConfiguredServer(t *testing.T) {
 	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "生成一份 PPT\n/approve\n/exit\n")
 	r.operationEnabled = true
 	r.mcpServers = mcp.NewRegistry()
+	r.runtimeAnchor = t.TempDir()
+	r.operationMemory = operation.NewMemoryStore(filepath.Join(r.runtimeAnchor, "operation", "memory.jsonl"))
 	r.mcpServerConfigs = []types.MCPServerConfig{{
 		Name:               "lazy_slides",
 		Transport:          types.TransportStdio,
@@ -333,6 +348,89 @@ func TestOperationProviderMCPLazyApproveStartsConfiguredServer(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "lazy provider created deck artifact") {
 		t.Fatalf("lazy provider result not rendered:\n%s", out.String())
+	}
+	entries, err := r.operationMemory.RecentMatches(r.commandOperationCapabilitySnapshot(), 4)
+	if err != nil {
+		t.Fatalf("read operation memory: %v", err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("lazy provider result was not persisted to operation memory")
+	}
+	renderedMemory := operation.RenderMemoryForPrompt(entries)
+	for _, want := range []string{
+		"Historical operation lessons",
+		"capability=presentation_generation",
+		"provider=\"mcp:lazy_slides\"",
+		"tool=\"run_operation\"",
+		"lazy provider created deck artifact",
+		"not current-source evidence",
+	} {
+		if !strings.Contains(renderedMemory, want) {
+			t.Fatalf("provider memory missing %q:\n%s", want, renderedMemory)
+		}
+	}
+}
+
+func TestOperationProviderMCPLazyStartFailureStaysInOperationLane(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: true,
+		Operation:            "presentation_generation",
+		OperationKind:        "presentation_generation",
+		Source:               "current_message",
+		RiskLevel:            "low",
+		TargetSurface:        "slides",
+		SideEffects:          []string{"local_file_write"},
+		Confidence:           0.9,
+		Reason:               "user asked for a presentation artifact",
+	}}
+	yes := true
+	timeoutMS := 500
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "生成一份 PPT\n/approve\n/exit\n")
+	r.operationEnabled = true
+	r.mcpServers = mcp.NewRegistry()
+	missingCommand := filepath.Join(t.TempDir(), "missing-mcp-provider")
+	r.mcpServerConfigs = []types.MCPServerConfig{{
+		Name:               "broken_slides",
+		Transport:          types.TransportStdio,
+		Command:            missingCommand,
+		StartupTimeoutMS:   &timeoutMS,
+		OperationProvider:  &yes,
+		OperationLazyStart: &yes,
+		OperationKinds:     []string{"presentation_generation"},
+		OperationSurfaces:  []string{"slides"},
+		OperationTool:      "run_operation",
+	}}
+	r.operationProviders = []operation.ProviderInfo{{
+		Name:         "mcp:broken_slides",
+		Kind:         "presentation_generation",
+		Surfaces:     []string{"slides"},
+		SideEffects:  []string{"local_file_write"},
+		RequiresGate: true,
+		ToolName:     "run_operation",
+		Source:       "mcp",
+		LazyStart:    true,
+		Loaded:       false,
+	}}
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("failed lazy provider operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	printed := out.String()
+	for _, want := range []string{
+		"Operation provider `mcp:broken_slides` failed.",
+		"start lazy MCP operation provider",
+		"broken_slides",
+	} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("lazy provider failure output missing %q:\n%s", want, printed)
+		}
+	}
+	if r.operationProviders[0].Loaded {
+		t.Fatalf("failed lazy provider should remain unloaded: %+v", r.operationProviders[0])
 	}
 }
 

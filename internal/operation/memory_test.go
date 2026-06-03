@@ -37,7 +37,7 @@ func TestOperationMemoryStoreRoundTripAndPrompt(t *testing.T) {
 	rendered := RenderMemoryForPrompt(got)
 	for _, want := range []string{
 		"## operation_memory",
-		"Historical command-operation lessons",
+		"Historical operation lessons",
 		"demo-tool --help",
 		"output_kind=",
 		"payload_ref=/tmp/help.txt",
@@ -153,5 +153,46 @@ func TestBuildMemoryEntriesIncludesVerification(t *testing.T) {
 	rendered := RenderMemoryForPrompt(entries)
 	if !strings.Contains(rendered, "verify=verified") {
 		t.Fatalf("rendered memory missing verification:\n%s", rendered)
+	}
+}
+
+func TestBuildProviderMemoryEntryFeedsPrompt(t *testing.T) {
+	entry := BuildProviderMemoryEntry(
+		"mcp:slides",
+		"run_operation",
+		"presentation_generation",
+		"slides",
+		StatusExecuted,
+		"created deck artifact",
+		"/tmp/codrax/blob/provider-output.txt",
+		"",
+		[]string{"mcp://artifact/deck"},
+		2,
+		CapabilitySnapshot{RepoRoot: "/repo", OS: "linux", Arch: "amd64", Shell: "bash"},
+	)
+	if entry.Capability != "presentation_generation" {
+		t.Fatalf("Capability=%q want presentation_generation: %+v", entry.Capability, entry)
+	}
+	if entry.Provider != "mcp:slides" || entry.ProviderTool != "run_operation" || entry.TargetSurface != "slides" {
+		t.Fatalf("provider identity not preserved: %+v", entry)
+	}
+	if entry.OutputKind != "provider_observation" || entry.Observations != 2 {
+		t.Fatalf("provider output metadata not preserved: %+v", entry)
+	}
+	rendered := RenderMemoryForPrompt([]MemoryEntry{entry})
+	for _, want := range []string{
+		"capability=presentation_generation",
+		"provider=\"mcp:slides\"",
+		"tool=\"run_operation\"",
+		"target=\"slides\"",
+		"provider_observation",
+		"observations=2",
+		"payload_ref=/tmp/codrax/blob/provider-output.txt",
+		"artifact_ref=mcp://artifact/deck",
+		"not current-source evidence",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered provider memory missing %q:\n%s", want, rendered)
+		}
 	}
 }

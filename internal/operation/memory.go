@@ -30,16 +30,21 @@ type MemoryEntry struct {
 	Shell          string    `json:"shell,omitempty"`
 	Capability     string    `json:"capability,omitempty"`
 	Command        string    `json:"command,omitempty"`
+	Provider       string    `json:"provider,omitempty"`
+	ProviderTool   string    `json:"provider_tool,omitempty"`
+	TargetSurface  string    `json:"target_surface,omitempty"`
 	Args           []string  `json:"args,omitempty"`
 	Outcome        string    `json:"outcome,omitempty"`
 	FailureClass   string    `json:"failure_class,omitempty"`
 	OutputKind     string    `json:"output_kind,omitempty"`
 	OutputLines    int       `json:"output_lines,omitempty"`
 	OutputBytes    int       `json:"output_bytes,omitempty"`
+	Observations   int       `json:"observations,omitempty"`
 	VerifyStatus   string    `json:"verify_status,omitempty"`
 	VerifySummary  string    `json:"verify_summary,omitempty"`
 	Summary        string    `json:"summary,omitempty"`
 	PayloadRefs    []string  `json:"payload_refs,omitempty"`
+	ArtifactRefs   []string  `json:"artifact_refs,omitempty"`
 	Lessons        []string  `json:"lessons,omitempty"`
 	EnvFingerprint string    `json:"env_fingerprint,omitempty"`
 }
@@ -134,28 +139,46 @@ func RenderMemoryForPrompt(entries []MemoryEntry) string {
 	}
 	var b strings.Builder
 	b.WriteString("## operation_memory\n")
-	b.WriteString("Historical command-operation lessons. Use only as soft guidance; they are not current-source evidence and may be stale.\n")
+	b.WriteString("Historical operation lessons from command and provider execution. Use only as soft guidance; they are not current-source evidence and may be stale.\n")
 	for i, entry := range entries {
 		if i >= 6 {
 			break
 		}
-		fmt.Fprintf(&b, "- outcome=%s command=%q", dash(entry.Outcome), oneLine(entry.Command, 180))
+		fmt.Fprintf(&b, "- outcome=%s", dash(entry.Outcome))
+		if entry.Capability != "" {
+			fmt.Fprintf(&b, " capability=%s", entry.Capability)
+		}
+		if entry.Provider != "" || entry.ProviderTool != "" {
+			fmt.Fprintf(&b, " provider=%q tool=%q", oneLine(entry.Provider, 140), oneLine(entry.ProviderTool, 140))
+			if entry.TargetSurface != "" {
+				fmt.Fprintf(&b, " target=%q", oneLine(entry.TargetSurface, 120))
+			}
+		} else {
+			fmt.Fprintf(&b, " command=%q", oneLine(entry.Command, 180))
+		}
 		if entry.FailureClass != "" {
 			fmt.Fprintf(&b, " failure_class=%s", entry.FailureClass)
 		}
 		if entry.OutputKind != "" {
 			fmt.Fprintf(&b, " output_kind=%s", entry.OutputKind)
 		}
+		if entry.Observations > 0 {
+			fmt.Fprintf(&b, " observations=%d", entry.Observations)
+		}
 		if entry.OS != "" || entry.Arch != "" {
 			fmt.Fprintf(&b, " env=%s/%s", dash(entry.OS), dash(entry.Arch))
 		}
 		if len(entry.Lessons) > 0 {
 			fmt.Fprintf(&b, " lesson=%q", oneLine(strings.Join(entry.Lessons, "; "), 260))
-		} else if entry.Summary != "" {
+		}
+		if entry.Summary != "" {
 			fmt.Fprintf(&b, " summary=%q", oneLine(entry.Summary, 260))
 		}
 		if len(entry.PayloadRefs) > 0 {
 			fmt.Fprintf(&b, " payload_ref=%s", entry.PayloadRefs[0])
+		}
+		if len(entry.ArtifactRefs) > 0 {
+			fmt.Fprintf(&b, " artifact_ref=%s", entry.ArtifactRefs[0])
 		}
 		if entry.VerifyStatus != "" {
 			fmt.Fprintf(&b, " verify=%s", entry.VerifyStatus)
@@ -203,6 +226,54 @@ func BuildMemoryEntries(plan CommandOperationPlan, result CommandOperationResult
 		entries = append(entries, entry)
 	}
 	return entries
+}
+
+// BuildProviderMemoryEntry turns a completed external operation provider call
+// into a compact lesson. It intentionally stores only the provider/tool name,
+// bounded summaries, and payload refs; provider payloads remain in the blob
+// lane and must not be treated as current-source evidence.
+func BuildProviderMemoryEntry(provider, tool, operationKind, targetSurface string, status OperationStatus, summary, payloadRef, errText string, artifactRefs []string, observations int, snapshot CapabilitySnapshot) MemoryEntry {
+	provider = strings.TrimSpace(provider)
+	tool = strings.TrimSpace(tool)
+	operationKind = strings.TrimSpace(operationKind)
+	targetSurface = strings.TrimSpace(targetSurface)
+	if operationKind == "" {
+		operationKind = "external_operation_provider"
+	}
+	outcome := strings.TrimSpace(string(status))
+	failureClass := ""
+	if status == StatusFailed {
+		failureClass = "provider_error"
+	}
+	resultSummary := strings.TrimSpace(summary)
+	if resultSummary == "" {
+		resultSummary = strings.TrimSpace(errText)
+	}
+	lessons := lessonsForProviderResult(status, provider, tool, errText)
+	entry := MemoryEntry{
+		CreatedAt:      time.Now().UTC(),
+		Workspace:      snapshot.RepoRoot,
+		OS:             snapshot.OS,
+		Arch:           snapshot.Arch,
+		Shell:          snapshot.Shell,
+		Capability:     operationKind,
+		Provider:       provider,
+		ProviderTool:   tool,
+		TargetSurface:  targetSurface,
+		Outcome:        outcome,
+		FailureClass:   failureClass,
+		OutputKind:     "provider_result",
+		Observations:   observations,
+		Summary:        resultSummary,
+		PayloadRefs:    cleanRefs([]string{payloadRef}),
+		ArtifactRefs:   cleanRefs(artifactRefs),
+		Lessons:        lessons,
+		EnvFingerprint: envFingerprint(snapshot),
+	}
+	if observations > 0 {
+		entry.OutputKind = "provider_observation"
+	}
+	return entry
 }
 
 func (s *MemoryStore) readAll() ([]MemoryEntry, error) {
@@ -284,15 +355,19 @@ func normalizeMemoryEntry(entry MemoryEntry, now time.Time, ttl time.Duration) M
 	entry.Shell = strings.TrimSpace(entry.Shell)
 	entry.Capability = strings.TrimSpace(entry.Capability)
 	entry.Command = strings.TrimSpace(entry.Command)
+	entry.Provider = strings.TrimSpace(entry.Provider)
+	entry.ProviderTool = strings.TrimSpace(entry.ProviderTool)
+	entry.TargetSurface = strings.TrimSpace(entry.TargetSurface)
 	entry.Outcome = strings.TrimSpace(entry.Outcome)
 	entry.FailureClass = strings.TrimSpace(entry.FailureClass)
 	entry.OutputKind = strings.TrimSpace(entry.OutputKind)
 	entry.Summary = oneLine(entry.Summary, 500)
 	entry.PayloadRefs = cleanRefs(entry.PayloadRefs)
+	entry.ArtifactRefs = cleanRefs(entry.ArtifactRefs)
 	entry.Lessons = cleanLessons(entry.Lessons)
 	entry.EnvFingerprint = strings.TrimSpace(entry.EnvFingerprint)
 	if entry.ID == "" {
-		sum := sha256.Sum256([]byte(entry.CreatedAt.Format(time.RFC3339Nano) + "\x00" + entry.Workspace + "\x00" + entry.Command + "\x00" + entry.Outcome))
+		sum := sha256.Sum256([]byte(entry.CreatedAt.Format(time.RFC3339Nano) + "\x00" + entry.Workspace + "\x00" + entry.Command + "\x00" + entry.Provider + "\x00" + entry.ProviderTool + "\x00" + entry.Outcome))
 		entry.ID = "opmem-" + hex.EncodeToString(sum[:6])
 	}
 	return entry
@@ -313,6 +388,8 @@ func scoreMemoryEntry(entry MemoryEntry, snapshot CapabilitySnapshot) int {
 		return 0
 	}
 	if entry.Capability == "computer_operation" {
+		score += 1
+	} else if entry.Capability != "" {
 		score += 1
 	}
 	if entry.Outcome != "" {
@@ -341,6 +418,21 @@ func lessonsForStepResult(step CommandStepResult, command string) []string {
 		return []string{"A prior operation step completed successfully."}
 	}
 	return nil
+}
+
+func lessonsForProviderResult(status OperationStatus, provider, tool, errText string) []string {
+	name := strings.Trim(strings.TrimSpace(provider)+"::"+strings.TrimSpace(tool), ":")
+	if status == StatusExecuted {
+		if name != "" {
+			return []string{"This operation provider completed successfully in a prior operation context."}
+		}
+		return []string{"A prior operation provider completed successfully."}
+	}
+	errText = strings.TrimSpace(errText)
+	if errText != "" {
+		return []string{"This operation provider failed previously; inspect provider configuration, tool arguments, or payload output before retrying unchanged."}
+	}
+	return []string{"This operation provider did not complete; avoid retrying unchanged without checking provider readiness."}
 }
 
 func commandDisplay(step CommandStep) string {

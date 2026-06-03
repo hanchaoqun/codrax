@@ -574,6 +574,7 @@ type REPL struct {
 	pendingProviderOperation    *pendingProviderOperation
 	operationHistory            []operation.CommandOperationPlan
 	operationResults            []commandOperationResultRecord
+	providerOperationResults    []providerOperationResultRecord
 	operationMemory             *operation.MemoryStore
 	mcpServers                  *mcp.Registry
 	mcpServerConfigs            []types.MCPServerConfig
@@ -1526,6 +1527,12 @@ type commandOperationResultRecord struct {
 	Result operation.CommandOperationResult
 }
 
+type providerOperationResultRecord struct {
+	Plan    operation.Plan
+	Request operation.Request
+	Result  providerOperationResult
+}
+
 type pendingCommandClarification struct {
 	OriginalLine string
 	Display      string
@@ -1552,6 +1559,31 @@ func (r *REPL) appendCommandOperationResult(plan operation.CommandOperationPlan,
 	}
 }
 
+func (r *REPL) appendProviderOperationResult(plan operation.Plan, request operation.Request, result providerOperationResult) {
+	r.providerOperationResults = append(r.providerOperationResults, providerOperationResultRecord{Plan: plan, Request: request, Result: result})
+	if len(r.providerOperationResults) > 6 {
+		r.providerOperationResults = r.providerOperationResults[len(r.providerOperationResults)-6:]
+	}
+	if r.operationMemory != nil {
+		entry := operation.BuildProviderMemoryEntry(
+			result.Provider,
+			result.Tool,
+			firstNonEmptyString(plan.Kind, request.OperationKind, request.Operation),
+			firstNonEmptyString(plan.TargetSurface, request.TargetSurface),
+			result.Status,
+			result.Summary,
+			result.PayloadRef,
+			result.Error,
+			result.ArtifactRefs,
+			result.Observations,
+			r.commandOperationCapabilitySnapshot(),
+		)
+		if err := r.operationMemory.Append(entry); err != nil {
+			logging.Warning("[repl/operation] append provider operation memory failed: %v", err)
+		}
+	}
+}
+
 func (r *REPL) renderCommandOperationHandoff() string {
 	start := len(r.operationResults) - 2
 	if start < 0 {
@@ -1570,6 +1602,27 @@ func (r *REPL) renderCommandOperationHandoff() string {
 			fmt.Fprintf(&b, "  step id=%s cmd=%q status=%s exit_code=%d timed_out=%t failure_class=%s verification_status=%s verification_kind=%s verification_summary=%q output_kind=%s output_summary=%q error=%q output_preview=%q payload_ref=%s\n",
 				step.StepID, cmd, step.Status, step.ExitCode, step.TimedOut, step.FailureClass, step.Verification.Status, step.Verification.Kind, oneLineClamp(step.Verification.Summary, 220), summary.Kind, oneLineClamp(summary.Summary, 260), oneLineClamp(step.Error, 240), preview, step.PayloadRef)
 		}
+	}
+	providerStart := len(r.providerOperationResults) - 2
+	if providerStart < 0 {
+		providerStart = 0
+	}
+	for i := providerStart; i < len(r.providerOperationResults); i++ {
+		rec := r.providerOperationResults[i]
+		fmt.Fprintf(&b, "provider_operation_result provider=%q tool=%q kind=%q target=%q status=%s observations=%d request=%q summary=%q error=%q payload_ref=%s artifact_refs=%s verification_status=%s verification_summary=%q\n",
+			oneLineClamp(rec.Result.Provider, 120),
+			oneLineClamp(rec.Result.Tool, 120),
+			oneLineClamp(firstNonEmptyString(rec.Plan.Kind, rec.Request.OperationKind, rec.Request.Operation), 80),
+			oneLineClamp(firstNonEmptyString(rec.Plan.TargetSurface, rec.Request.TargetSurface), 80),
+			rec.Result.Status,
+			rec.Result.Observations,
+			oneLineClamp(rec.Request.Text, 200),
+			oneLineClamp(rec.Result.Summary, 500),
+			oneLineClamp(rec.Result.Error, 260),
+			rec.Result.PayloadRef,
+			oneLineClamp(strings.Join(rec.Result.ArtifactRefs, ","), 500),
+			rec.Result.VerificationStatus,
+			oneLineClamp(rec.Result.VerificationSummary, 220))
 	}
 	if r.operationMemory != nil {
 		if entries, err := r.operationMemory.RecentMatches(r.commandOperationCapabilitySnapshot(), 4); err == nil {
@@ -4923,13 +4976,16 @@ func (r *REPL) handleMergeCmd(line string) {
 }
 
 type providerOperationResult struct {
-	Status       operation.OperationStatus
-	Provider     string
-	Tool         string
-	Summary      string
-	PayloadRef   string
-	Error        string
-	Observations int
+	Status              operation.OperationStatus
+	Provider            string
+	Tool                string
+	Summary             string
+	PayloadRef          string
+	ArtifactRefs        []string
+	VerificationStatus  string
+	VerificationSummary string
+	Error               string
+	Observations        int
 }
 
 func (r *REPL) handleProviderOperationApproveCmd(line string) {
@@ -4941,6 +4997,7 @@ func (r *REPL) handleProviderOperationApproveCmd(line string) {
 	}
 	r.pendingProviderOperation = nil
 	result := r.executeProviderOperation(context.Background(), *pending)
+	r.appendProviderOperationResult(pending.Plan, pending.Request, result)
 	msg := providerOperationResultMarkdown(r.language, pending.Plan, result)
 	r.renderBordered(msg)
 	r.recordTurn(pending.Display, pending.Request.Text, msg, memory.KindPipeline)
@@ -4988,6 +5045,7 @@ func (r *REPL) executeProviderOperation(ctx context.Context, pending pendingProv
 	}
 	result.Observations = len(resp.Observations)
 	result.PayloadRef = firstNonEmptyString(resp.PayloadRef, resp.RawRef, resp.RowSetRef)
+	result.ArtifactRefs = providerArtifactRefsFromMCPResponse(resp)
 	result.Summary = strings.TrimSpace(resp.Summary)
 	if result.Summary == "" && result.Observations > 0 {
 		result.Summary = fmt.Sprintf("MCP provider returned %d typed observation(s).", result.Observations)
@@ -5005,6 +5063,36 @@ func (r *REPL) executeProviderOperation(ctx context.Context, pending pendingProv
 		}
 	}
 	return result
+}
+
+func providerArtifactRefsFromMCPResponse(resp types.MCPResponse) []string {
+	var refs []string
+	add := func(values ...string) {
+		for _, value := range values {
+			value = strings.TrimSpace(value)
+			if value == "" {
+				continue
+			}
+			seen := false
+			for _, existing := range refs {
+				if existing == value {
+					seen = true
+					break
+				}
+			}
+			if !seen {
+				refs = append(refs, value)
+			}
+		}
+	}
+	add(resp.PayloadRef, resp.RawRef, resp.RowSetRef, resp.PageRef, resp.ResourceURI)
+	for _, obs := range resp.Observations {
+		add(obs.PayloadRef, obs.RawRef, obs.RowSetRef, obs.PageRef, obs.ResourceURI)
+	}
+	if len(refs) > 8 {
+		return refs[:8]
+	}
+	return refs
 }
 
 func (r *REPL) ensureLazyOperationMCPServer(serverName string) error {

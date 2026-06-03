@@ -1184,6 +1184,16 @@ func providerOperationResultMarkdown(lang string, plan operation.Plan, result pr
 		if result.Observations > 0 {
 			b.WriteString(fmt.Sprintf("- 外部观测：%d 条\n", result.Observations))
 		}
+		if len(result.ArtifactRefs) > 0 {
+			b.WriteString(fmt.Sprintf("- 产物/引用：`%s`\n", strings.Join(providerArtifactRefsForDisplay(result.ArtifactRefs), "`, `")))
+		}
+		if result.VerificationStatus != "" {
+			b.WriteString(fmt.Sprintf("- 验证：`%s`", result.VerificationStatus))
+			if result.VerificationSummary != "" {
+				b.WriteString(fmt.Sprintf(" — %s", result.VerificationSummary))
+			}
+			b.WriteString("\n")
+		}
 		if result.Error != "" {
 			b.WriteString(fmt.Sprintf("- 错误：%s\n", result.Error))
 		}
@@ -1208,6 +1218,16 @@ func providerOperationResultMarkdown(lang string, plan operation.Plan, result pr
 	if result.Observations > 0 {
 		b.WriteString(fmt.Sprintf("- External observations: %d\n", result.Observations))
 	}
+	if len(result.ArtifactRefs) > 0 {
+		b.WriteString(fmt.Sprintf("- Artifacts/refs: `%s`\n", strings.Join(providerArtifactRefsForDisplay(result.ArtifactRefs), "`, `")))
+	}
+	if result.VerificationStatus != "" {
+		b.WriteString(fmt.Sprintf("- Verification: `%s`", result.VerificationStatus))
+		if result.VerificationSummary != "" {
+			b.WriteString(fmt.Sprintf(" — %s", result.VerificationSummary))
+		}
+		b.WriteString("\n")
+	}
 	if result.Error != "" {
 		b.WriteString(fmt.Sprintf("- Error: %s\n", result.Error))
 	}
@@ -1220,6 +1240,24 @@ func providerOperationResultMarkdown(lang string, plan operation.Plan, result pr
 		b.WriteString(fmt.Sprintf("\nFull output: `%s`", result.PayloadRef))
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func providerArtifactRefsForDisplay(refs []string) []string {
+	if len(refs) == 0 {
+		return nil
+	}
+	max := len(refs)
+	if max > 4 {
+		max = 4
+	}
+	out := make([]string, 0, max)
+	for i := 0; i < max; i++ {
+		out = append(out, oneLineClamp(refs[i], 180))
+	}
+	if len(refs) > max {
+		out = append(out, fmt.Sprintf("+%d more", len(refs)-max))
+	}
+	return out
 }
 
 func operationRejectedMsg(lang, id, reason string) string {
