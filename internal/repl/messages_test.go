@@ -268,6 +268,17 @@ func TestSplitVisibleThinkBlocksKeepsOperationAnswerPanelClean(t *testing.T) {
 	}
 }
 
+func TestOperationFinalReportDoesNotAppendExecutionDetails(t *testing.T) {
+	got := operationFinalReportWithDetails("zh", "最终报告", "命令输出详情")
+	if got != "最终报告" {
+		t.Fatalf("final report should stay pure, got %q", got)
+	}
+	fallback := operationFinalReportWithDetails("zh", "", "命令输出详情")
+	if fallback != "命令输出详情" {
+		t.Fatalf("empty answer should fall back to details, got %q", fallback)
+	}
+}
+
 func TestOperationVisibleThinkBlocksAreSuppressedFromPanel(t *testing.T) {
 	var out bytes.Buffer
 	r := &REPL{out: &out, language: "zh"}

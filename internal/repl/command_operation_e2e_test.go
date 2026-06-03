@@ -1457,12 +1457,14 @@ func TestCommandOperationE2E_AutoLowRiskSynthesizesFinalAnswer(t *testing.T) {
 	printed := out.String()
 	for _, want := range []string{
 		"当前 Go 环境可用",
-		"Execution details:",
 		"go version",
 	} {
 		if !strings.Contains(printed, want) {
 			t.Fatalf("final operation output missing %q:\n%s", want, printed)
 		}
+	}
+	if strings.Contains(printed, "Execution details:") || strings.Contains(printed, "执行详情：") {
+		t.Fatalf("final operation answer should not append execution details:\n%s", printed)
 	}
 }
 
@@ -1527,11 +1529,13 @@ func TestCommandOperationE2E_ContinueAfterRunsSecondBatchBeforeAnswer(t *testing
 		"已完成两轮探测",
 		"go version",
 		"go env GOOS",
-		"Round 2",
 	} {
 		if !strings.Contains(printed, want) {
 			t.Fatalf("continued operation output missing %q:\n%s", want, printed)
 		}
+	}
+	if strings.Contains(printed, "Round 2") || strings.Contains(printed, "Execution details:") || strings.Contains(printed, "执行详情：") {
+		t.Fatalf("continued operation should show per-round panels, not final aggregated details:\n%s", printed)
 	}
 }
 

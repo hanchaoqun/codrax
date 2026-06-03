@@ -1676,13 +1676,7 @@ func operationFinalReportWithDetails(lang, answer, details string) string {
 	if answer == "" {
 		return details
 	}
-	if details == "" {
-		return answer
-	}
-	if isZh(lang) {
-		return answer + "\n\n---\n\n执行详情：\n\n" + details
-	}
-	return answer + "\n\n---\n\nExecution details:\n\n" + details
+	return answer
 }
 
 func splitVisibleThinkBlocks(text string) ([]string, string) {

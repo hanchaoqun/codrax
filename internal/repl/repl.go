@@ -1732,10 +1732,12 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 		}
 		logging.Info("[repl/operation] command loop result plan_id=%s status=%s step_results=%d repair_rounds=%d command_rounds=%d",
 			currentPlan.ID, result.Status, len(result.StepResults), repairRounds, commandRounds)
+		r.renderCommandOperationRoundResult(currentPlan, result)
 
 		if result.Status == operation.StatusFailed && !commandResultTimedOut(result) && repairRounds < commandOperationMaxRepairRounds && r.operationPlanner != nil {
 			replanner, ok := r.operationPlanner.(CommandOperationReplanner)
 			if ok {
+				r.startOperationExecutionSpinner()
 				snapshot := r.commandOperationCapabilitySnapshot()
 				revisedReq, err := replanner.ReplanCommandOperation(ctx, currentPlan.RequestText, r.repoRoot, commandOperationPolicyFromPlan(currentPlan), snapshot, currentPlan, result)
 				if err != nil {
@@ -1754,23 +1756,20 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 							continue
 						}
 						if commandReplanCanAutoExecute(currentPlan, revisedPlan) {
-							msg := commandOperationResultMarkdown(r.language, currentPlan, result)
-							msg += "\n\n"
-							msg += commandOperationReplanIntro(r.language, revisedPlan)
+							msg := commandOperationReplanIntro(r.language, revisedPlan)
 							msg += "\n\n"
 							msg += commandOperationAutoExecuteMarkdown(r.language, revisedPlan)
 							r.finishOperationRouteSpinner(revisedPlan.Status)
 							r.renderBorderedCompact(msg)
 							currentPlan = revisedPlan
+							r.startOperationExecutionSpinner()
 							continue
 						}
 						r.pendingOperation = &revisedPlan
 						r.savePendingOperationState()
 					}
 					r.operationHistory = append(r.operationHistory, revisedPlan)
-					msg := commandOperationResultMarkdown(r.language, currentPlan, result)
-					msg += "\n\n"
-					msg += commandOperationReplanIntro(r.language, revisedPlan)
+					msg := commandOperationReplanIntro(r.language, revisedPlan)
 					msg += "\n\n"
 					msg += commandOperationPlanMarkdown(r.language, revisedPlan)
 					r.finishOperationRouteSpinner(revisedPlan.Status)
@@ -1785,16 +1784,19 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 			r.appendCommandOperationResult(currentPlan, budget)
 			records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: budget})
 			result = budget
+			r.renderCommandOperationRoundResult(currentPlan, result)
 		}
 		if commandOperationContinuationBudgetExhausted(currentPlan, result, records) {
 			budget := commandOperationBudgetResult(currentPlan, "command operation command-round budget exhausted before the user goal was fully satisfied")
 			r.appendCommandOperationResult(currentPlan, budget)
 			records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: budget})
 			result = budget
+			r.renderCommandOperationRoundResult(currentPlan, result)
 		}
 		if result.Status == operation.StatusExecuted && currentPlan.ContinueAfter && r.operationPlanner != nil && commandRounds < commandOperationMaxCommandRounds {
 			continuer, ok := r.operationPlanner.(CommandOperationContinuationPlanner)
 			if ok {
+				r.startOperationExecutionSpinner()
 				snapshot := r.commandOperationCapabilitySnapshot()
 				next, err := continuer.ContinueCommandOperation(ctx, currentPlan.RequestText, r.repoRoot, commandOperationPolicyFromPlan(currentPlan), snapshot, records)
 				if err != nil {
@@ -1821,6 +1823,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 						r.finishOperationRouteSpinner(nextPlan.Status)
 						r.renderBorderedCompact(msg)
 						currentPlan = nextPlan
+						r.startOperationExecutionSpinner()
 						continue
 					} else {
 						if nextPlan.Status == operation.StatusReady {
@@ -1828,9 +1831,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 							r.savePendingOperationState()
 						}
 						r.operationHistory = append(r.operationHistory, nextPlan)
-						msg := commandOperationRecordsMarkdown(r.language, records)
-						msg += "\n\n"
-						msg += commandOperationContinuationIntro(r.language, nextPlan)
+						msg := commandOperationContinuationIntro(r.language, nextPlan)
 						msg += "\n\n"
 						msg += commandOperationPlanMarkdown(r.language, nextPlan)
 						r.finishOperationRouteSpinner(nextPlan.Status)
@@ -1848,6 +1849,15 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 		r.recordTurn(display, request, msg, memory.KindPipeline)
 		return
 	}
+}
+
+func (r *REPL) renderCommandOperationRoundResult(plan operation.CommandOperationPlan, result operation.CommandOperationResult) {
+	msg := commandOperationResultMarkdown(r.language, plan, result)
+	if strings.TrimSpace(msg) == "" {
+		return
+	}
+	r.finishOperationRouteSpinner(result.Status)
+	r.renderBorderedCompact(msg)
 }
 
 func (r *REPL) commandOperationFinalMessage(ctx context.Context, userLine string, records []commandOperationResultRecord) (string, []string) {
@@ -5663,6 +5673,7 @@ func (r *REPL) executeProviderOperationFlow(ctx context.Context, first pendingPr
 		rec := providerOperationResultRecord{Plan: current.Plan, Request: current.Request, Result: result}
 		records = append(records, rec)
 		r.appendProviderOperationResult(current.Plan, current.Request, result)
+		r.renderProviderOperationRoundResult(current.Plan, result)
 		if result.Status != operation.StatusExecuted {
 			break
 		}
@@ -5675,6 +5686,7 @@ func (r *REPL) executeProviderOperationFlow(ctx context.Context, first pendingPr
 		}
 		r.pendingProviderOperation = nil
 		current = next
+		r.startOperationExecutionSpinner()
 	}
 	if len(records) == 0 {
 		return
@@ -5702,6 +5714,15 @@ func (r *REPL) executeProviderOperationFlow(ctx context.Context, first pendingPr
 	r.emitOperationVisibleThoughts(thoughts)
 	r.renderBordered(msg)
 	r.recordTurn(first.Display, first.Request.Text, msg, memory.KindPipeline)
+}
+
+func (r *REPL) renderProviderOperationRoundResult(plan operation.Plan, result providerOperationResult) {
+	msg := providerOperationResultMarkdown(r.language, plan, result)
+	if strings.TrimSpace(msg) == "" {
+		return
+	}
+	r.finishOperationRouteSpinner(result.Status)
+	r.renderBorderedCompact(msg)
 }
 
 func (r *REPL) providerOperationFinalMessage(ctx context.Context, userLine string, records []providerOperationResultRecord) (string, []string) {
