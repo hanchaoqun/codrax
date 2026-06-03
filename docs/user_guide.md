@@ -2136,8 +2136,27 @@ operation_skills:
         "source_payload_ref": "out/manual-notes.md",
         "output_path": "out/deck.pptx"
       }
+    },
+    {
+      "provider": "skill:deck_verifier",
+      "operation_kind": "presentation_generation",
+      "target_surface": "slides",
+      "risk_level": "low",
+      "request": "Verify the generated deck.",
+      "input": {
+        "deck_path": "out/deck.pptx"
+      }
     }
   ],
+  "return_action": {
+    "provider": "skill:manual_reader",
+    "operation_kind": "artifact_generation",
+    "target_surface": "local_file",
+    "request": "Compose the final workflow report.",
+    "input": {
+      "deck_path": "out/deck.pptx"
+    }
+  },
   "workflow_state": {
     "workflow_id": "manual-to-deck-001",
     "step": "manual_extracted",
@@ -2149,7 +2168,14 @@ operation_skills:
 }
 ```
 
-`next_actions` 是 provider 给 Codrax 的后续建议,不是自动执行授权。Codrax 会匹配已配置的 operation provider,只排队第一个有效动作,并在 REPL 中提示用户再次 `/approve` 后才执行。未匹配 provider、超出深度预算或格式不完整的动作只会作为 operation 诊断显示,不会回落到源码分析或普通 trace/log 管线。为了兼容小模型和脚本输出,系统也接受 `next_action` 单对象、`provider_name`、`kind`、`surface`、`requires_approval`、`args` / `arguments` 等常见别名。
+`next_actions` 和 `return_action` 是 provider 给 Codrax 的后续建议,不是自动执行授权。Codrax 会匹配已配置的 operation provider,把所有有效 `next_actions` 写入 workflow DAG 并按顺序串行排队;如果 `return_action` 有效,会作为 return edge 排在子动作之后。每一步仍需要用户再次 `/approve` 后才执行。未匹配 provider、超出深度预算或格式不完整的动作只会作为 operation 诊断显示,不会回落到源码分析或普通 trace/log 管线。为了兼容小模型和脚本输出,系统也接受 `next_action` 单对象、`provider_name`、`kind`、`surface`、`requires_approval`、`args` / `arguments`,以及 `return_to_action` / `callback_action` 等常见别名。
+
+工作流相关 REPL 命令:
+
+- `/approve`:执行当前 workflow action。
+- `/workflow show`:查看当前 workflow 的节点、边、队列和当前 action。
+- `/workflow cancel`:取消当前 workflow。
+- `/operation show`:也会优先展示当前 workflow 状态。
 
 如果 stdout / stderr 很大,codrax 会把完整输出写到 `.codrax/operation/`,面板只展示短预览和完整输出路径。
 

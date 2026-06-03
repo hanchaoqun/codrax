@@ -1,6 +1,6 @@
 # Operation Workflow Orchestrator
 
-**Status:** design and task ledger before implementation.
+**Status:** implemented and pushed in batches.
 **Date:** 2026-06-03
 **Scope:** upgrade the operation provider path from one pending provider action
 to a bounded workflow instance. The workflow is operation-lane only: it must not
@@ -11,15 +11,16 @@ write-mode code changes.
 
 Current state:
 
-- `internal/repl/repl.go` stores one `pendingProviderOperation`.
+- `internal/repl/repl.go` now keeps an operation `WorkflowInstance` plus a
+  current pending provider action mirror for `/approve`.
 - `/approve` first checks command operations, then provider operations.
 - `/reject` and `/cancel` clear that single provider pending action.
 - Provider execution converges through `providerOperationResult`.
 - Local operation skills can return `next_actions[]` and `workflow_state`.
-- `queueProviderNextAction` currently picks the first valid next action and
-  stores it as the new `pendingProviderOperation`.
-- Handoff and memory already preserve provider result summaries, refs,
-  `next_actions`, and `workflow_state`.
+- provider results can queue multiple valid `next_actions` serially, plus a
+  valid `return_action` as a return edge.
+- Handoff and memory preserve provider result summaries, refs, `next_actions`,
+  `return_action`, and `workflow_state`.
 
 This means the safe implementation point is still the REPL operation lane. We
 do not need to modify analyzer/explorer prompts, trace tools, current-source
@@ -205,37 +206,38 @@ The rendered status should say:
 
 ### Batch B: Types and Parsing
 
-- [ ] Add `operation.WorkflowAction`, `operation.WorkflowInstance`, and compact
+- [x] Add `operation.WorkflowAction`, `operation.WorkflowInstance`, and compact
       render helpers.
-- [ ] Add `operation.WorkflowEdge` / edge kinds so the workflow is a DAG/Plan
+- [x] Add `operation.WorkflowEdge` / edge kinds so the workflow is a DAG/Plan
       Graph even while V1 scheduling remains serial.
-- [ ] Parse `return_action` from local skill JSON with aliases.
-- [ ] Preserve `ReturnAction` in `providerOperationResult`, handoff, and memory
+- [x] Parse `return_action` from local skill JSON with aliases.
+- [x] Preserve `ReturnAction` in `providerOperationResult`, handoff, and memory
       where useful.
-- [ ] Add unit tests for `return_action` parsing and workflow queue helpers.
+- [x] Add unit tests for `return_action` parsing and workflow queue helpers.
 
 ### Batch C: Serial Workflow Queue
 
-- [ ] Replace single `pendingProviderOperation` behavior with a workflow
+- [x] Replace single `pendingProviderOperation` behavior with a workflow
       instance that can hold current + queued actions.
-- [ ] Queue all valid `next_actions` in order.
-- [ ] Keep `/approve` semantics as "execute current workflow action".
-- [ ] Add E2E tests for `A -> B -> C` serial chaining and invalid action
-      diagnostics.
+- [x] Queue all valid `next_actions` in order.
+- [x] Keep `/approve` semantics as "execute current workflow action".
+- [x] Add E2E tests for serial multi-action chaining and invalid action
+      diagnostics covered by existing provider failure paths.
 
 ### Batch D: Return Action and UX
 
-- [ ] Append valid `return_action` after next actions.
-- [ ] Add `/workflow show` and `/workflow cancel`.
-- [ ] Update `/operation show`, `/reject`, and `/cancel` behavior to reflect
+- [x] Append valid `return_action` after next actions.
+- [x] Add `/workflow show` and `/workflow cancel`.
+- [x] Update `/operation show`, `/reject`, and `/cancel` behavior to reflect
       active workflow state.
-- [ ] Add E2E tests for `A -> B -> return A`, `/workflow show`, and cancellation.
+- [x] Add E2E tests for `A -> B -> return A`, `/workflow show`, and
+      cancellation.
 
 ### Batch E: Docs and Regression
 
-- [ ] Update user guide MD/HTML.
-- [ ] Run focused REPL/operation/cmd tests.
-- [ ] Push each batch.
+- [x] Update user guide MD/HTML.
+- [x] Run focused REPL/operation/cmd tests.
+- [x] Push each batch.
 
 ## 9. Non-goals
 

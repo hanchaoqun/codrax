@@ -2841,8 +2841,27 @@ mcp_servers:
         &quot;source_payload_ref&quot;: &quot;out/manual-notes.md&quot;,
         &quot;output_path&quot;: &quot;out/deck.pptx&quot;
       }
+    },
+    {
+      &quot;provider&quot;: &quot;skill:deck_verifier&quot;,
+      &quot;operation_kind&quot;: &quot;presentation_generation&quot;,
+      &quot;target_surface&quot;: &quot;slides&quot;,
+      &quot;risk_level&quot;: &quot;low&quot;,
+      &quot;request&quot;: &quot;Verify the generated deck.&quot;,
+      &quot;input&quot;: {
+        &quot;deck_path&quot;: &quot;out/deck.pptx&quot;
+      }
     }
   ],
+  &quot;return_action&quot;: {
+    &quot;provider&quot;: &quot;skill:manual_reader&quot;,
+    &quot;operation_kind&quot;: &quot;artifact_generation&quot;,
+    &quot;target_surface&quot;: &quot;local_file&quot;,
+    &quot;request&quot;: &quot;Compose the final workflow report.&quot;,
+    &quot;input&quot;: {
+      &quot;deck_path&quot;: &quot;out/deck.pptx&quot;
+    }
+  },
   &quot;workflow_state&quot;: {
     &quot;workflow_id&quot;: &quot;manual-to-deck-001&quot;,
     &quot;step&quot;: &quot;manual_extracted&quot;,
@@ -2853,7 +2872,14 @@ mcp_servers:
   }
 }
 </code></pre>
-<p><code>next_actions</code> 是 provider 给 Codrax 的后续建议,不是自动执行授权。Codrax 会匹配已配置的 operation provider,只排队第一个有效动作,并在 REPL 中提示用户再次 <code>/approve</code> 后才执行。未匹配 provider、超出深度预算或格式不完整的动作只会作为 operation 诊断显示,不会回落到源码分析或普通 trace/log 管线。为了兼容小模型和脚本输出,系统也接受 <code>next_action</code> 单对象、<code>provider_name</code>、<code>kind</code>、<code>surface</code>、<code>requires_approval</code>、<code>args</code> / <code>arguments</code> 等常见别名。</p>
+<p><code>next_actions</code> 和 <code>return_action</code> 是 provider 给 Codrax 的后续建议,不是自动执行授权。Codrax 会匹配已配置的 operation provider,把所有有效 <code>next_actions</code> 写入 workflow DAG 并按顺序串行排队;如果 <code>return_action</code> 有效,会作为 return edge 排在子动作之后。每一步仍需要用户再次 <code>/approve</code> 后才执行。未匹配 provider、超出深度预算或格式不完整的动作只会作为 operation 诊断显示,不会回落到源码分析或普通 trace/log 管线。为了兼容小模型和脚本输出,系统也接受 <code>next_action</code> 单对象、<code>provider_name</code>、<code>kind</code>、<code>surface</code>、<code>requires_approval</code>、<code>args</code> / <code>arguments</code>,以及 <code>return_to_action</code> / <code>callback_action</code> 等常见别名。</p>
+<p>工作流相关 REPL 命令:</p>
+<ul>
+<li><code>/approve</code>:执行当前 workflow action。</li>
+<li><code>/workflow show</code>:查看当前 workflow 的节点、边、队列和当前 action。</li>
+<li><code>/workflow cancel</code>:取消当前 workflow。</li>
+<li><code>/operation show</code>:也会优先展示当前 workflow 状态。</li>
+</ul>
 <p>如果 stdout / stderr 很大,codrax 会把完整输出写到 <code>.codrax/operation/</code>,面板只展示短预览和完整输出路径。</p>
 <h3 id="电脑操作-制品生成路由">电脑操作 / 制品生成路由</h3>
 <div class="table-wrap"><table>
