@@ -564,6 +564,7 @@ type REPL struct {
 	pendingOperation   *operation.CommandOperationPlan
 	operationHistory   []operation.CommandOperationPlan
 	operationResults   []commandOperationResultRecord
+	operationMemory    *operation.MemoryStore
 
 	// sessionID identifies this REPL session. Stamped onto every
 	// recorded Turn so memory.BuildContext can session-pin recent
@@ -764,6 +765,9 @@ func New(cfg Config) *REPL {
 	// behaviour.
 	if r.attachedTraceMaxBytes <= 0 {
 		r.attachedTraceMaxBytes = r.attachedLogMaxBytes
+	}
+	if strings.TrimSpace(r.runtimeAnchor) != "" {
+		r.operationMemory = operation.NewMemoryStore(filepath.Join(r.runtimeAnchor, "operation", "memory.jsonl"))
 	}
 	// Seed sticky log from whatever the runner already has (CLI set
 	// `--log` before handing off to the REPL). Keeps the invariant
@@ -1447,12 +1451,15 @@ func (r *REPL) appendCommandOperationResult(plan operation.CommandOperationPlan,
 	if len(r.operationResults) > 6 {
 		r.operationResults = r.operationResults[len(r.operationResults)-6:]
 	}
+	if r.operationMemory != nil {
+		entries := operation.BuildMemoryEntries(plan, result, r.commandOperationCapabilitySnapshot())
+		if err := r.operationMemory.Append(entries...); err != nil {
+			logging.Warning("[repl/operation] append operation memory failed: %v", err)
+		}
+	}
 }
 
 func (r *REPL) renderCommandOperationHandoff() string {
-	if len(r.operationResults) == 0 {
-		return ""
-	}
 	start := len(r.operationResults) - 2
 	if start < 0 {
 		start = 0
@@ -1466,8 +1473,21 @@ func (r *REPL) renderCommandOperationHandoff() string {
 			planStep := commandOperationStepByID(rec.Plan, step.StepID)
 			cmd := commandOperationStepCommand(planStep)
 			preview := oneLineClamp(step.OutputPreview, 1200)
-			fmt.Fprintf(&b, "  step id=%s cmd=%q status=%s exit_code=%d timed_out=%t error=%q output_preview=%q payload_ref=%s\n",
-				step.StepID, cmd, step.Status, step.ExitCode, step.TimedOut, oneLineClamp(step.Error, 240), preview, step.PayloadRef)
+			fmt.Fprintf(&b, "  step id=%s cmd=%q status=%s exit_code=%d timed_out=%t failure_class=%s error=%q output_preview=%q payload_ref=%s\n",
+				step.StepID, cmd, step.Status, step.ExitCode, step.TimedOut, step.FailureClass, oneLineClamp(step.Error, 240), preview, step.PayloadRef)
+		}
+	}
+	if r.operationMemory != nil {
+		if entries, err := r.operationMemory.RecentMatches(r.commandOperationCapabilitySnapshot(), 4); err == nil {
+			if rendered := operation.RenderMemoryForPrompt(entries); rendered != "" {
+				if b.Len() > 0 {
+					b.WriteString("\n")
+				}
+				b.WriteString(rendered)
+				b.WriteString("\n")
+			}
+		} else {
+			logging.Warning("[repl/operation] read operation memory failed: %v", err)
 		}
 	}
 	return strings.TrimSpace(b.String())

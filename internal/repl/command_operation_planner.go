@@ -120,7 +120,8 @@ Hard rules:
 - Use capability_snapshot when present. Prefer commands shown as available. If a needed tool is absent, either ask for clarification or plan a safe check/install workflow when the user explicitly asked for installation.
 - Do not invent installed tools that are absent from capability_snapshot unless the user explicitly named a custom command or requested installing it.
 - For unfamiliar software or command-line tools, prefer safe discovery steps such as --help, help, version, or documentation reads before planning risky or irreversible actions. If exact usage is still unclear after discovery, ask a clarification question instead of guessing flags.
-- Use recent_operation_context when present. It contains prior command-operation observations from this REPL: command outputs, extracted large-file summaries, failed attempts, and payload refs. Treat it as external observation, not source-code evidence.
+- Use recent_operation_context when present. It contains prior command-operation observations from this REPL and optional operation_memory lessons from previous runs: command outputs, extracted large-file summaries, failed attempts, payload refs, and compact historical lessons. Treat it as external observation, not source-code evidence.
+- Treat operation_memory as soft guidance only. It may be stale or environment-specific; use it to avoid known mistakes or reuse known working command shapes, not as a hard rule.
 - For large-file or unfamiliar-tool workflows, use prior extraction/search/help outputs to choose the next targeted command. If only a payload_ref is available, plan a bounded follow-up read/search/summarize command instead of dumping or reprocessing the whole file.
 - For extraction requests, shape the command output to the user's requested item(s) with bounded filters (for example awk/sed/perl/head/tail/rg context) instead of dumping an entire section when a smaller exact result is requested.
 - For replan requests, use the failed step output to adjust only the command plan. The failed command already ran; do not include that failed command again unless the user explicitly asked to retry the same failed command after seeing the failure. Do not repeat already-successful steps unless required. If the fix expands risk or side effects, set requires_confirmation=true.
@@ -198,7 +199,7 @@ func (p *llmCommandOperationPlanner) planCommandOperation(ctx context.Context, r
 	}
 	if strings.TrimSpace(req.RecentOperationContext) != "" {
 		b.WriteString("\n## recent_operation_context\n")
-		b.WriteString("Recent command-operation observations from this REPL. Use only when relevant to the current request. Payload refs indicate full bounded artifacts; plan targeted follow-up reads/searches when the preview is insufficient.\n")
+		b.WriteString("Recent command-operation observations from this REPL plus operation_memory lessons from previous runs. Use only when relevant to the current request. Payload refs indicate full bounded artifacts; plan targeted follow-up reads/searches when the preview is insufficient. Historical lessons are soft guidance, not source evidence.\n")
 		b.WriteString(strings.TrimSpace(req.RecentOperationContext))
 		b.WriteString("\n")
 	}
@@ -262,8 +263,8 @@ func renderCommandResultForPrompt(result operation.CommandOperationResult) strin
 		if len(preview) > 2000 {
 			preview = preview[:2000] + "...[truncated]"
 		}
-		fmt.Fprintf(&b, "result[%d] step_id=%s status=%s exit_code=%d timed_out=%t error=%q output=%q payload_ref=%s\n",
-			i+1, step.StepID, step.Status, step.ExitCode, step.TimedOut, step.Error, preview, step.PayloadRef)
+		fmt.Fprintf(&b, "result[%d] step_id=%s status=%s exit_code=%d timed_out=%t failure_class=%s error=%q output=%q payload_ref=%s\n",
+			i+1, step.StepID, step.Status, step.ExitCode, step.TimedOut, step.FailureClass, step.Error, preview, step.PayloadRef)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

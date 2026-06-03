@@ -211,6 +211,7 @@ func TestCommandOperationReplannerIncludesFailureContext(t *testing.T) {
 			ExitCode:      127,
 			Error:         "executable file not found",
 			OutputPreview: "missing-tool: command not found",
+			FailureClass:  "command_not_found",
 		}},
 	}
 	_, err := replanner.ReplanCommandOperation(context.Background(), "查询工具版本", "/repo", TurnPolicy{
@@ -236,6 +237,7 @@ func TestCommandOperationReplannerIncludesFailureContext(t *testing.T) {
 		"previous_plan id=op-prev",
 		"previous_result plan_id=op-prev status=failed",
 		"Do not include the failed command again",
+		"failure_class=command_not_found",
 		"executable file not found",
 		"missing-tool: command not found",
 	} {

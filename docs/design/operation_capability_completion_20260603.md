@@ -222,12 +222,12 @@ operation step:
 
 ### Batch B: Durable Operation Memory + Failure Classification
 
-- [ ] Add `internal/operation` memory schema and JSONL store.
-- [ ] Add bounded memory retrieval/rendering for operation planner only.
-- [ ] Persist compact success/failure lessons after command execution.
-- [ ] Add deterministic failure classification to `CommandStepResult`.
-- [ ] Feed failure class into replan context and operation memory.
-- [ ] Tests: memory round-trip, TTL/filtering, same-workspace preference,
+- [x] Add `internal/operation` memory schema and JSONL store.
+- [x] Add bounded memory retrieval/rendering for operation planner only.
+- [x] Persist compact success/failure lessons after command execution.
+- [x] Add deterministic failure classification to `CommandStepResult`.
+- [x] Feed failure class into replan context and operation memory.
+- [x] Tests: memory round-trip, TTL/filtering, same-workspace preference,
       failure caution not hard ban, no memory in source/log/trace prompts.
 
 ### Batch C: Large Output / Large File Learning
@@ -278,4 +278,3 @@ operation step:
 - [ ] Mixed-boundary evals:
       operation-only file extraction, source-code analysis, trace/log analysis,
       and operation + source hybrid.
-

@@ -77,9 +77,10 @@ func (e CommandExecutor) executeStep(ctx context.Context, plan CommandOperationP
 	cmd, display := buildExecCommand(stepCtx, step)
 	if cmd == nil {
 		return CommandStepResult{
-			StepID: step.ID,
-			Status: StatusFailed,
-			Error:  "command step has neither program nor shell command",
+			StepID:       step.ID,
+			Status:       StatusFailed,
+			Error:        "command step has neither program nor shell command",
+			FailureClass: "invalid_plan",
 		}
 	}
 	workDir := strings.TrimSpace(step.WorkDir)
@@ -96,9 +97,10 @@ func (e CommandExecutor) executeStep(ctx context.Context, plan CommandOperationP
 	capture, err := newOperationOutputCapture(e.OutputDir, plan.ID, step.ID, policy.OutputPreviewBytes)
 	if err != nil {
 		return CommandStepResult{
-			StepID: step.ID,
-			Status: StatusFailed,
-			Error:  fmt.Sprintf("prepare output capture: %v", err),
+			StepID:       step.ID,
+			Status:       StatusFailed,
+			Error:        fmt.Sprintf("prepare output capture: %v", err),
+			FailureClass: "output_capture_error",
 		}
 	}
 	defer capture.Close()
@@ -126,6 +128,7 @@ func (e CommandExecutor) executeStep(ctx context.Context, plan CommandOperationP
 			PayloadRef:    ref,
 			Error:         fmt.Sprintf("command timed out after %s", timeout),
 			TimedOut:      true,
+			FailureClass:  "timeout",
 		}
 	}
 	if errors.Is(stepCtx.Err(), context.Canceled) {
@@ -135,9 +138,11 @@ func (e CommandExecutor) executeStep(ctx context.Context, plan CommandOperationP
 			OutputPreview: preview,
 			PayloadRef:    ref,
 			Error:         "command cancelled",
+			FailureClass:  "signal_or_cancelled",
 		}
 	}
 	if err != nil {
+		class := classifyCommandFailure(err, preview)
 		return CommandStepResult{
 			StepID:        step.ID,
 			Status:        StatusFailed,
@@ -145,6 +150,7 @@ func (e CommandExecutor) executeStep(ctx context.Context, plan CommandOperationP
 			OutputPreview: preview,
 			PayloadRef:    ref,
 			Error:         err.Error(),
+			FailureClass:  class,
 		}
 	}
 	return CommandStepResult{
@@ -152,6 +158,22 @@ func (e CommandExecutor) executeStep(ctx context.Context, plan CommandOperationP
 		Status:        StatusExecuted,
 		OutputPreview: preview,
 		PayloadRef:    ref,
+	}
+}
+
+func classifyCommandFailure(err error, output string) string {
+	text := strings.ToLower(strings.TrimSpace(err.Error() + "\n" + output))
+	switch {
+	case strings.Contains(text, "executable file not found") ||
+		strings.Contains(text, "command not found") ||
+		strings.Contains(text, "not recognized as an internal or external command"):
+		return "command_not_found"
+	case strings.Contains(text, "permission denied") || strings.Contains(text, "operation not permitted"):
+		return "permission_denied"
+	case strings.Contains(text, "no such file or directory") || strings.Contains(text, "cannot access"):
+		return "path_not_found"
+	default:
+		return "nonzero_exit"
 	}
 }
 

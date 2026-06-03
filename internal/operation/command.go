@@ -117,6 +117,7 @@ type CommandStepResult struct {
 	PayloadRef    string
 	Error         string
 	TimedOut      bool
+	FailureClass  string
 }
 
 type CommandOperationResult struct {

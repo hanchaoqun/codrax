@@ -3,6 +3,7 @@ package repl
 import (
 	"bytes"
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -22,6 +23,53 @@ func commandOperationPolicy(risk string) TurnPolicy {
 		TargetSurface:        "desktop",
 		Confidence:           0.9,
 		Reason:               "user asked for a computer operation",
+	}
+}
+
+func TestCommandOperationE2E_OperationMemoryFeedsPlannerOnlyOnOperationRoute(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"s1","title":"use remembered command","program":"demo-tool","args":["--input","a.txt"],"risk_level":"low","side_effects":[]}]}`)},
+	}
+	r, runner, _ := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	r.runtimeAnchor = t.TempDir()
+	r.operationMemory = operation.NewMemoryStore(filepath.Join(r.runtimeAnchor, "operation", "memory.jsonl"))
+	if err := r.operationMemory.Append(operation.MemoryEntry{
+		Workspace:  r.commandOperationCapabilitySnapshot().RepoRoot,
+		OS:         r.commandOperationCapabilitySnapshot().OS,
+		Arch:       r.commandOperationCapabilitySnapshot().Arch,
+		Capability: "computer_operation",
+		Command:    "demo-tool --input a.txt",
+		Outcome:    "executed",
+		Lessons:    []string{"demo-tool worked with --input"},
+	}); err != nil {
+		t.Fatalf("append operation memory: %v", err)
+	}
+
+	r.operationDispatch("使用 demo-tool 处理 a.txt", "使用 demo-tool 处理 a.txt", commandOperationPolicy("low"))
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(adapter.calls) != 1 {
+		t.Fatalf("planner calls=%d want 1", len(adapter.calls))
+	}
+	all := ""
+	for _, msg := range adapter.calls[0].messages {
+		all += "\n" + msg.Content
+	}
+	for _, want := range []string{
+		"## operation_memory",
+		"demo-tool worked with --input",
+		"not source evidence",
+	} {
+		if !strings.Contains(all, want) {
+			t.Fatalf("operation memory prompt missing %q:\n%s", want, all)
+		}
 	}
 }
 

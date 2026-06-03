@@ -63,6 +63,32 @@ func TestCommandExecutorStopsOnFailure(t *testing.T) {
 	if result.StepResults[0].ExitCode == 0 {
 		t.Fatalf("expected non-zero exit code: %+v", result.StepResults[0])
 	}
+	if result.StepResults[0].FailureClass == "" {
+		t.Fatalf("expected failure class: %+v", result.StepResults[0])
+	}
+}
+
+func TestCommandExecutorClassifiesCommandNotFound(t *testing.T) {
+	executor := CommandExecutor{Policy: DefaultCommandPolicy(), OutputDir: t.TempDir()}
+	plan := CommandOperationPlan{
+		ID:           "op-missing",
+		Status:       StatusReady,
+		ApprovalMode: ApprovalManual,
+		WorkDir:      ".",
+		Steps: []CommandStep{{
+			ID:        "step-1",
+			Program:   "definitely-missing-codrax-operation-command",
+			TimeoutMS: 30_000,
+		}},
+	}
+
+	result := executor.Execute(context.Background(), plan)
+	if result.Status != StatusFailed {
+		t.Fatalf("Status=%q result=%+v", result.Status, result)
+	}
+	if got := result.StepResults[0].FailureClass; got != "command_not_found" {
+		t.Fatalf("FailureClass=%q want command_not_found; result=%+v", got, result.StepResults[0])
+	}
 }
 
 func TestCommandExecutorWritesTruncatedOutputRef(t *testing.T) {
