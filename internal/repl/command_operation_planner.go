@@ -470,7 +470,52 @@ func (p *llmCommandOperationPlanner) planCommandOperation(ctx context.Context, r
 	if err != nil {
 		return operation.CommandOperationRequest{}, err
 	}
+	if shouldRetryInitialCommandPlanWithoutRecentContext(req, parsed) {
+		retryReq := req
+		retryReq.RecentOperationContext = ""
+		parsed, err = p.planCommandOperationDraft(ctx, retryReq)
+		if err != nil {
+			return operation.CommandOperationRequest{}, err
+		}
+	}
 	return parsed.toRequest(req.UserLine, req.RepoRoot), nil
+}
+
+func shouldRetryInitialCommandPlanWithoutRecentContext(req commandOperationPlannerRequest, parsed commandPlanDraft) bool {
+	if req.Replan || req.Continuation || strings.TrimSpace(req.RecentOperationContext) == "" {
+		return false
+	}
+	status := strings.ToLower(strings.TrimSpace(string(parsed.Status)))
+	if status != string(operation.StatusBlocked) {
+		return false
+	}
+	if commandPlanDraftHasQuestions(parsed) || len(parsed.Steps) > 0 {
+		return false
+	}
+	if bool(parsed.RequiresConfirmation) {
+		return false
+	}
+	if commandPlannerRiskRank(strings.TrimSpace(string(parsed.RiskLevel))) >= commandPlannerRiskRank("medium") {
+		return false
+	}
+	return true
+}
+
+func commandPlannerRiskRank(risk string) int {
+	switch strings.ToLower(strings.TrimSpace(risk)) {
+	case "critical":
+		return 5
+	case "high":
+		return 4
+	case "medium":
+		return 3
+	case "low":
+		return 2
+	case "none", "":
+		return 1
+	default:
+		return 3
+	}
 }
 
 func (p *llmCommandOperationPlanner) planCommandOperationDraft(ctx context.Context, req commandOperationPlannerRequest) (commandPlanDraft, error) {
@@ -499,6 +544,7 @@ func (p *llmCommandOperationPlanner) planCommandOperationDraft(ctx context.Conte
 	if strings.TrimSpace(req.RecentOperationContext) != "" {
 		b.WriteString("\n## recent_operation_context\n")
 		b.WriteString("Recent command-operation observations from this REPL plus operation_memory lessons from previous runs. Use only when relevant to the current request. Payload refs indicate full bounded artifacts; plan targeted follow-up reads/searches when the preview is insufficient. Historical lessons are soft guidance, not source evidence.\n")
+		b.WriteString("For an initial user request, recent_operation_context is never enough by itself to emit status=complete or status=blocked. Use it only to avoid repeated mistakes and choose the next current command. Current user constraints override all recent context; if the user says not to use a tool/service, do not plan commands that invoke that tool/service.\n")
 		b.WriteString(strings.TrimSpace(req.RecentOperationContext))
 		b.WriteString("\n")
 	}

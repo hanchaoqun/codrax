@@ -4058,6 +4058,9 @@ func (r *REPL) handleSlash(line string) bool {
 		if err := r.store.Clear(); err != nil {
 			r.errorf("clear failed: %v\n", err)
 		} else {
+			if err := r.clearOperationContextForClear(); err != nil {
+				logging.Warning("[repl/operation] clear operation context failed: %v", err)
+			}
 			r.success(memoryClearedMsg(r.language))
 		}
 	case "/history":
@@ -4185,6 +4188,21 @@ func (r *REPL) handleModeCmd(line string) {
 	for _, line := range modeWorkflowHint(r.language, string(target)) {
 		r.info(line)
 	}
+}
+
+func (r *REPL) clearOperationContextForClear() error {
+	r.pendingOperation = nil
+	r.pendingCommandClarification = nil
+	r.pendingProviderOperation = nil
+	r.providerWorkflow = nil
+	r.operationHistory = nil
+	r.operationResults = nil
+	r.providerOperationResults = nil
+	r.clearPendingOperationState()
+	if r.operationMemory != nil {
+		return r.operationMemory.Clear()
+	}
+	return nil
 }
 
 // handlePlanCmd dispatches the `/plan` subcommands. Recognised forms:

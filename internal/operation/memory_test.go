@@ -1,6 +1,7 @@
 package operation
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -79,6 +80,32 @@ func TestOperationMemoryStoreSkipsExpiredAndMismatched(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("expected no usable entries, got %+v", got)
+	}
+}
+
+func TestOperationMemoryStoreClear(t *testing.T) {
+	store := NewMemoryStore(filepath.Join(t.TempDir(), "memory.jsonl"))
+	if err := store.Append(MemoryEntry{
+		Workspace: "/repo",
+		OS:        "linux",
+		Arch:      "amd64",
+		Command:   "demo --version",
+		Outcome:   "executed",
+		Summary:   "demo version 1.0",
+	}); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+	if _, err := os.Stat(store.Path); err != nil {
+		t.Fatalf("expected memory file before clear: %v", err)
+	}
+	if err := store.Clear(); err != nil {
+		t.Fatalf("Clear: %v", err)
+	}
+	if _, err := os.Stat(store.Path); !os.IsNotExist(err) {
+		t.Fatalf("memory file still exists after clear, err=%v", err)
+	}
+	if got, err := store.RecentMatches(CapabilitySnapshot{RepoRoot: "/repo", OS: "linux", Arch: "amd64"}, 5); err != nil || len(got) != 0 {
+		t.Fatalf("RecentMatches after clear got len=%d err=%v entries=%+v", len(got), err, got)
 	}
 }
 

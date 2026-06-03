@@ -2514,9 +2514,9 @@ func memoryClearCancelled(lang string) string {
 
 func memoryClearedMsg(lang string) string {
 	if isZh(lang) {
-		return "已清除会话 memory。"
+		return "已清除会话 memory、操作上下文和学习记忆。"
 	}
-	return "Conversation memory cleared."
+	return "Conversation memory, operation context, and learned operation memory cleared."
 }
 
 func memoryEmpty(lang string) string {
@@ -2574,7 +2574,7 @@ func idleConfirmExitMsg(lang string) string {
 // locale saw mixed-language UI.
 func memoryClearConfirmTitle(lang string, peers int) string {
 	if isZh(lang) {
-		base := "/clear 将清空当前会话记忆(MEMORY.md + turns/)。"
+		base := "/clear 将清空当前会话记忆(MEMORY.md + turns/)、操作上下文和学习记忆。"
 		switch {
 		case peers == 1:
 			return base + " 当前另有 1 个 codrax 实例共享此目录。"
@@ -2583,7 +2583,7 @@ func memoryClearConfirmTitle(lang string, peers int) string {
 		}
 		return base
 	}
-	base := "/clear wipes this conversation memory (MEMORY.md + turns/)."
+	base := "/clear wipes this conversation memory (MEMORY.md + turns/), operation context, and learned operation memory."
 	switch {
 	case peers == 1:
 		return base + " 1 other live codrax instance shares this directory."

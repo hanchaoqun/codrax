@@ -371,6 +371,59 @@ operation_result plan_id=op-extract status=executed request="从大文件里提�
 	}
 }
 
+func TestCommandOperationPlannerRetriesLowRiskBlockedInitialPlanWithoutRecentContext(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"blocked","risk_level":"none","requires_confirmation":false,"block_reason":"all success criteria were already satisfied by recent operations","known_constraints":"recent oMLX check","success_criteria":"current facts already known"}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"s1","title":"fresh oMLX process check","program":"pgrep","args":["-a","-f","oMLX"],"risk_level":"low","side_effects":[]}]}`),
+		},
+	}
+	planner, ok := NewCommandOperationPlanner(adapter).(CommandOperationPlannerWithHandoff)
+	if !ok {
+		t.Fatal("planner should support operation handoff context")
+	}
+	req, err := planner.PlanCommandOperationWithHandoff(context.Background(), "看下 oMLX 当前可用模型，不要动 ollama", "/repo", TurnPolicy{
+		Operation:     "computer_operation",
+		OperationKind: "computer_operation",
+		RiskLevel:     "low",
+	}, operation.CapabilitySnapshot{}, `operation_result plan_id=old status=executed request="查模型引擎"
+  step id=s1 cmd="ollama list" status=executed exit_code=0 output_preview="old ollama output"`)
+	if err != nil {
+		t.Fatalf("PlanCommandOperationWithHandoff: %v", err)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("Chat calls=%d, want retry without recent context", len(adapter.calls))
+	}
+	if len(req.Steps) != 1 || req.Steps[0].Program != "pgrep" {
+		t.Fatalf("request after retry=%+v, want fresh command plan", req)
+	}
+	firstUser := ""
+	secondUser := ""
+	for _, msg := range adapter.calls[0].messages {
+		if msg.Role == "user" {
+			firstUser = msg.Content
+		}
+	}
+	for _, msg := range adapter.calls[1].messages {
+		if msg.Role == "user" {
+			secondUser = msg.Content
+		}
+	}
+	for _, want := range []string{
+		"recent_operation_context is never enough by itself",
+		"Current user constraints override all recent context",
+		"do not plan commands that invoke that tool/service",
+		"ollama list",
+	} {
+		if !strings.Contains(firstUser, want) {
+			t.Fatalf("first planner prompt missing %q:\n%s", want, firstUser)
+		}
+	}
+	if strings.Contains(secondUser, "## recent_operation_context") || strings.Contains(secondUser, "ollama list") {
+		t.Fatalf("retry prompt should omit recent context:\n%s", secondUser)
+	}
+}
+
 func TestCommandOperationPlannerHandlesPayloadRefOnlyHandoff(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{

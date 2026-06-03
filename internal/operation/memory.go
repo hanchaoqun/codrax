@@ -67,6 +67,16 @@ func NewMemoryStore(path string) *MemoryStore {
 	}
 }
 
+func (s *MemoryStore) Clear() error {
+	if s == nil || strings.TrimSpace(s.Path) == "" {
+		return nil
+	}
+	if err := os.Remove(s.Path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
+
 func (s *MemoryStore) Append(entries ...MemoryEntry) error {
 	if s == nil || strings.TrimSpace(s.Path) == "" || len(entries) == 0 {
 		return nil

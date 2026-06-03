@@ -3,11 +3,14 @@ package repl
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/memory"
+	"github.com/hanchaoqun/codrax/internal/operation"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -493,15 +496,51 @@ func TestClearPromptAccepted(t *testing.T) {
 	in := strings.NewReader("/clear\ny\n/exit\n")
 	out := &bytes.Buffer{}
 	r := newTestREPL(store, in, out)
+	r.operationResults = []commandOperationResultRecord{{
+		Plan: operation.CommandOperationPlan{ID: "op-result", Status: operation.StatusExecuted},
+		Result: operation.CommandOperationResult{
+			PlanID: "op-result",
+			Status: operation.StatusExecuted,
+		},
+	}}
+	r.providerOperationResults = []providerOperationResultRecord{{
+		Plan: operation.Plan{Kind: "demo_provider"},
+		Result: providerOperationResult{
+			Status:  operation.StatusExecuted,
+			Summary: "provider result",
+		},
+	}}
+	r.pendingOperation = &operation.CommandOperationPlan{ID: "op-pending", Status: operation.StatusReady}
+	r.operationHistory = []operation.CommandOperationPlan{{ID: "op-history", Status: operation.StatusReady}}
+	r.providerWorkflow = &operation.WorkflowInstance{ID: "wf-1"}
+	memPath := filepath.Join(dir, "operation", "memory.jsonl")
+	r.operationMemory = operation.NewMemoryStore(memPath)
+	if err := r.operationMemory.Append(operation.MemoryEntry{
+		Workspace: ".",
+		OS:        "test",
+		Arch:      "test",
+		Command:   "demo --version",
+		Outcome:   "executed",
+		Summary:   "demo learned output",
+	}); err != nil {
+		t.Fatalf("seed operation memory: %v", err)
+	}
 	if err := r.Loop(); err != nil {
 		t.Fatalf("Loop: %v", err)
 	}
 
-	if !strings.Contains(out.String(), "Conversation memory cleared") {
+	if !strings.Contains(out.String(), "Conversation memory, operation context, and learned operation memory cleared") {
 		t.Errorf("expected confirmation in output, got:\n%s", out.String())
 	}
 	if got := len(store.Recent()); got != 0 {
 		t.Errorf("turn was not wiped after accepting; recent=%d, want 0", got)
+	}
+	if r.pendingOperation != nil || r.providerWorkflow != nil || len(r.operationResults) != 0 || len(r.providerOperationResults) != 0 || len(r.operationHistory) != 0 {
+		t.Fatalf("operation context was not cleared: pending=%+v workflow=%+v results=%d provider_results=%d history=%d",
+			r.pendingOperation, r.providerWorkflow, len(r.operationResults), len(r.providerOperationResults), len(r.operationHistory))
+	}
+	if _, err := os.Stat(memPath); !os.IsNotExist(err) {
+		t.Fatalf("operation memory file still exists after /clear, err=%v", err)
 	}
 }
 
