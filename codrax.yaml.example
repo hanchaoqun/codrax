@@ -278,9 +278,11 @@
 #
 # Command-line operation executor. Natural-language command requests are first
 # converted into a typed plan, then evaluated by deterministic policy.
-# Deterministic low-risk steps run automatically by default; unknown commands,
-# shell form, writes, installs, network submission, overwrite/delete, and other
-# risky actions still require approval or are denied by policy.
+# Operation approval is separate from write_enabled. Structured commands run
+# automatically by default unless high-risk signals require approval or
+# catastrophic destructive patterns are denied. Set auto_approve false to fall
+# back to the stricter low-risk-only auto mode.
+# operation_command_auto_approve: true
 # operation_command_auto_low_risk: true
 # operation_command_timeout_ms: 120000
 # operation_command_output_preview_bytes: 32768

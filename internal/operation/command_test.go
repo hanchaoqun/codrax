@@ -43,6 +43,7 @@ func TestBuildCommandOperationPlanLowRiskAutoEnabledByDefault(t *testing.T) {
 
 func TestBuildCommandOperationPlanLowRiskAutoCanBeDisabled(t *testing.T) {
 	policy := DefaultCommandPolicy()
+	policy.AutoApprove = false
 	policy.AutoLowRisk = false
 	plan := BuildCommandOperationPlan(CommandOperationRequest{
 		Text: "show current directory",
@@ -130,6 +131,30 @@ func TestBuildCommandOperationPlanSysctlWriteRequiresManual(t *testing.T) {
 	if plan.ApprovalMode != ApprovalManual {
 		t.Fatalf("ApprovalMode=%q, want manual", plan.ApprovalMode)
 	}
+	if plan.RiskLevel != "high" {
+		t.Fatalf("RiskLevel=%q, want high", plan.RiskLevel)
+	}
+}
+
+func TestBuildCommandOperationPlanHighRiskSideEffectRequiresManual(t *testing.T) {
+	plan := BuildCommandOperationPlan(CommandOperationRequest{
+		Text: "submit to external system",
+		Steps: []CommandStep{{
+			Program:     "corp-submit",
+			Args:        []string{"--prod"},
+			SideEffects: []string{"external_system_write"},
+		}},
+	}, DefaultCommandPolicy())
+
+	if plan.Status != StatusReady {
+		t.Fatalf("Status=%q", plan.Status)
+	}
+	if plan.ApprovalMode != ApprovalManual {
+		t.Fatalf("ApprovalMode=%q, want manual", plan.ApprovalMode)
+	}
+	if plan.RiskLevel != "high" {
+		t.Fatalf("RiskLevel=%q, want high", plan.RiskLevel)
+	}
 }
 
 func TestBuildCommandOperationPlanLowRiskAutoEnabled(t *testing.T) {
@@ -154,8 +179,31 @@ func TestBuildCommandOperationPlanLowRiskAutoEnabled(t *testing.T) {
 	}
 }
 
-func TestBuildCommandOperationPlanUnknownProgramRequiresManual(t *testing.T) {
+func TestBuildCommandOperationPlanUnknownProgramAutoApprovesByDefault(t *testing.T) {
 	policy := DefaultCommandPolicy()
+	policy.AutoLowRisk = true
+	plan := BuildCommandOperationPlan(CommandOperationRequest{
+		Text: "run custom inventory checker",
+		Steps: []CommandStep{{
+			Program: "corp-inventory-check",
+			Args:    []string{"--list"},
+		}},
+	}, policy)
+
+	if plan.Status != StatusReady {
+		t.Fatalf("Status=%q", plan.Status)
+	}
+	if plan.ApprovalMode != ApprovalAutoLowRisk {
+		t.Fatalf("ApprovalMode=%q, want auto_low_risk", plan.ApprovalMode)
+	}
+	if got := plan.Steps[0].AutoApproval; got != StepAutoEligible {
+		t.Fatalf("step AutoApproval=%q, want eligible", got)
+	}
+}
+
+func TestBuildCommandOperationPlanUnknownProgramManualWhenAutoApproveDisabled(t *testing.T) {
+	policy := DefaultCommandPolicy()
+	policy.AutoApprove = false
 	policy.AutoLowRisk = true
 	plan := BuildCommandOperationPlan(CommandOperationRequest{
 		Text: "run custom inventory checker",
@@ -173,9 +221,6 @@ func TestBuildCommandOperationPlanUnknownProgramRequiresManual(t *testing.T) {
 	}
 	if got := plan.Steps[0].AutoApproval; got != StepAutoManual {
 		t.Fatalf("step AutoApproval=%q, want manual", got)
-	}
-	if plan.RiskLevel != "medium" {
-		t.Fatalf("RiskLevel=%q, want medium", plan.RiskLevel)
 	}
 }
 

@@ -297,6 +297,10 @@ type Config struct {
 	// are descriptors until typed operation routing plus approval reaches the
 	// provider execution path.
 	OperationSkillConfigs []types.OperationSkillConfig
+	// OperationPendingStore persists one unresolved operation-lane decision so
+	// restarts can surface pending approvals/clarifications. It is independent
+	// from write-mode PlanStore.
+	OperationPendingStore *OperationPendingStore
 
 	// PlanStore persists B0 write-mode ChangePlans for the REPL
 	// session. Nil disables the /plan slash command family —
@@ -581,6 +585,7 @@ type REPL struct {
 	operationResults            []commandOperationResultRecord
 	providerOperationResults    []providerOperationResultRecord
 	operationMemory             *operation.MemoryStore
+	operationPendingStore       *OperationPendingStore
 	mcpServers                  *mcp.Registry
 	mcpServerConfigs            []types.MCPServerConfig
 	operationSkillConfigs       []types.OperationSkillConfig
@@ -757,6 +762,7 @@ func New(cfg Config) *REPL {
 		mcpServers:             cfg.MCPServers,
 		mcpServerConfigs:       append([]types.MCPServerConfig(nil), cfg.MCPServerConfigs...),
 		operationSkillConfigs:  append([]types.OperationSkillConfig(nil), cfg.OperationSkillConfigs...),
+		operationPendingStore:  cfg.OperationPendingStore,
 		// Session ID embeds nano + pid so two codrax REPLs launched
 		// in the same clock tick (test harness, race) still get
 		// disjoint IDs. Consumed by memory.BuildContext via BuildOpts.
@@ -788,9 +794,16 @@ func New(cfg Config) *REPL {
 	if r.attachedTraceMaxBytes <= 0 {
 		r.attachedTraceMaxBytes = r.attachedLogMaxBytes
 	}
+	if isZeroOperationCommandPolicy(r.operationPolicy) {
+		r.operationPolicy = operation.DefaultCommandPolicy()
+	}
+	if strings.TrimSpace(r.operationPolicy.DefaultWorkDir) == "" {
+		r.operationPolicy.DefaultWorkDir = r.repoRoot
+	}
 	if strings.TrimSpace(r.runtimeAnchor) != "" {
 		r.operationMemory = operation.NewMemoryStore(filepath.Join(r.runtimeAnchor, "operation", "memory.jsonl"))
 	}
+	r.restorePendingOperationState()
 	// Seed sticky log from whatever the runner already has (CLI set
 	// `--log` before handing off to the REPL). Keeps the invariant
 	// "REPL.attachedLog is the single source of truth" from the
@@ -1207,12 +1220,14 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 		plan := operation.BuildCommandOperationPlan(req, r.operationPolicy)
 		if plan.Status == operation.StatusReady && plan.ApprovalMode == operation.ApprovalAutoLowRisk {
 			r.pendingCommandClarification = nil
+			r.clearPendingOperationState()
 			r.executeCommandOperationPlan(plan, display, line)
 			return
 		}
 		if plan.Status == operation.StatusReady {
 			r.pendingOperation = &plan
 			r.pendingCommandClarification = nil
+			r.savePendingOperationState()
 		} else if plan.Status == operation.StatusNeedsClarification {
 			r.pendingCommandClarification = &pendingCommandClarification{
 				OriginalLine: line,
@@ -1220,8 +1235,12 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 				Policy:       policy,
 				Plan:         plan,
 			}
+			r.pendingOperation = nil
+			r.savePendingOperationState()
 		} else {
 			r.pendingCommandClarification = nil
+			r.pendingOperation = nil
+			r.clearPendingOperationState()
 		}
 		r.operationHistory = append(r.operationHistory, plan)
 		logging.Info("[repl/operation] command plan status=%s risk=%q approval=%q steps=%d request=%q",
@@ -1263,13 +1282,16 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 		r.startProviderWorkflow(&pending)
 		if plan.CanExecute {
 			r.pendingProviderOperation = nil
+			r.clearPendingOperationState()
 			r.executeProviderOperationFlow(context.Background(), pending)
 			return
 		}
 		r.pendingProviderOperation = &pending
+		r.savePendingOperationState()
 	} else {
 		r.pendingProviderOperation = nil
 		r.providerWorkflow = nil
+		r.clearPendingOperationState()
 	}
 	logging.Info("[repl/operation] planned operation kind=%q target=%q risk=%q needs_repo=%t executable=%t provider=%q missing=%q",
 		oneLineClamp(plan.Kind, 80),
@@ -1310,6 +1332,7 @@ func (r *REPL) resumeCommandOperationClarification(line, display string) {
 	}
 	logging.Info("[repl/operation] resuming command clarification plan_id=%s answer=%q",
 		pending.Plan.ID, oneLineClamp(line, 160))
+	r.clearPendingOperationState()
 	r.operationDispatch(combined, resumeDisplay, pending.Policy)
 }
 
@@ -1368,6 +1391,23 @@ func (r *REPL) commandOperationCapabilitySnapshot() operation.CapabilitySnapshot
 		r.envFacts = facts
 	}
 	return operation.BuildCapabilitySnapshotWithProviders(facts, r.repoRoot, r.operationPolicy, r.operationProviders)
+}
+
+func isZeroOperationCommandPolicy(policy operation.CommandPolicy) bool {
+	return strings.TrimSpace(policy.Approval) == "" &&
+		!policy.AutoApprove &&
+		!policy.AutoLowRisk &&
+		strings.TrimSpace(policy.UnknownProgram) == "" &&
+		strings.TrimSpace(policy.ShellPolicy) == "" &&
+		strings.TrimSpace(policy.NetworkPolicy) == "" &&
+		strings.TrimSpace(policy.InstallPolicy) == "" &&
+		strings.TrimSpace(policy.OverwritePolicy) == "" &&
+		len(policy.AllowedWriteRoots) == 0 &&
+		policy.TimeoutMS == 0 &&
+		policy.OutputPreviewBytes == 0 &&
+		strings.TrimSpace(policy.DefaultWorkDir) == "" &&
+		!policy.HardDenyDestructive &&
+		!policy.AllowMkdirPAutoCreate
 }
 
 func isCommandOperationPolicy(policy TurnPolicy) bool {
@@ -1435,6 +1475,82 @@ func (r *REPL) handleOperationCmd(line string) {
 	}
 }
 
+func (r *REPL) restorePendingOperationState() {
+	if r.operationPendingStore == nil {
+		return
+	}
+	snap, ok, err := r.operationPendingStore.Load()
+	if err != nil {
+		logging.Warning("[repl/operation] restore pending operation failed: %v", err)
+		return
+	}
+	if !ok {
+		return
+	}
+	switch snap.Kind {
+	case operationPendingKindCommandPlan:
+		r.pendingOperation = snap.CommandPlan
+	case operationPendingKindCommandClarification:
+		r.pendingCommandClarification = snap.CommandClarification
+	case operationPendingKindProviderOperation:
+		r.pendingProviderOperation = snap.ProviderOperation
+		r.providerWorkflow = snap.ProviderWorkflow
+	default:
+		logging.Warning("[repl/operation] ignoring unknown pending operation kind=%q", snap.Kind)
+		return
+	}
+	logging.Info("[repl/operation] restored pending operation kind=%s store=%s", snap.Kind, r.operationPendingStore.Path())
+}
+
+func (r *REPL) savePendingOperationState() {
+	if r.operationPendingStore == nil {
+		return
+	}
+	var err error
+	switch {
+	case r.pendingOperation != nil:
+		err = r.operationPendingStore.SaveCommandPlan(*r.pendingOperation)
+	case r.pendingCommandClarification != nil:
+		err = r.operationPendingStore.SaveCommandClarification(*r.pendingCommandClarification)
+	case r.pendingProviderOperation != nil:
+		err = r.operationPendingStore.SaveProviderOperation(*r.pendingProviderOperation, r.providerWorkflow)
+	default:
+		err = r.operationPendingStore.Clear()
+	}
+	if err != nil {
+		logging.Warning("[repl/operation] save pending operation failed: %v", err)
+	}
+}
+
+func (r *REPL) clearPendingOperationState() {
+	if r.operationPendingStore == nil {
+		return
+	}
+	if err := r.operationPendingStore.Clear(); err != nil {
+		logging.Warning("[repl/operation] clear pending operation failed: %v", err)
+	}
+}
+
+func (r *REPL) pendingOperationBannerLine() string {
+	switch {
+	case r.pendingOperation != nil:
+		return pendingOperationBanner(r.language, r.pendingOperation.ID, string(r.pendingOperation.Status))
+	case r.pendingCommandClarification != nil:
+		return pendingOperationClarificationBanner(r.language, r.pendingCommandClarification.Plan.ID)
+	case r.pendingProviderOperation != nil:
+		id := firstNonEmptyString(r.pendingProviderOperation.Plan.Provider, r.pendingProviderOperation.Plan.Kind)
+		if id == "" {
+			id = "provider-operation"
+		}
+		if r.providerWorkflow != nil && strings.TrimSpace(r.providerWorkflow.ID) != "" {
+			id = id + " / " + r.providerWorkflow.ID
+		}
+		return pendingOperationBanner(r.language, id, string(operation.StatusReady))
+	default:
+		return ""
+	}
+}
+
 func (r *REPL) handleWorkflowCmd(line string) {
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "/workflow"))
 	switch rest {
@@ -1453,6 +1569,7 @@ func (r *REPL) handleWorkflowCmd(line string) {
 		r.providerWorkflow.Cancelled = true
 		r.pendingProviderOperation = nil
 		r.providerWorkflow = nil
+		r.clearPendingOperationState()
 		r.info(workflowCancelledMsg(r.language, id))
 	default:
 		r.info(workflowHelpMsg(r.language))
@@ -1466,6 +1583,7 @@ func (r *REPL) handleOperationApproveCmd(line string) {
 		r.info(commandOperationPlanMarkdown(r.language, plan))
 		return
 	}
+	r.clearPendingOperationState()
 	r.executeCommandOperationPlan(plan, "/approve", "/approve")
 }
 
@@ -1475,6 +1593,7 @@ func (r *REPL) handleOperationRejectCmd(line string) {
 	plan.Status = operation.StatusRejected
 	r.operationHistory = append(r.operationHistory, plan)
 	r.pendingOperation = nil
+	r.clearPendingOperationState()
 	msg := operationRejectedMsg(r.language, plan.ID, reason)
 	r.success(msg)
 	request := "/reject"
@@ -1490,6 +1609,7 @@ func (r *REPL) executeCommandOperationPlan(plan operation.CommandOperationPlan, 
 
 func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperationPlan, request, display string, replanAttempts int) {
 	r.pendingOperation = nil
+	r.clearPendingOperationState()
 	r.runInFlight.Store(true)
 	ctx := r.startTurn()
 	defer func() {
@@ -1573,6 +1693,7 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 			return true
 		}
 		r.pendingOperation = &revisedPlan
+		r.savePendingOperationState()
 	}
 	r.operationHistory = append(r.operationHistory, revisedPlan)
 	msg := commandOperationResultMarkdown(r.language, failedPlan, result)
@@ -2214,6 +2335,10 @@ func (r *REPL) banner() {
 			pterm.FgDarkGray.Sprint(clampToTermWidth(
 				unsettledBanner(r.language, blocker.ID, blocker.Status, blocker.WorktreeMissing),
 				bannerMaxWidth)))
+	}
+	if line := r.pendingOperationBannerLine(); line != "" {
+		fmt.Fprintf(r.out, "  %s\n",
+			pterm.FgDarkGray.Sprint(clampToTermWidth(line, bannerMaxWidth)))
 	}
 	if summary := r.memorySummaryLine(); summary != "" {
 		fmt.Fprintf(r.out, "  %s\n", summary)
@@ -5084,6 +5209,7 @@ func (r *REPL) handleProviderOperationApproveCmd(line string) {
 		return
 	}
 	r.pendingProviderOperation = nil
+	r.clearPendingOperationState()
 	r.executeProviderOperationFlow(context.Background(), *pending)
 }
 
@@ -5130,6 +5256,9 @@ func (r *REPL) executeProviderOperationFlow(ctx context.Context, first pendingPr
 	finalStatus := records[len(records)-1].Result.Status
 	if r.pendingProviderOperation != nil {
 		finalStatus = operation.StatusReady
+		r.savePendingOperationState()
+	} else {
+		r.clearPendingOperationState()
 	}
 	r.finishOperationRouteSpinner(finalStatus)
 	r.renderBordered(msg)
@@ -6201,6 +6330,7 @@ func (r *REPL) handleCancelCmd(line string) {
 		plan.Status = operation.StatusCancelled
 		r.operationHistory = append(r.operationHistory, plan)
 		r.pendingOperation = nil
+		r.clearPendingOperationState()
 		r.info(operationCancelledMsg(r.language, plan.ID))
 		return
 	}
@@ -6209,6 +6339,7 @@ func (r *REPL) handleCancelCmd(line string) {
 		plan.Status = operation.StatusCancelled
 		r.operationHistory = append(r.operationHistory, plan)
 		r.pendingCommandClarification = nil
+		r.clearPendingOperationState()
 		r.info(operationCancelledMsg(r.language, plan.ID))
 		return
 	}
@@ -6216,6 +6347,7 @@ func (r *REPL) handleCancelCmd(line string) {
 		plan := r.pendingProviderOperation.Plan
 		r.pendingProviderOperation = nil
 		r.providerWorkflow = nil
+		r.clearPendingOperationState()
 		r.info(operationCancelledMsg(r.language, firstNonEmptyString(plan.Provider, plan.Kind)))
 		return
 	}
@@ -6378,6 +6510,7 @@ func (r *REPL) handleRejectCmd(line string) {
 		plan := r.pendingProviderOperation.Plan
 		r.pendingProviderOperation = nil
 		r.providerWorkflow = nil
+		r.clearPendingOperationState()
 		reason := strings.TrimSpace(strings.TrimPrefix(line, "/reject"))
 		r.info(operationRejectedMsg(r.language, firstNonEmptyString(plan.Provider, plan.Kind), reason))
 		return

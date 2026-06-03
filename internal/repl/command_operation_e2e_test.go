@@ -314,6 +314,7 @@ func TestCommandOperationE2E_OperationMemoryFeedsPlannerOnlyOnOperationRoute(t *
 	r.operationEnabled = true
 	r.operationPlanner = NewCommandOperationPlanner(adapter)
 	r.operationPolicy = operation.DefaultCommandPolicy()
+	r.operationPolicy.AutoApprove = false
 	r.runtimeAnchor = t.TempDir()
 	r.operationMemory = operation.NewMemoryStore(filepath.Join(r.runtimeAnchor, "operation", "memory.jsonl"))
 	if err := r.operationMemory.Append(operation.MemoryEntry{
@@ -1528,7 +1529,7 @@ func TestCommandOperationE2E_HardDeniedDestructiveCommandDoesNotExecute(t *testi
 	}
 }
 
-func TestCommandOperationE2E_UnknownProgramRequiresManualApprovalEvenWhenAutoEnabled(t *testing.T) {
+func TestCommandOperationE2E_UnknownProgramRequiresManualApprovalWhenAutoApproveDisabled(t *testing.T) {
 	store := newPolicyStore(t)
 	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
 	adapter := &scriptedChatAdapter{
@@ -1538,6 +1539,7 @@ func TestCommandOperationE2E_UnknownProgramRequiresManualApprovalEvenWhenAutoEna
 	r.operationEnabled = true
 	r.operationPlanner = NewCommandOperationPlanner(adapter)
 	r.operationPolicy = operation.DefaultCommandPolicy()
+	r.operationPolicy.AutoApprove = false
 	r.operationPolicy.AutoLowRisk = true
 	if err := r.Loop(); err != nil {
 		t.Fatalf("Loop: %v", err)

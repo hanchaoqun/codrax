@@ -49,6 +49,7 @@ func TestCapabilitySnapshotRendersEnvFactsAndPolicy(t *testing.T) {
 		"os: linux/amd64",
 		"family=debian",
 		"git_repo_state: ready",
+		"auto_approve=true",
 		"auto_low_risk=true",
 		"timeout_ms=12345",
 		"network=denied",

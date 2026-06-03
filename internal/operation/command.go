@@ -38,6 +38,7 @@ const (
 // destructive commands still require policy review or are hard-denied.
 type CommandPolicy struct {
 	Approval              string
+	AutoApprove           bool
 	AutoLowRisk           bool
 	UnknownProgram        string
 	ShellPolicy           string
@@ -55,6 +56,7 @@ type CommandPolicy struct {
 func DefaultCommandPolicy() CommandPolicy {
 	return CommandPolicy{
 		Approval:              ApprovalManual,
+		AutoApprove:           true,
 		AutoLowRisk:           true,
 		UnknownProgram:        ApprovalManual,
 		ShellPolicy:           ApprovalManual,
@@ -249,6 +251,9 @@ func evaluateCommandStep(step CommandStep, policy CommandPolicy) commandStepDeci
 		if len(policy.AllowedWriteRoots) > 0 && hasLocalWriteEffect(step.SideEffects) {
 			return commandStepDecision{AutoApproval: StepAutoDenied, RiskLevel: "high", Reason: "shell-form local writes cannot be proven within configured allowed write roots"}
 		}
+		if stepHasHighRiskSignals("", nil, step) {
+			return commandStepDecision{AutoApproval: StepAutoManual, RiskLevel: "high", Reason: "shell-form high-risk command requires manual approval"}
+		}
 		return commandStepDecision{AutoApproval: StepAutoManual, RiskLevel: highestRisk(step.RiskLevel, "medium"), Reason: "shell-form commands require manual approval"}
 	}
 	program := strings.TrimSpace(step.Program)
@@ -271,6 +276,12 @@ func evaluateCommandStep(step CommandStep, policy CommandPolicy) commandStepDeci
 		if !stepLocalWritesWithinRoots(step, policy.AllowedWriteRoots) {
 			return commandStepDecision{AutoApproval: StepAutoDenied, RiskLevel: "high", Reason: "local file write target is outside configured allowed write roots or cannot be proven within them"}
 		}
+	}
+	if stepHasHighRiskSignals(program, step.Args, step) {
+		return commandStepDecision{AutoApproval: StepAutoManual, RiskLevel: "high", Reason: "high-risk operation requires manual approval"}
+	}
+	if policy.AutoApprove {
+		return commandStepDecision{AutoApproval: StepAutoEligible, RiskLevel: highestRisk(step.RiskLevel, "low"), Reason: "operation auto-approval enabled; no high-risk or hard-deny signal matched"}
 	}
 	if isLowRiskProgramArgs(program, step.Args, policy) && len(cleanList(step.SideEffects)) == 0 {
 		return commandStepDecision{AutoApproval: StepAutoEligible, RiskLevel: highestRisk(step.RiskLevel, "low"), Reason: "read-only command eligible for low-risk auto approval"}
@@ -312,6 +323,10 @@ func normalizeCommandPolicy(p CommandPolicy) CommandPolicy {
 			p.HardDenyDestructive = def.HardDenyDestructive
 		}
 	}
+	// AutoApprove is intentionally not inferred here: production callers seed
+	// DefaultCommandPolicy before applying YAML pointer overrides, while tests
+	// and direct callers can pass a zero-value policy to exercise manual-only
+	// behavior. This avoids conflating an explicit false with an omitted field.
 	if !p.AllowMkdirPAutoCreate {
 		if p.Approval == def.Approval && p.UnknownProgram == def.UnknownProgram && p.ShellPolicy == def.ShellPolicy {
 			p.AllowMkdirPAutoCreate = def.AllowMkdirPAutoCreate
@@ -444,11 +459,38 @@ func sysctlArgsReadOnly(args []string) bool {
 	return true
 }
 
+func stepHasHighRiskSignals(program string, args []string, step CommandStep) bool {
+	if normalizeRisk(step.RiskLevel) == "high" {
+		return true
+	}
+	for _, effect := range cleanList(step.SideEffects) {
+		switch effect {
+		case "destructive", "external_system_write", "network_submit", "remote_exec",
+			"install", "uninstall", "package_install", "package_uninstall",
+			"software_install", "software_uninstall", "local_file_delete",
+			"file_delete", "local_file_overwrite", "file_overwrite",
+			"destructive_write":
+			return true
+		}
+	}
+	if hasInstallEffect(program, args, step.SideEffects) || hasOverwriteEffect(program, args, step.SideEffects) {
+		return true
+	}
+	if baseProgram(program) == "sysctl" && !sysctlArgsReadOnly(args) {
+		return true
+	}
+	switch baseProgram(program) {
+	case "rm", "rmdir", "mv", "dd", "mkfs", "chmod", "chown", "sudo", "su":
+		return true
+	}
+	return false
+}
+
 func normalizeManualDenyPolicy(v, def string) string {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case ApprovalManual:
 		return ApprovalManual
-	case ApprovalDenied:
+	case ApprovalDenied, "deny":
 		return ApprovalDenied
 	case "":
 		return def

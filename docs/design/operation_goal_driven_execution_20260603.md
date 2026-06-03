@@ -53,6 +53,24 @@ The desired product flow is goal-driven:
 
 ## Design
 
+### Durable Pending Operation State
+
+Operation approvals are part of the operation lane, not write-mode ChangePlan
+state. They must therefore persist in their own small store:
+
+- Store path: `<runtime-anchor>/operations/pending.json`.
+- Stored state: exactly one unresolved command plan, command clarification, or
+  provider/workflow action.
+- Not stored: large command/provider output, execution history, source
+  evidence, trace evidence, or final-answer context.
+- REPL startup restores the pending state before rendering the banner.
+- The banner shows a concise pending-operation line with `/operation show`,
+  `/approve`, `/reject`, and `/cancel`.
+
+This fixes the restart gap where a manual-approval operation existed only in
+process memory, so the next REPL session could not tell the user that a
+decision was still waiting.
+
 ### Goal-Driven Operation Graph
 
 The operation route should behave like a bounded executor for the user's
@@ -84,11 +102,17 @@ one node's raw output.
 
 Default behavior:
 
-- Auto-execute only when every command step is `StepAutoEligible`.
-- Keep manual approval for unknown commands, shell commands, writes that are
-  not proven safe, installs/uninstalls, network submission, and explicit
-  provider gates.
+- `operation_command_auto_approve=true` is the operation-lane default and is
+  independent from write-mode `write_enabled`. In this mode, structured
+  command steps auto-run unless precise high-risk or hard-deny signals match.
+- Keep manual approval for shell commands, high-risk steps, installs/uninstalls,
+  network submission, destructive/overwrite/delete, and explicit provider gates.
 - Keep hard deny for catastrophic destructive patterns.
+- Do not grow an unbounded OS/tool whitelist to chase individual examples.
+  Long-tail structured commands may still be planned and auto-run under the
+  operation auto-approval policy unless a precise high-risk signal is present.
+  Setting `operation_command_auto_approve=false` restores conservative
+  low-risk-only auto approval.
 
 The model's `requires_confirmation` remains useful planner metadata, but it is
 not allowed to block deterministic low-risk steps by itself.
@@ -140,3 +164,10 @@ Fallback:
 - [x] Update config docs and user guide.
 - [x] Add tests for low-risk auto, dangerous block, provider auto, result
       synthesis fallback, and no source/trace/log route regressions.
+- [x] Persist pending operation approvals outside write-mode PlanStore.
+- [x] Restore pending operations on REPL startup and surface them in the
+      startup banner.
+- [x] Clear the pending-operation store on approve/reject/cancel/execution.
+- [x] Avoid solving operation auto-execution by enumerating every platform
+      command; use structured high-risk / hard-deny signals plus the operation
+      auto-approval policy.

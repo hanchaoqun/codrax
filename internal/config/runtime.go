@@ -73,6 +73,7 @@ type RuntimeSettings struct {
 	OperationRouteEnabled *bool `yaml:"operation_route_enabled"`
 	// Command-operation knobs for the independent operation route. These do not
 	// affect read-mode exec_command or write-mode apply/verify.
+	OperationCommandAutoApprove        *bool    `yaml:"operation_command_auto_approve"`
 	OperationCommandAutoLowRisk        *bool    `yaml:"operation_command_auto_low_risk"`
 	OperationCommandTimeoutMS          *int     `yaml:"operation_command_timeout_ms"`
 	OperationCommandOutputPreviewBytes *int     `yaml:"operation_command_output_preview_bytes"`

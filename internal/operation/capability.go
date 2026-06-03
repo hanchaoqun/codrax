@@ -46,6 +46,7 @@ type CapabilityProjectFile struct {
 }
 
 type CapabilityPolicy struct {
+	AutoApprove        bool
 	AutoLowRisk        bool
 	TimeoutMS          int
 	OutputPreviewBytes int
@@ -67,6 +68,7 @@ func BuildCapabilitySnapshotWithProviders(facts *types.EnvFacts, repoRoot string
 		RepoRoot:           strings.TrimSpace(repoRoot),
 		OperationProviders: cleanProviderInfos(providers),
 		Policy: CapabilityPolicy{
+			AutoApprove:        policy.AutoApprove,
 			AutoLowRisk:        policy.AutoLowRisk,
 			TimeoutMS:          policy.TimeoutMS,
 			OutputPreviewBytes: policy.OutputPreviewBytes,
@@ -125,8 +127,8 @@ func (s CapabilitySnapshot) RenderForPrompt() string {
 	} else {
 		fmt.Fprintf(&b, "- network: not_probed proxy=%t\n", s.ProxySet)
 	}
-	fmt.Fprintf(&b, "- command_policy: auto_low_risk=%t timeout_ms=%d output_preview_bytes=%d unknown_program=%s shell_policy=%s\n",
-		s.Policy.AutoLowRisk, s.Policy.TimeoutMS, s.Policy.OutputPreviewBytes,
+	fmt.Fprintf(&b, "- command_policy: auto_approve=%t auto_low_risk=%t timeout_ms=%d output_preview_bytes=%d unknown_program=%s shell_policy=%s\n",
+		s.Policy.AutoApprove, s.Policy.AutoLowRisk, s.Policy.TimeoutMS, s.Policy.OutputPreviewBytes,
 		dashIfEmpty(s.Policy.UnknownProgram), dashIfEmpty(s.Policy.ShellPolicy))
 	fmt.Fprintf(&b, "- command_policy_controls: network=%s install=%s overwrite=%s allowed_write_roots=%s\n",
 		dashIfEmpty(s.Policy.NetworkPolicy), dashIfEmpty(s.Policy.InstallPolicy),

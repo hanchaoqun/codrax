@@ -1136,6 +1136,35 @@ func operationNoPendingMsg(lang string) string {
 	return "No pending operation plan."
 }
 
+func pendingOperationBanner(lang, id, status string) string {
+	id = strings.TrimSpace(id)
+	status = strings.TrimSpace(status)
+	if id == "" {
+		id = "operation"
+	}
+	if isZh(lang) {
+		if status != "" {
+			return fmt.Sprintf("待处理操作: %s · 状态 %s · /operation show · /approve · /reject · /cancel", id, status)
+		}
+		return fmt.Sprintf("待处理操作: %s · /operation show · /approve · /reject · /cancel", id)
+	}
+	if status != "" {
+		return fmt.Sprintf("Pending operation: %s · status %s · /operation show · /approve · /reject · /cancel", id, status)
+	}
+	return fmt.Sprintf("Pending operation: %s · /operation show · /approve · /reject · /cancel", id)
+}
+
+func pendingOperationClarificationBanner(lang, id string) string {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		id = "operation"
+	}
+	if isZh(lang) {
+		return fmt.Sprintf("待补充操作: %s · 直接回复缺失信息继续 · /operation show · /cancel", id)
+	}
+	return fmt.Sprintf("Pending operation clarification: %s · reply with the missing details · /operation show · /cancel", id)
+}
+
 func operationNoHistoryMsg(lang string) string {
 	if isZh(lang) {
 		return "还没有操作计划历史。"
@@ -1152,9 +1181,9 @@ func operationHistoryRow(lang, id, status, risk string) string {
 
 func operationAutoStatusMsg(lang string) string {
 	if isZh(lang) {
-		return "自动批准默认关闭；低风险自动批准将在命令执行器配置启用后才会生效。"
+		return "operation 自动审批默认开启：普通结构化命令会自动执行；高危动作等待批准，灾难性动作直接拒绝。可用 operation_command_auto_approve: false 退回低风险-only。"
 	}
-	return "Auto approval is off by default; low-risk auto approval only applies after command-executor config enables it."
+	return "Operation auto approval is on by default: ordinary structured commands auto-run; high-risk actions wait for approval and catastrophic actions are denied. Set operation_command_auto_approve: false for low-risk-only mode."
 }
 
 func operationHelpMsg(lang string) string {

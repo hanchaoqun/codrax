@@ -62,9 +62,9 @@ REPL 已有 `/approve`、`/reject`、`/cancel`:
 
 ## 2. 设计目标
 
-1. **通用**: 不靠固定白名单覆盖所有命令; 未知命令可以生成计划, 但默认需要人工批准。
-2. **可控**: 自动批准默认只覆盖确定只读查询和无覆盖目录创建;风险动作仍需审批或被拒绝。
-3. **安全**: 高风险命令进入 hard deny 或强人工审批; destructive/network submit/external write 不自动执行。
+1. **通用**: 不靠固定白名单覆盖所有命令; 未知结构化命令可以生成计划,默认自动推进,除非命中高危/拒绝规则。
+2. **可控**: operation 有独立审批开关,不受代码写模式 `write_enabled` 影响;高危动作仍需审批或被拒绝。
+3. **安全**: 高风险命令进入人工审批;灾难性 destructive 操作 hard deny。
 4. **批量**: 支持多步命令计划, 尽量批量审批和批量执行, 每步有可见状态和输出摘要。
 5. **可澄清**: 信息不足时不猜, 返回问题和建议选项, 状态为 `needs_clarification`。
 6. **不扰动**: 不改源码分析、log/trace、写代码、MCP 外部观测的 hard gate 和证据合同。
@@ -171,7 +171,7 @@ type CommandOperationResult struct {
 
 ```yaml
 operation_route_enabled: true
-operation_command_unknown_program: manual
+operation_command_auto_approve: true
 operation_command_auto_low_risk: true
 operation_command_timeout_ms: 120000
 operation_command_output_preview_bytes: 32768
@@ -179,13 +179,22 @@ operation_command_output_preview_bytes: 32768
 
 含义:
 
-- 命令执行器走独立 operation route; proven low-risk step 默认自动执行,非低风险仍人工审批或拒绝。
-- 未知命令不 hard deny, 但必须人工批准。
-- 低风险自动批准默认开启,可通过 `operation_command_auto_low_risk: false` 关闭。
+- 命令执行器走独立 operation route;`write_enabled` 只管代码写模式,不拦 operation。
+- `operation_command_auto_approve: true` 默认开启:结构化命令没有命中高危/灾难性规则时自动执行。
+- 高危命令人工审批,灾难性命令直接拒绝。
+- 关闭 `operation_command_auto_approve` 后退回 low-risk-only 自动批准;再关闭 `operation_command_auto_low_risk` 则全部等待 `/approve`。
 
-### 6.2 低风险自动批准
+### 6.2 自动批准
 
-仅当 `operation_command_auto_low_risk: true` 且所有 step 精确满足以下条件才自动执行:
+`operation_command_auto_approve: true` 是默认策略。它不靠 OS 命令白名单穷举,而是根据结构化高危信号拦截:
+
+- `risk_level=high`;
+- `side_effects` 中出现 `destructive`、`external_system_write`、`network_submit`、删除/覆盖/安装/卸载等;
+- 命令形态是 shell form;
+- 明显危险 program/参数组合,例如系统参数写入、删除/格式化/权限破坏等;
+- configured policy 明确 deny 的网络、安装、覆盖场景。
+
+关闭 `operation_command_auto_approve` 后,仅当 `operation_command_auto_low_risk: true` 且所有 step 精确满足以下条件才自动执行:
 
 - 只读查询: `pwd`, `ls`, `find` 非删除形态, `stat`, `du`, `df`, `which`, `--version`, `git status/log/show/diff`, `cat/head/tail/sed -n/grep/rg`;
 - 无覆盖目录创建: `mkdir -p <new-or-existing-dir>`;
@@ -197,10 +206,9 @@ operation_command_output_preview_bytes: 32768
 
 以下进入人工批准:
 
-- 未知 program;
 - shell 形式命令;
-- 文件写入、移动、复制、安装、卸载、下载、网络读取;
-- 命令链中任何 step 非 low-risk auto eligible。
+- 高危文件写入、移动、复制、安装、卸载、网络提交、外部系统写入;
+- `operation_command_auto_approve=false` 时,命令链中任何 step 非 low-risk auto eligible。
 
 ### 6.4 hard deny
 

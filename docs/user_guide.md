@@ -2356,7 +2356,8 @@ operation_skills:
 | `operation_skills[].timeout_ms` | `30000` | 本地 skill 单次执行超时 |
 | `operation_skills[].max_output_bytes` | `262144` | stdout inline 预览上限。超过后完整输出落到 `.codrax/operation/` |
 | `operation_route_enabled` | `true` | REPL 分类器识别 PPT、文档、表格、浏览器/桌面操作、外部 skill workflow、通用命令行操作等请求时,进入独立 operation 路径。它不会把操作请求误转入源码分析流水线 |
-| `operation_command_auto_low_risk` | `true` | 通用命令行操作的低风险自动批准。默认开启:确定只读查询和无覆盖目录创建会自动执行;设为 `false` 可改回全部等待 `/approve` |
+| `operation_command_auto_approve` | `true` | operation 专用自动审批开关,和代码写模式 `write_enabled` 无关。默认开启:结构化命令没有命中高危/灾难性规则时自动推进;高危等待批准,灾难性操作直接拒绝 |
+| `operation_command_auto_low_risk` | `true` | 保守低风险自动批准。若把 `operation_command_auto_approve` 设为 `false`,则只自动执行确定只读查询和无覆盖目录创建;再设为 `false` 可改回全部等待 `/approve` |
 | `operation_command_timeout_ms` | `120000` | 单个命令 step 的默认超时 |
 | `operation_command_output_preview_bytes` | `32768` | 命令输出在 REPL/memory 中保留的预览字节数。更大的输出会截断预览,完整输出落到 `.codrax/operation/` |
 | `operation_command_allowed_write_roots` | `[]` | 可选写入根目录白名单。非空时,带本地写入副作用的命令必须能从结构化参数证明写入目标落在这些目录内,否则策略阻止 |

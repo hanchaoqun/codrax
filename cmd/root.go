@@ -1195,6 +1195,7 @@ func runREPL(_ *cobra.Command) error {
 		runtimeAnchor = abs
 	}
 	planStore := repl.NewPlanStore(filepath.Join(runtimeAnchor, "plans"))
+	operationPendingStore := repl.NewOperationPendingStore(filepath.Join(runtimeAnchor, "operations"))
 	// Stage II: PlanGroupStore is the on-disk persister for
 	// multi-phase PlanGroups. Same plan dir; lives under
 	// /groups/ subdir. Wired into the orchestrator below so
@@ -1262,6 +1263,7 @@ func runREPL(_ *cobra.Command) error {
 		WorktreeKeepTTL:               app.worktreeKeepTTL,
 		WorktreeKeepMaxCount:          app.worktreeKeepMaxCount,
 		PlanStore:                     planStore,
+		OperationPendingStore:         operationPendingStore,
 		PlanGroupStore:                planGroupStore,
 		FailureTaxonomy:               app.orch.FailureTaxonomyStore(),
 		AttachedLogMaxBytes:           maxAttachedLogBytes,
@@ -1492,6 +1494,9 @@ func initApp(cmd *cobra.Command, args []string) error {
 		}
 		if rs.OperationRouteEnabled != nil {
 			app.operationRouteEnabled = *rs.OperationRouteEnabled
+		}
+		if rs.OperationCommandAutoApprove != nil {
+			app.operationCommandPolicy.AutoApprove = *rs.OperationCommandAutoApprove
 		}
 		if rs.OperationCommandAutoLowRisk != nil {
 			app.operationCommandPolicy.AutoLowRisk = *rs.OperationCommandAutoLowRisk

@@ -3186,9 +3186,14 @@ mcp_servers:
 <td>REPL 分类器识别 PPT、文档、表格、浏览器/桌面操作、外部 skill workflow、通用命令行操作等请求时,进入独立 operation 路径。它不会把操作请求误转入源码分析流水线</td>
 </tr>
 <tr>
+<td><code>operation_command_auto_approve</code></td>
+<td><code>true</code></td>
+<td>operation 专用自动审批开关,和代码写模式 <code>write_enabled</code> 无关。默认开启:结构化命令没有命中高危/灾难性规则时自动推进;高危等待批准,灾难性操作直接拒绝</td>
+</tr>
+<tr>
 <td><code>operation_command_auto_low_risk</code></td>
 <td><code>true</code></td>
-<td>通用命令行操作的低风险自动批准。默认开启:确定只读查询和无覆盖目录创建会自动执行;设为 <code>false</code> 可改回全部等待 <code>/approve</code></td>
+<td>保守低风险自动批准。若把 <code>operation_command_auto_approve</code> 设为 <code>false</code>,则只自动执行确定只读查询和无覆盖目录创建;再设为 <code>false</code> 可改回全部等待 <code>/approve</code></td>
 </tr>
 <tr>
 <td><code>operation_command_timeout_ms</code></td>
