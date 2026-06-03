@@ -142,6 +142,31 @@ func TestBuildCommandOperationPlanLowRiskAutoCanBeDisabled(t *testing.T) {
 	}
 }
 
+func TestBuildCommandOperationPlanAutoApproveWorksWhenLowRiskOnlyDisabled(t *testing.T) {
+	policy := DefaultCommandPolicy()
+	policy.AutoApprove = true
+	policy.AutoLowRisk = false
+	plan := BuildCommandOperationPlan(CommandOperationRequest{
+		Text: "download a user guide page",
+		Steps: []CommandStep{{
+			Program:     "curl",
+			Args:        []string{"-s", "-L", "--max-time", "30", "http://codrax.net/user_guide.html"},
+			RiskLevel:   "low",
+			SideEffects: []string{"network_read"},
+		}},
+	}, policy)
+
+	if plan.Status != StatusReady {
+		t.Fatalf("Status=%q", plan.Status)
+	}
+	if plan.ApprovalMode != ApprovalAutoLowRisk {
+		t.Fatalf("ApprovalMode=%q, want auto_low_risk", plan.ApprovalMode)
+	}
+	if got := plan.Steps[0].AutoApproval; got != StepAutoEligible {
+		t.Fatalf("step AutoApproval=%q, want eligible", got)
+	}
+}
+
 func TestBuildCommandOperationPlanModelConfirmationDoesNotBlockProvenLowRisk(t *testing.T) {
 	plan := BuildCommandOperationPlan(CommandOperationRequest{
 		Text:                 "show go version",

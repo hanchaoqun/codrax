@@ -1661,6 +1661,7 @@ func TestCommandOperationE2E_StopsPrearmedRendererSpinner(t *testing.T) {
 	r.operationEnabled = true
 	r.operationPlanner = NewCommandOperationPlanner(adapter)
 	r.operationPolicy = operation.DefaultCommandPolicy()
+	r.operationPolicy.AutoApprove = false
 	r.operationPolicy.AutoLowRisk = false
 	var dock bytes.Buffer
 	r.renderer = render.New(&dock, true)
@@ -1791,6 +1792,7 @@ func TestCommandOperationE2E_FailedApprovedCommandCreatesRevisedPlan(t *testing.
 	r.operationEnabled = true
 	r.operationPlanner = NewCommandOperationPlanner(adapter)
 	r.operationPolicy = operation.DefaultCommandPolicy()
+	r.operationPolicy.AutoApprove = false
 	r.operationPolicy.AutoLowRisk = false
 	if err := r.Loop(); err != nil {
 		t.Fatalf("Loop: %v", err)
@@ -1818,6 +1820,51 @@ func TestCommandOperationE2E_FailedApprovedCommandCreatesRevisedPlan(t *testing.
 		if !strings.Contains(printed, want) {
 			t.Fatalf("replan output missing %q:\n%s", want, printed)
 		}
+	}
+}
+
+func TestCommandOperationE2E_FailedApprovedCommandAutoExecutesSafeReplanWhenAutoApproveEnabled(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("medium")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"high","requires_confirmation":true,"work_dir":".","steps":[{"id":"s1","title":"show missing tool version","program":"definitely-missing-codrax-command","args":["--version"],"risk_level":"high","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"s2","title":"show go version instead","program":"go","args":["version"],"risk_level":"low","side_effects":[]}]}`),
+			{Content: "缺失工具不可用，已自动改用 Go 版本查询并完成。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "查询工具版本\n/approve\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	r.operationPolicy.AutoApprove = true
+	r.operationPolicy.AutoLowRisk = false
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("command operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(adapter.calls) != 3 {
+		t.Fatalf("expected initial plan + replan + answer calls, got %d", len(adapter.calls))
+	}
+	if r.pendingOperation != nil {
+		t.Fatalf("safe revised plan should auto-execute under global auto-approve, pending=%+v", r.pendingOperation)
+	}
+	printed := out.String()
+	for _, want := range []string{
+		"revised command plan",
+		"will continue execution",
+		"go version",
+		"缺失工具不可用",
+	} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("auto replan output missing %q:\n%s", want, printed)
+		}
+	}
+	if strings.Contains(printed, "awaiting approval") || strings.Contains(printed, "等待批准") {
+		t.Fatalf("safe replan should not wait for approval when AutoApprove=true:\n%s", printed)
 	}
 }
 

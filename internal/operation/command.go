@@ -290,7 +290,7 @@ func BuildCommandOperationPlan(req CommandOperationRequest, policy CommandPolicy
 		return plan
 	}
 
-	allAutoEligible := policy.AutoLowRisk
+	allAutoEligible := policy.AutoApprove || policy.AutoLowRisk
 	var sideEffects []string
 	for i, raw := range req.Steps {
 		step := normalizeCommandStep(raw, i, policy, plan.WorkDir)
