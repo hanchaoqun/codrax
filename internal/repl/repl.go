@@ -1184,8 +1184,8 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 			r.pendingOperation = &plan
 		}
 		r.operationHistory = append(r.operationHistory, plan)
-		logging.Info("[repl/operation] command plan status=%s risk=%q approval=%q steps=%d",
-			plan.Status, plan.RiskLevel, plan.ApprovalMode, len(plan.Steps))
+		logging.Info("[repl/operation] command plan status=%s risk=%q approval=%q steps=%d request=%q",
+			plan.Status, plan.RiskLevel, plan.ApprovalMode, len(plan.Steps), oneLineClamp(line, 160))
 		msg := commandOperationPlanMarkdown(r.language, plan)
 		r.finishOperationRouteSpinner(plan.Status)
 		r.renderBordered(msg)
@@ -1370,9 +1370,13 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 		Policy:    r.operationPolicy,
 		OutputDir: r.operationOutputDir(),
 	}
+	logging.Info("[repl/operation] command execute start plan_id=%s steps=%d approval=%q risk=%q replan_attempt=%d request=%q",
+		plan.ID, len(plan.Steps), plan.ApprovalMode, plan.RiskLevel, replanAttempts, oneLineClamp(plan.RequestText, 160))
 	result := executor.Execute(ctx, plan)
 	plan.Status = result.Status
 	r.operationHistory = append(r.operationHistory, plan)
+	logging.Info("[repl/operation] command execute result plan_id=%s status=%s step_results=%d replan_attempt=%d",
+		plan.ID, result.Status, len(result.StepResults), replanAttempts)
 	if r.maybeReplanCommandOperation(ctx, plan, result, request, display, replanAttempts) {
 		return
 	}
@@ -1400,6 +1404,8 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 		return false
 	}
 	revisedPlan := operation.BuildCommandOperationPlan(revisedReq, r.operationPolicy)
+	logging.Info("[repl/operation] command replan generated previous_plan_id=%s status=%s risk=%q approval=%q steps=%d",
+		failedPlan.ID, revisedPlan.Status, revisedPlan.RiskLevel, revisedPlan.ApprovalMode, len(revisedPlan.Steps))
 	if revisedPlan.Status == operation.StatusReady {
 		if commandReplanCanAutoExecute(failedPlan, revisedPlan) {
 			msg := commandOperationResultMarkdown(r.language, failedPlan, result)
