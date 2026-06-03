@@ -119,6 +119,8 @@ type CommandOperationPlan struct {
 	Status              OperationStatus
 	RiskLevel           string
 	ApprovalMode        string
+	ApprovalReasonCode  string
+	ApprovalReason      string
 	WorkDir             string
 	Goal                string
 	KnownConstraints    []string

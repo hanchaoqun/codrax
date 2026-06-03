@@ -132,6 +132,8 @@ func DecideCommandPlanApproval(policy CommandPolicy, plan CommandOperationPlan, 
 }
 
 func ApplyCommandPlanApprovalDecision(plan CommandOperationPlan, decision CommandApprovalDecision) CommandOperationPlan {
+	plan.ApprovalReasonCode = strings.TrimSpace(decision.ReasonCode)
+	plan.ApprovalReason = strings.TrimSpace(decision.Reason)
 	switch decision.Action {
 	case CommandApprovalAutoExecute:
 		plan.ApprovalMode = ApprovalAutoLowRisk

@@ -153,6 +153,55 @@ func TestDecideCommandPlanApprovalMatrix(t *testing.T) {
 	}
 }
 
+func TestDecideCommandPlanApprovalEligibleObservationInvariant(t *testing.T) {
+	policy := commandApprovalPolicy(true, false)
+	previous := CommandOperationPlan{
+		Status:    StatusFailed,
+		RiskLevel: "low",
+		WorkDir:   "/repo",
+	}
+	eligibleMediumObservation := CommandOperationPlan{
+		Status:    StatusReady,
+		RiskLevel: "medium",
+		WorkDir:   "/repo",
+		Steps: []CommandStep{
+			{
+				ID:           "network",
+				Shell:        "curl -s http://localhost:8000/api/tags",
+				RiskLevel:    "medium",
+				SideEffects:  []string{"network_read"},
+				AutoApproval: StepAutoEligible,
+			},
+			{
+				ID:           "process",
+				Shell:        "ps aux | grep -i omlx | grep -v grep",
+				RiskLevel:    "medium",
+				AutoApproval: StepAutoEligible,
+			},
+		},
+	}
+	for _, phase := range []CommandApprovalPhase{
+		CommandApprovalInitial,
+		CommandApprovalReplan,
+		CommandApprovalContinuation,
+	} {
+		t.Run(string(phase), func(t *testing.T) {
+			opts := CommandApprovalOptions{Phase: phase}
+			if phase == CommandApprovalReplan || phase == CommandApprovalContinuation {
+				opts.PreviousPlan = &previous
+			}
+			got := DecideCommandPlanApproval(policy, eligibleMediumObservation, opts)
+			if got.Action != CommandApprovalAutoExecute || got.ApprovalMode != ApprovalAutoLowRisk {
+				t.Fatalf("eligible observation decision=(%s,%s,%s), want auto_execute/auto_low_risk: %+v", got.Action, got.ApprovalMode, got.ReasonCode, got)
+			}
+			applied := ApplyCommandPlanApprovalDecision(eligibleMediumObservation, got)
+			if applied.ApprovalMode != ApprovalAutoLowRisk || applied.ApprovalReasonCode != "all_steps_eligible" || applied.ApprovalReason == "" {
+				t.Fatalf("applied approval not recorded correctly: %+v", applied)
+			}
+		})
+	}
+}
+
 func commandApprovalPolicy(autoApprove, autoLowRisk bool) CommandPolicy {
 	policy := DefaultCommandPolicy()
 	policy.AutoApprove = autoApprove

@@ -1070,6 +1070,9 @@ func commandOperationPlanMarkdown(lang string, plan operation.CommandOperationPl
 			b.WriteString(fmt.Sprintf("操作计划 `%s` 已就绪，等待批准。\n\n", plan.ID))
 			b.WriteString(fmt.Sprintf("- 风险：`%s`\n", plan.RiskLevel))
 			b.WriteString(fmt.Sprintf("- 审批：`%s`\n", plan.ApprovalMode))
+			if strings.TrimSpace(plan.ApprovalReason) != "" {
+				b.WriteString(fmt.Sprintf("- 审批原因：%s\n", plan.ApprovalReason))
+			}
 			b.WriteString(fmt.Sprintf("- 工作目录：`%s`\n", plan.WorkDir))
 			if strings.TrimSpace(plan.Goal) != "" {
 				b.WriteString(fmt.Sprintf("- 目标：%s\n", plan.Goal))
@@ -1120,6 +1123,9 @@ func commandOperationPlanMarkdown(lang string, plan operation.CommandOperationPl
 		b.WriteString(fmt.Sprintf("Operation plan `%s` is ready and awaiting approval.\n\n", plan.ID))
 		b.WriteString(fmt.Sprintf("- Risk: `%s`\n", plan.RiskLevel))
 		b.WriteString(fmt.Sprintf("- Approval: `%s`\n", plan.ApprovalMode))
+		if strings.TrimSpace(plan.ApprovalReason) != "" {
+			b.WriteString(fmt.Sprintf("- Approval reason: %s\n", plan.ApprovalReason))
+		}
 		b.WriteString(fmt.Sprintf("- Working directory: `%s`\n", plan.WorkDir))
 		if strings.TrimSpace(plan.Goal) != "" {
 			b.WriteString(fmt.Sprintf("- Goal: %s\n", plan.Goal))
