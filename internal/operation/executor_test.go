@@ -52,29 +52,39 @@ func TestCommandExecutorRejectsEmptyReadyPlan(t *testing.T) {
 }
 
 func TestCommandExecutorRejectsNoInputShellFilter(t *testing.T) {
-	executor := CommandExecutor{Policy: DefaultCommandPolicy(), OutputDir: t.TempDir()}
-	result := executor.Execute(context.Background(), CommandOperationPlan{
-		ID:           "op-filter",
-		Status:       StatusReady,
-		ApprovalMode: ApprovalAutoLowRisk,
-		WorkDir:      ".",
-		Steps: []CommandStep{{
-			ID:    "grep",
-			Shell: "grep -i vpn | grep -v grep || echo 'not found'",
-		}},
-	})
+	for _, tc := range []struct {
+		name  string
+		shell string
+	}{
+		{"grep", "grep -i vpn | grep -v grep || echo 'not found'"},
+		{"cat", "cat"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			executor := CommandExecutor{Policy: DefaultCommandPolicy(), OutputDir: t.TempDir()}
+			result := executor.Execute(context.Background(), CommandOperationPlan{
+				ID:           "op-filter",
+				Status:       StatusReady,
+				ApprovalMode: ApprovalAutoLowRisk,
+				WorkDir:      ".",
+				Steps: []CommandStep{{
+					ID:    tc.name,
+					Shell: tc.shell,
+				}},
+			})
 
-	if result.Status != StatusFailed {
-		t.Fatalf("Status=%q, want failed", result.Status)
-	}
-	if len(result.StepResults) != 1 {
-		t.Fatalf("StepResults=%d, want 1", len(result.StepResults))
-	}
-	if result.StepResults[0].FailureClass != "invalid_plan" {
-		t.Fatalf("FailureClass=%q, want invalid_plan", result.StepResults[0].FailureClass)
-	}
-	if !strings.Contains(result.StepResults[0].Error, "no explicit input source") {
-		t.Fatalf("Error=%q, want no-input diagnostic", result.StepResults[0].Error)
+			if result.Status != StatusFailed {
+				t.Fatalf("Status=%q, want failed", result.Status)
+			}
+			if len(result.StepResults) != 1 {
+				t.Fatalf("StepResults=%d, want 1", len(result.StepResults))
+			}
+			if result.StepResults[0].FailureClass != "invalid_plan" {
+				t.Fatalf("FailureClass=%q, want invalid_plan", result.StepResults[0].FailureClass)
+			}
+			if !strings.Contains(result.StepResults[0].Error, "no explicit input source") {
+				t.Fatalf("Error=%q, want no-input diagnostic", result.StepResults[0].Error)
+			}
+		})
 	}
 }
 

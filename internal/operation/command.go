@@ -722,7 +722,7 @@ func shellStartsWithNoInputFilter(command string) bool {
 	case "awk", "sed", "perl":
 		// script/expression + file operand.
 		return len(positionals) < 2
-	case "head", "tail", "wc", "cut", "sort", "uniq":
+	case "cat", "nl", "head", "tail", "wc", "cut", "sort", "uniq":
 		return len(positionals) < 1
 	default:
 		return false

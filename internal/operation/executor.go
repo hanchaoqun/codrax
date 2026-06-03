@@ -232,7 +232,7 @@ func validateCommandStepBeforeRun(step CommandStep) error {
 		return nil
 	}
 	if shellStartsWithNoInputFilter(shell) {
-		return fmt.Errorf("shell filter has no explicit input source: %s", shell)
+		return fmt.Errorf("stdin-consuming shell command has no explicit input source: %s", shell)
 	}
 	return nil
 }

@@ -1711,7 +1711,7 @@ func TestCommandOperationE2E_InvalidShellFilterReplansWithNumericStepID(t *testi
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
 			commandOperationPlanResp(`{"status":"ready","risk_level":"medium","requires_confirmation":false,"work_dir":".","steps":[{"id":1,"title":"bad process filter","shell":"grep -i vpn | grep -v grep || echo none","risk_level":"medium","side_effects":[]}]}`),
-			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":2,"title":"safe version check","program":"go","args":["version"],"risk_level":"low","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":2,"title":"safe version check","shell":"printf 'vpn-tool 1.0\\n' | grep vpn","risk_level":"low","side_effects":[]}]}`),
 			{Content: "已修复无输入过滤命令，并完成替代查询。", StopReason: "end_turn"},
 		},
 	}
@@ -1731,9 +1731,11 @@ func TestCommandOperationE2E_InvalidShellFilterReplansWithNumericStepID(t *testi
 	}
 	printed := out.String()
 	for _, want := range []string{
-		"shell filter has no explicit input source",
+		"stdin-consuming shell command",
 		"revised command plan",
-		"go version",
+		"will run automatically",
+		"printf 'vpn-tool 1.0",
+		"vpn-tool 1.0",
 		"已修复无输入过滤命令",
 	} {
 		if !strings.Contains(printed, want) {
@@ -1823,8 +1825,10 @@ func TestCommandReplanAutoExecuteEnvelope(t *testing.T) {
 	}
 	withShell := clone(okPlan)
 	withShell.Steps[0].Shell = "go version"
-	if commandReplanCanAutoExecute(base, withShell) {
-		t.Fatal("shell replan must require manual approval")
+	withShell.Steps[0].Program = ""
+	withShell.Steps[0].Args = nil
+	if !commandReplanCanAutoExecute(base, withShell) {
+		t.Fatal("auto-approved, same-dir, no-side-effect shell replan should be allowed to continue")
 	}
 	withSideEffect := clone(okPlan)
 	withSideEffect.Steps[0].SideEffects = []string{"local_file_write"}

@@ -1774,7 +1774,7 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 			msg += "\n\n"
 			msg += commandOperationReplanIntro(r.language, revisedPlan)
 			msg += "\n\n"
-			msg += commandOperationPlanMarkdown(r.language, revisedPlan)
+			msg += commandOperationAutoExecuteMarkdown(r.language, revisedPlan)
 			r.finishOperationRouteSpinner(revisedPlan.Status)
 			r.renderBorderedCompact(msg)
 			r.executeCommandOperationPlanAttempt(revisedPlan, request, display, replanAttempts+1, records)
@@ -1826,7 +1826,7 @@ func (r *REPL) maybeContinueCommandOperation(ctx context.Context, plan operation
 	if nextPlan.Status == operation.StatusReady && nextPlan.ApprovalMode == operation.ApprovalAutoLowRisk {
 		msg := commandOperationContinuationIntro(r.language, nextPlan)
 		msg += "\n\n"
-		msg += commandOperationPlanMarkdown(r.language, nextPlan)
+		msg += commandOperationAutoExecuteMarkdown(r.language, nextPlan)
 		r.finishOperationRouteSpinner(nextPlan.Status)
 		r.renderBorderedCompact(msg)
 		r.executeCommandOperationPlanAttempt(nextPlan, request, display, 0, records)
@@ -2068,9 +2068,6 @@ func commandReplanCanAutoExecute(previous, revised operation.CommandOperationPla
 		return false
 	}
 	for _, step := range revised.Steps {
-		if strings.TrimSpace(step.Shell) != "" {
-			return false
-		}
 		if len(step.SideEffects) > 0 {
 			return false
 		}
