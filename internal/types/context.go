@@ -4828,6 +4828,30 @@ type MCPServerConfig struct {
 	OperationRequiresConfirmation *bool    `yaml:"operation_requires_confirmation" json:"operation_requires_confirmation,omitempty"`
 }
 
+// OperationSkillConfig is the codrax.yaml shape for one local operation skill.
+// It is intentionally separate from internal/skill prompt skills: this config
+// describes a side-effect capable local command provider that is visible only to
+// the typed operation route and is executed only after operation approval.
+type OperationSkillConfig struct {
+	Name                          string            `yaml:"name" json:"name"`
+	OperationKinds                []string          `yaml:"operation_kinds" json:"operation_kinds,omitempty"`
+	OperationSurfaces             []string          `yaml:"operation_surfaces" json:"operation_surfaces,omitempty"`
+	OperationSideEffects          []string          `yaml:"operation_side_effects" json:"operation_side_effects,omitempty"`
+	OperationDescription          string            `yaml:"operation_description" json:"operation_description,omitempty"`
+	OperationInputSchema          string            `yaml:"operation_input_schema" json:"operation_input_schema,omitempty"`
+	OperationExamples             []string          `yaml:"operation_examples" json:"operation_examples,omitempty"`
+	OperationLazyStart            *bool             `yaml:"operation_lazy_start" json:"operation_lazy_start,omitempty"`
+	OperationRequiresConfirmation *bool             `yaml:"operation_requires_confirmation" json:"operation_requires_confirmation,omitempty"`
+	Command                       string            `yaml:"command" json:"command"`
+	Args                          []string          `yaml:"args" json:"args,omitempty"`
+	Env                           map[string]string `yaml:"env" json:"env,omitempty"`
+	InheritEnv                    *bool             `yaml:"inherit_env" json:"inherit_env,omitempty"`
+	WorkDir                       string            `yaml:"work_dir" json:"work_dir,omitempty"`
+	InputMode                     string            `yaml:"input_mode" json:"input_mode,omitempty"`
+	TimeoutMS                     *int              `yaml:"timeout_ms" json:"timeout_ms,omitempty"`
+	MaxOutputBytes                *int              `yaml:"max_output_bytes" json:"max_output_bytes,omitempty"`
+}
+
 // ExecutionSignals tracks boolean signals produced by agents. After
 // the 2026-04-14 simplification only HasEnoughFacts remains — the
 // write-pipeline signals (HasPlan, HasPatch, *ReviewPassed,

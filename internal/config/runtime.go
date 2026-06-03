@@ -61,6 +61,11 @@ type RuntimeSettings struct {
 	MCPServers    []types.MCPServerConfig `yaml:"mcp_servers"`
 	MCPMaxServers *int                    `yaml:"mcp_max_servers"`
 
+	// Local operation skills are manifest-backed side-effect capable providers
+	// for the independent operation route. They are descriptors at startup and
+	// execute only after typed operation routing plus approval.
+	OperationSkills []types.OperationSkillConfig `yaml:"operation_skills"`
+
 	// Independent operation/artifact route. When enabled, a typed
 	// computer-operation / artifact-generation turn enters the REPL operation
 	// planner instead of the source-analysis pipeline. Any command execution is

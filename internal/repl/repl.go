@@ -293,6 +293,10 @@ type Config struct {
 	// after a user approves the operation plan. Eager MCP exposure remains
 	// owned by cmd/root.go and the agent layer.
 	MCPServerConfigs []types.MCPServerConfig
+	// OperationSkillConfigs are local manifest-backed operation providers. They
+	// are descriptors until typed operation routing plus approval reaches the
+	// provider execution path.
+	OperationSkillConfigs []types.OperationSkillConfig
 
 	// PlanStore persists B0 write-mode ChangePlans for the REPL
 	// session. Nil disables the /plan slash command family —
@@ -578,6 +582,7 @@ type REPL struct {
 	operationMemory             *operation.MemoryStore
 	mcpServers                  *mcp.Registry
 	mcpServerConfigs            []types.MCPServerConfig
+	operationSkillConfigs       []types.OperationSkillConfig
 
 	// sessionID identifies this REPL session. Stamped onto every
 	// recorded Turn so memory.BuildContext can session-pin recent
@@ -750,6 +755,7 @@ func New(cfg Config) *REPL {
 		operationPolicy:        cfg.OperationCommandPolicy,
 		mcpServers:             cfg.MCPServers,
 		mcpServerConfigs:       append([]types.MCPServerConfig(nil), cfg.MCPServerConfigs...),
+		operationSkillConfigs:  append([]types.OperationSkillConfig(nil), cfg.OperationSkillConfigs...),
 		// Session ID embeds nano + pid so two codrax REPLs launched
 		// in the same clock tick (test harness, race) still get
 		// disjoint IDs. Consumed by memory.BuildContext via BuildOpts.

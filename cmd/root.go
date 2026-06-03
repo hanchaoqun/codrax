@@ -394,6 +394,7 @@ type appContext struct {
 	operationRouteEnabled  bool
 	operationProviders     []operation.ProviderInfo
 	mcpServerConfigs       []types.MCPServerConfig
+	operationSkillConfigs  []types.OperationSkillConfig
 	operationCommandPolicy operation.CommandPolicy
 	// writeEnabled mirrors codrax.yaml :: write_enabled. Forwarded to
 	// the REPL Config so /mode plan|apply|verify and /approve can be
@@ -1249,6 +1250,7 @@ func runREPL(_ *cobra.Command) error {
 		OperationCommandPolicy: app.operationCommandPolicy,
 		MCPServers:             app.mcpRegistry,
 		MCPServerConfigs:       append([]types.MCPServerConfig(nil), app.mcpServerConfigs...),
+		OperationSkillConfigs:  append([]types.OperationSkillConfig(nil), app.operationSkillConfigs...),
 		// Hand the memory adapter to REPL so the chitchat tool-use
 		// loop can call recall_memory without a separate wiring step.
 		// The same adapter is also wired into the orchestrator above,
@@ -2977,7 +2979,8 @@ func initApp(cmd *cobra.Command, args []string) error {
 	}
 	app.mcpRegistry = mcpRegistry
 	app.mcpServerConfigs = append([]types.MCPServerConfig(nil), rsMCPServers(rs)...)
-	app.operationProviders = operationProvidersFromMCPConfigs(mcpRegistry, rsMCPServers(rs))
+	app.operationSkillConfigs = append([]types.OperationSkillConfig(nil), rsOperationSkills(rs)...)
+	app.operationProviders = append(operationProvidersFromMCPConfigs(mcpRegistry, app.mcpServerConfigs), operationProvidersFromSkillConfigs(app.operationSkillConfigs)...)
 	logging.Info("registered %d MCP servers", len(mcpRegistry.List()))
 
 	skillRegistry := skill.NewRegistry()
@@ -4311,6 +4314,13 @@ func rsMCPServers(rs *config.RuntimeSettings) []types.MCPServerConfig {
 	return rs.MCPServers
 }
 
+func rsOperationSkills(rs *config.RuntimeSettings) []types.OperationSkillConfig {
+	if rs == nil {
+		return nil
+	}
+	return rs.OperationSkills
+}
+
 func operationProvidersFromMCPConfigs(reg *mcp.Registry, cfgs []types.MCPServerConfig) []operation.ProviderInfo {
 	if len(cfgs) == 0 {
 		return nil
@@ -4350,6 +4360,48 @@ func operationProvidersFromMCPConfigs(reg *mcp.Registry, cfgs []types.MCPServerC
 				Source:       "mcp",
 				LazyStart:    lazyStart,
 				Loaded:       loaded,
+			})
+		}
+	}
+	return out
+}
+
+func operationProvidersFromSkillConfigs(cfgs []types.OperationSkillConfig) []operation.ProviderInfo {
+	if len(cfgs) == 0 {
+		return nil
+	}
+	var out []operation.ProviderInfo
+	for _, cfg := range cfgs {
+		name := strings.TrimSpace(cfg.Name)
+		if name == "" || strings.TrimSpace(cfg.Command) == "" {
+			continue
+		}
+		kinds := cleanOperationConfigList(cfg.OperationKinds)
+		if len(kinds) == 0 {
+			kinds = []string{"*"}
+		}
+		lazyStart := true
+		if cfg.OperationLazyStart != nil {
+			lazyStart = *cfg.OperationLazyStart
+		}
+		requiresGate := true
+		if cfg.OperationRequiresConfirmation != nil {
+			requiresGate = *cfg.OperationRequiresConfirmation
+		}
+		for _, kind := range kinds {
+			out = append(out, operation.ProviderInfo{
+				Name:         "skill:" + name,
+				Kind:         kind,
+				Surfaces:     cleanOperationConfigList(cfg.OperationSurfaces),
+				SideEffects:  cleanOperationConfigList(cfg.OperationSideEffects),
+				RequiresGate: requiresGate,
+				ToolName:     "run",
+				Description:  strings.TrimSpace(cfg.OperationDescription),
+				InputSchema:  strings.TrimSpace(cfg.OperationInputSchema),
+				Examples:     cleanOperationConfigList(cfg.OperationExamples),
+				Source:       "skill",
+				LazyStart:    lazyStart,
+				Loaded:       !lazyStart,
 			})
 		}
 	}

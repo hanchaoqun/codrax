@@ -65,6 +65,46 @@ func TestOperationProvidersFromMCPConfigsIncludesLazyUnregisteredProvider(t *tes
 	}
 }
 
+func TestOperationProvidersFromSkillConfigsUsesLocalDescriptor(t *testing.T) {
+	no := false
+	providers := operationProvidersFromSkillConfigs([]types.OperationSkillConfig{
+		{
+			Name:                          "local_ppt",
+			OperationKinds:                []string{"presentation_generation", "artifact_generation"},
+			OperationSurfaces:             []string{"slides"},
+			OperationSideEffects:          []string{"local_file_write"},
+			OperationRequiresConfirmation: &no,
+			OperationDescription:          "Generate local decks",
+			OperationInputSchema:          `{"type":"object"}`,
+			OperationExamples:             []string{"make a deck"},
+			OperationLazyStart:            &no,
+			Command:                       "./tools/ppt-skill",
+		},
+	})
+	if len(providers) != 2 {
+		t.Fatalf("providers len=%d, want 2: %+v", len(providers), providers)
+	}
+	if providers[0].Name != "skill:local_ppt" || providers[0].Kind != "presentation_generation" || providers[0].ToolName != "run" {
+		t.Fatalf("first provider mismatch: %+v", providers[0])
+	}
+	if providers[0].Source != "skill" || providers[0].LazyStart || !providers[0].Loaded || providers[0].RequiresGate {
+		t.Fatalf("local skill descriptor flags mismatch: %+v", providers[0])
+	}
+	if providers[0].Description != "Generate local decks" || providers[0].InputSchema == "" || len(providers[0].Examples) != 1 {
+		t.Fatalf("local skill descriptor metadata missing: %+v", providers[0])
+	}
+}
+
+func TestOperationProvidersFromSkillConfigsSkipsIncompleteConfigs(t *testing.T) {
+	providers := operationProvidersFromSkillConfigs([]types.OperationSkillConfig{
+		{Name: "missing_command", OperationKinds: []string{"presentation_generation"}},
+		{Command: "./tool", OperationKinds: []string{"document_generation"}},
+	})
+	if len(providers) != 0 {
+		t.Fatalf("providers len=%d, want 0: %+v", len(providers), providers)
+	}
+}
+
 func TestEagerMCPServerConfigsSkipsOnlyLazyOperationProviders(t *testing.T) {
 	yes := true
 	no := false

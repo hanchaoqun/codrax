@@ -82,6 +82,18 @@ func TestCapabilitySnapshotRendersOperationProviderDescriptors(t *testing.T) {
 			LazyStart:    true,
 			Loaded:       false,
 		},
+		{
+			Name:         "skill:local_ppt",
+			Kind:         "presentation_generation",
+			Surfaces:     []string{"slides"},
+			SideEffects:  []string{"local_file_write"},
+			RequiresGate: true,
+			ToolName:     "run",
+			Description:  "Run a local PPT skill through a manifest command.",
+			Source:       "skill",
+			LazyStart:    true,
+			Loaded:       false,
+		},
 	})
 	rendered := snapshot.RenderForPrompt()
 	for _, want := range []string{
@@ -95,6 +107,9 @@ func TestCapabilitySnapshotRendersOperationProviderDescriptors(t *testing.T) {
 		"description=Create and verify local PPTX decks",
 		"input_schema=",
 		"examples=Generate a six slide summary deck",
+		"skill:local_ppt kind=presentation_generation",
+		"tool=run",
+		"source=skill",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("snapshot missing %q:\n%s", want, rendered)
