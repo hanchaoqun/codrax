@@ -53,6 +53,10 @@ type ProviderOperationAnswerer interface {
 	AnswerProviderOperationResult(ctx context.Context, userLine string, records []providerOperationResultRecord, lang string) (string, error)
 }
 
+type ProviderOperationEvaluator interface {
+	EvaluateProviderOperation(ctx context.Context, userLine string, records []providerOperationResultRecord, lang string) (operation.OperationEvaluation, error)
+}
+
 type llmCommandOperationPlanner struct {
 	adapter llm.Adapter
 }
@@ -155,6 +159,41 @@ var commandOperationPlanTool = llm.ToolSchema{
     }
   },
   "required": ["status", "risk_level", "requires_confirmation"]
+	}`),
+}
+
+var operationEvaluationTool = llm.ToolSchema{
+	Name:        "emit_operation_evaluation",
+	Description: "Emit a typed operation-goal evaluation. This tool never executes commands or providers.",
+	Parameters: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["complete", "continue_command", "continue_provider", "needs_approval", "needs_clarification", "blocked", "budget_exhausted", "partial_answer_possible"],
+      "description": "What Codrax should do next inside the operation lane."
+    },
+    "reason": {
+      "type": "string",
+      "description": "Short explanation grounded in the operation records."
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["low", "medium", "high"],
+      "description": "Confidence in the evaluation."
+    },
+    "missing_inputs": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "User-owned missing inputs if status=needs_clarification; otherwise omitted or empty."
+    },
+    "material_refs": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Payload/artifact/material refs that matter for the next step or final answer."
+    }
+  },
+  "required": ["status"]
 }`),
 }
 
@@ -200,6 +239,23 @@ Risk hints:
 - Unknown structured commands and shell pipelines are not automatically risky by name alone; describe their actual typed side effects. Moving, copying, installing packages, downloading, and ambiguous shell actions are medium; high-risk or destructive signals require confirmation or blocking.
 - Deleting, overwriting, uninstalling, external writes, or network submission is high and requires confirmation.
 `
+
+const operationEvaluationSystemPrompt = `You are Codrax's operation goal evaluator.
+
+You decide whether the current operation observations satisfy the user's original goal, or whether Codrax should continue with another bounded operation step.
+
+Hard rules:
+- Emit only the required tool call. Do not write prose.
+- This is operation-lane evaluation only. Do not route to source-code analysis, trace analysis, or write-mode code editing.
+- Treat provider/MCP/Skill summaries as compact observations, not proof that a full payload/artifact was inspected.
+- Payload refs, artifact refs, material refs, next_actions, return_action, and workflow_state are external operation materials. They are not current-source evidence.
+- If the user goal depends on omitted or saved material content, and a safe local command can read/search/extract it, emit status=continue_command.
+- If a configured provider follow-up is still needed and represented by a typed next action, emit status=continue_provider.
+- If existing observations already satisfy the user goal, emit status=complete.
+- Ask for clarification only for user-owned missing inputs: credentials, remote host, destructive scope, destination choice, business choice, or data that cannot be safely discovered.
+- If useful progress exists but budgets or capability limits prevent safe completion, emit budget_exhausted or partial_answer_possible.
+- Do not mention raw execution detail blocks in the reason; UI already shows per-round details.
+- Match status to a typed enum exactly.`
 
 func (p *llmCommandOperationPlanner) PlanCommandOperation(ctx context.Context, userLine, repoRoot string, policy TurnPolicy) (operation.CommandOperationRequest, error) {
 	return p.PlanCommandOperationWithSnapshot(ctx, userLine, repoRoot, policy, operation.CapabilitySnapshot{})
@@ -321,6 +377,40 @@ func (p *llmCommandOperationPlanner) AnswerProviderOperationResult(ctx context.C
 	return strings.TrimSpace(resp.Content), nil
 }
 
+func (p *llmCommandOperationPlanner) EvaluateProviderOperation(ctx context.Context, userLine string, records []providerOperationResultRecord, lang string) (operation.OperationEvaluation, error) {
+	if p == nil || p.adapter == nil {
+		return operation.OperationEvaluation{}, fmt.Errorf("provider operation evaluator not configured")
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "## language\n%s\n\n", strings.TrimSpace(lang))
+	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
+	b.WriteString("## provider_operation_results\n")
+	b.WriteString(renderProviderOperationResultsForPrompt(records))
+	resp, err := p.adapter.Chat(ctx,
+		[]llm.Message{
+			{Role: "system", Content: operationEvaluationSystemPrompt},
+			{Role: "user", Content: b.String()},
+		},
+		[]llm.ToolSchema{operationEvaluationTool},
+		llm.ChatOptions{ToolChoice: "required"},
+	)
+	if err != nil {
+		return operation.OperationEvaluation{}, fmt.Errorf("provider operation evaluation llm call: %w", err)
+	}
+	if len(resp.ToolCalls) == 0 {
+		return operation.OperationEvaluation{}, fmt.Errorf("provider operation evaluator: LLM returned no tool_call")
+	}
+	call := resp.ToolCalls[0]
+	if call.Name != operationEvaluationTool.Name {
+		return operation.OperationEvaluation{}, fmt.Errorf("provider operation evaluator: unexpected tool %q", call.Name)
+	}
+	parsed, err := unmarshalOperationEvaluation(call.Params)
+	if err != nil {
+		return operation.OperationEvaluation{}, err
+	}
+	return parsed.toEvaluation(), nil
+}
+
 type commandOperationPlannerRequest struct {
 	UserLine               string
 	RepoRoot               string
@@ -332,6 +422,55 @@ type commandOperationPlannerRequest struct {
 	Records                []commandOperationResultRecord
 	Replan                 bool
 	Continuation           bool
+}
+
+type operationEvaluationDraft struct {
+	Status       flexiblePolicyString     `json:"status"`
+	Reason       flexiblePolicyString     `json:"reason"`
+	Confidence   flexiblePolicyString     `json:"confidence"`
+	MissingInput flexiblePolicyStringList `json:"missing_inputs"`
+	MaterialRefs flexiblePolicyStringList `json:"material_refs"`
+}
+
+func unmarshalOperationEvaluation(raw []byte) (operationEvaluationDraft, error) {
+	var parsed operationEvaluationDraft
+	if err := json.Unmarshal(raw, &parsed); err == nil {
+		return parsed, nil
+	}
+	repaired, ok := repairTurnPolicyParamsJSON(raw)
+	if !ok {
+		return parsed, fmt.Errorf("operation evaluator: unmarshal tool params: %w", json.Unmarshal(raw, &parsed))
+	}
+	if err := json.Unmarshal(repaired, &parsed); err != nil {
+		return parsed, fmt.Errorf("operation evaluator: unmarshal repaired tool params: %w", err)
+	}
+	logging.Warning("[repl/operation] emit_operation_evaluation params auto-repaired (LLM-corrupted JSON: structural repair)")
+	return parsed, nil
+}
+
+func (d operationEvaluationDraft) toEvaluation() operation.OperationEvaluation {
+	status := operation.NormalizeEvaluationStatus(string(d.Status))
+	materials := make([]operation.OperationMaterial, 0, len(d.MaterialRefs))
+	for _, ref := range d.MaterialRefs {
+		ref = strings.TrimSpace(ref)
+		if ref == "" {
+			continue
+		}
+		materials = append(materials, operation.OperationMaterial{
+			Source:          operation.MaterialSourceProvider,
+			Kind:            operation.MaterialKindPayloadRef,
+			Role:            operation.MaterialRoleSavedPayload,
+			Ref:             ref,
+			CompletePreview: false,
+		})
+	}
+	return operation.OperationEvaluation{
+		Status:        status,
+		Reason:        strings.TrimSpace(string(d.Reason)),
+		Confidence:    strings.TrimSpace(string(d.Confidence)),
+		MissingInputs: []string(d.MissingInput),
+		Materials:     materials,
+	}
 }
 
 func (p *llmCommandOperationPlanner) planCommandOperation(ctx context.Context, req commandOperationPlannerRequest) (operation.CommandOperationRequest, error) {

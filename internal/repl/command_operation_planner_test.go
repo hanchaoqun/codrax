@@ -19,6 +19,16 @@ func commandOperationPlanResp(payload string) llm.Response {
 	}
 }
 
+func operationEvaluationResp(payload string) llm.Response {
+	return llm.Response{
+		ToolCalls: []llm.ToolCall{{
+			ID:     "call-eval-1",
+			Name:   "emit_operation_evaluation",
+			Params: []byte(payload),
+		}},
+	}
+}
+
 func TestCommandOperationPlannerCompatJSON(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
@@ -63,6 +73,82 @@ func TestCommandOperationPlannerCompatJSON(t *testing.T) {
 	}
 	if req.NextBatch != "true" || req.WhyThisBatch != "first bounded observation" {
 		t.Fatalf("batch purpose fields not decoded: next=%q why=%q", req.NextBatch, req.WhyThisBatch)
+	}
+}
+
+func TestProviderOperationEvaluatorCompatJSON(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			operationEvaluationResp(`{"status":"continue_command","reason":123,"confidence":true,"missing_inputs":"payload text, exact section","material_refs":"/tmp/codrax/provider-output.txt",}` + "\ntrailing"),
+		},
+	}
+	evaluator, ok := NewCommandOperationPlanner(adapter).(ProviderOperationEvaluator)
+	if !ok {
+		t.Fatal("planner should support provider operation evaluation")
+	}
+	eval, err := evaluator.EvaluateProviderOperation(context.Background(), "阅读 provider 输出并回答", []providerOperationResultRecord{{
+		Plan: operation.Plan{Kind: "document_generation", TargetSurface: "docs"},
+		Request: operation.Request{
+			Text:          "阅读 provider 输出并回答",
+			OperationKind: "document_generation",
+			TargetSurface: "docs",
+		},
+		Result: providerOperationResult{
+			Status:     operation.StatusExecuted,
+			Provider:   "skill:reader",
+			Tool:       "run",
+			Summary:    "output preview was saved",
+			PayloadRef: "/tmp/codrax/provider-output.txt",
+		},
+	}}, "zh")
+	if err != nil {
+		t.Fatalf("EvaluateProviderOperation: %v", err)
+	}
+	if eval.Status != operation.EvalContinueCommand {
+		t.Fatalf("Status=%q want %q", eval.Status, operation.EvalContinueCommand)
+	}
+	if eval.Reason != "123" || eval.Confidence != "true" {
+		t.Fatalf("flex string fields not decoded: %+v", eval)
+	}
+	if len(eval.MissingInputs) != 2 || eval.MissingInputs[0] != "payload text" {
+		t.Fatalf("missing_inputs not flex-decoded: %+v", eval.MissingInputs)
+	}
+	if len(eval.Materials) != 1 || eval.Materials[0].Ref != "/tmp/codrax/provider-output.txt" {
+		t.Fatalf("material refs not decoded: %+v", eval.Materials)
+	}
+	if len(adapter.calls) != 1 {
+		t.Fatalf("Chat calls=%d, want 1", len(adapter.calls))
+	}
+	user := ""
+	for i := len(adapter.calls[0].messages) - 1; i >= 0; i-- {
+		if adapter.calls[0].messages[i].Role == "user" {
+			user = adapter.calls[0].messages[i].Content
+			break
+		}
+	}
+	for _, want := range []string{
+		"## provider_operation_results",
+		"skill:reader",
+		"payload_ref=/tmp/codrax/provider-output.txt",
+		"operation_materials",
+		"not current-source evidence",
+	} {
+		if !strings.Contains(user, want) {
+			t.Fatalf("evaluator prompt missing %q:\n%s", want, user)
+		}
+	}
+	allMessages := ""
+	for _, msg := range adapter.calls[0].messages {
+		allMessages += "\n" + msg.Content
+	}
+	for _, want := range []string{
+		"operation goal evaluator",
+		"Payload refs, artifact refs, material refs",
+		"emit status=continue_command",
+	} {
+		if !strings.Contains(allMessages, want) {
+			t.Fatalf("evaluator system prompt missing %q:\n%s", want, allMessages)
+		}
 	}
 }
 
