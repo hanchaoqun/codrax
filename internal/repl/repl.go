@@ -1401,6 +1401,10 @@ func (r *REPL) handleOperationCmd(line string) {
 			r.renderBordered(commandOperationPlanMarkdown(r.language, r.pendingCommandClarification.Plan))
 			return
 		}
+		if r.providerWorkflow != nil {
+			r.renderBordered(providerWorkflowMarkdown(r.language, *r.providerWorkflow))
+			return
+		}
 		if r.pendingProviderOperation != nil {
 			r.renderBordered(operationPlanMarkdown(r.language, r.pendingProviderOperation.Plan))
 			return
@@ -1423,6 +1427,30 @@ func (r *REPL) handleOperationCmd(line string) {
 		r.info(operationAutoStatusMsg(r.language))
 	default:
 		r.info(operationHelpMsg(r.language))
+	}
+}
+
+func (r *REPL) handleWorkflowCmd(line string) {
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "/workflow"))
+	switch rest {
+	case "", "show":
+		if r.providerWorkflow == nil {
+			r.info(workflowNoActiveMsg(r.language))
+			return
+		}
+		r.renderBordered(providerWorkflowMarkdown(r.language, *r.providerWorkflow))
+	case "cancel":
+		if r.providerWorkflow == nil {
+			r.info(workflowNoActiveMsg(r.language))
+			return
+		}
+		id := r.providerWorkflow.ID
+		r.providerWorkflow.Cancelled = true
+		r.pendingProviderOperation = nil
+		r.providerWorkflow = nil
+		r.info(workflowCancelledMsg(r.language, id))
+	default:
+		r.info(workflowHelpMsg(r.language))
 	}
 }
 
@@ -3231,6 +3259,9 @@ func (r *REPL) handleSlash(line string) bool {
 		return false
 	case "/operation":
 		r.handleOperationCmd(line)
+		return false
+	case "/workflow":
+		r.handleWorkflowCmd(line)
 		return false
 	case "/verify":
 		r.handleVerifyCmd(line)
@@ -5298,6 +5329,25 @@ func (r *REPL) queueProviderNextAction(pending *pendingProviderOperation, result
 		}
 		if r.enqueueProviderWorkflowAction(pending, &nextPending, action, operation.WorkflowEdgeNext, result) {
 			queued++
+		}
+	}
+	if strings.TrimSpace(result.ReturnAction.Compact()) != "" {
+		plan, req, diag, ok := r.providerPlanFromWorkflowAction(pending, result.ReturnAction)
+		if diag != "" {
+			result.WorkflowDiagnostics = append(result.WorkflowDiagnostics, fmt.Sprintf("return_action: %s", diag))
+		}
+		if ok {
+			returnPending := pendingProviderOperation{
+				Plan:          plan,
+				Request:       req,
+				Display:       firstNonEmptyString(result.ReturnAction.Request, pending.Display, pending.Request.Text),
+				Input:         result.ReturnAction.Input,
+				WorkflowState: result.WorkflowState,
+				WorkflowDepth: pending.WorkflowDepth + 1,
+			}
+			if r.enqueueProviderWorkflowAction(pending, &returnPending, result.ReturnAction, operation.WorkflowEdgeReturn, result) {
+				queued++
+			}
 		}
 	}
 	if queued > 0 {

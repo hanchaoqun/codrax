@@ -92,6 +92,46 @@ func TestOperationProviderLocalSkillFakeHelper(t *testing.T) {
 	}
 	var payload map[string]any
 	_ = json.NewDecoder(os.Stdin).Decode(&payload)
+	if os.Getenv("CODRAX_REPL_FAKE_LOCAL_SKILL_CHAIN_RETURN") == "1" {
+		input, _ := payload["input"].(map[string]any)
+		if deckPath, _ := input["deck_path"].(string); deckPath != "" {
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"success":       true,
+				"summary":       "manual reader composed final report for " + deckPath,
+				"artifact_refs": []string{"out/final-report.md"},
+			})
+			return
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+			"success":       true,
+			"summary":       "manual reader extracted deck notes with callback",
+			"artifact_refs": []string{"out/manual-notes.md"},
+			"next_actions": []map[string]any{{
+				"provider":              "skill:ppt_builder",
+				"operation_kind":        "presentation_generation",
+				"target_surface":        "slides",
+				"risk_level":            "medium",
+				"side_effects":          []string{"local_file_write"},
+				"requires_confirmation": true,
+				"request":               "build slides before callback",
+				"input":                 map[string]any{"source_payload_ref": "out/manual-notes.md"},
+			}},
+			"return_action": map[string]any{
+				"provider":       "skill:manual_reader",
+				"operation_kind": "artifact_generation",
+				"target_surface": "local_file",
+				"risk_level":     "low",
+				"request":        "compose final workflow report",
+				"input":          map[string]any{"deck_path": "out/deck.pptx"},
+			},
+			"workflow_state": map[string]any{
+				"workflow_id": "wf-manual-deck",
+				"step":        "manual_extracted",
+				"return_to":   "skill:manual_reader",
+			},
+		})
+		return
+	}
 	if os.Getenv("CODRAX_REPL_FAKE_LOCAL_SKILL_CHAIN_MULTI") == "1" {
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
 			"success":       true,
@@ -862,6 +902,202 @@ func TestOperationProviderLocalSkillQueuesMultipleWorkflowNextActionsSerially(t 
 		if !strings.Contains(handoff, want) {
 			t.Fatalf("multi-action workflow handoff missing %q:\n%s", want, handoff)
 		}
+	}
+}
+
+func TestOperationProviderLocalSkillQueuesReturnAction(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: true,
+		Operation:            "presentation_generation",
+		OperationKind:        "presentation_generation",
+		Source:               "current_message",
+		RiskLevel:            "medium",
+		TargetSurface:        "slides",
+		SideEffects:          []string{"local_file_write"},
+		Confidence:           0.9,
+		Reason:               "user asked for a chained presentation workflow with callback",
+	}}
+	yes := true
+	timeoutMS := 3000
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "根据说明生成一份 PPT 并总结\n/approve\n/workflow show\n/approve\n/approve\n/exit\n")
+	r.operationEnabled = true
+	r.runtimeAnchor = t.TempDir()
+	r.operationSkillConfigs = []types.OperationSkillConfig{
+		{
+			Name:                          "manual_reader",
+			OperationKinds:                []string{"presentation_generation", "artifact_generation"},
+			OperationSurfaces:             []string{"slides", "local_file"},
+			OperationSideEffects:          []string{"local_file_write"},
+			OperationRequiresConfirmation: &yes,
+			OperationLazyStart:            &yes,
+			Command:                       os.Args[0],
+			Args:                          []string{"-test.run=TestOperationProviderLocalSkillFakeHelper"},
+			Env: map[string]string{
+				"CODRAX_REPL_FAKE_LOCAL_SKILL":              "1",
+				"CODRAX_REPL_FAKE_LOCAL_SKILL_CHAIN_RETURN": "1",
+			},
+			InputMode: "stdin_json",
+			TimeoutMS: &timeoutMS,
+		},
+		{
+			Name:                          "ppt_builder",
+			OperationKinds:                []string{"presentation_generation"},
+			OperationSurfaces:             []string{"slides"},
+			OperationSideEffects:          []string{"local_file_write"},
+			OperationRequiresConfirmation: &yes,
+			OperationLazyStart:            &yes,
+			Command:                       os.Args[0],
+			Args:                          []string{"-test.run=TestOperationProviderLocalSkillFakeHelper"},
+			Env: map[string]string{
+				"CODRAX_REPL_FAKE_LOCAL_SKILL":         "1",
+				"CODRAX_REPL_FAKE_LOCAL_SKILL_CHAIN_B": "1",
+			},
+			InputMode: "stdin_json",
+			TimeoutMS: &timeoutMS,
+		},
+	}
+	r.operationProviders = []operation.ProviderInfo{
+		{
+			Name:         "skill:manual_reader",
+			Kind:         "*",
+			Surfaces:     []string{"slides", "local_file"},
+			SideEffects:  []string{"local_file_write"},
+			RequiresGate: true,
+			ToolName:     "run",
+			Source:       "skill",
+			LazyStart:    true,
+		},
+		{
+			Name:         "skill:ppt_builder",
+			Kind:         "presentation_generation",
+			Surfaces:     []string{"slides"},
+			SideEffects:  []string{"local_file_write"},
+			RequiresGate: true,
+			ToolName:     "run",
+			Source:       "skill",
+			LazyStart:    true,
+		},
+	}
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("return-action workflow should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if r.pendingProviderOperation != nil {
+		t.Fatalf("return-action workflow should finish after third approval: %+v\noutput:\n%s", r.pendingProviderOperation, out.String())
+	}
+	if r.providerWorkflow == nil {
+		t.Fatal("workflow instance should be retained")
+	}
+	if len(r.providerWorkflow.Actions) != 3 || len(r.providerWorkflow.Edges) != 2 || r.providerWorkflow.Edges[1].Kind != operation.WorkflowEdgeReturn {
+		t.Fatalf("return edge not preserved: wf=%+v", r.providerWorkflow)
+	}
+	printed := out.String()
+	for _, want := range []string{
+		"Suggested return action",
+		"Operation workflow `provider-workflow-1`",
+		"ppt builder consumed out/manual-notes.md",
+		"manual reader composed final report for out/deck.pptx",
+	} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("return-action workflow output missing %q:\n%s", want, printed)
+		}
+	}
+}
+
+func TestOperationWorkflowCancelStopsQueuedProviderActions(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: true,
+		Operation:            "presentation_generation",
+		OperationKind:        "presentation_generation",
+		Source:               "current_message",
+		RiskLevel:            "medium",
+		TargetSurface:        "slides",
+		SideEffects:          []string{"local_file_write"},
+		Confidence:           0.9,
+		Reason:               "user asked for a chained presentation workflow",
+	}}
+	yes := true
+	timeoutMS := 3000
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "根据说明生成一份 PPT\n/approve\n/workflow cancel\n/approve\n/exit\n")
+	r.operationEnabled = true
+	r.runtimeAnchor = t.TempDir()
+	r.operationSkillConfigs = []types.OperationSkillConfig{
+		{
+			Name:                          "manual_reader",
+			OperationKinds:                []string{"presentation_generation"},
+			OperationSurfaces:             []string{"slides"},
+			OperationSideEffects:          []string{"local_file_write"},
+			OperationRequiresConfirmation: &yes,
+			OperationLazyStart:            &yes,
+			Command:                       os.Args[0],
+			Args:                          []string{"-test.run=TestOperationProviderLocalSkillFakeHelper"},
+			Env: map[string]string{
+				"CODRAX_REPL_FAKE_LOCAL_SKILL":         "1",
+				"CODRAX_REPL_FAKE_LOCAL_SKILL_CHAIN_A": "1",
+			},
+			InputMode: "stdin_json",
+			TimeoutMS: &timeoutMS,
+		},
+		{
+			Name:                          "ppt_builder",
+			OperationKinds:                []string{"presentation_generation"},
+			OperationSurfaces:             []string{"slides"},
+			OperationSideEffects:          []string{"local_file_write"},
+			OperationRequiresConfirmation: &yes,
+			OperationLazyStart:            &yes,
+			Command:                       os.Args[0],
+			Args:                          []string{"-test.run=TestOperationProviderLocalSkillFakeHelper"},
+			Env: map[string]string{
+				"CODRAX_REPL_FAKE_LOCAL_SKILL":         "1",
+				"CODRAX_REPL_FAKE_LOCAL_SKILL_CHAIN_B": "1",
+			},
+			InputMode: "stdin_json",
+			TimeoutMS: &timeoutMS,
+		},
+	}
+	r.operationProviders = []operation.ProviderInfo{
+		{
+			Name:         "skill:manual_reader",
+			Kind:         "presentation_generation",
+			Surfaces:     []string{"slides"},
+			SideEffects:  []string{"local_file_write"},
+			RequiresGate: true,
+			ToolName:     "run",
+			Source:       "skill",
+			LazyStart:    true,
+		},
+		{
+			Name:         "skill:ppt_builder",
+			Kind:         "presentation_generation",
+			Surfaces:     []string{"slides"},
+			SideEffects:  []string{"local_file_write"},
+			RequiresGate: true,
+			ToolName:     "run",
+			Source:       "skill",
+			LazyStart:    true,
+		},
+	}
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("cancelled workflow should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if r.pendingProviderOperation != nil || r.providerWorkflow != nil {
+		t.Fatalf("workflow cancel should clear pending state pending=%+v workflow=%+v", r.pendingProviderOperation, r.providerWorkflow)
+	}
+	printed := out.String()
+	if !strings.Contains(printed, "cancelled") {
+		t.Fatalf("workflow cancel message missing:\n%s", printed)
+	}
+	if strings.Contains(printed, "ppt builder consumed") {
+		t.Fatalf("workflow cancel must stop queued builder action:\n%s", printed)
 	}
 }
 

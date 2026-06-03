@@ -286,6 +286,15 @@ var slashCommands = []slashCommand{
 		},
 	},
 	{
+		Name:   "/workflow",
+		HelpEn: "show or cancel the active operation skill workflow",
+		HelpZh: "查看或取消当前 operation skill 工作流",
+		Subs: []slashSubcommand{
+			{"show", "show current workflow graph and queue (default)", "查看当前 workflow 图和队列(默认)"},
+			{"cancel", "cancel the active workflow", "取消当前 workflow"},
+		},
+	},
+	{
 		Name:   "/mermaid",
 		HelpEn: "show mermaid render counters (succeeded / fallback / library-rejected / unsupported kinds / gate-blocked)",
 		HelpZh: "查看 Mermaid 渲染计数(成功/字符替换/库拒绝/不支持图类/闸门拦截)",
@@ -1041,7 +1050,7 @@ func (m *inputModel) handleSuggestKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 // command whose handler reads a non-empty remainder.
 func needsArg(cmd string) bool {
 	switch cmd {
-	case "/log", "/htrace", "/chat", "/mode", "/plan", "/reject", "/verify", "/worktree", "/merge", "/branch", "/env", "/baseline", "/approve", "/phase", "/repos", "/operation":
+	case "/log", "/htrace", "/chat", "/mode", "/plan", "/reject", "/verify", "/worktree", "/merge", "/branch", "/env", "/baseline", "/approve", "/phase", "/repos", "/operation", "/workflow":
 		return true
 	}
 	return false

@@ -1164,6 +1164,80 @@ func operationHelpMsg(lang string) string {
 	return "/operation [show|history|auto] — show pending operations, history, or auto-approval status. Use /approve, /reject, /cancel for day-to-day approval."
 }
 
+func workflowNoActiveMsg(lang string) string {
+	if isZh(lang) {
+		return "当前没有 active operation workflow。"
+	}
+	return "No active operation workflow."
+}
+
+func workflowCancelledMsg(lang, id string) string {
+	if isZh(lang) {
+		return fmt.Sprintf("operation workflow `%s` 已取消。", id)
+	}
+	return fmt.Sprintf("Operation workflow `%s` cancelled.", id)
+}
+
+func workflowHelpMsg(lang string) string {
+	if isZh(lang) {
+		return "/workflow [show|cancel] — 查看或取消当前 operation skill 工作流。日常继续执行仍使用 /approve。"
+	}
+	return "/workflow [show|cancel] — show or cancel the active operation skill workflow. Continue one step with /approve."
+}
+
+func providerWorkflowMarkdown(lang string, wf operation.WorkflowInstance) string {
+	var b strings.Builder
+	current, hasCurrent := wf.CurrentAction()
+	if isZh(lang) {
+		b.WriteString(fmt.Sprintf("Operation workflow `%s`\n\n", wf.ID))
+		b.WriteString(fmt.Sprintf("- 当前：`%s`\n", firstNonEmptyString(current.Compact(), wf.CurrentID, "none")))
+		b.WriteString(fmt.Sprintf("- 队列：%d 个待处理动作\n", len(wf.Queue)))
+		b.WriteString(fmt.Sprintf("- 图：%d 个节点 / %d 条边\n", len(wf.Actions), len(wf.Edges)))
+		if wf.Cancelled {
+			b.WriteString("- 状态：已取消\n")
+		}
+		b.WriteString("\n动作：\n")
+		for _, action := range wf.Actions {
+			marker := " "
+			if hasCurrent && action.ID == current.ID {
+				marker = "*"
+			}
+			b.WriteString(fmt.Sprintf("%s `%s`\n", marker, action.Compact()))
+		}
+		if len(wf.Edges) > 0 {
+			b.WriteString("\n边：\n")
+			for _, edge := range wf.Edges {
+				b.WriteString(fmt.Sprintf("- `%s`\n", edge.Compact()))
+			}
+		}
+		b.WriteString("\n使用 `/approve` 执行当前动作，或 `/workflow cancel` 取消。")
+		return strings.TrimSpace(b.String())
+	}
+	b.WriteString(fmt.Sprintf("Operation workflow `%s`\n\n", wf.ID))
+	b.WriteString(fmt.Sprintf("- Current: `%s`\n", firstNonEmptyString(current.Compact(), wf.CurrentID, "none")))
+	b.WriteString(fmt.Sprintf("- Queue: %d pending action(s)\n", len(wf.Queue)))
+	b.WriteString(fmt.Sprintf("- Graph: %d node(s) / %d edge(s)\n", len(wf.Actions), len(wf.Edges)))
+	if wf.Cancelled {
+		b.WriteString("- Status: cancelled\n")
+	}
+	b.WriteString("\nActions:\n")
+	for _, action := range wf.Actions {
+		marker := " "
+		if hasCurrent && action.ID == current.ID {
+			marker = "*"
+		}
+		b.WriteString(fmt.Sprintf("%s `%s`\n", marker, action.Compact()))
+	}
+	if len(wf.Edges) > 0 {
+		b.WriteString("\nEdges:\n")
+		for _, edge := range wf.Edges {
+			b.WriteString(fmt.Sprintf("- `%s`\n", edge.Compact()))
+		}
+	}
+	b.WriteString("\nRun `/approve` to execute the current action, or `/workflow cancel` to cancel.")
+	return strings.TrimSpace(b.String())
+}
+
 func operationExecutorNotReadyMsg(lang, id string) string {
 	if isZh(lang) {
 		return fmt.Sprintf("操作计划 `%s` 已等待执行，但当前批次尚未接入命令执行器；没有执行任何命令。", id)

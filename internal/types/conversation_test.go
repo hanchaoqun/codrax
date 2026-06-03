@@ -141,6 +141,9 @@ func TestNormalizeREPLCommandAlias(t *testing.T) {
 		{"/repos focus my-repo-1a2b3c4d", "/repos focus my-repo-1a2b3c4d"},
 		{"/repos refresh", "/repos refresh"},
 		{"\\repos cap 5", "/repos cap 5"},
+		{"/workflow", "/workflow"},
+		{"/workflow show", "/workflow show"},
+		{"\\workflow cancel", "/workflow cancel"},
 	}
 	for _, c := range cases {
 		if got := NormalizeREPLCommandAlias(c.in); got != c.want {
