@@ -149,28 +149,28 @@ Long term:
 
 ### Batch 1: Material Record and Prompt Handoff
 
-- [ ] Add typed operation material helpers.
-- [ ] Derive command materials from payload refs and output summaries.
-- [ ] Derive provider materials from payload/artifact refs and workflow
+- [x] Add typed operation material helpers.
+- [x] Derive command materials from payload refs and output summaries.
+- [x] Derive provider materials from payload/artifact refs and workflow
       actions.
-- [ ] Render materials in command and provider prompt contexts.
-- [ ] Add tests for command payloads and provider payload/artifact/next-action
+- [x] Render materials in command and provider prompt contexts.
+- [x] Add tests for command payloads and provider payload/artifact/next-action
       material handoff.
 
 ### Batch 2: Descriptor Teaching
 
-- [ ] Teach planner that provider/Skill descriptor links/files/manuals are
+- [x] Teach planner that provider/Skill descriptor links/files/manuals are
       resources to read/pass, not already-read content.
-- [ ] Ensure capability snapshot remains compact and does not leak execution
+- [x] Ensure capability snapshot remains compact and does not leak execution
       details.
-- [ ] Add tests for provider workflow descriptors with supporting resources.
+- [x] Add tests for provider workflow descriptors with supporting resources.
 
 ### Batch 3: Provider Result Guardrails
 
-- [ ] Teach provider final-answer prompt to distinguish provider summary from
+- [x] Teach provider final-answer prompt to distinguish provider summary from
       full material.
-- [ ] Preserve material refs in operation memory.
-- [ ] Add tests that provider final prompt includes material refs and does not
+- [x] Preserve material refs in operation memory.
+- [x] Add tests that provider final prompt includes material refs and does not
       treat summaries as full content.
 
 ### Batch 4: Unified Evaluator (future)

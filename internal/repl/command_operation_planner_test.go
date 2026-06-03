@@ -602,6 +602,8 @@ func TestCommandOperationAnswerPromptForbidsVisibleReasoning(t *testing.T) {
 		"<think>",
 		"meta commentary",
 		"Output only the final user-facing report",
+		"payload refs, artifact refs, material refs, and workflow actions",
+		"summary is only a compact observation",
 		"every user-visible sentence must be Chinese",
 	} {
 		if !strings.Contains(commandOperationAnswerSystemPrompt, want) {
