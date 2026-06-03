@@ -22,7 +22,7 @@ func TestBuildCommandOperationPlanNeedsClarificationWhenDetailsMissing(t *testin
 	}
 }
 
-func TestBuildCommandOperationPlanLowRiskAutoDisabledDefaultsManual(t *testing.T) {
+func TestBuildCommandOperationPlanLowRiskAutoEnabledByDefault(t *testing.T) {
 	plan := BuildCommandOperationPlan(CommandOperationRequest{
 		Text: "show current directory",
 		Steps: []CommandStep{{
@@ -33,11 +33,50 @@ func TestBuildCommandOperationPlanLowRiskAutoDisabledDefaultsManual(t *testing.T
 	if plan.Status != StatusReady {
 		t.Fatalf("Status=%q", plan.Status)
 	}
+	if plan.ApprovalMode != ApprovalAutoLowRisk {
+		t.Fatalf("ApprovalMode=%q, want auto_low_risk", plan.ApprovalMode)
+	}
+	if got := plan.Steps[0].AutoApproval; got != StepAutoEligible {
+		t.Fatalf("step AutoApproval=%q, want eligible", got)
+	}
+}
+
+func TestBuildCommandOperationPlanLowRiskAutoCanBeDisabled(t *testing.T) {
+	policy := DefaultCommandPolicy()
+	policy.AutoLowRisk = false
+	plan := BuildCommandOperationPlan(CommandOperationRequest{
+		Text: "show current directory",
+		Steps: []CommandStep{{
+			Program: "pwd",
+		}},
+	}, policy)
+
+	if plan.Status != StatusReady {
+		t.Fatalf("Status=%q", plan.Status)
+	}
 	if plan.ApprovalMode != ApprovalManual {
 		t.Fatalf("ApprovalMode=%q, want manual", plan.ApprovalMode)
 	}
 	if got := plan.Steps[0].AutoApproval; got != StepAutoEligible {
 		t.Fatalf("step AutoApproval=%q, want eligible", got)
+	}
+}
+
+func TestBuildCommandOperationPlanModelConfirmationDoesNotBlockProvenLowRisk(t *testing.T) {
+	plan := BuildCommandOperationPlan(CommandOperationRequest{
+		Text:                 "show go version",
+		RequiresConfirmation: true,
+		Steps: []CommandStep{{
+			Program: "go",
+			Args:    []string{"version"},
+		}},
+	}, DefaultCommandPolicy())
+
+	if plan.Status != StatusReady {
+		t.Fatalf("Status=%q", plan.Status)
+	}
+	if plan.ApprovalMode != ApprovalAutoLowRisk {
+		t.Fatalf("ApprovalMode=%q, want auto_low_risk", plan.ApprovalMode)
 	}
 }
 

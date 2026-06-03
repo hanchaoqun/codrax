@@ -1383,6 +1383,42 @@ func operationRejectedMsg(lang, id, reason string) string {
 	return fmt.Sprintf("Rejected operation plan `%s`: %s", id, reason)
 }
 
+func commandOperationProgressMsg(lang string, step operation.CommandStep) string {
+	title := strings.TrimSpace(step.Title)
+	if title == "" {
+		title = strings.TrimSpace(step.Program)
+	}
+	if title == "" && strings.TrimSpace(step.Shell) != "" {
+		title = "shell"
+	}
+	if title == "" {
+		title = strings.TrimSpace(step.ID)
+	}
+	if title == "" {
+		title = "step"
+	}
+	if isZh(lang) {
+		return fmt.Sprintf("操作中：%s", title)
+	}
+	return fmt.Sprintf("Operating: %s", title)
+}
+
+func providerOperationProgressMsg(lang string, pending pendingProviderOperation) string {
+	plan := pending.Plan
+	provider := strings.TrimSpace(plan.Provider)
+	kind := strings.TrimSpace(plan.Kind)
+	if provider == "" {
+		provider = "provider"
+	}
+	if kind == "" {
+		kind = "operation"
+	}
+	if isZh(lang) {
+		return fmt.Sprintf("操作中：调用 %s 处理 %s", provider, kind)
+	}
+	return fmt.Sprintf("Operating: calling %s for %s", provider, kind)
+}
+
 func operationCancelledMsg(lang, id string) string {
 	if isZh(lang) {
 		return fmt.Sprintf("已取消操作计划 `%s`。", id)
@@ -1455,6 +1491,21 @@ func commandOperationResultMarkdown(lang string, plan operation.CommandOperation
 		}
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func operationFinalReportWithDetails(lang, answer, details string) string {
+	answer = strings.TrimSpace(answer)
+	details = strings.TrimSpace(details)
+	if answer == "" {
+		return details
+	}
+	if details == "" {
+		return answer
+	}
+	if isZh(lang) {
+		return answer + "\n\n---\n\n执行详情：\n\n" + details
+	}
+	return answer + "\n\n---\n\nExecution details:\n\n" + details
 }
 
 const commandOperationDisplayPreviewRunes = 2048

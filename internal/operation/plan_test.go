@@ -81,6 +81,30 @@ func TestBuildPlanProviderGateBlocksExecution(t *testing.T) {
 	}
 }
 
+func TestBuildPlanLowRiskProviderCanExecuteWithoutGate(t *testing.T) {
+	plan := BuildPlan(Request{
+		OperationKind: "presentation_generation",
+		RiskLevel:     "low",
+		TargetSurface: "slides",
+		SideEffects:   []string{"local_file_write"},
+	}, []ProviderInfo{{
+		Name:     "skill:slides",
+		Kind:     "presentation_generation",
+		Surfaces: []string{"slides"},
+		ToolName: "run",
+	}})
+
+	if plan.Provider != "skill:slides" {
+		t.Fatalf("Provider=%q", plan.Provider)
+	}
+	if plan.RequiresConfirmation {
+		t.Fatalf("low-risk provider without explicit gate should not require confirmation: %+v", plan)
+	}
+	if !plan.CanExecute {
+		t.Fatalf("low-risk provider with tool should execute: %+v", plan)
+	}
+}
+
 func TestBuildPlanProviderWithoutToolIsPlanOnly(t *testing.T) {
 	plan := BuildPlan(Request{
 		OperationKind: "presentation_generation",

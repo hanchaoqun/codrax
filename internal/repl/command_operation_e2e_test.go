@@ -361,6 +361,7 @@ func TestCommandOperationE2E_NeedsClarificationDoesNotEnterSourcePipeline(t *tes
 	r.operationEnabled = true
 	r.operationPlanner = NewCommandOperationPlanner(adapter)
 	r.operationPolicy = operation.DefaultCommandPolicy()
+	r.operationPolicy.AutoLowRisk = false
 	if err := r.Loop(); err != nil {
 		t.Fatalf("Loop: %v", err)
 	}
@@ -393,6 +394,7 @@ func TestCommandOperationE2E_ClarificationAnswerResumesPlanning(t *testing.T) {
 	r.operationEnabled = true
 	r.operationPlanner = NewCommandOperationPlanner(adapter)
 	r.operationPolicy = operation.DefaultCommandPolicy()
+	r.operationPolicy.AutoLowRisk = false
 	if err := r.Loop(); err != nil {
 		t.Fatalf("Loop: %v", err)
 	}
@@ -1428,6 +1430,41 @@ func TestCommandOperationE2E_AutoLowRiskExecutesWithoutApprove(t *testing.T) {
 	}
 }
 
+func TestCommandOperationE2E_AutoLowRiskSynthesizesFinalAnswer(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":true,"work_dir":".","steps":[{"id":"s1","title":"show go version","program":"go","args":["version"],"risk_level":"low","side_effects":[]}]}`),
+			{Content: "当前 Go 环境可用，版本信息已经查询完成。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "查询 go 版本\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("auto operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("planner+answer calls=%d, want 2", len(adapter.calls))
+	}
+	printed := out.String()
+	for _, want := range []string{
+		"当前 Go 环境可用",
+		"Execution details:",
+		"go version",
+	} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("final operation output missing %q:\n%s", want, printed)
+		}
+	}
+}
+
 func TestCommandOperationE2E_StopsPrearmedRendererSpinner(t *testing.T) {
 	store := newPolicyStore(t)
 	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
@@ -1438,6 +1475,7 @@ func TestCommandOperationE2E_StopsPrearmedRendererSpinner(t *testing.T) {
 	r.operationEnabled = true
 	r.operationPlanner = NewCommandOperationPlanner(adapter)
 	r.operationPolicy = operation.DefaultCommandPolicy()
+	r.operationPolicy.AutoLowRisk = false
 	var dock bytes.Buffer
 	r.renderer = render.New(&dock, true)
 	r.renderer.StartSpinner()
@@ -1470,6 +1508,7 @@ func TestCommandOperationE2E_HardDeniedDestructiveCommandDoesNotExecute(t *testi
 	r.operationEnabled = true
 	r.operationPlanner = NewCommandOperationPlanner(adapter)
 	r.operationPolicy = operation.DefaultCommandPolicy()
+	r.operationPolicy.AutoLowRisk = false
 	if err := r.Loop(); err != nil {
 		t.Fatalf("Loop: %v", err)
 	}
@@ -1565,6 +1604,7 @@ func TestCommandOperationE2E_FailedApprovedCommandCreatesRevisedPlan(t *testing.
 	r.operationEnabled = true
 	r.operationPlanner = NewCommandOperationPlanner(adapter)
 	r.operationPolicy = operation.DefaultCommandPolicy()
+	r.operationPolicy.AutoLowRisk = false
 	if err := r.Loop(); err != nil {
 		t.Fatalf("Loop: %v", err)
 	}

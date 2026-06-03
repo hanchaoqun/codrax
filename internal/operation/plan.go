@@ -113,7 +113,7 @@ func BuildPlan(req Request, providers []ProviderInfo) Plan {
 
 	provider := matchProvider(kind, target, providers)
 	providerGate := provider.Name != "" && provider.RequiresGate
-	requiresConfirmation := req.RequiresConfirmation || strings.EqualFold(risk, "high") || providerGate
+	requiresConfirmation := operationRequiresManualApproval(risk, sideEffects, providerGate)
 	canExecute := provider.Name != "" && provider.ToolName != "" && !requiresConfirmation
 	missing := ""
 	if provider.Name == "" {
@@ -157,6 +157,24 @@ func BuildPlan(req Request, providers []ProviderInfo) Plan {
 		MissingCapability:    missing,
 		Steps:                steps,
 	}
+}
+
+func operationRequiresManualApproval(risk string, sideEffects []string, providerGate bool) bool {
+	if providerGate || strings.EqualFold(strings.TrimSpace(risk), "high") {
+		return true
+	}
+	for _, effect := range cleanList(sideEffects) {
+		switch effect {
+		case "destructive",
+			"delete", "file_delete", "local_file_delete",
+			"overwrite", "file_overwrite", "local_file_overwrite", "destructive_write",
+			"install", "uninstall", "package_install", "package_uninstall", "software_install", "software_uninstall",
+			"network_submit", "network_write", "upload", "remote_exec",
+			"external_system_write":
+			return true
+		}
+	}
+	return false
 }
 
 func kindSteps(kind, target string) []Step {

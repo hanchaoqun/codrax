@@ -31,6 +31,14 @@ type CommandOperationReplanner interface {
 	ReplanCommandOperation(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, snapshot operation.CapabilitySnapshot, previous operation.CommandOperationPlan, result operation.CommandOperationResult) (operation.CommandOperationRequest, error)
 }
 
+type CommandOperationAnswerer interface {
+	AnswerCommandOperationResult(ctx context.Context, userLine string, plan operation.CommandOperationPlan, result operation.CommandOperationResult, lang string) (string, error)
+}
+
+type ProviderOperationAnswerer interface {
+	AnswerProviderOperationResult(ctx context.Context, userLine string, records []providerOperationResultRecord, lang string) (string, error)
+}
+
 type llmCommandOperationPlanner struct {
 	adapter llm.Adapter
 }
@@ -164,6 +172,67 @@ func (p *llmCommandOperationPlanner) ReplanCommandOperation(ctx context.Context,
 	})
 }
 
+const commandOperationAnswerSystemPrompt = `You are Codrax's operation result writer.
+
+Answer the user's original operation request from the provided execution observations.
+
+Rules:
+- Write the user-facing final report first. Do not merely restate the raw command/provider output.
+- State whether the task succeeded, failed, was blocked, or needs follow-up.
+- Use only the provided operation observations. Do not invent source-code evidence.
+- Mention artifact refs, payload refs, verification results, and follow-up actions when they matter.
+- Keep raw logs/large output summarized; the UI will show execution details separately.
+- Match the requested language. If language=zh, answer in Chinese.
+`
+
+func (p *llmCommandOperationPlanner) AnswerCommandOperationResult(ctx context.Context, userLine string, plan operation.CommandOperationPlan, result operation.CommandOperationResult, lang string) (string, error) {
+	if p == nil || p.adapter == nil {
+		return "", fmt.Errorf("command operation answerer not configured")
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "## language\n%s\n\n", strings.TrimSpace(lang))
+	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
+	b.WriteString("## command_plan\n")
+	b.WriteString(renderCommandPlanForPrompt(plan))
+	b.WriteString("\n\n## command_result\n")
+	b.WriteString(renderCommandResultForPrompt(result))
+	resp, err := p.adapter.Chat(ctx,
+		[]llm.Message{
+			{Role: "system", Content: commandOperationAnswerSystemPrompt},
+			{Role: "user", Content: b.String()},
+		},
+		nil,
+		llm.ChatOptions{},
+	)
+	if err != nil {
+		return "", fmt.Errorf("command operation answer llm call: %w", err)
+	}
+	return strings.TrimSpace(resp.Content), nil
+}
+
+func (p *llmCommandOperationPlanner) AnswerProviderOperationResult(ctx context.Context, userLine string, records []providerOperationResultRecord, lang string) (string, error) {
+	if p == nil || p.adapter == nil {
+		return "", fmt.Errorf("provider operation answerer not configured")
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "## language\n%s\n\n", strings.TrimSpace(lang))
+	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
+	b.WriteString("## provider_operation_results\n")
+	b.WriteString(renderProviderOperationResultsForPrompt(records))
+	resp, err := p.adapter.Chat(ctx,
+		[]llm.Message{
+			{Role: "system", Content: commandOperationAnswerSystemPrompt},
+			{Role: "user", Content: b.String()},
+		},
+		nil,
+		llm.ChatOptions{},
+	)
+	if err != nil {
+		return "", fmt.Errorf("provider operation answer llm call: %w", err)
+	}
+	return strings.TrimSpace(resp.Content), nil
+}
+
 type commandOperationPlannerRequest struct {
 	UserLine               string
 	RepoRoot               string
@@ -266,6 +335,32 @@ func renderCommandResultForPrompt(result operation.CommandOperationResult) strin
 		}
 		fmt.Fprintf(&b, "result[%d] step_id=%s status=%s exit_code=%d timed_out=%t failure_class=%s verification_status=%s verification_summary=%q error=%q output=%q payload_ref=%s\n",
 			i+1, step.StepID, step.Status, step.ExitCode, step.TimedOut, step.FailureClass, step.Verification.Status, step.Verification.Summary, step.Error, preview, step.PayloadRef)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func renderProviderOperationResultsForPrompt(records []providerOperationResultRecord) string {
+	var b strings.Builder
+	for i, rec := range records {
+		result := rec.Result
+		fmt.Fprintf(&b, "provider_result[%d] provider=%q tool=%q kind=%q target=%q status=%s observations=%d verification_status=%s verification_summary=%q summary=%q error=%q payload_ref=%s artifact_refs=%s next_actions=%d return_action=%q workflow_state=%q diagnostics=%q\n",
+			i+1,
+			result.Provider,
+			result.Tool,
+			firstNonEmptyString(rec.Plan.Kind, rec.Request.OperationKind, rec.Request.Operation),
+			firstNonEmptyString(rec.Plan.TargetSurface, rec.Request.TargetSurface),
+			result.Status,
+			result.Observations,
+			result.VerificationStatus,
+			result.VerificationSummary,
+			oneLineClamp(result.Summary, 2000),
+			oneLineClamp(result.Error, 1000),
+			result.PayloadRef,
+			strings.Join(result.ArtifactRefs, ","),
+			len(result.NextActions),
+			result.ReturnAction.Compact(),
+			result.WorkflowState.Compact(),
+			strings.Join(result.WorkflowDiagnostics, "; "))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

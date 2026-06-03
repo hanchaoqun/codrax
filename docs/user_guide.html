@@ -2846,7 +2846,7 @@ mcp_servers:
 <tr>
 <td><code>mcp_servers[].operation_provider</code></td>
 <td><code>false</code></td>
-<td>可选:显式声明该 MCP server 可作为 operation/artifact provider。只用于 REPL operation 计划器的能力匹配,不会自动调用工具</td>
+<td>可选:显式声明该 MCP server 可作为 operation/artifact provider。只用于 REPL operation 计划器的能力匹配</td>
 </tr>
 <tr>
 <td><code>mcp_servers[].operation_kinds</code> / <code>operation_surfaces</code></td>
@@ -2881,12 +2881,12 @@ mcp_servers:
 <tr>
 <td><code>mcp_servers[].operation_lazy_start</code></td>
 <td><code>false</code></td>
-<td>可选:仅当 <code>operation_provider=true</code> 时生效。设为 true 后启动 REPL 时不拉起该 MCP server,只有用户批准对应 operation 后才启动并调用</td>
+<td>可选:仅当 <code>operation_provider=true</code> 时生效。设为 true 后启动 REPL 时不拉起该 MCP server,只有 operation 需要调用它时才启动</td>
 </tr>
 <tr>
 <td><code>mcp_servers[].operation_requires_confirmation</code></td>
-<td><code>true</code></td>
-<td>provider 是否要求显式确认后才能执行。当前计划器会据此停在确认前</td>
+<td><code>false</code></td>
+<td>provider 是否强制要求显式确认后才能执行。即使为 false,高风险 side effect 仍会由 operation policy 拦截或要求批准</td>
 </tr>
 </tbody>
 </table></div>
@@ -2896,17 +2896,17 @@ mcp_servers:
 <p>外部 Skill 是 Codrax 的通用电脑操作/制品生成扩展入口。它适合把本地脚本、二进制、公司内工具、PPT/文档/表格生成器、浏览器/桌面自动化包装成一个可审批、可懒加载、可 handoff 的 operation provider。</p>
 <p>外部 Skill 和其它扩展方式的边界:</p>
 <ul>
-<li><code>operation_skills[]</code>: 本地 manifest 型外部 Skill。启动时只读 descriptor,用户批准后才启动本地命令。</li>
+<li><code>operation_skills[]</code>: 本地 manifest 型外部 Skill。启动时只读 descriptor,需要调用时才启动本地命令。</li>
 <li><code>mcp_servers[].operation_provider=true</code>: MCP server 型外部 Skill。适合已有 MCP server 或需要远程/多工具协议的场景。</li>
 <li>内置 prompt skills: 只提供模型使用说明和工作流知识,不代表可执行的本地操作 provider。</li>
 </ul>
-<p>外部 Skill 不会抢占源码、trace、log 或写代码管线。只有 typed operation route 识别为电脑操作、制品生成、外部 workflow 等场景时,operation planner 才会看到这些 provider 能力;执行仍然要经过策略和 <code>/approve</code>。</p>
+<p>外部 Skill 不会抢占源码、trace、log 或写代码管线。只有 typed operation route 识别为电脑操作、制品生成、外部 workflow 等场景时,operation planner 才会看到这些 provider 能力;低风险节点会自动推进,危险节点会要求批准或被策略拒绝。</p>
 <p>如果你不想写 MCP server,可以用 <code>operation_skills[]</code> 把本地脚本、二进制或公司内工具包装成 operation provider。它和 MCP operation provider 的区别是:</p>
 <ul>
 <li>启动时只读 <code>codrax.yaml</code> descriptor,不会启动脚本。</li>
 <li>模型只看到能力摘要、输入契约和示例,看不到 <code>command</code> / <code>env</code> 作为 prompt 指令。</li>
 <li><code>description</code> / <code>when_to_use</code> / <code>when_not_to_use</code> / <code>workflows[]</code> 会进入 operation planner 的能力摘要,只用于帮助模型按 typed intent 选择 provider,不是系统指令。</li>
-<li>只有 typed operation route 命中该 provider,并且用户 <code>/approve</code> 后,codrax 才会启动本地命令。</li>
+<li>只有 typed operation route 命中该 provider,codrax 才会按 operation policy 启动本地命令;可安全执行的低风险节点会自动推进,危险节点会等待批准或被拒绝。</li>
 <li>结果进入 operation handoff / operation memory,不会当成当前源码 citation。</li>
 </ul>
 <p>一个带动态参数和 workflow catalog 的配置:</p>
@@ -3046,7 +3046,7 @@ mcp_servers:
   }
 }
 </code></pre>
-<p><code>next_actions</code> 和 <code>return_action</code> 是 provider 给 Codrax 的后续建议,不是自动执行授权。Codrax 会匹配已配置的 operation provider,把所有有效 <code>next_actions</code> 写入 workflow DAG 并按顺序串行排队;如果 <code>return_action</code> 有效,会作为 return edge 排在子动作之后。每一步仍需要用户再次 <code>/approve</code> 后才执行。未匹配 provider、超出深度预算或格式不完整的动作只会作为 operation 诊断显示,不会回落到源码分析或普通 trace/log 管线。为了兼容小模型和脚本输出,系统也接受 <code>next_action</code> 单对象、<code>provider_name</code>、<code>kind</code>、<code>surface</code>、<code>requires_approval</code>、<code>args</code> / <code>arguments</code>,以及 <code>return_to_action</code> / <code>callback_action</code> 等常见别名。</p>
+<p><code>next_actions</code> 和 <code>return_action</code> 是 provider 给 Codrax 的后续建议,不是绕过策略的执行授权。Codrax 会匹配已配置的 operation provider,把所有有效 <code>next_actions</code> 写入 workflow DAG 并按顺序串行排队;如果 <code>return_action</code> 有效,会作为 return edge 排在子动作之后。可执行且低风险的节点会继续自动推进;遇到风险节点、显式 gate、策略拒绝、失败或预算耗尽时才停下。未匹配 provider、超出深度预算或格式不完整的动作只会作为 operation 诊断显示,不会回落到源码分析或普通 trace/log 管线。为了兼容小模型和脚本输出,系统也接受 <code>next_action</code> 单对象、<code>provider_name</code>、<code>kind</code>、<code>surface</code>、<code>requires_approval</code>、<code>args</code> / <code>arguments</code>,以及 <code>return_to_action</code> / <code>callback_action</code> 等常见别名。</p>
 <p>工作流相关 REPL 命令:</p>
 <ul>
 <li><code>/approve</code>:执行当前 workflow action。</li>
@@ -3142,13 +3142,13 @@ mcp_servers:
 </tr>
 <tr>
 <td><code>operation_skills[].operation_requires_confirmation</code></td>
-<td><code>true</code></td>
-<td>是否必须用户批准后执行。默认 true</td>
+<td><code>false</code></td>
+<td>是否必须用户批准后执行。默认 false;高风险 side effect 仍会由 operation policy 拦截或要求批准</td>
 </tr>
 <tr>
 <td><code>operation_skills[].operation_lazy_start</code></td>
 <td><code>true</code></td>
-<td>启动时只读 descriptor,批准后才启动命令</td>
+<td>启动时只读 descriptor,需要调用时才启动命令</td>
 </tr>
 <tr>
 <td><code>operation_skills[].command</code> / <code>args</code></td>
@@ -3187,8 +3187,8 @@ mcp_servers:
 </tr>
 <tr>
 <td><code>operation_command_auto_low_risk</code></td>
-<td><code>false</code></td>
-<td>通用命令行操作的低风险自动批准。默认关闭;关闭时即使是 <code>pwd</code> / <code>ls</code> / <code>go version</code> 这类低风险命令也会等 <code>/approve</code></td>
+<td><code>true</code></td>
+<td>通用命令行操作的低风险自动批准。默认开启:确定只读查询和无覆盖目录创建会自动执行;设为 <code>false</code> 可改回全部等待 <code>/approve</code></td>
 </tr>
 <tr>
 <td><code>operation_command_timeout_ms</code></td>
@@ -3227,8 +3227,9 @@ mcp_servers:
 <li>用户用自然语言提出需求,例如"查询当前 node 版本"、"创建 reports 目录"、"把 a.log 移到 logs/"。</li>
 <li>Codrax 先生成 typed 命令计划,并用策略判断 <code>ready</code> / <code>needs_clarification</code> / <code>blocked</code>。</li>
 <li>信息不足时进入 <code>needs_clarification</code>,系统会提问,不会猜命令。</li>
-<li>默认人工批准:计划 ready 后运行 <code>/approve</code> 执行,或 <code>/reject &lt;原因&gt;</code> 拒绝,<code>/cancel</code> 取消。</li>
-<li>只有显式设置 <code>operation_command_auto_low_risk: true</code> 时,确定只读查询和无覆盖目录创建才可能自动执行。</li>
+<li>低风险自动执行:确定只读查询和无覆盖目录创建默认自动执行,中间过程只显示简短进度。</li>
+<li>危险动作才打断:未知命令、shell、网络、安装/卸载、覆盖、删除或无法证明安全的写入会等待 <code>/approve</code>,特别高危动作直接拒绝。</li>
+<li>执行完成后,codrax 会先让模型根据执行结果回答用户问题,再把原始命令输出作为“执行详情”附在后面。</li>
 <li>网络、安装/卸载、覆盖和写入目录限制只消费 typed side effects 与命令参数,不会通过用户问题里的关键词来判断意图。</li>
 </ol>
 <h3 id="环境诊断与推荐">环境诊断与推荐</h3>

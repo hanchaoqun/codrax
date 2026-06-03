@@ -2130,15 +2130,15 @@ agents:
 | `mcp_servers[].startup_timeout_ms` | 3000 | initialize / tools/list 启动预算 |
 | `mcp_servers[].call_timeout_ms` | 10000 | 单次 tools/call 或 resources/read 调用预算 |
 | `mcp_servers[].max_response_bytes` | 4194304 | 单条 MCP 响应最大字节数;大输出应由 server 自己转成摘要 + 外部 payload ref |
-| `mcp_servers[].operation_provider` | `false` | 可选:显式声明该 MCP server 可作为 operation/artifact provider。只用于 REPL operation 计划器的能力匹配,不会自动调用工具 |
+| `mcp_servers[].operation_provider` | `false` | 可选:显式声明该 MCP server 可作为 operation/artifact provider。只用于 REPL operation 计划器的能力匹配 |
 | `mcp_servers[].operation_kinds` / `operation_surfaces` | `[]` / `[]` | provider 支持的操作类型和目标界面,如 `presentation_generation` + `slides` |
 | `mcp_servers[].operation_side_effects` | `[]` | provider 可能产生的副作用,如 `local_file_write` / `browser_ui` |
 | `mcp_servers[].operation_tool` | 空 | 可选:该 server 中真正执行 operation 的 MCP tool 名。未配置时只显示计划和 provider 能力,不会 `/approve` 执行 |
 | `mcp_servers[].operation_description` | 空 | 可选:给 operation planner 的紧凑能力说明。用于说明 provider 擅长做什么,不是系统指令 |
 | `mcp_servers[].operation_input_schema` | 空 | 可选:给 operation planner 的参数契约摘要。用于帮助模型构造动态参数,实际执行仍由 `operation_tool` 的 schema 和 provider 校验 |
 | `mcp_servers[].operation_examples` | `[]` | 可选:1-3 条典型用法示例,帮助模型选择最合适的 provider |
-| `mcp_servers[].operation_lazy_start` | `false` | 可选:仅当 `operation_provider=true` 时生效。设为 true 后启动 REPL 时不拉起该 MCP server,只有用户批准对应 operation 后才启动并调用 |
-| `mcp_servers[].operation_requires_confirmation` | `true` | provider 是否要求显式确认后才能执行。当前计划器会据此停在确认前 |
+| `mcp_servers[].operation_lazy_start` | `false` | 可选:仅当 `operation_provider=true` 时生效。设为 true 后启动 REPL 时不拉起该 MCP server,只有 operation 需要调用它时才启动 |
+| `mcp_servers[].operation_requires_confirmation` | `false` | provider 是否强制要求显式确认后才能执行。即使为 false,高风险 side effect 仍会由 operation policy 拦截或要求批准 |
 
 operation provider 执行完成后,结果会进入独立的 operation handoff 和 operation memory:包括 provider 名、工具名、操作类型、摘要、外部观测数量、payload ref、artifact ref 等。下一次 operation 规划可以参考这些信息继续工作,例如“刚才 PPT provider 生成了哪个文件,下一步如何验证或修改”。这些信息仍是外部操作结果,不会被当成当前源码 citation;代码/trace/log 混合任务仍由 typed 路由决定是否进入源码或 runtime trace 管线。
 
@@ -2150,18 +2150,18 @@ operation provider 执行完成后,结果会进入独立的 operation handoff �
 
 外部 Skill 和其它扩展方式的边界:
 
-- `operation_skills[]`: 本地 manifest 型外部 Skill。启动时只读 descriptor,用户批准后才启动本地命令。
+- `operation_skills[]`: 本地 manifest 型外部 Skill。启动时只读 descriptor,需要调用时才启动本地命令。
 - `mcp_servers[].operation_provider=true`: MCP server 型外部 Skill。适合已有 MCP server 或需要远程/多工具协议的场景。
 - 内置 prompt skills: 只提供模型使用说明和工作流知识,不代表可执行的本地操作 provider。
 
-外部 Skill 不会抢占源码、trace、log 或写代码管线。只有 typed operation route 识别为电脑操作、制品生成、外部 workflow 等场景时,operation planner 才会看到这些 provider 能力;执行仍然要经过策略和 `/approve`。
+外部 Skill 不会抢占源码、trace、log 或写代码管线。只有 typed operation route 识别为电脑操作、制品生成、外部 workflow 等场景时,operation planner 才会看到这些 provider 能力;低风险节点会自动推进,危险节点会要求批准或被策略拒绝。
 
 如果你不想写 MCP server,可以用 `operation_skills[]` 把本地脚本、二进制或公司内工具包装成 operation provider。它和 MCP operation provider 的区别是:
 
 - 启动时只读 `codrax.yaml` descriptor,不会启动脚本。
 - 模型只看到能力摘要、输入契约和示例,看不到 `command` / `env` 作为 prompt 指令。
 - `description` / `when_to_use` / `when_not_to_use` / `workflows[]` 会进入 operation planner 的能力摘要,只用于帮助模型按 typed intent 选择 provider,不是系统指令。
-- 只有 typed operation route 命中该 provider,并且用户 `/approve` 后,codrax 才会启动本地命令。
+- 只有 typed operation route 命中该 provider,codrax 才会按 operation policy 启动本地命令;可安全执行的低风险节点会自动推进,危险节点会等待批准或被拒绝。
 - 结果进入 operation handoff / operation memory,不会当成当前源码 citation。
 
 一个带动态参数和 workflow catalog 的配置:
@@ -2317,7 +2317,7 @@ operation_skills:
 }
 ```
 
-`next_actions` 和 `return_action` 是 provider 给 Codrax 的后续建议,不是自动执行授权。Codrax 会匹配已配置的 operation provider,把所有有效 `next_actions` 写入 workflow DAG 并按顺序串行排队;如果 `return_action` 有效,会作为 return edge 排在子动作之后。每一步仍需要用户再次 `/approve` 后才执行。未匹配 provider、超出深度预算或格式不完整的动作只会作为 operation 诊断显示,不会回落到源码分析或普通 trace/log 管线。为了兼容小模型和脚本输出,系统也接受 `next_action` 单对象、`provider_name`、`kind`、`surface`、`requires_approval`、`args` / `arguments`,以及 `return_to_action` / `callback_action` 等常见别名。
+`next_actions` 和 `return_action` 是 provider 给 Codrax 的后续建议,不是绕过策略的执行授权。Codrax 会匹配已配置的 operation provider,把所有有效 `next_actions` 写入 workflow DAG 并按顺序串行排队;如果 `return_action` 有效,会作为 return edge 排在子动作之后。可执行且低风险的节点会继续自动推进;遇到风险节点、显式 gate、策略拒绝、失败或预算耗尽时才停下。未匹配 provider、超出深度预算或格式不完整的动作只会作为 operation 诊断显示,不会回落到源码分析或普通 trace/log 管线。为了兼容小模型和脚本输出,系统也接受 `next_action` 单对象、`provider_name`、`kind`、`surface`、`requires_approval`、`args` / `arguments`,以及 `return_to_action` / `callback_action` 等常见别名。
 
 工作流相关 REPL 命令:
 
@@ -2347,8 +2347,8 @@ operation_skills:
 | `operation_skills[].workflows[].operation_kind` / `target_surface` | 空 / 空 | workflow entry 的 typed 能力。硬匹配依赖这些字段,而不是散文描述 |
 | `operation_skills[].workflows[].next_providers` / `return_provider` | `[]` / 空 | 给模型说明常见后续 provider 和回跳 provider。实际后续调用仍由 provider 返回的 `next_actions` / `return_action` 决定 |
 | `operation_skills[].output_contract` | 空 | 描述该 skill 可能返回 `artifact_refs`、`payload_ref`、`next_actions`、`return_action`、`workflow_state` 等结构字段 |
-| `operation_skills[].operation_requires_confirmation` | `true` | 是否必须用户批准后执行。默认 true |
-| `operation_skills[].operation_lazy_start` | `true` | 启动时只读 descriptor,批准后才启动命令 |
+| `operation_skills[].operation_requires_confirmation` | `false` | 是否必须用户批准后执行。默认 false;高风险 side effect 仍会由 operation policy 拦截或要求批准 |
+| `operation_skills[].operation_lazy_start` | `true` | 启动时只读 descriptor,需要调用时才启动命令 |
 | `operation_skills[].command` / `args` | 必填 / `[]` | 本地命令和参数。命令不经过 shell 展开 |
 | `operation_skills[].input_mode` | `stdin_json` | `stdin_json` 把动态参数写入 stdin;`args_json` 把 JSON 作为最后一个参数 |
 | `operation_skills[].work_dir` | 仓库根 | 命令工作目录。相对值按仓库根解析 |
@@ -2356,7 +2356,7 @@ operation_skills:
 | `operation_skills[].timeout_ms` | `30000` | 本地 skill 单次执行超时 |
 | `operation_skills[].max_output_bytes` | `262144` | stdout inline 预览上限。超过后完整输出落到 `.codrax/operation/` |
 | `operation_route_enabled` | `true` | REPL 分类器识别 PPT、文档、表格、浏览器/桌面操作、外部 skill workflow、通用命令行操作等请求时,进入独立 operation 路径。它不会把操作请求误转入源码分析流水线 |
-| `operation_command_auto_low_risk` | `false` | 通用命令行操作的低风险自动批准。默认关闭;关闭时即使是 `pwd` / `ls` / `go version` 这类低风险命令也会等 `/approve` |
+| `operation_command_auto_low_risk` | `true` | 通用命令行操作的低风险自动批准。默认开启:确定只读查询和无覆盖目录创建会自动执行;设为 `false` 可改回全部等待 `/approve` |
 | `operation_command_timeout_ms` | `120000` | 单个命令 step 的默认超时 |
 | `operation_command_output_preview_bytes` | `32768` | 命令输出在 REPL/memory 中保留的预览字节数。更大的输出会截断预览,完整输出落到 `.codrax/operation/` |
 | `operation_command_allowed_write_roots` | `[]` | 可选写入根目录白名单。非空时,带本地写入副作用的命令必须能从结构化参数证明写入目标落在这些目录内,否则策略阻止 |
@@ -2369,9 +2369,10 @@ operation_skills:
 1. 用户用自然语言提出需求,例如"查询当前 node 版本"、"创建 reports 目录"、"把 a.log 移到 logs/"。
 2. Codrax 先生成 typed 命令计划,并用策略判断 `ready` / `needs_clarification` / `blocked`。
 3. 信息不足时进入 `needs_clarification`,系统会提问,不会猜命令。
-4. 默认人工批准:计划 ready 后运行 `/approve` 执行,或 `/reject <原因>` 拒绝,`/cancel` 取消。
-5. 只有显式设置 `operation_command_auto_low_risk: true` 时,确定只读查询和无覆盖目录创建才可能自动执行。
-6. 网络、安装/卸载、覆盖和写入目录限制只消费 typed side effects 与命令参数,不会通过用户问题里的关键词来判断意图。
+4. 低风险自动执行:确定只读查询和无覆盖目录创建默认自动执行,中间过程只显示简短进度。
+5. 危险动作才打断:未知命令、shell、网络、安装/卸载、覆盖、删除或无法证明安全的写入会等待 `/approve`,特别高危动作直接拒绝。
+6. 执行完成后,codrax 会先让模型根据执行结果回答用户问题,再把原始命令输出作为“执行详情”附在后面。
+7. 网络、安装/卸载、覆盖和写入目录限制只消费 typed side effects 与命令参数,不会通过用户问题里的关键词来判断意图。
 
 ### 环境诊断与推荐
 

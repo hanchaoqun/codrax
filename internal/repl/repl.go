@@ -1261,6 +1261,11 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 			Display: display,
 		}
 		r.startProviderWorkflow(&pending)
+		if plan.CanExecute {
+			r.pendingProviderOperation = nil
+			r.executeProviderOperationFlow(context.Background(), pending)
+			return
+		}
 		r.pendingProviderOperation = &pending
 	} else {
 		r.pendingProviderOperation = nil
@@ -1495,6 +1500,9 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 	executor := operation.CommandExecutor{
 		Policy:    r.operationPolicy,
 		OutputDir: r.operationOutputDir(),
+		OnStepStart: func(step operation.CommandStep) {
+			r.info(commandOperationProgressMsg(r.language, step))
+		},
 	}
 	logging.Info("[repl/operation] command execute start plan_id=%s steps=%d approval=%q risk=%q replan_attempt=%d request=%q",
 		plan.ID, len(plan.Steps), plan.ApprovalMode, plan.RiskLevel, replanAttempts, oneLineClamp(plan.RequestText, 160))
@@ -1507,10 +1515,28 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 	if r.maybeReplanCommandOperation(ctx, plan, result, request, display, replanAttempts) {
 		return
 	}
-	msg := commandOperationResultMarkdown(r.language, plan, result)
+	msg := r.commandOperationFinalMessage(ctx, request, plan, result)
 	r.finishOperationRouteSpinner(result.Status)
 	r.renderBordered(msg)
 	r.recordTurn(display, request, msg, memory.KindPipeline)
+}
+
+func (r *REPL) commandOperationFinalMessage(ctx context.Context, userLine string, plan operation.CommandOperationPlan, result operation.CommandOperationResult) string {
+	details := commandOperationResultMarkdown(r.language, plan, result)
+	answerer, ok := r.operationPlanner.(CommandOperationAnswerer)
+	if !ok || answerer == nil {
+		return details
+	}
+	answer, err := answerer.AnswerCommandOperationResult(ctx, userLine, plan, result, r.language)
+	if err != nil {
+		logging.Warning("[repl/operation] command result answer synthesis failed: %v", err)
+		return details
+	}
+	answer = strings.TrimSpace(answer)
+	if answer == "" {
+		return details
+	}
+	return operationFinalReportWithDetails(r.language, answer, details)
 }
 
 func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan operation.CommandOperationPlan, result operation.CommandOperationResult, request, display string, replanAttempts int) bool {
@@ -5058,16 +5084,86 @@ func (r *REPL) handleProviderOperationApproveCmd(line string) {
 		return
 	}
 	r.pendingProviderOperation = nil
-	result := r.executeProviderOperation(context.Background(), *pending)
-	r.queueProviderNextAction(pending, &result)
-	r.appendProviderOperationResult(pending.Plan, pending.Request, result)
-	msg := providerOperationResultMarkdown(r.language, pending.Plan, result)
+	r.executeProviderOperationFlow(context.Background(), *pending)
+}
+
+func (r *REPL) executeProviderOperationFlow(ctx context.Context, first pendingProviderOperation) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	current := &first
+	var records []providerOperationResultRecord
+	for actions := 0; current != nil && actions < maxOperationProviderWorkflowActions; actions++ {
+		result := r.executeProviderOperation(ctx, *current)
+		r.queueProviderNextAction(current, &result)
+		rec := providerOperationResultRecord{Plan: current.Plan, Request: current.Request, Result: result}
+		records = append(records, rec)
+		r.appendProviderOperationResult(current.Plan, current.Request, result)
+		if result.Status != operation.StatusExecuted {
+			break
+		}
+		next := r.pendingProviderOperation
+		if next == nil {
+			break
+		}
+		if !next.Plan.CanExecute {
+			break
+		}
+		r.pendingProviderOperation = nil
+		current = next
+	}
+	if len(records) == 0 {
+		return
+	}
+	msg := r.providerOperationFinalMessage(ctx, first.Request.Text, records)
+	if pending := r.pendingProviderOperation; pending != nil {
+		if strings.TrimSpace(msg) != "" {
+			msg += "\n\n"
+		}
+		if isZh(r.language) {
+			msg += "后续动作需要批准后继续：\n\n"
+		} else {
+			msg += "The next action is waiting for approval:\n\n"
+		}
+		msg += operationPlanMarkdown(r.language, pending.Plan)
+	}
+	finalStatus := records[len(records)-1].Result.Status
+	if r.pendingProviderOperation != nil {
+		finalStatus = operation.StatusReady
+	}
+	r.finishOperationRouteSpinner(finalStatus)
 	r.renderBordered(msg)
-	r.recordTurn(pending.Display, pending.Request.Text, msg, memory.KindPipeline)
+	r.recordTurn(first.Display, first.Request.Text, msg, memory.KindPipeline)
+}
+
+func (r *REPL) providerOperationFinalMessage(ctx context.Context, userLine string, records []providerOperationResultRecord) string {
+	var details strings.Builder
+	for i, rec := range records {
+		if i > 0 {
+			details.WriteString("\n\n")
+		}
+		details.WriteString(providerOperationResultMarkdown(r.language, rec.Plan, rec.Result))
+	}
+	detailText := strings.TrimSpace(details.String())
+	answerer, ok := r.operationPlanner.(ProviderOperationAnswerer)
+	if !ok || answerer == nil {
+		return detailText
+	}
+	answer, err := answerer.AnswerProviderOperationResult(ctx, userLine, records, r.language)
+	if err != nil {
+		logging.Warning("[repl/operation] provider result answer synthesis failed: %v", err)
+		return detailText
+	}
+	answer = strings.TrimSpace(answer)
+	if answer == "" {
+		return detailText
+	}
+	return operationFinalReportWithDetails(r.language, answer, detailText)
 }
 
 func (r *REPL) executeProviderOperation(ctx context.Context, pending pendingProviderOperation) providerOperationResult {
 	plan := pending.Plan
+	r.info(providerOperationProgressMsg(r.language, pending))
 	provider := strings.TrimSpace(plan.Provider)
 	switch {
 	case strings.HasPrefix(provider, "mcp:"):

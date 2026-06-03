@@ -2,7 +2,7 @@
 
 **状态**: 方案落盘, 分批实现。  
 **日期**: 2026-06-03  
-**目标**: 在独立 operation 路由下, 支持"自然语言需求 -> 命令计划 -> 风险策略 -> 澄清/审批 -> 执行/验证"的通用命令行操作能力。默认人工批准, 可配置低风险自动批准, 未知命令允许进入人工批准队列。不得影响现有源码分析、log/trace 分析、写代码、MCP 外部观测和 `!cmd` 显式命令通道。
+**目标**: 在独立 operation 路由下, 支持"自然语言需求 -> 命令计划 -> 风险策略 -> 自动执行/审批/拒绝 -> 执行/验证 -> 最终报告"的通用命令行操作能力。默认自动推进确定性低风险步骤, 未知/风险命令进入人工批准队列。不得影响现有源码分析、log/trace 分析、写代码、MCP 外部观测和 `!cmd` 显式命令通道。
 
 ---
 
@@ -63,7 +63,7 @@ REPL 已有 `/approve`、`/reject`、`/cancel`:
 ## 2. 设计目标
 
 1. **通用**: 不靠固定白名单覆盖所有命令; 未知命令可以生成计划, 但默认需要人工批准。
-2. **可控**: 自动批准默认关闭; 低风险自动批准仅覆盖确定只读查询和无覆盖目录创建。
+2. **可控**: 自动批准默认只覆盖确定只读查询和无覆盖目录创建;风险动作仍需审批或被拒绝。
 3. **安全**: 高风险命令进入 hard deny 或强人工审批; destructive/network submit/external write 不自动执行。
 4. **批量**: 支持多步命令计划, 尽量批量审批和批量执行, 每步有可见状态和输出摘要。
 5. **可澄清**: 信息不足时不猜, 返回问题和建议选项, 状态为 `needs_clarification`。
@@ -170,23 +170,22 @@ type CommandOperationResult struct {
 ### 6.1 默认策略
 
 ```yaml
-operation_command_enabled: false
-operation_command_approval: manual
+operation_route_enabled: true
 operation_command_unknown_program: manual
-operation_command_auto_low_risk: false
+operation_command_auto_low_risk: true
 operation_command_timeout_ms: 120000
 operation_command_output_preview_bytes: 32768
 ```
 
 含义:
 
-- 第一版命令执行器独立 feature gate, 默认关闭或只计划不执行; 打开后默认仍人工审批。
+- 命令执行器走独立 operation route; proven low-risk step 默认自动执行,非低风险仍人工审批或拒绝。
 - 未知命令不 hard deny, 但必须人工批准。
-- 自动批准默认关闭。
+- 低风险自动批准默认开启,可通过 `operation_command_auto_low_risk: false` 关闭。
 
 ### 6.2 低风险自动批准
 
-仅当配置启用 `operation_command_auto_low_risk: true` 且所有 step 精确满足以下条件才自动执行:
+仅当 `operation_command_auto_low_risk: true` 且所有 step 精确满足以下条件才自动执行:
 
 - 只读查询: `pwd`, `ls`, `find` 非删除形态, `stat`, `du`, `df`, `which`, `--version`, `git status/log/show/diff`, `cat/head/tail/sed -n/grep/rg`;
 - 无覆盖目录创建: `mkdir -p <new-or-existing-dir>`;

@@ -217,7 +217,7 @@
 #     commands are launched only after the typed operation route matches the
 #     provider and the user approves. These are not source-code prompt skills.
 # 中文 manifest 驱动的本地 operation provider。启动时只读 descriptor;
-#     仅当 typed operation 路由匹配且用户批准后才启动命令。它们不是源码
+#     仅当 typed operation 路由匹配且需要调用时才启动命令。它们不是源码
 #     分析 prompt skill。
 #
 # operation_skills:
@@ -277,9 +277,11 @@
 # operation_route_enabled: true
 #
 # Command-line operation executor. Natural-language command requests are first
-# converted into a typed plan, then evaluated by deterministic policy. Default
-# approval is manual: Codrax waits for /approve before running commands.
-# operation_command_auto_low_risk: false
+# converted into a typed plan, then evaluated by deterministic policy.
+# Deterministic low-risk steps run automatically by default; unknown commands,
+# shell form, writes, installs, network submission, overwrite/delete, and other
+# risky actions still require approval or are denied by policy.
+# operation_command_auto_low_risk: true
 # operation_command_timeout_ms: 120000
 # operation_command_output_preview_bytes: 32768
 # operation_command_allowed_write_roots: []

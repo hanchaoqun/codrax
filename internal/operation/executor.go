@@ -19,8 +19,9 @@ import (
 // CommandExecutor runs an already-approved command operation plan. It does not
 // classify user intent and does not override policy decisions.
 type CommandExecutor struct {
-	Policy    CommandPolicy
-	OutputDir string
+	Policy      CommandPolicy
+	OutputDir   string
+	OnStepStart func(CommandStep)
 }
 
 func (e CommandExecutor) Execute(ctx context.Context, plan CommandOperationPlan) CommandOperationResult {
@@ -41,6 +42,9 @@ func (e CommandExecutor) Execute(ctx context.Context, plan CommandOperationPlan)
 		return result
 	}
 	for _, step := range plan.Steps {
+		if e.OnStepStart != nil {
+			e.OnStepStart(step)
+		}
 		stepResult := e.executeStep(ctx, plan, step, policy)
 		result.StepResults = append(result.StepResults, stepResult)
 		if strings.TrimSpace(stepResult.OutputPreview) != "" {

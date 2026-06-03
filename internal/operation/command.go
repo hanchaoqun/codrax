@@ -32,9 +32,10 @@ const (
 	StepAutoDenied   = "denied"
 )
 
-// CommandPolicy controls command-operation approval. Defaults are deliberately
-// conservative: no automatic execution, unknown programs are manual, shell form
-// is manual, and only obvious catastrophic commands are hard-denied.
+// CommandPolicy controls command-operation approval. Defaults let deterministic
+// read-only/low-risk command steps run without interrupting the user, while
+// unknown programs, shell form, writes, installs, network submission, and
+// destructive commands still require policy review or are hard-denied.
 type CommandPolicy struct {
 	Approval              string
 	AutoLowRisk           bool
@@ -54,7 +55,7 @@ type CommandPolicy struct {
 func DefaultCommandPolicy() CommandPolicy {
 	return CommandPolicy{
 		Approval:              ApprovalManual,
-		AutoLowRisk:           false,
+		AutoLowRisk:           true,
 		UnknownProgram:        ApprovalManual,
 		ShellPolicy:           ApprovalManual,
 		NetworkPolicy:         ApprovalManual,
@@ -214,10 +215,6 @@ func BuildCommandOperationPlan(req CommandOperationRequest, policy CommandPolicy
 		}
 	}
 	if plan.Status == StatusBlocked {
-		return plan
-	}
-	if req.RequiresConfirmation {
-		plan.ApprovalMode = ApprovalManual
 		return plan
 	}
 	if allAutoEligible {

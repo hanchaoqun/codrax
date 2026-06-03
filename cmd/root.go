@@ -4347,12 +4347,16 @@ func operationProvidersFromMCPConfigs(reg *mcp.Registry, cfgs []types.MCPServerC
 			kinds = []string{"*"}
 		}
 		for _, kind := range kinds {
+			requiresGate := false
+			if cfg.OperationRequiresConfirmation != nil {
+				requiresGate = *cfg.OperationRequiresConfirmation
+			}
 			out = append(out, operation.ProviderInfo{
 				Name:         "mcp:" + name,
 				Kind:         kind,
 				Surfaces:     cleanOperationConfigList(cfg.OperationSurfaces),
 				SideEffects:  cleanOperationConfigList(cfg.OperationSideEffects),
-				RequiresGate: cfg.OperationRequiresConfirmation == nil || *cfg.OperationRequiresConfirmation,
+				RequiresGate: requiresGate,
 				ToolName:     strings.TrimSpace(cfg.OperationTool),
 				Description:  strings.TrimSpace(cfg.OperationDescription),
 				InputSchema:  strings.TrimSpace(cfg.OperationInputSchema),
@@ -4384,7 +4388,7 @@ func operationProvidersFromSkillConfigs(cfgs []types.OperationSkillConfig) []ope
 		if cfg.OperationLazyStart != nil {
 			lazyStart = *cfg.OperationLazyStart
 		}
-		requiresGate := true
+		requiresGate := false
 		if cfg.OperationRequiresConfirmation != nil {
 			requiresGate = *cfg.OperationRequiresConfirmation
 		}
