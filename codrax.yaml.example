@@ -211,6 +211,37 @@
 #     # operation_lazy_start: false
 #     # operation_requires_confirmation: true
 
+# Local operation skills  ·  本地 operation skill
+#
+# EN  Manifest-backed local operation providers. Startup reads descriptors only;
+#     commands are launched only after the typed operation route matches the
+#     provider and the user approves. These are not source-code prompt skills.
+# 中文 manifest 驱动的本地 operation provider。启动时只读 descriptor;
+#     仅当 typed operation 路由匹配且用户批准后才启动命令。它们不是源码
+#     分析 prompt skill。
+#
+# operation_skills:
+#   - name: local_ppt
+#     operation_kinds: ["presentation_generation", "artifact_generation"]
+#     operation_surfaces: ["slides", "local_file"]
+#     operation_side_effects: ["local_file_write"]
+#     operation_requires_confirmation: true
+#     operation_description: "Generate and verify local PPTX decks."
+#     operation_input_schema: |
+#       {"topic":"string","output_path":"string","style":"optional string"}
+#     operation_examples:
+#       - "Generate a 6-slide technical summary deck in ./out/summary.pptx."
+#     operation_lazy_start: true
+#     command: "./tools/local_ppt_skill"
+#     args: ["--json"]
+#     input_mode: stdin_json        # stdin_json | args_json
+#     work_dir: "."
+#     inherit_env: true
+#     env:
+#       PPT_SKILL_MODE: local
+#     timeout_ms: 60000
+#     max_output_bytes: 262144
+
 # operation_route_enabled — enable the independent operation/artifact route in
 # REPL turn classification. Default true. This route is separate from source
 # analysis and write-mode code changes.

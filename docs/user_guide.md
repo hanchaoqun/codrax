@@ -2037,10 +2037,87 @@ operation provider 执行完成后,结果会进入独立的 operation handoff �
 
 如果 provider 返回很大的输出,codrax 只在 REPL 面板显示短摘要和少量 ref,完整内容通过 payload/artifact ref 保留。provider 不应该把大文件全文塞进 MCP text;更好的做法是返回摘要 + 明确的文件路径、资源 URI 或 rowset/payload ref。
 
+### 本地 operation skills
+
+如果你不想写 MCP server,也可以用 `operation_skills[]` 把本地脚本、二进制或公司内工具包装成 operation provider。它和 MCP operation provider 的区别是:
+
+- 启动时只读 `codrax.yaml` descriptor,不会启动脚本。
+- 模型只看到能力摘要、输入契约和示例,看不到 `command` / `env` 作为 prompt 指令。
+- 只有 typed operation route 命中该 provider,并且用户 `/approve` 后,codrax 才会启动本地命令。
+- 结果进入 operation handoff / operation memory,不会当成当前源码 citation。
+
+一个最小配置:
+
+```yaml
+operation_skills:
+  - name: local_ppt
+    operation_kinds: ["presentation_generation", "artifact_generation"]
+    operation_surfaces: ["slides", "local_file"]
+    operation_side_effects: ["local_file_write"]
+    operation_requires_confirmation: true
+    operation_description: "Generate and verify local PPTX decks."
+    operation_input_schema: |
+      {"topic":"string","output_path":"string","style":"optional string"}
+    operation_examples:
+      - "Generate a 6-slide technical summary deck in ./out/summary.pptx."
+    command: "./tools/local_ppt_skill"
+    args: ["--json"]
+    input_mode: stdin_json
+    timeout_ms: 60000
+    max_output_bytes: 262144
+```
+
+`stdin_json` 模式下,本地 skill 会收到如下动态参数 envelope:
+
+```json
+{
+  "request": "用户原始请求",
+  "operation": "presentation_generation",
+  "operation_kind": "presentation_generation",
+  "target_surface": "slides",
+  "risk_level": "low",
+  "side_effects": ["local_file_write"],
+  "requires_confirmation": true,
+  "provider": "skill:local_ppt",
+  "tool": "run",
+  "repo_root": "/abs/workspace"
+}
+```
+
+本地 skill 可以返回普通文本,也可以返回结构化 JSON:
+
+```json
+{
+  "success": true,
+  "summary": "Created 6 slides and verified render.",
+  "artifact_refs": ["out/summary.pptx"],
+  "verification_status": "verified",
+  "verification_summary": "PPTX rendered without layout overflow.",
+  "observations": ["used template default.pptx"]
+}
+```
+
+如果 stdout / stderr 很大,codrax 会把完整输出写到 `.codrax/operation/`,面板只展示短预览和完整输出路径。
+
 ### 电脑操作 / 制品生成路由
 
 | 键 | 默认 | 作用 |
 |---|---|---|
+| `operation_skills` | `[]` | 本地 operation skill 列表。为空时不改变源码、trace/log、MCP 或写模式流程 |
+| `operation_skills[].name` | 必填 | 本地 provider 名,operation planner 中显示为 `skill:<name>` |
+| `operation_skills[].operation_kinds` / `operation_surfaces` | `[]` / `[]` | 支持的 typed operation 类型和目标界面,如 `presentation_generation` + `slides` |
+| `operation_skills[].operation_side_effects` | `[]` | 可能副作用,用于 planner 展示和审批心智,如 `local_file_write` |
+| `operation_skills[].operation_description` | 空 | 给 operation planner 的能力说明。不是系统指令 |
+| `operation_skills[].operation_input_schema` | 空 | 给 operation planner 的参数契约摘要。真正参数由本地 skill 自己校验 |
+| `operation_skills[].operation_examples` | `[]` | 典型用法示例,帮助模型选择 provider |
+| `operation_skills[].operation_requires_confirmation` | `true` | 是否必须用户批准后执行。默认 true |
+| `operation_skills[].operation_lazy_start` | `true` | 启动时只读 descriptor,批准后才启动命令 |
+| `operation_skills[].command` / `args` | 必填 / `[]` | 本地命令和参数。命令不经过 shell 展开 |
+| `operation_skills[].input_mode` | `stdin_json` | `stdin_json` 把动态参数写入 stdin;`args_json` 把 JSON 作为最后一个参数 |
+| `operation_skills[].work_dir` | 仓库根 | 命令工作目录。相对值按仓库根解析 |
+| `operation_skills[].inherit_env` | `true` | 是否继承当前环境变量。可用 `env` 覆盖或补充 |
+| `operation_skills[].timeout_ms` | `30000` | 本地 skill 单次执行超时 |
+| `operation_skills[].max_output_bytes` | `262144` | stdout inline 预览上限。超过后完整输出落到 `.codrax/operation/` |
 | `operation_route_enabled` | `true` | REPL 分类器识别 PPT、文档、表格、浏览器/桌面操作、外部 skill workflow、通用命令行操作等请求时,进入独立 operation 路径。它不会把操作请求误转入源码分析流水线 |
 | `operation_command_auto_low_risk` | `false` | 通用命令行操作的低风险自动批准。默认关闭;关闭时即使是 `pwd` / `ls` / `go version` 这类低风险命令也会等 `/approve` |
 | `operation_command_timeout_ms` | `120000` | 单个命令 step 的默认超时 |

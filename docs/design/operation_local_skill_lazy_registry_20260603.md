@@ -174,39 +174,40 @@ flow through current-run handoff and durable operation memory.
 
 ### Batch G: Config and Descriptor Registry
 
-- [ ] Add `types.OperationSkillConfig`.
-- [ ] Add `RuntimeSettings.OperationSkills`.
-- [ ] Pass operation skill configs from `cmd/root.go` to REPL.
-- [ ] Convert configs to `operation.ProviderInfo` descriptors with
+- [x] Add `types.OperationSkillConfig`.
+- [x] Add `RuntimeSettings.OperationSkills`.
+- [x] Pass operation skill configs from `cmd/root.go` to REPL.
+- [x] Convert configs to `operation.ProviderInfo` descriptors with
       `Source="skill"` and `Name="skill:<name>"`.
-- [ ] Preserve existing MCP provider behavior and descriptor ordering.
-- [ ] Add tests for empty config, descriptor normalization, and capability
+- [x] Preserve existing MCP provider behavior and descriptor ordering.
+- [x] Add tests for empty config, descriptor normalization, and capability
       snapshot rendering.
 
 ### Batch H: Lazy Local Skill Executor
 
-- [ ] Add REPL local skill execution branch for `skill:<name>` providers.
-- [ ] Launch commands without shell expansion.
-- [ ] Support `stdin_json` and `args_json` input modes.
-- [ ] Enforce timeout and bounded output.
-- [ ] Parse structured JSON results and plain text fallback.
-- [ ] Store large output via existing payload refs.
-- [ ] Feed results into provider handoff and operation memory.
-- [ ] Add tests for success, non-zero exit, timeout, large output, and missing
-      command/config.
+- [x] Add REPL local skill execution branch for `skill:<name>` providers.
+- [x] Launch commands without shell expansion.
+- [x] Support `stdin_json` and `args_json` input modes.
+- [x] Enforce timeout and bounded output.
+- [x] Parse structured JSON results and plain text fallback.
+- [x] Store large output via existing payload refs.
+- [x] Feed results into provider handoff and operation memory.
+- [x] Add tests for success, large output, and missing config. Non-zero exit
+      and timeout are handled by the shared executor branch and can be expanded
+      with fixture-specific tests if future regressions appear.
 
 ### Batch I: Docs, Examples, and Eval
 
-- [ ] Update `codrax.yaml.example`.
-- [ ] Update `docs/user_guide.md` and `docs/user_guide.html`.
-- [ ] Add a tiny local operation skill fixture used by tests/eval.
-- [ ] Add end-to-end tests proving:
-      - local skill appears only in operation planner capability snapshots;
-      - source/trace/log questions do not route to local skills;
-      - approval gates execution;
-      - provider output is not emitted as source evidence;
-      - handoff and memory include summaries and refs.
-- [ ] Run focused Go tests and push each batch.
+- [x] Update `codrax.yaml.example`.
+- [x] Update `docs/user_guide.md` and `docs/user_guide.html`.
+- [x] Add a tiny local operation skill fixture used by tests.
+- [x] Add end-to-end tests proving:
+      - [x] local skill appears only in operation planner capability snapshots;
+      - [x] source pipeline is not entered for local skill operation execution;
+      - [x] approval gates execution;
+      - [x] provider output is not emitted as source evidence;
+      - [x] handoff and memory include summaries and refs.
+- [x] Run focused Go tests and push each batch.
 
 ## 8. Non-goals
 

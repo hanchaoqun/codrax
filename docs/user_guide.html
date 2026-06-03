@@ -2757,6 +2757,57 @@ mcp_servers:
 </table></div>
 <p>operation provider 执行完成后,结果会进入独立的 operation handoff 和 operation memory:包括 provider 名、工具名、操作类型、摘要、外部观测数量、payload ref、artifact ref 等。下一次 operation 规划可以参考这些信息继续工作,例如“刚才 PPT provider 生成了哪个文件,下一步如何验证或修改”。这些信息仍是外部操作结果,不会被当成当前源码 citation;代码/trace/log 混合任务仍由 typed 路由决定是否进入源码或 runtime trace 管线。</p>
 <p>如果 provider 返回很大的输出,codrax 只在 REPL 面板显示短摘要和少量 ref,完整内容通过 payload/artifact ref 保留。provider 不应该把大文件全文塞进 MCP text;更好的做法是返回摘要 + 明确的文件路径、资源 URI 或 rowset/payload ref。</p>
+<h3 id="本地-operation-skills">本地 operation skills</h3>
+<p>如果你不想写 MCP server,也可以用 <code>operation_skills[]</code> 把本地脚本、二进制或公司内工具包装成 operation provider。它和 MCP operation provider 的区别是:</p>
+<ul>
+<li>启动时只读 <code>codrax.yaml</code> descriptor,不会启动脚本。</li>
+<li>模型只看到能力摘要、输入契约和示例,看不到 <code>command</code> / <code>env</code> 作为 prompt 指令。</li>
+<li>只有 typed operation route 命中该 provider,并且用户 <code>/approve</code> 后,codrax 才会启动本地命令。</li>
+<li>结果进入 operation handoff / operation memory,不会当成当前源码 citation。</li>
+</ul>
+<p>一个最小配置:</p>
+<pre><code class="language-yaml">operation_skills:
+  - name: local_ppt
+    operation_kinds: [&quot;presentation_generation&quot;, &quot;artifact_generation&quot;]
+    operation_surfaces: [&quot;slides&quot;, &quot;local_file&quot;]
+    operation_side_effects: [&quot;local_file_write&quot;]
+    operation_requires_confirmation: true
+    operation_description: &quot;Generate and verify local PPTX decks.&quot;
+    operation_input_schema: |
+      {&quot;topic&quot;:&quot;string&quot;,&quot;output_path&quot;:&quot;string&quot;,&quot;style&quot;:&quot;optional string&quot;}
+    operation_examples:
+      - &quot;Generate a 6-slide technical summary deck in ./out/summary.pptx.&quot;
+    command: &quot;./tools/local_ppt_skill&quot;
+    args: [&quot;--json&quot;]
+    input_mode: stdin_json
+    timeout_ms: 60000
+    max_output_bytes: 262144
+</code></pre>
+<p><code>stdin_json</code> 模式下,本地 skill 会收到如下动态参数 envelope:</p>
+<pre><code class="language-json">{
+  &quot;request&quot;: &quot;用户原始请求&quot;,
+  &quot;operation&quot;: &quot;presentation_generation&quot;,
+  &quot;operation_kind&quot;: &quot;presentation_generation&quot;,
+  &quot;target_surface&quot;: &quot;slides&quot;,
+  &quot;risk_level&quot;: &quot;low&quot;,
+  &quot;side_effects&quot;: [&quot;local_file_write&quot;],
+  &quot;requires_confirmation&quot;: true,
+  &quot;provider&quot;: &quot;skill:local_ppt&quot;,
+  &quot;tool&quot;: &quot;run&quot;,
+  &quot;repo_root&quot;: &quot;/abs/workspace&quot;
+}
+</code></pre>
+<p>本地 skill 可以返回普通文本,也可以返回结构化 JSON:</p>
+<pre><code class="language-json">{
+  &quot;success&quot;: true,
+  &quot;summary&quot;: &quot;Created 6 slides and verified render.&quot;,
+  &quot;artifact_refs&quot;: [&quot;out/summary.pptx&quot;],
+  &quot;verification_status&quot;: &quot;verified&quot;,
+  &quot;verification_summary&quot;: &quot;PPTX rendered without layout overflow.&quot;,
+  &quot;observations&quot;: [&quot;used template default.pptx&quot;]
+}
+</code></pre>
+<p>如果 stdout / stderr 很大,codrax 会把完整输出写到 <code>.codrax/operation/</code>,面板只展示短预览和完整输出路径。</p>
 <h3 id="电脑操作-制品生成路由">电脑操作 / 制品生成路由</h3>
 <div class="table-wrap"><table>
 <thead>
@@ -2767,6 +2818,81 @@ mcp_servers:
 </tr>
 </thead>
 <tbody>
+<tr>
+<td><code>operation_skills</code></td>
+<td><code>[]</code></td>
+<td>本地 operation skill 列表。为空时不改变源码、trace/log、MCP 或写模式流程</td>
+</tr>
+<tr>
+<td><code>operation_skills[].name</code></td>
+<td>必填</td>
+<td>本地 provider 名,operation planner 中显示为 <code>skill:&lt;name&gt;</code></td>
+</tr>
+<tr>
+<td><code>operation_skills[].operation_kinds</code> / <code>operation_surfaces</code></td>
+<td><code>[]</code> / <code>[]</code></td>
+<td>支持的 typed operation 类型和目标界面,如 <code>presentation_generation</code> + <code>slides</code></td>
+</tr>
+<tr>
+<td><code>operation_skills[].operation_side_effects</code></td>
+<td><code>[]</code></td>
+<td>可能副作用,用于 planner 展示和审批心智,如 <code>local_file_write</code></td>
+</tr>
+<tr>
+<td><code>operation_skills[].operation_description</code></td>
+<td>空</td>
+<td>给 operation planner 的能力说明。不是系统指令</td>
+</tr>
+<tr>
+<td><code>operation_skills[].operation_input_schema</code></td>
+<td>空</td>
+<td>给 operation planner 的参数契约摘要。真正参数由本地 skill 自己校验</td>
+</tr>
+<tr>
+<td><code>operation_skills[].operation_examples</code></td>
+<td><code>[]</code></td>
+<td>典型用法示例,帮助模型选择 provider</td>
+</tr>
+<tr>
+<td><code>operation_skills[].operation_requires_confirmation</code></td>
+<td><code>true</code></td>
+<td>是否必须用户批准后执行。默认 true</td>
+</tr>
+<tr>
+<td><code>operation_skills[].operation_lazy_start</code></td>
+<td><code>true</code></td>
+<td>启动时只读 descriptor,批准后才启动命令</td>
+</tr>
+<tr>
+<td><code>operation_skills[].command</code> / <code>args</code></td>
+<td>必填 / <code>[]</code></td>
+<td>本地命令和参数。命令不经过 shell 展开</td>
+</tr>
+<tr>
+<td><code>operation_skills[].input_mode</code></td>
+<td><code>stdin_json</code></td>
+<td><code>stdin_json</code> 把动态参数写入 stdin;<code>args_json</code> 把 JSON 作为最后一个参数</td>
+</tr>
+<tr>
+<td><code>operation_skills[].work_dir</code></td>
+<td>仓库根</td>
+<td>命令工作目录。相对值按仓库根解析</td>
+</tr>
+<tr>
+<td><code>operation_skills[].inherit_env</code></td>
+<td><code>true</code></td>
+<td>是否继承当前环境变量。可用 <code>env</code> 覆盖或补充</td>
+</tr>
+<tr>
+<td><code>operation_skills[].timeout_ms</code></td>
+<td><code>30000</code></td>
+<td>本地 skill 单次执行超时</td>
+</tr>
+<tr>
+<td><code>operation_skills[].max_output_bytes</code></td>
+<td><code>262144</code></td>
+<td>stdout inline 预览上限。超过后完整输出落到 <code>.codrax/operation/</code></td>
+</tr>
 <tr>
 <td><code>operation_route_enabled</code></td>
 <td><code>true</code></td>
