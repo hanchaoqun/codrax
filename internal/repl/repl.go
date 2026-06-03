@@ -5011,6 +5011,24 @@ func (r *REPL) handleProviderOperationApproveCmd(line string) {
 
 func (r *REPL) executeProviderOperation(ctx context.Context, pending pendingProviderOperation) providerOperationResult {
 	plan := pending.Plan
+	provider := strings.TrimSpace(plan.Provider)
+	switch {
+	case strings.HasPrefix(provider, "mcp:"):
+		return r.executeMCPOperationProvider(ctx, pending)
+	case strings.HasPrefix(provider, "skill:"):
+		return r.executeLocalOperationSkillProvider(ctx, pending)
+	default:
+		return providerOperationResult{
+			Status:   operation.StatusFailed,
+			Provider: plan.Provider,
+			Tool:     plan.ProviderTool,
+			Error:    fmt.Sprintf("unsupported operation provider %q", plan.Provider),
+		}
+	}
+}
+
+func (r *REPL) executeMCPOperationProvider(ctx context.Context, pending pendingProviderOperation) providerOperationResult {
+	plan := pending.Plan
 	result := providerOperationResult{
 		Status:   operation.StatusFailed,
 		Provider: plan.Provider,
@@ -5069,6 +5087,324 @@ func (r *REPL) executeProviderOperation(ctx context.Context, pending pendingProv
 		}
 	}
 	return result
+}
+
+const (
+	defaultOperationSkillTimeout       = 30 * time.Second
+	defaultOperationSkillMaxOutputSize = 256 * 1024
+	defaultOperationSkillInputMode     = "stdin_json"
+)
+
+func (r *REPL) executeLocalOperationSkillProvider(ctx context.Context, pending pendingProviderOperation) providerOperationResult {
+	plan := pending.Plan
+	result := providerOperationResult{
+		Status:   operation.StatusFailed,
+		Provider: plan.Provider,
+		Tool:     plan.ProviderTool,
+	}
+	skillName := strings.TrimPrefix(strings.TrimSpace(plan.Provider), "skill:")
+	cfg, ok := r.localOperationSkillConfig(skillName)
+	if !ok {
+		result.Error = fmt.Sprintf("local operation skill %q is not configured", skillName)
+		return result
+	}
+	if strings.TrimSpace(cfg.Command) == "" {
+		result.Error = fmt.Sprintf("local operation skill %q has no command", skillName)
+		return result
+	}
+	envelope := map[string]any{
+		"request":               pending.Request.Text,
+		"operation":             firstNonEmptyString(pending.Request.Operation, pending.Request.OperationKind, plan.Kind),
+		"operation_kind":        plan.Kind,
+		"target_surface":        plan.TargetSurface,
+		"risk_level":            plan.RiskLevel,
+		"side_effects":          plan.SideEffects,
+		"requires_confirmation": plan.RequiresConfirmation,
+		"provider":              plan.Provider,
+		"tool":                  firstNonEmptyString(plan.ProviderTool, "run"),
+		"repo_root":             r.repoRoot,
+	}
+	raw, err := json.Marshal(envelope)
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	timeout := defaultOperationSkillTimeout
+	if cfg.TimeoutMS != nil && *cfg.TimeoutMS > 0 {
+		timeout = time.Duration(*cfg.TimeoutMS) * time.Millisecond
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd, display, err := r.buildLocalOperationSkillCommand(runCtx, cfg, raw)
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	maxOutput := defaultOperationSkillMaxOutputSize
+	if cfg.MaxOutputBytes != nil && *cfg.MaxOutputBytes > 0 {
+		maxOutput = *cfg.MaxOutputBytes
+	}
+	stdoutCap, err := r.newProviderProcessOutputCapture(plan.Provider, "stdout", maxOutput)
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	defer stdoutCap.Close()
+	stderrCap, err := r.newProviderProcessOutputCapture(plan.Provider, "stderr", maxOutput/4)
+	if err != nil {
+		result.Error = err.Error()
+		return result
+	}
+	defer stderrCap.Close()
+	cmd.Stdout = stdoutCap
+	cmd.Stderr = stderrCap
+	runErr := cmd.Run()
+	stdoutText := strings.TrimSpace(stdoutCap.String())
+	stderrText := strings.TrimSpace(stderrCap.String())
+	if stdoutCap.Truncated() {
+		result.PayloadRef = stdoutCap.Path()
+	}
+	parsed, parsedOK := parseLocalOperationSkillJSONResult(stdoutText)
+	if parsedOK {
+		result.Summary = strings.TrimSpace(parsed.Summary)
+		result.PayloadRef = firstNonEmptyString(result.PayloadRef, parsed.PayloadRef)
+		result.ArtifactRefs = cleanOperationRefs(parsed.ArtifactRefs)
+		result.VerificationStatus = strings.TrimSpace(parsed.VerificationStatus)
+		result.VerificationSummary = strings.TrimSpace(parsed.VerificationSummary)
+		result.Observations = parsed.Observations
+		if parsed.Error != "" {
+			result.Error = parsed.Error
+		}
+	} else {
+		result.Summary = stdoutText
+	}
+	if result.Summary == "" && stdoutCap.Truncated() {
+		result.Summary = fmt.Sprintf("local operation skill output exceeded inline preview; full stdout saved to %s", stdoutCap.Path())
+	}
+	if stderrCap.Truncated() && result.Error == "" {
+		result.Error = fmt.Sprintf("stderr exceeded inline preview; full stderr saved to %s", stderrCap.Path())
+	}
+	if runErr != nil {
+		result.Error = firstNonEmptyString(result.Error, localOperationSkillRunError(runErr, runCtx.Err(), display, stderrText))
+		return result
+	}
+	if parsedOK && parsed.Success != nil && !*parsed.Success {
+		result.Error = firstNonEmptyString(result.Error, "local operation skill returned success=false")
+		return result
+	}
+	result.Status = operation.StatusExecuted
+	if result.Summary != "" && utf8.RuneCountInString(result.Summary) > 4096 {
+		ref, preview := r.storeProviderOperationPayload(plan.Provider, firstNonEmptyString(plan.ProviderTool, "run"), result.Summary)
+		if ref != "" {
+			result.PayloadRef = firstNonEmptyString(result.PayloadRef, ref)
+			result.Summary = preview
+		}
+	}
+	r.markOperationProviderLoaded(plan.Provider)
+	logging.Info("[repl/operation] local operation skill executed provider=%s command=%q", plan.Provider, display)
+	return result
+}
+
+func (r *REPL) localOperationSkillConfig(skillName string) (types.OperationSkillConfig, bool) {
+	skillName = strings.TrimSpace(skillName)
+	for _, cfg := range r.operationSkillConfigs {
+		if strings.TrimSpace(cfg.Name) == skillName {
+			return cfg, true
+		}
+	}
+	return types.OperationSkillConfig{}, false
+}
+
+func (r *REPL) buildLocalOperationSkillCommand(ctx context.Context, cfg types.OperationSkillConfig, inputJSON []byte) (*exec.Cmd, string, error) {
+	workDir := strings.TrimSpace(cfg.WorkDir)
+	if workDir == "" {
+		workDir = strings.TrimSpace(r.repoRoot)
+	}
+	if workDir != "" && !filepath.IsAbs(workDir) {
+		root := strings.TrimSpace(r.repoRoot)
+		if root == "" {
+			root = "."
+		}
+		workDir = filepath.Join(root, workDir)
+	}
+	command := strings.TrimSpace(cfg.Command)
+	if command == "" {
+		return nil, "", fmt.Errorf("local operation skill command is empty")
+	}
+	execPath := command
+	if hasPathSeparator(command) && !filepath.IsAbs(command) && workDir != "" {
+		execPath = filepath.Join(workDir, command)
+	}
+	args := append([]string{}, cfg.Args...)
+	inputMode := strings.TrimSpace(cfg.InputMode)
+	if inputMode == "" {
+		inputMode = defaultOperationSkillInputMode
+	}
+	switch inputMode {
+	case "stdin_json":
+	case "args_json":
+		args = append(args, string(inputJSON))
+	default:
+		return nil, "", fmt.Errorf("unsupported local operation skill input_mode %q", inputMode)
+	}
+	cmd := exec.CommandContext(ctx, execPath, args...)
+	if workDir != "" {
+		cmd.Dir = workDir
+	}
+	if inputMode == "stdin_json" {
+		cmd.Stdin = strings.NewReader(string(inputJSON))
+	}
+	cmd.Env = localOperationSkillEnv(cfg)
+	display := strings.TrimSpace(command + " " + strings.Join(args, " "))
+	return cmd, display, nil
+}
+
+func hasPathSeparator(path string) bool {
+	return strings.Contains(path, "/") || strings.Contains(path, "\\")
+}
+
+func localOperationSkillEnv(cfg types.OperationSkillConfig) []string {
+	inherit := true
+	if cfg.InheritEnv != nil {
+		inherit = *cfg.InheritEnv
+	}
+	envMap := map[string]string{}
+	if inherit {
+		for _, item := range os.Environ() {
+			if k, v, ok := strings.Cut(item, "="); ok {
+				envMap[k] = v
+			}
+		}
+	}
+	for k, v := range cfg.Env {
+		k = strings.TrimSpace(k)
+		if k == "" {
+			continue
+		}
+		envMap[k] = v
+	}
+	out := make([]string, 0, len(envMap))
+	for k, v := range envMap {
+		out = append(out, k+"="+v)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func localOperationSkillRunError(err error, ctxErr error, display, stderrText string) string {
+	if ctxErr != nil {
+		return fmt.Sprintf("local operation skill timed out or was cancelled while running %q: %v", display, ctxErr)
+	}
+	base := err.Error()
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		base = fmt.Sprintf("local operation skill exited with code %d", exitErr.ExitCode())
+	}
+	if strings.TrimSpace(stderrText) != "" {
+		return base + ": " + oneLineClamp(stderrText, 800)
+	}
+	return base
+}
+
+type localOperationSkillJSONResult struct {
+	Success             *bool
+	Summary             string
+	PayloadRef          string
+	ArtifactRefs        []string
+	VerificationStatus  string
+	VerificationSummary string
+	Observations        int
+	Error               string
+}
+
+func parseLocalOperationSkillJSONResult(text string) (localOperationSkillJSONResult, bool) {
+	text = strings.TrimSpace(text)
+	if text == "" || !strings.HasPrefix(text, "{") {
+		return localOperationSkillJSONResult{}, false
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(text), &raw); err != nil {
+		return localOperationSkillJSONResult{}, false
+	}
+	var out localOperationSkillJSONResult
+	out.Success = optionalBoolJSON(raw["success"])
+	out.Summary = stringJSON(raw["summary"])
+	out.PayloadRef = stringJSON(raw["payload_ref"])
+	out.ArtifactRefs = stringListJSON(raw["artifact_refs"])
+	out.VerificationStatus = stringJSON(raw["verification_status"])
+	out.VerificationSummary = stringJSON(raw["verification_summary"])
+	out.Observations = observationsCountJSON(raw["observations"])
+	out.Error = stringJSON(raw["error"])
+	return out, true
+}
+
+func optionalBoolJSON(raw json.RawMessage) *bool {
+	if len(raw) == 0 {
+		return nil
+	}
+	var b bool
+	if err := json.Unmarshal(raw, &b); err != nil {
+		return nil
+	}
+	return &b
+}
+
+func stringJSON(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return strings.TrimSpace(s)
+	}
+	return ""
+}
+
+func stringListJSON(raw json.RawMessage) []string {
+	if len(raw) == 0 {
+		return nil
+	}
+	var list []string
+	if err := json.Unmarshal(raw, &list); err == nil {
+		return cleanOperationRefs(list)
+	}
+	var one string
+	if err := json.Unmarshal(raw, &one); err == nil {
+		return cleanOperationRefs([]string{one})
+	}
+	return nil
+}
+
+func observationsCountJSON(raw json.RawMessage) int {
+	if len(raw) == 0 {
+		return 0
+	}
+	var n int
+	if err := json.Unmarshal(raw, &n); err == nil && n > 0 {
+		return n
+	}
+	var list []any
+	if err := json.Unmarshal(raw, &list); err == nil {
+		return len(list)
+	}
+	return 0
+}
+
+func cleanOperationRefs(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+		if len(out) >= 8 {
+			break
+		}
+	}
+	return out
 }
 
 func providerArtifactRefsFromMCPResponse(resp types.MCPResponse) []string {
@@ -5172,6 +5508,81 @@ func (r *REPL) storeProviderOperationPayload(provider, toolName, summary string)
 		preview = string([]rune(preview)[:4096]) + fmt.Sprintf("\n[operation provider output truncated; full output saved to %s]", path)
 	}
 	return path, preview
+}
+
+type providerProcessOutputCapture struct {
+	file      *os.File
+	path      string
+	buf       *boundedBuffer
+	truncated bool
+}
+
+func (r *REPL) newProviderProcessOutputCapture(provider, stream string, capBytes int) (*providerProcessOutputCapture, error) {
+	if capBytes <= 0 {
+		capBytes = defaultOperationSkillMaxOutputSize
+	}
+	dir := filepath.Join(firstNonEmptyString(strings.TrimSpace(r.runtimeAnchor), ".codrax"), "operation")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, err
+	}
+	name := fmt.Sprintf("provider-%s-%s-%d.txt", sanitizeProviderPayloadToken(provider), sanitizeProviderPayloadToken(stream), time.Now().UnixNano())
+	path := filepath.Join(dir, name)
+	file, err := os.Create(path)
+	if err != nil {
+		return nil, err
+	}
+	return &providerProcessOutputCapture{
+		file: file,
+		path: path,
+		buf:  newBoundedBuffer(capBytes),
+	}, nil
+}
+
+func (c *providerProcessOutputCapture) Write(p []byte) (int, error) {
+	if c.file != nil {
+		if _, err := c.file.Write(p); err != nil {
+			return 0, err
+		}
+	}
+	if c.buf != nil {
+		_, _ = c.buf.Write(p)
+		if c.buf.Truncated() {
+			c.truncated = true
+		}
+	}
+	return len(p), nil
+}
+
+func (c *providerProcessOutputCapture) String() string {
+	if c == nil || c.buf == nil {
+		return ""
+	}
+	text := c.buf.String()
+	if c.truncated {
+		text += fmt.Sprintf("\n[operation provider output truncated; full output saved to %s]", c.path)
+	}
+	return text
+}
+
+func (c *providerProcessOutputCapture) Truncated() bool {
+	return c != nil && c.truncated
+}
+
+func (c *providerProcessOutputCapture) Path() string {
+	if c == nil {
+		return ""
+	}
+	return c.path
+}
+
+func (c *providerProcessOutputCapture) Close() {
+	if c == nil || c.file == nil {
+		return
+	}
+	_ = c.file.Close()
+	if !c.truncated && c.path != "" {
+		_ = os.Remove(c.path)
+	}
 }
 
 func sanitizeProviderPayloadToken(s string) string {

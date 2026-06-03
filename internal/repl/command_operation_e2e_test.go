@@ -81,6 +81,28 @@ func TestOperationProviderLazyMCPFakeServerHelper(t *testing.T) {
 	}
 }
 
+func TestOperationProviderLocalSkillFakeHelper(t *testing.T) {
+	if os.Getenv("CODRAX_REPL_FAKE_LOCAL_SKILL") != "1" {
+		return
+	}
+	defer os.Exit(0)
+	if os.Getenv("CODRAX_REPL_FAKE_LOCAL_SKILL_LARGE") == "1" {
+		_, _ = os.Stdout.WriteString(strings.Repeat("x", 2048))
+		return
+	}
+	var payload map[string]any
+	_ = json.NewDecoder(os.Stdin).Decode(&payload)
+	kind, _ := payload["operation_kind"].(string)
+	_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+		"success":              true,
+		"summary":              "local skill created deck artifact for " + kind,
+		"artifact_refs":        []string{"/tmp/codrax/local-skill-deck.pptx"},
+		"verification_status":  "verified",
+		"verification_summary": "fixture render passed",
+		"observations":         []string{"outline", "render"},
+	})
+}
+
 func (s *operationProviderMCPServer) Name() string                   { return "slides" }
 func (s *operationProviderMCPServer) Transport() types.TransportType { return types.TransportStdio }
 func (s *operationProviderMCPServer) ListTools() []mcp.ToolSchema {
@@ -431,6 +453,197 @@ func TestOperationProviderMCPLazyStartFailureStaysInOperationLane(t *testing.T) 
 	}
 	if r.operationProviders[0].Loaded {
 		t.Fatalf("failed lazy provider should remain unloaded: %+v", r.operationProviders[0])
+	}
+}
+
+func TestOperationProviderLocalSkillApproveExecutesManifestCommand(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: true,
+		Operation:            "presentation_generation",
+		OperationKind:        "presentation_generation",
+		Source:               "current_message",
+		RiskLevel:            "low",
+		TargetSurface:        "slides",
+		SideEffects:          []string{"local_file_write"},
+		Confidence:           0.9,
+		Reason:               "user asked for a presentation artifact",
+	}}
+	yes := true
+	timeoutMS := 3000
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "生成一份 PPT\n/approve\n/exit\n")
+	r.operationEnabled = true
+	r.runtimeAnchor = t.TempDir()
+	r.operationMemory = operation.NewMemoryStore(filepath.Join(r.runtimeAnchor, "operation", "memory.jsonl"))
+	r.operationSkillConfigs = []types.OperationSkillConfig{{
+		Name:                          "local_ppt",
+		OperationKinds:                []string{"presentation_generation"},
+		OperationSurfaces:             []string{"slides"},
+		OperationSideEffects:          []string{"local_file_write"},
+		OperationRequiresConfirmation: &yes,
+		OperationLazyStart:            &yes,
+		Command:                       os.Args[0],
+		Args:                          []string{"-test.run=TestOperationProviderLocalSkillFakeHelper"},
+		Env:                           map[string]string{"CODRAX_REPL_FAKE_LOCAL_SKILL": "1"},
+		InputMode:                     "stdin_json",
+		TimeoutMS:                     &timeoutMS,
+	}}
+	r.operationProviders = []operation.ProviderInfo{{
+		Name:         "skill:local_ppt",
+		Kind:         "presentation_generation",
+		Surfaces:     []string{"slides"},
+		SideEffects:  []string{"local_file_write"},
+		RequiresGate: true,
+		ToolName:     "run",
+		Source:       "skill",
+		LazyStart:    true,
+		Loaded:       false,
+	}}
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("local skill provider operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if !r.operationProviders[0].Loaded {
+		t.Fatalf("local skill provider descriptor should be marked loaded: %+v", r.operationProviders[0])
+	}
+	printed := out.String()
+	for _, want := range []string{
+		"local skill created deck artifact",
+		"/tmp/codrax/local-skill-deck.pptx",
+		"verified",
+	} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("local skill output missing %q:\n%s", want, printed)
+		}
+	}
+	handoff := r.renderCommandOperationHandoff()
+	for _, want := range []string{
+		"provider_operation_result",
+		"provider=\"skill:local_ppt\"",
+		"tool=\"run\"",
+		"local skill created deck artifact",
+		"artifact_refs=/tmp/codrax/local-skill-deck.pptx",
+		"observations=2",
+		"verification_status=verified",
+	} {
+		if !strings.Contains(handoff, want) {
+			t.Fatalf("local skill handoff missing %q:\n%s", want, handoff)
+		}
+	}
+	entries, err := r.operationMemory.RecentMatches(r.commandOperationCapabilitySnapshot(), 4)
+	if err != nil {
+		t.Fatalf("read operation memory: %v", err)
+	}
+	renderedMemory := operation.RenderMemoryForPrompt(entries)
+	for _, want := range []string{
+		"provider=\"skill:local_ppt\"",
+		"tool=\"run\"",
+		"local skill created deck artifact",
+		"not current-source evidence",
+	} {
+		if !strings.Contains(renderedMemory, want) {
+			t.Fatalf("local skill memory missing %q:\n%s", want, renderedMemory)
+		}
+	}
+}
+
+func TestOperationProviderLocalSkillMissingConfigStaysInOperationLane(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: true,
+		Operation:            "presentation_generation",
+		OperationKind:        "presentation_generation",
+		Source:               "current_message",
+		RiskLevel:            "low",
+		TargetSurface:        "slides",
+		SideEffects:          []string{"local_file_write"},
+		Confidence:           0.9,
+		Reason:               "user asked for a presentation artifact",
+	}}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "生成一份 PPT\n/approve\n/exit\n")
+	r.operationEnabled = true
+	r.operationProviders = []operation.ProviderInfo{{
+		Name:         "skill:missing",
+		Kind:         "presentation_generation",
+		Surfaces:     []string{"slides"},
+		RequiresGate: true,
+		ToolName:     "run",
+		Source:       "skill",
+		LazyStart:    true,
+	}}
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("failed local skill provider operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	printed := out.String()
+	for _, want := range []string{
+		"Operation provider `skill:missing` failed.",
+		"not configured",
+	} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("missing local skill failure output missing %q:\n%s", want, printed)
+		}
+	}
+}
+
+func TestOperationProviderLocalSkillLargeOutputUsesPayloadRef(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: true,
+		Operation:            "presentation_generation",
+		OperationKind:        "presentation_generation",
+		Source:               "current_message",
+		RiskLevel:            "low",
+		TargetSurface:        "slides",
+		SideEffects:          []string{"local_file_write"},
+		Confidence:           0.9,
+		Reason:               "user asked for a presentation artifact",
+	}}
+	yes := true
+	timeoutMS := 3000
+	maxOutput := 64
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "生成一份 PPT\n/approve\n/exit\n")
+	r.operationEnabled = true
+	r.runtimeAnchor = t.TempDir()
+	r.operationSkillConfigs = []types.OperationSkillConfig{{
+		Name:                          "noisy",
+		OperationKinds:                []string{"presentation_generation"},
+		OperationSurfaces:             []string{"slides"},
+		OperationRequiresConfirmation: &yes,
+		Command:                       os.Args[0],
+		Args:                          []string{"-test.run=TestOperationProviderLocalSkillFakeHelper"},
+		Env:                           map[string]string{"CODRAX_REPL_FAKE_LOCAL_SKILL": "1", "CODRAX_REPL_FAKE_LOCAL_SKILL_LARGE": "1"},
+		TimeoutMS:                     &timeoutMS,
+		MaxOutputBytes:                &maxOutput,
+	}}
+	r.operationProviders = []operation.ProviderInfo{{
+		Name:         "skill:noisy",
+		Kind:         "presentation_generation",
+		Surfaces:     []string{"slides"},
+		RequiresGate: true,
+		ToolName:     "run",
+		Source:       "skill",
+		LazyStart:    true,
+	}}
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("large local skill provider operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if !strings.Contains(out.String(), "Full output:") && !strings.Contains(out.String(), "完整输出：") {
+		t.Fatalf("large local skill output did not show payload ref:\n%s", out.String())
+	}
+	handoff := r.renderCommandOperationHandoff()
+	if !strings.Contains(handoff, "payload_ref=") {
+		t.Fatalf("large local skill handoff missing payload ref:\n%s", handoff)
 	}
 }
 
