@@ -64,3 +64,40 @@ func TestCapabilitySnapshotRendersEnvFactsAndPolicy(t *testing.T) {
 		}
 	}
 }
+
+func TestCapabilitySnapshotRendersOperationProviderDescriptors(t *testing.T) {
+	policy := DefaultCommandPolicy()
+	snapshot := BuildCapabilitySnapshotWithProviders(nil, "/repo", policy, []ProviderInfo{
+		{
+			Name:         "mcp:slides",
+			Kind:         "presentation_generation",
+			Surfaces:     []string{"slides"},
+			SideEffects:  []string{"local_file_write"},
+			RequiresGate: true,
+			ToolName:     "run_operation",
+			Description:  "Create and verify local PPTX decks from a structured request.",
+			InputSchema:  `{"type":"object","properties":{"topic":{"type":"string"}}}`,
+			Examples:     []string{"Generate a six slide summary deck", "Create a customer update deck"},
+			Source:       "mcp",
+			LazyStart:    true,
+			Loaded:       false,
+		},
+	})
+	rendered := snapshot.RenderForPrompt()
+	for _, want := range []string{
+		"operation_providers",
+		"mcp:slides kind=presentation_generation",
+		"surfaces=slides",
+		"side_effects=local_file_write",
+		"gate=true lazy=true loaded=false",
+		"tool=run_operation",
+		"source=mcp",
+		"description=Create and verify local PPTX decks",
+		"input_schema=",
+		"examples=Generate a six slide summary deck",
+	} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("snapshot missing %q:\n%s", want, rendered)
+		}
+	}
+}

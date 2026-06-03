@@ -4337,6 +4337,12 @@ func operationProvidersFromMCPConfigs(reg *mcp.Registry, cfgs []types.MCPServerC
 				SideEffects:  cleanOperationConfigList(cfg.OperationSideEffects),
 				RequiresGate: cfg.OperationRequiresConfirmation == nil || *cfg.OperationRequiresConfirmation,
 				ToolName:     strings.TrimSpace(cfg.OperationTool),
+				Description:  strings.TrimSpace(cfg.OperationDescription),
+				InputSchema:  strings.TrimSpace(cfg.OperationInputSchema),
+				Examples:     cleanOperationConfigList(cfg.OperationExamples),
+				Source:       "mcp",
+				LazyStart:    cfg.OperationLazyStart != nil && *cfg.OperationLazyStart,
+				Loaded:       true,
 			})
 		}
 	}

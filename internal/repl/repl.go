@@ -1345,7 +1345,7 @@ func (r *REPL) commandOperationCapabilitySnapshot() operation.CapabilitySnapshot
 		facts = env.Probe(env.ProbeOptions{RepoRoot: r.repoRoot, ProbeNetwork: false})
 		r.envFacts = facts
 	}
-	return operation.BuildCapabilitySnapshot(facts, r.repoRoot, r.operationPolicy)
+	return operation.BuildCapabilitySnapshotWithProviders(facts, r.repoRoot, r.operationPolicy, r.operationProviders)
 }
 
 func isCommandOperationPolicy(policy TurnPolicy) bool {

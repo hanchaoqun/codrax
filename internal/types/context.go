@@ -4821,6 +4821,10 @@ type MCPServerConfig struct {
 	OperationSurfaces             []string `yaml:"operation_surfaces" json:"operation_surfaces,omitempty"`
 	OperationSideEffects          []string `yaml:"operation_side_effects" json:"operation_side_effects,omitempty"`
 	OperationTool                 string   `yaml:"operation_tool" json:"operation_tool,omitempty"`
+	OperationDescription          string   `yaml:"operation_description" json:"operation_description,omitempty"`
+	OperationInputSchema          string   `yaml:"operation_input_schema" json:"operation_input_schema,omitempty"`
+	OperationExamples             []string `yaml:"operation_examples" json:"operation_examples,omitempty"`
+	OperationLazyStart            *bool    `yaml:"operation_lazy_start" json:"operation_lazy_start,omitempty"`
 	OperationRequiresConfirmation *bool    `yaml:"operation_requires_confirmation" json:"operation_requires_confirmation,omitempty"`
 }
 

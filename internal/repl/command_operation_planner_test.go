@@ -94,6 +94,14 @@ func TestCommandOperationPlannerIncludesCapabilitySnapshot(t *testing.T) {
 			UnknownProgram:     operation.ApprovalManual,
 			ShellPolicy:        operation.ApprovalManual,
 		},
+		OperationProviders: []operation.ProviderInfo{{
+			Name:        "mcp:slides",
+			Kind:        "presentation_generation",
+			Surfaces:    []string{"slides"},
+			ToolName:    "run_operation",
+			Description: "Create local slide decks.",
+			Source:      "mcp",
+		}},
 	}
 	_, err := planner.PlanCommandOperationWithSnapshot(context.Background(), "查找文件", "/repo", TurnPolicy{
 		Operation:     "computer_operation",
@@ -117,6 +125,9 @@ func TestCommandOperationPlannerIncludesCapabilitySnapshot(t *testing.T) {
 		"## capability_snapshot",
 		"os: linux/amd64",
 		"available_commands: rg=/usr/bin/rg",
+		"operation_providers",
+		"mcp:slides kind=presentation_generation",
+		"description=Create local slide decks.",
 		"查找文件",
 	} {
 		if !strings.Contains(user, want) {

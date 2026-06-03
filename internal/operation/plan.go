@@ -30,6 +30,12 @@ type ProviderInfo struct {
 	SideEffects  []string
 	RequiresGate bool
 	ToolName     string
+	Description  string
+	InputSchema  string
+	Examples     []string
+	Source       string
+	LazyStart    bool
+	Loaded       bool
 }
 
 // Step is one deterministic operation-plan row.

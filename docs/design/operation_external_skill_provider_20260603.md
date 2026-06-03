@@ -179,12 +179,13 @@ full raw provider output.
 
 ### Batch B: Provider Descriptor Registry and Prompt Surface
 
-- [ ] Extend `operation.ProviderInfo` with description, input schema, examples,
+- [x] Extend `operation.ProviderInfo` with description, input schema, examples,
       source, lazy/loaded state.
-- [ ] Add bounded provider descriptor rendering to `CapabilitySnapshot`.
-- [ ] Feed operation providers into the command-operation planner snapshot.
-- [ ] Add tests proving provider descriptors appear only in operation planner
-      prompts, not source/log/trace prompts.
+- [x] Add bounded provider descriptor rendering to `CapabilitySnapshot`.
+- [x] Feed operation providers into the command-operation planner snapshot.
+- [x] Add tests proving provider descriptors appear in operation planner
+      prompts. Source/log/trace prompts do not call this operation-only
+      snapshot path.
 
 ### Batch C: Config and Lazy MCP Startup
 

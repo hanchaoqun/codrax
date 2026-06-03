@@ -14,22 +14,23 @@ import (
 // capabilities used by the command-operation planner. It is advisory only:
 // deterministic approval/risk policy still lives in BuildCommandOperationPlan.
 type CapabilitySnapshot struct {
-	RepoRoot         string
-	OS               string
-	Arch             string
-	OSFamily         string
-	OSVersion        string
-	Shell            string
-	GitRepoState     string
-	InsideContainer  bool
-	NetworkProbed    bool
-	NetworkReachable bool
-	ProxySet         bool
-	ProjectFiles     []CapabilityProjectFile
-	PackageManagers  []CapabilityCommand
-	Runtimes         []CapabilityCommand
-	Commands         []CapabilityCommand
-	Policy           CapabilityPolicy
+	RepoRoot           string
+	OS                 string
+	Arch               string
+	OSFamily           string
+	OSVersion          string
+	Shell              string
+	GitRepoState       string
+	InsideContainer    bool
+	NetworkProbed      bool
+	NetworkReachable   bool
+	ProxySet           bool
+	ProjectFiles       []CapabilityProjectFile
+	PackageManagers    []CapabilityCommand
+	Runtimes           []CapabilityCommand
+	Commands           []CapabilityCommand
+	OperationProviders []ProviderInfo
+	Policy             CapabilityPolicy
 }
 
 type CapabilityCommand struct {
@@ -57,9 +58,14 @@ type CapabilityPolicy struct {
 }
 
 func BuildCapabilitySnapshot(facts *types.EnvFacts, repoRoot string, policy CommandPolicy) CapabilitySnapshot {
+	return BuildCapabilitySnapshotWithProviders(facts, repoRoot, policy, nil)
+}
+
+func BuildCapabilitySnapshotWithProviders(facts *types.EnvFacts, repoRoot string, policy CommandPolicy, providers []ProviderInfo) CapabilitySnapshot {
 	policy = normalizeCommandPolicy(policy)
 	s := CapabilitySnapshot{
-		RepoRoot: strings.TrimSpace(repoRoot),
+		RepoRoot:           strings.TrimSpace(repoRoot),
+		OperationProviders: cleanProviderInfos(providers),
 		Policy: CapabilityPolicy{
 			AutoLowRisk:        policy.AutoLowRisk,
 			TimeoutMS:          policy.TimeoutMS,
@@ -139,7 +145,56 @@ func (s CapabilitySnapshot) RenderForPrompt() string {
 		}
 		b.WriteString("\n")
 	}
+	writeProviderList(&b, s.OperationProviders, 12)
 	return strings.TrimSpace(b.String())
+}
+
+func cleanProviderInfos(values []ProviderInfo) []ProviderInfo {
+	out := make([]ProviderInfo, 0, len(values))
+	seen := map[string]bool{}
+	for _, p := range values {
+		name := strings.TrimSpace(p.Name)
+		kind := strings.TrimSpace(p.Kind)
+		if name == "" || kind == "" {
+			continue
+		}
+		key := name + "\x00" + kind + "\x00" + strings.TrimSpace(p.ToolName)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		p.Name = name
+		p.Kind = kind
+		p.Surfaces = cleanStringList(p.Surfaces)
+		p.SideEffects = cleanStringList(p.SideEffects)
+		p.ToolName = strings.TrimSpace(p.ToolName)
+		p.Description = strings.TrimSpace(p.Description)
+		p.InputSchema = strings.TrimSpace(p.InputSchema)
+		p.Examples = cleanStringList(p.Examples)
+		p.Source = strings.TrimSpace(p.Source)
+		out = append(out, p)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Name == out[j].Name {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+func cleanStringList(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v == "" || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	return out
 }
 
 func capabilityProjectFiles(files map[string]string) []CapabilityProjectFile {
@@ -287,6 +342,62 @@ func writeCommandList(b *strings.Builder, label string, values []CapabilityComma
 		}
 	}
 	b.WriteString("\n")
+}
+
+func writeProviderList(b *strings.Builder, values []ProviderInfo, limit int) {
+	if len(values) == 0 {
+		return
+	}
+	if limit <= 0 {
+		limit = 12
+	}
+	b.WriteString("- operation_providers:\n")
+	for i, p := range values {
+		if i >= limit {
+			fmt.Fprintf(b, "  ...(+%d provider descriptor(s))\n", len(values)-i)
+			break
+		}
+		fmt.Fprintf(b, "  - %s kind=%s", p.Name, p.Kind)
+		if len(p.Surfaces) > 0 {
+			fmt.Fprintf(b, " surfaces=%s", strings.Join(p.Surfaces, ","))
+		}
+		if len(p.SideEffects) > 0 {
+			fmt.Fprintf(b, " side_effects=%s", strings.Join(p.SideEffects, ","))
+		}
+		fmt.Fprintf(b, " gate=%t lazy=%t loaded=%t", p.RequiresGate, p.LazyStart, p.Loaded)
+		if p.ToolName != "" {
+			fmt.Fprintf(b, " tool=%s", p.ToolName)
+		}
+		if p.Source != "" {
+			fmt.Fprintf(b, " source=%s", p.Source)
+		}
+		b.WriteString("\n")
+		if p.Description != "" {
+			fmt.Fprintf(b, "    description=%s\n", oneLineProviderText(p.Description, 220))
+		}
+		if p.InputSchema != "" {
+			fmt.Fprintf(b, "    input_schema=%s\n", oneLineProviderText(p.InputSchema, 220))
+		}
+		if len(p.Examples) > 0 {
+			var examples []string
+			for _, ex := range p.Examples {
+				examples = append(examples, oneLineProviderText(ex, 160))
+				if len(examples) >= 3 {
+					break
+				}
+			}
+			fmt.Fprintf(b, "    examples=%s\n", strings.Join(examples, " | "))
+		}
+	}
+}
+
+func oneLineProviderText(s string, max int) string {
+	s = strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
+	if max <= 0 || len([]rune(s)) <= max {
+		return s
+	}
+	r := []rune(s)
+	return string(r[:max]) + "..."
 }
 
 func dashIfEmpty(v string) string {

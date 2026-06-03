@@ -31,7 +31,7 @@ func TestOperationProvidersFromMCPConfigsRequiresOptInAndRegisteredServer(t *tes
 	yes := true
 	no := false
 	providers := operationProvidersFromMCPConfigs(reg, []types.MCPServerConfig{
-		{Name: "slides", OperationProvider: &yes, OperationKinds: []string{"presentation_generation", "document_generation"}, OperationSurfaces: []string{"slides"}, OperationSideEffects: []string{"local_file_write"}, OperationTool: "run_operation", OperationRequiresConfirmation: &yes},
+		{Name: "slides", OperationProvider: &yes, OperationKinds: []string{"presentation_generation", "document_generation"}, OperationSurfaces: []string{"slides"}, OperationSideEffects: []string{"local_file_write"}, OperationTool: "run_operation", OperationDescription: "Create decks", OperationInputSchema: `{"type":"object"}`, OperationExamples: []string{"make a deck"}, OperationLazyStart: &yes, OperationRequiresConfirmation: &yes},
 		{Name: "docs", OperationProvider: &yes, OperationKinds: []string{"document_generation"}}, // not registered
 		{Name: "plain", OperationProvider: &no, OperationKinds: []string{"browser_operation"}},
 	})
@@ -41,6 +41,9 @@ func TestOperationProvidersFromMCPConfigsRequiresOptInAndRegisteredServer(t *tes
 	}
 	if providers[0].Name != "mcp:slides" || providers[0].Kind != "presentation_generation" || !providers[0].RequiresGate || providers[0].ToolName != "run_operation" {
 		t.Fatalf("first provider mismatch: %+v", providers[0])
+	}
+	if providers[0].Description != "Create decks" || providers[0].InputSchema == "" || len(providers[0].Examples) != 1 || !providers[0].LazyStart || providers[0].Source != "mcp" || !providers[0].Loaded {
+		t.Fatalf("first provider descriptor not preserved: %+v", providers[0])
 	}
 	if providers[1].Kind != "document_generation" {
 		t.Fatalf("second provider kind=%q", providers[1].Kind)
