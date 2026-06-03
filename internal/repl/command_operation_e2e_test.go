@@ -1832,6 +1832,141 @@ func TestCommandOperationE2E_RepeatedFailedCommandRepairsWithoutRerun(t *testing
 	}
 }
 
+func TestCommandOperationE2E_NonzeroExitRepairsToSuccessfulBatch(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"bad","title":"failing probe","shell":"printf 'probe failed\\n'; exit 2","risk_level":"low","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"fixed","title":"fallback probe","shell":"printf 'fallback ok\\n'","risk_level":"low","side_effects":[]}]}`),
+			{Content: "已根据非零退出改用替代探测，结果：fallback ok。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "执行一个需要失败后替代探测的操作\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("command operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(r.operationResults) != 2 {
+		t.Fatalf("operation results=%d, want failure + fallback: %+v", len(r.operationResults), r.operationResults)
+	}
+	if got := r.operationResults[0].Result.StepResults[0].FailureClass; got != "nonzero_exit" {
+		t.Fatalf("first failure class=%q, want nonzero_exit", got)
+	}
+	if !strings.Contains(out.String(), "fallback ok") {
+		t.Fatalf("fallback output missing:\n%s", out.String())
+	}
+}
+
+func TestCommandOperationE2E_ContinuationRunsNextBoundedBatch(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"continue_after":true,"work_dir":".","goal":"collect two observations","next_batch":"first observation","steps":[{"id":"one","title":"first observation","shell":"printf 'phase1\\n'","risk_level":"low","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","goal":"collect two observations","next_batch":"second observation","steps":[{"id":"two","title":"second observation","shell":"printf 'phase2\\n'","risk_level":"low","side_effects":[]}]}`),
+			{Content: "两轮观测已完成：phase1 和 phase2。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "分两步收集观测\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("command operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(r.operationResults) != 2 {
+		t.Fatalf("operation results=%d, want two executed batches: %+v", len(r.operationResults), r.operationResults)
+	}
+	printed := out.String()
+	for _, want := range []string{"phase1", "phase2", "两轮观测已完成"} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("continuation output missing %q:\n%s", want, printed)
+		}
+	}
+}
+
+func TestCommandOperationE2E_RepairBudgetExhaustionIsReported(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"bad1","title":"bad grep","shell":"grep vpn","risk_level":"low","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"bad2","title":"bad cat","shell":"cat","risk_level":"low","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"bad3","title":"bad head","shell":"head -20","risk_level":"low","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"bad4","title":"bad tail","shell":"tail -20","risk_level":"low","side_effects":[]}]}`),
+			{Content: "修复预算已耗尽，当前只能给出部分结论。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "持续修复无效命令直到预算耗尽\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("command operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	foundBudget := false
+	for _, rec := range r.operationResults {
+		for _, step := range rec.Result.StepResults {
+			if step.FailureClass == "budget_exhausted" {
+				foundBudget = true
+			}
+		}
+	}
+	if !foundBudget {
+		t.Fatalf("budget_exhausted result missing: %+v", r.operationResults)
+	}
+	if !strings.Contains(out.String(), "修复预算已耗尽") {
+		t.Fatalf("budget final answer missing:\n%s", out.String())
+	}
+}
+
+func TestCommandOperationE2E_RiskEscalatingRepairPausesForApproval(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"bad","title":"failing probe","shell":"printf 'probe failed\\n'; exit 2","risk_level":"low","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"high","requires_confirmation":true,"work_dir":".","steps":[{"id":"write","title":"write fallback","program":"touch","args":["/tmp/codrax-operation-risk-test"],"risk_level":"high","side_effects":["local_file_write"]}]}`),
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "失败后需要写文件才能继续\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("command operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if r.pendingOperation == nil {
+		t.Fatal("risk-escalating repair should pause for approval")
+	}
+	if r.pendingOperation.ApprovalMode != operation.ApprovalManual {
+		t.Fatalf("approval=%q, want manual", r.pendingOperation.ApprovalMode)
+	}
+	printed := out.String()
+	if !strings.Contains(printed, "Run `/approve`") && !strings.Contains(printed, "运行 `/approve`") {
+		t.Fatalf("approval prompt missing:\n%s", printed)
+	}
+}
+
 func TestDropRepeatedFailedCommandStepsRemovesOnlyFailedRetry(t *testing.T) {
 	failedPlan := operation.CommandOperationPlan{
 		ID: "op-failed",

@@ -213,17 +213,17 @@ typed fields must make this explicit. Deterministic fallbacks:
 
 ### Batch 4: Goal Loop
 
-- [ ] Replace one-shot command execution recursion with a bounded loop.
+- [x] Replace one-shot command execution recursion with a bounded loop.
 - [x] Allow multiple repair rounds within budget.
 - [x] Keep manual approval/hard-deny stop conditions unchanged.
 - [x] Keep timeout/cancel behavior unchanged.
 - [x] Ensure invalid plan repair does not show as final task failure unless the
       repair budget is exhausted.
-- [ ] Add tests for repeated invalid plan repair, command-not-found fallback,
+- [x] Add tests for repeated invalid plan repair, command-not-found fallback,
       nonzero-exit repair, safe continuation, manual approval pause, and budget
       exhaustion.
       - Done: repeated invalid plan repair, repeated failed command preflight.
-      - Remaining: command-not-found fallback, nonzero-exit repair, safe
+      - Done: command-not-found fallback, nonzero-exit repair, safe
         continuation, manual approval pause, budget exhaustion.
 
 ### Batch 5: Evaluator and Final Answer
@@ -242,28 +242,29 @@ typed fields must make this explicit. Deterministic fallbacks:
 
 - [x] Run focused operation tests.
 - [x] Run `go test ./...`.
-- [ ] Add route regression tests showing code, trace/log, external observation,
+- [x] Add route regression tests showing code, trace/log, external observation,
       and write-mode requests are not pulled into operation by keyword-like
       text.
 - [x] Push each batch separately.
 
 ## Remaining Implementation Plan
 
-The current code has multi-round repair and continuation, but it still uses
-recursive helpers. The final convergence batch should introduce a small
-`CommandOperationGoalLoop` coordinator in the REPL layer that owns the command
-round budget and repair budget together. It should keep using the existing
-planner/replanner/continuation interfaces instead of creating another LLM tool.
+The final convergence batch keeps the existing planner, replanner, and
+continuation interfaces, but the REPL now owns the execution loop:
 
-Remaining work:
+- `executeCommandOperationPlanAttempt` runs a bounded iterative loop rather than
+  recursively nesting repaired or continued plans.
+- The loop tracks command rounds and repair rounds separately. Invalid plans
+  consume repair budget but do not count as executed command batches.
+- Repaired and continuation plans are linted before the REPL displays any
+  auto-execute panel or stores a pending manual plan.
+- Budget exhaustion is converted into a typed synthetic result with
+  `failure_class=budget_exhausted`, so final answer synthesis can produce a
+  partial report from accumulated observations.
 
-- Add a `commandOperationLoopState` with `CommandRounds`, `RepairRounds`,
-  `Records`, and a `StopReason`.
-- Replace `executeCommandOperationPlanAttempt` recursion with an iterative loop
-  that handles lint, execution, repair, continuation, manual gate, block,
-  timeout/cancel, and final synthesis.
-- Add deterministic budget-exhaustion handling that produces a partial final
-  answer from accumulated observations instead of silently falling through.
-- Add focused E2E coverage for command-not-found fallback, nonzero-exit repair,
-  continuation success, manual approval pause, budget exhaustion, and route
-  non-regression.
+Remaining future hardening, outside this batch:
+
+- Add richer deterministic failure classification for permission-denied,
+  missing package manager, remote-auth, and large-output narrowing.
+- Add operation-memory examples for successful multi-round tool-learning
+  workflows once enough real usage data exists.
