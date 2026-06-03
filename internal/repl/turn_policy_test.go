@@ -947,6 +947,9 @@ func TestTurnPolicyDispatch_RepoRouteEntersPipeline(t *testing.T) {
 	}
 	responder := &stubLocalResponder{localReply: "should-not-appear"}
 	r, runner, _ := newTurnPolicyREPL(t, store, classifier, responder, "重新读一下仓库确认这个流程\n/exit\n")
+	adapter := &scriptedChatAdapter{}
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
 	if err := r.Loop(); err != nil {
 		t.Fatalf("Loop: %v", err)
 	}
@@ -957,12 +960,76 @@ func TestTurnPolicyDispatch_RepoRouteEntersPipeline(t *testing.T) {
 	if len(responder.localCalls) != 0 {
 		t.Errorf("local responder must not fire on route=repo; calls=%d", len(responder.localCalls))
 	}
+	if len(adapter.calls) != 0 {
+		t.Fatalf("repo/source analysis route must not call operation planner/evaluator; calls=%d", len(adapter.calls))
+	}
 	if strings.Contains(runner.requests[0], "Presentation directive") {
 		t.Errorf("repo route without directive must not carry a presentation directive prefix; got %q", runner.requests[0])
 	}
 	if len(runner.seenDirectives) != 1 || runner.seenDirectives[0] != "" {
 		t.Errorf("repo route without directive must clear typed presentation metadata; seen=%q setCalls=%q",
 			runner.seenDirectives, runner.directiveSetCalls)
+	}
+}
+
+func TestTurnPolicyDispatch_ExternalObservationAnalysisDoesNotCallOperationEvaluator(t *testing.T) {
+	cases := []struct {
+		name   string
+		input  string
+		source string
+	}{
+		{
+			name:   "trace",
+			input:  "只分析这个 trace，不要看代码，找一下 jank 原因",
+			source: "artifact",
+		},
+		{
+			name:   "log",
+			input:  "只看这段客户日志，不要读取源码，分析系统短板",
+			source: "artifact",
+		},
+		{
+			name:   "mcp",
+			input:  "根据 MCP 返回的外部观测解释现象，不要看代码",
+			source: "external_tool",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			store := newPolicyStore(t)
+			classifier := &stubTurnPolicyClassifier{
+				policy: TurnPolicy{
+					Route:           RouteRepo,
+					NeedsRepoAccess: true,
+					Operation:       "investigate",
+					OperationKind:   "investigate",
+					Source:          tc.source,
+					RiskLevel:       "low",
+					Confidence:      0.9,
+					Reason:          "external observation diagnosis belongs to the analysis pipeline",
+				},
+			}
+			adapter := &scriptedChatAdapter{}
+			responder := &stubLocalResponder{localReply: "should-not-appear"}
+			r, runner, _ := newTurnPolicyREPL(t, store, classifier, responder, tc.input+"\n/exit\n")
+			r.operationEnabled = true
+			r.operationPlanner = NewCommandOperationPlanner(adapter)
+			if err := r.Loop(); err != nil {
+				t.Fatalf("Loop: %v", err)
+			}
+			if len(runner.requests) != 1 {
+				t.Fatalf("runner.Run: got %d, want 1", len(runner.requests))
+			}
+			if !strings.Contains(runner.requests[0], tc.input) {
+				t.Fatalf("pipeline request lost original external-observation intent: %q", runner.requests[0])
+			}
+			if len(responder.localCalls) != 0 {
+				t.Fatalf("external observation analysis must not use local responder; calls=%d", len(responder.localCalls))
+			}
+			if len(adapter.calls) != 0 {
+				t.Fatalf("external observation analysis must not call operation planner/evaluator; calls=%d", len(adapter.calls))
+			}
+		})
 	}
 }
 
@@ -1266,6 +1333,9 @@ func TestTurnPolicyDispatch_HybridCarriesDirectiveIntoPipeline(t *testing.T) {
 	responder := &stubLocalResponder{localReply: "should-not-appear"}
 	r, runner, _ := newTurnPolicyREPL(t, store, classifier, responder,
 		"把上面的流程换成 mermaid，同时重新读仓库确认有没有 IO 分析\n/exit\n")
+	adapter := &scriptedChatAdapter{}
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
 	if err := r.Loop(); err != nil {
 		t.Fatalf("Loop: %v", err)
 	}
@@ -1286,6 +1356,9 @@ func TestTurnPolicyDispatch_HybridCarriesDirectiveIntoPipeline(t *testing.T) {
 	}
 	if len(responder.localCalls) != 0 {
 		t.Errorf("local responder must not fire on hybrid; calls=%d", len(responder.localCalls))
+	}
+	if len(adapter.calls) != 0 {
+		t.Fatalf("mixed source/external-observation pipeline route must not call operation planner/evaluator; calls=%d", len(adapter.calls))
 	}
 }
 

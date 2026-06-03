@@ -251,12 +251,12 @@ Evaluator prompt must teach:
 
 ### Batch 7: Regression Coverage
 
-- [ ] Code-only question does not expose operation evaluator.
-- [ ] Trace/log question still uses trace/log pipeline and evidence lanes.
-- [ ] Mixed external observation + source question remains source-aware.
-- [ ] Write modes remain gated by `write_enabled`.
-- [ ] MCP readonly evidence path remains separate from operation provider path.
-- [ ] Operation Skill/MCP provider route can continue through command extraction only when evaluator emits typed `continue_command`.
+- [x] Code-only question does not expose operation evaluator. Covered by `TestTurnPolicyDispatch_RepoRouteEntersPipeline`.
+- [x] Trace/log question still uses trace/log pipeline and evidence lanes. Covered by `TestTurnPolicyDispatch_ExternalObservationAnalysisDoesNotCallOperationEvaluator`.
+- [x] Mixed external observation + source question remains source-aware. Covered by `TestTurnPolicyDispatch_HybridCarriesDirectiveIntoPipeline`.
+- [x] Write modes remain gated by `write_enabled`. Covered by existing `cmd/writemode_resolve_test.go` and full `go test ./...`.
+- [x] MCP readonly evidence path remains separate from operation provider path. Covered by external-observation dispatch regression plus operation-provider tests.
+- [x] Operation Skill/MCP provider route can continue through command extraction only when evaluator emits typed `continue_command`. Covered by `TestOperationProviderEvaluatorContinuesWithCommandExtraction`.
 
 ## Rollout Scope
 
