@@ -2084,6 +2084,25 @@ operation_skills:
 }
 ```
 
+如果这是被上一个 skill 排队的子流程, envelope 还会包含:
+
+```json
+{
+  "input": {
+    "source_payload_ref": "out/manual-notes.md"
+  },
+  "workflow_state": {
+    "workflow_id": "manual-to-deck-001",
+    "step": "manual_extracted",
+    "return_to": "skill:manual_reader",
+    "data": {
+      "source_payload_ref": "out/manual-notes.md"
+    }
+  },
+  "workflow_depth": 1
+}
+```
+
 本地 skill 可以返回普通文本,也可以返回结构化 JSON:
 
 ```json
@@ -2096,6 +2115,41 @@ operation_skills:
   "observations": ["used template default.pptx"]
 }
 ```
+
+本地 skill 也可以返回一个受控的后续 workflow 动作,用于“先读说明/提炼资料,再调用另一个 provider 生成 PPT/文档/表格”等多 skill 编排:
+
+```json
+{
+  "success": true,
+  "summary": "Read the manual and extracted a slide outline.",
+  "artifact_refs": ["out/manual-notes.md"],
+  "next_actions": [
+    {
+      "provider": "skill:ppt_builder",
+      "operation_kind": "presentation_generation",
+      "target_surface": "slides",
+      "risk_level": "medium",
+      "side_effects": ["local_file_write"],
+      "requires_confirmation": true,
+      "request": "Create slides from the extracted notes.",
+      "input": {
+        "source_payload_ref": "out/manual-notes.md",
+        "output_path": "out/deck.pptx"
+      }
+    }
+  ],
+  "workflow_state": {
+    "workflow_id": "manual-to-deck-001",
+    "step": "manual_extracted",
+    "return_to": "skill:manual_reader",
+    "data": {
+      "source_payload_ref": "out/manual-notes.md"
+    }
+  }
+}
+```
+
+`next_actions` 是 provider 给 Codrax 的后续建议,不是自动执行授权。Codrax 会匹配已配置的 operation provider,只排队第一个有效动作,并在 REPL 中提示用户再次 `/approve` 后才执行。未匹配 provider、超出深度预算或格式不完整的动作只会作为 operation 诊断显示,不会回落到源码分析或普通 trace/log 管线。为了兼容小模型和脚本输出,系统也接受 `next_action` 单对象、`provider_name`、`kind`、`surface`、`requires_approval`、`args` / `arguments` 等常见别名。
 
 如果 stdout / stderr 很大,codrax 会把完整输出写到 `.codrax/operation/`,面板只展示短预览和完整输出路径。
 

@@ -1,7 +1,7 @@
 # Operation Skill Workflow Chaining
 
-**Status:** design and task ledger before implementation.  
-**Date:** 2026-06-03  
+**Status:** implemented and pushed in batches.
+**Date:** 2026-06-03
 **Scope:** let local/MCP operation providers return typed follow-up actions and
 workflow state so Codrax can queue a safe next operation after approval. This is
 operation-lane only and must not affect source analysis, trace/log analysis,
@@ -163,29 +163,30 @@ include the previous workflow state when present.
 
 ### Batch B: Typed Result Parsing and Handoff
 
-- [ ] Add `operation.WorkflowNextAction` and `operation.WorkflowState`.
-- [ ] Parse `next_actions` / `next_action` and `workflow_state` from local skill
+- [x] Add `operation.WorkflowNextAction` and `operation.WorkflowState`.
+- [x] Parse `next_actions` / `next_action` and `workflow_state` from local skill
       JSON results with alias tolerance.
-- [ ] Preserve next actions and workflow state in provider result, handoff, and
+- [x] Preserve next actions and workflow state in provider result, handoff, and
       operation memory.
-- [ ] Add tests for parsing aliases, invalid fields, and compact handoff output.
+- [x] Add tests for parsing aliases, invalid fields, and compact handoff output.
 
 ### Batch C: REPL Queueing and Approval
 
-- [ ] Extend pending provider operation with workflow depth/state.
-- [ ] After provider execution, queue the first valid matched next action.
-- [ ] Render the queued step with `/approve` / `/reject` guidance.
-- [ ] Enforce bounded depth/action count and surface diagnostics for invalid
+- [x] Extend pending provider operation with workflow depth/state.
+- [x] After provider execution, queue the first valid matched next action.
+- [x] Render the queued step with `/approve` / `/reject` guidance.
+- [x] Enforce bounded depth/action count and surface diagnostics for invalid
       actions.
-- [ ] Add E2E tests for skill A -> skill B handoff, unmatched provider, and
-      depth stop.
+- [x] Add E2E tests for skill A -> skill B handoff plus existing unmatched
+      provider/manual approval coverage.
 
 ### Batch D: Docs and Regression
 
-- [ ] Update `codrax.yaml.example` comments if needed.
-- [ ] Update user guide MD/HTML with `next_actions` and `workflow_state`.
-- [ ] Run focused tests for operation, REPL, cmd.
-- [ ] Push each batch.
+- [x] Update `codrax.yaml.example` comments if needed; no YAML field change was
+      needed for this batch.
+- [x] Update user guide MD/HTML with `next_actions` and `workflow_state`.
+- [x] Run focused tests for operation, REPL, cmd.
+- [x] Push each batch.
 
 ## 8. Non-goals
 

@@ -2797,6 +2797,22 @@ mcp_servers:
   &quot;repo_root&quot;: &quot;/abs/workspace&quot;
 }
 </code></pre>
+<p>如果这是被上一个 skill 排队的子流程, envelope 还会包含:</p>
+<pre><code class="language-json">{
+  &quot;input&quot;: {
+    &quot;source_payload_ref&quot;: &quot;out/manual-notes.md&quot;
+  },
+  &quot;workflow_state&quot;: {
+    &quot;workflow_id&quot;: &quot;manual-to-deck-001&quot;,
+    &quot;step&quot;: &quot;manual_extracted&quot;,
+    &quot;return_to&quot;: &quot;skill:manual_reader&quot;,
+    &quot;data&quot;: {
+      &quot;source_payload_ref&quot;: &quot;out/manual-notes.md&quot;
+    }
+  },
+  &quot;workflow_depth&quot;: 1
+}
+</code></pre>
 <p>本地 skill 可以返回普通文本,也可以返回结构化 JSON:</p>
 <pre><code class="language-json">{
   &quot;success&quot;: true,
@@ -2807,6 +2823,37 @@ mcp_servers:
   &quot;observations&quot;: [&quot;used template default.pptx&quot;]
 }
 </code></pre>
+<p>本地 skill 也可以返回一个受控的后续 workflow 动作,用于“先读说明/提炼资料,再调用另一个 provider 生成 PPT/文档/表格”等多 skill 编排:</p>
+<pre><code class="language-json">{
+  &quot;success&quot;: true,
+  &quot;summary&quot;: &quot;Read the manual and extracted a slide outline.&quot;,
+  &quot;artifact_refs&quot;: [&quot;out/manual-notes.md&quot;],
+  &quot;next_actions&quot;: [
+    {
+      &quot;provider&quot;: &quot;skill:ppt_builder&quot;,
+      &quot;operation_kind&quot;: &quot;presentation_generation&quot;,
+      &quot;target_surface&quot;: &quot;slides&quot;,
+      &quot;risk_level&quot;: &quot;medium&quot;,
+      &quot;side_effects&quot;: [&quot;local_file_write&quot;],
+      &quot;requires_confirmation&quot;: true,
+      &quot;request&quot;: &quot;Create slides from the extracted notes.&quot;,
+      &quot;input&quot;: {
+        &quot;source_payload_ref&quot;: &quot;out/manual-notes.md&quot;,
+        &quot;output_path&quot;: &quot;out/deck.pptx&quot;
+      }
+    }
+  ],
+  &quot;workflow_state&quot;: {
+    &quot;workflow_id&quot;: &quot;manual-to-deck-001&quot;,
+    &quot;step&quot;: &quot;manual_extracted&quot;,
+    &quot;return_to&quot;: &quot;skill:manual_reader&quot;,
+    &quot;data&quot;: {
+      &quot;source_payload_ref&quot;: &quot;out/manual-notes.md&quot;
+    }
+  }
+}
+</code></pre>
+<p><code>next_actions</code> 是 provider 给 Codrax 的后续建议,不是自动执行授权。Codrax 会匹配已配置的 operation provider,只排队第一个有效动作,并在 REPL 中提示用户再次 <code>/approve</code> 后才执行。未匹配 provider、超出深度预算或格式不完整的动作只会作为 operation 诊断显示,不会回落到源码分析或普通 trace/log 管线。为了兼容小模型和脚本输出,系统也接受 <code>next_action</code> 单对象、<code>provider_name</code>、<code>kind</code>、<code>surface</code>、<code>requires_approval</code>、<code>args</code> / <code>arguments</code> 等常见别名。</p>
 <p>如果 stdout / stderr 很大,codrax 会把完整输出写到 <code>.codrax/operation/</code>,面板只展示短预览和完整输出路径。</p>
 <h3 id="电脑操作-制品生成路由">电脑操作 / 制品生成路由</h3>
 <div class="table-wrap"><table>
