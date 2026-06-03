@@ -955,6 +955,26 @@ func turnPolicyClassifierFallbackHint(lang string) string {
 	return "Auto chat routing did not return a stable decision; continuing with repository analysis (fail-safe)."
 }
 
+func operationUnavailableMsg(lang string, policy TurnPolicy) string {
+	kind := strings.TrimSpace(policy.OperationKind)
+	if kind == "" {
+		kind = strings.TrimSpace(policy.Operation)
+	}
+	if kind == "" {
+		kind = "operation"
+	}
+	if isZh(lang) {
+		if policy.RequiresConfirmation || strings.EqualFold(policy.RiskLevel, "high") {
+			return formatN(lang, "已识别到电脑操作/制品生成请求（%s），但当前版本尚未启用独立操作管线；由于该请求可能有副作用，系统不会把它转入源码分析或自动执行。", kind)
+		}
+		return formatN(lang, "已识别到电脑操作/制品生成请求（%s），但当前版本尚未启用独立操作管线；系统不会把它转入源码分析或自动执行。", kind)
+	}
+	if policy.RequiresConfirmation || strings.EqualFold(policy.RiskLevel, "high") {
+		return formatN(lang, "Detected a computer-operation/artifact-generation request (%s), but the independent operation pipeline is not enabled in this build. Because the request may have side effects, Codrax will not reroute it into source analysis or execute it automatically.", kind)
+	}
+	return formatN(lang, "Detected a computer-operation/artifact-generation request (%s), but the independent operation pipeline is not enabled in this build. Codrax will not reroute it into source analysis or execute it automatically.", kind)
+}
+
 // dockTerminalArmer is the narrow surface armDockTerminalState needs
 // from the renderer. Defined as an interface so the helper can be
 // tested without a real Renderer (the test file passes a stub),

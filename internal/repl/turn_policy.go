@@ -33,9 +33,11 @@ package repl
 //     questions.
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -70,6 +72,14 @@ const (
 	// dispatcher prints a clarify message; no LLM call, no
 	// pipeline.
 	RouteClarify TurnRoute = "clarify"
+
+	// RouteOperation — the turn asks Codrax to perform a computer
+	// operation or generate an external artifact (slides, documents,
+	// browser/desktop workflow, etc.). This is deliberately separate
+	// from RouteRepo: operation tasks may have side effects and
+	// artifact verification requirements, so they must not be routed
+	// through the source-evidence pipeline by accident.
+	RouteOperation TurnRoute = "operation"
 )
 
 // TurnPolicy is the structured classification result. All fields
@@ -79,8 +89,14 @@ const (
 type TurnPolicy struct {
 	Route                 TurnRoute
 	NeedsRepoAccess       bool
-	Operation             string  // chat | transform | summarize | translate | elaborate | investigate
-	Source                string  // current_message | last_answer | prior_context | repo | mixed
+	NeedsOperationAccess  bool
+	Operation             string // chat | transform | summarize | translate | elaborate | investigate | computer_operation | artifact_generation | ...
+	OperationKind         string // optional more precise operation capability kind
+	Source                string // current_message | last_answer | prior_context | repo | mixed
+	RiskLevel             string // none | low | medium | high
+	SideEffects           []string
+	TargetSurface         string // desktop | browser | file_artifact | office_doc | spreadsheet | slides | external_system | unknown
+	RequiresConfirmation  bool
 	Confidence            float64 // 0..1; <0.4 demotes to repo
 	Reason                string
 	PresentationDirective string // free-form, e.g. "mermaid", "markdown table", "brief 3-bullet"
@@ -133,22 +149,50 @@ var turnPolicyTool = llm.ToolSchema{
   "properties": {
     "route": {
       "type": "string",
-      "enum": ["local", "repo", "hybrid", "clarify"],
-      "description": "local = answer from current message + previous answer + conversation context; no repo read. repo = read repository, run the analysis pipeline. hybrid = run the pipeline AND apply a transformation/presentation directive from the previous answer or user framing. clarify = user references missing state (e.g. 'the previous answer') that does not exist in this session. When uncertain, prefer repo — over-analyzing wastes cycles, under-analyzing gives wrong answers."
+      "enum": ["local", "repo", "hybrid", "clarify", "operation"],
+      "description": "local = answer from current message + previous answer + conversation context; no repo read. repo = read repository, run the analysis pipeline. hybrid = run the pipeline AND apply a transformation/presentation directive from the previous answer or user framing. clarify = user references missing state or an unsafe/underspecified operation and should be asked for clarification. operation = perform a computer operation or generate an external artifact such as PPT/document/spreadsheet/browser/desktop workflow; it is not a source-code evidence investigation. When uncertain about a code question, prefer repo. When uncertain about side effects, prefer clarify."
     },
     "needs_repo_access": {
       "type": "boolean",
-      "description": "true iff route is repo or hybrid. The dispatcher cross-checks this with route; mismatch demotes to a safe default."
+      "description": "true iff route is repo or hybrid, or an operation explicitly needs fresh repository facts first. The dispatcher cross-checks this with route; mismatch demotes to a safe default."
+    },
+    "needs_operation_access": {
+      "type": "boolean",
+      "description": "true iff the turn needs a computer/artifact/external-skill operation surface. Set true for route=operation. Do not set it for ordinary source investigation."
     },
     "operation": {
       "type": "string",
-      "enum": ["chat", "transform", "summarize", "translate", "elaborate", "investigate"],
-      "description": "chat = greeting / pleasantry / capability question. transform = change the form of the previous answer (mermaid, table, ...). summarize = shorten the previous answer. translate = render in another language. elaborate = expand on previous answer without new evidence. investigate = fresh code investigation."
+      "enum": ["chat", "transform", "summarize", "translate", "elaborate", "investigate", "computer_operation", "artifact_generation", "presentation_generation", "document_generation", "spreadsheet_generation", "browser_operation", "external_skill_workflow"],
+      "description": "chat = greeting / pleasantry / capability question. transform = change the form of the previous answer (mermaid, table, ...). summarize = shorten the previous answer. translate = render in another language. elaborate = expand on previous answer without new evidence. investigate = fresh code investigation. computer_operation/artifact_generation/etc. = operation route candidates that should not be run through the code-evidence pipeline."
+    },
+    "operation_kind": {
+      "type": "string",
+      "enum": ["", "computer_operation", "artifact_generation", "presentation_generation", "document_generation", "spreadsheet_generation", "browser_operation", "external_skill_workflow"],
+      "description": "Optional precise operation kind. Leave empty for non-operation routes. For route=operation, choose the closest concrete capability."
     },
     "source": {
       "type": "string",
-      "enum": ["current_message", "last_answer", "prior_context", "repo", "mixed"],
-      "description": "Where the answer's content comes from. last_answer = derives from the immediately previous response. prior_context = derives from earlier conversation. repo = requires reading repository files. mixed = combination of the above."
+      "enum": ["current_message", "last_answer", "prior_context", "repo", "mixed", "external_tool", "artifact"],
+      "description": "Where the answer's content comes from. last_answer = derives from the immediately previous response. prior_context = derives from earlier conversation. repo = requires reading repository files. mixed = combination of the above. external_tool/artifact = operation or external skill result."
+    },
+    "risk_level": {
+      "type": "string",
+      "enum": ["", "none", "low", "medium", "high"],
+      "description": "Operation risk. Empty or none for non-operation routes. Use high for publishing, sending, deleting, destructive desktop changes, or irreversible external-system actions."
+    },
+    "side_effects": {
+      "type": "array",
+      "items": {"type":"string", "enum":["local_file_write", "desktop_ui", "browser_ui", "network_read", "network_submit", "external_system_write", "destructive"]},
+      "description": "Operation side effects. Empty for non-operation routes. local_file_write covers creating files such as PPTX/DOCX/XLSX; network_submit/destructive require confirmation."
+    },
+    "target_surface": {
+      "type": "string",
+      "enum": ["", "desktop", "browser", "file_artifact", "office_doc", "spreadsheet", "slides", "external_system", "unknown"],
+      "description": "Primary operation surface. Empty for non-operation routes."
+    },
+    "requires_confirmation": {
+      "type": "boolean",
+      "description": "true when the operation is high risk, writes to external systems, is destructive, or needs user consent before execution. false for ordinary code investigation and low-risk local artifact generation."
     },
     "confidence": {
       "type": "number",
@@ -175,7 +219,7 @@ var turnPolicyTool = llm.ToolSchema{
 // shape so the prompt grows without coupling to keyword tables.
 const turnPolicySystemPrompt = `You route each user turn in a code-analysis REPL into a structured TurnPolicy and emit it via emit_turn_policy.
 
-The four routes:
+The five routes:
 
   local   — the answer can be produced from the user's CURRENT MESSAGE
             plus the PREVIOUS ANSWER and CONVERSATION CONTEXT. The
@@ -199,11 +243,28 @@ The four routes:
   clarify — the user's message references state that does not exist
             in this session: e.g. "换成 mermaid 图例" / "把上面的结论
             换成表格" / "再扩展一下" when there is NO previous answer
-            yet (first turn / cleared memory). The dispatcher prints a
-            clarify message and does NOT call the LLM again.
+            yet (first turn / cleared memory), OR the user asks for a
+            high-risk/underspecified operation that needs confirmation
+            or missing details. The dispatcher prints a clarify message
+            and does NOT call the LLM again.
 
-needs_repo_access is true iff route ∈ {repo, hybrid}; the dispatcher
+  operation — the answer requires a computer operation or artifact
+            generation surface, independent of source-code evidence:
+            creating slides/PPT, documents, spreadsheets, browser or
+            desktop workflows, or invoking an external skill workflow.
+            This route is NOT for explaining code, logs, or traces.
+            If the operation must first read repository facts (for
+            example "based on this repo, generate a PPT"), set
+            needs_repo_access=true as an additional typed signal, but
+            keep route=operation so the dispatcher can use the
+            operation pipeline once enabled.
+
+needs_repo_access is true iff route ∈ {repo, hybrid}, or route=operation
+needs fresh repository facts before producing an artifact. The dispatcher
 re-checks this and corrects mismatches.
+
+needs_operation_access is true iff route=operation. Do not set it for
+ordinary source, log, trace, or MCP external-observation investigation.
 
 operation:
   chat        — greetings, pleasantries, capability/identity questions
@@ -214,6 +275,25 @@ operation:
   translate   — render the previous answer in another language
   elaborate   — expand on the previous answer without new evidence
   investigate — fresh code investigation that needs repo reads
+  computer_operation — operate desktop/browser/UI or external tools
+  artifact_generation — create a local output artifact
+  presentation_generation — create slides/PPT
+  document_generation — create a document
+  spreadsheet_generation — create or modify a spreadsheet
+  browser_operation — operate a browser
+  external_skill_workflow — run a configured external skill workflow
+
+operation_kind mirrors the operation capability for route=operation;
+leave it empty otherwise.
+
+risk_level / side_effects / target_surface / requires_confirmation:
+  - non-operation routes: risk_level="none" or "", side_effects=[],
+    target_surface="", requires_confirmation=false.
+  - low-risk local artifact generation: risk_level=low,
+    side_effects may include local_file_write, confirmation usually false.
+  - desktop/browser manipulation: include desktop_ui or browser_ui.
+  - network submission, external writes, deletes, irreversible changes:
+    risk_level=high and requires_confirmation=true.
 
 source:
   current_message — answer derives from the user's current input alone
@@ -224,11 +304,14 @@ source:
                     just the immediate previous turn)
   repo            — answer requires repository access
   mixed           — combination (typical for hybrid)
+  external_tool   — derives from an external tool/skill
+  artifact        — derives from an output artifact to be produced
 
 confidence: 0..1 self-rating. Below 0.4 the dispatcher demotes to
 repo because the cost of being wrong is higher for local / hybrid
-(may produce a bogus answer based on missing context) than for repo
-(merely wastes cycles re-reading).
+(may produce a bogus answer based on missing context) and operation
+(may choose a side-effecting route) than for repo (merely wastes cycles
+re-reading).
 
 presentation_directive: free-form text echoed verbatim into the
 local responder's system prompt (when route=local) OR carried as
@@ -315,8 +398,24 @@ Examples (illustrative, NOT exhaustive — judge by structure):
     → route=repo, operation=investigate, source=repo,
       confidence≈0.9
 
+  Current: "生成一份关于这个项目架构的 PPT"
+    → route=operation, needs_repo_access=true,
+      needs_operation_access=true,
+      operation=presentation_generation,
+      operation_kind=presentation_generation,
+      source=mixed, risk_level=low,
+      side_effects=["local_file_write"], target_surface=slides,
+      requires_confirmation=false, confidence≈0.85
+
+  Current: "打开浏览器登录后台并删除这个项目"
+    → route=clarify OR route=operation with
+      risk_level=high, side_effects=["browser_ui","network_submit","destructive"],
+      requires_confirmation=true. If key details or consent are missing,
+      prefer clarify.
+
 When uncertain (truly ambiguous), pick repo with confidence ≤0.5 —
-the safe default.`
+the safe default for possible code questions. For possible operations with
+unclear side effects, pick clarify.`
 
 // ClassifyPolicy is the structured-output classifier path. Returns
 // the parsed TurnPolicy verbatim — guards are applied by the caller
@@ -376,32 +475,268 @@ func (c *llmChitchatClassifier) ClassifyPolicy(ctx context.Context, userLine, pr
 		return zero, fmt.Errorf("turn-policy classifier: unexpected tool %q", call.Name)
 	}
 	var parsed struct {
-		Route                 string  `json:"route"`
-		NeedsRepoAccess       bool    `json:"needs_repo_access"`
-		Operation             string  `json:"operation"`
-		Source                string  `json:"source"`
-		Confidence            float64 `json:"confidence"`
-		Reason                string  `json:"reason"`
-		PresentationDirective string  `json:"presentation_directive"`
+		Route                 string                   `json:"route"`
+		NeedsRepoAccess       flexiblePolicyBool       `json:"needs_repo_access"`
+		NeedsOperationAccess  flexiblePolicyBool       `json:"needs_operation_access"`
+		Operation             string                   `json:"operation"`
+		OperationKind         string                   `json:"operation_kind"`
+		Source                string                   `json:"source"`
+		RiskLevel             string                   `json:"risk_level"`
+		SideEffects           flexiblePolicyStringList `json:"side_effects"`
+		TargetSurface         string                   `json:"target_surface"`
+		RequiresConfirmation  flexiblePolicyBool       `json:"requires_confirmation"`
+		Confidence            flexiblePolicyFloat      `json:"confidence"`
+		Reason                string                   `json:"reason"`
+		PresentationDirective string                   `json:"presentation_directive"`
 	}
-	if err := json.Unmarshal(call.Params, &parsed); err != nil {
+	if err := unmarshalTurnPolicyParams(call.Params, &parsed); err != nil {
 		return zero, fmt.Errorf("turn-policy classifier: unmarshal tool params: %w", err)
 	}
 	route := TurnRoute(parsed.Route)
 	switch route {
-	case RouteLocal, RouteRepo, RouteHybrid, RouteClarify:
+	case RouteLocal, RouteRepo, RouteHybrid, RouteClarify, RouteOperation:
 	default:
 		return zero, fmt.Errorf("turn-policy classifier: unknown route %q", parsed.Route)
 	}
+	operation := strings.TrimSpace(parsed.Operation)
+	operationKind := strings.TrimSpace(parsed.OperationKind)
+	if operationKind == "" && isOperationLikeOperation(operation) {
+		operationKind = operation
+	}
 	return TurnPolicy{
 		Route:                 route,
-		NeedsRepoAccess:       parsed.NeedsRepoAccess,
-		Operation:             parsed.Operation,
-		Source:                parsed.Source,
-		Confidence:            parsed.Confidence,
+		NeedsRepoAccess:       bool(parsed.NeedsRepoAccess),
+		NeedsOperationAccess:  bool(parsed.NeedsOperationAccess),
+		Operation:             operation,
+		OperationKind:         operationKind,
+		Source:                strings.TrimSpace(parsed.Source),
+		RiskLevel:             strings.TrimSpace(parsed.RiskLevel),
+		SideEffects:           []string(parsed.SideEffects),
+		TargetSurface:         strings.TrimSpace(parsed.TargetSurface),
+		RequiresConfirmation:  bool(parsed.RequiresConfirmation),
+		Confidence:            float64(parsed.Confidence),
 		Reason:                strings.TrimSpace(parsed.Reason),
 		PresentationDirective: strings.TrimSpace(parsed.PresentationDirective),
 	}, nil
+}
+
+// flexiblePolicyBool/flexiblePolicyFloat/flexiblePolicyStringList are local to
+// the direct REPL classifier path. emit_turn_policy is not registered in the
+// agent tool registry, so it cannot use BaseAgent's tool-param compatibility
+// normalizer. Keeping these permissive decoders here gives the same resilience
+// for common LLM JSON slips (string booleans, string numbers, scalar lists)
+// without changing any production agent tool surface.
+type flexiblePolicyBool bool
+
+func (b *flexiblePolicyBool) UnmarshalJSON(raw []byte) error {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		*b = false
+		return nil
+	}
+	var v bool
+	if err := json.Unmarshal(raw, &v); err == nil {
+		*b = flexiblePolicyBool(v)
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		switch strings.ToLower(strings.TrimSpace(s)) {
+		case "", "false", "0", "no", "n":
+			*b = false
+			return nil
+		case "true", "1", "yes", "y":
+			*b = true
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid boolean value %s", string(raw))
+}
+
+type flexiblePolicyFloat float64
+
+func (f *flexiblePolicyFloat) UnmarshalJSON(raw []byte) error {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		*f = 0
+		return nil
+	}
+	var number json.Number
+	if err := json.Unmarshal(raw, &number); err == nil {
+		v, err := strconv.ParseFloat(number.String(), 64)
+		if err == nil {
+			*f = flexiblePolicyFloat(v)
+			return nil
+		}
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			*f = 0
+			return nil
+		}
+		v, err := strconv.ParseFloat(s, 64)
+		if err == nil {
+			*f = flexiblePolicyFloat(v)
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid number value %s", string(raw))
+}
+
+type flexiblePolicyStringList []string
+
+func (l *flexiblePolicyStringList) UnmarshalJSON(raw []byte) error {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		*l = nil
+		return nil
+	}
+	var arr []string
+	if err := json.Unmarshal(raw, &arr); err == nil {
+		*l = cleanPolicyStringList(arr)
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		*l = cleanPolicyStringList(splitPolicyStringList(s))
+		return nil
+	}
+	return fmt.Errorf("invalid string list value %s", string(raw))
+}
+
+func splitPolicyStringList(s string) []string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil
+	}
+	parts := strings.FieldsFunc(s, func(r rune) bool {
+		return r == ',' || r == ';' || r == '，' || r == '；' || r == '|'
+	})
+	if len(parts) == 0 {
+		return []string{s}
+	}
+	return parts
+}
+
+func cleanPolicyStringList(in []string) []string {
+	out := make([]string, 0, len(in))
+	seen := make(map[string]bool, len(in))
+	for _, s := range in {
+		s = strings.TrimSpace(s)
+		if s == "" || seen[s] {
+			continue
+		}
+		seen[s] = true
+		out = append(out, s)
+	}
+	return out
+}
+
+func unmarshalTurnPolicyParams(raw []byte, v any) error {
+	if err := json.Unmarshal(raw, v); err == nil {
+		return nil
+	}
+	repaired, ok := repairTurnPolicyParamsJSON(raw)
+	if !ok {
+		return json.Unmarshal(raw, v)
+	}
+	if err := json.Unmarshal(repaired, v); err != nil {
+		return err
+	}
+	logging.Warning("[repl/turn_policy] emit_turn_policy params auto-repaired (LLM-corrupted JSON: structural repair)")
+	return nil
+}
+
+func repairTurnPolicyParamsJSON(raw []byte) ([]byte, bool) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return nil, false
+	}
+	if json.Valid(raw) {
+		return raw, false
+	}
+	if obj, ok := firstJSONObject(raw); ok && json.Valid(obj) {
+		return obj, !bytes.Equal(obj, raw)
+	}
+	return nil, false
+}
+
+func firstJSONObject(raw []byte) ([]byte, bool) {
+	start := bytes.IndexByte(raw, '{')
+	if start < 0 {
+		return nil, false
+	}
+	depth := 0
+	inString := false
+	escaped := false
+	for i := start; i < len(raw); i++ {
+		c := raw[i]
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			if c == '\\' {
+				escaped = true
+				continue
+			}
+			if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inString = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				obj := raw[start : i+1]
+				return stripPreTerminatorCommas(obj), true
+			}
+		}
+	}
+	return nil, false
+}
+
+func stripPreTerminatorCommas(raw []byte) []byte {
+	out := make([]byte, 0, len(raw))
+	inString := false
+	escaped := false
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
+		if inString {
+			out = append(out, c)
+			if escaped {
+				escaped = false
+			} else if c == '\\' {
+				escaped = true
+			} else if c == '"' {
+				inString = false
+			}
+			continue
+		}
+		if c == '"' {
+			inString = true
+			out = append(out, c)
+			continue
+		}
+		if c == ',' {
+			j := i + 1
+			for j < len(raw) && (raw[j] == ' ' || raw[j] == '\n' || raw[j] == '\r' || raw[j] == '\t') {
+				j++
+			}
+			if j < len(raw) && (raw[j] == '}' || raw[j] == ']') {
+				continue
+			}
+		}
+		out = append(out, c)
+	}
+	return out
 }
 
 // turnPolicyConfidenceFloor is the threshold below which the
@@ -446,7 +781,10 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 	// Self-contradiction: route says no repo but
 	// needs_repo_access is true. The boolean is the more
 	// reliable signal (it's a primary axis), so demote local→repo
-	// or clarify→repo. Hybrid is consistent and unchanged.
+	// or clarify→repo. Hybrid is consistent and unchanged. Operation
+	// keeps its route because "read repo first, then generate an
+	// artifact" is a valid mixed operation shape; later operation
+	// dispatch decides how to satisfy that typed request.
 	if p.Route == RouteLocal && p.NeedsRepoAccess {
 		p.Route = RouteRepo
 	}
@@ -467,6 +805,32 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 	if p.Route == RouteLocal || p.Route == RouteClarify {
 		p.NeedsRepoAccess = false
 	}
+	if p.Route == RouteOperation {
+		p.NeedsOperationAccess = true
+		if p.OperationKind == "" && isOperationLikeOperation(p.Operation) {
+			p.OperationKind = p.Operation
+		}
+		if p.RiskLevel == "" {
+			p.RiskLevel = "low"
+		}
+		if p.TargetSurface == "" {
+			p.TargetSurface = "unknown"
+		}
+	} else {
+		p.NeedsOperationAccess = false
+		if !isOperationLikeOperation(p.Operation) {
+			p.OperationKind = ""
+		}
+		if p.RiskLevel == "" {
+			p.RiskLevel = "none"
+		}
+		if len(p.SideEffects) == 0 {
+			p.SideEffects = nil
+		}
+		if p.TargetSurface == "" {
+			p.TargetSurface = ""
+		}
+	}
 
 	// Missing prior-answer guard. When the LLM picks a route that
 	// references the previous answer (transform / summarize /
@@ -483,15 +847,16 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 		p.NeedsRepoAccess = false
 	}
 
-	// Confidence floor. Below the floor, demote any non-repo
-	// route to repo (safe default). Hybrid stays hybrid because
-	// it already runs the pipeline; clarify stays clarify because
-	// running the pipeline against a "上面的" reference would
-	// produce a worse answer than asking the user to re-state.
+	// Confidence floor. Below the floor, demote local/operation to repo
+	// (safe default for possibly-code questions). Hybrid stays hybrid
+	// because it already runs the pipeline; clarify stays clarify because
+	// running the pipeline against a "上面的" reference would produce a
+	// worse answer than asking the user to re-state.
 	if p.Confidence > 0 && p.Confidence < turnPolicyConfidenceFloor {
-		if p.Route == RouteLocal {
+		if p.Route == RouteLocal || p.Route == RouteOperation {
 			p.Route = RouteRepo
 			p.NeedsRepoAccess = true
+			p.NeedsOperationAccess = false
 		}
 	}
 
@@ -543,6 +908,17 @@ func composeEffectiveRequest(prior, line string) string {
 	b.WriteString("## Current request\n")
 	b.WriteString(line)
 	return b.String()
+}
+
+func isOperationLikeOperation(op string) bool {
+	switch strings.TrimSpace(op) {
+	case "computer_operation", "artifact_generation", "presentation_generation",
+		"document_generation", "spreadsheet_generation", "browser_operation",
+		"external_skill_workflow":
+		return true
+	default:
+		return false
+	}
 }
 
 // localResponderSystemPrompt is the constraint sheet for the local
@@ -659,10 +1035,16 @@ func (r *llmChitchatResponder) RespondLocal(ctx context.Context, userLine, prior
 // log file.
 func turnPolicyDebugLine(p TurnPolicy) string {
 	return fmt.Sprintf(
-		"route=%s operation=%s needs_repo=%t confidence=%.2f source=%s reason=%q presentation=%q",
+		"route=%s operation=%s operation_kind=%s needs_repo=%t needs_operation=%t risk=%s side_effects=%s target=%s confirm=%t confidence=%.2f source=%s reason=%q presentation=%q",
 		string(p.Route),
 		clipForLog(p.Operation, 32),
+		clipForLog(p.OperationKind, 32),
 		p.NeedsRepoAccess,
+		p.NeedsOperationAccess,
+		clipForLog(p.RiskLevel, 16),
+		clipForLog(strings.Join(p.SideEffects, ","), 80),
+		clipForLog(p.TargetSurface, 32),
+		p.RequiresConfirmation,
 		p.Confidence,
 		clipForLog(p.Source, 32),
 		oneLineClamp(p.Reason, 120),

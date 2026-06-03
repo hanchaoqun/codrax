@@ -389,6 +389,44 @@ func TestApplyTurnPolicyGuards(t *testing.T) {
 	}
 }
 
+func TestApplyTurnPolicyGuards_OperationRoute(t *testing.T) {
+	got := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                RouteOperation,
+		NeedsRepoAccess:      true,
+		Operation:            "presentation_generation",
+		Source:               "mixed",
+		Confidence:           0.86,
+		SideEffects:          []string{"local_file_write"},
+		TargetSurface:        "slides",
+		RequiresConfirmation: false,
+	}, false, false)
+	if got.Route != RouteOperation {
+		t.Fatalf("Route=%q, want operation", got.Route)
+	}
+	if !got.NeedsOperationAccess {
+		t.Fatal("route=operation must set NeedsOperationAccess")
+	}
+	if !got.NeedsRepoAccess {
+		t.Fatal("operation may preserve needs_repo_access for mixed repo→artifact workflows")
+	}
+	if got.OperationKind != "presentation_generation" {
+		t.Fatalf("OperationKind=%q, want presentation_generation", got.OperationKind)
+	}
+	if got.RiskLevel != "low" {
+		t.Fatalf("RiskLevel=%q, want default low", got.RiskLevel)
+	}
+
+	low := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:      RouteOperation,
+		Operation:  "browser_operation",
+		Source:     "external_tool",
+		Confidence: 0.2,
+	}, false, false)
+	if low.Route != RouteRepo || !low.NeedsRepoAccess || low.NeedsOperationAccess {
+		t.Fatalf("low-confidence operation should fail safe to repo without operation access: %+v", low)
+	}
+}
+
 // ─── Layer 2: ClassifyPolicy parses tool calls ───────────────
 
 // turnPolicyResp builds a single canned llm.Response carrying an
@@ -501,6 +539,35 @@ func TestClassifyPolicy_RejectsUnknownRoute(t *testing.T) {
 	c := &llmChitchatClassifier{adapter: adapter}
 	if _, err := c.ClassifyPolicy(context.Background(), "hi", "", false); err == nil {
 		t.Fatal("expected error on unknown route enum")
+	}
+}
+
+func TestClassifyPolicy_OperationCompatJSON(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			turnPolicyResp(`{"route":"operation","needs_repo_access":"true","needs_operation_access":"true","operation":"presentation_generation","source":"mixed","confidence":"0.91","reason":"user asked for a PPT","operation_kind":"presentation_generation","risk_level":"low","side_effects":"local_file_write, browser_ui","target_surface":"slides","requires_confirmation":"false",}` + "\ntrailing"),
+		},
+	}
+	c := &llmChitchatClassifier{adapter: adapter}
+
+	policy, err := c.ClassifyPolicy(context.Background(), "基于当前代码生成一份 PPT", "", false)
+	if err != nil {
+		t.Fatalf("ClassifyPolicy: %v", err)
+	}
+	if policy.Route != RouteOperation {
+		t.Fatalf("Route=%q, want operation", policy.Route)
+	}
+	if !policy.NeedsRepoAccess || !policy.NeedsOperationAccess {
+		t.Fatalf("repo/operation access flags not parsed: %+v", policy)
+	}
+	if policy.OperationKind != "presentation_generation" {
+		t.Fatalf("OperationKind=%q", policy.OperationKind)
+	}
+	if got := strings.Join(policy.SideEffects, ","); got != "local_file_write,browser_ui" {
+		t.Fatalf("SideEffects=%q", got)
+	}
+	if policy.Confidence < 0.9 {
+		t.Fatalf("Confidence=%v, want parsed string number", policy.Confidence)
 	}
 }
 
@@ -746,6 +813,46 @@ func TestTurnPolicyDispatch_RepoRouteCarriesCurrentPresentationDirective(t *test
 	}
 	if len(responder.localCalls) != 0 {
 		t.Errorf("local responder must not fire on repo; calls=%d", len(responder.localCalls))
+	}
+}
+
+func TestTurnPolicyDispatch_OperationRouteUnavailableDoesNotRunPipeline(t *testing.T) {
+	store := newPolicyStore(t)
+
+	classifier := &stubTurnPolicyClassifier{
+		policy: TurnPolicy{
+			Route:                RouteOperation,
+			NeedsOperationAccess: true,
+			NeedsRepoAccess:      true,
+			Operation:            "presentation_generation",
+			OperationKind:        "presentation_generation",
+			Source:               "mixed",
+			RiskLevel:            "low",
+			SideEffects:          []string{"local_file_write"},
+			TargetSurface:        "slides",
+			Confidence:           0.9,
+			Reason:               "user requested slide generation",
+		},
+	}
+	responder := &stubLocalResponder{localReply: "should-not-appear"}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, responder, "基于当前代码生成一份 PPT\n/exit\n")
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("operation route is disabled and must not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(responder.localCalls) != 0 {
+		t.Fatalf("operation route must not use local responder; calls=%d", len(responder.localCalls))
+	}
+	printed := out.String()
+	if !strings.Contains(printed, "operation pipeline is not enabled") {
+		t.Fatalf("operation unavailable message missing:\n%s", printed)
+	}
+	recent := store.Recent()
+	if len(recent) == 0 || !strings.Contains(recent[len(recent)-1].Response, "operation pipeline is not enabled") {
+		t.Fatalf("operation refusal should be persisted for follow-ups; recent=%+v", recent)
 	}
 }
 

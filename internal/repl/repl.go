@@ -269,6 +269,12 @@ type Config struct {
 	// error routes to the pipeline unchanged.
 	ChitchatClassifier ChitchatClassifier
 
+	// OperationEnabled is the feature gate for the future independent
+	// computer-operation / artifact-generation route. Batch 1 wires only
+	// classification safety: when false, route=operation is refused at the
+	// REPL surface instead of falling into the source-analysis pipeline.
+	OperationEnabled bool
+
 	// PlanStore persists B0 write-mode ChangePlans for the REPL
 	// session. Nil disables the /plan slash command family —
 	// useful for tests and for single-shot invocations that never
@@ -536,6 +542,12 @@ type REPL struct {
 	// the gate. See Config.ChitchatClassifier for wiring.
 	chitchatClassifier ChitchatClassifier
 
+	// operationEnabled gates the future independent operation/artifact
+	// route. When false, a structured route=operation is surfaced as a
+	// capability-not-enabled message and never falls through to the repo
+	// analysis pipeline.
+	operationEnabled bool
+
 	// sessionID identifies this REPL session. Stamped onto every
 	// recorded Turn so memory.BuildContext can session-pin recent
 	// turns (keep them in prior-conversation context even when
@@ -701,6 +713,7 @@ func New(cfg Config) *REPL {
 		envSettings:            types.ResolvedEnvRecommendSettings(cfg.EnvSettings),
 		colorMode:              cfg.ColorMode,
 		chitchatClassifier:     cfg.ChitchatClassifier,
+		operationEnabled:       cfg.OperationEnabled,
 		// Session ID embeds nano + pid so two codrax REPLs launched
 		// in the same clock tick (test harness, race) still get
 		// disjoint IDs. Consumed by memory.BuildContext via BuildOpts.
@@ -1096,6 +1109,24 @@ func (r *REPL) clarifyDispatch(line, display string, policy TurnPolicy) {
 		return
 	}
 	fmt.Fprintln(r.out, render.FormatLightRouteSummary(label, segs, "", r.language))
+}
+
+// operationUnavailableDispatch handles route=operation before the independent
+// operation pipeline exists. The important invariant is negative: this route
+// must not fall through into source analysis or execute any side-effecting
+// tool just because the classifier learned the new enum earlier than the
+// executor was installed.
+func (r *REPL) operationUnavailableDispatch(line, display string, policy TurnPolicy) {
+	logging.Info("[repl/turn_policy] operation route unavailable — line=%q operation=%q kind=%q risk=%q side_effects=%q reason=%q",
+		oneLine(line),
+		oneLineClamp(policy.Operation, 80),
+		oneLineClamp(policy.OperationKind, 80),
+		oneLineClamp(policy.RiskLevel, 40),
+		oneLineClamp(strings.Join(policy.SideEffects, ","), 120),
+		oneLineClamp(policy.Reason, 120))
+	msg := operationUnavailableMsg(r.language, policy)
+	r.warn("%s\n", msg)
+	r.recordTurn(display, line, msg, memory.KindPipeline)
 }
 
 // currentStickyTag returns the per-turn sticky-state marker
@@ -2006,6 +2037,17 @@ func (r *REPL) dispatch(line, display string) {
 					return
 				case RouteClarify:
 					r.clarifyDispatch(line, display, policy)
+					return
+				case RouteOperation:
+					if !r.operationEnabled {
+						r.operationUnavailableDispatch(line, display, policy)
+						return
+					}
+					// Batch 1 only wires the typed route and safe refusal
+					// surface. Until the independent operation pipeline is
+					// installed, keep this path non-side-effecting even when
+					// tests/config explicitly enable the flag.
+					r.operationUnavailableDispatch(line, display, policy)
 					return
 				case RouteHybrid:
 					// Carry the directive into the effective
