@@ -92,6 +92,60 @@ func TestOperationProviderLocalSkillFakeHelper(t *testing.T) {
 	}
 	var payload map[string]any
 	_ = json.NewDecoder(os.Stdin).Decode(&payload)
+	if os.Getenv("CODRAX_REPL_FAKE_LOCAL_SKILL_CHAIN_DAG") == "1" {
+		input, _ := payload["input"].(map[string]any)
+		if deckPath, _ := input["deck_path"].(string); deckPath != "" {
+			appendixPath, _ := input["appendix_path"].(string)
+			_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+				"success":       true,
+				"summary":       "manual reader composed DAG final report for " + deckPath + " and " + appendixPath,
+				"artifact_refs": []string{"out/final-report.md"},
+			})
+			return
+		}
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+			"success":       true,
+			"summary":       "manual reader split deck work into main and appendix branches",
+			"artifact_refs": []string{"out/manual-notes.md", "out/appendix-notes.md"},
+			"next_actions": []map[string]any{
+				{
+					"provider":              "skill:ppt_builder",
+					"operation_kind":        "presentation_generation",
+					"target_surface":        "slides",
+					"risk_level":            "medium",
+					"side_effects":          []string{"local_file_write"},
+					"requires_confirmation": true,
+					"request":               "build main slides",
+					"input":                 map[string]any{"source_payload_ref": "out/manual-notes.md"},
+				},
+				{
+					"provider":              "skill:ppt_builder",
+					"operation_kind":        "presentation_generation",
+					"target_surface":        "slides",
+					"risk_level":            "medium",
+					"side_effects":          []string{"local_file_write"},
+					"requires_confirmation": true,
+					"request":               "build appendix slides",
+					"input":                 map[string]any{"source_payload_ref": "out/appendix-notes.md"},
+				},
+			},
+			"return_action": map[string]any{
+				"provider":       "skill:manual_reader",
+				"operation_kind": "artifact_generation",
+				"target_surface": "local_file",
+				"risk_level":     "low",
+				"request":        "compose final workflow report after branch artifacts",
+				"input":          map[string]any{"deck_path": "out/deck.pptx", "appendix_path": "out/appendix-deck.pptx"},
+			},
+			"workflow_state": map[string]any{
+				"workflow_id": "wf-dag-deck",
+				"step":        "branches_queued",
+				"return_to":   "skill:manual_reader",
+				"data":        map[string]any{"branch_count": 2},
+			},
+		})
+		return
+	}
 	if os.Getenv("CODRAX_REPL_FAKE_LOCAL_SKILL_CHAIN_RETURN") == "1" {
 		input, _ := payload["input"].(map[string]any)
 		if deckPath, _ := input["deck_path"].(string); deckPath != "" {
@@ -195,10 +249,14 @@ func TestOperationProviderLocalSkillFakeHelper(t *testing.T) {
 		input, _ := payload["input"].(map[string]any)
 		source, _ := input["source_payload_ref"].(string)
 		workflowDepth, _ := payload["workflow_depth"].(float64)
+		artifact := "out/deck.pptx"
+		if strings.Contains(source, "appendix") {
+			artifact = "out/appendix-deck.pptx"
+		}
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
 			"success":              true,
 			"summary":              "ppt builder consumed " + source,
-			"artifact_refs":        []string{"out/deck.pptx"},
+			"artifact_refs":        []string{artifact},
 			"verification_status":  "verified",
 			"verification_summary": "workflow depth accepted",
 			"observations":         int(workflowDepth),
@@ -1004,6 +1062,148 @@ func TestOperationProviderLocalSkillQueuesReturnAction(t *testing.T) {
 	} {
 		if !strings.Contains(printed, want) {
 			t.Fatalf("return-action workflow output missing %q:\n%s", want, printed)
+		}
+	}
+}
+
+func TestOperationProviderLocalSkillDAGSchedulesMultipleWorkflowActions(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: true,
+		Operation:            "presentation_generation",
+		OperationKind:        "presentation_generation",
+		Source:               "current_message",
+		RiskLevel:            "medium",
+		TargetSurface:        "slides",
+		SideEffects:          []string{"local_file_write"},
+		Confidence:           0.9,
+		Reason:               "user asked for a presentation workflow that fans out and returns",
+	}}
+	yes := true
+	timeoutMS := 3000
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "根据说明生成主报告和附录 PPT，并最终汇总\n/approve\n/workflow show\n/approve\n/workflow show\n/approve\n/approve\n/exit\n")
+	r.operationEnabled = true
+	r.runtimeAnchor = t.TempDir()
+	r.operationMemory = operation.NewMemoryStore(filepath.Join(r.runtimeAnchor, "operation", "memory.jsonl"))
+	r.operationSkillConfigs = []types.OperationSkillConfig{
+		{
+			Name:                          "manual_reader",
+			OperationKinds:                []string{"presentation_generation", "artifact_generation"},
+			OperationSurfaces:             []string{"slides", "local_file"},
+			OperationSideEffects:          []string{"local_file_write"},
+			OperationRequiresConfirmation: &yes,
+			OperationLazyStart:            &yes,
+			Command:                       os.Args[0],
+			Args:                          []string{"-test.run=TestOperationProviderLocalSkillFakeHelper"},
+			Env: map[string]string{
+				"CODRAX_REPL_FAKE_LOCAL_SKILL":           "1",
+				"CODRAX_REPL_FAKE_LOCAL_SKILL_CHAIN_DAG": "1",
+			},
+			InputMode: "stdin_json",
+			TimeoutMS: &timeoutMS,
+		},
+		{
+			Name:                          "ppt_builder",
+			OperationKinds:                []string{"presentation_generation"},
+			OperationSurfaces:             []string{"slides"},
+			OperationSideEffects:          []string{"local_file_write"},
+			OperationRequiresConfirmation: &yes,
+			OperationLazyStart:            &yes,
+			Command:                       os.Args[0],
+			Args:                          []string{"-test.run=TestOperationProviderLocalSkillFakeHelper"},
+			Env: map[string]string{
+				"CODRAX_REPL_FAKE_LOCAL_SKILL":         "1",
+				"CODRAX_REPL_FAKE_LOCAL_SKILL_CHAIN_B": "1",
+			},
+			InputMode: "stdin_json",
+			TimeoutMS: &timeoutMS,
+		},
+	}
+	r.operationProviders = []operation.ProviderInfo{
+		{
+			Name:         "skill:manual_reader",
+			Kind:         "*",
+			Surfaces:     []string{"slides", "local_file"},
+			SideEffects:  []string{"local_file_write"},
+			RequiresGate: true,
+			ToolName:     "run",
+			Source:       "skill",
+			LazyStart:    true,
+		},
+		{
+			Name:         "skill:ppt_builder",
+			Kind:         "presentation_generation",
+			Surfaces:     []string{"slides"},
+			SideEffects:  []string{"local_file_write"},
+			RequiresGate: true,
+			ToolName:     "run",
+			Source:       "skill",
+			LazyStart:    true,
+		},
+	}
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("DAG workflow should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if r.pendingProviderOperation != nil {
+		t.Fatalf("DAG workflow should finish after queued approvals: %+v\noutput:\n%s", r.pendingProviderOperation, out.String())
+	}
+	if r.providerWorkflow == nil {
+		t.Fatal("workflow instance should be retained")
+	}
+	if len(r.providerWorkflow.Actions) != 4 || len(r.providerWorkflow.Edges) != 3 {
+		t.Fatalf("DAG workflow graph sizes actions=%d edges=%d wf=%+v", len(r.providerWorkflow.Actions), len(r.providerWorkflow.Edges), r.providerWorkflow)
+	}
+	if r.providerWorkflow.Edges[0].Kind != operation.WorkflowEdgeNext ||
+		r.providerWorkflow.Edges[1].Kind != operation.WorkflowEdgeNext ||
+		r.providerWorkflow.Edges[2].Kind != operation.WorkflowEdgeReturn {
+		t.Fatalf("DAG workflow edge kinds = %+v", r.providerWorkflow.Edges)
+	}
+	printed := out.String()
+	for _, want := range []string{
+		"queued next workflow action(s): 3",
+		"Operation workflow `provider-workflow-1`",
+		"Graph: 4 node(s) / 3 edge(s)",
+		"ppt builder consumed out/manual-notes.md",
+		"ppt builder consumed out/appendix-notes.md",
+		"manual reader composed DAG final report for out/deck.pptx",
+		"out/appendix-deck.pptx",
+	} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("DAG workflow output missing %q:\n%s", want, printed)
+		}
+	}
+	handoff := r.renderCommandOperationHandoff()
+	for _, want := range []string{
+		"provider=\"skill:manual_reader\"",
+		"provider=\"skill:ppt_builder\"",
+		"request=build main slides",
+		"request=\"build appendix slides\"",
+		"request=\"compose final workflow report after branch artifacts\"",
+		"next_action=\"provider=skill:ppt_builder",
+		"return_action=\"provider=skill:manual_reader kind=artifact_generation target=local_file",
+		"workflow_state=\"workflow_id=wf-dag-deck step=branches_queued return_to=skill:manual_reader",
+	} {
+		if !strings.Contains(handoff, want) {
+			t.Fatalf("DAG workflow handoff missing %q:\n%s", want, handoff)
+		}
+	}
+	entries, err := r.operationMemory.RecentMatches(r.commandOperationCapabilitySnapshot(), 8)
+	if err != nil {
+		t.Fatalf("read operation memory: %v", err)
+	}
+	renderedMemory := operation.RenderMemoryForPrompt(entries)
+	for _, want := range []string{
+		"provider=\"skill:manual_reader\"",
+		"next_action=\"provider=skill:ppt_builder",
+		"return_action=\"provider=skill:manual_reader",
+		"manual reader composed DAG final report",
+	} {
+		if !strings.Contains(renderedMemory, want) {
+			t.Fatalf("DAG workflow memory missing %q:\n%s", want, renderedMemory)
 		}
 	}
 }
