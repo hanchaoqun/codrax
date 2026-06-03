@@ -81,6 +81,33 @@ var commandOperationPlanTool = llm.ToolSchema{
       "type": "string",
       "description": "Working directory for the plan. Use the provided repo root unless the user explicitly asked for another directory."
     },
+    "goal": {
+      "type": "string",
+      "description": "Concise user objective this operation is trying to satisfy."
+    },
+    "known_constraints": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Constraints already known from the user request, route policy, environment, or prior operation observations."
+    },
+    "missing_observations": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Facts still needed before the user goal can be answered or safely acted on."
+    },
+    "success_criteria": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Observable criteria indicating the user goal is satisfied."
+    },
+    "next_batch": {
+      "type": "string",
+      "description": "Short purpose of this command batch."
+    },
+    "why_this_batch": {
+      "type": "string",
+      "description": "Why this bounded batch is the right next step instead of trying to solve the whole task at once."
+    },
     "requires_confirmation": {
       "type": "boolean",
       "description": "true for writes, installs, uninstalls, external submissions, destructive commands, high-risk shell, or ambiguous actions. Ordinary read-only commands and non-high-risk shell pipelines may be auto-run by deterministic policy."
@@ -138,7 +165,9 @@ Your job is to convert the user's request into a typed command plan draft. Do no
 Hard rules:
 - If the request lacks key details such as source path, destination path, package name, desired version, target directory, or confirmation scope, emit status=needs_clarification with short questions and suggestions. Do not guess.
 - Prefer program+args. Use shell only when a pipeline or shell builtin is necessary; deterministic policy decides auto-run/manual/deny.
-- Prefer iterative discovery over one-shot guessing. For tasks that require observing the environment before choosing the next command, emit a bounded first command batch with continue_after=true. Examples: discover running software/service then query version metadata; read an unfamiliar tool's help/manual then invoke it; inspect a remote environment before package commands; narrow a large file before extracting exact facts.
+- Prefer iterative discovery over one-shot guessing. Do not emit a giant up-front plan for multi-step goals. For tasks that require observing the environment before choosing the next command, emit only the first bounded observation batch with continue_after=true, then let Codrax feed the real output back for the next batch. Examples: discover running software/service then query version metadata; read an unfamiliar tool's help/manual then invoke it; inspect a remote environment before package commands; narrow a large file before extracting exact facts.
+- Fill goal, known_constraints, missing_observations, success_criteria, next_batch, and why_this_batch when useful. These fields help Codrax decide whether the user goal is complete; they do not replace executable command steps.
+- First batches should normally collect the minimum observations needed to choose the next step. Avoid planning later irreversible or speculative steps until earlier command output confirms they are needed.
 - Every stdin-consuming command must have an explicit input source: an upstream command in the same shell pipeline, shell redirection, or file operands. Do not emit bare stdin readers such as "grep pattern", "awk script", "sed expr", "cat", "nl", "head", "tail", "wc", "cut", "sort", or "uniq" as the first shell segment with no input. They read empty stdin in non-interactive execution and create false negatives. Bad: "grep -i vpn | grep -v grep"; good: "ps aux | grep -i vpn | grep -v grep". Bad: "cat"; good: "cat /path/to/file" or "producer | cat". Bad: "head -50"; good: "some-command | head -50" or "head -50 /path/to/file".
 - Unknown structured programs are allowed in a ready plan. Do not mark them high risk merely because they are unknown; the deterministic operation policy decides auto approval. Mark high only when typed risk/side effects or command shape actually make the step dangerous.
 - Batch related commands into a small ordered plan instead of asking approval for each tiny command.
@@ -383,6 +412,24 @@ func renderCommandPlanForPrompt(plan operation.CommandOperationPlan) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "previous_plan id=%s status=%s risk=%s approval=%s work_dir=%s\n",
 		plan.ID, plan.Status, plan.RiskLevel, plan.ApprovalMode, plan.WorkDir)
+	if strings.TrimSpace(plan.Goal) != "" {
+		fmt.Fprintf(&b, "goal=%q\n", plan.Goal)
+	}
+	if len(plan.KnownConstraints) > 0 {
+		fmt.Fprintf(&b, "known_constraints=%q\n", strings.Join(plan.KnownConstraints, " | "))
+	}
+	if len(plan.MissingObservations) > 0 {
+		fmt.Fprintf(&b, "missing_observations=%q\n", strings.Join(plan.MissingObservations, " | "))
+	}
+	if len(plan.SuccessCriteria) > 0 {
+		fmt.Fprintf(&b, "success_criteria=%q\n", strings.Join(plan.SuccessCriteria, " | "))
+	}
+	if strings.TrimSpace(plan.NextBatch) != "" {
+		fmt.Fprintf(&b, "next_batch=%q\n", plan.NextBatch)
+	}
+	if strings.TrimSpace(plan.WhyThisBatch) != "" {
+		fmt.Fprintf(&b, "why_this_batch=%q\n", plan.WhyThisBatch)
+	}
 	for i, step := range plan.Steps {
 		cmd := strings.TrimSpace(step.Program + " " + strings.Join(step.Args, " "))
 		if strings.TrimSpace(step.Shell) != "" {
@@ -452,6 +499,12 @@ type commandPlanDraft struct {
 	Status               flexiblePolicyString       `json:"status"`
 	RiskLevel            flexiblePolicyString       `json:"risk_level"`
 	WorkDir              flexiblePolicyString       `json:"work_dir"`
+	Goal                 flexiblePolicyString       `json:"goal"`
+	KnownConstraints     flexiblePolicyStringList   `json:"known_constraints"`
+	MissingObservations  flexiblePolicyStringList   `json:"missing_observations"`
+	SuccessCriteria      flexiblePolicyStringList   `json:"success_criteria"`
+	NextBatch            flexiblePolicyString       `json:"next_batch"`
+	WhyThisBatch         flexiblePolicyString       `json:"why_this_batch"`
 	RequiresConfirmation flexiblePolicyBool         `json:"requires_confirmation"`
 	ContinueAfter        flexiblePolicyBool         `json:"continue_after"`
 	Questions            []commandPlanQuestionDraft `json:"questions"`
@@ -540,6 +593,12 @@ func (d commandPlanDraft) toRequest(userLine, repoRoot string) operation.Command
 		WorkDir:              plannerFirstNonEmpty(strings.TrimSpace(string(d.WorkDir)), strings.TrimSpace(repoRoot)),
 		RiskLevel:            strings.TrimSpace(string(d.RiskLevel)),
 		BlockReason:          strings.TrimSpace(string(d.BlockReason)),
+		Goal:                 strings.TrimSpace(string(d.Goal)),
+		KnownConstraints:     []string(d.KnownConstraints),
+		MissingObservations:  []string(d.MissingObservations),
+		SuccessCriteria:      []string(d.SuccessCriteria),
+		NextBatch:            strings.TrimSpace(string(d.NextBatch)),
+		WhyThisBatch:         strings.TrimSpace(string(d.WhyThisBatch)),
 		RequiresConfirmation: bool(d.RequiresConfirmation),
 		ContinueAfter:        bool(d.ContinueAfter),
 	}

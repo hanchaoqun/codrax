@@ -86,6 +86,13 @@ These fields are advisory to the planner and final answer handoff. They do not
 create hard gates by themselves, but they make the operation loop and final
 answer reason about goal completion rather than raw command success.
 
+The first command batch should be deliberately small for non-trivial goals:
+collect the minimum observations needed to choose the next step, set
+`continue_after=true`, and defer later irreversible or speculative actions until
+real command output confirms they are needed. This avoids brittle all-at-once
+plans for tasks that naturally require discovery, tool learning, large-file
+navigation, remote inspection, or environment-dependent command choices.
+
 All fields must use the same JSON compatibility path as existing planner
 fields: flexible string/list decoding plus structural repair through
 `repairTurnPolicyParamsJSON`.
@@ -236,4 +243,3 @@ typed fields must make this explicit. Deterministic fallbacks:
       and write-mode requests are not pulled into operation by keyword-like
       text.
 - [ ] Push each batch separately.
-

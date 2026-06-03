@@ -79,6 +79,12 @@ type CommandOperationRequest struct {
 	WorkDir              string
 	RiskLevel            string
 	BlockReason          string
+	Goal                 string
+	KnownConstraints     []string
+	MissingObservations  []string
+	SuccessCriteria      []string
+	NextBatch            string
+	WhyThisBatch         string
 	Steps                []CommandStep
 	ClarifyingQuestions  []ClarifyingQuestion
 	RequiresConfirmation bool
@@ -114,6 +120,12 @@ type CommandOperationPlan struct {
 	RiskLevel           string
 	ApprovalMode        string
 	WorkDir             string
+	Goal                string
+	KnownConstraints    []string
+	MissingObservations []string
+	SuccessCriteria     []string
+	NextBatch           string
+	WhyThisBatch        string
 	Steps               []CommandStep
 	ClarifyingQuestions []ClarifyingQuestion
 	BlockReason         string
@@ -167,6 +179,12 @@ func BuildCommandOperationPlan(req CommandOperationRequest, policy CommandPolicy
 		RiskLevel:           normalizeRisk(req.RiskLevel),
 		ApprovalMode:        ApprovalManual,
 		WorkDir:             filepath.Clean(workDir),
+		Goal:                strings.TrimSpace(req.Goal),
+		KnownConstraints:    cleanList(req.KnownConstraints),
+		MissingObservations: cleanList(req.MissingObservations),
+		SuccessCriteria:     cleanList(req.SuccessCriteria),
+		NextBatch:           strings.TrimSpace(req.NextBatch),
+		WhyThisBatch:        strings.TrimSpace(req.WhyThisBatch),
 		ClarifyingQuestions: cleanClarifyingQuestions(req.ClarifyingQuestions),
 		ContinueAfter:       req.ContinueAfter,
 		CreatedAt:           time.Now().UTC(),

@@ -1071,6 +1071,12 @@ func commandOperationPlanMarkdown(lang string, plan operation.CommandOperationPl
 			b.WriteString(fmt.Sprintf("- 风险：`%s`\n", plan.RiskLevel))
 			b.WriteString(fmt.Sprintf("- 审批：`%s`\n", plan.ApprovalMode))
 			b.WriteString(fmt.Sprintf("- 工作目录：`%s`\n", plan.WorkDir))
+			if strings.TrimSpace(plan.Goal) != "" {
+				b.WriteString(fmt.Sprintf("- 目标：%s\n", plan.Goal))
+			}
+			if strings.TrimSpace(plan.NextBatch) != "" {
+				b.WriteString(fmt.Sprintf("- 本批目的：%s\n", plan.NextBatch))
+			}
 			if plan.ContinueAfter {
 				b.WriteString("- 规划方式：执行后继续规划下一批操作\n")
 			}
@@ -1115,6 +1121,12 @@ func commandOperationPlanMarkdown(lang string, plan operation.CommandOperationPl
 		b.WriteString(fmt.Sprintf("- Risk: `%s`\n", plan.RiskLevel))
 		b.WriteString(fmt.Sprintf("- Approval: `%s`\n", plan.ApprovalMode))
 		b.WriteString(fmt.Sprintf("- Working directory: `%s`\n", plan.WorkDir))
+		if strings.TrimSpace(plan.Goal) != "" {
+			b.WriteString(fmt.Sprintf("- Goal: %s\n", plan.Goal))
+		}
+		if strings.TrimSpace(plan.NextBatch) != "" {
+			b.WriteString(fmt.Sprintf("- This batch: %s\n", plan.NextBatch))
+		}
 		if plan.ContinueAfter {
 			b.WriteString("- Planning: continue after this batch executes\n")
 		}
@@ -1142,6 +1154,12 @@ func commandOperationAutoExecuteMarkdown(lang string, plan operation.CommandOper
 		b.WriteString(fmt.Sprintf("- 审批：`%s`\n", plan.ApprovalMode))
 		b.WriteString(fmt.Sprintf("- 风险：`%s`\n", plan.RiskLevel))
 		b.WriteString(fmt.Sprintf("- 工作目录：`%s`\n", plan.WorkDir))
+		if strings.TrimSpace(plan.Goal) != "" {
+			b.WriteString(fmt.Sprintf("- 目标：%s\n", plan.Goal))
+		}
+		if strings.TrimSpace(plan.NextBatch) != "" {
+			b.WriteString(fmt.Sprintf("- 本批目的：%s\n", plan.NextBatch))
+		}
 		if plan.ContinueAfter {
 			b.WriteString("- 规划方式：执行后继续规划下一批操作\n")
 		}
@@ -1165,6 +1183,12 @@ func commandOperationAutoExecuteMarkdown(lang string, plan operation.CommandOper
 	b.WriteString(fmt.Sprintf("- Approval: `%s`\n", plan.ApprovalMode))
 	b.WriteString(fmt.Sprintf("- Risk: `%s`\n", plan.RiskLevel))
 	b.WriteString(fmt.Sprintf("- Working directory: `%s`\n", plan.WorkDir))
+	if strings.TrimSpace(plan.Goal) != "" {
+		b.WriteString(fmt.Sprintf("- Goal: %s\n", plan.Goal))
+	}
+	if strings.TrimSpace(plan.NextBatch) != "" {
+		b.WriteString(fmt.Sprintf("- This batch: %s\n", plan.NextBatch))
+	}
 	if plan.ContinueAfter {
 		b.WriteString("- Planning: continue after this batch executes\n")
 	}

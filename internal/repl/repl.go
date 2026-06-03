@@ -1927,6 +1927,18 @@ func (r *REPL) renderCommandOperationHandoff() string {
 		rec := r.operationResults[i]
 		fmt.Fprintf(&b, "operation_result plan_id=%s status=%s request=%q\n",
 			rec.Plan.ID, rec.Result.Status, oneLineClamp(rec.Plan.RequestText, 200))
+		if strings.TrimSpace(rec.Plan.Goal) != "" {
+			fmt.Fprintf(&b, "  goal=%q\n", oneLineClamp(rec.Plan.Goal, 240))
+		}
+		if len(rec.Plan.KnownConstraints) > 0 {
+			fmt.Fprintf(&b, "  known_constraints=%q\n", oneLineClamp(strings.Join(rec.Plan.KnownConstraints, " | "), 360))
+		}
+		if len(rec.Plan.MissingObservations) > 0 {
+			fmt.Fprintf(&b, "  missing_observations=%q\n", oneLineClamp(strings.Join(rec.Plan.MissingObservations, " | "), 360))
+		}
+		if len(rec.Plan.SuccessCriteria) > 0 {
+			fmt.Fprintf(&b, "  success_criteria=%q\n", oneLineClamp(strings.Join(rec.Plan.SuccessCriteria, " | "), 360))
+		}
 		for _, step := range rec.Result.StepResults {
 			planStep := commandOperationStepByID(rec.Plan, step.StepID)
 			cmd := commandOperationStepCommand(planStep)

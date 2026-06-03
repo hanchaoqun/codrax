@@ -22,7 +22,7 @@ func commandOperationPlanResp(payload string) llm.Response {
 func TestCommandOperationPlannerCompatJSON(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":"false","continue_after":"true","work_dir":".","steps":[{"id":1,"title":"show go version","program":"go","args":"version","timeout_ms":"30000","risk_level":"low","side_effects":""}],}` + "\ntrailing"),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":"false","continue_after":"true","work_dir":".","goal":123,"known_constraints":"local only; read only","missing_observations":["go version",42],"success_criteria":"actual go version returned","next_batch":true,"why_this_batch":"first bounded observation","steps":[{"id":1,"title":"show go version","program":"go","args":"version","timeout_ms":"30000","risk_level":"low","side_effects":""}],}` + "\ntrailing"),
 		},
 	}
 	planner := NewCommandOperationPlanner(adapter)
@@ -48,6 +48,21 @@ func TestCommandOperationPlannerCompatJSON(t *testing.T) {
 	}
 	if !req.ContinueAfter {
 		t.Fatal("continue_after string true was not decoded")
+	}
+	if req.Goal != "123" {
+		t.Fatalf("goal was not flex-decoded: %q", req.Goal)
+	}
+	if len(req.KnownConstraints) != 2 || req.KnownConstraints[0] != "local only" || req.KnownConstraints[1] != "read only" {
+		t.Fatalf("known constraints not flex-decoded: %+v", req.KnownConstraints)
+	}
+	if len(req.MissingObservations) != 2 || req.MissingObservations[1] != "42" {
+		t.Fatalf("missing observations not flex-decoded: %+v", req.MissingObservations)
+	}
+	if len(req.SuccessCriteria) != 1 || req.SuccessCriteria[0] != "actual go version returned" {
+		t.Fatalf("success criteria not flex-decoded: %+v", req.SuccessCriteria)
+	}
+	if req.NextBatch != "true" || req.WhyThisBatch != "first bounded observation" {
+		t.Fatalf("batch purpose fields not decoded: next=%q why=%q", req.NextBatch, req.WhyThisBatch)
 	}
 }
 
@@ -308,6 +323,10 @@ func TestCommandOperationPlannerPromptForbidsNoopFactCommands(t *testing.T) {
 		"Do not use echo, printf, comments, or no-op placeholder commands",
 		"emit needs_clarification or plan a safe discovery command",
 		"Prefer iterative discovery over one-shot guessing",
+		"Do not emit a giant up-front plan",
+		"first bounded observation batch",
+		"Fill goal, known_constraints, missing_observations, success_criteria, next_batch, and why_this_batch",
+		"First batches should normally collect the minimum observations",
 		"continue_after=true",
 		"For continuation requests",
 		"emit status=complete",
