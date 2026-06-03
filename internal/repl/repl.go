@@ -585,6 +585,7 @@ type REPL struct {
 	operationResults            []commandOperationResultRecord
 	providerOperationResults    []providerOperationResultRecord
 	operationMemory             *operation.MemoryStore
+	lastAnswerOrigin            replAnswerOrigin
 	operationPendingStore       *OperationPendingStore
 	mcpServers                  *mcp.Registry
 	mcpServerConfigs            []types.MCPServerConfig
@@ -1130,6 +1131,7 @@ func (r *REPL) localDispatch(line, display string, policy TurnPolicy, lastAnswer
 	if result := r.writeLocalMarkdownTranscript(line, reply); result.MarkdownPath != "" {
 		r.emitMarkdownTranscriptHints(result)
 	}
+	r.lastAnswerOrigin = replAnswerOriginLocal
 	// Persist as KindPipeline. A local-route turn is structurally a
 	// derivative of a previous pipeline answer (transform /
 	// summarize / translate / elaborate of last_answer), so its
@@ -1162,12 +1164,15 @@ func (r *REPL) clarifyDispatch(line, display string, policy TurnPolicy) {
 			r.renderer.SetTotalStages(0)
 			r.renderer.SetRouteSummary(label, segs)
 			r.renderer.StopSpinner()
+			r.lastAnswerOrigin = replAnswerOriginLocal
 			return
 		}
 		r.renderer.EmitLightRouteSummary(label, segs)
+		r.lastAnswerOrigin = replAnswerOriginLocal
 		return
 	}
 	fmt.Fprintln(r.out, render.FormatLightRouteSummary(label, segs, "", r.language))
+	r.lastAnswerOrigin = replAnswerOriginLocal
 }
 
 // operationUnavailableDispatch handles route=operation before the independent
@@ -1186,6 +1191,7 @@ func (r *REPL) operationUnavailableDispatch(line, display string, policy TurnPol
 	r.finishOperationRouteSpinner(operation.StatusBlocked)
 	msg := operationUnavailableMsg(r.language, policy)
 	r.warn("%s\n", msg)
+	r.lastAnswerOrigin = replAnswerOriginLocal
 	r.recordTurn(display, line, msg, memory.KindPipeline)
 }
 
@@ -1317,6 +1323,125 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 	r.finishProviderOperationPlanHeader(plan)
 	r.renderBordered(msg)
 	r.recordTurn(display, line, msg, memory.KindPipeline)
+}
+
+func (r *REPL) maybeDispatchCommandOperationFollowup(line, display string, policy TurnPolicy) bool {
+	if r.lastAnswerOrigin != replAnswerOriginCommandOperationFinal ||
+		len(r.operationResults) == 0 ||
+		r.operationPlanner == nil ||
+		!commandOperationLocalFollowupPolicy(policy) {
+		return false
+	}
+	continuer, ok := r.operationPlanner.(CommandOperationContinuationPlanner)
+	if !ok || continuer == nil {
+		return false
+	}
+	records := append([]commandOperationResultRecord(nil), r.operationResults...)
+	ctx := r.startTurn()
+	snapshot := r.commandOperationCapabilitySnapshot()
+	next, err := continuer.ContinueCommandOperation(ctx, strings.TrimSpace(line), r.repoRoot, commandOperationFollowupPolicy(policy), snapshot, records)
+	r.endTurn()
+	if err != nil {
+		logging.Warning("[repl/operation] command follow-up continuation planning failed: %v", err)
+		return false
+	}
+	if next.Complete {
+		logging.Info("[repl/operation] command follow-up judged complete; falling back to local route reason=%q",
+			oneLineClamp(next.Reason, 160))
+		return false
+	}
+	requestText := commandOperationFollowupRequestText(line, records)
+	req := next.Request
+	req.Text = requestText
+	nextPlan := operation.BuildCommandOperationPlan(req, r.operationPolicy)
+	previousPlan := records[len(records)-1].Plan
+	decision := operation.DecideCommandPlanApproval(r.operationPolicy, nextPlan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalContinuation, PreviousPlan: &previousPlan})
+	nextPlan = operation.ApplyCommandPlanApprovalDecision(nextPlan, decision)
+	logging.Info("[repl/operation] command follow-up generated previous_plan_id=%s status=%s risk=%q approval=%q decision=%s reason_code=%s steps=%d",
+		previousPlan.ID, nextPlan.Status, nextPlan.RiskLevel, nextPlan.ApprovalMode, decision.Action, decision.ReasonCode, len(nextPlan.Steps))
+	if nextPlan.Status == operation.StatusReady {
+		if lint := operation.LintCommandOperationPlan(nextPlan); !lint.OK() {
+			r.pendingCommandClarification = nil
+			r.clearPendingOperationState()
+			r.finishOperationAutoStartSpinner()
+			r.renderBordered(commandOperationAutoValidateMarkdown(r.language, nextPlan))
+			r.executeCommandOperationPlanAttempt(nextPlan, requestText, display, 0, records)
+			return true
+		}
+		if decision.AutoExecute() {
+			msg := commandOperationContinuationIntro(r.language, nextPlan)
+			msg += "\n\n"
+			msg += commandOperationAutoExecuteMarkdown(r.language, nextPlan)
+			r.finishCommandOperationPlanHeader(nextPlan)
+			r.renderBordered(msg)
+			r.executeCommandOperationPlanAttempt(nextPlan, requestText, display, 0, records)
+			return true
+		}
+		r.pendingOperation = &nextPlan
+		r.savePendingOperationState()
+	}
+	r.operationHistory = append(r.operationHistory, nextPlan)
+	msg := commandOperationContinuationIntro(r.language, nextPlan)
+	msg += "\n\n"
+	msg += commandOperationPlanMarkdown(r.language, nextPlan)
+	r.finishOperationRouteSpinner(nextPlan.Status)
+	r.renderBorderedCompact(msg)
+	r.lastAnswerOrigin = replAnswerOriginLocal
+	r.recordTurn(display, requestText, msg, memory.KindPipeline)
+	return true
+}
+
+func commandOperationLocalFollowupPolicy(policy TurnPolicy) bool {
+	if policy.Route != RouteLocal {
+		return false
+	}
+	source := strings.ToLower(strings.TrimSpace(policy.Source))
+	switch source {
+	case "last_answer", "prior_context", "mixed", "external_tool", "artifact":
+	default:
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(policy.Operation)) {
+	case "chat", "transform", "summarize", "translate":
+		return false
+	}
+	return true
+}
+
+func commandOperationFollowupPolicy(policy TurnPolicy) TurnPolicy {
+	policy.Route = RouteOperation
+	policy.NeedsOperationAccess = true
+	if strings.TrimSpace(policy.Operation) == "" || strings.TrimSpace(policy.Operation) == "elaborate" {
+		policy.Operation = "computer_operation"
+	}
+	if strings.TrimSpace(policy.OperationKind) == "" {
+		policy.OperationKind = "computer_operation"
+	}
+	if strings.TrimSpace(policy.TargetSurface) == "" {
+		policy.TargetSurface = "desktop"
+	}
+	if strings.TrimSpace(policy.Source) == "" {
+		policy.Source = "prior_context"
+	}
+	return policy
+}
+
+func commandOperationFollowupRequestText(line string, records []commandOperationResultRecord) string {
+	line = strings.TrimSpace(line)
+	base := ""
+	for i := len(records) - 1; i >= 0; i-- {
+		if text := strings.TrimSpace(records[i].Plan.RequestText); text != "" {
+			base = text
+			break
+		}
+	}
+	if base == "" {
+		return line
+	}
+	if line == "" || line == base {
+		return base
+	}
+	return base + "\n\nFollow-up request:\n" + line
 }
 
 func (r *REPL) resumeCommandOperationClarification(line, display string) {
@@ -1987,6 +2112,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 		r.finishOperationFinalAnswerHeader()
 		r.emitOperationVisibleThoughts(thoughts)
 		r.renderBordered(msg)
+		r.lastAnswerOrigin = replAnswerOriginCommandOperationFinal
 		r.recordTurn(display, request, msg, memory.KindPipeline)
 		return
 	}
@@ -2045,6 +2171,15 @@ func (r *REPL) commandOperationFinalMessage(ctx context.Context, userLine string
 	return operationFinalReportWithDetails(r.language, answer, details), thoughts
 }
 
+type replAnswerOrigin string
+
+const (
+	replAnswerOriginLocal                  replAnswerOrigin = "local"
+	replAnswerOriginPipeline               replAnswerOrigin = "pipeline"
+	replAnswerOriginCommandOperationFinal  replAnswerOrigin = "command_operation_final"
+	replAnswerOriginProviderOperationFinal replAnswerOrigin = "provider_operation_final"
+)
+
 func (r *REPL) emitOperationVisibleThoughts(thoughts []string) {
 	if len(thoughts) == 0 {
 		return
@@ -2101,6 +2236,7 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 			r.finishOperationFinalAnswerHeader()
 			r.emitOperationVisibleThoughts(thoughts)
 			r.renderBordered(msg)
+			r.lastAnswerOrigin = replAnswerOriginCommandOperationFinal
 			r.recordTurn(display, request, msg, memory.KindPipeline)
 			return true
 		}
@@ -3458,6 +3594,9 @@ func (r *REPL) dispatch(line, display string) {
 				debugLogTurnPolicy(policy)
 				switch policy.Route {
 				case RouteLocal:
+					if r.maybeDispatchCommandOperationFollowup(line, display, policy) {
+						return
+					}
 					r.localDispatch(line, display, policy, lastAnswer)
 					return
 				case RouteClarify:
@@ -3670,6 +3809,7 @@ func (r *REPL) dispatch(line, display string) {
 	// Skip rendering if no meaningful content.
 	if response == "" || response == "(no result)" {
 		fmt.Fprintln(r.out, emptyResponseHint(r.language))
+		r.lastAnswerOrigin = replAnswerOriginPipeline
 		r.recordTurn(display, line, memResponse, memory.KindPipeline)
 		return
 	}
@@ -3684,6 +3824,7 @@ func (r *REPL) dispatch(line, display string) {
 	if hint := r.finalAnswerMarkdownPreviewNotice(busCtx); hint != "" {
 		r.info(hint)
 	}
+	r.lastAnswerOrigin = replAnswerOriginPipeline
 	r.recordTurn(display, line, memResponse, memory.KindPipeline)
 }
 
@@ -4218,6 +4359,7 @@ func (r *REPL) clearOperationContextForClear() error {
 	r.operationHistory = nil
 	r.operationResults = nil
 	r.providerOperationResults = nil
+	r.lastAnswerOrigin = ""
 	r.clearPendingOperationState()
 	if r.operationMemory != nil {
 		return r.operationMemory.Clear()
@@ -5867,6 +6009,7 @@ func (r *REPL) executeProviderOperationFlow(ctx context.Context, first pendingPr
 	r.finishOperationFinalAnswerHeader()
 	r.emitOperationVisibleThoughts(thoughts)
 	r.renderBordered(msg)
+	r.lastAnswerOrigin = replAnswerOriginProviderOperationFinal
 	r.recordTurn(first.Display, first.Request.Text, msg, memory.KindPipeline)
 }
 

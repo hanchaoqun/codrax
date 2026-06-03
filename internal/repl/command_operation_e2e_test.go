@@ -304,6 +304,27 @@ func commandOperationPolicy(risk string) TurnPolicy {
 	}
 }
 
+type sequenceTurnPolicyClassifier struct {
+	policies []TurnPolicy
+	calls    []string
+}
+
+func (s *sequenceTurnPolicyClassifier) Classify(_ context.Context, line, hint string) (bool, error) {
+	return false, os.ErrInvalid
+}
+
+func (s *sequenceTurnPolicyClassifier) ClassifyPolicy(_ context.Context, line, hint string, hasPriorAnswer bool) (TurnPolicy, error) {
+	s.calls = append(s.calls, line)
+	if len(s.policies) == 0 {
+		return TurnPolicy{}, nil
+	}
+	policy := s.policies[0]
+	if len(s.policies) > 1 {
+		s.policies = s.policies[1:]
+	}
+	return policy, nil
+}
+
 func TestCommandOperationE2E_OperationMemoryFeedsPlannerOnlyOnOperationRoute(t *testing.T) {
 	store := newPolicyStore(t)
 	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
@@ -2430,6 +2451,94 @@ func TestCommandOperationE2E_UnfamiliarToolHelpGuidesFollowupCommand(t *testing.
 		if !strings.Contains(printed, want) {
 			t.Fatalf("help-to-command output missing %q:\n%s", want, printed)
 		}
+	}
+}
+
+func TestCommandOperationE2E_LocalFollowupAfterOperationCanContinueCommands(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &sequenceTurnPolicyClassifier{policies: []TurnPolicy{
+		commandOperationPolicy("low"),
+		{
+			Route:      RouteLocal,
+			Operation:  "elaborate",
+			Source:     "last_answer",
+			Confidence: 0.9,
+			Reason:     "user asked to continue the previous answer",
+		},
+	}}
+	localResponder := &stubLocalResponder{localReply: "local fallback should not be used"}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","goal":"discover available models","success_criteria":["actual model list returned"],"steps":[{"id":"probe","title":"first probe","shell":"printf 'need_followup=1\\n'","risk_level":"low","side_effects":[]}]}`),
+			{Content: "还需要继续检查模型列表。", StopReason: "end_turn"},
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","goal":"discover available models","next_batch":"read model list","steps":[{"id":"models","title":"model list","shell":"printf 'models=qwen\\n'","risk_level":"low","side_effects":[]}]}`),
+			{Content: "已继续检查并获取模型列表：qwen。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, localResponder, "查看可用模型\n继续\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("operation follow-up should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(localResponder.localCalls) != 0 {
+		t.Fatalf("operation follow-up should not be swallowed by local responder: %+v", localResponder.localCalls)
+	}
+	if len(r.operationResults) != 2 {
+		t.Fatalf("operation results=%d, want initial + follow-up command rounds: %+v", len(r.operationResults), r.operationResults)
+	}
+	printed := out.String()
+	for _, want := range []string{"need_followup=1", "models=qwen", "qwen"} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("follow-up operation output missing %q:\n%s", want, printed)
+		}
+	}
+}
+
+func TestCommandOperationE2E_LocalFollowupDoesNotHijackAfterPipelineAnswer(t *testing.T) {
+	store := newPolicyStore(t)
+	seedPriorAnswer(t, store, "分析 trace", "trace 分析已经完成。")
+	classifier := &stubTurnPolicyClassifier{policy: TurnPolicy{
+		Route:      RouteLocal,
+		Operation:  "elaborate",
+		Source:     "last_answer",
+		Confidence: 0.9,
+		Reason:     "user asked to continue the previous answer",
+	}}
+	localResponder := &stubLocalResponder{localReply: "继续展开上一条 trace 分析。"}
+	adapter := &scriptedChatAdapter{}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, localResponder, "继续\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	r.lastAnswerOrigin = replAnswerOriginPipeline
+	r.operationResults = []commandOperationResultRecord{{
+		Plan: operation.CommandOperationPlan{ID: "old-op", RequestText: "old operation"},
+		Result: operation.CommandOperationResult{
+			PlanID: "old-op",
+			Status: operation.StatusExecuted,
+		},
+	}}
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("local follow-up after pipeline answer should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(adapter.calls) != 0 {
+		t.Fatalf("pipeline follow-up must not call operation planner just because old operation results exist")
+	}
+	if len(localResponder.localCalls) != 1 {
+		t.Fatalf("local responder calls=%d, want 1", len(localResponder.localCalls))
+	}
+	if !strings.Contains(out.String(), "trace 分析") {
+		t.Fatalf("local pipeline follow-up output missing expected text:\n%s", out.String())
 	}
 }
 

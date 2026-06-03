@@ -782,6 +782,7 @@ func (r *REPL) chitchatDispatch(line, display string) {
 	if result := r.writeLocalMarkdownTranscript(line, response); result.MarkdownPath != "" {
 		r.emitMarkdownTranscriptHints(result)
 	}
+	r.lastAnswerOrigin = replAnswerOriginLocal
 	r.recordTurn(display, line, response, memory.KindChitchat)
 }
 
