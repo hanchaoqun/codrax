@@ -80,6 +80,58 @@ func TestBuildCommandOperationPlanModelConfirmationDoesNotBlockProvenLowRisk(t *
 	}
 }
 
+func TestBuildCommandOperationPlanSystemInfoCommandsAutoEligible(t *testing.T) {
+	plan := BuildCommandOperationPlan(CommandOperationRequest{
+		Text: "show OS memory CPU GPU info",
+		Steps: []CommandStep{{
+			ID:      "os",
+			Program: "sw_vers",
+			Args:    []string{"-productName", "-productVersion", "-buildVersion"},
+		}, {
+			ID:      "cpu",
+			Program: "sysctl",
+			Args:    []string{"-n", "hw.ncpu"},
+		}, {
+			ID:      "mem",
+			Program: "sysctl",
+			Args:    []string{"-n", "hw.memsize"},
+		}, {
+			ID:      "gpu",
+			Program: "system_profiler",
+			Args:    []string{"SPDisplaysDataType", "-detailLevel", "mini"},
+		}},
+	}, DefaultCommandPolicy())
+
+	if plan.Status != StatusReady {
+		t.Fatalf("Status=%q, reason=%s", plan.Status, plan.BlockReason)
+	}
+	if plan.ApprovalMode != ApprovalAutoLowRisk {
+		t.Fatalf("ApprovalMode=%q, want auto_low_risk", plan.ApprovalMode)
+	}
+	for _, step := range plan.Steps {
+		if step.AutoApproval != StepAutoEligible {
+			t.Fatalf("step %s AutoApproval=%q, want eligible", step.ID, step.AutoApproval)
+		}
+	}
+}
+
+func TestBuildCommandOperationPlanSysctlWriteRequiresManual(t *testing.T) {
+	plan := BuildCommandOperationPlan(CommandOperationRequest{
+		Text: "change sysctl",
+		Steps: []CommandStep{{
+			Program: "sysctl",
+			Args:    []string{"-w", "kern.maxfiles=1024"},
+		}},
+	}, DefaultCommandPolicy())
+
+	if plan.Status != StatusReady {
+		t.Fatalf("Status=%q", plan.Status)
+	}
+	if plan.ApprovalMode != ApprovalManual {
+		t.Fatalf("ApprovalMode=%q, want manual", plan.ApprovalMode)
+	}
+}
+
 func TestBuildCommandOperationPlanLowRiskAutoEnabled(t *testing.T) {
 	policy := DefaultCommandPolicy()
 	policy.AutoLowRisk = true

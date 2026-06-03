@@ -392,6 +392,7 @@ func knownProgram(program string) bool {
 	return slices.Contains([]string{
 		"pwd", "ls", "find", "stat", "du", "df", "which", "cat", "head", "tail",
 		"sed", "grep", "rg", "git", "go", "node", "npm", "python", "python3",
+		"uname", "sw_vers", "sysctl", "system_profiler", "nproc", "lscpu", "free", "vm_stat",
 		"mkdir", "touch", "mv", "cp", "rm", "tee", "curl", "wget", "ssh", "scp",
 		"rsync", "brew", "apt", "apt-get", "pip", "pip3", "cargo",
 	}, program)
@@ -413,11 +414,34 @@ func isLowRiskProgramArgs(program string, args []string, policy CommandPolicy) b
 		return slices.Contains([]string{"status", "log", "show", "diff", "branch", "rev-parse"}, args[0])
 	case "go":
 		return len(args) > 0 && slices.Contains([]string{"version", "env", "list"}, args[0])
+	case "uname", "sw_vers", "nproc", "lscpu", "free", "vm_stat", "system_profiler":
+		return !argsContainWriteOrExec(args)
+	case "sysctl":
+		return sysctlArgsReadOnly(args)
 	case "node", "python", "python3", "npm", "pip", "pip3", "brew", "apt", "apt-get":
 		return argsContainAny(args, "--version", "-version", "version")
 	}
 	_ = policy
 	return false
+}
+
+func sysctlArgsReadOnly(args []string) bool {
+	if len(args) == 0 {
+		return true
+	}
+	for _, arg := range args {
+		arg = strings.TrimSpace(arg)
+		if arg == "" {
+			continue
+		}
+		if arg == "-w" || strings.HasPrefix(arg, "-w") || strings.Contains(arg, "=") {
+			return false
+		}
+		if strings.Contains(arg, ">") || arg == "-exec" || arg == "-execdir" || arg == "-delete" {
+			return false
+		}
+	}
+	return true
 }
 
 func normalizeManualDenyPolicy(v, def string) string {
