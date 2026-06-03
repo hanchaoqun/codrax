@@ -12,7 +12,7 @@
 
 - 第一次用 codrax → 直接看 **第 1 章 5 分钟入门**,跟着抄就能问出第一个答案。
 - 想了解日常用法 → 第 2、3 章覆盖 REPL 模式、附加日志、闲聊、本地转换。
-- 想接外部只读工具 / 知识库 → 看 **3.7 MCP 外部工具**。
+- 想接外部工具、知识库或电脑操作 Skills → 看 **3.7 外部工具与外部 Skills**。
 - 想让 codrax 真改代码 → 第 4 章 写模式 `plan → apply → verify`。
 - 想精调或排错 → 第 5–8 章:配置参考、命令参考、排错。
 
@@ -35,7 +35,9 @@
   - [3.4 记忆与会话](#34-记忆与会话)
   - [3.5 一台机器多仓库](#35-一台机器多仓库)
   - [3.6 跨仓 workspace(multi-repo discovery)](#36-跨仓-workspacemulti-repo-discovery)
-  - [3.7 MCP 外部工具](#37-mcp-外部工具)
+  - [3.7 外部工具与外部 Skills](#37-外部工具与外部-skills)
+    - [MCP 外部工具](#mcp-外部工具)
+    - [外部 Skills / Operation Skills](#外部-skills--operation-skills)
 - [4. 写模式 — plan → apply → verify](#4-写模式--plan--apply--verify)
   - [4.1 启用](#41-启用)
   - [4.2 完整流程](#42-完整流程)
@@ -602,7 +604,7 @@ multi_repo_min_files: 1                     # 子仓 file count 下限,过滤空
 - 跨仓问题多 + 子仓总数 5-10 → 调到 3(硬上限,yaml 设更高也强制 3)
 - LRU thrashing 警告(`multigraph: thrashing detected (>5 evictions/60s)`)出现时 → 加 cap 或 `/repos focus`
 
-### `--focus` CLI flag(2026-05-08 新增)
+### `--focus` CLI flag
 
 在非 REPL / 脚本化 / eval 调用里,用 `--focus` 在启动时预 pin 子仓(等价启动后立刻跑 `/repos focus`):
 
@@ -617,7 +619,7 @@ codrax --repo ~/workspace --focus repo-go,repo-py --request "..."
 
 每个值是子仓 **slug 或 RootRel 路径**,通过 `topology.Resolve` 解析,任一形态都可以。匹配不到的 token 会 Warning 提示并丢弃,不阻断 Run。**单仓 / 无 git workspace 静默忽略此 flag**(无 sub-repo 可匹配)。
 
-### `--multi-repo` CLI flag(2026-05-09 新增)
+### `--multi-repo` CLI flag
 
 per-Run 覆盖 `codrax.yaml :: multi_repo_enabled`,无需改 yaml:
 
@@ -672,7 +674,18 @@ multi_repo_enabled: false
 
 ---
 
-## 3.7 MCP 外部工具
+## 3.7 外部工具与外部 Skills
+
+Codrax 有两类外部能力入口:
+
+| 入口 | 适合接什么 | 进入哪条通道 |
+|---|---|---|
+| MCP 外部工具 | 内部知识库、告警系统、缺陷平台、监控快照、trace 预分析服务、规范文档检索器等**只读外部事实来源** | `mcp_resource` 外部观测通道 |
+| 外部 Skills / Operation Skills | 本地脚本、二进制、公司内工具、PPT/文档/表格生成器、浏览器/桌面自动化等**可能有副作用的电脑操作或制品生成能力** | operation provider / operation handoff 通道 |
+
+两类能力都不会伪装成当前源码的 `file:line` citation。MCP 更像“给探索阶段增加外部证据来源”;外部 Skills 更像“经审批执行一个外部工作流或生成制品”。
+
+### MCP 外部工具
 
 MCP(Model Context Protocol)让 codrax 可以接入你自己提供的**只读外部工具**或**只读资源**:例如内部知识库、告警系统、缺陷平台、监控快照、trace 预分析服务、规范文档检索器等。MCP 结果会进入 `mcp_resource` 外部观测通道,不会伪装成当前源码的 `file:line` citation。
 
@@ -1625,7 +1638,7 @@ REPL 实际流程:
 | 把一个长函数拆成两个 | `把 X 里 LongFn 拆成两个函数,逻辑保持等价` |
 | 给现有函数加参数 + 改调用点 | `给 Foo() 加一个可选 timeout 参数,所有调用点默认传 5s` |
 | 重命名一个对外符号 | `把 OldName 重命名为 NewName,同步改导出路径和文档` |
-| 加一个新文件 + 接入注册表 | `新增 internal/mcp/sftp.go,在 cmd/root.go 的 mcp 注册表里挂上` |
+| 加一个新文件 + 接入注册表 | `创建 internal/mcp/sftp.go,在 cmd/root.go 的 mcp 注册表里挂上` |
 | 改 yaml 默认值 | `把 codrax.yaml.example 里 pipeline_max_steps 默认值从 50 改成 80,加注释` |
 
 ### 第 2 步:`/plan show` 审 diff
@@ -2314,7 +2327,7 @@ operation_skills:
 1. `$CODRAX_SETTINGS` 环境变量指向的路径
 2. `<可执行文件目录>/codrax.yaml`(推荐)
 3. `<可执行文件目录>/codrax/codrax.yaml`
-4. 三个历史 `config/` 路径(已 deprecated,启动时打 WARN)
+4. 兼容保留的 `config/` 路径(启动时会提示迁移到推荐位置)
 
 `providers.yaml` 默认在二进制同目录;用 `--providers /path/to/providers.yaml` 覆盖。
 

@@ -238,7 +238,9 @@
         <a href="#34-记忆与会话">3.4 记忆与会话</a>
         <a href="#35-一台机器多仓库">3.5 一台机器多仓库</a>
         <a href="#36-跨仓-workspacemulti-repo-discovery">3.6 跨仓 workspace(multi-repo discovery)</a>
-        <a href="#37-mcp-外部工具">3.7 MCP 外部工具</a>
+        <a href="#37-外部工具与外部-skills">3.7 外部工具与外部 Skills</a>
+        <a href="#mcp-外部工具">MCP 外部工具</a>
+        <a href="#外部-skills-operation-skills">外部 Skills / Operation Skills</a>
         <div class="toc-group">4. 写模式 — plan → apply → verify</div>
         <a href="#工作区单一不变量写模式的核心规则">工作区单一不变量(写模式的核心规则)</a>
         <a href="#41-启用">4.1 启用</a>
@@ -274,7 +276,7 @@
 <ul>
 <li>第一次用 codrax → 直接看 <strong>第 1 章 5 分钟入门</strong>,跟着抄就能问出第一个答案。</li>
 <li>想了解日常用法 → 第 2、3 章覆盖 REPL 模式、附加日志、闲聊、本地转换。</li>
-<li>想接外部只读工具 / 知识库 → 看 <strong>3.7 MCP 外部工具</strong>。</li>
+<li>想接外部工具、知识库或电脑操作 Skills → 看 <strong>3.7 外部工具与外部 Skills</strong>。</li>
 <li>想让 codrax 真改代码 → 第 4 章 写模式 <code>plan → apply → verify</code>。</li>
 <li>想精调或排错 → 第 5–8 章:配置参考、命令参考、排错。</li>
 </ul>
@@ -926,7 +928,7 @@ multi_repo_min_files: 1                     # 子仓 file count 下限,过滤空
 - 默认 2 覆盖典型跨仓场景(一个主仓 + 一个协作仓);3 子仓以上的跨仓调查较少
 - 跨仓问题多 + 子仓总数 5-10 → 调到 3(硬上限,yaml 设更高也强制 3)
 - LRU thrashing 警告(<code>multigraph: thrashing detected (&gt;5 evictions/60s)</code>)出现时 → 加 cap 或 <code>/repos focus</code></p>
-<h3 id="focus-cli-flag2026-05-08-新增"><code>--focus</code> CLI flag(2026-05-08 新增)</h3>
+<h3 id="focus-cli-flag"><code>--focus</code> CLI flag</h3>
 <p>在非 REPL / 脚本化 / eval 调用里,用 <code>--focus</code> 在启动时预 pin 子仓(等价启动后立刻跑 <code>/repos focus</code>):</p>
 <pre><code class="language-bash"># 单仓 pin
 codrax --repo ~/workspace --focus repo-greet-go --request &quot;...&quot;
@@ -936,7 +938,7 @@ codrax --repo ~/workspace --focus repo-go --focus repo-py --request &quot;...&qu
 codrax --repo ~/workspace --focus repo-go,repo-py --request &quot;...&quot;
 </code></pre>
 <p>每个值是子仓 <strong>slug 或 RootRel 路径</strong>,通过 <code>topology.Resolve</code> 解析,任一形态都可以。匹配不到的 token 会 Warning 提示并丢弃,不阻断 Run。<strong>单仓 / 无 git workspace 静默忽略此 flag</strong>(无 sub-repo 可匹配)。</p>
-<h3 id="multi-repo-cli-flag2026-05-09-新增"><code>--multi-repo</code> CLI flag(2026-05-09 新增)</h3>
+<h3 id="multi-repo-cli-flag"><code>--multi-repo</code> CLI flag</h3>
 <p>per-Run 覆盖 <code>codrax.yaml :: multi_repo_enabled</code>,无需改 yaml:</p>
 <pre><code class="language-bash"># 临时启用(yaml 关 / 默认覆盖)
 codrax --repo ~/workspace --multi-repo=true --request &quot;...&quot;
@@ -1041,7 +1043,31 @@ multi_repo_enabled: false
 - ArkTS leak 修复(Phase 0)依然生效(它绕过 MultiGraph 在 <code>IsArkTSProject</code> 内修)</p>
 <p>适用场景:<strong>多仓 + workflow 几乎不跨仓 + 单图行为已熟悉</strong>。但默认 true 已经足够安全(单仓零开销),通常不必关。</p>
 <hr />
-<h2 id="37-mcp-外部工具">3.7 MCP 外部工具</h2>
+<h2 id="37-外部工具与外部-skills">3.7 外部工具与外部 Skills</h2>
+<p>Codrax 有两类外部能力入口:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>入口</th>
+<th>适合接什么</th>
+<th>进入哪条通道</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MCP 外部工具</td>
+<td>内部知识库、告警系统、缺陷平台、监控快照、trace 预分析服务、规范文档检索器等<strong>只读外部事实来源</strong></td>
+<td><code>mcp_resource</code> 外部观测通道</td>
+</tr>
+<tr>
+<td>外部 Skills / Operation Skills</td>
+<td>本地脚本、二进制、公司内工具、PPT/文档/表格生成器、浏览器/桌面自动化等<strong>可能有副作用的电脑操作或制品生成能力</strong></td>
+<td>operation provider / operation handoff 通道</td>
+</tr>
+</tbody>
+</table></div>
+<p>两类能力都不会伪装成当前源码的 <code>file:line</code> citation。MCP 更像“给探索阶段增加外部证据来源”;外部 Skills 更像“经审批执行一个外部工作流或生成制品”。</p>
+<h3 id="mcp-外部工具">MCP 外部工具</h3>
 <p>MCP(Model Context Protocol)让 codrax 可以接入你自己提供的<strong>只读外部工具</strong>或<strong>只读资源</strong>:例如内部知识库、告警系统、缺陷平台、监控快照、trace 预分析服务、规范文档检索器等。MCP 结果会进入 <code>mcp_resource</code> 外部观测通道,不会伪装成当前源码的 <code>file:line</code> citation。</p>
 <h3 id="一句话理解-mcp-在-codrax-里的位置">一句话理解 MCP 在 codrax 里的位置</h3>
 <p>MCP 不是“替代源码分析”的入口,而是给探索阶段增加一组<strong>外部只读证据来源</strong>。默认情况下,codrax 会把 MCP 结果和当前仓库源码一起分析;只有当用户明确说“只看 MCP / 不要看源码 / 不要读取仓库”并且 analyzer 产出 typed 排除策略时,才会关闭当前源码探索。</p>
@@ -2032,7 +2058,7 @@ mcp_servers:
 </tr>
 <tr>
 <td>加一个新文件 + 接入注册表</td>
-<td><code>新增 internal/mcp/sftp.go,在 cmd/root.go 的 mcp 注册表里挂上</code></td>
+<td><code>创建 internal/mcp/sftp.go,在 cmd/root.go 的 mcp 注册表里挂上</code></td>
 </tr>
 <tr>
 <td>改 yaml 默认值</td>
@@ -3192,7 +3218,7 @@ mcp_servers:
 <li><code>$CODRAX_SETTINGS</code> 环境变量指向的路径</li>
 <li><code>&lt;可执行文件目录&gt;/codrax.yaml</code>(推荐)</li>
 <li><code>&lt;可执行文件目录&gt;/codrax/codrax.yaml</code></li>
-<li>三个历史 <code>config/</code> 路径(已 deprecated,启动时打 WARN)</li>
+<li>兼容保留的 <code>config/</code> 路径(启动时会提示迁移到推荐位置)</li>
 </ol>
 <p><code>providers.yaml</code> 默认在二进制同目录;用 <code>--providers /path/to/providers.yaml</code> 覆盖。</p>
 <p><strong>优先级</strong>(低到高):</p>
