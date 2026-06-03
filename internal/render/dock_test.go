@@ -193,6 +193,32 @@ func TestComposeDockRow1_RequestingNoTail(t *testing.T) {
 	}
 }
 
+func TestLightRouteActivityCountdownUsesCurrentTime(t *testing.T) {
+	start := time.Date(2026, 6, 4, 10, 0, 0, 0, time.UTC)
+	state := activityState{
+		kind:          activityLightRoute,
+		detail:        "操作中：获取模型列表",
+		deadline:      start.Add(2 * time.Minute),
+		timeoutBudget: 2 * time.Minute,
+	}
+
+	first := activityPhrase(lightRouteActivityWithCountdown(state, start, "zh"), "zh")
+	later := activityPhrase(lightRouteActivityWithCountdown(state, start.Add(35*time.Second), "zh"), "zh")
+	if !strings.Contains(first, "剩余 2m0s / 超时 2m0s") {
+		t.Fatalf("initial countdown missing: %q", first)
+	}
+	if !strings.Contains(later, "剩余 1m25s / 超时 2m0s") {
+		t.Fatalf("updated countdown missing: %q", later)
+	}
+	if first == later {
+		t.Fatalf("countdown should change over time: first=%q later=%q", first, later)
+	}
+	en := activityPhrase(lightRouteActivityWithCountdown(state, start.Add(time.Minute), "en"), "en")
+	if !strings.Contains(en, "remaining 1m0s / timeout 2m0s") {
+		t.Fatalf("english countdown missing: %q", en)
+	}
+}
+
 func TestComposeDockRow1_RepoMapScanShowsProgressTail(t *testing.T) {
 	plain := stripAnsiEscapes(composeDockRow1(dockRowState{
 		activity:   activityState{kind: activityRepoMapScanning},

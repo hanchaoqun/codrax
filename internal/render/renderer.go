@@ -521,6 +521,30 @@ func (r *Renderer) SetLightRouteActivity(label string) {
 	r.paintDockLocked()
 }
 
+// SetLightRouteActivityDeadline is SetLightRouteActivity plus a live countdown.
+// It is used by local operation execution where there is no pipeline task row,
+// but the user still needs to see that a long-running command has a bounded
+// timeout and how much time remains.
+func (r *Renderer) SetLightRouteActivityDeadline(label string, deadline time.Time, timeoutBudget time.Duration) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.activity = activityState{
+		kind:          activityLightRoute,
+		detail:        strings.TrimSpace(label),
+		deadline:      deadline,
+		timeoutBudget: timeoutBudget,
+	}
+	r.streamTail = ""
+	r.streamChars = 0
+	r.requestModelID = ""
+	r.requestContextTokensEstimate = 0
+	r.requestContextWindowTokens = 0
+	r.paintDockLocked()
+}
+
 // EmitLightRouteSummary prints a "◇ <label> · …" scrollback line
 // directly, without requiring an active dock cycle. Used by the
 // clarify route which never calls StartSpinner (no LLM dispatch).

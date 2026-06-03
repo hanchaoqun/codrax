@@ -1484,6 +1484,26 @@ func (r *REPL) renderOperationProgress(msg string) {
 	}
 }
 
+func (r *REPL) renderOperationStepProgress(step operation.CommandStep) {
+	msg := strings.TrimSpace(commandOperationProgressMsg(r.language, step))
+	if msg == "" {
+		return
+	}
+	logging.Info("[repl/operation] progress: %s", oneLineClamp(msg, 180))
+	if r.renderer == nil || !r.renderer.SpinnerActive() {
+		return
+	}
+	timeout := time.Duration(step.TimeoutMS) * time.Millisecond
+	if timeout <= 0 && r.operationPolicy.TimeoutMS > 0 {
+		timeout = time.Duration(r.operationPolicy.TimeoutMS) * time.Millisecond
+	}
+	if timeout > 0 {
+		r.renderer.SetLightRouteActivityDeadline(msg, time.Now().Add(timeout), timeout)
+		return
+	}
+	r.renderer.SetLightRouteActivity(msg)
+}
+
 func operationRunningSummary(lang string) (string, []string) {
 	if isZh(lang) {
 		return "操作执行", []string{"运行中", "未读仓库"}
@@ -1787,7 +1807,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 				oneLineClamp(commandOperationStepCommand(step), 220),
 				step.RiskLevel,
 				strings.Join(step.SideEffects, ","))
-			r.renderOperationProgress(commandOperationProgressMsg(r.language, step))
+			r.renderOperationStepProgress(step)
 		},
 	}
 	logging.Info("[repl/operation] command execute start plan_id=%s steps=%d approval=%q risk=%q replan_attempt=%d request=%q",

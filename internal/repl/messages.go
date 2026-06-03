@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/operation"
@@ -1573,24 +1572,10 @@ func commandOperationProgressMsg(lang string, step operation.CommandStep) string
 	if title == "" {
 		title = "step"
 	}
-	timeout := commandOperationStepTimeoutLabel(step)
 	if isZh(lang) {
-		if timeout != "" {
-			return fmt.Sprintf("操作中：%s（超时 %s）", title, timeout)
-		}
 		return fmt.Sprintf("操作中：%s", title)
 	}
-	if timeout != "" {
-		return fmt.Sprintf("Operating: %s (timeout %s)", title, timeout)
-	}
 	return fmt.Sprintf("Operating: %s", title)
-}
-
-func commandOperationStepTimeoutLabel(step operation.CommandStep) string {
-	if step.TimeoutMS <= 0 {
-		return ""
-	}
-	return (time.Duration(step.TimeoutMS) * time.Millisecond).String()
 }
 
 func providerOperationProgressMsg(lang string, pending pendingProviderOperation) string {

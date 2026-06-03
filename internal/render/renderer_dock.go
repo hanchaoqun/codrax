@@ -1006,15 +1006,15 @@ func (r *Renderer) recordLLMRequestTelemetry(ev Event) {
 //
 // Caller MUST hold r.mu.
 func (r *Renderer) composeCurrentDockRows() [dockRowCount]string {
+	now := time.Now()
 	state := dockRowState{
-		activity:   r.activity,
+		activity:   lightRouteActivityWithCountdown(r.activity, now, r.lang),
 		streamTail: r.streamTail,
 		frame:      spinnerFrames[r.animFrame%len(spinnerFrames)],
 		lang:       r.lang,
 		cancelHint: r.cancelHint,
 		parallel:   r.parallel.snapshot(),
 	}
-	now := time.Now()
 	if !r.startTime.IsZero() {
 		state.totalElapsed = truncDurationToString(now.Sub(r.startTime))
 	}

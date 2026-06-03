@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // activityKind enumerates the row-1 status word the dock displays.
@@ -47,6 +48,11 @@ type activityState struct {
 	// or the active tool name (callingTool) or retry attempt info.
 	// Empty for kinds that have no per-instance detail.
 	detail string
+	// deadline/timeoutBudget are populated by light-route operations that
+	// run outside the normal pipeline task rows. They let the live dock show
+	// a real countdown instead of a static "timeout 2m0s" hint.
+	deadline      time.Time
+	timeoutBudget time.Duration
 	// retryAttempt + retryDelaySec populated only for activityRetrying;
 	// rendered as "重试中（第 N 次，等 Xs）".
 	retryAttempt  int
@@ -155,6 +161,47 @@ func activityPhrase(s activityState, lang string) string {
 		return "Cancelled"
 	}
 	return ""
+}
+
+func lightRouteActivityWithCountdown(s activityState, now time.Time, lang string) activityState {
+	if s.kind != activityLightRoute || s.deadline.IsZero() {
+		return s
+	}
+	remaining := s.deadline.Sub(now)
+	if remaining < 0 {
+		remaining = 0
+	}
+	remainingLabel := ceilDurationSecond(remaining).String()
+	budgetLabel := ""
+	if s.timeoutBudget > 0 {
+		budgetLabel = ceilDurationSecond(s.timeoutBudget).String()
+	}
+	base := strings.TrimSpace(s.detail)
+	if base == "" {
+		base = activityPhrase(activityState{kind: activityLightRoute}, lang)
+	}
+	if isZh(lang) {
+		if budgetLabel != "" {
+			s.detail = fmt.Sprintf("%s（剩余 %s / 超时 %s）", base, remainingLabel, budgetLabel)
+		} else {
+			s.detail = fmt.Sprintf("%s（剩余 %s）", base, remainingLabel)
+		}
+		return s
+	}
+	if budgetLabel != "" {
+		s.detail = fmt.Sprintf("%s (remaining %s / timeout %s)", base, remainingLabel, budgetLabel)
+	} else {
+		s.detail = fmt.Sprintf("%s (remaining %s)", base, remainingLabel)
+	}
+	return s
+}
+
+func ceilDurationSecond(d time.Duration) time.Duration {
+	if d <= 0 {
+		return 0
+	}
+	const sec = time.Second
+	return ((d + sec - time.Nanosecond) / sec) * sec
 }
 
 // activityHasStreamTail reports whether this kind exposes a `▸ tail`
