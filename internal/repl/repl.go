@@ -576,6 +576,7 @@ type REPL struct {
 	pendingOperation            *operation.CommandOperationPlan
 	pendingCommandClarification *pendingCommandClarification
 	pendingProviderOperation    *pendingProviderOperation
+	providerWorkflow            *operation.WorkflowInstance
 	operationHistory            []operation.CommandOperationPlan
 	operationResults            []commandOperationResultRecord
 	providerOperationResults    []providerOperationResultRecord
@@ -1244,7 +1245,7 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 		RequiresConfirmation: policy.RequiresConfirmation,
 	}, r.operationProviders)
 	if plan.Provider != "" && plan.ProviderTool != "" {
-		r.pendingProviderOperation = &pendingProviderOperation{
+		pending := pendingProviderOperation{
 			Plan: plan,
 			Request: operation.Request{
 				Text:                 line,
@@ -1259,8 +1260,11 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 			},
 			Display: display,
 		}
+		r.startProviderWorkflow(&pending)
+		r.pendingProviderOperation = &pending
 	} else {
 		r.pendingProviderOperation = nil
+		r.providerWorkflow = nil
 	}
 	logging.Info("[repl/operation] planned operation kind=%q target=%q risk=%q needs_repo=%t executable=%t provider=%q missing=%q",
 		oneLineClamp(plan.Kind, 80),
@@ -1547,12 +1551,13 @@ type pendingCommandClarification struct {
 }
 
 type pendingProviderOperation struct {
-	Plan          operation.Plan
-	Request       operation.Request
-	Display       string
-	Input         map[string]any
-	WorkflowState operation.WorkflowState
-	WorkflowDepth int
+	Plan             operation.Plan
+	Request          operation.Request
+	Display          string
+	Input            map[string]any
+	WorkflowState    operation.WorkflowState
+	WorkflowDepth    int
+	WorkflowActionID string
 }
 
 func (r *REPL) appendCommandOperationResult(plan operation.CommandOperationPlan, result operation.CommandOperationResult) {
@@ -5235,15 +5240,46 @@ func (r *REPL) executeLocalOperationSkillProvider(ctx context.Context, pending p
 }
 
 const maxOperationProviderWorkflowDepth = 6
+const maxOperationProviderWorkflowActions = 24
+
+func (r *REPL) startProviderWorkflow(pending *pendingProviderOperation) {
+	if pending == nil {
+		return
+	}
+	wfID := fmt.Sprintf("provider-workflow-%d", len(r.providerOperationResults)+1)
+	wf := operation.NewWorkflowInstance(wfID, pending.Request.Text, maxOperationProviderWorkflowDepth, maxOperationProviderWorkflowActions)
+	action, ok, diag := wf.AddAction("", "", operation.WorkflowAction{
+		Plan:          pending.Plan,
+		Request:       pending.Request,
+		Input:         pending.Input,
+		WorkflowState: pending.WorkflowState,
+		Depth:         pending.WorkflowDepth,
+		Status:        operation.WorkflowActionPending,
+	})
+	if !ok {
+		logging.Warning("[repl/operation] create provider workflow failed: %s", diag)
+		r.providerWorkflow = nil
+		return
+	}
+	pending.WorkflowActionID = action.ID
+	r.providerWorkflow = &wf
+}
 
 func (r *REPL) queueProviderNextAction(pending *pendingProviderOperation, result *providerOperationResult) {
-	if pending == nil || result == nil || result.Status != operation.StatusExecuted || len(result.NextActions) == 0 {
+	if pending == nil || result == nil {
+		return
+	}
+	r.completeProviderWorkflowAction(pending, result)
+	if result.Status != operation.StatusExecuted || len(result.NextActions) == 0 {
+		r.advanceProviderWorkflow()
 		return
 	}
 	if pending.WorkflowDepth >= maxOperationProviderWorkflowDepth {
 		result.WorkflowDiagnostics = append(result.WorkflowDiagnostics, fmt.Sprintf("workflow depth limit %d reached; no next action was queued", maxOperationProviderWorkflowDepth))
+		r.advanceProviderWorkflow()
 		return
 	}
+	queued := 0
 	for i, action := range result.NextActions {
 		plan, req, diag, ok := r.providerPlanFromWorkflowAction(pending, action)
 		if diag != "" {
@@ -5252,7 +5288,7 @@ func (r *REPL) queueProviderNextAction(pending *pendingProviderOperation, result
 		if !ok {
 			continue
 		}
-		r.pendingProviderOperation = &pendingProviderOperation{
+		nextPending := pendingProviderOperation{
 			Plan:          plan,
 			Request:       req,
 			Display:       firstNonEmptyString(action.Request, pending.Display, pending.Request.Text),
@@ -5260,9 +5296,132 @@ func (r *REPL) queueProviderNextAction(pending *pendingProviderOperation, result
 			WorkflowState: result.WorkflowState,
 			WorkflowDepth: pending.WorkflowDepth + 1,
 		}
-		result.WorkflowDiagnostics = append(result.WorkflowDiagnostics, fmt.Sprintf("queued next workflow action provider=%s kind=%s; run /approve to continue", plan.Provider, plan.Kind))
+		if r.enqueueProviderWorkflowAction(pending, &nextPending, action, operation.WorkflowEdgeNext, result) {
+			queued++
+		}
+	}
+	if queued > 0 {
+		result.WorkflowDiagnostics = append(result.WorkflowDiagnostics, fmt.Sprintf("queued next workflow action(s): %d; run /approve to continue", queued))
+	}
+	r.advanceProviderWorkflow()
+}
+
+func (r *REPL) completeProviderWorkflowAction(pending *pendingProviderOperation, result *providerOperationResult) {
+	if r.providerWorkflow == nil || pending == nil || strings.TrimSpace(pending.WorkflowActionID) == "" {
 		return
 	}
+	for i := range r.providerWorkflow.Actions {
+		if r.providerWorkflow.Actions[i].ID != pending.WorkflowActionID {
+			continue
+		}
+		switch result.Status {
+		case operation.StatusExecuted:
+			r.providerWorkflow.Actions[i].Status = operation.WorkflowActionExecuted
+		case operation.StatusFailed:
+			r.providerWorkflow.Actions[i].Status = operation.WorkflowActionFailed
+		default:
+			r.providerWorkflow.Actions[i].Status = operation.WorkflowActionSkipped
+		}
+		if len(result.WorkflowDiagnostics) > 0 {
+			r.providerWorkflow.Actions[i].Diagnostics = append(r.providerWorkflow.Actions[i].Diagnostics, result.WorkflowDiagnostics...)
+		}
+		break
+	}
+	r.removeProviderWorkflowQueueID(pending.WorkflowActionID)
+}
+
+func (r *REPL) enqueueProviderWorkflowAction(parent *pendingProviderOperation, pending *pendingProviderOperation, suggested operation.WorkflowNextAction, edgeKind operation.WorkflowEdgeKind, result *providerOperationResult) bool {
+	if pending == nil {
+		return false
+	}
+	if r.providerWorkflow == nil {
+		r.pendingProviderOperation = pending
+		return true
+	}
+	action, ok, diag := r.providerWorkflow.AddAction(parent.WorkflowActionID, edgeKind, operation.WorkflowAction{
+		SourceProvider: firstNonEmptyString(parent.Plan.Provider, parent.Request.Source),
+		NextAction:     suggested,
+		Plan:           pending.Plan,
+		Request:        pending.Request,
+		Input:          pending.Input,
+		WorkflowState:  pending.WorkflowState,
+		Depth:          pending.WorkflowDepth,
+		Status:         operation.WorkflowActionQueued,
+	})
+	if diag != "" {
+		result.WorkflowDiagnostics = append(result.WorkflowDiagnostics, diag)
+	}
+	if !ok {
+		return false
+	}
+	pending.WorkflowActionID = action.ID
+	return true
+}
+
+func (r *REPL) advanceProviderWorkflow() {
+	if r.providerWorkflow == nil {
+		return
+	}
+	for len(r.providerWorkflow.Queue) > 0 {
+		id := strings.TrimSpace(r.providerWorkflow.Queue[0])
+		action, ok := r.providerWorkflow.ActionByID(id)
+		if !ok {
+			r.providerWorkflow.Queue = r.providerWorkflow.Queue[1:]
+			continue
+		}
+		if action.Status != operation.WorkflowActionQueued && action.Status != operation.WorkflowActionPending {
+			r.providerWorkflow.Queue = r.providerWorkflow.Queue[1:]
+			continue
+		}
+		r.providerWorkflow.CurrentID = id
+		r.setProviderWorkflowActionStatus(id, operation.WorkflowActionPending)
+		r.pendingProviderOperation = r.pendingProviderOperationFromWorkflowAction(action)
+		return
+	}
+	r.providerWorkflow.CurrentID = ""
+	r.pendingProviderOperation = nil
+}
+
+func (r *REPL) pendingProviderOperationFromWorkflowAction(action operation.WorkflowAction) *pendingProviderOperation {
+	return &pendingProviderOperation{
+		Plan:             action.Plan,
+		Request:          action.Request,
+		Display:          firstNonEmptyString(action.Request.Text, action.NextAction.Request),
+		Input:            action.Input,
+		WorkflowState:    action.WorkflowState,
+		WorkflowDepth:    action.Depth,
+		WorkflowActionID: action.ID,
+	}
+}
+
+func (r *REPL) setProviderWorkflowActionStatus(id string, status operation.WorkflowActionStatus) {
+	if r.providerWorkflow == nil {
+		return
+	}
+	for i := range r.providerWorkflow.Actions {
+		if r.providerWorkflow.Actions[i].ID == id {
+			r.providerWorkflow.Actions[i].Status = status
+			return
+		}
+	}
+}
+
+func (r *REPL) removeProviderWorkflowQueueID(id string) {
+	if r.providerWorkflow == nil {
+		return
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return
+	}
+	filtered := r.providerWorkflow.Queue[:0]
+	for _, existing := range r.providerWorkflow.Queue {
+		if strings.TrimSpace(existing) == id {
+			continue
+		}
+		filtered = append(filtered, existing)
+	}
+	r.providerWorkflow.Queue = filtered
 }
 
 func (r *REPL) providerPlanFromWorkflowAction(pending *pendingProviderOperation, action operation.WorkflowNextAction) (operation.Plan, operation.Request, string, bool) {
@@ -5910,6 +6069,7 @@ func (r *REPL) handleCancelCmd(line string) {
 	if r.pendingProviderOperation != nil {
 		plan := r.pendingProviderOperation.Plan
 		r.pendingProviderOperation = nil
+		r.providerWorkflow = nil
 		r.info(operationCancelledMsg(r.language, firstNonEmptyString(plan.Provider, plan.Kind)))
 		return
 	}
@@ -6071,6 +6231,7 @@ func (r *REPL) handleRejectCmd(line string) {
 	if r.pendingProviderOperation != nil {
 		plan := r.pendingProviderOperation.Plan
 		r.pendingProviderOperation = nil
+		r.providerWorkflow = nil
 		reason := strings.TrimSpace(strings.TrimPrefix(line, "/reject"))
 		r.info(operationRejectedMsg(r.language, firstNonEmptyString(plan.Provider, plan.Kind), reason))
 		return

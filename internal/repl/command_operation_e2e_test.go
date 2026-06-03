@@ -92,6 +92,41 @@ func TestOperationProviderLocalSkillFakeHelper(t *testing.T) {
 	}
 	var payload map[string]any
 	_ = json.NewDecoder(os.Stdin).Decode(&payload)
+	if os.Getenv("CODRAX_REPL_FAKE_LOCAL_SKILL_CHAIN_MULTI") == "1" {
+		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
+			"success":       true,
+			"summary":       "manual reader extracted two deck sections",
+			"artifact_refs": []string{"out/manual-notes.md"},
+			"next_actions": []map[string]any{
+				{
+					"provider":              "skill:ppt_builder",
+					"operation_kind":        "presentation_generation",
+					"target_surface":        "slides",
+					"risk_level":            "medium",
+					"side_effects":          []string{"local_file_write"},
+					"requires_confirmation": true,
+					"request":               "build main slides",
+					"input":                 map[string]any{"source_payload_ref": "out/manual-notes.md"},
+				},
+				{
+					"provider":              "skill:ppt_builder",
+					"operation_kind":        "presentation_generation",
+					"target_surface":        "slides",
+					"risk_level":            "medium",
+					"side_effects":          []string{"local_file_write"},
+					"requires_confirmation": true,
+					"request":               "build appendix slides",
+					"input":                 map[string]any{"source_payload_ref": "out/appendix-notes.md"},
+				},
+			},
+			"workflow_state": map[string]any{
+				"workflow_id": "wf-manual-deck",
+				"step":        "manual_extracted",
+				"return_to":   "skill:manual_reader",
+			},
+		})
+		return
+	}
 	if os.Getenv("CODRAX_REPL_FAKE_LOCAL_SKILL_CHAIN_A") == "1" {
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{
 			"success":       true,
@@ -714,6 +749,118 @@ func TestOperationProviderLocalSkillQueuesWorkflowNextAction(t *testing.T) {
 	} {
 		if !strings.Contains(renderedMemory, want) {
 			t.Fatalf("workflow memory missing %q:\n%s", want, renderedMemory)
+		}
+	}
+}
+
+func TestOperationProviderLocalSkillQueuesMultipleWorkflowNextActionsSerially(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: true,
+		Operation:            "presentation_generation",
+		OperationKind:        "presentation_generation",
+		Source:               "current_message",
+		RiskLevel:            "medium",
+		TargetSurface:        "slides",
+		SideEffects:          []string{"local_file_write"},
+		Confidence:           0.9,
+		Reason:               "user asked for a chained presentation workflow",
+	}}
+	yes := true
+	timeoutMS := 3000
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "根据说明生成一份 PPT\n/approve\n/approve\n/approve\n/exit\n")
+	r.operationEnabled = true
+	r.runtimeAnchor = t.TempDir()
+	r.operationSkillConfigs = []types.OperationSkillConfig{
+		{
+			Name:                          "manual_reader",
+			OperationKinds:                []string{"presentation_generation"},
+			OperationSurfaces:             []string{"slides"},
+			OperationSideEffects:          []string{"local_file_write"},
+			OperationRequiresConfirmation: &yes,
+			OperationLazyStart:            &yes,
+			Command:                       os.Args[0],
+			Args:                          []string{"-test.run=TestOperationProviderLocalSkillFakeHelper"},
+			Env: map[string]string{
+				"CODRAX_REPL_FAKE_LOCAL_SKILL":             "1",
+				"CODRAX_REPL_FAKE_LOCAL_SKILL_CHAIN_MULTI": "1",
+			},
+			InputMode: "stdin_json",
+			TimeoutMS: &timeoutMS,
+		},
+		{
+			Name:                          "ppt_builder",
+			OperationKinds:                []string{"presentation_generation"},
+			OperationSurfaces:             []string{"slides"},
+			OperationSideEffects:          []string{"local_file_write"},
+			OperationRequiresConfirmation: &yes,
+			OperationLazyStart:            &yes,
+			Command:                       os.Args[0],
+			Args:                          []string{"-test.run=TestOperationProviderLocalSkillFakeHelper"},
+			Env: map[string]string{
+				"CODRAX_REPL_FAKE_LOCAL_SKILL":         "1",
+				"CODRAX_REPL_FAKE_LOCAL_SKILL_CHAIN_B": "1",
+			},
+			InputMode: "stdin_json",
+			TimeoutMS: &timeoutMS,
+		},
+	}
+	r.operationProviders = []operation.ProviderInfo{
+		{
+			Name:         "skill:manual_reader",
+			Kind:         "presentation_generation",
+			Surfaces:     []string{"slides"},
+			SideEffects:  []string{"local_file_write"},
+			RequiresGate: true,
+			ToolName:     "run",
+			Source:       "skill",
+			LazyStart:    true,
+		},
+		{
+			Name:         "skill:ppt_builder",
+			Kind:         "presentation_generation",
+			Surfaces:     []string{"slides"},
+			SideEffects:  []string{"local_file_write"},
+			RequiresGate: true,
+			ToolName:     "run",
+			Source:       "skill",
+			LazyStart:    true,
+		},
+	}
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("multi-action workflow should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if r.pendingProviderOperation != nil {
+		t.Fatalf("all queued workflow actions should be consumed: %+v", r.pendingProviderOperation)
+	}
+	if r.providerWorkflow == nil {
+		t.Fatal("workflow instance should be retained for status/handoff inspection")
+	}
+	if len(r.providerWorkflow.Actions) != 3 || len(r.providerWorkflow.Edges) != 2 {
+		t.Fatalf("workflow graph sizes actions=%d edges=%d wf=%+v", len(r.providerWorkflow.Actions), len(r.providerWorkflow.Edges), r.providerWorkflow)
+	}
+	printed := out.String()
+	for _, want := range []string{
+		"queued next workflow action(s): 2",
+		"ppt builder consumed out/manual-notes.md",
+		"ppt builder consumed out/appendix-notes.md",
+	} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("multi-action workflow output missing %q:\n%s", want, printed)
+		}
+	}
+	handoff := r.renderCommandOperationHandoff()
+	for _, want := range []string{
+		"request=\"build main slides\"",
+		"request=\"build appendix slides\"",
+		"provider=\"skill:ppt_builder\"",
+	} {
+		if !strings.Contains(handoff, want) {
+			t.Fatalf("multi-action workflow handoff missing %q:\n%s", want, handoff)
 		}
 	}
 }
