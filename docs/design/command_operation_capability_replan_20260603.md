@@ -192,5 +192,8 @@ flexible decoding and repair path.
 
 - [x] Run `go test ./internal/operation ./internal/repl`.
 - [x] Run focused command-operation E2E tests.
-- [ ] Run a real-model REPL smoke test with a simple command.
-- [ ] Push each batch.
+- [x] Run a real-model REPL smoke test with a simple command.
+      - PTY REPL smoke: `请作为电脑操作执行命令 go version，查询本机 go 版本`
+        produced a low-risk command plan, waited for `/approve`, then executed
+        `go version` and returned the local Go version.
+- [x] Push each batch.
