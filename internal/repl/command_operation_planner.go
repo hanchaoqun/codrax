@@ -23,6 +23,10 @@ type CommandOperationPlannerWithSnapshot interface {
 	PlanCommandOperationWithSnapshot(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, snapshot operation.CapabilitySnapshot) (operation.CommandOperationRequest, error)
 }
 
+type CommandOperationPlannerWithHandoff interface {
+	PlanCommandOperationWithHandoff(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, snapshot operation.CapabilitySnapshot, recentOperationContext string) (operation.CommandOperationRequest, error)
+}
+
 type CommandOperationReplanner interface {
 	ReplanCommandOperation(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, snapshot operation.CapabilitySnapshot, previous operation.CommandOperationPlan, result operation.CommandOperationResult) (operation.CommandOperationRequest, error)
 }
@@ -115,7 +119,11 @@ Hard rules:
 - This is not source-code investigation, trace analysis, or write-mode code editing. Only produce command-operation plans.
 - Use capability_snapshot when present. Prefer commands shown as available. If a needed tool is absent, either ask for clarification or plan a safe check/install workflow when the user explicitly asked for installation.
 - Do not invent installed tools that are absent from capability_snapshot unless the user explicitly named a custom command or requested installing it.
-- For replan requests, use the failed step output to adjust only the command plan. Do not repeat already-successful steps unless required. If the fix expands risk or side effects, set requires_confirmation=true.
+- For unfamiliar software or command-line tools, prefer safe discovery steps such as --help, help, version, or documentation reads before planning risky or irreversible actions. If exact usage is still unclear after discovery, ask a clarification question instead of guessing flags.
+- Use recent_operation_context when present. It contains prior command-operation observations from this REPL: command outputs, extracted large-file summaries, failed attempts, and payload refs. Treat it as external observation, not source-code evidence.
+- For large-file or unfamiliar-tool workflows, use prior extraction/search/help outputs to choose the next targeted command. If only a payload_ref is available, plan a bounded follow-up read/search/summarize command instead of dumping or reprocessing the whole file.
+- For extraction requests, shape the command output to the user's requested item(s) with bounded filters (for example awk/sed/perl/head/tail/rg context) instead of dumping an entire section when a smaller exact result is requested.
+- For replan requests, use the failed step output to adjust only the command plan. The failed command already ran; do not include that failed command again unless the user explicitly asked to retry the same failed command after seeing the failure. Do not repeat already-successful steps unless required. If the fix expands risk or side effects, set requires_confirmation=true.
 
 Risk hints:
 - Read-only inspection (pwd, ls, which, version, git status/log/show/diff, grep/rg/cat/head/tail) is low risk.
@@ -129,11 +137,16 @@ func (p *llmCommandOperationPlanner) PlanCommandOperation(ctx context.Context, u
 }
 
 func (p *llmCommandOperationPlanner) PlanCommandOperationWithSnapshot(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, snapshot operation.CapabilitySnapshot) (operation.CommandOperationRequest, error) {
+	return p.PlanCommandOperationWithHandoff(ctx, userLine, repoRoot, policy, snapshot, "")
+}
+
+func (p *llmCommandOperationPlanner) PlanCommandOperationWithHandoff(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, snapshot operation.CapabilitySnapshot, recentOperationContext string) (operation.CommandOperationRequest, error) {
 	return p.planCommandOperation(ctx, commandOperationPlannerRequest{
-		UserLine: userLine,
-		RepoRoot: repoRoot,
-		Policy:   policy,
-		Snapshot: snapshot,
+		UserLine:               userLine,
+		RepoRoot:               repoRoot,
+		Policy:                 policy,
+		Snapshot:               snapshot,
+		RecentOperationContext: recentOperationContext,
 	})
 }
 
@@ -150,13 +163,14 @@ func (p *llmCommandOperationPlanner) ReplanCommandOperation(ctx context.Context,
 }
 
 type commandOperationPlannerRequest struct {
-	UserLine     string
-	RepoRoot     string
-	Policy       TurnPolicy
-	Snapshot     operation.CapabilitySnapshot
-	PreviousPlan operation.CommandOperationPlan
-	Result       operation.CommandOperationResult
-	Replan       bool
+	UserLine               string
+	RepoRoot               string
+	Policy                 TurnPolicy
+	Snapshot               operation.CapabilitySnapshot
+	RecentOperationContext string
+	PreviousPlan           operation.CommandOperationPlan
+	Result                 operation.CommandOperationResult
+	Replan                 bool
 }
 
 func (p *llmCommandOperationPlanner) planCommandOperation(ctx context.Context, req commandOperationPlannerRequest) (operation.CommandOperationRequest, error) {
@@ -182,9 +196,16 @@ func (p *llmCommandOperationPlanner) planCommandOperation(ctx context.Context, r
 		b.WriteString(rendered)
 		b.WriteString("\n")
 	}
+	if strings.TrimSpace(req.RecentOperationContext) != "" {
+		b.WriteString("\n## recent_operation_context\n")
+		b.WriteString("Recent command-operation observations from this REPL. Use only when relevant to the current request. Payload refs indicate full bounded artifacts; plan targeted follow-up reads/searches when the preview is insufficient.\n")
+		b.WriteString(strings.TrimSpace(req.RecentOperationContext))
+		b.WriteString("\n")
+	}
 	if req.Replan {
 		b.WriteString("\n## replan_context\n")
 		b.WriteString("The previous approved command plan failed. Produce a revised typed plan using the same schema.\n")
+		b.WriteString("Do not include the failed command again; it already ran. Plan only the corrective next step unless a real retry is required.\n")
 		b.WriteString(renderCommandPlanForPrompt(req.PreviousPlan))
 		b.WriteString("\n")
 		b.WriteString(renderCommandResultForPrompt(req.Result))

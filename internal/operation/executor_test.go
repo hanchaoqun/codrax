@@ -108,6 +108,42 @@ func TestCommandExecutorWritesTruncatedOutputRef(t *testing.T) {
 	}
 }
 
+func TestCommandExecutorWritesRefForPanelClampedOutput(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell command differs on Windows")
+	}
+	dir := t.TempDir()
+	policy := DefaultCommandPolicy()
+	policy.OutputPreviewBytes = operationPanelPreviewRefRunes + 2048
+	executor := CommandExecutor{Policy: policy, OutputDir: dir}
+	plan := CommandOperationPlan{
+		ID:           "op-panel-ref",
+		Status:       StatusReady,
+		ApprovalMode: ApprovalManual,
+		WorkDir:      ".",
+		Steps: []CommandStep{{
+			ID:        "step-1",
+			Shell:     "yes x | tr -d '\\n' | head -c 3000",
+			TimeoutMS: 30_000,
+		}},
+	}
+
+	result := executor.Execute(context.Background(), plan)
+	if result.Status != StatusExecuted {
+		t.Fatalf("Status=%q result=%+v", result.Status, result)
+	}
+	step := result.StepResults[0]
+	if step.PayloadRef == "" {
+		t.Fatalf("expected payload ref for output that REPL panel will clamp: %+v", step)
+	}
+	if !strings.HasPrefix(step.PayloadRef, dir) {
+		t.Fatalf("payload ref %q not under output dir %q", step.PayloadRef, dir)
+	}
+	if !strings.Contains(step.OutputPreview, strings.Repeat("x", 256)) {
+		t.Fatalf("preview did not preserve command output: %q", step.OutputPreview)
+	}
+}
+
 func TestCommandExecutorTimeout(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell command differs on Windows")

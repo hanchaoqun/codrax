@@ -572,6 +572,63 @@ func TestClassifyPolicy_OperationCompatJSON(t *testing.T) {
 	}
 }
 
+func TestClassifyPolicy_TeachesUnsafeOperationRoute(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			turnPolicyResp(`{"route":"operation","needs_repo_access":false,"needs_operation_access":true,"operation":"computer_operation","operation_kind":"computer_operation","source":"current_message","confidence":0.91,"reason":"dangerous operation should be blocked by operation policy","risk_level":"high","side_effects":["destructive"],"target_surface":"desktop","requires_confirmation":true}`),
+		},
+	}
+	c := &llmChitchatClassifier{adapter: adapter}
+
+	policy, err := c.ClassifyPolicy(context.Background(), "dangerous command request", "", false)
+	if err != nil {
+		t.Fatalf("ClassifyPolicy: %v", err)
+	}
+	if policy.Route != RouteOperation || policy.RiskLevel != "high" {
+		t.Fatalf("policy=%+v, want high-risk operation route", policy)
+	}
+	if len(adapter.calls) != 1 || len(adapter.calls[0].messages) == 0 {
+		t.Fatalf("missing classifier call capture: %+v", adapter.calls)
+	}
+	system := adapter.calls[0].messages[0].Content
+	for _, want := range []string{
+		"High-risk or forbidden command-operation requests still use",
+		"deterministic operation policy will block dangerous commands",
+		"Do not reroute unsafe computer-operation requests into repo/source",
+	} {
+		if !strings.Contains(system, want) {
+			t.Fatalf("classifier system prompt missing %q:\n%s", want, system)
+		}
+	}
+}
+
+func TestClassifyPolicy_TeachesExplicitFileExtractionOperation(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			turnPolicyResp(`{"route":"operation","needs_repo_access":false,"needs_operation_access":true,"operation":"computer_operation","operation_kind":"computer_operation","source":"current_message","confidence":0.88,"reason":"explicit computer-operation file extraction","risk_level":"low","side_effects":[],"target_surface":"desktop","requires_confirmation":false}`),
+		},
+	}
+	c := &llmChitchatClassifier{adapter: adapter}
+
+	policy, err := c.ClassifyPolicy(context.Background(), "请作为电脑操作读取 docs/design/foo.md，提取某段任务，不要分析源码", "", false)
+	if err != nil {
+		t.Fatalf("ClassifyPolicy: %v", err)
+	}
+	if policy.Route != RouteOperation || policy.NeedsRepoAccess {
+		t.Fatalf("policy=%+v, want operation without repo access", policy)
+	}
+	system := adapter.calls[0].messages[0].Content
+	for _, want := range []string{
+		"Explicit command-operation file reads/searches/extractions",
+		"even when the file path is inside",
+		"请作为电脑操作读取 docs/design/foo.md",
+	} {
+		if !strings.Contains(system, want) {
+			t.Fatalf("classifier system prompt missing %q:\n%s", want, system)
+		}
+	}
+}
+
 // ─── Layer 3: dispatch() full Loop ─────────────────────────────
 
 // TestTurnPolicyDispatch_LocalTransformReusesAnswer is the marquee

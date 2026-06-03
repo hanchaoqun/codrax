@@ -125,6 +125,59 @@ func TestCommandOperationPlannerIncludesCapabilitySnapshot(t *testing.T) {
 	}
 }
 
+func TestCommandOperationPlannerIncludesRecentOperationHandoff(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"s1","title":"use discovered option","program":"demo-tool","args":["--input","a.txt","--format","json"],"risk_level":"low","side_effects":[]}]}`),
+		},
+	}
+	planner, ok := NewCommandOperationPlanner(adapter).(CommandOperationPlannerWithHandoff)
+	if !ok {
+		t.Fatal("planner should support operation handoff context")
+	}
+	handoff := `operation_result plan_id=op-help status=executed request="查看 demo-tool 帮助"
+  step id=s1 cmd="demo-tool --help" status=executed exit_code=0 timed_out=false error="" output_preview="Usage: demo-tool --input FILE --format json" payload_ref=/tmp/codrax-operation/help.txt
+operation_result plan_id=op-extract status=executed request="从大文件里提取关键错误"
+  step id=s1 cmd="rg ERROR huge.log" status=executed exit_code=0 timed_out=false error="" output_preview="large_file_summary: ERROR E42 appears around line 8842; next inspect --context 20" payload_ref=/tmp/codrax-operation/huge-log-errors.txt`
+	_, err := planner.PlanCommandOperationWithHandoff(context.Background(), "用 demo-tool 输出 json", "/repo", TurnPolicy{
+		Operation:     "computer_operation",
+		OperationKind: "computer_operation",
+		RiskLevel:     "low",
+	}, operation.CapabilitySnapshot{}, handoff)
+	if err != nil {
+		t.Fatalf("PlanCommandOperationWithHandoff: %v", err)
+	}
+	if len(adapter.calls) != 1 {
+		t.Fatalf("Chat calls=%d, want 1", len(adapter.calls))
+	}
+	user := ""
+	for i := len(adapter.calls[0].messages) - 1; i >= 0; i-- {
+		if adapter.calls[0].messages[i].Role == "user" {
+			user = adapter.calls[0].messages[i].Content
+			break
+		}
+	}
+	for _, want := range []string{
+		"## recent_operation_context",
+		"demo-tool --help",
+		"Usage: demo-tool --input FILE --format json",
+		"payload_ref=/tmp/codrax-operation/help.txt",
+		"large_file_summary: ERROR E42 appears around line 8842",
+		"payload_ref=/tmp/codrax-operation/huge-log-errors.txt",
+	} {
+		if !strings.Contains(user, want) {
+			t.Fatalf("planner request missing %q:\n%s", want, user)
+		}
+	}
+	allMessages := ""
+	for _, msg := range adapter.calls[0].messages {
+		allMessages += "\n" + msg.Content
+	}
+	if !strings.Contains(allMessages, "For extraction requests, shape the command output") {
+		t.Fatalf("planner prompt missing extraction-output shaping guidance:\n%s", allMessages)
+	}
+}
+
 func TestCommandOperationReplannerIncludesFailureContext(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
@@ -182,6 +235,7 @@ func TestCommandOperationReplannerIncludesFailureContext(t *testing.T) {
 		"## replan_context",
 		"previous_plan id=op-prev",
 		"previous_result plan_id=op-prev status=failed",
+		"Do not include the failed command again",
 		"executable file not found",
 		"missing-tool: command not found",
 	} {

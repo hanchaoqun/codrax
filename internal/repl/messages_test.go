@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/operation"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -167,6 +168,36 @@ func TestFriendlyRunError_PreservesUnknown(t *testing.T) {
 	got := friendlyRunError("en", err)
 	if got != err.Error() {
 		t.Errorf("unknown errors must pass through; got %q", got)
+	}
+}
+
+func TestCommandOperationResultMarkdownClampsPanelPreview(t *testing.T) {
+	preview := strings.Repeat("x", commandOperationDisplayPreviewRunes+512)
+	plan := operation.CommandOperationPlan{
+		ID: "op-preview",
+	}
+	result := operation.CommandOperationResult{
+		PlanID: "op-preview",
+		Status: operation.StatusExecuted,
+		StepResults: []operation.CommandStepResult{{
+			StepID:        "s1",
+			Status:        operation.StatusExecuted,
+			OutputPreview: preview,
+			PayloadRef:    "/tmp/codrax-operation/op-preview-s1.txt",
+		}},
+	}
+	got := commandOperationResultMarkdown("zh", plan, result)
+	if strings.Count(got, "x") > commandOperationDisplayPreviewRunes+16 {
+		t.Fatalf("panel preview was not clamped enough: x count=%d", strings.Count(got, "x"))
+	}
+	for _, want := range []string{
+		"面板预览已截断",
+		"完整输出",
+		"/tmp/codrax-operation/op-preview-s1.txt",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("result markdown missing %q:\n%s", want, got)
+		}
 	}
 }
 

@@ -250,6 +250,53 @@ func TestCommandOperationE2E_FailedApprovedCommandCreatesRevisedPlan(t *testing.
 	}
 }
 
+func TestDropRepeatedFailedCommandStepsRemovesOnlyFailedRetry(t *testing.T) {
+	failedPlan := operation.CommandOperationPlan{
+		ID: "op-failed",
+		Steps: []operation.CommandStep{{
+			ID:      "missing",
+			Program: "definitely-missing-codrax-command",
+			Args:    []string{"--version"},
+		}, {
+			ID:      "ok",
+			Program: "pwd",
+		}},
+	}
+	result := operation.CommandOperationResult{
+		PlanID: "op-failed",
+		Status: operation.StatusFailed,
+		StepResults: []operation.CommandStepResult{{
+			StepID: "missing",
+			Status: operation.StatusFailed,
+		}, {
+			StepID: "ok",
+			Status: operation.StatusExecuted,
+		}},
+	}
+	revised := operation.CommandOperationRequest{
+		RequiresConfirmation: true,
+		Steps: []operation.CommandStep{{
+			ID:      "retry-missing",
+			Program: "definitely-missing-codrax-command",
+			Args:    []string{"--version"},
+		}, {
+			ID:      "next",
+			Program: "go",
+			Args:    []string{"version"},
+		}, {
+			ID:      "repeat-ok",
+			Program: "pwd",
+		}},
+	}
+	filtered := dropRepeatedFailedCommandSteps(revised, failedPlan, result)
+	if len(filtered.Steps) != 2 {
+		t.Fatalf("filtered steps=%+v, want 2 steps", filtered.Steps)
+	}
+	if filtered.Steps[0].Program != "go" || filtered.Steps[1].Program != "pwd" {
+		t.Fatalf("wrong steps filtered: %+v", filtered.Steps)
+	}
+}
+
 func TestCommandReplanAutoExecuteEnvelope(t *testing.T) {
 	base := operation.CommandOperationPlan{
 		Status:       operation.StatusFailed,

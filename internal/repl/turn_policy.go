@@ -253,6 +253,16 @@ The five routes:
             creating slides/PPT, documents, spreadsheets, browser or
             desktop workflows, or invoking an external skill workflow.
             This route is NOT for explaining code, logs, or traces.
+            Explicit command-operation file reads/searches/extractions
+            stay on route=operation even when the file path is inside
+            the current repository; do not reinterpret them as source
+            investigation unless the user asks to explain source code,
+            architecture, implementation, or trace/log root cause.
+            High-risk or forbidden command-operation requests still use
+            route=operation with risk_level=high and requires_confirmation=true;
+            the deterministic operation policy will block dangerous commands.
+            Do not reroute unsafe computer-operation requests into repo/source
+            analysis just because they are unsafe.
             If the operation must first read repository facts (for
             example "based on this repo, generate a PPT"), set
             needs_repo_access=true as an additional typed signal, but
@@ -405,6 +415,16 @@ Examples (illustrative, NOT exhaustive — judge by structure):
       operation_kind=presentation_generation,
       source=mixed, risk_level=low,
       side_effects=["local_file_write"], target_surface=slides,
+      requires_confirmation=false, confidence≈0.85
+
+  Current: "请作为电脑操作读取 docs/design/foo.md，提取某段任务，
+            不要分析源码"
+    → route=operation, needs_repo_access=false,
+      needs_operation_access=true,
+      operation=computer_operation,
+      operation_kind=computer_operation,
+      source=current_message, risk_level=low,
+      side_effects=[], target_surface=desktop,
       requires_confirmation=false, confidence≈0.85
 
   Current: "打开浏览器登录后台并删除这个项目"

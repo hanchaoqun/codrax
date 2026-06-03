@@ -563,6 +563,7 @@ type REPL struct {
 	operationPolicy    operation.CommandPolicy
 	pendingOperation   *operation.CommandOperationPlan
 	operationHistory   []operation.CommandOperationPlan
+	operationResults   []commandOperationResultRecord
 
 	// sessionID identifies this REPL session. Stamped onto every
 	// recorded Turn so memory.BuildContext can session-pin recent
@@ -1163,7 +1164,9 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 				planned operation.CommandOperationRequest
 				err     error
 			)
-			if snapshotPlanner, ok := r.operationPlanner.(CommandOperationPlannerWithSnapshot); ok {
+			if handoffPlanner, ok := r.operationPlanner.(CommandOperationPlannerWithHandoff); ok {
+				planned, err = handoffPlanner.PlanCommandOperationWithHandoff(ctx, line, r.repoRoot, policy, snapshot, r.renderCommandOperationHandoff())
+			} else if snapshotPlanner, ok := r.operationPlanner.(CommandOperationPlannerWithSnapshot); ok {
 				planned, err = snapshotPlanner.PlanCommandOperationWithSnapshot(ctx, line, r.repoRoot, policy, snapshot)
 			} else {
 				planned, err = r.operationPlanner.PlanCommandOperation(ctx, line, r.repoRoot, policy)
@@ -1375,6 +1378,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 	result := executor.Execute(ctx, plan)
 	plan.Status = result.Status
 	r.operationHistory = append(r.operationHistory, plan)
+	r.appendCommandOperationResult(plan, result)
 	logging.Info("[repl/operation] command execute result plan_id=%s status=%s step_results=%d replan_attempt=%d",
 		plan.ID, result.Status, len(result.StepResults), replanAttempts)
 	if r.maybeReplanCommandOperation(ctx, plan, result, request, display, replanAttempts) {
@@ -1403,6 +1407,7 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 		logging.Warning("[repl/operation] command replan failed: %v", err)
 		return false
 	}
+	revisedReq = dropRepeatedFailedCommandSteps(revisedReq, failedPlan, result)
 	revisedPlan := operation.BuildCommandOperationPlan(revisedReq, r.operationPolicy)
 	logging.Info("[repl/operation] command replan generated previous_plan_id=%s status=%s risk=%q approval=%q steps=%d",
 		failedPlan.ID, revisedPlan.Status, revisedPlan.RiskLevel, revisedPlan.ApprovalMode, len(revisedPlan.Steps))
@@ -1432,6 +1437,58 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 	return true
 }
 
+type commandOperationResultRecord struct {
+	Plan   operation.CommandOperationPlan
+	Result operation.CommandOperationResult
+}
+
+func (r *REPL) appendCommandOperationResult(plan operation.CommandOperationPlan, result operation.CommandOperationResult) {
+	r.operationResults = append(r.operationResults, commandOperationResultRecord{Plan: plan, Result: result})
+	if len(r.operationResults) > 6 {
+		r.operationResults = r.operationResults[len(r.operationResults)-6:]
+	}
+}
+
+func (r *REPL) renderCommandOperationHandoff() string {
+	if len(r.operationResults) == 0 {
+		return ""
+	}
+	start := len(r.operationResults) - 2
+	if start < 0 {
+		start = 0
+	}
+	var b strings.Builder
+	for i := start; i < len(r.operationResults); i++ {
+		rec := r.operationResults[i]
+		fmt.Fprintf(&b, "operation_result plan_id=%s status=%s request=%q\n",
+			rec.Plan.ID, rec.Result.Status, oneLineClamp(rec.Plan.RequestText, 200))
+		for _, step := range rec.Result.StepResults {
+			planStep := commandOperationStepByID(rec.Plan, step.StepID)
+			cmd := commandOperationStepCommand(planStep)
+			preview := oneLineClamp(step.OutputPreview, 1200)
+			fmt.Fprintf(&b, "  step id=%s cmd=%q status=%s exit_code=%d timed_out=%t error=%q output_preview=%q payload_ref=%s\n",
+				step.StepID, cmd, step.Status, step.ExitCode, step.TimedOut, oneLineClamp(step.Error, 240), preview, step.PayloadRef)
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func commandOperationStepByID(plan operation.CommandOperationPlan, id string) operation.CommandStep {
+	for _, step := range plan.Steps {
+		if step.ID == id {
+			return step
+		}
+	}
+	return operation.CommandStep{ID: id}
+}
+
+func commandOperationStepCommand(step operation.CommandStep) string {
+	if strings.TrimSpace(step.Shell) != "" {
+		return strings.TrimSpace(step.Shell)
+	}
+	return strings.TrimSpace(strings.TrimSpace(step.Program) + " " + strings.Join(step.Args, " "))
+}
+
 func commandResultTimedOut(result operation.CommandOperationResult) bool {
 	for _, step := range result.StepResults {
 		if step.TimedOut || step.Status == operation.StatusCancelled {
@@ -1439,6 +1496,55 @@ func commandResultTimedOut(result operation.CommandOperationResult) bool {
 		}
 	}
 	return false
+}
+
+func dropRepeatedFailedCommandSteps(req operation.CommandOperationRequest, failedPlan operation.CommandOperationPlan, result operation.CommandOperationResult) operation.CommandOperationRequest {
+	if len(req.Steps) <= 1 || len(result.StepResults) == 0 {
+		return req
+	}
+	failedCommands := map[string]bool{}
+	for _, stepResult := range result.StepResults {
+		if stepResult.Status != operation.StatusFailed {
+			continue
+		}
+		failedStep := commandOperationStepByID(failedPlan, stepResult.StepID)
+		if key := normalizedCommandStepKey(failedStep); key != "" {
+			failedCommands[key] = true
+		}
+	}
+	if len(failedCommands) == 0 {
+		return req
+	}
+	filtered := req.Steps[:0]
+	dropped := 0
+	for _, step := range req.Steps {
+		if failedCommands[normalizedCommandStepKey(step)] {
+			dropped++
+			continue
+		}
+		filtered = append(filtered, step)
+	}
+	if dropped == 0 || len(filtered) == 0 {
+		return req
+	}
+	req.Steps = filtered
+	logging.Info("[repl/operation] dropped %d repeated failed command step(s) from revised plan", dropped)
+	return req
+}
+
+func normalizedCommandStepKey(step operation.CommandStep) string {
+	if strings.TrimSpace(step.Shell) != "" {
+		return "shell:" + strings.Join(strings.Fields(step.Shell), " ")
+	}
+	program := strings.TrimSpace(step.Program)
+	if program == "" {
+		return ""
+	}
+	parts := append([]string{program}, step.Args...)
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	return "argv:" + strings.Join(parts, "\x00")
 }
 
 func commandReplanCanAutoExecute(previous, revised operation.CommandOperationPlan) bool {

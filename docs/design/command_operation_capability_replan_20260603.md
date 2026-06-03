@@ -197,3 +197,72 @@ flexible decoding and repair path.
         produced a low-risk command plan, waited for `/approve`, then executed
         `go version` and returned the local Go version.
 - [x] Push each batch.
+
+### Batch 5: Eval Follow-Up Fixes
+
+Real-model operation eval on 2026-06-03 found three follow-up gaps:
+
+- Large command output was persisted through payload refs, but the REPL panel
+  still rendered too much inline preview.
+- Failed-command replanning was wired, but the model could repeat the already
+  failed command in a revised plan.
+- Catastrophic command-operation requests were safely refused, but sometimes
+  routed through the ordinary repo-analysis pipeline instead of deterministic
+  operation blocking.
+- Multi-step operation workflows need operation-result handoff so a later
+  planning turn can use previous observations without re-running source
+  analysis. This includes `--help` / documentation output, extracted summaries
+  from large files, failed-command diagnostics, payload refs, and other bounded
+  command observations.
+- Explicit computer-operation file reads/extractions can be misrouted to the
+  repo-analysis pipeline when the target path is inside the repository. This is
+  a UX/performance problem for operation scenarios even though normal source
+  analysis remains safe.
+
+Tasks:
+
+- [x] Clamp user-facing command output previews separately from executor
+      previews; keep full payload refs.
+- [x] Return a full payload ref for outputs that are larger than the REPL panel
+      preview budget even when they are still below the executor capture cap.
+- [x] Strengthen replan teaching: failed commands already ran and should not be
+      repeated unless a retry is genuinely required.
+- [x] Teach extraction plans to shape output to the requested item(s), rather
+      than dumping entire sections when a narrower answer is requested.
+- [x] Deterministically drop repeated failed command steps from revised plans
+      when another corrective step remains.
+- [x] Add recent command-operation observation handoff into the next planner
+      prompt, bounded and payload-ref aware. The prompt teaches the model to use
+      previous extraction/search/help output and to plan targeted follow-up
+      reads/searches when only a payload ref is available.
+- [x] Teach the route classifier that unsafe computer-operation requests still
+      belong on route=operation so policy can block them deterministically.
+- [x] Teach the route classifier that explicit command-operation file
+      reads/searches/extractions stay on route=operation even when the path is
+      inside the repository, unless the user asks to explain code/source.
+- [x] Re-run real-model eval for large output, failed-command replan,
+      catastrophic command blocking, and explicit command-operation file
+      extraction inside the repository. Results: large output was panel-clamped,
+      failed command replan did not repeat the failed command, catastrophic
+      `rm -rf /` was blocked by operation policy, and explicit file extraction
+      routed through operation instead of the source-analysis pipeline.
+
+### Follow-Up: Cross-Run Operation Learning
+
+This batch intentionally keeps structured operation handoff scoped to the
+current REPL session. Cross-run learning is valuable, but it needs a separate
+memory contract so one-off failures or environment-specific workarounds do not
+pollute later tasks.
+
+Future tasks:
+
+- [ ] Add an `operation_memory` schema with fields for command, capability,
+      environment fingerprint, outcome, failure class, payload refs, and TTL.
+- [ ] Store only compact success/failure lessons, not full stdout/stderr.
+- [ ] Require model-visible lessons to be explicitly labeled as historical
+      observations, never current-source evidence.
+- [ ] Prefer recent same-workspace/same-OS lessons; demote stale or
+      environment-mismatched lessons to soft guidance.
+- [ ] Add tests that a previous failed command is remembered as a caution, not
+      an automatic hard ban, and that code/log/trace analysis prompts do not
+      receive operation memory unless route=operation.

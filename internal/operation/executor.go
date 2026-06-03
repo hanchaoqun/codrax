@@ -112,6 +112,8 @@ func (e CommandExecutor) executeStep(ctx context.Context, plan CommandOperationP
 	if capture.Truncated() {
 		ref = capture.Path()
 		preview += fmt.Sprintf("\n[operation output truncated; full output saved to %s]", ref)
+	} else if capture.Path() != "" && len([]rune(preview)) > operationPanelPreviewRefRunes {
+		ref = capture.Path()
 	}
 	if preview == "" {
 		preview = fmt.Sprintf("[operation command completed with no output: %s]", display)
@@ -236,6 +238,8 @@ func (c *operationOutputCapture) Close() error {
 	}
 	return c.file.Close()
 }
+
+const operationPanelPreviewRefRunes = 2048
 
 func sanitizeOperationBlobToken(s string) string {
 	s = strings.TrimSpace(s)
