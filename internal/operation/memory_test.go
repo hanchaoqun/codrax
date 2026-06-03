@@ -168,6 +168,13 @@ func TestBuildProviderMemoryEntryFeedsPrompt(t *testing.T) {
 		"",
 		[]string{"mcp://artifact/deck"},
 		2,
+		[]WorkflowNextAction{{
+			Provider:      "skill:verifier",
+			OperationKind: "presentation_generation",
+			TargetSurface: "slides",
+			Request:       "verify generated deck",
+		}},
+		WorkflowState{WorkflowID: "wf-1", Step: "deck_created", ReturnTo: "skill:slides"},
 		CapabilitySnapshot{RepoRoot: "/repo", OS: "linux", Arch: "amd64", Shell: "bash"},
 	)
 	if entry.Capability != "presentation_generation" {
@@ -189,6 +196,8 @@ func TestBuildProviderMemoryEntryFeedsPrompt(t *testing.T) {
 		"observations=2",
 		"payload_ref=/tmp/codrax/blob/provider-output.txt",
 		"artifact_ref=mcp://artifact/deck",
+		"next_action=\"provider=skill:verifier kind=presentation_generation target=slides request=verify generated deck\"",
+		"workflow_state=\"workflow_id=wf-1 step=deck_created return_to=skill:slides\"",
 		"not current-source evidence",
 	} {
 		if !strings.Contains(rendered, want) {

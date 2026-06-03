@@ -1582,6 +1582,8 @@ func (r *REPL) appendProviderOperationResult(plan operation.Plan, request operat
 			result.Error,
 			result.ArtifactRefs,
 			result.Observations,
+			result.NextActions,
+			result.WorkflowState,
 			r.commandOperationCapabilitySnapshot(),
 		)
 		if err := r.operationMemory.Append(entry); err != nil {
@@ -1615,7 +1617,7 @@ func (r *REPL) renderCommandOperationHandoff() string {
 	}
 	for i := providerStart; i < len(r.providerOperationResults); i++ {
 		rec := r.providerOperationResults[i]
-		fmt.Fprintf(&b, "provider_operation_result provider=%q tool=%q kind=%q target=%q status=%s observations=%d request=%q summary=%q error=%q payload_ref=%s artifact_refs=%s verification_status=%s verification_summary=%q\n",
+		fmt.Fprintf(&b, "provider_operation_result provider=%q tool=%q kind=%q target=%q status=%s observations=%d request=%q summary=%q error=%q payload_ref=%s artifact_refs=%s verification_status=%s verification_summary=%q next_actions=%d workflow_state=%q diagnostics=%q\n",
 			oneLineClamp(rec.Result.Provider, 120),
 			oneLineClamp(rec.Result.Tool, 120),
 			oneLineClamp(firstNonEmptyString(rec.Plan.Kind, rec.Request.OperationKind, rec.Request.Operation), 80),
@@ -1628,7 +1630,16 @@ func (r *REPL) renderCommandOperationHandoff() string {
 			rec.Result.PayloadRef,
 			oneLineClamp(strings.Join(rec.Result.ArtifactRefs, ","), 500),
 			rec.Result.VerificationStatus,
-			oneLineClamp(rec.Result.VerificationSummary, 220))
+			oneLineClamp(rec.Result.VerificationSummary, 220),
+			len(rec.Result.NextActions),
+			oneLineClamp(rec.Result.WorkflowState.Compact(), 260),
+			oneLineClamp(strings.Join(rec.Result.WorkflowDiagnostics, "; "), 360))
+		for j, action := range rec.Result.NextActions {
+			if j >= 3 {
+				break
+			}
+			fmt.Fprintf(&b, "  next_action[%d] %s\n", j, oneLineClamp(action.Compact(), 500))
+		}
 	}
 	if r.operationMemory != nil {
 		if entries, err := r.operationMemory.RecentMatches(r.commandOperationCapabilitySnapshot(), 4); err == nil {
@@ -4992,6 +5003,9 @@ type providerOperationResult struct {
 	VerificationSummary string
 	Error               string
 	Observations        int
+	NextActions         []operation.WorkflowNextAction
+	WorkflowState       operation.WorkflowState
+	WorkflowDiagnostics []string
 }
 
 func (r *REPL) handleProviderOperationApproveCmd(line string) {
@@ -5172,6 +5186,8 @@ func (r *REPL) executeLocalOperationSkillProvider(ctx context.Context, pending p
 		result.VerificationStatus = strings.TrimSpace(parsed.VerificationStatus)
 		result.VerificationSummary = strings.TrimSpace(parsed.VerificationSummary)
 		result.Observations = parsed.Observations
+		result.NextActions = parsed.NextActions
+		result.WorkflowState = parsed.WorkflowState
 		if parsed.Error != "" {
 			result.Error = parsed.Error
 		}
@@ -5315,6 +5331,8 @@ type localOperationSkillJSONResult struct {
 	VerificationSummary string
 	Observations        int
 	Error               string
+	NextActions         []operation.WorkflowNextAction
+	WorkflowState       operation.WorkflowState
 }
 
 func parseLocalOperationSkillJSONResult(text string) (localOperationSkillJSONResult, bool) {
@@ -5335,7 +5353,124 @@ func parseLocalOperationSkillJSONResult(text string) (localOperationSkillJSONRes
 	out.VerificationSummary = stringJSON(raw["verification_summary"])
 	out.Observations = observationsCountJSON(raw["observations"])
 	out.Error = stringJSON(raw["error"])
+	out.NextActions = workflowNextActionsJSON(raw)
+	out.WorkflowState = workflowStateJSON(raw["workflow_state"])
 	return out, true
+}
+
+func workflowNextActionsJSON(raw map[string]json.RawMessage) []operation.WorkflowNextAction {
+	if raw == nil {
+		return nil
+	}
+	actionRaw := raw["next_actions"]
+	if len(actionRaw) == 0 {
+		actionRaw = raw["next_action"]
+	}
+	if len(actionRaw) == 0 {
+		return nil
+	}
+	var list []json.RawMessage
+	if err := json.Unmarshal(actionRaw, &list); err != nil {
+		var single json.RawMessage
+		if err := json.Unmarshal(actionRaw, &single); err != nil || len(single) == 0 {
+			return nil
+		}
+		list = []json.RawMessage{single}
+	}
+	out := make([]operation.WorkflowNextAction, 0, len(list))
+	for _, item := range list {
+		action, ok := workflowNextActionJSON(item)
+		if !ok {
+			continue
+		}
+		out = append(out, action)
+		if len(out) >= 8 {
+			break
+		}
+	}
+	return out
+}
+
+func workflowNextActionJSON(raw json.RawMessage) (operation.WorkflowNextAction, bool) {
+	var fields map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &fields) != nil {
+		return operation.WorkflowNextAction{}, false
+	}
+	action := operation.WorkflowNextAction{
+		Provider:      stringJSONAlias(fields, "provider", "provider_name"),
+		Tool:          stringJSONAlias(fields, "tool", "operation_tool"),
+		Operation:     stringJSONAlias(fields, "operation"),
+		OperationKind: stringJSONAlias(fields, "operation_kind", "kind"),
+		TargetSurface: stringJSONAlias(fields, "target_surface", "surface"),
+		RiskLevel:     stringJSONAlias(fields, "risk_level", "risk"),
+		SideEffects:   stringListJSONAlias(fields, "side_effects", "effects"),
+		Request:       stringJSONAlias(fields, "request", "prompt", "instruction"),
+		Input:         mapJSONAlias(fields, "input", "args", "arguments"),
+	}
+	if b := optionalBoolJSONAlias(fields, "requires_confirmation", "requires_approval"); b != nil {
+		action.RequiresConfirmation = *b
+	}
+	if strings.TrimSpace(action.Provider) == "" &&
+		strings.TrimSpace(action.OperationKind) == "" &&
+		strings.TrimSpace(action.Operation) == "" &&
+		strings.TrimSpace(action.Request) == "" {
+		return operation.WorkflowNextAction{}, false
+	}
+	return action, true
+}
+
+func workflowStateJSON(raw json.RawMessage) operation.WorkflowState {
+	var fields map[string]json.RawMessage
+	if len(raw) == 0 || json.Unmarshal(raw, &fields) != nil {
+		return operation.WorkflowState{}
+	}
+	return operation.WorkflowState{
+		WorkflowID: stringJSONAlias(fields, "workflow_id", "id"),
+		Step:       stringJSONAlias(fields, "step", "phase"),
+		ReturnTo:   stringJSONAlias(fields, "return_to", "return_provider"),
+		Data:       mapJSONAlias(fields, "data", "state"),
+	}
+}
+
+func stringJSONAlias(fields map[string]json.RawMessage, names ...string) string {
+	for _, name := range names {
+		if value := stringJSON(fields[name]); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func stringListJSONAlias(fields map[string]json.RawMessage, names ...string) []string {
+	for _, name := range names {
+		if values := stringListJSON(fields[name]); len(values) > 0 {
+			return values
+		}
+	}
+	return nil
+}
+
+func optionalBoolJSONAlias(fields map[string]json.RawMessage, names ...string) *bool {
+	for _, name := range names {
+		if b := optionalBoolJSON(fields[name]); b != nil {
+			return b
+		}
+	}
+	return nil
+}
+
+func mapJSONAlias(fields map[string]json.RawMessage, names ...string) map[string]any {
+	for _, name := range names {
+		raw := fields[name]
+		if len(raw) == 0 {
+			continue
+		}
+		var out map[string]any
+		if err := json.Unmarshal(raw, &out); err == nil && len(out) > 0 {
+			return out
+		}
+	}
+	return nil
 }
 
 func optionalBoolJSON(raw json.RawMessage) *bool {

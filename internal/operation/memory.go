@@ -45,6 +45,8 @@ type MemoryEntry struct {
 	Summary        string    `json:"summary,omitempty"`
 	PayloadRefs    []string  `json:"payload_refs,omitempty"`
 	ArtifactRefs   []string  `json:"artifact_refs,omitempty"`
+	NextActions    []string  `json:"next_actions,omitempty"`
+	WorkflowState  string    `json:"workflow_state,omitempty"`
 	Lessons        []string  `json:"lessons,omitempty"`
 	EnvFingerprint string    `json:"env_fingerprint,omitempty"`
 }
@@ -180,6 +182,12 @@ func RenderMemoryForPrompt(entries []MemoryEntry) string {
 		if len(entry.ArtifactRefs) > 0 {
 			fmt.Fprintf(&b, " artifact_ref=%s", entry.ArtifactRefs[0])
 		}
+		if len(entry.NextActions) > 0 {
+			fmt.Fprintf(&b, " next_action=%q", oneLine(entry.NextActions[0], 220))
+		}
+		if entry.WorkflowState != "" {
+			fmt.Fprintf(&b, " workflow_state=%q", oneLine(entry.WorkflowState, 220))
+		}
 		if entry.VerifyStatus != "" {
 			fmt.Fprintf(&b, " verify=%s", entry.VerifyStatus)
 			if entry.VerifySummary != "" {
@@ -232,7 +240,7 @@ func BuildMemoryEntries(plan CommandOperationPlan, result CommandOperationResult
 // into a compact lesson. It intentionally stores only the provider/tool name,
 // bounded summaries, and payload refs; provider payloads remain in the blob
 // lane and must not be treated as current-source evidence.
-func BuildProviderMemoryEntry(provider, tool, operationKind, targetSurface string, status OperationStatus, summary, payloadRef, errText string, artifactRefs []string, observations int, snapshot CapabilitySnapshot) MemoryEntry {
+func BuildProviderMemoryEntry(provider, tool, operationKind, targetSurface string, status OperationStatus, summary, payloadRef, errText string, artifactRefs []string, observations int, nextActions []WorkflowNextAction, workflowState WorkflowState, snapshot CapabilitySnapshot) MemoryEntry {
 	provider = strings.TrimSpace(provider)
 	tool = strings.TrimSpace(tool)
 	operationKind = strings.TrimSpace(operationKind)
@@ -267,6 +275,8 @@ func BuildProviderMemoryEntry(provider, tool, operationKind, targetSurface strin
 		Summary:        resultSummary,
 		PayloadRefs:    cleanRefs([]string{payloadRef}),
 		ArtifactRefs:   cleanRefs(artifactRefs),
+		NextActions:    compactWorkflowActions(nextActions),
+		WorkflowState:  workflowState.Compact(),
 		Lessons:        lessons,
 		EnvFingerprint: envFingerprint(snapshot),
 	}
@@ -274,6 +284,21 @@ func BuildProviderMemoryEntry(provider, tool, operationKind, targetSurface strin
 		entry.OutputKind = "provider_observation"
 	}
 	return entry
+}
+
+func compactWorkflowActions(actions []WorkflowNextAction) []string {
+	out := make([]string, 0, len(actions))
+	for _, action := range actions {
+		text := strings.TrimSpace(action.Compact())
+		if text == "" {
+			continue
+		}
+		out = append(out, text)
+		if len(out) >= 4 {
+			break
+		}
+	}
+	return out
 }
 
 func (s *MemoryStore) readAll() ([]MemoryEntry, error) {

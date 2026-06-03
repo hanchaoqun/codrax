@@ -1194,6 +1194,21 @@ func providerOperationResultMarkdown(lang string, plan operation.Plan, result pr
 			}
 			b.WriteString("\n")
 		}
+		if len(result.NextActions) > 0 {
+			b.WriteString(fmt.Sprintf("- 建议后续动作：%d 个\n", len(result.NextActions)))
+			for i, action := range result.NextActions {
+				if i >= 3 {
+					break
+				}
+				b.WriteString(fmt.Sprintf("  %d. `%s`\n", i+1, action.Compact()))
+			}
+		}
+		if !result.WorkflowState.IsZero() {
+			b.WriteString(fmt.Sprintf("- 工作流状态：`%s`\n", result.WorkflowState.Compact()))
+		}
+		if len(result.WorkflowDiagnostics) > 0 {
+			b.WriteString(fmt.Sprintf("- 工作流提示：%s\n", strings.Join(result.WorkflowDiagnostics, "; ")))
+		}
 		if result.Error != "" {
 			b.WriteString(fmt.Sprintf("- 错误：%s\n", result.Error))
 		}
@@ -1227,6 +1242,21 @@ func providerOperationResultMarkdown(lang string, plan operation.Plan, result pr
 			b.WriteString(fmt.Sprintf(" — %s", result.VerificationSummary))
 		}
 		b.WriteString("\n")
+	}
+	if len(result.NextActions) > 0 {
+		b.WriteString(fmt.Sprintf("- Suggested next actions: %d\n", len(result.NextActions)))
+		for i, action := range result.NextActions {
+			if i >= 3 {
+				break
+			}
+			b.WriteString(fmt.Sprintf("  %d. `%s`\n", i+1, action.Compact()))
+		}
+	}
+	if !result.WorkflowState.IsZero() {
+		b.WriteString(fmt.Sprintf("- Workflow state: `%s`\n", result.WorkflowState.Compact()))
+	}
+	if len(result.WorkflowDiagnostics) > 0 {
+		b.WriteString(fmt.Sprintf("- Workflow notes: %s\n", strings.Join(result.WorkflowDiagnostics, "; ")))
 	}
 	if result.Error != "" {
 		b.WriteString(fmt.Sprintf("- Error: %s\n", result.Error))
