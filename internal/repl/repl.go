@@ -1474,8 +1474,8 @@ func (r *REPL) renderCommandOperationHandoff() string {
 			cmd := commandOperationStepCommand(planStep)
 			preview := oneLineClamp(step.OutputPreview, 1200)
 			summary := operation.SummarizeStepOutput(step)
-			fmt.Fprintf(&b, "  step id=%s cmd=%q status=%s exit_code=%d timed_out=%t failure_class=%s output_kind=%s output_summary=%q error=%q output_preview=%q payload_ref=%s\n",
-				step.StepID, cmd, step.Status, step.ExitCode, step.TimedOut, step.FailureClass, summary.Kind, oneLineClamp(summary.Summary, 260), oneLineClamp(step.Error, 240), preview, step.PayloadRef)
+			fmt.Fprintf(&b, "  step id=%s cmd=%q status=%s exit_code=%d timed_out=%t failure_class=%s verification_status=%s verification_kind=%s verification_summary=%q output_kind=%s output_summary=%q error=%q output_preview=%q payload_ref=%s\n",
+				step.StepID, cmd, step.Status, step.ExitCode, step.TimedOut, step.FailureClass, step.Verification.Status, step.Verification.Kind, oneLineClamp(step.Verification.Summary, 220), summary.Kind, oneLineClamp(summary.Summary, 260), oneLineClamp(step.Error, 240), preview, step.PayloadRef)
 		}
 	}
 	if r.operationMemory != nil {

@@ -125,6 +125,7 @@ type CommandStepResult struct {
 	Error         string
 	TimedOut      bool
 	FailureClass  string
+	Verification  OperationVerificationResult
 }
 
 type CommandOperationResult struct {
@@ -133,6 +134,13 @@ type CommandOperationResult struct {
 	StepResults   []CommandStepResult
 	OutputPreview string
 	PayloadRef    string
+}
+
+type OperationVerificationResult struct {
+	Status  string
+	Kind    string
+	Path    string
+	Summary string
 }
 
 // BuildCommandOperationPlan applies deterministic policy to a typed command
@@ -469,7 +477,7 @@ func hasInstallEffect(program string, args []string, sideEffects []string) bool 
 func hasOverwriteEffect(program string, args []string, sideEffects []string) bool {
 	for _, effect := range cleanList(sideEffects) {
 		switch effect {
-		case "overwrite", "file_overwrite", "destructive_write":
+		case "overwrite", "file_overwrite", "local_file_overwrite", "destructive_write":
 			return true
 		}
 	}
@@ -485,7 +493,7 @@ func hasOverwriteEffect(program string, args []string, sideEffects []string) boo
 func hasLocalWriteEffect(sideEffects []string) bool {
 	for _, effect := range cleanList(sideEffects) {
 		switch effect {
-		case "local_file_write", "file_write", "directory_write", "local_file_delete", "file_delete", "install", "uninstall", "package_install", "package_uninstall":
+		case "local_file_write", "file_write", "directory_write", "local_file_overwrite", "local_file_delete", "file_delete", "install", "uninstall", "package_install", "package_uninstall":
 			return true
 		}
 	}

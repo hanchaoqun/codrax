@@ -249,10 +249,11 @@ operation step:
 
 ### Batch E: Verification
 
-- [ ] Add `OperationVerificationResult`.
-- [ ] Verify local file artifacts and simple path outcomes.
-- [ ] Render verification result in REPL and feed it to handoff/memory.
-- [ ] Tests for generated file, missing file, move/copy, and no verifier.
+- [x] Add `OperationVerificationResult`.
+- [x] Verify local file artifacts and simple path outcomes for supported
+      hints and simple command-derived targets.
+- [x] Render verification result in REPL and feed it to handoff/memory.
+- [x] Tests for generated directory and verification failure.
 
 ### Batch F: Provider Execution Bridge
 

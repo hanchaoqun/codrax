@@ -153,11 +153,24 @@ func (e CommandExecutor) executeStep(ctx context.Context, plan CommandOperationP
 			FailureClass:  class,
 		}
 	}
+	verification := verifyCommandStepOutcome(plan, step)
+	if verification.Status == VerificationFailed {
+		return CommandStepResult{
+			StepID:        step.ID,
+			Status:        StatusFailed,
+			OutputPreview: preview,
+			PayloadRef:    ref,
+			Error:         verification.Summary,
+			FailureClass:  "verification_failed",
+			Verification:  verification,
+		}
+	}
 	return CommandStepResult{
 		StepID:        step.ID,
 		Status:        StatusExecuted,
 		OutputPreview: preview,
 		PayloadRef:    ref,
+		Verification:  verification,
 	}
 }
 

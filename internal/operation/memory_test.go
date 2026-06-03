@@ -117,3 +117,41 @@ func TestBuildMemoryEntriesSummarizesFailure(t *testing.T) {
 		t.Fatalf("missing command-not-found lesson: %+v", entry.Lessons)
 	}
 }
+
+func TestBuildMemoryEntriesIncludesVerification(t *testing.T) {
+	plan := CommandOperationPlan{
+		ID:      "op",
+		WorkDir: "/repo",
+		Steps: []CommandStep{{
+			ID:      "s1",
+			Program: "mkdir",
+			Args:    []string{"-p", "out"},
+		}},
+	}
+	result := CommandOperationResult{
+		PlanID: "op",
+		Status: StatusExecuted,
+		StepResults: []CommandStepResult{{
+			StepID: "s1",
+			Status: StatusExecuted,
+			Verification: OperationVerificationResult{
+				Status:  VerificationVerified,
+				Kind:    "dir_exists",
+				Path:    "/repo/out",
+				Summary: "/repo/out exists as a directory",
+			},
+		}},
+	}
+	entries := BuildMemoryEntries(plan, result, CapabilitySnapshot{RepoRoot: "/repo", OS: "linux", Arch: "amd64"})
+	if len(entries) != 1 {
+		t.Fatalf("entries=%d want 1", len(entries))
+	}
+	entry := entries[0]
+	if entry.VerifyStatus != VerificationVerified || !strings.Contains(entry.VerifySummary, "directory") {
+		t.Fatalf("verification not preserved: %+v", entry)
+	}
+	rendered := RenderMemoryForPrompt(entries)
+	if !strings.Contains(rendered, "verify=verified") {
+		t.Fatalf("rendered memory missing verification:\n%s", rendered)
+	}
+}

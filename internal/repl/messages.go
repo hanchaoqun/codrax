@@ -1203,6 +1203,13 @@ func commandOperationResultMarkdown(lang string, plan operation.CommandOperation
 			if step.Error != "" {
 				b.WriteString(fmt.Sprintf("   错误：%s\n", step.Error))
 			}
+			if step.Verification.Status != "" {
+				b.WriteString(fmt.Sprintf("   验证：%s", step.Verification.Status))
+				if step.Verification.Summary != "" {
+					b.WriteString(fmt.Sprintf(" — %s", step.Verification.Summary))
+				}
+				b.WriteString("\n")
+			}
 			if step.OutputPreview != "" {
 				b.WriteString("   输出：\n")
 				b.WriteString(indentBlock(commandOperationDisplayPreview(step.OutputPreview, lang), "   "))
@@ -1227,6 +1234,13 @@ func commandOperationResultMarkdown(lang string, plan operation.CommandOperation
 		b.WriteString(fmt.Sprintf("%d. step `%s`: %s\n", i+1, step.StepID, step.Status))
 		if step.Error != "" {
 			b.WriteString(fmt.Sprintf("   Error: %s\n", step.Error))
+		}
+		if step.Verification.Status != "" {
+			b.WriteString(fmt.Sprintf("   Verification: %s", step.Verification.Status))
+			if step.Verification.Summary != "" {
+				b.WriteString(fmt.Sprintf(" — %s", step.Verification.Summary))
+			}
+			b.WriteString("\n")
 		}
 		if step.OutputPreview != "" {
 			b.WriteString("   Output:\n")

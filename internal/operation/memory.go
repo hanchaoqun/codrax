@@ -36,6 +36,8 @@ type MemoryEntry struct {
 	OutputKind     string    `json:"output_kind,omitempty"`
 	OutputLines    int       `json:"output_lines,omitempty"`
 	OutputBytes    int       `json:"output_bytes,omitempty"`
+	VerifyStatus   string    `json:"verify_status,omitempty"`
+	VerifySummary  string    `json:"verify_summary,omitempty"`
 	Summary        string    `json:"summary,omitempty"`
 	PayloadRefs    []string  `json:"payload_refs,omitempty"`
 	Lessons        []string  `json:"lessons,omitempty"`
@@ -155,6 +157,12 @@ func RenderMemoryForPrompt(entries []MemoryEntry) string {
 		if len(entry.PayloadRefs) > 0 {
 			fmt.Fprintf(&b, " payload_ref=%s", entry.PayloadRefs[0])
 		}
+		if entry.VerifyStatus != "" {
+			fmt.Fprintf(&b, " verify=%s", entry.VerifyStatus)
+			if entry.VerifySummary != "" {
+				fmt.Fprintf(&b, " verify_summary=%q", oneLine(entry.VerifySummary, 180))
+			}
+		}
 		b.WriteString("\n")
 	}
 	return strings.TrimSpace(b.String())
@@ -185,6 +193,8 @@ func BuildMemoryEntries(plan CommandOperationPlan, result CommandOperationResult
 			OutputKind:     outputSummary.Kind,
 			OutputLines:    outputSummary.Lines,
 			OutputBytes:    outputSummary.Bytes,
+			VerifyStatus:   stepResult.Verification.Status,
+			VerifySummary:  stepResult.Verification.Summary,
 			Summary:        outputSummary.Summary,
 			PayloadRefs:    cleanRefs([]string{stepResult.PayloadRef}),
 			Lessons:        lessonsForStepResult(stepResult, command),
@@ -321,6 +331,8 @@ func lessonsForStepResult(step CommandStepResult, command string) []string {
 		return []string{"The command timed out; use a narrower query, bounded output, or a longer explicit timeout only with approval."}
 	case "path_not_found":
 		return []string{"The referenced path was missing; verify the path before repeating the command."}
+	case "verification_failed":
+		return []string{"The command exited successfully but deterministic verification failed; inspect the expected output path or adjust the command before retrying."}
 	}
 	if step.Status == StatusExecuted {
 		if command != "" {

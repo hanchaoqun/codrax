@@ -202,3 +202,62 @@ func TestCommandExecutorTimeout(t *testing.T) {
 		t.Fatalf("timeout marker missing: %+v", result.StepResults[0])
 	}
 }
+
+func TestCommandExecutorVerifiesCreatedDirectory(t *testing.T) {
+	workDir := t.TempDir()
+	executor := CommandExecutor{Policy: DefaultCommandPolicy(), OutputDir: t.TempDir()}
+	plan := CommandOperationPlan{
+		ID:           "op-verify-dir",
+		Status:       StatusReady,
+		ApprovalMode: ApprovalManual,
+		WorkDir:      workDir,
+		Steps: []CommandStep{{
+			ID:         "step-1",
+			Program:    "mkdir",
+			Args:       []string{"-p", "reports"},
+			TimeoutMS:  30_000,
+			VerifyHint: "dir_exists:reports",
+		}},
+	}
+
+	result := executor.Execute(context.Background(), plan)
+	if result.Status != StatusExecuted {
+		t.Fatalf("Status=%q result=%+v", result.Status, result)
+	}
+	got := result.StepResults[0].Verification
+	if got.Status != VerificationVerified {
+		t.Fatalf("Verification=%+v, want verified", got)
+	}
+	if _, err := os.Stat(filepath.Join(workDir, "reports")); err != nil {
+		t.Fatalf("stat created directory: %v", err)
+	}
+}
+
+func TestCommandExecutorFailsWhenVerificationFails(t *testing.T) {
+	workDir := t.TempDir()
+	executor := CommandExecutor{Policy: DefaultCommandPolicy(), OutputDir: t.TempDir()}
+	plan := CommandOperationPlan{
+		ID:           "op-verify-missing",
+		Status:       StatusReady,
+		ApprovalMode: ApprovalManual,
+		WorkDir:      workDir,
+		Steps: []CommandStep{{
+			ID:         "step-1",
+			Program:    "pwd",
+			TimeoutMS:  30_000,
+			VerifyHint: "file_exists:missing.txt",
+		}},
+	}
+
+	result := executor.Execute(context.Background(), plan)
+	if result.Status != StatusFailed {
+		t.Fatalf("Status=%q result=%+v", result.Status, result)
+	}
+	step := result.StepResults[0]
+	if step.FailureClass != "verification_failed" {
+		t.Fatalf("FailureClass=%q, want verification_failed; step=%+v", step.FailureClass, step)
+	}
+	if step.Verification.Status != VerificationFailed {
+		t.Fatalf("Verification=%+v, want failed", step.Verification)
+	}
+}

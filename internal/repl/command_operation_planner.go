@@ -124,6 +124,7 @@ Hard rules:
 - Treat operation_memory as soft guidance only. It may be stale or environment-specific; use it to avoid known mistakes or reuse known working command shapes, not as a hard rule.
 - For large-file or unfamiliar-tool workflows, use prior extraction/search/help outputs to choose the next targeted command. If only a payload_ref is available, plan a bounded follow-up read/search/summarize command instead of dumping or reprocessing the whole file.
 - For extraction requests, shape the command output to the user's requested item(s) with bounded filters (for example awk/sed/perl/head/tail/rg context) instead of dumping an entire section when a smaller exact result is requested.
+- When a step should create, remove, move, or copy a local artifact, set verify_hint when the expected outcome is clear. Supported forms: path_exists:<path>, file_exists:<path>, dir_exists:<path>, path_absent:<path>. Paths are resolved relative to work_dir unless absolute.
 - For replan requests, use the failed step output to adjust only the command plan. The failed command already ran; do not include that failed command again unless the user explicitly asked to retry the same failed command after seeing the failure. Do not repeat already-successful steps unless required. If the fix expands risk or side effects, set requires_confirmation=true.
 
 Risk hints:
@@ -263,8 +264,8 @@ func renderCommandResultForPrompt(result operation.CommandOperationResult) strin
 		if len(preview) > 2000 {
 			preview = preview[:2000] + "...[truncated]"
 		}
-		fmt.Fprintf(&b, "result[%d] step_id=%s status=%s exit_code=%d timed_out=%t failure_class=%s error=%q output=%q payload_ref=%s\n",
-			i+1, step.StepID, step.Status, step.ExitCode, step.TimedOut, step.FailureClass, step.Error, preview, step.PayloadRef)
+		fmt.Fprintf(&b, "result[%d] step_id=%s status=%s exit_code=%d timed_out=%t failure_class=%s verification_status=%s verification_summary=%q error=%q output=%q payload_ref=%s\n",
+			i+1, step.StepID, step.Status, step.ExitCode, step.TimedOut, step.FailureClass, step.Verification.Status, step.Verification.Summary, step.Error, preview, step.PayloadRef)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
