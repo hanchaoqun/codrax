@@ -240,12 +240,12 @@ operation step:
 
 ### Batch D: Policy Completion
 
-- [ ] Add config fields for write roots, network policy, install policy, and
+- [x] Add config fields for write roots, network policy, install policy, and
       overwrite policy.
-- [ ] Wire config -> `CommandPolicy`.
-- [ ] Add policy tests for write root manual approval, network/install deny,
-      overwrite manual, and auto-low-risk unchanged.
-- [ ] Update user guide and yaml examples.
+- [x] Wire config -> `CommandPolicy`.
+- [x] Add policy tests for write-root deny, network/install deny, overwrite
+      deny, and auto-low-risk unchanged.
+- [x] Update user guide and yaml examples.
 
 ### Batch E: Verification
 

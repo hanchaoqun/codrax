@@ -68,9 +68,13 @@ type RuntimeSettings struct {
 	OperationRouteEnabled *bool `yaml:"operation_route_enabled"`
 	// Command-operation knobs for the independent operation route. These do not
 	// affect read-mode exec_command or write-mode apply/verify.
-	OperationCommandAutoLowRisk        *bool `yaml:"operation_command_auto_low_risk"`
-	OperationCommandTimeoutMS          *int  `yaml:"operation_command_timeout_ms"`
-	OperationCommandOutputPreviewBytes *int  `yaml:"operation_command_output_preview_bytes"`
+	OperationCommandAutoLowRisk        *bool    `yaml:"operation_command_auto_low_risk"`
+	OperationCommandTimeoutMS          *int     `yaml:"operation_command_timeout_ms"`
+	OperationCommandOutputPreviewBytes *int     `yaml:"operation_command_output_preview_bytes"`
+	OperationCommandAllowedWriteRoots  []string `yaml:"operation_command_allowed_write_roots"`
+	OperationCommandNetworkPolicy      *string  `yaml:"operation_command_network_policy"`
+	OperationCommandInstallPolicy      *string  `yaml:"operation_command_install_policy"`
+	OperationCommandOverwritePolicy    *string  `yaml:"operation_command_overwrite_policy"`
 
 	// Tool blob sizing knobs. Flat-prefixed `blob_*` to keep the
 	// namespace obvious without nesting. All four accept any

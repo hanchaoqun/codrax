@@ -216,6 +216,10 @@
 # operation_command_auto_low_risk: false
 # operation_command_timeout_ms: 120000
 # operation_command_output_preview_bytes: 32768
+# operation_command_allowed_write_roots: []
+# operation_command_network_policy: manual      # manual | deny
+# operation_command_install_policy: manual      # manual | deny
+# operation_command_overwrite_policy: manual    # manual | deny
 
 # ---------------------------------------------------------------------------
 # Tool output blobs  ·  工具输出 blob

@@ -1497,6 +1497,18 @@ func initApp(cmd *cobra.Command, args []string) error {
 		if rs.OperationCommandOutputPreviewBytes != nil && *rs.OperationCommandOutputPreviewBytes > 0 {
 			app.operationCommandPolicy.OutputPreviewBytes = *rs.OperationCommandOutputPreviewBytes
 		}
+		if len(rs.OperationCommandAllowedWriteRoots) > 0 {
+			app.operationCommandPolicy.AllowedWriteRoots = append([]string{}, rs.OperationCommandAllowedWriteRoots...)
+		}
+		if rs.OperationCommandNetworkPolicy != nil {
+			app.operationCommandPolicy.NetworkPolicy = *rs.OperationCommandNetworkPolicy
+		}
+		if rs.OperationCommandInstallPolicy != nil {
+			app.operationCommandPolicy.InstallPolicy = *rs.OperationCommandInstallPolicy
+		}
+		if rs.OperationCommandOverwritePolicy != nil {
+			app.operationCommandPolicy.OverwritePolicy = *rs.OperationCommandOverwritePolicy
+		}
 	}
 
 	// Anchor relative paths.

@@ -50,6 +50,10 @@ type CapabilityPolicy struct {
 	OutputPreviewBytes int
 	UnknownProgram     string
 	ShellPolicy        string
+	NetworkPolicy      string
+	InstallPolicy      string
+	OverwritePolicy    string
+	AllowedWriteRoots  []string
 }
 
 func BuildCapabilitySnapshot(facts *types.EnvFacts, repoRoot string, policy CommandPolicy) CapabilitySnapshot {
@@ -62,6 +66,10 @@ func BuildCapabilitySnapshot(facts *types.EnvFacts, repoRoot string, policy Comm
 			OutputPreviewBytes: policy.OutputPreviewBytes,
 			UnknownProgram:     policy.UnknownProgram,
 			ShellPolicy:        policy.ShellPolicy,
+			NetworkPolicy:      policy.NetworkPolicy,
+			InstallPolicy:      policy.InstallPolicy,
+			OverwritePolicy:    policy.OverwritePolicy,
+			AllowedWriteRoots:  append([]string{}, policy.AllowedWriteRoots...),
 		},
 	}
 	if s.RepoRoot != "" {
@@ -114,6 +122,9 @@ func (s CapabilitySnapshot) RenderForPrompt() string {
 	fmt.Fprintf(&b, "- command_policy: auto_low_risk=%t timeout_ms=%d output_preview_bytes=%d unknown_program=%s shell_policy=%s\n",
 		s.Policy.AutoLowRisk, s.Policy.TimeoutMS, s.Policy.OutputPreviewBytes,
 		dashIfEmpty(s.Policy.UnknownProgram), dashIfEmpty(s.Policy.ShellPolicy))
+	fmt.Fprintf(&b, "- command_policy_controls: network=%s install=%s overwrite=%s allowed_write_roots=%s\n",
+		dashIfEmpty(s.Policy.NetworkPolicy), dashIfEmpty(s.Policy.InstallPolicy),
+		dashIfEmpty(s.Policy.OverwritePolicy), strings.Join(s.Policy.AllowedWriteRoots, ","))
 	writeCommandList(&b, "package_managers", s.PackageManagers, 24)
 	writeCommandList(&b, "runtimes", s.Runtimes, 16)
 	writeCommandList(&b, "available_commands", s.Commands, 40)

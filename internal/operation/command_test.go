@@ -153,3 +153,104 @@ func TestBuildCommandOperationPlanMkdirPAutoEligible(t *testing.T) {
 		t.Fatalf("step AutoApproval=%q, want eligible", got)
 	}
 }
+
+func TestBuildCommandOperationPlanNetworkDeny(t *testing.T) {
+	policy := DefaultCommandPolicy()
+	policy.NetworkPolicy = ApprovalDenied
+	plan := BuildCommandOperationPlan(CommandOperationRequest{
+		Text: "download release notes",
+		Steps: []CommandStep{{
+			Program:     "curl",
+			Args:        []string{"https://example.test/release.txt"},
+			SideEffects: []string{"network_read"},
+		}},
+	}, policy)
+
+	if plan.Status != StatusBlocked {
+		t.Fatalf("Status=%q, want blocked", plan.Status)
+	}
+	if plan.ApprovalMode != ApprovalDenied {
+		t.Fatalf("ApprovalMode=%q, want denied", plan.ApprovalMode)
+	}
+	if plan.BlockReason == "" {
+		t.Fatal("expected a block reason")
+	}
+}
+
+func TestBuildCommandOperationPlanInstallDeny(t *testing.T) {
+	policy := DefaultCommandPolicy()
+	policy.InstallPolicy = ApprovalDenied
+	plan := BuildCommandOperationPlan(CommandOperationRequest{
+		Text: "install package",
+		Steps: []CommandStep{{
+			Program:     "npm",
+			Args:        []string{"install", "left-pad"},
+			SideEffects: []string{"package_install"},
+		}},
+	}, policy)
+
+	if plan.Status != StatusBlocked {
+		t.Fatalf("Status=%q, want blocked", plan.Status)
+	}
+	if plan.ApprovalMode != ApprovalDenied {
+		t.Fatalf("ApprovalMode=%q, want denied", plan.ApprovalMode)
+	}
+}
+
+func TestBuildCommandOperationPlanOverwriteDeny(t *testing.T) {
+	policy := DefaultCommandPolicy()
+	policy.OverwritePolicy = ApprovalDenied
+	plan := BuildCommandOperationPlan(CommandOperationRequest{
+		Text: "overwrite report",
+		Steps: []CommandStep{{
+			Program:     "cp",
+			Args:        []string{"-f", "draft.md", "report.md"},
+			SideEffects: []string{"overwrite"},
+		}},
+	}, policy)
+
+	if plan.Status != StatusBlocked {
+		t.Fatalf("Status=%q, want blocked", plan.Status)
+	}
+	if plan.ApprovalMode != ApprovalDenied {
+		t.Fatalf("ApprovalMode=%q, want denied", plan.ApprovalMode)
+	}
+}
+
+func TestBuildCommandOperationPlanAllowedWriteRoots(t *testing.T) {
+	policy := DefaultCommandPolicy()
+	policy.AutoLowRisk = true
+	policy.AllowedWriteRoots = []string{"/repo/out"}
+
+	inside := BuildCommandOperationPlan(CommandOperationRequest{
+		Text:    "create output directory",
+		WorkDir: "/repo",
+		Steps: []CommandStep{{
+			Program:     "mkdir",
+			Args:        []string{"-p", "out/reports"},
+			SideEffects: []string{"local_file_write"},
+		}},
+	}, policy)
+	if inside.Status != StatusReady {
+		t.Fatalf("inside Status=%q, want ready, reason=%s", inside.Status, inside.BlockReason)
+	}
+	if inside.ApprovalMode != ApprovalAutoLowRisk {
+		t.Fatalf("inside ApprovalMode=%q, want auto_low_risk", inside.ApprovalMode)
+	}
+
+	outside := BuildCommandOperationPlan(CommandOperationRequest{
+		Text:    "create tmp directory",
+		WorkDir: "/repo",
+		Steps: []CommandStep{{
+			Program:     "mkdir",
+			Args:        []string{"-p", "../tmp"},
+			SideEffects: []string{"local_file_write"},
+		}},
+	}, policy)
+	if outside.Status != StatusBlocked {
+		t.Fatalf("outside Status=%q, want blocked", outside.Status)
+	}
+	if outside.ApprovalMode != ApprovalDenied {
+		t.Fatalf("outside ApprovalMode=%q, want denied", outside.ApprovalMode)
+	}
+}

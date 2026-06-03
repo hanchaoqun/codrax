@@ -2036,6 +2036,10 @@ agents:
 | `operation_command_auto_low_risk` | `false` | 通用命令行操作的低风险自动批准。默认关闭;关闭时即使是 `pwd` / `ls` / `go version` 这类低风险命令也会等 `/approve` |
 | `operation_command_timeout_ms` | `120000` | 单个命令 step 的默认超时 |
 | `operation_command_output_preview_bytes` | `32768` | 命令输出在 REPL/memory 中保留的预览字节数。更大的输出会截断预览,完整输出落到 `.codrax/operation/` |
+| `operation_command_allowed_write_roots` | `[]` | 可选写入根目录白名单。非空时,带本地写入副作用的命令必须能从结构化参数证明写入目标落在这些目录内,否则策略阻止 |
+| `operation_command_network_policy` | `manual` | 网络类命令策略:`manual` 等待批准,`deny` 直接阻止。只影响 operation 命令计划,不影响普通分析工具 |
+| `operation_command_install_policy` | `manual` | 安装/卸载类命令策略:`manual` 等待批准,`deny` 直接阻止 |
+| `operation_command_overwrite_policy` | `manual` | 覆盖写入策略:`manual` 等待批准,`deny` 阻止结构化标记为覆盖或明显强制覆盖的步骤 |
 
 通用命令行操作的第一版工作流:
 
@@ -2044,6 +2048,7 @@ agents:
 3. 信息不足时进入 `needs_clarification`,系统会提问,不会猜命令。
 4. 默认人工批准:计划 ready 后运行 `/approve` 执行,或 `/reject <原因>` 拒绝,`/cancel` 取消。
 5. 只有显式设置 `operation_command_auto_low_risk: true` 时,确定只读查询和无覆盖目录创建才可能自动执行。
+6. 网络、安装/卸载、覆盖和写入目录限制只消费 typed side effects 与命令参数,不会通过用户问题里的关键词来判断意图。
 
 ### 环境诊断与推荐
 

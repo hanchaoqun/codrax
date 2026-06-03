@@ -2760,6 +2760,26 @@ mcp_servers:
 <td><code>32768</code></td>
 <td>命令输出在 REPL/memory 中保留的预览字节数。更大的输出会截断预览,完整输出落到 <code>.codrax/operation/</code></td>
 </tr>
+<tr>
+<td><code>operation_command_allowed_write_roots</code></td>
+<td><code>[]</code></td>
+<td>可选写入根目录白名单。非空时,带本地写入副作用的命令必须能从结构化参数证明写入目标落在这些目录内,否则策略阻止</td>
+</tr>
+<tr>
+<td><code>operation_command_network_policy</code></td>
+<td><code>manual</code></td>
+<td>网络类命令策略:<code>manual</code> 等待批准,<code>deny</code> 直接阻止。只影响 operation 命令计划,不影响普通分析工具</td>
+</tr>
+<tr>
+<td><code>operation_command_install_policy</code></td>
+<td><code>manual</code></td>
+<td>安装/卸载类命令策略:<code>manual</code> 等待批准,<code>deny</code> 直接阻止</td>
+</tr>
+<tr>
+<td><code>operation_command_overwrite_policy</code></td>
+<td><code>manual</code></td>
+<td>覆盖写入策略:<code>manual</code> 等待批准,<code>deny</code> 阻止结构化标记为覆盖或明显强制覆盖的步骤</td>
+</tr>
 </tbody>
 </table></div>
 <p>通用命令行操作的第一版工作流:</p>
@@ -2769,6 +2789,7 @@ mcp_servers:
 <li>信息不足时进入 <code>needs_clarification</code>,系统会提问,不会猜命令。</li>
 <li>默认人工批准:计划 ready 后运行 <code>/approve</code> 执行,或 <code>/reject &lt;原因&gt;</code> 拒绝,<code>/cancel</code> 取消。</li>
 <li>只有显式设置 <code>operation_command_auto_low_risk: true</code> 时,确定只读查询和无覆盖目录创建才可能自动执行。</li>
+<li>网络、安装/卸载、覆盖和写入目录限制只消费 typed side effects 与命令参数,不会通过用户问题里的关键词来判断意图。</li>
 </ol>
 <h3 id="环境诊断与推荐">环境诊断与推荐</h3>
 <div class="table-wrap"><table>

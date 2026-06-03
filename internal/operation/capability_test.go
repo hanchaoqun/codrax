@@ -39,6 +39,8 @@ func TestCapabilitySnapshotRendersEnvFactsAndPolicy(t *testing.T) {
 	policy := DefaultCommandPolicy()
 	policy.AutoLowRisk = true
 	policy.TimeoutMS = 12345
+	policy.NetworkPolicy = ApprovalDenied
+	policy.AllowedWriteRoots = []string{"/repo/out"}
 
 	snapshot := BuildCapabilitySnapshot(facts, "/repo", policy)
 	rendered := snapshot.RenderForPrompt()
@@ -49,6 +51,8 @@ func TestCapabilitySnapshotRendersEnvFactsAndPolicy(t *testing.T) {
 		"git_repo_state: ready",
 		"auto_low_risk=true",
 		"timeout_ms=12345",
+		"network=denied",
+		"allowed_write_roots=/repo/out",
 		"git=/usr/bin/git(2.44.0)",
 		"npm=/usr/bin/npm(10.0.0)",
 		"python=/usr/bin/python3(3.12.3)",
