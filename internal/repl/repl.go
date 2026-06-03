@@ -1225,7 +1225,9 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 			r.executeCommandOperationPlan(plan, display, line)
 			return
 		}
-		if plan.Status == operation.StatusReady && plan.ApprovalMode == operation.ApprovalAutoLowRisk {
+		initialDecision := operation.DecideCommandPlanApproval(r.operationPolicy, plan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalInitial})
+		plan = operation.ApplyCommandPlanApprovalDecision(plan, initialDecision)
+		if plan.Status == operation.StatusReady && initialDecision.AutoExecute() {
 			r.pendingCommandClarification = nil
 			r.clearPendingOperationState()
 			r.finishOperationAutoStartSpinner()
@@ -1848,8 +1850,10 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 					repairRounds++
 					revisedReq = dropRepeatedFailedCommandSteps(revisedReq, currentPlan, result)
 					revisedPlan := operation.BuildCommandOperationPlan(revisedReq, r.operationPolicy)
-					logging.Info("[repl/operation] command replan generated previous_plan_id=%s status=%s risk=%q approval=%q steps=%d repair_rounds=%d",
-						currentPlan.ID, revisedPlan.Status, revisedPlan.RiskLevel, revisedPlan.ApprovalMode, len(revisedPlan.Steps), repairRounds)
+					replanDecision := operation.DecideCommandPlanApproval(r.operationPolicy, revisedPlan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalReplan, PreviousPlan: &currentPlan})
+					revisedPlan = operation.ApplyCommandPlanApprovalDecision(revisedPlan, replanDecision)
+					logging.Info("[repl/operation] command replan generated previous_plan_id=%s status=%s risk=%q approval=%q decision=%s reason_code=%s steps=%d repair_rounds=%d",
+						currentPlan.ID, revisedPlan.Status, revisedPlan.RiskLevel, revisedPlan.ApprovalMode, replanDecision.Action, replanDecision.ReasonCode, len(revisedPlan.Steps), repairRounds)
 					if revisedPlan.Status == operation.StatusReady {
 						if lint := commandRevisedPlanPreflightLint(revisedPlan, currentPlan, result); !lint.OK() {
 							lintResult := commandOperationResultFromPlanLint(revisedPlan, lint)
@@ -1857,7 +1861,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 							syntheticResult = &lintResult
 							continue
 						}
-						if commandReplanCanAutoExecute(currentPlan, revisedPlan) {
+						if replanDecision.AutoExecute() {
 							msg := commandOperationReplanIntro(r.language, revisedPlan)
 							msg += "\n\n"
 							msg += commandOperationAutoExecuteMarkdown(r.language, revisedPlan)
@@ -1867,7 +1871,6 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 							r.startOperationExecutionSpinner()
 							continue
 						}
-						revisedPlan = commandReplanManualApprovalPlan(currentPlan, revisedPlan)
 						r.pendingOperation = &revisedPlan
 						r.savePendingOperationState()
 					}
@@ -1909,8 +1912,10 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 						currentPlan.ID, oneLineClamp(next.Reason, 160), len(records))
 				} else {
 					nextPlan := operation.BuildCommandOperationPlan(next.Request, r.operationPolicy)
-					logging.Info("[repl/operation] command continuation generated previous_plan_id=%s status=%s risk=%q approval=%q steps=%d rounds=%d",
-						currentPlan.ID, nextPlan.Status, nextPlan.RiskLevel, nextPlan.ApprovalMode, len(nextPlan.Steps), len(records))
+					continuationDecision := operation.DecideCommandPlanApproval(r.operationPolicy, nextPlan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalContinuation, PreviousPlan: &currentPlan})
+					nextPlan = operation.ApplyCommandPlanApprovalDecision(nextPlan, continuationDecision)
+					logging.Info("[repl/operation] command continuation generated previous_plan_id=%s status=%s risk=%q approval=%q decision=%s reason_code=%s steps=%d rounds=%d",
+						currentPlan.ID, nextPlan.Status, nextPlan.RiskLevel, nextPlan.ApprovalMode, continuationDecision.Action, continuationDecision.ReasonCode, len(nextPlan.Steps), len(records))
 					if lint := operation.LintCommandOperationPlan(nextPlan); !lint.OK() {
 						lintResult := commandOperationResultFromPlanLint(nextPlan, lint)
 						currentPlan = nextPlan
@@ -1919,7 +1924,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 					}
 					if nextPlan.Status == operation.StatusNeedsClarification && len(nextPlan.ClarifyingQuestions) == 0 {
 						logging.Warning("[repl/operation] command continuation returned needs_clarification without actionable questions; falling back to final synthesis")
-					} else if nextPlan.Status == operation.StatusReady && nextPlan.ApprovalMode == operation.ApprovalAutoLowRisk {
+					} else if nextPlan.Status == operation.StatusReady && continuationDecision.AutoExecute() {
 						msg := commandOperationContinuationIntro(r.language, nextPlan)
 						msg += "\n\n"
 						msg += commandOperationAutoExecuteMarkdown(r.language, nextPlan)
@@ -2039,8 +2044,10 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 	}
 	revisedReq = dropRepeatedFailedCommandSteps(revisedReq, failedPlan, result)
 	revisedPlan := operation.BuildCommandOperationPlan(revisedReq, r.operationPolicy)
-	logging.Info("[repl/operation] command replan generated previous_plan_id=%s status=%s risk=%q approval=%q steps=%d",
-		failedPlan.ID, revisedPlan.Status, revisedPlan.RiskLevel, revisedPlan.ApprovalMode, len(revisedPlan.Steps))
+	replanDecision := operation.DecideCommandPlanApproval(r.operationPolicy, revisedPlan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalReplan, PreviousPlan: &failedPlan})
+	revisedPlan = operation.ApplyCommandPlanApprovalDecision(revisedPlan, replanDecision)
+	logging.Info("[repl/operation] command replan generated previous_plan_id=%s status=%s risk=%q approval=%q decision=%s reason_code=%s steps=%d",
+		failedPlan.ID, revisedPlan.Status, revisedPlan.RiskLevel, revisedPlan.ApprovalMode, replanDecision.Action, replanDecision.ReasonCode, len(revisedPlan.Steps))
 	if revisedPlan.Status == operation.StatusReady {
 		if lint := commandRevisedPlanPreflightLint(revisedPlan, failedPlan, result); !lint.OK() {
 			lintResult := commandOperationResultFromPlanLint(revisedPlan, lint)
@@ -2065,7 +2072,7 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 			r.recordTurn(display, request, msg, memory.KindPipeline)
 			return true
 		}
-		if commandReplanCanAutoExecute(failedPlan, revisedPlan) {
+		if replanDecision.AutoExecute() {
 			msg := commandOperationResultMarkdown(r.language, failedPlan, result)
 			msg += "\n\n"
 			msg += commandOperationReplanIntro(r.language, revisedPlan)
@@ -2076,7 +2083,6 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 			r.executeCommandOperationPlanAttempt(revisedPlan, request, display, replanAttempts+1, records)
 			return true
 		}
-		revisedPlan = commandReplanManualApprovalPlan(failedPlan, revisedPlan)
 		r.pendingOperation = &revisedPlan
 		r.savePendingOperationState()
 	}
@@ -2112,13 +2118,15 @@ func (r *REPL) maybeContinueCommandOperation(ctx context.Context, plan operation
 		return false
 	}
 	nextPlan := operation.BuildCommandOperationPlan(next.Request, r.operationPolicy)
-	logging.Info("[repl/operation] command continuation generated previous_plan_id=%s status=%s risk=%q approval=%q steps=%d rounds=%d",
-		plan.ID, nextPlan.Status, nextPlan.RiskLevel, nextPlan.ApprovalMode, len(nextPlan.Steps), len(records))
+	continuationDecision := operation.DecideCommandPlanApproval(r.operationPolicy, nextPlan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalContinuation, PreviousPlan: &plan})
+	nextPlan = operation.ApplyCommandPlanApprovalDecision(nextPlan, continuationDecision)
+	logging.Info("[repl/operation] command continuation generated previous_plan_id=%s status=%s risk=%q approval=%q decision=%s reason_code=%s steps=%d rounds=%d",
+		plan.ID, nextPlan.Status, nextPlan.RiskLevel, nextPlan.ApprovalMode, continuationDecision.Action, continuationDecision.ReasonCode, len(nextPlan.Steps), len(records))
 	if nextPlan.Status == operation.StatusNeedsClarification && len(nextPlan.ClarifyingQuestions) == 0 {
 		logging.Warning("[repl/operation] command continuation returned needs_clarification without actionable questions; falling back to final synthesis")
 		return false
 	}
-	if nextPlan.Status == operation.StatusReady && nextPlan.ApprovalMode == operation.ApprovalAutoLowRisk {
+	if nextPlan.Status == operation.StatusReady && continuationDecision.AutoExecute() {
 		msg := commandOperationContinuationIntro(r.language, nextPlan)
 		msg += "\n\n"
 		msg += commandOperationAutoExecuteMarkdown(r.language, nextPlan)
@@ -2481,50 +2489,8 @@ func normalizedCommandStepKey(step operation.CommandStep) string {
 	return "argv:" + strings.Join(parts, "\x00")
 }
 
-func commandReplanCanAutoExecute(previous, revised operation.CommandOperationPlan) bool {
-	if revised.Status != operation.StatusReady || revised.ApprovalMode != operation.ApprovalAutoLowRisk {
-		return false
-	}
-	if filepath.Clean(strings.TrimSpace(previous.WorkDir)) != filepath.Clean(strings.TrimSpace(revised.WorkDir)) {
-		return false
-	}
-	if commandRiskRank(revised.RiskLevel) > commandRiskRank(previous.RiskLevel) {
-		return false
-	}
-	for _, step := range revised.Steps {
-		if len(step.SideEffects) > 0 {
-			return false
-		}
-		if step.AutoApproval != operation.StepAutoEligible {
-			return false
-		}
-	}
-	return len(revised.Steps) > 0
-}
-
-func commandReplanManualApprovalPlan(previous, revised operation.CommandOperationPlan) operation.CommandOperationPlan {
-	if commandReplanCanAutoExecute(previous, revised) {
-		return revised
-	}
-	if revised.Status == operation.StatusReady && revised.ApprovalMode == operation.ApprovalAutoLowRisk {
-		revised.ApprovalMode = operation.ApprovalManual
-	}
-	return revised
-}
-
-func commandRiskRank(risk string) int {
-	switch strings.ToLower(strings.TrimSpace(risk)) {
-	case "none":
-		return 0
-	case "low", "":
-		return 1
-	case "medium":
-		return 2
-	case "high":
-		return 3
-	default:
-		return 2
-	}
+func commandReplanCanAutoExecute(policy operation.CommandPolicy, previous, revised operation.CommandOperationPlan) bool {
+	return operation.DecideCommandPlanApproval(policy, revised, operation.CommandApprovalOptions{Phase: operation.CommandApprovalReplan, PreviousPlan: &previous}).AutoExecute()
 }
 
 func commandOperationPolicyFromPlan(plan operation.CommandOperationPlan) TurnPolicy {
@@ -5913,9 +5879,11 @@ func (r *REPL) maybeContinueProviderOperationWithCommand(ctx context.Context, fi
 		return false
 	}
 	plan := operation.BuildCommandOperationPlan(planned, r.operationPolicy)
-	logging.Info("[repl/operation] provider-to-command continuation plan status=%s risk=%q approval=%q steps=%d",
-		plan.Status, plan.RiskLevel, plan.ApprovalMode, len(plan.Steps))
-	if plan.Status == operation.StatusReady && plan.ApprovalMode == operation.ApprovalAutoLowRisk {
+	continuationDecision := operation.DecideCommandPlanApproval(r.operationPolicy, plan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalContinuation})
+	plan = operation.ApplyCommandPlanApprovalDecision(plan, continuationDecision)
+	logging.Info("[repl/operation] provider-to-command continuation plan status=%s risk=%q approval=%q decision=%s reason_code=%s steps=%d",
+		plan.Status, plan.RiskLevel, plan.ApprovalMode, continuationDecision.Action, continuationDecision.ReasonCode, len(plan.Steps))
+	if plan.Status == operation.StatusReady && continuationDecision.AutoExecute() {
 		msg := commandOperationContinuationIntro(r.language, plan)
 		msg += "\n\n"
 		msg += commandOperationAutoExecuteMarkdown(r.language, plan)

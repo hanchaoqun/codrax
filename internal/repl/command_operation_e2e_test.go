@@ -1868,6 +1868,47 @@ func TestCommandOperationE2E_FailedApprovedCommandAutoExecutesSafeReplanWhenAuto
 	}
 }
 
+func TestCommandOperationE2E_FailedApprovedCommandAutoExecutesNetworkReadReplan(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("medium")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"high","requires_confirmation":true,"work_dir":".","steps":[{"id":"s1","title":"show missing tool version","program":"definitely-missing-codrax-command","args":["--version"],"risk_level":"high","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"s2","title":"download manual page","shell":"printf 'manual page downloaded\\n'","risk_level":"low","side_effects":["network_read"]}]}`),
+			{Content: "缺失工具不可用，已自动改用网络读取计划并完成。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "读取网站用户手册\n/approve\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	r.operationPolicy.AutoApprove = true
+	r.operationPolicy.AutoLowRisk = false
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("command operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if r.pendingOperation != nil {
+		t.Fatalf("network-read revised plan should auto-execute under global auto-approve, pending=%+v", r.pendingOperation)
+	}
+	printed := out.String()
+	for _, want := range []string{
+		"will continue execution",
+		"manual page downloaded",
+		"网络读取计划",
+	} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("network-read replan output missing %q:\n%s", want, printed)
+		}
+	}
+	if strings.Contains(printed, "awaiting approval") || strings.Contains(printed, "等待批准") {
+		t.Fatalf("network-read replan should not wait for approval when AutoApprove=true:\n%s", printed)
+	}
+}
+
 func TestCommandOperationE2E_InvalidShellFilterReplansWithNumericStepID(t *testing.T) {
 	store := newPolicyStore(t)
 	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
@@ -2385,6 +2426,9 @@ func TestDropRepeatedFailedCommandStepsRemovesOnlyFailedRetry(t *testing.T) {
 }
 
 func TestCommandReplanAutoExecuteEnvelope(t *testing.T) {
+	policy := operation.DefaultCommandPolicy()
+	policy.AutoApprove = true
+	policy.AutoLowRisk = false
 	base := operation.CommandOperationPlan{
 		Status:       operation.StatusFailed,
 		RiskLevel:    "medium",
@@ -2404,7 +2448,7 @@ func TestCommandReplanAutoExecuteEnvelope(t *testing.T) {
 			AutoApproval: operation.StepAutoEligible,
 		}},
 	}
-	if !commandReplanCanAutoExecute(base, okPlan) {
+	if !commandReplanCanAutoExecute(policy, base, okPlan) {
 		t.Fatal("same-dir lower-risk read-only eligible replan should be allowed to auto-continue")
 	}
 	clone := func(plan operation.CommandOperationPlan) operation.CommandOperationPlan {
@@ -2413,24 +2457,29 @@ func TestCommandReplanAutoExecuteEnvelope(t *testing.T) {
 	}
 	changedDir := clone(okPlan)
 	changedDir.WorkDir = "/tmp"
-	if commandReplanCanAutoExecute(base, changedDir) {
+	if commandReplanCanAutoExecute(policy, base, changedDir) {
 		t.Fatal("changed workdir must require manual approval")
 	}
 	withShell := clone(okPlan)
 	withShell.Steps[0].Shell = "go version"
 	withShell.Steps[0].Program = ""
 	withShell.Steps[0].Args = nil
-	if !commandReplanCanAutoExecute(base, withShell) {
+	if !commandReplanCanAutoExecute(policy, base, withShell) {
 		t.Fatal("auto-approved, same-dir, no-side-effect shell replan should be allowed to continue")
+	}
+	withNetworkRead := clone(okPlan)
+	withNetworkRead.Steps[0].SideEffects = []string{"network_read"}
+	if !commandReplanCanAutoExecute(policy, base, withNetworkRead) {
+		t.Fatal("observation-only network_read replan should be allowed to continue")
 	}
 	withSideEffect := clone(okPlan)
 	withSideEffect.Steps[0].SideEffects = []string{"local_file_write"}
-	if commandReplanCanAutoExecute(base, withSideEffect) {
-		t.Fatal("side-effecting replan must require manual approval")
+	if commandReplanCanAutoExecute(policy, base, withSideEffect) {
+		t.Fatal("write side-effecting replan must require manual approval")
 	}
 	escalated := clone(okPlan)
 	escalated.RiskLevel = "high"
-	if commandReplanCanAutoExecute(base, escalated) {
+	if commandReplanCanAutoExecute(policy, base, escalated) {
 		t.Fatal("risk-escalating replan must require manual approval")
 	}
 }

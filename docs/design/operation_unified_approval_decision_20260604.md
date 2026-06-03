@@ -147,30 +147,30 @@ This preserves the product rule:
 
 ### Batch 2: Deterministic Decision Layer
 
-- [ ] Add `CommandApprovalPhase`, `CommandApprovalAction`,
+- [x] Add `CommandApprovalPhase`, `CommandApprovalAction`,
       `CommandApprovalOptions`, and `CommandApprovalDecision`.
-- [ ] Implement `DecideCommandPlanApproval`.
-- [ ] Add side-effect class helpers for observation-only versus manual replan
+- [x] Implement `DecideCommandPlanApproval`.
+- [x] Add side-effect class helpers for observation-only versus manual replan
       side effects.
-- [ ] Add unit matrix tests for initial/replan/continuation, auto flags,
+- [x] Add unit matrix tests for initial/replan/continuation, auto flags,
       side-effect classes, risk escalation, and workdir changes.
 
 ### Batch 3: REPL Integration
 
-- [ ] Apply the decision in `BuildCommandOperationPlan`.
-- [ ] Replace REPL local replan auto/manual logic with the unified decision.
-- [ ] Replace continuation raw `ApprovalMode` checks with the unified decision.
-- [ ] Keep pending-operation persistence behavior unchanged.
+- [x] Apply the decision in `BuildCommandOperationPlan`.
+- [x] Replace REPL local replan auto/manual logic with the unified decision.
+- [x] Replace continuation raw `ApprovalMode` checks with the unified decision.
+- [x] Keep pending-operation persistence behavior unchanged.
 
 ### Batch 4: Regression Coverage
 
-- [ ] Add E2E case: failed command -> revised `curl`/`network_read` plan auto
+- [x] Add E2E case: failed command -> revised `curl`/`network_read` plan auto
       continues when `AutoApprove=true`.
-- [ ] Preserve E2E case: changed-workdir revised plan waits for approval.
-- [ ] Preserve E2E case: risk-escalating repair waits for approval.
-- [ ] Preserve E2E case: destructive plan is blocked/denied.
-- [ ] Run focused `internal/operation` and `internal/repl` tests.
-- [ ] Run `go test ./...`.
+- [x] Preserve E2E case: changed-workdir revised plan waits for approval.
+- [x] Preserve E2E case: risk-escalating repair waits for approval.
+- [x] Preserve E2E case: destructive plan is blocked/denied.
+- [x] Run focused `internal/operation` and `internal/repl` tests.
+- [x] Run `go test ./...`.
 
 ## Non-goals
 
