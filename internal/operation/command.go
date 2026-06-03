@@ -290,7 +290,6 @@ func BuildCommandOperationPlan(req CommandOperationRequest, policy CommandPolicy
 		return plan
 	}
 
-	allAutoEligible := policy.AutoApprove || policy.AutoLowRisk
 	var sideEffects []string
 	for i, raw := range req.Steps {
 		step := normalizeCommandStep(raw, i, policy, plan.WorkDir)
@@ -308,18 +307,11 @@ func BuildCommandOperationPlan(req CommandOperationRequest, policy CommandPolicy
 			plan.ApprovalMode = ApprovalDenied
 			plan.BlockReason = decision.Reason
 		}
-		if decision.AutoApproval != StepAutoEligible {
-			allAutoEligible = false
-		}
 	}
 	if plan.Status == StatusBlocked {
 		return plan
 	}
-	if allAutoEligible {
-		plan.ApprovalMode = ApprovalAutoLowRisk
-	} else {
-		plan.ApprovalMode = ApprovalManual
-	}
+	plan = ApplyCommandPlanApprovalDecision(plan, DecideCommandPlanApproval(policy, plan, CommandApprovalOptions{Phase: CommandApprovalInitial}))
 	_ = cleanList(sideEffects) // retained for future renderer/result summaries.
 	return plan
 }
