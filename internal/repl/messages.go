@@ -1041,6 +1041,152 @@ func operationPlanMarkdown(lang string, plan operation.Plan) string {
 	return strings.TrimSpace(b.String())
 }
 
+func commandOperationPlanMarkdown(lang string, plan operation.CommandOperationPlan) string {
+	if isZh(lang) {
+		var b strings.Builder
+		switch plan.Status {
+		case operation.StatusNeedsClarification:
+			b.WriteString("已识别为通用命令行操作请求，但还缺少关键信息。\n\n")
+			b.WriteString("需要补充：\n")
+			for i, q := range plan.ClarifyingQuestions {
+				b.WriteString(fmt.Sprintf("%d. %s\n", i+1, q.Question))
+				if len(q.Suggestions) > 0 {
+					b.WriteString(fmt.Sprintf("   建议：%s\n", strings.Join(q.Suggestions, "；")))
+				}
+			}
+			b.WriteString("\n系统不会猜测命令，也不会自动执行。请补充信息后重新发送请求。")
+			return strings.TrimSpace(b.String())
+		case operation.StatusBlocked:
+			b.WriteString(fmt.Sprintf("操作计划 `%s` 已被策略阻止。\n\n", plan.ID))
+			b.WriteString(fmt.Sprintf("- 风险：`%s`\n", plan.RiskLevel))
+			b.WriteString(fmt.Sprintf("- 原因：%s\n", plan.BlockReason))
+			b.WriteString("没有执行任何命令。")
+			return strings.TrimSpace(b.String())
+		default:
+			b.WriteString(fmt.Sprintf("操作计划 `%s` 已就绪，等待批准。\n\n", plan.ID))
+			b.WriteString(fmt.Sprintf("- 风险：`%s`\n", plan.RiskLevel))
+			b.WriteString(fmt.Sprintf("- 审批：`%s`\n", plan.ApprovalMode))
+			b.WriteString(fmt.Sprintf("- 工作目录：`%s`\n", plan.WorkDir))
+			b.WriteString("\n计划步骤：\n")
+			for i, step := range plan.Steps {
+				cmd := step.Program
+				if strings.TrimSpace(step.Shell) != "" {
+					cmd = step.Shell
+				} else if len(step.Args) > 0 {
+					cmd = strings.TrimSpace(step.Program + " " + strings.Join(step.Args, " "))
+				}
+				b.WriteString(fmt.Sprintf("%d. %s\n", i+1, step.Title))
+				b.WriteString(fmt.Sprintf("   `$ %s`\n", cmd))
+				b.WriteString(fmt.Sprintf("   风险：`%s` · 审批：`%s` · %s\n", step.RiskLevel, step.AutoApproval, step.Reason))
+			}
+			b.WriteString("\n运行 `/approve` 执行，或 `/reject <原因>` 拒绝。")
+			return strings.TrimSpace(b.String())
+		}
+	}
+
+	var b strings.Builder
+	switch plan.Status {
+	case operation.StatusNeedsClarification:
+		b.WriteString("Codrax recognized a command-line operation request, but key details are missing.\n\n")
+		b.WriteString("Needed:\n")
+		for i, q := range plan.ClarifyingQuestions {
+			b.WriteString(fmt.Sprintf("%d. %s\n", i+1, q.Question))
+			if len(q.Suggestions) > 0 {
+				b.WriteString(fmt.Sprintf("   Suggestions: %s\n", strings.Join(q.Suggestions, "; ")))
+			}
+		}
+		b.WriteString("\nCodrax will not guess the command and did not execute anything. Send the missing details to continue.")
+		return strings.TrimSpace(b.String())
+	case operation.StatusBlocked:
+		b.WriteString(fmt.Sprintf("Operation plan `%s` was blocked by policy.\n\n", plan.ID))
+		b.WriteString(fmt.Sprintf("- Risk: `%s`\n", plan.RiskLevel))
+		b.WriteString(fmt.Sprintf("- Reason: %s\n", plan.BlockReason))
+		b.WriteString("No command was executed.")
+		return strings.TrimSpace(b.String())
+	default:
+		b.WriteString(fmt.Sprintf("Operation plan `%s` is ready and awaiting approval.\n\n", plan.ID))
+		b.WriteString(fmt.Sprintf("- Risk: `%s`\n", plan.RiskLevel))
+		b.WriteString(fmt.Sprintf("- Approval: `%s`\n", plan.ApprovalMode))
+		b.WriteString(fmt.Sprintf("- Working directory: `%s`\n", plan.WorkDir))
+		b.WriteString("\nPlanned steps:\n")
+		for i, step := range plan.Steps {
+			cmd := step.Program
+			if strings.TrimSpace(step.Shell) != "" {
+				cmd = step.Shell
+			} else if len(step.Args) > 0 {
+				cmd = strings.TrimSpace(step.Program + " " + strings.Join(step.Args, " "))
+			}
+			b.WriteString(fmt.Sprintf("%d. %s\n", i+1, step.Title))
+			b.WriteString(fmt.Sprintf("   `$ %s`\n", cmd))
+			b.WriteString(fmt.Sprintf("   Risk: `%s` · Approval: `%s` · %s\n", step.RiskLevel, step.AutoApproval, step.Reason))
+		}
+		b.WriteString("\nRun `/approve` to execute, or `/reject <reason>` to reject.")
+		return strings.TrimSpace(b.String())
+	}
+}
+
+func operationNoPendingMsg(lang string) string {
+	if isZh(lang) {
+		return "当前没有待处理的操作计划。"
+	}
+	return "No pending operation plan."
+}
+
+func operationNoHistoryMsg(lang string) string {
+	if isZh(lang) {
+		return "还没有操作计划历史。"
+	}
+	return "No operation plan history yet."
+}
+
+func operationHistoryRow(lang, id, status, risk string) string {
+	if isZh(lang) {
+		return fmt.Sprintf("操作 %s · 状态 %s · 风险 %s", id, status, risk)
+	}
+	return fmt.Sprintf("operation %s · status %s · risk %s", id, status, risk)
+}
+
+func operationAutoStatusMsg(lang string) string {
+	if isZh(lang) {
+		return "自动批准默认关闭；低风险自动批准将在命令执行器配置启用后才会生效。"
+	}
+	return "Auto approval is off by default; low-risk auto approval only applies after command-executor config enables it."
+}
+
+func operationHelpMsg(lang string) string {
+	if isZh(lang) {
+		return "/operation [show|history|auto] — 查看待处理操作、历史或自动批准状态。日常审批使用 /approve、/reject、/cancel。"
+	}
+	return "/operation [show|history|auto] — show pending operations, history, or auto-approval status. Use /approve, /reject, /cancel for day-to-day approval."
+}
+
+func operationExecutorNotReadyMsg(lang, id string) string {
+	if isZh(lang) {
+		return fmt.Sprintf("操作计划 `%s` 已等待执行，但当前批次尚未接入命令执行器；没有执行任何命令。", id)
+	}
+	return fmt.Sprintf("Operation plan `%s` is awaiting execution, but the command executor is not connected in this batch; no command was executed.", id)
+}
+
+func operationRejectedMsg(lang, id, reason string) string {
+	if isZh(lang) {
+		if strings.TrimSpace(reason) == "" {
+			return fmt.Sprintf("已拒绝操作计划 `%s`。", id)
+		}
+		return fmt.Sprintf("已拒绝操作计划 `%s`：%s", id, reason)
+	}
+	if strings.TrimSpace(reason) == "" {
+		return fmt.Sprintf("Rejected operation plan `%s`.", id)
+	}
+	return fmt.Sprintf("Rejected operation plan `%s`: %s", id, reason)
+}
+
+func operationCancelledMsg(lang, id string) string {
+	if isZh(lang) {
+		return fmt.Sprintf("已取消操作计划 `%s`。", id)
+	}
+	return fmt.Sprintf("Cancelled operation plan `%s`.", id)
+}
+
 func localizedOperationStep(lang, title, detail string) (string, string) {
 	if !isZh(lang) {
 		return title, detail

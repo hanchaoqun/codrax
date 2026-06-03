@@ -553,6 +553,8 @@ type REPL struct {
 	// analysis pipeline.
 	operationEnabled   bool
 	operationProviders []operation.ProviderInfo
+	pendingOperation   *operation.CommandOperationPlan
+	operationHistory   []operation.CommandOperationPlan
 
 	// sessionID identifies this REPL session. Stamped onto every
 	// recorded Turn so memory.BuildContext can session-pin recent
@@ -1141,6 +1143,32 @@ func (r *REPL) operationUnavailableDispatch(line, display string, policy TurnPol
 // the user a structured, localized operation preflight without entering the
 // source-analysis pipeline or executing side-effecting tools.
 func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
+	if isCommandOperationPolicy(policy) {
+		plan := operation.BuildCommandOperationPlan(operation.CommandOperationRequest{
+			Text:    line,
+			WorkDir: r.repoRoot,
+			ClarifyingQuestions: []operation.ClarifyingQuestion{{
+				ID:       "command_or_target",
+				Question: "请补充要执行的命令、目标路径或约束条件。",
+				Suggestions: []string{
+					"例如: 查询 node 版本",
+					"例如: 把 ./a.log 移动到 ./logs/",
+					"例如: 在当前目录创建 reports 目录",
+				},
+			}},
+		}, operation.DefaultCommandPolicy())
+		if plan.Status == operation.StatusReady {
+			r.pendingOperation = &plan
+		}
+		r.operationHistory = append(r.operationHistory, plan)
+		logging.Info("[repl/operation] command plan status=%s risk=%q approval=%q steps=%d",
+			plan.Status, plan.RiskLevel, plan.ApprovalMode, len(plan.Steps))
+		msg := commandOperationPlanMarkdown(r.language, plan)
+		r.renderBordered(msg)
+		r.recordTurn(display, line, msg, memory.KindPipeline)
+		return
+	}
+
 	plan := operation.BuildPlan(operation.Request{
 		Text:                 line,
 		Operation:            policy.Operation,
@@ -1163,6 +1191,74 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 	msg := operationPlanMarkdown(r.language, plan)
 	r.renderBordered(msg)
 	r.recordTurn(display, line, msg, memory.KindPipeline)
+}
+
+func isCommandOperationPolicy(policy TurnPolicy) bool {
+	kind := strings.TrimSpace(policy.OperationKind)
+	if kind == "" {
+		kind = strings.TrimSpace(policy.Operation)
+	}
+	return kind == "computer_operation"
+}
+
+func (r *REPL) handleOperationCmd(line string) {
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "/operation"))
+	switch rest {
+	case "", "show":
+		if r.pendingOperation != nil {
+			r.renderBordered(commandOperationPlanMarkdown(r.language, *r.pendingOperation))
+			return
+		}
+		r.info(operationNoPendingMsg(r.language))
+	case "history":
+		if len(r.operationHistory) == 0 {
+			r.info(operationNoHistoryMsg(r.language))
+			return
+		}
+		limit := len(r.operationHistory)
+		if limit > 5 {
+			limit = 5
+		}
+		for i := len(r.operationHistory) - limit; i < len(r.operationHistory); i++ {
+			plan := r.operationHistory[i]
+			r.info(operationHistoryRow(r.language, plan.ID, string(plan.Status), plan.RiskLevel))
+		}
+	case "auto":
+		r.info(operationAutoStatusMsg(r.language))
+	default:
+		r.info(operationHelpMsg(r.language))
+	}
+}
+
+func (r *REPL) handleOperationApproveCmd(line string) {
+	_ = line
+	plan := *r.pendingOperation
+	if plan.Status != operation.StatusReady {
+		r.info(commandOperationPlanMarkdown(r.language, plan))
+		return
+	}
+	// Batch 2 wires approval routing before the executor. Production cannot
+	// naturally reach this branch yet because operationDispatch only creates
+	// clarification plans for command operations. Batch 3 replaces this with
+	// actual execution.
+	msg := operationExecutorNotReadyMsg(r.language, plan.ID)
+	r.warn("%s\n", msg)
+	r.recordTurn("/approve", "/approve", msg, memory.KindPipeline)
+}
+
+func (r *REPL) handleOperationRejectCmd(line string) {
+	plan := *r.pendingOperation
+	reason := strings.TrimSpace(strings.TrimPrefix(line, "/reject"))
+	plan.Status = operation.StatusRejected
+	r.operationHistory = append(r.operationHistory, plan)
+	r.pendingOperation = nil
+	msg := operationRejectedMsg(r.language, plan.ID, reason)
+	r.success(msg)
+	request := "/reject"
+	if reason != "" {
+		request += " " + reason
+	}
+	r.recordTurn(request, request, msg, memory.KindPipeline)
 }
 
 // currentStickyTag returns the per-turn sticky-state marker
@@ -2589,6 +2685,9 @@ func (r *REPL) handleSlash(line string) bool {
 	case "/reject":
 		r.handleRejectCmd(line)
 		return false
+	case "/operation":
+		r.handleOperationCmd(line)
+		return false
 	case "/verify":
 		r.handleVerifyCmd(line)
 		return false
@@ -3495,6 +3594,10 @@ func (r *REPL) formatPlanHistoryRow(inf PlanInfo) string {
 //     pendingPlanPath regardless of success (apply is terminal;
 //     the user re-plans if they want to try again)
 func (r *REPL) handleApproveCmd(line string) {
+	if r.pendingOperation != nil {
+		r.handleOperationApproveCmd(line)
+		return
+	}
 	// Parse all /approve arguments in one pass:
 	//   `/approve` — operate on the most recent pending plan
 	//   `/approve <plan-id>` — explicitly target a plan; useful when
@@ -4380,6 +4483,14 @@ func (r *REPL) handleMergeCmd(line string) {
 //     NOT exit — Ctrl+D / `/exit` are the explicit exit verbs.
 func (r *REPL) handleCancelCmd(line string) {
 	_ = line // no args today; kept signature consistent with peers
+	if r.pendingOperation != nil {
+		plan := *r.pendingOperation
+		plan.Status = operation.StatusCancelled
+		r.operationHistory = append(r.operationHistory, plan)
+		r.pendingOperation = nil
+		r.info(operationCancelledMsg(r.language, plan.ID))
+		return
+	}
 	canceller, ok := r.runner.(runnerCanceller)
 	if !ok || !r.runInFlight.Load() {
 		r.info(cancelNothingRunningMsg(r.language))
@@ -4531,6 +4642,10 @@ func (b *boundedBuffer) Truncated() bool {
 //  1. Accepts a free-form reason argument.
 //  2. Records a memory turn so /history shows the rejection.
 func (r *REPL) handleRejectCmd(line string) {
+	if r.pendingOperation != nil {
+		r.handleOperationRejectCmd(line)
+		return
+	}
 	if r.planStore == nil {
 		r.info(commandDisabled(r.language, "/reject", noPlanStoreReason(r.language)))
 		return

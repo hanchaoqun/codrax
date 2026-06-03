@@ -30,6 +30,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/memory"
+	"github.com/hanchaoqun/codrax/internal/operation"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -899,6 +900,76 @@ func TestTurnPolicyDispatch_OperationRoutePlansWithoutSourcePipeline(t *testing.
 	}
 	if !strings.Contains(out.String(), "presentation_generation") {
 		t.Fatalf("operation plan should be persisted for follow-ups; recent=%+v", recent)
+	}
+}
+
+func TestTurnPolicyDispatch_CommandOperationClarifiesWithoutSourcePipeline(t *testing.T) {
+	store := newPolicyStore(t)
+
+	classifier := &stubTurnPolicyClassifier{
+		policy: TurnPolicy{
+			Route:                RouteOperation,
+			NeedsOperationAccess: true,
+			Operation:            "computer_operation",
+			OperationKind:        "computer_operation",
+			Source:               "current_message",
+			RiskLevel:            "medium",
+			TargetSurface:        "desktop",
+			Confidence:           0.9,
+			Reason:               "user asked Codrax to operate the computer",
+		},
+	}
+	responder := &stubLocalResponder{localReply: "should-not-appear"}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, responder, "帮我移动一个文件\n/exit\n")
+	r.operationEnabled = true
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("command operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if r.pendingOperation != nil {
+		t.Fatalf("clarification plan should not become pending approval: %+v", r.pendingOperation)
+	}
+	printed := out.String()
+	for _, want := range []string{"command-line operation request", "will not guess"} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("command operation clarification missing %q:\n%s", want, printed)
+		}
+	}
+}
+
+func TestRejectPrefersPendingOperationOverWritePlan(t *testing.T) {
+	store := newPolicyStore(t)
+	r, _, out := newTurnPolicyREPL(t, store, nil, nil, "/reject no thanks\n/exit\n")
+	r.pendingOperation = &operation.CommandOperationPlan{
+		ID:           "op-test",
+		Status:       operation.StatusReady,
+		RiskLevel:    "medium",
+		ApprovalMode: operation.ApprovalManual,
+		WorkDir:      ".",
+		Steps: []operation.CommandStep{{
+			ID:           "step-1",
+			Title:        "probe",
+			Program:      "corp-tool",
+			AutoApproval: operation.StepAutoManual,
+			RiskLevel:    "medium",
+		}},
+	}
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if r.pendingOperation != nil {
+		t.Fatalf("pending operation was not cleared: %+v", r.pendingOperation)
+	}
+	printed := out.String()
+	if strings.Contains(printed, "no pending plan") {
+		t.Fatalf("/reject should not fall through to write-plan reject while operation is pending:\n%s", printed)
+	}
+	if !strings.Contains(printed, "Rejected operation plan `op-test`: no thanks") {
+		t.Fatalf("operation reject message missing:\n%s", printed)
 	}
 }
 
