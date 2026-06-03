@@ -193,43 +193,46 @@ typed fields must make this explicit. Deterministic fallbacks:
 
 ### Batch 2: Goal Fields and JSON Compatibility
 
-- [ ] Add goal-state fields to `operation.CommandOperationRequest` and
+- [x] Add goal-state fields to `operation.CommandOperationRequest` and
       `operation.CommandOperationPlan`.
-- [ ] Extend `emit_command_operation_plan` schema and planner prompt.
-- [ ] Decode new fields with flexible string/list types.
-- [ ] Include goal-state fields in replan/continuation context and result
+- [x] Extend `emit_command_operation_plan` schema and planner prompt.
+- [x] Decode new fields with flexible string/list types.
+- [x] Include goal-state fields in replan/continuation context and result
       handoff.
-- [ ] Add JSON repair/compatibility tests for string, array, and malformed
+- [x] Add JSON repair/compatibility tests for string, array, and malformed
       trailing JSON.
 
 ### Batch 3: Pre-Execution Lint
 
-- [ ] Add typed plan lint in `internal/operation`.
-- [ ] Reuse existing shell stdin validation without duplicating policy logic.
-- [ ] Keep executor validation as a safety backstop.
-- [ ] Run lint before auto-run rendering and before manual pending storage.
-- [ ] Add tests for bare `grep`, `cat`, `head`, empty command, and repeated
+- [x] Add typed plan lint in `internal/operation`.
+- [x] Reuse existing shell stdin validation without duplicating policy logic.
+- [x] Keep executor validation as a safety backstop.
+- [x] Run lint before auto-run rendering and before manual pending storage.
+- [x] Add tests for bare `grep`, `cat`, `head`, empty command, and repeated
       failed command.
 
 ### Batch 4: Goal Loop
 
 - [ ] Replace one-shot command execution recursion with a bounded loop.
-- [ ] Allow multiple repair rounds within budget.
-- [ ] Keep manual approval/hard-deny stop conditions unchanged.
-- [ ] Keep timeout/cancel behavior unchanged.
-- [ ] Ensure invalid plan repair does not show as final task failure unless the
+- [x] Allow multiple repair rounds within budget.
+- [x] Keep manual approval/hard-deny stop conditions unchanged.
+- [x] Keep timeout/cancel behavior unchanged.
+- [x] Ensure invalid plan repair does not show as final task failure unless the
       repair budget is exhausted.
 - [ ] Add tests for repeated invalid plan repair, command-not-found fallback,
       nonzero-exit repair, safe continuation, manual approval pause, and budget
       exhaustion.
+      - Done: repeated invalid plan repair, repeated failed command preflight.
+      - Remaining: command-not-found fallback, nonzero-exit repair, safe
+        continuation, manual approval pause, budget exhaustion.
 
 ### Batch 5: Evaluator and Final Answer
 
-- [ ] Teach continuation/evaluator prompt the statuses:
+- [x] Teach continuation/evaluator prompt the statuses:
       `complete`, `continue`, `needs_clarification`, `blocked`,
       `budget_exhausted`, `partial_answer_possible`.
-- [ ] Keep asking users only for user-owned inputs.
-- [ ] Ensure final answer receives accumulated goal state and prioritized
+- [x] Keep asking users only for user-owned inputs.
+- [x] Ensure final answer receives accumulated goal state and prioritized
       observations.
 - [ ] Add E2E tests for system-info query, software-running/version query,
       large-file extraction, unfamiliar tool help-to-command workflow, and
@@ -237,9 +240,30 @@ typed fields must make this explicit. Deterministic fallbacks:
 
 ### Batch 6: Regression Protection
 
-- [ ] Run focused operation tests.
-- [ ] Run `go test ./...`.
+- [x] Run focused operation tests.
+- [x] Run `go test ./...`.
 - [ ] Add route regression tests showing code, trace/log, external observation,
       and write-mode requests are not pulled into operation by keyword-like
       text.
-- [ ] Push each batch separately.
+- [x] Push each batch separately.
+
+## Remaining Implementation Plan
+
+The current code has multi-round repair and continuation, but it still uses
+recursive helpers. The final convergence batch should introduce a small
+`CommandOperationGoalLoop` coordinator in the REPL layer that owns the command
+round budget and repair budget together. It should keep using the existing
+planner/replanner/continuation interfaces instead of creating another LLM tool.
+
+Remaining work:
+
+- Add a `commandOperationLoopState` with `CommandRounds`, `RepairRounds`,
+  `Records`, and a `StopReason`.
+- Replace `executeCommandOperationPlanAttempt` recursion with an iterative loop
+  that handles lint, execution, repair, continuation, manual gate, block,
+  timeout/cancel, and final synthesis.
+- Add deterministic budget-exhaustion handling that produces a partial final
+  answer from accumulated observations instead of silently falling through.
+- Add focused E2E coverage for command-not-found fallback, nonzero-exit repair,
+  continuation success, manual approval pause, budget exhaustion, and route
+  non-regression.
