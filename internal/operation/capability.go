@@ -158,20 +158,23 @@ func cleanProviderInfos(values []ProviderInfo) []ProviderInfo {
 		if name == "" || kind == "" {
 			continue
 		}
-		key := name + "\x00" + kind + "\x00" + strings.TrimSpace(p.ToolName)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
 		p.Name = name
 		p.Kind = kind
 		p.Surfaces = cleanStringList(p.Surfaces)
 		p.SideEffects = cleanStringList(p.SideEffects)
 		p.ToolName = strings.TrimSpace(p.ToolName)
 		p.Description = strings.TrimSpace(p.Description)
+		p.WhenToUse = cleanStringList(p.WhenToUse)
+		p.WhenNotToUse = cleanStringList(p.WhenNotToUse)
 		p.InputSchema = strings.TrimSpace(p.InputSchema)
 		p.Examples = cleanStringList(p.Examples)
+		p.Workflows = cleanWorkflowInfos(p.Workflows)
 		p.Source = strings.TrimSpace(p.Source)
+		key := p.Name + "\x00" + p.Kind + "\x00" + strings.TrimSpace(p.ToolName) + "\x00" + strings.Join(p.Surfaces, ",")
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
 		out = append(out, p)
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -180,6 +183,48 @@ func cleanProviderInfos(values []ProviderInfo) []ProviderInfo {
 		}
 		return out[i].Name < out[j].Name
 	})
+	return out
+}
+
+func cleanWorkflowInfos(values []WorkflowInfo) []WorkflowInfo {
+	out := make([]WorkflowInfo, 0, len(values))
+	seen := map[string]bool{}
+	for _, w := range values {
+		w.Name = strings.TrimSpace(w.Name)
+		w.OperationKind = strings.TrimSpace(w.OperationKind)
+		w.TargetSurface = strings.TrimSpace(w.TargetSurface)
+		if w.Name == "" {
+			continue
+		}
+		key := w.Name + "\x00" + w.OperationKind + "\x00" + w.TargetSurface
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		w.Summary = strings.TrimSpace(w.Summary)
+		w.NextProviders = cleanStringList(w.NextProviders)
+		w.ReturnProvider = strings.TrimSpace(w.ReturnProvider)
+		w.RequiredInputs = cleanStringList(w.RequiredInputs)
+		w.Examples = cleanStringList(w.Examples)
+		w.Steps = cleanWorkflowStepInfos(w.Steps)
+		out = append(out, w)
+	}
+	return out
+}
+
+func cleanWorkflowStepInfos(values []WorkflowStepInfo) []WorkflowStepInfo {
+	out := make([]WorkflowStepInfo, 0, len(values))
+	for _, s := range values {
+		s.ID = strings.TrimSpace(s.ID)
+		s.Provider = strings.TrimSpace(s.Provider)
+		s.OperationKind = strings.TrimSpace(s.OperationKind)
+		s.TargetSurface = strings.TrimSpace(s.TargetSurface)
+		s.Description = strings.TrimSpace(s.Description)
+		if s.ID == "" && s.Provider == "" && s.OperationKind == "" && s.TargetSurface == "" && s.Description == "" {
+			continue
+		}
+		out = append(out, s)
+	}
 	return out
 }
 
@@ -375,20 +420,115 @@ func writeProviderList(b *strings.Builder, values []ProviderInfo, limit int) {
 		if p.Description != "" {
 			fmt.Fprintf(b, "    description=%s\n", oneLineProviderText(p.Description, 220))
 		}
+		if len(p.WhenToUse) > 0 {
+			fmt.Fprintf(b, "    when_to_use=%s\n", providerTextList(p.WhenToUse, 3, 140))
+		}
+		if len(p.WhenNotToUse) > 0 {
+			fmt.Fprintf(b, "    when_not_to_use=%s\n", providerTextList(p.WhenNotToUse, 3, 140))
+		}
 		if p.InputSchema != "" {
 			fmt.Fprintf(b, "    input_schema=%s\n", oneLineProviderText(p.InputSchema, 220))
 		}
 		if len(p.Examples) > 0 {
-			var examples []string
-			for _, ex := range p.Examples {
-				examples = append(examples, oneLineProviderText(ex, 160))
-				if len(examples) >= 3 {
-					break
-				}
-			}
-			fmt.Fprintf(b, "    examples=%s\n", strings.Join(examples, " | "))
+			fmt.Fprintf(b, "    examples=%s\n", providerTextList(p.Examples, 3, 160))
+		}
+		if len(p.Workflows) > 0 {
+			writeProviderWorkflows(b, p.Workflows, 4)
+		}
+		if p.OutputContract.ArtifactRefs || p.OutputContract.PayloadRef || p.OutputContract.NextActions || p.OutputContract.ReturnAction || p.OutputContract.WorkflowState {
+			fmt.Fprintf(b, "    output_contract=artifact_refs:%t payload_ref:%t next_actions:%t return_action:%t workflow_state:%t\n",
+				p.OutputContract.ArtifactRefs, p.OutputContract.PayloadRef, p.OutputContract.NextActions, p.OutputContract.ReturnAction, p.OutputContract.WorkflowState)
 		}
 	}
+}
+
+func writeProviderWorkflows(b *strings.Builder, values []WorkflowInfo, limit int) {
+	if limit <= 0 {
+		limit = 4
+	}
+	for i, w := range values {
+		if i >= limit {
+			fmt.Fprintf(b, "    workflows=...(+%d)\n", len(values)-i)
+			return
+		}
+		fmt.Fprintf(b, "    workflow[%s]", dashIfEmpty(w.Name))
+		if w.Summary != "" {
+			fmt.Fprintf(b, " summary=%s", oneLineProviderText(w.Summary, 180))
+		}
+		fmt.Fprintf(b, " entry=%t", w.Entry)
+		if w.OperationKind != "" {
+			fmt.Fprintf(b, " kind=%s", w.OperationKind)
+		}
+		if w.TargetSurface != "" {
+			fmt.Fprintf(b, " target=%s", w.TargetSurface)
+		}
+		if len(w.NextProviders) > 0 {
+			fmt.Fprintf(b, " next=%s", strings.Join(w.NextProviders, ","))
+		}
+		if w.ReturnProvider != "" {
+			fmt.Fprintf(b, " return=%s", w.ReturnProvider)
+		}
+		if len(w.RequiredInputs) > 0 {
+			fmt.Fprintf(b, " inputs=%s", strings.Join(w.RequiredInputs, ","))
+		}
+		b.WriteString("\n")
+		if len(w.Steps) > 0 {
+			fmt.Fprintf(b, "      steps=%s\n", workflowStepList(w.Steps, 4, 120))
+		}
+		if len(w.Examples) > 0 {
+			fmt.Fprintf(b, "      workflow_examples=%s\n", providerTextList(w.Examples, 2, 140))
+		}
+	}
+}
+
+func providerTextList(values []string, limit, max int) string {
+	if limit <= 0 {
+		limit = len(values)
+	}
+	var out []string
+	for _, value := range values {
+		out = append(out, oneLineProviderText(value, max))
+		if len(out) >= limit {
+			break
+		}
+	}
+	if len(values) > len(out) {
+		out = append(out, fmt.Sprintf("...(+%d)", len(values)-len(out)))
+	}
+	return strings.Join(out, " | ")
+}
+
+func workflowStepList(values []WorkflowStepInfo, limit, max int) string {
+	if limit <= 0 {
+		limit = len(values)
+	}
+	var out []string
+	for _, step := range values {
+		var parts []string
+		if step.ID != "" {
+			parts = append(parts, step.ID)
+		}
+		if step.Provider != "" {
+			parts = append(parts, "provider="+step.Provider)
+		}
+		if step.OperationKind != "" {
+			parts = append(parts, "kind="+step.OperationKind)
+		}
+		if step.TargetSurface != "" {
+			parts = append(parts, "target="+step.TargetSurface)
+		}
+		if step.Description != "" {
+			parts = append(parts, oneLineProviderText(step.Description, max))
+		}
+		out = append(out, strings.Join(parts, " "))
+		if len(out) >= limit {
+			break
+		}
+	}
+	if len(values) > len(out) {
+		out = append(out, fmt.Sprintf("...(+%d)", len(values)-len(out)))
+	}
+	return strings.Join(out, " -> ")
 }
 
 func oneLineProviderText(s string, max int) string {

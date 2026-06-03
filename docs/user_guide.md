@@ -2043,29 +2043,61 @@ operation provider 执行完成后,结果会进入独立的 operation handoff �
 
 - 启动时只读 `codrax.yaml` descriptor,不会启动脚本。
 - 模型只看到能力摘要、输入契约和示例,看不到 `command` / `env` 作为 prompt 指令。
+- `description` / `when_to_use` / `when_not_to_use` / `workflows[]` 会进入 operation planner 的能力摘要,只用于帮助模型按 typed intent 选择 provider,不是系统指令。
 - 只有 typed operation route 命中该 provider,并且用户 `/approve` 后,codrax 才会启动本地命令。
 - 结果进入 operation handoff / operation memory,不会当成当前源码 citation。
 
-一个最小配置:
+一个带动态参数和 workflow catalog 的配置:
 
 ```yaml
 operation_skills:
-  - name: local_ppt
+  - name: manual_reader
+    description: "Read a manual, extract command templates, and hand off."
+    when_to_use:
+      - "Use when the task requires learning an unfamiliar CLI/tool manual before generating an artifact."
+    when_not_to_use:
+      - "Do not use for pure source-code explanation without an operation goal."
     operation_kinds: ["presentation_generation", "artifact_generation"]
-    operation_surfaces: ["slides", "local_file"]
+    operation_surfaces: ["local_file"]
     operation_side_effects: ["local_file_write"]
     operation_requires_confirmation: true
-    operation_description: "Generate and verify local PPTX decks."
-    operation_input_schema: |
-      {"topic":"string","output_path":"string","style":"optional string"}
-    operation_examples:
-      - "Generate a 6-slide technical summary deck in ./out/summary.pptx."
-    command: "./tools/local_ppt_skill"
+    workflows:
+      - name: manual_to_deck
+        summary: "Read a manual, extract key commands, then call a deck builder."
+        entry: true
+        operation_kind: external_skill_workflow
+        target_surface: slides
+        next_providers: ["skill:ppt_builder"]
+        return_provider: "skill:manual_reader"
+        steps:
+          - id: read_manual
+            provider: "skill:manual_reader"
+            operation_kind: external_skill_workflow
+            target_surface: local_file
+            description: "Read and summarize the manual."
+          - id: build_deck
+            provider: "skill:ppt_builder"
+            operation_kind: presentation_generation
+            target_surface: slides
+            description: "Generate slides from the extracted summary."
+    input_schema: |
+      {"manual_path":"string","output_path":"string"}
+    examples:
+      - "Read ./docs/tool.md and generate ./out/tool-workflow.pptx."
+    output_contract:
+      artifact_refs: true
+      payload_ref: true
+      next_actions: true
+      return_action: true
+      workflow_state: true
+    command: "./tools/manual_reader_skill"
     args: ["--json"]
     input_mode: stdin_json
     timeout_ms: 60000
     max_output_bytes: 262144
 ```
+
+这里 `workflows[].entry: true` 会让同一个 `skill:manual_reader` 额外声明一个 typed provider 能力,例如 `operation_kind=external_skill_workflow`、`target_surface=slides`。当模型根据用户意图输出这个 typed intent 时,系统可以直接匹配 provider;不会通过 `description` 关键字做硬路由。
 
 `stdin_json` 模式下,本地 skill 会收到如下动态参数 envelope:
 
@@ -2185,11 +2217,19 @@ operation_skills:
 |---|---|---|
 | `operation_skills` | `[]` | 本地 operation skill 列表。为空时不改变源码、trace/log、MCP 或写模式流程 |
 | `operation_skills[].name` | 必填 | 本地 provider 名,operation planner 中显示为 `skill:<name>` |
+| `operation_skills[].description` | 空 | 进入 operation planner 的短能力说明。只做软选择,不是系统指令 |
+| `operation_skills[].when_to_use` / `when_not_to_use` | `[]` / `[]` | 进入 operation planner 的适用/不适用条件,帮助模型选择或避开 provider。不能作为 Go 硬路由条件 |
 | `operation_skills[].operation_kinds` / `operation_surfaces` | `[]` / `[]` | 支持的 typed operation 类型和目标界面,如 `presentation_generation` + `slides` |
 | `operation_skills[].operation_side_effects` | `[]` | 可能副作用,用于 planner 展示和审批心智,如 `local_file_write` |
 | `operation_skills[].operation_description` | 空 | 给 operation planner 的能力说明。不是系统指令 |
 | `operation_skills[].operation_input_schema` | 空 | 给 operation planner 的参数契约摘要。真正参数由本地 skill 自己校验 |
 | `operation_skills[].operation_examples` | `[]` | 典型用法示例,帮助模型选择 provider |
+| `operation_skills[].input_schema` / `examples` | 空 / `[]` | 推荐的新字段名,语义同 `operation_input_schema` / `operation_examples` |
+| `operation_skills[].workflows` | `[]` | 懒加载 workflow catalog。进入 operation planner,用于描述可选子流程和 skill-to-skill handoff |
+| `operation_skills[].workflows[].entry` | `false` | 为 true 且配置了 `operation_kind` 时,该 workflow 会额外生成一个 typed provider descriptor |
+| `operation_skills[].workflows[].operation_kind` / `target_surface` | 空 / 空 | workflow entry 的 typed 能力。硬匹配依赖这些字段,而不是散文描述 |
+| `operation_skills[].workflows[].next_providers` / `return_provider` | `[]` / 空 | 给模型说明常见后续 provider 和回跳 provider。实际后续调用仍由 provider 返回的 `next_actions` / `return_action` 决定 |
+| `operation_skills[].output_contract` | 空 | 描述该 skill 可能返回 `artifact_refs`、`payload_ref`、`next_actions`、`return_action`、`workflow_state` 等结构字段 |
 | `operation_skills[].operation_requires_confirmation` | `true` | 是否必须用户批准后执行。默认 true |
 | `operation_skills[].operation_lazy_start` | `true` | 启动时只读 descriptor,批准后才启动命令 |
 | `operation_skills[].command` / `args` | 必填 / `[]` | 本地命令和参数。命令不经过 shell 展开 |

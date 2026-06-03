@@ -4388,24 +4388,133 @@ func operationProvidersFromSkillConfigs(cfgs []types.OperationSkillConfig) []ope
 		if cfg.OperationRequiresConfirmation != nil {
 			requiresGate = *cfg.OperationRequiresConfirmation
 		}
+		surfaces := cleanOperationConfigList(cfg.OperationSurfaces)
+		sideEffects := cleanOperationConfigList(cfg.OperationSideEffects)
+		workflows := operationSkillWorkflows(cfg.Workflows)
+		description := firstNonEmptyOperationText(cfg.Description, cfg.OperationDescription)
+		inputSchema := firstNonEmptyOperationText(cfg.InputSchema, cfg.OperationInputSchema)
+		examples := cleanOperationConfigList(append(append([]string{}, cfg.Examples...), cfg.OperationExamples...))
+		outputContract := operationSkillOutputContract(cfg.OutputContract)
 		for _, kind := range kinds {
 			out = append(out, operation.ProviderInfo{
-				Name:         "skill:" + name,
-				Kind:         kind,
-				Surfaces:     cleanOperationConfigList(cfg.OperationSurfaces),
-				SideEffects:  cleanOperationConfigList(cfg.OperationSideEffects),
-				RequiresGate: requiresGate,
-				ToolName:     "run",
-				Description:  strings.TrimSpace(cfg.OperationDescription),
-				InputSchema:  strings.TrimSpace(cfg.OperationInputSchema),
-				Examples:     cleanOperationConfigList(cfg.OperationExamples),
-				Source:       "skill",
-				LazyStart:    lazyStart,
-				Loaded:       !lazyStart,
+				Name:           "skill:" + name,
+				Kind:           kind,
+				Surfaces:       surfaces,
+				SideEffects:    sideEffects,
+				RequiresGate:   requiresGate,
+				ToolName:       "run",
+				Description:    description,
+				WhenToUse:      cleanOperationConfigList(cfg.WhenToUse),
+				WhenNotToUse:   cleanOperationConfigList(cfg.WhenNotToUse),
+				InputSchema:    inputSchema,
+				Examples:       examples,
+				Workflows:      workflows,
+				OutputContract: outputContract,
+				Source:         "skill",
+				LazyStart:      lazyStart,
+				Loaded:         !lazyStart,
+			})
+		}
+		for _, workflow := range workflows {
+			if !workflow.Entry || strings.TrimSpace(workflow.OperationKind) == "" {
+				continue
+			}
+			workflowSurfaces := append([]string{}, surfaces...)
+			if strings.TrimSpace(workflow.TargetSurface) != "" {
+				workflowSurfaces = append(workflowSurfaces, workflow.TargetSurface)
+			}
+			out = append(out, operation.ProviderInfo{
+				Name:           "skill:" + name,
+				Kind:           workflow.OperationKind,
+				Surfaces:       cleanOperationConfigList(workflowSurfaces),
+				SideEffects:    sideEffects,
+				RequiresGate:   requiresGate,
+				ToolName:       "run",
+				Description:    description,
+				WhenToUse:      cleanOperationConfigList(cfg.WhenToUse),
+				WhenNotToUse:   cleanOperationConfigList(cfg.WhenNotToUse),
+				InputSchema:    inputSchema,
+				Examples:       examples,
+				Workflows:      workflows,
+				OutputContract: outputContract,
+				Source:         "skill",
+				LazyStart:      lazyStart,
+				Loaded:         !lazyStart,
 			})
 		}
 	}
 	return out
+}
+
+func operationSkillWorkflows(cfgs []types.OperationSkillWorkflowConfig) []operation.WorkflowInfo {
+	if len(cfgs) == 0 {
+		return nil
+	}
+	var out []operation.WorkflowInfo
+	for _, cfg := range cfgs {
+		name := strings.TrimSpace(cfg.Name)
+		if name == "" {
+			continue
+		}
+		entry := false
+		if cfg.Entry != nil {
+			entry = *cfg.Entry
+		}
+		out = append(out, operation.WorkflowInfo{
+			Name:           name,
+			Summary:        firstNonEmptyOperationText(cfg.Summary, cfg.Description),
+			Entry:          entry,
+			OperationKind:  strings.TrimSpace(cfg.OperationKind),
+			TargetSurface:  strings.TrimSpace(cfg.TargetSurface),
+			NextProviders:  cleanOperationConfigList(cfg.NextProviders),
+			ReturnProvider: strings.TrimSpace(cfg.ReturnProvider),
+			RequiredInputs: cleanOperationConfigList(cfg.RequiredInputs),
+			Steps:          operationSkillWorkflowSteps(cfg.Steps),
+			Examples:       cleanOperationConfigList(cfg.Examples),
+		})
+	}
+	return out
+}
+
+func operationSkillWorkflowSteps(cfgs []types.OperationSkillWorkflowStepConfig) []operation.WorkflowStepInfo {
+	if len(cfgs) == 0 {
+		return nil
+	}
+	var out []operation.WorkflowStepInfo
+	for _, cfg := range cfgs {
+		step := operation.WorkflowStepInfo{
+			ID:            strings.TrimSpace(cfg.ID),
+			Provider:      strings.TrimSpace(cfg.Provider),
+			OperationKind: strings.TrimSpace(cfg.OperationKind),
+			TargetSurface: strings.TrimSpace(cfg.TargetSurface),
+			Description:   strings.TrimSpace(cfg.Description),
+		}
+		if step.ID == "" && step.Provider == "" && step.OperationKind == "" && step.TargetSurface == "" && step.Description == "" {
+			continue
+		}
+		out = append(out, step)
+	}
+	return out
+}
+
+func operationSkillOutputContract(cfg types.OperationSkillOutputContract) operation.OutputContractInfo {
+	return operation.OutputContractInfo{
+		ArtifactRefs:  cfg.ArtifactRefs != nil && *cfg.ArtifactRefs,
+		PayloadRef:    cfg.PayloadRef != nil && *cfg.PayloadRef,
+		NextActions:   cfg.NextActions != nil && *cfg.NextActions,
+		ReturnAction:  cfg.ReturnAction != nil && *cfg.ReturnAction,
+		WorkflowState: cfg.WorkflowState != nil && *cfg.WorkflowState,
+	}
+}
+
+func firstNonEmptyOperationText(values ...string) string {
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func eagerMCPServerConfigs(cfgs []types.MCPServerConfig) []types.MCPServerConfig {

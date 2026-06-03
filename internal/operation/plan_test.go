@@ -103,3 +103,33 @@ func TestBuildPlanProviderWithoutToolIsPlanOnly(t *testing.T) {
 		t.Fatalf("MissingCapability=%q", plan.MissingCapability)
 	}
 }
+
+func TestBuildPlanMatchesEntryWorkflowProvider(t *testing.T) {
+	plan := BuildPlan(Request{
+		OperationKind: "external_skill_workflow",
+		RiskLevel:     "medium",
+		TargetSurface: "slides",
+	}, []ProviderInfo{{
+		Name:         "skill:manual_reader",
+		Kind:         "external_skill_workflow",
+		Surfaces:     []string{"local_file", "slides"},
+		RequiresGate: true,
+		ToolName:     "run",
+		Workflows: []WorkflowInfo{{
+			Name:          "manual_to_deck",
+			Entry:         true,
+			OperationKind: "external_skill_workflow",
+			TargetSurface: "slides",
+		}},
+	}})
+
+	if plan.Provider != "skill:manual_reader" {
+		t.Fatalf("Provider=%q", plan.Provider)
+	}
+	if plan.Kind != "external_skill_workflow" || plan.TargetSurface != "slides" {
+		t.Fatalf("unexpected plan kind/target: %+v", plan)
+	}
+	if !plan.RequiresConfirmation || plan.CanExecute {
+		t.Fatalf("workflow provider should pause for approval: %+v", plan)
+	}
+}

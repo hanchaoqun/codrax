@@ -90,9 +90,32 @@ func TestCapabilitySnapshotRendersOperationProviderDescriptors(t *testing.T) {
 			RequiresGate: true,
 			ToolName:     "run",
 			Description:  "Run a local PPT skill through a manifest command.",
-			Source:       "skill",
-			LazyStart:    true,
-			Loaded:       false,
+			WhenToUse:    []string{"Use when the user needs a local PPTX artifact."},
+			WhenNotToUse: []string{"Do not use for pure source-code explanation."},
+			InputSchema:  `{"output_path":"string"}`,
+			Examples:     []string{"Create a training deck from notes."},
+			Workflows: []WorkflowInfo{{
+				Name:           "manual_to_deck",
+				Summary:        "Read a manual, extract commands, then build slides.",
+				Entry:          true,
+				OperationKind:  "external_skill_workflow",
+				TargetSurface:  "slides",
+				NextProviders:  []string{"skill:ppt_builder"},
+				ReturnProvider: "skill:local_ppt",
+				RequiredInputs: []string{"manual_path", "output_path"},
+				Steps: []WorkflowStepInfo{{
+					ID:            "build_deck",
+					Provider:      "skill:ppt_builder",
+					OperationKind: "presentation_generation",
+					TargetSurface: "slides",
+					Description:   "Generate slides from extracted notes.",
+				}},
+				Examples: []string{"Read tool.md and build out/tool.pptx."},
+			}},
+			OutputContract: OutputContractInfo{ArtifactRefs: true, PayloadRef: true, NextActions: true, WorkflowState: true},
+			Source:         "skill",
+			LazyStart:      true,
+			Loaded:         false,
 		},
 	})
 	rendered := snapshot.RenderForPrompt()
@@ -110,9 +133,38 @@ func TestCapabilitySnapshotRendersOperationProviderDescriptors(t *testing.T) {
 		"skill:local_ppt kind=presentation_generation",
 		"tool=run",
 		"source=skill",
+		"when_to_use=Use when the user needs a local PPTX artifact.",
+		"when_not_to_use=Do not use for pure source-code explanation.",
+		"workflow[manual_to_deck]",
+		"kind=external_skill_workflow",
+		"target=slides",
+		"next=skill:ppt_builder",
+		"return=skill:local_ppt",
+		"steps=build_deck provider=skill:ppt_builder",
+		"output_contract=artifact_refs:true payload_ref:true next_actions:true return_action:false workflow_state:true",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("snapshot missing %q:\n%s", want, rendered)
 		}
+	}
+	for _, forbidden := range []string{"command=", "env=", "work_dir="} {
+		if strings.Contains(rendered, forbidden) {
+			t.Fatalf("snapshot leaked %q:\n%s", forbidden, rendered)
+		}
+	}
+}
+
+func TestCapabilitySnapshotPreservesSameProviderKindDifferentSurfaces(t *testing.T) {
+	policy := DefaultCommandPolicy()
+	snapshot := BuildCapabilitySnapshotWithProviders(nil, "/repo", policy, []ProviderInfo{
+		{Name: "skill:manual_reader", Kind: "presentation_generation", Surfaces: []string{"local_file"}, ToolName: "run", Source: "skill"},
+		{Name: "skill:manual_reader", Kind: "presentation_generation", Surfaces: []string{"local_file", "slides"}, ToolName: "run", Source: "skill"},
+	})
+	rendered := snapshot.RenderForPrompt()
+	if strings.Count(rendered, "skill:manual_reader kind=presentation_generation") != 2 {
+		t.Fatalf("same kind with distinct surfaces should be preserved:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "surfaces=local_file,slides") {
+		t.Fatalf("workflow surface descriptor missing:\n%s", rendered)
 	}
 }

@@ -221,18 +221,47 @@
 #     分析 prompt skill。
 #
 # operation_skills:
-#   - name: local_ppt
+#   - name: manual_reader
+#     description: "Read a manual, extract command templates, and hand off."
+#     when_to_use:
+#       - "Use when the task requires learning an unfamiliar CLI/tool manual before generating an artifact."
+#     when_not_to_use:
+#       - "Do not use for pure source-code explanation without an operation goal."
 #     operation_kinds: ["presentation_generation", "artifact_generation"]
-#     operation_surfaces: ["slides", "local_file"]
+#     operation_surfaces: ["local_file"]
 #     operation_side_effects: ["local_file_write"]
 #     operation_requires_confirmation: true
-#     operation_description: "Generate and verify local PPTX decks."
-#     operation_input_schema: |
-#       {"topic":"string","output_path":"string","style":"optional string"}
-#     operation_examples:
-#       - "Generate a 6-slide technical summary deck in ./out/summary.pptx."
+#     workflows:
+#       - name: manual_to_deck
+#         summary: "Read a manual, extract key commands, then call a deck builder."
+#         entry: true
+#         operation_kind: external_skill_workflow
+#         target_surface: slides
+#         next_providers: ["skill:ppt_builder"]
+#         return_provider: "skill:manual_reader"
+#         steps:
+#           - id: read_manual
+#             provider: "skill:manual_reader"
+#             operation_kind: external_skill_workflow
+#             target_surface: local_file
+#             description: "Read and summarize the manual."
+#           - id: build_deck
+#             provider: "skill:ppt_builder"
+#             operation_kind: presentation_generation
+#             target_surface: slides
+#             description: "Generate slides from the extracted summary."
+#     input_schema: |
+#       {"manual_path":"string","output_path":"string"}
+#     examples:
+#       - "Read ./docs/tool.md and generate ./out/tool-workflow.pptx."
+#     output_contract:
+#       artifact_refs: true
+#       payload_ref: true
+#       next_actions: true
+#       return_action: true
+#       workflow_state: true
 #     operation_lazy_start: true
-#     command: "./tools/local_ppt_skill"
+#     command: "./tools/manual_reader_skill"
 #     args: ["--json"]
 #     input_mode: stdin_json        # stdin_json | args_json
 #     work_dir: "."

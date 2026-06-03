@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/mcp"
+	"github.com/hanchaoqun/codrax/internal/operation"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -70,6 +71,9 @@ func TestOperationProvidersFromSkillConfigsUsesLocalDescriptor(t *testing.T) {
 	providers := operationProvidersFromSkillConfigs([]types.OperationSkillConfig{
 		{
 			Name:                          "local_ppt",
+			Description:                   "Preferred deck generator",
+			WhenToUse:                     []string{"Use for local PPTX decks"},
+			WhenNotToUse:                  []string{"Do not use for source-code explanation"},
 			OperationKinds:                []string{"presentation_generation", "artifact_generation"},
 			OperationSurfaces:             []string{"slides"},
 			OperationSideEffects:          []string{"local_file_write"},
@@ -90,8 +94,66 @@ func TestOperationProvidersFromSkillConfigsUsesLocalDescriptor(t *testing.T) {
 	if providers[0].Source != "skill" || providers[0].LazyStart || !providers[0].Loaded || providers[0].RequiresGate {
 		t.Fatalf("local skill descriptor flags mismatch: %+v", providers[0])
 	}
-	if providers[0].Description != "Generate local decks" || providers[0].InputSchema == "" || len(providers[0].Examples) != 1 {
+	if providers[0].Description != "Preferred deck generator" || providers[0].InputSchema == "" || len(providers[0].Examples) != 1 || len(providers[0].WhenToUse) != 1 || len(providers[0].WhenNotToUse) != 1 {
 		t.Fatalf("local skill descriptor metadata missing: %+v", providers[0])
+	}
+}
+
+func TestOperationProvidersFromSkillConfigsAddsEntryWorkflowProvider(t *testing.T) {
+	no := false
+	yes := true
+	providers := operationProvidersFromSkillConfigs([]types.OperationSkillConfig{
+		{
+			Name:                          "manual_reader",
+			Description:                   "Read manuals and hand off to artifact builders",
+			WhenToUse:                     []string{"Use when a task needs learning an unfamiliar tool manual"},
+			WhenNotToUse:                  []string{"Do not use for pure source analysis"},
+			OperationKinds:                []string{"artifact_generation"},
+			OperationSurfaces:             []string{"local_file"},
+			OperationSideEffects:          []string{"local_file_write"},
+			OperationRequiresConfirmation: &no,
+			Workflows: []types.OperationSkillWorkflowConfig{{
+				Name:           "manual_to_deck",
+				Summary:        "Read a manual and call a deck builder",
+				Entry:          &yes,
+				OperationKind:  "external_skill_workflow",
+				TargetSurface:  "slides",
+				NextProviders:  []string{"skill:ppt_builder"},
+				ReturnProvider: "skill:manual_reader",
+				Steps: []types.OperationSkillWorkflowStepConfig{{
+					ID:            "build_deck",
+					Provider:      "skill:ppt_builder",
+					OperationKind: "presentation_generation",
+					TargetSurface: "slides",
+					Description:   "Generate slides from the extracted summary",
+				}},
+			}},
+			OutputContract: types.OperationSkillOutputContract{
+				ArtifactRefs:  &yes,
+				NextActions:   &yes,
+				WorkflowState: &yes,
+			},
+			Command: "./tools/manual-reader",
+		},
+	})
+	var workflowProvider operation.ProviderInfo
+	for _, provider := range providers {
+		if provider.Kind == "external_skill_workflow" {
+			workflowProvider = provider
+			break
+		}
+	}
+	if workflowProvider.Name != "skill:manual_reader" {
+		t.Fatalf("workflow provider not found: %+v", providers)
+	}
+	if len(workflowProvider.Workflows) != 1 || workflowProvider.Workflows[0].Name != "manual_to_deck" {
+		t.Fatalf("workflow metadata missing: %+v", workflowProvider)
+	}
+	if !workflowProvider.OutputContract.NextActions || !workflowProvider.OutputContract.WorkflowState {
+		t.Fatalf("output contract missing: %+v", workflowProvider.OutputContract)
+	}
+	if len(workflowProvider.Surfaces) != 2 || workflowProvider.Surfaces[0] != "local_file" || workflowProvider.Surfaces[1] != "slides" {
+		t.Fatalf("workflow surfaces=%v", workflowProvider.Surfaces)
 	}
 }
 

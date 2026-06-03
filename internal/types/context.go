@@ -4833,23 +4833,69 @@ type MCPServerConfig struct {
 // describes a side-effect capable local command provider that is visible only to
 // the typed operation route and is executed only after operation approval.
 type OperationSkillConfig struct {
-	Name                          string            `yaml:"name" json:"name"`
-	OperationKinds                []string          `yaml:"operation_kinds" json:"operation_kinds,omitempty"`
-	OperationSurfaces             []string          `yaml:"operation_surfaces" json:"operation_surfaces,omitempty"`
-	OperationSideEffects          []string          `yaml:"operation_side_effects" json:"operation_side_effects,omitempty"`
-	OperationDescription          string            `yaml:"operation_description" json:"operation_description,omitempty"`
-	OperationInputSchema          string            `yaml:"operation_input_schema" json:"operation_input_schema,omitempty"`
-	OperationExamples             []string          `yaml:"operation_examples" json:"operation_examples,omitempty"`
-	OperationLazyStart            *bool             `yaml:"operation_lazy_start" json:"operation_lazy_start,omitempty"`
-	OperationRequiresConfirmation *bool             `yaml:"operation_requires_confirmation" json:"operation_requires_confirmation,omitempty"`
-	Command                       string            `yaml:"command" json:"command"`
-	Args                          []string          `yaml:"args" json:"args,omitempty"`
-	Env                           map[string]string `yaml:"env" json:"env,omitempty"`
-	InheritEnv                    *bool             `yaml:"inherit_env" json:"inherit_env,omitempty"`
-	WorkDir                       string            `yaml:"work_dir" json:"work_dir,omitempty"`
-	InputMode                     string            `yaml:"input_mode" json:"input_mode,omitempty"`
-	TimeoutMS                     *int              `yaml:"timeout_ms" json:"timeout_ms,omitempty"`
-	MaxOutputBytes                *int              `yaml:"max_output_bytes" json:"max_output_bytes,omitempty"`
+	Name                          string                         `yaml:"name" json:"name"`
+	Description                   string                         `yaml:"description" json:"description,omitempty"`
+	WhenToUse                     []string                       `yaml:"when_to_use" json:"when_to_use,omitempty"`
+	WhenNotToUse                  []string                       `yaml:"when_not_to_use" json:"when_not_to_use,omitempty"`
+	OperationKinds                []string                       `yaml:"operation_kinds" json:"operation_kinds,omitempty"`
+	OperationSurfaces             []string                       `yaml:"operation_surfaces" json:"operation_surfaces,omitempty"`
+	OperationSideEffects          []string                       `yaml:"operation_side_effects" json:"operation_side_effects,omitempty"`
+	OperationDescription          string                         `yaml:"operation_description" json:"operation_description,omitempty"`
+	InputSchema                   string                         `yaml:"input_schema" json:"input_schema,omitempty"`
+	OperationInputSchema          string                         `yaml:"operation_input_schema" json:"operation_input_schema,omitempty"`
+	Examples                      []string                       `yaml:"examples" json:"examples,omitempty"`
+	OperationExamples             []string                       `yaml:"operation_examples" json:"operation_examples,omitempty"`
+	Workflows                     []OperationSkillWorkflowConfig `yaml:"workflows" json:"workflows,omitempty"`
+	OutputContract                OperationSkillOutputContract   `yaml:"output_contract" json:"output_contract,omitempty"`
+	OperationLazyStart            *bool                          `yaml:"operation_lazy_start" json:"operation_lazy_start,omitempty"`
+	OperationRequiresConfirmation *bool                          `yaml:"operation_requires_confirmation" json:"operation_requires_confirmation,omitempty"`
+	Command                       string                         `yaml:"command" json:"command"`
+	Args                          []string                       `yaml:"args" json:"args,omitempty"`
+	Env                           map[string]string              `yaml:"env" json:"env,omitempty"`
+	InheritEnv                    *bool                          `yaml:"inherit_env" json:"inherit_env,omitempty"`
+	WorkDir                       string                         `yaml:"work_dir" json:"work_dir,omitempty"`
+	InputMode                     string                         `yaml:"input_mode" json:"input_mode,omitempty"`
+	TimeoutMS                     *int                           `yaml:"timeout_ms" json:"timeout_ms,omitempty"`
+	MaxOutputBytes                *int                           `yaml:"max_output_bytes" json:"max_output_bytes,omitempty"`
+}
+
+// OperationSkillWorkflowConfig is prompt-safe workflow catalog metadata for a
+// local operation skill. It is rendered only to the operation planner and is
+// not executable authority; execution still goes through ProviderInfo matching,
+// operation approval, and the configured command provider.
+type OperationSkillWorkflowConfig struct {
+	Name           string                             `yaml:"name" json:"name"`
+	Summary        string                             `yaml:"summary" json:"summary,omitempty"`
+	Description    string                             `yaml:"description" json:"description,omitempty"`
+	Entry          *bool                              `yaml:"entry" json:"entry,omitempty"`
+	OperationKind  string                             `yaml:"operation_kind" json:"operation_kind,omitempty"`
+	TargetSurface  string                             `yaml:"target_surface" json:"target_surface,omitempty"`
+	NextProviders  []string                           `yaml:"next_providers" json:"next_providers,omitempty"`
+	ReturnProvider string                             `yaml:"return_provider" json:"return_provider,omitempty"`
+	RequiredInputs []string                           `yaml:"required_inputs" json:"required_inputs,omitempty"`
+	Steps          []OperationSkillWorkflowStepConfig `yaml:"steps" json:"steps,omitempty"`
+	Examples       []string                           `yaml:"examples" json:"examples,omitempty"`
+}
+
+// OperationSkillWorkflowStepConfig is one prompt-safe step descriptor inside a
+// workflow catalog. It intentionally contains no command/env/work_dir fields.
+type OperationSkillWorkflowStepConfig struct {
+	ID            string `yaml:"id" json:"id,omitempty"`
+	Provider      string `yaml:"provider" json:"provider,omitempty"`
+	OperationKind string `yaml:"operation_kind" json:"operation_kind,omitempty"`
+	TargetSurface string `yaml:"target_surface" json:"target_surface,omitempty"`
+	Description   string `yaml:"description" json:"description,omitempty"`
+}
+
+// OperationSkillOutputContract summarizes which structured result fields the
+// local skill may return. It is planner guidance only; the parser remains
+// tolerant and execution policy remains authoritative.
+type OperationSkillOutputContract struct {
+	ArtifactRefs  *bool `yaml:"artifact_refs" json:"artifact_refs,omitempty"`
+	PayloadRef    *bool `yaml:"payload_ref" json:"payload_ref,omitempty"`
+	NextActions   *bool `yaml:"next_actions" json:"next_actions,omitempty"`
+	ReturnAction  *bool `yaml:"return_action" json:"return_action,omitempty"`
+	WorkflowState *bool `yaml:"workflow_state" json:"workflow_state,omitempty"`
 }
 
 // ExecutionSignals tracks boolean signals produced by agents. After

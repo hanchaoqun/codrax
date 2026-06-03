@@ -24,18 +24,57 @@ type Request struct {
 // the provider list empty in production; the shape is here so MCP/desktop/office
 // integrations can plug in later without changing REPL policy semantics.
 type ProviderInfo struct {
-	Name         string
-	Kind         string
-	Surfaces     []string
-	SideEffects  []string
-	RequiresGate bool
-	ToolName     string
-	Description  string
-	InputSchema  string
-	Examples     []string
-	Source       string
-	LazyStart    bool
-	Loaded       bool
+	Name           string
+	Kind           string
+	Surfaces       []string
+	SideEffects    []string
+	RequiresGate   bool
+	ToolName       string
+	Description    string
+	WhenToUse      []string
+	WhenNotToUse   []string
+	InputSchema    string
+	Examples       []string
+	Workflows      []WorkflowInfo
+	OutputContract OutputContractInfo
+	Source         string
+	LazyStart      bool
+	Loaded         bool
+}
+
+// WorkflowInfo is prompt-safe workflow catalog metadata attached to an
+// operation provider. It is advisory model guidance; provider matching and
+// execution still use typed kind/surface plus approval policy.
+type WorkflowInfo struct {
+	Name           string
+	Summary        string
+	Entry          bool
+	OperationKind  string
+	TargetSurface  string
+	NextProviders  []string
+	ReturnProvider string
+	RequiredInputs []string
+	Steps          []WorkflowStepInfo
+	Examples       []string
+}
+
+// WorkflowStepInfo is one prompt-safe workflow step descriptor.
+type WorkflowStepInfo struct {
+	ID            string
+	Provider      string
+	OperationKind string
+	TargetSurface string
+	Description   string
+}
+
+// OutputContractInfo summarizes optional structured fields a provider may
+// return. The runtime parser remains tolerant; this is planner teaching only.
+type OutputContractInfo struct {
+	ArtifactRefs  bool
+	PayloadRef    bool
+	NextActions   bool
+	ReturnAction  bool
+	WorkflowState bool
 }
 
 // Step is one deterministic operation-plan row.
