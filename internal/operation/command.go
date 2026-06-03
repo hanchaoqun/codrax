@@ -160,6 +160,81 @@ type OperationVerificationResult struct {
 	Summary string
 }
 
+const (
+	PlanLintEmptyPlan          = "empty_plan"
+	PlanLintEmptyCommandStep   = "empty_command_step"
+	PlanLintStdinWithoutInput  = "stdin_without_input"
+	PlanLintInvalidShellShape  = "invalid_shell_shape"
+	PlanLintRepeatedFailedStep = "repeated_failed_command"
+)
+
+type CommandPlanLintIssue struct {
+	Code    string
+	StepID  string
+	Message string
+}
+
+type CommandPlanLintResult struct {
+	Issues []CommandPlanLintIssue
+}
+
+func (r CommandPlanLintResult) OK() bool {
+	return len(r.Issues) == 0
+}
+
+func (r CommandPlanLintResult) Summary() string {
+	if len(r.Issues) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(r.Issues))
+	for _, issue := range r.Issues {
+		msg := strings.TrimSpace(issue.Message)
+		if msg == "" {
+			msg = strings.TrimSpace(issue.Code)
+		}
+		if issue.StepID != "" {
+			msg = fmt.Sprintf("step %s: %s", issue.StepID, msg)
+		}
+		if msg != "" {
+			parts = append(parts, msg)
+		}
+	}
+	return strings.Join(parts, "; ")
+}
+
+func LintCommandOperationPlan(plan CommandOperationPlan) CommandPlanLintResult {
+	var out CommandPlanLintResult
+	if plan.Status != StatusReady {
+		return out
+	}
+	if len(plan.Steps) == 0 {
+		out.Issues = append(out.Issues, CommandPlanLintIssue{
+			Code:    PlanLintEmptyPlan,
+			Message: "operation plan has no executable command steps",
+		})
+		return out
+	}
+	for _, step := range plan.Steps {
+		if strings.TrimSpace(step.Program) == "" && strings.TrimSpace(step.Shell) == "" {
+			out.Issues = append(out.Issues, CommandPlanLintIssue{
+				Code:    PlanLintEmptyCommandStep,
+				StepID:  step.ID,
+				Message: "command step has neither program nor shell command",
+			})
+			continue
+		}
+		shell := strings.TrimSpace(step.Shell)
+		if shell != "" && shellStartsWithNoInputFilter(shell) {
+			out.Issues = append(out.Issues, CommandPlanLintIssue{
+				Code:    PlanLintStdinWithoutInput,
+				StepID:  step.ID,
+				Message: fmt.Sprintf("stdin-consuming shell command has no explicit input source: %s", shell),
+			})
+		}
+	}
+	return out
+}
+
 // BuildCommandOperationPlan applies deterministic policy to a typed command
 // proposal. It does no IO and does not execute anything.
 func BuildCommandOperationPlan(req CommandOperationRequest, policy CommandPolicy) CommandOperationPlan {

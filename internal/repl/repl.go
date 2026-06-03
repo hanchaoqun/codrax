@@ -1218,6 +1218,13 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 			}
 		}
 		plan := operation.BuildCommandOperationPlan(req, r.operationPolicy)
+		if plan.Status == operation.StatusReady && !operation.LintCommandOperationPlan(plan).OK() {
+			r.pendingCommandClarification = nil
+			r.clearPendingOperationState()
+			r.finishOperationAutoStartSpinner()
+			r.executeCommandOperationPlan(plan, display, line)
+			return
+		}
 		if plan.Status == operation.StatusReady && plan.ApprovalMode == operation.ApprovalAutoLowRisk {
 			r.pendingCommandClarification = nil
 			r.clearPendingOperationState()
@@ -1669,6 +1676,24 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 	}
 	logging.Info("[repl/operation] command execute start plan_id=%s steps=%d approval=%q risk=%q replan_attempt=%d request=%q",
 		plan.ID, len(plan.Steps), plan.ApprovalMode, plan.RiskLevel, replanAttempts, oneLineClamp(plan.RequestText, 160))
+	if lint := operation.LintCommandOperationPlan(plan); !lint.OK() {
+		result := commandOperationResultFromPlanLint(plan, lint)
+		plan.Status = result.Status
+		r.operationHistory = append(r.operationHistory, plan)
+		r.appendCommandOperationResult(plan, result)
+		records = append(records, commandOperationResultRecord{Plan: plan, Result: result})
+		logging.Info("[repl/operation] command plan lint failed plan_id=%s issues=%d summary=%q replan_attempt=%d",
+			plan.ID, len(lint.Issues), oneLineClamp(lint.Summary(), 240), replanAttempts)
+		if r.maybeReplanCommandOperation(ctx, plan, result, request, display, replanAttempts, records) {
+			return
+		}
+		msg, thoughts := r.commandOperationFinalMessage(ctx, request, records)
+		r.finishOperationRouteSpinner(result.Status)
+		r.emitOperationVisibleThoughts(thoughts)
+		r.renderBordered(msg)
+		r.recordTurn(display, request, msg, memory.KindPipeline)
+		return
+	}
 	result := executor.Execute(ctx, plan)
 	plan.Status = result.Status
 	r.operationHistory = append(r.operationHistory, plan)
@@ -1770,6 +1795,12 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 		failedPlan.ID, revisedPlan.Status, revisedPlan.RiskLevel, revisedPlan.ApprovalMode, len(revisedPlan.Steps))
 	if revisedPlan.Status == operation.StatusReady {
 		if commandReplanCanAutoExecute(failedPlan, revisedPlan) {
+			if !operation.LintCommandOperationPlan(revisedPlan).OK() {
+				logging.Info("[repl/operation] revised command plan failed lint before auto execution previous_plan_id=%s revised_plan_id=%s",
+					failedPlan.ID, revisedPlan.ID)
+				r.executeCommandOperationPlanAttempt(revisedPlan, request, display, replanAttempts+1, records)
+				return true
+			}
 			msg := commandOperationResultMarkdown(r.language, failedPlan, result)
 			msg += "\n\n"
 			msg += commandOperationReplanIntro(r.language, revisedPlan)
@@ -2018,6 +2049,36 @@ func commandResultTimedOut(result operation.CommandOperationResult) bool {
 		}
 	}
 	return false
+}
+
+func commandOperationResultFromPlanLint(plan operation.CommandOperationPlan, lint operation.CommandPlanLintResult) operation.CommandOperationResult {
+	result := operation.CommandOperationResult{
+		PlanID: plan.ID,
+		Status: operation.StatusFailed,
+	}
+	if len(lint.Issues) == 0 {
+		result.StepResults = append(result.StepResults, operation.CommandStepResult{
+			Status:       operation.StatusFailed,
+			Error:        "operation plan failed lint",
+			FailureClass: "invalid_plan",
+		})
+		return result
+	}
+	for _, issue := range lint.Issues {
+		msg := strings.TrimSpace(issue.Message)
+		if msg == "" {
+			msg = strings.TrimSpace(issue.Code)
+		}
+		result.StepResults = append(result.StepResults, operation.CommandStepResult{
+			StepID:        issue.StepID,
+			Status:        operation.StatusFailed,
+			OutputPreview: fmt.Sprintf("[operation command was not run: %s]", msg),
+			Error:         msg,
+			FailureClass:  "invalid_plan",
+		})
+	}
+	result.OutputPreview = lint.Summary()
+	return result
 }
 
 func dropRepeatedFailedCommandSteps(req operation.CommandOperationRequest, failedPlan operation.CommandOperationPlan, result operation.CommandOperationResult) operation.CommandOperationRequest {

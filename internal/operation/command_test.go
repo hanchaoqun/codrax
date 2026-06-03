@@ -22,6 +22,68 @@ func TestBuildCommandOperationPlanNeedsClarificationWhenDetailsMissing(t *testin
 	}
 }
 
+func TestLintCommandOperationPlanRejectsInvalidCommandShapes(t *testing.T) {
+	tests := []struct {
+		name string
+		plan CommandOperationPlan
+		code string
+	}{
+		{
+			name: "empty ready plan",
+			plan: CommandOperationPlan{Status: StatusReady},
+			code: PlanLintEmptyPlan,
+		},
+		{
+			name: "empty step",
+			plan: CommandOperationPlan{Status: StatusReady, Steps: []CommandStep{{ID: "s1"}}},
+			code: PlanLintEmptyCommandStep,
+		},
+		{
+			name: "bare grep shell",
+			plan: CommandOperationPlan{Status: StatusReady, Steps: []CommandStep{{ID: "s1", Shell: "grep vpn"}}},
+			code: PlanLintStdinWithoutInput,
+		},
+		{
+			name: "bare cat shell",
+			plan: CommandOperationPlan{Status: StatusReady, Steps: []CommandStep{{ID: "s1", Shell: "cat"}}},
+			code: PlanLintStdinWithoutInput,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lint := LintCommandOperationPlan(tt.plan)
+			if lint.OK() {
+				t.Fatalf("lint OK, want issue %s", tt.code)
+			}
+			if lint.Issues[0].Code != tt.code {
+				t.Fatalf("issue code=%q, want %q; issues=%+v", lint.Issues[0].Code, tt.code, lint.Issues)
+			}
+			if lint.Summary() == "" {
+				t.Fatalf("summary empty for issues=%+v", lint.Issues)
+			}
+		})
+	}
+}
+
+func TestLintCommandOperationPlanAllowsExplicitInputs(t *testing.T) {
+	plan := CommandOperationPlan{
+		Status: StatusReady,
+		Steps: []CommandStep{{
+			ID:    "grep-file",
+			Shell: "grep vpn /tmp/processes.txt",
+		}, {
+			ID:    "pipeline",
+			Shell: "ps aux | grep vpn",
+		}, {
+			ID:    "cat-file",
+			Shell: "cat /tmp/config.txt",
+		}},
+	}
+	if lint := LintCommandOperationPlan(plan); !lint.OK() {
+		t.Fatalf("lint rejected explicit inputs: %+v", lint.Issues)
+	}
+}
+
 func TestBuildCommandOperationPlanNeedsClarificationWhenReadyHasNoSteps(t *testing.T) {
 	plan := BuildCommandOperationPlan(CommandOperationRequest{
 		Text:      "show disk size",
