@@ -202,6 +202,38 @@ func TestCommandOperationResultMarkdownClampsPanelPreview(t *testing.T) {
 	}
 }
 
+func TestCommandOperationResultMarkdownClampsPanelPreviewLines(t *testing.T) {
+	lines := make([]string, 0, commandOperationDisplayPreviewLines+5)
+	for i := 1; i <= commandOperationDisplayPreviewLines+5; i++ {
+		lines = append(lines, fmt.Sprintf("line-%02d", i))
+	}
+	plan := operation.CommandOperationPlan{ID: "op-preview-lines"}
+	result := operation.CommandOperationResult{
+		PlanID: "op-preview-lines",
+		Status: operation.StatusExecuted,
+		StepResults: []operation.CommandStepResult{{
+			StepID:        "s1",
+			Status:        operation.StatusExecuted,
+			OutputPreview: strings.Join(lines, "\n"),
+			PayloadRef:    "/tmp/codrax-operation/op-preview-lines-s1.txt",
+		}},
+	}
+	got := commandOperationResultMarkdown("zh", plan, result)
+	if strings.Contains(got, "line-21") || strings.Contains(got, "line-25") {
+		t.Fatalf("panel preview should clamp after %d lines:\n%s", commandOperationDisplayPreviewLines, got)
+	}
+	for _, want := range []string{
+		"line-20",
+		"面板预览已截断",
+		"完整输出",
+		"/tmp/codrax-operation/op-preview-lines-s1.txt",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("result markdown missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestCommandOperationAutoExecuteMarkdownShowsCommands(t *testing.T) {
 	plan := operation.CommandOperationPlan{
 		ID:           "op-auto",

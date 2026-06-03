@@ -137,7 +137,7 @@ func (e CommandExecutor) executeStep(ctx context.Context, plan CommandOperationP
 	if capture.Truncated() {
 		ref = capture.Path()
 		preview += fmt.Sprintf("\n[operation output truncated; full output saved to %s]", ref)
-	} else if capture.Path() != "" && len([]rune(preview)) > operationPanelPreviewRefRunes {
+	} else if capture.Path() != "" && operationOutputNeedsPanelRef(preview) {
 		ref = capture.Path()
 	}
 	if preview == "" {
@@ -308,7 +308,28 @@ func (c *operationOutputCapture) Close() error {
 	return c.file.Close()
 }
 
-const operationPanelPreviewRefRunes = 2048
+const (
+	operationPanelPreviewRefRunes = 200
+	operationPanelPreviewRefLines = 20
+)
+
+func operationOutputNeedsPanelRef(preview string) bool {
+	if len([]rune(preview)) > operationPanelPreviewRefRunes {
+		return true
+	}
+	if operationOutputLineCount(preview) > operationPanelPreviewRefLines {
+		return true
+	}
+	return false
+}
+
+func operationOutputLineCount(s string) int {
+	s = strings.TrimRight(s, "\n")
+	if s == "" {
+		return 0
+	}
+	return strings.Count(s, "\n") + 1
+}
 
 func sanitizeOperationBlobToken(s string) string {
 	s = strings.TrimSpace(s)

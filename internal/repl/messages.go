@@ -1399,7 +1399,7 @@ func providerOperationResultMarkdown(lang string, plan operation.Plan, result pr
 		}
 		if result.Summary != "" {
 			b.WriteString("\n结果摘要：\n")
-			b.WriteString(indentBlock(commandOperationDisplayPreview(result.Summary, lang), "  "))
+			b.WriteString(indentBlock(commandOperationDisplayPreview(result.Summary, lang, result.PayloadRef != ""), "  "))
 			b.WriteString("\n")
 		}
 		if result.PayloadRef != "" {
@@ -1451,7 +1451,7 @@ func providerOperationResultMarkdown(lang string, plan operation.Plan, result pr
 	}
 	if result.Summary != "" {
 		b.WriteString("\nResult summary:\n")
-		b.WriteString(indentBlock(commandOperationDisplayPreview(result.Summary, lang), "  "))
+		b.WriteString(indentBlock(commandOperationDisplayPreview(result.Summary, lang, result.PayloadRef != ""), "  "))
 		b.WriteString("\n")
 	}
 	if result.PayloadRef != "" {
@@ -1563,7 +1563,7 @@ func commandOperationResultMarkdown(lang string, plan operation.CommandOperation
 			}
 			if step.OutputPreview != "" {
 				b.WriteString("   输出：\n")
-				b.WriteString(indentBlock(commandOperationDisplayPreview(step.OutputPreview, lang), "   "))
+				b.WriteString(indentBlock(commandOperationDisplayPreview(step.OutputPreview, lang, step.PayloadRef != ""), "   "))
 				b.WriteString("\n")
 			}
 			if step.PayloadRef != "" {
@@ -1599,7 +1599,7 @@ func commandOperationResultMarkdown(lang string, plan operation.CommandOperation
 		}
 		if step.OutputPreview != "" {
 			b.WriteString("   Output:\n")
-			b.WriteString(indentBlock(commandOperationDisplayPreview(step.OutputPreview, lang), "   "))
+			b.WriteString(indentBlock(commandOperationDisplayPreview(step.OutputPreview, lang, step.PayloadRef != ""), "   "))
 			b.WriteString("\n")
 		}
 		if step.PayloadRef != "" {
@@ -1749,20 +1749,51 @@ func splitVisibleThinkBlocks(text string) ([]string, string) {
 	return thoughts, strings.TrimSpace(cleaned.String())
 }
 
-const commandOperationDisplayPreviewRunes = 2048
+const (
+	commandOperationDisplayPreviewRunes = 200
+	commandOperationDisplayPreviewLines = 20
+)
 
-func commandOperationDisplayPreview(s, lang string) string {
+func commandOperationDisplayPreview(s, lang string, hasPayloadRefOpt ...bool) string {
 	s = strings.TrimRight(s, "\n")
-	if len([]rune(s)) <= commandOperationDisplayPreviewRunes {
-		return s
+	hasPayloadRef := len(hasPayloadRefOpt) > 0 && hasPayloadRefOpt[0]
+	lines := strings.Split(s, "\n")
+	keptLines := lines
+	truncatedByLine := false
+	if len(lines) > commandOperationDisplayPreviewLines {
+		keptLines = lines[:commandOperationDisplayPreviewLines]
+		truncatedByLine = true
 	}
-	runes := []rune(s)
-	omitted := len(runes) - commandOperationDisplayPreviewRunes
-	suffix := fmt.Sprintf("\n...[truncated %d chars for panel display; see full output ref when available]", omitted)
+	preview := strings.Join(keptLines, "\n")
+	runes := []rune(preview)
+	truncatedByChars := false
+	if len(runes) > commandOperationDisplayPreviewRunes {
+		preview = string(runes[:commandOperationDisplayPreviewRunes])
+		truncatedByChars = true
+	}
+	if !truncatedByLine && !truncatedByChars {
+		return preview
+	}
+	omitted := len([]rune(s)) - len([]rune(preview))
+	if omitted < 0 {
+		omitted = 0
+	}
+	suffix := fmt.Sprintf("\n...[panel preview truncated %d chars", omitted)
 	if isZh(lang) {
-		suffix = fmt.Sprintf("\n...[面板预览已截断 %d 字符；如有完整输出引用请查看该文件]", omitted)
+		suffix = fmt.Sprintf("\n...[面板预览已截断 %d 字符", omitted)
 	}
-	return string(runes[:commandOperationDisplayPreviewRunes]) + suffix
+	if hasPayloadRef {
+		if isZh(lang) {
+			suffix += "；完整输出见下方引用]"
+		} else {
+			suffix += "; see full output ref below]"
+		}
+	} else if isZh(lang) {
+		suffix += "]"
+	} else {
+		suffix += "]"
+	}
+	return preview + suffix
 }
 
 func commandOperationReplanIntro(lang string, plan operation.CommandOperationPlan) string {
