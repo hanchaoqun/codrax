@@ -214,7 +214,7 @@ full raw provider output.
 - [x] Update `codrax.yaml.example`.
 - [x] Update user guide MD/HTML with descriptor, dynamic parameters, lazy
       startup, and approval workflow.
-- [ ] Add focused tests for:
+- [x] Add focused tests for:
       - [x] empty config byte-safe behavior;
       - [x] eager MCP unchanged;
       - [x] lazy MCP not started until approval;
