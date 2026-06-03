@@ -19,6 +19,10 @@ type CommandOperationPlanner interface {
 	PlanCommandOperation(ctx context.Context, userLine, repoRoot string, policy TurnPolicy) (operation.CommandOperationRequest, error)
 }
 
+type CommandOperationPlannerWithSnapshot interface {
+	PlanCommandOperationWithSnapshot(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, snapshot operation.CapabilitySnapshot) (operation.CommandOperationRequest, error)
+}
+
 type llmCommandOperationPlanner struct {
 	adapter llm.Adapter
 }
@@ -105,6 +109,8 @@ Hard rules:
 - Do not plan destructive commands unless the user explicitly asked for that destructive action. For obviously catastrophic operations, emit blocked.
 - Use the supplied repo root as work_dir by default.
 - This is not source-code investigation, trace analysis, or write-mode code editing. Only produce command-operation plans.
+- Use capability_snapshot when present. Prefer commands shown as available. If a needed tool is absent, either ask for clarification or plan a safe check/install workflow when the user explicitly asked for installation.
+- Do not invent installed tools that are absent from capability_snapshot unless the user explicitly named a custom command or requested installing it.
 
 Risk hints:
 - Read-only inspection (pwd, ls, which, version, git status/log/show/diff, grep/rg/cat/head/tail) is low risk.
@@ -114,6 +120,10 @@ Risk hints:
 `
 
 func (p *llmCommandOperationPlanner) PlanCommandOperation(ctx context.Context, userLine, repoRoot string, policy TurnPolicy) (operation.CommandOperationRequest, error) {
+	return p.PlanCommandOperationWithSnapshot(ctx, userLine, repoRoot, policy, operation.CapabilitySnapshot{})
+}
+
+func (p *llmCommandOperationPlanner) PlanCommandOperationWithSnapshot(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, snapshot operation.CapabilitySnapshot) (operation.CommandOperationRequest, error) {
 	var zero operation.CommandOperationRequest
 	if p == nil || p.adapter == nil {
 		return zero, fmt.Errorf("command operation planner not configured")
@@ -131,6 +141,11 @@ func (p *llmCommandOperationPlanner) PlanCommandOperation(ctx context.Context, u
 	b.WriteString("\n\n## route_policy\n")
 	b.WriteString(fmt.Sprintf("operation=%s operation_kind=%s risk=%s side_effects=%s target=%s requires_confirmation=%t\n",
 		policy.Operation, policy.OperationKind, policy.RiskLevel, strings.Join(policy.SideEffects, ","), policy.TargetSurface, policy.RequiresConfirmation))
+	if rendered := snapshot.RenderForPrompt(); strings.TrimSpace(rendered) != "" {
+		b.WriteString("\n")
+		b.WriteString(rendered)
+		b.WriteString("\n")
+	}
 	b.WriteString("\n## user_request\n")
 	b.WriteString(userLine)
 

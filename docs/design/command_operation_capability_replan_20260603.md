@@ -175,10 +175,10 @@ flexible decoding and repair path.
 
 ### Batch 2: Capability Snapshot
 
-- [ ] Add `internal/operation` capability snapshot type and renderer.
-- [ ] Reuse `types.EnvFacts` and bounded `exec.LookPath` probing.
-- [ ] Feed snapshot into command-operation planner prompt.
-- [ ] Add tests for snapshot content and planner request payload.
+- [x] Add `internal/operation` capability snapshot type and renderer.
+- [x] Reuse `types.EnvFacts` and bounded `exec.LookPath` probing.
+- [x] Feed snapshot into command-operation planner prompt.
+- [x] Add tests for snapshot content and planner request payload.
 
 ### Batch 3: Replan Loop
 
@@ -194,4 +194,3 @@ flexible decoding and repair path.
 - [ ] Run focused command-operation E2E tests.
 - [ ] Run a real-model REPL smoke test with a simple command.
 - [ ] Push each batch.
-

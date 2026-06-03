@@ -68,3 +68,59 @@ func TestCommandOperationPlannerClarification(t *testing.T) {
 		t.Fatalf("ClarifyingQuestions=%+v", plan.ClarifyingQuestions)
 	}
 }
+
+func TestCommandOperationPlannerIncludesCapabilitySnapshot(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"needs_clarification","questions":[{"id":"target","question":"target?"}]}`),
+		},
+	}
+	planner, ok := NewCommandOperationPlanner(adapter).(CommandOperationPlannerWithSnapshot)
+	if !ok {
+		t.Fatal("planner should support capability snapshots")
+	}
+	snapshot := operation.CapabilitySnapshot{
+		RepoRoot: "/repo",
+		OS:       "linux",
+		Arch:     "amd64",
+		Commands: []operation.CapabilityCommand{{
+			Name:   "rg",
+			Path:   "/usr/bin/rg",
+			Source: "look_path",
+		}},
+		Policy: operation.CapabilityPolicy{
+			TimeoutMS:          120000,
+			OutputPreviewBytes: 32768,
+			UnknownProgram:     operation.ApprovalManual,
+			ShellPolicy:        operation.ApprovalManual,
+		},
+	}
+	_, err := planner.PlanCommandOperationWithSnapshot(context.Background(), "查找文件", "/repo", TurnPolicy{
+		Operation:     "computer_operation",
+		OperationKind: "computer_operation",
+		RiskLevel:     "low",
+	}, snapshot)
+	if err != nil {
+		t.Fatalf("PlanCommandOperationWithSnapshot: %v", err)
+	}
+	if len(adapter.calls) != 1 {
+		t.Fatalf("Chat calls=%d, want 1", len(adapter.calls))
+	}
+	user := ""
+	for i := len(adapter.calls[0].messages) - 1; i >= 0; i-- {
+		if adapter.calls[0].messages[i].Role == "user" {
+			user = adapter.calls[0].messages[i].Content
+			break
+		}
+	}
+	for _, want := range []string{
+		"## capability_snapshot",
+		"os: linux/amd64",
+		"available_commands: rg=/usr/bin/rg",
+		"查找文件",
+	} {
+		if !strings.Contains(user, want) {
+			t.Fatalf("planner request missing %q:\n%s", want, user)
+		}
+	}
+}

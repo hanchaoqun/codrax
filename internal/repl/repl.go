@@ -37,6 +37,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/pterm/pterm"
 
+	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/hitraceconv"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/memory"
@@ -1157,7 +1158,16 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 		req := fallbackCommandOperationClarification(line, r.repoRoot)
 		if r.operationPlanner != nil {
 			ctx := r.startTurn()
-			planned, err := r.operationPlanner.PlanCommandOperation(ctx, line, r.repoRoot, policy)
+			snapshot := r.commandOperationCapabilitySnapshot()
+			var (
+				planned operation.CommandOperationRequest
+				err     error
+			)
+			if snapshotPlanner, ok := r.operationPlanner.(CommandOperationPlannerWithSnapshot); ok {
+				planned, err = snapshotPlanner.PlanCommandOperationWithSnapshot(ctx, line, r.repoRoot, policy, snapshot)
+			} else {
+				planned, err = r.operationPlanner.PlanCommandOperation(ctx, line, r.repoRoot, policy)
+			}
 			r.endTurn()
 			if err != nil {
 				logging.Warning("[repl/operation] command planner failed; asking for clarification: %v", err)
@@ -1251,6 +1261,18 @@ func operationRouteSummary(lang string, status operation.OperationStatus) (strin
 		return "operation execution", []string{"cancelled", "no repo read"}
 	}
 	return "operation plan", []string{"no repo read"}
+}
+
+func (r *REPL) commandOperationCapabilitySnapshot() operation.CapabilitySnapshot {
+	facts := r.envFacts
+	if facts == nil {
+		// Operation planning needs local capability signal, but it must stay
+		// bounded and side-effect-free. Avoid the network probe here; the
+		// planner only needs local tool availability to choose command paths.
+		facts = env.Probe(env.ProbeOptions{RepoRoot: r.repoRoot, ProbeNetwork: false})
+		r.envFacts = facts
+	}
+	return operation.BuildCapabilitySnapshot(facts, r.repoRoot, r.operationPolicy)
 }
 
 func isCommandOperationPolicy(policy TurnPolicy) bool {
