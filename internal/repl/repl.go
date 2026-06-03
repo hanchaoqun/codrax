@@ -1380,6 +1380,7 @@ func (r *REPL) startOperationExecutionSpinner() {
 	r.renderer.SetTotalStages(0)
 	r.renderer.SetRouteSummary(label, segs)
 	r.renderer.StartSpinnerWithCancelHint(spinnerCancelHint(r.language))
+	r.renderer.SetLightRouteActivity(label)
 }
 
 func operationRunningSummary(lang string) (string, []string) {
@@ -1856,8 +1857,15 @@ func (r *REPL) renderCommandOperationRoundResult(plan operation.CommandOperation
 	if strings.TrimSpace(msg) == "" {
 		return
 	}
-	r.finishOperationRouteSpinner(result.Status)
+	r.clearOperationRouteSpinnerForInlineResult()
 	r.renderBorderedCompact(msg)
+}
+
+func (r *REPL) clearOperationRouteSpinnerForInlineResult() {
+	if r.renderer == nil || !r.renderer.SpinnerActive() {
+		return
+	}
+	r.renderer.StopSpinnerWithoutSummary()
 }
 
 func (r *REPL) commandOperationFinalMessage(ctx context.Context, userLine string, records []commandOperationResultRecord) (string, []string) {
@@ -5721,7 +5729,7 @@ func (r *REPL) renderProviderOperationRoundResult(plan operation.Plan, result pr
 	if strings.TrimSpace(msg) == "" {
 		return
 	}
-	r.finishOperationRouteSpinner(result.Status)
+	r.clearOperationRouteSpinnerForInlineResult()
 	r.renderBorderedCompact(msg)
 }
 

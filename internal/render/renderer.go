@@ -502,6 +502,25 @@ func (r *Renderer) SetRouteSummary(label string, segments []string) {
 	r.routeSummary = &routeSummary{label: label, segments: segments}
 }
 
+// SetLightRouteActivity switches the live dock into a route-owned activity
+// state for REPL flows that do not emit normal pipeline/agent events. It also
+// clears request telemetry so stale LLM model/token metadata from a classifier
+// or previous pipeline turn does not appear beside local operation progress.
+func (r *Renderer) SetLightRouteActivity(label string) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.activity = activityState{kind: activityLightRoute, detail: strings.TrimSpace(label)}
+	r.streamTail = ""
+	r.streamChars = 0
+	r.requestModelID = ""
+	r.requestContextTokensEstimate = 0
+	r.requestContextWindowTokens = 0
+	r.paintDockLocked()
+}
+
 // EmitLightRouteSummary prints a "◇ <label> · …" scrollback line
 // directly, without requiring an active dock cycle. Used by the
 // clarify route which never calls StartSpinner (no LLM dispatch).
@@ -1105,6 +1124,31 @@ func (r *Renderer) startAnimGoroutineLocked() {
 //
 // Caller MUST hold r.mu.
 
+func (r *Renderer) stopAnimLocked() {
+	// Stop animation goroutine first so it can't race the shutdown
+	// commit with a stale paintDock.
+	if r.animStop != nil {
+		select {
+		case <-r.animStop:
+		default:
+			close(r.animStop)
+		}
+		r.animStop = nil
+	}
+}
+
+func (r *Renderer) resetSpinnerStateLocked() {
+	r.tasks = nil
+	r.current = nil
+	r.analysisReady = false
+	r.objective = ""
+	r.objectiveDone = false
+	r.activity = activityState{}
+	r.streamTail = ""
+	r.streamChars = 0
+	r.parallel = nil
+}
+
 // StopSpinner ends the dispatch ticker. Stage-completion lines have
 // already accrued in scrollback as they happened, so StopSpinner
 // adds one closing summary line capturing the run's totals before
@@ -1117,40 +1161,33 @@ func (r *Renderer) StopSpinner() {
 	defer r.mu.Unlock()
 	if r.dock == nil {
 		// Nothing to stop. Reset state for next Run.
-		r.tasks = nil
-		r.current = nil
-		r.analysisReady = false
-		r.objective = ""
-		r.objectiveDone = false
-		r.activity = activityState{}
-		r.streamTail = ""
-		r.streamChars = 0
-		r.parallel = nil
+		r.routeSummary = nil
+		r.resetSpinnerStateLocked()
 		return
 	}
-	// Stop animation goroutine first so it can't race the shutdown
-	// commit with a stale paintDock.
-	if r.animStop != nil {
-		select {
-		case <-r.animStop:
-		default:
-			close(r.animStop)
-		}
-		r.animStop = nil
-	}
+	r.stopAnimLocked()
 	// Commit closing summary line + clear dock so the next stdout
 	// write (RenderResult / REPL prompt) lands cleanly.
 	r.commitDockShutdownLocked()
 	r.dock = nil
-	r.tasks = nil
-	r.current = nil
-	r.analysisReady = false
-	r.objective = ""
-	r.objectiveDone = false
-	r.activity = activityState{}
-	r.streamTail = ""
-	r.streamChars = 0
-	r.parallel = nil
+	r.resetSpinnerStateLocked()
+}
+
+// StopSpinnerWithoutSummary clears the live dock without committing a
+// route or pipeline shutdown summary. It is for local REPL flows that
+// immediately render their own durable result panel, such as each
+// operation execution round. Normal pipeline completion must continue
+// to use StopSpinner so stage summaries remain visible in scrollback.
+func (r *Renderer) StopSpinnerWithoutSummary() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.dock != nil {
+		r.stopAnimLocked()
+		r.dock.clearDock()
+		r.dock = nil
+	}
+	r.routeSummary = nil
+	r.resetSpinnerStateLocked()
 }
 
 // printRunSummaryLocked prints a closing single-line summary of the

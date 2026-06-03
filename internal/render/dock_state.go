@@ -33,6 +33,7 @@ const (
 	activityCapturingBaseline              // captureBaseline (write mode)
 	activityAcceptanceReview               // multi-phase acceptance check (commit 44)
 	activityRepoMapScanning                // local repomap index parse (with file counts)
+	activityLightRoute                     // REPL light route with no LLM/pipeline task rows
 	activityErrorRecoverable               // EventTaskNodeEnd with recoverable error, before requeue
 	activityErrorFatal                     // terminal error before StopSpinner
 	activityCancelled                      // Ctrl+C path before StopSpinner
@@ -129,6 +130,14 @@ func activityPhrase(s activityState, lang string) string {
 			return "扫描仓库索引中"
 		}
 		return "Scanning repo index"
+	case activityLightRoute:
+		if strings.TrimSpace(s.detail) != "" {
+			return strings.TrimSpace(s.detail)
+		}
+		if zh {
+			return "处理中"
+		}
+		return "Working"
 	case activityErrorRecoverable:
 		if zh {
 			return "错误恢复中"

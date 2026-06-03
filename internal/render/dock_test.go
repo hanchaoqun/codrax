@@ -1056,6 +1056,55 @@ func TestRenderer_EventAgentThinkingWithoutCurrentRowShowsRequesting(t *testing.
 	}
 }
 
+func TestRenderer_LightRouteActivityClearsPipelineAndModelTelemetry(t *testing.T) {
+	r := newTestRenderer("zh")
+	r.requestModelID = "MiniMax-M2.7-highspeed"
+	r.requestContextTokensEstimate = 4100
+	r.requestContextWindowTokens = 200000
+	r.SetRouteSummary("操作执行", []string{"运行中", "未读仓库"})
+	r.SetLightRouteActivity("操作执行")
+
+	rows := r.composeCurrentDockRows()
+	row1 := stripAnsiEscapes(rows[0])
+	row2 := stripAnsiEscapes(rows[1])
+	if !strings.Contains(row1, "操作执行") {
+		t.Fatalf("light route row1 should use operation activity, got %q", row1)
+	}
+	if strings.Contains(row1, "准备流水线") {
+		t.Fatalf("light route row1 must not keep pipeline activity, got %q", row1)
+	}
+	if !strings.Contains(row2, "操作执行") {
+		t.Fatalf("light route row2 should keep route summary, got %q", row2)
+	}
+	for _, banned := range []string{"模型", "MiniMax", "tok", "200k"} {
+		if strings.Contains(row2, banned) {
+			t.Fatalf("light route row2 leaked stale model telemetry %q: %q", banned, row2)
+		}
+	}
+}
+
+func TestRenderer_StopSpinnerWithoutSummaryClearsDockOnly(t *testing.T) {
+	var buf bytes.Buffer
+	r := newTestRenderer("zh")
+	r.dock = newDock(&buf)
+	r.startTime = time.Now().Add(-2 * time.Second)
+	r.SetRouteSummary("操作执行", []string{"已完成", "未读仓库"})
+	r.SetLightRouteActivity("操作执行")
+
+	buf.Reset()
+	r.StopSpinnerWithoutSummary()
+	out := stripAnsiEscapes(buf.String())
+	if strings.Contains(out, "◇") || strings.Contains(out, "操作执行") || strings.Contains(out, "已完成") {
+		t.Fatalf("silent spinner stop must not commit route summary, got %q", out)
+	}
+	if r.SpinnerActive() {
+		t.Fatal("silent spinner stop must clear the live dock")
+	}
+	if r.routeSummary != nil {
+		t.Fatal("silent spinner stop must consume the armed route summary")
+	}
+}
+
 func TestRenderer_TaskNodeStartShowsPreparingContext(t *testing.T) {
 	r := newTestRenderer("zh")
 	emit := r.Emitter()
