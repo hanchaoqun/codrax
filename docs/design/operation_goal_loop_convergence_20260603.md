@@ -234,7 +234,7 @@ typed fields must make this explicit. Deterministic fallbacks:
 - [x] Keep asking users only for user-owned inputs.
 - [x] Ensure final answer receives accumulated goal state and prioritized
       observations.
-- [ ] Add E2E tests for system-info query, software-running/version query,
+- [x] Add E2E tests for system-info query, software-running/version query,
       large-file extraction, unfamiliar tool help-to-command workflow, and
       ambiguous destructive target clarification.
 

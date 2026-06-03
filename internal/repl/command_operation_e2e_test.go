@@ -1967,6 +1967,171 @@ func TestCommandOperationE2E_RiskEscalatingRepairPausesForApproval(t *testing.T)
 	}
 }
 
+func TestCommandOperationE2E_SystemInfoQueryUsesMultiRoundGoalLoop(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"continue_after":true,"work_dir":".","goal":"collect portable system facts","missing_observations":["os","memory","cpu","gpu"],"success_criteria":["answer includes os/memory/cpu/gpu"],"next_batch":"discover OS first","steps":[{"id":"os","title":"OS probe","shell":"printf 'os=TestOS\\n'","risk_level":"low","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","goal":"collect portable system facts","next_batch":"collect hardware facts","steps":[{"id":"hardware","title":"hardware probe","shell":"printf 'memory=16GB\\ncpu=8\\ngpu=10\\n'","risk_level":"low","side_effects":[]}]}`),
+			{Content: "系统信息已收集：TestOS，内存 16GB，CPU 8 核，GPU 10 核。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "当前是什么操作系统，内存多大，CPU，GPU多少核\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("system info operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(r.operationResults) != 2 {
+		t.Fatalf("operation results=%d, want two bounded batches: %+v", len(r.operationResults), r.operationResults)
+	}
+	printed := out.String()
+	for _, want := range []string{"TestOS", "16GB", "CPU 8", "GPU 10"} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("system-info output missing %q:\n%s", want, printed)
+		}
+	}
+}
+
+func TestCommandOperationE2E_SoftwareVersionQueryContinuesFromDiscovery(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"continue_after":true,"work_dir":".","goal":"identify running VPN-like software and version","next_batch":"discover candidate process","steps":[{"id":"discover","title":"candidate process","shell":"printf 'process=vpn-agent\\n'","risk_level":"low","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","goal":"identify running VPN-like software and version","next_batch":"query discovered version","steps":[{"id":"version","title":"version query","shell":"printf 'vpn-agent version 2.3\\n'","risk_level":"low","side_effects":[]}]}`),
+			{Content: "已确认运行中的 VPN 相关软件为 vpn-agent，版本 2.3。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "查一下当前 VPN 软件和版本\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("software-version operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(r.operationResults) != 2 {
+		t.Fatalf("operation results=%d, want discovery + version: %+v", len(r.operationResults), r.operationResults)
+	}
+	printed := out.String()
+	for _, want := range []string{"vpn-agent", "2.3"} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("software-version output missing %q:\n%s", want, printed)
+		}
+	}
+}
+
+func TestCommandOperationE2E_LargeFileExtractionKeepsPayloadRefForHandoff(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	largeText := strings.Repeat("x", 128) + " ERROR42"
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","goal":"extract key marker from large output","success_criteria":["payload_ref retained for follow-up"],"steps":[{"id":"extract","title":"large extraction","shell":"printf '` + largeText + `\\n'","risk_level":"low","side_effects":[]}]}`),
+			{Content: "大输出已保存为 payload，可继续围绕 ERROR42 缩小范围。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "从一个大文件输出里提取 ERROR42\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	r.operationPolicy.OutputPreviewBytes = 16
+	r.runtimeAnchor = t.TempDir()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("large extraction operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(r.operationResults) != 1 {
+		t.Fatalf("operation results=%d, want one extraction batch: %+v", len(r.operationResults), r.operationResults)
+	}
+	step := r.operationResults[0].Result.StepResults[0]
+	if step.PayloadRef == "" {
+		t.Fatalf("large output should keep payload ref: %+v", step)
+	}
+	printed := out.String()
+	for _, want := range []string{"payload", "ERROR42"} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("large extraction output missing %q:\n%s", want, printed)
+		}
+	}
+}
+
+func TestCommandOperationE2E_UnfamiliarToolHelpGuidesFollowupCommand(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"continue_after":true,"work_dir":".","goal":"learn demo tool usage then run it","next_batch":"read tool help","steps":[{"id":"help","title":"demo help","shell":"printf 'Usage: demo --mode fast --input FILE\\n'","risk_level":"low","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","goal":"learn demo tool usage then run it","next_batch":"run learned command shape","steps":[{"id":"run","title":"demo run","shell":"printf 'demo output ok\\n'","risk_level":"low","side_effects":[]}]}`),
+			{Content: "已先读取工具说明，再按 `--mode fast --input FILE` 形态完成执行：demo output ok。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "先学会 demo 工具怎么用，再驱动它完成任务\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("help-to-command operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(r.operationResults) != 2 {
+		t.Fatalf("operation results=%d, want help + run: %+v", len(r.operationResults), r.operationResults)
+	}
+	printed := out.String()
+	for _, want := range []string{"Usage: demo", "--mode fast", "demo output ok"} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("help-to-command output missing %q:\n%s", want, printed)
+		}
+	}
+}
+
+func TestCommandOperationE2E_AmbiguousDestructiveTargetAsksClarification(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("high")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"needs_clarification","risk_level":"high","requires_confirmation":true,"questions":[{"id":"target","question":"Which exact directory or file should be deleted?","suggestions":["provide exact path","provide delete scope","cancel deletion"]}]}`),
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "帮我删除一些临时文件\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("ambiguous destructive operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if r.pendingOperation != nil {
+		t.Fatalf("ambiguous destructive operation must not create executable pending plan: %+v", r.pendingOperation)
+	}
+	printed := out.String()
+	if !strings.Contains(printed, "Which exact directory or file should be deleted?") {
+		t.Fatalf("destructive clarification missing:\n%s", printed)
+	}
+	if strings.Contains(printed, "rm ") {
+		t.Fatalf("ambiguous destructive target must not render a delete command:\n%s", printed)
+	}
+}
+
 func TestDropRepeatedFailedCommandStepsRemovesOnlyFailedRetry(t *testing.T) {
 	failedPlan := operation.CommandOperationPlan{
 		ID: "op-failed",
