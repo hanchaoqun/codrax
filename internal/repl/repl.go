@@ -1547,9 +1547,12 @@ type pendingCommandClarification struct {
 }
 
 type pendingProviderOperation struct {
-	Plan    operation.Plan
-	Request operation.Request
-	Display string
+	Plan          operation.Plan
+	Request       operation.Request
+	Display       string
+	Input         map[string]any
+	WorkflowState operation.WorkflowState
+	WorkflowDepth int
 }
 
 func (r *REPL) appendCommandOperationResult(plan operation.CommandOperationPlan, result operation.CommandOperationResult) {
@@ -5017,6 +5020,7 @@ func (r *REPL) handleProviderOperationApproveCmd(line string) {
 	}
 	r.pendingProviderOperation = nil
 	result := r.executeProviderOperation(context.Background(), *pending)
+	r.queueProviderNextAction(pending, &result)
 	r.appendProviderOperationResult(pending.Plan, pending.Request, result)
 	msg := providerOperationResultMarkdown(r.language, pending.Plan, result)
 	r.renderBordered(msg)
@@ -5041,6 +5045,30 @@ func (r *REPL) executeProviderOperation(ctx context.Context, pending pendingProv
 	}
 }
 
+func providerExecutionEnvelope(plan operation.Plan, pending pendingProviderOperation) map[string]any {
+	out := map[string]any{
+		"request":               pending.Request.Text,
+		"operation":             firstNonEmptyString(pending.Request.Operation, pending.Request.OperationKind, plan.Kind),
+		"operation_kind":        plan.Kind,
+		"target_surface":        plan.TargetSurface,
+		"risk_level":            plan.RiskLevel,
+		"side_effects":          plan.SideEffects,
+		"requires_confirmation": plan.RequiresConfirmation,
+		"provider":              plan.Provider,
+		"tool":                  firstNonEmptyString(plan.ProviderTool, "run"),
+	}
+	if len(pending.Input) > 0 {
+		out["input"] = pending.Input
+	}
+	if !pending.WorkflowState.IsZero() {
+		out["workflow_state"] = pending.WorkflowState
+	}
+	if pending.WorkflowDepth > 0 {
+		out["workflow_depth"] = pending.WorkflowDepth
+	}
+	return out
+}
+
 func (r *REPL) executeMCPOperationProvider(ctx context.Context, pending pendingProviderOperation) providerOperationResult {
 	plan := pending.Plan
 	result := providerOperationResult{
@@ -5061,16 +5089,7 @@ func (r *REPL) executeMCPOperationProvider(ctx context.Context, pending pendingP
 		result.Error = err.Error()
 		return result
 	}
-	args := map[string]any{
-		"request":               pending.Request.Text,
-		"operation":             firstNonEmptyString(pending.Request.Operation, pending.Request.OperationKind, plan.Kind),
-		"operation_kind":        plan.Kind,
-		"target_surface":        plan.TargetSurface,
-		"risk_level":            plan.RiskLevel,
-		"side_effects":          plan.SideEffects,
-		"requires_confirmation": plan.RequiresConfirmation,
-		"provider":              plan.Provider,
-	}
+	args := providerExecutionEnvelope(plan, pending)
 	raw, err := json.Marshal(args)
 	if err != nil {
 		result.Error = err.Error()
@@ -5126,18 +5145,8 @@ func (r *REPL) executeLocalOperationSkillProvider(ctx context.Context, pending p
 		result.Error = fmt.Sprintf("local operation skill %q has no command", skillName)
 		return result
 	}
-	envelope := map[string]any{
-		"request":               pending.Request.Text,
-		"operation":             firstNonEmptyString(pending.Request.Operation, pending.Request.OperationKind, plan.Kind),
-		"operation_kind":        plan.Kind,
-		"target_surface":        plan.TargetSurface,
-		"risk_level":            plan.RiskLevel,
-		"side_effects":          plan.SideEffects,
-		"requires_confirmation": plan.RequiresConfirmation,
-		"provider":              plan.Provider,
-		"tool":                  firstNonEmptyString(plan.ProviderTool, "run"),
-		"repo_root":             r.repoRoot,
-	}
+	envelope := providerExecutionEnvelope(plan, pending)
+	envelope["repo_root"] = r.repoRoot
 	raw, err := json.Marshal(envelope)
 	if err != nil {
 		result.Error = err.Error()
@@ -5219,6 +5228,85 @@ func (r *REPL) executeLocalOperationSkillProvider(ctx context.Context, pending p
 	r.markOperationProviderLoaded(plan.Provider)
 	logging.Info("[repl/operation] local operation skill executed provider=%s command=%q", plan.Provider, display)
 	return result
+}
+
+const maxOperationProviderWorkflowDepth = 6
+
+func (r *REPL) queueProviderNextAction(pending *pendingProviderOperation, result *providerOperationResult) {
+	if pending == nil || result == nil || result.Status != operation.StatusExecuted || len(result.NextActions) == 0 {
+		return
+	}
+	if pending.WorkflowDepth >= maxOperationProviderWorkflowDepth {
+		result.WorkflowDiagnostics = append(result.WorkflowDiagnostics, fmt.Sprintf("workflow depth limit %d reached; no next action was queued", maxOperationProviderWorkflowDepth))
+		return
+	}
+	for i, action := range result.NextActions {
+		plan, req, diag, ok := r.providerPlanFromWorkflowAction(pending, action)
+		if diag != "" {
+			result.WorkflowDiagnostics = append(result.WorkflowDiagnostics, fmt.Sprintf("next_action[%d]: %s", i, diag))
+		}
+		if !ok {
+			continue
+		}
+		r.pendingProviderOperation = &pendingProviderOperation{
+			Plan:          plan,
+			Request:       req,
+			Display:       firstNonEmptyString(action.Request, pending.Display, pending.Request.Text),
+			Input:         action.Input,
+			WorkflowState: result.WorkflowState,
+			WorkflowDepth: pending.WorkflowDepth + 1,
+		}
+		result.WorkflowDiagnostics = append(result.WorkflowDiagnostics, fmt.Sprintf("queued next workflow action provider=%s kind=%s; run /approve to continue", plan.Provider, plan.Kind))
+		return
+	}
+}
+
+func (r *REPL) providerPlanFromWorkflowAction(pending *pendingProviderOperation, action operation.WorkflowNextAction) (operation.Plan, operation.Request, string, bool) {
+	providerName := strings.TrimSpace(action.Provider)
+	kind := firstNonEmptyString(action.OperationKind, action.Operation)
+	target := strings.TrimSpace(action.TargetSurface)
+	providers := r.operationProviders
+	if providerName != "" {
+		provider, ok := r.operationProviderByName(providerName)
+		if !ok {
+			return operation.Plan{}, operation.Request{}, fmt.Sprintf("configured provider %q not found", providerName), false
+		}
+		providers = []operation.ProviderInfo{provider}
+		kind = firstNonEmptyString(kind, provider.Kind)
+		if target == "" && len(provider.Surfaces) == 1 {
+			target = provider.Surfaces[0]
+		}
+		if action.Tool != "" && provider.ToolName != "" && action.Tool != provider.ToolName {
+			// The configured provider descriptor remains authoritative.
+			action.Tool = provider.ToolName
+		}
+	}
+	req := operation.Request{
+		Text:                 firstNonEmptyString(action.Request, pending.Request.Text),
+		Operation:            firstNonEmptyString(action.Operation, kind),
+		OperationKind:        firstNonEmptyString(kind, pending.Request.OperationKind, pending.Request.Operation),
+		Source:               "external_tool",
+		NeedsRepoAccess:      false,
+		RiskLevel:            firstNonEmptyString(action.RiskLevel, "medium"),
+		SideEffects:          cleanOperationRefs(action.SideEffects),
+		TargetSurface:        firstNonEmptyString(target, pending.Request.TargetSurface),
+		RequiresConfirmation: true,
+	}
+	plan := operation.BuildPlan(req, providers)
+	if strings.TrimSpace(plan.Provider) == "" || strings.TrimSpace(plan.ProviderTool) == "" {
+		return plan, req, firstNonEmptyString(plan.MissingCapability, "next action did not match a configured operation provider"), false
+	}
+	return plan, req, "", true
+}
+
+func (r *REPL) operationProviderByName(providerName string) (operation.ProviderInfo, bool) {
+	providerName = strings.TrimSpace(providerName)
+	for _, provider := range r.operationProviders {
+		if strings.TrimSpace(provider.Name) == providerName {
+			return provider, true
+		}
+	}
+	return operation.ProviderInfo{}, false
 }
 
 func (r *REPL) localOperationSkillConfig(skillName string) (types.OperationSkillConfig, bool) {
