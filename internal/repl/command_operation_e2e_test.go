@@ -1937,6 +1937,7 @@ func TestCommandOperationE2E_InvalidShellFilterReplansWithNumericStepID(t *testi
 	for _, want := range []string{
 		"Commands to validate",
 		"stdin-consuming shell command",
+		"Each command step executes standalone",
 		"revised command plan",
 		"will run automatically",
 		"printf 'vpn-tool 1.0",
