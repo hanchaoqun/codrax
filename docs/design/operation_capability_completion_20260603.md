@@ -236,7 +236,7 @@ operation step:
 - [x] Store action-oriented summaries in current-run handoff and durable memory.
 - [x] Add tests for help text, search output, failure output, and memory
       handoff summaries.
-- [ ] Add payload-ref-only follow-up planning tests.
+- [x] Add payload-ref-only follow-up planning tests.
 
 ### Batch D: Policy Completion
 
@@ -274,6 +274,9 @@ operation step:
 
 ### Batch H: E2E Eval
 
+- [x] Deterministic E2E evals for command operation memory, clarification
+      resume, MCP operation provider approve, verification, policy deny, and
+      MCP read-mode compatibility.
 - [ ] Real-model command operation evals:
       large output, missing command replan, unfamiliar tool help, large file
       extraction, denied destructive command, install/manual approval, and

@@ -178,6 +178,41 @@ operation_result plan_id=op-extract status=executed request="从大文件里提�
 	}
 }
 
+func TestCommandOperationPlannerHandlesPayloadRefOnlyHandoff(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"s1","title":"inspect payload ref","program":"head","args":["-100","/tmp/codrax-operation/big.txt"],"risk_level":"low","side_effects":[]}]}`),
+		},
+	}
+	planner, ok := NewCommandOperationPlanner(adapter).(CommandOperationPlannerWithHandoff)
+	if !ok {
+		t.Fatal("planner should support operation handoff context")
+	}
+	handoff := `operation_result plan_id=op-big status=executed request="读取大文件"
+  step id=s1 cmd="cat huge.txt" status=executed exit_code=0 timed_out=false failure_class= verification_status= verification_kind= verification_summary="" output_kind=large_output_summary output_summary="large output captured; inspect payload_ref with bounded reads" error="" output_preview="" payload_ref=/tmp/codrax-operation/big.txt`
+	_, err := planner.PlanCommandOperationWithHandoff(context.Background(), "继续从大输出里找 ERROR42", "/repo", TurnPolicy{
+		Operation:     "computer_operation",
+		OperationKind: "computer_operation",
+		RiskLevel:     "low",
+	}, operation.CapabilitySnapshot{}, handoff)
+	if err != nil {
+		t.Fatalf("PlanCommandOperationWithHandoff: %v", err)
+	}
+	combined := ""
+	for _, msg := range adapter.calls[0].messages {
+		combined += "\n" + msg.Content
+	}
+	for _, want := range []string{
+		"payload_ref=/tmp/codrax-operation/big.txt",
+		"If only a payload_ref is available",
+		"bounded follow-up read/search/summarize",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("planner prompt missing %q:\n%s", want, combined)
+		}
+	}
+}
+
 func TestCommandOperationReplannerIncludesFailureContext(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
