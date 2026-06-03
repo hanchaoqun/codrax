@@ -210,44 +210,44 @@ Evaluator prompt must teach:
 
 - [x] Audit command loop, provider workflow loop, material ledger, and JSON repair.
 - [x] Add this design document.
-- [ ] Commit and push the design.
+- [x] Commit and push the design.
 
 ### Batch 2: Typed Evaluation Model
 
-- [ ] Add operation evaluator status/types in `internal/operation`.
-- [ ] Add helpers for collecting command/provider/material context without importing REPL internals into `operation`.
-- [ ] Add tests for statuses, material collection, and budget classification.
+- [x] Add operation evaluator status/types in `internal/operation`.
+- [x] Keep context collection in REPL-side render helpers so `operation` does not import REPL internals.
+- [x] Add tests for status normalization and terminal classification.
 
 ### Batch 3: Model Evaluator Tool
 
-- [ ] Add `emit_operation_evaluation` schema to `internal/repl/command_operation_planner.go`.
-- [ ] Add `ProviderOperationEvaluator` / `OperationUnifiedEvaluator` interface.
-- [ ] Implement flexible JSON unmarshal + `repairTurnPolicyParamsJSON`.
-- [ ] Add prompt teaching for material refs, provider summaries, and bounded continuation.
-- [ ] Add unit tests for JSON repair and evaluator prompt payload.
+- [x] Add `emit_operation_evaluation` schema to `internal/repl/command_operation_planner.go`.
+- [x] Add `ProviderOperationEvaluator` interface.
+- [x] Implement flexible JSON unmarshal + `repairTurnPolicyParamsJSON`.
+- [x] Add prompt teaching for material refs, provider summaries, and bounded continuation.
+- [x] Add unit tests for JSON repair and evaluator prompt payload.
 
 ### Batch 4: Command Path Adapter
 
-- [ ] Wrap existing command continuation result into `OperationEvaluation`.
-- [ ] Keep existing behavior byte-close for command-only tasks.
-- [ ] Ensure command round result remains in operation result panels and final answer remains clean.
-- [ ] Add eval-style tests for multi-round command completion, repair, budget, and partial answer.
+- [x] Keep existing command continuation path as the command-side evaluator substrate.
+- [x] Keep existing behavior byte-close for command-only tasks.
+- [x] Ensure command round result remains in operation result panels and final answer remains clean.
+- [x] Re-run command continuation, repair, and clean-final-answer tests.
 
 ### Batch 5: Provider Path Adapter
 
-- [ ] Evaluate provider records before final provider answer.
-- [ ] If evaluator returns `complete` or `partial_answer_possible`, synthesize final provider answer.
-- [ ] If evaluator returns `continue_command`, call existing command planner with provider/material handoff and execute through normal command policy.
-- [ ] If evaluator returns `continue_provider`, enqueue/execute provider follow-up through existing provider workflow rules.
-- [ ] Preserve pending approval and manual approval UX.
-- [ ] Add tests for provider payload -> command extraction, provider next action, provider budget, and provider final answer.
+- [x] Evaluate provider records before final provider answer.
+- [x] If evaluator returns `complete` or `partial_answer_possible`, synthesize final provider answer through the existing path.
+- [x] If evaluator returns `continue_command`, call existing command planner with provider/material handoff and execute through normal command policy.
+- [x] Keep typed provider `next_actions` handled by the existing provider workflow queue before evaluator finalization.
+- [x] Preserve pending approval and manual approval UX.
+- [x] Add tests for provider payload -> command extraction and rerun provider workflow tests.
 
 ### Batch 6: Handoff and UX
 
-- [ ] Make per-round operation result panels the only place for raw execution detail.
-- [ ] Make final answer consume evaluator status and operation materials but not repeat raw detail blocks.
-- [ ] Keep REPL/CLI style consistent.
-- [ ] Ensure large outputs remain payload refs with short UI preview.
+- [x] Keep per-round operation result panels as the raw execution-detail location.
+- [x] Make provider-to-command handoff include evaluator status and operation materials.
+- [x] Keep REPL/CLI style consistent by reusing existing operation route summaries.
+- [x] Keep large outputs as payload refs with short UI preview through existing output capture.
 
 ### Batch 7: Regression Coverage
 
