@@ -1229,7 +1229,7 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 			r.pendingCommandClarification = nil
 			r.clearPendingOperationState()
 			r.finishOperationAutoStartSpinner()
-			r.renderBorderedCompact(commandOperationAutoExecuteMarkdown(r.language, plan))
+			r.renderBordered(commandOperationAutoExecuteMarkdown(r.language, plan))
 			r.executeCommandOperationPlan(plan, display, line)
 			return
 		}
@@ -1798,7 +1798,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 							msg += "\n\n"
 							msg += commandOperationAutoExecuteMarkdown(r.language, revisedPlan)
 							r.finishOperationRouteSpinner(revisedPlan.Status)
-							r.renderBorderedCompact(msg)
+							r.renderBordered(msg)
 							currentPlan = revisedPlan
 							r.startOperationExecutionSpinner()
 							continue
@@ -1859,7 +1859,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 						msg += "\n\n"
 						msg += commandOperationAutoExecuteMarkdown(r.language, nextPlan)
 						r.finishOperationRouteSpinner(nextPlan.Status)
-						r.renderBorderedCompact(msg)
+						r.renderBordered(msg)
 						currentPlan = nextPlan
 						r.startOperationExecutionSpinner()
 						continue
@@ -1895,8 +1895,8 @@ func (r *REPL) renderCommandOperationRoundResult(plan operation.CommandOperation
 	if strings.TrimSpace(msg) == "" {
 		return
 	}
-	r.clearOperationRouteSpinnerForInlineResult()
-	r.renderBorderedCompact(msg)
+	r.finishOperationRouteSpinner(result.Status)
+	r.renderBordered(msg)
 }
 
 func (r *REPL) clearOperationRouteSpinnerForInlineResult() {
@@ -2007,7 +2007,7 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 			msg += "\n\n"
 			msg += commandOperationAutoExecuteMarkdown(r.language, revisedPlan)
 			r.finishOperationRouteSpinner(revisedPlan.Status)
-			r.renderBorderedCompact(msg)
+			r.renderBordered(msg)
 			r.executeCommandOperationPlanAttempt(revisedPlan, request, display, replanAttempts+1, records)
 			return true
 		}
@@ -2057,7 +2057,7 @@ func (r *REPL) maybeContinueCommandOperation(ctx context.Context, plan operation
 		msg += "\n\n"
 		msg += commandOperationAutoExecuteMarkdown(r.language, nextPlan)
 		r.finishOperationRouteSpinner(nextPlan.Status)
-		r.renderBorderedCompact(msg)
+		r.renderBordered(msg)
 		r.executeCommandOperationPlanAttempt(nextPlan, request, display, 0, records)
 		return true
 	}

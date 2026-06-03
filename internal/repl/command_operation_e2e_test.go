@@ -1500,6 +1500,9 @@ func TestCommandOperationE2E_AutoExecutionShowsProgress(t *testing.T) {
 	if strings.Contains(printed, "Operating: show go version") {
 		t.Fatalf("step progress should stay in the live status/log lane, not permanent output:\n%s", printed)
 	}
+	if !strings.Contains(printed, "\n  │\n\n  │\n  │ Operation plan `") {
+		t.Fatalf("auto plan and execution result should render as separate bordered blocks:\n%s", printed)
+	}
 }
 
 func TestCommandOperationE2E_ContinueAfterRunsSecondBatchBeforeAnswer(t *testing.T) {
