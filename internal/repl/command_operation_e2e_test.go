@@ -1744,6 +1744,94 @@ func TestCommandOperationE2E_InvalidShellFilterReplansWithNumericStepID(t *testi
 	}
 }
 
+func TestCommandOperationE2E_MultipleInvalidRepairsUntilSuccess(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"medium","requires_confirmation":false,"work_dir":".","steps":[{"id":"bad-grep","title":"bad process filter","shell":"grep -i vpn","risk_level":"medium","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"bad-cat","title":"bad cat","shell":"cat","risk_level":"low","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"fixed","title":"safe version check","shell":"printf 'vpn-tool 1.0\\n' | grep vpn","risk_level":"low","side_effects":[]}]}`),
+			{Content: "经过多轮修复，已获取 VPN 工具版本：vpn-tool 1.0。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "查一下当前 VPN 软件和版本\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("command operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(adapter.calls) != 4 {
+		t.Fatalf("planner+2 repairs+answer calls=%d, want 4", len(adapter.calls))
+	}
+	if len(r.operationResults) != 3 {
+		t.Fatalf("operation results=%d, want 3 rounds: %+v", len(r.operationResults), r.operationResults)
+	}
+	printed := out.String()
+	for _, want := range []string{
+		"stdin-consuming shell command",
+		"vpn-tool 1.0",
+		"经过多轮修复",
+	} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("multi-repair output missing %q:\n%s", want, printed)
+		}
+	}
+}
+
+func TestCommandOperationE2E_RepeatedFailedCommandRepairsWithoutRerun(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"missing","title":"missing command","shell":"definitely-missing-codrax-command --version","risk_level":"low","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"repeat","title":"bad retry","shell":"definitely-missing-codrax-command --version","risk_level":"low","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"fallback","title":"fallback check","shell":"printf 'fallback version 1.0\\n'","risk_level":"low","side_effects":[]}]}`),
+			{Content: "已避免重复失败命令，改用替代检查得到 fallback version 1.0。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "查询 demo 工具版本\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("command operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(r.operationResults) != 3 {
+		t.Fatalf("operation results=%d, want initial failure + lint repair + fallback: %+v", len(r.operationResults), r.operationResults)
+	}
+	commandNotFoundRuns := 0
+	repeatedLint := false
+	for _, rec := range r.operationResults {
+		for _, step := range rec.Result.StepResults {
+			if step.FailureClass == "command_not_found" {
+				commandNotFoundRuns++
+			}
+			if step.FailureClass == "invalid_plan" && strings.Contains(step.Error, "repeats an already failed command") {
+				repeatedLint = true
+			}
+		}
+	}
+	if commandNotFoundRuns != 1 {
+		t.Fatalf("missing command should execute once, got %d runs; records=%+v", commandNotFoundRuns, r.operationResults)
+	}
+	if !repeatedLint {
+		t.Fatalf("repeated failed command was not linted before execution; records=%+v", r.operationResults)
+	}
+	if !strings.Contains(out.String(), "fallback version 1.0") {
+		t.Fatalf("fallback output missing:\n%s", out.String())
+	}
+}
+
 func TestDropRepeatedFailedCommandStepsRemovesOnlyFailedRetry(t *testing.T) {
 	failedPlan := operation.CommandOperationPlan{
 		ID: "op-failed",

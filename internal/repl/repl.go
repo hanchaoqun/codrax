@@ -1772,8 +1772,10 @@ func (r *REPL) emitOperationVisibleThoughts(thoughts []string) {
 	logging.Info("[repl/operation] suppressed %d visible think block(s) from operation answer", len(thoughts))
 }
 
+const commandOperationMaxRepairRounds = 3
+
 func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan operation.CommandOperationPlan, result operation.CommandOperationResult, request, display string, replanAttempts int, records []commandOperationResultRecord) bool {
-	if result.Status != operation.StatusFailed || replanAttempts >= 1 || r.operationPlanner == nil {
+	if result.Status != operation.StatusFailed || replanAttempts >= commandOperationMaxRepairRounds || r.operationPlanner == nil {
 		return false
 	}
 	if commandResultTimedOut(result) {
@@ -1794,13 +1796,25 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 	logging.Info("[repl/operation] command replan generated previous_plan_id=%s status=%s risk=%q approval=%q steps=%d",
 		failedPlan.ID, revisedPlan.Status, revisedPlan.RiskLevel, revisedPlan.ApprovalMode, len(revisedPlan.Steps))
 	if revisedPlan.Status == operation.StatusReady {
-		if commandReplanCanAutoExecute(failedPlan, revisedPlan) {
-			if !operation.LintCommandOperationPlan(revisedPlan).OK() {
-				logging.Info("[repl/operation] revised command plan failed lint before auto execution previous_plan_id=%s revised_plan_id=%s",
-					failedPlan.ID, revisedPlan.ID)
-				r.executeCommandOperationPlanAttempt(revisedPlan, request, display, replanAttempts+1, records)
+		if lint := commandRevisedPlanPreflightLint(revisedPlan, failedPlan, result); !lint.OK() {
+			lintResult := commandOperationResultFromPlanLint(revisedPlan, lint)
+			revisedPlan.Status = lintResult.Status
+			r.operationHistory = append(r.operationHistory, revisedPlan)
+			r.appendCommandOperationResult(revisedPlan, lintResult)
+			records = append(records, commandOperationResultRecord{Plan: revisedPlan, Result: lintResult})
+			logging.Info("[repl/operation] revised command plan preflight failed previous_plan_id=%s revised_plan_id=%s issues=%d summary=%q replan_attempt=%d",
+				failedPlan.ID, revisedPlan.ID, len(lint.Issues), oneLineClamp(lint.Summary(), 240), replanAttempts+1)
+			if r.maybeReplanCommandOperation(ctx, revisedPlan, lintResult, request, display, replanAttempts+1, records) {
 				return true
 			}
+			msg, thoughts := r.commandOperationFinalMessage(ctx, request, records)
+			r.finishOperationRouteSpinner(lintResult.Status)
+			r.emitOperationVisibleThoughts(thoughts)
+			r.renderBordered(msg)
+			r.recordTurn(display, request, msg, memory.KindPipeline)
+			return true
+		}
+		if commandReplanCanAutoExecute(failedPlan, revisedPlan) {
 			msg := commandOperationResultMarkdown(r.language, failedPlan, result)
 			msg += "\n\n"
 			msg += commandOperationReplanIntro(r.language, revisedPlan)
@@ -2079,6 +2093,35 @@ func commandOperationResultFromPlanLint(plan operation.CommandOperationPlan, lin
 	}
 	result.OutputPreview = lint.Summary()
 	return result
+}
+
+func commandRevisedPlanPreflightLint(revisedPlan, failedPlan operation.CommandOperationPlan, result operation.CommandOperationResult) operation.CommandPlanLintResult {
+	lint := operation.LintCommandOperationPlan(revisedPlan)
+	failedCommands := map[string]bool{}
+	for _, stepResult := range result.StepResults {
+		if stepResult.Status != operation.StatusFailed {
+			continue
+		}
+		failedStep := commandOperationStepByID(failedPlan, stepResult.StepID)
+		if key := normalizedCommandStepKey(failedStep); key != "" {
+			failedCommands[key] = true
+		}
+	}
+	if len(failedCommands) == 0 {
+		return lint
+	}
+	for _, step := range revisedPlan.Steps {
+		key := normalizedCommandStepKey(step)
+		if key == "" || !failedCommands[key] {
+			continue
+		}
+		lint.Issues = append(lint.Issues, operation.CommandPlanLintIssue{
+			Code:    operation.PlanLintRepeatedFailedStep,
+			StepID:  step.ID,
+			Message: fmt.Sprintf("revised plan repeats an already failed command instead of using the failure output to choose a new action: %s", commandOperationStepCommand(step)),
+		})
+	}
+	return lint
 }
 
 func dropRepeatedFailedCommandSteps(req operation.CommandOperationRequest, failedPlan operation.CommandOperationPlan, result operation.CommandOperationResult) operation.CommandOperationRequest {
