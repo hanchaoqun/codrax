@@ -239,8 +239,9 @@
         <a href="#35-一台机器多仓库">3.5 一台机器多仓库</a>
         <a href="#36-跨仓-workspacemulti-repo-discovery">3.6 跨仓 workspace(multi-repo discovery)</a>
         <a href="#37-外部工具与外部-skills">3.7 外部工具与外部 Skills</a>
-        <a href="#mcp-外部工具">MCP 外部工具</a>
+        <a href="#先选入口">先选入口</a>
         <a href="#外部-skills-operation-skills">外部 Skills / Operation Skills</a>
+        <a href="#mcp-外部工具">MCP 外部工具</a>
         <div class="toc-group">4. 写模式 — plan → apply → verify</div>
         <a href="#工作区单一不变量写模式的核心规则">工作区单一不变量(写模式的核心规则)</a>
         <a href="#41-启用">4.1 启用</a>
@@ -1067,6 +1068,96 @@ multi_repo_enabled: false
 </tbody>
 </table></div>
 <p>两类能力都不会伪装成当前源码的 <code>file:line</code> citation。MCP 更像“给探索阶段增加外部证据来源”;外部 Skills 更像“经审批执行一个外部工作流或生成制品”。</p>
+<h3 id="先选入口">先选入口</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>你要做什么</th>
+<th>推荐入口</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>查公司内知识库、工单、告警、监控、trace 预分析结果</td>
+<td>MCP 外部工具</td>
+<td>结果是只读外部事实,适合进入外部观测通道并和源码/trace 证据一起分析</td>
+</tr>
+<tr>
+<td>调本地脚本、公司内二进制、PPT/文档/表格生成器、浏览器或桌面自动化</td>
+<td>外部 Skills / Operation Skills</td>
+<td>这类能力可能有副作用或产物,需要计划、审批、执行、验证和 handoff</td>
+</tr>
+<tr>
+<td>已有 MCP server,同时它也能执行制品生成或电脑操作</td>
+<td>MCP operation provider</td>
+<td>复用 MCP 协议,但按 operation provider 的审批和 handoff 规则执行</td>
+</tr>
+<tr>
+<td>只是问当前仓库代码、配置、测试、架构</td>
+<td>不需要外部入口</td>
+<td>默认源码分析链路已经足够,外部能力不会抢路由</td>
+</tr>
+</tbody>
+</table></div>
+<p>记住一个边界:外部能力可以补充证据或完成操作,但不会自动替代源码/trace/log 管线。用户没有明确禁止源码分析时,外部观察默认可以和当前源码一起分析;只有 typed intent 明确排除源码时,系统才关闭源码探索。</p>
+<h3 id="外部-skills-operation-skills">外部 Skills / Operation Skills</h3>
+<p>外部 Skill 是 Codrax 的通用电脑操作/制品生成扩展入口。它适合把本地脚本、二进制、公司内工具、PPT/文档/表格生成器、浏览器/桌面自动化包装成一个可审批、可懒加载、可 handoff 的 operation provider。</p>
+<p>它和 MCP 的区别:</p>
+<ul>
+<li>MCP 外部工具偏“查事实”:返回工单、监控、知识库、外部行号等只读观察。</li>
+<li>外部 Skill 偏“做事情”:生成文件、调用本地工具、学习说明书后驱动工具、跨多个 skill 编排 workflow。</li>
+<li>外部 Skill 的 <code>description</code> / <code>when_to_use</code> / <code>workflows[]</code> 会进入 operation planner 的能力摘要,帮助模型根据 typed operation intent 选择 provider;它们不是系统指令,也不会作为 Go 关键字硬路由。</li>
+<li><code>command</code> / <code>env</code> / <code>work_dir</code> 不进入 prompt。用户批准后,codrax 才按配置启动本地命令。</li>
+</ul>
+<p>典型 workflow:</p>
+<pre><code class="language-text">用户请求:根据某工具说明生成一份 PPT
+  ↓
+turn-policy / analyzer:识别为 artifact_generation / presentation_generation
+  ↓
+operation planner:看到可用外部 Skills 的 selection card 和 workflows[]
+  ↓
+生成计划:先调用 manual_reader 读取说明,再把摘要交给 ppt_builder
+  ↓
+用户 /approve
+  ↓
+执行 skill,返回 artifact_refs / payload_ref / next_actions / workflow_state
+  ↓
+后续 planner 继续消费 handoff,必要时再请求下一次 /approve
+</code></pre>
+<p>一个最小 manifest 长这样:</p>
+<pre><code class="language-yaml">operation_skills:
+  - name: manual_reader
+    description: &quot;Read a manual, extract command templates, and hand off.&quot;
+    when_to_use:
+      - &quot;Use when the task requires learning an unfamiliar CLI/tool manual before generating an artifact.&quot;
+    when_not_to_use:
+      - &quot;Do not use for pure source-code explanation without an operation goal.&quot;
+    operation_kinds: [&quot;presentation_generation&quot;, &quot;artifact_generation&quot;]
+    operation_surfaces: [&quot;local_file&quot;, &quot;slides&quot;]
+    operation_side_effects: [&quot;local_file_write&quot;]
+    operation_requires_confirmation: true
+    workflows:
+      - name: manual_to_deck
+        summary: &quot;Read a manual, extract key commands, then call a deck builder.&quot;
+        entry: true
+        operation_kind: external_skill_workflow
+        target_surface: slides
+        next_providers: [&quot;skill:ppt_builder&quot;]
+        return_provider: &quot;skill:manual_reader&quot;
+    input_schema: |
+      {&quot;manual_path&quot;:&quot;string&quot;,&quot;output_path&quot;:&quot;string&quot;}
+    output_contract:
+      artifact_refs: true
+      payload_ref: true
+      next_actions: true
+      return_action: true
+      workflow_state: true
+    command: &quot;./tools/manual_reader_skill&quot;
+    args: [&quot;--json&quot;]
+    input_mode: stdin_json
+</code></pre>
+<p>详细字段、skill-to-skill <code>next_actions</code> / <code>return_action</code> 输出契约、DAG workflow 预算和 JSON 兼容别名见第 5 章的 <a href="#operation_skills-配置参考"><code>operation_skills</code> 配置参考</a>。</p>
 <h3 id="mcp-外部工具">MCP 外部工具</h3>
 <p>MCP(Model Context Protocol)让 codrax 可以接入你自己提供的<strong>只读外部工具</strong>或<strong>只读资源</strong>:例如内部知识库、告警系统、缺陷平台、监控快照、trace 预分析服务、规范文档检索器等。MCP 结果会进入 <code>mcp_resource</code> 外部观测通道,不会伪装成当前源码的 <code>file:line</code> citation。</p>
 <h3 id="一句话理解-mcp-在-codrax-里的位置">一句话理解 MCP 在 codrax 里的位置</h3>
@@ -1295,6 +1386,7 @@ mcp_servers:
     max_response_bytes: 4194304
 </code></pre>
 <p>启动后,如果 server 暴露了 <code>search</code> 工具,模型看到的工具名会是 <code>docs__search</code>。如果 server 暴露了资源,探索阶段还会看到 <code>mcp_read_resource(uri=...)</code>。</p>
+<p>完整字段说明见第 5 章的 <a href="#mcp-外部工具配置参考">MCP 外部工具配置参考</a>。</p>
 <h3 id="快速上手一个带动态参数和自定义工作流的-demo-mcp">快速上手:一个带动态参数和自定义工作流的 demo MCP</h3>
 <p>下面这个 demo MCP 模拟“告警/工单检索”,同时暴露一个“告警 + 源码联动分析”的工作流资源。用户只用自然语言提问,模型会根据工具描述和 <code>inputSchema</code> 自动提取 <code>query</code>、<code>service</code>、<code>since</code>、<code>limit</code> 等动态参数;如果需要更明确的探索步骤,模型还能读取你提供的 workflow 资源,再和当前 explorer 的 <code>repo_map</code> / <code>grep</code> / <code>read_file</code> 配合。</p>
 <h4 id="第-1-步准备-demo-server">第 1 步:准备 demo server</h4>
@@ -2691,7 +2783,7 @@ mcp_servers:
 </tr>
 </tbody>
 </table></div>
-<h3 id="mcp-外部工具配置">MCP 外部工具</h3>
+<h3 id="mcp-外部工具配置参考">MCP 外部工具配置参考</h3>
 <div class="table-wrap"><table>
 <thead>
 <tr>
@@ -2800,7 +2892,7 @@ mcp_servers:
 </table></div>
 <p>operation provider 执行完成后,结果会进入独立的 operation handoff 和 operation memory:包括 provider 名、工具名、操作类型、摘要、外部观测数量、payload ref、artifact ref 等。下一次 operation 规划可以参考这些信息继续工作,例如“刚才 PPT provider 生成了哪个文件,下一步如何验证或修改”。这些信息仍是外部操作结果,不会被当成当前源码 citation;代码/trace/log 混合任务仍由 typed 路由决定是否进入源码或 runtime trace 管线。</p>
 <p>如果 provider 返回很大的输出,codrax 只在 REPL 面板显示短摘要和少量 ref,完整内容通过 payload/artifact ref 保留。provider 不应该把大文件全文塞进 MCP text;更好的做法是返回摘要 + 明确的文件路径、资源 URI 或 rowset/payload ref。</p>
-<h3 id="外部-skills-operation-skills">外部 Skills / Operation Skills</h3>
+<h3 id="operation_skills-配置参考">operation_skills 配置参考</h3>
 <p>外部 Skill 是 Codrax 的通用电脑操作/制品生成扩展入口。它适合把本地脚本、二进制、公司内工具、PPT/文档/表格生成器、浏览器/桌面自动化包装成一个可审批、可懒加载、可 handoff 的 operation provider。</p>
 <p>外部 Skill 和其它扩展方式的边界:</p>
 <ul>

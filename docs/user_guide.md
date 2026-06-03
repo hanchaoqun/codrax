@@ -36,8 +36,9 @@
   - [3.5 一台机器多仓库](#35-一台机器多仓库)
   - [3.6 跨仓 workspace(multi-repo discovery)](#36-跨仓-workspacemulti-repo-discovery)
   - [3.7 外部工具与外部 Skills](#37-外部工具与外部-skills)
-    - [MCP 外部工具](#mcp-外部工具)
+    - [先选入口](#先选入口)
     - [外部 Skills / Operation Skills](#外部-skills--operation-skills)
+    - [MCP 外部工具](#mcp-外部工具)
 - [4. 写模式 — plan → apply → verify](#4-写模式--plan--apply--verify)
   - [4.1 启用](#41-启用)
   - [4.2 完整流程](#42-完整流程)
@@ -685,6 +686,83 @@ Codrax 有两类外部能力入口:
 
 两类能力都不会伪装成当前源码的 `file:line` citation。MCP 更像“给探索阶段增加外部证据来源”;外部 Skills 更像“经审批执行一个外部工作流或生成制品”。
 
+### 先选入口
+
+| 你要做什么 | 推荐入口 | 原因 |
+|---|---|---|
+| 查公司内知识库、工单、告警、监控、trace 预分析结果 | MCP 外部工具 | 结果是只读外部事实,适合进入外部观测通道并和源码/trace 证据一起分析 |
+| 调本地脚本、公司内二进制、PPT/文档/表格生成器、浏览器或桌面自动化 | 外部 Skills / Operation Skills | 这类能力可能有副作用或产物,需要计划、审批、执行、验证和 handoff |
+| 已有 MCP server,同时它也能执行制品生成或电脑操作 | MCP operation provider | 复用 MCP 协议,但按 operation provider 的审批和 handoff 规则执行 |
+| 只是问当前仓库代码、配置、测试、架构 | 不需要外部入口 | 默认源码分析链路已经足够,外部能力不会抢路由 |
+
+记住一个边界:外部能力可以补充证据或完成操作,但不会自动替代源码/trace/log 管线。用户没有明确禁止源码分析时,外部观察默认可以和当前源码一起分析;只有 typed intent 明确排除源码时,系统才关闭源码探索。
+
+### 外部 Skills / Operation Skills
+
+外部 Skill 是 Codrax 的通用电脑操作/制品生成扩展入口。它适合把本地脚本、二进制、公司内工具、PPT/文档/表格生成器、浏览器/桌面自动化包装成一个可审批、可懒加载、可 handoff 的 operation provider。
+
+它和 MCP 的区别:
+
+- MCP 外部工具偏“查事实”:返回工单、监控、知识库、外部行号等只读观察。
+- 外部 Skill 偏“做事情”:生成文件、调用本地工具、学习说明书后驱动工具、跨多个 skill 编排 workflow。
+- 外部 Skill 的 `description` / `when_to_use` / `workflows[]` 会进入 operation planner 的能力摘要,帮助模型根据 typed operation intent 选择 provider;它们不是系统指令,也不会作为 Go 关键字硬路由。
+- `command` / `env` / `work_dir` 不进入 prompt。用户批准后,codrax 才按配置启动本地命令。
+
+典型 workflow:
+
+```text
+用户请求:根据某工具说明生成一份 PPT
+  ↓
+turn-policy / analyzer:识别为 artifact_generation / presentation_generation
+  ↓
+operation planner:看到可用外部 Skills 的 selection card 和 workflows[]
+  ↓
+生成计划:先调用 manual_reader 读取说明,再把摘要交给 ppt_builder
+  ↓
+用户 /approve
+  ↓
+执行 skill,返回 artifact_refs / payload_ref / next_actions / workflow_state
+  ↓
+后续 planner 继续消费 handoff,必要时再请求下一次 /approve
+```
+
+一个最小 manifest 长这样:
+
+```yaml
+operation_skills:
+  - name: manual_reader
+    description: "Read a manual, extract command templates, and hand off."
+    when_to_use:
+      - "Use when the task requires learning an unfamiliar CLI/tool manual before generating an artifact."
+    when_not_to_use:
+      - "Do not use for pure source-code explanation without an operation goal."
+    operation_kinds: ["presentation_generation", "artifact_generation"]
+    operation_surfaces: ["local_file", "slides"]
+    operation_side_effects: ["local_file_write"]
+    operation_requires_confirmation: true
+    workflows:
+      - name: manual_to_deck
+        summary: "Read a manual, extract key commands, then call a deck builder."
+        entry: true
+        operation_kind: external_skill_workflow
+        target_surface: slides
+        next_providers: ["skill:ppt_builder"]
+        return_provider: "skill:manual_reader"
+    input_schema: |
+      {"manual_path":"string","output_path":"string"}
+    output_contract:
+      artifact_refs: true
+      payload_ref: true
+      next_actions: true
+      return_action: true
+      workflow_state: true
+    command: "./tools/manual_reader_skill"
+    args: ["--json"]
+    input_mode: stdin_json
+```
+
+详细字段、skill-to-skill `next_actions` / `return_action` 输出契约、DAG workflow 预算和 JSON 兼容别名见第 5 章的 [`operation_skills` 配置参考](#operation_skills-配置参考)。
+
 ### MCP 外部工具
 
 MCP(Model Context Protocol)让 codrax 可以接入你自己提供的**只读外部工具**或**只读资源**:例如内部知识库、告警系统、缺陷平台、监控快照、trace 预分析服务、规范文档检索器等。MCP 结果会进入 `mcp_resource` 外部观测通道,不会伪装成当前源码的 `file:line` citation。
@@ -885,6 +963,8 @@ mcp_servers:
 ```
 
 启动后,如果 server 暴露了 `search` 工具,模型看到的工具名会是 `docs__search`。如果 server 暴露了资源,探索阶段还会看到 `mcp_read_resource(uri=...)`。
+
+完整字段说明见第 5 章的 [MCP 外部工具配置参考](#mcp-外部工具配置参考)。
 
 ### 快速上手:一个带动态参数和自定义工作流的 demo MCP
 
@@ -2036,7 +2116,7 @@ agents:
 | `log_triage_source_prefix` | `""` | 等价 `--log-source-prefix`(yaml 持久版) |
 | `perf_triage_enabled` | `true` | perf_triage 预阶段(同上结构) |
 
-### MCP 外部工具
+### MCP 外部工具配置参考
 
 | 键 | 默认 | 作用 |
 |---|---|---|
@@ -2064,7 +2144,7 @@ operation provider 执行完成后,结果会进入独立的 operation handoff �
 
 如果 provider 返回很大的输出,codrax 只在 REPL 面板显示短摘要和少量 ref,完整内容通过 payload/artifact ref 保留。provider 不应该把大文件全文塞进 MCP text;更好的做法是返回摘要 + 明确的文件路径、资源 URI 或 rowset/payload ref。
 
-### 外部 Skills / Operation Skills
+### operation_skills 配置参考
 
 外部 Skill 是 Codrax 的通用电脑操作/制品生成扩展入口。它适合把本地脚本、二进制、公司内工具、PPT/文档/表格生成器、浏览器/桌面自动化包装成一个可审批、可懒加载、可 handoff 的 operation provider。
 
