@@ -2027,6 +2027,10 @@ agents:
 | `mcp_servers[].operation_kinds` / `operation_surfaces` | `[]` / `[]` | provider 支持的操作类型和目标界面,如 `presentation_generation` + `slides` |
 | `mcp_servers[].operation_side_effects` | `[]` | provider 可能产生的副作用,如 `local_file_write` / `browser_ui` |
 | `mcp_servers[].operation_tool` | 空 | 可选:该 server 中真正执行 operation 的 MCP tool 名。未配置时只显示计划和 provider 能力,不会 `/approve` 执行 |
+| `mcp_servers[].operation_description` | 空 | 可选:给 operation planner 的紧凑能力说明。用于说明 provider 擅长做什么,不是系统指令 |
+| `mcp_servers[].operation_input_schema` | 空 | 可选:给 operation planner 的参数契约摘要。用于帮助模型构造动态参数,实际执行仍由 `operation_tool` 的 schema 和 provider 校验 |
+| `mcp_servers[].operation_examples` | `[]` | 可选:1-3 条典型用法示例,帮助模型选择最合适的 provider |
+| `mcp_servers[].operation_lazy_start` | `false` | 可选:仅当 `operation_provider=true` 时生效。设为 true 后启动 REPL 时不拉起该 MCP server,只有用户批准对应 operation 后才启动并调用 |
 | `mcp_servers[].operation_requires_confirmation` | `true` | provider 是否要求显式确认后才能执行。当前计划器会据此停在确认前 |
 
 ### 电脑操作 / 制品生成路由

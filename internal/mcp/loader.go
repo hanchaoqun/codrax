@@ -33,29 +33,36 @@ func LoadServers(reg *Registry, cfgs []types.MCPServerConfig, maxServers int) er
 
 	started := make([]Server, 0, len(cfgs))
 	for _, cfg := range cfgs {
-		server, err := NewStdioServerFromConfig(cfg)
+		server, err := StartServerFromConfig(cfg)
 		if err != nil {
-			closeServers(started)
-			return err
-		}
-		if err := server.Start(); err != nil {
 			closeServers(started)
 			return err
 		}
 		started = append(started, server)
-		ctx, cancel := context.WithTimeout(context.Background(), server.startupTimeout)
-		err = server.Initialize(ctx)
-		cancel()
-		if err != nil {
-			closeServers(started)
-			return err
-		}
 		if err := reg.Register(server); err != nil {
 			closeServers(started)
 			return err
 		}
 	}
 	return nil
+}
+
+func StartServerFromConfig(cfg types.MCPServerConfig) (*StdioServer, error) {
+	server, err := NewStdioServerFromConfig(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if err := server.Start(); err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), server.startupTimeout)
+	err = server.Initialize(ctx)
+	cancel()
+	if err != nil {
+		_ = server.Close()
+		return nil, err
+	}
+	return server, nil
 }
 
 func closeServers(servers []Server) {

@@ -189,13 +189,13 @@ full raw provider output.
 
 ### Batch C: Config and Lazy MCP Startup
 
-- [ ] Add optional MCP config fields:
+- [x] Add optional MCP config fields:
       `operation_lazy_start`, `operation_description`,
       `operation_input_schema`, `operation_examples`.
-- [ ] Split MCP startup into eager configs and lazy operation-only descriptors.
-- [ ] Add a lazy loader path used by REPL provider execution before
+- [x] Split MCP startup into eager configs and lazy operation-only descriptors.
+- [x] Add a lazy loader path used by REPL provider execution before
       `CallTool`.
-- [ ] Preserve eager behavior by default and add tests for all-or-nothing eager
+- [x] Preserve eager behavior by default and add tests for all-or-nothing eager
       loading unchanged.
 
 ### Batch D: Result Contract and Handoff

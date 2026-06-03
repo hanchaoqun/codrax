@@ -393,6 +393,7 @@ type appContext struct {
 	replModelSummaryLine   string
 	operationRouteEnabled  bool
 	operationProviders     []operation.ProviderInfo
+	mcpServerConfigs       []types.MCPServerConfig
 	operationCommandPolicy operation.CommandPolicy
 	// writeEnabled mirrors codrax.yaml :: write_enabled. Forwarded to
 	// the REPL Config so /mode plan|apply|verify and /approve can be
@@ -1247,6 +1248,7 @@ func runREPL(_ *cobra.Command) error {
 		OperationPlanner:       app.operationPlanner,
 		OperationCommandPolicy: app.operationCommandPolicy,
 		MCPServers:             app.mcpRegistry,
+		MCPServerConfigs:       append([]types.MCPServerConfig(nil), app.mcpServerConfigs...),
 		// Hand the memory adapter to REPL so the chitchat tool-use
 		// loop can call recall_memory without a separate wiring step.
 		// The same adapter is also wired into the orchestrator above,
@@ -2967,13 +2969,14 @@ func initApp(cmd *cobra.Command, args []string) error {
 		if rs.MCPMaxServers != nil && *rs.MCPMaxServers > 0 {
 			maxServers = *rs.MCPMaxServers
 		}
-		if err := mcp.LoadServers(mcpRegistry, rs.MCPServers, maxServers); err != nil {
+		if err := mcp.LoadServers(mcpRegistry, eagerMCPServerConfigs(rs.MCPServers), maxServers); err != nil {
 			_ = mcpRegistry.Close()
 			return fmt.Errorf("load mcp servers: %w", err)
 		}
 		worktree.RegisterSignalCleanupHook(func() { _ = mcpRegistry.Close() })
 	}
 	app.mcpRegistry = mcpRegistry
+	app.mcpServerConfigs = append([]types.MCPServerConfig(nil), rsMCPServers(rs)...)
 	app.operationProviders = operationProvidersFromMCPConfigs(mcpRegistry, rsMCPServers(rs))
 	logging.Info("registered %d MCP servers", len(mcpRegistry.List()))
 
@@ -4309,12 +4312,14 @@ func rsMCPServers(rs *config.RuntimeSettings) []types.MCPServerConfig {
 }
 
 func operationProvidersFromMCPConfigs(reg *mcp.Registry, cfgs []types.MCPServerConfig) []operation.ProviderInfo {
-	if reg == nil || len(cfgs) == 0 {
+	if len(cfgs) == 0 {
 		return nil
 	}
 	registered := map[string]bool{}
-	for _, name := range reg.List() {
-		registered[name] = true
+	if reg != nil {
+		for _, name := range reg.List() {
+			registered[name] = true
+		}
 	}
 	var out []operation.ProviderInfo
 	for _, cfg := range cfgs {
@@ -4322,7 +4327,9 @@ func operationProvidersFromMCPConfigs(reg *mcp.Registry, cfgs []types.MCPServerC
 			continue
 		}
 		name := strings.TrimSpace(cfg.Name)
-		if name == "" || !registered[name] {
+		lazyStart := isLazyOperationMCPConfig(cfg)
+		loaded := registered[name]
+		if name == "" || (!loaded && !lazyStart) {
 			continue
 		}
 		kinds := cleanOperationConfigList(cfg.OperationKinds)
@@ -4341,12 +4348,30 @@ func operationProvidersFromMCPConfigs(reg *mcp.Registry, cfgs []types.MCPServerC
 				InputSchema:  strings.TrimSpace(cfg.OperationInputSchema),
 				Examples:     cleanOperationConfigList(cfg.OperationExamples),
 				Source:       "mcp",
-				LazyStart:    cfg.OperationLazyStart != nil && *cfg.OperationLazyStart,
-				Loaded:       true,
+				LazyStart:    lazyStart,
+				Loaded:       loaded,
 			})
 		}
 	}
 	return out
+}
+
+func eagerMCPServerConfigs(cfgs []types.MCPServerConfig) []types.MCPServerConfig {
+	if len(cfgs) == 0 {
+		return nil
+	}
+	out := make([]types.MCPServerConfig, 0, len(cfgs))
+	for _, cfg := range cfgs {
+		if isLazyOperationMCPConfig(cfg) {
+			continue
+		}
+		out = append(out, cfg)
+	}
+	return out
+}
+
+func isLazyOperationMCPConfig(cfg types.MCPServerConfig) bool {
+	return cfg.OperationProvider != nil && *cfg.OperationProvider && cfg.OperationLazyStart != nil && *cfg.OperationLazyStart
 }
 
 func cleanOperationConfigList(values []string) []string {

@@ -1,9 +1,11 @@
 package repl
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -18,6 +20,65 @@ import (
 
 type operationProviderMCPServer struct {
 	got json.RawMessage
+}
+
+func TestOperationProviderLazyMCPFakeServerHelper(t *testing.T) {
+	if os.Getenv("CODRAX_REPL_FAKE_MCP_SERVER") != "1" {
+		return
+	}
+	defer os.Exit(0)
+	type rpcRequest struct {
+		ID     any             `json:"id"`
+		Method string          `json:"method"`
+		Params json.RawMessage `json:"params,omitempty"`
+	}
+	scanner := bufio.NewScanner(os.Stdin)
+	encoder := json.NewEncoder(os.Stdout)
+	for scanner.Scan() {
+		var req rpcRequest
+		if err := json.Unmarshal(scanner.Bytes(), &req); err != nil {
+			continue
+		}
+		switch req.Method {
+		case "initialize":
+			_ = encoder.Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      req.ID,
+				"result": map[string]any{
+					"protocolVersion": "2025-03-26",
+					"capabilities":    map[string]any{},
+					"serverInfo":      map[string]string{"name": "lazy-slides", "version": "test"},
+				},
+			})
+		case "notifications/initialized":
+			continue
+		case "tools/list":
+			_ = encoder.Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      req.ID,
+				"result": map[string]any{
+					"tools": []map[string]any{{
+						"name":        "run_operation",
+						"description": "runs a lazy operation",
+						"inputSchema": map[string]any{"type": "object"},
+					}},
+				},
+			})
+		case "resources/list":
+			_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{"resources": []any{}}})
+		case "prompts/list":
+			_ = encoder.Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": map[string]any{"prompts": []any{}}})
+		case "tools/call":
+			_ = encoder.Encode(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      req.ID,
+				"result": map[string]any{
+					"content": []map[string]string{{"type": "text", "text": "lazy provider created deck artifact"}},
+					"isError": false,
+				},
+			})
+		}
+	}
 }
 
 func (s *operationProviderMCPServer) Name() string                   { return "slides" }
@@ -212,6 +273,66 @@ func TestOperationProviderMCPApproveExecutesConfiguredTool(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "created deck artifact") {
 		t.Fatalf("provider result not rendered:\n%s", out.String())
+	}
+}
+
+func TestOperationProviderMCPLazyApproveStartsConfiguredServer(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: true,
+		Operation:            "presentation_generation",
+		OperationKind:        "presentation_generation",
+		Source:               "current_message",
+		RiskLevel:            "low",
+		TargetSurface:        "slides",
+		SideEffects:          []string{"local_file_write"},
+		Confidence:           0.9,
+		Reason:               "user asked for a presentation artifact",
+	}}
+	yes := true
+	timeoutMS := 3000
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "生成一份 PPT\n/approve\n/exit\n")
+	r.operationEnabled = true
+	r.mcpServers = mcp.NewRegistry()
+	r.mcpServerConfigs = []types.MCPServerConfig{{
+		Name:               "lazy_slides",
+		Transport:          types.TransportStdio,
+		Command:            os.Args[0],
+		Args:               []string{"-test.run=TestOperationProviderLazyMCPFakeServerHelper"},
+		Env:                map[string]string{"CODRAX_REPL_FAKE_MCP_SERVER": "1"},
+		StartupTimeoutMS:   &timeoutMS,
+		OperationProvider:  &yes,
+		OperationLazyStart: &yes,
+		OperationKinds:     []string{"presentation_generation"},
+		OperationSurfaces:  []string{"slides"},
+		OperationTool:      "run_operation",
+	}}
+	r.operationProviders = []operation.ProviderInfo{{
+		Name:         "mcp:lazy_slides",
+		Kind:         "presentation_generation",
+		Surfaces:     []string{"slides"},
+		SideEffects:  []string{"local_file_write"},
+		RequiresGate: true,
+		ToolName:     "run_operation",
+		Source:       "mcp",
+		LazyStart:    true,
+		Loaded:       false,
+	}}
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("lazy provider operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if _, err := r.mcpServers.Get("lazy_slides"); err != nil {
+		t.Fatalf("lazy MCP server was not registered: %v", err)
+	}
+	if !r.operationProviders[0].Loaded {
+		t.Fatalf("provider descriptor should be marked loaded: %+v", r.operationProviders[0])
+	}
+	if !strings.Contains(out.String(), "lazy provider created deck artifact") {
+		t.Fatalf("lazy provider result not rendered:\n%s", out.String())
 	}
 }
 

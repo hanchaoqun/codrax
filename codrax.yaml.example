@@ -204,6 +204,11 @@
 #     # operation_surfaces: ["slides"]
 #     # operation_side_effects: ["local_file_write"]
 #     # operation_tool: "run_operation"
+#     # operation_description: "Create and verify local PPTX decks."
+#     # operation_input_schema: '{"type":"object","properties":{"request":{"type":"string"}}}'
+#     # operation_examples:
+#     #   - "Generate a 6-slide technical summary deck from the current answer."
+#     # operation_lazy_start: false
 #     # operation_requires_confirmation: true
 
 # operation_route_enabled — enable the independent operation/artifact route in

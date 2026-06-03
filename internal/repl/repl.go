@@ -289,6 +289,10 @@ type Config struct {
 	// MCPServers is used only for explicitly configured operation providers.
 	// Explorer/read-mode MCP exposure continues to live in the agent layer.
 	MCPServers *mcp.Registry
+	// MCPServerConfigs lets explicitly lazy operation providers start only
+	// after a user approves the operation plan. Eager MCP exposure remains
+	// owned by cmd/root.go and the agent layer.
+	MCPServerConfigs []types.MCPServerConfig
 
 	// PlanStore persists B0 write-mode ChangePlans for the REPL
 	// session. Nil disables the /plan slash command family —
@@ -572,6 +576,7 @@ type REPL struct {
 	operationResults            []commandOperationResultRecord
 	operationMemory             *operation.MemoryStore
 	mcpServers                  *mcp.Registry
+	mcpServerConfigs            []types.MCPServerConfig
 
 	// sessionID identifies this REPL session. Stamped onto every
 	// recorded Turn so memory.BuildContext can session-pin recent
@@ -743,6 +748,7 @@ func New(cfg Config) *REPL {
 		operationPlanner:       cfg.OperationPlanner,
 		operationPolicy:        cfg.OperationCommandPolicy,
 		mcpServers:             cfg.MCPServers,
+		mcpServerConfigs:       append([]types.MCPServerConfig(nil), cfg.MCPServerConfigs...),
 		// Session ID embeds nano + pid so two codrax REPLs launched
 		// in the same clock tick (test harness, race) still get
 		// disjoint IDs. Consumed by memory.BuildContext via BuildOpts.
@@ -4956,6 +4962,10 @@ func (r *REPL) executeProviderOperation(ctx context.Context, pending pendingProv
 		result.Error = "MCP registry is not available for operation provider execution"
 		return result
 	}
+	if err := r.ensureLazyOperationMCPServer(serverName); err != nil {
+		result.Error = err.Error()
+		return result
+	}
 	args := map[string]any{
 		"request":               pending.Request.Text,
 		"operation":             firstNonEmptyString(pending.Request.Operation, pending.Request.OperationKind, plan.Kind),
@@ -4995,6 +5005,60 @@ func (r *REPL) executeProviderOperation(ctx context.Context, pending pendingProv
 		}
 	}
 	return result
+}
+
+func (r *REPL) ensureLazyOperationMCPServer(serverName string) error {
+	serverName = strings.TrimSpace(serverName)
+	if serverName == "" {
+		return fmt.Errorf("operation provider server name is empty")
+	}
+	if r.mcpServers == nil {
+		return fmt.Errorf("MCP registry is not available for operation provider execution")
+	}
+	if _, err := r.mcpServers.Get(serverName); err == nil {
+		r.markOperationProviderLoaded("mcp:" + serverName)
+		return nil
+	}
+	cfg, ok := r.lazyOperationMCPConfig(serverName)
+	if !ok {
+		return fmt.Errorf("MCP operation provider %q is not loaded and has no operation_lazy_start config", serverName)
+	}
+	server, err := mcp.StartServerFromConfig(cfg)
+	if err != nil {
+		return fmt.Errorf("start lazy MCP operation provider %q: %w", serverName, err)
+	}
+	if err := r.mcpServers.Register(server); err != nil {
+		_ = server.Close()
+		return fmt.Errorf("register lazy MCP operation provider %q: %w", serverName, err)
+	}
+	r.markOperationProviderLoaded("mcp:" + serverName)
+	logging.Info("[repl/operation] lazy MCP operation provider loaded server=%s", serverName)
+	return nil
+}
+
+func (r *REPL) lazyOperationMCPConfig(serverName string) (types.MCPServerConfig, bool) {
+	for _, cfg := range r.mcpServerConfigs {
+		if strings.TrimSpace(cfg.Name) != serverName {
+			continue
+		}
+		if cfg.OperationProvider == nil || !*cfg.OperationProvider {
+			continue
+		}
+		if cfg.OperationLazyStart == nil || !*cfg.OperationLazyStart {
+			continue
+		}
+		return cfg, true
+	}
+	return types.MCPServerConfig{}, false
+}
+
+func (r *REPL) markOperationProviderLoaded(providerName string) {
+	providerName = strings.TrimSpace(providerName)
+	for i := range r.operationProviders {
+		if r.operationProviders[i].Name == providerName {
+			r.operationProviders[i].Loaded = true
+		}
+	}
 }
 
 func (r *REPL) storeProviderOperationPayload(provider, toolName, summary string) (string, string) {

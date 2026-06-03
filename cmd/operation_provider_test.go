@@ -49,3 +49,35 @@ func TestOperationProvidersFromMCPConfigsRequiresOptInAndRegisteredServer(t *tes
 		t.Fatalf("second provider kind=%q", providers[1].Kind)
 	}
 }
+
+func TestOperationProvidersFromMCPConfigsIncludesLazyUnregisteredProvider(t *testing.T) {
+	reg := mcp.NewRegistry()
+	yes := true
+	providers := operationProvidersFromMCPConfigs(reg, []types.MCPServerConfig{
+		{Name: "lazy_slides", OperationProvider: &yes, OperationLazyStart: &yes, OperationKinds: []string{"presentation_generation"}, OperationTool: "run_operation"},
+		{Name: "eager_missing", OperationProvider: &yes, OperationKinds: []string{"document_generation"}, OperationTool: "run_operation"},
+	})
+	if len(providers) != 1 {
+		t.Fatalf("providers len=%d, want 1: %+v", len(providers), providers)
+	}
+	if providers[0].Name != "mcp:lazy_slides" || !providers[0].LazyStart || providers[0].Loaded {
+		t.Fatalf("lazy provider mismatch: %+v", providers[0])
+	}
+}
+
+func TestEagerMCPServerConfigsSkipsOnlyLazyOperationProviders(t *testing.T) {
+	yes := true
+	no := false
+	cfgs := []types.MCPServerConfig{
+		{Name: "lazy_op", OperationProvider: &yes, OperationLazyStart: &yes},
+		{Name: "not_op_lazy_flag", OperationProvider: &no, OperationLazyStart: &yes},
+		{Name: "eager_op", OperationProvider: &yes},
+	}
+	got := eagerMCPServerConfigs(cfgs)
+	if len(got) != 2 {
+		t.Fatalf("eager configs len=%d, want 2: %+v", len(got), got)
+	}
+	if got[0].Name != "not_op_lazy_flag" || got[1].Name != "eager_op" {
+		t.Fatalf("unexpected eager configs: %+v", got)
+	}
+}
