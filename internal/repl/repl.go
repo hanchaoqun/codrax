@@ -5827,6 +5827,9 @@ func (r *REPL) executeProviderOperationFlow(ctx context.Context, first pendingPr
 	if len(records) == 0 {
 		return
 	}
+	if r.maybeContinueProviderOperationWithCommand(ctx, first, records) {
+		return
+	}
 	r.startOperationSynthesisSpinner()
 	msg, thoughts := r.providerOperationFinalMessage(ctx, first.Request.Text, records)
 	if pending := r.pendingProviderOperation; pending != nil {
@@ -5849,6 +5852,90 @@ func (r *REPL) executeProviderOperationFlow(ctx context.Context, first pendingPr
 	r.emitOperationVisibleThoughts(thoughts)
 	r.renderBordered(msg)
 	r.recordTurn(first.Display, first.Request.Text, msg, memory.KindPipeline)
+}
+
+func (r *REPL) maybeContinueProviderOperationWithCommand(ctx context.Context, first pendingProviderOperation, records []providerOperationResultRecord) bool {
+	if r.pendingProviderOperation != nil || len(records) == 0 || r.operationPlanner == nil {
+		return false
+	}
+	evaluator, ok := r.operationPlanner.(ProviderOperationEvaluator)
+	if !ok || evaluator == nil {
+		return false
+	}
+	last := records[len(records)-1]
+	if last.Result.Status != operation.StatusExecuted {
+		return false
+	}
+	r.startOperationSynthesisSpinner()
+	eval, err := evaluator.EvaluateProviderOperation(ctx, first.Request.Text, records, r.language)
+	if err != nil {
+		logging.Warning("[repl/operation] provider operation evaluation failed: %v", err)
+		return false
+	}
+	logging.Info("[repl/operation] provider evaluation status=%s confidence=%q reason=%q materials=%d",
+		eval.Status, oneLineClamp(eval.Confidence, 40), oneLineClamp(eval.Reason, 180), len(eval.Materials))
+	if eval.Status != operation.EvalContinueCommand {
+		return false
+	}
+	planner, ok := r.operationPlanner.(CommandOperationPlannerWithHandoff)
+	if !ok || planner == nil {
+		logging.Warning("[repl/operation] provider evaluation requested command continuation but command planner does not support handoff")
+		return false
+	}
+	policy := TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: true,
+		Operation:            "computer_operation",
+		OperationKind:        "computer_operation",
+		Source:               "operation_evaluator",
+		RiskLevel:            "low",
+		TargetSurface:        "desktop",
+		Confidence:           1.0,
+		Reason:               firstNonEmptyString(eval.Reason, "provider operation evaluator requested bounded command follow-up"),
+	}
+	handoff := r.renderCommandOperationHandoff()
+	if strings.TrimSpace(eval.Reason) != "" || len(eval.Materials) > 0 {
+		if strings.TrimSpace(handoff) != "" {
+			handoff += "\n\n"
+		}
+		handoff += "operation_evaluation status=continue_command"
+		if strings.TrimSpace(eval.Reason) != "" {
+			handoff += fmt.Sprintf(" reason=%q", oneLineClamp(eval.Reason, 240))
+		}
+		if rendered := operation.RenderMaterialsForPrompt(eval.Materials, 8); rendered != "" {
+			handoff += "\n" + rendered
+		}
+	}
+	snapshot := r.commandOperationCapabilitySnapshot()
+	planned, err := planner.PlanCommandOperationWithHandoff(ctx, first.Request.Text, r.repoRoot, policy, snapshot, handoff)
+	if err != nil {
+		logging.Warning("[repl/operation] provider-to-command continuation planning failed: %v", err)
+		return false
+	}
+	plan := operation.BuildCommandOperationPlan(planned, r.operationPolicy)
+	logging.Info("[repl/operation] provider-to-command continuation plan status=%s risk=%q approval=%q steps=%d",
+		plan.Status, plan.RiskLevel, plan.ApprovalMode, len(plan.Steps))
+	if plan.Status == operation.StatusReady && plan.ApprovalMode == operation.ApprovalAutoLowRisk {
+		msg := commandOperationContinuationIntro(r.language, plan)
+		msg += "\n\n"
+		msg += commandOperationAutoExecuteMarkdown(r.language, plan)
+		r.finishOperationRouteSpinner(plan.Status)
+		r.renderBorderedCompact(msg)
+		r.executeCommandOperationPlanAttempt(plan, first.Request.Text, first.Display, 0, nil)
+		return true
+	}
+	if plan.Status == operation.StatusReady {
+		r.pendingOperation = &plan
+		r.savePendingOperationState()
+	}
+	r.operationHistory = append(r.operationHistory, plan)
+	msg := commandOperationContinuationIntro(r.language, plan)
+	msg += "\n\n"
+	msg += commandOperationPlanMarkdown(r.language, plan)
+	r.finishOperationRouteSpinner(plan.Status)
+	r.renderBorderedCompact(msg)
+	r.recordTurn(first.Display, first.Request.Text, msg, memory.KindPipeline)
+	return true
 }
 
 func (r *REPL) renderProviderOperationRoundResult(plan operation.Plan, result providerOperationResult) {

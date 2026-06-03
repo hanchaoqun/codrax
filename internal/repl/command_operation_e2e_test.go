@@ -485,6 +485,81 @@ func TestOperationProviderMCPApproveExecutesConfiguredTool(t *testing.T) {
 	}
 }
 
+func TestOperationProviderEvaluatorContinuesWithCommandExtraction(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: true,
+		Operation:            "presentation_generation",
+		OperationKind:        "presentation_generation",
+		Source:               "current_message",
+		RiskLevel:            "low",
+		TargetSurface:        "slides",
+		SideEffects:          []string{"local_file_write"},
+		Confidence:           0.9,
+		Reason:               "user asked for a presentation artifact",
+	}}
+	server := &operationProviderMCPServer{}
+	reg := mcp.NewRegistry()
+	if err := reg.Register(server); err != nil {
+		t.Fatalf("register MCP server: %v", err)
+	}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			operationEvaluationResp(`{"status":"continue_command","reason":"provider returned a payload ref that needs bounded extraction","confidence":"high","material_refs":["/tmp/codrax/deck.pptx"]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"extract","title":"extract provider payload","program":"printf","args":["provider payload says deck has 5 slides\n"],"risk_level":"low","side_effects":[]}]}`),
+			{Content: "已读取 provider 返回的材料，PPT 草稿包含 5 页。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "生成一份 PPT 并说明结果\n/approve\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	r.mcpServers = reg
+	r.operationProviders = []operation.ProviderInfo{{
+		Name:         "mcp:slides",
+		Kind:         "presentation_generation",
+		Surfaces:     []string{"slides"},
+		SideEffects:  []string{"local_file_write"},
+		RequiresGate: true,
+		ToolName:     "run_operation",
+	}}
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("provider-to-command continuation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(adapter.calls) != 3 {
+		t.Fatalf("evaluator+command plan+answer calls=%d want 3", len(adapter.calls))
+	}
+	printed := out.String()
+	for _, want := range []string{
+		"created deck artifact",
+		"provider payload says deck has 5 slides",
+		"已读取 provider 返回的材料",
+	} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("provider-to-command output missing %q:\n%s", want, printed)
+		}
+	}
+	allPrompts := ""
+	for _, call := range adapter.calls {
+		for _, msg := range call.messages {
+			allPrompts += "\n" + msg.Content
+		}
+	}
+	for _, want := range []string{
+		"operation_evaluation status=continue_command",
+		"provider returned a payload ref",
+		"payload_ref=/tmp/codrax/deck.pptx",
+	} {
+		if !strings.Contains(allPrompts, want) {
+			t.Fatalf("provider-to-command handoff prompt missing %q:\n%s", want, allPrompts)
+		}
+	}
+}
+
 func TestOperationProviderMCPLazyApproveStartsConfiguredServer(t *testing.T) {
 	store := newPolicyStore(t)
 	classifier := &stubTurnPolicyClassifier{policy: TurnPolicy{
