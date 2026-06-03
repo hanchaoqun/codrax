@@ -231,6 +231,9 @@ func validateCommandStepBeforeRun(step CommandStep) error {
 	if shell == "" {
 		return nil
 	}
+	if op := leadingShellControlOperator(shell); op != "" {
+		return fmt.Errorf("invalid shell command starts with %q; add a real producer command before the operator, or rewrite with program+args, file operands, or redirection: %s", op, shell)
+	}
 	if shellStartsWithNoInputFilter(shell) {
 		return fmt.Errorf("stdin-consuming shell command has no explicit input source: %s", shell)
 	}

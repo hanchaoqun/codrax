@@ -224,6 +224,14 @@ func LintCommandOperationPlan(plan CommandOperationPlan) CommandPlanLintResult {
 			continue
 		}
 		shell := strings.TrimSpace(step.Shell)
+		if op := leadingShellControlOperator(shell); op != "" {
+			out.Issues = append(out.Issues, CommandPlanLintIssue{
+				Code:    PlanLintInvalidShellShape,
+				StepID:  step.ID,
+				Message: fmt.Sprintf("invalid shell command starts with %q; add a real producer command before the operator, or rewrite with program+args, file operands, or redirection: %s", op, shell),
+			})
+			continue
+		}
 		if shell != "" && shellStartsWithNoInputFilter(shell) {
 			out.Issues = append(out.Issues, CommandPlanLintIssue{
 				Code:    PlanLintStdinWithoutInput,
@@ -785,6 +793,19 @@ func looksCatastrophicShell(command string) bool {
 		strings.Contains(lower, "shutdown ") ||
 		strings.Contains(lower, "reboot") ||
 		strings.Contains(lower, "dd if=") && strings.Contains(lower, " of=/dev/")
+}
+
+func leadingShellControlOperator(command string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	for _, op := range []string{"|&", "||", "&&", "|", ";"} {
+		if strings.HasPrefix(command, op) {
+			return op
+		}
+	}
+	return ""
 }
 
 func shellStartsWithNoInputFilter(command string) bool {

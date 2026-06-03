@@ -1356,6 +1356,17 @@ func (r *REPL) finishOperationRouteSpinner(status operation.OperationStatus) {
 	r.emitOperationLightRouteSummary(label, segs)
 }
 
+func (r *REPL) finishCommandOperationPlanHeader(plan operation.CommandOperationPlan) {
+	if r.renderer == nil {
+		return
+	}
+	if plan.Status == operation.StatusReady && plan.ApprovalMode == operation.ApprovalAutoLowRisk {
+		r.finishOperationAutoStartSpinner()
+		return
+	}
+	r.finishOperationRouteSpinner(plan.Status)
+}
+
 func (r *REPL) finishOperationFinalAnswerHeader() {
 	if r.renderer == nil {
 		return
@@ -1866,7 +1877,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 							msg := commandOperationReplanIntro(r.language, revisedPlan)
 							msg += "\n\n"
 							msg += commandOperationAutoExecuteMarkdown(r.language, revisedPlan)
-							r.finishOperationRouteSpinner(revisedPlan.Status)
+							r.finishCommandOperationPlanHeader(revisedPlan)
 							r.renderBordered(msg)
 							currentPlan = revisedPlan
 							r.startOperationExecutionSpinner()
@@ -1929,7 +1940,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 						msg := commandOperationContinuationIntro(r.language, nextPlan)
 						msg += "\n\n"
 						msg += commandOperationAutoExecuteMarkdown(r.language, nextPlan)
-						r.finishOperationRouteSpinner(nextPlan.Status)
+						r.finishCommandOperationPlanHeader(nextPlan)
 						r.renderBordered(msg)
 						currentPlan = nextPlan
 						r.startOperationExecutionSpinner()
@@ -2079,7 +2090,7 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 			msg += commandOperationReplanIntro(r.language, revisedPlan)
 			msg += "\n\n"
 			msg += commandOperationAutoExecuteMarkdown(r.language, revisedPlan)
-			r.finishOperationRouteSpinner(revisedPlan.Status)
+			r.finishCommandOperationPlanHeader(revisedPlan)
 			r.renderBordered(msg)
 			r.executeCommandOperationPlanAttempt(revisedPlan, request, display, replanAttempts+1, records)
 			return true
@@ -2131,7 +2142,7 @@ func (r *REPL) maybeContinueCommandOperation(ctx context.Context, plan operation
 		msg := commandOperationContinuationIntro(r.language, nextPlan)
 		msg += "\n\n"
 		msg += commandOperationAutoExecuteMarkdown(r.language, nextPlan)
-		r.finishOperationRouteSpinner(nextPlan.Status)
+		r.finishCommandOperationPlanHeader(nextPlan)
 		r.renderBordered(msg)
 		r.executeCommandOperationPlanAttempt(nextPlan, request, display, 0, records)
 		return true
@@ -5888,7 +5899,7 @@ func (r *REPL) maybeContinueProviderOperationWithCommand(ctx context.Context, fi
 		msg := commandOperationContinuationIntro(r.language, plan)
 		msg += "\n\n"
 		msg += commandOperationAutoExecuteMarkdown(r.language, plan)
-		r.finishOperationRouteSpinner(plan.Status)
+		r.finishCommandOperationPlanHeader(plan)
 		r.renderBorderedCompact(msg)
 		r.executeCommandOperationPlanAttempt(plan, first.Request.Text, first.Display, 0, nil)
 		return true

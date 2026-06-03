@@ -207,6 +207,7 @@ Hard rules:
 - Fill goal, known_constraints, missing_observations, success_criteria, next_batch, and why_this_batch when useful. These fields help Codrax decide whether the user goal is complete; they do not replace executable command steps.
 - First batches should normally collect the minimum observations needed to choose the next step. Avoid planning later irreversible or speculative steps until earlier command output confirms they are needed.
 - Every stdin-consuming command must have an explicit input source: an upstream command in the same shell pipeline, shell redirection, or file operands. Do not emit bare stdin readers such as "grep pattern", "awk script", "sed expr", "cat", "nl", "head", "tail", "wc", "cut", "sort", or "uniq" as the first shell segment with no input. They read empty stdin in non-interactive execution and create false negatives. Bad: "grep -i vpn | grep -v grep"; good: "ps aux | grep -i vpn | grep -v grep". Bad: "cat"; good: "cat /path/to/file" or "producer | cat". Bad: "head -50"; good: "some-command | head -50" or "head -50 /path/to/file".
+- A shell command must never start with a control operator such as "|", "||", "&&", or ";". A leading pipe means the producer command is missing. Bad: "| grep -i model"; good: "ps aux | grep -i model" for process searches, or "grep -i model /path/to/file" for file searches.
 - Unknown structured programs are allowed in a ready plan. Do not mark them high risk merely because they are unknown; the deterministic operation policy decides auto approval. Mark high only when typed risk/side effects or command shape actually make the step dangerous.
 - Batch related commands into a small ordered plan instead of asking approval for each tiny command.
 - Do not plan destructive commands unless the user explicitly asked for that destructive action. For obviously catastrophic operations, emit blocked.
@@ -506,6 +507,7 @@ func (p *llmCommandOperationPlanner) planCommandOperationDraft(ctx context.Conte
 		b.WriteString("The previous approved command plan failed. Produce a revised typed plan using the same schema.\n")
 		b.WriteString("Do not include the failed command again; it already ran. Plan only the corrective next step unless a real retry is required.\n")
 		b.WriteString("If failure_class=invalid_plan and the error says a shell command has no explicit input source, repair by adding an upstream producer command, file operand, or redirection. Examples: use \"ps aux | grep ...\" for process searches; use \"grep pattern /path/to/file\" or \"producer | grep pattern\" for text searches; use \"cat /path/to/file\" or \"producer | cat\" for cat/nl; use \"producer | head -50\" or \"head -50 /path/to/file\" for head/tail/wc/cut/sort/uniq.\n")
+		b.WriteString("If failure_class=invalid_plan and the error says the shell command starts with \"|\", \"||\", \"&&\", or \";\", the command is missing the segment before the operator. Rewrite the whole command with a real producer before the operator; do not keep the leading operator.\n")
 		b.WriteString(renderCommandPlanForPrompt(req.PreviousPlan))
 		b.WriteString("\n")
 		b.WriteString(renderCommandResultForPrompt(req.Result))

@@ -48,6 +48,21 @@ func TestLintCommandOperationPlanRejectsInvalidCommandShapes(t *testing.T) {
 			plan: CommandOperationPlan{Status: StatusReady, Steps: []CommandStep{{ID: "s1", Shell: "cat"}}},
 			code: PlanLintStdinWithoutInput,
 		},
+		{
+			name: "leading pipe shell",
+			plan: CommandOperationPlan{Status: StatusReady, Steps: []CommandStep{{ID: "s1", Shell: "| grep vpn"}}},
+			code: PlanLintInvalidShellShape,
+		},
+		{
+			name: "leading or shell",
+			plan: CommandOperationPlan{Status: StatusReady, Steps: []CommandStep{{ID: "s1", Shell: "|| grep vpn"}}},
+			code: PlanLintInvalidShellShape,
+		},
+		{
+			name: "leading and shell",
+			plan: CommandOperationPlan{Status: StatusReady, Steps: []CommandStep{{ID: "s1", Shell: "&& echo ok"}}},
+			code: PlanLintInvalidShellShape,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

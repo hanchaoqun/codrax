@@ -1949,6 +1949,48 @@ func TestCommandOperationE2E_InvalidShellFilterReplansWithNumericStepID(t *testi
 	}
 }
 
+func TestCommandOperationE2E_LeadingPipeReplansBeforeExecution(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"medium","requires_confirmation":false,"work_dir":".","steps":[{"id":"bad-pipe","title":"bad model engine filter","shell":"| grep -iE 'ollama|lmstudio'","risk_level":"medium","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"fixed","title":"bounded process filter","shell":"printf 'ollama serve\\n' | grep -i ollama","risk_level":"low","side_effects":[]}]}`),
+			{Content: "已修复缺失 producer 的管道命令，并确认 ollama 进程候选。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "看下运行的模型推理引擎\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("command operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(adapter.calls) != 3 {
+		t.Fatalf("planner+replan+answer calls=%d, want 3", len(adapter.calls))
+	}
+	printed := out.String()
+	for _, want := range []string{
+		"invalid shell command starts with",
+		"缺失 producer",
+		"will run automatically",
+		"ollama serve",
+	} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("leading-pipe replan output missing %q:\n%s", want, printed)
+		}
+	}
+	for _, bad := range []string{"syntax error near unexpected token", "unexpected token `|'"} {
+		if strings.Contains(printed, bad) {
+			t.Fatalf("leading-pipe command should be linted before shell execution; found %q:\n%s", bad, printed)
+		}
+	}
+}
+
 func TestCommandOperationE2E_ChangedWorkdirAutoEligibleReplanWaitsForApproval(t *testing.T) {
 	store := newPolicyStore(t)
 	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
