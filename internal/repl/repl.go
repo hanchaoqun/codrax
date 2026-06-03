@@ -1346,23 +1346,40 @@ func (r *REPL) resumeCommandOperationClarification(line, display string) {
 }
 
 func (r *REPL) finishOperationRouteSpinner(status operation.OperationStatus) {
-	if r.renderer == nil || !r.renderer.SpinnerActive() {
+	if r.renderer == nil {
 		return
 	}
 	label, segs := operationRouteSummary(r.language, status)
+	r.emitOperationLightRouteSummary(label, segs)
+}
+
+func (r *REPL) finishOperationFinalAnswerHeader() {
+	if r.renderer == nil {
+		return
+	}
+	label, segs := operationFinalAnswerSummary(r.language)
+	r.emitOperationLightRouteSummary(label, segs)
+}
+
+func (r *REPL) emitOperationLightRouteSummary(label string, segs []string) {
+	if r.renderer == nil {
+		return
+	}
 	r.renderer.SetTotalStages(0)
 	r.renderer.SetRouteSummary(label, segs)
-	r.renderer.StopSpinner()
+	if r.renderer.SpinnerActive() {
+		r.renderer.StopSpinner()
+		return
+	}
+	r.renderer.EmitLightRouteSummary(label, segs)
 }
 
 func (r *REPL) finishOperationAutoStartSpinner() {
-	if r.renderer == nil || !r.renderer.SpinnerActive() {
+	if r.renderer == nil {
 		return
 	}
 	label, segs := operationAutoStartSummary(r.language)
-	r.renderer.SetTotalStages(0)
-	r.renderer.SetRouteSummary(label, segs)
-	r.renderer.StopSpinner()
+	r.emitOperationLightRouteSummary(label, segs)
 }
 
 func operationAutoStartSummary(lang string) (string, []string) {
@@ -1425,6 +1442,13 @@ func operationSynthesisSummary(lang string) (string, []string) {
 		return "整理结果", []string{"未读仓库"}
 	}
 	return "summarizing result", []string{"no repo read"}
+}
+
+func operationFinalAnswerSummary(lang string) (string, []string) {
+	if isZh(lang) {
+		return "最终答案", []string{"已生成", "未读仓库"}
+	}
+	return "final answer", []string{"ready", "no repo read"}
 }
 
 func operationRouteSummary(lang string, status operation.OperationStatus) (string, []string) {
@@ -1882,7 +1906,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 		}
 		r.startOperationSynthesisSpinner()
 		msg, thoughts := r.commandOperationFinalMessage(ctx, request, records)
-		r.clearOperationRouteSpinnerForInlineResult()
+		r.finishOperationFinalAnswerHeader()
 		r.emitOperationVisibleThoughts(thoughts)
 		r.renderBordered(msg)
 		r.recordTurn(display, request, msg, memory.KindPipeline)
@@ -1994,7 +2018,7 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 				records = append(records, commandOperationResultRecord{Plan: revisedPlan, Result: budget})
 			}
 			msg, thoughts := r.commandOperationFinalMessage(ctx, request, records)
-			r.finishOperationRouteSpinner(lintResult.Status)
+			r.finishOperationFinalAnswerHeader()
 			r.emitOperationVisibleThoughts(thoughts)
 			r.renderBordered(msg)
 			r.recordTurn(display, request, msg, memory.KindPipeline)
@@ -5756,7 +5780,7 @@ func (r *REPL) executeProviderOperationFlow(ctx context.Context, first pendingPr
 	} else {
 		r.clearPendingOperationState()
 	}
-	r.clearOperationRouteSpinnerForInlineResult()
+	r.finishOperationFinalAnswerHeader()
 	r.emitOperationVisibleThoughts(thoughts)
 	r.renderBordered(msg)
 	r.recordTurn(first.Display, first.Request.Text, msg, memory.KindPipeline)
@@ -5767,8 +5791,8 @@ func (r *REPL) renderProviderOperationRoundResult(plan operation.Plan, result pr
 	if strings.TrimSpace(msg) == "" {
 		return
 	}
-	r.clearOperationRouteSpinnerForInlineResult()
-	r.renderBorderedCompact(msg)
+	r.finishOperationRouteSpinner(result.Status)
+	r.renderBordered(msg)
 }
 
 func (r *REPL) providerOperationFinalMessage(ctx context.Context, userLine string, records []providerOperationResultRecord) (string, []string) {

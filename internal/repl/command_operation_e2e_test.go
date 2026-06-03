@@ -1505,6 +1505,38 @@ func TestCommandOperationE2E_AutoExecutionShowsProgress(t *testing.T) {
 	}
 }
 
+func TestCommandOperationE2E_AutoExecutionRendersPlanResultAndFinalHeaders(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"s1","title":"show go version","program":"go","args":["version"],"risk_level":"low","side_effects":[]}]}`),
+			{Content: "Go 版本查询完成。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "/exit\n")
+	r.renderer = render.New(out, true)
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+
+	r.operationDispatch("查询 go 版本", "查询 go 版本", commandOperationPolicy("low"))
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("auto operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	plain := stripANSIOnly(out.String())
+	planIdx := strings.Index(plain, "operation plan · auto-run")
+	resultIdx := strings.Index(plain, "operation execution · completed")
+	finalIdx := strings.Index(plain, "final answer · ready")
+	if planIdx < 0 || resultIdx < 0 || finalIdx < 0 {
+		t.Fatalf("operation route headers missing from rendered output:\n%s", plain)
+	}
+	if !(planIdx < resultIdx && resultIdx < finalIdx) {
+		t.Fatalf("operation route headers out of order plan=%d result=%d final=%d:\n%s", planIdx, resultIdx, finalIdx, plain)
+	}
+}
+
 func TestCommandOperationE2E_ContinueAfterRunsSecondBatchBeforeAnswer(t *testing.T) {
 	store := newPolicyStore(t)
 	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
