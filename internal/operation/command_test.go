@@ -22,6 +22,23 @@ func TestBuildCommandOperationPlanNeedsClarificationWhenDetailsMissing(t *testin
 	}
 }
 
+func TestBuildCommandOperationPlanNeedsClarificationWhenReadyHasNoSteps(t *testing.T) {
+	plan := BuildCommandOperationPlan(CommandOperationRequest{
+		Text:      "show disk size",
+		RiskLevel: "low",
+	}, DefaultCommandPolicy())
+
+	if plan.Status != StatusNeedsClarification {
+		t.Fatalf("Status=%q, want needs_clarification", plan.Status)
+	}
+	if plan.ApprovalMode != "" {
+		t.Fatalf("ApprovalMode=%q, want empty while clarifying", plan.ApprovalMode)
+	}
+	if len(plan.ClarifyingQuestions) == 0 {
+		t.Fatalf("expected clarification for empty command plan: %+v", plan)
+	}
+}
+
 func TestBuildCommandOperationPlanLowRiskAutoEnabledByDefault(t *testing.T) {
 	plan := BuildCommandOperationPlan(CommandOperationRequest{
 		Text: "show current directory",
@@ -224,8 +241,33 @@ func TestBuildCommandOperationPlanUnknownProgramManualWhenAutoApproveDisabled(t 
 	}
 }
 
-func TestBuildCommandOperationPlanShellFormRequiresManual(t *testing.T) {
+func TestBuildCommandOperationPlanShellFormAutoEligibleWhenAutoApproveEnabled(t *testing.T) {
 	policy := DefaultCommandPolicy()
+	policy.AutoLowRisk = true
+	plan := BuildCommandOperationPlan(CommandOperationRequest{
+		Text: "count go files",
+		Steps: []CommandStep{{
+			Shell: "find . -name '*.go' | wc -l",
+		}},
+	}, policy)
+
+	if plan.Status != StatusReady {
+		t.Fatalf("Status=%q", plan.Status)
+	}
+	if plan.ApprovalMode != ApprovalAutoLowRisk {
+		t.Fatalf("ApprovalMode=%q, want auto_low_risk", plan.ApprovalMode)
+	}
+	if got := plan.Steps[0].AutoApproval; got != StepAutoEligible {
+		t.Fatalf("step AutoApproval=%q, want eligible", got)
+	}
+	if plan.RiskLevel != "medium" {
+		t.Fatalf("RiskLevel=%q, want medium for shell form", plan.RiskLevel)
+	}
+}
+
+func TestBuildCommandOperationPlanShellFormRequiresManualWhenAutoApproveDisabled(t *testing.T) {
+	policy := DefaultCommandPolicy()
+	policy.AutoApprove = false
 	policy.AutoLowRisk = true
 	plan := BuildCommandOperationPlan(CommandOperationRequest{
 		Text: "count go files",

@@ -31,8 +31,22 @@ type CommandOperationReplanner interface {
 	ReplanCommandOperation(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, snapshot operation.CapabilitySnapshot, previous operation.CommandOperationPlan, result operation.CommandOperationResult) (operation.CommandOperationRequest, error)
 }
 
+type CommandOperationContinuation struct {
+	Complete bool
+	Reason   string
+	Request  operation.CommandOperationRequest
+}
+
+type CommandOperationContinuationPlanner interface {
+	ContinueCommandOperation(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, snapshot operation.CapabilitySnapshot, records []commandOperationResultRecord) (CommandOperationContinuation, error)
+}
+
 type CommandOperationAnswerer interface {
 	AnswerCommandOperationResult(ctx context.Context, userLine string, plan operation.CommandOperationPlan, result operation.CommandOperationResult, lang string) (string, error)
+}
+
+type CommandOperationRecordsAnswerer interface {
+	AnswerCommandOperationRecords(ctx context.Context, userLine string, records []commandOperationResultRecord, lang string) (string, error)
 }
 
 type ProviderOperationAnswerer interface {
@@ -55,8 +69,8 @@ var commandOperationPlanTool = llm.ToolSchema{
   "properties": {
     "status": {
       "type": "string",
-      "enum": ["ready", "needs_clarification", "blocked"],
-      "description": "ready when the command steps are concrete; needs_clarification when key details are missing; blocked when the request should not be attempted."
+      "enum": ["ready", "needs_clarification", "blocked", "complete"],
+      "description": "ready when the command steps are concrete; needs_clarification when key details are missing; blocked when the request should not be attempted. complete is only valid for continuation planning after prior command results are already sufficient for the final answer."
     },
     "risk_level": {
       "type": "string",
@@ -69,7 +83,11 @@ var commandOperationPlanTool = llm.ToolSchema{
     },
     "requires_confirmation": {
       "type": "boolean",
-      "description": "true for any write, install, uninstall, network, shell-form, unknown command, destructive, or ambiguous action."
+      "description": "true for writes, installs, uninstalls, external submissions, destructive commands, high-risk shell, or ambiguous actions. Ordinary read-only commands and non-high-risk shell pipelines may be auto-run by deterministic policy."
+    },
+    "continue_after": {
+      "type": "boolean",
+      "description": "true when this command batch is only a discovery/probe batch and Codrax should feed its results back to the planner for the next batch before writing the final answer. Use for multi-step tasks such as checking whether software is running and then finding version/metadata, reading a tool manual before using it, probing a remote host before acting, or narrowing a large file before the next targeted command."
     },
     "questions": {
       "type": "array",
@@ -96,7 +114,7 @@ var commandOperationPlanTool = llm.ToolSchema{
           "title": {"type": "string"},
           "program": {"type": "string", "description": "Executable name/path. Prefer program+args over shell."},
           "args": {"type": "array", "items": {"type": "string"}},
-          "shell": {"type": "string", "description": "Only when a shell pipeline is necessary. Shell-form commands always require manual approval."},
+          "shell": {"type": "string", "description": "Only when a shell pipeline or shell builtin is necessary. Deterministic policy decides auto-run/manual/deny; high-risk shell commands still require approval or are blocked."},
           "work_dir": {"type": "string"},
           "env": {"type": "array", "items": {"type": "string"}},
           "timeout_ms": {"type": "integer"},
@@ -119,7 +137,9 @@ Your job is to convert the user's request into a typed command plan draft. Do no
 
 Hard rules:
 - If the request lacks key details such as source path, destination path, package name, desired version, target directory, or confirmation scope, emit status=needs_clarification with short questions and suggestions. Do not guess.
-- Prefer program+args. Use shell only when a pipeline or shell builtin is necessary; shell always requires confirmation.
+- Prefer program+args. Use shell only when a pipeline or shell builtin is necessary; deterministic policy decides auto-run/manual/deny.
+- Prefer iterative discovery over one-shot guessing. For tasks that require observing the environment before choosing the next command, emit a bounded first command batch with continue_after=true. Examples: discover running software/service then query version metadata; read an unfamiliar tool's help/manual then invoke it; inspect a remote environment before package commands; narrow a large file before extracting exact facts.
+- Every filter command must have an explicit input source: an upstream command in the same shell pipeline, shell redirection, or file operands. Do not emit bare filters such as "grep pattern", "awk script", "sed expr", "head", "tail", "wc", "cut", "sort", or "uniq" as the first shell segment with no input. They read empty stdin in non-interactive execution and create false negatives.
 - Unknown structured programs are allowed in a ready plan. Do not mark them high risk merely because they are unknown; the deterministic operation policy decides auto approval. Mark high only when typed risk/side effects or command shape actually make the step dangerous.
 - Batch related commands into a small ordered plan instead of asking approval for each tiny command.
 - Do not plan destructive commands unless the user explicitly asked for that destructive action. For obviously catastrophic operations, emit blocked.
@@ -127,19 +147,24 @@ Hard rules:
 - This is not source-code investigation, trace analysis, or write-mode code editing. Only produce command-operation plans.
 - Operation approval is independent from write-mode write_enabled. Do not mention write_enabled for command-operation approval.
 - Use capability_snapshot when present. Prefer commands shown as available. If a needed tool is absent, either ask for clarification or plan a safe check/install workflow when the user explicitly asked for installation.
+- capability_snapshot is advisory context, not a substitute for requested facts. For factual computer/environment queries, plan real read-only commands that retrieve the requested facts; do not answer by echoing or paraphrasing the snapshot unless the exact requested field is explicitly present there.
 - Do not invent installed tools that are absent from capability_snapshot unless the user explicitly named a custom command or requested installing it.
+- Do not use echo, printf, comments, or no-op placeholder commands to claim that facts were obtained. If you cannot retrieve the facts safely, emit needs_clarification or plan a safe discovery command.
 - For unfamiliar software or command-line tools, prefer safe discovery steps such as --help, help, version, or documentation reads before planning risky or irreversible actions. If exact usage is still unclear after discovery, ask a clarification question instead of guessing flags.
+- For requests asking what software/service is running and which version it is, collect both lanes when available: runtime state/process/service evidence and application/package metadata for version. Do not conclude absence from one empty process filter when network/service output names a candidate.
 - Use recent_operation_context when present. It contains prior command-operation observations from this REPL and optional operation_memory lessons from previous runs: command outputs, extracted large-file summaries, failed attempts, payload refs, and compact historical lessons. Treat it as external observation, not source-code evidence.
 - Treat operation_memory as soft guidance only. It may be stale or environment-specific; use it to avoid known mistakes or reuse known working command shapes, not as a hard rule.
 - For large-file or unfamiliar-tool workflows, use prior extraction/search/help outputs to choose the next targeted command. If only a payload_ref is available, plan a bounded follow-up read/search/summarize command instead of dumping or reprocessing the whole file.
 - For extraction requests, shape the command output to the user's requested item(s) with bounded filters (for example awk/sed/perl/head/tail/rg context) instead of dumping an entire section when a smaller exact result is requested.
 - When a step should create, remove, move, or copy a local artifact, set verify_hint when the expected outcome is clear. Supported forms: path_exists:<path>, file_exists:<path>, dir_exists:<path>, path_absent:<path>. Paths are resolved relative to work_dir unless absolute.
 - For replan requests, use the failed step output to adjust only the command plan. The failed command already ran; do not include that failed command again unless the user explicitly asked to retry the same failed command after seeing the failure. Do not repeat already-successful steps unless required. If the fix expands risk or side effects, set requires_confirmation=true.
+- For continuation requests, inspect the previous command observations. If they are sufficient to answer the user's task, emit status=complete with a short block_reason/reason. If more commands are needed, emit only the next bounded command batch. Do not repeat already-successful discovery commands unless the next step genuinely needs a refreshed value.
+- In continuation requests, do not ask the user for information that can still be safely discovered by local read-only commands, package/application metadata queries, service/process inspection, file metadata reads, or tool help/version checks. Unknown facts are a reason to run another safe discovery batch, not to stop. Ask the user only for user-owned inputs such as credentials, remote hostnames, destructive scope, destination paths, or business choices that cannot be discovered safely.
 
 Risk hints:
 - Read-only inspection (pwd, ls, which, version, git status/log/show/diff, grep/rg/cat/head/tail) is low risk.
 - Creating a new directory with mkdir -p is low risk when no overwrite/delete is involved.
-- Moving, copying, installing packages, downloading, shell pipelines, or unknown commands are medium and require confirmation.
+- Unknown structured commands and shell pipelines are not automatically risky by name alone; describe their actual typed side effects. Moving, copying, installing packages, downloading, and ambiguous shell actions are medium; high-risk or destructive signals require confirmation or blocking.
 - Deleting, overwriting, uninstalling, external writes, or network submission is high and requires confirmation.
 `
 
@@ -173,30 +198,56 @@ func (p *llmCommandOperationPlanner) ReplanCommandOperation(ctx context.Context,
 	})
 }
 
+func (p *llmCommandOperationPlanner) ContinueCommandOperation(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, snapshot operation.CapabilitySnapshot, records []commandOperationResultRecord) (CommandOperationContinuation, error) {
+	parsed, err := p.planCommandOperationDraft(ctx, commandOperationPlannerRequest{
+		UserLine:     userLine,
+		RepoRoot:     repoRoot,
+		Policy:       policy,
+		Snapshot:     snapshot,
+		Records:      records,
+		Continuation: true,
+	})
+	if err != nil {
+		return CommandOperationContinuation{}, err
+	}
+	status := strings.ToLower(strings.TrimSpace(string(parsed.Status)))
+	if status == "complete" {
+		return CommandOperationContinuation{Complete: true, Reason: strings.TrimSpace(string(parsed.BlockReason))}, nil
+	}
+	if status == string(operation.StatusNeedsClarification) && !commandPlanDraftHasQuestions(parsed) {
+		return CommandOperationContinuation{Complete: true, Reason: "continuation returned no actionable clarification question"}, nil
+	}
+	return CommandOperationContinuation{Request: parsed.toRequest(userLine, repoRoot)}, nil
+}
+
 const commandOperationAnswerSystemPrompt = `You are Codrax's operation result writer.
 
 Answer the user's original operation request from the provided execution observations.
 
 Rules:
+- In this final operation report, do not output hidden reasoning, chain-of-thought, analysis notes, <think> blocks, or meta commentary about how you will answer.
+- Output only the final user-facing report plus concise follow-up notes when needed.
 - Write the user-facing final report first. Do not merely restate the raw command/provider output.
 - State whether the task succeeded, failed, was blocked, or needs follow-up.
 - Use only the provided operation observations. Do not invent source-code evidence.
 - Mention artifact refs, payload refs, verification results, and follow-up actions when they matter.
 - Keep raw logs/large output summarized; the UI will show execution details separately.
-- Match the requested language. If language=zh, answer in Chinese.
+- Match the requested language. If language=zh, every user-visible sentence must be Chinese except command names, file paths, product names, and raw command output snippets.
 `
 
 func (p *llmCommandOperationPlanner) AnswerCommandOperationResult(ctx context.Context, userLine string, plan operation.CommandOperationPlan, result operation.CommandOperationResult, lang string) (string, error) {
+	return p.AnswerCommandOperationRecords(ctx, userLine, []commandOperationResultRecord{{Plan: plan, Result: result}}, lang)
+}
+
+func (p *llmCommandOperationPlanner) AnswerCommandOperationRecords(ctx context.Context, userLine string, records []commandOperationResultRecord, lang string) (string, error) {
 	if p == nil || p.adapter == nil {
 		return "", fmt.Errorf("command operation answerer not configured")
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "## language\n%s\n\n", strings.TrimSpace(lang))
 	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
-	b.WriteString("## command_plan\n")
-	b.WriteString(renderCommandPlanForPrompt(plan))
-	b.WriteString("\n\n## command_result\n")
-	b.WriteString(renderCommandResultForPrompt(result))
+	b.WriteString("## command_operation_rounds\n")
+	b.WriteString(renderCommandOperationRecordsForPrompt(records))
 	resp, err := p.adapter.Chat(ctx,
 		[]llm.Message{
 			{Role: "system", Content: commandOperationAnswerSystemPrompt},
@@ -242,20 +293,30 @@ type commandOperationPlannerRequest struct {
 	RecentOperationContext string
 	PreviousPlan           operation.CommandOperationPlan
 	Result                 operation.CommandOperationResult
+	Records                []commandOperationResultRecord
 	Replan                 bool
+	Continuation           bool
 }
 
 func (p *llmCommandOperationPlanner) planCommandOperation(ctx context.Context, req commandOperationPlannerRequest) (operation.CommandOperationRequest, error) {
-	var zero operation.CommandOperationRequest
+	parsed, err := p.planCommandOperationDraft(ctx, req)
+	if err != nil {
+		return operation.CommandOperationRequest{}, err
+	}
+	return parsed.toRequest(req.UserLine, req.RepoRoot), nil
+}
+
+func (p *llmCommandOperationPlanner) planCommandOperationDraft(ctx context.Context, req commandOperationPlannerRequest) (commandPlanDraft, error) {
+	var zeroDraft commandPlanDraft
 	if p == nil || p.adapter == nil {
-		return zero, fmt.Errorf("command operation planner not configured")
+		return zeroDraft, fmt.Errorf("command operation planner not configured")
 	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	userLine := strings.TrimSpace(req.UserLine)
 	if userLine == "" {
-		return zero, fmt.Errorf("command operation planner: empty user line")
+		return zeroDraft, fmt.Errorf("command operation planner: empty user line")
 	}
 	var b strings.Builder
 	b.WriteString("## repo_root\n")
@@ -283,6 +344,12 @@ func (p *llmCommandOperationPlanner) planCommandOperation(ctx context.Context, r
 		b.WriteString(renderCommandResultForPrompt(req.Result))
 		b.WriteString("\n")
 	}
+	if req.Continuation {
+		b.WriteString("\n## continuation_context\n")
+		b.WriteString("The previous command batch executed. Decide whether the observations are sufficient. If yes, emit status=complete. If not, emit a ready plan containing only the next bounded command batch. Do not ask the user for facts that can still be discovered by safe read-only commands; keep investigating until the task is answered, the bounded continuation budget is exhausted, or the missing input is truly user-owned.\n")
+		b.WriteString(renderCommandOperationRecordsForPrompt(req.Records))
+		b.WriteString("\n")
+	}
 	b.WriteString("\n## user_request\n")
 	b.WriteString(userLine)
 
@@ -295,20 +362,20 @@ func (p *llmCommandOperationPlanner) planCommandOperation(ctx context.Context, r
 		llm.ChatOptions{ToolChoice: "required"},
 	)
 	if err != nil {
-		return zero, fmt.Errorf("command operation planner llm call: %w", err)
+		return zeroDraft, fmt.Errorf("command operation planner llm call: %w", err)
 	}
 	if len(resp.ToolCalls) == 0 {
-		return zero, fmt.Errorf("command operation planner: LLM returned no tool_call")
+		return zeroDraft, fmt.Errorf("command operation planner: LLM returned no tool_call")
 	}
 	call := resp.ToolCalls[0]
 	if call.Name != commandOperationPlanTool.Name {
-		return zero, fmt.Errorf("command operation planner: unexpected tool %q", call.Name)
+		return zeroDraft, fmt.Errorf("command operation planner: unexpected tool %q", call.Name)
 	}
 	parsed, err := unmarshalCommandOperationPlan(call.Params)
 	if err != nil {
-		return zero, err
+		return zeroDraft, err
 	}
-	return parsed.toRequest(userLine, req.RepoRoot), nil
+	return parsed, nil
 }
 
 func renderCommandPlanForPrompt(plan operation.CommandOperationPlan) string {
@@ -340,6 +407,20 @@ func renderCommandResultForPrompt(result operation.CommandOperationResult) strin
 	return strings.TrimRight(b.String(), "\n")
 }
 
+func renderCommandOperationRecordsForPrompt(records []commandOperationResultRecord) string {
+	var b strings.Builder
+	for i, rec := range records {
+		fmt.Fprintf(&b, "round[%d]\n", i+1)
+		b.WriteString(renderCommandPlanForPrompt(rec.Plan))
+		b.WriteString("\n")
+		b.WriteString(renderCommandResultForPrompt(rec.Result))
+		if i < len(records)-1 {
+			b.WriteString("\n\n")
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
 func renderProviderOperationResultsForPrompt(records []providerOperationResultRecord) string {
 	var b strings.Builder
 	for i, rec := range records {
@@ -367,34 +448,35 @@ func renderProviderOperationResultsForPrompt(records []providerOperationResultRe
 }
 
 type commandPlanDraft struct {
-	Status               string                     `json:"status"`
-	RiskLevel            string                     `json:"risk_level"`
-	WorkDir              string                     `json:"work_dir"`
+	Status               flexiblePolicyString       `json:"status"`
+	RiskLevel            flexiblePolicyString       `json:"risk_level"`
+	WorkDir              flexiblePolicyString       `json:"work_dir"`
 	RequiresConfirmation flexiblePolicyBool         `json:"requires_confirmation"`
+	ContinueAfter        flexiblePolicyBool         `json:"continue_after"`
 	Questions            []commandPlanQuestionDraft `json:"questions"`
-	BlockReason          string                     `json:"block_reason"`
+	BlockReason          flexiblePolicyString       `json:"block_reason"`
 	Steps                []commandPlanStepDraft     `json:"steps"`
 }
 
 type commandPlanQuestionDraft struct {
-	ID          string                   `json:"id"`
-	Question    string                   `json:"question"`
+	ID          flexiblePolicyString     `json:"id"`
+	Question    flexiblePolicyString     `json:"question"`
 	Suggestions flexiblePolicyStringList `json:"suggestions"`
 }
 
 type commandPlanStepDraft struct {
-	ID          string                   `json:"id"`
-	Title       string                   `json:"title"`
-	Program     string                   `json:"program"`
+	ID          flexiblePolicyString     `json:"id"`
+	Title       flexiblePolicyString     `json:"title"`
+	Program     flexiblePolicyString     `json:"program"`
 	Args        flexiblePolicyStringList `json:"args"`
-	Shell       string                   `json:"shell"`
-	WorkDir     string                   `json:"work_dir"`
+	Shell       flexiblePolicyString     `json:"shell"`
+	WorkDir     flexiblePolicyString     `json:"work_dir"`
 	Env         flexiblePolicyStringList `json:"env"`
 	TimeoutMS   flexiblePolicyInt        `json:"timeout_ms"`
-	RiskLevel   string                   `json:"risk_level"`
+	RiskLevel   flexiblePolicyString     `json:"risk_level"`
 	SideEffects flexiblePolicyStringList `json:"side_effects"`
-	Reason      string                   `json:"reason"`
-	VerifyHint  string                   `json:"verify_hint"`
+	Reason      flexiblePolicyString     `json:"reason"`
+	VerifyHint  flexiblePolicyString     `json:"verify_hint"`
 }
 
 type flexiblePolicyInt int
@@ -442,22 +524,35 @@ func unmarshalCommandOperationPlan(raw []byte) (commandPlanDraft, error) {
 	return parsed, nil
 }
 
+func commandPlanDraftHasQuestions(d commandPlanDraft) bool {
+	for _, q := range d.Questions {
+		if strings.TrimSpace(string(q.Question)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 func (d commandPlanDraft) toRequest(userLine, repoRoot string) operation.CommandOperationRequest {
 	req := operation.CommandOperationRequest{
 		Text:                 userLine,
-		WorkDir:              plannerFirstNonEmpty(strings.TrimSpace(d.WorkDir), strings.TrimSpace(repoRoot)),
-		RiskLevel:            strings.TrimSpace(d.RiskLevel),
-		BlockReason:          strings.TrimSpace(d.BlockReason),
+		WorkDir:              plannerFirstNonEmpty(strings.TrimSpace(string(d.WorkDir)), strings.TrimSpace(repoRoot)),
+		RiskLevel:            strings.TrimSpace(string(d.RiskLevel)),
+		BlockReason:          strings.TrimSpace(string(d.BlockReason)),
 		RequiresConfirmation: bool(d.RequiresConfirmation),
+		ContinueAfter:        bool(d.ContinueAfter),
 	}
-	if strings.TrimSpace(d.Status) == string(operation.StatusNeedsClarification) {
+	if strings.TrimSpace(string(d.Status)) == "complete" {
+		return req
+	}
+	if strings.TrimSpace(string(d.Status)) == string(operation.StatusNeedsClarification) {
 		for _, q := range d.Questions {
-			if strings.TrimSpace(q.Question) == "" {
+			if strings.TrimSpace(string(q.Question)) == "" {
 				continue
 			}
 			req.ClarifyingQuestions = append(req.ClarifyingQuestions, operation.ClarifyingQuestion{
-				ID:          strings.TrimSpace(q.ID),
-				Question:    strings.TrimSpace(q.Question),
+				ID:          strings.TrimSpace(string(q.ID)),
+				Question:    strings.TrimSpace(string(q.Question)),
 				Suggestions: []string(q.Suggestions),
 			})
 		}
@@ -469,27 +564,27 @@ func (d commandPlanDraft) toRequest(userLine, repoRoot string) operation.Command
 		}
 		return req
 	}
-	if strings.TrimSpace(d.Status) == string(operation.StatusBlocked) && req.BlockReason == "" {
+	if strings.TrimSpace(string(d.Status)) == string(operation.StatusBlocked) && req.BlockReason == "" {
 		req.BlockReason = "planner marked the operation blocked"
 		return req
 	}
 	for _, step := range d.Steps {
-		if strings.TrimSpace(step.Program) == "" && strings.TrimSpace(step.Shell) == "" {
+		if strings.TrimSpace(string(step.Program)) == "" && strings.TrimSpace(string(step.Shell)) == "" {
 			continue
 		}
 		req.Steps = append(req.Steps, operation.CommandStep{
-			ID:          strings.TrimSpace(step.ID),
-			Title:       strings.TrimSpace(step.Title),
-			Program:     strings.TrimSpace(step.Program),
+			ID:          strings.TrimSpace(string(step.ID)),
+			Title:       strings.TrimSpace(string(step.Title)),
+			Program:     strings.TrimSpace(string(step.Program)),
 			Args:        []string(step.Args),
-			Shell:       strings.TrimSpace(step.Shell),
-			WorkDir:     strings.TrimSpace(step.WorkDir),
+			Shell:       strings.TrimSpace(string(step.Shell)),
+			WorkDir:     strings.TrimSpace(string(step.WorkDir)),
 			Env:         []string(step.Env),
 			TimeoutMS:   int(step.TimeoutMS),
-			RiskLevel:   strings.TrimSpace(step.RiskLevel),
+			RiskLevel:   strings.TrimSpace(string(step.RiskLevel)),
 			SideEffects: []string(step.SideEffects),
-			Reason:      strings.TrimSpace(step.Reason),
-			VerifyHint:  strings.TrimSpace(step.VerifyHint),
+			Reason:      strings.TrimSpace(string(step.Reason)),
+			VerifyHint:  strings.TrimSpace(string(step.VerifyHint)),
 		})
 	}
 	return req

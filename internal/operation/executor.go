@@ -41,6 +41,15 @@ func (e CommandExecutor) Execute(ctx context.Context, plan CommandOperationPlan)
 		})
 		return result
 	}
+	if len(plan.Steps) == 0 {
+		result.Status = StatusFailed
+		result.StepResults = append(result.StepResults, CommandStepResult{
+			Status:       StatusFailed,
+			Error:        "operation plan has no executable command steps",
+			FailureClass: "invalid_plan",
+		})
+		return result
+	}
 	for _, step := range plan.Steps {
 		if e.OnStepStart != nil {
 			e.OnStepStart(step)
@@ -71,6 +80,16 @@ func (e CommandExecutor) Execute(ctx context.Context, plan CommandOperationPlan)
 }
 
 func (e CommandExecutor) executeStep(ctx context.Context, plan CommandOperationPlan, step CommandStep, policy CommandPolicy) CommandStepResult {
+	if err := validateCommandStepBeforeRun(step); err != nil {
+		return CommandStepResult{
+			StepID:        step.ID,
+			Status:        StatusFailed,
+			OutputPreview: fmt.Sprintf("[operation command was not run: %v]", err),
+			Error:         err.Error(),
+			FailureClass:  "invalid_plan",
+		}
+	}
+
 	timeout := time.Duration(step.TimeoutMS) * time.Millisecond
 	if timeout <= 0 {
 		timeout = time.Duration(policy.TimeoutMS) * time.Millisecond
@@ -205,6 +224,17 @@ func buildExecCommand(ctx context.Context, step CommandStep) (*exec.Cmd, string)
 	cmd := exec.CommandContext(ctx, step.Program, step.Args...)
 	display := strings.TrimSpace(step.Program + " " + strings.Join(step.Args, " "))
 	return cmd, display
+}
+
+func validateCommandStepBeforeRun(step CommandStep) error {
+	shell := strings.TrimSpace(step.Shell)
+	if shell == "" {
+		return nil
+	}
+	if shellStartsWithNoInputFilter(shell) {
+		return fmt.Errorf("shell filter has no explicit input source: %s", shell)
+	}
+	return nil
 }
 
 func exitCode(err error) int {

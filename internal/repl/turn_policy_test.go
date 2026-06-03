@@ -427,6 +427,61 @@ func TestApplyTurnPolicyGuards_OperationRoute(t *testing.T) {
 	if low.Route != RouteRepo || !low.NeedsRepoAccess || low.NeedsOperationAccess {
 		t.Fatalf("low-confidence operation should fail safe to repo without operation access: %+v", low)
 	}
+
+	contradiction := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                RouteLocal,
+		NeedsOperationAccess: true,
+		Operation:            "computer_operation",
+		OperationKind:        "computer_operation",
+		Source:               "current_message",
+		Confidence:           0.88,
+	}, false, false)
+	if contradiction.Route != RouteOperation || !contradiction.NeedsOperationAccess {
+		t.Fatalf("typed operation access must override local contradiction: %+v", contradiction)
+	}
+
+	externalObservation := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: true,
+		Operation:            "investigate",
+		Source:               "artifact",
+		RiskLevel:            "none",
+		TargetSurface:        "unknown",
+		Confidence:           0.9,
+	}, false, false)
+	if externalObservation.Route != RouteRepo ||
+		!externalObservation.NeedsRepoAccess ||
+		externalObservation.NeedsOperationAccess {
+		t.Fatalf("analysis-only external observation must stay in pipeline: %+v", externalObservation)
+	}
+
+	externalObservationBoolDrift := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                RouteRepo,
+		NeedsOperationAccess: true,
+		Operation:            "investigate",
+		Source:               "external_tool",
+		RiskLevel:            "none",
+		Confidence:           0.89,
+	}, false, false)
+	if externalObservationBoolDrift.Route != RouteRepo ||
+		!externalObservationBoolDrift.NeedsRepoAccess ||
+		externalObservationBoolDrift.NeedsOperationAccess {
+		t.Fatalf("analysis-only external observation must ignore stray operation boolean: %+v", externalObservationBoolDrift)
+	}
+
+	currentSourceInvestigation := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: true,
+		Operation:            "investigate",
+		Source:               "repo",
+		RiskLevel:            "low",
+		Confidence:           0.87,
+	}, false, false)
+	if currentSourceInvestigation.Route != RouteRepo ||
+		!currentSourceInvestigation.NeedsRepoAccess ||
+		currentSourceInvestigation.NeedsOperationAccess {
+		t.Fatalf("analysis-only current-source investigation must stay in pipeline: %+v", currentSourceInvestigation)
+	}
 }
 
 // ─── Layer 2: ClassifyPolicy parses tool calls ───────────────
@@ -599,6 +654,82 @@ func TestClassifyPolicy_TeachesUnsafeOperationRoute(t *testing.T) {
 	} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("classifier system prompt missing %q:\n%s", want, system)
+		}
+	}
+}
+
+func TestClassifyPolicy_TeachesBroadComputerOperations(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			turnPolicyResp(`{"route":"operation","needs_repo_access":false,"needs_operation_access":true,"operation":"computer_operation","operation_kind":"computer_operation","source":"current_message","confidence":0.9,"reason":"non-code computer operation","risk_level":"medium","side_effects":["package_install","remote_exec"],"target_surface":"external_system","requires_confirmation":true}`),
+		},
+	}
+	c := &llmChitchatClassifier{adapter: adapter}
+
+	policy, err := c.ClassifyPolicy(context.Background(), "安装一个工具后 ssh 到远端机器检查环境", "", false)
+	if err != nil {
+		t.Fatalf("ClassifyPolicy: %v", err)
+	}
+	if policy.Route != RouteOperation || policy.OperationKind != "computer_operation" {
+		t.Fatalf("policy=%+v, want computer operation", policy)
+	}
+	if got := strings.Join(policy.SideEffects, ","); got != "package_install,remote_exec" {
+		t.Fatalf("side effects=%q", got)
+	}
+	system := adapter.calls[0].messages[0].Content
+	for _, want := range []string{
+		"querying the current machine/environment",
+		"downloading files",
+		"installing or uninstalling packages",
+		"SSH/remote shell work",
+		"Clear non-code computer operations remain route=operation",
+	} {
+		if !strings.Contains(system, want) {
+			t.Fatalf("classifier system prompt missing %q:\n%s", want, system)
+		}
+	}
+}
+
+func TestClassifyPolicy_TeachesExternalObservationStaysPipeline(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			turnPolicyResp(`{"route":"repo","needs_repo_access":true,"needs_operation_access":false,"operation":"investigate","source":"artifact","confidence":0.9,"reason":"trace/log analysis without current source"}`),
+		},
+	}
+	c := &llmChitchatClassifier{adapter: adapter}
+
+	policy, err := c.ClassifyPolicy(context.Background(), "只分析这个 trace，不要看代码，找一下 jank 原因", "", false)
+	if err != nil {
+		t.Fatalf("ClassifyPolicy: %v", err)
+	}
+	if policy.Route != RouteRepo || policy.NeedsOperationAccess || policy.Operation != "investigate" {
+		t.Fatalf("policy=%+v, want repo pipeline external-observation investigation", policy)
+	}
+	system := adapter.calls[0].messages[0].Content
+	for _, want := range []string{
+		"fresh LOG / TRACE / MCP / connector external-observation",
+		"Do NOT reroute external-observation analysis to operation",
+		"direct computer/file operation = operation",
+		"evidence interpretation/diagnosis/root-cause = pipeline",
+		"只分析这个 trace，不要看代码",
+		"只看这段客户日志，不要读取源码",
+		"根据 MCP 返回的外部观测解释现象，不要看代码",
+	} {
+		if !strings.Contains(system, want) {
+			t.Fatalf("classifier system prompt missing %q:\n%s", want, system)
+		}
+	}
+}
+
+func TestLocalResponderPromptForbidsVisibleReasoning(t *testing.T) {
+	for _, want := range []string{
+		"reveal hidden reasoning",
+		"meta commentary",
+		"the user is asking",
+		"I should",
+	} {
+		if !strings.Contains(localResponderSystemPrompt, want) {
+			t.Fatalf("local responder prompt missing %q:\n%s", want, localResponderSystemPrompt)
 		}
 	}
 }

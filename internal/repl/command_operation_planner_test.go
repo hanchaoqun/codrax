@@ -22,7 +22,7 @@ func commandOperationPlanResp(payload string) llm.Response {
 func TestCommandOperationPlannerCompatJSON(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":"false","work_dir":".","steps":[{"id":"s1","title":"show go version","program":"go","args":"version","timeout_ms":"30000","risk_level":"low","side_effects":""}],}` + "\ntrailing"),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":"false","continue_after":"true","work_dir":".","steps":[{"id":1,"title":"show go version","program":"go","args":"version","timeout_ms":"30000","risk_level":"low","side_effects":""}],}` + "\ntrailing"),
 		},
 	}
 	planner := NewCommandOperationPlanner(adapter)
@@ -40,8 +40,14 @@ func TestCommandOperationPlannerCompatJSON(t *testing.T) {
 	if req.Steps[0].Program != "go" || strings.Join(req.Steps[0].Args, " ") != "version" {
 		t.Fatalf("step mismatch: %+v", req.Steps[0])
 	}
+	if req.Steps[0].ID != "1" {
+		t.Fatalf("numeric step id was not decoded as string: %+v", req.Steps[0])
+	}
 	if req.RequiresConfirmation {
 		t.Fatal("requires_confirmation string false was not decoded")
+	}
+	if !req.ContinueAfter {
+		t.Fatal("continue_after string true was not decoded")
 	}
 }
 
@@ -289,6 +295,137 @@ func TestCommandOperationReplannerIncludesFailureContext(t *testing.T) {
 	} {
 		if !strings.Contains(user, want) {
 			t.Fatalf("replan request missing %q:\n%s", want, user)
+		}
+	}
+}
+
+func TestCommandOperationPlannerPromptForbidsNoopFactCommands(t *testing.T) {
+	for _, want := range []string{
+		"capability_snapshot is advisory context",
+		"real read-only commands that retrieve the requested facts",
+		"Do not use echo, printf, comments, or no-op placeholder commands",
+		"emit needs_clarification or plan a safe discovery command",
+		"Prefer iterative discovery over one-shot guessing",
+		"continue_after=true",
+		"For continuation requests",
+		"emit status=complete",
+		"Every filter command must have an explicit input source",
+		`Do not emit bare filters such as "grep pattern"`,
+		"collect both lanes when available",
+		"runtime state/process/service evidence and application/package metadata",
+		"Do not conclude absence from one empty process filter",
+		"do not ask the user for information that can still be safely discovered",
+		"Unknown facts are a reason to run another safe discovery batch",
+		"Ask the user only for user-owned inputs",
+	} {
+		if !strings.Contains(commandOperationPlannerSystemPrompt, want) {
+			t.Fatalf("planner prompt missing %q:\n%s", want, commandOperationPlannerSystemPrompt)
+		}
+	}
+}
+
+func TestCommandOperationContinuationEmptyClarificationCompletes(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"needs_clarification","risk_level":"low","requires_confirmation":false}`),
+		},
+	}
+	planner, ok := NewCommandOperationPlanner(adapter).(CommandOperationContinuationPlanner)
+	if !ok {
+		t.Fatal("planner should support command continuation")
+	}
+	cont, err := planner.ContinueCommandOperation(context.Background(), "查询 VPN 软件和版本", "/repo", TurnPolicy{
+		Operation:     "computer_operation",
+		OperationKind: "computer_operation",
+		RiskLevel:     "low",
+	}, operation.CapabilitySnapshot{}, []commandOperationResultRecord{{
+		Plan: operation.CommandOperationPlan{ID: "op-1", Status: operation.StatusExecuted},
+		Result: operation.CommandOperationResult{
+			PlanID: "op-1",
+			Status: operation.StatusExecuted,
+			StepResults: []operation.CommandStepResult{{
+				StepID:        "s1",
+				Status:        operation.StatusExecuted,
+				OutputPreview: "utun4 VPN server 127.0.0.1",
+			}},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("ContinueCommandOperation: %v", err)
+	}
+	if !cont.Complete {
+		t.Fatalf("empty clarification should fall back to final synthesis, got %+v", cont)
+	}
+	if cont.Request.Text != "" || len(cont.Request.ClarifyingQuestions) != 0 {
+		t.Fatalf("empty clarification must not synthesize a generic user question: %+v", cont.Request)
+	}
+}
+
+func TestCommandOperationContinuationComplete(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"complete","risk_level":"low","requires_confirmation":false,"block_reason":"enough observations"}`),
+		},
+	}
+	planner, ok := NewCommandOperationPlanner(adapter).(CommandOperationContinuationPlanner)
+	if !ok {
+		t.Fatal("planner should support command continuation")
+	}
+	cont, err := planner.ContinueCommandOperation(context.Background(), "查询 go 信息", "/repo", TurnPolicy{
+		Operation:     "computer_operation",
+		OperationKind: "computer_operation",
+		RiskLevel:     "low",
+	}, operation.CapabilitySnapshot{}, []commandOperationResultRecord{{
+		Plan: operation.CommandOperationPlan{ID: "op-1", Status: operation.StatusExecuted},
+		Result: operation.CommandOperationResult{
+			PlanID: "op-1",
+			Status: operation.StatusExecuted,
+			StepResults: []operation.CommandStepResult{{
+				StepID:        "s1",
+				Status:        operation.StatusExecuted,
+				OutputPreview: "go version go1.22.5 darwin/arm64",
+			}},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("ContinueCommandOperation: %v", err)
+	}
+	if !cont.Complete || cont.Reason != "enough observations" {
+		t.Fatalf("continuation=%+v", cont)
+	}
+	if len(adapter.calls) != 1 {
+		t.Fatalf("Chat calls=%d, want 1", len(adapter.calls))
+	}
+	user := ""
+	for i := len(adapter.calls[0].messages) - 1; i >= 0; i-- {
+		if adapter.calls[0].messages[i].Role == "user" {
+			user = adapter.calls[0].messages[i].Content
+			break
+		}
+	}
+	for _, want := range []string{
+		"## continuation_context",
+		"emit status=complete",
+		"can still be discovered by safe read-only commands",
+		"go version go1.22.5",
+	} {
+		if !strings.Contains(user, want) {
+			t.Fatalf("continuation prompt missing %q:\n%s", want, user)
+		}
+	}
+}
+
+func TestCommandOperationAnswerPromptForbidsVisibleReasoning(t *testing.T) {
+	for _, want := range []string{
+		"In this final operation report, do not output hidden reasoning",
+		"chain-of-thought",
+		"<think>",
+		"meta commentary",
+		"Output only the final user-facing report",
+		"every user-visible sentence must be Chinese",
+	} {
+		if !strings.Contains(commandOperationAnswerSystemPrompt, want) {
+			t.Fatalf("answer prompt missing %q:\n%s", want, commandOperationAnswerSystemPrompt)
 		}
 	}
 }

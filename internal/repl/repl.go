@@ -1221,6 +1221,8 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 		if plan.Status == operation.StatusReady && plan.ApprovalMode == operation.ApprovalAutoLowRisk {
 			r.pendingCommandClarification = nil
 			r.clearPendingOperationState()
+			r.finishOperationAutoStartSpinner()
+			r.renderBorderedCompact(commandOperationAutoExecuteMarkdown(r.language, plan))
 			r.executeCommandOperationPlan(plan, display, line)
 			return
 		}
@@ -1344,6 +1346,40 @@ func (r *REPL) finishOperationRouteSpinner(status operation.OperationStatus) {
 	r.renderer.SetTotalStages(0)
 	r.renderer.SetRouteSummary(label, segs)
 	r.renderer.StopSpinner()
+}
+
+func (r *REPL) finishOperationAutoStartSpinner() {
+	if r.renderer == nil || !r.renderer.SpinnerActive() {
+		return
+	}
+	label, segs := operationAutoStartSummary(r.language)
+	r.renderer.SetTotalStages(0)
+	r.renderer.SetRouteSummary(label, segs)
+	r.renderer.StopSpinner()
+}
+
+func operationAutoStartSummary(lang string) (string, []string) {
+	if isZh(lang) {
+		return "操作计划", []string{"自动执行", "未读仓库"}
+	}
+	return "operation plan", []string{"auto-run", "no repo read"}
+}
+
+func (r *REPL) startOperationExecutionSpinner() {
+	if r.renderer == nil || r.renderer.SpinnerActive() {
+		return
+	}
+	label, segs := operationRunningSummary(r.language)
+	r.renderer.SetTotalStages(0)
+	r.renderer.SetRouteSummary(label, segs)
+	r.renderer.StartSpinnerWithCancelHint(spinnerCancelHint(r.language))
+}
+
+func operationRunningSummary(lang string) (string, []string) {
+	if isZh(lang) {
+		return "操作执行", []string{"运行中", "未读仓库"}
+	}
+	return "operation execution", []string{"running", "no repo read"}
 }
 
 func operationRouteSummary(lang string, status operation.OperationStatus) (string, []string) {
@@ -1604,14 +1640,15 @@ func (r *REPL) handleOperationRejectCmd(line string) {
 }
 
 func (r *REPL) executeCommandOperationPlan(plan operation.CommandOperationPlan, request, display string) {
-	r.executeCommandOperationPlanAttempt(plan, request, display, 0)
+	r.executeCommandOperationPlanAttempt(plan, request, display, 0, nil)
 }
 
-func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperationPlan, request, display string, replanAttempts int) {
+func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperationPlan, request, display string, replanAttempts int, records []commandOperationResultRecord) {
 	r.pendingOperation = nil
 	r.clearPendingOperationState()
 	r.runInFlight.Store(true)
 	ctx := r.startTurn()
+	r.startOperationExecutionSpinner()
 	defer func() {
 		r.endTurn()
 		r.runInFlight.Store(false)
@@ -1621,6 +1658,12 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 		Policy:    r.operationPolicy,
 		OutputDir: r.operationOutputDir(),
 		OnStepStart: func(step operation.CommandStep) {
+			logging.Info("[repl/operation] command step start plan_id=%s step_id=%s cmd=%q risk=%q side_effects=%q",
+				plan.ID,
+				step.ID,
+				oneLineClamp(commandOperationStepCommand(step), 220),
+				step.RiskLevel,
+				strings.Join(step.SideEffects, ","))
 			r.info(commandOperationProgressMsg(r.language, step))
 		},
 	}
@@ -1630,36 +1673,81 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 	plan.Status = result.Status
 	r.operationHistory = append(r.operationHistory, plan)
 	r.appendCommandOperationResult(plan, result)
+	records = append(records, commandOperationResultRecord{Plan: plan, Result: result})
+	for _, stepResult := range result.StepResults {
+		planStep := commandOperationStepByID(plan, stepResult.StepID)
+		logging.Info("[repl/operation] command step result plan_id=%s step_id=%s cmd=%q status=%s exit_code=%d timed_out=%t failure_class=%q verification=%s payload_ref=%s output_preview=%q error=%q",
+			plan.ID,
+			stepResult.StepID,
+			oneLineClamp(commandOperationStepCommand(planStep), 220),
+			stepResult.Status,
+			stepResult.ExitCode,
+			stepResult.TimedOut,
+			stepResult.FailureClass,
+			stepResult.Verification.Status,
+			stepResult.PayloadRef,
+			oneLineClamp(stepResult.OutputPreview, 240),
+			oneLineClamp(stepResult.Error, 240))
+	}
 	logging.Info("[repl/operation] command execute result plan_id=%s status=%s step_results=%d replan_attempt=%d",
 		plan.ID, result.Status, len(result.StepResults), replanAttempts)
-	if r.maybeReplanCommandOperation(ctx, plan, result, request, display, replanAttempts) {
+	if r.maybeReplanCommandOperation(ctx, plan, result, request, display, replanAttempts, records) {
 		return
 	}
-	msg := r.commandOperationFinalMessage(ctx, request, plan, result)
+	if r.maybeContinueCommandOperation(ctx, plan, result, request, display, records) {
+		return
+	}
+	msg, thoughts := r.commandOperationFinalMessage(ctx, request, records)
 	r.finishOperationRouteSpinner(result.Status)
+	r.emitOperationVisibleThoughts(thoughts)
 	r.renderBordered(msg)
 	r.recordTurn(display, request, msg, memory.KindPipeline)
 }
 
-func (r *REPL) commandOperationFinalMessage(ctx context.Context, userLine string, plan operation.CommandOperationPlan, result operation.CommandOperationResult) string {
-	details := commandOperationResultMarkdown(r.language, plan, result)
+func (r *REPL) commandOperationFinalMessage(ctx context.Context, userLine string, records []commandOperationResultRecord) (string, []string) {
+	details := commandOperationRecordsMarkdown(r.language, records)
+	if len(records) == 0 {
+		return details, nil
+	}
+	last := records[len(records)-1]
+	if recordsAnswerer, ok := r.operationPlanner.(CommandOperationRecordsAnswerer); ok && recordsAnswerer != nil {
+		answer, err := recordsAnswerer.AnswerCommandOperationRecords(ctx, userLine, records, r.language)
+		if err != nil {
+			logging.Warning("[repl/operation] command result answer synthesis failed: %v", err)
+			return details, nil
+		}
+		answer = strings.TrimSpace(answer)
+		thoughts, answer := splitVisibleThinkBlocks(answer)
+		if answer == "" {
+			return details, thoughts
+		}
+		return operationFinalReportWithDetails(r.language, answer, details), thoughts
+	}
 	answerer, ok := r.operationPlanner.(CommandOperationAnswerer)
 	if !ok || answerer == nil {
-		return details
+		return details, nil
 	}
-	answer, err := answerer.AnswerCommandOperationResult(ctx, userLine, plan, result, r.language)
+	answer, err := answerer.AnswerCommandOperationResult(ctx, userLine, last.Plan, last.Result, r.language)
 	if err != nil {
 		logging.Warning("[repl/operation] command result answer synthesis failed: %v", err)
-		return details
+		return details, nil
 	}
 	answer = strings.TrimSpace(answer)
+	thoughts, answer := splitVisibleThinkBlocks(answer)
 	if answer == "" {
-		return details
+		return details, thoughts
 	}
-	return operationFinalReportWithDetails(r.language, answer, details)
+	return operationFinalReportWithDetails(r.language, answer, details), thoughts
 }
 
-func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan operation.CommandOperationPlan, result operation.CommandOperationResult, request, display string, replanAttempts int) bool {
+func (r *REPL) emitOperationVisibleThoughts(thoughts []string) {
+	if len(thoughts) == 0 {
+		return
+	}
+	logging.Info("[repl/operation] suppressed %d visible think block(s) from operation answer", len(thoughts))
+}
+
+func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan operation.CommandOperationPlan, result operation.CommandOperationResult, request, display string, replanAttempts int, records []commandOperationResultRecord) bool {
 	if result.Status != operation.StatusFailed || replanAttempts >= 1 || r.operationPlanner == nil {
 		return false
 	}
@@ -1688,8 +1776,8 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 			msg += "\n\n"
 			msg += commandOperationPlanMarkdown(r.language, revisedPlan)
 			r.finishOperationRouteSpinner(revisedPlan.Status)
-			r.renderBordered(msg)
-			r.executeCommandOperationPlanAttempt(revisedPlan, request, display, replanAttempts+1)
+			r.renderBorderedCompact(msg)
+			r.executeCommandOperationPlanAttempt(revisedPlan, request, display, replanAttempts+1, records)
 			return true
 		}
 		r.pendingOperation = &revisedPlan
@@ -1703,6 +1791,59 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 	msg += commandOperationPlanMarkdown(r.language, revisedPlan)
 	r.finishOperationRouteSpinner(revisedPlan.Status)
 	r.renderBordered(msg)
+	r.recordTurn(display, request, msg, memory.KindPipeline)
+	return true
+}
+
+const commandOperationMaxContinuationRounds = 3
+
+func (r *REPL) maybeContinueCommandOperation(ctx context.Context, plan operation.CommandOperationPlan, result operation.CommandOperationResult, request, display string, records []commandOperationResultRecord) bool {
+	if result.Status != operation.StatusExecuted || !plan.ContinueAfter || len(records) > commandOperationMaxContinuationRounds || r.operationPlanner == nil {
+		return false
+	}
+	continuer, ok := r.operationPlanner.(CommandOperationContinuationPlanner)
+	if !ok {
+		return false
+	}
+	snapshot := r.commandOperationCapabilitySnapshot()
+	next, err := continuer.ContinueCommandOperation(ctx, plan.RequestText, r.repoRoot, commandOperationPolicyFromPlan(plan), snapshot, records)
+	if err != nil {
+		logging.Warning("[repl/operation] command continuation planning failed: %v", err)
+		return false
+	}
+	if next.Complete {
+		logging.Info("[repl/operation] command continuation complete plan_id=%s reason=%q rounds=%d",
+			plan.ID, oneLineClamp(next.Reason, 160), len(records))
+		return false
+	}
+	nextPlan := operation.BuildCommandOperationPlan(next.Request, r.operationPolicy)
+	logging.Info("[repl/operation] command continuation generated previous_plan_id=%s status=%s risk=%q approval=%q steps=%d rounds=%d",
+		plan.ID, nextPlan.Status, nextPlan.RiskLevel, nextPlan.ApprovalMode, len(nextPlan.Steps), len(records))
+	if nextPlan.Status == operation.StatusNeedsClarification && len(nextPlan.ClarifyingQuestions) == 0 {
+		logging.Warning("[repl/operation] command continuation returned needs_clarification without actionable questions; falling back to final synthesis")
+		return false
+	}
+	if nextPlan.Status == operation.StatusReady && nextPlan.ApprovalMode == operation.ApprovalAutoLowRisk {
+		msg := commandOperationContinuationIntro(r.language, nextPlan)
+		msg += "\n\n"
+		msg += commandOperationPlanMarkdown(r.language, nextPlan)
+		r.finishOperationRouteSpinner(nextPlan.Status)
+		r.renderBorderedCompact(msg)
+		r.executeCommandOperationPlanAttempt(nextPlan, request, display, 0, records)
+		return true
+	}
+	if nextPlan.Status == operation.StatusReady {
+		r.pendingOperation = &nextPlan
+		r.savePendingOperationState()
+	}
+	r.operationHistory = append(r.operationHistory, nextPlan)
+	msg := commandOperationRecordsMarkdown(r.language, records)
+	msg += "\n\n"
+	msg += commandOperationContinuationIntro(r.language, nextPlan)
+	msg += "\n\n"
+	msg += commandOperationPlanMarkdown(r.language, nextPlan)
+	r.finishOperationRouteSpinner(nextPlan.Status)
+	r.renderBorderedCompact(msg)
 	r.recordTurn(display, request, msg, memory.KindPipeline)
 	return true
 }
@@ -3283,6 +3424,14 @@ func (r *REPL) renderRichResponse(text string) string {
 // visual blocks keep their physical rows byte-for-byte because
 // trimming/wrapping diagrams and tables corrupts the user's content.
 func (r *REPL) renderBordered(response string) {
+	r.renderBorderedWithTrailingBlank(response, true)
+}
+
+func (r *REPL) renderBorderedCompact(response string) {
+	r.renderBorderedWithTrailingBlank(response, false)
+}
+
+func (r *REPL) renderBorderedWithTrailingBlank(response string, trailingBlank bool) {
 	lines := borderedResponseLines(response)
 	bar := pterm.FgWhite.Sprint("│")
 	// Wrap each line to fit the terminal, accounting for the
@@ -3298,7 +3447,11 @@ func (r *REPL) renderBordered(response string) {
 			r.writeBorderedContentLine(bar, wl, ln.visual || shouldPreserveVisualLine(wl), maxContent)
 		}
 	}
-	fmt.Fprintf(r.out, "  %s\n\n", bar)
+	if trailingBlank {
+		fmt.Fprintf(r.out, "  %s\n\n", bar)
+		return
+	}
+	fmt.Fprintf(r.out, "  %s\n", bar)
 }
 
 func (r *REPL) writeBorderedContentLine(bar, line string, visual bool, maxContent int) {
@@ -5241,7 +5394,7 @@ func (r *REPL) executeProviderOperationFlow(ctx context.Context, first pendingPr
 	if len(records) == 0 {
 		return
 	}
-	msg := r.providerOperationFinalMessage(ctx, first.Request.Text, records)
+	msg, thoughts := r.providerOperationFinalMessage(ctx, first.Request.Text, records)
 	if pending := r.pendingProviderOperation; pending != nil {
 		if strings.TrimSpace(msg) != "" {
 			msg += "\n\n"
@@ -5261,11 +5414,12 @@ func (r *REPL) executeProviderOperationFlow(ctx context.Context, first pendingPr
 		r.clearPendingOperationState()
 	}
 	r.finishOperationRouteSpinner(finalStatus)
+	r.emitOperationVisibleThoughts(thoughts)
 	r.renderBordered(msg)
 	r.recordTurn(first.Display, first.Request.Text, msg, memory.KindPipeline)
 }
 
-func (r *REPL) providerOperationFinalMessage(ctx context.Context, userLine string, records []providerOperationResultRecord) string {
+func (r *REPL) providerOperationFinalMessage(ctx context.Context, userLine string, records []providerOperationResultRecord) (string, []string) {
 	var details strings.Builder
 	for i, rec := range records {
 		if i > 0 {
@@ -5276,18 +5430,19 @@ func (r *REPL) providerOperationFinalMessage(ctx context.Context, userLine strin
 	detailText := strings.TrimSpace(details.String())
 	answerer, ok := r.operationPlanner.(ProviderOperationAnswerer)
 	if !ok || answerer == nil {
-		return detailText
+		return detailText, nil
 	}
 	answer, err := answerer.AnswerProviderOperationResult(ctx, userLine, records, r.language)
 	if err != nil {
 		logging.Warning("[repl/operation] provider result answer synthesis failed: %v", err)
-		return detailText
+		return detailText, nil
 	}
 	answer = strings.TrimSpace(answer)
+	thoughts, answer := splitVisibleThinkBlocks(answer)
 	if answer == "" {
-		return detailText
+		return detailText, thoughts
 	}
-	return operationFinalReportWithDetails(r.language, answer, detailText)
+	return operationFinalReportWithDetails(r.language, answer, detailText), thoughts
 }
 
 func (r *REPL) executeProviderOperation(ctx context.Context, pending pendingProviderOperation) providerOperationResult {

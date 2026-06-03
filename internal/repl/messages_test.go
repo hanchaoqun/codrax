@@ -1,6 +1,7 @@
 package repl
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -198,6 +199,97 @@ func TestCommandOperationResultMarkdownClampsPanelPreview(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Fatalf("result markdown missing %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestCommandOperationAutoExecuteMarkdownShowsCommands(t *testing.T) {
+	plan := operation.CommandOperationPlan{
+		ID:           "op-auto",
+		ApprovalMode: operation.ApprovalAutoLowRisk,
+		RiskLevel:    "low",
+		WorkDir:      "/repo",
+		Steps: []operation.CommandStep{{
+			ID:      "s1",
+			Program: "uname",
+			Args:    []string{"-a"},
+		}},
+	}
+	got := commandOperationAutoExecuteMarkdown("zh", plan)
+	for _, want := range []string{
+		"将自动执行",
+		"审批：`auto_low_risk`",
+		"`$ uname -a`",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("auto execute markdown missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestCommandOperationResultMarkdownShowsExecutedCommands(t *testing.T) {
+	plan := operation.CommandOperationPlan{
+		ID: "op-result",
+		Steps: []operation.CommandStep{{
+			ID:      "s1",
+			Program: "sysctl",
+			Args:    []string{"-n", "hw.memsize"},
+		}},
+	}
+	result := operation.CommandOperationResult{
+		PlanID: "op-result",
+		Status: operation.StatusExecuted,
+		StepResults: []operation.CommandStepResult{{
+			StepID:        "s1",
+			Status:        operation.StatusExecuted,
+			OutputPreview: "68719476736",
+		}},
+	}
+	got := commandOperationResultMarkdown("zh", plan, result)
+	for _, want := range []string{
+		"命令：`$ sysctl -n hw.memsize`",
+		"68719476736",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("result markdown missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestSplitVisibleThinkBlocksKeepsOperationAnswerPanelClean(t *testing.T) {
+	thoughts, answer := splitVisibleThinkBlocks("<think>我先根据输出判断 VPN 候选</think>\n\n## 结果\nShadowrocket 正在运行。")
+	if len(thoughts) != 1 || !strings.Contains(thoughts[0], "VPN 候选") {
+		t.Fatalf("thoughts=%+v, want extracted operation thought", thoughts)
+	}
+	if strings.Contains(answer, "<think>") || strings.Contains(answer, "</think>") {
+		t.Fatalf("answer still contains think block: %q", answer)
+	}
+	if !strings.Contains(answer, "Shadowrocket 正在运行") {
+		t.Fatalf("answer lost final report: %q", answer)
+	}
+}
+
+func TestOperationVisibleThinkBlocksAreSuppressedFromPanel(t *testing.T) {
+	var out bytes.Buffer
+	r := &REPL{out: &out, language: "zh"}
+	r.emitOperationVisibleThoughts([]string{"The user is asking about system info"})
+	if got := out.String(); got != "" {
+		t.Fatalf("operation think blocks must not render in the user panel, got %q", got)
+	}
+}
+
+func TestRenderBorderedCompactDoesNotAddExtraBlankLine(t *testing.T) {
+	var out bytes.Buffer
+	r := &REPL{out: &out}
+	r.renderBorderedCompact("操作计划 `op-1` 将自动执行。")
+	got := out.String()
+	if strings.Contains(got, "│\n\n\n") {
+		t.Fatalf("compact border rendered excessive blank lines: %q", got)
+	}
+	if strings.HasSuffix(got, "\n\n") {
+		t.Fatalf("compact border should end with one newline, got %q", got)
+	}
+	if !strings.HasSuffix(got, "\n") {
+		t.Fatalf("compact border should still end with a newline, got %q", got)
 	}
 }
 

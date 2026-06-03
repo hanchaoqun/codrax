@@ -1466,6 +1466,75 @@ func TestCommandOperationE2E_AutoLowRiskSynthesizesFinalAnswer(t *testing.T) {
 	}
 }
 
+func TestCommandOperationE2E_AutoExecutionShowsProgress(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"s1","title":"show go version","program":"go","args":["version"],"risk_level":"low","side_effects":[]}]}`),
+			{Content: "Go 版本查询完成。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+
+	r.operationDispatch("查询 go 版本", "查询 go 版本", commandOperationPolicy("low"))
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("auto operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	printed := out.String()
+	for _, want := range []string{
+		"will run automatically",
+		"Operating: show go version",
+		"Go 版本查询完成",
+		"go version",
+	} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("auto execution output missing %q:\n%s", want, printed)
+		}
+	}
+}
+
+func TestCommandOperationE2E_ContinueAfterRunsSecondBatchBeforeAnswer(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"continue_after":true,"work_dir":".","steps":[{"id":"s1","title":"discover go version","program":"go","args":["version"],"risk_level":"low","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":"s2","title":"discover go os","program":"go","args":["env","GOOS"],"risk_level":"low","side_effects":[]}]}`),
+			{Content: "已完成两轮探测：先确认 Go 版本，再确认 GOOS。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "查询 go 版本和 GOOS\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("continued operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(adapter.calls) != 3 {
+		t.Fatalf("planner+continuation+answer calls=%d, want 3", len(adapter.calls))
+	}
+	printed := out.String()
+	for _, want := range []string{
+		"已完成两轮探测",
+		"go version",
+		"go env GOOS",
+		"Round 2",
+	} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("continued operation output missing %q:\n%s", want, printed)
+		}
+	}
+}
+
 func TestCommandOperationE2E_StopsPrearmedRendererSpinner(t *testing.T) {
 	store := newPolicyStore(t)
 	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
@@ -1632,6 +1701,43 @@ func TestCommandOperationE2E_FailedApprovedCommandCreatesRevisedPlan(t *testing.
 	} {
 		if !strings.Contains(printed, want) {
 			t.Fatalf("replan output missing %q:\n%s", want, printed)
+		}
+	}
+}
+
+func TestCommandOperationE2E_InvalidShellFilterReplansWithNumericStepID(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"medium","requires_confirmation":false,"work_dir":".","steps":[{"id":1,"title":"bad process filter","shell":"grep -i vpn | grep -v grep || echo none","risk_level":"medium","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","steps":[{"id":2,"title":"safe version check","program":"go","args":["version"],"risk_level":"low","side_effects":[]}]}`),
+			{Content: "已修复无输入过滤命令，并完成替代查询。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "查一下当前 VPN 软件和版本\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("command operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(adapter.calls) != 3 {
+		t.Fatalf("planner+replan+answer calls=%d, want 3", len(adapter.calls))
+	}
+	printed := out.String()
+	for _, want := range []string{
+		"shell filter has no explicit input source",
+		"revised command plan",
+		"go version",
+		"已修复无输入过滤命令",
+	} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("invalid-shell replan output missing %q:\n%s", want, printed)
 		}
 	}
 }

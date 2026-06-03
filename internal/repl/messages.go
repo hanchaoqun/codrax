@@ -1071,6 +1071,9 @@ func commandOperationPlanMarkdown(lang string, plan operation.CommandOperationPl
 			b.WriteString(fmt.Sprintf("- 风险：`%s`\n", plan.RiskLevel))
 			b.WriteString(fmt.Sprintf("- 审批：`%s`\n", plan.ApprovalMode))
 			b.WriteString(fmt.Sprintf("- 工作目录：`%s`\n", plan.WorkDir))
+			if plan.ContinueAfter {
+				b.WriteString("- 规划方式：执行后继续规划下一批操作\n")
+			}
 			b.WriteString("\n计划步骤：\n")
 			for i, step := range plan.Steps {
 				cmd := step.Program
@@ -1112,6 +1115,9 @@ func commandOperationPlanMarkdown(lang string, plan operation.CommandOperationPl
 		b.WriteString(fmt.Sprintf("- Risk: `%s`\n", plan.RiskLevel))
 		b.WriteString(fmt.Sprintf("- Approval: `%s`\n", plan.ApprovalMode))
 		b.WriteString(fmt.Sprintf("- Working directory: `%s`\n", plan.WorkDir))
+		if plan.ContinueAfter {
+			b.WriteString("- Planning: continue after this batch executes\n")
+		}
 		b.WriteString("\nPlanned steps:\n")
 		for i, step := range plan.Steps {
 			cmd := step.Program
@@ -1127,6 +1133,55 @@ func commandOperationPlanMarkdown(lang string, plan operation.CommandOperationPl
 		b.WriteString("\nRun `/approve` to execute, or `/reject <reason>` to reject.")
 		return strings.TrimSpace(b.String())
 	}
+}
+
+func commandOperationAutoExecuteMarkdown(lang string, plan operation.CommandOperationPlan) string {
+	if isZh(lang) {
+		var b strings.Builder
+		b.WriteString(fmt.Sprintf("操作计划 `%s` 将自动执行。\n\n", plan.ID))
+		b.WriteString(fmt.Sprintf("- 审批：`%s`\n", plan.ApprovalMode))
+		b.WriteString(fmt.Sprintf("- 风险：`%s`\n", plan.RiskLevel))
+		b.WriteString(fmt.Sprintf("- 工作目录：`%s`\n", plan.WorkDir))
+		if plan.ContinueAfter {
+			b.WriteString("- 规划方式：执行后继续规划下一批操作\n")
+		}
+		b.WriteString("\n即将执行：\n")
+		shown := 0
+		for i, step := range plan.Steps {
+			cmd := commandOperationStepCommand(step)
+			if strings.TrimSpace(cmd) == "" {
+				continue
+			}
+			shown++
+			b.WriteString(fmt.Sprintf("%d. `$ %s`\n", i+1, cmd))
+		}
+		if shown == 0 {
+			b.WriteString("（没有可执行命令；系统不会执行空计划。）\n")
+		}
+		return strings.TrimSpace(b.String())
+	}
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("Operation plan `%s` will run automatically.\n\n", plan.ID))
+	b.WriteString(fmt.Sprintf("- Approval: `%s`\n", plan.ApprovalMode))
+	b.WriteString(fmt.Sprintf("- Risk: `%s`\n", plan.RiskLevel))
+	b.WriteString(fmt.Sprintf("- Working directory: `%s`\n", plan.WorkDir))
+	if plan.ContinueAfter {
+		b.WriteString("- Planning: continue after this batch executes\n")
+	}
+	b.WriteString("\nCommands to run:\n")
+	shown := 0
+	for i, step := range plan.Steps {
+		cmd := commandOperationStepCommand(step)
+		if strings.TrimSpace(cmd) == "" {
+			continue
+		}
+		shown++
+		b.WriteString(fmt.Sprintf("%d. `$ %s`\n", i+1, cmd))
+	}
+	if shown == 0 {
+		b.WriteString("(No executable commands; Codrax will not execute an empty plan.)\n")
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func operationNoPendingMsg(lang string) string {
@@ -1467,7 +1522,11 @@ func commandOperationResultMarkdown(lang string, plan operation.CommandOperation
 			b.WriteString(fmt.Sprintf("操作计划 `%s` 执行失败。\n\n", plan.ID))
 		}
 		for i, step := range result.StepResults {
+			planStep := commandOperationStepByID(plan, step.StepID)
 			b.WriteString(fmt.Sprintf("%d. step `%s`：%s\n", i+1, step.StepID, step.Status))
+			if cmd := commandOperationStepCommand(planStep); cmd != "" {
+				b.WriteString(fmt.Sprintf("   命令：`$ %s`\n", cmd))
+			}
 			if step.Error != "" {
 				b.WriteString(fmt.Sprintf("   错误：%s\n", step.Error))
 			}
@@ -1499,7 +1558,11 @@ func commandOperationResultMarkdown(lang string, plan operation.CommandOperation
 		b.WriteString(fmt.Sprintf("Operation plan `%s` failed.\n\n", plan.ID))
 	}
 	for i, step := range result.StepResults {
+		planStep := commandOperationStepByID(plan, step.StepID)
 		b.WriteString(fmt.Sprintf("%d. step `%s`: %s\n", i+1, step.StepID, step.Status))
+		if cmd := commandOperationStepCommand(planStep); cmd != "" {
+			b.WriteString(fmt.Sprintf("   Command: `$ %s`\n", cmd))
+		}
 		if step.Error != "" {
 			b.WriteString(fmt.Sprintf("   Error: %s\n", step.Error))
 		}
@@ -1522,6 +1585,67 @@ func commandOperationResultMarkdown(lang string, plan operation.CommandOperation
 	return strings.TrimSpace(b.String())
 }
 
+func commandOperationRecordsMarkdown(lang string, records []commandOperationResultRecord) string {
+	if len(records) == 0 {
+		return ""
+	}
+	if len(records) == 1 {
+		return commandOperationResultMarkdown(lang, records[0].Plan, records[0].Result)
+	}
+	var b strings.Builder
+	if isZh(lang) {
+		b.WriteString(fmt.Sprintf("操作任务分 %d 轮执行完成。\n\n", len(records)))
+		for i, rec := range records {
+			b.WriteString(fmt.Sprintf("### 第 %d 轮\n\n", i+1))
+			b.WriteString(commandOperationResultMarkdown(lang, rec.Plan, rec.Result))
+			if i < len(records)-1 {
+				b.WriteString("\n\n")
+			}
+		}
+		return strings.TrimSpace(b.String())
+	}
+	b.WriteString(fmt.Sprintf("Operation task completed in %d rounds.\n\n", len(records)))
+	for i, rec := range records {
+		b.WriteString(fmt.Sprintf("### Round %d\n\n", i+1))
+		b.WriteString(commandOperationResultMarkdown(lang, rec.Plan, rec.Result))
+		if i < len(records)-1 {
+			b.WriteString("\n\n")
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func commandOperationContinuationIntro(lang string, plan operation.CommandOperationPlan) string {
+	if isZh(lang) {
+		switch plan.Status {
+		case operation.StatusReady:
+			if plan.ApprovalMode == operation.ApprovalAutoLowRisk {
+				return fmt.Sprintf("上一轮结果还不足以完整回答，已生成下一批操作计划 `%s`，将继续自动执行。", plan.ID)
+			}
+			return fmt.Sprintf("上一轮结果还不足以完整回答，已生成下一批操作计划 `%s`，需要批准后继续。", plan.ID)
+		case operation.StatusNeedsClarification:
+			return "上一轮结果显示还缺少关键信息，需要你补充后才能继续。"
+		case operation.StatusBlocked:
+			return "上一轮结果显示后续操作被策略阻止。"
+		default:
+			return "上一轮结果已交回规划器，生成了后续处理。"
+		}
+	}
+	switch plan.Status {
+	case operation.StatusReady:
+		if plan.ApprovalMode == operation.ApprovalAutoLowRisk {
+			return fmt.Sprintf("The previous round was not enough to answer fully, so Codrax generated the next operation plan `%s` and will continue automatically.", plan.ID)
+		}
+		return fmt.Sprintf("The previous round was not enough to answer fully, so Codrax generated the next operation plan `%s`; approval is required to continue.", plan.ID)
+	case operation.StatusNeedsClarification:
+		return "The previous round showed that key details are still missing; clarification is required before continuing."
+	case operation.StatusBlocked:
+		return "The previous round showed that the next operation is blocked by policy."
+	default:
+		return "The previous round was returned to the planner and produced a follow-up action."
+	}
+}
+
 func operationFinalReportWithDetails(lang, answer, details string) string {
 	answer = strings.TrimSpace(answer)
 	details = strings.TrimSpace(details)
@@ -1535,6 +1659,35 @@ func operationFinalReportWithDetails(lang, answer, details string) string {
 		return answer + "\n\n---\n\n执行详情：\n\n" + details
 	}
 	return answer + "\n\n---\n\nExecution details:\n\n" + details
+}
+
+func splitVisibleThinkBlocks(text string) ([]string, string) {
+	rest := text
+	var thoughts []string
+	var cleaned strings.Builder
+	for {
+		lower := strings.ToLower(rest)
+		start := strings.Index(lower, "<think>")
+		if start < 0 {
+			cleaned.WriteString(rest)
+			break
+		}
+		cleaned.WriteString(rest[:start])
+		afterStart := start + len("<think>")
+		endRel := strings.Index(lower[afterStart:], "</think>")
+		if endRel < 0 {
+			if thought := strings.TrimSpace(rest[afterStart:]); thought != "" {
+				thoughts = append(thoughts, thought)
+			}
+			break
+		}
+		end := afterStart + endRel
+		if thought := strings.TrimSpace(rest[afterStart:end]); thought != "" {
+			thoughts = append(thoughts, thought)
+		}
+		rest = rest[end+len("</think>"):]
+	}
+	return thoughts, strings.TrimSpace(cleaned.String())
 }
 
 const commandOperationDisplayPreviewRunes = 2048

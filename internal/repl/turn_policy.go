@@ -13,7 +13,7 @@ package repl
 // the finalizer simply restated the previous answer in a new shape.
 //
 // TurnPolicy is the structured replacement: every turn is one of
-// {local, repo, hybrid, clarify} with a small set of orthogonal
+// {local, repo, hybrid, clarify, operation} with a small set of orthogonal
 // signals (operation / source / confidence + an optional
 // presentation_directive). The LLM emits the policy via
 // emit_turn_policy; deterministic guards then patch obvious
@@ -150,20 +150,20 @@ var turnPolicyTool = llm.ToolSchema{
     "route": {
       "type": "string",
       "enum": ["local", "repo", "hybrid", "clarify", "operation"],
-      "description": "local = answer from current message + previous answer + conversation context; no repo read. repo = read repository, run the analysis pipeline. hybrid = run the pipeline AND apply a transformation/presentation directive from the previous answer or user framing. clarify = user references missing state or an unsafe/underspecified operation and should be asked for clarification. operation = perform a computer operation or generate an external artifact such as PPT/document/spreadsheet/browser/desktop workflow; it is not a source-code evidence investigation. When uncertain about a code question, prefer repo. When uncertain about side effects, prefer clarify."
+      "description": "local = answer from current message + previous answer + conversation context; no repo read and no computer access. repo = run the analysis pipeline for source code OR external observations such as attached logs/traces/MCP rows; analyzer may later exclude current source when the user explicitly asks not to inspect code. hybrid = run the pipeline AND apply a transformation/presentation directive from the previous answer or user framing. clarify = user references missing state or an unsafe/underspecified operation and should be asked for clarification. operation = perform a computer operation or generate an external artifact such as querying the current machine/environment, running local commands, file operations, downloading/installing/uninstalling software, SSH/remote-environment work, or PPT/document/spreadsheet/browser/desktop workflows; it is not a source-code/log/trace evidence investigation. When uncertain about a code/log/trace/MCP evidence question, prefer repo. When uncertain about side effects, prefer clarify."
     },
     "needs_repo_access": {
       "type": "boolean",
-      "description": "true iff route is repo or hybrid, or an operation explicitly needs fresh repository facts first. The dispatcher cross-checks this with route; mismatch demotes to a safe default."
+      "description": "true iff route is repo or hybrid, or an operation explicitly needs fresh repository facts first. Route=repo also covers pipeline analysis of external observations such as logs/traces even when the analyzer later excludes current source. The dispatcher cross-checks this with route; mismatch demotes to a safe default."
     },
     "needs_operation_access": {
       "type": "boolean",
-      "description": "true iff the turn needs a computer/artifact/external-skill operation surface. Set true for route=operation. Do not set it for ordinary source investigation."
+      "description": "true iff the turn needs a computer/artifact/external-skill operation surface. Set true for route=operation. Do not set it for ordinary source, log, trace, MCP, or other external-observation investigation."
     },
     "operation": {
       "type": "string",
       "enum": ["chat", "transform", "summarize", "translate", "elaborate", "investigate", "computer_operation", "artifact_generation", "presentation_generation", "document_generation", "spreadsheet_generation", "browser_operation", "external_skill_workflow"],
-      "description": "chat = greeting / pleasantry / capability question. transform = change the form of the previous answer (mermaid, table, ...). summarize = shorten the previous answer. translate = render in another language. elaborate = expand on previous answer without new evidence. investigate = fresh code investigation. computer_operation/artifact_generation/etc. = operation route candidates that should not be run through the code-evidence pipeline."
+      "description": "chat = greeting / pleasantry / capability question that does not require computer access. transform = change the form of the previous answer (mermaid, table, ...). summarize = shorten the previous answer. translate = render in another language. elaborate = expand on previous answer without new evidence. investigate = fresh code/log/trace/MCP/external-observation investigation through the analysis pipeline. computer_operation/artifact_generation/etc. = operation route candidates that should not be run through the code-evidence pipeline. Questions about the current OS, memory, CPU, GPU, installed tools, paths, versions, or filesystem state are computer_operation when answering them requires local command execution."
     },
     "operation_kind": {
       "type": "string",
@@ -173,7 +173,7 @@ var turnPolicyTool = llm.ToolSchema{
     "source": {
       "type": "string",
       "enum": ["current_message", "last_answer", "prior_context", "repo", "mixed", "external_tool", "artifact"],
-      "description": "Where the answer's content comes from. last_answer = derives from the immediately previous response. prior_context = derives from earlier conversation. repo = requires reading repository files. mixed = combination of the above. external_tool/artifact = operation or external skill result."
+      "description": "Where the answer's content comes from. last_answer = derives from the immediately previous response. prior_context = derives from earlier conversation. repo = requires reading repository files. mixed = combination of the above. external_tool/artifact = external observation, operation result, or external skill result."
     },
     "risk_level": {
       "type": "string",
@@ -182,8 +182,8 @@ var turnPolicyTool = llm.ToolSchema{
     },
     "side_effects": {
       "type": "array",
-      "items": {"type":"string", "enum":["local_file_write", "desktop_ui", "browser_ui", "network_read", "network_submit", "external_system_write", "destructive"]},
-      "description": "Operation side effects. Empty for non-operation routes. local_file_write covers creating files such as PPTX/DOCX/XLSX; network_submit/destructive require confirmation."
+      "items": {"type":"string", "enum":["local_file_write", "desktop_ui", "browser_ui", "network_read", "network_submit", "external_system_write", "package_install", "package_uninstall", "remote_exec", "destructive"]},
+      "description": "Operation side effects. Empty for non-operation routes. local_file_write covers creating files such as PPTX/DOCX/XLSX; package_install/package_uninstall cover installing or removing software; remote_exec covers SSH or remote-environment command execution; network_submit/destructive require confirmation."
     },
     "target_surface": {
       "type": "string",
@@ -226,12 +226,21 @@ The five routes:
             dispatcher will NOT read repository files. Pick this for
             transformations / summaries / translations / elaborations
             that operate on the previous answer, and for greetings /
-            capability questions that don't reference the codebase.
+            capability questions that don't reference the codebase or
+            require current-machine/computer access.
 
   repo    — the answer requires reading repository files. The
             dispatcher runs the full analysis pipeline. Pick this for
             any fresh code investigation, or when the user explicitly
-            asks to re-read / re-confirm the repository.
+            asks to re-read / re-confirm the repository. Also pick this
+            for fresh LOG / TRACE / MCP / connector external-observation
+            analysis: the same pipeline owns log_triage, perf_triage,
+            trace_query, ObservationLedger, and final answer grounding.
+            If the user explicitly says not to inspect current code,
+            still use this analysis pipeline; the analyzer will carry
+            that as an external-observation / no-current-source policy.
+            Do NOT reroute external-observation analysis to operation
+            merely because it should avoid current source.
 
   hybrid  — the answer requires BOTH: re-read the repository AND apply
             a presentation/transformation that came from the previous
@@ -250,19 +259,34 @@ The five routes:
 
   operation — the answer requires a computer operation or artifact
             generation surface, independent of source-code evidence:
-            creating slides/PPT, documents, spreadsheets, browser or
-            desktop workflows, or invoking an external skill workflow.
-            This route is NOT for explaining code, logs, or traces.
+            querying the current machine/environment, running local
+            commands, inspecting installed tools/versions/filesystem
+            state, moving/copying/searching files, downloading files,
+            installing or uninstalling packages, operating a remote
+            environment through SSH or similar tools, creating
+            slides/PPT, documents, spreadsheets, browser or desktop
+            workflows, or invoking an external skill workflow.
+            This route is NOT for explaining code, logs, traces, MCP rows,
+            connector observations, or other evidence artifacts.
             Explicit command-operation file reads/searches/extractions
             stay on route=operation even when the file path is inside
             the current repository; do not reinterpret them as source
             investigation unless the user asks to explain source code,
-            architecture, implementation, or trace/log root cause.
+            architecture, implementation, trace/log root cause, or other
+            runtime/external observation semantics. The deciding factor is
+            the requested goal: direct computer/file operation = operation;
+            evidence interpretation/diagnosis/root-cause = pipeline.
             High-risk or forbidden command-operation requests still use
             route=operation with risk_level=high and requires_confirmation=true;
             the deterministic operation policy will block dangerous commands.
             Do not reroute unsafe computer-operation requests into repo/source
             analysis just because they are unsafe.
+            Clear non-code computer operations remain route=operation
+            even when they mention commands, package managers, SSH,
+            browsers, files, or external systems. Use typed risk and
+            side_effects to describe safety; the deterministic
+            operation policy decides auto-run, manual approval, or
+            denial.
             If the operation must first read repository facts (for
             example "based on this repo, generate a PPT"), set
             needs_repo_access=true as an additional typed signal, but
@@ -274,10 +298,12 @@ needs fresh repository facts before producing an artifact. The dispatcher
 re-checks this and corrects mismatches.
 
 needs_operation_access is true iff route=operation. Do not set it for
-ordinary source, log, trace, or MCP external-observation investigation.
+ordinary source, log, trace, MCP, connector, or attached-artifact
+external-observation investigation.
 
 operation:
   chat        — greetings, pleasantries, capability/identity questions
+                that do not require repository or computer access
                 ("你好", "你能做什么", "你是谁")
   transform   — change the form of the previous answer (render as
                 mermaid, render as table, reorganise as bullet list)
@@ -285,7 +311,13 @@ operation:
   translate   — render the previous answer in another language
   elaborate   — expand on the previous answer without new evidence
   investigate — fresh code investigation that needs repo reads
-  computer_operation — operate desktop/browser/UI or external tools
+  computer_operation — operate desktop/browser/UI or external tools,
+                or run local commands to inspect the current machine,
+                environment, installed software, filesystem, versions,
+                OS, memory, CPU, GPU, network status, or similar
+                runtime facts; also covers package management,
+                downloads, file moves/copies, SSH/remote shell work,
+                and other explicit non-code computer tasks
   artifact_generation — create a local output artifact
   presentation_generation — create slides/PPT
   document_generation — create a document
@@ -302,6 +334,10 @@ risk_level / side_effects / target_surface / requires_confirmation:
   - low-risk local artifact generation: risk_level=low,
     side_effects may include local_file_write, confirmation usually false.
   - desktop/browser manipulation: include desktop_ui or browser_ui.
+  - software install/uninstall: include package_install or
+    package_uninstall and normally requires_confirmation=true.
+  - SSH or remote command execution: include remote_exec and normally
+    requires_confirmation=true.
   - network submission, external writes, deletes, irreversible changes:
     risk_level=high and requires_confirmation=true.
 
@@ -389,6 +425,21 @@ Examples (illustrative, NOT exhaustive — judge by structure):
     → route=repo, operation=investigate, source=repo,
       confidence≈0.85
 
+  Current: "只分析这个 trace，不要看代码，找一下 jank 原因"
+    → route=repo, needs_operation_access=false,
+      operation=investigate, source=artifact,
+      confidence≈0.9
+
+  Current: "只看这段客户日志，不要读取源码，判断系统 gap"
+    → route=repo, needs_operation_access=false,
+      operation=investigate, source=artifact,
+      confidence≈0.9
+
+  Current: "根据 MCP 返回的外部观测解释现象，不要看代码"
+    → route=repo, needs_operation_access=false,
+      operation=investigate, source=external_tool,
+      confidence≈0.85
+
   Current: "把上面的流程换成 mermaid，同时重新读仓库确认有没
             有 IO 分析" + last_answer_present=true
     → route=hybrid, operation=investigate, source=mixed,
@@ -398,6 +449,42 @@ Examples (illustrative, NOT exhaustive — judge by structure):
   Current: "你好" (any state)
     → route=local, operation=chat, source=current_message,
       confidence≈0.95
+
+  Current: "当前机器是什么操作系统，内存多大，CPU/GPU 信息是什么"
+    → route=operation, needs_repo_access=false,
+      needs_operation_access=true,
+      operation=computer_operation,
+      operation_kind=computer_operation,
+      source=current_message, risk_level=low,
+      side_effects=[], target_surface=desktop,
+      requires_confirmation=false, confidence≈0.85
+
+  Current: "查一下本机 go/node/python 版本和可执行路径"
+    → route=operation, needs_repo_access=false,
+      needs_operation_access=true,
+      operation=computer_operation,
+      operation_kind=computer_operation,
+      source=current_message, risk_level=low,
+      side_effects=[], target_surface=desktop,
+      requires_confirmation=false, confidence≈0.85
+
+  Current: "帮我安装 ffmpeg 并确认版本"
+    → route=operation, needs_repo_access=false,
+      needs_operation_access=true,
+      operation=computer_operation,
+      operation_kind=computer_operation,
+      source=current_message, risk_level=medium,
+      side_effects=["package_install"], target_surface=desktop,
+      requires_confirmation=true, confidence≈0.85
+
+  Current: "通过 ssh 登到测试机检查磁盘空间"
+    → route=operation, needs_repo_access=false,
+      needs_operation_access=true,
+      operation=computer_operation,
+      operation_kind=computer_operation,
+      source=current_message, risk_level=medium,
+      side_effects=["remote_exec"], target_surface=external_system,
+      requires_confirmation=true, confidence≈0.85
 
   Current: "换成 mermaid 图例" + last_answer_present=false
     → route=clarify, operation=transform, source=last_answer,
@@ -548,6 +635,36 @@ func (c *llmChitchatClassifier) ClassifyPolicy(ctx context.Context, userLine, pr
 // without changing any production agent tool surface.
 type flexiblePolicyBool bool
 
+type flexiblePolicyString string
+
+func (s *flexiblePolicyString) UnmarshalJSON(raw []byte) error {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		*s = ""
+		return nil
+	}
+	var str string
+	if err := json.Unmarshal(raw, &str); err == nil {
+		*s = flexiblePolicyString(strings.TrimSpace(str))
+		return nil
+	}
+	var number json.Number
+	if err := json.Unmarshal(raw, &number); err == nil {
+		*s = flexiblePolicyString(number.String())
+		return nil
+	}
+	var b bool
+	if err := json.Unmarshal(raw, &b); err == nil {
+		if b {
+			*s = "true"
+		} else {
+			*s = "false"
+		}
+		return nil
+	}
+	return fmt.Errorf("invalid string value %s", string(raw))
+}
+
 func (b *flexiblePolicyBool) UnmarshalJSON(raw []byte) error {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
@@ -616,6 +733,29 @@ func (l *flexiblePolicyStringList) UnmarshalJSON(raw []byte) error {
 	var arr []string
 	if err := json.Unmarshal(raw, &arr); err == nil {
 		*l = cleanPolicyStringList(arr)
+		return nil
+	}
+	var arrAny []any
+	if err := json.Unmarshal(raw, &arrAny); err == nil {
+		out := make([]string, 0, len(arrAny))
+		for _, v := range arrAny {
+			switch x := v.(type) {
+			case string:
+				out = append(out, x)
+			case float64:
+				out = append(out, strconv.FormatFloat(x, 'f', -1, 64))
+			case bool:
+				out = append(out, strconv.FormatBool(x))
+			case nil:
+				continue
+			default:
+				encoded, err := json.Marshal(x)
+				if err == nil {
+					out = append(out, string(encoded))
+				}
+			}
+		}
+		*l = cleanPolicyStringList(out)
 		return nil
 	}
 	var s string
@@ -816,6 +956,32 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 		p.Route = RouteRepo
 	}
 
+	// Self-contradiction on the operation axis: a route or boolean hints at
+	// operation access, but the typed payload says this is an analysis-only
+	// investigation over repo / runtime artifact / external observation
+	// facts. This can happen when a user explicitly says "do not inspect
+	// source code" and the classifier drifts toward "operation" even though
+	// the analysis pipeline is still the right lane for log/trace/MCP/
+	// connector evidence. Prefer the typed operation/source/side-effect tuple
+	// over a lone route enum or boolean.
+	if isAnalysisOnlyPolicy(p) && (p.Route == RouteOperation || p.NeedsOperationAccess) {
+		if p.Route == RouteOperation {
+			p.Route = RouteRepo
+			p.NeedsRepoAccess = true
+		}
+		p.NeedsOperationAccess = false
+	}
+
+	// Self-contradiction on the operation axis: the route says local/repo,
+	// but the typed operation fields say a computer/artifact operation is
+	// needed. Trust the typed operation signal rather than sending the turn
+	// to local chat or source analysis. This is structural, not prose-based:
+	// it only consumes schema fields emitted by the classifier.
+	if p.Route != RouteOperation && hasOperationSignal(p) {
+		p.Route = RouteOperation
+		p.NeedsOperationAccess = true
+	}
+
 	// Self-contradiction the other way: route says repo/hybrid
 	// but needs_repo_access is false. Trust the route enum (it's
 	// the explicit decision); patch needs_repo_access.
@@ -941,6 +1107,40 @@ func isOperationLikeOperation(op string) bool {
 	}
 }
 
+func hasOperationSignal(p TurnPolicy) bool {
+	return p.NeedsOperationAccess ||
+		isOperationLikeOperation(p.Operation) ||
+		isOperationLikeOperation(p.OperationKind)
+}
+
+func isAnalysisOnlyPolicy(p TurnPolicy) bool {
+	if strings.TrimSpace(p.Operation) != "investigate" {
+		return false
+	}
+	if isOperationLikeOperation(p.OperationKind) {
+		return false
+	}
+	if len(p.SideEffects) > 0 {
+		return false
+	}
+	switch strings.TrimSpace(p.TargetSurface) {
+	case "", "unknown":
+	default:
+		return false
+	}
+	switch strings.TrimSpace(p.RiskLevel) {
+	case "", "none", "low":
+	default:
+		return false
+	}
+	switch strings.TrimSpace(p.Source) {
+	case "repo", "mixed", "external_tool", "artifact":
+		return true
+	default:
+		return false
+	}
+}
+
 // localResponderSystemPrompt is the constraint sheet for the local
 // responder. The hard rules are stated up-front so a model that
 // glances at only the top of the prompt still gets the binding
@@ -961,6 +1161,8 @@ const localResponderSystemPrompt = `You are CODRAX in **local-only follow-up mod
   - the CONVERSATION CONTEXT (## Prior conversation, when present).
 
 You MUST NOT:
+  - reveal hidden reasoning, analysis notes, chain-of-thought, or
+    meta commentary such as "the user is asking..." / "I should...",
   - claim to have read or re-read repository files in this turn,
   - invent file paths, line numbers, function names, identifiers,
     behaviours, or citations that are NOT already present in the

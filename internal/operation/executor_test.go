@@ -34,6 +34,50 @@ func TestCommandExecutorRunsProgramArgs(t *testing.T) {
 	}
 }
 
+func TestCommandExecutorRejectsEmptyReadyPlan(t *testing.T) {
+	executor := CommandExecutor{Policy: DefaultCommandPolicy(), OutputDir: t.TempDir()}
+	result := executor.Execute(context.Background(), CommandOperationPlan{
+		ID:           "op-empty",
+		Status:       StatusReady,
+		ApprovalMode: ApprovalAutoLowRisk,
+		WorkDir:      ".",
+	})
+
+	if result.Status != StatusFailed {
+		t.Fatalf("Status=%q result=%+v", result.Status, result)
+	}
+	if len(result.StepResults) != 1 || result.StepResults[0].FailureClass != "invalid_plan" {
+		t.Fatalf("expected invalid_plan failure: %+v", result.StepResults)
+	}
+}
+
+func TestCommandExecutorRejectsNoInputShellFilter(t *testing.T) {
+	executor := CommandExecutor{Policy: DefaultCommandPolicy(), OutputDir: t.TempDir()}
+	result := executor.Execute(context.Background(), CommandOperationPlan{
+		ID:           "op-filter",
+		Status:       StatusReady,
+		ApprovalMode: ApprovalAutoLowRisk,
+		WorkDir:      ".",
+		Steps: []CommandStep{{
+			ID:    "grep",
+			Shell: "grep -i vpn | grep -v grep || echo 'not found'",
+		}},
+	})
+
+	if result.Status != StatusFailed {
+		t.Fatalf("Status=%q, want failed", result.Status)
+	}
+	if len(result.StepResults) != 1 {
+		t.Fatalf("StepResults=%d, want 1", len(result.StepResults))
+	}
+	if result.StepResults[0].FailureClass != "invalid_plan" {
+		t.Fatalf("FailureClass=%q, want invalid_plan", result.StepResults[0].FailureClass)
+	}
+	if !strings.Contains(result.StepResults[0].Error, "no explicit input source") {
+		t.Fatalf("Error=%q, want no-input diagnostic", result.StepResults[0].Error)
+	}
+}
+
 func TestCommandExecutorStopsOnFailure(t *testing.T) {
 	executor := CommandExecutor{Policy: DefaultCommandPolicy(), OutputDir: t.TempDir()}
 	plan := CommandOperationPlan{

@@ -32,10 +32,10 @@ const (
 	StepAutoDenied   = "denied"
 )
 
-// CommandPolicy controls command-operation approval. Defaults let deterministic
-// read-only/low-risk command steps run without interrupting the user, while
-// unknown programs, shell form, writes, installs, network submission, and
-// destructive commands still require policy review or are hard-denied.
+// CommandPolicy controls command-operation approval. Defaults let ordinary
+// non-high-risk command steps run without interrupting the user, while
+// high-risk actions require policy review and catastrophic commands are
+// hard-denied.
 type CommandPolicy struct {
 	Approval              string
 	AutoApprove           bool
@@ -82,6 +82,7 @@ type CommandOperationRequest struct {
 	Steps                []CommandStep
 	ClarifyingQuestions  []ClarifyingQuestion
 	RequiresConfirmation bool
+	ContinueAfter        bool
 }
 
 type ClarifyingQuestion struct {
@@ -116,6 +117,7 @@ type CommandOperationPlan struct {
 	Steps               []CommandStep
 	ClarifyingQuestions []ClarifyingQuestion
 	BlockReason         string
+	ContinueAfter       bool
 	CreatedAt           time.Time
 }
 
@@ -166,6 +168,7 @@ func BuildCommandOperationPlan(req CommandOperationRequest, policy CommandPolicy
 		ApprovalMode:        ApprovalManual,
 		WorkDir:             filepath.Clean(workDir),
 		ClarifyingQuestions: cleanClarifyingQuestions(req.ClarifyingQuestions),
+		ContinueAfter:       req.ContinueAfter,
 		CreatedAt:           time.Now().UTC(),
 	}
 	if len(plan.ClarifyingQuestions) > 0 {
@@ -239,6 +242,9 @@ func evaluateCommandStep(step CommandStep, policy CommandPolicy) commandStepDeci
 		if policy.HardDenyDestructive && looksCatastrophicShell(step.Shell) {
 			return commandStepDecision{AutoApproval: StepAutoDenied, RiskLevel: "high", Reason: "shell command matches a hard-deny destructive pattern"}
 		}
+		if policy.ShellPolicy == ApprovalDenied {
+			return commandStepDecision{AutoApproval: StepAutoDenied, RiskLevel: "high", Reason: "shell-form commands are denied by command policy"}
+		}
 		if policy.NetworkPolicy == ApprovalDenied && hasNetworkEffect("", step.SideEffects) {
 			return commandStepDecision{AutoApproval: StepAutoDenied, RiskLevel: "high", Reason: "network operation is denied by command policy"}
 		}
@@ -253,6 +259,9 @@ func evaluateCommandStep(step CommandStep, policy CommandPolicy) commandStepDeci
 		}
 		if stepHasHighRiskSignals("", nil, step) {
 			return commandStepDecision{AutoApproval: StepAutoManual, RiskLevel: "high", Reason: "shell-form high-risk command requires manual approval"}
+		}
+		if policy.AutoApprove {
+			return commandStepDecision{AutoApproval: StepAutoEligible, RiskLevel: highestRisk(step.RiskLevel, "medium"), Reason: "operation auto-approval enabled; shell command has no high-risk or hard-deny signal"}
 		}
 		return commandStepDecision{AutoApproval: StepAutoManual, RiskLevel: highestRisk(step.RiskLevel, "medium"), Reason: "shell-form commands require manual approval"}
 	}
@@ -691,6 +700,67 @@ func looksCatastrophicShell(command string) bool {
 		strings.Contains(lower, "shutdown ") ||
 		strings.Contains(lower, "reboot") ||
 		strings.Contains(lower, "dd if=") && strings.Contains(lower, " of=/dev/")
+}
+
+func shellStartsWithNoInputFilter(command string) bool {
+	first := firstShellPipelineSegment(command)
+	if first == "" || strings.Contains(first, "<") {
+		return false
+	}
+	tokens := strings.Fields(first)
+	if len(tokens) == 0 {
+		return false
+	}
+	program := baseProgram(tokens[0])
+	positionals := shellPositionalArgs(tokens[1:])
+	switch program {
+	case "grep", "egrep", "fgrep":
+		// grep needs at least pattern + file when it is the first pipeline
+		// segment. A lone pattern reads stdin and yields a false negative in
+		// non-interactive command execution.
+		return len(positionals) < 2
+	case "awk", "sed", "perl":
+		// script/expression + file operand.
+		return len(positionals) < 2
+	case "head", "tail", "wc", "cut", "sort", "uniq":
+		return len(positionals) < 1
+	default:
+		return false
+	}
+}
+
+func firstShellPipelineSegment(command string) string {
+	command = strings.TrimSpace(command)
+	if command == "" {
+		return ""
+	}
+	stop := len(command)
+	for _, sep := range []string{"|", "||", "&&", ";"} {
+		if idx := strings.Index(command, sep); idx >= 0 && idx < stop {
+			stop = idx
+		}
+	}
+	return strings.TrimSpace(command[:stop])
+}
+
+func shellPositionalArgs(args []string) []string {
+	var out []string
+	stopFlags := false
+	for _, arg := range args {
+		arg = strings.TrimSpace(arg)
+		if arg == "" {
+			continue
+		}
+		if arg == "--" {
+			stopFlags = true
+			continue
+		}
+		if !stopFlags && strings.HasPrefix(arg, "-") {
+			continue
+		}
+		out = append(out, arg)
+	}
+	return out
 }
 
 func baseProgram(program string) string {
