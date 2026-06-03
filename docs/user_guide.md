@@ -123,20 +123,27 @@ codrax                   # ② 再启动;它会索引「当前目录」这个仓
 看到这个就是启动成功了(每一行都是真实输出,版本号和路径会按你的环境替换):
 
 ```
-   CODRAX  v0.1.x  git:main  /help · /exit
-   Modes: read (write_enabled=false — /mode plan / apply / verify 已禁用) · /home/you/tools/codrax/codrax.yaml
+   CODRAX  v0.1.x  /help · /exit
+   模式: read (write_enabled=false — /mode plan / apply / verify 已禁用) · /home/you/tools/codrax/codrax.yaml
+   记忆: 3 recent + 0 compacted, 4.8 KB
+   模型: your-model · ctx=200k · timeout=10m0s
 
 [git:main]❯❯
 ```
 
-提示符前会带 sticky 标签 `[git:<branch>]`,显示当前所在 git 分支(没在 git 仓里就不显示这一段)。
+提示符前可能带 sticky 标签,例如 `[git:<branch>]`、`[trace]`、`[log]`、`[plan]`,显示当前 git 分支、已附加 trace/log、待处理 plan 等状态。
 
 直接打你的问题、回车。提交后,你打的内容会以 `> ...` 形式回显在分隔线下方,然后下方开始打印进度:
 
 ```
 ─────────────────────────────────────
 > 这个项目的入口函数在哪里?
-✓ 1/6 已理解问题 · 第 N 轮 · X 次工具调用 · 本 Ys · 总 Zs
+· 1/4 正在统计仓库索引 `your-repo` 文件
+✓ 1/4 仓库索引 `your-repo` 已就绪：123 个文件 (120ms)
+⇢ 分析 · 第 1 轮 调用工具 emit_analysis intent=lookup
+✓ 1/4 已理解问题 · 第 1 轮 · 1 次工具调用 · 本 2s · 总 3s
+⇢ 探索 · 第 1 轮 调用工具 grep pattern=func main
+› 4/4 正在生成最终答案
 ...
 ✓ 已撰写最终答案
 
@@ -210,14 +217,19 @@ codrax --repo /path/to/repo --branch dev -r "..."
 启动后的屏幕(运行中的写模式 + git 仓库 + 几轮对话场景):
 
 ```
-   CODRAX  v0.1.x  git:main  /help · /exit
-   Modes: read · plan · apply · verify (write_enabled=true) · /home/you/.../codrax.yaml
+   CODRAX  v0.1.x  /help · /exit
+   模式: read · plan · apply · verify (write_enabled=true) · /home/you/.../codrax.yaml
+   记忆: 3 recent + 0 compacted, 4.8 KB
+   模型: your-model · ctx=200k · timeout=10m0s
 
 ─────────────────────────────────────
 > 这个项目的入口函数在哪里?
-✓ 1/6 已理解问题 · 第 4 轮 · 2 次工具调用 · 本 7s · 总 8s
-  💭 [analyzer-1] <think> ...                           ← LLM 实时推理摘要
-  ⠏ 调用工具中 ▸ grep "func main"                       ← 当前在跑哪个工具
+· 1/4 正在统计仓库索引 `your-repo` 文件
+✓ 1/4 仓库索引 `your-repo` 已就绪：123 个文件 (120ms)
+⇢ 分析 · 第 1 轮 调用工具 emit_analysis intent=lookup
+⇢ 探索 · 第 1 轮 调用工具 grep pattern=func main
+• 证据 2 条（累计 2 条）
+› 4/4 正在生成最终答案
 …
 ✓ 已撰写最终答案
 
@@ -233,14 +245,15 @@ codrax --repo /path/to/repo --branch dev -r "..."
 
 | 元素 | 含义 |
 |---|---|
-| `CODRAX  v0.1.x  git:main` | 版本 + 当前 git 分支(非 git 目录不显示 git:) |
-| `Modes:` 行 | 当前可用模式 + 配置文件路径(`write_enabled` 开/关一目了然) |
+| `CODRAX  v0.1.x` | 版本 + 常用命令提示 |
+| `模式/记忆/模型` 状态行 | 当前可用模式、记忆概况、模型配置和配置文件路径;英文界面会显示对应的本地化文案 |
 | `─────…` 分隔线 | 每轮请求开始前的视觉断点(在你的回显之上) |
 | `>` 开头(青色) | 你刚提交的请求的回显(保留多行 paste 内容) |
 | `[git:main]`、`[mode:plan]`、`[log]`、`[trace]`、`[plan]`、`[mem!]` | sticky 标签,提示当前粘滞状态(写模式 / 附加日志 / 待处理 plan / 记忆压力) |
-| `K/N <stage 中文标签>` | dock 顶部的"K/N 进度 + 当前阶段"。读模式 N=6,plan-only N=2,apply N=4,verify N=2 |
-| `💭 [agent-N]` | LLM 单次推理的一两句摘要(默认开) |
-| `⠏ ▸ ...` 调用工具中 | 当前在执行哪个工具调用 |
+| `K/N <stage 标签>` | 当前 pipeline 进度。读模式通常是 1/4 分析、2/4 探索、3/4 提炼、4/4 成文;写模式会显示对应 plan/apply/verify 阶段 |
+| `⇢ <阶段> · 第 N 轮 调用工具 ...` | 本轮模型发起的工具调用,会显示阶段、轮次、工具名和关键参数摘要 |
+| `• 证据 N 条（累计 M 条）` | 当前阶段已经落地的证据数量 |
+| `› 正在...` / `⟳ 正在...` | 等待模型、修复、重试或补证据时的过程状态 |
 | `· 第 N 轮 · M 次工具调用 · 本 Xs · 总 Ys` | 该阶段汇总:轮数 / 工具调用次数 / 当轮 / 总耗时 |
 | `│` 边框 | 围出最终答案,和过程性输出做视觉分割 |
 | `chat ·` / `local ·` / `clarify ·`(灰色) | 这一轮没走完整流水线;后跟简短说明(详见 3.3) |
@@ -484,7 +497,8 @@ REPL banner 立即提示:
 
 ```
    CODRAX  v0.1.X  /help · /exit
-   Modes: read · plan · apply · verify (write_enabled=true)
+   模式: read · plan · apply · verify (write_enabled=true)
+   记忆: 3 recent + 0 compacted
    🗂  multi-repo: 5 sub-repos (active cap=3); /repos for list / focus / refresh
 ```
 
@@ -2037,9 +2051,19 @@ operation provider 执行完成后,结果会进入独立的 operation handoff �
 
 如果 provider 返回很大的输出,codrax 只在 REPL 面板显示短摘要和少量 ref,完整内容通过 payload/artifact ref 保留。provider 不应该把大文件全文塞进 MCP text;更好的做法是返回摘要 + 明确的文件路径、资源 URI 或 rowset/payload ref。
 
-### 本地 operation skills
+### 外部 Skills / Operation Skills
 
-如果你不想写 MCP server,也可以用 `operation_skills[]` 把本地脚本、二进制或公司内工具包装成 operation provider。它和 MCP operation provider 的区别是:
+外部 Skill 是 Codrax 的通用电脑操作/制品生成扩展入口。它适合把本地脚本、二进制、公司内工具、PPT/文档/表格生成器、浏览器/桌面自动化包装成一个可审批、可懒加载、可 handoff 的 operation provider。
+
+外部 Skill 和其它扩展方式的边界:
+
+- `operation_skills[]`: 本地 manifest 型外部 Skill。启动时只读 descriptor,用户批准后才启动本地命令。
+- `mcp_servers[].operation_provider=true`: MCP server 型外部 Skill。适合已有 MCP server 或需要远程/多工具协议的场景。
+- 内置 prompt skills: 只提供模型使用说明和工作流知识,不代表可执行的本地操作 provider。
+
+外部 Skill 不会抢占源码、trace、log 或写代码管线。只有 typed operation route 识别为电脑操作、制品生成、外部 workflow 等场景时,operation planner 才会看到这些 provider 能力;执行仍然要经过策略和 `/approve`。
+
+如果你不想写 MCP server,可以用 `operation_skills[]` 把本地脚本、二进制或公司内工具包装成 operation provider。它和 MCP operation provider 的区别是:
 
 - 启动时只读 `codrax.yaml` descriptor,不会启动脚本。
 - 模型只看到能力摘要、输入契约和示例,看不到 `command` / `env` 作为 prompt 指令。

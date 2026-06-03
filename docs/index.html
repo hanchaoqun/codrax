@@ -553,10 +553,14 @@
             <span>codrax — read mode</span>
           </div>
 <div class="term-body"><span class="muted">$ codrax</span>
-<span class="muted">   CODRAX  v0.1.x  git:main  /help · /exit</span>
+<span class="muted">   CODRAX  v0.1.x  /help · /exit</span>
+<span class="muted">   模式: read · plan · apply · verify</span>
+<span class="muted">   记忆: 3 recent + 0 compacted</span>
 
 <span class="muted">❯❯</span> <span class="you">explorer 的 ShouldStop 是怎么决定的？</span>
-  <span class="think">💭 [explorer] 先看停机条件在哪里收口…</span>
+  <span class="muted">⇢ 分析 · 第 1 轮 调用工具 emit_analysis</span>
+  <span class="muted">⇢ 探索 · 第 1 轮 调用工具 grep pattern=ShouldStop</span>
+  <span class="muted">• 证据 2 条（累计 2 条）</span>
 <span class="ok">✓ 已撰写最终答案</span>
 
   │ ShouldStop 在每轮调查收口时由调度器判定：
