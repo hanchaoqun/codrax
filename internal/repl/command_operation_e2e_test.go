@@ -1785,6 +1785,48 @@ func TestCommandOperationE2E_InvalidShellFilterReplansWithNumericStepID(t *testi
 	}
 }
 
+func TestCommandOperationE2E_ChangedWorkdirAutoEligibleReplanWaitsForApproval(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"medium","requires_confirmation":false,"work_dir":".","steps":[{"id":"s1","title":"failing probe","shell":"false","risk_level":"medium","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"medium","requires_confirmation":false,"work_dir":"/tmp","steps":[{"id":"s2","title":"inspect network interfaces","shell":"/sbin/ifconfig | /usr/bin/grep -E '(inet [^f]|utun|ipsec|tun|vpn)' | /usr/bin/grep -v '::'","risk_level":"medium","side_effects":[]}]}`),
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "查看 VPN IP 连通性\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("command operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if r.pendingOperation == nil {
+		t.Fatalf("changed-workdir revised plan should wait for user approval; calls=%d output:\n%s", len(adapter.calls), out.String())
+	}
+	if r.pendingOperation.ApprovalMode != operation.ApprovalManual {
+		t.Fatalf("changed-workdir replan approval=%q, want manual", r.pendingOperation.ApprovalMode)
+	}
+	printed := out.String()
+	revisedIdx := strings.Index(printed, "Generated a revised command plan")
+	if revisedIdx < 0 {
+		t.Fatalf("revised plan section missing:\n%s", printed)
+	}
+	revisedSection := printed[revisedIdx:]
+	for _, bad := range []string{"will continue execution", "will run automatically", "Approval: `auto_low_risk`", "审批：`auto_low_risk`"} {
+		if strings.Contains(revisedSection, bad) {
+			t.Fatalf("changed-workdir replan should not promise auto execution or display auto approval %q:\n%s", bad, printed)
+		}
+	}
+	if !strings.Contains(revisedSection, "waiting for approval") && !strings.Contains(revisedSection, "等待批准") {
+		t.Fatalf("changed-workdir replan should visibly wait for approval:\n%s", printed)
+	}
+}
+
 func TestCommandOperationE2E_MultipleInvalidRepairsUntilSuccess(t *testing.T) {
 	store := newPolicyStore(t)
 	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}

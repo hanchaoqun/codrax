@@ -1770,7 +1770,7 @@ func commandOperationReplanIntro(lang string, plan operation.CommandOperationPla
 		switch plan.Status {
 		case operation.StatusReady:
 			if plan.ApprovalMode == operation.ApprovalAutoLowRisk {
-				return "已根据失败输出生成低风险修订计划，并将继续执行。"
+				return "已根据失败输出生成可自动执行的修订计划，并将继续执行。"
 			}
 			return "已根据失败输出生成修订计划，等待批准。"
 		case operation.StatusNeedsClarification:
@@ -1784,7 +1784,7 @@ func commandOperationReplanIntro(lang string, plan operation.CommandOperationPla
 	switch plan.Status {
 	case operation.StatusReady:
 		if plan.ApprovalMode == operation.ApprovalAutoLowRisk {
-			return "Generated a low-risk revised command plan from the failed output and will continue execution."
+			return "Generated an auto-executable revised command plan from the failed output and will continue execution."
 		}
 		return "Generated a revised command plan from the failed output. It is waiting for approval."
 	case operation.StatusNeedsClarification:

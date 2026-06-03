@@ -1867,6 +1867,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 							r.startOperationExecutionSpinner()
 							continue
 						}
+						revisedPlan = commandReplanManualApprovalPlan(currentPlan, revisedPlan)
 						r.pendingOperation = &revisedPlan
 						r.savePendingOperationState()
 					}
@@ -2075,6 +2076,7 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 			r.executeCommandOperationPlanAttempt(revisedPlan, request, display, replanAttempts+1, records)
 			return true
 		}
+		revisedPlan = commandReplanManualApprovalPlan(failedPlan, revisedPlan)
 		r.pendingOperation = &revisedPlan
 		r.savePendingOperationState()
 	}
@@ -2485,6 +2487,16 @@ func commandReplanCanAutoExecute(previous, revised operation.CommandOperationPla
 		}
 	}
 	return len(revised.Steps) > 0
+}
+
+func commandReplanManualApprovalPlan(previous, revised operation.CommandOperationPlan) operation.CommandOperationPlan {
+	if commandReplanCanAutoExecute(previous, revised) {
+		return revised
+	}
+	if revised.Status == operation.StatusReady && revised.ApprovalMode == operation.ApprovalAutoLowRisk {
+		revised.ApprovalMode = operation.ApprovalManual
+	}
+	return revised
 }
 
 func commandRiskRank(risk string) int {
