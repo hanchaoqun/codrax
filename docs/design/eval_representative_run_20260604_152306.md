@@ -6,6 +6,8 @@ Initial result root: `eval/results/representative-20260604-152306`
 
 Valid rerun result root: `eval/results/representative-20260604-152440`
 
+Parallel-2 rerun result root: `eval/results/representative-p2-20260604-153306`
+
 ## Purpose
 
 Run a representative sweep after recent feature work. The sweep must cover
@@ -80,6 +82,17 @@ be performed in this sweep. This is an environment/provider outage, not a
 feature verdict. The selected matrix remains useful and should be rerun once
 provider balance is restored.
 
+### F3. Parallel-2 rerun produced the same provider-blocked result
+
+The same 16-case matrix was rerun with two concurrent case processes instead
+of four. All 16 cases again classified as:
+
+`BLOCKED_PROVIDER insufficient_balance`
+
+This rules out case-level concurrency as the cause of the missing answers in
+this sweep. No answer-quality manual inspection was possible because no case
+produced a final answer.
+
 ## Follow-up Task Ledger
 
 - [x] Add operation representative cases:
@@ -89,6 +102,8 @@ provider balance is restored.
 - [x] Fix eval runner to pass repository-root `providers.yaml` to snapshot
   binaries.
 - [ ] Rerun the same 16-case matrix after provider balance is restored.
+- [x] Rerun the same 16-case matrix with parallelism 2 to check whether the
+  provider blockage was concurrency-sensitive.
 - [ ] Perform manual answer inspection for every non-blocked result:
   - verify factual answer content, not just PASS/FAIL;
   - check source vs external-observation citation separation;
