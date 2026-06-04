@@ -305,7 +305,10 @@ Required tests:
 
 - [x] Unit tests for risk, approval, workflow schema, evaluator, JSON repair,
       and planner/skill workflow prompt wiring.
-- [ ] E2E tests for one-file bugfix, multi-batch feature, high-risk approval,
-      critical denial, verify failure replan, and no-test unverified.
-- [ ] Regression tests that read mode, log/trace analysis, source evidence gates,
-      and operation mode are unaffected.
+- [x] E2E tests for one-file bugfix, multi-batch feature, high-risk approval,
+      critical denial, verify failure replan, and no-test unverified. Existing
+      write scheduler / retry-cycle E2E coverage now exercises the new
+      workflow-evaluation snapshots, approval gates, and scoped repair hints.
+- [x] Regression tests that read mode, log/trace analysis, source evidence gates,
+      and operation mode are unaffected. The final batch ran the full repository
+      suite (`go test ./...`) after the write workflow changes.
