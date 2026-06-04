@@ -244,20 +244,19 @@ Required tests:
 
 ### Batch 2: Risk And Approval Model
 
-- [ ] Add write-specific risk and approval types.
-- [ ] Implement deterministic `AssessWriteRisk` over `ChangePlan`,
-      `WriteAnalysisIR`, repo root, and path facts.
-- [ ] Implement `DecideWriteApproval`.
-- [ ] Add unit tests for low/medium/high/critical decisions.
-- [ ] Surface risk/approval summary in plan display only; do not change apply
+- [x] Add write-specific risk and approval types.
+- [x] Implement deterministic `AssessWriteRisk` over `ChangePlan`,
+      `WriteAnalysisIR`, and path facts.
+- [x] Implement `DecideWriteApproval`.
+- [x] Add unit tests for low/medium/high/critical decisions.
+- [x] Surface risk/approval summary in plan display only; do not change apply
       behavior yet.
 
 ### Batch 3: Workflow And Batch Schema
 
-- [ ] Add `WriteWorkflowPlan`, `WriteWorkflowTask`, `WriteBatchPlan`, and
-      `WriteEvaluation` types.
-- [ ] Add JSON compatibility helpers and tests.
-- [ ] Add a builder that converts current `WriteAnalysisIR.PhaseProposal` into a
+- [x] Add `WriteWorkflowPlan` and `WriteBatchPlan` types.
+- [x] Add schema compatibility coverage with the shared `toolparam` normalizer.
+- [x] Add a builder that converts current `WriteAnalysisIR.PhaseProposal` into a
       workflow seed without requiring all future batches to be known.
 
 ### Batch 4: Deterministic Write Unified Evaluator
@@ -295,4 +294,3 @@ Required tests:
       critical denial, verify failure replan, and no-test unverified.
 - [ ] Regression tests that read mode, log/trace analysis, source evidence gates,
       and operation mode are unaffected.
-
