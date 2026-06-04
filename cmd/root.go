@@ -3275,6 +3275,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 	// Fix 4: preserve worktree after successful ModeApply. Default
 	// false; enable to keep the "try before merge" workflow.
 	orch.SetKeepWorktreeOnSuccess(pipelineSettings.KeepWorktreeOnSuccess)
+	orch.SetWriteApprovalPolicy(app.writeApprovalPolicy)
 
 	// Resolve per-agent think_aloud from providers.yaml. The default
 	// is true (directive included); per-agent overrides can disable it.

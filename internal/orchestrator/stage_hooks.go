@@ -12,6 +12,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
+	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
 // stage_hooks.go implements per-stage pre/post hooks the write-mode
@@ -163,6 +164,10 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	o.busCtx.Mutable.SetResult(renderChangePlanSummary(plan, o.busCtx.Language))
 	logging.Info("[orchestrator] plan stage: id=%s changes=%d", plan.ID, len(plan.Changes))
 
+	if err := enforceWriteApprovalBeforeApply(o, plan); err != nil {
+		return err
+	}
+
 	// Optional pre-apply review (commit 4 P1-F). When the operator
 	// has wired plan_critic and the yaml gate is on, dispatch a
 	// single-Chat review of the plan. Output is informational only —
@@ -215,8 +220,8 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 					Kind:       types.ViolPlanCritic,
 					ClusterKey: types.RootClusterKey("plan_critic_risk"),
 					Detail:     fmt.Sprintf("plan_critic risk %d/%d: %s", i+1, len(verdict.Risks), risk),
-					Repair: "review the plan against this risk before /approve; the critic is observational, not a hard reject. Address the risk by editing the plan or accept it as a known concern.",
-					Stage:  string(types.StagePlan),
+					Repair:     "review the plan against this risk before /approve; the critic is observational, not a hard reject. Address the risk by editing the plan or accept it as a known concern.",
+					Stage:      string(types.StagePlan),
 					SuspectedRoot: types.SuspectedRoot{
 						IRField:    "plan_critic_risk",
 						Reason:     "independent reviewer LLM flagged a concern",
@@ -241,6 +246,83 @@ func planPostHook(o *Orchestrator, out *agent.StageOutput) error {
 		}
 	}
 	return nil
+}
+
+func enforceWriteApprovalBeforeApply(o *Orchestrator, plan *types.ChangePlan) error {
+	if o == nil || o.busCtx == nil || plan == nil {
+		return nil
+	}
+	if o.busCtx.Mode != types.ModeApply {
+		return nil
+	}
+	assessment := writeflow.AssessWriteRisk(writeflow.AssessmentInput{Plan: plan})
+	policy := o.writeApprovalPolicy
+	if policy == "" {
+		policy = writeflow.ApprovalPolicyAutoSafe
+	}
+	decision := writeflow.DecideWriteApproval(policy, assessment)
+	switch decision.Action {
+	case writeflow.ApprovalActionAutoExecute:
+		return nil
+	case writeflow.ApprovalActionDeny:
+		msg := writeApprovalGateMessage(o.busCtx.Language, plan.ID, assessment, decision)
+		o.busCtx.Mutable.SetResultPlain(msg)
+		if o.busCtx.PlanPath != "" {
+			o.persistPlanStatus(types.PlanStatusApplyFailed, nil)
+		}
+		return fmt.Errorf("write approval denied for plan %s: %s", plan.ID, decision.ReasonCode)
+	case writeflow.ApprovalActionManual:
+		msg := writeApprovalGateMessage(o.busCtx.Language, plan.ID, assessment, decision)
+		o.busCtx.Mutable.SetResultPlain(msg)
+		if o.busCtx.PlanPath != "" {
+			o.persistPlanStatus(types.PlanStatusPending, nil)
+		}
+		return fmt.Errorf("write approval required for plan %s: %s", plan.ID, decision.ReasonCode)
+	default:
+		return nil
+	}
+}
+
+func writeApprovalGateMessage(lang, planID string, assessment writeflow.RiskAssessment, decision writeflow.ApprovalDecision) string {
+	zh := !strings.EqualFold(strings.TrimSpace(lang), "en")
+	reasons := assessment.TopReasons(5)
+	var b strings.Builder
+	if zh {
+		fmt.Fprintf(&b, "写入计划 %s 暂停执行。\n\n", planID)
+		fmt.Fprintf(&b, "- 审批动作: %s\n- 策略: %s\n- 风险: %s\n- 原因: %s\n",
+			decision.Action, decision.Policy, assessment.Level, decision.ReasonCode)
+		if len(reasons) > 0 {
+			b.WriteString("\n主要风险:\n")
+			for _, reason := range reasons {
+				if reason.Path != "" {
+					fmt.Fprintf(&b, "- %s/%s: %s (%s)\n", reason.Level, reason.Code, reason.Detail, reason.Path)
+				} else {
+					fmt.Fprintf(&b, "- %s/%s: %s\n", reason.Level, reason.Code, reason.Detail)
+				}
+			}
+		}
+		if decision.Action == writeflow.ApprovalActionManual {
+			b.WriteString("\n请先审阅该计划，再通过 `/approve <plan-id>` 明确批准。")
+		}
+		return b.String()
+	}
+	fmt.Fprintf(&b, "Write plan %s paused before apply.\n\n", planID)
+	fmt.Fprintf(&b, "- approval_action: %s\n- policy: %s\n- risk: %s\n- reason: %s\n",
+		decision.Action, decision.Policy, assessment.Level, decision.ReasonCode)
+	if len(reasons) > 0 {
+		b.WriteString("\nTop risk reasons:\n")
+		for _, reason := range reasons {
+			if reason.Path != "" {
+				fmt.Fprintf(&b, "- %s/%s: %s (%s)\n", reason.Level, reason.Code, reason.Detail, reason.Path)
+			} else {
+				fmt.Fprintf(&b, "- %s/%s: %s\n", reason.Level, reason.Code, reason.Detail)
+			}
+		}
+	}
+	if decision.Action == writeflow.ApprovalActionManual {
+		b.WriteString("\nReview the plan first, then explicitly approve it with `/approve <plan-id>`.")
+	}
+	return b.String()
 }
 
 // planPreHook is the structural authorization gate for the plan
@@ -496,13 +578,13 @@ func applyPreHook(o *Orchestrator) error {
 
 // tryBaselineFromCacheThenCapture is the cache-first wrapper around
 // captureBaseline. Order:
-//   1. Cache lookup keyed by the main-repo HEAD SHA. Hit → install
-//      the cached report on Mutable, skip the test re-run.
-//   2. Cache miss + baselineCaptureEnabled=true → captureBaseline()
-//      runs the test suite, installs Mutable.BaselineReport, and
-//      writes the result to the cache for future Runs.
-//   3. Cache miss + baselineCaptureEnabled=false → no-op (legacy
-//      behaviour preserved).
+//  1. Cache lookup keyed by the main-repo HEAD SHA. Hit → install
+//     the cached report on Mutable, skip the test re-run.
+//  2. Cache miss + baselineCaptureEnabled=true → captureBaseline()
+//     runs the test suite, installs Mutable.BaselineReport, and
+//     writes the result to the cache for future Runs.
+//  3. Cache miss + baselineCaptureEnabled=false → no-op (legacy
+//     behaviour preserved).
 //
 // Errors at every stage are logged and swallowed; baseline data is
 // advisory for CritNoRegression and never blocks apply.
@@ -1352,8 +1434,8 @@ func appendReflectorObservationToClosure(mut *types.MutableState, observation st
 		Kind:       types.ViolReflectorObservation,
 		ClusterKey: types.RootClusterKey("reflector_observation"),
 		Detail:     fmt.Sprintf("reflector observation (verify retry attempt %d): %s", attempt, observation),
-		Repair: "this is an observational note from an independent reviewer LLM; the planner already received it on its retry. No direct action expected.",
-		Stage:  string(types.StageVerify),
+		Repair:     "this is an observational note from an independent reviewer LLM; the planner already received it on its retry. No direct action expected.",
+		Stage:      string(types.StageVerify),
 		SuspectedRoot: types.SuspectedRoot{
 			IRField:    "reflector_observation",
 			Reason:     "Reflexion-pattern critic distilled per-iteration verify failure",

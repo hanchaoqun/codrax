@@ -31,6 +31,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/multigraph"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
+	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
 // Pipeline-budget ceiling defaults are now sourced from the
@@ -145,6 +146,14 @@ type Orchestrator struct {
 	// so an adversarial test harness cannot burn the LLM token
 	// budget on an unfixable plan.
 	writeRetryBudget int
+
+	// writeApprovalPolicy is the write-lane approval policy consumed
+	// when ModeApply generates a fresh ChangePlan inside the scheduler
+	// (retry or multi-phase). User-reviewed plan files skip the first
+	// plan visit, so this gate does not reinterpret an already approved
+	// plan. It only prevents newly generated high/critical batches from
+	// being applied without the typed approval policy.
+	writeApprovalPolicy writeflow.ApprovalPolicy
 
 	// transientRetryBudget caps how many times a single Run will
 	// retry a stage that failed with a transient dispatch error
@@ -526,12 +535,13 @@ func New(settings types.PipelineSettings, agents *agent.Registry, skills *skill.
 	subRuntime := agent.NewSubAgentRuntime(subAgents)
 	subRuntime.SetMaxParallelism(settings.MaxParallelism)
 	return &Orchestrator{
-		settings:   settings,
-		agents:     agents,
-		skills:     skills,
-		maxSteps:   50,
-		subRuntime: subRuntime,
-		emit:       render.NopEmitter,
+		settings:            settings,
+		agents:              agents,
+		skills:              skills,
+		maxSteps:            50,
+		subRuntime:          subRuntime,
+		emit:                render.NopEmitter,
+		writeApprovalPolicy: writeflow.ApprovalPolicyAutoSafe,
 	}
 }
 
@@ -935,6 +945,19 @@ func (o *Orchestrator) SetWriteRetryBudget(n int) {
 		n = hardCap
 	}
 	o.writeRetryBudget = n
+}
+
+// SetWriteApprovalPolicy installs the write-lane approval policy. It is
+// independent from write_enabled, which is enforced by cmd/repl before write
+// mode dispatches. Empty or unknown values normalize to auto_safe for
+// orchestrator-created runs so tests and legacy construction do not silently
+// fall back to a stricter manual policy.
+func (o *Orchestrator) SetWriteApprovalPolicy(policy writeflow.ApprovalPolicy) {
+	if policy == "" {
+		o.writeApprovalPolicy = writeflow.ApprovalPolicyAutoSafe
+		return
+	}
+	o.writeApprovalPolicy = writeflow.NormalizeApprovalPolicy(policy)
 }
 
 // WriteRetryBudget returns the currently configured retry cap.

@@ -280,9 +280,13 @@ Required tests:
 
 ### Batch 6: Batch Workflow Scheduler
 
-- [ ] Wrap the existing plan/apply/verify graph as the inner batch executor.
+- [x] Wrap the existing plan/apply/verify graph as the inner batch executor.
+- [x] Add a pre-apply write approval guard for freshly generated retry /
+      multi-phase batch plans.
 - [ ] Drive multiple batches with `WriteUnifiedEvaluator`.
-- [ ] Reuse `PlanGroup` persistence where possible.
+- [x] Reuse `PlanGroup` persistence where possible.
+- [x] Ensure newly generated batches cannot silently apply high/critical risk
+      changes without policy approval.
 - [ ] Ensure each batch can do fresh targeted exploration before planning.
 - [ ] Ensure failed batches replan narrowly rather than regenerating the whole
       workflow.
