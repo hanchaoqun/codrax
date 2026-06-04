@@ -4686,6 +4686,9 @@ func (r *REPL) handlePlanCmd(line string) {
 		if plan.Summary != "" {
 			fmt.Fprintf(r.out, "    summary: %s\n", oneLine(plan.Summary))
 		}
+		for _, line := range renderWriteRiskAssessment(r.language, plan) {
+			fmt.Fprintln(r.out, line)
+		}
 		// Static-check unvalidated reasons (commit 7 P1-E gap-fix).
 		// Surfaces languages whose dry-build was skipped because the
 		// toolchain was missing. Distinct from "validated and passed":
