@@ -63,6 +63,26 @@ Relevant implementation points:
 The baseline is good enough to extend in place. No new trace side-channel or
 parallel pipeline should be introduced.
 
+## Delivery Audit Update — 2026-06-04
+
+Status was refreshed by auditing the current code under `internal/tracequery`,
+the `trace_query` tool wrapper, model-facing tool schema/teaching tests, and
+representative eval cases.
+
+Summary:
+
+| Area | Status | Audit evidence |
+| --- | --- | --- |
+| P0-A Donghu mixed Harmony-base candidate | Delivered | `tracequery.Result` exposes platform candidate/confidence/signals; `resolveTracePlatform` selects `mixed_harmony_base`; Donghu keeps Harmony priority semantics; tests cover explicit Donghu and auto mixed candidate. |
+| P0-B Binder auxiliary closure | Delivered | Parser supports binder alloc/lock/locked/unlock/reply; `IPCGraphResult.BinderEvents` and binder wait caveats carry auxiliary evidence; tests cover aux rows and wait summaries. |
+| P0-C FrameTimeline / frame_flow | Delivered | `frame_timeline` and `frame_flow` are schema views; `FrameTimelineResult` carries items and flow edges; evidence pack and tests cover Expected/UI/RS/GPU roles and flow edges. |
+| P1-A SmartPerf BIO/FileSystem/PageFault | Delivered | Runtime resource fields and TopN summaries are in `window_stats`; tests and eval cover BIO, filesystem, and page fault rows. |
+| P1-B Ability/XPower/HiSystemEvent | Delivered | Plugin event types and summary aggregators are in `window_stats`; tests and eval cover Ability, XPower, and HiSystemEvent rows. |
+| P1-C Core topology / compute supply | Delivered | Already marked complete before this audit; rechecked query field, schema, JSON compatibility, topology parsing/inference, stats, rendering, and tests. |
+| Tool teaching / JSON compatibility | Delivered | `trace_query` description/schema document new views, platform semantics, SmartPerf resources, and core topology; compat tests cover scalar/string/camelCase repairs. |
+
+No unimplemented or partially delivered P0/P1 task was found in this audit.
+
 ## P0-A: Donghu Mixed Harmony-Base Auto Candidate
 
 Problem:
@@ -90,13 +110,13 @@ Design:
 
 Development tasks:
 
-- [ ] Add result fields for platform candidate, confidence, and signals.
-- [ ] Move framework-surface detection early enough to participate in platform
+- [x] Add result fields for platform candidate, confidence, and signals.
+- [x] Move framework-surface detection early enough to participate in platform
       candidate selection.
-- [ ] Add mixed Harmony-base candidate inference without overriding explicit
+- [x] Add mixed Harmony-base candidate inference without overriding explicit
       platform hints.
-- [ ] Update result summaries and user-visible `trace_query` panel output.
-- [ ] Add tests for auto Donghu mixed traces and explicit-platform conflict
+- [x] Update result summaries and user-visible `trace_query` panel output.
+- [x] Add tests for auto Donghu mixed traces and explicit-platform conflict
       behavior.
 
 ## P0-B: Binder Lock/Reply/Async/Alloc-Buffer Closure
@@ -129,13 +149,13 @@ Design:
 
 Development tasks:
 
-- [ ] Extend event types and parser classification for binder auxiliary rows.
-- [ ] Parse common transaction id, destination, data size, and flags when
+- [x] Extend event types and parser classification for binder auxiliary rows.
+- [x] Parse common transaction id, destination, data size, and flags when
       visible.
-- [ ] Add compact `binder_events` to `IPCGraphResult`.
-- [ ] Enrich binder wait summaries with reply/async/alloc/lock caveats.
-- [ ] Add evidence pack and display rendering for binder auxiliary summaries.
-- [ ] Add tests for synchronous wait, one-way async, alloc-buffer, lock/unlock,
+- [x] Add compact `binder_events` to `IPCGraphResult`.
+- [x] Enrich binder wait summaries with reply/async/alloc/lock caveats.
+- [x] Add evidence pack and display rendering for binder auxiliary summaries.
+- [x] Add tests for synchronous wait, one-way async, alloc-buffer, lock/unlock,
       and missing receive rows.
 
 ## P0-C: Independent FrameTimeline / Frame Flow Views
@@ -166,11 +186,11 @@ Design:
 
 Development tasks:
 
-- [ ] Add frame timeline and flow result structs.
-- [ ] Implement frame phase classifier and flow builder.
-- [ ] Add new view enum values to `trace_query` schema and teaching.
-- [ ] Add compact renderer output for frame items/flows.
-- [ ] Add tests for expected/actual, UI to RS flow, missing end event, and
+- [x] Add frame timeline and flow result structs.
+- [x] Implement frame phase classifier and flow builder.
+- [x] Add new view enum values to `trace_query` schema and teaching.
+- [x] Add compact renderer output for frame items/flows.
+- [x] Add tests for expected/actual, UI to RS flow, missing end event, and
       generic ftrace fallback.
 
 ## P1-A: SmartPerf eBPF BIO/FileSystem/PageFault Summaries
@@ -198,12 +218,12 @@ Design:
 
 Development tasks:
 
-- [ ] Add resource event summary structs and window-stats fields.
-- [ ] Parse common `path`, `op`, `latency/duration`, `size`, `address`, and
+- [x] Add resource event summary structs and window-stats fields.
+- [x] Parse common `path`, `op`, `latency/duration`, `size`, `address`, and
       `callstack/backtrace` fields from generic row text.
-- [ ] Aggregate TopN by kind/op/path/thread with bounded examples.
-- [ ] Add evidence and display rendering.
-- [ ] Add tests for BIO, filesystem, page fault, malformed rows, and bounded
+- [x] Aggregate TopN by kind/op/path/thread with bounded examples.
+- [x] Add evidence and display rendering.
+- [x] Add tests for BIO, filesystem, page fault, malformed rows, and bounded
       callstack handling.
 
 ## P1-B: Ability / XPower / HiSystemEvent Resource Adapters
@@ -231,10 +251,10 @@ Design:
 
 Development tasks:
 
-- [ ] Add plugin event types and subsystem kinds.
-- [ ] Add plugin-resource summary structs and aggregators.
-- [ ] Render compact TopN resource summaries.
-- [ ] Add tests for Ability CPU/memory/disk/network, XPower CPU/GPU/display,
+- [x] Add plugin event types and subsystem kinds.
+- [x] Add plugin-resource summary structs and aggregators.
+- [x] Render compact TopN resource summaries.
+- [x] Add tests for Ability CPU/memory/disk/network, XPower CPU/GPU/display,
       and HiSystemEvent domain/eventname rows.
 
 ## P1-C: Core Topology and Compute-Supply Evaluation
