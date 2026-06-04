@@ -124,6 +124,45 @@ func TestAnswerAggregateFactEvidenceOrigins_SourceRefToolTokens(t *testing.T) {
 	}
 }
 
+func TestAnswerAggregateFactEvidenceOrigins_SupportRefsCarryMCPOrigin(t *testing.T) {
+	fact := AnswerAggregateFact{
+		Kind:        AnswerAggregateScalar,
+		Label:       "line 7",
+		Value:       "target enters sleep",
+		SupportRefs: []string{"mcp_resource: mcp://fixture/trace/sleep-wakeup#L7"},
+	}
+	got := AnswerAggregateFactEvidenceOrigins(fact, nil)
+	want := []AnswerEvidenceOrigin{AnswerEvidenceOriginMCPResource}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("origins mismatch\ngot:  %#v\nwant: %#v", got, want)
+	}
+}
+
+func TestAnswerAggregateFactEvidenceOrigins_ExternalArtifactRequestDefaultsToMCP(t *testing.T) {
+	fact := AnswerAggregateFact{
+		Kind:  AnswerAggregateMemberSet,
+		Label: "target pid=4242 sleep/wakeup events",
+		Value: "2",
+		Members: []string{
+			"line 7: sched_switch",
+			"line 12: sched_wakeup",
+		},
+	}
+	rm := RequestModel{
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+		},
+		AnalyzerHints: AnalyzerHints{
+			ExactTargets: []string{"mcp://fixture/trace/sleep-wakeup"},
+		},
+	}
+	got := AnswerAggregateFactEvidenceOrigins(fact, &rm)
+	want := []AnswerEvidenceOrigin{AnswerEvidenceOriginMCPResource}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("origins mismatch\ngot:  %#v\nwant: %#v", got, want)
+	}
+}
+
 func TestAnswerEvidenceOriginsAreOriginSpecificOnly(t *testing.T) {
 	if !AnswerEvidenceOriginsAreOriginSpecificOnly([]AnswerEvidenceOrigin{
 		AnswerEvidenceOriginVCSMetadata,

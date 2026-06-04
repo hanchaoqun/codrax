@@ -35,6 +35,9 @@ func AnswerAggregateFactEvidenceOrigins(fact AnswerAggregateFact, rm *RequestMod
 		if rm.HasExternalOnlyRuntimeArtifact() && aggregateFactKindCanCarryRuntimeArtifact(fact.Kind) {
 			add(AnswerEvidenceOriginRuntimeArtifact)
 		}
+		if len(out) == 0 {
+			add(inferAggregateFactExternalOriginFromRequest(fact, rm))
+		}
 	}
 	if len(out) == 0 && aggregateFactKindUsuallyCurrentSource(fact.Kind) {
 		add(AnswerEvidenceOriginCurrentSource)
@@ -59,6 +62,9 @@ func answerAggregateFactExplicitEvidenceOrigins(fact AnswerAggregateFact) []Answ
 		answerEvidenceOriginFromStructuredToken(dims[key], add)
 	}
 	answerEvidenceOriginFromProvenance(fact.Provenance, add)
+	for _, ref := range fact.SupportRefs {
+		answerEvidenceOriginFromSupportRef(ref, add)
+	}
 	return out
 }
 
@@ -181,6 +187,92 @@ func answerEvidenceOriginFromProvenance(raw string, add func(AnswerEvidenceOrigi
 			continue
 		}
 		answerEvidenceOriginFromStructuredToken(token, add)
+	}
+}
+
+func answerEvidenceOriginFromSupportRef(raw string, add func(AnswerEvidenceOrigin)) {
+	ref := strings.ToLower(strings.TrimSpace(raw))
+	if ref == "" {
+		return
+	}
+	for _, part := range strings.FieldsFunc(ref, func(r rune) bool {
+		return r == ';' || r == ',' || r == '|' || r == '\n' || r == '\t'
+	}) {
+		token := strings.TrimSpace(part)
+		if token == "" {
+			continue
+		}
+		if idx := strings.Index(token, ":"); idx > 0 {
+			prefix := strings.TrimSpace(token[:idx])
+			if AnswerEvidenceOriginFromStructuredToken(prefix) != AnswerEvidenceOriginUnknown {
+				answerEvidenceOriginFromStructuredToken(prefix, add)
+				after := strings.TrimSpace(token[idx+1:])
+				if origin := answerEvidenceOriginFromExternalReference(after); origin != AnswerEvidenceOriginUnknown {
+					add(origin)
+				}
+				continue
+			}
+		}
+		answerEvidenceOriginFromStructuredToken(token, add)
+		if origin := answerEvidenceOriginFromExternalReference(token); origin != AnswerEvidenceOriginUnknown {
+			add(origin)
+		}
+	}
+}
+
+func inferAggregateFactExternalOriginFromRequest(fact AnswerAggregateFact, rm *RequestModel) AnswerEvidenceOrigin {
+	if rm == nil || rm.CurrentSourceLaneDecision().RequiresCurrentSource() {
+		return AnswerEvidenceOriginUnknown
+	}
+	if rm.HasExternalOnlyRuntimeArtifact() && aggregateFactKindCanCarryRuntimeArtifact(fact.Kind) {
+		return AnswerEvidenceOriginRuntimeArtifact
+	}
+	if rm.ExternalObservationPolicy == nil || !rm.ExternalObservationPolicy.ArtifactCitationsExternalOnly() {
+		return AnswerEvidenceOriginUnknown
+	}
+	for _, raw := range requestModelExternalOriginCandidates(rm) {
+		if origin := answerEvidenceOriginFromExternalReference(raw); origin != AnswerEvidenceOriginUnknown {
+			return origin
+		}
+	}
+	return AnswerEvidenceOriginUnknown
+}
+
+func requestModelExternalOriginCandidates(rm *RequestModel) []string {
+	if rm == nil {
+		return nil
+	}
+	var out []string
+	out = append(out, rm.AnalyzerHints.ExactTargets...)
+	out = append(out, rm.AnalyzerHints.Entities...)
+	out = append(out, rm.AnalyzerHints.PrimaryEntities...)
+	if rm.CurrentSourceExplanationProfile != nil {
+		out = append(out, rm.CurrentSourceExplanationProfile.SourceQuotes...)
+	}
+	if rm.RequestedAnswerDimensions != nil {
+		for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
+			out = append(out, dim.SourceQuote, dim.Label)
+		}
+	}
+	return out
+}
+
+func answerEvidenceOriginFromExternalReference(raw string) AnswerEvidenceOrigin {
+	ref := strings.ToLower(strings.TrimSpace(raw))
+	if ref == "" {
+		return AnswerEvidenceOriginUnknown
+	}
+	switch {
+	case strings.HasPrefix(ref, "mcp://"):
+		return AnswerEvidenceOriginMCPResource
+	case strings.HasPrefix(ref, "http://"), strings.HasPrefix(ref, "https://"):
+		return AnswerEvidenceOriginWebPage
+	case LooksLikeRuntimeArtifactPath(ref):
+		return AnswerEvidenceOriginRuntimeArtifact
+	case strings.Contains(ref, "://"):
+		return AnswerEvidenceOriginExternalDocument
+	default:
+		return AnswerEvidenceOriginUnknown
 	}
 }
 

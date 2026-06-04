@@ -232,30 +232,51 @@ func inactiveScopeAbsenceReason(busCtx *BusContext, doc *AnswerDocumentV2) (Inac
 	return InactiveScopeReasonNone, ""
 }
 
-// answerDocumentPrincipalSlateIsEmpty reports whether no principal
-// item appears in any list/table block. Used for locate-intent
-// disclosure: the model produced no principal answer member, so the
-// boundary explanation matters.
+// answerDocumentPrincipalSlateIsEmpty reports whether no principal answer
+// surface appears in the document. Used for locate-intent disclosure: when the
+// model produced no principal answer member, the inactive-scope boundary
+// explanation matters. The signal is structural only: list/table principal
+// items, principal scalar values, and principal exact-match summaries count.
 func answerDocumentPrincipalSlateIsEmpty(doc *AnswerDocumentV2) bool {
 	if doc == nil {
 		return true
 	}
 	for _, block := range doc.Blocks {
-		switch block.Kind {
-		case BlockOrderedList, BlockBulletList, BlockTable:
-		default:
-			continue
-		}
 		if block.SurfaceRole != SurfacePrincipal {
 			continue
 		}
-		for _, item := range block.Items {
-			if strings.TrimSpace(item.Label) != "" {
+		switch block.Kind {
+		case BlockOrderedList, BlockBulletList, BlockTable:
+			for _, item := range block.Items {
+				if strings.TrimSpace(item.Label) != "" ||
+					strings.TrimSpace(item.Text) != "" {
+					return false
+				}
+			}
+		case BlockScalar:
+			if strings.TrimSpace(block.Text) != "" {
+				return false
+			}
+		case BlockSummary:
+			if answerDocumentExactResolutionIsPopulated(doc) &&
+				strings.TrimSpace(block.Text) != "" {
 				return false
 			}
 		}
 	}
 	return true
+}
+
+func answerDocumentExactResolutionIsPopulated(doc *AnswerDocumentV2) bool {
+	if doc == nil || doc.ExactResolution == nil {
+		return false
+	}
+	switch doc.ExactResolution.Status {
+	case AnswerExactResolutionExactMatch, AnswerExactResolutionAliasMatch:
+		return true
+	default:
+		return false
+	}
 }
 
 // AnswerDocumentDisclosesInactiveScope reports whether the rendered
