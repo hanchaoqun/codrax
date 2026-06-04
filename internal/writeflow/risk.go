@@ -101,6 +101,7 @@ func AssessWriteRisk(input AssessmentInput) RiskAssessment {
 	for _, c := range plan.Changes {
 		a.assessPath(c.Path)
 		a.assessPathPolicyDetails(c.Path)
+		a.assessContentPolicyDetails(c.Path, c.NewContent, c.Patch)
 		if c.NewPath != "" {
 			a.assessPath(c.NewPath)
 			a.assessPathPolicyDetails(c.NewPath)
@@ -256,6 +257,12 @@ func (a *RiskAssessment) assessPathPolicyDetails(path string) {
 		a.add(RiskHigh, "hook_policy_change", "plan changes hook or local automation policy", path)
 	case isExecutableScriptPath(clean, base):
 		a.add(RiskMedium, "executable_script_change", "plan changes executable/script surface", path)
+	}
+}
+
+func (a *RiskAssessment) assessContentPolicyDetails(path, newContent, patch string) {
+	if containsPrivateKeyMaterial(newContent) || containsPrivateKeyMaterial(patch) {
+		a.add(RiskHigh, "secret_material_in_change", "plan content contains private-key material", path)
 	}
 }
 
@@ -469,6 +476,19 @@ func isExecutableScriptPath(clean, base string) bool {
 	default:
 		return false
 	}
+}
+
+func containsPrivateKeyMaterial(s string) bool {
+	if s == "" {
+		return false
+	}
+	upper := strings.ToUpper(s)
+	return strings.Contains(upper, "-----BEGIN PRIVATE KEY-----") ||
+		strings.Contains(upper, "-----BEGIN ENCRYPTED PRIVATE KEY-----") ||
+		strings.Contains(upper, "-----BEGIN RSA PRIVATE KEY-----") ||
+		strings.Contains(upper, "-----BEGIN DSA PRIVATE KEY-----") ||
+		strings.Contains(upper, "-----BEGIN EC PRIVATE KEY-----") ||
+		strings.Contains(upper, "-----BEGIN OPENSSH PRIVATE KEY-----")
 }
 
 func rankRisk(level RiskLevel) int {

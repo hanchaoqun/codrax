@@ -192,7 +192,7 @@ func TestBuildPlanCriticInput_FromBusContext(t *testing.T) {
 	mu.SetChangePlan(&types.ChangePlan{
 		Summary: "modify cmd/root.go to register --quiet flag",
 		Changes: []types.FileChange{
-			{Path: "cmd/root.go", Kind: "modify", Rationale: "add flag parsing"},
+			{Path: "cmd/root.go", Kind: "modify", Rationale: "add flag parsing", Patch: "@@ -1 +1\n+quiet := true"},
 		},
 	})
 	bus := &types.BusContext{Mutable: mu}
@@ -214,6 +214,27 @@ func TestBuildPlanCriticInput_FromBusContext(t *testing.T) {
 	}
 	if len(in.Changes) != 1 || in.Changes[0].Path != "cmd/root.go" {
 		t.Errorf("Changes = %+v", in.Changes)
+	}
+	if !strings.Contains(in.Changes[0].ContentPreview, "quiet := true") {
+		t.Errorf("ContentPreview missing patch: %q", in.Changes[0].ContentPreview)
+	}
+	rendered := renderPlanCriticUserMessage(in)
+	if !strings.Contains(rendered, "content preview") || !strings.Contains(rendered, "quiet := true") {
+		t.Errorf("rendered critic input missing content preview:\n%s", rendered)
+	}
+}
+
+func TestBoundedPlanChangePreviewClampsLargeContent(t *testing.T) {
+	got := boundedPlanChangePreview(types.FileChange{
+		Path:       "large.go",
+		Kind:       "modify",
+		NewContent: strings.Repeat("x", 1400),
+	})
+	if len([]rune(got)) > 1240 {
+		t.Fatalf("preview too large: %d", len([]rune(got)))
+	}
+	if !strings.Contains(got, "truncated") {
+		t.Fatalf("preview should mention truncation: %q", got)
 	}
 }
 

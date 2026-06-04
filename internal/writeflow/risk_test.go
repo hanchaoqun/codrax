@@ -102,6 +102,22 @@ func TestAssessWriteRiskExecutableScriptMedium(t *testing.T) {
 	}
 }
 
+func TestAssessWriteRiskPrivateKeyMaterialHigh(t *testing.T) {
+	plan := planWithChanges(types.FileChange{
+		Path:       "internal/config/testdata/key.txt",
+		Kind:       "create",
+		NewContent: "-----BEGIN OPENSSH PRIVATE KEY-----\nredacted\n-----END OPENSSH PRIVATE KEY-----",
+	})
+
+	got := AssessWriteRisk(AssessmentInput{Plan: plan})
+	if got.Level != RiskHigh {
+		t.Fatalf("risk = %s; want %s; reasons=%+v", got.Level, RiskHigh, got.Reasons)
+	}
+	if !hasRiskReason(got, "secret_material_in_change") {
+		t.Fatalf("missing secret_material_in_change reason: %+v", got.Reasons)
+	}
+}
+
 func TestAssessWriteRiskAnalysisAxesHigh(t *testing.T) {
 	plan := planWithChanges(types.FileChange{Path: "internal/foo/bar.go", Kind: "modify"})
 	plan.WriteAnalysisIR = &types.WriteAnalysisIR{}

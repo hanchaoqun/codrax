@@ -102,19 +102,20 @@ type PlanCriticInput struct {
 	// actually contain.
 	PlanSummary string
 
-	// Changes is the list of files the plan modifies. Path + Kind +
-	// Rationale only — the critic doesn't need full new_content
-	// (that's what the planner already saw; the critic looks for
-	// shape-level issues, not line-level).
+	// Changes is the list of files the plan modifies. The critic receives a
+	// bounded content preview when the planner emitted a patch or full-file
+	// replacement, so it can spot shape-vs-diff mismatches without loading
+	// unbounded generated content.
 	Changes []PlanCriticChangeRef
 }
 
 // PlanCriticChangeRef is one line in the critic's input — a
 // shape-level descriptor of one ChangePlan entry.
 type PlanCriticChangeRef struct {
-	Path      string
-	Kind      string
-	Rationale string
+	Path           string
+	Kind           string
+	Rationale      string
+	ContentPreview string
 }
 
 // planCriticTool is the structured-output schema. The critic emits
@@ -317,6 +318,12 @@ func renderPlanCriticUserMessage(in PlanCriticInput) string {
 		b.WriteString("## Plan changes\n\n")
 		for _, c := range in.Changes {
 			fmt.Fprintf(&b, "- `%s` (%s) — %s\n", c.Path, c.Kind, c.Rationale)
+			if preview := strings.TrimSpace(c.ContentPreview); preview != "" {
+				b.WriteString("  content preview:\n")
+				for _, line := range strings.Split(preview, "\n") {
+					fmt.Fprintf(&b, "  > %s\n", line)
+				}
+			}
 		}
 		b.WriteString("\n")
 	}
@@ -375,12 +382,33 @@ func buildPlanCriticInput(busCtx *types.BusContext) PlanCriticInput {
 			in.PlanSummary = plan.Summary
 			for _, c := range plan.Changes {
 				in.Changes = append(in.Changes, PlanCriticChangeRef{
-					Path:      c.Path,
-					Kind:      c.Kind,
-					Rationale: c.Rationale,
+					Path:           c.Path,
+					Kind:           c.Kind,
+					Rationale:      c.Rationale,
+					ContentPreview: boundedPlanChangePreview(c),
 				})
 			}
 		}
 	}
 	return in
+}
+
+func boundedPlanChangePreview(c types.FileChange) string {
+	preview := strings.TrimSpace(c.Patch)
+	if preview == "" {
+		preview = strings.TrimSpace(c.NewContent)
+	}
+	return clampPlanCriticPreview(preview, 1200)
+}
+
+func clampPlanCriticPreview(s string, limit int) string {
+	s = strings.TrimSpace(s)
+	if s == "" || limit <= 0 {
+		return ""
+	}
+	runes := []rune(s)
+	if len(runes) <= limit {
+		return s
+	}
+	return string(runes[:limit]) + "\n...[plan critic preview truncated]"
 }
