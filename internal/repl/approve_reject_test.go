@@ -8,6 +8,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
 // writeCapableRunner is the test double used by /approve tests: it
@@ -74,8 +75,9 @@ func newApprovalREPL(t *testing.T, confirmInput string, runner Runner) (*REPL, *
 		// English to keep the historical "Approve cancelled" /
 		// "plan rejected" substring assertions deterministic across
 		// the bilingual messages.go rollout.
-		Language:     "en",
-		WriteEnabled: true, // /approve gates on this; tests target post-gate behaviour
+		Language:            "en",
+		WriteEnabled:        true, // /approve gates on this; tests target post-gate behaviour
+		WriteApprovalPolicy: writeflow.ApprovalPolicyManual,
 	})
 	r.pendingPlanPath = path
 	return r, store, out
@@ -212,6 +214,76 @@ func TestApprove_HappyPath(t *testing.T) {
 		t.Errorf("currentMode should still be ModeRead; got %q", r.currentMode)
 	}
 	_ = originalPath
+}
+
+func TestApprove_AutoSafeSkipsManualConfirmForMediumRisk(t *testing.T) {
+	runner := &writeCapableRunner{}
+	r, _, out := newApprovalREPL(t, "", runner)
+	r.writeApprovalPolicy = writeflow.ApprovalPolicyAutoSafe
+
+	r.handleApproveCmd("/approve")
+
+	if !runner.runCalled {
+		t.Fatal("Run should fire without a manual confirm under auto_safe for medium risk")
+	}
+	if !strings.Contains(out.String(), "auto-execute") {
+		t.Fatalf("expected auto-execute approval message, got: %q", out.String())
+	}
+	if r.pendingPlanPath != "" {
+		t.Fatalf("pendingPlanPath should be cleared after auto-safe success; got %q", r.pendingPlanPath)
+	}
+}
+
+func TestApprove_AutoSafeStillRequiresManualForHighRisk(t *testing.T) {
+	runner := &writeCapableRunner{}
+	r, store, out := newApprovalREPL(t, "n\n", runner)
+	r.writeApprovalPolicy = writeflow.ApprovalPolicyAutoSafe
+	plan, err := store.Load("plan-approve-1")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	plan.Changes = []types.FileChange{{Path: "go.mod", Kind: "modify", Rationale: "dependency change"}}
+	plan.TargetPaths = []string{"go.mod"}
+	if _, err := store.SaveForTest(plan); err != nil {
+		t.Fatalf("SaveForTest: %v", err)
+	}
+
+	r.handleApproveCmd("/approve")
+
+	if runner.runCalled {
+		t.Fatal("Run should not fire when user declines a high-risk manual approval")
+	}
+	if !strings.Contains(out.String(), "Approve cancelled") {
+		t.Fatalf("expected manual confirmation cancellation, got: %q", out.String())
+	}
+}
+
+func TestApprove_AutoSafeDeniesCriticalRiskBeforeApply(t *testing.T) {
+	runner := &writeCapableRunner{}
+	r, store, out := newApprovalREPL(t, "", runner)
+	r.writeApprovalPolicy = writeflow.ApprovalPolicyAutoSafe
+	plan, err := store.Load("plan-approve-1")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	plan.Changes = []types.FileChange{{Path: "../outside.go", Kind: "modify", Rationale: "outside repo"}}
+	plan.TargetPaths = []string{"../outside.go"}
+	if _, err := store.SaveForTest(plan); err != nil {
+		t.Fatalf("SaveForTest: %v", err)
+	}
+	originalPath := r.pendingPlanPath
+
+	r.handleApproveCmd("/approve")
+
+	if runner.runCalled {
+		t.Fatal("Run should not fire when deterministic write approval denies critical risk")
+	}
+	if !strings.Contains(out.String(), "denied") || !strings.Contains(out.String(), "outside_repo_path") {
+		t.Fatalf("expected critical risk deny message, got: %q", out.String())
+	}
+	if r.pendingPlanPath != originalPath {
+		t.Fatalf("critical deny should keep plan pending for review/reject; got %q", r.pendingPlanPath)
+	}
 }
 
 // TestApprove_RefusesTerminalStatus verifies /approve blocks

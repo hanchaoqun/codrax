@@ -2648,9 +2648,14 @@ mcp_servers:
 <td>允许在空目录里凭空生成新文件(从零创建项目;等价 <code>--allow-scaffold</code>,持久版)。空目录场景需要和 <code>write_auto_init_repo</code> 同时开启</td>
 </tr>
 <tr>
+<td><code>write_approval_policy</code></td>
+<td><code>auto_safe</code></td>
+<td>REPL <code>/approve</code> 审批策略: <code>manual</code> 全部人工确认;<code>auto_safe</code> 低/中风险自动推进、高风险人工确认、critical 拒绝;<code>auto_low_only</code> 仅低风险自动推进</td>
+</tr>
+<tr>
 <td><code>write_auto_approval</code></td>
 <td><code>false</code></td>
-<td>预留:批量工作流 / REPL <code>/approve</code> 默认开关</td>
+<td>兼容旧布尔配置;仅未设置 <code>write_approval_policy</code> 时生效。<code>true</code> 映射 <code>auto_safe</code>,<code>false</code> 映射 <code>manual</code></td>
 </tr>
 <tr>
 <td><code>write_plan_dir</code></td>

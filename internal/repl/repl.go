@@ -49,6 +49,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/topology"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
+	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
 // Runner is the orchestrator-shaped surface the REPL needs. Defined
@@ -355,6 +356,11 @@ type Config struct {
 	// runtime_settings.WriteEnabled.
 	WriteEnabled bool
 
+	// WriteApprovalPolicy controls /approve for write ChangePlans.
+	// Defaults to auto_safe when empty. It is independent from command
+	// operation approval and from write_enabled's capability gate.
+	WriteApprovalPolicy writeflow.ApprovalPolicy
+
 	// WriteAutoInitRepo mirrors the resolved auto-init authorization
 	// (yaml `write_auto_init_repo` OR CLI `--auto-init-repo`). When
 	// true, the REPL's /approve flow skips the interactive y/N
@@ -629,6 +635,11 @@ type REPL struct {
 	// confusing analyzer/planner failure deep inside the pipeline.
 	writeEnabled bool
 
+	// writeApprovalPolicy is the resolved write-mode approval policy for
+	// /approve. Critical risk denies before apply; high risk remains manual;
+	// low/medium can auto-run under auto_safe.
+	writeApprovalPolicy writeflow.ApprovalPolicy
+
 	// writeAutoInitRepo mirrors Config.WriteAutoInitRepo. When true
 	// the /approve flow skips the y/N consent prompt and silently
 	// authorizes the orchestrator's auto-init path on bare /
@@ -775,6 +786,7 @@ func New(cfg Config) *REPL {
 		attachedLogMaxBytes:   cfg.AttachedLogMaxBytes,
 		attachedTraceMaxBytes: cfg.AttachedTraceMaxBytes,
 		writeEnabled:          cfg.WriteEnabled,
+		writeApprovalPolicy:   normalizeREPLWriteApprovalPolicy(cfg.WriteApprovalPolicy),
 		writeAutoInitRepo:     cfg.WriteAutoInitRepo,
 		writeScaffoldEnabled:  cfg.WriteScaffoldEnabled,
 		settingsPath:          cfg.SettingsPath,
@@ -4686,7 +4698,7 @@ func (r *REPL) handlePlanCmd(line string) {
 		if plan.Summary != "" {
 			fmt.Fprintf(r.out, "    summary: %s\n", oneLine(plan.Summary))
 		}
-		for _, line := range renderWriteRiskAssessment(r.language, plan) {
+		for _, line := range renderWriteRiskAssessment(r.language, plan, r.writeApprovalPolicy) {
 			fmt.Fprintln(r.out, line)
 		}
 		// Static-check unvalidated reasons (commit 7 P1-E gap-fix).
@@ -5392,6 +5404,13 @@ func (r *REPL) handleApproveCmd(line string) {
 		r.info(otherPendingPlansHint(r.language, plan.ID, extras))
 	}
 
+	assessment := writeflow.AssessWriteRisk(writeflow.AssessmentInput{Plan: plan})
+	decision := writeflow.DecideWriteApproval(r.writeApprovalPolicy, assessment)
+	if decision.Action == writeflow.ApprovalActionDeny {
+		r.warn("%s", writeApprovalDenied(r.language, plan.ID, assessment, decision))
+		return
+	}
+
 	// Probe both setters up-front. Running Mode=ModeApply against a
 	// runner without SetMode would silently fall through to read
 	// mode in the orchestrator; without SetPlanPath the apply phase
@@ -5404,21 +5423,25 @@ func (r *REPL) handleApproveCmd(line string) {
 	}
 
 	title := approveTitlePrompt(r.language, plan.ID, len(plan.Changes), skipVerify)
-	confirmed := false
-	if r.interactive() {
-		if err := huh.NewConfirm().
-			Title(title).
-			Affirmative("Yes").
-			Negative("No").
-			Value(&confirmed).
-			Run(); err != nil {
-			confirmed = false
-		}
+	confirmed := decision.Action == writeflow.ApprovalActionAutoExecute
+	if confirmed {
+		r.info(writeApprovalAutoProceeding(r.language, plan.ID, assessment, decision))
 	} else {
-		fmt.Fprintln(r.out, title)
-		s, err := r.readInputLines("")
-		if err == nil {
-			confirmed = strings.TrimSpace(strings.ToLower(s)) == "y"
+		if r.interactive() {
+			if err := huh.NewConfirm().
+				Title(title).
+				Affirmative("Yes").
+				Negative("No").
+				Value(&confirmed).
+				Run(); err != nil {
+				confirmed = false
+			}
+		} else {
+			fmt.Fprintln(r.out, title)
+			s, err := r.readInputLines("")
+			if err == nil {
+				confirmed = strings.TrimSpace(strings.ToLower(s)) == "y"
+			}
 		}
 	}
 	if !confirmed {

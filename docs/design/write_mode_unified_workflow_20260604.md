@@ -270,12 +270,12 @@ Required tests:
 
 ### Batch 5: REPL / CLI Approval Integration
 
-- [ ] Add `write_approval_policy` config.
-- [ ] Keep `write_enabled` as the capability gate.
-- [ ] Change plan approval UX to show low/medium auto, high manual, critical
+- [x] Add `write_approval_policy` config.
+- [x] Keep `write_enabled` as the capability gate.
+- [x] Change plan approval UX to show low/medium auto, high manual, critical
       denied.
-- [ ] Keep `/approve` for manual high-risk and explicit user override paths.
-- [ ] Preserve existing `--auto-apply` compatibility until the new policy is
+- [x] Keep `/approve` for manual high-risk and explicit user override paths.
+- [x] Preserve existing `--auto-apply` compatibility until the new policy is
       fully wired.
 
 ### Batch 6: Batch Workflow Scheduler

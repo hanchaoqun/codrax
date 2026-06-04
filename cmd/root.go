@@ -42,6 +42,7 @@ import (
 	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
+	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
 // Build-time variables injected via -ldflags.
@@ -402,6 +403,10 @@ type appContext struct {
 	// at the yaml knob, instead of dispatching and surfacing a confusing
 	// analyzer / planner failure deep inside the pipeline.
 	writeEnabled bool
+	// writeApprovalPolicy controls whether /approve applies a pending
+	// write plan automatically, asks for manual confirmation, or denies it
+	// based on deterministic writeflow risk.
+	writeApprovalPolicy writeflow.ApprovalPolicy
 	// writeAutoInitRepo mirrors the resolved auto-init authorization
 	// (yaml `write_auto_init_repo` OR CLI `--auto-init-repo`). When
 	// true, the orchestrator's apply pre-hook will run `git init`
@@ -1269,6 +1274,7 @@ func runREPL(_ *cobra.Command) error {
 		AttachedLogMaxBytes:           maxAttachedLogBytes,
 		AttachedTraceMaxBytes:         maxAttachedTraceBytes,
 		WriteEnabled:                  app.writeEnabled,
+		WriteApprovalPolicy:           app.writeApprovalPolicy,
 		WriteAutoInitRepo:             app.writeAutoInitRepo,
 		WriteScaffoldEnabled:          app.writeScaffoldEnabled,
 		SettingsPath:                  app.settingsPath,
@@ -1408,6 +1414,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 	mergedProvidersConfig := defaultProvidersConfig
 	app.operationRouteEnabled = true
 	app.operationCommandPolicy = operation.DefaultCommandPolicy()
+	app.writeApprovalPolicy = writeflow.ApprovalPolicyAutoSafe
 
 	// Overlay config file values.
 	var rs *config.RuntimeSettings
@@ -1518,6 +1525,15 @@ func initApp(cmd *cobra.Command, args []string) error {
 		}
 		if rs.OperationCommandOverwritePolicy != nil {
 			app.operationCommandPolicy.OverwritePolicy = *rs.OperationCommandOverwritePolicy
+		}
+		if rs.WriteApprovalPolicy != nil {
+			app.writeApprovalPolicy = writeflow.NormalizeApprovalPolicy(writeflow.ApprovalPolicy(*rs.WriteApprovalPolicy))
+		} else if rs.WriteAutoApproval != nil {
+			if *rs.WriteAutoApproval {
+				app.writeApprovalPolicy = writeflow.ApprovalPolicyAutoSafe
+			} else {
+				app.writeApprovalPolicy = writeflow.ApprovalPolicyManual
+			}
 		}
 	}
 

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
 func TestRenderWriteRiskAssessmentShowsDeterministicPreview(t *testing.T) {
@@ -17,7 +18,7 @@ func TestRenderWriteRiskAssessmentShowsDeterministicPreview(t *testing.T) {
 		TargetPaths: []string{"go.mod"},
 	}
 
-	got := strings.Join(renderWriteRiskAssessment("en", plan), "\n")
+	got := strings.Join(renderWriteRiskAssessment("en", plan, writeflow.ApprovalPolicyAutoSafe), "\n")
 	if !strings.Contains(got, "write risk: high") {
 		t.Fatalf("rendered risk missing high band:\n%s", got)
 	}
@@ -37,7 +38,7 @@ func TestRenderWriteRiskAssessmentChinese(t *testing.T) {
 		TargetPaths: []string{"docs/guide.md"},
 	}
 
-	got := strings.Join(renderWriteRiskAssessment("zh-CN", plan), "\n")
+	got := strings.Join(renderWriteRiskAssessment("zh-CN", plan, writeflow.ApprovalPolicyAutoSafe), "\n")
 	if !strings.Contains(got, "写入风险：low") {
 		t.Fatalf("rendered zh risk missing low band:\n%s", got)
 	}

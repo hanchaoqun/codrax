@@ -9,6 +9,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/operation"
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
 // messages.go — short user-facing strings localized for the REPL.
@@ -110,6 +111,37 @@ func approveCancelled(lang string) string {
 		return "已取消 approve"
 	}
 	return "Approve cancelled"
+}
+
+func writeApprovalAutoProceeding(lang, planID string, assessment writeflow.RiskAssessment, decision writeflow.ApprovalDecision) string {
+	if isZh(lang) {
+		return formatN(lang, "写入审批: plan %s 将自动执行（策略=%s, 风险=%s, 原因=%s）",
+			planID, decision.Policy, assessment.Level, decision.ReasonCode)
+	}
+	return formatN(lang, "write approval: plan %s will auto-execute (policy=%s, risk=%s, reason=%s)",
+		planID, decision.Policy, assessment.Level, decision.ReasonCode)
+}
+
+func writeApprovalDenied(lang, planID string, assessment writeflow.RiskAssessment, decision writeflow.ApprovalDecision) string {
+	reasons := assessment.TopReasons(3)
+	var details []string
+	for _, reason := range reasons {
+		if reason.Path != "" {
+			details = append(details, formatN(lang, "%s/%s %s (%s)", reason.Level, reason.Code, reason.Detail, reason.Path))
+			continue
+		}
+		details = append(details, formatN(lang, "%s/%s %s", reason.Level, reason.Code, reason.Detail))
+	}
+	suffix := ""
+	if len(details) > 0 {
+		suffix = " — " + strings.Join(details, "; ")
+	}
+	if isZh(lang) {
+		return formatN(lang, "写入审批: plan %s 已被拒绝（策略=%s, 风险=%s, 原因=%s）%s",
+			planID, decision.Policy, assessment.Level, decision.ReasonCode, suffix)
+	}
+	return formatN(lang, "write approval: plan %s denied (policy=%s, risk=%s, reason=%s)%s",
+		planID, decision.Policy, assessment.Level, decision.ReasonCode, suffix)
 }
 
 // rejectConfirmedWithReason — message printed after /reject lands

@@ -7,17 +7,25 @@ import (
 	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
-func renderWriteRiskAssessment(lang string, plan *types.ChangePlan) []string {
+func normalizeREPLWriteApprovalPolicy(policy writeflow.ApprovalPolicy) writeflow.ApprovalPolicy {
+	if policy == "" {
+		return writeflow.ApprovalPolicyAutoSafe
+	}
+	return writeflow.NormalizeApprovalPolicy(policy)
+}
+
+func renderWriteRiskAssessment(lang string, plan *types.ChangePlan, policy writeflow.ApprovalPolicy) []string {
 	assessment := writeflow.AssessWriteRisk(writeflow.AssessmentInput{Plan: plan})
-	decision := writeflow.DecideWriteApproval(writeflow.ApprovalPolicyAutoSafe, assessment)
+	policy = normalizeREPLWriteApprovalPolicy(policy)
+	decision := writeflow.DecideWriteApproval(policy, assessment)
 	zh := isZh(lang)
 	lines := make([]string, 0, 6)
 	if zh {
 		lines = append(lines, fmt.Sprintf("\n  · 写入风险：%s", assessment.Level))
-		lines = append(lines, fmt.Sprintf("    审批预览：auto_safe => %s（仅展示；当前 apply 行为未改变）", decision.Action))
+		lines = append(lines, fmt.Sprintf("    审批预览：%s => %s", policy, decision.Action))
 	} else {
 		lines = append(lines, fmt.Sprintf("\n  · write risk: %s", assessment.Level))
-		lines = append(lines, fmt.Sprintf("    approval preview: auto_safe => %s (display only; apply behavior unchanged)", decision.Action))
+		lines = append(lines, fmt.Sprintf("    approval preview: %s => %s", policy, decision.Action))
 	}
 	reasons := assessment.TopReasons(4)
 	for _, reason := range reasons {

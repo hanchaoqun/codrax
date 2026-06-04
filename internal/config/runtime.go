@@ -1297,6 +1297,12 @@ type RuntimeSettings struct {
 	//                        L4 gate uses the CLI flag directly).
 	//                        Reserved for REPL /approve interactive
 	//                        default and batch-mode workflows post B0.
+	//   WriteApprovalPolicy — write-mode approval policy. Supported
+	//                        values: manual, auto_safe,
+	//                        auto_low_only. Replaces the bool-shaped
+	//                        WriteAutoApproval while keeping that field
+	//                        as a compatibility alias when this field is
+	//                        absent.
 	//   WritePlanDir       — override the default .codrax/plans/
 	//                        directory where ChangePlan JSONs land.
 	//                        Absolute or runtime-anchor-relative;
@@ -1329,6 +1335,7 @@ type RuntimeSettings struct {
 	WriteEnabled         *bool   `yaml:"write_enabled"`
 	WriteDefaultMode     *string `yaml:"write_default_mode"`
 	WriteAutoApproval    *bool   `yaml:"write_auto_approval"`
+	WriteApprovalPolicy  *string `yaml:"write_approval_policy"`
 	WritePlanDir         *string `yaml:"write_plan_dir"`
 	WriteAutoInitRepo    *bool   `yaml:"write_auto_init_repo"`
 	WriteScaffoldEnabled *bool   `yaml:"write_scaffold_enabled"`

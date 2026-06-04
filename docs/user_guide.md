@@ -2083,7 +2083,8 @@ agents:
 | `write_default_mode` | `read` | 启动默认模式 |
 | `write_auto_init_repo` | `false` | 允许把目标目录初始化为 git 仓库(`git init` + 空 commit;等价 `--auto-init-repo`,持久版) |
 | `write_scaffold_enabled` | `false` | 允许在空目录里凭空生成新文件(从零创建项目;等价 `--allow-scaffold`,持久版)。空目录场景需要和 `write_auto_init_repo` 同时开启 |
-| `write_auto_approval` | `false` | 预留:批量工作流 / REPL `/approve` 默认开关 |
+| `write_approval_policy` | `auto_safe` | REPL `/approve` 审批策略: `manual` 全部人工确认;`auto_safe` 低/中风险自动推进、高风险人工确认、critical 拒绝;`auto_low_only` 仅低风险自动推进 |
+| `write_auto_approval` | `false` | 兼容旧布尔配置;仅未设置 `write_approval_policy` 时生效。`true` 映射 `auto_safe`,`false` 映射 `manual` |
 | `write_plan_dir` | `<runtime>/plans` | ChangePlan JSON 落盘目录 |
 | `pipeline_write_retry_budget` | 3 | verify 失败后自动重 plan 的最大次数 |
 | `pipeline_write_retry_budget_ceil` | 5 | 上面那个 budget 的硬上限 |

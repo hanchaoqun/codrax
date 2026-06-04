@@ -744,11 +744,21 @@
 #   有副作用,必须每次运行用 CLI 显式选择。默认 read。
 # write_default_mode: read
 
-# write_auto_approval — reserved for the REPL /approve interactive default
-#   and batch workflows; unused in single-shot today (--auto-apply is the
-#   single-shot gate). Default false.
-#   预留给 REPL /approve 的交互默认值与批处理工作流;单次模式当前未用
-#   (单次由 --auto-apply 把关)。默认 false。
+# write_approval_policy — /approve policy once write_enabled is true.
+#   Values:
+#     manual        every ChangePlan needs confirmation
+#     auto_safe     low/medium deterministic risk auto-runs; high confirms;
+#                   critical is denied
+#     auto_low_only only low risk auto-runs; medium/high confirm; critical denied
+#   Default auto_safe. This does not bypass write_enabled.
+#   写模式开启后的 /approve 审批策略。默认 auto_safe:低/中风险自动推进,
+#   高风险人工确认,critical 直接拒绝。它不会绕过 write_enabled 总闸。
+# write_approval_policy: auto_safe
+
+# write_auto_approval — legacy bool alias used only when write_approval_policy
+#   is absent. true maps to auto_safe, false maps to manual.
+#   兼容旧布尔配置;仅当未设置 write_approval_policy 时生效。true 映射为
+#   auto_safe,false 映射为 manual。
 # write_auto_approval: false
 
 # write_plan_dir — override for the ChangePlan JSON output directory.
