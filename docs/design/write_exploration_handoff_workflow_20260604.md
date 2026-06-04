@@ -221,8 +221,11 @@ hint rather than failing silently.
 ### Batch 7: Review / Security Lanes
 
 - [ ] Add independent diff reviewer hook that consumes diff + success criteria.
-- [ ] Add security scan lane for secrets, dependency/workflow changes,
-      permission/path risks.
+- [x] Add deterministic path-policy security signals for CI/workflow,
+      hook/policy, executable/script, secret-like, dependency/build, and
+      repo-escape risks.
+- [ ] Add content-level security scan lane for secrets, dependency/workflow
+      changes, permission/path risks, and suspicious generated payloads.
 - [ ] Feed typed results into write risk and final workflow evaluation.
 
 ### Batch 8: Regression Coverage

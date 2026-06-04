@@ -43,6 +43,65 @@ func TestAssessWriteRiskBuildManifestHigh(t *testing.T) {
 	}
 }
 
+func TestAssessWriteRiskWorkflowAutomationHigh(t *testing.T) {
+	for _, p := range []string{
+		".github/workflows/build.yml",
+		".gitlab-ci.yml",
+		"Jenkinsfile",
+		"fastlane/Fastfile",
+	} {
+		t.Run(p, func(t *testing.T) {
+			plan := planWithChanges(types.FileChange{Path: p, Kind: "modify"})
+
+			got := AssessWriteRisk(AssessmentInput{Plan: plan})
+			if got.Level != RiskHigh {
+				t.Fatalf("risk = %s; want %s; reasons=%+v", got.Level, RiskHigh, got.Reasons)
+			}
+			if !hasRiskReason(got, "ci_or_workflow_change") {
+				t.Fatalf("missing ci_or_workflow_change reason: %+v", got.Reasons)
+			}
+			if decision := DecideWriteApproval(ApprovalPolicyAutoSafe, got); decision.Action != ApprovalActionManual {
+				t.Fatalf("auto_safe approval = %s; want %s", decision.Action, ApprovalActionManual)
+			}
+		})
+	}
+}
+
+func TestAssessWriteRiskHookPolicyHigh(t *testing.T) {
+	for _, p := range []string{
+		".husky/pre-commit",
+		".githooks/pre-push",
+		".pre-commit-config.yaml",
+	} {
+		t.Run(p, func(t *testing.T) {
+			plan := planWithChanges(types.FileChange{Path: p, Kind: "modify"})
+
+			got := AssessWriteRisk(AssessmentInput{Plan: plan})
+			if got.Level != RiskHigh {
+				t.Fatalf("risk = %s; want %s; reasons=%+v", got.Level, RiskHigh, got.Reasons)
+			}
+			if !hasRiskReason(got, "hook_policy_change") {
+				t.Fatalf("missing hook_policy_change reason: %+v", got.Reasons)
+			}
+		})
+	}
+}
+
+func TestAssessWriteRiskExecutableScriptMedium(t *testing.T) {
+	plan := planWithChanges(types.FileChange{Path: "scripts/release.sh", Kind: "modify"})
+
+	got := AssessWriteRisk(AssessmentInput{Plan: plan})
+	if got.Level != RiskMedium {
+		t.Fatalf("risk = %s; want %s; reasons=%+v", got.Level, RiskMedium, got.Reasons)
+	}
+	if !hasRiskReason(got, "executable_script_change") {
+		t.Fatalf("missing executable_script_change reason: %+v", got.Reasons)
+	}
+	if decision := DecideWriteApproval(ApprovalPolicyAutoSafe, got); decision.Action != ApprovalActionAutoExecute {
+		t.Fatalf("auto_safe approval = %s; want %s", decision.Action, ApprovalActionAutoExecute)
+	}
+}
+
 func TestAssessWriteRiskAnalysisAxesHigh(t *testing.T) {
 	plan := planWithChanges(types.FileChange{Path: "internal/foo/bar.go", Kind: "modify"})
 	plan.WriteAnalysisIR = &types.WriteAnalysisIR{}
@@ -75,6 +134,15 @@ func TestDecideWriteApprovalManualAlwaysManualUnlessCritical(t *testing.T) {
 	if decision.Action != ApprovalActionManual {
 		t.Fatalf("manual low approval = %s; want %s", decision.Action, ApprovalActionManual)
 	}
+}
+
+func hasRiskReason(got RiskAssessment, code string) bool {
+	for _, r := range got.Reasons {
+		if r.Code == code {
+			return true
+		}
+	}
+	return false
 }
 
 func planWithChanges(changes ...types.FileChange) *types.ChangePlan {

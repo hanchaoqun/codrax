@@ -100,8 +100,10 @@ func AssessWriteRisk(input AssessmentInput) RiskAssessment {
 
 	for _, c := range plan.Changes {
 		a.assessPath(c.Path)
+		a.assessPathPolicyDetails(c.Path)
 		if c.NewPath != "" {
 			a.assessPath(c.NewPath)
+			a.assessPathPolicyDetails(c.NewPath)
 		}
 		switch strings.ToLower(strings.TrimSpace(c.Kind)) {
 		case "delete":
@@ -241,6 +243,22 @@ func (a *RiskAssessment) assessPath(path string) {
 	a.add(riskForCleanPath(clean), "path_class", pathClass(clean), path)
 }
 
+func (a *RiskAssessment) assessPathPolicyDetails(path string) {
+	clean, ok := normalizePlanPath(path)
+	if !ok || looksAbsolutePlanPath(path) || clean == ".." || strings.HasPrefix(clean, "../") || clean == ".git" || strings.HasPrefix(clean, ".git/") {
+		return
+	}
+	base := strings.ToLower(filepath.Base(clean))
+	switch {
+	case isWorkflowOrAutomationPath(clean, base):
+		a.add(RiskHigh, "ci_or_workflow_change", "plan changes CI/workflow automation", path)
+	case isHookPolicyPath(clean, base):
+		a.add(RiskHigh, "hook_policy_change", "plan changes hook or local automation policy", path)
+	case isExecutableScriptPath(clean, base):
+		a.add(RiskMedium, "executable_script_change", "plan changes executable/script surface", path)
+	}
+}
+
 func (a *RiskAssessment) add(level RiskLevel, code, detail, path string) {
 	if rankRisk(level) > rankRisk(a.Level) {
 		a.Level = level
@@ -290,6 +308,12 @@ func riskForCleanPath(clean string) RiskLevel {
 	if isSecretLikePath(clean, base) {
 		return RiskHigh
 	}
+	if isWorkflowOrAutomationPath(clean, base) || isHookPolicyPath(clean, base) {
+		return RiskHigh
+	}
+	if isExecutableScriptPath(clean, base) {
+		return RiskMedium
+	}
 	if isDocsPath(clean) || isTestPath(clean) {
 		return RiskLow
 	}
@@ -303,6 +327,12 @@ func pathClass(clean string) string {
 		return "build_or_dependency_manifest"
 	case isSecretLikePath(clean, base):
 		return "secret_or_credential_like_path"
+	case isWorkflowOrAutomationPath(clean, base):
+		return "ci_or_workflow_path"
+	case isHookPolicyPath(clean, base):
+		return "hook_policy_path"
+	case isExecutableScriptPath(clean, base):
+		return "executable_script_path"
 	case isDocsPath(clean):
 		return "documentation_path"
 	case isTestPath(clean):
@@ -384,6 +414,61 @@ func isSecretLikePath(clean, base string) bool {
 		return true
 	}
 	return strings.Contains(clean, "/.ssh/") || base == "id_rsa" || base == "id_ed25519"
+}
+
+func isWorkflowOrAutomationPath(clean, base string) bool {
+	lower := strings.ToLower(clean)
+	if strings.HasPrefix(lower, ".github/workflows/") ||
+		strings.HasPrefix(lower, ".circleci/") ||
+		strings.HasPrefix(lower, ".buildkite/") ||
+		strings.HasPrefix(lower, ".azure-pipelines/") ||
+		strings.HasPrefix(lower, ".woodpecker/") ||
+		strings.HasPrefix(lower, ".drone/") ||
+		strings.HasPrefix(lower, "fastlane/") {
+		return true
+	}
+	switch base {
+	case ".gitlab-ci.yml", ".gitlab-ci.yaml", "jenkinsfile", "azure-pipelines.yml",
+		"azure-pipelines.yaml", "bitrise.yml", "bitrise.yaml", "codemagic.yaml",
+		"codemagic.yml", ".travis.yml", "appveyor.yml", "buildkite.yml",
+		"buildkite.yaml", ".drone.yml", ".drone.yaml", ".woodpecker.yml",
+		".woodpecker.yaml":
+		return true
+	default:
+		return false
+	}
+}
+
+func isHookPolicyPath(clean, base string) bool {
+	lower := strings.ToLower(clean)
+	if strings.HasPrefix(lower, ".husky/") ||
+		strings.HasPrefix(lower, ".githooks/") ||
+		strings.HasPrefix(lower, "hooks/") ||
+		strings.Contains(lower, "/hooks/") {
+		return true
+	}
+	switch base {
+	case ".pre-commit-config.yaml", ".pre-commit-config.yml", "lefthook.yml",
+		"lefthook.yaml", "pre-commit", "pre-push", "commit-msg", "post-checkout",
+		"post-merge", "post-rewrite":
+		return true
+	default:
+		return false
+	}
+}
+
+func isExecutableScriptPath(clean, base string) bool {
+	lower := strings.ToLower(clean)
+	if strings.HasPrefix(lower, "scripts/") || strings.Contains(lower, "/scripts/") ||
+		strings.HasPrefix(lower, "bin/") || strings.Contains(lower, "/bin/") {
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(base)) {
+	case ".sh", ".bash", ".zsh", ".fish", ".ps1", ".cmd", ".bat", ".command":
+		return true
+	default:
+		return false
+	}
 }
 
 func rankRisk(level RiskLevel) int {
