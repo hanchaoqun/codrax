@@ -1074,6 +1074,22 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	// step below (gated by --mermaid-render). REPL has its own
 	// renderer at the user-output boundary; both paths follow the
 	// "render only at the user-facing edge" rule.
+	if handled, result, err := maybeRunSingleShotOperation(request); handled {
+		if err != nil {
+			return err
+		}
+		result = strings.TrimSpace(result)
+		if result == "" {
+			fmt.Println("(no result)")
+			return nil
+		}
+		fmt.Fprintf(os.Stderr, "\n━━━\n\n")
+		fmt.Print(result)
+		if !strings.HasSuffix(result, "\n") {
+			fmt.Println()
+		}
+		return nil
+	}
 	busCtx, err := app.orch.Run(request, flagRepo, flagBranch)
 	if err != nil {
 		logging.Error("pipeline failed: %v", err)
@@ -1130,6 +1146,77 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	}
 	fmt.Println("(no result)")
 	return nil
+}
+
+func maybeRunSingleShotOperation(request string) (bool, string, error) {
+	if !singleShotOperationRoutingEnabled() {
+		return false, "", nil
+	}
+	classifier, ok := app.chitchatClassifier.(repl.TurnPolicyClassifier)
+	if !ok || classifier == nil {
+		return false, "", nil
+	}
+	ctx := context.Background()
+	hasAttachment := singleShotHasRuntimeAttachment()
+	hint := ""
+	if hasAttachment {
+		hint = "attachment=true"
+	}
+	policy, err := classifier.ClassifyPolicy(ctx, request, hint, false)
+	if err != nil {
+		logging.Warning("[cmd/operation] turn-policy classifier failed; falling back to pipeline: %v", err)
+		return false, "", nil
+	}
+	rawPolicy := policy
+	policy = repl.ApplyTurnPolicyGuards(policy, false, hasAttachment)
+	logging.Info("[cmd/operation] single-shot turn policy raw_route=%s route=%s operation=%s operation_kind=%s needs_repo=%t needs_operation=%t risk=%s confidence=%.2f source=%s reason=%q",
+		rawPolicy.Route,
+		policy.Route,
+		policy.Operation,
+		policy.OperationKind,
+		policy.NeedsRepoAccess,
+		policy.NeedsOperationAccess,
+		policy.RiskLevel,
+		policy.Confidence,
+		policy.Source,
+		oneLineForLog(policy.Reason))
+	if policy.Route != repl.RouteOperation || !policy.NeedsOperationAccess {
+		return false, "", nil
+	}
+	result, err := repl.RunCommandOperationCLI(ctx, request, policy, repl.CommandOperationCLIConfig{
+		Planner:       app.operationPlanner,
+		Policy:        app.operationCommandPolicy,
+		RepoRoot:      flagRepo,
+		RuntimeAnchor: runtimeAnchorDir,
+		Language:      flagLang,
+		Providers:     append([]operation.ProviderInfo(nil), app.operationProviders...),
+		Progress:      os.Stderr,
+	})
+	if err != nil {
+		return true, "", fmt.Errorf("operation pipeline failed: %w", err)
+	}
+	return true, result, nil
+}
+
+func singleShotOperationRoutingEnabled() bool {
+	if !app.operationRouteEnabled || app.operationPlanner == nil || app.chitchatClassifier == nil {
+		return false
+	}
+	mode := strings.ToLower(strings.TrimSpace(flagMode))
+	return mode == "" || mode == string(types.ModeRead)
+}
+
+func singleShotHasRuntimeAttachment() bool {
+	return len(flagAttachLog) > 0 ||
+		strings.TrimSpace(flagAttachLogText) != "" ||
+		len(flagAttachHitrace) > 0 ||
+		strings.TrimSpace(flagAttachHitraceText) != "" ||
+		len(flagAttachAtrace) > 0 ||
+		strings.TrimSpace(flagAttachAtraceText) != ""
+}
+
+func oneLineForLog(s string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(s)), " ")
 }
 
 // writePlanFile serializes a ChangePlan to disk as JSON. Target path
