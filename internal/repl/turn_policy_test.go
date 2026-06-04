@@ -126,18 +126,27 @@ type requestCapturingRunner struct {
 	requests          []string
 	directiveSetCalls []string
 	seenDirectives    []string
+	routeHintSetCalls []types.TurnRouteHint
+	seenRouteHints    []types.TurnRouteHint
 	curDirective      string
+	curRouteHint      types.TurnRouteHint
 }
 
 func (r *requestCapturingRunner) Run(req, repo, branch string) (*types.BusContext, error) {
 	r.requests = append(r.requests, req)
 	r.seenDirectives = append(r.seenDirectives, r.curDirective)
+	r.seenRouteHints = append(r.seenRouteHints, r.curRouteHint)
 	return r.logAwareRunner.Run(req, repo, branch)
 }
 
 func (r *requestCapturingRunner) SetPresentationDirective(directive string) {
 	r.directiveSetCalls = append(r.directiveSetCalls, directive)
 	r.curDirective = directive
+}
+
+func (r *requestCapturingRunner) SetTurnRouteHint(hint types.TurnRouteHint) {
+	r.routeHintSetCalls = append(r.routeHintSetCalls, hint)
+	r.curRouteHint = hint
 }
 
 // seedPriorAnswer appends a recent pipeline turn to the store so
@@ -519,6 +528,13 @@ func TestApplyTurnPolicyGuards_OperationRoute(t *testing.T) {
 		mcpExternalSkillDrift.NeedsOperationAccess ||
 		IsConcreteOperationPolicy(mcpExternalSkillDrift) {
 		t.Fatalf("read-only external skill drift must stay in analysis pipeline: %+v", mcpExternalSkillDrift)
+	}
+	mcpHint := TurnRouteHintFromPolicy(mcpExternalSkillDrift)
+	if !mcpHint.ExternalObservationFirst() ||
+		mcpHint.Source != "external_tool" ||
+		mcpHint.ConcreteOperation ||
+		mcpHint.NeedsOperationAccess {
+		t.Fatalf("read-only external skill drift should produce external-observation-first hint: %+v", mcpHint)
 	}
 
 	realExternalSkill := ApplyTurnPolicyGuards(TurnPolicy{
@@ -1120,6 +1136,13 @@ func TestTurnPolicyDispatch_ExternalObservationAnalysisDoesNotCallOperationEvalu
 			}
 			if !strings.Contains(runner.requests[0], tc.input) {
 				t.Fatalf("pipeline request lost original external-observation intent: %q", runner.requests[0])
+			}
+			if len(runner.seenRouteHints) != 1 || !runner.seenRouteHints[0].ExternalObservationFirst() {
+				t.Fatalf("external observation analysis should pass typed route hint to pipeline; seen=%+v setCalls=%+v",
+					runner.seenRouteHints, runner.routeHintSetCalls)
+			}
+			if runner.seenRouteHints[0].Source != tc.source {
+				t.Fatalf("route hint source: got %q, want %q", runner.seenRouteHints[0].Source, tc.source)
 			}
 			if len(responder.localCalls) != 0 {
 				t.Fatalf("external observation analysis must not use local responder; calls=%d", len(responder.localCalls))

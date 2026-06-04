@@ -129,12 +129,27 @@ System solution:
 
 Tasks:
 
-- [ ] Add `TurnRouteHint` type in `internal/types` with route/source/operation
+- [x] Add `TurnRouteHint` type in `internal/types` with route/source/operation
   origin, concrete-operation flag, and confidence.
-- [ ] Add orchestrator setters for CLI/REPL to pass the guarded turn hint.
-- [ ] Render analyzer prompt guidance from the typed hint before pre-scan.
-- [ ] Add tests: MCP-only does not start with repo source scan; MCP+source still
+- [x] Add orchestrator setters for CLI/REPL to pass the guarded turn hint.
+- [x] Render analyzer prompt guidance from the typed hint before pre-scan.
+- [x] Add tests: MCP-only does not start with repo source scan; MCP+source still
   allows current-source bridge; code/log/trace default flows unchanged.
+
+Validation:
+
+- `go test ./internal/types ./internal/context ./internal/agent ./internal/repl ./cmd` passed.
+- `mcp_typed_line` focused eval passed with analyzer pre-scan guidance present,
+  `tool_repo_map=0`, and one MCP typed-line observation call.
+
+Follow-up found during Batch 2 validation:
+
+- `mcp_typed_line` no longer starts with analyzer repo pre-scan, but explorer can
+  still over-read infrastructure source after using the MCP observation. This is
+  an efficiency / planning-teaching gap, not an evidence-origin correctness gap.
+- `read_combo_log_current_code_dimensions` showed that exploration and extract
+  can preserve rich typed dimensions while the finalizer omits them from the
+  final visible answer. This is a handoff-to-answer coverage gap tracked as C6.
 
 ### C3. Trace Priority Facts Need Role-Qualified Output
 
@@ -214,6 +229,44 @@ Tasks:
 - [ ] Extend subtopic coherence by anchor kind.
 - [ ] Gate supplement rendering on typed completeness gaps.
 
+### C6. Requested Answer Dimensions Are Prompt-Only At Finalization
+
+Findings:
+
+- `read_combo_log_current_code_dimensions` exploration and extraction preserved
+  the requested dimensions (`日志线索`, `当前关键代码`, `异常类型区分`, `影响`, `边界`),
+  and the finalizer prompt received them, but the final answer collapsed the
+  result into summary / chain / caveat blocks and omitted visible sections for
+  several required dimensions.
+
+Root cause:
+
+- `requested_answer_dimensions` currently acts as prompt guidance plus a narrow
+  last-mile source quote supplement.
+- There is no post-emit evaluator that compares typed requested dimensions with
+  the emitted answer document and asks the finalizer to repair missing visible
+  dimensions before stopping.
+
+System solution:
+
+- Add a finalizer answer-document coverage evaluator for typed requested answer
+  dimensions.
+- The evaluator must consume only structured analysis dimensions and structured
+  answer-document blocks; it must not infer user intent from keywords or apply a
+  hard gate to model-authored prose.
+- Missing dimensions should trigger a bounded repair hint that asks the model to
+  add visible headings, table rows, or concise bullets while preserving existing
+  grounded content.
+
+Tasks:
+
+- [ ] Add requested-dimension visible-coverage detection for AnswerDocumentV2.
+- [ ] Wire coverage into finalizer mid-loop before the normal answer-document
+  stop signal.
+- [ ] Add unit tests for missing and satisfied requested dimensions.
+- [ ] Rerun `read_combo_log_current_code_dimensions` and review the final answer
+  manually.
+
 ## Delivery Batches
 
 1. **Batch 1: Typed lane and route boundary**
@@ -231,14 +284,22 @@ Tasks:
        deferred until C2b.
 
 2. **Batch 2: Trace role facts and eval metric cleanup**
-   - C2b, C3, and G14 implementation.
+   - C2b implementation.
+   - Status: implemented in code; focused tests passed; `mcp_typed_line` passed
+     with analyzer repo pre-scan removed.
+
+3. **Batch 3: Requested dimension finalizer coverage**
+   - C6 implementation and focused eval rerun.
+
+4. **Batch 4: Trace role facts and eval metric cleanup**
+   - C3 and G14 implementation.
    - Focused tracequery and write-mode eval checks.
 
-3. **Batch 3: Operation material coverage**
+5. **Batch 5: Operation material coverage**
    - C4 architecture and tests.
    - Rerun operation material cases.
 
-4. **Batch 4: Schema/noise cleanup**
+6. **Batch 6: Schema/noise cleanup**
    - C5 implementation.
    - Representative eval subset rerun.
 

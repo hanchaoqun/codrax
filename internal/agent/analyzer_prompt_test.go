@@ -309,6 +309,42 @@ func TestAnalyzerPrompt_RuntimeObservationOnlyShortcut(t *testing.T) {
 	}
 }
 
+func TestAnalyzerPrompt_ExternalObservationTurnHintSkipsRepoOverview(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentAnalyzer,
+		Stage:     types.StageAnalyze,
+		Objective: "根据 MCP 返回的外部观测解释现象",
+		RepoRoot:  ".",
+		TurnRouteHint: types.TurnRouteHint{
+			Route:           "repo",
+			Source:          "external_tool",
+			Operation:       "external_skill_workflow",
+			NeedsRepoAccess: true,
+			Confidence:      0.85,
+		},
+	}
+	sk := skill.BuildAnalysisSkill()
+
+	got := (&analyzerEvaluator{}).BuildInitialInstruction(ac, sk)
+	for _, want := range []string{
+		"External Observation First Classification Shortcut",
+		"source=external_tool",
+		"external observation evidence",
+		"Do not run repo pre-scan merely to classify",
+		"artifact_citation_mode=\"external_only\"",
+		"Keep current-source analysis allowed by default",
+		"do not set `current_source_mode=exclude`",
+		"normal mixed external-observation plus current-source lane",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("external-observation turn hint shortcut missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "Repository overview") || strings.Contains(got, "Task Map") {
+		t.Fatalf("external-observation turn hint shortcut must skip precomputed repo overview; got:\n%s", got)
+	}
+}
+
 func TestAnalyzerPrompt_ExplicitTracePathDoesNotSuppressSourceByDefault(t *testing.T) {
 	ac := &types.AgentContext{
 		AgentName: types.AgentAnalyzer,

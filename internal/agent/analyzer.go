@@ -139,6 +139,9 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	if explicitRuntimeTraceArtifactOnlyRequest(ctx) {
 		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerExplicitRuntimeTracePathShortcut()))
 	}
+	if externalObservationFirstTurnHintForAnalyzer(ctx) {
+		return prependEmitRetryDirective(ctx, prependAnswerPitfalls(ctx, renderAnalyzerExternalObservationFirstShortcut(ctx.TurnRouteHint)))
+	}
 
 	// Pre-inject a repo_map task_map view so the analyzer starts its
 	// first iteration with structural context already visible. Without
@@ -182,6 +185,44 @@ func renderAnalyzerRuntimeObservationOnlyShortcut() string {
 		"Without that typed exclusion, keep the default mixed external-observation plus current-source lane: use the normal analyzer pre-scan tools for request terms (files-only grep / repo_map / list_files), then express useful source leads through structured required_files / exact_targets when concrete files or targets are found. " +
 		"Use diagnostic_profile.current_version_check only for current-status / still-present / fixed-style diagnostics; for mechanism explanations backed by current code, required_files or exact_targets are the current-source anchor and current_version_check can remain false. " +
 		"Do not collapse a mixed artifact + current-code request into observation-only just because resolved_files=0; only the artifact frame literals are external.\n\n"
+}
+
+func externalObservationFirstTurnHintForAnalyzer(ctx *types.AgentContext) bool {
+	if ctx == nil {
+		return false
+	}
+	return ctx.TurnRouteHint.ExternalObservationFirst()
+}
+
+func renderAnalyzerExternalObservationFirstShortcut(hint types.TurnRouteHint) string {
+	source := safeAnalyzerHintValue(hint.Source)
+	route := safeAnalyzerHintValue(hint.Route)
+	if source == "" {
+		source = "external observation"
+	}
+	if route == "" {
+		route = "repo"
+	}
+	var b strings.Builder
+	b.WriteString("## External Observation First Classification Shortcut\n\n")
+	fmt.Fprintf(&b, "The structured turn router classified this dispatch as route=%s, source=%s, concrete_operation=false. ", route, source)
+	b.WriteString("Treat MCP resources, connector rows, runtime artifacts, and other external observation line coordinates as external observation evidence, not current-source file:line citations. ")
+	b.WriteString("Do not run repo pre-scan merely to classify an external artifact URI, MCP resource, connector row, or external observation line number. ")
+	b.WriteString("Call `emit_analysis` now from the user's wording and the typed turn source; set `external_observation_policy.artifact_citation_mode=\"external_only\"` when artifact or MCP line refs are present. ")
+	b.WriteString("Keep current-source analysis allowed by default: do not set `current_source_mode=exclude` unless the user or typed policy explicitly excludes source analysis. ")
+	b.WriteString("If the user also asks to compare with current code, or if later exploration finds a precise source bridge, continue through the normal mixed external-observation plus current-source lane.\n\n")
+	return b.String()
+}
+
+func safeAnalyzerHintValue(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return ""
+	}
+	if len(v) > 80 {
+		v = v[:80]
+	}
+	return v
 }
 
 // prependAnswerPitfalls renders the read-mode Answer Taxonomy

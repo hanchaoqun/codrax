@@ -1183,6 +1183,9 @@ func maybeRunSingleShotOperation(request string) (bool, string, error) {
 		strings.Join(policy.SideEffects, ","),
 		oneLineForLog(policy.Reason))
 	if policy.Route != repl.RouteOperation || !policy.NeedsOperationAccess || !repl.IsConcreteOperationPolicy(policy) {
+		if app.orch != nil {
+			app.orch.SetTurnRouteHint(repl.TurnRouteHintFromPolicy(policy))
+		}
 		return false, "", nil
 	}
 	result, err := repl.RunCommandOperationCLI(ctx, request, policy, repl.CommandOperationCLIConfig{

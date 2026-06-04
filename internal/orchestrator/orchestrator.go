@@ -66,6 +66,12 @@ type Orchestrator struct {
 	// lines, repo_map task-map queries, and memory.
 	presentationDirective string
 
+	// turnRouteHint is per-run typed routing metadata produced before
+	// read-mode analysis starts. Like presentationDirective, it is
+	// consume-once so REPL turns cannot leak route posture into the
+	// next request.
+	turnRouteHint types.TurnRouteHint
+
 	// outputDumpDir is the absolute directory final-answer markdown
 	// transcripts are written into. Empty string disables the dump
 	// entirely (cmd/root.go leaves it empty when output_dump_enabled
@@ -883,6 +889,14 @@ func (o *Orchestrator) SetPresentationDirective(directive string) {
 	o.presentationDirective = strings.TrimSpace(directive)
 }
 
+// SetTurnRouteHint installs typed current-turn routing metadata for the next
+// Run. The hint is advisory prompt context only: it must not replace
+// emit_analysis and must not decide final-answer gates. Run consumes and
+// clears it at entry.
+func (o *Orchestrator) SetTurnRouteHint(hint types.TurnRouteHint) {
+	o.turnRouteHint = hint
+}
+
 // SetMode installs the pipeline mode for subsequent Run() calls. Any
 // invalid value (not one of ModeRead / ModePlan / ModeApply /
 // ModeVerify and not empty) is still stored verbatim — SetMode does
@@ -1570,6 +1584,8 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	o.continuationClassification = nil
 	presentationDirective := strings.TrimSpace(o.presentationDirective)
 	o.presentationDirective = ""
+	turnRouteHint := o.turnRouteHint
+	o.turnRouteHint = types.TurnRouteHint{}
 
 	// Wall-clock deadline for write-mode Runs. The timer fires at
 	// most once per Run; the AfterFunc closure cancels the token
@@ -1624,6 +1640,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		Branch:                branch,
 		TraceID:               fmt.Sprintf("trace-%d", time.Now().UnixNano()),
 		PresentationDirective: presentationDirective,
+		TurnRouteHint:         turnRouteHint,
 		// Mode normalization turns zero-value ("") into ModeRead so
 		// downstream switch equality is exact. The L1 red line
 		// depends on this — a caller who never invokes SetMode

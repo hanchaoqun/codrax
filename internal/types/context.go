@@ -5163,6 +5163,13 @@ type BusContext struct {
 	// markdown headers as if they were user text.
 	PresentationDirective string `json:"presentation_directive,omitempty"`
 
+	// TurnRouteHint is typed current-turn routing metadata produced
+	// before the read pipeline starts. It is not user prose and not
+	// evidence; analyzer uses it only to avoid doing the wrong kind
+	// of pre-scan before emit_analysis. It must never become a hard
+	// answer gate.
+	TurnRouteHint TurnRouteHint `json:"turn_route_hint,omitempty"`
+
 	// ExploreDispatchKey is a scheduler-owned key for focused explorer
 	// windows. It lets the explorer agent isolate mutable evaluator state
 	// per DAG evidence node even when the scheduler uses the normal serial
@@ -5439,6 +5446,11 @@ type AgentContext struct {
 	// affordances only; it is not repository evidence, not a code
 	// entity, and not a search query.
 	PresentationDirective string `json:"presentation_directive,omitempty"`
+
+	// TurnRouteHint mirrors BusContext.TurnRouteHint for prompt
+	// construction. It is typed current-turn routing metadata, not
+	// repository evidence and not a substitute for emit_analysis.
+	TurnRouteHint TurnRouteHint `json:"turn_route_hint,omitempty"`
 
 	// AnalysisIR aliases BusContext.AnalysisIR for agents that have
 	// opted into the v3 pipeline. Still nil for legacy call paths —

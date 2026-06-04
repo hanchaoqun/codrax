@@ -36,6 +36,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		ExploreLanePlan:       bus.ExploreLanePlan,
 		Objective:             objective,
 		PresentationDirective: presentationDirective,
+		TurnRouteHint:         bus.TurnRouteHint,
 		MissingPiece:          bus.TaskState.Missing,
 		Constraints:           bus.Constraints,
 		Preferences:           bus.Preferences,

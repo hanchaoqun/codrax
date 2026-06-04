@@ -95,6 +95,28 @@ func TestBuildAgentContext_AttachedLogMirrored(t *testing.T) {
 	}
 }
 
+func TestBuildAgentContext_TurnRouteHintMirrored(t *testing.T) {
+	hint := types.TurnRouteHint{
+		Route:             "repo",
+		Source:            "external_tool",
+		Operation:         "external_skill_workflow",
+		NeedsRepoAccess:   true,
+		ConcreteOperation: false,
+		Confidence:        0.85,
+	}
+	bus := &types.BusContext{
+		PipelineStage: types.StageAnalyze,
+		RepoRoot:      "/tmp/repo",
+		Mutable:       types.NewMutableState("external observation question"),
+		TurnRouteHint: hint,
+		TaskState:     types.TaskState{Stage: types.StageAnalyze},
+	}
+	ac := BuildAgentContext(bus, types.AgentAnalyzer, types.StageAnalyze)
+	if ac.TurnRouteHint != hint {
+		t.Fatalf("TurnRouteHint not mirrored: got %+v, want %+v", ac.TurnRouteHint, hint)
+	}
+}
+
 func TestRelationDossierSourceInventoryMergesTurnAHandoff(t *testing.T) {
 	mut := types.NewMutableState("source inventory")
 	mut.SetTurnAArtifacts(types.TurnAArtifacts{

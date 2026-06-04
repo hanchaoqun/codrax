@@ -119,6 +119,13 @@ type presentationDirectiveSetter interface {
 	SetPresentationDirective(string)
 }
 
+// turnRouteHintSetter is the typed current-turn routing metadata channel.
+// It stays out of the request string and is consumed by analyzer prompt
+// construction as advisory context only.
+type turnRouteHintSetter interface {
+	SetTurnRouteHint(types.TurnRouteHint)
+}
+
 // outputTranscriptRequestSetter is the REPL-only channel for the
 // final-answer markdown/html transcript's "question" section. The
 // pipeline request may include prior-conversation scaffolding, while
@@ -3729,6 +3736,7 @@ func (r *REPL) dispatch(line, display string) {
 	// headers into BuildContext on every subsequent turn (#6). The
 	// directive instead rides on a separate typed metadata channel.
 	presentationDirective := ""
+	turnRouteHint := types.TurnRouteHint{}
 	hasAttach := r.attachedLog != "" || r.attachedHitrace != "" ||
 		r.attachedLogAutoRouted
 
@@ -3772,6 +3780,7 @@ func (r *REPL) dispatch(line, display string) {
 			} else {
 				rawPolicy := policy
 				policy = ApplyTurnPolicyGuards(policy, lastAnswer != "", hasAttach)
+				turnRouteHint = TurnRouteHintFromPolicy(policy)
 				debugLogTurnPolicy(policy)
 				switch policy.Route {
 				case RouteLocal:
@@ -3847,6 +3856,9 @@ func (r *REPL) dispatch(line, display string) {
 	// previous turn's diagram/table preference into the next request.
 	if setter, ok := r.runner.(presentationDirectiveSetter); ok {
 		setter.SetPresentationDirective(presentationDirective)
+	}
+	if setter, ok := r.runner.(turnRouteHintSetter); ok {
+		setter.SetTurnRouteHint(turnRouteHint)
 	}
 	// Persist the expanded current request in output artifacts. Keep
 	// this out-of-band from the model request: `effective` may include

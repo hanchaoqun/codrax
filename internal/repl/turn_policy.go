@@ -42,6 +42,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // TurnRoute is the discrete handler the REPL picks per user turn.
@@ -109,6 +110,24 @@ type TurnPolicy struct {
 // Classify contract).
 type TurnPolicyClassifier interface {
 	ClassifyPolicy(ctx context.Context, userLine, priorTurnHint string, hasPriorAnswer bool) (TurnPolicy, error)
+}
+
+// TurnRouteHintFromPolicy projects the guarded turn-policy result into
+// pipeline-scoped typed metadata. The analyzer may use it to avoid the
+// wrong initial pre-scan, but the hint is not evidence and never replaces
+// emit_analysis.
+func TurnRouteHintFromPolicy(p TurnPolicy) types.TurnRouteHint {
+	return types.TurnRouteHint{
+		Route:                string(p.Route),
+		Source:               strings.TrimSpace(p.Source),
+		Operation:            strings.TrimSpace(p.Operation),
+		OperationKind:        strings.TrimSpace(p.OperationKind),
+		TargetSurface:        strings.TrimSpace(p.TargetSurface),
+		ConcreteOperation:    IsConcreteOperationPolicy(p),
+		NeedsRepoAccess:      p.NeedsRepoAccess,
+		NeedsOperationAccess: p.NeedsOperationAccess,
+		Confidence:           p.Confidence,
+	}
 }
 
 // LocalResponder is the optional extension interface the dispatcher
