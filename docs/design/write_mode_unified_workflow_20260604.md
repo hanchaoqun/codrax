@@ -283,7 +283,11 @@ Required tests:
 - [x] Wrap the existing plan/apply/verify graph as the inner batch executor.
 - [x] Add a pre-apply write approval guard for freshly generated retry /
       multi-phase batch plans.
-- [ ] Drive multiple batches with `WriteUnifiedEvaluator`.
+- [x] Drive multiple batches with `WriteUnifiedEvaluator`.
+      Each phase now records a deterministic workflow-evaluation snapshot
+      (`continue_plan`, `complete`, `needs_approval`, `danger_denied`, etc.)
+      after the inner plan/apply/verify batch settles, and danger-deny remains
+      a fail-fast safety stop.
 - [x] Reuse `PlanGroup` persistence where possible.
 - [x] Ensure newly generated batches cannot silently apply high/critical risk
       changes without policy approval.

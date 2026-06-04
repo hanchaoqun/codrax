@@ -10,6 +10,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
 // TestBuildPlanGroupFromProposal_MapsPhases pins the seed →
@@ -151,8 +152,8 @@ func TestSeedPlanningHintFromPhase(t *testing.T) {
 	mu := types.NewMutableState("x")
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu}}
 	g := &types.PlanGroup{
-		ID:    "group-x",
-		Goal:  "x",
+		ID:   "group-x",
+		Goal: "x",
 		Phases: []types.PhaseRecord{
 			{Index: 0, Goal: "phase one", RoughTargetPaths: []string{"a.go", "b.go"}},
 			{Index: 1, Goal: "phase two", RoughTargetPaths: []string{"c.go"}},
@@ -177,6 +178,55 @@ func TestSeedPlanningHintFromPhase(t *testing.T) {
 	}
 }
 
+func TestEvaluateWritePhaseWorkflow_ContinueThenComplete(t *testing.T) {
+	mu := types.NewMutableState("two phase write")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			RawRequest:       "two phase write",
+			ExpectedOutcomes: []string{"both phases verified"},
+		},
+	})
+	o := &Orchestrator{
+		writeApprovalPolicy: writeflow.ApprovalPolicyAutoSafe,
+		busCtx:              &types.BusContext{Mutable: mu, Mode: types.ModeApply},
+	}
+	group := &types.PlanGroup{
+		ID:       "group-eval",
+		Goal:     "two phase write",
+		Decision: "linear",
+		Phases: []types.PhaseRecord{
+			{Index: 0, Goal: "phase one", Status: types.PhaseVerified},
+			{Index: 1, Goal: "phase two", Status: types.PhasePending, RoughTargetPaths: []string{"internal/two.go"}},
+		},
+	}
+	plan := &types.ChangePlan{
+		ID:          "plan-one",
+		Status:      types.PlanStatusApplied,
+		TargetPaths: []string{"internal/one.go"},
+		Changes:     []types.FileChange{{Path: "internal/one.go", Kind: "modify", Rationale: "test"}},
+	}
+	report := &types.ChangeReport{PlanID: "plan-one", Passed: true}
+
+	first := o.evaluateWritePhaseWorkflow(group, &group.Phases[0], plan, report)
+	if first.Status != writeflow.EvalContinuePlan {
+		t.Fatalf("first phase status = %q; want continue_plan (%s)", first.Status, first.ReasonCode)
+	}
+	if first.NextBatchID != "" {
+		t.Fatalf("first phase should not claim current batch id as next action; got %q", first.NextBatchID)
+	}
+
+	group.Phases[0].Status = types.PhaseAccepted
+	group.Phases[1].Status = types.PhaseVerified
+	plan.ID = "plan-two"
+	plan.TargetPaths = []string{"internal/two.go"}
+	plan.Changes = []types.FileChange{{Path: "internal/two.go", Kind: "modify", Rationale: "test"}}
+	report.PlanID = "plan-two"
+	last := o.evaluateWritePhaseWorkflow(group, &group.Phases[1], plan, report)
+	if last.Status != writeflow.EvalComplete {
+		t.Fatalf("last phase status = %q; want complete (%s)", last.Status, last.ReasonCode)
+	}
+}
+
 // TestRunPhaseGroup_SkipsTerminalPhases pins the iteration
 // gate: phases already at terminal status (Accepted, RolledBack,
 // Skipped) get stepped over without re-running.
@@ -184,8 +234,8 @@ func TestRunPhaseGroup_SkipsTerminalPhases(t *testing.T) {
 	store := &fakeGroupStore{}
 	mu := types.NewMutableState("test")
 	bus := &types.BusContext{
-		Mutable:  mu,
-		Mode:     types.ModeApply,
+		Mutable:    mu,
+		Mode:       types.ModeApply,
 		AnalysisIR: &types.AnalysisIR{},
 	}
 	// Set a CancelToken so o.CancelContext() returns a real ctx
@@ -197,12 +247,12 @@ func TestRunPhaseGroup_SkipsTerminalPhases(t *testing.T) {
 	}
 
 	g := &types.PlanGroup{
-		ID:        "group-skip-test",
-		Decision:  "linear",
-		Status:    types.PlanGroupPlanning,
+		ID:       "group-skip-test",
+		Decision: "linear",
+		Status:   types.PlanGroupPlanning,
 		Phases: []types.PhaseRecord{
-			{Index: 0, Goal: "p0", Status: types.PhaseAccepted},  // already done
-			{Index: 1, Goal: "p1", Status: types.PhaseSkipped},   // operator skipped
+			{Index: 0, Goal: "p0", Status: types.PhaseAccepted},   // already done
+			{Index: 1, Goal: "p1", Status: types.PhaseSkipped},    // operator skipped
 			{Index: 2, Goal: "p2", Status: types.PhaseRolledBack}, // failed earlier
 		},
 	}
@@ -412,6 +462,13 @@ func TestRunPhaseGroup_HappyPathThreePhases(t *testing.T) {
 		}
 		if p.AcceptanceCheck == nil || !p.AcceptanceCheck.Passed {
 			t.Errorf("phase[%d] acceptance should be passed; got %+v", i, p.AcceptanceCheck)
+		}
+		if p.WorkflowEvaluation == nil {
+			t.Errorf("phase[%d] WorkflowEvaluation should be recorded", i)
+		} else if i < 2 && p.WorkflowEvaluation.Status != string(writeflow.EvalContinuePlan) {
+			t.Errorf("phase[%d].WorkflowEvaluation.Status = %q; want continue_plan", i, p.WorkflowEvaluation.Status)
+		} else if i == 2 && p.WorkflowEvaluation.Status != string(writeflow.EvalComplete) {
+			t.Errorf("phase[%d].WorkflowEvaluation.Status = %q; want complete", i, p.WorkflowEvaluation.Status)
 		}
 		if p.StartedAt == nil || p.FinishedAt == nil {
 			t.Errorf("phase[%d] timestamps should both be stamped", i)

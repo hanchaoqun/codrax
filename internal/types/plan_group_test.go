@@ -35,6 +35,13 @@ func TestPlanGroup_RoundTrip(t *testing.T) {
 					Reasoning: "migration applied; schema test passes",
 					NextHint:  "ORM layer needs to know about the new users.email column",
 				},
+				WorkflowEvaluation: &WriteWorkflowEvaluationSnapshot{
+					Status:         "continue_plan",
+					ReasonCode:     "continue_next_batch",
+					Reason:         "workflow still has work to plan",
+					RiskLevel:      "medium",
+					ApprovalAction: "auto_execute",
+				},
 			},
 			{
 				Index:            1,
@@ -82,6 +89,15 @@ func TestPlanGroup_RoundTrip(t *testing.T) {
 	}
 	if loaded.Phases[0].AcceptanceCheck.Reasoning != "migration applied; schema test passes" {
 		t.Errorf("AcceptanceCheck.Reasoning drift: got %q", loaded.Phases[0].AcceptanceCheck.Reasoning)
+	}
+	if loaded.Phases[0].WorkflowEvaluation == nil {
+		t.Fatal("Phase[0].WorkflowEvaluation lost")
+	}
+	if loaded.Phases[0].WorkflowEvaluation.Status != "continue_plan" {
+		t.Errorf("WorkflowEvaluation.Status drift: got %q", loaded.Phases[0].WorkflowEvaluation.Status)
+	}
+	if loaded.Phases[0].WorkflowEvaluation.RiskLevel != "medium" {
+		t.Errorf("WorkflowEvaluation.RiskLevel drift: got %q", loaded.Phases[0].WorkflowEvaluation.RiskLevel)
 	}
 	if loaded.Phases[1].Status != PhaseInProgress {
 		t.Errorf("Phase[1].Status drift: got %q", loaded.Phases[1].Status)

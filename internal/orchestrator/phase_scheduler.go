@@ -9,6 +9,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
 // runPhaseGroup is stage II's multi-phase outer loop. Replaces
@@ -235,6 +236,18 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 		}
 
 		phase.Status = types.PhaseVerified
+		evaluation := o.evaluateWritePhaseWorkflow(group, phase, plan, report)
+		phase.WorkflowEvaluation = snapshotWriteWorkflowEvaluation(evaluation)
+		logging.Info("[orchestrator] write workflow evaluation: group=%s phase=%d status=%s reason=%s next_batch=%s risk=%s approval=%s",
+			group.ID, phase.Index, evaluation.Status, evaluation.ReasonCode, evaluation.NextBatchID, evaluation.RiskLevel, evaluation.ApprovalAction)
+		if evaluation.Status == writeflow.EvalDangerDenied {
+			finished := time.Now()
+			phase.Status = types.PhaseRolledBack
+			phase.FinishedAt = &finished
+			group.Status = types.PlanGroupFailed
+			o.persistGroup(group)
+			return fmt.Errorf("phase %d denied by write workflow evaluator: %s", phase.Index, evaluation.ReasonCode)
+		}
 		o.persistGroup(group)
 
 		// Acceptance check (commit 19). Independent LLM verdict
@@ -292,6 +305,108 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 	group.Status = types.PlanGroupCompleted
 	o.persistGroup(group)
 	return nil
+}
+
+func (o *Orchestrator) evaluateWritePhaseWorkflow(group *types.PlanGroup, phase *types.PhaseRecord, plan *types.ChangePlan, report *types.ChangeReport) writeflow.WriteEvaluation {
+	var workflow writeflow.WriteWorkflowPlan
+	if o != nil && o.busCtx != nil && o.busCtx.Mutable != nil {
+		workflow = writeflow.WorkflowSeedFromWriteAnalysis(o.busCtx.Mutable.WriteAnalysisIR())
+	}
+	workflow = writeflow.NormalizeWorkflowPlan(workflow)
+	if workflow.Goal == "" && group != nil {
+		workflow.Goal = group.Goal
+	}
+	workflow.Status = writeflow.WorkflowInProgress
+	if group != nil {
+		workflow.MaxBatches = len(group.Phases)
+		for _, p := range group.Phases {
+			if p.Index == phase.Index {
+				continue
+			}
+			if p.Status == types.PhaseAccepted || p.Status == types.PhaseAcceptanceUnverified {
+				workflow.CompletedBatches = append(workflow.CompletedBatches, fmt.Sprintf("batch-%d", p.Index+1))
+			}
+		}
+		nextIdx := phase.Index + 1
+		if nextIdx < len(group.Phases) {
+			nextPhase := group.Phases[nextIdx]
+			workflow.NextBatch = &writeflow.WriteBatchPlan{
+				ID:                   fmt.Sprintf("batch-%d", nextPhase.Index+1),
+				Goal:                 nextPhase.Goal,
+				Status:               writeflow.BatchNeedsExploration,
+				NeedsCodeExploration: true,
+				ExploreTargets:       append([]string(nil), nextPhase.RoughTargetPaths...),
+				ExpectedPaths:        append([]string(nil), nextPhase.RoughTargetPaths...),
+				SuccessCriteria:      append([]string(nil), workflow.SuccessCriteria...),
+			}
+		} else {
+			workflow.NextBatch = nil
+		}
+	}
+	batch := phaseToWriteBatchPlan(phase, workflow.SuccessCriteria)
+	assessment := writeflow.AssessWriteRisk(writeflow.AssessmentInput{Plan: plan})
+	policy := writeflow.ApprovalPolicyAutoSafe
+	if o != nil && o.writeApprovalPolicy != "" {
+		policy = writeflow.NormalizeApprovalPolicy(o.writeApprovalPolicy)
+	}
+	decision := writeflow.DecideWriteApproval(policy, assessment)
+	batchCount := 0
+	if phase != nil {
+		batchCount = phase.Index
+	}
+	maxBatches := workflow.MaxBatches
+	if maxBatches == 0 && group != nil {
+		maxBatches = len(group.Phases)
+	}
+	return writeflow.EvaluateWriteWorkflow(writeflow.EvaluationInput{
+		Workflow:         workflow,
+		Batch:            &batch,
+		Plan:             plan,
+		Report:           report,
+		RiskAssessment:   assessment,
+		ApprovalDecision: decision,
+		BatchCount:       batchCount,
+		MaxBatches:       maxBatches,
+	})
+}
+
+func phaseToWriteBatchPlan(phase *types.PhaseRecord, criteria []string) writeflow.WriteBatchPlan {
+	if phase == nil {
+		return writeflow.WriteBatchPlan{Status: writeflow.BatchPending}
+	}
+	status := writeflow.BatchPending
+	switch phase.Status {
+	case types.PhaseInProgress:
+		status = writeflow.BatchReadyForChangePlan
+	case types.PhaseApplied:
+		status = writeflow.BatchApplied
+	case types.PhaseVerified, types.PhaseAccepted, types.PhaseAcceptanceUnverified:
+		status = writeflow.BatchComplete
+	case types.PhaseRolledBack:
+		status = writeflow.BatchNeedsRepair
+	case types.PhaseSkipped:
+		status = writeflow.BatchBlocked
+	}
+	return writeflow.NormalizeBatchPlan(writeflow.WriteBatchPlan{
+		ID:                   fmt.Sprintf("batch-%d", phase.Index+1),
+		Goal:                 phase.Goal,
+		Status:               status,
+		NeedsCodeExploration: status == writeflow.BatchPending || status == writeflow.BatchReadyForChangePlan,
+		ExploreTargets:       append([]string(nil), phase.RoughTargetPaths...),
+		ExpectedPaths:        append([]string(nil), phase.RoughTargetPaths...),
+		SuccessCriteria:      append([]string(nil), criteria...),
+	})
+}
+
+func snapshotWriteWorkflowEvaluation(e writeflow.WriteEvaluation) *types.WriteWorkflowEvaluationSnapshot {
+	return &types.WriteWorkflowEvaluationSnapshot{
+		Status:         string(e.Status),
+		ReasonCode:     e.ReasonCode,
+		Reason:         e.Reason,
+		NextBatchID:    e.NextBatchID,
+		RiskLevel:      string(e.RiskLevel),
+		ApprovalAction: string(e.ApprovalAction),
+	}
 }
 
 // applyAcceptanceVerdict translates an AcceptanceChecker.Check

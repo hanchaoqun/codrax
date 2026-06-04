@@ -11,9 +11,12 @@ import "time"
 // Single-phase tasks (split=single OR no IR) bypass the group
 // layer entirely and use the existing 3-node TaskGraph chain.
 // PlanGroup persistence lives at
-//   <runtimeAnchor>/plans/groups/<group-id>.json
+//
+//	<runtimeAnchor>/plans/groups/<group-id>.json
+//
 // alongside the per-phase ChangePlan files in
-//   <runtimeAnchor>/plans/<plan-id>.json
+//
+//	<runtimeAnchor>/plans/<plan-id>.json
 type PlanGroup struct {
 	// ID is the canonical identifier for this group:
 	//   group-<unix-nano>-<pid>
@@ -131,6 +134,25 @@ type PhaseRecord struct {
 	// the operator (`/phase next` / `/phase skip`) — those
 	// don't belong to a running orchestrator.
 	OwnerPID int `json:"owner_pid,omitempty"`
+
+	// WorkflowEvaluation is the deterministic write-workflow verdict recorded
+	// after this phase's inner plan/apply/verify batch settles. It is a typed
+	// scheduler fact, not LLM prose: downstream REPL/history views can inspect
+	// whether the batch looked complete, needed another plan, needed approval,
+	// or hit a danger-deny condition without re-parsing summaries.
+	WorkflowEvaluation *WriteWorkflowEvaluationSnapshot `json:"workflow_evaluation,omitempty"`
+}
+
+// WriteWorkflowEvaluationSnapshot is the persisted phase-level view of
+// writeflow.WriteEvaluation. Kept in types (instead of importing writeflow) so
+// PlanGroup remains a low-level persistence object.
+type WriteWorkflowEvaluationSnapshot struct {
+	Status         string `json:"status"`
+	ReasonCode     string `json:"reason_code,omitempty"`
+	Reason         string `json:"reason,omitempty"`
+	NextBatchID    string `json:"next_batch_id,omitempty"`
+	RiskLevel      string `json:"risk_level,omitempty"`
+	ApprovalAction string `json:"approval_action,omitempty"`
 }
 
 // AcceptanceCheck is the per-phase "did this phase actually
