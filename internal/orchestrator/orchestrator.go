@@ -3243,6 +3243,7 @@ func buildRetryHint(report *types.ChangeReport, plan *types.ChangePlan, prevAtte
 		if extra > 0 {
 			fmt.Fprintf(&b, "  - … (+%d more)\n", extra)
 		}
+		b.WriteString("\nRepair scope: keep the next plan focused on the failing batch and these suspect paths unless read-only investigation proves another file is required. If the scope expands, state the new path and reason in the plan summary.\n")
 	}
 	b.WriteString("Revise the plan to address these failures; do not repeat the same changes.")
 	return b.String()

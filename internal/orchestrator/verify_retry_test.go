@@ -96,6 +96,12 @@ func TestBuildRetryHint_WithSuspectFileList(t *testing.T) {
 			t.Errorf("hint should include path %s; got %q", p, got)
 		}
 	}
+	if !strings.Contains(got, "Repair scope") {
+		t.Errorf("hint should tell planner to keep repair scoped to the failing batch; got %q", got)
+	}
+	if !strings.Contains(got, "state the new path and reason") {
+		t.Errorf("hint should require explicit scope expansion rationale; got %q", got)
+	}
 }
 
 // TestBuildRetryHint_SuspectFileListCap caps the path list at 10.

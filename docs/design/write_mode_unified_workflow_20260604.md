@@ -295,8 +295,11 @@ Required tests:
       The planner now receives a typed `## Rolling write workflow` seed derived
       from `WriteAnalysisIR`, and the change-plan skill explicitly scopes each
       dispatch to the current bounded batch before emitting a `ChangePlan`.
-- [ ] Ensure failed batches replan narrowly rather than regenerating the whole
-      workflow.
+- [x] Ensure failed batches replan narrowly rather than regenerating the whole
+      workflow. Verify→plan retry hints now carry an explicit repair-scope
+      boundary around the failing batch's suspect paths, while still allowing
+      scoped expansion when read-only investigation proves another path is
+      required.
 
 ### Batch 7: Tests And Eval
 
