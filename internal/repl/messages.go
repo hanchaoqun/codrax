@@ -1787,6 +1787,25 @@ func operationFinalReportFallback(lang string, status operation.OperationStatus,
 	return b.String()
 }
 
+func operationThoughtsHeaderMsg(lang string, block, total int) string {
+	if block <= 0 {
+		block = 1
+	}
+	if total <= 0 {
+		total = 1
+	}
+	if isZh(lang) {
+		if total == 1 {
+			return "模型思考（不进入答案）："
+		}
+		return fmt.Sprintf("模型思考（不进入答案）%d/%d：", block, total)
+	}
+	if total == 1 {
+		return "Model thinking (not included in the answer):"
+	}
+	return fmt.Sprintf("Model thinking (not included in the answer) %d/%d:", block, total)
+}
+
 func splitVisibleThinkBlocks(text string) ([]string, string) {
 	rest := text
 	var thoughts []string

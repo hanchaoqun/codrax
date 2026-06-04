@@ -2500,6 +2500,182 @@ func TestCommandOperationE2E_LocalFollowupAfterOperationCanContinueCommands(t *t
 	}
 }
 
+func TestCommandOperationE2E_RepoPriorContextDriftAfterOperationCanContinueCommands(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &sequenceTurnPolicyClassifier{policies: []TurnPolicy{
+		commandOperationPolicy("low"),
+		{
+			Route:           RouteRepo,
+			NeedsRepoAccess: false,
+			Operation:       "investigate",
+			Source:          "prior_context",
+			Confidence:      0.83,
+			Reason:          "classifier drifted to repo while user asked to continue previous operation result",
+		},
+	}}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","goal":"discover available models","success_criteria":["actual model list returned"],"steps":[{"id":"probe","title":"first probe","shell":"printf 'need_followup=1\\n'","risk_level":"low","side_effects":[]}]}`),
+			{Content: "还需要继续检查模型列表。", StopReason: "end_turn"},
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","goal":"discover available models","next_batch":"read model list","steps":[{"id":"models","title":"model list","shell":"printf 'models=qwen\\n'","risk_level":"low","side_effects":[]}]}`),
+			{Content: "已继续检查并获取模型列表：qwen。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "查看可用模型\n继续\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("repo/prior_context drift after operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(r.operationResults) != 2 {
+		t.Fatalf("operation results=%d, want initial + follow-up command rounds: %+v", len(r.operationResults), r.operationResults)
+	}
+	printed := out.String()
+	for _, want := range []string{"need_followup=1", "models=qwen", "qwen"} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("follow-up operation output missing %q:\n%s", want, printed)
+		}
+	}
+}
+
+func TestCommandOperationFollowupCandidatePolicyProtectsSourceAndExternalObservationLanes(t *testing.T) {
+	tests := []struct {
+		name   string
+		policy TurnPolicy
+		want   bool
+	}{
+		{
+			name: "local previous answer operation followup",
+			policy: TurnPolicy{
+				Route:      RouteLocal,
+				Operation:  "elaborate",
+				Source:     "last_answer",
+				Confidence: 0.9,
+			},
+			want: true,
+		},
+		{
+			name: "current source continuation stays in pipeline",
+			policy: TurnPolicy{
+				Route:           RouteRepo,
+				NeedsRepoAccess: true,
+				Operation:       "investigate",
+				Source:          "prior_context",
+				Confidence:      0.8,
+			},
+			want: false,
+		},
+		{
+			name: "explicit repo source stays in pipeline",
+			policy: TurnPolicy{
+				Route:           RouteRepo,
+				NeedsRepoAccess: true,
+				Operation:       "investigate",
+				Source:          "repo",
+				Confidence:      0.8,
+			},
+			want: false,
+		},
+		{
+			name: "external observation artifact stays in pipeline",
+			policy: TurnPolicy{
+				Route:           RouteRepo,
+				NeedsRepoAccess: true,
+				Operation:       "investigate",
+				Source:          "artifact",
+				Confidence:      0.8,
+			},
+			want: false,
+		},
+		{
+			name: "external tool observation stays in pipeline",
+			policy: TurnPolicy{
+				Route:           RouteRepo,
+				NeedsRepoAccess: true,
+				Operation:       "investigate",
+				Source:          "external_tool",
+				Confidence:      0.8,
+			},
+			want: false,
+		},
+		{
+			name: "mixed source and external observation stays in pipeline",
+			policy: TurnPolicy{
+				Route:           RouteHybrid,
+				NeedsRepoAccess: true,
+				Operation:       "investigate",
+				Source:          "mixed",
+				Confidence:      0.8,
+			},
+			want: false,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := commandOperationFollowupCandidatePolicy(tc.policy, tc.policy); got != tc.want {
+				t.Fatalf("commandOperationFollowupCandidatePolicy()=%v, want %v for %+v", got, tc.want, tc.policy)
+			}
+		})
+	}
+	t.Run("repo drift without raw repo access can continue operation", func(t *testing.T) {
+		raw := TurnPolicy{
+			Route:           RouteRepo,
+			NeedsRepoAccess: false,
+			Operation:       "investigate",
+			Source:          "prior_context",
+			Confidence:      0.8,
+		}
+		guarded := raw
+		guarded.NeedsRepoAccess = true
+		if got := commandOperationFollowupCandidatePolicy(guarded, raw); !got {
+			t.Fatalf("raw route=repo/prior_context without repo access should allow command operation continuation; guarded=%+v raw=%+v", guarded, raw)
+		}
+	})
+}
+
+func TestCommandOperationE2E_SourceFollowupAfterOperationStillUsesPipeline(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &sequenceTurnPolicyClassifier{policies: []TurnPolicy{
+		commandOperationPolicy("low"),
+		{
+			Route:           RouteRepo,
+			NeedsRepoAccess: true,
+			Operation:       "investigate",
+			Source:          "prior_context",
+			Confidence:      0.86,
+			Reason:          "user asked to continue, but current-source or external-observation pipeline evidence is needed",
+		},
+	}}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","goal":"discover environment","steps":[{"id":"probe","title":"first probe","shell":"printf 'env=ok\\n'","risk_level":"low","side_effects":[]}]}`),
+			{Content: "环境检查已完成。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, _ := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "查询环境\n继续结合源码确认\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 1 {
+		t.Fatalf("source/external-observation follow-up after operation should enter pipeline once; runner requests=%v", runner.requests)
+	}
+	if !strings.Contains(runner.requests[0], "继续结合源码确认") {
+		t.Fatalf("pipeline follow-up request did not preserve user text: %q", runner.requests[0])
+	}
+	if len(r.operationResults) != 1 {
+		t.Fatalf("operation should not add a continuation round for source follow-up: %+v", r.operationResults)
+	}
+}
+
 func TestCommandOperationE2E_LocalFollowupDoesNotHijackAfterPipelineAnswer(t *testing.T) {
 	store := newPolicyStore(t)
 	seedPriorAnswer(t, store, "分析 trace", "trace 分析已经完成。")

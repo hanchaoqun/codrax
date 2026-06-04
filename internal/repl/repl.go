@@ -1325,11 +1325,11 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 	r.recordTurn(display, line, msg, memory.KindPipeline)
 }
 
-func (r *REPL) maybeDispatchCommandOperationFollowup(line, display string, policy TurnPolicy) bool {
+func (r *REPL) maybeDispatchCommandOperationFollowup(line, display string, policy, rawPolicy TurnPolicy) bool {
 	if r.lastAnswerOrigin != replAnswerOriginCommandOperationFinal ||
 		len(r.operationResults) == 0 ||
 		r.operationPlanner == nil ||
-		!commandOperationLocalFollowupPolicy(policy) {
+		!commandOperationFollowupCandidatePolicy(policy, rawPolicy) {
 		return false
 	}
 	continuer, ok := r.operationPlanner.(CommandOperationContinuationPlanner)
@@ -1391,13 +1391,36 @@ func (r *REPL) maybeDispatchCommandOperationFollowup(line, display string, polic
 	return true
 }
 
-func commandOperationLocalFollowupPolicy(policy TurnPolicy) bool {
-	if policy.Route != RouteLocal {
+func commandOperationFollowupCandidatePolicy(policy, rawPolicy TurnPolicy) bool {
+	switch policy.Route {
+	case RouteLocal, RouteRepo, RouteHybrid:
+	default:
+		return false
+	}
+	rawSource := strings.ToLower(strings.TrimSpace(rawPolicy.Source))
+	if rawSource == "" {
+		rawSource = strings.ToLower(strings.TrimSpace(policy.Source))
+	}
+	switch rawSource {
+	case "last_answer", "prior_context":
+	default:
+		return false
+	}
+	if rawPolicy.NeedsRepoAccess {
+		return false
+	}
+	if rawPolicy.Route == RouteOperation || rawPolicy.NeedsOperationAccess {
+		return true
+	}
+	switch rawPolicy.Route {
+	case RouteLocal, RouteRepo, RouteHybrid:
+	case "":
+	default:
 		return false
 	}
 	source := strings.ToLower(strings.TrimSpace(policy.Source))
 	switch source {
-	case "last_answer", "prior_context", "mixed", "external_tool", "artifact":
+	case "last_answer", "prior_context":
 	default:
 		return false
 	}
@@ -2184,7 +2207,21 @@ func (r *REPL) emitOperationVisibleThoughts(thoughts []string) {
 	if len(thoughts) == 0 {
 		return
 	}
-	logging.Info("[repl/operation] suppressed %d visible think block(s) from operation answer", len(thoughts))
+	logging.Info("[repl/operation] moved %d visible think block(s) outside operation answer", len(thoughts))
+	for i, thought := range thoughts {
+		thought = strings.TrimSpace(thought)
+		if thought == "" {
+			continue
+		}
+		r.info(operationThoughtsHeaderMsg(r.language, i+1, len(thoughts)))
+		for _, line := range strings.Split(thought, "\n") {
+			line = strings.TrimRight(line, "\r")
+			if strings.TrimSpace(line) == "" {
+				continue
+			}
+			r.info("  " + line)
+		}
+	}
 }
 
 const (
@@ -3590,11 +3627,12 @@ func (r *REPL) dispatch(line, display string) {
 				}
 				r.info(turnPolicyClassifierFallbackHint(r.language))
 			} else {
+				rawPolicy := policy
 				policy = ApplyTurnPolicyGuards(policy, lastAnswer != "", hasAttach)
 				debugLogTurnPolicy(policy)
 				switch policy.Route {
 				case RouteLocal:
-					if r.maybeDispatchCommandOperationFollowup(line, display, policy) {
+					if r.maybeDispatchCommandOperationFollowup(line, display, policy, rawPolicy) {
 						return
 					}
 					r.localDispatch(line, display, policy, lastAnswer)
@@ -3610,6 +3648,9 @@ func (r *REPL) dispatch(line, display string) {
 					r.operationDispatch(line, display, policy)
 					return
 				case RouteHybrid:
+					if r.maybeDispatchCommandOperationFollowup(line, display, policy, rawPolicy) {
+						return
+					}
 					// Carry the directive into the effective
 					// request below — NEVER mutate `line`
 					// (memory invariant; see top-of-block
@@ -3618,6 +3659,9 @@ func (r *REPL) dispatch(line, display string) {
 					logging.Info("[repl/turn_policy] hybrid → pipeline with directive=%q",
 						oneLineClamp(presentationDirective, 80))
 				case RouteRepo:
+					if r.maybeDispatchCommandOperationFollowup(line, display, policy, rawPolicy) {
+						return
+					}
 					presentationDirective = policy.PresentationDirective
 					if strings.TrimSpace(presentationDirective) != "" {
 						logging.Info("[repl/turn_policy] repo → pipeline with directive=%q (confidence=%.2f)",

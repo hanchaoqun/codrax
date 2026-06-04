@@ -413,12 +413,22 @@ func TestProviderOperationFinalMessageFallbackDoesNotReturnRoundDetails(t *testi
 	}
 }
 
-func TestOperationVisibleThinkBlocksAreSuppressedFromPanel(t *testing.T) {
+func TestOperationVisibleThinkBlocksRenderOutsideAnswerPanel(t *testing.T) {
 	var out bytes.Buffer
-	r := &REPL{out: &out, language: "zh"}
-	r.emitOperationVisibleThoughts([]string{"The user is asking about system info"})
-	if got := out.String(); got != "" {
-		t.Fatalf("operation think blocks must not render in the user panel, got %q", got)
+	r := &REPL{out: &out, in: strings.NewReader(""), language: "zh"}
+	r.emitOperationVisibleThoughts([]string{"The user is asking about system info\nI should verify before answering."})
+	got := out.String()
+	for _, want := range []string{
+		"模型思考（不进入答案）",
+		"The user is asking about system info",
+		"I should verify before answering.",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("operation visible thinking missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "<think>") || strings.Contains(got, "</think>") {
+		t.Fatalf("rendered operation thinking should not include raw tags: %q", got)
 	}
 }
 
