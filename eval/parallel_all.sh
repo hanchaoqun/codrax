@@ -85,6 +85,24 @@ else
   echo "- randomized_order: false" >>"$SUMMARY"
 fi
 echo "" >>"$SUMMARY"
+
+if [[ "${EVAL_PROVIDER_PREFLIGHT:-1}" != "0" && "${EVAL_PROVIDER_PREFLIGHT:-1}" != "false" ]]; then
+  PREFLIGHT_DIR="${RESULTS_ROOT}/provider-preflight-${SWEEP_START}"
+  echo "[$(date +%H:%M:%S)] provider preflight start" >&2
+  provider_blocked="$(eval_provider_preflight "$CODRAX_BIN" "$PWD" "$PREFLIGHT_DIR" "${EVAL_PROVIDER_PREFLIGHT_TIMEOUT:-120}")"
+  if [[ -n "$provider_blocked" ]]; then
+    echo "- provider_preflight: BLOCKED_PROVIDER $provider_blocked" >>"$SUMMARY"
+    echo "- provider_preflight_dir: $PREFLIGHT_DIR" >>"$SUMMARY"
+    echo "" >>"$SUMMARY"
+    echo "**provider-blocked before launching cases: $provider_blocked**" >>"$SUMMARY"
+    echo "[$(date +%H:%M:%S)] provider preflight blocked: $provider_blocked" >&2
+    exit 0
+  fi
+  echo "- provider_preflight: ok" >>"$SUMMARY"
+  echo "- provider_preflight_dir: $PREFLIGHT_DIR" >>"$SUMMARY"
+  echo "" >>"$SUMMARY"
+fi
+
 echo "| # | case | verdict | reason | sec | ana | exp | ext | fin | repair | rejects | patch | sem | self |" >>"$SUMMARY"
 echo "|--:|------|---------|--------|----:|----:|----:|----:|----:|-------:|--------:|------:|----:|-----:|" >>"$SUMMARY"
 

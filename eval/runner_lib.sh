@@ -528,6 +528,55 @@ eval_detect_provider_blocked() {
   echo "$reasons"
 }
 
+eval_provider_preflight() {
+  local codrax_bin="$1"
+  local repo_root="$2"
+  local outdir="$3"
+  local timeout_seconds="${4:-120}"
+  if [[ -z "$codrax_bin" || ! -x "$codrax_bin" ]]; then
+    echo "provider_unconfigured"
+    return 0
+  fi
+  mkdir -p "$outdir/logs"
+  local providers=()
+  if [[ -f "$repo_root/providers.yaml" ]]; then
+    providers=(--providers "$repo_root/providers.yaml")
+  fi
+  local rc=0
+  eval_run_with_timeout "$timeout_seconds" "$codrax_bin" \
+    "${providers[@]}" \
+    --repo "$repo_root" \
+    --multi-repo=false \
+    --chitchat-classifier=true \
+    --log-dir "$outdir/logs" \
+    --log-level debug \
+    --request "你好" \
+    >"$outdir/preflight.out" 2>"$outdir/preflight.err" || rc=$?
+  local logs=()
+  while IFS= read -r f; do
+    logs+=("$f")
+  done < <(ls "$outdir"/logs/codrax-*.log 2>/dev/null || true)
+  local blocked
+  blocked="$(eval_detect_provider_blocked "${logs[@]}")"
+  if [[ -n "$blocked" ]]; then
+    echo "$blocked"
+    return 0
+  fi
+  if LC_ALL=C grep -aqE '(insufficient_balance_error|LLM API error \(status 402\))' "$outdir/preflight.err" "$outdir/preflight.out" 2>/dev/null; then
+    echo "insufficient_balance"
+    return 0
+  fi
+  if LC_ALL=C grep -aqE '(LLM provider is not configured|没有可用的模型 provider 配置|providers\.yaml: llm\.default\.provider is required)' "$outdir/preflight.err" "$outdir/preflight.out" 2>/dev/null; then
+    echo "provider_unconfigured"
+    return 0
+  fi
+  if [[ "$rc" -eq 124 ]]; then
+    echo "provider_preflight_timeout"
+    return 0
+  fi
+  echo ""
+}
+
 eval_running_jobs() {
   jobs -rp | wc -l | tr -d ' '
 }
