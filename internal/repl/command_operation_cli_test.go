@@ -3,6 +3,8 @@ package repl
 import (
 	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -68,5 +70,92 @@ func TestRunCommandOperationCLI_ExecutesAutoPlanAndReturnsFinalAnswer(t *testing
 	}
 	if out := progress.String(); !strings.Contains(out, "操作计划") || !strings.Contains(out, "cli-operation-ok") {
 		t.Fatalf("progress should include plan and execution result, got:\n%s", out)
+	}
+}
+
+func TestCommandOperationCLIFinalAnswerPreservesBudgetTerminalStatus(t *testing.T) {
+	t.Parallel()
+	records := []commandOperationResultRecord{{
+		Plan: operation.CommandOperationPlan{
+			ID:     "op-budget",
+			Status: operation.StatusExecuted,
+		},
+		Result: operation.CommandOperationResult{
+			PlanID:        "op-budget",
+			Status:        operation.StatusBudgetExhausted,
+			OutputPreview: "command operation command-round budget exhausted before the user goal was fully satisfied",
+		},
+	}}
+	answer := commandOperationFinalMessageCLI(context.Background(), CommandOperationCLIConfig{
+		Planner:  fakeCLICommandPlanner{},
+		Language: "zh",
+	}, "读取长网页并总结", records)
+	if !strings.Contains(answer, "状态：部分结果") || !strings.Contains(answer, "预算上限") {
+		t.Fatalf("budget terminal status must be visible before model summary:\n%s", answer)
+	}
+	if !strings.Contains(answer, "final:") {
+		t.Fatalf("model summary should still be preserved after status prefix:\n%s", answer)
+	}
+}
+
+func TestOperationFinalAnswerWarnsOnUncoveredMaterialRef(t *testing.T) {
+	t.Parallel()
+	records := []commandOperationResultRecord{{
+		Plan: operation.CommandOperationPlan{ID: "op-fetch", Status: operation.StatusExecuted},
+		Result: operation.CommandOperationResult{
+			PlanID:     "op-fetch",
+			Status:     operation.StatusExecuted,
+			PayloadRef: "/tmp/manual.html",
+		},
+	}}
+	answer := operationFinalReportWithRecordStatus("zh", "任务完成", records)
+	if !strings.Contains(answer, "材料覆盖未完全验证") {
+		t.Fatalf("uncovered payload ref should surface material coverage caveat:\n%s", answer)
+	}
+}
+
+func TestOperationFinalAnswerNoMaterialWarningWhenPayloadExcerptExists(t *testing.T) {
+	t.Parallel()
+	payload := filepath.Join(t.TempDir(), "manual.txt")
+	if err := os.WriteFile(payload, []byte("section one\nsection two\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	records := []commandOperationResultRecord{{
+		Plan: operation.CommandOperationPlan{ID: "op-fetch", Status: operation.StatusExecuted},
+		Result: operation.CommandOperationResult{
+			PlanID:     "op-fetch",
+			Status:     operation.StatusExecuted,
+			PayloadRef: payload,
+		},
+	}}
+	answer := operationFinalReportWithRecordStatus("zh", "任务完成", records)
+	if strings.Contains(answer, "材料覆盖未完全验证") {
+		t.Fatalf("text payload excerpt should satisfy material coverage caveat:\n%s", answer)
+	}
+}
+
+func TestOperationFinalAnswerNoMaterialWarningWhenLaterStepConsumesRef(t *testing.T) {
+	t.Parallel()
+	records := []commandOperationResultRecord{{
+		Plan: operation.CommandOperationPlan{ID: "op-fetch", Status: operation.StatusExecuted},
+		Result: operation.CommandOperationResult{
+			PlanID:     "op-fetch",
+			Status:     operation.StatusExecuted,
+			PayloadRef: "/tmp/manual.html",
+		},
+	}, {
+		Plan: operation.CommandOperationPlan{
+			ID:     "op-extract",
+			Status: operation.StatusExecuted,
+			Steps:  []operation.CommandStep{{ID: "extract", Shell: "sed -n '/<article/,/<\\/article>/p' /tmp/manual.html"}},
+		},
+		Result: operation.CommandOperationResult{
+			PlanID: "op-extract",
+			Status: operation.StatusExecuted,
+		},
+	}}
+	answer := operationFinalReportWithRecordStatus("zh", "任务完成", records)
+	if strings.Contains(answer, "材料覆盖未完全验证") {
+		t.Fatalf("consumed payload ref should not surface material coverage caveat:\n%s", answer)
 	}
 }

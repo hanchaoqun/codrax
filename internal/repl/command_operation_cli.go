@@ -244,7 +244,7 @@ func commandOperationFinalMessageCLI(ctx context.Context, cfg CommandOperationCL
 		thoughts, answer := splitVisibleThinkBlocks(strings.TrimSpace(answer))
 		operationCLIThoughts(cfg.Progress, cfg.Language, thoughts)
 		if strings.TrimSpace(answer) != "" {
-			return strings.TrimSpace(answer)
+			return operationFinalReportWithRecordStatus(cfg.Language, strings.TrimSpace(answer), records)
 		}
 		return fallback
 	}
@@ -257,7 +257,7 @@ func commandOperationFinalMessageCLI(ctx context.Context, cfg CommandOperationCL
 		thoughts, answer := splitVisibleThinkBlocks(strings.TrimSpace(answer))
 		operationCLIThoughts(cfg.Progress, cfg.Language, thoughts)
 		if strings.TrimSpace(answer) != "" {
-			return strings.TrimSpace(answer)
+			return operationFinalReportWithRecordStatus(cfg.Language, strings.TrimSpace(answer), records)
 		}
 	}
 	return fallback

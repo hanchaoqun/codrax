@@ -228,9 +228,15 @@ func buildExecCommand(step CommandStep) (*exec.Cmd, string) {
 }
 
 func validateCommandStepBeforeRun(step CommandStep) error {
+	if structuredCommandField(step.Program) {
+		return fmt.Errorf("program field contains structured JSON instead of an executable; move JSON members into typed step fields")
+	}
 	shell := strings.TrimSpace(step.Shell)
 	if shell == "" {
 		return nil
+	}
+	if structuredCommandField(shell) {
+		return fmt.Errorf("shell field contains structured JSON instead of a shell command; move JSON members into typed step fields")
 	}
 	if op := leadingShellControlOperator(shell); op != "" {
 		return fmt.Errorf("invalid shell command starts with %q; add a real producer command before the operator, or rewrite with program+args, file operands, or redirection: %s", op, shell)

@@ -2233,7 +2233,8 @@ func (r *REPL) commandOperationFinalMessage(ctx context.Context, userLine string
 		if answer == "" {
 			return fallback, thoughts
 		}
-		return operationFinalReportWithDetails(r.language, answer, details), thoughts
+		answer = operationFinalReportWithDetails(r.language, answer, details)
+		return operationFinalReportWithRecordStatus(r.language, answer, records), thoughts
 	}
 	answerer, ok := r.operationPlanner.(CommandOperationAnswerer)
 	if !ok || answerer == nil {
@@ -2249,7 +2250,8 @@ func (r *REPL) commandOperationFinalMessage(ctx context.Context, userLine string
 	if answer == "" {
 		return fallback, thoughts
 	}
-	return operationFinalReportWithDetails(r.language, answer, details), thoughts
+	answer = operationFinalReportWithDetails(r.language, answer, details)
+	return operationFinalReportWithRecordStatus(r.language, answer, records), thoughts
 }
 
 type replAnswerOrigin string

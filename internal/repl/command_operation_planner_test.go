@@ -2,6 +2,8 @@ package repl
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -668,6 +670,8 @@ func TestCommandOperationReplannerIncludesFailureContext(t *testing.T) {
 		"repair by rewriting that same step as one complete standalone command",
 		"The command executor will not pipe output from another step into it",
 		"Rewrite the whole command with a real producer before the operator",
+		"program/shell field contains structured JSON",
+		"Do not place JSON arrays or objects inside a command string",
 		"cat /path/to/file",
 		"failure_class=command_not_found",
 		"executable file not found",
@@ -864,6 +868,99 @@ func TestCommandOperationAnswerPromptForbidsVisibleReasoning(t *testing.T) {
 	} {
 		if !strings.Contains(commandOperationAnswerSystemPrompt, want) {
 			t.Fatalf("answer prompt missing %q:\n%s", want, commandOperationAnswerSystemPrompt)
+		}
+	}
+}
+
+func TestCommandOperationAnswerPromptIncludesTerminalBudgetState(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{{Content: "收到"}},
+	}
+	planner, ok := NewCommandOperationPlanner(adapter).(CommandOperationRecordsAnswerer)
+	if !ok {
+		t.Fatal("planner should support command record answer synthesis")
+	}
+	_, err := planner.AnswerCommandOperationRecords(context.Background(), "读取长网页并总结", []commandOperationResultRecord{{
+		Plan: operation.CommandOperationPlan{ID: "op-budget", Status: operation.StatusExecuted},
+		Result: operation.CommandOperationResult{
+			PlanID:        "op-budget",
+			Status:        operation.StatusBudgetExhausted,
+			OutputPreview: "command operation command-round budget exhausted before the user goal was fully satisfied",
+		},
+	}}, "zh")
+	if err != nil {
+		t.Fatalf("AnswerCommandOperationRecords: %v", err)
+	}
+	if len(adapter.calls) != 1 {
+		t.Fatalf("Chat calls=%d, want 1", len(adapter.calls))
+	}
+	user := ""
+	for _, msg := range adapter.calls[0].messages {
+		if msg.Role == "user" {
+			user = msg.Content
+		}
+	}
+	for _, want := range []string{
+		"## terminal_operation_state",
+		"status=budget_exhausted",
+		"rounds=1",
+		"Do not call the task fully complete",
+	} {
+		if !strings.Contains(user, want) {
+			t.Fatalf("answer prompt missing %q:\n%s", want, user)
+		}
+	}
+}
+
+func TestRenderCommandResultForPromptIncludesCleanPayloadMaterialExcerpt(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "manual.html")
+	if err := os.WriteFile(path, []byte(`<!doctype html>
+<html><head><style>.hidden { color: red; }</style><script>console.log("x")</script></head>
+<body><article><h1>codrax 使用指南</h1><p>用自然语言问代码。</p></article></body></html>`), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	got := renderCommandResultForPrompt(operation.CommandOperationResult{
+		PlanID:     "op-html",
+		Status:     operation.StatusExecuted,
+		PayloadRef: path,
+	})
+	for _, want := range []string{
+		"payload_material_excerpt",
+		"kind=html_text",
+		"codrax 使用指南",
+		"用自然语言问代码",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, got)
+		}
+	}
+	for _, banned := range []string{".hidden", "console.log"} {
+		if strings.Contains(got, banned) {
+			t.Fatalf("prompt should strip %q:\n%s", banned, got)
+		}
+	}
+}
+
+func TestRenderCommandResultForPromptIncludesPlainTextPayloadExcerpt(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "manual.txt")
+	if err := os.WriteFile(path, []byte("工具说明\n\n第一步：读取配置。\n第二步：执行命令。\n"), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+	got := renderCommandResultForPrompt(operation.CommandOperationResult{
+		PlanID:     "op-text",
+		Status:     operation.StatusExecuted,
+		PayloadRef: path,
+	})
+	for _, want := range []string{
+		"payload_material_excerpt",
+		"kind=text",
+		"工具说明",
+		"第二步：执行命令",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, got)
 		}
 	}
 }

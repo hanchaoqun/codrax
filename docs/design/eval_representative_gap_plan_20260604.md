@@ -240,6 +240,132 @@ Generic solution:
 - Mixed external+source questions must keep current-source requirements when
   `CurrentSourceLaneDecision` is `required`.
 
+### G6. Multi-repo focus selection needs precise pre-scan before model recommendation
+
+Affected case:
+
+- `mr_focus_single`
+
+Observed issue:
+
+- A representative run previously selected the wrong sub-repo for a precise
+  symbol/constant lookup and missed the actual value `42`.
+- Rerun after the focus pre-scan fix passed:
+  `eval/results/mr_focus_single-20260604-163613`.
+
+Code/log evidence:
+
+- The passing run logged:
+  `multi-repo: exact focus pre-scan selected 1 sub-repo(s): repo-stub-rust`.
+- The final answer cited `repo-stub-rust/src/lib.rs:8` and returned `42`.
+
+Root cause:
+
+- Model-only focus choice from repository names and topology is a noisy
+  heuristic. It is fine for soft guidance, but too weak to decide hard active
+  sub-repo selection for precise entity queries.
+
+Generic solution:
+
+- Keep the multi-repo focus pipeline typed:
+  - user-explicit focus remains authoritative;
+  - no-focus requests first run a bounded deterministic exact pre-scan for
+    precise request entities / symbols / paths across topology members;
+  - only accept exact-pre-scan focus when the hit set is non-empty and within
+    `multi_repo_max_active`;
+  - otherwise use the model focus selector, and only then fallback preview.
+- Do not infer focus from arbitrary user prose by keyword matching. The exact
+  pre-scan is based on structured request entities and file-system hits, not a
+  hard route from noisy natural language.
+
+### G7. Operation material retrieval can look green while content coverage is partial
+
+Affected case:
+
+- `operation_web_manual_summary`
+
+Observed issue:
+
+- Earlier run `eval/results/operation_web_manual_summary-20260604-163933`
+  reached the command-round budget and the final answer still claimed the task
+  was complete.
+- Follow-up run
+  `eval/results/operation_web_manual_summary-20260604-164426` correctly used the
+  operation lane, fetched the target pages, and preserved command output in
+  payload refs; manual inspection still showed weak HTML text extraction and a
+  partial answer.
+
+Root cause:
+
+- Terminal operation state was not a first-class final-answer constraint, so a
+  model could present a budget-exhausted / failed / partial command sequence as
+  a completed user goal.
+- Long material extraction remains too planner-dependent. The operation loop
+  knows about payload refs and large-output truncation, but it does not yet have
+  a deterministic material coverage/evaluation layer that can prove the relevant
+  content was actually read/extracted before answer synthesis.
+
+Generic solution:
+
+- Add `terminal_operation_state` to the command-operation answer prompt and
+  deterministically prefix non-success final reports with typed status
+  (`failed`, `budget_exhausted`, `partial_answer_possible`, etc.).
+- Add a conservative material-coverage caveat when saved payload refs remain
+  unconsumed by later operation steps, so a final answer cannot quietly present
+  an uninspected full payload as complete evidence.
+- Include a bounded material excerpt for saved payload refs in the operation
+  answer prompt. This is a generic text-first fallback:
+  - plain text payloads are compacted and bounded;
+  - HTML payloads use a small adapter that strips script/style/tag noise and
+    exposes readable text;
+  - binary-ish payloads are skipped with kind/caveat rather than forced into
+    context.
+  The goal is to make real material available to synthesis without dumping
+  whole artifacts or fitting one website.
+- Add eval hidden log assertions for operation cases so PASS requires the typed
+  operation subsystem to run, not merely answer text that looks plausible.
+- Future architecture work: introduce a material coverage layer for large
+  payloads/files/web pages/provider artifacts:
+  - identify saved payloads and content types;
+  - extract/search/page relevant sections with bounded commands or provider
+    actions;
+  - track coverage against the user's requested content;
+  - only allow `complete` when the coverage evaluator says the requested
+    material has been inspected.
+  This should be generic across files, web pages, manuals, logs, traces, MCP
+  results, operation skill artifacts, and non-text adapters such as PDF,
+  spreadsheet, slide, image/OCR, or archive payloads.
+
+### G8. Operation command fields can contain structured JSON after model JSON drift
+
+Affected case:
+
+- `operation_web_manual_summary`
+
+Observed issue:
+
+- In `eval/results/operation_web_manual_summary-20260604-164918`, one
+  continuation plan produced a command whose `shell` field was a JSON array of
+  step objects. The executor attempted to run it and failed with
+  `sh: [{id:: command not found` before repair recovered.
+
+Root cause:
+
+- The flexible command-operation decoder tolerates many LLM JSON slips, but
+  the command-level lint did not reject a `program` or `shell` string that is
+  itself structured JSON.
+- This is not a natural-language intent problem; it is a typed schema-shape
+  problem inside the operation lane.
+
+Generic solution:
+
+- Extend command-plan lint and execute-time validation to reject structured JSON
+  objects/arrays inside executable command fields before any process is spawned.
+- Feed the typed `invalid_plan` failure back to the existing repair loop with a
+  precise instruction to move JSON members into typed step fields.
+- Keep this scoped to operation command plans. It must not affect source
+  analysis, trace/log analysis, write mode, or eval assertion matching.
+
 ## Delivery Batches
 
 ### Batch 0: Eval assertion repair and documentation
@@ -248,6 +374,10 @@ Generic solution:
 - Keep path/package expectations out of pass criteria unless case scope requires
   them.
 - Record root-cause notes and downstream tasks.
+
+Status:
+
+- Implemented and pushed in `bcb4f092 relax representative eval assertions`.
 
 Validation:
 
@@ -266,6 +396,11 @@ Validation:
 - runner-lib unit tests for 402/config/auth/model-list parse/no-contamination.
 - dry-run fixture with a fake blocked log.
 
+Status:
+
+- Implemented and pushed in
+  `c0b0cac5 preflight provider availability in eval sweeps`.
+
 ### Batch 2: Shared operation controller for CLI and REPL
 
 - Extract the command/provider operation loop out of REPL-only methods into a
@@ -283,6 +418,13 @@ Validation:
   - `operation_system_inventory`
   - `operation_web_manual_summary`
   - source-only architecture case must still use read pipeline.
+
+Status:
+
+- CLI single-shot now uses the typed operation route and shared command-operation
+  runner before entering the read pipeline.
+- Implemented and pushed in
+  `194b3684 route CLI operation requests through operation runner`.
 
 ### Batch 3: Origin-specific external-observation coverage
 
@@ -310,6 +452,8 @@ Status:
 - Explorer handoff marks accepted origin-specific external-observation
   completion so downstream criterion checks can count MCP typed rows without
   converting them into current-source evidence.
+- Implemented and pushed in
+  `53a590d9 honor external observation completion coverage`.
 
 ### Batch 4: Structural stage/workflow presentation completeness
 
@@ -324,6 +468,13 @@ Validation:
 - generic architecture questions are not cluttered with stage tables unless
   requested.
 
+Status:
+
+- Implemented via typed `stage_workflow` answer dimension and deterministic
+  stage-binding supplement under precise typed request signal.
+- Implemented and pushed in
+  `dfd47fbc preserve stage workflow answer dimensions`.
+
 ### Batch 5: Representative eval quality guard
 
 - Update representative eval runner/report to separate:
@@ -337,3 +488,92 @@ Validation:
 Validation:
 
 - representative matrix run with manual inspection log updated.
+
+Status:
+
+- `eval/run.sh` now supports `EXPECT_LOG_MATCHES_REGEX` and
+  `EXPECT_LOG_NOT_MATCHES_REGEX` over per-run control-plane logs.
+- Operation representative cases require command-operation planning/execution
+  telemetry so they cannot pass by accidentally falling into source analysis.
+
+### Batch 6: Operation terminal-state preservation
+
+- Add typed terminal-state constraints to command-operation final answer
+  synthesis.
+- Deterministically prefix non-success final operation reports with their typed
+  status so the model cannot present budget-exhausted / partial / failed runs as
+  fully complete.
+
+Validation:
+
+- Unit tests for CLI operation final answer status preservation.
+- Unit tests that the answer prompt includes `terminal_operation_state`.
+- Re-run `operation_system_inventory` and `operation_web_manual_summary` with
+  hidden operation-log assertions.
+
+Status:
+
+- Implemented in this batch, including a conservative material-coverage caveat
+  for unconsumed payload refs and bounded generic text material excerpts in the
+  operation answer prompt. HTML handling is only a content adapter on top of the
+  text fallback, not a website-specific path.
+
+### Batch 7: Material coverage evaluator (follow-up architecture)
+
+- Design and implement a generic material coverage layer for long files, saved
+  command payloads, web pages, manuals, logs/traces, MCP/provider payloads, and
+  external Skill artifacts.
+- It should not be a website-specific extractor. It should track payload refs,
+  content type, extraction attempts, matched sections, and coverage against the
+  typed user goal.
+- Operation evaluator should use the material coverage result before returning
+  `complete`.
+
+Validation:
+
+- Web/manual operation case must not report full completion from metadata-only
+  extraction.
+- Large local file extraction, MCP payload extraction, and operation Skill
+  artifact extraction cases should share the same evaluator.
+
+Status:
+
+- Recorded as a product gap from manual eval inspection. The current batch adds
+  bounded text excerpts, an HTML text adapter, and conservative caveats; the
+  full coverage evaluator remains follow-up architecture work.
+
+### Batch 8: Structured command-field lint
+
+- Reject JSON objects/arrays in `program` or `shell` command fields at plan-lint
+  time.
+- Keep execute-time validation as a defensive fallback.
+- Teach the operation replan prompt how to repair the typed `invalid_plan`
+  failure.
+
+Validation:
+
+- Unit tests for command lint on JSON-in-command fields.
+- Existing command-operation prompt tests cover the replan hint.
+
+Status:
+
+- Implemented in this batch.
+
+### Batch 9: Operation command-round budget configuration (follow-up)
+
+- Audit whether the default command-operation round budgets are sufficient for
+  real multi-step operation tasks.
+- Add YAML configuration if needed for command rounds and repair rounds, with
+  sane defaults and hard clamps.
+- Update `codrax.yaml.example`, user guide Markdown/HTML, and tests.
+- Keep budgets scoped to the operation lane; do not affect read-mode source
+  analysis, trace/log analysis, or write mode.
+
+Validation:
+
+- Unit tests for default values, YAML overrides, and clamping.
+- Operation eval cases that require multiple discovery/extraction rounds.
+
+Status:
+
+- Recorded from 2026-06-04 eval follow-up. Not implemented in this batch.

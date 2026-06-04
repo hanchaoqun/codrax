@@ -4,3 +4,6 @@ QUESTION="读取 http://codrax.net/ 这个网站上的用户使用手册，说�
 EXPECT_MATCHES_REGEX="(用户使用手册|manual|guide)
 (使用|配置|启动|命令|REPL)
 (http://codrax.net|codrax.net)"
+EXPECT_LOG_MATCHES_REGEX="\\[cmd/operation\\] single-shot turn policy .*route=operation
+\\[cli/operation\\] command plan generated
+\\[cli/operation\\] command step result"

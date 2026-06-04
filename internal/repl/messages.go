@@ -1854,6 +1854,134 @@ func operationFinalReportWithDetails(lang, answer, details string) string {
 	return answer
 }
 
+func commandOperationTerminalState(records []commandOperationResultRecord) (operation.OperationStatus, int) {
+	if len(records) == 0 {
+		return operation.StatusFailed, 0
+	}
+	return records[len(records)-1].Result.Status, len(records)
+}
+
+func commandOperationHasUncoveredMaterialRef(records []commandOperationResultRecord) bool {
+	for i, record := range records {
+		refs := commandOperationRecordPayloadRefs(record)
+		if len(refs) == 0 {
+			continue
+		}
+		later := commandOperationLaterCommandText(records, i+1)
+		for _, ref := range refs {
+			if commandPayloadHasMaterialExcerpt(ref) {
+				continue
+			}
+			if ref != "" && !strings.Contains(later, ref) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func commandOperationRecordPayloadRefs(record commandOperationResultRecord) []string {
+	seen := map[string]bool{}
+	var refs []string
+	add := func(ref string) {
+		ref = strings.TrimSpace(ref)
+		if ref == "" || seen[ref] {
+			return
+		}
+		seen[ref] = true
+		refs = append(refs, ref)
+	}
+	add(record.Result.PayloadRef)
+	for _, step := range record.Result.StepResults {
+		add(step.PayloadRef)
+	}
+	return refs
+}
+
+func commandOperationLaterCommandText(records []commandOperationResultRecord, start int) string {
+	var b strings.Builder
+	for i := start; i < len(records); i++ {
+		for _, step := range records[i].Plan.Steps {
+			b.WriteString(commandOperationStepCommand(step))
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+func operationFinalReportWithRecordStatus(lang, answer string, records []commandOperationResultRecord) string {
+	status, rounds := commandOperationTerminalState(records)
+	answer = operationFinalReportWithStatus(lang, answer, status, rounds)
+	if status != operation.StatusExecuted || !commandOperationHasUncoveredMaterialRef(records) {
+		return answer
+	}
+	prefix := operationFinalMaterialCoveragePrefix(lang, rounds)
+	if strings.TrimSpace(answer) == "" {
+		return prefix
+	}
+	return prefix + "\n\n" + strings.TrimSpace(answer)
+}
+
+func operationFinalMaterialCoveragePrefix(lang string, rounds int) string {
+	if isZh(lang) {
+		return fmt.Sprintf("状态：已执行，材料覆盖未完全验证。存在已保存但未继续读取/提取的完整输出引用；以下报告基于已展示和已处理的观察，本轮共执行 %d 轮。", rounds)
+	}
+	return fmt.Sprintf("Status: executed, material coverage not fully verified. Some saved payload refs were not read or extracted in later steps; this report uses the displayed and processed observations across %d round(s).", rounds)
+}
+
+func operationFinalReportWithStatus(lang, answer string, status operation.OperationStatus, rounds int) string {
+	answer = strings.TrimSpace(answer)
+	prefix := operationFinalStatusPrefix(lang, status, rounds)
+	if answer == "" {
+		return operationFinalReportFallback(lang, status, rounds)
+	}
+	if prefix == "" {
+		return answer
+	}
+	return prefix + "\n\n" + answer
+}
+
+func operationFinalStatusPrefix(lang string, status operation.OperationStatus, rounds int) string {
+	if isZh(lang) {
+		switch status {
+		case operation.StatusBudgetExhausted:
+			return fmt.Sprintf("状态：部分结果。操作已达到预算上限，以下报告仅基于已收集到的观察；本轮共执行 %d 轮。", rounds)
+		case operation.StatusPartialAnswer:
+			return fmt.Sprintf("状态：部分结果。当前只能基于已收集到的观察作答；本轮共执行 %d 轮。", rounds)
+		case operation.StatusFailed:
+			return fmt.Sprintf("状态：未完成。最新操作失败，以下报告只包含可用的部分观察；本轮共执行 %d 轮。", rounds)
+		case operation.StatusBlocked:
+			return fmt.Sprintf("状态：未执行/已阻止。后续操作被策略或能力边界阻止；本轮共执行 %d 轮。", rounds)
+		case operation.StatusNeedsClarification:
+			return "状态：需要补充信息。缺少用户侧关键信息前，系统不会继续猜测执行。"
+		case operation.StatusCancelled:
+			return "状态：已取消。"
+		case operation.StatusRejected:
+			return "状态：已拒绝。"
+		default:
+			return ""
+		}
+	}
+	switch status {
+	case operation.StatusBudgetExhausted:
+		return fmt.Sprintf("Status: partial result. The operation budget was reached before the goal was fully satisfied; this report uses the observations collected across %d round(s).", rounds)
+	case operation.StatusPartialAnswer:
+		return fmt.Sprintf("Status: partial result. Only a partial answer is possible from the observations collected across %d round(s).", rounds)
+	case operation.StatusFailed:
+		return fmt.Sprintf("Status: not complete. The latest operation failed; this report includes only usable partial observations from %d round(s).", rounds)
+	case operation.StatusBlocked:
+		return fmt.Sprintf("Status: not executed/blocked. Further operation was blocked by policy or capability limits after %d round(s).", rounds)
+	case operation.StatusNeedsClarification:
+		return "Status: clarification needed. The system will not guess user-owned missing details."
+	case operation.StatusCancelled:
+		return "Status: cancelled."
+	case operation.StatusRejected:
+		return "Status: rejected."
+	default:
+		return ""
+	}
+}
+
 func operationFinalReportFallback(lang string, status operation.OperationStatus, rounds int) string {
 	if isZh(lang) {
 		var b strings.Builder

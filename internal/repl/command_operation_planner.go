@@ -5,10 +5,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
+	"os"
+	"regexp"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/operation"
+)
+
+var (
+	operationMaterialScriptRE    = regexp.MustCompile(`(?is)<script\b[^>]*>.*?</script>`)
+	operationMaterialStyleRE     = regexp.MustCompile(`(?is)<style\b[^>]*>.*?</style>`)
+	operationMaterialSVGRE       = regexp.MustCompile(`(?is)<svg\b[^>]*>.*?</svg>`)
+	operationMaterialBlockTagRE  = regexp.MustCompile(`(?i)</?(article|section|main|div|p|br|li|ul|ol|h[1-6]|tr|td|th|blockquote|pre|code|table)\b[^>]*>`)
+	operationMaterialAnyTagRE    = regexp.MustCompile(`(?s)<[^>]+>`)
+	operationMaterialBlankLineRE = regexp.MustCompile(`\n{3,}`)
 )
 
 // CommandOperationPlanner turns a typed route=operation turn into a command
@@ -341,6 +353,21 @@ func (p *llmCommandOperationPlanner) AnswerCommandOperationRecords(ctx context.C
 	var b strings.Builder
 	fmt.Fprintf(&b, "## language\n%s\n\n", strings.TrimSpace(lang))
 	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
+	status, rounds := commandOperationTerminalState(records)
+	fmt.Fprintf(&b, "## terminal_operation_state\nstatus=%s\nrounds=%d\n", status, rounds)
+	switch status {
+	case operation.StatusBudgetExhausted:
+		b.WriteString("constraint=The operation budget was reached before the user goal was fully satisfied. Do not call the task fully complete; write a partial/budget-limited report.\n")
+	case operation.StatusPartialAnswer:
+		b.WriteString("constraint=Only a partial answer is possible from the collected observations. Do not call the task fully complete.\n")
+	case operation.StatusFailed:
+		b.WriteString("constraint=The latest operation failed. Do not call the task complete; explain the failure and any usable partial observations.\n")
+	case operation.StatusBlocked:
+		b.WriteString("constraint=The operation was blocked. Do not call the task complete; explain the block and any safe next step.\n")
+	case operation.StatusNeedsClarification:
+		b.WriteString("constraint=The operation needs user-owned clarification before it can continue. Do not invent missing details.\n")
+	}
+	b.WriteString("\n")
 	b.WriteString("## command_operation_rounds\n")
 	b.WriteString(renderCommandOperationRecordsForPrompt(records))
 	resp, err := p.adapter.Chat(ctx,
@@ -558,6 +585,7 @@ func (p *llmCommandOperationPlanner) planCommandOperationDraft(ctx context.Conte
 		b.WriteString("If one or more previous steps succeeded and those observations already satisfy the user's goal, emit status=complete with a short block_reason/reason. Do not use status=blocked for completed/no-more-work states; blocked is only for policy or capability barriers.\n")
 		b.WriteString("If failure_class=invalid_plan and the error says a shell command has no explicit input source, repair by rewriting that same step as one complete standalone command with its own producer, file operand, or redirection. The command executor will not pipe output from another step into it. Examples: use \"ps aux | grep ...\" for process searches; use \"grep pattern /path/to/file\" or \"producer | grep pattern\" for text searches; use \"cat /path/to/file\" or \"producer | cat\" for cat/nl; use \"producer | head -50\" or \"head -50 /path/to/file\" for head/tail/wc/cut/sort/uniq.\n")
 		b.WriteString("If failure_class=invalid_plan and the error says the shell command starts with \"|\", \"||\", \"&&\", or \";\", the command is missing the segment before the operator. Rewrite the whole command with a real producer before the operator; do not keep the leading operator.\n")
+		b.WriteString("If failure_class=invalid_plan and the error says a program/shell field contains structured JSON, repair by moving those JSON members into typed step fields such as program, args, shell, title, risk_level, and side_effects. Do not place JSON arrays or objects inside a command string.\n")
 		b.WriteString(renderCommandPlanForPrompt(req.PreviousPlan))
 		b.WriteString("\n")
 		b.WriteString(renderCommandResultForPrompt(req.Result))
@@ -641,6 +669,10 @@ func renderCommandResultForPrompt(result operation.CommandOperationResult) strin
 	if strings.TrimSpace(result.PayloadRef) != "" {
 		fmt.Fprintf(&b, "result_payload_ref=%s\n", result.PayloadRef)
 	}
+	if rendered := renderCommandPayloadMaterialExcerpts(commandOperationResultPayloadRefs(result)); rendered != "" {
+		b.WriteString(rendered)
+		b.WriteString("\n")
+	}
 	for i, step := range result.StepResults {
 		summary := operation.SummarizeStepOutput(step)
 		preview := strings.TrimSpace(step.OutputPreview)
@@ -655,6 +687,113 @@ func renderCommandResultForPrompt(result operation.CommandOperationResult) strin
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+func commandOperationResultPayloadRefs(result operation.CommandOperationResult) []string {
+	seen := map[string]bool{}
+	var refs []string
+	add := func(ref string) {
+		ref = strings.TrimSpace(ref)
+		if ref == "" || seen[ref] {
+			return
+		}
+		seen[ref] = true
+		refs = append(refs, ref)
+	}
+	add(result.PayloadRef)
+	for _, step := range result.StepResults {
+		add(step.PayloadRef)
+	}
+	return refs
+}
+
+func renderCommandPayloadMaterialExcerpts(refs []string) string {
+	var b strings.Builder
+	for _, ref := range refs {
+		excerpt := commandPayloadMaterialExcerpt(ref)
+		if excerpt == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(excerpt)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func commandPayloadMaterialExcerpt(ref string) string {
+	ref = strings.TrimSpace(ref)
+	if ref == "" {
+		return ""
+	}
+	data, err := os.ReadFile(ref)
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	const maxRead = 256 * 1024
+	truncated := false
+	if len(data) > maxRead {
+		data = data[:maxRead]
+		truncated = true
+	}
+	if bytes.Contains(data, []byte{0}) {
+		return fmt.Sprintf("payload_material_excerpt ref=%s kind=binary skipped=true\n", ref)
+	}
+	raw := string(data)
+	kind := "text"
+	text := raw
+	if looksLikeHTML(raw) {
+		kind = "html_text"
+		text = extractHTMLVisibleText(raw)
+	}
+	text = compactMaterialText(text)
+	if text == "" {
+		return ""
+	}
+	const maxRunes = 4000
+	runes := []rune(text)
+	if len(runes) > maxRunes {
+		text = string(runes[:maxRunes]) + "\n...[material excerpt truncated]"
+	}
+	return fmt.Sprintf("payload_material_excerpt ref=%s kind=%s source_truncated=%t\n%s", ref, kind, truncated, text)
+}
+
+func commandPayloadHasMaterialExcerpt(ref string) bool {
+	excerpt := commandPayloadMaterialExcerpt(ref)
+	return excerpt != "" && !strings.Contains(excerpt, "skipped=true")
+}
+
+func looksLikeHTML(s string) bool {
+	lower := strings.ToLower(s)
+	return strings.Contains(lower, "<html") || strings.Contains(lower, "<article") || strings.Contains(lower, "<body") || strings.Contains(lower, "<!doctype html")
+}
+
+func extractHTMLVisibleText(s string) string {
+	s = operationMaterialScriptRE.ReplaceAllString(s, "\n")
+	s = operationMaterialStyleRE.ReplaceAllString(s, "\n")
+	s = operationMaterialSVGRE.ReplaceAllString(s, "\n")
+	s = operationMaterialBlockTagRE.ReplaceAllString(s, "\n")
+	s = operationMaterialAnyTagRE.ReplaceAllString(s, " ")
+	return html.UnescapeString(s)
+}
+
+func compactMaterialText(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	lines := strings.Split(s, "\n")
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.Join(strings.Fields(line), " ")
+		if line == "" {
+			if len(out) > 0 && out[len(out)-1] != "" {
+				out = append(out, "")
+			}
+			continue
+		}
+		out = append(out, line)
+	}
+	return strings.TrimSpace(operationMaterialBlankLineRE.ReplaceAllString(strings.Join(out, "\n"), "\n\n"))
 }
 
 func renderCommandOperationRecordsForPrompt(records []commandOperationResultRecord) string {

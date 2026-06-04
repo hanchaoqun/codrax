@@ -9,11 +9,14 @@
 # Runs the case N times (default 3), captures stdout/log per run, checks
 # EXPECT_CONTAINS / EXPECT_NOT_CONTAINS substrings, and optionally
 # EXPECT_MATCHES_REGEX (ERE, ALL must match — useful for numeric
-# scalar answers like "at least 4 digits somewhere in the answer")
-# and EXPECT_SECTIONS (space-sep tokens, ALL must appear as literal
+# scalar answers like "at least 4 digits somewhere in the answer"),
+# EXPECT_SECTIONS (space-sep tokens, ALL must appear as literal
 # substrings — useful for comparison questions that require both
-# sides of "A vs B" to be mentioned). Extracts mechanism trace
-# metrics from each run's debug log, and prints a markdown summary.
+# sides of "A vs B" to be mentioned), and EXPECT_LOG_MATCHES_REGEX /
+# EXPECT_LOG_NOT_MATCHES_REGEX (newline-separated ERE patterns over
+# the control-plane log, useful for hidden subsystem-execution guards).
+# Extracts mechanism trace metrics from each run's debug log, and
+# prints a markdown summary.
 #
 # Output layout:
 #   eval/results/<case-id>-<timestamp>/
@@ -439,8 +442,8 @@ write_metrics() {
 # against — mode-specific upstream (scope_stdout output for read, plan
 # JSON for plan, post-apply fixture bytes for apply). extra-reasons
 # are pre-seeded failure tokens from mode-specific pre-checks (e.g.
-# "no_plan_regex:...", "apply_exit:1"); any non-empty value forces
-# FAIL even if EXPECT_* all match.
+# "no_plan_regex:...", "apply_exit:1", "no_log_regex:...");
+# any non-empty value forces FAIL even if EXPECT_* all match.
 write_verdict() {
   local verdict_file="$1" cleaned="$2"
   shift 2
@@ -714,6 +717,37 @@ run_one() {
     printf 'BLOCKED_PROVIDER %s\n' "$provider_blocked" >"$verdict"
     echo "run $i: $(cat "$verdict")" >&2
     return
+  fi
+
+  # Optional hidden quality assertions over control-plane logs. These are for
+  # eval harness integrity, not product routing: case authors can require that
+  # a scenario exercised a typed subsystem (for example the operation runner)
+  # instead of merely producing answer text that happens to match.
+  if [[ -n "${EXPECT_LOG_MATCHES_REGEX:-}" ]]; then
+    if [[ -z "$log" || ! -f "$log" ]]; then
+      extra_reasons+=("log_missing")
+    else
+      old_ifs="$IFS"
+      IFS=$'\n'
+      for rx in $EXPECT_LOG_MATCHES_REGEX; do
+        [[ -z "$rx" ]] && continue
+        if ! LC_ALL=C grep -aEq -- "$rx" "$log"; then
+          extra_reasons+=("no_log_regex:${rx}")
+        fi
+      done
+      IFS="$old_ifs"
+    fi
+  fi
+  if [[ -n "${EXPECT_LOG_NOT_MATCHES_REGEX:-}" && -n "$log" && -f "$log" ]]; then
+    old_ifs="$IFS"
+    IFS=$'\n'
+    for rx in $EXPECT_LOG_NOT_MATCHES_REGEX; do
+      [[ -z "$rx" ]] && continue
+      if LC_ALL=C grep -aEq -- "$rx" "$log"; then
+        extra_reasons+=("banned_log_regex:${rx}")
+      fi
+    done
+    IFS="$old_ifs"
   fi
 
   write_verdict "$verdict" "$cleaned" "${extra_reasons[@]:+${extra_reasons[@]}}"

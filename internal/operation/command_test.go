@@ -63,6 +63,16 @@ func TestLintCommandOperationPlanRejectsInvalidCommandShapes(t *testing.T) {
 			plan: CommandOperationPlan{Status: StatusReady, Steps: []CommandStep{{ID: "s1", Shell: "&& echo ok"}}},
 			code: PlanLintInvalidShellShape,
 		},
+		{
+			name: "shell contains structured json array",
+			plan: CommandOperationPlan{Status: StatusReady, Steps: []CommandStep{{ID: "s1", Shell: `[{"id":"1","program":"grep","args":["pattern","file.txt"]}]`}}},
+			code: PlanLintStructuredJSONCmd,
+		},
+		{
+			name: "program contains structured json object",
+			plan: CommandOperationPlan{Status: StatusReady, Steps: []CommandStep{{ID: "s1", Program: `{"program":"grep","args":["pattern","file.txt"]}`}}},
+			code: PlanLintStructuredJSONCmd,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

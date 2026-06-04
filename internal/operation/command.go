@@ -1,6 +1,7 @@
 package operation
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -171,6 +172,7 @@ const (
 	PlanLintEmptyCommandStep   = "empty_command_step"
 	PlanLintStdinWithoutInput  = "stdin_without_input"
 	PlanLintInvalidShellShape  = "invalid_shell_shape"
+	PlanLintStructuredJSONCmd  = "structured_json_command"
 	PlanLintRepeatedFailedStep = "repeated_failed_command"
 )
 
@@ -229,7 +231,23 @@ func LintCommandOperationPlan(plan CommandOperationPlan) CommandPlanLintResult {
 			})
 			continue
 		}
+		if structuredCommandField(step.Program) {
+			out.Issues = append(out.Issues, CommandPlanLintIssue{
+				Code:    PlanLintStructuredJSONCmd,
+				StepID:  step.ID,
+				Message: "program field contains structured JSON instead of an executable; repair the plan by moving JSON members into typed step fields",
+			})
+			continue
+		}
 		shell := strings.TrimSpace(step.Shell)
+		if structuredCommandField(shell) {
+			out.Issues = append(out.Issues, CommandPlanLintIssue{
+				Code:    PlanLintStructuredJSONCmd,
+				StepID:  step.ID,
+				Message: "shell field contains structured JSON instead of a shell command; repair the plan by moving JSON members into typed step fields",
+			})
+			continue
+		}
 		if op := leadingShellControlOperator(shell); op != "" {
 			out.Issues = append(out.Issues, CommandPlanLintIssue{
 				Code:    PlanLintInvalidShellShape,
@@ -247,6 +265,29 @@ func LintCommandOperationPlan(plan CommandOperationPlan) CommandPlanLintResult {
 		}
 	}
 	return out
+}
+
+func structuredCommandField(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	if !strings.HasPrefix(value, "{") && !strings.HasPrefix(value, "[") {
+		return false
+	}
+	if !json.Valid([]byte(value)) {
+		return false
+	}
+	var decoded any
+	if err := json.Unmarshal([]byte(value), &decoded); err != nil {
+		return false
+	}
+	switch decoded.(type) {
+	case map[string]any, []any:
+		return true
+	default:
+		return false
+	}
 }
 
 // BuildCommandOperationPlan applies deterministic policy to a typed command
