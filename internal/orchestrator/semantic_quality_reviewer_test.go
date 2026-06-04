@@ -347,12 +347,13 @@ func TestRenderSemanticQualityUserMessage_IncludesClaimBindingBoundary(t *testin
 		AnswerSummary:   "最近一次合入优化了 repo map 缓存。",
 		AnswerBody:      "正文说明特性影响。",
 		ClaimBindings: []SemanticClaimBindingSummary{{
-			ClaimID:         "aggregate_facts[0]#vcs_metadata",
-			Origin:          string(types.AnswerEvidenceOriginVCSMetadata),
-			Policy:          string(types.ClaimGroundingRepairable),
-			Outputs:         []string{string(types.AnswerRequestedOutputSummary), string(types.AnswerRequestedOutputMechanism)},
-			Target:          "latest merge feature",
-			SupportRefCount: 2,
+			ClaimID:          "aggregate_facts[0]#vcs_metadata",
+			Origin:           string(types.AnswerEvidenceOriginVCSMetadata),
+			Policy:           string(types.ClaimGroundingRepairable),
+			Outputs:          []string{string(types.AnswerRequestedOutputSummary), string(types.AnswerRequestedOutputMechanism)},
+			Target:           "latest merge feature",
+			SupportRefCount:  2,
+			AuthorityCeiling: string(types.AuthorityHistorical),
 		}},
 	}
 	got := renderSemanticQualityUserMessage(in)
@@ -360,6 +361,7 @@ func TestRenderSemanticQualityUserMessage_IncludesClaimBindingBoundary(t *testin
 		"## CLAIM BINDINGS",
 		"origin=`vcs_metadata`",
 		"policy=`repairable`",
+		"authority_ceiling=`historical`",
 		"outputs=summary,mechanism",
 		"Do not demand current-source file:line grounding for non-current-source origins",
 	} {

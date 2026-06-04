@@ -194,6 +194,9 @@ func TestCompileRuntimeArtifactClaimBindings_LogBundleCreatesRuntimeBinding(t *t
 	if panicBinding.Source != "log_triage" {
 		t.Fatalf("runtime log binding source = %q", panicBinding.Source)
 	}
+	if got := AnswerClaimBindingAuthorityCeiling(panicBinding); got != AuthorityHistorical {
+		t.Fatalf("runtime log binding authority = %q; want historical", got)
+	}
 	if panicBinding.AggregateIndex != -1 {
 		t.Fatalf("runtime log binding should not point at aggregate_facts: %+v", panicBinding)
 	}
@@ -239,6 +242,9 @@ func TestCompileRuntimeArtifactClaimBindings_PerfBundleCreatesRuntimeBinding(t *
 	frameBinding := assertClaimBinding(t, got, AnswerEvidenceOriginRuntimeArtifact, ClaimGroundingRepairable, AnswerRequestedOutputDiagnostic)
 	if frameBinding.Source != "perf_trace" {
 		t.Fatalf("runtime perf binding source = %q", frameBinding.Source)
+	}
+	if got := AnswerClaimBindingAuthorityCeiling(frameBinding); got != AuthorityHistorical {
+		t.Fatalf("runtime perf binding authority = %q; want historical", got)
 	}
 	if frameBinding.AggregateIndex != -1 {
 		t.Fatalf("runtime perf binding should not point at aggregate_facts: %+v", frameBinding)

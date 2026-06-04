@@ -153,6 +153,8 @@ type SemanticClaimBindingSummary struct {
 	Target             string
 	SupportRefCount    int
 	ExactSourceSupport bool
+	AuthorityCeiling   string
+	DriftReason        string
 }
 
 // SemanticObservationSummary is the reviewer-facing projection of one
@@ -698,14 +700,22 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 	}
 	if len(in.ClaimBindings) > 0 {
 		b.WriteString("\n## CLAIM BINDINGS (typed origin / gate-policy handoff)\n")
-		b.WriteString("Each row: claim_id / origin / policy / requested outputs / target / support_ref count. Origins are evidence provenance, not answer shapes. Do not demand current-source file:line grounding for non-current-source origins; even current-source bindings create citation pressure only when exact source support is present.\n\n")
+		b.WriteString("Each row: claim_id / origin / policy / authority ceiling / requested outputs / target / support_ref count. Origins are evidence provenance, not answer shapes. Do not demand current-source file:line grounding for non-current-source origins; even current-source bindings create citation pressure only when exact source support is present. `authority_ceiling` caps current-source/causal wording, not the validity of the origin-specific observation itself.\n\n")
 		for _, cb := range in.ClaimBindings {
 			exactSource := ""
 			if cb.Origin == string(types.AnswerEvidenceOriginCurrentSource) {
 				exactSource = fmt.Sprintf(" exact_source_support=%t", cb.ExactSourceSupport)
 			}
-			fmt.Fprintf(&b, "- claim_id=%q origin=`%s` policy=`%s` outputs=%s target=%q support_refs=%d%s\n",
-				cb.ClaimID, cb.Origin, cb.Policy, strings.Join(cb.Outputs, ","), cb.Target, cb.SupportRefCount, exactSource)
+			authority := ""
+			if cb.AuthorityCeiling != "" {
+				authority = fmt.Sprintf(" authority_ceiling=`%s`", cb.AuthorityCeiling)
+			}
+			drift := ""
+			if cb.DriftReason != "" {
+				drift = fmt.Sprintf(" drift_reason=`%s`", cb.DriftReason)
+			}
+			fmt.Fprintf(&b, "- claim_id=%q origin=`%s` policy=`%s`%s outputs=%s target=%q support_refs=%d%s%s\n",
+				cb.ClaimID, cb.Origin, cb.Policy, authority, strings.Join(cb.Outputs, ","), cb.Target, cb.SupportRefCount, exactSource, drift)
 		}
 	}
 	if len(in.Observations) > 0 {
@@ -778,6 +788,8 @@ func semanticClaimBindingSummaries(bindings []types.AnswerClaimBinding) []Semant
 			Target:             strings.TrimSpace(b.TargetRef),
 			SupportRefCount:    len(b.SupportRefs),
 			ExactSourceSupport: types.AnswerClaimBindingHasExactCurrentSourceSupport(b),
+			AuthorityCeiling:   string(types.AnswerClaimBindingAuthorityCeiling(b)),
+			DriftReason:        string(b.DriftReason),
 		})
 	}
 	return out

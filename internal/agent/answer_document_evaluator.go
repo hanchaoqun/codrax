@@ -3692,6 +3692,7 @@ func renderAnswerDocClaimBindings(ctx *types.AgentContext) string {
 	b.WriteString("- The following claim bindings are compiled from typed `aggregate_facts`, runtime artifacts, evidence origins, and requested outputs. They are the shared interpretation for answer-writing and review lanes.\n")
 	b.WriteString("- Do not translate non-`current_source` bindings into current-source file:line requirements. Use each binding's origin-specific support shape.\n")
 	b.WriteString("- A `current_source` binding can create source-line citation pressure only when it carries exact source support; otherwise treat it as repairable context and use grounded evidence rows / ledger records for citations.\n")
+	b.WriteString("- `authority_ceiling` caps how strongly a binding may be turned into a current-source or causal claim. `historical` runtime/VCS bindings may state what was observed or changed, but they do not prove the current checkout's root cause unless a separate exact `current_source` binding supports that claim.\n")
 	b.WriteString("- `hard` means the principal claim itself must be exact; `repairable` / `soft` defects should be locally repaired or disclosed in a localized supplement rather than forcing a broad rewrite.\n")
 	ledger := answerDocObservationLedger(ctx)
 	limit := len(bindings)
@@ -3713,8 +3714,16 @@ func renderAnswerDocClaimBindings(ctx *types.AgentContext) string {
 		if binding.Origin == types.AnswerEvidenceOriginCurrentSource {
 			exactSourcePart = fmt.Sprintf("; exact_source_support=%t", types.AnswerClaimBindingHasExactCurrentSourceSupport(binding))
 		}
+		authorityPart := ""
+		if authority := types.AnswerClaimBindingAuthorityCeiling(binding); authority != "" {
+			authorityPart = fmt.Sprintf("; authority_ceiling=`%s`", authority)
+		}
+		driftPart := ""
+		if binding.DriftReason != "" {
+			driftPart = fmt.Sprintf("; drift_reason=`%s`", binding.DriftReason)
+		}
 		fmt.Fprintf(&b,
-			"- `%s`: origin=`%s`; policy=`%s`; outputs=%s; %s; target=%q; support_refs=%d%s%s\n",
+			"- `%s`: origin=`%s`; policy=`%s`; outputs=%s; %s; target=%q; support_refs=%d%s%s%s%s\n",
 			binding.ClaimID,
 			binding.Origin,
 			binding.GroundingPolicy,
@@ -3723,6 +3732,8 @@ func renderAnswerDocClaimBindings(ctx *types.AgentContext) string {
 			binding.TargetRef,
 			len(binding.SupportRefs),
 			exactSourcePart,
+			authorityPart,
+			driftPart,
 			ledgerPart,
 		)
 	}

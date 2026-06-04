@@ -170,6 +170,7 @@ func TestRenderAnswerDocClaimBindings_ShowsOriginSpecificPolicies(t *testing.T) 
 		"Claim Binding / Gate Policy Handoff",
 		"origin=`vcs_metadata`; policy=`repairable`",
 		"origin=`command_measurement`; policy=`hard`",
+		"authority_ceiling=`historical`",
 		"outputs=`summary`, `scalar`, `count`",
 		"ledger_records=aggregate:0#vcs_metadata",
 		"ledger_records=aggregate:0#command_measurement",
@@ -209,6 +210,7 @@ func TestRenderAnswerDocClaimBindings_RuntimeArtifactWithoutAggregateFacts(t *te
 		"origin=`runtime_artifact`; policy=`repairable`",
 		"source=`log_triage`",
 		"support_refs=1",
+		"authority_ceiling=`historical`",
 		"ledger_records=log:error:0",
 	} {
 		if !strings.Contains(got, want) {

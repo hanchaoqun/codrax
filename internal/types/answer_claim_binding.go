@@ -22,6 +22,8 @@ type AnswerClaimBinding struct {
 	RequestedOutputs   []AnswerRequestedOutput
 	SupportRefs        []string
 	ExactSourceSupport bool
+	AuthorityCeiling   AuthorityCeiling
+	DriftReason        DriftReason
 	GroundingPolicy    ClaimGroundingPolicy
 }
 
@@ -82,6 +84,7 @@ func CompileAnswerClaimBindingsFromAggregateFacts(facts []AnswerAggregateFact, r
 				RequestedOutputs:   cloneAnswerRequestedOutputs(outputs),
 				SupportRefs:        cloneAnswerClaimBindingStrings(fact.SupportRefs),
 				ExactSourceSupport: exactCurrentSourceSupport,
+				AuthorityCeiling:   AnswerClaimBindingDefaultAuthorityCeiling(origin, exactCurrentSourceSupport),
 				GroundingPolicy:    policy,
 			})
 		}
@@ -146,6 +149,48 @@ func AnswerClaimBindingGroundingPolicy(origin AnswerEvidenceOrigin, role AnswerA
 	default:
 		return ClaimGroundingSoft
 	}
+}
+
+// AnswerClaimBindingDefaultAuthorityCeiling returns the default authority cap
+// for a claim binding when no per-evidence authority axis is available. The
+// value is intentionally origin-based and typed-only: runtime and VCS facts
+// remain valid observations/history, but they cannot by themselves prove the
+// current checkout's causal path. Current-source bindings only get factual
+// authority when they carry exact current-source support.
+func AnswerClaimBindingDefaultAuthorityCeiling(origin AnswerEvidenceOrigin, exactCurrentSourceSupport bool) AuthorityCeiling {
+	switch origin {
+	case AnswerEvidenceOriginCurrentSource:
+		if exactCurrentSourceSupport {
+			return AuthorityFactual
+		}
+		return AuthorityUnknown
+	case AnswerEvidenceOriginRuntimeArtifact,
+		AnswerEvidenceOriginVCSMetadata,
+		AnswerEvidenceOriginVCSDiff:
+		return AuthorityHistorical
+	case AnswerEvidenceOriginSystemInference:
+		return AuthorityIllustrative
+	case AnswerEvidenceOriginRepoNegativeSearch,
+		AnswerEvidenceOriginCommandMeasurement,
+		AnswerEvidenceOriginCrossRepoIndex,
+		AnswerEvidenceOriginExternalDocument,
+		AnswerEvidenceOriginWebPage,
+		AnswerEvidenceOriginMCPResource,
+		AnswerEvidenceOriginConnectorResource:
+		return AuthorityFactual
+	default:
+		return AuthorityUnknown
+	}
+}
+
+func AnswerClaimBindingAuthorityCeiling(binding AnswerClaimBinding) AuthorityCeiling {
+	if binding.AuthorityCeiling != "" {
+		return binding.AuthorityCeiling
+	}
+	return AnswerClaimBindingDefaultAuthorityCeiling(
+		binding.Origin,
+		AnswerClaimBindingHasExactCurrentSourceSupport(binding),
+	)
 }
 
 // AnswerClaimBindingHasExactCurrentSourceSupport reports whether a compiled
@@ -300,6 +345,7 @@ func logBundleClaimBindings(bundle *LogBundle, outputs []AnswerRequestedOutput) 
 			Origin:           AnswerEvidenceOriginRuntimeArtifact,
 			RequestedOutputs: cloneAnswerRequestedOutputs(outputs),
 			SupportRefs:      cloneAnswerClaimBindingStrings(support),
+			AuthorityCeiling: AnswerClaimBindingDefaultAuthorityCeiling(AnswerEvidenceOriginRuntimeArtifact, false),
 			GroundingPolicy:  AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
 		})
 	}
@@ -391,6 +437,7 @@ func perfBundleClaimBindings(bundle *PerfBundle, outputs []AnswerRequestedOutput
 			Origin:           AnswerEvidenceOriginRuntimeArtifact,
 			RequestedOutputs: cloneAnswerRequestedOutputs(outputs),
 			SupportRefs:      cloneAnswerClaimBindingStrings(support),
+			AuthorityCeiling: AnswerClaimBindingDefaultAuthorityCeiling(AnswerEvidenceOriginRuntimeArtifact, false),
 			GroundingPolicy:  AnswerClaimBindingGroundingPolicy(AnswerEvidenceOriginRuntimeArtifact, AnswerAggregateRolePrincipalAnswer),
 		})
 	}
