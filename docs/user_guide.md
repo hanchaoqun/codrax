@@ -688,7 +688,7 @@ Codrax 有两类外部能力入口:
 | MCP 外部工具 | 内部知识库、告警系统、缺陷平台、监控快照、trace 预分析服务、规范文档检索器等**只读外部事实来源** | `mcp_resource` 外部观测通道 |
 | 外部 Skills / Operation Skills | 本地脚本、二进制、公司内工具、PPT/文档/表格生成器、浏览器/桌面自动化等**可能有副作用的电脑操作或制品生成能力** | operation provider / operation handoff 通道 |
 
-两类能力都不会伪装成当前源码的 `file:line` citation。MCP 更像“给探索阶段增加外部证据来源”;外部 Skills 更像“经审批执行一个外部工作流或生成制品”。
+两类能力都不会伪装成当前源码的 `file:line` citation。MCP 更像“给探索阶段增加外部证据来源”;外部 Skills 更像“按 operation 策略执行一个外部工作流或生成制品”:低/中风险安全批次可自动推进,高风险需要审批,特别危险的操作会被拒绝。
 
 ### 先选入口
 

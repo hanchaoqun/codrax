@@ -4,6 +4,67 @@
 
 Codrax 是一个面向工程现场的 AI 协作工具。它的核心目标不是“聊代码”，而是把代码、日志、trace、外部工具和变更流程放到同一个可审计的工作台里，让复杂问题有证据、有边界、有后续动作。
 
+## 快速开始：问第一个代码问题
+
+Codrax 默认把**启动时所在目录**当作要分析的代码仓库。第一次使用时，先 `cd` 到目标代码仓，再启动 Codrax：
+
+```bash
+cd /path/to/your/code-repo
+codrax
+```
+
+进入 REPL 后直接提问，例如：
+
+```text
+这个项目的入口在哪里？请给出关键文件和调用链。
+```
+
+也可以用单次命令：
+
+```bash
+cd /path/to/your/code-repo
+codrax --request "这个项目的入口在哪里？请给出关键文件和调用链。"
+```
+
+如果你不想切换当前目录，可以显式指定仓库：
+
+```bash
+codrax --repo /path/to/your/code-repo --request "这个配置项在哪里定义和消费？"
+```
+
+LLM provider、MCP、trace、operation skills 等详细配置见 [docs/user_guide.md](docs/user_guide.md)。
+
+## 编译
+
+Codrax 是 Go 项目，推荐 Go 1.22.5 或更新版本。因为仓库使用 CGO 和本地解析依赖，编译机器需要可用的 C/C++ 工具链。
+
+```bash
+make          # 编译当前平台二进制 ./codrax
+make test     # 运行测试
+make info     # 查看当前平台、Go、工具链信息
+```
+
+常见平台准备：
+
+- macOS：安装 Xcode Command Line Tools。
+- Linux：安装 `gcc` / `g++` 等基础编译工具。
+- Windows：可用原生 MinGW 工具链；需要 Linux static 包时使用 WSL。
+
+## 跨平台编译
+
+跨平台编译同样受 CGO 目标平台工具链约束。Makefile 已提供常用目标：
+
+| 目标 | 命令 | 说明 |
+|---|---|---|
+| 当前平台 | `make` | 生成 `./codrax` |
+| Linux 静态包 | `make static` | Linux/musl 静态构建；macOS/Windows 会给出工具链提示 |
+| Linux amd64 | `make cross-linux` | 需要目标平台 C 工具链 |
+| Linux arm64 | `make cross-linux-arm64` | 需要 `aarch64-linux-gnu-gcc` 等工具链 |
+| macOS amd64 | `make cross-darwin` | 推荐在 macOS 上构建 |
+| macOS arm64 | `make cross-darwin-arm64` | 推荐在 macOS 上构建 |
+| Windows amd64 | `make cross-windows` | 需要 MinGW 目标工具链 |
+| 发布矩阵 | `make release` | 按当前平台可用工具链构建可发布包 |
+
 ## 适合什么场景
 
 ### 代码理解与影响分析
@@ -44,7 +105,7 @@ Codrax 可以通过 MCP 或 operation skills 接入外部能力，例如：
 - 本地脚本、二进制工具、PPT / 文档 / 表格生成器。
 - 需要先读说明、提炼参数、再调用下游工具的多步骤 workflow。
 
-这些外部结果会进入独立的外部观察 / operation handoff 通道，不会混进当前源码 citation。涉及副作用的操作默认需要用户批准。
+这些外部结果会进入独立的外部观察 / operation handoff 通道，不会混进当前源码 citation。低/中风险安全动作可按 operation 策略自动推进；高风险动作需要用户批准，特别危险的操作会被直接拒绝。
 
 ### 变更方案与沙箱执行
 
