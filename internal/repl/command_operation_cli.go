@@ -191,6 +191,59 @@ func runCommandOperationCLIPlan(ctx context.Context, cfg CommandOperationCLIConf
 			operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, budget))
 			return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
 		}
+		if result.Status == operation.StatusExecuted &&
+			commandOperationShouldRunMaterialEvaluator(records) &&
+			commandRounds < commandOperationMaxCommandRounds {
+			if evaluator, ok := cfg.Planner.(CommandOperationEvaluator); ok {
+				eval, err := evaluator.EvaluateCommandOperation(ctx, currentPlan.RequestText, records, cfg.Language)
+				if err != nil {
+					logging.Warning("[cli/operation] command operation evaluation failed: %v", err)
+				} else {
+					records = commandOperationAttachEvaluation(records, eval)
+					logging.Info("[cli/operation] command evaluation status=%s confidence=%q reason=%q materials=%d rounds=%d",
+						eval.Status, oneLineClamp(eval.Confidence, 40), oneLineClamp(eval.Reason, 180), len(eval.Materials), len(records))
+					if terminal, ok := commandOperationEvaluationTerminalResult(currentPlan, eval); ok {
+						records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: terminal})
+						operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, currentPlan, terminal))
+						return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
+					}
+					if eval.Status == operation.EvalContinueCommand {
+						continuer, ok := cfg.Planner.(CommandOperationContinuationPlanner)
+						if ok {
+							snapshot := commandOperationCLICapabilitySnapshot(cfg)
+							next, err := continuer.ContinueCommandOperation(ctx, currentPlan.RequestText, cfg.RepoRoot, commandOperationPolicyFromPlan(currentPlan), snapshot, records)
+							if err != nil {
+								logging.Warning("[cli/operation] command evaluation continuation planning failed: %v", err)
+							} else if !next.Complete {
+								nextPlan := operation.BuildCommandOperationPlan(next.Request, cfg.Policy)
+								decision := operation.DecideCommandPlanApproval(cfg.Policy, nextPlan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalContinuation, PreviousPlan: &currentPlan})
+								nextPlan = operation.ApplyCommandPlanApprovalDecision(nextPlan, decision)
+								logging.Info("[cli/operation] command evaluation continuation generated previous_plan_id=%s status=%s risk=%q approval=%q decision=%s reason_code=%s steps=%d rounds=%d",
+									currentPlan.ID, nextPlan.Status, nextPlan.RiskLevel, nextPlan.ApprovalMode, decision.Action, decision.ReasonCode, len(nextPlan.Steps), len(records))
+								if commandOperationTerminalAfterReplan(nextPlan, records) {
+									terminal := commandOperationTerminalResult(nextPlan)
+									records = append(records, commandOperationResultRecord{Plan: nextPlan, Result: terminal})
+									operationCLIProgress(cfg.Progress, commandOperationResultMarkdown(cfg.Language, nextPlan, terminal))
+									return commandOperationFinalMessageCLI(ctx, cfg, request, records), nil
+								}
+								if lint := operation.LintCommandOperationPlan(nextPlan); !lint.OK() {
+									lintResult := commandOperationResultFromPlanLint(nextPlan, lint)
+									currentPlan = nextPlan
+									syntheticResult = &lintResult
+									continue
+								}
+								if nextPlan.Status == operation.StatusReady && decision.AutoExecute() {
+									operationCLIProgress(cfg.Progress, commandOperationContinuationIntro(cfg.Language, nextPlan)+"\n\n"+commandOperationAutoExecuteMarkdown(cfg.Language, nextPlan))
+									currentPlan = nextPlan
+									continue
+								}
+								return commandOperationContinuationIntro(cfg.Language, nextPlan) + "\n\n" + commandOperationPlanMarkdown(cfg.Language, nextPlan), nil
+							}
+						}
+					}
+				}
+			}
+		}
 		if result.Status == operation.StatusExecuted && currentPlan.ContinueAfter && commandRounds < commandOperationMaxCommandRounds {
 			continuer, ok := cfg.Planner.(CommandOperationContinuationPlanner)
 			if ok {

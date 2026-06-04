@@ -459,6 +459,59 @@ func TestCommandOperationPlannerCompleteDraftBecomesTerminalRequest(t *testing.T
 	}
 }
 
+func TestCommandOperationEvaluatorCompatJSON(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			operationEvaluationResp(`{"status":"continue_command","reason":"saved command payload needs extraction","confidence":"high","material_refs":"/tmp/codrax/command-output.txt"}`),
+		},
+	}
+	evaluator, ok := NewCommandOperationPlanner(adapter).(CommandOperationEvaluator)
+	if !ok {
+		t.Fatal("planner should support command operation evaluation")
+	}
+	eval, err := evaluator.EvaluateCommandOperation(context.Background(), "读取命令保存的材料并回答", []commandOperationResultRecord{{
+		Plan: operation.CommandOperationPlan{ID: "op-material", RequestText: "读取命令保存的材料并回答"},
+		Result: operation.CommandOperationResult{
+			PlanID: "op-material",
+			Status: operation.StatusExecuted,
+			StepResults: []operation.CommandStepResult{{
+				StepID:     "download",
+				Status:     operation.StatusExecuted,
+				PayloadRef: "/tmp/codrax/command-output.txt",
+			}},
+		},
+	}}, "zh")
+	if err != nil {
+		t.Fatalf("EvaluateCommandOperation: %v", err)
+	}
+	if eval.Status != operation.EvalContinueCommand {
+		t.Fatalf("Status=%q want %q", eval.Status, operation.EvalContinueCommand)
+	}
+	if len(eval.Materials) != 1 || eval.Materials[0].Source != operation.MaterialSourceCommand || eval.Materials[0].Ref != "/tmp/codrax/command-output.txt" {
+		t.Fatalf("material refs not decoded as command material: %+v", eval.Materials)
+	}
+	if len(adapter.calls) != 1 {
+		t.Fatalf("Chat calls=%d, want 1", len(adapter.calls))
+	}
+	user := ""
+	for i := len(adapter.calls[0].messages) - 1; i >= 0; i-- {
+		if adapter.calls[0].messages[i].Role == "user" {
+			user = adapter.calls[0].messages[i].Content
+			break
+		}
+	}
+	for _, want := range []string{
+		"## command_operation_rounds",
+		"payload_ref=/tmp/codrax/command-output.txt",
+		"operation_materials",
+		"not current-source evidence",
+	} {
+		if !strings.Contains(user, want) {
+			t.Fatalf("command evaluator prompt missing %q:\n%s", want, user)
+		}
+	}
+}
+
 func TestCommandOperationPlannerHandlesPayloadRefOnlyHandoff(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{

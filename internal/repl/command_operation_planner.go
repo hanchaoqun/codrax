@@ -52,6 +52,10 @@ type CommandOperationContinuationPlanner interface {
 	ContinueCommandOperation(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, snapshot operation.CapabilitySnapshot, records []commandOperationResultRecord) (CommandOperationContinuation, error)
 }
 
+type CommandOperationEvaluator interface {
+	EvaluateCommandOperation(ctx context.Context, userLine string, records []commandOperationResultRecord, lang string) (operation.OperationEvaluation, error)
+}
+
 type CommandOperationAnswerer interface {
 	AnswerCommandOperationResult(ctx context.Context, userLine string, plan operation.CommandOperationPlan, result operation.CommandOperationResult, lang string) (string, error)
 }
@@ -441,6 +445,40 @@ func (p *llmCommandOperationPlanner) EvaluateProviderOperation(ctx context.Conte
 	return parsed.toEvaluation(), nil
 }
 
+func (p *llmCommandOperationPlanner) EvaluateCommandOperation(ctx context.Context, userLine string, records []commandOperationResultRecord, lang string) (operation.OperationEvaluation, error) {
+	if p == nil || p.adapter == nil {
+		return operation.OperationEvaluation{}, fmt.Errorf("command operation evaluator not configured")
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "## language\n%s\n\n", strings.TrimSpace(lang))
+	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
+	b.WriteString("## command_operation_rounds\n")
+	b.WriteString(renderCommandOperationRecordsForPrompt(records))
+	resp, err := p.adapter.Chat(ctx,
+		[]llm.Message{
+			{Role: "system", Content: operationEvaluationSystemPrompt},
+			{Role: "user", Content: b.String()},
+		},
+		[]llm.ToolSchema{operationEvaluationTool},
+		llm.ChatOptions{ToolChoice: "required"},
+	)
+	if err != nil {
+		return operation.OperationEvaluation{}, fmt.Errorf("command operation evaluation llm call: %w", err)
+	}
+	if len(resp.ToolCalls) == 0 {
+		return operation.OperationEvaluation{}, fmt.Errorf("command operation evaluator: LLM returned no tool_call")
+	}
+	call := resp.ToolCalls[0]
+	if call.Name != operationEvaluationTool.Name {
+		return operation.OperationEvaluation{}, fmt.Errorf("command operation evaluator: unexpected tool %q", call.Name)
+	}
+	parsed, err := unmarshalOperationEvaluation(call.Params)
+	if err != nil {
+		return operation.OperationEvaluation{}, err
+	}
+	return parsed.toEvaluationWithSource(operation.MaterialSourceCommand), nil
+}
+
 type commandOperationPlannerRequest struct {
 	UserLine               string
 	RepoRoot               string
@@ -471,6 +509,10 @@ func unmarshalOperationEvaluation(raw []byte) (operationEvaluationDraft, error) 
 }
 
 func (d operationEvaluationDraft) toEvaluation() operation.OperationEvaluation {
+	return d.toEvaluationWithSource(operation.MaterialSourceProvider)
+}
+
+func (d operationEvaluationDraft) toEvaluationWithSource(source string) operation.OperationEvaluation {
 	status := operation.NormalizeEvaluationStatus(string(d.Status))
 	materials := make([]operation.OperationMaterial, 0, len(d.MaterialRefs))
 	for _, ref := range d.MaterialRefs {
@@ -479,7 +521,7 @@ func (d operationEvaluationDraft) toEvaluation() operation.OperationEvaluation {
 			continue
 		}
 		materials = append(materials, operation.OperationMaterial{
-			Source:          operation.MaterialSourceProvider,
+			Source:          firstNonEmptyString(source, operation.MaterialSourceProvider),
 			Kind:            operation.MaterialKindPayloadRef,
 			Role:            operation.MaterialRoleSavedPayload,
 			Ref:             ref,
@@ -803,6 +845,14 @@ func renderCommandOperationRecordsForPrompt(records []commandOperationResultReco
 		b.WriteString(renderCommandPlanForPrompt(rec.Plan))
 		b.WriteString("\n")
 		b.WriteString(renderCommandResultForPrompt(rec.Result))
+		if rec.Evaluation != nil {
+			fmt.Fprintf(&b, "\noperation_evaluation status=%s confidence=%q reason=%q missing_inputs=%q materials=%q\n",
+				rec.Evaluation.Status,
+				oneLineClamp(rec.Evaluation.Confidence, 80),
+				oneLineClamp(rec.Evaluation.Reason, 260),
+				strings.Join(rec.Evaluation.MissingInputs, " | "),
+				operation.RenderMaterialsInline(rec.Evaluation.Materials, 6))
+		}
 		if i < len(records)-1 {
 			b.WriteString("\n\n")
 		}

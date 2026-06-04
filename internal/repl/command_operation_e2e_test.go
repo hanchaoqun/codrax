@@ -2391,6 +2391,7 @@ func TestCommandOperationE2E_LargeFileExtractionKeepsPayloadRefForHandoff(t *tes
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
 			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","goal":"extract key marker from large output","success_criteria":["payload_ref retained for follow-up"],"steps":[{"id":"extract","title":"large extraction","shell":"printf '` + largeText + `\\n'","risk_level":"low","side_effects":[]}]}`),
+			operationEvaluationResp(`{"status":"complete","reason":"payload ref and preview include the requested ERROR42 marker","confidence":"high"}`),
 			{Content: "大输出已保存为 payload，可继续围绕 ERROR42 缩小范围。", StopReason: "end_turn"},
 		},
 	}
@@ -2418,6 +2419,58 @@ func TestCommandOperationE2E_LargeFileExtractionKeepsPayloadRefForHandoff(t *tes
 	for _, want := range []string{"payload", "ERROR42"} {
 		if !strings.Contains(printed, want) {
 			t.Fatalf("large extraction output missing %q:\n%s", want, printed)
+		}
+	}
+}
+
+func TestCommandOperationE2E_MaterialEvaluatorContinuesBeforeFinalAnswer(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","goal":"读取材料并回答用户","success_criteria":["material content extracted before final answer"],"steps":[{"id":"download","title":"download manual shell output","shell":"for i in 1 2 3 4 5 6 7 8 9 10 11 12; do printf 'navigation css boilerplate\\n'; done; printf '真实手册链接 /user_guide.html\\n'","risk_level":"low","side_effects":[]}]}`),
+			operationEvaluationResp(`{"status":"continue_command","reason":"saved command payload contains relevant manual material that still needs bounded extraction","confidence":"high"}`),
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","goal":"读取材料并回答用户","success_criteria":["manual answer extracted"],"steps":[{"id":"extract","title":"extract manual answer","shell":"printf '用户手册说明：用 /help 查看命令，用自然语言提出任务。\\n'","risk_level":"low","side_effects":[]}]}`),
+			{Content: "已读取并提取手册内容：可以用 `/help` 查看命令，也可以直接用自然语言提出任务。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "读取网站用户手册并说明怎么使用\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	r.operationPolicy.OutputPreviewBytes = 80
+	r.runtimeAnchor = t.TempDir()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("command operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	if len(adapter.calls) != 4 {
+		t.Fatalf("planner/evaluator/continuation/answer calls=%d want 4", len(adapter.calls))
+	}
+	printed := out.String()
+	for _, want := range []string{
+		"用户手册说明",
+		"已读取并提取手册内容",
+	} {
+		if !strings.Contains(printed, want) {
+			t.Fatalf("material evaluator flow missing %q:\n%s", want, printed)
+		}
+	}
+	combinedPrompts := ""
+	for _, call := range adapter.calls {
+		for _, msg := range call.messages {
+			combinedPrompts += "\n" + msg.Content
+		}
+	}
+	for _, want := range []string{
+		"## command_operation_rounds",
+		"saved command payload contains relevant manual material",
+		"payload_material_excerpt",
+	} {
+		if !strings.Contains(combinedPrompts, want) {
+			t.Fatalf("material evaluator prompts missing %q:\n%s", want, combinedPrompts)
 		}
 	}
 }

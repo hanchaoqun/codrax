@@ -2127,6 +2127,95 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 			result = budget
 			r.renderCommandOperationRoundResult(currentPlan, result)
 		}
+		if result.Status == operation.StatusExecuted &&
+			commandOperationShouldRunMaterialEvaluator(records) &&
+			commandRounds < commandOperationMaxCommandRounds &&
+			r.operationPlanner != nil {
+			if evaluator, ok := r.operationPlanner.(CommandOperationEvaluator); ok {
+				eval, err := evaluator.EvaluateCommandOperation(ctx, currentPlan.RequestText, records, r.language)
+				if err != nil {
+					logging.Warning("[repl/operation] command operation evaluation failed: %v", err)
+				} else {
+					records = commandOperationAttachEvaluation(records, eval)
+					logging.Info("[repl/operation] command evaluation status=%s confidence=%q reason=%q materials=%d rounds=%d",
+						eval.Status, oneLineClamp(eval.Confidence, 40), oneLineClamp(eval.Reason, 180), len(eval.Materials), len(records))
+					if terminal, ok := commandOperationEvaluationTerminalResult(currentPlan, eval); ok {
+						r.appendCommandOperationResult(currentPlan, terminal)
+						records = append(records, commandOperationResultRecord{Plan: currentPlan, Result: terminal})
+						r.renderCommandOperationRoundResult(currentPlan, terminal)
+						r.startOperationSynthesisSpinner()
+						msg, thoughts := r.commandOperationFinalMessage(ctx, request, records)
+						r.finishOperationFinalAnswerHeader()
+						r.emitOperationVisibleThoughts(thoughts)
+						r.renderBordered(msg)
+						r.lastAnswerOrigin = replAnswerOriginCommandOperationFinal
+						r.recordTurn(display, request, msg, memory.KindPipeline)
+						return
+					}
+					if eval.Status == operation.EvalContinueCommand {
+						if continuer, ok := r.operationPlanner.(CommandOperationContinuationPlanner); ok {
+							r.startOperationExecutionSpinner()
+							snapshot := r.commandOperationCapabilitySnapshot()
+							next, err := continuer.ContinueCommandOperation(ctx, currentPlan.RequestText, r.repoRoot, commandOperationPolicyFromPlan(currentPlan), snapshot, records)
+							if err != nil {
+								logging.Warning("[repl/operation] command evaluation continuation planning failed: %v", err)
+							} else if !next.Complete {
+								nextPlan := operation.BuildCommandOperationPlan(next.Request, r.operationPolicy)
+								continuationDecision := operation.DecideCommandPlanApproval(r.operationPolicy, nextPlan, operation.CommandApprovalOptions{Phase: operation.CommandApprovalContinuation, PreviousPlan: &currentPlan})
+								nextPlan = operation.ApplyCommandPlanApprovalDecision(nextPlan, continuationDecision)
+								logging.Info("[repl/operation] command evaluation continuation generated previous_plan_id=%s status=%s risk=%q approval=%q decision=%s reason_code=%s steps=%d rounds=%d",
+									currentPlan.ID, nextPlan.Status, nextPlan.RiskLevel, nextPlan.ApprovalMode, continuationDecision.Action, continuationDecision.ReasonCode, len(nextPlan.Steps), len(records))
+								if commandOperationTerminalAfterReplan(nextPlan, records) {
+									terminal := commandOperationTerminalResult(nextPlan)
+									r.operationHistory = append(r.operationHistory, nextPlan)
+									r.appendCommandOperationResult(nextPlan, terminal)
+									records = append(records, commandOperationResultRecord{Plan: nextPlan, Result: terminal})
+									logging.Info("[repl/operation] command evaluation continuation terminal previous_plan_id=%s terminal_plan_id=%s status=%s reason=%q records=%d",
+										currentPlan.ID, nextPlan.ID, nextPlan.Status, oneLineClamp(nextPlan.BlockReason, 180), len(records))
+									r.renderCommandOperationRoundResult(nextPlan, terminal)
+									r.startOperationSynthesisSpinner()
+									msg, thoughts := r.commandOperationFinalMessage(ctx, request, records)
+									r.finishOperationFinalAnswerHeader()
+									r.emitOperationVisibleThoughts(thoughts)
+									r.renderBordered(msg)
+									r.lastAnswerOrigin = replAnswerOriginCommandOperationFinal
+									r.recordTurn(display, request, msg, memory.KindPipeline)
+									return
+								}
+								if lint := operation.LintCommandOperationPlan(nextPlan); !lint.OK() {
+									lintResult := commandOperationResultFromPlanLint(nextPlan, lint)
+									currentPlan = nextPlan
+									syntheticResult = &lintResult
+									continue
+								}
+								if nextPlan.Status == operation.StatusReady && continuationDecision.AutoExecute() {
+									msg := commandOperationContinuationIntro(r.language, nextPlan)
+									msg += "\n\n"
+									msg += commandOperationAutoExecuteMarkdown(r.language, nextPlan)
+									r.finishCommandOperationPlanHeader(nextPlan)
+									r.renderBordered(msg)
+									currentPlan = nextPlan
+									r.startOperationExecutionSpinner()
+									continue
+								}
+								if nextPlan.Status == operation.StatusReady {
+									r.pendingOperation = &nextPlan
+									r.savePendingOperationState()
+								}
+								r.operationHistory = append(r.operationHistory, nextPlan)
+								msg := commandOperationContinuationIntro(r.language, nextPlan)
+								msg += "\n\n"
+								msg += commandOperationPlanMarkdown(r.language, nextPlan)
+								r.finishOperationRouteSpinner(nextPlan.Status)
+								r.renderBorderedCompact(msg)
+								r.recordTurn(display, request, msg, memory.KindPipeline)
+								return
+							}
+						}
+					}
+				}
+			}
+		}
 		if result.Status == operation.StatusExecuted && currentPlan.ContinueAfter && r.operationPlanner != nil && commandRounds < commandOperationMaxCommandRounds {
 			continuer, ok := r.operationPlanner.(CommandOperationContinuationPlanner)
 			if ok {
@@ -2507,8 +2596,9 @@ func (r *REPL) maybeContinueCommandOperation(ctx context.Context, plan operation
 }
 
 type commandOperationResultRecord struct {
-	Plan   operation.CommandOperationPlan
-	Result operation.CommandOperationResult
+	Plan       operation.CommandOperationPlan
+	Result     operation.CommandOperationResult
+	Evaluation *operation.OperationEvaluation
 }
 
 type providerOperationResultRecord struct {
