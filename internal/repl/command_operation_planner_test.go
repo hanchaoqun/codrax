@@ -439,6 +439,24 @@ func TestCommandOperationPlannerRetriesLowRiskBlockedInitialPlanWithoutRecentCon
 	}
 }
 
+func TestCommandOperationPlannerCompleteDraftBecomesTerminalRequest(t *testing.T) {
+	draft, err := unmarshalCommandOperationPlan([]byte(`{"status":"complete","risk_level":"low","block_reason":"observations already answer the user","steps":[]}`))
+	if err != nil {
+		t.Fatalf("unmarshalCommandOperationPlan: %v", err)
+	}
+	req := draft.toRequest("查版本", "/repo")
+	plan := operation.BuildCommandOperationPlan(req, operation.DefaultCommandPolicy())
+	if plan.Status != operation.StatusComplete {
+		t.Fatalf("Status=%q, want complete; plan=%+v", plan.Status, plan)
+	}
+	if strings.Contains(strings.ToLower(plan.BlockReason), "command") {
+		t.Fatalf("complete terminal plan should preserve completion reason, not ask for command: %+v", plan)
+	}
+	if len(plan.ClarifyingQuestions) != 0 || len(plan.Steps) != 0 {
+		t.Fatalf("complete terminal plan should not create questions or steps: %+v", plan)
+	}
+}
+
 func TestCommandOperationPlannerHandlesPayloadRefOnlyHandoff(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{

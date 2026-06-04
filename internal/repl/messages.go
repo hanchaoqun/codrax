@@ -1066,6 +1066,9 @@ func commandOperationPlanMarkdown(lang string, plan operation.CommandOperationPl
 			b.WriteString(fmt.Sprintf("- 原因：%s\n", plan.BlockReason))
 			b.WriteString("没有执行任何命令。")
 			return strings.TrimSpace(b.String())
+		case operation.StatusComplete, operation.StatusBudgetExhausted, operation.StatusPartialAnswer:
+			b.WriteString(commandOperationTerminalPlanMarkdownZh(plan))
+			return strings.TrimSpace(b.String())
 		default:
 			b.WriteString(fmt.Sprintf("操作计划 `%s` 已就绪，等待批准。\n\n", plan.ID))
 			b.WriteString(fmt.Sprintf("- 风险：`%s`\n", plan.RiskLevel))
@@ -1119,6 +1122,9 @@ func commandOperationPlanMarkdown(lang string, plan operation.CommandOperationPl
 		b.WriteString(fmt.Sprintf("- Reason: %s\n", plan.BlockReason))
 		b.WriteString("No command was executed.")
 		return strings.TrimSpace(b.String())
+	case operation.StatusComplete, operation.StatusBudgetExhausted, operation.StatusPartialAnswer:
+		b.WriteString(commandOperationTerminalPlanMarkdownEn(plan))
+		return strings.TrimSpace(b.String())
 	default:
 		b.WriteString(fmt.Sprintf("Operation plan `%s` is ready and awaiting approval.\n\n", plan.ID))
 		b.WriteString(fmt.Sprintf("- Risk: `%s`\n", plan.RiskLevel))
@@ -1151,6 +1157,42 @@ func commandOperationPlanMarkdown(lang string, plan operation.CommandOperationPl
 		b.WriteString("\nRun `/approve` to execute, or `/reject <reason>` to reject.")
 		return strings.TrimSpace(b.String())
 	}
+}
+
+func commandOperationTerminalPlanMarkdownZh(plan operation.CommandOperationPlan) string {
+	var b strings.Builder
+	switch plan.Status {
+	case operation.StatusBudgetExhausted:
+		b.WriteString(fmt.Sprintf("操作计划 `%s` 已达到本轮预算，停止继续执行。\n\n", plan.ID))
+	case operation.StatusPartialAnswer:
+		b.WriteString(fmt.Sprintf("操作计划 `%s` 已有部分结果，停止继续执行。\n\n", plan.ID))
+	default:
+		b.WriteString(fmt.Sprintf("操作计划 `%s` 已确认无需继续执行。\n\n", plan.ID))
+	}
+	b.WriteString(fmt.Sprintf("- 风险：`%s`\n", plan.RiskLevel))
+	if strings.TrimSpace(plan.BlockReason) != "" {
+		b.WriteString(fmt.Sprintf("- 说明：%s\n", plan.BlockReason))
+	}
+	b.WriteString("没有执行新的命令；将基于已收集结果生成最终答案。")
+	return strings.TrimSpace(b.String())
+}
+
+func commandOperationTerminalPlanMarkdownEn(plan operation.CommandOperationPlan) string {
+	var b strings.Builder
+	switch plan.Status {
+	case operation.StatusBudgetExhausted:
+		b.WriteString(fmt.Sprintf("Operation plan `%s` reached the operation budget and will not continue.\n\n", plan.ID))
+	case operation.StatusPartialAnswer:
+		b.WriteString(fmt.Sprintf("Operation plan `%s` has a partial answer and will not continue.\n\n", plan.ID))
+	default:
+		b.WriteString(fmt.Sprintf("Operation plan `%s` determined that no further command is needed.\n\n", plan.ID))
+	}
+	b.WriteString(fmt.Sprintf("- Risk: `%s`\n", plan.RiskLevel))
+	if strings.TrimSpace(plan.BlockReason) != "" {
+		b.WriteString(fmt.Sprintf("- Note: %s\n", plan.BlockReason))
+	}
+	b.WriteString("No new command was executed; the final answer will use the observations already collected.")
+	return strings.TrimSpace(b.String())
 }
 
 func commandOperationAutoExecuteMarkdown(lang string, plan operation.CommandOperationPlan) string {
@@ -1607,6 +1649,12 @@ func commandOperationResultMarkdown(lang string, plan operation.CommandOperation
 		switch result.Status {
 		case operation.StatusExecuted:
 			b.WriteString(fmt.Sprintf("操作计划 `%s` 已执行完成。\n\n", plan.ID))
+		case operation.StatusComplete:
+			b.WriteString(fmt.Sprintf("操作计划 `%s` 已确认无需继续执行。\n\n", plan.ID))
+		case operation.StatusBudgetExhausted:
+			b.WriteString(fmt.Sprintf("操作计划 `%s` 已达到本轮预算。\n\n", plan.ID))
+		case operation.StatusPartialAnswer:
+			b.WriteString(fmt.Sprintf("操作计划 `%s` 已形成部分结果。\n\n", plan.ID))
 		case operation.StatusCancelled:
 			b.WriteString(fmt.Sprintf("操作计划 `%s` 已取消。\n\n", plan.ID))
 		default:
@@ -1637,12 +1685,23 @@ func commandOperationResultMarkdown(lang string, plan operation.CommandOperation
 				b.WriteString(fmt.Sprintf("   完整输出：`%s`\n", step.PayloadRef))
 			}
 		}
+		if len(result.StepResults) == 0 && strings.TrimSpace(result.OutputPreview) != "" {
+			b.WriteString("说明：\n")
+			b.WriteString(indentBlock(commandOperationDisplayPreview(result.OutputPreview, lang, result.PayloadRef != ""), ""))
+			b.WriteString("\n")
+		}
 		return strings.TrimSpace(b.String())
 	}
 	var b strings.Builder
 	switch result.Status {
 	case operation.StatusExecuted:
 		b.WriteString(fmt.Sprintf("Operation plan `%s` completed.\n\n", plan.ID))
+	case operation.StatusComplete:
+		b.WriteString(fmt.Sprintf("Operation plan `%s` determined that no further command is needed.\n\n", plan.ID))
+	case operation.StatusBudgetExhausted:
+		b.WriteString(fmt.Sprintf("Operation plan `%s` reached the operation budget.\n\n", plan.ID))
+	case operation.StatusPartialAnswer:
+		b.WriteString(fmt.Sprintf("Operation plan `%s` produced a partial result.\n\n", plan.ID))
 	case operation.StatusCancelled:
 		b.WriteString(fmt.Sprintf("Operation plan `%s` was cancelled.\n\n", plan.ID))
 	default:
@@ -1672,6 +1731,11 @@ func commandOperationResultMarkdown(lang string, plan operation.CommandOperation
 		if step.PayloadRef != "" {
 			b.WriteString(fmt.Sprintf("   Full output: `%s`\n", step.PayloadRef))
 		}
+	}
+	if len(result.StepResults) == 0 && strings.TrimSpace(result.OutputPreview) != "" {
+		b.WriteString("Note:\n")
+		b.WriteString(indentBlock(commandOperationDisplayPreview(result.OutputPreview, lang, result.PayloadRef != ""), ""))
+		b.WriteString("\n")
 	}
 	return strings.TrimSpace(b.String())
 }
@@ -1718,6 +1782,12 @@ func commandOperationContinuationIntro(lang string, plan operation.CommandOperat
 			return "上一轮结果显示还缺少关键信息，需要你补充后才能继续。"
 		case operation.StatusBlocked:
 			return "上一轮结果显示后续操作被策略阻止。"
+		case operation.StatusComplete:
+			return "上一轮结果已经足够回答，后续不再执行命令。"
+		case operation.StatusBudgetExhausted:
+			return "上一轮结果已达到操作预算，将基于已有结果作答。"
+		case operation.StatusPartialAnswer:
+			return "上一轮结果只能形成部分答案，将基于已有结果作答。"
 		default:
 			return "上一轮结果已交回规划器，生成了后续处理。"
 		}
@@ -1732,6 +1802,12 @@ func commandOperationContinuationIntro(lang string, plan operation.CommandOperat
 		return "The previous round showed that key details are still missing; clarification is required before continuing."
 	case operation.StatusBlocked:
 		return "The previous round showed that the next operation is blocked by policy."
+	case operation.StatusComplete:
+		return "The previous round is sufficient to answer; no further command will run."
+	case operation.StatusBudgetExhausted:
+		return "The operation budget was reached; the answer will use the observations already collected."
+	case operation.StatusPartialAnswer:
+		return "Only a partial answer is possible; the answer will use the observations already collected."
 	default:
 		return "The previous round was returned to the planner and produced a follow-up action."
 	}
@@ -1756,6 +1832,12 @@ func operationFinalReportFallback(lang string, status operation.OperationStatus,
 			b.WriteString("操作已取消。")
 		case operation.StatusBlocked:
 			b.WriteString("操作已被策略阻止。")
+		case operation.StatusComplete:
+			b.WriteString("操作已完成。")
+		case operation.StatusBudgetExhausted:
+			b.WriteString("操作已达到预算上限。")
+		case operation.StatusPartialAnswer:
+			b.WriteString("操作已形成部分结果。")
 		case operation.StatusNeedsClarification:
 			b.WriteString("操作需要补充信息后才能继续。")
 		default:
@@ -1775,6 +1857,12 @@ func operationFinalReportFallback(lang string, status operation.OperationStatus,
 		b.WriteString("The operation was cancelled.")
 	case operation.StatusBlocked:
 		b.WriteString("The operation was blocked by policy.")
+	case operation.StatusComplete:
+		b.WriteString("The operation completed.")
+	case operation.StatusBudgetExhausted:
+		b.WriteString("The operation reached its budget.")
+	case operation.StatusPartialAnswer:
+		b.WriteString("The operation produced a partial result.")
 	case operation.StatusNeedsClarification:
 		b.WriteString("The operation needs clarification before it can continue.")
 	default:
@@ -1894,6 +1982,12 @@ func commandOperationReplanIntro(lang string, plan operation.CommandOperationPla
 			return "已根据失败输出尝试修订计划，但仍缺少关键信息。"
 		case operation.StatusBlocked:
 			return "已根据失败输出尝试修订计划，但新计划被策略阻止。"
+		case operation.StatusComplete:
+			return "已根据失败输出确认已有结果足够回答，不再继续执行。"
+		case operation.StatusBudgetExhausted:
+			return "已根据失败输出确认达到操作预算，将基于已有结果作答。"
+		case operation.StatusPartialAnswer:
+			return "已根据失败输出确认只能形成部分答案，将基于已有结果作答。"
 		default:
 			return "已根据失败输出尝试修订计划。"
 		}
@@ -1908,6 +2002,12 @@ func commandOperationReplanIntro(lang string, plan operation.CommandOperationPla
 		return "Tried to revise the command plan from the failed output, but key details are still missing."
 	case operation.StatusBlocked:
 		return "Tried to revise the command plan from the failed output, but the new plan is blocked by policy."
+	case operation.StatusComplete:
+		return "The failed output still contains enough observations to answer, so no further command will run."
+	case operation.StatusBudgetExhausted:
+		return "The operation budget was reached; the answer will use the observations already collected."
+	case operation.StatusPartialAnswer:
+		return "Only a partial answer is possible; the answer will use the observations already collected."
 	default:
 		return "Tried to revise the command plan from the failed output."
 	}

@@ -16,6 +16,9 @@ const (
 	StatusNeedsClarification OperationStatus = "needs_clarification"
 	StatusReady              OperationStatus = "ready"
 	StatusBlocked            OperationStatus = "blocked"
+	StatusComplete           OperationStatus = "complete"
+	StatusBudgetExhausted    OperationStatus = "budget_exhausted"
+	StatusPartialAnswer      OperationStatus = "partial_answer_possible"
 	StatusExecuted           OperationStatus = "executed"
 	StatusRejected           OperationStatus = "rejected"
 	StatusCancelled          OperationStatus = "cancelled"
@@ -89,6 +92,7 @@ type CommandOperationRequest struct {
 	ClarifyingQuestions  []ClarifyingQuestion
 	RequiresConfirmation bool
 	ContinueAfter        bool
+	TerminalStatus       OperationStatus
 }
 
 type ClarifyingQuestion struct {
@@ -279,6 +283,12 @@ func BuildCommandOperationPlan(req CommandOperationRequest, policy CommandPolicy
 		plan.ApprovalMode = ""
 		return plan
 	}
+	if isTerminalCommandRequestStatus(req.TerminalStatus) {
+		plan.Status = req.TerminalStatus
+		plan.ApprovalMode = ""
+		plan.BlockReason = strings.TrimSpace(req.BlockReason)
+		return plan
+	}
 	if strings.TrimSpace(req.BlockReason) != "" {
 		plan.Status = StatusBlocked
 		plan.RiskLevel = highestRisk(plan.RiskLevel, req.RiskLevel)
@@ -324,6 +334,15 @@ func BuildCommandOperationPlan(req CommandOperationRequest, policy CommandPolicy
 	plan = ApplyCommandPlanApprovalDecision(plan, DecideCommandPlanApproval(policy, plan, CommandApprovalOptions{Phase: CommandApprovalInitial}))
 	_ = cleanList(sideEffects) // retained for future renderer/result summaries.
 	return plan
+}
+
+func isTerminalCommandRequestStatus(status OperationStatus) bool {
+	switch status {
+	case StatusComplete, StatusBudgetExhausted, StatusPartialAnswer:
+		return true
+	default:
+		return false
+	}
 }
 
 type commandStepDecision struct {

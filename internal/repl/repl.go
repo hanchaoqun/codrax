@@ -1682,6 +1682,12 @@ func operationRouteSummary(lang string, status operation.OperationStatus) (strin
 			return "操作计划", []string{"等待批准", "未读仓库"}
 		case operation.StatusBlocked:
 			return "操作计划", []string{"策略阻止", "未读仓库"}
+		case operation.StatusComplete:
+			return "操作执行", []string{"已完成", "未读仓库"}
+		case operation.StatusBudgetExhausted:
+			return "操作执行", []string{"预算耗尽", "未读仓库"}
+		case operation.StatusPartialAnswer:
+			return "操作执行", []string{"部分完成", "未读仓库"}
 		case operation.StatusExecuted:
 			return "操作执行", []string{"已完成", "未读仓库"}
 		case operation.StatusFailed:
@@ -1698,6 +1704,12 @@ func operationRouteSummary(lang string, status operation.OperationStatus) (strin
 		return "operation plan", []string{"awaiting approval", "no repo read"}
 	case operation.StatusBlocked:
 		return "operation plan", []string{"blocked by policy", "no repo read"}
+	case operation.StatusComplete:
+		return "operation execution", []string{"completed", "no repo read"}
+	case operation.StatusBudgetExhausted:
+		return "operation execution", []string{"budget exhausted", "no repo read"}
+	case operation.StatusPartialAnswer:
+		return "operation execution", []string{"partial", "no repo read"}
 	case operation.StatusExecuted:
 		return "operation execution", []string{"completed", "no repo read"}
 	case operation.StatusFailed:
@@ -2034,6 +2046,23 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 					revisedPlan = operation.ApplyCommandPlanApprovalDecision(revisedPlan, replanDecision)
 					logging.Info("[repl/operation] command replan generated previous_plan_id=%s status=%s risk=%q approval=%q decision=%s reason_code=%s steps=%d repair_rounds=%d",
 						currentPlan.ID, revisedPlan.Status, revisedPlan.RiskLevel, revisedPlan.ApprovalMode, replanDecision.Action, replanDecision.ReasonCode, len(revisedPlan.Steps), repairRounds)
+					if commandOperationTerminalAfterReplan(revisedPlan, records) {
+						terminal := commandOperationTerminalResult(revisedPlan)
+						r.operationHistory = append(r.operationHistory, revisedPlan)
+						r.appendCommandOperationResult(revisedPlan, terminal)
+						records = append(records, commandOperationResultRecord{Plan: revisedPlan, Result: terminal})
+						logging.Info("[repl/operation] command replan terminal previous_plan_id=%s terminal_plan_id=%s status=%s reason=%q records=%d",
+							currentPlan.ID, revisedPlan.ID, revisedPlan.Status, oneLineClamp(revisedPlan.BlockReason, 180), len(records))
+						r.renderCommandOperationRoundResult(revisedPlan, terminal)
+						r.startOperationSynthesisSpinner()
+						msg, thoughts := r.commandOperationFinalMessage(ctx, request, records)
+						r.finishOperationFinalAnswerHeader()
+						r.emitOperationVisibleThoughts(thoughts)
+						r.renderBordered(msg)
+						r.lastAnswerOrigin = replAnswerOriginCommandOperationFinal
+						r.recordTurn(display, request, msg, memory.KindPipeline)
+						return
+					}
 					if revisedPlan.Status == operation.StatusReady {
 						if lint := commandRevisedPlanPreflightLint(revisedPlan, currentPlan, result); !lint.OK() {
 							lintResult := commandOperationResultFromPlanLint(revisedPlan, lint)
@@ -2096,6 +2125,23 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 					nextPlan = operation.ApplyCommandPlanApprovalDecision(nextPlan, continuationDecision)
 					logging.Info("[repl/operation] command continuation generated previous_plan_id=%s status=%s risk=%q approval=%q decision=%s reason_code=%s steps=%d rounds=%d",
 						currentPlan.ID, nextPlan.Status, nextPlan.RiskLevel, nextPlan.ApprovalMode, continuationDecision.Action, continuationDecision.ReasonCode, len(nextPlan.Steps), len(records))
+					if commandOperationTerminalAfterReplan(nextPlan, records) {
+						terminal := commandOperationTerminalResult(nextPlan)
+						r.operationHistory = append(r.operationHistory, nextPlan)
+						r.appendCommandOperationResult(nextPlan, terminal)
+						records = append(records, commandOperationResultRecord{Plan: nextPlan, Result: terminal})
+						logging.Info("[repl/operation] command continuation terminal previous_plan_id=%s terminal_plan_id=%s status=%s reason=%q records=%d",
+							currentPlan.ID, nextPlan.ID, nextPlan.Status, oneLineClamp(nextPlan.BlockReason, 180), len(records))
+						r.renderCommandOperationRoundResult(nextPlan, terminal)
+						r.startOperationSynthesisSpinner()
+						msg, thoughts := r.commandOperationFinalMessage(ctx, request, records)
+						r.finishOperationFinalAnswerHeader()
+						r.emitOperationVisibleThoughts(thoughts)
+						r.renderBordered(msg)
+						r.lastAnswerOrigin = replAnswerOriginCommandOperationFinal
+						r.recordTurn(display, request, msg, memory.KindPipeline)
+						return
+					}
 					if lint := operation.LintCommandOperationPlan(nextPlan); !lint.OK() {
 						lintResult := commandOperationResultFromPlanLint(nextPlan, lint)
 						currentPlan = nextPlan
@@ -2229,6 +2275,57 @@ const (
 	commandOperationMaxCommandRounds = 5
 )
 
+func commandOperationTerminalAfterReplan(plan operation.CommandOperationPlan, records []commandOperationResultRecord) bool {
+	switch plan.Status {
+	case operation.StatusComplete, operation.StatusBudgetExhausted, operation.StatusPartialAnswer:
+		return true
+	case operation.StatusBlocked:
+		return len(plan.Steps) == 0 &&
+			commandOperationRiskRank(plan.RiskLevel) <= commandOperationRiskRank("low") &&
+			commandOperationRecordsHaveExecutedStep(records)
+	default:
+		return false
+	}
+}
+
+func commandOperationTerminalResult(plan operation.CommandOperationPlan) operation.CommandOperationResult {
+	status := plan.Status
+	if status == operation.StatusBlocked {
+		status = operation.StatusComplete
+	}
+	return operation.CommandOperationResult{
+		PlanID:        plan.ID,
+		Status:        status,
+		OutputPreview: strings.TrimSpace(plan.BlockReason),
+	}
+}
+
+func commandOperationRiskRank(risk string) int {
+	switch strings.ToLower(strings.TrimSpace(risk)) {
+	case "high":
+		return 4
+	case "medium":
+		return 3
+	case "low":
+		return 2
+	case "none", "":
+		return 1
+	default:
+		return 3
+	}
+}
+
+func commandOperationRecordsHaveExecutedStep(records []commandOperationResultRecord) bool {
+	for _, rec := range records {
+		for _, step := range rec.Result.StepResults {
+			if step.Status == operation.StatusExecuted {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan operation.CommandOperationPlan, result operation.CommandOperationResult, request, display string, replanAttempts int, records []commandOperationResultRecord) bool {
 	if result.Status != operation.StatusFailed || replanAttempts >= commandOperationMaxRepairRounds || r.operationPlanner == nil {
 		return false
@@ -2252,6 +2349,22 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 	revisedPlan = operation.ApplyCommandPlanApprovalDecision(revisedPlan, replanDecision)
 	logging.Info("[repl/operation] command replan generated previous_plan_id=%s status=%s risk=%q approval=%q decision=%s reason_code=%s steps=%d",
 		failedPlan.ID, revisedPlan.Status, revisedPlan.RiskLevel, revisedPlan.ApprovalMode, replanDecision.Action, replanDecision.ReasonCode, len(revisedPlan.Steps))
+	if commandOperationTerminalAfterReplan(revisedPlan, records) {
+		terminal := commandOperationTerminalResult(revisedPlan)
+		r.operationHistory = append(r.operationHistory, revisedPlan)
+		r.appendCommandOperationResult(revisedPlan, terminal)
+		records = append(records, commandOperationResultRecord{Plan: revisedPlan, Result: terminal})
+		logging.Info("[repl/operation] command replan terminal previous_plan_id=%s terminal_plan_id=%s status=%s reason=%q records=%d",
+			failedPlan.ID, revisedPlan.ID, revisedPlan.Status, oneLineClamp(revisedPlan.BlockReason, 180), len(records))
+		r.renderCommandOperationRoundResult(revisedPlan, terminal)
+		msg, thoughts := r.commandOperationFinalMessage(ctx, request, records)
+		r.finishOperationFinalAnswerHeader()
+		r.emitOperationVisibleThoughts(thoughts)
+		r.renderBordered(msg)
+		r.lastAnswerOrigin = replAnswerOriginCommandOperationFinal
+		r.recordTurn(display, request, msg, memory.KindPipeline)
+		return true
+	}
 	if revisedPlan.Status == operation.StatusReady {
 		if lint := commandRevisedPlanPreflightLint(revisedPlan, failedPlan, result); !lint.OK() {
 			lintResult := commandOperationResultFromPlanLint(revisedPlan, lint)
@@ -2327,6 +2440,22 @@ func (r *REPL) maybeContinueCommandOperation(ctx context.Context, plan operation
 	nextPlan = operation.ApplyCommandPlanApprovalDecision(nextPlan, continuationDecision)
 	logging.Info("[repl/operation] command continuation generated previous_plan_id=%s status=%s risk=%q approval=%q decision=%s reason_code=%s steps=%d rounds=%d",
 		plan.ID, nextPlan.Status, nextPlan.RiskLevel, nextPlan.ApprovalMode, continuationDecision.Action, continuationDecision.ReasonCode, len(nextPlan.Steps), len(records))
+	if commandOperationTerminalAfterReplan(nextPlan, records) {
+		terminal := commandOperationTerminalResult(nextPlan)
+		r.operationHistory = append(r.operationHistory, nextPlan)
+		r.appendCommandOperationResult(nextPlan, terminal)
+		records = append(records, commandOperationResultRecord{Plan: nextPlan, Result: terminal})
+		logging.Info("[repl/operation] command continuation terminal previous_plan_id=%s terminal_plan_id=%s status=%s reason=%q records=%d",
+			plan.ID, nextPlan.ID, nextPlan.Status, oneLineClamp(nextPlan.BlockReason, 180), len(records))
+		r.renderCommandOperationRoundResult(nextPlan, terminal)
+		msg, thoughts := r.commandOperationFinalMessage(ctx, request, records)
+		r.finishOperationFinalAnswerHeader()
+		r.emitOperationVisibleThoughts(thoughts)
+		r.renderBordered(msg)
+		r.lastAnswerOrigin = replAnswerOriginCommandOperationFinal
+		r.recordTurn(display, request, msg, memory.KindPipeline)
+		return true
+	}
 	if nextPlan.Status == operation.StatusNeedsClarification && len(nextPlan.ClarifyingQuestions) == 0 {
 		logging.Warning("[repl/operation] command continuation returned needs_clarification without actionable questions; falling back to final synthesis")
 		return false

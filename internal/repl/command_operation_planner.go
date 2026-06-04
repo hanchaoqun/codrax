@@ -230,7 +230,7 @@ Hard rules:
 - For extraction requests, shape the command output to the user's requested item(s) with bounded filters (for example awk/sed/perl/head/tail/rg context) instead of dumping an entire section when a smaller exact result is requested.
 - When a step should create, remove, move, or copy a local artifact, set verify_hint when the expected outcome is clear. Supported forms: path_exists:<path>, file_exists:<path>, dir_exists:<path>, path_absent:<path>. Paths are resolved relative to work_dir unless absolute.
 - For desktop_ui/browser_ui operations, command exit code only means the launch/control request was accepted. It does not prove the window, tab, or UI state became visible. Prefer commands that make the requested UI state explicit and, when safe, add a bounded follow-up verification step or continue_after=true so the loop can check visible/running state before claiming completion.
-- For replan requests, use the failed step output to adjust only the command plan. The failed command already ran; do not include that failed command again unless the user explicitly asked to retry the same failed command after seeing the failure. Do not repeat already-successful steps unless required. If the fix expands risk or side effects, set requires_confirmation=true.
+- For replan requests, use the failed step output to adjust only the command plan. The failed command already ran; do not include that failed command again unless the user explicitly asked to retry the same failed command after seeing the failure. Do not repeat already-successful steps unless required. If the successful part of the failed batch already satisfies the user's goal, emit status=complete, not blocked. If the fix expands risk or side effects, set requires_confirmation=true.
 - For continuation requests, inspect the previous command observations. If they are sufficient to answer the user's task, emit status=complete with a short block_reason/reason. If more commands are needed, emit only the next bounded command batch. Do not repeat already-successful discovery commands unless the next step genuinely needs a refreshed value.
 - In continuation requests, do not ask the user for information that can still be safely discovered by local read-only commands, package/application metadata queries, service/process inspection, file metadata reads, or tool help/version checks. Unknown facts are a reason to run another safe discovery batch, not to stop. Ask the user only for user-owned inputs such as credentials, remote hostnames, destructive scope, destination paths, or business choices that cannot be discovered safely.
 - Continuation/evaluation status meanings: complete = success criteria are satisfied; continue/ready = run the next bounded batch; needs_clarification = only for user-owned missing inputs; blocked = policy/capability prevents safe progress; budget_exhausted = useful progress exists but the bounded loop should stop; partial_answer_possible = enough observations exist for a useful partial report but some requested details remain missing.
@@ -555,6 +555,7 @@ func (p *llmCommandOperationPlanner) planCommandOperationDraft(ctx context.Conte
 		b.WriteString("\n## replan_context\n")
 		b.WriteString("The previous approved command plan failed. Produce a revised typed plan using the same schema.\n")
 		b.WriteString("Do not include the failed command again; it already ran. Plan only the corrective next step unless a real retry is required.\n")
+		b.WriteString("If one or more previous steps succeeded and those observations already satisfy the user's goal, emit status=complete with a short block_reason/reason. Do not use status=blocked for completed/no-more-work states; blocked is only for policy or capability barriers.\n")
 		b.WriteString("If failure_class=invalid_plan and the error says a shell command has no explicit input source, repair by rewriting that same step as one complete standalone command with its own producer, file operand, or redirection. The command executor will not pipe output from another step into it. Examples: use \"ps aux | grep ...\" for process searches; use \"grep pattern /path/to/file\" or \"producer | grep pattern\" for text searches; use \"cat /path/to/file\" or \"producer | cat\" for cat/nl; use \"producer | head -50\" or \"head -50 /path/to/file\" for head/tail/wc/cut/sort/uniq.\n")
 		b.WriteString("If failure_class=invalid_plan and the error says the shell command starts with \"|\", \"||\", \"&&\", or \";\", the command is missing the segment before the operator. Rewrite the whole command with a real producer before the operator; do not keep the leading operator.\n")
 		b.WriteString(renderCommandPlanForPrompt(req.PreviousPlan))
@@ -634,6 +635,12 @@ func renderCommandPlanForPrompt(plan operation.CommandOperationPlan) string {
 func renderCommandResultForPrompt(result operation.CommandOperationResult) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "previous_result plan_id=%s status=%s\n", result.PlanID, result.Status)
+	if strings.TrimSpace(result.OutputPreview) != "" {
+		fmt.Fprintf(&b, "result_summary=%q\n", oneLineClamp(result.OutputPreview, 2000))
+	}
+	if strings.TrimSpace(result.PayloadRef) != "" {
+		fmt.Fprintf(&b, "result_payload_ref=%s\n", result.PayloadRef)
+	}
 	for i, step := range result.StepResults {
 		summary := operation.SummarizeStepOutput(step)
 		preview := strings.TrimSpace(step.OutputPreview)
@@ -879,7 +886,15 @@ func (d commandPlanDraft) toRequest(userLine, repoRoot string) operation.Command
 		RequiresConfirmation: bool(d.RequiresConfirmation),
 		ContinueAfter:        bool(d.ContinueAfter),
 	}
-	if strings.TrimSpace(string(d.Status)) == "complete" {
+	switch strings.TrimSpace(string(d.Status)) {
+	case "complete":
+		req.TerminalStatus = operation.StatusComplete
+		return req
+	case "budget_exhausted":
+		req.TerminalStatus = operation.StatusBudgetExhausted
+		return req
+	case "partial_answer_possible":
+		req.TerminalStatus = operation.StatusPartialAnswer
 		return req
 	}
 	if strings.TrimSpace(string(d.Status)) == string(operation.StatusNeedsClarification) {

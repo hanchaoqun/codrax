@@ -2676,6 +2676,39 @@ func TestCommandOperationE2E_SourceFollowupAfterOperationStillUsesPipeline(t *te
 	}
 }
 
+func TestCommandOperationE2E_LowRiskNoStepBlockedReplanFinalizesFromSuccessfulObservation(t *testing.T) {
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{policy: commandOperationPolicy("low")}
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			commandOperationPlanResp(`{"status":"ready","risk_level":"low","requires_confirmation":false,"work_dir":".","goal":"find oMLX version","steps":[{"id":"version","title":"read app version","program":"printf","args":["0.4.1\n"],"risk_level":"low","side_effects":[]},{"id":"cli","title":"probe missing cli","program":"/definitely/not/found/omlx","args":["--version"],"risk_level":"low","side_effects":[]}]}`),
+			commandOperationPlanResp(`{"status":"blocked","risk_level":"low","requires_confirmation":false,"block_reason":"version was already obtained from the successful app metadata step","steps":[]}`),
+			{Content: "oMLX 当前版本号是 0.4.1。", StopReason: "end_turn"},
+		},
+	}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, &stubLocalResponder{}, "当前运行的 oMLX 版本号是多少？\n/exit\n")
+	r.operationEnabled = true
+	r.operationPlanner = NewCommandOperationPlanner(adapter)
+	r.operationPolicy = operation.DefaultCommandPolicy()
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if len(runner.requests) != 0 {
+		t.Fatalf("operation should not enter source pipeline; runner requests=%v", runner.requests)
+	}
+	printed := out.String()
+	if strings.Contains(printed, "策略阻止") || strings.Contains(printed, "blocked by policy") {
+		t.Fatalf("completed low-risk no-step replan must not render as policy blocked:\n%s", printed)
+	}
+	if !strings.Contains(printed, "determined that no") || !strings.Contains(printed, "command is needed") {
+		t.Fatalf("terminal replan should explain no further commands are needed:\n%s", printed)
+	}
+	if !strings.Contains(printed, "oMLX 当前版本号是 0.4.1") {
+		t.Fatalf("final answer missing version:\n%s", printed)
+	}
+}
+
 func TestCommandOperationE2E_LocalFollowupDoesNotHijackAfterPipelineAnswer(t *testing.T) {
 	store := newPolicyStore(t)
 	seedPriorAnswer(t, store, "分析 trace", "trace 分析已经完成。")
