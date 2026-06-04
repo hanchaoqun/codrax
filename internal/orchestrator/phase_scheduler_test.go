@@ -252,6 +252,46 @@ func TestSeedWriteExplorationRequestFromPhaseProjectsTurnAToHandoff(t *testing.T
 	}
 }
 
+func TestProjectWriteExplorationHandoffFromTurnARequiresRequestAndArtifacts(t *testing.T) {
+	mu := types.NewMutableState("x")
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu}}
+	o.projectWriteExplorationHandoffFromTurnA()
+	if got := mu.WriteExplorationHandoff(); got != nil {
+		t.Fatalf("handoff should remain nil without request/artifacts: %+v", got)
+	}
+
+	mu.SetWriteExplorationRequest(&types.WriteExplorationRequest{
+		BatchID:        "batch-1",
+		Goal:           "patch planner",
+		CandidatePaths: []string{"internal/agent/planner.go"},
+	})
+	o.projectWriteExplorationHandoffFromTurnA()
+	if got := mu.WriteExplorationHandoff(); got != nil {
+		t.Fatalf("handoff should remain nil without artifacts: %+v", got)
+	}
+
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{"internal/agent/planner.go"},
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "ev1",
+			Kind:            types.EvidenceMechanism,
+			Subject:         "planner handoff",
+			Source:          "internal/agent/planner.go",
+			LineStart:       105,
+			Summary:         "planner renders prompt sections",
+			GroundingStatus: types.GroundingRecovered,
+		}},
+	})
+	o.projectWriteExplorationHandoffFromTurnA()
+	handoff := mu.WriteExplorationHandoff()
+	if handoff == nil {
+		t.Fatal("expected projected handoff")
+	}
+	if handoff.BatchID != "batch-1" || handoff.Goal != "patch planner" {
+		t.Fatalf("handoff identity drift: %+v", handoff)
+	}
+}
+
 func TestEvaluateWritePhaseWorkflow_ContinueThenComplete(t *testing.T) {
 	mu := types.NewMutableState("two phase write")
 	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{

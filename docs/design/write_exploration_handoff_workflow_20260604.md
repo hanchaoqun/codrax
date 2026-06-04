@@ -174,32 +174,40 @@ hint rather than failing silently.
 
 ### Batch 2: Typed Handoff Model
 
-- [ ] Add `WriteExplorationRequest`, `WriteExplorationHandoff`, and
+- [x] Add `WriteExplorationRequest`, `WriteExplorationHandoff`, and
       `WriteExplorationEvidenceRef` in `internal/types`.
-- [ ] Add defensive-copy storage on `MutableState`.
-- [ ] Add projection from `TurnAArtifacts` to `WriteExplorationHandoff`.
-- [ ] Add tests for defensive copy and projection.
+- [x] Add defensive-copy storage on `MutableState`.
+- [x] Add projection from `TurnAArtifacts` to `WriteExplorationHandoff`.
+- [x] Add tests for defensive copy and projection.
 
 ### Batch 3: Planner Consumption
 
-- [ ] Render `## Prior code exploration handoff` in planner prompts before
+- [x] Render `## Prior code exploration handoff` in planner prompts before
       likely-file ranking.
-- [ ] Teach bounded planning from handoff without forcing source exploration.
-- [ ] Add prompt tests proving read mode is unaffected and planner sees the
+- [x] Render `## Targeted source exploration request` so write planning can
+      expand one bounded batch before emitting a `ChangePlan`.
+- [x] Teach bounded planning from handoff without forcing source exploration.
+- [x] Add prompt tests proving write planner sees the request/handoff while
+      unset state remains absent.
       handoff.
 
 ### Batch 4: Workflow Decision Schema
 
-- [ ] Add typed `WriteWorkflowDecision` / next-action schema.
-- [ ] Support JSON compatibility repair for new fields.
-- [ ] Add tests for enum normalization and string/list repair.
+- [x] Add typed `WriteWorkflowDecision` / next-action schema.
+- [x] Support JSON compatibility repair for new fields.
+- [x] Add tests for enum normalization and string/list repair.
 
 ### Batch 5: Read-Only Explorer Adapter
 
+- [x] Add a deterministic phase-to-`WriteExplorationRequest` bridge for
+      multi-phase write planning.
+- [x] Project existing `TurnAArtifacts` into `WriteExplorationHandoff` when
+      they are present.
 - [ ] Add an orchestrator helper that can dispatch the existing explorer as a
       write-lane read-only subflow.
 - [ ] Build its objective from `WriteExplorationRequest`.
-- [ ] Project the resulting `TurnAArtifacts` into `WriteExplorationHandoff`.
+- [ ] Project newly dispatched explorer `TurnAArtifacts` into
+      `WriteExplorationHandoff`.
 - [ ] Ensure no write tools are exposed during this subflow.
 
 ### Batch 6: Evaluator Front-Loading

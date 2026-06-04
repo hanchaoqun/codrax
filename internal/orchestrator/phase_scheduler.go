@@ -153,6 +153,11 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 		// don't leak into this one's planner prompt.
 		o.resetForNextPhase()
 		o.seedWriteExplorationRequestFromPhase(phase, group)
+		if used, err := o.runWriteExplorationSubflow(); err != nil {
+			logging.Warning("[orchestrator] write exploration subflow degraded for phase %d: %v", phase.Index, err)
+		} else {
+			*stepsUsed += used
+		}
 
 		// Build a single-phase 3-node TaskGraph for this phase.
 		// retryBudget per-phase: each phase gets the full budget
@@ -641,6 +646,58 @@ func (o *Orchestrator) seedWriteExplorationRequestFromPhase(phase *types.PhaseRe
 			o.busCtx.Mutable.SetWriteExplorationHandoff(&handoff)
 		}
 	}
+}
+
+func (o *Orchestrator) runWriteExplorationSubflow() (int, error) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return 0, nil
+	}
+	if o.agents == nil {
+		return 0, nil
+	}
+	req := o.busCtx.Mutable.WriteExplorationRequest()
+	if req == nil {
+		return 0, nil
+	}
+	if existing := o.busCtx.Mutable.WriteExplorationHandoff(); existing != nil {
+		return 0, nil
+	}
+	out, err := o.dispatchStage(types.StageExplore)
+	if err != nil {
+		return 0, err
+	}
+	o.projectWriteExplorationHandoffFromTurnA()
+	if out == nil {
+		return 0, nil
+	}
+	return 1, nil
+}
+
+func (o *Orchestrator) projectWriteExplorationHandoffFromTurnA() {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return
+	}
+	req := o.busCtx.Mutable.WriteExplorationRequest()
+	if req == nil {
+		return
+	}
+	ta := o.busCtx.Mutable.TurnAArtifacts()
+	if ta == nil {
+		return
+	}
+	handoff := types.WriteExplorationHandoffFromTurnA(*req, *ta)
+	if handoff.Goal == "" &&
+		len(handoff.TargetFiles) == 0 &&
+		len(handoff.RelevantSymbols) == 0 &&
+		len(handoff.ExistingPatterns) == 0 &&
+		len(handoff.Invariants) == 0 &&
+		len(handoff.TestSurface) == 0 &&
+		len(handoff.RiskNotes) == 0 &&
+		len(handoff.Unknowns) == 0 &&
+		len(handoff.EvidenceRefs) == 0 {
+		return
+	}
+	o.busCtx.Mutable.SetWriteExplorationHandoff(&handoff)
 }
 
 func writeExplorationRequestFromPhase(phase *types.PhaseRecord, group *types.PlanGroup, ir *types.WriteAnalysisIR) types.WriteExplorationRequest {
