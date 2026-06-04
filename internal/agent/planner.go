@@ -134,6 +134,9 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 	if workflow := e.buildWorkflowSeedSection(ctx); workflow != "" {
 		sections = append(sections, workflow)
 	}
+	if req := e.buildWriteExplorationRequestSection(ctx); req != "" {
+		sections = append(sections, req)
+	}
 	if handoff := e.buildWriteExplorationHandoffSection(ctx); handoff != "" {
 		sections = append(sections, handoff)
 	}
@@ -229,6 +232,44 @@ func (e *plannerEvaluator) buildTaskFramingSection(ctx *types.AgentContext) stri
 		}
 	}
 	return b.String()
+}
+
+// buildWriteExplorationRequestSection renders a typed request for targeted
+// read-only exploration before the planner emits a bounded ChangePlan. It is a
+// soft workflow cue, not a hard gate: if the planner already has enough typed
+// information it can still proceed through normal ChangePlan validation.
+func (e *plannerEvaluator) buildWriteExplorationRequestSection(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	req := ctx.Mutable.WriteExplorationRequest()
+	if req == nil {
+		return ""
+	}
+	if req.Goal == "" &&
+		len(req.ExplorationQuestions) == 0 &&
+		len(req.CandidatePaths) == 0 &&
+		len(req.Constraints) == 0 &&
+		len(req.EvidenceRequirements) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Targeted source exploration request\n\n")
+	b.WriteString("This write batch may need read-only source exploration before planning edits. Use this typed request to guide any grep/read_file/repo_map work, then emit a bounded ChangePlan only after the relevant existing patterns, invariants, and verification surface are clear enough.\n")
+	if req.BatchID != "" {
+		fmt.Fprintf(&b, "- batch_id: %s\n", req.BatchID)
+	}
+	if req.Goal != "" {
+		fmt.Fprintf(&b, "- goal: %s\n", req.Goal)
+	}
+	if req.MaxRounds > 0 {
+		fmt.Fprintf(&b, "- max_rounds: %d\n", req.MaxRounds)
+	}
+	writePlannerList(&b, "questions", req.ExplorationQuestions, 8)
+	writePlannerList(&b, "candidate_paths", req.CandidatePaths, 10)
+	writePlannerList(&b, "constraints", req.Constraints, 8)
+	writePlannerList(&b, "evidence_requirements", req.EvidenceRequirements, 8)
+	return strings.TrimSpace(b.String())
 }
 
 // buildWriteExplorationHandoffSection renders the compact read-only

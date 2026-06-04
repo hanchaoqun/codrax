@@ -152,6 +152,7 @@ func (o *Orchestrator) runPhaseGroup(group *types.PlanGroup, stepsUsed *int) err
 		// Reset per-phase Mutable so prior phase's plan/report
 		// don't leak into this one's planner prompt.
 		o.resetForNextPhase()
+		o.seedWriteExplorationRequestFromPhase(phase, group)
 
 		// Build a single-phase 3-node TaskGraph for this phase.
 		// retryBudget per-phase: each phase gets the full budget
@@ -622,6 +623,62 @@ func (o *Orchestrator) seedPlanningHintFromPhase(phase *types.PhaseRecord, group
 	if o.busCtx.Mutable != nil {
 		o.busCtx.Mutable.SetPlanningHint(b.String())
 	}
+}
+
+func (o *Orchestrator) seedWriteExplorationRequestFromPhase(phase *types.PhaseRecord, group *types.PlanGroup) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil || phase == nil {
+		return
+	}
+	req := writeExplorationRequestFromPhase(phase, group, o.busCtx.Mutable.WriteAnalysisIR())
+	if req.Goal == "" && len(req.ExplorationQuestions) == 0 && len(req.CandidatePaths) == 0 {
+		o.busCtx.Mutable.ResetWriteExplorationRequest()
+		return
+	}
+	o.busCtx.Mutable.SetWriteExplorationRequest(&req)
+	if ta := o.busCtx.Mutable.TurnAArtifacts(); ta != nil {
+		handoff := types.WriteExplorationHandoffFromTurnA(req, *ta)
+		if handoff.Goal != "" || len(handoff.TargetFiles) > 0 || len(handoff.EvidenceRefs) > 0 {
+			o.busCtx.Mutable.SetWriteExplorationHandoff(&handoff)
+		}
+	}
+}
+
+func writeExplorationRequestFromPhase(phase *types.PhaseRecord, group *types.PlanGroup, ir *types.WriteAnalysisIR) types.WriteExplorationRequest {
+	if phase == nil {
+		return types.WriteExplorationRequest{}
+	}
+	req := types.WriteExplorationRequest{
+		BatchID:        fmt.Sprintf("batch-%d", phase.Index+1),
+		Goal:           strings.TrimSpace(phase.Goal),
+		CandidatePaths: append([]string(nil), phase.RoughTargetPaths...),
+	}
+	if group != nil && req.Goal == "" {
+		req.Goal = strings.TrimSpace(group.Goal)
+	}
+	if ir != nil {
+		for _, c := range ir.Request.Constraints {
+			req.Constraints = append(req.Constraints, renderWriteExplorationConstraint(c))
+		}
+		req.EvidenceRequirements = append(req.EvidenceRequirements, ir.Request.ExpectedOutcomes...)
+	}
+	return types.NormalizeWriteExplorationRequest(req)
+}
+
+func renderWriteExplorationConstraint(c types.WriteConstraint) string {
+	parts := []string{strings.TrimSpace(c.Kind)}
+	if target := strings.TrimSpace(c.Target); target != "" {
+		parts = append(parts, target)
+	}
+	if note := strings.TrimSpace(c.Note); note != "" {
+		parts = append(parts, note)
+	}
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return strings.Join(out, ": ")
 }
 
 // persistGroup writes the group's current state to disk via

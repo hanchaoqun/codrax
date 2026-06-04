@@ -178,6 +178,80 @@ func TestSeedPlanningHintFromPhase(t *testing.T) {
 	}
 }
 
+func TestSeedWriteExplorationRequestFromPhaseProjectsTypedContext(t *testing.T) {
+	mu := types.NewMutableState("x")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			ExpectedOutcomes: []string{"planner uses handoff"},
+			Constraints: []types.WriteConstraint{{
+				Kind:   "preserve_read_mode",
+				Target: "scheduler",
+				Note:   "do not alter read pipeline",
+			}},
+		},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu}}
+	group := &types.PlanGroup{ID: "group-x", Goal: "write workflow"}
+	phase := &types.PhaseRecord{
+		Index:            1,
+		Goal:             "patch planner",
+		RoughTargetPaths: []string{"internal/agent/planner.go"},
+	}
+
+	o.seedWriteExplorationRequestFromPhase(phase, group)
+	req := mu.WriteExplorationRequest()
+	if req == nil {
+		t.Fatal("expected exploration request")
+	}
+	if req.BatchID != "batch-2" || req.Goal != "patch planner" {
+		t.Fatalf("request identity drift: %+v", req)
+	}
+	if len(req.CandidatePaths) != 1 || req.CandidatePaths[0] != "internal/agent/planner.go" {
+		t.Fatalf("candidate paths drift: %+v", req.CandidatePaths)
+	}
+	if len(req.Constraints) != 1 || !strings.Contains(req.Constraints[0], "preserve_read_mode") {
+		t.Fatalf("constraints not projected: %+v", req.Constraints)
+	}
+	if len(req.EvidenceRequirements) != 1 || req.EvidenceRequirements[0] != "planner uses handoff" {
+		t.Fatalf("evidence requirements not projected: %+v", req.EvidenceRequirements)
+	}
+}
+
+func TestSeedWriteExplorationRequestFromPhaseProjectsTurnAToHandoff(t *testing.T) {
+	mu := types.NewMutableState("x")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{"internal/agent/planner.go"},
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "ev1",
+			Kind:            types.EvidenceMechanism,
+			Subject:         "planner handoff",
+			Source:          "internal/agent/planner.go",
+			LineStart:       105,
+			AnchorSymbol:    "BuildInitialInstruction",
+			Summary:         "planner renders prompt sections",
+			GroundingStatus: types.GroundingRecovered,
+		}},
+	})
+	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu}}
+	phase := &types.PhaseRecord{
+		Index:            0,
+		Goal:             "patch planner",
+		RoughTargetPaths: []string{"internal/agent/planner.go"},
+	}
+
+	o.seedWriteExplorationRequestFromPhase(phase, nil)
+	handoff := mu.WriteExplorationHandoff()
+	if handoff == nil {
+		t.Fatal("expected exploration handoff from TurnA")
+	}
+	if handoff.BatchID != "batch-1" || handoff.Goal != "patch planner" {
+		t.Fatalf("handoff identity drift: %+v", handoff)
+	}
+	if len(handoff.EvidenceRefs) != 1 || handoff.EvidenceRefs[0].LineStart != 105 {
+		t.Fatalf("evidence refs not projected: %+v", handoff.EvidenceRefs)
+	}
+}
+
 func TestEvaluateWritePhaseWorkflow_ContinueThenComplete(t *testing.T) {
 	mu := types.NewMutableState("two phase write")
 	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{

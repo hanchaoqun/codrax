@@ -212,6 +212,52 @@ func TestPlannerWriteExplorationHandoff_RendersAfterWorkflowSeed(t *testing.T) {
 	}
 }
 
+func TestPlannerWriteExplorationRequest_RendersBeforeHandoff(t *testing.T) {
+	mu := types.NewMutableState("the user request")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task: types.WriteTask{Summary: "fix planner retry context"},
+		},
+	})
+	mu.SetWriteExplorationRequest(&types.WriteExplorationRequest{
+		BatchID:              "batch-1",
+		Goal:                 "inspect planner retry inputs",
+		ExplorationQuestions: []string{"where does retry state enter the planner?"},
+		CandidatePaths:       []string{"internal/agent/planner.go"},
+		Constraints:          []string{"read mode must remain unchanged"},
+		EvidenceRequirements: []string{"file:line anchors for planner prompt sections"},
+		MaxRounds:            3,
+	})
+	mu.SetWriteExplorationHandoff(&types.WriteExplorationHandoff{
+		BatchID:     "batch-1",
+		Goal:        "patch planner handoff section",
+		TargetFiles: []string{"internal/agent/planner.go"},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	eval := &plannerEvaluator{}
+	got := eval.BuildInitialInstruction(ctx, nil)
+	reqIdx := strings.Index(got, "## Targeted source exploration request")
+	handoffIdx := strings.Index(got, "## Prior code exploration handoff")
+	if reqIdx < 0 || handoffIdx < 0 {
+		t.Fatalf("expected request and handoff sections; got:\n%s", got)
+	}
+	if handoffIdx < reqIdx {
+		t.Fatalf("request should render before handoff; got:\n%s", got)
+	}
+	for _, want := range []string{
+		"inspect planner retry inputs",
+		"where does retry state enter the planner?",
+		"internal/agent/planner.go",
+		"read mode must remain unchanged",
+		"file:line anchors for planner prompt sections",
+		"max_rounds: 3",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("request prompt missing %q; got:\n%s", want, got)
+		}
+	}
+}
+
 func TestPlannerWriteExplorationHandoff_AbsentWhenUnset(t *testing.T) {
 	mu := types.NewMutableState("the user request")
 	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
