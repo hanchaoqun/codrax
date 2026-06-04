@@ -556,9 +556,10 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	// flag is true.
 	e.investigationComplete = false
 
+	writeExplorationPrefix := renderExplorerWriteExplorationRequest(ctx)
 	if explorerDurableProgressContinuationActive(ctx) {
 		e.phase = 1
-		return e.buildDurableProgressContinuationInstruction(ctx)
+		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildDurableProgressContinuationInstruction(ctx))
 	}
 
 	// Self-loop detection: if we already have investigation notes from
@@ -623,22 +624,26 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			b.WriteString(guide)
 		}
 		b.WriteString("**User question:** " + e.userQuestion)
-		return b.String()
+		return joinExplorerInstructionSections(writeExplorationPrefix, b.String())
 	}
 
 	if explicitRuntimeTraceArtifactOnlyRequest(ctx) {
 		e.phase = 1
-		return e.buildExplicitRuntimeTracePathStartInstruction(ctx)
+		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExplicitRuntimeTracePathStartInstruction(ctx))
 	}
 
 	if observationOnlyRuntimeArtifactForExplorer(ctx) {
 		e.phase = 1
-		return e.buildRuntimeObservationOnlyStartInstruction(ctx)
+		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildRuntimeObservationOnlyStartInstruction(ctx))
 	}
 
 	e.phase = 0 // start in breadth-scan phase
 
 	var b strings.Builder
+	if writeExplorationPrefix != "" {
+		b.WriteString(writeExplorationPrefix)
+		b.WriteString("\n\n")
+	}
 	b.WriteString("## Breadth Scan\n\n")
 	b.WriteString("Your goal is to map a bounded candidate set for the user's question, not every broadly related file. ")
 	b.WriteString("Do NOT read files in full yet. Use lightweight tools:\n")
@@ -1417,6 +1422,51 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	}
 
 	return b.String()
+}
+
+func renderExplorerWriteExplorationRequest(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	req := ctx.Mutable.WriteExplorationRequest()
+	if req == nil {
+		return ""
+	}
+	if req.Goal == "" &&
+		len(req.ExplorationQuestions) == 0 &&
+		len(req.CandidatePaths) == 0 &&
+		len(req.Constraints) == 0 &&
+		len(req.EvidenceRequirements) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Write-mode targeted source exploration\n\n")
+	b.WriteString("This is a read-only source exploration subflow for a code-change task. Do not edit files. Keep the investigation bounded to this request, discover existing patterns/invariants/test surfaces, and preserve the useful findings through `emit_evidence` and `emit_investigation_complete` so the later write planner can use them.\n")
+	if req.BatchID != "" {
+		fmt.Fprintf(&b, "- batch_id: %s\n", req.BatchID)
+	}
+	if req.Goal != "" {
+		fmt.Fprintf(&b, "- goal: %s\n", req.Goal)
+	}
+	if req.MaxRounds > 0 {
+		fmt.Fprintf(&b, "- max_rounds: %d\n", req.MaxRounds)
+	}
+	writePlannerList(&b, "questions", req.ExplorationQuestions, 8)
+	writePlannerList(&b, "candidate_paths", req.CandidatePaths, 10)
+	writePlannerList(&b, "constraints", req.Constraints, 8)
+	writePlannerList(&b, "evidence_requirements", req.EvidenceRequirements, 8)
+	return strings.TrimSpace(b.String())
+}
+
+func joinExplorerInstructionSections(sections ...string) string {
+	var out []string
+	for _, section := range sections {
+		section = strings.TrimSpace(section)
+		if section != "" {
+			out = append(out, section)
+		}
+	}
+	return strings.Join(out, "\n\n")
 }
 
 func explorerDurableProgressContinuationActive(ctx *types.AgentContext) bool {

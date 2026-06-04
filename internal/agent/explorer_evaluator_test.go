@@ -377,6 +377,45 @@ func TestExplorerSourceInventoryPrompt_RendersObservationOnlyRows(t *testing.T) 
 	}
 }
 
+func TestExplorerBuildInitialInstruction_RendersWriteExplorationRequest(t *testing.T) {
+	mut := types.NewMutableState("add retry telemetry")
+	mut.SetWriteExplorationRequest(&types.WriteExplorationRequest{
+		BatchID:              "batch-2",
+		Goal:                 "understand existing retry telemetry before changing it",
+		ExplorationQuestions: []string{"Where is retry telemetry recorded?"},
+		CandidatePaths:       []string{"internal/orchestrator/retry_state.go"},
+		Constraints:          []string{"read-only exploration"},
+		EvidenceRequirements: []string{"identify tests that should change"},
+	})
+	ctx := &types.AgentContext{
+		Objective: "add retry telemetry",
+		Mutable:   mut,
+		RepoRoot:  "/tmp/repo",
+	}
+
+	prompt := (&explorerEvaluator{}).BuildInitialInstruction(ctx, nil)
+	reqIdx := strings.Index(prompt, "## Write-mode targeted source exploration")
+	breadthIdx := strings.Index(prompt, "## Breadth Scan")
+	if reqIdx < 0 {
+		t.Fatalf("write exploration request section missing:\n%s", prompt)
+	}
+	if breadthIdx < 0 || reqIdx > breadthIdx {
+		t.Fatalf("write exploration request should appear before breadth scan; req=%d breadth=%d\n%s", reqIdx, breadthIdx, prompt)
+	}
+	for _, want := range []string{
+		"batch-2",
+		"understand existing retry telemetry",
+		"Where is retry telemetry recorded?",
+		"internal/orchestrator/retry_state.go",
+		"identify tests that should change",
+		"read-only source exploration subflow",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("write exploration prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestRenderExtractorSourceInventoryAdvisory_RendersObservationOnlyRows(t *testing.T) {
 	out := renderExtractorSourceInventoryAdvisory(&types.TurnAArtifacts{
 		SourceInventoryObservation: types.SourceInventoryObservation{

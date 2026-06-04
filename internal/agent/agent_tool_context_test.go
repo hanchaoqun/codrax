@@ -238,6 +238,37 @@ func TestBuildToolSchemas_ExposesMCPOnlyToExplorerFamily(t *testing.T) {
 	}
 }
 
+func TestBuildToolSchemas_WriteExplorationSubflowDoesNotExposeWriteTools(t *testing.T) {
+	mut := types.NewMutableState("write needs source exploration first")
+	mut.SetWriteExplorationRequest(&types.WriteExplorationRequest{
+		BatchID:        "batch-1",
+		Goal:           "inspect existing tests before planning edits",
+		CandidatePaths: []string{"internal/foo_test.go"},
+	})
+	reg := toolpkg.NewRegistry()
+	toolpkg.RegisterDefaults(reg)
+	base := NewBaseAgent(types.AgentExplorer, &Dependencies{Tools: reg}, nil)
+	schemas := base.buildToolSchemas(&skill.Config{
+		Name:            "explore-skill",
+		ToolSuggestions: []string{"repo_map", "grep", "read_file", "emit_evidence", "emit_investigation_complete"},
+	}, &types.AgentContext{
+		Stage:   types.StageExplore,
+		Mutable: mut,
+		Mode:    types.ModeApply,
+	})
+
+	for _, forbidden := range []string{"emit_change_plan", "apply_patch", "emit_test_results"} {
+		if schemaNamesContain(schemas, forbidden) {
+			t.Fatalf("write exploration subflow must not expose %q; got %+v", forbidden, schemaNames(schemas))
+		}
+	}
+	for _, want := range []string{"grep", "read_file"} {
+		if !schemaNamesContain(schemas, want) {
+			t.Fatalf("write exploration subflow should still expose %q; got %+v", want, schemaNames(schemas))
+		}
+	}
+}
+
 func TestValidateExternalObservationOnlyToolCall_DoesNotBlockMCPResourceSourceTools(t *testing.T) {
 	ctx := &types.AgentContext{
 		Stage: types.StageExplore,

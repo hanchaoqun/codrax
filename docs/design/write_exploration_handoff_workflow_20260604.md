@@ -203,12 +203,13 @@ hint rather than failing silently.
       multi-phase write planning.
 - [x] Project existing `TurnAArtifacts` into `WriteExplorationHandoff` when
       they are present.
-- [ ] Add an orchestrator helper that can dispatch the existing explorer as a
+- [x] Add an orchestrator helper that can dispatch the existing explorer as a
       write-lane read-only subflow.
-- [ ] Build its objective from `WriteExplorationRequest`.
-- [ ] Project newly dispatched explorer `TurnAArtifacts` into
+- [x] Render `WriteExplorationRequest` inside the explorer prompt so the
+      subflow investigates the current write batch instead of generic breadth.
+- [x] Project newly dispatched explorer `TurnAArtifacts` into
       `WriteExplorationHandoff`.
-- [ ] Ensure no write tools are exposed during this subflow.
+- [x] Ensure no write tools are exposed during this subflow.
 
 ### Batch 6: Evaluator Front-Loading
 
