@@ -133,7 +133,7 @@ explicitly in the eval harness.
 - [x] Add eval summary classification for provider-balance/API outages.
 - [x] Preserve raw FAIL/exit data while surfacing `BLOCKED_PROVIDER` in summary.
 - [x] Add shell tests for verdict/summary classification.
-- [ ] Commit and push this batch.
+- [x] Commit and push this batch.
 
 Validation note: `bash eval/runner_lib_test.sh` passed. A focused
 `mr_focus_single` run against the current provider outage now reports
@@ -141,12 +141,15 @@ Validation note: `bash eval/runner_lib_test.sh` passed. A focused
 
 ### Batch 3: MCP efficiency guardrails
 
-- [ ] Add telemetry/audit thresholds for repeated same MCP resource calls.
-- [ ] Add advisory-only prompt guidance for external-observation sufficient
-  closure, gated by typed external observation policy.
-- [ ] Extend eval metrics so PASS-with-inefficiency is visible without changing
+- [x] Add telemetry/audit thresholds for repeated same MCP resource calls.
+- [x] Extend eval metrics so PASS-with-inefficiency is visible without changing
   correctness verdicts.
+- [x] Keep product prompt/routing unchanged in this batch; use the new advisory
+  data to justify any later prompt tuning from concrete repeated samples.
 - [ ] Commit and push this batch.
+
+Validation note: `bash eval/runner_lib_test.sh` passed. Eval summaries now
+include `repeated_mcp_resource_reads` plus an advisory-only efficiency section.
 
 ## Red Lines
 

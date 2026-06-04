@@ -245,6 +245,35 @@ eval_count_tool_calls() {
   eval_count_control_pattern "DEBUG \\[diag [^]]+\\][^:]*phase=toolcall [^:]*tool=${tool}( |$)" "$file"
 }
 
+eval_count_repeated_mcp_resource_reads() {
+  local file="$1"
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  LC_ALL=C awk '
+    /^20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^ ]+ DEBUG \[diag [^]]+\]/ &&
+    $0 !~ /ASSISTANT content/ &&
+    $0 ~ /phase=toolcall .*tool=mcp_read_resource( |$)/ {
+      idx = index($0, " params=")
+      key = $0
+      if (idx > 0) {
+        key = substr($0, idx + 8)
+      }
+      count[key]++
+    }
+    END {
+      dup = 0
+      for (k in count) {
+        if (count[k] > 1) {
+          dup += count[k] - 1
+        }
+      }
+      print dup + 0
+    }
+  ' "$file"
+}
+
 eval_count_source_inventory_tool_calls() {
   local file="$1"
   if [[ -z "$file" || ! -f "$file" ]]; then

@@ -102,6 +102,14 @@ assert_eq "$(eval_count_semantic_quality_dispatches "$tmp/finalizer-control.log"
 assert_eq "$(eval_count_semantic_quality_concerns "$tmp/finalizer-control.log")" "2" "semantic concern control count"
 assert_eq "$(eval_count_self_consistency_concerns "$tmp/finalizer-control.log")" "2" "self consistency control count"
 
+cat >"$tmp/mcp-repeat-control.log" <<'LOG'
+2026-05-24T00:00:00.001 DEBUG [diag explorer] iter=0 phase=toolcall call[0] tool=mcp_read_resource params={"uri":"mcp://fixture/a"}
+2026-05-24T00:00:00.002 DEBUG [diag explorer] iter=1 phase=toolcall call[0] tool=mcp_read_resource params={"uri":"mcp://fixture/a"}
+2026-05-24T00:00:00.003 DEBUG [diag explorer] iter=2 phase=toolcall call[0] tool=mcp_read_resource params={"uri":"mcp://fixture/b"}
+2026-05-24T00:00:00.004 DEBUG [diag explorer] iter=3 ASSISTANT content: quoted 2026-05-24T00:00:00.005 DEBUG [diag explorer] iter=4 phase=toolcall call[0] tool=mcp_read_resource params={"uri":"mcp://fixture/a"}
+LOG
+assert_eq "$(eval_count_repeated_mcp_resource_reads "$tmp/mcp-repeat-control.log")" "1" "repeated MCP resource read control count"
+
 cat >"$tmp/finalizer-content-only.log" <<'LOG'
 2026-05-24T00:00:00.000 DEBUG [diag finalizer] iter=0 ASSISTANT content: the source code contains TOOLRESULT emit_answer_document ok=false and finalizer_rewrites strings
 2026-05-24T00:00:00.001 DEBUG [diag explorer] iter=0 ASSISTANT content: 客户日志片段里有 成文校验未通过 和 ⟳ 4/4 答案待完善，正在重写
