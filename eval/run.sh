@@ -703,6 +703,14 @@ run_one() {
     extra_reasons+=("apply_exit:$rc")
   fi
 
+  local provider_blocked
+  provider_blocked="$(eval_detect_provider_blocked "$log")"
+  if [[ -n "$provider_blocked" ]]; then
+    printf 'BLOCKED_PROVIDER %s\n' "$provider_blocked" >"$verdict"
+    echo "run $i: $(cat "$verdict")" >&2
+    return
+  fi
+
   write_verdict "$verdict" "$cleaned" "${extra_reasons[@]:+${extra_reasons[@]}}"
   echo "run $i: $(cat "$verdict")" >&2
 }
@@ -726,11 +734,16 @@ SUMMARY="$OUTDIR/summary.md"
   echo "| run | result | reasons |"
   echo "|----:|--------|---------|"
   pass_count=0
+  blocked_count=0
   for i in $(seq 1 "$N"); do
     v="$(cat "$OUTDIR/run-$i.verdict")"
     if [[ "$v" == "PASS" ]]; then
       pass_count=$((pass_count + 1))
       echo "| $i | PASS | — |"
+    elif [[ "$v" == BLOCKED_PROVIDER* ]]; then
+      blocked_count=$((blocked_count + 1))
+      reason="${v#BLOCKED_PROVIDER }"
+      echo "| $i | BLOCKED_PROVIDER | $reason |"
     else
       reason="${v#FAIL }"
       echo "| $i | FAIL | $reason |"
@@ -738,6 +751,10 @@ SUMMARY="$OUTDIR/summary.md"
   done
   echo
   echo "**pass rate: $pass_count / $N**"
+  if [[ "$blocked_count" -gt 0 ]]; then
+    echo
+    echo "**provider-blocked: $blocked_count / $N**"
+  fi
   echo
 
   # Write-mode plan artifact summary. Extracts Kind / Path / Patch-len

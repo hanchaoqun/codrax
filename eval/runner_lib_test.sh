@@ -151,6 +151,17 @@ assert_eq "$(eval_count_semantic_quality_dispatches "$tmp/finalizer-content-only
 assert_eq "$(eval_count_semantic_quality_concerns "$tmp/finalizer-content-only.log")" "0" "semantic concern content contamination"
 assert_eq "$(eval_count_self_consistency_concerns "$tmp/finalizer-content-only.log")" "0" "self consistency content contamination"
 
+cat >"$tmp/provider-blocked-control.log" <<'LOG'
+2026-06-04T15:11:34.552 WARN [agent/analyzer] LLM call failed at iter=0 (LLM API error (status 402): {"type":"error","error":{"type":"insufficient_balance_error","message":"insufficient balance (1008)","http_code":"402"}})
+2026-06-04T15:11:35.000 ERROR [llm] default adapter: LLM provider is not configured, so Codrax cannot start
+LOG
+assert_eq "$(eval_detect_provider_blocked "$tmp/provider-blocked-control.log")" "insufficient_balance,provider_unconfigured" "provider blocked control classification"
+
+cat >"$tmp/provider-blocked-content-only.log" <<'LOG'
+2026-06-04T15:11:34.552 DEBUG [diag explorer] iter=0 ASSISTANT content: customer pasted "LLM API error (status 402): insufficient_balance_error"
+LOG
+assert_eq "$(eval_detect_provider_blocked "$tmp/provider-blocked-content-only.log")" "" "provider blocked content contamination"
+
 if command -v timeout >/dev/null 2>&1 ||
   command -v gtimeout >/dev/null 2>&1 ||
   command -v python3 >/dev/null 2>&1; then

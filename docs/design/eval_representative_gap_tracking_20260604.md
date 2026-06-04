@@ -119,7 +119,7 @@ views.
   - hit count greater than cap does not silently trim;
   - single-repo and explicit user focus bypass the pre-scan.
 - [x] Run focused tests and representative `mr_focus_single`.
-- [ ] Commit and push this batch.
+- [x] Commit and push this batch.
 
 Validation note: focused Go tests passed for the new routing path. The
 representative `mr_focus_single` run reached the corrected route
@@ -130,10 +130,14 @@ explicitly in the eval harness.
 
 ### Batch 2: Eval provider-blocked classification
 
-- [ ] Add eval summary classification for provider-balance/API outages.
-- [ ] Preserve raw FAIL/exit data while surfacing `BLOCKED_PROVIDER` in summary.
-- [ ] Add shell tests for verdict/summary classification.
+- [x] Add eval summary classification for provider-balance/API outages.
+- [x] Preserve raw FAIL/exit data while surfacing `BLOCKED_PROVIDER` in summary.
+- [x] Add shell tests for verdict/summary classification.
 - [ ] Commit and push this batch.
+
+Validation note: `bash eval/runner_lib_test.sh` passed. A focused
+`mr_focus_single` run against the current provider outage now reports
+`BLOCKED_PROVIDER insufficient_balance` instead of a normal product `FAIL`.
 
 ### Batch 3: MCP efficiency guardrails
 

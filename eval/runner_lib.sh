@@ -460,6 +460,45 @@ eval_count_self_consistency_concerns() {
   echo "$n"
 }
 
+eval_detect_provider_blocked() {
+  local reasons="" file
+  for file in "$@"; do
+    if [[ -z "$file" || ! -f "$file" ]]; then
+      continue
+    fi
+    # Provider-blocked is an eval classification, not product logic. Match only
+    # timestamped control-plane log lines so customer/source text that quotes an
+    # LLM error does not turn a product regression into an external outage.
+    if LC_ALL=C awk '
+      /^20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^ ]+ / &&
+      $0 !~ / DEBUG \[diag [^]]+\].*ASSISTANT content/ &&
+      $0 ~ /(LLM API error \(status 402\)|insufficient_balance_error)/ {
+        found = 1
+      }
+      END { exit found ? 0 : 1 }
+    ' "$file"; then
+      case ",$reasons," in
+        *,insufficient_balance,*) ;;
+        *) reasons="${reasons:+$reasons,}insufficient_balance" ;;
+      esac
+    fi
+    if LC_ALL=C awk '
+      /^20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^ ]+ / &&
+      $0 !~ / DEBUG \[diag [^]]+\].*ASSISTANT content/ &&
+      $0 ~ /(LLM provider is not configured|没有可用的模型 provider 配置)/ {
+        found = 1
+      }
+      END { exit found ? 0 : 1 }
+    ' "$file"; then
+      case ",$reasons," in
+        *,provider_unconfigured,*) ;;
+        *) reasons="${reasons:+$reasons,}provider_unconfigured" ;;
+      esac
+    fi
+  done
+  echo "$reasons"
+}
+
 eval_running_jobs() {
   jobs -rp | wc -l | tr -d ' '
 }
