@@ -260,12 +260,63 @@ System solution:
 
 Tasks:
 
-- [ ] Add requested-dimension visible-coverage detection for AnswerDocumentV2.
-- [ ] Wire coverage into finalizer mid-loop before the normal answer-document
+- [x] Add requested-dimension visible-coverage detection for AnswerDocumentV2.
+- [x] Wire coverage into finalizer mid-loop before the normal answer-document
   stop signal.
-- [ ] Add unit tests for missing and satisfied requested dimensions.
-- [ ] Rerun `read_combo_log_current_code_dimensions` and review the final answer
+- [x] Add unit tests for missing and satisfied requested dimensions.
+- [x] Rerun `read_combo_log_current_code_dimensions` and review the final answer
   manually.
+
+Validation:
+
+- `go test ./internal/types ./internal/context ./internal/agent ./internal/repl ./cmd` passed.
+- `read_combo_log_current_code_dimensions` focused eval passed 1/1. Manual review
+  confirmed the final visible answer preserved the requested log/source/error
+  distinction/impact/boundary dimensions instead of collapsing to only summary
+  and chain blocks.
+
+### C7. Typed External Observation Selectors Can Be Overwritten In Final Answers
+
+Findings:
+
+- A focused `mcp_typed_line` rerun after C6 showed the analyzer/explorer route
+  was now efficient (`repo_map=0`, one MCP typed observation call), but the final
+  answer rewrote the MCP typed line-12 fact. The MCP row selector said
+  `waker=helper`, while the visible answer said `worker-100` woke the target.
+
+Root cause:
+
+- The finalizer receives MCP typed rows in ObservationLedger, but the normal
+  answer-document stop condition accepts any structurally valid answer document.
+- There is no typed coverage check that preserves producer-provided external
+  observation selector values when the model also has raw resource text or
+  incidental current-source support.
+
+System solution:
+
+- Add a bounded finalizer coverage evaluator for typed external-observation
+  selectors.
+- The evaluator consumes only structured ObservationLedger records and
+  producer-provided selectors, not user prose or model-authored text.
+- Candidate sets are capped so large log/trace/resource pages do not become
+  noisy hard gates. Missing selector values trigger one repair hint; if the
+  provider still omits them, the normal finalizer budget applies.
+
+Tasks:
+
+- [x] Detect small typed external-observation selector sets in AnswerDocumentV2
+  finalization.
+- [x] Preserve informative selector values such as `waker=helper` in final
+  visible answers.
+- [x] Add unit tests for missing and satisfied MCP selector values.
+- [x] Rerun `mcp_typed_line` and review the final answer manually.
+
+Validation:
+
+- `go test ./internal/types ./internal/context ./internal/agent ./internal/repl ./cmd` passed.
+- `mcp_typed_line` focused eval passed 1/1. Manual review confirmed the visible
+  final answer preserved the typed MCP selector value (`waker=helper`) for line
+  12 instead of substituting a nearby raw-line actor.
 
 ## Delivery Batches
 
@@ -288,8 +339,10 @@ Tasks:
    - Status: implemented in code; focused tests passed; `mcp_typed_line` passed
      with analyzer repo pre-scan removed.
 
-3. **Batch 3: Requested dimension finalizer coverage**
-   - C6 implementation and focused eval rerun.
+3. **Batch 3: Finalizer typed coverage**
+   - C6 and C7 implementation.
+   - Status: implemented in code; focused tests passed; focused eval reruns
+     passed with manual answer review.
 
 4. **Batch 4: Trace role facts and eval metric cleanup**
    - C3 and G14 implementation.

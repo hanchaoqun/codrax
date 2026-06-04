@@ -140,6 +140,19 @@ type answerDocumentEvaluator struct {
 	diagramMinimum     int
 	diagramKinds       []types.DiagramKind
 	configTraceDiagram bool
+
+	// requestedDimensionCoverageHinted latches the bounded repair hint for
+	// user-requested answer dimensions. The dimensions are typed analyzer
+	// output, not free-prose intent; this hint is advisory and fires at most
+	// once per finalizer dispatch so a stubborn provider cannot loop forever.
+	requestedDimensionCoverageHinted bool
+
+	// externalObservationSelectorCoverageHinted latches a similarly bounded
+	// repair hint for typed external-observation selectors such as MCP rows.
+	// The selector is producer-provided structure, not user prose; the hint
+	// keeps final answers from replacing typed external facts with nearby
+	// source-code or raw-line reinterpretations.
+	externalObservationSelectorCoverageHinted bool
 }
 
 const (
@@ -308,6 +321,8 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	e.diagramMinimum = 0
 	e.diagramKinds = nil
 	e.configTraceDiagram = false
+	e.requestedDimensionCoverageHinted = false
+	e.externalObservationSelectorCoverageHinted = false
 	if ctx != nil {
 		e.mu = ctx.Mutable
 		e.configTraceDiagram = ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace
@@ -7232,6 +7247,12 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 		// any successful emit produces ≥1 block).
 		if e.mu != nil {
 			if docV2 := e.mu.AnswerDocumentV2(); docV2 != nil && len(docV2.Blocks) > 0 {
+				if sig := e.requestedAnswerDimensionCoverageSignal(ctx, docV2); sig.HintRequested {
+					return sig
+				}
+				if sig := e.externalObservationSelectorCoverageSignal(ctx, docV2); sig.HintRequested {
+					return sig
+				}
 				return LoopSignal{StopRequested: true, StopReason: "emit_answer_document called"}
 			}
 		}
@@ -7323,6 +7344,359 @@ func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObser
 		HintKey:        fmt.Sprintf("answer_doc.missing_document.%d", e.retriesUsed),
 		Hint:           missingAnswerDocumentHint(hasVisibleDraft),
 	}
+}
+
+func (e *answerDocumentEvaluator) requestedAnswerDimensionCoverageSignal(ctx *types.AgentContext, doc *types.AnswerDocumentV2) LoopSignal {
+	if e == nil || e.requestedDimensionCoverageHinted {
+		return LoopSignal{}
+	}
+	missing := missingRequestedAnswerDimensionsInDocument(ctx, doc)
+	if len(missing) == 0 {
+		return LoopSignal{}
+	}
+	e.requestedDimensionCoverageHinted = true
+	lang := e.language
+	if strings.TrimSpace(lang) == "" {
+		lang = extractAnswerDocLang(ctx)
+	}
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        "answer_doc.requested_dimensions",
+		Hint:           requestedAnswerDimensionCoverageHint(missing, lang),
+		Progress:       true,
+		BypassThrottle: true,
+		BypassBudget:   true,
+	}
+}
+
+func missingRequestedAnswerDimensionsInDocument(ctx *types.AgentContext, doc *types.AnswerDocumentV2) []types.RequestedAnswerDimension {
+	if ctx == nil || doc == nil || len(doc.Blocks) == 0 {
+		return nil
+	}
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if view == nil || len(view.Presentation.RequestedDimensions) == 0 {
+		return nil
+	}
+	dims := requestedDimensionsToCover(view.Presentation.RequestedDimensions)
+	if len(dims) == 0 {
+		return nil
+	}
+	visible := normalizedRequestedDimensionText(answerDocumentV2VisibleTextForDimensionCoverage(doc))
+	if visible == "" {
+		return dims
+	}
+	var missing []types.RequestedAnswerDimension
+	for _, dim := range dims {
+		if requestedDimensionCoveredByVisibleText(dim, visible) {
+			continue
+		}
+		missing = append(missing, dim)
+	}
+	return missing
+}
+
+func requestedDimensionsToCover(in []types.RequestedAnswerDimension) []types.RequestedAnswerDimension {
+	if len(in) == 0 {
+		return nil
+	}
+	hasRequired := false
+	for _, dim := range in {
+		if dim.Required {
+			hasRequired = true
+			break
+		}
+	}
+	out := make([]types.RequestedAnswerDimension, 0, len(in))
+	for _, dim := range in {
+		if strings.TrimSpace(dim.Label) == "" {
+			continue
+		}
+		if hasRequired && !dim.Required {
+			continue
+		}
+		out = append(out, dim)
+	}
+	return out
+}
+
+func requestedDimensionCoveredByVisibleText(dim types.RequestedAnswerDimension, normalizedVisible string) bool {
+	for _, candidate := range []string{dim.Label, dim.SourceQuote} {
+		needle := normalizedRequestedDimensionText(candidate)
+		if needle == "" {
+			continue
+		}
+		if strings.Contains(normalizedVisible, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func answerDocumentV2VisibleTextForDimensionCoverage(doc *types.AnswerDocumentV2) string {
+	if doc == nil {
+		return ""
+	}
+	var b strings.Builder
+	appendText := func(s string) {
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString(s)
+	}
+	for _, block := range doc.Blocks {
+		appendText(block.ID)
+		appendText(string(block.Kind))
+		appendText(block.Title)
+		appendText(block.Text)
+		for _, col := range block.Columns {
+			appendText(col)
+		}
+		for _, item := range block.Items {
+			appendText(item.ID)
+			appendText(item.Label)
+			appendText(item.Text)
+			for _, cell := range item.Cells {
+				appendText(cell)
+			}
+		}
+	}
+	for _, caveat := range doc.Caveats {
+		appendText(caveat)
+	}
+	for _, snippet := range doc.Snippets {
+		appendText(snippet.File)
+		appendText(snippet.Code)
+	}
+	return b.String()
+}
+
+func requestedAnswerDimensionCoverageHint(missing []types.RequestedAnswerDimension, lang string) string {
+	missing = requestedDimensionsSortedForHint(missing)
+	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
+	var b strings.Builder
+	if zh {
+		b.WriteString("你的 `emit_answer_document` 已经落地，但最终可见答案遗漏了本轮用户明确要求保留的答案维度。")
+		b.WriteString("请只修订答案展示面，不要重新搜索或编造没有证据的内容。")
+		b.WriteString("优先使用 `emit_answer_document_patch` 在现有答案中补小标题、表格行/列、列表标签或边界说明；如果 patch 工具不可用，再重新调用 `emit_answer_document`。\n\n")
+		b.WriteString("缺失维度：\n")
+		for _, dim := range missing {
+			index := dim.Index
+			if index <= 0 {
+				index = 1
+			}
+			fmt.Fprintf(&b, "- 第 %d 维：%s", index, strings.TrimSpace(dim.Label))
+			if dim.Role != "" && dim.Role != types.RequestedAnswerDimensionOther {
+				fmt.Fprintf(&b, " (`%s`)", dim.Role)
+			}
+			b.WriteByte('\n')
+		}
+		b.WriteString("\n保留已有结论和引用；某个维度证据不足时，在该维度下写清楚边界。不要写工具外散文。")
+		return b.String()
+	}
+	b.WriteString("Your `emit_answer_document` call landed, but the visible final answer omitted user-requested answer dimensions for this turn. ")
+	b.WriteString("Repair only the answer surface; do not re-open searches or invent unsupported content. ")
+	b.WriteString("Prefer `emit_answer_document_patch` to add headings, table rows/columns, list labels, or boundary notes to the existing answer; if the patch tool is unavailable, call `emit_answer_document` again.\n\n")
+	b.WriteString("Missing dimensions:\n")
+	for _, dim := range missing {
+		index := dim.Index
+		if index <= 0 {
+			index = 1
+		}
+		fmt.Fprintf(&b, "- Dimension %d: %s", index, strings.TrimSpace(dim.Label))
+		if dim.Role != "" && dim.Role != types.RequestedAnswerDimensionOther {
+			fmt.Fprintf(&b, " (`%s`)", dim.Role)
+		}
+		b.WriteByte('\n')
+	}
+	b.WriteString("\nPreserve existing conclusions and citations; when evidence is missing for a dimension, state that boundary under the dimension. Do not write prose outside the tool call.")
+	return b.String()
+}
+
+func requestedDimensionsSortedForHint(in []types.RequestedAnswerDimension) []types.RequestedAnswerDimension {
+	out := append([]types.RequestedAnswerDimension(nil), in...)
+	sort.SliceStable(out, func(i, j int) bool {
+		li := out[i].Index
+		lj := out[j].Index
+		if li <= 0 {
+			li = i + 1
+		}
+		if lj <= 0 {
+			lj = j + 1
+		}
+		return li < lj
+	})
+	return out
+}
+
+type externalObservationSelectorRequirement struct {
+	RecordID      string
+	Source        string
+	Span          string
+	Selector      string
+	Summary       string
+	MissingValues []string
+}
+
+var observationSelectorKVRe = regexp.MustCompile(`([A-Za-z_][A-Za-z0-9_.-]*)=("[^"]+"|'[^']+'|[^\s,;]+)`)
+
+func (e *answerDocumentEvaluator) externalObservationSelectorCoverageSignal(ctx *types.AgentContext, doc *types.AnswerDocumentV2) LoopSignal {
+	if e == nil || e.externalObservationSelectorCoverageHinted {
+		return LoopSignal{}
+	}
+	missing := missingExternalObservationSelectorFactsInDocument(ctx, doc)
+	if len(missing) == 0 {
+		return LoopSignal{}
+	}
+	e.externalObservationSelectorCoverageHinted = true
+	lang := e.language
+	if strings.TrimSpace(lang) == "" {
+		lang = extractAnswerDocLang(ctx)
+	}
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        "answer_doc.external_observation_selectors",
+		Hint:           externalObservationSelectorCoverageHint(missing, lang),
+		Progress:       true,
+		BypassThrottle: true,
+		BypassBudget:   true,
+	}
+}
+
+func missingExternalObservationSelectorFactsInDocument(ctx *types.AgentContext, doc *types.AnswerDocumentV2) []externalObservationSelectorRequirement {
+	if ctx == nil || doc == nil || len(doc.Blocks) == 0 {
+		return nil
+	}
+	candidates := externalObservationSelectorRequirements(ctx)
+	if len(candidates) == 0 {
+		return nil
+	}
+	visible := normalizedRequestedDimensionText(answerDocumentV2VisibleTextForDimensionCoverage(doc))
+	if visible == "" {
+		return candidates
+	}
+	var missing []externalObservationSelectorRequirement
+	for _, req := range candidates {
+		var missingValues []string
+		for _, value := range selectorCoverageValues(req.Selector) {
+			if strings.Contains(visible, normalizedRequestedDimensionText(value)) {
+				continue
+			}
+			missingValues = append(missingValues, value)
+		}
+		if len(missingValues) == 0 {
+			continue
+		}
+		req.MissingValues = missingValues
+		missing = append(missing, req)
+	}
+	return missing
+}
+
+func externalObservationSelectorRequirements(ctx *types.AgentContext) []externalObservationSelectorRequirement {
+	ledger := answerDocObservationLedger(ctx)
+	if ledger.Empty() {
+		return nil
+	}
+	var out []externalObservationSelectorRequirement
+	for _, record := range ledger.Records {
+		if record.SourceRef.Kind == types.ObservationSourceCurrentSource ||
+			record.SourceRef.Kind == types.ObservationSourceUnknown {
+			continue
+		}
+		selector := strings.TrimSpace(record.Span.Selector)
+		if selector == "" || len(selectorCoverageValues(selector)) == 0 {
+			continue
+		}
+		out = append(out, externalObservationSelectorRequirement{
+			RecordID: strings.TrimSpace(record.ID),
+			Source:   types.FormatObservationSourceRef(record.SourceRef, 120),
+			Span:     types.FormatObservationSpan(record.Span, 120),
+			Selector: selector,
+			Summary:  strings.TrimSpace(record.Summary),
+		})
+	}
+	const maxExternalObservationSelectorRequirements = 8
+	if len(out) > maxExternalObservationSelectorRequirements {
+		return nil
+	}
+	return out
+}
+
+func selectorCoverageValues(selector string) []string {
+	matches := observationSelectorKVRe.FindAllStringSubmatch(selector, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	var values []string
+	seen := map[string]bool{}
+	for _, match := range matches {
+		if len(match) < 3 {
+			continue
+		}
+		value := strings.Trim(strings.TrimSpace(match[2]), `"'`)
+		if !selectorCoverageValueIsInformative(value) {
+			continue
+		}
+		key := normalizedRequestedDimensionText(value)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		values = append(values, value)
+	}
+	return values
+}
+
+func selectorCoverageValueIsInformative(value string) bool {
+	value = strings.TrimSpace(value)
+	if len([]rune(value)) < 2 {
+		return false
+	}
+	hasLetter := false
+	for _, r := range value {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || r > utf8.RuneSelf {
+			hasLetter = true
+			break
+		}
+	}
+	return hasLetter
+}
+
+func externalObservationSelectorCoverageHint(missing []externalObservationSelectorRequirement, lang string) string {
+	zh := !strings.HasPrefix(strings.ToLower(strings.TrimSpace(lang)), "en")
+	var b strings.Builder
+	if zh {
+		b.WriteString("你的 `emit_answer_document` 已经落地，但最终可见答案遗漏或改写了 typed 外部观测 selector 中的关键值。")
+		b.WriteString("这些 selector 来自 MCP/connector/runtime 等外部观测生产者，是行级事实的结构化解释；不要用当前源码或 raw 行重新推断来覆盖它们。")
+		b.WriteString("请只修订答案展示面，优先使用 `emit_answer_document_patch`，保留已有结论和引用。\n\n")
+		b.WriteString("缺失的 selector 值：\n")
+		for _, req := range missing {
+			fmt.Fprintf(&b, "- `%s` %s %s selector=%q", req.RecordID, req.Source, req.Span, req.Selector)
+			if req.Summary != "" {
+				fmt.Fprintf(&b, " summary=%q", req.Summary)
+			}
+			fmt.Fprintf(&b, "；答案缺少：%s\n", strings.Join(req.MissingValues, ", "))
+		}
+		b.WriteString("\n请在对应行/资源说明中显式保留这些值；证据不足时说明边界。不要写工具外散文。")
+		return b.String()
+	}
+	b.WriteString("Your `emit_answer_document` call landed, but the visible final answer omitted or rewrote key values from typed external-observation selectors. ")
+	b.WriteString("These selectors come from MCP/connector/runtime producers and are structured line-level explanations; do not override them with current-source context or raw-line reinterpretation. ")
+	b.WriteString("Repair only the answer surface, preferably with `emit_answer_document_patch`, and preserve existing conclusions and citations.\n\n")
+	b.WriteString("Missing selector values:\n")
+	for _, req := range missing {
+		fmt.Fprintf(&b, "- `%s` %s %s selector=%q", req.RecordID, req.Source, req.Span, req.Selector)
+		if req.Summary != "" {
+			fmt.Fprintf(&b, " summary=%q", req.Summary)
+		}
+		fmt.Fprintf(&b, "; answer is missing: %s\n", strings.Join(req.MissingValues, ", "))
+	}
+	b.WriteString("\nMake those values explicit in the matching line/resource explanation; state boundaries when evidence is insufficient. Do not write prose outside the tool call.")
+	return b.String()
 }
 
 func missingAnswerDocumentHint(hasVisibleDraft bool) string {

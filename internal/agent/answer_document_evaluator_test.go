@@ -114,6 +114,173 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRequestedCandida
 	}
 }
 
+func TestAnswerDocumentEvaluator_ObserveHintsMissingRequestedDimensions(t *testing.T) {
+	mut := types.NewMutableState("说明日志线索、当前关键代码、影响和边界")
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+					IsDimensionedAnswer: true,
+					Dimensions: []types.RequestedAnswerDimension{
+						{Label: "日志线索", Role: types.RequestedAnswerDimensionEvidenceSource, Required: true, Index: 1},
+						{Label: "当前关键代码", Role: types.RequestedAnswerDimensionCurrentKeyCode, Required: true, Index: 2},
+						{Label: "影响", Role: types.RequestedAnswerDimensionImpact, Required: true, Index: 3},
+						{Label: "边界", Role: types.RequestedAnswerDimensionBoundary, Required: true, Index: 4},
+					},
+				},
+			},
+		},
+		Mutable: mut,
+	}
+	e := &answerDocumentEvaluator{}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "日志线索和当前关键代码已经说明，但还没有展开影响。",
+		}},
+	})
+
+	sig := e.Observe(ctx, LoopObservation{Phase: PhaseMidLoop})
+	if !sig.HintRequested {
+		t.Fatalf("missing requested dimensions should trigger repair hint, got %+v", sig)
+	}
+	if sig.StopRequested {
+		t.Fatalf("dimension repair hint must not stop in the same observation: %+v", sig)
+	}
+	for _, want := range []string{"边界", "answer_document_patch", "do not re-open searches"} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("hint missing %q:\n%s", want, sig.Hint)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_ObserveStopsWhenRequestedDimensionsVisible(t *testing.T) {
+	mut := types.NewMutableState("说明日志线索、当前关键代码、影响和边界")
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+					IsDimensionedAnswer: true,
+					Dimensions: []types.RequestedAnswerDimension{
+						{Label: "日志线索", Role: types.RequestedAnswerDimensionEvidenceSource, Required: true, Index: 1},
+						{Label: "当前关键代码", Role: types.RequestedAnswerDimensionCurrentKeyCode, Required: true, Index: 2},
+						{Label: "影响", Role: types.RequestedAnswerDimensionImpact, Required: true, Index: 3},
+						{Label: "边界", Role: types.RequestedAnswerDimensionBoundary, Required: true, Index: 4},
+					},
+				},
+			},
+		},
+		Mutable: mut,
+	}
+	e := &answerDocumentEvaluator{}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:    "t1",
+			Kind:  types.BlockTable,
+			Title: "维度核对",
+			Columns: []string{
+				"日志线索",
+				"当前关键代码",
+				"影响",
+				"边界",
+			},
+			Items: []types.AnswerBlockItem{{
+				ID:    "r1",
+				Cells: []string{"log", "code", "impact", "scope"},
+			}},
+		}},
+	})
+
+	sig := e.Observe(ctx, LoopObservation{Phase: PhaseMidLoop})
+	if !sig.StopRequested || sig.HintRequested {
+		t.Fatalf("complete requested dimensions should stop without hint, got %+v", sig)
+	}
+}
+
+func TestAnswerDocumentEvaluator_ObserveHintsMissingExternalObservationSelectorValue(t *testing.T) {
+	mut := types.NewMutableState("explain mcp line 12")
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentExplain}},
+		Mutable:    mut,
+		MCPResponses: []types.MCPResponse{{
+			ServerName:  "fixture",
+			Method:      "tools/call:lookup_trace_fact",
+			Success:     true,
+			ResourceURI: "mcp://fixture/trace/sleep-wakeup",
+			MIMEType:    "application/vnd.codrax.observation+json",
+			Observations: []types.MCPTypedObservation{{
+				Summary:     "helper wakes target",
+				ResourceURI: "mcp://fixture/trace/sleep-wakeup",
+				LineStart:   12,
+				LineEnd:     12,
+				Selector:    "pid=4242 event=sched_wakeup waker=helper",
+				RawRef:      "mcp://fixture/trace/sleep-wakeup#L12",
+			}},
+		}},
+	}
+	e := &answerDocumentEvaluator{}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "line 12 是 sched_wakeup，worker-100 唤醒 pid=4242。",
+		}},
+	})
+
+	sig := e.Observe(ctx, LoopObservation{Phase: PhaseMidLoop})
+	if !sig.HintRequested {
+		t.Fatalf("missing external selector value should trigger repair hint, got %+v", sig)
+	}
+	for _, want := range []string{"waker=helper", "helper", "mcp://fixture/trace/sleep-wakeup"} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("selector hint missing %q:\n%s", want, sig.Hint)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_ObserveStopsWhenExternalObservationSelectorValueVisible(t *testing.T) {
+	mut := types.NewMutableState("explain mcp line 12")
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{Intent: types.IntentExplain}},
+		Mutable:    mut,
+		MCPResponses: []types.MCPResponse{{
+			ServerName:  "fixture",
+			Method:      "tools/call:lookup_trace_fact",
+			Success:     true,
+			ResourceURI: "mcp://fixture/trace/sleep-wakeup",
+			MIMEType:    "application/vnd.codrax.observation+json",
+			Observations: []types.MCPTypedObservation{{
+				Summary:     "helper wakes target",
+				ResourceURI: "mcp://fixture/trace/sleep-wakeup",
+				LineStart:   12,
+				LineEnd:     12,
+				Selector:    "pid=4242 event=sched_wakeup waker=helper",
+				RawRef:      "mcp://fixture/trace/sleep-wakeup#L12",
+			}},
+		}},
+	}
+	e := &answerDocumentEvaluator{}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	mut.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		Blocks: []types.AnswerBlock{{
+			ID:   "s1",
+			Kind: types.BlockSummary,
+			Text: "line 12 是 sched_wakeup，helper 唤醒 pid=4242。",
+		}},
+	})
+
+	sig := e.Observe(ctx, LoopObservation{Phase: PhaseMidLoop})
+	if !sig.StopRequested || sig.HintRequested {
+		t.Fatalf("complete external selector values should stop without hint, got %+v", sig)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_ExclusionPolicyHidesConcreteCandidates(t *testing.T) {
 	mut := types.NewMutableState("list public symbols")
 	mut.SetInvestigationAggregateFacts([]types.AnswerAggregateFact{{
