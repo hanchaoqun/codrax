@@ -659,6 +659,9 @@ func (o *Orchestrator) runWriteExplorationSubflow() (int, error) {
 	if req == nil {
 		return 0, nil
 	}
+	if !shouldRunWriteExplorationSubflow(*req) {
+		return 0, nil
+	}
 	if existing := o.busCtx.Mutable.WriteExplorationHandoff(); existing != nil {
 		return 0, nil
 	}
@@ -671,6 +674,41 @@ func (o *Orchestrator) runWriteExplorationSubflow() (int, error) {
 		return 0, nil
 	}
 	return 1, nil
+}
+
+func shouldRunWriteExplorationSubflow(req types.WriteExplorationRequest) bool {
+	req = types.NormalizeWriteExplorationRequest(req)
+	if req.Goal == "" && len(req.ExplorationQuestions) == 0 && len(req.CandidatePaths) == 0 {
+		return false
+	}
+	batchID := req.BatchID
+	if batchID == "" {
+		batchID = "batch-1"
+	}
+	goal := req.Goal
+	if goal == "" && len(req.ExplorationQuestions) > 0 {
+		goal = req.ExplorationQuestions[0]
+	}
+	batch := writeflow.NormalizeBatchPlan(writeflow.WriteBatchPlan{
+		ID:                   batchID,
+		Goal:                 goal,
+		Status:               writeflow.BatchNeedsExploration,
+		NeedsCodeExploration: true,
+		ExploreTargets:       append([]string(nil), req.CandidatePaths...),
+		SuccessCriteria:      append([]string(nil), req.EvidenceRequirements...),
+	})
+	evaluation := writeflow.EvaluateWriteWorkflow(writeflow.EvaluationInput{
+		Workflow: writeflow.WriteWorkflowPlan{
+			Goal:            goal,
+			Status:          writeflow.WorkflowInProgress,
+			SuccessCriteria: append([]string(nil), req.EvidenceRequirements...),
+			NextBatch:       &batch,
+		},
+		Batch:            &batch,
+		RiskAssessment:   writeflow.RiskAssessment{Level: writeflow.RiskLow},
+		ApprovalDecision: writeflow.ApprovalDecision{Action: writeflow.ApprovalActionAutoExecute, Policy: writeflow.ApprovalPolicyAutoSafe},
+	})
+	return evaluation.Status == writeflow.EvalContinueExplore
 }
 
 func (o *Orchestrator) projectWriteExplorationHandoffFromTurnA() {

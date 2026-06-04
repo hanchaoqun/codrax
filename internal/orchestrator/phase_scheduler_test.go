@@ -292,6 +292,19 @@ func TestProjectWriteExplorationHandoffFromTurnARequiresRequestAndArtifacts(t *t
 	}
 }
 
+func TestShouldRunWriteExplorationSubflowUsesTypedEvaluator(t *testing.T) {
+	if shouldRunWriteExplorationSubflow(types.WriteExplorationRequest{}) {
+		t.Fatal("empty request must not run exploration")
+	}
+	if !shouldRunWriteExplorationSubflow(types.WriteExplorationRequest{
+		BatchID:        "batch-1",
+		Goal:           "inspect planner",
+		CandidatePaths: []string{"internal/agent/planner.go"},
+	}) {
+		t.Fatal("valid typed request should continue_explore")
+	}
+}
+
 func TestEvaluateWritePhaseWorkflow_ContinueThenComplete(t *testing.T) {
 	mu := types.NewMutableState("two phase write")
 	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{

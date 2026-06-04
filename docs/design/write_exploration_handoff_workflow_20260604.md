@@ -212,7 +212,8 @@ hint rather than failing silently.
 
 ### Batch 6: Evaluator Front-Loading
 
-- [ ] Evaluate before each batch whether to explore, plan, ask, block, or stop.
+- [x] Evaluate before exploration adapter dispatch whether the current typed
+      request should `continue_explore`.
 - [ ] Record evaluation snapshots at every batch boundary.
 - [ ] Preserve current approval semantics: low/medium auto under
       `auto_safe`, high manual, critical deny.
