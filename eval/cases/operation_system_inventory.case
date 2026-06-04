@@ -1,0 +1,7 @@
+ID="operation_system_inventory"
+NAME="operation — local system inventory"
+QUESTION="请通过电脑操作查询当前操作系统、CPU 核心数、内存大小和 GPU/显卡信息，并给出简洁报告。"
+EXPECT_MATCHES_REGEX="(操作系统|OS|macOS|Linux|Windows)
+(CPU|核心|core)
+(内存|memory|RAM)
+(GPU|显卡|graphics)"

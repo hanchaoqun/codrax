@@ -1,0 +1,6 @@
+ID="operation_web_manual_summary"
+NAME="operation — web manual retrieval and summary"
+QUESTION="读取 http://codrax.net/ 这个网站上的用户使用手册，说明上面提到的软件怎么使用；如果页面内容较长，请分页或提取正文后再总结。"
+EXPECT_MATCHES_REGEX="(用户使用手册|manual|guide)
+(使用|配置|启动|命令|REPL)
+(http://codrax.net|codrax.net)"

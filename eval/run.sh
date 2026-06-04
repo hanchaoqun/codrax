@@ -139,6 +139,10 @@ fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+CODRAX_PROVIDER_ARGS=()
+if [[ -f "$ROOT/providers.yaml" ]]; then
+  CODRAX_PROVIDER_ARGS=(--providers "$ROOT/providers.yaml")
+fi
 if [[ -n "$SETTINGS" && ! -f "$SETTINGS" ]]; then
   echo "case SETTINGS file not found: $SETTINGS" >&2
   exit 2
@@ -269,7 +273,7 @@ run_read_step() {
   fi
   if [[ ${#attach_args[@]} -gt 0 ]]; then
     if [[ -n "$FOCUS" ]]; then
-      "$CODRAX_BIN" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
+      "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
         --log-level debug \
         --log-dir "$logdir" \
         "${attach_args[@]}" \
@@ -277,7 +281,7 @@ run_read_step() {
         --request "$QUESTION" \
         >"$out" 2>&1
     else
-      "$CODRAX_BIN" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
+      "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
         --log-level debug \
         --log-dir "$logdir" \
         "${attach_args[@]}" \
@@ -286,14 +290,14 @@ run_read_step() {
     fi
   else
     if [[ -n "$FOCUS" ]]; then
-      "$CODRAX_BIN" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
+      "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
         --log-level debug \
         --log-dir "$logdir" \
         --focus "$FOCUS" \
         --request "$QUESTION" \
         >"$out" 2>&1
     else
-      "$CODRAX_BIN" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
+      "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$repo_arg" --branch main --pipeline-max-steps 15 \
         --log-level debug \
         --log-dir "$logdir" \
         --request "$QUESTION" \
@@ -305,7 +309,7 @@ run_read_step() {
 run_plan_step() {
   local i="$1" out="$2" logdir="$3" scratch="$4" plan="$5"
   echo "=== plan step (run $i) ===" >"$out"
-  "$CODRAX_BIN" --repo "$scratch" --branch main --pipeline-max-steps 15 \
+  "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$scratch" --branch main --pipeline-max-steps 15 \
     --mode=plan --plan-out "$plan" \
     --log-level debug \
     --log-dir "$logdir" \
@@ -317,7 +321,7 @@ run_apply_step() {
   local i="$1" out="$2" logdir="$3" scratch="$4" plan="$5"
   echo "" >>"$out"
   echo "=== apply step (run $i) ===" >>"$out"
-  "$CODRAX_BIN" --repo "$scratch" --branch main --pipeline-max-steps 15 \
+  "$CODRAX_BIN" "${CODRAX_PROVIDER_ARGS[@]}" --repo "$scratch" --branch main --pipeline-max-steps 15 \
     --mode=apply --plan-file "$plan" --auto-apply \
     --log-level debug \
     --log-dir "$logdir" \

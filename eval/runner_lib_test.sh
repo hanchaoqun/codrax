@@ -162,6 +162,7 @@ assert_eq "$(eval_count_self_consistency_concerns "$tmp/finalizer-content-only.l
 cat >"$tmp/provider-blocked-control.log" <<'LOG'
 2026-06-04T15:11:34.552 WARN [agent/analyzer] LLM call failed at iter=0 (LLM API error (status 402): {"type":"error","error":{"type":"insufficient_balance_error","message":"insufficient balance (1008)","http_code":"402"}})
 2026-06-04T15:11:35.000 ERROR [llm] default adapter: LLM provider is not configured, so Codrax cannot start
+2026-06-04T15:11:36.000 ERROR [llm] default adapter: providers.yaml: llm.default.provider is required
 LOG
 assert_eq "$(eval_detect_provider_blocked "$tmp/provider-blocked-control.log")" "insufficient_balance,provider_unconfigured" "provider blocked control classification"
 

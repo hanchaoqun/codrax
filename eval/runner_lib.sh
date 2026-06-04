@@ -514,7 +514,7 @@ eval_detect_provider_blocked() {
     if LC_ALL=C awk '
       /^20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[^ ]+ / &&
       $0 !~ / DEBUG \[diag [^]]+\].*ASSISTANT content/ &&
-      $0 ~ /(LLM provider is not configured|没有可用的模型 provider 配置)/ {
+      $0 ~ /(LLM provider is not configured|没有可用的模型 provider 配置|providers\.yaml: llm\.default\.provider is required)/ {
         found = 1
       }
       END { exit found ? 0 : 1 }
