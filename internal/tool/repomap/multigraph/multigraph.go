@@ -1279,8 +1279,14 @@ type RoutingInputs struct {
 	// unrelated sub-repos through fallback.
 	StrictFocus bool
 
+	// ExactPrescanSlugs are sub-repos with exact request-literal hits in
+	// source/config-like files. Channel P — precise enough to beat the
+	// model selector, but still only a routing signal. Explorer must read
+	// or grep the selected files before using the fact in an answer.
+	ExactPrescanSlugs []string
+
 	// ModelRecommendedSlugs are the typed output of the multi-repo focus
-	// selector. Channel M — chosen after precise B/C signals and before
+	// selector. Channel M — chosen after precise B/C/P signals and before
 	// noisy language/fallback channels. Callers that want to honor the
 	// model selection exactly should also set DisableFallback.
 	ModelRecommendedSlugs []string
@@ -1309,13 +1315,13 @@ type RoutingInputs struct {
 // PendingSubRepoNames in BusContext).
 type RoutingDecision struct {
 	Active       []string
-	Reasons      map[string]string // slug → "A"|"B"|"C"|"D"|"E"
+	Reasons      map[string]string // slug → "A"|"B"|"C"|"P"|"M"|"D"|"E"
 	Inactive     []string
 	OverflowDrop []string // slugs that channels B/C wanted but cap excluded
 }
 
 // RouteActiveSet folds the inputs into an Active slug list bounded
-// by Cap. Channel priority A > B > C > M > D > E. Pre-trim guarantees
+// by Cap. Channel priority A > B > C > P > M > D > E. Pre-trim guarantees
 // EnsureMany never returns ErrTooManyActive on the fold's output —
 // the cap fail-loud is a defense-in-depth.
 //
@@ -1401,6 +1407,10 @@ func (m *MultiGraph) RouteActiveSet(inputs RoutingInputs) RoutingDecision {
 			addUnique(sr.Slug, "C")
 		}
 	}
+	// P — exact request-literal pre-scan hits.
+	for _, slug := range inputs.ExactPrescanSlugs {
+		addUnique(slug, "P")
+	}
 	// M — typed model selector recommendations.
 	for _, slug := range inputs.ModelRecommendedSlugs {
 		addUnique(slug, "M")
@@ -1474,6 +1484,7 @@ func (m *MultiGraph) RouteActiveSet(inputs RoutingInputs) RoutingDecision {
 	}
 	addRest("B")
 	addRest("C")
+	addRest("P")
 	addRest("M")
 	addRest("D")
 	addRest("E")

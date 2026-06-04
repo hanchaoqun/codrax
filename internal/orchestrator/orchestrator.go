@@ -1690,14 +1690,23 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			inputs.DisableFallback = true
 			o.busCtx.MultiRepoFocusDecision = multiRepoFocusDecisionForSlugs(mg, focusSlugs, types.MultiRepoFocusSourceUserPinned, 1.0, "user-pinned focus")
 		} else {
-			if dec := o.trySelectMultiRepoFocus(mg); dec != nil && dec.Confidence >= 0.35 {
+			if dec := tryExactMultiRepoFocus(mg, request); dec != nil {
 				if slugs := multiRepoFocusDecisionSlugs(mg, dec); len(slugs) > 0 {
-					inputs.ModelRecommendedSlugs = slugs
+					inputs.ExactPrescanSlugs = slugs
 					inputs.DisableFallback = true
 					o.busCtx.MultiRepoFocusDecision = dec
 				}
 			}
-			if len(inputs.ModelRecommendedSlugs) == 0 {
+			if len(inputs.ExactPrescanSlugs) == 0 {
+				if dec := o.trySelectMultiRepoFocus(mg); dec != nil && dec.Confidence >= 0.35 {
+					if slugs := multiRepoFocusDecisionSlugs(mg, dec); len(slugs) > 0 {
+						inputs.ModelRecommendedSlugs = slugs
+						inputs.DisableFallback = true
+						o.busCtx.MultiRepoFocusDecision = dec
+					}
+				}
+			}
+			if len(inputs.ExactPrescanSlugs) == 0 && len(inputs.ModelRecommendedSlugs) == 0 {
 				inputs.QueryLanguages = inferQueryLanguages(request)
 				o.busCtx.MultiRepoFocusDecision = &types.MultiRepoFocusDecision{
 					Source:    types.MultiRepoFocusSourceFallbackPreview,

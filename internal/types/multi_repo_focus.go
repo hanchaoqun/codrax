@@ -10,6 +10,7 @@ const (
 	MultiRepoFocusSourceUnknown               MultiRepoFocusSource = ""
 	MultiRepoFocusSourceUserPinned            MultiRepoFocusSource = "user_pinned"
 	MultiRepoFocusSourceUserExplicitInRequest MultiRepoFocusSource = "user_explicit_in_request"
+	MultiRepoFocusSourceExactPrescan          MultiRepoFocusSource = "exact_prescan"
 	MultiRepoFocusSourceModelRecommended      MultiRepoFocusSource = "model_recommended"
 	MultiRepoFocusSourceFallbackPreview       MultiRepoFocusSource = "fallback_preview"
 )

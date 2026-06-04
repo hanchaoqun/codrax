@@ -4859,6 +4859,8 @@ func formatMultiRepoFocusSourceNote(decision *types.MultiRepoFocusDecision) stri
 		return "Scope source: the user explicitly pinned these sub-repos; do not add other sub-repos unless the user changes focus."
 	case types.MultiRepoFocusSourceUserExplicitInRequest:
 		return "Scope source: the current request explicitly named these sub-repos/paths and they resolved exactly in the workspace topology."
+	case types.MultiRepoFocusSourceExactPrescan:
+		return "Scope source: selected by an exact literal pre-scan across sub-repo source/config files."
 	case types.MultiRepoFocusSourceModelRecommended:
 		return "Scope source: selected from a compact workspace-topology pre-scan for this question."
 	case types.MultiRepoFocusSourceFallbackPreview:

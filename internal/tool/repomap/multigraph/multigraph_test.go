@@ -773,6 +773,29 @@ func TestMultiGraph_RouteActiveSet_ModelRecommendationNoFallback(t *testing.T) {
 	}
 }
 
+func TestMultiGraph_RouteActiveSet_ExactPrescanBeatsModelRecommendation(t *testing.T) {
+	build := func(root, _ string) (*rmtypes.Graph, error) {
+		return makeGraph(root, []string{"x.go"}, nil), nil
+	}
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "a", RootAbs: "/parent/a", RootRel: "a", FileCount: 500},
+		{Slug: "b", RootAbs: "/parent/b", RootRel: "b", FileCount: 50},
+		{Slug: "c", RootAbs: "/parent/c", RootRel: "c", FileCount: 400},
+	})
+	mg, _ := New(Config{Topology: topo, Build: build, Cap: 1})
+	dec := mg.RouteActiveSet(RoutingInputs{
+		ExactPrescanSlugs:     []string{"c"},
+		ModelRecommendedSlugs: []string{"b"},
+		DisableFallback:       true,
+	})
+	if len(dec.Active) != 1 || dec.Active[0] != "c" {
+		t.Fatalf("exact pre-scan should beat model recommendation under cap, got %v", dec.Active)
+	}
+	if dec.Reasons["c"] != "P" {
+		t.Fatalf("expected reason P for exact pre-scan, got %q", dec.Reasons["c"])
+	}
+}
+
 func TestMultiGraph_RouteActiveSet_RequiredFiles(t *testing.T) {
 	build := func(root, _ string) (*rmtypes.Graph, error) {
 		return makeGraph(root, []string{"x.go"}, nil), nil
