@@ -1,0 +1,18 @@
+# T11 Explorer Convergence Audit
+
+- date: 2026-05-24T12:20:58Z
+- sweep_start_ts: 20260524-201412
+- cases: 1
+- runs_per_case: 1
+- parallel: 1
+- results_root: eval/results
+
+This report is advisory. It helps decide whether a typed runtime fix is justified; it must not be interpreted as permission to override a model answer that is fully supported by evidence.
+
+| case | verdict | ana_it | exp_it | exp_disp | midloop | sibling_skip | origin_block | fin_it | fin_reject | fin_rewrite | sem | flags |
+|------|---------|-------:|-------:|---------:|--------:|-------------:|-------------:|-------:|-----------:|------------:|----:|-------|
+| u7k | FAIL | 3 | 36 | 0 | 16 | 0 | 0 | 1 | 0 | 0 | 0 | verdict explorer_long |
+
+**flagged: 1 / 1**
+
+Flag meanings: `finalizer` = finalizer took multiple turns or had document/patch rejects/rewrite renders; `explorer_long` = multiple explorer dispatches or very high explorer iterations; `lane_wait` = typed mixed-origin closure correctly waited for missing lanes; `semantic` = semantic reviewer emitted concerns.
