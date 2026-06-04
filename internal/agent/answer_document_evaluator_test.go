@@ -6209,6 +6209,58 @@ func TestAnswerDocumentEvaluator_ParseOutput_DoesNotAppendStageBindingWithoutGro
 	}
 }
 
+func TestAnswerDocumentEvaluator_ParseOutput_AppendsStageBindingForRequestedWorkflowDimension(t *testing.T) {
+	repo := t.TempDir()
+	writeStageBindingFixture(t, repo)
+	mu := types.NewMutableState("")
+	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{
+		DocumentModel: "v2",
+		Blocks: []types.AnswerBlock{{
+			ID:          "summary",
+			Kind:        types.BlockSummary,
+			SurfaceRole: types.SurfacePrincipal,
+			Text:        "模型成文已经解释了 read-mode pipeline，但压缩了中间阶段。",
+		}},
+		Citations: []types.Citation{{
+			File: "internal/orchestrator/orchestrator.go",
+			Line: 1536,
+		}},
+	})
+	ctx := &types.AgentContext{
+		RepoRoot: repo,
+		Mutable:  mu,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			RequestedAnswerDimensions: &types.RequestedAnswerDimensionProfile{
+				IsDimensionedAnswer: true,
+				Dimensions: []types.RequestedAnswerDimension{{
+					Index:       1,
+					Label:       "每个 stage 的输入、输出和主要状态载体",
+					SourceQuote: "每个 stage 的输入、输出和主要状态载体",
+					Required:    true,
+					Role:        types.RequestedAnswerDimensionStageWorkflow,
+				}},
+				Confidence: 0.9,
+			},
+		}},
+	}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	for _, want := range []string{
+		"系统补充：阶段绑定核对",
+		"`StageExplore` (`explore`)",
+		"`AgentExplorer` (`explorer`)",
+		"`StageExtract` (`extract`)",
+		"`AgentExtractor` (`extractor`)",
+	} {
+		if !strings.Contains(out.FinalAnswer, want) {
+			t.Fatalf("final answer missing %q:\n%s", want, out.FinalAnswer)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_ParseOutput_AppendsRequestedDimensionSourceQuotes(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetAnswerDocumentV2WithMutation(types.MutationReplaceAll, &types.AnswerDocumentV2{

@@ -9602,7 +9602,7 @@ func renderVerifiedStageBindingSupplement(ctx *types.AgentContext, doc *types.An
 }
 
 func verifiedReadModeStageBindingRows(ctx *types.AgentContext, doc *types.AnswerDocumentV2) []verifiedStageBindingRow {
-	if !answerDocumentHasStageBindingSource(ctx, doc) {
+	if !answerDocumentCanUseStageBindingAuthority(ctx, doc) {
 		return nil
 	}
 	root := ""
@@ -9637,6 +9637,16 @@ func verifiedReadModeStageBindingRows(ctx *types.AgentContext, doc *types.Answer
 	return rows
 }
 
+func answerDocumentCanUseStageBindingAuthority(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
+	if answerDocumentHasStageBindingSource(ctx, doc) {
+		return true
+	}
+	if !answerDocumentHasStageWorkflowRequestedDimension(ctx) {
+		return false
+	}
+	return answerDocumentHasPipelineStageAuthoritySource(ctx, doc)
+}
+
 func verifiedStageBindingLine(lines []string, want verifiedStageBindingRow) int {
 	for i, line := range lines {
 		if strings.Contains(line, want.StageIdent) &&
@@ -9659,6 +9669,45 @@ func answerDocumentHasStageBindingSource(ctx *types.AgentContext, doc *types.Ans
 	}
 	for _, item := range answerDocumentAuthorityEvidencePool(ctx) {
 		if normalizedStageBindingSourcePath(item.Source) == sourceRel && item.LineStart > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func answerDocumentHasStageWorkflowRequestedDimension(ctx *types.AgentContext) bool {
+	view := types.BuildAnswerSemanticViewForAgentContext(ctx)
+	if view == nil {
+		return false
+	}
+	for _, dim := range view.Presentation.RequestedDimensions {
+		if dim.Role == types.RequestedAnswerDimensionStageWorkflow {
+			return true
+		}
+	}
+	return false
+}
+
+func answerDocumentHasPipelineStageAuthoritySource(ctx *types.AgentContext, doc *types.AnswerDocumentV2) bool {
+	isAuthority := func(path string) bool {
+		switch normalizedStageBindingSourcePath(path) {
+		case "internal/types/stage_binding.go",
+			"internal/orchestrator/topology.go",
+			"internal/orchestrator/orchestrator.go":
+			return true
+		default:
+			return false
+		}
+	}
+	if doc != nil {
+		for _, cit := range doc.Citations {
+			if isAuthority(cit.File) && cit.Line > 0 {
+				return true
+			}
+		}
+	}
+	for _, item := range answerDocumentAuthorityEvidencePool(ctx) {
+		if isAuthority(item.Source) && item.LineStart > 0 {
 			return true
 		}
 	}

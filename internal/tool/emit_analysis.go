@@ -565,7 +565,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"requested_answer_dimensions": map[string]any{
 				"type":        "object",
-				"description": "Optional soft typed profile for visible answer dimensions the CURRENT request explicitly asks the final answer to preserve, such as diff clues, current key code, purpose/function, impact, comparison axes, evidence source, or boundary notes. This is presentation guidance only, not an evidence origin and not a hard validation gate.",
+				"description": "Optional soft typed profile for visible answer dimensions the CURRENT request explicitly asks the final answer to preserve, such as diff clues, current key code, purpose/function, impact, comparison axes, evidence source, boundary notes, stage/workflow tables, or diagram/table surfaces. This is presentation guidance only, not an evidence origin and not a hard validation gate.",
 				"properties": map[string]any{
 					"is_dimensioned_answer": map[string]any{"type": "boolean", "description": "True when the user explicitly asks the answer to cover named visible dimensions; false otherwise."},
 					"dimensions": map[string]any{
@@ -574,7 +574,7 @@ func buildEmitAnalysisSchema() {
 						"items": map[string]any{
 							"type": "object",
 							"properties": map[string]any{
-								"label":        map[string]any{"type": "string", "description": "User-facing dimension label, preferably copied from the current request, such as `diff 线索`, `当前关键代码`, `作用`, or `影响`."},
+								"label":        map[string]any{"type": "string", "description": "User-facing dimension label, preferably copied from the current request, such as `diff 线索`, `当前关键代码`, `作用`, `影响`, `阶段表`, or `sequenceDiagram`."},
 								"role":         map[string]any{"type": "string", "enum": requestedAnswerDimensionRoleValues(), "description": "Language-neutral dimension role."},
 								"source_quote": map[string]any{"type": "string", "description": "Verbatim current-request phrase that states this dimension. If the label itself is verbatim, reuse it."},
 								"required":     map[string]any{"type": "boolean", "description": "True for dimensions the user directly requested; false for optional stylistic preferences."},

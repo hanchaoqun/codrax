@@ -19,6 +19,7 @@ const (
 	RequestedAnswerDimensionComparisonAxis    RequestedAnswerDimensionRole = "comparison_axis"
 	RequestedAnswerDimensionEvidenceSource    RequestedAnswerDimensionRole = "evidence_source"
 	RequestedAnswerDimensionBoundary          RequestedAnswerDimensionRole = "boundary"
+	RequestedAnswerDimensionStageWorkflow     RequestedAnswerDimensionRole = "stage_or_workflow"
 	RequestedAnswerDimensionOther             RequestedAnswerDimensionRole = "other"
 )
 
@@ -31,6 +32,7 @@ func AllRequestedAnswerDimensionRoles() []RequestedAnswerDimensionRole {
 		RequestedAnswerDimensionComparisonAxis,
 		RequestedAnswerDimensionEvidenceSource,
 		RequestedAnswerDimensionBoundary,
+		RequestedAnswerDimensionStageWorkflow,
 		RequestedAnswerDimensionOther,
 	}
 }
