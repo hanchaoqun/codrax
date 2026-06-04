@@ -215,8 +215,8 @@ hint rather than failing silently.
 
 - [x] Evaluate before exploration adapter dispatch whether the current typed
       request should `continue_explore`.
-- [ ] Record evaluation snapshots at every batch boundary.
-- [ ] Preserve current approval semantics: low/medium auto under
+- [x] Record evaluation snapshots at every batch boundary.
+- [x] Preserve current approval semantics: low/medium auto under
       `auto_safe`, high manual, critical deny.
 
 ### Batch 7: Review / Security Lanes
@@ -229,14 +229,15 @@ hint rather than failing silently.
 - [x] Add exact content-level private-key material detection to write risk.
 - [ ] Add broader content-level security scan lane for dependency/workflow
       payloads, permission-policy changes, and suspicious generated payloads.
-- [ ] Feed typed results into write risk and final workflow evaluation.
+- [x] Feed deterministic typed risk/security results into write risk and
+      workflow evaluation through `RiskAssessment` / `ApprovalDecision`.
 
 ### Batch 8: Regression Coverage
 
-- [ ] Read-mode byte-preservation snapshot.
-- [ ] Planner handoff prompt snapshot.
-- [ ] Verify-failure re-explore decision fixture.
-- [ ] Approval policy regression fixtures.
+- [x] Read-mode byte-preservation snapshot.
+- [x] Planner handoff prompt snapshot.
+- [x] Verify-failure re-explore decision fixture.
+- [x] Approval policy regression fixtures.
 - [ ] End-to-end write eval with exploration handoff, small batch change,
       tests, and final report.
 
@@ -257,6 +258,6 @@ When customers explicitly enable write mode:
 - worktree, plan, report, and evaluation snapshots remain auditable
 - no automatic merge into the main branch
 
-Do not market write mode as fully autonomous until exploration handoff,
-front-loaded evaluation, independent review, and security scan lanes have
-real tests and eval coverage.
+Do not market write mode as fully autonomous until the remaining broad content
+security scan lane and a real end-to-end write eval have shipped with stable
+coverage.

@@ -67,6 +67,30 @@ func TestEvaluateWriteWorkflowVerifyFailureContinuesPlan(t *testing.T) {
 	}
 }
 
+func TestEvaluateWriteWorkflowVerifyFailureCanReExploreTypedBatch(t *testing.T) {
+	batch := &WriteBatchPlan{
+		ID:                   "batch-repair",
+		Goal:                 "inspect failing API contract",
+		Status:               BatchNeedsExploration,
+		NeedsCodeExploration: true,
+	}
+	got := EvaluateWriteWorkflow(EvaluationInput{
+		Workflow: WriteWorkflowPlan{
+			Goal:            "fix regression",
+			SuccessCriteria: []string{"failing test passes"},
+			Status:          WorkflowInProgress,
+			NextBatch:       batch,
+		},
+		Batch:            batch,
+		Plan:             &types.ChangePlan{Status: types.PlanStatusVerifyFailed},
+		RiskAssessment:   RiskAssessment{Level: RiskMedium},
+		ApprovalDecision: ApprovalDecision{Action: ApprovalActionAutoExecute},
+	})
+	if got.Status != EvalContinueExplore || got.ReasonCode != "batch_needs_exploration" || got.NextBatchID != "batch-repair" {
+		t.Fatalf("evaluation = %+v; want batch_needs_exploration continue_explore for batch-repair", got)
+	}
+}
+
 func TestEvaluateWriteWorkflowUnverifiedContinuesPlan(t *testing.T) {
 	got := EvaluateWriteWorkflow(EvaluationInput{
 		Workflow: WriteWorkflowPlan{
