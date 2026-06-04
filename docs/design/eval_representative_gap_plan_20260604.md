@@ -7,6 +7,25 @@ Source run:
 - `docs/design/eval_representative_run_20260604_152306.md`
 - `eval/results/representative-p2-20260604-154448`
 
+Additional randomized representative sweep:
+
+- Ran in batches of two on 2026-06-04 with manual answer review.
+- Covered code analysis, runtime log/trace observations, mixed
+  external+source analysis, multi-repo, operation, and write-mode cases.
+- Sampled cases:
+  - `qf_config_precedence`
+  - `mr_cross_repo_compare`
+  - `logtri_java`
+  - `trace_query_donghu_mixed_platform`
+  - `read_combo_log_current_code_dimensions`
+  - `read_combo_trace_current_code_boundary`
+  - `operation_web_manual_summary`
+  - `patch_python_typo`
+  - `mcp_typed_line`
+  - `patch_go_typo`
+  - `qf_architecture`
+  - `trace_query_frame_timeline_flow`
+
 This document turns the representative eval findings into code-grounded root
 cause analysis and a generic delivery plan. It intentionally separates eval
 assertion gaps from product gaps, because treating a correct answer as a product
@@ -365,6 +384,281 @@ Generic solution:
   precise instruction to move JSON members into typed step fields.
 - Keep this scoped to operation command plans. It must not affect source
   analysis, trace/log analysis, write mode, or eval assertion matching.
+
+### G9. Mixed log+current-source questions can lose the current-source lane
+
+Observed in sweep:
+
+- `eval/results/read_combo_log_current_code_dimensions-20260604-174648`
+- Automated verdict: `FAIL`
+- Manual finding: the final answer explained the log-only facts, but did not
+  cite current source code even though the user explicitly requested "当前关键代码".
+
+Root cause:
+
+- The request contained two separate constraints:
+  - do not treat attached log line numbers as current-source citations;
+  - also explain the current key code.
+- The analyzer/model collapsed the first constraint into
+  `external_observation_policy.current_source_mode=exclude`, and the explorer
+  then followed the runtime-artifact-only lane instead of reading current code.
+- This is not a keyword problem. It is a typed-policy conflict problem:
+  "do not re-anchor external observation lines to source" is different from
+  "do not inspect current source".
+
+Code evidence:
+
+- `internal/tool/emit_analysis.go` exposes only
+  `external_observation_policy.current_source_mode` for this surface. Its schema
+  says `exclude` suppresses current-source exploration, and
+  `parseExternalObservationPolicy` returns only `CurrentSourceMode`,
+  `SourceQuotes`, `Confidence`, and `Rationale`.
+- `internal/skill/analysis_contract.go` correctly teaches that external
+  observations default to mixed external + current-source analysis, but there is
+  no separate field for "external artifact line numbers are not current-source
+  citations".
+- The current type in `internal/types/external_observation_source_policy.go`
+  therefore cannot express the observed request without overloading
+  `current_source_mode`.
+
+Generic solution:
+
+- Split the external-observation policy into two orthogonal typed fields:
+  - `artifact_citation_policy`: whether external artifact line numbers may be
+    rendered as source citations;
+  - `current_source_lane`: required / optional / excluded.
+- A user instruction like "不要把日志行当成当前源码引用" should set only the
+  artifact-citation policy. It should not exclude current source when
+  `current_source_explanation_profile.Active()` or requested answer dimensions
+  include current code.
+- Hard gates should consume these two fields separately:
+  - artifact line refs satisfy external-observation claims;
+  - current-source claims still require actual current-source evidence.
+- Add regression cases for:
+  - external log only, no current-source request;
+  - external log + current-source explanation;
+  - external log + explicit "不要分析源码".
+
+### G10. Explicit MCP fixture requests can be misrouted into command operation
+
+Observed in sweep:
+
+- `eval/results/mcp_typed_line-20260604-175428`
+- Automated verdict: `FAIL`
+- Manual finding: the CLI turn policy logged `raw_route=repo route=operation`
+  and the command-operation planner returned `needs_clarification` because it
+  could not find a shell command for the MCP fixture. No MCP tool call happened.
+
+Root cause:
+
+- The CLI operation route now correctly catches computer-operation requests,
+  but it also caught an explicit external-tool/MCP observation request.
+- `needs_operation=true` was treated as enough to enter command operation even
+  when the request named an MCP resource/tool surface.
+- MCP/external observation is a data lane, not necessarily a computer-operation
+  lane. The default "external observation + source if useful" policy should not
+  be preempted by command execution unless the typed route explicitly asks for
+  computer operation / artifact generation / shell execution.
+
+Code evidence:
+
+- `internal/repl/turn_policy.go` already teaches the right distinction:
+  `needs_operation_access` must not be set for ordinary source/log/trace/MCP
+  external-observation investigation, and the examples route MCP observation to
+  `repo` with `source=external_tool`.
+- The normalizer has a typed repair path in `isAnalysisOnlyPolicy`, but a
+  contradictory classifier output can still survive if it carries an operation
+  signal outside the analysis-only tuple.
+- `cmd/root.go::maybeRunSingleShotOperation` starts the CLI operation pipeline
+  whenever the post-guard policy is `route=operation` and
+  `needs_operation_access=true`. It does not additionally verify that the
+  operation kind/surface is a concrete command/browser/artifact/skill surface.
+- `internal/repl/repl.go` also documents that REPL `MCPServers` are only for
+  explicitly configured operation providers; explorer/read-mode MCP exposure
+  lives in the agent layer. This reinforces that MCP observation and MCP-backed
+  operation provider are separate lanes.
+
+Generic solution:
+
+- Add typed route precedence:
+  - `external_tool_observation` / MCP resources first enter the MCP/external
+    observation pipeline;
+  - command operation is selected only when the typed operation surface is
+    `command_line`, `browser`, `desktop`, `artifact_generation`, or a configured
+    operation skill provider.
+- Keep mixed MCP+source questions in mixed mode unless the typed user policy
+  excludes source.
+- Add a hidden eval assertion for MCP cases requiring at least one MCP call or
+  accepted MCP observation, so they cannot pass or fail through command
+  clarification.
+
+### G11. Trace questions can pass without exercising trace_query, and small-trace answers can overclaim
+
+Observed in sweep:
+
+- `trace_query_donghu_mixed_platform-20260604-174358` passed, but
+  `tool_trace_query=0`; the answer relied on perf-triage plus tool/source
+  descriptions.
+- The answer classified `idle` rows with `prev_prio=120` as RT high-priority,
+  which is a risky overclaim because `prev_prio` / `next_prio` are event-role
+  fields, not a generic process-priority label.
+- `trace_query_frame_timeline_flow-20260604-175536` correctly used
+  `trace_query` twice and produced a good frame-flow answer.
+
+Root cause:
+
+- For small attached traces, the model can answer from perf-triage/read_file
+  without invoking `trace_query`, even when a case is meant to validate the
+  deterministic trace engine.
+- Trace facts are not always rendered as role-qualified facts. A generic
+  sentence may turn `prev_prio` on an idle scheduling row into a process
+  priority claim.
+
+Generic solution:
+
+- Case design: when the product capability under test is `trace_query`, add
+  hidden log assertions requiring `tool_trace_query>0` or a trace-query
+  observation, while allowing small traces to use read_file in ordinary user
+  scenarios.
+- Product output: trace_query should emit role-qualified priority facts such as
+  `prev_prio=.../role=prev_task` and `next_prio=.../role=next_task`, and final
+  prompts should teach that priority classification applies to the named task
+  role, not to arbitrary labels like idle without that role.
+- Keep time and platform semantics in deterministic trace metadata, not in
+  prose-only summaries.
+
+### G12. Operation material retrieval still needs a coverage evaluator
+
+Observed in sweep:
+
+- `operation_web_manual_summary-20260604-175216` passed, but manual review
+  showed the answer still reported partial completion and failed to locate the
+  dedicated user-guide page in that run.
+- The bounded material excerpt improved synthesis when content was available,
+  but the system still depends on the planner to discover and consume relevant
+  material paths.
+
+Root cause:
+
+- The operation loop has payload refs and bounded excerpts, but it does not yet
+  maintain a typed coverage model over the user's requested materials.
+- "The answer includes useful content" and "the requested material was actually
+  found/read" are different checks.
+
+Generic solution:
+
+- Implement the Batch 7 material coverage evaluator:
+  - track requested material targets, discovered links/files/resources,
+    fetched payloads, extraction attempts, and covered sections;
+  - return `complete` only when requested targets are covered or a typed
+    impossibility reason is established;
+  - support text, HTML, logs, traces, MCP/provider payloads, operation skill
+    artifacts, and future binary adapters through a common material interface.
+
+### G13. Finalizer/tool-schema ergonomics still create recoverable noise
+
+Observed in sweep:
+
+- `read_combo_trace_current_code_boundary-20260604-174648` passed, but the
+  first `emit_answer_document` call failed with truncated JSON and had to be
+  re-emitted.
+- The same run hit a mismatch between documented artifact citation examples
+  (`trace:5-6`) and what `emit_hypothesis_verdict` validation accepted.
+- `trace_query_frame_timeline_flow-20260604-175536` tried to call
+  `emit_evidence` in a tool set where it was unavailable, then recovered.
+
+Root cause:
+
+- Some tool descriptions and stage-specific tool availability still drift from
+  the actual schema/validator.
+- Large answer-document payloads make JSON truncation likely even when the
+  semantic answer is straightforward.
+
+Generic solution:
+
+- Add schema-aware prompt generation for each stage/tool set: examples must be
+  generated from the same validators the backend uses.
+- Add a compact-answer-document retry hint that points to accepted evidence
+  references instead of serializing large row sets.
+- Add eval hidden metrics for unavailable tool attempts and truncated JSON
+  retries so PASS cases with noisy recovery stay visible.
+
+### G14. Write-mode eval metrics can overcount changes
+
+Observed in sweep:
+
+- `patch_python_typo-20260604-175216` and
+  `patch_go_typo-20260604-175428` both produced correct one-file, one-line
+  patch plans.
+- The summary table reported `changes=2` and `kinds=patch,bugfix`, even though
+  the actual `ChangePlan.changes` array contained one patch. The second kind is
+  from `write_analysis_ir.request.task.kind`.
+
+Root cause:
+
+- Eval summary aggregation appears to combine top-level ChangePlan changes with
+  write-analysis task metadata.
+
+Generic solution:
+
+- Separate eval artifacts:
+  - `change_plan_changes` / `change_plan_kinds` from `changes[]`;
+  - `write_task_kind` from `write_analysis_ir.request.task.kind`.
+- Keep current pass/fail logic based on post-apply file checks and plan JSON,
+  but fix the summary table so manual reviewers are not misled.
+
+### G15. Config/scalar subtopic gates can false-reject file-backed dimensions
+
+Observed in sweep:
+
+- `qf_config_precedence-20260604-174017` passed but took 22 explorer
+  iterations and initially failed analyzer quality:
+  `subtopic_coherence` rejected the default-value subtopic because
+  `codrax.yaml.example` did not resolve as a repo symbol.
+
+Root cause:
+
+- The subtopic resolver treats an unresolvable file/config/example anchor like
+  a hallucinated code symbol.
+- Config/scalar questions often have dimensions that are backed by files,
+  constants, or values rather than resolver-visible symbols.
+
+Generic solution:
+
+- Extend subtopic coherence with typed anchor kinds:
+  - code symbols continue to require resolver symmetry;
+  - file-backed config examples, scalar defaults, and CLI flags should be
+    checked by path/key/flag existence instead of symbol resolution;
+  - if a subtopic is a scalar dimension with no independent symbol, merge it
+    softly into the parent topic instead of hard rejecting the analysis call.
+
+### G16. Verified supplements and caveats can add answer noise
+
+Observed in sweep:
+
+- `mr_cross_repo_compare-20260604-174017` answered correctly, then appended
+  deterministic "系统按已验证证据补充缺失成员" tables and a caveat saying some
+  anchors were not fully verified.
+- `qf_architecture-20260604-175536` answered correctly and also appended a
+  deterministic stage-binding supplement.
+
+Root cause:
+
+- Deterministic supplements are useful for correcting missing members, but they
+  are not ranked against whether the model already answered the requested
+  shape well.
+- The caveat is conservative but can read like distrust even when the answer is
+  fully grounded enough for the user's question.
+
+Generic solution:
+
+- Make supplement rendering conditional on a typed completeness gap:
+  - append full supplement only when a requested member/dimension is missing or
+    the answer is structurally incomplete;
+  - otherwise keep deterministic verification as hidden support or a compact
+    footnote.
+- Separate "anchor failed to publish as citation" from "fact not verified" in
+  user-facing caveats.
 
 ## Delivery Batches
 
