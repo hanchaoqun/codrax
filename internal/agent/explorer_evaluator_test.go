@@ -287,6 +287,73 @@ func TestExplorer_BuildInitialInstruction_ExplicitTracePathKeepsNormalBreadthByD
 	}
 }
 
+func TestExplorer_BuildInitialInstruction_ExternalObservationFirstSkipsSourceBreadth(t *testing.T) {
+	ctx := &types.AgentContext{
+		Objective: `请解释 MCP 资源 mcp://fixture/trace/sleep-wakeup 的 line 7 和 line 12`,
+		Stage:     types.StageExplore,
+		TurnRouteHint: types.TurnRouteHint{
+			Route:      "repo",
+			Source:     "external_tool",
+			Confidence: 0.92,
+		},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{},
+		},
+	}
+
+	eval := &explorerEvaluator{}
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	if eval.phase != 1 {
+		t.Fatalf("external-observation-first should skip source breadth, got phase=%d", eval.phase)
+	}
+	for _, want := range []string{
+		"External Observation First Start",
+		"typed external observations",
+		"line, row, selector",
+		"emit_investigation_complete",
+		"Do not run repository breadth search",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("external-observation prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Contains(prompt, "## Breadth Scan") {
+		t.Fatalf("external-observation-first should not render source breadth prompt:\n%s", prompt)
+	}
+}
+
+func TestExplorer_BuildInitialInstruction_ExternalObservationFirstKeepsBreadthWhenSourceRequired(t *testing.T) {
+	ctx := &types.AgentContext{
+		Objective: `请用 MCP 资源并结合当前源码解释实现`,
+		Stage:     types.StageExplore,
+		TurnRouteHint: types.TurnRouteHint{
+			Route:      "repo",
+			Source:     "external_tool",
+			Confidence: 0.92,
+		},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+					IsCurrentSourceExplanationRequested: true,
+					Modes: []types.CurrentSourceExplanationMode{
+						types.CurrentSourceExplanationExplainCurrentMechanism,
+					},
+					SourceQuotes: []string{"结合当前源码"},
+					Confidence:   0.9,
+				},
+			},
+		},
+	}
+
+	prompt := (&explorerEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if strings.Contains(prompt, "External Observation First Start") {
+		t.Fatalf("current-source-required turn must not use external-only start:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "## Breadth Scan") {
+		t.Fatalf("current-source-required turn should keep source breadth prompt:\n%s", prompt)
+	}
+}
+
 func TestRenderExtractorSourceInventoryAdvisory_RendersCandidateAttributes(t *testing.T) {
 	out := renderExtractorSourceInventoryAdvisory(&types.TurnAArtifacts{
 		SourceInventoryAdvisory: types.SourceInventoryAdvisory{
@@ -593,6 +660,89 @@ func TestParseOutput_MCPObservationsDoNotBypassDefaultSourceQuestion(t *testing.
 	}
 	if ta == nil || len(ta.MCPResponses) != 1 {
 		t.Fatalf("Turn A handoff should preserve MCP responses for scheduler/finalizer, got %+v", ta)
+	}
+}
+
+func TestExplorer_ObserveExternalObservationSufficiencyHintsCompletion(t *testing.T) {
+	question := "请解释 MCP fixture 返回的 line 7 和 line 12"
+	ctx := parseOutputCtx("", "")
+	ctx.Objective = question
+	ctx.TurnRouteHint = types.TurnRouteHint{
+		Route:      "repo",
+		Source:     "external_tool",
+		Confidence: 0.9,
+	}
+	ctx.Mutable = types.NewMutableState(question)
+
+	eval := &explorerEvaluator{}
+	_ = eval.BuildInitialInstruction(ctx, nil)
+	sig := eval.Observe(ctx, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		AllMCPResponses: []types.MCPResponse{{
+			ServerName:  "fixture",
+			Method:      "tools/call",
+			ResourceURI: "mcp://fixture/trace/sleep-wakeup",
+			Success:     true,
+			Observations: []types.MCPTypedObservation{
+				{Summary: "target enters S sleep", ResourceURI: "mcp://fixture/trace/sleep-wakeup", LineStart: 7, LineEnd: 7},
+				{Summary: "helper wakes target", ResourceURI: "mcp://fixture/trace/sleep-wakeup", LineStart: 12, LineEnd: 12},
+			},
+		}},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("expected external observation sufficiency hint, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.external-observation-sufficient" {
+		t.Fatalf("unexpected hint key: %q", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "current-source lane is optional") || !strings.Contains(sig.Hint, "emit_investigation_complete") {
+		t.Fatalf("hint should steer completion without source sidecars:\n%s", sig.Hint)
+	}
+	if !sig.BypassThrottle || !sig.BypassBudget {
+		t.Fatalf("sufficiency hint should bypass throttle/budget, got %+v", sig)
+	}
+}
+
+func TestParseOutput_MCPObservationsSatisfyExternalObservationFirstSourceOptional(t *testing.T) {
+	question := "请解释 MCP fixture 返回的 line 7 和 line 12"
+	ctx := parseOutputCtx("", "")
+	ctx.Objective = question
+	ctx.AnalysisIR.RequestModel.RawRequest = question
+	ctx.TurnRouteHint = types.TurnRouteHint{
+		Route:      "repo",
+		Source:     "external_tool",
+		Confidence: 0.9,
+	}
+	ctx.Mutable = types.NewMutableState(question)
+	eval := &explorerEvaluator{
+		userQuestion:  question,
+		analysisIR:    ctx.AnalysisIR,
+		turnRouteHint: ctx.TurnRouteHint,
+	}
+
+	out, err := eval.ParseOutput(ctx, nil, nil, []types.MCPResponse{{
+		ServerName:  "fixture",
+		Method:      "tools/call",
+		ResourceURI: "mcp://fixture/trace/sleep-wakeup",
+		Success:     true,
+		Observations: []types.MCPTypedObservation{
+			{Summary: "target enters S sleep", ResourceURI: "mcp://fixture/trace/sleep-wakeup", LineStart: 7, LineEnd: 7},
+			{Summary: "helper wakes target", ResourceURI: "mcp://fixture/trace/sleep-wakeup", LineStart: 12, LineEnd: 12},
+		},
+	}})
+	if err != nil {
+		t.Fatalf("ParseOutput error: %v", err)
+	}
+	if out.SignalUpdates == nil || !out.SignalUpdates.HasEnoughFacts {
+		t.Fatalf("external-observation-first MCP rows should satisfy facts, got %+v", out.SignalUpdates)
+	}
+	ta := ctx.Mutable.TurnAArtifacts()
+	if ta == nil || len(ta.MCPResponses) != 1 {
+		t.Fatalf("Turn A handoff should preserve MCP responses, got %+v", ta)
+	}
+	if ta.RuntimeObservationOnlyCompletion {
+		t.Fatalf("external-observation-first sufficiency is not the same as runtime-only completion: %+v", ta)
 	}
 }
 

@@ -175,6 +175,20 @@ func observationOnlyRuntimeArtifactForExplorer(ctx *types.AgentContext) bool {
 	return ctx.AnalysisIR.RequestModel.HasObservationOnlyRuntimeArtifact()
 }
 
+func externalObservationFirstSourceOptionalForExplorer(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || !ctx.TurnRouteHint.ExternalObservationFirst() {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.HasRuntimeArtifactCurrentVerificationAnchor() {
+		return false
+	}
+	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
+		return false
+	}
+	return true
+}
+
 func runtimeArtifactWithoutRequiredSourceForExplorer(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return false

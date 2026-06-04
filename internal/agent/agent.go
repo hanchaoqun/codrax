@@ -339,6 +339,16 @@ type LoopObservation struct {
 	// Evaluators must not mutate this slice.
 	CurrentToolResults []types.ToolResult
 
+	// AllMCPResponses is every MCP/provider response collected so far in this
+	// Execute call. It mirrors AllToolResults for external observation lanes.
+	// Evaluators must not mutate this slice.
+	AllMCPResponses []types.MCPResponse
+
+	// CurrentMCPResponses is the subset of AllMCPResponses produced by the
+	// current LLM response's tool-call batch. Evaluators must not mutate this
+	// slice.
+	CurrentMCPResponses []types.MCPResponse
+
 	// ToolSurfaceKnown is true when AvailableToolNames reflects the exact
 	// tool schemas handed to the LLM for this iteration. Unit tests and legacy
 	// direct calls may leave it false; evaluators should treat that as "unknown"
@@ -2125,6 +2135,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 						Iteration:          i,
 						Response:           resp,
 						AllToolResults:     allToolResults,
+						AllMCPResponses:    allMCPResponses,
 						ToolSurfaceKnown:   true,
 						AvailableToolNames: effectiveToolNames,
 						IdleStreak:         idle,
@@ -2191,6 +2202,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					Iteration:          i,
 					Response:           resp,
 					AllToolResults:     allToolResults,
+					AllMCPResponses:    allMCPResponses,
 					ToolSurfaceKnown:   true,
 					AvailableToolNames: effectiveToolNames,
 					IdleStreak:         idle,
@@ -2262,6 +2274,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		// DispatchToolResults from a prior read_file in the same batch.
 		var lastToolResultPtr *types.ToolResult
 		toolResultsStart := len(allToolResults)
+		mcpResponsesStart := len(allMCPResponses)
 		if canExecuteToolBatchInParallel(ctx, resp.ToolCalls) && len(resp.ToolCalls) > 1 {
 			// ── PARALLEL PATH ──
 			type toolExecResult struct {
@@ -2442,17 +2455,19 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		if loopCtrl != nil {
 			idle, conts, midLoopInjects := policyState.snapshot()
 			obs := LoopObservation{
-				Phase:              PhaseMidLoop,
-				Iteration:          i,
-				Response:           resp,
-				LastToolResult:     lastToolResultPtr,
-				AllToolResults:     allToolResults,
-				CurrentToolResults: allToolResults[toolResultsStart:],
-				ToolSurfaceKnown:   true,
-				AvailableToolNames: effectiveToolNames,
-				IdleStreak:         idle,
-				ContinuationsUsed:  conts,
-				MidLoopInjectsUsed: midLoopInjects,
+				Phase:               PhaseMidLoop,
+				Iteration:           i,
+				Response:            resp,
+				LastToolResult:      lastToolResultPtr,
+				AllToolResults:      allToolResults,
+				CurrentToolResults:  allToolResults[toolResultsStart:],
+				AllMCPResponses:     allMCPResponses,
+				CurrentMCPResponses: allMCPResponses[mcpResponsesStart:],
+				ToolSurfaceKnown:    true,
+				AvailableToolNames:  effectiveToolNames,
+				IdleStreak:          idle,
+				ContinuationsUsed:   conts,
+				MidLoopInjectsUsed:  midLoopInjects,
 			}
 			sig := loopCtrl.Observe(ctx, obs)
 			result := policyState.Apply(PhaseMidLoop, obs, sig)

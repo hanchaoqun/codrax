@@ -238,6 +238,11 @@ type explorerEvaluator struct {
 	// whitelist is what makes that work.
 	perfTrace *types.PerfBundle
 
+	// mcpResponses is a cached copy of provider/MCP responses observed in the
+	// current dispatch. External-observation sufficiency consumes it through the
+	// ObservationLedger, never by parsing model prose.
+	mcpResponses []types.MCPResponse
+
 	// mutable caches the current dispatch's MutableState so mid-loop
 	// readiness checks can consume the same compiled AnswerSurfacePlan
 	// authority as pre-complete / extractor / finalizer instead of
@@ -273,6 +278,11 @@ type explorerEvaluator struct {
 	// can reuse the same sub-topic / shape contract without re-deriving
 	// it from prose.
 	analysisIR *types.AnalysisIR
+
+	// turnRouteHint caches the typed router hint for this dispatch. It lets
+	// mid-loop external-observation sufficiency consume the same structured
+	// route signal that BuildInitialInstruction received.
+	turnRouteHint types.TurnRouteHint
 
 	// exploreLanePlan caches the typed evidence-origin lane ownership plan for
 	// this dispatch. Same-lane novelty checks use it only to scope advisory
@@ -410,8 +420,10 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.exactPendingTargets = nil
 		e.exactContextFiles = nil
 		e.analysisIR = nil
+		e.turnRouteHint = types.TurnRouteHint{}
 		e.logTriage = nil
 		e.perfTrace = nil
+		e.mcpResponses = nil
 		e.mutable = nil
 		e.investigationComplete = false
 		e.mergedEmittedEvidenceLen = 0
@@ -435,6 +447,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.scenario = ""
 	}
 	e.analysisIR = ctx.AnalysisIR
+	e.turnRouteHint = ctx.TurnRouteHint
 	e.exploreLanePlan = ctx.ExploreLanePlan
 	e.mutable = ctx.Mutable
 	e.multiGraphHandle = ctx.MultiGraph
@@ -449,6 +462,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	// LoopObservation, which does not carry the bus context).
 	e.logTriage = nil
 	e.perfTrace = nil
+	e.mcpResponses = nil
 	if ctx.Mutable != nil {
 		e.logTriage = ctx.Mutable.LogTriage()
 		e.perfTrace = ctx.Mutable.PerfTrace()
@@ -635,6 +649,11 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	if observationOnlyRuntimeArtifactForExplorer(ctx) {
 		e.phase = 1
 		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildRuntimeObservationOnlyStartInstruction(ctx))
+	}
+
+	if externalObservationFirstSourceOptionalForExplorer(ctx) {
+		e.phase = 1
+		return joinExplorerInstructionSections(writeExplorationPrefix, e.buildExternalObservationFirstStartInstruction(ctx))
 	}
 
 	e.phase = 0 // start in breadth-scan phase
@@ -3206,6 +3225,24 @@ func (e *explorerEvaluator) buildRuntimeObservationOnlyStartInstruction(ctx *typ
 		if len(ctx.LogTriage.Errors) > 0 {
 			b.WriteString("The structured log triage already extracted runtime error facts; prefer those over repository lookups.\n\n")
 		}
+	}
+	return b.String()
+}
+
+func (e *explorerEvaluator) buildExternalObservationFirstStartInstruction(ctx *types.AgentContext) string {
+	var b strings.Builder
+	b.WriteString("## External Observation First Start\n\n")
+	b.WriteString("This turn is typed as external-observation-first and current-source evidence is optional. Start from MCP/provider/runtime/log/trace observations and keep them in their own evidence lane.\n\n")
+	b.WriteString("Workflow:\n")
+	b.WriteString("- Use external observation tools/resources first. Typed rows with line, row, selector, JSON pointer, page, or time-window addresses are valid external observations; do not convert them into current-source citations.\n")
+	b.WriteString("- If the typed external observations answer the user's requested entity, selector, row/line, scalar/count, or conclusion, call `emit_investigation_complete(reason, confidence, result_kind=\"resolved\")`. Preserve the exact external origin and addressable facts in `reason` and, for counts/lists/scalars, `aggregate_facts`.\n")
+	b.WriteString("- Do not run repository breadth search (`repo_map`, repo-wide `grep`, `list_files`) just to collect source sidecars. Current-source exploration remains available only when a current-source question is still unresolved or a contradiction would materially change the answer.\n")
+	b.WriteString("- If you do need current source, make it a focused follow-up and keep the lanes separate: external observations establish what the external artifact/tool reported; current-source evidence establishes implementation behavior.\n")
+	b.WriteString("- A zero or absence from an external observation lane should be recorded as `negative_observation`, not as a fake source `file:0` row.\n\n")
+	if ctx != nil {
+		b.WriteString("**User question:** ")
+		b.WriteString(types.StripConversationPrefix(ctx.Objective))
+		b.WriteString("\n")
 	}
 	return b.String()
 }
@@ -8133,6 +8170,95 @@ func (e *explorerEvaluator) acceptedTypedDeltaKeys(obs LoopObservation, origins 
 	return keys
 }
 
+func (e *explorerEvaluator) externalObservationSufficiency(toolResults []types.ToolResult, mcpResponses []types.MCPResponse) types.ExternalObservationSufficiency {
+	if e == nil {
+		return types.ExternalObservationSufficiency{Status: types.ExternalObservationSufficiencyInsufficient}
+	}
+	var rm *types.RequestModel
+	var contract *types.AnswerContract
+	if e.analysisIR != nil {
+		rm = &e.analysisIR.RequestModel
+		contract = &e.analysisIR.AnswerContract
+	}
+	input := types.ObservationLedgerInput{
+		EvidenceItems:  e.structuredEvidence,
+		ToolResults:    toolResults,
+		LogBundle:      e.logTriage,
+		PerfBundle:     e.perfTrace,
+		MCPResponses:   mcpResponses,
+		RequestModel:   rm,
+		AnswerContract: contract,
+	}
+	if e.mutable != nil {
+		input.AggregateFacts = e.mutable.StableInvestigationAggregateFacts()
+	}
+	ledger := types.CompileObservationLedger(input)
+	return types.AssessExternalObservationSufficiency(ledger.Records, rm, e.turnRouteHint)
+}
+
+func (e *explorerEvaluator) postExternalObservationSufficiencySignal(obs LoopObservation) LoopSignal {
+	if e == nil || e.midLoopCompletionReadySent || e.investigationComplete {
+		return LoopSignal{}
+	}
+	if len(obs.AllMCPResponses) > 0 {
+		e.mcpResponses = append(e.mcpResponses[:0], obs.AllMCPResponses...)
+	}
+	sufficiency := e.externalObservationSufficiency(obs.AllToolResults, obs.AllMCPResponses)
+	if !sufficiency.Status.Sufficient() {
+		return LoopSignal{}
+	}
+	e.midLoopCompletionReadySent = true
+	e.midLoopCompletionReadyIter = obs.Iteration
+	var b strings.Builder
+	b.WriteString("Progress check: typed external observations already form a small addressable answer surface, and the current-source lane is optional for this turn. ")
+	b.WriteString("Prefer closing with `emit_investigation_complete(reason, confidence, result_kind=\"resolved\")` instead of reading current-source sidecars by default.\n")
+	fmt.Fprintf(&b, "- external observation rows: %d\n", sufficiency.RecordCount)
+	if origins := externalObservationSufficiencyOriginLabels(sufficiency.Origins); origins != "" {
+		fmt.Fprintf(&b, "- origins: %s\n", origins)
+	}
+	if kinds := externalObservationSufficiencySourceKindLabels(sufficiency.SourceKinds); kinds != "" {
+		fmt.Fprintf(&b, "- source kinds: %s\n", kinds)
+	}
+	b.WriteString("- Preserve line/row/selector/time-window details in `reason` and use `aggregate_facts` for answer counts, lists, scalar values, or verified negative observations.\n")
+	b.WriteString("- Only read current-source files if a focused implementation question remains unresolved; keep that source evidence separate from the external observation lane.\n")
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        "explorer.mid-loop.external-observation-sufficient",
+		Hint:           b.String(),
+		Progress:       true,
+		BypassThrottle: true,
+		BypassBudget:   true,
+	}
+}
+
+func externalObservationSufficiencyOriginLabels(origins []types.AnswerEvidenceOrigin) string {
+	if len(origins) == 0 {
+		return ""
+	}
+	labels := make([]string, 0, len(origins))
+	for _, origin := range origins {
+		if strings.TrimSpace(string(origin)) == "" {
+			continue
+		}
+		labels = append(labels, string(origin))
+	}
+	return strings.Join(labels, ", ")
+}
+
+func externalObservationSufficiencySourceKindLabels(kinds []types.ObservationSourceKind) string {
+	if len(kinds) == 0 {
+		return ""
+	}
+	labels := make([]string, 0, len(kinds))
+	for _, kind := range kinds {
+		if strings.TrimSpace(string(kind)) == "" {
+			continue
+		}
+		labels = append(labels, string(kind))
+	}
+	return strings.Join(labels, ", ")
+}
+
 func (e *explorerEvaluator) sameLaneNoveltyOriginScope(results []types.ToolResult) (map[types.AnswerEvidenceOrigin]bool, bool) {
 	origins := explorerNavigationOrigins(results)
 	if len(origins) == 0 || e == nil || e.exploreLanePlan.Empty() {
@@ -9742,6 +9868,9 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		return sig
 	}
 	if sig := e.postRestrictedToolSurfaceSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postExternalObservationSufficiencySignal(obs); sig.HintRequested {
 		return sig
 	}
 
@@ -11528,6 +11657,13 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	}
 	if candidateUniverseGap.Blocking {
 		readiness.HasEnough = false
+	}
+	e.mcpResponses = append(e.mcpResponses[:0], mcpResponses...)
+	externalSufficiency := e.externalObservationSufficiency(toolResults, mcpResponses)
+	if externalSufficiency.Status.Sufficient() && !readiness.HasEnough && !missingStructuredMemberSet && !candidateUniverseGap.Blocking {
+		logging.Debug("[explorer] HasEnoughFacts promoted by external observation sufficiency (records=%d origins=%v)",
+			externalSufficiency.RecordCount, externalSufficiency.Origins)
+		readiness.HasEnough = true
 	}
 	if ctx != nil && ctx.Mutable != nil && ctx.Mutable.IsInvestigationComplete() && !readiness.HasEnough && !missingStructuredMemberSet && !candidateUniverseGap.Blocking {
 		logging.Debug("[explorer] HasEnoughFacts promoted by emit_investigation_complete (heuristic was: toolDiv=%v fileCov=%v evQual=%v)",

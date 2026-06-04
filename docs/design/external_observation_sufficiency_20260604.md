@@ -81,27 +81,42 @@ selector values in the final answer.
 
 ### Batch 2: Typed Sufficiency Primitive
 
-- [ ] Add `ExternalObservationSufficiency` types/helpers in `internal/types`.
-- [ ] Cover MCP typed rows, runtime trace_query records, and mixed source-required
+- [x] Add `ExternalObservationSufficiency` types/helpers in `internal/types`.
+- [x] Cover MCP typed rows, runtime trace_query records, and mixed source-required
   negative cases with unit tests.
-- [ ] Ensure the helper consumes typed structures only.
+- [x] Ensure the helper consumes typed structures only.
 
 ### Batch 3: Explorer Integration
 
-- [ ] Cache the current dispatch's MCP responses in explorer for mid-loop checks.
-- [ ] Add an external-observation close-ready signal before source-shaped
+- [x] Cache the current dispatch's MCP responses in explorer for mid-loop checks.
+- [x] Add an external-observation close-ready signal before source-shaped
   completion readiness.
-- [ ] Add prompt guidance for external-observation-first, source-optional
+- [x] Add prompt guidance for external-observation-first, source-optional
   dispatches.
-- [ ] Keep explicit source/mixed requests on the existing source lane.
+- [x] Keep explicit source/mixed requests on the existing source lane.
 
 ### Batch 4: Eval and Guardrails
 
-- [ ] Add/adjust focused tests for MCP-only line facts, MCP+source, and
+- [x] Add/adjust focused tests for MCP-only line facts, MCP+source, and
   trace/log+source mixed cases.
-- [ ] Rerun `mcp_typed_line` and manually review both tool usage and final answer.
-- [ ] Rerun at least one mixed external+source case to confirm source analysis is
+- [x] Rerun `mcp_typed_line` and manually review both tool usage and final answer.
+- [x] Rerun at least one mixed external+source case to confirm source analysis is
   still preserved.
+
+## Eval Notes
+
+- `eval/run.sh eval/cases/mcp_typed_line.case 1` on 2026-06-04 passed. Tool
+  metrics show `tool_repo_map=0`, `tool_read_file=0`, `mcp_tool_calls=1`, and
+  `repeated_mcp_resource_reads=0`, which confirms source-sidecar exploration was
+  suppressed for the MCP-only line-fact case.
+- Manual review of the same MCP run found a separate answer-quality issue:
+  because the model also read the raw MCP resource content, the final answer
+  mixed typed observation line semantics with raw-resource line counting. The
+  typed facts still reached the answer, but future work should make typed row
+  addresses dominate raw text recounting when both are present.
+- `eval/run.sh eval/cases/read_combo_log_current_code_dimensions.case 1` on
+  2026-06-04 passed. Tool metrics show `tool_read_file=5`, preserving current
+  source analysis for a mixed log + current-code request.
 
 ## Expected Outcome
 
