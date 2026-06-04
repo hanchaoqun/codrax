@@ -2730,11 +2730,15 @@ Go 1.25.0（`go.mod` 真值源）。主要依赖：
 
 ```yaml
 multi_repo_enabled: true                # 默认 true,false 走 legacy 单图
-multi_repo_max_active: 2                # 默认 2,硬上限 3 (yaml > 3 自动 clamp)
+multi_repo_max_active: 2                # 默认 2,硬上限 5 (yaml > 5 自动 clamp)
 multi_repo_inactive_preview_count: 2    # L0 advisory 给 LLM 列几个 out-of-active 仓 (默认 2,硬上限 3)
 multi_repo_discovery_depth: 4           # 父目录 BFS 深度
 multi_repo_min_files: 1                 # 子仓 file count 下限,过滤空目录
 ```
+
+无显式 focus 时,系统不会再把“文件最多的几个子仓”当成默认优选。Run 入口会先把 compact topology 交给轻量 `multi_repo_focus` selector,由模型输出 typed `emit_multi_repo_focus` 推荐 active 子仓；系统只接受能解析到 topology 的结构化 root_rel/slug。selector 失败或低置信时,才退回 language/size fallback,并在 prompt 里标注为 fallback preview。
+
+若用户通过 `--focus` 或 `/repos focus` 明确 pin 了子仓,系统严格遵守该 active set,不会自动补其它子仓。显式 focus 超过 cap 会 fail-loud,提示用户减少 focus 或提高 cap(硬上限 5),不静默裁剪。
 
 启动性能约束(2026-05-18):拓扑缓存只用“父目录存在 + 子仓 root 存在 + 子仓 manifest 指纹未变”判新鲜,**不再使用父目录 mtime**。原因是默认 `<cwd>/.codrax` 会写 logs/blob/cache,父目录 mtime 会被运行时文件频繁 bump,不能作为 hard stale 信号。冷启动发现多个子仓时,子仓 Tier-1 metadata probe (`git ls-files`) 以有界并行执行(默认 4 路);若 REPL 启动前发现耗时超过 2s,CLI 会先输出“正在发现工作区子仓拓扑(仅元数据,不构建 repo_map 索引)”和完成行,避免 banner 前长时间无反馈。
 
@@ -2791,7 +2795,7 @@ internal/tool/repomap/
 每个 Run 退出时(orchestrator.Run 的 deferred snapshot)输出:
 
 ```
-multigraph: mode=multi discovered=3 active=2 cap=3 evicted_in_60s=0 pending=[repo-c] thrashing=false
+multigraph: mode=multi discovered=3 active=2 cap=2 evicted_in_60s=0 pending=[repo-c] thrashing=false
 ```
 
 异常路径加 Warning:
@@ -2806,7 +2810,7 @@ multigraph: mode=multi discovered=3 active=2 cap=3 evicted_in_60s=0 pending=[rep
 - **R4 generalization**:discovery / LRU / routing 都通用化,不绑定 codrax 自身路径假设
 - **No backward-compat shim**:`multi_repo_enabled=false` 不引入新 code path 维护成本(MultiGraph 内部退化即可)
 
-### 16.8 路由折叠(channels A/B/C/D/E)
+### 16.8 路由折叠(channels A/B/C/M/D/E)
 
 每 Run 入口在 `orchestrator.Run` 里调用 `MultiGraph.RouteActiveSet(inputs)`。`RoutingInputs`:
 
@@ -2815,10 +2819,11 @@ multigraph: mode=multi discovered=3 active=2 cap=3 evicted_in_60s=0 pending=[rep
 | **A** | `mg.FocusSlugs()` REPL `/repos focus` 推送 | precise(必须 active) | 用户显式 pin,UX 兜底 |
 | **B** | `MutableState.exactContextRequiredFiles` analyzer 后 emit | precise | log/perf-triage 走这里推 sub-repo |
 | **C** | `validateFrame` log frame.File | precise | 栈帧自动 lookup owning sub-repo |
+| **M** | `emit_multi_repo_focus` typed 推荐 | typed advisory | 无显式 focus 时的 compact-topology selector 输出;只接受 topology 可解析值 |
 | **D** | `inferQueryLanguages(request)` 启发式扫扩展名 | noisy(rank-only) | "rust panic" → bias rust 子仓 |
 | **E** | `SubRepo.FileCount` desc 兜底 | noisy(rank-only) | 没有任何上述信号时按大小选 |
 
-`RouteActiveSet` 优先级 A > B > C > D > E,cap 裁切前 A 强制保留,其余按 cap 顺序 emit。`OverflowDrop`(B/C 想要但 cap 排除)+ `Inactive`(完全没选中)输入 `BusContext.PendingSubRepos`(R6:RootRel,不暴露 slug),LLM-facing 摘要由它 disclose `partial_typed_lane`。
+`RouteActiveSet` 优先级 A > B > C > M > D > E。A 是用户显式 focus,当 `StrictFocus=true` 时就是完整 active set,不走 fallback 补仓。M 是 selector 的 typed 推荐,通常设置 `DisableFallback=true` 精确遵守推荐。D/E 仍是 noisy fallback,只能做软排序/兜底。`OverflowDrop`(B/C 想要但 cap 排除)+ `Inactive`(完全没选中)输入 `BusContext.PendingSubRepos`(R6:RootRel,不暴露 slug),LLM-facing 摘要由它 disclose `partial_typed_lane`。
 
 ### 16.9 Raw consumer 迁移现状
 

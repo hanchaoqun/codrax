@@ -57,6 +57,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		ActiveSubRepo:                 bus.ActiveSubRepo,
 		PendingSubRepos:               append([]string(nil), bus.PendingSubRepos...),
 		MultiRepoInactivePreviewCount: bus.MultiRepoInactivePreviewCount,
+		MultiRepoFocusDecision:        cloneMultiRepoFocusDecision(bus.MultiRepoFocusDecision),
 
 		// TypedDenials shares the SAME pointer (not a copy) — when
 		// a tool call mid-dispatch stamps a new denial, subsequent
@@ -4821,6 +4822,10 @@ func formatMultiRepoActiveSetAdvisory(ac *types.AgentContext) string {
 
 	var b strings.Builder
 	b.WriteString("Active sub-repos for this question (file-system tool calls — read_file, grep, repo_map — must stay within these):\n")
+	if note := formatMultiRepoFocusSourceNote(ac.MultiRepoFocusDecision); note != "" {
+		b.WriteString(note)
+		b.WriteByte('\n')
+	}
 	for _, sr := range active {
 		writeSubRepoLine(&b, sr)
 	}
@@ -4845,6 +4850,24 @@ func formatMultiRepoActiveSetAdvisory(ac *types.AgentContext) string {
 	return b.String()
 }
 
+func formatMultiRepoFocusSourceNote(decision *types.MultiRepoFocusDecision) string {
+	if decision == nil {
+		return ""
+	}
+	switch decision.Source {
+	case types.MultiRepoFocusSourceUserPinned:
+		return "Scope source: the user explicitly pinned these sub-repos; do not add other sub-repos unless the user changes focus."
+	case types.MultiRepoFocusSourceUserExplicitInRequest:
+		return "Scope source: the current request explicitly named these sub-repos/paths and they resolved exactly in the workspace topology."
+	case types.MultiRepoFocusSourceModelRecommended:
+		return "Scope source: selected from a compact workspace-topology pre-scan for this question."
+	case types.MultiRepoFocusSourceFallbackPreview:
+		return "Scope source: fallback preview because no precise focus was available; treat this as provisional."
+	default:
+		return ""
+	}
+}
+
 func writeSubRepoLine(b *strings.Builder, sr types.SubRepoSnapshot) {
 	langs := strings.Join(sr.PrimaryLangs, ", ")
 	if langs != "" {
@@ -4852,6 +4875,15 @@ func writeSubRepoLine(b *strings.Builder, sr types.SubRepoSnapshot) {
 	} else {
 		fmt.Fprintf(b, "- %s\n", sr.RootRel)
 	}
+}
+
+func cloneMultiRepoFocusDecision(in *types.MultiRepoFocusDecision) *types.MultiRepoFocusDecision {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Candidates = append([]types.MultiRepoFocusCandidate(nil), in.Candidates...)
+	return &out
 }
 
 func formatToolSourcedValueHint(ac *types.AgentContext) string {

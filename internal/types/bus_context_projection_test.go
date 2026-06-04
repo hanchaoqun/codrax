@@ -138,6 +138,8 @@ func setNonZeroFieldOnAgentContext(t *testing.T, ac *AgentContext, fieldName str
 		ac.PendingSubRepos = []string{"pending-a"}
 	case "MultiRepoInactivePreviewCount":
 		ac.MultiRepoInactivePreviewCount = 7
+	case "MultiRepoFocusDecision":
+		ac.MultiRepoFocusDecision = &MultiRepoFocusDecision{Source: MultiRepoFocusSourceModelRecommended}
 	case "TypedDenials":
 		td := TypedDenialSet{}
 		td.Add(TypedDenial{Class: TypedDenialExternalLogFrameUnresolved, Token: "test/sentinel.go"})
@@ -174,6 +176,8 @@ func setNonZeroFieldOnBusContext(t *testing.T, bc *BusContext, fieldName string)
 		bc.PendingSubRepos = []string{"pending-a"}
 	case "MultiRepoInactivePreviewCount":
 		bc.MultiRepoInactivePreviewCount = 7
+	case "MultiRepoFocusDecision":
+		bc.MultiRepoFocusDecision = &MultiRepoFocusDecision{Source: MultiRepoFocusSourceModelRecommended}
 	case "TypedDenials":
 		// AgentContext's TypedDenials is a pointer; the sub-agent
 		// helper points it back at bus.TypedDenials. To verify the

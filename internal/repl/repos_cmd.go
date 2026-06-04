@@ -114,11 +114,10 @@ func (r *REPL) printReposList() {
 	autoActive := r.multiRepoLRUSnapshot()
 
 	// Phase 6 (2026-05-08): when the LRU is empty (no Run has fired
-	// yet so routing fold has not run), preview the slug set the
-	// fold WOULD pick under fallback (focus pins + E-channel
-	// biggest-first fill). Without this preview the listing shows
-	// every non-pinned row as "inactive" pre-Run and the operator
-	// has no way to anticipate what the first request will scan.
+	// yet so routing fold has not run), preview only explicit focus
+	// pins. No-focus Runs now use a model-backed compact topology
+	// selector before analyzer, so showing the old biggest-first
+	// fallback as a pre-run preview would overstate confidence.
 	//
 	// Single-repo guard (2026-05-08 audit): the preview machinery
 	// is multi-repo-only (multiRepoPreviewActiveSet returns nil
@@ -129,7 +128,7 @@ func (r *REPL) printReposList() {
 	// thinking there is a routing decision waiting to be made.
 	previewSlugs := map[string]bool{}
 	previewActive := false
-	if len(autoActive) == 0 && !topo.IsSingle() {
+	if len(autoActive) == 0 && !topo.IsSingle() && len(r.multiRepoFocus) > 0 {
 		previewActive = true
 		focusSlugs := keysOf(r.multiRepoFocus)
 		for _, slug := range r.multiRepoPreviewActiveSet(focusSlugs) {
@@ -183,25 +182,25 @@ func (r *REPL) printReposList() {
 
 	// Legend trailer so the markers are self-explanatory.
 	if previewActive {
-		// Pre-Run path — explain that the `?` marker is a fallback
+		// Pre-Run path — explain that the `?` marker is a focus
 		// preview, not the actual active set, so the operator does
 		// not assume scanning has started.
 		if colorEnabled {
-			r.info(fmt.Sprintf("  legend: %s pinned (`/repos focus`)  %s pre-run preview (fallback if no signal)  %s inactive",
+			r.info(fmt.Sprintf("  legend: %s pinned (`/repos focus`)  %s pre-run preview (focus)  %s inactive",
 				reposRowGlyphColored(reposRowStatePinned),
 				reposRowGlyphColored(reposRowStatePreview),
 				reposRowGlyphColored(reposRowStateInactive)))
 		} else {
-			r.info("  legend: ★ pinned (`/repos focus`)  ? pre-run preview (fallback)  · inactive")
+			r.info("  legend: ★ pinned (`/repos focus`)  ? pre-run preview (focus)  · inactive")
 		}
 		// Trailer notice so the operator knows the preview is
 		// tentative. Explicitly says routing fold runs PER question
 		// and the actual active set may differ once a question is
 		// asked (B/C/D channels then add their own picks).
 		if isZh(r.language) {
-			r.info("  注:尚未提问,? 标记是无问题信号兜底(focus pin + 文件最多者)的预览;首次提问后 /repos 会显示真实 active 集")
+			r.info("  注:尚未提问,? 标记是已 pin focus 的预览;无 focus 时首次提问会先根据拓扑选择关注子仓")
 		} else {
-			r.info("  note: no Run yet — `?` is a fallback preview (focus pins + biggest sub-repos); /repos after first request shows the real active set")
+			r.info("  note: no Run yet — `?` previews pinned focus only; without focus, the first request selects focused sub-repos from compact topology")
 		}
 	} else {
 		if colorEnabled {
@@ -231,7 +230,7 @@ type reposRowState int
 
 const (
 	reposRowStateInactive reposRowState = iota
-	reposRowStatePreview // pre-Run fallback preview (no LRU yet)
+	reposRowStatePreview                // pre-Run fallback preview (no LRU yet)
 	reposRowStateAutoActive
 	reposRowStatePinned
 )
@@ -349,6 +348,13 @@ func (r *REPL) reposFocus(token string) {
 	if sr == nil {
 		r.multiRepoMu.Unlock()
 		r.warn("/repos focus: no sub-repo with slug or path %q (run /repos to list)", token)
+		return
+	}
+	capN := r.activeMultiRepoMaxActiveLocked(r.multiRepoMaxActiveOverride)
+	nextCount := len(r.multiRepoFocus) + 1
+	if !r.multiRepoFocus[sr.Slug] && nextCount > capN {
+		r.multiRepoMu.Unlock()
+		r.warn("/repos focus: pinning %q would select %d sub-repos, above current active cap %d (hard ceiling %d). Release another focus or run `/repos cap N` first.", token, nextCount, capN, config.MultiRepoMaxActiveCeiling)
 		return
 	}
 	r.multiRepoFocus[sr.Slug] = true
@@ -469,6 +475,12 @@ func (r *REPL) reposRefresh() {
 func (r *REPL) reposCap(n int) {
 	clamped := config.ClampMultiRepoMaxActive(n)
 	r.multiRepoMu.Lock()
+	if len(r.multiRepoFocus) > clamped {
+		focused := len(r.multiRepoFocus)
+		r.multiRepoMu.Unlock()
+		r.warn("/repos cap: requested %d would be below the current focused sub-repo count %d. Release focus pins first, or choose a cap between %d and %d.", clamped, focused, focused, config.MultiRepoMaxActiveCeiling)
+		return
+	}
 	r.multiRepoMaxActiveOverride = clamped
 	cb := r.onMultiRepoCapChange
 	r.multiRepoMu.Unlock()

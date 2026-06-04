@@ -5,6 +5,7 @@
 > **Audience**: 陌生开发者(任意背景)应能直接读完落地,不要求事先了解 codrax 架构。
 > **跨语言一等公民**: ArkTS / Cangjie / Java / Kotlin / Go / Python / JS/TS / Rust / C/C++ / Swift / Ruby / Lua / Proto **同父目录共存**是核心用例,不是 edge case。
 > **v2 改动**: line drift 修;Slug 格式对齐 CacheDir 同源;`MainRepoRoot` 双 site 显式;raw consumer audit (§11) 与 phase-by-phase migration (§12) 落进 doc;cap thrashing 升级 fail-loud;REPL 3 注册点;R2' 6 处展开;Q1 改为 **MultiGraph carrier** Z+Y 混合(纯 Z 半成品)。
+> **2026-06-04 update**: active cap 默认仍为 2,硬上限升到 5;无显式 focus 时新增 compact-topology `multi_repo_focus` selector,不再把 biggest-first fallback 当成默认优选。显式 `/repos focus` / `--focus` 严格遵守,不自动补其它子仓。
 
 ## 0. 目标 & 非目标
 
@@ -15,7 +16,7 @@
 1. **自动发现** 全部子仓 + 每个子仓的 owning language 集合(无需用户配置)
 2. **per-repo 隔离** 索引(不同子仓的同名 symbol/package 不再 collide,typed lane 永不静默错配)
 3. **跨仓 typed-lane 查询**(`SymbolOracle.SymbolExists*` / `LookupSymbol`)聚合多子仓答案,但保留 owning-repo 元信息以便 LLM 引证
-4. **内存可控**(默认 ≤ 3 个 active Graph 同时驻留,LRU evict)
+4. **内存可控**(默认 ≤ 2 个 active Graph 同时驻留,可配置到硬上限 5,LRU evict)
 5. **磁盘可控**(per-repo cache 独立,粒度内复用现有 `index.CacheDir` slug 机制)
 6. **跨仓 ArkTS / Cangjie / runner 探测**全部止于 sub-repo 边界
 7. **零回归**单仓用户:`multi_repo_enabled=false` (默认 **true**,但单仓走退化路径) → 行为字节级等价于今天
@@ -354,7 +355,7 @@ manifest cache 在父目录路径不变的情况下复用。失效条件:
 ### 3.4 Active-set 与 LRU(Phase 3)
 
 ```
-ACTIVE 上限 cap = codrax.yaml::multi_repo_max_active (default 2, hard ceiling 3)
+ACTIVE 上限 cap = codrax.yaml::multi_repo_max_active (default 2, hard ceiling 5)
 
 EnsureLoaded(slug) 流程:
   if slug in active:
@@ -454,7 +455,7 @@ func IsArkTSProject(subRepoRoot, relPath string) bool
 
 ```go
 MultiRepoEnabled         *bool   `yaml:"multi_repo_enabled"`         // default TRUE  (§9 #2)
-MultiRepoMaxActive       *int    `yaml:"multi_repo_max_active"`      // default 2, ceiling 3
+MultiRepoMaxActive       *int    `yaml:"multi_repo_max_active"`      // default 2, ceiling 5
 MultiRepoDiscoveryDepth  *int    `yaml:"multi_repo_discovery_depth"` // default 4    (§9 #1)
 MultiRepoMinFiles        *int    `yaml:"multi_repo_min_files"`       // default 1
 ```
@@ -597,16 +598,16 @@ P4.F routing fold 落地后,消费者侧的语义重新理解:5 个 BuildOrLoadG
 
 ## 5. 内存预算
 
-| 项 | 单仓量级 | cap=3 时多仓量级 | 说明 |
+| 项 | 单仓量级 | cap=2 默认多仓量级 | 说明 |
 |---|---|---|---|
-| FileInfo + Symbols | 50 MB / 10K 文件 | 150 MB | 与 cap 线性 |
-| SymbolByID / MethodIndex | 30 MB | 90 MB | per-graph 独立 |
-| ImportGraph + Reverse | 20 MB | 60 MB | per-graph 独立 |
+| FileInfo + Symbols | 50 MB / 10K 文件 | 100 MB | 与 cap 线性 |
+| SymbolByID / MethodIndex | 30 MB | 60 MB | per-graph 独立 |
+| ImportGraph + Reverse | 20 MB | 40 MB | per-graph 独立 |
 | Topology snapshot | 10 KB / 子仓 | 1 MB / 100 子仓 | 常驻 |
-| **Total active mem** | ~100 MB | ~300 MB | 与今天单仓 ×3 |
+| **Total active mem** | ~100 MB | ~200 MB | 与今天单仓 ×2;调到硬上限 5 时线性增加 |
 | **Topology overhead** | 0 | 1 MB | 持久化到磁盘 |
 
-100 子仓 × 1 万文件场景:active mem 仍 ~300 MB(只 hold 3 个),topology snapshot 1 MB。**与今天单仓内存 ~3×**,可控。
+100 子仓 × 1 万文件场景:active mem 默认仍 ~200 MB(只 hold 2 个),topology snapshot 1 MB。显式调到硬上限 5 时才接近 ~500 MB。无 focus 的默认路径先由 selector 选择 active set,避免错误预热大子仓。
 
 ## 6. 风险与缓解
 

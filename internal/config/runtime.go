@@ -749,9 +749,9 @@ type RuntimeSettings struct {
 	// bypass routing.
 	//
 	// Default = MultiRepoMaxActiveDefault (2). Hard ceiling =
-	// MultiRepoMaxActiveCeiling (3): yaml values above the ceiling
+	// MultiRepoMaxActiveCeiling (5): yaml values above the ceiling
 	// are clamped at config-load time. Cross-repo investigation
-	// scenarios beyond 3 are rare in practice and pushing the cap
+	// scenarios beyond 5 are rare in practice and pushing the cap
 	// higher mostly grows scan cost + LLM context without measurable
 	// answer-quality lift; ClampMultiRepoMaxActive enforces this.
 	MultiRepoMaxActive *int `yaml:"multi_repo_max_active"`
@@ -1434,10 +1434,10 @@ const (
 	MultiRepoMaxActiveDefault = 2
 
 	// MultiRepoMaxActiveCeiling: yaml values above this are clamped.
-	// Beyond 3 the LLM-side context inflation outpaces the answer-
+	// Beyond 5 the LLM-side context inflation outpaces the answer-
 	// quality lift in observed multi-repo eval cases; raising this
 	// requires re-validating the L0 advisory + scan-progress UX.
-	MultiRepoMaxActiveCeiling = 3
+	MultiRepoMaxActiveCeiling = 5
 
 	// MultiRepoInactivePreviewCountDefault: how many out-of-active
 	// sub-repos to surface (by RootRel + PrimaryLangs) in the L0

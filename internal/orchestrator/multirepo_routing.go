@@ -4,7 +4,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/multigraph"
 	rmtypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // inferQueryLanguages is a cheap heuristic that scans the user's
@@ -68,6 +70,61 @@ func tokenizeRequest(s string) []string {
 	}
 	if b.Len() > 0 {
 		out = append(out, b.String())
+	}
+	return out
+}
+
+func multiRepoFocusDecisionForSlugs(mg *multigraph.MultiGraph, slugs []string, source types.MultiRepoFocusSource, confidence float64, rationale string) *types.MultiRepoFocusDecision {
+	if mg == nil || len(slugs) == 0 {
+		return nil
+	}
+	candidates := make([]types.MultiRepoFocusCandidate, 0, len(slugs))
+	for _, slug := range slugs {
+		sr := mg.Topology().SubRepoBySlug(slug)
+		if sr == nil {
+			continue
+		}
+		candidates = append(candidates, types.MultiRepoFocusCandidate{
+			RootRel:    sr.RootRel,
+			Slug:       slug,
+			Confidence: confidence,
+			Source:     source,
+		})
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	return &types.MultiRepoFocusDecision{
+		Source:     source,
+		Confidence: confidence,
+		Candidates: candidates,
+		Rationale:  rationale,
+	}
+}
+
+func multiRepoFocusDecisionSlugs(mg *multigraph.MultiGraph, decision *types.MultiRepoFocusDecision) []string {
+	if mg == nil || decision == nil || mg.Topology() == nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	out := make([]string, 0, len(decision.Candidates))
+	for _, cand := range decision.Candidates {
+		token := strings.TrimSpace(cand.Slug)
+		if token == "" {
+			token = strings.TrimSpace(cand.RootRel)
+		}
+		if token == "" {
+			continue
+		}
+		sr := mg.Topology().Resolve(token)
+		if sr == nil || seen[sr.Slug] {
+			continue
+		}
+		seen[sr.Slug] = true
+		out = append(out, sr.Slug)
+	}
+	if len(out) > mg.Cap() {
+		return nil
 	}
 	return out
 }

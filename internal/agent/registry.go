@@ -75,6 +75,7 @@ func RegisterDefaults(r *Registry, deps *Dependencies, resolver LLMResolver,
 		types.AgentFinalizer,
 		types.AgentLogTriager,
 		types.AgentPerfTriager,
+		types.AgentMultiRepoFocus,
 		// Write-mode agents. All four are real LLM-backed agents.
 		// write_analyzer characterises the user's code-change request
 		// into a structured WriteAnalysisIR (kind / scope / risk /
@@ -99,6 +100,7 @@ func RegisterDefaults(r *Registry, deps *Dependencies, resolver LLMResolver,
 		types.AgentFinalizer:      func(d *Dependencies) Agent { return NewFinalizerAgent(d) },
 		types.AgentLogTriager:     func(d *Dependencies) Agent { return NewLogTriagerAgent(d, triageSettings) },
 		types.AgentPerfTriager:    func(d *Dependencies) Agent { return NewPerfTriagerAgent(d, perfSettings) },
+		types.AgentMultiRepoFocus: func(d *Dependencies) Agent { return NewMultiRepoFocusAgent(d) },
 		types.AgentWriteAnalyzer:  func(d *Dependencies) Agent { return NewWriteAnalyzerAgent(d) },
 		types.AgentPlanner:        func(d *Dependencies) Agent { return NewPlannerAgent(d) },
 		types.AgentCoder:          func(d *Dependencies) Agent { return NewCoderAgent(d) },

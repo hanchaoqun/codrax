@@ -1538,8 +1538,8 @@
 # multi_repo_enabled: true
 
 # multi_repo_max_active — cap on resident sub-repo graphs in the LRU.
-#   Default 2, hard ceiling 3 (yaml values above 3 are clamped).
-#   LRU 中常驻的子仓图数量上限。默认 2,硬上限 3(yaml 设 >3 会被钳制)。
+#   Default 2, hard ceiling 5 (yaml values above 5 are clamped).
+#   LRU 中常驻的子仓图数量上限。默认 2,硬上限 5(yaml 设 >5 会被钳制)。
 # multi_repo_max_active: 2
 
 # multi_repo_inactive_preview_count — how many out-of-active sub-repos are

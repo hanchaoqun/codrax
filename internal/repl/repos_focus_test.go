@@ -90,6 +90,53 @@ func TestReposFocus_RejectsUnknownToken(t *testing.T) {
 	}
 }
 
+func TestReposFocus_RejectsPinsAboveActiveCap(t *testing.T) {
+	topo := &topology.RepoTopology{
+		Repos: []topology.SubRepo{
+			{Slug: "slug-a", RootRel: "alpha"},
+			{Slug: "slug-b", RootRel: "beta"},
+			{Slug: "slug-c", RootRel: "gamma"},
+		},
+	}
+	r, buf := reposCmdTestREPL(topo)
+	r.multiRepoMaxActiveOverride = 2
+	r.reposFocus("alpha")
+	r.reposFocus("beta")
+	r.reposFocus("gamma")
+	r.multiRepoMu.Lock()
+	pinCount := len(r.multiRepoFocus)
+	r.multiRepoMu.Unlock()
+	if pinCount != 2 {
+		t.Fatalf("third focus above cap should be rejected; got %d pins", pinCount)
+	}
+	if !strings.Contains(buf.String(), "above current active cap 2") {
+		t.Fatalf("expected cap warning, got:\n%s", buf.String())
+	}
+}
+
+func TestReposCap_RejectsBelowFocusedCount(t *testing.T) {
+	topo := &topology.RepoTopology{
+		Repos: []topology.SubRepo{
+			{Slug: "slug-a", RootRel: "alpha"},
+			{Slug: "slug-b", RootRel: "beta"},
+		},
+	}
+	r, buf := reposCmdTestREPL(topo)
+	r.multiRepoMaxActiveOverride = 2
+	r.reposFocus("alpha")
+	r.reposFocus("beta")
+	r.reposCap(1)
+	r.multiRepoMu.Lock()
+	override := r.multiRepoMaxActiveOverride
+	r.multiRepoMu.Unlock()
+	if override != 2 {
+		t.Fatalf("cap should remain 2 when lowering below focused count, got %d", override)
+	}
+	if !strings.Contains(buf.String(), "below the current focused sub-repo count 2") {
+		t.Fatalf("expected focused-count warning, got:\n%s", buf.String())
+	}
+}
+
 func TestReposUnfocus_AcceptsSlugAndRootRel(t *testing.T) {
 	topo := &topology.RepoTopology{
 		Repos: []topology.SubRepo{

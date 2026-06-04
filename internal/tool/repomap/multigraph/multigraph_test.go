@@ -739,15 +739,37 @@ func TestMultiGraph_RouteActiveSet_FocusPin(t *testing.T) {
 		{Slug: "a", RootAbs: "/parent/a", RootRel: "a", FileCount: 100},
 		{Slug: "b", RootAbs: "/parent/b", RootRel: "b", FileCount: 50},
 	})
-	mg, _ := New(Config{Topology: topo, Build: build, Cap: 1})
-	// Focus pin "b" — even though "a" is bigger (channel E preference),
-	// channel A (focus) wins.
-	dec := mg.RouteActiveSet(RoutingInputs{FocusSlugs: []string{"b"}})
+	mg, _ := New(Config{Topology: topo, Build: build, Cap: 2})
+	// Focus pin "b" is strict — even though "a" is bigger (channel E
+	// preference), explicit focus does not auto-fill unrelated repos.
+	dec := mg.RouteActiveSet(RoutingInputs{FocusSlugs: []string{"b"}, StrictFocus: true})
 	if len(dec.Active) != 1 || dec.Active[0] != "b" {
-		t.Errorf("focus pin should force b active, got %v", dec.Active)
+		t.Errorf("strict focus pin should choose only b, got %v", dec.Active)
 	}
 	if dec.Reasons["b"] != "A" {
 		t.Errorf("expected reason A (focus), got %q", dec.Reasons["b"])
+	}
+}
+
+func TestMultiGraph_RouteActiveSet_ModelRecommendationNoFallback(t *testing.T) {
+	build := func(root, _ string) (*rmtypes.Graph, error) {
+		return makeGraph(root, []string{"x.go"}, nil), nil
+	}
+	topo := mkTopo("/parent", []topology.SubRepo{
+		{Slug: "a", RootAbs: "/parent/a", RootRel: "a", FileCount: 500},
+		{Slug: "b", RootAbs: "/parent/b", RootRel: "b", FileCount: 50},
+		{Slug: "c", RootAbs: "/parent/c", RootRel: "c", FileCount: 400},
+	})
+	mg, _ := New(Config{Topology: topo, Build: build, Cap: 2})
+	dec := mg.RouteActiveSet(RoutingInputs{
+		ModelRecommendedSlugs: []string{"b"},
+		DisableFallback:       true,
+	})
+	if len(dec.Active) != 1 || dec.Active[0] != "b" {
+		t.Fatalf("model recommendation with fallback disabled should choose only b, got %v", dec.Active)
+	}
+	if dec.Reasons["b"] != "M" {
+		t.Fatalf("expected reason M for model recommendation, got %q", dec.Reasons["b"])
 	}
 }
 

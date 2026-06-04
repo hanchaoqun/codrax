@@ -454,7 +454,7 @@ type appContext struct {
 
 	// multiRepoMaxActive mirrors codrax.yaml :: multi_repo_max_active
 	// (config.MultiRepoMaxActiveDefault, 2; hard ceiling
-	// config.MultiRepoMaxActiveCeiling, 3). The LRU cap on resident
+	// config.MultiRepoMaxActiveCeiling, 5). The LRU cap on resident
 	// sub-repo *Graphs.
 	multiRepoMaxActive int
 
@@ -1832,7 +1832,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 		}
 		if rs.MultiRepoMaxActive != nil {
 			// ClampMultiRepoMaxActive enforces the hard ceiling
-			// (config.MultiRepoMaxActiveCeiling, 3) even if yaml
+			// (config.MultiRepoMaxActiveCeiling, 5) even if yaml
 			// requests a higher value. Returns the default when
 			// the yaml value is non-positive.
 			app.multiRepoMaxActive = config.ClampMultiRepoMaxActive(*rs.MultiRepoMaxActive)

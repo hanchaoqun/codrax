@@ -3738,6 +3738,24 @@ func TestFormatMultiRepoActiveSetAdvisory_MultiRepoNoPending(t *testing.T) {
 	}
 }
 
+func TestFormatMultiRepoActiveSetAdvisory_RendersFocusSource(t *testing.T) {
+	ac := &types.AgentContext{
+		SubRepos: []types.SubRepoSnapshot{
+			{RootRel: "repo-a", PrimaryLangs: []string{"Go"}},
+			{RootRel: "repo-b", PrimaryLangs: []string{"Python"}},
+		},
+		PendingSubRepos:               []string{"repo-b"},
+		MultiRepoInactivePreviewCount: 2,
+		MultiRepoFocusDecision: &types.MultiRepoFocusDecision{
+			Source: types.MultiRepoFocusSourceModelRecommended,
+		},
+	}
+	got := formatMultiRepoActiveSetAdvisory(ac)
+	if !strings.Contains(got, "Scope source: selected from a compact workspace-topology pre-scan") {
+		t.Fatalf("advisory should explain model-recommended focus source, got:\n%s", got)
+	}
+}
+
 func TestFormatMultiRepoActiveSetAdvisory_TruncatesInactivePreview(t *testing.T) {
 	ac := &types.AgentContext{
 		SubRepos: []types.SubRepoSnapshot{

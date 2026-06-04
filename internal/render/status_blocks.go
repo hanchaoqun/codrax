@@ -78,9 +78,10 @@ func (r *Renderer) buildStatusBlocks(rows []*taskRow, frame string, now time.Tim
 	insertAt := 0
 	insertSet := false
 	preStageKeys := map[string]bool{
-		"log_triage":  true,
-		"perf_triage": true,
-		"analyze":     true,
+		"log_triage":       true,
+		"perf_triage":      true,
+		"multi_repo_focus": true,
+		"analyze":          true,
 	}
 
 	for _, row := range rows {

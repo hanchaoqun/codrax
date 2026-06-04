@@ -837,11 +837,13 @@ cat /tmp/atrace.txt | codrax --htrace - -r &quot;...&quot;
 <li>探测每个子仓的 top-3 主要语言(Go / Python / Rust / TypeScript / ArkTS / ...)+ 文件数 + manifest 指纹</li>
 <li>持久化拓扑到 <code>&lt;runtime-anchor&gt;/cache/topology/&lt;parent-slug&gt;.json</code>(下次启动直接复用,除非父目录有新改动)</li>
 </ol>
+<p>首次提问时,如果你没有通过 <code>/repos focus</code> 或 <code>--focus</code> 明确指定子仓,codrax 会先把<strong>紧凑拓扑摘要</strong>交给模型做一次 focus 选择,再只构建被选中的 active 子仓索引。这个选择是结构化输出,不是从散文里猜;如果选择失败或置信度过低,才降级为 fallback preview。这样通常比按文件数默认挑 2 个子仓更准确,也避免一开始就扫描错误的大仓。</p>
+<p>如果你已经明确指定 focus,系统会严格遵守你的选择,不会自动补其它子仓。显式 focus 数超过当前 cap 会直接提示你先减少 focus 或提高 <code>/repos cap</code>。</p>
 <p>REPL banner 立即提示:</p>
 <pre><code>   CODRAX  v0.1.X  /help · /exit
    模式: read · plan · apply · verify (write_enabled=true)
    记忆: 3 recent + 0 compacted
-   🗂  multi-repo: 5 sub-repos (active cap=3); /repos for list / focus / refresh
+   🗂  multi-repo: 5 sub-repos (active cap=2); /repos for list / focus / refresh
 </code></pre>
 <h3 id="repos-命令族"><code>/repos</code> 命令族</h3>
 <p>启动后任何时候可用:</p>
@@ -859,7 +861,7 @@ cat /tmp/atrace.txt | codrax --htrace - -r &quot;...&quot;
 </tr>
 <tr>
 <td><code>/repos focus &lt;slug&gt;</code></td>
-<td>把子仓固定到 active 集合,跨 turn 不被 LRU 淘汰</td>
+<td>严格把子仓固定到 active 集合；显式 focus 后不会自动补其它子仓</td>
 </tr>
 <tr>
 <td><code>/repos unfocus [slug]</code></td>
@@ -871,12 +873,12 @@ cat /tmp/atrace.txt | codrax --htrace - -r &quot;...&quot;
 </tr>
 <tr>
 <td><code>/repos cap &lt;N&gt;</code></td>
-<td>会话级覆盖 active cap(yaml 默认 2,硬上限 3 — 设更高自动 clamp)</td>
+<td>会话级覆盖 active cap(yaml 默认 2,硬上限 5 — 设更高自动 clamp)</td>
 </tr>
 </tbody>
 </table></div>
 <p><code>/repos</code> 输出长这样:</p>
-<pre><code>multi-repo topology — parent=/home/user/workspace slug=workspace-1a2b3c4d sub-repos=5 cap=3
+<pre><code>multi-repo topology — parent=/home/user/workspace slug=workspace-1a2b3c4d sub-repos=5 cap=2
     api-go                          slug=api-go-aabbccdd      git=dir files=240   langs=go            tier=2
   * web-frontend                    slug=web-frontend-eeff0011 git=dir files=890   langs=typescript    tier=2
     mobile-arkts                    slug=mobile-arkts-2233aabb git=dir files=156   langs=arkts         tier=2
@@ -920,14 +922,14 @@ cd ~/workspace/web-frontend &amp;&amp; codrax --mode=apply --request &quot;...&q
 <h3 id="yaml-配置codraxyaml">yaml 配置(<code>codrax.yaml</code>)</h3>
 <p>5 个开关,<strong>默认值已经合理</strong>,通常不需要改:</p>
 <pre><code class="language-yaml">multi_repo_enabled: true                    # 默认 true,false 走 legacy 单图 (绕过本特性)
-multi_repo_max_active: 2                    # LRU 上限,默认 2,硬上限 3 (yaml &gt; 3 自动 clamp)
+multi_repo_max_active: 2                    # LRU 上限,默认 2,硬上限 5 (yaml &gt; 5 自动 clamp)
 multi_repo_inactive_preview_count: 2        # L0 prompt advisory 给 LLM 看几个 out-of-active 仓 (默认 2,硬上限 3)
 multi_repo_discovery_depth: 4               # 父目录 BFS 深度
 multi_repo_min_files: 1                     # 子仓 file count 下限,过滤空 .git fixture
 </code></pre>
 <p><strong>何时调整 cap</strong>:
 - 默认 2 覆盖典型跨仓场景(一个主仓 + 一个协作仓);3 子仓以上的跨仓调查较少
-- 跨仓问题多 + 子仓总数 5-10 → 调到 3(硬上限,yaml 设更高也强制 3)
+- 跨仓问题多 + 子仓总数 5-10 → 可按需调到 3-5(硬上限 5,yaml 设更高也强制 5)
 - LRU thrashing 警告(<code>multigraph: thrashing detected (&gt;5 evictions/60s)</code>)出现时 → 加 cap 或 <code>/repos focus</code></p>
 <h3 id="focus-cli-flag"><code>--focus</code> CLI flag</h3>
 <p>在非 REPL / 脚本化 / eval 调用里,用 <code>--focus</code> 在启动时预 pin 子仓(等价启动后立刻跑 <code>/repos focus</code>):</p>
@@ -955,7 +957,7 @@ codrax --repo ~/single --multi-repo=false --request &quot;...&quot;
 <tr>
 <th>项</th>
 <th>单仓</th>
-<th>cap=3 多仓</th>
+<th>cap=2 默认多仓</th>
 <th>备注</th>
 </tr>
 </thead>
@@ -969,8 +971,8 @@ codrax --repo ~/single --multi-repo=false --request &quot;...&quot;
 <tr>
 <td>Active 内存</td>
 <td>~100 MB / 万文件</td>
-<td>~300 MB</td>
-<td>与 cap 线性</td>
+<td>~200 MB</td>
+<td>与 cap 线性;调到硬上限 5 时线性增加</td>
 </tr>
 <tr>
 <td>拓扑 cache 磁盘</td>
@@ -986,7 +988,7 @@ codrax --repo ~/single --multi-repo=false --request &quot;...&quot;
 </tr>
 </tbody>
 </table></div>
-<p>100 子仓 × 1 万文件场景:active 仍只 hold 3 个,内存仍 ~300 MB,<strong>与今天单仓 ~3×</strong>。</p>
+<p>100 子仓 × 1 万文件场景:active 默认仍只 hold 2 个;即使调到硬上限 5,也只缓存被选中的 active 子仓。</p>
 <h3 id="故障排查">故障排查</h3>
 <div class="table-wrap"><table>
 <thead>
@@ -1005,7 +1007,7 @@ codrax --repo ~/single --multi-repo=false --request &quot;...&quot;
 <tr>
 <td><code>partial_typed_lane=true</code> 出现频繁</td>
 <td>cap 太低</td>
-<td>yaml <code>multi_repo_max_active: 3</code> 或 <code>/repos cap 3</code>(硬上限 3)</td>
+<td>yaml <code>multi_repo_max_active: 3</code> 到 <code>5</code> 或 <code>/repos cap 3</code> 到 <code>5</code>(硬上限 5;默认 2)</td>
 </tr>
 <tr>
 <td><code>thrashing detected</code> Warning</td>

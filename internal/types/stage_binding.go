@@ -14,6 +14,7 @@ type StageBinding struct {
 var builtinStageBindings = []StageBinding{
 	{Stage: StageLogTriage, Agent: AgentLogTriager, Skill: "log-triage-skill"},
 	{Stage: StagePerfTriage, Agent: AgentPerfTriager, Skill: "perf-triage-skill"},
+	{Stage: StageMultiRepoFocus, Agent: AgentMultiRepoFocus, Skill: "multi-repo-focus-skill"},
 	{Stage: StageAnalyze, Agent: AgentAnalyzer, Skill: "analysis-skill"},
 	{Stage: StageExplore, Agent: AgentExplorer, Skill: "explore-skill"},
 	{Stage: StageExtract, Agent: AgentExtractor, Skill: "extract-skill"},

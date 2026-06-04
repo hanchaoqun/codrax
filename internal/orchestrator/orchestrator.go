@@ -21,6 +21,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/analysis/gate"
 	"github.com/hanchaoqun/codrax/internal/analysis/stopcond"
+	"github.com/hanchaoqun/codrax/internal/config"
 	ctxbuilder "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -1669,18 +1670,41 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// Phase 4.F routing fold (design §3.5). Pre-trim active set per
 	// Run so the typed-lane queries hit a deterministic, focus-aware
 	// subset. Channels at Run entry:
-	//   A — REPL /repos focus (mg.FocusSlugs)
+	//   A — REPL /repos focus (mg.FocusSlugs), strict and user-pinned
 	//   D — heuristic language affinity from request keywords
-	//   E — FileCount desc fallback
+	//   E — FileCount desc fallback (marked as fallback_preview)
 	// Channels B (analyzer.RequiredFiles) + C (log frame files) are
 	// applied incrementally: log_triage's validateFrame triggers
 	// EnsureLoadedFor when a frame resolves to an inactive sub-repo,
 	// and the analyzer post-emit hook does the same for RequiredFiles.
 	// Single-repo posture short-circuits inside RouteActiveSet.
 	if mg, _ := o.busCtx.MultiGraph.(*multigraph.MultiGraph); mg != nil {
-		inputs := multigraph.RoutingInputs{
-			FocusSlugs:     mg.FocusSlugs(),
-			QueryLanguages: inferQueryLanguages(request),
+		focusSlugs := mg.FocusSlugs()
+		inputs := multigraph.RoutingInputs{}
+		if len(focusSlugs) > 0 {
+			if len(focusSlugs) > mg.Cap() {
+				return o.busCtx, fmt.Errorf("multi-repo focus selects %d sub-repos but multi_repo_max_active is %d; reduce focus or raise the cap (hard ceiling %d)", len(focusSlugs), mg.Cap(), config.MultiRepoMaxActiveCeiling)
+			}
+			inputs.FocusSlugs = focusSlugs
+			inputs.StrictFocus = true
+			inputs.DisableFallback = true
+			o.busCtx.MultiRepoFocusDecision = multiRepoFocusDecisionForSlugs(mg, focusSlugs, types.MultiRepoFocusSourceUserPinned, 1.0, "user-pinned focus")
+		} else {
+			if dec := o.trySelectMultiRepoFocus(mg); dec != nil && dec.Confidence >= 0.35 {
+				if slugs := multiRepoFocusDecisionSlugs(mg, dec); len(slugs) > 0 {
+					inputs.ModelRecommendedSlugs = slugs
+					inputs.DisableFallback = true
+					o.busCtx.MultiRepoFocusDecision = dec
+				}
+			}
+			if len(inputs.ModelRecommendedSlugs) == 0 {
+				inputs.QueryLanguages = inferQueryLanguages(request)
+				o.busCtx.MultiRepoFocusDecision = &types.MultiRepoFocusDecision{
+					Source:    types.MultiRepoFocusSourceFallbackPreview,
+					Fallback:  true,
+					Rationale: "no explicit multi-repo focus was available; using legacy language/size fallback preview",
+				}
+			}
 		}
 		decision := mg.RouteActiveSet(inputs)
 		if err := mg.EnsureMany(decision.Active); err != nil {

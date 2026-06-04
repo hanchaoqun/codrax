@@ -23,6 +23,13 @@ const (
 	// pipeline continues with bus.PerfTrace()==nil.
 	StagePerfTriage PipelineStage = "perf_triage"
 
+	// StageMultiRepoFocus is a lightweight read-mode pre-selector
+	// dispatched only when the workspace has multiple sub-repos and
+	// the user has not explicitly pinned focus. It consumes compact
+	// topology and emits typed focus recommendations; it is not part
+	// of the unconditional four-stage read pipeline.
+	StageMultiRepoFocus PipelineStage = "multi_repo_focus"
+
 	StageAnalyze  PipelineStage = "analyze"
 	StageExplore  PipelineStage = "explore"
 	StageExtract  PipelineStage = "extract"
@@ -90,6 +97,7 @@ func AllStages() []PipelineStage {
 	return []PipelineStage{
 		StageLogTriage,
 		StagePerfTriage,
+		StageMultiRepoFocus,
 		StageAnalyze,
 		StageExplore,
 		StageExtract,
@@ -113,12 +121,13 @@ func AllMainStages() []PipelineStage {
 type AgentName string
 
 const (
-	AgentAnalyzer    AgentName = "analyzer"
-	AgentExplorer    AgentName = "explorer"
-	AgentExtractor   AgentName = "extractor"
-	AgentFinalizer   AgentName = "finalizer"
-	AgentLogTriager  AgentName = "log_triager"
-	AgentPerfTriager AgentName = "perf_triager"
+	AgentAnalyzer       AgentName = "analyzer"
+	AgentExplorer       AgentName = "explorer"
+	AgentExtractor      AgentName = "extractor"
+	AgentFinalizer      AgentName = "finalizer"
+	AgentLogTriager     AgentName = "log_triager"
+	AgentPerfTriager    AgentName = "perf_triager"
+	AgentMultiRepoFocus AgentName = "multi_repo_focus_selector"
 
 	// AgentWriteAnalyzer is the write-mode peer to AgentAnalyzer.
 	// Runs once per write-mode Run after the read analyzer to
@@ -151,6 +160,7 @@ func AllAgentNames() []AgentName {
 		AgentFinalizer,
 		AgentLogTriager,
 		AgentPerfTriager,
+		AgentMultiRepoFocus,
 		AgentWriteAnalyzer,
 		AgentPlanner,
 		AgentCoder,

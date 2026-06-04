@@ -202,8 +202,9 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 	// retries are git/patch and test-runner layers, not LLM.
 	tableZh := map[string]quint{
 		// Pre-stages
-		"log_triage":  {"正在解析日志", "已解析日志", "待解析日志", "未能解析日志", "模型响应出错,正在重新解析日志"},
-		"perf_triage": {"正在解析性能数据", "已解析性能数据", "待解析性能数据", "未能解析性能数据", "模型响应出错,正在重新解析性能数据"},
+		"log_triage":       {"正在解析日志", "已解析日志", "待解析日志", "未能解析日志", "模型响应出错,正在重新解析日志"},
+		"perf_triage":      {"正在解析性能数据", "已解析性能数据", "待解析性能数据", "未能解析性能数据", "模型响应出错,正在重新解析性能数据"},
+		"multi_repo_focus": {"正在选择关注子仓", "已选择关注子仓", "待选择关注子仓", "未能选择关注子仓", "模型响应出错,正在重新选择关注子仓"},
 		// Read-mode core flow
 		"analyze": {"正在理解问题", "已理解问题", "待理解问题", "未能理解问题", "模型响应出错,正在重新理解问题"},
 		// "explore" is the orchestrator-level stage AND the topic-
@@ -249,19 +250,20 @@ func stagePhrase(key string, lang string, state stagePhraseState) string {
 	// what is being redone. Apply / verify keep tool-side framing
 	// (git-patch / test-runner layers, not LLM).
 	tableEn := map[string]quint{
-		"log_triage":    {"Parsing attached log", "Log parsed", "Awaiting log", "Could not parse log", "Model response error, re-parsing log"},
-		"perf_triage":   {"Parsing performance trace", "Performance trace parsed", "Awaiting trace", "Could not parse trace", "Model response error, re-parsing trace"},
-		"analyze":       {"Understanding the request", "Request understood", "Awaiting analysis", "Could not understand request", "Model response error, re-running request understanding"},
-		"explore":       {"Investigating", "Investigation complete", "Awaiting investigation", "Investigation incomplete", "Model response error, re-running investigation"},
-		"evidence":      {"Exploring code, collecting evidence", "Evidence collected", "Awaiting evidence", "Could not gather evidence", "Model response error, re-gathering evidence"},
-		"validate":      {"Cross-validating evidence", "Evidence cross-validated", "Awaiting cross-validation", "Cross-validation incomplete", "Model response error, re-running cross-validation"},
-		"reconcile":     {"Consolidating exploration threads", "Findings consolidated", "Awaiting consolidation", "Could not consolidate findings", "Model response error, re-consolidating findings"},
-		"extract":       {"Distilling key findings", "Key findings distilled", "Awaiting key findings", "Could not distill findings", "Model response error, re-distilling key findings"},
-		"finalize":      {"Composing the final answer", "Final answer composed", "Awaiting final answer", "Could not compose answer", "Model response error, re-composing the final answer"},
-		"write_analyze": {"Analyzing task context", "Task context analyzed", "Awaiting task analysis", "Could not analyze task", "Model response error, re-analyzing task context"},
-		"plan":          {"Drafting change plan", "Change plan ready", "Awaiting change plan", "No change plan produced", "Model response error, re-drafting change plan"},
-		"apply":         {"Applying changes", "Changes applied", "Awaiting apply", "Apply incomplete", "Apply hit an error, retrying"},
-		"verify":        {"Running tests", "Tests passed", "Awaiting verification", "Tests did not pass", "Test verification hit an error, retrying"},
+		"log_triage":       {"Parsing attached log", "Log parsed", "Awaiting log", "Could not parse log", "Model response error, re-parsing log"},
+		"perf_triage":      {"Parsing performance trace", "Performance trace parsed", "Awaiting trace", "Could not parse trace", "Model response error, re-parsing trace"},
+		"multi_repo_focus": {"Selecting focused sub-repos", "Focused sub-repos selected", "Awaiting sub-repo focus", "Could not select focused sub-repos", "Model response error, re-selecting focused sub-repos"},
+		"analyze":          {"Understanding the request", "Request understood", "Awaiting analysis", "Could not understand request", "Model response error, re-running request understanding"},
+		"explore":          {"Investigating", "Investigation complete", "Awaiting investigation", "Investigation incomplete", "Model response error, re-running investigation"},
+		"evidence":         {"Exploring code, collecting evidence", "Evidence collected", "Awaiting evidence", "Could not gather evidence", "Model response error, re-gathering evidence"},
+		"validate":         {"Cross-validating evidence", "Evidence cross-validated", "Awaiting cross-validation", "Cross-validation incomplete", "Model response error, re-running cross-validation"},
+		"reconcile":        {"Consolidating exploration threads", "Findings consolidated", "Awaiting consolidation", "Could not consolidate findings", "Model response error, re-consolidating findings"},
+		"extract":          {"Distilling key findings", "Key findings distilled", "Awaiting key findings", "Could not distill findings", "Model response error, re-distilling key findings"},
+		"finalize":         {"Composing the final answer", "Final answer composed", "Awaiting final answer", "Could not compose answer", "Model response error, re-composing the final answer"},
+		"write_analyze":    {"Analyzing task context", "Task context analyzed", "Awaiting task analysis", "Could not analyze task", "Model response error, re-analyzing task context"},
+		"plan":             {"Drafting change plan", "Change plan ready", "Awaiting change plan", "No change plan produced", "Model response error, re-drafting change plan"},
+		"apply":            {"Applying changes", "Changes applied", "Awaiting apply", "Apply incomplete", "Apply hit an error, retrying"},
+		"verify":           {"Running tests", "Tests passed", "Awaiting verification", "Tests did not pass", "Test verification hit an error, retrying"},
 	}
 	var t quint
 	var ok bool

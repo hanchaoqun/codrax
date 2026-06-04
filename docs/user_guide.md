@@ -496,13 +496,17 @@ memory 是**按仓库**隔离的:同一个 codrax 进程切到另一个仓库,�
 3. 探测每个子仓的 top-3 主要语言(Go / Python / Rust / TypeScript / ArkTS / ...)+ 文件数 + manifest 指纹
 4. 持久化拓扑到 `<runtime-anchor>/cache/topology/<parent-slug>.json`(下次启动直接复用,除非父目录有新改动)
 
+首次提问时,如果你没有通过 `/repos focus` 或 `--focus` 明确指定子仓,codrax 会先把**紧凑拓扑摘要**交给模型做一次 focus 选择,再只构建被选中的 active 子仓索引。这个选择是结构化输出,不是从散文里猜;如果选择失败或置信度过低,才降级为 fallback preview。这样通常比按文件数默认挑 2 个子仓更准确,也避免一开始就扫描错误的大仓。
+
+如果你已经明确指定 focus,系统会严格遵守你的选择,不会自动补其它子仓。显式 focus 数超过当前 cap 会直接提示你先减少 focus 或提高 `/repos cap`。
+
 REPL banner 立即提示:
 
 ```
    CODRAX  v0.1.X  /help · /exit
    模式: read · plan · apply · verify (write_enabled=true)
    记忆: 3 recent + 0 compacted
-   🗂  multi-repo: 5 sub-repos (active cap=3); /repos for list / focus / refresh
+   🗂  multi-repo: 5 sub-repos (active cap=2); /repos for list / focus / refresh
 ```
 
 ### `/repos` 命令族
@@ -512,15 +516,15 @@ REPL banner 立即提示:
 | 命令 | 作用 |
 |---|---|
 | `/repos` | 列出已发现子仓 + active 状态 + cap + focus pin |
-| `/repos focus <slug>` | 把子仓固定到 active 集合,跨 turn 不被 LRU 淘汰 |
+| `/repos focus <slug>` | 严格把子仓固定到 active 集合；显式 focus 后不会自动补其它子仓 |
 | `/repos unfocus [slug]` | 释放固定(无参数 = 全释放) |
 | `/repos refresh` | 强制重新探测父目录(子仓增删后用) |
-| `/repos cap <N>` | 会话级覆盖 active cap(yaml 默认 2,硬上限 3 — 设更高自动 clamp) |
+| `/repos cap <N>` | 会话级覆盖 active cap(yaml 默认 2,硬上限 5 — 设更高自动 clamp) |
 
 `/repos` 输出长这样:
 
 ```
-multi-repo topology — parent=/home/user/workspace slug=workspace-1a2b3c4d sub-repos=5 cap=3
+multi-repo topology — parent=/home/user/workspace slug=workspace-1a2b3c4d sub-repos=5 cap=2
     api-go                          slug=api-go-aabbccdd      git=dir files=240   langs=go            tier=2
   * web-frontend                    slug=web-frontend-eeff0011 git=dir files=890   langs=typescript    tier=2
     mobile-arkts                    slug=mobile-arkts-2233aabb git=dir files=156   langs=arkts         tier=2
@@ -594,7 +598,7 @@ INFO multigraph: typed-lane partial — sub-repos NOT consulted: [legacy-cangjie
 
 ```yaml
 multi_repo_enabled: true                    # 默认 true,false 走 legacy 单图 (绕过本特性)
-multi_repo_max_active: 2                    # LRU 上限,默认 2,硬上限 3 (yaml > 3 自动 clamp)
+multi_repo_max_active: 2                    # LRU 上限,默认 2,硬上限 5 (yaml > 5 自动 clamp)
 multi_repo_inactive_preview_count: 2        # L0 prompt advisory 给 LLM 看几个 out-of-active 仓 (默认 2,硬上限 3)
 multi_repo_discovery_depth: 4               # 父目录 BFS 深度
 multi_repo_min_files: 1                     # 子仓 file count 下限,过滤空 .git fixture
@@ -602,7 +606,7 @@ multi_repo_min_files: 1                     # 子仓 file count 下限,过滤空
 
 **何时调整 cap**:
 - 默认 2 覆盖典型跨仓场景(一个主仓 + 一个协作仓);3 子仓以上的跨仓调查较少
-- 跨仓问题多 + 子仓总数 5-10 → 调到 3(硬上限,yaml 设更高也强制 3)
+- 跨仓问题多 + 子仓总数 5-10 → 可按需调到 3-5(硬上限 5,yaml 设更高也强制 5)
 - LRU thrashing 警告(`multigraph: thrashing detected (>5 evictions/60s)`)出现时 → 加 cap 或 `/repos focus`
 
 ### `--focus` CLI flag
@@ -638,21 +642,21 @@ codrax --repo ~/single --multi-repo=false --request "..."
 
 ### 内存与性能预算
 
-| 项 | 单仓 | cap=3 多仓 | 备注 |
+| 项 | 单仓 | cap=2 默认多仓 | 备注 |
 |---|---|---|---|
 | 启动开销 | ~50µs | warm cache 通常 ms 级; cold discovery 取决于子仓数 | BFS + 有界并行 per-sub-repo `git ls-files`(默认 4 路) |
-| Active 内存 | ~100 MB / 万文件 | ~300 MB | 与 cap 线性 |
+| Active 内存 | ~100 MB / 万文件 | ~200 MB | 与 cap 线性;调到硬上限 5 时线性增加 |
 | 拓扑 cache 磁盘 | 0 | <100 KB | 100 子仓也只 1 MB |
 | 跨仓 typed lane 查询 | n/a | O(active 子仓数) | LRU 命中 → ms 级,miss → 子仓全量 build |
 
-100 子仓 × 1 万文件场景:active 仍只 hold 3 个,内存仍 ~300 MB,**与今天单仓 ~3×**。
+100 子仓 × 1 万文件场景:active 默认仍只 hold 2 个；即使调到硬上限 5,也只缓存被选中的 active 子仓。
 
 ### 故障排查
 
 | 症状 | 原因 | 修复 |
 |---|---|---|
 | answer 漏掉某子仓的 entity | 子仓未在 active 集 | `/repos focus <slug>` 然后重跑(REPL)或 `--focus <slug>` 启动(scripted)|
-| `partial_typed_lane=true` 出现频繁 | cap 太低 | yaml `multi_repo_max_active: 3` 或 `/repos cap 3`(硬上限 3)|
+| `partial_typed_lane=true` 出现频繁 | cap 太低 | yaml `multi_repo_max_active: 3` 到 `5` 或 `/repos cap 3` 到 `5`(硬上限 5;默认 2)|
 | `thrashing detected` Warning | 同上,LRU 抖动 | 同上 |
 | 写模式跨仓 fail-loud | 设计限制 | cd 进具体子仓重跑 |
 | 没看到 banner 多仓行 | 父目录是单 git 仓(不是 workspace) | 这是预期 — 单仓 quiet UX |

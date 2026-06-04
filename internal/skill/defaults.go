@@ -13,6 +13,24 @@ func RegisterDefaults(r *Registry) {
 	r.Register(BuildAnalysisSkill())
 
 	r.Register(&Config{
+		Name: "multi-repo-focus-skill",
+		Goal: "Choose the smallest useful set of sub-repositories for the current multi-repo question before normal analysis starts.",
+		Workflow: []string{
+			"Read the current request and compact topology rows. Select exact root_rel values that should be active for this question.",
+			"Prefer one or two sub-repos. Select more only when the question clearly requires multiple repositories.",
+			"If the current request literally names a topology root path, use source=user_explicit_in_request for that candidate. Otherwise use source=model_recommended.",
+			"Call emit_multi_repo_focus exactly once. Do not inspect source files and do not answer the user.",
+		},
+		ToolSuggestions: []string{"emit_multi_repo_focus"},
+		OutputFormat:    "Use the emit_multi_repo_focus tool only.",
+		Prohibitions: []string{
+			"do not call source navigation tools",
+			"do not infer focus from prose keywords when no exact topology path is present",
+			"do not emit polished answer prose",
+		},
+	})
+
+	r.Register(&Config{
 		Name: "explore-skill",
 		Goal: "Investigate the user's question by reading code, collecting grounded evidence, and handing a well-supported evidence record to answer synthesis.",
 		Workflow: []string{

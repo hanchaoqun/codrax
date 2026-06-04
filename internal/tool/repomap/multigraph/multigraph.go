@@ -493,11 +493,13 @@ func (m *MultiGraph) PreviewActiveSet(focusSlugs []string) []string {
 		return nil
 	}
 	decision := m.RouteActiveSet(RoutingInputs{
-		FocusSlugs: focusSlugs,
-		// B / C / D / E intentionally empty — the preview is "if
-		// the user submitted a generic question with no path
-		// anchor, no log, no language hint, what would the fold
-		// pick?" The E channel (biggest-first) fills the cap.
+		FocusSlugs:      focusSlugs,
+		StrictFocus:     len(focusSlugs) > 0,
+		DisableFallback: len(focusSlugs) > 0,
+		// B / C / D intentionally empty — the preview is "if the
+		// user submitted a generic question with no path anchor, no
+		// log, no language hint, what would the fold pick?" When no
+		// focus is pinned, E (biggest-first fallback) fills the cap.
 	})
 	return decision.Active
 }
@@ -1203,6 +1205,29 @@ func (m *MultiGraph) FocusSlugs() []string {
 	return out
 }
 
+// MultiRepoSubRepoCount returns the discovered sub-repo count through
+// the narrow types.MultiRepoFocusResolver interface.
+func (m *MultiGraph) MultiRepoSubRepoCount() int {
+	if m == nil || m.topo == nil {
+		return 0
+	}
+	return len(m.topo.Repos)
+}
+
+// ResolveMultiRepoSubRepo resolves a selector token against the
+// topology and returns only stable, prompt-safe identifiers. This
+// avoids forcing generic tools to import the concrete topology package.
+func (m *MultiGraph) ResolveMultiRepoSubRepo(token string) (rootRel string, slug string, ok bool) {
+	if m == nil || m.topo == nil {
+		return "", "", false
+	}
+	sr := m.topo.Resolve(token)
+	if sr == nil {
+		return "", "", false
+	}
+	return sr.RootRel, sr.Slug, true
+}
+
 // SetFocus replaces the user-pinned slug set. Called by the REPL
 // when /repos focus / /repos unfocus changes pinning between Runs.
 // Concurrency-safe; mutating mid-Run is allowed but the routing fold
@@ -1249,6 +1274,17 @@ type RoutingInputs struct {
 	// MUST be in the active set (caller responsibility to keep within Cap).
 	FocusSlugs []string
 
+	// StrictFocus means FocusSlugs are the complete active set. It is
+	// used for explicit user pins so the system does not silently add
+	// unrelated sub-repos through fallback.
+	StrictFocus bool
+
+	// ModelRecommendedSlugs are the typed output of the multi-repo focus
+	// selector. Channel M — chosen after precise B/C signals and before
+	// noisy language/fallback channels. Callers that want to honor the
+	// model selection exactly should also set DisableFallback.
+	ModelRecommendedSlugs []string
+
 	// RequiredFiles are paths-from-parent the analyzer asked for
 	// (MutableState.exactContextRequiredFiles). Channel B — precise.
 	RequiredFiles []string
@@ -1260,6 +1296,11 @@ type RoutingInputs struct {
 	// QueryLanguages are the languages the user's query implies
 	// (e.g., "Go-only question" → ["go"]). Channel D — noisy rank.
 	QueryLanguages []string
+
+	// DisableFallback suppresses channel E. Use this when an exact
+	// user/model source already chose the active set. Leave false for
+	// legacy biggest-first fallback behavior.
+	DisableFallback bool
 }
 
 // RoutingDecision is the fold's output. Active is the slug list to
@@ -1274,7 +1315,7 @@ type RoutingDecision struct {
 }
 
 // RouteActiveSet folds the inputs into an Active slug list bounded
-// by Cap. Channel priority A > B > C > D > E. Pre-trim guarantees
+// by Cap. Channel priority A > B > C > M > D > E. Pre-trim guarantees
 // EnsureMany never returns ErrTooManyActive on the fold's output —
 // the cap fail-loud is a defense-in-depth.
 //
@@ -1287,7 +1328,7 @@ func (m *MultiGraph) RouteActiveSet(inputs RoutingInputs) RoutingDecision {
 	}
 	cap := m.Cap()
 	if cap <= 0 {
-		cap = 3
+		cap = 2
 	}
 
 	// Single-repo fast path.
@@ -1319,6 +1360,27 @@ func (m *MultiGraph) RouteActiveSet(inputs RoutingInputs) RoutingDecision {
 	for _, slug := range inputs.FocusSlugs {
 		addUnique(slug, "A")
 	}
+	if inputs.StrictFocus && len(inputs.FocusSlugs) > 0 {
+		active := make([]string, 0, len(seen))
+		reasons := make(map[string]string, len(seen))
+		for _, sr := range m.topo.Repos {
+			if r, ok := seen[sr.Slug]; ok && r == "A" {
+				active = append(active, sr.Slug)
+				reasons[sr.Slug] = r
+			}
+		}
+		inactive := make([]string, 0, len(m.topo.Repos)-len(active))
+		activeSet := make(map[string]bool, len(active))
+		for _, slug := range active {
+			activeSet[slug] = true
+		}
+		for _, sr := range m.topo.Repos {
+			if !activeSet[sr.Slug] {
+				inactive = append(inactive, sr.Slug)
+			}
+		}
+		return RoutingDecision{Active: active, Reasons: reasons, Inactive: inactive}
+	}
 	// B — analyzer's RequiredFiles (precise).
 	var bSlugs []string
 	for _, rel := range inputs.RequiredFiles {
@@ -1339,6 +1401,10 @@ func (m *MultiGraph) RouteActiveSet(inputs RoutingInputs) RoutingDecision {
 			addUnique(sr.Slug, "C")
 		}
 	}
+	// M — typed model selector recommendations.
+	for _, slug := range inputs.ModelRecommendedSlugs {
+		addUnique(slug, "M")
+	}
 	// D — language affinity (noisy rank).
 	if len(inputs.QueryLanguages) > 0 {
 		langSet := make(map[string]bool, len(inputs.QueryLanguages))
@@ -1355,7 +1421,7 @@ func (m *MultiGraph) RouteActiveSet(inputs RoutingInputs) RoutingDecision {
 		}
 	}
 	// E — biggest-first fallback (noisy).
-	if len(seen) < cap {
+	if len(seen) < cap && !inputs.DisableFallback {
 		bySize := make([]topology.SubRepo, len(m.topo.Repos))
 		copy(bySize, m.topo.Repos)
 		// Stable sort by FileCount desc (largest first). This can run
@@ -1408,6 +1474,7 @@ func (m *MultiGraph) RouteActiveSet(inputs RoutingInputs) RoutingDecision {
 	}
 	addRest("B")
 	addRest("C")
+	addRest("M")
 	addRest("D")
 	addRest("E")
 

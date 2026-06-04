@@ -111,6 +111,7 @@ type MutableState struct {
 	// artifacts.
 	outputTranscriptRequest string
 	requestModel            *RequestModel
+	multiRepoFocusDecision  *MultiRepoFocusDecision
 	emittedEvidence         []EvidenceItem
 	// answerSurfaceRevision is bumped by mutators that can affect
 	// BuildAnswerSurfacePlan. BusContext-level answer-plan caches use
@@ -996,6 +997,7 @@ func (m *MutableState) ForkForExploreDispatch() *MutableState {
 		symbolOracle:                        m.symbolOracle,
 		logTriage:                           m.logTriage,
 		perfTrace:                           m.perfTrace,
+		multiRepoFocusDecision:              cloneMultiRepoFocusDecision(m.multiRepoFocusDecision),
 		writeAnalysisIR:                     m.writeAnalysisIR,
 		investigationComplete:               m.investigationComplete,
 		investigationCompleteReason:         m.investigationCompleteReason,
@@ -1231,6 +1233,39 @@ func (m *MutableState) SetOutputTranscriptRequest(s string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.outputTranscriptRequest = strings.TrimSpace(s)
+}
+
+// MultiRepoFocusDecision returns the latest typed multi-repo focus
+// recommendation/decision recorded for this Run. It is scope metadata,
+// not evidence.
+func (m *MutableState) MultiRepoFocusDecision() *MultiRepoFocusDecision {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return cloneMultiRepoFocusDecision(m.multiRepoFocusDecision)
+}
+
+// SetMultiRepoFocusDecision records run-scoped active-set selection
+// metadata. Tools/agents write it before the orchestrator routes the
+// active set.
+func (m *MutableState) SetMultiRepoFocusDecision(decision *MultiRepoFocusDecision) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.multiRepoFocusDecision = cloneMultiRepoFocusDecision(decision)
+}
+
+func cloneMultiRepoFocusDecision(in *MultiRepoFocusDecision) *MultiRepoFocusDecision {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	out.Candidates = append([]MultiRepoFocusCandidate(nil), in.Candidates...)
+	return &out
 }
 
 // SearchGraph returns the opaque handle previously stored by
@@ -5272,6 +5307,11 @@ type BusContext struct {
 	// advisory builder, which falls back to the config default.
 	MultiRepoInactivePreviewCount int `json:"multi_repo_inactive_preview_count,omitempty"`
 
+	// MultiRepoFocusDecision explains how the current active set was
+	// selected (user-pinned, model-recommended, or fallback preview).
+	// It is LLM/UX scope metadata only; it is not source evidence.
+	MultiRepoFocusDecision *MultiRepoFocusDecision `json:"multi_repo_focus_decision,omitempty"`
+
 	// TypedDenials is the architectural negative-knowledge channel.
 	// Any typed gate that downgrades a structured field (frame.File
 	// cleared by frameFileCorroboratesFunc / oracle.SymbolExists fail
@@ -5496,11 +5536,12 @@ type AgentContext struct {
 	// read the multi-repo carrier without taking a *BusContext
 	// reference. Stored as `any` for the same import-cycle reason
 	// described on BusContext.MultiGraph.
-	MultiGraph                    any               `json:"-"`
-	SubRepos                      []SubRepoSnapshot `json:"sub_repos,omitempty"`
-	ActiveSubRepo                 *SubRepoSnapshot  `json:"active_sub_repo,omitempty"`
-	PendingSubRepos               []string          `json:"pending_sub_repos,omitempty"`
-	MultiRepoInactivePreviewCount int               `json:"multi_repo_inactive_preview_count,omitempty"`
+	MultiGraph                    any                     `json:"-"`
+	SubRepos                      []SubRepoSnapshot       `json:"sub_repos,omitempty"`
+	ActiveSubRepo                 *SubRepoSnapshot        `json:"active_sub_repo,omitempty"`
+	PendingSubRepos               []string                `json:"pending_sub_repos,omitempty"`
+	MultiRepoInactivePreviewCount int                     `json:"multi_repo_inactive_preview_count,omitempty"`
+	MultiRepoFocusDecision        *MultiRepoFocusDecision `json:"multi_repo_focus_decision,omitempty"`
 
 	// TypedDenials mirrors BusContext.TypedDenials (Phase A.2 of the
 	// negative-knowledge architecture). Tools dispatched from the
