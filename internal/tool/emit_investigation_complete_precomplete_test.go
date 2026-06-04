@@ -2919,6 +2919,105 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ExternalTraceOptionalSourceW
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_MCPOriginWaivesCitationFloorWhenSourceOptional(t *testing.T) {
+	mut := types.NewMutableState("MCP line facts")
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: true, MinCitations: 2},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "MCP typed rows line 7 and line 12 answer the requested external observation",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":    "member_set",
+			"label":   "MCP sleep/wakeup rows",
+			"value":   "2",
+			"role":    "principal_answer",
+			"members": []string{"line 7: sleep", "line 12: wakeup"},
+			"dimensions": []map[string]any{{
+				"name":  "origin",
+				"value": string(types.AnswerEvidenceOriginMCPResource),
+			}, {
+				"name":  "resource_uri",
+				"value": "mcp://fixture/trace/sleep-wakeup",
+			}},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("MCP-origin closure should not be blocked by current-source citation floor, got: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("InvestigationComplete should be set for MCP-origin closure")
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_MCPOriginDoesNotWaiveRequiredCurrentSource(t *testing.T) {
+	mut := types.NewMutableState("MCP plus source")
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentExplain,
+				CurrentSourceExplanationProfile: &types.CurrentSourceExplanationProfile{
+					IsCurrentSourceExplanationRequested: true,
+					Modes: []types.CurrentSourceExplanationMode{
+						types.CurrentSourceExplanationExplainCurrentMechanism,
+					},
+					Confidence:   0.9,
+					SourceQuotes: []string{"结合源码"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{Required: true, MinCitations: 1},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":      "MCP rows collected but current-source explanation is still required",
+		"confidence":  "high",
+		"result_kind": "resolved",
+		"aggregate_facts": []map[string]any{{
+			"kind":    "member_set",
+			"label":   "MCP sleep/wakeup rows",
+			"value":   "1",
+			"role":    "principal_answer",
+			"members": []string{"line 12: wakeup"},
+			"dimensions": []map[string]any{{
+				"name":  "origin",
+				"value": string(types.AnswerEvidenceOriginMCPResource),
+			}},
+		}},
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("typed current-source profile must still enforce source citation floor, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("InvestigationComplete must remain false until current-source evidence is covered")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_ExternalSourceCurrentVerificationRequiresHintRead(t *testing.T) {
 	logBundle := &types.LogBundle{
 		Observations: []types.LogObservation{{

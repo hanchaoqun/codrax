@@ -334,6 +334,37 @@ func shouldIncludeCurrentSourceOrigin(rm RequestModel, contract *AnswerContract)
 	return true
 }
 
+// RequiresCurrentSourceForExternalObservation reports whether a request that
+// already has typed non-current-source observations must still block completion
+// on current-checkout evidence. This is intentionally stricter than
+// shouldIncludeCurrentSourceOrigin: source exploration is allowed by default,
+// but hard gates should only require it when a typed source-oriented contract
+// says the current checkout is part of the answer.
+func (rm RequestModel) RequiresCurrentSourceForExternalObservation(contract *AnswerContract) bool {
+	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return false
+	}
+	if typesContractRequiresCurrentSource(contract) {
+		return true
+	}
+	if rm.HasRuntimeArtifactCurrentVerificationAnchor() {
+		return true
+	}
+	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
+		return true
+	}
+	if rm.ChangeImpactProfile != nil && rm.ChangeImpactProfile.Active() {
+		return true
+	}
+	if rm.Predicates.IsHistoryLookup {
+		return IsHistoryBackedCurrentCodeExplanation(rm) ||
+			rm.Predicates.IsRelationalLookup ||
+			rm.Intent == IntentTrace ||
+			(rm.DiagramHint != nil && rm.DiagramHint.Kind != "")
+	}
+	return false
+}
+
 func requestModelHasMCPResourceReference(rm RequestModel) bool {
 	if textHasMCPResourceURI(rm.RawRequest) {
 		return true

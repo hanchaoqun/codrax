@@ -1853,7 +1853,7 @@ func preCompleteContractCheckWithEvidence(ctx *types.BusContext, justification s
 			return downgrade
 		}
 	}
-	if label, ok := repoGroundingBypassLabel(ctx); ok {
+	if label, ok := completionGroundingBypassLabel(ctx, aggregateFacts); ok {
 		logging.Info("[emit_investigation_complete] multi-topic anchor backbone bypassed by %s", label)
 	} else if downgrade := explanationAnchorBackboneDowngrade(ctx); downgrade != "" {
 		return downgrade
@@ -1928,7 +1928,7 @@ func preCompleteContractCheckWithEvidence(ctx *types.BusContext, justification s
 	// an external-source log. In those scenarios, demanding repo
 	// reads only forces the LLM to read unrelated files and risk
 	// confabulation (the customer-reported logtri_custom failure).
-	if label, ok := repoGroundingBypassLabel(ctx); ok && len(pending) > 0 {
+	if label, ok := completionGroundingBypassLabel(ctx, aggregateFacts); ok && len(pending) > 0 {
 		logging.Info("[emit_investigation_complete] forced-read pending list bypassed by %s (pending=%d)",
 			label, len(pending))
 		pending = nil
@@ -2023,11 +2023,11 @@ func preCompleteContractCheckWithEvidence(ctx *types.BusContext, justification s
 		return ""
 	}
 	if ctx.Mutable != nil {
-		if label, ok := repoGroundingBypassLabel(ctx); ok {
+		if label, ok := completionGroundingBypassLabel(ctx, aggregateFacts); ok {
 			// External-source logs/traces and model-declared waivers are
-			// answered from structured runtime semantics, not from repo
-			// file:line anchors. Builder/front-end already teach
-			// downstream stages to use runtime/artifact provenance
+			// answered from structured origin-specific semantics, not from
+			// repo file:line anchors. Builder/front-end already teach
+			// downstream stages to use external-observation provenance
 			// where appropriate; forcing a repo citation floor here only
 			// creates pointless read-more loops against unrelated files.
 			logging.Info("[emit_investigation_complete] citation-floor bypassed by %s", label)
@@ -2433,6 +2433,54 @@ func repoGroundingBypassLabel(ctx *types.BusContext) (string, bool) {
 		return "system-detected external-source trace", true
 	}
 	return "", false
+}
+
+func completionGroundingBypassLabel(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) (string, bool) {
+	if label, ok := repoGroundingBypassLabel(ctx); ok {
+		return label, true
+	}
+	if label, ok := originSpecificCompletionBypassLabel(ctx, aggregateFacts); ok {
+		return label, true
+	}
+	return "", false
+}
+
+func originSpecificCompletionBypassLabel(ctx *types.BusContext, aggregateFacts []types.AnswerAggregateFact) (string, bool) {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return "", false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.RequiresCurrentSourceForExternalObservation(&ctx.AnalysisIR.AnswerContract) {
+		return "", false
+	}
+	originCounts := make(map[types.AnswerEvidenceOrigin]int)
+	for _, fact := range aggregateFacts {
+		origins := types.AnswerAggregateFactEvidenceOrigins(fact, &rm)
+		if !types.AnswerEvidenceOriginsAreOriginSpecificOnly(origins) {
+			continue
+		}
+		for _, origin := range origins {
+			if origin == types.AnswerEvidenceOriginRuntimeArtifact {
+				// Runtime artifacts retain their stricter request-model bypass;
+				// do not let a generic aggregate dimension override current
+				// verification anchors.
+				continue
+			}
+			if origin == types.AnswerEvidenceOriginUnknown {
+				continue
+			}
+			originCounts[origin]++
+		}
+	}
+	if len(originCounts) == 0 {
+		return "", false
+	}
+	var labels []string
+	for origin, count := range originCounts {
+		labels = append(labels, fmt.Sprintf("%s=%d", origin, count))
+	}
+	sort.Strings(labels)
+	return "typed external-observation completion (" + strings.Join(labels, ", ") + ")", true
 }
 
 func runtimeArtifactGroundingBypassAllowed(ctx *types.BusContext) bool {

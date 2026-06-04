@@ -11786,7 +11786,9 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	if ctx != nil && ctx.Mutable != nil {
 		stopParseSection = startExplorerParseSectionWatchdog(ctx, "turn_a_handoff")
 		handoffEvidence := buildTurnAHandoffEvidence(ctx, questionKind, rankedEvidence, answerChains)
-		runtimeObservationOnlyCompletion := runtimeArtifactWithoutRequiredSourceForExplorer(ctx) &&
+		stableAggregateFacts := ctx.Mutable.StableInvestigationAggregateFacts()
+		runtimeObservationOnlyCompletion := (runtimeArtifactWithoutRequiredSourceForExplorer(ctx) ||
+			originSpecificObservationWithoutRequiredSourceForExplorer(ctx, stableAggregateFacts)) &&
 			strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason()) != "" &&
 			strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()) != ""
 		snapshot := types.TurnAArtifacts{
@@ -11797,7 +11799,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			MCPResponses:                     mcpResponses,
 			AcceptedClosureReason:            strings.TrimSpace(ctx.Mutable.StableInvestigationCompleteReason()),
 			AcceptedResultKind:               strings.TrimSpace(ctx.Mutable.StableInvestigationResultKind()),
-			AcceptedAggregateFacts:           ctx.Mutable.StableInvestigationAggregateFacts(),
+			AcceptedAggregateFacts:           stableAggregateFacts,
 			SourceInventoryAdvisory:          ctx.Mutable.SourceInventoryAdvisory(),
 			RuntimeObservationOnlyCompletion: runtimeObservationOnlyCompletion,
 			EvidenceItems:                    handoffEvidence,

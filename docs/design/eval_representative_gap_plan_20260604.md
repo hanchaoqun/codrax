@@ -298,6 +298,19 @@ Validation:
 - MCP+source mixed test: source reads still allowed/required when typed profile
   asks for source explanation.
 
+Status:
+
+- Implemented via typed origin-specific completion coverage. The
+  pre-complete forced-read / anchor-backbone / citation-floor gates now accept
+  accepted `aggregate_facts` whose evidence origins are non-current-source
+  origin-specific lanes.
+- `RequiresCurrentSourceForExternalObservation` keeps explicit current-source
+  profiles and source-oriented contracts blocking, so MCP+source and
+  runtime+source mixed questions remain protected.
+- Explorer handoff marks accepted origin-specific external-observation
+  completion so downstream criterion checks can count MCP typed rows without
+  converting them into current-source evidence.
+
 ### Batch 4: Structural stage/workflow presentation completeness
 
 - Add or reuse typed request fields for requested stage/workflow tables.
@@ -324,4 +337,3 @@ Validation:
 Validation:
 
 - representative matrix run with manual inspection log updated.
-

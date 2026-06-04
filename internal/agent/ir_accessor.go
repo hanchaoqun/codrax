@@ -182,6 +182,30 @@ func runtimeArtifactWithoutRequiredSourceForExplorer(ctx *types.AgentContext) bo
 	return ctx.AnalysisIR.RequestModel.HasRuntimeArtifactWithoutRequiredCurrentSource()
 }
 
+func originSpecificObservationWithoutRequiredSourceForExplorer(ctx *types.AgentContext, facts []types.AnswerAggregateFact) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.RequiresCurrentSourceForExternalObservation(&ctx.AnalysisIR.AnswerContract) {
+		return false
+	}
+	for _, fact := range facts {
+		origins := types.AnswerAggregateFactEvidenceOrigins(fact, &rm)
+		if !types.AnswerEvidenceOriginsAreOriginSpecificOnly(origins) {
+			continue
+		}
+		for _, origin := range origins {
+			if origin == types.AnswerEvidenceOriginRuntimeArtifact ||
+				origin == types.AnswerEvidenceOriginUnknown {
+				continue
+			}
+			return true
+		}
+	}
+	return false
+}
+
 func observationOnlyRuntimeArtifactForAnalyzer(ctx *types.AgentContext) bool {
 	if ctx == nil || ctx.Stage != types.StageAnalyze {
 		return false
