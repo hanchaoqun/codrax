@@ -570,6 +570,8 @@ func (o *Orchestrator) resetForNextPhase() {
 	}
 	mu.ResetChangePlan()
 	mu.ResetChangeReport()
+	mu.ResetWriteExplorationRequest()
+	mu.ResetWriteExplorationHandoff()
 	// IterationLedger reset (commit 32) so the per-phase
 	// retry-attempt counter we read at end of phase reflects
 	// THIS phase's retries only — not phase 1 + 2 cumulative.
@@ -579,6 +581,7 @@ func (o *Orchestrator) resetForNextPhase() {
 	mu.ResetIterationLedger()
 	// AppliedSet preserved (cumulative across phases).
 	// WriteAnalysisIR preserved (single task, multiple phases).
+	// WriteExplorationRequest/Handoff reset (per-batch planning context).
 	// PlanCritique preserved on the previous phase's plan
 	// struct; the next phase will produce its own when its
 	// planner emits.

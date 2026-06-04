@@ -1856,6 +1856,11 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// Module E: same shape for plan-stage probe reports — fresh Run
 	// starts with no probe history.
 	o.busCtx.Mutable.ResetPlanStageProbeReports()
+	// Write exploration handoff is per write-task/per batch planning context.
+	// A fresh Run must not inherit read-only source findings from a previous
+	// REPL turn.
+	o.busCtx.Mutable.ResetWriteExplorationRequest()
+	o.busCtx.Mutable.ResetWriteExplorationHandoff()
 	// Commit 51 Gap 3: read-mode answer-retry log resets per Run.
 	// Events accumulate across retries within a Run; the end-of-Run
 	// answer_reviewer dispatch (orchestrator.runAnswerReviewerOnSuccess)

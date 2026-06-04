@@ -134,6 +134,9 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 	if workflow := e.buildWorkflowSeedSection(ctx); workflow != "" {
 		sections = append(sections, workflow)
 	}
+	if handoff := e.buildWriteExplorationHandoffSection(ctx); handoff != "" {
+		sections = append(sections, handoff)
+	}
 	if seed := e.buildInvestigationSeed(ctx); seed != "" {
 		sections = append(sections, seed)
 	}
@@ -226,6 +229,107 @@ func (e *plannerEvaluator) buildTaskFramingSection(ctx *types.AgentContext) stri
 		}
 	}
 	return b.String()
+}
+
+// buildWriteExplorationHandoffSection renders the compact read-only
+// exploration handoff for the current write batch. This is advisory planning
+// context only: it never bypasses ChangePlan validation, apply safety checks,
+// or verifier requirements. The section exists so a write planner can reuse
+// source exploration without unfolding the repository again.
+func (e *plannerEvaluator) buildWriteExplorationHandoffSection(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	handoff := ctx.Mutable.WriteExplorationHandoff()
+	if handoff == nil {
+		return ""
+	}
+	if handoff.Goal == "" &&
+		len(handoff.TargetFiles) == 0 &&
+		len(handoff.RelevantSymbols) == 0 &&
+		len(handoff.ExistingPatterns) == 0 &&
+		len(handoff.Invariants) == 0 &&
+		len(handoff.TestSurface) == 0 &&
+		len(handoff.RiskNotes) == 0 &&
+		len(handoff.Unknowns) == 0 &&
+		len(handoff.EvidenceRefs) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## Prior code exploration handoff\n\n")
+	b.WriteString("Read-only findings from an earlier source exploration for this write batch. Use them as planning context: preserve listed invariants, follow existing patterns, prefer bounded edits in the target files, and run focused verification. If material unknowns remain, use read-only tools before emitting a ChangePlan. Do not treat this handoff as final-answer evidence and do not skip ChangePlan validation.\n")
+	if handoff.BatchID != "" {
+		fmt.Fprintf(&b, "- batch_id: %s\n", handoff.BatchID)
+	}
+	if handoff.Goal != "" {
+		fmt.Fprintf(&b, "- goal: %s\n", handoff.Goal)
+	}
+	if handoff.Confidence != "" {
+		fmt.Fprintf(&b, "- confidence: %s\n", handoff.Confidence)
+	}
+	writePlannerList(&b, "target_files", handoff.TargetFiles, 10)
+	writePlannerList(&b, "relevant_symbols", handoff.RelevantSymbols, 12)
+	writePlannerList(&b, "existing_patterns", handoff.ExistingPatterns, 8)
+	writePlannerList(&b, "invariants", handoff.Invariants, 8)
+	writePlannerList(&b, "test_surface", handoff.TestSurface, 8)
+	writePlannerList(&b, "risk_notes", handoff.RiskNotes, 8)
+	writePlannerList(&b, "unknowns", handoff.Unknowns, 8)
+	if len(handoff.EvidenceRefs) > 0 {
+		limit := len(handoff.EvidenceRefs)
+		if limit > 8 {
+			limit = 8
+		}
+		b.WriteString("- evidence_refs:\n")
+		for _, ref := range handoff.EvidenceRefs[:limit] {
+			label := ref.Subject
+			if label == "" {
+				label = ref.AnchorSymbol
+			}
+			if label == "" {
+				label = ref.Kind
+			}
+			loc := ref.Source
+			if ref.LineStart > 0 {
+				loc += fmt.Sprintf(":%d", ref.LineStart)
+			}
+			if ref.LineEnd > ref.LineStart {
+				loc += fmt.Sprintf("-%d", ref.LineEnd)
+			}
+			switch {
+			case loc != "" && label != "":
+				fmt.Fprintf(&b, "  - %s @ %s", label, loc)
+			case loc != "":
+				fmt.Fprintf(&b, "  - %s", loc)
+			case label != "":
+				fmt.Fprintf(&b, "  - %s", label)
+			default:
+				b.WriteString("  - evidence")
+			}
+			if ref.Summary != "" {
+				fmt.Fprintf(&b, " — %s", ref.Summary)
+			}
+			b.WriteByte('\n')
+		}
+		if len(handoff.EvidenceRefs) > limit {
+			fmt.Fprintf(&b, "  - ... +%d more evidence ref(s)\n", len(handoff.EvidenceRefs)-limit)
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func writePlannerList(b *strings.Builder, label string, values []string, limit int) {
+	if len(values) == 0 {
+		return
+	}
+	if limit <= 0 || limit > len(values) {
+		limit = len(values)
+	}
+	fmt.Fprintf(b, "- %s: %s", label, strings.Join(values[:limit], ", "))
+	if len(values) > limit {
+		fmt.Fprintf(b, ", +%d more", len(values)-limit)
+	}
+	b.WriteByte('\n')
 }
 
 // buildWorkflowSeedSection renders the write_analyzer's typed task shape as a

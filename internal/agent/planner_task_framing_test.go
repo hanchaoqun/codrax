@@ -154,3 +154,75 @@ func TestPlannerBuildInitialInstruction_IncludesWorkflowSeedAfterTaskFraming(t *
 		t.Fatalf("workflow seed did not include default batch and success criteria; got:\n%s", got)
 	}
 }
+
+func TestPlannerWriteExplorationHandoff_RendersAfterWorkflowSeed(t *testing.T) {
+	mu := types.NewMutableState("the user request")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task: types.WriteTask{Summary: "fix planner retry context"},
+		},
+	})
+	mu.SetWriteExplorationHandoff(&types.WriteExplorationHandoff{
+		BatchID:          "batch-1",
+		Goal:             "patch planner handoff section",
+		TargetFiles:      []string{"internal/agent/planner.go"},
+		RelevantSymbols:  []string{"BuildInitialInstruction"},
+		ExistingPatterns: []string{"planner sections are pure data"},
+		Invariants:       []string{"do not bypass ChangePlan validation"},
+		TestSurface:      []string{"go test ./internal/agent"},
+		RiskNotes:        []string{"prompt order regressions affect write mode only"},
+		Unknowns:         []string{"whether planner prompt includes handoff"},
+		EvidenceRefs: []types.WriteExplorationEvidenceRef{{
+			Kind:      "mechanism",
+			Source:    "internal/agent/planner.go",
+			LineStart: 105,
+			Subject:   "BuildInitialInstruction",
+			Summary:   "composes planner sections",
+		}},
+		Confidence: "high",
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	eval := &plannerEvaluator{}
+	got := eval.BuildInitialInstruction(ctx, nil)
+	workflowIdx := strings.Index(got, "## Rolling write workflow")
+	handoffIdx := strings.Index(got, "## Prior code exploration handoff")
+	investigationIdx := strings.Index(got, "## Pre-plan investigation seed")
+	if workflowIdx < 0 || handoffIdx < 0 {
+		t.Fatalf("expected workflow seed and handoff; got:\n%s", got)
+	}
+	if handoffIdx < workflowIdx {
+		t.Fatalf("handoff should render after workflow seed; got:\n%s", got)
+	}
+	if investigationIdx >= 0 && investigationIdx < handoffIdx {
+		t.Fatalf("handoff should render before generic investigation seed; got:\n%s", got)
+	}
+	for _, want := range []string{
+		"patch planner handoff section",
+		"internal/agent/planner.go",
+		"BuildInitialInstruction @ internal/agent/planner.go:105",
+		"planner sections are pure data",
+		"do not bypass ChangePlan validation",
+		"go test ./internal/agent",
+		"prompt order regressions affect write mode only",
+		"whether planner prompt includes handoff",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("handoff prompt missing %q; got:\n%s", want, got)
+		}
+	}
+}
+
+func TestPlannerWriteExplorationHandoff_AbsentWhenUnset(t *testing.T) {
+	mu := types.NewMutableState("the user request")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task: types.WriteTask{Summary: "fix planner retry context"},
+		},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	eval := &plannerEvaluator{}
+	got := eval.BuildInitialInstruction(ctx, nil)
+	if strings.Contains(got, "Prior code exploration handoff") {
+		t.Fatalf("handoff section should be absent without typed handoff; got:\n%s", got)
+	}
+}

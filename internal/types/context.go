@@ -634,6 +634,14 @@ type MutableState struct {
 	// the write agents read directly. Readers MUST nil-check.
 	writeAnalysisIR *WriteAnalysisIR
 
+	// writeExplorationRequest / writeExplorationHandoff are the typed,
+	// read-only bridge from a write workflow batch into source exploration
+	// and back into planning. They are planning context only: they never
+	// mutate files, never bypass ChangePlan validation, and never become
+	// final-answer citation state.
+	writeExplorationRequest *WriteExplorationRequest
+	writeExplorationHandoff *WriteExplorationHandoff
+
 	// planCritique is the optional pre-apply review text produced by
 	// the plan_critic agent (commit 4 P1-F). Empty when the critic
 	// is disabled (default), or when the critic ran but found no
@@ -1403,6 +1411,91 @@ func (m *MutableState) SetWriteAnalysisIR(ir *WriteAnalysisIR) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.writeAnalysisIR = ir
+}
+
+// WriteExplorationRequest returns the current read-only exploration request for
+// a write workflow batch, if one has been queued. The returned value is a
+// defensive copy so planner/explorer code cannot mutate shared state by
+// accident.
+func (m *MutableState) WriteExplorationRequest() *WriteExplorationRequest {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.writeExplorationRequest == nil {
+		return nil
+	}
+	out := cloneWriteExplorationRequest(*m.writeExplorationRequest)
+	return &out
+}
+
+// SetWriteExplorationRequest stores a normalized read-only exploration request
+// for the next write workflow batch. Passing nil clears the request.
+func (m *MutableState) SetWriteExplorationRequest(req *WriteExplorationRequest) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if req == nil {
+		m.writeExplorationRequest = nil
+		return
+	}
+	snap := NormalizeWriteExplorationRequest(cloneWriteExplorationRequest(*req))
+	m.writeExplorationRequest = &snap
+}
+
+// ResetWriteExplorationRequest clears the queued write exploration request.
+func (m *MutableState) ResetWriteExplorationRequest() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.writeExplorationRequest = nil
+}
+
+// WriteExplorationHandoff returns the compact planner-facing handoff produced
+// by read-only exploration for a write workflow batch. The returned value is a
+// defensive copy and is planning context only, not final-answer evidence.
+func (m *MutableState) WriteExplorationHandoff() *WriteExplorationHandoff {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.writeExplorationHandoff == nil {
+		return nil
+	}
+	out := cloneWriteExplorationHandoff(*m.writeExplorationHandoff)
+	return &out
+}
+
+// SetWriteExplorationHandoff stores the normalized compact handoff from
+// read-only exploration. Passing nil clears the handoff.
+func (m *MutableState) SetWriteExplorationHandoff(handoff *WriteExplorationHandoff) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if handoff == nil {
+		m.writeExplorationHandoff = nil
+		return
+	}
+	snap := NormalizeWriteExplorationHandoff(cloneWriteExplorationHandoff(*handoff))
+	m.writeExplorationHandoff = &snap
+}
+
+// ResetWriteExplorationHandoff clears the planner-facing exploration handoff.
+func (m *MutableState) ResetWriteExplorationHandoff() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.writeExplorationHandoff = nil
 }
 
 // RecordUnvalidatedReason appends a reason describing a
