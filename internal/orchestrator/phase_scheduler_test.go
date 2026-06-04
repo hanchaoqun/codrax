@@ -624,6 +624,106 @@ func TestRunPhaseGroup_HappyPathThreePhases(t *testing.T) {
 	}
 }
 
+func TestRunPhaseGroup_E2E_ConsumesWriteExplorationHandoff(t *testing.T) {
+	store := &fakeGroupStore{}
+	mu := types.NewMutableState("test")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			RawRequest:       "patch planner from exploration",
+			ExpectedOutcomes: []string{"planner consumes prior exploration"},
+		},
+	})
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{"internal/agent/planner.go"},
+		EvidenceItems: []types.EvidenceItem{{
+			ID:              "ev-planner",
+			Kind:            types.EvidenceMechanism,
+			Subject:         "planner prompt handoff",
+			Source:          "internal/agent/planner.go",
+			LineStart:       140,
+			AnchorSymbol:    "BuildInitialInstruction",
+			Summary:         "planner renders write exploration context",
+			GroundingStatus: types.GroundingRecovered,
+		}},
+	})
+	bus := &types.BusContext{
+		Mutable:    mu,
+		Mode:       types.ModeApply,
+		AnalysisIR: &types.AnalysisIR{},
+	}
+	o := &Orchestrator{
+		busCtx:              bus,
+		planGroupStore:      store,
+		writeApprovalPolicy: writeflow.ApprovalPolicyAutoSafe,
+	}
+	consumedHandoff := false
+	o.runTaskPhaseFn = func(_ *int) error {
+		handoff := mu.WriteExplorationHandoff()
+		if handoff == nil {
+			t.Fatal("phase runner should see projected write exploration handoff")
+		}
+		consumedHandoff = true
+		if handoff.BatchID != "batch-1" || handoff.Goal != "patch planner" {
+			t.Fatalf("handoff identity drift: %+v", handoff)
+		}
+		if len(handoff.EvidenceRefs) != 1 || handoff.EvidenceRefs[0].LineStart != 140 {
+			t.Fatalf("handoff evidence refs not projected: %+v", handoff.EvidenceRefs)
+		}
+		mu.SetChangePlan(&types.ChangePlan{
+			ID:          "plan-handoff",
+			Status:      types.PlanStatusApplied,
+			Summary:     "small planner change based on exploration handoff",
+			TargetPaths: []string{"internal/agent/planner.go"},
+			Changes: []types.FileChange{{
+				Path:      "internal/agent/planner.go",
+				Kind:      "modify",
+				Rationale: "use the explored planner prompt boundary",
+			}},
+		})
+		mu.SetChangeReport(&types.ChangeReport{
+			PlanID: "plan-handoff",
+			Passed: true,
+			TestResults: []types.TestResult{{
+				Kind:        types.TestResultKindUnit,
+				AssertionID: "planner_handoff_prompt",
+				Passed:      true,
+			}},
+		})
+		o.currentIterCommitSHA = "feedface00000000000000000000000000000000"
+		return nil
+	}
+
+	g := &types.PlanGroup{
+		ID:        "group-handoff-e2e",
+		Goal:      "patch planner from exploration",
+		Decision:  "linear",
+		Status:    types.PlanGroupPlanning,
+		ActiveIdx: 0,
+		Phases: []types.PhaseRecord{{
+			Index:            0,
+			Goal:             "patch planner",
+			Status:           types.PhasePending,
+			RoughTargetPaths: []string{"internal/agent/planner.go"},
+		}},
+	}
+	stepsUsed := 0
+	if err := o.runPhaseGroup(g, &stepsUsed); err != nil {
+		t.Fatalf("runPhaseGroup: %v", err)
+	}
+	if !consumedHandoff {
+		t.Fatal("phase runner did not consume write exploration handoff")
+	}
+	if g.Status != types.PlanGroupCompleted || g.Phases[0].Status != types.PhaseAccepted {
+		t.Fatalf("group/phase should complete; group=%s phase=%s", g.Status, g.Phases[0].Status)
+	}
+	if g.Phases[0].WorkflowEvaluation == nil || g.Phases[0].WorkflowEvaluation.Status != string(writeflow.EvalComplete) {
+		t.Fatalf("workflow evaluation should record completion; got %+v", g.Phases[0].WorkflowEvaluation)
+	}
+	if plan := mu.ChangePlan(); plan == nil || plan.PhaseGroupID != "group-handoff-e2e" || plan.PhaseIndex != 0 {
+		t.Fatalf("phase coordinates not stamped on plan: %+v", plan)
+	}
+}
+
 // TestRunPhaseGroup_AcceptanceErrorAdvances pins commit 26 +
 // 27 in the e2e flow: when the AcceptanceChecker errors on a
 // phase, the phase is marked PhaseAcceptanceUnverified and

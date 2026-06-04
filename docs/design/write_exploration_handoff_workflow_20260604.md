@@ -227,7 +227,7 @@ hint rather than failing silently.
       hook/policy, executable/script, secret-like, dependency/build, and
       repo-escape risks.
 - [x] Add exact content-level private-key material detection to write risk.
-- [ ] Add broader content-level security scan lane for dependency/workflow
+- [x] Add broader content-level security scan lane for dependency/workflow
       payloads, permission-policy changes, and suspicious generated payloads.
 - [x] Feed deterministic typed risk/security results into write risk and
       workflow evaluation through `RiskAssessment` / `ApprovalDecision`.
@@ -238,7 +238,7 @@ hint rather than failing silently.
 - [x] Planner handoff prompt snapshot.
 - [x] Verify-failure re-explore decision fixture.
 - [x] Approval policy regression fixtures.
-- [ ] End-to-end write eval with exploration handoff, small batch change,
+- [x] End-to-end write eval with exploration handoff, small batch change,
       tests, and final report.
 
 ## Commercial Release Guidance
@@ -258,6 +258,6 @@ When customers explicitly enable write mode:
 - worktree, plan, report, and evaluation snapshots remain auditable
 - no automatic merge into the main branch
 
-Do not market write mode as fully autonomous until the remaining broad content
-security scan lane and a real end-to-end write eval have shipped with stable
-coverage.
+Do not market write mode as fully autonomous until broader real-world evals,
+security/reviewer integrations, and customer-environment rollouts have proven
+the workflow beyond deterministic fixtures.
