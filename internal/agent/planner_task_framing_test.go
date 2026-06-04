@@ -77,3 +77,80 @@ func TestPlannerTaskFraming_NilCtxSafe(t *testing.T) {
 		t.Errorf("nil ctx should yield empty section; got %q", got)
 	}
 }
+
+func TestPlannerWorkflowSeed_RendersNextBatchFromPhaseProposal(t *testing.T) {
+	mu := types.NewMutableState("the user request")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task: types.WriteTask{
+				Kind:    types.WriteTaskFeature,
+				Scope:   types.ScopeProject,
+				Summary: "add OAuth provider support",
+			},
+			Constraints: []types.WriteConstraint{
+				{Kind: "preserve_existing_flow", Target: "read-mode"},
+			},
+			ExpectedOutcomes: []string{
+				"static providers still work",
+				"OAuth providers cache tokens",
+			},
+		},
+		PhaseProposal: types.PhaseProposal{
+			Split: "sequential",
+			Phases: []types.PhaseSeed{
+				{Goal: "add provider config schema", RoughTargetPaths: []string{"internal/config/runtime.go", "providers.yaml.example"}},
+				{Goal: "wire OAuth token cache", RoughTargetPaths: []string{"internal/llm"}},
+			},
+		},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	eval := &plannerEvaluator{}
+	got := eval.buildWorkflowSeedSection(ctx)
+	for _, want := range []string{
+		"## Rolling write workflow",
+		"add OAuth provider support",
+		"strategy: rolling_batches",
+		"max_batches: 2",
+		"preserve_existing_flow: read-mode",
+		"next_batch",
+		"batch-1",
+		"add provider config schema",
+		"needs_code_exploration: true",
+		"internal/config/runtime.go, providers.yaml.example",
+		"static providers still work",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("workflow seed missing %q; got:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "add OAuth token cache") {
+		t.Errorf("workflow seed should not unfold later batches into current next_batch details; got:\n%s", got)
+	}
+}
+
+func TestPlannerBuildInitialInstruction_IncludesWorkflowSeedAfterTaskFraming(t *testing.T) {
+	mu := types.NewMutableState("the user request")
+	mu.SetWriteAnalysisIR(&types.WriteAnalysisIR{
+		Request: types.WriteRequestModel{
+			Task: types.WriteTask{
+				Summary: "fix flaky retry loop",
+			},
+			ScopeAnchors:     []string{"internal/orchestrator"},
+			ExpectedOutcomes: []string{"retry loop stops after success"},
+		},
+	})
+	ctx := &types.AgentContext{Mutable: mu}
+	eval := &plannerEvaluator{}
+	got := eval.BuildInitialInstruction(ctx, nil)
+	taskIdx := strings.Index(got, "## Task framing")
+	workflowIdx := strings.Index(got, "## Rolling write workflow")
+	if taskIdx < 0 || workflowIdx < 0 {
+		t.Fatalf("expected task framing and workflow seed; got:\n%s", got)
+	}
+	if workflowIdx < taskIdx {
+		t.Fatalf("workflow seed should render after task framing; got:\n%s", got)
+	}
+	if !strings.Contains(got, "batch-1") || !strings.Contains(got, "retry loop stops after success") {
+		t.Fatalf("workflow seed did not include default batch and success criteria; got:\n%s", got)
+	}
+}

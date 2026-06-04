@@ -287,13 +287,17 @@ Required tests:
 - [x] Reuse `PlanGroup` persistence where possible.
 - [x] Ensure newly generated batches cannot silently apply high/critical risk
       changes without policy approval.
-- [ ] Ensure each batch can do fresh targeted exploration before planning.
+- [x] Ensure each batch can do fresh targeted exploration before planning.
+      The planner now receives a typed `## Rolling write workflow` seed derived
+      from `WriteAnalysisIR`, and the change-plan skill explicitly scopes each
+      dispatch to the current bounded batch before emitting a `ChangePlan`.
 - [ ] Ensure failed batches replan narrowly rather than regenerating the whole
       workflow.
 
 ### Batch 7: Tests And Eval
 
-- [ ] Unit tests for risk, approval, workflow schema, evaluator, and JSON repair.
+- [x] Unit tests for risk, approval, workflow schema, evaluator, JSON repair,
+      and planner/skill workflow prompt wiring.
 - [ ] E2E tests for one-file bugfix, multi-batch feature, high-risk approval,
       critical denial, verify failure replan, and no-test unverified.
 - [ ] Regression tests that read mode, log/trace analysis, source evidence gates,

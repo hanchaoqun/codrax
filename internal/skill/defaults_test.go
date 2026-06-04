@@ -494,6 +494,32 @@ func TestChangePlanSkill_PhaseAInvestigateWorkflow(t *testing.T) {
 	}
 }
 
+// TestChangePlanSkill_RollingBatchWorkflowGuidance pins the planner-facing
+// guidance that broad writes should unfold as bounded batches, not one
+// all-at-once ChangePlan. This is prompt teaching only; scheduler hard gates
+// remain typed and deterministic.
+func TestChangePlanSkill_RollingBatchWorkflowGuidance(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+
+	sk, err := r.Get("change-plan-skill")
+	if err != nil {
+		t.Fatalf("Get(change-plan-skill): %v", err)
+	}
+	wf := strings.Join(sk.Workflow, "\n")
+	for _, want := range []string{
+		"ROLLING BATCH SCOPING",
+		"smallest useful next batch",
+		"## Rolling write workflow",
+		"current dispatch boundary",
+		"concrete acceptance_tests",
+	} {
+		if !strings.Contains(wf, want) {
+			t.Errorf("rolling batch workflow should mention %q; got:\n%s", want, wf)
+		}
+	}
+}
+
 // TestChangePlanSkill_DebugWorkflowOnRetry verifies Module F's
 // description of how to read failure data on retry — not as
 // prescription ("if X then Y") but as method ("read X, decide which

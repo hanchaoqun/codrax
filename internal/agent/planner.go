@@ -11,6 +11,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/skill"
 	repomaptypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/writeflow"
 )
 
 // plannerEvaluator drives the planner agent's single-emit ReAct loop
@@ -130,6 +131,9 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 	if framing := e.buildTaskFramingSection(ctx); framing != "" {
 		sections = append(sections, framing)
 	}
+	if workflow := e.buildWorkflowSeedSection(ctx); workflow != "" {
+		sections = append(sections, workflow)
+	}
 	if seed := e.buildInvestigationSeed(ctx); seed != "" {
 		sections = append(sections, seed)
 	}
@@ -222,6 +226,79 @@ func (e *plannerEvaluator) buildTaskFramingSection(ctx *types.AgentContext) stri
 		}
 	}
 	return b.String()
+}
+
+// buildWorkflowSeedSection renders the write_analyzer's typed task shape as a
+// rolling workflow seed. This is soft planning context only: it gives the
+// planner a bounded "next batch" frame without becoming a hard gate or parsing
+// user/model prose. The existing ChangePlan remains the concrete apply unit.
+func (e *plannerEvaluator) buildWorkflowSeedSection(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	ir := ctx.Mutable.WriteAnalysisIR()
+	if ir == nil {
+		return ""
+	}
+	plan := writeflow.NormalizeWorkflowPlan(writeflow.WorkflowSeedFromWriteAnalysis(ir))
+	if plan.Goal == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Rolling write workflow\n\n")
+	b.WriteString("Structured workflow seed from write_analyzer. Use it to scope this dispatch to one bounded next batch; this is planning context, not a hard gate. Do not unfold the whole project when a smaller batch can be explored, planned, applied, and verified first.\n\n")
+	fmt.Fprintf(&b, "- goal: %s\n", plan.Goal)
+	if plan.Strategy != "" {
+		fmt.Fprintf(&b, "- strategy: %s\n", plan.Strategy)
+	}
+	if plan.MaxBatches > 0 {
+		fmt.Fprintf(&b, "- max_batches: %d\n", plan.MaxBatches)
+	}
+	if len(plan.KnownConstraints) > 0 {
+		b.WriteString("- known_constraints:\n")
+		for _, c := range plan.KnownConstraints {
+			fmt.Fprintf(&b, "  - %s\n", c)
+		}
+	}
+	if len(plan.SuccessCriteria) > 0 {
+		b.WriteString("- success_criteria:\n")
+		for _, c := range plan.SuccessCriteria {
+			fmt.Fprintf(&b, "  - %s\n", c)
+		}
+	}
+	if plan.NextBatch != nil {
+		batch := *plan.NextBatch
+		b.WriteString("- next_batch:\n")
+		if batch.ID != "" {
+			fmt.Fprintf(&b, "  - id: %s\n", batch.ID)
+		}
+		fmt.Fprintf(&b, "  - goal: %s\n", batch.Goal)
+		if batch.Status != "" {
+			fmt.Fprintf(&b, "  - status: %s\n", batch.Status)
+		}
+		if batch.NeedsCodeExploration {
+			b.WriteString("  - needs_code_exploration: true\n")
+		}
+		if batch.Purpose != "" {
+			fmt.Fprintf(&b, "  - purpose: %s\n", batch.Purpose)
+		}
+		if batch.WhyThisBatch != "" {
+			fmt.Fprintf(&b, "  - why_this_batch: %s\n", batch.WhyThisBatch)
+		}
+		if len(batch.ExploreTargets) > 0 {
+			fmt.Fprintf(&b, "  - explore_targets: %s\n", strings.Join(batch.ExploreTargets, ", "))
+		}
+		if len(batch.ExpectedPaths) > 0 {
+			fmt.Fprintf(&b, "  - expected_paths: %s\n", strings.Join(batch.ExpectedPaths, ", "))
+		}
+		if len(batch.SuccessCriteria) > 0 {
+			b.WriteString("  - batch_success_criteria:\n")
+			for _, c := range batch.SuccessCriteria {
+				fmt.Fprintf(&b, "    - %s\n", c)
+			}
+		}
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // buildInvestigationSeed implements Module A's pre-emit investigation
