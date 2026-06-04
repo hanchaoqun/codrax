@@ -17,6 +17,13 @@ func verifyCommandStepOutcome(plan CommandOperationPlan, step CommandStep) Opera
 	if hint := strings.TrimSpace(step.VerifyHint); hint != "" {
 		return verifyCommandHint(plan, step, hint)
 	}
+	if stepHasUISideEffect(step) {
+		return OperationVerificationResult{
+			Status:  VerificationUnknown,
+			Kind:    "ui_visibility",
+			Summary: "command exited successfully, but desktop/browser UI visibility was not verified",
+		}
+	}
 	switch baseProgram(step.Program) {
 	case "mkdir", "touch", "cp", "mv", "tee":
 		return verifyPathCandidates(plan, step, "path_exists", true)
@@ -24,6 +31,16 @@ func verifyCommandStepOutcome(plan CommandOperationPlan, step CommandStep) Opera
 		return verifyPathCandidates(plan, step, "path_absent", false)
 	}
 	return OperationVerificationResult{}
+}
+
+func stepHasUISideEffect(step CommandStep) bool {
+	for _, effect := range step.SideEffects {
+		switch strings.ToLower(strings.TrimSpace(effect)) {
+		case "desktop_ui", "browser_ui":
+			return true
+		}
+	}
+	return false
 }
 
 func verifyCommandHint(plan CommandOperationPlan, step CommandStep, hint string) OperationVerificationResult {

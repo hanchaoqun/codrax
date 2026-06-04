@@ -381,3 +381,28 @@ func TestCommandExecutorFailsWhenVerificationFails(t *testing.T) {
 		t.Fatalf("Verification=%+v, want failed", step.Verification)
 	}
 }
+
+func TestCommandExecutorMarksUISideEffectVisibilityUnknown(t *testing.T) {
+	executor := CommandExecutor{Policy: DefaultCommandPolicy(), OutputDir: t.TempDir()}
+	plan := CommandOperationPlan{
+		ID:           "op-ui",
+		Status:       StatusReady,
+		ApprovalMode: ApprovalAutoLowRisk,
+		WorkDir:      ".",
+		Steps: []CommandStep{{
+			ID:          "step-1",
+			Program:     "pwd",
+			TimeoutMS:   30_000,
+			SideEffects: []string{"desktop_ui"},
+		}},
+	}
+
+	result := executor.Execute(context.Background(), plan)
+	if result.Status != StatusExecuted {
+		t.Fatalf("Status=%q result=%+v", result.Status, result)
+	}
+	got := result.StepResults[0].Verification
+	if got.Status != VerificationUnknown || got.Kind != "ui_visibility" {
+		t.Fatalf("Verification=%+v, want ui visibility unknown", got)
+	}
+}
