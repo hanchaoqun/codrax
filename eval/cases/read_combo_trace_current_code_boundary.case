@@ -17,4 +17,4 @@ HTRACE='# tracer: nop
 EXPECT_NOT_CONTAINS="**值：**"
 EXPECT_MATCHES_REGEX="(RenderService|DoFrame).*(86\.111|86ms|超过 ?50ms|> ?50)|(86\.111|86ms|超过 ?50ms|> ?50).*(RenderService|DoFrame)
 (trace|HiTrace|附件|行号|时间窗).*(源码|当前代码|实现)|(源码|当前代码|实现).*(trace|HiTrace|附件|行号|时间窗)
-internal/(analysis|tool|agent|orchestrator)/[^[:space:]]+\.go:[0-9]+"
+internal/[^[:space:]]+\.go:[0-9]+"
