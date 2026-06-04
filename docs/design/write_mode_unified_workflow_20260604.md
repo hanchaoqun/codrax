@@ -261,11 +261,11 @@ Required tests:
 
 ### Batch 4: Deterministic Write Unified Evaluator
 
-- [ ] Evaluate task completion from typed batch status, tests, acceptance checks,
+- [x] Evaluate task completion from typed batch status, tests, acceptance checks,
       and risk status.
-- [ ] Return `continue_explore`, `continue_plan`, `needs_approval`, `complete`,
+- [x] Return `continue_explore`, `continue_plan`, `needs_approval`, `complete`,
       `blocked`, `danger_denied`, `rollback_required`, or `budget_exhausted`.
-- [ ] Add tests for verify failure, no tests, high-risk expansion, critical
+- [x] Add tests for verify failure, no tests, high-risk expansion, critical
       denial, and complete status.
 
 ### Batch 5: REPL / CLI Approval Integration
