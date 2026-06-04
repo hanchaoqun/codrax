@@ -168,12 +168,12 @@ var turnPolicyTool = llm.ToolSchema{
     "operation_kind": {
       "type": "string",
       "enum": ["", "computer_operation", "artifact_generation", "presentation_generation", "document_generation", "spreadsheet_generation", "browser_operation", "external_skill_workflow"],
-      "description": "Optional precise operation kind. Leave empty for non-operation routes. For route=operation, choose the closest concrete capability."
+      "description": "Optional precise operation kind. Leave empty for non-operation routes. For route=operation, choose the closest concrete capability. Use external_skill_workflow only when there is also a concrete operation target surface, side effect, artifact workflow, browser/desktop workflow, or provider-controlled execution. Do not use it for read-only MCP/resource/log/trace evidence lookup; those are external observations handled by route=repo."
     },
     "source": {
       "type": "string",
       "enum": ["current_message", "last_answer", "prior_context", "repo", "mixed", "external_tool", "artifact"],
-      "description": "Where the answer's content comes from. last_answer = derives from the immediately previous response. prior_context = derives from earlier conversation. repo = requires reading repository files. mixed = combination of the above. external_tool/artifact = external observation, operation result, or external skill result."
+      "description": "Where the answer's content comes from. last_answer = derives from the immediately previous response. prior_context = derives from earlier conversation. repo = requires reading repository files. mixed = combination of the above. external_tool/artifact = external observation, operation result, or external skill result. Read-only MCP rows/resources are external observations, not command operations by themselves."
     },
     "risk_level": {
       "type": "string",
@@ -991,6 +991,17 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 		if p.TargetSurface == "" {
 			p.TargetSurface = "unknown"
 		}
+		if !IsConcreteOperationPolicy(p) {
+			p.Route = RouteRepo
+			p.NeedsRepoAccess = true
+			p.NeedsOperationAccess = false
+			p.RiskLevel = "none"
+			p.OperationKind = ""
+			p.SideEffects = nil
+			if p.TargetSurface == "unknown" {
+				p.TargetSurface = ""
+			}
+		}
 	} else {
 		p.NeedsOperationAccess = false
 		if !isOperationLikeOperation(p.Operation) {
@@ -1097,9 +1108,93 @@ func isOperationLikeOperation(op string) bool {
 }
 
 func hasOperationSignal(p TurnPolicy) bool {
-	return p.NeedsOperationAccess ||
-		isOperationLikeOperation(p.Operation) ||
-		isOperationLikeOperation(p.OperationKind)
+	return concreteOperationSignal(p)
+}
+
+// IsConcreteOperationPolicy reports whether a guarded TurnPolicy carries enough
+// typed operation surface to start the operation pipeline. It consumes only
+// structured fields: operation kind, side effects, and target surface. Plain
+// `operation=investigate` over repo/log/trace/MCP observations is not concrete
+// operation work and should remain in the analysis pipeline.
+func IsConcreteOperationPolicy(p TurnPolicy) bool {
+	if p.Route != RouteOperation || !p.NeedsOperationAccess {
+		return false
+	}
+	if isAnalysisOnlyPolicy(p) {
+		return false
+	}
+	if concreteOperationSignal(p) {
+		return true
+	}
+	return false
+}
+
+func concreteOperationSignal(p TurnPolicy) bool {
+	if isAlwaysConcreteOperationKind(p.OperationKind) || isAlwaysConcreteOperationKind(p.Operation) {
+		return true
+	}
+	if isExternalSkillWorkflow(p.OperationKind) || isExternalSkillWorkflow(p.Operation) {
+		return externalSkillWorkflowIsConcrete(p)
+	}
+	if hasConcreteSideEffect(p.SideEffects) {
+		return true
+	}
+	if targetSurfaceLooksOperation(p.TargetSurface) {
+		return true
+	}
+	// external_skill_workflow is intentionally not concrete on its own:
+	// read-only MCP/resource observations are also "external tools" in the
+	// model's vocabulary. Requiring a surface or side-effect keeps those in
+	// the evidence pipeline while still allowing real provider workflows
+	// when the classifier emits a concrete target.
+	return false
+}
+
+func isExternalSkillWorkflow(op string) bool {
+	return strings.TrimSpace(op) == "external_skill_workflow"
+}
+
+func externalSkillWorkflowIsConcrete(p TurnPolicy) bool {
+	if hasConcreteSideEffect(p.SideEffects) {
+		return true
+	}
+	switch strings.TrimSpace(p.TargetSurface) {
+	case "desktop", "browser", "file_artifact", "office_doc", "spreadsheet", "slides":
+		return true
+	default:
+		return false
+	}
+}
+
+func hasConcreteSideEffect(effects []string) bool {
+	for _, effect := range effects {
+		switch strings.TrimSpace(effect) {
+		case "local_file_write", "desktop_ui", "browser_ui", "network_submit",
+			"external_system_write", "package_install", "package_uninstall",
+			"remote_exec", "destructive":
+			return true
+		}
+	}
+	return false
+}
+
+func isAlwaysConcreteOperationKind(op string) bool {
+	switch strings.TrimSpace(op) {
+	case "computer_operation", "artifact_generation", "presentation_generation",
+		"document_generation", "spreadsheet_generation", "browser_operation":
+		return true
+	default:
+		return false
+	}
+}
+
+func targetSurfaceLooksOperation(raw string) bool {
+	switch strings.TrimSpace(raw) {
+	case "", "unknown", "repo", "source", "log", "trace", "mcp", "external_observation":
+		return false
+	default:
+		return true
+	}
 }
 
 func isAnalysisOnlyPolicy(p TurnPolicy) bool {

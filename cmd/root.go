@@ -1169,7 +1169,7 @@ func maybeRunSingleShotOperation(request string) (bool, string, error) {
 	}
 	rawPolicy := policy
 	policy = repl.ApplyTurnPolicyGuards(policy, false, hasAttachment)
-	logging.Info("[cmd/operation] single-shot turn policy raw_route=%s route=%s operation=%s operation_kind=%s needs_repo=%t needs_operation=%t risk=%s confidence=%.2f source=%s reason=%q",
+	logging.Info("[cmd/operation] single-shot turn policy raw_route=%s route=%s operation=%s operation_kind=%s needs_repo=%t needs_operation=%t risk=%s confidence=%.2f source=%s target_surface=%s side_effects=%s reason=%q",
 		rawPolicy.Route,
 		policy.Route,
 		policy.Operation,
@@ -1179,8 +1179,10 @@ func maybeRunSingleShotOperation(request string) (bool, string, error) {
 		policy.RiskLevel,
 		policy.Confidence,
 		policy.Source,
+		policy.TargetSurface,
+		strings.Join(policy.SideEffects, ","),
 		oneLineForLog(policy.Reason))
-	if policy.Route != repl.RouteOperation || !policy.NeedsOperationAccess {
+	if policy.Route != repl.RouteOperation || !policy.NeedsOperationAccess || !repl.IsConcreteOperationPolicy(policy) {
 		return false, "", nil
 	}
 	result, err := repl.RunCommandOperationCLI(ctx, request, policy, repl.CommandOperationCLIConfig{

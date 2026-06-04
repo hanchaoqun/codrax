@@ -140,7 +140,19 @@ func TestHasObservationOnlyRuntimeArtifact_CurrentKeyCodeDimensionOpensCurrentSo
 	if rm.HasObservationOnlyRuntimeArtifact() {
 		t.Fatal("explicit current_key_code dimension should keep mixed runtime/current-source lane open")
 	}
+	rm.ExternalObservationPolicy = &ExternalObservationPolicy{
+		CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+		SourceQuotes:      []string{"不要把日志行当成当前源码引用"},
+		Confidence:        0.9,
+	}
+	if rm.HasObservationOnlyRuntimeArtifact() {
+		t.Fatal("current_key_code dimension must outrank accidental source exclusion")
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
+		t.Fatalf("current_key_code dimension should require current source even with exclusion drift, got %s", got)
+	}
 
+	rm.ExternalObservationPolicy = nil
 	rm.RequestedAnswerDimensions.Dimensions[0].Role = RequestedAnswerDimensionImpact
 	if rm.HasObservationOnlyRuntimeArtifact() {
 		t.Fatal("non-current-source presentation dimensions do not suppress default current-source analysis")
@@ -164,10 +176,63 @@ func TestHasObservationOnlyRuntimeArtifact_CurrentSourceExplanationProfileOpensL
 	if rm.HasObservationOnlyRuntimeArtifact() {
 		t.Fatal("typed current-source explanation profile should keep mixed runtime/current-source lane open")
 	}
+	rm.ExternalObservationPolicy = &ExternalObservationPolicy{
+		CurrentSourceMode: ExternalObservationCurrentSourceExclude,
+		SourceQuotes:      []string{"不要把日志行当成当前源码引用"},
+		Confidence:        0.9,
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
+		t.Fatalf("current-source explanation profile should require current source even with exclusion drift, got %s", got)
+	}
 
+	rm.ExternalObservationPolicy = nil
 	rm.CurrentSourceExplanationProfile.SourceQuotes = nil
 	if rm.HasObservationOnlyRuntimeArtifact() {
 		t.Fatal("inactive current-source explanation profile must not suppress default current-source lane")
+	}
+}
+
+func TestCurrentSourceLaneDecision_ExternalArtifactCoordinatesDoNotRequireSource(t *testing.T) {
+	rm := RequestModel{
+		ExternalObservationPolicy: &ExternalObservationPolicy{
+			ArtifactCitationMode: ExternalObservationArtifactCitationExternalOnly,
+			Confidence:           0.9,
+		},
+		AnalyzerHints: AnalyzerHints{
+			ExactTargets: []string{"mcp://fixture/trace/sleep-wakeup"},
+			Entities:     []string{"pid=4242"},
+		},
+		CurrentSourceExplanationProfile: &CurrentSourceExplanationProfile{
+			IsCurrentSourceExplanationRequested: true,
+			Modes:                               []CurrentSourceExplanationMode{CurrentSourceExplanationOther},
+			SourceQuotes:                        []string{"mcp://fixture/trace/sleep-wakeup", "line 7", "line 12"},
+			Confidence:                          0.9,
+		},
+		RequestedAnswerDimensions: &RequestedAnswerDimensionProfile{
+			IsDimensionedAnswer: true,
+			Dimensions: []RequestedAnswerDimension{
+				{Label: "line 7", Role: RequestedAnswerDimensionCurrentKeyCode, SourceQuote: "line 7", Required: true, Index: 1},
+				{Label: "第12行", Role: RequestedAnswerDimensionCurrentKeyCode, SourceQuote: "第12行", Required: true, Index: 2},
+			},
+			Confidence: 0.9,
+		},
+	}
+	if !rm.HasExternalObservationArtifactReference() {
+		t.Fatal("external artifact coordinates should be recognized without attached log/trace bundles")
+	}
+	if rm.HasRuntimeArtifactCurrentVerificationAnchor() {
+		t.Fatal("external artifact coordinates must not become current-source anchors")
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneAllowedOptional {
+		t.Fatalf("CurrentSourceLaneDecision=%s, want allowed_optional", got)
+	}
+
+	rm.CurrentSourceExplanationProfile.SourceQuotes = append(rm.CurrentSourceExplanationProfile.SourceQuotes, "当前关键代码")
+	if !rm.HasRuntimeArtifactCurrentVerificationAnchor() {
+		t.Fatal("a separate typed current-source quote should still open the current-source lane")
+	}
+	if got := rm.CurrentSourceLaneDecision(); got != CurrentSourceLaneRequired {
+		t.Fatalf("CurrentSourceLaneDecision=%s, want required after current-source quote", got)
 	}
 }
 

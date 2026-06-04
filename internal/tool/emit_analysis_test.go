@@ -3628,6 +3628,77 @@ func TestEmitAnalysis_ExternalObservationPolicyRepairsStringWrappedObject(t *tes
 	}
 }
 
+func TestEmitAnalysis_ExternalObservationPolicyArtifactCitationMode(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	mu := types.NewMutableState("结合当前关键代码分析日志，但不要把日志行当成当前源码引用")
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["log", "runtime", "source"],
+		"entities": ["panic"],
+		"question_kind": "mechanism",
+		"current_source_explanation_profile": {
+			"is_current_source_explanation_requested": true,
+			"modes": ["explain_current_mechanism"],
+			"source_quotes": ["当前关键代码"],
+			"confidence": 0.91
+		},
+		"external_observation_policy": "{\"current_source_mode\":\"default\",\"artifact_citation_mode\":\"external_only\",\"source_quotes\":[\"不要把日志行当成当前源码引用\"],\"confidence\":\"0.88\"}"
+	}`)
+	res, err := (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("artifact citation mode should be accepted through string-wrapped policy, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil || rm.ExternalObservationPolicy == nil {
+		t.Fatalf("policy should survive: %+v", rm)
+	}
+	if got := rm.ExternalObservationPolicy.ArtifactCitationMode; got != types.ExternalObservationArtifactCitationExternalOnly {
+		t.Fatalf("ArtifactCitationMode=%q, want external_only", got)
+	}
+	if rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		t.Fatalf("artifact citation mode must not exclude current source: %+v", rm.ExternalObservationPolicy)
+	}
+	if !strings.Contains(res.Summary, "artifact_citation=external_only") {
+		t.Fatalf("summary should report artifact citation mode, got %q", res.Summary)
+	}
+
+	mu = types.NewMutableState("结合当前代码分析外部日志，日志行号不要作为当前源码引用")
+	payload = withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["log", "source"],
+		"entities": ["panic"],
+		"question_kind": "mechanism",
+		"external_observation_policy": "{\"artifact_citation_mode\":\"external_only\",\"confidence\":\"0.77\"}"
+	}`)
+	res, err = (&EmitAnalysis{}).Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute artifact-only policy: %v", err)
+	}
+	rm = mu.RequestModel()
+	if rm == nil || rm.ExternalObservationPolicy == nil {
+		t.Fatalf("artifact-only policy should survive: %+v", rm)
+	}
+	if got := rm.ExternalObservationPolicy.CurrentSourceMode; got != types.ExternalObservationCurrentSourceDefault {
+		t.Fatalf("CurrentSourceMode=%q, want default", got)
+	}
+	if got := rm.ExternalObservationPolicy.ArtifactCitationMode; got != types.ExternalObservationArtifactCitationExternalOnly {
+		t.Fatalf("ArtifactCitationMode=%q, want external_only", got)
+	}
+}
+
 func TestEmitAnalysis_Execute_PersistsAnswerExclusionPolicy(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

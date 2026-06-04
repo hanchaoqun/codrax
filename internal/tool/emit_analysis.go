@@ -258,10 +258,11 @@ type emitCurrentSourceExplanationParam struct {
 }
 
 type emitExternalObservationPolicyParam struct {
-	CurrentSourceMode string   `json:"current_source_mode,omitempty"`
-	SourceQuotes      []string `json:"source_quotes,omitempty"`
-	Confidence        *float64 `json:"confidence"`
-	Rationale         string   `json:"rationale,omitempty"`
+	CurrentSourceMode    string   `json:"current_source_mode,omitempty"`
+	ArtifactCitationMode string   `json:"artifact_citation_mode,omitempty"`
+	SourceQuotes         []string `json:"source_quotes,omitempty"`
+	Confidence           *float64 `json:"confidence"`
+	Rationale            string   `json:"rationale,omitempty"`
 }
 
 // emitAnswerSubjectParam is the wire shape of the optional
@@ -607,14 +608,15 @@ func buildEmitAnalysisSchema() {
 			},
 			"external_observation_policy": map[string]any{
 				"type":        "object",
-				"description": "Optional typed source-scope policy for external observations such as logs, traces, MCP resources, connector rows, command output, web pages, or external documents. Omit it or set current_source_mode=default/allow unless the CURRENT request explicitly says not to use current checkout/source evidence. Exclusion is a typed policy only; do not infer it merely because an external artifact exists.",
+				"description": "Optional typed source/citation policy for external observations such as logs, traces, MCP resources, connector rows, command output, web pages, or external documents. Omit it or set current_source_mode=default/allow unless the CURRENT request explicitly says not to use current checkout/source evidence. If the request only says external artifact line numbers are not current-source citations, set artifact_citation_mode=external_only instead of excluding current source.",
 				"properties": map[string]any{
-					"current_source_mode": map[string]any{"type": "string", "enum": externalObservationCurrentSourceModeValues(), "description": "default/allow means analyze external observations together with current source. exclude means suppress current-source exploration only when the current request explicitly forbids source/current-checkout analysis."},
-					"source_quotes":       map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Verbatim current-request phrase(s) that justify exclude. Required for active exclusion; unanchored quotes are ignored."},
-					"confidence":          map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this source-scope policy in [0,1]."},
-					"rationale":           map[string]any{"type": "string", "description": "Short audit rationale."},
+					"current_source_mode":    map[string]any{"type": "string", "enum": externalObservationCurrentSourceModeValues(), "description": "default/allow means analyze external observations together with current source. exclude means suppress current-source exploration only when the current request explicitly forbids source/current-checkout analysis."},
+					"artifact_citation_mode": map[string]any{"type": "string", "enum": externalObservationArtifactCitationModeValues(), "description": "default leaves citation policy unchanged. external_only means external artifact line/row refs stay external-observation evidence and must not be re-rendered as current-source file:line citations; it does NOT suppress current-source exploration. allow_current_source is only for external material that has been resolved to current source by another typed signal."},
+					"source_quotes":          map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Verbatim current-request phrase(s) that justify exclude or external-only artifact citation. Required for active source exclusion; unanchored quotes are ignored for exclusion."},
+					"confidence":             map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your confidence in this source/citation policy in [0,1]."},
+					"rationale":              map[string]any{"type": "string", "description": "Short audit rationale."},
 				},
-				"required": []string{"current_source_mode", "confidence"},
+				"required": []string{"confidence"},
 			},
 			"predicate_axis": map[string]any{
 				"type":        "string",
@@ -841,6 +843,15 @@ func currentSourceExplanationModeValues() []string {
 
 func externalObservationCurrentSourceModeValues() []string {
 	values := types.AllExternalObservationCurrentSourceModes()
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		out = append(out, string(v))
+	}
+	return out
+}
+
+func externalObservationArtifactCitationModeValues() []string {
+	values := types.AllExternalObservationArtifactCitationModes()
 	out := make([]string, 0, len(values))
 	for _, v := range values {
 		out = append(out, string(v))
@@ -2674,6 +2685,7 @@ func parseExternalObservationPolicy(raw string, p *emitExternalObservationPolicy
 		confidence = 1
 	}
 	mode := types.NormalizeExternalObservationCurrentSourceMode(p.CurrentSourceMode)
+	artifactCitationMode := types.NormalizeExternalObservationArtifactCitationMode(p.ArtifactCitationMode)
 	var quotes []string
 	for _, quote := range p.SourceQuotes {
 		trimmed := strings.TrimSpace(quote)
@@ -2690,14 +2702,18 @@ func parseExternalObservationPolicy(raw string, p *emitExternalObservationPolicy
 		warnings = append(warnings, "external_observation_policy exclude ignored because no source_quote survived current-request provenance validation")
 		mode = types.ExternalObservationCurrentSourceDefault
 	}
-	if mode == types.ExternalObservationCurrentSourceDefault && len(quotes) == 0 && strings.TrimSpace(p.Rationale) == "" {
+	if mode == types.ExternalObservationCurrentSourceDefault &&
+		artifactCitationMode == types.ExternalObservationArtifactCitationDefault &&
+		len(quotes) == 0 &&
+		strings.TrimSpace(p.Rationale) == "" {
 		return nil, "", warnings
 	}
 	return &types.ExternalObservationPolicy{
-		CurrentSourceMode: mode,
-		SourceQuotes:      dedupeTrimmedStrings(quotes),
-		Confidence:        confidence,
-		Rationale:         strings.TrimSpace(p.Rationale),
+		CurrentSourceMode:    mode,
+		ArtifactCitationMode: artifactCitationMode,
+		SourceQuotes:         dedupeTrimmedStrings(quotes),
+		Confidence:           confidence,
+		Rationale:            strings.TrimSpace(p.Rationale),
 	}, "", warnings
 }
 
@@ -3491,6 +3507,10 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 	}
 	if rm.ExternalObservationPolicy != nil {
 		fmt.Fprintf(&b, " external_observation_policy=%s", rm.ExternalObservationPolicy.CurrentSourceMode)
+		if rm.ExternalObservationPolicy.ArtifactCitationMode != "" &&
+			rm.ExternalObservationPolicy.ArtifactCitationMode != types.ExternalObservationArtifactCitationDefault {
+			fmt.Fprintf(&b, "/artifact_citation=%s", rm.ExternalObservationPolicy.ArtifactCitationMode)
+		}
 	}
 
 	// Normalization delta — only fields where raw ≠ canonical get

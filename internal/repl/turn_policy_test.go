@@ -483,6 +483,78 @@ func TestApplyTurnPolicyGuards_OperationRoute(t *testing.T) {
 		currentSourceInvestigation.NeedsOperationAccess {
 		t.Fatalf("analysis-only current-source investigation must stay in pipeline: %+v", currentSourceInvestigation)
 	}
+
+	mcpObservationDrift := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                RouteRepo,
+		NeedsRepoAccess:      false,
+		NeedsOperationAccess: true,
+		Operation:            "investigate",
+		OperationKind:        "",
+		Source:               "external_tool",
+		RiskLevel:            "low",
+		Confidence:           0.9,
+		Reason:               "MCP rows are external observations handled by the analysis pipeline",
+	}, false, false)
+	if mcpObservationDrift.Route != RouteRepo ||
+		!mcpObservationDrift.NeedsRepoAccess ||
+		mcpObservationDrift.NeedsOperationAccess ||
+		IsConcreteOperationPolicy(mcpObservationDrift) {
+		t.Fatalf("MCP observation drift must not become command operation: %+v", mcpObservationDrift)
+	}
+
+	mcpExternalSkillDrift := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: true,
+		Operation:            "external_skill_workflow",
+		OperationKind:        "external_skill_workflow",
+		Source:               "external_tool",
+		RiskLevel:            "low",
+		SideEffects:          []string{"network_read"},
+		TargetSurface:        "external_system",
+		Confidence:           0.9,
+		Reason:               "Read-only external tool rows should be interpreted as observations",
+	}, false, false)
+	if mcpExternalSkillDrift.Route != RouteRepo ||
+		!mcpExternalSkillDrift.NeedsRepoAccess ||
+		mcpExternalSkillDrift.NeedsOperationAccess ||
+		IsConcreteOperationPolicy(mcpExternalSkillDrift) {
+		t.Fatalf("read-only external skill drift must stay in analysis pipeline: %+v", mcpExternalSkillDrift)
+	}
+
+	realExternalSkill := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: true,
+		Operation:            "external_skill_workflow",
+		OperationKind:        "external_skill_workflow",
+		Source:               "current_message",
+		RiskLevel:            "low",
+		TargetSurface:        "slides",
+		Confidence:           0.9,
+		Reason:               "A configured external skill will generate a slide artifact",
+	}, false, false)
+	if realExternalSkill.Route != RouteOperation ||
+		!realExternalSkill.NeedsOperationAccess ||
+		!IsConcreteOperationPolicy(realExternalSkill) {
+		t.Fatalf("concrete external skill with target surface must remain operation: %+v", realExternalSkill)
+	}
+
+	externalSkillWrite := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: true,
+		Operation:            "external_skill_workflow",
+		OperationKind:        "external_skill_workflow",
+		Source:               "current_message",
+		RiskLevel:            "medium",
+		SideEffects:          []string{"network_submit"},
+		TargetSurface:        "external_system",
+		Confidence:           0.9,
+		Reason:               "A configured external skill will submit data to an external system",
+	}, false, false)
+	if externalSkillWrite.Route != RouteOperation ||
+		!externalSkillWrite.NeedsOperationAccess ||
+		!IsConcreteOperationPolicy(externalSkillWrite) {
+		t.Fatalf("external skill with concrete side effect must remain operation: %+v", externalSkillWrite)
+	}
 }
 
 // ─── Layer 2: ClassifyPolicy parses tool calls ───────────────

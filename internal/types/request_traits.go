@@ -1,6 +1,7 @@
 package types
 
 import (
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -967,6 +968,49 @@ func (rm RequestModel) HasExternalOnlyRuntimeArtifact() bool {
 	return false
 }
 
+// HasExternalObservationArtifactReference reports whether the analyzer has
+// explicitly classified visible line/row references as external-observation
+// citations. This covers MCP/resources/web/docs where there may be no attached
+// runtime artifact bundle, but the coordinates still must not become
+// current-source line citations.
+func (rm RequestModel) HasExternalObservationArtifactReference() bool {
+	if rm.ExternalObservationPolicy == nil || !rm.ExternalObservationPolicy.ArtifactCitationsExternalOnly() {
+		return false
+	}
+	for _, target := range rm.AnalyzerHints.ExactTargets {
+		if looksLikeExternalObservationReference(target) || looksLikeExternalArtifactCoordinate(target) {
+			return true
+		}
+	}
+	for _, entity := range rm.AnalyzerHints.Entities {
+		if looksLikeExternalObservationReference(entity) || looksLikeExternalArtifactCoordinate(entity) {
+			return true
+		}
+	}
+	for _, entity := range rm.AnalyzerHints.PrimaryEntities {
+		if looksLikeExternalObservationReference(entity) || looksLikeExternalArtifactCoordinate(entity) {
+			return true
+		}
+	}
+	if rm.CurrentSourceExplanationProfile != nil {
+		for _, quote := range rm.CurrentSourceExplanationProfile.SourceQuotes {
+			if looksLikeExternalObservationReference(quote) || looksLikeExternalArtifactCoordinate(quote) {
+				return true
+			}
+		}
+	}
+	if rm.RequestedAnswerDimensions != nil {
+		for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
+			if looksLikeExternalObservationReference(dim.SourceQuote) ||
+				looksLikeExternalArtifactCoordinate(dim.SourceQuote) ||
+				looksLikeExternalArtifactCoordinate(dim.Label) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // HasObservationOnlyRuntimeArtifact reports the narrower external-
 // runtime shape where the user's current request explicitly excludes current
 // checkout evidence. Omitted policy defaults to mixed external-observation plus
@@ -974,6 +1018,7 @@ func (rm RequestModel) HasExternalOnlyRuntimeArtifact() bool {
 // exclusion signal.
 func (rm RequestModel) HasObservationOnlyRuntimeArtifact() bool {
 	return rm.HasExternalOnlyRuntimeArtifact() &&
+		!rm.HasRuntimeArtifactCurrentVerificationAnchor() &&
 		rm.ExternalObservationPolicy != nil &&
 		rm.ExternalObservationPolicy.ExcludesCurrentSource()
 }
@@ -1010,14 +1055,14 @@ func (d CurrentSourceLaneDecision) RequiresCurrentSource() bool {
 // gates. It consumes only typed analyzer/runtime fields; it does not inspect
 // raw user prose.
 func (rm RequestModel) CurrentSourceLaneDecision() CurrentSourceLaneDecision {
-	if !rm.HasExternalOnlyRuntimeArtifact() {
+	if !rm.HasExternalOnlyRuntimeArtifact() && !rm.HasExternalObservationArtifactReference() {
 		return CurrentSourceLaneRequired
-	}
-	if rm.HasObservationOnlyRuntimeArtifact() {
-		return CurrentSourceLaneExcluded
 	}
 	if rm.HasRuntimeArtifactCurrentVerificationAnchor() {
 		return CurrentSourceLaneRequired
+	}
+	if rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ExcludesCurrentSource() {
+		return CurrentSourceLaneExcluded
 	}
 	return CurrentSourceLaneAllowedOptional
 }
@@ -1028,10 +1073,12 @@ func (rm RequestModel) CurrentSourceLaneDecision() CurrentSourceLaneDecision {
 // structured analyzer fields; stack-frame labels from an unresolved external
 // log are not enough by themselves.
 func (rm RequestModel) HasRuntimeArtifactCurrentVerificationAnchor() bool {
-	if !rm.HasExternalOnlyRuntimeArtifact() {
+	if !rm.HasExternalOnlyRuntimeArtifact() && !rm.HasExternalObservationArtifactReference() {
 		return false
 	}
-	if rm.CurrentSourceExplanationProfile != nil && rm.CurrentSourceExplanationProfile.Active() {
+	if rm.CurrentSourceExplanationProfile != nil &&
+		rm.CurrentSourceExplanationProfile.Active() &&
+		rm.currentSourceExplanationHasCurrentSourceQuote() {
 		return true
 	}
 	if rm.LogTriage != nil && len(rm.LogTriage.ResolvedFiles) > 0 {
@@ -1059,12 +1106,44 @@ func (rm RequestModel) HasRuntimeArtifactCurrentVerificationAnchor() bool {
 	}
 	if rm.RequestedAnswerDimensions != nil && rm.RequestedAnswerDimensions.Active() {
 		for _, dim := range rm.RequestedAnswerDimensions.Dimensions {
-			if dim.Role == RequestedAnswerDimensionCurrentKeyCode {
+			if dim.Role == RequestedAnswerDimensionCurrentKeyCode &&
+				rm.dimensionHasCurrentSourceAnchor(dim) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+func (rm RequestModel) currentSourceExplanationHasCurrentSourceQuote() bool {
+	artifactExternalOnly := rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ArtifactCitationsExternalOnly()
+	for _, quote := range rm.CurrentSourceExplanationProfile.SourceQuotes {
+		if textCanRepresentCurrentSourceAnchor(quote, artifactExternalOnly) {
+			return true
+		}
+	}
+	return false
+}
+
+func (rm RequestModel) dimensionHasCurrentSourceAnchor(dim RequestedAnswerDimension) bool {
+	artifactExternalOnly := rm.ExternalObservationPolicy != nil && rm.ExternalObservationPolicy.ArtifactCitationsExternalOnly()
+	return textCanRepresentCurrentSourceAnchor(dim.SourceQuote, artifactExternalOnly) ||
+		textCanRepresentCurrentSourceAnchor(dim.Label, artifactExternalOnly)
+}
+
+func textCanRepresentCurrentSourceAnchor(raw string, artifactExternalOnly bool) bool {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return false
+	}
+	if targetLooksLikeCurrentSourceAnchor(s) {
+		return true
+	}
+	if artifactExternalOnly &&
+		(looksLikeExternalObservationReference(s) || looksLikeExternalArtifactCoordinate(s)) {
+		return false
+	}
+	return true
 }
 
 func targetLooksLikeCurrentSourceAnchor(raw string) bool {
@@ -1073,6 +1152,23 @@ func targetLooksLikeCurrentSourceAnchor(raw string) bool {
 		return false
 	}
 	return HasCodeOrConfigPathSuffix(s)
+}
+
+func looksLikeExternalObservationReference(raw string) bool {
+	s := strings.TrimSpace(strings.ToLower(raw))
+	if s == "" {
+		return false
+	}
+	if LooksLikeRuntimeArtifactPath(s) {
+		return true
+	}
+	return strings.Contains(s, "://")
+}
+
+var externalArtifactCoordinatePattern = regexp.MustCompile(`(?i)^\s*(?:line|row)\s*[:#]?\s*\d+\s*$|^\s*(?:第\s*)?\d+\s*行\s*$`)
+
+func looksLikeExternalArtifactCoordinate(raw string) bool {
+	return externalArtifactCoordinatePattern.MatchString(strings.TrimSpace(raw))
 }
 
 func isScalarSourceLiteralSubjectKind(kind AnswerSubjectKind) bool {
