@@ -11,6 +11,7 @@ func TestProjectObservationPromptRecords_DedupesSummaryFromNotes(t *testing.T) {
 	records := []ObservationRecord{{
 		ID:              "aggregate:0#current_source",
 		Origin:          AnswerEvidenceOriginCurrentSource,
+		Producer:        "emit_investigation_complete",
 		Role:            AnswerAggregateRolePrincipalAnswer,
 		GroundingPolicy: ClaimGroundingHard,
 		SourceRef:       ObservationSourceRef{Kind: ObservationSourceCurrentSource, Path: "internal/types/kind.go"},
@@ -32,6 +33,9 @@ func TestProjectObservationPromptRecords_DedupesSummaryFromNotes(t *testing.T) {
 	}
 	if got[0].Summary != "KindSymbolPresent 用于符号存在性判定" {
 		t.Fatalf("summary changed unexpectedly: %+v", got[0])
+	}
+	if got[0].Producer != "emit_investigation_complete" {
+		t.Fatalf("producer should survive prompt projection: %+v", got[0])
 	}
 	if len(got[0].Notes) != 1 || !strings.Contains(got[0].Notes[0], "检查目标符号") {
 		t.Fatalf("notes should keep only non-duplicated richer detail: %+v", got[0].Notes)

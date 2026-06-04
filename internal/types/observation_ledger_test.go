@@ -256,6 +256,9 @@ func TestCompileObservationLedger_TraceQueryRootCauseRankBecomesPrioritizedRunti
 	if len(promptRecords) == 0 || promptRecords[0].ID != "tool:0#trace_query:root_cause_rank:1" {
 		t.Fatalf("principal root cause rank should be prompt-prioritized, got %+v", promptRecords)
 	}
+	if promptRecords[0].Producer != "trace_query" {
+		t.Fatalf("trace_query producer should survive prompt projection, got %+v", promptRecords[0])
+	}
 }
 
 func TestCompileObservationLedger_CategoricalAggregateIsNotCount(t *testing.T) {

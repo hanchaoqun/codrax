@@ -164,6 +164,7 @@ type SemanticClaimBindingSummary struct {
 type SemanticObservationSummary struct {
 	ID              string
 	Origin          string
+	Producer        string
 	Role            string
 	Policy          string
 	Lane            string
@@ -720,10 +721,10 @@ func renderSemanticQualityUserMessage(in SemanticQualityInput) string {
 	}
 	if len(in.Observations) > 0 {
 		b.WriteString("\n## OBSERVATION LEDGER (typed evidence / external-resource view)\n")
-		b.WriteString("Each row: record_id / origin / role / policy / lane / source / span / claim / value / summary / excerpt / notes. Non-current-source rows are valid observations but are not current-repo citations; evaluate coverage using their origin-specific support.\n\n")
+		b.WriteString("Each row: record_id / origin / producer / role / policy / lane / source / span / claim / value / summary / excerpt / notes. Non-current-source rows are valid observations but are not current-repo citations; evaluate coverage using their origin-specific support. Use `producer` to distinguish trace_query rows from perf/log preprocessing rows.\n\n")
 		for _, obs := range in.Observations {
-			fmt.Fprintf(&b, "- record_id=%q origin=`%s` role=`%s` policy=`%s`",
-				obs.ID, obs.Origin, obs.Role, obs.Policy)
+			fmt.Fprintf(&b, "- record_id=%q origin=`%s` producer=`%s` role=`%s` policy=`%s`",
+				obs.ID, obs.Origin, obs.Producer, obs.Role, obs.Policy)
 			if obs.Lane != "" {
 				fmt.Fprintf(&b, " lane=`%s`", obs.Lane)
 			}
@@ -813,6 +814,7 @@ func semanticObservationSummaries(ledger types.ObservationLedger, rm *types.Requ
 		out = append(out, SemanticObservationSummary{
 			ID:              strings.TrimSpace(record.ID),
 			Origin:          string(record.Origin),
+			Producer:        strings.TrimSpace(record.Producer),
 			Role:            string(record.Role),
 			Policy:          string(record.GroundingPolicy),
 			Lane:            string(record.ProvenanceLane),

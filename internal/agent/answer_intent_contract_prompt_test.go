@@ -245,6 +245,7 @@ func TestRenderAnswerDocObservationLedger_RendersVCSNarrativeAsOriginSpecificSup
 		"## Observation Ledger",
 		"`tool:0#vcs_metadata`",
 		"origin=`vcs_metadata`",
+		"producer=`git_log`",
 		"policy=`soft`",
 		"abc123 Add observation ledger feature",
 		"Do not turn non-`current_source` observations into source `file:line` citation requirements",
@@ -610,6 +611,7 @@ func TestRenderAnswerDocObservationLedger_RendersRuntimeProvenanceLane(t *testin
 	got := renderAnswerDocObservationLedger(ctx)
 	for _, want := range []string{
 		"`log:error:0`",
+		"producer=`log_triage`",
 		"lane=`observed_direct_cause`",
 		"Stack frames are artifact-local runtime support",
 	} {

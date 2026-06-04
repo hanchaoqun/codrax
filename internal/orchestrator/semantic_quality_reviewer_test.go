@@ -1334,6 +1334,7 @@ func TestRenderSemanticQualityUserMessage_RendersObservationLedgerBoundaries(t *
 		Observations: []SemanticObservationSummary{{
 			ID:              "tool:0#vcs_metadata",
 			Origin:          string(types.AnswerEvidenceOriginVCSMetadata),
+			Producer:        "git_log",
 			Role:            string(types.AnswerAggregateRoleSupportingCoverage),
 			Policy:          string(types.ClaimGroundingSoft),
 			Lane:            string(types.ObservationProvenanceObservedDirectCause),
@@ -1351,6 +1352,7 @@ func TestRenderSemanticQualityUserMessage_RendersObservationLedgerBoundaries(t *
 		"## OBSERVATION LEDGER",
 		"record_id=\"tool:0#vcs_metadata\"",
 		"origin=`vcs_metadata`",
+		"producer=`git_log`",
 		"lane=`observed_direct_cause`",
 		"Non-current-source rows are valid observations but are not current-repo citations",
 		"result_count=0",
@@ -1370,6 +1372,7 @@ func TestSemanticObservationSummaries_PreservesRuntimeProvenanceLane(t *testing.
 	ledger := types.ObservationLedger{Records: []types.ObservationRecord{{
 		ID:              "log:error:0",
 		Origin:          types.AnswerEvidenceOriginRuntimeArtifact,
+		Producer:        "log_triage",
 		Role:            types.AnswerAggregateRolePrincipalAnswer,
 		GroundingPolicy: types.ClaimGroundingRepairable,
 		ProvenanceLane:  types.ObservationProvenanceObservedDirectCause,
@@ -1393,7 +1396,8 @@ func TestSemanticObservationSummaries_PreservesRuntimeProvenanceLane(t *testing.
 		AnswerBody:      "body",
 		Observations:    got,
 	})
-	if !strings.Contains(msg, "lane=`observed_direct_cause`") ||
+	if !strings.Contains(msg, "producer=`log_triage`") ||
+		!strings.Contains(msg, "lane=`observed_direct_cause`") ||
 		!strings.Contains(msg, "artifact-local runtime support") {
 		t.Fatalf("reviewer prompt should render runtime provenance lane and boundary note:\n%s", msg)
 	}

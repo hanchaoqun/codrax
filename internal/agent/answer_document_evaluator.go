@@ -3812,15 +3812,17 @@ func renderAnswerDocObservationLedger(ctx *types.AgentContext) string {
 	b.WriteString("- This is a compact typed view of accepted observations from exploration: current source evidence, structured aggregate facts, VCS/diff or command tool banners, runtime artifacts, cross-repo index rows, external documents, web pages, MCP resources, and connector resources.\n")
 	b.WriteString("- It is read-only context for answer writing. Do not turn non-`current_source` observations into source `file:line` citation requirements; use them as their own origin-specific support and disclose boundaries when needed.\n")
 	b.WriteString("- Prefer these origin/role/policy fields over raw tool-output shape when deciding whether a fact is principal, repairable, support-only, negative, or citation-bearing.\n\n")
+	b.WriteString("- When naming how a runtime/trace fact was obtained, use the row's `producer` exactly: say `trace_query` only for rows whose producer is `trace_query`; for `perf_trace` / `log_triage` rows say they came from attached trace/log preprocessing or runtime artifact observations.\n\n")
 	b.WriteString("- Copy path-like, date-like, URL-like, commit-like, row/line/span, and connector/resource ID literals only from exact typed detail, raw payload, or row-set references. Do not expand abbreviated display strings such as git `--stat` paths containing `...`; if exact detail is unavailable, describe the scope without inventing the literal.\n\n")
 	if len(ledger.Records) > len(records) {
 		fmt.Fprintf(&b, "*(showing %d prioritized record(s) of %d total)*\n\n", len(records), len(ledger.Records))
 	}
 	for _, record := range records {
 		fmt.Fprintf(&b,
-			"- `%s`: origin=`%s`; source=`%s`; role=`%s`; policy=`%s`",
+			"- `%s`: origin=`%s`; producer=`%s`; source=`%s`; role=`%s`; policy=`%s`",
 			record.ID,
 			record.Origin,
+			record.Producer,
 			record.Source,
 			record.Role,
 			record.GroundingPolicy,

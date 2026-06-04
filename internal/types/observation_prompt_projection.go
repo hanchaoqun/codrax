@@ -35,6 +35,7 @@ type ObservationPromptProjectionOptions struct {
 type ObservationPromptRecord struct {
 	ID              string
 	Origin          AnswerEvidenceOrigin
+	Producer        string
 	Role            AnswerAggregateRole
 	GroundingPolicy ClaimGroundingPolicy
 	ProvenanceLane  ObservationProvenanceLane
@@ -92,6 +93,7 @@ func ProjectObservationPromptRecords(records []ObservationRecord, rm *RequestMod
 		out = append(out, ObservationPromptRecord{
 			ID:              strings.TrimSpace(record.ID),
 			Origin:          record.Origin,
+			Producer:        strings.TrimSpace(record.Producer),
 			Role:            record.Role,
 			GroundingPolicy: record.GroundingPolicy,
 			ProvenanceLane:  record.ProvenanceLane,
