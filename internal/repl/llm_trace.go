@@ -11,6 +11,7 @@ import (
 // not go through BaseAgent. It must never drive routing, gating, or execution.
 type replLLMCallTrace struct {
 	Scope      string
+	Content    string
 	Reasoning  string
 	ToolName   string
 	ToolParams json.RawMessage
@@ -23,6 +24,7 @@ type replLLMTraceProvider interface {
 func traceFromLLMResponse(scope string, resp llm.Response) replLLMCallTrace {
 	trace := replLLMCallTrace{
 		Scope:     strings.TrimSpace(scope),
+		Content:   strings.TrimSpace(resp.Content),
 		Reasoning: strings.TrimSpace(resp.ReasoningContent),
 	}
 	if len(resp.ToolCalls) > 0 {

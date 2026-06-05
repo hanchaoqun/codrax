@@ -169,6 +169,23 @@ func TestDirectLLMTraceAdapterPersistsOrdinaryContentWhenToolCalling(t *testing.
 	}
 }
 
+func TestTraceFromLLMResponseKeepsContentAndFullToolParams(t *testing.T) {
+	rawParams := []byte(`{"status":"ready","script":"` + strings.Repeat("x", 4096) + `"}`)
+	trace := traceFromLLMResponse("data_task_planner", llm.Response{
+		Content: "<think>visible audit thought</think>\nI will call the tool.",
+		ToolCalls: []llm.ToolCall{{
+			Name:   "emit_data_task_plan",
+			Params: rawParams,
+		}},
+	})
+	if !strings.Contains(trace.Content, "<think>visible audit thought</think>") {
+		t.Fatalf("content should preserve visible think block for audit, got %q", trace.Content)
+	}
+	if string(trace.ToolParams) != string(rawParams) {
+		t.Fatalf("tool params should be preserved byte-for-byte for audit")
+	}
+}
+
 func TestTurnPolicyAuditSummaryShowsTypedRouteDecision(t *testing.T) {
 	label, segs := turnPolicyAuditSummary(TurnPolicy{
 		Route:      RouteOperation,

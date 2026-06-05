@@ -164,8 +164,9 @@ The linked contract is:
   ambiguous, failed, or open mapping needs `reason`, `candidates`, or
   `evidence_refs`.
 - `reconcile.groups` must use canonical `group_key`, `metric`, `expected`, and
-  `actual` fields. Codrax recomputes totals from `contributions`; every
-  reported group must match contribution totals, and every contribution group
+  `actual` fields. Codrax recomputes totals from `contributions`; non-zero
+  reported groups must match contribution totals, zero-valued groups may be
+  reported without synthetic contribution records, and every contribution group
   must be reported.
 
 This catches a broad class of "script ran and emitted a formatted answer, but
@@ -235,6 +236,13 @@ calculation.
 - [x] Validate entity-resolution records for source, status, canonical value,
       or explicit unresolved/ambiguous rationale.
 - [x] Validate contribution/reconcile linkage in both directions.
+- [x] Allow structurally declared zero-valued reconcile groups without forcing
+      fake contribution records.
+- [x] Include available contribution-group diagnostics when a non-zero
+      reconcile group has no matching contribution records.
+- [x] Preserve direct LLM planner content and full tool parameters in debug
+      logs for data/operation audit, including visible `<think>` blocks when
+      the provider emits them as ordinary content.
 - [x] Expose the validation matrix in `emit_data_task_plan` schema and prompt.
 - [x] Teach planner/repair prompts that canonical ledger fields and `rule_refs`
       are required for linked validation.

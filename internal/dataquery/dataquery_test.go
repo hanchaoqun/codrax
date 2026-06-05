@@ -800,6 +800,82 @@ emit({
 	}
 }
 
+func TestRunnerAllowsZeroReconcileGroupWithoutContributions(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:          []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+emit({
+  "answer": "A=10,B=0",
+  "output_contract": {"format": "plain_single_line", "explanation_allowed": False},
+  "contributions": [
+    {"item_id": "row1", "source": "orders.csv", "source_locator": "row 2", "group_key": "A", "metric": "amount", "value": "10", "operation": "add"}
+  ],
+  "reconcile": {"status": "pass", "groups": [
+    {"group_key": "A", "metric": "amount", "expected": "10", "actual": "10"},
+    {"group_key": "B", "metric": "amount", "expected": "0", "actual": "0"}
+  ]}
+})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "A=10,B=0" {
+		t.Fatalf("Answer=%q", res.Answer)
+	}
+}
+
+func TestRunnerReportsAvailableContributionGroupsForMissingNonzeroGroup(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:          []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+emit({
+  "answer": "15",
+  "output_contract": {"format": "plain_single_line", "explanation_allowed": False},
+  "contributions": [
+    {"item_id": "row1", "source": "orders.csv", "source_locator": "row 2", "group_key": "A", "metric": "amount", "value": "10", "operation": "add"}
+  ],
+  "reconcile": {"status": "pass", "groups": [
+    {"group_key": "B", "metric": "amount", "expected": "5", "actual": "5"}
+  ]}
+})
+`,
+	}
+	_, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), `available contribution groups: A/amount`) {
+		t.Fatalf("Run err=%v, want available group diagnostic", err)
+	}
+}
+
 func TestRunnerRejectsEntityResolutionWithoutCanonicalOrReason(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

@@ -1913,12 +1913,15 @@ func (r *REPL) emitReplLLMTrace(source any, fallbackScope string, agent types.Ag
 	if strings.TrimSpace(trace.Reasoning) != "" {
 		logging.Debug("[diag %s] phase=repl_llm_trace reasoning_len=%d\n%s", firstNonEmptyString(scope, "repl_llm"), len(trace.Reasoning), trace.Reasoning)
 	}
+	if strings.TrimSpace(trace.Content) != "" {
+		logging.Debug("[diag %s] phase=repl_llm_trace content_len=%d\n%s", firstNonEmptyString(scope, "repl_llm"), len(trace.Content), trace.Content)
+	}
 	if strings.TrimSpace(trace.ToolName) != "" {
-		logging.Debug("[diag %s] phase=repl_llm_trace tool=%s params_len=%d params=%s",
+		logging.Debug("[diag %s] phase=repl_llm_trace tool=%s params_len=%d params:\n%s\n---",
 			firstNonEmptyString(scope, "repl_llm"),
 			trace.ToolName,
 			len(trace.ToolParams),
-			oneLineClamp(string(trace.ToolParams), 2000))
+			string(trace.ToolParams))
 	}
 	if r.renderer == nil {
 		return

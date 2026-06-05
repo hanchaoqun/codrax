@@ -1076,7 +1076,12 @@ func validateReconcileReport(report ReconcileReport, contributions []Contributio
 		seenGroups[key] = true
 		got, ok := sums[key]
 		if !ok {
-			return fmt.Errorf("data reconcile failed: group %q has no matching contribution records", displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()))
+			if reconcileGroupDeclaresZero(group) {
+				continue
+			}
+			return fmt.Errorf("data reconcile failed: group %q has no matching contribution records; available contribution groups: %s",
+				displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()),
+				displayContributionGroupKeys(sums))
 		}
 		for _, candidate := range []struct {
 			label string
@@ -1106,6 +1111,42 @@ func validateReconcileReport(report ReconcileReport, contributions []Contributio
 		}
 	}
 	return nil
+}
+
+func reconcileGroupDeclaresZero(group ReconcileGroup) bool {
+	seenNumeric := false
+	for _, value := range []string{group.Expected.String(), group.Actual.String()} {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		parsed, err := parseDecimalRat(value)
+		if err != nil {
+			continue
+		}
+		seenNumeric = true
+		if parsed.Sign() != 0 {
+			return false
+		}
+	}
+	return seenNumeric
+}
+
+func displayContributionGroupKeys(sums map[string]*big.Rat) string {
+	if len(sums) == 0 {
+		return "(none)"
+	}
+	keys := make([]string, 0, len(sums))
+	for key := range sums {
+		groupKey, metric := splitReconcileGroupKey(key)
+		keys = append(keys, displayReconcileGroupKey(groupKey, metric))
+	}
+	sort.Strings(keys)
+	const limit = 12
+	if len(keys) > limit {
+		keys = append(keys[:limit], fmt.Sprintf("... %d more", len(keys)-limit))
+	}
+	return strings.Join(keys, ", ")
 }
 
 func hasMeaningfulReconcileGroup(groups []ReconcileGroup) bool {
