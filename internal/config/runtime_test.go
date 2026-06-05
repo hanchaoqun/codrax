@@ -39,6 +39,8 @@ analysis_evidence_profile: balanced
 markdown_preview_server: on
 markdown_preview_host: 127.0.0.1
 markdown_preview_port: 49152
+data_task_max_repair_rounds: 9
+data_task_max_data_rounds: 18
 providers_config: /etc/codrax/providers.yaml
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -137,6 +139,12 @@ providers_config: /etc/codrax/providers.yaml
 	}
 	if s.MarkdownPreviewPort == nil || *s.MarkdownPreviewPort != 49152 {
 		t.Errorf("MarkdownPreviewPort = %v", s.MarkdownPreviewPort)
+	}
+	if s.DataTaskMaxRepairRounds == nil || *s.DataTaskMaxRepairRounds != 9 {
+		t.Errorf("DataTaskMaxRepairRounds = %v", s.DataTaskMaxRepairRounds)
+	}
+	if s.DataTaskMaxDataRounds == nil || *s.DataTaskMaxDataRounds != 18 {
+		t.Errorf("DataTaskMaxDataRounds = %v", s.DataTaskMaxDataRounds)
 	}
 }
 

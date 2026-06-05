@@ -9,6 +9,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/pterm/pterm"
 )
 
 // TestSingleShot_BypassesGlamour_StructuralGuard is the load-bearing
@@ -178,5 +180,38 @@ func TestSingleShot_ProgressStderrResultStdoutContract(t *testing.T) {
 	}
 	if strings.Contains(body[:runPipeline], "app.renderer.SetOutput(os.Stdout)") {
 		t.Fatal("runSingleShot must not route process/progress output to stdout before the final markdown body")
+	}
+}
+
+func TestSingleShotColor_DefaultOffAlwaysOptIn(t *testing.T) {
+	oldFlagColor := flagColor
+	oldPrintColor := pterm.PrintColor
+	defer func() {
+		flagColor = oldFlagColor
+		if oldPrintColor {
+			pterm.EnableColor()
+		} else {
+			pterm.DisableColor()
+		}
+	}()
+
+	t.Setenv("NO_COLOR", "")
+	flagColor = "auto"
+	pterm.EnableColor()
+	configureSingleShotColor()
+	if pterm.PrintColor {
+		t.Fatal("single-shot CLI auto color should disable ANSI by default")
+	}
+
+	flagColor = "always"
+	configureSingleShotColor()
+	if !pterm.PrintColor {
+		t.Fatal("--color=always should explicitly enable single-shot CLI ANSI")
+	}
+
+	t.Setenv("NO_COLOR", "1")
+	configureSingleShotColor()
+	if pterm.PrintColor {
+		t.Fatal("NO_COLOR must disable single-shot CLI ANSI even with --color=always")
 	}
 }

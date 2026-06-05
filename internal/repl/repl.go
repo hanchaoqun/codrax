@@ -301,6 +301,12 @@ type Config struct {
 	// intentionally independent from the source-analysis pipeline and the
 	// command-operation approval loop.
 	DataTaskPlanner DataTaskPlanner
+	// DataTaskMaxRepairRounds bounds script-failure repair attempts in the
+	// read-only data lane. Zero uses DefaultDataTaskMaxRepairRounds.
+	DataTaskMaxRepairRounds int
+	// DataTaskMaxDataRounds bounds execute/evaluate/continue batches in the
+	// read-only data lane. Zero uses DefaultDataTaskMaxDataRounds.
+	DataTaskMaxDataRounds int
 	// OperationCommandPolicy controls command-operation approval/execution.
 	OperationCommandPolicy operation.CommandPolicy
 	// MCPServers is used only for explicitly configured operation providers.
@@ -599,6 +605,8 @@ type REPL struct {
 	operationProviders          []operation.ProviderInfo
 	operationPlanner            CommandOperationPlanner
 	dataTaskPlanner             DataTaskPlanner
+	dataTaskMaxRepairRounds     int
+	dataTaskMaxDataRounds       int
 	operationPolicy             operation.CommandPolicy
 	pendingOperation            *operation.CommandOperationPlan
 	pendingCommandClarification *pendingCommandClarification
@@ -752,52 +760,54 @@ const doubleSigCancelWindow = 2 * time.Second
 // New constructs a REPL from a Config.
 func New(cfg Config) *REPL {
 	r := &REPL{
-		runner:                 cfg.Runner,
-		store:                  cfg.Store,
-		render:                 cfg.Render,
-		renderer:               cfg.Renderer,
-		repoRoot:               cfg.RepoRoot,
-		runtimeAnchor:          cfg.RuntimeAnchor,
-		worktreeKeepTTL:        cfg.WorktreeKeepTTL,
-		worktreeKeepMaxCount:   cfg.WorktreeKeepMaxCount,
-		topology:               cfg.Topology,
-		multiRepoEnabled:       cfg.MultiRepoEnabled,
-		multiRepoMaxActive:     cfg.MultiRepoMaxActive,
-		multigraphForListing:   cfg.Multigraph,
-		multiRepoFocus:         focusMapFromSlugs(cfg.InitialFocusSlugs),
-		onMultiRepoFocusChange: cfg.OnMultiRepoFocusChange,
-		onMultiRepoCapChange:   cfg.OnMultiRepoCapChange,
-		onMultiRepoRefresh:     cfg.OnMultiRepoRefresh,
-		branch:                 cfg.Branch,
-		in:                     cfg.In,
-		out:                    cfg.Out,
-		prompt:                 cfg.Prompt,
-		promptCont:             cfg.PromptCont,
-		bannerText:             cfg.Banner,
-		headerPrinted:          cfg.HeaderPrinted,
-		modelListLine:          cfg.ModelListLine,
-		modelSummaryLine:       cfg.ModelSummaryLine,
-		pasteFoldMinChars:      cfg.PasteFoldMinChars,
-		version:                cfg.Version,
-		buildTime:              cfg.BuildTime,
-		language:               cfg.Language,
-		markdownPreview:        cfg.MarkdownPreview,
-		outputDumpDir:          cfg.OutputDumpDir,
-		outputDumpMax:          cfg.OutputDumpMax,
-		chitchatResponder:      cfg.ChitchatResponder,
-		memory:                 cfg.Memory,
-		envSettings:            types.ResolvedEnvRecommendSettings(cfg.EnvSettings),
-		colorMode:              cfg.ColorMode,
-		chitchatClassifier:     cfg.ChitchatClassifier,
-		operationEnabled:       cfg.OperationEnabled,
-		operationProviders:     append([]operation.ProviderInfo(nil), cfg.OperationProviders...),
-		operationPlanner:       cfg.OperationPlanner,
-		dataTaskPlanner:        cfg.DataTaskPlanner,
-		operationPolicy:        cfg.OperationCommandPolicy,
-		mcpServers:             cfg.MCPServers,
-		mcpServerConfigs:       append([]types.MCPServerConfig(nil), cfg.MCPServerConfigs...),
-		operationSkillConfigs:  append([]types.OperationSkillConfig(nil), cfg.OperationSkillConfigs...),
-		operationPendingStore:  cfg.OperationPendingStore,
+		runner:                  cfg.Runner,
+		store:                   cfg.Store,
+		render:                  cfg.Render,
+		renderer:                cfg.Renderer,
+		repoRoot:                cfg.RepoRoot,
+		runtimeAnchor:           cfg.RuntimeAnchor,
+		worktreeKeepTTL:         cfg.WorktreeKeepTTL,
+		worktreeKeepMaxCount:    cfg.WorktreeKeepMaxCount,
+		topology:                cfg.Topology,
+		multiRepoEnabled:        cfg.MultiRepoEnabled,
+		multiRepoMaxActive:      cfg.MultiRepoMaxActive,
+		multigraphForListing:    cfg.Multigraph,
+		multiRepoFocus:          focusMapFromSlugs(cfg.InitialFocusSlugs),
+		onMultiRepoFocusChange:  cfg.OnMultiRepoFocusChange,
+		onMultiRepoCapChange:    cfg.OnMultiRepoCapChange,
+		onMultiRepoRefresh:      cfg.OnMultiRepoRefresh,
+		branch:                  cfg.Branch,
+		in:                      cfg.In,
+		out:                     cfg.Out,
+		prompt:                  cfg.Prompt,
+		promptCont:              cfg.PromptCont,
+		bannerText:              cfg.Banner,
+		headerPrinted:           cfg.HeaderPrinted,
+		modelListLine:           cfg.ModelListLine,
+		modelSummaryLine:        cfg.ModelSummaryLine,
+		pasteFoldMinChars:       cfg.PasteFoldMinChars,
+		version:                 cfg.Version,
+		buildTime:               cfg.BuildTime,
+		language:                cfg.Language,
+		markdownPreview:         cfg.MarkdownPreview,
+		outputDumpDir:           cfg.OutputDumpDir,
+		outputDumpMax:           cfg.OutputDumpMax,
+		chitchatResponder:       cfg.ChitchatResponder,
+		memory:                  cfg.Memory,
+		envSettings:             types.ResolvedEnvRecommendSettings(cfg.EnvSettings),
+		colorMode:               cfg.ColorMode,
+		chitchatClassifier:      cfg.ChitchatClassifier,
+		operationEnabled:        cfg.OperationEnabled,
+		operationProviders:      append([]operation.ProviderInfo(nil), cfg.OperationProviders...),
+		operationPlanner:        cfg.OperationPlanner,
+		dataTaskPlanner:         cfg.DataTaskPlanner,
+		dataTaskMaxRepairRounds: normalizeDataTaskMaxRepairRounds(cfg.DataTaskMaxRepairRounds),
+		dataTaskMaxDataRounds:   normalizeDataTaskMaxDataRounds(cfg.DataTaskMaxDataRounds),
+		operationPolicy:         cfg.OperationCommandPolicy,
+		mcpServers:              cfg.MCPServers,
+		mcpServerConfigs:        append([]types.MCPServerConfig(nil), cfg.MCPServerConfigs...),
+		operationSkillConfigs:   append([]types.OperationSkillConfig(nil), cfg.OperationSkillConfigs...),
+		operationPendingStore:   cfg.OperationPendingStore,
 		// Session ID embeds nano + pid so two codrax REPLs launched
 		// in the same clock tick (test harness, race) still get
 		// disjoint IDs. Consumed by memory.BuildContext via BuildOpts.
@@ -1286,7 +1296,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		if handled := r.handleTerminalDataTaskPlan(currentPlan, records, display, line); handled {
 			return
 		}
-		if dataRounds >= dataTaskMaxDataRounds {
+		if dataRounds >= r.dataTaskMaxDataRounds {
 			if result, ok := latestDataTaskResult(records); ok {
 				msg := dataTaskAnswerMarkdown(r.language, result)
 				r.finishDataTaskRouteSpinner("budget_exhausted")
@@ -1310,7 +1320,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			errText := fmt.Sprintf("execute data task: %v", err)
 			r.auditDataTaskError(dataRounds, errText)
 			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
-			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < dataTaskMaxRepairRounds {
+			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds++
 				r.emitDataTaskWorkflowAudit("repair", repairRounds, dataTaskWorkflowErrorSegment(r.language, errText))
 				ctx := r.startTurn()
@@ -2058,7 +2068,7 @@ func (r *REPL) emitDataTaskPlanPreview(scope string, round int, plan dataquery.T
 	} else {
 		b.WriteString("Script preview:\n")
 	}
-	b.WriteString(dataTaskMutedPreview(script, r.language))
+	b.WriteString(r.dataTaskMutedPreview(script))
 	if artifact.ScriptPath != "" {
 		if isZh(r.language) {
 			fmt.Fprintf(&b, "\n\n完整脚本：`%s`", artifact.ScriptPath)
@@ -2133,7 +2143,7 @@ func (r *REPL) emitDataTaskErrorPreview(round int, errText string, artifact data
 	} else {
 		b.WriteString("Error preview:\n")
 	}
-	b.WriteString(dataTaskMutedPreview(errText, r.language))
+	b.WriteString(r.dataTaskMutedPreview(errText))
 	if artifact.ErrorPath != "" {
 		if isZh(r.language) {
 			fmt.Fprintf(&b, "\n\n完整错误：`%s`", artifact.ErrorPath)
@@ -2206,7 +2216,7 @@ func (r *REPL) emitDataTaskResultPreview(round int, result dataquery.Result, art
 	} else {
 		b.WriteString("Result preview:\n")
 	}
-	b.WriteString(dataTaskMutedPreview(result.Answer, r.language))
+	b.WriteString(r.dataTaskMutedPreview(result.Answer))
 	if artifact.ResultPath != "" {
 		if isZh(r.language) {
 			fmt.Fprintf(&b, "\n\n完整结果：`%s`", artifact.ResultPath)
@@ -2302,9 +2312,12 @@ func dataTaskPanelPreview(value, lang string) string {
 	return fmt.Sprintf("%s\n...[panel preview truncated %d chars; see path above for full content]", preview, omitted)
 }
 
-func dataTaskMutedPreview(value, lang string) string {
-	preview := dataTaskPanelPreview(value, lang)
+func (r *REPL) dataTaskMutedPreview(value string) string {
+	preview := dataTaskPanelPreview(value, r.language)
 	if strings.TrimSpace(preview) == "" {
+		return preview
+	}
+	if render.ResolveColorMode(r.colorMode, r.out) == render.ColorNever {
 		return preview
 	}
 	return pterm.NewStyle(pterm.FgDarkGray).Sprint(preview)

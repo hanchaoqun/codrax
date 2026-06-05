@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
@@ -377,35 +378,37 @@ var maxAttachedTraceBytes = defaultAttachedLogMaxBytes
 
 // appContext holds initialized state shared between subcommands.
 type appContext struct {
-	renderer               *render.Renderer
-	orch                   *orchestrator.Orchestrator
-	userMode               repl.UserMode
-	writePhase             types.PipelineMode
-	mcpRegistry            *mcp.Registry
-	defaultLLM             llm.Adapter
-	memorySummarizerLLM    llm.Adapter // providers.yaml :: agents.memory_summarizer, else defaultLLM
-	reflectorLLM           llm.Adapter // providers.yaml :: agents.reflector, else defaultLLM
-	planCriticLLM          llm.Adapter // providers.yaml :: agents.plan_critic, else defaultLLM
-	acceptanceCheckerLLM   llm.Adapter // providers.yaml :: agents.acceptance_checker, else defaultLLM
-	logger                 *logging.Logger
-	memorySettings         types.MemorySettings
-	envRecommendSettings   types.EnvRecommendSettings
-	markdownPreviewConfig  preview.Config
-	outputDumpDir          string
-	outputDumpMax          int
-	replPasteFoldMinChars  int // 0 → repl.DefaultPasteFoldMinChars
-	chitchatResponder      repl.ChitchatResponder
-	chitchatClassifier     repl.ChitchatClassifier
-	operationPlanner       repl.CommandOperationPlanner
-	dataTaskPlanner        repl.DataTaskPlanner
-	replHeaderPrinted      bool
-	replModelListLine      string
-	replModelSummaryLine   string
-	operationRouteEnabled  bool
-	operationProviders     []operation.ProviderInfo
-	mcpServerConfigs       []types.MCPServerConfig
-	operationSkillConfigs  []types.OperationSkillConfig
-	operationCommandPolicy operation.CommandPolicy
+	renderer                *render.Renderer
+	orch                    *orchestrator.Orchestrator
+	userMode                repl.UserMode
+	writePhase              types.PipelineMode
+	mcpRegistry             *mcp.Registry
+	defaultLLM              llm.Adapter
+	memorySummarizerLLM     llm.Adapter // providers.yaml :: agents.memory_summarizer, else defaultLLM
+	reflectorLLM            llm.Adapter // providers.yaml :: agents.reflector, else defaultLLM
+	planCriticLLM           llm.Adapter // providers.yaml :: agents.plan_critic, else defaultLLM
+	acceptanceCheckerLLM    llm.Adapter // providers.yaml :: agents.acceptance_checker, else defaultLLM
+	logger                  *logging.Logger
+	memorySettings          types.MemorySettings
+	envRecommendSettings    types.EnvRecommendSettings
+	markdownPreviewConfig   preview.Config
+	outputDumpDir           string
+	outputDumpMax           int
+	replPasteFoldMinChars   int // 0 → repl.DefaultPasteFoldMinChars
+	chitchatResponder       repl.ChitchatResponder
+	chitchatClassifier      repl.ChitchatClassifier
+	operationPlanner        repl.CommandOperationPlanner
+	dataTaskPlanner         repl.DataTaskPlanner
+	dataTaskMaxRepairRounds int
+	dataTaskMaxDataRounds   int
+	replHeaderPrinted       bool
+	replModelListLine       string
+	replModelSummaryLine    string
+	operationRouteEnabled   bool
+	operationProviders      []operation.ProviderInfo
+	mcpServerConfigs        []types.MCPServerConfig
+	operationSkillConfigs   []types.OperationSkillConfig
+	operationCommandPolicy  operation.CommandPolicy
 	// writeEnabled mirrors codrax.yaml :: write_enabled. Forwarded to
 	// the REPL Config so /mode write, /write, and /approve can be
 	// rejected at the slash-command surface with a clear error pointing
@@ -1025,6 +1028,7 @@ func resolveUserModeAndWritePhase(in modeResolutionInputs) (repl.UserMode, types
 // its own RenderResult callback.
 func runSingleShot(_ *cobra.Command, request string) error {
 	logging.Info("starting pipeline for request: %s", request)
+	configureSingleShotColor()
 	app.renderer.SetOutput(os.Stderr)
 	routePolicy, routePolicyOK := explicitSingleShotRoutePolicy()
 	if !routePolicyOK {
@@ -1129,6 +1133,14 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	}
 	fmt.Println("(no result)")
 	return nil
+}
+
+func configureSingleShotColor() {
+	if render.ParseColorMode(flagColor) == render.ColorAlways && os.Getenv("NO_COLOR") == "" {
+		pterm.EnableColor()
+		return
+	}
+	pterm.DisableColor()
 }
 
 func explicitSingleShotRoutePolicy() (repl.TurnPolicy, bool) {
@@ -1413,34 +1425,36 @@ func runREPL(_ *cobra.Command) error {
 		}
 	}
 	r := repl.New(repl.Config{
-		Runner:                 app.orch,
-		Store:                  store,
-		Render:                 renderFn,
-		Renderer:               app.renderer,
-		RepoRoot:               flagRepo,
-		Branch:                 flagBranch,
-		Out:                    os.Stdout,
-		PasteFoldMinChars:      app.replPasteFoldMinChars,
-		Version:                version,
-		BuildTime:              buildTime,
-		Language:               flagLang,
-		HeaderPrinted:          app.replHeaderPrinted,
-		ModelListLine:          app.replModelListLine,
-		ModelSummaryLine:       app.replModelSummaryLine,
-		MarkdownPreview:        markdownPreview,
-		OutputDumpDir:          app.outputDumpDir,
-		OutputDumpMax:          app.outputDumpMax,
-		ChitchatResponder:      app.chitchatResponder,
-		ChitchatClassifier:     app.chitchatClassifier,
-		UserMode:               app.userMode,
-		OperationEnabled:       app.operationRouteEnabled,
-		OperationProviders:     append([]operation.ProviderInfo(nil), app.operationProviders...),
-		OperationPlanner:       app.operationPlanner,
-		DataTaskPlanner:        app.dataTaskPlanner,
-		OperationCommandPolicy: app.operationCommandPolicy,
-		MCPServers:             app.mcpRegistry,
-		MCPServerConfigs:       append([]types.MCPServerConfig(nil), app.mcpServerConfigs...),
-		OperationSkillConfigs:  append([]types.OperationSkillConfig(nil), app.operationSkillConfigs...),
+		Runner:                  app.orch,
+		Store:                   store,
+		Render:                  renderFn,
+		Renderer:                app.renderer,
+		RepoRoot:                flagRepo,
+		Branch:                  flagBranch,
+		Out:                     os.Stdout,
+		PasteFoldMinChars:       app.replPasteFoldMinChars,
+		Version:                 version,
+		BuildTime:               buildTime,
+		Language:                flagLang,
+		HeaderPrinted:           app.replHeaderPrinted,
+		ModelListLine:           app.replModelListLine,
+		ModelSummaryLine:        app.replModelSummaryLine,
+		MarkdownPreview:         markdownPreview,
+		OutputDumpDir:           app.outputDumpDir,
+		OutputDumpMax:           app.outputDumpMax,
+		ChitchatResponder:       app.chitchatResponder,
+		ChitchatClassifier:      app.chitchatClassifier,
+		UserMode:                app.userMode,
+		OperationEnabled:        app.operationRouteEnabled,
+		OperationProviders:      append([]operation.ProviderInfo(nil), app.operationProviders...),
+		OperationPlanner:        app.operationPlanner,
+		DataTaskPlanner:         app.dataTaskPlanner,
+		DataTaskMaxRepairRounds: app.dataTaskMaxRepairRounds,
+		DataTaskMaxDataRounds:   app.dataTaskMaxDataRounds,
+		OperationCommandPolicy:  app.operationCommandPolicy,
+		MCPServers:              app.mcpRegistry,
+		MCPServerConfigs:        append([]types.MCPServerConfig(nil), app.mcpServerConfigs...),
+		OperationSkillConfigs:   append([]types.OperationSkillConfig(nil), app.operationSkillConfigs...),
 		// Hand the memory adapter to REPL so the chitchat tool-use
 		// loop can call recall_memory without a separate wiring step.
 		// The same adapter is also wired into the orchestrator above,
@@ -1709,6 +1723,12 @@ func initApp(cmd *cobra.Command, args []string) error {
 		}
 		if rs.OperationCommandOverwritePolicy != nil {
 			app.operationCommandPolicy.OverwritePolicy = *rs.OperationCommandOverwritePolicy
+		}
+		if rs.DataTaskMaxRepairRounds != nil && *rs.DataTaskMaxRepairRounds > 0 {
+			app.dataTaskMaxRepairRounds = *rs.DataTaskMaxRepairRounds
+		}
+		if rs.DataTaskMaxDataRounds != nil && *rs.DataTaskMaxDataRounds > 0 {
+			app.dataTaskMaxDataRounds = *rs.DataTaskMaxDataRounds
 		}
 		if rs.WriteApprovalPolicy != nil {
 			app.writeApprovalPolicy = writeflow.NormalizeApprovalPolicy(writeflow.ApprovalPolicy(*rs.WriteApprovalPolicy))

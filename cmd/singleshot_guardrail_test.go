@@ -147,6 +147,7 @@ func TestSingleShotCallGraphIsBounded(t *testing.T) {
 		"classifySingleShotRoutePolicy": true,
 		"maybeRunSingleShotDataTask":    true,
 		"maybeRunSingleShotOperation":   true,
+		"configureSingleShotColor":      true,
 	}
 
 	var unknown []string

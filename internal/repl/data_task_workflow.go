@@ -9,9 +9,31 @@ import (
 )
 
 const (
-	dataTaskMaxRepairRounds = 2
-	dataTaskMaxDataRounds   = 5
+	DefaultDataTaskMaxRepairRounds = 6
+	DefaultDataTaskMaxDataRounds   = 12
+	dataTaskMaxRepairRoundsCeiling = 12
+	dataTaskMaxDataRoundsCeiling   = 24
 )
+
+func normalizeDataTaskMaxRepairRounds(value int) int {
+	if value <= 0 {
+		return DefaultDataTaskMaxRepairRounds
+	}
+	if value > dataTaskMaxRepairRoundsCeiling {
+		return dataTaskMaxRepairRoundsCeiling
+	}
+	return value
+}
+
+func normalizeDataTaskMaxDataRounds(value int) int {
+	if value <= 0 {
+		return DefaultDataTaskMaxDataRounds
+	}
+	if value > dataTaskMaxDataRoundsCeiling {
+		return dataTaskMaxDataRoundsCeiling
+	}
+	return value
+}
 
 type dataTaskWorkflowRecord struct {
 	Plan       dataquery.TaskPlan

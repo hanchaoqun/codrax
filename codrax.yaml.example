@@ -291,6 +291,12 @@
 # operation_command_install_policy: manual      # manual | deny
 # operation_command_overwrite_policy: manual    # manual | deny
 
+# Read-only data task workflow budgets. These only affect the data lane
+# (cleaning / joins / aggregations / strict data-shaped output), not source
+# analysis, trace/log analysis, operation commands, or write mode.
+# data_task_max_repair_rounds: 6
+# data_task_max_data_rounds: 12
+
 # ---------------------------------------------------------------------------
 # Tool output blobs  ·  工具输出 blob
 # ---------------------------------------------------------------------------

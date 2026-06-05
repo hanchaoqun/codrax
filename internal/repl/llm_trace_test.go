@@ -55,7 +55,7 @@ func TestEmitReplLLMTraceRendersReasoningForDirectDataAndOperationCalls(t *testi
 		ToolParams: json.RawMessage(`{"status":"ready"}`),
 	}}, "data_task_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 
-	got := out.String()
+	got := stripANSIOnly(out.String())
 	for _, want := range []string{"需要先读取表格并计算总额", "调用工具", "emit_data_task_plan"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("direct LLM trace output missing %q:\n%s", want, got)
@@ -116,7 +116,7 @@ func TestEmitDataTaskRunnerCallUsesToolCallUX(t *testing.T) {
 		Script: "rows = csv_rows('orders.csv')\nemit({'answer':'1'})",
 	}, 2)
 
-	got := out.String()
+	got := stripANSIOnly(out.String())
 	for _, want := range []string{"⇢ 数据 · 第 2 轮", "调用工具 data_runner", "输入=2", "脚本=2行", "必需材料=1", "需决策记录"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("data runner tool-call output missing %q:\n%s", want, got)
@@ -190,9 +190,14 @@ func TestAuditDataTaskPlanWritesFullArtifactsAndRendersShortPreview(t *testing.T
 }
 
 func TestDataTaskMutedPreviewKeepsTextAuditable(t *testing.T) {
-	preview := dataTaskMutedPreview("print('hello')\nprint('world')", "zh")
+	var out bytes.Buffer
+	r := &REPL{out: &out, language: "zh", colorMode: render.ColorNever}
+	preview := r.dataTaskMutedPreview("print('hello')\nprint('world')")
 	if strings.TrimSpace(preview) == "" {
 		t.Fatal("muted preview should not be empty")
+	}
+	if strings.Contains(preview, "\x1b[") {
+		t.Fatalf("non-rendered preview must not contain ANSI escapes: %q", preview)
 	}
 	plain := stripANSIOnly(preview)
 	for _, want := range []string{"print('hello')", "print('world')"} {

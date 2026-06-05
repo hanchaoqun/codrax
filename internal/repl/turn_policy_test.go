@@ -23,6 +23,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -81,6 +82,7 @@ type stubDataTaskPlanner struct {
 	calls         int
 	candidates    [][]dataquery.CandidateFile
 	repairPlan    dataquery.TaskPlan
+	repairPlans   []dataquery.TaskPlan
 	repairErr     error
 	repairCalls   int
 	repairErrors  []string
@@ -102,6 +104,13 @@ func (s *stubDataTaskPlanner) PlanDataTask(_ context.Context, userLine, repoRoot
 func (s *stubDataTaskPlanner) RepairDataTask(_ context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string) (dataquery.TaskPlan, error) {
 	s.repairCalls++
 	s.repairErrors = append(s.repairErrors, executionError)
+	if len(s.repairPlans) > 0 {
+		idx := s.repairCalls - 1
+		if idx >= len(s.repairPlans) {
+			idx = len(s.repairPlans) - 1
+		}
+		return s.repairPlans[idx], s.repairErr
+	}
 	return s.repairPlan, s.repairErr
 }
 
@@ -1422,6 +1431,76 @@ emit({"answer": "A," + str(total), "output_contract": {"format": "csv_line", "ex
 	}
 	if !strings.Contains(out.String(), "A,17") {
 		t.Fatalf("repaired data answer missing from REPL output:\n%s", out.String())
+	}
+}
+
+func TestTurnPolicyDispatch_DataRouteUsesConfiguredRepairBudget(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\nA,7\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{
+		policy: TurnPolicy{
+			Route:           RouteData,
+			NeedsDataAccess: true,
+			Operation:       "data_aggregation",
+			DataTaskKind:    "data_aggregation",
+			Source:          "data",
+			RiskLevel:       "low",
+			Confidence:      0.9,
+		},
+	}
+	failingPlan := func(msg string) dataquery.TaskPlan {
+		return dataquery.TaskPlan{
+			Status:     "ready",
+			InputPaths: []string{"orders.csv"},
+			OutputContract: dataquery.OutputContract{
+				Format:             dataquery.OutputPlainSingleLine,
+				ExplanationAllowed: false,
+			},
+			Script: fmt.Sprintf(`raise KeyError(%q)`, msg),
+		}
+	}
+	planner := &stubDataTaskPlanner{
+		plan: failingPlan("first"),
+		repairPlans: []dataquery.TaskPlan{
+			failingPlan("second"),
+			failingPlan("third"),
+			{
+				Status:     "ready",
+				InputPaths: []string{"orders.csv"},
+				OutputContract: dataquery.OutputContract{
+					Format:             dataquery.OutputPlainSingleLine,
+					ExplanationAllowed: false,
+				},
+				Script: `rows = csv_rows("orders.csv")
+total = sum(int(r["amount"]) for r in rows)
+emit({"answer": str(total), "output_contract": {"format": "plain_single_line", "explanation_allowed": False}})`,
+			},
+		},
+	}
+	responder := &stubLocalResponder{localReply: "should-not-appear"}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, responder, "汇总 orders.csv，只输出总额\n/exit\n")
+	r.repoRoot = root
+	r.runtimeAnchor = t.TempDir()
+	r.dataTaskPlanner = planner
+	r.dataTaskMaxRepairRounds = 3
+	r.dataTaskMaxDataRounds = 6
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("data route must not enter source pipeline; requests=%v", runner.requests)
+	}
+	if planner.repairCalls != 3 {
+		t.Fatalf("repairCalls=%d, want 3", planner.repairCalls)
+	}
+	if !strings.Contains(out.String(), "17") {
+		t.Fatalf("configured repair budget did not reach repaired answer:\n%s", out.String())
 	}
 }
 

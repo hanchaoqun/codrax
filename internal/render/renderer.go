@@ -616,7 +616,9 @@ func New(out interface{}, forceColor bool) *Renderer {
 	if !color {
 		color = isTTY(writer)
 	}
-	if !color {
+	if color {
+		pterm.EnableColor()
+	} else {
 		pterm.DisableColor()
 	}
 

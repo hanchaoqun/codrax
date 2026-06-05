@@ -3248,6 +3248,16 @@ mcp_servers:
 <td><code>manual</code></td>
 <td>覆盖写入策略:<code>manual</code> 等待批准,<code>deny</code> 阻止结构化标记为覆盖或明显强制覆盖的步骤</td>
 </tr>
+<tr>
+<td><code>data_task_max_repair_rounds</code></td>
+<td><code>6</code></td>
+<td>数据处理脚本失败后的最大自修复轮数。只影响 data lane,不影响源码分析、trace/log、operation 或写模式</td>
+</tr>
+<tr>
+<td><code>data_task_max_data_rounds</code></td>
+<td><code>12</code></td>
+<td>数据处理 execute/evaluate/continue 的最大批次数。复杂多材料任务可适当调高,系统仍有硬上限防止无限循环</td>
+</tr>
 </tbody>
 </table></div>
 <p>通用命令行操作的第一版工作流:</p>
@@ -3330,7 +3340,8 @@ mcp_servers:
 </tbody>
 </table></div>
 <h3 id="颜色">颜色</h3>
-<p><code>--color={auto,always,never}</code> 命令行覆盖所有 yaml;<code>NO_COLOR=1</code> 环境变量永远强制关闭(no-color.org 标准)。</p>
+<p>颜色默认只用于交互式 REPL 的进度、预览和 diff 渲染。单次 CLI 请求默认保持无 ANSI 的纯文本,适合 pipe 到文件、CI 日志或其它命令;如果用户显式传 <code>--color=always</code>,则视为明确允许 CLI 过程输出带 ANSI。</p>
+<p><code>--color={auto,always,never}</code> 控制交互式渲染和显式 CLI 颜色通道;<code>NO_COLOR=1</code> 环境变量永远强制关闭(no-color.org 标准)。</p>
 <h3 id="还有更多">还有更多</h3>
 <p><code>gate_*</code> / <code>analysis_*</code> / <code>explore_*</code> / <code>agent_*</code> / <code>cgec_*</code> / <code>evidence_*</code> / <code>summary_cap_*</code> / <code>memory_*</code> / <code>memory_policy_*</code> / <code>citation_quote_max_chars</code> / <code>agent_prior_conversation_policy</code> / <code>agent_investigation_complete_policy</code> / <code>agent_planner_soft_iter_cap</code> 等几十个调参旋钮 — 它们影响 LLM 的 internal heuristic 阈值,<strong>新手通常不需要改</strong>。完整字段见 <code>codrax.yaml.example</code>,每个都有行内注释说明。</p>
 <h2 id="53-配置查找顺序">5.3 配置查找顺序</h2>

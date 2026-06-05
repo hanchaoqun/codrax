@@ -82,6 +82,13 @@ type RuntimeSettings struct {
 	OperationCommandInstallPolicy      *string  `yaml:"operation_command_install_policy"`
 	OperationCommandOverwritePolicy    *string  `yaml:"operation_command_overwrite_policy"`
 
+	// Read-only data lane workflow budgets. They bound execute/repair/continue
+	// loops for data cleaning, aggregation, and strict output tasks without
+	// affecting source analysis, trace/log analysis, operation commands, or
+	// write-mode code changes.
+	DataTaskMaxRepairRounds *int `yaml:"data_task_max_repair_rounds"`
+	DataTaskMaxDataRounds   *int `yaml:"data_task_max_data_rounds"`
+
 	// Tool blob sizing knobs. Flat-prefixed `blob_*` to keep the
 	// namespace obvious without nesting. All four accept any
 	// positive integer; non-positive (or omitted) means "use the
