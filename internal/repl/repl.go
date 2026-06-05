@@ -157,6 +157,15 @@ type planPathSetter interface {
 	SetPlanPath(string)
 }
 
+type dataTaskTerminalAudit struct {
+	Status       string
+	Reason       string
+	DataRounds   int
+	RepairRounds int
+	Records      []dataTaskWorkflowRecord
+	Result       *dataquery.Result
+}
+
 // autoInitRepoSetter is the optional capability `/approve` flips on
 // after the user (or the yaml/CLI pre-authorization) consents to
 // scaffolding a bare/headless target via `git init` + empty initial
@@ -1257,6 +1266,7 @@ func (r *REPL) operationUnavailableDispatch(line, display string, policy TurnPol
 func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 	if r.dataTaskPlanner == nil {
 		msg := dataTaskUnavailableMarkdown(r.language)
+		r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "blocked", Reason: "data task planner is not configured"})
 		r.finishDataTaskRouteSpinner("blocked")
 		r.renderBordered(msg)
 		r.lastAnswerOrigin = replAnswerOriginLocal
@@ -1268,7 +1278,9 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 	candidates, err := dataquery.DiscoverCandidateFiles(r.repoRoot, 240)
 	if err != nil {
 		r.endTurn()
-		msg := dataTaskErrorMarkdown(r.language, fmt.Sprintf("discover data files: %v", err))
+		reason := fmt.Sprintf("discover data files: %v", err)
+		msg := dataTaskErrorMarkdown(r.language, reason)
+		r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: reason})
 		r.finishDataTaskRouteSpinner("failed")
 		r.renderBordered(msg)
 		r.lastAnswerOrigin = replAnswerOriginLocal
@@ -1279,7 +1291,9 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 	r.endTurn()
 	r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 	if err != nil {
-		msg := dataTaskErrorMarkdown(r.language, fmt.Sprintf("plan data task: %v", err))
+		reason := fmt.Sprintf("plan data task: %v", err)
+		msg := dataTaskErrorMarkdown(r.language, reason)
+		r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: reason})
 		r.finishDataTaskRouteSpinner("failed")
 		r.renderBordered(msg)
 		r.lastAnswerOrigin = replAnswerOriginLocal
@@ -1288,7 +1302,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 	}
 	r.emitDataTaskPlanAudit(plan)
 	r.auditDataTaskPlan("initial", 0, plan)
-	if handled := r.handleTerminalDataTaskPlan(plan, nil, display, line); handled {
+	if handled := r.handleTerminalDataTaskPlan(plan, nil, display, line, 0, 0); handled {
 		return
 	}
 	runner := dataquery.Runner{
@@ -1300,19 +1314,22 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 	repairRounds := 0
 	dataRounds := 0
 	for {
-		if handled := r.handleTerminalDataTaskPlan(currentPlan, records, display, line); handled {
+		if handled := r.handleTerminalDataTaskPlan(currentPlan, records, display, line, dataRounds, repairRounds); handled {
 			return
 		}
 		if dataRounds >= r.dataTaskMaxDataRounds {
 			if result, ok := latestDataTaskResult(records); ok {
 				msg := dataTaskAnswerMarkdown(r.language, result)
+				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "budget_exhausted", Reason: "data task workflow budget exhausted after producing a result", DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
 				r.finishDataTaskRouteSpinner("budget_exhausted")
 				r.renderBordered(msg)
 				r.lastAnswerOrigin = replAnswerOriginLocal
 				r.recordTurn(display, line, msg, memory.KindPipeline)
 				return
 			}
-			msg := dataTaskErrorMarkdown(r.language, "data task workflow budget exhausted before producing a result")
+			reason := "data task workflow budget exhausted before producing a result"
+			msg := dataTaskErrorMarkdown(r.language, reason)
+			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "budget_exhausted", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records})
 			r.finishDataTaskRouteSpinner("budget_exhausted")
 			r.renderBordered(msg)
 			r.lastAnswerOrigin = replAnswerOriginLocal
@@ -1329,7 +1346,9 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				r.endTurn()
 				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 				if repairErr != nil {
-					msg := dataTaskErrorMarkdown(r.language, fmt.Sprintf("%s\nrepair data task: %v", errText, repairErr))
+					reason := fmt.Sprintf("%s\nrepair data task: %v", errText, repairErr)
+					msg := dataTaskErrorMarkdown(r.language, reason)
+					r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records})
 					r.finishDataTaskRouteSpinner("failed")
 					r.renderBordered(msg)
 					r.lastAnswerOrigin = replAnswerOriginLocal
@@ -1343,6 +1362,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				continue
 			}
 			msg := dataTaskErrorMarkdown(r.language, errText)
+			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: errText, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records})
 			r.finishDataTaskRouteSpinner("failed")
 			r.renderBordered(msg)
 			r.lastAnswerOrigin = replAnswerOriginLocal
@@ -1365,7 +1385,9 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				r.endTurn()
 				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 				if repairErr != nil {
-					msg := dataTaskErrorMarkdown(r.language, fmt.Sprintf("%s\nrepair data task: %v", errText, repairErr))
+					reason := fmt.Sprintf("%s\nrepair data task: %v", errText, repairErr)
+					msg := dataTaskErrorMarkdown(r.language, reason)
+					r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records})
 					r.finishDataTaskRouteSpinner("failed")
 					r.renderBordered(msg)
 					r.lastAnswerOrigin = replAnswerOriginLocal
@@ -1379,6 +1401,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				continue
 			}
 			msg := dataTaskErrorMarkdown(r.language, errText)
+			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: errText, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records})
 			r.finishDataTaskRouteSpinner("failed")
 			r.renderBordered(msg)
 			r.lastAnswerOrigin = replAnswerOriginLocal
@@ -1393,6 +1416,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		if !evalOK {
 			if !currentPlan.ContinueAfter {
 				msg := dataTaskAnswerMarkdown(r.language, result)
+				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "complete", Reason: "data task result completed without evaluator", DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
 				r.finishDataTaskRouteSpinner("complete")
 				r.renderBordered(msg)
 				r.lastAnswerOrigin = replAnswerOriginLocal
@@ -1400,6 +1424,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				return
 			}
 			msg := dataTaskAnswerMarkdown(r.language, result)
+			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "partial_answer_possible", Reason: "data task produced a result but requested continuation and evaluator is unavailable", DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
 			r.finishDataTaskRouteSpinner("partial_answer_possible")
 			r.renderBordered(msg)
 			r.lastAnswerOrigin = replAnswerOriginLocal
@@ -1412,7 +1437,9 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		r.endTurn()
 		r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_evaluator", types.AgentName("data_planner"), types.PipelineStage("data"))
 		if evalErr != nil {
-			msg := dataTaskErrorMarkdown(r.language, fmt.Sprintf("evaluate data task: %v", evalErr))
+			reason := fmt.Sprintf("evaluate data task: %v", evalErr)
+			msg := dataTaskErrorMarkdown(r.language, reason)
+			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
 			r.finishDataTaskRouteSpinner("failed")
 			r.renderBordered(msg)
 			r.lastAnswerOrigin = replAnswerOriginLocal
@@ -1425,6 +1452,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		switch eval.Status {
 		case dataquery.EvalComplete:
 			msg := dataTaskAnswerMarkdown(r.language, result)
+			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "complete", Reason: eval.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
 			r.finishDataTaskRouteSpinner("complete")
 			r.renderBordered(msg)
 			r.lastAnswerOrigin = replAnswerOriginLocal
@@ -1433,6 +1461,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		case dataquery.EvalContinueData:
 			if !contOK {
 				msg := dataTaskAnswerMarkdown(r.language, result)
+				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "partial_answer_possible", Reason: "data task evaluator requested continuation but continuation planner is unavailable: " + eval.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
 				r.finishDataTaskRouteSpinner("partial_answer_possible")
 				r.renderBordered(msg)
 				r.lastAnswerOrigin = replAnswerOriginLocal
@@ -1445,7 +1474,9 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.endTurn()
 			r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_continuation_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 			if contErr != nil {
-				msg := dataTaskErrorMarkdown(r.language, fmt.Sprintf("continue data task: %v", contErr))
+				reason := fmt.Sprintf("continue data task: %v", contErr)
+				msg := dataTaskErrorMarkdown(r.language, reason)
+				r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
 				r.finishDataTaskRouteSpinner("failed")
 				r.renderBordered(msg)
 				r.lastAnswerOrigin = replAnswerOriginLocal
@@ -1458,6 +1489,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			continue
 		case dataquery.EvalNeedsClarification:
 			msg := dataTaskEvaluationMarkdown(r.language, eval)
+			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "needs_clarification", Reason: eval.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
 			r.finishDataTaskRouteSpinner("needs_clarification")
 			r.renderBordered(msg)
 			r.lastAnswerOrigin = replAnswerOriginLocal
@@ -1465,6 +1497,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			return
 		case dataquery.EvalBlocked:
 			msg := dataTaskEvaluationMarkdown(r.language, eval)
+			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "blocked", Reason: eval.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
 			r.finishDataTaskRouteSpinner("blocked")
 			r.renderBordered(msg)
 			r.lastAnswerOrigin = replAnswerOriginLocal
@@ -1472,6 +1505,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			return
 		case dataquery.EvalBudgetExhausted, dataquery.EvalPartialAnswerPossible:
 			msg := dataTaskAnswerMarkdown(r.language, result)
+			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: string(eval.Status), Reason: eval.Reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
 			r.finishDataTaskRouteSpinner(string(eval.Status))
 			r.renderBordered(msg)
 			r.lastAnswerOrigin = replAnswerOriginLocal
@@ -1479,6 +1513,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			return
 		default:
 			msg := dataTaskAnswerMarkdown(r.language, result)
+			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "partial_answer_possible", Reason: "data task evaluator returned unrecognized status: " + string(eval.Status), DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
 			r.finishDataTaskRouteSpinner("partial_answer_possible")
 			r.renderBordered(msg)
 			r.lastAnswerOrigin = replAnswerOriginLocal
@@ -2156,6 +2191,50 @@ func (r *REPL) logDataTaskErrorArtifact(round int, errText string, artifact data
 	logging.Info("[repl/data] data task error round=%d error_path=%s\n%s", round, artifact.ErrorPath, errText)
 }
 
+func (r *REPL) logDataTaskTerminal(a dataTaskTerminalAudit) {
+	status := firstNonEmptyString(strings.TrimSpace(a.Status), "unknown")
+	reason := strings.TrimSpace(a.Reason)
+	lastErr := dataTaskLatestError(a.Records)
+	resultSummary := dataTaskTerminalResultSummary(a.Result, a.Records)
+	logging.Info("[repl/data] terminal status=%s data_rounds=%d repair_rounds=%d records=%d result=%s reason=%q last_error=%q",
+		status, a.DataRounds, a.RepairRounds, len(a.Records), resultSummary,
+		oneLineClamp(reason, 500), oneLineClamp(lastErr, 500))
+	if reason != "" || lastErr != "" {
+		logging.Info("[repl/data] terminal detail status=%s\nreason:\n%s\nlast_error:\n%s",
+			status, reason, lastErr)
+	}
+}
+
+func dataTaskLatestError(records []dataTaskWorkflowRecord) string {
+	for i := len(records) - 1; i >= 0; i-- {
+		if errText := strings.TrimSpace(records[i].Err); errText != "" {
+			return errText
+		}
+	}
+	return ""
+}
+
+func dataTaskTerminalResultSummary(result *dataquery.Result, records []dataTaskWorkflowRecord) string {
+	if result == nil {
+		for i := len(records) - 1; i >= 0; i-- {
+			if records[i].Result != nil {
+				result = records[i].Result
+				break
+			}
+		}
+	}
+	if result == nil {
+		return "none"
+	}
+	reconcileStatus := ""
+	if result.Reconcile != nil {
+		reconcileStatus = result.Reconcile.Status.String()
+	}
+	return fmt.Sprintf("answer_len=%d decisions=%d rules=%d contributions=%d resolutions=%d consumed=%d warnings=%d reconcile=%q",
+		len(result.Answer), len(result.Rows), len(result.RuleCoverage), len(result.Contributions),
+		len(result.EntityResolutions), len(result.ConsumedPaths), len(result.ContractWarnings), reconcileStatus)
+}
+
 func (r *REPL) emitDataTaskErrorPreview(round int, errText string, artifact dataTaskAuditArtifact) {
 	if r.renderer == nil {
 		return
@@ -2559,10 +2638,11 @@ func dataTaskWorkflowResultSegment(lang string, result dataquery.Result) string 
 	return strings.Join(parts, " · ")
 }
 
-func (r *REPL) handleTerminalDataTaskPlan(plan dataquery.TaskPlan, records []dataTaskWorkflowRecord, display, line string) bool {
+func (r *REPL) handleTerminalDataTaskPlan(plan dataquery.TaskPlan, records []dataTaskWorkflowRecord, display, line string, dataRounds, repairRounds int) bool {
 	switch strings.ToLower(strings.TrimSpace(plan.Status)) {
 	case "needs_clarification":
 		msg := dataTaskClarificationMarkdown(r.language, plan)
+		r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "needs_clarification", Reason: firstNonEmptyString(plan.BlockReason, strings.Join(plan.MissingObservations, "; ")), DataRounds: dataRounds, RepairRounds: repairRounds, Records: records})
 		r.finishDataTaskRouteSpinner("needs_clarification")
 		r.renderBordered(msg)
 		r.lastAnswerOrigin = replAnswerOriginLocal
@@ -2570,6 +2650,7 @@ func (r *REPL) handleTerminalDataTaskPlan(plan dataquery.TaskPlan, records []dat
 		return true
 	case "blocked":
 		msg := dataTaskBlockedMarkdown(r.language, plan)
+		r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "blocked", Reason: plan.BlockReason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records})
 		r.finishDataTaskRouteSpinner("blocked")
 		r.renderBordered(msg)
 		r.lastAnswerOrigin = replAnswerOriginLocal
@@ -2578,13 +2659,16 @@ func (r *REPL) handleTerminalDataTaskPlan(plan dataquery.TaskPlan, records []dat
 	case "complete":
 		if result, ok := latestDataTaskResult(records); ok {
 			msg := dataTaskAnswerMarkdown(r.language, result)
+			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "complete", Reason: firstNonEmptyString(plan.BlockReason, "terminal data plan completed with latest result"), DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
 			r.finishDataTaskRouteSpinner("complete")
 			r.renderBordered(msg)
 			r.lastAnswerOrigin = replAnswerOriginLocal
 			r.recordTurn(display, line, msg, memory.KindPipeline)
 			return true
 		}
-		msg := dataTaskBlockedMarkdown(r.language, dataquery.TaskPlan{BlockReason: firstNonEmptyString(plan.BlockReason, "data workflow completed without a computed result")})
+		reason := firstNonEmptyString(plan.BlockReason, "data workflow completed without a computed result")
+		msg := dataTaskBlockedMarkdown(r.language, dataquery.TaskPlan{BlockReason: reason})
+		r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "blocked", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records})
 		r.finishDataTaskRouteSpinner("blocked")
 		r.renderBordered(msg)
 		r.lastAnswerOrigin = replAnswerOriginLocal
@@ -2593,13 +2677,16 @@ func (r *REPL) handleTerminalDataTaskPlan(plan dataquery.TaskPlan, records []dat
 	case "budget_exhausted", "partial_answer_possible":
 		if result, ok := latestDataTaskResult(records); ok {
 			msg := dataTaskAnswerMarkdown(r.language, result)
+			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: plan.Status, Reason: firstNonEmptyString(plan.BlockReason, "terminal data plan ended with latest result"), DataRounds: dataRounds, RepairRounds: repairRounds, Records: records, Result: &result})
 			r.finishDataTaskRouteSpinner(plan.Status)
 			r.renderBordered(msg)
 			r.lastAnswerOrigin = replAnswerOriginLocal
 			r.recordTurn(display, line, msg, memory.KindPipeline)
 			return true
 		}
-		msg := dataTaskErrorMarkdown(r.language, firstNonEmptyString(plan.BlockReason, "data workflow ended before producing a computed result"))
+		reason := firstNonEmptyString(plan.BlockReason, "data workflow ended before producing a computed result")
+		msg := dataTaskErrorMarkdown(r.language, reason)
+		r.logDataTaskTerminal(dataTaskTerminalAudit{Status: plan.Status, Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records})
 		r.finishDataTaskRouteSpinner(plan.Status)
 		r.renderBordered(msg)
 		r.lastAnswerOrigin = replAnswerOriginLocal
