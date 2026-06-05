@@ -97,6 +97,7 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 			}
 			artifacts = append(artifacts, artifact)
 			entityResolutions = append(entityResolutions, records...)
+			consumed = append(consumed, artifact.SourcePaths...)
 			summaries = append(summaries, artifact.Summary)
 		case DataActionComputeContribs:
 			artifact, records, paths, err := r.runComputeContributions(action)
@@ -369,12 +370,19 @@ func (r ActionRunner) runNormalizeEntities(action DataAction) (DataArtifact, []E
 	if raw == "" {
 		raw = strings.TrimSpace(action.Params["mappings_json"])
 	}
-	if raw == "" {
-		return DataArtifact{}, nil, errors.New("normalize_entities action requires params.resolutions_json")
-	}
 	var records []EntityResolutionRecord
-	if err := json.Unmarshal([]byte(raw), &records); err != nil {
-		return DataArtifact{}, nil, fmt.Errorf("parse normalize_entities resolutions_json: %w", err)
+	var consumed []string
+	var children []DataArtifact
+	if raw != "" {
+		if err := json.Unmarshal([]byte(raw), &records); err != nil {
+			return DataArtifact{}, nil, fmt.Errorf("parse normalize_entities resolutions_json: %w", err)
+		}
+	} else {
+		var err error
+		records, consumed, children, err = r.deriveEntityResolutionsFromInputs(action)
+		if err != nil {
+			return DataArtifact{}, nil, err
+		}
 	}
 	if len(records) == 0 {
 		return DataArtifact{}, nil, errors.New("normalize_entities action produced no entity resolutions")
@@ -382,7 +390,9 @@ func (r ActionRunner) runNormalizeEntities(action DataAction) (DataArtifact, []E
 	if err := validateEntityResolutionRecords(records); err != nil {
 		return DataArtifact{}, nil, err
 	}
-	children := make([]DataArtifact, 0, len(records))
+	if len(children) == 0 {
+		children = make([]DataArtifact, 0, len(records))
+	}
 	for i, rec := range records {
 		id := firstNonEmptyString(rec.ItemID.String(), fmt.Sprintf("entity_%d", i+1))
 		children = append(children, DataArtifact{
@@ -400,12 +410,120 @@ func (r ActionRunner) runNormalizeEntities(action DataAction) (DataArtifact, []E
 	}
 	id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "entity_resolutions")
 	return DataArtifact{
-		ID:       id,
-		Kind:     string(DataActionNormalizeEntities),
-		Summary:  fmt.Sprintf("normalized %d entity value(s)", len(records)),
-		Fields:   map[string]string{"count": fmt.Sprintf("%d", len(records))},
-		Children: children,
+		ID:          id,
+		Kind:        string(DataActionNormalizeEntities),
+		SourcePaths: normalizeMaterialPaths(consumed),
+		Summary:     fmt.Sprintf("normalized %d entity value(s)", len(records)),
+		Fields:      map[string]string{"count": fmt.Sprintf("%d", len(records))},
+		Children:    children,
 	}, records, nil
+}
+
+func (r ActionRunner) deriveEntityResolutionsFromInputs(action DataAction) ([]EntityResolutionRecord, []string, []DataArtifact, error) {
+	paths := cleanStringList(action.InputPaths)
+	if len(paths) == 0 {
+		return nil, nil, nil, errors.New("normalize_entities action requires either params.resolutions_json or structured input_paths")
+	}
+	sourceFields := normalizeEntitySourceFields(action)
+	if len(sourceFields) == 0 {
+		return nil, nil, nil, errors.New("normalize_entities structured mode requires params.source_field, source_fields, or name_fields")
+	}
+	filters, err := parseContributionFilters(action)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	canonicalIDField := firstNonEmptyString(
+		strings.TrimSpace(action.Params["canonical_id_field"]),
+		strings.TrimSpace(action.Params["id_field"]),
+	)
+	canonicalLabelField := firstNonEmptyString(
+		strings.TrimSpace(action.Params["canonical_label_field"]),
+		strings.TrimSpace(action.Params["label_field"]),
+	)
+	itemIDField := strings.TrimSpace(action.Params["item_id_field"])
+	resolutionStatusField := strings.TrimSpace(action.Params["resolution_status_field"])
+	defaultStatus := firstNonEmptyString(strings.TrimSpace(action.Params["default_status"]), "resolved")
+	reason := firstNonEmptyString(strings.TrimSpace(action.Params["reason"]), strings.TrimSpace(action.Purpose), "normalized by typed data action")
+	ruleRefs := parseActionStringListParam(action.Params["rule_refs"])
+	maxRecords := actionIntParam(action, "max_records", 100000, 1, 1000000)
+	maxResolutions := actionIntParam(action, "max_resolutions", 200000, 1, 500000)
+
+	var out []EntityResolutionRecord
+	var consumed []string
+	var children []DataArtifact
+	seen := map[string]bool{}
+	for _, path := range paths {
+		records, headers, total, rel, err := r.readActionRecords(path, maxRecords)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		consumed = append(consumed, rel)
+		matched := 0
+		for _, record := range records {
+			if !recordPassesFilters(record.Fields, filters) {
+				continue
+			}
+			for _, field := range sourceFields {
+				sourceValue := recordField(record.Fields, field)
+				if sourceValue == "" {
+					continue
+				}
+				if len(out) >= maxResolutions {
+					return nil, nil, nil, fmt.Errorf("normalize_entities exceeded max_resolutions=%d; split the action into smaller filters or input groups", maxResolutions)
+				}
+				canonicalID := recordField(record.Fields, canonicalIDField)
+				canonicalLabel := recordField(record.Fields, canonicalLabelField)
+				if canonicalID == "" && canonicalLabel == "" {
+					canonicalLabel = sourceValue
+				}
+				status := firstNonEmptyString(recordField(record.Fields, resolutionStatusField), defaultStatus)
+				key := rel + "\x00" + field + "\x00" + sourceValue + "\x00" + canonicalID + "\x00" + canonicalLabel
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				itemID := recordField(record.Fields, itemIDField)
+				if itemID == "" {
+					itemID = fmt.Sprintf("%s#%d:%s", rel, record.Index, field)
+				}
+				out = append(out, EntityResolutionRecord{
+					ItemID:         LooseText(itemID),
+					SourceValue:    LooseText(sourceValue),
+					CanonicalID:    LooseText(canonicalID),
+					CanonicalLabel: LooseText(canonicalLabel),
+					Status:         LooseText(status),
+					EvidenceRefs:   []string{fmt.Sprintf("%s:%d", rel, record.Line)},
+					RuleRefs:       append([]string(nil), ruleRefs...),
+					Reason:         LooseText(reason),
+				})
+				matched++
+			}
+		}
+		children = append(children, DataArtifact{
+			ID:          rel + "#entity_resolutions",
+			Kind:        "entity_resolution_source",
+			SourcePaths: []string{rel},
+			Headers:     headers,
+			RowCount:    total,
+			Summary:     fmt.Sprintf("%s produced %d entity resolution(s) from %d record(s)", rel, matched, total),
+			Fields: map[string]string{
+				"matched": fmt.Sprintf("%d", matched),
+				"total":   fmt.Sprintf("%d", total),
+			},
+		})
+	}
+	if len(out) == 0 {
+		return nil, nil, nil, errors.New("normalize_entities structured mode produced no entity resolutions")
+	}
+	return out, normalizeMaterialPaths(consumed), children, nil
+}
+
+func normalizeEntitySourceFields(action DataAction) []string {
+	var fields []string
+	for _, key := range []string{"source_field", "source_fields", "name_field", "name_fields", "value_field", "value_fields"} {
+		fields = append(fields, parseActionStringListParam(action.Params[key])...)
+	}
+	return cleanStringSlice(fields)
 }
 
 type actionRecord struct {

@@ -427,6 +427,54 @@ func TestActionRunnerNormalizeEntitiesAction(t *testing.T) {
 	}
 }
 
+func TestActionRunnerNormalizeEntitiesFromStructuredInput(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "vendors.csv"), []byte("status,vendor_id,short_name,brand_name,legal_name\nactive,V001,Acme,Acme Cloud,Acme Cloud Ltd\ninactive,V002,Old,Old Brand,Old Brand Ltd\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputMarkdown, ExplanationAllowed: true},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:        []CoverageMaterial{{Path: "vendors.csv", Required: true}},
+			EntityResolutionRequired: true,
+		},
+		Actions: []DataAction{{
+			ID:         "normalize_vendors",
+			Kind:       DataActionNormalizeEntities,
+			InputPaths: []string{"vendors.csv"},
+			Params: map[string]string{
+				"source_fields":         "short_name,brand_name,legal_name",
+				"canonical_id_field":    "vendor_id",
+				"canonical_label_field": "legal_name",
+				"filter_field":          "status",
+				"filter_value":          "active",
+				"reason":                "derive source-to-canonical mappings from reference rows",
+				"max_records":           "50",
+				"max_resolutions":       "20",
+			},
+		}},
+	}
+	res, err := (ActionRunner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run structured normalize action: %v", err)
+	}
+	if got := strings.Join(res.ConsumedPaths, ","); got != "vendors.csv" {
+		t.Fatalf("ConsumedPaths=%q, want vendors.csv", got)
+	}
+	if len(res.EntityResolutions) != 3 {
+		t.Fatalf("EntityResolutions=%+v, want 3 active source fields", res.EntityResolutions)
+	}
+	for _, rec := range res.EntityResolutions {
+		if rec.CanonicalID.String() != "V001" || rec.CanonicalLabel.String() != "Acme Cloud Ltd" || rec.Status.String() != "resolved" {
+			t.Fatalf("bad normalized record: %+v", rec)
+		}
+		if len(rec.EvidenceRefs) != 1 || rec.EvidenceRefs[0] != "vendors.csv:2" {
+			t.Fatalf("bad evidence refs: %+v", rec)
+		}
+	}
+}
+
 func TestActionRunnerCustomTransformUsesExistingRunner(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

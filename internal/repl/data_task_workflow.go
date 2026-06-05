@@ -87,14 +87,17 @@ func dataTaskPlanStagingGuardError(plan dataquery.TaskPlan) string {
 	lines := dataTaskScriptLineCount(plan.Script)
 	requiredMaterials := len(plan.CoverageContract.RequiredMaterials)
 	validationLedgers := dataTaskValidationLedgerCount(plan.CoverageContract)
+	inputs := len(plan.InputPaths)
+	complexBatch := requiredMaterials >= 4 || validationLedgers >= 2 || inputs >= 4
 	oversized := lines >= dataTaskOneShotScriptLineHardLimit ||
 		(lines >= dataTaskOneShotScriptLineSoftLimit && (requiredMaterials >= dataTaskOneShotRequiredMaterialLimit || validationLedgers >= dataTaskOneShotValidationLedgerLimit)) ||
+		(lines >= 180 && complexBatch) ||
 		(requiredMaterials >= dataTaskOneShotRequiredMaterialLimit+4 && validationLedgers >= dataTaskOneShotValidationLedgerLimit)
 	if !oversized {
 		return ""
 	}
-	return fmt.Sprintf("data planning incomplete: plan is too large for one bounded data batch (script_lines=%d required_materials=%d validation_ledgers=%d continue_after=false). Emit a smaller bounded batch, set continue_after=true when further work remains, and let the workflow feed real results into later batches.",
-		lines, requiredMaterials, validationLedgers)
+	return fmt.Sprintf("data planning incomplete: plan is too large for one bounded data batch (script_lines=%d input_paths=%d required_materials=%d validation_ledgers=%d continue_after=false). Emit a smaller atomic actions[] batch such as material_inventory, inspect_material, extract_records, derive_rules, normalize_entities, compute_contributions, reconcile_artifacts, or a bounded custom_transform; set continue_after=true when further work remains, and let the workflow feed real results into later batches.",
+		lines, inputs, requiredMaterials, validationLedgers)
 }
 
 func dataTaskActionStagingGuardError(plan dataquery.TaskPlan) string {

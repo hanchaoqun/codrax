@@ -1666,6 +1666,37 @@ func TestDataTaskPlanStagingGuardRequiresBoundedBatch(t *testing.T) {
 	}
 }
 
+func TestDataTaskPlanStagingGuardRejectsComplexOneShotBeforeExecution(t *testing.T) {
+	script := strings.Repeat("x = 1\n", 190)
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"a.csv", "b.csv", "c.csv", "d.csv"},
+		Script:     script,
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "a.csv"}, {Path: "b.csv"}, {Path: "c.csv"}, {Path: "d.csv"},
+			},
+			DecisionRecordsRequired:    true,
+			ContributionLedgerRequired: true,
+		},
+	}
+	errText := dataTaskPlanStagingGuardError(plan)
+	if !strings.Contains(errText, "atomic actions[] batch") {
+		t.Fatalf("guard err=%q, want atomic action repair", errText)
+	}
+}
+
+func TestDataTaskPlanStagingGuardAllowsSimpleOneShot(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"single.csv"},
+		Script:     strings.Repeat("x = 1\n", 120),
+	}
+	if got := dataTaskPlanStagingGuardError(plan); got != "" {
+		t.Fatalf("simple plan should pass staging guard, got %q", got)
+	}
+}
+
 func TestDataTaskRepeatedNodeFailureDetectsTypedAction(t *testing.T) {
 	errText := `execute data task: data action failed action_id="transform_1" action_kind="custom_transform": KeyError: missing`
 	key, count, repeated := dataTaskRepeatedNodeFailure(nil, errText, 2)
