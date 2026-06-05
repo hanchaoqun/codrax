@@ -2058,7 +2058,7 @@ func (r *REPL) emitDataTaskPlanPreview(scope string, round int, plan dataquery.T
 	} else {
 		b.WriteString("Script preview:\n")
 	}
-	b.WriteString(dataTaskPanelPreview(script, r.language))
+	b.WriteString(dataTaskMutedPreview(script, r.language))
 	if artifact.ScriptPath != "" {
 		if isZh(r.language) {
 			fmt.Fprintf(&b, "\n\n完整脚本：`%s`", artifact.ScriptPath)
@@ -2133,7 +2133,7 @@ func (r *REPL) emitDataTaskErrorPreview(round int, errText string, artifact data
 	} else {
 		b.WriteString("Error preview:\n")
 	}
-	b.WriteString(dataTaskPanelPreview(errText, r.language))
+	b.WriteString(dataTaskMutedPreview(errText, r.language))
 	if artifact.ErrorPath != "" {
 		if isZh(r.language) {
 			fmt.Fprintf(&b, "\n\n完整错误：`%s`", artifact.ErrorPath)
@@ -2206,7 +2206,7 @@ func (r *REPL) emitDataTaskResultPreview(round int, result dataquery.Result, art
 	} else {
 		b.WriteString("Result preview:\n")
 	}
-	b.WriteString(dataTaskPanelPreview(result.Answer, r.language))
+	b.WriteString(dataTaskMutedPreview(result.Answer, r.language))
 	if artifact.ResultPath != "" {
 		if isZh(r.language) {
 			fmt.Fprintf(&b, "\n\n完整结果：`%s`", artifact.ResultPath)
@@ -2300,6 +2300,14 @@ func dataTaskPanelPreview(value, lang string) string {
 		return fmt.Sprintf("%s\n...[面板预览已截断 %d 字符；完整内容见上方路径]", preview, omitted)
 	}
 	return fmt.Sprintf("%s\n...[panel preview truncated %d chars; see path above for full content]", preview, omitted)
+}
+
+func dataTaskMutedPreview(value, lang string) string {
+	preview := dataTaskPanelPreview(value, lang)
+	if strings.TrimSpace(preview) == "" {
+		return preview
+	}
+	return pterm.NewStyle(pterm.FgDarkGray).Sprint(preview)
 }
 
 func (r *REPL) emitDataTaskRunnerCall(plan dataquery.TaskPlan, round int) {
@@ -5493,6 +5501,15 @@ func (r *REPL) renderBorderedCompact(response string) {
 }
 
 func (r *REPL) renderBorderedWithTrailingBlank(response string, trailingBlank bool) {
+	body := r.borderedResponseBody(response, trailingBlank)
+	if r.renderer != nil {
+		r.renderer.EmitScrollbackBlock(body)
+		return
+	}
+	fmt.Fprint(r.out, body)
+}
+
+func (r *REPL) borderedResponseBody(response string, trailingBlank bool) string {
 	lines := borderedResponseLines(response)
 	bar := pterm.FgWhite.Sprint("│")
 	// Wrap each line to fit the terminal, accounting for the
@@ -5501,18 +5518,21 @@ func (r *REPL) renderBorderedWithTrailingBlank(response string, trailingBlank bo
 	if w, _, werr := term.GetSize(int(os.Stdout.Fd())); werr == nil && w > 10 {
 		maxContent = w - 6
 	}
-	fmt.Fprintf(r.out, "  %s\n", bar)
+	var b strings.Builder
+	fmt.Fprintf(&b, "  %s\n", bar)
 	for _, ln := range lines {
 		wrapped := borderedLineFragmentsPreserve(ln.text, maxContent, ln.visual)
 		for _, wl := range wrapped {
-			r.writeBorderedContentLine(bar, wl, ln.visual || shouldPreserveVisualLine(wl), maxContent)
+			visualOverflow := (ln.visual || shouldPreserveVisualLine(wl)) && displayWidth(wl) > maxContent
+			b.WriteString(borderedContentLine(bar, wl, visualOverflow && terminalAutoWrapControlSupported(r.out)))
 		}
 	}
 	if trailingBlank {
-		fmt.Fprintf(r.out, "  %s\n\n", bar)
-		return
+		fmt.Fprintf(&b, "  %s\n\n", bar)
+		return b.String()
 	}
-	fmt.Fprintf(r.out, "  %s\n", bar)
+	fmt.Fprintf(&b, "  %s\n", bar)
+	return b.String()
 }
 
 func (r *REPL) writeBorderedContentLine(bar, line string, visual bool, maxContent int) {

@@ -188,3 +188,16 @@ func TestAuditDataTaskPlanWritesFullArtifactsAndRendersShortPreview(t *testing.T
 		}
 	}
 }
+
+func TestDataTaskMutedPreviewKeepsTextAuditable(t *testing.T) {
+	preview := dataTaskMutedPreview("print('hello')\nprint('world')", "zh")
+	if strings.TrimSpace(preview) == "" {
+		t.Fatal("muted preview should not be empty")
+	}
+	plain := stripANSIOnly(preview)
+	for _, want := range []string{"print('hello')", "print('world')"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("muted preview lost %q: raw=%q plain=%q", want, preview, plain)
+		}
+	}
+}

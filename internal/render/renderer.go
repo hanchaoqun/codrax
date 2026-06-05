@@ -569,6 +569,23 @@ func (r *Renderer) EmitLightRouteSummary(label string, segments []string) {
 	mirrorDockLineToLog(line)
 }
 
+// EmitScrollbackBlock writes a pre-rendered permanent block without tearing the
+// live dock. Callers that need custom formatting (for example REPL bordered
+// panels) can build the exact bytes they want and let the renderer handle the
+// active-status area safely.
+func (r *Renderer) EmitScrollbackBlock(body string) {
+	if r == nil || body == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.dock != nil {
+		r.commitMultilineLocked(body)
+		return
+	}
+	fmt.Fprint(r.outputWriter(), body)
+}
+
 // SetOutput retargets all live renderer output. nil restores stdout.
 func (r *Renderer) SetOutput(w io.Writer) {
 	if r == nil {
