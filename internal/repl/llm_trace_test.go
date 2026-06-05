@@ -141,6 +141,9 @@ func TestDirectLLMTraceAdapterPersistsVisibleThinkBlocksOnly(t *testing.T) {
 	if !strings.Contains(got, "visible model thinking") {
 		t.Fatalf("think block should enter permanent scrollback, got %q", got)
 	}
+	if !strings.Contains(got, "<think>") || !strings.Contains(got, "</think>") {
+		t.Fatalf("explicit think block boundary should stay visible in process scrollback, got %q", got)
+	}
 	if strings.Contains(got, "ordinary response") {
 		t.Fatalf("ordinary response must not be duplicated as thinking scrollback, got %q", got)
 	}

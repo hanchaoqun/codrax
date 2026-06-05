@@ -182,7 +182,7 @@ func directLLMVisibleReasoning(resp llm.Response) string {
 	thoughts, ordinaryContent := splitVisibleThinkBlocks(resp.Content)
 	for _, thought := range thoughts {
 		if thought = strings.TrimSpace(thought); thought != "" {
-			parts = append(parts, thought)
+			parts = append(parts, "<think>\n"+thought+"\n</think>")
 		}
 	}
 	if len(resp.ToolCalls) > 0 {
