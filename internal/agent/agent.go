@@ -868,6 +868,8 @@ type streamPreviewBuffer struct {
 	parallelUnitID  string
 	dispatchKind    string
 	buf             strings.Builder
+	toolArgBytes    map[int]int
+	toolLastNames   map[int]string
 	lastEmitAt      time.Time
 }
 
@@ -894,6 +896,34 @@ func (b *streamPreviewBuffer) onDelta(delta string) {
 		return
 	}
 	b.buf.WriteString(delta)
+	b.emitPreview(b.buf.String())
+}
+
+func (b *streamPreviewBuffer) onToolCallDelta(index int, name string, argsChunk string) {
+	if b == nil || b.emit == nil || argsChunk == "" {
+		return
+	}
+	if b.toolArgBytes == nil {
+		b.toolArgBytes = make(map[int]int)
+	}
+	if b.toolLastNames == nil {
+		b.toolLastNames = make(map[int]string)
+	}
+	b.toolArgBytes[index] += len(argsChunk)
+	if strings.TrimSpace(name) != "" {
+		b.toolLastNames[index] = strings.TrimSpace(name)
+	}
+	label := b.toolLastNames[index]
+	if label == "" {
+		label = "tool_call"
+	}
+	b.emitPreview(formatStreamToolCallPreview(label, b.toolArgBytes[index]))
+}
+
+func (b *streamPreviewBuffer) emitPreview(preview string) {
+	if b == nil || b.emit == nil || strings.TrimSpace(preview) == "" {
+		return
+	}
 	if time.Since(b.lastEmitAt) < streamPreviewThrottle {
 		return
 	}
@@ -904,7 +934,7 @@ func (b *streamPreviewBuffer) onDelta(delta string) {
 		Agent:           b.agent,
 		Stage:           b.stage,
 		Iteration:       b.iter,
-		Reasoning:       b.buf.String(),
+		Reasoning:       preview,
 		ParallelGroupID: b.parallelGroupID,
 		ParallelUnitID:  b.parallelUnitID,
 		DispatchKind:    b.dispatchKind,
@@ -928,6 +958,44 @@ func (b *streamPreviewBuffer) flush() {
 		ParallelUnitID:  b.parallelUnitID,
 		DispatchKind:    b.dispatchKind,
 	})
+}
+
+func formatStreamToolCallPreview(name string, bytes int) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "tool_call"
+	}
+	return fmt.Sprintf("tool_call %s args %s", name, formatStreamByteSize(bytes))
+}
+
+func formatStreamByteSize(bytes int) string {
+	if bytes < 1024 {
+		return fmt.Sprintf("%dB", bytes)
+	}
+	kb := float64(bytes) / 1024
+	if kb < 1024 {
+		return fmt.Sprintf("%.1fKB", kb)
+	}
+	return fmt.Sprintf("%.1fMB", kb/1024)
+}
+
+func chainAgentToolCallDelta(first, second func(int, string, string)) func(int, string, string) {
+	if first == nil {
+		return second
+	}
+	if second == nil {
+		return first
+	}
+	return func(index int, name string, argsChunk string) {
+		func() {
+			defer func() { _ = recover() }()
+			first(index, name, argsChunk)
+		}()
+		func() {
+			defer func() { _ = recover() }()
+			second(index, name, argsChunk)
+		}()
+	}
 }
 
 // softNoToolCallMessage renders the user-visible line fired when a
@@ -1895,10 +1963,10 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		// downstream parse of the same call yields byte-identical
 		// AnswerDocument with vs without preview.
 		var summaryPreview *finalizePreviewHook
-		var onToolCallDelta func(int, string, string)
+		onToolCallDelta := streamBuf.onToolCallDelta
 		if ctx.Stage == types.StageFinalize {
 			summaryPreview = newFinalizePreviewHook(b.deps.Emit)
-			onToolCallDelta = summaryPreview.onToolCallDelta
+			onToolCallDelta = chainAgentToolCallDelta(onToolCallDelta, summaryPreview.onToolCallDelta)
 		}
 		// Forward L1 retry / L2 fallback signals as renderer events so
 		// the dock status row can flip to "重试中 / 切换 provider 中"
@@ -1948,11 +2016,12 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		}
 		stopLLMRequestWatchdog := b.startLLMRequestWatchdog(ctx, i, telemetry)
 		resp, err := b.deps.LLM.Chat(ctx.Context(), requestMessages, effectiveTools, llm.ChatOptions{
-			ToolChoice:      toolChoice,
-			OnContentDelta:  streamBuf.onDelta,
-			OnToolCallDelta: onToolCallDelta,
-			OnRetry:         onRetry,
-			OnFallback:      onFallback,
+			ToolChoice:       toolChoice,
+			OnContentDelta:   streamBuf.onDelta,
+			OnReasoningDelta: streamBuf.onDelta,
+			OnToolCallDelta:  onToolCallDelta,
+			OnRetry:          onRetry,
+			OnFallback:       onFallback,
 		})
 		stopLLMRequestWatchdog()
 		streamBuf.flush()

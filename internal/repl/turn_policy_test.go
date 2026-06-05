@@ -1697,6 +1697,21 @@ func TestDataTaskPlanStagingGuardAllowsSimpleOneShot(t *testing.T) {
 	}
 }
 
+func TestDataTaskPlanStagingGuardRejectsTopLevelScriptWithActions(t *testing.T) {
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Script: "x = 1\n",
+		Actions: []dataquery.DataAction{{
+			ID:   "transform",
+			Kind: dataquery.DataActionCustomTransform,
+		}},
+	}
+	errText := dataTaskPlanStagingGuardError(plan)
+	if !strings.Contains(errText, "must not carry a top-level script") {
+		t.Fatalf("guard err=%q, want top-level script rejection", errText)
+	}
+}
+
 func TestDataTaskRepeatedNodeFailureDetectsTypedAction(t *testing.T) {
 	errText := `execute data task: data action failed action_id="transform_1" action_kind="custom_transform": KeyError: missing`
 	key, count, repeated := dataTaskRepeatedNodeFailure(nil, errText, 2)

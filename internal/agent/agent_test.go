@@ -1415,6 +1415,24 @@ func (transientPartialLLM) MaxOutputTokens() int          { return 4096 }
 func (transientPartialLLM) RequestTimeout() time.Duration { return 0 }
 func (transientPartialLLM) RetryMaxAttempts() int         { return 0 }
 
+func TestStreamPreviewBufferEmitsToolCallArgumentBytes(t *testing.T) {
+	var events []render.Event
+	emit := func(ev render.Event) {
+		events = append(events, ev)
+	}
+	buf := newStreamPreviewBuffer(emit, types.AgentAnalyzer, types.StageAnalyze, 0, "", "", "")
+	buf.onToolCallDelta(0, "emit_analysis", strings.Repeat("x", 1536))
+	if len(events) != 1 {
+		t.Fatalf("events=%d, want 1", len(events))
+	}
+	if events[0].Kind != render.EventAgentContent {
+		t.Fatalf("event kind=%v, want EventAgentContent", events[0].Kind)
+	}
+	if got := events[0].Reasoning; !strings.Contains(got, "emit_analysis") || !strings.Contains(got, "1.5KB") {
+		t.Fatalf("preview=%q, want tool name and byte size", got)
+	}
+}
+
 type protocolSoftStopLLM struct {
 	calls int
 }

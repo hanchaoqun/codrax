@@ -343,6 +343,9 @@ func ClassifyExecutionError(errText string) DataTaskViolation {
 	case strings.Contains(lower, "data planning incomplete") && strings.Contains(lower, "bounded data batch"):
 		v.Code = "oversized_data_plan"
 		v.RepairHint = "Split the plan into a smaller bounded batch, set continue_after=true when more work remains, and let the workflow feed real results into later batches."
+	case strings.Contains(lower, "actions[] plans must not carry a top-level script"):
+		v.Code = "action_top_level_script"
+		v.RepairHint = "When actions[] are present, keep plan.script empty. Put each bounded script on its custom_transform action, or split into typed atomic actions."
 	case strings.Contains(lower, "data task script redefines reserved helper"):
 		v.Code = "reserved_helper_redefined"
 		v.RepairHint = "Remove any function/variable assignment that redefines runner helpers; call the provided helper directly."

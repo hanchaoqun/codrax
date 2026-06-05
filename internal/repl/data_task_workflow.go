@@ -101,6 +101,11 @@ func dataTaskPlanStagingGuardError(plan dataquery.TaskPlan) string {
 }
 
 func dataTaskActionStagingGuardError(plan dataquery.TaskPlan) string {
+	topLevelLines := dataTaskScriptLineCount(plan.Script)
+	if topLevelLines > 0 {
+		return fmt.Sprintf("data planning incomplete: actions[] plans must not carry a top-level script (script_lines=%d). Put each bounded transform script on its custom_transform action, or split the workflow into typed atomic actions; top-level script is only for simple non-actions plans.",
+			topLevelLines)
+	}
 	for i, action := range plan.Actions {
 		lines := dataTaskScriptLineCount(action.Script)
 		if lines == 0 {

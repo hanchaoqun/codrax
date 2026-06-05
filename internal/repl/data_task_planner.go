@@ -293,7 +293,7 @@ Hard rules:
 - Use compute_contributions for generic sums, counts, filters, grouped totals, or contribution ledgers over declared local structured/text inputs. Params are domain-neutral: value_field, group_key_field or group_key, metric, operation, item_id_field, filters_json, rule_refs, max_records, max_contributions.
 - Use reconcile_artifacts after compute_contributions when reconcile_required=true or when the final scalar/list must be backed by a deterministic contribution sum.
 - Use custom_transform only for bounded deterministic transforms over known input_paths that cannot be represented by the typed actions above.
-- When actions are present, top-level script may be empty. For custom_transform actions, put the bounded script on that action and list every file it reads in action.input_paths.
+- When actions are present, top-level script must be empty. For custom_transform actions, put the bounded script on that action and list every file it reads in action.input_paths.
 - If the user requests JSON-only, CSV-only, a single line, only a file path, only a code block, or a Markdown table, encode that in output_contract. Do not hard-code one output style.
 - If explanation_allowed=false, answer must be exactly the requested final payload, with no explanatory prefix or suffix.
 - Treat candidate files as an objective material inventory: path, kind, size, headers, row/line counts, and small samples. The system does not know the business role of a file. You must decide, from the user goal, which materials are required, optional, or irrelevant.

@@ -705,6 +705,7 @@ func TestClassifyExecutionError(t *testing.T) {
 		`data validation incomplete: result.contributions[0] references unknown rule_id "R03"`:                                                                   "unknown_rule_ref",
 		`data validation incomplete: result.entity_resolutions[0] is missing status`:                                                                             "missing_entity_resolution_status",
 		`data planning incomplete: plan is too large for one bounded data batch (script_lines=400 required_materials=12)`:                                        "oversized_data_plan",
+		`data planning incomplete: actions[] plans must not carry a top-level script (script_lines=505)`:                                                         "action_top_level_script",
 		`data reconcile failed: group "A/amount" has no matching contribution records`:                                                                           "reconcile_group_mismatch",
 		`data reconcile failed: group "A/amount" expected=9 but contributions sum to 10`:                                                                         "reconcile_sum_mismatch",
 		`NameError: name 'add_entity_resolution' is not defined`:                                                                                                 "unknown_runner_helper",
