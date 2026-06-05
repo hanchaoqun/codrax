@@ -142,7 +142,38 @@ text span, page, image region, webpage block, or any other task item. An entity
 resolution can map names, IDs, categories, labels, files, records, accounts, or
 other task-specific values. Go code must not infer those meanings.
 
-### 5. Decision Records
+### 5. Linked Validation
+
+The first validation batch only checked that required ledgers existed and that
+numeric contribution groups reconciled. Real data tasks need one more generic
+layer: the ledgers must explain each other. This is still structural; Codrax
+does not decide business meaning.
+
+The linked contract is:
+
+- `rule_coverage` records must carry `rule_id` or `rule_text`, a `status`, and
+  support. Support can be `notes`, `evidence_refs`, or structured `rule_refs`
+  from decision records, contribution records, or entity-resolution records.
+- `contributions` must use canonical fields. A contribution has an item/source
+  anchor (`item_id`, `source`, `source_locator`, or `evidence_refs`) and an
+  effect (`group_key`, `metric`, `value`, `operation`, or `reason`). Task-local
+  aliases may appear in explanatory fields, but they do not replace canonical
+  contribution fields.
+- `entity_resolutions` must say what source value/item was resolved and how. A
+  resolved mapping needs `canonical_id` or `canonical_label`; an unresolved,
+  ambiguous, failed, or open mapping needs `reason`, `candidates`, or
+  `evidence_refs`.
+- `reconcile.groups` must use canonical `group_key`, `metric`, `expected`, and
+  `actual` fields. Codrax recomputes totals from `contributions`; every
+  reported group must match contribution totals, and every contribution group
+  must be reported.
+
+This catches a broad class of "script ran and emitted a formatted answer, but
+the audit structure is hollow" failures without hard-coding a domain. The same
+contract applies to sums, counts, rankings, joins, text-span extraction, JSONL
+transforms, document-derived calculations, and strict-output data answers.
+
+### 6. Decision Records
 
 `Result.Rows` remains the wire field for existing result shapes, but its
 meaning is generic decision records:
@@ -160,7 +191,7 @@ model supplies semantics; Codrax checks only generic structural presence when
 the more specific generic ledgers above when the required validation is about
 rules, entity resolution, contribution, or reconciliation.
 
-### 6. Output Contract Separation
+### 7. Output Contract Separation
 
 Computation correctness and final output shape are separate:
 
@@ -195,11 +226,25 @@ calculation.
       `reconcile` fields to data results.
 - [x] Implement generic runner validation for required ledgers.
 - [x] Implement deterministic contribution-to-reconcile group checks.
+- [x] Strengthen contribution records so required contribution ledgers must use
+      canonical item/effect fields.
+- [x] Strengthen reconcile groups so blank or alias-only groups cannot pass.
+- [x] Add structural rule-link support through generic `rule_refs`.
+- [x] Validate rule coverage support via `notes`, `evidence_refs`, or linked
+      `rule_refs`.
+- [x] Validate entity-resolution records for source, status, canonical value,
+      or explicit unresolved/ambiguous rationale.
+- [x] Validate contribution/reconcile linkage in both directions.
 - [x] Expose the validation matrix in `emit_data_task_plan` schema and prompt.
+- [x] Teach planner/repair prompts that canonical ledger fields and `rule_refs`
+      are required for linked validation.
 - [x] Preserve required validation contracts across repair turns.
 - [x] Include validation-ledger summaries in evaluator/continuation handoff.
 - [x] Add tests for missing ledgers, failed reconcile, passing reconcile, and
       planner JSON compatibility.
+- [x] Add tests for unsupported rule coverage, unknown rule refs, missing
+      canonical contribution fields, blank reconcile groups, unreported
+      contribution groups, and incomplete entity-resolution records.
 - [x] Detect non-text materials that need extraction in the data inventory.
 - [x] Keep non-text materials out of direct deterministic runner inputs.
 - [x] Surface related text-evidence candidates when objective path metadata

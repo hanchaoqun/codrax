@@ -203,6 +203,7 @@ type ContributionRecord struct {
 	Operation     LooseText `json:"operation,omitempty"`
 	Reason        LooseText `json:"reason,omitempty"`
 	EvidenceRefs  []string  `json:"evidence_refs,omitempty"`
+	RuleRefs      []string  `json:"rule_refs,omitempty"`
 }
 
 type EntityResolutionRecord struct {
@@ -213,6 +214,7 @@ type EntityResolutionRecord struct {
 	Status         LooseText         `json:"status,omitempty"`
 	Candidates     []EntityCandidate `json:"candidates,omitempty"`
 	EvidenceRefs   []string          `json:"evidence_refs,omitempty"`
+	RuleRefs       []string          `json:"rule_refs,omitempty"`
 	Reason         LooseText         `json:"reason,omitempty"`
 }
 
@@ -249,6 +251,7 @@ type RowDecision struct {
 	Contribution     string            `json:"contribution,omitempty"`
 	NormalizedFields map[string]string `json:"normalized_fields,omitempty"`
 	EvidenceRef      []string          `json:"evidence_refs,omitempty"`
+	RuleRefs         []string          `json:"rule_refs,omitempty"`
 }
 
 func (r *RowDecision) UnmarshalJSON(data []byte) error {
@@ -266,7 +269,7 @@ func (r *RowDecision) UnmarshalJSON(data []byte) error {
 	knownKeys := map[string]bool{
 		"row_id": true, "source": true, "source_locator": true, "decision": true,
 		"reason": true, "value": true, "contribution": true, "normalized_fields": true,
-		"evidence_refs": true,
+		"evidence_refs": true, "rule_refs": true,
 	}
 	for key, value := range raw {
 		if knownKeys[key] || len(value) == 0 || string(value) == "null" {
@@ -819,17 +822,32 @@ func validateRequiredLedgers(contract CoverageContract, res Result) error {
 	if contract.RuleCoverageRequired && !hasMeaningfulRuleCoverage(res.RuleCoverage) {
 		return errors.New("data validation incomplete: result.rule_coverage contains no meaningful rule records")
 	}
+	if contract.RuleCoverageRequired {
+		if err := validateRuleCoverageRecords(res.RuleCoverage, res.Rows, res.Contributions, res.EntityResolutions); err != nil {
+			return err
+		}
+	}
 	if contract.ContributionLedgerRequired && len(res.Contributions) == 0 {
 		return errors.New("data validation incomplete: coverage_contract.contribution_ledger_required=true but result.contributions is empty")
 	}
 	if contract.ContributionLedgerRequired && !hasMeaningfulContribution(res.Contributions) {
-		return errors.New("data validation incomplete: result.contributions contains no meaningful contribution records")
+		return errors.New("data validation incomplete: result.contributions contains no canonical contribution records; include item_id/source/source_locator/evidence_refs plus group_key/metric/value/operation/reason as needed for the task")
+	}
+	if contract.ContributionLedgerRequired {
+		if err := validateContributionRecords(res.Contributions); err != nil {
+			return err
+		}
 	}
 	if contract.EntityResolutionRequired && len(res.EntityResolutions) == 0 {
 		return errors.New("data validation incomplete: coverage_contract.entity_resolution_required=true but result.entity_resolutions is empty")
 	}
 	if contract.EntityResolutionRequired && !hasMeaningfulEntityResolution(res.EntityResolutions) {
 		return errors.New("data validation incomplete: result.entity_resolutions contains no meaningful resolution records")
+	}
+	if contract.EntityResolutionRequired {
+		if err := validateEntityResolutionRecords(res.EntityResolutions); err != nil {
+			return err
+		}
 	}
 	if contract.ReconcileRequired {
 		if res.Reconcile == nil {
@@ -855,21 +873,116 @@ func hasMeaningfulRuleCoverage(records []RuleCoverageRecord) bool {
 	return false
 }
 
+func validateRuleCoverageRecords(records []RuleCoverageRecord, rows []RowDecision, contributions []ContributionRecord, resolutions []EntityResolutionRecord) error {
+	knownRules := map[string]bool{}
+	for i, rec := range records {
+		ruleID := strings.TrimSpace(rec.RuleID.String())
+		ruleText := strings.TrimSpace(rec.RuleText.String())
+		status := strings.TrimSpace(rec.Status.String())
+		if ruleID == "" && ruleText == "" {
+			return fmt.Errorf("data validation incomplete: result.rule_coverage[%d] is missing rule_id or rule_text", i)
+		}
+		if status == "" {
+			return fmt.Errorf("data validation incomplete: result.rule_coverage[%d] is missing status", i)
+		}
+		if ruleID != "" {
+			knownRules[ruleID] = true
+		}
+	}
+	linked := map[string]bool{}
+	if err := collectRuleRefs(linked, knownRules, "rows", rowRuleRefs(rows)); err != nil {
+		return err
+	}
+	if err := collectRuleRefs(linked, knownRules, "contributions", contributionRuleRefs(contributions)); err != nil {
+		return err
+	}
+	if err := collectRuleRefs(linked, knownRules, "entity_resolutions", entityResolutionRuleRefs(resolutions)); err != nil {
+		return err
+	}
+	for i, rec := range records {
+		ruleID := strings.TrimSpace(rec.RuleID.String())
+		if len(rec.EvidenceRefs) > 0 ||
+			strings.TrimSpace(rec.Notes.String()) != "" ||
+			(ruleID != "" && linked[ruleID]) {
+			continue
+		}
+		return fmt.Errorf("data validation incomplete: result.rule_coverage[%d] has no evidence_refs, notes, or linked rule_refs", i)
+	}
+	return nil
+}
+
+func rowRuleRefs(rows []RowDecision) [][]string {
+	out := make([][]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.RuleRefs)
+	}
+	return out
+}
+
+func contributionRuleRefs(records []ContributionRecord) [][]string {
+	out := make([][]string, 0, len(records))
+	for _, rec := range records {
+		out = append(out, rec.RuleRefs)
+	}
+	return out
+}
+
+func entityResolutionRuleRefs(records []EntityResolutionRecord) [][]string {
+	out := make([][]string, 0, len(records))
+	for _, rec := range records {
+		out = append(out, rec.RuleRefs)
+	}
+	return out
+}
+
+func collectRuleRefs(linked, known map[string]bool, label string, groups [][]string) error {
+	for i, refs := range groups {
+		for _, ref := range refs {
+			ref = strings.TrimSpace(ref)
+			if ref == "" {
+				continue
+			}
+			if len(known) > 0 && !known[ref] {
+				return fmt.Errorf("data validation incomplete: result.%s[%d] references unknown rule_id %q", label, i, ref)
+			}
+			linked[ref] = true
+		}
+	}
+	return nil
+}
+
 func hasMeaningfulContribution(records []ContributionRecord) bool {
 	for _, rec := range records {
-		if strings.TrimSpace(rec.ItemID.String()) != "" ||
-			strings.TrimSpace(rec.Source.String()) != "" ||
-			strings.TrimSpace(rec.SourceLocator.String()) != "" ||
-			strings.TrimSpace(rec.GroupKey.String()) != "" ||
-			strings.TrimSpace(rec.Metric.String()) != "" ||
-			strings.TrimSpace(rec.Value.String()) != "" ||
-			strings.TrimSpace(rec.Operation.String()) != "" ||
-			strings.TrimSpace(rec.Reason.String()) != "" ||
-			len(rec.EvidenceRefs) > 0 {
+		if contributionHasAnchor(rec) && contributionHasEffect(rec) {
 			return true
 		}
 	}
 	return false
+}
+
+func validateContributionRecords(records []ContributionRecord) error {
+	for i, rec := range records {
+		if contributionHasAnchor(rec) && contributionHasEffect(rec) {
+			continue
+		}
+		return fmt.Errorf("data validation incomplete: result.contributions[%d] is missing canonical item/effect fields; use item_id/source/source_locator/evidence_refs plus group_key/metric/value/operation/reason instead of task-specific aliases", i)
+	}
+	return nil
+}
+
+func contributionHasAnchor(rec ContributionRecord) bool {
+	return strings.TrimSpace(rec.ItemID.String()) != "" ||
+		strings.TrimSpace(rec.Source.String()) != "" ||
+		strings.TrimSpace(rec.SourceLocator.String()) != "" ||
+		len(rec.EvidenceRefs) > 0
+}
+
+func contributionHasEffect(rec ContributionRecord) bool {
+	return strings.TrimSpace(rec.GroupKey.String()) != "" ||
+		strings.TrimSpace(rec.Metric.String()) != "" ||
+		strings.TrimSpace(rec.Value.String()) != "" ||
+		strings.TrimSpace(rec.Operation.String()) != "" ||
+		strings.TrimSpace(rec.Reason.String()) != ""
 }
 
 func hasMeaningfulEntityResolution(records []EntityResolutionRecord) bool {
@@ -882,6 +995,42 @@ func hasMeaningfulEntityResolution(records []EntityResolutionRecord) bool {
 			strings.TrimSpace(rec.Reason.String()) != "" ||
 			len(rec.Candidates) > 0 ||
 			len(rec.EvidenceRefs) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func validateEntityResolutionRecords(records []EntityResolutionRecord) error {
+	for i, rec := range records {
+		source := strings.TrimSpace(rec.SourceValue.String())
+		if source == "" {
+			source = strings.TrimSpace(rec.ItemID.String())
+		}
+		if source == "" {
+			return fmt.Errorf("data validation incomplete: result.entity_resolutions[%d] is missing source_value or item_id", i)
+		}
+		status := strings.TrimSpace(rec.Status.String())
+		if status == "" {
+			return fmt.Errorf("data validation incomplete: result.entity_resolutions[%d] is missing status", i)
+		}
+		if resolutionStatusIsOpen(status) {
+			if strings.TrimSpace(rec.Reason.String()) == "" && len(rec.Candidates) == 0 && len(rec.EvidenceRefs) == 0 {
+				return fmt.Errorf("data validation incomplete: result.entity_resolutions[%d] is %q but has no reason, candidates, or evidence_refs", i, status)
+			}
+			continue
+		}
+		if strings.TrimSpace(rec.CanonicalID.String()) == "" && strings.TrimSpace(rec.CanonicalLabel.String()) == "" {
+			return fmt.Errorf("data validation incomplete: result.entity_resolutions[%d] resolved status %q is missing canonical_id or canonical_label", i, status)
+		}
+	}
+	return nil
+}
+
+func resolutionStatusIsOpen(status string) bool {
+	status = strings.ToLower(strings.TrimSpace(status))
+	for _, marker := range []string{"unresolved", "ambiguous", "unknown", "not_found", "no_match", "failed", "invalid", "open"} {
+		if strings.Contains(status, marker) {
 			return true
 		}
 	}
@@ -911,15 +1060,20 @@ func validateReconcileReport(report ReconcileReport, contributions []Contributio
 	if len(contributions) > 0 && len(report.Groups) == 0 {
 		return errors.New("data reconcile incomplete: result.reconcile.groups is empty while contributions are present")
 	}
+	if len(contributions) > 0 && len(report.Groups) > 0 && !hasMeaningfulReconcileGroup(report.Groups) {
+		return errors.New("data reconcile incomplete: result.reconcile.groups contains no canonical group records; include group_key/metric and expected/actual values instead of task-specific aliases")
+	}
 	if len(report.Groups) == 0 || len(contributions) == 0 {
 		return nil
 	}
 	sums := sumContributionGroups(contributions)
+	seenGroups := map[string]bool{}
 	for _, group := range report.Groups {
 		key := reconcileGroupKey(group.GroupKey.String(), group.Metric.String())
-		if strings.TrimSpace(key) == "\x00" {
-			continue
+		if strings.TrimSpace(group.Expected.String()) == "" && strings.TrimSpace(group.Actual.String()) == "" {
+			return fmt.Errorf("data reconcile incomplete: group %q is missing expected or actual value", displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()))
 		}
+		seenGroups[key] = true
 		got, ok := sums[key]
 		if !ok {
 			return fmt.Errorf("data reconcile failed: group %q has no matching contribution records", displayReconcileGroupKey(group.GroupKey.String(), group.Metric.String()))
@@ -945,7 +1099,26 @@ func validateReconcileReport(report ReconcileReport, contributions []Contributio
 			}
 		}
 	}
+	for key := range sums {
+		if !seenGroups[key] {
+			groupKey, metric := splitReconcileGroupKey(key)
+			return fmt.Errorf("data reconcile incomplete: contributions include group %q but result.reconcile.groups does not report it", displayReconcileGroupKey(groupKey, metric))
+		}
+	}
 	return nil
+}
+
+func hasMeaningfulReconcileGroup(groups []ReconcileGroup) bool {
+	for _, group := range groups {
+		if strings.TrimSpace(group.GroupKey.String()) != "" ||
+			strings.TrimSpace(group.Metric.String()) != "" ||
+			strings.TrimSpace(group.Expected.String()) != "" ||
+			strings.TrimSpace(group.Actual.String()) != "" ||
+			strings.TrimSpace(group.Difference.String()) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func sumContributionGroups(contributions []ContributionRecord) map[string]*big.Rat {
@@ -999,6 +1172,14 @@ func displayReconcileGroupKey(groupKey, metric string) string {
 	default:
 		return "(default)"
 	}
+}
+
+func splitReconcileGroupKey(key string) (string, string) {
+	parts := strings.SplitN(key, "\x00", 2)
+	if len(parts) == 1 {
+		return parts[0], ""
+	}
+	return parts[0], parts[1]
 }
 
 func parseDecimalRat(value string) (*big.Rat, error) {

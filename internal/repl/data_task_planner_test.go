@@ -78,6 +78,8 @@ func TestDataTaskPlannerCompatJSON(t *testing.T) {
 		"result.contributions",
 		"result.entity_resolutions",
 		"result.reconcile",
+		"rule_refs",
+		"canonical ledger field names",
 		"network/process libraries",
 		"item-level decision records",
 	} {
