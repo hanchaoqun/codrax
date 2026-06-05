@@ -3,6 +3,7 @@ package repl
 import (
 	"encoding/json"
 	"fmt"
+	"path"
 	"sort"
 	"strings"
 
@@ -353,7 +354,7 @@ func mergeDataTaskCoverageContracts(previous, next dataquery.CoverageContract) d
 
 func mergeDataTaskCoverageMaterials(previous, next []dataquery.CoverageMaterial, forceRequired bool) []dataquery.CoverageMaterial {
 	out := make([]dataquery.CoverageMaterial, 0, len(previous)+len(next))
-	seen := map[string]bool{}
+	seen := map[string]int{}
 	appendOne := func(m dataquery.CoverageMaterial) {
 		path := strings.TrimSpace(m.Path)
 		id := strings.TrimSpace(m.ID)
@@ -361,11 +362,23 @@ func mergeDataTaskCoverageMaterials(previous, next []dataquery.CoverageMaterial,
 		if path == "" && id == "" && purpose == "" {
 			return
 		}
-		key := path + "\x00" + id + "\x00" + purpose
-		if seen[key] {
+		key := dataTaskCoverageMaterialKey(m)
+		if key == "" {
 			return
 		}
-		seen[key] = true
+		if idx, ok := seen[key]; ok {
+			if forceRequired {
+				out[idx].Required = true
+			}
+			if out[idx].ID == "" && id != "" {
+				out[idx].ID = id
+			}
+			if out[idx].Purpose == "" && purpose != "" {
+				out[idx].Purpose = purpose
+			}
+			return
+		}
+		seen[key] = len(out)
 		if forceRequired {
 			m.Required = true
 		}
@@ -378,6 +391,31 @@ func mergeDataTaskCoverageMaterials(previous, next []dataquery.CoverageMaterial,
 		appendOne(m)
 	}
 	return out
+}
+
+func dataTaskCoverageMaterialKey(m dataquery.CoverageMaterial) string {
+	if normalized := normalizeDataTaskCoveragePath(m.Path); normalized != "" {
+		return "path:" + normalized
+	}
+	id := strings.TrimSpace(m.ID)
+	purpose := strings.TrimSpace(m.Purpose)
+	if id == "" && purpose == "" {
+		return ""
+	}
+	return "meta:" + id + "\x00" + purpose
+}
+
+func normalizeDataTaskCoveragePath(raw string) string {
+	raw = strings.TrimSpace(strings.ReplaceAll(raw, "\\", "/"))
+	raw = strings.TrimPrefix(raw, "./")
+	if raw == "" {
+		return ""
+	}
+	cleaned := path.Clean(raw)
+	if cleaned == "." {
+		return ""
+	}
+	return cleaned
 }
 
 func mergeDataTaskInputPaths(paths, required []string) []string {

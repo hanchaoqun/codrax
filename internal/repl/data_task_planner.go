@@ -77,7 +77,7 @@ var dataTaskPlanTool = llm.ToolSchema{
               "required": {"type":"boolean"}
             }
           },
-          "description": "Model-authored task-specific materials that must be consumed before the result is trustworthy. Use broad current-task purposes; do not rely on hard-coded file names or business categories. If a required candidate has extraction_status=needs_text_extraction, the system must first provide extracted text evidence or a related text evidence path before the deterministic script can use its semantic content."
+          "description": "Model-authored task-specific materials that must be consumed before the result is trustworthy. Use broad current-task purposes; do not rely on hard-coded file names or business categories. A required material must be listed in input_paths and the script must actually read it through a helper such as csv_rows/read_text/json_load/jsonl_rows/open and use the returned content in computation, validation, or audit output. If a required candidate has extraction_status=needs_text_extraction, the system must first provide extracted text evidence or a related text evidence path before the deterministic script can use its semantic content."
         },
         "optional_materials": {
           "type": "array",
@@ -118,7 +118,7 @@ var dataTaskPlanTool = llm.ToolSchema{
           "description": "true when the result must include result.reconcile with status=pass and reconcile.groups. The system recomputes numeric group totals from result.contributions when available and rejects mismatches."
         }
       },
-      "description": "Generic material coverage contract. The model decides material purpose from the user goal and objective inventory; the system only verifies declared required materials are input and actually consumed."
+      "description": "Generic material coverage contract. The model decides material purpose from the user goal and objective inventory; the system only verifies declared required materials are input and actually consumed. Listing a file in input_paths is not consumption; the script must read it through the provided helpers and use it for the result, validation, or audit."
     },
     "script": {
       "type": "string",
@@ -217,6 +217,8 @@ Hard rules:
 - Candidate files may include materials whose semantic content is not directly readable by the Python runner. Do not put paths with extraction_status=needs_text_extraction or extraction_status=related_text_available directly into input_paths. If such a material is required and text_evidence_paths are available, use the relevant text evidence path as the script input and keep the original non-text path in coverage_contract.required_materials only when its content must be covered. If no text evidence is available, return blocked/needs_clarification or wait for the material extraction layer instead of silently ignoring it.
 - extraction_status is objective inventory metadata. "text_ready" and "extracted_text" mean the runner can read the material; "related_text_available" means the material has candidate text evidence; "needs_text_extraction" means semantic content is not yet available to the deterministic runner.
 - Fill coverage_contract.required_materials with every material that must be consumed to make the result trustworthy. This is generic: use it for rules/instructions, main datasets, reference materials, linked evidence, examples, schemas, or any other task-specific source. Do not hard-code one domain or file naming pattern.
+- A material is consumed only when the script reads it through a provided helper such as csv_rows, tsv_rows, json_load, jsonl_rows, read_text, or safe open, and then uses the returned content in computation, validation, rule coverage, contribution/entity records, reconcile, or audit summary. Listing a path in input_paths or required_materials is not enough.
+- If you mark a rule/instruction/example/schema/text document as required, read it with read_text(path) and use its content to drive rule_coverage, validation, parsing choices, or audit notes. Do not add dummy comments or assertions solely to satisfy consumption.
 - Repair/continuation plans must not silently drop previously required materials. If a material is no longer required, replace the coverage_contract and explain the structural reason in validation_rules or why_this_batch.
 - For filtering/joining/aggregation/item-level decisions, set coverage_contract.decision_records_required=true and emit result.rows with source/material locators and decisions. The final answer can still be a strict single line if the user requested that; decision records are for system validation and handoff.
 - Choose validation fields from the task shape, not from a fixed domain. Simple sums/counts/rankings usually need contribution_ledger_required=true and reconcile_required=true. Cleaning/filtering usually also needs rule_coverage_required=true. Joins, name/ID/category normalization, or cross-material linking usually also need entity_resolution_required=true. Pure summary/extraction may only need material coverage and output_contract.
@@ -449,6 +451,8 @@ func dataTaskRepairPrompt(userLine, repoRoot string, policy TurnPolicy, candidat
 	b.WriteString("- Prefer correcting code/import/helper usage over asking the user. Ask only when a user-owned business rule or missing input is genuinely required.\n")
 	b.WriteString("- Keep input_paths limited to candidate files. List every file the script reads.\n")
 	b.WriteString("- Preserve the previous coverage_contract unless the failed script proves a structural reason to replace it. Required materials must be listed in input_paths and actually read by the script.\n")
+	b.WriteString("- input_paths alone is not material consumption. If the error says a required material was not consumed, repair by reading that material through a provided helper such as csv_rows/read_text/json_load/jsonl_rows/open and using the returned content in computation, validation, rule coverage, contribution/entity records, reconcile, or audit summary.\n")
+	b.WriteString("- For required rule/instruction/example/schema/text materials, read_text(path) is usually the right helper. Use the content to drive the current task's generic validation or audit records; do not add dummy comments or assertions solely to satisfy consumption.\n")
 	b.WriteString("- If coverage_contract.decision_records_required=true, emit result.rows. If result.rows was missing, repair by adding generic item-level decision records rather than changing the user's final output format.\n")
 	b.WriteString("- If a required validation ledger is missing or reconcile failed, repair by adding/fixing the generic rule_coverage, contributions, entity_resolutions, or reconcile fields and correcting the computation. Do not remove required validation flags to bypass the contract unless the previous contract was structurally wrong for the user goal; explain that structural reason in validation_rules or why_this_batch.\n")
 	b.WriteString("- The script must call emit(obj) or set result. Debug print is allowed only in small amounts and is not the final answer.\n")

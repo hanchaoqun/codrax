@@ -351,6 +351,55 @@ emit({"answer": str(len(rows)), "output_contract": {"format": "plain_single_line
 	}
 }
 
+func TestRunnerAllowsUTF8ScriptAndRequiredTextConsumption(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "rules.md"), []byte("规则：汇总所有金额\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv", "rules.md"},
+		OutputContract: OutputContract{
+			Format:             OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		CoverageContract: CoverageContract{
+			RequiredMaterials: []CoverageMaterial{
+				{Path: "orders.csv", Purpose: "input table", Required: true},
+				{Path: "rules.md", Purpose: "task rules", Required: true},
+			},
+			RuleCoverageRequired: true,
+		},
+		Script: `
+# 允许 UTF-8 注释和字符串常量
+rows = csv_rows("orders.csv")
+rules = read_text("rules.md")
+total = sum(int(r["amount"]) for r in rows)
+emit({
+  "answer": str(total),
+  "output_contract": {"format": "plain_single_line", "explanation_allowed": False},
+  "audit_summary": "已读取规则并汇总金额",
+  "rule_coverage": [{"rule_id": "r1", "rule_text": rules.strip(), "status": "applied", "evidence_refs": ["rules.md"]}],
+})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "10" {
+		t.Fatalf("Answer=%q", res.Answer)
+	}
+	if got := strings.Join(res.ConsumedPaths, ","); got != "orders.csv,rules.md" {
+		t.Fatalf("ConsumedPaths=%v", res.ConsumedPaths)
+	}
+}
+
 func TestRunnerRejectsMissingRequiredDecisionRecords(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

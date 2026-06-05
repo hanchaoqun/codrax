@@ -1262,7 +1262,8 @@ func copyOneInput(src, dst string, maxFile int64) (int64, error) {
 func renderPythonHelper(script string, relPaths []string) string {
 	scriptJSON, _ := json.Marshal(script)
 	pathsJSON, _ := json.Marshal(relPaths)
-	return fmt.Sprintf(`import csv, json, decimal, re, os, math, statistics, collections, datetime, itertools, functools, operator
+	return fmt.Sprintf(`# -*- coding: utf-8 -*-
+import csv, json, decimal, re, os, math, statistics, collections, datetime, itertools, functools, operator
 ALLOWED = set(%s)
 RESULT = None
 BASE_DIR = os.getcwd()

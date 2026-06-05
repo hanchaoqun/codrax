@@ -155,7 +155,7 @@ func TestDataTaskRepairPlannerPromptCarriesExecutionErrorAndPreviousPlan(t *test
 		t.Fatalf("repaired plan=%+v", plan)
 	}
 	user := adapter.calls[0].messages[1].Content
-	for _, want := range []string{"## execution_error", "NameError", "## previous_plan_json", `print(\"debug\")`, "coverage_contract", "required_materials", "operation pipeline"} {
+	for _, want := range []string{"## execution_error", "NameError", "## previous_plan_json", `print(\"debug\")`, "coverage_contract", "required_materials", "input_paths alone is not material consumption", "actually read", "operation pipeline"} {
 		if !strings.Contains(user, want) {
 			t.Fatalf("repair prompt missing %q:\n%s", want, user)
 		}
@@ -288,7 +288,10 @@ func TestPreserveDataTaskRepairCoverage(t *testing.T) {
 	repaired := dataquery.TaskPlan{
 		InputPaths: []string{"orders.csv"},
 		CoverageContract: dataquery.CoverageContract{
-			RequiredMaterials: []dataquery.CoverageMaterial{{Path: "orders.csv", Purpose: "input", Required: true}},
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "orders.csv", Purpose: "input", Required: true},
+				{Path: "./rules.txt", ID: "r2", Purpose: "same rules with updated purpose", Required: true},
+			},
 		},
 	}
 	got := preserveDataTaskRepairCoverage(previous, repaired)
@@ -300,6 +303,48 @@ func TestPreserveDataTaskRepairCoverage(t *testing.T) {
 	}
 	if len(got.CoverageContract.RequiredPaths()) != 2 {
 		t.Fatalf("RequiredMaterials=%+v", got.CoverageContract.RequiredMaterials)
+	}
+	ruleCount := 0
+	for _, material := range got.CoverageContract.RequiredMaterials {
+		if material.Path == "rules.txt" || material.Path == "./rules.txt" {
+			ruleCount++
+		}
+	}
+	if ruleCount != 1 {
+		t.Fatalf("RequiredMaterials duplicate same path: %+v", got.CoverageContract.RequiredMaterials)
+	}
+}
+
+func TestPreserveDataTaskMaterialRepairCoverageAllowsExplicitReplacement(t *testing.T) {
+	previous := dataquery.TaskPlan{
+		InputPaths: []string{"orders.csv", "old-rules.txt"},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "orders.csv", Purpose: "input", Required: true},
+				{Path: "old-rules.txt", Purpose: "old rules", Required: true},
+			},
+			DecisionRecordsRequired: true,
+		},
+	}
+	repaired := dataquery.TaskPlan{
+		InputPaths: []string{"orders.csv", "new-rules.txt"},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "orders.csv", Purpose: "input", Required: true},
+				{Path: "new-rules.txt", Purpose: "replacement rules", Required: true},
+			},
+			ValidationRules: []string{"old-rules.txt was not part of the corrected material set"},
+		},
+	}
+	got := preserveDataTaskMaterialRepairCoverage(previous, repaired)
+	if strings.Contains(strings.Join(got.CoverageContract.RequiredPaths(), ","), "old-rules.txt") {
+		t.Fatalf("RequiredPaths=%v, old material should not be forced back when replacement contract is explicit", got.CoverageContract.RequiredPaths())
+	}
+	if !got.CoverageContract.DecisionRecordsRequired {
+		t.Fatalf("DecisionRecordsRequired=false")
+	}
+	if strings.Join(got.InputPaths, ",") != "orders.csv,new-rules.txt" {
+		t.Fatalf("InputPaths=%v", got.InputPaths)
 	}
 }
 
