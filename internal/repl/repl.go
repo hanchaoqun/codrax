@@ -1301,13 +1301,15 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			return
 		}
 		dataRounds++
+		r.emitDataTaskRunnerCall(currentPlan, dataRounds)
+		r.emitDataTaskWorkflowAudit("execute", dataRounds)
 		result, err := runner.Run(context.Background(), currentPlan)
 		if err != nil {
 			errText := fmt.Sprintf("execute data task: %v", err)
 			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < dataTaskMaxRepairRounds {
 				repairRounds++
-				r.emitDataTaskWorkflowAudit("repair", repairRounds)
+				r.emitDataTaskWorkflowAudit("repair", repairRounds, dataTaskWorkflowErrorSegment(r.language, errText))
 				ctx := r.startTurn()
 				repairedPlan, repairErr := repairer.RepairDataTask(ctx, line, r.repoRoot, policy, candidates, currentPlan, errText)
 				r.endTurn()
@@ -1333,6 +1335,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			return
 		}
 		records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Result: &result})
+		r.emitDataTaskWorkflowAudit("result", dataRounds, dataTaskWorkflowResultSegment(r.language, result))
 		if !currentPlan.ContinueAfter {
 			msg := dataTaskAnswerMarkdown(r.language, result)
 			r.finishDataTaskRouteSpinner("complete")
@@ -1930,7 +1933,61 @@ func (r *REPL) emitDataTaskPlanAudit(plan dataquery.TaskPlan) {
 	r.renderer.EmitLightRouteSummary(label, segs)
 }
 
-func (r *REPL) emitDataTaskWorkflowAudit(kind string, round int) {
+func (r *REPL) emitDataTaskRunnerCall(plan dataquery.TaskPlan, round int) {
+	if r.renderer == nil {
+		return
+	}
+	round--
+	if round < 0 {
+		round = 0
+	}
+	r.renderer.Emitter()(render.Event{
+		Kind:          render.EventAgentToolCallBatch,
+		Timestamp:     time.Now(),
+		Agent:         types.AgentName("data_planner"),
+		Stage:         types.PipelineStage("data"),
+		Iteration:     round,
+		ToolName:      "data_runner",
+		ToolNames:     []string{"data_runner"},
+		ToolCallCount: 1,
+		ToolDetail:    dataTaskRunnerToolDetail(plan, r.language),
+	})
+}
+
+func dataTaskRunnerToolDetail(plan dataquery.TaskPlan, lang string) string {
+	parts := []string{}
+	if len(plan.InputPaths) > 0 {
+		if isZh(lang) {
+			parts = append(parts, fmt.Sprintf("输入=%d", len(plan.InputPaths)))
+		} else {
+			parts = append(parts, fmt.Sprintf("inputs=%d", len(plan.InputPaths)))
+		}
+	}
+	if lines := dataTaskScriptLineCount(plan.Script); lines > 0 {
+		if isZh(lang) {
+			parts = append(parts, fmt.Sprintf("脚本=%d行", lines))
+		} else {
+			parts = append(parts, fmt.Sprintf("script=%d lines", lines))
+		}
+	}
+	if n := len(plan.CoverageContract.RequiredPaths()); n > 0 {
+		if isZh(lang) {
+			parts = append(parts, fmt.Sprintf("必需材料=%d", n))
+		} else {
+			parts = append(parts, fmt.Sprintf("required=%d", n))
+		}
+	}
+	if plan.CoverageContract.DecisionRecordsRequired {
+		if isZh(lang) {
+			parts = append(parts, "需决策记录")
+		} else {
+			parts = append(parts, "decision records required")
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func (r *REPL) emitDataTaskWorkflowAudit(kind string, round int, details ...string) {
 	if r.renderer == nil {
 		return
 	}
@@ -1938,8 +1995,12 @@ func (r *REPL) emitDataTaskWorkflowAudit(kind string, round int) {
 	segs := []string{}
 	if isZh(r.language) {
 		switch kind {
+		case "execute":
+			segs = append(segs, fmt.Sprintf("执行第 %d 批", round))
 		case "repair":
 			segs = append(segs, fmt.Sprintf("修复第 %d 次", round))
+		case "result":
+			segs = append(segs, fmt.Sprintf("结果第 %d 批", round))
 		case "evaluate":
 			segs = append(segs, fmt.Sprintf("评估第 %d 批", round))
 		case "continue":
@@ -1947,12 +2008,21 @@ func (r *REPL) emitDataTaskWorkflowAudit(kind string, round int) {
 		default:
 			segs = append(segs, kind)
 		}
+		for _, detail := range details {
+			if detail = strings.TrimSpace(detail); detail != "" {
+				segs = append(segs, detail)
+			}
+		}
 		segs = append(segs, "未读源码")
 	} else {
 		label = "data workflow"
 		switch kind {
+		case "execute":
+			segs = append(segs, fmt.Sprintf("execute batch %d", round))
 		case "repair":
 			segs = append(segs, fmt.Sprintf("repair %d", round))
+		case "result":
+			segs = append(segs, fmt.Sprintf("result batch %d", round))
 		case "evaluate":
 			segs = append(segs, fmt.Sprintf("evaluate batch %d", round))
 		case "continue":
@@ -1960,9 +2030,44 @@ func (r *REPL) emitDataTaskWorkflowAudit(kind string, round int) {
 		default:
 			segs = append(segs, kind)
 		}
+		for _, detail := range details {
+			if detail = strings.TrimSpace(detail); detail != "" {
+				segs = append(segs, detail)
+			}
+		}
 		segs = append(segs, "no source read")
 	}
 	r.renderer.EmitLightRouteSummary(label, segs)
+}
+
+func dataTaskWorkflowErrorSegment(lang, errText string) string {
+	errText = oneLineClamp(errText, 80)
+	if strings.TrimSpace(errText) == "" {
+		return ""
+	}
+	if isZh(lang) {
+		return "上次失败 " + errText
+	}
+	return "last failure " + errText
+}
+
+func dataTaskWorkflowResultSegment(lang string, result dataquery.Result) string {
+	var parts []string
+	if len(result.Rows) > 0 {
+		if isZh(lang) {
+			parts = append(parts, fmt.Sprintf("决策记录 %d", len(result.Rows)))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d decision record(s)", len(result.Rows)))
+		}
+	}
+	if len(result.ConsumedPaths) > 0 {
+		if isZh(lang) {
+			parts = append(parts, fmt.Sprintf("消费材料 %d", len(result.ConsumedPaths)))
+		} else {
+			parts = append(parts, fmt.Sprintf("%d consumed material(s)", len(result.ConsumedPaths)))
+		}
+	}
+	return strings.Join(parts, " · ")
 }
 
 func (r *REPL) handleTerminalDataTaskPlan(plan dataquery.TaskPlan, records []dataTaskWorkflowRecord, display, line string) bool {
@@ -2024,6 +2129,9 @@ func dataTaskPlanAuditSummary(plan dataquery.TaskPlan, lang string) (string, []s
 	}
 	if isZh(lang) {
 		segs := []string{status, fmt.Sprintf("输入 %d", len(plan.InputPaths)), "输出 " + format}
+		if lines := dataTaskScriptLineCount(plan.Script); lines > 0 {
+			segs = append(segs, fmt.Sprintf("脚本 %d 行", lines))
+		}
 		if n := len(plan.CoverageContract.RequiredPaths()); n > 0 {
 			segs = append(segs, fmt.Sprintf("必需材料 %d", n))
 		}
@@ -2036,6 +2144,9 @@ func dataTaskPlanAuditSummary(plan dataquery.TaskPlan, lang string) (string, []s
 		return "数据计划", segs
 	}
 	segs := []string{status, fmt.Sprintf("%d input(s)", len(plan.InputPaths)), "output " + format}
+	if lines := dataTaskScriptLineCount(plan.Script); lines > 0 {
+		segs = append(segs, fmt.Sprintf("%d script line(s)", lines))
+	}
 	if n := len(plan.CoverageContract.RequiredPaths()); n > 0 {
 		segs = append(segs, fmt.Sprintf("%d required material(s)", n))
 	}
@@ -2046,6 +2157,14 @@ func dataTaskPlanAuditSummary(plan dataquery.TaskPlan, lang string) (string, []s
 		segs = append(segs, "output-only")
 	}
 	return "data plan", segs
+}
+
+func dataTaskScriptLineCount(script string) int {
+	script = strings.TrimSpace(script)
+	if script == "" {
+		return 0
+	}
+	return len(strings.Split(script, "\n"))
 }
 
 func dataTaskStatusDisplay(status, lang string) string {

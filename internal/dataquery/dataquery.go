@@ -586,9 +586,14 @@ func copyInputs(root, workDir string, paths []string, maxFile, maxTotal int64) (
 				if err != nil {
 					return err
 				}
+				subRel = filepath.ToSlash(subRel)
+				if seen[subRel] {
+					return nil
+				}
 				if dataKindForPath(path) == "" {
 					return nil
 				}
+				seen[subRel] = true
 				size, err := copyOneInput(path, filepath.Join(workDir, subRel), maxFile)
 				if err != nil {
 					return err
@@ -597,7 +602,7 @@ func copyInputs(root, workDir string, paths []string, maxFile, maxTotal int64) (
 				if total > maxTotal {
 					return fmt.Errorf("data task input total exceeds %d bytes", maxTotal)
 				}
-				rels = append(rels, filepath.ToSlash(subRel))
+				rels = append(rels, subRel)
 				return nil
 			})
 			if err != nil {
@@ -721,13 +726,19 @@ func copyOneInput(src, dst string, maxFile int64) (int64, error) {
 		return 0, err
 	}
 	defer in.Close()
-	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0400)
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return 0, err
 	}
-	defer out.Close()
 	n, err := io.Copy(out, in)
+	closeErr := out.Close()
 	if err != nil {
+		return 0, err
+	}
+	if closeErr != nil {
+		return 0, closeErr
+	}
+	if err := os.Chmod(dst, 0400); err != nil {
 		return 0, err
 	}
 	return n, nil

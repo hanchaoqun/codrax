@@ -171,6 +171,46 @@ emit({"answer": "A," + str(total), "output_contract": {"format": "csv_line", "ex
 	}
 }
 
+func TestRunnerDeduplicatesOverlappingFileAndDirectoryInputs(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "docs"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "docs", "a.txt"), []byte("alpha\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "docs", "b.txt"), []byte("beta\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"docs/a.txt", "docs"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials: []CoverageMaterial{{Path: "docs", Required: true}},
+		},
+		OutputContract: OutputContract{
+			Format:             OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		Script: `
+answer = read_text("docs/a.txt").strip() + "+" + read_text("docs/b.txt").strip()
+emit({"answer": answer, "output_contract": {"format": "plain_single_line", "explanation_allowed": False}})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "alpha+beta" {
+		t.Fatalf("Answer=%q", res.Answer)
+	}
+	if strings.Join(res.ConsumedPaths, ",") != "docs/a.txt,docs/b.txt" {
+		t.Fatalf("ConsumedPaths=%v", res.ConsumedPaths)
+	}
+}
+
 func TestRunnerRejectsUnsafeOpen(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

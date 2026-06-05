@@ -86,14 +86,38 @@ func TestDataTaskPlanAuditSummaryShowsOutputContract(t *testing.T) {
 			Format:             dataquery.OutputCSVLine,
 			ExplanationAllowed: false,
 		},
+		Script: "rows = csv_rows('orders.csv')\nemit({'answer':'1'})",
 	}, "zh")
 	if label != "数据计划" {
 		t.Fatalf("label=%q", label)
 	}
 	joined := strings.Join(segs, " | ")
-	for _, want := range []string{"就绪", "输入 2", "输出 CSV 行", "纯输出"} {
+	for _, want := range []string{"就绪", "输入 2", "输出 CSV 行", "脚本 2 行", "纯输出"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("summary %q missing %q", joined, want)
+		}
+	}
+}
+
+func TestEmitDataTaskRunnerCallUsesToolCallUX(t *testing.T) {
+	var out bytes.Buffer
+	r := &REPL{
+		renderer: render.New(&out, true),
+		language: "zh",
+	}
+	r.emitDataTaskRunnerCall(dataquery.TaskPlan{
+		InputPaths: []string{"orders.csv", "rules.md"},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials:       []dataquery.CoverageMaterial{{Path: "orders.csv", Required: true}},
+			DecisionRecordsRequired: true,
+		},
+		Script: "rows = csv_rows('orders.csv')\nemit({'answer':'1'})",
+	}, 2)
+
+	got := out.String()
+	for _, want := range []string{"⇢ 数据 · 第 2 轮", "调用工具 data_runner", "输入=2", "脚本=2行", "必需材料=1", "需决策记录"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("data runner tool-call output missing %q:\n%s", want, got)
 		}
 	}
 }
