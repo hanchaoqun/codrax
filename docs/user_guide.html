@@ -376,7 +376,7 @@ codrax                   # ② 再启动;它会索引「当前目录」这个仓
 
 [git:main]❯❯
 </code></pre>
-<p>提示符前可能带 sticky 标签,例如 <code>[git:&lt;branch&gt;]</code>、<code>[trace]</code>、<code>[log]</code>、<code>[plan]</code>,显示当前 git 分支、已附加 trace/log、待处理 plan 等状态。</p>
+<p>提示符前可能带 sticky 标签,例如 <code>[git:&lt;branch&gt;]</code>、<code>[task:data]</code>、<code>[task:write]</code>、<code>[focus:repo-a]</code>、<code>[trace]</code>、<code>[log]</code>、<code>[plan]</code>,显示当前 git 分支、显式任务模式、多仓 focus、已附加 trace/log、待处理 plan 等状态。默认 <code>auto</code> 模式不显示 task 标签。</p>
 <p>直接打你的问题、回车。提交后,你打的内容会以 <code>&gt; ...</code> 形式回显在分隔线下方,然后下方开始打印进度:</p>
 <pre><code>─────────────────────────────────────
 &gt; 这个项目的入口函数在哪里?
@@ -508,8 +508,8 @@ codrax --repo /path/to/repo --branch dev -r &quot;...&quot;
 <td>你刚提交的请求的回显(保留多行 paste 内容)</td>
 </tr>
 <tr>
-<td><code>[git:main]</code>、<code>[mode:plan]</code>、<code>[log]</code>、<code>[trace]</code>、<code>[plan]</code>、<code>[mem!]</code></td>
-<td>sticky 标签,提示当前粘滞状态(写模式 / 附加日志 / 待处理 plan / 记忆压力)</td>
+<td><code>[git:main]</code>、<code>[task:code]</code>、<code>[task:op]</code>、<code>[task:data]</code>、<code>[task:write]</code>、<code>[phase:apply]</code>、<code>[focus:repo-a]</code>、<code>[log]</code>、<code>[trace]</code>、<code>[plan]</code>、<code>[mem!]</code></td>
+<td>sticky 标签,提示当前粘滞状态:git 分支、显式任务模式、少数内部阶段、多仓 focus、附加日志/trace、待处理 plan、记忆压力</td>
 </tr>
 <tr>
 <td><code>K/N &lt;stage 标签&gt;</code></td>
@@ -2143,7 +2143,7 @@ mcp_servers:
   •   下一条请求会产生改动方案,不直接回答。
   •   之后:/plan show 看 diff · /approve 落地 · /reject 丢弃 · /mode auto 回读模式
 
-[git:main][mode:plan]❯❯ 把 internal/foo/bar.go 里 ParseConfig 拆成两个函数,逻辑保持等价
+[git:main][task:write]❯❯ 把 internal/foo/bar.go 里 ParseConfig 拆成两个函数,逻辑保持等价
 [planner 生成改动方案,~1-3 分钟]
 ✓ 改动方案已就绪: plan-abc123 (3 处改动)。
   /plan show · /approve · /approve --skip-verify · /reject · /mode auto
@@ -2180,19 +2180,19 @@ mcp_servers:
 </tbody>
 </table></div>
 <h3 id="第-2-步plan-show-审-diff">第 2 步:<code>/plan show</code> 审 diff</h3>
-<pre><code>[git:main][mode:plan][plan]❯❯ /plan show
+<pre><code>[git:main][task:write][plan]❯❯ /plan show
 [per-file unified diff,带颜色;每个文件独立段落]
 - Summary: 拆分 ParseConfig...
 - 文件 1/3: internal/foo/bar.go (modify, +24/-12)
 [diff body...]
 </code></pre>
 <p>不满意:</p>
-<pre><code>[git:main][mode:plan][plan]❯❯ /reject 拆得不够小
+<pre><code>[git:main][task:write][plan]❯❯ /reject 拆得不够小
   ✓ 已拒绝 plan plan-abc123 — 原因: 拆得不够小
 </code></pre>
 <p><code>/reject</code> 把 plan 状态改成 <code>rejected</code> 但<strong>保留文件</strong>供事后 <code>/plan show &lt;id&gt;</code> 查看。如果不想留记录,用 <code>/plan clear</code> 直接删掉。两种命令都会自动 discard 对应的 worktree。</p>
 <h3 id="第-3-步approve-落地">第 3 步:<code>/approve</code> 落地</h3>
-<pre><code>[git:main][mode:plan][plan]❯❯ /approve
+<pre><code>[git:main][task:write][plan]❯❯ /approve
   是否批准 plan plan-abc123 (3 处改动)?将在 git worktree 中 apply + 跑 verify。
   &gt; y
 [在 .codrax/worktrees/&lt;plan-id&gt;/ 里 git apply + 跑测试]

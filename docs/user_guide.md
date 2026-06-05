@@ -136,7 +136,7 @@ codrax                   # ② 再启动;它会索引「当前目录」这个仓
 [git:main]❯❯
 ```
 
-提示符前可能带 sticky 标签,例如 `[git:<branch>]`、`[trace]`、`[log]`、`[plan]`,显示当前 git 分支、已附加 trace/log、待处理 plan 等状态。
+提示符前可能带 sticky 标签,例如 `[git:<branch>]`、`[task:data]`、`[task:write]`、`[focus:repo-a]`、`[trace]`、`[log]`、`[plan]`,显示当前 git 分支、显式任务模式、多仓 focus、已附加 trace/log、待处理 plan 等状态。默认 `auto` 模式不显示 task 标签。
 
 直接打你的问题、回车。提交后,你打的内容会以 `> ...` 形式回显在分隔线下方,然后下方开始打印进度:
 
@@ -254,7 +254,7 @@ codrax --repo /path/to/repo --branch dev -r "..."
 | `模式/记忆/模型` 状态行 | 当前可用模式、记忆概况、模型配置和配置文件路径;英文界面会显示对应的本地化文案 |
 | `─────…` 分隔线 | 每轮请求开始前的视觉断点(在你的回显之上) |
 | `>` 开头(青色) | 你刚提交的请求的回显(保留多行 paste 内容) |
-| `[git:main]`、`[mode:plan]`、`[log]`、`[trace]`、`[plan]`、`[mem!]` | sticky 标签,提示当前粘滞状态(写模式 / 附加日志 / 待处理 plan / 记忆压力) |
+| `[git:main]`、`[task:code]`、`[task:op]`、`[task:data]`、`[task:write]`、`[phase:apply]`、`[focus:repo-a]`、`[log]`、`[trace]`、`[plan]`、`[mem!]` | sticky 标签,提示当前粘滞状态:git 分支、显式任务模式、少数内部阶段、多仓 focus、附加日志/trace、待处理 plan、记忆压力 |
 | `K/N <stage 标签>` | 当前 pipeline 进度。读模式通常是 1/4 分析、2/4 探索、3/4 提炼、4/4 成文;写模式会显示对应 plan/apply/verify 阶段 |
 | `⇢ <阶段> · 第 N 轮 调用工具 ...` | 本轮模型发起的工具调用,会显示阶段、轮次、工具名和关键参数摘要 |
 | `• 证据 N 条（累计 M 条）` | 当前阶段已经落地的证据数量 |
@@ -1732,7 +1732,7 @@ REPL 实际流程:
   •   下一条请求会产生改动方案,不直接回答。
   •   之后:/plan show 看 diff · /approve 落地 · /reject 丢弃 · /mode auto 回自动模式
 
-[git:main][mode:plan]❯❯ 把 internal/foo/bar.go 里 ParseConfig 拆成两个函数,逻辑保持等价
+[git:main][task:write]❯❯ 把 internal/foo/bar.go 里 ParseConfig 拆成两个函数,逻辑保持等价
 [planner 生成改动方案,~1-3 分钟]
 ✓ 改动方案已就绪: plan-abc123 (3 处改动)。
   /plan show · /approve · /approve --skip-verify · /reject · /mode auto
@@ -1757,7 +1757,7 @@ REPL 实际流程:
 ### 第 2 步:`/plan show` 审 diff
 
 ```
-[git:main][mode:plan][plan]❯❯ /plan show
+[git:main][task:write][plan]❯❯ /plan show
 [per-file unified diff,带颜色;每个文件独立段落]
 - Summary: 拆分 ParseConfig...
 - 文件 1/3: internal/foo/bar.go (modify, +24/-12)
@@ -1767,7 +1767,7 @@ REPL 实际流程:
 不满意:
 
 ```
-[git:main][mode:plan][plan]❯❯ /reject 拆得不够小
+[git:main][task:write][plan]❯❯ /reject 拆得不够小
   ✓ 已拒绝 plan plan-abc123 — 原因: 拆得不够小
 ```
 
@@ -1776,7 +1776,7 @@ REPL 实际流程:
 ### 第 3 步:`/approve` 落地
 
 ```
-[git:main][mode:plan][plan]❯❯ /approve
+[git:main][task:write][plan]❯❯ /approve
   是否批准 plan plan-abc123 (3 处改动)?将在 git worktree 中 apply + 跑 verify。
   > y
 [在 .codrax/worktrees/<plan-id>/ 里 git apply + 跑测试]

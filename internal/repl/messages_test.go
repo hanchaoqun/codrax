@@ -676,43 +676,48 @@ func TestHelpLines_SurfaceHtraceConvertSubcommand(t *testing.T) {
 
 func TestPromptStickyTag_StateCombinations(t *testing.T) {
 	cases := []struct {
-		name        string
-		mode        string
-		branch      string
-		hasLog      bool
-		hasTrace    bool
-		hasPlan     bool
-		memPressure bool
-		focus       []string
-		want        string
+		name         string
+		taskMode     string
+		pipelineMode string
+		branch       string
+		hasLog       bool
+		hasTrace     bool
+		hasPlan      bool
+		memPressure  bool
+		focus        []string
+		want         string
 	}{
-		{"empty", "", "", false, false, false, false, nil, ""},
-		{"read mode no attachments", "read", "", false, false, false, false, nil, ""},
-		{"plan mode only", "plan", "", false, false, false, false, nil, "[mode:plan]"},
-		{"log only", "read", "", true, false, false, false, nil, "[log]"},
-		{"trace only", "read", "", false, true, false, false, nil, "[trace]"},
-		{"pending plan only", "read", "", false, false, true, false, nil, "[plan]"},
-		{"memory pressure only", "read", "", false, false, false, true, nil, "[mem!]"},
-		{"plan+log", "plan", "", true, false, false, false, nil, "[mode:plan][log]"},
-		{"all on", "apply", "", true, true, true, true, nil, "[mode:apply][log][trace][plan][mem!]"},
-		{"case-insensitive read", "READ", "", false, false, false, false, nil, ""},
-		{"git branch alone", "read", "main", false, false, false, false, nil, "[git:main]"},
-		{"git branch + plan mode", "plan", "feature-x", false, false, false, false, nil, "[git:feature-x][mode:plan]"},
-		{"git detached + everything", "apply", "detached@abc1234", true, true, true, true, nil, "[git:detached@abc1234][mode:apply][log][trace][plan][mem!]"},
+		{"empty", "", "", "", false, false, false, false, nil, ""},
+		{"auto read no attachments", "auto", "read", "", false, false, false, false, nil, ""},
+		{"code task", "code", "read", "", false, false, false, false, nil, "[task:code]"},
+		{"operation task", "operation", "read", "", false, false, false, false, nil, "[task:op]"},
+		{"data task", "data", "read", "", false, false, false, false, nil, "[task:data]"},
+		{"write task hides internal plan phase", "write", "plan", "", false, false, false, false, nil, "[task:write]"},
+		{"legacy plan phase only", "auto", "plan", "", false, false, false, false, nil, "[phase:plan]"},
+		{"log only", "auto", "read", "", true, false, false, false, nil, "[log]"},
+		{"trace only", "auto", "read", "", false, true, false, false, nil, "[trace]"},
+		{"pending plan only", "auto", "read", "", false, false, true, false, nil, "[plan]"},
+		{"memory pressure only", "auto", "read", "", false, false, false, true, nil, "[mem!]"},
+		{"write+log", "write", "plan", "", true, false, false, false, nil, "[task:write][log]"},
+		{"all on", "data", "apply", "", true, true, true, true, nil, "[task:data][phase:apply][log][trace][plan][mem!]"},
+		{"case-insensitive auto read", "AUTO", "READ", "", false, false, false, false, nil, ""},
+		{"git branch alone", "auto", "read", "main", false, false, false, false, nil, "[git:main]"},
+		{"git branch + write task", "write", "plan", "feature-x", false, false, false, false, nil, "[git:feature-x][task:write]"},
+		{"git detached + everything", "write", "apply", "detached@abc1234", true, true, true, true, nil, "[git:detached@abc1234][task:write][phase:apply][log][trace][plan][mem!]"},
 		// Phase 3 multi-repo focus tag (2026-05-08).
-		{"single focus only", "read", "", false, false, false, false, []string{"repo-go"}, "[focus:repo-go]"},
-		{"single focus + git + plan", "plan", "main", false, false, false, false, []string{"repo-go"}, "[git:main][focus:repo-go][mode:plan]"},
-		{"two focus", "read", "", false, false, false, false, []string{"repo-go", "repo-py"}, "[focus:repo-go,repo-py]"},
-		{"three focus collapses to count", "read", "", false, false, false, false, []string{"a", "b", "c"}, "[focus:3 pinned]"},
-		{"five focus collapses to count", "read", "", false, false, false, false, []string{"a", "b", "c", "d", "e"}, "[focus:5 pinned]"},
-		{"focus with everything", "apply", "main", true, true, true, true, []string{"x", "y"}, "[git:main][focus:x,y][mode:apply][log][trace][plan][mem!]"},
+		{"single focus only", "auto", "read", "", false, false, false, false, []string{"repo-go"}, "[focus:repo-go]"},
+		{"single focus + git + write", "write", "plan", "main", false, false, false, false, []string{"repo-go"}, "[git:main][focus:repo-go][task:write]"},
+		{"two focus", "auto", "read", "", false, false, false, false, []string{"repo-go", "repo-py"}, "[focus:repo-go,repo-py]"},
+		{"three focus collapses to count", "auto", "read", "", false, false, false, false, []string{"a", "b", "c"}, "[focus:3 pinned]"},
+		{"five focus collapses to count", "auto", "read", "", false, false, false, false, []string{"a", "b", "c", "d", "e"}, "[focus:5 pinned]"},
+		{"focus with everything", "operation", "verify", "main", true, true, true, true, []string{"x", "y"}, "[git:main][focus:x,y][task:op][phase:verify][log][trace][plan][mem!]"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := promptStickyTag(c.mode, c.branch, c.hasLog, c.hasTrace, c.hasPlan, c.memPressure, c.focus)
+			got := promptStickyTag(c.taskMode, c.pipelineMode, c.branch, c.hasLog, c.hasTrace, c.hasPlan, c.memPressure, c.focus)
 			if got != c.want {
-				t.Errorf("promptStickyTag(%q,%q,%v,%v,%v,%v,%v) = %q; want %q",
-					c.mode, c.branch, c.hasLog, c.hasTrace, c.hasPlan, c.memPressure, c.focus, got, c.want)
+				t.Errorf("promptStickyTag(%q,%q,%q,%v,%v,%v,%v,%v) = %q; want %q",
+					c.taskMode, c.pipelineMode, c.branch, c.hasLog, c.hasTrace, c.hasPlan, c.memPressure, c.focus, got, c.want)
 			}
 		})
 	}

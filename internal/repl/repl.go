@@ -3627,20 +3627,20 @@ func (r *REPL) operationOutputDir() string {
 	return filepath.Join(r.runtimeAnchor, "operation")
 }
 
-// currentStickyTag returns the per-turn sticky-state marker
-// promptStickyTag would compose for the REPL's current state. Single
-// call site so every prompt-rendering surface (main input, paste/log
-// capture mode, multi-line continuation, scripted-mode echo) sees the
-// SAME tag for a given turn — without this helper each surface
-// re-derived the tag (or worse, omitted it) and the user lost
-// visibility of [mode:plan] / [log] / [trace] / [plan] / [mem!] mid-
-// flow.
+// currentStickyTag returns the per-turn sticky-state marker promptStickyTag
+// would compose for the REPL's current state. Single call site so every
+// prompt-rendering surface (main input, paste/log capture mode, multi-line
+// continuation, scripted-mode echo) sees the SAME tag for a given turn —
+// without this helper each surface re-derived the tag (or worse, omitted it)
+// and the user lost visibility of [task:*] / [phase:*] / [log] / [trace] /
+// [plan] / [mem!] mid-flow.
 func (r *REPL) currentStickyTag() string {
 	// Probe git branch fresh per call — this fires once per user
 	// input, so the cost is bounded (one local git exec ~1ms) and
 	// the user sees branch changes from another terminal at the
 	// VERY NEXT prompt cycle. No caching; correctness > 1ms.
 	return promptStickyTag(
+		string(r.userMode.Normalize()),
 		string(r.currentMode),
 		gitBranchProbe(r.repoRoot),
 		r.attachedLog != "",
@@ -4279,7 +4279,7 @@ func (r *REPL) readInputInteractive(prompt string) (string, string, error) {
 			return expanded, display, nil
 		}
 		// Continuation: keep the sticky tag visible so a multi-line
-		// plan-mode input does not lose the [mode:plan] marker after
+		// plan-mode input does not lose the [task:write] marker after
 		// the first line. Pre-fix dropped to a bare "…" and the user
 		// could lose track mid-paste.
 		cur = r.currentStickyTag() + "…"

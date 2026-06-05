@@ -526,7 +526,7 @@ type inputModel struct {
 	// echoTag is the same sticky-state marker prepended to the prompt
 	// (promptStickyTag output). Echoed back ABOVE the inline viewport
 	// after submit so the user has a visual confirmation of which
-	// pipeline mode this turn ran under — without it, the [mode:plan]
+	// pipeline mode this turn ran under — without it, the [task:write]
 	// disappears the moment the prompt is replaced by the agent's
 	// streaming output and the user can lose track of which mode
 	// produced which result. Empty (read mode + no attachments) means

@@ -2426,11 +2426,15 @@ func formatN(_ string, format string, args ...interface{}) string {
 	return fmt.Sprintf(format, args...)
 }
 
-// promptStickyTag returns a compact bracketed marker the prompt
-// renderer prepends so the user sees at a glance which sticky
+// promptStickyTag returns compact bracketed markers the prompt renderer
+// prepends so the user sees at a glance which sticky task lane and
 // attachments are live for this turn:
 //
-//	[mode:plan]                 — sticky write-mode (non-read)
+//	[task:code]                 — sticky code/source-analysis lane
+//	[task:op]                   — sticky computer-operation lane
+//	[task:data]                 — sticky data-processing lane
+//	[task:write]                — sticky write lane
+//	[phase:apply]               — internal transient write phase, when useful
 //	[log]                       — AttachedLog non-empty
 //	[trace]                     — AttachedHitrace non-empty
 //	[plan]                      — pendingPlanPath non-empty
@@ -2440,7 +2444,7 @@ func formatN(_ string, format string, args ...interface{}) string {
 //	                              / explicit checkout of a SHA)
 //
 // Multiple markers concatenate without spaces:
-// "[git:main][mode:plan][plan] ❯❯". Empty when nothing sticky.
+// "[git:main][task:write][plan] ❯❯". Empty when nothing sticky.
 //
 // All markers are language-agnostic (zh and en both use the same
 // bracketed labels) — they're terminal chrome, optimised for
@@ -2451,7 +2455,7 @@ func formatN(_ string, format string, args ...interface{}) string {
 // branch is the resolved git HEAD (from gitBranchProbe). Empty
 // when the path is not a git repo or git is missing — the marker
 // is dropped entirely, since absence is unambiguous.
-func promptStickyTag(mode, branch string, hasLog, hasTrace, hasPendingPlan, memPressure bool, focus []string) string {
+func promptStickyTag(taskMode, pipelineMode, branch string, hasLog, hasTrace, hasPendingPlan, memPressure bool, focus []string) string {
 	var b strings.Builder
 	if branch != "" {
 		b.WriteString("[git:")
@@ -2468,10 +2472,11 @@ func promptStickyTag(mode, branch string, hasLog, hasTrace, hasPendingPlan, memP
 	if tag := composeFocusTag(focus); tag != "" {
 		b.WriteString(tag)
 	}
-	if mode != "" && !strings.EqualFold(mode, "read") {
-		b.WriteString("[mode:")
-		b.WriteString(mode)
-		b.WriteString("]")
+	if tag := composeTaskTag(taskMode); tag != "" {
+		b.WriteString(tag)
+	}
+	if tag := composePhaseTag(taskMode, pipelineMode); tag != "" {
+		b.WriteString(tag)
 	}
 	if hasLog {
 		b.WriteString("[log]")
@@ -2486,6 +2491,37 @@ func promptStickyTag(mode, branch string, hasLog, hasTrace, hasPendingPlan, memP
 		b.WriteString("[mem!]")
 	}
 	return b.String()
+}
+
+func composeTaskTag(taskMode string) string {
+	switch strings.ToLower(strings.TrimSpace(taskMode)) {
+	case "", "auto":
+		return ""
+	case "code":
+		return "[task:code]"
+	case "operation":
+		return "[task:op]"
+	case "data":
+		return "[task:data]"
+	case "write":
+		return "[task:write]"
+	default:
+		return "[task:" + strings.ToLower(strings.TrimSpace(taskMode)) + "]"
+	}
+}
+
+func composePhaseTag(taskMode, pipelineMode string) string {
+	phase := strings.ToLower(strings.TrimSpace(pipelineMode))
+	if phase == "" || phase == "read" {
+		return ""
+	}
+	task := strings.ToLower(strings.TrimSpace(taskMode))
+	// Sticky write mode maps to the internal plan phase, but the user-facing
+	// task marker is clearer and shorter than showing both task+phase.
+	if task == "write" && phase == "plan" {
+		return ""
+	}
+	return "[phase:" + phase + "]"
 }
 
 // composeFocusTag formats the [focus:...] sticky tag for the current

@@ -1103,8 +1103,8 @@ func TestVersionSlashCommand(t *testing.T) {
 
 // TestStickyTag_PropagatesToPasteAndLogPasteModes locks that capture-
 // mode prompts (`/paste`, `/log paste`) prepend the sticky tag so a
-// user typing into paste mode while in plan mode does not lose the
-// [mode:plan] context. Pre-fix path printed bare "paste> "/"log> ".
+// user typing into paste mode while in write mode does not lose the
+// [task:write] context. Pre-fix path printed bare "paste> "/"log> ".
 func TestStickyTag_PropagatesToPasteAndLogPasteModes(t *testing.T) {
 	dir := t.TempDir()
 	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
@@ -1113,8 +1113,8 @@ func TestStickyTag_PropagatesToPasteAndLogPasteModes(t *testing.T) {
 	}
 	defer store.Close()
 
-	// /mode write flips currentMode to the internal plan phase; then /paste enters capture and
-	// expects "[mode:plan] paste> " in its prompt.
+	// /mode write flips userMode to the sticky write lane; then /paste enters capture and
+	// expects "[task:write] paste> " in its prompt.
 	in := strings.NewReader("/mode write\n/paste\n/end\n/exit\n")
 	out := &bytes.Buffer{}
 	r := New(Config{
@@ -1126,27 +1126,28 @@ func TestStickyTag_PropagatesToPasteAndLogPasteModes(t *testing.T) {
 		t.Fatalf("Loop: %v", err)
 	}
 	got := out.String()
-	if !strings.Contains(got, "[mode:plan]") {
-		t.Errorf("scripted mode echo lost [mode:plan]; out:\n%s", got)
+	if !strings.Contains(got, "[task:write]") {
+		t.Errorf("scripted mode echo lost [task:write]; out:\n%s", got)
 	}
 	// /paste prompt was wired to scripted scanner so the prompt itself
 	// is only printed when r.interactive(); the substring assertion is
-	// thus on the [mode:plan] tag in OTHER places (echo, banner) — the
+	// thus on the [task:write] tag in OTHER places (echo, banner) — the
 	// scripted-mode path tests the wiring; the interactive prompt path
 	// is exercised by inspecting r.currentStickyTag at handler time.
+	r.userMode = UserModeWrite
 	r.currentMode = types.ModePlan
 	r.attachedLog = "x"
-	if tag := r.currentStickyTag(); !strings.Contains(tag, "[mode:plan]") || !strings.Contains(tag, "[log]") {
+	if tag := r.currentStickyTag(); !strings.Contains(tag, "[task:write]") || !strings.Contains(tag, "[log]") {
 		t.Errorf("currentStickyTag must compose mode + attachments; got %q", tag)
 	}
 }
 
 // TestStickyTag_RendersInScriptedMode pins the contract that the
-// per-turn sticky-state tag (mode/log/trace/plan/mem!) reaches the
+// per-turn sticky-state tag (task/phase/log/trace/plan/mem!) reaches the
 // scripted-mode output stream, not just the Bubble Tea path. Real
 // bug: readInputLines used to ignore its caller's prompt and fall
 // back to r.prompt, so `/mode write` switched the mode but the next
-// turn's prompt still rendered as bare `>` with no `[mode:plan]`
+// turn's prompt still rendered as bare `>` with no `[task:write]`
 // indicator visible to anyone tailing the session.
 func TestStickyTag_RendersInScriptedMode(t *testing.T) {
 	dir := t.TempDir()
@@ -1156,8 +1157,8 @@ func TestStickyTag_RendersInScriptedMode(t *testing.T) {
 	}
 	defer store.Close()
 
-	// /mode write flips currentMode to the internal plan phase; the next turn's prompt must
-	// carry [mode:plan]. /exit ends the loop after one dispatch.
+	// /mode write flips userMode to the sticky write lane; the next turn's prompt must
+	// carry [task:write]. /exit ends the loop after one dispatch.
 	in := strings.NewReader("/mode write\nsome request\n/exit\n")
 	out := &bytes.Buffer{}
 	r := New(Config{
@@ -1170,8 +1171,8 @@ func TestStickyTag_RendersInScriptedMode(t *testing.T) {
 		t.Fatalf("Loop: %v", err)
 	}
 
-	if !strings.Contains(out.String(), "[mode:plan]") {
-		t.Errorf("expected [mode:plan] sticky tag in prompt; out:\n%s", out.String())
+	if !strings.Contains(out.String(), "[task:write]") {
+		t.Errorf("expected [task:write] sticky tag in prompt; out:\n%s", out.String())
 	}
 }
 
