@@ -2,6 +2,7 @@ package repl
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -225,6 +226,36 @@ func TestDataTaskEvaluatorParsesTypedStatus(t *testing.T) {
 		if !strings.Contains(user, want) {
 			t.Fatalf("evaluation prompt missing %q:\n%s", want, user)
 		}
+	}
+}
+
+func TestRenderDataTaskRecordsForPromptCarriesReconcileTotals(t *testing.T) {
+	groups := make([]dataquery.ReconcileGroup, 0, 12)
+	for i := 1; i <= 12; i++ {
+		groups = append(groups, dataquery.ReconcileGroup{
+			GroupKey: dataquery.LooseText(fmt.Sprintf("Q%03d", i)),
+			Metric:   dataquery.LooseText("amount"),
+			Actual:   dataquery.LooseText("1"),
+		})
+	}
+	prompt := renderDataTaskRecordsForPrompt([]dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{Status: "ready"},
+		Result: &dataquery.Result{
+			Answer:         "1,2,3,4,5,6,7,8,9,10,11,12",
+			OutputContract: dataquery.OutputContract{Format: dataquery.OutputPlainSingleLine, ExplanationAllowed: false},
+			Reconcile: &dataquery.ReconcileReport{
+				Status: dataquery.LooseText("pass"),
+				Groups: groups,
+			},
+		},
+	}})
+	for _, want := range []string{`"answer_item_count": 12`, `"reconcile_group_count": 12`, `"reconcile_groups_truncated": true`, `"Q012/amount"`} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+	if strings.Count(prompt, `"group_key"`) > 8 {
+		t.Fatalf("compact reconcile sample should stay bounded:\n%s", prompt)
 	}
 }
 

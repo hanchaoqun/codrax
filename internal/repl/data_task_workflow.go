@@ -108,20 +108,24 @@ type dataTaskWorkflowPromptRecord struct {
 }
 
 type dataTaskResultPromptView struct {
-	Answer                  string                             `json:"answer,omitempty"`
-	OutputContract          dataquery.OutputContract           `json:"output_contract,omitempty"`
-	AuditSummary            string                             `json:"audit_summary,omitempty"`
-	DecisionRecords         int                                `json:"decision_records,omitempty"`
-	DecisionSamples         []dataquery.RowDecision            `json:"decision_samples,omitempty"`
-	RuleCoverageRecords     int                                `json:"rule_coverage_records,omitempty"`
-	RuleCoverageSamples     []dataquery.RuleCoverageRecord     `json:"rule_coverage_samples,omitempty"`
-	ContributionRecords     int                                `json:"contribution_records,omitempty"`
-	ContributionSamples     []dataquery.ContributionRecord     `json:"contribution_samples,omitempty"`
-	EntityResolutionRecords int                                `json:"entity_resolution_records,omitempty"`
-	EntityResolutionSamples []dataquery.EntityResolutionRecord `json:"entity_resolution_samples,omitempty"`
-	Reconcile               *dataquery.ReconcileReport         `json:"reconcile,omitempty"`
-	Metrics                 []dataquery.Metric                 `json:"metrics,omitempty"`
-	ContractWarnings        []string                           `json:"contract_warnings,omitempty"`
+	Answer                   string                             `json:"answer,omitempty"`
+	AnswerItemCount          int                                `json:"answer_item_count,omitempty"`
+	OutputContract           dataquery.OutputContract           `json:"output_contract,omitempty"`
+	AuditSummary             string                             `json:"audit_summary,omitempty"`
+	DecisionRecords          int                                `json:"decision_records,omitempty"`
+	DecisionSamples          []dataquery.RowDecision            `json:"decision_samples,omitempty"`
+	RuleCoverageRecords      int                                `json:"rule_coverage_records,omitempty"`
+	RuleCoverageSamples      []dataquery.RuleCoverageRecord     `json:"rule_coverage_samples,omitempty"`
+	ContributionRecords      int                                `json:"contribution_records,omitempty"`
+	ContributionSamples      []dataquery.ContributionRecord     `json:"contribution_samples,omitempty"`
+	EntityResolutionRecords  int                                `json:"entity_resolution_records,omitempty"`
+	EntityResolutionSamples  []dataquery.EntityResolutionRecord `json:"entity_resolution_samples,omitempty"`
+	Reconcile                *dataquery.ReconcileReport         `json:"reconcile,omitempty"`
+	ReconcileGroupCount      int                                `json:"reconcile_group_count,omitempty"`
+	ReconcileGroupKeySample  []string                           `json:"reconcile_group_key_sample,omitempty"`
+	ReconcileGroupsTruncated bool                               `json:"reconcile_groups_truncated,omitempty"`
+	Metrics                  []dataquery.Metric                 `json:"metrics,omitempty"`
+	ContractWarnings         []string                           `json:"contract_warnings,omitempty"`
 }
 
 func renderDataTaskRecordsForPrompt(records []dataTaskWorkflowRecord) string {
@@ -150,22 +154,7 @@ func renderDataTaskRecordsForPrompt(records []dataTaskWorkflowRecord) string {
 			Error:               clampDataTaskWorkflowText(rec.Err, 1600),
 		}
 		if rec.Result != nil {
-			view.Result = &dataTaskResultPromptView{
-				Answer:                  clampDataTaskWorkflowText(rec.Result.Answer, 2400),
-				OutputContract:          rec.Result.OutputContract.Normalize(),
-				AuditSummary:            clampDataTaskWorkflowText(rec.Result.AuditSummary, 1000),
-				DecisionRecords:         len(rec.Result.Rows),
-				DecisionSamples:         sampleDataTaskRowDecisions(rec.Result.Rows, 6),
-				RuleCoverageRecords:     len(rec.Result.RuleCoverage),
-				RuleCoverageSamples:     sampleDataTaskRuleCoverage(rec.Result.RuleCoverage, 4),
-				ContributionRecords:     len(rec.Result.Contributions),
-				ContributionSamples:     sampleDataTaskContributions(rec.Result.Contributions, 6),
-				EntityResolutionRecords: len(rec.Result.EntityResolutions),
-				EntityResolutionSamples: sampleDataTaskEntityResolutions(rec.Result.EntityResolutions, 4),
-				Reconcile:               clampPromptReconcileReport(rec.Result.Reconcile),
-				Metrics:                 rec.Result.Metrics,
-				ContractWarnings:        append([]string(nil), rec.Result.ContractWarnings...),
-			}
+			view.Result = compactDataTaskResultPromptView(*rec.Result, 2400, 1000, 6, 4, 6)
 		}
 		if rec.Evaluation != nil {
 			eval := *rec.Evaluation
@@ -179,6 +168,106 @@ func renderDataTaskRecordsForPrompt(records []dataTaskWorkflowRecord) string {
 		return fmt.Sprintf("render data workflow records failed: %v\n", err)
 	}
 	return string(raw)
+}
+
+func compactDataTaskResultPromptView(result dataquery.Result, answerLimit, auditLimit, decisionLimit, ruleLimit, contributionLimit int) *dataTaskResultPromptView {
+	contract := result.OutputContract.Normalize()
+	clampedReconcile := clampPromptReconcileReport(result.Reconcile)
+	groupCount, groupKeys, _ := promptReconcileGroupSummary(result.Reconcile, 20)
+	groupsTruncated := false
+	if result.Reconcile != nil && clampedReconcile != nil {
+		groupsTruncated = len(result.Reconcile.Groups) > len(clampedReconcile.Groups)
+	}
+	return &dataTaskResultPromptView{
+		Answer:                   clampDataTaskWorkflowText(result.Answer, answerLimit),
+		AnswerItemCount:          inferDataTaskAnswerItemCount(result.Answer, contract),
+		OutputContract:           contract,
+		AuditSummary:             clampDataTaskWorkflowText(result.AuditSummary, auditLimit),
+		DecisionRecords:          len(result.Rows),
+		DecisionSamples:          sampleDataTaskRowDecisions(result.Rows, decisionLimit),
+		RuleCoverageRecords:      len(result.RuleCoverage),
+		RuleCoverageSamples:      sampleDataTaskRuleCoverage(result.RuleCoverage, ruleLimit),
+		ContributionRecords:      len(result.Contributions),
+		ContributionSamples:      sampleDataTaskContributions(result.Contributions, contributionLimit),
+		EntityResolutionRecords:  len(result.EntityResolutions),
+		EntityResolutionSamples:  sampleDataTaskEntityResolutions(result.EntityResolutions, 4),
+		Reconcile:                clampedReconcile,
+		ReconcileGroupCount:      groupCount,
+		ReconcileGroupKeySample:  groupKeys,
+		ReconcileGroupsTruncated: groupsTruncated,
+		Metrics:                  result.Metrics,
+		ContractWarnings:         append([]string(nil), result.ContractWarnings...),
+	}
+}
+
+func inferDataTaskAnswerItemCount(answer string, contract dataquery.OutputContract) int {
+	answer = strings.TrimSpace(answer)
+	if answer == "" {
+		return 0
+	}
+	var arr []any
+	if err := json.Unmarshal([]byte(answer), &arr); err == nil {
+		return len(arr)
+	}
+	if contract.Normalize().Format == dataquery.OutputCSVLine || strings.Contains(answer, ",") {
+		parts := strings.Split(answer, ",")
+		count := 0
+		for _, part := range parts {
+			if strings.TrimSpace(part) != "" {
+				count++
+			}
+		}
+		if count > 1 {
+			return count
+		}
+	}
+	if contract.Normalize().Format == dataquery.OutputMarkdownTable {
+		lines := strings.Split(answer, "\n")
+		count := 0
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "|") && strings.Contains(line, "|") && !strings.Contains(line, "---") {
+				count++
+			}
+		}
+		if count > 1 {
+			return count - 1
+		}
+	}
+	return 0
+}
+
+func promptReconcileGroupSummary(report *dataquery.ReconcileReport, limit int) (int, []string, bool) {
+	if report == nil || len(report.Groups) == 0 || limit <= 0 {
+		if report == nil {
+			return 0, nil, false
+		}
+		return len(report.Groups), nil, len(report.Groups) > 0
+	}
+	total := len(report.Groups)
+	if total < limit {
+		limit = total
+	}
+	keys := make([]string, 0, limit)
+	for i := 0; i < limit; i++ {
+		keys = append(keys, promptReconcileGroupKey(report.Groups[i]))
+	}
+	return total, keys, total > limit
+}
+
+func promptReconcileGroupKey(group dataquery.ReconcileGroup) string {
+	groupKey := strings.TrimSpace(group.GroupKey.String())
+	metric := strings.TrimSpace(group.Metric.String())
+	switch {
+	case groupKey != "" && metric != "":
+		return groupKey + "/" + metric
+	case groupKey != "":
+		return groupKey
+	case metric != "":
+		return metric
+	default:
+		return "(default)"
+	}
 }
 
 func sampleDataTaskRuleCoverage(records []dataquery.RuleCoverageRecord, limit int) []dataquery.RuleCoverageRecord {

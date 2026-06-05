@@ -470,11 +470,42 @@ func TestClassifyExecutionError(t *testing.T) {
 		`data planning incomplete: plan is too large for one bounded data batch (script_lines=400 required_materials=12)`:    "oversized_data_plan",
 		`data reconcile failed: group "A/amount" has no matching contribution records`:                                       "reconcile_group_mismatch",
 		`data reconcile failed: group "A/amount" expected=9 but contributions sum to 10`:                                     "reconcile_sum_mismatch",
+		`NameError: name 'add_entity_resolution' is not defined`:                                                             "unknown_runner_helper",
 	}
 	for text, want := range cases {
 		if got := ClassifyExecutionError(text).Code; got != want {
 			t.Fatalf("ClassifyExecutionError(%q)=%q, want %q", text, got, want)
 		}
+	}
+}
+
+func TestRunnerAcceptsEntityResolutionHelperAlias(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:        []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			EntityResolutionRequired: true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+add_entity_resolution(item_id="1", source_value=rows[0]["vendor"], canonical_id="A", canonical_label="Vendor A", status="resolved", evidence_refs=["orders.csv"])
+emit_result("ok", output_contract={"format": "plain_single_line", "explanation_allowed": False})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res.EntityResolutions) != 1 || res.EntityResolutions[0].CanonicalID.String() != "A" {
+		t.Fatalf("EntityResolutions=%+v", res.EntityResolutions)
 	}
 }
 

@@ -503,6 +503,52 @@ Remove/move readiness criteria:
 Until all three criteria are true, `remove`/`move` remain intentionally out of
 scope for commercial safety.
 
+## 2026-06-06 Failure Audit: Compact View and Helper Surface Drift
+
+A later workflow exposed two generic cross-layer gaps after the runner had
+already produced a candidate result:
+
+- The evaluator prompt carried only a bounded sample of `reconcile.groups`.
+  The model treated that sample as the complete result and continued planning
+  even though the full result had more reconcile groups. Any data task with
+  many groups, rows, decisions, entities, or output items can hit this class of
+  false-negative if compact previews do not carry completeness metadata.
+- The script used a semantically clear helper name for entity-resolution
+  records that was not part of the runner's canonical helper surface. This is
+  not a business-rule problem; it is a helper-contract drift between model
+  planning and deterministic execution.
+
+Generic fixes:
+
+1. Compact prompt views must distinguish samples from complete data. Every
+   sampled ledger or reconcile section that can influence continuation should
+   carry total counts, bounded key samples, and a truncation flag. Evaluators
+   and continuation planners must use those typed fields instead of inferring
+   completeness from sample length.
+2. Runner helper APIs should expose a small canonical surface and may absorb
+   safe structural aliases when the alias maps to the exact same generic
+   ledger record. These aliases must be domain-neutral, such as mapping an
+   entity-resolution helper alias to the canonical resolution ledger helper.
+   They must not encode business terms, file roles, columns, vendors, invoices,
+   contracts, or any other task-specific meaning.
+3. Unknown helper failures should be classified as typed repair loci when the
+   missing name is helper-shaped. Repair then receives a precise
+   `unknown_runner_helper` violation and the canonical helper list, rather than
+   an opaque Python traceback.
+
+Delivered in this batch:
+
+- Data workflow prompt records include `answer_item_count`,
+  `reconcile_group_count`, `reconcile_group_key_sample`, and
+  `reconcile_groups_truncated`.
+- Data evaluator and continuation prompts explicitly state that samples are
+  compact previews and counts/truncation flags are authoritative for
+  completeness.
+- The runner accepts `add_entity_resolution(...)` as a safe structural alias
+  for `add_resolution(...)` and reserves it against redefinition.
+- Runtime `NameError` failures for helper-shaped names are classified as
+  `unknown_runner_helper`.
+
 ### P0 Remediation Direction
 
 1. **Material usage modes.** Extend `CoverageMaterial` with generic

@@ -282,6 +282,7 @@ func ClassifyExecutionError(errText string) DataTaskViolation {
 	text := strings.TrimSpace(errText)
 	lower := strings.ToLower(text)
 	scriptLine, runnerLine := parseDataScriptTracebackLocus(text)
+	missingName, hasMissingName := parsePythonNameErrorMissingName(text)
 	v := DataTaskViolation{
 		Code:       "runtime_failure",
 		Summary:    clampViolationText(text, 500),
@@ -301,6 +302,9 @@ func ClassifyExecutionError(errText string) DataTaskViolation {
 		strings.Contains(lower, "name 'null' is not defined"):
 		v.Code = "python_json_literal_name"
 		v.RepairHint = "Use Python constants True/False/None, or rely on runner-provided true/false/null constants without redefining them."
+	case hasMissingName && isLikelyDataTaskHelperName(missingName):
+		v.Code = "unknown_runner_helper"
+		v.RepairHint = "Use canonical runner helpers: add_decision, add_rule_coverage, add_contribution, add_resolution, emit_result, emit, csv_rows, tsv_rows, json_load, jsonl_rows, read_text, parse_money."
 	case strings.Contains(lower, "invalid literal for int()"):
 		v.Code = "numeric_parse_failure"
 		v.RepairHint = "Do not parse identifiers as integers; keep identifiers as strings and parse only fields that are truly numeric."
@@ -348,6 +352,39 @@ func ClassifyExecutionError(errText string) DataTaskViolation {
 		v.RepairHint = "Keep the computed answer but render it exactly according to output_contract."
 	}
 	return v
+}
+
+func parsePythonNameErrorMissingName(text string) (string, bool) {
+	const prefix = "NameError: name '"
+	idx := strings.Index(text, prefix)
+	if idx < 0 {
+		return "", false
+	}
+	rest := text[idx+len(prefix):]
+	end := strings.Index(rest, "'")
+	if end < 0 {
+		return "", false
+	}
+	name := strings.TrimSpace(rest[:end])
+	if name == "" {
+		return "", false
+	}
+	return name, true
+}
+
+func isLikelyDataTaskHelperName(name string) bool {
+	switch {
+	case strings.HasPrefix(name, "add_"):
+		return true
+	case strings.HasPrefix(name, "emit_"):
+		return true
+	case strings.HasSuffix(name, "_rows"):
+		return true
+	case name == "read_text" || name == "json_load" || name == "jsonl_rows" || name == "parse_money":
+		return true
+	default:
+		return false
+	}
 }
 
 func parseDataScriptTracebackLocus(text string) (scriptLine int, runnerLine int) {
@@ -2191,7 +2228,7 @@ func validateScriptSafety(script string) error {
 	}
 	reservedHelpers := []string{
 		"csv_rows", "tsv_rows", "json_load", "jsonl_rows", "read_text", "parse_money",
-		"add_decision", "add_rule_coverage", "add_contribution", "add_resolution",
+		"add_decision", "add_rule_coverage", "add_contribution", "add_resolution", "add_entity_resolution",
 		"emit_result", "emit", "open",
 	}
 	for _, line := range strings.Split(script, "\n") {
@@ -2681,6 +2718,9 @@ def add_resolution(item_id="", source_value="", canonical_id="", canonical_label
     ENTITY_RESOLUTIONS.append(rec)
     return rec
 
+def add_entity_resolution(*args, **kwargs):
+    return add_resolution(*args, **kwargs)
+
 def add_contribution(item_id="", source="", source_locator="", group_key="", metric="", value="", operation="add", reason="", evidence_refs=None, rule_refs=None, **extra):
     item_id = item_id or _pop_first(extra, ["row_id", "record_id", "id", "item"])
     source_locator = source_locator or _pop_first(extra, ["locator", "location", "span", "cell", "row"])
@@ -2764,6 +2804,7 @@ env = {
     "parse_money": parse_money, "Decimal": decimal.Decimal,
     "add_decision": add_decision, "add_rule_coverage": add_rule_coverage,
     "add_contribution": add_contribution, "add_resolution": add_resolution,
+    "add_entity_resolution": add_entity_resolution,
     "emit_result": emit_result,
     "csv": csv, "json": json, "decimal": decimal, "re": re,
     "math": math, "statistics": statistics, "collections": collections,

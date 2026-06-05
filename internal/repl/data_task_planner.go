@@ -690,6 +690,7 @@ func dataTaskContinuationPrompt(userLine, repoRoot string, policy TurnPolicy, ca
 	b.WriteString("- If more data calculation is needed, emit status=ready with only the next bounded script batch.\n")
 	b.WriteString("- Continue plans must preserve still-relevant coverage_contract materials; do not drop required materials just because a prior batch produced a partial answer.\n")
 	b.WriteString("- Continue plans must preserve still-relevant required validation flags. If a prior result has missing rule coverage, missing contributions, missing entity resolutions, or failed reconcile, the next batch should repair the computation or emit a corrected bounded result.\n")
+	b.WriteString("- Prompt samples are compact previews. Use *_count and *_truncated fields before deciding a prior result is missing items or groups.\n")
 	b.WriteString("- Do not repeat a failed script unchanged. Do not re-run successful intermediate batches unless a fresh value is required.\n")
 	b.WriteString("- Ask the user only for user-owned business inputs. Keep computing when the missing fact can be derived from available local data files.\n")
 	b.WriteString("- Side effects belong to the operation lane; return blocked if they are required.\n\n")
@@ -704,6 +705,10 @@ func dataTaskEvaluationPrompt(userLine string, records []dataTaskWorkflowRecord,
 	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
 	b.WriteString("## data_workflow_rounds\n")
 	b.WriteString(renderDataTaskRecordsForPrompt(records))
+	b.WriteString("\n\n## evaluator_rules\n")
+	b.WriteString("- Prompt samples are compact previews. Use *_count and *_truncated fields to distinguish a sample from the full result.\n")
+	b.WriteString("- Do not infer missing reconcile groups, answer items, decisions, contributions, or resolutions solely because the sample list is shorter than the total count.\n")
+	b.WriteString("- Judge completion from the user goal, output_contract, counts, reconcile status, coverage warnings, and explicit failures together.\n")
 	return strings.TrimSpace(b.String())
 }
 
@@ -730,23 +735,11 @@ func dataTaskResultPatchPrompt(userLine string, previous dataquery.TaskPlan, par
 }
 
 func compactDataTaskPatchResult(result dataquery.Result) dataTaskResultPromptView {
-	view := dataTaskResultPromptView{
-		Answer:                  clampDataTaskWorkflowText(result.Answer, 1200),
-		OutputContract:          result.OutputContract.Normalize(),
-		AuditSummary:            clampDataTaskWorkflowText(result.AuditSummary, 800),
-		DecisionRecords:         len(result.Rows),
-		DecisionSamples:         sampleDataTaskRowDecisions(result.Rows, 4),
-		RuleCoverageRecords:     len(result.RuleCoverage),
-		RuleCoverageSamples:     sampleDataTaskRuleCoverage(result.RuleCoverage, 3),
-		ContributionRecords:     len(result.Contributions),
-		ContributionSamples:     sampleDataTaskContributions(result.Contributions, 5),
-		EntityResolutionRecords: len(result.EntityResolutions),
-		EntityResolutionSamples: sampleDataTaskEntityResolutions(result.EntityResolutions, 4),
-		Reconcile:               clampPromptReconcileReport(result.Reconcile),
-		Metrics:                 result.Metrics,
-		ContractWarnings:        append([]string(nil), result.ContractWarnings...),
+	view := compactDataTaskResultPromptView(result, 1200, 800, 4, 3, 5)
+	if view == nil {
+		return dataTaskResultPromptView{}
 	}
-	return view
+	return *view
 }
 
 func appendCandidateDataFiles(b *strings.Builder, candidates []dataquery.CandidateFile) {
