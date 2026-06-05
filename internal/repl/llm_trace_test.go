@@ -91,6 +91,31 @@ func (a directTraceStubAdapter) RequestTimeout() time.Duration { return time.Min
 
 func (a directTraceStubAdapter) RetryMaxAttempts() int { return 1 }
 
+type directTraceToolDeltaStubAdapter struct {
+	response llm.Response
+	deltas   []string
+	name     string
+}
+
+func (a directTraceToolDeltaStubAdapter) Chat(ctx context.Context, messages []llm.Message, tools []llm.ToolSchema, opts llm.ChatOptions) (llm.Response, error) {
+	for _, delta := range a.deltas {
+		if opts.OnToolCallDelta != nil {
+			opts.OnToolCallDelta(0, a.name, delta)
+		}
+	}
+	return a.response, nil
+}
+
+func (a directTraceToolDeltaStubAdapter) ModelID() string { return "stub-direct-tool-delta" }
+
+func (a directTraceToolDeltaStubAdapter) MaxContextTokens() int { return 200000 }
+
+func (a directTraceToolDeltaStubAdapter) MaxOutputTokens() int { return 0 }
+
+func (a directTraceToolDeltaStubAdapter) RequestTimeout() time.Duration { return time.Minute }
+
+func (a directTraceToolDeltaStubAdapter) RetryMaxAttempts() int { return 1 }
+
 func TestDirectLLMTraceAdapterKeepsCallbacksPassive(t *testing.T) {
 	var out bytes.Buffer
 	wrapped := NewDirectLLMTraceAdapter(directTraceStubAdapter{response: llm.Response{
@@ -121,6 +146,57 @@ func TestDirectLLMTraceAdapterKeepsCallbacksPassive(t *testing.T) {
 	}
 	if got := stripANSIOnly(out.String()); strings.Contains(got, "final content") {
 		t.Fatalf("ordinary content must not be duplicated as thinking scrollback, got %q", got)
+	}
+}
+
+func TestDirectLLMTraceAdapterSurfacesStreamingToolArguments(t *testing.T) {
+	var events []render.Event
+	wrapped := &directLLMTraceAdapter{
+		inner: directTraceToolDeltaStubAdapter{
+			name:   "emit_data_task_plan",
+			deltas: []string{`{"status":"ready",`, `"script":"` + strings.Repeat("x", 2048)},
+			response: llm.Response{ToolCalls: []llm.ToolCall{{
+				Name:   "emit_data_task_plan",
+				Params: []byte(`{"status":"ready","script":"ok"}`),
+			}}},
+		},
+		emit: func(ev render.Event) {
+			events = append(events, ev)
+		},
+		agent: types.AgentName("data_planner"),
+		stage: types.PipelineStage("data"),
+	}
+
+	var observed []string
+	resp, err := wrapped.Chat(context.Background(), nil, nil, llm.ChatOptions{
+		OnToolCallDelta: func(index int, name string, argsChunk string) {
+			observed = append(observed, name+":"+argsChunk)
+		},
+	})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if len(resp.ToolCalls) != 1 || resp.ToolCalls[0].Name != "emit_data_task_plan" {
+		t.Fatalf("response tool call was modified: %+v", resp.ToolCalls)
+	}
+	if len(observed) != 2 {
+		t.Fatalf("caller OnToolCallDelta was not preserved: %+v", observed)
+	}
+	var got strings.Builder
+	for _, ev := range events {
+		if ev.Kind == render.EventAgentContent {
+			got.WriteString(ev.Reasoning)
+			got.WriteByte('\n')
+		}
+	}
+	gotText := got.String()
+	for _, want := range []string{"tool_call", "emit_data_task_plan"} {
+		if !strings.Contains(gotText, want) {
+			t.Fatalf("streaming tool arguments should update direct planner status, missing %q:\n%s", want, gotText)
+		}
+	}
+	if strings.Contains(gotText, strings.Repeat("x", 256)) {
+		t.Fatalf("tool argument stream preview should not dump raw JSON payload:\n%s", gotText)
 	}
 }
 

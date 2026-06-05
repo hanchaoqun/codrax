@@ -2,6 +2,7 @@ package repl
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,6 +54,7 @@ func (a *directLLMTraceAdapter) Chat(ctx context.Context, messages []llm.Message
 	stream := newDirectLLMStreamPreview(a.emit, a.agent, a.stage)
 	opts.OnContentDelta = chainStringCallback(opts.OnContentDelta, stream.onDelta)
 	opts.OnReasoningDelta = chainStringCallback(opts.OnReasoningDelta, stream.onDelta)
+	opts.OnToolCallDelta = chainToolCallCallback(opts.OnToolCallDelta, stream.onToolCallDelta)
 	opts.OnRetry = chainRetryCallback(opts.OnRetry, a.emit, a.agent, a.stage)
 	opts.OnFallback = chainFallbackCallback(opts.OnFallback, a.emit, a.agent, a.stage)
 	resp, err := a.inner.Chat(ctx, messages, tools, opts)
@@ -113,11 +115,13 @@ func (a *directLLMTraceAdapter) RetryMaxAttempts() int {
 }
 
 type directLLMStreamPreview struct {
-	emit       render.EventEmitter
-	agent      types.AgentName
-	stage      types.PipelineStage
-	buf        strings.Builder
-	lastEmitAt time.Time
+	emit          render.EventEmitter
+	agent         types.AgentName
+	stage         types.PipelineStage
+	buf           strings.Builder
+	lastEmitAt    time.Time
+	toolArgBytes  map[int]int
+	toolLastNames map[int]string
 }
 
 func newDirectLLMStreamPreview(emit render.EventEmitter, agent types.AgentName, stage types.PipelineStage) *directLLMStreamPreview {
@@ -129,16 +133,45 @@ func (b *directLLMStreamPreview) onDelta(delta string) {
 		return
 	}
 	b.buf.WriteString(delta)
-	if time.Since(b.lastEmitAt) < 250*time.Millisecond {
+	b.emitLivePreview(b.buf.String())
+}
+
+func (b *directLLMStreamPreview) onToolCallDelta(index int, name string, argsChunk string) {
+	if b == nil || b.emit == nil || argsChunk == "" {
 		return
 	}
-	b.lastEmitAt = time.Now()
+	if b.toolArgBytes == nil {
+		b.toolArgBytes = make(map[int]int)
+	}
+	if b.toolLastNames == nil {
+		b.toolLastNames = make(map[int]string)
+	}
+	b.toolArgBytes[index] += len(argsChunk)
+	if strings.TrimSpace(name) != "" {
+		b.toolLastNames[index] = strings.TrimSpace(name)
+	}
+	label := b.toolLastNames[index]
+	if label == "" {
+		label = "tool_call"
+	}
+	b.emitLivePreview(formatDirectToolCallStreamPreview(label, b.toolArgBytes[index]))
+}
+
+func (b *directLLMStreamPreview) emitLivePreview(preview string) {
+	if b == nil || b.emit == nil || strings.TrimSpace(preview) == "" {
+		return
+	}
+	now := time.Now()
+	if !b.lastEmitAt.IsZero() && now.Sub(b.lastEmitAt) < 250*time.Millisecond {
+		return
+	}
+	b.lastEmitAt = now
 	b.emit(render.Event{
 		Kind:      render.EventAgentContent,
 		Timestamp: b.lastEmitAt,
 		Agent:     b.agent,
 		Stage:     b.stage,
-		Reasoning: b.buf.String(),
+		Reasoning: preview,
 	})
 }
 
@@ -172,6 +205,40 @@ func chainStringCallback(first, second func(string)) func(string) {
 			second(delta)
 		}()
 	}
+}
+
+func chainToolCallCallback(first, second func(int, string, string)) func(int, string, string) {
+	if first == nil {
+		return second
+	}
+	if second == nil {
+		return first
+	}
+	return func(index int, name string, argsChunk string) {
+		func() {
+			defer func() { _ = recover() }()
+			first(index, name, argsChunk)
+		}()
+		func() {
+			defer func() { _ = recover() }()
+			second(index, name, argsChunk)
+		}()
+	}
+}
+
+func formatDirectToolCallStreamPreview(name string, bytes int) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "tool_call"
+	}
+	if bytes < 1024 {
+		return "tool_call " + name + " args " + strconv.Itoa(bytes) + " B"
+	}
+	kib := float64(bytes) / 1024.0
+	if kib < 100 {
+		return "tool_call " + name + " args " + strconv.FormatFloat(kib, 'f', 1, 64) + " KiB"
+	}
+	return "tool_call " + name + " args " + strconv.Itoa(int(kib+0.5)) + " KiB"
 }
 
 func directLLMVisibleReasoning(resp llm.Response) string {
