@@ -53,10 +53,10 @@ func TestSingleShotDoesNotTouchMemory(t *testing.T) {
 	// of these is a violation of the single-shot statelessness rule.
 	// Extend as new continuity-bearing constructors / methods appear.
 	banned := map[string]string{
-		"memory.NewStore":      "single-shot must not construct a memory Store",
-		"memory.Store":         "single-shot must not reference memory.Store",
-		"newLLMSummarizer":     "single-shot must not construct the memory summarizer",
-		"NewChitchatResponder": "single-shot must not wire the chitchat responder",
+		"memory.NewStore":       "single-shot must not construct a memory Store",
+		"memory.Store":          "single-shot must not reference memory.Store",
+		"newLLMSummarizer":      "single-shot must not construct the memory summarizer",
+		"NewChitchatResponder":  "single-shot must not wire the chitchat responder",
 		"NewChitchatClassifier": "single-shot must not wire the chitchat classifier",
 	}
 	// Banned method names — violated if any selector's Sel.Name matches.
@@ -143,6 +143,10 @@ func TestSingleShotCallGraphIsBounded(t *testing.T) {
 		// Orchestrator + logging + render.
 		"Run": true, "Info": true, "Error": true, "Warning": true,
 		"Result": true, "RenderResult": true,
+		// Bounded typed route preflight for operation/data single-shot lanes.
+		"classifySingleShotRoutePolicy": true,
+		"maybeRunSingleShotDataTask":    true,
+		"maybeRunSingleShotOperation":   true,
 	}
 
 	var unknown []string

@@ -88,6 +88,22 @@ requirements.
   existing source-analysis pipeline.
 - No procurement-specific business logic.
 
+## Post-Integration Risk Audit
+
+- **Risk: route=data overfits strict output wording.** A request may ask for
+  `JSON-only`, `CSV-only`, or a table while still being a source-code,
+  trace/log, MCP, or previous-answer task. Mitigation: classifier prompt and
+  schema now state that strict output format alone is not sufficient for
+  `route=data`; the data lane requires local data materials plus a data
+  calculation/cleaning/aggregation/transform goal. A guard test preserves
+  source `JSON-only` requests as `route=repo`.
+- **Risk: CLI single-shot pays multiple classifier calls.** Adding a data
+  preflight before operation initially meant a non-data request could classify
+  once for data and again for operation. Mitigation: CLI single-shot now makes
+  one typed route-policy call and lets data/operation/pipeline consume that
+  same guarded policy. This keeps source, trace/log, mixed, and operation
+  routing stable while avoiding extra LLM/provider cost.
+
 ## Task Ledger
 
 - [x] Record problem, red lines, selected architecture, and batch plan.

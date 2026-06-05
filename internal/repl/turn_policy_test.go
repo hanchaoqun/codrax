@@ -898,6 +898,7 @@ func TestClassifyPolicy_TeachesDataRoute(t *testing.T) {
 		"route=data",
 		"structured or semi-structured files/materials",
 		"These examples are not exhaustive",
+		"Strict output format alone is NOT sufficient for data",
 		"JSON-only, CSV-only",
 		"source-code implementation analysis",
 		"root-cause diagnosis",
@@ -905,6 +906,22 @@ func TestClassifyPolicy_TeachesDataRoute(t *testing.T) {
 		if !strings.Contains(system, want) {
 			t.Fatalf("classifier system prompt missing %q:\n%s", want, system)
 		}
+	}
+}
+
+func TestApplyTurnPolicyGuards_StrictFormatAloneDoesNotBecomeData(t *testing.T) {
+	p := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                 RouteRepo,
+		NeedsRepoAccess:       true,
+		NeedsOperationAccess:  false,
+		NeedsDataAccess:       false,
+		Operation:             "investigate",
+		Source:                "repo",
+		PresentationDirective: "JSON-only",
+		Confidence:            0.9,
+	}, false, false)
+	if p.Route != RouteRepo || !p.NeedsRepoAccess || p.NeedsDataAccess || p.DataTaskKind != "" {
+		t.Fatalf("policy=%+v, want repo route preserved for source JSON-only output", p)
 	}
 }
 

@@ -1068,6 +1068,7 @@ func resolveWriteMode(in writeModeInputs) (types.PipelineMode, error) {
 func runSingleShot(_ *cobra.Command, request string) error {
 	logging.Info("starting pipeline for request: %s", request)
 	app.renderer.SetOutput(os.Stderr)
+	routePolicy, routePolicyOK := classifySingleShotRoutePolicy(request)
 	// Single-shot CLI: ship mermaid source as-is in the default
 	// path so output piped to file / markdown viewer / mermaid-cli
 	// stays authoritative. The render hook is intentionally NOT
@@ -1076,7 +1077,7 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	// step below (gated by --mermaid-render). REPL has its own
 	// renderer at the user-output boundary; both paths follow the
 	// "render only at the user-facing edge" rule.
-	if handled, result, err := maybeRunSingleShotDataTask(request); handled {
+	if handled, result, err := maybeRunSingleShotDataTask(request, routePolicy, routePolicyOK); handled {
 		if err != nil {
 			return err
 		}
@@ -1092,7 +1093,7 @@ func runSingleShot(_ *cobra.Command, request string) error {
 		}
 		return nil
 	}
-	if handled, result, err := maybeRunSingleShotOperation(request); handled {
+	if handled, result, err := maybeRunSingleShotOperation(request, routePolicy, routePolicyOK); handled {
 		if err != nil {
 			return err
 		}
@@ -1107,6 +1108,9 @@ func runSingleShot(_ *cobra.Command, request string) error {
 			fmt.Println()
 		}
 		return nil
+	}
+	if routePolicyOK && app.orch != nil {
+		app.orch.SetTurnRouteHint(repl.TurnRouteHintFromPolicy(routePolicy))
 	}
 	busCtx, err := app.orch.Run(request, flagRepo, flagBranch)
 	if err != nil {
@@ -1166,13 +1170,13 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	return nil
 }
 
-func maybeRunSingleShotOperation(request string) (bool, string, error) {
-	if !singleShotOperationRoutingEnabled() {
-		return false, "", nil
+func classifySingleShotRoutePolicy(request string) (repl.TurnPolicy, bool) {
+	if !singleShotRoutePolicyEnabled() {
+		return repl.TurnPolicy{}, false
 	}
 	classifier, ok := app.chitchatClassifier.(repl.TurnPolicyClassifier)
 	if !ok || classifier == nil {
-		return false, "", nil
+		return repl.TurnPolicy{}, false
 	}
 	ctx := context.Background()
 	hasAttachment := singleShotHasRuntimeAttachment()
@@ -1180,18 +1184,19 @@ func maybeRunSingleShotOperation(request string) (bool, string, error) {
 	if hasAttachment {
 		hint = "attachment=true"
 	}
-	policy, err := classifier.ClassifyPolicy(ctx, request, hint, false)
+	rawPolicy, err := classifier.ClassifyPolicy(ctx, request, hint, false)
 	if err != nil {
-		logging.Warning("[cmd/operation] turn-policy classifier failed; falling back to pipeline: %v", err)
-		return false, "", nil
+		logging.Warning("[cmd/route] turn-policy classifier failed; falling back to pipeline: %v", err)
+		return repl.TurnPolicy{}, false
 	}
-	rawPolicy := policy
-	policy = repl.ApplyTurnPolicyGuards(policy, false, hasAttachment)
-	logging.Info("[cmd/operation] single-shot turn policy raw_route=%s route=%s operation=%s operation_kind=%s needs_repo=%t needs_operation=%t risk=%s confidence=%.2f source=%s target_surface=%s side_effects=%s reason=%q",
+	policy := repl.ApplyTurnPolicyGuards(rawPolicy, false, hasAttachment)
+	logging.Info("[cmd/route] single-shot turn policy raw_route=%s route=%s operation=%s operation_kind=%s data_task_kind=%s needs_data=%t needs_repo=%t needs_operation=%t risk=%s confidence=%.2f source=%s target_surface=%s side_effects=%s reason=%q",
 		rawPolicy.Route,
 		policy.Route,
 		policy.Operation,
 		policy.OperationKind,
+		policy.DataTaskKind,
+		policy.NeedsDataAccess,
 		policy.NeedsRepoAccess,
 		policy.NeedsOperationAccess,
 		policy.RiskLevel,
@@ -1200,10 +1205,15 @@ func maybeRunSingleShotOperation(request string) (bool, string, error) {
 		policy.TargetSurface,
 		strings.Join(policy.SideEffects, ","),
 		oneLineForLog(policy.Reason))
+	return policy, true
+}
+
+func maybeRunSingleShotOperation(request string, policy repl.TurnPolicy, classified bool) (bool, string, error) {
+	if !classified || !singleShotOperationRoutingEnabled() {
+		return false, "", nil
+	}
+	ctx := context.Background()
 	if policy.Route != repl.RouteOperation || !policy.NeedsOperationAccess || !repl.IsConcreteOperationPolicy(policy) {
-		if app.orch != nil {
-			app.orch.SetTurnRouteHint(repl.TurnRouteHintFromPolicy(policy))
-		}
 		return false, "", nil
 	}
 	result, err := repl.RunCommandOperationCLI(ctx, request, policy, repl.CommandOperationCLIConfig{
@@ -1221,41 +1231,12 @@ func maybeRunSingleShotOperation(request string) (bool, string, error) {
 	return true, result, nil
 }
 
-func maybeRunSingleShotDataTask(request string) (bool, string, error) {
-	if !singleShotDataTaskRoutingEnabled() {
-		return false, "", nil
-	}
-	classifier, ok := app.chitchatClassifier.(repl.TurnPolicyClassifier)
-	if !ok || classifier == nil {
+func maybeRunSingleShotDataTask(request string, policy repl.TurnPolicy, classified bool) (bool, string, error) {
+	if !classified || !singleShotDataTaskRoutingEnabled() {
 		return false, "", nil
 	}
 	ctx := context.Background()
-	hasAttachment := singleShotHasRuntimeAttachment()
-	hint := ""
-	if hasAttachment {
-		hint = "attachment=true"
-	}
-	policy, err := classifier.ClassifyPolicy(ctx, request, hint, false)
-	if err != nil {
-		logging.Warning("[cmd/data] turn-policy classifier failed; falling back to next route: %v", err)
-		return false, "", nil
-	}
-	rawPolicy := policy
-	policy = repl.ApplyTurnPolicyGuards(policy, false, hasAttachment)
-	logging.Info("[cmd/data] single-shot turn policy raw_route=%s route=%s data_task_kind=%s needs_data=%t needs_repo=%t needs_operation=%t confidence=%.2f source=%s reason=%q",
-		rawPolicy.Route,
-		policy.Route,
-		policy.DataTaskKind,
-		policy.NeedsDataAccess,
-		policy.NeedsRepoAccess,
-		policy.NeedsOperationAccess,
-		policy.Confidence,
-		policy.Source,
-		oneLineForLog(policy.Reason))
 	if policy.Route != repl.RouteData || !policy.NeedsDataAccess {
-		if app.orch != nil {
-			app.orch.SetTurnRouteHint(repl.TurnRouteHintFromPolicy(policy))
-		}
 		return false, "", nil
 	}
 	candidates, err := dataquery.DiscoverCandidateFiles(flagRepo, 240)
@@ -1328,6 +1309,11 @@ func singleShotOperationRoutingEnabled() bool {
 	}
 	mode := strings.ToLower(strings.TrimSpace(flagMode))
 	return mode == "" || mode == string(types.ModeRead)
+}
+
+func singleShotRoutePolicyEnabled() bool {
+	return app.chitchatClassifier != nil &&
+		(singleShotDataTaskRoutingEnabled() || singleShotOperationRoutingEnabled())
 }
 
 func singleShotDataTaskRoutingEnabled() bool {
