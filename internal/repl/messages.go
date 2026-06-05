@@ -2179,6 +2179,42 @@ func dataTaskBlockedMarkdown(lang string, plan dataquery.TaskPlan) string {
 	return "Data processing was blocked.\n\nReason: " + reason
 }
 
+func dataTaskEvaluationMarkdown(lang string, eval dataquery.Evaluation) string {
+	reason := strings.TrimSpace(eval.Reason)
+	if reason == "" {
+		reason = "data workflow evaluation did not mark the task complete"
+	}
+	var b strings.Builder
+	if isZh(lang) {
+		switch eval.Status {
+		case dataquery.EvalNeedsClarification:
+			b.WriteString("数据处理需要补充信息。")
+		case dataquery.EvalBlocked:
+			b.WriteString("数据处理已阻止。")
+		default:
+			b.WriteString("数据处理未完成。")
+		}
+		fmt.Fprintf(&b, "\n\n原因：%s", reason)
+		if len(eval.MissingInputs) > 0 {
+			fmt.Fprintf(&b, "\n\n缺失输入：%s", strings.Join(eval.MissingInputs, " / "))
+		}
+		return strings.TrimSpace(b.String())
+	}
+	switch eval.Status {
+	case dataquery.EvalNeedsClarification:
+		b.WriteString("Data processing needs more information.")
+	case dataquery.EvalBlocked:
+		b.WriteString("Data processing was blocked.")
+	default:
+		b.WriteString("Data processing did not complete.")
+	}
+	fmt.Fprintf(&b, "\n\nReason: %s", reason)
+	if len(eval.MissingInputs) > 0 {
+		fmt.Fprintf(&b, "\n\nMissing inputs: %s", strings.Join(eval.MissingInputs, " / "))
+	}
+	return strings.TrimSpace(b.String())
+}
+
 func dataTaskAnswerMarkdown(lang string, result dataquery.Result) string {
 	contract := result.OutputContract.Normalize()
 	if !contract.ExplanationAllowed {

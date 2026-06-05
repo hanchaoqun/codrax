@@ -137,6 +137,37 @@ emit({"answer": "A=" + str(totals["A"]), "output_contract": {"format": "plain_si
 	}
 }
 
+func TestRunnerAllowsBoundedDebugPrint(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\nA,7\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		OutputContract: OutputContract{
+			Format:             OutputCSVLine,
+			ExplanationAllowed: false,
+		},
+		Script: `
+print("debug: loading rows")
+rows = csv_rows("orders.csv")
+print("x" * 50000)
+total = sum(int(r["amount"]) for r in rows)
+emit({"answer": "A," + str(total), "output_contract": {"format": "csv_line", "explanation_allowed": False}})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run with debug print: %v", err)
+	}
+	if res.Answer != "A,17" {
+		t.Fatalf("Answer=%q", res.Answer)
+	}
+}
+
 func TestRunnerRejectsUnsafeOpen(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

@@ -1253,40 +1253,158 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		return
 	}
 	r.emitDataTaskPlanAudit(plan)
-	switch strings.ToLower(strings.TrimSpace(plan.Status)) {
-	case "needs_clarification":
-		msg := dataTaskClarificationMarkdown(r.language, plan)
-		r.finishDataTaskRouteSpinner("needs_clarification")
-		r.renderBordered(msg)
-		r.lastAnswerOrigin = replAnswerOriginLocal
-		r.recordTurn(display, line, msg, memory.KindPipeline)
-		return
-	case "blocked":
-		msg := dataTaskBlockedMarkdown(r.language, plan)
-		r.finishDataTaskRouteSpinner("blocked")
-		r.renderBordered(msg)
-		r.lastAnswerOrigin = replAnswerOriginLocal
-		r.recordTurn(display, line, msg, memory.KindPipeline)
+	if handled := r.handleTerminalDataTaskPlan(plan, nil, display, line); handled {
 		return
 	}
 	runner := dataquery.Runner{
 		RepoRoot: r.repoRoot,
 		TempRoot: filepath.Join(firstNonEmptyString(r.runtimeAnchor, r.repoRoot), "data"),
 	}
-	result, err := runner.Run(context.Background(), plan)
-	if err != nil {
-		msg := dataTaskErrorMarkdown(r.language, fmt.Sprintf("execute data task: %v", err))
-		r.finishDataTaskRouteSpinner("failed")
-		r.renderBordered(msg)
-		r.lastAnswerOrigin = replAnswerOriginLocal
-		r.recordTurn(display, line, msg, memory.KindPipeline)
-		return
+	currentPlan := plan
+	var records []dataTaskWorkflowRecord
+	repairRounds := 0
+	dataRounds := 0
+	for {
+		if handled := r.handleTerminalDataTaskPlan(currentPlan, records, display, line); handled {
+			return
+		}
+		if dataRounds >= dataTaskMaxDataRounds {
+			if result, ok := latestDataTaskResult(records); ok {
+				msg := dataTaskAnswerMarkdown(r.language, result)
+				r.finishDataTaskRouteSpinner("budget_exhausted")
+				r.renderBordered(msg)
+				r.lastAnswerOrigin = replAnswerOriginLocal
+				r.recordTurn(display, line, msg, memory.KindPipeline)
+				return
+			}
+			msg := dataTaskErrorMarkdown(r.language, "data task workflow budget exhausted before producing a result")
+			r.finishDataTaskRouteSpinner("budget_exhausted")
+			r.renderBordered(msg)
+			r.lastAnswerOrigin = replAnswerOriginLocal
+			r.recordTurn(display, line, msg, memory.KindPipeline)
+			return
+		}
+		dataRounds++
+		result, err := runner.Run(context.Background(), currentPlan)
+		if err != nil {
+			errText := fmt.Sprintf("execute data task: %v", err)
+			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < dataTaskMaxRepairRounds {
+				repairRounds++
+				r.emitDataTaskWorkflowAudit("repair", repairRounds)
+				ctx := r.startTurn()
+				repairedPlan, repairErr := repairer.RepairDataTask(ctx, line, r.repoRoot, policy, candidates, currentPlan, errText)
+				r.endTurn()
+				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
+				if repairErr != nil {
+					msg := dataTaskErrorMarkdown(r.language, fmt.Sprintf("%s\nrepair data task: %v", errText, repairErr))
+					r.finishDataTaskRouteSpinner("failed")
+					r.renderBordered(msg)
+					r.lastAnswerOrigin = replAnswerOriginLocal
+					r.recordTurn(display, line, msg, memory.KindPipeline)
+					return
+				}
+				r.emitDataTaskPlanAudit(repairedPlan)
+				currentPlan = repairedPlan
+				continue
+			}
+			msg := dataTaskErrorMarkdown(r.language, errText)
+			r.finishDataTaskRouteSpinner("failed")
+			r.renderBordered(msg)
+			r.lastAnswerOrigin = replAnswerOriginLocal
+			r.recordTurn(display, line, msg, memory.KindPipeline)
+			return
+		}
+		records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Result: &result})
+		if !currentPlan.ContinueAfter {
+			msg := dataTaskAnswerMarkdown(r.language, result)
+			r.finishDataTaskRouteSpinner("complete")
+			r.renderBordered(msg)
+			r.lastAnswerOrigin = replAnswerOriginLocal
+			r.recordTurn(display, line, msg, memory.KindPipeline)
+			return
+		}
+		evaluator, evalOK := r.dataTaskPlanner.(DataTaskEvaluator)
+		continuer, contOK := r.dataTaskPlanner.(DataTaskContinuationPlanner)
+		if !evalOK || !contOK {
+			msg := dataTaskAnswerMarkdown(r.language, result)
+			r.finishDataTaskRouteSpinner("partial_answer_possible")
+			r.renderBordered(msg)
+			r.lastAnswerOrigin = replAnswerOriginLocal
+			r.recordTurn(display, line, msg, memory.KindPipeline)
+			return
+		}
+		r.emitDataTaskWorkflowAudit("evaluate", dataRounds)
+		ctx := r.startTurn()
+		eval, evalErr := evaluator.EvaluateDataTask(ctx, line, records, r.language)
+		r.endTurn()
+		r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_evaluator", types.AgentName("data_planner"), types.PipelineStage("data"))
+		if evalErr != nil {
+			msg := dataTaskErrorMarkdown(r.language, fmt.Sprintf("evaluate data task: %v", evalErr))
+			r.finishDataTaskRouteSpinner("failed")
+			r.renderBordered(msg)
+			r.lastAnswerOrigin = replAnswerOriginLocal
+			r.recordTurn(display, line, msg, memory.KindPipeline)
+			return
+		}
+		if len(records) > 0 {
+			records[len(records)-1].Evaluation = &eval
+		}
+		switch eval.Status {
+		case dataquery.EvalComplete:
+			msg := dataTaskAnswerMarkdown(r.language, result)
+			r.finishDataTaskRouteSpinner("complete")
+			r.renderBordered(msg)
+			r.lastAnswerOrigin = replAnswerOriginLocal
+			r.recordTurn(display, line, msg, memory.KindPipeline)
+			return
+		case dataquery.EvalContinueData:
+			r.emitDataTaskWorkflowAudit("continue", dataRounds)
+			ctx := r.startTurn()
+			nextPlan, contErr := continuer.ContinueDataTask(ctx, line, r.repoRoot, policy, candidates, records)
+			r.endTurn()
+			r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_continuation_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
+			if contErr != nil {
+				msg := dataTaskErrorMarkdown(r.language, fmt.Sprintf("continue data task: %v", contErr))
+				r.finishDataTaskRouteSpinner("failed")
+				r.renderBordered(msg)
+				r.lastAnswerOrigin = replAnswerOriginLocal
+				r.recordTurn(display, line, msg, memory.KindPipeline)
+				return
+			}
+			r.emitDataTaskPlanAudit(nextPlan)
+			currentPlan = nextPlan
+			continue
+		case dataquery.EvalNeedsClarification:
+			msg := dataTaskEvaluationMarkdown(r.language, eval)
+			r.finishDataTaskRouteSpinner("needs_clarification")
+			r.renderBordered(msg)
+			r.lastAnswerOrigin = replAnswerOriginLocal
+			r.recordTurn(display, line, msg, memory.KindPipeline)
+			return
+		case dataquery.EvalBlocked:
+			msg := dataTaskEvaluationMarkdown(r.language, eval)
+			r.finishDataTaskRouteSpinner("blocked")
+			r.renderBordered(msg)
+			r.lastAnswerOrigin = replAnswerOriginLocal
+			r.recordTurn(display, line, msg, memory.KindPipeline)
+			return
+		case dataquery.EvalBudgetExhausted, dataquery.EvalPartialAnswerPossible:
+			msg := dataTaskAnswerMarkdown(r.language, result)
+			r.finishDataTaskRouteSpinner(string(eval.Status))
+			r.renderBordered(msg)
+			r.lastAnswerOrigin = replAnswerOriginLocal
+			r.recordTurn(display, line, msg, memory.KindPipeline)
+			return
+		default:
+			msg := dataTaskAnswerMarkdown(r.language, result)
+			r.finishDataTaskRouteSpinner("partial_answer_possible")
+			r.renderBordered(msg)
+			r.lastAnswerOrigin = replAnswerOriginLocal
+			r.recordTurn(display, line, msg, memory.KindPipeline)
+			return
+		}
 	}
-	msg := dataTaskAnswerMarkdown(r.language, result)
-	r.finishDataTaskRouteSpinner("complete")
-	r.renderBordered(msg)
-	r.lastAnswerOrigin = replAnswerOriginLocal
-	r.recordTurn(display, line, msg, memory.KindPipeline)
 }
 
 // operationDispatch is the independent operation/artifact route. Batch 2 is
@@ -1631,6 +1749,18 @@ func (r *REPL) finishDataTaskRouteSpinner(status string) {
 		} else {
 			segs[0] = "failed"
 		}
+	case "budget_exhausted":
+		if isZh(r.language) {
+			segs[0] = "预算用尽"
+		} else {
+			segs[0] = "budget exhausted"
+		}
+	case "partial_answer_possible":
+		if isZh(r.language) {
+			segs[0] = "部分结果"
+		} else {
+			segs[0] = "partial"
+		}
 	}
 	r.emitOperationLightRouteSummary(label, segs)
 }
@@ -1689,6 +1819,12 @@ func replLLMTraceScopeLabel(scope, lang string) string {
 			return "结构化路由判定"
 		case "data_task_planner":
 			return "数据任务计划"
+		case "data_task_repair_planner":
+			return "数据任务修复"
+		case "data_task_evaluator":
+			return "数据目标评估"
+		case "data_task_continuation_planner":
+			return "数据继续计划"
 		case "command_operation_planner":
 			return "操作计划"
 		case "command_operation_evaluator":
@@ -1775,6 +1911,92 @@ func (r *REPL) emitDataTaskPlanAudit(plan dataquery.TaskPlan) {
 	r.renderer.EmitLightRouteSummary(label, segs)
 }
 
+func (r *REPL) emitDataTaskWorkflowAudit(kind string, round int) {
+	if r.renderer == nil {
+		return
+	}
+	label := "数据工作流"
+	segs := []string{}
+	if isZh(r.language) {
+		switch kind {
+		case "repair":
+			segs = append(segs, fmt.Sprintf("修复第 %d 次", round))
+		case "evaluate":
+			segs = append(segs, fmt.Sprintf("评估第 %d 批", round))
+		case "continue":
+			segs = append(segs, fmt.Sprintf("继续第 %d 批", round+1))
+		default:
+			segs = append(segs, kind)
+		}
+		segs = append(segs, "未读源码")
+	} else {
+		label = "data workflow"
+		switch kind {
+		case "repair":
+			segs = append(segs, fmt.Sprintf("repair %d", round))
+		case "evaluate":
+			segs = append(segs, fmt.Sprintf("evaluate batch %d", round))
+		case "continue":
+			segs = append(segs, fmt.Sprintf("continue batch %d", round+1))
+		default:
+			segs = append(segs, kind)
+		}
+		segs = append(segs, "no source read")
+	}
+	r.renderer.EmitLightRouteSummary(label, segs)
+}
+
+func (r *REPL) handleTerminalDataTaskPlan(plan dataquery.TaskPlan, records []dataTaskWorkflowRecord, display, line string) bool {
+	switch strings.ToLower(strings.TrimSpace(plan.Status)) {
+	case "needs_clarification":
+		msg := dataTaskClarificationMarkdown(r.language, plan)
+		r.finishDataTaskRouteSpinner("needs_clarification")
+		r.renderBordered(msg)
+		r.lastAnswerOrigin = replAnswerOriginLocal
+		r.recordTurn(display, line, msg, memory.KindPipeline)
+		return true
+	case "blocked":
+		msg := dataTaskBlockedMarkdown(r.language, plan)
+		r.finishDataTaskRouteSpinner("blocked")
+		r.renderBordered(msg)
+		r.lastAnswerOrigin = replAnswerOriginLocal
+		r.recordTurn(display, line, msg, memory.KindPipeline)
+		return true
+	case "complete":
+		if result, ok := latestDataTaskResult(records); ok {
+			msg := dataTaskAnswerMarkdown(r.language, result)
+			r.finishDataTaskRouteSpinner("complete")
+			r.renderBordered(msg)
+			r.lastAnswerOrigin = replAnswerOriginLocal
+			r.recordTurn(display, line, msg, memory.KindPipeline)
+			return true
+		}
+		msg := dataTaskBlockedMarkdown(r.language, dataquery.TaskPlan{BlockReason: firstNonEmptyString(plan.BlockReason, "data workflow completed without a computed result")})
+		r.finishDataTaskRouteSpinner("blocked")
+		r.renderBordered(msg)
+		r.lastAnswerOrigin = replAnswerOriginLocal
+		r.recordTurn(display, line, msg, memory.KindPipeline)
+		return true
+	case "budget_exhausted", "partial_answer_possible":
+		if result, ok := latestDataTaskResult(records); ok {
+			msg := dataTaskAnswerMarkdown(r.language, result)
+			r.finishDataTaskRouteSpinner(plan.Status)
+			r.renderBordered(msg)
+			r.lastAnswerOrigin = replAnswerOriginLocal
+			r.recordTurn(display, line, msg, memory.KindPipeline)
+			return true
+		}
+		msg := dataTaskErrorMarkdown(r.language, firstNonEmptyString(plan.BlockReason, "data workflow ended before producing a computed result"))
+		r.finishDataTaskRouteSpinner(plan.Status)
+		r.renderBordered(msg)
+		r.lastAnswerOrigin = replAnswerOriginLocal
+		r.recordTurn(display, line, msg, memory.KindPipeline)
+		return true
+	default:
+		return false
+	}
+}
+
 func dataTaskPlanAuditSummary(plan dataquery.TaskPlan, lang string) (string, []string) {
 	status := dataTaskStatusDisplay(plan.Status, lang)
 	format := dataTaskOutputFormatDisplay(plan.OutputContract.Normalize().Format, lang)
@@ -1814,6 +2036,10 @@ func dataTaskStatusDisplay(status, lang string) string {
 		return "已完成"
 	case "failed":
 		return "已失败"
+	case "budget_exhausted":
+		return "预算用尽"
+	case "partial_answer_possible":
+		return "部分结果"
 	default:
 		return raw
 	}

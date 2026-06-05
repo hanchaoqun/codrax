@@ -45,12 +45,19 @@ func (c OutputContract) Normalize() OutputContract {
 }
 
 type TaskPlan struct {
-	Status         string         `json:"status"`
-	InputPaths     []string       `json:"input_paths"`
-	OutputContract OutputContract `json:"output_contract"`
-	Script         string         `json:"script"`
-	Questions      []Question     `json:"questions,omitempty"`
-	BlockReason    string         `json:"block_reason,omitempty"`
+	Status              string         `json:"status"`
+	InputPaths          []string       `json:"input_paths"`
+	OutputContract      OutputContract `json:"output_contract"`
+	Script              string         `json:"script"`
+	Questions           []Question     `json:"questions,omitempty"`
+	BlockReason         string         `json:"block_reason,omitempty"`
+	Goal                string         `json:"goal,omitempty"`
+	KnownConstraints    []string       `json:"known_constraints,omitempty"`
+	MissingObservations []string       `json:"missing_observations,omitempty"`
+	SuccessCriteria     []string       `json:"success_criteria,omitempty"`
+	NextBatch           string         `json:"next_batch,omitempty"`
+	WhyThisBatch        string         `json:"why_this_batch,omitempty"`
+	ContinueAfter       bool           `json:"continue_after,omitempty"`
 }
 
 type Question struct {
@@ -81,6 +88,43 @@ type Metric struct {
 	Label string `json:"label"`
 	Value string `json:"value"`
 	Unit  string `json:"unit,omitempty"`
+}
+
+type EvaluationStatus string
+
+const (
+	EvalComplete              EvaluationStatus = "complete"
+	EvalContinueData          EvaluationStatus = "continue_data"
+	EvalNeedsClarification    EvaluationStatus = "needs_clarification"
+	EvalBlocked               EvaluationStatus = "blocked"
+	EvalBudgetExhausted       EvaluationStatus = "budget_exhausted"
+	EvalPartialAnswerPossible EvaluationStatus = "partial_answer_possible"
+)
+
+type Evaluation struct {
+	Status        EvaluationStatus `json:"status"`
+	Reason        string           `json:"reason,omitempty"`
+	Confidence    string           `json:"confidence,omitempty"`
+	MissingInputs []string         `json:"missing_inputs,omitempty"`
+}
+
+func NormalizeEvaluationStatus(status string) EvaluationStatus {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case string(EvalComplete):
+		return EvalComplete
+	case string(EvalContinueData), "continue", "ready":
+		return EvalContinueData
+	case string(EvalNeedsClarification):
+		return EvalNeedsClarification
+	case string(EvalBlocked):
+		return EvalBlocked
+	case string(EvalBudgetExhausted):
+		return EvalBudgetExhausted
+	case string(EvalPartialAnswerPossible):
+		return EvalPartialAnswerPossible
+	default:
+		return EvalPartialAnswerPossible
+	}
 }
 
 type CandidateFile struct {
@@ -396,9 +440,13 @@ func renderPythonHelper(script string, relPaths []string) string {
 ALLOWED = set(%s)
 RESULT = None
 BASE_DIR = os.getcwd()
+PRINT_BYTES = 0
+PRINT_BYTE_LIMIT = 20000
+PRINT_CALL_LIMIT = 4096
 ALLOWED_IMPORTS = {
     "csv", "json", "decimal", "re", "math", "statistics", "collections",
-    "datetime", "itertools", "functools", "operator",
+    "datetime", "itertools", "functools", "operator", "string", "textwrap",
+    "base64", "binascii", "hashlib", "unicodedata", "fractions", "calendar",
 }
 
 def _safe_path(path):
@@ -428,6 +476,22 @@ def _safe_import(name, globals=None, locals=None, fromlist=(), level=0):
     if level != 0 or root not in ALLOWED_IMPORTS:
         raise ImportError("data task import is blocked: " + str(name))
     return __import__(name, globals, locals, fromlist, level)
+
+def _safe_print(*args, sep=" ", end="\n", file=None, flush=False):
+    global PRINT_BYTES
+    if file is not None:
+        raise ValueError("data task print does not support custom file targets")
+    text = sep.join(str(x) for x in args) + str(end)
+    data = text.encode("utf-8", errors="replace")
+    if len(data) > PRINT_CALL_LIMIT:
+        data = data[:PRINT_CALL_LIMIT] + b"\n[data task print call truncated]\n"
+    remaining = PRINT_BYTE_LIMIT - PRINT_BYTES
+    if remaining <= 0:
+        return
+    if len(data) > remaining:
+        data = data[:remaining] + b"\n[data task print output truncated]\n"
+    PRINT_BYTES += len(data)
+    print(data.decode("utf-8", errors="replace"), end="", flush=flush)
 
 def read_text(path, encoding="utf-8"):
     with open(_safe_path(path), "r", encoding=encoding, errors="replace", newline="") as f:
@@ -465,11 +529,19 @@ def emit(obj):
 safe_builtins = {
     "len": len, "sum": sum, "min": min, "max": max, "sorted": sorted,
     "range": range, "enumerate": enumerate, "int": int, "float": float,
-    "str": str, "repr": repr, "round": round, "abs": abs, "list": list,
-    "dict": dict, "set": set, "tuple": tuple, "any": any, "all": all,
-    "zip": zip, "isinstance": isinstance, "ValueError": ValueError,
+    "str": str, "repr": repr, "format": format, "round": round, "abs": abs,
+    "bool": bool, "list": list, "dict": dict, "set": set, "tuple": tuple,
+    "frozenset": frozenset, "bytes": bytes, "bytearray": bytearray,
+    "any": any, "all": all, "zip": zip, "map": map, "filter": filter,
+    "reversed": reversed, "slice": slice, "iter": iter, "next": next,
+    "ord": ord, "chr": chr, "divmod": divmod, "pow": pow,
+    "isinstance": isinstance, "issubclass": issubclass,
+    "ValueError": ValueError,
     "TypeError": TypeError, "KeyError": KeyError, "Exception": Exception,
-    "open": _safe_open, "__import__": _safe_import,
+    "IndexError": IndexError, "AttributeError": AttributeError,
+    "ArithmeticError": ArithmeticError, "ZeroDivisionError": ZeroDivisionError,
+    "AssertionError": AssertionError, "StopIteration": StopIteration,
+    "open": _safe_open, "print": _safe_print, "__import__": _safe_import,
 }
 env = {
     "__builtins__": safe_builtins,

@@ -42,11 +42,88 @@ func TestDataTaskPlannerCompatJSON(t *testing.T) {
 		"output_contract",
 		"common data standard libraries",
 		"open(path) is read-only",
+		"print(...) is allowed",
+		"operation pipeline",
 		"network/process libraries",
 		"row-level audit",
 	} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("data planner system prompt missing %q:\n%s", want, system)
+		}
+	}
+}
+
+func TestDataTaskRepairPlannerPromptCarriesExecutionErrorAndPreviousPlan(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			dataTaskPlanResp(`{"status":"ready","input_paths":["orders.csv"],"output_contract":{"format":"csv_line","explanation_allowed":false},"script":"rows=csv_rows(\"orders.csv\"); emit({\"answer\":\"ok,1\",\"output_contract\":{\"format\":\"csv_line\",\"explanation_allowed\":false}})"}`),
+		},
+	}
+	planner := NewDataTaskPlanner(adapter)
+	repairer, ok := planner.(DataTaskRepairPlanner)
+	if !ok {
+		t.Fatal("planner does not implement DataTaskRepairPlanner")
+	}
+	previous := dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"orders.csv"},
+		OutputContract: dataquery.OutputContract{
+			Format:             dataquery.OutputCSVLine,
+			ExplanationAllowed: false,
+		},
+		Script: `print("debug")`,
+	}
+	plan, err := repairer.RepairDataTask(context.Background(), "汇总 CSV", "/repo", TurnPolicy{Route: RouteData}, []dataquery.CandidateFile{{Path: "orders.csv", Kind: "csv", Size: 10}}, previous, `NameError: name 'print' is not defined`)
+	if err != nil {
+		t.Fatalf("RepairDataTask: %v", err)
+	}
+	if plan.Status != "ready" || !strings.Contains(plan.Script, "emit") {
+		t.Fatalf("repaired plan=%+v", plan)
+	}
+	user := adapter.calls[0].messages[1].Content
+	for _, want := range []string{"## execution_error", "NameError", "## previous_plan_json", `print(\"debug\")`, "operation pipeline"} {
+		if !strings.Contains(user, want) {
+			t.Fatalf("repair prompt missing %q:\n%s", want, user)
+		}
+	}
+	trace := planner.(replLLMTraceProvider).LastReplLLMTrace()
+	if trace.Scope != "data_task_repair_planner" {
+		t.Fatalf("trace.Scope=%q", trace.Scope)
+	}
+}
+
+func TestDataTaskEvaluatorParsesTypedStatus(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{{
+			ToolCalls: []llm.ToolCall{{
+				Name:   dataTaskEvaluationTool.Name,
+				Params: []byte(`{"status":"continue_data","reason":"needs final aggregation","confidence":"high","missing_inputs":["final total"]}`),
+			}},
+			StopReason: "tool_use",
+		}},
+	}
+	planner := NewDataTaskPlanner(adapter)
+	evaluator, ok := planner.(DataTaskEvaluator)
+	if !ok {
+		t.Fatal("planner does not implement DataTaskEvaluator")
+	}
+	eval, err := evaluator.EvaluateDataTask(context.Background(), "汇总 CSV", []dataTaskWorkflowRecord{{
+		Plan: dataquery.TaskPlan{Status: "ready", InputPaths: []string{"orders.csv"}, ContinueAfter: true},
+		Result: &dataquery.Result{
+			Answer:         "intermediate",
+			OutputContract: dataquery.OutputContract{Format: dataquery.OutputMarkdown, ExplanationAllowed: true},
+		},
+	}}, "zh")
+	if err != nil {
+		t.Fatalf("EvaluateDataTask: %v", err)
+	}
+	if eval.Status != dataquery.EvalContinueData || eval.Confidence != "high" {
+		t.Fatalf("eval=%+v", eval)
+	}
+	user := adapter.calls[0].messages[1].Content
+	for _, want := range []string{"## data_workflow_rounds", "intermediate", "continue_after"} {
+		if !strings.Contains(user, want) {
+			t.Fatalf("evaluation prompt missing %q:\n%s", want, user)
 		}
 	}
 }

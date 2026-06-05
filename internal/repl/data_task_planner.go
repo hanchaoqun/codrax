@@ -14,6 +14,18 @@ type DataTaskPlanner interface {
 	PlanDataTask(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile) (dataquery.TaskPlan, error)
 }
 
+type DataTaskRepairPlanner interface {
+	RepairDataTask(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string) (dataquery.TaskPlan, error)
+}
+
+type DataTaskEvaluator interface {
+	EvaluateDataTask(ctx context.Context, userLine string, records []dataTaskWorkflowRecord, lang string) (dataquery.Evaluation, error)
+}
+
+type DataTaskContinuationPlanner interface {
+	ContinueDataTask(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord) (dataquery.TaskPlan, error)
+}
+
 type llmDataTaskPlanner struct {
 	adapter   llm.Adapter
 	lastTrace replLLMCallTrace
@@ -31,8 +43,8 @@ var dataTaskPlanTool = llm.ToolSchema{
   "properties": {
     "status": {
       "type": "string",
-      "enum": ["ready", "needs_clarification", "blocked"],
-      "description": "ready when input paths, output contract, and script are concrete; needs_clarification only for user-owned missing inputs; blocked when safe read-only data calculation cannot be attempted."
+      "enum": ["ready", "needs_clarification", "blocked", "complete", "budget_exhausted", "partial_answer_possible"],
+      "description": "ready when input paths, output contract, and script are concrete; needs_clarification only for user-owned missing inputs; blocked when safe read-only data calculation cannot be attempted; complete/budget_exhausted/partial_answer_possible are terminal workflow statuses for repair/continuation turns."
     },
     "input_paths": {
       "type": "array",
@@ -51,7 +63,38 @@ var dataTaskPlanTool = llm.ToolSchema{
     },
     "script": {
       "type": "string",
-      "description": "Python calculation body executed by a restricted read-only helper. Prefer csv_rows(path), tsv_rows(path), json_load(path), jsonl_rows(path), read_text(path), parse_money(value), Decimal, re, and emit(obj). You may import only common data standard libraries such as csv/json/decimal/re/math/statistics/collections/datetime/itertools/functools/operator, and open(path) only reads declared input files. Do not access os/sys/pathlib/shutil, run shell commands, use network libraries, dynamic eval/exec, or write files. The script must call emit({\"answer\": string, \"output_contract\": object, \"audit_summary\": string, \"rows\": [...]}) or set result to that object."
+      "description": "Python calculation body executed by a bounded local data helper. Prefer csv_rows(path), tsv_rows(path), json_load(path), jsonl_rows(path), read_text(path), parse_money(value), Decimal, re, and emit(obj). You may import only common data standard libraries such as csv/json/decimal/re/math/statistics/collections/datetime/itertools/functools/operator/string/textwrap/base64/hashlib/unicodedata/fractions/calendar, and open(path) only reads declared input files. print(...) is allowed only for small debug output; the final answer must still be emitted. Do not access os/sys/pathlib/shutil, run shell commands, use network/process libraries, dynamic eval/exec, or write files. If the user task truly requires side effects, block this data plan so the operation pipeline can handle risk/approval instead of hiding those actions inside the data script. The script must call emit({\"answer\": string, \"output_contract\": object, \"audit_summary\": string, \"rows\": [...]}) or set result to that object."
+    },
+    "goal": {
+      "type": "string",
+      "description": "The user's data-processing goal in one concise sentence."
+    },
+    "known_constraints": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Typed constraints from the user request, such as strict output-only shape, inclusion/exclusion rules, source-file constraints, or read-only requirements."
+    },
+    "missing_observations": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Facts still missing after this batch. Do not ask the user for facts that the script can safely compute from declared local data files."
+    },
+    "success_criteria": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "Concrete criteria the final data result must satisfy."
+    },
+    "next_batch": {
+      "type": "string",
+      "description": "Short purpose of the next bounded data batch when continue_after=true."
+    },
+    "why_this_batch": {
+      "type": "string",
+      "description": "Why this bounded data batch is the right next step."
+    },
+    "continue_after": {
+      "type": "boolean",
+      "description": "true when this batch intentionally gathers/intermediates data and a follow-up data batch/evaluation is expected before final answer."
     },
     "questions": {
       "type": "array",
@@ -74,6 +117,29 @@ var dataTaskPlanTool = llm.ToolSchema{
 }`),
 }
 
+var dataTaskEvaluationTool = llm.ToolSchema{
+	Name:        "emit_data_task_evaluation",
+	Description: "Emit a typed data-workflow goal evaluation. This tool never executes code.",
+	Parameters: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["complete", "continue_data", "needs_clarification", "blocked", "budget_exhausted", "partial_answer_possible"],
+      "description": "complete when the user's data goal and output contract are satisfied; continue_data when another bounded data plan should run; needs_clarification only for user-owned missing business inputs; blocked for capability/policy barriers; budget_exhausted/partial_answer_possible when useful progress exists but no more safe bounded work should run."
+    },
+    "reason": {"type": "string"},
+    "confidence": {"type": "string"},
+    "missing_inputs": {
+      "type": "array",
+      "items": {"type": "string"},
+      "description": "User-owned missing inputs only. Do not list facts that can be computed from available local data files."
+    }
+  },
+  "required": ["status", "reason"]
+}`),
+}
+
 const dataTaskPlannerSystemPrompt = `You are a read-only data task planner.
 
 Convert the user's request into a typed data task plan for deterministic local data processing.
@@ -85,33 +151,95 @@ Hard rules:
 - Use candidate files when possible. If no relevant local data file is available or the user's business rule is genuinely missing, ask a short clarification question.
 - Do not make the model hand-calculate the final answer. The script must compute it.
 - The final result object must include answer as a string and output_contract as an object.
+- Treat each plan as one bounded data batch. For multi-step data work, set goal/success_criteria and continue_after=true, then explain next_batch and why_this_batch.
 - If the user requests JSON-only, CSV-only, a single line, only a file path, only a code block, or a Markdown table, encode that in output_contract. Do not hard-code one output style.
 - If explanation_allowed=false, answer must be exactly the requested final payload, with no explanatory prefix or suffix.
 - Script sandbox: prefer the provided helpers:
   csv_rows(path), tsv_rows(path), json_load(path), jsonl_rows(path), read_text(path), parse_money(value), Decimal, re, emit(obj).
-- You may also import common data standard libraries only: csv, json, decimal, re, math, statistics, collections, datetime, itertools, functools, operator.
+- You may also import common data standard libraries only: csv, json, decimal, re, math, statistics, collections, datetime, itertools, functools, operator, string, textwrap, base64, binascii, hashlib, unicodedata, fractions, calendar.
 - open(path) is read-only and works only for files listed in input_paths. Never write files, run shell commands, use network/process libraries, access os/sys/pathlib/shutil, or use dynamic eval/exec/compile.
+- print(...) is allowed for small debug output only. It is not the final answer channel; the script must still call emit(obj) or set result.
+- If the requested task needs file writes, network, process execution, installation, deletion, remote access, or other side effects, do not smuggle that into this data script. Return status=blocked with a concise block_reason explaining that the task requires the operation pipeline and its risk/approval policy.
 - input_paths must list every path the script reads. The runner copies only those paths into an isolated temporary workspace.
 - Emit row-level audit in rows when the task includes filtering/joining/aggregation decisions. Do not misuse member_set/count semantics; numeric totals belong in answer/metrics/audit, not in member count fields.
 `
 
+const dataTaskEvaluationSystemPrompt = `You are a data workflow evaluator.
+
+Decide whether the current read-only data-processing observations satisfy the user's original data goal, or whether another bounded data batch is needed.
+
+Hard rules:
+- Emit only emit_data_task_evaluation. Do not write prose.
+- This is data-lane evaluation only. Do not route to source-code analysis, trace analysis, write-mode code editing, or command operation.
+- Existing result.answer is the authoritative computed result for its batch; do not recalculate manually.
+- If the user's strict output contract and success criteria are satisfied, emit status=complete.
+- If the result is a deliberate intermediate batch, contract warnings remain, required row decisions/audit are missing, or success criteria are not covered but can still be computed from available data files, emit status=continue_data.
+- Ask for clarification only for user-owned missing business rules or missing data files that cannot be safely discovered/read from the candidate data files.
+- If the task requires side effects such as network/process/file write/install/delete, emit blocked so the operation lane can own risk/approval.
+- If useful progress exists but bounded workflow budget is exhausted or no safe continuation exists, emit budget_exhausted or partial_answer_possible.
+- Match status to a typed enum exactly.`
+
 func (p *llmDataTaskPlanner) PlanDataTask(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile) (dataquery.TaskPlan, error) {
+	return p.planDataTask(ctx, "data_task_planner", dataTaskPlannerPrompt(userLine, repoRoot, policy, candidates))
+}
+
+func (p *llmDataTaskPlanner) RepairDataTask(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string) (dataquery.TaskPlan, error) {
+	return p.planDataTask(ctx, "data_task_repair_planner", dataTaskRepairPrompt(userLine, repoRoot, policy, candidates, previous, executionError))
+}
+
+func (p *llmDataTaskPlanner) ContinueDataTask(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord) (dataquery.TaskPlan, error) {
+	return p.planDataTask(ctx, "data_task_continuation_planner", dataTaskContinuationPrompt(userLine, repoRoot, policy, candidates, records))
+}
+
+func (p *llmDataTaskPlanner) EvaluateDataTask(ctx context.Context, userLine string, records []dataTaskWorkflowRecord, lang string) (dataquery.Evaluation, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if p == nil || p.adapter == nil {
+		return dataquery.Evaluation{}, fmt.Errorf("data task evaluator is not configured")
+	}
+	resp, err := p.adapter.Chat(ctx,
+		[]llm.Message{
+			{Role: "system", Content: dataTaskEvaluationSystemPrompt},
+			{Role: "user", Content: dataTaskEvaluationPrompt(userLine, records, lang)},
+		},
+		[]llm.ToolSchema{dataTaskEvaluationTool},
+		llm.ChatOptions{ToolChoice: "required"},
+	)
+	p.lastTrace = traceFromLLMResponse("data_task_evaluator", resp)
+	if err != nil {
+		return dataquery.Evaluation{}, err
+	}
+	if len(resp.ToolCalls) == 0 {
+		return dataquery.Evaluation{}, fmt.Errorf("data task evaluator returned no tool_call")
+	}
+	call := resp.ToolCalls[0]
+	if call.Name != dataTaskEvaluationTool.Name {
+		return dataquery.Evaluation{}, fmt.Errorf("data task evaluator returned unexpected tool %q", call.Name)
+	}
+	var parsed dataTaskEvaluationDraft
+	if err := unmarshalReplStructuredToolParams(dataTaskEvaluationTool, call.Params, &parsed, "data task evaluator"); err != nil {
+		return dataquery.Evaluation{}, err
+	}
+	return parsed.toEvaluation(), nil
+}
+
+func (p *llmDataTaskPlanner) planDataTask(ctx context.Context, scope, prompt string) (dataquery.TaskPlan, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 	if p == nil || p.adapter == nil {
 		return dataquery.TaskPlan{}, fmt.Errorf("data task planner is not configured")
 	}
-	req := dataTaskPlannerPrompt(userLine, repoRoot, policy, candidates)
 	resp, err := p.adapter.Chat(ctx,
 		[]llm.Message{
 			{Role: "system", Content: dataTaskPlannerSystemPrompt},
-			{Role: "user", Content: req},
+			{Role: "user", Content: prompt},
 		},
 		[]llm.ToolSchema{dataTaskPlanTool},
 		llm.ChatOptions{ToolChoice: "required"},
 	)
-	p.lastTrace = traceFromLLMResponse("data_task_planner", resp)
+	p.lastTrace = traceFromLLMResponse(scope, resp)
 	if err != nil {
 		return dataquery.TaskPlan{}, err
 	}
@@ -161,13 +289,102 @@ func dataTaskPlannerPrompt(userLine, repoRoot string, policy TurnPolicy, candida
 	return strings.TrimSpace(b.String())
 }
 
+func dataTaskRepairPrompt(userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## repair_goal\nThe previous data task script failed at execution time. Emit a corrected emit_data_task_plan.\n\n")
+	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
+	fmt.Fprintf(&b, "## workspace_root\n%s\n\n", strings.TrimSpace(repoRoot))
+	fmt.Fprintf(&b, "## route_policy\nroute=%s data_task_kind=%s operation=%s source=%s confidence=%.2f\n\n",
+		policy.Route, policy.DataTaskKind, policy.Operation, policy.Source, policy.Confidence)
+	fmt.Fprintf(&b, "## execution_error\n%s\n\n", strings.TrimSpace(executionError))
+	prevJSON, _ := json.MarshalIndent(previous, "", "  ")
+	fmt.Fprintf(&b, "## previous_plan_json\n%s\n\n", string(prevJSON))
+	b.WriteString("## repair_rules\n")
+	b.WriteString("- Fix the script deterministically; preserve the user's requested output contract unless it was the direct cause of the failure.\n")
+	b.WriteString("- Prefer correcting code/import/helper usage over asking the user. Ask only when a user-owned business rule or missing input is genuinely required.\n")
+	b.WriteString("- Keep input_paths limited to candidate files. List every file the script reads.\n")
+	b.WriteString("- The script must call emit(obj) or set result. Debug print is allowed only in small amounts and is not the final answer.\n")
+	b.WriteString("- If the repair requires side effects such as network/process/file write/install/delete, return status=blocked instead of embedding those actions in the script; the operation pipeline owns risk and approval.\n\n")
+	b.WriteString("## candidate_data_files\n")
+	if len(candidates) == 0 {
+		b.WriteString("(none discovered)\n")
+	} else {
+		limit := len(candidates)
+		if limit > 120 {
+			limit = 120
+		}
+		for i := 0; i < limit; i++ {
+			f := candidates[i]
+			fmt.Fprintf(&b, "- path=%s kind=%s size=%d\n", f.Path, f.Kind, f.Size)
+		}
+		if len(candidates) > limit {
+			fmt.Fprintf(&b, "- ... %d more candidate file(s) omitted\n", len(candidates)-limit)
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func dataTaskContinuationPrompt(userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## continuation_goal\nThe previous data batch executed. Emit the next bounded emit_data_task_plan, or status=complete/blocked/needs_clarification when appropriate.\n\n")
+	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
+	fmt.Fprintf(&b, "## workspace_root\n%s\n\n", strings.TrimSpace(repoRoot))
+	fmt.Fprintf(&b, "## route_policy\nroute=%s data_task_kind=%s operation=%s source=%s confidence=%.2f\n\n",
+		policy.Route, policy.DataTaskKind, policy.Operation, policy.Source, policy.Confidence)
+	b.WriteString("## previous_data_rounds\n")
+	b.WriteString(renderDataTaskRecordsForPrompt(records))
+	b.WriteString("\n\n## continuation_rules\n")
+	b.WriteString("- If previous results satisfy the user's data goal and output contract, emit status=complete with a short block_reason/reason and no script.\n")
+	b.WriteString("- If more data calculation is needed, emit status=ready with only the next bounded script batch.\n")
+	b.WriteString("- Do not repeat a failed script unchanged. Do not re-run successful intermediate batches unless a fresh value is required.\n")
+	b.WriteString("- Ask the user only for user-owned business inputs. Keep computing when the missing fact can be derived from available local data files.\n")
+	b.WriteString("- Side effects belong to the operation lane; return blocked if they are required.\n\n")
+	b.WriteString("## candidate_data_files\n")
+	appendCandidateDataFiles(&b, candidates)
+	return strings.TrimSpace(b.String())
+}
+
+func dataTaskEvaluationPrompt(userLine string, records []dataTaskWorkflowRecord, lang string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## language\n%s\n\n", strings.TrimSpace(lang))
+	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
+	b.WriteString("## data_workflow_rounds\n")
+	b.WriteString(renderDataTaskRecordsForPrompt(records))
+	return strings.TrimSpace(b.String())
+}
+
+func appendCandidateDataFiles(b *strings.Builder, candidates []dataquery.CandidateFile) {
+	if len(candidates) == 0 {
+		b.WriteString("(none discovered)\n")
+		return
+	}
+	limit := len(candidates)
+	if limit > 120 {
+		limit = 120
+	}
+	for i := 0; i < limit; i++ {
+		f := candidates[i]
+		fmt.Fprintf(b, "- path=%s kind=%s size=%d\n", f.Path, f.Kind, f.Size)
+	}
+	if len(candidates) > limit {
+		fmt.Fprintf(b, "- ... %d more candidate file(s) omitted\n", len(candidates)-limit)
+	}
+}
+
 type dataTaskPlanDraft struct {
-	Status         flexiblePolicyString     `json:"status"`
-	InputPaths     flexiblePolicyStringList `json:"input_paths"`
-	OutputContract dataTaskOutputDraft      `json:"output_contract"`
-	Script         flexiblePolicyString     `json:"script"`
-	Questions      []dataTaskQuestionDraft  `json:"questions"`
-	BlockReason    flexiblePolicyString     `json:"block_reason"`
+	Status              flexiblePolicyString     `json:"status"`
+	InputPaths          flexiblePolicyStringList `json:"input_paths"`
+	OutputContract      dataTaskOutputDraft      `json:"output_contract"`
+	Script              flexiblePolicyString     `json:"script"`
+	Questions           []dataTaskQuestionDraft  `json:"questions"`
+	BlockReason         flexiblePolicyString     `json:"block_reason"`
+	Goal                flexiblePolicyString     `json:"goal"`
+	KnownConstraints    flexiblePolicyStringList `json:"known_constraints"`
+	MissingObservations flexiblePolicyStringList `json:"missing_observations"`
+	SuccessCriteria     flexiblePolicyStringList `json:"success_criteria"`
+	NextBatch           flexiblePolicyString     `json:"next_batch"`
+	WhyThisBatch        flexiblePolicyString     `json:"why_this_batch"`
+	ContinueAfter       flexiblePolicyBool       `json:"continue_after"`
 }
 
 type dataTaskOutputDraft struct {
@@ -180,6 +397,22 @@ type dataTaskQuestionDraft struct {
 	ID          flexiblePolicyString     `json:"id"`
 	Question    flexiblePolicyString     `json:"question"`
 	Suggestions flexiblePolicyStringList `json:"suggestions"`
+}
+
+type dataTaskEvaluationDraft struct {
+	Status        flexiblePolicyString     `json:"status"`
+	Reason        flexiblePolicyString     `json:"reason"`
+	Confidence    flexiblePolicyString     `json:"confidence"`
+	MissingInputs flexiblePolicyStringList `json:"missing_inputs"`
+}
+
+func (d dataTaskEvaluationDraft) toEvaluation() dataquery.Evaluation {
+	return dataquery.Evaluation{
+		Status:        dataquery.NormalizeEvaluationStatus(string(d.Status)),
+		Reason:        strings.TrimSpace(string(d.Reason)),
+		Confidence:    strings.TrimSpace(string(d.Confidence)),
+		MissingInputs: cleanPolicyStringList([]string(d.MissingInputs)),
+	}
 }
 
 func (d dataTaskPlanDraft) toPlan() dataquery.TaskPlan {
@@ -195,15 +428,34 @@ func (d dataTaskPlanDraft) toPlan() dataquery.TaskPlan {
 		})
 	}
 	return dataquery.TaskPlan{
-		Status:     strings.ToLower(strings.TrimSpace(string(d.Status))),
+		Status:     normalizeDataTaskPlanStatus(string(d.Status)),
 		InputPaths: cleanPolicyStringList([]string(d.InputPaths)),
 		OutputContract: dataquery.OutputContract{
 			Format:             dataquery.OutputFormat(strings.TrimSpace(string(d.OutputContract.Format))),
 			ExplanationAllowed: bool(d.OutputContract.ExplanationAllowed),
 			Delimiter:          strings.TrimSpace(string(d.OutputContract.Delimiter)),
 		}.Normalize(),
-		Script:      strings.TrimSpace(string(d.Script)),
-		Questions:   qs,
-		BlockReason: strings.TrimSpace(string(d.BlockReason)),
+		Script:              strings.TrimSpace(string(d.Script)),
+		Questions:           qs,
+		BlockReason:         strings.TrimSpace(string(d.BlockReason)),
+		Goal:                strings.TrimSpace(string(d.Goal)),
+		KnownConstraints:    cleanPolicyStringList([]string(d.KnownConstraints)),
+		MissingObservations: cleanPolicyStringList([]string(d.MissingObservations)),
+		SuccessCriteria:     cleanPolicyStringList([]string(d.SuccessCriteria)),
+		NextBatch:           strings.TrimSpace(string(d.NextBatch)),
+		WhyThisBatch:        strings.TrimSpace(string(d.WhyThisBatch)),
+		ContinueAfter:       bool(d.ContinueAfter),
+	}
+}
+
+func normalizeDataTaskPlanStatus(status string) string {
+	status = strings.ToLower(strings.TrimSpace(status))
+	switch status {
+	case "ready", "needs_clarification", "blocked", "complete", "budget_exhausted", "partial_answer_possible":
+		return status
+	case "":
+		return "ready"
+	default:
+		return status
 	}
 }
