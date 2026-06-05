@@ -300,6 +300,48 @@ func TestActionRunnerMaterialInventoryAndInspectArtifacts(t *testing.T) {
 	}
 }
 
+func TestActionRunnerExtractRecordsArtifacts(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("id,amount\n1,10\n2,20\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "events.jsonl"), []byte("{\"id\":\"a\",\"ok\":true}\n{\"id\":\"b\",\"ok\":false}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runner := ActionRunner{RepoRoot: root, TempRoot: filepath.Join(root, ".tmp")}
+	res, err := runner.Run(context.Background(), TaskPlan{
+		Status:         "ready",
+		OutputContract: OutputContract{Format: OutputJSONOnly, ExplanationAllowed: false},
+		Actions: []DataAction{{
+			ID:              "extract",
+			Kind:            DataActionExtractRecords,
+			InputPaths:      []string{"orders.csv", "events.jsonl"},
+			OutputArtifact:  "records",
+			Params:          map[string]string{"limit": "1"},
+			SuccessCriteria: []string{"bounded samples are available"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("ActionRunner.Run: %v", err)
+	}
+	if len(res.Artifacts) != 1 || len(res.Artifacts[0].Children) != 2 {
+		t.Fatalf("artifacts=%+v", res.Artifacts)
+	}
+	var csvArtifact DataArtifact
+	for _, child := range res.Artifacts[0].Children {
+		if len(child.SourcePaths) > 0 && child.SourcePaths[0] == "orders.csv" {
+			csvArtifact = child
+			break
+		}
+	}
+	if csvArtifact.Kind != "extract_records/csv" || strings.Join(csvArtifact.Headers, ",") != "id,amount" || csvArtifact.RowCount != 2 || len(csvArtifact.Sample) != 1 {
+		t.Fatalf("csv artifact=%+v", csvArtifact)
+	}
+	if got := strings.Join(res.ConsumedPaths, ","); !strings.Contains(got, "orders.csv") || !strings.Contains(got, "events.jsonl") {
+		t.Fatalf("ConsumedPaths=%v", res.ConsumedPaths)
+	}
+}
+
 func TestActionRunnerCustomTransformUsesExistingRunner(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

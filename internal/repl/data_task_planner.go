@@ -137,7 +137,7 @@ var dataTaskPlanTool = llm.ToolSchema{
         "type": "object",
         "properties": {
           "id": {"type":"string"},
-          "kind": {"type":"string", "enum":["material_inventory","inspect_material","custom_transform"]},
+          "kind": {"type":"string", "enum":["material_inventory","inspect_material","extract_records","custom_transform"]},
           "purpose": {"type":"string"},
           "input_paths": {"type":"array", "items":{"type":"string"}},
           "output_artifact": {"type":"string"},
@@ -147,7 +147,7 @@ var dataTaskPlanTool = llm.ToolSchema{
         },
         "required": ["kind"]
       },
-      "description": "Optional adaptive Data DAG action batch. Prefer actions for multi-step data work. material_inventory discovers objective candidate metadata; inspect_material profiles specific files; custom_transform runs a bounded script over declared action input_paths. Each action must be atomic and produce one reusable artifact/result. Do not put one giant end-to-end script in a single custom_transform."
+      "description": "Optional adaptive Data DAG action batch. Prefer actions for multi-step data work. material_inventory discovers objective candidate metadata; inspect_material profiles specific files; extract_records converts selected CSV/TSV/JSON/JSONL/text materials into bounded generic record samples; custom_transform runs a bounded script over declared action input_paths. Each action must be atomic and produce one reusable artifact/result. Do not put one giant end-to-end script in a single custom_transform."
     },
     "script": {
       "type": "string",
@@ -287,7 +287,7 @@ Hard rules:
 - Prefer the adaptive action workflow for non-trivial tasks: emit actions such as material_inventory, inspect_material, then a small custom_transform only when the needed artifact inputs are known.
 - Do not emit a giant one-shot script for tasks with many materials, uncertain schemas, unknown mapping rules, or likely multi-stage processing. Emit the next atomic action batch, set continue_after=true when more graph expansion is needed, and let the workflow feed real artifacts back before planning the next batch.
 - An action is atomic: it should answer one small observation or transformation question. If one action would inspect many unrelated schemas, normalize entities, compute contributions, reconcile, and render output together, split it.
-- Use material_inventory when you need an objective file/material overview before choosing inputs. Use inspect_material when you need headers/samples/details for specific materials. Use custom_transform only for bounded deterministic transforms over known input_paths.
+- Use material_inventory when you need an objective file/material overview before choosing inputs. Use inspect_material when you need headers/samples/details for specific materials. Use extract_records when you need bounded generic records from selected structured or text materials. Use custom_transform only for bounded deterministic transforms over known input_paths.
 - When actions are present, top-level script may be empty. For custom_transform actions, put the bounded script on that action and list every file it reads in action.input_paths.
 - If the user requests JSON-only, CSV-only, a single line, only a file path, only a code block, or a Markdown table, encode that in output_contract. Do not hard-code one output style.
 - If explanation_allowed=false, answer must be exactly the requested final payload, with no explanatory prefix or suffix.

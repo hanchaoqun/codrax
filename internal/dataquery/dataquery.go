@@ -72,6 +72,7 @@ type DataActionKind string
 const (
 	DataActionMaterialInventory DataActionKind = "material_inventory"
 	DataActionInspectMaterial   DataActionKind = "inspect_material"
+	DataActionExtractRecords    DataActionKind = "extract_records"
 	DataActionCustomTransform   DataActionKind = "custom_transform"
 )
 

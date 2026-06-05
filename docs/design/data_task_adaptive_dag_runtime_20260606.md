@@ -140,7 +140,7 @@ remove the read. This keeps repair local to the graph node.
 
 ### Batch 3: More Deterministic Atomic Ops
 
-- [ ] Add `extract_records` for converting a profiled material into generic
+- [x] Add `extract_records` for converting a profiled material into generic
       records.
 - [ ] Add `derive_rules` for converting planner-distilled rules into typed
       rule artifacts.

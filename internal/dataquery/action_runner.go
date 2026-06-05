@@ -2,9 +2,12 @@ package dataquery
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -44,6 +47,14 @@ func (r ActionRunner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 			summaries = append(summaries, artifact.Summary)
 		case DataActionInspectMaterial:
 			artifact, err := r.runInspectMaterial(action)
+			if err != nil {
+				return Result{}, err
+			}
+			artifacts = append(artifacts, artifact)
+			consumed = append(consumed, artifact.SourcePaths...)
+			summaries = append(summaries, artifact.Summary)
+		case DataActionExtractRecords:
+			artifact, err := r.runExtractRecords(action)
 			if err != nil {
 				return Result{}, err
 			}
@@ -94,6 +105,8 @@ func normalizeDataActionKind(kind DataActionKind) DataActionKind {
 		return DataActionMaterialInventory
 	case DataActionInspectMaterial:
 		return DataActionInspectMaterial
+	case DataActionExtractRecords:
+		return DataActionExtractRecords
 	case DataActionCustomTransform, "":
 		return DataActionCustomTransform
 	default:
@@ -167,6 +180,124 @@ func (r ActionRunner) runInspectMaterial(action DataAction) (DataArtifact, error
 	}, nil
 }
 
+func (r ActionRunner) runExtractRecords(action DataAction) (DataArtifact, error) {
+	paths := cleanStringList(action.InputPaths)
+	if len(paths) == 0 {
+		return DataArtifact{}, errors.New("extract_records action has no input_paths")
+	}
+	limit := actionIntParam(action, "limit", 20, 1, 200)
+	children := make([]DataArtifact, 0, len(paths))
+	for _, p := range paths {
+		child, err := r.extractRecordsFromPath(p, limit)
+		if err != nil {
+			return DataArtifact{}, err
+		}
+		children = append(children, child)
+	}
+	id := firstNonEmptyString(strings.TrimSpace(action.OutputArtifact), strings.TrimSpace(action.ID), "record_extract")
+	return DataArtifact{
+		ID:          id,
+		Kind:        string(DataActionExtractRecords),
+		SourcePaths: normalizeMaterialPaths(paths),
+		Summary:     fmt.Sprintf("extracted record samples from %d material(s)", len(paths)),
+		Fields: map[string]string{
+			"count": fmt.Sprintf("%d", len(paths)),
+			"limit": fmt.Sprintf("%d", limit),
+		},
+		Children: children,
+	}, nil
+}
+
+func (r ActionRunner) extractRecordsFromPath(path string, limit int) (DataArtifact, error) {
+	abs, rel, err := r.resolveActionInputPath(path)
+	if err != nil {
+		return DataArtifact{}, err
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return DataArtifact{}, err
+	}
+	kind := dataKindForPath(abs)
+	if kind == "" {
+		kind = "text"
+	}
+	f := inspectCandidateFile(abs, CandidateFile{
+		Path: rel,
+		Size: info.Size(),
+		Kind: kind,
+	})
+	artifact := candidateArtifact(f)
+	artifact.ID = rel + "#records"
+	artifact.Kind = string(DataActionExtractRecords) + "/" + kind
+	artifact.Sample = nil
+	switch kind {
+	case "csv", "tsv":
+		headers, samples, rowCount, err := extractDelimitedRecords(abs, f.Delimiter, limit)
+		if err != nil {
+			return DataArtifact{}, err
+		}
+		artifact.Headers = headers
+		artifact.Sample = samples
+		artifact.RowCount = rowCount
+	case "json":
+		samples, rowCount, err := extractJSONRecords(abs, limit)
+		if err != nil {
+			return DataArtifact{}, err
+		}
+		artifact.Sample = samples
+		artifact.RowCount = rowCount
+	case "jsonl":
+		samples, rowCount, err := extractJSONLRecords(abs, limit)
+		if err != nil {
+			return DataArtifact{}, err
+		}
+		artifact.Sample = samples
+		artifact.RowCount = rowCount
+	default:
+		samples, rowCount, err := extractTextRecords(abs, limit)
+		if err != nil {
+			return DataArtifact{}, err
+		}
+		artifact.Sample = samples
+		artifact.RowCount = rowCount
+	}
+	if artifact.Fields == nil {
+		artifact.Fields = map[string]string{}
+	}
+	artifact.Fields["sample_count"] = fmt.Sprintf("%d", len(artifact.Sample))
+	artifact.Fields["limit"] = fmt.Sprintf("%d", limit)
+	artifact.Summary = fmt.Sprintf("%s | extracted %d sample record(s) from %d total record(s)", rel, len(artifact.Sample), artifact.RowCount)
+	return artifact, nil
+}
+
+func (r ActionRunner) resolveActionInputPath(path string) (abs string, rel string, err error) {
+	path = normalizeMaterialPath(path)
+	if path == "" {
+		return "", "", errors.New("empty action input path")
+	}
+	root := firstNonEmptyString(strings.TrimSpace(r.RepoRoot), ".")
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", "", err
+	}
+	joined := path
+	if !filepath.IsAbs(joined) {
+		joined = filepath.Join(absRoot, filepath.FromSlash(path))
+	}
+	abs, err = filepath.Abs(joined)
+	if err != nil {
+		return "", "", err
+	}
+	relPath, err := filepath.Rel(absRoot, abs)
+	if err != nil {
+		return "", "", err
+	}
+	if relPath == "." || strings.HasPrefix(relPath, ".."+string(filepath.Separator)) || relPath == ".." || filepath.IsAbs(relPath) {
+		return "", "", fmt.Errorf("action input path escapes data workspace: %s", path)
+	}
+	return abs, filepath.ToSlash(relPath), nil
+}
+
 func (r ActionRunner) runCustomTransform(ctx context.Context, plan TaskPlan, action DataAction) (Result, error) {
 	script := strings.TrimSpace(action.Script)
 	if script == "" {
@@ -190,6 +321,168 @@ func (r ActionRunner) runCustomTransform(ctx context.Context, plan TaskPlan, act
 		MaxTotalBytes: r.MaxTotalBytes,
 	}
 	return runner.Run(ctx, subPlan)
+}
+
+func extractDelimitedRecords(path, delimiter string, limit int) ([]string, []string, int, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil, 0, err
+	}
+	defer file.Close()
+	reader := csv.NewReader(file)
+	reader.FieldsPerRecord = -1
+	if delimiter == "\t" {
+		reader.Comma = '\t'
+	}
+	headers, err := reader.Read()
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil, nil, 0, nil
+		}
+		return nil, nil, 0, err
+	}
+	headers = cleanStringSlice(headers)
+	var samples []string
+	rowCount := 0
+	for {
+		row, err := reader.Read()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return headers, samples, rowCount, err
+		}
+		rowCount++
+		if len(samples) >= limit {
+			continue
+		}
+		obj := map[string]string{}
+		for i, value := range row {
+			key := fmt.Sprintf("col_%d", i+1)
+			if i < len(headers) && headers[i] != "" {
+				key = headers[i]
+			}
+			obj[key] = strings.TrimSpace(value)
+		}
+		samples = append(samples, compactJSONLine(obj))
+	}
+	return headers, samples, rowCount, nil
+}
+
+func extractJSONRecords(path string, limit int) ([]string, int, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, 0, err
+	}
+	var records []any
+	switch v := value.(type) {
+	case []any:
+		records = v
+	case map[string]any:
+		for _, item := range v {
+			if arr, ok := item.([]any); ok {
+				records = arr
+				break
+			}
+		}
+		if records == nil {
+			records = []any{v}
+		}
+	default:
+		records = []any{v}
+	}
+	samples := make([]string, 0, minInt(limit, len(records)))
+	for i, record := range records {
+		if i >= limit {
+			break
+		}
+		samples = append(samples, compactJSONLine(record))
+	}
+	return samples, len(records), nil
+}
+
+func extractJSONLRecords(path string, limit int) ([]string, int, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	lines := strings.Split(string(raw), "\n")
+	var samples []string
+	rowCount := 0
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		rowCount++
+		if len(samples) >= limit {
+			continue
+		}
+		var obj any
+		if err := json.Unmarshal([]byte(line), &obj); err == nil {
+			samples = append(samples, compactJSONLine(obj))
+		} else {
+			samples = append(samples, line)
+		}
+	}
+	return samples, rowCount, nil
+}
+
+func extractTextRecords(path string, limit int) ([]string, int, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, 0, err
+	}
+	lines := strings.Split(string(raw), "\n")
+	var samples []string
+	rowCount := 0
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		rowCount++
+		if len(samples) < limit {
+			samples = append(samples, line)
+		}
+	}
+	return samples, rowCount, nil
+}
+
+func compactJSONLine(value any) string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Sprint(value)
+	}
+	return string(raw)
+}
+
+func actionIntParam(action DataAction, key string, fallback, minValue, maxValue int) int {
+	value := fallback
+	if raw := strings.TrimSpace(action.Params[key]); raw != "" {
+		var parsed int
+		if _, err := fmt.Sscanf(raw, "%d", &parsed); err == nil {
+			value = parsed
+		}
+	}
+	if value < minValue {
+		value = minValue
+	}
+	if value > maxValue {
+		value = maxValue
+	}
+	return value
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func candidateArtifact(f CandidateFile) DataArtifact {
