@@ -1355,7 +1355,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					r.recordTurn(display, line, msg, memory.KindPipeline)
 					return
 				}
-				repairedPlan = preserveDataTaskMaterialRepairCoverage(currentPlan, repairedPlan)
+				repairedPlan = preserveDataTaskMaterialRepairCoverageForError(currentPlan, repairedPlan, errText)
 				r.emitDataTaskPlanAudit(repairedPlan)
 				r.auditDataTaskPlan("repair", repairRounds, repairedPlan)
 				currentPlan = repairedPlan
@@ -1388,7 +1388,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					r.recordTurn(display, line, msg, memory.KindPipeline)
 					return
 				}
-				repairedPlan = preserveDataTaskMaterialRepairCoverage(currentPlan, repairedPlan)
+				repairedPlan = preserveDataTaskMaterialRepairCoverageForError(currentPlan, repairedPlan, errText)
 				r.emitDataTaskPlanAudit(repairedPlan)
 				r.auditDataTaskPlan("repair", repairRounds, repairedPlan)
 				currentPlan = repairedPlan
@@ -1445,7 +1445,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 					r.recordTurn(display, line, msg, memory.KindPipeline)
 					return
 				}
-				repairedPlan = preserveDataTaskMaterialRepairCoverage(currentPlan, repairedPlan)
+				repairedPlan = preserveDataTaskMaterialRepairCoverageForError(currentPlan, repairedPlan, errText)
 				r.emitDataTaskPlanAudit(repairedPlan)
 				r.auditDataTaskPlan("repair", repairRounds, repairedPlan)
 				currentPlan = repairedPlan

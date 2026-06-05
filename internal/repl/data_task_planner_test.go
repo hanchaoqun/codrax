@@ -447,6 +447,74 @@ func TestPreserveDataTaskMaterialRepairCoverageAllowsExplicitReplacement(t *test
 	}
 }
 
+func TestPreserveDataTaskMaterialRepairCoverageForOversizedStagedBatch(t *testing.T) {
+	previous := dataquery.TaskPlan{
+		InputPaths: []string{"orders.csv", "vendors.csv", "rules.md"},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "orders.csv", Purpose: "source rows", Required: true},
+				{Path: "vendors.csv", Purpose: "lookup", Required: true},
+				{Path: "rules.md", Purpose: "rules", Required: true},
+			},
+			DecisionRecordsRequired:    true,
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			EntityResolutionRequired:   true,
+			ReconcileRequired:          true,
+		},
+	}
+	repaired := dataquery.TaskPlan{
+		InputPaths:    []string{"vendors.csv"},
+		ContinueAfter: true,
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "vendors.csv", Purpose: "staged lookup normalization", Required: true},
+			},
+			EntityResolutionRequired: true,
+		},
+	}
+	errText := "data planning incomplete: plan is too large for one bounded data batch (script_lines=365 required_materials=6 validation_ledgers=5 continue_after=false). Emit a smaller bounded batch, set continue_after=true when further work remains, and let the workflow feed real results into later batches."
+	got := preserveDataTaskMaterialRepairCoverageForError(previous, repaired, errText)
+	if !got.ContinueAfter {
+		t.Fatalf("ContinueAfter=false")
+	}
+	if got.CoverageContract.DecisionRecordsRequired || got.CoverageContract.RuleCoverageRequired || got.CoverageContract.ContributionLedgerRequired || got.CoverageContract.ReconcileRequired {
+		t.Fatalf("staged oversized repair inherited final ledgers: %+v", got.CoverageContract)
+	}
+	if !got.CoverageContract.EntityResolutionRequired {
+		t.Fatalf("stage-specific ledger was lost: %+v", got.CoverageContract)
+	}
+	if strings.Join(got.CoverageContract.RequiredPaths(), ",") != "vendors.csv" {
+		t.Fatalf("RequiredPaths=%v, want only staged material", got.CoverageContract.RequiredPaths())
+	}
+}
+
+func TestPreserveDataTaskMaterialRepairCoverageForNonStagedRepairStillProtectsCoverage(t *testing.T) {
+	previous := dataquery.TaskPlan{
+		InputPaths: []string{"orders.csv", "rules.md"},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "orders.csv", Purpose: "source rows", Required: true},
+				{Path: "rules.md", Purpose: "rules", Required: true},
+			},
+			RuleCoverageRequired: true,
+		},
+	}
+	repaired := dataquery.TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{{Path: "orders.csv", Purpose: "source rows", Required: true}},
+		},
+	}
+	got := preserveDataTaskMaterialRepairCoverageForError(previous, repaired, "execute data task: data task script failed")
+	if !got.CoverageContract.RuleCoverageRequired {
+		t.Fatalf("RuleCoverageRequired=false")
+	}
+	if strings.Join(got.InputPaths, ",") != "orders.csv" {
+		t.Fatalf("InputPaths=%v", got.InputPaths)
+	}
+}
+
 func dataTaskPlanResp(raw string) llm.Response {
 	return llm.Response{
 		ToolCalls: []llm.ToolCall{{

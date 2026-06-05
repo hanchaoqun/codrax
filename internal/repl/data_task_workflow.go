@@ -383,6 +383,15 @@ func preserveDataTaskMaterialRepairCoverage(previous, repaired dataquery.TaskPla
 	return repaired
 }
 
+func preserveDataTaskMaterialRepairCoverageForError(previous, repaired dataquery.TaskPlan, errText string) dataquery.TaskPlan {
+	violation := dataquery.ClassifyExecutionError(errText)
+	if violation.Code == "oversized_data_plan" && repaired.ContinueAfter && (len(repaired.CoverageContract.RequiredMaterials) > 0 || len(repaired.CoverageContract.OptionalMaterials) > 0) {
+		repaired.InputPaths = mergeDataTaskInputPaths(repaired.InputPaths, repaired.CoverageContract.RequiredRunnerInputPaths())
+		return repaired
+	}
+	return preserveDataTaskMaterialRepairCoverage(previous, repaired)
+}
+
 func mergeDataTaskCoverageContracts(previous, next dataquery.CoverageContract) dataquery.CoverageContract {
 	out := next
 	out.RequiredMaterials = mergeDataTaskCoverageMaterials(previous.RequiredMaterials, next.RequiredMaterials, true)

@@ -374,6 +374,21 @@ Repair layering:
 4. L3: if a violation needs business recomputation, the workflow emits a new
    bounded data plan instead of patching the result.
 
+Staged recomputation must preserve trust without forcing final-batch contracts
+onto intermediate batches:
+
+- For ordinary repairs, Codrax preserves required validation flags so the model
+  cannot silently drop material coverage, decision records, rule coverage,
+  contribution records, entity resolutions, or reconciliation.
+- For a precise `oversized_data_plan` repair, when the model emits
+  `continue_after=true` and an explicit staged coverage contract, Codrax treats
+  that contract as the current bounded batch contract instead of OR-ing the
+  previous final-batch ledger flags back in. The previous plan remains in the
+  workflow history and the evaluator/continuation planner must decide whether
+  later batches still satisfy the original user goal.
+- This is intentionally narrow. It does not relax coverage for runtime script
+  failures, missing-material failures, schema failures, or terminal batches.
+
 This is intentionally generic. It applies to tabular aggregation, JSONL
 transforms, text-span extraction, entity normalization, OCR-derived evidence,
 strict scalar output, and Markdown/JSON/CSV output contracts. It does not know
@@ -639,6 +654,9 @@ scope for commercial safety.
       large scripts.
 - [x] Classify `oversized_data_plan` and teach repair prompts to emit smaller
       bounded batches with `continue_after=true` when needed.
+- [x] Preserve staged repair contracts for precise `oversized_data_plan`
+      continuations so final-batch validation ledgers are not forced onto
+      intermediate batches.
 - [x] Let the Python data runner accept JSON-style `true`/`false`/`null`
       constants without requiring the model to replan.
 - [x] Strengthen runner ledger helpers so safe structural aliases normalize to

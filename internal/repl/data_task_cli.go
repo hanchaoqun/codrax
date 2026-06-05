@@ -180,7 +180,7 @@ func repairDataTaskPlanForCLI(ctx context.Context, planner DataTaskPlanner, requ
 	if err != nil {
 		return dataquery.TaskPlan{}, repairRounds, false, fmt.Errorf("%s\nrepair data task: %w", errText, err)
 	}
-	repairedPlan = preserveDataTaskMaterialRepairCoverage(currentPlan, repairedPlan)
+	repairedPlan = preserveDataTaskMaterialRepairCoverageForError(currentPlan, repairedPlan, errText)
 	return repairedPlan, repairRounds, true, nil
 }
 
