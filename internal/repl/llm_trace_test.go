@@ -116,6 +116,54 @@ func TestDirectLLMTraceAdapterKeepsCallbacksPassive(t *testing.T) {
 	if strings.Join(contentDeltas, "") != "content" {
 		t.Fatalf("content deltas = %+v", contentDeltas)
 	}
+	if got := stripANSIOnly(out.String()); !strings.Contains(got, "final reasoning") {
+		t.Fatalf("direct reasoning should enter permanent scrollback, got %q", got)
+	}
+	if got := stripANSIOnly(out.String()); strings.Contains(got, "final content") {
+		t.Fatalf("ordinary content must not be duplicated as thinking scrollback, got %q", got)
+	}
+}
+
+func TestDirectLLMTraceAdapterPersistsVisibleThinkBlocksOnly(t *testing.T) {
+	var out bytes.Buffer
+	wrapped := NewDirectLLMTraceAdapter(directTraceStubAdapter{response: llm.Response{
+		Content: "<think>visible model thinking</think>\n\nordinary response",
+	}}, render.New(&out, true), types.AgentName("operation_planner"), types.PipelineStage("operation"))
+
+	resp, err := wrapped.Chat(context.Background(), nil, nil, llm.ChatOptions{})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	if resp.Content == "" {
+		t.Fatal("response content unexpectedly empty")
+	}
+	got := stripANSIOnly(out.String())
+	if !strings.Contains(got, "visible model thinking") {
+		t.Fatalf("think block should enter permanent scrollback, got %q", got)
+	}
+	if strings.Contains(got, "ordinary response") {
+		t.Fatalf("ordinary response must not be duplicated as thinking scrollback, got %q", got)
+	}
+}
+
+func TestDirectLLMTraceAdapterPersistsOrdinaryContentWhenToolCalling(t *testing.T) {
+	var out bytes.Buffer
+	wrapped := NewDirectLLMTraceAdapter(directTraceStubAdapter{response: llm.Response{
+		Content: "I will inspect the data plan before calling the tool.",
+		ToolCalls: []llm.ToolCall{{
+			Name:   "emit_data_task_plan",
+			Params: []byte(`{"status":"blocked"}`),
+		}},
+	}}, render.New(&out, true), types.AgentName("data_planner"), types.PipelineStage("data"))
+
+	_, err := wrapped.Chat(context.Background(), nil, nil, llm.ChatOptions{})
+	if err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
+	got := stripANSIOnly(out.String())
+	if !strings.Contains(got, "I will inspect the data plan before calling the tool.") {
+		t.Fatalf("tool-calling prose should enter permanent scrollback, got %q", got)
+	}
 }
 
 func TestTurnPolicyAuditSummaryShowsTypedRouteDecision(t *testing.T) {

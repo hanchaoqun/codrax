@@ -64,6 +64,15 @@ func (a *directLLMTraceAdapter) Chat(ctx context.Context, messages []llm.Message
 			Agent:     a.agent,
 			Stage:     a.stage,
 		})
+		if reasoning := directLLMVisibleReasoning(resp); reasoning != "" {
+			a.emit(render.Event{
+				Kind:      render.EventAgentReasoning,
+				Timestamp: time.Now(),
+				Agent:     a.agent,
+				Stage:     a.stage,
+				Reasoning: reasoning,
+			})
+		}
 	}
 	return resp, err
 }
@@ -163,6 +172,25 @@ func chainStringCallback(first, second func(string)) func(string) {
 			second(delta)
 		}()
 	}
+}
+
+func directLLMVisibleReasoning(resp llm.Response) string {
+	var parts []string
+	if reasoning := strings.TrimSpace(resp.ReasoningContent); reasoning != "" {
+		parts = append(parts, reasoning)
+	}
+	thoughts, ordinaryContent := splitVisibleThinkBlocks(resp.Content)
+	for _, thought := range thoughts {
+		if thought = strings.TrimSpace(thought); thought != "" {
+			parts = append(parts, thought)
+		}
+	}
+	if len(resp.ToolCalls) > 0 {
+		if ordinaryContent = strings.TrimSpace(ordinaryContent); ordinaryContent != "" {
+			parts = append(parts, ordinaryContent)
+		}
+	}
+	return strings.TrimSpace(strings.Join(parts, "\n\n"))
 }
 
 func chainRetryCallback(first func(int, time.Duration, string), emit render.EventEmitter, agent types.AgentName, stage types.PipelineStage) func(int, time.Duration, string) {
