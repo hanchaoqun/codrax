@@ -1485,6 +1485,9 @@ func (r *Renderer) localStageOverridesFocusLocked(focus *taskRow, localKey strin
 	if focus == nil || localKey == "" {
 		return true
 	}
+	if localKey == "operation" || localKey == "data" {
+		return true
+	}
 	total := normalizedTotalStages(r.totalStages)
 	localSlot := stageSlotForKey(localKey, total)
 	focusSlot := stageSlotForKey(stageKeyFor(focus), total)

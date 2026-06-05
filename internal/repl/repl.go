@@ -1246,6 +1246,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		r.recordTurn(display, line, msg, memory.KindPipeline)
 		return
 	}
+	r.startDataTaskPlanningSpinner()
 	ctx := r.startTurn()
 	candidates, err := dataquery.DiscoverCandidateFiles(r.repoRoot, 240)
 	if err != nil {
@@ -1785,6 +1786,28 @@ func (r *REPL) finishDataTaskRouteSpinner(status string) {
 	r.emitOperationLightRouteSummary(label, segs)
 }
 
+func (r *REPL) startDataTaskPlanningSpinner() {
+	if r.renderer == nil {
+		return
+	}
+	label, segs := dataTaskPlanningSummary(r.language)
+	r.renderer.SetTotalStages(0)
+	r.renderer.SetRouteSummary(label, segs)
+	if r.renderer.SpinnerActive() {
+		r.renderer.SetLightRouteActivity(label)
+		return
+	}
+	r.renderer.StartSpinnerWithCancelHint(spinnerCancelHint(r.language))
+	r.renderer.SetLightRouteActivity(label)
+}
+
+func dataTaskPlanningSummary(lang string) (string, []string) {
+	if isZh(lang) {
+		return "数据任务", []string{"规划中", "未读源码"}
+	}
+	return "data task", []string{"planning", "no source read"}
+}
+
 func (r *REPL) emitReplLLMTrace(source any, fallbackScope string, agent types.AgentName, stage types.PipelineStage) {
 	provider, ok := source.(replLLMTraceProvider)
 	if !ok {
@@ -2008,12 +2031,12 @@ func (r *REPL) emitDataTaskWorkflowAudit(kind string, round int, details ...stri
 		default:
 			segs = append(segs, kind)
 		}
+		segs = append(segs, "未读源码")
 		for _, detail := range details {
 			if detail = strings.TrimSpace(detail); detail != "" {
 				segs = append(segs, detail)
 			}
 		}
-		segs = append(segs, "未读源码")
 	} else {
 		label = "data workflow"
 		switch kind {
@@ -2030,12 +2053,12 @@ func (r *REPL) emitDataTaskWorkflowAudit(kind string, round int, details ...stri
 		default:
 			segs = append(segs, kind)
 		}
+		segs = append(segs, "no source read")
 		for _, detail := range details {
 			if detail = strings.TrimSpace(detail); detail != "" {
 				segs = append(segs, detail)
 			}
 		}
-		segs = append(segs, "no source read")
 	}
 	r.renderer.EmitLightRouteSummary(label, segs)
 }

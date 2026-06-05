@@ -3798,7 +3798,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 			logging.Warning("[operation] command planner adapter init failed; command operations will ask for clarification: %v", err)
 		} else {
 			app.operationPlanner = repl.NewCommandOperationPlanner(
-				withRenderLLMTelemetry(adapter, renderer, types.AgentName("operation_planner"), ""),
+				withRenderLLMTelemetry(adapter, renderer, types.AgentName("operation_planner"), types.PipelineStage("operation")),
 			)
 			logging.Info("[operation] command planner: ON (model=%s). Route via providers.yaml agents.operation_planner or disable operation_route_enabled.", adapter.ModelID())
 		}
@@ -3813,7 +3813,7 @@ func initApp(cmd *cobra.Command, args []string) error {
 			logging.Warning("[data] planner adapter init failed; route=data will report unavailable: %v", err)
 		} else {
 			app.dataTaskPlanner = repl.NewDataTaskPlanner(
-				withRenderLLMTelemetry(adapter, renderer, types.AgentName("data_planner"), ""),
+				withRenderLLMTelemetry(adapter, renderer, types.AgentName("data_planner"), types.PipelineStage("data")),
 			)
 			logging.Info("[data] task planner: ON (model=%s). Route via providers.yaml agents.data_planner.", adapter.ModelID())
 		}

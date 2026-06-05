@@ -121,3 +121,18 @@ func TestEmitDataTaskRunnerCallUsesToolCallUX(t *testing.T) {
 		}
 	}
 }
+
+func TestEmitDataTaskWorkflowAuditKeepsDeterministicSegmentsFirst(t *testing.T) {
+	var out bytes.Buffer
+	r := &REPL{
+		renderer: render.New(&out, true),
+		language: "zh",
+	}
+	r.emitDataTaskWorkflowAudit("repair", 1, "上次失败 execute data task")
+
+	got := stripANSIOnly(out.String())
+	want := "数据工作流 · 修复第 1 次 · 未读源码 · 上次失败 execute data task"
+	if !strings.Contains(got, want) {
+		t.Fatalf("workflow audit should keep fixed lane status before dynamic details; want %q in:\n%s", want, got)
+	}
+}

@@ -580,6 +580,33 @@ func TestRenderer_EventLLMRequestStartFeedsDockTelemetry(t *testing.T) {
 	}
 }
 
+func TestRenderer_IndependentLaneOverridesStalePipelineFocus(t *testing.T) {
+	r := newTestRenderer("zh")
+	r.SetTotalStages(0)
+	r.SetRouteSummary("数据任务", []string{"规划中", "未读源码"})
+	emit := r.Emitter()
+	t0 := time.Now()
+	emit(Event{Kind: EventStageStart, Timestamp: t0, Stage: "analyze", Agent: "turn_policy"})
+	emit(Event{
+		Kind:                  EventLLMRequestStart,
+		Timestamp:             t0.Add(10 * time.Millisecond),
+		Stage:                 "data",
+		Agent:                 "data_planner",
+		ModelID:               "data-model",
+		ContextTokensEstimate: 4700,
+		ContextWindowTokens:   200000,
+	})
+
+	rows := r.composeCurrentDockRows()
+	row2 := stripAnsiEscapes(rows[1])
+	if strings.Contains(row2, "1/4") || strings.Contains(row2, "正在理解问题") {
+		t.Fatalf("data lane must not inherit stale analyze progress; got %q", row2)
+	}
+	if !strings.Contains(row2, "正在处理数据任务") {
+		t.Fatalf("data lane should surface data task status; got %q", row2)
+	}
+}
+
 func TestRenderer_EventAgentResponseClearsRequestingActivity(t *testing.T) {
 	r := newTestRenderer("zh")
 	emit := r.Emitter()
