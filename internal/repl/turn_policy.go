@@ -13,7 +13,7 @@ package repl
 // the finalizer simply restated the previous answer in a new shape.
 //
 // TurnPolicy is the structured replacement: every turn is one of
-// {local, repo, hybrid, clarify, operation} with a small set of orthogonal
+// {local, repo, hybrid, clarify, operation, data} with a small set of orthogonal
 // signals (operation / source / confidence + an optional
 // presentation_directive). The LLM emits the policy via
 // emit_turn_policy; deterministic guards then patch obvious
@@ -81,6 +81,13 @@ const (
 	// artifact verification requirements, so they must not be routed
 	// through the source-evidence pipeline by accident.
 	RouteOperation TurnRoute = "operation"
+
+	// RouteData — the turn asks for read-only data cleaning, joining,
+	// aggregation, filtering, calculation, or strict data-shaped output over
+	// local structured/semi-structured files. This is intentionally separate
+	// from RouteRepo (no source-code evidence gates) and RouteOperation (no
+	// ordinary computer-operation approval loop for pure read-only data math).
+	RouteData TurnRoute = "data"
 )
 
 // TurnPolicy is the structured classification result. All fields
@@ -91,8 +98,10 @@ type TurnPolicy struct {
 	Route                 TurnRoute
 	NeedsRepoAccess       bool
 	NeedsOperationAccess  bool
+	NeedsDataAccess       bool
 	Operation             string // chat | transform | summarize | translate | elaborate | investigate | computer_operation | artifact_generation | ...
 	OperationKind         string // optional more precise operation capability kind
+	DataTaskKind          string // optional data lane kind, e.g. data_cleaning | data_join | data_aggregation
 	Source                string // current_message | last_answer | prior_context | repo | mixed
 	RiskLevel             string // none | low | medium | high
 	SideEffects           []string
@@ -122,10 +131,12 @@ func TurnRouteHintFromPolicy(p TurnPolicy) types.TurnRouteHint {
 		Source:               strings.TrimSpace(p.Source),
 		Operation:            strings.TrimSpace(p.Operation),
 		OperationKind:        strings.TrimSpace(p.OperationKind),
+		DataTaskKind:         strings.TrimSpace(p.DataTaskKind),
 		TargetSurface:        strings.TrimSpace(p.TargetSurface),
 		ConcreteOperation:    IsConcreteOperationPolicy(p),
 		NeedsRepoAccess:      p.NeedsRepoAccess,
 		NeedsOperationAccess: p.NeedsOperationAccess,
+		NeedsDataAccess:      p.NeedsDataAccess,
 		Confidence:           p.Confidence,
 	}
 }
@@ -168,8 +179,8 @@ var turnPolicyTool = llm.ToolSchema{
   "properties": {
     "route": {
       "type": "string",
-      "enum": ["local", "repo", "hybrid", "clarify", "operation"],
-      "description": "local = answer from current message + previous answer + conversation context; no repo read and no computer access. repo = run the analysis pipeline for source code OR external observations such as attached logs/traces/MCP rows; analyzer may later exclude current source when the user explicitly asks not to inspect code. hybrid = run the pipeline AND apply a transformation/presentation directive from the previous answer or user framing. clarify = user references missing state or an unsafe/underspecified operation and should be asked for clarification. operation = perform a computer operation or generate an external artifact such as querying the current machine/environment, running local commands, file operations, downloading/installing/uninstalling software, SSH/remote-environment work, or PPT/document/spreadsheet/browser/desktop workflows; it is not a source-code/log/trace evidence investigation. When uncertain about a code/log/trace/MCP evidence question, prefer repo. When uncertain about side effects, prefer clarify."
+      "enum": ["local", "repo", "hybrid", "clarify", "operation", "data"],
+      "description": "local = answer from current message + previous answer + conversation context; no repo read and no computer access. repo = run the analysis pipeline for source code OR external observations such as attached logs/traces/MCP rows; analyzer may later exclude current source when the user explicitly asks not to inspect code. hybrid = run the pipeline AND apply a transformation/presentation directive from the previous answer or user framing. clarify = user references missing state or an unsafe/underspecified operation and should be asked for clarification. operation = perform a computer operation or generate an external artifact such as querying the current machine/environment, running local commands, file operations, downloading/installing/uninstalling software, SSH/remote-environment work, or PPT/document/spreadsheet/browser/desktop workflows; it is not a source-code/log/trace evidence investigation. data = read-only local data processing over structured or semi-structured files/materials, such as CSV/TSV/JSON/JSONL/text data cleaning, joins, filtering, aggregation, spreadsheet-like calculation, and strict JSON/CSV/single-line/tabular output; it is not source implementation analysis, log/trace root-cause diagnosis, or ordinary computer operation. When uncertain about a code/log/trace/MCP evidence question, prefer repo. When uncertain about side effects, prefer clarify."
     },
     "needs_repo_access": {
       "type": "boolean",
@@ -179,10 +190,19 @@ var turnPolicyTool = llm.ToolSchema{
       "type": "boolean",
       "description": "true iff the turn needs a computer/artifact/external-skill operation surface. Set true for route=operation. Do not set it for ordinary source, log, trace, MCP, or other external-observation investigation."
     },
+    "needs_data_access": {
+      "type": "boolean",
+      "description": "true iff route=data and the task needs local structured/semi-structured data files to compute, clean, join, aggregate, transform, or enforce a strict data output format. Do not set it for source-code analysis, log/trace diagnosis, or ordinary computer operations."
+    },
     "operation": {
       "type": "string",
-      "enum": ["chat", "transform", "summarize", "translate", "elaborate", "investigate", "computer_operation", "artifact_generation", "presentation_generation", "document_generation", "spreadsheet_generation", "browser_operation", "external_skill_workflow"],
-      "description": "chat = greeting / pleasantry / capability question that does not require computer access. transform = change the form of the previous answer (mermaid, table, ...). summarize = shorten the previous answer. translate = render in another language. elaborate = expand on previous answer without new evidence. investigate = fresh code/log/trace/MCP/external-observation investigation through the analysis pipeline. computer_operation/artifact_generation/etc. = operation route candidates that should not be run through the code-evidence pipeline. Questions about the current OS, memory, CPU, GPU, installed tools, paths, versions, or filesystem state are computer_operation when answering them requires local command execution."
+      "enum": ["chat", "transform", "summarize", "translate", "elaborate", "investigate", "computer_operation", "artifact_generation", "presentation_generation", "document_generation", "spreadsheet_generation", "browser_operation", "external_skill_workflow", "data_task", "data_cleaning", "data_join", "data_aggregation", "structured_file_transform", "answer_only_data_query"],
+      "description": "chat = greeting / pleasantry / capability question that does not require computer access. transform = change the form of the previous answer (mermaid, table, ...). summarize = shorten the previous answer. translate = render in another language. elaborate = expand on previous answer without new evidence. investigate = fresh code/log/trace/MCP/external-observation investigation through the analysis pipeline. data_task/data_cleaning/data_join/data_aggregation/structured_file_transform/answer_only_data_query = route=data candidates for read-only data processing and strict data-shaped output. computer_operation/artifact_generation/etc. = operation route candidates that should not be run through the code-evidence pipeline. Questions about the current OS, memory, CPU, GPU, installed tools, paths, versions, or filesystem state are computer_operation when answering them requires local command execution."
+    },
+    "data_task_kind": {
+      "type": "string",
+      "enum": ["", "data_task", "data_cleaning", "data_join", "data_aggregation", "structured_file_transform", "answer_only_data_query"],
+      "description": "Optional precise data lane kind. Leave empty unless route=data."
     },
     "operation_kind": {
       "type": "string",
@@ -191,8 +211,8 @@ var turnPolicyTool = llm.ToolSchema{
     },
     "source": {
       "type": "string",
-      "enum": ["current_message", "last_answer", "prior_context", "repo", "mixed", "external_tool", "artifact"],
-      "description": "Where the answer's content comes from. last_answer = derives from the immediately previous response. prior_context = derives from earlier conversation. repo = requires reading repository files. mixed = combination of the above. external_tool/artifact = external observation, operation result, or external skill result. Read-only MCP rows/resources are external observations, not command operations by themselves."
+      "enum": ["current_message", "last_answer", "prior_context", "repo", "mixed", "external_tool", "artifact", "data"],
+      "description": "Where the answer's content comes from. last_answer = derives from the immediately previous response. prior_context = derives from earlier conversation. repo = requires reading repository files. mixed = combination of the above. external_tool/artifact = external observation, operation result, or external skill result. data = local structured/semi-structured data files processed by route=data. Read-only MCP rows/resources are external observations, not command operations by themselves."
     },
     "risk_level": {
       "type": "string",
@@ -238,7 +258,7 @@ var turnPolicyTool = llm.ToolSchema{
 // shape so the prompt grows without coupling to keyword tables.
 const turnPolicySystemPrompt = `You route each user turn in a code-analysis REPL into a structured TurnPolicy and emit it via emit_turn_policy.
 
-The five routes:
+The six routes:
 
   local   — the answer can be produced from the user's CURRENT MESSAGE
             plus the PREVIOUS ANSWER and CONVERSATION CONTEXT. The
@@ -312,6 +332,18 @@ The five routes:
             keep route=operation so the dispatcher can use the
             operation pipeline once enabled.
 
+  data    — the answer is a read-only data processing task over local
+            structured or semi-structured files/materials. Use this for
+            CSV/TSV/JSON/JSONL/text data cleaning, joins, filters,
+            aggregations, spreadsheet-like calculations, row-level
+            decisions, and strict output-only requests such as JSON-only,
+            CSV-only, a single line, or a Markdown table. This is NOT
+            source-code implementation analysis, NOT log/trace root-cause
+            diagnosis, and NOT ordinary computer operation. The data lane
+            computes deterministically and does not use source citation
+            gates or command-operation approval for pure read-only data
+            math.
+
 needs_repo_access is true iff route ∈ {repo, hybrid}, or route=operation
 needs fresh repository facts before producing an artifact. The dispatcher
 re-checks this and corrects mismatches.
@@ -319,6 +351,9 @@ re-checks this and corrects mismatches.
 needs_operation_access is true iff route=operation. Do not set it for
 ordinary source, log, trace, MCP, connector, or attached-artifact
 external-observation investigation.
+
+needs_data_access is true iff route=data. Do not set it for source-code,
+runtime log/trace, MCP/connector observation, or command-operation tasks.
 
 operation:
   chat        — greetings, pleasantries, capability/identity questions
@@ -343,12 +378,23 @@ operation:
   spreadsheet_generation — create or modify a spreadsheet
   browser_operation — operate a browser
   external_skill_workflow — run a configured external skill workflow
+  data_task — general data lane task
+  data_cleaning — normalize/filter/deduplicate rows
+  data_join — combine records from multiple local data files
+  data_aggregation — compute totals/counts/groups/rankings
+  structured_file_transform — convert or reshape structured/semi-structured files
+  answer_only_data_query — compute a strict output-only answer from local data
 
 operation_kind mirrors the operation capability for route=operation;
 leave it empty otherwise.
 
+data_task_kind mirrors the data capability for route=data; leave it empty
+otherwise.
+
 risk_level / side_effects / target_surface / requires_confirmation:
   - non-operation routes: risk_level="none" or "", side_effects=[],
+    target_surface="", requires_confirmation=false.
+  - data route: risk_level="none" or "low", side_effects=[],
     target_surface="", requires_confirmation=false.
   - low-risk local artifact generation: risk_level=low,
     side_effects may include local_file_write, confirmation usually false.
@@ -371,6 +417,7 @@ source:
   mixed           — combination (typical for hybrid)
   external_tool   — derives from an external tool/skill
   artifact        — derives from an output artifact to be produced
+  data            — derives from local structured/semi-structured data files
 
 confidence: 0..1 self-rating. Below 0.4 the dispatcher demotes to
 repo because the cost of being wrong is higher for local / hybrid
@@ -457,6 +504,20 @@ Examples (illustrative, NOT exhaustive — judge by structure):
   Current: "根据 MCP 返回的外部观测解释现象，不要看代码"
     → route=repo, needs_operation_access=false,
       operation=investigate, source=external_tool,
+      confidence≈0.85
+
+  Current: "读取这几个 CSV，把供应商和品类 join 后按金额汇总，只输出 JSON"
+    → route=data, needs_data_access=true, needs_repo_access=false,
+      needs_operation_access=false, operation=data_aggregation,
+      data_task_kind=data_aggregation, source=data,
+      risk_level=low, side_effects=[], requires_confirmation=false,
+      confidence≈0.85
+
+  Current: "清洗这个采购表，过滤掉未支付记录，输出一行逗号分隔结果"
+    → route=data, needs_data_access=true, needs_repo_access=false,
+      needs_operation_access=false, operation=data_cleaning,
+      data_task_kind=data_cleaning, source=data,
+      risk_level=low, side_effects=[], requires_confirmation=false,
       confidence≈0.85
 
   Current: "把上面的流程换成 mermaid，同时重新读仓库确认有没
@@ -604,8 +665,10 @@ func (c *llmChitchatClassifier) ClassifyPolicy(ctx context.Context, userLine, pr
 		Route                 string                   `json:"route"`
 		NeedsRepoAccess       flexiblePolicyBool       `json:"needs_repo_access"`
 		NeedsOperationAccess  flexiblePolicyBool       `json:"needs_operation_access"`
+		NeedsDataAccess       flexiblePolicyBool       `json:"needs_data_access"`
 		Operation             string                   `json:"operation"`
 		OperationKind         string                   `json:"operation_kind"`
+		DataTaskKind          string                   `json:"data_task_kind"`
 		Source                string                   `json:"source"`
 		RiskLevel             string                   `json:"risk_level"`
 		SideEffects           flexiblePolicyStringList `json:"side_effects"`
@@ -620,7 +683,7 @@ func (c *llmChitchatClassifier) ClassifyPolicy(ctx context.Context, userLine, pr
 	}
 	route := TurnRoute(parsed.Route)
 	switch route {
-	case RouteLocal, RouteRepo, RouteHybrid, RouteClarify, RouteOperation:
+	case RouteLocal, RouteRepo, RouteHybrid, RouteClarify, RouteOperation, RouteData:
 	default:
 		return zero, fmt.Errorf("turn-policy classifier: unknown route %q", parsed.Route)
 	}
@@ -633,8 +696,10 @@ func (c *llmChitchatClassifier) ClassifyPolicy(ctx context.Context, userLine, pr
 		Route:                 route,
 		NeedsRepoAccess:       bool(parsed.NeedsRepoAccess),
 		NeedsOperationAccess:  bool(parsed.NeedsOperationAccess),
+		NeedsDataAccess:       bool(parsed.NeedsDataAccess),
 		Operation:             operation,
 		OperationKind:         operationKind,
+		DataTaskKind:          strings.TrimSpace(parsed.DataTaskKind),
 		Source:                strings.TrimSpace(parsed.Source),
 		RiskLevel:             strings.TrimSpace(parsed.RiskLevel),
 		SideEffects:           []string(parsed.SideEffects),
@@ -964,6 +1029,16 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 		p.Route = RouteRepo
 	}
 
+	// Data lane self-contradiction: data_task_kind / needs_data_access is a
+	// primary typed axis. If the route drifted to local/repo/operation while
+	// the model also declared a data task, prefer the dedicated data lane. This
+	// keeps spreadsheet-like calculation and strict data-output work out of
+	// source evidence gates and out of command-operation approval.
+	if p.Route != RouteData && hasDataSignal(p) {
+		p.Route = RouteData
+		p.NeedsDataAccess = true
+	}
+
 	// Self-contradiction on the operation axis: a route or boolean hints at
 	// operation access, but the typed payload says this is an analysis-only
 	// investigation over repo / runtime artifact / external observation
@@ -985,7 +1060,7 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 	// needed. Trust the typed operation signal rather than sending the turn
 	// to local chat or source analysis. This is structural, not prose-based:
 	// it only consumes schema fields emitted by the classifier.
-	if p.Route != RouteOperation && hasOperationSignal(p) {
+	if p.Route != RouteOperation && p.Route != RouteData && hasOperationSignal(p) {
 		p.Route = RouteOperation
 		p.NeedsOperationAccess = true
 	}
@@ -998,6 +1073,31 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 	}
 	if p.Route == RouteLocal || p.Route == RouteClarify {
 		p.NeedsRepoAccess = false
+	}
+	if p.Route == RouteData {
+		p.NeedsRepoAccess = false
+		p.NeedsOperationAccess = false
+		p.NeedsDataAccess = true
+		if p.DataTaskKind == "" && isDataLikeOperation(p.Operation) {
+			p.DataTaskKind = p.Operation
+		}
+		if p.DataTaskKind == "" {
+			p.DataTaskKind = "data_task"
+		}
+		if p.Operation == "" || !isDataLikeOperation(p.Operation) {
+			p.Operation = p.DataTaskKind
+		}
+		if p.RiskLevel == "" || p.RiskLevel == "none" {
+			p.RiskLevel = "low"
+		}
+		p.SideEffects = nil
+		p.TargetSurface = ""
+		p.RequiresConfirmation = false
+	} else {
+		p.NeedsDataAccess = false
+		if !isDataLikeOperation(p.Operation) {
+			p.DataTaskKind = ""
+		}
 	}
 	if p.Route == RouteOperation {
 		p.NeedsOperationAccess = true
@@ -1058,10 +1158,11 @@ func ApplyTurnPolicyGuards(p TurnPolicy, hasPriorAnswer, hasAttachment bool) Tur
 	// running the pipeline against a "上面的" reference would produce a
 	// worse answer than asking the user to re-state.
 	if p.Confidence > 0 && p.Confidence < turnPolicyConfidenceFloor {
-		if p.Route == RouteLocal || p.Route == RouteOperation {
+		if p.Route == RouteLocal || p.Route == RouteOperation || p.Route == RouteData {
 			p.Route = RouteRepo
 			p.NeedsRepoAccess = true
 			p.NeedsOperationAccess = false
+			p.NeedsDataAccess = false
 		}
 	}
 
@@ -1124,6 +1225,22 @@ func isOperationLikeOperation(op string) bool {
 	default:
 		return false
 	}
+}
+
+func isDataLikeOperation(op string) bool {
+	switch strings.TrimSpace(op) {
+	case "data_task", "data_cleaning", "data_join", "data_aggregation",
+		"structured_file_transform", "answer_only_data_query":
+		return true
+	default:
+		return false
+	}
+}
+
+func hasDataSignal(p TurnPolicy) bool {
+	return p.NeedsDataAccess ||
+		isDataLikeOperation(p.Operation) ||
+		isDataLikeOperation(p.DataTaskKind)
 }
 
 func hasOperationSignal(p TurnPolicy) bool {

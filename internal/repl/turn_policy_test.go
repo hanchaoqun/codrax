@@ -573,6 +573,61 @@ func TestApplyTurnPolicyGuards_OperationRoute(t *testing.T) {
 	}
 }
 
+func TestApplyTurnPolicyGuards_DataRoute(t *testing.T) {
+	got := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                RouteOperation,
+		NeedsOperationAccess: true,
+		NeedsDataAccess:      true,
+		Operation:            "data_aggregation",
+		DataTaskKind:         "data_aggregation",
+		Source:               "data",
+		RiskLevel:            "medium",
+		SideEffects:          []string{"local_file_write"},
+		TargetSurface:        "spreadsheet",
+		RequiresConfirmation: true,
+		Confidence:           0.88,
+	}, false, false)
+	if got.Route != RouteData {
+		t.Fatalf("Route=%q, want data: %+v", got.Route, got)
+	}
+	if got.NeedsRepoAccess || got.NeedsOperationAccess || !got.NeedsDataAccess {
+		t.Fatalf("data route access flags wrong: %+v", got)
+	}
+	if got.DataTaskKind != "data_aggregation" || got.Operation != "data_aggregation" {
+		t.Fatalf("data operation/kind not retained: %+v", got)
+	}
+	if got.RiskLevel != "medium" {
+		t.Fatalf("RiskLevel=%q, want preserve model risk", got.RiskLevel)
+	}
+	if len(got.SideEffects) != 0 || got.TargetSurface != "" || got.RequiresConfirmation {
+		t.Fatalf("pure data route must not carry operation side effects: %+v", got)
+	}
+
+	low := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:           RouteData,
+		NeedsDataAccess: true,
+		Operation:       "data_cleaning",
+		Source:          "data",
+		Confidence:      0.2,
+	}, false, false)
+	if low.Route != RouteRepo || !low.NeedsRepoAccess || low.NeedsDataAccess {
+		t.Fatalf("low-confidence data should fail safe to repo: %+v", low)
+	}
+
+	trace := ApplyTurnPolicyGuards(TurnPolicy{
+		Route:                RouteRepo,
+		NeedsRepoAccess:      true,
+		NeedsOperationAccess: false,
+		NeedsDataAccess:      false,
+		Operation:            "investigate",
+		Source:               "artifact",
+		Confidence:           0.9,
+	}, false, true)
+	if trace.Route != RouteRepo || !trace.NeedsRepoAccess || trace.NeedsDataAccess || trace.NeedsOperationAccess {
+		t.Fatalf("trace/log external observation must remain repo pipeline: %+v", trace)
+	}
+}
+
 // ─── Layer 2: ClassifyPolicy parses tool calls ───────────────
 
 // turnPolicyResp builds a single canned llm.Response carrying an
@@ -798,6 +853,38 @@ func TestClassifyPolicy_TeachesBroadComputerOperations(t *testing.T) {
 		"installing or uninstalling packages",
 		"SSH/remote shell work",
 		"Clear non-code computer operations remain route=operation",
+	} {
+		if !strings.Contains(system, want) {
+			t.Fatalf("classifier system prompt missing %q:\n%s", want, system)
+		}
+	}
+}
+
+func TestClassifyPolicy_TeachesDataRoute(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			turnPolicyResp(`{"route":"data","needs_repo_access":false,"needs_operation_access":false,"needs_data_access":"true","operation":"data_aggregation","data_task_kind":"data_aggregation","source":"data","confidence":"0.88","reason":"read-only local data aggregation","risk_level":"low","side_effects":[],"requires_confirmation":false}`),
+		},
+	}
+	c := &llmChitchatClassifier{adapter: adapter}
+
+	policy, err := c.ClassifyPolicy(context.Background(), "读取 CSV，按供应商汇总金额，只输出 JSON", "", false)
+	if err != nil {
+		t.Fatalf("ClassifyPolicy: %v", err)
+	}
+	if policy.Route != RouteData || !policy.NeedsDataAccess || policy.NeedsRepoAccess || policy.NeedsOperationAccess {
+		t.Fatalf("policy=%+v, want data route only", policy)
+	}
+	if policy.DataTaskKind != "data_aggregation" {
+		t.Fatalf("DataTaskKind=%q", policy.DataTaskKind)
+	}
+	system := adapter.calls[0].messages[0].Content
+	for _, want := range []string{
+		"route=data",
+		"CSV/TSV/JSON/JSONL/text data cleaning",
+		"strict output-only requests",
+		"source-code implementation analysis",
+		"log/trace root-cause",
 	} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("classifier system prompt missing %q:\n%s", want, system)

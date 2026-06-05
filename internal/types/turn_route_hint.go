@@ -10,10 +10,12 @@ type TurnRouteHint struct {
 	Source               string  `json:"source,omitempty"`
 	Operation            string  `json:"operation,omitempty"`
 	OperationKind        string  `json:"operation_kind,omitempty"`
+	DataTaskKind         string  `json:"data_task_kind,omitempty"`
 	TargetSurface        string  `json:"target_surface,omitempty"`
 	ConcreteOperation    bool    `json:"concrete_operation,omitempty"`
 	NeedsRepoAccess      bool    `json:"needs_repo_access,omitempty"`
 	NeedsOperationAccess bool    `json:"needs_operation_access,omitempty"`
+	NeedsDataAccess      bool    `json:"needs_data_access,omitempty"`
 	Confidence           float64 `json:"confidence,omitempty"`
 }
 
@@ -22,10 +24,12 @@ func (h TurnRouteHint) IsZero() bool {
 		strings.TrimSpace(h.Source) == "" &&
 		strings.TrimSpace(h.Operation) == "" &&
 		strings.TrimSpace(h.OperationKind) == "" &&
+		strings.TrimSpace(h.DataTaskKind) == "" &&
 		strings.TrimSpace(h.TargetSurface) == "" &&
 		!h.ConcreteOperation &&
 		!h.NeedsRepoAccess &&
 		!h.NeedsOperationAccess &&
+		!h.NeedsDataAccess &&
 		h.Confidence == 0
 }
 
