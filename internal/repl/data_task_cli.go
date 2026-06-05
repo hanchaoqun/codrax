@@ -3,6 +3,7 @@ package repl
 import (
 	"context"
 	"fmt"
+	"io"
 	"path/filepath"
 	"strings"
 
@@ -21,6 +22,7 @@ type DataTaskCLIConfig struct {
 	Language        string
 	MaxRepairRounds int
 	MaxDataRounds   int
+	Progress        io.Writer
 }
 
 func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg DataTaskCLIConfig) (string, error) {
@@ -42,6 +44,7 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 	if err != nil {
 		return "", fmt.Errorf("data task plan: %w", err)
 	}
+	dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, plan)
 
 	repairRoundsMax := normalizeDataTaskMaxRepairRounds(cfg.MaxRepairRounds)
 	dataRoundsMax := normalizeDataTaskMaxDataRounds(cfg.MaxDataRounds)
@@ -72,12 +75,15 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			}
 			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 			if ok {
+				dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "repair", repairRounds, dataTaskWorkflowErrorSegment(cfg.Language, errText))
+				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, repaired)
 				currentPlan = repaired
 				continue
 			}
 			return "", fmt.Errorf("data task planning: %s", errText)
 		}
 		dataRounds++
+		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "execute", dataRounds)
 		result, err := runner.Run(ctx, currentPlan)
 		if err != nil {
 			errText := fmt.Sprintf("execute data task: %v", err)
@@ -89,6 +95,8 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 				return "", err
 			}
 			if ok {
+				dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "repair", repairRounds, dataTaskWorkflowErrorSegment(cfg.Language, errText))
+				dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, repaired)
 				currentPlan = repaired
 				continue
 			}
@@ -96,11 +104,13 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 		records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Result: &result})
 		logDataTaskCLIResult(dataRounds, result)
+		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "result", dataRounds, dataTaskWorkflowResultSegment(cfg.Language, result))
 		evaluator, evalOK := cfg.Planner.(DataTaskEvaluator)
 		continuer, contOK := cfg.Planner.(DataTaskContinuationPlanner)
 		if !evalOK {
 			return dataTaskAnswerMarkdown(cfg.Language, result), nil
 		}
+		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "evaluate", dataRounds)
 		eval, err := evaluator.EvaluateDataTask(ctx, request, records, cfg.Language)
 		if err != nil {
 			return "", fmt.Errorf("evaluate data task: %w", err)
@@ -119,6 +129,8 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 			if err != nil {
 				return "", fmt.Errorf("continue data task: %w", err)
 			}
+			dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "continue", dataRounds)
+			dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, nextPlan)
 			currentPlan = nextPlan
 			continue
 		case dataquery.EvalNeedsClarification:
@@ -178,4 +190,82 @@ func logDataTaskCLIResult(round int, result dataquery.Result) {
 		reconcileStatus,
 		len(result.ConsumedPaths),
 		len(result.ContractWarnings))
+}
+
+func dataTaskCLIPlanProgress(w io.Writer, lang string, plan dataquery.TaskPlan) {
+	if w == nil {
+		return
+	}
+	label, segs := dataTaskPlanAuditSummary(plan, lang)
+	cliLightRouteSummary(w, label, segs)
+}
+
+func dataTaskCLIWorkflowProgress(w io.Writer, lang, kind string, round int, details ...string) {
+	if w == nil {
+		return
+	}
+	label := "数据工作流"
+	segs := []string{}
+	if isZh(lang) {
+		switch kind {
+		case "execute":
+			segs = append(segs, fmt.Sprintf("执行第 %d 批", round))
+		case "repair":
+			segs = append(segs, fmt.Sprintf("修复第 %d 次", round))
+		case "result":
+			segs = append(segs, fmt.Sprintf("结果第 %d 批", round))
+		case "evaluate":
+			segs = append(segs, fmt.Sprintf("评估第 %d 批", round))
+		case "continue":
+			segs = append(segs, fmt.Sprintf("继续第 %d 批", round+1))
+		default:
+			segs = append(segs, strings.TrimSpace(kind))
+		}
+		segs = append(segs, "未读源码")
+	} else {
+		label = "data workflow"
+		switch kind {
+		case "execute":
+			segs = append(segs, fmt.Sprintf("execute batch %d", round))
+		case "repair":
+			segs = append(segs, fmt.Sprintf("repair %d", round))
+		case "result":
+			segs = append(segs, fmt.Sprintf("result batch %d", round))
+		case "evaluate":
+			segs = append(segs, fmt.Sprintf("evaluate batch %d", round))
+		case "continue":
+			segs = append(segs, fmt.Sprintf("continue batch %d", round+1))
+		default:
+			segs = append(segs, strings.TrimSpace(kind))
+		}
+		segs = append(segs, "no source read")
+	}
+	for _, detail := range details {
+		if detail = strings.TrimSpace(detail); detail != "" {
+			segs = append(segs, detail)
+		}
+	}
+	cliLightRouteSummary(w, label, segs)
+}
+
+func cliLightRouteSummary(w io.Writer, label string, segs []string) {
+	if w == nil {
+		return
+	}
+	label = strings.TrimSpace(label)
+	if label == "" {
+		return
+	}
+	clean := make([]string, 0, len(segs))
+	for _, seg := range segs {
+		seg = strings.TrimSpace(seg)
+		if seg != "" {
+			clean = append(clean, seg)
+		}
+	}
+	if len(clean) == 0 {
+		fmt.Fprintf(w, "◇ %s\n", label)
+		return
+	}
+	fmt.Fprintf(w, "◇ %s · %s\n", label, strings.Join(clean, " · "))
 }

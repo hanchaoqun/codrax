@@ -378,6 +378,77 @@ transforms, text-span extraction, entity normalization, OCR-derived evidence,
 strict scalar output, and Markdown/JSON/CSV output contracts. It does not know
 or encode any customer domain.
 
+### L2 Typed Patch IR Design
+
+L2 is the next layer after deterministic patches. It exists for result-shape
+violations that are still structural but not safe enough for a local heuristic.
+It must not become a way for the model to silently rewrite business meaning.
+
+Inputs:
+
+- validator `DataTaskViolation` objects only, including `code`, `json_path`,
+  `expected_shape`, `actual_snippet`, and `repairability`;
+- the bounded result excerpt around the failing JSON path;
+- the immutable coverage contract and output contract;
+- the patch budget and previous patch audit.
+
+Output IR:
+
+```json
+{
+  "patches": [
+    {
+      "target": "result",
+      "op": "replace",
+      "path": "/contributions/0/operation",
+      "value": "add",
+      "reason": "normalize aggregation alias",
+      "source_violation_code": "unsupported_contribution_operation"
+    }
+  ],
+  "requires_recompute": false,
+  "confidence": "high"
+}
+```
+
+Allowed patch operations:
+
+- `replace` on an existing scalar/object field whose expected shape is known;
+- `remove` only for duplicate structural wrappers that preserve the same data;
+- `move` only inside the same record when aliases created an extra field and
+  the canonical field is empty.
+
+Forbidden patch operations:
+
+- editing `answer` without a deterministic recompute from contribution or
+  reconcile records;
+- adding new business records, rows, contributions, resolutions, or rule
+  coverage that were not present in the raw result;
+- changing include/exclude decisions, canonical entity choices, rule
+  interpretation, amounts, quantities, timestamps, or any user-domain value;
+- weakening the coverage contract, output contract, or validation flags.
+
+Execution:
+
+1. Apply L0 unmarshal/helper normalization.
+2. Apply L1 deterministic patch engine and record `result_patches`.
+3. Run validators. If remaining violations have
+   `repairability=safe_patch` and patch budget remains, ask the L2 patch model
+   for typed patch IR with only the compact violation context.
+4. Apply accepted patches to a copy of the result, append them to
+   `result_patches`, and re-run the full validator stack.
+5. If validation still fails or a patch asks for forbidden semantics, discard
+   the L2 patch and return to bounded recomputation.
+
+Audit:
+
+- Persist raw result, L1 patches, L2 patch proposal, accepted/rejected patch
+  decisions, and post-patch validator output.
+- Surface only compact counts in REPL/CLI; full patch artifacts live under the
+  data audit directory.
+- Do not use model patch prose for hard decisions. Hard decisions consume only
+  schema-valid patch IR plus deterministic validator results.
+
 ### P0 Remediation Direction
 
 1. **Material usage modes.** Extend `CoverageMaterial` with generic

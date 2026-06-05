@@ -1465,6 +1465,7 @@ emit({"answer": str(total), "output_contract": {"format": "plain_single_line", "
 		},
 		eval: dataquery.Evaluation{Status: dataquery.EvalComplete, Reason: "repaired result satisfies strict scalar output", Confidence: "high"},
 	}
+	var progress bytes.Buffer
 	answer, err := RunDataTaskCLI(context.Background(), "汇总 orders.csv，只输出总额", TurnPolicy{Route: RouteData, NeedsDataAccess: true, Source: "data"}, DataTaskCLIConfig{
 		Planner:         planner,
 		RepoRoot:        root,
@@ -1472,6 +1473,7 @@ emit({"answer": str(total), "output_contract": {"format": "plain_single_line", "
 		Language:        "zh",
 		MaxRepairRounds: 2,
 		MaxDataRounds:   4,
+		Progress:        &progress,
 	})
 	if err != nil {
 		t.Fatalf("RunDataTaskCLI: %v", err)
@@ -1481,6 +1483,12 @@ emit({"answer": str(total), "output_contract": {"format": "plain_single_line", "
 	}
 	if strings.TrimSpace(answer) != "17" {
 		t.Fatalf("answer=%q, want strict scalar 17", answer)
+	}
+	progressText := progress.String()
+	for _, want := range []string{"◇ 数据计划", "◇ 数据工作流 · 执行第 1 批", "◇ 数据工作流 · 修复第 1 次", "◇ 数据工作流 · 结果第 2 批", "◇ 数据工作流 · 评估第 2 批"} {
+		if !strings.Contains(progressText, want) {
+			t.Fatalf("progress missing %q:\n%s", want, progressText)
+		}
 	}
 }
 

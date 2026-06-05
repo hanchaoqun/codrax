@@ -1240,6 +1240,7 @@ func maybeRunSingleShotDataTask(request string, policy repl.TurnPolicy, classifi
 		Language:        flagLang,
 		MaxRepairRounds: app.dataTaskMaxRepairRounds,
 		MaxDataRounds:   app.dataTaskMaxDataRounds,
+		Progress:        os.Stderr,
 	})
 	if err != nil {
 		return true, "", fmt.Errorf("data task workflow: %w", err)
