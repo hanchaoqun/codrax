@@ -85,6 +85,7 @@ type stubDataTaskPlanner struct {
 	repairCalls   int
 	repairErrors  []string
 	eval          dataquery.Evaluation
+	evals         []dataquery.Evaluation
 	evalErr       error
 	evalCalls     int
 	continuePlan  dataquery.TaskPlan
@@ -106,6 +107,13 @@ func (s *stubDataTaskPlanner) RepairDataTask(_ context.Context, userLine, repoRo
 
 func (s *stubDataTaskPlanner) EvaluateDataTask(_ context.Context, userLine string, records []dataTaskWorkflowRecord, lang string) (dataquery.Evaluation, error) {
 	s.evalCalls++
+	if len(s.evals) > 0 {
+		idx := s.evalCalls - 1
+		if idx >= len(s.evals) {
+			idx = len(s.evals) - 1
+		}
+		return s.evals[idx], s.evalErr
+	}
 	return s.eval, s.evalErr
 }
 
@@ -1448,10 +1456,9 @@ func TestTurnPolicyDispatch_DataRouteContinuesAfterIntermediateBatch(t *testing.
 			},
 			Script: `emit({"answer": "intermediate rows loaded", "output_contract": {"format": "markdown", "explanation_allowed": True}})`,
 		},
-		eval: dataquery.Evaluation{
-			Status:     dataquery.EvalContinueData,
-			Reason:     "need final aggregation",
-			Confidence: "high",
+		evals: []dataquery.Evaluation{
+			{Status: dataquery.EvalContinueData, Reason: "need final aggregation", Confidence: "high"},
+			{Status: dataquery.EvalComplete, Reason: "final aggregation satisfies the goal", Confidence: "high"},
 		},
 		continuePlan: dataquery.TaskPlan{
 			Status:     "ready",
@@ -1476,11 +1483,76 @@ emit({"answer": "A," + str(total), "output_contract": {"format": "csv_line", "ex
 	if len(runner.requests) != 0 {
 		t.Fatalf("data route must not enter source pipeline; requests=%v", runner.requests)
 	}
-	if planner.calls != 1 || planner.evalCalls != 1 || planner.continueCalls != 1 {
-		t.Fatalf("calls plan/eval/continue=%d/%d/%d, want 1/1/1", planner.calls, planner.evalCalls, planner.continueCalls)
+	if planner.calls != 1 || planner.evalCalls != 2 || planner.continueCalls != 1 {
+		t.Fatalf("calls plan/eval/continue=%d/%d/%d, want 1/2/1", planner.calls, planner.evalCalls, planner.continueCalls)
 	}
 	if !strings.Contains(out.String(), "A,17") {
 		t.Fatalf("continued data answer missing from REPL output:\n%s", out.String())
+	}
+}
+
+func TestTurnPolicyDispatch_DataRouteEvaluatesSuccessfulBatchBeforeFinalAnswer(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\nA,7\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	store := newPolicyStore(t)
+	classifier := &stubTurnPolicyClassifier{
+		policy: TurnPolicy{
+			Route:           RouteData,
+			NeedsDataAccess: true,
+			Operation:       "data_aggregation",
+			DataTaskKind:    "data_aggregation",
+			Source:          "data",
+			RiskLevel:       "low",
+			Confidence:      0.9,
+		},
+	}
+	planner := &stubDataTaskPlanner{
+		plan: dataquery.TaskPlan{
+			Status:     "ready",
+			InputPaths: []string{"orders.csv"},
+			OutputContract: dataquery.OutputContract{
+				Format:             dataquery.OutputPlainSingleLine,
+				ExplanationAllowed: false,
+			},
+			Script: `emit({"answer": "0", "output_contract": {"format": "plain_single_line", "explanation_allowed": False}})`,
+		},
+		evals: []dataquery.Evaluation{
+			{Status: dataquery.EvalContinueData, Reason: "computed answer does not satisfy the goal", Confidence: "high"},
+			{Status: dataquery.EvalComplete, Reason: "final aggregation satisfies the goal", Confidence: "high"},
+		},
+		continuePlan: dataquery.TaskPlan{
+			Status:     "ready",
+			InputPaths: []string{"orders.csv"},
+			OutputContract: dataquery.OutputContract{
+				Format:             dataquery.OutputPlainSingleLine,
+				ExplanationAllowed: false,
+			},
+			Script: `rows = csv_rows("orders.csv")
+total = sum(int(r["amount"]) for r in rows)
+emit({"answer": str(total), "output_contract": {"format": "plain_single_line", "explanation_allowed": False}})`,
+		},
+	}
+	responder := &stubLocalResponder{localReply: "should-not-appear"}
+	r, runner, out := newTurnPolicyREPL(t, store, classifier, responder, "汇总 orders.csv，只输出总额\n/exit\n")
+	r.repoRoot = root
+	r.runtimeAnchor = t.TempDir()
+	r.dataTaskPlanner = planner
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if len(runner.requests) != 0 {
+		t.Fatalf("data route must not enter source pipeline; requests=%v", runner.requests)
+	}
+	if planner.calls != 1 || planner.evalCalls != 2 || planner.continueCalls != 1 {
+		t.Fatalf("calls plan/eval/continue=%d/%d/%d, want 1/2/1", planner.calls, planner.evalCalls, planner.continueCalls)
+	}
+	if !strings.Contains(out.String(), "17") {
+		t.Fatalf("evaluated data answer missing from REPL output:\n%s", out.String())
 	}
 }
 

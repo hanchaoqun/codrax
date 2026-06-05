@@ -1270,6 +1270,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		return
 	}
 	r.emitDataTaskPlanAudit(plan)
+	r.auditDataTaskPlan("initial", 0, plan)
 	if handled := r.handleTerminalDataTaskPlan(plan, nil, display, line); handled {
 		return
 	}
@@ -1307,6 +1308,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		result, err := runner.Run(context.Background(), currentPlan)
 		if err != nil {
 			errText := fmt.Sprintf("execute data task: %v", err)
+			r.auditDataTaskError(dataRounds, errText)
 			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < dataTaskMaxRepairRounds {
 				repairRounds++
@@ -1325,6 +1327,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				}
 				repairedPlan = preserveDataTaskRepairCoverage(currentPlan, repairedPlan)
 				r.emitDataTaskPlanAudit(repairedPlan)
+				r.auditDataTaskPlan("repair", repairRounds, repairedPlan)
 				currentPlan = repairedPlan
 				continue
 			}
@@ -1336,18 +1339,19 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			return
 		}
 		records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Result: &result})
+		r.auditDataTaskResult(dataRounds, result)
 		r.emitDataTaskWorkflowAudit("result", dataRounds, dataTaskWorkflowResultSegment(r.language, result))
-		if !currentPlan.ContinueAfter {
-			msg := dataTaskAnswerMarkdown(r.language, result)
-			r.finishDataTaskRouteSpinner("complete")
-			r.renderBordered(msg)
-			r.lastAnswerOrigin = replAnswerOriginLocal
-			r.recordTurn(display, line, msg, memory.KindPipeline)
-			return
-		}
 		evaluator, evalOK := r.dataTaskPlanner.(DataTaskEvaluator)
 		continuer, contOK := r.dataTaskPlanner.(DataTaskContinuationPlanner)
-		if !evalOK || !contOK {
+		if !evalOK {
+			if !currentPlan.ContinueAfter {
+				msg := dataTaskAnswerMarkdown(r.language, result)
+				r.finishDataTaskRouteSpinner("complete")
+				r.renderBordered(msg)
+				r.lastAnswerOrigin = replAnswerOriginLocal
+				r.recordTurn(display, line, msg, memory.KindPipeline)
+				return
+			}
 			msg := dataTaskAnswerMarkdown(r.language, result)
 			r.finishDataTaskRouteSpinner("partial_answer_possible")
 			r.renderBordered(msg)
@@ -1380,6 +1384,14 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.recordTurn(display, line, msg, memory.KindPipeline)
 			return
 		case dataquery.EvalContinueData:
+			if !contOK {
+				msg := dataTaskAnswerMarkdown(r.language, result)
+				r.finishDataTaskRouteSpinner("partial_answer_possible")
+				r.renderBordered(msg)
+				r.lastAnswerOrigin = replAnswerOriginLocal
+				r.recordTurn(display, line, msg, memory.KindPipeline)
+				return
+			}
 			r.emitDataTaskWorkflowAudit("continue", dataRounds)
 			ctx := r.startTurn()
 			nextPlan, contErr := continuer.ContinueDataTask(ctx, line, r.repoRoot, policy, candidates, records)
@@ -1394,6 +1406,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 				return
 			}
 			r.emitDataTaskPlanAudit(nextPlan)
+			r.auditDataTaskPlan("continue", dataRounds+1, nextPlan)
 			currentPlan = nextPlan
 			continue
 		case dataquery.EvalNeedsClarification:
@@ -1954,6 +1967,339 @@ func (r *REPL) emitDataTaskPlanAudit(plan dataquery.TaskPlan) {
 	}
 	label, segs := dataTaskPlanAuditSummary(plan, r.language)
 	r.renderer.EmitLightRouteSummary(label, segs)
+}
+
+type dataTaskAuditArtifact struct {
+	PlanPath   string
+	ScriptPath string
+	ResultPath string
+	ErrorPath  string
+}
+
+func (r *REPL) auditDataTaskPlan(scope string, round int, plan dataquery.TaskPlan) dataTaskAuditArtifact {
+	artifact := r.writeDataTaskPlanArtifact(scope, round, plan)
+	r.logDataTaskPlanArtifact(scope, round, plan, artifact)
+	r.emitDataTaskPlanPreview(scope, round, plan, artifact)
+	return artifact
+}
+
+func (r *REPL) writeDataTaskPlanArtifact(scope string, round int, plan dataquery.TaskPlan) dataTaskAuditArtifact {
+	dir := filepath.Join(firstNonEmptyString(r.runtimeAnchor, r.repoRoot, "."), "data-audit")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		logging.Warning("[repl/data] create audit dir failed: %v", err)
+		return dataTaskAuditArtifact{}
+	}
+	stamp := time.Now().Format("20060102-150405")
+	prefix := fmt.Sprintf("%s-%d-%s-r%d", stamp, os.Getpid(), dataTaskAuditNamePart(scope), round)
+	artifact := dataTaskAuditArtifact{}
+	planPath := filepath.Join(dir, prefix+".plan.json")
+	raw, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		logging.Warning("[repl/data] marshal data task plan failed scope=%s round=%d: %v", scope, round, err)
+	} else if err := os.WriteFile(planPath, raw, 0600); err != nil {
+		logging.Warning("[repl/data] write data task plan audit failed path=%s: %v", planPath, err)
+	} else {
+		artifact.PlanPath = planPath
+	}
+	if strings.TrimSpace(plan.Script) != "" {
+		scriptPath := filepath.Join(dir, prefix+".script.py")
+		if err := os.WriteFile(scriptPath, []byte(plan.Script), 0600); err != nil {
+			logging.Warning("[repl/data] write data task script audit failed path=%s: %v", scriptPath, err)
+		} else {
+			artifact.ScriptPath = scriptPath
+		}
+	}
+	return artifact
+}
+
+func (r *REPL) logDataTaskPlanArtifact(scope string, round int, plan dataquery.TaskPlan, artifact dataTaskAuditArtifact) {
+	logging.Info("[repl/data] data task plan scope=%s round=%d status=%s inputs=%d required=%d script_lines=%d plan_path=%s script_path=%s",
+		scope, round, strings.TrimSpace(plan.Status), len(plan.InputPaths), len(plan.CoverageContract.RequiredPaths()),
+		dataTaskScriptLineCount(plan.Script), artifact.PlanPath, artifact.ScriptPath)
+	if strings.TrimSpace(plan.Script) != "" {
+		logging.Info("[repl/data] data task script full scope=%s round=%d path=%s\n%s",
+			scope, round, artifact.ScriptPath, plan.Script)
+	}
+	if raw, err := json.MarshalIndent(plan, "", "  "); err == nil {
+		logging.Info("[repl/data] data task plan full scope=%s round=%d path=%s\n%s",
+			scope, round, artifact.PlanPath, string(raw))
+	}
+}
+
+func (r *REPL) emitDataTaskPlanPreview(scope string, round int, plan dataquery.TaskPlan, artifact dataTaskAuditArtifact) {
+	script := strings.TrimSpace(plan.Script)
+	if r.renderer == nil || script == "" {
+		return
+	}
+	lines := dataTaskScriptLineCount(script)
+	label := "data script"
+	if isZh(r.language) {
+		label = "数据脚本"
+	}
+	segs := []string{dataTaskAuditScopeLabel(scope, round, r.language)}
+	if lines > 0 {
+		if isZh(r.language) {
+			segs = append(segs, fmt.Sprintf("%d 行", lines))
+		} else {
+			segs = append(segs, fmt.Sprintf("%d lines", lines))
+		}
+	}
+	if artifact.ScriptPath != "" {
+		if isZh(r.language) {
+			segs = append(segs, "完整脚本 "+artifact.ScriptPath)
+		} else {
+			segs = append(segs, "full script "+artifact.ScriptPath)
+		}
+	}
+	r.renderer.EmitLightRouteSummary(label, segs)
+	var b strings.Builder
+	if isZh(r.language) {
+		b.WriteString("脚本预览：\n")
+	} else {
+		b.WriteString("Script preview:\n")
+	}
+	b.WriteString(dataTaskPanelPreview(script, r.language))
+	if artifact.ScriptPath != "" {
+		if isZh(r.language) {
+			fmt.Fprintf(&b, "\n\n完整脚本：`%s`", artifact.ScriptPath)
+		} else {
+			fmt.Fprintf(&b, "\n\nFull script: `%s`", artifact.ScriptPath)
+		}
+	}
+	if artifact.PlanPath != "" {
+		if isZh(r.language) {
+			fmt.Fprintf(&b, "\n完整计划：`%s`", artifact.PlanPath)
+		} else {
+			fmt.Fprintf(&b, "\nFull plan: `%s`", artifact.PlanPath)
+		}
+	}
+	r.renderBorderedCompact(b.String())
+}
+
+func (r *REPL) auditDataTaskResult(round int, result dataquery.Result) dataTaskAuditArtifact {
+	artifact := r.writeDataTaskResultArtifact(round, result)
+	r.logDataTaskResultArtifact(round, result, artifact)
+	r.emitDataTaskResultPreview(round, result, artifact)
+	return artifact
+}
+
+func (r *REPL) auditDataTaskError(round int, errText string) dataTaskAuditArtifact {
+	artifact := r.writeDataTaskErrorArtifact(round, errText)
+	r.logDataTaskErrorArtifact(round, errText, artifact)
+	r.emitDataTaskErrorPreview(round, errText, artifact)
+	return artifact
+}
+
+func (r *REPL) writeDataTaskErrorArtifact(round int, errText string) dataTaskAuditArtifact {
+	dir := filepath.Join(firstNonEmptyString(r.runtimeAnchor, r.repoRoot, "."), "data-audit")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		logging.Warning("[repl/data] create audit dir failed: %v", err)
+		return dataTaskAuditArtifact{}
+	}
+	stamp := time.Now().Format("20060102-150405")
+	errorPath := filepath.Join(dir, fmt.Sprintf("%s-%d-error-r%d.txt", stamp, os.Getpid(), round))
+	if err := os.WriteFile(errorPath, []byte(errText), 0600); err != nil {
+		logging.Warning("[repl/data] write data task error audit failed path=%s: %v", errorPath, err)
+		return dataTaskAuditArtifact{}
+	}
+	return dataTaskAuditArtifact{ErrorPath: errorPath}
+}
+
+func (r *REPL) logDataTaskErrorArtifact(round int, errText string, artifact dataTaskAuditArtifact) {
+	logging.Info("[repl/data] data task error round=%d error_path=%s\n%s", round, artifact.ErrorPath, errText)
+}
+
+func (r *REPL) emitDataTaskErrorPreview(round int, errText string, artifact dataTaskAuditArtifact) {
+	if r.renderer == nil {
+		return
+	}
+	label := "data error"
+	segs := []string{fmt.Sprintf("batch %d", round)}
+	if isZh(r.language) {
+		label = "数据错误"
+		segs = []string{fmt.Sprintf("第 %d 批", round)}
+	}
+	if artifact.ErrorPath != "" {
+		if isZh(r.language) {
+			segs = append(segs, "完整错误 "+artifact.ErrorPath)
+		} else {
+			segs = append(segs, "full error "+artifact.ErrorPath)
+		}
+	}
+	r.renderer.EmitLightRouteSummary(label, segs)
+	var b strings.Builder
+	if isZh(r.language) {
+		b.WriteString("错误预览：\n")
+	} else {
+		b.WriteString("Error preview:\n")
+	}
+	b.WriteString(dataTaskPanelPreview(errText, r.language))
+	if artifact.ErrorPath != "" {
+		if isZh(r.language) {
+			fmt.Fprintf(&b, "\n\n完整错误：`%s`", artifact.ErrorPath)
+		} else {
+			fmt.Fprintf(&b, "\n\nFull error: `%s`", artifact.ErrorPath)
+		}
+	}
+	r.renderBorderedCompact(b.String())
+}
+
+func (r *REPL) writeDataTaskResultArtifact(round int, result dataquery.Result) dataTaskAuditArtifact {
+	dir := filepath.Join(firstNonEmptyString(r.runtimeAnchor, r.repoRoot, "."), "data-audit")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		logging.Warning("[repl/data] create audit dir failed: %v", err)
+		return dataTaskAuditArtifact{}
+	}
+	stamp := time.Now().Format("20060102-150405")
+	resultPath := filepath.Join(dir, fmt.Sprintf("%s-%d-result-r%d.json", stamp, os.Getpid(), round))
+	raw, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		logging.Warning("[repl/data] marshal data task result failed round=%d: %v", round, err)
+		return dataTaskAuditArtifact{}
+	}
+	if err := os.WriteFile(resultPath, raw, 0600); err != nil {
+		logging.Warning("[repl/data] write data task result audit failed path=%s: %v", resultPath, err)
+		return dataTaskAuditArtifact{}
+	}
+	return dataTaskAuditArtifact{ResultPath: resultPath}
+}
+
+func (r *REPL) logDataTaskResultArtifact(round int, result dataquery.Result, artifact dataTaskAuditArtifact) {
+	logging.Info("[repl/data] data task result round=%d answer_len=%d decisions=%d consumed=%d result_path=%s",
+		round, len(result.Answer), len(result.Rows), len(result.ConsumedPaths), artifact.ResultPath)
+	if raw, err := json.MarshalIndent(result, "", "  "); err == nil {
+		logging.Info("[repl/data] data task result full round=%d path=%s\n%s", round, artifact.ResultPath, string(raw))
+	}
+}
+
+func (r *REPL) emitDataTaskResultPreview(round int, result dataquery.Result, artifact dataTaskAuditArtifact) {
+	if r.renderer == nil {
+		return
+	}
+	label := "data result"
+	segs := []string{fmt.Sprintf("batch %d", round)}
+	if isZh(r.language) {
+		label = "数据结果"
+		segs = []string{fmt.Sprintf("第 %d 批", round)}
+	}
+	if len(result.Rows) > 0 {
+		if isZh(r.language) {
+			segs = append(segs, fmt.Sprintf("决策记录 %d", len(result.Rows)))
+		} else {
+			segs = append(segs, fmt.Sprintf("%d decision records", len(result.Rows)))
+		}
+	}
+	if artifact.ResultPath != "" {
+		if isZh(r.language) {
+			segs = append(segs, "完整结果 "+artifact.ResultPath)
+		} else {
+			segs = append(segs, "full result "+artifact.ResultPath)
+		}
+	}
+	r.renderer.EmitLightRouteSummary(label, segs)
+	if strings.TrimSpace(result.Answer) == "" && artifact.ResultPath == "" {
+		return
+	}
+	var b strings.Builder
+	if isZh(r.language) {
+		b.WriteString("结果预览：\n")
+	} else {
+		b.WriteString("Result preview:\n")
+	}
+	b.WriteString(dataTaskPanelPreview(result.Answer, r.language))
+	if artifact.ResultPath != "" {
+		if isZh(r.language) {
+			fmt.Fprintf(&b, "\n\n完整结果：`%s`", artifact.ResultPath)
+		} else {
+			fmt.Fprintf(&b, "\n\nFull result: `%s`", artifact.ResultPath)
+		}
+	}
+	r.renderBorderedCompact(b.String())
+}
+
+func dataTaskAuditNamePart(value string) string {
+	value = strings.TrimSpace(strings.ToLower(value))
+	if value == "" {
+		return "plan"
+	}
+	var b strings.Builder
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			b.WriteRune(r)
+		} else {
+			b.WriteRune('-')
+		}
+	}
+	out := strings.Trim(b.String(), "-")
+	if out == "" {
+		return "plan"
+	}
+	return out
+}
+
+func dataTaskAuditScopeLabel(scope string, round int, lang string) string {
+	scope = strings.TrimSpace(strings.ToLower(scope))
+	if isZh(lang) {
+		switch scope {
+		case "initial":
+			return "初始计划"
+		case "repair":
+			return fmt.Sprintf("修复第 %d 次", round)
+		case "continue":
+			return fmt.Sprintf("继续第 %d 批", round)
+		default:
+			if round > 0 {
+				return fmt.Sprintf("%s %d", scope, round)
+			}
+			return scope
+		}
+	}
+	switch scope {
+	case "initial":
+		return "initial plan"
+	case "repair":
+		return fmt.Sprintf("repair %d", round)
+	case "continue":
+		return fmt.Sprintf("continue batch %d", round)
+	default:
+		if round > 0 {
+			return fmt.Sprintf("%s %d", scope, round)
+		}
+		return scope
+	}
+}
+
+func dataTaskPanelPreview(value, lang string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	const maxRunes = 1200
+	const maxLines = 18
+	lines := strings.Split(value, "\n")
+	truncatedByLine := false
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+		truncatedByLine = true
+	}
+	preview := strings.Join(lines, "\n")
+	runes := []rune(preview)
+	truncatedByRunes := false
+	if len(runes) > maxRunes {
+		preview = string(runes[:maxRunes])
+		truncatedByRunes = true
+	}
+	if !truncatedByLine && !truncatedByRunes {
+		return preview
+	}
+	omitted := len([]rune(value)) - len([]rune(preview))
+	if omitted < 0 {
+		omitted = 0
+	}
+	if isZh(lang) {
+		return fmt.Sprintf("%s\n...[面板预览已截断 %d 字符；完整内容见上方路径]", preview, omitted)
+	}
+	return fmt.Sprintf("%s\n...[panel preview truncated %d chars; see path above for full content]", preview, omitted)
 }
 
 func (r *REPL) emitDataTaskRunnerCall(plan dataquery.TaskPlan, round int) {
