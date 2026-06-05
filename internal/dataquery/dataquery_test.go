@@ -351,6 +351,127 @@ emit({"answer": str(len(rows)), "output_contract": {"format": "plain_single_line
 	}
 }
 
+func TestRunnerAllowsTextEvidenceRequiredMaterialConsumption(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "evidence.txt"), []byte("total=42\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"evidence.txt"},
+		OutputContract: OutputContract{
+			Format:             OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		CoverageContract: CoverageContract{
+			RequiredMaterials: []CoverageMaterial{{
+				Path:             "source.bin",
+				Purpose:          "non-text source covered by extracted text",
+				Required:         true,
+				UsageMode:        MaterialUseTextEvidenceConsumed,
+				TextEvidencePath: "evidence.txt",
+			}},
+		},
+		Script: `
+text = read_text("evidence.txt")
+emit_result(text.strip().split("=")[1], output_contract={"format": "plain_single_line", "explanation_allowed": False}, audit_summary="used extracted text evidence")
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "42" {
+		t.Fatalf("Answer=%q", res.Answer)
+	}
+	if strings.Join(res.ConsumedPaths, ",") != "evidence.txt" {
+		t.Fatalf("ConsumedPaths=%v", res.ConsumedPaths)
+	}
+}
+
+func TestRunnerAllowsPlannerDistilledRequiredMaterial(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		OutputContract: OutputContract{
+			Format:             OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		CoverageContract: CoverageContract{
+			RequiredMaterials: []CoverageMaterial{
+				{Path: "orders.csv", Purpose: "input table", Required: true},
+				{Path: "rules.md", Purpose: "rules distilled into validation_rules", Required: true, UsageMode: MaterialUsePlannerDistilled, DistilledNotes: []string{"sum all rows"}},
+			},
+			ValidationRules: []string{"sum all rows"},
+		},
+		Script: `
+rows = csv_rows("orders.csv")
+total = sum(int(r["amount"]) for r in rows)
+emit_result(str(total), output_contract={"format": "plain_single_line", "explanation_allowed": False}, audit_summary="used distilled rule: sum all rows")
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "10" {
+		t.Fatalf("Answer=%q", res.Answer)
+	}
+	if strings.Join(res.ConsumedPaths, ",") != "orders.csv" {
+		t.Fatalf("ConsumedPaths=%v", res.ConsumedPaths)
+	}
+}
+
+func TestRunnerRejectsPlannerDistilledWithoutNotes(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		OutputContract: OutputContract{
+			Format:             OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		CoverageContract: CoverageContract{
+			RequiredMaterials: []CoverageMaterial{
+				{Path: "orders.csv", Purpose: "input table", Required: true},
+				{Path: "rules.md", Purpose: "rules", Required: true, UsageMode: MaterialUsePlannerDistilled},
+			},
+		},
+		Script: `emit_result("10", output_contract={"format": "plain_single_line", "explanation_allowed": False})`,
+	}
+	_, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), "planner_distilled") || !strings.Contains(err.Error(), "distilled_notes") {
+		t.Fatalf("Run err=%v, want missing distilled notes failure", err)
+	}
+}
+
+func TestClassifyExecutionError(t *testing.T) {
+	cases := map[string]string{
+		`execute data task: data task script redefines reserved helper "read_text"`:                                          "reserved_helper_redefined",
+		`data coverage incomplete: required material "rules.md" was not consumed by the script`:                              "required_material_not_consumed",
+		`data coverage incomplete: required material "rules.md" uses planner_distilled but distilled_notes is empty`:         "planner_distilled_notes_missing",
+		`data coverage incomplete: text evidence "scan.txt" for required material "scan.pdf" was not consumed by the script`: "text_evidence_not_consumed",
+		`data validation incomplete: result.contributions[0] has unsupported operation "merge"`:                              "unsupported_contribution_operation",
+		`data reconcile failed: group "A/amount" has no matching contribution records`:                                       "reconcile_group_mismatch",
+		`data reconcile failed: group "A/amount" expected=9 but contributions sum to 10`:                                     "reconcile_sum_mismatch",
+	}
+	for text, want := range cases {
+		if got := ClassifyExecutionError(text).Code; got != want {
+			t.Fatalf("ClassifyExecutionError(%q)=%q, want %q", text, got, want)
+		}
+	}
+}
+
 func TestRunnerAllowsUTF8ScriptAndRequiredTextConsumption(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

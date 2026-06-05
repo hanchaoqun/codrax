@@ -12,7 +12,7 @@ import (
 func TestDataTaskPlannerCompatJSON(t *testing.T) {
 	adapter := &scriptedChatAdapter{
 		responses: []llm.Response{
-			dataTaskPlanResp(`{"status":"ready","inputPaths":"orders.csv, vendors.csv","outputContract":{"format":"csv_line","explanationAllowed":"false"},"coverageContract":{"requiredMaterials":[{"id":"m1","path":"orders.csv","purpose":"input rows","required":"true"}],"validationRules":"all totals reconcile; rows cite source","decisionRecordsRequired":"true","ruleCoverageRequired":"true","contributionLedgerRequired":"true","entityResolutionRequired":"true","reconcileRequired":"true"},"goal":123,"knownConstraints":"read only; strict output","missingObservations":["invoice total",42],"successCriteria":"final total returned","nextBatch":true,"whyThisBatch":456,"continueAfter":"true","script":"emit({\"answer\":\"ok,1\",\"output_contract\":{\"format\":\"csv_line\",\"explanation_allowed\":false}})",}` + "\ntrailing"),
+			dataTaskPlanResp(`{"status":"ready","inputPaths":"orders.csv, vendors.csv","outputContract":{"format":"csv_line","explanationAllowed":"false"},"coverageContract":{"requiredMaterials":[{"id":"m1","path":"orders.csv","purpose":"input rows","usage_mode":"script_consumed","text_evidence_path":"","distilled_notes":"read rows","required":"true"}],"validationRules":"all totals reconcile; rows cite source","decisionRecordsRequired":"true","ruleCoverageRequired":"true","contributionLedgerRequired":"true","entityResolutionRequired":"true","reconcileRequired":"true"},"goal":123,"knownConstraints":"read only; strict output","missingObservations":["invoice total",42],"successCriteria":"final total returned","nextBatch":true,"whyThisBatch":456,"continueAfter":"true","script":"emit({\"answer\":\"ok,1\",\"output_contract\":{\"format\":\"csv_line\",\"explanation_allowed\":false}})",}` + "\ntrailing"),
 		},
 	}
 	planner := NewDataTaskPlanner(adapter)
@@ -34,6 +34,9 @@ func TestDataTaskPlannerCompatJSON(t *testing.T) {
 	}
 	if len(plan.CoverageContract.RequiredMaterials) != 1 || plan.CoverageContract.RequiredMaterials[0].Path != "orders.csv" || !plan.CoverageContract.DecisionRecordsRequired {
 		t.Fatalf("CoverageContract=%+v", plan.CoverageContract)
+	}
+	if plan.CoverageContract.RequiredMaterials[0].UsageMode != dataquery.MaterialUseScriptConsumed || len(plan.CoverageContract.RequiredMaterials[0].DistilledNotes) != 1 {
+		t.Fatalf("RequiredMaterials[0]=%+v", plan.CoverageContract.RequiredMaterials[0])
 	}
 	if !plan.CoverageContract.RuleCoverageRequired || !plan.CoverageContract.ContributionLedgerRequired || !plan.CoverageContract.EntityResolutionRequired || !plan.CoverageContract.ReconcileRequired {
 		t.Fatalf("CoverageContract validation flags=%+v, want all true", plan.CoverageContract)
@@ -70,6 +73,9 @@ func TestDataTaskPlannerCompatJSON(t *testing.T) {
 		"operation pipeline",
 		"coverage_contract",
 		"material inventory",
+		"usage_mode",
+		"text_evidence_consumed",
+		"planner_distilled",
 		"decision_records_required",
 		"rule_coverage_required",
 		"contribution_ledger_required",
@@ -157,7 +163,7 @@ func TestDataTaskRepairPlannerPromptCarriesExecutionErrorAndPreviousPlan(t *test
 		t.Fatalf("repaired plan=%+v", plan)
 	}
 	user := adapter.calls[0].messages[1].Content
-	for _, want := range []string{"## execution_error", "NameError", "## previous_plan_json", `print(\"debug\")`, "coverage_contract", "required_materials", "input_paths alone is not material consumption", "actually read", "operation pipeline"} {
+	for _, want := range []string{"## execution_error", "NameError", "## typed_repair_locus", "runtime_failure", "## previous_plan_compact_json", `print(\"debug\")`, "coverage_contract", "required_materials", "usage_mode", "text_evidence_consumed", "planner_distilled", "operation pipeline"} {
 		if !strings.Contains(user, want) {
 			t.Fatalf("repair prompt missing %q:\n%s", want, user)
 		}

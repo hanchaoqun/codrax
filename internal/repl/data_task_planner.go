@@ -74,10 +74,13 @@ var dataTaskPlanTool = llm.ToolSchema{
               "id": {"type":"string"},
               "path": {"type":"string"},
               "purpose": {"type":"string"},
+              "usage_mode": {"type":"string", "enum":["script_consumed","text_evidence_consumed","planner_distilled","reference_only"], "description":"How this material is covered. Empty means script_consumed. text_evidence_consumed requires text_evidence_path. planner_distilled requires distilled_notes. reference_only should normally be optional."},
+              "text_evidence_path": {"type":"string"},
+              "distilled_notes": {"type":"array", "items":{"type":"string"}},
               "required": {"type":"boolean"}
             }
           },
-          "description": "Model-authored task-specific materials that must be consumed before the result is trustworthy. Use broad current-task purposes; do not rely on hard-coded file names or business categories. A required material must be listed in input_paths and the script must actually read it through a helper such as csv_rows/read_text/json_load/jsonl_rows/open and use the returned content in computation, validation, or audit output. If a required candidate has extraction_status=needs_text_extraction, the system must first provide extracted text evidence or a related text evidence path before the deterministic script can use its semantic content."
+          "description": "Model-authored task-specific materials that must be covered before the result is trustworthy. Use broad current-task purposes; do not rely on hard-coded file names or business categories. Choose usage_mode: script_consumed means the material must be listed in input_paths and directly read by the script; text_evidence_consumed means text_evidence_path is listed/read instead; planner_distilled means the material has been distilled into typed rules/constraints and distilled_notes must explain the distilled content; reference_only is advisory and should normally be optional."
         },
         "optional_materials": {
           "type": "array",
@@ -87,6 +90,9 @@ var dataTaskPlanTool = llm.ToolSchema{
               "id": {"type":"string"},
               "path": {"type":"string"},
               "purpose": {"type":"string"},
+              "usage_mode": {"type":"string", "enum":["script_consumed","text_evidence_consumed","planner_distilled","reference_only"]},
+              "text_evidence_path": {"type":"string"},
+              "distilled_notes": {"type":"array", "items":{"type":"string"}},
               "required": {"type":"boolean"}
             }
           },
@@ -216,9 +222,10 @@ Hard rules:
 - Treat candidate files as an objective material inventory: path, kind, size, headers, row/line counts, and small samples. The system does not know the business role of a file. You must decide, from the user goal, which materials are required, optional, or irrelevant.
 - Candidate files may include materials whose semantic content is not directly readable by the Python runner. Do not put paths with extraction_status=needs_text_extraction or extraction_status=related_text_available directly into input_paths. If such a material is required and text_evidence_paths are available, use the relevant text evidence path as the script input and keep the original non-text path in coverage_contract.required_materials only when its content must be covered. If no text evidence is available, return blocked/needs_clarification or wait for the material extraction layer instead of silently ignoring it.
 - extraction_status is objective inventory metadata. "text_ready" and "extracted_text" mean the runner can read the material; "related_text_available" means the material has candidate text evidence; "needs_text_extraction" means semantic content is not yet available to the deterministic runner.
-- Fill coverage_contract.required_materials with every material that must be consumed to make the result trustworthy. This is generic: use it for rules/instructions, main datasets, reference materials, linked evidence, examples, schemas, or any other task-specific source. Do not hard-code one domain or file naming pattern.
-- A material is consumed only when the script reads it through a provided helper such as csv_rows, tsv_rows, json_load, jsonl_rows, read_text, or safe open, and then uses the returned content in computation, validation, rule coverage, contribution/entity records, reconcile, or audit summary. Listing a path in input_paths or required_materials is not enough.
-- If you mark a rule/instruction/example/schema/text document as required, read it with read_text(path) and use its content to drive rule_coverage, validation, parsing choices, or audit notes. Do not add dummy comments or assertions solely to satisfy consumption.
+- Fill coverage_contract.required_materials with every material that must be covered to make the result trustworthy. This is generic: use it for rules/instructions, main datasets, reference materials, linked evidence, examples, schemas, or any other task-specific source. Do not hard-code one domain or file naming pattern.
+- For each required material choose usage_mode. Default/empty is script_consumed. Use script_consumed when the script must directly read that material. Use text_evidence_consumed when an original material is covered by an extracted or related text evidence file; set text_evidence_path and read that path in the script. Use planner_distilled only when the material content has already been distilled into typed validation_rules/constraints for this batch; include distilled_notes. Use reference_only in optional_materials, not as a blocking requirement.
+- A script_consumed material is consumed only when the script reads it through a provided helper such as csv_rows, tsv_rows, json_load, jsonl_rows, read_text, or safe open, and then uses the returned content in computation, validation, rule coverage, contribution/entity records, reconcile, or audit summary. Listing a path in input_paths or required_materials is not enough.
+- If you mark a rule/instruction/example/schema/text document as required with script_consumed, read it with read_text(path) and use its content to drive rule_coverage, validation, parsing choices, or audit notes. Do not add dummy comments or assertions solely to satisfy consumption.
 - Repair/continuation plans must not silently drop previously required materials. If a material is no longer required, replace the coverage_contract and explain the structural reason in validation_rules or why_this_batch.
 - For filtering/joining/aggregation/item-level decisions, set coverage_contract.decision_records_required=true and emit result.rows with source/material locators and decisions. The final answer can still be a strict single line if the user requested that; decision records are for system validation and handoff.
 - Choose validation fields from the task shape, not from a fixed domain. Simple sums/counts/rankings usually need contribution_ledger_required=true and reconcile_required=true. Cleaning/filtering usually also needs rule_coverage_required=true. Joins, name/ID/category normalization, or cross-material linking usually also need entity_resolution_required=true. Pure summary/extraction may only need material coverage and output_contract.
@@ -440,21 +447,24 @@ func dataTaskPlannerPrompt(userLine, repoRoot string, policy TurnPolicy, candida
 
 func dataTaskRepairPrompt(userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, previous dataquery.TaskPlan, executionError string) string {
 	var b strings.Builder
+	violation := dataquery.ClassifyExecutionError(executionError)
 	fmt.Fprintf(&b, "## repair_goal\nThe previous data task script failed at execution time. Emit a corrected emit_data_task_plan.\n\n")
 	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
 	fmt.Fprintf(&b, "## workspace_root\n%s\n\n", strings.TrimSpace(repoRoot))
 	fmt.Fprintf(&b, "## route_policy\nroute=%s data_task_kind=%s operation=%s source=%s confidence=%.2f\n\n",
 		policy.Route, policy.DataTaskKind, policy.Operation, policy.Source, policy.Confidence)
 	fmt.Fprintf(&b, "## execution_error\n%s\n\n", strings.TrimSpace(executionError))
-	prevJSON, _ := json.MarshalIndent(previous, "", "  ")
-	fmt.Fprintf(&b, "## previous_plan_json\n%s\n\n", string(prevJSON))
+	violationJSON, _ := json.MarshalIndent(violation, "", "  ")
+	fmt.Fprintf(&b, "## typed_repair_locus\n%s\n\n", string(violationJSON))
+	prevJSON, _ := json.MarshalIndent(compactDataTaskRepairContext(previous), "", "  ")
+	fmt.Fprintf(&b, "## previous_plan_compact_json\n%s\n\n", string(prevJSON))
 	b.WriteString("## repair_rules\n")
 	b.WriteString("- Fix the script deterministically; preserve the user's requested output contract unless it was the direct cause of the failure.\n")
 	b.WriteString("- Prefer correcting code/import/helper usage over asking the user. Ask only when a user-owned business rule or missing input is genuinely required.\n")
 	b.WriteString("- Keep input_paths limited to candidate files. List every file the script reads.\n")
-	b.WriteString("- Preserve the previous coverage_contract unless the failed script proves a structural reason to replace it. Required materials must be listed in input_paths and actually read by the script.\n")
-	b.WriteString("- input_paths alone is not material consumption. If the error says a required material was not consumed, repair by reading that material through a provided helper such as csv_rows/read_text/json_load/jsonl_rows/open and using the returned content in computation, validation, rule coverage, contribution/entity records, reconcile, or audit summary.\n")
-	b.WriteString("- For required rule/instruction/example/schema/text materials, read_text(path) is usually the right helper. Use the content to drive the current task's generic validation or audit records; do not add dummy comments or assertions solely to satisfy consumption.\n")
+	b.WriteString("- Preserve the previous coverage_contract unless the failed script proves a structural reason to replace it. Required materials must keep a verifiable usage_mode.\n")
+	b.WriteString("- If the error says a required material was not consumed, repair one of three ways: read the material with a helper and keep usage_mode=script_consumed; if a text evidence file covers the original material, set usage_mode=text_evidence_consumed, text_evidence_path, and read that text evidence path; or if the material was already distilled into typed validation_rules/constraints for this bounded batch, set usage_mode=planner_distilled with concrete distilled_notes. Do not use reference_only for a blocking required material.\n")
+	b.WriteString("- For required rule/instruction/example/schema/text materials with usage_mode=script_consumed, read_text(path) is usually the right helper. Use the content to drive the current task's generic validation or audit records; do not add dummy comments or assertions solely to satisfy consumption.\n")
 	b.WriteString("- If coverage_contract.decision_records_required=true, emit result.rows. If result.rows was missing, repair by adding generic item-level decision records rather than changing the user's final output format.\n")
 	b.WriteString("- If a required validation ledger is missing or reconcile failed, repair by adding/fixing the generic rule_coverage, contributions, entity_resolutions, or reconcile fields and correcting the computation. Do not remove required validation flags to bypass the contract unless the previous contract was structurally wrong for the user goal; explain that structural reason in validation_rules or why_this_batch.\n")
 	b.WriteString("- Prefer runner ledger helpers for repaired structures: add_decision(...), add_rule_coverage(...), add_contribution(...), add_resolution(...), and emit_result(...). These helpers reduce JSON-shape drift.\n")
@@ -466,6 +476,38 @@ func dataTaskRepairPrompt(userLine, repoRoot string, policy TurnPolicy, candidat
 	b.WriteString("## candidate_data_files\n")
 	appendCandidateDataFiles(&b, candidates)
 	return strings.TrimSpace(b.String())
+}
+
+type dataTaskRepairContext struct {
+	Status              string                     `json:"status,omitempty"`
+	InputPaths          []string                   `json:"input_paths,omitempty"`
+	OutputContract      dataquery.OutputContract   `json:"output_contract,omitempty"`
+	CoverageContract    dataquery.CoverageContract `json:"coverage_contract,omitempty"`
+	Goal                string                     `json:"goal,omitempty"`
+	KnownConstraints    []string                   `json:"known_constraints,omitempty"`
+	MissingObservations []string                   `json:"missing_observations,omitempty"`
+	SuccessCriteria     []string                   `json:"success_criteria,omitempty"`
+	NextBatch           string                     `json:"next_batch,omitempty"`
+	WhyThisBatch        string                     `json:"why_this_batch,omitempty"`
+	ContinueAfter       bool                       `json:"continue_after,omitempty"`
+	ScriptPreview       string                     `json:"script_preview,omitempty"`
+}
+
+func compactDataTaskRepairContext(plan dataquery.TaskPlan) dataTaskRepairContext {
+	return dataTaskRepairContext{
+		Status:              strings.TrimSpace(plan.Status),
+		InputPaths:          append([]string(nil), plan.InputPaths...),
+		OutputContract:      plan.OutputContract,
+		CoverageContract:    plan.CoverageContract,
+		Goal:                strings.TrimSpace(plan.Goal),
+		KnownConstraints:    append([]string(nil), plan.KnownConstraints...),
+		MissingObservations: append([]string(nil), plan.MissingObservations...),
+		SuccessCriteria:     append([]string(nil), plan.SuccessCriteria...),
+		NextBatch:           strings.TrimSpace(plan.NextBatch),
+		WhyThisBatch:        strings.TrimSpace(plan.WhyThisBatch),
+		ContinueAfter:       plan.ContinueAfter,
+		ScriptPreview:       clampDataTaskWorkflowText(plan.Script, 6000),
+	}
 }
 
 func dataTaskContinuationPrompt(userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord) string {
@@ -591,10 +633,13 @@ type dataTaskCoverageDraft struct {
 }
 
 type dataTaskCoverageMaterialDraft struct {
-	ID       flexiblePolicyString `json:"id"`
-	Path     flexiblePolicyString `json:"path"`
-	Purpose  flexiblePolicyString `json:"purpose"`
-	Required flexiblePolicyBool   `json:"required"`
+	ID               flexiblePolicyString     `json:"id"`
+	Path             flexiblePolicyString     `json:"path"`
+	Purpose          flexiblePolicyString     `json:"purpose"`
+	UsageMode        flexiblePolicyString     `json:"usage_mode"`
+	TextEvidencePath flexiblePolicyString     `json:"text_evidence_path"`
+	DistilledNotes   flexiblePolicyStringList `json:"distilled_notes"`
+	Required         flexiblePolicyBool       `json:"required"`
 }
 
 type dataTaskEvaluationDraft struct {
@@ -676,10 +721,13 @@ func dataTaskCoverageMaterialsToPlan(in []dataTaskCoverageMaterialDraft, forceRe
 		}
 		seen[key] = true
 		out = append(out, dataquery.CoverageMaterial{
-			ID:       id,
-			Path:     path,
-			Purpose:  purpose,
-			Required: forceRequired || bool(m.Required),
+			ID:               id,
+			Path:             path,
+			Purpose:          purpose,
+			UsageMode:        dataquery.CoverageMaterialUseMode(strings.TrimSpace(string(m.UsageMode))),
+			TextEvidencePath: strings.TrimSpace(string(m.TextEvidencePath)),
+			DistilledNotes:   cleanPolicyStringList([]string(m.DistilledNotes)),
+			Required:         forceRequired || bool(m.Required),
 		})
 	}
 	return out

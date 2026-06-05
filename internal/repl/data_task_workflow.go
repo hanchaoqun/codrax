@@ -320,7 +320,7 @@ func latestDataTaskResult(records []dataTaskWorkflowRecord) (dataquery.Result, b
 
 func preserveDataTaskRepairCoverage(previous, repaired dataquery.TaskPlan) dataquery.TaskPlan {
 	repaired.CoverageContract = mergeDataTaskCoverageContracts(previous.CoverageContract, repaired.CoverageContract)
-	repaired.InputPaths = mergeDataTaskInputPaths(repaired.InputPaths, repaired.CoverageContract.RequiredPaths())
+	repaired.InputPaths = mergeDataTaskInputPaths(repaired.InputPaths, repaired.CoverageContract.RequiredRunnerInputPaths())
 	return repaired
 }
 
@@ -333,7 +333,7 @@ func preserveDataTaskMaterialRepairCoverage(previous, repaired dataquery.TaskPla
 	repaired.CoverageContract.ContributionLedgerRequired = previous.CoverageContract.ContributionLedgerRequired || repaired.CoverageContract.ContributionLedgerRequired
 	repaired.CoverageContract.EntityResolutionRequired = previous.CoverageContract.EntityResolutionRequired || repaired.CoverageContract.EntityResolutionRequired
 	repaired.CoverageContract.ReconcileRequired = previous.CoverageContract.ReconcileRequired || repaired.CoverageContract.ReconcileRequired
-	repaired.InputPaths = mergeDataTaskInputPaths(repaired.InputPaths, repaired.CoverageContract.RequiredPaths())
+	repaired.InputPaths = mergeDataTaskInputPaths(repaired.InputPaths, repaired.CoverageContract.RequiredRunnerInputPaths())
 	return repaired
 }
 
@@ -376,6 +376,15 @@ func mergeDataTaskCoverageMaterials(previous, next []dataquery.CoverageMaterial,
 			if out[idx].Purpose == "" && purpose != "" {
 				out[idx].Purpose = purpose
 			}
+			if strings.TrimSpace(string(out[idx].UsageMode)) == "" && strings.TrimSpace(string(m.UsageMode)) != "" {
+				out[idx].UsageMode = m.UsageMode
+			}
+			if out[idx].TextEvidencePath == "" && strings.TrimSpace(m.TextEvidencePath) != "" {
+				out[idx].TextEvidencePath = strings.TrimSpace(m.TextEvidencePath)
+			}
+			if len(out[idx].DistilledNotes) == 0 && len(m.DistilledNotes) > 0 {
+				out[idx].DistilledNotes = append([]string(nil), m.DistilledNotes...)
+			}
 			return
 		}
 		seen[key] = len(out)
@@ -396,6 +405,9 @@ func mergeDataTaskCoverageMaterials(previous, next []dataquery.CoverageMaterial,
 func dataTaskCoverageMaterialKey(m dataquery.CoverageMaterial) string {
 	if normalized := normalizeDataTaskCoveragePath(m.Path); normalized != "" {
 		return "path:" + normalized
+	}
+	if normalized := normalizeDataTaskCoveragePath(m.TextEvidencePath); normalized != "" {
+		return "evidence:" + normalized
 	}
 	id := strings.TrimSpace(m.ID)
 	purpose := strings.TrimSpace(m.Purpose)

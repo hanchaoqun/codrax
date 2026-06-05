@@ -86,16 +86,35 @@ The model emits a generic `coverage_contract` inside `emit_data_task_plan`.
 
 The contract contains:
 
-- `required_materials`: material paths that must be consumed before the answer
-  can be trusted;
+- `required_materials`: material paths or material IDs that must be covered
+  before the answer can be trusted;
 - `optional_materials`: useful but non-blocking materials;
 - `validation_rules`: task-specific structural checks phrased by the model;
 - `decision_records_required`: whether filtering, joining, aggregation,
   extraction, or item-level decisions need generic decision records.
 
 The contract is task-specific and model-authored. Go code validates only the
-structure: declared required materials must be declared as inputs and actually
-read by the script.
+structure: declared required materials must have a verifiable usage mode.
+
+Material usage modes are generic:
+
+- `script_consumed`: the deterministic script must directly read the material
+  through a runner helper and use the returned content. This is the default
+  mode and remains the strictest mode for datasets and other raw inputs.
+- `text_evidence_consumed`: the original material is covered by a separate
+  runner-readable text evidence artifact. The contract must carry
+  `text_evidence_path`, and the script must consume that path.
+- `planner_distilled`: the model has already distilled the material content
+  into typed validation rules, constraints, or notes for this bounded batch.
+  The contract must carry concrete `distilled_notes`; the runner validates the
+  typed declaration but does not require direct file IO for the original
+  material.
+- `reference_only`: advisory context that should normally live in
+  `optional_materials`; it is not a blocking required-material mode.
+
+Go code does not decide which mode a material deserves. The model chooses the
+mode from the user goal and the objective material inventory; Codrax only
+validates the declared mode with typed fields and runner telemetry.
 
 ### 3. Consumption Telemetry
 
@@ -103,9 +122,10 @@ The Python helper records every declared input file actually opened through
 `csv_rows`, `tsv_rows`, `json_load`, `jsonl_rows`, `read_text`, or safe
 `open(...)`. The runner injects `consumed_paths` into the structured result.
 
-If a required material is not consumed, the runner fails with a typed coverage
-error. Existing data repair flow then asks the model to repair the plan/script,
-with compact context, rather than accepting an ungrounded answer.
+If a required material is not covered according to its usage mode, the runner
+fails with a typed coverage error. Existing data repair flow then asks the
+model to repair the plan/script, with compact context, rather than accepting an
+ungrounded answer.
 
 ### 4. Validation Contract Matrix
 
@@ -228,6 +248,50 @@ lane can already reject bad results, but it still needs stronger typed
 normalization and smaller repair targets so the same class of error does not
 become a long model retry loop.
 
+## 2026-06-05 Failure Audit: Material Coverage Ambiguity
+
+Another real workflow exposed a separate generic issue: the model declared a
+text material as required, but the script did not read it. The old contract had
+only one hard interpretation: every required material must be direct script
+input. That is correct for raw datasets, but too narrow for broader data work:
+
+- a material may be directly consumed by the script;
+- a non-text or derived material may be covered through extracted text
+  evidence;
+- a small rule/example/schema may be distilled by the model into typed
+  validation rules before execution;
+- a material may be reference-only and should not block computation.
+
+The fix is not to special-case any file name or document role. The fix is to
+make material usage mode a typed contract field. The model owns the semantic
+choice; Codrax validates the chosen mode structurally.
+
+### P0 Remediation Direction
+
+1. **Material usage modes.** Extend `CoverageMaterial` with generic
+   `usage_mode`, `text_evidence_path`, and `distilled_notes` fields. Empty
+   mode remains `script_consumed`.
+2. **Mode-aware validation.** Direct script materials require `input_paths` and
+   runner `consumed_paths`; text-evidence materials require the evidence path
+   to be declared and consumed; planner-distilled materials require concrete
+   notes; reference-only materials cannot be blocking required materials.
+3. **Mode-aware extraction.** Non-text extraction should trigger only for
+   script-consumed required materials that still need semantic text. Materials
+   already covered by text evidence or planner distillation should not loop
+   through extraction.
+4. **Mode-aware repair.** Repair prompts should explain the precise typed
+   violation and ask the model to either consume the material, consume text
+   evidence, or switch to planner distillation with concrete notes.
+
+### P1 Remediation Direction
+
+- Connect planner-distilled materials to staged workflows: material
+  summarization/distillation can become an explicit earlier batch whose typed
+  output feeds later deterministic computation.
+- Add compact result-level schema repair for malformed material coverage
+  fields.
+- Add domain-neutral evals for the three required-material coverage modes.
+
 ### P0 Remediation Direction
 
 1. **Ledger contract consistency.** Contribution aggregation semantics must be
@@ -332,10 +396,18 @@ become a long model retry loop.
 - [x] Add focused runner tests for aggregation aliases, metric-suffix
       normalization, candidate-string normalization, helper-backed ledgers,
       and unsupported contribution operations.
-- [ ] Add typed data violation classification and compact locus-specific
+- [x] Add typed data violation classification and compact locus-specific
       repair prompts.
+- [x] Add generic material usage modes for direct script consumption,
+      text-evidence consumption, planner distillation, and reference-only
+      materials.
+- [x] Validate required material coverage according to usage mode instead of
+      treating every required material as direct script input.
+- [x] Teach the data planner schema/prompt and JSON compatibility draft about
+      `usage_mode`, `text_evidence_path`, and `distilled_notes`.
 - [ ] Stage large data workflows so one script does not own discovery,
       parsing, rule application, entity resolution, contribution, reconcile,
       and final rendering all at once.
-- [ ] Add domain-neutral evals for ledger normalization, contribution/reconcile
-      consistency, schema repair, and staged data workflows.
+- [ ] Add domain-neutral evals for ledger normalization, material usage modes,
+      contribution/reconcile consistency, schema repair, and staged data
+      workflows.

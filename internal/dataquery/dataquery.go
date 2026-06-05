@@ -76,11 +76,23 @@ type CoverageContract struct {
 	ReconcileRequired          bool               `json:"reconcile_required,omitempty"`
 }
 
+type CoverageMaterialUseMode string
+
+const (
+	MaterialUseScriptConsumed       CoverageMaterialUseMode = "script_consumed"
+	MaterialUseTextEvidenceConsumed CoverageMaterialUseMode = "text_evidence_consumed"
+	MaterialUsePlannerDistilled     CoverageMaterialUseMode = "planner_distilled"
+	MaterialUseReferenceOnly        CoverageMaterialUseMode = "reference_only"
+)
+
 type CoverageMaterial struct {
-	ID       string `json:"id,omitempty"`
-	Path     string `json:"path,omitempty"`
-	Purpose  string `json:"purpose,omitempty"`
-	Required bool   `json:"required,omitempty"`
+	ID               string                  `json:"id,omitempty"`
+	Path             string                  `json:"path,omitempty"`
+	Purpose          string                  `json:"purpose,omitempty"`
+	Required         bool                    `json:"required,omitempty"`
+	UsageMode        CoverageMaterialUseMode `json:"usage_mode,omitempty"`
+	TextEvidencePath string                  `json:"text_evidence_path,omitempty"`
+	DistilledNotes   []string                `json:"distilled_notes,omitempty"`
 }
 
 func (c CoverageContract) RequiredPaths() []string {
@@ -98,6 +110,63 @@ func (c CoverageContract) RequiredPaths() []string {
 	return out
 }
 
+func (c CoverageContract) RequiredRunnerInputPaths() []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, m := range c.RequiredMaterials {
+		mode := normalizeCoverageMaterialUseMode(m.UsageMode)
+		var path string
+		switch mode {
+		case MaterialUseScriptConsumed:
+			path = normalizeMaterialPath(m.Path)
+		case MaterialUseTextEvidenceConsumed:
+			path = normalizeMaterialPath(m.TextEvidencePath)
+		default:
+			continue
+		}
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (c CoverageContract) RequiredScriptPaths() []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, m := range c.RequiredMaterials {
+		if normalizeCoverageMaterialUseMode(m.UsageMode) != MaterialUseScriptConsumed {
+			continue
+		}
+		path := normalizeMaterialPath(m.Path)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func normalizeCoverageMaterialUseMode(mode CoverageMaterialUseMode) CoverageMaterialUseMode {
+	switch CoverageMaterialUseMode(strings.ToLower(strings.TrimSpace(string(mode)))) {
+	case "", MaterialUseScriptConsumed:
+		return MaterialUseScriptConsumed
+	case MaterialUseTextEvidenceConsumed:
+		return MaterialUseTextEvidenceConsumed
+	case MaterialUsePlannerDistilled:
+		return MaterialUsePlannerDistilled
+	case MaterialUseReferenceOnly:
+		return MaterialUseReferenceOnly
+	default:
+		return MaterialUseScriptConsumed
+	}
+}
+
 type NonTextRequiredMaterial struct {
 	Path              string   `json:"path"`
 	Kind              string   `json:"kind"`
@@ -113,6 +182,72 @@ type MaterialExtraction struct {
 	Notes      string `json:"notes,omitempty"`
 }
 
+type DataTaskViolation struct {
+	Code       string `json:"code"`
+	Summary    string `json:"summary,omitempty"`
+	RepairHint string `json:"repair_hint,omitempty"`
+}
+
+func ClassifyExecutionError(errText string) DataTaskViolation {
+	text := strings.TrimSpace(errText)
+	lower := strings.ToLower(text)
+	v := DataTaskViolation{
+		Code:       "runtime_failure",
+		Summary:    clampViolationText(text, 500),
+		RepairHint: "Inspect the failing line, keep the same user goal and output contract, and emit a corrected bounded plan.",
+	}
+	switch {
+	case strings.Contains(lower, "data task script redefines reserved helper"):
+		v.Code = "reserved_helper_redefined"
+		v.RepairHint = "Remove any function/variable assignment that redefines runner helpers; call the provided helper directly."
+	case strings.Contains(lower, "uses text_evidence_consumed but text_evidence_path is empty"):
+		v.Code = "text_evidence_path_missing"
+		v.RepairHint = "Set text_evidence_path for the required material or choose a different verifiable usage_mode."
+	case strings.Contains(lower, "planner_distilled") && strings.Contains(lower, "distilled_notes is empty"):
+		v.Code = "planner_distilled_notes_missing"
+		v.RepairHint = "If the material is planner_distilled, include concrete distilled_notes; otherwise switch to script_consumed or text_evidence_consumed."
+	case strings.Contains(lower, "cannot use reference_only"):
+		v.Code = "required_material_reference_only"
+		v.RepairHint = "Move advisory materials to optional_materials, or choose a verifiable required usage_mode."
+	case strings.Contains(lower, "text evidence") && strings.Contains(lower, "was not consumed by the script"):
+		v.Code = "text_evidence_not_consumed"
+		v.RepairHint = "Read the declared text_evidence_path with a helper and use it in computation, validation, audit, or ledgers."
+	case strings.Contains(lower, "required material") && strings.Contains(lower, "is not declared in input_paths"):
+		v.Code = "required_material_not_declared"
+		v.RepairHint = "Declare the runner-readable required path in input_paths, or use text_evidence_consumed/planner_distilled when direct script input is not correct."
+	case strings.Contains(lower, "required material") && strings.Contains(lower, "was not consumed by the script"):
+		v.Code = "required_material_not_consumed"
+		v.RepairHint = "Read the material with a helper and use the content, or use a verifiable non-direct usage_mode with required evidence fields."
+	case strings.Contains(lower, "coverage_contract.") && strings.Contains(lower, "but result.") && strings.Contains(lower, "is empty"):
+		v.Code = "missing_required_ledger"
+		v.RepairHint = "Emit the required generic ledger instead of weakening the contract."
+	case strings.Contains(lower, "unsupported operation"):
+		v.Code = "unsupported_contribution_operation"
+		v.RepairHint = "Use canonical contribution operations such as add/sum/count/subtract/set/rank."
+	case strings.Contains(lower, "has no matching contribution records"):
+		v.Code = "reconcile_group_mismatch"
+		v.RepairHint = "Align contribution group_key/metric with reconcile.groups, or correct the contribution records."
+	case strings.Contains(lower, "contributions sum to"):
+		v.Code = "reconcile_sum_mismatch"
+		v.RepairHint = "Fix the computation or reconcile expected/actual values so they match contribution totals."
+	case strings.Contains(lower, "json: cannot unmarshal") || strings.Contains(lower, "parse data task result"):
+		v.Code = "result_schema_mismatch"
+		v.RepairHint = "Emit valid result JSON using canonical fields or runner ledger helpers."
+	case strings.Contains(lower, "output contract"):
+		v.Code = "output_contract_violation"
+		v.RepairHint = "Keep the computed answer but render it exactly according to output_contract."
+	}
+	return v
+}
+
+func clampViolationText(value string, limit int) string {
+	value = strings.TrimSpace(value)
+	if limit <= 0 || len(value) <= limit {
+		return value
+	}
+	return value[:limit] + "...[truncated]"
+}
+
 func FindNonTextRequiredMaterials(contract CoverageContract, candidates []CandidateFile) []NonTextRequiredMaterial {
 	byPath := map[string]CandidateFile{}
 	for _, c := range candidates {
@@ -125,6 +260,9 @@ func FindNonTextRequiredMaterials(contract CoverageContract, candidates []Candid
 	seen := map[string]bool{}
 	var out []NonTextRequiredMaterial
 	for _, req := range contract.RequiredMaterials {
+		if normalizeCoverageMaterialUseMode(req.UsageMode) != MaterialUseScriptConsumed {
+			continue
+		}
 		path := normalizeMaterialPath(req.Path)
 		if path == "" || seen[path] {
 			continue
@@ -1532,9 +1670,38 @@ func resolveInputPath(root, raw string) (string, string, error) {
 
 func validateCoverageInputsDeclared(contract CoverageContract, copied []string) error {
 	copied = normalizeMaterialPaths(copied)
-	for _, req := range contract.RequiredPaths() {
-		if !materialPathCovered(req, copied) {
-			return fmt.Errorf("data coverage incomplete: required material %q is not declared in input_paths", req)
+	for _, material := range contract.RequiredMaterials {
+		mode := normalizeCoverageMaterialUseMode(material.UsageMode)
+		switch mode {
+		case MaterialUseScriptConsumed:
+			req := normalizeMaterialPath(material.Path)
+			if req != "" && !materialPathCovered(req, copied) {
+				return fmt.Errorf("data coverage incomplete: required material %q is not declared in input_paths", req)
+			}
+		case MaterialUseTextEvidenceConsumed:
+			source := normalizeMaterialPath(material.Path)
+			evidence := normalizeMaterialPath(material.TextEvidencePath)
+			if source == "" {
+				return errors.New("data coverage incomplete: required text-evidence material is missing source path")
+			}
+			if evidence == "" {
+				return fmt.Errorf("data coverage incomplete: required material %q uses text_evidence_consumed but text_evidence_path is empty", source)
+			}
+			if !materialPathCovered(evidence, copied) {
+				return fmt.Errorf("data coverage incomplete: text evidence %q for required material %q is not declared in input_paths", evidence, source)
+			}
+		case MaterialUsePlannerDistilled:
+			source := normalizeMaterialPath(material.Path)
+			if source == "" && strings.TrimSpace(material.ID) == "" {
+				return errors.New("data coverage incomplete: planner_distilled required material needs path or id")
+			}
+			if len(cleanMaterialNotes(material.DistilledNotes)) == 0 {
+				return fmt.Errorf("data coverage incomplete: required material %q uses planner_distilled but distilled_notes is empty", materialDisplayName(material))
+			}
+		case MaterialUseReferenceOnly:
+			if material.Required {
+				return fmt.Errorf("data coverage incomplete: required material %q cannot use reference_only; put it in optional_materials or choose a verifiable usage_mode", materialDisplayName(material))
+			}
 		}
 	}
 	return nil
@@ -1542,12 +1709,51 @@ func validateCoverageInputsDeclared(contract CoverageContract, copied []string) 
 
 func validateCoverageConsumed(contract CoverageContract, consumed []string) error {
 	consumed = normalizeMaterialPaths(consumed)
-	for _, req := range contract.RequiredPaths() {
-		if !materialPathCovered(req, consumed) {
-			return fmt.Errorf("data coverage incomplete: required material %q was not consumed by the script", req)
+	for _, material := range contract.RequiredMaterials {
+		mode := normalizeCoverageMaterialUseMode(material.UsageMode)
+		switch mode {
+		case MaterialUseScriptConsumed:
+			req := normalizeMaterialPath(material.Path)
+			if req != "" && !materialPathCovered(req, consumed) {
+				return fmt.Errorf("data coverage incomplete: required material %q was not consumed by the script", req)
+			}
+		case MaterialUseTextEvidenceConsumed:
+			source := normalizeMaterialPath(material.Path)
+			evidence := normalizeMaterialPath(material.TextEvidencePath)
+			if evidence == "" {
+				return fmt.Errorf("data coverage incomplete: required material %q uses text_evidence_consumed but text_evidence_path is empty", source)
+			}
+			if !materialPathCovered(evidence, consumed) {
+				return fmt.Errorf("data coverage incomplete: text evidence %q for required material %q was not consumed by the script", evidence, source)
+			}
 		}
 	}
 	return nil
+}
+
+func cleanMaterialNotes(notes []string) []string {
+	out := make([]string, 0, len(notes))
+	for _, note := range notes {
+		note = strings.TrimSpace(note)
+		if note == "" {
+			continue
+		}
+		out = append(out, note)
+	}
+	return out
+}
+
+func materialDisplayName(material CoverageMaterial) string {
+	if path := normalizeMaterialPath(material.Path); path != "" {
+		return path
+	}
+	if id := strings.TrimSpace(material.ID); id != "" {
+		return id
+	}
+	if purpose := strings.TrimSpace(material.Purpose); purpose != "" {
+		return purpose
+	}
+	return "<unnamed material>"
 }
 
 func materialPathCovered(required string, paths []string) bool {
