@@ -218,6 +218,81 @@ type EntityResolutionRecord struct {
 	Reason         LooseText         `json:"reason,omitempty"`
 }
 
+func (r *EntityResolutionRecord) UnmarshalJSON(data []byte) error {
+	type rawEntityResolutionRecord struct {
+		ItemID         LooseText       `json:"item_id,omitempty"`
+		SourceValue    LooseText       `json:"source_value,omitempty"`
+		CanonicalID    LooseText       `json:"canonical_id,omitempty"`
+		CanonicalLabel LooseText       `json:"canonical_label,omitempty"`
+		Status         LooseText       `json:"status,omitempty"`
+		Candidates     json.RawMessage `json:"candidates,omitempty"`
+		EvidenceRefs   []string        `json:"evidence_refs,omitempty"`
+		RuleRefs       []string        `json:"rule_refs,omitempty"`
+		Reason         LooseText       `json:"reason,omitempty"`
+	}
+	var raw rawEntityResolutionRecord
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*r = EntityResolutionRecord{
+		ItemID:         raw.ItemID,
+		SourceValue:    raw.SourceValue,
+		CanonicalID:    raw.CanonicalID,
+		CanonicalLabel: raw.CanonicalLabel,
+		Status:         raw.Status,
+		EvidenceRefs:   raw.EvidenceRefs,
+		RuleRefs:       raw.RuleRefs,
+		Reason:         raw.Reason,
+	}
+	candidates, err := parseEntityCandidates(raw.Candidates)
+	if err != nil {
+		return err
+	}
+	r.Candidates = candidates
+	return nil
+}
+
+func parseEntityCandidates(raw json.RawMessage) ([]EntityCandidate, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 || bytes.Equal(raw, []byte("null")) {
+		return nil, nil
+	}
+	if !bytes.HasPrefix(raw, []byte("[")) {
+		var one EntityCandidate
+		if err := unmarshalEntityCandidate(raw, &one); err != nil {
+			return nil, err
+		}
+		return []EntityCandidate{one}, nil
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, err
+	}
+	out := make([]EntityCandidate, 0, len(items))
+	for _, item := range items {
+		item = bytes.TrimSpace(item)
+		if len(item) == 0 || bytes.Equal(item, []byte("null")) {
+			continue
+		}
+		var candidate EntityCandidate
+		if err := unmarshalEntityCandidate(item, &candidate); err != nil {
+			return nil, err
+		}
+		out = append(out, candidate)
+	}
+	return out, nil
+}
+
+func unmarshalEntityCandidate(raw json.RawMessage, out *EntityCandidate) error {
+	raw = bytes.TrimSpace(raw)
+	if bytes.HasPrefix(raw, []byte("{")) {
+		return json.Unmarshal(raw, out)
+	}
+	value := rawJSONValueString(raw)
+	*out = EntityCandidate{ID: LooseText(value)}
+	return nil
+}
+
 type EntityCandidate struct {
 	ID         LooseText `json:"id,omitempty"`
 	Label      LooseText `json:"label,omitempty"`
@@ -791,6 +866,7 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+	normalizeResultLedgers(&res)
 	res.ConsumedPaths = normalizeMaterialPaths(res.ConsumedPaths)
 	if err := validateCoverageConsumed(plan.CoverageContract, res.ConsumedPaths); err != nil {
 		return Result{}, err
@@ -962,6 +1038,9 @@ func hasMeaningfulContribution(records []ContributionRecord) bool {
 
 func validateContributionRecords(records []ContributionRecord) error {
 	for i, rec := range records {
+		if _, ok := normalizeContributionOperation(rec.Operation.String()); !ok {
+			return fmt.Errorf("data validation incomplete: result.contributions[%d] has unsupported operation %q; use add/sum/include/count/subtract/set/rank", i, strings.TrimSpace(rec.Operation.String()))
+		}
 		if contributionHasAnchor(rec) && contributionHasEffect(rec) {
 			continue
 		}
@@ -1165,12 +1244,13 @@ func hasMeaningfulReconcileGroup(groups []ReconcileGroup) bool {
 func sumContributionGroups(contributions []ContributionRecord) map[string]*big.Rat {
 	out := map[string]*big.Rat{}
 	for _, rec := range contributions {
-		op := strings.ToLower(strings.TrimSpace(rec.Operation.String()))
+		op, ok := normalizeContributionOperation(rec.Operation.String())
+		if !ok {
+			continue
+		}
 		switch op {
 		case "", "include", "add", "count", "set", "rank":
 		case "subtract":
-		default:
-			continue
 		}
 		valueText := strings.TrimSpace(rec.Value.String())
 		if valueText == "" {
@@ -1197,7 +1277,9 @@ func sumContributionGroups(contributions []ContributionRecord) map[string]*big.R
 }
 
 func reconcileGroupKey(groupKey, metric string) string {
-	return strings.TrimSpace(groupKey) + "\x00" + strings.TrimSpace(metric)
+	metric = strings.TrimSpace(metric)
+	groupKey = normalizeLedgerGroupKey(groupKey, metric)
+	return groupKey + "\x00" + metric
 }
 
 func displayReconcileGroupKey(groupKey, metric string) string {
@@ -1221,6 +1303,63 @@ func splitReconcileGroupKey(key string) (string, string) {
 		return parts[0], ""
 	}
 	return parts[0], parts[1]
+}
+
+func normalizeResultLedgers(res *Result) {
+	if res == nil {
+		return
+	}
+	for i := range res.Contributions {
+		metric := strings.TrimSpace(res.Contributions[i].Metric.String())
+		res.Contributions[i].GroupKey = LooseText(normalizeLedgerGroupKey(res.Contributions[i].GroupKey.String(), metric))
+		if strings.TrimSpace(res.Contributions[i].Operation.String()) != "" {
+			op, ok := normalizeContributionOperation(res.Contributions[i].Operation.String())
+			if ok {
+				res.Contributions[i].Operation = LooseText(op)
+			}
+		}
+	}
+	if res.Reconcile != nil {
+		for i := range res.Reconcile.Groups {
+			metric := strings.TrimSpace(res.Reconcile.Groups[i].Metric.String())
+			res.Reconcile.Groups[i].GroupKey = LooseText(normalizeLedgerGroupKey(res.Reconcile.Groups[i].GroupKey.String(), metric))
+		}
+	}
+}
+
+func normalizeLedgerGroupKey(groupKey, metric string) string {
+	groupKey = strings.TrimSpace(groupKey)
+	metric = strings.TrimSpace(metric)
+	if groupKey == "" || metric == "" {
+		return groupKey
+	}
+	suffix := "/" + metric
+	for strings.HasSuffix(groupKey, suffix) {
+		groupKey = strings.TrimSpace(strings.TrimSuffix(groupKey, suffix))
+	}
+	return groupKey
+}
+
+func normalizeContributionOperation(op string) (string, bool) {
+	op = strings.ToLower(strings.TrimSpace(op))
+	switch op {
+	case "":
+		return "", true
+	case "include", "included":
+		return "include", true
+	case "add", "sum", "plus", "positive", "increment":
+		return "add", true
+	case "count":
+		return "count", true
+	case "subtract", "sub", "minus", "deduct", "negative":
+		return "subtract", true
+	case "set", "assign":
+		return "set", true
+	case "rank", "order":
+		return "rank", true
+	default:
+		return op, false
+	}
 }
 
 func parseDecimalRat(value string) (*big.Rat, error) {
@@ -1255,7 +1394,11 @@ func validateScriptSafety(script string) error {
 			return fmt.Errorf("data task script uses unsupported unsafe construct %q", denied)
 		}
 	}
-	reservedHelpers := []string{"csv_rows", "tsv_rows", "json_load", "jsonl_rows", "read_text", "parse_money", "emit", "open"}
+	reservedHelpers := []string{
+		"csv_rows", "tsv_rows", "json_load", "jsonl_rows", "read_text", "parse_money",
+		"add_decision", "add_rule_coverage", "add_contribution", "add_resolution",
+		"emit_result", "emit", "open",
+	}
 	for _, line := range strings.Split(script, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
@@ -1490,6 +1633,10 @@ ALLOWED = set(%s)
 RESULT = None
 BASE_DIR = os.getcwd()
 CONSUMED = set()
+DECISIONS = []
+RULE_COVERAGE = []
+CONTRIBUTIONS = []
+ENTITY_RESOLUTIONS = []
 PRINT_BYTES = 0
 PRINT_BYTE_LIMIT = 20000
 PRINT_CALL_LIMIT = 4096
@@ -1582,9 +1729,93 @@ def parse_money(value):
     text = str(value).strip().replace(",", "")
     return decimal.Decimal(text or "0")
 
+def add_decision(item_id="", source="", source_locator="", decision="", reason="", value="", contribution="", normalized_fields=None, evidence_refs=None, rule_refs=None, **extra):
+    rec = {
+        "item_id": str(item_id or ""),
+        "source": str(source or ""),
+        "source_locator": str(source_locator or ""),
+        "decision": str(decision or ""),
+        "reason": str(reason or ""),
+        "value": str(value or ""),
+        "contribution": str(contribution or ""),
+        "normalized_fields": normalized_fields or {},
+        "evidence_refs": list(evidence_refs or []),
+        "rule_refs": list(rule_refs or []),
+    }
+    rec.update(extra)
+    DECISIONS.append(rec)
+    return rec
+
+def add_rule_coverage(rule_id="", rule_text="", status="", evidence_refs=None, notes="", **extra):
+    rec = {
+        "rule_id": str(rule_id or ""),
+        "rule_text": str(rule_text or ""),
+        "status": str(status or ""),
+        "evidence_refs": list(evidence_refs or []),
+        "notes": str(notes or ""),
+    }
+    rec.update(extra)
+    RULE_COVERAGE.append(rec)
+    return rec
+
+def _candidate_obj(candidate):
+    if isinstance(candidate, dict):
+        return candidate
+    return {"id": str(candidate)}
+
+def add_resolution(item_id="", source_value="", canonical_id="", canonical_label="", status="", candidates=None, evidence_refs=None, rule_refs=None, reason="", **extra):
+    rec = {
+        "item_id": str(item_id or ""),
+        "source_value": str(source_value or ""),
+        "canonical_id": str(canonical_id or ""),
+        "canonical_label": str(canonical_label or ""),
+        "status": str(status or ""),
+        "candidates": [_candidate_obj(c) for c in list(candidates or [])],
+        "evidence_refs": list(evidence_refs or []),
+        "rule_refs": list(rule_refs or []),
+        "reason": str(reason or ""),
+    }
+    rec.update(extra)
+    ENTITY_RESOLUTIONS.append(rec)
+    return rec
+
+def add_contribution(item_id="", source="", source_locator="", group_key="", metric="", value="", operation="add", reason="", evidence_refs=None, rule_refs=None, **extra):
+    rec = {
+        "item_id": str(item_id or ""),
+        "source": str(source or ""),
+        "source_locator": str(source_locator or ""),
+        "group_key": str(group_key or ""),
+        "metric": str(metric or ""),
+        "value": str(value or ""),
+        "operation": str(operation or "add"),
+        "reason": str(reason or ""),
+        "evidence_refs": list(evidence_refs or []),
+        "rule_refs": list(rule_refs or []),
+    }
+    rec.update(extra)
+    CONTRIBUTIONS.append(rec)
+    return rec
+
 def emit(obj):
     global RESULT
     RESULT = obj
+
+def emit_result(answer, output_contract=None, audit_summary="", rows=None, rule_coverage=None, contributions=None, entity_resolutions=None, reconcile=None, metrics=None, **extra):
+    obj = {
+        "answer": str(answer),
+        "output_contract": output_contract or {},
+        "audit_summary": str(audit_summary or ""),
+        "rows": list(rows if rows is not None else DECISIONS),
+        "rule_coverage": list(rule_coverage if rule_coverage is not None else RULE_COVERAGE),
+        "contributions": list(contributions if contributions is not None else CONTRIBUTIONS),
+        "entity_resolutions": list(entity_resolutions if entity_resolutions is not None else ENTITY_RESOLUTIONS),
+        "metrics": list(metrics or []),
+    }
+    if reconcile is not None:
+        obj["reconcile"] = reconcile
+    obj.update(extra)
+    emit(obj)
+    return obj
 
 safe_builtins = {
     "len": len, "sum": sum, "min": min, "max": max, "sorted": sorted,
@@ -1608,6 +1839,9 @@ env = {
     "csv_rows": csv_rows, "tsv_rows": tsv_rows, "json_load": json_load,
     "jsonl_rows": jsonl_rows, "read_text": read_text,
     "parse_money": parse_money, "Decimal": decimal.Decimal,
+    "add_decision": add_decision, "add_rule_coverage": add_rule_coverage,
+    "add_contribution": add_contribution, "add_resolution": add_resolution,
+    "emit_result": emit_result,
     "csv": csv, "json": json, "decimal": decimal, "re": re,
     "math": math, "statistics": statistics, "collections": collections,
     "datetime": datetime, "itertools": itertools, "functools": functools,

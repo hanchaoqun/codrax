@@ -204,6 +204,65 @@ Computation correctness and final output shape are separate:
 This prevents a case where a perfectly formatted string hides an incomplete
 calculation.
 
+## 2026-06-05 Failure Audit: Ledger Contract Drift
+
+A recent real data workflow still failed after multiple repair rounds. The
+failures were not tied to one business domain. They exposed generic drift
+between the model-authored script contract, runner result schema, and
+deterministic validators:
+
+- the script redefined reserved helpers instead of using the runner-provided
+  helper surface;
+- required materials were declared but not consumed by the script;
+- `entity_resolutions.candidates` was emitted as a string array, while the
+  typed result schema expects candidate objects;
+- contribution records used a natural aggregation label such as `sum`, while
+  the deterministic reconcile path accepted only a narrower operation set;
+- `group_key` and `metric` were both free strings, so the same metric could be
+  encoded twice and no longer match reconcile groups;
+- repair repeatedly rewrote a large script rather than repairing the precise
+  typed violation locus.
+
+This is a system-level data-lane issue, not a single-case rule error. The data
+lane can already reject bad results, but it still needs stronger typed
+normalization and smaller repair targets so the same class of error does not
+become a long model retry loop.
+
+### P0 Remediation Direction
+
+1. **Ledger contract consistency.** Contribution aggregation semantics must be
+   represented consistently in schema, prompt, runner, and validator. Standard
+   aggregation labels such as `sum` and `add` must map to one canonical
+   operation before reconciliation. Unsupported operations must fail with a
+   precise typed diagnostic instead of being silently skipped.
+2. **Structured ledger normalization.** Data runner results should normalize
+   structural variants that are unambiguous and safe: candidate strings become
+   candidate objects, contribution/reconcile group keys are canonicalized
+   against `metric`, and normalized results are what validators consume.
+3. **Runner ledger helpers.** Scripts should be able to call generic helpers
+   such as `add_contribution`, `add_resolution`, `add_decision`, and
+   `emit_result`. The helper layer owns JSON shape and canonical keys; the
+   model owns business interpretation.
+4. **Typed violation repair.** Repair should classify failures as typed
+   loci, for example `reserved_helper_redefined`,
+   `required_material_not_consumed`, `result_schema_mismatch`,
+   `unsupported_contribution_operation`, or `reconcile_group_mismatch`. Repair
+   prompts should receive the relevant compact locus rather than the whole
+   previous script as the only context.
+
+### P1 Remediation Direction
+
+- Split large data jobs into staged batches: material coverage, parsing and
+  normalization, decision/contribution collection, reconciliation, then final
+  output rendering.
+- Add runner-result schema repair and raw-result audit for malformed emitted
+  JSON that can be losslessly repaired.
+- Add semantic smoke checks for suspicious success states, such as strict
+  aggregate answers with empty contribution ledgers.
+- Expand eval coverage across simple sums, counts, rankings, joins, entity
+  resolution, zero-valued groups, strict output formats, and non-text material
+  extraction. These evals must remain domain-neutral.
+
 ## Task Checklist
 
 - [x] Record generalized design and red lines.
@@ -264,3 +323,19 @@ calculation.
 - [x] Feed extracted text evidence back into the data workflow as ordinary
       text materials, then require the planner to repair/continue normally.
 - [x] Document extractor configuration and non-goals.
+- [x] Normalize contribution aggregation semantics across schema, prompt,
+      runner, validator, and tests.
+- [x] Normalize unambiguous runner-result schema variants such as string
+      entity candidates and duplicated metric suffixes.
+- [x] Add generic ledger helper APIs in the Python runner so scripts do not
+      hand-build every result JSON structure.
+- [x] Add focused runner tests for aggregation aliases, metric-suffix
+      normalization, candidate-string normalization, helper-backed ledgers,
+      and unsupported contribution operations.
+- [ ] Add typed data violation classification and compact locus-specific
+      repair prompts.
+- [ ] Stage large data workflows so one script does not own discovery,
+      parsing, rule application, entity resolution, contribution, reconcile,
+      and final rendering all at once.
+- [ ] Add domain-neutral evals for ledger normalization, contribution/reconcile
+      consistency, schema repair, and staged data workflows.

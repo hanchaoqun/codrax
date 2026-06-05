@@ -604,6 +604,122 @@ emit({
 	}
 }
 
+func TestRunnerNormalizesContributionLedgerShapes(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\nA,7\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:          []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			ContributionLedgerRequired: true,
+			EntityResolutionRequired:   true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+emit({
+  "answer": "17",
+  "output_contract": {"format": "plain_single_line", "explanation_allowed": False},
+  "entity_resolutions": [{"source_value": "A", "canonical_id": "A", "status": "resolved", "candidates": ["A", "Alpha"]}],
+  "contributions": [
+    {"item_id": "row1", "source": "orders.csv", "source_locator": "row 2", "group_key": "A/amount", "metric": "amount", "value": "10", "operation": "sum"},
+    {"item_id": "row2", "source": "orders.csv", "source_locator": "row 3", "group_key": "A/amount", "metric": "amount", "value": "7", "operation": "sum"}
+  ],
+  "reconcile": {"status": "pass", "expected_answer": "17", "actual_answer": "17", "groups": [{"group_key": "A/amount", "metric": "amount", "expected": "17", "actual": "17"}]}
+})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := res.Contributions[0].Operation.String(); got != "add" {
+		t.Fatalf("operation normalized to %q, want add", got)
+	}
+	if got := res.Contributions[0].GroupKey.String(); got != "A" {
+		t.Fatalf("group_key normalized to %q, want A", got)
+	}
+	if len(res.EntityResolutions) != 1 || len(res.EntityResolutions[0].Candidates) != 2 || res.EntityResolutions[0].Candidates[0].ID.String() != "A" {
+		t.Fatalf("entity candidate string repair failed: %+v", res.EntityResolutions)
+	}
+}
+
+func TestRunnerLedgerHelpersProduceCanonicalResult(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\nA,7\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:          []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			DecisionRecordsRequired:    true,
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			EntityResolutionRequired:   true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+add_rule_coverage(rule_id="r1", rule_text="include all rows", status="applied", notes="all rows read", evidence_refs=["orders.csv"])
+add_resolution(source_value="A", canonical_id="A", canonical_label="A", status="resolved", candidates=["A"], evidence_refs=["orders.csv"])
+total = Decimal("0")
+for i, row in enumerate(rows):
+    total += Decimal(row["amount"])
+    add_decision(item_id=str(i), source="orders.csv", source_locator=f"row_{i+2}", decision="included", reason="included by r1", rule_refs=["r1"])
+    add_contribution(item_id=str(i), source="orders.csv", source_locator=f"row_{i+2}", group_key=row["vendor"], metric="amount", value=row["amount"], operation="sum", reason="included by r1", rule_refs=["r1"])
+emit_result(str(int(total)), output_contract={"format": "plain_single_line", "explanation_allowed": False}, audit_summary="helper-backed", reconcile={"status": "pass", "expected_answer": "17", "actual_answer": "17", "groups": [{"group_key": "A", "metric": "amount", "expected": "17", "actual": "17"}]})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.Answer != "17" || len(res.Rows) != 2 || len(res.Contributions) != 2 || len(res.RuleCoverage) != 1 || len(res.EntityResolutions) != 1 {
+		t.Fatalf("unexpected helper-backed result: %+v", res)
+	}
+}
+
+func TestRunnerRejectsUnsupportedContributionOperation(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:          []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			ContributionLedgerRequired: true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+emit({
+  "answer": "10",
+  "output_contract": {"format": "plain_single_line", "explanation_allowed": False},
+  "contributions": [{"item_id": "row1", "source": "orders.csv", "source_locator": "row 2", "group_key": "A", "metric": "amount", "value": "10", "operation": "multiply"}]
+})
+`,
+	}
+	_, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), "unsupported operation") {
+		t.Fatalf("Run err=%v, want unsupported operation failure", err)
+	}
+}
+
 func TestRunnerRejectsRuleCoverageWithoutSupport(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
