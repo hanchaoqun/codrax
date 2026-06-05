@@ -13,6 +13,7 @@ import (
 const (
 	DefaultDataTaskMaxRepairRounds = 6
 	DefaultDataTaskMaxDataRounds   = 12
+	DefaultDataTaskMaxNodeFailures = 2
 	dataTaskMaxRepairRoundsCeiling = 12
 	dataTaskMaxDataRoundsCeiling   = 24
 
@@ -40,6 +41,36 @@ func normalizeDataTaskMaxDataRounds(value int) int {
 		return dataTaskMaxDataRoundsCeiling
 	}
 	return value
+}
+
+func dataTaskRepeatedNodeFailure(records []dataTaskWorkflowRecord, currentErr string, limit int) (key string, count int, repeated bool) {
+	if limit <= 0 {
+		limit = DefaultDataTaskMaxNodeFailures
+	}
+	current := dataquery.ClassifyExecutionError(currentErr)
+	key = dataTaskViolationNodeKey(current)
+	if key == "" {
+		return "", 0, false
+	}
+	count = 1
+	for _, rec := range records {
+		if strings.TrimSpace(rec.Err) == "" {
+			continue
+		}
+		if dataTaskViolationNodeKey(dataquery.ClassifyExecutionError(rec.Err)) == key {
+			count++
+		}
+	}
+	return key, count, count >= limit
+}
+
+func dataTaskViolationNodeKey(v dataquery.DataTaskViolation) string {
+	id := strings.TrimSpace(v.ActionID)
+	if id == "" {
+		return ""
+	}
+	kind := strings.TrimSpace(v.ActionKind)
+	return id + "|" + kind
 }
 
 func dataTaskPlanStagingGuardError(plan dataquery.TaskPlan) string {

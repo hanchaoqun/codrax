@@ -1666,6 +1666,19 @@ func TestDataTaskPlanStagingGuardRequiresBoundedBatch(t *testing.T) {
 	}
 }
 
+func TestDataTaskRepeatedNodeFailureDetectsTypedAction(t *testing.T) {
+	errText := `execute data task: data action failed action_id="transform_1" action_kind="custom_transform": KeyError: missing`
+	key, count, repeated := dataTaskRepeatedNodeFailure(nil, errText, 2)
+	if key != "transform_1|custom_transform" || count != 1 || repeated {
+		t.Fatalf("first failure key=%q count=%d repeated=%v", key, count, repeated)
+	}
+	records := []dataTaskWorkflowRecord{{Err: errText}}
+	key, count, repeated = dataTaskRepeatedNodeFailure(records, errText, 2)
+	if key != "transform_1|custom_transform" || count != 2 || !repeated {
+		t.Fatalf("second failure key=%q count=%d repeated=%v", key, count, repeated)
+	}
+}
+
 func TestTurnPolicyDispatch_DataRouteContinuesAfterIntermediateBatch(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

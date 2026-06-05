@@ -135,7 +135,7 @@ remove the read. This keeps repair local to the graph node.
 - [x] Route evaluator statuses through distinct REPL/CLI branches:
       graph expansion and transform continuation use continuation planning,
       while node repair uses the repair planner with typed action/locus context.
-- [ ] Add finer DAG-node budget accounting so one bad node cannot consume the
+- [x] Add finer DAG-node budget accounting so one bad node cannot consume the
       entire data workflow budget.
 
 ### Batch 3: More Deterministic Atomic Ops

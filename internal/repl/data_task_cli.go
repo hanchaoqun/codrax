@@ -105,10 +105,26 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		}
 		if err != nil {
 			errText := fmt.Sprintf("execute data task: %v", err)
+			recordedErr := false
+			if nodeKey, nodeCount, repeated := dataTaskRepeatedNodeFailure(records, errText, DefaultDataTaskMaxNodeFailures); repeated {
+				if continuer, ok := cfg.Planner.(DataTaskContinuationPlanner); ok {
+					records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+					recordedErr = true
+					dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "continue", dataRounds, fmt.Sprintf("node %s failed %d times; expanding graph", nodeKey, nodeCount))
+					nextPlan, contErr := continuer.ContinueDataTask(ctx, request, repoRoot, policy, candidates, records)
+					if contErr == nil {
+						dataTaskCLIPlanProgress(cfg.Progress, cfg.Language, nextPlan)
+						currentPlan = nextPlan
+						continue
+					}
+				}
+			}
 			var repaired dataquery.TaskPlan
 			var ok bool
 			repaired, repairRounds, ok, err = repairDataTaskPlanForCLI(ctx, cfg.Planner, request, repoRoot, policy, candidates, currentPlan, errText, records, repairRounds, repairRoundsMax)
-			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			if !recordedErr {
+				records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			}
 			if err != nil {
 				return "", err
 			}

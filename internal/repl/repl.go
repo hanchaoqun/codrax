@@ -1436,7 +1436,28 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		if err != nil {
 			errText := fmt.Sprintf("execute data task: %v", err)
 			r.auditDataTaskError(dataRounds, errText)
-			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			recordedErr := false
+			if nodeKey, nodeCount, repeated := dataTaskRepeatedNodeFailure(records, errText, DefaultDataTaskMaxNodeFailures); repeated {
+				if continuer, ok := r.dataTaskPlanner.(DataTaskContinuationPlanner); ok {
+					records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+					recordedErr = true
+					detail := fmt.Sprintf("node %s failed %d times; expanding graph", nodeKey, nodeCount)
+					r.emitDataTaskWorkflowAudit("continue", dataRounds, detail)
+					ctx := r.startTurn()
+					nextPlan, contErr := continuer.ContinueDataTask(ctx, line, r.repoRoot, policy, candidates, records)
+					r.endTurn()
+					r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_continuation_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
+					if contErr == nil {
+						r.emitDataTaskPlanAudit(nextPlan)
+						r.auditDataTaskPlan("continue", dataRounds+1, nextPlan)
+						currentPlan = nextPlan
+						continue
+					}
+				}
+			}
+			if !recordedErr {
+				records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			}
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
 				repairRounds++
 				r.emitDataTaskWorkflowAudit("repair", repairRounds, dataTaskWorkflowErrorSegment(r.language, errText))
