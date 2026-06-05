@@ -179,7 +179,7 @@ NameError: name 'print' is not defined`
 		t.Fatalf("repaired plan=%+v", plan)
 	}
 	user := adapter.calls[0].messages[1].Content
-	for _, want := range []string{"## execution_error", "NameError", "## typed_repair_locus", `"script_line": 5`, `"runner_line": 130`, "## previous_plan_compact_json", "script_line_excerpt", `"line": 5`, `print(\"debug\")`, "coverage_contract", "required_materials", "usage_mode", "text_evidence_consumed", "planner_distilled", "operation pipeline"} {
+	for _, want := range []string{"## execution_error", "NameError", "## typed_repair_locus", `"script_line": 5`, `"runner_line": 130`, "1-based line number in the model-authored script", "helper wrapper line", "script_line_excerpt", "## previous_plan_compact_json", `"line": 5`, `print(\"debug\")`, "coverage_contract", "required_materials", "usage_mode", "text_evidence_consumed", "planner_distilled", "operation pipeline"} {
 		if !strings.Contains(user, want) {
 			t.Fatalf("repair prompt missing %q:\n%s", want, user)
 		}
@@ -343,7 +343,7 @@ func TestDataTaskResultPatchPlannerParsesTypedPatch(t *testing.T) {
 		}
 	}
 	user := adapter.calls[0].messages[1].Content
-	for _, want := range []string{"## typed_violations", "unsupported_contribution_operation", "## partial_result_compact_json", "## patch_rules"} {
+	for _, want := range []string{"## typed_violations", "unsupported_contribution_operation", "## partial_result_compact_json", "## patch_rules", "json_path points to the structured result JSON", "not to a script line"} {
 		if !strings.Contains(user, want) {
 			t.Fatalf("patch prompt missing %q:\n%s", want, user)
 		}
