@@ -105,6 +105,7 @@ CAP="${CAP:-}"
 # single-repo/read-only so normal read cases keep the operator's environment
 # unchanged and write/multirepo fixtures continue to use their dedicated yaml.
 SETTINGS="${SETTINGS:-}"
+DATA_FIXTURE="${DATA_FIXTURE:-}"
 
 case "$MODE" in
   "" | read | plan | apply) ;;
@@ -137,6 +138,10 @@ if [[ -n "$SETTINGS" && -n "$MODE" && "$MODE" != "read" ]]; then
 fi
 if [[ -n "$SETTINGS" && -n "$MULTIREPO" ]]; then
   echo "case SETTINGS=$SETTINGS is incompatible with MULTIREPO=$MULTIREPO; use the multirepo settings fixture instead" >&2
+  exit 2
+fi
+if [[ -n "$DATA_FIXTURE" && ( -n "$MULTIREPO" || ( -n "$MODE" && "$MODE" != "read" ) ) ]]; then
+  echo "case DATA_FIXTURE=$DATA_FIXTURE is read-mode only and is incompatible with MULTIREPO or write MODE" >&2
   exit 2
 fi
 
@@ -246,6 +251,16 @@ setup_multirepo_scratch() {
       git -c user.email=eval@codrax -c user.name=eval commit -q -m "seed" 2>/dev/null || true
     ) || return $?
   done
+}
+
+# setup_data_scratch <scratch-dir> — copies eval/fixtures/<seed-name>/ to a
+# scratch read-mode repo root for data-lane evals. It intentionally does not
+# create source files or git history; the data lane should not require either.
+setup_data_scratch() {
+  local scratch="$1"
+  rm -rf "$scratch"
+  mkdir -p "$scratch"
+  cp -r "$ROOT/eval/fixtures/$DATA_FIXTURE/." "$scratch/"
 }
 
 # run_read_step / run_plan_step / run_apply_step — the three pipeline
@@ -573,7 +588,16 @@ run_one() {
       unset CODRAX_SETTINGS
       ;;
     *)
-      if [[ -n "$MULTIREPO" ]]; then
+      if [[ -n "$DATA_FIXTURE" ]]; then
+        scratch="$OUTDIR/run-$i.data"
+        if ! setup_data_scratch "$scratch"; then
+          echo "FAIL data_setup_fail" >"$verdict"
+          echo "run $i: FAIL data_setup_fail" >&2
+          return
+        fi
+        run_read_step "$i" "$out" "$logdir" "$scratch"
+        rc=$?
+      elif [[ -n "$MULTIREPO" ]]; then
         scratch="$OUTDIR/run-$i.parent"
         if ! setup_multirepo_scratch "$scratch"; then
           echo "FAIL multirepo_setup_fail" >"$verdict"

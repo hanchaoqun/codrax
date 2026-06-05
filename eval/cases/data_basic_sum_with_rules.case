@@ -1,0 +1,7 @@
+ID="data_basic_sum_with_rules"
+NAME="data lane — generic sum with required rule material"
+QUESTION="读取当前目录的数据材料，按照 rules.md 的说明汇总 orders.csv 的 amount 列，最终只输出一个数字。"
+DATA_FIXTURE="data-basic"
+EXPECT_MATCHES_REGEX="(^|[^0-9])17([^0-9]|$)"
+EXPECT_LOG_MATCHES_REGEX="route=data
+\\[repl/data\\] data task result"

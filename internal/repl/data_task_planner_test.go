@@ -88,6 +88,8 @@ func TestDataTaskPlannerCompatJSON(t *testing.T) {
 		"canonical ledger field names",
 		"network/process libraries",
 		"item-level decision records",
+		"Do not emit a giant one-shot script",
+		"continue_after=true",
 	} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("data planner system prompt missing %q:\n%s", want, system)

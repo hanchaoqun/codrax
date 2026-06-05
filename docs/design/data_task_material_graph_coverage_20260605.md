@@ -405,9 +405,11 @@ choice; Codrax validates the chosen mode structurally.
       treating every required material as direct script input.
 - [x] Teach the data planner schema/prompt and JSON compatibility draft about
       `usage_mode`, `text_evidence_path`, and `distilled_notes`.
-- [ ] Stage large data workflows so one script does not own discovery,
+- [x] Stage large data workflows so one script does not own discovery,
       parsing, rule application, entity resolution, contribution, reconcile,
       and final rendering all at once.
+- [x] Add a first domain-neutral data eval fixture for strict sum output with a
+      required rule material.
 - [ ] Add domain-neutral evals for ledger normalization, material usage modes,
       contribution/reconcile consistency, schema repair, and staged data
       workflows.

@@ -217,6 +217,7 @@ Hard rules:
 - Do not make the model hand-calculate the final answer. The script must compute it.
 - The final result object must include answer as a string and output_contract as an object.
 - Treat each plan as one bounded data batch. For multi-step data work, set goal/success_criteria and continue_after=true, then explain next_batch and why_this_batch.
+- Do not emit a giant one-shot script for tasks with many materials, uncertain schemas, unknown mapping rules, or likely multi-stage processing. Emit the first bounded batch that discovers/normalizes enough material, set continue_after=true, and let the workflow feed real results back before planning the next batch.
 - If the user requests JSON-only, CSV-only, a single line, only a file path, only a code block, or a Markdown table, encode that in output_contract. Do not hard-code one output style.
 - If explanation_allowed=false, answer must be exactly the requested final payload, with no explanatory prefix or suffix.
 - Treat candidate files as an objective material inventory: path, kind, size, headers, row/line counts, and small samples. The system does not know the business role of a file. You must decide, from the user goal, which materials are required, optional, or irrelevant.
