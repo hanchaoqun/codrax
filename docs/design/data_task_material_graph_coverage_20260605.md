@@ -737,6 +737,11 @@ Delivered in this batch:
 - [x] Audit `remove`/`move` operations and keep them disabled until raw-result
       equivalence evidence exists; add prompt guidance and deterministic
       rejection tests.
-- [ ] Add domain-neutral evals for ledger normalization, material usage modes,
+- [x] Add domain-neutral evals for ledger normalization, material usage modes,
       contribution/reconcile consistency, schema repair, and staged data
       workflows.
+
+  Coverage now comes from a mix of lightweight eval cases and deterministic
+  unit regressions: CSV sum with rule material, JSONL filtering, local JSON
+  strict output, text material filtering, multi-file entity/reconcile, material
+  usage modes, result patching, and staged data workflow CLI/REPL tests.
