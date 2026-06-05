@@ -1,0 +1,502 @@
+package dataquery
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+)
+
+type OutputFormat string
+
+const (
+	OutputFreeform        OutputFormat = "freeform"
+	OutputPlainSingleLine OutputFormat = "plain_single_line"
+	OutputCSVLine         OutputFormat = "csv_line"
+	OutputJSONOnly        OutputFormat = "json_only"
+	OutputMarkdownTable   OutputFormat = "markdown_table"
+	OutputMarkdown        OutputFormat = "markdown"
+	OutputFilePath        OutputFormat = "file_path"
+)
+
+type OutputContract struct {
+	Format             OutputFormat `json:"format"`
+	ExplanationAllowed bool         `json:"explanation_allowed"`
+	Delimiter          string       `json:"delimiter,omitempty"`
+}
+
+func (c OutputContract) Normalize() OutputContract {
+	switch c.Format {
+	case OutputPlainSingleLine, OutputCSVLine, OutputJSONOnly, OutputMarkdownTable, OutputMarkdown, OutputFilePath, OutputFreeform:
+	default:
+		c.Format = OutputFreeform
+	}
+	if c.Format == OutputCSVLine && c.Delimiter == "" {
+		c.Delimiter = ","
+	}
+	return c
+}
+
+type TaskPlan struct {
+	Status         string         `json:"status"`
+	InputPaths     []string       `json:"input_paths"`
+	OutputContract OutputContract `json:"output_contract"`
+	Script         string         `json:"script"`
+	Questions      []Question     `json:"questions,omitempty"`
+	BlockReason    string         `json:"block_reason,omitempty"`
+}
+
+type Question struct {
+	ID          string   `json:"id,omitempty"`
+	Question    string   `json:"question"`
+	Suggestions []string `json:"suggestions,omitempty"`
+}
+
+type Result struct {
+	Answer         string         `json:"answer"`
+	OutputContract OutputContract `json:"output_contract"`
+	AuditSummary   string         `json:"audit_summary,omitempty"`
+	Rows           []RowDecision  `json:"rows,omitempty"`
+	Metrics        []Metric       `json:"metrics,omitempty"`
+}
+
+type RowDecision struct {
+	RowID       string   `json:"row_id,omitempty"`
+	Source      string   `json:"source,omitempty"`
+	Decision    string   `json:"decision,omitempty"`
+	Reason      string   `json:"reason,omitempty"`
+	Value       string   `json:"value,omitempty"`
+	EvidenceRef []string `json:"evidence_refs,omitempty"`
+}
+
+type Metric struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+	Unit  string `json:"unit,omitempty"`
+}
+
+type CandidateFile struct {
+	Path  string `json:"path"`
+	Size  int64  `json:"size"`
+	Kind  string `json:"kind"`
+	Lines int    `json:"lines,omitempty"`
+}
+
+type Runner struct {
+	RepoRoot      string
+	TempRoot      string
+	Timeout       time.Duration
+	MaxFileBytes  int64
+	MaxTotalBytes int64
+}
+
+const (
+	defaultTimeout       = 30 * time.Second
+	defaultMaxFileBytes  = int64(32 << 20)
+	defaultMaxTotalBytes = int64(128 << 20)
+	resultMarker         = "__DATA_RESULT_JSON__"
+)
+
+func DiscoverCandidateFiles(root string, limit int) ([]CandidateFile, error) {
+	root = strings.TrimSpace(root)
+	if root == "" {
+		root = "."
+	}
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 200
+	}
+	var out []CandidateFile
+	err = filepath.WalkDir(absRoot, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return nil
+		}
+		name := d.Name()
+		if d.IsDir() {
+			switch name {
+			case ".git", ".codrax", "node_modules", "vendor", "dist", "build", ".venv", "__pycache__":
+				if path != absRoot {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}
+		if len(out) >= limit {
+			return filepath.SkipAll
+		}
+		kind := dataKindForPath(path)
+		if kind == "" {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		rel, err := filepath.Rel(absRoot, path)
+		if err != nil {
+			return nil
+		}
+		out = append(out, CandidateFile{
+			Path: filepath.ToSlash(rel),
+			Size: info.Size(),
+			Kind: kind,
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Kind != out[j].Kind {
+			return out[i].Kind < out[j].Kind
+		}
+		return out[i].Path < out[j].Path
+	})
+	return out, nil
+}
+
+func dataKindForPath(path string) string {
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".csv":
+		return "csv"
+	case ".tsv":
+		return "tsv"
+	case ".json":
+		return "json"
+	case ".jsonl", ".ndjson":
+		return "jsonl"
+	case ".txt", ".md":
+		return "text"
+	default:
+		return ""
+	}
+}
+
+func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	repoRoot := strings.TrimSpace(r.RepoRoot)
+	if repoRoot == "" {
+		repoRoot = "."
+	}
+	absRoot, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return Result{}, err
+	}
+	timeout := r.Timeout
+	if timeout <= 0 {
+		timeout = defaultTimeout
+	}
+	maxFile := r.MaxFileBytes
+	if maxFile <= 0 {
+		maxFile = defaultMaxFileBytes
+	}
+	maxTotal := r.MaxTotalBytes
+	if maxTotal <= 0 {
+		maxTotal = defaultMaxTotalBytes
+	}
+	if strings.TrimSpace(plan.Script) == "" {
+		return Result{}, errors.New("data task plan has empty script")
+	}
+	if err := validateScriptSafety(plan.Script); err != nil {
+		return Result{}, err
+	}
+	if len(plan.InputPaths) == 0 {
+		return Result{}, errors.New("data task plan has no input paths")
+	}
+	tempRoot := strings.TrimSpace(r.TempRoot)
+	if tempRoot == "" {
+		tempRoot = os.TempDir()
+	}
+	workDir, err := os.MkdirTemp(tempRoot, "codrax-data-*")
+	if err != nil {
+		return Result{}, err
+	}
+	defer os.RemoveAll(workDir)
+
+	relPaths, err := copyInputs(absRoot, workDir, plan.InputPaths, maxFile, maxTotal)
+	if err != nil {
+		return Result{}, err
+	}
+	helperPath := filepath.Join(workDir, "_runner.py")
+	if err := os.WriteFile(helperPath, []byte(renderPythonHelper(plan.Script, relPaths)), 0600); err != nil {
+		return Result{}, err
+	}
+	runCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	cmd := exec.CommandContext(runCtx, "python3", helperPath)
+	cmd.Dir = workDir
+	cmd.Env = append(os.Environ(), "PYTHONNOUSERSITE=1")
+	out, err := cmd.CombinedOutput()
+	if runCtx.Err() == context.DeadlineExceeded {
+		return Result{}, fmt.Errorf("data task timed out after %s", timeout)
+	}
+	if err != nil {
+		return Result{}, fmt.Errorf("data task script failed: %w\n%s", err, strings.TrimSpace(string(out)))
+	}
+	res, err := parseRunnerResult(out)
+	if err != nil {
+		return Result{}, err
+	}
+	if res.OutputContract.Format == "" {
+		res.OutputContract = plan.OutputContract
+	}
+	res.OutputContract = res.OutputContract.Normalize()
+	if err := ValidateAnswer(res.Answer, res.OutputContract); err != nil {
+		return Result{}, err
+	}
+	return res, nil
+}
+
+func validateScriptSafety(script string) error {
+	lower := strings.ToLower(script)
+	for _, denied := range []string{
+		"__", "import ", "from ", "open(", "eval(", "exec(", "compile(",
+		"subprocess", "socket", "requests", "urllib", "pathlib", "shutil",
+		"os.", "sys.", "globals(", "locals(", "vars(",
+	} {
+		if strings.Contains(lower, denied) {
+			return fmt.Errorf("data task script uses unsupported unsafe construct %q", denied)
+		}
+	}
+	return nil
+}
+
+func copyInputs(root, workDir string, paths []string, maxFile, maxTotal int64) ([]string, error) {
+	seen := map[string]bool{}
+	var rels []string
+	var total int64
+	for _, raw := range paths {
+		rel, abs, err := resolveInputPath(root, raw)
+		if err != nil {
+			return nil, err
+		}
+		if seen[rel] {
+			continue
+		}
+		seen[rel] = true
+		info, err := os.Stat(abs)
+		if err != nil {
+			return nil, fmt.Errorf("stat input %s: %w", raw, err)
+		}
+		if info.IsDir() {
+			err = filepath.WalkDir(abs, func(path string, d os.DirEntry, walkErr error) error {
+				if walkErr != nil || d.IsDir() {
+					return nil
+				}
+				subRel, err := filepath.Rel(root, path)
+				if err != nil {
+					return err
+				}
+				if dataKindForPath(path) == "" {
+					return nil
+				}
+				size, err := copyOneInput(path, filepath.Join(workDir, subRel), maxFile)
+				if err != nil {
+					return err
+				}
+				total += size
+				if total > maxTotal {
+					return fmt.Errorf("data task input total exceeds %d bytes", maxTotal)
+				}
+				rels = append(rels, filepath.ToSlash(subRel))
+				return nil
+			})
+			if err != nil {
+				return nil, err
+			}
+			continue
+		}
+		size, err := copyOneInput(abs, filepath.Join(workDir, rel), maxFile)
+		if err != nil {
+			return nil, err
+		}
+		total += size
+		if total > maxTotal {
+			return nil, fmt.Errorf("data task input total exceeds %d bytes", maxTotal)
+		}
+		rels = append(rels, filepath.ToSlash(rel))
+	}
+	if len(rels) == 0 {
+		return nil, errors.New("no supported data input files were copied")
+	}
+	sort.Strings(rels)
+	return rels, nil
+}
+
+func resolveInputPath(root, raw string) (string, string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", "", errors.New("empty input path")
+	}
+	abs := raw
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(root, raw)
+	}
+	abs, err := filepath.Abs(abs)
+	if err != nil {
+		return "", "", err
+	}
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return "", "", err
+	}
+	if rel == "." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || rel == ".." || filepath.IsAbs(rel) {
+		return "", "", fmt.Errorf("input path %s is outside data root %s", raw, root)
+	}
+	return filepath.ToSlash(rel), abs, nil
+}
+
+func copyOneInput(src, dst string, maxFile int64) (int64, error) {
+	info, err := os.Stat(src)
+	if err != nil {
+		return 0, err
+	}
+	if info.Size() > maxFile {
+		return 0, fmt.Errorf("input %s exceeds %d bytes", src, maxFile)
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0700); err != nil {
+		return 0, err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return 0, err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0400)
+	if err != nil {
+		return 0, err
+	}
+	defer out.Close()
+	n, err := io.Copy(out, in)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+func renderPythonHelper(script string, relPaths []string) string {
+	scriptJSON, _ := json.Marshal(script)
+	pathsJSON, _ := json.Marshal(relPaths)
+	return fmt.Sprintf(`import csv, json, decimal, re, os, sys
+ALLOWED = set(%s)
+RESULT = None
+
+def _safe_path(path):
+    path = str(path).replace("\\", "/").strip()
+    norm = os.path.normpath(path).replace("\\", "/")
+    if norm.startswith("../") or norm == ".." or os.path.isabs(norm):
+        raise ValueError("path outside data task workspace: " + path)
+    if norm not in ALLOWED:
+        raise ValueError("path was not declared as an input: " + path)
+    return norm
+
+def read_text(path, encoding="utf-8"):
+    with open(_safe_path(path), "r", encoding=encoding, errors="replace", newline="") as f:
+        return f.read()
+
+def csv_rows(path, encoding="utf-8"):
+    with open(_safe_path(path), "r", encoding=encoding, errors="replace", newline="") as f:
+        return list(csv.DictReader(f))
+
+def tsv_rows(path, encoding="utf-8"):
+    with open(_safe_path(path), "r", encoding=encoding, errors="replace", newline="") as f:
+        return list(csv.DictReader(f, delimiter="\t"))
+
+def json_load(path, encoding="utf-8"):
+    with open(_safe_path(path), "r", encoding=encoding, errors="replace") as f:
+        return json.load(f)
+
+def jsonl_rows(path, encoding="utf-8"):
+    rows = []
+    with open(_safe_path(path), "r", encoding=encoding, errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                rows.append(json.loads(line))
+    return rows
+
+def parse_money(value):
+    text = str(value).strip().replace(",", "")
+    return decimal.Decimal(text or "0")
+
+def emit(obj):
+    global RESULT
+    RESULT = obj
+
+safe_builtins = {
+    "len": len, "sum": sum, "min": min, "max": max, "sorted": sorted,
+    "range": range, "enumerate": enumerate, "int": int, "float": float,
+    "str": str, "repr": repr, "round": round, "abs": abs, "list": list,
+    "dict": dict, "set": set, "tuple": tuple, "any": any, "all": all,
+    "zip": zip, "isinstance": isinstance, "ValueError": ValueError,
+    "Exception": Exception,
+}
+env = {
+    "__builtins__": safe_builtins,
+    "csv_rows": csv_rows, "tsv_rows": tsv_rows, "json_load": json_load,
+    "jsonl_rows": jsonl_rows, "read_text": read_text,
+    "parse_money": parse_money, "Decimal": decimal.Decimal,
+    "re": re, "emit": emit,
+}
+code = %s
+exec(code, env, env)
+if RESULT is None:
+    RESULT = env.get("result")
+if RESULT is None:
+    raise ValueError("data task script did not call emit(obj) or set result")
+print(%q + json.dumps(RESULT, ensure_ascii=False, default=str))
+`, string(pathsJSON), string(scriptJSON), resultMarker)
+}
+
+func parseRunnerResult(out []byte) (Result, error) {
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		line := strings.TrimSpace(lines[i])
+		if !strings.HasPrefix(line, resultMarker) {
+			continue
+		}
+		var res Result
+		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, resultMarker)), &res); err != nil {
+			return Result{}, fmt.Errorf("parse data task result: %w", err)
+		}
+		res.Answer = strings.TrimSpace(res.Answer)
+		return res, nil
+	}
+	return Result{}, fmt.Errorf("data task script did not emit a structured result; output=%s", strings.TrimSpace(string(out)))
+}
+
+func ValidateAnswer(answer string, contract OutputContract) error {
+	contract = contract.Normalize()
+	if strings.TrimSpace(answer) == "" {
+		return errors.New("data task answer is empty")
+	}
+	if !contract.ExplanationAllowed {
+		if strings.Contains(answer, "\n\n") && contract.Format != OutputMarkdown && contract.Format != OutputMarkdownTable {
+			return fmt.Errorf("output contract %s does not allow explanatory paragraphs", contract.Format)
+		}
+	}
+	switch contract.Format {
+	case OutputPlainSingleLine, OutputCSVLine:
+		if strings.Contains(answer, "\n") {
+			return fmt.Errorf("output contract %s requires a single line", contract.Format)
+		}
+	case OutputJSONOnly:
+		var v any
+		if err := json.Unmarshal([]byte(answer), &v); err != nil {
+			return fmt.Errorf("output contract json_only requires valid JSON: %w", err)
+		}
+	}
+	return nil
+}
