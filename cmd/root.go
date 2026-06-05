@@ -22,7 +22,6 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/logtriage"
 	"github.com/hanchaoqun/codrax/internal/authority"
 	"github.com/hanchaoqun/codrax/internal/config"
-	"github.com/hanchaoqun/codrax/internal/dataquery"
 	"github.com/hanchaoqun/codrax/internal/env"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -1234,71 +1233,18 @@ func maybeRunSingleShotDataTask(request string, policy repl.TurnPolicy, classifi
 	if !singleShotDataTaskRoutingEnabled() {
 		return true, "", fmt.Errorf("data mode requested but data pipeline is not configured")
 	}
-	candidates, err := dataquery.DiscoverCandidateFiles(flagRepo, 240)
+	result, err := repl.RunDataTaskCLI(ctx, request, policy, repl.DataTaskCLIConfig{
+		Planner:         app.dataTaskPlanner,
+		RepoRoot:        flagRepo,
+		RuntimeAnchor:   runtimeAnchorDir,
+		Language:        flagLang,
+		MaxRepairRounds: app.dataTaskMaxRepairRounds,
+		MaxDataRounds:   app.dataTaskMaxDataRounds,
+	})
 	if err != nil {
-		return true, "", fmt.Errorf("data task discover files: %w", err)
+		return true, "", fmt.Errorf("data task workflow: %w", err)
 	}
-	plan, err := app.dataTaskPlanner.PlanDataTask(ctx, request, flagRepo, policy, candidates)
-	if err != nil {
-		return true, "", fmt.Errorf("data task plan: %w", err)
-	}
-	switch strings.ToLower(strings.TrimSpace(plan.Status)) {
-	case "needs_clarification":
-		return true, replDataTaskClarificationForCLI(plan), nil
-	case "blocked":
-		return true, replDataTaskBlockedForCLI(plan), nil
-	}
-	result, err := (dataquery.Runner{
-		RepoRoot: flagRepo,
-		TempRoot: filepath.Join(runtimeAnchorDir, "data"),
-	}).Run(ctx, plan)
-	if err != nil {
-		return true, "", fmt.Errorf("data task execute: %w", err)
-	}
-	return true, replDataTaskAnswerForCLI(result), nil
-}
-
-func replDataTaskAnswerForCLI(result dataquery.Result) string {
-	return replDataTaskAnswerMarkdown(result)
-}
-
-func replDataTaskAnswerMarkdown(result dataquery.Result) string {
-	contract := result.OutputContract.Normalize()
-	if !contract.ExplanationAllowed {
-		return strings.TrimSpace(result.Answer)
-	}
-	var b strings.Builder
-	b.WriteString(strings.TrimSpace(result.Answer))
-	if strings.TrimSpace(result.AuditSummary) != "" {
-		fmt.Fprintf(&b, "\n\nAudit summary: %s", strings.TrimSpace(result.AuditSummary))
-	}
-	if len(result.ContractWarnings) > 0 {
-		fmt.Fprintf(&b, "\n\nOutput contract notes: %s", strings.Join(result.ContractWarnings, "; "))
-	}
-	if len(result.Rows) > 0 {
-		fmt.Fprintf(&b, "\n\nRow decisions: %d", len(result.Rows))
-	}
-	return strings.TrimSpace(b.String())
-}
-
-func replDataTaskClarificationForCLI(plan dataquery.TaskPlan) string {
-	if len(plan.Questions) == 0 {
-		return "Data task needs clarification."
-	}
-	var b strings.Builder
-	b.WriteString("Data task needs more information:")
-	for i, q := range plan.Questions {
-		fmt.Fprintf(&b, "\n%d. %s", i+1, strings.TrimSpace(q.Question))
-	}
-	return b.String()
-}
-
-func replDataTaskBlockedForCLI(plan dataquery.TaskPlan) string {
-	reason := strings.TrimSpace(plan.BlockReason)
-	if reason == "" {
-		reason = "data task planner blocked the request"
-	}
-	return "Data processing was blocked.\n\nReason: " + reason
+	return true, result, nil
 }
 
 func singleShotOperationRoutingEnabled() bool {

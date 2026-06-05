@@ -293,9 +293,11 @@ validator. The generic fix is:
    signals show the plan should be staged;
 2. make runner helpers own canonical JSON shape and absorb safe structural
    aliases, while still leaving business semantics to the model;
-3. classify common structural failures as typed repair loci so repair prompts
+3. normalize the same safe structural aliases when a script emits raw result
+   JSON instead of using helpers;
+4. classify common structural failures as typed repair loci so repair prompts
    are precise and compact;
-4. keep validators strict about unknown rule references and reconciliation so
+5. keep validators strict about unknown rule references and reconciliation so
    scripts cannot pass with hollow or disconnected ledgers.
 
 The guard is intentionally structural. It reads script line count, required
@@ -303,6 +305,31 @@ material count, validation-ledger count, plan status, and `continue_after`.
 It does not inspect user prose, model prose, file names, domains, or column
 names. Simple one-batch data tasks continue to execute normally; complex tasks
 are steered into bounded workflow batches.
+
+## 2026-06-05 Failure Audit: CLI Workflow Drift and Strict Scalar Evals
+
+The REPL data workflow had grown into a goal-aware loop with plan, execution,
+repair, evaluation, continuation, audit artifacts, and final answer rendering.
+The CLI single-shot data path was still closer to a one-plan/one-run shortcut.
+That created two generic gaps:
+
+- CLI data tasks could stop after the first script failure even when the same
+  task would have repaired and completed in REPL.
+- Eval infrastructure assumed explanatory answers and rejected a correct
+  strict scalar answer because it had fewer than twenty non-whitespace
+  characters.
+
+The fix is not to pad strict answers or to special-case one fixture. The fix is
+to share the same data workflow semantics across CLI and REPL, and to let eval
+cases declare their output contract when a correct answer is intentionally
+short. Strict output contracts remain user-facing product behavior; test
+harness sanity checks must not force the product to emit extra prose.
+
+CLI data completion now emits a compact `[cli/data] data task result` audit log
+with round number, answer length, ledger counts, reconcile status, consumed
+materials, and warnings. REPL keeps its richer `[repl/data]` audit lane. Both
+are control-plane observability only; neither is used as a hard user-intent
+gate.
 
 ### P0 Remediation Direction
 
@@ -452,12 +479,23 @@ are steered into bounded workflow batches.
       constants without requiring the model to replan.
 - [x] Strengthen runner ledger helpers so safe structural aliases normalize to
       canonical result fields.
+- [x] Normalize safe structural aliases in raw emitted result JSON for
+      decision records, rule coverage, contributions, entity resolutions, and
+      reconcile groups.
 - [x] Classify numeric parse failures, unknown rule references, and missing
       entity-resolution status as typed repair loci.
 - [x] Add a first domain-neutral data eval fixture for strict sum output with a
       required rule material.
-- [ ] Continue reducing whole-script rewrites by adding more local
-      schema-aware result repair for safely repairable emitted result shapes.
+- [x] Route CLI single-shot data requests through the same bounded
+      plan/execute/repair/evaluate/continue workflow used by REPL instead of a
+      one-run shortcut.
+- [x] Add compact `[cli/data] data task result` telemetry so CLI data workflow
+      completion is auditable without relying on answer prose.
+- [x] Let eval cases lower the minimum-output-length sanity floor for strict
+      scalar or strict-format answers, instead of padding product output.
+- [ ] Continue reducing whole-script rewrites by adding local result-patch
+      repair for safely repairable emitted result shapes that still cannot be
+      normalized losslessly.
 - [ ] Add domain-neutral evals for ledger normalization, material usage modes,
       contribution/reconcile consistency, schema repair, and staged data
       workflows.

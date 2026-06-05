@@ -575,6 +575,44 @@ emit({
 	}
 }
 
+func TestRunnerAcceptsRelativeTempRoot(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Fatalf("restore cwd: %v", err)
+		}
+	}()
+	plan := TaskPlan{
+		InputPaths:     []string{"orders.csv"},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		CoverageContract: CoverageContract{
+			RequiredMaterials: []CoverageMaterial{{Path: "orders.csv", Required: true}},
+		},
+		Script: `rows = csv_rows("orders.csv")
+emit_result(rows[0]["amount"], output_contract={"format": "plain_single_line", "explanation_allowed": False})`,
+	}
+	res, err := (Runner{RepoRoot: root, TempRoot: ".codrax/data"}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run with relative TempRoot: %v", err)
+	}
+	if res.Answer != "10" {
+		t.Fatalf("answer=%q, want 10", res.Answer)
+	}
+}
+
 func TestRunnerRejectsMissingRequiredDecisionRecords(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
@@ -822,6 +860,59 @@ emit({
 	}
 	if len(res.EntityResolutions) != 1 || len(res.EntityResolutions[0].Candidates) != 2 || res.EntityResolutions[0].Candidates[0].ID.String() != "A" {
 		t.Fatalf("entity candidate string repair failed: %+v", res.EntityResolutions)
+	}
+}
+
+func TestRunnerNormalizesRawLedgerStructuralAliases(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:          []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			DecisionRecordsRequired:    true,
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			EntityResolutionRequired:   true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Script: `
+rows = csv_rows("orders.csv")
+emit({
+  "answer": "10",
+  "output_contract": {"format": "plain_single_line", "explanation_allowed": False},
+  "rows": [{"item_id": "row1", "source": "orders.csv", "locator": "row 2", "status": "included", "rule": "r1"}],
+  "rule_coverage": [{"id": "r1", "text": "include selected rows", "outcome": "applied", "summary": "row 2 selected"}],
+  "entity_resolutions": [{"record_id": "row1", "raw_value": "A", "canonical": "A", "candidates": ["A"], "rule": "r1"}],
+  "contributions": [{"record_id": "row1", "source": "orders.csv", "locator": "row 2", "group": "A/amount", "measure": "amount", "value": "10", "op": "sum", "rule": "r1"}],
+  "reconcile": {"status": "pass", "actual_answer": "10", "groups": [{"group": "A/amount", "measure": "amount", "actual_value": "10"}]}
+})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := res.Rows[0].RowID; got != "row1" {
+		t.Fatalf("row alias not normalized: %q", got)
+	}
+	if got := res.RuleCoverage[0].RuleID.String(); got != "r1" {
+		t.Fatalf("rule alias not normalized: %q", got)
+	}
+	if got := res.EntityResolutions[0].Status.String(); got != "resolved" {
+		t.Fatalf("resolution status=%q, want resolved", got)
+	}
+	if got := res.Contributions[0].GroupKey.String(); got != "A" {
+		t.Fatalf("group alias not normalized: %q", got)
+	}
+	if got := res.Reconcile.Groups[0].Actual.String(); got != "10" {
+		t.Fatalf("reconcile actual alias not normalized: %q", got)
 	}
 }
 

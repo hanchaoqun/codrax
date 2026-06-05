@@ -106,6 +106,11 @@ CAP="${CAP:-}"
 # unchanged and write/multirepo fixtures continue to use their dedicated yaml.
 SETTINGS="${SETTINGS:-}"
 DATA_FIXTURE="${DATA_FIXTURE:-}"
+# Optional sanity floor for cases whose correct final answer is intentionally
+# very short, such as strict scalar/data-only outputs. Keep the default floor
+# for ordinary explanatory answers; individual cases may lower it when their
+# output contract explicitly requires a tiny payload.
+MIN_OUTPUT_CHARS="${MIN_OUTPUT_CHARS:-20}"
 
 case "$MODE" in
   "" | read | plan | apply) ;;
@@ -470,7 +475,7 @@ write_verdict() {
     pass=0
   fi
 
-  # Global min-length sanity filter (2026-04-14 deferred #10): any
+  # Global min-length sanity filter (2026-04-14 deferred #10): by default any
   # answer body shorter than 20 non-whitespace characters is a
   # fragment — "type" (Go keyword picked by bug #14), "3" (df1 count
   # hallucination), "• **type" (round-4 truncation), etc. The
@@ -479,9 +484,16 @@ write_verdict() {
   # write-mode plan.json / post-apply source files the 20-char floor
   # is also safe: an empty plan JSON is 2 bytes ('{}') and a
   # post-apply file erased to zero bytes would obviously fail here.
+  # Cases with a typed output contract that intentionally returns a
+  # short scalar can set MIN_OUTPUT_CHARS=1 instead of padding the
+  # product answer just to satisfy the harness.
   local stripped
   stripped="$(LC_ALL=C tr -d '[:space:]' <<<"$cleaned")"
-  if (( ${#stripped} < 20 )); then
+  local min_output_chars="$MIN_OUTPUT_CHARS"
+  if ! [[ "$min_output_chars" =~ ^[0-9]+$ ]]; then
+    min_output_chars=20
+  fi
+  if (( min_output_chars > 0 && ${#stripped} < min_output_chars )); then
     pass=0
     reasons+=("too_short:${#stripped}chars")
   fi

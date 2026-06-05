@@ -1434,6 +1434,56 @@ emit({"answer": "A," + str(total), "output_contract": {"format": "csv_line", "ex
 	}
 }
 
+func TestRunDataTaskCLIRepairsFailedScript(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\nA,7\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	planner := &stubDataTaskPlanner{
+		plan: dataquery.TaskPlan{
+			Status:     "ready",
+			InputPaths: []string{"orders.csv"},
+			OutputContract: dataquery.OutputContract{
+				Format:             dataquery.OutputPlainSingleLine,
+				ExplanationAllowed: false,
+			},
+			Script: `raise ValueError("simulated cli data bug")`,
+		},
+		repairPlan: dataquery.TaskPlan{
+			Status:     "ready",
+			InputPaths: []string{"orders.csv"},
+			OutputContract: dataquery.OutputContract{
+				Format:             dataquery.OutputPlainSingleLine,
+				ExplanationAllowed: false,
+			},
+			Script: `rows = csv_rows("orders.csv")
+total = sum(int(r["amount"]) for r in rows)
+emit({"answer": str(total), "output_contract": {"format": "plain_single_line", "explanation_allowed": False}})`,
+		},
+		eval: dataquery.Evaluation{Status: dataquery.EvalComplete, Reason: "repaired result satisfies strict scalar output", Confidence: "high"},
+	}
+	answer, err := RunDataTaskCLI(context.Background(), "汇总 orders.csv，只输出总额", TurnPolicy{Route: RouteData, NeedsDataAccess: true, Source: "data"}, DataTaskCLIConfig{
+		Planner:         planner,
+		RepoRoot:        root,
+		RuntimeAnchor:   t.TempDir(),
+		Language:        "zh",
+		MaxRepairRounds: 2,
+		MaxDataRounds:   4,
+	})
+	if err != nil {
+		t.Fatalf("RunDataTaskCLI: %v", err)
+	}
+	if planner.calls != 1 || planner.repairCalls != 1 || planner.evalCalls != 1 {
+		t.Fatalf("calls plan/repair/eval=%d/%d/%d, want 1/1/1", planner.calls, planner.repairCalls, planner.evalCalls)
+	}
+	if strings.TrimSpace(answer) != "17" {
+		t.Fatalf("answer=%q, want strict scalar 17", answer)
+	}
+}
+
 func TestTurnPolicyDispatch_DataRouteUsesConfiguredRepairBudget(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")

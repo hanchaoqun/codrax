@@ -348,6 +348,33 @@ type RuleCoverageRecord struct {
 	Notes        LooseText `json:"notes,omitempty"`
 }
 
+func (r *RuleCoverageRecord) UnmarshalJSON(data []byte) error {
+	type ruleCoverageAlias RuleCoverageRecord
+	var known ruleCoverageAlias
+	if err := json.Unmarshal(data, &known); err != nil {
+		return err
+	}
+	*r = RuleCoverageRecord(known)
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil
+	}
+	if r.RuleID.String() == "" {
+		r.RuleID = LooseText(rawAliasString(raw, "id", "rule", "rule_ref"))
+	}
+	if r.RuleText.String() == "" {
+		r.RuleText = LooseText(rawAliasString(raw, "text", "description", "condition"))
+	}
+	if r.Status.String() == "" {
+		r.Status = LooseText(rawAliasString(raw, "outcome", "decision"))
+	}
+	if r.Notes.String() == "" {
+		r.Notes = LooseText(rawAliasString(raw, "reason", "summary", "details"))
+	}
+	return nil
+}
+
 type ContributionRecord struct {
 	ItemID        LooseText `json:"item_id,omitempty"`
 	Source        LooseText `json:"source,omitempty"`
@@ -359,6 +386,42 @@ type ContributionRecord struct {
 	Reason        LooseText `json:"reason,omitempty"`
 	EvidenceRefs  []string  `json:"evidence_refs,omitempty"`
 	RuleRefs      []string  `json:"rule_refs,omitempty"`
+}
+
+func (r *ContributionRecord) UnmarshalJSON(data []byte) error {
+	type contributionAlias ContributionRecord
+	var known contributionAlias
+	if err := json.Unmarshal(data, &known); err != nil {
+		return err
+	}
+	*r = ContributionRecord(known)
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil
+	}
+	if r.ItemID.String() == "" {
+		r.ItemID = LooseText(rawAliasString(raw, "row_id", "record_id", "id", "item"))
+	}
+	if r.SourceLocator.String() == "" {
+		r.SourceLocator = LooseText(rawAliasString(raw, "locator", "location", "span", "cell", "row"))
+	}
+	if r.GroupKey.String() == "" {
+		r.GroupKey = LooseText(rawAliasString(raw, "group", "dimensions", "dimension_key", "bucket"))
+	}
+	if r.Metric.String() == "" {
+		r.Metric = LooseText(rawAliasString(raw, "measure", "field", "metric_name"))
+	}
+	if r.Operation.String() == "" {
+		r.Operation = LooseText(rawAliasString(raw, "op", "aggregation"))
+	}
+	if r.Reason.String() == "" {
+		r.Reason = LooseText(rawAliasString(raw, "notes", "summary", "details"))
+	}
+	if len(r.RuleRefs) == 0 {
+		r.RuleRefs = rawAliasStringSlice(raw, "rule_refs", "rule_ref", "rule_id", "rule")
+	}
+	return nil
 }
 
 type EntityResolutionRecord struct {
@@ -398,6 +461,30 @@ func (r *EntityResolutionRecord) UnmarshalJSON(data []byte) error {
 		EvidenceRefs:   raw.EvidenceRefs,
 		RuleRefs:       raw.RuleRefs,
 		Reason:         raw.Reason,
+	}
+	var rawMap map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawMap); err == nil {
+		if r.ItemID.String() == "" {
+			r.ItemID = LooseText(rawAliasString(rawMap, "row_id", "record_id", "id", "item"))
+		}
+		if r.SourceValue.String() == "" {
+			r.SourceValue = LooseText(rawAliasString(rawMap, "source", "raw", "raw_value", "value"))
+		}
+		if r.CanonicalID.String() == "" {
+			r.CanonicalID = LooseText(rawAliasString(rawMap, "canonical", "normalized_id", "target_id"))
+		}
+		if r.CanonicalLabel.String() == "" {
+			r.CanonicalLabel = LooseText(rawAliasString(rawMap, "label", "normalized_label", "target_label"))
+		}
+		if r.Status.String() == "" && (r.CanonicalID.String() != "" || r.CanonicalLabel.String() != "") {
+			r.Status = "resolved"
+		}
+		if r.Reason.String() == "" {
+			r.Reason = LooseText(rawAliasString(rawMap, "notes", "summary", "details"))
+		}
+		if len(r.RuleRefs) == 0 {
+			r.RuleRefs = rawAliasStringSlice(rawMap, "rule_refs", "rule_ref", "rule_id", "rule")
+		}
 	}
 	candidates, err := parseEntityCandidates(raw.Candidates)
 	if err != nil {
@@ -471,6 +558,36 @@ type ReconcileGroup struct {
 	Difference LooseText `json:"difference,omitempty"`
 }
 
+func (r *ReconcileGroup) UnmarshalJSON(data []byte) error {
+	type reconcileGroupAlias ReconcileGroup
+	var known reconcileGroupAlias
+	if err := json.Unmarshal(data, &known); err != nil {
+		return err
+	}
+	*r = ReconcileGroup(known)
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil
+	}
+	if r.GroupKey.String() == "" {
+		r.GroupKey = LooseText(rawAliasString(raw, "group", "dimensions", "dimension_key", "bucket"))
+	}
+	if r.Metric.String() == "" {
+		r.Metric = LooseText(rawAliasString(raw, "measure", "field", "metric_name"))
+	}
+	if r.Expected.String() == "" {
+		r.Expected = LooseText(rawAliasString(raw, "expected_value", "expected_total"))
+	}
+	if r.Actual.String() == "" {
+		r.Actual = LooseText(rawAliasString(raw, "actual_value", "actual_total"))
+	}
+	if r.Difference.String() == "" {
+		r.Difference = LooseText(rawAliasString(raw, "delta", "diff"))
+	}
+	return nil
+}
+
 type RowDecision struct {
 	RowID            string            `json:"row_id,omitempty"`
 	Source           string            `json:"source,omitempty"`
@@ -501,6 +618,18 @@ func (r *RowDecision) UnmarshalJSON(data []byte) error {
 		"reason": true, "value": true, "contribution": true, "normalized_fields": true,
 		"evidence_refs": true, "rule_refs": true,
 	}
+	if r.RowID == "" {
+		r.RowID = rawAliasString(raw, "item_id", "record_id", "id", "item")
+	}
+	if r.SourceLocator == "" {
+		r.SourceLocator = rawAliasString(raw, "locator", "location", "span", "cell", "row")
+	}
+	if r.Decision == "" {
+		r.Decision = rawAliasString(raw, "status", "outcome", "action")
+	}
+	if len(r.RuleRefs) == 0 {
+		r.RuleRefs = rawAliasStringSlice(raw, "rule_refs", "rule_ref", "rule_id", "rule")
+	}
 	for key, value := range raw {
 		if knownKeys[key] || len(value) == 0 || string(value) == "null" {
 			continue
@@ -510,6 +639,54 @@ func (r *RowDecision) UnmarshalJSON(data []byte) error {
 		}
 		if _, exists := r.NormalizedFields[key]; !exists {
 			r.NormalizedFields[key] = rawJSONValueString(value)
+		}
+	}
+	return nil
+}
+
+func rawAliasString(raw map[string]json.RawMessage, names ...string) string {
+	for _, name := range names {
+		value, ok := raw[name]
+		if !ok || len(value) == 0 || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			continue
+		}
+		text := rawJSONValueString(value)
+		if strings.TrimSpace(text) != "" {
+			return text
+		}
+	}
+	return ""
+}
+
+func rawAliasStringSlice(raw map[string]json.RawMessage, names ...string) []string {
+	for _, name := range names {
+		value, ok := raw[name]
+		if !ok {
+			continue
+		}
+		value = bytes.TrimSpace(value)
+		if len(value) == 0 || bytes.Equal(value, []byte("null")) {
+			continue
+		}
+		if bytes.HasPrefix(value, []byte("[")) {
+			var items []json.RawMessage
+			if err := json.Unmarshal(value, &items); err == nil {
+				out := make([]string, 0, len(items))
+				for _, item := range items {
+					text := strings.TrimSpace(rawJSONValueString(item))
+					if text != "" {
+						out = append(out, text)
+					}
+				}
+				if len(out) > 0 {
+					return out
+				}
+				continue
+			}
+		}
+		text := strings.TrimSpace(rawJSONValueString(value))
+		if text != "" {
+			return []string{text}
 		}
 	}
 	return nil
@@ -984,6 +1161,10 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 	tempRoot := strings.TrimSpace(r.TempRoot)
 	if tempRoot == "" {
 		tempRoot = os.TempDir()
+	}
+	tempRoot, err = filepath.Abs(tempRoot)
+	if err != nil {
+		return Result{}, err
 	}
 	if err := os.MkdirAll(tempRoot, 0700); err != nil {
 		return Result{}, err
