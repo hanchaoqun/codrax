@@ -55,7 +55,17 @@ entire end-to-end script when only one node failed.
 
 - `material_inventory`: discover objective local material metadata;
 - `inspect_material`: inspect concrete materials and emit profiles;
-- `custom_transform`: run a bounded Python transform over declared input files.
+- `extract_records`: convert selected CSV/TSV/JSON/JSONL/text materials into
+  bounded generic record samples;
+- `derive_rules`: convert model-distilled task rules or validation rules into
+  typed `rule_coverage` artifacts;
+- `normalize_entities`: emit typed source-to-canonical mapping artifacts;
+- `compute_contributions`: read declared local inputs and produce generic
+  `contributions` records from field/filter parameters;
+- `reconcile_artifacts`: deterministically reconcile accumulated contribution
+  groups into `reconcile` groups and a final scalar/list answer;
+- `custom_transform`: run a bounded Python transform over declared input files
+  only when the typed atomic actions cannot express the step.
 
 Each action is atomic: it should answer one small observation or perform one
 small transformation. Multi-stage tasks must split into multiple actions and
@@ -142,13 +152,18 @@ remove the read. This keeps repair local to the graph node.
 
 - [x] Add `extract_records` for converting a profiled material into generic
       records.
-- [ ] Add `derive_rules` for converting planner-distilled rules into typed
+- [x] Add `derive_rules` for converting planner-distilled rules into typed
       rule artifacts.
-- [ ] Add `normalize_entities` for generic source-to-canonical mapping
+- [x] Add `normalize_entities` for generic source-to-canonical mapping
       artifacts.
-- [ ] Add `compute_contributions` for generic contribution tables.
-- [ ] Add `reconcile_artifacts` for deterministic artifact-level reconciliation.
-- [ ] Keep all ops domain-neutral: no business-specific fields in Go logic.
+- [x] Add `compute_contributions` for generic contribution tables.
+- [x] Add `reconcile_artifacts` for deterministic artifact-level reconciliation.
+- [x] Keep all ops domain-neutral: no business-specific fields in Go logic.
+
+Notes: `compute_contributions` accepts generic field, filter, metric,
+operation, and item locator parameters. It does not know any business domain.
+`reconcile_artifacts` consumes only typed contribution records and recomputes
+numeric groups through the existing deterministic reconcile validator.
 
 ### Batch 4: Node-Level Repair
 

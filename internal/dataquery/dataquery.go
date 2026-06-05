@@ -73,6 +73,10 @@ const (
 	DataActionMaterialInventory DataActionKind = "material_inventory"
 	DataActionInspectMaterial   DataActionKind = "inspect_material"
 	DataActionExtractRecords    DataActionKind = "extract_records"
+	DataActionDeriveRules       DataActionKind = "derive_rules"
+	DataActionNormalizeEntities DataActionKind = "normalize_entities"
+	DataActionComputeContribs   DataActionKind = "compute_contributions"
+	DataActionReconcile         DataActionKind = "reconcile_artifacts"
 	DataActionCustomTransform   DataActionKind = "custom_transform"
 )
 

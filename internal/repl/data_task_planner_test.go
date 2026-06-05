@@ -125,7 +125,7 @@ func TestDataTaskPlannerCompatJSONActions(t *testing.T) {
 		t.Fatal("ContinueAfter=false, want true for action workflow")
 	}
 	system := adapter.calls[0].messages[0].Content
-	for _, want := range []string{"actions", "material_inventory", "inspect_material", "extract_records", "custom_transform", "adaptive action workflow", "An action is atomic"} {
+	for _, want := range []string{"actions", "material_inventory", "inspect_material", "extract_records", "derive_rules", "normalize_entities", "compute_contributions", "reconcile_artifacts", "custom_transform", "adaptive action workflow", "An action is atomic"} {
 		if !strings.Contains(system, want) {
 			t.Fatalf("data planner system prompt missing %q:\n%s", want, system)
 		}
