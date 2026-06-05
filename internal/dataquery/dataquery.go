@@ -331,6 +331,11 @@ func ClassifyExecutionError(errText string) DataTaskViolation {
 		v.ActionID = parseQuotedErrorField(text, "action_id")
 		v.ActionKind = parseQuotedErrorField(text, "action_kind")
 		v.RepairHint = "Repair the failed typed data action/node. Keep the action atomic; if the failure shows missing schema/material knowledge, split or insert inspect/extract actions before retrying the transform."
+		if strings.Contains(lower, "path was not declared as an input") {
+			v.Code = "undeclared_input_path"
+			v.ActualSnippet = parseUndeclaredInputPath(text)
+			v.RepairHint = "The failed action read an undeclared path. Add the path only if that action should consume it; otherwise expand the graph with inspect/extract actions and retry a smaller transform."
+		}
 	case strings.Contains(lower, "data planning incomplete") && strings.Contains(lower, "bounded data batch"):
 		v.Code = "oversized_data_plan"
 		v.RepairHint = "Split the plan into a smaller bounded batch, set continue_after=true when more work remains, and let the workflow feed real results into later batches."

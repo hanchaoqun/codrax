@@ -562,21 +562,22 @@ func TestRunnerRejectsPlannerDistilledWithoutNotes(t *testing.T) {
 
 func TestClassifyExecutionError(t *testing.T) {
 	cases := map[string]string{
-		`execute data task: data task script redefines reserved helper "read_text"`:                                                              "reserved_helper_redefined",
-		`data coverage incomplete: required material "rules.md" was not consumed by the script`:                                                  "required_material_not_consumed",
-		`data coverage incomplete: required material "rules.md" uses planner_distilled but distilled_notes is empty`:                             "planner_distilled_notes_missing",
-		`data coverage incomplete: text evidence "scan.txt" for required material "scan.pdf" was not consumed by the script`:                     "text_evidence_not_consumed",
-		`data validation incomplete: result.contributions[0] has unsupported operation "merge"`:                                                  "unsupported_contribution_operation",
-		`NameError: name 'false' is not defined`:                                                                                                 "python_json_literal_name",
-		`ValueError: invalid literal for int() with base 10: 'Q001'`:                                                                             "numeric_parse_failure",
-		`data validation incomplete: result.contributions[0] references unknown rule_id "R03"`:                                                   "unknown_rule_ref",
-		`data validation incomplete: result.entity_resolutions[0] is missing status`:                                                             "missing_entity_resolution_status",
-		`data planning incomplete: plan is too large for one bounded data batch (script_lines=400 required_materials=12)`:                        "oversized_data_plan",
-		`data reconcile failed: group "A/amount" has no matching contribution records`:                                                           "reconcile_group_mismatch",
-		`data reconcile failed: group "A/amount" expected=9 but contributions sum to 10`:                                                         "reconcile_sum_mismatch",
-		`NameError: name 'add_entity_resolution' is not defined`:                                                                                 "unknown_runner_helper",
-		`ValueError: path was not declared as an input: text_evidence/invoices/ATT-00006.txt`:                                                    "undeclared_input_path",
-		`execute data task: data action failed action_id="extract_1" action_kind="extract_records": open missing.csv: no such file or directory`: "data_action_failed",
+		`execute data task: data task script redefines reserved helper "read_text"`:                                                                              "reserved_helper_redefined",
+		`data coverage incomplete: required material "rules.md" was not consumed by the script`:                                                                  "required_material_not_consumed",
+		`data coverage incomplete: required material "rules.md" uses planner_distilled but distilled_notes is empty`:                                             "planner_distilled_notes_missing",
+		`data coverage incomplete: text evidence "scan.txt" for required material "scan.pdf" was not consumed by the script`:                                     "text_evidence_not_consumed",
+		`data validation incomplete: result.contributions[0] has unsupported operation "merge"`:                                                                  "unsupported_contribution_operation",
+		`NameError: name 'false' is not defined`:                                                                                                                 "python_json_literal_name",
+		`ValueError: invalid literal for int() with base 10: 'Q001'`:                                                                                             "numeric_parse_failure",
+		`data validation incomplete: result.contributions[0] references unknown rule_id "R03"`:                                                                   "unknown_rule_ref",
+		`data validation incomplete: result.entity_resolutions[0] is missing status`:                                                                             "missing_entity_resolution_status",
+		`data planning incomplete: plan is too large for one bounded data batch (script_lines=400 required_materials=12)`:                                        "oversized_data_plan",
+		`data reconcile failed: group "A/amount" has no matching contribution records`:                                                                           "reconcile_group_mismatch",
+		`data reconcile failed: group "A/amount" expected=9 but contributions sum to 10`:                                                                         "reconcile_sum_mismatch",
+		`NameError: name 'add_entity_resolution' is not defined`:                                                                                                 "unknown_runner_helper",
+		`ValueError: path was not declared as an input: text_evidence/invoices/ATT-00006.txt`:                                                                    "undeclared_input_path",
+		`execute data task: data action failed action_id="extract_1" action_kind="extract_records": open missing.csv: no such file or directory`:                 "data_action_failed",
+		`execute data task: data action failed action_id="transform_1" action_kind="custom_transform": ValueError: path was not declared as an input: extra.csv`: "undeclared_input_path",
 	}
 	for text, want := range cases {
 		if got := ClassifyExecutionError(text).Code; got != want {
@@ -590,6 +591,10 @@ func TestClassifyExecutionError(t *testing.T) {
 	v = ClassifyExecutionError(`execute data task: data action failed action_id="extract_1" action_kind="extract_records": open missing.csv: no such file or directory`)
 	if v.ActionID != "extract_1" || v.ActionKind != "extract_records" || !strings.Contains(v.RepairHint, "action/node") {
 		t.Fatalf("data action violation=%+v", v)
+	}
+	v = ClassifyExecutionError(`execute data task: data action failed action_id="transform_1" action_kind="custom_transform": ValueError: path was not declared as an input: extra.csv`)
+	if v.Code != "undeclared_input_path" || v.ActionID != "transform_1" || v.ActionKind != "custom_transform" || v.ActualSnippet != "extra.csv" {
+		t.Fatalf("wrapped undeclared path violation=%+v", v)
 	}
 }
 
