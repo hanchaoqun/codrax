@@ -69,9 +69,21 @@ func TestRunnerJSONOnlyValidation(t *testing.T) {
 	if _, err := (Runner{RepoRoot: root}).Run(context.Background(), plan); err != nil {
 		t.Fatalf("Run valid JSON-only: %v", err)
 	}
+	plan.Script = `emit({"answer": "result: {\"x\":3}", "output_contract": {"format": "json_only", "explanation_allowed": False}})`
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run JSON-only with extractable payload: %v", err)
+	}
+	if res.Answer != `{"x":3}` || len(res.ContractWarnings) == 0 {
+		t.Fatalf("res=%+v, want extracted JSON with warning", res)
+	}
 	plan.Script = `emit({"answer": "x=3", "output_contract": {"format": "json_only", "explanation_allowed": False}})`
-	if _, err := (Runner{RepoRoot: root}).Run(context.Background(), plan); err == nil || !strings.Contains(err.Error(), "valid JSON") {
-		t.Fatalf("Run invalid JSON-only err=%v, want valid JSON error", err)
+	res, err = (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run invalid JSON-only should not hard-gate: %v", err)
+	}
+	if len(res.ContractWarnings) == 0 || !strings.Contains(res.ContractWarnings[len(res.ContractWarnings)-1], "valid JSON") {
+		t.Fatalf("warnings=%v, want valid JSON soft warning", res.ContractWarnings)
 	}
 }
 

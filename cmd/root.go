@@ -1277,6 +1277,9 @@ func replDataTaskAnswerMarkdown(result dataquery.Result) string {
 	if strings.TrimSpace(result.AuditSummary) != "" {
 		fmt.Fprintf(&b, "\n\nAudit summary: %s", strings.TrimSpace(result.AuditSummary))
 	}
+	if len(result.ContractWarnings) > 0 {
+		fmt.Fprintf(&b, "\n\nOutput contract notes: %s", strings.Join(result.ContractWarnings, "; "))
+	}
 	if len(result.Rows) > 0 {
 		fmt.Fprintf(&b, "\n\nRow decisions: %d", len(result.Rows))
 	}

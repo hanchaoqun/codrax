@@ -103,6 +103,14 @@ requirements.
   one typed route-policy call and lets data/operation/pipeline consume that
   same guarded policy. This keeps source, trace/log, mixed, and operation
   routing stable while avoiding extra LLM/provider cost.
+- **Risk: output contract becomes a hard answer gate.** User-requested output
+  shape should guide rendering and deterministic repair, not block unrelated
+  source/trace/log/write answers. Mitigation: normal pipeline routes carry
+  output shape as presentation/output guidance only. Data lane validates its
+  deterministic runner output, but contract mismatches are softened into
+  normalization plus `contract_warnings`; they do not hard-stop the whole
+  answer. Strict-output responses omit warning prose from the user-visible
+  payload to avoid violating the requested shape.
 
 ## Task Ledger
 

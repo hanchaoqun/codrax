@@ -60,11 +60,12 @@ type Question struct {
 }
 
 type Result struct {
-	Answer         string         `json:"answer"`
-	OutputContract OutputContract `json:"output_contract"`
-	AuditSummary   string         `json:"audit_summary,omitempty"`
-	Rows           []RowDecision  `json:"rows,omitempty"`
-	Metrics        []Metric       `json:"metrics,omitempty"`
+	Answer           string         `json:"answer"`
+	OutputContract   OutputContract `json:"output_contract"`
+	AuditSummary     string         `json:"audit_summary,omitempty"`
+	Rows             []RowDecision  `json:"rows,omitempty"`
+	Metrics          []Metric       `json:"metrics,omitempty"`
+	ContractWarnings []string       `json:"contract_warnings,omitempty"`
 }
 
 type RowDecision struct {
@@ -256,8 +257,9 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		res.OutputContract = plan.OutputContract
 	}
 	res.OutputContract = res.OutputContract.Normalize()
+	res.Answer, res.ContractWarnings = normalizeAnswerForContract(res.Answer, res.OutputContract, res.ContractWarnings)
 	if err := ValidateAnswer(res.Answer, res.OutputContract); err != nil {
-		return Result{}, err
+		res.ContractWarnings = append(res.ContractWarnings, err.Error())
 	}
 	return res, nil
 }
@@ -502,4 +504,75 @@ func ValidateAnswer(answer string, contract OutputContract) error {
 		}
 	}
 	return nil
+}
+
+func normalizeAnswerForContract(answer string, contract OutputContract, warnings []string) (string, []string) {
+	contract = contract.Normalize()
+	trimmed := strings.TrimSpace(answer)
+	switch contract.Format {
+	case OutputPlainSingleLine, OutputCSVLine:
+		if strings.Contains(trimmed, "\n") {
+			trimmed = strings.Join(strings.Fields(trimmed), " ")
+			warnings = append(warnings, fmt.Sprintf("normalized multi-line answer to satisfy %s", contract.Format))
+		}
+	case OutputJSONOnly:
+		if strings.TrimSpace(trimmed) != "" && !json.Valid([]byte(trimmed)) {
+			if extracted, ok := extractFirstJSONObjectOrArray(trimmed); ok {
+				trimmed = extracted
+				warnings = append(warnings, "extracted first valid JSON object/array from answer text")
+			}
+		}
+	}
+	return trimmed, warnings
+}
+
+func extractFirstJSONObjectOrArray(s string) (string, bool) {
+	for i, r := range s {
+		var close rune
+		switch r {
+		case '{':
+			close = '}'
+		case '[':
+			close = ']'
+		default:
+			continue
+		}
+		if out, ok := balancedJSONCandidate(s[i:], r, close); ok && json.Valid([]byte(out)) {
+			return out, true
+		}
+	}
+	return "", false
+}
+
+func balancedJSONCandidate(s string, open, close rune) (string, bool) {
+	depth := 0
+	inString := false
+	escaped := false
+	for idx, r := range s {
+		if inString {
+			if escaped {
+				escaped = false
+				continue
+			}
+			switch r {
+			case '\\':
+				escaped = true
+			case '"':
+				inString = false
+			}
+			continue
+		}
+		switch r {
+		case '"':
+			inString = true
+		case open:
+			depth++
+		case close:
+			depth--
+			if depth == 0 {
+				return s[:idx+len(string(r))], true
+			}
+		}
+	}
+	return "", false
 }

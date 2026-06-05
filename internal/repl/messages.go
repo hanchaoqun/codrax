@@ -2193,6 +2193,13 @@ func dataTaskAnswerMarkdown(lang string, result dataquery.Result) string {
 			fmt.Fprintf(&b, "\n\nAudit summary: %s", strings.TrimSpace(result.AuditSummary))
 		}
 	}
+	if len(result.ContractWarnings) > 0 {
+		if isZh(lang) {
+			fmt.Fprintf(&b, "\n\n输出契约提示：%s", strings.Join(result.ContractWarnings, "; "))
+		} else {
+			fmt.Fprintf(&b, "\n\nOutput contract notes: %s", strings.Join(result.ContractWarnings, "; "))
+		}
+	}
 	if len(result.Rows) > 0 {
 		if isZh(lang) {
 			fmt.Fprintf(&b, "\n\n行级决策：%d 条", len(result.Rows))
