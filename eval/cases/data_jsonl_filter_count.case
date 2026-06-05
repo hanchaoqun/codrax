@@ -1,0 +1,7 @@
+ID="data_jsonl_filter_count"
+NAME="data lane — JSONL filter count"
+QUESTION="读取当前目录的数据材料，按照 instructions.md 的说明过滤 events.jsonl，最终只输出一个数字。"
+DATA_FIXTURE="data-jsonl-filter"
+EXPECT_MATCHES_REGEX="^2[[:space:]]*$"
+EXPECT_LOG_MATCHES_REGEX="route=data
+\\[.*data\\] data task result"

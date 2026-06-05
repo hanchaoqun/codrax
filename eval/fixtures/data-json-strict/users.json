@@ -1,0 +1,5 @@
+[
+  {"id":"u1","active":true,"role":"reader"},
+  {"id":"u2","active":false,"role":"reader"},
+  {"id":"u3","active":true,"role":"admin"}
+]

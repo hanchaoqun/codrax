@@ -1,0 +1,4 @@
+{"id":"e1","service":"api","level":"error"}
+{"id":"e2","service":"worker","level":"error"}
+{"id":"e3","service":"api","level":"info"}
+{"id":"e4","service":"api","level":"error"}

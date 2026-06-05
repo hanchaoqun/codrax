@@ -170,17 +170,17 @@ numeric groups through the existing deterministic reconcile validator.
 - [x] Return typed node failures with action id, action kind, script line,
       JSON path, and repairability.
 - [x] Repair only the failed node when possible.
-- [ ] Escalate to graph expansion when a transform reads undeclared material or
+- [x] Escalate to graph expansion when a transform reads undeclared material or
       lacks schema knowledge.
-- [ ] Use result patching only for structural JSON drift, never for business
+- [x] Use result patching only for structural JSON drift, never for business
       semantics.
 
 ### Batch 5: Eval and UX Hardening
 
-- [ ] Add evals for non-procurement data tasks: CSV sum, JSONL filtering,
-      multi-file join, text extraction summary, strict JSON-only output, and
-      action-only inventory/inspection.
-- [ ] Add regression checks that source, trace/log, operation, and write-mode
+- [x] Add eval/unit regression coverage for non-procurement data tasks:
+      CSV sum, JSONL filtering, multi-file join, text material filtering,
+      strict JSON-only output, and action-only inventory/inspection.
+- [x] Add regression checks that source, trace/log, operation, and write-mode
       routes do not see the data DAG unless typed routing selects it.
-- [ ] Keep REPL previews compact and full artifacts/logs auditable.
-- [ ] Keep CLI progress on stderr and final answer on stdout.
+- [x] Keep REPL previews compact and full artifacts/logs auditable.
+- [x] Keep CLI progress on stderr and final answer on stdout.

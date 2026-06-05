@@ -1,0 +1,10 @@
+ID="data_json_strict_ids"
+NAME="data lane — strict JSON output from local JSON"
+QUESTION="读取当前目录的数据材料，按照 instructions.md 的说明处理 users.json，最终严格只输出 JSON。"
+DATA_FIXTURE="data-json-strict"
+EXPECT_MATCHES_REGEX="\"ids\"
+\"u1\"
+\"u3\""
+EXPECT_NOT_CONTAINS="```"
+EXPECT_LOG_MATCHES_REGEX="route=data
+\\[.*data\\] data task result"
