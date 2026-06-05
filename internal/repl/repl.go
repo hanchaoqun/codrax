@@ -1407,6 +1407,24 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		r.emitDataTaskWorkflowAudit("execute", dataRounds)
 		result, err := runner.Run(context.Background(), currentPlan)
 		if err != nil {
+			if _, ok := r.dataTaskPlanner.(DataTaskResultPatchPlanner); ok {
+				var validationErr *dataquery.DataResultValidationError
+				if errors.As(err, &validationErr) && dataTaskPatchCandidate(validationErr.Result, validationErr.Violations) {
+					ctx := r.startTurn()
+					patched, patchedOK, attempted, reason := tryPatchDataTaskResult(ctx, r.dataTaskPlanner, line, currentPlan, err, records, r.language)
+					r.endTurn()
+					if attempted {
+						r.emitReplLLMTrace(r.dataTaskPlanner, "data_result_patch_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
+					}
+					if patchedOK {
+						result = patched
+						r.emitDataTaskWorkflowAudit("patch", dataRounds, reason)
+						err = nil
+					}
+				}
+			}
+		}
+		if err != nil {
 			errText := fmt.Sprintf("execute data task: %v", err)
 			r.auditDataTaskError(dataRounds, errText)
 			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
@@ -2575,6 +2593,8 @@ func (r *REPL) emitDataTaskWorkflowAudit(kind string, round int, details ...stri
 			segs = append(segs, fmt.Sprintf("执行第 %d 批", round))
 		case "repair":
 			segs = append(segs, fmt.Sprintf("修复第 %d 次", round))
+		case "patch":
+			segs = append(segs, fmt.Sprintf("结构修复第 %d 批", round))
 		case "result":
 			segs = append(segs, fmt.Sprintf("结果第 %d 批", round))
 		case "evaluate":
@@ -2597,6 +2617,8 @@ func (r *REPL) emitDataTaskWorkflowAudit(kind string, round int, details ...stri
 			segs = append(segs, fmt.Sprintf("execute batch %d", round))
 		case "repair":
 			segs = append(segs, fmt.Sprintf("repair %d", round))
+		case "patch":
+			segs = append(segs, fmt.Sprintf("structural patch batch %d", round))
 		case "result":
 			segs = append(segs, fmt.Sprintf("result batch %d", round))
 		case "evaluate":

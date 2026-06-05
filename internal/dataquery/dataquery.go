@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -196,6 +197,8 @@ type DataTaskViolation struct {
 	JSONPath      string            `json:"json_path,omitempty"`
 	ExpectedShape string            `json:"expected_shape,omitempty"`
 	ActualSnippet string            `json:"actual_snippet,omitempty"`
+	ScriptLine    int               `json:"script_line,omitempty"`
+	RunnerLine    int               `json:"runner_line,omitempty"`
 	Repairability DataRepairability `json:"repairability,omitempty"`
 	RepairHint    string            `json:"repair_hint,omitempty"`
 }
@@ -218,6 +221,52 @@ func (e DataValidationError) Error() string {
 	return "data validation failed"
 }
 
+// DataResultValidationError preserves the parsed result when validation fails
+// after the runner already produced structured JSON. Callers can use the typed
+// violations and bounded result snapshot for structural repair without asking
+// the model to rewrite the whole script. Business-semantic failures still fall
+// back to recomputation.
+type DataResultValidationError struct {
+	Result     Result              `json:"result"`
+	Violations []DataTaskViolation `json:"violations"`
+	Err        error               `json:"-"`
+}
+
+func (e *DataResultValidationError) Error() string {
+	if e == nil {
+		return ""
+	}
+	if e.Err != nil {
+		return e.Err.Error()
+	}
+	if len(e.Violations) > 0 {
+		return DataValidationError{Violations: e.Violations}.Error()
+	}
+	return "data result validation failed"
+}
+
+func (e *DataResultValidationError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+func wrapDataResultValidationError(res Result, err error) error {
+	if err == nil {
+		return nil
+	}
+	var validationErr DataValidationError
+	if !errors.As(err, &validationErr) {
+		return err
+	}
+	return &DataResultValidationError{
+		Result:     res,
+		Violations: append([]DataTaskViolation(nil), validationErr.Violations...),
+		Err:        err,
+	}
+}
+
 func dataValidationError(code, jsonPath, expectedShape, actualSnippet string, repairability DataRepairability, format string, args ...any) error {
 	return DataValidationError{Violations: []DataTaskViolation{{
 		Code:          code,
@@ -232,9 +281,12 @@ func dataValidationError(code, jsonPath, expectedShape, actualSnippet string, re
 func ClassifyExecutionError(errText string) DataTaskViolation {
 	text := strings.TrimSpace(errText)
 	lower := strings.ToLower(text)
+	scriptLine, runnerLine := parseDataScriptTracebackLocus(text)
 	v := DataTaskViolation{
 		Code:       "runtime_failure",
 		Summary:    clampViolationText(text, 500),
+		ScriptLine: scriptLine,
+		RunnerLine: runnerLine,
 		RepairHint: "Inspect the failing line or typed workflow violation, keep the same user goal and output contract, and emit a corrected bounded plan.",
 	}
 	switch {
@@ -296,6 +348,58 @@ func ClassifyExecutionError(errText string) DataTaskViolation {
 		v.RepairHint = "Keep the computed answer but render it exactly according to output_contract."
 	}
 	return v
+}
+
+func parseDataScriptTracebackLocus(text string) (scriptLine int, runnerLine int) {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if scriptLine == 0 {
+			if n, ok := parsePythonTracebackLineNumber(line, `File "<string>", line `); ok {
+				scriptLine = n
+			}
+		}
+		if runnerLine == 0 && strings.Contains(line, `_runner.py`) {
+			if n, ok := parsePythonTracebackCommaLineNumber(line); ok {
+				runnerLine = n
+			}
+		}
+	}
+	return scriptLine, runnerLine
+}
+
+func parsePythonTracebackLineNumber(line, marker string) (int, bool) {
+	idx := strings.Index(line, marker)
+	if idx < 0 {
+		return 0, false
+	}
+	rest := line[idx+len(marker):]
+	end := strings.Index(rest, ",")
+	if end >= 0 {
+		rest = rest[:end]
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(rest))
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return n, true
+}
+
+func parsePythonTracebackCommaLineNumber(line string) (int, bool) {
+	const marker = ", line "
+	idx := strings.Index(line, marker)
+	if idx < 0 {
+		return 0, false
+	}
+	rest := line[idx+len(marker):]
+	end := strings.Index(rest, ",")
+	if end >= 0 {
+		rest = rest[:end]
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(rest))
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return n, true
 }
 
 func clampViolationText(value string, limit int) string {
@@ -376,6 +480,13 @@ type DataResultPatch struct {
 	Path   string          `json:"path"`
 	Value  json.RawMessage `json:"value,omitempty"`
 	Reason string          `json:"reason,omitempty"`
+}
+
+type DataResultPatchPlan struct {
+	Status     string            `json:"status,omitempty"`
+	Patches    []DataResultPatch `json:"patches"`
+	Reason     string            `json:"reason,omitempty"`
+	Confidence string            `json:"confidence,omitempty"`
 }
 
 type LooseText string
@@ -1258,32 +1369,36 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 		return Result{}, err
 	}
 	res.ResultPatches = append(res.ResultPatches, applyDataResultPatchEngine(&res)...)
+	return validateRunnerResult(plan, res)
+}
+
+func validateRunnerResult(plan TaskPlan, res Result) (Result, error) {
 	res.ConsumedPaths = normalizeMaterialPaths(res.ConsumedPaths)
 	if err := validateCoverageConsumed(plan.CoverageContract, res.ConsumedPaths); err != nil {
 		return Result{}, err
 	}
 	if plan.CoverageContract.DecisionRecordsRequired && len(res.Rows) == 0 {
-		return Result{}, dataValidationError(
+		return Result{}, wrapDataResultValidationError(res, dataValidationError(
 			"missing_required_ledger",
 			"/rows",
 			"non-empty array of decision records",
 			"empty",
 			RepairabilityNeedsRecompute,
 			"data coverage incomplete: coverage_contract.decision_records_required=true but result.rows is empty",
-		)
+		))
 	}
 	if plan.CoverageContract.DecisionRecordsRequired && !hasMeaningfulRowDecision(res.Rows) {
-		return Result{}, dataValidationError(
+		return Result{}, wrapDataResultValidationError(res, dataValidationError(
 			"empty_semantic_ledger",
 			"/rows",
 			"decision records with source locator and include/exclude/transform decision",
 			snippetJSON(res.Rows),
 			RepairabilityNeedsRecompute,
 			"data coverage incomplete: coverage_contract.decision_records_required=true but result.rows contains no meaningful decision records",
-		)
+		))
 	}
 	if err := validateRequiredLedgers(plan.CoverageContract, res); err != nil {
-		return Result{}, err
+		return Result{}, wrapDataResultValidationError(res, err)
 	}
 	if res.OutputContract.Format == "" {
 		res.OutputContract = plan.OutputContract
@@ -1583,13 +1698,16 @@ func resolutionStatusIsOpen(status string) bool {
 func validateReconcileReport(report ReconcileReport, contributions []ContributionRecord, answer string) error {
 	status := strings.ToLower(strings.TrimSpace(report.Status.String()))
 	if status == "" {
-		return errors.New("data validation incomplete: result.reconcile.status is empty")
+		return dataValidationError("missing_reconcile_status", "/reconcile/status", "pass/fail/partial/blocked status", "", RepairabilityNeedsRecompute,
+			"data validation incomplete: result.reconcile.status is empty")
 	}
 	if status != "pass" {
 		if len(report.Differences) > 0 {
-			return fmt.Errorf("data reconcile failed: status=%s differences=%s", status, strings.Join(report.Differences, "; "))
+			return dataValidationError("reconcile_status_failed", "/reconcile/status", "pass after deterministic reconciliation succeeds", status, RepairabilityNeedsRecompute,
+				"data reconcile failed: status=%s differences=%s", status, strings.Join(report.Differences, "; "))
 		}
-		return fmt.Errorf("data reconcile failed: status=%s", status)
+		return dataValidationError("reconcile_status_failed", "/reconcile/status", "pass after deterministic reconciliation succeeds", status, RepairabilityNeedsRecompute,
+			"data reconcile failed: status=%s", status)
 	}
 	expectedAnswer := strings.TrimSpace(report.ExpectedAnswer.String())
 	actualAnswer := strings.TrimSpace(report.ActualAnswer.String())
@@ -1601,10 +1719,12 @@ func validateReconcileReport(report ReconcileReport, contributions []Contributio
 		return fmt.Errorf("data reconcile failed: actual_answer %q does not match result.answer %q", actualAnswer, answer)
 	}
 	if len(contributions) > 0 && len(report.Groups) == 0 {
-		return errors.New("data reconcile incomplete: result.reconcile.groups is empty while contributions are present")
+		return dataValidationError("missing_reconcile_groups", "/reconcile/groups", "group for every contribution group", "empty", RepairabilityNeedsRecompute,
+			"data reconcile incomplete: result.reconcile.groups is empty while contributions are present")
 	}
 	if len(contributions) > 0 && len(report.Groups) > 0 && !hasMeaningfulReconcileGroup(report.Groups) {
-		return errors.New("data reconcile incomplete: result.reconcile.groups contains no canonical group records; include group_key/metric and expected/actual values instead of task-specific aliases")
+		return dataValidationError("empty_semantic_ledger", "/reconcile/groups", "reconcile groups with group_key/metric and expected/actual values", snippetJSON(report.Groups), RepairabilityNeedsRecompute,
+			"data reconcile incomplete: result.reconcile.groups contains no canonical group records; include group_key/metric and expected/actual values instead of task-specific aliases")
 	}
 	if len(report.Groups) == 0 || len(contributions) == 0 {
 		return nil
@@ -1818,6 +1938,174 @@ func applyDataResultPatchEngine(res *Result) []DataResultPatch {
 		}
 	}
 	return patches
+}
+
+func ApplyDataResultPatchPlan(plan TaskPlan, base Result, patchPlan DataResultPatchPlan) (Result, []DataResultPatch, error) {
+	if len(patchPlan.Patches) == 0 {
+		return Result{}, nil, errors.New("data result patch plan has no patches")
+	}
+	out := cloneResult(base)
+	applied := make([]DataResultPatch, 0, len(patchPlan.Patches))
+	const maxPatches = 12
+	for i, patch := range patchPlan.Patches {
+		if i >= maxPatches {
+			return Result{}, applied, fmt.Errorf("data result patch plan exceeds patch budget %d", maxPatches)
+		}
+		normalized, err := applyDataResultPatch(&out, patch)
+		if err != nil {
+			return Result{}, applied, err
+		}
+		applied = append(applied, normalized)
+	}
+	if more := applyDataResultPatchEngine(&out); len(more) > 0 {
+		applied = append(applied, more...)
+	}
+	out.ResultPatches = append(out.ResultPatches, applied...)
+	validated, err := validateRunnerResult(plan, out)
+	if err != nil {
+		return Result{}, applied, err
+	}
+	return validated, applied, nil
+}
+
+func cloneResult(in Result) Result {
+	raw, err := json.Marshal(in)
+	if err != nil {
+		return in
+	}
+	var out Result
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return in
+	}
+	return out
+}
+
+func applyDataResultPatch(res *Result, patch DataResultPatch) (DataResultPatch, error) {
+	target := strings.TrimSpace(patch.Target)
+	if target == "" {
+		target = "result"
+	}
+	if target != "result" {
+		return DataResultPatch{}, fmt.Errorf("data result patch rejected: unsupported target %q", target)
+	}
+	op := strings.ToLower(strings.TrimSpace(patch.Op))
+	if op != "replace" {
+		return DataResultPatch{}, fmt.Errorf("data result patch rejected: op %q is not allowed; only replace existing structural scalar fields", patch.Op)
+	}
+	path := strings.TrimSpace(patch.Path)
+	if !strings.HasPrefix(path, "/") {
+		return DataResultPatch{}, fmt.Errorf("data result patch rejected: path %q is not a JSON pointer", path)
+	}
+	value := strings.TrimSpace(rawJSONValueString(patch.Value))
+	if value == "" {
+		return DataResultPatch{}, fmt.Errorf("data result patch rejected: empty value for %s", path)
+	}
+	reason := strings.TrimSpace(patch.Reason)
+	if reason == "" {
+		reason = "model-authored structural result patch"
+	}
+	if err := setSafeResultPatchValue(res, path, value); err != nil {
+		return DataResultPatch{}, err
+	}
+	return newDataResultPatch("replace", path, value, reason), nil
+}
+
+func setSafeResultPatchValue(res *Result, pointer, value string) error {
+	parts := strings.Split(strings.TrimPrefix(pointer, "/"), "/")
+	if len(parts) == 0 {
+		return fmt.Errorf("data result patch rejected: empty path")
+	}
+	switch parts[0] {
+	case "contributions":
+		if len(parts) != 3 {
+			return fmt.Errorf("data result patch rejected: unsupported contribution path %q", pointer)
+		}
+		idx, ok := parseNonNegativeIndex(parts[1], len(res.Contributions))
+		if !ok {
+			return fmt.Errorf("data result patch rejected: contribution index out of range in %q", pointer)
+		}
+		switch parts[2] {
+		case "operation":
+			op, ok := normalizeContributionOperation(value)
+			if !ok || op == "" {
+				return fmt.Errorf("data result patch rejected: unsupported contribution operation %q", value)
+			}
+			res.Contributions[idx].Operation = LooseText(op)
+		case "group_key":
+			res.Contributions[idx].GroupKey = LooseText(normalizeLedgerGroupKey(value, res.Contributions[idx].Metric.String()))
+		case "metric":
+			res.Contributions[idx].Metric = LooseText(value)
+			res.Contributions[idx].GroupKey = LooseText(normalizeLedgerGroupKey(res.Contributions[idx].GroupKey.String(), value))
+		default:
+			return fmt.Errorf("data result patch rejected: field %q is not a safe contribution patch field", parts[2])
+		}
+	case "entity_resolutions":
+		if len(parts) != 3 || parts[2] != "status" {
+			return fmt.Errorf("data result patch rejected: unsupported entity-resolution path %q", pointer)
+		}
+		idx, ok := parseNonNegativeIndex(parts[1], len(res.EntityResolutions))
+		if !ok {
+			return fmt.Errorf("data result patch rejected: entity-resolution index out of range in %q", pointer)
+		}
+		if strings.TrimSpace(res.EntityResolutions[idx].CanonicalID.String()) == "" &&
+			strings.TrimSpace(res.EntityResolutions[idx].CanonicalLabel.String()) == "" &&
+			strings.TrimSpace(res.EntityResolutions[idx].Reason.String()) == "" &&
+			len(res.EntityResolutions[idx].Candidates) == 0 &&
+			len(res.EntityResolutions[idx].EvidenceRefs) == 0 {
+			return fmt.Errorf("data result patch rejected: entity-resolution status patch needs existing canonical value, reason, candidates, or evidence")
+		}
+		res.EntityResolutions[idx].Status = LooseText(value)
+	case "reconcile":
+		if res.Reconcile == nil {
+			return fmt.Errorf("data result patch rejected: reconcile is missing")
+		}
+		if len(parts) == 2 && parts[1] == "status" {
+			if strings.TrimSpace(res.Reconcile.Status.String()) != "" {
+				return fmt.Errorf("data result patch rejected: reconcile status patch only fills a missing structural status")
+			}
+			if len(res.Reconcile.Differences) > 0 {
+				return fmt.Errorf("data result patch rejected: reconcile status patch cannot hide existing differences")
+			}
+			res.Reconcile.Status = LooseText(value)
+			return nil
+		}
+		if len(parts) != 4 || parts[1] != "groups" {
+			return fmt.Errorf("data result patch rejected: unsupported reconcile path %q", pointer)
+		}
+		idx, ok := parseNonNegativeIndex(parts[2], len(res.Reconcile.Groups))
+		if !ok {
+			return fmt.Errorf("data result patch rejected: reconcile group index out of range in %q", pointer)
+		}
+		switch parts[3] {
+		case "group_key":
+			res.Reconcile.Groups[idx].GroupKey = LooseText(normalizeLedgerGroupKey(value, res.Reconcile.Groups[idx].Metric.String()))
+		case "metric":
+			res.Reconcile.Groups[idx].Metric = LooseText(value)
+			res.Reconcile.Groups[idx].GroupKey = LooseText(normalizeLedgerGroupKey(res.Reconcile.Groups[idx].GroupKey.String(), value))
+		default:
+			return fmt.Errorf("data result patch rejected: field %q is not a safe reconcile patch field", parts[3])
+		}
+	default:
+		return fmt.Errorf("data result patch rejected: path %q is outside the safe structural patch set", pointer)
+	}
+	return nil
+}
+
+func parseNonNegativeIndex(text string, length int) (int, bool) {
+	if text == "" {
+		return 0, false
+	}
+	var n int
+	for _, ch := range text {
+		if ch < '0' || ch > '9' {
+			return 0, false
+		}
+		n = n*10 + int(ch-'0')
+		if n >= length {
+			return 0, false
+		}
+	}
+	return n, n >= 0 && n < length
 }
 
 func newDataResultPatch(op, path string, value any, reason string) DataResultPatch {

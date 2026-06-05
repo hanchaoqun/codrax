@@ -478,6 +478,25 @@ func TestClassifyExecutionError(t *testing.T) {
 	}
 }
 
+func TestClassifyExecutionErrorCarriesScriptLine(t *testing.T) {
+	text := `execute data task: data task script failed: exit status 1
+Traceback (most recent call last):
+  File "/tmp/codrax-data/_runner.py", line 130, in <module>
+    exec(code, env, env)
+  File "<string>", line 22, in <module>
+NameError: name 'status' is not defined`
+	v := ClassifyExecutionError(text)
+	if v.ScriptLine != 22 {
+		t.Fatalf("ScriptLine=%d, want 22", v.ScriptLine)
+	}
+	if v.RunnerLine != 130 {
+		t.Fatalf("RunnerLine=%d, want 130", v.RunnerLine)
+	}
+	if v.Code != "runtime_failure" {
+		t.Fatalf("Code=%q", v.Code)
+	}
+}
+
 func TestRunnerLedgerHelpersNormalizeStructuralAliases(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
@@ -1397,5 +1416,96 @@ emit({
 	_, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
 	if err == nil || !strings.Contains(err.Error(), "data reconcile failed") {
 		t.Fatalf("Run err=%v, want failed reconcile rejection", err)
+	}
+}
+
+func TestApplyDataResultPatchPlanRepairsStructuralOperationDrift(t *testing.T) {
+	plan := TaskPlan{
+		CoverageContract: CoverageContract{
+			ContributionLedgerRequired: true,
+			ReconcileRequired:          true,
+		},
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+	}
+	base := Result{
+		Answer:         "10",
+		OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false},
+		Contributions: []ContributionRecord{{
+			ItemID:        "row-1",
+			Source:        "orders.csv",
+			SourceLocator: "row 2",
+			GroupKey:      "A/amount",
+			Metric:        "amount",
+			Value:         "10",
+			Operation:     "totalize",
+			Reason:        "contributes to total",
+		}},
+		Reconcile: &ReconcileReport{
+			Status:       "pass",
+			ActualAnswer: "10",
+			Groups: []ReconcileGroup{{
+				GroupKey: "A/amount",
+				Metric:   "amount",
+				Expected: "10",
+				Actual:   "10",
+			}},
+		},
+	}
+	_, err := validateRunnerResult(plan, base)
+	if err == nil {
+		t.Fatal("validateRunnerResult unexpectedly accepted unsupported operation")
+	}
+	var validationErr *DataResultValidationError
+	if !errors.As(err, &validationErr) {
+		t.Fatalf("err=%T %v, want DataResultValidationError", err, err)
+	}
+	patched, patches, err := ApplyDataResultPatchPlan(plan, validationErr.Result, DataResultPatchPlan{
+		Patches: []DataResultPatch{
+			newDataResultPatch("replace", "/contributions/0/operation", "add", "normalize structural aggregation operation"),
+		},
+	})
+	if err != nil {
+		t.Fatalf("ApplyDataResultPatchPlan: %v", err)
+	}
+	if patched.Contributions[0].Operation.String() != "add" {
+		t.Fatalf("operation=%q, want add", patched.Contributions[0].Operation.String())
+	}
+	if patched.Contributions[0].GroupKey.String() != "A" {
+		t.Fatalf("group_key=%q, want metric suffix normalized", patched.Contributions[0].GroupKey.String())
+	}
+	if len(patches) < 1 || len(patched.ResultPatches) < 1 {
+		t.Fatalf("patches=%v result_patches=%v, want audit records", patches, patched.ResultPatches)
+	}
+}
+
+func TestApplyDataResultPatchPlanRejectsAnswerPatch(t *testing.T) {
+	plan := TaskPlan{OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false}}
+	base := Result{Answer: "10", OutputContract: OutputContract{Format: OutputPlainSingleLine, ExplanationAllowed: false}}
+	_, _, err := ApplyDataResultPatchPlan(plan, base, DataResultPatchPlan{
+		Patches: []DataResultPatch{
+			newDataResultPatch("replace", "/answer", "11", "answer changes are not structural"),
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "outside the safe structural patch set") {
+		t.Fatalf("ApplyDataResultPatchPlan err=%v, want answer patch rejection", err)
+	}
+}
+
+func TestApplyDataResultPatchPlanRejectsSemanticReconcileStatusPatch(t *testing.T) {
+	plan := TaskPlan{CoverageContract: CoverageContract{ReconcileRequired: true}}
+	base := Result{
+		Answer: "10",
+		Reconcile: &ReconcileReport{
+			Status:      "fail",
+			Differences: []string{"mismatch"},
+		},
+	}
+	_, _, err := ApplyDataResultPatchPlan(plan, base, DataResultPatchPlan{
+		Patches: []DataResultPatch{
+			newDataResultPatch("replace", "/reconcile/status", "pass", "hiding reconcile failure is not structural"),
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "only fills a missing structural status") {
+		t.Fatalf("ApplyDataResultPatchPlan err=%v, want reconcile status patch rejection", err)
 	}
 }

@@ -22,6 +22,7 @@ package repl
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -90,6 +91,9 @@ type stubDataTaskPlanner struct {
 	evals         []dataquery.Evaluation
 	evalErr       error
 	evalCalls     int
+	patchPlan     dataquery.DataResultPatchPlan
+	patchErr      error
+	patchCalls    int
 	continuePlan  dataquery.TaskPlan
 	continueErr   error
 	continueCalls int
@@ -124,6 +128,11 @@ func (s *stubDataTaskPlanner) EvaluateDataTask(_ context.Context, userLine strin
 		return s.evals[idx], s.evalErr
 	}
 	return s.eval, s.evalErr
+}
+
+func (s *stubDataTaskPlanner) ProposeDataResultPatch(_ context.Context, userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) (dataquery.DataResultPatchPlan, error) {
+	s.patchCalls++
+	return s.patchPlan, s.patchErr
 }
 
 func (s *stubDataTaskPlanner) ContinueDataTask(_ context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord) (dataquery.TaskPlan, error) {
@@ -1489,6 +1498,76 @@ emit({"answer": str(total), "output_contract": {"format": "plain_single_line", "
 		if !strings.Contains(progressText, want) {
 			t.Fatalf("progress missing %q:\n%s", want, progressText)
 		}
+	}
+}
+
+func TestRunDataTaskCLIPatchesStructuralResultBeforeScriptRepair(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	planner := &stubDataTaskPlanner{
+		plan: dataquery.TaskPlan{
+			Status:     "ready",
+			InputPaths: []string{"orders.csv"},
+			CoverageContract: dataquery.CoverageContract{
+				RequiredMaterials:          []dataquery.CoverageMaterial{{Path: "orders.csv", Required: true}},
+				ContributionLedgerRequired: true,
+				ReconcileRequired:          true,
+			},
+			OutputContract: dataquery.OutputContract{
+				Format:             dataquery.OutputPlainSingleLine,
+				ExplanationAllowed: false,
+			},
+			Script: `rows = csv_rows("orders.csv")
+emit({
+  "answer": "10",
+  "output_contract": {"format": "plain_single_line", "explanation_allowed": False},
+  "contributions": [{"item_id": "row-1", "source": "orders.csv", "source_locator": "row 2", "group_key": "A", "metric": "amount", "value": "10", "operation": "totalize"}],
+  "reconcile": {"status": "pass", "actual_answer": "10", "groups": [{"group_key": "A", "metric": "amount", "expected": "10", "actual": "10"}]}
+})`,
+		},
+		patchPlan: dataquery.DataResultPatchPlan{
+			Status: "patch",
+			Patches: []dataquery.DataResultPatch{{
+				Target: "result",
+				Op:     "replace",
+				Path:   "/contributions/0/operation",
+				Value:  json.RawMessage(`"add"`),
+				Reason: "canonical structural aggregation operation",
+			}},
+			Reason:     "safe structural patch",
+			Confidence: "high",
+		},
+		eval: dataquery.Evaluation{Status: dataquery.EvalComplete, Reason: "patched result satisfies strict scalar output", Confidence: "high"},
+	}
+	var progress bytes.Buffer
+	answer, err := RunDataTaskCLI(context.Background(), "汇总 orders.csv，只输出总额", TurnPolicy{Route: RouteData, NeedsDataAccess: true, Source: "data"}, DataTaskCLIConfig{
+		Planner:         planner,
+		RepoRoot:        root,
+		RuntimeAnchor:   t.TempDir(),
+		Language:        "zh",
+		MaxRepairRounds: 2,
+		MaxDataRounds:   4,
+		Progress:        &progress,
+	})
+	if err != nil {
+		t.Fatalf("RunDataTaskCLI: %v", err)
+	}
+	if strings.TrimSpace(answer) != "10" {
+		t.Fatalf("answer=%q, want strict scalar 10", answer)
+	}
+	if planner.patchCalls != 1 {
+		t.Fatalf("patchCalls=%d, want 1", planner.patchCalls)
+	}
+	if planner.repairCalls != 0 {
+		t.Fatalf("repairCalls=%d, want 0; structural result patch should avoid script rewrite", planner.repairCalls)
+	}
+	if !strings.Contains(progress.String(), "结构修复第 1 批") {
+		t.Fatalf("progress missing structural patch line:\n%s", progress.String())
 	}
 }
 

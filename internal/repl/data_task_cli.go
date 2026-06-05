@@ -2,6 +2,8 @@ package repl
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -85,6 +87,13 @@ func RunDataTaskCLI(ctx context.Context, request string, policy TurnPolicy, cfg 
 		dataRounds++
 		dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "execute", dataRounds)
 		result, err := runner.Run(ctx, currentPlan)
+		if err != nil {
+			if patched, ok, _, reason := tryPatchDataTaskResult(ctx, cfg.Planner, request, currentPlan, err, records, cfg.Language); ok {
+				result = patched
+				dataTaskCLIWorkflowProgress(cfg.Progress, cfg.Language, "patch", dataRounds, reason)
+				err = nil
+			}
+		}
 		if err != nil {
 			errText := fmt.Sprintf("execute data task: %v", err)
 			var repaired dataquery.TaskPlan
@@ -175,6 +184,65 @@ func repairDataTaskPlanForCLI(ctx context.Context, planner DataTaskPlanner, requ
 	return repairedPlan, repairRounds, true, nil
 }
 
+func tryPatchDataTaskResult(ctx context.Context, planner DataTaskPlanner, userLine string, currentPlan dataquery.TaskPlan, err error, records []dataTaskWorkflowRecord, lang string) (dataquery.Result, bool, bool, string) {
+	patcher, ok := planner.(DataTaskResultPatchPlanner)
+	if !ok || err == nil {
+		return dataquery.Result{}, false, false, ""
+	}
+	var validationErr *dataquery.DataResultValidationError
+	if !errors.As(err, &validationErr) {
+		return dataquery.Result{}, false, false, ""
+	}
+	if !dataTaskPatchCandidate(validationErr.Result, validationErr.Violations) {
+		return dataquery.Result{}, false, false, ""
+	}
+	patchPlan, patchErr := patcher.ProposeDataResultPatch(ctx, userLine, currentPlan, validationErr.Result, validationErr.Violations, records, lang)
+	if patchErr != nil {
+		logging.Warning("[data] structural patch planning failed: %v", patchErr)
+		return dataquery.Result{}, false, true, ""
+	}
+	if raw, err := json.MarshalIndent(patchPlan, "", "  "); err == nil {
+		logging.Info("[data] structural patch proposal status=%s patches=%d reason=%s\n%s",
+			patchPlan.Status, len(patchPlan.Patches), oneLineClamp(patchPlan.Reason, 240), string(raw))
+	}
+	if strings.ToLower(strings.TrimSpace(patchPlan.Status)) != "patch" || len(patchPlan.Patches) == 0 {
+		logging.Info("[data] structural patch declined status=%s reason=%s", patchPlan.Status, oneLineClamp(patchPlan.Reason, 240))
+		return dataquery.Result{}, false, true, ""
+	}
+	patched, patches, applyErr := dataquery.ApplyDataResultPatchPlan(currentPlan, validationErr.Result, patchPlan)
+	if applyErr != nil {
+		logging.Warning("[data] structural patch rejected: %v", applyErr)
+		return dataquery.Result{}, false, true, ""
+	}
+	logging.Info("[data] structural patch applied patches=%d reason=%s", len(patches), oneLineClamp(patchPlan.Reason, 240))
+	if isZh(lang) {
+		return patched, true, true, fmt.Sprintf("结构修复 %d", len(patches))
+	}
+	return patched, true, true, fmt.Sprintf("%d structural patch(es)", len(patches))
+}
+
+func dataTaskPatchCandidate(result dataquery.Result, violations []dataquery.DataTaskViolation) bool {
+	if len(violations) == 0 {
+		return false
+	}
+	for _, v := range violations {
+		switch strings.TrimSpace(v.Code) {
+		case "missing_required_ledger", "reconcile_status_failed":
+			continue
+		}
+		path := strings.TrimSpace(v.JSONPath)
+		switch {
+		case strings.HasPrefix(path, "/contributions/") && len(result.Contributions) > 0:
+			return true
+		case strings.HasPrefix(path, "/entity_resolutions/") && len(result.EntityResolutions) > 0:
+			return true
+		case strings.HasPrefix(path, "/reconcile/") && result.Reconcile != nil:
+			return true
+		}
+	}
+	return false
+}
+
 func logDataTaskCLIResult(round int, result dataquery.Result) {
 	reconcileStatus := ""
 	if result.Reconcile != nil {
@@ -212,6 +280,8 @@ func dataTaskCLIWorkflowProgress(w io.Writer, lang, kind string, round int, deta
 			segs = append(segs, fmt.Sprintf("执行第 %d 批", round))
 		case "repair":
 			segs = append(segs, fmt.Sprintf("修复第 %d 次", round))
+		case "patch":
+			segs = append(segs, fmt.Sprintf("结构修复第 %d 批", round))
 		case "result":
 			segs = append(segs, fmt.Sprintf("结果第 %d 批", round))
 		case "evaluate":
@@ -229,6 +299,8 @@ func dataTaskCLIWorkflowProgress(w io.Writer, lang, kind string, round int, deta
 			segs = append(segs, fmt.Sprintf("execute batch %d", round))
 		case "repair":
 			segs = append(segs, fmt.Sprintf("repair %d", round))
+		case "patch":
+			segs = append(segs, fmt.Sprintf("structural patch batch %d", round))
 		case "result":
 			segs = append(segs, fmt.Sprintf("result batch %d", round))
 		case "evaluate":

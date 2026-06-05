@@ -1,6 +1,7 @@
 package repl
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -26,6 +27,10 @@ type DataTaskEvaluator interface {
 
 type DataTaskContinuationPlanner interface {
 	ContinueDataTask(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord) (dataquery.TaskPlan, error)
+}
+
+type DataTaskResultPatchPlanner interface {
+	ProposeDataResultPatch(ctx context.Context, userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) (dataquery.DataResultPatchPlan, error)
 }
 
 type llmDataTaskPlanner struct {
@@ -205,6 +210,38 @@ var dataTaskEvaluationTool = llm.ToolSchema{
 }`),
 }
 
+var dataTaskResultPatchTool = llm.ToolSchema{
+	Name:        "emit_data_result_patch",
+	Description: "Emit a typed structural patch plan for an already-computed data result. This tool never changes business semantics and never executes code.",
+	Parameters: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["patch", "needs_recompute", "blocked"],
+      "description": "patch only when the violations can be fixed by replacing existing structural scalar fields without changing business meaning; needs_recompute when the script must recompute; blocked when no safe path exists."
+    },
+    "patches": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "target": {"type": "string", "enum": ["result"]},
+          "op": {"type": "string", "enum": ["replace"]},
+          "path": {"type": "string", "description": "JSON pointer to an existing safe structural field, such as /contributions/0/operation, /contributions/0/group_key, /contributions/0/metric, /entity_resolutions/0/status, /reconcile/status only when status is structurally missing, /reconcile/groups/0/group_key, or /reconcile/groups/0/metric."},
+          "value": {"description": "Replacement scalar value for the structural field."},
+          "reason": {"type": "string"}
+        },
+        "required": ["target", "op", "path", "value", "reason"]
+      }
+    },
+    "reason": {"type": "string"},
+    "confidence": {"type": "string"}
+  },
+  "required": ["status", "patches", "reason"]
+}`),
+}
+
 const dataTaskPlannerSystemPrompt = `You are a read-only data task planner.
 
 Convert the user's request into a typed data task plan for deterministic local data processing.
@@ -275,6 +312,16 @@ Hard rules:
 - Do not add prose, markdown, comments, code fences, or extra wrapper keys.
 - Use only the compact context provided here; do not invent source-code, trace, log, or external-tool evidence.`
 
+const dataTaskResultPatchSystemPrompt = `You repair only the STRUCTURE of an already-computed read-only data result.
+
+Hard rules:
+- Emit only emit_data_result_patch. Do not write prose.
+- Patch only schema/shape drift in existing result fields. Do not change the user's final answer, business rules, inclusion/exclusion decisions, canonical entity choices, source values, numeric values, or add/remove business records.
+- Allowed patch operations are replace-only scalar edits on existing safe structural fields: contribution operation/group_key/metric, entity resolution status, missing reconcile status only when no differences are present, and reconcile group_key/metric.
+- If a fix requires new data, changing a calculation, adding/removing rows/contributions/entities/groups, or interpreting a business rule differently, emit status=needs_recompute with an empty patches array.
+- The system will re-run deterministic validators after applying patches. Passing this tool is advisory; invalid or semantic patches are rejected.
+- This is data-lane repair only. Do not route to source-code analysis, trace analysis, write-mode code editing, or command operation.`
+
 func (p *llmDataTaskPlanner) PlanDataTask(ctx context.Context, userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile) (dataquery.TaskPlan, error) {
 	return p.planDataTask(ctx, "data_task_planner", dataTaskPlannerPrompt(userLine, repoRoot, policy, candidates))
 }
@@ -328,6 +375,50 @@ func (p *llmDataTaskPlanner) EvaluateDataTask(ctx context.Context, userLine stri
 		}
 	}
 	return parsed.toEvaluation(), nil
+}
+
+func (p *llmDataTaskPlanner) ProposeDataResultPatch(ctx context.Context, userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) (dataquery.DataResultPatchPlan, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if p == nil || p.adapter == nil {
+		return dataquery.DataResultPatchPlan{}, fmt.Errorf("data result patch planner is not configured")
+	}
+	prompt := dataTaskResultPatchPrompt(userLine, previous, partial, violations, records, lang)
+	resp, err := p.adapter.Chat(ctx,
+		[]llm.Message{
+			{Role: "system", Content: dataTaskResultPatchSystemPrompt},
+			{Role: "user", Content: prompt},
+		},
+		[]llm.ToolSchema{dataTaskResultPatchTool},
+		llm.ChatOptions{ToolChoice: "required"},
+	)
+	p.lastTrace = traceFromLLMResponse("data_result_patch_planner", resp)
+	if err != nil {
+		return dataquery.DataResultPatchPlan{}, err
+	}
+	if len(resp.ToolCalls) == 0 {
+		return dataquery.DataResultPatchPlan{}, fmt.Errorf("data result patch planner returned no tool_call")
+	}
+	call := resp.ToolCalls[0]
+	if call.Name != dataTaskResultPatchTool.Name {
+		return dataquery.DataResultPatchPlan{}, fmt.Errorf("data result patch planner returned unexpected tool %q", call.Name)
+	}
+	var parsed dataTaskResultPatchDraft
+	if err := unmarshalReplStructuredToolParams(dataTaskResultPatchTool, call.Params, &parsed, "data result patch planner"); err != nil {
+		parseErr := err
+		raw, repairErr := p.repairDataTaskStructuredToolParams(ctx, dataTaskResultPatchTool, err, dataTaskStructuredToolRepairRequest{
+			Scope:   "data result patch planner",
+			Context: prompt,
+		})
+		if repairErr != nil {
+			return dataquery.DataResultPatchPlan{}, repairErr
+		}
+		if err := unmarshalReplStructuredToolParams(dataTaskResultPatchTool, raw, &parsed, "data result patch planner"); err != nil {
+			return dataquery.DataResultPatchPlan{}, fmt.Errorf("%w; compact tool-param repair also failed: %v", parseErr, err)
+		}
+	}
+	return parsed.toPatchPlan(), nil
 }
 
 func (p *llmDataTaskPlanner) planDataTask(ctx context.Context, scope, prompt string) (dataquery.TaskPlan, error) {
@@ -457,7 +548,7 @@ func dataTaskRepairPrompt(userLine, repoRoot string, policy TurnPolicy, candidat
 	fmt.Fprintf(&b, "## execution_error\n%s\n\n", strings.TrimSpace(executionError))
 	violationJSON, _ := json.MarshalIndent(violation, "", "  ")
 	fmt.Fprintf(&b, "## typed_repair_locus\n%s\n\n", string(violationJSON))
-	prevJSON, _ := json.MarshalIndent(compactDataTaskRepairContext(previous), "", "  ")
+	prevJSON, _ := json.MarshalIndent(compactDataTaskRepairContextForViolation(previous, violation), "", "  ")
 	fmt.Fprintf(&b, "## previous_plan_compact_json\n%s\n\n", string(prevJSON))
 	b.WriteString("## repair_rules\n")
 	b.WriteString("- Fix the script deterministically; preserve the user's requested output contract unless it was the direct cause of the failure.\n")
@@ -492,10 +583,24 @@ type dataTaskRepairContext struct {
 	NextBatch           string                     `json:"next_batch,omitempty"`
 	WhyThisBatch        string                     `json:"why_this_batch,omitempty"`
 	ContinueAfter       bool                       `json:"continue_after,omitempty"`
+	ScriptLine          int                        `json:"script_line,omitempty"`
+	RunnerLine          int                        `json:"runner_line,omitempty"`
+	ScriptLineExcerpt   []dataTaskScriptLine       `json:"script_line_excerpt,omitempty"`
 	ScriptPreview       string                     `json:"script_preview,omitempty"`
 }
 
+type dataTaskScriptLine struct {
+	Line int    `json:"line"`
+	Text string `json:"text"`
+}
+
 func compactDataTaskRepairContext(plan dataquery.TaskPlan) dataTaskRepairContext {
+	return compactDataTaskRepairContextForViolation(plan, dataquery.DataTaskViolation{})
+}
+
+func compactDataTaskRepairContextForViolation(plan dataquery.TaskPlan, violation dataquery.DataTaskViolation) dataTaskRepairContext {
+	scriptLine := violation.ScriptLine
+	excerpt := dataTaskScriptLineExcerpt(plan.Script, scriptLine, 8, 80)
 	return dataTaskRepairContext{
 		Status:              strings.TrimSpace(plan.Status),
 		InputPaths:          append([]string(nil), plan.InputPaths...),
@@ -508,8 +613,66 @@ func compactDataTaskRepairContext(plan dataquery.TaskPlan) dataTaskRepairContext
 		NextBatch:           strings.TrimSpace(plan.NextBatch),
 		WhyThisBatch:        strings.TrimSpace(plan.WhyThisBatch),
 		ContinueAfter:       plan.ContinueAfter,
+		ScriptLine:          scriptLine,
+		RunnerLine:          violation.RunnerLine,
+		ScriptLineExcerpt:   excerpt,
 		ScriptPreview:       clampDataTaskWorkflowText(plan.Script, 6000),
 	}
+}
+
+func dataTaskScriptLineExcerpt(script string, centerLine, contextLines, maxLines int) []dataTaskScriptLine {
+	script = strings.ReplaceAll(script, "\r\n", "\n")
+	lines := strings.Split(script, "\n")
+	if len(lines) == 0 || strings.TrimSpace(script) == "" {
+		return nil
+	}
+	if maxLines <= 0 || maxLines > 120 {
+		maxLines = 80
+	}
+	start := 0
+	end := len(lines)
+	if centerLine > 0 {
+		if contextLines < 0 {
+			contextLines = 0
+		}
+		start = centerLine - contextLines - 1
+		if start < 0 {
+			start = 0
+		}
+		end = centerLine + contextLines
+		if end > len(lines) {
+			end = len(lines)
+		}
+	} else if end > maxLines {
+		end = maxLines
+	}
+	if end-start > maxLines {
+		if centerLine > 0 {
+			half := maxLines / 2
+			start = centerLine - half - 1
+			if start < 0 {
+				start = 0
+			}
+			end = start + maxLines
+			if end > len(lines) {
+				end = len(lines)
+				start = end - maxLines
+				if start < 0 {
+					start = 0
+				}
+			}
+		} else {
+			end = start + maxLines
+		}
+	}
+	out := make([]dataTaskScriptLine, 0, end-start)
+	for i := start; i < end; i++ {
+		out = append(out, dataTaskScriptLine{
+			Line: i + 1,
+			Text: clampDataTaskWorkflowText(lines[i], 500),
+		})
+	}
+	return out
 }
 
 func dataTaskContinuationPrompt(userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile, records []dataTaskWorkflowRecord) string {
@@ -541,6 +704,47 @@ func dataTaskEvaluationPrompt(userLine string, records []dataTaskWorkflowRecord,
 	b.WriteString("## data_workflow_rounds\n")
 	b.WriteString(renderDataTaskRecordsForPrompt(records))
 	return strings.TrimSpace(b.String())
+}
+
+func dataTaskResultPatchPrompt(userLine string, previous dataquery.TaskPlan, partial dataquery.Result, violations []dataquery.DataTaskViolation, records []dataTaskWorkflowRecord, lang string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "## language\n%s\n\n", strings.TrimSpace(lang))
+	fmt.Fprintf(&b, "## user_request\n%s\n\n", strings.TrimSpace(userLine))
+	prevJSON, _ := json.MarshalIndent(compactDataTaskRepairContext(previous), "", "  ")
+	fmt.Fprintf(&b, "## previous_plan_compact_json\n%s\n\n", string(prevJSON))
+	violationsJSON, _ := json.MarshalIndent(violations, "", "  ")
+	fmt.Fprintf(&b, "## typed_violations\n%s\n\n", string(violationsJSON))
+	resultJSON, _ := json.MarshalIndent(compactDataTaskPatchResult(partial), "", "  ")
+	fmt.Fprintf(&b, "## partial_result_compact_json\n%s\n\n", string(resultJSON))
+	b.WriteString("## recent_data_rounds\n")
+	b.WriteString(renderDataTaskRecordsForPrompt(records))
+	b.WriteString("\n\n## patch_rules\n")
+	b.WriteString("- Emit status=patch only for structural JSON-shape drift in the already-computed result.\n")
+	b.WriteString("- Do not modify answer, numeric values, source values, include/exclude decisions, canonical mapping choices, rule interpretations, or any task/business semantics.\n")
+	b.WriteString("- Do not add or remove rows, rule_coverage records, contributions, entity_resolutions, reconcile groups, metrics, or consumed_paths.\n")
+	b.WriteString("- Allowed paths are limited to contribution operation/group_key/metric, entity resolution status, missing reconcile status only when no differences are present, and reconcile group_key/metric.\n")
+	b.WriteString("- If the typed violation needs new computation or a business decision, emit status=needs_recompute and patches=[].\n")
+	return strings.TrimSpace(b.String())
+}
+
+func compactDataTaskPatchResult(result dataquery.Result) dataTaskResultPromptView {
+	view := dataTaskResultPromptView{
+		Answer:                  clampDataTaskWorkflowText(result.Answer, 1200),
+		OutputContract:          result.OutputContract.Normalize(),
+		AuditSummary:            clampDataTaskWorkflowText(result.AuditSummary, 800),
+		DecisionRecords:         len(result.Rows),
+		DecisionSamples:         sampleDataTaskRowDecisions(result.Rows, 4),
+		RuleCoverageRecords:     len(result.RuleCoverage),
+		RuleCoverageSamples:     sampleDataTaskRuleCoverage(result.RuleCoverage, 3),
+		ContributionRecords:     len(result.Contributions),
+		ContributionSamples:     sampleDataTaskContributions(result.Contributions, 5),
+		EntityResolutionRecords: len(result.EntityResolutions),
+		EntityResolutionSamples: sampleDataTaskEntityResolutions(result.EntityResolutions, 4),
+		Reconcile:               clampPromptReconcileReport(result.Reconcile),
+		Metrics:                 result.Metrics,
+		ContractWarnings:        append([]string(nil), result.ContractWarnings...),
+	}
+	return view
 }
 
 func appendCandidateDataFiles(b *strings.Builder, candidates []dataquery.CandidateFile) {
@@ -651,12 +855,51 @@ type dataTaskEvaluationDraft struct {
 	MissingInputs flexiblePolicyStringList `json:"missing_inputs"`
 }
 
+type dataTaskResultPatchDraft struct {
+	Status     flexiblePolicyString           `json:"status"`
+	Patches    []dataTaskResultPatchItemDraft `json:"patches"`
+	Reason     flexiblePolicyString           `json:"reason"`
+	Confidence flexiblePolicyString           `json:"confidence"`
+}
+
+type dataTaskResultPatchItemDraft struct {
+	Target flexiblePolicyString `json:"target"`
+	Op     flexiblePolicyString `json:"op"`
+	Path   flexiblePolicyString `json:"path"`
+	Value  json.RawMessage      `json:"value"`
+	Reason flexiblePolicyString `json:"reason"`
+}
+
 func (d dataTaskEvaluationDraft) toEvaluation() dataquery.Evaluation {
 	return dataquery.Evaluation{
 		Status:        dataquery.NormalizeEvaluationStatus(string(d.Status)),
 		Reason:        strings.TrimSpace(string(d.Reason)),
 		Confidence:    strings.TrimSpace(string(d.Confidence)),
 		MissingInputs: cleanPolicyStringList([]string(d.MissingInputs)),
+	}
+}
+
+func (d dataTaskResultPatchDraft) toPatchPlan() dataquery.DataResultPatchPlan {
+	patches := make([]dataquery.DataResultPatch, 0, len(d.Patches))
+	for _, p := range d.Patches {
+		path := strings.TrimSpace(string(p.Path))
+		if path == "" {
+			continue
+		}
+		value := bytes.TrimSpace(p.Value)
+		patches = append(patches, dataquery.DataResultPatch{
+			Target: firstNonEmptyString(strings.TrimSpace(string(p.Target)), "result"),
+			Op:     firstNonEmptyString(strings.TrimSpace(string(p.Op)), "replace"),
+			Path:   path,
+			Value:  append(json.RawMessage(nil), value...),
+			Reason: strings.TrimSpace(string(p.Reason)),
+		})
+	}
+	return dataquery.DataResultPatchPlan{
+		Status:     strings.ToLower(strings.TrimSpace(string(d.Status))),
+		Patches:    patches,
+		Reason:     strings.TrimSpace(string(d.Reason)),
+		Confidence: strings.TrimSpace(string(d.Confidence)),
 	}
 }
 

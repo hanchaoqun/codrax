@@ -368,8 +368,9 @@ Repair layering:
    aliases.
 2. L1: deterministic result patch engine applies safe structural patches and
    records them.
-3. L2: future model-authored typed patch IR may propose only structural
-   patches against validator violations; Codrax applies and revalidates.
+3. L2: model-authored typed patch IR may propose only structural patches
+   against validator violations; Codrax applies only the safe subset and
+   revalidates.
 4. L3: if a violation needs business recomputation, the workflow emits a new
    bounded data plan instead of patching the result.
 
@@ -396,27 +397,29 @@ Output IR:
 
 ```json
 {
+  "status": "patch",
   "patches": [
     {
       "target": "result",
       "op": "replace",
       "path": "/contributions/0/operation",
       "value": "add",
-      "reason": "normalize aggregation alias",
-      "source_violation_code": "unsupported_contribution_operation"
+      "reason": "normalize aggregation alias"
     }
   ],
-  "requires_recompute": false,
+  "reason": "safe structural patch",
   "confidence": "high"
 }
 ```
 
 Allowed patch operations:
 
-- `replace` on an existing scalar/object field whose expected shape is known;
-- `remove` only for duplicate structural wrappers that preserve the same data;
-- `move` only inside the same record when aliases created an extra field and
-  the canonical field is empty.
+- delivered: `replace` on existing safe structural scalar fields:
+  contribution `operation`, `group_key`, `metric`; entity-resolution `status`;
+  missing reconcile `status` only when no differences are present;
+  reconcile-group `group_key`, `metric`;
+- future only: `remove`/`move` for duplicate structural wrappers, after a
+  separate validator proves data equivalence.
 
 Forbidden patch operations:
 
@@ -432,9 +435,9 @@ Execution:
 
 1. Apply L0 unmarshal/helper normalization.
 2. Apply L1 deterministic patch engine and record `result_patches`.
-3. Run validators. If remaining violations have
-   `repairability=safe_patch` and patch budget remains, ask the L2 patch model
-   for typed patch IR with only the compact violation context.
+3. Run validators. If remaining violations include an existing result path in
+   the safe structural patch set, ask the L2 patch model for typed patch IR
+   with only compact violation context.
 4. Apply accepted patches to a copy of the result, append them to
    `result_patches`, and re-run the full validator stack.
 5. If validation still fails or a patch asks for forbidden semantics, discard
@@ -448,6 +451,20 @@ Audit:
   data audit directory.
 - Do not use model patch prose for hard decisions. Hard decisions consume only
   schema-valid patch IR plus deterministic validator results.
+
+Delivered safeguards:
+
+- `emit_data_result_patch` is a dedicated data-lane structured tool. Its
+  parameters go through the same REPL structured tool compatibility path and
+  compact tool-call repair as `emit_data_task_plan`.
+- `DataResultValidationError` preserves a parsed partial result plus typed
+  violations when validation fails after successful script execution.
+- REPL and CLI data workflows attempt L2 patching before whole-script repair;
+  if the patch planner declines, emits malformed JSON, or the deterministic
+  applier rejects the patch, the workflow falls back to bounded recomputation.
+- The deterministic applier forbids answer edits, business-record
+  insertion/removal, non-result targets, and unknown paths, then re-runs the
+  full validation stack.
 
 ### P0 Remediation Direction
 
@@ -465,6 +482,13 @@ Audit:
 4. **Mode-aware repair.** Repair prompts should explain the precise typed
    violation and ask the model to either consume the material, consume text
    evidence, or switch to planner distillation with concrete notes.
+5. **Script repair locus.** Runtime tracebacks should be translated into a
+   typed script locus before prompting the model. `File "<string>", line N`
+   is the model-authored script line; `_runner.py` lines are wrapper lines.
+   Repair prompts should carry both values when present plus a bounded,
+   line-numbered excerpt around the model script line. This gives complete
+   repair context without putting the whole generated script back into every
+   retry prompt.
 
 ### P1 Remediation Direction
 
@@ -621,7 +645,7 @@ Audit:
 - [x] Merge runner helper ledgers into direct `emit({...})` results before
       validation so helper-backed scripts keep audit records without hand-built
       result JSON.
-- [ ] Add model-authored typed patch IR for structural result repair only,
+- [x] Add model-authored typed patch IR for structural result repair only,
       with patch budget, full audit, revalidation, and hard prohibition on
       business-semantic patches.
 - [ ] Add domain-neutral evals for ledger normalization, material usage modes,

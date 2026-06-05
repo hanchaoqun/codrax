@@ -155,9 +155,22 @@ func TestDataTaskRepairPlannerPromptCarriesExecutionErrorAndPreviousPlan(t *test
 			Format:             dataquery.OutputCSVLine,
 			ExplanationAllowed: false,
 		},
-		Script: `print("debug")`,
+		Script: strings.Join([]string{
+			`rows = csv_rows("orders.csv")`,
+			`total = 0`,
+			`for row in rows:`,
+			`    total += int(row["amount"])`,
+			`print("debug")`,
+			`emit_result(str(total), output_contract={"format": "csv_line", "explanation_allowed": False})`,
+		}, "\n"),
 	}
-	plan, err := repairer.RepairDataTask(context.Background(), "汇总 CSV", "/repo", TurnPolicy{Route: RouteData}, []dataquery.CandidateFile{{Path: "orders.csv", Kind: "csv", Size: 10}}, previous, `NameError: name 'print' is not defined`)
+	executionErr := `execute data task: data task script failed: exit status 1
+Traceback (most recent call last):
+  File "/tmp/codrax-data/_runner.py", line 130, in <module>
+    exec(code, env, env)
+  File "<string>", line 5, in <module>
+NameError: name 'print' is not defined`
+	plan, err := repairer.RepairDataTask(context.Background(), "汇总 CSV", "/repo", TurnPolicy{Route: RouteData}, []dataquery.CandidateFile{{Path: "orders.csv", Kind: "csv", Size: 10}}, previous, executionErr)
 	if err != nil {
 		t.Fatalf("RepairDataTask: %v", err)
 	}
@@ -165,7 +178,7 @@ func TestDataTaskRepairPlannerPromptCarriesExecutionErrorAndPreviousPlan(t *test
 		t.Fatalf("repaired plan=%+v", plan)
 	}
 	user := adapter.calls[0].messages[1].Content
-	for _, want := range []string{"## execution_error", "NameError", "## typed_repair_locus", "runtime_failure", "## previous_plan_compact_json", `print(\"debug\")`, "coverage_contract", "required_materials", "usage_mode", "text_evidence_consumed", "planner_distilled", "operation pipeline"} {
+	for _, want := range []string{"## execution_error", "NameError", "## typed_repair_locus", `"script_line": 5`, `"runner_line": 130`, "## previous_plan_compact_json", "script_line_excerpt", `"line": 5`, `print(\"debug\")`, "coverage_contract", "required_materials", "usage_mode", "text_evidence_consumed", "planner_distilled", "operation pipeline"} {
 		if !strings.Contains(user, want) {
 			t.Fatalf("repair prompt missing %q:\n%s", want, user)
 		}
@@ -251,6 +264,82 @@ func TestDataTaskEvaluatorRepairsMalformedToolParams(t *testing.T) {
 	}
 	repairUser := adapter.calls[1].messages[1].Content
 	for _, want := range []string{"## parse_failure", "emit_data_task_evaluation", "## compact_data_context"} {
+		if !strings.Contains(repairUser, want) {
+			t.Fatalf("repair prompt missing %q:\n%s", want, repairUser)
+		}
+	}
+}
+
+func TestDataTaskResultPatchPlannerParsesTypedPatch(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			dataTaskPatchResp(`{"status":"patch","patches":[{"target":"result","op":"replace","path":"/contributions/0/operation","value":"add","reason":"canonical structural operation"}],"reason":"safe structural patch","confidence":"high"}`),
+		},
+	}
+	planner := NewDataTaskPlanner(adapter)
+	patcher, ok := planner.(DataTaskResultPatchPlanner)
+	if !ok {
+		t.Fatal("planner does not implement DataTaskResultPatchPlanner")
+	}
+	plan, err := patcher.ProposeDataResultPatch(context.Background(), "汇总 CSV", dataquery.TaskPlan{
+		Status:     "ready",
+		InputPaths: []string{"orders.csv"},
+	}, dataquery.Result{
+		Answer: "10",
+		Contributions: []dataquery.ContributionRecord{{
+			ItemID: "row-1", GroupKey: "A", Metric: "amount", Value: "10", Operation: "totalize",
+		}},
+	}, []dataquery.DataTaskViolation{{
+		Code:          "unsupported_contribution_operation",
+		JSONPath:      "/contributions/0/operation",
+		ExpectedShape: "add/sum/count/subtract/set/rank",
+		ActualSnippet: "totalize",
+		Repairability: dataquery.RepairabilityNeedsRecompute,
+	}}, nil, "zh")
+	if err != nil {
+		t.Fatalf("ProposeDataResultPatch: %v", err)
+	}
+	if plan.Status != "patch" || len(plan.Patches) != 1 {
+		t.Fatalf("patch plan=%+v", plan)
+	}
+	if plan.Patches[0].Path != "/contributions/0/operation" || string(plan.Patches[0].Value) != `"add"` {
+		t.Fatalf("patch=%+v", plan.Patches[0])
+	}
+	system := adapter.calls[0].messages[0].Content
+	for _, want := range []string{"STRUCTURE", "Do not change", "answer", "business", "emit_data_result_patch"} {
+		if !strings.Contains(system, want) {
+			t.Fatalf("patch system prompt missing %q:\n%s", want, system)
+		}
+	}
+	user := adapter.calls[0].messages[1].Content
+	for _, want := range []string{"## typed_violations", "unsupported_contribution_operation", "## partial_result_compact_json", "## patch_rules"} {
+		if !strings.Contains(user, want) {
+			t.Fatalf("patch prompt missing %q:\n%s", want, user)
+		}
+	}
+}
+
+func TestDataTaskResultPatchPlannerRepairsMalformedToolParams(t *testing.T) {
+	adapter := &scriptedChatAdapter{
+		responses: []llm.Response{
+			dataTaskPatchResp(`ä not json`),
+			dataTaskPatchResp(`{"status":"needs_recompute","patches":[],"reason":"requires recomputation"}`),
+		},
+	}
+	planner := NewDataTaskPlanner(adapter)
+	patcher := planner.(DataTaskResultPatchPlanner)
+	plan, err := patcher.ProposeDataResultPatch(context.Background(), "汇总 CSV", dataquery.TaskPlan{}, dataquery.Result{}, []dataquery.DataTaskViolation{{Code: "missing_required_ledger"}}, nil, "zh")
+	if err != nil {
+		t.Fatalf("ProposeDataResultPatch: %v", err)
+	}
+	if plan.Status != "needs_recompute" {
+		t.Fatalf("Status=%q", plan.Status)
+	}
+	if len(adapter.calls) != 2 {
+		t.Fatalf("calls=%d", len(adapter.calls))
+	}
+	repairUser := adapter.calls[1].messages[1].Content
+	for _, want := range []string{"## parse_failure", "emit_data_result_patch", "## compact_data_context", "## schema"} {
 		if !strings.Contains(repairUser, want) {
 			t.Fatalf("repair prompt missing %q:\n%s", want, repairUser)
 		}
@@ -362,6 +451,16 @@ func dataTaskPlanResp(raw string) llm.Response {
 	return llm.Response{
 		ToolCalls: []llm.ToolCall{{
 			Name:   dataTaskPlanTool.Name,
+			Params: []byte(raw),
+		}},
+		StopReason: "tool_use",
+	}
+}
+
+func dataTaskPatchResp(raw string) llm.Response {
+	return llm.Response{
+		ToolCalls: []llm.ToolCall{{
+			Name:   dataTaskResultPatchTool.Name,
 			Params: []byte(raw),
 		}},
 		StopReason: "tool_use",
