@@ -462,6 +462,7 @@ func dataTaskRepairPrompt(userLine, repoRoot string, policy TurnPolicy, candidat
 	b.WriteString("## repair_rules\n")
 	b.WriteString("- Fix the script deterministically; preserve the user's requested output contract unless it was the direct cause of the failure.\n")
 	b.WriteString("- Prefer correcting code/import/helper usage over asking the user. Ask only when a user-owned business rule or missing input is genuinely required.\n")
+	b.WriteString("- If typed_repair_locus.code is oversized_data_plan, do not rewrite another giant one-shot script. Emit a smaller bounded batch with concrete next_batch/why_this_batch and continue_after=true when the overall data goal needs more batches.\n")
 	b.WriteString("- Keep input_paths limited to candidate files. List every file the script reads.\n")
 	b.WriteString("- Preserve the previous coverage_contract unless the failed script proves a structural reason to replace it. Required materials must keep a verifiable usage_mode.\n")
 	b.WriteString("- If the error says a required material was not consumed, repair one of three ways: read the material with a helper and keep usage_mode=script_consumed; if a text evidence file covers the original material, set usage_mode=text_evidence_consumed, text_evidence_path, and read that text evidence path; or if the material was already distilled into typed validation_rules/constraints for this bounded batch, set usage_mode=planner_distilled with concrete distilled_notes. Do not use reference_only for a blocking required material.\n")

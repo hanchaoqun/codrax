@@ -15,6 +15,11 @@ const (
 	DefaultDataTaskMaxDataRounds   = 12
 	dataTaskMaxRepairRoundsCeiling = 12
 	dataTaskMaxDataRoundsCeiling   = 24
+
+	dataTaskOneShotScriptLineSoftLimit   = 260
+	dataTaskOneShotScriptLineHardLimit   = 420
+	dataTaskOneShotRequiredMaterialLimit = 8
+	dataTaskOneShotValidationLedgerLimit = 3
 )
 
 func normalizeDataTaskMaxRepairRounds(value int) int {
@@ -35,6 +40,47 @@ func normalizeDataTaskMaxDataRounds(value int) int {
 		return dataTaskMaxDataRoundsCeiling
 	}
 	return value
+}
+
+func dataTaskPlanStagingGuardError(plan dataquery.TaskPlan) string {
+	status := strings.ToLower(strings.TrimSpace(plan.Status))
+	if status != "" && status != "ready" {
+		return ""
+	}
+	if plan.ContinueAfter {
+		return ""
+	}
+	lines := dataTaskScriptLineCount(plan.Script)
+	requiredMaterials := len(plan.CoverageContract.RequiredMaterials)
+	validationLedgers := dataTaskValidationLedgerCount(plan.CoverageContract)
+	oversized := lines >= dataTaskOneShotScriptLineHardLimit ||
+		(lines >= dataTaskOneShotScriptLineSoftLimit && (requiredMaterials >= dataTaskOneShotRequiredMaterialLimit || validationLedgers >= dataTaskOneShotValidationLedgerLimit)) ||
+		(requiredMaterials >= dataTaskOneShotRequiredMaterialLimit+4 && validationLedgers >= dataTaskOneShotValidationLedgerLimit)
+	if !oversized {
+		return ""
+	}
+	return fmt.Sprintf("data planning incomplete: plan is too large for one bounded data batch (script_lines=%d required_materials=%d validation_ledgers=%d continue_after=false). Emit a smaller bounded batch, set continue_after=true when further work remains, and let the workflow feed real results into later batches.",
+		lines, requiredMaterials, validationLedgers)
+}
+
+func dataTaskValidationLedgerCount(contract dataquery.CoverageContract) int {
+	n := 0
+	if contract.DecisionRecordsRequired {
+		n++
+	}
+	if contract.RuleCoverageRequired {
+		n++
+	}
+	if contract.ContributionLedgerRequired {
+		n++
+	}
+	if contract.EntityResolutionRequired {
+		n++
+	}
+	if contract.ReconcileRequired {
+		n++
+	}
+	return n
 }
 
 type dataTaskWorkflowRecord struct {

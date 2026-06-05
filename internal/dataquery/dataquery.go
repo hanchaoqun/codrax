@@ -194,12 +194,23 @@ func ClassifyExecutionError(errText string) DataTaskViolation {
 	v := DataTaskViolation{
 		Code:       "runtime_failure",
 		Summary:    clampViolationText(text, 500),
-		RepairHint: "Inspect the failing line, keep the same user goal and output contract, and emit a corrected bounded plan.",
+		RepairHint: "Inspect the failing line or typed workflow violation, keep the same user goal and output contract, and emit a corrected bounded plan.",
 	}
 	switch {
+	case strings.Contains(lower, "data planning incomplete") && strings.Contains(lower, "bounded data batch"):
+		v.Code = "oversized_data_plan"
+		v.RepairHint = "Split the plan into a smaller bounded batch, set continue_after=true when more work remains, and let the workflow feed real results into later batches."
 	case strings.Contains(lower, "data task script redefines reserved helper"):
 		v.Code = "reserved_helper_redefined"
 		v.RepairHint = "Remove any function/variable assignment that redefines runner helpers; call the provided helper directly."
+	case strings.Contains(lower, "name 'false' is not defined") ||
+		strings.Contains(lower, "name 'true' is not defined") ||
+		strings.Contains(lower, "name 'null' is not defined"):
+		v.Code = "python_json_literal_name"
+		v.RepairHint = "Use Python constants True/False/None, or rely on runner-provided true/false/null constants without redefining them."
+	case strings.Contains(lower, "invalid literal for int()"):
+		v.Code = "numeric_parse_failure"
+		v.RepairHint = "Do not parse identifiers as integers; keep identifiers as strings and parse only fields that are truly numeric."
 	case strings.Contains(lower, "uses text_evidence_consumed but text_evidence_path is empty"):
 		v.Code = "text_evidence_path_missing"
 		v.RepairHint = "Set text_evidence_path for the required material or choose a different verifiable usage_mode."
@@ -224,6 +235,12 @@ func ClassifyExecutionError(errText string) DataTaskViolation {
 	case strings.Contains(lower, "unsupported operation"):
 		v.Code = "unsupported_contribution_operation"
 		v.RepairHint = "Use canonical contribution operations such as add/sum/count/subtract/set/rank."
+	case strings.Contains(lower, "references unknown rule_id"):
+		v.Code = "unknown_rule_ref"
+		v.RepairHint = "Every rule_ref must match an emitted rule_coverage.rule_id. Add the missing generic rule coverage record, or remove/replace the invalid rule_ref."
+	case strings.Contains(lower, "entity_resolutions") && strings.Contains(lower, "missing status"):
+		v.Code = "missing_entity_resolution_status"
+		v.RepairHint = "Use add_resolution(...) or set status to resolved, ambiguous, unresolved, or not_applicable for every entity resolution record."
 	case strings.Contains(lower, "has no matching contribution records"):
 		v.Code = "reconcile_group_mismatch"
 		v.RepairHint = "Align contribution group_key/metric with reconcile.groups, or correct the contribution records."
@@ -1935,24 +1952,53 @@ def parse_money(value):
     text = str(value).strip().replace(",", "")
     return decimal.Decimal(text or "0")
 
+def _pop_first(mapping, names, default=""):
+    for name in names:
+        if name in mapping:
+            value = mapping.pop(name)
+            if value not in (None, ""):
+                return value
+    return default
+
+def _listify(value):
+    if value is None or value == "":
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return [str(v) for v in value if v not in (None, "")]
+    return [str(value)]
+
 def add_decision(item_id="", source="", source_locator="", decision="", reason="", value="", contribution="", normalized_fields=None, evidence_refs=None, rule_refs=None, **extra):
+    item_id = item_id or _pop_first(extra, ["row_id", "record_id", "id", "item"])
+    source_locator = source_locator or _pop_first(extra, ["locator", "location", "span", "cell", "row"])
+    decision = decision or _pop_first(extra, ["status", "outcome", "action"])
+    if not rule_refs:
+        rule_refs = _pop_first(extra, ["rule_refs", "rule_ref", "rule_id", "rule"])
+    normalized = dict(normalized_fields or {})
+    for key, value_extra in list(extra.items()):
+        if value_extra is None:
+            continue
+        normalized[str(key)] = str(value_extra)
     rec = {
-        "item_id": str(item_id or ""),
+        "row_id": str(item_id or ""),
         "source": str(source or ""),
         "source_locator": str(source_locator or ""),
         "decision": str(decision or ""),
         "reason": str(reason or ""),
         "value": str(value or ""),
         "contribution": str(contribution or ""),
-        "normalized_fields": normalized_fields or {},
+        "normalized_fields": normalized,
         "evidence_refs": list(evidence_refs or []),
-        "rule_refs": list(rule_refs or []),
+        "rule_refs": _listify(rule_refs),
     }
-    rec.update(extra)
     DECISIONS.append(rec)
     return rec
 
 def add_rule_coverage(rule_id="", rule_text="", status="", evidence_refs=None, notes="", **extra):
+    rule_id = rule_id or _pop_first(extra, ["id", "rule", "rule_ref"])
+    rule_text = rule_text or _pop_first(extra, ["text", "description", "condition"])
+    status = status or _pop_first(extra, ["outcome", "decision"], "applied")
+    if not notes:
+        notes = _pop_first(extra, ["reason", "summary", "details"])
     rec = {
         "rule_id": str(rule_id or ""),
         "rule_text": str(rule_text or ""),
@@ -1970,6 +2016,16 @@ def _candidate_obj(candidate):
     return {"id": str(candidate)}
 
 def add_resolution(item_id="", source_value="", canonical_id="", canonical_label="", status="", candidates=None, evidence_refs=None, rule_refs=None, reason="", **extra):
+    item_id = item_id or _pop_first(extra, ["row_id", "record_id", "id", "item"])
+    source_value = source_value or _pop_first(extra, ["source", "raw", "raw_value", "value"])
+    canonical_id = canonical_id or _pop_first(extra, ["canonical", "normalized_id", "target_id"])
+    canonical_label = canonical_label or _pop_first(extra, ["label", "normalized_label", "target_label"])
+    if not rule_refs:
+        rule_refs = _pop_first(extra, ["rule_refs", "rule_ref", "rule_id", "rule"])
+    if not reason:
+        reason = _pop_first(extra, ["notes", "summary", "details"])
+    if not status:
+        status = "resolved" if canonical_id or canonical_label else "unresolved"
     rec = {
         "item_id": str(item_id or ""),
         "source_value": str(source_value or ""),
@@ -1978,7 +2034,7 @@ def add_resolution(item_id="", source_value="", canonical_id="", canonical_label
         "status": str(status or ""),
         "candidates": [_candidate_obj(c) for c in list(candidates or [])],
         "evidence_refs": list(evidence_refs or []),
-        "rule_refs": list(rule_refs or []),
+        "rule_refs": _listify(rule_refs),
         "reason": str(reason or ""),
     }
     rec.update(extra)
@@ -1986,6 +2042,15 @@ def add_resolution(item_id="", source_value="", canonical_id="", canonical_label
     return rec
 
 def add_contribution(item_id="", source="", source_locator="", group_key="", metric="", value="", operation="add", reason="", evidence_refs=None, rule_refs=None, **extra):
+    item_id = item_id or _pop_first(extra, ["row_id", "record_id", "id", "item"])
+    source_locator = source_locator or _pop_first(extra, ["locator", "location", "span", "cell", "row"])
+    group_key = group_key or _pop_first(extra, ["group", "dimensions", "dimension_key", "bucket"])
+    metric = metric or _pop_first(extra, ["measure", "field", "metric_name"])
+    operation = operation or _pop_first(extra, ["op", "aggregation"], "add")
+    if not rule_refs:
+        rule_refs = _pop_first(extra, ["rule_refs", "rule_ref", "rule_id", "rule"])
+    if not reason:
+        reason = _pop_first(extra, ["notes", "summary", "details"])
     rec = {
         "item_id": str(item_id or ""),
         "source": str(source or ""),
@@ -1996,7 +2061,7 @@ def add_contribution(item_id="", source="", source_locator="", group_key="", met
         "operation": str(operation or "add"),
         "reason": str(reason or ""),
         "evidence_refs": list(evidence_refs or []),
-        "rule_refs": list(rule_refs or []),
+        "rule_refs": _listify(rule_refs),
     }
     rec.update(extra)
     CONTRIBUTIONS.append(rec)
@@ -2052,6 +2117,7 @@ env = {
     "math": math, "statistics": statistics, "collections": collections,
     "datetime": datetime, "itertools": itertools, "functools": functools,
     "operator": operator, "emit": emit,
+    "true": True, "false": False, "null": None,
 }
 code = %s
 exec(code, env, env)

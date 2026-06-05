@@ -462,6 +462,11 @@ func TestClassifyExecutionError(t *testing.T) {
 		`data coverage incomplete: required material "rules.md" uses planner_distilled but distilled_notes is empty`:         "planner_distilled_notes_missing",
 		`data coverage incomplete: text evidence "scan.txt" for required material "scan.pdf" was not consumed by the script`: "text_evidence_not_consumed",
 		`data validation incomplete: result.contributions[0] has unsupported operation "merge"`:                              "unsupported_contribution_operation",
+		`NameError: name 'false' is not defined`:                                                                             "python_json_literal_name",
+		`ValueError: invalid literal for int() with base 10: 'Q001'`:                                                         "numeric_parse_failure",
+		`data validation incomplete: result.contributions[0] references unknown rule_id "R03"`:                               "unknown_rule_ref",
+		`data validation incomplete: result.entity_resolutions[0] is missing status`:                                         "missing_entity_resolution_status",
+		`data planning incomplete: plan is too large for one bounded data batch (script_lines=400 required_materials=12)`:    "oversized_data_plan",
 		`data reconcile failed: group "A/amount" has no matching contribution records`:                                       "reconcile_group_mismatch",
 		`data reconcile failed: group "A/amount" expected=9 but contributions sum to 10`:                                     "reconcile_sum_mismatch",
 	}
@@ -469,6 +474,55 @@ func TestClassifyExecutionError(t *testing.T) {
 		if got := ClassifyExecutionError(text).Code; got != want {
 			t.Fatalf("ClassifyExecutionError(%q)=%q, want %q", text, got, want)
 		}
+	}
+}
+
+func TestRunnerLedgerHelpersNormalizeStructuralAliases(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		OutputContract: OutputContract{
+			Format:             OutputPlainSingleLine,
+			ExplanationAllowed: false,
+		},
+		CoverageContract: CoverageContract{
+			RequiredMaterials: []CoverageMaterial{
+				{Path: "orders.csv", Purpose: "input table", Required: true},
+			},
+			DecisionRecordsRequired:    true,
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+			EntityResolutionRequired:   true,
+			ReconcileRequired:          true,
+		},
+		Script: `rows = csv_rows("orders.csv")
+add_rule_coverage(id="r1", text="include first row", notes="rule applied to parsed rows")
+add_decision(row_id="1", source="orders.csv", locator="row_2", status="included", rule="r1")
+add_resolution(record_id="1", source="A", canonical_id="A", candidates=["A"], rule_id="r1")
+add_contribution(record_id="1", source="orders.csv", locator="row_2", group="A", metric="amount", value=rows[0]["amount"], op="sum", rule="r1")
+emit_result("10", output_contract={"format": "plain_single_line", "explanation_allowed": false}, reconcile={"status": "pass", "actual_answer": "10", "groups": [{"group_key": "A", "metric": "amount", "actual": "10"}]})`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := res.Rows[0].RowID; got != "1" {
+		t.Fatalf("row id alias not normalized: %q", got)
+	}
+	if got := res.Rows[0].Decision; got != "included" {
+		t.Fatalf("decision status alias not normalized: %q", got)
+	}
+	if got := res.Contributions[0].Operation.String(); got != "add" {
+		t.Fatalf("contribution op alias not normalized: %q", got)
+	}
+	if got := res.EntityResolutions[0].Status.String(); got != "resolved" {
+		t.Fatalf("entity resolution default status=%q, want resolved", got)
 	}
 }
 

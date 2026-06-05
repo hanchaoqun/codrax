@@ -1336,6 +1336,39 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 			r.recordTurn(display, line, msg, memory.KindPipeline)
 			return
 		}
+		if errText := dataTaskPlanStagingGuardError(currentPlan); errText != "" {
+			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
+			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {
+				repairRounds++
+				r.emitDataTaskWorkflowAudit("repair", repairRounds, dataTaskWorkflowErrorSegment(r.language, errText))
+				ctx := r.startTurn()
+				repairedPlan, repairErr := repairer.RepairDataTask(ctx, line, r.repoRoot, policy, candidates, currentPlan, errText)
+				r.endTurn()
+				r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_repair_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
+				if repairErr != nil {
+					reason := fmt.Sprintf("%s\nrepair data task: %v", errText, repairErr)
+					msg := dataTaskErrorMarkdown(r.language, reason)
+					r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: reason, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records})
+					r.finishDataTaskRouteSpinner("failed")
+					r.renderBordered(msg)
+					r.lastAnswerOrigin = replAnswerOriginLocal
+					r.recordTurn(display, line, msg, memory.KindPipeline)
+					return
+				}
+				repairedPlan = preserveDataTaskMaterialRepairCoverage(currentPlan, repairedPlan)
+				r.emitDataTaskPlanAudit(repairedPlan)
+				r.auditDataTaskPlan("repair", repairRounds, repairedPlan)
+				currentPlan = repairedPlan
+				continue
+			}
+			msg := dataTaskErrorMarkdown(r.language, errText)
+			r.logDataTaskTerminal(dataTaskTerminalAudit{Status: "failed", Reason: errText, DataRounds: dataRounds, RepairRounds: repairRounds, Records: records})
+			r.finishDataTaskRouteSpinner("failed")
+			r.renderBordered(msg)
+			r.lastAnswerOrigin = replAnswerOriginLocal
+			r.recordTurn(display, line, msg, memory.KindPipeline)
+			return
+		}
 		if errText := r.prepareDataTaskNonTextMaterials(context.Background(), &candidates, currentPlan); errText != "" {
 			records = append(records, dataTaskWorkflowRecord{Plan: currentPlan, Err: errText})
 			if repairer, ok := r.dataTaskPlanner.(DataTaskRepairPlanner); ok && repairRounds < r.dataTaskMaxRepairRounds {

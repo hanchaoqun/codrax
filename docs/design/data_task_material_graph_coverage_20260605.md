@@ -266,6 +266,44 @@ The fix is not to special-case any file name or document role. The fix is to
 make material usage mode a typed contract field. The model owns the semantic
 choice; Codrax validates the chosen mode structurally.
 
+## 2026-06-05 Failure Audit: Oversized Batch and Helper Contract Drift
+
+Another real workflow exhausted multiple repair rounds without producing a
+trustworthy answer. The individual failures varied, but the common mechanism
+was generic:
+
+- the model emitted a large one-shot script that tried to do discovery,
+  parsing, rule application, entity resolution, contribution collection,
+  reconciliation, and final rendering in one batch;
+- the script used JSON-style `true`/`false`/`null` inside Python;
+- identifiers were sometimes parsed as integers because the model guessed a
+  field type from shape instead of preserving ID strings;
+- helper calls used structurally understandable aliases such as `row_id`,
+  `status`, `rule`, `op`, or `record_id`, while the runner and validator
+  expected canonical wire fields;
+- a contribution referenced a rule ID that had not been emitted in
+  `rule_coverage`;
+- entity-resolution records missed a status.
+
+None of these are business-domain failures. They are contract-boundary
+failures between planner, script helper surface, runner result schema, and
+validator. The generic fix is:
+
+1. reject oversized one-shot data plans before execution when typed structural
+   signals show the plan should be staged;
+2. make runner helpers own canonical JSON shape and absorb safe structural
+   aliases, while still leaving business semantics to the model;
+3. classify common structural failures as typed repair loci so repair prompts
+   are precise and compact;
+4. keep validators strict about unknown rule references and reconciliation so
+   scripts cannot pass with hollow or disconnected ledgers.
+
+The guard is intentionally structural. It reads script line count, required
+material count, validation-ledger count, plan status, and `continue_after`.
+It does not inspect user prose, model prose, file names, domains, or column
+names. Simple one-batch data tasks continue to execute normally; complex tasks
+are steered into bounded workflow batches.
+
 ### P0 Remediation Direction
 
 1. **Material usage modes.** Extend `CoverageMaterial` with generic
@@ -405,11 +443,21 @@ choice; Codrax validates the chosen mode structurally.
       treating every required material as direct script input.
 - [x] Teach the data planner schema/prompt and JSON compatibility draft about
       `usage_mode`, `text_evidence_path`, and `distilled_notes`.
-- [x] Stage large data workflows so one script does not own discovery,
-      parsing, rule application, entity resolution, contribution, reconcile,
-      and final rendering all at once.
+- [x] Add execution preflight for oversized one-shot data plans using typed
+      structural signals, and repair them as bounded batches before running
+      large scripts.
+- [x] Classify `oversized_data_plan` and teach repair prompts to emit smaller
+      bounded batches with `continue_after=true` when needed.
+- [x] Let the Python data runner accept JSON-style `true`/`false`/`null`
+      constants without requiring the model to replan.
+- [x] Strengthen runner ledger helpers so safe structural aliases normalize to
+      canonical result fields.
+- [x] Classify numeric parse failures, unknown rule references, and missing
+      entity-resolution status as typed repair loci.
 - [x] Add a first domain-neutral data eval fixture for strict sum output with a
       required rule material.
+- [ ] Continue reducing whole-script rewrites by adding more local
+      schema-aware result repair for safely repairable emitted result shapes.
 - [ ] Add domain-neutral evals for ledger normalization, material usage modes,
       contribution/reconcile consistency, schema repair, and staged data
       workflows.

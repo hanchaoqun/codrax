@@ -1504,6 +1504,31 @@ emit({"answer": str(total), "output_contract": {"format": "plain_single_line", "
 	}
 }
 
+func TestDataTaskPlanStagingGuardRequiresBoundedBatch(t *testing.T) {
+	largeScript := strings.Repeat("x = 1\n", dataTaskOneShotScriptLineSoftLimit+5)
+	plan := dataquery.TaskPlan{
+		Status: "ready",
+		Script: largeScript,
+		CoverageContract: dataquery.CoverageContract{
+			RequiredMaterials: []dataquery.CoverageMaterial{
+				{Path: "a.csv"}, {Path: "b.csv"}, {Path: "c.csv"}, {Path: "d.csv"},
+				{Path: "e.csv"}, {Path: "f.csv"}, {Path: "g.csv"}, {Path: "h.csv"},
+			},
+			DecisionRecordsRequired:    true,
+			RuleCoverageRequired:       true,
+			ContributionLedgerRequired: true,
+		},
+	}
+	errText := dataTaskPlanStagingGuardError(plan)
+	if !strings.Contains(errText, "bounded data batch") {
+		t.Fatalf("guard err=%q, want bounded batch repair", errText)
+	}
+	plan.ContinueAfter = true
+	if got := dataTaskPlanStagingGuardError(plan); got != "" {
+		t.Fatalf("continue_after plan should pass staging guard, got %q", got)
+	}
+}
+
 func TestTurnPolicyDispatch_DataRouteContinuesAfterIntermediateBatch(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("python3 not available")
