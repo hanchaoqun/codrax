@@ -1006,7 +1006,8 @@ current message. Concrete rules:
 // adapter.Chat call per turn, with tool_choice=required and the local
 // schema above.
 type llmChitchatClassifier struct {
-	adapter llm.Adapter
+	adapter   llm.Adapter
+	lastTrace replLLMCallTrace
 }
 
 // NewChitchatClassifier builds the default classifier. Nil adapter
@@ -1048,6 +1049,7 @@ func (c *llmChitchatClassifier) Classify(ctx context.Context, userLine, priorTur
 	}
 	tools := []llm.ToolSchema{chitchatClassifierTool}
 	resp, err := c.adapter.Chat(ctx, messages, tools, llm.ChatOptions{ToolChoice: "required"})
+	c.lastTrace = traceFromLLMResponse("chitchat_classifier", resp)
 	if err != nil {
 		return false, fmt.Errorf("chitchat classifier llm call: %w", err)
 	}
@@ -1077,6 +1079,13 @@ func (c *llmChitchatClassifier) Classify(ctx context.Context, userLine, priorTur
 	default:
 		return false, fmt.Errorf("chitchat classifier: unknown decision %q", parsed.Decision)
 	}
+}
+
+func (c *llmChitchatClassifier) LastReplLLMTrace() replLLMCallTrace {
+	if c == nil {
+		return replLLMCallTrace{}
+	}
+	return c.lastTrace
 }
 
 // oneLineClamp collapses a string to a single line and clips to n

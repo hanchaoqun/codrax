@@ -15,7 +15,8 @@ type DataTaskPlanner interface {
 }
 
 type llmDataTaskPlanner struct {
-	adapter llm.Adapter
+	adapter   llm.Adapter
+	lastTrace replLLMCallTrace
 }
 
 func NewDataTaskPlanner(adapter llm.Adapter) DataTaskPlanner {
@@ -110,6 +111,7 @@ func (p *llmDataTaskPlanner) PlanDataTask(ctx context.Context, userLine, repoRoo
 		[]llm.ToolSchema{dataTaskPlanTool},
 		llm.ChatOptions{ToolChoice: "required"},
 	)
+	p.lastTrace = traceFromLLMResponse("data_task_planner", resp)
 	if err != nil {
 		return dataquery.TaskPlan{}, err
 	}
@@ -125,6 +127,13 @@ func (p *llmDataTaskPlanner) PlanDataTask(ctx context.Context, userLine, repoRoo
 		return dataquery.TaskPlan{}, err
 	}
 	return parsed.toPlan(), nil
+}
+
+func (p *llmDataTaskPlanner) LastReplLLMTrace() replLLMCallTrace {
+	if p == nil {
+		return replLLMCallTrace{}
+	}
+	return p.lastTrace
 }
 
 func dataTaskPlannerPrompt(userLine, repoRoot string, policy TurnPolicy, candidates []dataquery.CandidateFile) string {

@@ -1243,6 +1243,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 	}
 	plan, err := r.dataTaskPlanner.PlanDataTask(ctx, line, r.repoRoot, policy, candidates)
 	r.endTurn()
+	r.emitReplLLMTrace(r.dataTaskPlanner, "data_task_planner", types.AgentName("data_planner"), types.PipelineStage("data"))
 	if err != nil {
 		msg := dataTaskErrorMarkdown(r.language, fmt.Sprintf("plan data task: %v", err))
 		r.finishDataTaskRouteSpinner("failed")
@@ -1251,6 +1252,7 @@ func (r *REPL) dataTaskDispatch(line, display string, policy TurnPolicy) {
 		r.recordTurn(display, line, msg, memory.KindPipeline)
 		return
 	}
+	r.emitDataTaskPlanAudit(plan)
 	switch strings.ToLower(strings.TrimSpace(plan.Status)) {
 	case "needs_clarification":
 		msg := dataTaskClarificationMarkdown(r.language, plan)
@@ -1310,6 +1312,7 @@ func (r *REPL) operationDispatch(line, display string, policy TurnPolicy) {
 				planned, err = r.operationPlanner.PlanCommandOperation(ctx, line, r.repoRoot, policy)
 			}
 			r.endTurn()
+			r.emitReplLLMTrace(r.operationPlanner, "command_operation_planner", types.AgentName("operation_planner"), types.PipelineStage("operation"))
 			if err != nil {
 				logging.Warning("[repl/operation] command planner failed; asking for clarification: %v", err)
 			} else {
@@ -1435,6 +1438,7 @@ func (r *REPL) maybeDispatchCommandOperationFollowup(line, display string, polic
 	snapshot := r.commandOperationCapabilitySnapshot()
 	next, err := continuer.ContinueCommandOperation(ctx, strings.TrimSpace(line), r.repoRoot, commandOperationFollowupPolicy(policy), snapshot, records)
 	r.endTurn()
+	r.emitReplLLMTrace(r.operationPlanner, "command_operation_planner", types.AgentName("operation_planner"), types.PipelineStage("operation"))
 	if err != nil {
 		logging.Warning("[repl/operation] command follow-up continuation planning failed: %v", err)
 		return false
@@ -1629,6 +1633,146 @@ func (r *REPL) finishDataTaskRouteSpinner(status string) {
 		}
 	}
 	r.emitOperationLightRouteSummary(label, segs)
+}
+
+func (r *REPL) emitReplLLMTrace(source any, fallbackScope string, agent types.AgentName, stage types.PipelineStage) {
+	provider, ok := source.(replLLMTraceProvider)
+	if !ok {
+		return
+	}
+	trace := provider.LastReplLLMTrace()
+	scope := firstNonEmptyString(strings.TrimSpace(trace.Scope), strings.TrimSpace(fallbackScope))
+	if strings.TrimSpace(trace.Reasoning) != "" {
+		logging.Debug("[diag %s] phase=repl_llm_trace reasoning_len=%d\n%s", firstNonEmptyString(scope, "repl_llm"), len(trace.Reasoning), trace.Reasoning)
+	}
+	if strings.TrimSpace(trace.ToolName) != "" {
+		logging.Debug("[diag %s] phase=repl_llm_trace tool=%s params_len=%d params=%s",
+			firstNonEmptyString(scope, "repl_llm"),
+			trace.ToolName,
+			len(trace.ToolParams),
+			oneLineClamp(string(trace.ToolParams), 2000))
+	}
+	if r.renderer == nil {
+		return
+	}
+	if strings.TrimSpace(trace.Reasoning) != "" {
+		r.renderer.Emitter()(render.Event{
+			Kind:      render.EventAgentReasoning,
+			Timestamp: time.Now(),
+			Agent:     agent,
+			Stage:     stage,
+			Reasoning: trace.Reasoning,
+		})
+	}
+	if strings.TrimSpace(trace.ToolName) != "" {
+		r.renderer.Emitter()(render.Event{
+			Kind:          render.EventAgentToolCallBatch,
+			Timestamp:     time.Now(),
+			Agent:         agent,
+			Stage:         stage,
+			ToolName:      trace.ToolName,
+			ToolNames:     []string{trace.ToolName},
+			ToolCallCount: 1,
+			ToolDetail:    replLLMTraceScopeLabel(scope, r.language),
+		})
+	}
+}
+
+func replLLMTraceScopeLabel(scope, lang string) string {
+	scope = strings.TrimSpace(scope)
+	if scope == "" {
+		return ""
+	}
+	if isZh(lang) {
+		switch scope {
+		case "turn_policy_classifier":
+			return "结构化路由判定"
+		case "data_task_planner":
+			return "数据任务计划"
+		case "command_operation_planner":
+			return "操作计划"
+		case "command_operation_evaluator":
+			return "操作目标评估"
+		case "command_operation_answerer":
+			return "操作结果成文"
+		case "provider_operation_evaluator":
+			return "外部 provider 目标评估"
+		case "provider_operation_answerer":
+			return "外部 provider 成文"
+		case "operation_structured_tool_repair":
+			return "结构化参数修复"
+		}
+	}
+	return strings.ReplaceAll(scope, "_", " ")
+}
+
+func (r *REPL) emitTurnPolicyAudit(policy TurnPolicy) {
+	if r.renderer == nil {
+		return
+	}
+	label, segs := turnPolicyAuditSummary(policy, r.language)
+	r.renderer.EmitLightRouteSummary(label, segs)
+}
+
+func turnPolicyAuditSummary(policy TurnPolicy, lang string) (string, []string) {
+	route := strings.TrimSpace(string(policy.Route))
+	if route == "" {
+		route = "unknown"
+	}
+	conf := fmt.Sprintf("%.0f%%", policy.Confidence*100)
+	if isZh(lang) {
+		segs := []string{route, "置信 " + conf}
+		if policy.NeedsRepoAccess {
+			segs = append(segs, "需读源码/观测")
+		} else {
+			segs = append(segs, "未读源码")
+		}
+		if strings.TrimSpace(policy.Operation) != "" {
+			segs = append(segs, "意图 "+strings.TrimSpace(policy.Operation))
+		}
+		return "路由判定", segs
+	}
+	segs := []string{route, "confidence " + conf}
+	if policy.NeedsRepoAccess {
+		segs = append(segs, "repo/external read")
+	} else {
+		segs = append(segs, "no source read")
+	}
+	if strings.TrimSpace(policy.Operation) != "" {
+		segs = append(segs, "intent "+strings.TrimSpace(policy.Operation))
+	}
+	return "route decision", segs
+}
+
+func (r *REPL) emitDataTaskPlanAudit(plan dataquery.TaskPlan) {
+	if r.renderer == nil {
+		return
+	}
+	label, segs := dataTaskPlanAuditSummary(plan, r.language)
+	r.renderer.EmitLightRouteSummary(label, segs)
+}
+
+func dataTaskPlanAuditSummary(plan dataquery.TaskPlan, lang string) (string, []string) {
+	status := strings.TrimSpace(plan.Status)
+	if status == "" {
+		status = "ready"
+	}
+	format := string(plan.OutputContract.Normalize().Format)
+	if format == "" {
+		format = "freeform"
+	}
+	if isZh(lang) {
+		segs := []string{status, fmt.Sprintf("输入 %d", len(plan.InputPaths)), "输出 " + format}
+		if !plan.OutputContract.ExplanationAllowed {
+			segs = append(segs, "纯输出")
+		}
+		return "数据计划", segs
+	}
+	segs := []string{status, fmt.Sprintf("%d input(s)", len(plan.InputPaths)), "output " + format}
+	if !plan.OutputContract.ExplanationAllowed {
+		segs = append(segs, "output-only")
+	}
+	return "data plan", segs
 }
 
 func (r *REPL) finishCommandOperationPlanHeader(plan operation.CommandOperationPlan) {
@@ -2163,6 +2307,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 				r.startOperationSynthesisSpinner()
 				snapshot := r.commandOperationCapabilitySnapshot()
 				revisedReq, err := replanner.ReplanCommandOperation(ctx, currentPlan.RequestText, r.repoRoot, commandOperationPolicyFromPlan(currentPlan), snapshot, currentPlan, result)
+				r.emitReplLLMTrace(r.operationPlanner, "command_operation_planner", types.AgentName("operation_planner"), types.PipelineStage("operation"))
 				if err != nil {
 					logging.Warning("[repl/operation] command replan failed: %v", err)
 					if degraded, ok := commandOperationStructuredToolParamFailureResult(currentPlan, err, r.language); ok {
@@ -2255,6 +2400,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 			if evaluator, ok := r.operationPlanner.(CommandOperationEvaluator); ok {
 				r.startOperationSynthesisSpinner()
 				eval, err := evaluator.EvaluateCommandOperation(ctx, currentPlan.RequestText, records, r.language)
+				r.emitReplLLMTrace(r.operationPlanner, "command_operation_evaluator", types.AgentName("operation_planner"), types.PipelineStage("operation"))
 				if err != nil {
 					logging.Warning("[repl/operation] command operation evaluation failed: %v", err)
 				} else {
@@ -2279,6 +2425,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 							r.startOperationSynthesisSpinner()
 							snapshot := r.commandOperationCapabilitySnapshot()
 							next, err := continuer.ContinueCommandOperation(ctx, currentPlan.RequestText, r.repoRoot, commandOperationPolicyFromPlan(currentPlan), snapshot, records)
+							r.emitReplLLMTrace(r.operationPlanner, "command_operation_planner", types.AgentName("operation_planner"), types.PipelineStage("operation"))
 							if err != nil {
 								logging.Warning("[repl/operation] command evaluation continuation planning failed: %v", err)
 								if degraded, ok := commandOperationStructuredToolParamFailureResult(currentPlan, err, r.language); ok {
@@ -2357,6 +2504,7 @@ func (r *REPL) executeCommandOperationPlanAttempt(plan operation.CommandOperatio
 				r.startOperationSynthesisSpinner()
 				snapshot := r.commandOperationCapabilitySnapshot()
 				next, err := continuer.ContinueCommandOperation(ctx, currentPlan.RequestText, r.repoRoot, commandOperationPolicyFromPlan(currentPlan), snapshot, records)
+				r.emitReplLLMTrace(r.operationPlanner, "command_operation_planner", types.AgentName("operation_planner"), types.PipelineStage("operation"))
 				if err != nil {
 					logging.Warning("[repl/operation] command continuation planning failed: %v", err)
 					if degraded, ok := commandOperationStructuredToolParamFailureResult(currentPlan, err, r.language); ok {
@@ -2468,6 +2616,7 @@ func (r *REPL) commandOperationFinalMessage(ctx context.Context, userLine string
 	fallback := operationFinalReportFallback(r.language, last.Result.Status, len(records))
 	if recordsAnswerer, ok := r.operationPlanner.(CommandOperationRecordsAnswerer); ok && recordsAnswerer != nil {
 		answer, err := recordsAnswerer.AnswerCommandOperationRecords(ctx, userLine, records, r.language)
+		r.emitReplLLMTrace(r.operationPlanner, "command_operation_answerer", types.AgentName("operation_planner"), types.PipelineStage("operation"))
 		if err != nil {
 			logging.Warning("[repl/operation] command result answer synthesis failed: %v", err)
 			return fallback, nil
@@ -2485,6 +2634,7 @@ func (r *REPL) commandOperationFinalMessage(ctx context.Context, userLine string
 		return fallback, nil
 	}
 	answer, err := answerer.AnswerCommandOperationResult(ctx, userLine, last.Plan, last.Result, r.language)
+	r.emitReplLLMTrace(r.operationPlanner, "command_operation_answerer", types.AgentName("operation_planner"), types.PipelineStage("operation"))
 	if err != nil {
 		logging.Warning("[repl/operation] command result answer synthesis failed: %v", err)
 		return fallback, nil
@@ -2598,6 +2748,7 @@ func (r *REPL) maybeReplanCommandOperation(ctx context.Context, failedPlan opera
 	r.startOperationSynthesisSpinner()
 	snapshot := r.commandOperationCapabilitySnapshot()
 	revisedReq, err := replanner.ReplanCommandOperation(ctx, failedPlan.RequestText, r.repoRoot, commandOperationPolicyFromPlan(failedPlan), snapshot, failedPlan, result)
+	r.emitReplLLMTrace(r.operationPlanner, "command_operation_planner", types.AgentName("operation_planner"), types.PipelineStage("operation"))
 	if err != nil {
 		logging.Warning("[repl/operation] command replan failed: %v", err)
 		if degraded, ok := commandOperationStructuredToolParamFailureResult(failedPlan, err, r.language); ok {
@@ -2701,6 +2852,7 @@ func (r *REPL) maybeContinueCommandOperation(ctx context.Context, plan operation
 	r.startOperationSynthesisSpinner()
 	snapshot := r.commandOperationCapabilitySnapshot()
 	next, err := continuer.ContinueCommandOperation(ctx, plan.RequestText, r.repoRoot, commandOperationPolicyFromPlan(plan), snapshot, records)
+	r.emitReplLLMTrace(r.operationPlanner, "command_operation_planner", types.AgentName("operation_planner"), types.PipelineStage("operation"))
 	if err != nil {
 		logging.Warning("[repl/operation] command continuation planning failed: %v", err)
 		if degraded, ok := commandOperationStructuredToolParamFailureResult(plan, err, r.language); ok {
@@ -4073,6 +4225,10 @@ func (r *REPL) dispatch(line, display string) {
 				policy = ApplyTurnPolicyGuards(policy, lastAnswer != "", hasAttach)
 				turnRouteHint = TurnRouteHintFromPolicy(policy)
 				debugLogTurnPolicy(policy)
+				if policy.Route == RouteOperation || policy.Route == RouteData {
+					r.emitReplLLMTrace(tpc, "turn_policy_classifier", types.AgentName("turn_policy"), types.StageAnalyze)
+					r.emitTurnPolicyAudit(policy)
+				}
 				switch policy.Route {
 				case RouteLocal:
 					if r.maybeDispatchCommandOperationFollowup(line, display, policy, rawPolicy) {
@@ -6534,6 +6690,7 @@ func (r *REPL) maybeContinueProviderOperationWithCommand(ctx context.Context, fi
 	}
 	r.startOperationSynthesisSpinner()
 	eval, err := evaluator.EvaluateProviderOperation(ctx, first.Request.Text, records, r.language)
+	r.emitReplLLMTrace(r.operationPlanner, "provider_operation_evaluator", types.AgentName("operation_planner"), types.PipelineStage("operation"))
 	if err != nil {
 		logging.Warning("[repl/operation] provider operation evaluation failed: %v", err)
 		return false
@@ -6574,6 +6731,7 @@ func (r *REPL) maybeContinueProviderOperationWithCommand(ctx context.Context, fi
 	}
 	snapshot := r.commandOperationCapabilitySnapshot()
 	planned, err := planner.PlanCommandOperationWithHandoff(ctx, first.Request.Text, r.repoRoot, policy, snapshot, handoff)
+	r.emitReplLLMTrace(r.operationPlanner, "command_operation_planner", types.AgentName("operation_planner"), types.PipelineStage("operation"))
 	if err != nil {
 		logging.Warning("[repl/operation] provider-to-command continuation planning failed: %v", err)
 		return false
@@ -6634,6 +6792,7 @@ func (r *REPL) providerOperationFinalMessage(ctx context.Context, userLine strin
 		return fallback, nil
 	}
 	answer, err := answerer.AnswerProviderOperationResult(ctx, userLine, records, r.language)
+	r.emitReplLLMTrace(r.operationPlanner, "provider_operation_answerer", types.AgentName("operation_planner"), types.PipelineStage("operation"))
 	if err != nil {
 		logging.Warning("[repl/operation] provider result answer synthesis failed: %v", err)
 		return fallback, nil

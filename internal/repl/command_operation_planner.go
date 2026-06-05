@@ -75,11 +75,19 @@ type ProviderOperationEvaluator interface {
 }
 
 type llmCommandOperationPlanner struct {
-	adapter llm.Adapter
+	adapter   llm.Adapter
+	lastTrace replLLMCallTrace
 }
 
 func NewCommandOperationPlanner(adapter llm.Adapter) CommandOperationPlanner {
 	return &llmCommandOperationPlanner{adapter: adapter}
+}
+
+func (p *llmCommandOperationPlanner) LastReplLLMTrace() replLLMCallTrace {
+	if p == nil {
+		return replLLMCallTrace{}
+	}
+	return p.lastTrace
 }
 
 var commandOperationPlanTool = llm.ToolSchema{
@@ -395,6 +403,7 @@ func (p *llmCommandOperationPlanner) AnswerCommandOperationRecords(ctx context.C
 		nil,
 		llm.ChatOptions{},
 	)
+	p.lastTrace = traceFromLLMResponse("command_operation_answerer", resp)
 	if err != nil {
 		return "", fmt.Errorf("command operation answer llm call: %w", err)
 	}
@@ -418,6 +427,7 @@ func (p *llmCommandOperationPlanner) AnswerProviderOperationResult(ctx context.C
 		nil,
 		llm.ChatOptions{},
 	)
+	p.lastTrace = traceFromLLMResponse("provider_operation_answerer", resp)
 	if err != nil {
 		return "", fmt.Errorf("provider operation answer llm call: %w", err)
 	}
@@ -441,6 +451,7 @@ func (p *llmCommandOperationPlanner) EvaluateProviderOperation(ctx context.Conte
 		[]llm.ToolSchema{operationEvaluationTool},
 		llm.ChatOptions{ToolChoice: "required"},
 	)
+	p.lastTrace = traceFromLLMResponse("provider_operation_evaluator", resp)
 	if err != nil {
 		return operation.OperationEvaluation{}, fmt.Errorf("provider operation evaluation llm call: %w", err)
 	}
@@ -484,6 +495,7 @@ func (p *llmCommandOperationPlanner) EvaluateCommandOperation(ctx context.Contex
 		[]llm.ToolSchema{operationEvaluationTool},
 		llm.ChatOptions{ToolChoice: "required"},
 	)
+	p.lastTrace = traceFromLLMResponse("command_operation_evaluator", resp)
 	if err != nil {
 		return operation.OperationEvaluation{}, fmt.Errorf("command operation evaluation llm call: %w", err)
 	}
@@ -683,6 +695,7 @@ func (p *llmCommandOperationPlanner) planCommandOperationDraft(ctx context.Conte
 		[]llm.ToolSchema{commandOperationPlanTool},
 		llm.ChatOptions{ToolChoice: "required"},
 	)
+	p.lastTrace = traceFromLLMResponse("command_operation_planner", resp)
 	if err != nil {
 		return zeroDraft, fmt.Errorf("command operation planner llm call: %w", err)
 	}
@@ -760,6 +773,7 @@ func (p *llmCommandOperationPlanner) repairOperationStructuredToolParams(ctx con
 		[]llm.ToolSchema{tool},
 		llm.ChatOptions{ToolChoice: "required"},
 	)
+	p.lastTrace = traceFromLLMResponse("operation_structured_tool_repair", resp)
 	if err != nil {
 		return nil, fmt.Errorf("%w; compact tool-param repair llm call failed: %v", parseErr, err)
 	}

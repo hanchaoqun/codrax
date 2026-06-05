@@ -659,6 +659,7 @@ func (c *llmChitchatClassifier) ClassifyPolicy(ctx context.Context, userLine, pr
 	}
 	tools := []llm.ToolSchema{turnPolicyTool}
 	resp, err := c.adapter.Chat(ctx, messages, tools, llm.ChatOptions{ToolChoice: "required"})
+	c.lastTrace = traceFromLLMResponse("turn_policy_classifier", resp)
 	if err != nil {
 		return zero, fmt.Errorf("turn-policy classifier llm call: %w", err)
 	}
