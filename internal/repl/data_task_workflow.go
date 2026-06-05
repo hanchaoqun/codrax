@@ -3,6 +3,7 @@ package repl
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/dataquery"
@@ -64,6 +65,7 @@ type dataTaskResultPromptView struct {
 	OutputContract   dataquery.OutputContract `json:"output_contract,omitempty"`
 	AuditSummary     string                   `json:"audit_summary,omitempty"`
 	DecisionRecords  int                      `json:"decision_records,omitempty"`
+	DecisionSamples  []dataquery.RowDecision  `json:"decision_samples,omitempty"`
 	Metrics          []dataquery.Metric       `json:"metrics,omitempty"`
 	ContractWarnings []string                 `json:"contract_warnings,omitempty"`
 }
@@ -99,6 +101,7 @@ func renderDataTaskRecordsForPrompt(records []dataTaskWorkflowRecord) string {
 				OutputContract:   rec.Result.OutputContract.Normalize(),
 				AuditSummary:     clampDataTaskWorkflowText(rec.Result.AuditSummary, 1000),
 				DecisionRecords:  len(rec.Result.Rows),
+				DecisionSamples:  sampleDataTaskRowDecisions(rec.Result.Rows, 6),
 				Metrics:          rec.Result.Metrics,
 				ContractWarnings: append([]string(nil), rec.Result.ContractWarnings...),
 			}
@@ -115,6 +118,76 @@ func renderDataTaskRecordsForPrompt(records []dataTaskWorkflowRecord) string {
 		return fmt.Sprintf("render data workflow records failed: %v\n", err)
 	}
 	return string(raw)
+}
+
+func sampleDataTaskRowDecisions(rows []dataquery.RowDecision, limit int) []dataquery.RowDecision {
+	if limit <= 0 || len(rows) == 0 {
+		return nil
+	}
+	out := make([]dataquery.RowDecision, 0, limit)
+	used := map[int]bool{}
+	for i, row := range rows {
+		if len(out) >= limit {
+			break
+		}
+		if !rowDecisionHasPromptSignal(row) {
+			continue
+		}
+		out = append(out, clampPromptRowDecision(row))
+		used[i] = true
+	}
+	for i, row := range rows {
+		if len(out) >= limit {
+			break
+		}
+		if used[i] {
+			continue
+		}
+		out = append(out, clampPromptRowDecision(row))
+	}
+	return out
+}
+
+func rowDecisionHasPromptSignal(row dataquery.RowDecision) bool {
+	return strings.TrimSpace(row.RowID) != "" ||
+		strings.TrimSpace(row.Source) != "" ||
+		strings.TrimSpace(row.SourceLocator) != "" ||
+		strings.TrimSpace(row.Decision) != "" ||
+		strings.TrimSpace(row.Reason) != "" ||
+		strings.TrimSpace(row.Value) != "" ||
+		strings.TrimSpace(row.Contribution) != "" ||
+		len(row.NormalizedFields) > 0 ||
+		len(row.EvidenceRef) > 0
+}
+
+func clampPromptRowDecision(row dataquery.RowDecision) dataquery.RowDecision {
+	row.RowID = clampDataTaskWorkflowText(row.RowID, 160)
+	row.Source = clampDataTaskWorkflowText(row.Source, 240)
+	row.SourceLocator = clampDataTaskWorkflowText(row.SourceLocator, 240)
+	row.Decision = clampDataTaskWorkflowText(row.Decision, 160)
+	row.Reason = clampDataTaskWorkflowText(row.Reason, 400)
+	row.Value = clampDataTaskWorkflowText(row.Value, 200)
+	row.Contribution = clampDataTaskWorkflowText(row.Contribution, 200)
+	if len(row.NormalizedFields) > 0 {
+		next := make(map[string]string, len(row.NormalizedFields))
+		keys := make([]string, 0, len(row.NormalizedFields))
+		for key := range row.NormalizedFields {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for i, key := range keys {
+			if i >= 24 {
+				next["..."] = fmt.Sprintf("%d more field(s)", len(keys)-i)
+				break
+			}
+			next[key] = clampDataTaskWorkflowText(row.NormalizedFields[key], 240)
+		}
+		row.NormalizedFields = next
+	}
+	if len(row.EvidenceRef) > 8 {
+		row.EvidenceRef = append([]string(nil), row.EvidenceRef[:8]...)
+	}
+	return row
 }
 
 func clampDataTaskWorkflowText(value string, limit int) string {

@@ -203,6 +203,8 @@ Hard rules:
 - For filtering/joining/aggregation/item-level decisions, set coverage_contract.decision_records_required=true and emit result.rows with source/material locators and decisions. The final answer can still be a strict single line if the user requested that; decision records are for system validation and handoff.
 - Script sandbox: prefer the provided helpers:
   csv_rows(path), tsv_rows(path), json_load(path), jsonl_rows(path), read_text(path), parse_money(value), Decimal, re, emit(obj).
+- Do not redefine provided helper names such as csv_rows, tsv_rows, json_load, jsonl_rows, read_text, parse_money, emit, or open. Use them directly.
+- Candidate table metadata uses structured JSON fields. headers_json and sample_rows_json describe columns/rows; delimiter shows the real file delimiter. Do not infer a pipe delimiter from display punctuation.
 - You may also import common data standard libraries only: csv, json, decimal, re, math, statistics, collections, datetime, itertools, functools, operator, string, textwrap, base64, binascii, hashlib, unicodedata, fractions, calendar.
 - open(path) is read-only and works only for files listed in input_paths. Never write files, run shell commands, use network/process libraries, access os/sys/pathlib/shutil, or use dynamic eval/exec/compile.
 - print(...) is allowed for small debug output only. It is not the final answer channel; the script must still call emit(obj) or set result.
@@ -220,7 +222,8 @@ Hard rules:
 - This is data-lane evaluation only. Do not route to source-code analysis, trace analysis, write-mode code editing, or command operation.
 - Existing result.answer is the authoritative computed result for its batch; do not recalculate manually.
 - If the user's strict output contract and success criteria are satisfied, emit status=complete.
-- If the result is a deliberate intermediate batch, contract warnings remain, required row decisions/audit are missing, or success criteria are not covered but can still be computed from available data files, emit status=continue_data.
+- If the result is a deliberate intermediate batch, contract warnings remain, required item decisions/audit are missing, decision samples show empty/missing parsed fields, or success criteria are not covered but can still be computed from available data files, emit status=continue_data.
+- Do not mark a batch complete just because the script exited successfully. The result must be supported by consumed materials, decision samples, metrics, and the declared coverage contract.
 - Ask for clarification only for user-owned missing business rules or missing data files that cannot be safely discovered/read from the candidate data files.
 - If the task requires side effects such as network/process/file write/install/delete, emit blocked so the operation lane can own risk/approval.
 - If useful progress exists but bounded workflow budget is exhausted or no safe continuation exists, emit budget_exhausted or partial_answer_possible.
@@ -474,11 +477,17 @@ func appendCandidateDataFiles(b *strings.Builder, candidates []dataquery.Candida
 		if f.Lines > 0 {
 			fmt.Fprintf(b, " lines=%d", f.Lines)
 		}
+		if strings.TrimSpace(f.Delimiter) != "" {
+			fmt.Fprintf(b, " delimiter=%s", marshalInlineJSON(f.Delimiter))
+		}
 		if len(f.Headers) > 0 {
-			fmt.Fprintf(b, " headers=%s", strings.Join(f.Headers, "|"))
+			fmt.Fprintf(b, " headers_json=%s", marshalInlineJSON(f.Headers))
+		}
+		if len(f.SampleRows) > 0 {
+			fmt.Fprintf(b, " sample_rows_json=%s", marshalInlineJSON(f.SampleRows))
 		}
 		if len(f.Sample) > 0 {
-			fmt.Fprintf(b, " sample=%q", strings.Join(f.Sample, " / "))
+			fmt.Fprintf(b, " sample_lines_json=%s", marshalInlineJSON(f.Sample))
 		}
 		if strings.TrimSpace(f.InspectError) != "" {
 			fmt.Fprintf(b, " inspect_error=%q", oneLineClamp(f.InspectError, 160))
@@ -488,6 +497,14 @@ func appendCandidateDataFiles(b *strings.Builder, candidates []dataquery.Candida
 	if len(candidates) > limit {
 		fmt.Fprintf(b, "- ... %d more candidate file(s) omitted\n", len(candidates)-limit)
 	}
+}
+
+func marshalInlineJSON(v any) string {
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return "null"
+	}
+	return string(raw)
 }
 
 type dataTaskPlanDraft struct {

@@ -2,6 +2,7 @@ package dataquery
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/csv"
 	"encoding/json"
@@ -120,6 +121,49 @@ type RowDecision struct {
 	EvidenceRef      []string          `json:"evidence_refs,omitempty"`
 }
 
+func (r *RowDecision) UnmarshalJSON(data []byte) error {
+	type rowDecisionAlias RowDecision
+	var known rowDecisionAlias
+	if err := json.Unmarshal(data, &known); err != nil {
+		return err
+	}
+	*r = RowDecision(known)
+
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil
+	}
+	knownKeys := map[string]bool{
+		"row_id": true, "source": true, "source_locator": true, "decision": true,
+		"reason": true, "value": true, "contribution": true, "normalized_fields": true,
+		"evidence_refs": true,
+	}
+	for key, value := range raw {
+		if knownKeys[key] || len(value) == 0 || string(value) == "null" {
+			continue
+		}
+		if r.NormalizedFields == nil {
+			r.NormalizedFields = map[string]string{}
+		}
+		if _, exists := r.NormalizedFields[key]; !exists {
+			r.NormalizedFields[key] = rawJSONValueString(value)
+		}
+	}
+	return nil
+}
+
+func rawJSONValueString(raw json.RawMessage) string {
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		return clampOneLine(s, 500)
+	}
+	var buf bytes.Buffer
+	if err := json.Compact(&buf, raw); err == nil {
+		return clampOneLine(buf.String(), 500)
+	}
+	return clampOneLine(string(raw), 500)
+}
+
 type Metric struct {
 	Label string `json:"label"`
 	Value string `json:"value"`
@@ -164,13 +208,15 @@ func NormalizeEvaluationStatus(status string) EvaluationStatus {
 }
 
 type CandidateFile struct {
-	Path         string   `json:"path"`
-	Size         int64    `json:"size"`
-	Kind         string   `json:"kind"`
-	Lines        int      `json:"lines,omitempty"`
-	Headers      []string `json:"headers,omitempty"`
-	Sample       []string `json:"sample,omitempty"`
-	InspectError string   `json:"inspect_error,omitempty"`
+	Path         string     `json:"path"`
+	Size         int64      `json:"size"`
+	Kind         string     `json:"kind"`
+	Delimiter    string     `json:"delimiter,omitempty"`
+	Lines        int        `json:"lines,omitempty"`
+	Headers      []string   `json:"headers,omitempty"`
+	Sample       []string   `json:"sample,omitempty"`
+	SampleRows   [][]string `json:"sample_rows,omitempty"`
+	InspectError string     `json:"inspect_error,omitempty"`
 }
 
 type Runner struct {
@@ -274,8 +320,10 @@ func inspectDelimitedCandidate(path string, f CandidateFile) CandidateFile {
 	defer file.Close()
 	reader := csv.NewReader(file)
 	reader.FieldsPerRecord = -1
+	f.Delimiter = ","
 	if f.Kind == "tsv" {
 		reader.Comma = '\t'
+		f.Delimiter = "\\t"
 	}
 	header, err := reader.Read()
 	if err != nil {
@@ -286,13 +334,13 @@ func inspectDelimitedCandidate(path string, f CandidateFile) CandidateFile {
 	}
 	f.Headers = clampStringSlice(cleanStringSlice(header), 40)
 	lines := 1
-	for len(f.Sample) < 3 {
+	for len(f.SampleRows) < 3 {
 		row, err := reader.Read()
 		if err != nil {
 			break
 		}
 		lines++
-		f.Sample = append(f.Sample, clampOneLine(strings.Join(row, " | "), 240))
+		f.SampleRows = append(f.SampleRows, clampStringSlice(cleanStringSlice(row), 40))
 	}
 	for {
 		_, err := reader.Read()
@@ -537,6 +585,9 @@ func (r Runner) Run(ctx context.Context, plan TaskPlan) (Result, error) {
 	if plan.CoverageContract.DecisionRecordsRequired && len(res.Rows) == 0 {
 		return Result{}, errors.New("data coverage incomplete: coverage_contract.decision_records_required=true but result.rows is empty")
 	}
+	if plan.CoverageContract.DecisionRecordsRequired && !hasMeaningfulRowDecision(res.Rows) {
+		return Result{}, errors.New("data coverage incomplete: coverage_contract.decision_records_required=true but result.rows contains no meaningful decision records")
+	}
 	if res.OutputContract.Format == "" {
 		res.OutputContract = plan.OutputContract
 	}
@@ -557,7 +608,39 @@ func validateScriptSafety(script string) error {
 			return fmt.Errorf("data task script uses unsupported unsafe construct %q", denied)
 		}
 	}
+	reservedHelpers := []string{"csv_rows", "tsv_rows", "json_load", "jsonl_rows", "read_text", "parse_money", "emit", "open"}
+	for _, line := range strings.Split(script, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		for _, name := range reservedHelpers {
+			if strings.HasPrefix(trimmed, "def "+name+"(") ||
+				strings.HasPrefix(trimmed, "async def "+name+"(") ||
+				strings.HasPrefix(trimmed, name+"=") ||
+				strings.HasPrefix(trimmed, name+" =") {
+				return fmt.Errorf("data task script redefines reserved helper %q; use the provided helper instead", name)
+			}
+		}
+	}
 	return nil
+}
+
+func hasMeaningfulRowDecision(rows []RowDecision) bool {
+	for _, row := range rows {
+		if strings.TrimSpace(row.RowID) != "" ||
+			strings.TrimSpace(row.Source) != "" ||
+			strings.TrimSpace(row.SourceLocator) != "" ||
+			strings.TrimSpace(row.Decision) != "" ||
+			strings.TrimSpace(row.Reason) != "" ||
+			strings.TrimSpace(row.Value) != "" ||
+			strings.TrimSpace(row.Contribution) != "" ||
+			len(row.NormalizedFields) > 0 ||
+			len(row.EvidenceRef) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func copyInputs(root, workDir string, paths []string, maxFile, maxTotal int64) ([]string, error) {

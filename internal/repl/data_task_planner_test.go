@@ -245,7 +245,7 @@ func TestDataTaskPlannerPromptIncludesCandidateFiles(t *testing.T) {
 	}
 	planner := NewDataTaskPlanner(adapter)
 	plan, err := planner.PlanDataTask(context.Background(), "算一下", "/repo", TurnPolicy{Route: RouteData}, []dataquery.CandidateFile{
-		{Path: "data/a.csv", Kind: "csv", Size: 123, Lines: 3, Headers: []string{"vendor", "amount"}, Sample: []string{"A | 10"}},
+		{Path: "data/a.csv", Kind: "csv", Size: 123, Delimiter: ",", Lines: 3, Headers: []string{"vendor", "amount"}, SampleRows: [][]string{{"A", "10"}}},
 	})
 	if err != nil {
 		t.Fatalf("PlanDataTask: %v", err)
@@ -254,10 +254,13 @@ func TestDataTaskPlannerPromptIncludesCandidateFiles(t *testing.T) {
 		t.Fatalf("Questions=%v", plan.Questions)
 	}
 	user := adapter.calls[0].messages[1].Content
-	for _, want := range []string{"## candidate_data_files", "path=data/a.csv", "kind=csv", "headers=vendor|amount", `sample="A | 10"`} {
+	for _, want := range []string{"## candidate_data_files", "path=data/a.csv", "kind=csv", `delimiter=","`, `headers_json=["vendor","amount"]`, `sample_rows_json=[["A","10"]]`} {
 		if !strings.Contains(user, want) {
 			t.Fatalf("data planner prompt missing %q:\n%s", want, user)
 		}
+	}
+	if strings.Contains(user, "headers=vendor|amount") || strings.Contains(user, "A | 10") {
+		t.Fatalf("data planner prompt still contains ambiguous pipe-delimited display:\n%s", user)
 	}
 }
 

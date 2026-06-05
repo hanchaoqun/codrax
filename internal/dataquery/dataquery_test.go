@@ -261,7 +261,7 @@ func TestDiscoverCandidateFilesSkipsSource(t *testing.T) {
 	}
 	for _, f := range got {
 		if f.Path == "a.csv" {
-			if strings.Join(f.Headers, ",") != "x" || f.Lines != 2 {
+			if strings.Join(f.Headers, ",") != "x" || f.Lines != 2 || f.Delimiter != "," || len(f.SampleRows) != 1 || strings.Join(f.SampleRows[0], ",") != "1" {
 				t.Fatalf("csv metadata=%+v, want header and line count", f)
 			}
 		}
@@ -324,5 +324,84 @@ emit({"answer": str(len(rows)), "output_contract": {"format": "plain_single_line
 	_, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
 	if err == nil || !strings.Contains(err.Error(), "decision_records_required=true but result.rows is empty") {
 		t.Fatalf("Run err=%v, want decision records failure", err)
+	}
+}
+
+func TestRunnerRejectsReservedHelperRedefinition(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		Script: `
+def csv_rows(path):
+    return []
+emit({"answer": "0", "output_contract": {"format": "plain_single_line", "explanation_allowed": False}})
+`,
+	}
+	_, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), `redefines reserved helper "csv_rows"`) {
+		t.Fatalf("Run err=%v, want reserved helper failure", err)
+	}
+}
+
+func TestRunnerRejectsEmptyDecisionRecordObjects(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:       []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			DecisionRecordsRequired: true,
+		},
+		Script: `
+rows = csv_rows("orders.csv")
+emit({"answer": "0", "output_contract": {"format": "plain_single_line", "explanation_allowed": False}, "rows": [{}]})
+`,
+	}
+	_, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err == nil || !strings.Contains(err.Error(), "result.rows contains no meaningful decision records") {
+		t.Fatalf("Run err=%v, want meaningful decision record failure", err)
+	}
+}
+
+func TestRunnerPreservesCustomDecisionRecordFields(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 not available")
+	}
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "orders.csv"), []byte("vendor,amount\nA,10\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	plan := TaskPlan{
+		InputPaths: []string{"orders.csv"},
+		CoverageContract: CoverageContract{
+			RequiredMaterials:       []CoverageMaterial{{Path: "orders.csv", Required: true}},
+			DecisionRecordsRequired: true,
+		},
+		Script: `
+rows = csv_rows("orders.csv")
+emit({
+  "answer": "10",
+  "output_contract": {"format": "plain_single_line", "explanation_allowed": False},
+  "rows": [{"po_id": "PO-1", "included": True, "amount": "10"}],
+})
+`,
+	}
+	res, err := (Runner{RepoRoot: root}).Run(context.Background(), plan)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res.Rows) != 1 || res.Rows[0].NormalizedFields["po_id"] != "PO-1" || res.Rows[0].NormalizedFields["included"] != "true" {
+		t.Fatalf("Rows=%+v, want custom fields preserved in normalized_fields", res.Rows)
 	}
 }
